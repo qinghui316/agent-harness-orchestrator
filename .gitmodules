@@ -1,0 +1,12 @@
+[submodule "reference-projects/agent-orchestrator"]
+	path = reference-projects/agent-orchestrator
+	url = https://github.com/ComposioHQ/agent-orchestrator.git
+	ignore = all
+[submodule "reference-projects/oh-my-codex"]
+	path = reference-projects/oh-my-codex
+	url = https://github.com/sigridjineth/oh-my-codex.git
+	ignore = all
+[submodule "reference-projects/ecl-harness-engineer"]
+	path = reference-projects/ecl-harness-engineer
+	url = https://github.com/qinghui316/ecl-harness-engineer.git
+	ignore = all

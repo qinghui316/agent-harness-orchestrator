@@ -1,0 +1,58 @@
+{
+  "version": "1.0",
+  "project_name": "agent-harness-orchestrator",
+  "generated_at": "2026-05-10T00:00:00+08:00",
+  "generated_by": "ecl-harness-engineer",
+  "runtime": {
+    "language": "typescript",
+    "version": "20+",
+    "package_manager": "npm",
+    "build_command": "npm run build",
+    "dev_command": "npm run dev",
+    "status": "available"
+  },
+  "databases": [],
+  "services": [],
+  "secrets": [],
+  "ports": [],
+  "files": {
+    "required": [],
+    "generated": [
+      {
+        "path": "harness/changes/INDEX.json",
+        "command": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/harness-change.ps1 reindex",
+        "purpose": "Generated ECL change index"
+      }
+    ]
+  },
+  "functional_scenarios": [
+    {
+      "name": "harness_bootstrap_validation",
+      "description": "Validate ECL files, encoding, change index, and evolution status.",
+      "requires": [],
+      "category": "harness",
+      "steps_hint": [
+        "Run npm run typecheck",
+        "Run npm run lint",
+        "Run npm run test",
+        "Run npm run build",
+        "Run Harness PowerShell checks"
+      ],
+      "priority": "high"
+    }
+  ],
+  "test_environment": {
+    "env_vars": {},
+    "setup_commands": [
+      "git submodule update --init --recursive",
+      "npm install"
+    ],
+    "teardown_commands": []
+  },
+  "scripts": {
+    "lint_ecl": "scripts/lint-ecl.ps1",
+    "lint_encoding": "scripts/lint-encoding.ps1",
+    "harness_change": "scripts/harness-change.ps1",
+    "harness_evolve": "scripts/harness-evolve.ps1"
+  }
+}

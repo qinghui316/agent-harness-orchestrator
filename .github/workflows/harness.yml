@@ -1,0 +1,31 @@
+name: Harness
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  harness:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Lint ECL
+        shell: pwsh
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts/lint-ecl.ps1
+
+      - name: Lint encoding
+        shell: pwsh
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts/lint-encoding.ps1
+
+      - name: Reindex changes
+        shell: pwsh
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts/harness-change.ps1 reindex
+
+      - name: Check evolution
+        shell: pwsh
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts/harness-evolve.ps1 check
