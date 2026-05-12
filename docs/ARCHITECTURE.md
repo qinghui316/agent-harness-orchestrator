@@ -1,56 +1,227 @@
 # Architecture
 
-> Status: Phase 1 implements the CLI foundation. Runtime execution and dashboard remain future work.
+> Status: Phase 1 implements project registration and Harness management. Managed runs, worktree execution, Codex runtime, event logs, Spec-Test gates, and dashboard are planned future work.
 
-## 1. Overview
+## 1. Current Status
 
-Agent Harness Orchestrator is a single-package TypeScript CLI first. It manages local project registration, repo-local Harness files, ECL changes, validation commands, and later Codex-first coding runs.
+Agent Harness Orchestrator is a single-package TypeScript CLI. It currently manages local project registration, Harness audit/init, and ECL index rebuilds.
 
-## 2. Initial Technical Choices
+The long-term architecture is a local-first, Spec-Anchored managed-run harness. AHO keeps project memory in files, prepares context for disposable external agents, records execution evidence, and routes every high-impact result through human confirmation.
 
-| Decision | Choice | Reason |
-| --- | --- | --- |
-| Runtime | Node.js 20+ | Good fit for CLI, file workflows, JSON, and process adapters |
-| Language | TypeScript | Strong local domain types without heavy runtime cost |
-| Packaging | Single package | Keeps Phase 1 simple |
-| Storage | Flat files first | Low install friction, no native SQLite dependency |
-| Runtime adapter | Future Codex `exec` | Traceable stdout, stderr, exit code, artifacts |
-| UI | CLI first, Web UI later | Stabilize domain model before dashboard |
+## 2. Product Kernel
 
-## 3. Components
+The product kernel is not "run many agents." The kernel is keeping specs, acceptance criteria, plans, tasks, code changes, validation, review, and Harness evolution synchronized.
+
+Core chain:
+
+```text
+User Intent
+-> Change Intake
+-> Spec Agent proposal
+-> Human confirm Spec
+-> Planner Agent proposal
+-> Human confirm Plan
+-> Worktree Run
+-> Coder Agent proposal/diff
+-> Validator result
+-> Auditor Agent proposal
+-> Human confirm apply/merge
+-> Spec/Status update if needed
+-> Human confirm close
+-> Archive
+-> Evolution evidence
+-> Human confirm Harness evolution
+```
+
+Domain relationship:
+
+```text
+Project -> Change -> Spec / Acceptance Criteria -> Plan -> Tasks
+-> Context Projection -> Run -> Events / Artifacts -> Validation / Review
+```
+
+## 3. Layered Architecture
 
 ```mermaid
 graph TD
-    CLI["CLI commands"] --> Workflow["Workflow coordinator"]
-    Workflow --> Registry["Project registry"]
-    Workflow --> Harness["Harness generator/auditor"]
-    Workflow --> ECL["ECL change manager"]
-    Workflow --> Runtime["Agent runtime adapter"]
-    Runtime --> Codex["Codex exec adapter"]
-    Harness --> Files["Repo-local Harness files"]
-    ECL --> Files
+    CLI["CLI"] --> Registry["Project Registry"]
+    CLI --> Orchestrator["Run Orchestrator"]
+    Registry --> Project["Project Adapter"]
+    Orchestrator --> Memory["Harness Memory"]
+    Memory --> Change["Change / Spec / AC Layer"]
+    Change --> Context["Context Projection"]
+    Context --> Runtime["Runtime Adapter"]
+    Runtime --> Worktree["Worktree Manager"]
+    Runtime --> Executor["Codex / Claude / Shell Executor"]
+    Executor --> Artifacts["Events / Logs / Diff Artifacts"]
+    Artifacts --> Validator["Validator"]
+    Artifacts --> Auditor["Auditor"]
+    Validator --> Gate["Human Confirmation Gate"]
+    Auditor --> Gate
+    Gate --> Evolution["Evolution Evidence"]
+    Evolution --> Memory
 ```
 
-## 4. Module Boundaries
+## 4. Project Memory Model
 
-| Module | Responsibility |
+Project memory is durable and project-local.
+
+```text
+AGENTS.md                 routing map
+docs/                     durable product, architecture, and boundary knowledge
+harness/changes/          specs, plans, tasks, reviews, archive history
+.agent-harness/runs/      events, logs, diffs, validation reports, run artifacts
+harness/evolution/        evidence, proposals, results, controlled evolution state
+```
+
+`AGENTS.md` routes agents to memory. It is not the memory database. `context.md` is a per-run projection created from durable memory and is not source of truth.
+
+Dashboards, indexes, and future SQLite stores must be derived views unless a later architecture decision explicitly changes that.
+
+## 5. Agent and Runtime Model
+
+AHO treats Codex-style tools as disposable external executors. It does not depend on their internal memory, hidden session state, or internal tool traces.
+
+Local managed-agent mapping:
+
+| Managed-agent concept | AHO local equivalent |
 | --- | --- |
-| Project registry | User-level managed project list and status cache |
-| Harness generator | Create and update Core Harness files |
-| Harness auditor | Detect missing, partial, or inconsistent Harness state |
-| ECL change manager | new, park, resume, close, reindex |
-| Evolution manager | pending detection and mark-complete workflow |
-| Runtime adapter | Codex-first process execution, later interactive sessions |
-| Validator | Run project-specific verification commands |
+| Agent Profile | Local role definition and prompt template |
+| Session | Run |
+| Events | `events.jsonl` |
+| Resources | Repo, worktree, context bundle, files |
+| Memory Store | Repo-local Harness, docs, and archive |
+| Environment | Local shell, worktree, validator config |
+| Vault | Future credential boundary |
 
-## 5. Reference Project Implications
+Agent profiles define roles such as Spec Agent, Planner Agent, Coder Agent, Validator, Auditor, and Evolution Agent. Profiles are definitions, not runtime state.
 
-Agent Orchestrator informs worktree isolation, dashboard state, plugin slots, and flat-file run metadata.
+## 6. Run Lifecycle
 
-oh-my-codex informs Codex workflow organization, hooks, sessions, and agent role boundaries.
+A Run is one execution attempt against an active Change.
 
-ecl-harness-engineer defines the Harness and ECL lifecycle baseline.
+Planned run lifecycle:
 
-## 6. Phase Boundary
+```text
+created
+context_prepared
+agent_started
+agent_completed
+validating
+reviewing
+awaiting_human_confirmation
+completed
+failed
+abandoned
+```
 
-Phase 1 includes project and Harness management only. Worktree management, Codex runtime, interactive terminals, Web UI, and SQLite belong in later structured changes.
+Each run should produce durable artifacts:
+
+```text
+.agent-harness/runs/{run-id}/
+  run.json
+  context.md
+  events.jsonl
+  stdout.log
+  stderr.log
+  diff.patch
+  validation.json
+  validation.md
+  review.md
+```
+
+Phase 1 does not implement this directory. It is the planned shape for Spec-Anchored managed runs.
+
+## 7. Worktree Isolation
+
+Worktree isolation is the preferred local code-change isolation boundary.
+
+Worktrees isolate file changes and diffs. They do not isolate processes, networks, environment variables, credentials, dependencies, or OS permissions.
+
+Planned execution levels:
+
+| Level | Meaning | Use |
+| --- | --- | --- |
+| L0 Direct Mode | Run in the target working tree | Explicit local convenience only |
+| L1 Worktree Mode | Run in `.agent-harness/worktrees/{run-id}/` | Default direction for local AHO |
+| L2 Container Mode | Run in Docker/devcontainer/remote sandbox | Future optional high-risk/team mode |
+
+Container sandboxing is not required for the personal MVP. Automatic merge is out of scope until explicitly added behind human confirmation gates.
+
+## 8. Validation and Review Gates
+
+Validation and audit are separate gates.
+
+- Validator runs mechanical checks such as lint, typecheck, test, build, and Spec-linked checks when available.
+- Auditor reviews spec alignment, diff quality, safety, and validation evidence.
+- Human confirmation is required before apply/merge, close/archive, and Harness evolution apply.
+
+Every agent output is a proposal until confirmed. Auditor approval is not merge authority.
+
+## 9. Harness Evolution Loop
+
+Harness evolution improves the collaboration system from evidence.
+
+Evidence sources:
+
+- archived changes
+- validation failures
+- repeated user corrections
+- weak or ambiguous acceptance criteria
+- Spec/code/test drift
+- review findings
+- agent execution gaps
+
+Evolution may update process rules, templates, lint checks, docs, validation defaults, and routing guidance. It must not automatically edit business code or silently rewrite business specs.
+
+Required evolution gates:
+
+```text
+evidence -> proposal -> independent review -> validation -> human approval -> apply or noop
+```
+
+## 10. Public Repo Shape
+
+The public repository should remain a normal product repository.
+
+Public by default:
+
+- product source
+- public docs
+- tests
+- templates
+- package and build configuration
+
+Local development state by default:
+
+- active/archive local changes
+- reference project checkouts
+- run logs and events
+- worktrees
+- local registry and temporary artifacts
+
+Product Harness templates are public assets. This repository's own Harness runtime workspace is local development state.
+
+## 11. Phase Roadmap
+
+| Phase | Goal |
+| --- | --- |
+| Phase 1 | Project registry and Harness audit/init/reindex |
+| Phase 2 | Spec-Anchored Local Managed Runs |
+| Phase 3 | Worktree isolation and runtime hardening |
+| Phase 4 | Spec-Test mapping and drift gates |
+| Phase 5 | Dashboard and run/artifact explorer |
+| Future | Team mode and Spec-as-Source experiments |
+
+## 12. Non-Goals
+
+Not in the current architecture baseline:
+
+- cloud sync
+- multi-user permissions
+- hosted managed agents
+- automatic merge
+- default container sandbox
+- direct dependence on model-provider memory
+- full Spec-to-Test generation
+- L3 Spec-as-Source as an immediate invariant
