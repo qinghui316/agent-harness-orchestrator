@@ -89,10 +89,18 @@ Phase 2C adds Codex read-only proposal capture:
 - Capturing Codex stdout/stderr, JSONL events, and final proposal text.
 - Treating Codex output as proposal-only evidence.
 
+Phase 2D adds memory resolver foundation:
+
+- Centralizing repo-local Harness/change/run roots behind a resolver.
+- Writing `memoryMode: "repo-local"` into new project markers.
+- Keeping old markers compatible as repo-local.
+- Adding `aho memory status` as a diagnostic command.
+- Keeping external-local and remote as planned/unsupported modes.
+
 Later phases add:
 
 - Spec-Anchored local managed runs.
-- External-local memory as the personal default.
+- Operational external-local memory as the personal default.
 - Codex write-mode adapters behind explicit worktree boundaries.
 - Run events, logs, diffs, validation reports, and review artifacts.
 - Validation and audit loops.

@@ -2,7 +2,7 @@
 
 AHO separates durable project memory from agent execution. Agents can be restarted, replaced, or run through different adapters. Project memory must remain available through AHO-managed files and artifacts.
 
-This document defines the target memory model. Some parts are already implemented through repo-local Harness files and run artifacts. `external-local` and `remote` memory stores are target architecture and are not implemented yet.
+This document defines the target memory model. Repo-local memory is implemented through a Memory Resolver foundation. `external-local` and `remote` memory stores are target architecture and are not operational yet.
 
 ## 1. Why Separate Memory From Execution
 
@@ -22,9 +22,9 @@ AHO supports three memory modes at the architecture level.
 
 | Mode | Source of truth | Intended use | Status |
 | --- | --- | --- | --- |
-| `repo-local` | Files inside the target repository | Compatibility, portable/offline export, current implementation | Implemented today |
-| `external-local` | AHO home on the user's machine | Personal multi-project default | Target default |
-| `remote` | Remote memory service | Team, cross-device, shared audit history | Future |
+| `repo-local` | Files inside the target repository | Compatibility, portable/offline export, current implementation | Implemented through resolver |
+| `external-local` | AHO home on the user's machine | Personal multi-project default | Planned, unsupported for writes |
+| `remote` | Remote memory service | Team, cross-device, shared audit history | Future, unsupported |
 
 `repo-local` is retained as compatibility and migration mode. It should not remain the long-term default for personal multi-project use.
 

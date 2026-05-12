@@ -10,6 +10,9 @@ import { readPromptInput } from "../codex/prompt.js";
 import { closeChange, createChange, getChangeStatus } from "../change/manager.js";
 import { listRuns, readRun, startLocalCommandRun } from "../run/manager.js";
 import { startCodexReadonlyRun } from "../run/codex.js";
+import { getMemoryStatus } from "../memory/status.js";
+import { assertWritableMemory, resolveMemory } from "../memory/resolver.js";
+import { readProjectMarker } from "../project/marker.js";
 import type { ManagedProject } from "../types/index.js";
 
 async function resolveRegisteredOrPath(store: ProjectRegistryStore, query: string): Promise<{ project: Awaited<ReturnType<ProjectRegistryStore["resolveProject"]>>; path: string }> {
@@ -142,9 +145,36 @@ export function createProgram(): Command {
     .option("--json", "print JSON")
     .action(async (query: string, options: { json?: boolean }) => {
       const resolved = await resolveRegisteredOrPath(store, query);
-      const index = await writeChangeIndex(resolved.path);
+      const marker = await readProjectMarker(resolved.path);
+      const memory = resolveMemory(resolved.project ? { ...resolved.project, marker } : { path: resolved.path, marker });
+      assertWritableMemory(memory, "Harness reindex");
+      const index = await writeChangeIndex(memory);
       if (options.json) printJson(index);
       else console.log(`Rebuilt harness/changes/INDEX.json for ${resolved.path}`);
+    });
+
+  const memory = program.command("memory").description("Diagnose AHO memory resolution");
+
+  memory
+    .command("status")
+    .argument("<name-or-path>", "registered project id/name/path or local path")
+    .option("--json", "print JSON")
+    .action(async (query: string, options: { json?: boolean }) => {
+      const resolved = await resolveRegisteredOrPath(store, query);
+      const status = await getMemoryStatus(resolved.project, resolved.path);
+      if (options.json) printJson(status);
+      else {
+        printTable([{
+          registered: status.registered,
+          managed: status.managed,
+          mode: status.memoryMode,
+          memoryAvailable: status.memoryAvailable,
+          harnessReady: status.harnessReady,
+          harnessRoot: status.roots.harnessRoot,
+          runsRoot: status.roots.runsRoot,
+          reason: status.unsupportedReason ?? "",
+        }]);
+      }
     });
 
   const change = program.command("change").description("Manage structured ECL changes");
@@ -196,7 +226,7 @@ export function createProgram(): Command {
     .option("--json", "print JSON")
     .action(async (query: string, options: { json?: boolean }) => {
       const project = await resolveManagedProject(store, query);
-      const result = await closeChange(project.path);
+      const result = await closeChange(project);
       if (options.json) printJson(result);
       else console.log(`Archived change ${result.change.id} at ${result.archivePath}`);
     });
@@ -253,7 +283,7 @@ export function createProgram(): Command {
     .option("--json", "print JSON")
     .action(async (query: string, options: { json?: boolean }) => {
       const project = await resolveManagedProject(store, query);
-      const runs = await listRuns(project.path);
+      const runs = await listRuns(project);
       if (options.json) printJson(runs);
       else {
         printTable(runs.map((item) => ({
@@ -275,7 +305,7 @@ export function createProgram(): Command {
     .option("--json", "print JSON")
     .action(async (query: string, runId: string, options: { json?: boolean }) => {
       const project = await resolveManagedProject(store, query);
-      const item = await readRun(project.path, runId);
+      const item = await readRun(project, runId);
       if (options.json) printJson(item);
       else {
         printTable([

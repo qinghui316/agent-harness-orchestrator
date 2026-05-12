@@ -61,7 +61,8 @@ describe("CLI flow", () => {
     expect(existsSync(join(repoDir, "harness", "changes", "INDEX.json"))).toBe(true);
 
     const marker = JSON.parse(await readFile(join(repoDir, ".agent-harness", "project.json"), "utf8"));
-    expect(marker).toMatchObject({ id: "repo", managedBy: "agent-harness-orchestrator" });
+    expect(marker).toMatchObject({ id: "repo", managedBy: "agent-harness-orchestrator", memoryMode: "repo-local" });
+    await runCli(["memory", "status", "repo", "--json"]);
   });
 
   it("creates, reports, and closes a structured change", async () => {

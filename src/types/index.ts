@@ -11,7 +11,43 @@ export interface ProjectMarker {
   id: string;
   name: string;
   managedBy: "agent-harness-orchestrator";
+  memoryMode: MemoryMode;
   createdAt: string;
+}
+
+export type MemoryMode = "repo-local" | "external-local" | "remote";
+
+export interface ResolvedMemory {
+  mode: MemoryMode;
+  supported: boolean;
+  writable: boolean;
+  projectId: string | null;
+  projectRoot: string;
+  markerPath: string;
+  harnessRoot: string;
+  changesRoot: string;
+  evolutionRoot: string;
+  templatesRoot: string;
+  runsRoot: string;
+  reason?: string;
+}
+
+export interface MemoryStatus {
+  registered: boolean;
+  managed: boolean;
+  memoryMode: MemoryMode;
+  memoryAvailable: boolean;
+  harnessReady: boolean;
+  markerPath: string;
+  roots: {
+    projectRoot: string;
+    harnessRoot: string;
+    changesRoot: string;
+    evolutionRoot: string;
+    templatesRoot: string;
+    runsRoot: string;
+  };
+  unsupportedReason?: string;
 }
 
 export interface RegistryFile {

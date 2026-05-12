@@ -3,7 +3,8 @@ import { existsSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import type { ManagedProject } from "../types/index.js";
 import { getActiveChanges, writeChangeIndex } from "../ecl/index.js";
-import { writeProjectMarker } from "../project/marker.js";
+import { assertWritableMemory, resolveMemory } from "../memory/resolver.js";
+import { readProjectMarker, writeProjectMarker } from "../project/marker.js";
 import { getTemplateRoot } from "../template-source/paths.js";
 import { auditHarness } from "./audit.js";
 
@@ -48,7 +49,10 @@ async function copyTemplateTree(
 }
 
 export async function initHarness(project: ManagedProject): Promise<HarnessInitResult> {
-  const activeChanges = await getActiveChanges(project.path);
+  const existingMarker = await readProjectMarker(project.path);
+  const memory = resolveMemory({ ...project, marker: existingMarker });
+  assertWritableMemory(memory, "Harness init");
+  const activeChanges = await getActiveChanges(memory);
   if (activeChanges.length > 0) {
     throw new Error(`Target project has an active change (${activeChanges[0]?.name}); close or park it before harness init.`);
   }
@@ -64,8 +68,8 @@ export async function initHarness(project: ManagedProject): Promise<HarnessInitR
     PROJECT_ID: project.id,
     GENERATED_AT: new Date().toISOString(),
   };
-  await copyTemplateTree(templateRoot, project.path, replacements, created, skipped);
-  await writeChangeIndex(project.path);
+  await copyTemplateTree(templateRoot, memory.harnessRoot, replacements, created, skipped);
+  await writeChangeIndex(memory);
   await auditHarness(project.path);
   return {
     created,

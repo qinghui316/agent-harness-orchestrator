@@ -1,12 +1,13 @@
 import { existsSync } from "node:fs";
 import { appendFile, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { z } from "zod";
 import { getChangeStatus } from "../change/manager.js";
 import { writeJsonFile } from "../fs/json.js";
 import { shortHash, slugify } from "../fs/path.js";
+import { assertWritableMemory, resolveMemory } from "../memory/resolver.js";
 import { executeProcessStreaming } from "./process.js";
-import type { ChangeStatus, ManagedProject, RunEvent, RunMetadata, RunStatus } from "../types/index.js";
+import type { ChangeStatus, ManagedProject, ResolvedMemory, RunEvent, RunMetadata, RunStatus } from "../types/index.js";
 
 const runMetadataSchema = z.object({
   version: z.literal("1.0"),
@@ -47,14 +48,16 @@ export async function startLocalCommandRun(project: ManagedProject, command: str
     throw new Error("Run command is required after `--`, for example: aho run start <project> -- npm test");
   }
 
-  const changeStatus = await getChangeStatus(project.path);
+  const memory = resolveMemory(project);
+  assertWritableMemory(memory, "Local command run");
+  const changeStatus = await getChangeStatus(project);
   assertRunnableChange(changeStatus);
   const changeId = changeStatus.change?.id ?? changeStatus.activeChanges[0]?.name;
   if (!changeId) throw new Error("Cannot start run without an active change id.");
 
   const runId = buildRunId(changeId, command);
-  const relativeDir = `.agent-harness/runs/${runId}`;
-  const directory = join(project.path, relativeDir);
+  const directory = join(memory.runsRoot, runId);
+  const relativeDir = displayPath(memory, directory);
   const artifacts = {
     directory: relativeDir,
     context: `${relativeDir}/context.md`,
@@ -63,10 +66,10 @@ export async function startLocalCommandRun(project: ManagedProject, command: str
     stderr: `${relativeDir}/stderr.log`,
   };
   const paths = {
-    context: join(project.path, artifacts.context),
-    events: join(project.path, artifacts.events),
-    stdout: join(project.path, artifacts.stdout),
-    stderr: join(project.path, artifacts.stderr),
+    context: join(directory, "context.md"),
+    events: join(directory, "events.jsonl"),
+    stdout: join(directory, "stdout.log"),
+    stderr: join(directory, "stderr.log"),
     run: join(directory, "run.json"),
   };
 
@@ -127,20 +130,22 @@ export async function startLocalCommandRun(project: ManagedProject, command: str
   return { run };
 }
 
-export async function listRuns(projectPath: string): Promise<RunMetadata[]> {
-  const runsDir = join(projectPath, ".agent-harness", "runs");
+export async function listRuns(project: ManagedProject | string | ResolvedMemory): Promise<RunMetadata[]> {
+  const memory = resolveRunMemory(project);
+  const runsDir = memory.runsRoot;
   if (!existsSync(runsDir)) return [];
   const entries = await readdir(runsDir, { withFileTypes: true });
   const runs: RunMetadata[] = [];
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
-    runs.push(await readRun(projectPath, entry.name));
+    runs.push(await readRun(memory, entry.name));
   }
   return runs.sort((a, b) => b.startedAt.localeCompare(a.startedAt));
 }
 
-export async function readRun(projectPath: string, runId: string): Promise<RunMetadata> {
-  const path = join(projectPath, ".agent-harness", "runs", runId, "run.json");
+export async function readRun(project: ManagedProject | string | ResolvedMemory, runId: string): Promise<RunMetadata> {
+  const memory = resolveRunMemory(project);
+  const path = join(memory.runsRoot, runId, "run.json");
   const parsed: unknown = JSON.parse(await readFile(path, "utf8"));
   return runMetadataSchema.parse(parsed) as RunMetadata;
 }
@@ -217,4 +222,14 @@ function compactLocalTimestamp(date = new Date()): string {
 
 function pad(value: number): string {
   return value.toString().padStart(2, "0");
+}
+
+function resolveRunMemory(project: ManagedProject | string | ResolvedMemory): ResolvedMemory {
+  if (typeof project === "string") return resolveMemory({ path: project });
+  if ("runsRoot" in project) return project;
+  return resolveMemory(project);
+}
+
+function displayPath(memory: ResolvedMemory, absolutePath: string): string {
+  return relative(memory.projectRoot, absolutePath).replace(/\\/g, "/");
 }

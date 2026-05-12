@@ -9,6 +9,7 @@ const MarkerSchema = z.object({
   id: z.string(),
   name: z.string(),
   managedBy: z.literal("agent-harness-orchestrator"),
+  memoryMode: z.enum(["repo-local", "external-local", "remote"]).default("repo-local"),
   createdAt: z.string(),
 });
 
@@ -32,6 +33,7 @@ export async function writeProjectMarker(project: ManagedProject): Promise<Proje
     id: project.id,
     name: project.name,
     managedBy: "agent-harness-orchestrator",
+    memoryMode: "repo-local",
     createdAt: new Date().toISOString(),
   };
   await mkdir(join(project.path, ".agent-harness"), { recursive: true });

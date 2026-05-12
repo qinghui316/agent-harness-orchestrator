@@ -1,11 +1,12 @@
 import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { getChangeStatus } from "../change/manager.js";
 import { buildCodexReadonlyArgv, detectCodexCapabilities } from "../codex/capabilities.js";
 import { extractFinalMessageFromCodexJsonl } from "../codex/jsonl.js";
 import { composeCodexPrompt } from "../codex/prompt.js";
 import { writeJsonFile } from "../fs/json.js";
+import { assertWritableMemory, resolveMemory } from "../memory/resolver.js";
 import type { ManagedProject, RunMetadata, RunStatus } from "../types/index.js";
 import { appendRunEvent, assertRunnableChange, buildContextProjection, buildRunId } from "./manager.js";
 import { executeProcessStreaming } from "./process.js";
@@ -21,14 +22,16 @@ export interface CodexReadonlyRunResult {
 }
 
 export async function startCodexReadonlyRun(project: ManagedProject, options: CodexReadonlyRunOptions): Promise<CodexReadonlyRunResult> {
-  const changeStatus = await getChangeStatus(project.path);
+  const memory = resolveMemory(project);
+  assertWritableMemory(memory, "Codex read-only run");
+  const changeStatus = await getChangeStatus(project);
   assertRunnableChange(changeStatus);
   const changeId = changeStatus.change?.id ?? changeStatus.activeChanges[0]?.name;
   if (!changeId) throw new Error("Cannot start Codex run without an active change id.");
 
   const runId = buildRunId(changeId, ["codex-readonly", options.prompt]);
-  const relativeDir = `.agent-harness/runs/${runId}`;
-  const directory = join(project.path, relativeDir);
+  const directory = join(memory.runsRoot, runId);
+  const relativeDir = displayPath(memory, directory);
   const artifacts = {
     directory: relativeDir,
     context: `${relativeDir}/context.md`,
@@ -41,13 +44,13 @@ export async function startCodexReadonlyRun(project: ManagedProject, options: Co
   };
   const paths = {
     run: join(directory, "run.json"),
-    context: join(project.path, artifacts.context),
-    events: join(project.path, artifacts.events),
-    stdout: join(project.path, artifacts.stdout),
-    stderr: join(project.path, artifacts.stderr),
-    prompt: join(project.path, artifacts.prompt),
-    codexEvents: join(project.path, artifacts.codexEvents),
-    lastMessage: join(project.path, artifacts.lastMessage),
+    context: join(directory, "context.md"),
+    events: join(directory, "events.jsonl"),
+    stdout: join(directory, "stdout.log"),
+    stderr: join(directory, "stderr.log"),
+    prompt: join(directory, "prompt.md"),
+    codexEvents: join(directory, "codex-events.jsonl"),
+    lastMessage: join(directory, "last-message.md"),
   };
 
   await mkdir(directory, { recursive: true });
@@ -132,6 +135,10 @@ export async function startCodexReadonlyRun(project: ManagedProject, options: Co
   await appendRunEvent(paths.events, { timestamp: run.finishedAt ?? new Date().toISOString(), type: status === "completed" ? "run.completed" : "run.failed", runId });
 
   return { run };
+}
+
+function displayPath(memory: { projectRoot: string }, absolutePath: string): string {
+  return relative(memory.projectRoot, absolutePath).replace(/\\/g, "/");
 }
 
 async function finishRun(path: string, run: RunMetadata, status: RunStatus, exitCode: number | null, signal: NodeJS.Signals | null): Promise<RunMetadata> {

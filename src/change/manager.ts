@@ -1,11 +1,12 @@
 import { existsSync } from "node:fs";
 import { mkdir, readFile, rename } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname, join, relative } from "node:path";
 import { z } from "zod";
 import { buildAcMap, parseReviewStatus } from "../ecl/anchors.js";
 import { getActiveChanges, writeChangeIndex } from "../ecl/index.js";
 import { atomicWriteFile, writeJsonFile } from "../fs/json.js";
 import { slugify } from "../fs/path.js";
+import { assertWritableMemory, resolveMemory } from "../memory/resolver.js";
 import { getTemplateRoot } from "../template-source/paths.js";
 import type {
   AcMap,
@@ -15,6 +16,7 @@ import type {
   ChangeStatus,
   CloseGateResult,
   ManagedProject,
+  ResolvedMemory,
   ReviewStatus,
 } from "../types/index.js";
 
@@ -51,20 +53,22 @@ export interface ChangeCloseResult {
 }
 
 export async function createChange(project: ManagedProject, options: { title: string; body?: string }): Promise<ChangeCreateResult> {
-  const activeChanges = await getActiveChanges(project.path);
+  const memory = resolveMemory(project);
+  assertWritableMemory(memory, "Change creation");
+  const activeChanges = await getActiveChanges(memory);
   if (activeChanges.length > 0) {
     throw new Error(`Cannot create a new change while an active change exists: ${activeChanges[0]?.name}.`);
   }
 
   const id = slugify(options.title);
-  const relativePath = `harness/changes/active/${id}`;
-  const changePath = join(project.path, relativePath);
+  const changePath = join(memory.changesRoot, "active", id);
+  const relativePath = displayPath(memory, changePath);
   if (existsSync(changePath)) {
     throw new Error(`Change already exists: ${relativePath}.`);
   }
 
   await mkdir(join(changePath, "reviews"), { recursive: true });
-  const templateRoot = getChangeTemplateRoot(project.path);
+  const templateRoot = getChangeTemplateRoot(memory);
   for (const file of requiredChangeFiles) {
     const content = await renderTemplate(templateRoot, file, options.title);
     await atomicWriteFile(join(changePath, file), normalizeInitialContent(file, content, options.body));
@@ -83,20 +87,21 @@ export async function createChange(project: ManagedProject, options: { title: st
   };
   await writeJsonFile(join(changePath, "change.json"), change);
 
-  const status = await getChangeStatus(project.path);
+  const status = await getChangeStatus(project);
   if (!status.acMap) {
     throw new Error("Failed to build ac-map.json for the new change.");
   }
-  const index = await writeChangeIndex(project.path);
+  const index = await writeChangeIndex(memory);
   return { change, path: relativePath, acMap: status.acMap, index };
 }
 
-export async function getChangeStatus(projectPath: string): Promise<ChangeStatus> {
-  const activeChanges = await getActiveChanges(projectPath);
+export async function getChangeStatus(project: ManagedProject | string | ResolvedMemory): Promise<ChangeStatus> {
+  const memory = resolveChangeMemory(project);
+  const activeChanges = await getActiveChanges(memory);
   const baseGate = evaluateActiveCount(activeChanges);
   if (activeChanges.length !== 1) {
     return {
-      projectPath,
+      projectPath: memory.projectRoot,
       activeChanges,
       change: null,
       reviewStatus: "missing",
@@ -106,7 +111,7 @@ export async function getChangeStatus(projectPath: string): Promise<ChangeStatus
   }
 
   const active = activeChanges[0];
-  const changePath = join(projectPath, active.path);
+  const changePath = join(memory.projectRoot, active.path);
   const missingFiles = getMissingRequiredFiles(changePath);
   const warnings: string[] = [];
   const blockingIssues = [...baseGate.blockingIssues];
@@ -140,7 +145,7 @@ export async function getChangeStatus(projectPath: string): Promise<ChangeStatus
   blockingIssues.push(...reviewBlockingIssues(reviewStatus));
 
   return {
-    projectPath,
+    projectPath: memory.projectRoot,
     activeChanges,
     change,
     reviewStatus,
@@ -153,8 +158,10 @@ export async function getChangeStatus(projectPath: string): Promise<ChangeStatus
   };
 }
 
-export async function closeChange(projectPath: string): Promise<ChangeCloseResult> {
-  const status = await getChangeStatus(projectPath);
+export async function closeChange(project: ManagedProject | string): Promise<ChangeCloseResult> {
+  const memory = resolveChangeMemory(project);
+  assertWritableMemory(memory, "Change close");
+  const status = await getChangeStatus(memory);
   if (!status.closeGate.ready) {
     throw new Error(`Cannot close change:\n${status.closeGate.blockingIssues.map((issue) => `- ${issue}`).join("\n")}`);
   }
@@ -163,9 +170,9 @@ export async function closeChange(projectPath: string): Promise<ChangeCloseResul
   }
 
   const active = status.activeChanges[0];
-  const activePath = join(projectPath, active.path);
-  const archiveRelativePath = await getArchiveRelativePath(projectPath, status.change.id);
-  const archivePath = join(projectPath, archiveRelativePath);
+  const activePath = join(memory.projectRoot, active.path);
+  const archiveRelativePath = await getArchiveRelativePath(memory, status.change.id);
+  const archivePath = join(memory.projectRoot, archiveRelativePath);
   const now = new Date().toISOString();
   const updated: ChangeMetadata = {
     ...status.change,
@@ -178,7 +185,7 @@ export async function closeChange(projectPath: string): Promise<ChangeCloseResul
   await writeJsonFile(join(activePath, "change.json"), updated);
   await mkdir(dirname(archivePath), { recursive: true });
   await rename(activePath, archivePath);
-  const index = await writeChangeIndex(projectPath);
+  const index = await writeChangeIndex(memory);
   return { archivePath: archiveRelativePath, change: updated, index };
 }
 
@@ -192,9 +199,8 @@ function evaluateActiveCount(activeChanges: ChangeIndexItem[]): CloseGateResult 
   return { ready: true, warnings: [], blockingIssues: [] };
 }
 
-function getChangeTemplateRoot(projectPath: string): string {
-  const projectTemplateRoot = join(projectPath, "harness", "templates", "change");
-  if (existsSync(projectTemplateRoot)) return projectTemplateRoot;
+function getChangeTemplateRoot(memory: ResolvedMemory): string {
+  if (existsSync(memory.templatesRoot)) return memory.templatesRoot;
   return join(getTemplateRoot(), "harness", "templates", "change");
 }
 
@@ -279,10 +285,10 @@ function reviewBlockingIssues(status: ReviewStatus): string[] {
   return ["Review status is unknown."];
 }
 
-async function getArchiveRelativePath(projectPath: string, changeId: string): Promise<string> {
-  const base = `harness/changes/archive/${localDate()}-${changeId}`;
-  if (!existsSync(join(projectPath, base))) return base;
-  return `${base}-${localTime()}`;
+async function getArchiveRelativePath(memory: ResolvedMemory, changeId: string): Promise<string> {
+  const basePath = join(memory.changesRoot, "archive", `${localDate()}-${changeId}`);
+  if (!existsSync(basePath)) return displayPath(memory, basePath);
+  return displayPath(memory, `${basePath}-${localTime()}`);
 }
 
 function localDate(date = new Date()): string {
@@ -299,4 +305,14 @@ function pad(value: number): string {
 
 function uniqueSorted(values: string[]): string[] {
   return [...new Set(values)].sort((a, b) => a.localeCompare(b));
+}
+
+function resolveChangeMemory(project: ManagedProject | string | ResolvedMemory): ResolvedMemory {
+  if (typeof project === "string") return resolveMemory({ path: project });
+  if ("harnessRoot" in project) return project;
+  return resolveMemory(project);
+}
+
+function displayPath(memory: ResolvedMemory, absolutePath: string): string {
+  return relative(memory.projectRoot, absolutePath).replace(/\\/g, "/");
 }

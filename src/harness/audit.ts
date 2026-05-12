@@ -1,8 +1,9 @@
 import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import type { HarnessAuditResult, HarnessComponentStatus, HarnessReadiness } from "../types/index.js";
 import { getActiveChanges, hasPendingEvolution } from "../ecl/index.js";
 import { readProjectMarker } from "../project/marker.js";
+import { resolveMemory } from "../memory/resolver.js";
 
 const requiredComponents: Array<Omit<HarnessComponentStatus, "exists">> = [
   { name: "AGENTS.md", path: "AGENTS.md", required: true },
@@ -19,9 +20,24 @@ const requiredComponents: Array<Omit<HarnessComponentStatus, "exists">> = [
 
 export async function auditHarness(projectPath: string): Promise<HarnessAuditResult> {
   const marker = await readProjectMarker(projectPath);
+  const memory = resolveMemory({ path: projectPath, marker });
+  if (!memory.supported) {
+    return {
+      projectPath,
+      managed: marker !== null,
+      readiness: "missing",
+      activeChanges: [],
+      pendingEvolution: false,
+      components: requiredComponents.map((component) => ({
+        ...component,
+        exists: false,
+      })),
+    };
+  }
   const components = requiredComponents.map((component) => ({
     ...component,
-    exists: existsSync(join(projectPath, component.path)),
+    path: displayPath(projectPath, join(memory.harnessRoot, component.path)),
+    exists: existsSync(join(memory.harnessRoot, component.path)),
   }));
   const required = components.filter((component) => component.required);
   const existing = required.filter((component) => component.exists);
@@ -32,8 +48,12 @@ export async function auditHarness(projectPath: string): Promise<HarnessAuditRes
     projectPath,
     managed: marker !== null,
     readiness,
-    activeChanges: await getActiveChanges(projectPath),
-    pendingEvolution: hasPendingEvolution(projectPath),
+    activeChanges: await getActiveChanges(memory),
+    pendingEvolution: hasPendingEvolution(memory),
     components,
   };
+}
+
+function displayPath(projectPath: string, absolutePath: string): string {
+  return relative(projectPath, absolutePath).replace(/\\/g, "/") || ".";
 }

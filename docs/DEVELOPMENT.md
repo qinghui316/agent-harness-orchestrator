@@ -2,7 +2,7 @@
 
 ## 1. Current Phase
 
-This repository contains Harness infrastructure, a Phase 1 TypeScript CLI, Phase 2A structured change management, Phase 2B local command run artifacts, and Phase 2C Codex read-only proposal capture.
+This repository contains Harness infrastructure, a Phase 1 TypeScript CLI, Phase 2A structured change management, Phase 2B local command run artifacts, Phase 2C Codex read-only proposal capture, and Phase 2D memory resolver foundation.
 
 ## 2. Prerequisites
 
@@ -60,7 +60,18 @@ node dist/index.js change close aho-test
 
 `change close` blocks while `reviews/review.md` is `Status: pending`. Change it to `Status: approved` or `Status: approved-with-notes` to close after reviewing the artifacts.
 
-## 6. Local Command Run Commands
+## 6. Memory Diagnostics
+
+Memory diagnostics show how AHO resolves a project's durable memory layout. This is diagnostic only; `harness audit` remains the readiness gate.
+
+```powershell
+node dist/index.js memory status aho-test
+node dist/index.js memory status aho-test --json
+```
+
+Phase 2D keeps `repo-local` as the only operational mode. `external-local` and `remote` are planned/unsupported modes and are not writable yet.
+
+## 7. Local Command Run Commands
 
 Runs require a registered, managed project with exactly one active change. Commands are executed directly in the target project root with executable-plus-arguments semantics; shell pipes, redirects, and interactive sessions are not supported.
 
@@ -81,7 +92,7 @@ Run artifacts are written under the target project:
   stderr.log
 ```
 
-## 7. Codex Read-Only Proposal Runs
+## 8. Codex Read-Only Proposal Runs
 
 Codex runs require a registered, managed project with exactly one active change. AHO reuses the user's local Codex CLI login and configuration. It does not run `codex login`, read tokens, or modify `~/.codex`.
 
@@ -101,7 +112,7 @@ Additional artifacts:
   last-message.md
 ```
 
-## 8. Harness Commands
+## 9. Harness Commands
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/harness-change.ps1 reindex
