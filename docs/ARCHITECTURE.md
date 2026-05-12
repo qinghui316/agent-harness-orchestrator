@@ -1,10 +1,10 @@
 # Architecture
 
-> Status: Phase 1 implements project registration and Harness management. Managed runs, worktree execution, Codex runtime, event logs, Spec-Test gates, and dashboard are planned future work.
+> Status: Phase 2A implements project registration, Harness management, and Node-native structured change management. Managed runs, worktree execution, Codex runtime, event logs, Spec-Test gates, and dashboard are planned future work.
 
 ## 1. Current Status
 
-Agent Harness Orchestrator is a single-package TypeScript CLI. It currently manages local project registration, Harness audit/init, and ECL index rebuilds.
+Agent Harness Orchestrator is a single-package TypeScript CLI. It currently manages local project registration, Harness audit/init, ECL index rebuilds, structured change creation/status/close, Acceptance Criteria parsing, task mapping, and generated `ac-map.json`.
 
 The long-term architecture is a local-first, Spec-Anchored managed-run harness. AHO keeps project memory in files, prepares context for disposable external agents, records execution evidence, and routes every high-impact result through human confirmation.
 
@@ -207,7 +207,9 @@ Product Harness templates are public assets. This repository's own Harness runti
 | Phase | Goal |
 | --- | --- |
 | Phase 1 | Project registry and Harness audit/init/reindex |
-| Phase 2 | Spec-Anchored Local Managed Runs |
+| Phase 2A | Node-native structured change manager |
+| Phase 2B | Run sessions, event logs, and shell runtime |
+| Phase 2C | Codex-style runtime adapter |
 | Phase 3 | Worktree isolation and runtime hardening |
 | Phase 4 | Spec-Test mapping and drift gates |
 | Phase 5 | Dashboard and run/artifact explorer |

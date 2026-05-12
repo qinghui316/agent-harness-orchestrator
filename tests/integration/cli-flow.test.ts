@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -52,5 +52,25 @@ describe("CLI flow", () => {
 
     const marker = JSON.parse(await readFile(join(repoDir, ".agent-harness", "project.json"), "utf8"));
     expect(marker).toMatchObject({ id: "repo", managedBy: "agent-harness-orchestrator" });
+  });
+
+  it("creates, reports, and closes a structured change", async () => {
+    await runCli(["project", "add", repoDir, "--name", "Repo"]);
+    await runCli(["harness", "init", "repo"]);
+    await runCli(["change", "new", "repo", "--title", "Add Sample Workflow", "--body", "Raw user request"]);
+
+    const changeDir = join(repoDir, "harness", "changes", "active", "add-sample-workflow");
+    expect(existsSync(join(changeDir, "change.json"))).toBe(true);
+    expect(existsSync(join(changeDir, "ac-map.json"))).toBe(true);
+
+    await runCli(["change", "status", "repo", "--json"]);
+    await expect(runCli(["change", "close", "repo"])).rejects.toThrow("Review status is pending");
+
+    await writeFile(join(changeDir, "reviews", "review.md"), "Status: approved\n", "utf8");
+    await runCli(["change", "close", "repo"]);
+
+    const index = JSON.parse(await readFile(join(repoDir, "harness", "changes", "INDEX.json"), "utf8"));
+    expect(index.active).toHaveLength(0);
+    expect(index.archive[0].name).toMatch(/^\d{8}-add-sample-workflow/);
   });
 });

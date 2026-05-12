@@ -65,6 +65,15 @@ Phase 1 creates a TypeScript CLI for:
 - Initializing or updating Harness files.
 - Reading active change, pending evolution, git branch, dirty state, and recent runs.
 
+Phase 2A adds Node-native structured change management:
+
+- Creating active ECL changes.
+- Reporting active change status.
+- Parsing Acceptance Criteria IDs.
+- Mapping tasks to Acceptance Criteria.
+- Generating `ac-map.json`.
+- Closing changes through a lightweight close gate.
+
 Later phases add:
 
 - Spec-Anchored local managed runs.

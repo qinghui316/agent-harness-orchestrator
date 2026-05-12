@@ -6,11 +6,28 @@ import { auditHarness } from "../harness/audit.js";
 import { initHarness } from "../harness/init.js";
 import { writeChangeIndex } from "../ecl/index.js";
 import { printJson, printTable } from "./output.js";
+import { closeChange, createChange, getChangeStatus } from "../change/manager.js";
+import type { ManagedProject } from "../types/index.js";
 
 async function resolveRegisteredOrPath(store: ProjectRegistryStore, query: string): Promise<{ project: Awaited<ReturnType<ProjectRegistryStore["resolveProject"]>>; path: string }> {
   const project = await store.resolveProject(query);
   if (project) return { project, path: project.path };
   return { project: null, path: await resolveExistingDirectory(query) };
+}
+
+async function resolveManagedProject(store: ProjectRegistryStore, query: string): Promise<ManagedProject> {
+  const project = await store.resolveProject(query);
+  if (!project) {
+    throw new Error("Project must be registered with `aho project add` before using change commands.");
+  }
+  const audit = await auditHarness(project.path);
+  if (!audit.managed) {
+    throw new Error("Project must be initialized with `aho harness init` before using change commands.");
+  }
+  if (audit.readiness !== "ready") {
+    throw new Error(`Project Harness is not ready (${audit.readiness}); run \`aho harness audit ${project.id}\`.`);
+  }
+  return project;
 }
 
 export function createProgram(): Command {
@@ -125,6 +142,60 @@ export function createProgram(): Command {
       const index = await writeChangeIndex(resolved.path);
       if (options.json) printJson(index);
       else console.log(`Rebuilt harness/changes/INDEX.json for ${resolved.path}`);
+    });
+
+  const change = program.command("change").description("Manage structured ECL changes");
+
+  change
+    .command("new")
+    .argument("<project>", "registered project id/name/path")
+    .requiredOption("--title <title>", "change title")
+    .option("--body <text>", "raw user request or context")
+    .option("--json", "print JSON")
+    .action(async (query: string, options: { title: string; body?: string; json?: boolean }) => {
+      const project = await resolveManagedProject(store, query);
+      const result = await createChange(project, { title: options.title, body: options.body });
+      if (options.json) printJson(result);
+      else {
+        console.log(`Created change ${result.change.id} at ${result.path}`);
+        console.log(`ACs: ${result.acMap.acceptanceCriteria.length}; tasks: ${result.acMap.tasks.length}`);
+      }
+    });
+
+  change
+    .command("status")
+    .argument("<project>", "registered project id/name/path")
+    .option("--json", "print JSON")
+    .action(async (query: string, options: { json?: boolean }) => {
+      const project = await resolveManagedProject(store, query);
+      const status = await getChangeStatus(project.path);
+      if (options.json) printJson(status);
+      else {
+        printTable([
+          {
+            active: status.change?.id ?? status.activeChanges.map((item) => item.name).join(", "),
+            review: status.reviewStatus,
+            acs: status.acMap?.acceptanceCriteria.length ?? 0,
+            tasks: status.acMap?.tasks.length ?? 0,
+            warnings: status.closeGate.warnings.length,
+            blocking: status.closeGate.blockingIssues.length,
+            ready: status.closeGate.ready,
+          },
+        ]);
+        for (const issue of status.closeGate.blockingIssues) console.log(`BLOCKING: ${issue}`);
+        for (const warning of status.closeGate.warnings) console.log(`WARNING: ${warning}`);
+      }
+    });
+
+  change
+    .command("close")
+    .argument("<project>", "registered project id/name/path")
+    .option("--json", "print JSON")
+    .action(async (query: string, options: { json?: boolean }) => {
+      const project = await resolveManagedProject(store, query);
+      const result = await closeChange(project.path);
+      if (options.json) printJson(result);
+      else console.log(`Archived change ${result.change.id} at ${result.archivePath}`);
     });
 
   return program;

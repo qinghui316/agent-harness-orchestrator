@@ -1,7 +1,7 @@
 {
   "name": "agent-harness-orchestrator",
   "version": "0.1.0",
-  "description": "Local-first, change-driven AI coding orchestrator with repo-local Harness and controlled evolution.",
+  "description": "Local-first Spec-Anchored managed-run harness for AI coding.",
   "type": "module",
   "bin": {
     "aho": "dist/index.js"
