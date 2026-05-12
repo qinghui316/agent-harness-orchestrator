@@ -1,4 +1,3 @@
-import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { appendFile, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -6,6 +5,7 @@ import { z } from "zod";
 import { getChangeStatus } from "../change/manager.js";
 import { writeJsonFile } from "../fs/json.js";
 import { shortHash, slugify } from "../fs/path.js";
+import { executeProcessStreaming } from "./process.js";
 import type { ChangeStatus, ManagedProject, RunEvent, RunMetadata, RunStatus } from "../types/index.js";
 
 const runMetadataSchema = z.object({
@@ -13,7 +13,9 @@ const runMetadataSchema = z.object({
   id: z.string(),
   changeId: z.string(),
   projectPath: z.string(),
-  runtime: z.literal("local-command"),
+  runtime: z.enum(["local-command", "codex-readonly"]),
+  executionMode: z.literal("direct").optional(),
+  proposalOnly: z.boolean().optional(),
   command: z.array(z.string()),
   status: z.enum(["created", "running", "completed", "failed"]),
   exitCode: z.number().nullable(),
@@ -26,6 +28,13 @@ const runMetadataSchema = z.object({
     events: z.string(),
     stdout: z.string(),
     stderr: z.string(),
+    prompt: z.string().optional(),
+    codexEvents: z.string().optional(),
+    lastMessage: z.string().optional(),
+    worktree: z.string().optional(),
+    diff: z.string().optional(),
+    validation: z.string().optional(),
+    review: z.string().optional(),
   }),
 });
 
@@ -69,6 +78,8 @@ export async function startLocalCommandRun(project: ManagedProject, command: str
     changeId,
     projectPath: project.path,
     runtime: "local-command",
+    executionMode: "direct",
+    proposalOnly: false,
     command,
     status: "created",
     exitCode: null,
@@ -87,9 +98,13 @@ export async function startLocalCommandRun(project: ManagedProject, command: str
   await writeJsonFile(paths.run, run);
   await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "process.started", runId, data: { cwd: project.path, command } });
 
-  const processResult = await executeCommand(project.path, command);
-  await writeFile(paths.stdout, processResult.stdout, "utf8");
-  await writeFile(paths.stderr, processResult.stderr, "utf8");
+  const processResult = await executeProcessStreaming({
+    cwd: project.path,
+    command: command[0],
+    args: command.slice(1),
+    stdoutPath: paths.stdout,
+    stderrPath: paths.stderr,
+  });
   await appendRunEvent(paths.events, {
     timestamp: new Date().toISOString(),
     type: "process.exited",
@@ -130,7 +145,7 @@ export async function readRun(projectPath: string, runId: string): Promise<RunMe
   return runMetadataSchema.parse(parsed) as RunMetadata;
 }
 
-function assertRunnableChange(status: ChangeStatus): void {
+export function assertRunnableChange(status: ChangeStatus): void {
   if (status.activeChanges.length === 0) {
     throw new Error("Cannot start run: no active change found.");
   }
@@ -142,13 +157,13 @@ function assertRunnableChange(status: ChangeStatus): void {
   }
 }
 
-function buildRunId(changeId: string, command: string[]): string {
+export function buildRunId(changeId: string, command: string[]): string {
   const timestamp = compactLocalTimestamp();
   const commandHash = shortHash(`${Date.now()}\0${command.join("\0")}`).slice(0, 6);
   return `run-${timestamp}-${slugify(changeId)}-${commandHash}`;
 }
 
-function buildContextProjection(status: ChangeStatus): string {
+export function buildContextProjection(status: ChangeStatus): string {
   const change = status.change;
   const acMap = status.acMap;
   return [
@@ -184,26 +199,8 @@ function buildContextProjection(status: ChangeStatus): string {
   ].join("\n");
 }
 
-async function appendRunEvent(path: string, event: RunEvent): Promise<void> {
+export async function appendRunEvent(path: string, event: RunEvent): Promise<void> {
   await appendFile(path, `${JSON.stringify(event)}\n`, "utf8");
-}
-
-async function executeCommand(cwd: string, command: string[]): Promise<{ stdout: string; stderr: string; exitCode: number | null; signal: NodeJS.Signals | null }> {
-  return await new Promise((resolve) => {
-    const child = spawn(command[0], command.slice(1), { cwd, shell: false, windowsHide: true });
-    const stdout: Buffer[] = [];
-    const stderr: Buffer[] = [];
-
-    child.stdout.on("data", (chunk: Buffer) => stdout.push(chunk));
-    child.stderr.on("data", (chunk: Buffer) => stderr.push(chunk));
-    child.on("error", (error) => {
-      stderr.push(Buffer.from(`${error.message}\n`, "utf8"));
-      resolve({ stdout: Buffer.concat(stdout).toString("utf8"), stderr: Buffer.concat(stderr).toString("utf8"), exitCode: 1, signal: null });
-    });
-    child.on("close", (code, signal) => {
-      resolve({ stdout: Buffer.concat(stdout).toString("utf8"), stderr: Buffer.concat(stderr).toString("utf8"), exitCode: code, signal });
-    });
-  });
 }
 
 function compactLocalTimestamp(date = new Date()): string {

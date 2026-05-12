@@ -118,12 +118,23 @@ export interface ChangeStatus {
 
 export type RunStatus = "created" | "running" | "completed" | "failed";
 
+export type RunRuntime = "local-command" | "codex-readonly";
+
+export type RunExecutionMode = "direct";
+
 export interface RunArtifactPaths {
   directory: string;
   context: string;
   events: string;
   stdout: string;
   stderr: string;
+  prompt?: string;
+  codexEvents?: string;
+  lastMessage?: string;
+  worktree?: string;
+  diff?: string;
+  validation?: string;
+  review?: string;
 }
 
 export interface RunMetadata {
@@ -131,7 +142,9 @@ export interface RunMetadata {
   id: string;
   changeId: string;
   projectPath: string;
-  runtime: "local-command";
+  runtime: RunRuntime;
+  executionMode?: RunExecutionMode;
+  proposalOnly?: boolean;
   command: string[];
   status: RunStatus;
   exitCode: number | null;
@@ -143,7 +156,17 @@ export interface RunMetadata {
 
 export interface RunEvent {
   timestamp: string;
-  type: "run.created" | "context.prepared" | "process.started" | "process.exited" | "run.completed" | "run.failed";
+  type:
+    | "run.created"
+    | "context.prepared"
+    | "process.started"
+    | "process.exited"
+    | "codex.capabilities.detected"
+    | "codex.capabilities.failed"
+    | "codex.started"
+    | "codex.exited"
+    | "run.completed"
+    | "run.failed";
   runId: string;
   data?: Record<string, unknown>;
 }

@@ -2,7 +2,7 @@
 
 ## 1. Current Phase
 
-This repository contains Harness infrastructure, a Phase 1 TypeScript CLI, Phase 2A structured change management, and Phase 2B local command run artifacts.
+This repository contains Harness infrastructure, a Phase 1 TypeScript CLI, Phase 2A structured change management, Phase 2B local command run artifacts, and Phase 2C Codex read-only proposal capture.
 
 ## 2. Prerequisites
 
@@ -10,6 +10,7 @@ This repository contains Harness infrastructure, a Phase 1 TypeScript CLI, Phase
 - Windows PowerShell 5.1 or PowerShell 7.
 - Node.js 20+.
 - npm.
+- Codex CLI for `aho run codex` manual acceptance.
 - Network access when initializing or updating submodules.
 
 ## 3. Reference Sources
@@ -80,7 +81,27 @@ Run artifacts are written under the target project:
   stderr.log
 ```
 
-## 7. Harness Commands
+## 7. Codex Read-Only Proposal Runs
+
+Codex runs require a registered, managed project with exactly one active change. AHO reuses the user's local Codex CLI login and configuration. It does not run `codex login`, read tokens, or modify `~/.codex`.
+
+```powershell
+node dist/index.js run codex aho-test --prompt "Read the run context and propose an implementation plan. Do not edit files."
+node dist/index.js run codex aho-test --prompt-file .\prompt.md --json
+```
+
+`run codex` is proposal-only. It uses Codex read-only sandboxing when supported and records failures as artifacts instead of falling back to writable or full-auto modes.
+
+Additional artifacts:
+
+```text
+.agent-harness/runs/{run-id}/
+  prompt.md
+  codex-events.jsonl
+  last-message.md
+```
+
+## 8. Harness Commands
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/harness-change.ps1 reindex

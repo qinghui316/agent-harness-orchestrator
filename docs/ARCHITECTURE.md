@@ -1,12 +1,12 @@
 # Architecture
 
-> Status: Phase 2B implements project registration, Harness management, Node-native structured change management, local command runs, event logs, and run artifacts. Worktree execution, Codex runtime, Spec-Test gates, and dashboard are planned future work.
+> Status: Phase 2C implements project registration, Harness management, Node-native structured change management, local command runs, event logs, run artifacts, and Codex read-only proposal capture. Worktree execution, write-mode Codex runs, Spec-Test gates, dashboard, external-local memory, and remote memory are planned future work.
 
 ## 1. Current Status
 
-Agent Harness Orchestrator is a single-package TypeScript CLI. It currently manages local project registration, Harness audit/init, ECL index rebuilds, structured change creation/status/close, Acceptance Criteria parsing, task mapping, generated `ac-map.json`, and local command run artifacts.
+Agent Harness Orchestrator is a single-package TypeScript CLI. It currently manages local project registration, Harness audit/init, ECL index rebuilds, structured change creation/status/close, Acceptance Criteria parsing, task mapping, generated `ac-map.json`, local command run artifacts, and Codex read-only proposal artifacts.
 
-The long-term architecture is a local-first, Spec-Anchored managed-run harness. AHO keeps project memory in files, prepares context for disposable external agents, records execution evidence, and routes every high-impact result through human confirmation.
+The long-term architecture is a local-first, Spec-Anchored managed-run harness. AHO keeps durable project memory in AHO-managed stores, prepares context for disposable external agents, records execution evidence, and routes every high-impact result through human confirmation.
 
 ## 2. Product Kernel
 
@@ -45,9 +45,13 @@ Project -> Change -> Spec / Acceptance Criteria -> Plan -> Tasks
 ```mermaid
 graph TD
     CLI["CLI"] --> Registry["Project Registry"]
+    CLI --> Marker["Project Marker"]
+    Marker --> Resolver["Memory Resolver"]
+    Resolver --> Store["Memory Store"]
     CLI --> Orchestrator["Run Orchestrator"]
     Registry --> Project["Project Adapter"]
     Orchestrator --> Memory["Harness Memory"]
+    Store --> Memory
     Memory --> Change["Change / Spec / AC Layer"]
     Change --> Context["Context Projection"]
     Context --> Runtime["Runtime Adapter"]
@@ -64,7 +68,17 @@ graph TD
 
 ## 4. Project Memory Model
 
-Project memory is durable and project-local.
+Project memory is durable and AHO-managed. Repo-local memory is the current implementation and compatibility mode, not the long-term default.
+
+Memory modes:
+
+| Mode | Source of truth | Use | Status |
+| --- | --- | --- | --- |
+| `repo-local` | Target repository files | Compatibility, portable/offline export, current implementation | Implemented |
+| `external-local` | AHO home on the user's machine | Personal multi-project default | Planned |
+| `remote` | Remote memory service | Team and cross-device workflows | Future |
+
+Repo-local shape:
 
 ```text
 AGENTS.md                 routing map
@@ -74,9 +88,25 @@ harness/changes/          specs, plans, tasks, reviews, archive history
 harness/evolution/        evidence, proposals, results, controlled evolution state
 ```
 
+External-local target shape:
+
+```text
+target repo:
+  AGENTS.md
+  .agent-harness/project.json
+
+AHO home:
+  ~/.agent-harness/projects/{project-id}/docs/
+  ~/.agent-harness/projects/{project-id}/harness/changes/
+  ~/.agent-harness/projects/{project-id}/harness/evolution/
+  ~/.agent-harness/projects/{project-id}/runs/
+```
+
 `AGENTS.md` routes agents to memory. It is not the memory database. `context.md` is a per-run projection created from durable memory and is not source of truth.
 
 Dashboards, indexes, and future SQLite stores must be derived views unless a later architecture decision explicitly changes that.
+
+See `docs/MEMORY.md` for the detailed memory mode boundary.
 
 ## 5. Agent and Runtime Model
 
@@ -90,7 +120,7 @@ Local managed-agent mapping:
 | Session | Run |
 | Events | `events.jsonl` |
 | Resources | Repo, worktree, context bundle, files |
-| Memory Store | Repo-local Harness, docs, and archive |
+| Memory Store | AHO-managed memory store: repo-local today, external-local target, remote future |
 | Environment | Local shell, worktree, validator config |
 | Vault | Future credential boundary |
 
@@ -130,7 +160,9 @@ Each run should produce durable artifacts:
   review.md
 ```
 
-Phase 2B implements `run.json`, `context.md`, `events.jsonl`, `stdout.log`, and `stderr.log` for local command runs. Diff, validation, and review artifacts remain planned future work.
+Phase 2B implements `run.json`, `context.md`, `events.jsonl`, `stdout.log`, and `stderr.log` for local command runs. Phase 2C adds `prompt.md`, `codex-events.jsonl`, and `last-message.md` for Codex read-only proposal runs. Diff, validation, and review artifacts remain planned future work.
+
+The Run Orchestrator should receive memory through a Memory Resolver and Context Projector. Runtime adapters must not hardcode repo-local Harness paths.
 
 ## 7. Worktree Isolation
 
@@ -202,26 +234,48 @@ Local development state by default:
 
 Product Harness templates are public assets. This repository's own Harness runtime workspace is local development state.
 
-## 11. Phase Roadmap
+## 11. Implementation Module Boundaries
+
+Future code should preserve these module boundaries:
+
+| Layer | Responsibility |
+| --- | --- |
+| Project Registry | Registered projects and user-level registry state |
+| Project Marker | `.agent-harness/project.json` read/write and marker validation |
+| Memory Resolver | Resolve project id and memory mode into a durable memory store |
+| Memory Store | Repo-local, external-local, or future remote storage implementation |
+| Harness IO | Read/write Harness docs, templates, indexes, evolution files |
+| Change Manager | ECL change lifecycle, AC mapping, close gates |
+| Run Artifact Store | Run directory creation, metadata, events, logs, artifact lookup |
+| Runtime Adapter | Codex/local command/future agent invocation only |
+| Context Projector | Per-run context generation from durable memory |
+
+Codex adapters, change manager, and run manager must not directly assume `harness/changes` lives in the target repository. They should depend on Memory Resolver or receive resolved paths.
+
+Initial store implementations should be `RepoLocalMemoryStore` and `ExternalLocalMemoryStore`. `RemoteMemoryStore` is future work.
+
+## 12. Phase Roadmap
 
 | Phase | Goal |
 | --- | --- |
 | Phase 1 | Project registry and Harness audit/init/reindex |
 | Phase 2A | Node-native structured change manager |
 | Phase 2B | Run sessions, event logs, and local command runtime |
-| Phase 2C | Codex-style runtime adapter |
+| Phase 2C | Codex read-only proposal adapter |
 | Phase 3 | Worktree isolation and runtime hardening |
 | Phase 4 | Spec-Test mapping and drift gates |
 | Phase 5 | Dashboard and run/artifact explorer |
-| Future | Team mode and Spec-as-Source experiments |
+| Future | External-local default, remote memory, team mode, and Spec-as-Source experiments |
 
-## 12. Non-Goals
+## 13. Non-Goals
 
 Not in the current architecture baseline:
 
 - cloud sync
 - multi-user permissions
 - hosted managed agents
+- remote memory gateway/server in the current implementation
+- cross-project knowledge store in the current implementation
 - automatic merge
 - default container sandbox
 - direct dependence on model-provider memory

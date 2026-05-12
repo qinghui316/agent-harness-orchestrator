@@ -1,0 +1,101 @@
+import { describe, expect, it } from "vitest";
+import { buildCodexReadonlyArgv, evaluateCodexCapabilities } from "../../src/codex/capabilities.js";
+import { extractFinalMessageFromCodexJsonl } from "../../src/codex/jsonl.js";
+import { composeCodexPrompt, readPromptInput } from "../../src/codex/prompt.js";
+
+const rootHelp = "Usage: codex [OPTIONS]\n  -a, --ask-for-approval <APPROVAL_POLICY>\n";
+const execHelp = [
+  "Usage: codex exec [OPTIONS]",
+  "  --json",
+  "  --color <COLOR>",
+  "  -s, --sandbox <SANDBOX_MODE>",
+  "  -C, --cd <DIR>",
+  "  -o, --output-last-message <FILE>",
+].join("\n");
+
+describe("codex capabilities", () => {
+  it("builds root-level approval argv", () => {
+    const capabilities = evaluateCodexCapabilities("codex-cli 1.0", rootHelp, execHelp);
+
+    const argv = buildCodexReadonlyArgv(capabilities, {
+      projectPath: "C:/repo",
+      lastMessagePath: "C:/repo/.agent-harness/runs/run/last-message.md",
+      model: "gpt-5.3-codex",
+      profile: "default",
+    });
+
+    expect(argv.args.slice(0, 4)).toEqual(["--ask-for-approval", "never", "exec", "--json"]);
+    expect(argv.args).toContain("--sandbox");
+    expect(argv.args).toContain("read-only");
+    expect(argv.args).toContain("--output-last-message");
+    expect(argv.args).toContain("--model");
+    expect(argv.args).toContain("--profile");
+    expect(argv.args).toContain("-");
+    expect(argv.args).not.toContain("--full-auto");
+    expect(argv.args).not.toContain("--dangerously-bypass-approvals-and-sandbox");
+    expect(argv.args).not.toContain("--ignore-user-config");
+    expect(argv.args).not.toContain("--skip-git-repo-check");
+  });
+
+  it("builds exec-level approval argv", () => {
+    const capabilities = evaluateCodexCapabilities("codex-cli 1.0", "Usage: codex", `${execHelp}\n--ask-for-approval <APPROVAL_POLICY>`);
+
+    const argv = buildCodexReadonlyArgv(capabilities, {
+      projectPath: "/repo",
+      lastMessagePath: "/repo/.agent-harness/runs/run/last-message.md",
+    });
+
+    expect(argv.args.slice(0, 4)).toEqual(["exec", "--ask-for-approval", "never", "--json"]);
+  });
+
+  it("fails capability evaluation without safe required flags", () => {
+    const capabilities = evaluateCodexCapabilities("codex-cli 1.0", "Usage: codex", "Usage: codex exec");
+
+    expect(capabilities.errors).toEqual(expect.arrayContaining([
+      "Codex CLI does not expose --ask-for-approval at root or exec level.",
+      "Codex exec does not support --json.",
+      "Codex exec does not support --sandbox.",
+      "Codex exec does not support --cd.",
+    ]));
+    expect(() => buildCodexReadonlyArgv(capabilities, { projectPath: "/repo", lastMessagePath: "/repo/out.md" })).toThrow("safe read-only");
+  });
+
+  it("allows missing output-last-message and relies on JSONL fallback", () => {
+    const capabilities = evaluateCodexCapabilities("codex-cli 1.0", rootHelp, execHelp.replace("  -o, --output-last-message <FILE>", ""));
+    const argv = buildCodexReadonlyArgv(capabilities, { projectPath: "/repo", lastMessagePath: "/repo/out.md" });
+
+    expect(capabilities.supportsOutputLastMessage).toBe(false);
+    expect(capabilities.errors).toHaveLength(0);
+    expect(argv.args).not.toContain("--output-last-message");
+  });
+});
+
+describe("codex prompt and JSONL parsing", () => {
+  it("composes a read-only prompt with context and user prompt", () => {
+    const prompt = composeCodexPrompt({
+      context: "- AC-001: Capture Codex proposal\n- [ ] T-001: Implement adapter",
+      userPrompt: "Propose an implementation plan.",
+    });
+
+    expect(prompt).toContain("read-only proposal executor");
+    expect(prompt).toContain("Do not edit files.");
+    expect(prompt).toContain("AC-001");
+    expect(prompt).toContain("T-001");
+    expect(prompt).toContain("Propose an implementation plan.");
+  });
+
+  it("requires exactly one prompt input", async () => {
+    await expect(readPromptInput({})).rejects.toThrow("requires --prompt or --prompt-file");
+    await expect(readPromptInput({ prompt: "x", promptFile: "y" })).rejects.toThrow("either --prompt or --prompt-file");
+  });
+
+  it("extracts final messages from common Codex JSONL events", () => {
+    const output = [
+      JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: "final from item" } }),
+      JSON.stringify({ type: "message", content: [{ type: "text", text: "final from message" }] }),
+      "not json",
+    ].join("\n");
+
+    expect(extractFinalMessageFromCodexJsonl(output)).toBe("final from item\n\nfinal from message");
+  });
+});

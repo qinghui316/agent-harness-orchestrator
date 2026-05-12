@@ -6,14 +6,14 @@ Agent Harness Orchestrator is a local-first, personal-first, Spec-Anchored manag
 
 It manages requirements, specs, plans, coding runs, validation, review, and Harness evolution across local code projects. Its core purpose is to prevent drift between human intent, specs, acceptance criteria, tests, code, validation results, and project rules.
 
-AHO is not a generic multi-agent scheduler. Multi-agent orchestration is an execution mechanism. The product kernel is durable project memory plus Spec-Anchored execution.
+AHO is not a generic multi-agent scheduler. Multi-agent orchestration is an execution mechanism. The product kernel is project-linked durable memory plus Spec-Anchored execution.
 
 It borrows orchestration ideas from Agent Orchestrator, Codex-oriented workflows from oh-my-codex, managed-agent resource boundaries from Anthropic's public managed-agents direction, and ECL/Harness protocol rules from ecl-harness-engineer.
 
 ## 2. Problems
 
 - Requirements often go straight into coding without `spec.md`, `plan.md`, or `tasks.md`.
-- Project rules and decisions stay in chat instead of the repository.
+- Project rules and decisions stay in chat instead of durable AHO-managed memory.
 - New agents need repeated explanations of project constraints.
 - Test failures and user corrections do not become rules, tests, or docs.
 - Specs, tests, code, and validation results can drift without an explicit anchoring mechanism.
@@ -33,13 +33,14 @@ Small teams want traceable, reviewable, verifiable AI coding workflows where pro
 | Concept | Meaning |
 | --- | --- |
 | Project | An explicitly added local repository |
-| Harness | Repo-local AI collaboration protocol, durable memory, and state |
+| Harness | Project-linked AI collaboration protocol, durable memory, and state |
 | Change | The core workflow unit, represented by ECL artifacts |
 | Spec | The semantic anchor for a change or feature area |
 | Acceptance Criteria | The validation anchor that should map to tests or checks |
 | Evolution | Controlled improvement of project Harness from archived evidence |
 | Run | A workflow execution attempt, eventually isolated in a worktree |
 | Artifact | Durable evidence such as events, logs, diffs, validation reports, and reviews |
+| Memory Mode | Where durable project memory lives: repo-local, external-local, or future remote |
 
 ## 5. Product Principles
 
@@ -81,10 +82,18 @@ Phase 2B adds local command run artifacts:
 - Listing and showing recorded runs.
 - Preserving execution evidence without treating it as human approval.
 
+Phase 2C adds Codex read-only proposal capture:
+
+- Reusing the user's local Codex CLI configuration.
+- Generating `context.md` and `prompt.md`.
+- Capturing Codex stdout/stderr, JSONL events, and final proposal text.
+- Treating Codex output as proposal-only evidence.
+
 Later phases add:
 
 - Spec-Anchored local managed runs.
-- Codex-style disposable executor adapters.
+- External-local memory as the personal default.
+- Codex write-mode adapters behind explicit worktree boundaries.
 - Run events, logs, diffs, validation reports, and review artifacts.
 - Validation and audit loops.
 - Worktree isolation.
@@ -92,10 +101,19 @@ Later phases add:
 - Local dashboard.
 - Interactive terminal sessions.
 
+Long-term memory direction:
+
+- `repo-local` remains the current implementation and compatibility/migration mode.
+- `external-local` is the personal multi-project default target: business repos keep a marker and AGENTS memory map, while durable memory lives in AHO home.
+- `remote` is the future team and cross-device mode: remote memory is authoritative and local memory is a cache.
+- Cross-project knowledge memory is deferred and must use a separate namespace from single-project change history.
+
 ## 7. Non-Goals For MVP
 
 - Cloud sync.
 - Multi-user permissions.
+- Remote memory gateway/server.
+- Cross-project knowledge store.
 - Automatic merge to main.
 - Unattended Harness mutation.
 - In-product model API runtime.
@@ -109,7 +127,7 @@ Later phases add:
 - A user can add a local project and initialize Harness.
 - A structured change can move from spec to plan to code to validation in later phases.
 - Acceptance Criteria can become addressable anchors for tasks, tests, and validation in later phases.
-- Codex CLI or Claude Code can be invoked through local adapters in later phases.
+- Codex CLI can be invoked through a read-only proposal adapter.
 - Pending evolution can be surfaced and handled with proposal, audit, validation, results, and mark-complete.
 - Multiple projects can eventually be shown in a dashboard.
 - Agent output is persisted as artifacts, not only chat.

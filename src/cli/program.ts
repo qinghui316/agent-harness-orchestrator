@@ -6,8 +6,10 @@ import { auditHarness } from "../harness/audit.js";
 import { initHarness } from "../harness/init.js";
 import { writeChangeIndex } from "../ecl/index.js";
 import { printJson, printTable } from "./output.js";
+import { readPromptInput } from "../codex/prompt.js";
 import { closeChange, createChange, getChangeStatus } from "../change/manager.js";
 import { listRuns, readRun, startLocalCommandRun } from "../run/manager.js";
+import { startCodexReadonlyRun } from "../run/codex.js";
 import type { ManagedProject } from "../types/index.js";
 
 async function resolveRegisteredOrPath(store: ProjectRegistryStore, query: string): Promise<{ project: Awaited<ReturnType<ProjectRegistryStore["resolveProject"]>>; path: string }> {
@@ -215,6 +217,30 @@ export function createProgram(): Command {
         console.log(`Run ${result.run.id}: ${result.run.status}`);
         console.log(`Exit code: ${result.run.exitCode ?? ""}`);
         console.log(`Artifacts: ${result.run.artifacts.directory}`);
+      }
+      if (result.run.status === "failed") {
+        process.exitCode = result.run.exitCode ?? 1;
+      }
+    });
+
+  run
+    .command("codex")
+    .argument("<project>", "registered project id/name/path")
+    .option("--prompt <text>", "prompt to send to Codex")
+    .option("--prompt-file <path>", "file containing the prompt to send to Codex, resolved from the current AHO cwd")
+    .option("--model <model>", "Codex model to pass through")
+    .option("--profile <profile>", "Codex config profile to pass through")
+    .option("--json", "print JSON")
+    .action(async (query: string, options: { prompt?: string; promptFile?: string; model?: string; profile?: string; json?: boolean }) => {
+      const project = await resolveManagedProject(store, query);
+      const prompt = await readPromptInput({ prompt: options.prompt, promptFile: options.promptFile });
+      const result = await startCodexReadonlyRun(project, { prompt, model: options.model, profile: options.profile });
+      if (options.json) printJson(result);
+      else {
+        console.log(`Run ${result.run.id}: ${result.run.status}`);
+        console.log(`Exit code: ${result.run.exitCode ?? ""}`);
+        console.log(`Artifacts: ${result.run.artifacts.directory}`);
+        console.log("Codex output is a proposal only; it has not been accepted or applied.");
       }
       if (result.run.status === "failed") {
         process.exitCode = result.run.exitCode ?? 1;
