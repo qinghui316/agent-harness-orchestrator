@@ -74,6 +74,13 @@ Phase 2A adds Node-native structured change management:
 - Generating `ac-map.json`.
 - Closing changes through a lightweight close gate.
 
+Phase 2B adds local command run artifacts:
+
+- Starting one local command run against an active change.
+- Writing `run.json`, `context.md`, `events.jsonl`, `stdout.log`, and `stderr.log`.
+- Listing and showing recorded runs.
+- Preserving execution evidence without treating it as human approval.
+
 Later phases add:
 
 - Spec-Anchored local managed runs.

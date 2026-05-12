@@ -2,7 +2,7 @@
 
 ## 1. Current Phase
 
-This repository contains Harness infrastructure, a Phase 1 TypeScript CLI, and Phase 2A structured change management.
+This repository contains Harness infrastructure, a Phase 1 TypeScript CLI, Phase 2A structured change management, and Phase 2B local command run artifacts.
 
 ## 2. Prerequisites
 
@@ -59,7 +59,28 @@ node dist/index.js change close aho-test
 
 `change close` blocks while `reviews/review.md` is `Status: pending`. Change it to `Status: approved` or `Status: approved-with-notes` to close after reviewing the artifacts.
 
-## 6. Harness Commands
+## 6. Local Command Run Commands
+
+Runs require a registered, managed project with exactly one active change. Commands are executed directly in the target project root with executable-plus-arguments semantics; shell pipes, redirects, and interactive sessions are not supported.
+
+```powershell
+node dist/index.js run start aho-test -- npm run test
+node dist/index.js run list aho-test --json
+node dist/index.js run show aho-test <run-id> --json
+```
+
+Run artifacts are written under the target project:
+
+```text
+.agent-harness/runs/{run-id}/
+  run.json
+  context.md
+  events.jsonl
+  stdout.log
+  stderr.log
+```
+
+## 7. Harness Commands
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/harness-change.ps1 reindex

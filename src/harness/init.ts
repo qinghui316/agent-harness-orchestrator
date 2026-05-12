@@ -57,6 +57,7 @@ export async function initHarness(project: ManagedProject): Promise<HarnessInitR
 
   const created: string[] = [".agent-harness/project.json"];
   const skipped: string[] = [];
+  await ensureAgentHarnessIgnore(project.path, created, skipped);
   const templateRoot = getTemplateRoot();
   const replacements = {
     PROJECT_NAME: project.name,
@@ -71,4 +72,14 @@ export async function initHarness(project: ManagedProject): Promise<HarnessInitR
     skipped,
     indexPath: "harness/changes/INDEX.json",
   };
+}
+
+async function ensureAgentHarnessIgnore(projectPath: string, created: string[], skipped: string[]): Promise<void> {
+  const path = join(projectPath, ".agent-harness", ".gitignore");
+  if (existsSync(path)) {
+    skipped.push(".agent-harness/.gitignore");
+    return;
+  }
+  await writeFile(path, "runs/\nworktrees/\n", "utf8");
+  created.push(".agent-harness/.gitignore");
 }

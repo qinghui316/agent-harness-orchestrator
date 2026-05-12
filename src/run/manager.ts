@@ -1,0 +1,223 @@
+import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
+import { appendFile, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { z } from "zod";
+import { getChangeStatus } from "../change/manager.js";
+import { writeJsonFile } from "../fs/json.js";
+import { shortHash, slugify } from "../fs/path.js";
+import type { ChangeStatus, ManagedProject, RunEvent, RunMetadata, RunStatus } from "../types/index.js";
+
+const runMetadataSchema = z.object({
+  version: z.literal("1.0"),
+  id: z.string(),
+  changeId: z.string(),
+  projectPath: z.string(),
+  runtime: z.literal("local-command"),
+  command: z.array(z.string()),
+  status: z.enum(["created", "running", "completed", "failed"]),
+  exitCode: z.number().nullable(),
+  signal: z.string().nullable(),
+  startedAt: z.string(),
+  finishedAt: z.string().nullable(),
+  artifacts: z.object({
+    directory: z.string(),
+    context: z.string(),
+    events: z.string(),
+    stdout: z.string(),
+    stderr: z.string(),
+  }),
+});
+
+export interface RunStartResult {
+  run: RunMetadata;
+}
+
+export async function startLocalCommandRun(project: ManagedProject, command: string[]): Promise<RunStartResult> {
+  if (command.length === 0) {
+    throw new Error("Run command is required after `--`, for example: aho run start <project> -- npm test");
+  }
+
+  const changeStatus = await getChangeStatus(project.path);
+  assertRunnableChange(changeStatus);
+  const changeId = changeStatus.change?.id ?? changeStatus.activeChanges[0]?.name;
+  if (!changeId) throw new Error("Cannot start run without an active change id.");
+
+  const runId = buildRunId(changeId, command);
+  const relativeDir = `.agent-harness/runs/${runId}`;
+  const directory = join(project.path, relativeDir);
+  const artifacts = {
+    directory: relativeDir,
+    context: `${relativeDir}/context.md`,
+    events: `${relativeDir}/events.jsonl`,
+    stdout: `${relativeDir}/stdout.log`,
+    stderr: `${relativeDir}/stderr.log`,
+  };
+  const paths = {
+    context: join(project.path, artifacts.context),
+    events: join(project.path, artifacts.events),
+    stdout: join(project.path, artifacts.stdout),
+    stderr: join(project.path, artifacts.stderr),
+    run: join(directory, "run.json"),
+  };
+
+  await mkdir(directory, { recursive: true });
+  const now = new Date().toISOString();
+  let run: RunMetadata = {
+    version: "1.0",
+    id: runId,
+    changeId,
+    projectPath: project.path,
+    runtime: "local-command",
+    command,
+    status: "created",
+    exitCode: null,
+    signal: null,
+    startedAt: now,
+    finishedAt: null,
+    artifacts,
+  };
+  await writeJsonFile(paths.run, run);
+  await appendRunEvent(paths.events, { timestamp: now, type: "run.created", runId, data: { changeId, command } });
+
+  await writeFile(paths.context, buildContextProjection(changeStatus), "utf8");
+  await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "context.prepared", runId, data: { path: artifacts.context } });
+
+  run = { ...run, status: "running" };
+  await writeJsonFile(paths.run, run);
+  await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "process.started", runId, data: { cwd: project.path, command } });
+
+  const processResult = await executeCommand(project.path, command);
+  await writeFile(paths.stdout, processResult.stdout, "utf8");
+  await writeFile(paths.stderr, processResult.stderr, "utf8");
+  await appendRunEvent(paths.events, {
+    timestamp: new Date().toISOString(),
+    type: "process.exited",
+    runId,
+    data: { exitCode: processResult.exitCode, signal: processResult.signal },
+  });
+
+  const status: RunStatus = processResult.exitCode === 0 ? "completed" : "failed";
+  const finishedAt = new Date().toISOString();
+  run = {
+    ...run,
+    status,
+    exitCode: processResult.exitCode,
+    signal: processResult.signal,
+    finishedAt,
+  };
+  await writeJsonFile(paths.run, run);
+  await appendRunEvent(paths.events, { timestamp: finishedAt, type: status === "completed" ? "run.completed" : "run.failed", runId });
+
+  return { run };
+}
+
+export async function listRuns(projectPath: string): Promise<RunMetadata[]> {
+  const runsDir = join(projectPath, ".agent-harness", "runs");
+  if (!existsSync(runsDir)) return [];
+  const entries = await readdir(runsDir, { withFileTypes: true });
+  const runs: RunMetadata[] = [];
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    runs.push(await readRun(projectPath, entry.name));
+  }
+  return runs.sort((a, b) => b.startedAt.localeCompare(a.startedAt));
+}
+
+export async function readRun(projectPath: string, runId: string): Promise<RunMetadata> {
+  const path = join(projectPath, ".agent-harness", "runs", runId, "run.json");
+  const parsed: unknown = JSON.parse(await readFile(path, "utf8"));
+  return runMetadataSchema.parse(parsed) as RunMetadata;
+}
+
+function assertRunnableChange(status: ChangeStatus): void {
+  if (status.activeChanges.length === 0) {
+    throw new Error("Cannot start run: no active change found.");
+  }
+  if (status.activeChanges.length > 1) {
+    throw new Error(`Cannot start run: expected exactly one active change; found ${status.activeChanges.length}.`);
+  }
+  if (!status.change) {
+    throw new Error("Cannot start run: active change is missing valid change.json.");
+  }
+}
+
+function buildRunId(changeId: string, command: string[]): string {
+  const timestamp = compactLocalTimestamp();
+  const commandHash = shortHash(`${Date.now()}\0${command.join("\0")}`).slice(0, 6);
+  return `run-${timestamp}-${slugify(changeId)}-${commandHash}`;
+}
+
+function buildContextProjection(status: ChangeStatus): string {
+  const change = status.change;
+  const acMap = status.acMap;
+  return [
+    "# Run Context Projection",
+    "",
+    "This file is generated for one run. It is not the source of truth.",
+    "Read the active change files and project Harness for durable memory.",
+    "",
+    "## Change",
+    "",
+    `- ID: ${change?.id ?? "unknown"}`,
+    `- Title: ${change?.title ?? "unknown"}`,
+    `- Review Status: ${status.reviewStatus}`,
+    `- Close Gate Ready: ${status.closeGate.ready}`,
+    "",
+    "## Acceptance Criteria",
+    "",
+    ...(acMap?.acceptanceCriteria.length
+      ? acMap.acceptanceCriteria.map((criterion) => `- ${criterion.id}: ${criterion.text || "(empty)"}`)
+      : ["- None parsed."]),
+    "",
+    "## Tasks",
+    "",
+    ...(acMap?.tasks.length
+      ? acMap.tasks.map((task) => `- ${task.done ? "[x]" : "[ ]"} ${task.id}: ${task.text || "(empty)"}; Covers: ${task.acIds.join(", ") || "none"}`)
+      : ["- None parsed."]),
+    "",
+    "## Close Gate",
+    "",
+    ...(status.closeGate.blockingIssues.length ? status.closeGate.blockingIssues.map((issue) => `- BLOCKING: ${issue}`) : ["- No blocking issues."]),
+    ...(status.closeGate.warnings.length ? status.closeGate.warnings.map((warning) => `- WARNING: ${warning}`) : []),
+    "",
+  ].join("\n");
+}
+
+async function appendRunEvent(path: string, event: RunEvent): Promise<void> {
+  await appendFile(path, `${JSON.stringify(event)}\n`, "utf8");
+}
+
+async function executeCommand(cwd: string, command: string[]): Promise<{ stdout: string; stderr: string; exitCode: number | null; signal: NodeJS.Signals | null }> {
+  return await new Promise((resolve) => {
+    const child = spawn(command[0], command.slice(1), { cwd, shell: false, windowsHide: true });
+    const stdout: Buffer[] = [];
+    const stderr: Buffer[] = [];
+
+    child.stdout.on("data", (chunk: Buffer) => stdout.push(chunk));
+    child.stderr.on("data", (chunk: Buffer) => stderr.push(chunk));
+    child.on("error", (error) => {
+      stderr.push(Buffer.from(`${error.message}\n`, "utf8"));
+      resolve({ stdout: Buffer.concat(stdout).toString("utf8"), stderr: Buffer.concat(stderr).toString("utf8"), exitCode: 1, signal: null });
+    });
+    child.on("close", (code, signal) => {
+      resolve({ stdout: Buffer.concat(stdout).toString("utf8"), stderr: Buffer.concat(stderr).toString("utf8"), exitCode: code, signal });
+    });
+  });
+}
+
+function compactLocalTimestamp(date = new Date()): string {
+  return [
+    date.getFullYear(),
+    pad(date.getMonth() + 1),
+    pad(date.getDate()),
+    "-",
+    pad(date.getHours()),
+    pad(date.getMinutes()),
+    pad(date.getSeconds()),
+  ].join("");
+}
+
+function pad(value: number): string {
+  return value.toString().padStart(2, "0");
+}

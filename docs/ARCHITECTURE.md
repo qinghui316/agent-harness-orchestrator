@@ -1,10 +1,10 @@
 # Architecture
 
-> Status: Phase 2A implements project registration, Harness management, and Node-native structured change management. Managed runs, worktree execution, Codex runtime, event logs, Spec-Test gates, and dashboard are planned future work.
+> Status: Phase 2B implements project registration, Harness management, Node-native structured change management, local command runs, event logs, and run artifacts. Worktree execution, Codex runtime, Spec-Test gates, and dashboard are planned future work.
 
 ## 1. Current Status
 
-Agent Harness Orchestrator is a single-package TypeScript CLI. It currently manages local project registration, Harness audit/init, ECL index rebuilds, structured change creation/status/close, Acceptance Criteria parsing, task mapping, and generated `ac-map.json`.
+Agent Harness Orchestrator is a single-package TypeScript CLI. It currently manages local project registration, Harness audit/init, ECL index rebuilds, structured change creation/status/close, Acceptance Criteria parsing, task mapping, generated `ac-map.json`, and local command run artifacts.
 
 The long-term architecture is a local-first, Spec-Anchored managed-run harness. AHO keeps project memory in files, prepares context for disposable external agents, records execution evidence, and routes every high-impact result through human confirmation.
 
@@ -130,7 +130,7 @@ Each run should produce durable artifacts:
   review.md
 ```
 
-Phase 1 does not implement this directory. It is the planned shape for Spec-Anchored managed runs.
+Phase 2B implements `run.json`, `context.md`, `events.jsonl`, `stdout.log`, and `stderr.log` for local command runs. Diff, validation, and review artifacts remain planned future work.
 
 ## 7. Worktree Isolation
 
@@ -208,7 +208,7 @@ Product Harness templates are public assets. This repository's own Harness runti
 | --- | --- |
 | Phase 1 | Project registry and Harness audit/init/reindex |
 | Phase 2A | Node-native structured change manager |
-| Phase 2B | Run sessions, event logs, and shell runtime |
+| Phase 2B | Run sessions, event logs, and local command runtime |
 | Phase 2C | Codex-style runtime adapter |
 | Phase 3 | Worktree isolation and runtime hardening |
 | Phase 4 | Spec-Test mapping and drift gates |

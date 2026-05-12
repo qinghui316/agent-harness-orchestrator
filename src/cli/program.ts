@@ -7,6 +7,7 @@ import { initHarness } from "../harness/init.js";
 import { writeChangeIndex } from "../ecl/index.js";
 import { printJson, printTable } from "./output.js";
 import { closeChange, createChange, getChangeStatus } from "../change/manager.js";
+import { listRuns, readRun, startLocalCommandRun } from "../run/manager.js";
 import type { ManagedProject } from "../types/index.js";
 
 async function resolveRegisteredOrPath(store: ProjectRegistryStore, query: string): Promise<{ project: Awaited<ReturnType<ProjectRegistryStore["resolveProject"]>>; path: string }> {
@@ -18,7 +19,7 @@ async function resolveRegisteredOrPath(store: ProjectRegistryStore, query: strin
 async function resolveManagedProject(store: ProjectRegistryStore, query: string): Promise<ManagedProject> {
   const project = await store.resolveProject(query);
   if (!project) {
-    throw new Error("Project must be registered with `aho project add` before using change commands.");
+    throw new Error("Project must be registered with `aho project add` before using managed project commands.");
   }
   const audit = await auditHarness(project.path);
   if (!audit.managed) {
@@ -196,6 +197,72 @@ export function createProgram(): Command {
       const result = await closeChange(project.path);
       if (options.json) printJson(result);
       else console.log(`Archived change ${result.change.id} at ${result.archivePath}`);
+    });
+
+  const run = program.command("run").description("Run local commands and record artifacts");
+
+  run
+    .command("start")
+    .argument("<project>", "registered project id/name/path")
+    .argument("[commandArgs...]", "command and arguments after --")
+    .allowUnknownOption(true)
+    .option("--json", "print JSON")
+    .action(async (query: string, commandArgs: string[], options: { json?: boolean }) => {
+      const project = await resolveManagedProject(store, query);
+      const result = await startLocalCommandRun(project, commandArgs);
+      if (options.json) printJson(result);
+      else {
+        console.log(`Run ${result.run.id}: ${result.run.status}`);
+        console.log(`Exit code: ${result.run.exitCode ?? ""}`);
+        console.log(`Artifacts: ${result.run.artifacts.directory}`);
+      }
+      if (result.run.status === "failed") {
+        process.exitCode = result.run.exitCode ?? 1;
+      }
+    });
+
+  run
+    .command("list")
+    .argument("<project>", "registered project id/name/path")
+    .option("--json", "print JSON")
+    .action(async (query: string, options: { json?: boolean }) => {
+      const project = await resolveManagedProject(store, query);
+      const runs = await listRuns(project.path);
+      if (options.json) printJson(runs);
+      else {
+        printTable(runs.map((item) => ({
+          id: item.id,
+          change: item.changeId,
+          command: item.command.join(" "),
+          status: item.status,
+          exitCode: item.exitCode ?? "",
+          startedAt: item.startedAt,
+          finishedAt: item.finishedAt ?? "",
+        })));
+      }
+    });
+
+  run
+    .command("show")
+    .argument("<project>", "registered project id/name/path")
+    .argument("<run-id>", "run id")
+    .option("--json", "print JSON")
+    .action(async (query: string, runId: string, options: { json?: boolean }) => {
+      const project = await resolveManagedProject(store, query);
+      const item = await readRun(project.path, runId);
+      if (options.json) printJson(item);
+      else {
+        printTable([
+          {
+            id: item.id,
+            change: item.changeId,
+            command: item.command.join(" "),
+            status: item.status,
+            exitCode: item.exitCode ?? "",
+            artifacts: item.artifacts.directory,
+          },
+        ]);
+      }
     });
 
   return program;

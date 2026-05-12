@@ -115,3 +115,35 @@ export interface ChangeStatus {
   acMap: AcMap | null;
   closeGate: CloseGateResult;
 }
+
+export type RunStatus = "created" | "running" | "completed" | "failed";
+
+export interface RunArtifactPaths {
+  directory: string;
+  context: string;
+  events: string;
+  stdout: string;
+  stderr: string;
+}
+
+export interface RunMetadata {
+  version: "1.0";
+  id: string;
+  changeId: string;
+  projectPath: string;
+  runtime: "local-command";
+  command: string[];
+  status: RunStatus;
+  exitCode: number | null;
+  signal: NodeJS.Signals | null;
+  startedAt: string;
+  finishedAt: string | null;
+  artifacts: RunArtifactPaths;
+}
+
+export interface RunEvent {
+  timestamp: string;
+  type: "run.created" | "context.prepared" | "process.started" | "process.exited" | "run.completed" | "run.failed";
+  runId: string;
+  data?: Record<string, unknown>;
+}

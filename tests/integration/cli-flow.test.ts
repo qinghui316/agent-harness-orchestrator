@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -47,6 +47,7 @@ describe("CLI flow", () => {
     await runCli(["harness", "init", "repo"]);
 
     expect(existsSync(join(repoDir, ".agent-harness", "project.json"))).toBe(true);
+    expect(await readFile(join(repoDir, ".agent-harness", ".gitignore"), "utf8")).toContain("runs/");
     expect(existsSync(join(repoDir, "AGENTS.md"))).toBe(true);
     expect(existsSync(join(repoDir, "harness", "changes", "INDEX.json"))).toBe(true);
 
@@ -72,5 +73,36 @@ describe("CLI flow", () => {
     const index = JSON.parse(await readFile(join(repoDir, "harness", "changes", "INDEX.json"), "utf8"));
     expect(index.active).toHaveLength(0);
     expect(index.archive[0].name).toMatch(/^\d{8}-add-sample-workflow/);
+  });
+
+  it("records local command runs and exposes them through the CLI", async () => {
+    await runCli(["project", "add", repoDir, "--name", "Repo"]);
+    await runCli(["harness", "init", "repo"]);
+    await runCli(["change", "new", "repo", "--title", "Run Artifacts"]);
+    await runCli(["run", "start", "repo", "--", process.execPath, "-e", "console.log('cli run')"]);
+
+    const runsDir = join(repoDir, ".agent-harness", "runs");
+    const runIds = await readdir(runsDir);
+    expect(runIds).toHaveLength(1);
+
+    await runCli(["run", "list", "repo", "--json"]);
+    await runCli(["run", "show", "repo", runIds[0], "--json"]);
+
+    const run = JSON.parse(await readFile(join(runsDir, runIds[0], "run.json"), "utf8"));
+    expect(run).toMatchObject({ status: "completed", exitCode: 0, runtime: "local-command" });
+    expect(await readFile(join(runsDir, runIds[0], "stdout.log"), "utf8")).toContain("cli run");
+  });
+
+  it("sets CLI exitCode when a local command run fails", async () => {
+    const originalExitCode = process.exitCode;
+    process.exitCode = undefined;
+    await runCli(["project", "add", repoDir, "--name", "Repo"]);
+    await runCli(["harness", "init", "repo"]);
+    await runCli(["change", "new", "repo", "--title", "Failed Run"]);
+
+    await runCli(["run", "start", "repo", "--", process.execPath, "-e", "process.exit(2)"]);
+
+    expect(process.exitCode).toBe(2);
+    process.exitCode = originalExitCode;
   });
 });
