@@ -36,6 +36,8 @@ export interface ResolvedMemory {
   templatesRoot: string;
   scriptsRoot: string;
   runsRoot: string;
+  worktreeMetadataRoot: string;
+  worktreeIndexPath: string;
   reason?: string;
 }
 
@@ -56,6 +58,8 @@ export interface MemoryStatus {
     templatesRoot: string;
     scriptsRoot: string;
     runsRoot: string;
+    worktreeMetadataRoot: string;
+    worktreeIndexPath: string;
   };
   artifactBase: ArtifactBase;
   unsupportedReason?: string;
@@ -168,7 +172,41 @@ export type RunStatus = "created" | "running" | "completed" | "failed";
 
 export type RunRuntime = "local-command" | "codex-readonly";
 
-export type RunExecutionMode = "direct";
+export type RunExecutionMode = "direct" | "worktree";
+
+export type WorktreeLifecycleStatus = "active";
+
+export interface WorktreeMetadata {
+  version: "1.0";
+  worktreeId: string;
+  projectId: string;
+  changeId: string;
+  runId?: string;
+  branchName: string;
+  baseRef: string;
+  baseCommit: string;
+  createdFromDirtyProject: boolean;
+  createdAt: string;
+  status: WorktreeLifecycleStatus;
+  checkoutPath: string;
+}
+
+export interface WorktreeStatus extends WorktreeMetadata {
+  exists: boolean;
+  branch: string | null;
+  headCommit: string | null;
+  dirty: boolean | null;
+  diffSummary: string[];
+}
+
+export interface RunWorktreeInfo {
+  worktreeId: string;
+  branchName: string;
+  baseRef: string;
+  baseCommit: string;
+  checkoutPath: string;
+  metadataPath: string;
+}
 
 export interface RunArtifactPaths {
   base?: ArtifactBase;
@@ -201,6 +239,7 @@ export interface RunMetadata {
   startedAt: string;
   finishedAt: string | null;
   artifacts: RunArtifactPaths;
+  worktree?: RunWorktreeInfo;
 }
 
 export interface RunEvent {

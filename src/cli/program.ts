@@ -11,9 +11,10 @@ import { closeChange, createChange, getChangeStatus } from "../change/manager.js
 import { listRuns, readRun, startLocalCommandRun } from "../run/manager.js";
 import { startCodexReadonlyRun } from "../run/codex.js";
 import { getMemoryStatus } from "../memory/status.js";
-import { assertWritableMemory, resolveMemory } from "../memory/resolver.js";
+import { assertWritableMemory, resolveMemory, resolveProjectMemory } from "../memory/resolver.js";
 import { readProjectMarker } from "../project/marker.js";
-import type { ManagedProject, MemoryMode } from "../types/index.js";
+import { createWorktree, getWorktreeStatus, listWorktreeStatuses, removeWorktree } from "../worktree/manager.js";
+import type { ManagedProject, MemoryMode, ResolvedMemory } from "../types/index.js";
 
 async function resolveRegisteredOrPath(store: ProjectRegistryStore, query: string): Promise<{ project: Awaited<ReturnType<ProjectRegistryStore["resolveProject"]>>; path: string }> {
   const project = await store.resolveProject(query);
@@ -34,6 +35,20 @@ async function resolveManagedProject(store: ProjectRegistryStore, query: string)
     throw new Error(`Project Harness is not ready (${audit.readiness}); run \`aho harness audit ${project.id}\`.`);
   }
   return project;
+}
+
+async function resolveManagedMemoryProject(store: ProjectRegistryStore, query: string, action: string): Promise<{ project: ManagedProject; memory: ResolvedMemory }> {
+  const project = await store.resolveProject(query);
+  if (!project) {
+    throw new Error("Project must be registered with `aho project add` before using worktree commands.");
+  }
+  const marker = await readProjectMarker(project.path);
+  if (!marker) {
+    throw new Error("Project must be initialized with `aho harness init` before using worktree commands.");
+  }
+  const memory = resolveMemory({ ...project, marker });
+  assertWritableMemory(memory, action);
+  return { project, memory };
 }
 
 export function createProgram(): Command {
@@ -235,6 +250,80 @@ export function createProgram(): Command {
       else console.log(`Archived change ${result.change.id} at ${result.archivePath}`);
     });
 
+  const worktree = program.command("worktree").description("Manage AHO-owned Git worktrees");
+
+  worktree
+    .command("create")
+    .argument("<project>", "registered project id/name/path")
+    .option("--base <ref>", "base ref for the worktree")
+    .option("--json", "print JSON")
+    .action(async (query: string, options: { base?: string; json?: boolean }) => {
+      const project = await resolveManagedProject(store, query);
+      const memory = await resolveProjectMemory(project);
+      const status = await getChangeStatus(project);
+      if (status.activeChanges.length !== 1 || !status.change) {
+        throw new Error("Cannot create worktree: expected exactly one active change.");
+      }
+      const result = await createWorktree(project, memory, status.change.id, { baseRef: options.base });
+      if (options.json) printJson(result);
+      else {
+        console.log(`Created worktree ${result.metadata.worktreeId}`);
+        console.log(`Branch: ${result.metadata.branchName}`);
+        console.log(`Checkout: ${result.metadata.checkoutPath}`);
+        for (const warning of result.warnings) console.log(`WARNING: ${warning}`);
+      }
+    });
+
+  worktree
+    .command("list")
+    .argument("<project>", "registered project id/name/path")
+    .option("--json", "print JSON")
+    .action(async (query: string, options: { json?: boolean }) => {
+      const { memory } = await resolveManagedMemoryProject(store, query, "Worktree list");
+      const items = await listWorktreeStatuses(memory);
+      if (options.json) printJson(items);
+      else printTable(items.map((item) => ({
+        id: item.worktreeId,
+        change: item.changeId,
+        branch: item.branch,
+        dirty: item.dirty ?? "",
+        exists: item.exists,
+        checkout: item.checkoutPath,
+      })));
+    });
+
+  worktree
+    .command("show")
+    .argument("<project>", "registered project id/name/path")
+    .argument("<worktree-id>", "worktree id")
+    .option("--json", "print JSON")
+    .action(async (query: string, worktreeId: string, options: { json?: boolean }) => {
+      const { memory } = await resolveManagedMemoryProject(store, query, "Worktree show");
+      const item = await getWorktreeStatus(memory, worktreeId);
+      if (options.json) printJson(item);
+      else printTable([{
+        id: item.worktreeId,
+        change: item.changeId,
+        branch: item.branch,
+        dirty: item.dirty ?? "",
+        head: item.headCommit ?? "",
+        checkout: item.checkoutPath,
+      }]);
+    });
+
+  worktree
+    .command("remove")
+    .argument("<project>", "registered project id/name/path")
+    .argument("<worktree-id>", "worktree id")
+    .option("--force", "remove even if the worktree is dirty")
+    .option("--json", "print JSON")
+    .action(async (query: string, worktreeId: string, options: { force?: boolean; json?: boolean }) => {
+      const { memory } = await resolveManagedMemoryProject(store, query, "Worktree remove");
+      const result = await removeWorktree(memory, worktreeId, options.force === true);
+      if (options.json) printJson(result);
+      else console.log(`Removed worktree ${result.removed.worktreeId}`);
+    });
+
   const run = program.command("run").description("Run local commands and record artifacts");
 
   run
@@ -242,15 +331,17 @@ export function createProgram(): Command {
     .argument("<project>", "registered project id/name/path")
     .argument("[commandArgs...]", "command and arguments after --")
     .allowUnknownOption(true)
+    .option("--worktree", "run the command in a new AHO-managed worktree")
     .option("--json", "print JSON")
-    .action(async (query: string, commandArgs: string[], options: { json?: boolean }) => {
+    .action(async (query: string, commandArgs: string[], options: { worktree?: boolean; json?: boolean }) => {
       const project = await resolveManagedProject(store, query);
-      const result = await startLocalCommandRun(project, commandArgs);
+      const result = await startLocalCommandRun(project, commandArgs, { worktree: options.worktree === true });
       if (options.json) printJson(result);
       else {
         console.log(`Run ${result.run.id}: ${result.run.status}`);
         console.log(`Exit code: ${result.run.exitCode ?? ""}`);
         console.log(`Artifacts: ${result.run.artifacts.directory}`);
+        if (result.run.worktree) console.log(`Worktree: ${result.run.worktree.checkoutPath}`);
       }
       if (result.run.status === "failed") {
         process.exitCode = result.run.exitCode ?? 1;

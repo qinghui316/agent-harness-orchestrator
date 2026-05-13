@@ -26,6 +26,8 @@ export async function getMemoryStatus(project: ManagedProject | null, path: stri
       templatesRoot: memory.templatesRoot,
       scriptsRoot: memory.scriptsRoot,
       runsRoot: memory.runsRoot,
+      worktreeMetadataRoot: memory.worktreeMetadataRoot,
+      worktreeIndexPath: memory.worktreeIndexPath,
     },
     artifactBase: memory.artifactBase,
     unsupportedReason: memory.reason,

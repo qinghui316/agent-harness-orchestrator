@@ -58,6 +58,8 @@ export function repoLocalMemory(projectRoot: string, projectId: string | null): 
     templatesRoot: join(projectRoot, "harness", "templates", "change"),
     scriptsRoot: join(projectRoot, "scripts"),
     runsRoot: join(projectRoot, ".agent-harness", "runs"),
+    worktreeMetadataRoot: join(projectRoot, ".agent-harness", "worktrees", "metadata"),
+    worktreeIndexPath: join(projectRoot, ".agent-harness", "worktrees", "index.json"),
   };
 }
 
@@ -81,6 +83,8 @@ function externalLocalMemory(projectRoot: string, projectId: string | null): Res
     templatesRoot: join(memoryRoot, "harness", "templates", "change"),
     scriptsRoot: join(memoryRoot, "scripts"),
     runsRoot: join(memoryRoot, "runs"),
+    worktreeMetadataRoot: join(memoryRoot, "worktrees", "metadata"),
+    worktreeIndexPath: join(memoryRoot, "worktrees", "index.json"),
   };
 }
 
@@ -104,6 +108,8 @@ function remoteMemory(projectRoot: string, projectId: string | null): ResolvedMe
     templatesRoot: join(cacheRoot, "harness", "templates", "change"),
     scriptsRoot: join(cacheRoot, "scripts"),
     runsRoot: join(cacheRoot, "runs"),
+    worktreeMetadataRoot: join(cacheRoot, "worktrees", "metadata"),
+    worktreeIndexPath: join(cacheRoot, "worktrees", "index.json"),
     reason: "remote memory is future work and is not operational in Phase 2E.",
   };
 }

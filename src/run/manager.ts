@@ -7,7 +7,8 @@ import { writeJsonFile } from "../fs/json.js";
 import { shortHash, slugify } from "../fs/path.js";
 import { assertWritableMemory, resolveMemory, resolveProjectMemory } from "../memory/resolver.js";
 import { executeProcessStreaming } from "./process.js";
-import type { ChangeStatus, ManagedProject, ResolvedMemory, RunEvent, RunMetadata, RunStatus } from "../types/index.js";
+import { createWorktree, getWorktreeMetadataPath } from "../worktree/manager.js";
+import type { ChangeStatus, ManagedProject, ResolvedMemory, RunEvent, RunMetadata, RunStatus, RunWorktreeInfo } from "../types/index.js";
 
 const runMetadataSchema = z.object({
   version: z.literal("1.0"),
@@ -15,7 +16,7 @@ const runMetadataSchema = z.object({
   changeId: z.string(),
   projectPath: z.string(),
   runtime: z.enum(["local-command", "codex-readonly"]),
-  executionMode: z.literal("direct").optional(),
+  executionMode: z.enum(["direct", "worktree"]).optional(),
   proposalOnly: z.boolean().optional(),
   command: z.array(z.string()),
   status: z.enum(["created", "running", "completed", "failed"]),
@@ -38,13 +39,25 @@ const runMetadataSchema = z.object({
     validation: z.string().optional(),
     review: z.string().optional(),
   }),
+  worktree: z.object({
+    worktreeId: z.string(),
+    branchName: z.string(),
+    baseRef: z.string(),
+    baseCommit: z.string(),
+    checkoutPath: z.string(),
+    metadataPath: z.string(),
+  }).optional(),
 });
 
 export interface RunStartResult {
   run: RunMetadata;
 }
 
-export async function startLocalCommandRun(project: ManagedProject, command: string[]): Promise<RunStartResult> {
+export interface LocalCommandRunOptions {
+  worktree?: boolean;
+}
+
+export async function startLocalCommandRun(project: ManagedProject, command: string[], options: LocalCommandRunOptions = {}): Promise<RunStartResult> {
   if (command.length === 0) {
     throw new Error("Run command is required after `--`, for example: aho run start <project> -- npm test");
   }
@@ -57,6 +70,20 @@ export async function startLocalCommandRun(project: ManagedProject, command: str
   if (!changeId) throw new Error("Cannot start run without an active change id.");
 
   const runId = buildRunId(changeId, command);
+  let cwd = project.path;
+  let worktree: RunWorktreeInfo | undefined;
+  if (options.worktree) {
+    const created = await createWorktree(project, memory, changeId, { runId });
+    cwd = created.metadata.checkoutPath;
+    worktree = {
+      worktreeId: created.metadata.worktreeId,
+      branchName: created.metadata.branchName,
+      baseRef: created.metadata.baseRef,
+      baseCommit: created.metadata.baseCommit,
+      checkoutPath: created.metadata.checkoutPath,
+      metadataPath: getWorktreeMetadataPath(memory, created.metadata.worktreeId),
+    };
+  }
   const directory = join(memory.runsRoot, runId);
   const relativeDir = displayArtifactPath(memory, directory);
   const artifacts = {
@@ -83,7 +110,7 @@ export async function startLocalCommandRun(project: ManagedProject, command: str
     changeId,
     projectPath: project.path,
     runtime: "local-command",
-    executionMode: "direct",
+    executionMode: options.worktree ? "worktree" : "direct",
     proposalOnly: false,
     command,
     status: "created",
@@ -92,19 +119,20 @@ export async function startLocalCommandRun(project: ManagedProject, command: str
     startedAt: now,
     finishedAt: null,
     artifacts,
+    worktree,
   };
   await writeJsonFile(paths.run, run);
-  await appendRunEvent(paths.events, { timestamp: now, type: "run.created", runId, data: { changeId, command } });
+  await appendRunEvent(paths.events, { timestamp: now, type: "run.created", runId, data: { changeId, command, executionMode: run.executionMode, worktree } });
 
   await writeFile(paths.context, buildContextProjection(changeStatus), "utf8");
   await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "context.prepared", runId, data: { path: artifacts.context } });
 
   run = { ...run, status: "running" };
   await writeJsonFile(paths.run, run);
-  await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "process.started", runId, data: { cwd: project.path, command } });
+  await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "process.started", runId, data: { cwd, command } });
 
   const processResult = await executeProcessStreaming({
-    cwd: project.path,
+    cwd,
     command: command[0],
     args: command.slice(1),
     stdoutPath: paths.stdout,

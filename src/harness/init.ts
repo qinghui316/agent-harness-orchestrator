@@ -109,7 +109,16 @@ export async function initHarness(project: ManagedProject, options: HarnessInitO
 async function ensureAgentHarnessIgnore(projectPath: string, created: HarnessInitPath[], skipped: HarnessInitPath[]): Promise<void> {
   const path = join(projectPath, ".agent-harness", ".gitignore");
   if (existsSync(path)) {
-    skipped.push({ base: "project-root", path: ".agent-harness/.gitignore" });
+    const existing = await readFile(path, "utf8");
+    const required = ["runs/", "worktrees/"];
+    const missing = required.filter((line) => !existing.split(/\r?\n/).includes(line));
+    if (missing.length === 0) {
+      skipped.push({ base: "project-root", path: ".agent-harness/.gitignore" });
+      return;
+    }
+    const suffix = existing.endsWith("\n") || existing.length === 0 ? "" : "\n";
+    await writeFile(path, `${existing}${suffix}${missing.join("\n")}\n`, "utf8");
+    created.push({ base: "project-root", path: ".agent-harness/.gitignore" });
     return;
   }
   await writeFile(path, "runs/\nworktrees/\n", "utf8");

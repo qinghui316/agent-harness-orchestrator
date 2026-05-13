@@ -214,6 +214,65 @@ describe("CLI flow", () => {
     expect(await readFile(join(runDir, "last-message.md"), "utf8")).toContain("could not safely start Codex");
     expect(process.exitCode).toBe(1);
   });
+
+  it("creates AHO-owned worktrees and runs local commands inside them", async () => {
+    await writeFile(join(repoDir, "README.md"), "hello\n", "utf8");
+    await execFileAsync("git", ["-C", repoDir, "add", "README.md"]);
+    await execFileAsync("git", ["-C", repoDir, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "init"]);
+
+    await runCli(["project", "add", repoDir, "--name", "Repo"]);
+    await runCli(["harness", "init", "repo", "--memory", "external-local"]);
+    await runCli(["change", "new", "repo", "--title", "Worktree Smoke", "--body", "Raw request"]);
+
+    const memoryRoot = join(homeDir, "projects", "repo");
+    await runCli(["worktree", "create", "repo", "--json"]);
+
+    const metadataIds = (await readdir(join(memoryRoot, "worktrees", "metadata"))).filter((name) => name.endsWith(".json"));
+    expect(metadataIds).toHaveLength(1);
+    const worktreeId = metadataIds[0].replace(/\.json$/, "");
+    const metadata = JSON.parse(await readFile(join(memoryRoot, "worktrees", "metadata", metadataIds[0]), "utf8"));
+    expect(metadata.checkoutPath).toContain(join(homeDir, "worktrees", "repo", "checkouts"));
+    expect(existsSync(metadata.checkoutPath)).toBe(true);
+    expect(existsSync(join(repoDir, ".agent-harness", "worktrees", "checkouts"))).toBe(false);
+
+    await runCli(["worktree", "list", "repo", "--json"]);
+    await runCli(["worktree", "show", "repo", worktreeId, "--json"]);
+    await runCli(["run", "start", "repo", "--worktree", "--", process.execPath, "-e", "console.log(process.cwd())"]);
+
+    const runIds = await readdir(join(memoryRoot, "runs"));
+    expect(runIds).toHaveLength(1);
+    const run = JSON.parse(await readFile(join(memoryRoot, "runs", runIds[0], "run.json"), "utf8"));
+    expect(run).toMatchObject({ runtime: "local-command", executionMode: "worktree", status: "completed" });
+    expect(run.worktree.checkoutPath).toContain(join(homeDir, "worktrees", "repo", "checkouts"));
+    expect(await readFile(join(memoryRoot, "runs", runIds[0], "stdout.log"), "utf8")).toContain(run.worktree.checkoutPath);
+
+    await writeFile(join(run.worktree.checkoutPath, "changed.txt"), "dirty\n", "utf8");
+    await writeFile(join(memoryRoot, "harness", "changes", "active", "worktree-smoke", "reviews", "review.md"), "Status: approved\n", "utf8");
+    await expect(runCli(["change", "close", "repo"])).rejects.toThrow("Dirty worktree blocks close");
+    await expect(runCli(["worktree", "remove", "repo", run.worktree.worktreeId])).rejects.toThrow("dirty worktree");
+    await runCli(["worktree", "remove", "repo", run.worktree.worktreeId, "--force"]);
+  });
+
+  it("blocks worktree creation for repositories without commits", async () => {
+    await runCli(["project", "add", repoDir, "--name", "Repo"]);
+    await runCli(["harness", "init", "repo", "--memory", "external-local"]);
+    await runCli(["change", "new", "repo", "--title", "No Commit Worktree"]);
+
+    await expect(runCli(["worktree", "create", "repo"])).rejects.toThrow("has no commits");
+  });
+
+  it("blocks default worktree creation from detached HEAD", async () => {
+    await writeFile(join(repoDir, "README.md"), "hello\n", "utf8");
+    await execFileAsync("git", ["-C", repoDir, "add", "README.md"]);
+    await execFileAsync("git", ["-C", repoDir, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "init"]);
+    await execFileAsync("git", ["-C", repoDir, "checkout", "--detach", "HEAD"]);
+
+    await runCli(["project", "add", repoDir, "--name", "Repo"]);
+    await runCli(["harness", "init", "repo", "--memory", "external-local"]);
+    await runCli(["change", "new", "repo", "--title", "Detached Worktree"]);
+
+    await expect(runCli(["worktree", "create", "repo"])).rejects.toThrow("detached HEAD");
+  });
 });
 
 type FakeCodexMode = "root" | "exec-no-output" | "unsupported";

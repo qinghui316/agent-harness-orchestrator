@@ -8,6 +8,7 @@ import { atomicWriteFile, writeJsonFile } from "../fs/json.js";
 import { slugify } from "../fs/path.js";
 import { assertWritableMemory, resolveMemory, resolveProjectMemory } from "../memory/resolver.js";
 import { getTemplateRoot } from "../template-source/paths.js";
+import { listWorktreesForChange } from "../worktree/manager.js";
 import type {
   AcMap,
   ChangeIndex,
@@ -143,6 +144,16 @@ export async function getChangeStatus(project: ManagedProject | string | Resolve
   }
 
   blockingIssues.push(...reviewBlockingIssues(reviewStatus));
+  if (change) {
+    const worktrees = await listWorktreesForChange(memory, change.id);
+    for (const worktree of worktrees) {
+      if (worktree.dirty) {
+        blockingIssues.push(`Dirty worktree blocks close: ${worktree.worktreeId} (${worktree.checkoutPath}).`);
+      } else {
+        warnings.push(`Active change has AHO-managed worktree: ${worktree.worktreeId}.`);
+      }
+    }
+  }
 
   return {
     projectPath: memory.projectRoot,

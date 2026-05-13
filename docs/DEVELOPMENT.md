@@ -2,7 +2,7 @@
 
 ## 1. Current Phase
 
-This repository contains Harness infrastructure, a Phase 1 TypeScript CLI, Phase 2A structured change management, Phase 2B local command run artifacts, Phase 2C Codex read-only proposal capture, Phase 2D memory resolver foundation, and Phase 2E opt-in external-local memory.
+This repository contains Harness infrastructure, a Phase 1 TypeScript CLI, Phase 2A structured change management, Phase 2B local command run artifacts, Phase 2C Codex read-only proposal capture, Phase 2D memory resolver foundation, Phase 2E opt-in external-local memory, and Phase 3A AHO-owned worktree management.
 
 ## 2. Prerequisites
 
@@ -104,7 +104,28 @@ Run artifacts are written under the target project:
 
 For external-local projects, run artifacts are written under the resolved memory root and `run.json` uses `artifacts.base: "memory-root"`.
 
-## 8. Codex Read-Only Proposal Runs
+## 8. Worktree Commands
+
+Worktrees require a registered, managed project. `worktree create` requires exactly one active change. `list`, `show`, and `remove` do not require an active change so old worktrees can be cleaned up after archive.
+
+```powershell
+node dist/index.js worktree create aho-test --json
+node dist/index.js worktree list aho-test --json
+node dist/index.js worktree show aho-test <worktree-id> --json
+node dist/index.js worktree remove aho-test <worktree-id>
+```
+
+Real Git checkouts are stored under AHO home. Metadata is stored under the active memory root. Dirty worktrees cannot be removed unless `--force` is provided.
+
+Local command runs can execute inside a new AHO-managed worktree:
+
+```powershell
+node dist/index.js run start aho-test --worktree -- npm test
+```
+
+`run start --worktree` records `executionMode: "worktree"` and keeps the checkout after completion for inspection.
+
+## 9. Codex Read-Only Proposal Runs
 
 Codex runs require a registered, managed project with exactly one active change. AHO reuses the user's local Codex CLI login and configuration. It does not run `codex login`, read tokens, or modify `~/.codex`.
 
@@ -124,7 +145,7 @@ Additional artifacts:
   last-message.md
 ```
 
-## 9. Harness Commands
+## 10. Harness Commands
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/harness-change.ps1 reindex
