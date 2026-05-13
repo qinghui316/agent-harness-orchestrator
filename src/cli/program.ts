@@ -16,6 +16,7 @@ import { readProjectMarker } from "../project/marker.js";
 import { createWorktree, getWorktreeStatus, listWorktreeStatuses, removeWorktree } from "../worktree/manager.js";
 import { getValidationStatus, listValidationSummaries, showValidation, startValidationRun } from "../validation/manager.js";
 import { acceptAudit, getAuditStatus, listAuditSummaries, showAudit, startAuditRun } from "../audit/manager.js";
+import { getCodeStatus, listCodeRuns, showCodeRun, startCodeRun } from "../code/manager.js";
 import type { ManagedProject, MemoryMode, ResolvedMemory } from "../types/index.js";
 
 async function resolveRegisteredOrPath(store: ProjectRegistryStore, query: string): Promise<{ project: Awaited<ReturnType<ProjectRegistryStore["resolveProject"]>>; path: string }> {
@@ -332,15 +333,110 @@ export function createProgram(): Command {
 
   const audit = program.command("audit").description("Run semantic audits and manage audit proposals");
 
+  const code = program.command("code").description("Run Codex coder agents in AHO-owned worktrees");
+
+  code
+    .command("run")
+    .argument("<project>", "registered project id/name/path")
+    .option("--task <task-id>", "task id to focus on; can be repeated", collectOption, [])
+    .option("--prompt <text>", "additional instruction for the coder")
+    .option("--prompt-file <path>", "file containing additional instruction, resolved from the current AHO cwd")
+    .option("--model <model>", "Codex model to pass through")
+    .option("--profile <profile>", "Codex config profile to pass through")
+    .option("--json", "print JSON")
+    .action(async (query: string, options: { task: string[]; prompt?: string; promptFile?: string; model?: string; profile?: string; json?: boolean }) => {
+      const project = await resolveManagedProject(store, query);
+      const result = await startCodeRun(project, {
+        taskIds: options.task,
+        prompt: options.prompt,
+        promptFile: options.promptFile,
+        model: options.model,
+        profile: options.profile,
+      });
+      if (options.json) printJson(result);
+      else {
+        console.log(`Code run ${result.run.id}: ${result.run.status}`);
+        console.log(`Artifacts: ${result.run.artifacts.directory}`);
+        if (result.run.worktree) {
+          console.log(`Worktree: ${result.run.worktree.worktreeId}`);
+          console.log(`Checkout: ${result.run.worktree.checkoutPath}`);
+        }
+        for (const warning of result.warnings) console.log(`WARNING: ${warning}`);
+        console.log("Coder output is a proposal only; validate, audit, and human confirmation are still required.");
+      }
+      if (result.run.status === "failed") {
+        process.exitCode = result.run.exitCode ?? 1;
+      }
+    });
+
+  code
+    .command("status")
+    .argument("<project>", "registered project id/name/path")
+    .option("--json", "print JSON")
+    .action(async (query: string, options: { json?: boolean }) => {
+      const project = await resolveManagedProject(store, query);
+      const status = await getCodeStatus(project);
+      if (options.json) printJson(status);
+      else {
+        printTable([{
+          activeChange: status.activeChangeId ?? "",
+          latest: status.latest?.id ?? "",
+          status: status.latest?.status ?? "none",
+          worktree: status.latest?.worktree?.worktreeId ?? "",
+          runs: status.runs.length,
+        }]);
+      }
+    });
+
+  code
+    .command("list")
+    .argument("<project>", "registered project id/name/path")
+    .option("--json", "print JSON")
+    .action(async (query: string, options: { json?: boolean }) => {
+      const project = await resolveManagedProject(store, query);
+      const runs = await listCodeRuns(project);
+      if (options.json) printJson(runs);
+      else {
+        printTable(runs.map((item) => ({
+          id: item.id,
+          change: item.changeId,
+          status: item.status,
+          worktree: item.worktree?.worktreeId ?? "",
+          startedAt: item.startedAt,
+          finishedAt: item.finishedAt ?? "",
+        })));
+      }
+    });
+
+  code
+    .command("show")
+    .argument("<project>", "registered project id/name/path")
+    .argument("<run-id>", "coder run id")
+    .option("--json", "print JSON")
+    .action(async (query: string, runId: string, options: { json?: boolean }) => {
+      const project = await resolveManagedProject(store, query);
+      const item = await showCodeRun(project, runId);
+      if (options.json) printJson(item);
+      else {
+        printTable([{
+          id: item.id,
+          change: item.changeId,
+          status: item.status,
+          worktree: item.worktree?.worktreeId ?? "",
+          artifacts: item.artifacts.directory,
+        }]);
+      }
+    });
+
   validate
     .command("run")
     .argument("<project>", "registered project id/name/path")
     .option("--profile <profile>", "validation profile name", "default")
-    .option("--worktree", "run validation in a new AHO-managed worktree")
+    .option("--worktree [worktree-id]", "run validation in a new or existing AHO-managed worktree")
     .option("--json", "print JSON")
-    .action(async (query: string, options: { profile?: string; worktree?: boolean; json?: boolean }) => {
+    .action(async (query: string, options: { profile?: string; worktree?: boolean | string; json?: boolean }) => {
       const project = await resolveManagedProject(store, query);
-      const result = await startValidationRun(project, { profile: options.profile, worktree: options.worktree === true });
+      const result = await startValidationRun(project, { profile: options.profile, worktree: options.worktree ?? false });
       if (options.json) printJson(result);
       else {
         console.log(`Validation ${result.validation.id}: ${result.validation.status}`);
@@ -606,4 +702,9 @@ function parseHarnessInitMemoryMode(input: string | undefined): Exclude<MemoryMo
   if (!input || input === "repo-local") return "repo-local";
   if (input === "external-local") return "external-local";
   throw new Error("Unsupported harness memory mode. Use `repo-local` or `external-local`.");
+}
+
+function collectOption(value: string, previous: string[]): string[] {
+  previous.push(value);
+  return previous;
 }

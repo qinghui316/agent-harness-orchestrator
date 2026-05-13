@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildCodexReadonlyArgv, evaluateCodexCapabilities } from "../../src/codex/capabilities.js";
+import { buildCodexReadonlyArgv, buildCodexWorkspaceWriteArgv, evaluateCodexCapabilities } from "../../src/codex/capabilities.js";
 import { extractFinalMessageFromCodexJsonl } from "../../src/codex/jsonl.js";
 import { composeCodexPrompt, readPromptInput } from "../../src/codex/prompt.js";
 
@@ -52,7 +52,6 @@ describe("codex capabilities", () => {
     const capabilities = evaluateCodexCapabilities("codex-cli 1.0", "Usage: codex", "Usage: codex exec");
 
     expect(capabilities.errors).toEqual(expect.arrayContaining([
-      "Codex CLI does not expose --ask-for-approval at root or exec level.",
       "Codex exec does not support --json.",
       "Codex exec does not support --sandbox.",
       "Codex exec does not support --cd.",
@@ -67,6 +66,33 @@ describe("codex capabilities", () => {
     expect(capabilities.supportsOutputLastMessage).toBe(false);
     expect(capabilities.errors).toHaveLength(0);
     expect(argv.args).not.toContain("--output-last-message");
+  });
+
+  it("builds workspace-write argv without requiring approval support", () => {
+    const capabilities = evaluateCodexCapabilities("codex-cli 1.0", "Usage: codex", execHelp);
+    const argv = buildCodexWorkspaceWriteArgv(capabilities, {
+      projectPath: "/repo/.agent-harness/worktrees/checkout",
+      lastMessagePath: "/memory/runs/run/last-message.md",
+    });
+
+    expect(argv.args).toEqual([
+      "exec",
+      "--json",
+      "--color",
+      "never",
+      "--sandbox",
+      "workspace-write",
+      "--cd",
+      "/repo/.agent-harness/worktrees/checkout",
+      "--output-last-message",
+      "/memory/runs/run/last-message.md",
+      "-",
+    ]);
+    expect(argv.args).not.toContain("read-only");
+    expect(argv.args).not.toContain("--full-auto");
+    expect(argv.args).not.toContain("--dangerously-bypass-approvals-and-sandbox");
+    expect(argv.args).not.toContain("--ignore-user-config");
+    expect(argv.args).not.toContain("--skip-git-repo-check");
   });
 });
 

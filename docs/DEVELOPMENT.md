@@ -2,7 +2,7 @@
 
 ## 1. Current Phase
 
-This repository contains Harness infrastructure, a Phase 1 TypeScript CLI, Phase 2A structured change management, Phase 2B local command run artifacts, Phase 2C Codex read-only proposal capture, Phase 2D memory resolver foundation, Phase 2E opt-in external-local memory, Phase 3A AHO-owned worktree management, Phase 3B change-scoped validation, and Phase 3C Auditor proposal gate.
+This repository contains Harness infrastructure, a Phase 1 TypeScript CLI, Phase 2A structured change management, Phase 2B local command run artifacts, Phase 2C Codex read-only proposal capture, Phase 2D memory resolver foundation, Phase 2E opt-in external-local memory, Phase 3A AHO-owned worktree management, Phase 3B change-scoped validation, Phase 3C Auditor proposal gate, and Phase 3D Codex Coder worktree runs.
 
 ## 2. Prerequisites
 
@@ -132,6 +132,7 @@ Validation is mechanical evidence for the current active change. It does not rep
 ```powershell
 node dist/index.js validate run aho-test
 node dist/index.js validate run aho-test --worktree
+node dist/index.js validate run aho-test --worktree <worktree-id>
 node dist/index.js validate status aho-test --json
 node dist/index.js validate list aho-test --json
 node dist/index.js validate show aho-test <validation-id> --json
@@ -152,7 +153,41 @@ runs/{run-id}/commands/*.stderr.log
 
 The close gate blocks the latest failed validation for the current change. Missing validation is warning-only in Phase 3B.
 
-## 10. Audit Commands
+## 10. Code Commands
+
+Code runs use Codex workspace-write mode in a new AHO-owned worktree. They produce implementation proposals and diff artifacts, but do not apply, merge, validate, audit, or close the change.
+
+```powershell
+node dist/index.js code run aho-test --prompt "Implement only the requested README Usage section."
+node dist/index.js code run aho-test --task T-001 --prompt-file .\coder-extra.md --json
+node dist/index.js code status aho-test --json
+node dist/index.js code list aho-test --json
+node dist/index.js code show aho-test <run-id> --json
+```
+
+Coder artifacts are written under the active memory root:
+
+```text
+runs/{run-id}/run.json
+runs/{run-id}/context.md
+runs/{run-id}/prompt.md
+runs/{run-id}/codex-events.jsonl
+runs/{run-id}/last-message.md
+runs/{run-id}/diff.patch
+runs/{run-id}/diff-stat.txt
+runs/{run-id}/implementation.md
+```
+
+After a successful Coder proposal, use the same worktree id for authoritative validation and audit:
+
+```powershell
+node dist/index.js validate run aho-test --worktree <coder-worktree-id>
+node dist/index.js audit run aho-test --worktree <coder-worktree-id>
+```
+
+Dirty Coder worktrees block `change close`. Apply/discard/merge remains a later phase.
+
+## 11. Audit Commands
 
 Audit is semantic review evidence for the current active change. It does not replace human confirmation.
 
@@ -179,7 +214,7 @@ runs/{run-id}/last-message.md
 
 The close gate blocks only the latest `blocked` audit for the current change. Missing audit and failed/unparseable audit are warning-only in Phase 3C.
 
-## 11. Codex Read-Only Proposal Runs
+## 12. Codex Read-Only Proposal Runs
 
 Codex runs require a registered, managed project with exactly one active change. AHO reuses the user's local Codex CLI login and configuration. It does not run `codex login`, read tokens, or modify `~/.codex`.
 
@@ -199,7 +234,7 @@ Additional artifacts:
   last-message.md
 ```
 
-## 12. Harness Commands
+## 13. Harness Commands
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/harness-change.ps1 reindex

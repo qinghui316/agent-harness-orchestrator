@@ -46,7 +46,6 @@ export function evaluateCodexCapabilities(versionOutput: string | null, rootHelp
   const supportsOutputLastMessage = includesFlag(execHelp, "--output-last-message");
 
   if (!available) errors.push("Codex CLI is not available on PATH.");
-  if (approvalFlagPlacement === "unsupported") errors.push("Codex CLI does not expose --ask-for-approval at root or exec level.");
   if (!supportsJson) errors.push("Codex exec does not support --json.");
   if (!supportsSandbox) errors.push("Codex exec does not support --sandbox.");
   if (!supportsCd) errors.push("Codex exec does not support --cd.");
@@ -84,7 +83,6 @@ export async function detectCodexCapabilities(): Promise<CodexCapabilities> {
 export function assertCodexSafeToRun(capabilities: CodexCapabilities): void {
   const blocking = capabilities.errors.filter((error) =>
     error.includes("not available") ||
-    error.includes("--ask-for-approval") ||
     error.includes("--json") ||
     error.includes("--sandbox") ||
     error.includes("--cd"),
@@ -111,6 +109,32 @@ export function buildCodexReadonlyArgv(capabilities: CodexCapabilities, options:
   args.push("--json");
   if (capabilities.supportsColor) args.push("--color", "never");
   args.push("--sandbox", "read-only");
+  args.push("--cd", options.projectPath);
+  if (capabilities.supportsOutputLastMessage) args.push("--output-last-message", options.lastMessagePath);
+  if (options.model) args.push("--model", options.model);
+  if (options.profile) args.push("--profile", options.profile);
+  args.push("-");
+
+  return { command: "codex", args };
+}
+
+export function buildCodexWorkspaceWriteArgv(capabilities: CodexCapabilities, options: CodexArgvOptions): CodexArgv {
+  assertCodexSafeToRun(capabilities);
+
+  const args: string[] = [];
+  if (capabilities.approvalFlagPlacement === "root") {
+    args.push("--ask-for-approval", "never");
+  }
+
+  args.push("exec");
+
+  if (capabilities.approvalFlagPlacement === "exec") {
+    args.push("--ask-for-approval", "never");
+  }
+
+  args.push("--json");
+  if (capabilities.supportsColor) args.push("--color", "never");
+  args.push("--sandbox", "workspace-write");
   args.push("--cd", options.projectPath);
   if (capabilities.supportsOutputLastMessage) args.push("--output-last-message", options.lastMessagePath);
   if (options.model) args.push("--model", options.model);

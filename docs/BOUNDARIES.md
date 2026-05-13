@@ -231,6 +231,16 @@ Fallback strategy:
 - Use worktrees and explicit cwd boundaries instead of assuming sandbox safety.
 - Use human confirmation gates for high-impact decisions.
 
+Write-mode Coder boundary:
+
+- `aho run codex` remains read-only proposal capture.
+- `aho code run` is the explicit write-mode entrypoint.
+- Coder execution must use an AHO-owned worktree checkout as cwd.
+- Source project root is read/context only during Coder execution.
+- Coder prompt profiles are product assets and must encode ECL source-of-truth order, explore-first discipline, smallest coherent diff, and proposal-only status.
+- A Coder run may produce a dirty worktree and diff artifacts, but it must not apply, merge, close, archive, or evolve Harness rules.
+- If the source project root changes during a Coder run, the run is failed and preserved as evidence.
+
 ## 12. Validation and Auditor Boundary
 
 Validation and audit are separate gates.
@@ -243,6 +253,7 @@ Decisions:
 - Validation is scoped to a Change and must not be treated as project-wide blanket approval.
 - In early phases, no validation is warning-only while latest failed validation is blocking.
 - In Phase 3C, no audit and failed audit are warning-only; only explicit `blocked` audit status blocks close.
+- In Phase 3D, Coder self-reported verification is not authoritative validation.
 - Auditor output is a proposal and cannot apply or merge by itself.
 - A Coder run that passes validation can still be rejected by audit or human review.
 - A failed validation should produce evidence for fixing code, improving specs, or evolving Harness rules.

@@ -4,7 +4,7 @@ import { getChangeStatus } from "../change/manager.js";
 import { writeJsonFile } from "../fs/json.js";
 import { slugify } from "../fs/path.js";
 import { assertWritableMemory, resolveProjectMemory } from "../memory/resolver.js";
-import { createWorktree, getWorktreeMetadataPath } from "../worktree/manager.js";
+import { createWorktree, getWorktreeMetadataPath, getWorktreeStatus } from "../worktree/manager.js";
 import type {
   ManagedProject,
   ResolvedMemory,
@@ -22,7 +22,7 @@ import { resolveValidationProfile } from "./profiles.js";
 
 export interface ValidationRunOptions {
   profile?: string;
-  worktree?: boolean;
+  worktree?: boolean | string;
 }
 
 export interface ValidationRunResult {
@@ -46,10 +46,11 @@ export async function startValidationRun(project: ManagedProject, options: Valid
   if (!changeId) throw new Error("Cannot start validation without an active change id.");
 
   const profile = await resolveValidationProfile(memory, profileName);
-  const runId = buildRunId(changeId, ["validator", profileName, ...profile.commands.flatMap((item) => item.command)]);
+  const worktreeMode = options.worktree === true ? "new-worktree" : typeof options.worktree === "string" ? options.worktree : "direct";
+  const runId = buildRunId(changeId, ["validator", profileName, worktreeMode, ...profile.commands.flatMap((item) => item.command)]);
   let cwd = project.path;
   let worktree: RunWorktreeInfo | undefined;
-  if (options.worktree) {
+  if (options.worktree === true) {
     const created = await createWorktree(project, memory, changeId, { runId });
     cwd = created.metadata.checkoutPath;
     worktree = {
@@ -59,6 +60,23 @@ export async function startValidationRun(project: ManagedProject, options: Valid
       baseCommit: created.metadata.baseCommit,
       checkoutPath: created.metadata.checkoutPath,
       metadataPath: getWorktreeMetadataPath(memory, created.metadata.worktreeId),
+    };
+  } else if (typeof options.worktree === "string") {
+    const existing = await getWorktreeStatus(memory, options.worktree);
+    if (existing.changeId !== changeId) {
+      throw new Error(`Cannot validate worktree ${options.worktree}: it belongs to change ${existing.changeId}, not ${changeId}.`);
+    }
+    if (!existing.exists) {
+      throw new Error(`Cannot validate worktree ${options.worktree}: checkout does not exist at ${existing.checkoutPath}.`);
+    }
+    cwd = existing.checkoutPath;
+    worktree = {
+      worktreeId: existing.worktreeId,
+      branchName: existing.branchName,
+      baseRef: existing.baseRef,
+      baseCommit: existing.baseCommit,
+      checkoutPath: existing.checkoutPath,
+      metadataPath: getWorktreeMetadataPath(memory, existing.worktreeId),
     };
   }
 
@@ -166,6 +184,7 @@ export async function startValidationRun(project: ManagedProject, options: Valid
     profile: profileName,
     status: validationStatus,
     executionMode: run.executionMode ?? "direct",
+    worktreeId: worktree?.worktreeId,
     startedAt: now,
     finishedAt,
     commands: commandResults,

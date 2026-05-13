@@ -172,7 +172,7 @@ export interface ChangeStatus {
 
 export type RunStatus = "created" | "running" | "completed" | "failed";
 
-export type RunRuntime = "local-command" | "codex-readonly" | "validator" | "auditor";
+export type RunRuntime = "local-command" | "codex-readonly" | "validator" | "auditor" | "coder-codex";
 
 export type RunExecutionMode = "direct" | "worktree";
 
@@ -220,6 +220,7 @@ export interface RunArtifactPaths {
   prompt?: string;
   codexEvents?: string;
   lastMessage?: string;
+  implementation?: string;
   worktree?: string;
   diff?: string;
   diffStat?: string;
@@ -252,6 +253,7 @@ export interface ValidationResult {
   profile: string;
   status: ValidationStatus;
   executionMode: RunExecutionMode;
+  worktreeId?: string;
   startedAt: string;
   finishedAt: string;
   commands: ValidationCommandResult[];
@@ -264,6 +266,7 @@ export interface ValidationSummary {
   profile: string;
   status: ValidationStatus;
   executionMode: RunExecutionMode;
+  worktreeId?: string;
   startedAt: string;
   finishedAt: string;
   commandCount: number;
@@ -350,6 +353,11 @@ export interface RunEvent {
     | "audit.started"
     | "audit.completed"
     | "audit.failed"
+    | "worktree.created"
+    | "coder.started"
+    | "coder.exited"
+    | "diff.collected"
+    | "source.checked"
     | "run.completed"
     | "run.failed";
   runId: string;

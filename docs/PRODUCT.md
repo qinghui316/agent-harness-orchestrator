@@ -104,12 +104,16 @@ Phase 2E adds external-local memory as an opt-in mode:
 - Durable docs, Harness files, scripts, changes, and run artifacts live under AHO home.
 - `change`, `run start`, and `run codex` work against the external memory root.
 
-Later phases add:
+Phase 3 adds managed execution gates:
 
 - Phase 3A: AHO-owned worktree isolation.
 - Phase 3B: change-scoped validation gate.
 - Phase 3C: Auditor proposal gate.
-- Phase 3D: Codex write-mode adapters behind explicit worktree boundaries.
+- Phase 3D: Codex Coder write-mode runs inside AHO-owned worktrees.
+
+Later phases add:
+
+- Phase 3E: explicit apply/discard/merge gates for Coder worktrees.
 - Switching external-local to the personal default after more migration and sync work.
 - Run events, logs, diffs, validation reports, and review artifacts.
 - Spec-Test mapping and drift warnings.
@@ -140,9 +144,9 @@ Long-term memory direction:
 ## 8. Success Criteria
 
 - A user can add a local project and initialize Harness.
-- A structured change can move from spec to plan to code to validation in later phases.
+- A structured change can move from spec to plan to Coder proposal to validation and audit evidence.
 - Acceptance Criteria can become addressable anchors for tasks, tests, and validation in later phases.
-- Codex CLI can be invoked through a read-only proposal adapter.
+- Codex CLI can be invoked through read-only proposal and worktree-bound Coder adapters.
 - Pending evolution can be surfaced and handled with proposal, audit, validation, results, and mark-complete.
 - Multiple projects can eventually be shown in a dashboard.
 - Agent output is persisted as artifacts, not only chat.
