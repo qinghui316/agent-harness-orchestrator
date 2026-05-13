@@ -8,6 +8,7 @@ import { atomicWriteFile, writeJsonFile } from "../fs/json.js";
 import { slugify } from "../fs/path.js";
 import { assertWritableMemory, resolveMemory, resolveProjectMemory } from "../memory/resolver.js";
 import { getTemplateRoot } from "../template-source/paths.js";
+import { getLatestValidationSummary } from "../validation/artifacts.js";
 import { listWorktreesForChange } from "../worktree/manager.js";
 import type {
   AcMap,
@@ -107,6 +108,7 @@ export async function getChangeStatus(project: ManagedProject | string | Resolve
       change: null,
       reviewStatus: "missing",
       acMap: null,
+      latestValidation: null,
       closeGate: baseGate,
     };
   }
@@ -145,6 +147,12 @@ export async function getChangeStatus(project: ManagedProject | string | Resolve
 
   blockingIssues.push(...reviewBlockingIssues(reviewStatus));
   if (change) {
+    const latestValidation = await getLatestValidationSummary(memory, change.id);
+    if (!latestValidation) {
+      warnings.push("No validation run recorded for this change.");
+    } else if (latestValidation.status === "failed") {
+      blockingIssues.push(`Latest validation failed: ${latestValidation.id}.`);
+    }
     const worktrees = await listWorktreesForChange(memory, change.id);
     for (const worktree of worktrees) {
       if (worktree.dirty) {
@@ -153,6 +161,19 @@ export async function getChangeStatus(project: ManagedProject | string | Resolve
         warnings.push(`Active change has AHO-managed worktree: ${worktree.worktreeId}.`);
       }
     }
+    return {
+      projectPath: memory.projectRoot,
+      activeChanges,
+      change,
+      reviewStatus,
+      acMap,
+      latestValidation,
+      closeGate: {
+        ready: blockingIssues.length === 0,
+        warnings: uniqueSorted(warnings),
+        blockingIssues: uniqueSorted(blockingIssues),
+      },
+    };
   }
 
   return {
@@ -161,6 +182,7 @@ export async function getChangeStatus(project: ManagedProject | string | Resolve
     change,
     reviewStatus,
     acMap,
+    latestValidation: null,
     closeGate: {
       ready: blockingIssues.length === 0,
       warnings: uniqueSorted(warnings),

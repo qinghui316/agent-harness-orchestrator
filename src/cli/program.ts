@@ -14,6 +14,7 @@ import { getMemoryStatus } from "../memory/status.js";
 import { assertWritableMemory, resolveMemory, resolveProjectMemory } from "../memory/resolver.js";
 import { readProjectMarker } from "../project/marker.js";
 import { createWorktree, getWorktreeStatus, listWorktreeStatuses, removeWorktree } from "../worktree/manager.js";
+import { getValidationStatus, listValidationSummaries, showValidation, startValidationRun } from "../validation/manager.js";
 import type { ManagedProject, MemoryMode, ResolvedMemory } from "../types/index.js";
 
 async function resolveRegisteredOrPath(store: ProjectRegistryStore, query: string): Promise<{ project: Awaited<ReturnType<ProjectRegistryStore["resolveProject"]>>; path: string }> {
@@ -325,6 +326,89 @@ export function createProgram(): Command {
     });
 
   const run = program.command("run").description("Run local commands and record artifacts");
+
+  const validate = program.command("validate").description("Run mechanical validation and record change-scoped evidence");
+
+  validate
+    .command("run")
+    .argument("<project>", "registered project id/name/path")
+    .option("--profile <profile>", "validation profile name", "default")
+    .option("--worktree", "run validation in a new AHO-managed worktree")
+    .option("--json", "print JSON")
+    .action(async (query: string, options: { profile?: string; worktree?: boolean; json?: boolean }) => {
+      const project = await resolveManagedProject(store, query);
+      const result = await startValidationRun(project, { profile: options.profile, worktree: options.worktree === true });
+      if (options.json) printJson(result);
+      else {
+        console.log(`Validation ${result.validation.id}: ${result.validation.status}`);
+        console.log(`Profile: ${result.validation.profile}`);
+        console.log(`Commands: ${result.validation.commands.length}`);
+        console.log(`Artifacts: ${result.run.artifacts.directory}`);
+        if (result.run.worktree) console.log(`Worktree: ${result.run.worktree.checkoutPath}`);
+      }
+      if (result.validation.status === "failed") {
+        process.exitCode = 1;
+      }
+    });
+
+  validate
+    .command("status")
+    .argument("<project>", "registered project id/name/path")
+    .option("--json", "print JSON")
+    .action(async (query: string, options: { json?: boolean }) => {
+      const project = await resolveManagedProject(store, query);
+      const status = await getValidationStatus(project);
+      if (options.json) printJson(status);
+      else {
+        printTable([{
+          activeChange: status.activeChangeId ?? "",
+          latest: status.latest?.id ?? "",
+          status: status.latest?.status ?? "none",
+          profile: status.latest?.profile ?? "",
+          validations: status.validations.length,
+        }]);
+      }
+    });
+
+  validate
+    .command("list")
+    .argument("<project>", "registered project id/name/path")
+    .option("--json", "print JSON")
+    .action(async (query: string, options: { json?: boolean }) => {
+      const project = await resolveManagedProject(store, query);
+      const validations = await listValidationSummaries(project);
+      if (options.json) printJson(validations);
+      else printTable(validations.map((item) => ({
+        id: item.id,
+        change: item.changeId,
+        status: item.status,
+        profile: item.profile,
+        mode: item.executionMode,
+        commands: item.commandCount,
+        startedAt: item.startedAt,
+      })));
+    });
+
+  validate
+    .command("show")
+    .argument("<project>", "registered project id/name/path")
+    .argument("<validation-id>", "validation id")
+    .option("--json", "print JSON")
+    .action(async (query: string, validationId: string, options: { json?: boolean }) => {
+      const project = await resolveManagedProject(store, query);
+      const validation = await showValidation(project, validationId);
+      if (options.json) printJson(validation);
+      else {
+        printTable([{
+          id: validation.id,
+          change: validation.changeId,
+          status: validation.status,
+          profile: validation.profile,
+          mode: validation.executionMode,
+          commands: validation.commands.length,
+        }]);
+      }
+    });
 
   run
     .command("start")

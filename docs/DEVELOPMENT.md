@@ -2,7 +2,7 @@
 
 ## 1. Current Phase
 
-This repository contains Harness infrastructure, a Phase 1 TypeScript CLI, Phase 2A structured change management, Phase 2B local command run artifacts, Phase 2C Codex read-only proposal capture, Phase 2D memory resolver foundation, Phase 2E opt-in external-local memory, and Phase 3A AHO-owned worktree management.
+This repository contains Harness infrastructure, a Phase 1 TypeScript CLI, Phase 2A structured change management, Phase 2B local command run artifacts, Phase 2C Codex read-only proposal capture, Phase 2D memory resolver foundation, Phase 2E opt-in external-local memory, Phase 3A AHO-owned worktree management, and Phase 3B change-scoped validation.
 
 ## 2. Prerequisites
 
@@ -125,7 +125,34 @@ node dist/index.js run start aho-test --worktree -- npm test
 
 `run start --worktree` records `executionMode: "worktree"` and keeps the checkout after completion for inspection.
 
-## 9. Codex Read-Only Proposal Runs
+## 9. Validation Commands
+
+Validation is mechanical evidence for the current active change. It does not replace review or human confirmation.
+
+```powershell
+node dist/index.js validate run aho-test
+node dist/index.js validate run aho-test --worktree
+node dist/index.js validate status aho-test --json
+node dist/index.js validate list aho-test --json
+node dist/index.js validate show aho-test <validation-id> --json
+```
+
+Profile resolution:
+
+1. `harness/config/environment.json`
+2. package fallback for `typecheck`, `lint`, `test`, and `build`
+
+Validation artifacts are written under the active memory root:
+
+```text
+runs/{run-id}/validation.json
+runs/{run-id}/commands/*.stdout.log
+runs/{run-id}/commands/*.stderr.log
+```
+
+The close gate blocks the latest failed validation for the current change. Missing validation is warning-only in Phase 3B.
+
+## 10. Codex Read-Only Proposal Runs
 
 Codex runs require a registered, managed project with exactly one active change. AHO reuses the user's local Codex CLI login and configuration. It does not run `codex login`, read tokens, or modify `~/.codex`.
 
@@ -145,7 +172,7 @@ Additional artifacts:
   last-message.md
 ```
 
-## 10. Harness Commands
+## 11. Harness Commands
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/harness-change.ps1 reindex

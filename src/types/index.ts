@@ -165,12 +165,13 @@ export interface ChangeStatus {
   change: ChangeMetadata | null;
   reviewStatus: ReviewStatus;
   acMap: AcMap | null;
+  latestValidation: ValidationSummary | null;
   closeGate: CloseGateResult;
 }
 
 export type RunStatus = "created" | "running" | "completed" | "failed";
 
-export type RunRuntime = "local-command" | "codex-readonly";
+export type RunRuntime = "local-command" | "codex-readonly" | "validator";
 
 export type RunExecutionMode = "direct" | "worktree";
 
@@ -224,6 +225,46 @@ export interface RunArtifactPaths {
   review?: string;
 }
 
+export type ValidationStatus = "passed" | "failed";
+
+export interface ValidationCommandResult {
+  name: string;
+  command: string[];
+  cwd: string;
+  status: ValidationStatus;
+  exitCode: number | null;
+  signal: NodeJS.Signals | null;
+  startedAt: string;
+  finishedAt: string;
+  stdout: string;
+  stderr: string;
+}
+
+export interface ValidationResult {
+  version: "1.0";
+  id: string;
+  runId: string;
+  changeId: string;
+  profile: string;
+  status: ValidationStatus;
+  executionMode: RunExecutionMode;
+  startedAt: string;
+  finishedAt: string;
+  commands: ValidationCommandResult[];
+}
+
+export interface ValidationSummary {
+  id: string;
+  runId: string;
+  changeId: string;
+  profile: string;
+  status: ValidationStatus;
+  executionMode: RunExecutionMode;
+  startedAt: string;
+  finishedAt: string;
+  commandCount: number;
+}
+
 export interface RunMetadata {
   version: "1.0";
   id: string;
@@ -253,6 +294,11 @@ export interface RunEvent {
     | "codex.capabilities.failed"
     | "codex.started"
     | "codex.exited"
+    | "validation.started"
+    | "validation.command.started"
+    | "validation.command.exited"
+    | "validation.completed"
+    | "validation.failed"
     | "run.completed"
     | "run.failed";
   runId: string;

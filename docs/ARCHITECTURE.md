@@ -1,6 +1,6 @@
 # Architecture
 
-> Status: Phase 2E implements project registration, Harness management, Node-native structured change management, local command runs, event logs, run artifacts, Codex read-only proposal capture, memory resolver diagnostics, and opt-in external-local memory. Worktree execution, write-mode Codex runs, Spec-Test gates, dashboard, and remote memory are planned future work.
+> Status: Phase 3A implements project registration, Harness management, structured change management, local command runs, Codex read-only proposal capture, memory resolver diagnostics, opt-in external-local memory, and AHO-owned worktree execution. Phase 3B adds change-scoped validation. Write-mode Codex runs, Auditor execution, Spec-Test gates, dashboard, and remote memory remain planned future work.
 
 ## 1. Current Status
 
@@ -162,7 +162,7 @@ Each run should produce durable artifacts:
   review.md
 ```
 
-Phase 2B implements `run.json`, `context.md`, `events.jsonl`, `stdout.log`, and `stderr.log` for local command runs. Phase 2C adds `prompt.md`, `codex-events.jsonl`, and `last-message.md` for Codex read-only proposal runs. Phase 2E lets these artifacts live under either project-root or memory-root depending on memory mode. Diff, validation, and review artifacts remain planned future work.
+Phase 2B implements `run.json`, `context.md`, `events.jsonl`, `stdout.log`, and `stderr.log` for local command runs. Phase 2C adds `prompt.md`, `codex-events.jsonl`, and `last-message.md` for Codex read-only proposal runs. Phase 2E lets these artifacts live under either project-root or memory-root depending on memory mode. Phase 3B adds `validation.json` and per-command validation logs. Diff and review artifacts remain planned future work.
 
 The Run Orchestrator should receive memory through a Memory Resolver and Context Projector. Runtime adapters must not hardcode repo-local Harness paths.
 
@@ -191,6 +191,8 @@ Validation and audit are separate gates.
 - Human confirmation is required before apply/merge, close/archive, and Harness evolution apply.
 
 Every agent output is a proposal until confirmed. Auditor approval is not merge authority.
+
+Phase 3B implements deterministic Validator execution only. Validator output is mechanical evidence, not semantic approval. Auditor execution is Phase 3C, and Codex write mode is Phase 3D or later.
 
 ## 9. Harness Evolution Loop
 
@@ -266,7 +268,10 @@ The current implementation provides repo-local and external-local resolver layou
 | Phase 2C | Codex read-only proposal adapter |
 | Phase 2D | Memory Resolver foundation and memory status diagnostics |
 | Phase 2E | External-local memory MVP |
-| Phase 3 | Worktree isolation and runtime hardening |
+| Phase 3A | AHO-owned worktree manager and worktree local command runs |
+| Phase 3B | Change-scoped validation gate and agent role contracts |
+| Phase 3C | Auditor gate |
+| Phase 3D | Codex write mode inside AHO-owned worktrees |
 | Phase 4 | Spec-Test mapping and drift gates |
 | Phase 5 | Dashboard and run/artifact explorer |
 | Future | External-local default switch, remote memory, team mode, and Spec-as-Source experiments |

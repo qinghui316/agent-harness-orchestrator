@@ -15,5 +15,27 @@
   "services": [],
   "secrets": [],
   "ports": [],
-  "functional_scenarios": []
+  "functional_scenarios": [],
+  "validation": {
+    "profiles": {
+      "default": [
+        {
+          "name": "typecheck",
+          "command": ["npm", "run", "typecheck"]
+        },
+        {
+          "name": "lint",
+          "command": ["npm", "run", "lint"]
+        },
+        {
+          "name": "test",
+          "command": ["npm", "run", "test"]
+        },
+        {
+          "name": "build",
+          "command": ["npm", "run", "build"]
+        }
+      ]
+    }
+  }
 }

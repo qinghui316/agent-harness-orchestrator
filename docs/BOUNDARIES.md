@@ -240,6 +240,8 @@ Validation answers whether commands and checks passed. Audit answers whether the
 Decisions:
 
 - Validation results should be mechanical and artifact-backed.
+- Validation is scoped to a Change and must not be treated as project-wide blanket approval.
+- In early phases, no validation is warning-only while latest failed validation is blocking.
 - Auditor output is a proposal and cannot apply or merge by itself.
 - A Coder run that passes validation can still be rejected by audit or human review.
 - A failed validation should produce evidence for fixing code, improving specs, or evolving Harness rules.

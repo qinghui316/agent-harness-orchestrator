@@ -106,12 +106,12 @@ Phase 2E adds external-local memory as an opt-in mode:
 
 Later phases add:
 
-- Spec-Anchored local managed runs.
+- Phase 3A: AHO-owned worktree isolation.
+- Phase 3B: change-scoped validation gate.
+- Phase 3C: Auditor gate.
+- Phase 3D: Codex write-mode adapters behind explicit worktree boundaries.
 - Switching external-local to the personal default after more migration and sync work.
-- Codex write-mode adapters behind explicit worktree boundaries.
 - Run events, logs, diffs, validation reports, and review artifacts.
-- Validation and audit loops.
-- Worktree isolation.
 - Spec-Test mapping and drift warnings.
 - Local dashboard.
 - Interactive terminal sessions.

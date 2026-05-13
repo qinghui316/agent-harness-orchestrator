@@ -253,6 +253,73 @@ describe("CLI flow", () => {
     await runCli(["worktree", "remove", "repo", run.worktree.worktreeId, "--force"]);
   });
 
+  it("records external-local worktree validation without polluting the source repo", async () => {
+    await writeFile(join(repoDir, "README.md"), "hello\n", "utf8");
+    await writeFile(join(repoDir, "package.json"), JSON.stringify({
+      scripts: {
+        typecheck: "node -e \"\"",
+        lint: "node -e \"\"",
+        test: "node -e \"require('fs').writeFileSync('validation-output.txt','worktree')\"",
+        build: "node -e \"\"",
+      },
+    }), "utf8");
+    await execFileAsync("git", ["-C", repoDir, "add", "README.md", "package.json"]);
+    await execFileAsync("git", ["-C", repoDir, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "init"]);
+
+    await runCli(["project", "add", repoDir, "--name", "Repo"]);
+    await runCli(["harness", "init", "repo", "--memory", "external-local"]);
+    await runCli(["change", "new", "repo", "--title", "Validate Worktree", "--body", "Raw request"]);
+    await runCli(["validate", "run", "repo", "--worktree", "--json"]);
+
+    const memoryRoot = join(homeDir, "projects", "repo");
+    const runIds = await readdir(join(memoryRoot, "runs"));
+    expect(runIds).toHaveLength(1);
+    const run = JSON.parse(await readFile(join(memoryRoot, "runs", runIds[0], "run.json"), "utf8"));
+    const validation = JSON.parse(await readFile(join(memoryRoot, "runs", runIds[0], "validation.json"), "utf8"));
+
+    expect(run).toMatchObject({ runtime: "validator", executionMode: "worktree", status: "completed" });
+    expect(validation).toMatchObject({ status: "passed", changeId: "validate-worktree", executionMode: "worktree" });
+    expect(validation.commands.map((command: { name: string }) => command.name)).toEqual(["typecheck", "lint", "test", "build"]);
+    expect(existsSync(join(run.worktree.checkoutPath, "validation-output.txt"))).toBe(true);
+    expect(existsSync(join(repoDir, "validation-output.txt"))).toBe(false);
+
+    await runCli(["validate", "status", "repo", "--json"]);
+    await runCli(["validate", "list", "repo", "--json"]);
+    await runCli(["validate", "show", "repo", runIds[0], "--json"]);
+  });
+
+  it("uses validation results in the change close gate", async () => {
+    await writeFile(join(repoDir, "package.json"), JSON.stringify({
+      scripts: {
+        typecheck: "node -e \"\"",
+        lint: "node -e \"\"",
+        test: "node -e \"process.exit(3)\"",
+        build: "node -e \"\"",
+      },
+    }), "utf8");
+    await runCli(["project", "add", repoDir, "--name", "Repo"]);
+    await runCli(["harness", "init", "repo"]);
+    await runCli(["change", "new", "repo", "--title", "Validation Gate"]);
+    const changeDir = join(repoDir, "harness", "changes", "active", "validation-gate");
+    await writeFile(join(changeDir, "reviews", "review.md"), "Status: approved\n", "utf8");
+
+    await runCli(["validate", "run", "repo"]);
+    expect(process.exitCode).toBe(1);
+    await expect(runCli(["change", "close", "repo"])).rejects.toThrow("Latest validation failed");
+
+    process.exitCode = undefined;
+    await writeFile(join(repoDir, "package.json"), JSON.stringify({
+      scripts: {
+        typecheck: "node -e \"\"",
+        lint: "node -e \"\"",
+        test: "node -e \"\"",
+        build: "node -e \"\"",
+      },
+    }), "utf8");
+    await runCli(["validate", "run", "repo"]);
+    await runCli(["change", "close", "repo"]);
+  });
+
   it("blocks worktree creation for repositories without commits", async () => {
     await runCli(["project", "add", repoDir, "--name", "Repo"]);
     await runCli(["harness", "init", "repo", "--memory", "external-local"]);
