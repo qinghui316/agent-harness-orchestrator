@@ -166,12 +166,13 @@ export interface ChangeStatus {
   reviewStatus: ReviewStatus;
   acMap: AcMap | null;
   latestValidation: ValidationSummary | null;
+  latestAudit: AuditSummary | null;
   closeGate: CloseGateResult;
 }
 
 export type RunStatus = "created" | "running" | "completed" | "failed";
 
-export type RunRuntime = "local-command" | "codex-readonly" | "validator";
+export type RunRuntime = "local-command" | "codex-readonly" | "validator" | "auditor";
 
 export type RunExecutionMode = "direct" | "worktree";
 
@@ -221,7 +222,10 @@ export interface RunArtifactPaths {
   lastMessage?: string;
   worktree?: string;
   diff?: string;
+  diffStat?: string;
   validation?: string;
+  audit?: string;
+  auditMarkdown?: string;
   review?: string;
 }
 
@@ -265,6 +269,50 @@ export interface ValidationSummary {
   commandCount: number;
 }
 
+export type AuditStatus = "approved" | "approved-with-notes" | "blocked" | "failed";
+
+export type AuditFindingSeverity = "blocking" | "note";
+
+export interface AuditFinding {
+  severity: AuditFindingSeverity;
+  area: string;
+  evidence: string;
+  recommendation: string;
+  text: string;
+}
+
+export interface AuditResult {
+  version: "1.0";
+  id: string;
+  runId: string;
+  changeId: string;
+  status: AuditStatus;
+  worktreeId?: string;
+  validationId?: string;
+  startedAt: string;
+  finishedAt: string;
+  findings: AuditFinding[];
+  artifacts: {
+    audit: string;
+    auditMarkdown: string;
+    lastMessage: string;
+    diff?: string;
+    diffStat?: string;
+  };
+}
+
+export interface AuditSummary {
+  id: string;
+  runId: string;
+  changeId: string;
+  status: AuditStatus;
+  worktreeId?: string;
+  validationId?: string;
+  startedAt: string;
+  finishedAt: string;
+  findingCount: number;
+}
+
 export interface RunMetadata {
   version: "1.0";
   id: string;
@@ -299,6 +347,9 @@ export interface RunEvent {
     | "validation.command.exited"
     | "validation.completed"
     | "validation.failed"
+    | "audit.started"
+    | "audit.completed"
+    | "audit.failed"
     | "run.completed"
     | "run.failed";
   runId: string;

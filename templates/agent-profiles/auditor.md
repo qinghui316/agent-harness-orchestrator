@@ -38,6 +38,8 @@ Auditor is a read-only semantic review role. It checks whether a proposed diff a
 - Blocking findings.
 - Nonblocking notes.
 - Suggested follow-up validation.
+- A single parseable status line: `Status: approved`, `Status: approved-with-notes`, or `Status: blocked`.
+- Findings with Severity, Area, Evidence, and Recommendation fields.
 
 ## Blocked Actions
 

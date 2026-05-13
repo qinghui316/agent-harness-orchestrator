@@ -2,7 +2,7 @@
 
 ## 1. Current Phase
 
-This repository contains Harness infrastructure, a Phase 1 TypeScript CLI, Phase 2A structured change management, Phase 2B local command run artifacts, Phase 2C Codex read-only proposal capture, Phase 2D memory resolver foundation, Phase 2E opt-in external-local memory, Phase 3A AHO-owned worktree management, and Phase 3B change-scoped validation.
+This repository contains Harness infrastructure, a Phase 1 TypeScript CLI, Phase 2A structured change management, Phase 2B local command run artifacts, Phase 2C Codex read-only proposal capture, Phase 2D memory resolver foundation, Phase 2E opt-in external-local memory, Phase 3A AHO-owned worktree management, Phase 3B change-scoped validation, and Phase 3C Auditor proposal gate.
 
 ## 2. Prerequisites
 
@@ -152,7 +152,34 @@ runs/{run-id}/commands/*.stderr.log
 
 The close gate blocks the latest failed validation for the current change. Missing validation is warning-only in Phase 3B.
 
-## 10. Codex Read-Only Proposal Runs
+## 10. Audit Commands
+
+Audit is semantic review evidence for the current active change. It does not replace human confirmation.
+
+```powershell
+node dist/index.js audit run aho-test
+node dist/index.js audit run aho-test --worktree <worktree-id>
+node dist/index.js audit status aho-test --json
+node dist/index.js audit list aho-test --json
+node dist/index.js audit show aho-test <audit-id> --json
+node dist/index.js audit accept aho-test <audit-id>
+```
+
+Audit artifacts are written under the active memory root:
+
+```text
+runs/{run-id}/audit.json
+runs/{run-id}/audit.md
+runs/{run-id}/diff.patch
+runs/{run-id}/diff-stat.txt
+runs/{run-id}/last-message.md
+```
+
+`audit run` is read-only and proposal-only. `audit accept` is the explicit human confirmation command that writes an approved audit into `reviews/review.md`.
+
+The close gate blocks only the latest `blocked` audit for the current change. Missing audit and failed/unparseable audit are warning-only in Phase 3C.
+
+## 11. Codex Read-Only Proposal Runs
 
 Codex runs require a registered, managed project with exactly one active change. AHO reuses the user's local Codex CLI login and configuration. It does not run `codex login`, read tokens, or modify `~/.codex`.
 
@@ -172,7 +199,7 @@ Additional artifacts:
   last-message.md
 ```
 
-## 11. Harness Commands
+## 12. Harness Commands
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/harness-change.ps1 reindex

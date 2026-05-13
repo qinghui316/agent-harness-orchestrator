@@ -108,7 +108,7 @@ Later phases add:
 
 - Phase 3A: AHO-owned worktree isolation.
 - Phase 3B: change-scoped validation gate.
-- Phase 3C: Auditor gate.
+- Phase 3C: Auditor proposal gate.
 - Phase 3D: Codex write-mode adapters behind explicit worktree boundaries.
 - Switching external-local to the personal default after more migration and sync work.
 - Run events, logs, diffs, validation reports, and review artifacts.

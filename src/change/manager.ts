@@ -8,6 +8,7 @@ import { atomicWriteFile, writeJsonFile } from "../fs/json.js";
 import { slugify } from "../fs/path.js";
 import { assertWritableMemory, resolveMemory, resolveProjectMemory } from "../memory/resolver.js";
 import { getTemplateRoot } from "../template-source/paths.js";
+import { getLatestAuditSummary } from "../audit/artifacts.js";
 import { getLatestValidationSummary } from "../validation/artifacts.js";
 import { listWorktreesForChange } from "../worktree/manager.js";
 import type {
@@ -109,6 +110,7 @@ export async function getChangeStatus(project: ManagedProject | string | Resolve
       reviewStatus: "missing",
       acMap: null,
       latestValidation: null,
+      latestAudit: null,
       closeGate: baseGate,
     };
   }
@@ -153,6 +155,14 @@ export async function getChangeStatus(project: ManagedProject | string | Resolve
     } else if (latestValidation.status === "failed") {
       blockingIssues.push(`Latest validation failed: ${latestValidation.id}.`);
     }
+    const latestAudit = await getLatestAuditSummary(memory, change.id);
+    if (!latestAudit) {
+      warnings.push("No audit run recorded for this change.");
+    } else if (latestAudit.status === "blocked") {
+      blockingIssues.push(`Latest audit blocked close: ${latestAudit.id}.`);
+    } else if (latestAudit.status === "failed") {
+      warnings.push(`Latest audit failed or could not be parsed: ${latestAudit.id}.`);
+    }
     const worktrees = await listWorktreesForChange(memory, change.id);
     for (const worktree of worktrees) {
       if (worktree.dirty) {
@@ -168,6 +178,7 @@ export async function getChangeStatus(project: ManagedProject | string | Resolve
       reviewStatus,
       acMap,
       latestValidation,
+      latestAudit,
       closeGate: {
         ready: blockingIssues.length === 0,
         warnings: uniqueSorted(warnings),
@@ -183,6 +194,7 @@ export async function getChangeStatus(project: ManagedProject | string | Resolve
     reviewStatus,
     acMap,
     latestValidation: null,
+    latestAudit: null,
     closeGate: {
       ready: blockingIssues.length === 0,
       warnings: uniqueSorted(warnings),

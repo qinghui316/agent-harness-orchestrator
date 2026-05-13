@@ -15,6 +15,7 @@ import { assertWritableMemory, resolveMemory, resolveProjectMemory } from "../me
 import { readProjectMarker } from "../project/marker.js";
 import { createWorktree, getWorktreeStatus, listWorktreeStatuses, removeWorktree } from "../worktree/manager.js";
 import { getValidationStatus, listValidationSummaries, showValidation, startValidationRun } from "../validation/manager.js";
+import { acceptAudit, getAuditStatus, listAuditSummaries, showAudit, startAuditRun } from "../audit/manager.js";
 import type { ManagedProject, MemoryMode, ResolvedMemory } from "../types/index.js";
 
 async function resolveRegisteredOrPath(store: ProjectRegistryStore, query: string): Promise<{ project: Awaited<ReturnType<ProjectRegistryStore["resolveProject"]>>; path: string }> {
@@ -329,6 +330,8 @@ export function createProgram(): Command {
 
   const validate = program.command("validate").description("Run mechanical validation and record change-scoped evidence");
 
+  const audit = program.command("audit").description("Run semantic audits and manage audit proposals");
+
   validate
     .command("run")
     .argument("<project>", "registered project id/name/path")
@@ -348,6 +351,102 @@ export function createProgram(): Command {
       }
       if (result.validation.status === "failed") {
         process.exitCode = 1;
+      }
+    });
+
+  audit
+    .command("run")
+    .argument("<project>", "registered project id/name/path")
+    .option("--worktree <worktree-id>", "AHO-managed worktree id whose diff should be audited")
+    .option("--prompt <text>", "additional human prompt for the auditor")
+    .option("--json", "print JSON")
+    .action(async (query: string, options: { worktree?: string; prompt?: string; json?: boolean }) => {
+      const project = await resolveManagedProject(store, query);
+      const result = await startAuditRun(project, { worktreeId: options.worktree, prompt: options.prompt });
+      if (options.json) printJson(result);
+      else {
+        console.log(`Audit ${result.audit.id}: ${result.audit.status}`);
+        console.log(`Findings: ${result.audit.findings.length}`);
+        console.log(`Artifacts: ${result.run.artifacts.directory}`);
+        if (result.audit.worktreeId) console.log(`Worktree: ${result.audit.worktreeId}`);
+        console.log("Auditor output is a proposal only; use `aho audit accept` to write reviews/review.md.");
+      }
+      if (result.audit.status === "failed") {
+        process.exitCode = 1;
+      }
+    });
+
+  audit
+    .command("status")
+    .argument("<project>", "registered project id/name/path")
+    .option("--json", "print JSON")
+    .action(async (query: string, options: { json?: boolean }) => {
+      const project = await resolveManagedProject(store, query);
+      const status = await getAuditStatus(project);
+      if (options.json) printJson(status);
+      else {
+        printTable([{
+          activeChange: status.activeChangeId ?? "",
+          latest: status.latest?.id ?? "",
+          status: status.latest?.status ?? "none",
+          findings: status.latest?.findingCount ?? 0,
+          audits: status.audits.length,
+        }]);
+      }
+    });
+
+  audit
+    .command("list")
+    .argument("<project>", "registered project id/name/path")
+    .option("--json", "print JSON")
+    .action(async (query: string, options: { json?: boolean }) => {
+      const project = await resolveManagedProject(store, query);
+      const audits = await listAuditSummaries(project);
+      if (options.json) printJson(audits);
+      else printTable(audits.map((item) => ({
+        id: item.id,
+        change: item.changeId,
+        status: item.status,
+        worktree: item.worktreeId ?? "",
+        validation: item.validationId ?? "",
+        findings: item.findingCount,
+        startedAt: item.startedAt,
+      })));
+    });
+
+  audit
+    .command("show")
+    .argument("<project>", "registered project id/name/path")
+    .argument("<audit-id>", "audit id")
+    .option("--json", "print JSON")
+    .action(async (query: string, auditId: string, options: { json?: boolean }) => {
+      const project = await resolveManagedProject(store, query);
+      const result = await showAudit(project, auditId);
+      if (options.json) printJson(result);
+      else {
+        printTable([{
+          id: result.id,
+          change: result.changeId,
+          status: result.status,
+          findings: result.findings.length,
+          worktree: result.worktreeId ?? "",
+          validation: result.validationId ?? "",
+        }]);
+      }
+    });
+
+  audit
+    .command("accept")
+    .argument("<project>", "registered project id/name/path")
+    .argument("<audit-id>", "audit id")
+    .option("--json", "print JSON")
+    .action(async (query: string, auditId: string, options: { json?: boolean }) => {
+      const project = await resolveManagedProject(store, query);
+      const result = await acceptAudit(project, auditId);
+      if (options.json) printJson(result);
+      else {
+        console.log(`Accepted audit ${result.audit.id}.`);
+        console.log(`Review: ${result.reviewPath}`);
       }
     });
 

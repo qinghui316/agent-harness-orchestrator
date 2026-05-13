@@ -320,6 +320,75 @@ describe("CLI flow", () => {
     await runCli(["change", "close", "repo"]);
   });
 
+  it("records approved worktree audits and accepts them into review", async () => {
+    await installFakeCodex("audit-approved");
+    await writeFile(join(repoDir, "README.md"), "hello\n", "utf8");
+    await execFileAsync("git", ["-C", repoDir, "add", "README.md"]);
+    await execFileAsync("git", ["-C", repoDir, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "init"]);
+
+    await runCli(["project", "add", repoDir, "--name", "Repo"]);
+    await runCli(["harness", "init", "repo", "--memory", "external-local"]);
+    await runCli(["change", "new", "repo", "--title", "Audit Worktree"]);
+    await runCli(["worktree", "create", "repo"]);
+
+    const memoryRoot = join(homeDir, "projects", "repo");
+    const metadataIds = (await readdir(join(memoryRoot, "worktrees", "metadata"))).filter((name) => name.endsWith(".json"));
+    const worktreeId = metadataIds[0].replace(/\.json$/, "");
+    const metadata = JSON.parse(await readFile(join(memoryRoot, "worktrees", "metadata", metadataIds[0]), "utf8"));
+    await writeFile(join(metadata.checkoutPath, "README.md"), "hello\naudit change\n", "utf8");
+
+    await runCli(["audit", "run", "repo", "--worktree", worktreeId, "--prompt", "Focus on AC coverage", "--json"]);
+    const runIds = await readdir(join(memoryRoot, "runs"));
+    expect(runIds).toHaveLength(1);
+    const runDir = join(memoryRoot, "runs", runIds[0]);
+    const run = JSON.parse(await readFile(join(runDir, "run.json"), "utf8"));
+    const audit = JSON.parse(await readFile(join(runDir, "audit.json"), "utf8"));
+
+    expect(run).toMatchObject({ runtime: "auditor", proposalOnly: true, status: "completed" });
+    expect(audit).toMatchObject({ status: "approved", changeId: "audit-worktree", worktreeId });
+    expect(await readFile(join(runDir, "diff.patch"), "utf8")).toContain("audit change");
+    expect(await readFile(join(runDir, "prompt.md"), "utf8")).toContain("Focus on AC coverage");
+    expect(existsSync(join(repoDir, "runs"))).toBe(false);
+
+    await runCli(["audit", "status", "repo", "--json"]);
+    await runCli(["audit", "list", "repo", "--json"]);
+    await runCli(["audit", "show", "repo", runIds[0], "--json"]);
+    await runCli(["audit", "accept", "repo", runIds[0]]);
+
+    const review = await readFile(join(memoryRoot, "harness", "changes", "active", "audit-worktree", "reviews", "review.md"), "utf8");
+    expect(review).toContain("Status: approved");
+    expect(review).toContain(`Audit ID: ${runIds[0]}`);
+  });
+
+  it("uses blocked and failed audit results in the change close gate", async () => {
+    await installFakeCodex("audit-blocked");
+    await writeFile(join(repoDir, "package.json"), JSON.stringify({
+      scripts: {
+        typecheck: "node -e \"\"",
+        lint: "node -e \"\"",
+        test: "node -e \"\"",
+        build: "node -e \"\"",
+      },
+    }), "utf8");
+    await runCli(["project", "add", repoDir, "--name", "Repo"]);
+    await runCli(["harness", "init", "repo"]);
+    await runCli(["change", "new", "repo", "--title", "Audit Gate"]);
+    const changeDir = join(repoDir, "harness", "changes", "active", "audit-gate");
+    await writeFile(join(changeDir, "reviews", "review.md"), "Status: approved\n", "utf8");
+    await runCli(["validate", "run", "repo"]);
+
+    await runCli(["audit", "run", "repo"]);
+    await expect(runCli(["change", "close", "repo"])).rejects.toThrow("Latest audit blocked close");
+    const blockedAuditId = await findRunWithArtifact(join(repoDir, ".agent-harness", "runs"), "audit.json");
+    await expect(runCli(["audit", "accept", "repo", blockedAuditId])).rejects.toThrow("Cannot accept audit with status blocked");
+
+    await installFakeCodex("audit-unparseable");
+    await runCli(["audit", "run", "repo"]);
+    expect(process.exitCode).toBe(1);
+    process.exitCode = undefined;
+    await runCli(["change", "close", "repo"]);
+  });
+
   it("blocks worktree creation for repositories without commits", async () => {
     await runCli(["project", "add", repoDir, "--name", "Repo"]);
     await runCli(["harness", "init", "repo", "--memory", "external-local"]);
@@ -342,7 +411,7 @@ describe("CLI flow", () => {
   });
 });
 
-type FakeCodexMode = "root" | "exec-no-output" | "unsupported";
+type FakeCodexMode = "root" | "exec-no-output" | "unsupported" | "audit-approved" | "audit-blocked" | "audit-unparseable";
 
 async function installFakeCodex(mode: FakeCodexMode): Promise<void> {
   const binDir = join(tempDir, "bin");
@@ -361,6 +430,13 @@ async function installFakeCodex(mode: FakeCodexMode): Promise<void> {
   process.env[originalPathKey] = `${binDir}${delimiter}${originalPath ?? ""}`;
 }
 
+async function findRunWithArtifact(runsRoot: string, artifactName: string): Promise<string> {
+  for (const id of await readdir(runsRoot)) {
+    if (existsSync(join(runsRoot, id, artifactName))) return id;
+  }
+  throw new Error(`No run with ${artifactName}`);
+}
+
 function buildFakeCodexScript(mode: FakeCodexMode): string {
   return `
 const fs = require("node:fs");
@@ -371,12 +447,12 @@ if (args.includes("--version")) {
   process.exit(0);
 }
 if (args.length === 1 && args[0] === "--help") {
-  console.log(mode === "root" ? "Usage: codex [OPTIONS]\\n--ask-for-approval <APPROVAL_POLICY>" : "Usage: codex [OPTIONS]");
+  console.log(mode === "root" || mode.startsWith("audit-") ? "Usage: codex [OPTIONS]\\n--ask-for-approval <APPROVAL_POLICY>" : "Usage: codex [OPTIONS]");
   process.exit(0);
 }
 if (args[0] === "exec" && args.includes("--help")) {
   const approval = mode === "exec-no-output" ? "\\n--ask-for-approval <APPROVAL_POLICY>" : "";
-  const output = mode === "root" ? "\\n--output-last-message <FILE>" : "";
+  const output = mode === "root" || mode.startsWith("audit-") ? "\\n--output-last-message <FILE>" : "";
   if (mode === "unsupported") {
     console.log("Usage: codex exec [OPTIONS]\\n--json");
   } else {
@@ -384,14 +460,26 @@ if (args[0] === "exec" && args.includes("--help")) {
   }
   process.exit(0);
 }
+function finalMessage() {
+  if (mode === "audit-approved") {
+    return "Status: approved\\n\\nFinding: Looks aligned\\n- Severity: note\\n- Area: implementation\\n- Evidence: diff and validation reviewed\\n- Recommendation: accept if human agrees";
+  }
+  if (mode === "audit-blocked") {
+    return "Status: blocked\\n\\nFinding: Missing acceptance coverage\\n- Severity: blocking\\n- Area: spec\\n- Evidence: AC-001 not addressed in diff\\n- Recommendation: update implementation before close";
+  }
+  if (mode === "audit-unparseable") {
+    return "This is not a parseable audit response";
+  }
+  return "fake codex proposal from output file";
+}
 const outputIndex = args.indexOf("--output-last-message");
 if (outputIndex >= 0) {
-  fs.writeFileSync(args[outputIndex + 1], "fake codex proposal from output file", "utf8");
+  fs.writeFileSync(args[outputIndex + 1], finalMessage(), "utf8");
 }
 process.stdin.resume();
 process.stdin.on("data", () => {});
 process.stdin.on("end", () => {
-  console.log(JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: "fake codex proposal from jsonl" } }));
+  console.log(JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: mode === "audit-unparseable" ? finalMessage() : "fake codex proposal from jsonl" } }));
   process.exit(0);
 });
 `;
