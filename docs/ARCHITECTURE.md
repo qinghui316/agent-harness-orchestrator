@@ -1,10 +1,10 @@
 # Architecture
 
-> Status: Phase 2D implements project registration, Harness management, Node-native structured change management, local command runs, event logs, run artifacts, Codex read-only proposal capture, and a repo-local Memory Resolver foundation. Worktree execution, write-mode Codex runs, Spec-Test gates, dashboard, operational external-local memory, and remote memory are planned future work.
+> Status: Phase 2E implements project registration, Harness management, Node-native structured change management, local command runs, event logs, run artifacts, Codex read-only proposal capture, memory resolver diagnostics, and opt-in external-local memory. Worktree execution, write-mode Codex runs, Spec-Test gates, dashboard, and remote memory are planned future work.
 
 ## 1. Current Status
 
-Agent Harness Orchestrator is a single-package TypeScript CLI. It currently manages local project registration, Harness audit/init, ECL index rebuilds, structured change creation/status/close, Acceptance Criteria parsing, task mapping, generated `ac-map.json`, local command run artifacts, Codex read-only proposal artifacts, and diagnostic memory status.
+Agent Harness Orchestrator is a single-package TypeScript CLI. It currently manages local project registration, Harness audit/init, ECL index rebuilds, structured change creation/status/close, Acceptance Criteria parsing, task mapping, generated `ac-map.json`, local command run artifacts, Codex read-only proposal artifacts, diagnostic memory status, and opt-in external-local memory.
 
 The long-term architecture is a local-first, Spec-Anchored managed-run harness. AHO keeps durable project memory in AHO-managed stores, prepares context for disposable external agents, records execution evidence, and routes every high-impact result through human confirmation.
 
@@ -74,8 +74,8 @@ Memory modes:
 
 | Mode | Source of truth | Use | Status |
 | --- | --- | --- | --- |
-| `repo-local` | Target repository files | Compatibility, portable/offline export, current implementation | Implemented through Memory Resolver |
-| `external-local` | AHO home on the user's machine | Personal multi-project default | Planned; resolver reports unsupported |
+| `repo-local` | Target repository files | Default today, compatibility, portable/offline export | Implemented |
+| `external-local` | AHO home on the user's machine | Personal multi-project target default | Implemented as opt-in |
 | `remote` | Remote memory service | Team and cross-device workflows | Future |
 
 Repo-local shape:
@@ -94,11 +94,13 @@ External-local target shape:
 target repo:
   AGENTS.md
   .agent-harness/project.json
+  .agent-harness/.gitignore
 
 AHO home:
   ~/.agent-harness/projects/{project-id}/docs/
   ~/.agent-harness/projects/{project-id}/harness/changes/
   ~/.agent-harness/projects/{project-id}/harness/evolution/
+  ~/.agent-harness/projects/{project-id}/scripts/
   ~/.agent-harness/projects/{project-id}/runs/
 ```
 
@@ -160,7 +162,7 @@ Each run should produce durable artifacts:
   review.md
 ```
 
-Phase 2B implements `run.json`, `context.md`, `events.jsonl`, `stdout.log`, and `stderr.log` for local command runs. Phase 2C adds `prompt.md`, `codex-events.jsonl`, and `last-message.md` for Codex read-only proposal runs. Diff, validation, and review artifacts remain planned future work.
+Phase 2B implements `run.json`, `context.md`, `events.jsonl`, `stdout.log`, and `stderr.log` for local command runs. Phase 2C adds `prompt.md`, `codex-events.jsonl`, and `last-message.md` for Codex read-only proposal runs. Phase 2E lets these artifacts live under either project-root or memory-root depending on memory mode. Diff, validation, and review artifacts remain planned future work.
 
 The Run Orchestrator should receive memory through a Memory Resolver and Context Projector. Runtime adapters must not hardcode repo-local Harness paths.
 
@@ -252,7 +254,7 @@ Future code should preserve these module boundaries:
 
 Codex adapters, change manager, and run manager must not directly assume `harness/changes` lives in the target repository. They should depend on Memory Resolver or receive resolved paths.
 
-The current implementation provides a repo-local resolver/layout and planned unsupported layouts for external-local and remote. Operational `ExternalLocalMemoryStore` and `RemoteMemoryStore` are future work.
+The current implementation provides repo-local and external-local resolver layouts. Remote memory remains unsupported future work.
 
 ## 12. Phase Roadmap
 
@@ -263,10 +265,11 @@ The current implementation provides a repo-local resolver/layout and planned uns
 | Phase 2B | Run sessions, event logs, and local command runtime |
 | Phase 2C | Codex read-only proposal adapter |
 | Phase 2D | Memory Resolver foundation and memory status diagnostics |
+| Phase 2E | External-local memory MVP |
 | Phase 3 | Worktree isolation and runtime hardening |
 | Phase 4 | Spec-Test mapping and drift gates |
 | Phase 5 | Dashboard and run/artifact explorer |
-| Future | External-local default, remote memory, team mode, and Spec-as-Source experiments |
+| Future | External-local default switch, remote memory, team mode, and Spec-as-Source experiments |
 
 ## 13. Non-Goals
 

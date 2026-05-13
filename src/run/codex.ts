@@ -6,8 +6,8 @@ import { buildCodexReadonlyArgv, detectCodexCapabilities } from "../codex/capabi
 import { extractFinalMessageFromCodexJsonl } from "../codex/jsonl.js";
 import { composeCodexPrompt } from "../codex/prompt.js";
 import { writeJsonFile } from "../fs/json.js";
-import { assertWritableMemory, resolveMemory } from "../memory/resolver.js";
-import type { ManagedProject, RunMetadata, RunStatus } from "../types/index.js";
+import { assertWritableMemory, resolveProjectMemory } from "../memory/resolver.js";
+import type { ManagedProject, ResolvedMemory, RunMetadata, RunStatus } from "../types/index.js";
 import { appendRunEvent, assertRunnableChange, buildContextProjection, buildRunId } from "./manager.js";
 import { executeProcessStreaming } from "./process.js";
 
@@ -22,7 +22,7 @@ export interface CodexReadonlyRunResult {
 }
 
 export async function startCodexReadonlyRun(project: ManagedProject, options: CodexReadonlyRunOptions): Promise<CodexReadonlyRunResult> {
-  const memory = resolveMemory(project);
+  const memory = await resolveProjectMemory(project);
   assertWritableMemory(memory, "Codex read-only run");
   const changeStatus = await getChangeStatus(project);
   assertRunnableChange(changeStatus);
@@ -31,8 +31,9 @@ export async function startCodexReadonlyRun(project: ManagedProject, options: Co
 
   const runId = buildRunId(changeId, ["codex-readonly", options.prompt]);
   const directory = join(memory.runsRoot, runId);
-  const relativeDir = displayPath(memory, directory);
+  const relativeDir = displayArtifactPath(memory, directory);
   const artifacts = {
+    base: memory.artifactBase,
     directory: relativeDir,
     context: `${relativeDir}/context.md`,
     events: `${relativeDir}/events.jsonl`,
@@ -137,8 +138,9 @@ export async function startCodexReadonlyRun(project: ManagedProject, options: Co
   return { run };
 }
 
-function displayPath(memory: { projectRoot: string }, absolutePath: string): string {
-  return relative(memory.projectRoot, absolutePath).replace(/\\/g, "/");
+function displayArtifactPath(memory: ResolvedMemory, absolutePath: string): string {
+  const base = memory.artifactBase === "memory-root" ? memory.memoryRoot : memory.projectRoot;
+  return relative(base, absolutePath).replace(/\\/g, "/");
 }
 
 async function finishRun(path: string, run: RunMetadata, status: RunStatus, exitCode: number | null, signal: NodeJS.Signals | null): Promise<RunMetadata> {

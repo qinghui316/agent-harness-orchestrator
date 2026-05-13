@@ -13,7 +13,7 @@ import { startCodexReadonlyRun } from "../run/codex.js";
 import { getMemoryStatus } from "../memory/status.js";
 import { assertWritableMemory, resolveMemory } from "../memory/resolver.js";
 import { readProjectMarker } from "../project/marker.js";
-import type { ManagedProject } from "../types/index.js";
+import type { ManagedProject, MemoryMode } from "../types/index.js";
 
 async function resolveRegisteredOrPath(store: ProjectRegistryStore, query: string): Promise<{ project: Awaited<ReturnType<ProjectRegistryStore["resolveProject"]>>; path: string }> {
   const project = await store.resolveProject(query);
@@ -101,7 +101,7 @@ export function createProgram(): Command {
       }
     });
 
-  const harness = program.command("harness").description("Inspect and initialize repo-local Harness");
+  const harness = program.command("harness").description("Inspect and initialize project Harness memory");
 
   harness
     .command("audit")
@@ -116,6 +116,7 @@ export function createProgram(): Command {
         printTable(audit.components.map((component) => ({
           component: component.name,
           path: component.path,
+          location: component.location,
           exists: component.exists,
         })));
         console.log(`Readiness: ${audit.readiness}; managed: ${audit.managed}; registered: ${resolved.project !== null}`);
@@ -125,16 +126,18 @@ export function createProgram(): Command {
   harness
     .command("init")
     .argument("<name-or-path>", "registered project id/name/path")
+    .option("--memory <mode>", "memory mode: repo-local or external-local", "repo-local")
     .option("--json", "print JSON")
-    .action(async (query: string, options: { json?: boolean }) => {
+    .action(async (query: string, options: { memory?: string; json?: boolean }) => {
       const registered = await store.resolveProject(query);
       if (!registered) {
         throw new Error("Project must be registered with `aho project add` before `aho harness init`.");
       }
-      const result = await initHarness(registered);
+      const memoryMode = parseHarnessInitMemoryMode(options.memory);
+      const result = await initHarness(registered, { memoryMode });
       if (options.json) printJson(result);
       else {
-        console.log(`Harness initialized for ${registered.name}.`);
+        console.log(`Harness initialized for ${registered.name} (${memoryMode}).`);
         console.log(`Created: ${result.created.length}; skipped existing: ${result.skipped.length}`);
       }
     });
@@ -168,10 +171,11 @@ export function createProgram(): Command {
           registered: status.registered,
           managed: status.managed,
           mode: status.memoryMode,
-          memoryAvailable: status.memoryAvailable,
-          harnessReady: status.harnessReady,
-          harnessRoot: status.roots.harnessRoot,
-          runsRoot: status.roots.runsRoot,
+            memoryAvailable: status.memoryAvailable,
+            harnessReady: status.harnessReady,
+            artifactBase: status.artifactBase,
+            harnessRoot: status.roots.harnessRoot,
+            runsRoot: status.roots.runsRoot,
           reason: status.unsupportedReason ?? "",
         }]);
       }
@@ -201,7 +205,7 @@ export function createProgram(): Command {
     .option("--json", "print JSON")
     .action(async (query: string, options: { json?: boolean }) => {
       const project = await resolveManagedProject(store, query);
-      const status = await getChangeStatus(project.path);
+      const status = await getChangeStatus(project);
       if (options.json) printJson(status);
       else {
         printTable([
@@ -322,4 +326,10 @@ export function createProgram(): Command {
     });
 
   return program;
+}
+
+function parseHarnessInitMemoryMode(input: string | undefined): Exclude<MemoryMode, "remote"> {
+  if (!input || input === "repo-local") return "repo-local";
+  if (input === "external-local") return "external-local";
+  throw new Error("Unsupported harness memory mode. Use `repo-local` or `external-local`.");
 }

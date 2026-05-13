@@ -71,13 +71,21 @@ describe("memory resolver", () => {
     });
   });
 
-  it("reports external-local and remote as unsupported planned layouts", () => {
+  it("resolves external-local as operational and remote as unsupported", () => {
     const external = resolveMemory({ path: tempDir, id: "repo", marker: marker("external-local") });
     const remote = resolveMemory({ path: tempDir, id: "repo", marker: marker("remote") });
 
-    expect(external).toMatchObject({ mode: "external-local", supported: false, writable: false });
+    expect(external).toMatchObject({
+      mode: "external-local",
+      supported: true,
+      writable: true,
+      artifactBase: "memory-root",
+      memoryRoot: join(process.env.AHO_HOME ?? "", "projects", "repo"),
+      harnessRoot: join(process.env.AHO_HOME ?? "", "projects", "repo"),
+      runsRoot: join(process.env.AHO_HOME ?? "", "projects", "repo", "runs"),
+    });
     expect(remote).toMatchObject({ mode: "remote", supported: false, writable: false });
-    expect(() => assertWritableMemory(external, "Change creation")).toThrow("external-local");
+    expect(() => assertWritableMemory(external, "Change creation")).not.toThrow();
     expect(() => assertWritableMemory(remote, "Change creation")).toThrow("remote");
   });
 

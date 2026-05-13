@@ -2,7 +2,7 @@
 
 AHO separates durable project memory from agent execution. Agents can be restarted, replaced, or run through different adapters. Project memory must remain available through AHO-managed files and artifacts.
 
-This document defines the target memory model. Repo-local memory is implemented through a Memory Resolver foundation. `external-local` and `remote` memory stores are target architecture and are not operational yet.
+This document defines the memory model. Repo-local memory is the default and compatibility mode. External-local memory is operational as an opt-in personal mode. Remote memory remains future work.
 
 ## 1. Why Separate Memory From Execution
 
@@ -22,8 +22,8 @@ AHO supports three memory modes at the architecture level.
 
 | Mode | Source of truth | Intended use | Status |
 | --- | --- | --- | --- |
-| `repo-local` | Files inside the target repository | Compatibility, portable/offline export, current implementation | Implemented through resolver |
-| `external-local` | AHO home on the user's machine | Personal multi-project default | Planned, unsupported for writes |
+| `repo-local` | Files inside the target repository | Default today, compatibility, portable/offline export | Implemented |
+| `external-local` | AHO home on the user's machine | Personal multi-project target default | Implemented as opt-in |
 | `remote` | Remote memory service | Team, cross-device, shared audit history | Future, unsupported |
 
 `repo-local` is retained as compatibility and migration mode. It should not remain the long-term default for personal multi-project use.
@@ -61,6 +61,7 @@ External-local mode keeps only lightweight project pointers in the target reposi
 ```text
 AGENTS.md
 .agent-harness/project.json
+.agent-harness/.gitignore
 ```
 
 Durable memory lives under AHO home:
@@ -83,6 +84,18 @@ External-local mode enables:
 - easier backup or sync of AHO memory
 - future migration to remote memory
 - less risk of committing local run history
+
+Phase 2E makes this mode usable with:
+
+```powershell
+aho harness init <project> --memory external-local
+aho memory status <project>
+aho change new/status/close <project>
+aho run start <project> -- <command>
+aho run codex <project> --prompt "..."
+```
+
+The target project remains the command working directory for local command and Codex runs. Run artifacts are written under the external memory root.
 
 ## 5. Remote Mode
 

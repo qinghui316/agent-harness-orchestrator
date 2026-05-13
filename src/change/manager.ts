@@ -6,7 +6,7 @@ import { buildAcMap, parseReviewStatus } from "../ecl/anchors.js";
 import { getActiveChanges, writeChangeIndex } from "../ecl/index.js";
 import { atomicWriteFile, writeJsonFile } from "../fs/json.js";
 import { slugify } from "../fs/path.js";
-import { assertWritableMemory, resolveMemory } from "../memory/resolver.js";
+import { assertWritableMemory, resolveMemory, resolveProjectMemory } from "../memory/resolver.js";
 import { getTemplateRoot } from "../template-source/paths.js";
 import type {
   AcMap,
@@ -53,7 +53,7 @@ export interface ChangeCloseResult {
 }
 
 export async function createChange(project: ManagedProject, options: { title: string; body?: string }): Promise<ChangeCreateResult> {
-  const memory = resolveMemory(project);
+  const memory = await resolveProjectMemory(project);
   assertWritableMemory(memory, "Change creation");
   const activeChanges = await getActiveChanges(memory);
   if (activeChanges.length > 0) {
@@ -96,7 +96,7 @@ export async function createChange(project: ManagedProject, options: { title: st
 }
 
 export async function getChangeStatus(project: ManagedProject | string | ResolvedMemory): Promise<ChangeStatus> {
-  const memory = resolveChangeMemory(project);
+  const memory = await resolveChangeMemory(project);
   const activeChanges = await getActiveChanges(memory);
   const baseGate = evaluateActiveCount(activeChanges);
   if (activeChanges.length !== 1) {
@@ -111,7 +111,7 @@ export async function getChangeStatus(project: ManagedProject | string | Resolve
   }
 
   const active = activeChanges[0];
-  const changePath = join(memory.projectRoot, active.path);
+  const changePath = join(memory.memoryRoot, active.path);
   const missingFiles = getMissingRequiredFiles(changePath);
   const warnings: string[] = [];
   const blockingIssues = [...baseGate.blockingIssues];
@@ -159,7 +159,7 @@ export async function getChangeStatus(project: ManagedProject | string | Resolve
 }
 
 export async function closeChange(project: ManagedProject | string): Promise<ChangeCloseResult> {
-  const memory = resolveChangeMemory(project);
+  const memory = await resolveChangeMemory(project);
   assertWritableMemory(memory, "Change close");
   const status = await getChangeStatus(memory);
   if (!status.closeGate.ready) {
@@ -170,9 +170,9 @@ export async function closeChange(project: ManagedProject | string): Promise<Cha
   }
 
   const active = status.activeChanges[0];
-  const activePath = join(memory.projectRoot, active.path);
+  const activePath = join(memory.memoryRoot, active.path);
   const archiveRelativePath = await getArchiveRelativePath(memory, status.change.id);
-  const archivePath = join(memory.projectRoot, archiveRelativePath);
+  const archivePath = join(memory.memoryRoot, archiveRelativePath);
   const now = new Date().toISOString();
   const updated: ChangeMetadata = {
     ...status.change,
@@ -307,12 +307,12 @@ function uniqueSorted(values: string[]): string[] {
   return [...new Set(values)].sort((a, b) => a.localeCompare(b));
 }
 
-function resolveChangeMemory(project: ManagedProject | string | ResolvedMemory): ResolvedMemory {
+async function resolveChangeMemory(project: ManagedProject | string | ResolvedMemory): Promise<ResolvedMemory> {
   if (typeof project === "string") return resolveMemory({ path: project });
   if ("harnessRoot" in project) return project;
-  return resolveMemory(project);
+  return resolveProjectMemory(project);
 }
 
 function displayPath(memory: ResolvedMemory, absolutePath: string): string {
-  return relative(memory.projectRoot, absolutePath).replace(/\\/g, "/");
+  return relative(memory.memoryRoot, absolutePath).replace(/\\/g, "/");
 }

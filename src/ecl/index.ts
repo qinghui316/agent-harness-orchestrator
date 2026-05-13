@@ -12,7 +12,7 @@ function toMemory(input: EclMemoryInput): ResolvedMemory {
 }
 
 function displayPath(memory: ResolvedMemory, absolutePath: string): string {
-  return relative(memory.projectRoot, absolutePath).replace(/\\/g, "/");
+  return relative(memory.memoryRoot, absolutePath).replace(/\\/g, "/");
 }
 
 async function listChangeItems(input: EclMemoryInput, state: "active" | "parking" | "archive"): Promise<ChangeIndexItem[]> {

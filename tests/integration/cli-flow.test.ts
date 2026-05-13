@@ -139,6 +139,47 @@ describe("CLI flow", () => {
     await runCli(["run", "show", "repo", runIds[0], "--json"]);
   });
 
+  it("supports external-local memory for change and run artifacts", async () => {
+    await installFakeCodex("root");
+    await runCli(["project", "add", repoDir, "--name", "Repo"]);
+    await runCli(["harness", "init", "repo", "--memory", "external-local"]);
+
+    const marker = JSON.parse(await readFile(join(repoDir, ".agent-harness", "project.json"), "utf8"));
+    const memoryRoot = join(homeDir, "projects", "repo");
+    expect(marker).toMatchObject({ id: "repo", memoryMode: "external-local" });
+    expect(existsSync(join(repoDir, "AGENTS.md"))).toBe(true);
+    expect(existsSync(join(repoDir, ".agent-harness", ".gitignore"))).toBe(true);
+    expect(existsSync(join(repoDir, "harness"))).toBe(false);
+    expect(existsSync(join(repoDir, "docs"))).toBe(false);
+    expect(existsSync(join(memoryRoot, "docs", "ECL.md"))).toBe(true);
+    expect(existsSync(join(memoryRoot, "harness", "changes", "INDEX.json"))).toBe(true);
+    expect(existsSync(join(memoryRoot, "scripts", "harness-change.ps1"))).toBe(true);
+
+    await runCli(["memory", "status", "repo", "--json"]);
+    await runCli(["harness", "audit", "repo", "--json"]);
+    await runCli(["change", "new", "repo", "--title", "External Memory Change", "--body", "Raw request"]);
+
+    const changeDir = join(memoryRoot, "harness", "changes", "active", "external-memory-change");
+    expect(existsSync(join(changeDir, "change.json"))).toBe(true);
+    await runCli(["change", "status", "repo", "--json"]);
+
+    await runCli(["run", "start", "repo", "--", process.execPath, "-e", "console.log(process.cwd())"]);
+    await runCli(["run", "codex", "repo", "--prompt", "Propose a plan"]);
+
+    const runIds = await readdir(join(memoryRoot, "runs"));
+    expect(runIds).toHaveLength(2);
+    const firstRun = JSON.parse(await readFile(join(memoryRoot, "runs", runIds[0], "run.json"), "utf8"));
+    expect(firstRun.artifacts.base).toBe("memory-root");
+    expect(firstRun.artifacts.directory).toMatch(/^runs\//);
+    expect(existsSync(join(repoDir, ".agent-harness", "runs"))).toBe(false);
+
+    await writeFile(join(changeDir, "reviews", "review.md"), "Status: approved\n", "utf8");
+    await runCli(["change", "close", "repo"]);
+    const index = JSON.parse(await readFile(join(memoryRoot, "harness", "changes", "INDEX.json"), "utf8"));
+    expect(index.active).toHaveLength(0);
+    expect(index.archive[0].name).toMatch(/^\d{8}-external-memory-change/);
+  });
+
   it("falls back to JSONL final message when output-last-message is unsupported", async () => {
     await installFakeCodex("exec-no-output");
     await runCli(["project", "add", repoDir, "--name", "Repo"]);

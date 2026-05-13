@@ -95,12 +95,19 @@ Phase 2D adds memory resolver foundation:
 - Writing `memoryMode: "repo-local"` into new project markers.
 - Keeping old markers compatible as repo-local.
 - Adding `aho memory status` as a diagnostic command.
-- Keeping external-local and remote as planned/unsupported modes.
+- Keeping external-local and remote behind explicit resolver boundaries before enabling them.
+
+Phase 2E adds external-local memory as an opt-in mode:
+
+- `aho harness init --memory external-local`.
+- Target repositories keep only `AGENTS.md`, `.agent-harness/project.json`, and `.agent-harness/.gitignore`.
+- Durable docs, Harness files, scripts, changes, and run artifacts live under AHO home.
+- `change`, `run start`, and `run codex` work against the external memory root.
 
 Later phases add:
 
 - Spec-Anchored local managed runs.
-- Operational external-local memory as the personal default.
+- Switching external-local to the personal default after more migration and sync work.
 - Codex write-mode adapters behind explicit worktree boundaries.
 - Run events, logs, diffs, validation reports, and review artifacts.
 - Validation and audit loops.

@@ -13,17 +13,21 @@ export async function getMemoryStatus(project: ManagedProject | null, path: stri
     registered: project !== null,
     managed: marker !== null,
     memoryMode: memory.mode,
-    memoryAvailable: marker !== null && memory.supported && existsSync(memory.harnessRoot),
+    memoryAvailable: marker !== null && memory.supported && existsSync(memory.memoryRoot),
     harnessReady: audit.readiness === "ready",
     markerPath: memory.markerPath,
     roots: {
       projectRoot: memory.projectRoot,
+      memoryRoot: memory.memoryRoot,
+      docsRoot: memory.docsRoot,
       harnessRoot: memory.harnessRoot,
       changesRoot: memory.changesRoot,
       evolutionRoot: memory.evolutionRoot,
       templatesRoot: memory.templatesRoot,
+      scriptsRoot: memory.scriptsRoot,
       runsRoot: memory.runsRoot,
     },
+    artifactBase: memory.artifactBase,
     unsupportedReason: memory.reason,
   };
 }

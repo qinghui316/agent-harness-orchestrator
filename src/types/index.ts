@@ -17,17 +17,24 @@ export interface ProjectMarker {
 
 export type MemoryMode = "repo-local" | "external-local" | "remote";
 
+export type ArtifactBase = "project-root" | "memory-root";
+
 export interface ResolvedMemory {
   mode: MemoryMode;
   supported: boolean;
   writable: boolean;
+  artifactBase: ArtifactBase;
   projectId: string | null;
   projectRoot: string;
   markerPath: string;
+  agentGuidePath: string;
+  memoryRoot: string;
+  docsRoot: string;
   harnessRoot: string;
   changesRoot: string;
   evolutionRoot: string;
   templatesRoot: string;
+  scriptsRoot: string;
   runsRoot: string;
   reason?: string;
 }
@@ -41,12 +48,16 @@ export interface MemoryStatus {
   markerPath: string;
   roots: {
     projectRoot: string;
+    memoryRoot: string;
+    docsRoot: string;
     harnessRoot: string;
     changesRoot: string;
     evolutionRoot: string;
     templatesRoot: string;
+    scriptsRoot: string;
     runsRoot: string;
   };
+  artifactBase: ArtifactBase;
   unsupportedReason?: string;
 }
 
@@ -60,6 +71,7 @@ export type HarnessReadiness = "missing" | "partial" | "ready";
 export interface HarnessComponentStatus {
   name: string;
   path: string;
+  location: "project" | "memory";
   exists: boolean;
   required: boolean;
 }
@@ -159,6 +171,7 @@ export type RunRuntime = "local-command" | "codex-readonly";
 export type RunExecutionMode = "direct";
 
 export interface RunArtifactPaths {
+  base?: ArtifactBase;
   directory: string;
   context: string;
   events: string;

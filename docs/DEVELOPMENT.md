@@ -2,7 +2,7 @@
 
 ## 1. Current Phase
 
-This repository contains Harness infrastructure, a Phase 1 TypeScript CLI, Phase 2A structured change management, Phase 2B local command run artifacts, Phase 2C Codex read-only proposal capture, and Phase 2D memory resolver foundation.
+This repository contains Harness infrastructure, a Phase 1 TypeScript CLI, Phase 2A structured change management, Phase 2B local command run artifacts, Phase 2C Codex read-only proposal capture, Phase 2D memory resolver foundation, and Phase 2E opt-in external-local memory.
 
 ## 2. Prerequisites
 
@@ -69,7 +69,17 @@ node dist/index.js memory status aho-test
 node dist/index.js memory status aho-test --json
 ```
 
-Phase 2D keeps `repo-local` as the only operational mode. `external-local` and `remote` are planned/unsupported modes and are not writable yet.
+`repo-local` remains the default and compatibility mode. `external-local` is available as an opt-in personal mode. `remote` remains planned/unsupported.
+
+External-local initialization keeps durable memory outside the target repository:
+
+```powershell
+node dist/index.js project add ..\aho-test-project --name aho-test
+node dist/index.js harness init aho-test --memory external-local
+node dist/index.js memory status aho-test --json
+```
+
+The target repository keeps only `AGENTS.md`, `.agent-harness/project.json`, and `.agent-harness/.gitignore`. Durable docs, Harness files, scripts, changes, and runs live under AHO home.
 
 ## 7. Local Command Run Commands
 
@@ -91,6 +101,8 @@ Run artifacts are written under the target project:
   stdout.log
   stderr.log
 ```
+
+For external-local projects, run artifacts are written under the resolved memory root and `run.json` uses `artifacts.base: "memory-root"`.
 
 ## 8. Codex Read-Only Proposal Runs
 

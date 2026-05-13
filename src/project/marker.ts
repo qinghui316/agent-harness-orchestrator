@@ -1,7 +1,7 @@
 import { mkdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
-import type { ManagedProject, ProjectMarker } from "../types/index.js";
+import type { ManagedProject, MemoryMode, ProjectMarker } from "../types/index.js";
 import { writeJsonFile } from "../fs/json.js";
 
 const MarkerSchema = z.object({
@@ -27,13 +27,13 @@ export async function readProjectMarker(projectPath: string): Promise<ProjectMar
   }
 }
 
-export async function writeProjectMarker(project: ManagedProject): Promise<ProjectMarker> {
+export async function writeProjectMarker(project: ManagedProject, memoryMode: MemoryMode = "repo-local"): Promise<ProjectMarker> {
   const marker: ProjectMarker = {
     version: "1.0",
     id: project.id,
     name: project.name,
     managedBy: "agent-harness-orchestrator",
-    memoryMode: "repo-local",
+    memoryMode,
     createdAt: new Date().toISOString(),
   };
   await mkdir(join(project.path, ".agent-harness"), { recursive: true });

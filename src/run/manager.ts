@@ -5,7 +5,7 @@ import { z } from "zod";
 import { getChangeStatus } from "../change/manager.js";
 import { writeJsonFile } from "../fs/json.js";
 import { shortHash, slugify } from "../fs/path.js";
-import { assertWritableMemory, resolveMemory } from "../memory/resolver.js";
+import { assertWritableMemory, resolveMemory, resolveProjectMemory } from "../memory/resolver.js";
 import { executeProcessStreaming } from "./process.js";
 import type { ChangeStatus, ManagedProject, ResolvedMemory, RunEvent, RunMetadata, RunStatus } from "../types/index.js";
 
@@ -24,6 +24,7 @@ const runMetadataSchema = z.object({
   startedAt: z.string(),
   finishedAt: z.string().nullable(),
   artifacts: z.object({
+    base: z.enum(["project-root", "memory-root"]).default("project-root"),
     directory: z.string(),
     context: z.string(),
     events: z.string(),
@@ -48,7 +49,7 @@ export async function startLocalCommandRun(project: ManagedProject, command: str
     throw new Error("Run command is required after `--`, for example: aho run start <project> -- npm test");
   }
 
-  const memory = resolveMemory(project);
+  const memory = await resolveProjectMemory(project);
   assertWritableMemory(memory, "Local command run");
   const changeStatus = await getChangeStatus(project);
   assertRunnableChange(changeStatus);
@@ -57,8 +58,9 @@ export async function startLocalCommandRun(project: ManagedProject, command: str
 
   const runId = buildRunId(changeId, command);
   const directory = join(memory.runsRoot, runId);
-  const relativeDir = displayPath(memory, directory);
+  const relativeDir = displayArtifactPath(memory, directory);
   const artifacts = {
+    base: memory.artifactBase,
     directory: relativeDir,
     context: `${relativeDir}/context.md`,
     events: `${relativeDir}/events.jsonl`,
@@ -131,7 +133,7 @@ export async function startLocalCommandRun(project: ManagedProject, command: str
 }
 
 export async function listRuns(project: ManagedProject | string | ResolvedMemory): Promise<RunMetadata[]> {
-  const memory = resolveRunMemory(project);
+  const memory = await resolveRunMemory(project);
   const runsDir = memory.runsRoot;
   if (!existsSync(runsDir)) return [];
   const entries = await readdir(runsDir, { withFileTypes: true });
@@ -144,7 +146,7 @@ export async function listRuns(project: ManagedProject | string | ResolvedMemory
 }
 
 export async function readRun(project: ManagedProject | string | ResolvedMemory, runId: string): Promise<RunMetadata> {
-  const memory = resolveRunMemory(project);
+  const memory = await resolveRunMemory(project);
   const path = join(memory.runsRoot, runId, "run.json");
   const parsed: unknown = JSON.parse(await readFile(path, "utf8"));
   return runMetadataSchema.parse(parsed) as RunMetadata;
@@ -224,12 +226,13 @@ function pad(value: number): string {
   return value.toString().padStart(2, "0");
 }
 
-function resolveRunMemory(project: ManagedProject | string | ResolvedMemory): ResolvedMemory {
+async function resolveRunMemory(project: ManagedProject | string | ResolvedMemory): Promise<ResolvedMemory> {
   if (typeof project === "string") return resolveMemory({ path: project });
   if ("runsRoot" in project) return project;
-  return resolveMemory(project);
+  return resolveProjectMemory(project);
 }
 
-function displayPath(memory: ResolvedMemory, absolutePath: string): string {
-  return relative(memory.projectRoot, absolutePath).replace(/\\/g, "/");
+function displayArtifactPath(memory: ResolvedMemory, absolutePath: string): string {
+  const base = memory.artifactBase === "memory-root" ? memory.memoryRoot : memory.projectRoot;
+  return relative(base, absolutePath).replace(/\\/g, "/");
 }
