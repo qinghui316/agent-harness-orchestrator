@@ -19,6 +19,12 @@ import { acceptAudit, getAuditStatus, listAuditSummaries, showAudit, startAuditR
 import { getCodeStatus, listCodeRuns, showCodeRun, startCodeRun } from "../code/manager.js";
 import { applyWorktree, discardWorktree, previewWorktreeApply } from "../apply/manager.js";
 import { checkSpecTests, getSpecTestStatus, linkSpecTest, unlinkSpecTest } from "../spec-test/manager.js";
+import {
+  acceptSpecTestProposal,
+  listSpecTestProposalSummaries,
+  showSpecTestProposal,
+  startSpecTestProposalRun,
+} from "../spec-test/proposal.js";
 import type { ManagedProject, MemoryMode, ResolvedMemory } from "../types/index.js";
 
 async function resolveRegisteredOrPath(store: ProjectRegistryStore, query: string): Promise<{ project: Awaited<ReturnType<ProjectRegistryStore["resolveProject"]>>; path: string }> {
@@ -394,6 +400,92 @@ export function createProgram(): Command {
   const code = program.command("code").description("Run Codex coder agents in AHO-owned worktrees");
 
   const specTest = program.command("spec-test").description("Manage Acceptance Criteria to test evidence mappings");
+
+  specTest
+    .command("propose")
+    .argument("<project>", "registered project id/name/path")
+    .option("--worktree <worktree-id>", "include an AHO-managed worktree context for proposal only")
+    .option("--prompt <text>", "additional instruction for the proposer")
+    .option("--json", "print JSON")
+    .action(async (query: string, options: { worktree?: string; prompt?: string; json?: boolean }) => {
+      const project = await resolveManagedProject(store, query);
+      const result = await startSpecTestProposalRun(project, { worktreeId: options.worktree, prompt: options.prompt });
+      if (options.json) printJson(result);
+      else {
+        console.log(`Spec-test proposal ${result.proposal.id}: ${result.proposal.status}`);
+        console.log(`Evidence candidates: ${result.proposal.evidence.length}`);
+        console.log(`Artifacts: ${result.run.artifacts.directory}`);
+        console.log("Proposal output is not accepted evidence until `aho spec-test proposal accept` is run.");
+      }
+      if (result.run.status === "failed") process.exitCode = result.run.exitCode ?? 1;
+    });
+
+  const specTestProposal = specTest.command("proposal").description("Review and accept spec-test evidence proposals");
+
+  specTestProposal
+    .command("list")
+    .argument("<project>", "registered project id/name/path")
+    .option("--json", "print JSON")
+    .action(async (query: string, options: { json?: boolean }) => {
+      const project = await resolveManagedProject(store, query);
+      const proposals = await listSpecTestProposalSummaries(project);
+      if (options.json) printJson(proposals);
+      else {
+        printTable(proposals.map((item) => ({
+          id: item.id,
+          change: item.changeId,
+          status: item.status,
+          evidence: item.evidenceCount,
+          existing: item.existingEvidenceCount,
+          acceptable: item.acceptedSourceRootCount,
+          startedAt: item.startedAt,
+        })));
+      }
+    });
+
+  specTestProposal
+    .command("show")
+    .argument("<project>", "registered project id/name/path")
+    .argument("<proposal-id>", "proposal id")
+    .option("--json", "print JSON")
+    .action(async (query: string, proposalId: string, options: { json?: boolean }) => {
+      const project = await resolveManagedProject(store, query);
+      const proposal = await showSpecTestProposal(project, proposalId);
+      if (options.json) printJson(proposal);
+      else {
+        printTable([{
+          id: proposal.id,
+          change: proposal.changeId,
+          status: proposal.status,
+          worktree: proposal.worktreeId ?? "",
+          evidence: proposal.evidence.length,
+          warnings: proposal.warnings.length,
+        }]);
+      }
+    });
+
+  specTestProposal
+    .command("accept")
+    .argument("<project>", "registered project id/name/path")
+    .argument("<proposal-id>", "proposal id")
+    .option("--ac <ac-id>", "Acceptance Criterion id for a single evidence candidate")
+    .option("--ref <ref-id>", "proposal evidence ref id for a single evidence candidate")
+    .option("--all-existing", "accept all source-root existingEvidence candidates")
+    .option("--json", "print JSON")
+    .action(async (query: string, proposalId: string, options: { ac?: string; ref?: string; allExisting?: boolean; json?: boolean }) => {
+      const project = await resolveManagedProject(store, query);
+      const result = await acceptSpecTestProposal(project, proposalId, {
+        ac: options.ac,
+        ref: options.ref,
+        allExisting: options.allExisting,
+      });
+      if (options.json) printJson(result);
+      else {
+        console.log(`Accepted ${result.accepted.length} spec-test evidence candidate(s).`);
+        for (const skipped of result.skipped) console.log(`SKIPPED ${skipped.refId}: ${skipped.reason}`);
+        printSpecTestStatus(result.status);
+      }
+    });
 
   specTest
     .command("status")

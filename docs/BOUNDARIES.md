@@ -272,6 +272,9 @@ Spec-Test mapping links Acceptance Criteria to test or validation evidence. It i
 - `spec-tests.json` records explicit links from AC IDs to files, test names, validation commands, or notes.
 - File existence and command validation status can be checked mechanically.
 - Test names are human-auditable labels only in Phase 4A; AHO does not parse runner output.
+- Phase 4B may ask Codex to propose existing evidence, but Codex must not directly edit `spec-tests.json`.
+- AHO writes accepted evidence only after an explicit human confirmation command.
+- In Phase 4B, only `source-root` `existingEvidence` can be accepted. Worktree-only evidence, suggested new tests, open questions, and unknown evidence stay proposal-only.
 - Missing linked evidence is warning-only. Broken linked evidence, such as a missing referenced file, is blocking.
 - Later drift gates may become stricter only after the mapping and generation flows are stable.
 - A failed validation should produce evidence for fixing code, improving specs, or evolving Harness rules.

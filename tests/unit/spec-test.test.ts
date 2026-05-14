@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createChange } from "../../src/change/manager.js";
 import { initHarness } from "../../src/harness/init.js";
 import { getSpecTestStatus, linkSpecTest, unlinkSpecTest } from "../../src/spec-test/manager.js";
+import { parseSpecTestProposalMessage } from "../../src/spec-test/proposal.js";
 import { writeJsonFile } from "../../src/fs/json.js";
 import type { ManagedProject, ValidationResult } from "../../src/types/index.js";
 
@@ -103,6 +104,42 @@ describe("spec-test manager", () => {
 
     status = await unlinkSpecTest(item, { ac: "AC-001", command: "test" });
     expect(status.mappings).toHaveLength(0);
+  });
+});
+
+describe("spec-test proposal parser", () => {
+  it("parses proposed evidence and normalizes AC ids", () => {
+    const result = parseSpecTestProposalMessage([
+      "Status: proposed",
+      "",
+      "```json",
+      JSON.stringify({
+        status: "proposed",
+        evidence: [{
+          refId: "ev-001",
+          acId: "ac-001",
+          source: "source-root",
+          kind: "existingEvidence",
+          refs: [
+            { type: "file", path: "test/pricing.test.js" },
+            { type: "testName", path: "test/pricing.test.js", name: "normal customers pay subtotal" },
+            { type: "command", commandName: "test" },
+          ],
+          rationale: "Existing test exercises the behavior.",
+        }],
+        warnings: [],
+      }),
+      "```",
+    ].join("\n"));
+
+    expect(result.status).toBe("proposed");
+    expect(result.evidence[0]).toMatchObject({ refId: "ev-001", acId: "AC-001", source: "source-root", kind: "existingEvidence" });
+    expect(result.evidence[0]?.refs).toHaveLength(3);
+  });
+
+  it("treats missing or invalid JSON as failed proposal output", () => {
+    expect(parseSpecTestProposalMessage("This is not JSON.")).toMatchObject({ status: "failed" });
+    expect(parseSpecTestProposalMessage("Status: blocked")).toMatchObject({ status: "blocked", evidence: [] });
   });
 });
 

@@ -178,6 +178,48 @@ describe("CLI flow", () => {
     await expect(runCli(["change", "close", "repo"])).rejects.toThrow("Review status is pending");
   });
 
+  it("proposes and accepts source-root existing spec-test evidence", async () => {
+    await installFakeCodex("spec-test-proposal");
+    await writeFile(join(repoDir, "package.json"), JSON.stringify({
+      scripts: {
+        test: "node -e \"console.log('existing evidence')\"",
+      },
+    }), "utf8");
+    await mkdir(join(repoDir, "test"), { recursive: true });
+    await writeFile(join(repoDir, "test", "pricing.test.js"), "test('normal customers pay subtotal', () => {});\n", "utf8");
+
+    await runCli(["project", "add", repoDir, "--name", "Repo"]);
+    await runCli(["harness", "init", "repo", "--memory", "external-local"]);
+    await runCli(["change", "new", "repo", "--title", "Existing Evidence"]);
+    await runCli(["validate", "run", "repo", "--json"]);
+    await runCli(["spec-test", "propose", "repo", "--json"]);
+
+    const memoryRoot = join(homeDir, "projects", "repo");
+    const proposalRunId = (await readdir(join(memoryRoot, "runs"))).find((id) => existsSync(join(memoryRoot, "runs", id, "spec-test-proposal.json")));
+    expect(proposalRunId).toBeDefined();
+    const proposal = JSON.parse(await readFile(join(memoryRoot, "runs", proposalRunId!, "spec-test-proposal.json"), "utf8"));
+    expect(proposal).toMatchObject({ status: "proposed", changeId: "existing-evidence" });
+    expect(proposal.evidence).toHaveLength(3);
+
+    await runCli(["spec-test", "proposal", "list", "repo", "--json"]);
+    await runCli(["spec-test", "proposal", "show", "repo", proposalRunId!, "--json"]);
+    await expect(runCli(["spec-test", "proposal", "accept", "repo", proposalRunId!, "--ac", "AC-001", "--ref", "ev-002", "--json"])).rejects.toThrow("Cannot accept worktree-only evidence");
+    await runCli(["spec-test", "proposal", "accept", "repo", proposalRunId!, "--ac", "AC-001", "--ref", "ev-001", "--json"]);
+
+    let status = await getSpecTestStatus(managedProject());
+    expect(status.acceptanceCriteria[0]).toMatchObject({ linkedEvidence: true, evidenceFilesExist: true, confidence: "validation-passed" });
+    expect(status.mappings[0]?.refs).toEqual(expect.arrayContaining([
+      { type: "file", path: "test/pricing.test.js" },
+      { type: "testName", path: "test/pricing.test.js", name: "normal customers pay subtotal" },
+      { type: "command", commandName: "test" },
+    ]));
+
+    await runCli(["spec-test", "proposal", "accept", "repo", proposalRunId!, "--all-existing", "--json"]);
+    status = await getSpecTestStatus(managedProject());
+    expect(status.mappings).toHaveLength(1);
+    expect(status.mappings[0]?.refs).toHaveLength(3);
+  });
+
   it("records local command runs and exposes them through the CLI", async () => {
     await runCli(["project", "add", repoDir, "--name", "Repo"]);
     await runCli(["harness", "init", "repo"]);
@@ -735,7 +777,8 @@ type FakeCodexMode =
   | "code-write"
   | "code-no-diff"
   | "code-fail"
-  | "code-pollute";
+  | "code-pollute"
+  | "spec-test-proposal";
 
 async function installFakeCodex(mode: FakeCodexMode): Promise<void> {
   const binDir = join(tempDir, "bin");
@@ -771,13 +814,13 @@ if (args.includes("--version")) {
   process.exit(0);
 }
 if (args.length === 1 && args[0] === "--help") {
-  console.log(mode === "root" || mode.startsWith("audit-") ? "Usage: codex [OPTIONS]\\n--ask-for-approval <APPROVAL_POLICY>" : "Usage: codex [OPTIONS]");
+  console.log(mode === "root" || mode.startsWith("audit-") || mode.startsWith("spec-test-") ? "Usage: codex [OPTIONS]\\n--ask-for-approval <APPROVAL_POLICY>" : "Usage: codex [OPTIONS]");
   process.exit(0);
 }
 if (args[0] === "exec" && args.includes("--help")) {
   const approval = mode === "exec-no-output" ? "\\n--ask-for-approval <APPROVAL_POLICY>" : "";
-    const output = mode === "root" || mode.startsWith("audit-") || mode.startsWith("code-") ? "\\n--output-last-message <FILE>" : "";
-    const addDir = mode.startsWith("audit-") ? "\\n--add-dir <DIR>" : "";
+    const output = mode === "root" || mode.startsWith("audit-") || mode.startsWith("code-") || mode.startsWith("spec-test-") ? "\\n--output-last-message <FILE>" : "";
+    const addDir = mode.startsWith("audit-") || mode.startsWith("spec-test-") ? "\\n--add-dir <DIR>" : "";
     if (mode === "unsupported") {
       console.log("Usage: codex exec [OPTIONS]\\n--json");
     } else {
@@ -794,6 +837,42 @@ function finalMessage() {
   }
   if (mode === "audit-unparseable") {
     return "This is not a parseable audit response";
+  }
+  if (mode === "spec-test-proposal") {
+    return "Status: proposed\\n\\n\`\`\`json\\n" + JSON.stringify({
+      status: "proposed",
+      evidence: [
+        {
+          refId: "ev-001",
+          acId: "AC-001",
+          source: "source-root",
+          kind: "existingEvidence",
+          refs: [
+            { type: "file", path: "test/pricing.test.js" },
+            { type: "testName", path: "test/pricing.test.js", name: "normal customers pay subtotal" },
+            { type: "command", commandName: "test" }
+          ],
+          rationale: "Existing source-root test exercises the baseline behavior."
+        },
+        {
+          refId: "ev-002",
+          acId: "AC-001",
+          source: "worktree-only",
+          kind: "existingEvidence",
+          refs: [{ type: "file", path: "test/worktree-only.test.js" }],
+          rationale: "This is worktree-only and cannot be accepted in Phase 4B."
+        },
+        {
+          refId: "ev-003",
+          acId: "AC-001",
+          source: "suggested",
+          kind: "suggestedNewTests",
+          refs: [],
+          rationale: "A future test could improve evidence."
+        }
+      ],
+      warnings: []
+    }, null, 2) + "\\n\`\`\`";
   }
   return "fake codex proposal from output file";
 }

@@ -69,9 +69,20 @@ export async function linkSpecTest(project: ManagedProject, options: SpecTestLin
   const context = await getActiveSpecTestContext(project);
   const refs = buildRefs(options);
   const acId = normalizeAcId(options.ac);
+  return linkSpecTestRefs(project, acId, refs, context);
+}
+
+export async function linkSpecTestRefs(
+  project: ManagedProject,
+  ac: string,
+  refs: SpecTestRef[],
+  existingContext?: Awaited<ReturnType<typeof getActiveSpecTestContext>>,
+): Promise<SpecTestStatus> {
+  const context = existingContext ?? await getActiveSpecTestContext(project);
+  const acId = normalizeAcId(ac);
   assertKnownAc(acId, context.criteria);
   const current = await readOrCreateSpecTests(context.changeDir, context.changeId);
-  const mappings = upsertRefs(current.mappings, acId, refs);
+  const mappings = upsertRefs(current.mappings, acId, refs.map(normalizeRef));
   await writeSpecTests(context.changeDir, { ...current, updatedAt: new Date().toISOString(), mappings });
   return getSpecTestStatus(project);
 }

@@ -115,6 +115,7 @@ Phase 3 adds managed execution gates:
 Phase 4 adds Spec-Test anchoring:
 
 - Phase 4A: explicit AC to test/validation evidence mapping.
+- Phase 4B: Codex read-only proposals for reusing existing source-root test and validation evidence, accepted by explicit human command.
 - Later Phase 4 work: Codex-assisted test generation and drift gates.
 
 Later phases add:

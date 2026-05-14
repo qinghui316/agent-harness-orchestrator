@@ -2,7 +2,7 @@
 
 ## 1. Current Phase
 
-This repository contains Harness infrastructure, a Phase 1 TypeScript CLI, Phase 2A structured change management, Phase 2B local command run artifacts, Phase 2C Codex read-only proposal capture, Phase 2D memory resolver foundation, Phase 2E opt-in external-local memory, Phase 3A AHO-owned worktree management, Phase 3B change-scoped validation, Phase 3C Auditor proposal gate, Phase 3D Codex Coder worktree runs, and Phase 3E worktree apply/discard gates.
+This repository contains Harness infrastructure, a Phase 1 TypeScript CLI, Phase 2A structured change management, Phase 2B local command run artifacts, Phase 2C Codex read-only proposal capture, Phase 2D memory resolver foundation, Phase 2E opt-in external-local memory, Phase 3A AHO-owned worktree management, Phase 3B change-scoped validation, Phase 3C Auditor proposal gate, Phase 3D Codex Coder worktree runs, Phase 3E worktree apply/discard gates, Phase 4A Spec-Test evidence mapping, and Phase 4B Spec-Test evidence proposals.
 
 ## 2. Prerequisites
 
@@ -169,6 +169,19 @@ node dist/index.js spec-test unlink aho-test --ac AC-001 --command test
 `spec-tests.json` lives in the active change directory. File paths are repo-relative logical paths. `testName` is recorded for human review only; AHO does not parse test runner output in Phase 4A.
 
 Missing linked evidence is warning-only. A linked file that does not exist is blocking because it is bad evidence.
+
+Spec-test proposal runs ask Codex to inspect existing tests and propose candidate evidence. Codex output is proposal-only; it does not edit `spec-tests.json`.
+
+```powershell
+node dist/index.js spec-test propose aho-test --json
+node dist/index.js spec-test propose aho-test --worktree <worktree-id> --prompt "Prefer existing regression tests." --json
+node dist/index.js spec-test proposal list aho-test --json
+node dist/index.js spec-test proposal show aho-test <proposal-id> --json
+node dist/index.js spec-test proposal accept aho-test <proposal-id> --ac AC-001 --ref ev-001
+node dist/index.js spec-test proposal accept aho-test <proposal-id> --all-existing
+```
+
+`proposal accept` is the human confirmation command. In Phase 4B it only accepts `source-root` + `existingEvidence` candidates. Worktree-only evidence, suggested new tests, open questions, and unknown evidence are skipped or rejected. AHO still uses deterministic `spec-test link` logic for the actual write to `spec-tests.json`.
 
 ## 11. Code Commands
 

@@ -15,7 +15,7 @@ const runMetadataSchema = z.object({
   id: z.string(),
   changeId: z.string(),
   projectPath: z.string(),
-  runtime: z.enum(["local-command", "codex-readonly", "validator", "auditor", "coder-codex", "worktree-apply", "worktree-discard"]),
+  runtime: z.enum(["local-command", "codex-readonly", "validator", "auditor", "coder-codex", "worktree-apply", "worktree-discard", "spec-test-proposer"]),
   executionMode: z.enum(["direct", "worktree"]).optional(),
   proposalOnly: z.boolean().optional(),
   command: z.array(z.string()),
@@ -44,6 +44,8 @@ const runMetadataSchema = z.object({
     review: z.string().optional(),
     apply: z.string().optional(),
     discard: z.string().optional(),
+    specTestProposal: z.string().optional(),
+    specTestProposalMarkdown: z.string().optional(),
   }),
   worktree: z.object({
     worktreeId: z.string(),

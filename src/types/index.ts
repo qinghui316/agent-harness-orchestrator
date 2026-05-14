@@ -221,9 +221,60 @@ export interface SpecTestStatus {
   blockingIssues: string[];
 }
 
+export type SpecTestProposalStatus = "proposed" | "blocked" | "failed";
+
+export type SpecTestProposalSource = "source-root" | "worktree-only" | "suggested" | "unknown";
+
+export type SpecTestProposalKind =
+  | "existingEvidence"
+  | "alreadyLinked"
+  | "missingEvidence"
+  | "suggestedNewTests"
+  | "openQuestions";
+
+export interface SpecTestProposalEvidence {
+  refId: string;
+  acId: string;
+  source: SpecTestProposalSource;
+  kind: SpecTestProposalKind;
+  refs: SpecTestRef[];
+  rationale: string;
+}
+
+export interface SpecTestProposal {
+  version: "1.0";
+  id: string;
+  runId: string;
+  changeId: string;
+  status: SpecTestProposalStatus;
+  worktreeId?: string;
+  startedAt: string;
+  finishedAt: string;
+  evidence: SpecTestProposalEvidence[];
+  artifacts: {
+    proposal: string;
+    proposalMarkdown: string;
+    lastMessage: string;
+  };
+  warnings: string[];
+}
+
+export interface SpecTestProposalSummary {
+  id: string;
+  runId: string;
+  changeId: string;
+  status: SpecTestProposalStatus;
+  worktreeId?: string;
+  startedAt: string;
+  finishedAt: string;
+  evidenceCount: number;
+  existingEvidenceCount: number;
+  acceptedSourceRootCount: number;
+}
+
 export type RunStatus = "created" | "running" | "completed" | "failed";
 
-export type RunRuntime = "local-command" | "codex-readonly" | "validator" | "auditor" | "coder-codex" | "worktree-apply" | "worktree-discard";
+export type RunRuntime = "local-command" | "codex-readonly" | "validator" | "auditor" | "coder-codex" | "worktree-apply" | "worktree-discard" | "spec-test-proposer";
 
 export type RunExecutionMode = "direct" | "worktree";
 
@@ -285,6 +336,8 @@ export interface RunArtifactPaths {
   review?: string;
   apply?: string;
   discard?: string;
+  specTestProposal?: string;
+  specTestProposalMarkdown?: string;
 }
 
 export type ValidationStatus = "passed" | "failed";
@@ -423,6 +476,10 @@ export interface RunEvent {
     | "worktree.discard.failed"
     | "coder.started"
     | "coder.exited"
+    | "spec-test.proposal.started"
+    | "spec-test.proposal.completed"
+    | "spec-test.proposal.failed"
+    | "spec-test.proposal.accepted"
     | "diff.collected"
     | "source.checked"
     | "run.completed"
