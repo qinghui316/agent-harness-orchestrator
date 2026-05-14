@@ -165,9 +165,60 @@ export interface ChangeStatus {
   change: ChangeMetadata | null;
   reviewStatus: ReviewStatus;
   acMap: AcMap | null;
+  specTest: SpecTestStatus | null;
   latestValidation: ValidationSummary | null;
   latestAudit: AuditSummary | null;
   closeGate: CloseGateResult;
+}
+
+export type SpecTestRef =
+  | { type: "file"; path: string }
+  | { type: "testName"; name: string; path: string }
+  | { type: "command"; commandName: string }
+  | { type: "note"; text: string };
+
+export interface SpecTestMapping {
+  acId: string;
+  refs: SpecTestRef[];
+}
+
+export interface SpecTests {
+  version: "1.0";
+  changeId: string;
+  updatedAt: string;
+  mappings: SpecTestMapping[];
+}
+
+export type SpecTestConfidence = "none" | "linked-only" | "validation-passed" | "stale" | "invalid";
+
+export interface SpecTestCommandEvidence {
+  commandName: string;
+  validationStatus: ValidationStatus | "missing";
+}
+
+export interface SpecTestAcStatus {
+  acId: string;
+  text: string;
+  linkedEvidence: boolean;
+  evidenceFilesExist: boolean;
+  latestValidationStatus: ValidationStatus | null;
+  commandEvidence: SpecTestCommandEvidence[];
+  confidence: SpecTestConfidence;
+  refs: SpecTestRef[];
+  warnings: string[];
+  blockingIssues: string[];
+}
+
+export interface SpecTestStatus {
+  version: "1.0";
+  changeId: string;
+  selectedRoot: string;
+  selectedWorktreeId?: string;
+  latestValidation: ValidationSummary | null;
+  mappings: SpecTestMapping[];
+  acceptanceCriteria: SpecTestAcStatus[];
+  warnings: string[];
+  blockingIssues: string[];
 }
 
 export type RunStatus = "created" | "running" | "completed" | "failed";

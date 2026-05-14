@@ -266,6 +266,14 @@ Decisions:
 - Auditor output is a proposal and cannot apply or merge by itself.
 - A Coder run that passes validation can still be rejected by audit or human review.
 - In Phase 3E, apply requires validation and audit evidence for the exact current worktree diff hash, not just the same change or worktree id.
+
+Spec-Test mapping links Acceptance Criteria to test or validation evidence. It is evidence, not proof.
+
+- `spec-tests.json` records explicit links from AC IDs to files, test names, validation commands, or notes.
+- File existence and command validation status can be checked mechanically.
+- Test names are human-auditable labels only in Phase 4A; AHO does not parse runner output.
+- Missing linked evidence is warning-only. Broken linked evidence, such as a missing referenced file, is blocking.
+- Later drift gates may become stricter only after the mapping and generation flows are stable.
 - A failed validation should produce evidence for fixing code, improving specs, or evolving Harness rules.
 - Spec-linked validation starts as warnings until the mapping model is mature enough to fail CI reliably.
 

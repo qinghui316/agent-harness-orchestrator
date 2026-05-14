@@ -153,7 +153,24 @@ runs/{run-id}/commands/*.stderr.log
 
 The close gate blocks the latest failed validation for the current change. Missing validation is warning-only in Phase 3B.
 
-## 10. Code Commands
+## 10. Spec-Test Mapping Commands
+
+Spec-test mappings connect Acceptance Criteria to test or validation evidence. They are explicit linked evidence, not proof that the AC is fully covered.
+
+```powershell
+node dist/index.js spec-test link aho-test --ac AC-001 --file test\pricing.test.js --test-name "normal customers pay subtotal" --command test
+node dist/index.js spec-test link aho-test --ac AC-002 --command build
+node dist/index.js spec-test status aho-test --json
+node dist/index.js spec-test status aho-test --worktree <worktree-id> --json
+node dist/index.js spec-test check aho-test --json
+node dist/index.js spec-test unlink aho-test --ac AC-001 --command test
+```
+
+`spec-tests.json` lives in the active change directory. File paths are repo-relative logical paths. `testName` is recorded for human review only; AHO does not parse test runner output in Phase 4A.
+
+Missing linked evidence is warning-only. A linked file that does not exist is blocking because it is bad evidence.
+
+## 11. Code Commands
 
 Code runs use Codex workspace-write mode in a new AHO-owned worktree. They produce implementation proposals and diff artifacts, but do not apply, merge, validate, audit, or close the change.
 
@@ -187,7 +204,7 @@ node dist/index.js audit run aho-test --worktree <coder-worktree-id>
 
 Dirty active Coder worktrees block `change close`. Use validation, audit, audit accept, and worktree apply before closing an implemented change.
 
-## 11. Apply / Discard Commands
+## 12. Apply / Discard Commands
 
 Apply is the explicit human confirmation gate that adopts a validated and audited worktree diff into the source repo. It is not merge, push, PR, or close.
 
@@ -209,7 +226,7 @@ Apply requires:
 
 `worktree apply` without `--commit` leaves source repo changes uncommitted. `change close` blocks until the source repo is clean. `worktree discard` only removes an unapplied proposal checkout; it does not revert already applied source changes.
 
-## 12. Audit Commands
+## 13. Audit Commands
 
 Audit is semantic review evidence for the current active change. It does not replace human confirmation.
 
@@ -236,7 +253,7 @@ runs/{run-id}/last-message.md
 
 The close gate blocks only the latest `blocked` audit for the current change. Missing audit and failed/unparseable audit are warning-only in Phase 3C.
 
-## 13. Codex Read-Only Proposal Runs
+## 14. Codex Read-Only Proposal Runs
 
 Codex runs require a registered, managed project with exactly one active change. AHO reuses the user's local Codex CLI login and configuration. It does not run `codex login`, read tokens, or modify `~/.codex`.
 
@@ -256,7 +273,7 @@ Additional artifacts:
   last-message.md
 ```
 
-## 14. Harness Commands
+## 15. Harness Commands
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/harness-change.ps1 reindex

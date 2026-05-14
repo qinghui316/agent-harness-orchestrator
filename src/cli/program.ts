@@ -18,6 +18,7 @@ import { getValidationStatus, listValidationSummaries, showValidation, startVali
 import { acceptAudit, getAuditStatus, listAuditSummaries, showAudit, startAuditRun } from "../audit/manager.js";
 import { getCodeStatus, listCodeRuns, showCodeRun, startCodeRun } from "../code/manager.js";
 import { applyWorktree, discardWorktree, previewWorktreeApply } from "../apply/manager.js";
+import { checkSpecTests, getSpecTestStatus, linkSpecTest, unlinkSpecTest } from "../spec-test/manager.js";
 import type { ManagedProject, MemoryMode, ResolvedMemory } from "../types/index.js";
 
 async function resolveRegisteredOrPath(store: ProjectRegistryStore, query: string): Promise<{ project: Awaited<ReturnType<ProjectRegistryStore["resolveProject"]>>; path: string }> {
@@ -392,6 +393,65 @@ export function createProgram(): Command {
 
   const code = program.command("code").description("Run Codex coder agents in AHO-owned worktrees");
 
+  const specTest = program.command("spec-test").description("Manage Acceptance Criteria to test evidence mappings");
+
+  specTest
+    .command("status")
+    .argument("<project>", "registered project id/name/path")
+    .option("--worktree <worktree-id>", "evaluate against an AHO-managed worktree validation context")
+    .option("--json", "print JSON")
+    .action(async (query: string, options: { worktree?: string; json?: boolean }) => {
+      const project = await resolveManagedProject(store, query);
+      const status = await getSpecTestStatus(project, { worktreeId: options.worktree });
+      if (options.json) printJson(status);
+      else printSpecTestStatus(status);
+    });
+
+  specTest
+    .command("check")
+    .argument("<project>", "registered project id/name/path")
+    .option("--worktree <worktree-id>", "evaluate against an AHO-managed worktree validation context")
+    .option("--json", "print JSON")
+    .action(async (query: string, options: { worktree?: string; json?: boolean }) => {
+      const project = await resolveManagedProject(store, query);
+      const status = await checkSpecTests(project, { worktreeId: options.worktree });
+      if (options.json) printJson(status);
+      else printSpecTestStatus(status);
+      if (status.blockingIssues.length > 0) process.exitCode = 1;
+    });
+
+  specTest
+    .command("link")
+    .argument("<project>", "registered project id/name/path")
+    .requiredOption("--ac <ac-id>", "Acceptance Criterion id")
+    .option("--file <path>", "repo-relative evidence file path")
+    .option("--test-name <name>", "human-auditable test name; requires --file")
+    .option("--command <name>", "validation command name")
+    .option("--note <text>", "human note")
+    .option("--json", "print JSON")
+    .action(async (query: string, options: { ac: string; file?: string; testName?: string; command?: string; note?: string; json?: boolean }) => {
+      const project = await resolveManagedProject(store, query);
+      const status = await linkSpecTest(project, options);
+      if (options.json) printJson(status);
+      else printSpecTestStatus(status);
+    });
+
+  specTest
+    .command("unlink")
+    .argument("<project>", "registered project id/name/path")
+    .requiredOption("--ac <ac-id>", "Acceptance Criterion id")
+    .option("--file <path>", "repo-relative evidence file path")
+    .option("--test-name <name>", "human-auditable test name; requires --file")
+    .option("--command <name>", "validation command name")
+    .option("--note <text>", "human note")
+    .option("--json", "print JSON")
+    .action(async (query: string, options: { ac: string; file?: string; testName?: string; command?: string; note?: string; json?: boolean }) => {
+      const project = await resolveManagedProject(store, query);
+      const status = await unlinkSpecTest(project, options);
+      if (options.json) printJson(status);
+      else printSpecTestStatus(status);
+    });
+
   code
     .command("run")
     .argument("<project>", "registered project id/name/path")
@@ -764,4 +824,18 @@ function parseHarnessInitMemoryMode(input: string | undefined): Exclude<MemoryMo
 function collectOption(value: string, previous: string[]): string[] {
   previous.push(value);
   return previous;
+}
+
+function printSpecTestStatus(status: Awaited<ReturnType<typeof getSpecTestStatus>>): void {
+  printTable(status.acceptanceCriteria.map((item) => ({
+    ac: item.acId,
+    linkedEvidence: item.linkedEvidence,
+    fileExists: item.evidenceFilesExist,
+    validation: item.latestValidationStatus ?? "",
+    confidence: item.confidence,
+    warnings: item.warnings.length,
+    blocking: item.blockingIssues.length,
+  })));
+  for (const issue of status.blockingIssues) console.log(`BLOCKING: ${issue}`);
+  for (const warning of status.warnings) console.log(`WARNING: ${warning}`);
 }

@@ -70,6 +70,7 @@ describe("change manager", () => {
     expect(result.change.id).toBe("add-sample-workflow");
     expect(result.acMap.acceptanceCriteria[0]?.id).toBe("AC-001");
     expect(await readFile(join(tempDir, "harness", "changes", "active", "add-sample-workflow", "summary.md"), "utf8")).toContain("Raw user request");
+    expect(JSON.parse(await readFile(join(tempDir, "harness", "changes", "active", "add-sample-workflow", "spec-tests.json"), "utf8"))).toMatchObject({ changeId: "add-sample-workflow", mappings: [] });
   });
 
   it("falls back to bundled templates when target change templates are missing", async () => {

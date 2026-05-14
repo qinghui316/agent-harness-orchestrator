@@ -12,6 +12,7 @@ import { getLatestAuditSummary } from "../audit/artifacts.js";
 import { getLatestValidationSummary } from "../validation/artifacts.js";
 import { listWorktreesForChange } from "../worktree/manager.js";
 import { isGitDirty } from "../project/git.js";
+import { createEmptySpecTests, getSpecTestStatus } from "../spec-test/manager.js";
 import type {
   AcMap,
   ChangeIndex,
@@ -90,6 +91,7 @@ export async function createChange(project: ManagedProject, options: { title: st
     archivePath: null,
   };
   await writeJsonFile(join(changePath, "change.json"), change);
+  await createEmptySpecTests(changePath, id);
 
   const status = await getChangeStatus(project);
   if (!status.acMap) {
@@ -110,6 +112,7 @@ export async function getChangeStatus(project: ManagedProject | string | Resolve
       change: null,
       reviewStatus: "missing",
       acMap: null,
+      specTest: null,
       latestValidation: null,
       latestAudit: null,
       closeGate: baseGate,
@@ -148,6 +151,12 @@ export async function getChangeStatus(project: ManagedProject | string | Resolve
     blockingIssues.push(...acMap.blockingIssues);
   }
 
+  const specTest = change ? await getSpecTestStatusForMemory(memory) : null;
+  if (specTest) {
+    warnings.push(...specTest.warnings);
+    blockingIssues.push(...specTest.blockingIssues);
+  }
+
   blockingIssues.push(...reviewBlockingIssues(reviewStatus));
   if (change) {
     const latestValidation = await getLatestValidationSummary(memory, change.id);
@@ -184,6 +193,7 @@ export async function getChangeStatus(project: ManagedProject | string | Resolve
       change,
       reviewStatus,
       acMap,
+      specTest,
       latestValidation,
       latestAudit,
       closeGate: {
@@ -200,6 +210,7 @@ export async function getChangeStatus(project: ManagedProject | string | Resolve
     change,
     reviewStatus,
     acMap,
+    specTest,
     latestValidation: null,
     latestAudit: null,
     closeGate: {
@@ -356,6 +367,23 @@ function pad(value: number): string {
 
 function uniqueSorted(values: string[]): string[] {
   return [...new Set(values)].sort((a, b) => a.localeCompare(b));
+}
+
+async function getSpecTestStatusForMemory(memory: ResolvedMemory) {
+  try {
+    return await getSpecTestStatus(memory);
+  } catch (error) {
+    return {
+      version: "1.0" as const,
+      changeId: "",
+      selectedRoot: memory.projectRoot,
+      latestValidation: null,
+      mappings: [],
+      acceptanceCriteria: [],
+      warnings: [],
+      blockingIssues: [`Spec-test mapping could not be evaluated: ${(error as Error).message}`],
+    };
+  }
 }
 
 async function resolveChangeMemory(project: ManagedProject | string | ResolvedMemory): Promise<ResolvedMemory> {

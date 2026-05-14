@@ -6,6 +6,8 @@ import { delimiter, join } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createProgram } from "../../src/cli/program.js";
+import { getSpecTestStatus } from "../../src/spec-test/manager.js";
+import type { ManagedProject } from "../../src/types/index.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -20,6 +22,16 @@ async function runCli(args: string[]): Promise<void> {
   const program = createProgram();
   program.exitOverride();
   await program.parseAsync(args, { from: "user" });
+}
+
+function managedProject(): ManagedProject {
+  return {
+    id: "repo",
+    name: "Repo",
+    path: repoDir,
+    addedAt: new Date().toISOString(),
+    lastSeenAt: new Date().toISOString(),
+  };
 }
 
 beforeEach(async () => {
@@ -74,6 +86,7 @@ describe("CLI flow", () => {
     const changeDir = join(repoDir, "harness", "changes", "active", "add-sample-workflow");
     expect(existsSync(join(changeDir, "change.json"))).toBe(true);
     expect(existsSync(join(changeDir, "ac-map.json"))).toBe(true);
+    expect(existsSync(join(changeDir, "spec-tests.json"))).toBe(true);
 
     await runCli(["change", "status", "repo", "--json"]);
     await expect(runCli(["change", "close", "repo"])).rejects.toThrow("Review status is pending");
@@ -84,6 +97,85 @@ describe("CLI flow", () => {
     const index = JSON.parse(await readFile(join(repoDir, "harness", "changes", "INDEX.json"), "utf8"));
     expect(index.active).toHaveLength(0);
     expect(index.archive[0].name).toMatch(/^\d{8}-add-sample-workflow/);
+  });
+
+  it("links spec-test evidence and joins direct validation results", async () => {
+    await writeFile(join(repoDir, "package.json"), JSON.stringify({
+      scripts: {
+        test: "node -e \"console.log('spec test evidence')\"",
+      },
+    }), "utf8");
+    await mkdir(join(repoDir, "test"), { recursive: true });
+    await writeFile(join(repoDir, "test", "pricing.test.js"), "test\n", "utf8");
+    await runCli(["project", "add", repoDir, "--name", "Repo"]);
+    await runCli(["harness", "init", "repo"]);
+    await runCli(["change", "new", "repo", "--title", "Spec Evidence"]);
+
+    await runCli(["spec-test", "link", "repo", "--ac", "AC-001", "--file", "test/pricing.test.js", "--test-name", "normal customers pay subtotal", "--command", "test", "--json"]);
+    await runCli(["validate", "run", "repo", "--json"]);
+    await runCli(["spec-test", "status", "repo", "--json"]);
+    await runCli(["spec-test", "check", "repo", "--json"]);
+
+    const specTests = JSON.parse(await readFile(join(repoDir, "harness", "changes", "active", "spec-evidence", "spec-tests.json"), "utf8"));
+    expect(specTests.mappings[0]).toMatchObject({ acId: "AC-001" });
+    const status = await getSpecTestStatus(managedProject());
+    expect(status.acceptanceCriteria[0]).toMatchObject({
+      linkedEvidence: true,
+      evidenceFilesExist: true,
+      confidence: "validation-passed",
+    });
+    expect(status.acceptanceCriteria[0]?.commandEvidence).toEqual([{ commandName: "test", validationStatus: "passed" }]);
+  });
+
+  it("supports command-only spec-test evidence in external-local memory", async () => {
+    await writeFile(join(repoDir, "package.json"), JSON.stringify({
+      scripts: {
+        build: "node -e \"console.log('build evidence')\"",
+      },
+    }), "utf8");
+    await runCli(["project", "add", repoDir, "--name", "Repo"]);
+    await runCli(["harness", "init", "repo", "--memory", "external-local"]);
+    await runCli(["change", "new", "repo", "--title", "Command Evidence"]);
+
+    await runCli(["spec-test", "link", "repo", "--ac", "AC-001", "--command", "build", "--json"]);
+    await runCli(["validate", "run", "repo", "--json"]);
+
+    const memoryRoot = join(homeDir, "projects", "repo");
+    const specTests = JSON.parse(await readFile(join(memoryRoot, "harness", "changes", "active", "command-evidence", "spec-tests.json"), "utf8"));
+    expect(specTests.mappings[0]?.refs).toEqual([{ type: "command", commandName: "build" }]);
+    const status = await getSpecTestStatus(managedProject());
+    expect(status.acceptanceCriteria[0]).toMatchObject({ confidence: "validation-passed" });
+  });
+
+  it("evaluates spec-test file refs against a selected worktree", async () => {
+    await writeFile(join(repoDir, "README.md"), "hello\n", "utf8");
+    await writeFile(join(repoDir, "package.json"), JSON.stringify({
+      scripts: {
+        test: "node -e \"\"",
+      },
+    }), "utf8");
+    await execFileAsync("git", ["-C", repoDir, "add", "README.md", "package.json"]);
+    await execFileAsync("git", ["-C", repoDir, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "init"]);
+    await runCli(["project", "add", repoDir, "--name", "Repo"]);
+    await runCli(["harness", "init", "repo", "--memory", "external-local"]);
+    await runCli(["change", "new", "repo", "--title", "Worktree Spec Evidence"]);
+    await runCli(["worktree", "create", "repo", "--json"]);
+
+    const memoryRoot = join(homeDir, "projects", "repo");
+    const metadataIds = (await readdir(join(memoryRoot, "worktrees", "metadata"))).filter((name) => name.endsWith(".json"));
+    const worktreeId = metadataIds[0].replace(/\.json$/, "");
+    const metadata = JSON.parse(await readFile(join(memoryRoot, "worktrees", "metadata", metadataIds[0]), "utf8"));
+    await mkdir(join(metadata.checkoutPath, "test"), { recursive: true });
+    await writeFile(join(metadata.checkoutPath, "test", "worktree.test.js"), "test\n", "utf8");
+
+    await runCli(["spec-test", "link", "repo", "--ac", "AC-001", "--file", "test/worktree.test.js", "--command", "test", "--json"]);
+    await runCli(["validate", "run", "repo", "--worktree", worktreeId, "--json"]);
+    await runCli(["spec-test", "status", "repo", "--worktree", worktreeId, "--json"]);
+
+    const status = await getSpecTestStatus(managedProject(), { worktreeId });
+    expect(status.selectedWorktreeId).toBe(worktreeId);
+    expect(status.acceptanceCriteria[0]).toMatchObject({ evidenceFilesExist: true, confidence: "validation-passed" });
+    await expect(runCli(["change", "close", "repo"])).rejects.toThrow("Review status is pending");
   });
 
   it("records local command runs and exposes them through the CLI", async () => {

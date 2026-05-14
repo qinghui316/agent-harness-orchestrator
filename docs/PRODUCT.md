@@ -112,12 +112,16 @@ Phase 3 adds managed execution gates:
 - Phase 3D: Codex Coder write-mode runs inside AHO-owned worktrees.
 - Phase 3E: explicit apply/discard gates for Coder worktrees.
 
+Phase 4 adds Spec-Test anchoring:
+
+- Phase 4A: explicit AC to test/validation evidence mapping.
+- Later Phase 4 work: Codex-assisted test generation and drift gates.
+
 Later phases add:
 
 - merge/PR/push gates after apply/discard is stable.
 - Switching external-local to the personal default after more migration and sync work.
 - Run events, logs, diffs, validation reports, and review artifacts.
-- Spec-Test mapping and drift warnings.
 - Local dashboard.
 - Interactive terminal sessions.
 
