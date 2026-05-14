@@ -172,11 +172,11 @@ export interface ChangeStatus {
 
 export type RunStatus = "created" | "running" | "completed" | "failed";
 
-export type RunRuntime = "local-command" | "codex-readonly" | "validator" | "auditor" | "coder-codex";
+export type RunRuntime = "local-command" | "codex-readonly" | "validator" | "auditor" | "coder-codex" | "worktree-apply" | "worktree-discard";
 
 export type RunExecutionMode = "direct" | "worktree";
 
-export type WorktreeLifecycleStatus = "active";
+export type WorktreeLifecycleStatus = "active" | "applied";
 
 export interface WorktreeMetadata {
   version: "1.0";
@@ -191,6 +191,10 @@ export interface WorktreeMetadata {
   createdAt: string;
   status: WorktreeLifecycleStatus;
   checkoutPath: string;
+  appliedAt?: string;
+  applyRunId?: string;
+  appliedCommit?: string;
+  worktreeDiffHash?: string;
 }
 
 export interface WorktreeStatus extends WorktreeMetadata {
@@ -228,6 +232,8 @@ export interface RunArtifactPaths {
   audit?: string;
   auditMarkdown?: string;
   review?: string;
+  apply?: string;
+  discard?: string;
 }
 
 export type ValidationStatus = "passed" | "failed";
@@ -254,6 +260,7 @@ export interface ValidationResult {
   status: ValidationStatus;
   executionMode: RunExecutionMode;
   worktreeId?: string;
+  worktreeDiffHash?: string;
   startedAt: string;
   finishedAt: string;
   commands: ValidationCommandResult[];
@@ -267,6 +274,7 @@ export interface ValidationSummary {
   status: ValidationStatus;
   executionMode: RunExecutionMode;
   worktreeId?: string;
+  worktreeDiffHash?: string;
   startedAt: string;
   finishedAt: string;
   commandCount: number;
@@ -292,6 +300,7 @@ export interface AuditResult {
   status: AuditStatus;
   worktreeId?: string;
   validationId?: string;
+  worktreeDiffHash?: string;
   startedAt: string;
   finishedAt: string;
   findings: AuditFinding[];
@@ -311,6 +320,7 @@ export interface AuditSummary {
   status: AuditStatus;
   worktreeId?: string;
   validationId?: string;
+  worktreeDiffHash?: string;
   startedAt: string;
   finishedAt: string;
   findingCount: number;
@@ -354,6 +364,12 @@ export interface RunEvent {
     | "audit.completed"
     | "audit.failed"
     | "worktree.created"
+    | "worktree.apply.started"
+    | "worktree.apply.completed"
+    | "worktree.apply.failed"
+    | "worktree.discard.started"
+    | "worktree.discard.completed"
+    | "worktree.discard.failed"
     | "coder.started"
     | "coder.exited"
     | "diff.collected"

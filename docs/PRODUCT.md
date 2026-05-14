@@ -110,10 +110,11 @@ Phase 3 adds managed execution gates:
 - Phase 3B: change-scoped validation gate.
 - Phase 3C: Auditor proposal gate.
 - Phase 3D: Codex Coder write-mode runs inside AHO-owned worktrees.
+- Phase 3E: explicit apply/discard gates for Coder worktrees.
 
 Later phases add:
 
-- Phase 3E: explicit apply/discard/merge gates for Coder worktrees.
+- merge/PR/push gates after apply/discard is stable.
 - Switching external-local to the personal default after more migration and sync work.
 - Run events, logs, diffs, validation reports, and review artifacts.
 - Spec-Test mapping and drift warnings.

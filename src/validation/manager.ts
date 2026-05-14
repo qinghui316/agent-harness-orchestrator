@@ -17,6 +17,7 @@ import type {
 } from "../types/index.js";
 import { appendRunEvent, assertRunnableChange, buildContextProjection, buildRunId } from "../run/manager.js";
 import { executeProcessStreaming } from "../run/process.js";
+import { collectWorktreeDiff } from "../audit/diff.js";
 import { listValidationResults, readValidationResult, summarizeValidation } from "./artifacts.js";
 import { resolveValidationProfile } from "./profiles.js";
 
@@ -50,6 +51,7 @@ export async function startValidationRun(project: ManagedProject, options: Valid
   const runId = buildRunId(changeId, ["validator", profileName, worktreeMode, ...profile.commands.flatMap((item) => item.command)]);
   let cwd = project.path;
   let worktree: RunWorktreeInfo | undefined;
+  let worktreeDiffHash: string | undefined;
   if (options.worktree === true) {
     const created = await createWorktree(project, memory, changeId, { runId });
     cwd = created.metadata.checkoutPath;
@@ -176,6 +178,9 @@ export async function startValidationRun(project: ManagedProject, options: Valid
 
   const validationStatus: ValidationStatus = commandResults.every((item) => item.status === "passed") ? "passed" : "failed";
   const finishedAt = new Date().toISOString();
+  if (worktree) {
+    worktreeDiffHash = (await collectWorktreeDiff(memory, worktree.worktreeId, changeId)).diffHash;
+  }
   const validation: ValidationResult = {
     version: "1.0",
     id: runId,
@@ -185,6 +190,7 @@ export async function startValidationRun(project: ManagedProject, options: Valid
     status: validationStatus,
     executionMode: run.executionMode ?? "direct",
     worktreeId: worktree?.worktreeId,
+    worktreeDiffHash,
     startedAt: now,
     finishedAt,
     commands: commandResults,

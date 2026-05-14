@@ -241,6 +241,15 @@ Write-mode Coder boundary:
 - A Coder run may produce a dirty worktree and diff artifacts, but it must not apply, merge, close, archive, or evolve Harness rules.
 - If the source project root changes during a Coder run, the run is failed and preserved as evidence.
 
+Apply/discard boundary:
+
+- `aho worktree apply` is the explicit human adoption command for a validated and audited worktree diff.
+- Apply is not merge, PR, push, or close.
+- Apply requires matching `worktreeDiffHash` across the current worktree diff, validation evidence, audit evidence, and accepted review.
+- Apply requires a clean source repo and unchanged source `HEAD`; AHO does not auto-merge, rebase, or resolve conflicts.
+- `aho worktree apply --commit` is explicit commit confirmation. Without `--commit`, source changes remain uncommitted and block close until committed or cleaned.
+- `aho worktree discard` only discards an unapplied worktree proposal. It does not revert source repo changes.
+
 ## 12. Validation and Auditor Boundary
 
 Validation and audit are separate gates.
@@ -256,6 +265,7 @@ Decisions:
 - In Phase 3D, Coder self-reported verification is not authoritative validation.
 - Auditor output is a proposal and cannot apply or merge by itself.
 - A Coder run that passes validation can still be rejected by audit or human review.
+- In Phase 3E, apply requires validation and audit evidence for the exact current worktree diff hash, not just the same change or worktree id.
 - A failed validation should produce evidence for fixing code, improving specs, or evolving Harness rules.
 - Spec-linked validation starts as warnings until the mapping model is mature enough to fail CI reliably.
 

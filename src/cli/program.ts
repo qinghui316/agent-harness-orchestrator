@@ -17,6 +17,7 @@ import { createWorktree, getWorktreeStatus, listWorktreeStatuses, removeWorktree
 import { getValidationStatus, listValidationSummaries, showValidation, startValidationRun } from "../validation/manager.js";
 import { acceptAudit, getAuditStatus, listAuditSummaries, showAudit, startAuditRun } from "../audit/manager.js";
 import { getCodeStatus, listCodeRuns, showCodeRun, startCodeRun } from "../code/manager.js";
+import { applyWorktree, discardWorktree, previewWorktreeApply } from "../apply/manager.js";
 import type { ManagedProject, MemoryMode, ResolvedMemory } from "../types/index.js";
 
 async function resolveRegisteredOrPath(store: ProjectRegistryStore, query: string): Promise<{ project: Awaited<ReturnType<ProjectRegistryStore["resolveProject"]>>; path: string }> {
@@ -325,6 +326,62 @@ export function createProgram(): Command {
       const result = await removeWorktree(memory, worktreeId, options.force === true);
       if (options.json) printJson(result);
       else console.log(`Removed worktree ${result.removed.worktreeId}`);
+    });
+
+  worktree
+    .command("preview")
+    .argument("<project>", "registered project id/name/path")
+    .argument("<worktree-id>", "worktree id")
+    .option("--json", "print JSON")
+    .action(async (query: string, worktreeId: string, options: { json?: boolean }) => {
+      const project = await resolveManagedProject(store, query);
+      const result = await previewWorktreeApply(project, worktreeId);
+      if (options.json) printJson(result);
+      else {
+        printTable([{
+          worktree: result.gate.worktree.worktreeId,
+          change: result.gate.changeId,
+          ready: result.gate.ready,
+          diffHash: result.gate.diffHash,
+          validation: result.gate.validation?.id ?? "",
+          audit: result.gate.audit?.id ?? "",
+          blocking: result.gate.blockingIssues.length,
+        }]);
+        for (const issue of result.gate.blockingIssues) console.log(`BLOCKING: ${issue}`);
+        for (const warning of result.gate.warnings) console.log(`WARNING: ${warning}`);
+      }
+    });
+
+  worktree
+    .command("apply")
+    .argument("<project>", "registered project id/name/path")
+    .argument("<worktree-id>", "worktree id")
+    .option("--commit", "commit the applied patch after applying it")
+    .option("--message <message>", "commit message; requires --commit")
+    .option("--json", "print JSON")
+    .action(async (query: string, worktreeId: string, options: { commit?: boolean; message?: string; json?: boolean }) => {
+      const project = await resolveManagedProject(store, query);
+      const result = await applyWorktree(project, worktreeId, { commit: options.commit === true, message: options.message });
+      if (options.json) printJson(result);
+      else {
+        console.log(`Applied worktree ${result.apply.worktreeId}: ${result.apply.status}`);
+        console.log(`Run: ${result.run.id}`);
+        if (result.apply.commitHash) console.log(`Commit: ${result.apply.commitHash}`);
+      }
+      if (result.apply.status === "failed") process.exitCode = 1;
+    });
+
+  worktree
+    .command("discard")
+    .argument("<project>", "registered project id/name/path")
+    .argument("<worktree-id>", "worktree id")
+    .option("--json", "print JSON")
+    .action(async (query: string, worktreeId: string, options: { json?: boolean }) => {
+      const project = await resolveManagedProject(store, query);
+      const result = await discardWorktree(project, worktreeId);
+      if (options.json) printJson(result);
+      else console.log(`Discarded worktree ${result.discard.worktreeId}: ${result.discard.status}`);
+      if (result.discard.status === "failed") process.exitCode = 1;
     });
 
   const run = program.command("run").description("Run local commands and record artifacts");

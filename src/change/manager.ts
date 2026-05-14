@@ -11,6 +11,7 @@ import { getTemplateRoot } from "../template-source/paths.js";
 import { getLatestAuditSummary } from "../audit/artifacts.js";
 import { getLatestValidationSummary } from "../validation/artifacts.js";
 import { listWorktreesForChange } from "../worktree/manager.js";
+import { isGitDirty } from "../project/git.js";
 import type {
   AcMap,
   ChangeIndex,
@@ -164,8 +165,14 @@ export async function getChangeStatus(project: ManagedProject | string | Resolve
       warnings.push(`Latest audit failed or could not be parsed: ${latestAudit.id}.`);
     }
     const worktrees = await listWorktreesForChange(memory, change.id);
+    const hasAppliedWorktree = worktrees.some((worktree) => worktree.status === "applied");
+    if (hasAppliedWorktree && (await isGitDirty(memory.projectRoot)) === true) {
+      blockingIssues.push("Source repo has uncommitted changes after apply; commit or clean the source repo before closing the change.");
+    }
     for (const worktree of worktrees) {
-      if (worktree.dirty) {
+      if (worktree.status === "applied") {
+        warnings.push(`Applied worktree remains available for cleanup: ${worktree.worktreeId}.`);
+      } else if (worktree.dirty) {
         blockingIssues.push(`Dirty worktree blocks close: ${worktree.worktreeId} (${worktree.checkoutPath}).`);
       } else {
         warnings.push(`Active change has AHO-managed worktree: ${worktree.worktreeId}.`);

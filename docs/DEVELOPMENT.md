@@ -2,7 +2,7 @@
 
 ## 1. Current Phase
 
-This repository contains Harness infrastructure, a Phase 1 TypeScript CLI, Phase 2A structured change management, Phase 2B local command run artifacts, Phase 2C Codex read-only proposal capture, Phase 2D memory resolver foundation, Phase 2E opt-in external-local memory, Phase 3A AHO-owned worktree management, Phase 3B change-scoped validation, Phase 3C Auditor proposal gate, and Phase 3D Codex Coder worktree runs.
+This repository contains Harness infrastructure, a Phase 1 TypeScript CLI, Phase 2A structured change management, Phase 2B local command run artifacts, Phase 2C Codex read-only proposal capture, Phase 2D memory resolver foundation, Phase 2E opt-in external-local memory, Phase 3A AHO-owned worktree management, Phase 3B change-scoped validation, Phase 3C Auditor proposal gate, Phase 3D Codex Coder worktree runs, and Phase 3E worktree apply/discard gates.
 
 ## 2. Prerequisites
 
@@ -185,9 +185,31 @@ node dist/index.js validate run aho-test --worktree <coder-worktree-id>
 node dist/index.js audit run aho-test --worktree <coder-worktree-id>
 ```
 
-Dirty Coder worktrees block `change close`. Apply/discard/merge remains a later phase.
+Dirty active Coder worktrees block `change close`. Use validation, audit, audit accept, and worktree apply before closing an implemented change.
 
-## 11. Audit Commands
+## 11. Apply / Discard Commands
+
+Apply is the explicit human confirmation gate that adopts a validated and audited worktree diff into the source repo. It is not merge, push, PR, or close.
+
+```powershell
+node dist/index.js worktree preview aho-test <worktree-id> --json
+node dist/index.js worktree apply aho-test <worktree-id>
+node dist/index.js worktree apply aho-test <worktree-id> --commit --message "apply accepted change"
+node dist/index.js worktree discard aho-test <worktree-id>
+```
+
+Apply requires:
+
+- source repo is clean
+- source `HEAD` still matches the worktree base commit
+- current worktree diff is non-empty
+- latest passed validation matches the same `worktreeDiffHash`
+- latest approved audit matches the same `worktreeDiffHash`
+- `reviews/review.md` references the same accepted `Audit ID`
+
+`worktree apply` without `--commit` leaves source repo changes uncommitted. `change close` blocks until the source repo is clean. `worktree discard` only removes an unapplied proposal checkout; it does not revert already applied source changes.
+
+## 12. Audit Commands
 
 Audit is semantic review evidence for the current active change. It does not replace human confirmation.
 
@@ -214,7 +236,7 @@ runs/{run-id}/last-message.md
 
 The close gate blocks only the latest `blocked` audit for the current change. Missing audit and failed/unparseable audit are warning-only in Phase 3C.
 
-## 12. Codex Read-Only Proposal Runs
+## 13. Codex Read-Only Proposal Runs
 
 Codex runs require a registered, managed project with exactly one active change. AHO reuses the user's local Codex CLI login and configuration. It does not run `codex login`, read tokens, or modify `~/.codex`.
 
@@ -234,7 +256,7 @@ Additional artifacts:
   last-message.md
 ```
 
-## 13. Harness Commands
+## 14. Harness Commands
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/harness-change.ps1 reindex

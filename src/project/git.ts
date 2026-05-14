@@ -8,6 +8,16 @@ export async function git(cwd: string, args: string[]): Promise<string> {
   return stdout.trim();
 }
 
+export async function gitText(cwd: string, args: string[]): Promise<string> {
+  const { stdout } = await execFileAsync("git", args, { cwd, maxBuffer: 50 * 1024 * 1024 });
+  return stdout;
+}
+
+export async function gitRaw(cwd: string, args: string[]): Promise<Buffer> {
+  const { stdout } = await execFileAsync("git", args, { cwd, encoding: "buffer", maxBuffer: 50 * 1024 * 1024 });
+  return Buffer.isBuffer(stdout) ? stdout : Buffer.from(stdout);
+}
+
 export async function isGitRepo(path: string): Promise<boolean> {
   try {
     await git(path, ["rev-parse", "--show-toplevel"]);

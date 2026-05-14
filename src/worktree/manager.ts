@@ -18,8 +18,12 @@ const worktreeMetadataSchema = z.object({
   baseCommit: z.string(),
   createdFromDirtyProject: z.boolean(),
   createdAt: z.string(),
-  status: z.literal("active"),
+  status: z.enum(["active", "applied"]),
   checkoutPath: z.string(),
+  appliedAt: z.string().optional(),
+  applyRunId: z.string().optional(),
+  appliedCommit: z.string().optional(),
+  worktreeDiffHash: z.string().optional(),
 });
 
 export interface WorktreeCreateOptions {
@@ -37,6 +41,12 @@ export interface WorktreeCreateResult {
 export interface WorktreeRemoveResult {
   removed: WorktreeMetadata;
   checkoutRemoved: boolean;
+}
+
+export interface WorktreeAppliedUpdate {
+  applyRunId: string;
+  worktreeDiffHash: string;
+  appliedCommit?: string;
 }
 
 export function getGlobalWorktreeCheckoutRoot(projectId: string): string {
@@ -129,7 +139,7 @@ export async function listWorktreesForChange(memory: ResolvedMemory, changeId: s
 export async function removeWorktree(memory: ResolvedMemory, worktreeId: string, force = false): Promise<WorktreeRemoveResult> {
   const metadata = await readWorktreeMetadata(memory, worktreeId);
   const status = await statusFromMetadata(metadata);
-  if (status.dirty && !force) {
+  if (status.dirty && metadata.status !== "applied" && !force) {
     throw new Error(`Cannot remove dirty worktree ${worktreeId}. Use --force to discard the checkout.`);
   }
 
@@ -146,6 +156,21 @@ export async function removeWorktree(memory: ResolvedMemory, worktreeId: string,
   await git(memory.projectRoot, ["worktree", "prune"]).catch(() => "");
   await writeWorktreeIndex(memory);
   return { removed: metadata, checkoutRemoved };
+}
+
+export async function markWorktreeApplied(memory: ResolvedMemory, worktreeId: string, update: WorktreeAppliedUpdate): Promise<WorktreeMetadata> {
+  const metadata = await readWorktreeMetadata(memory, worktreeId);
+  const applied: WorktreeMetadata = {
+    ...metadata,
+    status: "applied",
+    appliedAt: new Date().toISOString(),
+    applyRunId: update.applyRunId,
+    appliedCommit: update.appliedCommit,
+    worktreeDiffHash: update.worktreeDiffHash,
+  };
+  await writeJsonFile(getWorktreeMetadataPath(memory, worktreeId), applied);
+  await writeWorktreeIndex(memory);
+  return applied;
 }
 
 export function getWorktreeMetadataPath(memory: ResolvedMemory, worktreeId: string): string {

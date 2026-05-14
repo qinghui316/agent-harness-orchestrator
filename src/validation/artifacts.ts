@@ -26,6 +26,7 @@ export const validationResultSchema = z.object({
   status: z.enum(["passed", "failed"]),
   executionMode: z.enum(["direct", "worktree"]),
   worktreeId: z.string().optional(),
+  worktreeDiffHash: z.string().optional(),
   startedAt: z.string(),
   finishedAt: z.string(),
   commands: z.array(validationCommandSchema),
@@ -51,8 +52,17 @@ export async function readValidationResult(memory: ResolvedMemory, validationId:
   return validationResultSchema.parse(parsed) as ValidationResult;
 }
 
-export async function getLatestValidationSummary(memory: ResolvedMemory, changeId: string): Promise<ValidationSummary | null> {
-  const results = await listValidationResults(memory, changeId);
+export interface ValidationLookupFilter {
+  worktreeId?: string;
+  worktreeDiffHash?: string;
+}
+
+export async function getLatestValidationSummary(memory: ResolvedMemory, changeId: string, filter: ValidationLookupFilter = {}): Promise<ValidationSummary | null> {
+  const results = (await listValidationResults(memory, changeId)).filter((item) => {
+    if (filter.worktreeId && item.worktreeId !== filter.worktreeId) return false;
+    if (filter.worktreeDiffHash && item.worktreeDiffHash !== filter.worktreeDiffHash) return false;
+    return true;
+  });
   const latest = results[0];
   return latest ? summarizeValidation(latest) : null;
 }
@@ -66,6 +76,7 @@ export function summarizeValidation(result: ValidationResult): ValidationSummary
     status: result.status,
     executionMode: result.executionMode,
     worktreeId: result.worktreeId,
+    worktreeDiffHash: result.worktreeDiffHash,
     startedAt: result.startedAt,
     finishedAt: result.finishedAt,
     commandCount: result.commands.length,

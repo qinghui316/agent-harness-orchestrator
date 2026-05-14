@@ -97,8 +97,10 @@ export async function startAuditRun(project: ManagedProject, options: AuditRunOp
   await writeFile(paths.context, context, "utf8");
   await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "context.prepared", runId, data: { path: artifacts.context } });
 
-  const latestValidation = await getLatestValidationSummary(memory, changeId);
   const diffResult = options.worktreeId ? await collectWorktreeDiff(memory, options.worktreeId, changeId) : null;
+  const latestValidation = await getLatestValidationSummary(memory, changeId, diffResult
+    ? { worktreeId: diffResult.worktree.worktreeId, worktreeDiffHash: diffResult.diffHash }
+    : {});
   await writeFile(paths.diff, diffResult?.diff ?? "", "utf8");
   await writeFile(paths.diffStat, diffResult?.diffStat ?? "", "utf8");
 
@@ -132,6 +134,7 @@ export async function startAuditRun(project: ManagedProject, options: AuditRunOp
     const audit = await writeAudit(paths.audit, runId, changeId, "failed", message, {
       worktreeId: options.worktreeId,
       validationId: latestValidation?.id,
+      worktreeDiffHash: diffResult?.diffHash,
       artifacts,
       startedAt: now,
     });
@@ -173,6 +176,7 @@ export async function startAuditRun(project: ManagedProject, options: AuditRunOp
   const audit = await writeAudit(paths.audit, runId, changeId, processResult.exitCode === 0 ? null : "failed", lastMessage, {
     worktreeId: options.worktreeId,
     validationId: latestValidation?.id,
+    worktreeDiffHash: diffResult?.diffHash,
     artifacts,
     startedAt: now,
   });
@@ -234,6 +238,7 @@ function renderAcceptedReview(audit: AuditResult, auditMarkdown: string): string
     `- Change ID: ${audit.changeId}`,
     audit.validationId ? `- Validation ID: ${audit.validationId}` : "- Validation ID: none",
     audit.worktreeId ? `- Worktree ID: ${audit.worktreeId}` : "- Worktree ID: none",
+    audit.worktreeDiffHash ? `- Worktree Diff Hash: ${audit.worktreeDiffHash}` : "- Worktree Diff Hash: none",
     `- Findings: ${audit.findings.length}`,
     "",
     "## Auditor Proposal",
@@ -252,6 +257,7 @@ async function writeAudit(
   options: {
     worktreeId?: string;
     validationId?: string;
+    worktreeDiffHash?: string;
     artifacts: RunMetadata["artifacts"];
     startedAt: string;
   },
@@ -266,6 +272,7 @@ async function writeAudit(
     status,
     worktreeId: options.worktreeId,
     validationId: options.validationId,
+    worktreeDiffHash: options.worktreeDiffHash,
     startedAt: options.startedAt,
     finishedAt: new Date().toISOString(),
     findings: parsed.findings,
