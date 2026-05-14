@@ -15,7 +15,7 @@ const runMetadataSchema = z.object({
   id: z.string(),
   changeId: z.string(),
   projectPath: z.string(),
-  runtime: z.enum(["local-command", "codex-readonly", "validator", "auditor", "coder-codex", "worktree-apply", "worktree-discard", "spec-test-proposer"]),
+  runtime: z.enum(["local-command", "codex-readonly", "validator", "auditor", "coder-codex", "worktree-apply", "worktree-discard", "spec-test-proposer", "spec-test-generator"]),
   executionMode: z.enum(["direct", "worktree"]).optional(),
   proposalOnly: z.boolean().optional(),
   command: z.array(z.string()),

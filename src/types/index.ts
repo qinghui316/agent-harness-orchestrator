@@ -274,7 +274,7 @@ export interface SpecTestProposalSummary {
 
 export type RunStatus = "created" | "running" | "completed" | "failed";
 
-export type RunRuntime = "local-command" | "codex-readonly" | "validator" | "auditor" | "coder-codex" | "worktree-apply" | "worktree-discard" | "spec-test-proposer";
+export type RunRuntime = "local-command" | "codex-readonly" | "validator" | "auditor" | "coder-codex" | "worktree-apply" | "worktree-discard" | "spec-test-proposer" | "spec-test-generator";
 
 export type RunExecutionMode = "direct" | "worktree";
 
@@ -480,6 +480,9 @@ export interface RunEvent {
     | "spec-test.proposal.completed"
     | "spec-test.proposal.failed"
     | "spec-test.proposal.accepted"
+    | "spec-test.generation.started"
+    | "spec-test.generation.completed"
+    | "spec-test.generation.failed"
     | "diff.collected"
     | "source.checked"
     | "run.completed"

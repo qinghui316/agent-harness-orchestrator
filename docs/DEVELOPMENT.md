@@ -2,7 +2,7 @@
 
 ## 1. Current Phase
 
-This repository contains Harness infrastructure, a Phase 1 TypeScript CLI, Phase 2A structured change management, Phase 2B local command run artifacts, Phase 2C Codex read-only proposal capture, Phase 2D memory resolver foundation, Phase 2E opt-in external-local memory, Phase 3A AHO-owned worktree management, Phase 3B change-scoped validation, Phase 3C Auditor proposal gate, Phase 3D Codex Coder worktree runs, Phase 3E worktree apply/discard gates, Phase 4A Spec-Test evidence mapping, and Phase 4B Spec-Test evidence proposals.
+This repository contains Harness infrastructure, a Phase 1 TypeScript CLI, Phase 2A structured change management, Phase 2B local command run artifacts, Phase 2C Codex read-only proposal capture, Phase 2D memory resolver foundation, Phase 2E opt-in external-local memory, Phase 3A AHO-owned worktree management, Phase 3B change-scoped validation, Phase 3C Auditor proposal gate, Phase 3D Codex Coder worktree runs, Phase 3E worktree apply/discard gates, Phase 4A Spec-Test evidence mapping, Phase 4B Spec-Test evidence proposals, and Phase 4C Codex-assisted passing Spec-Test generation.
 
 ## 2. Prerequisites
 
@@ -183,7 +183,56 @@ node dist/index.js spec-test proposal accept aho-test <proposal-id> --all-existi
 
 `proposal accept` is the human confirmation command. In Phase 4B it only accepts `source-root` + `existingEvidence` candidates. Worktree-only evidence, suggested new tests, open questions, and unknown evidence are skipped or rejected. AHO still uses deterministic `spec-test link` logic for the actual write to `spec-tests.json`.
 
-## 11. Code Commands
+## 11. Spec-Test Generation Commands
+
+Spec-test generation asks Codex to create a passing test evidence proposal in a new AHO-owned worktree. It is test-only, proposal-only, and does not edit `spec-tests.json`.
+
+```powershell
+node dist/index.js spec-test generate aho-test --missing --prompt "Add minimal tests for missing AC evidence." --json
+node dist/index.js spec-test generate aho-test --ac AC-001 --ac AC-002 --json
+```
+
+Generation behavior:
+
+- `--missing` selects only ACs with no linked evidence.
+- `--ac` and `--missing` are mutually exclusive.
+- Codex runs with workspace-write in an AHO-owned worktree.
+- The source repo is read/context only until explicit `worktree apply`.
+- Diffs outside test-like paths cause the generator run to fail and keep artifacts for diagnosis.
+- Generated tests must pass validation and audit before apply.
+- After apply, use `spec-test propose` and `spec-test proposal accept` to write accepted evidence mappings.
+
+Typical flow:
+
+```powershell
+node dist/index.js spec-test status aho-test --json
+node dist/index.js spec-test generate aho-test --missing --json
+node dist/index.js validate run aho-test --worktree <generated-worktree-id> --json
+node dist/index.js audit run aho-test --worktree <generated-worktree-id> --json
+node dist/index.js audit accept aho-test <audit-id> --json
+node dist/index.js worktree preview aho-test <generated-worktree-id> --json
+node dist/index.js worktree apply aho-test <generated-worktree-id> --commit --message "add spec-test evidence"
+node dist/index.js spec-test propose aho-test --json
+node dist/index.js spec-test proposal accept aho-test <proposal-id> --all-existing --json
+node dist/index.js spec-test status aho-test --json
+```
+
+Generator artifacts are written under the active memory root:
+
+```text
+runs/{run-id}/run.json
+runs/{run-id}/context.md
+runs/{run-id}/prompt.md
+runs/{run-id}/codex-events.jsonl
+runs/{run-id}/last-message.md
+runs/{run-id}/diff.patch
+runs/{run-id}/diff-stat.txt
+runs/{run-id}/implementation.md
+```
+
+Phase 4C does not support accepted red tests, CI drift gates, or automatic proof of AC coverage.
+
+## 12. Code Commands
 
 Code runs use Codex workspace-write mode in a new AHO-owned worktree. They produce implementation proposals and diff artifacts, but do not apply, merge, validate, audit, or close the change.
 
@@ -217,7 +266,7 @@ node dist/index.js audit run aho-test --worktree <coder-worktree-id>
 
 Dirty active Coder worktrees block `change close`. Use validation, audit, audit accept, and worktree apply before closing an implemented change.
 
-## 12. Apply / Discard Commands
+## 13. Apply / Discard Commands
 
 Apply is the explicit human confirmation gate that adopts a validated and audited worktree diff into the source repo. It is not merge, push, PR, or close.
 
@@ -239,7 +288,7 @@ Apply requires:
 
 `worktree apply` without `--commit` leaves source repo changes uncommitted. `change close` blocks until the source repo is clean. `worktree discard` only removes an unapplied proposal checkout; it does not revert already applied source changes.
 
-## 13. Audit Commands
+## 14. Audit Commands
 
 Audit is semantic review evidence for the current active change. It does not replace human confirmation.
 
@@ -266,7 +315,7 @@ runs/{run-id}/last-message.md
 
 The close gate blocks only the latest `blocked` audit for the current change. Missing audit and failed/unparseable audit are warning-only in Phase 3C.
 
-## 14. Codex Read-Only Proposal Runs
+## 15. Codex Read-Only Proposal Runs
 
 Codex runs require a registered, managed project with exactly one active change. AHO reuses the user's local Codex CLI login and configuration. It does not run `codex login`, read tokens, or modify `~/.codex`.
 
@@ -286,7 +335,7 @@ Additional artifacts:
   last-message.md
 ```
 
-## 15. Harness Commands
+## 16. Harness Commands
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/harness-change.ps1 reindex

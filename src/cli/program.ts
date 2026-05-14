@@ -25,6 +25,7 @@ import {
   showSpecTestProposal,
   startSpecTestProposalRun,
 } from "../spec-test/proposal.js";
+import { startSpecTestGenerationRun } from "../spec-test/generate.js";
 import type { ManagedProject, MemoryMode, ResolvedMemory } from "../types/index.js";
 
 async function resolveRegisteredOrPath(store: ProjectRegistryStore, query: string): Promise<{ project: Awaited<ReturnType<ProjectRegistryStore["resolveProject"]>>; path: string }> {
@@ -400,6 +401,40 @@ export function createProgram(): Command {
   const code = program.command("code").description("Run Codex coder agents in AHO-owned worktrees");
 
   const specTest = program.command("spec-test").description("Manage Acceptance Criteria to test evidence mappings");
+
+  specTest
+    .command("generate")
+    .argument("<project>", "registered project id/name/path")
+    .option("--ac <ac-id>", "Acceptance Criterion id to generate tests for; can be repeated", collectOption, [])
+    .option("--missing", "generate tests for ACs with no linked evidence")
+    .option("--prompt <text>", "additional instruction for the generator")
+    .option("--json", "print JSON")
+    .action(async (query: string, options: { ac: string[]; missing?: boolean; prompt?: string; json?: boolean }) => {
+      const project = await resolveManagedProject(store, query);
+      const result = await startSpecTestGenerationRun(project, {
+        acIds: options.ac,
+        missing: options.missing === true,
+        prompt: options.prompt,
+      });
+      if (options.json) printJson(result);
+      else if (result.noOp) {
+        console.log("No missing Acceptance Criteria found; no spec-test generation run was created.");
+        for (const warning of result.warnings) console.log(`WARNING: ${warning}`);
+      } else {
+        console.log(`Spec-test generation ${result.run?.id}: ${result.run?.status}`);
+        console.log(`Selected ACs: ${result.selectedAcs.join(", ")}`);
+        console.log(`Artifacts: ${result.run?.artifacts.directory}`);
+        if (result.run?.worktree) {
+          console.log(`Worktree: ${result.run.worktree.worktreeId}`);
+          console.log(`Checkout: ${result.run.worktree.checkoutPath}`);
+        }
+        for (const warning of result.warnings) console.log(`WARNING: ${warning}`);
+        console.log("Generated tests are proposal-only; validate, audit, apply, and spec-test proposal accept are still required.");
+      }
+      if (result.run?.status === "failed") {
+        process.exitCode = result.run.exitCode ?? 1;
+      }
+    });
 
   specTest
     .command("propose")

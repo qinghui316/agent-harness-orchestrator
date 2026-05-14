@@ -6,8 +6,9 @@ import { createChange } from "../../src/change/manager.js";
 import { initHarness } from "../../src/harness/init.js";
 import { getSpecTestStatus, linkSpecTest, unlinkSpecTest } from "../../src/spec-test/manager.js";
 import { parseSpecTestProposalMessage } from "../../src/spec-test/proposal.js";
+import { classifySpecTestDiff, composeSpecTestGeneratorPrompt, selectAcsForGeneration } from "../../src/spec-test/generate.js";
 import { writeJsonFile } from "../../src/fs/json.js";
-import type { ManagedProject, ValidationResult } from "../../src/types/index.js";
+import type { ChangeStatus, ManagedProject, RunWorktreeInfo, SpecTestAcStatus, ValidationResult } from "../../src/types/index.js";
 
 let tempDir: string;
 
@@ -143,6 +144,82 @@ describe("spec-test proposal parser", () => {
   });
 });
 
+describe("spec-test generator helpers", () => {
+  const acStatuses: SpecTestAcStatus[] = [
+    acStatus("AC-001", false, "none"),
+    acStatus("AC-002", true, "linked-only"),
+    acStatus("AC-003", true, "stale"),
+    acStatus("AC-004", true, "invalid"),
+  ];
+
+  it("selects only ACs without linked evidence for --missing", () => {
+    expect(selectAcsForGeneration(acStatuses, { missing: true })).toEqual(["AC-001"]);
+  });
+
+  it("rejects unknown ACs and accepts repeated explicit ACs once", () => {
+    expect(selectAcsForGeneration(acStatuses, { acIds: ["ac-002", "AC-002"] })).toEqual(["AC-002"]);
+    expect(() => selectAcsForGeneration(acStatuses, { acIds: ["AC-999"] })).toThrow("Unknown Acceptance Criterion");
+  });
+
+  it("classifies test-only diffs conservatively", () => {
+    const allowed = classifySpecTestDiff([
+      "diff --git a/test/pricing.test.js b/test/pricing.test.js",
+      "diff --git a/src/pricing.js b/src/pricing.js",
+      "diff --git a/package.json b/package.json",
+      "diff --git a/__tests__/sample.spec.ts b/__tests__/sample.spec.ts",
+    ].join("\n"));
+
+    expect(allowed.allowed).toEqual(["__tests__/sample.spec.ts", "test/pricing.test.js"]);
+    expect(allowed.rejected).toEqual(["package.json", "src/pricing.js"]);
+  });
+
+  it("composes generator prompt with ECL profile, selected ACs, and test-only boundary", async () => {
+    const worktree: RunWorktreeInfo = {
+      worktreeId: "wt-1",
+      branchName: "aho/change/wt-1",
+      baseRef: "main",
+      baseCommit: "abc",
+      checkoutPath: "C:/tmp/worktree",
+      metadataPath: "C:/tmp/meta.json",
+    };
+    const prompt = await composeSpecTestGeneratorPrompt({
+      context: "context",
+      changeStatus: {
+        projectPath: tempDir,
+        activeChanges: [],
+        change: null,
+        reviewStatus: "pending",
+        acMap: {
+          version: "1.0",
+          generatedAt: new Date().toISOString(),
+          changeId: "change",
+          acceptanceCriteria: [{ id: "AC-001", text: "normal customers keep price", taskIds: [], validationRefs: [], warnings: [] }],
+          tasks: [],
+          warnings: [],
+          blockingIssues: [],
+        },
+        specTest: null,
+        latestValidation: null,
+        latestAudit: null,
+        closeGate: { ready: false, warnings: [], blockingIssues: [] },
+      } satisfies ChangeStatus,
+      selectedAcs: ["AC-001"],
+      specTestStatus: "{}",
+      latestValidation: "No validation",
+      sourceTests: "### test/pricing.test.js",
+      worktree,
+      sourceProjectPath: "C:/tmp/repo",
+      extraPrompt: "keep minimal",
+    });
+
+    expect(prompt).toContain("Spec-Test Generator Agent Profile");
+    expect(prompt).toContain("AC-001: normal customers keep price");
+    expect(prompt).toContain("Do not modify production code");
+    expect(prompt).toContain("Do not edit `spec-tests.json`");
+    expect(prompt).toContain("keep minimal");
+  });
+});
+
 async function writeValidation(runId: string, options: { commandName: string; commandStatus: "passed" | "failed" }): Promise<void> {
   const runDir = join(tempDir, ".agent-harness", "runs", runId);
   await mkdir(runDir, { recursive: true });
@@ -171,4 +248,19 @@ async function writeValidation(runId: string, options: { commandName: string; co
     }],
   };
   await writeJsonFile(join(runDir, "validation.json"), validation);
+}
+
+function acStatus(acId: string, linkedEvidence: boolean, confidence: SpecTestAcStatus["confidence"]): SpecTestAcStatus {
+  return {
+    acId,
+    text: acId,
+    linkedEvidence,
+    evidenceFilesExist: confidence !== "invalid",
+    latestValidationStatus: null,
+    commandEvidence: [],
+    confidence,
+    refs: linkedEvidence ? [{ type: "command", commandName: "test" }] : [],
+    warnings: [],
+    blockingIssues: confidence === "invalid" ? [`${acId} missing file`] : [],
+  };
 }

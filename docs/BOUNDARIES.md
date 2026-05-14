@@ -275,6 +275,10 @@ Spec-Test mapping links Acceptance Criteria to test or validation evidence. It i
 - Phase 4B may ask Codex to propose existing evidence, but Codex must not directly edit `spec-tests.json`.
 - AHO writes accepted evidence only after an explicit human confirmation command.
 - In Phase 4B, only `source-root` `existingEvidence` can be accepted. Worktree-only evidence, suggested new tests, open questions, and unknown evidence stay proposal-only.
+- Phase 4C may ask Codex to generate missing passing test evidence in an AHO-owned worktree, but the generator is test-only and proposal-only.
+- Phase 4C generated tests do not become source-root evidence until validation, audit, human apply, and a later `spec-test propose` / `proposal accept` pass.
+- Phase 4C rejects generator diffs that touch production code, package manifests, docs, Harness files, or `.agent-harness`.
+- Phase 4C does not support accepted red tests; failing generated tests remain worktree proposals and must not be applied as evidence.
 - Missing linked evidence is warning-only. Broken linked evidence, such as a missing referenced file, is blocking.
 - Later drift gates may become stricter only after the mapping and generation flows are stable.
 - A failed validation should produce evidence for fixing code, improving specs, or evolving Harness rules.

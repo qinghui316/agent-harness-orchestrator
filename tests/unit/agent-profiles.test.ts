@@ -10,7 +10,7 @@ async function readProfile(name: string): Promise<string> {
 
 describe("agent role profiles", () => {
   it("bundles all profiles with ECL-derived required sections", async () => {
-    for (const name of ["validator", "auditor", "coder", "spec-test-proposer"]) {
+    for (const name of ["validator", "auditor", "coder", "spec-test-proposer", "spec-test-generator"]) {
       const content = await readProfile(name);
       for (const section of [
         "## Role",
@@ -32,6 +32,16 @@ describe("agent role profiles", () => {
       expect(content).toContain("Resolved AHO durable memory");
       expect(content).toContain("Do not treat chat history");
     }
+  });
+
+  it("keeps spec-test generator as a test-only worktree proposal role", async () => {
+    const content = await readProfile("spec-test-generator");
+
+    expect(content).toContain("Spec-Test Generator Agent");
+    expect(content).toContain("Modify test files, test fixtures, or test helpers only.");
+    expect(content).toContain("Do not modify production code");
+    expect(content).toContain("Do not edit `spec-tests.json`.");
+    expect(content).toContain("Generated tests are not accepted project truth");
   });
 
   it("keeps spec-test proposer as a proposal-only evidence suggester", async () => {

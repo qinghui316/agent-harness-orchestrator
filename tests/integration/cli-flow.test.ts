@@ -220,6 +220,109 @@ describe("CLI flow", () => {
     expect(status.mappings[0]?.refs).toHaveLength(3);
   });
 
+  it("generates test-only spec-test proposals and accepts them after apply", async () => {
+    await installFakeCodex("spec-test-generate");
+    await writeFile(join(repoDir, "README.md"), "hello\n", "utf8");
+    await writeFile(join(repoDir, "package.json"), JSON.stringify({
+      scripts: {
+        test: "node --test",
+      },
+    }), "utf8");
+    await execFileAsync("git", ["-C", repoDir, "config", "user.name", "Test"]);
+    await execFileAsync("git", ["-C", repoDir, "config", "user.email", "test@example.com"]);
+    await execFileAsync("git", ["-C", repoDir, "add", "README.md", "package.json"]);
+    await execFileAsync("git", ["-C", repoDir, "commit", "-m", "init"]);
+
+    await runCli(["project", "add", repoDir, "--name", "Repo"]);
+    await runCli(["harness", "init", "repo", "--memory", "external-local"]);
+    await execFileAsync("git", ["-C", repoDir, "add", "AGENTS.md", ".agent-harness"]);
+    await execFileAsync("git", ["-C", repoDir, "commit", "-m", "init aho marker"]);
+    await runCli(["change", "new", "repo", "--title", "Generated Spec Test"]);
+    await runCli(["spec-test", "generate", "repo", "--missing", "--prompt", "Add the minimal Node test for the missing AC.", "--json"]);
+
+    const memoryRoot = join(homeDir, "projects", "repo");
+    const generatorRunId = (await readdir(join(memoryRoot, "runs"))).find((id) => existsSync(join(memoryRoot, "runs", id, "implementation.md")));
+    expect(generatorRunId).toBeDefined();
+    const generatorRunDir = join(memoryRoot, "runs", generatorRunId!);
+    const generatorRun = JSON.parse(await readFile(join(generatorRunDir, "run.json"), "utf8"));
+
+    expect(generatorRun).toMatchObject({ runtime: "spec-test-generator", executionMode: "worktree", proposalOnly: true, status: "completed" });
+    expect(generatorRun.command).toContain("workspace-write");
+    expect(await readFile(join(generatorRunDir, "prompt.md"), "utf8")).toContain("Spec-Test Generator Agent Profile");
+    expect(await readFile(join(generatorRunDir, "prompt.md"), "utf8")).toContain("Do not modify production code");
+    expect(await readFile(join(generatorRunDir, "diff.patch"), "utf8")).toContain("test/generated.test.js");
+    expect(await readFile(join(generatorRun.worktree.checkoutPath, "test", "generated.test.js"), "utf8")).toContain("generated AC evidence");
+    expect(existsSync(join(repoDir, "test", "generated.test.js"))).toBe(false);
+
+    const worktreeId = generatorRun.worktree.worktreeId;
+    await runCli(["validate", "run", "repo", "--worktree", worktreeId, "--json"]);
+    await installFakeCodex("audit-approved");
+    await runCli(["audit", "run", "repo", "--worktree", worktreeId, "--json"]);
+    const auditRunId = (await readdir(join(memoryRoot, "runs"))).find((id) => existsSync(join(memoryRoot, "runs", id, "audit.json")));
+    expect(auditRunId).toBeDefined();
+    await runCli(["audit", "accept", "repo", auditRunId!, "--json"]);
+    await runCli(["worktree", "preview", "repo", worktreeId, "--json"]);
+    await runCli(["worktree", "apply", "repo", worktreeId, "--commit", "--message", "add generated spec test", "--json"]);
+
+    expect(await readFile(join(repoDir, "test", "generated.test.js"), "utf8")).toContain("generated AC evidence");
+    await installFakeCodex("spec-test-proposal-generated");
+    await runCli(["spec-test", "propose", "repo", "--json"]);
+    const proposalRunId = (await readdir(join(memoryRoot, "runs"))).find((id) => existsSync(join(memoryRoot, "runs", id, "spec-test-proposal.json")));
+    expect(proposalRunId).toBeDefined();
+    await runCli(["spec-test", "proposal", "accept", "repo", proposalRunId!, "--all-existing", "--json"]);
+
+    const status = await getSpecTestStatus(managedProject());
+    expect(status.acceptanceCriteria[0]).toMatchObject({ linkedEvidence: true, evidenceFilesExist: true });
+    expect(status.mappings[0]?.refs).toEqual(expect.arrayContaining([
+      { type: "file", path: "test/generated.test.js" },
+      { type: "testName", path: "test/generated.test.js", name: "generated AC evidence" },
+      { type: "command", commandName: "test" },
+    ]));
+  });
+
+  it("fails spec-test generation when Codex edits production code", async () => {
+    await installFakeCodex("spec-test-generate-production");
+    await writeFile(join(repoDir, "README.md"), "hello\n", "utf8");
+    await execFileAsync("git", ["-C", repoDir, "add", "README.md"]);
+    await execFileAsync("git", ["-C", repoDir, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "init"]);
+
+    await runCli(["project", "add", repoDir, "--name", "Repo"]);
+    await runCli(["harness", "init", "repo", "--memory", "external-local"]);
+    await runCli(["change", "new", "repo", "--title", "Bad Generated Test"]);
+    await runCli(["spec-test", "generate", "repo", "--missing", "--json"]);
+
+    const memoryRoot = join(homeDir, "projects", "repo");
+    const generatorRunId = (await readdir(join(memoryRoot, "runs"))).find((id) => existsSync(join(memoryRoot, "runs", id, "implementation.md")));
+    expect(generatorRunId).toBeDefined();
+    const runDir = join(memoryRoot, "runs", generatorRunId!);
+    const run = JSON.parse(await readFile(join(runDir, "run.json"), "utf8"));
+    expect(run).toMatchObject({ runtime: "spec-test-generator", status: "failed", exitCode: 1 });
+    expect(await readFile(join(runDir, "diff.patch"), "utf8")).toContain("src/pricing.js");
+    expect(await readFile(join(runDir, "implementation.md"), "utf8")).toContain("non-test changes");
+    expect(process.exitCode).toBe(1);
+  });
+
+  it("does not create a Codex worktree when no AC is missing linked evidence", async () => {
+    await writeFile(join(repoDir, "package.json"), JSON.stringify({
+      scripts: {
+        test: "node -e \"\"",
+      },
+    }), "utf8");
+    await mkdir(join(repoDir, "test"), { recursive: true });
+    await writeFile(join(repoDir, "test", "pricing.test.js"), "test\n", "utf8");
+
+    await runCli(["project", "add", repoDir, "--name", "Repo"]);
+    await runCli(["harness", "init", "repo", "--memory", "external-local"]);
+    await runCli(["change", "new", "repo", "--title", "No Missing Evidence"]);
+    await runCli(["spec-test", "link", "repo", "--ac", "AC-001", "--file", "test/pricing.test.js", "--json"]);
+    await runCli(["spec-test", "generate", "repo", "--missing", "--json"]);
+
+    const memoryRoot = join(homeDir, "projects", "repo");
+    expect(await readdir(join(memoryRoot, "runs"))).toEqual([]);
+    const metadataRoot = join(memoryRoot, "worktrees", "metadata");
+    expect(existsSync(metadataRoot) ? await readdir(metadataRoot) : []).toEqual([]);
+  });
+
   it("records local command runs and exposes them through the CLI", async () => {
     await runCli(["project", "add", repoDir, "--name", "Repo"]);
     await runCli(["harness", "init", "repo"]);
@@ -778,7 +881,10 @@ type FakeCodexMode =
   | "code-no-diff"
   | "code-fail"
   | "code-pollute"
-  | "spec-test-proposal";
+  | "spec-test-proposal"
+  | "spec-test-proposal-generated"
+  | "spec-test-generate"
+  | "spec-test-generate-production";
 
 async function installFakeCodex(mode: FakeCodexMode): Promise<void> {
   const binDir = join(tempDir, "bin");
@@ -874,6 +980,26 @@ function finalMessage() {
       warnings: []
     }, null, 2) + "\\n\`\`\`";
   }
+  if (mode === "spec-test-proposal-generated") {
+    return "Status: proposed\\n\\n\`\`\`json\\n" + JSON.stringify({
+      status: "proposed",
+      evidence: [
+        {
+          refId: "ev-001",
+          acId: "AC-001",
+          source: "source-root",
+          kind: "existingEvidence",
+          refs: [
+            { type: "file", path: "test/generated.test.js" },
+            { type: "testName", path: "test/generated.test.js", name: "generated AC evidence" },
+            { type: "command", commandName: "test" }
+          ],
+          rationale: "Generated source-root test is now applied and can be linked as evidence."
+        }
+      ],
+      warnings: []
+    }, null, 2) + "\\n\`\`\`";
+  }
   return "fake codex proposal from output file";
 }
 function cwdFromArgs() {
@@ -896,6 +1022,18 @@ process.stdin.on("end", () => {
   }
   if (mode === "code-pollute" && process.env.AHO_FAKE_CODEX_POLLUTE_PATH) {
     fs.writeFileSync(require("node:path").join(process.env.AHO_FAKE_CODEX_POLLUTE_PATH, "polluted.txt"), "source pollution", "utf8");
+  }
+  if (mode === "spec-test-generate") {
+    const path = require("node:path");
+    const testDir = path.join(cwdFromArgs(), "test");
+    fs.mkdirSync(testDir, { recursive: true });
+    fs.writeFileSync(path.join(testDir, "generated.test.js"), "const test = require('node:test');\\nconst assert = require('node:assert/strict');\\n\\ntest('generated AC evidence', () => {\\n  assert.equal(1, 1);\\n});\\n", "utf8");
+  }
+  if (mode === "spec-test-generate-production") {
+    const path = require("node:path");
+    const srcDir = path.join(cwdFromArgs(), "src");
+    fs.mkdirSync(srcDir, { recursive: true });
+    fs.writeFileSync(path.join(srcDir, "pricing.js"), "export const changed = true;\\n", "utf8");
   }
   console.log(JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: mode === "audit-unparseable" ? finalMessage() : "fake codex proposal from jsonl" } }));
   process.exit(0);
