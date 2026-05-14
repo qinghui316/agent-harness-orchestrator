@@ -35,11 +35,48 @@ describe("validation", () => {
   it("resolves validation profiles from environment config before package fallback", async () => {
     await initHarness(project(tempDir));
     await writeFile(join(tempDir, "package.json"), JSON.stringify({ scripts: { test: "node test.js" } }), "utf8");
+    await writeFile(join(tempDir, "harness", "config", "environment.json"), JSON.stringify({
+      validation: {
+        profiles: {
+          default: [
+            { name: "custom", command: [process.execPath, "-e", "console.log('custom')"] },
+          ],
+        },
+      },
+    }), "utf8");
 
     const profile = await resolveValidationProfile(repoLocalMemory(tempDir, "repo"), "default");
 
     expect(profile.source).toBe("config");
-    expect(profile.commands.map((command) => command.name)).toEqual(["typecheck", "lint", "test", "build"]);
+    expect(profile.commands.map((command) => command.name)).toEqual(["custom"]);
+  });
+
+  it("falls back when generated environment config has no default profile", async () => {
+    await initHarness(project(tempDir));
+    await writeFile(join(tempDir, "package.json"), JSON.stringify({ scripts: { test: "node test.js" } }), "utf8");
+
+    const profile = await resolveValidationProfile(repoLocalMemory(tempDir, "repo"), "default");
+
+    expect(profile.source).toBe("package");
+    expect(profile.commands).toEqual([{ name: "test", command: ["npm", "run", "test"], source: "package" }]);
+  });
+
+  it("reads validation config with a UTF-8 BOM", async () => {
+    await initHarness(project(tempDir));
+    await writeFile(join(tempDir, "harness", "config", "environment.json"), `\uFEFF${JSON.stringify({
+      validation: {
+        profiles: {
+          default: [
+            { name: "test", command: ["npm", "run", "test"] },
+          ],
+        },
+      },
+    })}`, "utf8");
+
+    const profile = await resolveValidationProfile(repoLocalMemory(tempDir, "repo"), "default");
+
+    expect(profile.source).toBe("config");
+    expect(profile.commands.map((command) => command.name)).toEqual(["test"]);
   });
 
   it("falls back to allowlisted package scripts and skips missing scripts", async () => {

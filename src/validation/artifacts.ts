@@ -1,7 +1,8 @@
 import { existsSync } from "node:fs";
-import { readdir, readFile } from "node:fs/promises";
+import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
+import { readRequiredJsonFile } from "../fs/json.js";
 import type { ResolvedMemory, ValidationResult, ValidationSummary } from "../types/index.js";
 
 const validationCommandSchema = z.object({
@@ -48,8 +49,7 @@ export async function listValidationResults(memory: ResolvedMemory, changeId?: s
 
 export async function readValidationResult(memory: ResolvedMemory, validationId: string): Promise<ValidationResult> {
   const path = join(memory.runsRoot, validationId, "validation.json");
-  const parsed: unknown = JSON.parse(await readFile(path, "utf8"));
-  return validationResultSchema.parse(parsed) as ValidationResult;
+  return await readRequiredJsonFile(path, validationResultSchema) as ValidationResult;
 }
 
 export interface ValidationLookupFilter {

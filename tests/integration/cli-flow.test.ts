@@ -289,6 +289,29 @@ describe("CLI flow", () => {
     await runCli(["validate", "show", "repo", runIds[0], "--json"]);
   });
 
+  it("falls back to existing package scripts for generated external-local validation config", async () => {
+    await writeFile(join(repoDir, "README.md"), "hello\n", "utf8");
+    await writeFile(join(repoDir, "package.json"), JSON.stringify({
+      scripts: {
+        test: "node -e \"console.log('only test')\"",
+      },
+    }), "utf8");
+    await execFileAsync("git", ["-C", repoDir, "add", "README.md", "package.json"]);
+    await execFileAsync("git", ["-C", repoDir, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "init"]);
+
+    await runCli(["project", "add", repoDir, "--name", "Repo"]);
+    await runCli(["harness", "init", "repo", "--memory", "external-local"]);
+    await runCli(["change", "new", "repo", "--title", "Validate Package Fallback"]);
+    await runCli(["validate", "run", "repo", "--worktree", "--json"]);
+
+    const memoryRoot = join(homeDir, "projects", "repo");
+    const runIds = await readdir(join(memoryRoot, "runs"));
+    const validation = JSON.parse(await readFile(join(memoryRoot, "runs", runIds[0], "validation.json"), "utf8"));
+
+    expect(validation).toMatchObject({ status: "passed", changeId: "validate-package-fallback" });
+    expect(validation.commands.map((command: { name: string }) => command.name)).toEqual(["test"]);
+  });
+
   it("uses validation results in the change close gate", async () => {
     await writeFile(join(repoDir, "package.json"), JSON.stringify({
       scripts: {
@@ -346,9 +369,11 @@ describe("CLI flow", () => {
     const audit = JSON.parse(await readFile(join(runDir, "audit.json"), "utf8"));
 
     expect(run).toMatchObject({ runtime: "auditor", proposalOnly: true, status: "completed" });
+    expect(run.command).toEqual(expect.arrayContaining(["--add-dir", memoryRoot]));
     expect(audit).toMatchObject({ status: "approved", changeId: "audit-worktree", worktreeId });
     expect(await readFile(join(runDir, "diff.patch"), "utf8")).toContain("audit change");
     expect(await readFile(join(runDir, "prompt.md"), "utf8")).toContain("Focus on AC coverage");
+    expect(await readFile(join(runDir, "prompt.md"), "utf8")).toContain("Authoritative Audit Packet");
     expect(existsSync(join(repoDir, "runs"))).toBe(false);
 
     await runCli(["audit", "status", "repo", "--json"]);
@@ -659,11 +684,12 @@ if (args.length === 1 && args[0] === "--help") {
 }
 if (args[0] === "exec" && args.includes("--help")) {
   const approval = mode === "exec-no-output" ? "\\n--ask-for-approval <APPROVAL_POLICY>" : "";
-  const output = mode === "root" || mode.startsWith("audit-") || mode.startsWith("code-") ? "\\n--output-last-message <FILE>" : "";
-  if (mode === "unsupported") {
-    console.log("Usage: codex exec [OPTIONS]\\n--json");
-  } else {
-    console.log("Usage: codex exec [OPTIONS]\\n--json\\n--color <COLOR>\\n--sandbox <SANDBOX_MODE>\\n--cd <DIR>" + output + approval);
+    const output = mode === "root" || mode.startsWith("audit-") || mode.startsWith("code-") ? "\\n--output-last-message <FILE>" : "";
+    const addDir = mode.startsWith("audit-") ? "\\n--add-dir <DIR>" : "";
+    if (mode === "unsupported") {
+      console.log("Usage: codex exec [OPTIONS]\\n--json");
+    } else {
+    console.log("Usage: codex exec [OPTIONS]\\n--json\\n--color <COLOR>\\n--sandbox <SANDBOX_MODE>\\n--cd <DIR>" + addDir + output + approval);
   }
   process.exit(0);
 }

@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
-import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
+import { readRequiredJsonFile } from "../fs/json.js";
 import type { ResolvedMemory } from "../types/index.js";
 
 export interface ValidationCommand {
@@ -42,8 +42,7 @@ export async function resolveValidationProfile(memory: ResolvedMemory, profileNa
 async function readConfiguredProfile(memory: ResolvedMemory, profileName: string): Promise<ValidationProfile | null> {
   const path = join(memory.harnessRoot, "harness", "config", "environment.json");
   if (!existsSync(path)) return null;
-  const parsed: unknown = JSON.parse(await readFile(path, "utf8"));
-  const environment = environmentSchema.parse(parsed);
+  const environment = await readRequiredJsonFile(path, environmentSchema);
   const profile = environment.validation?.profiles?.[profileName];
   if (!profile) return null;
   if (profile.length === 0) {
@@ -64,8 +63,7 @@ async function readPackageFallbackProfile(memory: ResolvedMemory, profileName: s
   if (!existsSync(path)) {
     throw new Error("No validation profile configured and package.json was not found for fallback detection.");
   }
-  const parsed: unknown = JSON.parse(await readFile(path, "utf8"));
-  const pkg = packageJsonSchema.parse(parsed);
+  const pkg = await readRequiredJsonFile(path, packageJsonSchema);
   const scripts = pkg.scripts ?? {};
   const commands = fallbackScriptNames
     .filter((name) => scripts[name])

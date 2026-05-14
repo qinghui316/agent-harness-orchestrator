@@ -17,6 +17,7 @@ Auditor is a read-only semantic review role. It checks whether a proposed diff a
 - Do not edit code, specs, plans, tasks, or Harness files.
 - Do not approve without reading relevant artifacts.
 - Do not treat passing validation as semantic correctness.
+- Do not block solely because external-local durable memory is outside the working directory when AHO provides an authoritative audit packet.
 
 ## Workflow / Protocol
 

@@ -2,6 +2,17 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { z } from "zod";
 
+export function parseJsonText(text: string, pathForError = "JSON input"): unknown {
+  try {
+    return JSON.parse(stripUtf8Bom(text));
+  } catch (error) {
+    if (error instanceof SyntaxError) {
+      throw new Error(`Invalid JSON file ${pathForError}: ${error.message}`);
+    }
+    throw error;
+  }
+}
+
 export async function readJsonFile<T>(
   path: string,
   schema: z.ZodType<T>,
@@ -9,14 +20,26 @@ export async function readJsonFile<T>(
 ): Promise<T> {
   try {
     const raw = await readFile(path, "utf8");
-    const parsed: unknown = JSON.parse(raw);
+    const parsed = parseJsonText(raw, path);
     return schema.parse(parsed);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") {
       return fallback;
     }
-    if (error instanceof SyntaxError || error instanceof z.ZodError) {
+    if (error instanceof z.ZodError) {
       throw new Error(`Invalid JSON file ${path}: ${(error as Error).message}`);
+    }
+    throw error;
+  }
+}
+
+export async function readRequiredJsonFile<T>(path: string, schema: z.ZodType<T>): Promise<T> {
+  try {
+    const raw = await readFile(path, "utf8");
+    return schema.parse(parseJsonText(raw, path));
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      throw new Error(`Invalid JSON file ${path}: ${error.message}`);
     }
     throw error;
   }
@@ -31,4 +54,8 @@ export async function atomicWriteFile(path: string, content: string): Promise<vo
   const temp = `${path}.${process.pid}.${Date.now()}.tmp`;
   await writeFile(temp, content, "utf8");
   await rename(temp, path);
+}
+
+function stripUtf8Bom(text: string): string {
+  return text.charCodeAt(0) === 0xFEFF ? text.slice(1) : text;
 }

@@ -1,7 +1,8 @@
 import { existsSync } from "node:fs";
-import { readdir, readFile } from "node:fs/promises";
+import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
+import { readRequiredJsonFile } from "../fs/json.js";
 import type { AuditResult, AuditSummary, ResolvedMemory } from "../types/index.js";
 
 const auditFindingSchema = z.object({
@@ -49,8 +50,7 @@ export async function listAuditResults(memory: ResolvedMemory, changeId?: string
 
 export async function readAuditResult(memory: ResolvedMemory, auditId: string): Promise<AuditResult> {
   const path = join(memory.runsRoot, auditId, "audit.json");
-  const parsed: unknown = JSON.parse(await readFile(path, "utf8"));
-  return auditResultSchema.parse(parsed) as AuditResult;
+  return await readRequiredJsonFile(path, auditResultSchema) as AuditResult;
 }
 
 export async function getLatestAuditSummary(memory: ResolvedMemory, changeId: string): Promise<AuditSummary | null> {

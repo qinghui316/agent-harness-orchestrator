@@ -12,6 +12,7 @@ export interface CodexCapabilities {
   supportsJson: boolean;
   supportsSandbox: boolean;
   supportsCd: boolean;
+  supportsAddDir: boolean;
   supportsColor: boolean;
   supportsOutputLastMessage: boolean;
   errors: string[];
@@ -27,6 +28,7 @@ export interface CodexArgvOptions {
   lastMessagePath: string;
   model?: string;
   profile?: string;
+  additionalReadDirs?: string[];
 }
 
 export function evaluateCodexCapabilities(versionOutput: string | null, rootHelp: string | null, execHelp: string | null, spawnError?: string): CodexCapabilities {
@@ -42,6 +44,7 @@ export function evaluateCodexCapabilities(versionOutput: string | null, rootHelp
   const supportsJson = includesFlag(execHelp, "--json");
   const supportsSandbox = includesFlag(execHelp, "--sandbox");
   const supportsCd = includesFlag(execHelp, "--cd") || includesFlag(execHelp, "-C, --cd");
+  const supportsAddDir = includesFlag(execHelp, "--add-dir");
   const supportsColor = includesFlag(execHelp, "--color");
   const supportsOutputLastMessage = includesFlag(execHelp, "--output-last-message");
 
@@ -57,6 +60,7 @@ export function evaluateCodexCapabilities(versionOutput: string | null, rootHelp
     supportsJson,
     supportsSandbox,
     supportsCd,
+    supportsAddDir,
     supportsColor,
     supportsOutputLastMessage,
     errors,
@@ -110,6 +114,11 @@ export function buildCodexReadonlyArgv(capabilities: CodexCapabilities, options:
   if (capabilities.supportsColor) args.push("--color", "never");
   args.push("--sandbox", "read-only");
   args.push("--cd", options.projectPath);
+  if (capabilities.supportsAddDir) {
+    for (const dir of options.additionalReadDirs ?? []) {
+      args.push("--add-dir", dir);
+    }
+  }
   if (capabilities.supportsOutputLastMessage) args.push("--output-last-message", options.lastMessagePath);
   if (options.model) args.push("--model", options.model);
   if (options.profile) args.push("--profile", options.profile);

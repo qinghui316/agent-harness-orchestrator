@@ -10,6 +10,7 @@ const execHelp = [
   "  --color <COLOR>",
   "  -s, --sandbox <SANDBOX_MODE>",
   "  -C, --cd <DIR>",
+  "  --add-dir <DIR>",
   "  -o, --output-last-message <FILE>",
 ].join("\n");
 
@@ -30,6 +31,7 @@ describe("codex capabilities", () => {
     expect(argv.args).toContain("--output-last-message");
     expect(argv.args).toContain("--model");
     expect(argv.args).toContain("--profile");
+    expect(capabilities.supportsAddDir).toBe(true);
     expect(argv.args).toContain("-");
     expect(argv.args).not.toContain("--full-auto");
     expect(argv.args).not.toContain("--dangerously-bypass-approvals-and-sandbox");
@@ -66,6 +68,30 @@ describe("codex capabilities", () => {
     expect(capabilities.supportsOutputLastMessage).toBe(false);
     expect(capabilities.errors).toHaveLength(0);
     expect(argv.args).not.toContain("--output-last-message");
+  });
+
+  it("adds optional read-only memory directories when supported", () => {
+    const capabilities = evaluateCodexCapabilities("codex-cli 1.0", rootHelp, execHelp);
+    const argv = buildCodexReadonlyArgv(capabilities, {
+      projectPath: "/worktree",
+      lastMessagePath: "/memory/runs/run/last-message.md",
+      additionalReadDirs: ["/memory"],
+    });
+
+    expect(argv.args).toContain("--add-dir");
+    expect(argv.args).toContain("/memory");
+  });
+
+  it("omits optional read-only memory directories when unsupported", () => {
+    const capabilities = evaluateCodexCapabilities("codex-cli 1.0", rootHelp, execHelp.replace("  --add-dir <DIR>\n", ""));
+    const argv = buildCodexReadonlyArgv(capabilities, {
+      projectPath: "/worktree",
+      lastMessagePath: "/memory/runs/run/last-message.md",
+      additionalReadDirs: ["/memory"],
+    });
+
+    expect(capabilities.supportsAddDir).toBe(false);
+    expect(argv.args).not.toContain("--add-dir");
   });
 
   it("builds workspace-write argv without requiring approval support", () => {

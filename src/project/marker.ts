@@ -2,7 +2,7 @@ import { mkdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
 import type { ManagedProject, MemoryMode, ProjectMarker } from "../types/index.js";
-import { writeJsonFile } from "../fs/json.js";
+import { parseJsonText, writeJsonFile } from "../fs/json.js";
 
 const MarkerSchema = z.object({
   version: z.literal("1.0"),
@@ -20,7 +20,7 @@ export function markerPath(projectPath: string): string {
 export async function readProjectMarker(projectPath: string): Promise<ProjectMarker | null> {
   try {
     const raw = await readFile(markerPath(projectPath), "utf8");
-    return MarkerSchema.parse(JSON.parse(raw));
+    return MarkerSchema.parse(parseJsonText(raw, markerPath(projectPath)));
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
     throw new Error(`Invalid project marker in ${projectPath}: ${(error as Error).message}`);

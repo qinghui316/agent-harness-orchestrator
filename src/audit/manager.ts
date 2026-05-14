@@ -149,6 +149,7 @@ export async function startAuditRun(project: ManagedProject, options: AuditRunOp
   const argv = buildCodexReadonlyArgv(capabilities, {
     projectPath: cwd,
     lastMessagePath: paths.lastMessage,
+    additionalReadDirs: memory.mode === "external-local" ? [memory.memoryRoot] : [],
   });
   run = { ...run, command: [argv.command, ...argv.args], status: "running" };
   await writeJsonFile(paths.run, run);

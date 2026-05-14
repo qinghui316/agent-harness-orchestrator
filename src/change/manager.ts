@@ -4,7 +4,7 @@ import { dirname, join, relative } from "node:path";
 import { z } from "zod";
 import { buildAcMap, parseReviewStatus } from "../ecl/anchors.js";
 import { getActiveChanges, writeChangeIndex } from "../ecl/index.js";
-import { atomicWriteFile, writeJsonFile } from "../fs/json.js";
+import { atomicWriteFile, readRequiredJsonFile, writeJsonFile } from "../fs/json.js";
 import { slugify } from "../fs/path.js";
 import { assertWritableMemory, resolveMemory, resolveProjectMemory } from "../memory/resolver.js";
 import { getTemplateRoot } from "../template-source/paths.js";
@@ -304,8 +304,7 @@ async function readChangeMetadata(changePath: string): Promise<ChangeMetadata | 
   const path = join(changePath, "change.json");
   if (!existsSync(path)) return null;
   try {
-    const parsed: unknown = JSON.parse(await readFile(path, "utf8"));
-    return changeMetadataSchema.parse(parsed);
+    return await readRequiredJsonFile(path, changeMetadataSchema);
   } catch {
     return null;
   }

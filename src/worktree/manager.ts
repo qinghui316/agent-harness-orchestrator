@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { mkdir, readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
-import { writeJsonFile } from "../fs/json.js";
+import { readRequiredJsonFile, writeJsonFile } from "../fs/json.js";
 import { getAhoHome, shortHash, slugify } from "../fs/path.js";
 import { getGitBranch, getGitCommit, getGitStatusShort, git, hasGitCommits, isGitDirty } from "../project/git.js";
 import type { ManagedProject, ResolvedMemory, WorktreeMetadata, WorktreeStatus } from "../types/index.js";
@@ -194,9 +194,7 @@ export async function writeWorktreeIndex(memory: ResolvedMemory): Promise<void> 
 }
 
 async function readWorktreeMetadata(memory: ResolvedMemory, worktreeId: string): Promise<WorktreeMetadata> {
-  const raw = await import("node:fs/promises").then(({ readFile }) => readFile(getWorktreeMetadataPath(memory, worktreeId), "utf8"));
-  const parsed: unknown = JSON.parse(raw);
-  return worktreeMetadataSchema.parse(parsed);
+  return await readRequiredJsonFile(getWorktreeMetadataPath(memory, worktreeId), worktreeMetadataSchema);
 }
 
 async function statusFromMetadata(metadata: WorktreeMetadata): Promise<WorktreeStatus> {

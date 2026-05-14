@@ -1,9 +1,9 @@
 import { existsSync } from "node:fs";
-import { appendFile, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, readdir, writeFile } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { z } from "zod";
 import { getChangeStatus } from "../change/manager.js";
-import { writeJsonFile } from "../fs/json.js";
+import { readRequiredJsonFile, writeJsonFile } from "../fs/json.js";
 import { shortHash, slugify } from "../fs/path.js";
 import { assertWritableMemory, resolveMemory, resolveProjectMemory } from "../memory/resolver.js";
 import { executeProcessStreaming } from "./process.js";
@@ -15,7 +15,7 @@ const runMetadataSchema = z.object({
   id: z.string(),
   changeId: z.string(),
   projectPath: z.string(),
-  runtime: z.enum(["local-command", "codex-readonly", "validator", "auditor", "coder-codex"]),
+  runtime: z.enum(["local-command", "codex-readonly", "validator", "auditor", "coder-codex", "worktree-apply", "worktree-discard"]),
   executionMode: z.enum(["direct", "worktree"]).optional(),
   proposalOnly: z.boolean().optional(),
   command: z.array(z.string()),
@@ -42,6 +42,8 @@ const runMetadataSchema = z.object({
     audit: z.string().optional(),
     auditMarkdown: z.string().optional(),
     review: z.string().optional(),
+    apply: z.string().optional(),
+    discard: z.string().optional(),
   }),
   worktree: z.object({
     worktreeId: z.string(),
@@ -180,8 +182,7 @@ export async function listRuns(project: ManagedProject | string | ResolvedMemory
 export async function readRun(project: ManagedProject | string | ResolvedMemory, runId: string): Promise<RunMetadata> {
   const memory = await resolveRunMemory(project);
   const path = join(memory.runsRoot, runId, "run.json");
-  const parsed: unknown = JSON.parse(await readFile(path, "utf8"));
-  return runMetadataSchema.parse(parsed) as RunMetadata;
+  return await readRequiredJsonFile(path, runMetadataSchema) as RunMetadata;
 }
 
 export function assertRunnableChange(status: ChangeStatus): void {
