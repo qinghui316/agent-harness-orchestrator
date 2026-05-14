@@ -279,6 +279,9 @@ Spec-Test mapping links Acceptance Criteria to test or validation evidence. It i
 - Phase 4C generated tests do not become source-root evidence until validation, audit, human apply, and a later `spec-test propose` / `proposal accept` pass.
 - Phase 4C rejects generator diffs that touch production code, package manifests, docs, Harness files, or `.agent-harness`.
 - Phase 4C does not support accepted red tests; failing generated tests remain worktree proposals and must not be applied as evidence.
+- Phase 4D drift diagnostics are deterministic risk signals. They do not call Codex, do not generate tests, and do not prove AC coverage.
+- `stale` means the evidence may need refresh because validation or spec/task timestamps no longer line up; it is not proof that code and spec are inconsistent.
+- `spec-test check --strict` can fail on invalid, stale, or failed accepted evidence, but missing evidence remains warning-only in Phase 4D.
 - Missing linked evidence is warning-only. Broken linked evidence, such as a missing referenced file, is blocking.
 - Later drift gates may become stricter only after the mapping and generation flows are stable.
 - A failed validation should produce evidence for fixing code, improving specs, or evolving Harness rules.

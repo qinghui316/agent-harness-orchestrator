@@ -221,6 +221,42 @@ export interface SpecTestStatus {
   blockingIssues: string[];
 }
 
+export type SpecTestDriftStatus = "ok" | "missing" | "invalid" | "stale" | "failed" | "unknown";
+
+export interface SpecTestDriftAcStatus {
+  acId: string;
+  text: string;
+  status: SpecTestDriftStatus;
+  reasons: string[];
+  warnings: string[];
+  blockingIssues: string[];
+  recommendedNextAction: string;
+}
+
+export interface SpecTestDriftReport {
+  version: "1.0";
+  changeId: string;
+  selectedRoot: string;
+  selectedRootType: "source-root" | "worktree";
+  selectedWorktreeId?: string;
+  latestValidationId: string | null;
+  latestValidationStatus: ValidationStatus | null;
+  specTestsUpdatedAt: string;
+  freshness: {
+    specChangedAfterEvidence: boolean;
+    tasksChangedAfterEvidence: boolean;
+    validationOlderThanEvidence: boolean;
+  };
+  summary: Record<SpecTestDriftStatus, number>;
+  acceptanceCriteria: SpecTestDriftAcStatus[];
+  warnings: string[];
+  blockingIssues: string[];
+  strict: {
+    passed: boolean;
+    failingStatuses: SpecTestDriftStatus[];
+  };
+}
+
 export type SpecTestProposalStatus = "proposed" | "blocked" | "failed";
 
 export type SpecTestProposalSource = "source-root" | "worktree-only" | "suggested" | "unknown";

@@ -7,6 +7,7 @@ import { promisify } from "node:util";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createProgram } from "../../src/cli/program.js";
 import { getSpecTestStatus } from "../../src/spec-test/manager.js";
+import { getSpecTestDriftReport } from "../../src/spec-test/drift.js";
 import type { ManagedProject } from "../../src/types/index.js";
 
 const execFileAsync = promisify(execFile);
@@ -115,6 +116,8 @@ describe("CLI flow", () => {
     await runCli(["validate", "run", "repo", "--json"]);
     await runCli(["spec-test", "status", "repo", "--json"]);
     await runCli(["spec-test", "check", "repo", "--json"]);
+    await runCli(["spec-test", "drift", "repo", "--json"]);
+    await runCli(["spec-test", "check", "repo", "--strict", "--json"]);
 
     const specTests = JSON.parse(await readFile(join(repoDir, "harness", "changes", "active", "spec-evidence", "spec-tests.json"), "utf8"));
     expect(specTests.mappings[0]).toMatchObject({ acId: "AC-001" });
@@ -125,6 +128,43 @@ describe("CLI flow", () => {
       confidence: "validation-passed",
     });
     expect(status.acceptanceCriteria[0]?.commandEvidence).toEqual([{ commandName: "test", validationStatus: "passed" }]);
+    const drift = await getSpecTestDriftReport(managedProject());
+    expect(drift.acceptanceCriteria[0]).toMatchObject({ status: "ok" });
+    expect(drift.strict.passed).toBe(true);
+  });
+
+  it("reports invalid and stale drift through strict checks", async () => {
+    await writeFile(join(repoDir, "package.json"), JSON.stringify({
+      scripts: {
+        test: "node -e \"console.log('drift')\"",
+      },
+    }), "utf8");
+    await mkdir(join(repoDir, "test"), { recursive: true });
+    await writeFile(join(repoDir, "test", "pricing.test.js"), "test\n", "utf8");
+    await runCli(["project", "add", repoDir, "--name", "Repo"]);
+    await runCli(["harness", "init", "repo"]);
+    await runCli(["change", "new", "repo", "--title", "Spec Drift"]);
+    await runCli(["spec-test", "link", "repo", "--ac", "AC-001", "--file", "test/pricing.test.js", "--command", "test", "--json"]);
+    await runCli(["validate", "run", "repo", "--json"]);
+
+    await rm(join(repoDir, "test", "pricing.test.js"));
+    process.exitCode = undefined;
+    await runCli(["spec-test", "check", "repo", "--strict", "--json"]);
+    expect(process.exitCode).toBe(1);
+    let drift = await getSpecTestDriftReport(managedProject());
+    expect(drift.acceptanceCriteria[0]).toMatchObject({ status: "invalid" });
+
+    await mkdir(join(repoDir, "test"), { recursive: true });
+    await writeFile(join(repoDir, "test", "pricing.test.js"), "test\n", "utf8");
+    const future = new Date(Date.now() + 5000);
+    const { utimes } = await import("node:fs/promises");
+    await utimes(join(repoDir, "harness", "changes", "active", "spec-drift", "spec.md"), future, future);
+    process.exitCode = undefined;
+    await runCli(["spec-test", "drift", "repo", "--json"]);
+    await runCli(["spec-test", "check", "repo", "--strict", "--json"]);
+    expect(process.exitCode).toBe(1);
+    drift = await getSpecTestDriftReport(managedProject());
+    expect(drift.acceptanceCriteria[0]).toMatchObject({ status: "stale" });
   });
 
   it("supports command-only spec-test evidence in external-local memory", async () => {
@@ -171,10 +211,15 @@ describe("CLI flow", () => {
     await runCli(["spec-test", "link", "repo", "--ac", "AC-001", "--file", "test/worktree.test.js", "--command", "test", "--json"]);
     await runCli(["validate", "run", "repo", "--worktree", worktreeId, "--json"]);
     await runCli(["spec-test", "status", "repo", "--worktree", worktreeId, "--json"]);
+    await runCli(["spec-test", "drift", "repo", "--worktree", worktreeId, "--json"]);
 
     const status = await getSpecTestStatus(managedProject(), { worktreeId });
     expect(status.selectedWorktreeId).toBe(worktreeId);
     expect(status.acceptanceCriteria[0]).toMatchObject({ evidenceFilesExist: true, confidence: "validation-passed" });
+    const drift = await getSpecTestDriftReport(managedProject(), { worktreeId });
+    expect(drift.selectedRootType).toBe("worktree");
+    expect(drift.selectedWorktreeId).toBe(worktreeId);
+    expect(drift.acceptanceCriteria[0]).toMatchObject({ status: "ok" });
     await expect(runCli(["change", "close", "repo"])).rejects.toThrow("Review status is pending");
   });
 

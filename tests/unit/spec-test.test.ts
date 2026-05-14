@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -7,6 +7,7 @@ import { initHarness } from "../../src/harness/init.js";
 import { getSpecTestStatus, linkSpecTest, unlinkSpecTest } from "../../src/spec-test/manager.js";
 import { parseSpecTestProposalMessage } from "../../src/spec-test/proposal.js";
 import { classifySpecTestDiff, composeSpecTestGeneratorPrompt, selectAcsForGeneration } from "../../src/spec-test/generate.js";
+import { getSpecTestDriftReport } from "../../src/spec-test/drift.js";
 import { writeJsonFile } from "../../src/fs/json.js";
 import type { ChangeStatus, ManagedProject, RunWorktreeInfo, SpecTestAcStatus, ValidationResult } from "../../src/types/index.js";
 
@@ -105,6 +106,77 @@ describe("spec-test manager", () => {
 
     status = await unlinkSpecTest(item, { ac: "AC-001", command: "test" });
     expect(status.mappings).toHaveLength(0);
+  });
+});
+
+describe("spec-test drift", () => {
+  it("reports missing evidence as warning-only drift", async () => {
+    const item = await setupChange();
+
+    const report = await getSpecTestDriftReport(item);
+
+    expect(report.acceptanceCriteria[0]).toMatchObject({ acId: "AC-001", status: "missing" });
+    expect(report.strict.passed).toBe(true);
+  });
+
+  it("reports missing linked files as invalid", async () => {
+    const item = await setupChange();
+    await linkSpecTest(item, { ac: "AC-001", file: "test/missing.test.js" });
+
+    const report = await getSpecTestDriftReport(item);
+
+    expect(report.acceptanceCriteria[0]).toMatchObject({ status: "invalid" });
+    expect(report.strict.passed).toBe(false);
+    expect(report.strict.failingStatuses).toContain("invalid");
+  });
+
+  it("reports failed validation as failed", async () => {
+    const item = await setupChange();
+    await linkSpecTest(item, { ac: "AC-001", command: "test" });
+    await writeValidation("run-1", { commandName: "test", commandStatus: "failed" });
+
+    const report = await getSpecTestDriftReport(item);
+
+    expect(report.acceptanceCriteria[0]).toMatchObject({ status: "failed" });
+    expect(report.strict.failingStatuses).toContain("failed");
+  });
+
+  it("reports missing validation commands as stale", async () => {
+    const item = await setupChange();
+    await linkSpecTest(item, { ac: "AC-001", command: "test" });
+    await writeValidation("run-1", { commandName: "build", commandStatus: "passed" });
+
+    const report = await getSpecTestDriftReport(item);
+
+    expect(report.acceptanceCriteria[0]).toMatchObject({ status: "stale" });
+    expect(report.strict.failingStatuses).toContain("stale");
+  });
+
+  it("reports passed command evidence as ok", async () => {
+    const item = await setupChange();
+    await linkSpecTest(item, { ac: "AC-001", command: "test" });
+    await writeValidation("run-1", { commandName: "test", commandStatus: "passed" });
+
+    const report = await getSpecTestDriftReport(item);
+
+    expect(report.acceptanceCriteria[0]).toMatchObject({ status: "ok" });
+    expect(report.latestValidationId).toBe("run-1");
+    expect(report.selectedRootType).toBe("source-root");
+    expect(report.strict.passed).toBe(true);
+  });
+
+  it("reports spec changes after evidence as stale mtime risk", async () => {
+    const item = await setupChange();
+    await linkSpecTest(item, { ac: "AC-001", command: "test" });
+    await writeValidation("run-1", { commandName: "test", commandStatus: "passed" });
+    const future = new Date(Date.now() + 5000);
+    await utimes(join(tempDir, "harness", "changes", "active", "spec-test-mapping", "spec.md"), future, future);
+
+    const report = await getSpecTestDriftReport(item);
+
+    expect(report.freshness.specChangedAfterEvidence).toBe(true);
+    expect(report.acceptanceCriteria[0]).toMatchObject({ status: "stale" });
+    expect(report.warnings.some((warning) => warning.includes("mtime-based"))).toBe(true);
   });
 });
 

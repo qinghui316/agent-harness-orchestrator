@@ -163,12 +163,17 @@ node dist/index.js spec-test link aho-test --ac AC-002 --command build
 node dist/index.js spec-test status aho-test --json
 node dist/index.js spec-test status aho-test --worktree <worktree-id> --json
 node dist/index.js spec-test check aho-test --json
+node dist/index.js spec-test drift aho-test --json
+node dist/index.js spec-test drift aho-test --worktree <worktree-id> --json
+node dist/index.js spec-test check aho-test --strict --json
 node dist/index.js spec-test unlink aho-test --ac AC-001 --command test
 ```
 
 `spec-tests.json` lives in the active change directory. File paths are repo-relative logical paths. `testName` is recorded for human review only; AHO does not parse test runner output in Phase 4A.
 
 Missing linked evidence is warning-only. A linked file that does not exist is blocking because it is bad evidence.
+
+`spec-test drift` is a deterministic readiness check. It reports whether each AC is `ok`, `missing`, `invalid`, `stale`, `failed`, or `unknown` against the selected latest validation and root. `stale` is risk-based and may come from mtime comparisons; it is not proof that the implementation is wrong. `spec-test check --strict` exits non-zero for invalid, stale, or failed accepted evidence, but still treats missing evidence as warning-only.
 
 Spec-test proposal runs ask Codex to inspect existing tests and propose candidate evidence. Codex output is proposal-only; it does not edit `spec-tests.json`.
 
@@ -230,7 +235,7 @@ runs/{run-id}/diff-stat.txt
 runs/{run-id}/implementation.md
 ```
 
-Phase 4C does not support accepted red tests, CI drift gates, or automatic proof of AC coverage.
+Phase 4C does not support accepted red tests, CI drift gates, or automatic proof of AC coverage. Phase 4D adds local drift diagnostics only; CI enforcement remains future work.
 
 ## 12. Code Commands
 

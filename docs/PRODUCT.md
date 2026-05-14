@@ -117,7 +117,8 @@ Phase 4 adds Spec-Test anchoring:
 - Phase 4A: explicit AC to test/validation evidence mapping.
 - Phase 4B: Codex read-only proposals for reusing existing source-root test and validation evidence, accepted by explicit human command.
 - Phase 4C: Codex-assisted passing test generation in AHO-owned worktrees, followed by validation, audit, human apply, and evidence proposal acceptance.
-- Later Phase 4 work: drift gates and stricter Spec-Test enforcement.
+- Phase 4D: deterministic Spec-Test drift readiness, reporting missing/invalid/stale/failed/unknown/ok evidence states without CI enforcement.
+- Later Phase 4 work: CI drift gates and stricter Spec-Test enforcement.
 
 Later phases add:
 

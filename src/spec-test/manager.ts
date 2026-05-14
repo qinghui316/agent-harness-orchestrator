@@ -100,7 +100,7 @@ export async function unlinkSpecTest(project: ManagedProject, options: SpecTestL
 
 export async function getSpecTestStatus(project: ManagedProject | ResolvedMemory, options: SpecTestStatusOptions = {}): Promise<SpecTestStatus> {
   const context = await getActiveSpecTestContext(project);
-  const specTests = await readOrCreateSpecTests(context.changeDir, context.changeId);
+  const specTests = await readSpecTestsOrDefault(context.changeDir, context.changeId);
   const selected = await selectValidationContext(context.memory, context.changeId, options.worktreeId);
   const commandStatuses = selected.validation ? commandStatusMap(selected.validation) : new Map<string, ValidationStatus>();
   const warnings: string[] = [];
@@ -156,7 +156,7 @@ export async function checkSpecTests(project: ManagedProject | ResolvedMemory, o
   return getSpecTestStatus(project, options);
 }
 
-async function getActiveSpecTestContext(project: ManagedProject | ResolvedMemory): Promise<{
+export async function getActiveSpecTestContext(project: ManagedProject | ResolvedMemory): Promise<{
   memory: ResolvedMemory;
   changeId: string;
   changeDir: string;
@@ -189,9 +189,21 @@ async function getActiveSpecTestContext(project: ManagedProject | ResolvedMemory
   return { memory, changeId, changeDir, criteria };
 }
 
-async function readOrCreateSpecTests(changeDir: string, changeId: string): Promise<SpecTests> {
+export async function readOrCreateSpecTests(changeDir: string, changeId: string): Promise<SpecTests> {
   const path = join(changeDir, "spec-tests.json");
   if (!existsSync(path)) return createEmptySpecTests(changeDir, changeId);
+  const parsed = await readRequiredJsonFile(path, specTestsSchema) as SpecTests;
+  if (parsed.changeId !== changeId) {
+    throw new Error(`spec-tests.json changeId mismatch. Expected ${changeId}; found ${parsed.changeId}.`);
+  }
+  return normalizeSpecTests(parsed);
+}
+
+export async function readSpecTestsOrDefault(changeDir: string, changeId: string): Promise<SpecTests> {
+  const path = join(changeDir, "spec-tests.json");
+  if (!existsSync(path)) {
+    return { version: "1.0", changeId, updatedAt: new Date(0).toISOString(), mappings: [] };
+  }
   const parsed = await readRequiredJsonFile(path, specTestsSchema) as SpecTests;
   if (parsed.changeId !== changeId) {
     throw new Error(`spec-tests.json changeId mismatch. Expected ${changeId}; found ${parsed.changeId}.`);

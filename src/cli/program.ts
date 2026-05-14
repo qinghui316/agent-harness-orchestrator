@@ -26,7 +26,8 @@ import {
   startSpecTestProposalRun,
 } from "../spec-test/proposal.js";
 import { startSpecTestGenerationRun } from "../spec-test/generate.js";
-import type { ManagedProject, MemoryMode, ResolvedMemory } from "../types/index.js";
+import { getSpecTestDriftReport } from "../spec-test/drift.js";
+import type { ManagedProject, MemoryMode, ResolvedMemory, SpecTestDriftReport } from "../types/index.js";
 
 async function resolveRegisteredOrPath(store: ProjectRegistryStore, query: string): Promise<{ project: Awaited<ReturnType<ProjectRegistryStore["resolveProject"]>>; path: string }> {
   const project = await store.resolveProject(query);
@@ -523,6 +524,18 @@ export function createProgram(): Command {
     });
 
   specTest
+    .command("drift")
+    .argument("<project>", "registered project id/name/path")
+    .option("--worktree <worktree-id>", "evaluate against an AHO-managed worktree validation context")
+    .option("--json", "print JSON")
+    .action(async (query: string, options: { worktree?: string; json?: boolean }) => {
+      const project = await resolveManagedProject(store, query);
+      const report = await getSpecTestDriftReport(project, { worktreeId: options.worktree });
+      if (options.json) printJson(report);
+      else printSpecTestDrift(report);
+    });
+
+  specTest
     .command("status")
     .argument("<project>", "registered project id/name/path")
     .option("--worktree <worktree-id>", "evaluate against an AHO-managed worktree validation context")
@@ -538,13 +551,24 @@ export function createProgram(): Command {
     .command("check")
     .argument("<project>", "registered project id/name/path")
     .option("--worktree <worktree-id>", "evaluate against an AHO-managed worktree validation context")
+    .option("--strict", "fail when accepted evidence is invalid, stale, or tied to failed validation")
     .option("--json", "print JSON")
-    .action(async (query: string, options: { worktree?: string; json?: boolean }) => {
+    .action(async (query: string, options: { worktree?: string; strict?: boolean; json?: boolean }) => {
       const project = await resolveManagedProject(store, query);
       const status = await checkSpecTests(project, { worktreeId: options.worktree });
-      if (options.json) printJson(status);
-      else printSpecTestStatus(status);
-      if (status.blockingIssues.length > 0) process.exitCode = 1;
+      if (options.strict) {
+        const drift = await getSpecTestDriftReport(project, { worktreeId: options.worktree });
+        if (options.json) printJson({ status, drift });
+        else {
+          printSpecTestStatus(status);
+          printSpecTestDrift(drift);
+        }
+        if (!drift.strict.passed) process.exitCode = 1;
+      } else {
+        if (options.json) printJson(status);
+        else printSpecTestStatus(status);
+        if (status.blockingIssues.length > 0) process.exitCode = 1;
+      }
     });
 
   specTest
@@ -965,4 +989,25 @@ function printSpecTestStatus(status: Awaited<ReturnType<typeof getSpecTestStatus
   })));
   for (const issue of status.blockingIssues) console.log(`BLOCKING: ${issue}`);
   for (const warning of status.warnings) console.log(`WARNING: ${warning}`);
+}
+
+function printSpecTestDrift(report: SpecTestDriftReport): void {
+  console.log(`Change: ${report.changeId}`);
+  console.log(`Selected root: ${report.selectedRootType}${report.selectedWorktreeId ? ` (${report.selectedWorktreeId})` : ""}`);
+  console.log(`Latest validation: ${report.latestValidationId ?? "none"}${report.latestValidationStatus ? ` (${report.latestValidationStatus})` : ""}`);
+  printTable(report.acceptanceCriteria.map((item) => ({
+    ac: item.acId,
+    status: item.status,
+    reasons: item.reasons.length,
+    warnings: item.warnings.length,
+    blocking: item.blockingIssues.length,
+    next: item.recommendedNextAction,
+  })));
+  for (const issue of report.blockingIssues) console.log(`BLOCKING: ${issue}`);
+  for (const warning of report.warnings) console.log(`WARNING: ${warning}`);
+  if (!report.strict.passed) {
+    console.log(`STRICT: failed (${report.strict.failingStatuses.join(", ")})`);
+  } else {
+    console.log("STRICT: passed");
+  }
 }
