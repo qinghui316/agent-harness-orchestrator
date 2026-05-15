@@ -2,7 +2,7 @@
 
 ## 1. Current Phase
 
-This repository contains Harness infrastructure, a Phase 1 TypeScript CLI, Phase 2A structured change management, Phase 2B local command run artifacts, Phase 2C Codex read-only proposal capture, Phase 2D memory resolver foundation, Phase 2E opt-in external-local memory, Phase 3A AHO-owned worktree management, Phase 3B change-scoped validation, Phase 3C Auditor proposal gate, Phase 3D Codex Coder worktree runs, Phase 3E worktree apply/discard gates, Phase 4A Spec-Test evidence mapping, Phase 4B Spec-Test evidence proposals, Phase 4C Codex-assisted passing Spec-Test generation, Phase 4D Spec-Test drift readiness, Phase 4E Spec/Planner proposal gates, Phase 5A Workbench Snapshot read models, and Phase 5B Workbench stream replay / structured approval actions.
+This repository contains Harness infrastructure, a Phase 1 TypeScript CLI, Phase 2A structured change management, Phase 2B local command run artifacts, Phase 2C Codex read-only proposal capture, Phase 2D memory resolver foundation, Phase 2E opt-in external-local memory, Phase 3A AHO-owned worktree management, Phase 3B change-scoped validation, Phase 3C Auditor proposal gate, Phase 3D Codex Coder worktree runs, Phase 3E worktree apply/discard gates, Phase 4A Spec-Test evidence mapping, Phase 4B Spec-Test evidence proposals, Phase 4C Codex-assisted passing Spec-Test generation, Phase 4D Spec-Test drift readiness, Phase 4E Spec/Planner proposal gates, Phase 5A Workbench Snapshot read models, Phase 5B Workbench stream replay / structured approval actions, and Phase 5C local Workbench GUI shell.
 
 ## 2. Prerequisites
 
@@ -117,6 +117,8 @@ node dist/index.js workbench approvals aho-test --topic <change-id> --json
 node dist/index.js workbench topics aho-test --json
 node dist/index.js workbench topic aho-test <change-id> --json
 node dist/index.js workbench roles aho-test --json
+node dist/index.js workbench serve --host 127.0.0.1 --port 4317 --open
+node dist/index.js workbench serve aho-test --host 127.0.0.1 --port 4317 --open
 ```
 
 `snapshot` returns:
@@ -136,6 +138,10 @@ node dist/index.js workbench roles aho-test --json
 `approvals` is a derived view. It returns project-level approval items by default, with optional Topic filtering for display. Mutating actions include structured command metadata and require explicit confirmation.
 
 The snapshot is a derived view for future GUI work. It is not a new source of truth.
+
+`serve` starts the local browser Workbench. Without a project argument, it still opens the three-pane Workbench shell; project onboarding lives in the left sidebar. A user can add an existing local project with the native folder picker, create a new local project folder from a selected parent directory, initialize Harness memory after explicit confirmation, and then inspect the Topic-centered Workbench. With a project argument, it direct-opens that project. The server serves the Vite-built static UI from `dist/web` and exposes local JSON APIs for project onboarding, native folder selection, snapshot, topics, replay stream packets, approvals, and allowlisted approval actions. Mutating actions require `confirm: true`; the server does not accept arbitrary shell commands.
+
+The Phase 5C GUI is replay-only. The Agent Loop surface is designed for future live streaming, but the data source is currently existing run artifacts from `workbench stream`.
 
 ## 9. Worktree Commands
 

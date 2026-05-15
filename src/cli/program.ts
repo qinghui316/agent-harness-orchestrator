@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import { Command } from "commander";
 import { resolveExistingDirectory } from "../fs/path.js";
 import { ProjectRegistryStore } from "../registry/store.js";
@@ -37,6 +38,7 @@ import {
 } from "../spec-test/proposal.js";
 import { startSpecTestGenerationRun } from "../spec-test/generate.js";
 import { getSpecTestDriftReport } from "../spec-test/drift.js";
+import { startWorkbenchServer } from "../server/workbench-server.js";
 import { getWorkbenchSnapshot, getWorkbenchStream, getWorkbenchTopic, listWorkbenchApprovals, listWorkbenchRoles, listWorkbenchTopics } from "../workbench/manager.js";
 import type { ManagedProject, MemoryMode, ResolvedMemory, SpecTestDriftReport } from "../types/index.js";
 
@@ -221,6 +223,22 @@ export function createProgram(): Command {
     });
 
   const workbench = program.command("workbench").description("Build GUI-ready Workbench read models");
+
+  workbench
+    .command("serve")
+    .argument("[name-or-path]", "optional registered project id/name/path or local path")
+    .option("--host <host>", "host to bind", "127.0.0.1")
+    .option("--port <port>", "port to bind", (value) => Number.parseInt(value, 10), 4317)
+    .option("--open", "open the local Workbench URL")
+    .action(async (query: string | undefined, options: { host: string; port: number; open?: boolean }) => {
+      const resolved = query ? await resolveRegisteredOrPath(store, query) : null;
+      const input = resolved ? { project: resolved.project, path: resolved.path } : null;
+      const handle = await startWorkbenchServer(input, { host: options.host, port: options.port, store });
+      console.log(`AHO Workbench: ${handle.url}`);
+      if (!query) console.log("Open the URL to add, create, initialize, and open projects.");
+      console.log("Press Ctrl+C to stop.");
+      if (options.open) openUrl(handle.url);
+    });
 
   workbench
     .command("snapshot")
@@ -1248,6 +1266,13 @@ export function createProgram(): Command {
     });
 
   return program;
+}
+
+function openUrl(url: string): void {
+  const command = process.platform === "win32" ? "cmd" : process.platform === "darwin" ? "open" : "xdg-open";
+  const args = process.platform === "win32" ? ["/c", "start", "", url] : [url];
+  const child = spawn(command, args, { detached: true, stdio: "ignore" });
+  child.unref();
 }
 
 function parseHarnessInitMemoryMode(input: string | undefined): Exclude<MemoryMode, "remote"> {

@@ -341,7 +341,12 @@ describe("CLI flow", () => {
     await installFakeCodex("change-spec-proposal");
     await runCli(["change", "spec", "propose", "repo", "--json"]);
     const proposals = (await readdir(join(memoryRoot, "runs"))).filter((id) => existsSync(join(memoryRoot, "runs", id, "spec-proposal.json"))).sort();
-    const proposedRunId = proposals.at(-1)!;
+    let proposedRunId = "";
+    for (const proposalId of proposals) {
+      const proposal = JSON.parse(await readFile(join(memoryRoot, "runs", proposalId, "spec-proposal.json"), "utf8"));
+      if (proposal.status === "proposed") proposedRunId = proposalId;
+    }
+    expect(proposedRunId).not.toBe("");
     const specPath = join(memoryRoot, "harness", "changes", "active", "blocked-spec", "spec.md");
     await writeFile(specPath, "# Manual edit\n\n## Acceptance Criteria\n\n- AC-001: Manual AC\n", "utf8");
     await expect(runCli(["change", "spec", "accept", "repo", proposedRunId, "--json"])).rejects.toThrow("spec.md changed after proposal was generated");

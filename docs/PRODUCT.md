@@ -128,7 +128,7 @@ Later phases add:
 - Run events, logs, diffs, validation reports, and review artifacts.
 - Workbench Snapshot as the stable GUI read model, including Harness gap diagnostics for workspace/session/subagent readiness.
 - Run stream replay packets and structured approval actions for the first GUI.
-- Personal GUI with Topic-centered threads, run visibility, and project-level approval inbox.
+- Personal GUI with sidebar project onboarding, Topic-centered threads, run replay visibility, and project-level approval inbox.
 - Interactive terminal sessions.
 
 Long-term memory direction:
@@ -161,8 +161,8 @@ Long-term memory direction:
 - Codex CLI can be invoked through read-only proposal and worktree-bound Coder adapters.
 - Pending evolution can be surfaced and handled with proposal, audit, validation, results, and mark-complete.
 - Multiple projects can eventually be shown in a dashboard.
-- A personal GUI can present each Change as a Topic while preserving Change as the durable workflow unit.
-- Developers can eventually inspect live agent streams, review run artifacts, and act on pending approvals from one project workbench.
+- A personal GUI can start without a selected project, keep project onboarding in the left sidebar, register or create local projects through native folder picking plus fallback path entry, initialize `external-local` Harness memory after explicit confirmation, and then present each Change as a Topic while preserving Change as the durable workflow unit.
+- Developers can inspect replayed run artifacts and act on pending approvals from one project workbench; live agent streams remain a later transport phase.
 - Agent output is persisted as artifacts, not only chat.
 - High-impact agent output is confirmed by a human before advancing critical state.
 - Uninitialized projects are unaffected.
