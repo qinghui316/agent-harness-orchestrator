@@ -267,6 +267,16 @@ Decisions:
 - A Coder run that passes validation can still be rejected by audit or human review.
 - In Phase 3E, apply requires validation and audit evidence for the exact current worktree diff hash, not just the same change or worktree id.
 
+Spec and Planner agents exist to prepare canonical ECL artifacts, not to bypass them.
+
+- `aho change spec propose` is read-only and proposal-only.
+- `aho change spec accept` is the human confirmation command that writes `spec.md`.
+- `aho change plan propose` is read-only and proposal-only.
+- `aho change plan accept` is the human confirmation command that writes `plan.md` and `tasks.md`, then rebuilds `ac-map.json`.
+- Spec Agent must stay in WHAT/WHY; Planner must stay in HOW/tasks.
+- Accept commands are stale-safe and must not overwrite user edits made after proposal generation.
+- Accepting spec or plan does not run code, validation, audit, apply, close, or spec-test evidence acceptance.
+
 Spec-Test mapping links Acceptance Criteria to test or validation evidence. It is evidence, not proof.
 
 - `spec-tests.json` records explicit links from AC IDs to files, test names, validation commands, or notes.

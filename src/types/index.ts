@@ -308,9 +308,69 @@ export interface SpecTestProposalSummary {
   acceptedSourceRootCount: number;
 }
 
+export type ChangeProposalStatus = "proposed" | "blocked" | "failed";
+
+export interface ChangeProposalTargetHashes {
+  spec?: string;
+  plan?: string;
+  tasks?: string;
+}
+
+export interface SpecProposal {
+  version: "1.0";
+  id: string;
+  runId: string;
+  changeId: string;
+  status: ChangeProposalStatus;
+  startedAt: string;
+  finishedAt: string;
+  targetHashes: ChangeProposalTargetHashes;
+  specMd: string;
+  openQuestions: string[];
+  assumptions: string[];
+  warnings: string[];
+  artifacts: {
+    proposal: string;
+    proposalMarkdown: string;
+    lastMessage: string;
+  };
+}
+
+export interface PlanProposal {
+  version: "1.0";
+  id: string;
+  runId: string;
+  changeId: string;
+  status: ChangeProposalStatus;
+  startedAt: string;
+  finishedAt: string;
+  targetHashes: ChangeProposalTargetHashes;
+  planMd: string;
+  tasksMd: string;
+  openQuestions: string[];
+  assumptions: string[];
+  warnings: string[];
+  artifacts: {
+    proposal: string;
+    proposalMarkdown: string;
+    lastMessage: string;
+  };
+}
+
+export interface ChangeProposalSummary {
+  id: string;
+  runId: string;
+  changeId: string;
+  status: ChangeProposalStatus;
+  startedAt: string;
+  finishedAt: string;
+  openQuestionCount: number;
+  warningCount: number;
+}
+
 export type RunStatus = "created" | "running" | "completed" | "failed";
 
-export type RunRuntime = "local-command" | "codex-readonly" | "validator" | "auditor" | "coder-codex" | "worktree-apply" | "worktree-discard" | "spec-test-proposer" | "spec-test-generator";
+export type RunRuntime = "local-command" | "codex-readonly" | "validator" | "auditor" | "coder-codex" | "worktree-apply" | "worktree-discard" | "spec-test-proposer" | "spec-test-generator" | "spec-agent" | "planner";
 
 export type RunExecutionMode = "direct" | "worktree";
 
@@ -374,6 +434,10 @@ export interface RunArtifactPaths {
   discard?: string;
   specTestProposal?: string;
   specTestProposalMarkdown?: string;
+  specProposal?: string;
+  specProposalMarkdown?: string;
+  planProposal?: string;
+  planProposalMarkdown?: string;
 }
 
 export type ValidationStatus = "passed" | "failed";
@@ -519,6 +583,14 @@ export interface RunEvent {
     | "spec-test.generation.started"
     | "spec-test.generation.completed"
     | "spec-test.generation.failed"
+    | "change.spec.proposal.started"
+    | "change.spec.proposal.completed"
+    | "change.spec.proposal.failed"
+    | "change.spec.proposal.accepted"
+    | "change.plan.proposal.started"
+    | "change.plan.proposal.completed"
+    | "change.plan.proposal.failed"
+    | "change.plan.proposal.accepted"
     | "diff.collected"
     | "source.checked"
     | "run.completed"

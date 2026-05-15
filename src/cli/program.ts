@@ -8,6 +8,16 @@ import { writeChangeIndex } from "../ecl/index.js";
 import { printJson, printTable } from "./output.js";
 import { readPromptInput } from "../codex/prompt.js";
 import { closeChange, createChange, getChangeStatus } from "../change/manager.js";
+import {
+  acceptPlanProposal,
+  acceptSpecProposal,
+  listPlanProposalSummaries,
+  listSpecProposalSummaries,
+  showPlanProposal,
+  showSpecProposal,
+  startPlanProposalRun,
+  startSpecProposalRun,
+} from "../change/proposals.js";
 import { listRuns, readRun, startLocalCommandRun } from "../run/manager.js";
 import { startCodexReadonlyRun } from "../run/codex.js";
 import { getMemoryStatus } from "../memory/status.js";
@@ -261,6 +271,159 @@ export function createProgram(): Command {
       const result = await closeChange(project);
       if (options.json) printJson(result);
       else console.log(`Archived change ${result.change.id} at ${result.archivePath}`);
+    });
+
+  const changeSpec = change.command("spec").description("Generate and accept Spec Agent proposals");
+
+  changeSpec
+    .command("propose")
+    .argument("<project>", "registered project id/name/path")
+    .option("--prompt <text>", "additional instruction for the Spec Agent")
+    .option("--prompt-file <path>", "file containing additional instruction, resolved from the current AHO cwd")
+    .option("--json", "print JSON")
+    .action(async (query: string, options: { prompt?: string; promptFile?: string; json?: boolean }) => {
+      const project = await resolveManagedProject(store, query);
+      const prompt = await readOptionalPromptInput(options);
+      const result = await startSpecProposalRun(project, { prompt });
+      if (options.json) printJson(result);
+      else {
+        console.log(`Spec proposal ${result.proposal.id}: ${result.proposal.status}`);
+        console.log(`Open questions: ${result.proposal.openQuestions.length}`);
+        console.log(`Artifacts: ${result.run.artifacts.directory}`);
+        console.log("Spec proposal is not accepted project truth until `aho change spec accept` is run.");
+      }
+      if (result.run.status === "failed") process.exitCode = result.run.exitCode ?? 1;
+    });
+
+  const specProposal = changeSpec.command("proposal").description("List and show Spec Agent proposals");
+
+  specProposal
+    .command("list")
+    .argument("<project>", "registered project id/name/path")
+    .option("--json", "print JSON")
+    .action(async (query: string, options: { json?: boolean }) => {
+      const project = await resolveManagedProject(store, query);
+      const proposals = await listSpecProposalSummaries(project);
+      if (options.json) printJson(proposals);
+      else printTable(proposals.map((item) => ({
+        id: item.id,
+        change: item.changeId,
+        status: item.status,
+        questions: item.openQuestionCount,
+        warnings: item.warningCount,
+        startedAt: item.startedAt,
+      })));
+    });
+
+  specProposal
+    .command("show")
+    .argument("<project>", "registered project id/name/path")
+    .argument("<proposal-id>", "proposal id")
+    .option("--json", "print JSON")
+    .action(async (query: string, proposalId: string, options: { json?: boolean }) => {
+      const project = await resolveManagedProject(store, query);
+      const proposal = await showSpecProposal(project, proposalId);
+      if (options.json) printJson(proposal);
+      else printTable([{
+        id: proposal.id,
+        change: proposal.changeId,
+        status: proposal.status,
+        openQuestions: proposal.openQuestions.length,
+        warnings: proposal.warnings.length,
+      }]);
+    });
+
+  changeSpec
+    .command("accept")
+    .argument("<project>", "registered project id/name/path")
+    .argument("<proposal-id>", "proposal id")
+    .option("--json", "print JSON")
+    .action(async (query: string, proposalId: string, options: { json?: boolean }) => {
+      const project = await resolveManagedProject(store, query);
+      const result = await acceptSpecProposal(project, proposalId);
+      if (options.json) printJson(result);
+      else {
+        console.log(`Accepted spec proposal ${result.proposal.id}.`);
+        console.log(`Spec: ${result.specPath}`);
+        console.log("Run `aho change plan propose` next, and use `aho spec-test drift/check` if accepted evidence may be stale.");
+      }
+    });
+
+  const changePlan = change.command("plan").description("Generate and accept Planner proposals");
+
+  changePlan
+    .command("propose")
+    .argument("<project>", "registered project id/name/path")
+    .option("--prompt <text>", "additional instruction for the Planner")
+    .option("--prompt-file <path>", "file containing additional instruction, resolved from the current AHO cwd")
+    .option("--json", "print JSON")
+    .action(async (query: string, options: { prompt?: string; promptFile?: string; json?: boolean }) => {
+      const project = await resolveManagedProject(store, query);
+      const prompt = await readOptionalPromptInput(options);
+      const result = await startPlanProposalRun(project, { prompt });
+      if (options.json) printJson(result);
+      else {
+        console.log(`Plan proposal ${result.proposal.id}: ${result.proposal.status}`);
+        console.log(`Open questions: ${result.proposal.openQuestions.length}`);
+        console.log(`Artifacts: ${result.run.artifacts.directory}`);
+        console.log("Plan/tasks proposal is not accepted project truth until `aho change plan accept` is run.");
+      }
+      if (result.run.status === "failed") process.exitCode = result.run.exitCode ?? 1;
+    });
+
+  const planProposal = changePlan.command("proposal").description("List and show Planner proposals");
+
+  planProposal
+    .command("list")
+    .argument("<project>", "registered project id/name/path")
+    .option("--json", "print JSON")
+    .action(async (query: string, options: { json?: boolean }) => {
+      const project = await resolveManagedProject(store, query);
+      const proposals = await listPlanProposalSummaries(project);
+      if (options.json) printJson(proposals);
+      else printTable(proposals.map((item) => ({
+        id: item.id,
+        change: item.changeId,
+        status: item.status,
+        questions: item.openQuestionCount,
+        warnings: item.warningCount,
+        startedAt: item.startedAt,
+      })));
+    });
+
+  planProposal
+    .command("show")
+    .argument("<project>", "registered project id/name/path")
+    .argument("<proposal-id>", "proposal id")
+    .option("--json", "print JSON")
+    .action(async (query: string, proposalId: string, options: { json?: boolean }) => {
+      const project = await resolveManagedProject(store, query);
+      const proposal = await showPlanProposal(project, proposalId);
+      if (options.json) printJson(proposal);
+      else printTable([{
+        id: proposal.id,
+        change: proposal.changeId,
+        status: proposal.status,
+        openQuestions: proposal.openQuestions.length,
+        warnings: proposal.warnings.length,
+      }]);
+    });
+
+  changePlan
+    .command("accept")
+    .argument("<project>", "registered project id/name/path")
+    .argument("<proposal-id>", "proposal id")
+    .option("--json", "print JSON")
+    .action(async (query: string, proposalId: string, options: { json?: boolean }) => {
+      const project = await resolveManagedProject(store, query);
+      const result = await acceptPlanProposal(project, proposalId);
+      if (options.json) printJson(result);
+      else {
+        console.log(`Accepted plan proposal ${result.proposal.id}.`);
+        console.log(`Plan: ${result.planPath}`);
+        console.log(`Tasks: ${result.tasksPath}`);
+        console.log(`ACs: ${result.changeStatus.acMap?.acceptanceCriteria.length ?? 0}; tasks: ${result.changeStatus.acMap?.tasks.length ?? 0}`);
+      }
     });
 
   const worktree = program.command("worktree").description("Manage AHO-owned Git worktrees");
@@ -975,6 +1138,11 @@ function parseHarnessInitMemoryMode(input: string | undefined): Exclude<MemoryMo
 function collectOption(value: string, previous: string[]): string[] {
   previous.push(value);
   return previous;
+}
+
+async function readOptionalPromptInput(options: { prompt?: string; promptFile?: string }): Promise<string | undefined> {
+  if (!options.prompt && !options.promptFile) return undefined;
+  return await readPromptInput(options);
 }
 
 function printSpecTestStatus(status: Awaited<ReturnType<typeof getSpecTestStatus>>): void {

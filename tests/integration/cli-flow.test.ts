@@ -265,6 +265,60 @@ describe("CLI flow", () => {
     expect(status.mappings[0]?.refs).toHaveLength(3);
   });
 
+  it("proposes and accepts spec and plan artifacts through human gates", async () => {
+    await installFakeCodex("change-spec-proposal");
+    await runCli(["project", "add", repoDir, "--name", "Repo"]);
+    await runCli(["harness", "init", "repo", "--memory", "external-local"]);
+    await runCli(["change", "new", "repo", "--title", "Spec Planner", "--body", "Raw request for pricing behavior."]);
+
+    await runCli(["change", "spec", "propose", "repo", "--json"]);
+    const memoryRoot = join(homeDir, "projects", "repo");
+    const specRunId = await findRunWithArtifact(join(memoryRoot, "runs"), "spec-proposal.json");
+    const specProposal = JSON.parse(await readFile(join(memoryRoot, "runs", specRunId, "spec-proposal.json"), "utf8"));
+    expect(specProposal).toMatchObject({ status: "proposed", changeId: "spec-planner" });
+    expect(specProposal.specMd).toContain("AC-001");
+
+    await runCli(["change", "spec", "proposal", "list", "repo", "--json"]);
+    await runCli(["change", "spec", "proposal", "show", "repo", specRunId, "--json"]);
+    await runCli(["change", "spec", "accept", "repo", specRunId, "--json"]);
+    expect(await readFile(join(memoryRoot, "harness", "changes", "active", "spec-planner", "spec.md"), "utf8")).toContain("AC-002");
+
+    await installFakeCodex("change-plan-proposal");
+    await runCli(["change", "plan", "propose", "repo", "--json"]);
+    const planRunId = await findRunWithArtifact(join(memoryRoot, "runs"), "plan-proposal.json");
+    await runCli(["change", "plan", "proposal", "list", "repo", "--json"]);
+    await runCli(["change", "plan", "proposal", "show", "repo", planRunId, "--json"]);
+    await runCli(["change", "plan", "accept", "repo", planRunId, "--json"]);
+
+    const tasks = await readFile(join(memoryRoot, "harness", "changes", "active", "spec-planner", "tasks.md"), "utf8");
+    expect(tasks).toContain("T-001");
+    expect(tasks).toContain("Covers: AC-001");
+    await runCli(["change", "status", "repo", "--json"]);
+    const acMap = JSON.parse(await readFile(join(memoryRoot, "harness", "changes", "active", "spec-planner", "ac-map.json"), "utf8"));
+    expect(acMap.blockingIssues).toEqual([]);
+    expect(acMap.tasks).toHaveLength(2);
+  });
+
+  it("rejects blocked and stale spec proposal acceptance", async () => {
+    await installFakeCodex("change-spec-blocked");
+    await runCli(["project", "add", repoDir, "--name", "Repo"]);
+    await runCli(["harness", "init", "repo", "--memory", "external-local"]);
+    await runCli(["change", "new", "repo", "--title", "Blocked Spec", "--body", "Need unknown security behavior."]);
+    await runCli(["change", "spec", "propose", "repo", "--json"]);
+
+    const memoryRoot = join(homeDir, "projects", "repo");
+    const blockedRunId = await findRunWithArtifact(join(memoryRoot, "runs"), "spec-proposal.json");
+    await expect(runCli(["change", "spec", "accept", "repo", blockedRunId, "--json"])).rejects.toThrow("Cannot accept spec proposal with status blocked");
+
+    await installFakeCodex("change-spec-proposal");
+    await runCli(["change", "spec", "propose", "repo", "--json"]);
+    const proposals = (await readdir(join(memoryRoot, "runs"))).filter((id) => existsSync(join(memoryRoot, "runs", id, "spec-proposal.json"))).sort();
+    const proposedRunId = proposals.at(-1)!;
+    const specPath = join(memoryRoot, "harness", "changes", "active", "blocked-spec", "spec.md");
+    await writeFile(specPath, "# Manual edit\n\n## Acceptance Criteria\n\n- AC-001: Manual AC\n", "utf8");
+    await expect(runCli(["change", "spec", "accept", "repo", proposedRunId, "--json"])).rejects.toThrow("spec.md changed after proposal was generated");
+  });
+
   it("generates test-only spec-test proposals and accepts them after apply", async () => {
     await installFakeCodex("spec-test-generate");
     await writeFile(join(repoDir, "README.md"), "hello\n", "utf8");
@@ -929,7 +983,10 @@ type FakeCodexMode =
   | "spec-test-proposal"
   | "spec-test-proposal-generated"
   | "spec-test-generate"
-  | "spec-test-generate-production";
+  | "spec-test-generate-production"
+  | "change-spec-proposal"
+  | "change-spec-blocked"
+  | "change-plan-proposal";
 
 async function installFakeCodex(mode: FakeCodexMode): Promise<void> {
   const binDir = join(tempDir, "bin");
@@ -965,13 +1022,13 @@ if (args.includes("--version")) {
   process.exit(0);
 }
 if (args.length === 1 && args[0] === "--help") {
-  console.log(mode === "root" || mode.startsWith("audit-") || mode.startsWith("spec-test-") ? "Usage: codex [OPTIONS]\\n--ask-for-approval <APPROVAL_POLICY>" : "Usage: codex [OPTIONS]");
+  console.log(mode === "root" || mode.startsWith("audit-") || mode.startsWith("spec-test-") || mode.startsWith("change-") ? "Usage: codex [OPTIONS]\\n--ask-for-approval <APPROVAL_POLICY>" : "Usage: codex [OPTIONS]");
   process.exit(0);
 }
 if (args[0] === "exec" && args.includes("--help")) {
   const approval = mode === "exec-no-output" ? "\\n--ask-for-approval <APPROVAL_POLICY>" : "";
-    const output = mode === "root" || mode.startsWith("audit-") || mode.startsWith("code-") || mode.startsWith("spec-test-") ? "\\n--output-last-message <FILE>" : "";
-    const addDir = mode.startsWith("audit-") || mode.startsWith("spec-test-") ? "\\n--add-dir <DIR>" : "";
+    const output = mode === "root" || mode.startsWith("audit-") || mode.startsWith("code-") || mode.startsWith("spec-test-") || mode.startsWith("change-") ? "\\n--output-last-message <FILE>" : "";
+    const addDir = mode.startsWith("audit-") || mode.startsWith("spec-test-") || mode.startsWith("change-") ? "\\n--add-dir <DIR>" : "";
     if (mode === "unsupported") {
       console.log("Usage: codex exec [OPTIONS]\\n--json");
     } else {
@@ -1042,6 +1099,34 @@ function finalMessage() {
           rationale: "Generated source-root test is now applied and can be linked as evidence."
         }
       ],
+      warnings: []
+    }, null, 2) + "\\n\`\`\`";
+  }
+  if (mode === "change-spec-proposal") {
+    return "Status: proposed\\n\\n\`\`\`json\\n" + JSON.stringify({
+      status: "proposed",
+      specMd: "# Spec: Pricing behavior\\n\\n## Problem Statement\\n\\nThe raw request needs explicit acceptance criteria.\\n\\n## Goals\\n\\n- Preserve current pricing behavior.\\n- Add member discount behavior.\\n\\n## Non-Goals\\n\\n- No UI changes.\\n\\n## Constraints\\n\\n- Keep implementation minimal.\\n\\n## Assumptions\\n\\n- Existing pricing entrypoint remains stable.\\n\\n## Acceptance Criteria\\n\\n- AC-001: Normal customers keep current subtotal behavior.\\n- AC-002: Member customers with subtotal >= 100 receive a 10% discount.\\n",
+      openQuestions: [],
+      assumptions: ["Existing pricing API remains the entrypoint."],
+      warnings: []
+    }, null, 2) + "\\n\`\`\`";
+  }
+  if (mode === "change-spec-blocked") {
+    return "Status: blocked\\n\\n\`\`\`json\\n" + JSON.stringify({
+      status: "blocked",
+      specMd: "",
+      openQuestions: ["Which security boundary should this change enforce?"],
+      assumptions: [],
+      warnings: ["High-impact requirement is unclear."]
+    }, null, 2) + "\\n\`\`\`";
+  }
+  if (mode === "change-plan-proposal") {
+    return "Status: proposed\\n\\n\`\`\`json\\n" + JSON.stringify({
+      status: "proposed",
+      planMd: "# Plan\\n\\n## Approach\\n\\nUpdate the existing pricing path minimally and add focused tests.\\n\\n## Risks\\n\\n- Rounding must remain stable.\\n",
+      tasksMd: "# Tasks\\n\\n- [ ] T-001: Preserve normal customer subtotal behavior\\n  - Covers: AC-001\\n- [ ] T-002: Add member discount behavior and rounding checks\\n  - Covers: AC-002\\n",
+      openQuestions: [],
+      assumptions: ["Tests can use the existing Node test setup."],
       warnings: []
     }, null, 2) + "\\n\`\`\`";
   }

@@ -118,6 +118,7 @@ Phase 4 adds Spec-Test anchoring:
 - Phase 4B: Codex read-only proposals for reusing existing source-root test and validation evidence, accepted by explicit human command.
 - Phase 4C: Codex-assisted passing test generation in AHO-owned worktrees, followed by validation, audit, human apply, and evidence proposal acceptance.
 - Phase 4D: deterministic Spec-Test drift readiness, reporting missing/invalid/stale/failed/unknown/ok evidence states without CI enforcement.
+- Phase 4E: Codex read-only Spec Agent and Planner proposals for the front half of the workflow, accepted by explicit human commands before coding.
 - Later Phase 4 work: CI drift gates and stricter Spec-Test enforcement.
 
 Later phases add:
@@ -153,6 +154,7 @@ Long-term memory direction:
 
 - A user can add a local project and initialize Harness.
 - A structured change can move from spec to plan to Coder proposal to validation and audit evidence.
+- Raw requests can be promoted to accepted `spec.md`, `plan.md`, and `tasks.md` through read-only proposal agents and explicit accept commands.
 - Acceptance Criteria can become addressable anchors for tasks, tests, and validation in later phases.
 - Codex CLI can be invoked through read-only proposal and worktree-bound Coder adapters.
 - Pending evolution can be surfaced and handled with proposal, audit, validation, results, and mark-complete.

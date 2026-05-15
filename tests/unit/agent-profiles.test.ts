@@ -10,7 +10,7 @@ async function readProfile(name: string): Promise<string> {
 
 describe("agent role profiles", () => {
   it("bundles all profiles with ECL-derived required sections", async () => {
-    for (const name of ["validator", "auditor", "coder", "spec-test-proposer", "spec-test-generator"]) {
+    for (const name of ["validator", "auditor", "coder", "spec-test-proposer", "spec-test-generator", "spec-agent", "planner"]) {
       const content = await readProfile(name);
       for (const section of [
         "## Role",
@@ -82,5 +82,23 @@ describe("agent role profiles", () => {
     expect(content).toContain("Distinguish missing fallback scripts from explicit configured command failures.");
     expect(content).toContain("Passing validation is not human approval.");
     expect(content).toContain("Do not infer semantic correctness from passing commands.");
+  });
+
+  it("keeps spec agent bounded to WHAT/WHY proposals", async () => {
+    const content = await readProfile("spec-agent");
+
+    expect(content).toContain("turn a raw user request and active Change context into a proposed `spec.md`");
+    expect(content).toContain("Do not create plans or tasks.");
+    expect(content).toContain("Acceptance Criteria use stable `AC-xxx` IDs and are testable.");
+    expect(content).toContain("Only `aho change spec accept`");
+  });
+
+  it("keeps planner bounded to HOW and task proposals", async () => {
+    const content = await readProfile("planner");
+
+    expect(content).toContain("turn accepted/manual `spec.md` into proposed `plan.md` and `tasks.md`");
+    expect(content).toContain("Every task has a `Covers: AC-xxx` line.");
+    expect(content).toContain("Do not write code.");
+    expect(content).toContain("Only `aho change plan accept`");
   });
 });
