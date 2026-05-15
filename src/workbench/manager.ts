@@ -19,6 +19,7 @@ import { getSpecTestStatus } from "../spec-test/manager.js";
 import { listSpecTestProposalSummaries } from "../spec-test/proposal.js";
 import { listValidationResults, summarizeValidation } from "../validation/artifacts.js";
 import { listWorktreeStatuses, listWorktreesForChange } from "../worktree/manager.js";
+import { listTopicMessages } from "./chat.js";
 import type {
   ChangeIndexItem,
   ChangeMetadata,
@@ -64,7 +65,7 @@ export interface WorkbenchThreadEvent {
   type: string;
   label: string;
   timestamp?: string;
-  source: "change" | "run" | "proposal" | "validation" | "audit" | "worktree" | "spec-test" | "evolution";
+  source: "change" | "run" | "proposal" | "validation" | "audit" | "worktree" | "spec-test" | "evolution" | "chat" | "workflow";
   artifact?: string;
   status?: string;
   runId?: string;
@@ -352,7 +353,7 @@ async function selectTopicDetail(project: ManagedProject | null, memory: Resolve
     drift = await getSpecTestDriftReport(memory).catch(() => null);
   }
 
-  const threadEvents = await buildThreadEvents(memory, topic, runs, validations, audits);
+  const threadEvents = await buildThreadEvents(project, memory, topic, runs, validations, audits);
   return {
     ...topic,
     change,
@@ -371,6 +372,7 @@ async function selectTopicDetail(project: ManagedProject | null, memory: Resolve
 }
 
 async function buildThreadEvents(
+  project: ManagedProject | null,
   memory: ResolvedMemory,
   topic: WorkbenchTopicSummary,
   runs: RunMetadata[],
@@ -388,6 +390,21 @@ async function buildThreadEvents(
       status: topic.state,
     },
   ];
+  if (project && topic.state === "active") {
+    const messages = await listTopicMessages(project, topic.id).catch(() => []);
+    for (const message of messages) {
+      events.push({
+        id: message.id,
+        type: message.type,
+        label: message.text ?? message.actionType ?? message.status ?? message.type,
+        timestamp: message.timestamp,
+        source: message.type.startsWith("workflow.") ? "workflow" : "chat",
+        artifact: message.artifact,
+        status: message.status,
+        runId: message.runId,
+      });
+    }
+  }
   for (const run of runs) {
     events.push({
       id: run.id,

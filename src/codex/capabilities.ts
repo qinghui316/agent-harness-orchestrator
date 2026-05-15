@@ -127,6 +127,18 @@ export function buildCodexReadonlyArgv(capabilities: CodexCapabilities, options:
   return { command: "codex", args };
 }
 
+export function buildCodexReadonlyResumeArgv(capabilities: CodexCapabilities, options: CodexArgvOptions & { sessionId: string }): CodexArgv {
+  assertCodexSafeToRun(capabilities);
+
+  const args: string[] = ["exec", "resume", "--json"];
+  if (capabilities.supportsOutputLastMessage) args.push("--output-last-message", options.lastMessagePath);
+  if (options.model) args.push("--model", options.model);
+  if (options.profile) args.push("--profile", options.profile);
+  args.push(options.sessionId, "-");
+
+  return { command: "codex", args };
+}
+
 export function buildCodexWorkspaceWriteArgv(capabilities: CodexCapabilities, options: CodexArgvOptions): CodexArgv {
   assertCodexSafeToRun(capabilities);
 

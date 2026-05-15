@@ -102,6 +102,11 @@ describe("workbench server", () => {
     await expect(executeWorkbenchAction({ project: project(), path: tempDir }, {
       action: { actionId: "change.close", label: "Close", command: "change", args: ["close", "repo"], mutates: true, requiresConfirmation: true },
     })).rejects.toThrow("confirm");
+
+    await expect(executeWorkbenchAction({ project: project(), path: tempDir }, {
+      actionType: "validate.run",
+      changeId: "server-topic",
+    })).rejects.toThrow("confirm");
   });
 
   it("serves app-level project onboarding routes", async () => {

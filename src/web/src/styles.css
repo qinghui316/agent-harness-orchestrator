@@ -404,6 +404,39 @@ h1 {
   line-height: 1.65;
 }
 
+.empty-composer,
+.topic-composer {
+  display: grid;
+  gap: 12px;
+  margin-top: 24px;
+}
+
+.empty-composer textarea,
+.topic-composer textarea {
+  background: #faf9f5;
+  border: 1px solid #e6dfd8;
+  border-radius: 12px;
+  color: #141413;
+  font: inherit;
+  line-height: 1.55;
+  min-height: 108px;
+  outline: none;
+  padding: 14px 16px;
+  resize: vertical;
+}
+
+.empty-composer textarea:focus,
+.topic-composer textarea:focus {
+  border-color: #cc785c;
+  box-shadow: 0 0 0 3px rgba(204, 120, 92, 0.14);
+}
+
+.composer-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .tabs {
   border-bottom: 1px solid #e6dfd8;
   display: flex;

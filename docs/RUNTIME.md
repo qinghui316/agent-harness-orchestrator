@@ -10,6 +10,7 @@ This document defines the AHO objects that future GUI, Workbench Snapshot, and o
 Project
   -> Topic(Change)
     -> Spec / Plan / Tasks / AC / Spec-Test
+    -> Topic Chat / Interaction Log
     -> Runs
       -> Agent Stream / Events / Artifacts
       -> Worktree / Validation / Audit
@@ -28,6 +29,7 @@ Project
 | Role Profile | source of truth | Bundled or future memory-scoped role definition |
 | Agent Spec | source of truth | Future declarative role/subagent declaration |
 | Run | source of truth | One execution attempt |
+| Topic Interaction Log | source of truth for interaction history | `thread.jsonl` records user/assistant/workflow messages, but not accepted requirements |
 | Worktree | source of truth | Isolated code proposal state |
 | Validation / Audit | source of truth | Artifact-backed evidence |
 | Artifact | source of truth | Durable evidence file |
@@ -50,6 +52,14 @@ A Run is one attempt against a Change. A Change may contain many Runs. A failed,
 ### Session
 
 If a future runtime adapter exposes sessions, they may help resume a process or thread. They remain runtime auxiliaries. They do not become the product kernel and must not replace Change as the durable work unit.
+
+Phase 5D uses Codex session ids only as a runtime continuity optimization for ordinary Topic chat. If Codex cannot expose or resume a session, AHO rebuilds the prompt from Topic context and canonical memory. The session id is never a project fact.
+
+### Topic Interaction Log
+
+`thread.jsonl` stores the GUI conversation and workflow narration for one active Topic. It may contain user messages, assistant replies, workflow action events, proposal pointers, approval decisions, and run/artifact references.
+
+The interaction log is useful for continuity and the Workbench Thread View, but it does not replace accepted ECL files. If chat says one thing and `spec.md` says another, `spec.md` wins until a human accepts a new proposal or edits the canonical file.
 
 ### Thread View
 
@@ -91,7 +101,7 @@ Change facts
 -> Canonical state transition
 ```
 
-Streaming output belongs to the Run. Long-term project meaning belongs to the Change and Memory Store.
+Streaming output belongs to the Run. Ordinary chat belongs to the Topic interaction log. Long-term project meaning belongs to the Change and Memory Store.
 
 ## 7. Snapshot Requirements
 

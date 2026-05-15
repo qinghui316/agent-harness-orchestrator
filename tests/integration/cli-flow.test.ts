@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createProgram } from "../../src/cli/program.js";
 import { getSpecTestStatus } from "../../src/spec-test/manager.js";
 import { getSpecTestDriftReport } from "../../src/spec-test/drift.js";
+import { createWorkbenchTopic, listTopicMessages, postTopicMessage } from "../../src/workbench/chat.js";
 import { getWorkbenchSnapshot, getWorkbenchStream, listWorkbenchApprovals } from "../../src/workbench/manager.js";
 import type { ManagedProject } from "../../src/types/index.js";
 
@@ -51,6 +52,7 @@ beforeEach(async () => {
 afterEach(async () => {
   delete process.env.AHO_HOME;
   delete process.env.AHO_FAKE_CODEX_POLLUTE_PATH;
+  delete process.env.AHO_FAKE_CODEX_ARGS_PATH;
   process.env[originalPathKey] = originalPath;
   process.exitCode = originalExitCode;
   await rm(tempDir, { recursive: true, force: true });
@@ -126,6 +128,27 @@ describe("CLI flow", () => {
     expect(approvals.every((item) => !item.action?.mutates || item.action.requiresConfirmation)).toBe(true);
     expect(snapshot.harnessGaps.map((item) => item.id)).toEqual(expect.arrayContaining(["workspaceIndex", "subagentSpec"]));
     expect(snapshot.roles.map((item) => item.id)).toEqual(expect.arrayContaining(["spec-agent", "planner", "coder"]));
+  });
+
+  it("keeps ordinary Topic chat in one thread and resumes Codex sessions when available", async () => {
+    await installFakeCodex("chat-session");
+    process.env.AHO_FAKE_CODEX_ARGS_PATH = join(tempDir, "codex-args.jsonl");
+    await runCli(["project", "add", repoDir, "--name", "Repo"]);
+    await runCli(["harness", "init", "repo", "--memory", "external-local"]);
+
+    const topic = await createWorkbenchTopic(managedProject(), { title: "Chat Topic", body: "Raw user intent" });
+    await postTopicMessage(managedProject(), topic.changeId, "这个项目现在能做什么？");
+    await postTopicMessage(managedProject(), topic.changeId, "继续沿用这个话题回答。");
+
+    const messages = await listTopicMessages(managedProject(), topic.changeId);
+    const argvLog = (await readFile(process.env.AHO_FAKE_CODEX_ARGS_PATH, "utf8")).trim().split(/\r?\n/).map((line) => JSON.parse(line) as string[]);
+    const snapshot = await getWorkbenchSnapshot({ project: managedProject(), path: repoDir }, { topicId: topic.changeId });
+
+    expect(messages.filter((item) => item.type === "user.message")).toHaveLength(3);
+    expect(messages.filter((item) => item.type === "assistant.message")).toHaveLength(2);
+    expect(argvLog[0]).toEqual(expect.arrayContaining(["exec", "--json", "--sandbox", "read-only"]));
+    expect(argvLog[1]).toEqual(expect.arrayContaining(["exec", "resume", "sess-chat-123"]));
+    expect(snapshot.center.thread.events.some((event) => event.type === "assistant.message")).toBe(true);
   });
 
   it("links spec-test evidence and joins direct validation results", async () => {
@@ -1019,7 +1042,8 @@ type FakeCodexMode =
   | "spec-test-generate-production"
   | "change-spec-proposal"
   | "change-spec-blocked"
-  | "change-plan-proposal";
+  | "change-plan-proposal"
+  | "chat-session";
 
 async function installFakeCodex(mode: FakeCodexMode): Promise<void> {
   const binDir = join(tempDir, "bin");
@@ -1055,13 +1079,13 @@ if (args.includes("--version")) {
   process.exit(0);
 }
 if (args.length === 1 && args[0] === "--help") {
-  console.log(mode === "root" || mode.startsWith("audit-") || mode.startsWith("spec-test-") || mode.startsWith("change-") ? "Usage: codex [OPTIONS]\\n--ask-for-approval <APPROVAL_POLICY>" : "Usage: codex [OPTIONS]");
+  console.log(mode === "root" || mode.startsWith("audit-") || mode.startsWith("spec-test-") || mode.startsWith("change-") || mode.startsWith("chat-") ? "Usage: codex [OPTIONS]\\n--ask-for-approval <APPROVAL_POLICY>" : "Usage: codex [OPTIONS]");
   process.exit(0);
 }
 if (args[0] === "exec" && args.includes("--help")) {
   const approval = mode === "exec-no-output" ? "\\n--ask-for-approval <APPROVAL_POLICY>" : "";
-    const output = mode === "root" || mode.startsWith("audit-") || mode.startsWith("code-") || mode.startsWith("spec-test-") || mode.startsWith("change-") ? "\\n--output-last-message <FILE>" : "";
-    const addDir = mode.startsWith("audit-") || mode.startsWith("spec-test-") || mode.startsWith("change-") ? "\\n--add-dir <DIR>" : "";
+    const output = mode === "root" || mode.startsWith("audit-") || mode.startsWith("code-") || mode.startsWith("spec-test-") || mode.startsWith("change-") || mode.startsWith("chat-") ? "\\n--output-last-message <FILE>" : "";
+    const addDir = mode.startsWith("audit-") || mode.startsWith("spec-test-") || mode.startsWith("change-") || mode.startsWith("chat-") ? "\\n--add-dir <DIR>" : "";
     if (mode === "unsupported") {
       console.log("Usage: codex exec [OPTIONS]\\n--json");
     } else {
@@ -1173,6 +1197,9 @@ const outputIndex = args.indexOf("--output-last-message");
 if (outputIndex >= 0) {
   fs.writeFileSync(args[outputIndex + 1], finalMessage(), "utf8");
 }
+if (process.env.AHO_FAKE_CODEX_ARGS_PATH && mode.startsWith("chat-")) {
+  fs.appendFileSync(process.env.AHO_FAKE_CODEX_ARGS_PATH, JSON.stringify(args) + "\\n", "utf8");
+}
 process.stdin.resume();
 process.stdin.on("data", () => {});
 process.stdin.on("end", () => {
@@ -1197,6 +1224,9 @@ process.stdin.on("end", () => {
     const srcDir = path.join(cwdFromArgs(), "src");
     fs.mkdirSync(srcDir, { recursive: true });
     fs.writeFileSync(path.join(srcDir, "pricing.js"), "export const changed = true;\\n", "utf8");
+  }
+  if (mode === "chat-session") {
+    console.log(JSON.stringify({ type: "session.started", session_id: "sess-chat-123" }));
   }
   console.log(JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: mode === "audit-unparseable" ? finalMessage() : "fake codex proposal from jsonl" } }));
   process.exit(0);

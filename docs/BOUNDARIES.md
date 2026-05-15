@@ -180,21 +180,23 @@ Decisions:
 
 - The user-facing label is `Topic`; the domain object is `Change`.
 - One Topic maps to one Change in the first GUI.
-- Durable free-chat topics outside Change are out of scope.
-- Thread View is a narrative projection over Change facts, Runs, and decisions.
+- Durable free-chat topics outside Change are out of scope, but each Topic may have a continuous chat surface.
+- Ordinary Topic chat is read-only. It can answer questions and clarify context, but it must not mutate canonical ECL files or business code.
+- Thread View is a narrative projection over Topic chat, Change facts, Runs, and decisions.
 - Agent Loop View exposes run-level streaming, tool/event detail, future replay, and future interrupt/cancel controls.
 - A cancelled or interrupted Run does not close the owning Change.
 - GUI snapshots are derived views and must not become a second workflow database.
 
 ## 11. Thread / Run Boundary
 
-Thread View and Run are different objects.
+Topic Chat, Thread View, Run, and Session are different objects.
 
 Decisions:
 
-- Thread View is the user-facing narrative projection over accepted Change facts, Runs, artifacts, and approvals.
+- Topic Chat is the interaction record for one Change. It is persisted for continuity but is not the accepted specification.
+- Thread View is the user-facing narrative projection over Topic chat, accepted Change facts, Runs, artifacts, and approvals.
 - Run is the executable attempt with live events, stream output, artifacts, and future interrupt/cancel controls.
-- A future Session may exist as a runtime helper for continuity, but it must not replace Change as the workflow unit or Thread View as the user-facing projection.
+- Codex Session IDs may exist as runtime helpers for ordinary chat continuity, but they must not replace Change as the workflow unit or the durable memory store as source of truth.
 - Interrupting, cancelling, or replaying a Run changes run state only; it does not accept a proposal, close a Change, or rewrite canonical ECL files by itself.
 - Thread View must remain rebuildable from durable facts and must not become an independent source of truth.
 

@@ -9,7 +9,7 @@ The GUI is change-centered:
 ```text
 Project
   -> Topic(Change)
-    -> Thread View
+    -> Topic Chat / Thread View
       -> Runs
         -> Agent Stream / Events / Artifacts
     -> Approval Inbox
@@ -37,13 +37,14 @@ Repo / Memory        messages, streams, artifacts             Plan accept
 - Topics for the selected project.
 - Repo and memory entry points.
 
-One Topic maps to one Change. The first personal GUI does not support durable free-chat topics that exist outside a Change.
+One Topic maps to one Change. The first personal GUI does not support durable free-chat topics that exist outside a Change, but each Topic does own a continuous chat surface for asking questions, clarifying requirements, and triggering controlled workflow actions.
 
 ### Center Workbench
 
 The center area has two complementary views over the same Change:
 
 1. **Thread View**
+   - Topic chat messages.
    - User intent.
    - Spec proposal and accept events.
    - Plan proposal and accept events.
@@ -56,7 +57,7 @@ The center area has two complementary views over the same Change:
    - Per-run status.
    - Future interrupt, cancel, and replay controls.
 
-Thread View is a user-facing projection. It does not replace the canonical Change, Run, or Artifact files.
+Thread View is a user-facing projection over `thread.jsonl`, accepted ECL files, proposal artifacts, Runs, and decisions. `thread.jsonl` preserves interaction history, but it does not replace `spec.md`, `plan.md`, `tasks.md`, `reviews/review.md`, or run artifacts as the source of truth.
 
 ### Right Approval Inbox
 
@@ -79,6 +80,8 @@ The right pane is scoped to the current project, not only the current Topic. It 
 - A stopped or failed Run remains part of the Change history; interrupting a Run does not close a Change.
 - Every high-impact action remains explicit even when represented as a button.
 - Chat-like presentation must not hide Spec, Plan, Validation, Audit, or Worktree state.
+- Ordinary Topic chat is read-only. It may answer questions and explain project state, but it must not write business code, mutate Harness files, or advance gates.
+- Plan mode starts from the same Topic chat surface, but state changes still go through Spec/Plan proposal artifacts and explicit accept actions.
 
 ## 4. Objects the GUI Should Surface
 
@@ -94,6 +97,7 @@ The right pane is scoped to the current project, not only the current Topic. It 
 | Approval | Human next action |
 | Artifact | Inspectable evidence |
 | Drift / Evolution | Long-term consistency and Harness maintenance |
+| Topic Chat | Interaction record and operator conversation, not canonical spec |
 
 ## 5. Deferred GUI Scope
 
@@ -120,3 +124,5 @@ Phase 5A implements the Workbench Snapshot: one read model that derives Topic st
 Phase 5B adds replay-oriented run stream packets and structured approval actions. This prepares the first GUI shell without promising live WebSocket/SSE streaming, interrupt/cancel controls, or a materialized approval queue.
 
 Phase 5C adds the first local browser GUI shell through `aho workbench serve`. Running it without a project opens the same three-pane Workbench shell with sidebar project onboarding: existing projects can be added through a native folder picker, new local projects can be created from a selected parent folder, and Harness memory initialization remains an explicit user confirmation. Running it with a project argument direct-opens that project. The UI is Chinese, three-pane, and replay-only: the center Agent Loop shows existing run artifacts as replay packets and labels them as replay. Future live transport, cancel, interrupt, background runs, and multi-agent scheduling remain separate implementation phases.
+
+Phase 5D adds Topic chat and Codex plan-mode entrypoints. A user can keep asking questions in one Topic window; AHO records the conversation in `thread.jsonl`, optionally links to a Codex session for runtime continuity, and routes high-impact requests through allowlisted workflow actions. Ordinary chat stays read-only. Coder, validation, audit, apply, and close remain structured actions with artifacts and human gates.

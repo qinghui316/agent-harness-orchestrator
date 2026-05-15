@@ -92,6 +92,8 @@ export function App(): ReactElement {
   const [tab, setTab] = useState<"thread" | "loop">("thread");
   const [confirming, setConfirming] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [composerText, setComposerText] = useState("");
+  const [actionRunning, setActionRunning] = useState<string | null>(null);
 
   async function loadApp(): Promise<void> {
     const status = await fetchJson<AppStatus>("/api/app/status");
@@ -164,6 +166,54 @@ export function App(): ReactElement {
     await refresh();
   }
 
+  async function createTopicFromComposer(): Promise<void> {
+    if (!selectedProjectId || !composerText.trim()) return;
+    setActionRunning("topic.create");
+    try {
+      const title = composerText.trim().split(/\r?\n/)[0].slice(0, 60);
+      const result = await postJson<{ topic: { changeId: string } }>(`/api/projects/${encodeURIComponent(selectedProjectId)}/workbench/topics`, {
+        title,
+        body: composerText.trim(),
+        confirm: true,
+      });
+      setComposerText("");
+      setSelectedTopic(result.topic.changeId);
+      await refresh(selectedProjectId, result.topic.changeId);
+    } finally {
+      setActionRunning(null);
+    }
+  }
+
+  async function sendTopicMessage(): Promise<void> {
+    if (!selectedProjectId || !activeTopic || !composerText.trim()) return;
+    setActionRunning("chat.ask");
+    try {
+      await postJson(`/api/projects/${encodeURIComponent(selectedProjectId)}/workbench/topics/${encodeURIComponent(activeTopic.id)}/messages`, { text: composerText.trim() });
+      setComposerText("");
+      await refresh(selectedProjectId, activeTopic.id);
+    } finally {
+      setActionRunning(null);
+    }
+  }
+
+  async function runWorkflowAction(actionType: string, options: Record<string, unknown> = {}): Promise<void> {
+    if (!selectedProjectId || !activeTopic) return;
+    setActionRunning(actionType);
+    try {
+      await postJson(`/api/projects/${encodeURIComponent(selectedProjectId)}/workbench/actions`, {
+        actionType,
+        changeId: activeTopic.id,
+        confirm: true,
+        prompt: composerText.trim() || undefined,
+        ...options,
+      });
+      if (composerText.trim()) setComposerText("");
+      await refresh(selectedProjectId, activeTopic.id);
+    } finally {
+      setActionRunning(null);
+    }
+  }
+
   const activeTopic = snapshot.center.selectedTopic;
   const activeRun = useMemo(() => snapshot.center.agentLoop.runs.find((run) => run.id === selectedRun) ?? snapshot.center.agentLoop.runs[0], [snapshot, selectedRun]);
   const selectedProjectStatus = useMemo(() => projects.find((item) => item.project?.id === selectedProjectId) ?? null, [projects, selectedProjectId]);
@@ -205,7 +255,13 @@ export function App(): ReactElement {
         ) : !selectedProjectStatus?.managed ? (
           <UnmanagedProjectView project={selectedProjectStatus} onDone={() => loadApp().then(() => selectedProjectId ? refresh(selectedProjectId, null) : undefined)} />
         ) : !activeTopic ? (
-          <TopicEmptyView snapshot={snapshot} />
+          <TopicEmptyView
+            snapshot={snapshot}
+            composerText={composerText}
+            setComposerText={setComposerText}
+            onCreate={createTopicFromComposer}
+            busy={actionRunning !== null}
+          />
         ) : (
           <>
             <header className="topic-header">
@@ -230,7 +286,20 @@ export function App(): ReactElement {
             <section className="center-grid">
               <div className="timeline-panel">
                 {tab === "thread" ? (
-                  <ThreadView events={snapshot.center.thread.events} />
+                  <>
+                    <ThreadView events={snapshot.center.thread.events} />
+                    <TopicComposer
+                      value={composerText}
+                      onChange={setComposerText}
+                      busy={actionRunning !== null}
+                      onSend={sendTopicMessage}
+                      onPlan={() => runWorkflowAction("change.spec.propose")}
+                      onPlanNext={() => runWorkflowAction("change.plan.propose")}
+                      onCode={() => runWorkflowAction("code.run")}
+                      onValidate={() => runWorkflowAction("validate.run")}
+                      onAudit={() => runWorkflowAction("audit.run")}
+                    />
+                  </>
                 ) : (
                   <RunList runs={snapshot.center.agentLoop.runs} selectedRun={activeRun?.id} onSelect={chooseRun} />
                 )}
@@ -435,14 +504,30 @@ function UnmanagedProjectView({ project, onDone }: { project: ProjectStatus | nu
   );
 }
 
-function TopicEmptyView({ snapshot }: { snapshot: Snapshot }): ReactElement {
+function TopicEmptyView({
+  snapshot,
+  composerText,
+  setComposerText,
+  onCreate,
+  busy,
+}: {
+  snapshot: Snapshot;
+  composerText: string;
+  setComposerText: (value: string) => void;
+  onCreate: () => Promise<void>;
+  busy: boolean;
+}): ReactElement {
   return (
     <section className="topic-empty-view">
       <div className="breadcrumb">{snapshot.project?.name ?? "project"} / 主题</div>
       <div className="topic-empty-content">
         <p className="eyebrow">本地工作台</p>
         <h1>暂无主题</h1>
-        <p>这个项目已经接入 Harness，但当前没有 active Topic。创建 Change 后，线程、Agent 循环、确认队列和状态栏会在这里展开。</p>
+        <p>输入一个需求或问题来创建第一个 Topic。AHO 会先进入计划模式，而不是直接写代码。</p>
+        <div className="empty-composer">
+          <textarea value={composerText} onChange={(event) => setComposerText(event.target.value)} placeholder="例如：帮我新增会员满 100 元 9 折，并补测试。" />
+          <button className="primary-button" disabled={busy || !composerText.trim()} onClick={() => void onCreate()}>创建 Topic</button>
+        </div>
       </div>
     </section>
   );
@@ -507,6 +592,46 @@ function ThreadView({ events }: { events: ThreadEvent[] }): ReactElement {
           <time>{formatTime(event.timestamp)}</time>
         </div>
       ))}
+    </div>
+  );
+}
+
+function TopicComposer({
+  value,
+  onChange,
+  busy,
+  onSend,
+  onPlan,
+  onPlanNext,
+  onCode,
+  onValidate,
+  onAudit,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  busy: boolean;
+  onSend: () => Promise<void>;
+  onPlan: () => void;
+  onPlanNext: () => void;
+  onCode: () => void;
+  onValidate: () => void;
+  onAudit: () => void;
+}): ReactElement {
+  return (
+    <div className="topic-composer">
+      <textarea
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder="继续提问、补充需求，或让 AI 整理成 Spec / Plan。普通对话默认只读。"
+      />
+      <div className="composer-actions">
+        <button className="primary-button" disabled={busy || !value.trim()} onClick={() => void onSend()}>发送对话</button>
+        <button className="outline-button" disabled={busy} onClick={onPlan}>生成 Spec</button>
+        <button className="outline-button" disabled={busy} onClick={onPlanNext}>生成计划</button>
+        <button className="outline-button" disabled={busy} onClick={onCode}>运行 Coder</button>
+        <button className="outline-button" disabled={busy} onClick={onValidate}>验证</button>
+        <button className="outline-button" disabled={busy} onClick={onAudit}>审查</button>
+      </div>
     </div>
   );
 }
@@ -596,6 +721,11 @@ function stateLabel(state: string): string {
 }
 
 function eventLabel(event: ThreadEvent): string {
+  if (event.type === "user.message") return "用户消息";
+  if (event.type === "assistant.message") return "AI 回复";
+  if (event.type === "workflow.started") return "动作开始";
+  if (event.type === "workflow.completed") return "动作完成";
+  if (event.type === "workflow.failed") return "动作失败";
   if (event.type.includes("spec-test") || event.type.includes("drift")) return "Spec-Test 漂移正常";
   if (event.type.includes("validation")) return "验证通过";
   if (event.type.includes("audit")) return "审查通过";

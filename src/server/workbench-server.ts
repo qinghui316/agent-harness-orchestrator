@@ -15,6 +15,14 @@ import { getProjectStatus } from "../project/status.js";
 import { ProjectRegistryStore } from "../registry/store.js";
 import { acceptSpecTestProposal } from "../spec-test/proposal.js";
 import {
+  createWorkbenchTopic,
+  getWorkbenchActionEvents,
+  listTopicMessages,
+  postTopicMessage,
+  runWorkbenchWorkflowAction,
+  type WorkbenchWorkflowActionRequest,
+} from "../workbench/chat.js";
+import {
   getWorkbenchSnapshot,
   getWorkbenchStream,
   getWorkbenchTopic,
@@ -39,6 +47,11 @@ export interface WorkbenchServerHandle {
 
 interface WorkbenchActionRequest {
   action?: WorkbenchApprovalAction;
+  actionType?: WorkbenchWorkflowActionRequest["actionType"];
+  changeId?: string;
+  prompt?: string;
+  proposalId?: string;
+  worktreeId?: string;
   confirm?: boolean;
   options?: {
     commit?: boolean;
@@ -70,6 +83,16 @@ interface CreateNewProjectRequest {
 interface InitProjectHarnessRequest {
   memoryMode?: MemoryMode;
   confirm?: boolean;
+}
+
+interface CreateTopicRequest {
+  title?: string;
+  body?: string;
+  confirm?: boolean;
+}
+
+interface TopicMessageRequest {
+  text?: string;
 }
 
 interface FolderDialogResult {
@@ -200,6 +223,36 @@ async function handleProjectWorkbenchApi(input: WorkbenchProjectInput, request: 
     sendJson(response, 200, await listWorkbenchTopics(input));
     return;
   }
+  if (request.method === "POST" && rest === "topics") {
+    assertRegisteredProject(input);
+    const topic = await createWorkbenchTopic(input.project, await readCreateTopicBody(request));
+    sendJson(response, 200, { topic, snapshot: await getWorkbenchSnapshot(input, { topicId: topic.changeId }) });
+    return;
+  }
+  const topicMessagesMatch = rest.match(/^topics\/([^/]+)\/messages(?:\/stream)?$/);
+  if (topicMessagesMatch?.[1]) {
+    assertRegisteredProject(input);
+    const changeId = decodeURIComponent(topicMessagesMatch[1]);
+    if (rest.endsWith("/stream")) {
+      await sendTopicMessageReplay(input.project, changeId, response);
+      return;
+    }
+    if (request.method === "GET") {
+      sendJson(response, 200, { messages: await listTopicMessages(input.project, changeId) });
+      return;
+    }
+    if (request.method === "POST") {
+      const message = await readJsonBody<TopicMessageRequest>(request);
+      if (typeof message.text !== "string" || message.text.trim() === "") {
+        const error = new Error("Message text is required.");
+        error.name = "BadRequest";
+        throw error;
+      }
+      const result = await postTopicMessage(input.project, changeId, message.text);
+      sendJson(response, 200, { result, messages: await listTopicMessages(input.project, changeId), snapshot: await getWorkbenchSnapshot(input, { topicId: changeId }) });
+      return;
+    }
+  }
   if (request.method === "GET" && rest.startsWith("topics/")) {
     sendJson(response, 200, await getWorkbenchTopic(input, decodeURIComponent(rest.slice("topics/".length))));
     return;
@@ -216,11 +269,38 @@ async function handleProjectWorkbenchApi(input: WorkbenchProjectInput, request: 
     sendJson(response, 200, await executeWorkbenchAction(input, await readJsonBody<WorkbenchActionRequest>(request)));
     return;
   }
+  const actionEventsMatch = rest.match(/^actions\/([^/]+)\/events$/);
+  if (request.method === "GET" && actionEventsMatch?.[1]) {
+    assertRegisteredProject(input);
+    await sendActionEventReplay(input.project, decodeURIComponent(actionEventsMatch[1]), response);
+    return;
+  }
+  const actionMatch = rest.match(/^actions\/([^/]+)$/);
+  if (request.method === "GET" && actionMatch?.[1]) {
+    assertRegisteredProject(input);
+    sendJson(response, 200, { events: await getWorkbenchActionEvents(input.project, decodeURIComponent(actionMatch[1])) });
+    return;
+  }
   sendJson(response, 404, { error: "Not found." });
 }
 
 export async function executeWorkbenchAction(input: WorkbenchProjectInput, body: WorkbenchActionRequest): Promise<{ result: unknown; snapshot: unknown }> {
   if (!input.project) throw new Error("Workbench actions require a registered project.");
+  if (body.actionType) {
+    if (body.actionType !== "chat.ask" && body.confirm !== true) {
+      const error = new Error("Mutating Workbench workflow actions require confirm: true.");
+      error.name = "Conflict";
+      throw error;
+    }
+    const result = await runWorkbenchWorkflowAction(input.project, {
+      actionType: body.actionType,
+      changeId: body.changeId,
+      prompt: body.prompt,
+      proposalId: body.proposalId,
+      worktreeId: body.worktreeId,
+    });
+    return { result, snapshot: await getWorkbenchSnapshot(input, { topicId: body.changeId }) };
+  }
   const action = body.action;
   if (!action || !allowedActionIds.has(action.actionId)) {
     const error = new Error("Unknown or unsupported Workbench action.");
@@ -234,6 +314,43 @@ export async function executeWorkbenchAction(input: WorkbenchProjectInput, body:
   }
   const result = await runAllowlistedAction(input.project, action, body.options);
   return { result, snapshot: await getWorkbenchSnapshot(input) };
+}
+
+function assertRegisteredProject(input: WorkbenchProjectInput): asserts input is WorkbenchProjectInput & { project: ManagedProject } {
+  if (!input.project) throw new Error("This Workbench API requires a registered project.");
+}
+
+async function readCreateTopicBody(request: IncomingMessage): Promise<{ title: string; body?: string }> {
+  const body = await readJsonBody<CreateTopicRequest>(request);
+  if (body.confirm !== true) {
+    const error = new Error("Creating a Topic requires confirm: true.");
+    error.name = "Conflict";
+    throw error;
+  }
+  if (typeof body.title !== "string" || body.title.trim() === "") {
+    const error = new Error("Topic title is required.");
+    error.name = "BadRequest";
+    throw error;
+  }
+  return { title: body.title.trim(), body: body.body };
+}
+
+async function sendTopicMessageReplay(project: ManagedProject, changeId: string, response: ServerResponse): Promise<void> {
+  response.writeHead(200, { "Content-Type": "text/event-stream; charset=utf-8", "Cache-Control": "no-store", Connection: "close" });
+  for (const message of await listTopicMessages(project, changeId)) {
+    response.write(`event: message\n`);
+    response.write(`data: ${JSON.stringify(message)}\n\n`);
+  }
+  response.end();
+}
+
+async function sendActionEventReplay(project: ManagedProject, actionRunId: string, response: ServerResponse): Promise<void> {
+  response.writeHead(200, { "Content-Type": "text/event-stream; charset=utf-8", "Cache-Control": "no-store", Connection: "close" });
+  for (const event of await getWorkbenchActionEvents(project, actionRunId)) {
+    response.write(`event: action\n`);
+    response.write(`data: ${JSON.stringify(event)}\n\n`);
+  }
+  response.end();
 }
 
 function matchProjectWorkbenchRoute(pathname: string): { projectId: string; rest: string } | null {
