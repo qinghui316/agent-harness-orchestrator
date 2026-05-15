@@ -17,6 +17,8 @@ Project
 
 `Topic` is the user-facing word. `Change` is the domain object and durable source of truth.
 
+The information architecture in this document defines what the Workbench shows. The visual style is defined in `docs/UI-STYLE.md`. Static UI mockup prompts are maintained in `docs/design-prompts/workbench-ui-v1.md`.
+
 ## 2. Three-Pane Layout
 
 ```text
