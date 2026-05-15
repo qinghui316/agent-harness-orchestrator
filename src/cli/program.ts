@@ -37,6 +37,7 @@ import {
 } from "../spec-test/proposal.js";
 import { startSpecTestGenerationRun } from "../spec-test/generate.js";
 import { getSpecTestDriftReport } from "../spec-test/drift.js";
+import { getWorkbenchSnapshot, getWorkbenchTopic, listWorkbenchRoles, listWorkbenchTopics } from "../workbench/manager.js";
 import type { ManagedProject, MemoryMode, ResolvedMemory, SpecTestDriftReport } from "../types/index.js";
 
 async function resolveRegisteredOrPath(store: ProjectRegistryStore, query: string): Promise<{ project: Awaited<ReturnType<ProjectRegistryStore["resolveProject"]>>; path: string }> {
@@ -217,6 +218,85 @@ export function createProgram(): Command {
           reason: status.unsupportedReason ?? "",
         }]);
       }
+    });
+
+  const workbench = program.command("workbench").description("Build GUI-ready Workbench read models");
+
+  workbench
+    .command("snapshot")
+    .argument("<name-or-path>", "registered project id/name/path or local path")
+    .option("--topic <change-id>", "select a specific Topic/Change id")
+    .option("--json", "print JSON")
+    .action(async (query: string, options: { topic?: string; json?: boolean }) => {
+      const resolved = await resolveRegisteredOrPath(store, query);
+      const snapshot = await getWorkbenchSnapshot({ project: resolved.project, path: resolved.path }, { topicId: options.topic });
+      if (options.json) printJson(snapshot);
+      else {
+        printTable([{
+          project: snapshot.project && typeof snapshot.project === "object" && "id" in snapshot.project ? snapshot.project.id : "(unregistered)",
+          memory: snapshot.memory.memoryMode,
+          topics: snapshot.left.topics.length,
+          selected: snapshot.center.selectedTopic?.id ?? "",
+          approvals: snapshot.right.approvals.length,
+          gaps: snapshot.harnessGaps.length,
+        }]);
+        for (const warning of snapshot.warnings) console.log(`WARNING: ${warning}`);
+      }
+    });
+
+  workbench
+    .command("topics")
+    .argument("<name-or-path>", "registered project id/name/path or local path")
+    .option("--json", "print JSON")
+    .action(async (query: string, options: { json?: boolean }) => {
+      const resolved = await resolveRegisteredOrPath(store, query);
+      const topics = await listWorkbenchTopics({ project: resolved.project, path: resolved.path });
+      if (options.json) printJson(topics);
+      else printTable(topics.map((item) => ({
+        id: item.id,
+        title: item.title,
+        state: item.state,
+        path: item.path,
+        updatedAt: item.updatedAt ?? "",
+      })));
+    });
+
+  workbench
+    .command("topic")
+    .argument("<name-or-path>", "registered project id/name/path or local path")
+    .argument("<change-id>", "Topic/Change id")
+    .option("--json", "print JSON")
+    .action(async (query: string, changeId: string, options: { json?: boolean }) => {
+      const resolved = await resolveRegisteredOrPath(store, query);
+      const topic = await getWorkbenchTopic({ project: resolved.project, path: resolved.path }, changeId);
+      if (options.json) printJson(topic);
+      else {
+        printTable([{
+          id: topic.id,
+          title: topic.title,
+          state: topic.state,
+          runs: topic.runs.length,
+          events: topic.threadEvents.length,
+          worktrees: topic.worktrees.length,
+        }]);
+      }
+    });
+
+  workbench
+    .command("roles")
+    .argument("<name-or-path>", "registered project id/name/path or local path")
+    .option("--json", "print JSON")
+    .action(async (query: string, options: { json?: boolean }) => {
+      await resolveRegisteredOrPath(store, query);
+      const roles = await listWorkbenchRoles();
+      if (options.json) printJson(roles);
+      else printTable(roles.map((item) => ({
+        id: item.id,
+        capability: item.writeCapability,
+        runtime: item.preferredRuntime,
+        delegatable: item.delegatable,
+        sections: item.sections.length,
+      })));
     });
 
   const change = program.command("change").description("Manage structured ECL changes");

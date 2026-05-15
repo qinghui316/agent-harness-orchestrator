@@ -2,7 +2,7 @@
 
 ## 1. Current Phase
 
-This repository contains Harness infrastructure, a Phase 1 TypeScript CLI, Phase 2A structured change management, Phase 2B local command run artifacts, Phase 2C Codex read-only proposal capture, Phase 2D memory resolver foundation, Phase 2E opt-in external-local memory, Phase 3A AHO-owned worktree management, Phase 3B change-scoped validation, Phase 3C Auditor proposal gate, Phase 3D Codex Coder worktree runs, Phase 3E worktree apply/discard gates, Phase 4A Spec-Test evidence mapping, Phase 4B Spec-Test evidence proposals, Phase 4C Codex-assisted passing Spec-Test generation, Phase 4D Spec-Test drift readiness, and Phase 4E Spec/Planner proposal gates.
+This repository contains Harness infrastructure, a Phase 1 TypeScript CLI, Phase 2A structured change management, Phase 2B local command run artifacts, Phase 2C Codex read-only proposal capture, Phase 2D memory resolver foundation, Phase 2E opt-in external-local memory, Phase 3A AHO-owned worktree management, Phase 3B change-scoped validation, Phase 3C Auditor proposal gate, Phase 3D Codex Coder worktree runs, Phase 3E worktree apply/discard gates, Phase 4A Spec-Test evidence mapping, Phase 4B Spec-Test evidence proposals, Phase 4C Codex-assisted passing Spec-Test generation, Phase 4D Spec-Test drift readiness, Phase 4E Spec/Planner proposal gates, and Phase 5A Workbench Snapshot read models.
 
 ## 2. Prerequisites
 
@@ -104,7 +104,32 @@ Run artifacts are written under the target project:
 
 For external-local projects, run artifacts are written under the resolved memory root and `run.json` uses `artifacts.base: "memory-root"`.
 
-## 8. Worktree Commands
+## 8. Workbench Snapshot Commands
+
+Workbench commands build GUI-ready read models from canonical artifacts. They do not write files, call Codex, or advance workflow state.
+
+```powershell
+node dist/index.js workbench snapshot aho-test --json
+node dist/index.js workbench snapshot aho-test --topic <change-id> --json
+node dist/index.js workbench topics aho-test --json
+node dist/index.js workbench topic aho-test <change-id> --json
+node dist/index.js workbench roles aho-test --json
+```
+
+`snapshot` returns:
+
+- project and memory status;
+- Topic(Change) list;
+- selected Topic detail;
+- thread events;
+- agent loop run summaries;
+- approval inbox items;
+- bundled role summaries;
+- `harnessGaps` for workspace/session/subagent structures that are still missing or partial.
+
+The snapshot is a derived view for future GUI work. It is not a new source of truth.
+
+## 9. Worktree Commands
 
 Worktrees require a registered, managed project. `worktree create` requires exactly one active change. `list`, `show`, and `remove` do not require an active change so old worktrees can be cleaned up after archive.
 
@@ -125,7 +150,7 @@ node dist/index.js run start aho-test --worktree -- npm test
 
 `run start --worktree` records `executionMode: "worktree"` and keeps the checkout after completion for inspection.
 
-## 9. Validation Commands
+## 10. Validation Commands
 
 Validation is mechanical evidence for the current active change. It does not replace review or human confirmation.
 
@@ -153,7 +178,7 @@ runs/{run-id}/commands/*.stderr.log
 
 The close gate blocks the latest failed validation for the current change. Missing validation is warning-only in Phase 3B.
 
-## 10. Spec-Test Mapping Commands
+## 11. Spec-Test Mapping Commands
 
 Spec-test mappings connect Acceptance Criteria to test or validation evidence. They are explicit linked evidence, not proof that the AC is fully covered.
 
@@ -188,7 +213,7 @@ node dist/index.js spec-test proposal accept aho-test <proposal-id> --all-existi
 
 `proposal accept` is the human confirmation command. In Phase 4B it only accepts `source-root` + `existingEvidence` candidates. Worktree-only evidence, suggested new tests, open questions, and unknown evidence are skipped or rejected. AHO still uses deterministic `spec-test link` logic for the actual write to `spec-tests.json`.
 
-## 11. Spec-Test Generation Commands
+## 12. Spec-Test Generation Commands
 
 Spec-test generation asks Codex to create a passing test evidence proposal in a new AHO-owned worktree. It is test-only, proposal-only, and does not edit `spec-tests.json`.
 
@@ -237,7 +262,7 @@ runs/{run-id}/implementation.md
 
 Phase 4C does not support accepted red tests, CI drift gates, or automatic proof of AC coverage. Phase 4D adds local drift diagnostics only; CI enforcement remains future work.
 
-## 12. Spec And Plan Proposal Commands
+## 13. Spec And Plan Proposal Commands
 
 Spec and Planner agents are read-only proposal agents. They do not write canonical ECL files until the user runs an explicit accept command.
 
@@ -259,7 +284,7 @@ node dist/index.js change plan accept aho-test <proposal-id> --json
 
 Both accept commands are stale-safe: if the target file changed after proposal generation, accept aborts and the user must re-run the proposal. Accepting a proposal does not update review status, run code, validate, audit, apply, close, or accept spec-test evidence.
 
-## 13. Code Commands
+## 14. Code Commands
 
 Code runs use Codex workspace-write mode in a new AHO-owned worktree. They produce implementation proposals and diff artifacts, but do not apply, merge, validate, audit, or close the change.
 
@@ -293,7 +318,7 @@ node dist/index.js audit run aho-test --worktree <coder-worktree-id>
 
 Dirty active Coder worktrees block `change close`. Use validation, audit, audit accept, and worktree apply before closing an implemented change.
 
-## 14. Apply / Discard Commands
+## 15. Apply / Discard Commands
 
 Apply is the explicit human confirmation gate that adopts a validated and audited worktree diff into the source repo. It is not merge, push, PR, or close.
 
@@ -315,7 +340,7 @@ Apply requires:
 
 `worktree apply` without `--commit` leaves source repo changes uncommitted. `change close` blocks until the source repo is clean. `worktree discard` only removes an unapplied proposal checkout; it does not revert already applied source changes.
 
-## 15. Audit Commands
+## 16. Audit Commands
 
 Audit is semantic review evidence for the current active change. It does not replace human confirmation.
 
@@ -342,7 +367,7 @@ runs/{run-id}/last-message.md
 
 The close gate blocks only the latest `blocked` audit for the current change. Missing audit and failed/unparseable audit are warning-only in Phase 3C.
 
-## 16. Codex Read-Only Proposal Runs
+## 17. Codex Read-Only Proposal Runs
 
 Codex runs require a registered, managed project with exactly one active change. AHO reuses the user's local Codex CLI login and configuration. It does not run `codex login`, read tokens, or modify `~/.codex`.
 
@@ -362,7 +387,7 @@ Additional artifacts:
   last-message.md
 ```
 
-## 17. Harness Commands
+## 18. Harness Commands
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/harness-change.ps1 reindex

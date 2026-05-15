@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createProgram } from "../../src/cli/program.js";
 import { getSpecTestStatus } from "../../src/spec-test/manager.js";
 import { getSpecTestDriftReport } from "../../src/spec-test/drift.js";
+import { getWorkbenchSnapshot } from "../../src/workbench/manager.js";
 import type { ManagedProject } from "../../src/types/index.js";
 
 const execFileAsync = promisify(execFile);
@@ -98,6 +99,22 @@ describe("CLI flow", () => {
     const index = JSON.parse(await readFile(join(repoDir, "harness", "changes", "INDEX.json"), "utf8"));
     expect(index.active).toHaveLength(0);
     expect(index.archive[0].name).toMatch(/^\d{8}-add-sample-workflow/);
+  });
+
+  it("builds workbench read models for external-local projects", async () => {
+    await runCli(["project", "add", repoDir, "--name", "Repo"]);
+    await runCli(["harness", "init", "repo", "--memory", "external-local"]);
+    await runCli(["change", "new", "repo", "--title", "Workbench Read Model", "--body", "Raw request"]);
+    await runCli(["workbench", "snapshot", "repo", "--json"]);
+    await runCli(["workbench", "topics", "repo", "--json"]);
+    await runCli(["workbench", "topic", "repo", "workbench-read-model", "--json"]);
+    await runCli(["workbench", "roles", "repo", "--json"]);
+
+    const snapshot = await getWorkbenchSnapshot({ project: managedProject(), path: repoDir });
+    expect(snapshot.memory.memoryMode).toBe("external-local");
+    expect(snapshot.left.topics[0]).toMatchObject({ id: "workbench-read-model", state: "active" });
+    expect(snapshot.harnessGaps.map((item) => item.id)).toEqual(expect.arrayContaining(["workspaceIndex", "subagentSpec"]));
+    expect(snapshot.roles.map((item) => item.id)).toEqual(expect.arrayContaining(["spec-agent", "planner", "coder"]));
   });
 
   it("links spec-test evidence and joins direct validation results", async () => {

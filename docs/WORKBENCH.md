@@ -112,4 +112,4 @@ The layout must still leave room for:
 
 ## 6. Next Implementation Implication
 
-The next implementation step after this document should be a Workbench Snapshot: one read model that derives Topic state, thread events, approval inbox items, and run summaries from existing canonical artifacts without inventing a new source of truth.
+Phase 5A implements the Workbench Snapshot: one read model that derives Topic state, thread events, approval inbox items, run summaries, bundled role summaries, and Harness gap diagnostics from existing canonical artifacts without inventing a new source of truth.
