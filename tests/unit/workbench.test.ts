@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createChange, closeChange } from "../../src/change/manager.js";
 import { initHarness } from "../../src/harness/init.js";
 import { startLocalCommandRun } from "../../src/run/manager.js";
-import { getWorkbenchSnapshot, getWorkbenchTopic, listWorkbenchRoles, listWorkbenchTopics } from "../../src/workbench/manager.js";
+import { getWorkbenchSnapshot, getWorkbenchStream, getWorkbenchTopic, listWorkbenchApprovals, listWorkbenchRoles, listWorkbenchTopics } from "../../src/workbench/manager.js";
 import type { ManagedProject, RunMetadata } from "../../src/types/index.js";
 
 let tempDir: string;
@@ -58,8 +58,31 @@ describe("workbench read model", () => {
     expect(snapshot.center.agentLoop.runs).toHaveLength(1);
     expect(snapshot.center.thread.events.some((event) => event.type === "run.local-command")).toBe(true);
     expect(snapshot.right.approvals.some((item) => item.kind === "change-close")).toBe(true);
+    expect(snapshot.right.approvals.find((item) => item.kind === "change-close")?.action).toMatchObject({
+      actionId: "change.close",
+      mutates: true,
+      requiresConfirmation: true,
+    });
     expect(snapshot.roles.map((item) => item.id)).toEqual(expect.arrayContaining(["coder", "auditor", "validator"]));
     expect(snapshot.harnessGaps.map((item) => item.id)).toEqual(expect.arrayContaining(["roleCatalog", "sessionModel", "subagentSpec"]));
+  });
+
+  it("replays run stream artifacts with bounded previews and diagnostics", async () => {
+    await initHarness(project());
+    await createChange(project(), { title: "Stream Topic" });
+    const result = await startLocalCommandRun(project(), [process.execPath, "-e", "console.log('hello stream')"]);
+    const runDir = join(tempDir, ".agent-harness", "runs", result.run.id);
+    await writeFile(join(runDir, "last-message.md"), "x".repeat(5000), "utf8");
+    await rm(join(runDir, "stderr.log"), { force: true });
+
+    const stream = await getWorkbenchStream({ project: project(), path: tempDir }, result.run.id);
+
+    expect(stream.live).toBe(false);
+    expect(stream.run.id).toBe(result.run.id);
+    expect(stream.events.map((item) => item.type)).toEqual(expect.arrayContaining(["run.created", "process.started", "run.completed"]));
+    expect(stream.artifacts.find((item) => item.key === "stdout")).toMatchObject({ exists: true, kind: "log" });
+    expect(stream.artifacts.find((item) => item.key === "lastMessage")).toMatchObject({ exists: true, truncated: true });
+    expect(stream.diagnostics).toEqual(expect.arrayContaining([expect.stringContaining("stderr")]));
   });
 
   it("returns a diagnostic snapshot when durable memory is unavailable", async () => {
@@ -97,6 +120,13 @@ describe("workbench read model", () => {
         id: `spec:${run.id}`,
         kind: "spec-proposal",
         targetId: run.id,
+        action: expect.objectContaining({
+          actionId: "change.spec.accept",
+          command: "change",
+          args: ["spec", "accept", "repo", run.id],
+          mutates: true,
+          requiresConfirmation: true,
+        }),
       }),
       expect.objectContaining({
         id: `spec:${otherRun.id}`,
@@ -104,6 +134,24 @@ describe("workbench read model", () => {
         targetId: otherRun.id,
       }),
     ]));
+  });
+
+  it("lists project-level approvals and filters display by topic", async () => {
+    await initHarness(project());
+    await createChange(project(), { title: "Approval Topic" });
+    const run = await writeSpecProposalRun("approval-topic");
+    await writeSpecProposalRun("other-topic");
+
+    const allApprovals = await listWorkbenchApprovals({ project: project(), path: tempDir });
+    const topicApprovals = await listWorkbenchApprovals({ project: project(), path: tempDir }, { topicId: "approval-topic" });
+
+    expect(allApprovals.filter((item) => item.kind === "spec-proposal")).toHaveLength(2);
+    expect(topicApprovals).toEqual([
+      expect.objectContaining({
+        id: `spec:${run.id}`,
+        changeId: "approval-topic",
+      }),
+    ]);
   });
 
   it("returns one selected topic by id", async () => {

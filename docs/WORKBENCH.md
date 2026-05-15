@@ -73,6 +73,7 @@ The right pane is scoped to the current project, not only the current Topic. It 
 
 - A developer should understand the current Change, next required decision, and strongest evidence without opening raw files first.
 - Live agent work must be visible, especially when different roles run in sequence or later in parallel.
+- Until live transport exists, run stream replay packets provide the GUI with existing run events, logs, and artifact previews.
 - A stopped or failed Run remains part of the Change history; interrupting a Run does not close a Change.
 - Every high-impact action remains explicit even when represented as a button.
 - Chat-like presentation must not hide Spec, Plan, Validation, Audit, or Worktree state.
@@ -113,3 +114,5 @@ The layout must still leave room for:
 ## 6. Next Implementation Implication
 
 Phase 5A implements the Workbench Snapshot: one read model that derives Topic state, thread events, approval inbox items, run summaries, bundled role summaries, and Harness gap diagnostics from existing canonical artifacts without inventing a new source of truth.
+
+Phase 5B adds replay-oriented run stream packets and structured approval actions. This prepares the first GUI shell without promising live WebSocket/SSE streaming, interrupt/cancel controls, or a materialized approval queue.

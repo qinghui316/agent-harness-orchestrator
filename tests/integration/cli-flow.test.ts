@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createProgram } from "../../src/cli/program.js";
 import { getSpecTestStatus } from "../../src/spec-test/manager.js";
 import { getSpecTestDriftReport } from "../../src/spec-test/drift.js";
-import { getWorkbenchSnapshot } from "../../src/workbench/manager.js";
+import { getWorkbenchSnapshot, getWorkbenchStream, listWorkbenchApprovals } from "../../src/workbench/manager.js";
 import type { ManagedProject } from "../../src/types/index.js";
 
 const execFileAsync = promisify(execFile);
@@ -105,14 +105,25 @@ describe("CLI flow", () => {
     await runCli(["project", "add", repoDir, "--name", "Repo"]);
     await runCli(["harness", "init", "repo", "--memory", "external-local"]);
     await runCli(["change", "new", "repo", "--title", "Workbench Read Model", "--body", "Raw request"]);
+    await runCli(["run", "start", "repo", "--", process.execPath, "-e", "console.log('workbench stream')"]);
     await runCli(["workbench", "snapshot", "repo", "--json"]);
     await runCli(["workbench", "topics", "repo", "--json"]);
     await runCli(["workbench", "topic", "repo", "workbench-read-model", "--json"]);
     await runCli(["workbench", "roles", "repo", "--json"]);
-
     const snapshot = await getWorkbenchSnapshot({ project: managedProject(), path: repoDir });
+    const runId = snapshot.center.agentLoop.runs[0]?.id;
+    expect(runId).toBeTruthy();
+    await runCli(["workbench", "stream", "repo", runId, "--json"]);
+    await runCli(["workbench", "approvals", "repo", "--json"]);
+    await runCli(["workbench", "approvals", "repo", "--topic", "workbench-read-model", "--json"]);
+
+    const stream = await getWorkbenchStream({ project: managedProject(), path: repoDir }, runId);
+    const approvals = await listWorkbenchApprovals({ project: managedProject(), path: repoDir });
     expect(snapshot.memory.memoryMode).toBe("external-local");
     expect(snapshot.left.topics[0]).toMatchObject({ id: "workbench-read-model", state: "active" });
+    expect(stream.artifacts.find((item) => item.key === "stdout")).toMatchObject({ exists: true, kind: "log" });
+    expect(stream.events.some((item) => item.type === "run.completed")).toBe(true);
+    expect(approvals.every((item) => !item.action?.mutates || item.action.requiresConfirmation)).toBe(true);
     expect(snapshot.harnessGaps.map((item) => item.id)).toEqual(expect.arrayContaining(["workspaceIndex", "subagentSpec"]));
     expect(snapshot.roles.map((item) => item.id)).toEqual(expect.arrayContaining(["spec-agent", "planner", "coder"]));
   });

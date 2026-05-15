@@ -1,6 +1,6 @@
 # Architecture
 
-> Status: Phase 3A implements project registration, Harness management, structured change management, local command runs, Codex read-only proposal capture, memory resolver diagnostics, opt-in external-local memory, and AHO-owned worktree execution. Phase 3B adds change-scoped validation. Phase 3C adds Codex-powered read-only Auditor proposal artifacts. Phase 3D adds Codex workspace-write Coder runs inside AHO-owned worktrees. Phase 3E adds explicit apply/discard gates for accepted worktree proposals. Phase 4A adds explicit Spec-Test evidence mapping. Phase 4B adds Codex read-only proposals for reusing existing source-root evidence. Phase 4C adds Codex-assisted passing test generation in AHO-owned worktrees. Phase 4D adds deterministic Spec-Test drift readiness. Phase 4E adds Codex read-only Spec Agent and Planner proposal gates. Phase 5A adds Workbench Snapshot read models and Harness gap diagnostics. Merge/PR/push, CI drift gates, dashboard, multi-agent scheduler, and remote memory remain planned future work.
+> Status: Phase 3A implements project registration, Harness management, structured change management, local command runs, Codex read-only proposal capture, memory resolver diagnostics, opt-in external-local memory, and AHO-owned worktree execution. Phase 3B adds change-scoped validation. Phase 3C adds Codex-powered read-only Auditor proposal artifacts. Phase 3D adds Codex workspace-write Coder runs inside AHO-owned worktrees. Phase 3E adds explicit apply/discard gates for accepted worktree proposals. Phase 4A adds explicit Spec-Test evidence mapping. Phase 4B adds Codex read-only proposals for reusing existing source-root evidence. Phase 4C adds Codex-assisted passing test generation in AHO-owned worktrees. Phase 4D adds deterministic Spec-Test drift readiness. Phase 4E adds Codex read-only Spec Agent and Planner proposal gates. Phase 5A adds Workbench Snapshot read models and Harness gap diagnostics. Phase 5B adds run stream replay packets and structured approval actions. Merge/PR/push, CI drift gates, dashboard, multi-agent scheduler, and remote memory remain planned future work.
 
 ## 1. Current Status
 
@@ -295,7 +295,7 @@ The first personal GUI should be a change-centered workbench, not a chat-only ap
 - Center: Topic Thread View and Agent Loop View.
 - Right side: project-level Approval Inbox.
 
-The Workbench Snapshot derives Topic state, thread events, approval items, run summaries, worktrees, validation, audit, drift, and evolution summaries from canonical artifacts. It also reports Harness gaps for role catalog, stream index, approval index, session model, workspace index, subagent spec, and background evolution queue readiness. It must not become a second workflow database.
+The Workbench Snapshot derives Topic state, thread events, approval items, run summaries, worktrees, validation, audit, drift, and evolution summaries from canonical artifacts. Stream replay packets read existing run artifacts and return event/artifact previews for GUI replay; they are not live streams. Structured approval actions describe existing CLI state transitions for UI buttons, but approvals remain derived views. The snapshot also reports Harness gaps for role catalog, stream transport, approval index, session model, workspace index, subagent spec, and background evolution queue readiness. It must not become a second workflow database.
 
 See:
 
@@ -326,6 +326,7 @@ See:
 | Phase 4F+ | Drift gates and stricter Spec-Test enforcement |
 | Phase 5A-prep | Workspace runtime model and Workbench information architecture |
 | Phase 5A | Workbench Snapshot read model and Harness gap report |
+| Phase 5B | Workbench stream replay and structured approval actions |
 | Phase 5B+ | Personal GUI and run/artifact explorer |
 | Future | External-local default switch, remote memory, team mode, and Spec-as-Source experiments |
 

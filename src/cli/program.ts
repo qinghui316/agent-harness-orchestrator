@@ -37,7 +37,7 @@ import {
 } from "../spec-test/proposal.js";
 import { startSpecTestGenerationRun } from "../spec-test/generate.js";
 import { getSpecTestDriftReport } from "../spec-test/drift.js";
-import { getWorkbenchSnapshot, getWorkbenchTopic, listWorkbenchRoles, listWorkbenchTopics } from "../workbench/manager.js";
+import { getWorkbenchSnapshot, getWorkbenchStream, getWorkbenchTopic, listWorkbenchApprovals, listWorkbenchRoles, listWorkbenchTopics } from "../workbench/manager.js";
 import type { ManagedProject, MemoryMode, ResolvedMemory, SpecTestDriftReport } from "../types/index.js";
 
 async function resolveRegisteredOrPath(store: ProjectRegistryStore, query: string): Promise<{ project: Awaited<ReturnType<ProjectRegistryStore["resolveProject"]>>; path: string }> {
@@ -242,6 +242,47 @@ export function createProgram(): Command {
         }]);
         for (const warning of snapshot.warnings) console.log(`WARNING: ${warning}`);
       }
+    });
+
+  workbench
+    .command("stream")
+    .argument("<name-or-path>", "registered project id/name/path or local path")
+    .argument("<run-id>", "run id")
+    .option("--json", "print JSON")
+    .action(async (query: string, runId: string, options: { json?: boolean }) => {
+      const resolved = await resolveRegisteredOrPath(store, query);
+      const stream = await getWorkbenchStream({ project: resolved.project, path: resolved.path }, runId);
+      if (options.json) printJson(stream);
+      else {
+        printTable([{
+          run: stream.run.id,
+          runtime: stream.run.runtime,
+          status: stream.run.status,
+          events: stream.events.length,
+          artifacts: stream.artifacts.length,
+          diagnostics: stream.diagnostics.length,
+        }]);
+        for (const diagnostic of stream.diagnostics) console.log(`DIAGNOSTIC: ${diagnostic}`);
+      }
+    });
+
+  workbench
+    .command("approvals")
+    .argument("<name-or-path>", "registered project id/name/path or local path")
+    .option("--topic <change-id>", "filter displayed approvals by Topic/Change id")
+    .option("--json", "print JSON")
+    .action(async (query: string, options: { topic?: string; json?: boolean }) => {
+      const resolved = await resolveRegisteredOrPath(store, query);
+      const approvals = await listWorkbenchApprovals({ project: resolved.project, path: resolved.path }, { topicId: options.topic });
+      if (options.json) printJson(approvals);
+      else printTable(approvals.map((item) => ({
+        id: item.id,
+        kind: item.kind,
+        severity: item.severity,
+        change: item.changeId ?? "",
+        action: item.action?.actionId ?? "",
+        confirmation: item.action?.requiresConfirmation ?? "",
+      })));
     });
 
   workbench

@@ -2,7 +2,7 @@
 
 ## 1. Current Phase
 
-This repository contains Harness infrastructure, a Phase 1 TypeScript CLI, Phase 2A structured change management, Phase 2B local command run artifacts, Phase 2C Codex read-only proposal capture, Phase 2D memory resolver foundation, Phase 2E opt-in external-local memory, Phase 3A AHO-owned worktree management, Phase 3B change-scoped validation, Phase 3C Auditor proposal gate, Phase 3D Codex Coder worktree runs, Phase 3E worktree apply/discard gates, Phase 4A Spec-Test evidence mapping, Phase 4B Spec-Test evidence proposals, Phase 4C Codex-assisted passing Spec-Test generation, Phase 4D Spec-Test drift readiness, Phase 4E Spec/Planner proposal gates, and Phase 5A Workbench Snapshot read models.
+This repository contains Harness infrastructure, a Phase 1 TypeScript CLI, Phase 2A structured change management, Phase 2B local command run artifacts, Phase 2C Codex read-only proposal capture, Phase 2D memory resolver foundation, Phase 2E opt-in external-local memory, Phase 3A AHO-owned worktree management, Phase 3B change-scoped validation, Phase 3C Auditor proposal gate, Phase 3D Codex Coder worktree runs, Phase 3E worktree apply/discard gates, Phase 4A Spec-Test evidence mapping, Phase 4B Spec-Test evidence proposals, Phase 4C Codex-assisted passing Spec-Test generation, Phase 4D Spec-Test drift readiness, Phase 4E Spec/Planner proposal gates, Phase 5A Workbench Snapshot read models, and Phase 5B Workbench stream replay / structured approval actions.
 
 ## 2. Prerequisites
 
@@ -111,6 +111,9 @@ Workbench commands build GUI-ready read models from canonical artifacts. They do
 ```powershell
 node dist/index.js workbench snapshot aho-test --json
 node dist/index.js workbench snapshot aho-test --topic <change-id> --json
+node dist/index.js workbench stream aho-test <run-id> --json
+node dist/index.js workbench approvals aho-test --json
+node dist/index.js workbench approvals aho-test --topic <change-id> --json
 node dist/index.js workbench topics aho-test --json
 node dist/index.js workbench topic aho-test <change-id> --json
 node dist/index.js workbench roles aho-test --json
@@ -124,8 +127,13 @@ node dist/index.js workbench roles aho-test --json
 - thread events;
 - agent loop run summaries;
 - approval inbox items;
+- structured approval actions;
 - bundled role summaries;
 - `harnessGaps` for workspace/session/subagent structures that are still missing or partial.
+
+`stream` is replay-only. It reads existing run artifacts and returns metadata, parsed events, artifact pointers, bounded previews, and diagnostics for missing artifacts. It does not start a run or provide live WebSocket/SSE streaming.
+
+`approvals` is a derived view. It returns project-level approval items by default, with optional Topic filtering for display. Mutating actions include structured command metadata and require explicit confirmation.
 
 The snapshot is a derived view for future GUI work. It is not a new source of truth.
 

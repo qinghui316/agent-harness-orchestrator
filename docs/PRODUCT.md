@@ -127,6 +127,7 @@ Later phases add:
 - Switching external-local to the personal default after more migration and sync work.
 - Run events, logs, diffs, validation reports, and review artifacts.
 - Workbench Snapshot as the stable GUI read model, including Harness gap diagnostics for workspace/session/subagent readiness.
+- Run stream replay packets and structured approval actions for the first GUI.
 - Personal GUI with Topic-centered threads, run visibility, and project-level approval inbox.
 - Interactive terminal sessions.
 

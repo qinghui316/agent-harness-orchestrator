@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
-import { readFile, readdir } from "node:fs/promises";
-import { dirname, join, relative } from "node:path";
+import { open, readFile, readdir, stat } from "node:fs/promises";
+import { dirname, join, relative, resolve } from "node:path";
 import { z } from "zod";
 import { previewWorktreeApply } from "../apply/manager.js";
 import { listAuditResults, summarizeAudit } from "../audit/artifacts.js";
@@ -13,7 +13,7 @@ import { getMemoryStatus } from "../memory/status.js";
 import { resolveMemory } from "../memory/resolver.js";
 import { readProjectMarker } from "../project/marker.js";
 import { getProjectStatus } from "../project/status.js";
-import { listRuns } from "../run/manager.js";
+import { listRuns, readRun } from "../run/manager.js";
 import { getSpecTestDriftReport } from "../spec-test/drift.js";
 import { getSpecTestStatus } from "../spec-test/manager.js";
 import { listSpecTestProposalSummaries } from "../spec-test/proposal.js";
@@ -78,9 +78,39 @@ export interface WorkbenchApprovalItem {
   runId?: string;
   targetId?: string;
   severity: "info" | "warning" | "blocking";
-  action?: string;
+  action?: WorkbenchApprovalAction;
   artifact?: string;
   reason?: string;
+}
+
+export interface WorkbenchApprovalAction {
+  actionId: string;
+  label: string;
+  command: string;
+  args: string[];
+  mutates: boolean;
+  requiresConfirmation: boolean;
+}
+
+export interface WorkbenchArtifactPreview {
+  key: string;
+  path: string;
+  kind: string;
+  exists: boolean;
+  sizeBytes?: number;
+  preview?: string;
+  tail?: string;
+  truncated?: boolean;
+  diagnostic?: string;
+}
+
+export interface WorkbenchStreamPacket {
+  run: RunMetadata;
+  live: false;
+  events: WorkbenchThreadEvent[];
+  artifacts: WorkbenchArtifactPreview[];
+  diagnostics: string[];
+  warnings: string[];
 }
 
 export interface WorkbenchRoleSummary {
@@ -195,7 +225,7 @@ export async function getWorkbenchSnapshot(input: WorkbenchProjectInput, options
 
   const topics = await listWorkbenchTopicsFromMemory(memory);
   const selectedTopic = await selectTopicDetail(input.project, memory, topics, options.topicId);
-  const approvals = input.project ? await buildApprovalInbox(input.project, memory, selectedTopic) : [];
+  const approvals = input.project ? await buildApprovalInbox(input.project, memory, topics) : [];
   return {
     project: input.project,
     memory: memoryStatus,
@@ -229,6 +259,34 @@ export async function getWorkbenchTopic(input: WorkbenchProjectInput, topicId: s
   const detail = await selectTopicDetail(input.project, memory, topics, topicId);
   if (!detail) throw new Error(`Topic not found: ${topicId}.`);
   return detail;
+}
+
+export async function getWorkbenchStream(input: WorkbenchProjectInput, runId: string): Promise<WorkbenchStreamPacket> {
+  const memory = await resolveWorkbenchMemory(input);
+  if (!memory.supported || !existsSync(memory.runsRoot)) {
+    throw new Error("Durable memory is unavailable; cannot replay run stream.");
+  }
+  const run = await readRun(memory, runId);
+  const events = await readRunEvents(memory, run);
+  const { artifacts, diagnostics, warnings } = await summarizeRunArtifacts(memory, run);
+  return {
+    run,
+    live: false,
+    events,
+    artifacts,
+    diagnostics,
+    warnings,
+  };
+}
+
+export async function listWorkbenchApprovals(input: WorkbenchProjectInput, options: { topicId?: string } = {}): Promise<WorkbenchApprovalItem[]> {
+  if (!input.project) return [];
+  const memory = await resolveWorkbenchMemory(input);
+  if (!memory.supported || !existsSync(memory.memoryRoot)) return [];
+  const topics = await listWorkbenchTopicsFromMemory(memory);
+  const approvals = await buildApprovalInbox(input.project, memory, topics);
+  if (!options.topicId) return approvals;
+  return approvals.filter((item) => !item.changeId || item.changeId === options.topicId);
 }
 
 export async function listWorkbenchRoles(): Promise<WorkbenchRoleSummary[]> {
@@ -381,8 +439,9 @@ function parseRunEventLine(line: string, index: number, run: RunMetadata): Workb
   }
 }
 
-async function buildApprovalInbox(project: ManagedProject, memory: ResolvedMemory, selectedTopic: WorkbenchTopicDetail | null): Promise<WorkbenchApprovalItem[]> {
+async function buildApprovalInbox(project: ManagedProject, memory: ResolvedMemory, topics: WorkbenchTopicSummary[]): Promise<WorkbenchApprovalItem[]> {
   const approvals: WorkbenchApprovalItem[] = [];
+  const activeTopic = topics.find((item) => item.state === "active") ?? null;
   const [specProposals, planProposals, specTestProposals] = await Promise.all([
     listSpecProposalSummaries(project).catch(() => []),
     listPlanProposalSummaries(project).catch(() => []),
@@ -398,7 +457,7 @@ async function buildApprovalInbox(project: ManagedProject, memory: ResolvedMemor
       runId: proposal.runId,
       targetId: proposal.id,
       severity: "info",
-      action: `aho change spec accept <project> ${proposal.id}`,
+      action: approvalAction("change.spec.accept", "Accept spec proposal", "change", ["spec", "accept", project.id, proposal.id], true),
     });
   }
   for (const proposal of planProposals.filter((item) => item.status === "proposed")) {
@@ -410,7 +469,7 @@ async function buildApprovalInbox(project: ManagedProject, memory: ResolvedMemor
       runId: proposal.runId,
       targetId: proposal.id,
       severity: "info",
-      action: `aho change plan accept <project> ${proposal.id}`,
+      action: approvalAction("change.plan.accept", "Accept plan proposal", "change", ["plan", "accept", project.id, proposal.id], true),
     });
   }
   for (const proposal of specTestProposals.filter((item) => item.status === "proposed")) {
@@ -422,12 +481,12 @@ async function buildApprovalInbox(project: ManagedProject, memory: ResolvedMemor
       runId: proposal.runId,
       targetId: proposal.id,
       severity: "info",
-      action: `aho spec-test proposal accept <project> ${proposal.id} --all-existing`,
+      action: approvalAction("spec-test.proposal.accept-all-existing", "Accept source-root spec-test evidence", "spec-test", ["proposal", "accept", project.id, proposal.id, "--all-existing"], true),
     });
   }
 
-  if (selectedTopic?.change && selectedTopic.state === "active") {
-    const audits = await listAuditResults(memory, selectedTopic.id).catch(() => []);
+  if (activeTopic) {
+    const audits = await listAuditResults(memory, activeTopic.id).catch(() => []);
     for (const audit of audits.filter((item) => item.status === "approved" || item.status === "approved-with-notes").slice(0, 3)) {
       approvals.push({
         id: `audit:${audit.id}`,
@@ -437,12 +496,12 @@ async function buildApprovalInbox(project: ManagedProject, memory: ResolvedMemor
         runId: audit.runId,
         targetId: audit.id,
         severity: "info",
-        action: `aho audit accept <project> ${audit.id}`,
+        action: approvalAction("audit.accept", "Accept audit", "audit", ["accept", project.id, audit.id], true),
         artifact: audit.artifacts.audit,
       });
     }
     const worktrees = await listWorktreeStatuses(memory).catch(() => []);
-    for (const worktree of worktrees.filter((item) => item.changeId === selectedTopic.id && item.status !== "applied")) {
+    for (const worktree of worktrees.filter((item) => item.changeId === activeTopic.id && item.status !== "applied")) {
       const preview = await previewWorktreeApply(project, worktree.worktreeId).catch(() => null);
       if (preview?.gate.ready) {
         approvals.push({
@@ -452,20 +511,20 @@ async function buildApprovalInbox(project: ManagedProject, memory: ResolvedMemor
           changeId: worktree.changeId,
           targetId: worktree.worktreeId,
           severity: "info",
-          action: `aho worktree apply <project> ${worktree.worktreeId}`,
+          action: approvalAction("worktree.apply", "Apply worktree", "worktree", ["apply", project.id, worktree.worktreeId], true),
         });
       }
     }
     const status = await getChangeStatus(project).catch(() => null);
     if (status?.closeGate.ready) {
       approvals.push({
-        id: `close:${selectedTopic.id}`,
+        id: `close:${activeTopic.id}`,
         kind: "change-close",
-        label: `Change ready to close: ${selectedTopic.id}`,
-        changeId: selectedTopic.id,
-        targetId: selectedTopic.id,
+        label: `Change ready to close: ${activeTopic.id}`,
+        changeId: activeTopic.id,
+        targetId: activeTopic.id,
         severity: "info",
-        action: "aho change close <project>",
+        action: approvalAction("change.close", "Close change", "change", ["close", project.id], true),
       });
     }
     if (status?.latestValidation?.status === "failed") {
@@ -473,7 +532,7 @@ async function buildApprovalInbox(project: ManagedProject, memory: ResolvedMemor
         id: `attention:validation:${status.latestValidation.id}`,
         kind: "attention",
         label: `Latest validation failed: ${status.latestValidation.id}`,
-        changeId: selectedTopic.id,
+        changeId: activeTopic.id,
         targetId: status.latestValidation.id,
         severity: "blocking",
         reason: "Failed validation blocks close.",
@@ -484,7 +543,7 @@ async function buildApprovalInbox(project: ManagedProject, memory: ResolvedMemor
         id: `attention:audit:${status.latestAudit.id}`,
         kind: "attention",
         label: `Latest audit blocked: ${status.latestAudit.id}`,
-        changeId: selectedTopic.id,
+        changeId: activeTopic.id,
         targetId: status.latestAudit.id,
         severity: "blocking",
         reason: "Blocked audit prevents safe close.",
@@ -498,11 +557,129 @@ async function buildApprovalInbox(project: ManagedProject, memory: ResolvedMemor
       kind: "evolution",
       label: "Harness evolution pending",
       severity: "warning",
-      action: "Handle through proposal, independent review, validation, results.tsv, and mark-complete.",
+      action: approvalAction("evolution.handle", "Handle Harness evolution", "harness-evolve", ["status"], false),
       artifact: "harness/evolution/pending.md",
+      reason: "Handle through proposal, independent review, validation, results.tsv, and mark-complete.",
     });
   }
   return approvals;
+}
+
+async function summarizeRunArtifacts(memory: ResolvedMemory, run: RunMetadata): Promise<{ artifacts: WorkbenchArtifactPreview[]; diagnostics: string[]; warnings: string[] }> {
+  const diagnostics: string[] = [];
+  const warnings: string[] = [];
+  const artifacts: WorkbenchArtifactPreview[] = [];
+  const baseRoot = run.artifacts.base === "memory-root" ? memory.memoryRoot : memory.projectRoot;
+  const runDirectory = resolve(baseRoot, run.artifacts.directory);
+  const known = Object.entries(run.artifacts)
+    .filter(([key, value]) => key !== "base" && key !== "directory" && typeof value === "string") as Array<[string, string]>;
+  const extraKnown = ["codex-events.jsonl", "last-message.md", "diff.patch", "diff-stat.txt", "validation.json", "audit.json", "audit.md", "implementation.md"];
+
+  for (const [key, artifactPath] of known) {
+    artifacts.push(await summarizeArtifact(key, artifactPath, baseRoot, runDirectory, diagnostics));
+  }
+  for (const fileName of extraKnown) {
+    const artifactPath = `${run.artifacts.directory}/${fileName}`;
+    if (known.some(([, existing]) => existing === artifactPath)) continue;
+    const key = keyForKnownArtifact(fileName);
+    const summary = await summarizeArtifact(key, artifactPath, baseRoot, runDirectory, diagnostics, false);
+    if (summary.exists) artifacts.push(summary);
+  }
+  if (!artifacts.some((item) => item.key === "events" && item.exists)) {
+    diagnostics.push("Run events artifact is missing.");
+  }
+  return { artifacts, diagnostics, warnings };
+}
+
+async function summarizeArtifact(key: string, artifactPath: string, baseRoot: string, runDirectory: string, diagnostics: string[], includeMissing = true): Promise<WorkbenchArtifactPreview> {
+  const absolutePath = resolve(baseRoot, artifactPath);
+  const base: WorkbenchArtifactPreview = {
+    key,
+    path: artifactPath,
+    kind: artifactKind(key, artifactPath),
+    exists: false,
+  };
+  if (!isWithinDirectory(absolutePath, runDirectory)) {
+    const diagnostic = `Artifact ${key} is outside the run directory and was not read.`;
+    diagnostics.push(diagnostic);
+    return { ...base, diagnostic };
+  }
+  if (!existsSync(absolutePath)) {
+    if (includeMissing) diagnostics.push(`Artifact ${key} is missing: ${artifactPath}`);
+    return base;
+  }
+  const stats = await stat(absolutePath);
+  if (!stats.isFile()) return { ...base, exists: true, sizeBytes: stats.size, diagnostic: "Artifact path is not a file." };
+  const preview = await readTextPreview(absolutePath, stats.size);
+  return {
+    ...base,
+    exists: true,
+    sizeBytes: stats.size,
+    ...preview,
+  };
+}
+
+async function readTextPreview(path: string, sizeBytes: number): Promise<Pick<WorkbenchArtifactPreview, "preview" | "tail" | "truncated">> {
+  const maxChars = 4000;
+  if (sizeBytes > 1024 * 1024) {
+    const chunkBytes = 16 * 1024;
+    const file = await open(path, "r");
+    try {
+      const firstBuffer = Buffer.alloc(chunkBytes);
+      const lastBuffer = Buffer.alloc(chunkBytes);
+      const firstRead = await file.read(firstBuffer, 0, chunkBytes, 0);
+      const lastRead = await file.read(lastBuffer, 0, chunkBytes, Math.max(0, sizeBytes - chunkBytes));
+      const firstText = firstBuffer.subarray(0, firstRead.bytesRead).toString("utf8");
+      const lastText = lastBuffer.subarray(0, lastRead.bytesRead).toString("utf8");
+      return {
+        preview: firstText.slice(0, maxChars),
+        tail: lastText.slice(-maxChars),
+        truncated: true,
+      };
+    } finally {
+      await file.close();
+    }
+  }
+  const content = await readFile(path, "utf8");
+  return {
+    preview: content.slice(0, maxChars),
+    tail: content.length > maxChars ? content.slice(-maxChars) : content,
+    truncated: content.length > maxChars,
+  };
+}
+
+function isWithinDirectory(path: string, directory: string): boolean {
+  const relativePath = relative(directory, path);
+  return relativePath === "" || (!relativePath.startsWith("..") && !relativePath.includes(":"));
+}
+
+function keyForKnownArtifact(fileName: string): string {
+  if (fileName === "codex-events.jsonl") return "codexEvents";
+  if (fileName === "last-message.md") return "lastMessage";
+  if (fileName === "diff.patch") return "diff";
+  if (fileName === "diff-stat.txt") return "diffStat";
+  if (fileName === "audit.md") return "auditMarkdown";
+  return fileName.replace(/\.[^.]+$/, "");
+}
+
+function artifactKind(key: string, path: string): string {
+  if (key === "stdout" || key === "stderr") return "log";
+  if (key === "events" || key === "codexEvents") return "jsonl";
+  if (path.endsWith(".json")) return "json";
+  if (path.endsWith(".patch")) return "patch";
+  if (path.endsWith(".md")) return "markdown";
+  return "text";
+}
+
+function approvalAction(actionId: string, label: string, command: string, args: string[], mutates: boolean): WorkbenchApprovalAction {
+  return {
+    actionId,
+    label,
+    command,
+    args,
+    mutates,
+    requiresConfirmation: mutates,
+  };
 }
 
 async function summarizeRoleProfile(profileRoot: string, fileName: string): Promise<WorkbenchRoleSummary> {
@@ -537,7 +714,7 @@ function buildHarnessGaps(): HarnessGap[] {
       severity: "info",
       status: "partial",
       recommendedPhase: "Phase 5B",
-      summary: "Run events and logs exist, but there is no GUI-specific stream index or live transport yet.",
+      summary: "Run stream replay packets are available after Phase 5B, but live transport and cancel/interrupt remain future work.",
     },
     {
       id: "approvalIndex",
