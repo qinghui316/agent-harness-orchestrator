@@ -1,6 +1,6 @@
 # Architecture
 
-> Status: Phase 3A implements project registration, Harness management, structured change management, local command runs, Codex read-only proposal capture, memory resolver diagnostics, opt-in external-local memory, and AHO-owned worktree execution. Phase 3B adds change-scoped validation. Phase 3C adds Codex-powered read-only Auditor proposal artifacts. Phase 3D adds Codex workspace-write Coder runs inside AHO-owned worktrees. Phase 3E adds explicit apply/discard gates for accepted worktree proposals. Phase 4A adds explicit Spec-Test evidence mapping. Phase 4B adds Codex read-only proposals for reusing existing source-root evidence. Phase 4C adds Codex-assisted passing test generation in AHO-owned worktrees. Phase 4D adds deterministic Spec-Test drift readiness. Phase 4E adds Codex read-only Spec Agent and Planner proposal gates. Merge/PR/push, CI drift gates, dashboard, multi-agent scheduler, and remote memory remain planned future work.
+> Status: Phase 3A implements project registration, Harness management, structured change management, local command runs, Codex read-only proposal capture, memory resolver diagnostics, opt-in external-local memory, and AHO-owned worktree execution. Phase 3B adds change-scoped validation. Phase 3C adds Codex-powered read-only Auditor proposal artifacts. Phase 3D adds Codex workspace-write Coder runs inside AHO-owned worktrees. Phase 3E adds explicit apply/discard gates for accepted worktree proposals. Phase 4A adds explicit Spec-Test evidence mapping. Phase 4B adds Codex read-only proposals for reusing existing source-root evidence. Phase 4C adds Codex-assisted passing test generation in AHO-owned worktrees. Phase 4D adds deterministic Spec-Test drift readiness. Phase 4E adds Codex read-only Spec Agent and Planner proposal gates. Phase 5A-prep anchors the Workbench, Runtime, and Agent Model documents before GUI implementation. Merge/PR/push, CI drift gates, dashboard, multi-agent scheduler, and remote memory remain planned future work.
 
 ## 1. Current Status
 
@@ -39,6 +39,19 @@ Domain relationship:
 Project -> Change -> Spec / Acceptance Criteria -> Plan -> Tasks
 -> Context Projection -> Run -> Events / Artifacts -> Validation / Review
 ```
+
+Workbench relationship:
+
+```text
+Project
+  -> Topic(Change)
+    -> Thread View
+      -> Runs
+        -> Agent Stream / Events / Artifacts
+    -> Approval Inbox
+```
+
+`Topic` is GUI vocabulary. `Change` remains the domain object and business work unit. Thread View and Approval Inbox are projections, not new sources of truth.
 
 ## 3. Layered Architecture
 
@@ -128,6 +141,8 @@ Local managed-agent mapping:
 
 Agent profiles define roles such as Spec Agent, Planner Agent, Coder Agent, Validator, Auditor, and Evolution Agent. Profiles are definitions, not runtime state.
 
+Future multi-agent scheduling should depend on declarative role/subagent specs, scoped Runs, artifacts, and approval gates rather than one shared chat transcript. See `docs/AGENT-MODEL.md`.
+
 ## 6. Run Lifecycle
 
 A Run is one execution attempt against an active Change.
@@ -165,6 +180,8 @@ Each run should produce durable artifacts:
 Phase 2B implements `run.json`, `context.md`, `events.jsonl`, `stdout.log`, and `stderr.log` for local command runs. Phase 2C adds `prompt.md`, `codex-events.jsonl`, and `last-message.md` for Codex read-only proposal runs. Phase 2E lets these artifacts live under either project-root or memory-root depending on memory mode. Phase 3B adds `validation.json` and per-command validation logs. Phase 3C adds `audit.json`, `audit.md`, `diff.patch`, and `diff-stat.txt` for Auditor proposal runs. Phase 3D adds Coder workspace-write runs with `implementation.md`, worktree diff artifacts, and source-root pollution checks. Phase 3E adds `apply.json` and `discard.json` for explicit worktree adoption or rejection gates. Phase 4B adds `spec-test-proposal.json` and `spec-test-proposal.md` for read-only evidence proposals. Phase 4C reuses the worktree artifact shape for `spec-test-generator` runs that generate test-only diff proposals. Phase 4E adds `spec-proposal.json/md` and `plan-proposal.json/md` for front-of-change Spec and Planner proposal gates.
 
 The Run Orchestrator should receive memory through a Memory Resolver and Context Projector. Runtime adapters must not hardcode repo-local Harness paths.
+
+Run-level streaming output belongs to the execution layer. A future GUI may expose live streams, replay, interrupt, and cancel controls, but stopping one Run does not close the owning Change.
 
 ## 7. Worktree Isolation
 
@@ -270,7 +287,23 @@ Codex adapters, change manager, and run manager must not directly assume `harnes
 
 The current implementation provides repo-local and external-local resolver layouts. Remote memory remains unsupported future work.
 
-## 12. Phase Roadmap
+## 12. Workbench and Runtime Read Models
+
+The first personal GUI should be a change-centered workbench, not a chat-only app or a generic admin console.
+
+- Left side: projects, Topics, repo, and memory entry points.
+- Center: Topic Thread View and Agent Loop View.
+- Right side: project-level Approval Inbox.
+
+A future Workbench Snapshot should derive Topic state, thread events, approval items, run summaries, worktrees, validation, audit, drift, and evolution summaries from canonical artifacts. It must not become a second workflow database.
+
+See:
+
+- `docs/WORKBENCH.md`
+- `docs/RUNTIME.md`
+- `docs/AGENT-MODEL.md`
+
+## 13. Phase Roadmap
 
 | Phase | Goal |
 | --- | --- |
@@ -291,10 +324,12 @@ The current implementation provides repo-local and external-local resolver layou
 | Phase 4D | Deterministic Spec-Test drift readiness |
 | Phase 4E | Spec Agent and Planner proposal gates |
 | Phase 4F+ | Drift gates and stricter Spec-Test enforcement |
-| Phase 5 | Dashboard and run/artifact explorer |
+| Phase 5A-prep | Workspace runtime model and Workbench information architecture |
+| Phase 5A | Workbench Snapshot read model |
+| Phase 5B+ | Personal GUI and run/artifact explorer |
 | Future | External-local default switch, remote memory, team mode, and Spec-as-Source experiments |
 
-## 13. Non-Goals
+## 14. Non-Goals
 
 Not in the current architecture baseline:
 

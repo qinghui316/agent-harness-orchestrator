@@ -126,7 +126,8 @@ Later phases add:
 - merge/PR/push gates after apply/discard is stable.
 - Switching external-local to the personal default after more migration and sync work.
 - Run events, logs, diffs, validation reports, and review artifacts.
-- Local dashboard.
+- Workbench Snapshot as the stable GUI read model.
+- Personal GUI with Topic-centered threads, run visibility, and project-level approval inbox.
 - Interactive terminal sessions.
 
 Long-term memory direction:
@@ -159,6 +160,8 @@ Long-term memory direction:
 - Codex CLI can be invoked through read-only proposal and worktree-bound Coder adapters.
 - Pending evolution can be surfaced and handled with proposal, audit, validation, results, and mark-complete.
 - Multiple projects can eventually be shown in a dashboard.
+- A personal GUI can present each Change as a Topic while preserving Change as the durable workflow unit.
+- Developers can eventually inspect live agent streams, review run artifacts, and act on pending approvals from one project workbench.
 - Agent output is persisted as artifacts, not only chat.
 - High-impact agent output is confirmed by a human before advancing critical state.
 - Uninitialized projects are unaffected.

@@ -172,7 +172,48 @@ Decisions:
 - Run artifacts should include context projection, events, logs, diffs, validation results, and review outputs where available.
 - Archive history is evidence for future Harness evolution.
 
-## 10. Worktree vs Container Boundary
+## 10. Workbench Boundary
+
+The personal GUI is a change-centered workbench.
+
+Decisions:
+
+- The user-facing label is `Topic`; the domain object is `Change`.
+- One Topic maps to one Change in the first GUI.
+- Durable free-chat topics outside Change are out of scope.
+- Thread View is a narrative projection over Change facts, Runs, and decisions.
+- Agent Loop View exposes run-level streaming, tool/event detail, future replay, and future interrupt/cancel controls.
+- A cancelled or interrupted Run does not close the owning Change.
+- GUI snapshots are derived views and must not become a second workflow database.
+
+## 11. Thread / Run Boundary
+
+Thread View and Run are different objects.
+
+Decisions:
+
+- Thread View is the user-facing narrative projection over accepted Change facts, Runs, artifacts, and approvals.
+- Run is the executable attempt with live events, stream output, artifacts, and future interrupt/cancel controls.
+- A future Session may exist as a runtime helper for continuity, but it must not replace Change as the workflow unit or Thread View as the user-facing projection.
+- Interrupting, cancelling, or replaying a Run changes run state only; it does not accept a proposal, close a Change, or rewrite canonical ECL files by itself.
+- Thread View must remain rebuildable from durable facts and must not become an independent source of truth.
+
+## 12. Approval Boundary
+
+The Approval Inbox is a project-level actionable view, not a new source of truth.
+
+It may surface:
+
+- spec proposals ready for accept;
+- plan proposals ready for accept;
+- audit proposals ready for accept;
+- worktrees ready to apply;
+- Changes ready to close;
+- Harness evolution proposals awaiting approval.
+
+Accepting an approval updates the underlying canonical object. The inbox itself must be rebuildable from canonical state.
+
+## 13. Worktree vs Container Boundary
 
 Worktree isolation is the default direction for local code-change isolation.
 
@@ -201,7 +242,7 @@ Decisions:
 - Container sandboxing is a future optional layer for higher-risk, team, or remote execution scenarios.
 - Automatic merge is out of scope until explicitly added behind human approval gates.
 
-## 11. Codex-Style Executor Boundary
+## 14. Codex-Style Executor Boundary
 
 Codex CLI, Claude Code, and similar tools are external runtimes.
 
@@ -250,7 +291,7 @@ Apply/discard boundary:
 - `aho worktree apply --commit` is explicit commit confirmation. Without `--commit`, source changes remain uncommitted and block close until committed or cleaned.
 - `aho worktree discard` only discards an unapplied worktree proposal. It does not revert source repo changes.
 
-## 12. Validation and Auditor Boundary
+## 15. Validation and Auditor Boundary
 
 Validation and audit are separate gates.
 
@@ -297,7 +338,18 @@ Spec-Test mapping links Acceptance Criteria to test or validation evidence. It i
 - A failed validation should produce evidence for fixing code, improving specs, or evolving Harness rules.
 - Spec-linked validation starts as warnings until the mapping model is mature enough to fail CI reliably.
 
-## 13. Harness Evolution Boundary
+## 16. Declarative Agent Spec Boundary
+
+Future multi-agent scheduling must use declared roles, scoped Runs, artifacts, and approvals.
+
+Decisions:
+
+- Current bundled role profiles remain role contracts.
+- Future Agent Specs should declare role id, description, allowed inputs, allowed outputs, write capability, preferred runtime, human confirmation requirements, and whether delegation is allowed.
+- Role/subagent declarations may guide future schedulers, but they must not replace accepted specs, plans, tasks, or human gates.
+- Multi-agent collaboration must not depend on a shared unbounded chat transcript.
+
+## 17. Harness Evolution Boundary
 
 Harness evolution improves the collaboration system, not business code directly.
 
@@ -319,7 +371,7 @@ Decisions:
 - Evolution must not silently rewrite business specs.
 - No independent review means no automatic apply.
 
-## 14. Public Repo vs Local Harness Boundary
+## 18. Public Repo vs Local Harness Boundary
 
 The open-source repository should remain a usable product repository, not a dump of local agent work history.
 
@@ -348,7 +400,7 @@ Decisions:
 - External-local memory strengthens this boundary by keeping private run history and project-specific agent state outside the business repository.
 - Project markers must not contain secrets, user home paths, or machine-specific credentials.
 
-## 15. Deferred Boundaries
+## 19. Deferred Boundaries
 
 These areas are intentionally deferred:
 
@@ -367,7 +419,7 @@ These areas are intentionally deferred:
 
 Each requires a future architecture decision before implementation.
 
-## 16. Current Defaults
+## 20. Current Defaults
 
 Current defaults:
 
