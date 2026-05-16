@@ -5,6 +5,7 @@ import { getChangeStatus } from "../change/manager.js";
 import { buildCodexWorkspaceWriteArgv, detectCodexCapabilities } from "../codex/capabilities.js";
 import { extractFinalMessageFromCodexJsonl } from "../codex/jsonl.js";
 import { readPromptInput } from "../codex/prompt.js";
+import { buildAgentSystemPrompt, buildRunAgentRecord, resolveAgentRole } from "../agent/catalog.js";
 import { writeJsonFile } from "../fs/json.js";
 import { assertWritableMemory, resolveProjectMemory } from "../memory/resolver.js";
 import { getGitStatusShort } from "../project/git.js";
@@ -43,6 +44,7 @@ export async function startCodeRun(project: ManagedProject, options: CodeRunOpti
   if (!changeId) throw new Error("Cannot start code run without an active change id.");
 
   const selectedTasks = normalizeAndValidateTasks(changeStatus, options.taskIds ?? []);
+  const role = await resolveAgentRole(memory, "coder");
   const extraPrompt = options.prompt || options.promptFile
     ? await readPromptInput({ prompt: options.prompt, promptFile: options.promptFile })
     : undefined;
@@ -106,6 +108,8 @@ export async function startCodeRun(project: ManagedProject, options: CodeRunOpti
     finishedAt: null,
     artifacts,
     worktree,
+    promptStack: ["agent-role", "active-change", "worktree", "task-scope", "human-prompt"],
+    agent: buildRunAgentRecord(role),
   };
   await writeJsonFile(paths.run, run);
   await appendRunEvent(paths.events, { timestamp: now, type: "run.created", runId, data: { changeId, runtime: "coder-codex", worktree } });
@@ -121,6 +125,7 @@ export async function startCodeRun(project: ManagedProject, options: CodeRunOpti
     sourceProjectPath: project.path,
     selectedTasks,
     extraPrompt,
+    coderProfile: buildAgentSystemPrompt(role),
   });
   await writeFile(paths.prompt, prompt, "utf8");
 

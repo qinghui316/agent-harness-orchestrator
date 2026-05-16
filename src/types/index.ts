@@ -36,6 +36,12 @@ export interface ResolvedMemory {
   templatesRoot: string;
   scriptsRoot: string;
   runsRoot: string;
+  workbenchRoot: string;
+  workbenchDbPath: string;
+  agentsRoot: string;
+  commandsRoot: string;
+  agentCatalogPath: string;
+  skillsRoot: string;
   worktreeMetadataRoot: string;
   worktreeIndexPath: string;
   reason?: string;
@@ -58,6 +64,12 @@ export interface MemoryStatus {
     templatesRoot: string;
     scriptsRoot: string;
     runsRoot: string;
+    workbenchRoot: string;
+    workbenchDbPath: string;
+    agentsRoot: string;
+    commandsRoot: string;
+    agentCatalogPath: string;
+    skillsRoot: string;
     worktreeMetadataRoot: string;
     worktreeIndexPath: string;
   };
@@ -370,7 +382,7 @@ export interface ChangeProposalSummary {
 
 export type RunStatus = "created" | "running" | "completed" | "failed";
 
-export type RunRuntime = "local-command" | "codex-readonly" | "validator" | "auditor" | "coder-codex" | "worktree-apply" | "worktree-discard" | "spec-test-proposer" | "spec-test-generator" | "spec-agent" | "planner";
+export type RunRuntime = "local-command" | "codex-readonly" | "validator" | "auditor" | "coder-codex" | "worktree-apply" | "worktree-discard" | "spec-test-proposer" | "spec-test-generator" | "spec-agent" | "planner" | "orchestrator" | "agent-codex";
 
 export type RunExecutionMode = "direct" | "worktree";
 
@@ -438,6 +450,8 @@ export interface RunArtifactPaths {
   specProposalMarkdown?: string;
   planProposal?: string;
   planProposalMarkdown?: string;
+  orchestrationPlan?: string;
+  orchestrationPlanMarkdown?: string;
 }
 
 export type ValidationStatus = "passed" | "failed";
@@ -546,6 +560,28 @@ export interface RunMetadata {
   finishedAt: string | null;
   artifacts: RunArtifactPaths;
   worktree?: RunWorktreeInfo;
+  promptStack?: string[];
+  enabledSkills?: RunSkillRecord[];
+  agent?: RunAgentRecord;
+}
+
+export interface RunSkillRecord {
+  id: string;
+  sourceHash: string;
+  materializedHash?: string | null;
+  bridge?: string;
+  version?: string;
+}
+
+export interface RunAgentRecord {
+  roleId: string;
+  source: "bundled" | "memory";
+  sourcePath: string;
+  sourceHash: string;
+  catalogVersion: string;
+  catalogHash: string;
+  bridge?: string;
+  materializedHash?: string | null;
 }
 
 export interface RunEvent {
@@ -591,6 +627,9 @@ export interface RunEvent {
     | "change.plan.proposal.completed"
     | "change.plan.proposal.failed"
     | "change.plan.proposal.accepted"
+    | "orchestrator.plan.started"
+    | "orchestrator.plan.completed"
+    | "orchestrator.plan.failed"
     | "diff.collected"
     | "source.checked"
     | "run.completed"

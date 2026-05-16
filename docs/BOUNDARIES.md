@@ -122,6 +122,34 @@ Decisions:
 - Agents communicate through files, events, diffs, validation reports, and review artifacts, not through shared chat context.
 - If a runtime exposes richer session APIs later, those APIs are adapters, not the source of project truth.
 
+## 6A. Codex Skill Bridge Boundary
+
+AHO may use Codex plugin and skill discovery as a runtime delivery mechanism, but AHO skill memory remains authoritative.
+
+Decisions:
+
+- `skills/{skill-id}/SKILL.md` under the resolved memory root is the skill source of truth.
+- SQLite records skill enablement and bridge sync state.
+- `~/.codex/plugins/aho-managed` is a rebuildable runtime projection.
+- AHO must not overwrite user Codex skills, oh-my-codex skills, or global Codex configuration.
+- Bridge install/sync is explicit; runs may warn when the bridge is out of sync but must not secretly write to `~/.codex`.
+- Imported skills do not execute scripts in Phase 5E.
+- Runs record enabled skill ids and hashes so Codex behavior can be audited later.
+
+## 6B. ECL Agent Runtime Boundary
+
+ECL is the workflow protocol and canonical project record. It is not a single mega-prompt and must not be reduced to a Codex skill.
+
+Phase 5F introduces an AHO-owned agent runtime bridge:
+
+- AHO selects `agent_role`.
+- AHO reads `agents/{role-id}.md` from memory or bundled profiles.
+- AHO validates role write capability and required gates.
+- AHO sends role instructions, bounded ECL context, and the user/task prompt to Codex.
+- Codex executes the scoped run and emits artifacts.
+
+Skills remain discoverable runtime capabilities. AHO must not inject all enabled skill bodies into every prompt. Enabled skills are recorded as available provenance; actual skill usage is only recorded when observable evidence exists.
+
 ## 7. Memory Unavailable Boundary
 
 Memory can be unavailable on a new machine, after a plain repository clone, when AHO home was not synced, when permissions are missing, or when a future remote memory service is offline.
@@ -214,6 +242,10 @@ It may surface:
 - Harness evolution proposals awaiting approval.
 
 Accepting an approval updates the underlying canonical object. The inbox itself must be rebuildable from canonical state.
+
+Phase 5G presents this as a Decision Inbox. Pending decisions must show what the user is accepting, including proposal/run/worktree/artifact evidence. Accepted and completed decisions may stay visible as interaction history, but they do not become workflow truth. A request-changes decision records user feedback and suggests a follow-up proposal/run; it must not directly rewrite canonical files.
+
+Accepted, consumed, applied, discarded, or closed items must leave the pending queue. De-duplication must be backed by canonical artifacts, accepted events, or action records that point back to canonical evidence.
 
 ## 13. Worktree vs Container Boundary
 

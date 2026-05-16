@@ -20,6 +20,7 @@ let repoDir: string;
 let originalPath: string | undefined;
 let originalPathKey: string;
 let originalExitCode: string | number | undefined;
+let originalCodexHome: string | undefined;
 
 async function runCli(args: string[]): Promise<void> {
   const program = createProgram();
@@ -44,13 +45,16 @@ beforeEach(async () => {
   originalPathKey = Object.keys(process.env).find((key) => key.toLowerCase() === "path") ?? "PATH";
   originalPath = process.env[originalPathKey];
   originalExitCode = process.exitCode;
+  originalCodexHome = process.env.CODEX_HOME;
   process.exitCode = undefined;
   process.env.AHO_HOME = homeDir;
+  process.env.CODEX_HOME = join(tempDir, "codex-home");
   await execFileAsync("git", ["init", repoDir]);
 });
 
 afterEach(async () => {
   delete process.env.AHO_HOME;
+  process.env.CODEX_HOME = originalCodexHome;
   delete process.env.AHO_FAKE_CODEX_POLLUTE_PATH;
   delete process.env.AHO_FAKE_CODEX_ARGS_PATH;
   process.env[originalPathKey] = originalPath;
@@ -128,6 +132,31 @@ describe("CLI flow", () => {
     expect(approvals.every((item) => !item.action?.mutates || item.action.requiresConfirmation)).toBe(true);
     expect(snapshot.harnessGaps.map((item) => item.id)).toEqual(expect.arrayContaining(["workspaceIndex", "subagentSpec"]));
     expect(snapshot.roles.map((item) => item.id)).toEqual(expect.arrayContaining(["spec-agent", "planner", "coder"]));
+  });
+
+  it("imports project skills and syncs them through the Codex bridge", async () => {
+    await runCli(["project", "add", repoDir, "--name", "Repo"]);
+    await runCli(["harness", "init", "repo", "--memory", "external-local"]);
+    const skillDir = join(tempDir, "skill");
+    await mkdir(join(skillDir, "references"), { recursive: true });
+    await mkdir(join(skillDir, "scripts"), { recursive: true });
+    await writeFile(join(skillDir, "SKILL.md"), "---\nname: pricing-helper\ndescription: Pricing rules.\n---\n\n# Pricing Helper\n", "utf8");
+    await writeFile(join(skillDir, "references", "rules.md"), "rules\n", "utf8");
+    await writeFile(join(skillDir, "scripts", "unsafe.ps1"), "Write-Host unsafe\n", "utf8");
+
+    await runCli(["skill", "import", "repo", "--path", skillDir]);
+    await runCli(["skill", "enable", "repo", "pricing-helper"]);
+    await runCli(["codex", "bridge", "install"]);
+    await runCli(["codex", "bridge", "sync", "repo"]);
+    await runCli(["codex", "bridge", "status", "repo", "--json"]);
+    await runCli(["skill", "list", "repo", "--json"]);
+
+    const memorySkillRoot = join(homeDir, "projects", "repo", "skills", "pricing-helper");
+    const bridgeSkillRoot = join(process.env.CODEX_HOME ?? "", "plugins", "aho-managed", "skills", "repo__pricing-helper");
+    expect(existsSync(join(memorySkillRoot, "SKILL.md"))).toBe(true);
+    expect(existsSync(join(memorySkillRoot, "scripts", "unsafe.ps1"))).toBe(false);
+    expect(existsSync(join(bridgeSkillRoot, "SKILL.md"))).toBe(true);
+    expect(await readFile(join(bridgeSkillRoot, "SKILL.md"), "utf8")).toContain("name: repo__pricing-helper");
   });
 
   it("keeps ordinary Topic chat in one thread and resumes Codex sessions when available", async () => {
@@ -348,6 +377,38 @@ describe("CLI flow", () => {
     const acMap = JSON.parse(await readFile(join(memoryRoot, "harness", "changes", "active", "spec-planner", "ac-map.json"), "utf8"));
     expect(acMap.blockingIssues).toEqual([]);
     expect(acMap.tasks).toHaveLength(2);
+  });
+
+  it("runs AHO-managed agent roles through ordinary Codex exec with role provenance", async () => {
+    await installFakeCodex("root");
+    await runCli(["project", "add", repoDir, "--name", "Repo"]);
+    await runCli(["harness", "init", "repo", "--memory", "external-local"]);
+    await runCli(["change", "new", "repo", "--title", "Agent Bridge", "--body", "Raw request for a proposal."]);
+
+    await runCli(["agent", "list", "repo", "--json"]);
+    await runCli(["agent", "show", "repo", "spec-agent", "--json"]);
+    await runCli(["agent", "sync", "repo", "--json"]);
+    await runCli(["agent", "run", "repo", "spec-agent", "--prompt", "Explain the current active change.", "--json"]);
+    await expect(runCli(["agent", "run", "repo", "coder", "--prompt", "Write code without an assigned worktree.", "--json"])).rejects.toThrow("requires --worktree");
+
+    const memoryRoot = join(homeDir, "projects", "repo");
+    const runIds = await readdir(join(memoryRoot, "runs"));
+    expect(runIds).toHaveLength(1);
+    const runDir = join(memoryRoot, "runs", runIds[0]);
+    const run = JSON.parse(await readFile(join(runDir, "run.json"), "utf8"));
+    const prompt = await readFile(join(runDir, "prompt.md"), "utf8");
+
+    expect(run).toMatchObject({
+      runtime: "agent-codex",
+      executionMode: "direct",
+      proposalOnly: true,
+      status: "completed",
+      agent: { roleId: "spec-agent", source: "memory" },
+    });
+    expect(run.promptStack).toContain("agent-role");
+    expect(prompt).toContain("<system-instructions role=\"spec-agent\">");
+    expect(prompt).toContain("Explain the current active change.");
+    expect(await readFile(join(runDir, "last-message.md"), "utf8")).toContain("fake codex proposal");
   });
 
   it("rejects blocked and stale spec proposal acceptance", async () => {

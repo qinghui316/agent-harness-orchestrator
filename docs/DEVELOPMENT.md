@@ -2,7 +2,7 @@
 
 ## 1. Current Phase
 
-This repository contains Harness infrastructure, a Phase 1 TypeScript CLI, Phase 2A structured change management, Phase 2B local command run artifacts, Phase 2C Codex read-only proposal capture, Phase 2D memory resolver foundation, Phase 2E opt-in external-local memory, Phase 3A AHO-owned worktree management, Phase 3B change-scoped validation, Phase 3C Auditor proposal gate, Phase 3D Codex Coder worktree runs, Phase 3E worktree apply/discard gates, Phase 4A Spec-Test evidence mapping, Phase 4B Spec-Test evidence proposals, Phase 4C Codex-assisted passing Spec-Test generation, Phase 4D Spec-Test drift readiness, Phase 4E Spec/Planner proposal gates, Phase 5A Workbench Snapshot read models, Phase 5B Workbench stream replay / structured approval actions, Phase 5C local Workbench GUI shell, and Phase 5D Topic chat with Codex plan-mode workflow actions.
+This repository contains Harness infrastructure, a Phase 1 TypeScript CLI, Phase 2A structured change management, Phase 2B local command run artifacts, Phase 2C Codex read-only proposal capture, Phase 2D memory resolver foundation, Phase 2E opt-in external-local memory, Phase 3A AHO-owned worktree management, Phase 3B change-scoped validation, Phase 3C Auditor proposal gate, Phase 3D Codex Coder worktree runs, Phase 3E worktree apply/discard gates, Phase 4A Spec-Test evidence mapping, Phase 4B Spec-Test evidence proposals, Phase 4C Codex-assisted passing Spec-Test generation, Phase 4D Spec-Test drift readiness, Phase 4E Spec/Planner proposal gates, Phase 5A Workbench Snapshot read models, Phase 5B Workbench stream replay / structured approval actions, Phase 5C local Workbench GUI shell, Phase 5D Topic chat with Codex plan-mode workflow actions, Phase 5E Codex Skill Bridge plus Workbench SQLite store, and Phase 5F AHO-managed agent runtime bridge.
 
 ## 2. Prerequisites
 
@@ -155,11 +155,53 @@ GET  /api/projects/:projectId/workbench/actions/:actionRunId
 GET  /api/projects/:projectId/workbench/actions/:actionRunId/events
 ```
 
-Ordinary chat messages are appended to the active Topic's `thread.jsonl` and answered through Codex read-only mode. If Codex exposes a session id in JSONL output, AHO stores it in Topic runtime metadata and attempts `codex exec resume <session-id>` for later ordinary chat. If session resume is unavailable, AHO rebuilds context from durable Topic memory. The Codex session is runtime continuity only; accepted `spec.md`, `plan.md`, `tasks.md`, review, run, validation, audit, apply, and close artifacts remain the workflow sources of truth.
+Ordinary chat messages are stored in the resolved Workbench SQLite store. Existing `thread.jsonl` files are imported best-effort for compatibility, but SQLite is the canonical interaction history for new Topic messages. Codex session ids are runtime cache only. AHO uses fresh read-only `codex exec` unless Codex resume exposes equivalent sandbox and cwd constraints; if not, AHO rebuilds context from durable Topic memory. Accepted `spec.md`, `plan.md`, `tasks.md`, review, run, validation, audit, apply, and close artifacts remain the workflow sources of truth.
 
 `POST /api/projects/:projectId/workbench/actions` only accepts allowlisted action types such as `chat.ask`, `change.spec.propose`, `change.spec.accept`, `change.plan.propose`, `change.plan.accept`, `code.run`, `validate.run`, `audit.run`, and `spec-test.drift`. Mutating actions still require `confirm: true`; the server does not accept arbitrary shell commands.
 
-## 9. Worktree Commands
+## 9. Skill and Codex Bridge Commands
+
+AHO skills live in the resolved memory root and are the project source of truth. Codex bridge copies are rebuildable runtime projection.
+
+AHO agent roles are selected by AHO, not by a Codex CLI `--agent` flag. AHO resolves a role markdown contract, combines it with bounded ECL context and the user task, then calls ordinary `codex exec`. Codex skills remain available through the synced `aho-managed` plugin namespace and are loaded progressively by Codex itself.
+
+```powershell
+node dist/index.js agent list aho-test --json
+node dist/index.js agent show aho-test coder --json
+node dist/index.js agent sync aho-test --json
+node dist/index.js agent run aho-test spec-agent --prompt "Draft a spec proposal from the active change." --json
+node dist/index.js agent run aho-test coder --worktree <worktree-id> --prompt "Implement the active change in this worktree." --json
+
+node dist/index.js skill import aho-test --path C:\path\to\skill
+node dist/index.js skill list aho-test --json
+node dist/index.js skill enable aho-test pricing-skill
+node dist/index.js skill disable aho-test pricing-skill --topic <change-id>
+
+node dist/index.js codex bridge status --json
+node dist/index.js codex bridge status aho-test --json
+node dist/index.js codex bridge install --json
+node dist/index.js codex bridge sync aho-test --json
+```
+
+`skill import` copies only `SKILL.md`, `references/`, and `examples/`. It does not import `scripts/`.
+
+`agent sync` copies bundled role contracts into the resolved memory root and writes `agent-catalog.json` when missing. Memory role files can be inspected and, in later phases, become the override point for project-specific role contracts.
+
+`agent run` is a diagnostic low-level entrypoint. Product commands such as `change spec propose`, `change plan propose`, `code run`, and `audit run` remain the recommended workflow commands; they reuse the same role bridge and record role/catalog provenance in run metadata.
+
+`codex bridge install` writes only the AHO namespace:
+
+```text
+<CODEX_HOME or ~/.codex>/plugins/aho-managed/
+  plugin.json
+  skills/
+  agents/
+  commands/
+```
+
+`codex bridge sync` materializes enabled project/topic skills as project-qualified Codex skills such as `{project-id}__{skill-id}` and role contracts under `agents/`. It does not overwrite user-managed Codex skills, oh-my-codex skills, or global Codex configuration. Runs record enabled skill ids, source hashes, materialized hashes when synced, role id, role source hash, catalog hash, bridge version, and prompt stack.
+
+## 10. Worktree Commands
 
 Worktrees require a registered, managed project. `worktree create` requires exactly one active change. `list`, `show`, and `remove` do not require an active change so old worktrees can be cleaned up after archive.
 
@@ -180,7 +222,7 @@ node dist/index.js run start aho-test --worktree -- npm test
 
 `run start --worktree` records `executionMode: "worktree"` and keeps the checkout after completion for inspection.
 
-## 10. Validation Commands
+## 11. Validation Commands
 
 Validation is mechanical evidence for the current active change. It does not replace review or human confirmation.
 

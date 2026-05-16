@@ -38,6 +38,28 @@ This model should be serializable as durable project memory and readable by futu
 - Future declarative specs reference or override those contracts; they do not replace the need for role prompts.
 - Project memory may later override or extend bundled roles, but only through explicit memory rules and human-reviewed changes.
 
+## 4A. Phase 5F Agent Runtime Bridge
+
+Phase 5F adds an AHO-owned `agent_role` bridge modeled after oh-my-codex. Codex CLI does not need a native `--agent` flag. AHO resolves the role, reads the role Markdown, wraps it as system instructions, adds bounded ECL context and the task prompt, then calls normal `codex exec`.
+
+```text
+AHO role id
+-> agents/{role-id}.md or bundled profile
+-> ECL context packet
+-> codex exec
+-> run artifacts and provenance
+```
+
+Role, skill, and command responsibilities stay separate:
+
+| Object | Responsibility |
+| --- | --- |
+| Role / Agent | Defines behavior, allowed inputs/outputs, write capability, gates |
+| Skill | Reusable capability or knowledge discovered by Codex when relevant |
+| Command | Workflow entrypoint such as spec propose, plan propose, code run |
+
+AHO does not inject every enabled `SKILL.md` into every prompt. Skills are source files in AHO memory and runtime projections in the Codex bridge; Codex handles progressive skill loading when it can discover them.
+
 ## 5. Multi-Agent Boundary
 
 Future multi-agent work must coordinate through:

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildCodexReadonlyArgv, buildCodexWorkspaceWriteArgv, evaluateCodexCapabilities } from "../../src/codex/capabilities.js";
+import { buildCodexReadonlyArgv, buildCodexReadonlyResumeArgv, buildCodexWorkspaceWriteArgv, evaluateCodexCapabilities } from "../../src/codex/capabilities.js";
 import { extractFinalMessageFromCodexJsonl } from "../../src/codex/jsonl.js";
 import { composeCodexPrompt, readPromptInput } from "../../src/codex/prompt.js";
 
@@ -80,6 +80,27 @@ describe("codex capabilities", () => {
 
     expect(argv.args).toContain("--add-dir");
     expect(argv.args).toContain("/memory");
+  });
+
+  it("only allows resume when resume help exposes equivalent sandbox and cwd constraints", () => {
+    const unsafe = evaluateCodexCapabilities("codex-cli 1.0", rootHelp, execHelp, undefined, "Usage: codex exec resume [SESSION]");
+    expect(unsafe.supportsSafeResume).toBe(false);
+    expect(() => buildCodexReadonlyResumeArgv(unsafe, {
+      projectPath: "/repo",
+      lastMessagePath: "/repo/out.md",
+      sessionId: "session-1",
+    })).toThrow("equivalent read-only");
+
+    const safe = evaluateCodexCapabilities("codex-cli 1.0", rootHelp, execHelp, undefined, "Usage: codex exec resume --sandbox <MODE> --cd <DIR>");
+    const argv = buildCodexReadonlyResumeArgv(safe, {
+      projectPath: "/repo",
+      lastMessagePath: "/repo/out.md",
+      sessionId: "session-1",
+    });
+    expect(argv.args).toContain("--sandbox");
+    expect(argv.args).toContain("read-only");
+    expect(argv.args).toContain("--cd");
+    expect(argv.args).toContain("/repo");
   });
 
   it("omits optional read-only memory directories when unsupported", () => {

@@ -22,7 +22,7 @@ button {
 
 .app-shell {
   display: grid;
-  grid-template-columns: 260px minmax(720px, 1fr) 360px;
+  grid-template-columns: 340px minmax(640px, 1fr) 360px;
   grid-template-rows: minmax(0, 1fr) 34px;
   height: 100vh;
   overflow: hidden;
@@ -437,6 +437,32 @@ h1 {
   gap: 8px;
 }
 
+.mode-switch {
+  align-items: center;
+  background: #efe9de;
+  border: 1px solid #e6dfd8;
+  border-radius: 8px;
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  width: fit-content;
+}
+
+.mode-switch button {
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  color: #6c6a64;
+  cursor: pointer;
+  min-height: 28px;
+  padding: 0 12px;
+}
+
+.mode-switch button.active {
+  background: #faf9f5;
+  color: #141413;
+}
+
 .tabs {
   border-bottom: 1px solid #e6dfd8;
   display: flex;
@@ -459,19 +485,21 @@ h1 {
 
 .center-grid {
   display: grid;
-  grid-template-columns: 42% 58%;
+  grid-template-columns: minmax(0, 960px);
+  justify-content: center;
   flex: 1;
   min-height: 0;
-  overflow: hidden;
+  overflow: auto;
 }
 
 .timeline-panel {
-  border-right: 1px solid #e6dfd8;
+  border-right: 0;
   overflow: auto;
   padding: 22px 28px;
 }
 
 .replay-panel {
+  display: none;
   overflow: auto;
   padding: 22px;
 }
@@ -542,6 +570,45 @@ h1 {
 .timeline-item time {
   color: #6c6a64;
   font-size: 12px;
+}
+
+.plan-card {
+  background: #faf9f5;
+  border: 1px solid #e6dfd8;
+  border-radius: 8px;
+  margin-top: 12px;
+  padding: 14px;
+}
+
+.plan-card h3 {
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  font-size: 14px;
+  font-weight: 650;
+  margin: 0 0 8px;
+}
+
+.plan-card ol {
+  display: grid;
+  gap: 8px;
+  margin: 12px 0 0;
+  padding-left: 18px;
+}
+
+.plan-card li span {
+  color: #6c6a64;
+  display: block;
+  font-size: 12px;
+  margin-top: 2px;
+}
+
+.plan-warnings,
+.feedback-note {
+  background: #fff4da;
+  border-radius: 8px;
+  color: #795b1e;
+  font-size: 12px;
+  margin-top: 10px;
+  padding: 8px 10px;
 }
 
 .run-list {
@@ -681,6 +748,42 @@ h1 {
 .approval-list {
   display: grid;
   gap: 14px;
+}
+
+.decision-history {
+  border-top: 1px solid #e6dfd8;
+  margin-top: 22px;
+  padding-top: 18px;
+}
+
+.approval-header.compact h2 {
+  font-size: 18px;
+}
+
+.decision-list {
+  display: grid;
+  gap: 10px;
+}
+
+.decision-item {
+  background: rgba(250, 249, 245, 0.68);
+  border: 1px solid #e6dfd8;
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.decision-item h3 {
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  font-size: 13px;
+  font-weight: 650;
+  margin: 0 0 6px;
+}
+
+.decision-item p {
+  color: #6c6a64;
+  font-size: 12px;
+  line-height: 1.45;
+  margin: 0;
 }
 
 .approval-empty {

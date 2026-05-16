@@ -39,7 +39,7 @@ type Snapshot = {
     agentLoop: { runs: RunSummary[] };
     thread: { events: ThreadEvent[] };
   };
-  right: { approvals: Approval[] };
+  right: { approvals: Approval[]; decisions: Decision[] };
   harnessGaps: Array<{ id: string; status: string; summary: string }>;
   warnings: string[];
 };
@@ -51,7 +51,13 @@ type TopicDetail = Topic & {
   acCount?: number;
   taskCount?: number;
 };
-type ThreadEvent = { id: string; type: string; label: string; timestamp?: string; status?: string; runId?: string };
+type PlanCard = {
+  title: string;
+  summary: string;
+  steps: Array<{ label: string; description: string; actionId?: string; requiresConfirmation?: boolean }>;
+  warnings: string[];
+};
+type ThreadEvent = { id: string; type: string; label: string; timestamp?: string; status?: string; runId?: string; planCard?: PlanCard };
 type RunSummary = { id: string; runtime: string; status: string; startedAt?: string; finishedAt?: string };
 type Approval = {
   id: string;
@@ -61,6 +67,20 @@ type Approval = {
   changeId?: string;
   reason?: string;
   action?: { actionId: string; label: string; command: string; args: string[]; mutates: boolean; requiresConfirmation: boolean };
+};
+type Decision = {
+  id: string;
+  kind: string;
+  label: string;
+  status: string;
+  changeId?: string;
+  runId?: string;
+  targetId?: string;
+  artifact?: string;
+  summary: string;
+  feedback?: string;
+  updatedAt: string;
+  completedAt?: string;
 };
 type StreamPacket = {
   run: RunSummary;
@@ -76,7 +96,7 @@ const emptySnapshot: Snapshot = {
   memory: {},
   left: { topics: [] },
   center: { selectedTopic: null, agentLoop: { runs: [] }, thread: { events: [] } },
-  right: { approvals: [] },
+  right: { approvals: [], decisions: [] },
   harnessGaps: [],
   warnings: [],
 };
@@ -93,6 +113,7 @@ export function App(): ReactElement {
   const [confirming, setConfirming] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [composerText, setComposerText] = useState("");
+  const [composerMode, setComposerMode] = useState<"chat" | "plan">("chat");
   const [actionRunning, setActionRunning] = useState<string | null>(null);
 
   async function loadApp(): Promise<void> {
@@ -166,6 +187,20 @@ export function App(): ReactElement {
     await refresh();
   }
 
+  async function requestApprovalChanges(approval: Approval): Promise<void> {
+    if (!approval.action || !selectedProjectId) return;
+    const feedback = window.prompt("写下你希望修改的地方");
+    if (!feedback?.trim()) return;
+    const result = await fetch(`/api/projects/${encodeURIComponent(selectedProjectId)}/workbench/actions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: approval.action, feedback }),
+    });
+    if (!result.ok) throw new Error(await result.text());
+    setConfirming(null);
+    await refresh();
+  }
+
   async function createTopicFromComposer(): Promise<void> {
     if (!selectedProjectId || !composerText.trim()) return;
     setActionRunning("topic.create");
@@ -186,9 +221,15 @@ export function App(): ReactElement {
 
   async function sendTopicMessage(): Promise<void> {
     if (!selectedProjectId || !activeTopic || !composerText.trim()) return;
-    setActionRunning("chat.ask");
+    setActionRunning(composerMode === "plan" ? "orchestrator.plan" : "chat.ask");
     try {
-      await postJson(`/api/projects/${encodeURIComponent(selectedProjectId)}/workbench/topics/${encodeURIComponent(activeTopic.id)}/messages`, { text: composerText.trim() });
+      const result = await postJson<{ result?: { routingDecision?: string; assistantMessage?: string } }>(`/api/projects/${encodeURIComponent(selectedProjectId)}/workbench/topics/${encodeURIComponent(activeTopic.id)}/messages`, {
+        mode: composerMode,
+        message: composerText.trim(),
+      });
+      if (result.result?.routingDecision && result.result.routingDecision !== "same-topic") {
+        setError(result.result.assistantMessage ?? "这个请求需要先解决 Topic 路由。");
+      }
       setComposerText("");
       await refresh(selectedProjectId, activeTopic.id);
     } finally {
@@ -291,13 +332,11 @@ export function App(): ReactElement {
                     <TopicComposer
                       value={composerText}
                       onChange={setComposerText}
+                      mode={composerMode}
+                      onModeChange={setComposerMode}
                       busy={actionRunning !== null}
                       onSend={sendTopicMessage}
-                      onPlan={() => runWorkflowAction("change.spec.propose")}
-                      onPlanNext={() => runWorkflowAction("change.plan.propose")}
-                      onCode={() => runWorkflowAction("code.run")}
-                      onValidate={() => runWorkflowAction("validate.run")}
-                      onAudit={() => runWorkflowAction("audit.run")}
+                      onAction={runWorkflowAction}
                     />
                   </>
                 ) : (
@@ -314,7 +353,7 @@ export function App(): ReactElement {
 
       <aside className="approval-pane">
         <div className="approval-header">
-          <h2>确认队列</h2>
+          <h2>决策</h2>
           <span>{snapshot.right.approvals.length}</span>
         </div>
         {error ? <div className="error-box">{error}</div> : null}
@@ -347,7 +386,7 @@ export function App(): ReactElement {
                 ) : (
                   <>
                     <button className="primary-button" onClick={() => setConfirming(approval.id)}><Check size={15} />确认</button>
-                    <button className="outline-button"><X size={15} />拒绝</button>
+                    <button className="outline-button" onClick={() => void requestApprovalChanges(approval)}><FileText size={15} />要求修改</button>
                     <button className="outline-button"><Clock3 size={15} />稍后</button>
                   </>
                 )}
@@ -355,6 +394,7 @@ export function App(): ReactElement {
             </article>
           ))}
         </div>
+        <DecisionHistory decisions={snapshot.right.decisions ?? []} />
       </aside>
 
       <BottomStatusBar snapshot={snapshot} project={selectedProjectStatus} topic={activeTopic} />
@@ -543,6 +583,32 @@ function EmptyWorkbench({ title, description }: { title: string; description: st
   );
 }
 
+function DecisionHistory({ decisions }: { decisions: Decision[] }): ReactElement {
+  return (
+    <section className="decision-history">
+      <div className="approval-header compact">
+        <h2>已完成</h2>
+        <span>{decisions.length}</span>
+      </div>
+      {decisions.length === 0 ? <div className="approval-empty"><h3>暂无决策记录</h3><p>接受、要求修改或完成的动作会保留在这里。</p></div> : null}
+      <div className="decision-list">
+        {decisions.slice(0, 8).map((decision) => (
+          <article key={decision.id} className="decision-item">
+            <div className="approval-meta"><span>{decision.status}</span><small>{formatTime(decision.completedAt ?? decision.updatedAt)}</small></div>
+            <h3>{decision.label}</h3>
+            <p>{decision.summary}</p>
+            <dl className="approval-fields">
+              <div><dt>目标</dt><dd>{decision.targetId ?? decision.changeId ?? "-"}</dd></div>
+              <div><dt>证据</dt><dd>{decision.artifact ?? decision.runId ?? "-"}</dd></div>
+            </dl>
+            {decision.feedback ? <p className="feedback-note">{decision.feedback}</p> : null}
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function BottomStatusBar({ snapshot, project, topic }: { snapshot: Snapshot; project: ProjectStatus | null; topic: TopicDetail | null }): ReactElement {
   const repoPath = snapshot.left.repo?.path ?? project?.path ?? "-";
   const issueCount = snapshot.warnings.length + (topic?.closeGate?.blockingIssues.length ?? 0);
@@ -588,6 +654,7 @@ function ThreadView({ events }: { events: ThreadEvent[] }): ReactElement {
           <div>
             <strong>{eventLabel(event)}</strong>
             <p>{event.label} {event.status ? `· ${event.status}` : ""}</p>
+            {event.planCard ? <PlanCardView planCard={event.planCard} /> : null}
           </div>
           <time>{formatTime(event.timestamp)}</time>
         </div>
@@ -596,41 +663,50 @@ function ThreadView({ events }: { events: ThreadEvent[] }): ReactElement {
   );
 }
 
+function PlanCardView({ planCard }: { planCard: PlanCard }): ReactElement {
+  return (
+    <div className="plan-card">
+      <h3>{planCard.title}</h3>
+      <p>{planCard.summary}</p>
+      <ol>
+        {planCard.steps.map((step, index) => <li key={`${step.label}-${index}`}><strong>{step.label}</strong><span>{step.description}</span></li>)}
+      </ol>
+      {planCard.warnings.length > 0 ? <div className="plan-warnings">{planCard.warnings.join(" · ")}</div> : null}
+    </div>
+  );
+}
+
 function TopicComposer({
   value,
   onChange,
+  mode,
+  onModeChange,
   busy,
   onSend,
-  onPlan,
-  onPlanNext,
-  onCode,
-  onValidate,
-  onAudit,
+  onAction,
 }: {
   value: string;
   onChange: (value: string) => void;
+  mode: "chat" | "plan";
+  onModeChange: (mode: "chat" | "plan") => void;
   busy: boolean;
   onSend: () => Promise<void>;
-  onPlan: () => void;
-  onPlanNext: () => void;
-  onCode: () => void;
-  onValidate: () => void;
-  onAudit: () => void;
+  onAction: (actionType: string, options?: Record<string, unknown>) => Promise<void>;
 }): ReactElement {
   return (
     <div className="topic-composer">
+      <div className="mode-switch" role="tablist" aria-label="Composer mode">
+        <button className={mode === "chat" ? "active" : ""} onClick={() => onModeChange("chat")}>Chat</button>
+        <button className={mode === "plan" ? "active" : ""} onClick={() => onModeChange("plan")}>Plan</button>
+      </div>
       <textarea
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        placeholder="继续提问、补充需求，或让 AI 整理成 Spec / Plan。普通对话默认只读。"
+        placeholder={mode === "chat" ? "只读提问或补充上下文。" : "描述要规划的需求，Orchestrator 会生成计划卡片。"}
       />
       <div className="composer-actions">
-        <button className="primary-button" disabled={busy || !value.trim()} onClick={() => void onSend()}>发送对话</button>
-        <button className="outline-button" disabled={busy} onClick={onPlan}>生成 Spec</button>
-        <button className="outline-button" disabled={busy} onClick={onPlanNext}>生成计划</button>
-        <button className="outline-button" disabled={busy} onClick={onCode}>运行 Coder</button>
-        <button className="outline-button" disabled={busy} onClick={onValidate}>验证</button>
-        <button className="outline-button" disabled={busy} onClick={onAudit}>审查</button>
+        <button className="primary-button" disabled={busy || !value.trim()} onClick={() => void onSend()}>{mode === "chat" ? "发送" : "生成计划卡片"}</button>
+        <button className="outline-button" disabled={busy} onClick={() => void onAction("change.spec.propose")}>从计划生成 Spec</button>
       </div>
     </div>
   );

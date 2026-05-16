@@ -4,6 +4,7 @@ import { join, relative } from "node:path";
 import { getChangeStatus } from "../change/manager.js";
 import { buildCodexReadonlyArgv, detectCodexCapabilities } from "../codex/capabilities.js";
 import { extractFinalMessageFromCodexJsonl } from "../codex/jsonl.js";
+import { buildAgentSystemPrompt, buildRunAgentRecord, resolveAgentRole } from "../agent/catalog.js";
 import { writeJsonFile } from "../fs/json.js";
 import { assertWritableMemory, resolveProjectMemory } from "../memory/resolver.js";
 import { getLatestValidationSummary } from "../validation/artifacts.js";
@@ -38,6 +39,7 @@ export async function startAuditRun(project: ManagedProject, options: AuditRunOp
   assertRunnableChange(changeStatus);
   const changeId = changeStatus.change?.id ?? changeStatus.activeChanges[0]?.name;
   if (!changeId) throw new Error("Cannot start audit without an active change id.");
+  const role = await resolveAgentRole(memory, "auditor");
 
   const runId = buildRunId(changeId, ["auditor", options.worktreeId ?? "no-worktree", options.prompt ?? ""]);
   const directory = join(memory.runsRoot, runId);
@@ -89,6 +91,8 @@ export async function startAuditRun(project: ManagedProject, options: AuditRunOp
     startedAt: now,
     finishedAt: null,
     artifacts,
+    promptStack: ["agent-role", "active-change", "diff", "validation", "human-prompt"],
+    agent: buildRunAgentRecord(role),
   };
   await writeJsonFile(paths.run, run);
   await appendRunEvent(paths.events, { timestamp: now, type: "run.created", runId, data: { changeId, runtime: "auditor", worktreeId: options.worktreeId } });
@@ -110,6 +114,7 @@ export async function startAuditRun(project: ManagedProject, options: AuditRunOp
     diff: diffResult?.diff,
     diffStat: diffResult?.diffStat,
     extraPrompt: options.prompt,
+    auditorProfile: buildAgentSystemPrompt(role),
   });
   await writeFile(paths.prompt, prompt, "utf8");
 

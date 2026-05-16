@@ -1,10 +1,10 @@
 # Architecture
 
-> Status: Phase 3A implements project registration, Harness management, structured change management, local command runs, Codex read-only proposal capture, memory resolver diagnostics, opt-in external-local memory, and AHO-owned worktree execution. Phase 3B adds change-scoped validation. Phase 3C adds Codex-powered read-only Auditor proposal artifacts. Phase 3D adds Codex workspace-write Coder runs inside AHO-owned worktrees. Phase 3E adds explicit apply/discard gates for accepted worktree proposals. Phase 4A adds explicit Spec-Test evidence mapping. Phase 4B adds Codex read-only proposals for reusing existing source-root evidence. Phase 4C adds Codex-assisted passing test generation in AHO-owned worktrees. Phase 4D adds deterministic Spec-Test drift readiness. Phase 4E adds Codex read-only Spec Agent and Planner proposal gates. Phase 5A adds Workbench Snapshot read models and Harness gap diagnostics. Phase 5B adds run stream replay packets and structured approval actions. Phase 5C adds a local browser Workbench GUI shell with sidebar project onboarding and native folder picking. Phase 5D adds Topic chat with read-only Codex continuity and allowlisted plan-mode workflow actions. Merge/PR/push, CI drift gates, live run transport, cancel/interrupt, multi-agent scheduler, and remote memory remain planned future work.
+> Status: Phase 3A implements project registration, Harness management, structured change management, local command runs, Codex read-only proposal capture, memory resolver diagnostics, opt-in external-local memory, and AHO-owned worktree execution. Phase 3B adds change-scoped validation. Phase 3C adds Codex-powered read-only Auditor proposal artifacts. Phase 3D adds Codex workspace-write Coder runs inside AHO-owned worktrees. Phase 3E adds explicit apply/discard gates for accepted worktree proposals. Phase 4A adds explicit Spec-Test evidence mapping. Phase 4B adds Codex read-only proposals for reusing existing source-root evidence. Phase 4C adds Codex-assisted passing test generation in AHO-owned worktrees. Phase 4D adds deterministic Spec-Test drift readiness. Phase 4E adds Codex read-only Spec Agent and Planner proposal gates. Phase 5A adds Workbench Snapshot read models and Harness gap diagnostics. Phase 5B adds run stream replay packets and structured approval actions. Phase 5C adds a local browser Workbench GUI shell with sidebar project onboarding and native folder picking. Phase 5D adds Topic chat with read-only Codex continuity and allowlisted plan-mode workflow actions. Phase 5E adds Workbench SQLite interaction/config storage and an explicit Codex skill bridge. Phase 5F adds AHO-managed agent-role routing and declarative role/skill catalog provenance. Merge/PR/push, CI drift gates, live run transport, cancel/interrupt, multi-agent scheduler, and remote memory remain planned future work.
 
 ## 1. Current Status
 
-Agent Harness Orchestrator is a single-package TypeScript CLI plus a local browser Workbench shell. It currently manages local project registration, Harness audit/init, ECL index rebuilds, structured change creation/status/close, Topic chat interaction logs, Codex-assisted Spec and Plan proposal gates, Acceptance Criteria parsing, task mapping, generated `ac-map.json`, explicit `spec-tests.json` evidence mapping, deterministic Spec-Test drift diagnostics, Codex-assisted existing-evidence proposals, Codex-assisted passing test generation proposals, local command run artifacts, Codex read-only proposal artifacts, validation artifacts, Auditor proposal artifacts, Codex Coder proposal artifacts, apply/discard artifacts, diagnostic memory status, opt-in external-local memory, AHO-owned worktrees, and replay-oriented Workbench GUI projections.
+Agent Harness Orchestrator is a single-package TypeScript CLI plus a local browser Workbench shell. It currently manages local project registration, Harness audit/init, ECL index rebuilds, structured change creation/status/close, Topic chat interaction logs, Workbench SQLite interaction/config state, AHO skill sources, Codex bridge projection, Codex-assisted Spec and Plan proposal gates, Acceptance Criteria parsing, task mapping, generated `ac-map.json`, explicit `spec-tests.json` evidence mapping, deterministic Spec-Test drift diagnostics, Codex-assisted existing-evidence proposals, Codex-assisted passing test generation proposals, local command run artifacts, Codex read-only proposal artifacts, validation artifacts, Auditor proposal artifacts, Codex Coder proposal artifacts, apply/discard artifacts, diagnostic memory status, opt-in external-local memory, AHO-owned worktrees, and replay-oriented Workbench GUI projections.
 
 The long-term architecture is a local-first, Spec-Anchored managed-run harness. AHO keeps durable project memory in AHO-managed stores, prepares context for disposable external agents, records execution evidence, and routes every high-impact result through human confirmation.
 
@@ -292,10 +292,37 @@ The current implementation provides repo-local and external-local resolver layou
 The first personal GUI should be a change-centered workbench, not a chat-only app or a generic admin console.
 
 - Left side: projects, Topics, repo, and memory entry points.
-- Center: Topic Thread View and Agent Loop View.
-- Right side: project-level Approval Inbox.
+- Center: Topic conversation, semantic timeline, Orchestrator plan cards, and collapsed run detail access.
+- Right side: project-level Decision Inbox with pending and completed decisions.
 
-The Workbench Snapshot derives Topic state, thread events, approval items, run summaries, worktrees, validation, audit, drift, and evolution summaries from canonical artifacts. Stream replay packets read existing run artifacts and return event/artifact previews for GUI replay; they are not live streams. Structured approval actions describe existing CLI state transitions for UI buttons, but approvals remain derived views. The local Workbench server binds to `127.0.0.1` by default, serves the static GUI, and exposes sidebar project onboarding plus only allowlisted JSON actions that require explicit confirmation for mutation. Existing projects are added through a native folder picker when available, new projects are created from a selected parent folder, and Harness memory initialization remains an explicit confirmation. Phase 5D adds Topic chat APIs: ordinary messages are recorded in `thread.jsonl`, answered through read-only Codex, and may reuse a Codex session id when available. Plan-mode actions remain allowlisted state transitions, not arbitrary shell commands. The snapshot also reports Harness gaps for role catalog, stream transport, approval index, session model, workspace index, subagent spec, and background evolution queue readiness. It must not become a second workflow database.
+The Workbench Snapshot derives Topic state, thread events, approval items, decision history, run summaries, worktrees, validation, audit, drift, and evolution summaries from canonical artifacts plus interaction/action records. Stream replay packets read existing run artifacts and return event/artifact previews for GUI replay; they are not live streams. Structured approval actions describe existing CLI state transitions for UI buttons, but approvals remain derived views. The local Workbench server binds to `127.0.0.1` by default, serves the static GUI, and exposes sidebar project onboarding plus only allowlisted JSON actions that require explicit confirmation for mutation. Existing projects are added through a native folder picker when available, new projects are created from a selected parent folder, and Harness memory initialization remains an explicit confirmation. Topic chat APIs store ordinary messages in Workbench SQLite, with legacy `thread.jsonl` imported best-effort. Codex session links are runtime cache, not project facts. Plan mode calls an Orchestrator role that returns plan-card projections and suggested allowlisted actions; it does not write canonical ECL files. Plan-mode actions remain allowlisted state transitions, not arbitrary shell commands. The snapshot also reports Harness gaps for role catalog, stream transport, approval index, session model, workspace index, subagent spec, and background evolution queue readiness. It must not become a second workflow database.
+
+## 12A. Codex Skill Bridge
+
+AHO can project enabled project/topic skills into Codex so the inner executor sees the same role and domain context that AHO exposes in the GUI.
+
+```text
+Memory root skills/          source of truth
+Workbench SQLite             enablement and bridge sync state
+~/.codex/plugins/aho-managed runtime projection
+Run metadata                 skill ids, source hashes, materialized hashes, prompt stack
+```
+
+The bridge follows the Codex / oh-my-codex idea of explicit file-based skills, agents, and commands, but AHO owns the source files. The materialized `aho-managed` plugin can be deleted and rebuilt. It must not overwrite user-managed Codex skills or global config.
+
+## 12B. Agent Runtime Bridge
+
+Phase 5F adds an AHO-owned agent-role bridge. It mirrors oh-my-codex's practical pattern: `agent_role` is an AHO input, AHO resolves role Markdown and wraps it into the prompt, then Codex executes a normal `codex exec` run.
+
+```text
+agent-catalog.json        durable role declarations
+agents/{role-id}.md       role contracts
+commands/{command-id}.md  future workflow command contracts
+Codex exec                external executor
+run.json                  role/catalog/skill provenance
+```
+
+The bridge does not make Codex the workflow authority. Canonical ECL files, approvals, worktrees, validation, audit, and apply/close gates remain AHO-owned.
 
 See:
 
@@ -329,7 +356,9 @@ See:
 | Phase 5B | Workbench stream replay and structured approval actions |
 | Phase 5C | Local browser Workbench GUI shell and sidebar project onboarding |
 | Phase 5D | Topic chat and Codex plan-mode runtime |
-| Phase 5E+ | Live streaming, cancel/interrupt, and richer run controls |
+| Phase 5E | Codex Skill Bridge and Workbench SQLite store |
+| Phase 5F | AHO Agent Runtime Bridge and declarative role/skill catalog |
+| Phase 5F+ | Live streaming, cancel/interrupt, and richer run controls |
 | Future | External-local default switch, remote memory, team mode, and Spec-as-Source experiments |
 
 ## 14. Non-Goals

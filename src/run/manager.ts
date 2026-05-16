@@ -15,7 +15,7 @@ const runMetadataSchema = z.object({
   id: z.string(),
   changeId: z.string(),
   projectPath: z.string(),
-  runtime: z.enum(["local-command", "codex-readonly", "validator", "auditor", "coder-codex", "worktree-apply", "worktree-discard", "spec-test-proposer", "spec-test-generator", "spec-agent", "planner"]),
+  runtime: z.enum(["local-command", "codex-readonly", "validator", "auditor", "coder-codex", "worktree-apply", "worktree-discard", "spec-test-proposer", "spec-test-generator", "spec-agent", "planner", "orchestrator", "agent-codex"]),
   executionMode: z.enum(["direct", "worktree"]).optional(),
   proposalOnly: z.boolean().optional(),
   command: z.array(z.string()),
@@ -50,6 +50,8 @@ const runMetadataSchema = z.object({
     specProposalMarkdown: z.string().optional(),
     planProposal: z.string().optional(),
     planProposalMarkdown: z.string().optional(),
+    orchestrationPlan: z.string().optional(),
+    orchestrationPlanMarkdown: z.string().optional(),
   }),
   worktree: z.object({
     worktreeId: z.string(),
@@ -58,6 +60,24 @@ const runMetadataSchema = z.object({
     baseCommit: z.string(),
     checkoutPath: z.string(),
     metadataPath: z.string(),
+  }).optional(),
+  promptStack: z.array(z.string()).optional(),
+  enabledSkills: z.array(z.object({
+    id: z.string(),
+    sourceHash: z.string(),
+    materializedHash: z.string().nullable().optional(),
+    bridge: z.string().optional(),
+    version: z.string().optional(),
+  })).optional(),
+  agent: z.object({
+    roleId: z.string(),
+    source: z.enum(["bundled", "memory"]),
+    sourcePath: z.string(),
+    sourceHash: z.string(),
+    catalogVersion: z.string(),
+    catalogHash: z.string(),
+    bridge: z.string().optional(),
+    materializedHash: z.string().nullable().optional(),
   }).optional(),
 });
 
@@ -273,7 +293,7 @@ async function resolveRunMemory(project: ManagedProject | string | ResolvedMemor
   return resolveProjectMemory(project);
 }
 
-function displayArtifactPath(memory: ResolvedMemory, absolutePath: string): string {
+export function displayArtifactPath(memory: ResolvedMemory, absolutePath: string): string {
   const base = memory.artifactBase === "memory-root" ? memory.memoryRoot : memory.projectRoot;
   return relative(base, absolutePath).replace(/\\/g, "/");
 }

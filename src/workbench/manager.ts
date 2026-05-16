@@ -19,7 +19,8 @@ import { getSpecTestStatus } from "../spec-test/manager.js";
 import { listSpecTestProposalSummaries } from "../spec-test/proposal.js";
 import { listValidationResults, summarizeValidation } from "../validation/artifacts.js";
 import { listWorktreeStatuses, listWorktreesForChange } from "../worktree/manager.js";
-import { listTopicMessages } from "./chat.js";
+import { listTopicMessages, type OrchestrationPlanCard } from "./chat.js";
+import { WorkbenchStore, type StoredDecisionRecord } from "./store.js";
 import type {
   ChangeIndexItem,
   ChangeMetadata,
@@ -69,6 +70,7 @@ export interface WorkbenchThreadEvent {
   artifact?: string;
   status?: string;
   runId?: string;
+  planCard?: OrchestrationPlanCard;
 }
 
 export interface WorkbenchApprovalItem {
@@ -82,6 +84,21 @@ export interface WorkbenchApprovalItem {
   action?: WorkbenchApprovalAction;
   artifact?: string;
   reason?: string;
+}
+
+export interface WorkbenchDecisionItem {
+  id: string;
+  kind: string;
+  label: string;
+  status: "pending" | "accepted" | "requested-changes" | "dismissed" | "completed" | "failed";
+  changeId?: string;
+  runId?: string;
+  targetId?: string;
+  artifact?: string;
+  summary: string;
+  feedback?: string;
+  updatedAt: string;
+  completedAt?: string;
 }
 
 export interface WorkbenchApprovalAction {
@@ -178,6 +195,7 @@ export interface WorkbenchSnapshot {
   };
   right: {
     approvals: WorkbenchApprovalItem[];
+    decisions: WorkbenchDecisionItem[];
   };
   roles: WorkbenchRoleSummary[];
   harnessGaps: HarnessGap[];
@@ -217,7 +235,7 @@ export async function getWorkbenchSnapshot(input: WorkbenchProjectInput, options
         repo: buildRepoSummary(projectStatus),
       },
       center: { selectedTopic: null, thread: { events: [] }, agentLoop: { runs: [] } },
-      right: { approvals: [] },
+      right: { approvals: [], decisions: [] },
       roles,
       harnessGaps: gaps,
       warnings,
@@ -227,6 +245,7 @@ export async function getWorkbenchSnapshot(input: WorkbenchProjectInput, options
   const topics = await listWorkbenchTopicsFromMemory(memory);
   const selectedTopic = await selectTopicDetail(input.project, memory, topics, options.topicId);
   const approvals = input.project ? await buildApprovalInbox(input.project, memory, topics) : [];
+  const decisions = input.project ? await listWorkbenchDecisions(memory, options.topicId) : [];
   return {
     project: input.project,
     memory: memoryStatus,
@@ -241,7 +260,7 @@ export async function getWorkbenchSnapshot(input: WorkbenchProjectInput, options
       thread: { events: selectedTopic?.threadEvents ?? [] },
       agentLoop: { runs: selectedTopic?.runs ?? [] },
     },
-    right: { approvals },
+    right: { approvals, decisions },
     roles,
     harnessGaps: gaps,
     warnings,
@@ -298,6 +317,33 @@ export async function listWorkbenchRoles(): Promise<WorkbenchRoleSummary[]> {
     .filter((entry) => entry.isFile() && entry.name.endsWith(".md"))
     .map(async (entry) => summarizeRoleProfile(profileRoot, entry.name)));
   return roles.sort((a, b) => a.id.localeCompare(b.id));
+}
+
+async function listWorkbenchDecisions(memory: ResolvedMemory, topicId?: string): Promise<WorkbenchDecisionItem[]> {
+  if (!memory.projectId) return [];
+  const store = await WorkbenchStore.open(memory);
+  try {
+    return store.listDecisions(memory.projectId, topicId).slice(0, 20).map(mapDecisionRecord);
+  } finally {
+    store.close();
+  }
+}
+
+function mapDecisionRecord(record: StoredDecisionRecord): WorkbenchDecisionItem {
+  return {
+    id: record.id,
+    kind: record.decisionType,
+    label: record.label,
+    status: record.status,
+    changeId: record.changeId ?? undefined,
+    runId: record.runId ?? undefined,
+    targetId: record.targetId ?? undefined,
+    artifact: record.artifact ?? undefined,
+    summary: record.summary,
+    feedback: record.feedback ?? undefined,
+    updatedAt: record.updatedAt,
+    completedAt: record.completedAt ?? undefined,
+  };
 }
 
 async function listWorkbenchTopicsFromMemory(memory: ResolvedMemory): Promise<WorkbenchTopicSummary[]> {
@@ -402,6 +448,7 @@ async function buildThreadEvents(
         artifact: message.artifact,
         status: message.status,
         runId: message.runId,
+        planCard: message.planCard,
       });
     }
   }
@@ -466,6 +513,7 @@ async function buildApprovalInbox(project: ManagedProject, memory: ResolvedMemor
   ]);
 
   for (const proposal of specProposals.filter((item) => item.status === "proposed")) {
+    if (await runHasEvent(memory, proposal.runId, "change.spec.proposal.accepted")) continue;
     approvals.push({
       id: `spec:${proposal.id}`,
       kind: "spec-proposal",
@@ -478,6 +526,7 @@ async function buildApprovalInbox(project: ManagedProject, memory: ResolvedMemor
     });
   }
   for (const proposal of planProposals.filter((item) => item.status === "proposed")) {
+    if (await runHasEvent(memory, proposal.runId, "change.plan.proposal.accepted")) continue;
     approvals.push({
       id: `plan:${proposal.id}`,
       kind: "plan-proposal",
@@ -489,7 +538,7 @@ async function buildApprovalInbox(project: ManagedProject, memory: ResolvedMemor
       action: approvalAction("change.plan.accept", "Accept plan proposal", "change", ["plan", "accept", project.id, proposal.id], true),
     });
   }
-  for (const proposal of specTestProposals.filter((item) => item.status === "proposed")) {
+  for (const proposal of specTestProposals.filter((item) => item.status === "proposed" && item.acceptedSourceRootCount === 0)) {
     approvals.push({
       id: `spec-test:${proposal.id}`,
       kind: "spec-test-proposal",
@@ -505,6 +554,7 @@ async function buildApprovalInbox(project: ManagedProject, memory: ResolvedMemor
   if (activeTopic) {
     const audits = await listAuditResults(memory, activeTopic.id).catch(() => []);
     for (const audit of audits.filter((item) => item.status === "approved" || item.status === "approved-with-notes").slice(0, 3)) {
+      if (await auditAlreadyAccepted(memory, activeTopic.path, audit.id)) continue;
       approvals.push({
         id: `audit:${audit.id}`,
         kind: "audit-proposal",
@@ -580,6 +630,27 @@ async function buildApprovalInbox(project: ManagedProject, memory: ResolvedMemor
     });
   }
   return approvals;
+}
+
+async function runHasEvent(memory: ResolvedMemory, runId: string, eventType: string): Promise<boolean> {
+  try {
+    const run = await readRun(memory, runId);
+    const events = await readRunEvents(memory, run);
+    return events.some((event) => event.type === eventType);
+  } catch {
+    return false;
+  }
+}
+
+async function auditAlreadyAccepted(memory: ResolvedMemory, changePath: string, auditId: string): Promise<boolean> {
+  const reviewPath = join(memory.memoryRoot, changePath, "reviews", "review.md");
+  if (!existsSync(reviewPath)) return false;
+  try {
+    const content = await readFile(reviewPath, "utf8");
+    return content.includes(`- Audit ID: ${auditId}`) || content.includes(`Audit ID: ${auditId}`);
+  } catch {
+    return false;
+  }
 }
 
 async function summarizeRunArtifacts(memory: ResolvedMemory, run: RunMetadata): Promise<{ artifacts: WorkbenchArtifactPreview[]; diagnostics: string[]; warnings: string[] }> {

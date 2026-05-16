@@ -135,9 +135,17 @@ async function copyDurableTemplateTree(
   for (const name of ["docs", "harness", "scripts"]) {
     await copyTemplateTree(join(templateRoot, name), join(memory.memoryRoot, name), "memory-root", replacements, created, skipped, memory.memoryRoot);
   }
-  const runsExists = existsSync(memory.runsRoot);
-  await mkdir(memory.runsRoot, { recursive: true });
-  (runsExists ? skipped : created).push({ base: "memory-root", path: "runs" });
+  for (const root of [
+    { path: memory.runsRoot, label: "runs" },
+    { path: memory.workbenchRoot, label: "workbench" },
+    { path: memory.agentsRoot, label: "agents" },
+    { path: memory.commandsRoot, label: "commands" },
+    { path: memory.skillsRoot, label: "skills" },
+  ]) {
+    const exists = existsSync(root.path);
+    await mkdir(root.path, { recursive: true });
+    (exists ? skipped : created).push({ base: "memory-root", path: root.label });
+  }
 }
 
 async function assertNoRepoLocalActiveChanges(project: ManagedProject): Promise<void> {
@@ -152,7 +160,7 @@ async function validateExternalMemoryRoot(memory: ResolvedMemory): Promise<void>
   if (!existsSync(memory.memoryRoot)) return;
   const entries = await readdir(memory.memoryRoot, { withFileTypes: true });
   const unexpected = entries
-    .filter((entry) => !["docs", "harness", "scripts", "runs", "indexes"].includes(entry.name))
+    .filter((entry) => !["docs", "harness", "scripts", "runs", "indexes", "workbench", "agents", "commands", "skills", "agent-catalog.json"].includes(entry.name))
     .map((entry) => entry.name);
   if (unexpected.length > 0) {
     throw new Error(`External memory root has unexpected content: ${unexpected.join(", ")}. Move it or choose a different project id before init.`);

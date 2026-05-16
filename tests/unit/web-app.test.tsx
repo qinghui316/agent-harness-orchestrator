@@ -27,6 +27,16 @@ const snapshot = {
       severity: "info",
       action: { actionId: "change.close", label: "Close", command: "change", args: ["close", "repo"], mutates: true, requiresConfirmation: true },
     }],
+    decisions: [{
+      id: "decision-1",
+      kind: "change.spec.accept",
+      label: "接受 Spec",
+      status: "accepted",
+      summary: "已接受 Spec proposal",
+      targetId: "proposal-1",
+      updatedAt: "2026-05-15T12:00:00.000Z",
+      completedAt: "2026-05-15T12:00:00.000Z",
+    }],
   },
   harnessGaps: [],
   warnings: [],
@@ -78,12 +88,12 @@ describe("Workbench web app", () => {
 
     await waitFor(() => expect(screen.getAllByText("会员折扣计价").length).toBeGreaterThan(0));
     expect(screen.getAllByText("主题").length).toBeGreaterThan(0);
-    expect(screen.getByText("确认队列")).toBeTruthy();
-    expect(screen.getByText("运行回放")).toBeTruthy();
+    expect(screen.getByText("决策")).toBeTruthy();
+    expect(screen.getByText("已完成")).toBeTruthy();
     expect(screen.getByText("需求意图")).toBeTruthy();
     expect(screen.getByText("验证通过")).toBeTruthy();
-    expect(screen.getByText("events.jsonl")).toBeTruthy();
     expect(screen.getByText("关闭变更")).toBeTruthy();
+    expect(screen.getByText("接受 Spec")).toBeTruthy();
     expect(screen.getAllByText("状态").length).toBeGreaterThan(0);
     expect(screen.getByText("更多")).toBeTruthy();
     expect(screen.getByText("记忆：external-local")).toBeTruthy();

@@ -5,13 +5,13 @@ import { join, relative } from "node:path";
 import { z } from "zod";
 import { buildCodexReadonlyArgv, detectCodexCapabilities } from "../codex/capabilities.js";
 import { extractFinalMessageFromCodexJsonl } from "../codex/jsonl.js";
+import { buildAgentSystemPrompt, buildRunAgentRecord, resolveAgentRole, type AgentRole } from "../agent/catalog.js";
 import { buildAcMap, parseAcceptanceCriteria, parseTasks } from "../ecl/anchors.js";
 import { getActiveChanges } from "../ecl/index.js";
 import { atomicWriteFile, readRequiredJsonFile, writeJsonFile } from "../fs/json.js";
 import { assertWritableMemory, resolveProjectMemory } from "../memory/resolver.js";
 import { appendRunEvent, assertRunnableChange, buildContextProjection, buildRunId } from "../run/manager.js";
 import { executeProcessStreaming } from "../run/process.js";
-import { getTemplateRoot } from "../template-source/paths.js";
 import { getChangeStatus } from "./manager.js";
 import type {
   ChangeProposalStatus,
@@ -112,6 +112,7 @@ interface CommonProposalRun {
   context: string;
   targetHashes: ChangeProposalTargetHashes;
   startedAt: string;
+  role: AgentRole;
 }
 
 export interface ChangeProposalRunOptions {
@@ -350,6 +351,7 @@ async function prepareProposalRun(project: ManagedProject, kind: ProposalKind, e
   const context = buildContextProjection(changeStatus);
   await writeFile(paths.context, context, "utf8");
   const targetHashes = await readTargetHashes(memory);
+  const role = await resolveAgentRole(memory, kind === "spec" ? "spec-agent" : "planner");
   const run: RunMetadata = {
     version: "1.0",
     id: runId,
@@ -365,11 +367,13 @@ async function prepareProposalRun(project: ManagedProject, kind: ProposalKind, e
     startedAt: now,
     finishedAt: null,
     artifacts,
+    agent: buildRunAgentRecord(role),
+    promptStack: ["agent-role", "active-change", "bounded-docs", "output-contract"],
   };
   await writeJsonFile(paths.run, run);
   await appendRunEvent(paths.events, { timestamp: now, type: "run.created", runId, data: { changeId, runtime: run.runtime } });
   await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "context.prepared", runId, data: { path: artifacts.context } });
-  return { memory, changeStatus, changeId, runId, paths, artifacts, context, targetHashes, startedAt: now };
+  return { memory, changeStatus, changeId, runId, paths, artifacts, context, targetHashes, startedAt: now, role };
 }
 
 async function executeCodexProposal(
@@ -424,13 +428,12 @@ async function executeCodexProposal(
 async function composeSpecPrompt(prepared: CommonProposalRun, extraPrompt?: string): Promise<string> {
   const files = await readActiveChangeFiles(prepared.memory);
   const docs = await collectBoundedProjectDocs(prepared.memory);
-  const profile = await readBundledProfile("spec-agent");
   return [
     "# AHO Spec Agent Proposal Run",
     "",
     "You are running as a read-only Spec Agent. Generate a proposal only.",
     "",
-    profile.trim(),
+    buildAgentSystemPrompt(prepared.role),
     "",
     "## Output Contract",
     "",
@@ -467,13 +470,12 @@ async function composeSpecPrompt(prepared: CommonProposalRun, extraPrompt?: stri
 async function composePlanPrompt(prepared: CommonProposalRun, extraPrompt?: string): Promise<string> {
   const files = await readActiveChangeFiles(prepared.memory);
   const docs = await collectBoundedProjectDocs(prepared.memory);
-  const profile = await readBundledProfile("planner");
   return [
     "# AHO Planner Proposal Run",
     "",
     "You are running as a read-only Planner Agent. Generate plan/tasks proposal only.",
     "",
-    profile.trim(),
+    buildAgentSystemPrompt(prepared.role),
     "",
     "## Output Contract",
     "",
@@ -595,10 +597,6 @@ function renderActiveFiles(files: Awaited<ReturnType<typeof readActiveChangeFile
     files.review,
     "```",
   ].join("\n");
-}
-
-async function readBundledProfile(name: "spec-agent" | "planner"): Promise<string> {
-  return await readFile(join(getTemplateRoot(), "..", "agent-profiles", `${name}.md`), "utf8");
 }
 
 async function listProposals(memory: ResolvedMemory, kind: ProposalKind): Promise<Array<SpecProposal | PlanProposal>> {

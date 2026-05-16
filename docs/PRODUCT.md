@@ -127,6 +127,8 @@ Later phases add:
 - Switching external-local to the personal default after more migration and sync work.
 - Run events, logs, diffs, validation reports, and review artifacts.
 - Workbench Snapshot as the stable GUI read model, including Harness gap diagnostics for workspace/session/subagent readiness.
+- Codex Skill Bridge as the boundary between AHO-managed skills and Codex runtime discovery. AHO owns skill source and enablement; Codex receives explicit materialized copies.
+- Agent Runtime Bridge as the boundary between AHO-managed role routing and Codex execution. AHO chooses the role contract and records provenance; Codex receives ordinary `codex exec` prompts and discovers synced skills through its plugin mechanism.
 - Run stream replay packets and structured approval actions for the first GUI.
 - Personal GUI with sidebar project onboarding, Topic-centered threads, run replay visibility, and project-level approval inbox.
 - Topic chat in the same workbench window, with read-only Codex answers, optional Codex session continuity, and plan-mode workflow actions that still produce proposals and require confirmation.
@@ -165,6 +167,7 @@ Long-term memory direction:
 - A personal GUI can start without a selected project, keep project onboarding in the left sidebar, register or create local projects through native folder picking plus fallback path entry, initialize `external-local` Harness memory after explicit confirmation, and then present each Change as a Topic while preserving Change as the durable workflow unit.
 - Developers can inspect replayed run artifacts and act on pending approvals from one project workbench; live agent streams remain a later transport phase.
 - Developers can ask normal questions inside one Topic chat window. Ordinary chat is read-only and records interaction history; converting a request into Spec, Plan, Coder, Validation, Audit, Apply, or Close still goes through controlled workflow actions.
+- Role contracts are explicit AHO assets, not hidden model memory. Future multi-agent scheduling will dispatch declared roles into scoped runs rather than sharing a large chat context.
 - Agent output is persisted as artifacts, not only chat.
 - High-impact agent output is confirmed by a human before advancing critical state.
 - Uninitialized projects are unaffected.

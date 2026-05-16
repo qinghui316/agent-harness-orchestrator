@@ -15,6 +15,7 @@ export interface CodexCapabilities {
   supportsAddDir: boolean;
   supportsColor: boolean;
   supportsOutputLastMessage: boolean;
+  supportsSafeResume: boolean;
   errors: string[];
 }
 
@@ -31,7 +32,7 @@ export interface CodexArgvOptions {
   additionalReadDirs?: string[];
 }
 
-export function evaluateCodexCapabilities(versionOutput: string | null, rootHelp: string | null, execHelp: string | null, spawnError?: string): CodexCapabilities {
+export function evaluateCodexCapabilities(versionOutput: string | null, rootHelp: string | null, execHelp: string | null, spawnError?: string, resumeHelp: string | null = null): CodexCapabilities {
   const errors: string[] = [];
   if (spawnError) errors.push(spawnError);
 
@@ -47,6 +48,7 @@ export function evaluateCodexCapabilities(versionOutput: string | null, rootHelp
   const supportsAddDir = includesFlag(execHelp, "--add-dir");
   const supportsColor = includesFlag(execHelp, "--color");
   const supportsOutputLastMessage = includesFlag(execHelp, "--output-last-message");
+  const supportsSafeResume = includesFlag(resumeHelp, "--sandbox") && (includesFlag(resumeHelp, "--cd") || includesFlag(resumeHelp, "-C, --cd"));
 
   if (!available) errors.push("Codex CLI is not available on PATH.");
   if (!supportsJson) errors.push("Codex exec does not support --json.");
@@ -63,6 +65,7 @@ export function evaluateCodexCapabilities(versionOutput: string | null, rootHelp
     supportsAddDir,
     supportsColor,
     supportsOutputLastMessage,
+    supportsSafeResume,
     errors,
   };
 }
@@ -71,17 +74,23 @@ export async function detectCodexCapabilities(): Promise<CodexCapabilities> {
   let version: string | null = null;
   let rootHelp: string | null = null;
   let execHelp: string | null = null;
+  let resumeHelp: string | null = null;
   let spawnError: string | undefined;
 
   try {
     version = await captureCodexHelp(["--version"]);
     rootHelp = await captureCodexHelp(["--help"]);
     execHelp = await captureCodexHelp(["exec", "--help"]);
+    try {
+      resumeHelp = await captureCodexHelp(["exec", "resume", "--help"]);
+    } catch {
+      resumeHelp = null;
+    }
   } catch (error) {
     spawnError = `Failed to inspect Codex CLI: ${(error as Error).message}`;
   }
 
-  return evaluateCodexCapabilities(version, rootHelp, execHelp, spawnError);
+  return evaluateCodexCapabilities(version, rootHelp, execHelp, spawnError, resumeHelp);
 }
 
 export function assertCodexSafeToRun(capabilities: CodexCapabilities): void {
@@ -129,8 +138,11 @@ export function buildCodexReadonlyArgv(capabilities: CodexCapabilities, options:
 
 export function buildCodexReadonlyResumeArgv(capabilities: CodexCapabilities, options: CodexArgvOptions & { sessionId: string }): CodexArgv {
   assertCodexSafeToRun(capabilities);
+  if (!capabilities.supportsSafeResume) {
+    throw new Error("Codex resume does not expose equivalent read-only sandbox and cwd constraints; use a fresh read-only exec.");
+  }
 
-  const args: string[] = ["exec", "resume", "--json"];
+  const args: string[] = ["exec", "resume", "--json", "--sandbox", "read-only", "--cd", options.projectPath];
   if (capabilities.supportsOutputLastMessage) args.push("--output-last-message", options.lastMessagePath);
   if (options.model) args.push("--model", options.model);
   if (options.profile) args.push("--profile", options.profile);

@@ -7,6 +7,8 @@ import { createChange, closeChange } from "../../src/change/manager.js";
 import { initHarness } from "../../src/harness/init.js";
 import { startLocalCommandRun } from "../../src/run/manager.js";
 import { getWorkbenchSnapshot, getWorkbenchStream, getWorkbenchTopic, listWorkbenchApprovals, listWorkbenchRoles, listWorkbenchTopics } from "../../src/workbench/manager.js";
+import { WorkbenchStore } from "../../src/workbench/store.js";
+import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import type { ManagedProject, RunMetadata } from "../../src/types/index.js";
 
 let tempDir: string;
@@ -133,6 +135,48 @@ describe("workbench read model", () => {
         kind: "spec-proposal",
         targetId: otherRun.id,
       }),
+    ]));
+  });
+
+  it("hides accepted proposals from pending approvals and keeps completed decisions", async () => {
+    await initHarness(project());
+    await createChange(project(), { title: "Decision Topic" });
+    const run = await writeSpecProposalRun("decision-topic");
+    const memory = await resolveProjectMemory(project());
+    await writeFile(join(tempDir, ".agent-harness", "runs", run.id, "events.jsonl"), [
+      JSON.stringify({ timestamp: new Date().toISOString(), type: "change.spec.proposal.completed", runId: run.id }),
+      JSON.stringify({ timestamp: new Date().toISOString(), type: "change.spec.proposal.accepted", runId: run.id }),
+      "",
+    ].join("\n"), "utf8");
+    const store = await WorkbenchStore.open(memory);
+    try {
+      store.upsertDecision({
+        id: `approval:change.spec.accept:${run.id}`,
+        projectId: "repo",
+        changeId: "decision-topic",
+        decisionType: "change.spec.accept",
+        status: "accepted",
+        label: "Accept spec proposal",
+        summary: "Accepted Spec proposal.",
+        targetId: run.id,
+        runId: run.id,
+        artifact: run.artifacts.specProposal ?? null,
+        actionId: "change.spec.accept",
+        feedback: null,
+        payloadJson: "{}",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        completedAt: new Date().toISOString(),
+      });
+    } finally {
+      store.close();
+    }
+
+    const snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: "decision-topic" });
+
+    expect(snapshot.right.approvals.some((item) => item.id === `spec:${run.id}`)).toBe(false);
+    expect(snapshot.right.decisions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ targetId: run.id, status: "accepted", artifact: run.artifacts.specProposal }),
     ]));
   });
 

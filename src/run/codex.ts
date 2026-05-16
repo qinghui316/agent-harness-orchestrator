@@ -7,6 +7,7 @@ import { extractFinalMessageFromCodexJsonl } from "../codex/jsonl.js";
 import { composeCodexPrompt } from "../codex/prompt.js";
 import { writeJsonFile } from "../fs/json.js";
 import { assertWritableMemory, resolveProjectMemory } from "../memory/resolver.js";
+import { getEnabledSkillContext } from "../skill/catalog.js";
 import type { ManagedProject, ResolvedMemory, RunMetadata, RunStatus } from "../types/index.js";
 import { appendRunEvent, assertRunnableChange, buildContextProjection, buildRunId } from "./manager.js";
 import { executeProcessStreaming } from "./process.js";
@@ -28,6 +29,7 @@ export async function startCodexReadonlyRun(project: ManagedProject, options: Co
   assertRunnableChange(changeStatus);
   const changeId = changeStatus.change?.id ?? changeStatus.activeChanges[0]?.name;
   if (!changeId) throw new Error("Cannot start Codex run without an active change id.");
+  const skillContext = await getEnabledSkillContext(project, changeId);
 
   const runId = buildRunId(changeId, ["codex-readonly", options.prompt]);
   const directory = join(memory.runsRoot, runId);
@@ -71,6 +73,8 @@ export async function startCodexReadonlyRun(project: ManagedProject, options: Co
     startedAt: now,
     finishedAt: null,
     artifacts,
+    promptStack: ["active-change", "aho-skills", "user-prompt"],
+    enabledSkills: skillContext.records,
   };
   await writeJsonFile(paths.run, run);
   await appendRunEvent(paths.events, { timestamp: now, type: "run.created", runId, data: { changeId, runtime: "codex-readonly" } });
@@ -79,7 +83,7 @@ export async function startCodexReadonlyRun(project: ManagedProject, options: Co
   await writeFile(paths.context, context, "utf8");
   await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "context.prepared", runId, data: { path: artifacts.context } });
 
-  const prompt = composeCodexPrompt({ context, userPrompt: options.prompt });
+  const prompt = composeCodexPrompt({ context: `${context}${skillContext.promptSection ? `\n\n${skillContext.promptSection}` : ""}`, userPrompt: options.prompt });
   await writeFile(paths.prompt, prompt, "utf8");
 
   const capabilities = await detectCodexCapabilities();
@@ -111,7 +115,7 @@ export async function startCodexReadonlyRun(project: ManagedProject, options: Co
   });
   run = { ...run, command: [argv.command, ...argv.args], status: "running" };
   await writeJsonFile(paths.run, run);
-  await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "codex.started", runId, data: { cwd: project.path, command: run.command } });
+  await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "codex.started", runId, data: { cwd: project.path, command: run.command, skillWarnings: skillContext.warnings } });
 
   const processResult = await executeProcessStreaming({
     cwd: project.path,

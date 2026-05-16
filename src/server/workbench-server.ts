@@ -19,7 +19,9 @@ import {
   getWorkbenchActionEvents,
   listTopicMessages,
   postTopicMessage,
+  recordWorkbenchDecision,
   runWorkbenchWorkflowAction,
+  type TopicMessageInput,
   type WorkbenchWorkflowActionRequest,
 } from "../workbench/chat.js";
 import {
@@ -53,6 +55,7 @@ interface WorkbenchActionRequest {
   proposalId?: string;
   worktreeId?: string;
   confirm?: boolean;
+  feedback?: string;
   options?: {
     commit?: boolean;
     message?: string;
@@ -93,6 +96,8 @@ interface CreateTopicRequest {
 
 interface TopicMessageRequest {
   text?: string;
+  message?: string;
+  mode?: TopicMessageInput["mode"];
 }
 
 interface FolderDialogResult {
@@ -243,12 +248,12 @@ async function handleProjectWorkbenchApi(input: WorkbenchProjectInput, request: 
     }
     if (request.method === "POST") {
       const message = await readJsonBody<TopicMessageRequest>(request);
-      if (typeof message.text !== "string" || message.text.trim() === "") {
+      if (typeof (message.message ?? message.text) !== "string" || (message.message ?? message.text ?? "").trim() === "") {
         const error = new Error("Message text is required.");
         error.name = "BadRequest";
         throw error;
       }
-      const result = await postTopicMessage(input.project, changeId, message.text);
+      const result = await postTopicMessage(input.project, changeId, message);
       sendJson(response, 200, { result, messages: await listTopicMessages(input.project, changeId), snapshot: await getWorkbenchSnapshot(input, { topicId: changeId }) });
       return;
     }
@@ -307,12 +312,44 @@ export async function executeWorkbenchAction(input: WorkbenchProjectInput, body:
     error.name = "BadRequest";
     throw error;
   }
+  if (typeof body.feedback === "string" && body.feedback.trim()) {
+    await recordWorkbenchDecision(input.project, {
+      id: `feedback:${action.actionId}:${action.args.join(":")}:${Date.now()}`,
+      changeId: inferChangeIdFromAction(action, null),
+      decisionType: action.actionId,
+      status: "requested-changes",
+      label: `Requested changes: ${action.label}`,
+      summary: "User requested changes instead of accepting this decision.",
+      targetId: inferTargetIdFromAction(action),
+      runId: null,
+      artifact: null,
+      actionId: action.actionId,
+      feedback: body.feedback.trim(),
+      payload: { action, feedback: body.feedback.trim() },
+    });
+    return { result: { status: "requested-changes" }, snapshot: await getWorkbenchSnapshot(input) };
+  }
   if (action.mutates && body.confirm !== true) {
     const error = new Error("Mutating Workbench actions require confirm: true.");
     error.name = "Conflict";
     throw error;
   }
   const result = await runAllowlistedAction(input.project, action, body.options);
+  await recordWorkbenchDecision(input.project, {
+    id: `approval:${action.actionId}:${action.args.join(":")}`,
+    changeId: inferChangeIdFromAction(action, result),
+    decisionType: action.actionId,
+    status: "accepted",
+    label: action.label,
+    summary: `Accepted ${action.label}.`,
+    targetId: inferTargetIdFromAction(action),
+    runId: inferRunIdFromActionResult(result),
+    artifact: inferArtifactFromActionResult(result),
+    actionId: action.actionId,
+    feedback: body.feedback ?? null,
+    payload: result,
+    completedAt: new Date().toISOString(),
+  });
   return { result, snapshot: await getWorkbenchSnapshot(input) };
 }
 
@@ -511,6 +548,41 @@ function parseMemoryMode(value: unknown): Exclude<MemoryMode, "remote"> {
   const error = new Error("Unsupported memory mode. Use repo-local or external-local.");
   error.name = "BadRequest";
   throw error;
+}
+
+function inferTargetIdFromAction(action: WorkbenchApprovalAction): string | null {
+  if (action.actionId === "change.spec.accept" || action.actionId === "change.plan.accept") return action.args[3] ?? null;
+  if (action.actionId === "spec-test.proposal.accept-all-existing") return action.args[3] ?? null;
+  if (action.actionId === "audit.accept") return action.args[2] ?? null;
+  if (action.actionId === "worktree.apply") return action.args[2] ?? null;
+  if (action.actionId === "change.close") return action.args[1] ?? null;
+  return null;
+}
+
+function inferChangeIdFromAction(action: WorkbenchApprovalAction, result: unknown): string | null {
+  if (isRecord(result) && isRecord(result.proposal) && typeof result.proposal.changeId === "string") return result.proposal.changeId;
+  if (isRecord(result) && isRecord(result.audit) && typeof result.audit.changeId === "string") return result.audit.changeId;
+  if (isRecord(result) && typeof result.changeId === "string") return result.changeId;
+  return action.actionId === "change.close" ? action.args[1] ?? null : null;
+}
+
+function inferRunIdFromActionResult(result: unknown): string | null {
+  if (isRecord(result) && isRecord(result.proposal) && typeof result.proposal.runId === "string") return result.proposal.runId;
+  if (isRecord(result) && isRecord(result.audit) && typeof result.audit.runId === "string") return result.audit.runId;
+  if (isRecord(result) && typeof result.runId === "string") return result.runId;
+  return null;
+}
+
+function inferArtifactFromActionResult(result: unknown): string | null {
+  if (isRecord(result) && typeof result.specPath === "string") return result.specPath;
+  if (isRecord(result) && typeof result.planPath === "string") return result.planPath;
+  if (isRecord(result) && typeof result.reviewPath === "string") return result.reviewPath;
+  if (isRecord(result) && typeof result.archivePath === "string") return result.archivePath;
+  return null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }
 
 export async function openNativeFolderDialog(): Promise<FolderDialogResult> {
