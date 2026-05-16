@@ -320,7 +320,7 @@ export async function executeWorkbenchAction(input: WorkbenchProjectInput, body:
       status: "requested-changes",
       label: `Requested changes: ${action.label}`,
       summary: "User requested changes instead of accepting this decision.",
-      targetId: inferTargetIdFromAction(action),
+      targetId: inferTargetIdFromAction(action, null),
       runId: null,
       artifact: null,
       actionId: action.actionId,
@@ -342,7 +342,7 @@ export async function executeWorkbenchAction(input: WorkbenchProjectInput, body:
     status: "accepted",
     label: action.label,
     summary: `Accepted ${action.label}.`,
-    targetId: inferTargetIdFromAction(action),
+    targetId: inferTargetIdFromAction(action, result),
     runId: inferRunIdFromActionResult(result),
     artifact: inferArtifactFromActionResult(result),
     actionId: action.actionId,
@@ -550,7 +550,10 @@ function parseMemoryMode(value: unknown): Exclude<MemoryMode, "remote"> {
   throw error;
 }
 
-function inferTargetIdFromAction(action: WorkbenchApprovalAction): string | null {
+function inferTargetIdFromAction(action: WorkbenchApprovalAction, result: unknown): string | null {
+  if (action.actionId === "change.close" && isRecord(result) && isRecord(result.change) && typeof result.change.id === "string") {
+    return result.change.id;
+  }
   if (action.actionId === "change.spec.accept" || action.actionId === "change.plan.accept") return action.args[3] ?? null;
   if (action.actionId === "spec-test.proposal.accept-all-existing") return action.args[3] ?? null;
   if (action.actionId === "audit.accept") return action.args[2] ?? null;
@@ -562,11 +565,14 @@ function inferTargetIdFromAction(action: WorkbenchApprovalAction): string | null
 function inferChangeIdFromAction(action: WorkbenchApprovalAction, result: unknown): string | null {
   if (isRecord(result) && isRecord(result.proposal) && typeof result.proposal.changeId === "string") return result.proposal.changeId;
   if (isRecord(result) && isRecord(result.audit) && typeof result.audit.changeId === "string") return result.audit.changeId;
+  if (isRecord(result) && isRecord(result.apply) && typeof result.apply.changeId === "string") return result.apply.changeId;
+  if (isRecord(result) && isRecord(result.change) && typeof result.change.id === "string") return result.change.id;
   if (isRecord(result) && typeof result.changeId === "string") return result.changeId;
-  return action.actionId === "change.close" ? action.args[1] ?? null : null;
+  return null;
 }
 
 function inferRunIdFromActionResult(result: unknown): string | null {
+  if (isRecord(result) && isRecord(result.run) && typeof result.run.id === "string") return result.run.id;
   if (isRecord(result) && isRecord(result.proposal) && typeof result.proposal.runId === "string") return result.proposal.runId;
   if (isRecord(result) && isRecord(result.audit) && typeof result.audit.runId === "string") return result.audit.runId;
   if (isRecord(result) && typeof result.runId === "string") return result.runId;
@@ -578,6 +584,11 @@ function inferArtifactFromActionResult(result: unknown): string | null {
   if (isRecord(result) && typeof result.planPath === "string") return result.planPath;
   if (isRecord(result) && typeof result.reviewPath === "string") return result.reviewPath;
   if (isRecord(result) && typeof result.archivePath === "string") return result.archivePath;
+  if (isRecord(result) && isRecord(result.run) && isRecord(result.run.artifacts)) {
+    const artifacts = result.run.artifacts;
+    if (typeof artifacts.apply === "string") return artifacts.apply;
+    if (typeof artifacts.directory === "string") return artifacts.directory;
+  }
   return null;
 }
 

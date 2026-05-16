@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createChange, closeChange } from "../../src/change/manager.js";
 import { initHarness } from "../../src/harness/init.js";
 import { startLocalCommandRun } from "../../src/run/manager.js";
+import { executeWorkbenchAction } from "../../src/server/workbench-server.js";
 import { getWorkbenchSnapshot, getWorkbenchStream, getWorkbenchTopic, listWorkbenchApprovals, listWorkbenchRoles, listWorkbenchTopics } from "../../src/workbench/manager.js";
 import { WorkbenchStore } from "../../src/workbench/store.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
@@ -177,6 +178,30 @@ describe("workbench read model", () => {
     expect(snapshot.right.approvals.some((item) => item.id === `spec:${run.id}`)).toBe(false);
     expect(snapshot.right.decisions).toEqual(expect.arrayContaining([
       expect.objectContaining({ targetId: run.id, status: "accepted", artifact: run.artifacts.specProposal }),
+    ]));
+  });
+
+  it("keeps accepted close decisions attached to the closed topic", async () => {
+    await initHarness(project());
+    await createChange(project(), { title: "Close Decision Topic" });
+    await writeFile(join(tempDir, "harness", "changes", "active", "close-decision-topic", "reviews", "review.md"), "Status: approved\n", "utf8");
+
+    const before = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: "close-decision-topic" });
+    const closeAction = before.right.approvals.find((item) => item.kind === "change-close")?.action;
+    expect(closeAction).toBeTruthy();
+    if (!closeAction) throw new Error("Expected close action");
+
+    await executeWorkbenchAction({ project: project(), path: tempDir }, { action: closeAction, confirm: true });
+    const after = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: "close-decision-topic" });
+
+    expect(after.right.approvals.some((item) => item.kind === "change-close")).toBe(false);
+    expect(after.right.decisions).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: "change.close",
+        changeId: "close-decision-topic",
+        targetId: "close-decision-topic",
+        status: "accepted",
+      }),
     ]));
   });
 
