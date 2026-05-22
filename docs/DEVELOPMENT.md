@@ -126,7 +126,7 @@ node dist/index.js workbench serve aho-test --host 127.0.0.1 --port 4317 --open
 - project and memory status;
 - Topic(Change) list;
 - selected Topic detail;
-- thread events;
+- semantic thread items;
 - agent loop run summaries;
 - approval inbox items;
 - structured approval actions;

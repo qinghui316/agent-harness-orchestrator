@@ -46,18 +46,17 @@ The center area has two complementary views over the same Change:
 1. **Thread View**
    - Topic chat messages.
    - User intent.
-   - Spec proposal and accept events.
-   - Plan proposal and accept events.
-   - Coder outcomes.
-   - Validation, audit, apply, close, and evolution events.
+   - Orchestrator plan cards.
+   - Workflow summaries.
+   - Validation, audit, artifact, apply, close, and decision evidence.
    - A human-readable narrative of how the Change progressed.
 2. **Agent Loop View**
-   - Run-level streaming output.
+   - Run-level replay output.
    - Tool and process events.
    - Per-run status.
    - Future interrupt, cancel, and replay controls.
 
-Thread View is a user-facing projection over `thread.jsonl`, accepted ECL files, proposal artifacts, Runs, and decisions. `thread.jsonl` preserves interaction history, but it does not replace `spec.md`, `plan.md`, `tasks.md`, `reviews/review.md`, or run artifacts as the source of truth.
+Thread View is a semantic Thread Stream projection over `thread.jsonl`, accepted ECL files, proposal artifacts, Runs, validation, audit, and decisions. Raw process/context/stdout events stay in Agent Loop / Run Replay. `thread.jsonl` preserves interaction history, but it does not replace `spec.md`, `plan.md`, `tasks.md`, `reviews/review.md`, or run artifacts as the source of truth.
 
 ### Right Approval Inbox
 
@@ -82,6 +81,8 @@ The right pane is scoped to the current project, not only the current Topic. It 
 - Chat-like presentation must not hide Spec, Plan, Validation, Audit, or Worktree state.
 - Ordinary Topic chat is read-only. It may answer questions and explain project state, but it must not write business code, mutate Harness files, or advance gates.
 - Plan mode starts from the same Topic chat surface, but state changes still go through Spec/Plan proposal artifacts and explicit accept actions.
+- The Workbench visual shell follows `docs/UI-STYLE.md`: neutral Open Design inspired panes, thin Topic header, ordinary-size Thread text, fixed composer, and inspector-style Decision Pane.
+- Open Design is a visual and interaction reference only. AHO does not adopt Open Design's artifact iframe runtime, design editor, MCP/deploy/export surface, or artifact-first product model.
 
 ## 4. Objects the GUI Should Surface
 
@@ -119,7 +120,7 @@ The layout must still leave room for:
 
 ## 6. Next Implementation Implication
 
-Phase 5A implements the Workbench Snapshot: one read model that derives Topic state, thread events, approval inbox items, run summaries, bundled role summaries, and Harness gap diagnostics from existing canonical artifacts without inventing a new source of truth.
+Phase 5A implements the Workbench Snapshot: one read model that derives Topic state, thread items, approval inbox items, run summaries, bundled role summaries, and Harness gap diagnostics from existing canonical artifacts without inventing a new source of truth.
 
 Phase 5B adds replay-oriented run stream packets and structured approval actions. This prepares the first GUI shell without promising live WebSocket/SSE streaming, interrupt/cancel controls, or a materialized approval queue.
 
@@ -127,4 +128,10 @@ Phase 5C adds the first local browser GUI shell through `aho workbench serve`. R
 
 Phase 5D adds Topic chat and Codex plan-mode entrypoints. A user can keep asking questions in one Topic window; AHO records the conversation in `thread.jsonl`, optionally links to a Codex session for runtime continuity, and routes high-impact requests through allowlisted workflow actions. Ordinary chat stays read-only. Coder, validation, audit, apply, and close remain structured actions with artifacts and human gates.
 
-Phase 5G changes the Workbench interaction shape from persistent workflow buttons to a Codex-App-style conversation workspace. The center surface is a single-column Topic conversation with semantic timeline nodes and Orchestrator plan cards. The right pane remains a user decision panel: pending confirmations explain exactly what will be accepted, and accepted/requested-change/completed decisions stay visible as decision history. Orchestrator plan cards and decision display records are interaction projections; canonical workflow truth remains ECL files, proposals, run artifacts, validation, audit, worktree metadata, and apply/close state.
+Phase 5G changes the Workbench interaction shape from persistent workflow buttons to a Codex-App-style conversation workspace. The center surface is a single-column Topic conversation with semantic nodes and Orchestrator plan cards. The right pane remains a user decision panel: pending confirmations explain exactly what will be accepted, and accepted/requested-change/completed decisions stay visible as decision history. Orchestrator plan cards and decision display records are interaction projections; canonical workflow truth remains ECL files, proposals, run artifacts, validation, audit, worktree metadata, and apply/close state.
+
+Phase 5H replaces the center timeline event list with `center.thread.items`, a semantic Thread Stream read model. Active, parking, and archived Topics can display persisted thread messages. Code workflow runs collapse into one workflow summary plus validation/audit evidence blocks, while raw run/process/context/stdout events remain available only through Agent Loop replay. Plan cards expose contextual Spec, Plan, and Tasks actions, but those buttons still call allowlisted workflow actions and do not make the plan card canonical workflow memory.
+
+Phase 5I adds the first live transport and Codex-App-style interaction layout. The Workbench keeps replay endpoints for history and adds POST-based SSE endpoints for live Topic messages and allowlisted workflow actions. Live events are transport state only: thread logs, run artifacts, ECL files, validation, audit, apply, and close gates remain canonical. The center view uses a thin Topic header, normal-size Thread Stream text, an independently scrolling message surface, and a sticky bottom composer. Raw Codex/process output stays in Agent Loop / Run Replay; the main Thread shows user/assistant text, plan cards, workflow summaries, evidence, and decisions.
+
+Phase 5L turns the Phase 5I/5J interaction model into a documented Open Design inspired visual system. It keeps the AHO three-pane workflow shell, but replaces the earlier warm retro styling with neutral product surfaces, compact navigation, ordinary-size chat typography, a single bottom composer shell, inspector-style decisions, and readable Agent Loop summaries. Phase 5L does not change Workbench APIs, SSE transport, or workflow authority.

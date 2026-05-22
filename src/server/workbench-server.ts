@@ -14,6 +14,7 @@ import { initHarness } from "../harness/init.js";
 import { getProjectStatus } from "../project/status.js";
 import { ProjectRegistryStore } from "../registry/store.js";
 import { acceptSpecTestProposal } from "../spec-test/proposal.js";
+import { createSseResponse } from "./sse.js";
 import {
   createWorkbenchTopic,
   getWorkbenchActionEvents,
@@ -22,6 +23,7 @@ import {
   recordWorkbenchDecision,
   runWorkbenchWorkflowAction,
   type TopicMessageInput,
+  type WorkbenchLiveEvent,
   type WorkbenchWorkflowActionRequest,
 } from "../workbench/chat.js";
 import {
@@ -200,6 +202,13 @@ async function handleApi(context: WorkbenchServerContext, request: IncomingMessa
     sendJson(response, 200, await getWorkbenchTopic(input, decodeURIComponent(url.pathname.slice("/api/workbench/topics/".length))));
     return;
   }
+  const directTopicMessagesLiveMatch = url.pathname.match(/^\/api\/workbench\/topics\/([^/]+)\/messages\/live$/);
+  if (request.method === "POST" && directTopicMessagesLiveMatch?.[1]) {
+    assertDirectProjectInput(input);
+    assertRegisteredProject(input);
+    await sendTopicMessageLive(input, decodeURIComponent(directTopicMessagesLiveMatch[1]), request, response);
+    return;
+  }
   if (request.method === "GET" && url.pathname.startsWith("/api/workbench/stream/")) {
     assertDirectProjectInput(input);
     sendJson(response, 200, await getWorkbenchStream(input, decodeURIComponent(url.pathname.slice("/api/workbench/stream/".length))));
@@ -214,6 +223,12 @@ async function handleApi(context: WorkbenchServerContext, request: IncomingMessa
     assertDirectProjectInput(input);
     const result = await executeWorkbenchAction(input, await readJsonBody<WorkbenchActionRequest>(request));
     sendJson(response, 200, result);
+    return;
+  }
+  if (request.method === "POST" && url.pathname === "/api/workbench/actions/live") {
+    assertDirectProjectInput(input);
+    assertRegisteredProject(input);
+    await sendWorkbenchActionLive(input, request, response);
     return;
   }
   sendJson(response, 404, { error: "Not found." });
@@ -258,6 +273,12 @@ async function handleProjectWorkbenchApi(input: WorkbenchProjectInput, request: 
       return;
     }
   }
+  const topicMessagesLiveMatch = rest.match(/^topics\/([^/]+)\/messages\/live$/);
+  if (request.method === "POST" && topicMessagesLiveMatch?.[1]) {
+    assertRegisteredProject(input);
+    await sendTopicMessageLive(input, decodeURIComponent(topicMessagesLiveMatch[1]), request, response);
+    return;
+  }
   if (request.method === "GET" && rest.startsWith("topics/")) {
     sendJson(response, 200, await getWorkbenchTopic(input, decodeURIComponent(rest.slice("topics/".length))));
     return;
@@ -272,6 +293,11 @@ async function handleProjectWorkbenchApi(input: WorkbenchProjectInput, request: 
   }
   if (request.method === "POST" && rest === "actions") {
     sendJson(response, 200, await executeWorkbenchAction(input, await readJsonBody<WorkbenchActionRequest>(request)));
+    return;
+  }
+  if (request.method === "POST" && rest === "actions/live") {
+    assertRegisteredProject(input);
+    await sendWorkbenchActionLive(input, request, response);
     return;
   }
   const actionEventsMatch = rest.match(/^actions\/([^/]+)\/events$/);
@@ -388,6 +414,82 @@ async function sendActionEventReplay(project: ManagedProject, actionRunId: strin
     response.write(`data: ${JSON.stringify(event)}\n\n`);
   }
   response.end();
+}
+
+async function sendTopicMessageLive(input: WorkbenchProjectInput & { project: ManagedProject }, changeId: string, request: IncomingMessage, response: ServerResponse): Promise<void> {
+  const message = await readJsonBody<TopicMessageRequest>(request);
+  if (typeof (message.message ?? message.text) !== "string" || (message.message ?? message.text ?? "").trim() === "") {
+    const error = new Error("Message text is required.");
+    error.name = "BadRequest";
+    throw error;
+  }
+  const sse = createSseResponse(response);
+  const sink = createLiveSink(sse);
+  try {
+    await postTopicMessage(input.project, changeId, message, sink);
+    sink.emit({ event: "snapshot", data: await getWorkbenchSnapshot(input, { topicId: changeId }) });
+    sink.emit({ event: "done", data: { status: "completed" } });
+  } catch (cause) {
+    sink.emit({ event: "error", data: { message: cause instanceof Error ? cause.message : String(cause) } });
+    sink.emit({ event: "snapshot", data: await getWorkbenchSnapshot(input, { topicId: changeId }).catch((error: unknown) => ({ error: error instanceof Error ? error.message : String(error) })) });
+    sink.emit({ event: "done", data: { status: "failed" } });
+  } finally {
+    sse.end();
+  }
+}
+
+async function sendWorkbenchActionLive(input: WorkbenchProjectInput & { project: ManagedProject }, request: IncomingMessage, response: ServerResponse): Promise<void> {
+  const body = await readJsonBody<WorkbenchActionRequest>(request);
+  const changeId = body.changeId;
+  const sse = createSseResponse(response);
+  const sink = createLiveSink(sse);
+  let terminalStatus: "completed" | "failed" = "completed";
+  try {
+    if (body.actionType) {
+      if (body.actionType !== "chat.ask" && body.confirm !== true) {
+        const error = new Error("Mutating Workbench workflow actions require confirm: true.");
+        error.name = "Conflict";
+        throw error;
+      }
+      if (!isLiveWorkflowAction(body.actionType)) {
+        const error = new Error(`Action ${body.actionType} is not supported by the live endpoint.`);
+        error.name = "BadRequest";
+        throw error;
+      }
+      const result = await runWorkbenchWorkflowAction(input.project, {
+        actionType: body.actionType,
+        changeId: body.changeId,
+        prompt: body.prompt,
+        proposalId: body.proposalId,
+        worktreeId: body.worktreeId,
+      }, sink);
+      terminalStatus = result.status;
+    } else {
+      await executeWorkbenchAction(input, body);
+    }
+    sink.emit({ event: "snapshot", data: await getWorkbenchSnapshot(input, { topicId: changeId }) });
+    sink.emit({ event: "done", data: { status: terminalStatus } });
+  } catch (cause) {
+    sink.emit({ event: "error", data: { message: cause instanceof Error ? cause.message : String(cause) } });
+    sink.emit({ event: "snapshot", data: await getWorkbenchSnapshot(input, { topicId: changeId }).catch((error: unknown) => ({ error: error instanceof Error ? error.message : String(error) })) });
+    sink.emit({ event: "done", data: { status: "failed" } });
+  } finally {
+    sse.end();
+  }
+}
+
+function createLiveSink(sse: ReturnType<typeof createSseResponse>): { emit(event: WorkbenchLiveEvent): void } {
+  let id = 0;
+  return {
+    emit(event: WorkbenchLiveEvent): void {
+      if (sse.closed) return;
+      sse.send(event.event, event.data, ++id);
+    },
+  };
+}
+
+function isLiveWorkflowAction(actionType: string): actionType is WorkbenchWorkflowActionRequest["actionType"] {
+  return actionType === "chat.ask" || actionType === "change.spec.propose" || actionType === "change.plan.propose" || actionType === "code.run";
 }
 
 function matchProjectWorkbenchRoute(pathname: string): { projectId: string; rest: string } | null {

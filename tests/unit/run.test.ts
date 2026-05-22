@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createChange } from "../../src/change/manager.js";
 import { initHarness } from "../../src/harness/init.js";
 import { listRuns, readRun, startLocalCommandRun } from "../../src/run/manager.js";
+import { executeProcessStreaming } from "../../src/run/process.js";
 import type { ManagedProject } from "../../src/types/index.js";
 
 let tempDir: string;
@@ -81,5 +82,34 @@ describe("run manager", () => {
     await mkdir(join(tempDir, "harness", "changes", "active", "one"), { recursive: true });
     await mkdir(join(tempDir, "harness", "changes", "active", "two"), { recursive: true });
     await expect(startLocalCommandRun(project(tempDir), [process.execPath, "-e", ""])).rejects.toThrow("expected exactly one active change");
+  });
+
+  it("streams stdout and stderr chunks to best-effort callbacks while writing artifacts", async () => {
+    const stdoutChunks: string[] = [];
+    const stderrChunks: string[] = [];
+    const callbackErrors: string[] = [];
+    const result = await executeProcessStreaming({
+      cwd: tempDir,
+      command: process.execPath,
+      args: ["-e", "process.stdout.write('out'); process.stderr.write('err')"],
+      stdoutPath: join(tempDir, "stdout.log"),
+      stderrPath: join(tempDir, "stderr.log"),
+      onStdoutChunk: (text) => {
+        stdoutChunks.push(text);
+        throw new Error("ignored callback failure");
+      },
+      onStderrChunk: (text) => stderrChunks.push(text),
+      onCallbackError: (stream) => {
+        callbackErrors.push(stream);
+        throw new Error("ignored callback-error failure");
+      },
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(stdoutChunks.join("")).toContain("out");
+    expect(stderrChunks.join("")).toContain("err");
+    expect(callbackErrors).toEqual(["stdout"]);
+    expect(await readFile(join(tempDir, "stdout.log"), "utf8")).toContain("out");
+    expect(await readFile(join(tempDir, "stderr.log"), "utf8")).toContain("err");
   });
 });

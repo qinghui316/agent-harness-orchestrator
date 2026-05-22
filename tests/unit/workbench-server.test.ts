@@ -93,6 +93,25 @@ describe("workbench server", () => {
     expect(invalidJson.status).toBe(400);
   });
 
+  it("streams live endpoint errors as SSE without changing replay endpoints", async () => {
+    const live = await fetch(`${handle!.url}/api/workbench/actions/live`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ actionType: "validate.run", changeId: "server-topic", confirm: true }),
+    });
+    expect(live.ok).toBe(true);
+    expect(live.headers.get("content-type")).toContain("text/event-stream");
+    const body = await live.text();
+    expect(body).toContain("event: error");
+    expect(body).toContain("is not supported by the live endpoint");
+    expect(body).toContain("event: done");
+
+    const snapshot = await getJson<SnapshotResponse>(`${handle!.url}/api/workbench/snapshot`);
+    const replay = await fetch(`${handle!.url}/api/workbench/stream/${snapshot.center.agentLoop.runs[0].id}`);
+    const replayBody = await replay.json() as { live: boolean };
+    expect(replayBody.live).toBe(false);
+  });
+
   it("rejects unknown and unconfirmed actions", async () => {
     await expect(executeWorkbenchAction({ project: project(), path: tempDir }, {
       action: { actionId: "unknown", label: "Unknown", command: "bad", args: [], mutates: true, requiresConfirmation: true },

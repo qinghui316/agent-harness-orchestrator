@@ -535,7 +535,7 @@ export function createProgram(): Command {
           title: topic.title,
           state: topic.state,
           runs: topic.runs.length,
-          events: topic.threadEvents.length,
+          items: topic.threadItems.length,
           worktrees: topic.worktrees.length,
         }]);
       }

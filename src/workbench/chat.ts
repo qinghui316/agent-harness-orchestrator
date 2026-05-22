@@ -5,7 +5,7 @@ import { z } from "zod";
 import { startAuditRun } from "../audit/manager.js";
 import { startCodeRun } from "../code/manager.js";
 import { buildCodexReadonlyArgv, buildCodexReadonlyResumeArgv, detectCodexCapabilities } from "../codex/capabilities.js";
-import { extractCodexSessionIdFromJsonl, extractFinalMessageFromCodexJsonl } from "../codex/jsonl.js";
+import { createCodexJsonlStreamParser, extractCodexSessionIdFromJsonl, extractFinalMessageFromCodexJsonl, truncateReadablePreview, type CodexJsonlStreamEvent, type CodexReadableEvent } from "../codex/jsonl.js";
 import { createChange } from "../change/manager.js";
 import { acceptPlanProposal, acceptSpecProposal, startPlanProposalRun, startSpecProposalRun } from "../change/proposals.js";
 import { getActiveChanges } from "../ecl/index.js";
@@ -55,6 +55,7 @@ export interface TopicThreadEntry {
   type: TopicThreadEventType;
   timestamp: string;
   changeId: string;
+  position?: number;
   text?: string;
   actionRunId?: string;
   actionType?: string;
@@ -63,7 +64,51 @@ export interface TopicThreadEntry {
   artifact?: string;
   error?: string;
   planCard?: OrchestrationPlanCard;
+  activity?: AssistantTurnActivity[];
+  blocks?: AssistantTurnBlock[];
 }
+
+export type AssistantTurnBlockKind =
+  | "prose"
+  | "status"
+  | "command-group"
+  | "command"
+  | "tool-result"
+  | "file-change"
+  | "reasoning-summary"
+  | "plan-card"
+  | "workflow-evidence"
+  | "usage"
+  | "error";
+
+export interface AssistantTurnBlock {
+  id: string;
+  runId?: string;
+  sequence: number;
+  kind: AssistantTurnBlockKind;
+  timestamp: string;
+  source: "codex" | "aho" | "workflow" | "validation" | "audit" | "decision" | "legacy";
+  status?: string;
+  title?: string;
+  text?: string;
+  command?: string;
+  cwd?: string;
+  exitCode?: number;
+  preview?: string;
+  artifactRef?: string;
+  isError?: boolean;
+  truncated?: boolean;
+  itemId?: string;
+  children?: AssistantTurnBlock[];
+  planCard?: OrchestrationPlanCard;
+}
+
+export type AssistantTurnActivity =
+  | { kind: "status"; label: string; detail?: string; timestamp: string }
+  | { kind: "assistant-event"; event: WorkbenchAssistantEvent; timestamp: string }
+  | { kind: "tool"; tool: WorkbenchLiveToolEvent; timestamp: string }
+  | { kind: "usage"; usage: Record<string, unknown>; timestamp: string }
+  | { kind: "error"; message: string; timestamp: string };
 
 export interface TopicRuntimeMetadata {
   version: "1.0";
@@ -82,6 +127,254 @@ export interface TopicMessageResult {
   assistantMessage?: string;
   planCard?: OrchestrationPlanCard;
   suggestedActions?: SuggestedAction[];
+}
+
+export type WorkbenchLiveEvent =
+  | { event: "topic.message"; data: TopicThreadEntry }
+  | { event: "run.started"; data: { runId: string; changeId: string; actionType?: string; runtime?: string } }
+  | { event: "run.status"; data: { runId?: string; actionRunId?: string; status: string; label?: string } }
+  | { event: "assistant.delta"; data: { delta: string; runId?: string } }
+  | { event: "assistant.message"; data: TopicThreadEntry }
+  | { event: "assistant.event"; data: WorkbenchAssistantEvent }
+  | { event: "tool.event"; data: WorkbenchLiveToolEvent }
+  | { event: "usage"; data: { runId?: string; usage?: Record<string, unknown> } }
+  | { event: "snapshot"; data: unknown }
+  | { event: "error"; data: { message: string; runId?: string; actionRunId?: string } }
+  | { event: "done"; data: { status: "completed" | "failed" } };
+
+export interface WorkbenchLiveSink {
+  emit(event: WorkbenchLiveEvent): void;
+}
+
+function emitLive(live: WorkbenchLiveSink | undefined, event: WorkbenchLiveEvent): void {
+  try {
+    live?.emit(event);
+  } catch {
+    // Live transport is best-effort; persisted thread/run artifacts remain canonical.
+  }
+}
+
+function createAssistantTranscriptCapture(live: WorkbenchLiveSink | undefined): AssistantTranscriptCapture {
+  const activity: AssistantTurnActivity[] = [];
+  const blocks: AssistantTurnBlock[] = [];
+  let sequence = 0;
+
+  function nextSequence(): number {
+    sequence += 1;
+    return sequence;
+  }
+
+  function appendBlock(block: Omit<AssistantTurnBlock, "id" | "sequence" | "timestamp"> & { id?: string; sequence?: number; timestamp?: string }): void {
+    const timestamp = block.timestamp ?? new Date().toISOString();
+    const currentSequence = block.sequence ?? nextSequence();
+    blocks.push({
+      ...block,
+      id: block.id ?? `block-${timestamp}-${currentSequence}`,
+      sequence: currentSequence,
+      timestamp,
+    });
+  }
+
+  function appendProse(delta: string, runId?: string): void {
+    if (!delta) return;
+    const last = blocks.at(-1);
+    if (last?.kind === "prose" && last.source === "codex") {
+      last.text = `${last.text ?? ""}${delta}`;
+      return;
+    }
+    const currentSequence = nextSequence();
+    appendBlock({
+      id: `prose:${runId ?? "assistant"}:${currentSequence}`,
+      runId,
+      sequence: currentSequence,
+      kind: "prose",
+      source: "codex",
+      text: delta,
+    });
+  }
+
+  function appendAssistantEventBlock(event: WorkbenchAssistantEvent, timestamp: string): void {
+    const block = assistantEventToBlock(event, timestamp, nextSequence());
+    if (block) blocks.push(block);
+  }
+
+  function appendToolEventBlock(event: WorkbenchLiveToolEvent, timestamp: string): void {
+    const block = toolEventToBlock(event, timestamp, nextSequence());
+    if (block) blocks.push(block);
+  }
+
+  const capture: AssistantTranscriptCapture = {
+    text: "",
+    activity,
+    blocks,
+    sink: {
+      emit(event: WorkbenchLiveEvent): void {
+        const timestamp = new Date().toISOString();
+        if (event.event === "run.started") {
+          activity.push({
+            kind: "status",
+            label: "started",
+            detail: event.data.runtime ?? event.data.actionType,
+            timestamp,
+          });
+        } else if (event.event === "run.status") {
+          activity.push({
+            kind: "status",
+            label: event.data.status,
+            detail: event.data.label,
+            timestamp,
+          });
+        } else if (event.event === "assistant.delta") {
+          capture.text += event.data.delta;
+          appendProse(event.data.delta, event.data.runId);
+        } else if (event.event === "assistant.event") {
+          activity.push({
+            kind: "assistant-event",
+            event: { ...event.data, timestamp: event.data.timestamp ?? timestamp },
+            timestamp,
+          });
+          appendAssistantEventBlock({ ...event.data, timestamp: event.data.timestamp ?? timestamp }, timestamp);
+        } else if (event.event === "tool.event") {
+          activity.push({ kind: "tool", tool: event.data, timestamp });
+          appendToolEventBlock(event.data, timestamp);
+        } else if (event.event === "usage" && isRecord(event.data.usage)) {
+          activity.push({ kind: "usage", usage: event.data.usage, timestamp });
+          const currentSequence = nextSequence();
+          blocks.push({
+            id: `usage:${event.data.runId ?? "assistant"}:${currentSequence}`,
+            runId: event.data.runId,
+            sequence: currentSequence,
+            kind: "usage",
+            timestamp,
+            source: "codex",
+            title: "Usage recorded",
+            text: formatUsageSummary(event.data.usage),
+          });
+        } else if (event.event === "error") {
+          activity.push({ kind: "error", message: event.data.message, timestamp });
+          const currentSequence = nextSequence();
+          blocks.push({
+            id: `error:${event.data.runId ?? event.data.actionRunId ?? "assistant"}:${currentSequence}`,
+            runId: event.data.runId,
+            sequence: currentSequence,
+            kind: "error",
+            timestamp,
+            source: "codex",
+            title: "Error",
+            text: event.data.message,
+            isError: true,
+          });
+        }
+        emitLive(live, event);
+      },
+    },
+  };
+  return capture;
+}
+
+export interface WorkbenchLiveToolEvent {
+  runId: string;
+  phase: "started" | "completed" | "stderr" | "status";
+  name?: string;
+  command?: string;
+  outputTail?: string;
+  isError?: boolean;
+  exitCode?: number;
+  status?: string;
+}
+
+export interface WorkbenchAssistantEvent extends CodexReadableEvent {
+  runId: string;
+  timestamp?: string;
+}
+
+interface AssistantTranscriptCapture {
+  sink: WorkbenchLiveSink;
+  text: string;
+  activity: AssistantTurnActivity[];
+  blocks: AssistantTurnBlock[];
+}
+
+function assistantEventToBlock(event: WorkbenchAssistantEvent, timestamp: string, sequence: number): AssistantTurnBlock | null {
+  if (!isMainThreadAssistantStatus(event)) return null;
+  const kind = assistantEventBlockKind(event.kind);
+  const text = event.summary ?? (kind === "usage" ? undefined : event.preview);
+  return {
+    id: `assistant:${event.runId}:${event.itemId ?? event.kind}:${event.phase ?? "event"}:${sequence}`,
+    runId: event.runId,
+    sequence,
+    kind,
+    timestamp: event.timestamp ?? timestamp,
+    source: "codex",
+    status: event.phase,
+    title: event.title ?? assistantEventTitle(event.kind),
+    text,
+    command: event.command,
+    cwd: event.cwd,
+    exitCode: event.exitCode,
+    preview: kind === "usage" ? event.summary : event.preview,
+    artifactRef: event.artifactRef,
+    isError: event.isError,
+    truncated: event.truncated,
+    itemId: event.itemId,
+  };
+}
+
+function toolEventToBlock(event: WorkbenchLiveToolEvent, timestamp: string, sequence: number): AssistantTurnBlock | null {
+  if (event.phase === "stderr") return null;
+  if (!event.command && event.phase === "status" && !event.isError) return null;
+  return {
+    id: `tool:${event.runId}:${event.command ?? event.name ?? event.phase}:${event.phase}:${sequence}`,
+    runId: event.runId,
+    sequence,
+    kind: event.command ? "command" : "status",
+    timestamp,
+    source: "codex",
+    status: event.status ?? event.phase,
+    title: event.command
+      ? event.phase === "started" ? "Command started" : event.isError ? "Command failed" : "Command completed"
+      : event.name ?? "Run status",
+    text: event.name,
+    command: event.command,
+    exitCode: event.exitCode,
+    preview: event.outputTail,
+    isError: event.isError,
+    truncated: event.outputTail?.includes("[truncated") ? true : undefined,
+  };
+}
+
+function assistantEventBlockKind(kind: WorkbenchAssistantEvent["kind"]): AssistantTurnBlockKind {
+  if (kind === "reasoning-summary") return "reasoning-summary";
+  if (kind === "command") return "command";
+  if (kind === "file-change") return "file-change";
+  if (kind === "usage") return "usage";
+  if (kind === "error") return "error";
+  if (kind === "status") return "status";
+  return "tool-result";
+}
+
+function assistantEventTitle(kind: WorkbenchAssistantEvent["kind"]): string {
+  if (kind === "reasoning-summary") return "Reasoning summary";
+  if (kind === "command") return "Command";
+  if (kind === "file-change") return "File change";
+  if (kind === "mcp-tool") return "Tool call";
+  if (kind === "web-search") return "Web search";
+  if (kind === "plan-update") return "Plan update";
+  if (kind === "tool-result") return "Tool result";
+  if (kind === "usage") return "Usage";
+  if (kind === "error") return "Error";
+  return "Run status";
+}
+
+function isMainThreadAssistantStatus(event: WorkbenchAssistantEvent): boolean {
+  if (event.kind !== "status") return true;
+  const normalized = `${event.title ?? ""} ${event.summary ?? ""} ${event.phase ?? ""}`.toLowerCase();
+  if (normalized.includes("codex thread started")) return false;
+  if (normalized.includes("codex initialized the thread")) return false;
+  if (normalized.includes("codex turn running")) return false;
+  if (normalized.includes("codex started processing the turn")) return false;
+  if (normalized.includes("codex turn completed")) return false;
+  return Boolean(event.isError) || normalized.includes("validation") || normalized.includes("audit") || normalized.includes("failed") || normalized.includes("blocked");
 }
 
 export interface TopicMessageInput {
@@ -124,6 +417,9 @@ const runtimeMetadataSchema = z.object({
   codexSessionId: z.string().nullable(),
   updatedAt: z.string(),
 });
+const threadChangeMetadataSchema = z.object({
+  id: z.string(),
+});
 
 export async function createWorkbenchTopic(project: ManagedProject, input: { title: string; body?: string }): Promise<{ changeId: string; title: string }> {
   const result = await createChange(project, { title: input.title, body: input.body });
@@ -139,18 +435,28 @@ export async function listTopicMessages(project: ManagedProject, changeId: strin
   return readThreadLog(memory, changePath);
 }
 
-export async function postTopicMessage(project: ManagedProject, changeId: string, input: string | TopicMessageInput): Promise<TopicMessageResult> {
+export async function readTopicThreadLog(memory: ResolvedMemory, changePath: string): Promise<TopicThreadEntry[]> {
+  return readThreadLog(memory, changePath);
+}
+
+export async function postTopicMessage(project: ManagedProject, changeId: string, input: string | TopicMessageInput, live?: WorkbenchLiveSink): Promise<TopicMessageResult> {
   const parsed = normalizeTopicMessageInput(input);
-  if (parsed.mode === "plan") return postTopicPlanMessage(project, changeId, parsed.message);
+  if (parsed.mode === "plan") return postTopicPlanMessage(project, changeId, parsed.message, live);
   const user = await appendTopicThreadEntry(project, changeId, { type: "user.message", text: parsed.message });
-  const chat = await runCodexChat(project, changeId, parsed.message);
+  live?.emit({ event: "topic.message", data: user });
+  const capture = createAssistantTranscriptCapture(live);
+  const chat = await runCodexChat(project, changeId, parsed.message, capture.sink);
+  const assistantText = chat.message.trim() || capture.text.trim();
   const assistant = await appendTopicThreadEntry(project, changeId, {
     type: "assistant.message",
-    text: chat.message,
+    text: assistantText,
     runId: chat.run.id,
     artifact: chat.run.artifacts.lastMessage,
+    activity: capture.activity,
+    blocks: capture.blocks,
   });
-  return { user, assistant, run: chat.run, codexSessionId: chat.codexSessionId, mode: "chat", routingDecision: "same-topic", assistantMessage: chat.message };
+  live?.emit({ event: "assistant.message", data: assistant });
+  return { user, assistant, run: chat.run, codexSessionId: chat.codexSessionId, mode: "chat", routingDecision: "same-topic", assistantMessage: assistantText };
 }
 
 export async function appendTopicThreadEntry(project: ManagedProject, changeId: string, input: Omit<TopicThreadEntry, "id" | "timestamp" | "changeId">): Promise<TopicThreadEntry> {
@@ -172,21 +478,40 @@ export async function appendTopicThreadEntry(project: ManagedProject, changeId: 
   return entry;
 }
 
-export async function runWorkbenchWorkflowAction(project: ManagedProject, request: WorkbenchWorkflowActionRequest): Promise<WorkbenchWorkflowActionResult> {
+export async function runWorkbenchWorkflowAction(project: ManagedProject, request: WorkbenchWorkflowActionRequest, live?: WorkbenchLiveSink): Promise<WorkbenchWorkflowActionResult> {
   const actionRunId = `action-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
   const changeId = request.changeId ?? await getSingleActiveChangeId(project);
-  await appendTopicThreadEntry(project, changeId, { type: "workflow.started", actionRunId, actionType: request.actionType, status: "running" });
+  const started = await appendTopicThreadEntry(project, changeId, { type: "workflow.started", actionRunId, actionType: request.actionType, status: "running" });
+  live?.emit({ event: "topic.message", data: started });
+  live?.emit({ event: "run.status", data: { actionRunId, status: "running", label: labelForAction(request.actionType) } });
+  const capture = createAssistantTranscriptCapture(live);
   try {
-    const result = await executeWorkflowAction(project, changeId, request);
+    capture.sink.emit({ event: "run.status", data: { actionRunId, status: "running", label: labelForAction(request.actionType) } });
+    const result = await executeWorkflowAction(project, changeId, request, capture.sink);
     const runId = extractRunId(result);
-    await appendTopicThreadEntry(project, changeId, { type: "workflow.completed", actionRunId, actionType: request.actionType, status: "completed", runId });
+    const failureMessage = workflowFailureMessage(request.actionType, result);
+    const finalStatus = failureMessage ? "failed" : "completed";
+    capture.sink.emit({ event: "run.status", data: { runId, actionRunId, status: finalStatus, label: labelForAction(request.actionType) } });
+    const completed = await appendTopicThreadEntry(project, changeId, {
+      type: failureMessage ? "workflow.failed" : "workflow.completed",
+      actionRunId,
+      actionType: request.actionType,
+      status: finalStatus,
+      runId,
+      error: failureMessage ?? undefined,
+      text: capture.text.trim() || undefined,
+      activity: capture.activity,
+      blocks: capture.blocks,
+    });
+    live?.emit({ event: "topic.message", data: completed });
+    if (failureMessage) live?.emit({ event: "error", data: { message: failureMessage, runId, actionRunId } });
     await recordWorkbenchDecision(project, {
       id: `workflow:${actionRunId}`,
       changeId,
       decisionType: request.actionType,
-      status: "completed",
+      status: finalStatus,
       label: labelForAction(request.actionType),
-      summary: summarizeActionResult(request.actionType, result),
+      summary: failureMessage ?? summarizeActionResult(request.actionType, result),
       targetId: request.proposalId ?? request.worktreeId ?? null,
       runId: runId ?? null,
       artifact: artifactForActionResult(result),
@@ -194,10 +519,12 @@ export async function runWorkbenchWorkflowAction(project: ManagedProject, reques
       payload: result,
       completedAt: new Date().toISOString(),
     });
-    return { actionRunId, actionType: request.actionType, status: "completed", result, runId };
+    return { actionRunId, actionType: request.actionType, status: finalStatus, result, runId, error: failureMessage ?? undefined };
   } catch (cause) {
     const error = cause instanceof Error ? cause.message : String(cause);
-    await appendTopicThreadEntry(project, changeId, { type: "workflow.failed", actionRunId, actionType: request.actionType, status: "failed", error });
+    capture.sink.emit({ event: "error", data: { message: error, actionRunId } });
+    const failed = await appendTopicThreadEntry(project, changeId, { type: "workflow.failed", actionRunId, actionType: request.actionType, status: "failed", error, text: capture.text.trim() || undefined, activity: capture.activity, blocks: capture.blocks });
+    live?.emit({ event: "topic.message", data: failed });
     return { actionRunId, actionType: request.actionType, status: "failed", error };
   }
 }
@@ -209,11 +536,11 @@ export async function getWorkbenchActionEvents(project: ManagedProject, actionRu
   return entries.filter((entry) => entry.actionRunId === actionRunId);
 }
 
-async function executeWorkflowAction(project: ManagedProject, changeId: string, request: WorkbenchWorkflowActionRequest): Promise<unknown> {
+async function executeWorkflowAction(project: ManagedProject, changeId: string, request: WorkbenchWorkflowActionRequest, live?: WorkbenchLiveSink): Promise<unknown> {
   switch (request.actionType) {
     case "chat.ask":
       if (!request.prompt) throw new Error("chat.ask requires prompt.");
-      return postTopicMessage(project, changeId, request.prompt);
+      return postTopicMessage(project, changeId, request.prompt, live);
     case "change.spec.propose":
       return startSpecProposalRun(project, { prompt: request.prompt });
     case "change.spec.accept":
@@ -225,7 +552,7 @@ async function executeWorkflowAction(project: ManagedProject, changeId: string, 
       if (!request.proposalId) throw new Error("change.plan.accept requires proposalId.");
       return acceptPlanProposal(project, request.proposalId);
     case "code.run":
-      return runCodeValidateAuditSequence(project, request.prompt);
+      return runCodeValidateAuditSequence(project, request.prompt, live);
     case "validate.run":
       return startValidationRun(project, { worktree: request.worktreeId });
     case "audit.run":
@@ -237,7 +564,7 @@ async function executeWorkflowAction(project: ManagedProject, changeId: string, 
   }
 }
 
-async function runOrchestratorPlan(project: ManagedProject, changeId: string, userMessage: string): Promise<{
+async function runOrchestratorPlan(project: ManagedProject, changeId: string, userMessage: string, live?: WorkbenchLiveSink): Promise<{
   run: RunMetadata;
   routingDecision: TopicRoutingDecision;
   assistantMessage: string;
@@ -296,6 +623,7 @@ async function runOrchestratorPlan(project: ManagedProject, changeId: string, us
     agent: buildRunAgentRecord(role),
   };
   await writeJsonFile(paths.run, run);
+  live?.emit({ event: "run.started", data: { runId, changeId, runtime: "orchestrator", actionType: "orchestrator.plan" } });
   await appendRunEvent(paths.events, { timestamp: now, type: "run.created", runId, data: { changeId, runtime: "orchestrator" } });
   await appendRunEvent(paths.events, { timestamp: now, type: "orchestrator.plan.started", runId, data: { changeId } });
 
@@ -328,6 +656,7 @@ async function runOrchestratorPlan(project: ManagedProject, changeId: string, us
   run = { ...run, command: [argv.command, ...argv.args], status: "running" };
   await writeJsonFile(paths.run, run);
   await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "codex.started", runId, data: { phase: "orchestrator", command: run.command } });
+  const parser = createLiveCodexParser(runId, live);
   const processResult = await executeProcessStreaming({
     cwd: project.path,
     command: argv.command,
@@ -336,7 +665,10 @@ async function runOrchestratorPlan(project: ManagedProject, changeId: string, us
     stdoutPath: paths.stdout,
     stderrPath: paths.stderr,
     mirrorStdoutPath: paths.codexEvents,
+    onStdoutChunk: (text) => parser.feed(text),
+    onCallbackError: (_stream, error) => emitLive(live, { event: "error", data: { message: error instanceof Error ? error.message : String(error), runId } }),
   });
+  parser.flush();
   const lastMessage = existsSync(paths.lastMessage)
     ? await readFile(paths.lastMessage, "utf8")
     : extractFinalMessageFromCodexJsonl(processResult.stdoutSample) ?? "";
@@ -352,36 +684,44 @@ async function runOrchestratorPlan(project: ManagedProject, changeId: string, us
   return { ...parsed, run };
 }
 
-async function postTopicPlanMessage(project: ManagedProject, changeId: string, message: string): Promise<TopicMessageResult> {
-  const orchestration = await runOrchestratorPlan(project, changeId, message);
+async function postTopicPlanMessage(project: ManagedProject, changeId: string, message: string, live?: WorkbenchLiveSink): Promise<TopicMessageResult> {
+  const user = await appendTopicThreadEntry(project, changeId, { type: "user.message", text: message });
+  live?.emit({ event: "topic.message", data: user });
+  const capture = createAssistantTranscriptCapture(live);
+  const orchestration = await runOrchestratorPlan(project, changeId, message, capture.sink);
+  const assistantText = orchestration.assistantMessage.trim() || capture.text.trim();
   if (orchestration.routingDecision !== "same-topic") {
-    const placeholderUser: TopicThreadEntry = {
-      id: `routing-${Date.now()}`,
-      timestamp: new Date().toISOString(),
-      changeId,
-      type: "user.message",
-      text: message,
-    };
+    const assistant = await appendTopicThreadEntry(project, changeId, {
+      type: "assistant.message",
+      text: assistantText,
+      runId: orchestration.run.id,
+      artifact: orchestration.run.artifacts.orchestrationPlanMarkdown,
+      activity: capture.activity,
+      blocks: capture.blocks,
+    });
+    live?.emit({ event: "assistant.message", data: assistant });
     return {
-      user: placeholderUser,
-      assistant: null,
+      user,
+      assistant,
       run: orchestration.run,
       codexSessionId: null,
       mode: "plan",
       routingDecision: orchestration.routingDecision,
-      assistantMessage: orchestration.assistantMessage,
+      assistantMessage: assistantText,
       planCard: orchestration.planCard,
       suggestedActions: orchestration.suggestedActions,
     };
   }
-  const user = await appendTopicThreadEntry(project, changeId, { type: "user.message", text: message });
   const assistant = await appendTopicThreadEntry(project, changeId, {
     type: "orchestrator.plan",
-    text: orchestration.assistantMessage,
+    text: assistantText,
     runId: orchestration.run.id,
     artifact: orchestration.run.artifacts.orchestrationPlanMarkdown,
     planCard: orchestration.planCard,
+    activity: capture.activity,
+    blocks: capture.blocks,
   });
+  live?.emit({ event: "assistant.message", data: assistant });
   return {
     user,
     assistant,
@@ -389,25 +729,52 @@ async function postTopicPlanMessage(project: ManagedProject, changeId: string, m
     codexSessionId: null,
     mode: "plan",
     routingDecision: orchestration.routingDecision,
-    assistantMessage: orchestration.assistantMessage,
+    assistantMessage: assistantText,
     planCard: orchestration.planCard,
     suggestedActions: orchestration.suggestedActions,
   };
 }
 
-async function runCodeValidateAuditSequence(project: ManagedProject, prompt?: string): Promise<unknown> {
-  const code = await startCodeRun(project, { prompt });
+async function runCodeValidateAuditSequence(project: ManagedProject, prompt?: string, live?: WorkbenchLiveSink): Promise<unknown> {
+  live?.emit({ event: "run.status", data: { status: "running", label: "Coder" } });
+  let coderStartedEmitted = false;
+  const code = await startCodeRun(project, {
+    prompt,
+    live: {
+      onRunStarted: (run) => {
+        coderStartedEmitted = true;
+        live?.emit({ event: "run.started", data: { runId: run.id, changeId: run.changeId, runtime: run.runtime, actionType: "code.run" } });
+      },
+      onStatus: (event) => live?.emit({ event: "run.status", data: event }),
+      onCodexEvent: (event) => forwardCodexStreamEvent(event.runId, event, live),
+      onCallbackError: (event) => emitLive(live, { event: "error", data: { runId: event.runId, message: event.error instanceof Error ? event.error.message : String(event.error) } }),
+    },
+  });
+  if (!coderStartedEmitted) live?.emit({ event: "run.started", data: { runId: code.run.id, changeId: code.run.changeId, runtime: code.run.runtime, actionType: "code.run" } });
+  live?.emit({ event: "run.status", data: { runId: code.run.id, status: code.run.status, label: "Coder" } });
   if (code.run.status !== "completed" || !code.run.worktree?.worktreeId) return { code, stoppedAt: "code" };
+  live?.emit({ event: "run.status", data: { runId: code.run.id, status: "running", label: "Validation" } });
+  live?.emit({ event: "tool.event", data: { runId: code.run.id, phase: "status", name: "Validation", status: "running" } });
+  emitAssistantEvent(live, { runId: code.run.id, kind: "status", phase: "running", title: "Validation running", summary: "AHO started validation for the coder worktree." });
   const validation = await startValidationRun(project, { worktree: code.run.worktree.worktreeId });
+  live?.emit({ event: "run.status", data: { runId: code.run.id, status: validation.validation.status, label: "Validation" } });
+  live?.emit({ event: "tool.event", data: { runId: code.run.id, phase: "status", name: "Validation", status: validation.validation.status } });
+  emitValidationAssistantEvents(live, code.run.id, validation);
   if (validation.validation.status !== "passed") return { code, validation, stoppedAt: "validation" };
+  live?.emit({ event: "run.status", data: { runId: code.run.id, status: "running", label: "Audit" } });
+  live?.emit({ event: "tool.event", data: { runId: code.run.id, phase: "status", name: "Audit", status: "running" } });
+  emitAssistantEvent(live, { runId: code.run.id, kind: "status", phase: "running", title: "Audit running", summary: "AHO started audit after validation passed." });
   const audit = await startAuditRun(project, {
     worktreeId: code.run.worktree.worktreeId,
     prompt: "This audit was automatically started after the user confirmed the Coder run and validation passed for the same worktree.",
   });
+  live?.emit({ event: "run.status", data: { runId: code.run.id, status: audit.audit.status, label: "Audit" } });
+  live?.emit({ event: "tool.event", data: { runId: code.run.id, phase: "status", name: "Audit", status: audit.audit.status } });
+  emitAuditAssistantEvent(live, code.run.id, audit);
   return { code, validation, audit, stoppedAt: audit.audit.status === "approved" || audit.audit.status === "approved-with-notes" ? null : "audit" };
 }
 
-async function runCodexChat(project: ManagedProject, changeId: string, userMessage: string): Promise<{ run: RunMetadata; message: string; codexSessionId: string | null }> {
+async function runCodexChat(project: ManagedProject, changeId: string, userMessage: string, live?: WorkbenchLiveSink): Promise<{ run: RunMetadata; message: string; codexSessionId: string | null }> {
   const memory = await resolveProjectMemory(project);
   assertWritableMemory(memory, "Topic chat");
   const { changePath } = await resolveTopic(project, changeId);
@@ -457,6 +824,7 @@ async function runCodexChat(project: ManagedProject, changeId: string, userMessa
     enabledSkills: skillContext.records,
   };
   await writeJsonFile(paths.run, run);
+  live?.emit({ event: "run.started", data: { runId, changeId, runtime: "codex-readonly", actionType: "chat.ask" } });
   await appendRunEvent(paths.events, { timestamp: now, type: "run.created", runId, data: { changeId, runtime: "codex-chat", requestedResume: Boolean(runtime.codexSessionId), skills: skillContext.records.map((item) => item.id) } });
   const context = await buildChatContext(project, memory, changeId, userMessage);
   await writeFile(paths.context, context, "utf8");
@@ -473,6 +841,7 @@ async function runCodexChat(project: ManagedProject, changeId: string, userMessa
   run = { ...run, command: [argv.command, ...argv.args], status: "running" };
   await writeJsonFile(paths.run, run);
   await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "codex.started", runId, data: { phase: "chat", resumed: canResume, resumeFallback: Boolean(runtime.codexSessionId) && !canResume, skillWarnings: skillContext.warnings } });
+  const parser = createLiveCodexParser(runId, live);
   const processResult = await executeProcessStreaming({
     cwd: project.path,
     command: argv.command,
@@ -481,7 +850,10 @@ async function runCodexChat(project: ManagedProject, changeId: string, userMessa
     stdoutPath: paths.stdout,
     stderrPath: paths.stderr,
     mirrorStdoutPath: paths.codexEvents,
+    onStdoutChunk: (text) => parser.feed(text),
+    onCallbackError: (_stream, error) => emitLive(live, { event: "error", data: { message: error instanceof Error ? error.message : String(error), runId } }),
   });
+  parser.flush();
   const stdout = processResult.stdoutSample;
   const lastMessage = existsSync(paths.lastMessage)
     ? await readFile(paths.lastMessage, "utf8")
@@ -494,7 +866,140 @@ async function runCodexChat(project: ManagedProject, changeId: string, userMessa
   run = { ...run, status, exitCode: processResult.exitCode, signal: processResult.signal, finishedAt: new Date().toISOString() };
   await writeJsonFile(paths.run, run);
   await appendRunEvent(paths.events, { timestamp: run.finishedAt ?? new Date().toISOString(), type: status === "completed" ? "run.completed" : "run.failed", runId });
+  live?.emit({ event: "run.status", data: { runId, status } });
   return { run, message: lastMessage.trim() || processResult.stderrSample || "Codex did not return a final message.", codexSessionId: nextSessionId };
+}
+
+function createLiveCodexParser(runId: string, live: WorkbenchLiveSink | undefined): ReturnType<typeof createCodexJsonlStreamParser> {
+  return createCodexJsonlStreamParser((event: CodexJsonlStreamEvent) => {
+    forwardCodexStreamEvent(runId, event, live);
+  });
+}
+
+function forwardCodexStreamEvent(runId: string, event: CodexJsonlStreamEvent, live: WorkbenchLiveSink | undefined): void {
+    if (!live) return;
+    if (event.type === "readable_event") {
+      emitAssistantEvent(live, { ...event.event, runId });
+      return;
+    }
+    if (event.type === "text_delta") {
+      emitLive(live, { event: "assistant.delta", data: { delta: event.delta, runId } });
+      return;
+    }
+    if (event.type === "status") {
+      emitLive(live, { event: "run.status", data: { runId, status: event.label } });
+      return;
+    }
+    if (event.type === "usage") {
+      emitLive(live, { event: "usage", data: { runId, usage: event.usage } });
+      emitAssistantEvent(live, {
+        runId,
+        kind: "usage",
+        phase: "completed",
+        title: "Usage recorded",
+        summary: formatUsageSummary(event.usage),
+      });
+      return;
+    }
+    if (event.type === "error") {
+      emitLive(live, { event: "error", data: { runId, message: event.message } });
+      emitAssistantEvent(live, { runId, kind: "error", phase: "failed", title: "Codex error", summary: event.message, isError: true });
+      return;
+    }
+    if (event.type === "tool_event") {
+      const preview = truncateReadablePreview(event.output);
+      emitLive(live, {
+        event: "tool.event",
+        data: {
+          runId,
+          phase: event.phase,
+          name: event.name,
+          command: event.command,
+          outputTail: preview.preview,
+          isError: event.isError,
+          exitCode: typeof event.raw === "object" && event.raw && "item" in event.raw ? exitCodeFromRaw(event.raw) : undefined,
+        },
+      });
+    }
+}
+
+function emitAssistantEvent(live: WorkbenchLiveSink | undefined, event: WorkbenchAssistantEvent): void {
+  emitLive(live, { event: "assistant.event", data: { ...event, timestamp: event.timestamp ?? new Date().toISOString() } });
+}
+
+function emitValidationAssistantEvents(live: WorkbenchLiveSink | undefined, runId: string, result: unknown): void {
+  const validation = isRecord(result) && isRecord(result.validation) ? result.validation : undefined;
+  const status = typeof validation?.status === "string" ? validation.status : "completed";
+  emitAssistantEvent(live, {
+    runId,
+    kind: "status",
+    phase: status,
+    title: status === "passed" ? "Validation passed" : "Validation completed",
+    summary: `Validation ${status}.`,
+    artifactRef: artifactRefFromRecord(validation?.artifacts),
+    isError: status !== "passed",
+  });
+  const commands = Array.isArray(validation?.commands) ? validation.commands.filter(isRecord) : [];
+  for (const [index, command] of commands.entries()) {
+    const commandText = Array.isArray(command.command)
+      ? command.command.filter((part): part is string => typeof part === "string").join(" ")
+      : typeof command.command === "string" ? command.command : undefined;
+    const exitCode = typeof command.exitCode === "number" ? command.exitCode : undefined;
+    const commandStatus = typeof command.status === "string" ? command.status : undefined;
+    emitAssistantEvent(live, {
+      runId,
+      itemId: `validation:${index}`,
+      kind: "command",
+      phase: commandStatus ?? (exitCode === 0 ? "completed" : "failed"),
+      title: exitCode === 0 || commandStatus === "passed" ? "Validation command passed" : "Validation command completed",
+      summary: commandText ?? "Validation command",
+      command: commandText,
+      exitCode,
+      isError: exitCode !== undefined ? exitCode !== 0 : commandStatus === "failed",
+      artifactRef: artifactRefFromRecord(command.artifacts),
+    });
+  }
+}
+
+function emitAuditAssistantEvent(live: WorkbenchLiveSink | undefined, runId: string, result: unknown): void {
+  const audit = isRecord(result) && isRecord(result.audit) ? result.audit : undefined;
+  const status = typeof audit?.status === "string" ? audit.status : "completed";
+  emitAssistantEvent(live, {
+    runId,
+    kind: "status",
+    phase: status,
+    title: status === "approved" || status === "approved-with-notes" ? "Audit approved" : "Audit completed",
+    summary: `Audit ${status}.`,
+    artifactRef: artifactRefFromRecord(audit?.artifacts),
+    isError: status !== "approved" && status !== "approved-with-notes",
+  });
+}
+
+function artifactRefFromRecord(value: unknown): string | undefined {
+  if (!isRecord(value)) return undefined;
+  for (const key of ["lastMessage", "auditMarkdown", "validationMarkdown", "report", "stdout", "stderr", "directory"]) {
+    const candidate = value[key];
+    if (typeof candidate === "string" && candidate) return candidate;
+  }
+  return undefined;
+}
+
+function formatUsageSummary(usage: Record<string, unknown>): string {
+  const input = typeof usage.input_tokens === "number" ? usage.input_tokens : undefined;
+  const output = typeof usage.output_tokens === "number" ? usage.output_tokens : undefined;
+  const pieces = [
+    input === undefined ? null : `${input} input tokens`,
+    output === undefined ? null : `${output} output tokens`,
+  ].filter((item): item is string => Boolean(item));
+  return pieces.length > 0 ? pieces.join(" · ") : "Usage recorded.";
+}
+
+function exitCodeFromRaw(raw: unknown): number | undefined {
+  if (!raw || typeof raw !== "object" || !("item" in raw)) return undefined;
+  const item = (raw as { item?: unknown }).item;
+  if (!item || typeof item !== "object" || !("exit_code" in item)) return undefined;
+  const exitCode = (item as { exit_code?: unknown }).exit_code;
+  return typeof exitCode === "number" ? exitCode : undefined;
 }
 
 async function buildChatContext(project: ManagedProject, memory: ResolvedMemory, changeId: string, userMessage: string): Promise<string> {
@@ -713,7 +1218,7 @@ async function getSingleActiveChangeId(project: ManagedProject): Promise<string>
 }
 
 async function readThreadLog(memory: ResolvedMemory, changePath: string): Promise<TopicThreadEntry[]> {
-  const changeId = changePath.split(/[\\/]/).at(-1) ?? "";
+  const changeId = await readCanonicalChangeId(memory, changePath);
   const projectId = memory.projectId ?? "unregistered";
   await importThreadJsonlIfNeeded(memory, projectId, changeId, changePath);
   const store = await WorkbenchStore.open(memory);
@@ -729,7 +1234,13 @@ async function readThreadLog(memory: ResolvedMemory, changePath: string): Promis
   return content
     .split(/\r?\n/)
     .filter((line) => line.trim().length > 0)
-    .map((line) => JSON.parse(line) as TopicThreadEntry);
+    .map((line, index) => ({ ...(JSON.parse(line) as TopicThreadEntry), position: index + 1 }));
+}
+
+async function readCanonicalChangeId(memory: ResolvedMemory, changePath: string): Promise<string> {
+  const fallback = changePath.split(/[\\/]/).at(-1) ?? "";
+  const metadata = await readJsonFile(join(memory.memoryRoot, changePath, "change.json"), threadChangeMetadataSchema, { id: fallback });
+  return metadata.id;
 }
 
 async function readTopicRuntime(memory: ResolvedMemory, changePath: string, changeId: string): Promise<TopicRuntimeMetadata> {
@@ -806,6 +1317,16 @@ function summarizeActionResult(actionType: string, result: unknown): string {
     return `Coder run was confirmed by the user.${stoppedAt}`;
   }
   return `${labelForAction(actionType)} completed.`;
+}
+
+function workflowFailureMessage(actionType: string, result: unknown): string | null {
+  if (actionType !== "code.run" || !isRecord(result)) return null;
+  const stoppedAt = typeof result.stoppedAt === "string" ? result.stoppedAt : null;
+  if (!stoppedAt) return null;
+  if (stoppedAt === "code") return "Code workflow stopped because the Coder run did not complete successfully.";
+  if (stoppedAt === "validation") return "Code workflow stopped because validation did not pass.";
+  if (stoppedAt === "audit") return "Code workflow stopped because audit did not approve the worktree.";
+  return `Code workflow stopped at ${stoppedAt}.`;
 }
 
 function labelForAction(actionType: string): string {
@@ -910,6 +1431,9 @@ function fromStoredMessage(row: StoredTopicMessage): TopicThreadEntry {
     artifact: row.artifact ?? undefined,
     error: row.error ?? undefined,
     planCard: isPlanCard(raw.planCard) ? raw.planCard : undefined,
+    activity: Array.isArray(raw.activity) ? raw.activity.filter(isAssistantTurnActivity) : undefined,
+    blocks: Array.isArray(raw.blocks) ? raw.blocks.filter(isAssistantTurnBlock) : undefined,
+    position: row.position,
   };
 }
 
@@ -924,4 +1448,43 @@ function parseStoredRawJson(rawJson: string): Record<string, unknown> {
 
 function isPlanCard(value: unknown): value is OrchestrationPlanCard {
   return isRecord(value) && typeof value.title === "string" && typeof value.summary === "string" && Array.isArray(value.steps);
+}
+
+function isAssistantTurnActivity(value: unknown): value is AssistantTurnActivity {
+  if (!isRecord(value) || typeof value.kind !== "string" || typeof value.timestamp !== "string") return false;
+  if (value.kind === "status") return typeof value.label === "string";
+  if (value.kind === "assistant-event") return isWorkbenchAssistantEvent(value.event);
+  if (value.kind === "tool") return isRecord(value.tool) && typeof value.tool.runId === "string";
+  if (value.kind === "usage") return isRecord(value.usage);
+  if (value.kind === "error") return typeof value.message === "string";
+  return false;
+}
+
+function isAssistantTurnBlock(value: unknown): value is AssistantTurnBlock {
+  if (!isRecord(value)) return false;
+  if (typeof value.id !== "string" || typeof value.sequence !== "number" || typeof value.timestamp !== "string") return false;
+  if (!isAssistantTurnBlockKind(value.kind) || typeof value.source !== "string") return false;
+  if (value.children !== undefined && (!Array.isArray(value.children) || !value.children.every(isAssistantTurnBlock))) return false;
+  if (value.planCard !== undefined && !isPlanCard(value.planCard)) return false;
+  return true;
+}
+
+function isAssistantTurnBlockKind(value: unknown): value is AssistantTurnBlockKind {
+  return typeof value === "string" && [
+    "prose",
+    "status",
+    "command-group",
+    "command",
+    "tool-result",
+    "file-change",
+    "reasoning-summary",
+    "plan-card",
+    "workflow-evidence",
+    "usage",
+    "error",
+  ].includes(value);
+}
+
+function isWorkbenchAssistantEvent(value: unknown): value is WorkbenchAssistantEvent {
+  return isRecord(value) && typeof value.runId === "string" && typeof value.kind === "string";
 }

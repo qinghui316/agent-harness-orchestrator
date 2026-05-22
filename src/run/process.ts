@@ -13,6 +13,9 @@ export interface ProcessExecutionOptions {
   stderrPath: string;
   mirrorStdoutPath?: string;
   maxCapturedStdoutBytes?: number;
+  onStdoutChunk?: (text: string) => void;
+  onStderrChunk?: (text: string) => void;
+  onCallbackError?: (stream: "stdout" | "stderr", error: unknown) => void;
 }
 
 export interface ProcessExecutionResult {
@@ -52,12 +55,14 @@ export async function executeProcessStreaming(options: ProcessExecutionOptions):
       stdoutSample = appendSample(stdoutSample, text, maxStdout);
       stdoutStream.write(text);
       mirrorStdoutStream?.write(text);
+      invokeChunkCallback("stdout", text);
     });
 
     child.stderr?.on("data", (chunk: Buffer) => {
       const text = chunk.toString("utf8");
       stderrSample = appendSample(stderrSample, text, maxCapturedStderrBytes);
       stderrStream.write(text);
+      invokeChunkCallback("stderr", text);
     });
 
     child.on("error", (error) => {
@@ -88,6 +93,19 @@ export async function executeProcessStreaming(options: ProcessExecutionOptions):
         finished(stderrStream),
         mirrorStdoutStream ? finished(mirrorStdoutStream) : Promise.resolve(),
       ]).then(() => resolve({ exitCode, signal, stdoutSample, stderrSample }));
+    }
+
+    function invokeChunkCallback(stream: "stdout" | "stderr", text: string): void {
+      try {
+        if (stream === "stdout") options.onStdoutChunk?.(text);
+        else options.onStderrChunk?.(text);
+      } catch (error) {
+        try {
+          options.onCallbackError?.(stream, error);
+        } catch {
+          // Live/progress callbacks are best-effort and must not affect process lifecycle.
+        }
+      }
     }
   });
 }

@@ -13,9 +13,50 @@ const snapshot = {
   },
   center: {
     selectedTopic: { id: "member-discount", title: "会员折扣计价", state: "active", acCount: 3, taskCount: 2 },
-    thread: { events: [
-      { id: "e1", type: "change.created", label: "会员用户满 100 元享 9 折", timestamp: "2026-05-15T12:00:00.000Z" },
-      { id: "e2", type: "validation.passed", label: "commands=test", timestamp: "2026-05-15T12:01:00.000Z" },
+    thread: { items: [
+      { id: "e1", kind: "user-message", source: "chat", label: "User", body: "会员用户满 100 元享 9 折", timestamp: "2026-05-15T12:00:00.000Z" },
+      {
+        id: "e2",
+        kind: "plan-card",
+        source: "chat",
+        label: "Orchestrator plan",
+        body: "生成受控计划",
+        timestamp: "2026-05-15T12:00:30.000Z",
+        planCard: {
+          title: "会员折扣计划",
+          summary: "先生成 Spec，再推进 Plan 和 Tasks。",
+          steps: [{ label: "Spec", description: "生成需求验收标准。" }],
+          warnings: [],
+        },
+        actions: [
+          { actionType: "change.spec.propose", label: "生成 Spec", enabled: false, requiresConfirmation: true, disabledReason: "Spec 已存在" },
+          { actionType: "change.plan.propose", label: "生成 Plan", enabled: true, requiresConfirmation: true },
+          { actionType: "change.plan.propose", label: "生成 Tasks", enabled: false, requiresConfirmation: true, disabledReason: "先生成 Plan" },
+          { actionType: "code.run", label: "运行 Code", enabled: false, requiresConfirmation: true, disabledReason: "先生成 Tasks" },
+        ],
+      },
+      {
+        id: "e3",
+        kind: "assistant-turn",
+        source: "workflow",
+        label: "Code workflow",
+        body: "Codex final summary 完整显示。",
+        timestamp: "2026-05-15T12:01:00.000Z",
+        runId: "run-1",
+        blocks: [
+          { id: "b1", runId: "run-1", sequence: 1, kind: "prose", timestamp: "2026-05-15T12:01:00.000Z", source: "codex", text: "Codex final summary 完整显示。" },
+          { id: "b2", runId: "run-1", sequence: 2, kind: "command", timestamp: "2026-05-15T12:01:05.000Z", source: "codex", title: "Command completed", command: "npm test", preview: "测试通过", exitCode: 0 },
+          { id: "b3", runId: "run-1", sequence: 3, kind: "prose", timestamp: "2026-05-15T12:01:10.000Z", source: "codex", text: "下一步可以查看验证和审查证据。" },
+          { id: "b4", runId: "run-1", sequence: 4, kind: "usage", timestamp: "2026-05-15T12:01:11.000Z", source: "codex", title: "用量", text: "用量：10 input tokens · 5 output tokens" },
+          { id: "b5", runId: "run-1", sequence: 5, kind: "workflow-evidence", timestamp: "2026-05-15T12:01:12.000Z", source: "validation", title: "验证：已通过", text: "commands=test", status: "passed" },
+          { id: "b6", runId: "run-1", sequence: 6, kind: "workflow-evidence", timestamp: "2026-05-15T12:01:13.000Z", source: "audit", title: "审查：带备注批准", text: "0 findings", status: "approved-with-notes" },
+        ],
+        evidence: [
+          { id: "workflow:action-code", source: "workflow", label: "Code workflow", body: "代码工作流完成。", status: "completed", runId: "run-1" },
+          { id: "validation:run-1", source: "validation", label: "Validation passed", body: "commands=test", status: "passed", runId: "run-1" },
+          { id: "audit:run-1", source: "audit", label: "Audit approved-with-notes", body: "0 findings", status: "approved-with-notes", runId: "run-1" },
+        ],
+      },
     ] },
     agentLoop: { runs: [{ id: "run-1", runtime: "coder-codex", status: "completed" }] },
   },
@@ -48,6 +89,7 @@ const stream = {
   events: [{ id: "r1", type: "run.completed", label: "run.completed", timestamp: "2026-05-15T12:00:00.000Z" }],
   artifacts: [
     { key: "events", path: "runs/run-1/events.jsonl", kind: "jsonl", exists: true, preview: "run.completed" },
+    { key: "codexEvents", path: "runs/run-1/codex-events.jsonl", kind: "jsonl", exists: true, preview: JSON.stringify({ type: "item.completed", item: { type: "command_execution", id: "cmd-1", command: "npm test", exit_code: 0, aggregated_output: "ok" } }) },
     { key: "stdout", path: "runs/run-1/stdout.log", kind: "log", exists: true, preview: "ok" },
     { key: "lastMessage", path: "runs/run-1/last-message.md", kind: "markdown", exists: true, preview: "done" },
     { key: "diff", path: "runs/run-1/diff.patch", kind: "patch", exists: true, preview: "+ discount" },
@@ -89,15 +131,41 @@ describe("Workbench web app", () => {
     await waitFor(() => expect(screen.getAllByText("会员折扣计价").length).toBeGreaterThan(0));
     expect(screen.getAllByText("主题").length).toBeGreaterThan(0);
     expect(screen.getByText("决策")).toBeTruthy();
-    expect(screen.getByText("已完成")).toBeTruthy();
-    expect(screen.getByText("需求意图")).toBeTruthy();
-    expect(screen.getByText("验证通过")).toBeTruthy();
+    expect(screen.getAllByText("已完成").length).toBeGreaterThan(0);
+    expect(screen.getByText("用户消息")).toBeTruthy();
+    expect(screen.getByText("AI 计划")).toBeTruthy();
+    expect(screen.getAllByText("执行结果").length).toBeGreaterThan(0);
+    const blockNodes = Array.from(document.querySelectorAll("[data-testid^='assistant-block']"));
+    expect(blockNodes.map((node) => node.getAttribute("data-testid"))).toEqual(expect.arrayContaining([
+      "assistant-block-prose",
+      "assistant-block-command-group",
+      "assistant-block-usage",
+      "assistant-block-workflow-evidence",
+    ]));
+    expect(blockNodes.findIndex((node) => node.textContent?.includes("Codex final summary"))).toBeLessThan(blockNodes.findIndex((node) => node.textContent?.includes("npm test")));
+    expect(blockNodes.findIndex((node) => node.textContent?.includes("npm test"))).toBeLessThan(blockNodes.findIndex((node) => node.textContent?.includes("下一步可以查看")));
+    expect(screen.getByText("验证：已通过")).toBeTruthy();
+    expect(screen.getByText("审查：带备注批准")).toBeTruthy();
+    expect(screen.getByText("会员折扣计划")).toBeTruthy();
+    expect(screen.getByText("生成 Plan")).toBeTruthy();
+    expect(screen.getByText("生成 Spec")).toBeTruthy();
+    expect(screen.getAllByText("运行 Code").length).toBeGreaterThan(0);
+    expect((screen.getByText("生成 Spec") as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByText("关闭变更")).toBeTruthy();
     expect(screen.getByText("接受 Spec")).toBeTruthy();
-    expect(screen.getAllByText("状态").length).toBeGreaterThan(0);
-    expect(screen.getByText("更多")).toBeTruthy();
+    expect(screen.getByText("刷新状态")).toBeTruthy();
+    expect(screen.queryByText("更多")).toBeNull();
+    expect(screen.queryByText("稍后")).toBeNull();
     expect(screen.getByText("记忆：external-local")).toBeTruthy();
     expect(screen.getByText("当前变更：会员折扣计价")).toBeTruthy();
+
+    fireEvent.click(screen.getByText("Agent 循环"));
+    expect(screen.getAllByText("代码实现").length).toBeGreaterThan(0);
+    expect(screen.getByText("运行阶段")).toBeTruthy();
+    expect(screen.getByText("模型事件转录")).toBeTruthy();
+    expect(screen.getByText("AI 最终输出")).toBeTruthy();
+    expect(screen.getByText("查看原始日志")).toBeTruthy();
+    expect(screen.getByText("done")).toBeTruthy();
 
     fireEvent.click(screen.getByText("确认"));
     expect(screen.getByText("确认执行")).toBeTruthy();
@@ -105,6 +173,163 @@ describe("Workbench web app", () => {
     await waitFor(() => {
       expect(fetch).toHaveBeenCalledWith("/api/projects/repo/workbench/actions", expect.objectContaining({ method: "POST" }));
     });
+  });
+
+  it("consumes live message SSE and keeps the composer at the work surface", async () => {
+    const liveSnapshot = {
+      ...snapshot,
+      center: {
+        ...snapshot.center,
+        thread: {
+          items: [
+            ...snapshot.center.thread.items,
+            { id: "live-user-final", kind: "user-message", source: "chat", label: "User", body: "继续说明边界" },
+            {
+              id: "live-ai-final",
+              kind: "assistant-turn",
+              source: "chat",
+              label: "AI",
+              body: "完整 AI 输出已经落盘。",
+              artifact: "runs/run-live/last-message.md",
+              activity: [
+                { kind: "status", label: "running", detail: "Codex" },
+                { kind: "assistant-event", event: { runId: "run-live", kind: "status", phase: "running", title: "Codex turn running", summary: "Codex started processing the turn." } },
+                { kind: "assistant-event", event: { runId: "run-live", kind: "command", phase: "completed", title: "Command completed", command: "npm test", preview: "测试通过", exitCode: 0 } },
+                { kind: "assistant-event", event: { runId: "run-live", kind: "command", phase: "completed", title: "Command completed", command: "Get-Content run.json", preview: "{\"runtime\":\"codex-readonly\",\"artifacts\":{\"codexEvents\":\"runs/run-live/codex-events.jsonl\"},\"promptStack\":[\"user-message\"],\"command\":[\"codex\",\"--output-last-message\",\"x\"]}", exitCode: 0 } },
+                { kind: "assistant-event", event: { runId: "run-live", kind: "usage", phase: "completed", title: "Usage recorded", summary: "10 input tokens · 5 output tokens" } },
+                { kind: "tool", tool: { runId: "run-live", phase: "started", name: "Bash", command: "npm test" } },
+                { kind: "tool", tool: { runId: "run-live", phase: "completed", name: "Bash", command: "npm test", isError: false, exitCode: 0 } },
+                { kind: "usage", usage: { input_tokens: 10, output_tokens: 5 } },
+              ],
+            },
+          ],
+        },
+      },
+    };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/app/status") {
+        return jsonResponse({ mode: "project", directProjectId: "repo" });
+      }
+      if (url === "/api/projects") {
+        return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
+      }
+      if (url.includes("/messages/live")) {
+        return sseResponse([
+          ["topic.message", { id: "live-user", type: "user.message", changeId: "member-discount", text: "继续说明边界" }],
+          ["run.started", { runId: "run-live", changeId: "member-discount", runtime: "codex-readonly", actionType: "chat.ask" }],
+          ["run.status", { runId: "run-live", status: "running", label: "Codex" }],
+          ["tool.event", { runId: "run-live", phase: "started", name: "Bash", command: "npm test" }],
+          ["tool.event", { runId: "run-live", phase: "completed", name: "Bash", command: "npm test", isError: false, exitCode: 0 }],
+          ["assistant.event", { runId: "run-live", kind: "command", phase: "completed", title: "Command completed", command: "npm test", preview: "测试通过", exitCode: 0 }],
+          ["assistant.event", { runId: "run-live", kind: "usage", phase: "completed", title: "Usage recorded", summary: "10 input tokens · 5 output tokens" }],
+          ["assistant.delta", { runId: "run-live", delta: "实时 AI 输出" }],
+          ["usage", { runId: "run-live", usage: { input_tokens: 10, output_tokens: 5 } }],
+          ["assistant.message", { id: "live-ai", type: "assistant.message", changeId: "member-discount", runId: "run-live", text: "完整 AI 输出已经落盘。" }],
+          ["snapshot", liveSnapshot],
+          ["done", { status: "completed" }],
+        ]);
+      }
+      return jsonResponse(url.includes("/stream/") ? stream : snapshot);
+    }));
+
+    render(<App />);
+
+    await waitFor(() => expect(screen.getAllByText("会员折扣计价").length).toBeGreaterThan(0));
+    expect(document.querySelector(".thread-header")).toBeTruthy();
+    expect(document.querySelector(".topic-composer")).toBeTruthy();
+    fireEvent.change(screen.getByPlaceholderText("输入问题或下一步需求"), { target: { value: "继续说明边界" } });
+    fireEvent.click(screen.getByTitle("发送"));
+
+    await waitFor(() => expect(screen.getByText("完整 AI 输出已经落盘。")).toBeTruthy());
+    expect(screen.getAllByText("测试通过").length).toBeGreaterThan(0);
+    expect(screen.getByText("内部执行详情已记录到 Agent Loop，可在原始日志中查看。")).toBeTruthy();
+    expect(screen.queryByText(/codex-events\.jsonl/)).toBeNull();
+    expect(screen.getByText("Usage recorded")).toBeTruthy();
+    expect(screen.queryByText("Codex turn running")).toBeNull();
+    expect(screen.getAllByText("npm test").length).toBeGreaterThan(0);
+    expect(screen.getByText("查看证据：last-message.md")).toBeTruthy();
+    expect(fetch).toHaveBeenCalledWith("/api/projects/repo/workbench/topics/member-discount/messages/live", expect.objectContaining({ method: "POST" }));
+  });
+
+  it("hides composer controls that do not have active capabilities", async () => {
+    const noCodeSnapshot = {
+      ...snapshot,
+      center: {
+        ...snapshot.center,
+        selectedTopic: { id: "member-discount", title: "会员折扣计价", state: "active", acCount: 3, taskCount: 0 },
+      },
+    };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
+      if (url === "/api/projects") return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
+      return jsonResponse(url.includes("/stream/") ? stream : noCodeSnapshot);
+    }));
+
+    render(<App />);
+
+    await waitFor(() => expect(screen.getAllByText("会员折扣计价").length).toBeGreaterThan(0));
+    const composer = document.querySelector(".topic-composer");
+    expect(screen.queryByTitle("添加上下文")).toBeNull();
+    expect(screen.queryByText("完全访问权限")).toBeNull();
+    expect(screen.queryByText("Codex · AHO")).toBeNull();
+    expect(composer?.textContent).not.toContain("运行 Code");
+    expect(screen.getByTitle("发送")).toBeTruthy();
+  });
+
+  it("renders rich live assistant turn before canonical snapshot replacement", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/app/status") {
+        return jsonResponse({ mode: "project", directProjectId: "repo" });
+      }
+      if (url === "/api/projects") {
+        return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
+      }
+      if (url.includes("/messages/live")) {
+        return sseResponse([
+          ["topic.message", { id: "live-user", type: "user.message", changeId: "member-discount", text: "继续说明边界" }],
+          ["run.started", { runId: "run-live", changeId: "member-discount", runtime: "codex-readonly", actionType: "chat.ask" }],
+          ["run.status", { runId: "run-live", status: "running", label: "Codex" }],
+          ["tool.event", { runId: "run-live", phase: "started", name: "Bash", command: "npm test" }],
+          ["tool.event", { runId: "run-live", phase: "completed", name: "Bash", command: "npm test", isError: false, exitCode: 0 }],
+          ["assistant.event", { runId: "run-live", kind: "command", phase: "completed", title: "Command completed", command: "npm test", preview: "测试通过", exitCode: 0 }],
+          ["assistant.event", { runId: "run-live", kind: "reasoning-summary", phase: "completed", title: "Reasoning summary", preview: "Checked existing constraints." }],
+          ["assistant.delta", { runId: "run-live", delta: "实时 AI 输出" }],
+          ["usage", { runId: "run-live", usage: { input_tokens: 10, output_tokens: 5 } }],
+          ["done", { status: "completed" }],
+        ]);
+      }
+      return jsonResponse(url.includes("/stream/") ? stream : snapshot);
+    }));
+
+    render(<App />);
+
+    await waitFor(() => expect(screen.getAllByText("会员折扣计价").length).toBeGreaterThan(0));
+    fireEvent.change(screen.getByPlaceholderText("输入问题或下一步需求"), { target: { value: "继续说明边界" } });
+    fireEvent.click(screen.getByTitle("发送"));
+
+    await waitFor(() => expect(screen.getByText("实时 AI 输出")).toBeTruthy());
+    expect(screen.getByText("AI 只读回复")).toBeTruthy();
+    expect(screen.getAllByText("测试通过").length).toBeGreaterThan(0);
+    expect(screen.getByText("Reasoning summary")).toBeTruthy();
+    expect(screen.getAllByText("npm test").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("exit 0").length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/5 output tokens/).length).toBeGreaterThan(0);
+  });
+
+  it("renders operational sidebar panels for repo memory and settings", async () => {
+    render(<App />);
+
+    await waitFor(() => expect(screen.getAllByText("会员折扣计价").length).toBeGreaterThan(0));
+    fireEvent.click(screen.getByText("仓库"));
+    expect(screen.getByText("分支")).toBeTruthy();
+    expect(screen.getByText("main")).toBeTruthy();
+    fireEvent.click(screen.getByText("记忆"));
+    expect(screen.getByText("external-local")).toBeTruthy();
+    fireEvent.click(screen.getByText("设置"));
+    expect(screen.getByText("刷新工作台")).toBeTruthy();
   });
 
   it("renders sidebar project onboarding when no direct project is selected", async () => {
@@ -159,3 +384,26 @@ describe("Workbench web app", () => {
     });
   });
 });
+
+function jsonResponse(body: unknown): Response {
+  return new Response(JSON.stringify(body), {
+    status: 200,
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
+function sseResponse(events: Array<[string, unknown]>): Response {
+  const encoder = new TextEncoder();
+  const streamBody = new ReadableStream<Uint8Array>({
+    start(controller) {
+      for (const [event, data] of events) {
+        controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
+      }
+      controller.close();
+    },
+  });
+  return new Response(streamBody, {
+    status: 200,
+    headers: { "Content-Type": "text/event-stream" },
+  });
+}

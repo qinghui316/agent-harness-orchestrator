@@ -3,7 +3,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { getChangeStatus } from "../change/manager.js";
 import { buildCodexWorkspaceWriteArgv, detectCodexCapabilities } from "../codex/capabilities.js";
-import { extractFinalMessageFromCodexJsonl } from "../codex/jsonl.js";
+import { createCodexJsonlStreamParser, extractFinalMessageFromCodexJsonl, type CodexJsonlStreamEvent } from "../codex/jsonl.js";
 import { readPromptInput } from "../codex/prompt.js";
 import { buildAgentSystemPrompt, buildRunAgentRecord, resolveAgentRole } from "../agent/catalog.js";
 import { writeJsonFile } from "../fs/json.js";
@@ -22,11 +22,44 @@ export interface CodeRunOptions {
   promptFile?: string;
   model?: string;
   profile?: string;
+  live?: CodeRunLiveCallbacks;
 }
 
 export interface CodeRunResult {
   run: RunMetadata;
   warnings: string[];
+}
+
+export interface CodeRunLiveCallbacks {
+  onRunStarted?: (run: RunMetadata) => void;
+  onStatus?: (event: { runId: string; status: string; label?: string }) => void;
+  onCodexEvent?: (event: CodexJsonlStreamEvent & { runId: string }) => void;
+  onStderrChunk?: (event: { runId: string; chunk: string }) => void;
+  onCallbackError?: (event: { runId: string; error: unknown }) => void;
+}
+
+function emitCodeLiveStatus(live: CodeRunLiveCallbacks | undefined, event: { runId: string; status: string; label?: string }): void {
+  try {
+    live?.onStatus?.(event);
+  } catch (error) {
+    emitCodeLiveCallbackError(live, event.runId, error);
+  }
+}
+
+function emitCodeLiveRunStarted(live: CodeRunLiveCallbacks | undefined, run: RunMetadata): void {
+  try {
+    live?.onRunStarted?.(run);
+  } catch (error) {
+    emitCodeLiveCallbackError(live, run.id, error);
+  }
+}
+
+function emitCodeLiveCallbackError(live: CodeRunLiveCallbacks | undefined, runId: string, error: unknown): void {
+  try {
+    live?.onCallbackError?.({ runId, error });
+  } catch {
+    // Live callbacks are best-effort and must not affect run lifecycle.
+  }
 }
 
 export interface CodeStatusResult {
@@ -114,10 +147,12 @@ export async function startCodeRun(project: ManagedProject, options: CodeRunOpti
   await writeJsonFile(paths.run, run);
   await appendRunEvent(paths.events, { timestamp: now, type: "run.created", runId, data: { changeId, runtime: "coder-codex", worktree } });
   await appendRunEvent(paths.events, { timestamp: now, type: "worktree.created", runId, data: { worktreeId: worktree.worktreeId, checkoutPath: worktree.checkoutPath } });
+  emitCodeLiveStatus(options.live, { runId, status: "preparing", label: "Coder" });
 
   const context = buildContextProjection(changeStatus);
   await writeFile(paths.context, context, "utf8");
   await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "context.prepared", runId, data: { path: artifacts.context } });
+  emitCodeLiveStatus(options.live, { runId, status: "context-prepared", label: "Coder" });
   const prompt = await composeCoderPrompt({
     context,
     changeStatus,
@@ -143,6 +178,7 @@ export async function startCodeRun(project: ManagedProject, options: CodeRunOpti
     await writeEmptyCodeArtifacts(paths, message);
     run = await finishRun(paths.run, run, "failed", 1, null);
     await appendRunEvent(paths.events, { timestamp: run.finishedAt ?? new Date().toISOString(), type: "run.failed", runId });
+    emitCodeLiveStatus(options.live, { runId, status: "failed", label: "Coder" });
     return { run, warnings: capabilities.errors };
   }
   await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "codex.capabilities.detected", runId, data: { capabilities } });
@@ -157,6 +193,19 @@ export async function startCodeRun(project: ManagedProject, options: CodeRunOpti
   await writeJsonFile(paths.run, run);
   await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "coder.started", runId, data: { cwd: worktree.checkoutPath, command: run.command } });
   await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "codex.started", runId, data: { cwd: worktree.checkoutPath, command: run.command } });
+  emitCodeLiveRunStarted(options.live, run);
+  emitCodeLiveStatus(options.live, { runId, status: "running", label: "Coder" });
+  const parser = createCodexJsonlStreamParser((event) => {
+    try {
+      options.live?.onCodexEvent?.({ ...event, runId });
+    } catch (error) {
+      try {
+        emitCodeLiveCallbackError(options.live, runId, error);
+      } catch {
+        // Live callbacks are best-effort and must not skip run finalization.
+      }
+    }
+  });
 
   const processResult = await executeProcessStreaming({
     cwd: worktree.checkoutPath,
@@ -166,7 +215,17 @@ export async function startCodeRun(project: ManagedProject, options: CodeRunOpti
     stdoutPath: paths.stdout,
     stderrPath: paths.stderr,
     mirrorStdoutPath: paths.codexEvents,
+    onStdoutChunk: (text) => parser.feed(text),
+    onStderrChunk: (text) => options.live?.onStderrChunk?.({ runId, chunk: text }),
+    onCallbackError: (_stream, error) => {
+      try {
+        emitCodeLiveCallbackError(options.live, runId, error);
+      } catch {
+        // Live callbacks are best-effort and must not affect child lifecycle.
+      }
+    },
   });
+  parser.flush();
   await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "codex.exited", runId, data: { exitCode: processResult.exitCode, signal: processResult.signal } });
   await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "coder.exited", runId, data: { exitCode: processResult.exitCode, signal: processResult.signal } });
 
@@ -197,6 +256,7 @@ export async function startCodeRun(project: ManagedProject, options: CodeRunOpti
   const status: RunStatus = processResult.exitCode === 0 && !sourceChanged ? "completed" : "failed";
   run = await finishRun(paths.run, run, status, sourceChanged ? 1 : processResult.exitCode, processResult.signal);
   await appendRunEvent(paths.events, { timestamp: run.finishedAt ?? new Date().toISOString(), type: status === "completed" ? "run.completed" : "run.failed", runId, data: { warnings } });
+  emitCodeLiveStatus(options.live, { runId, status, label: "Coder" });
 
   return { run, warnings };
 }

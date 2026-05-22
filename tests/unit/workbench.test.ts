@@ -7,6 +7,7 @@ import { createChange, closeChange } from "../../src/change/manager.js";
 import { initHarness } from "../../src/harness/init.js";
 import { startLocalCommandRun } from "../../src/run/manager.js";
 import { executeWorkbenchAction } from "../../src/server/workbench-server.js";
+import { appendTopicThreadEntry, createWorkbenchTopic } from "../../src/workbench/chat.js";
 import { getWorkbenchSnapshot, getWorkbenchStream, getWorkbenchTopic, listWorkbenchApprovals, listWorkbenchRoles, listWorkbenchTopics } from "../../src/workbench/manager.js";
 import { WorkbenchStore } from "../../src/workbench/store.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
@@ -48,7 +49,7 @@ describe("workbench read model", () => {
     ]));
   });
 
-  it("builds a snapshot with selected topic, run events, roles, gaps, and close approval", async () => {
+  it("builds a snapshot with selected topic, semantic thread, roles, gaps, and close approval", async () => {
     await initHarness(project());
     await createChange(project(), { title: "Workbench Smoke" });
     await startLocalCommandRun(project(), [process.execPath, "-e", "console.log('hello')"]);
@@ -59,7 +60,8 @@ describe("workbench read model", () => {
     expect(snapshot.left.topics[0]).toMatchObject({ id: "workbench-smoke", state: "active" });
     expect(snapshot.center.selectedTopic?.id).toBe("workbench-smoke");
     expect(snapshot.center.agentLoop.runs).toHaveLength(1);
-    expect(snapshot.center.thread.events.some((event) => event.type === "run.local-command")).toBe(true);
+    expect(snapshot.center.thread.items.some((item) => item.kind === "change-state")).toBe(true);
+    expect(snapshot.center.thread.items.some((item) => item.runId === snapshot.center.agentLoop.runs[0]?.id)).toBe(false);
     expect(snapshot.right.approvals.some((item) => item.kind === "change-close")).toBe(true);
     expect(snapshot.right.approvals.find((item) => item.kind === "change-close")?.action).toMatchObject({
       actionId: "change.close",
@@ -68,6 +70,137 @@ describe("workbench read model", () => {
     });
     expect(snapshot.roles.map((item) => item.id)).toEqual(expect.arrayContaining(["coder", "auditor", "validator"]));
     expect(snapshot.harnessGaps.map((item) => item.id)).toEqual(expect.arrayContaining(["roleCatalog", "sessionModel", "subagentSpec"]));
+  });
+
+  it("keeps archived topic messages in the semantic thread stream", async () => {
+    await initHarness(project());
+    const topic = await createWorkbenchTopic(project(), { title: "Archive Messages", body: "Need a durable archived thread." });
+    await appendTopicThreadEntry(project(), topic.changeId, {
+      type: "orchestrator.plan",
+      text: "I prepared the plan card.",
+      planCard: {
+        title: "Archived plan",
+        summary: "This plan should survive archive lookup.",
+        steps: [{ label: "Review", description: "Read the archived evidence." }],
+        warnings: [],
+      },
+    });
+    await writeFile(join(tempDir, "harness", "changes", "active", topic.changeId, "reviews", "review.md"), "Status: approved\n", "utf8");
+    await closeChange(tempDir);
+
+    const snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: topic.changeId });
+
+    expect(snapshot.center.selectedTopic).toMatchObject({ id: topic.changeId, state: "archive" });
+    expect(snapshot.center.thread.items).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: "user-message", body: "Need a durable archived thread." }),
+      expect.objectContaining({
+        kind: "assistant-turn",
+        planCard: expect.objectContaining({ title: "Archived plan" }),
+        blocks: expect.arrayContaining([
+          expect.objectContaining({ kind: "plan-card", title: "Archived plan" }),
+        ]),
+      }),
+    ]));
+  });
+
+  it("projects code workflow summaries with validation and audit evidence without raw run events", async () => {
+    await initHarness(project());
+    const topic = await createWorkbenchTopic(project(), { title: "Code Evidence", body: "Implement the pricing rule." });
+    const run = await startLocalCommandRun(project(), [process.execPath, "-e", "console.log('code')"]);
+    await appendTopicThreadEntry(project(), topic.changeId, { type: "workflow.started", actionRunId: "action-code", actionType: "code.run", status: "running" });
+    await appendTopicThreadEntry(project(), topic.changeId, {
+      type: "workflow.completed",
+      actionRunId: "action-code",
+      actionType: "code.run",
+      status: "completed",
+      runId: run.run.id,
+      text: "I updated the pricing rule and kept validation evidence attached.",
+      activity: [
+        { kind: "status", label: "running", detail: "Coder", timestamp: run.run.startedAt },
+        {
+          kind: "assistant-event",
+          event: {
+            runId: run.run.id,
+            kind: "command",
+            phase: "completed",
+            title: "Command completed",
+            summary: "npm test",
+            command: "npm test",
+            preview: "ok",
+            exitCode: 0,
+          },
+          timestamp: run.run.finishedAt ?? run.run.startedAt,
+        },
+        { kind: "tool", tool: { runId: run.run.id, phase: "completed", name: "Validation", status: "passed" }, timestamp: run.run.finishedAt ?? run.run.startedAt },
+      ],
+    });
+    await writeFile(join(tempDir, ".agent-harness", "runs", run.run.id, "validation.json"), JSON.stringify({
+      version: "1.0",
+      id: "validation-code",
+      runId: run.run.id,
+      changeId: topic.changeId,
+      profile: "default",
+      status: "passed",
+      executionMode: "direct",
+      startedAt: run.run.startedAt,
+      finishedAt: run.run.finishedAt ?? run.run.startedAt,
+      commands: [{
+        name: "test",
+        command: ["npm", "test"],
+        cwd: tempDir,
+        status: "passed",
+        exitCode: 0,
+        signal: null,
+        startedAt: run.run.startedAt,
+        finishedAt: run.run.finishedAt ?? run.run.startedAt,
+        stdout: "ok",
+        stderr: "",
+      }],
+    }, null, 2), "utf8");
+    await writeFile(join(tempDir, ".agent-harness", "runs", run.run.id, "audit.json"), JSON.stringify({
+      version: "1.0",
+      id: "audit-code",
+      runId: run.run.id,
+      changeId: topic.changeId,
+      status: "approved-with-notes",
+      startedAt: run.run.startedAt,
+      finishedAt: run.run.finishedAt ?? run.run.startedAt,
+      findings: [],
+      artifacts: {
+        audit: `.agent-harness/runs/${run.run.id}/audit.json`,
+        auditMarkdown: `.agent-harness/runs/${run.run.id}/audit.md`,
+        lastMessage: `.agent-harness/runs/${run.run.id}/last-message.md`,
+      },
+    }, null, 2), "utf8");
+
+    const snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: topic.changeId });
+
+    expect(snapshot.center.thread.items.filter((item) => item.kind === "workflow-summary" && item.actionRunId === "action-code")).toHaveLength(0);
+    expect(snapshot.center.thread.items.filter((item) => item.kind === "assistant-turn" && item.runId === run.run.id)).toHaveLength(1);
+    expect(snapshot.center.thread.items).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: "assistant-turn",
+        body: "I updated the pricing rule and kept validation evidence attached.",
+        activity: expect.arrayContaining([
+          expect.objectContaining({ kind: "assistant-event" }),
+          expect.objectContaining({ kind: "tool" }),
+        ]),
+        blocks: expect.arrayContaining([
+          expect.objectContaining({ kind: "prose", text: "I updated the pricing rule and kept validation evidence attached." }),
+          expect.objectContaining({ kind: "command", command: "npm test" }),
+          expect.objectContaining({ kind: "workflow-evidence", source: "workflow", status: "completed" }),
+          expect.objectContaining({ kind: "workflow-evidence", source: "validation", status: "passed" }),
+          expect.objectContaining({ kind: "workflow-evidence", source: "audit", status: "approved-with-notes" }),
+        ]),
+        evidence: expect.arrayContaining([
+          expect.objectContaining({ source: "workflow", status: "completed" }),
+          expect.objectContaining({ source: "validation", status: "passed" }),
+          expect.objectContaining({ source: "audit", status: "approved-with-notes" }),
+        ]),
+      }),
+    ]));
+    expect(snapshot.center.thread.items.some((item) => item.kind === "evidence" && item.runId === run.run.id)).toBe(false);
+    expect(snapshot.center.thread.items.some((item) => item.label === "process.started" || item.label === "run.completed")).toBe(false);
   });
 
   it("replays run stream artifacts with bounded previews and diagnostics", async () => {

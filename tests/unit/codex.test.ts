@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildCodexReadonlyArgv, buildCodexReadonlyResumeArgv, buildCodexWorkspaceWriteArgv, evaluateCodexCapabilities } from "../../src/codex/capabilities.js";
-import { extractFinalMessageFromCodexJsonl } from "../../src/codex/jsonl.js";
+import { createCodexJsonlStreamParser, extractFinalMessageFromCodexJsonl, truncateReadablePreview, type CodexJsonlStreamEvent } from "../../src/codex/jsonl.js";
 import { composeCodexPrompt, readPromptInput } from "../../src/codex/prompt.js";
 
 const rootHelp = "Usage: codex [OPTIONS]\n  -a, --ask-for-approval <APPROVAL_POLICY>\n";
@@ -170,5 +170,65 @@ describe("codex prompt and JSONL parsing", () => {
     ].join("\n");
 
     expect(extractFinalMessageFromCodexJsonl(output)).toBe("final from item\n\nfinal from message");
+  });
+
+  it("parses Codex JSONL chunks into UI-friendly streaming events", () => {
+    const events: CodexJsonlStreamEvent[] = [];
+    const parser = createCodexJsonlStreamParser((event) => events.push(event));
+    const first = JSON.stringify({ type: "thread.started" });
+    const second = JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: "hello" } });
+    const third = JSON.stringify({ type: "item.completed", item: { type: "command_execution", id: "cmd-1", command: "npm test", exit_code: 0, aggregated_output: "ok" } });
+    const fourth = JSON.stringify({ type: "turn.completed", usage: { input_tokens: 1, output_tokens: 2 } });
+
+    parser.feed(`${first}\n${second.slice(0, 20)}`);
+    parser.feed(`${second.slice(20)}\nnot-json\n${third}\n${fourth}`);
+    parser.flush();
+
+    expect(events).toEqual(expect.arrayContaining([
+      { type: "status", label: "initializing", raw: expect.any(Object) },
+      { type: "text_delta", delta: "hello", raw: expect.any(Object) },
+      expect.objectContaining({ type: "tool_event", phase: "completed", id: "cmd-1", command: "npm test", output: "ok", isError: false }),
+      expect.objectContaining({ type: "readable_event", event: expect.objectContaining({ kind: "command", command: "npm test", preview: "ok" }) }),
+      { type: "raw", line: "not-json" },
+      { type: "usage", usage: { input_tokens: 1, output_tokens: 2 }, raw: expect.any(Object) },
+    ]));
+  });
+
+  it("parses readable Codex model events without exposing raw JSONL as transcript", () => {
+    const events: CodexJsonlStreamEvent[] = [];
+    const parser = createCodexJsonlStreamParser((event) => events.push(event));
+    parser.feed([
+      JSON.stringify({ type: "item.completed", item: { type: "reasoning", id: "r1", summary: [{ text: "Checked the current workflow state." }], content: "hidden reasoning" } }),
+      JSON.stringify({ type: "item.completed", item: { type: "file_change", id: "f1", changes: [{ path: "src/app.ts", kind: "modified", diff: "+ok" }] } }),
+      JSON.stringify({ type: "item.completed", item: { type: "mcp_tool_call", id: "m1", server: "openai", tool: "docs", arguments: { q: "SSE" }, result: "docs found" } }),
+      JSON.stringify({ type: "item.completed", item: { type: "web_search", id: "w1", query: "Codex app" } }),
+      JSON.stringify({ type: "item.completed", item: { type: "plan_update", id: "p1", text: "1. Inspect\n2. Patch" } }),
+      JSON.stringify({ type: "item.completed", item: { type: "tool_result", id: "t1", content: "tool returned" } }),
+      JSON.stringify({ type: "item.completed", item: { type: "unknown_payload", value: "raw only" } }),
+      "",
+    ].join("\n"));
+
+    const readable = events.filter((event): event is Extract<CodexJsonlStreamEvent, { type: "readable_event" }> => event.type === "readable_event");
+    expect(readable.map((event) => event.event.kind)).toEqual(expect.arrayContaining([
+      "reasoning-summary",
+      "file-change",
+      "mcp-tool",
+      "web-search",
+      "plan-update",
+      "tool-result",
+    ]));
+    expect(readable.find((event) => event.event.kind === "reasoning-summary")?.event.preview).toContain("Checked the current workflow state.");
+    expect(readable.find((event) => event.event.kind === "reasoning-summary")?.event.preview).not.toContain("hidden reasoning");
+    expect(events).toEqual(expect.arrayContaining([expect.objectContaining({ type: "raw" })]));
+  });
+
+  it("bounds readable command previews by byte and line limits", () => {
+    const longOutput = Array.from({ length: 120 }, (_, index) => `${index}: ${"x".repeat(80)}`).join("\n");
+    const preview = truncateReadablePreview(longOutput);
+
+    expect(preview.truncated).toBe(true);
+    expect(preview.preview).toContain("[truncated; see raw log]");
+    expect(Buffer.byteLength(preview.preview ?? "", "utf8")).toBeLessThanOrEqual(2300);
+    expect((preview.preview ?? "").split(/\r?\n/).length).toBeLessThanOrEqual(81);
   });
 });
