@@ -12,7 +12,7 @@ import { answerClarification, reanalyzeIntake, runIntakeScan } from "../../src/w
 import { getWorkbenchSnapshot, getWorkbenchStream, getWorkbenchTopic, listWorkbenchApprovals, listWorkbenchRoles, listWorkbenchTopics } from "../../src/workbench/manager.js";
 import { WorkbenchStore } from "../../src/workbench/store.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
-import type { ManagedProject, RunMetadata } from "../../src/types/index.js";
+import type { ManagedProject, RunMetadata, TaskRun, WorkerLease } from "../../src/types/index.js";
 
 let tempDir: string;
 
@@ -484,7 +484,7 @@ describe("workbench read model", () => {
         title: "Render deterministic task preview.",
         checked: true,
         acIds: ["AC-001"],
-        nextAction: expect.objectContaining({ actionType: "code.run", taskIds: ["T-001"], enabled: true }),
+        nextAction: expect.objectContaining({ actionType: "task.run.start", taskIds: ["T-001"], enabled: true }),
       }),
     ]);
   });
@@ -534,19 +534,80 @@ describe("workbench read model", () => {
     ]);
   });
 
-  it("rejects unknown task ids before starting a Workbench code run", async () => {
+  it("rejects unknown task ids before starting a Workbench task run", async () => {
     await initHarness(project());
     await createChange(project(), { title: "Unknown Task" });
     await writeAcceptedSpecAndTasks("unknown-task");
 
     const result = await executeWorkbenchAction({ project: project(), path: tempDir }, {
-      actionType: "code.run",
+      actionType: "task.run.start",
       changeId: "unknown-task",
       taskIds: ["T-999"],
       confirm: true,
     });
 
     expect(result.result).toMatchObject({ status: "failed", error: expect.stringContaining("Unknown task id") });
+  });
+
+  it("projects latest TaskRun and WorkerLease state on the matching TaskGraph node", async () => {
+    await initHarness(project());
+    await createChange(project(), { title: "TaskRun State" });
+    await writeAcceptedSpecAndTasks("taskrun-state");
+    await writeTaskRunRecord("taskrun-state", "taskrun-1", "T-001", "blocked", 1, {
+      runId: "run-taskrun-1",
+      worktreeId: "wt-taskrun-1",
+      blockedReason: "Audit failed.",
+      leaseId: "lease-1",
+    });
+    await writeWorkerLeaseRecord("taskrun-state", "lease-1", "taskrun-1", "T-001", "released");
+    await writeCoderRun("taskrun-state", "run-taskrun-1", ["T-001"], "wt-taskrun-1", "completed", "taskrun-1");
+    await writeAuditResult("taskrun-state", "audit-taskrun-1", "wt-taskrun-1", "failed");
+
+    const snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: "taskrun-state" });
+    const node = snapshot.center.workpad.taskGraph.nodes.find((item) => item.taskId === "T-001");
+
+    expect(node).toMatchObject({
+      status: "blocked",
+      taskRun: expect.objectContaining({ id: "taskrun-1", status: "blocked", attempt: 1, runId: "run-taskrun-1", worktreeId: "wt-taskrun-1" }),
+      workerLease: expect.objectContaining({ id: "lease-1", status: "released", workerId: expect.stringContaining("local") }),
+      nextAction: expect.objectContaining({ actionType: "task.run.retry", taskRunId: "taskrun-1", enabled: true }),
+      blockers: expect.arrayContaining(["Audit failed."]),
+    });
+  });
+
+  it("reconciles a claimed TaskRun from run, validation, and audit artifacts", async () => {
+    await initHarness(project());
+    await createChange(project(), { title: "TaskRun Reconcile" });
+    await writeAcceptedSpecAndTasks("taskrun-reconcile");
+    await writeTaskRunRecord("taskrun-reconcile", "taskrun-reconcile-1", "T-001", "claimed", 1, {
+      leaseId: "lease-reconcile-1",
+    });
+    await writeWorkerLeaseRecord("taskrun-reconcile", "lease-reconcile-1", "taskrun-reconcile-1", "T-001", "claimed");
+    await writeCoderRun("taskrun-reconcile", "run-reconcile-1", ["T-001"], "wt-reconcile-1", "completed", "taskrun-reconcile-1");
+    await writeValidationResult("taskrun-reconcile", "validation-reconcile-1", "wt-reconcile-1", "passed");
+    await writeAuditResult("taskrun-reconcile", "audit-reconcile-1", "wt-reconcile-1", "approved-with-notes");
+
+    const result = await executeWorkbenchAction({ project: project(), path: tempDir }, {
+      actionType: "task.run.reconcile",
+      changeId: "taskrun-reconcile",
+      taskRunId: "taskrun-reconcile-1",
+      confirm: true,
+    });
+    expect(result.result).toMatchObject({
+      status: "completed",
+      result: {
+        taskRuns: [expect.objectContaining({ id: "taskrun-reconcile-1", status: "completed", runId: "run-reconcile-1", worktreeId: "wt-reconcile-1" })],
+        workerLeases: [expect.objectContaining({ id: "lease-reconcile-1", status: "released" })],
+      },
+    });
+
+    const snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: "taskrun-reconcile" });
+    const node = snapshot.center.workpad.taskGraph.nodes.find((item) => item.taskId === "T-001");
+    expect(node).toMatchObject({
+      status: "evidence-ready",
+      taskRun: expect.objectContaining({ id: "taskrun-reconcile-1", status: "completed" }),
+      workerLease: expect.objectContaining({ id: "lease-reconcile-1", status: "released" }),
+    });
   });
 });
 
@@ -570,7 +631,7 @@ async function writeAcceptedSpecAndTasks(changeId: string): Promise<void> {
   ].join("\n"), "utf8");
 }
 
-async function writeCoderRun(changeId: string, runId: string, taskIds: string[], worktreeId: string, status: RunMetadata["status"]): Promise<RunMetadata> {
+async function writeCoderRun(changeId: string, runId: string, taskIds: string[], worktreeId: string, status: RunMetadata["status"], taskRunId?: string): Promise<RunMetadata> {
   const runDir = join(tempDir, ".agent-harness", "runs", runId);
   await mkdir(runDir, { recursive: true });
   const now = new Date().toISOString();
@@ -605,10 +666,62 @@ async function writeCoderRun(changeId: string, runId: string, taskIds: string[],
       metadataPath: `.agent-harness/worktrees/${worktreeId}.json`,
     },
     ...(taskIds.length > 0 ? { taskIds } : {}),
+    ...(taskRunId ? { taskRunId } : {}),
   };
   await writeFile(join(runDir, "run.json"), JSON.stringify(run, null, 2), "utf8");
   await writeFile(join(runDir, "events.jsonl"), `${JSON.stringify({ timestamp: now, type: "run.completed", runId })}\n`, "utf8");
   return run;
+}
+
+async function writeTaskRunRecord(
+  changeId: string,
+  taskRunId: string,
+  taskId: string,
+  status: TaskRun["status"],
+  attempt: number,
+  overrides: Partial<TaskRun> = {},
+): Promise<void> {
+  const dir = join(tempDir, ".agent-harness", "runs", "task-runs", changeId);
+  await mkdir(dir, { recursive: true });
+  const now = new Date().toISOString();
+  const taskRun: TaskRun = {
+    version: "1.0",
+    id: taskRunId,
+    projectId: "test-project",
+    changeId,
+    taskId,
+    roleId: "coder",
+    attempt,
+    status,
+    createdAt: now,
+    updatedAt: now,
+    startedAt: now,
+    finishedAt: status === "running" || status === "claimed" || status === "queued" ? null : now,
+    ...overrides,
+  };
+  await writeFile(join(dir, `${taskRunId}.json`), JSON.stringify(taskRun, null, 2), "utf8");
+}
+
+async function writeWorkerLeaseRecord(changeId: string, leaseId: string, taskRunId: string, taskId: string, status: WorkerLease["status"]): Promise<void> {
+  const dir = join(tempDir, ".agent-harness", "runs", "worker-leases", changeId);
+  await mkdir(dir, { recursive: true });
+  const now = new Date().toISOString();
+  const lease: WorkerLease = {
+    version: "1.0",
+    id: leaseId,
+    projectId: "test-project",
+    changeId,
+    taskRunId,
+    taskId,
+    roleId: "coder",
+    workerId: "local-test",
+    status,
+    claimedAt: now,
+    updatedAt: now,
+    releasedAt: status === "released" ? now : null,
+    expiresAt: new Date(Date.now() + 60_000).toISOString(),
+  };
+  await writeFile(join(dir, `${leaseId}.json`), JSON.stringify(lease, null, 2), "utf8");
 }
 
 async function writeValidationResult(changeId: string, validationId: string, worktreeId: string, status: "passed" | "failed"): Promise<void> {

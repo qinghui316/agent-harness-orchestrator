@@ -648,6 +648,24 @@ input:focus-visible {
   color: var(--success);
 }
 
+.task-run-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-panel);
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.task-run-summary strong {
+  color: var(--text);
+  font-size: 12px;
+}
+
 .task-evidence-list,
 .workpad-task-change-evidence {
   display: flex;

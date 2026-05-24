@@ -55,8 +55,10 @@ const snapshot = {
             { id: "run:run-1", source: "run", label: "Coder completed", status: "completed", runId: "run-1", worktreeId: "wt-1" },
             { id: "validation:run-1", source: "validation", label: "Validation passed", status: "passed", runId: "validation-1", worktreeId: "wt-1" },
           ],
+          taskRun: { id: "taskrun-1", status: "completed", attempt: 1, roleId: "coder", runId: "run-1", worktreeId: "wt-1" },
+          workerLease: { id: "lease-1", status: "released", workerId: "local-test", claimedAt: "2026-05-15T12:00:00.000Z", expiresAt: "2026-05-15T13:00:00.000Z" },
           blockers: [],
-          nextAction: { id: "task:T-001:code.run", label: "运行此任务", actionType: "code.run", taskIds: ["T-001"], enabled: true, requiresConfirmation: true },
+          nextAction: { id: "task:T-001:task.run.start", label: "运行此任务", actionType: "task.run.start", taskIds: ["T-001"], enabled: true, requiresConfirmation: true },
         }],
         changeLevelEvidence: [],
         warnings: [],
@@ -310,6 +312,10 @@ describe("Workbench web app", () => {
     fireEvent.click(screen.getByText("运行此任务"));
 
     await waitFor(() => {
+      expect(fetch).toHaveBeenCalledWith("/api/projects/repo/workbench/actions/live", expect.objectContaining({
+        method: "POST",
+        body: expect.stringContaining("\"actionType\":\"task.run.start\""),
+      }));
       expect(fetch).toHaveBeenCalledWith("/api/projects/repo/workbench/actions/live", expect.objectContaining({
         method: "POST",
         body: expect.stringContaining("\"taskIds\":[\"T-001\"]"),

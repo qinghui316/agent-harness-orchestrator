@@ -58,6 +58,7 @@ interface WorkbenchActionRequest {
   proposalId?: string;
   worktreeId?: string;
   taskIds?: string[];
+  taskRunId?: string;
   confirm?: boolean;
   feedback?: string;
   options?: {
@@ -380,6 +381,7 @@ export async function executeWorkbenchAction(input: WorkbenchProjectInput, body:
       proposalId: body.proposalId,
       worktreeId: body.worktreeId,
       taskIds: body.taskIds,
+      taskRunId: body.taskRunId,
     });
     return { result, snapshot: await getWorkbenchSnapshot(input, { topicId: body.changeId }) };
   }
@@ -560,6 +562,7 @@ async function sendWorkbenchActionLive(input: WorkbenchProjectInput & { project:
         proposalId: body.proposalId,
         worktreeId: body.worktreeId,
         taskIds: body.taskIds,
+        taskRunId: body.taskRunId,
       }, sink);
       terminalStatus = result.status;
     } else {
@@ -587,7 +590,7 @@ function createLiveSink(sse: ReturnType<typeof createSseResponse>): { emit(event
 }
 
 function isLiveWorkflowAction(actionType: string): actionType is WorkbenchWorkflowActionRequest["actionType"] {
-  return actionType === "chat.ask" || actionType === "change.spec.propose" || actionType === "change.plan.propose" || actionType === "code.run";
+  return actionType === "chat.ask" || actionType === "change.spec.propose" || actionType === "change.plan.propose" || actionType === "code.run" || actionType === "task.run.start" || actionType === "task.run.retry";
 }
 
 function matchProjectWorkbenchRoute(pathname: string): { projectId: string; rest: string } | null {

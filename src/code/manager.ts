@@ -19,6 +19,7 @@ import { composeCoderPrompt } from "./prompt.js";
 
 export interface CodeRunOptions {
   taskIds?: string[];
+  taskRunId?: string;
   prompt?: string;
   promptFile?: string;
   model?: string;
@@ -143,11 +144,12 @@ export async function startCodeRun(project: ManagedProject, options: CodeRunOpti
     artifacts,
     worktree,
     ...(selectedTasks.length > 0 ? { taskIds: selectedTasks } : {}),
+    ...(options.taskRunId ? { taskRunId: options.taskRunId } : {}),
     promptStack: ["agent-role", "active-change", "worktree", "task-scope", "human-prompt"],
     agent: buildRunAgentRecord(role),
   };
   await writeJsonFile(paths.run, run);
-  await appendRunEvent(paths.events, { timestamp: now, type: "run.created", runId, data: { changeId, runtime: "coder-codex", worktree, taskIds: selectedTasks } });
+  await appendRunEvent(paths.events, { timestamp: now, type: "run.created", runId, data: { changeId, runtime: "coder-codex", worktree, taskIds: selectedTasks, taskRunId: options.taskRunId } });
   await appendRunEvent(paths.events, { timestamp: now, type: "worktree.created", runId, data: { worktreeId: worktree.worktreeId, checkoutPath: worktree.checkoutPath } });
   emitCodeLiveStatus(options.live, { runId, status: "preparing", label: "Coder" });
 

@@ -64,6 +64,7 @@ const runMetadataSchema = z.object({
     metadataPath: z.string(),
   }).optional(),
   taskIds: z.array(z.string()).optional(),
+  taskRunId: z.string().optional(),
   promptStack: z.array(z.string()).optional(),
   enabledSkills: z.array(z.object({
     id: z.string(),
@@ -203,6 +204,7 @@ export async function listRuns(project: ManagedProject | string | ResolvedMemory
   const runs: RunMetadata[] = [];
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
+    if (!existsSync(join(runsDir, entry.name, "run.json"))) continue;
     runs.push(await readRun(memory, entry.name));
   }
   return runs.sort((a, b) => b.startedAt.localeCompare(a.startedAt));

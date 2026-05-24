@@ -79,9 +79,27 @@ type WorkbenchTaskNextAction = {
   label: string;
   actionType?: ThreadStreamAction["actionType"];
   taskIds?: string[];
+  taskRunId?: string;
   enabled: boolean;
   requiresConfirmation: boolean;
   disabledReason?: string;
+};
+type WorkbenchTaskRunSummary = {
+  id: string;
+  status: string;
+  attempt: number;
+  roleId: string;
+  runId?: string;
+  worktreeId?: string;
+  blockedReason?: string;
+  failureReason?: string;
+};
+type WorkbenchWorkerLeaseSummary = {
+  id: string;
+  status: string;
+  workerId: string;
+  claimedAt: string;
+  expiresAt: string;
 };
 type WorkbenchTaskNode = {
   taskId: string;
@@ -89,6 +107,8 @@ type WorkbenchTaskNode = {
   acIds: string[];
   checked: boolean;
   status: "planned" | "running" | "evidence-ready" | "blocked" | "checked";
+  taskRun?: WorkbenchTaskRunSummary;
+  workerLease?: WorkbenchWorkerLeaseSummary;
   latestEvidence: WorkbenchTaskEvidence[];
   blockers: string[];
   nextAction: WorkbenchTaskNextAction;
@@ -141,7 +161,7 @@ type PlanCard = {
 };
 type ThreadEvent = { id: string; type: string; label: string; timestamp?: string; status?: string; runId?: string; planCard?: PlanCard };
 type ThreadStreamAction = {
-  actionType: "change.spec.propose" | "change.plan.propose" | "code.run" | "intake.scan" | "intake.reanalyze" | "clarification.answer" | "clarification.skip";
+  actionType: "change.spec.propose" | "change.plan.propose" | "code.run" | "task.run.start" | "task.run.retry" | "intake.scan" | "intake.reanalyze" | "clarification.answer" | "clarification.skip";
   label: string;
   enabled: boolean;
   requiresConfirmation: boolean;
@@ -1496,7 +1516,7 @@ function TaskGraphCard({
   const disabled = busy || !action.enabled || !action.actionType;
   function runTask(): void {
     if (!action.actionType || disabled) return;
-    void onWorkflowAction(action.actionType, { taskIds: action.taskIds ?? [task.taskId] });
+    void onWorkflowAction(action.actionType, { taskIds: action.taskIds ?? [task.taskId], taskRunId: action.taskRunId });
   }
   return (
     <article className={`workpad-task ${task.status}`} data-testid={`taskgraph-node-${task.taskId}`}>
@@ -1508,6 +1528,14 @@ function TaskGraphCard({
         <span className={`task-status ${task.status}`}>{taskStatusLabel(task.status)}</span>
       </div>
       <small>{task.checked ? "已勾选" : "未勾选"} · {task.acIds.join(", ") || "未映射 AC"}</small>
+      {task.taskRun ? (
+        <div className="task-run-summary">
+          <span>TaskRun #{task.taskRun.attempt}</span>
+          <strong>{humanStatus(task.taskRun.status)}</strong>
+          <small>{task.taskRun.id}</small>
+          {task.workerLease ? <small>Lease {humanStatus(task.workerLease.status)} · {task.workerLease.workerId}</small> : null}
+        </div>
+      ) : null}
       {task.latestEvidence.length > 0 ? (
         <div className="task-evidence-list">
           {task.latestEvidence.map((item) => (
@@ -2477,6 +2505,8 @@ function workflowActionLabel(actionType: string | undefined): string {
   if (actionType === "change.spec.propose") return "Spec proposal";
   if (actionType === "change.plan.propose") return "Plan/Tasks proposal";
   if (actionType === "code.run") return "Code workflow";
+  if (actionType === "task.run.start") return "Task workflow";
+  if (actionType === "task.run.retry") return "Retry task";
   if (actionType === "chat.ask") return "Chat";
   return actionType ?? "Workflow";
 }

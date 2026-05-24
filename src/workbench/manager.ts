@@ -18,6 +18,7 @@ import { listRuns, readRun } from "../run/manager.js";
 import { getSpecTestDriftReport } from "../spec-test/drift.js";
 import { getSpecTestStatus } from "../spec-test/manager.js";
 import { listSpecTestProposalSummaries } from "../spec-test/proposal.js";
+import { isActiveTaskRunStatus, listTaskRuns, listWorkerLeases } from "../task-run/manager.js";
 import { listValidationResults, summarizeValidation } from "../validation/artifacts.js";
 import { listWorktreeStatuses, listWorktreesForChange } from "../worktree/manager.js";
 import { readTopicThreadLog, type AssistantTurnActivity, type AssistantTurnBlock, type OrchestrationPlanCard, type TopicThreadEntry } from "./chat.js";
@@ -33,7 +34,9 @@ import type {
   ResolvedMemory,
   RunEvent,
   RunMetadata,
+  TaskRun,
   ValidationSummary,
+  WorkerLease,
 } from "../types/index.js";
 
 export type WorkbenchTopicState = "active" | "parking" | "archive";
@@ -79,7 +82,7 @@ export interface WorkbenchThreadEvent {
 }
 
 export interface ThreadStreamAction {
-  actionType: "change.spec.propose" | "change.plan.propose" | "code.run" | "intake.scan" | "intake.reanalyze" | "clarification.answer" | "clarification.skip";
+  actionType: "change.spec.propose" | "change.plan.propose" | "code.run" | "task.run.start" | "task.run.retry" | "intake.scan" | "intake.reanalyze" | "clarification.answer" | "clarification.skip";
   label: string;
   enabled: boolean;
   requiresConfirmation: boolean;
@@ -222,9 +225,29 @@ export interface WorkbenchTaskNextAction {
   label: string;
   actionType?: ThreadStreamAction["actionType"];
   taskIds?: string[];
+  taskRunId?: string;
   enabled: boolean;
   requiresConfirmation: boolean;
   disabledReason?: string;
+}
+
+export interface WorkbenchTaskRunSummary {
+  id: string;
+  status: string;
+  attempt: number;
+  roleId: string;
+  runId?: string;
+  worktreeId?: string;
+  blockedReason?: string;
+  failureReason?: string;
+}
+
+export interface WorkbenchWorkerLeaseSummary {
+  id: string;
+  status: string;
+  workerId: string;
+  claimedAt: string;
+  expiresAt: string;
 }
 
 export interface WorkbenchTaskNode {
@@ -233,6 +256,8 @@ export interface WorkbenchTaskNode {
   acIds: string[];
   checked: boolean;
   status: WorkbenchTaskNodeStatus;
+  taskRun?: WorkbenchTaskRunSummary;
+  workerLease?: WorkbenchWorkerLeaseSummary;
   latestEvidence: WorkbenchTaskEvidence[];
   blockers: string[];
   nextAction: WorkbenchTaskNextAction;
@@ -322,6 +347,8 @@ export interface WorkbenchTopicDetail extends WorkbenchTopicSummary {
   specTest?: unknown;
   drift?: unknown;
   runs: RunMetadata[];
+  taskRuns: TaskRun[];
+  workerLeases: WorkerLease[];
   worktrees: unknown[];
   validations: unknown[];
   audits: unknown[];
@@ -714,6 +741,8 @@ function buildTaskGraph(
 
   const coderRuns = topic.runs.filter((run) => run.runtime === "coder-codex");
   const taskScopedCoderRuns = coderRuns.filter((run) => (run.taskIds?.length ?? 0) > 0);
+  const taskRuns = topic.taskRuns ?? [];
+  const workerLeases = topic.workerLeases ?? [];
   const taskIds = new Set(topic.acMap.tasks.map((task) => task.id));
   const worktreeTaskIds = new Map<string, string[]>();
   for (const run of taskScopedCoderRuns) {
@@ -729,7 +758,10 @@ function buildTaskGraph(
 
   const nodes = topic.acMap.tasks.map((task) => {
     const runs = taskScopedCoderRuns.filter((run) => run.taskIds?.includes(task.id));
-    const running = runs.some((run) => run.status === "created" || run.status === "running");
+    const taskRunAttempts = taskRuns.filter((run) => run.taskId === task.id).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    const latestTaskRun = taskRunAttempts[0];
+    const latestLease = latestTaskRun?.leaseId ? workerLeases.find((lease) => lease.id === latestTaskRun.leaseId) : undefined;
+    const running = taskRunAttempts.some((run) => isActiveTaskRunStatus(run.status)) || runs.some((run) => run.status === "created" || run.status === "running");
     const worktreeIds = new Set(runs.map((run) => run.worktree?.worktreeId).filter((item): item is string => Boolean(item)));
     const taskValidations = validations.filter((validation) => Boolean(validation.worktreeId && worktreeIds.has(validation.worktreeId)));
     const taskAudits = audits.filter((audit) => Boolean(audit.worktreeId && worktreeIds.has(audit.worktreeId)));
@@ -741,14 +773,14 @@ function buildTaskGraph(
       ...taskValidations.map(taskValidationEvidence),
       ...taskAudits.map(taskAuditEvidence),
     ].sort(compareEvidenceDesc).slice(0, 6);
-    const blockers = buildTaskBlockers(topic, readiness, runs, taskValidations, taskAudits, running);
+    const blockers = buildTaskBlockers(topic, readiness, runs, taskValidations, taskAudits, running, latestTaskRun);
     const status: WorkbenchTaskNodeStatus = task.done
       ? "checked"
       : running
         ? "running"
-        : blockers.some((item) => item.includes("failed") || item.includes("blocked") || item.includes("失败") || item.includes("阻塞") || item.includes("前置条件"))
+        : latestTaskRun?.status === "blocked" || latestTaskRun?.status === "failed" || blockers.some((item) => item.includes("failed") || item.includes("blocked") || item.includes("失败") || item.includes("阻塞") || item.includes("前置条件"))
           ? "blocked"
-          : evidence.length > 0
+          : latestTaskRun?.status === "completed" || evidence.length > 0
             ? "evidence-ready"
             : "planned";
 
@@ -758,9 +790,11 @@ function buildTaskGraph(
       acIds: task.acIds,
       checked: task.done,
       status,
+      taskRun: latestTaskRun ? summarizeTaskRun(latestTaskRun) : undefined,
+      workerLease: latestLease ? summarizeWorkerLease(latestLease) : undefined,
       latestEvidence: evidence,
       blockers,
-      nextAction: buildTaskNextAction(topic, readiness, task.id, running),
+      nextAction: buildTaskNextAction(topic, readiness, task.id, running, latestTaskRun),
     };
   });
 
@@ -775,6 +809,29 @@ function buildTaskGraph(
     nodes,
     changeLevelEvidence,
     warnings: [],
+  };
+}
+
+function summarizeTaskRun(taskRun: TaskRun): WorkbenchTaskRunSummary {
+  return {
+    id: taskRun.id,
+    status: taskRun.status,
+    attempt: taskRun.attempt,
+    roleId: taskRun.roleId,
+    runId: taskRun.runId,
+    worktreeId: taskRun.worktreeId,
+    blockedReason: taskRun.blockedReason,
+    failureReason: taskRun.failureReason,
+  };
+}
+
+function summarizeWorkerLease(lease: WorkerLease): WorkbenchWorkerLeaseSummary {
+  return {
+    id: lease.id,
+    status: lease.status,
+    workerId: lease.workerId,
+    claimedAt: lease.claimedAt,
+    expiresAt: lease.expiresAt,
   };
 }
 
@@ -826,6 +883,7 @@ function buildTaskBlockers(
   validations: ValidationSummary[],
   audits: AuditSummary[],
   running: boolean,
+  latestTaskRun?: TaskRun,
 ): string[] {
   const blockers: string[] = [];
   if (topic.state !== "active") blockers.push("Topic is read-only.");
@@ -837,6 +895,8 @@ function buildTaskBlockers(
   if (latestRun?.status === "failed") blockers.push("Coder run failed.");
   if (latestValidation?.status === "failed") blockers.push("Validation failed.");
   if (latestAudit?.status === "blocked" || latestAudit?.status === "failed") blockers.push(`Audit ${latestAudit.status}.`);
+  if (latestTaskRun?.blockedReason) blockers.push(latestTaskRun.blockedReason);
+  if (latestTaskRun?.failureReason) blockers.push(latestTaskRun.failureReason);
   return blockers;
 }
 
@@ -845,12 +905,24 @@ function buildTaskNextAction(
   readiness: { specReady: boolean; planReady: boolean; tasksReady: boolean },
   taskId: string,
   running: boolean,
+  latestTaskRun?: TaskRun,
 ): WorkbenchTaskNextAction {
   const disabledReason = taskActionDisabledReason(topic, readiness, running);
+  if ((latestTaskRun?.status === "blocked" || latestTaskRun?.status === "failed") && !disabledReason) {
+    return {
+      id: `task:${taskId}:task.run.retry:${latestTaskRun.id}`,
+      label: "重试此任务",
+      actionType: "task.run.retry",
+      taskIds: [taskId],
+      taskRunId: latestTaskRun.id,
+      enabled: true,
+      requiresConfirmation: true,
+    };
+  }
   return {
-    id: `task:${taskId}:code.run`,
+    id: `task:${taskId}:task.run.start`,
     label: "运行此任务",
-    actionType: "code.run",
+    actionType: "task.run.start",
     taskIds: [taskId],
     enabled: !disabledReason,
     requiresConfirmation: true,
@@ -1043,10 +1115,12 @@ async function selectTopicDetail(project: ManagedProject | null, memory: Resolve
   const change = await readChangeMetadataAt(memory, topic.path);
   const allRuns = await listRuns(memory);
   const runs = allRuns.filter((run) => run.changeId === topic.id || run.changeId === topic.name);
-  const [worktrees, validations, audits] = await Promise.all([
+  const [worktrees, validations, audits, taskRuns, workerLeases] = await Promise.all([
     listWorktreesForChange(memory, topic.id).catch(() => []),
     listValidationResults(memory, topic.id).then((items) => items.map(summarizeValidation)).catch(() => []),
     listAuditResults(memory, topic.id).then((items) => items.map(summarizeAudit)).catch(() => []),
+    listTaskRuns(memory, topic.id).catch(() => []),
+    listWorkerLeases(memory, topic.id).catch(() => []),
   ]);
 
   let statusDetail: Awaited<ReturnType<typeof getChangeStatus>> | null = null;
@@ -1072,6 +1146,8 @@ async function selectTopicDetail(project: ManagedProject | null, memory: Resolve
     specTest,
     drift,
     runs,
+    taskRuns,
+    workerLeases,
     worktrees,
     validations,
     audits,

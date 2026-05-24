@@ -563,9 +563,50 @@ export interface RunMetadata {
   artifacts: RunArtifactPaths;
   worktree?: RunWorktreeInfo;
   taskIds?: string[];
+  taskRunId?: string;
   promptStack?: string[];
   enabledSkills?: RunSkillRecord[];
   agent?: RunAgentRecord;
+}
+
+export type TaskRunStatus = "queued" | "claimed" | "running" | "evidence-ready" | "blocked" | "failed" | "completed";
+
+export interface TaskRun {
+  version: "1.0";
+  id: string;
+  projectId: string | null;
+  changeId: string;
+  taskId: string;
+  roleId: string;
+  attempt: number;
+  status: TaskRunStatus;
+  createdAt: string;
+  updatedAt: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+  runId?: string;
+  worktreeId?: string;
+  leaseId?: string;
+  blockedReason?: string;
+  failureReason?: string;
+}
+
+export type WorkerLeaseStatus = "claimed" | "released" | "expired" | "lost";
+
+export interface WorkerLease {
+  version: "1.0";
+  id: string;
+  projectId: string | null;
+  changeId: string;
+  taskRunId: string;
+  taskId: string;
+  roleId: string;
+  workerId: string;
+  status: WorkerLeaseStatus;
+  claimedAt: string;
+  updatedAt: string;
+  releasedAt: string | null;
+  expiresAt: string;
 }
 
 export interface RunSkillRecord {

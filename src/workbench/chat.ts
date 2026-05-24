@@ -15,6 +15,7 @@ import { appendRunEvent, buildContextProjection, buildRunId } from "../run/manag
 import { executeProcessStreaming } from "../run/process.js";
 import { getEnabledSkillContext } from "../skill/catalog.js";
 import { getSpecTestDriftReport } from "../spec-test/drift.js";
+import { finishTaskRunFromWorkflowResult, markTaskRunStarted, reconcileTaskRuns, retryTaskRun, startTaskRun } from "../task-run/manager.js";
 import { startValidationRun } from "../validation/manager.js";
 import { buildAgentSystemPrompt, buildRunAgentRecord, resolveAgentRole } from "../agent/catalog.js";
 import type { ManagedProject, ResolvedMemory, RunMetadata, RunStatus } from "../types/index.js";
@@ -449,6 +450,9 @@ export type WorkbenchWorkflowActionType =
   | "change.plan.propose"
   | "change.plan.accept"
   | "code.run"
+  | "task.run.start"
+  | "task.run.retry"
+  | "task.run.reconcile"
   | "validate.run"
   | "audit.run"
   | "spec-test.drift";
@@ -460,6 +464,7 @@ export interface WorkbenchWorkflowActionRequest {
   proposalId?: string;
   worktreeId?: string;
   taskIds?: string[];
+  taskRunId?: string;
 }
 
 export interface WorkbenchWorkflowActionResult {
@@ -613,6 +618,12 @@ async function executeWorkflowAction(project: ManagedProject, changeId: string, 
       return acceptPlanProposal(project, request.proposalId);
     case "code.run":
       return runCodeValidateAuditSequence(project, request.prompt, live, request.taskIds);
+    case "task.run.start":
+      return runTaskRunCodeValidateAuditSequence(project, changeId, request, live, "start");
+    case "task.run.retry":
+      return runTaskRunCodeValidateAuditSequence(project, changeId, request, live, "retry");
+    case "task.run.reconcile":
+      return reconcileTaskRuns(project, { changeId, taskRunId: request.taskRunId });
     case "validate.run":
       return startValidationRun(project, { worktree: request.worktreeId });
     case "audit.run":
@@ -795,12 +806,61 @@ async function postTopicPlanMessage(project: ManagedProject, changeId: string, m
   };
 }
 
-async function runCodeValidateAuditSequence(project: ManagedProject, prompt?: string, live?: WorkbenchLiveSink, taskIds?: string[]): Promise<unknown> {
+async function runTaskRunCodeValidateAuditSequence(
+  project: ManagedProject,
+  changeId: string,
+  request: WorkbenchWorkflowActionRequest,
+  live: WorkbenchLiveSink | undefined,
+  mode: "start" | "retry",
+): Promise<unknown> {
+  const started = mode === "start"
+    ? await startTaskRun(project, { changeId, taskId: requireSingleTaskId(request.taskIds) })
+    : await retryTaskRun(project, { changeId, taskRunId: requireTaskRunId(request.taskRunId) });
+  emitAssistantEvent(live, {
+    runId: started.taskRun.id,
+    kind: "status",
+    phase: "claimed",
+    title: "TaskRun claimed",
+    summary: `${started.taskRun.taskId} attempt ${started.taskRun.attempt} was claimed by ${started.lease.workerId}.`,
+  });
+  try {
+    const memory = await resolveProjectMemory(project);
+    await markTaskRunStarted(memory, started.taskRun.id);
+    emitAssistantEvent(live, {
+      runId: started.taskRun.id,
+      kind: "status",
+      phase: "running",
+      title: "TaskRun running",
+      summary: `${started.taskRun.taskId} attempt ${started.taskRun.attempt} started the Coder -> Validation -> Audit workflow.`,
+    });
+    const workflow = await runCodeValidateAuditSequence(project, request.prompt, live, [started.taskRun.taskId], started.taskRun.id);
+    const taskRun = await finishTaskRunFromWorkflowResult(memory, started.taskRun.id, workflow);
+    return { taskRun, lease: started.lease, workflow };
+  } catch (cause) {
+    const memory = await resolveProjectMemory(project);
+    await finishTaskRunFromWorkflowResult(memory, started.taskRun.id, { stoppedAt: "code", code: { run: { status: "failed" } } }).catch(() => undefined);
+    throw cause;
+  }
+}
+
+function requireSingleTaskId(taskIds: string[] | undefined): string {
+  const unique = Array.from(new Set((taskIds ?? []).map((taskId) => taskId.trim()).filter(Boolean)));
+  if (unique.length !== 1) throw new Error("task.run.start requires exactly one taskId.");
+  return unique[0];
+}
+
+function requireTaskRunId(taskRunId: string | undefined): string {
+  if (typeof taskRunId === "string" && taskRunId.trim()) return taskRunId.trim();
+  throw new Error("task.run.retry requires taskRunId.");
+}
+
+async function runCodeValidateAuditSequence(project: ManagedProject, prompt?: string, live?: WorkbenchLiveSink, taskIds?: string[], taskRunId?: string): Promise<unknown> {
   live?.emit({ event: "run.status", data: { status: "running", label: "Coder" } });
   let coderStartedEmitted = false;
   const code = await startCodeRun(project, {
     prompt,
     taskIds,
+    taskRunId,
     live: {
       onRunStarted: (run) => {
         coderStartedEmitted = true;
@@ -1363,6 +1423,7 @@ async function collectAllThreadEntries(memory: ResolvedMemory): Promise<TopicThr
 function extractRunId(result: unknown): string | undefined {
   if (isRecord(result) && isRecord(result.run) && typeof result.run.id === "string") return result.run.id;
   if (isRecord(result) && isRecord(result.code) && isRecord(result.code.run) && typeof result.code.run.id === "string") return result.code.run.id;
+  if (isRecord(result) && isRecord(result.workflow) && isRecord(result.workflow.code) && isRecord(result.workflow.code.run) && typeof result.workflow.code.run.id === "string") return result.workflow.code.run.id;
   if (isRecord(result) && isRecord(result.result) && isRecord(result.result.run) && typeof result.result.run.id === "string") return result.result.run.id;
   return undefined;
 }
@@ -1370,20 +1431,31 @@ function extractRunId(result: unknown): string | undefined {
 function artifactForActionResult(result: unknown): string | null {
   if (isRecord(result) && isRecord(result.run) && isRecord(result.run.artifacts) && typeof result.run.artifacts.directory === "string") return result.run.artifacts.directory;
   if (isRecord(result) && isRecord(result.code) && isRecord(result.code.run) && isRecord(result.code.run.artifacts) && typeof result.code.run.artifacts.directory === "string") return result.code.run.artifacts.directory;
+  if (isRecord(result) && isRecord(result.workflow) && isRecord(result.workflow.code) && isRecord(result.workflow.code.run) && isRecord(result.workflow.code.run.artifacts) && typeof result.workflow.code.run.artifacts.directory === "string") return result.workflow.code.run.artifacts.directory;
   return null;
 }
 
 function summarizeActionResult(actionType: string, result: unknown): string {
+  if (actionType === "task.run.reconcile" && isRecord(result) && Array.isArray(result.taskRuns)) {
+    return `Reconciled ${result.taskRuns.length} TaskRun record(s).`;
+  }
   if (actionType === "code.run" && isRecord(result)) {
     const stoppedAt = typeof result.stoppedAt === "string" && result.stoppedAt ? ` Stopped at ${result.stoppedAt}.` : " Validation and audit sequence completed.";
     return `Coder run was confirmed by the user.${stoppedAt}`;
+  }
+  if ((actionType === "task.run.start" || actionType === "task.run.retry") && isRecord(result) && isRecord(result.taskRun)) {
+    const taskId = typeof result.taskRun.taskId === "string" ? result.taskRun.taskId : "task";
+    const status = typeof result.taskRun.status === "string" ? result.taskRun.status : "completed";
+    return `TaskRun for ${taskId} finished with status ${status}.`;
   }
   return `${labelForAction(actionType)} completed.`;
 }
 
 function workflowFailureMessage(actionType: string, result: unknown): string | null {
-  if (actionType !== "code.run" || !isRecord(result)) return null;
-  const stoppedAt = typeof result.stoppedAt === "string" ? result.stoppedAt : null;
+  if (!isRecord(result)) return null;
+  const workflow = (actionType === "task.run.start" || actionType === "task.run.retry") && isRecord(result.workflow) ? result.workflow : result;
+  if (actionType !== "code.run" && actionType !== "task.run.start" && actionType !== "task.run.retry") return null;
+  const stoppedAt = typeof workflow.stoppedAt === "string" ? workflow.stoppedAt : null;
   if (!stoppedAt) return null;
   if (stoppedAt === "code") return "Code workflow stopped because the Coder run did not complete successfully.";
   if (stoppedAt === "validation") return "Code workflow stopped because validation did not pass.";
@@ -1398,6 +1470,9 @@ function labelForAction(actionType: string): string {
     case "change.plan.propose": return "Plan proposal generated";
     case "change.plan.accept": return "Plan proposal accepted";
     case "code.run": return "Coder run confirmed";
+    case "task.run.start": return "Task workflow started";
+    case "task.run.retry": return "Task workflow retried";
+    case "task.run.reconcile": return "Task runs reconciled";
     case "validate.run": return "Validation run completed";
     case "audit.run": return "Audit run completed";
     case "spec-test.drift": return "Spec-Test drift checked";
