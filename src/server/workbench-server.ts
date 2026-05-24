@@ -35,6 +35,7 @@ import {
   type WorkbenchApprovalAction,
   type WorkbenchProjectInput,
 } from "../workbench/manager.js";
+import { answerClarification, reanalyzeIntake, runIntakeScan, skipClarification, type ClarificationAnswer } from "../workbench/intake.js";
 import type { ManagedProject, MemoryMode } from "../types/index.js";
 
 export interface WorkbenchServeOptions {
@@ -62,6 +63,18 @@ interface WorkbenchActionRequest {
     commit?: boolean;
     message?: string;
   };
+}
+
+interface IntakeRequest {
+  changeId?: string;
+  prompt?: string;
+  message?: string;
+}
+
+interface ClarificationAnswerRequest {
+  changeId?: string;
+  answers?: ClarificationAnswer[];
+  answer?: string;
 }
 
 interface WorkbenchServerContext {
@@ -231,6 +244,18 @@ async function handleApi(context: WorkbenchServerContext, request: IncomingMessa
     await sendWorkbenchActionLive(input, request, response);
     return;
   }
+  if (request.method === "POST" && url.pathname === "/api/workbench/intake/scan") {
+    assertDirectProjectInput(input);
+    assertRegisteredProject(input);
+    sendJson(response, 200, await handleIntakeScan(input, await readJsonBody<IntakeRequest>(request)));
+    return;
+  }
+  if (request.method === "POST" && url.pathname === "/api/workbench/intake/reanalyze") {
+    assertDirectProjectInput(input);
+    assertRegisteredProject(input);
+    sendJson(response, 200, await handleIntakeReanalyze(input, await readJsonBody<IntakeRequest>(request)));
+    return;
+  }
   sendJson(response, 404, { error: "Not found." });
 }
 
@@ -245,8 +270,32 @@ async function handleProjectWorkbenchApi(input: WorkbenchProjectInput, request: 
   }
   if (request.method === "POST" && rest === "topics") {
     assertRegisteredProject(input);
-    const topic = await createWorkbenchTopic(input.project, await readCreateTopicBody(request));
+    const body = await readCreateTopicBody(request);
+    const topic = await createWorkbenchTopic(input.project, body);
+    await runIntakeScan(input.project, topic.changeId, body.body ?? body.title);
     sendJson(response, 200, { topic, snapshot: await getWorkbenchSnapshot(input, { topicId: topic.changeId }) });
+    return;
+  }
+  if (request.method === "POST" && rest === "intake/scan") {
+    assertRegisteredProject(input);
+    sendJson(response, 200, await handleIntakeScan(input, await readJsonBody<IntakeRequest>(request)));
+    return;
+  }
+  if (request.method === "POST" && rest === "intake/reanalyze") {
+    assertRegisteredProject(input);
+    sendJson(response, 200, await handleIntakeReanalyze(input, await readJsonBody<IntakeRequest>(request)));
+    return;
+  }
+  const clarificationAnswerMatch = rest.match(/^clarifications\/([^/]+)\/answer$/);
+  if (request.method === "POST" && clarificationAnswerMatch?.[1]) {
+    assertRegisteredProject(input);
+    sendJson(response, 200, await handleClarificationAnswer(input, decodeURIComponent(clarificationAnswerMatch[1]), await readJsonBody<ClarificationAnswerRequest>(request)));
+    return;
+  }
+  const clarificationSkipMatch = rest.match(/^clarifications\/([^/]+)\/skip$/);
+  if (request.method === "POST" && clarificationSkipMatch?.[1]) {
+    assertRegisteredProject(input);
+    sendJson(response, 200, await handleClarificationSkip(input, decodeURIComponent(clarificationSkipMatch[1]), await readJsonBody<ClarificationAnswerRequest>(request)));
     return;
   }
   const topicMessagesMatch = rest.match(/^topics\/([^/]+)\/messages(?:\/stream)?$/);
@@ -377,6 +426,52 @@ export async function executeWorkbenchAction(input: WorkbenchProjectInput, body:
     completedAt: new Date().toISOString(),
   });
   return { result, snapshot: await getWorkbenchSnapshot(input) };
+}
+
+async function handleIntakeScan(input: WorkbenchProjectInput & { project: ManagedProject }, body: IntakeRequest): Promise<{ result: unknown; snapshot: unknown }> {
+  const changeId = requireChangeId(body.changeId);
+  const result = await runIntakeScan(input.project, changeId, body.prompt ?? body.message ?? "");
+  return { result, snapshot: await getWorkbenchSnapshot(input, { topicId: changeId }) };
+}
+
+async function handleIntakeReanalyze(input: WorkbenchProjectInput & { project: ManagedProject }, body: IntakeRequest): Promise<{ result: unknown; snapshot: unknown }> {
+  const changeId = requireChangeId(body.changeId);
+  const message = (body.message ?? body.prompt ?? "").trim();
+  if (!message) {
+    const error = new Error("intake.reanalyze requires message or prompt.");
+    error.name = "BadRequest";
+    throw error;
+  }
+  const result = await reanalyzeIntake(input.project, changeId, message);
+  return { result, snapshot: await getWorkbenchSnapshot(input, { topicId: changeId }) };
+}
+
+async function handleClarificationAnswer(input: WorkbenchProjectInput & { project: ManagedProject }, clarificationId: string, body: ClarificationAnswerRequest): Promise<{ result: unknown; snapshot: unknown }> {
+  const changeId = requireChangeId(body.changeId);
+  const answers = normalizeClarificationAnswers(body);
+  const result = await answerClarification(input.project, changeId, clarificationId, answers);
+  return { result, snapshot: await getWorkbenchSnapshot(input, { topicId: changeId }) };
+}
+
+async function handleClarificationSkip(input: WorkbenchProjectInput & { project: ManagedProject }, clarificationId: string, body: ClarificationAnswerRequest): Promise<{ result: unknown; snapshot: unknown }> {
+  const changeId = requireChangeId(body.changeId);
+  const result = await skipClarification(input.project, changeId, clarificationId);
+  return { result, snapshot: await getWorkbenchSnapshot(input, { topicId: changeId }) };
+}
+
+function normalizeClarificationAnswers(body: ClarificationAnswerRequest): ClarificationAnswer[] {
+  if (Array.isArray(body.answers) && body.answers.length > 0) return body.answers;
+  if (typeof body.answer === "string" && body.answer.trim()) return [{ questionId: "q1", answer: body.answer.trim() }];
+  const error = new Error("Clarification answer is required.");
+  error.name = "BadRequest";
+  throw error;
+}
+
+function requireChangeId(changeId: string | undefined): string {
+  if (typeof changeId === "string" && changeId.trim()) return changeId.trim();
+  const error = new Error("changeId is required.");
+  error.name = "BadRequest";
+  throw error;
 }
 
 function assertRegisteredProject(input: WorkbenchProjectInput): asserts input is WorkbenchProjectInput & { project: ManagedProject } {

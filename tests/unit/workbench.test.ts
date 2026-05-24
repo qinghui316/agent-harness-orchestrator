@@ -8,6 +8,7 @@ import { initHarness } from "../../src/harness/init.js";
 import { startLocalCommandRun } from "../../src/run/manager.js";
 import { executeWorkbenchAction } from "../../src/server/workbench-server.js";
 import { appendTopicThreadEntry, createWorkbenchTopic } from "../../src/workbench/chat.js";
+import { answerClarification, reanalyzeIntake, runIntakeScan } from "../../src/workbench/intake.js";
 import { getWorkbenchSnapshot, getWorkbenchStream, getWorkbenchTopic, listWorkbenchApprovals, listWorkbenchRoles, listWorkbenchTopics } from "../../src/workbench/manager.js";
 import { WorkbenchStore } from "../../src/workbench/store.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
@@ -59,6 +60,11 @@ describe("workbench read model", () => {
 
     expect(snapshot.left.topics[0]).toMatchObject({ id: "workbench-smoke", state: "active" });
     expect(snapshot.center.selectedTopic?.id).toBe("workbench-smoke");
+    expect(snapshot.center.workpad).toMatchObject({
+      title: "Workbench Smoke",
+      state: "active",
+      nextAction: expect.objectContaining({ kind: "approval", approvalId: "close:workbench-smoke" }),
+    });
     expect(snapshot.center.agentLoop.runs).toHaveLength(1);
     expect(snapshot.center.thread.items.some((item) => item.kind === "change-state")).toBe(true);
     expect(snapshot.center.thread.items.some((item) => item.runId === snapshot.center.agentLoop.runs[0]?.id)).toBe(false);
@@ -91,6 +97,10 @@ describe("workbench read model", () => {
     const snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: topic.changeId });
 
     expect(snapshot.center.selectedTopic).toMatchObject({ id: topic.changeId, state: "archive" });
+    expect(snapshot.center.workpad).toMatchObject({
+      state: "readonly",
+      nextAction: expect.objectContaining({ enabled: false, kind: "none" }),
+    });
     expect(snapshot.center.thread.items).toEqual(expect.arrayContaining([
       expect.objectContaining({ kind: "user-message", body: "Need a durable archived thread." }),
       expect.objectContaining({
@@ -203,6 +213,74 @@ describe("workbench read model", () => {
     expect(snapshot.center.thread.items.some((item) => item.label === "process.started" || item.label === "run.completed")).toBe(false);
   });
 
+  it("prefers persisted assistant blocks over legacy activity when rebuilding the thread", async () => {
+    await initHarness(project());
+    const topic = await createWorkbenchTopic(project(), { title: "Block Dedupe", body: "Show one command and one usage." });
+    await appendTopicThreadEntry(project(), topic.changeId, {
+      type: "assistant.message",
+      runId: "run-dedupe",
+      text: "I checked the repository.",
+      blocks: [
+        { id: "p1", runId: "run-dedupe", sequence: 1, kind: "prose", timestamp: "2026-05-15T12:00:00.000Z", source: "codex", text: "I checked the repository." },
+        { id: "c1", runId: "run-dedupe", itemId: "cmd-1", sequence: 2, kind: "command", timestamp: "2026-05-15T12:00:01.000Z", source: "codex", command: "npm test", preview: "ok", exitCode: 0 },
+        { id: "u1", runId: "run-dedupe", sequence: 3, kind: "usage", timestamp: "2026-05-15T12:00:02.000Z", source: "codex", text: "用量：1 input tokens · 2 output tokens" },
+      ],
+      activity: [
+        { kind: "assistant-event", event: { runId: "run-dedupe", itemId: "cmd-1", kind: "command", phase: "completed", command: "npm test", preview: "ok", exitCode: 0 }, timestamp: "2026-05-15T12:00:03.000Z" },
+        { kind: "usage", usage: { input_tokens: 1, output_tokens: 2 }, timestamp: "2026-05-15T12:00:04.000Z" },
+      ],
+    });
+
+    const snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: topic.changeId });
+    const turn = snapshot.center.thread.items.find((item) => item.kind === "assistant-turn" && item.runId === "run-dedupe");
+
+    expect(turn?.blocks?.filter((block) => block.kind === "command")).toHaveLength(1);
+    expect(turn?.blocks?.filter((block) => block.kind === "usage")).toHaveLength(1);
+    expect(turn?.blocks?.map((block) => block.sequence)).toEqual([1, 2, 3]);
+  });
+
+  it("projects deterministic intake scan, clarification, and reanalysis into Workpad", async () => {
+    await initHarness(project());
+    await writeFile(join(tempDir, "package.json"), JSON.stringify({
+      scripts: { test: "vitest", typecheck: "tsc --noEmit" },
+    }, null, 2), "utf8");
+    await mkdir(join(tempDir, "src"), { recursive: true });
+    await mkdir(join(tempDir, "tests"), { recursive: true });
+    await writeFile(join(tempDir, "src", "pricing.ts"), "export const price = 100;\n", "utf8");
+    await writeFile(join(tempDir, "tests", "pricing.test.ts"), "import '../src/pricing';\n", "utf8");
+    const topic = await createWorkbenchTopic(project(), {
+      title: "Member Discount Intake",
+      body: "帮我新增会员订单满 100 元享 9 折，非会员不打折，并补测试。",
+    });
+
+    const scan = await runIntakeScan(project(), topic.changeId, "会员满 100 九折");
+    const firstIteration = await reanalyzeIntake(project(), topic.changeId, "折扣金额四舍五入到分，只有会员订单参与。");
+    expect(firstIteration.clarification).toBeTruthy();
+    if (!firstIteration.clarification) throw new Error("Expected clarification");
+
+    await answerClarification(project(), topic.changeId, firstIteration.clarification.id, [{ questionId: "q-tests", answer: "要覆盖会员满 100、会员未满 100、非会员三类测试。" }]);
+    const snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: topic.changeId });
+
+    expect(scan.run.runtime).toBe("intake-scan");
+    expect(existsSync(join(tempDir, ".agent-harness", "runs", scan.run.id, "scan.json"))).toBe(true);
+    expect(existsSync(join(tempDir, ".agent-harness", "runs", scan.run.id, "scan.md"))).toBe(true);
+    expect(existsSync(join(tempDir, "harness", "changes", "active", topic.changeId, "spec.md"))).toBe(true);
+    expect(await readFile(join(tempDir, "harness", "changes", "active", topic.changeId, "spec.md"), "utf8")).toContain("TBD");
+    expect(snapshot.center.workpad.intake.relatedArtifacts).toEqual(expect.arrayContaining([scan.run.artifacts.intakeScanMarkdown]));
+    expect(snapshot.center.workpad.intake.confirmedConstraints).toEqual(expect.arrayContaining([
+      "折扣金额四舍五入到分，只有会员订单参与",
+      "要覆盖会员满 100、会员未满 100、非会员三类测试",
+    ]));
+    expect(snapshot.center.workpad.intake.pendingClarifications).toHaveLength(0);
+    expect(snapshot.center.workpad.nextAction).toMatchObject({ actionType: "change.spec.propose", enabled: true });
+    expect(snapshot.center.thread.items).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: "intake-summary", label: "需求分析" }),
+      expect.objectContaining({ kind: "clarification", label: "需要确认" }),
+      expect.objectContaining({ kind: "clarification", label: "已回答确认" }),
+    ]));
+    expect(snapshot.center.thread.items.some((item) => /stdout|stderr|jsonl|process/.test(`${item.body ?? ""}${item.label}`))).toBe(false);
+  });
+
   it("replays run stream artifacts with bounded previews and diagnostics", async () => {
     await initHarness(project());
     await createChange(project(), { title: "Stream Topic" });
@@ -226,6 +304,10 @@ describe("workbench read model", () => {
 
     expect(snapshot.left.topics).toHaveLength(0);
     expect(snapshot.center.selectedTopic).toBeNull();
+    expect(snapshot.center.workpad).toMatchObject({
+      state: "diagnostic",
+      nextAction: expect.objectContaining({ enabled: false }),
+    });
     expect(snapshot.warnings).toEqual(expect.arrayContaining([
       "Project is not registered; snapshot is diagnostic only.",
       "Project is not managed by AHO.",
@@ -251,6 +333,11 @@ describe("workbench read model", () => {
 
     const snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir });
 
+    expect(snapshot.center.workpad.nextAction).toMatchObject({
+      kind: "approval",
+      approvalId: `spec:${run.id}`,
+      enabled: true,
+    });
     expect(snapshot.right.approvals).toEqual(expect.arrayContaining([
       expect.objectContaining({
         id: `spec:${run.id}`,
@@ -363,6 +450,33 @@ describe("workbench read model", () => {
     const topic = await getWorkbenchTopic({ project: project(), path: tempDir }, "specific-topic");
 
     expect(topic).toMatchObject({ id: "specific-topic", state: "active" });
+  });
+
+  it("derives Workpad task preview from accepted tasks and AC map", async () => {
+    await initHarness(project());
+    await createChange(project(), { title: "Task Preview" });
+    await writeFile(join(tempDir, "harness", "changes", "active", "task-preview", "spec.md"), [
+      "# Spec",
+      "",
+      "## Acceptance Criteria",
+      "",
+      "- AC-001: Show Workpad task preview.",
+      "",
+    ].join("\n"), "utf8");
+    await writeFile(join(tempDir, "harness", "changes", "active", "task-preview", "tasks.md"), [
+      "# Tasks",
+      "",
+      "- [x] T-001: Render deterministic task preview.",
+      "  - Covers: AC-001",
+      "",
+    ].join("\n"), "utf8");
+
+    const snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: "task-preview" });
+
+    expect(snapshot.center.workpad.progress).toMatchObject({ spec: "ready", tasks: "ready", acCount: 1, taskCount: 1 });
+    expect(snapshot.center.workpad.tasks).toEqual([
+      expect.objectContaining({ id: "T-001", title: "Render deterministic task preview.", done: true, acIds: ["AC-001"] }),
+    ]);
   });
 });
 

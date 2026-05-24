@@ -13,6 +13,52 @@ const snapshot = {
   },
   center: {
     selectedTopic: { id: "member-discount", title: "会员折扣计价", state: "active", acCount: 3, taskCount: 2 },
+    workpad: {
+      title: "会员折扣计价",
+      subtitle: "Repo · 进行中 · member-discount",
+      state: "active",
+      intake: {
+        goal: "会员用户满 100 元享 9 折",
+        currentUnderstanding: "当前要完成会员折扣计价变更。",
+        source: "thread",
+        relatedArtifacts: ["runs/run-1/last-message.md"],
+        missingInfo: [],
+        confirmedConstraints: [],
+        openQuestions: [],
+        assumptions: [],
+        pendingClarifications: [],
+      },
+      progress: {
+        topicState: "active",
+        spec: "ready",
+        plan: "ready",
+        tasks: "ready",
+        acCount: 3,
+        taskCount: 2,
+        runCount: 1,
+        latestRunStatus: "completed",
+        validationStatus: "passed",
+        auditStatus: "approved-with-notes",
+      },
+      tasks: [
+        { id: "T-001", title: "实现会员折扣", done: true, acIds: ["AC-001"], warnings: [] },
+      ],
+      evidence: [
+        { id: "validation:run-1", source: "validation", label: "Validation passed", status: "passed" },
+        { id: "audit:run-1", source: "audit", label: "Audit approved-with-notes", status: "approved-with-notes" },
+      ],
+      blockers: [],
+      warnings: [],
+      nextAction: {
+        id: "approval:close:member-discount",
+        label: "Close",
+        description: "关闭已完成变更。",
+        kind: "approval",
+        enabled: true,
+        requiresConfirmation: true,
+        approvalId: "close:member-discount",
+      },
+    },
     thread: { items: [
       { id: "e1", kind: "user-message", source: "chat", label: "User", body: "会员用户满 100 元享 9 折", timestamp: "2026-05-15T12:00:00.000Z" },
       {
@@ -129,9 +175,15 @@ describe("Workbench web app", () => {
     render(<App />);
 
     await waitFor(() => expect(screen.getAllByText("会员折扣计价").length).toBeGreaterThan(0));
+    expect(screen.getByTestId("workpad-view")).toBeTruthy();
+    expect(screen.getByText("目标与当前理解")).toBeTruthy();
+    expect(screen.getByText("TaskGraph 预览")).toBeTruthy();
+    expect(screen.getByText("证据与决策")).toBeTruthy();
+    expect(screen.getByText("关闭已完成变更。")).toBeTruthy();
     expect(screen.getAllByText("主题").length).toBeGreaterThan(0);
     expect(screen.getByText("决策")).toBeTruthy();
     expect(screen.getAllByText("已完成").length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByText("线程"));
     expect(screen.getByText("用户消息")).toBeTruthy();
     expect(screen.getByText("AI 计划")).toBeTruthy();
     expect(screen.getAllByText("执行结果").length).toBeGreaterThan(0);
@@ -173,6 +225,159 @@ describe("Workbench web app", () => {
     await waitFor(() => {
       expect(fetch).toHaveBeenCalledWith("/api/projects/repo/workbench/actions", expect.objectContaining({ method: "POST" }));
     });
+  });
+
+  it("deduplicates persisted assistant command and usage blocks", async () => {
+    const dedupeSnapshot = {
+      ...snapshot,
+      center: {
+        ...snapshot.center,
+        thread: {
+          items: [{
+            id: "dedupe-turn",
+            kind: "assistant-turn",
+            source: "chat",
+            label: "AI",
+            timestamp: "2026-05-15T12:00:00.000Z",
+            runId: "run-dedupe",
+            blocks: [
+              { id: "p1", runId: "run-dedupe", sequence: 1, kind: "prose", timestamp: "2026-05-15T12:00:00.000Z", source: "codex", text: "我会检查现有实现。" },
+              { id: "err1", runId: "run-dedupe", sequence: 2, kind: "error", timestamp: "2026-05-15T12:00:00.500Z", source: "codex", title: "Error", text: "Reconnecting..." },
+              { id: "err2", runId: "run-dedupe", sequence: 3, kind: "error", timestamp: "2026-05-15T12:00:00.600Z", source: "codex", title: "Codex error", text: "Reconnecting..." },
+              { id: "c-start", runId: "run-dedupe", itemId: "cmd-1", sequence: 4, kind: "command", timestamp: "2026-05-15T12:00:01.000Z", source: "codex", status: "started", title: "Command started", command: "npm test" },
+              { id: "c-done", runId: "run-dedupe", itemId: "cmd-1", sequence: 5, kind: "command", timestamp: "2026-05-15T12:00:02.000Z", source: "codex", status: "completed", title: "Command completed", command: "npm test", preview: "ok", exitCode: 0 },
+              { id: "u1", runId: "run-dedupe", sequence: 6, kind: "usage", timestamp: "2026-05-15T12:00:03.000Z", source: "codex", text: "用量：1 input tokens · 2 output tokens" },
+              { id: "u2", runId: "run-dedupe", sequence: 7, kind: "usage", timestamp: "2026-05-15T12:00:04.000Z", source: "codex", text: "用量：1 input tokens · 2 output tokens" },
+            ],
+          }],
+        },
+        agentLoop: { runs: [{ id: "run-dedupe", runtime: "codex-readonly", status: "completed" }] },
+      },
+    };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
+      if (url === "/api/projects") return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
+      return jsonResponse(url.includes("/stream/") ? { ...stream, run: { id: "run-dedupe", runtime: "codex-readonly", status: "completed" } } : dedupeSnapshot);
+    }));
+
+    render(<App />);
+
+    await waitFor(() => expect(screen.getAllByText("会员折扣计价").length).toBeGreaterThan(0));
+    fireEvent.click(screen.getByText("线程"));
+    await waitFor(() => expect(screen.getByText("我会检查现有实现。")).toBeTruthy());
+    expect(document.querySelectorAll("[data-testid='assistant-block-command-group']")).toHaveLength(1);
+    expect(document.querySelectorAll("[data-testid='assistant-block-command']")).toHaveLength(1);
+    expect(document.querySelectorAll("[data-testid='assistant-block-usage']")).toHaveLength(1);
+    expect(document.querySelectorAll("[data-testid='assistant-block-error']")).toHaveLength(1);
+  });
+
+  it("renders clarification questions and submits answers through the intake API", async () => {
+    const clarificationSnapshot = {
+      ...snapshot,
+      center: {
+        ...snapshot.center,
+        workpad: {
+          ...snapshot.center.workpad,
+          intake: {
+            ...snapshot.center.workpad.intake,
+            openQuestions: ["测试范围是否要覆盖边界金额？"],
+            pendingClarifications: [{
+              id: "clarify-1",
+              source: "aho",
+              status: "pending",
+              stage: "intake",
+              questions: [{
+                id: "q-tests",
+                header: "测试范围",
+                question: "是否需要覆盖会员满 100、会员未满 100 和非会员三类测试？",
+                options: [{ label: "需要", description: "补全三类测试" }],
+                allowFreeform: true,
+              }],
+            }],
+          },
+        },
+      },
+    };
+    const answeredSnapshot = {
+      ...clarificationSnapshot,
+      center: {
+        ...clarificationSnapshot.center,
+        workpad: {
+          ...clarificationSnapshot.center.workpad,
+          intake: {
+            ...clarificationSnapshot.center.workpad.intake,
+            confirmedConstraints: ["测试范围需要覆盖"],
+            pendingClarifications: [],
+          },
+        },
+      },
+    };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
+      if (url === "/api/projects") return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
+      if (url.includes("/clarifications/clarify-1/answer")) return jsonResponse({ snapshot: answeredSnapshot });
+      return jsonResponse(url.includes("/stream/") ? stream : clarificationSnapshot);
+    }));
+
+    render(<App />);
+
+    await waitFor(() => expect(screen.getByText("需要确认")).toBeTruthy());
+    expect(screen.getByTestId("clarification-card")).toBeTruthy();
+    expect(screen.getByText("是否需要覆盖会员满 100、会员未满 100 和非会员三类测试？")).toBeTruthy();
+    fireEvent.click(screen.getByText("需要"));
+    fireEvent.click(screen.getByText("提交回答"));
+
+    await waitFor(() => {
+      expect(fetch).toHaveBeenCalledWith("/api/projects/repo/workbench/clarifications/clarify-1/answer", expect.objectContaining({
+        method: "POST",
+        body: expect.stringContaining("补全三类测试"),
+      }));
+      expect(screen.getByText("测试范围需要覆盖")).toBeTruthy();
+    });
+  });
+
+  it("routes Workpad supplemental demand text through intake reanalysis before Spec", async () => {
+    const intakeReadySnapshot = {
+      ...snapshot,
+      center: {
+        ...snapshot.center,
+        workpad: {
+          ...snapshot.center.workpad,
+          nextAction: {
+            id: "next:spec",
+            label: "生成 Spec",
+            description: "需求已经足够清楚，可以生成 Spec proposal。",
+            kind: "workflow-action",
+            enabled: true,
+            requiresConfirmation: false,
+            actionType: "change.spec.propose",
+          },
+        },
+      },
+    };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
+      if (url === "/api/projects") return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
+      if (url.includes("/intake/reanalyze")) return jsonResponse({ snapshot: intakeReadySnapshot });
+      return jsonResponse(url.includes("/stream/") ? stream : intakeReadySnapshot);
+    }));
+
+    render(<App />);
+
+    await waitFor(() => expect(screen.getAllByText("会员折扣计价").length).toBeGreaterThan(0));
+    fireEvent.change(screen.getByPlaceholderText("输入问题或下一步需求"), { target: { value: "折扣金额四舍五入到分，只有会员订单参与。" } });
+    fireEvent.click(screen.getByTitle("发送"));
+
+    await waitFor(() => {
+      expect(fetch).toHaveBeenCalledWith("/api/projects/repo/workbench/intake/reanalyze", expect.objectContaining({
+        method: "POST",
+        body: expect.stringContaining("折扣金额四舍五入到分"),
+      }));
+    });
+    expect(fetch).not.toHaveBeenCalledWith("/api/projects/repo/workbench/topics/member-discount/messages/live", expect.anything());
   });
 
   it("consumes live message SSE and keeps the composer at the work surface", async () => {
@@ -219,9 +424,9 @@ describe("Workbench web app", () => {
           ["topic.message", { id: "live-user", type: "user.message", changeId: "member-discount", text: "继续说明边界" }],
           ["run.started", { runId: "run-live", changeId: "member-discount", runtime: "codex-readonly", actionType: "chat.ask" }],
           ["run.status", { runId: "run-live", status: "running", label: "Codex" }],
-          ["tool.event", { runId: "run-live", phase: "started", name: "Bash", command: "npm test" }],
-          ["tool.event", { runId: "run-live", phase: "completed", name: "Bash", command: "npm test", isError: false, exitCode: 0 }],
-          ["assistant.event", { runId: "run-live", kind: "command", phase: "completed", title: "Command completed", command: "npm test", preview: "测试通过", exitCode: 0 }],
+          ["tool.event", { runId: "run-live", itemId: "cmd-1", phase: "started", name: "Bash", command: "npm test" }],
+          ["tool.event", { runId: "run-live", itemId: "cmd-1", phase: "completed", name: "Bash", command: "npm test", isError: false, exitCode: 0 }],
+          ["assistant.event", { runId: "run-live", itemId: "cmd-1", kind: "command", phase: "completed", title: "Command completed", command: "npm test", preview: "测试通过", exitCode: 0 }],
           ["assistant.event", { runId: "run-live", kind: "usage", phase: "completed", title: "Usage recorded", summary: "10 input tokens · 5 output tokens" }],
           ["assistant.delta", { runId: "run-live", delta: "实时 AI 输出" }],
           ["usage", { runId: "run-live", usage: { input_tokens: 10, output_tokens: 5 } }],
@@ -248,6 +453,8 @@ describe("Workbench web app", () => {
     expect(screen.getByText("Usage recorded")).toBeTruthy();
     expect(screen.queryByText("Codex turn running")).toBeNull();
     expect(screen.getAllByText("npm test").length).toBeGreaterThan(0);
+    expect(document.querySelectorAll("[data-testid='assistant-block-usage']")).toHaveLength(1);
+    expect(document.querySelectorAll("[data-testid='assistant-block-command']")).toHaveLength(1);
     expect(screen.getByText("查看证据：last-message.md")).toBeTruthy();
     expect(fetch).toHaveBeenCalledWith("/api/projects/repo/workbench/topics/member-discount/messages/live", expect.objectContaining({ method: "POST" }));
   });
@@ -292,9 +499,9 @@ describe("Workbench web app", () => {
           ["topic.message", { id: "live-user", type: "user.message", changeId: "member-discount", text: "继续说明边界" }],
           ["run.started", { runId: "run-live", changeId: "member-discount", runtime: "codex-readonly", actionType: "chat.ask" }],
           ["run.status", { runId: "run-live", status: "running", label: "Codex" }],
-          ["tool.event", { runId: "run-live", phase: "started", name: "Bash", command: "npm test" }],
-          ["tool.event", { runId: "run-live", phase: "completed", name: "Bash", command: "npm test", isError: false, exitCode: 0 }],
-          ["assistant.event", { runId: "run-live", kind: "command", phase: "completed", title: "Command completed", command: "npm test", preview: "测试通过", exitCode: 0 }],
+          ["tool.event", { runId: "run-live", itemId: "cmd-1", phase: "started", name: "Bash", command: "npm test" }],
+          ["tool.event", { runId: "run-live", itemId: "cmd-1", phase: "completed", name: "Bash", command: "npm test", isError: false, exitCode: 0 }],
+          ["assistant.event", { runId: "run-live", itemId: "cmd-1", kind: "command", phase: "completed", title: "Command completed", command: "npm test", preview: "测试通过", exitCode: 0 }],
           ["assistant.event", { runId: "run-live", kind: "reasoning-summary", phase: "completed", title: "Reasoning summary", preview: "Checked existing constraints." }],
           ["assistant.delta", { runId: "run-live", delta: "实时 AI 输出" }],
           ["usage", { runId: "run-live", usage: { input_tokens: 10, output_tokens: 5 } }],

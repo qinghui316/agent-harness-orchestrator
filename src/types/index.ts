@@ -382,7 +382,7 @@ export interface ChangeProposalSummary {
 
 export type RunStatus = "created" | "running" | "completed" | "failed";
 
-export type RunRuntime = "local-command" | "codex-readonly" | "validator" | "auditor" | "coder-codex" | "worktree-apply" | "worktree-discard" | "spec-test-proposer" | "spec-test-generator" | "spec-agent" | "planner" | "orchestrator" | "agent-codex";
+export type RunRuntime = "local-command" | "codex-readonly" | "validator" | "auditor" | "coder-codex" | "worktree-apply" | "worktree-discard" | "spec-test-proposer" | "spec-test-generator" | "spec-agent" | "planner" | "orchestrator" | "agent-codex" | "intake-scan";
 
 export type RunExecutionMode = "direct" | "worktree";
 
@@ -452,6 +452,8 @@ export interface RunArtifactPaths {
   planProposalMarkdown?: string;
   orchestrationPlan?: string;
   orchestrationPlanMarkdown?: string;
+  intakeScan?: string;
+  intakeScanMarkdown?: string;
 }
 
 export type ValidationStatus = "passed" | "failed";
@@ -630,6 +632,8 @@ export interface RunEvent {
     | "orchestrator.plan.started"
     | "orchestrator.plan.completed"
     | "orchestrator.plan.failed"
+    | "intake.scan.started"
+    | "intake.scan.completed"
     | "diff.collected"
     | "source.checked"
     | "run.completed"

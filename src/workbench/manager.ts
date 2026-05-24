@@ -20,6 +20,7 @@ import { listSpecTestProposalSummaries } from "../spec-test/proposal.js";
 import { listValidationResults, summarizeValidation } from "../validation/artifacts.js";
 import { listWorktreeStatuses, listWorktreesForChange } from "../worktree/manager.js";
 import { readTopicThreadLog, type AssistantTurnActivity, type AssistantTurnBlock, type OrchestrationPlanCard, type TopicThreadEntry } from "./chat.js";
+import type { ClarificationRequest, WorkbenchIntakeIteration, WorkbenchIntakeScan } from "./intake.js";
 import { WorkbenchStore, type StoredDecisionRecord } from "./store.js";
 import type {
   AuditSummary,
@@ -76,7 +77,7 @@ export interface WorkbenchThreadEvent {
 }
 
 export interface ThreadStreamAction {
-  actionType: "change.spec.propose" | "change.plan.propose" | "code.run";
+  actionType: "change.spec.propose" | "change.plan.propose" | "code.run" | "intake.scan" | "intake.reanalyze" | "clarification.answer" | "clarification.skip";
   label: string;
   enabled: boolean;
   requiresConfirmation: boolean;
@@ -97,11 +98,11 @@ export interface ThreadStreamEvidence {
 
 export interface ThreadStreamItem {
   id: string;
-  kind: "user-message" | "assistant-turn" | "assistant-message" | "plan-card" | "workflow-summary" | "evidence" | "decision" | "change-state";
+  kind: "user-message" | "assistant-turn" | "assistant-message" | "plan-card" | "workflow-summary" | "evidence" | "decision" | "change-state" | "intake-summary" | "clarification";
   label: string;
   timestamp?: string;
   body?: string;
-  source: "change" | "chat" | "workflow" | "validation" | "audit" | "decision";
+  source: "change" | "chat" | "workflow" | "validation" | "audit" | "decision" | "intake";
   artifact?: string;
   status?: string;
   runId?: string;
@@ -112,6 +113,11 @@ export interface ThreadStreamItem {
   activity?: AssistantTurnActivity[];
   evidence?: ThreadStreamEvidence[];
   blocks?: AssistantTurnBlock[];
+  intake?: {
+    scan?: WorkbenchIntakeScan;
+    iteration?: WorkbenchIntakeIteration;
+  };
+  clarification?: ClarificationRequest;
 }
 
 export interface WorkbenchApprovalItem {
@@ -140,6 +146,73 @@ export interface WorkbenchDecisionItem {
   feedback?: string;
   updatedAt: string;
   completedAt?: string;
+}
+
+export interface WorkpadIntakeSummary {
+  goal: string;
+  currentUnderstanding: string;
+  source: "project" | "topic" | "thread" | "diagnostic";
+  relatedArtifacts: string[];
+  missingInfo: string[];
+  confirmedConstraints: string[];
+  openQuestions: string[];
+  assumptions: string[];
+  pendingClarifications: ClarificationRequest[];
+}
+
+export interface WorkpadProgress {
+  topicState: WorkbenchTopicState | "none";
+  spec: "missing" | "ready" | "unknown";
+  plan: "missing" | "ready" | "unknown";
+  tasks: "missing" | "ready" | "unknown";
+  acCount: number;
+  taskCount: number;
+  runCount: number;
+  latestRunStatus?: string;
+  validationStatus?: string;
+  auditStatus?: string;
+}
+
+export interface WorkpadEvidenceSummary {
+  id: string;
+  label: string;
+  source: "run" | "validation" | "audit" | "decision" | "approval";
+  status?: string;
+  artifact?: string;
+  timestamp?: string;
+}
+
+export interface WorkpadNextAction {
+  id: string;
+  label: string;
+  description: string;
+  kind: "workflow-action" | "approval" | "read-only" | "none";
+  enabled: boolean;
+  requiresConfirmation: boolean;
+  actionType?: ThreadStreamAction["actionType"];
+  approvalId?: string;
+  disabledReason?: string;
+}
+
+export interface WorkpadTaskPreview {
+  id: string;
+  title: string;
+  done: boolean;
+  acIds: string[];
+  warnings: string[];
+}
+
+export interface WorkbenchWorkpad {
+  title: string;
+  subtitle: string;
+  state: "diagnostic" | "empty" | "active" | "readonly";
+  intake: WorkpadIntakeSummary;
+  progress: WorkpadProgress;
+  tasks: WorkpadTaskPreview[];
+  evidence: WorkpadEvidenceSummary[];
+  blockers: string[];
+  warnings: string[];
+  nextAction: WorkpadNextAction;
 }
 
 export interface WorkbenchApprovalAction {
@@ -199,6 +272,7 @@ export interface WorkbenchTopicDetail extends WorkbenchTopicSummary {
     warnings: string[];
     blockingIssues: string[];
   };
+  acMap?: Awaited<ReturnType<typeof getChangeStatus>>["acMap"];
   acCount?: number;
   taskCount?: number;
   specTest?: unknown;
@@ -227,6 +301,7 @@ export interface WorkbenchSnapshot {
   };
   center: {
     selectedTopic: WorkbenchTopicDetail | null;
+    workpad: WorkbenchWorkpad;
     thread: {
       items: ThreadStreamItem[];
     };
@@ -266,6 +341,7 @@ export async function getWorkbenchSnapshot(input: WorkbenchProjectInput, options
   if (!memoryStatus.managed) warnings.push("Project is not managed by AHO.");
   if (!memoryStatus.memoryAvailable || !memory.supported) {
     warnings.push("Durable memory is unavailable. AHO will not infer project history.");
+    const diagnosticWorkpad = buildDiagnosticWorkpad(input.project?.name ?? "未选择项目", warnings, gaps);
     return {
       project: input.project,
       memory: memoryStatus,
@@ -275,7 +351,7 @@ export async function getWorkbenchSnapshot(input: WorkbenchProjectInput, options
         topics: [],
         repo: buildRepoSummary(projectStatus),
       },
-      center: { selectedTopic: null, thread: { items: [] }, agentLoop: { runs: [] } },
+      center: { selectedTopic: null, workpad: diagnosticWorkpad, thread: { items: [] }, agentLoop: { runs: [] } },
       right: { approvals: [], decisions: [] },
       roles,
       harnessGaps: gaps,
@@ -287,6 +363,16 @@ export async function getWorkbenchSnapshot(input: WorkbenchProjectInput, options
   const selectedTopic = await selectTopicDetail(input.project, memory, topics, options.topicId);
   const approvals = input.project ? await buildApprovalInbox(input.project, memory, topics) : [];
   const decisions = input.project ? await listWorkbenchDecisions(memory, options.topicId) : [];
+  const workpad = await buildWorkbenchWorkpad({
+    project: input.project,
+    memory,
+    topics,
+    selectedTopic,
+    approvals,
+    decisions,
+    warnings,
+    gaps,
+  });
   return {
     project: input.project,
     memory: memoryStatus,
@@ -298,6 +384,7 @@ export async function getWorkbenchSnapshot(input: WorkbenchProjectInput, options
     },
     center: {
       selectedTopic,
+      workpad,
       thread: { items: selectedTopic?.threadItems ?? [] },
       agentLoop: { runs: selectedTopic?.runs ?? [] },
     },
@@ -387,6 +474,299 @@ function mapDecisionRecord(record: StoredDecisionRecord): WorkbenchDecisionItem 
   };
 }
 
+function buildDiagnosticWorkpad(projectName: string, warnings: string[], gaps: HarnessGap[]): WorkbenchWorkpad {
+  return {
+    title: "项目 Workpad",
+    subtitle: projectName,
+    state: "diagnostic",
+    intake: {
+      goal: "尚未选择可用的 AHO 项目记忆。",
+      currentUnderstanding: "Workbench 只能显示诊断信息；需要注册项目并初始化 Harness 后才能读取 Topic、Run 和 evidence。",
+      source: "diagnostic",
+      relatedArtifacts: [],
+      missingInfo: ["Durable memory is unavailable."],
+      confirmedConstraints: [],
+      openQuestions: [],
+      assumptions: [],
+      pendingClarifications: [],
+    },
+    progress: emptyProgress("none"),
+    tasks: [],
+    evidence: [],
+    blockers: warnings,
+    warnings: gaps.filter((gap) => gap.status !== "available").map((gap) => gap.summary),
+    nextAction: {
+      id: "diagnostic",
+      label: "初始化或选择项目",
+      description: "先让项目进入 AHO 管理范围，再创建 Change Workpad。",
+      kind: "read-only",
+      enabled: false,
+      requiresConfirmation: false,
+      disabledReason: "当前 snapshot 没有可写的项目记忆。",
+    },
+  };
+}
+
+async function buildWorkbenchWorkpad(input: {
+  project: ManagedProject | null;
+  memory: ResolvedMemory;
+  topics: WorkbenchTopicSummary[];
+  selectedTopic: WorkbenchTopicDetail | null;
+  approvals: WorkbenchApprovalItem[];
+  decisions: WorkbenchDecisionItem[];
+  warnings: string[];
+  gaps: HarnessGap[];
+}): Promise<WorkbenchWorkpad> {
+  const { project, memory, topics, selectedTopic, approvals, decisions, warnings, gaps } = input;
+  if (!selectedTopic) {
+    return {
+      title: "项目 Workpad",
+      subtitle: project?.name ?? "未选择项目",
+      state: "empty",
+      intake: {
+        goal: topics.length > 0 ? "选择一个 Topic 查看 Change Workpad。" : "还没有 Topic / Change。",
+        currentUnderstanding: topics.length > 0
+          ? `当前项目有 ${topics.length} 个 Topic，可从左侧选择继续。`
+          : "输入需求后，AHO 会创建 Topic/Change 并把后续 Spec、Plan、Run、Evidence 汇总到 Workpad。",
+        source: "project",
+        relatedArtifacts: [],
+        missingInfo: topics.length > 0 ? [] : ["No Topic exists yet."],
+        confirmedConstraints: [],
+        openQuestions: [],
+        assumptions: [],
+        pendingClarifications: [],
+      },
+      progress: emptyProgress("none"),
+      tasks: [],
+      evidence: approvals.slice(0, 5).map(approvalWorkpadEvidence),
+      blockers: warnings,
+      warnings: gaps.filter((gap) => gap.status !== "available").map((gap) => gap.summary),
+      nextAction: {
+        id: "create-topic",
+        label: "输入需求创建 Topic",
+        description: "在底部输入自然语言需求，创建新的 Change Workpad。",
+        kind: "read-only",
+        enabled: true,
+        requiresConfirmation: false,
+      },
+    };
+  }
+
+  const [specReady, planReady, tasksReady] = await Promise.all([
+    isConcreteChangeFile(memory, selectedTopic.path, "spec.md"),
+    isConcreteChangeFile(memory, selectedTopic.path, "plan.md"),
+    isConcreteChangeFile(memory, selectedTopic.path, "tasks.md"),
+  ]);
+  const topicApprovals = approvals.filter((approval) => !approval.changeId || approval.changeId === selectedTopic.id);
+  const topicDecisions = decisions.filter((decision) => !decision.changeId || decision.changeId === selectedTopic.id);
+  const latestRun = [...selectedTopic.runs].sort((a, b) => (b.finishedAt ?? b.startedAt ?? "").localeCompare(a.finishedAt ?? a.startedAt ?? ""))[0];
+  const latestValidation = [...(selectedTopic.validations as ValidationSummary[])].sort((a, b) => (b.finishedAt ?? "").localeCompare(a.finishedAt ?? ""))[0];
+  const latestAudit = [...(selectedTopic.audits as AuditSummary[])].sort((a, b) => (b.finishedAt ?? "").localeCompare(a.finishedAt ?? ""))[0];
+  const intake = buildWorkpadIntake(selectedTopic);
+
+  return {
+    title: selectedTopic.title,
+    subtitle: `${project?.name ?? "project"} · ${stateLabelForWorkpad(selectedTopic.state)} · ${selectedTopic.id}`,
+    state: selectedTopic.state === "active" ? "active" : "readonly",
+    intake,
+    progress: {
+      topicState: selectedTopic.state,
+      spec: specReady ? "ready" : "missing",
+      plan: planReady ? "ready" : "missing",
+      tasks: tasksReady ? "ready" : "missing",
+      acCount: selectedTopic.acCount ?? 0,
+      taskCount: selectedTopic.taskCount ?? 0,
+      runCount: selectedTopic.runs.length,
+      latestRunStatus: latestRun?.status,
+      validationStatus: latestValidation?.status,
+      auditStatus: latestAudit?.status,
+    },
+    tasks: buildTaskPreview(selectedTopic),
+    evidence: buildWorkpadEvidence(selectedTopic, topicApprovals, topicDecisions),
+    blockers: [
+      ...(selectedTopic.closeGate?.blockingIssues ?? []),
+      ...(selectedTopic.closeGate?.warnings ?? []),
+      ...warnings,
+    ],
+    warnings: [
+      ...workpadMissingWarnings(specReady, planReady, tasksReady, selectedTopic),
+      ...gaps.filter((gap) => gap.status !== "available").map((gap) => gap.summary),
+    ],
+    nextAction: buildWorkpadNextAction(selectedTopic, topicApprovals, { specReady, planReady, tasksReady }, intake),
+  };
+}
+
+function emptyProgress(topicState: WorkpadProgress["topicState"]): WorkpadProgress {
+  return {
+    topicState,
+    spec: "unknown",
+    plan: "unknown",
+    tasks: "unknown",
+    acCount: 0,
+    taskCount: 0,
+    runCount: 0,
+  };
+}
+
+function buildWorkpadIntake(topic: WorkbenchTopicDetail): WorkpadIntakeSummary {
+  const firstUser = topic.threadItems.find((item) => item.kind === "user-message" && item.body?.trim());
+  const latestAssistant = [...topic.threadItems].reverse().find((item) => (item.kind === "assistant-turn" || item.kind === "assistant-message") && item.body?.trim());
+  const latestIteration = [...topic.threadItems].reverse().find((item) => item.intake?.iteration)?.intake?.iteration;
+  const latestScan = [...topic.threadItems].reverse().find((item) => item.intake?.scan)?.intake?.scan;
+  const clarifications = topic.threadItems
+    .map((item) => item.clarification)
+    .filter((item): item is ClarificationRequest => Boolean(item));
+  const latestClarificationById = new Map<string, ClarificationRequest>();
+  for (const clarification of clarifications) latestClarificationById.set(clarification.id, clarification);
+  const pendingClarifications = [...latestClarificationById.values()].filter((item) => item.status === "pending");
+  const artifacts = topic.threadItems
+    .map((item) => item.artifact ?? item.intake?.scan?.runId)
+    .filter((artifact): artifact is string => Boolean(artifact))
+    .slice(0, 5);
+  return {
+    goal: firstUser?.body?.trim() || topic.change?.title || topic.title,
+    currentUnderstanding: latestIteration?.currentUnderstanding || latestAssistant?.body?.trim() || "等待 AHO 基于当前 Topic 事实继续推进。",
+    source: latestScan ? "thread" : firstUser ? "thread" : "topic",
+    relatedArtifacts: artifacts,
+    missingInfo: [
+      ...(topic.state === "active" ? [] : ["Topic is read-only because it is not active."]),
+      ...(latestIteration?.openQuestions ?? latestScan?.missingInfo ?? []),
+    ],
+    confirmedConstraints: latestIteration?.confirmedConstraints ?? [],
+    openQuestions: latestIteration?.openQuestions ?? [],
+    assumptions: latestIteration?.assumptions ?? [],
+    pendingClarifications,
+  };
+}
+
+function buildTaskPreview(topic: WorkbenchTopicDetail): WorkpadTaskPreview[] {
+  if (topic.acMap) {
+    return topic.acMap.tasks.slice(0, 8).map((task) => ({
+      id: task.id,
+      title: task.text,
+      done: task.done,
+      acIds: task.acIds,
+      warnings: task.warnings,
+    }));
+  }
+  return [];
+}
+
+function buildWorkpadEvidence(topic: WorkbenchTopicDetail, approvals: WorkbenchApprovalItem[], decisions: WorkbenchDecisionItem[]): WorkpadEvidenceSummary[] {
+  const runEvidence = topic.runs.slice(-3).map((run) => ({
+    id: `run:${run.id}`,
+    label: `${run.runtime} · ${run.status}`,
+    source: "run" as const,
+    status: run.status,
+    artifact: run.artifacts?.directory,
+    timestamp: run.finishedAt ?? run.startedAt,
+  }));
+  const validationEvidence = (topic.validations as ValidationSummary[]).slice(-3).map((validation) => ({
+    id: `validation:${validation.id}`,
+    label: `Validation ${validation.status}`,
+    source: "validation" as const,
+    status: validation.status,
+    timestamp: validation.finishedAt,
+  }));
+  const auditEvidence = (topic.audits as AuditSummary[]).slice(-3).map((audit) => ({
+    id: `audit:${audit.id}`,
+    label: `Audit ${audit.status}`,
+    source: "audit" as const,
+    status: audit.status,
+    timestamp: audit.finishedAt,
+  }));
+  const decisionEvidence = decisions.slice(0, 5).map((decision) => ({
+    id: `decision:${decision.id}`,
+    label: decision.label,
+    source: "decision" as const,
+    status: decision.status,
+    artifact: decision.artifact,
+    timestamp: decision.completedAt ?? decision.updatedAt,
+  }));
+  const approvalEvidence = approvals.slice(0, 3).map(approvalWorkpadEvidence);
+  return [...approvalEvidence, ...decisionEvidence, ...auditEvidence, ...validationEvidence, ...runEvidence]
+    .sort((a, b) => (b.timestamp ?? "").localeCompare(a.timestamp ?? ""))
+    .slice(0, 8);
+}
+
+function approvalWorkpadEvidence(approval: WorkbenchApprovalItem): WorkpadEvidenceSummary {
+  return {
+    id: `approval:${approval.id}`,
+    label: approval.label,
+    source: "approval",
+    status: approval.severity,
+    artifact: approval.artifact,
+  };
+}
+
+function workpadMissingWarnings(specReady: boolean, planReady: boolean, tasksReady: boolean, topic: WorkbenchTopicDetail): string[] {
+  const warnings: string[] = [];
+  if (!specReady) warnings.push("Spec 尚未生成或未被接受。");
+  if (specReady && !planReady) warnings.push("Plan 尚未生成或未被接受。");
+  if (planReady && !tasksReady) warnings.push("Tasks 尚未生成或未被接受。");
+  if ((topic.acCount ?? 0) === 0) warnings.push("当前没有可用 AC 计数。");
+  return warnings;
+}
+
+function buildWorkpadNextAction(
+  topic: WorkbenchTopicDetail,
+  approvals: WorkbenchApprovalItem[],
+  readiness: { specReady: boolean; planReady: boolean; tasksReady: boolean },
+  intake?: WorkpadIntakeSummary,
+): WorkpadNextAction {
+  if (topic.state !== "active") {
+    return {
+      id: "readonly-topic",
+      label: "只读查看历史",
+      description: "归档或暂停 Topic 只能查看 Thread、Evidence 和 Run Replay。",
+      kind: "none",
+      enabled: false,
+      requiresConfirmation: false,
+      disabledReason: "Topic is not active.",
+    };
+  }
+  const actionableApproval = approvals.find((approval) => approval.action);
+  if (actionableApproval) {
+    return {
+      id: `approval:${actionableApproval.id}`,
+      label: actionableApproval.action?.label ?? actionableApproval.label,
+      description: actionableApproval.reason ?? actionableApproval.label,
+      kind: "approval",
+      enabled: true,
+      requiresConfirmation: actionableApproval.action?.requiresConfirmation ?? true,
+      approvalId: actionableApproval.id,
+    };
+  }
+  if (!readiness.specReady && !topic.runs.some((run) => run.runtime === "intake-scan")) {
+    return workflowNextAction("intake.scan", "分析需求", "先只读扫描项目，整理当前理解、相关文件和待确认问题。", false);
+  }
+  if (!readiness.specReady && (intake?.pendingClarifications.length || intake?.openQuestions.length)) {
+    return workflowNextAction("intake.reanalyze", "继续澄清需求", "回答需要确认的问题，AHO 会更新当前理解。", false);
+  }
+  if (!readiness.specReady) return workflowNextAction("change.spec.propose", "生成 Spec", "先生成需求和验收标准 proposal。");
+  if (!readiness.planReady) return workflowNextAction("change.plan.propose", "生成 Plan", "基于已接受 Spec 生成实现计划。");
+  if (!readiness.tasksReady) return workflowNextAction("change.plan.propose", "生成 Tasks", "补齐可执行任务和 AC 映射。");
+  return workflowNextAction("code.run", "运行 Code", "基于已接受 Spec / Plan / Tasks 运行受控代码工作流。");
+}
+
+function workflowNextAction(actionType: ThreadStreamAction["actionType"], label: string, description: string, requiresConfirmation = true): WorkpadNextAction {
+  return {
+    id: `workflow:${actionType}`,
+    label,
+    description,
+    kind: "workflow-action",
+    actionType,
+    enabled: true,
+    requiresConfirmation,
+  };
+}
+
+function stateLabelForWorkpad(state: WorkbenchTopicState): string {
+  if (state === "active") return "进行中";
+  if (state === "parking") return "暂停";
+  return "已归档";
+}
+
 async function listWorkbenchTopicsFromMemory(memory: ResolvedMemory): Promise<WorkbenchTopicSummary[]> {
   const index = await buildChangeIndex(memory);
   const groups: Array<[WorkbenchTopicState, ChangeIndexItem[]]> = [
@@ -447,6 +827,7 @@ async function selectTopicDetail(project: ManagedProject | null, memory: Resolve
     change,
     reviewStatus: statusDetail?.reviewStatus,
     closeGate: statusDetail?.closeGate,
+    acMap: statusDetail?.acMap,
     acCount: statusDetail?.acMap?.acceptanceCriteria.length,
     taskCount: statusDetail?.acMap?.tasks.length,
     specTest,
@@ -652,7 +1033,70 @@ function threadItemFromMessage(message: TopicThreadEntry, sortKey: number): Thre
       subOrder: 0,
     };
   }
+  if (message.type === "intake.scan") {
+    const intake = parseIntakePayload(message.intake);
+    return {
+      id: message.id,
+      kind: "intake-summary",
+      label: "需求分析",
+      timestamp: message.timestamp,
+      body: message.text,
+      source: "intake",
+      artifact: message.artifact,
+      runId: message.runId,
+      intake,
+      semanticKey: `intake-scan:${message.id}`,
+      sortKey,
+      subOrder: 0,
+    };
+  }
+  if (message.type === "intake.iteration") {
+    const intake = parseIntakePayload(message.intake);
+    return {
+      id: message.id,
+      kind: "intake-summary",
+      label: "当前需求理解",
+      timestamp: message.timestamp,
+      body: message.text,
+      source: "intake",
+      artifact: message.artifact,
+      intake,
+      semanticKey: `intake-iteration:${message.id}`,
+      sortKey,
+      subOrder: 0,
+    };
+  }
+  if (message.type === "clarification.request" || message.type === "clarification.answer" || message.type === "clarification.skip") {
+    const clarification = parseClarificationPayload(message.clarification);
+    return {
+      id: message.id,
+      kind: "clarification",
+      label: message.type === "clarification.request" ? "需要确认" : message.type === "clarification.answer" ? "已回答确认" : "已跳过确认",
+      timestamp: message.timestamp,
+      body: message.text,
+      source: "intake",
+      runId: message.runId,
+      clarification,
+      status: clarification?.status,
+      semanticKey: `clarification:${clarification?.id ?? message.id}:${message.type}`,
+      sortKey,
+      subOrder: 0,
+    };
+  }
   return null;
+}
+
+function parseIntakePayload(value: unknown): ThreadStreamItem["intake"] | undefined {
+  if (!isRecord(value)) return undefined;
+  const result: ThreadStreamItem["intake"] = {};
+  if (isRecord(value.scan)) result.scan = value.scan as unknown as WorkbenchIntakeScan;
+  if (isRecord(value.iteration)) result.iteration = value.iteration as unknown as WorkbenchIntakeIteration;
+  return result.scan || result.iteration ? result : undefined;
+}
+
+function parseClarificationPayload(value: unknown): ClarificationRequest | undefined {
+  if (!isRecord(value) || typeof value.id !== "string" || !Array.isArray(value.questions)) return undefined;
+  return value as unknown as ClarificationRequest;
 }
 
 function workflowItemFromMessage(message: TopicThreadEntry, sortKey: number): ThreadStreamDraft {
@@ -694,6 +1138,7 @@ function workflowEvidenceFromMessage(message: TopicThreadEntry): ThreadStreamEvi
 function blocksFromMessage(message: TopicThreadEntry, evidence?: ThreadStreamEvidence): AssistantTurnBlock[] | undefined {
   const explicit = normalizeBlocks(message.blocks);
   const blocks: AssistantTurnBlock[] = explicit.length > 0 ? [...explicit] : [];
+  const hasExplicitBlocks = blocks.length > 0;
   let sequence = nextBlockSequence(blocks);
   if (blocks.length === 0 && message.text?.trim()) {
     blocks.push({
@@ -721,11 +1166,13 @@ function blocksFromMessage(message: TopicThreadEntry, evidence?: ThreadStreamEvi
       isError: true,
     });
   }
-  for (const block of blocksFromActivity(message.activity, message)) {
-    block.sequence = sequence++;
-    blocks.push(block);
+  if (!hasExplicitBlocks) {
+    for (const block of blocksFromActivity(message.activity, message)) {
+      block.sequence = sequence++;
+      blocks.push(block);
+    }
   }
-  if (message.planCard) {
+  if (!hasExplicitBlocks && message.planCard) {
     blocks.push({
       id: `plan-card:${message.id}`,
       runId: message.runId,
@@ -867,15 +1314,53 @@ function mergeBlocks(left: AssistantTurnBlock[] | undefined, right: AssistantTur
 }
 
 function dedupeBlocks(blocks: AssistantTurnBlock[]): AssistantTurnBlock[] {
-  const seen = new Set<string>();
-  return blocks.filter((block) => {
-    const key = block.itemId
-      ? `${block.runId ?? ""}:${block.itemId}:${block.kind}:${block.status ?? ""}`
-      : `${block.id}:${block.kind}:${block.sequence}`;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
+  const byKey = new Map<string, AssistantTurnBlock>();
+  for (const block of blocks) {
+    const key = assistantBlockSemanticKey(block);
+    const existing = byKey.get(key);
+    byKey.set(key, existing ? mergeAssistantBlock(existing, block) : block);
+  }
+  return [...byKey.values()];
+}
+
+function mergeAssistantBlock(existing: AssistantTurnBlock, incoming: AssistantTurnBlock): AssistantTurnBlock {
+  return {
+    ...existing,
+    ...incoming,
+    id: existing.id,
+    sequence: existing.sequence,
+    timestamp: existing.timestamp,
+    text: incoming.text ?? existing.text,
+    preview: incoming.preview ?? existing.preview,
+    title: incoming.title ?? existing.title,
+    status: incoming.status ?? existing.status,
+    command: incoming.command ?? existing.command,
+    cwd: incoming.cwd ?? existing.cwd,
+    exitCode: incoming.exitCode ?? existing.exitCode,
+    artifactRef: incoming.artifactRef ?? existing.artifactRef,
+    truncated: incoming.truncated ?? existing.truncated,
+    isError: incoming.isError ?? existing.isError,
+  };
+}
+
+function assistantBlockSemanticKey(block: AssistantTurnBlock): string {
+  const runId = block.runId ?? "";
+  if (block.kind === "usage") return `usage:${runId}`;
+  if (block.kind === "error") return `error:${runId}:${normalizeBlockText(block.text ?? block.preview ?? block.title)}`;
+  if (block.kind === "workflow-evidence") return `workflow-evidence:${runId}:${block.artifactRef ?? block.title ?? block.status ?? block.id}`;
+  if (block.kind === "command") {
+    if (block.itemId) return `command:${runId}:item:${block.itemId}`;
+    return `command:${runId}:command:${normalizeCommandKey(block.command)}`;
+  }
+  return block.itemId ? `${block.kind}:${runId}:item:${block.itemId}` : `${block.id}:${block.kind}`;
+}
+
+function normalizeCommandKey(command: string | undefined): string {
+  return (command ?? "").replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+function normalizeBlockText(text: string | undefined): string {
+  return (text ?? "").replace(/\s+/g, " ").trim().toLowerCase();
 }
 
 function nextBlockSequence(blocks: AssistantTurnBlock[] | undefined): number {
@@ -932,6 +1417,10 @@ function formatUsageSummary(usage: Record<string, unknown>): string {
     output === undefined ? null : `${output} output tokens`,
   ].filter((item): item is string => Boolean(item));
   return pieces.length > 0 ? pieces.join(" · ") : "Usage recorded.";
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function hasInternalRunMetadata(text: string | undefined): boolean {

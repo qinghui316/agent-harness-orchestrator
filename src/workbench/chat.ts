@@ -26,7 +26,12 @@ export type TopicThreadEventType =
   | "orchestrator.plan"
   | "workflow.started"
   | "workflow.completed"
-  | "workflow.failed";
+  | "workflow.failed"
+  | "intake.scan"
+  | "intake.iteration"
+  | "clarification.request"
+  | "clarification.answer"
+  | "clarification.skip";
 
 export type WorkbenchMessageMode = "chat" | "plan";
 export type TopicRoutingDecision = "same-topic" | "new-topic-required" | "clarify";
@@ -66,6 +71,8 @@ export interface TopicThreadEntry {
   planCard?: OrchestrationPlanCard;
   activity?: AssistantTurnActivity[];
   blocks?: AssistantTurnBlock[];
+  intake?: unknown;
+  clarification?: unknown;
 }
 
 export type AssistantTurnBlockKind =
@@ -167,7 +174,7 @@ function createAssistantTranscriptCapture(live: WorkbenchLiveSink | undefined): 
   function appendBlock(block: Omit<AssistantTurnBlock, "id" | "sequence" | "timestamp"> & { id?: string; sequence?: number; timestamp?: string }): void {
     const timestamp = block.timestamp ?? new Date().toISOString();
     const currentSequence = block.sequence ?? nextSequence();
-    blocks.push({
+    upsertTranscriptBlock(blocks, {
       ...block,
       id: block.id ?? `block-${timestamp}-${currentSequence}`,
       sequence: currentSequence,
@@ -195,12 +202,12 @@ function createAssistantTranscriptCapture(live: WorkbenchLiveSink | undefined): 
 
   function appendAssistantEventBlock(event: WorkbenchAssistantEvent, timestamp: string): void {
     const block = assistantEventToBlock(event, timestamp, nextSequence());
-    if (block) blocks.push(block);
+    if (block) upsertTranscriptBlock(blocks, block);
   }
 
   function appendToolEventBlock(event: WorkbenchLiveToolEvent, timestamp: string): void {
     const block = toolEventToBlock(event, timestamp, nextSequence());
-    if (block) blocks.push(block);
+    if (block) upsertTranscriptBlock(blocks, block);
   }
 
   const capture: AssistantTranscriptCapture = {
@@ -240,7 +247,7 @@ function createAssistantTranscriptCapture(live: WorkbenchLiveSink | undefined): 
         } else if (event.event === "usage" && isRecord(event.data.usage)) {
           activity.push({ kind: "usage", usage: event.data.usage, timestamp });
           const currentSequence = nextSequence();
-          blocks.push({
+          upsertTranscriptBlock(blocks, {
             id: `usage:${event.data.runId ?? "assistant"}:${currentSequence}`,
             runId: event.data.runId,
             sequence: currentSequence,
@@ -274,6 +281,7 @@ function createAssistantTranscriptCapture(live: WorkbenchLiveSink | undefined): 
 
 export interface WorkbenchLiveToolEvent {
   runId: string;
+  itemId?: string;
   phase: "started" | "completed" | "stderr" | "status";
   name?: string;
   command?: string;
@@ -340,7 +348,58 @@ function toolEventToBlock(event: WorkbenchLiveToolEvent, timestamp: string, sequ
     preview: event.outputTail,
     isError: event.isError,
     truncated: event.outputTail?.includes("[truncated") ? true : undefined,
+    itemId: event.itemId,
   };
+}
+
+function upsertTranscriptBlock(blocks: AssistantTurnBlock[], block: AssistantTurnBlock): void {
+  const key = assistantBlockSemanticKey(block);
+  const index = blocks.findIndex((item) => assistantBlockSemanticKey(item) === key);
+  if (index === -1) {
+    blocks.push(block);
+    return;
+  }
+  blocks[index] = mergeAssistantBlocks(blocks[index], block);
+}
+
+function mergeAssistantBlocks(existing: AssistantTurnBlock, incoming: AssistantTurnBlock): AssistantTurnBlock {
+  return {
+    ...existing,
+    ...incoming,
+    id: existing.id,
+    sequence: existing.sequence,
+    timestamp: existing.timestamp,
+    text: incoming.text ?? existing.text,
+    preview: incoming.preview ?? existing.preview,
+    title: incoming.title ?? existing.title,
+    status: incoming.status ?? existing.status,
+    command: incoming.command ?? existing.command,
+    cwd: incoming.cwd ?? existing.cwd,
+    exitCode: incoming.exitCode ?? existing.exitCode,
+    artifactRef: incoming.artifactRef ?? existing.artifactRef,
+    truncated: incoming.truncated ?? existing.truncated,
+    isError: incoming.isError ?? existing.isError,
+  };
+}
+
+function assistantBlockSemanticKey(block: AssistantTurnBlock): string {
+  const runId = block.runId ?? "";
+  if (block.kind === "usage") return `usage:${runId}`;
+  if (block.kind === "error") return `error:${runId}:${normalizeBlockText(block.text ?? block.preview ?? block.title)}`;
+  if (block.kind === "workflow-evidence") return `workflow-evidence:${runId}:${block.artifactRef ?? block.title ?? block.status ?? block.id}`;
+  if (block.kind === "command") {
+    if (block.itemId) return `command:${runId}:item:${block.itemId}`;
+    return `command:${runId}:command:${normalizeCommandKey(block.command)}`;
+  }
+  return block.itemId ? `${block.kind}:${runId}:item:${block.itemId}` : `${block.id}:${block.kind}`;
+}
+
+function normalizeCommandKey(command: string | undefined): string {
+  return (command ?? "").replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+function normalizeBlockText(text: string | undefined): string {
+  return (text ?? "").replace(/\s+/g, " ").trim().toLowerCase();
 }
 
 function assistantEventBlockKind(kind: WorkbenchAssistantEvent["kind"]): AssistantTurnBlockKind {
@@ -912,6 +971,7 @@ function forwardCodexStreamEvent(runId: string, event: CodexJsonlStreamEvent, li
         event: "tool.event",
         data: {
           runId,
+          itemId: event.id,
           phase: event.phase,
           name: event.name,
           command: event.command,
@@ -1433,6 +1493,8 @@ function fromStoredMessage(row: StoredTopicMessage): TopicThreadEntry {
     planCard: isPlanCard(raw.planCard) ? raw.planCard : undefined,
     activity: Array.isArray(raw.activity) ? raw.activity.filter(isAssistantTurnActivity) : undefined,
     blocks: Array.isArray(raw.blocks) ? raw.blocks.filter(isAssistantTurnBlock) : undefined,
+    intake: raw.intake,
+    clarification: raw.clarification,
     position: row.position,
   };
 }

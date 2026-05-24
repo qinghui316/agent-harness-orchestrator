@@ -36,6 +36,7 @@ type Snapshot = {
   };
   center: {
     selectedTopic: TopicDetail | null;
+    workpad: Workpad;
     agentLoop: { runs: RunSummary[] };
     thread: { items: ThreadStreamItem[] };
   };
@@ -51,6 +52,50 @@ type TopicDetail = Topic & {
   acCount?: number;
   taskCount?: number;
 };
+type WorkpadNextAction = {
+  id: string;
+  label: string;
+  description: string;
+  kind: "workflow-action" | "approval" | "read-only" | "none";
+  enabled: boolean;
+  requiresConfirmation: boolean;
+  actionType?: ThreadStreamAction["actionType"];
+  approvalId?: string;
+  disabledReason?: string;
+};
+type Workpad = {
+  title: string;
+  subtitle: string;
+  state: "diagnostic" | "empty" | "active" | "readonly";
+  intake: {
+    goal: string;
+    currentUnderstanding: string;
+    source: "project" | "topic" | "thread" | "diagnostic";
+    relatedArtifacts: string[];
+    missingInfo: string[];
+    confirmedConstraints: string[];
+    openQuestions: string[];
+    assumptions: string[];
+    pendingClarifications: ClarificationRequest[];
+  };
+  progress: {
+    topicState: string;
+    spec: "missing" | "ready" | "unknown";
+    plan: "missing" | "ready" | "unknown";
+    tasks: "missing" | "ready" | "unknown";
+    acCount: number;
+    taskCount: number;
+    runCount: number;
+    latestRunStatus?: string;
+    validationStatus?: string;
+    auditStatus?: string;
+  };
+  tasks: Array<{ id: string; title: string; done: boolean; acIds: string[]; warnings: string[] }>;
+  evidence: Array<{ id: string; label: string; source: string; status?: string; artifact?: string; timestamp?: string }>;
+  blockers: string[];
+  warnings: string[];
+  nextAction: WorkpadNextAction;
+};
 type PlanCard = {
   title: string;
   summary: string;
@@ -59,7 +104,7 @@ type PlanCard = {
 };
 type ThreadEvent = { id: string; type: string; label: string; timestamp?: string; status?: string; runId?: string; planCard?: PlanCard };
 type ThreadStreamAction = {
-  actionType: "change.spec.propose" | "change.plan.propose" | "code.run";
+  actionType: "change.spec.propose" | "change.plan.propose" | "code.run" | "intake.scan" | "intake.reanalyze" | "clarification.answer" | "clarification.skip";
   label: string;
   enabled: boolean;
   requiresConfirmation: boolean;
@@ -67,7 +112,7 @@ type ThreadStreamAction = {
 };
 type ThreadStreamItem = {
   id: string;
-  kind: "user-message" | "assistant-turn" | "assistant-message" | "plan-card" | "workflow-summary" | "evidence" | "decision" | "change-state";
+  kind: "user-message" | "assistant-turn" | "assistant-message" | "plan-card" | "workflow-summary" | "evidence" | "decision" | "change-state" | "intake-summary" | "clarification";
   label: string;
   timestamp?: string;
   body?: string;
@@ -82,6 +127,19 @@ type ThreadStreamItem = {
   activity?: LiveTurnEvent[];
   evidence?: ThreadStreamEvidence[];
   blocks?: AssistantTurnBlock[];
+  intake?: {
+    scan?: { runId: string; candidateFiles?: string[]; scripts?: Array<{ name: string; command: string }>; missingInfo?: string[] };
+    iteration?: { currentUnderstanding: string; confirmedConstraints: string[]; openQuestions: string[]; assumptions: string[] };
+  };
+  clarification?: ClarificationRequest;
+};
+type ClarificationRequest = {
+  id: string;
+  status: "pending" | "answered" | "skipped" | "expired";
+  source: "aho" | "codex";
+  stage: "intake" | "spec" | "plan" | "run";
+  questions: Array<{ id: string; header?: string; question: string; options?: Array<{ label: string; description?: string }>; allowFreeform: boolean }>;
+  answers?: Array<{ questionId: string; answer: string }>;
 };
 type ThreadStreamEvidence = {
   id: string;
@@ -140,6 +198,7 @@ type WorkbenchLiveEvent =
   | { event: "done"; data: { status: "completed" | "failed" } };
 type WorkbenchLiveToolEvent = {
   runId: string;
+  itemId?: string;
   phase: "started" | "completed" | "stderr" | "status";
   name?: string;
   command?: string;
@@ -205,7 +264,7 @@ type LiveAssistantTurn = {
 };
 type TopicMessageEntry = {
   id: string;
-  type: "user.message" | "assistant.message" | "orchestrator.plan" | "workflow.started" | "workflow.completed" | "workflow.failed";
+  type: "user.message" | "assistant.message" | "orchestrator.plan" | "workflow.started" | "workflow.completed" | "workflow.failed" | "intake.scan" | "intake.iteration" | "clarification.request" | "clarification.answer" | "clarification.skip";
   timestamp?: string;
   changeId: string;
   text?: string;
@@ -218,13 +277,15 @@ type TopicMessageEntry = {
   planCard?: PlanCard;
   activity?: LiveTurnEvent[];
   blocks?: AssistantTurnBlock[];
+  intake?: ThreadStreamItem["intake"];
+  clarification?: ClarificationRequest;
 };
 
 const emptySnapshot: Snapshot = {
   project: null,
   memory: {},
   left: { topics: [] },
-  center: { selectedTopic: null, agentLoop: { runs: [] }, thread: { items: [] } },
+  center: { selectedTopic: null, workpad: emptyWorkpad(), agentLoop: { runs: [] }, thread: { items: [] } },
   right: { approvals: [], decisions: [] },
   harnessGaps: [],
   warnings: [],
@@ -238,7 +299,7 @@ export function App(): ReactElement {
   const [selectedTopic, setSelectedTopic] = useState<string | null>(null);
   const [selectedRun, setSelectedRun] = useState<string | null>(null);
   const [stream, setStream] = useState<StreamPacket | null>(null);
-  const [tab, setTab] = useState<"thread" | "loop">("thread");
+  const [tab, setTab] = useState<"workpad" | "thread" | "loop">("workpad");
   const [navPanel, setNavPanel] = useState<"topics" | "repo" | "memory" | "settings">("topics");
   const [confirming, setConfirming] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -360,7 +421,24 @@ export function App(): ReactElement {
       return;
     }
     const message = composerText.trim();
+    const pendingClarificationCount = activeWorkpad.intake.pendingClarifications?.length ?? 0;
+    if (composerMode === "chat" && tab === "workpad" && (activeWorkpad.nextAction.actionType === "intake.reanalyze" || activeWorkpad.nextAction.actionType === "change.spec.propose" || pendingClarificationCount > 0)) {
+      setActionRunning("intake.reanalyze");
+      setComposerText("");
+      setError(null);
+      try {
+        const result = await postJson<{ snapshot: Snapshot }>(`/api/projects/${encodeURIComponent(selectedProjectId)}/workbench/intake/reanalyze`, {
+          changeId: activeTopic.id,
+          message,
+        });
+        setSnapshot(result.snapshot);
+      } finally {
+        setActionRunning(null);
+      }
+      return;
+    }
     setActionRunning(composerMode === "plan" ? "orchestrator.plan" : "chat.ask");
+    setTab("thread");
     setComposerText("");
     setError(null);
     try {
@@ -376,8 +454,29 @@ export function App(): ReactElement {
   async function runWorkflowAction(actionType: string, options: Record<string, unknown> = {}): Promise<void> {
     if (!selectedProjectId || !activeTopic) return;
     setActionRunning(actionType);
+    if (!actionType.startsWith("intake.") && !actionType.startsWith("clarification.")) setTab("thread");
     setError(null);
     try {
+      if (actionType === "intake.scan") {
+        const result = await postJson<{ snapshot: Snapshot }>(`/api/projects/${encodeURIComponent(selectedProjectId)}/workbench/intake/scan`, {
+          changeId: activeTopic.id,
+          prompt: composerText.trim() || activeTopic.title,
+        });
+        setSnapshot(result.snapshot);
+        if (composerText.trim()) setComposerText("");
+        return;
+      }
+      if (actionType === "intake.reanalyze") {
+        const message = (composerText.trim() || window.prompt("补充需求或回答需要确认的问题") || "").trim();
+        if (!message) return;
+        const result = await postJson<{ snapshot: Snapshot }>(`/api/projects/${encodeURIComponent(selectedProjectId)}/workbench/intake/reanalyze`, {
+          changeId: activeTopic.id,
+          message,
+        });
+        setSnapshot(result.snapshot);
+        setComposerText("");
+        return;
+      }
       await consumeWorkbenchLiveStream(`/api/projects/${encodeURIComponent(selectedProjectId)}/workbench/actions/live`, {
         actionType,
         changeId: activeTopic.id,
@@ -386,6 +485,21 @@ export function App(): ReactElement {
         ...options,
       }, handleLiveEvent);
       if (composerText.trim()) setComposerText("");
+    } finally {
+      setActionRunning(null);
+    }
+  }
+
+  async function answerClarification(clarificationId: string, answer: string): Promise<void> {
+    if (!selectedProjectId || !activeTopic || !answer.trim()) return;
+    setActionRunning("clarification.answer");
+    setError(null);
+    try {
+      const result = await postJson<{ snapshot: Snapshot }>(`/api/projects/${encodeURIComponent(selectedProjectId)}/workbench/clarifications/${encodeURIComponent(clarificationId)}/answer`, {
+        changeId: activeTopic.id,
+        answer: answer.trim(),
+      });
+      setSnapshot(result.snapshot);
     } finally {
       setActionRunning(null);
     }
@@ -536,6 +650,7 @@ export function App(): ReactElement {
   }
 
   const activeTopic = snapshot.center.selectedTopic;
+  const activeWorkpad = snapshot.center.workpad ?? emptyWorkpad(activeTopic?.title ?? snapshot.project?.name);
   const activeRun = useMemo(() => snapshot.center.agentLoop.runs.find((run) => run.id === selectedRun) ?? snapshot.center.agentLoop.runs[0], [snapshot, selectedRun]);
   const selectedProjectStatus = useMemo(() => projects.find((item) => item.project?.id === selectedProjectId) ?? null, [projects, selectedProjectId]);
   const runIds = useMemo(() => snapshot.center.agentLoop.runs.map((run) => run.id).join("|"), [snapshot.center.agentLoop.runs]);
@@ -624,13 +739,39 @@ export function App(): ReactElement {
             </header>
 
             <div className="tabs">
+              <button className={tab === "workpad" ? "active" : ""} onClick={() => setTab("workpad")}>Workpad</button>
               <button className={tab === "thread" ? "active" : ""} onClick={() => setTab("thread")}>线程</button>
               <button className={tab === "loop" ? "active" : ""} onClick={() => setTab("loop")}>Agent 循环</button>
             </div>
 
             <section className="center-grid">
               <div className="timeline-panel">
-                {tab === "thread" ? (
+                {tab === "workpad" ? (
+                  <>
+                    <div className="thread-scroll workpad-scroll">
+                      <WorkpadView
+                        workpad={activeWorkpad}
+                        approvals={snapshot.right.approvals}
+                        busy={actionRunning !== null}
+                        onWorkflowAction={runWorkflowAction}
+                        onConfirmApproval={(approvalId) => setConfirming(approvalId)}
+                        onAnswerClarification={answerClarification}
+                      />
+                    </div>
+                    <TopicComposer
+                      value={composerText}
+                      onChange={setComposerText}
+                      mode={composerMode}
+                      onModeChange={setComposerMode}
+                      busy={actionRunning !== null || activeTopic.state !== "active"}
+                      disabledReason={activeTopic.state !== "active" ? "归档或暂停 Topic 为只读。" : undefined}
+                      onSend={sendTopicMessage}
+                      onRunCode={() => runWorkflowAction("code.run")}
+                      actionRunning={actionRunning}
+                      canRunCode={activeTopic.state === "active" && (activeTopic.taskCount ?? 0) > 0}
+                    />
+                  </>
+                ) : tab === "thread" ? (
                   <>
                     <div
                       className="thread-scroll"
@@ -738,8 +879,28 @@ function upsertBlock(blocks: AssistantTurnBlock[], block: AssistantTurnBlock): A
   const existingIndex = blocks.findIndex((item) => blockKey(item) === key);
   if (existingIndex === -1) return [...blocks, { ...block, sequence: block.sequence > 0 ? block.sequence : nextBlockSequence(blocks) }];
   const next = [...blocks];
-  next[existingIndex] = { ...next[existingIndex], ...block, sequence: next[existingIndex].sequence };
+  next[existingIndex] = mergeAssistantBlocks(next[existingIndex], block);
   return next;
+}
+
+function mergeAssistantBlocks(existing: AssistantTurnBlock, incoming: AssistantTurnBlock): AssistantTurnBlock {
+  return {
+    ...existing,
+    ...incoming,
+    id: existing.id,
+    sequence: existing.sequence,
+    timestamp: existing.timestamp,
+    text: incoming.text ?? existing.text,
+    preview: incoming.preview ?? existing.preview,
+    title: incoming.title ?? existing.title,
+    status: incoming.status ?? existing.status,
+    command: incoming.command ?? existing.command,
+    cwd: incoming.cwd ?? existing.cwd,
+    exitCode: incoming.exitCode ?? existing.exitCode,
+    artifactRef: incoming.artifactRef ?? existing.artifactRef,
+    truncated: incoming.truncated ?? existing.truncated,
+    isError: incoming.isError ?? existing.isError,
+  };
 }
 
 function blockFromAssistantEvent(event: AssistantReadableEvent): AssistantTurnBlock | null {
@@ -782,6 +943,7 @@ function blockFromToolEvent(event: WorkbenchLiveToolEvent): AssistantTurnBlock |
     exitCode: event.exitCode,
     preview: event.outputTail,
     isError: event.isError,
+    itemId: event.itemId,
   };
 }
 
@@ -804,7 +966,23 @@ function nextBlockSequence(blocks: AssistantTurnBlock[]): number {
 }
 
 function blockKey(block: AssistantTurnBlock): string {
-  return block.itemId ? `${block.runId ?? ""}:${block.itemId}:${block.kind}:${block.status ?? ""}` : `${block.id}:${block.kind}`;
+  const runId = block.runId ?? "";
+  if (block.kind === "usage") return `usage:${runId}`;
+  if (block.kind === "error") return `error:${runId}:${normalizeBlockText(block.text ?? block.preview ?? block.title)}`;
+  if (block.kind === "workflow-evidence") return `workflow-evidence:${runId}:${block.artifactRef ?? block.title ?? block.status ?? block.id}`;
+  if (block.kind === "command") {
+    if (block.itemId) return `command:${runId}:item:${block.itemId}`;
+    return `command:${runId}:command:${normalizeCommandKey(block.command)}`;
+  }
+  return block.itemId ? `${block.kind}:${runId}:item:${block.itemId}` : `${block.id}:${block.kind}`;
+}
+
+function normalizeCommandKey(command: string | undefined): string {
+  return (command ?? "").replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+function normalizeBlockText(text: string | undefined): string {
+  return (text ?? "").replace(/\s+/g, " ").trim().toLowerCase();
 }
 
 function ProjectSidebar({ projects, selectedProjectId, onRefresh, onOpen }: { projects: ProjectStatus[]; selectedProjectId: string | null; onRefresh: () => Promise<void>; onOpen: (projectId: string) => Promise<void> }): ReactElement {
@@ -1125,6 +1303,239 @@ function HarnessInitButton({ projectId, onDone }: { projectId: string; onDone: (
   );
 }
 
+function WorkpadView({
+  workpad,
+  approvals,
+  busy,
+  onWorkflowAction,
+  onConfirmApproval,
+  onAnswerClarification,
+}: {
+  workpad: Workpad;
+  approvals: Approval[];
+  busy: boolean;
+  onWorkflowAction: (actionType: string, options?: Record<string, unknown>) => Promise<void>;
+  onConfirmApproval: (approvalId: string) => void;
+  onAnswerClarification: (clarificationId: string, answer: string) => Promise<void>;
+}): ReactElement {
+  const approval = workpad.nextAction.approvalId ? approvals.find((item) => item.id === workpad.nextAction.approvalId) : undefined;
+  const confirmedConstraints = workpad.intake.confirmedConstraints ?? [];
+  const openQuestions = workpad.intake.openQuestions ?? [];
+  const assumptions = workpad.intake.assumptions ?? [];
+  const pendingClarifications = workpad.intake.pendingClarifications ?? [];
+  return (
+    <div className="workpad" data-testid="workpad-view">
+      <section className="workpad-hero">
+        <div>
+          <span className={`workpad-state ${workpad.state}`}>{workpadStateLabel(workpad.state)}</span>
+          <h2>{workpad.title}</h2>
+          <p>{workpad.subtitle}</p>
+        </div>
+        <WorkpadActionButton
+          action={workpad.nextAction}
+          approval={approval}
+          busy={busy}
+          onWorkflowAction={onWorkflowAction}
+          onConfirmApproval={onConfirmApproval}
+        />
+      </section>
+
+      <section className="workpad-section">
+        <div className="workpad-section-header">
+          <h3>目标与当前理解</h3>
+          <span>{workpad.intake.source}</span>
+        </div>
+        <p className="workpad-goal">{workpad.intake.goal}</p>
+        <p>{workpad.intake.currentUnderstanding}</p>
+        {confirmedConstraints.length > 0 ? (
+          <div className="workpad-chip-list" aria-label="Confirmed constraints">
+            {confirmedConstraints.map((constraint) => <span key={constraint}>{constraint}</span>)}
+          </div>
+        ) : null}
+        {workpad.intake.relatedArtifacts.length > 0 ? (
+          <div className="workpad-links">
+            {workpad.intake.relatedArtifacts.map((artifact) => <span className="artifact-link" key={artifact}>查看证据：{artifactName(artifact)}</span>)}
+          </div>
+        ) : null}
+      </section>
+
+      {pendingClarifications.length > 0 ? (
+        <section className="workpad-section">
+          <div className="workpad-section-header">
+            <h3>需要确认</h3>
+            <span>{pendingClarifications.length}</span>
+          </div>
+          <div className="clarification-list">
+            {pendingClarifications.map((clarification) => (
+              <ClarificationCard
+                key={clarification.id}
+                clarification={clarification}
+                busy={busy}
+                onAnswer={onAnswerClarification}
+              />
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      <section className="workpad-progress-grid" aria-label="Workpad progress">
+        <WorkpadMetric label="Spec" value={readinessLabel(workpad.progress.spec)} />
+        <WorkpadMetric label="Plan" value={readinessLabel(workpad.progress.plan)} />
+        <WorkpadMetric label="Tasks" value={readinessLabel(workpad.progress.tasks)} />
+        <WorkpadMetric label="AC / Tasks" value={`${workpad.progress.acCount} / ${workpad.progress.taskCount}`} />
+        <WorkpadMetric label="Runs" value={`${workpad.progress.runCount}${workpad.progress.latestRunStatus ? ` · ${humanStatus(workpad.progress.latestRunStatus)}` : ""}`} />
+        <WorkpadMetric label="Validation / Audit" value={`${statusOrDash(workpad.progress.validationStatus)} / ${statusOrDash(workpad.progress.auditStatus)}`} />
+      </section>
+
+      {workpad.tasks.length > 0 ? (
+        <section className="workpad-section">
+          <div className="workpad-section-header">
+            <h3>TaskGraph 预览</h3>
+            <span>来自 tasks.md / ac-map.json</span>
+          </div>
+          <div className="workpad-task-list">
+            {workpad.tasks.map((task) => (
+              <div className="workpad-task" key={task.id}>
+                <strong>{task.id}</strong>
+                <span>{task.title}</span>
+                <small>{task.done ? "已完成" : "未完成"} · {task.acIds.join(", ") || "未映射 AC"}</small>
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      <section className="workpad-section">
+        <div className="workpad-section-header">
+          <h3>证据与决策</h3>
+          <span>{workpad.evidence.length}</span>
+        </div>
+        {workpad.evidence.length === 0 ? <p className="panel-note">暂无 run、validation、audit 或 decision evidence。</p> : null}
+        <div className="workpad-evidence-list">
+          {workpad.evidence.map((item) => (
+            <div className="workpad-evidence" key={item.id}>
+              <strong>{item.label}</strong>
+              <span>{item.source}{item.status ? ` · ${humanStatus(item.status)}` : ""}</span>
+              {item.artifact ? <small className="artifact-link">查看证据：{artifactName(item.artifact)}</small> : null}
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {(workpad.blockers.length > 0 || workpad.warnings.length > 0 || workpad.intake.missingInfo.length > 0 || openQuestions.length > 0 || assumptions.length > 0) ? (
+        <section className="workpad-section">
+          <div className="workpad-section-header">
+            <h3>阻塞与缺口</h3>
+            <span>{workpad.blockers.length + workpad.warnings.length + workpad.intake.missingInfo.length + openQuestions.length + assumptions.length}</span>
+          </div>
+          <ul className="workpad-issue-list">
+            {[...workpad.blockers, ...workpad.warnings, ...workpad.intake.missingInfo, ...openQuestions.map((item) => `待确认：${item}`), ...assumptions.map((item) => `假设：${item}`)].map((item, index) => <li key={`${item}:${index}`}>{item}</li>)}
+          </ul>
+        </section>
+      ) : null}
+    </div>
+  );
+}
+
+function ClarificationCard({
+  clarification,
+  busy,
+  onAnswer,
+}: {
+  clarification: ClarificationRequest;
+  busy: boolean;
+  onAnswer: (clarificationId: string, answer: string) => Promise<void>;
+}): ReactElement {
+  const [answer, setAnswer] = useState("");
+  const firstQuestion = clarification.questions[0];
+  const canSubmit = !busy && answer.trim().length > 0;
+  async function submit(): Promise<void> {
+    if (!canSubmit) return;
+    await onAnswer(clarification.id, answer);
+    setAnswer("");
+  }
+  return (
+    <article className="clarification-card" data-testid="clarification-card">
+      <div className="clarification-questions">
+        {clarification.questions.map((question) => (
+          <div key={question.id}>
+            <strong>{question.header ?? "请确认"}</strong>
+            <p>{question.question}</p>
+            {question.options && question.options.length > 0 ? (
+              <div className="clarification-options">
+                {question.options.map((option) => (
+                  <button
+                    className="outline-button"
+                    key={option.label}
+                    type="button"
+                    onClick={() => setAnswer(option.description ? `${option.label}：${option.description}` : option.label)}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        ))}
+      </div>
+      <label>
+        <span>回答</span>
+        <textarea
+          value={answer}
+          onChange={(event) => setAnswer(event.target.value)}
+          placeholder={firstQuestion?.allowFreeform === false ? "选择一个选项后提交" : "补充你的约束或答案"}
+          rows={3}
+        />
+      </label>
+      <button className="primary-button" type="button" disabled={!canSubmit} onClick={() => void submit()}>
+        提交回答
+      </button>
+    </article>
+  );
+}
+
+function WorkpadActionButton({
+  action,
+  approval,
+  busy,
+  onWorkflowAction,
+  onConfirmApproval,
+}: {
+  action: WorkpadNextAction;
+  approval?: Approval;
+  busy: boolean;
+  onWorkflowAction: (actionType: string, options?: Record<string, unknown>) => Promise<void>;
+  onConfirmApproval: (approvalId: string) => void;
+}): ReactElement {
+  const disabled = busy || !action.enabled || action.kind === "none" || action.kind === "read-only";
+  function run(): void {
+    if (action.kind === "approval" && action.approvalId) {
+      onConfirmApproval(action.approvalId);
+      return;
+    }
+    if (action.kind === "workflow-action" && action.actionType) void onWorkflowAction(action.actionType);
+  }
+  return (
+    <div className="workpad-next-action">
+      <span>下一步</span>
+      <strong>{approval?.action?.label ?? action.label}</strong>
+      <p>{action.description}</p>
+      <button className="primary-button" disabled={disabled} title={action.disabledReason} onClick={run}>
+        {action.enabled ? "执行" : "不可执行"}
+      </button>
+    </div>
+  );
+}
+
+function WorkpadMetric({ label, value }: { label: string; value: string }): ReactElement {
+  return (
+    <div className="workpad-metric">
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
+  );
+}
+
 function ThreadStreamView({ items, liveTurns, busy, onAction }: { items: ThreadStreamItem[]; liveTurns: LiveAssistantTurn[]; busy: boolean; onAction: (actionType: string, options?: Record<string, unknown>) => Promise<void> }): ReactElement {
   if (items.length === 0 && liveTurns.length === 0) return <div className="empty-state">暂无线程内容。</div>;
   return (
@@ -1322,15 +1733,13 @@ function normalizeTurnBlocks(blocks: AssistantTurnBlock[]): AssistantTurnBlock[]
 }
 
 function dedupeBlocks(blocks: AssistantTurnBlock[]): AssistantTurnBlock[] {
-  const seen = new Set<string>();
-  return blocks.filter((block) => {
-    const key = block.itemId
-      ? `${block.runId ?? ""}:${block.itemId}:${block.kind}:${block.status ?? ""}`
-      : `${block.id}:${block.kind}:${block.sequence}`;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
+  const byKey = new Map<string, AssistantTurnBlock>();
+  for (const block of blocks) {
+    const key = blockKey(block);
+    const existing = byKey.get(key);
+    byKey.set(key, existing ? mergeAssistantBlocks(existing, block) : block);
+  }
+  return [...byKey.values()];
 }
 
 function isMainThreadBlock(block: AssistantTurnBlock): boolean {
@@ -1775,6 +2184,12 @@ function threadItemFromTopicEntry(entry: TopicMessageEntry): ThreadStreamItem | 
   if (entry.type === "workflow.started" || entry.type === "workflow.completed" || entry.type === "workflow.failed") {
     return null;
   }
+  if (entry.type === "intake.scan" || entry.type === "intake.iteration") {
+    return { id: `live:${entry.id}`, kind: "intake-summary", label: entry.type === "intake.scan" ? "需求分析" : "当前需求理解", timestamp: entry.timestamp, body: entry.text, source: "intake", artifact: entry.artifact, runId: entry.runId, intake: entry.intake };
+  }
+  if (entry.type === "clarification.request" || entry.type === "clarification.answer" || entry.type === "clarification.skip") {
+    return { id: `live:${entry.id}`, kind: "clarification", label: entry.type === "clarification.request" ? "需要确认" : "需求确认", timestamp: entry.timestamp, body: entry.text, source: "intake", runId: entry.runId, status: entry.clarification?.status, clarification: entry.clarification };
+  }
   return null;
 }
 
@@ -1788,13 +2203,71 @@ function snapshotForProject(project: ProjectStatus | null | undefined): Snapshot
     ...emptySnapshot,
     project: project.project,
     memory: { harnessReady: project.managed },
+    center: { ...emptySnapshot.center, workpad: emptyWorkpad(project.project.name) },
     warnings: project.managed ? [] : ["Project is not managed by Harness yet."],
+  };
+}
+
+function emptyWorkpad(projectName = "未选择项目"): Workpad {
+  return {
+    title: "项目 Workpad",
+    subtitle: projectName,
+    state: "diagnostic",
+    intake: {
+      goal: "尚未选择可用 Topic。",
+      currentUnderstanding: "选择项目并创建 Topic 后，AHO 会在这里汇总目标、进度、证据和下一步。",
+      source: "diagnostic",
+      relatedArtifacts: [],
+      missingInfo: [],
+      confirmedConstraints: [],
+      openQuestions: [],
+      assumptions: [],
+      pendingClarifications: [],
+    },
+    progress: {
+      topicState: "none",
+      spec: "unknown",
+      plan: "unknown",
+      tasks: "unknown",
+      acCount: 0,
+      taskCount: 0,
+      runCount: 0,
+    },
+    tasks: [],
+    evidence: [],
+    blockers: [],
+    warnings: [],
+    nextAction: {
+      id: "empty",
+      label: "选择或创建 Topic",
+      description: "先选择项目中的 Topic，或在输入框里创建新需求。",
+      kind: "read-only",
+      enabled: false,
+      requiresConfirmation: false,
+    },
   };
 }
 
 function formatTime(value?: string): string {
   if (!value) return "";
   return new Date(value).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
+}
+
+function workpadStateLabel(state: Workpad["state"]): string {
+  if (state === "active") return "进行中";
+  if (state === "readonly") return "只读";
+  if (state === "empty") return "待创建";
+  return "诊断";
+}
+
+function readinessLabel(value: "missing" | "ready" | "unknown"): string {
+  if (value === "ready") return "已就绪";
+  if (value === "missing") return "缺失";
+  return "未知";
+}
+
+function statusOrDash(value?: string): string {
+  return value ? humanStatus(value) : "-";
 }
 
 function stateLabel(state: string): string {

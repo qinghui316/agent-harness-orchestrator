@@ -18,3 +18,10 @@ coverage/
 
 Thumbs.db
 Desktop.ini
+
+# Local agent/Harness working state.
+AGENTS.md
+docs/
+harness/
+reference-projects/
+.gitmodules
