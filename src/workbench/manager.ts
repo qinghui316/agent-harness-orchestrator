@@ -6,6 +6,7 @@ import { previewWorktreeApply } from "../apply/manager.js";
 import { listAuditResults, summarizeAudit } from "../audit/artifacts.js";
 import { listPlanProposalSummaries, listSpecProposalSummaries } from "../change/proposals.js";
 import { getChangeStatus } from "../change/manager.js";
+import { buildAcMap } from "../ecl/anchors.js";
 import { buildChangeIndex, hasPendingEvolution } from "../ecl/index.js";
 import { readRequiredJsonFile } from "../fs/json.js";
 import { getTemplateRoot } from "../template-source/paths.js";
@@ -24,6 +25,7 @@ import type { ClarificationRequest, WorkbenchIntakeIteration, WorkbenchIntakeSca
 import { WorkbenchStore, type StoredDecisionRecord } from "./store.js";
 import type {
   AuditSummary,
+  AcMap,
   ChangeIndexItem,
   ChangeMetadata,
   ManagedProject,
@@ -202,6 +204,47 @@ export interface WorkpadTaskPreview {
   warnings: string[];
 }
 
+export type WorkbenchTaskNodeStatus = "planned" | "running" | "evidence-ready" | "blocked" | "checked";
+
+export interface WorkbenchTaskEvidence {
+  id: string;
+  label: string;
+  source: "run" | "validation" | "audit";
+  status?: string;
+  runId?: string;
+  worktreeId?: string;
+  artifact?: string;
+  timestamp?: string;
+}
+
+export interface WorkbenchTaskNextAction {
+  id: string;
+  label: string;
+  actionType?: ThreadStreamAction["actionType"];
+  taskIds?: string[];
+  enabled: boolean;
+  requiresConfirmation: boolean;
+  disabledReason?: string;
+}
+
+export interface WorkbenchTaskNode {
+  taskId: string;
+  title: string;
+  acIds: string[];
+  checked: boolean;
+  status: WorkbenchTaskNodeStatus;
+  latestEvidence: WorkbenchTaskEvidence[];
+  blockers: string[];
+  nextAction: WorkbenchTaskNextAction;
+}
+
+export interface WorkbenchTaskGraph {
+  source: "accepted-tasks" | "missing";
+  nodes: WorkbenchTaskNode[];
+  changeLevelEvidence: WorkbenchTaskEvidence[];
+  warnings: string[];
+}
+
 export interface WorkbenchWorkpad {
   title: string;
   subtitle: string;
@@ -209,6 +252,7 @@ export interface WorkbenchWorkpad {
   intake: WorkpadIntakeSummary;
   progress: WorkpadProgress;
   tasks: WorkpadTaskPreview[];
+  taskGraph: WorkbenchTaskGraph;
   evidence: WorkpadEvidenceSummary[];
   blockers: string[];
   warnings: string[];
@@ -492,6 +536,7 @@ function buildDiagnosticWorkpad(projectName: string, warnings: string[], gaps: H
     },
     progress: emptyProgress("none"),
     tasks: [],
+    taskGraph: emptyTaskGraph(),
     evidence: [],
     blockers: warnings,
     warnings: gaps.filter((gap) => gap.status !== "available").map((gap) => gap.summary),
@@ -538,6 +583,7 @@ async function buildWorkbenchWorkpad(input: {
       },
       progress: emptyProgress("none"),
       tasks: [],
+      taskGraph: emptyTaskGraph(),
       evidence: approvals.slice(0, 5).map(approvalWorkpadEvidence),
       blockers: warnings,
       warnings: gaps.filter((gap) => gap.status !== "available").map((gap) => gap.summary),
@@ -563,6 +609,7 @@ async function buildWorkbenchWorkpad(input: {
   const latestValidation = [...(selectedTopic.validations as ValidationSummary[])].sort((a, b) => (b.finishedAt ?? "").localeCompare(a.finishedAt ?? ""))[0];
   const latestAudit = [...(selectedTopic.audits as AuditSummary[])].sort((a, b) => (b.finishedAt ?? "").localeCompare(a.finishedAt ?? ""))[0];
   const intake = buildWorkpadIntake(selectedTopic);
+  const taskGraph = buildTaskGraph(selectedTopic, { specReady, planReady, tasksReady });
 
   return {
     title: selectedTopic.title,
@@ -581,7 +628,8 @@ async function buildWorkbenchWorkpad(input: {
       validationStatus: latestValidation?.status,
       auditStatus: latestAudit?.status,
     },
-    tasks: buildTaskPreview(selectedTopic),
+    tasks: taskGraph.nodes.map(taskNodeToPreview),
+    taskGraph,
     evidence: buildWorkpadEvidence(selectedTopic, topicApprovals, topicDecisions),
     blockers: [
       ...(selectedTopic.closeGate?.blockingIssues ?? []),
@@ -605,6 +653,15 @@ function emptyProgress(topicState: WorkpadProgress["topicState"]): WorkpadProgre
     acCount: 0,
     taskCount: 0,
     runCount: 0,
+  };
+}
+
+function emptyTaskGraph(): WorkbenchTaskGraph {
+  return {
+    source: "missing",
+    nodes: [],
+    changeLevelEvidence: [],
+    warnings: [],
   };
 }
 
@@ -639,17 +696,179 @@ function buildWorkpadIntake(topic: WorkbenchTopicDetail): WorkpadIntakeSummary {
   };
 }
 
-function buildTaskPreview(topic: WorkbenchTopicDetail): WorkpadTaskPreview[] {
-  if (topic.acMap) {
-    return topic.acMap.tasks.slice(0, 8).map((task) => ({
-      id: task.id,
-      title: task.text,
-      done: task.done,
-      acIds: task.acIds,
-      warnings: task.warnings,
-    }));
+function taskNodeToPreview(node: WorkbenchTaskNode): WorkpadTaskPreview {
+  return {
+    id: node.taskId,
+    title: node.title,
+    done: node.checked,
+    acIds: node.acIds,
+    warnings: node.blockers,
+  };
+}
+
+function buildTaskGraph(
+  topic: WorkbenchTopicDetail,
+  readiness: { specReady: boolean; planReady: boolean; tasksReady: boolean },
+): WorkbenchTaskGraph {
+  if (!topic.acMap || topic.acMap.tasks.length === 0) return emptyTaskGraph();
+
+  const coderRuns = topic.runs.filter((run) => run.runtime === "coder-codex");
+  const taskScopedCoderRuns = coderRuns.filter((run) => (run.taskIds?.length ?? 0) > 0);
+  const taskIds = new Set(topic.acMap.tasks.map((task) => task.id));
+  const worktreeTaskIds = new Map<string, string[]>();
+  for (const run of taskScopedCoderRuns) {
+    const worktreeId = run.worktree?.worktreeId;
+    if (!worktreeId) continue;
+    worktreeTaskIds.set(worktreeId, (run.taskIds ?? []).filter((taskId) => taskIds.has(taskId)));
   }
-  return [];
+
+  const validations = topic.validations as ValidationSummary[];
+  const audits = topic.audits as AuditSummary[];
+  const matchedValidationIds = new Set<string>();
+  const matchedAuditIds = new Set<string>();
+
+  const nodes = topic.acMap.tasks.map((task) => {
+    const runs = taskScopedCoderRuns.filter((run) => run.taskIds?.includes(task.id));
+    const running = runs.some((run) => run.status === "created" || run.status === "running");
+    const worktreeIds = new Set(runs.map((run) => run.worktree?.worktreeId).filter((item): item is string => Boolean(item)));
+    const taskValidations = validations.filter((validation) => Boolean(validation.worktreeId && worktreeIds.has(validation.worktreeId)));
+    const taskAudits = audits.filter((audit) => Boolean(audit.worktreeId && worktreeIds.has(audit.worktreeId)));
+    taskValidations.forEach((validation) => matchedValidationIds.add(validation.id));
+    taskAudits.forEach((audit) => matchedAuditIds.add(audit.id));
+
+    const evidence = [
+      ...runs.map(taskRunEvidence),
+      ...taskValidations.map(taskValidationEvidence),
+      ...taskAudits.map(taskAuditEvidence),
+    ].sort(compareEvidenceDesc).slice(0, 6);
+    const blockers = buildTaskBlockers(topic, readiness, runs, taskValidations, taskAudits, running);
+    const status: WorkbenchTaskNodeStatus = task.done
+      ? "checked"
+      : running
+        ? "running"
+        : blockers.some((item) => item.includes("failed") || item.includes("blocked") || item.includes("失败") || item.includes("阻塞") || item.includes("前置条件"))
+          ? "blocked"
+          : evidence.length > 0
+            ? "evidence-ready"
+            : "planned";
+
+    return {
+      taskId: task.id,
+      title: task.text,
+      acIds: task.acIds,
+      checked: task.done,
+      status,
+      latestEvidence: evidence,
+      blockers,
+      nextAction: buildTaskNextAction(topic, readiness, task.id, running),
+    };
+  });
+
+  const changeLevelEvidence = [
+    ...coderRuns.filter((run) => !run.taskIds?.length).map(taskRunEvidence),
+    ...validations.filter((validation) => !validation.worktreeId || !worktreeTaskIds.has(validation.worktreeId) || !matchedValidationIds.has(validation.id)).map(taskValidationEvidence),
+    ...audits.filter((audit) => !audit.worktreeId || !worktreeTaskIds.has(audit.worktreeId) || !matchedAuditIds.has(audit.id)).map(taskAuditEvidence),
+  ].sort(compareEvidenceDesc).slice(0, 8);
+
+  return {
+    source: "accepted-tasks",
+    nodes,
+    changeLevelEvidence,
+    warnings: [],
+  };
+}
+
+function taskRunEvidence(run: RunMetadata): WorkbenchTaskEvidence {
+  return {
+    id: `run:${run.id}`,
+    label: `Coder ${run.status}`,
+    source: "run",
+    status: run.status,
+    runId: run.id,
+    worktreeId: run.worktree?.worktreeId,
+    artifact: run.artifacts.directory,
+    timestamp: run.finishedAt ?? run.startedAt,
+  };
+}
+
+function taskValidationEvidence(validation: ValidationSummary): WorkbenchTaskEvidence {
+  return {
+    id: `validation:${validation.id}`,
+    label: `Validation ${validation.status}`,
+    source: "validation",
+    status: validation.status,
+    runId: validation.runId,
+    worktreeId: validation.worktreeId,
+    timestamp: validation.finishedAt,
+  };
+}
+
+function taskAuditEvidence(audit: AuditSummary): WorkbenchTaskEvidence {
+  return {
+    id: `audit:${audit.id}`,
+    label: `Audit ${audit.status}`,
+    source: "audit",
+    status: audit.status,
+    runId: audit.runId,
+    worktreeId: audit.worktreeId,
+    timestamp: audit.finishedAt,
+  };
+}
+
+function compareEvidenceDesc(a: WorkbenchTaskEvidence, b: WorkbenchTaskEvidence): number {
+  return (b.timestamp ?? "").localeCompare(a.timestamp ?? "");
+}
+
+function buildTaskBlockers(
+  topic: WorkbenchTopicDetail,
+  readiness: { specReady: boolean; planReady: boolean; tasksReady: boolean },
+  runs: RunMetadata[],
+  validations: ValidationSummary[],
+  audits: AuditSummary[],
+  running: boolean,
+): string[] {
+  const blockers: string[] = [];
+  if (topic.state !== "active") blockers.push("Topic is read-only.");
+  if (!readiness.specReady || !readiness.planReady || !readiness.tasksReady) blockers.push("前置条件未满足：需要 accepted Spec / Plan / Tasks。");
+  if (running) blockers.push("已有该任务的运行正在进行。");
+  const latestRun = [...runs].sort((a, b) => (b.finishedAt ?? b.startedAt ?? "").localeCompare(a.finishedAt ?? a.startedAt ?? ""))[0];
+  const latestValidation = [...validations].sort((a, b) => (b.finishedAt ?? "").localeCompare(a.finishedAt ?? ""))[0];
+  const latestAudit = [...audits].sort((a, b) => (b.finishedAt ?? "").localeCompare(a.finishedAt ?? ""))[0];
+  if (latestRun?.status === "failed") blockers.push("Coder run failed.");
+  if (latestValidation?.status === "failed") blockers.push("Validation failed.");
+  if (latestAudit?.status === "blocked" || latestAudit?.status === "failed") blockers.push(`Audit ${latestAudit.status}.`);
+  return blockers;
+}
+
+function buildTaskNextAction(
+  topic: WorkbenchTopicDetail,
+  readiness: { specReady: boolean; planReady: boolean; tasksReady: boolean },
+  taskId: string,
+  running: boolean,
+): WorkbenchTaskNextAction {
+  const disabledReason = taskActionDisabledReason(topic, readiness, running);
+  return {
+    id: `task:${taskId}:code.run`,
+    label: "运行此任务",
+    actionType: "code.run",
+    taskIds: [taskId],
+    enabled: !disabledReason,
+    requiresConfirmation: true,
+    disabledReason,
+  };
+}
+
+function taskActionDisabledReason(
+  topic: WorkbenchTopicDetail,
+  readiness: { specReady: boolean; planReady: boolean; tasksReady: boolean },
+  running: boolean,
+): string | undefined {
+  if (topic.state !== "active") return "Topic is not active.";
+  if (!readiness.specReady) return "先接受 Spec。";
+  if (!readiness.planReady) return "先接受 Plan。";
+  if (!readiness.tasksReady) return "先接受 Tasks。";
+  if (running) return "该任务已有运行中 workflow。";
+  return undefined;
 }
 
 function buildWorkpadEvidence(topic: WorkbenchTopicDetail, approvals: WorkbenchApprovalItem[], decisions: WorkbenchDecisionItem[]): WorkpadEvidenceSummary[] {
@@ -796,6 +1015,25 @@ async function topicSummaryFromItem(memory: ResolvedMemory, state: WorkbenchTopi
   };
 }
 
+async function buildTopicAcMap(memory: ResolvedMemory, topic: WorkbenchTopicSummary): Promise<AcMap | null> {
+  const specPath = join(memory.memoryRoot, topic.path, "spec.md");
+  const tasksPath = join(memory.memoryRoot, topic.path, "tasks.md");
+  if (!existsSync(specPath) || !existsSync(tasksPath)) return null;
+  const [specContent, tasksContent] = await Promise.all([
+    readFile(specPath, "utf8"),
+    readFile(tasksPath, "utf8"),
+  ]);
+  return buildAcMap({
+    changeId: topic.id,
+    specContent,
+    tasksContent,
+    placeholderFiles: [
+      { path: "spec.md", content: specContent },
+      { path: "tasks.md", content: tasksContent },
+    ],
+  });
+}
+
 async function selectTopicDetail(project: ManagedProject | null, memory: ResolvedMemory, topics: WorkbenchTopicSummary[], topicId?: string): Promise<WorkbenchTopicDetail | null> {
   const topic = topicId
     ? topics.find((item) => item.id === topicId || item.name === topicId)
@@ -819,6 +1057,7 @@ async function selectTopicDetail(project: ManagedProject | null, memory: Resolve
     specTest = await getSpecTestStatus(memory).catch(() => null);
     drift = await getSpecTestDriftReport(memory).catch(() => null);
   }
+  const acMap = statusDetail?.acMap ?? await buildTopicAcMap(memory, topic);
 
   const decisions = project ? await listWorkbenchDecisions(memory, topic.id) : [];
   const threadItems = await buildThreadStream(memory, topic, runs, validations, audits, decisions);
@@ -827,9 +1066,9 @@ async function selectTopicDetail(project: ManagedProject | null, memory: Resolve
     change,
     reviewStatus: statusDetail?.reviewStatus,
     closeGate: statusDetail?.closeGate,
-    acMap: statusDetail?.acMap,
-    acCount: statusDetail?.acMap?.acceptanceCriteria.length,
-    taskCount: statusDetail?.acMap?.tasks.length,
+    acMap,
+    acCount: acMap?.acceptanceCriteria.length,
+    taskCount: acMap?.tasks.length,
     specTest,
     drift,
     runs,

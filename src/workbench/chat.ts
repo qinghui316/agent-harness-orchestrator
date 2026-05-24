@@ -138,7 +138,7 @@ export interface TopicMessageResult {
 
 export type WorkbenchLiveEvent =
   | { event: "topic.message"; data: TopicThreadEntry }
-  | { event: "run.started"; data: { runId: string; changeId: string; actionType?: string; runtime?: string } }
+  | { event: "run.started"; data: { runId: string; changeId: string; actionType?: string; runtime?: string; taskIds?: string[] } }
   | { event: "run.status"; data: { runId?: string; actionRunId?: string; status: string; label?: string } }
   | { event: "assistant.delta"; data: { delta: string; runId?: string } }
   | { event: "assistant.message"; data: TopicThreadEntry }
@@ -459,6 +459,7 @@ export interface WorkbenchWorkflowActionRequest {
   prompt?: string;
   proposalId?: string;
   worktreeId?: string;
+  taskIds?: string[];
 }
 
 export interface WorkbenchWorkflowActionResult {
@@ -611,7 +612,7 @@ async function executeWorkflowAction(project: ManagedProject, changeId: string, 
       if (!request.proposalId) throw new Error("change.plan.accept requires proposalId.");
       return acceptPlanProposal(project, request.proposalId);
     case "code.run":
-      return runCodeValidateAuditSequence(project, request.prompt, live);
+      return runCodeValidateAuditSequence(project, request.prompt, live, request.taskIds);
     case "validate.run":
       return startValidationRun(project, { worktree: request.worktreeId });
     case "audit.run":
@@ -794,22 +795,23 @@ async function postTopicPlanMessage(project: ManagedProject, changeId: string, m
   };
 }
 
-async function runCodeValidateAuditSequence(project: ManagedProject, prompt?: string, live?: WorkbenchLiveSink): Promise<unknown> {
+async function runCodeValidateAuditSequence(project: ManagedProject, prompt?: string, live?: WorkbenchLiveSink, taskIds?: string[]): Promise<unknown> {
   live?.emit({ event: "run.status", data: { status: "running", label: "Coder" } });
   let coderStartedEmitted = false;
   const code = await startCodeRun(project, {
     prompt,
+    taskIds,
     live: {
       onRunStarted: (run) => {
         coderStartedEmitted = true;
-        live?.emit({ event: "run.started", data: { runId: run.id, changeId: run.changeId, runtime: run.runtime, actionType: "code.run" } });
+        live?.emit({ event: "run.started", data: { runId: run.id, changeId: run.changeId, runtime: run.runtime, actionType: "code.run", taskIds: run.taskIds } });
       },
       onStatus: (event) => live?.emit({ event: "run.status", data: event }),
       onCodexEvent: (event) => forwardCodexStreamEvent(event.runId, event, live),
       onCallbackError: (event) => emitLive(live, { event: "error", data: { runId: event.runId, message: event.error instanceof Error ? event.error.message : String(event.error) } }),
     },
   });
-  if (!coderStartedEmitted) live?.emit({ event: "run.started", data: { runId: code.run.id, changeId: code.run.changeId, runtime: code.run.runtime, actionType: "code.run" } });
+  if (!coderStartedEmitted) live?.emit({ event: "run.started", data: { runId: code.run.id, changeId: code.run.changeId, runtime: code.run.runtime, actionType: "code.run", taskIds: code.run.taskIds } });
   live?.emit({ event: "run.status", data: { runId: code.run.id, status: code.run.status, label: "Coder" } });
   if (code.run.status !== "completed" || !code.run.worktree?.worktreeId) return { code, stoppedAt: "code" };
   live?.emit({ event: "run.status", data: { runId: code.run.id, status: "running", label: "Validation" } });

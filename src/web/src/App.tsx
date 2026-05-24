@@ -61,7 +61,43 @@ type WorkpadNextAction = {
   requiresConfirmation: boolean;
   actionType?: ThreadStreamAction["actionType"];
   approvalId?: string;
+  taskIds?: string[];
   disabledReason?: string;
+};
+type WorkbenchTaskEvidence = {
+  id: string;
+  label: string;
+  source: "run" | "validation" | "audit";
+  status?: string;
+  runId?: string;
+  worktreeId?: string;
+  artifact?: string;
+  timestamp?: string;
+};
+type WorkbenchTaskNextAction = {
+  id: string;
+  label: string;
+  actionType?: ThreadStreamAction["actionType"];
+  taskIds?: string[];
+  enabled: boolean;
+  requiresConfirmation: boolean;
+  disabledReason?: string;
+};
+type WorkbenchTaskNode = {
+  taskId: string;
+  title: string;
+  acIds: string[];
+  checked: boolean;
+  status: "planned" | "running" | "evidence-ready" | "blocked" | "checked";
+  latestEvidence: WorkbenchTaskEvidence[];
+  blockers: string[];
+  nextAction: WorkbenchTaskNextAction;
+};
+type WorkbenchTaskGraph = {
+  source: "accepted-tasks" | "missing";
+  nodes: WorkbenchTaskNode[];
+  changeLevelEvidence: WorkbenchTaskEvidence[];
+  warnings: string[];
 };
 type Workpad = {
   title: string;
@@ -91,6 +127,7 @@ type Workpad = {
     auditStatus?: string;
   };
   tasks: Array<{ id: string; title: string; done: boolean; acIds: string[]; warnings: string[] }>;
+  taskGraph: WorkbenchTaskGraph;
   evidence: Array<{ id: string; label: string; source: string; status?: string; artifact?: string; timestamp?: string }>;
   blockers: string[];
   warnings: string[];
@@ -186,7 +223,7 @@ type StreamPacket = {
 type FolderDialogResult = { path: string | null; canceled: boolean; supported: boolean; error?: string };
 type WorkbenchLiveEvent =
   | { event: "topic.message"; data: TopicMessageEntry }
-  | { event: "run.started"; data: { runId: string; changeId: string; actionType?: string; runtime?: string } }
+  | { event: "run.started"; data: { runId: string; changeId: string; actionType?: string; runtime?: string; taskIds?: string[] } }
   | { event: "run.status"; data: { runId?: string; actionRunId?: string; status: string; label?: string } }
   | { event: "assistant.delta"; data: { delta: string; runId?: string } }
   | { event: "assistant.message"; data: TopicMessageEntry }
@@ -1387,21 +1424,30 @@ function WorkpadView({
         <WorkpadMetric label="Validation / Audit" value={`${statusOrDash(workpad.progress.validationStatus)} / ${statusOrDash(workpad.progress.auditStatus)}`} />
       </section>
 
-      {workpad.tasks.length > 0 ? (
+      {workpad.taskGraph.nodes.length > 0 ? (
         <section className="workpad-section">
           <div className="workpad-section-header">
-            <h3>TaskGraph 预览</h3>
-            <span>来自 tasks.md / ac-map.json</span>
+            <h3>TaskGraph</h3>
+            <span>{workpad.taskGraph.nodes.length} 个任务 · 来自 tasks.md / ac-map.json</span>
           </div>
           <div className="workpad-task-list">
-            {workpad.tasks.map((task) => (
-              <div className="workpad-task" key={task.id}>
-                <strong>{task.id}</strong>
-                <span>{task.title}</span>
-                <small>{task.done ? "已完成" : "未完成"} · {task.acIds.join(", ") || "未映射 AC"}</small>
-              </div>
+            {workpad.taskGraph.nodes.map((task) => (
+              <TaskGraphCard
+                key={task.taskId}
+                task={task}
+                busy={busy}
+                onWorkflowAction={onWorkflowAction}
+              />
             ))}
           </div>
+          {workpad.taskGraph.changeLevelEvidence.length > 0 ? (
+            <div className="workpad-task-change-evidence">
+              <strong>Change-level evidence</strong>
+              {workpad.taskGraph.changeLevelEvidence.slice(0, 4).map((item) => (
+                <span key={item.id}>{item.label}{item.status ? ` · ${humanStatus(item.status)}` : ""}</span>
+              ))}
+            </div>
+          ) : null}
         </section>
       ) : null}
 
@@ -1434,6 +1480,56 @@ function WorkpadView({
         </section>
       ) : null}
     </div>
+  );
+}
+
+function TaskGraphCard({
+  task,
+  busy,
+  onWorkflowAction,
+}: {
+  task: WorkbenchTaskNode;
+  busy: boolean;
+  onWorkflowAction: (actionType: string, options?: Record<string, unknown>) => Promise<void>;
+}): ReactElement {
+  const action = task.nextAction;
+  const disabled = busy || !action.enabled || !action.actionType;
+  function runTask(): void {
+    if (!action.actionType || disabled) return;
+    void onWorkflowAction(action.actionType, { taskIds: action.taskIds ?? [task.taskId] });
+  }
+  return (
+    <article className={`workpad-task ${task.status}`} data-testid={`taskgraph-node-${task.taskId}`}>
+      <div className="workpad-task-header">
+        <div>
+          <strong>{task.taskId}</strong>
+          <span>{task.title}</span>
+        </div>
+        <span className={`task-status ${task.status}`}>{taskStatusLabel(task.status)}</span>
+      </div>
+      <small>{task.checked ? "已勾选" : "未勾选"} · {task.acIds.join(", ") || "未映射 AC"}</small>
+      {task.latestEvidence.length > 0 ? (
+        <div className="task-evidence-list">
+          {task.latestEvidence.map((item) => (
+            <span key={item.id}>{item.label}{item.status ? ` · ${humanStatus(item.status)}` : ""}</span>
+          ))}
+        </div>
+      ) : <small className="panel-note">暂无任务级 evidence。</small>}
+      {task.blockers.length > 0 ? (
+        <ul className="task-blockers">
+          {task.blockers.map((blocker) => <li key={blocker}>{blocker}</li>)}
+        </ul>
+      ) : null}
+      <button
+        className="secondary-button"
+        type="button"
+        disabled={disabled}
+        title={action.disabledReason}
+        onClick={runTask}
+      >
+        {action.label}
+      </button>
+    </article>
   );
 }
 
@@ -1513,7 +1609,7 @@ function WorkpadActionButton({
       onConfirmApproval(action.approvalId);
       return;
     }
-    if (action.kind === "workflow-action" && action.actionType) void onWorkflowAction(action.actionType);
+    if (action.kind === "workflow-action" && action.actionType) void onWorkflowAction(action.actionType, action.taskIds ? { taskIds: action.taskIds } : {});
   }
   return (
     <div className="workpad-next-action">
@@ -2234,6 +2330,7 @@ function emptyWorkpad(projectName = "未选择项目"): Workpad {
       runCount: 0,
     },
     tasks: [],
+    taskGraph: { source: "missing", nodes: [], changeLevelEvidence: [], warnings: [] },
     evidence: [],
     blockers: [],
     warnings: [],
@@ -2264,6 +2361,14 @@ function readinessLabel(value: "missing" | "ready" | "unknown"): string {
   if (value === "ready") return "已就绪";
   if (value === "missing") return "缺失";
   return "未知";
+}
+
+function taskStatusLabel(status: WorkbenchTaskNode["status"]): string {
+  if (status === "planned") return "计划中";
+  if (status === "running") return "运行中";
+  if (status === "evidence-ready") return "有证据";
+  if (status === "blocked") return "阻塞";
+  return "已勾选";
 }
 
 function statusOrDash(value?: string): string {

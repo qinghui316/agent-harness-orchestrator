@@ -191,6 +191,7 @@ describe("codex prompt and JSONL parsing", () => {
       expect.objectContaining({ type: "readable_event", event: expect.objectContaining({ kind: "command", command: "npm test", preview: "ok" }) }),
       { type: "raw", line: "not-json" },
       { type: "usage", usage: { input_tokens: 1, output_tokens: 2 }, raw: expect.any(Object) },
+      { type: "turn_completed", usage: { input_tokens: 1, output_tokens: 2 }, raw: expect.any(Object) },
     ]));
   });
 

@@ -15,6 +15,7 @@ export function extractFinalMessageFromCodexJsonl(output: string): string | null
 
 export type CodexJsonlStreamEvent =
   | { type: "status"; label: string; raw?: unknown }
+  | { type: "turn_completed"; usage?: Record<string, unknown>; raw?: unknown }
   | { type: "text_delta"; delta: string; raw?: unknown }
   | { type: "tool_event"; phase: "started" | "completed"; id?: string; name?: string; command?: string; output?: string; isError?: boolean; raw?: unknown }
   | { type: "readable_event"; event: CodexReadableEvent; raw?: unknown }
@@ -113,7 +114,7 @@ export function createCodexJsonlStreamParser(onEvent: (event: CodexJsonlStreamEv
     }
     if (event.type === "turn.completed") {
       if (isRecord(event.usage)) onEvent({ type: "usage", usage: event.usage, raw: event });
-      else onEvent({ type: "status", label: "completed", raw: event });
+      onEvent({ type: "turn_completed", usage: isRecord(event.usage) ? event.usage : undefined, raw: event });
       return;
     }
     if ((event.type === "item.started" || event.type === "item.completed") && isRecord(event.item)) {

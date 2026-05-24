@@ -43,6 +43,24 @@ const snapshot = {
       tasks: [
         { id: "T-001", title: "实现会员折扣", done: true, acIds: ["AC-001"], warnings: [] },
       ],
+      taskGraph: {
+        source: "accepted-tasks",
+        nodes: [{
+          taskId: "T-001",
+          title: "实现会员折扣",
+          acIds: ["AC-001"],
+          checked: true,
+          status: "evidence-ready",
+          latestEvidence: [
+            { id: "run:run-1", source: "run", label: "Coder completed", status: "completed", runId: "run-1", worktreeId: "wt-1" },
+            { id: "validation:run-1", source: "validation", label: "Validation passed", status: "passed", runId: "validation-1", worktreeId: "wt-1" },
+          ],
+          blockers: [],
+          nextAction: { id: "task:T-001:code.run", label: "运行此任务", actionType: "code.run", taskIds: ["T-001"], enabled: true, requiresConfirmation: true },
+        }],
+        changeLevelEvidence: [],
+        warnings: [],
+      },
       evidence: [
         { id: "validation:run-1", source: "validation", label: "Validation passed", status: "passed" },
         { id: "audit:run-1", source: "audit", label: "Audit approved-with-notes", status: "approved-with-notes" },
@@ -177,7 +195,7 @@ describe("Workbench web app", () => {
     await waitFor(() => expect(screen.getAllByText("会员折扣计价").length).toBeGreaterThan(0));
     expect(screen.getByTestId("workpad-view")).toBeTruthy();
     expect(screen.getByText("目标与当前理解")).toBeTruthy();
-    expect(screen.getByText("TaskGraph 预览")).toBeTruthy();
+    expect(screen.getByText("TaskGraph")).toBeTruthy();
     expect(screen.getByText("证据与决策")).toBeTruthy();
     expect(screen.getByText("关闭已完成变更。")).toBeTruthy();
     expect(screen.getAllByText("主题").length).toBeGreaterThan(0);
@@ -270,6 +288,33 @@ describe("Workbench web app", () => {
     expect(document.querySelectorAll("[data-testid='assistant-block-command']")).toHaveLength(1);
     expect(document.querySelectorAll("[data-testid='assistant-block-usage']")).toHaveLength(1);
     expect(document.querySelectorAll("[data-testid='assistant-block-error']")).toHaveLength(1);
+  });
+
+  it("runs a single TaskGraph task with taskIds in the Workbench action payload", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
+      if (url === "/api/projects") return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
+      if (url.endsWith("/workbench/actions/live")) {
+        return sseResponse([
+          ["snapshot", snapshot],
+          ["done", { status: "completed" }],
+        ]);
+      }
+      return jsonResponse(url.includes("/stream/") ? stream : snapshot);
+    }));
+
+    render(<App />);
+
+    await waitFor(() => expect(screen.getByTestId("taskgraph-node-T-001")).toBeTruthy());
+    fireEvent.click(screen.getByText("运行此任务"));
+
+    await waitFor(() => {
+      expect(fetch).toHaveBeenCalledWith("/api/projects/repo/workbench/actions/live", expect.objectContaining({
+        method: "POST",
+        body: expect.stringContaining("\"taskIds\":[\"T-001\"]"),
+      }));
+    });
   });
 
   it("renders clarification questions and submits answers through the intake API", async () => {

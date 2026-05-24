@@ -562,6 +562,7 @@ export interface RunMetadata {
   finishedAt: string | null;
   artifacts: RunArtifactPaths;
   worktree?: RunWorktreeInfo;
+  taskIds?: string[];
   promptStack?: string[];
   enabledSkills?: RunSkillRecord[];
   agent?: RunAgentRecord;

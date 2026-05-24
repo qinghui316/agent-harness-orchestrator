@@ -612,6 +612,71 @@ input:focus-visible {
   padding: 9px 10px;
 }
 
+.workpad-task-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.workpad-task-header > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.task-status {
+  flex: 0 0 auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  padding: 2px 7px;
+  background: var(--bg-panel);
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.task-status.running {
+  color: var(--accent);
+}
+
+.task-status.blocked {
+  color: var(--danger);
+}
+
+.task-status.checked,
+.task-status.evidence-ready {
+  color: var(--success);
+}
+
+.task-evidence-list,
+.workpad-task-change-evidence {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.task-evidence-list span,
+.workpad-task-change-evidence span {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  padding: 2px 7px;
+  background: var(--bg-panel);
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.workpad-task-change-evidence {
+  margin-top: 4px;
+  align-items: center;
+}
+
+.task-blockers {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--danger);
+  font-size: 12.5px;
+}
+
 .clarification-card {
   display: grid;
   gap: 10px;

@@ -3,6 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { mkdtemp } from "node:fs/promises";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { CodexCompletionTracker } from "../../src/codex/completion.js";
+import { createCodexJsonlStreamParser } from "../../src/codex/jsonl.js";
 import { createChange } from "../../src/change/manager.js";
 import { initHarness } from "../../src/harness/init.js";
 import { listRuns, readRun, startLocalCommandRun } from "../../src/run/manager.js";
@@ -89,7 +91,7 @@ describe("run manager", () => {
     const stderrChunks: string[] = [];
     const callbackErrors: string[] = [];
     const result = await executeProcessStreaming({
-      cwd: tempDir,
+      cwd: process.cwd(),
       command: process.execPath,
       args: ["-e", "process.stdout.write('out'); process.stderr.write('err')"],
       stdoutPath: join(tempDir, "stdout.log"),
@@ -111,5 +113,57 @@ describe("run manager", () => {
     expect(callbackErrors).toEqual(["stdout"]);
     expect(await readFile(join(tempDir, "stdout.log"), "utf8")).toContain("out");
     expect(await readFile(join(tempDir, "stderr.log"), "utf8")).toContain("err");
+  });
+
+  it("terminates a hanging Codex process after completed turn and final text", async () => {
+    const tracker = new CodexCompletionTracker();
+    const parser = createCodexJsonlStreamParser((event) => tracker.handleEvent(event));
+    const result = await executeProcessStreaming({
+      cwd: process.cwd(),
+      command: process.execPath,
+      args: ["-e", [
+        "console.log(JSON.stringify({type:'item.completed',item:{type:'agent_message',text:'done'}}));",
+        "console.log(JSON.stringify({type:'turn.completed',usage:{input_tokens:1,output_tokens:1}}));",
+        "setInterval(() => {}, 1000);",
+      ].join("")],
+      stdoutPath: join(tempDir, "stdout-complete.log"),
+      stderrPath: join(tempDir, "stderr-complete.log"),
+      onStdoutChunk: (text) => parser.feed(text),
+      completionSignal: () => tracker.isComplete(),
+      completionGraceMs: 50,
+      killGraceMs: 500,
+      timeoutMs: 2000,
+    });
+    parser.flush();
+
+    expect(result.timedOut).toBe(false);
+    expect(result.terminated).toBe(true);
+    expect(result.terminationReason).toBe("completion-grace-expired");
+    expect(await readFile(join(tempDir, "stdout-complete.log"), "utf8")).toContain("agent_message");
+  });
+
+  it("does not treat turn.completed without final text as successful completion", async () => {
+    const tracker = new CodexCompletionTracker();
+    const parser = createCodexJsonlStreamParser((event) => tracker.handleEvent(event));
+    const result = await executeProcessStreaming({
+      cwd: tempDir,
+      command: process.execPath,
+      args: ["-e", [
+        "console.log(JSON.stringify({type:'turn.completed',usage:{input_tokens:1,output_tokens:1}}));",
+        "setInterval(() => {}, 1000);",
+      ].join("")],
+      stdoutPath: join(tempDir, "stdout-timeout.log"),
+      stderrPath: join(tempDir, "stderr-timeout.log"),
+      onStdoutChunk: (text) => parser.feed(text),
+      completionSignal: () => tracker.isComplete(),
+      completionGraceMs: 20,
+      killGraceMs: 500,
+      timeoutMs: 100,
+    });
+    parser.flush();
+
+    expect(result.timedOut).toBe(true);
+    expect(result.terminated).toBe(true);
+    expect(result.terminationReason).toBe("timeout");
   });
 });

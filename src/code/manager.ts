@@ -3,6 +3,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { getChangeStatus } from "../change/manager.js";
 import { buildCodexWorkspaceWriteArgv, detectCodexCapabilities } from "../codex/capabilities.js";
+import { CodexCompletionTracker, codexLifecycleTiming, type CodexCompletionSnapshot } from "../codex/completion.js";
 import { createCodexJsonlStreamParser, extractFinalMessageFromCodexJsonl, type CodexJsonlStreamEvent } from "../codex/jsonl.js";
 import { readPromptInput } from "../codex/prompt.js";
 import { buildAgentSystemPrompt, buildRunAgentRecord, resolveAgentRole } from "../agent/catalog.js";
@@ -10,7 +11,7 @@ import { writeJsonFile } from "../fs/json.js";
 import { assertWritableMemory, resolveProjectMemory } from "../memory/resolver.js";
 import { getGitStatusShort } from "../project/git.js";
 import { appendRunEvent, assertRunnableChange, buildContextProjection, buildRunId, listRuns, readRun } from "../run/manager.js";
-import { executeProcessStreaming } from "../run/process.js";
+import { executeProcessStreaming, type ProcessExecutionResult } from "../run/process.js";
 import type { ManagedProject, ResolvedMemory, RunMetadata, RunStatus, RunWorktreeInfo } from "../types/index.js";
 import { collectWorktreeDiff } from "../audit/diff.js";
 import { createWorktree, getWorktreeMetadataPath } from "../worktree/manager.js";
@@ -141,11 +142,12 @@ export async function startCodeRun(project: ManagedProject, options: CodeRunOpti
     finishedAt: null,
     artifacts,
     worktree,
+    ...(selectedTasks.length > 0 ? { taskIds: selectedTasks } : {}),
     promptStack: ["agent-role", "active-change", "worktree", "task-scope", "human-prompt"],
     agent: buildRunAgentRecord(role),
   };
   await writeJsonFile(paths.run, run);
-  await appendRunEvent(paths.events, { timestamp: now, type: "run.created", runId, data: { changeId, runtime: "coder-codex", worktree } });
+  await appendRunEvent(paths.events, { timestamp: now, type: "run.created", runId, data: { changeId, runtime: "coder-codex", worktree, taskIds: selectedTasks } });
   await appendRunEvent(paths.events, { timestamp: now, type: "worktree.created", runId, data: { worktreeId: worktree.worktreeId, checkoutPath: worktree.checkoutPath } });
   emitCodeLiveStatus(options.live, { runId, status: "preparing", label: "Coder" });
 
@@ -195,7 +197,10 @@ export async function startCodeRun(project: ManagedProject, options: CodeRunOpti
   await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "codex.started", runId, data: { cwd: worktree.checkoutPath, command: run.command } });
   emitCodeLiveRunStarted(options.live, run);
   emitCodeLiveStatus(options.live, { runId, status: "running", label: "Coder" });
+  const completion = new CodexCompletionTracker({ lastMessagePath: paths.lastMessage });
+  const lifecycleTiming = codexLifecycleTiming(15 * 60 * 1000);
   const parser = createCodexJsonlStreamParser((event) => {
+    completion.handleEvent(event);
     try {
       options.live?.onCodexEvent?.({ ...event, runId });
     } catch (error) {
@@ -224,10 +229,16 @@ export async function startCodeRun(project: ManagedProject, options: CodeRunOpti
         // Live callbacks are best-effort and must not affect child lifecycle.
       }
     },
+    completionSignal: () => completion.isComplete(),
+    completionGraceMs: lifecycleTiming.completionGraceMs,
+    killGraceMs: lifecycleTiming.killGraceMs,
+    timeoutMs: lifecycleTiming.timeoutMs,
   });
   parser.flush();
-  await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "codex.exited", runId, data: { exitCode: processResult.exitCode, signal: processResult.signal } });
-  await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "coder.exited", runId, data: { exitCode: processResult.exitCode, signal: processResult.signal } });
+  const codexCompletion = completion.snapshot();
+  const processDiagnostics = processDiagnosticsData(processResult, codexCompletion);
+  await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "codex.exited", runId, data: { exitCode: processResult.exitCode, signal: processResult.signal, ...processDiagnostics } });
+  await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "coder.exited", runId, data: { exitCode: processResult.exitCode, signal: processResult.signal, ...processDiagnostics } });
 
   const lastMessage = await ensureLastMessage(paths.lastMessage, processResult.stdoutSample, processResult.stderrSample);
   const diffResult = await collectWorktreeDiff(memory, worktree.worktreeId, changeId);
@@ -253,8 +264,9 @@ export async function startCodeRun(project: ManagedProject, options: CodeRunOpti
     sourceAfter,
   }), "utf8");
 
-  const status: RunStatus = processResult.exitCode === 0 && !sourceChanged ? "completed" : "failed";
-  run = await finishRun(paths.run, run, status, sourceChanged ? 1 : processResult.exitCode, processResult.signal);
+  const processSucceeded = processResult.exitCode === 0 || (processResult.terminationReason === "completion-grace-expired" && completion.isComplete());
+  const status: RunStatus = processSucceeded && !sourceChanged ? "completed" : "failed";
+  run = await finishRun(paths.run, run, status, sourceChanged ? 1 : processSucceeded ? 0 : processResult.exitCode, processResult.signal);
   await appendRunEvent(paths.events, { timestamp: run.finishedAt ?? new Date().toISOString(), type: status === "completed" ? "run.completed" : "run.failed", runId, data: { warnings } });
   emitCodeLiveStatus(options.live, { runId, status, label: "Coder" });
 
@@ -366,6 +378,15 @@ function extractModifiedFilesFromDiff(diff: string): string[] {
     if (match) files.add(match[2]);
   }
   return Array.from(files).sort();
+}
+
+function processDiagnosticsData(processResult: ProcessExecutionResult, completion: CodexCompletionSnapshot): Record<string, unknown> {
+  return {
+    timedOut: processResult.timedOut,
+    terminated: processResult.terminated,
+    terminationReason: processResult.terminationReason,
+    codexCompletion: completion,
+  };
 }
 
 async function finishRun(path: string, run: RunMetadata, status: RunStatus, exitCode: number | null, signal: NodeJS.Signals | null): Promise<RunMetadata> {

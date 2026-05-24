@@ -57,6 +57,7 @@ interface WorkbenchActionRequest {
   prompt?: string;
   proposalId?: string;
   worktreeId?: string;
+  taskIds?: string[];
   confirm?: boolean;
   feedback?: string;
   options?: {
@@ -378,6 +379,7 @@ export async function executeWorkbenchAction(input: WorkbenchProjectInput, body:
       prompt: body.prompt,
       proposalId: body.proposalId,
       worktreeId: body.worktreeId,
+      taskIds: body.taskIds,
     });
     return { result, snapshot: await getWorkbenchSnapshot(input, { topicId: body.changeId }) };
   }
@@ -557,6 +559,7 @@ async function sendWorkbenchActionLive(input: WorkbenchProjectInput & { project:
         prompt: body.prompt,
         proposalId: body.proposalId,
         worktreeId: body.worktreeId,
+        taskIds: body.taskIds,
       }, sink);
       terminalStatus = result.status;
     } else {

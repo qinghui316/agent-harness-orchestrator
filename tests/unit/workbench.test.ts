@@ -452,7 +452,7 @@ describe("workbench read model", () => {
     expect(topic).toMatchObject({ id: "specific-topic", state: "active" });
   });
 
-  it("derives Workpad task preview from accepted tasks and AC map", async () => {
+  it("derives Workpad TaskGraph from accepted tasks and AC map", async () => {
     await initHarness(project());
     await createChange(project(), { title: "Task Preview" });
     await writeFile(join(tempDir, "harness", "changes", "active", "task-preview", "spec.md"), [
@@ -463,6 +463,7 @@ describe("workbench read model", () => {
       "- AC-001: Show Workpad task preview.",
       "",
     ].join("\n"), "utf8");
+    await writeFile(join(tempDir, "harness", "changes", "active", "task-preview", "plan.md"), "# Plan\n\nImplement deterministic task preview.\n", "utf8");
     await writeFile(join(tempDir, "harness", "changes", "active", "task-preview", "tasks.md"), [
       "# Tasks",
       "",
@@ -477,8 +478,222 @@ describe("workbench read model", () => {
     expect(snapshot.center.workpad.tasks).toEqual([
       expect.objectContaining({ id: "T-001", title: "Render deterministic task preview.", done: true, acIds: ["AC-001"] }),
     ]);
+    expect(snapshot.center.workpad.taskGraph.nodes).toEqual([
+      expect.objectContaining({
+        taskId: "T-001",
+        title: "Render deterministic task preview.",
+        checked: true,
+        acIds: ["AC-001"],
+        nextAction: expect.objectContaining({ actionType: "code.run", taskIds: ["T-001"], enabled: true }),
+      }),
+    ]);
+  });
+
+  it("attaches task-scoped coder, validation, and audit evidence to the matching TaskGraph node", async () => {
+    await initHarness(project());
+    await createChange(project(), { title: "Task Evidence" });
+    await writeAcceptedSpecAndTasks("task-evidence");
+    await writeCoderRun("task-evidence", "run-task-1", ["T-001"], "wt-task-1", "completed");
+    await writeCoderRun("task-evidence", "run-change-level", [], "wt-change", "completed");
+    await writeValidationResult("task-evidence", "validation-task-1", "wt-task-1", "passed");
+    await writeAuditResult("task-evidence", "audit-task-1", "wt-task-1", "approved-with-notes");
+    await writeValidationResult("task-evidence", "validation-change-level", "wt-unmatched", "passed");
+
+    const snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: "task-evidence" });
+    const node = snapshot.center.workpad.taskGraph.nodes.find((item) => item.taskId === "T-001");
+
+    expect(node).toMatchObject({
+      status: "evidence-ready",
+      latestEvidence: expect.arrayContaining([
+        expect.objectContaining({ id: "run:run-task-1", source: "run", worktreeId: "wt-task-1" }),
+        expect.objectContaining({ id: "validation:validation-task-1", source: "validation", worktreeId: "wt-task-1" }),
+        expect.objectContaining({ id: "audit:audit-task-1", source: "audit", worktreeId: "wt-task-1" }),
+      ]),
+    });
+    expect(snapshot.center.workpad.taskGraph.changeLevelEvidence).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "run:run-change-level" }),
+      expect.objectContaining({ id: "validation:validation-change-level" }),
+    ]));
+  });
+
+  it("disables task run actions for archived topics without losing TaskGraph facts", async () => {
+    await initHarness(project());
+    await createChange(project(), { title: "Archived TaskGraph" });
+    await writeAcceptedSpecAndTasks("archived-taskgraph");
+    await writeFile(join(tempDir, "harness", "changes", "active", "archived-taskgraph", "reviews", "review.md"), "Status: approved\n", "utf8");
+    await closeChange(tempDir);
+
+    const snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: "archived-taskgraph" });
+
+    expect(snapshot.center.workpad.state).toBe("readonly");
+    expect(snapshot.center.workpad.taskGraph.nodes).toEqual([
+      expect.objectContaining({
+        taskId: "T-001",
+        nextAction: expect.objectContaining({ enabled: false, disabledReason: "Topic is not active." }),
+      }),
+    ]);
+  });
+
+  it("rejects unknown task ids before starting a Workbench code run", async () => {
+    await initHarness(project());
+    await createChange(project(), { title: "Unknown Task" });
+    await writeAcceptedSpecAndTasks("unknown-task");
+
+    const result = await executeWorkbenchAction({ project: project(), path: tempDir }, {
+      actionType: "code.run",
+      changeId: "unknown-task",
+      taskIds: ["T-999"],
+      confirm: true,
+    });
+
+    expect(result.result).toMatchObject({ status: "failed", error: expect.stringContaining("Unknown task id") });
   });
 });
+
+async function writeAcceptedSpecAndTasks(changeId: string): Promise<void> {
+  const changeDir = join(tempDir, "harness", "changes", "active", changeId);
+  await writeFile(join(changeDir, "spec.md"), [
+    "# Spec",
+    "",
+    "## Acceptance Criteria",
+    "",
+    "- AC-001: Complete one task-scoped change.",
+    "",
+  ].join("\n"), "utf8");
+  await writeFile(join(changeDir, "plan.md"), "# Plan\n\nImplement this accepted task list.\n", "utf8");
+  await writeFile(join(changeDir, "tasks.md"), [
+    "# Tasks",
+    "",
+    "- [ ] T-001: Implement one task.",
+    "  - Covers: AC-001",
+    "",
+  ].join("\n"), "utf8");
+}
+
+async function writeCoderRun(changeId: string, runId: string, taskIds: string[], worktreeId: string, status: RunMetadata["status"]): Promise<RunMetadata> {
+  const runDir = join(tempDir, ".agent-harness", "runs", runId);
+  await mkdir(runDir, { recursive: true });
+  const now = new Date().toISOString();
+  const run: RunMetadata = {
+    version: "1.0",
+    id: runId,
+    changeId,
+    projectPath: tempDir,
+    runtime: "coder-codex",
+    executionMode: "worktree",
+    proposalOnly: true,
+    command: ["codex"],
+    status,
+    exitCode: status === "failed" ? 1 : 0,
+    signal: null,
+    startedAt: now,
+    finishedAt: status === "running" || status === "created" ? null : now,
+    artifacts: {
+      base: "project-root",
+      directory: `.agent-harness/runs/${runId}`,
+      context: `.agent-harness/runs/${runId}/context.md`,
+      events: `.agent-harness/runs/${runId}/events.jsonl`,
+      stdout: `.agent-harness/runs/${runId}/stdout.log`,
+      stderr: `.agent-harness/runs/${runId}/stderr.log`,
+    },
+    worktree: {
+      worktreeId,
+      branchName: `aho/${runId}`,
+      baseRef: "HEAD",
+      baseCommit: "abc123",
+      checkoutPath: join(tempDir, ".agent-harness", "worktrees", worktreeId),
+      metadataPath: `.agent-harness/worktrees/${worktreeId}.json`,
+    },
+    ...(taskIds.length > 0 ? { taskIds } : {}),
+  };
+  await writeFile(join(runDir, "run.json"), JSON.stringify(run, null, 2), "utf8");
+  await writeFile(join(runDir, "events.jsonl"), `${JSON.stringify({ timestamp: now, type: "run.completed", runId })}\n`, "utf8");
+  return run;
+}
+
+async function writeValidationResult(changeId: string, validationId: string, worktreeId: string, status: "passed" | "failed"): Promise<void> {
+  const runDir = join(tempDir, ".agent-harness", "runs", validationId);
+  await mkdir(runDir, { recursive: true });
+  const now = new Date().toISOString();
+  await writeRunMetadata(changeId, validationId, "validator", "completed", worktreeId, now);
+  await writeFile(join(runDir, "validation.json"), JSON.stringify({
+    version: "1.0",
+    id: validationId,
+    runId: validationId,
+    changeId,
+    profile: "default",
+    status,
+    executionMode: "worktree",
+    worktreeId,
+    startedAt: now,
+    finishedAt: now,
+    commands: [],
+  }, null, 2), "utf8");
+}
+
+async function writeAuditResult(changeId: string, auditId: string, worktreeId: string, status: "approved" | "approved-with-notes" | "blocked" | "failed"): Promise<void> {
+  const runDir = join(tempDir, ".agent-harness", "runs", auditId);
+  await mkdir(runDir, { recursive: true });
+  const now = new Date().toISOString();
+  await writeRunMetadata(changeId, auditId, "auditor", "completed", worktreeId, now);
+  await writeFile(join(runDir, "audit.json"), JSON.stringify({
+    version: "1.0",
+    id: auditId,
+    runId: auditId,
+    changeId,
+    status,
+    worktreeId,
+    startedAt: now,
+    finishedAt: now,
+    findings: [],
+    artifacts: {
+      audit: `.agent-harness/runs/${auditId}/audit.json`,
+      auditMarkdown: `.agent-harness/runs/${auditId}/audit.md`,
+      lastMessage: `.agent-harness/runs/${auditId}/last-message.md`,
+    },
+  }, null, 2), "utf8");
+}
+
+async function writeRunMetadata(
+  changeId: string,
+  runId: string,
+  runtime: RunMetadata["runtime"],
+  status: RunMetadata["status"],
+  worktreeId: string,
+  now: string,
+): Promise<void> {
+  const run: RunMetadata = {
+    version: "1.0",
+    id: runId,
+    changeId,
+    projectPath: tempDir,
+    runtime,
+    executionMode: "worktree",
+    command: [runtime],
+    status,
+    exitCode: status === "failed" ? 1 : 0,
+    signal: null,
+    startedAt: now,
+    finishedAt: now,
+    artifacts: {
+      base: "project-root",
+      directory: `.agent-harness/runs/${runId}`,
+      context: `.agent-harness/runs/${runId}/context.md`,
+      events: `.agent-harness/runs/${runId}/events.jsonl`,
+      stdout: `.agent-harness/runs/${runId}/stdout.log`,
+      stderr: `.agent-harness/runs/${runId}/stderr.log`,
+    },
+    worktree: {
+      worktreeId,
+      branchName: `aho/${runId}`,
+      baseRef: "HEAD",
+      baseCommit: "abc123",
+      checkoutPath: join(tempDir, ".agent-harness", "worktrees", worktreeId),
+      metadataPath: `.agent-harness/worktrees/${worktreeId}.json`,
+    },
+  };
+  await writeFile(join(tempDir, ".agent-harness", "runs", runId, "run.json"), JSON.stringify(run, null, 2), "utf8");
+}
 
 async function writeSpecProposalRun(changeId: string): Promise<RunMetadata> {
   const runId = `run-test-${changeId}`;

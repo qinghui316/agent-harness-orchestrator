@@ -3,14 +3,15 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { getChangeStatus } from "../change/manager.js";
 import { buildCodexReadonlyArgv, detectCodexCapabilities } from "../codex/capabilities.js";
-import { extractFinalMessageFromCodexJsonl } from "../codex/jsonl.js";
+import { CodexCompletionTracker, codexLifecycleTiming, type CodexCompletionSnapshot } from "../codex/completion.js";
+import { createCodexJsonlStreamParser, extractFinalMessageFromCodexJsonl } from "../codex/jsonl.js";
 import { buildAgentSystemPrompt, buildRunAgentRecord, resolveAgentRole } from "../agent/catalog.js";
 import { writeJsonFile } from "../fs/json.js";
 import { assertWritableMemory, resolveProjectMemory } from "../memory/resolver.js";
 import { getLatestValidationSummary } from "../validation/artifacts.js";
 import type { AuditResult, AuditStatus, AuditSummary, ManagedProject, ResolvedMemory, RunMetadata, RunStatus } from "../types/index.js";
 import { appendRunEvent, assertRunnableChange, buildContextProjection, buildRunId } from "../run/manager.js";
-import { executeProcessStreaming } from "../run/process.js";
+import { executeProcessStreaming, type ProcessExecutionResult } from "../run/process.js";
 import { collectWorktreeDiff } from "./diff.js";
 import { listAuditResults, readAuditResult, summarizeAudit } from "./artifacts.js";
 import { parseAuditMessage } from "./parser.js";
@@ -161,6 +162,9 @@ export async function startAuditRun(project: ManagedProject, options: AuditRunOp
   await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "audit.started", runId, data: { cwd, command: run.command } });
   await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "codex.started", runId, data: { cwd, command: run.command } });
 
+  const completion = new CodexCompletionTracker({ lastMessagePath: paths.lastMessage });
+  const lifecycleTiming = codexLifecycleTiming(8 * 60 * 1000);
+  const parser = createCodexJsonlStreamParser((event) => completion.handleEvent(event));
   const processResult = await executeProcessStreaming({
     cwd,
     command: argv.command,
@@ -169,17 +173,26 @@ export async function startAuditRun(project: ManagedProject, options: AuditRunOp
     stdoutPath: paths.stdout,
     stderrPath: paths.stderr,
     mirrorStdoutPath: paths.codexEvents,
+    onStdoutChunk: (text) => parser.feed(text),
+    completionSignal: () => completion.isComplete(),
+    completionGraceMs: lifecycleTiming.completionGraceMs,
+    killGraceMs: lifecycleTiming.killGraceMs,
+    timeoutMs: lifecycleTiming.timeoutMs,
   });
+  parser.flush();
+  const codexCompletion = completion.snapshot();
+  const processDiagnostics = processDiagnosticsData(processResult, codexCompletion);
   await appendRunEvent(paths.events, {
     timestamp: new Date().toISOString(),
     type: "codex.exited",
     runId,
-    data: { exitCode: processResult.exitCode, signal: processResult.signal },
+    data: { exitCode: processResult.exitCode, signal: processResult.signal, ...processDiagnostics },
   });
 
   const lastMessage = await ensureLastMessage(paths.lastMessage, processResult.stdoutSample, processResult.stderrSample);
   await writeFile(paths.auditMarkdown, lastMessage, "utf8");
-  const audit = await writeAudit(paths.audit, runId, changeId, processResult.exitCode === 0 ? null : "failed", lastMessage, {
+  const processSucceeded = processResult.exitCode === 0 || (processResult.terminationReason === "completion-grace-expired" && completion.isComplete());
+  const audit = await writeAudit(paths.audit, runId, changeId, processSucceeded ? null : "failed", lastMessage, {
     worktreeId: options.worktreeId,
     validationId: latestValidation?.id,
     worktreeDiffHash: diffResult?.diffHash,
@@ -187,8 +200,8 @@ export async function startAuditRun(project: ManagedProject, options: AuditRunOp
     startedAt: now,
   });
 
-  const status: RunStatus = processResult.exitCode === 0 ? "completed" : "failed";
-  run = await finishRun(paths.run, run, status, processResult.exitCode, processResult.signal);
+  const status: RunStatus = processSucceeded ? "completed" : "failed";
+  run = await finishRun(paths.run, run, status, processSucceeded ? 0 : processResult.exitCode, processResult.signal);
   await appendRunEvent(paths.events, { timestamp: run.finishedAt ?? new Date().toISOString(), type: audit.status === "failed" ? "audit.failed" : "audit.completed", runId, data: { auditStatus: audit.status } });
   await appendRunEvent(paths.events, { timestamp: run.finishedAt ?? new Date().toISOString(), type: status === "completed" ? "run.completed" : "run.failed", runId });
 
@@ -297,6 +310,15 @@ async function writeAudit(
 function displayArtifactPath(memory: ResolvedMemory, absolutePath: string): string {
   const base = memory.artifactBase === "memory-root" ? memory.memoryRoot : memory.projectRoot;
   return relative(base, absolutePath).replace(/\\/g, "/");
+}
+
+function processDiagnosticsData(processResult: ProcessExecutionResult, completion: CodexCompletionSnapshot): Record<string, unknown> {
+  return {
+    timedOut: processResult.timedOut,
+    terminated: processResult.terminated,
+    terminationReason: processResult.terminationReason,
+    codexCompletion: completion,
+  };
 }
 
 async function finishRun(path: string, run: RunMetadata, status: RunStatus, exitCode: number | null, signal: NodeJS.Signals | null): Promise<RunMetadata> {
