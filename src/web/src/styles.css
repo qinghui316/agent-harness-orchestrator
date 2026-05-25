@@ -290,6 +290,15 @@ input:focus-visible {
   font-size: 12px;
 }
 
+.topic-row em {
+  color: var(--danger);
+  font-size: 11.5px;
+  font-style: normal;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .project-row.selected,
 .project-row:hover,
 .topic-row.selected,
@@ -552,6 +561,16 @@ input:focus-visible {
 .workpad-goal {
   color: var(--text-strong) !important;
   font-weight: 600;
+}
+
+.workpad-background-summary {
+  margin-top: 4px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.compact-section {
+  padding-block: 10px;
 }
 
 .workpad-links,
@@ -1346,6 +1365,31 @@ input:focus-visible {
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
+}
+
+.workpad-route-switch {
+  display: inline-flex;
+  gap: 4px;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: var(--bg-subtle);
+}
+
+.workpad-route-switch button {
+  min-height: 26px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.workpad-route-switch button.active {
+  background: var(--bg-panel);
+  color: var(--text-strong);
+  box-shadow: var(--shadow-soft);
 }
 
 .mode-switch {

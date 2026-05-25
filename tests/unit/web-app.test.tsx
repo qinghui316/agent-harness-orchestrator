@@ -10,6 +10,7 @@ const snapshot = {
   left: {
     repo: { branch: "main", dirty: false, path: "E:/repo" },
     topics: [{ id: "member-discount", title: "会员折扣计价", state: "active" }],
+    workpads: [{ id: "member-discount", title: "会员折扣计价", state: "active", runtimeStatus: "active", selected: true, waitingDecisionCount: 1, latestRunStatus: "completed" }],
   },
   center: {
     selectedTopic: { id: "member-discount", title: "会员折扣计价", state: "active", acCount: 3, taskCount: 2 },
@@ -102,6 +103,24 @@ const snapshot = {
         enabled: true,
         requiresConfirmation: true,
         approvalId: "close:member-discount",
+      },
+      background: {
+        totalCount: 1,
+        runningCount: 0,
+        queuedCount: 0,
+        blockedCount: 0,
+        waitingDecisionCount: 0,
+        items: [],
+      },
+      memoryIsolation: {
+        projectStableNamespace: "project/stable",
+        currentChangeNamespace: "change/member-discount",
+        runNamespaces: ["run/run-1"],
+        agentSessionNamespace: "agent/{roleId}/session/{sessionId}",
+        relatedWorkpads: [],
+        stableFactSources: ["applied source changes", "accepted spec / plan / tasks"],
+        writeBoundaries: ["coder-agent writes assigned worktree proposal and run artifacts only"],
+        warnings: ["Running Workpad proposals, diffs, stdout/stderr, JSONL, and process metadata are not project stable facts."],
       },
     },
     thread: { items: [
@@ -865,6 +884,60 @@ describe("Workbench web app", () => {
     expect(screen.getByText("external-local")).toBeTruthy();
     fireEvent.click(screen.getByText("设置"));
     expect(screen.getByText("刷新工作台")).toBeTruthy();
+  });
+
+  it("shows Multi-Workpad background state, memory isolation, and explicit composer routing", async () => {
+    const multiSnapshot = {
+      ...snapshot,
+      left: {
+        ...snapshot.left,
+        workpads: [
+          { id: "member-discount", title: "会员折扣计价", state: "active", runtimeStatus: "blocked", selected: true, waitingDecisionCount: 1, latestRunStatus: "completed", blocker: "T-001: Audit blocked." },
+          { id: "shipping-rule", title: "配送规则调整", state: "active", runtimeStatus: "running", selected: false, waitingDecisionCount: 0, latestRunStatus: "running", latestRunId: "run-shipping-1" },
+        ],
+      },
+      center: {
+        ...snapshot.center,
+        workpad: {
+          ...snapshot.center.workpad,
+          background: {
+            totalCount: 2,
+            runningCount: 1,
+            queuedCount: 0,
+            blockedCount: 0,
+            waitingDecisionCount: 0,
+            items: [
+              { id: "shipping-rule", title: "配送规则调整", state: "active", runtimeStatus: "running", selected: false, waitingDecisionCount: 0, latestRunStatus: "running", latestRunId: "run-shipping-1" },
+            ],
+          },
+          memoryIsolation: {
+            ...snapshot.center.workpad.memoryIsolation,
+            relatedWorkpads: [
+              { changeId: "shipping-rule", title: "配送规则调整", status: "running", latestRunId: "run-shipping-1", factBoundary: "local-evidence-only" },
+            ],
+          },
+        },
+      },
+    };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
+      if (url === "/api/projects") return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
+      return jsonResponse(url.includes("/stream/") ? stream : multiSnapshot);
+    }));
+
+    render(<App />);
+
+    await waitFor(() => expect(screen.getByTestId("workpad-view")).toBeTruthy());
+    expect(screen.getAllByText("配送规则调整").length).toBeGreaterThan(0);
+    expect(screen.getByText(/后台 Workpad：1 个运行中/)).toBeTruthy();
+    expect(screen.getByText("记忆边界")).toBeTruthy();
+    expect(screen.getByText(/project\/stable/)).toBeTruthy();
+    expect(screen.getByText(/change\/member-discount/)).toBeTruthy();
+    expect(screen.getAllByText(/配送规则调整 · 运行中/).length).toBeGreaterThan(0);
+    expect(screen.getByText("继续当前 Workpad")).toBeTruthy();
+    expect(screen.getByText("新建 Workpad")).toBeTruthy();
+    expect(screen.queryByText(/worker pool|并行 worktree|merge queue/)).toBeNull();
   });
 
   it("renders sidebar project onboarding when no direct project is selected", async () => {

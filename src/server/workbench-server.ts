@@ -281,7 +281,9 @@ async function handleProjectWorkbenchApi(input: WorkbenchProjectInput, request: 
     assertRegisteredProject(input);
     const body = await readCreateTopicBody(request);
     const topic = await createWorkbenchTopic(input.project, body);
-    await runIntakeScan(input.project, topic.changeId, body.body ?? body.title);
+    if (topic.state === "active") {
+      await runIntakeScan(input.project, topic.changeId, body.body ?? body.title);
+    }
     sendJson(response, 200, { topic, snapshot: await getWorkbenchSnapshot(input, { topicId: topic.changeId }) });
     return;
   }

@@ -32,6 +32,7 @@ type Snapshot = {
   memory: { memoryMode?: string; harnessReady?: boolean; artifactBase?: string };
   left: {
     topics: Topic[];
+    workpads?: WorkpadSummary[];
     repo?: { branch?: string; dirty?: boolean; path?: string; git?: boolean };
   };
   center: {
@@ -46,6 +47,20 @@ type Snapshot = {
 };
 
 type Topic = { id: string; title: string; state: string; updatedAt?: string };
+type WorkpadRuntimeStatus = "active" | "running" | "queued" | "blocked" | "waiting-decision" | "archived" | "readonly";
+type WorkpadSummary = {
+  id: string;
+  title: string;
+  state: string;
+  runtimeStatus: WorkpadRuntimeStatus;
+  selected: boolean;
+  waitingDecisionCount: number;
+  latestRunStatus?: string;
+  latestRunId?: string;
+  queueStatus?: string;
+  blocker?: string;
+  updatedAt?: string;
+};
 type TopicDetail = Topic & {
   closeGate?: { ready: boolean; warnings: string[]; blockingIssues: string[] };
   reviewStatus?: string | null;
@@ -192,6 +207,24 @@ type Workpad = {
   blockers: string[];
   warnings: string[];
   nextAction: WorkpadNextAction;
+  background?: {
+    totalCount: number;
+    runningCount: number;
+    queuedCount: number;
+    blockedCount: number;
+    waitingDecisionCount: number;
+    items: WorkpadSummary[];
+  };
+  memoryIsolation?: {
+    projectStableNamespace: "project/stable";
+    currentChangeNamespace?: string;
+    runNamespaces: string[];
+    agentSessionNamespace: "agent/{roleId}/session/{sessionId}";
+    relatedWorkpads: Array<{ changeId: string; title: string; status: WorkpadRuntimeStatus; factBoundary: "summary-only" | "local-evidence-only" }>;
+    stableFactSources: string[];
+    writeBoundaries: string[];
+    warnings: string[];
+  };
 };
 type PlanCard = {
   title: string;
@@ -418,7 +451,7 @@ type TopicMessageEntry = {
 const emptySnapshot: Snapshot = {
   project: null,
   memory: {},
-  left: { topics: [] },
+  left: { topics: [], workpads: [] },
   center: { selectedTopic: null, workpad: emptyWorkpad(), agentLoop: { runs: [] }, thread: { items: [] } },
   right: { approvals: [], decisions: [], decisionInspector: { primary: null, related: [], history: [] } },
   harnessGaps: [],
@@ -932,9 +965,11 @@ export function App(): ReactElement {
                       busy={actionRunning !== null || activeTopic.state !== "active"}
                       disabledReason={activeTopic.state !== "active" ? "归档或暂停 Topic 为只读。" : undefined}
                       onSend={sendTopicMessage}
+                      onNewWorkpad={createTopicFromComposer}
                       onRunCode={() => runWorkflowAction("code.run")}
                       actionRunning={actionRunning}
                       canRunCode={activeTopic.state === "active" && (activeTopic.taskCount ?? 0) > 0}
+                      currentWorkpadStatus={currentWorkpadSummary(snapshot, activeTopic)?.runtimeStatus}
                     />
                   </>
                 ) : tab === "thread" ? (
@@ -964,9 +999,11 @@ export function App(): ReactElement {
                       busy={actionRunning !== null || activeTopic.state !== "active"}
                       disabledReason={activeTopic.state !== "active" ? "归档或暂停 Topic 为只读。" : undefined}
                       onSend={sendTopicMessage}
+                      onNewWorkpad={createTopicFromComposer}
                       onRunCode={() => runWorkflowAction("code.run")}
                       actionRunning={actionRunning}
                       canRunCode={activeTopic.state === "active" && (activeTopic.taskCount ?? 0) > 0}
+                      currentWorkpadStatus={currentWorkpadSummary(snapshot, activeTopic)?.runtimeStatus}
                     />
                   </>
                 ) : (
@@ -1175,10 +1212,19 @@ function SidebarPanel({
         <div className="section-label">主题</div>
         {!selectedProjectId ? <div className="empty-state sidebar-empty">先在项目区添加或选择项目。</div> : null}
         {selectedProjectId && !project?.managed ? <div className="empty-state sidebar-empty">初始化 Harness 后显示主题。</div> : null}
-        {snapshot.left.topics.map((topic) => (
-          <button key={topic.id} className={`topic-row ${activeTopic?.id === topic.id ? "selected" : ""}`} onClick={() => void onChooseTopic(topic.id)}>
-            <span>{topic.title}</span>
-            <small>{stateLabel(topic.state)}</small>
+        {(snapshot.left.workpads ?? snapshot.left.topics.map((topic) => ({
+          id: topic.id,
+          title: topic.title,
+          state: topic.state,
+          runtimeStatus: topic.state === "archive" ? "archived" : topic.state === "parking" ? "queued" : "active",
+          selected: activeTopic?.id === topic.id,
+          waitingDecisionCount: 0,
+          blocker: undefined,
+        } satisfies WorkpadSummary))).map((workpad) => (
+          <button key={workpad.id} className={`topic-row ${activeTopic?.id === workpad.id ? "selected" : ""}`} onClick={() => void onChooseTopic(workpad.id)}>
+            <span>{workpad.title}</span>
+            <small>{workpadStatusLabel(workpad.runtimeStatus)}{workpad.waitingDecisionCount > 0 ? ` · ${workpad.waitingDecisionCount} 决策` : ""}</small>
+            {workpad.blocker ? <em>{workpad.blocker}</em> : null}
           </button>
         ))}
       </section>
@@ -1226,6 +1272,11 @@ function InfoRow({ label, value }: { label: string; value: string }): ReactEleme
       <strong>{value}</strong>
     </div>
   );
+}
+
+function currentWorkpadSummary(snapshot: Snapshot, topic: TopicDetail | null): WorkpadSummary | undefined {
+  if (!topic) return undefined;
+  return snapshot.left.workpads?.find((item) => item.id === topic.id);
 }
 
 function ProjectAddForm({ onDone }: { onDone: (projectId?: string) => Promise<void> }): ReactElement {
@@ -1600,6 +1651,11 @@ function WorkpadView({
           <span className={`workpad-state ${workpad.state}`}>{workpadStateLabel(workpad.state)}</span>
           <h2>{workpad.title}</h2>
           <p>{workpad.subtitle}</p>
+          {workpad.background && (workpad.background.runningCount + workpad.background.queuedCount + workpad.background.blockedCount + workpad.background.waitingDecisionCount) > 0 ? (
+            <p className="workpad-background-summary" data-testid="workpad-background-summary">
+              后台 Workpad：{workpad.background.runningCount} 个运行中，{workpad.background.queuedCount} 个等待，{workpad.background.blockedCount} 个阻塞，{workpad.background.waitingDecisionCount} 个等决策
+            </p>
+          ) : null}
         </div>
         <WorkpadActionButton
           action={workpad.nextAction}
@@ -1609,6 +1665,20 @@ function WorkpadView({
           onConfirmApproval={onConfirmApproval}
         />
       </section>
+
+      {workpad.background?.items.length ? (
+        <section className="workpad-section compact-section" data-testid="background-workpads">
+          <div className="workpad-section-header">
+            <h3>后台 Workpads</h3>
+            <span>{workpad.background.items.length}</span>
+          </div>
+          <div className="workpad-chip-list">
+            {workpad.background.items.map((item) => (
+              <span key={item.id}>{item.title} · {workpadStatusLabel(item.runtimeStatus)}</span>
+            ))}
+          </div>
+        </section>
+      ) : null}
 
       <section className="workpad-section">
         <div className="workpad-section-header">
@@ -1721,6 +1791,27 @@ function WorkpadView({
           ))}
         </div>
       </section>
+
+      {workpad.memoryIsolation ? (
+        <section className="workpad-section" data-testid="memory-isolation">
+          <div className="workpad-section-header">
+            <h3>记忆边界</h3>
+            <span>{workpad.memoryIsolation.currentChangeNamespace ?? "project"}</span>
+          </div>
+          <p>项目稳定记忆：{workpad.memoryIsolation.projectStableNamespace}</p>
+          {workpad.memoryIsolation.runNamespaces.length > 0 ? <p>本 Workpad 运行证据：{workpad.memoryIsolation.runNamespaces.slice(0, 3).join("，")}</p> : null}
+          {workpad.memoryIsolation.relatedWorkpads.length > 0 ? (
+            <div className="workpad-links">
+              {workpad.memoryIsolation.relatedWorkpads.map((item) => (
+                <span className="artifact-link" key={item.changeId}>{item.title} · {workpadStatusLabel(item.status)} · {item.factBoundary === "local-evidence-only" ? "局部证据" : "摘要可读"}</span>
+              ))}
+            </div>
+          ) : null}
+          <ul className="workpad-issue-list">
+            {workpad.memoryIsolation.warnings.slice(0, 3).map((warning) => <li key={warning}>{warning}</li>)}
+          </ul>
+        </section>
+      ) : null}
 
       {(workpad.blockers.length > 0 || workpad.warnings.length > 0 || workpad.intake.missingInfo.length > 0 || openQuestions.length > 0 || assumptions.length > 0) ? (
         <section className="workpad-section">
@@ -2471,9 +2562,11 @@ function TopicComposer({
   busy,
   disabledReason,
   onSend,
+  onNewWorkpad,
   onRunCode,
   actionRunning,
   canRunCode,
+  currentWorkpadStatus,
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -2482,11 +2575,14 @@ function TopicComposer({
   busy: boolean;
   disabledReason?: string;
   onSend: () => Promise<void>;
+  onNewWorkpad?: () => Promise<void>;
   onRunCode?: () => Promise<void>;
   actionRunning: string | null;
   canRunCode: boolean;
+  currentWorkpadStatus?: WorkpadRuntimeStatus;
 }): ReactElement {
   const [confirmingCode, setConfirmingCode] = useState(false);
+  const riskyCurrentWorkpad = currentWorkpadStatus ? ["running", "blocked", "waiting-decision"].includes(currentWorkpadStatus) : false;
   return (
     <div className="topic-composer" aria-label="Topic composer">
         <textarea
@@ -2496,6 +2592,16 @@ function TopicComposer({
         placeholder={disabledReason ?? (mode === "chat" ? "输入问题或下一步需求" : "要求后续变更")}
       />
       <div className="composer-toolbar">
+        {riskyCurrentWorkpad ? (
+          <div className="workpad-route-switch" aria-label="Workpad routing choice">
+            <button type="button" className="active" disabled={Boolean(disabledReason) || busy} onClick={() => void onSend()}>
+              继续当前 Workpad
+            </button>
+            <button type="button" disabled={!onNewWorkpad || Boolean(disabledReason) || busy || !value.trim()} onClick={() => void onNewWorkpad?.()}>
+              新建 Workpad
+            </button>
+          </div>
+        ) : null}
         <div className="mode-switch compact" role="tablist" aria-label="Composer mode">
           <button className={mode === "chat" ? "active" : ""} disabled={Boolean(disabledReason)} onClick={() => onModeChange("chat")}>Chat</button>
           <button className={mode === "plan" ? "active" : ""} disabled={Boolean(disabledReason)} onClick={() => onModeChange("plan")}>Plan</button>
@@ -2751,6 +2857,16 @@ function workpadStateLabel(state: Workpad["state"]): string {
   if (state === "readonly") return "只读";
   if (state === "empty") return "待创建";
   return "诊断";
+}
+
+function workpadStatusLabel(status: WorkpadRuntimeStatus): string {
+  if (status === "running") return "运行中";
+  if (status === "queued") return "等待执行";
+  if (status === "blocked") return "阻塞";
+  if (status === "waiting-decision") return "等决策";
+  if (status === "archived") return "已归档";
+  if (status === "readonly") return "只读";
+  return "可继续";
 }
 
 function readinessLabel(value: "missing" | "ready" | "unknown"): string {

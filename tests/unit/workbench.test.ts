@@ -766,7 +766,105 @@ describe("workbench read model", () => {
     const leases = await listTaskQueues(memory, "queue-reconcile");
     expect(leases[0]).toMatchObject({ status: "completed" });
   });
+
+  it("projects multiple Workpads with scoped background activity and memory isolation", async () => {
+    await initHarness(project());
+    await createChange(project(), { title: "Selected Blocked Workpad" });
+    await writeAcceptedSpecAndTasks("selected-blocked-workpad");
+    await writeTaskQueueRecord("selected-blocked-workpad", "queue-selected", "blocked", {
+      currentTaskId: "T-001",
+      totalCount: 1,
+      blockedReason: "T-001: Audit blocked.",
+    });
+    await writeTaskQueueItemRecord("selected-blocked-workpad", "queue-selected", "queue-selected-item-001", "T-001", 1, "blocked", {
+      taskRunId: "taskrun-selected-1",
+      blockedReason: "Audit blocked.",
+    });
+    await writeTaskRunRecord("selected-blocked-workpad", "taskrun-selected-1", "T-001", "blocked", 1, {
+      runId: "run-selected-1",
+      worktreeId: "wt-selected-1",
+      blockedReason: "Audit blocked.",
+    });
+    await writeCoderRun("selected-blocked-workpad", "run-selected-1", ["T-001"], "wt-selected-1", "completed", "taskrun-selected-1");
+
+    await writeRawActiveChange("background-running-workpad", "Background Running Workpad");
+    await writeAcceptedSpecAndTasks("background-running-workpad");
+    await writeCoderRun("background-running-workpad", "run-background-1", ["T-001"], "wt-background-1", "running");
+
+    const snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: "selected-blocked-workpad" });
+
+    expect(snapshot.left.workpads).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "selected-blocked-workpad", runtimeStatus: "blocked", selected: true, blocker: expect.stringContaining("Audit blocked") }),
+      expect.objectContaining({ id: "background-running-workpad", runtimeStatus: "running", selected: false, latestRunId: "run-background-1" }),
+    ]));
+    expect(snapshot.center.workpad.background).toMatchObject({
+      runningCount: 1,
+      blockedCount: 0,
+      waitingDecisionCount: 0,
+      items: [expect.objectContaining({ id: "background-running-workpad", runtimeStatus: "running" })],
+    });
+    expect(snapshot.center.workpad.memoryIsolation).toMatchObject({
+      projectStableNamespace: "project/stable",
+      currentChangeNamespace: "change/selected-blocked-workpad",
+      runNamespaces: expect.arrayContaining(["run/run-selected-1"]),
+      relatedWorkpads: [expect.objectContaining({
+        changeId: "background-running-workpad",
+        status: "running",
+        factBoundary: "local-evidence-only",
+      })],
+    });
+    const memoryText = JSON.stringify(snapshot.center.workpad.memoryIsolation);
+    expect(memoryText).not.toMatch(/stdout\.log|stderr\.log|events\.jsonl|codex-events\.jsonl|process\.started/);
+    expect(snapshot.right.decisionInspector.primary).toMatchObject({
+      kind: "queue-blocker",
+      taskId: "T-001",
+      taskRunId: "taskrun-selected-1",
+    });
+  });
+
+  it("creates a separate parked Workpad instead of appending when another Workpad is active", async () => {
+    await initHarness(project());
+    await createChange(project(), { title: "Current Active Demand" });
+
+    const next = await createWorkbenchTopic(project(), {
+      title: "Independent Follow-up Demand",
+      body: "这是另一个独立需求，不应污染当前 Workpad。",
+    });
+    const snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: next.changeId });
+
+    expect(next.changeId).toBe("independent-follow-up-demand");
+    expect(snapshot.center.selectedTopic).toMatchObject({ id: next.changeId, state: "parking" });
+    expect(snapshot.center.workpad.state).toBe("readonly");
+    expect(snapshot.left.workpads).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "current-active-demand", runtimeStatus: "active" }),
+      expect.objectContaining({ id: "independent-follow-up-demand", runtimeStatus: "queued", selected: true }),
+    ]));
+    expect(snapshot.center.thread.items).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: "user-message", body: "这是另一个独立需求，不应污染当前 Workpad。" }),
+    ]));
+  });
 });
+
+async function writeRawActiveChange(changeId: string, title: string): Promise<void> {
+  const changeDir = join(tempDir, "harness", "changes", "active", changeId);
+  await mkdir(join(changeDir, "reviews"), { recursive: true });
+  const now = new Date().toISOString();
+  await writeFile(join(changeDir, "change.json"), JSON.stringify({
+    version: "1.0",
+    id: changeId,
+    title,
+    state: "active",
+    createdAt: now,
+    updatedAt: now,
+    closedAt: null,
+    archivePath: null,
+  }, null, 2), "utf8");
+  await writeFile(join(changeDir, "summary.md"), `# ${title}\n\n## Status\n\nActive test fixture.\n`, "utf8");
+  await writeFile(join(changeDir, "spec.md"), "# Spec\n\n## Acceptance Criteria\n\n- AC-001: Complete one task-scoped change.\n", "utf8");
+  await writeFile(join(changeDir, "plan.md"), "# Plan\n\nImplement this accepted task list.\n", "utf8");
+  await writeFile(join(changeDir, "tasks.md"), "# Tasks\n\n- [ ] T-001: Implement one task.\n  - Covers: AC-001\n", "utf8");
+  await writeFile(join(changeDir, "reviews", "review.md"), "Status: pending\n", "utf8");
+}
 
 async function writeAcceptedSpecAndTasks(changeId: string): Promise<void> {
   const changeDir = join(tempDir, "harness", "changes", "active", changeId);

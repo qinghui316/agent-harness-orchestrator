@@ -58,15 +58,26 @@ export interface ChangeCloseResult {
 }
 
 export async function createChange(project: ManagedProject, options: { title: string; body?: string }): Promise<ChangeCreateResult> {
+  return createChangeInDirectory(project, options, "active", true);
+}
+
+export async function createParkedChange(project: ManagedProject, options: { title: string; body?: string }): Promise<ChangeCreateResult> {
+  return createChangeInDirectory(project, options, "parking", false);
+}
+
+async function createChangeInDirectory(project: ManagedProject, options: { title: string; body?: string }, directory: "active" | "parking", requireNoActive: boolean): Promise<ChangeCreateResult> {
   const memory = await resolveProjectMemory(project);
   assertWritableMemory(memory, "Change creation");
   const activeChanges = await getActiveChanges(memory);
-  if (activeChanges.length > 0) {
+  if (requireNoActive && activeChanges.length > 0) {
     throw new Error(`Cannot create a new change while an active change exists: ${activeChanges[0]?.name}.`);
   }
 
   const id = slugify(options.title);
-  const changePath = join(memory.changesRoot, "active", id);
+  if (existsSync(join(memory.changesRoot, "active", id)) || existsSync(join(memory.changesRoot, "parking", id))) {
+    throw new Error(`Change already exists: ${id}.`);
+  }
+  const changePath = join(memory.changesRoot, directory, id);
   const relativePath = displayPath(memory, changePath);
   if (existsSync(changePath)) {
     throw new Error(`Change already exists: ${relativePath}.`);
@@ -93,12 +104,22 @@ export async function createChange(project: ManagedProject, options: { title: st
   await writeJsonFile(join(changePath, "change.json"), change);
   await createEmptySpecTests(changePath, id);
 
-  const status = await getChangeStatus(project);
-  if (!status.acMap) {
-    throw new Error("Failed to build ac-map.json for the new change.");
-  }
+  const [specContent, tasksContent] = await Promise.all([
+    readFile(join(changePath, "spec.md"), "utf8"),
+    readFile(join(changePath, "tasks.md"), "utf8"),
+  ]);
+  const acMap = buildAcMap({
+    changeId: id,
+    specContent,
+    tasksContent,
+    placeholderFiles: [
+      { path: "spec.md", content: specContent },
+      { path: "tasks.md", content: tasksContent },
+    ],
+  });
+  await writeJsonFile(join(changePath, "ac-map.json"), acMap);
   const index = await writeChangeIndex(memory);
-  return { change, path: relativePath, acMap: status.acMap, index };
+  return { change, path: relativePath, acMap, index };
 }
 
 export async function getChangeStatus(project: ManagedProject | string | ResolvedMemory): Promise<ChangeStatus> {

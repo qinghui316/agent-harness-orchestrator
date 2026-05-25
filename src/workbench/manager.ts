@@ -72,6 +72,22 @@ export interface WorkbenchTopicSummary {
   archivePath?: string | null;
 }
 
+export type WorkbenchWorkpadRuntimeStatus = "active" | "running" | "queued" | "blocked" | "waiting-decision" | "archived" | "readonly";
+
+export interface WorkbenchWorkpadSummary {
+  id: string;
+  title: string;
+  state: WorkbenchTopicState;
+  runtimeStatus: WorkbenchWorkpadRuntimeStatus;
+  selected: boolean;
+  waitingDecisionCount: number;
+  latestRunStatus?: string;
+  latestRunId?: string;
+  queueStatus?: string;
+  blocker?: string;
+  updatedAt?: string;
+}
+
 export interface WorkbenchThreadEvent {
   id: string;
   type: string;
@@ -263,6 +279,33 @@ export interface WorkpadNextAction {
   disabledReason?: string;
 }
 
+export interface WorkpadBackgroundActivitySummary {
+  totalCount: number;
+  runningCount: number;
+  queuedCount: number;
+  blockedCount: number;
+  waitingDecisionCount: number;
+  items: WorkbenchWorkpadSummary[];
+}
+
+export interface WorkpadRelatedMemorySummary {
+  changeId: string;
+  title: string;
+  status: WorkbenchWorkpadRuntimeStatus;
+  factBoundary: "summary-only" | "local-evidence-only";
+}
+
+export interface WorkpadMemoryIsolationSummary {
+  projectStableNamespace: "project/stable";
+  currentChangeNamespace?: string;
+  runNamespaces: string[];
+  agentSessionNamespace: "agent/{roleId}/session/{sessionId}";
+  relatedWorkpads: WorkpadRelatedMemorySummary[];
+  stableFactSources: string[];
+  writeBoundaries: string[];
+  warnings: string[];
+}
+
 export interface WorkpadTaskPreview {
   id: string;
   title: string;
@@ -394,6 +437,8 @@ export interface WorkbenchWorkpad {
   blockers: string[];
   warnings: string[];
   nextAction: WorkpadNextAction;
+  background: WorkpadBackgroundActivitySummary;
+  memoryIsolation: WorkpadMemoryIsolationSummary;
 }
 
 export interface WorkbenchApprovalAction {
@@ -476,6 +521,7 @@ export interface WorkbenchSnapshot {
     project: unknown;
     memory: MemoryStatus;
     topics: WorkbenchTopicSummary[];
+    workpads: WorkbenchWorkpadSummary[];
     repo: {
       path: string;
       exists?: boolean;
@@ -535,6 +581,7 @@ export async function getWorkbenchSnapshot(input: WorkbenchProjectInput, options
         project: input.project,
         memory: memoryStatus,
         topics: [],
+        workpads: [],
         repo: buildRepoSummary(projectStatus),
       },
       center: { selectedTopic: null, workpad: diagnosticWorkpad, thread: { items: [] }, agentLoop: { runs: [] } },
@@ -549,10 +596,12 @@ export async function getWorkbenchSnapshot(input: WorkbenchProjectInput, options
   const selectedTopic = await selectTopicDetail(input.project, memory, topics, options.topicId);
   const approvals = input.project ? await buildApprovalInbox(input.project, memory, topics) : [];
   const decisions = input.project ? await listWorkbenchDecisions(memory, options.topicId) : [];
+  const workpads = await buildMultiWorkpadSummaries(memory, topics, approvals, selectedTopic?.id);
   const workpad = await buildWorkbenchWorkpad({
     project: input.project,
     memory,
     topics,
+    workpads,
     selectedTopic,
     approvals,
     decisions,
@@ -572,6 +621,7 @@ export async function getWorkbenchSnapshot(input: WorkbenchProjectInput, options
       project: input.project,
       memory: memoryStatus,
       topics,
+      workpads,
       repo: buildRepoSummary(projectStatus),
     },
     center: {
@@ -699,6 +749,8 @@ function buildDiagnosticWorkpad(projectName: string, warnings: string[], gaps: H
       requiresConfirmation: false,
       disabledReason: "当前 snapshot 没有可写的项目记忆。",
     },
+    background: emptyWorkpadBackground(),
+    memoryIsolation: diagnosticMemoryIsolation(warnings),
   };
 }
 
@@ -706,13 +758,14 @@ async function buildWorkbenchWorkpad(input: {
   project: ManagedProject | null;
   memory: ResolvedMemory;
   topics: WorkbenchTopicSummary[];
+  workpads: WorkbenchWorkpadSummary[];
   selectedTopic: WorkbenchTopicDetail | null;
   approvals: WorkbenchApprovalItem[];
   decisions: WorkbenchDecisionItem[];
   warnings: string[];
   gaps: HarnessGap[];
 }): Promise<WorkbenchWorkpad> {
-  const { project, memory, topics, selectedTopic, approvals, decisions, warnings, gaps } = input;
+  const { project, memory, topics, workpads, selectedTopic, approvals, decisions, warnings, gaps } = input;
   if (!selectedTopic) {
     return {
       title: "项目 Workpad",
@@ -747,6 +800,8 @@ async function buildWorkbenchWorkpad(input: {
         enabled: true,
         requiresConfirmation: false,
       },
+      background: buildWorkpadBackground(workpads, undefined),
+      memoryIsolation: buildWorkpadMemoryIsolation(memory, null, workpads),
     };
   }
 
@@ -797,6 +852,8 @@ async function buildWorkbenchWorkpad(input: {
       ...gaps.filter((gap) => gap.status !== "available").map((gap) => gap.summary),
     ],
     nextAction: buildWorkpadNextAction(selectedTopic, topicApprovals, { specReady, planReady, tasksReady }, intake, taskQueue, taskGraph),
+    background: buildWorkpadBackground(workpads, selectedTopic.id),
+    memoryIsolation: buildWorkpadMemoryIsolation(memory, selectedTopic, workpads),
   };
 }
 
@@ -809,6 +866,79 @@ function emptyProgress(topicState: WorkpadProgress["topicState"]): WorkpadProgre
     acCount: 0,
     taskCount: 0,
     runCount: 0,
+  };
+}
+
+function emptyWorkpadBackground(): WorkpadBackgroundActivitySummary {
+  return {
+    totalCount: 0,
+    runningCount: 0,
+    queuedCount: 0,
+    blockedCount: 0,
+    waitingDecisionCount: 0,
+    items: [],
+  };
+}
+
+function buildWorkpadBackground(workpads: WorkbenchWorkpadSummary[], selectedId: string | undefined): WorkpadBackgroundActivitySummary {
+  const backgroundItems = workpads.filter((item) => item.id !== selectedId && ["running", "queued", "blocked", "waiting-decision"].includes(item.runtimeStatus));
+  return {
+    totalCount: workpads.length,
+    runningCount: backgroundItems.filter((item) => item.runtimeStatus === "running").length,
+    queuedCount: backgroundItems.filter((item) => item.runtimeStatus === "queued").length,
+    blockedCount: backgroundItems.filter((item) => item.runtimeStatus === "blocked").length,
+    waitingDecisionCount: backgroundItems.filter((item) => item.runtimeStatus === "waiting-decision").length,
+    items: backgroundItems.slice(0, 6),
+  };
+}
+
+function diagnosticMemoryIsolation(warnings: string[]): WorkpadMemoryIsolationSummary {
+  return {
+    projectStableNamespace: "project/stable",
+    agentSessionNamespace: "agent/{roleId}/session/{sessionId}",
+    runNamespaces: [],
+    relatedWorkpads: [],
+    stableFactSources: [],
+    writeBoundaries: [],
+    warnings: ["Durable memory is unavailable; AHO must not infer hidden project history.", ...warnings],
+  };
+}
+
+function buildWorkpadMemoryIsolation(memory: ResolvedMemory, selectedTopic: WorkbenchTopicDetail | null, workpads: WorkbenchWorkpadSummary[]): WorkpadMemoryIsolationSummary {
+  const relatedWorkpads = workpads
+    .filter((item) => item.id !== selectedTopic?.id && ["running", "queued", "blocked", "waiting-decision"].includes(item.runtimeStatus))
+    .slice(0, 6)
+    .map((item): WorkpadRelatedMemorySummary => ({
+      changeId: item.id,
+      title: item.title,
+      status: item.runtimeStatus,
+      factBoundary: item.runtimeStatus === "running" || item.runtimeStatus === "queued" ? "local-evidence-only" : "summary-only",
+    }));
+  const warnings: string[] = [
+    "Running Workpad proposals, diffs, stdout/stderr, JSONL, and process metadata are not project stable facts.",
+    "Memory consolidation candidates and conflict review are future human-gated workflows.",
+  ];
+  if (!memory.supported || !existsSync(memory.memoryRoot)) warnings.unshift("Durable memory is unavailable; initialize, sync, or repair memory before relying on history.");
+  return {
+    projectStableNamespace: "project/stable",
+    currentChangeNamespace: selectedTopic ? `change/${selectedTopic.id}` : undefined,
+    runNamespaces: selectedTopic ? selectedTopic.runs.slice(0, 5).map((run) => `run/${run.id}`) : [],
+    agentSessionNamespace: "agent/{roleId}/session/{sessionId}",
+    relatedWorkpads,
+    stableFactSources: [
+      "applied source changes",
+      "accepted spec / plan / tasks",
+      "accepted architecture / product docs",
+      "accepted Harness evolution results",
+      "explicit human memory accepts",
+    ],
+    writeBoundaries: [
+      "coder-agent writes assigned worktree proposal and run artifacts only",
+      "orchestrator writes selected Workpad thread / decision / summary projection",
+      "validator and auditor write validation / audit artifacts",
+      "project/stable absorbs only human-gated stable facts",
+    ],
+    warnings,
   };
 }
 
@@ -1671,6 +1801,71 @@ function decisionPriority(context: WorkbenchDecisionContext): number {
 
 function latestTaskEvidenceTimestamp(task: WorkbenchTaskNode): string | undefined {
   return task.latestEvidence.map((item) => item.timestamp).filter((item): item is string => Boolean(item)).sort().at(-1);
+}
+
+async function buildMultiWorkpadSummaries(
+  memory: ResolvedMemory,
+  topics: WorkbenchTopicSummary[],
+  approvals: WorkbenchApprovalItem[],
+  selectedTopicId: string | undefined,
+): Promise<WorkbenchWorkpadSummary[]> {
+  const allRuns = await listRuns(memory).catch(() => []);
+  const summaries = await Promise.all(topics.map(async (topic): Promise<WorkbenchWorkpadSummary> => {
+    const runs = allRuns.filter((run) => run.changeId === topic.id || run.changeId === topic.name);
+    const latestRun = [...runs].sort((a, b) => (b.finishedAt ?? b.startedAt ?? "").localeCompare(a.finishedAt ?? a.startedAt ?? ""))[0];
+    const runningRun = runs.find((run) => run.status === "created" || run.status === "running");
+    const queues = await listTaskQueues(memory, topic.id).catch(() => []);
+    const latestQueue = [...queues].sort((a, b) => (b.updatedAt ?? b.createdAt).localeCompare(a.updatedAt ?? a.createdAt))[0];
+    const topicApprovals = approvals.filter((approval) => approval.changeId === topic.id || approval.changeId === topic.name);
+    const blockingApproval = topicApprovals.find((approval) => approval.severity === "blocking");
+    let runtimeStatus: WorkbenchWorkpadRuntimeStatus = topic.state === "archive" ? "archived" : topic.state === "parking" ? "queued" : "active";
+    let blocker = blockingApproval?.reason ?? blockingApproval?.label;
+    if (topic.state === "active") {
+      if (latestQueue && ["blocked", "failed"].includes(latestQueue.status)) {
+        runtimeStatus = "blocked";
+        blocker = latestQueue.blockedReason ?? latestQueue.failureReason ?? "Task queue is blocked.";
+      } else if (blockingApproval) {
+        runtimeStatus = "blocked";
+      } else if (runningRun || latestQueue?.status === "running") {
+        runtimeStatus = "running";
+      } else if (latestQueue && ["queued", "paused"].includes(latestQueue.status)) {
+        runtimeStatus = "queued";
+      } else if (topicApprovals.length > 0) {
+        runtimeStatus = "waiting-decision";
+      }
+    }
+    return {
+      id: topic.id,
+      title: topic.title,
+      state: topic.state,
+      runtimeStatus,
+      selected: topic.id === selectedTopicId || topic.name === selectedTopicId,
+      waitingDecisionCount: topicApprovals.length,
+      latestRunStatus: latestRun?.status,
+      latestRunId: latestRun?.id,
+      queueStatus: latestQueue?.status,
+      blocker,
+      updatedAt: latestRun?.finishedAt ?? latestRun?.startedAt ?? latestQueue?.updatedAt ?? topic.updatedAt,
+    };
+  }));
+  const running = summaries
+    .filter((item) => item.runtimeStatus === "running")
+    .sort((a, b) => (b.updatedAt ?? "").localeCompare(a.updatedAt ?? ""));
+  for (const extra of running.slice(1)) {
+    extra.runtimeStatus = "queued";
+    extra.blocker = "Single-worker mode: this Workpad is waiting for the current run slot.";
+  }
+  return summaries.sort((a, b) => workpadRuntimeRank(a.runtimeStatus) - workpadRuntimeRank(b.runtimeStatus) || (b.updatedAt ?? b.title).localeCompare(a.updatedAt ?? a.title));
+}
+
+function workpadRuntimeRank(status: WorkbenchWorkpadRuntimeStatus): number {
+  if (status === "running") return 0;
+  if (status === "blocked") return 1;
+  if (status === "waiting-decision") return 2;
+  if (status === "queued") return 3;
+  if (status === "active") return 4;
+  if (status === "readonly") return 5;
+  return 6;
 }
 
 function stateLabelForWorkpad(state: WorkbenchTopicState): string {

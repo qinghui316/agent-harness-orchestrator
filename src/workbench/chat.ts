@@ -6,7 +6,7 @@ import { startAuditRun } from "../audit/manager.js";
 import { startCodeRun } from "../code/manager.js";
 import { buildCodexReadonlyArgv, buildCodexReadonlyResumeArgv, detectCodexCapabilities } from "../codex/capabilities.js";
 import { createCodexJsonlStreamParser, extractCodexSessionIdFromJsonl, extractFinalMessageFromCodexJsonl, truncateReadablePreview, type CodexJsonlStreamEvent, type CodexReadableEvent } from "../codex/jsonl.js";
-import { createChange } from "../change/manager.js";
+import { createChange, createParkedChange } from "../change/manager.js";
 import { acceptPlanProposal, acceptSpecProposal, startPlanProposalRun, startSpecProposalRun } from "../change/proposals.js";
 import { getActiveChanges } from "../ecl/index.js";
 import { readJsonFile, writeJsonFile } from "../fs/json.js";
@@ -500,13 +500,22 @@ const threadChangeMetadataSchema = z.object({
   id: z.string(),
 });
 
-export async function createWorkbenchTopic(project: ManagedProject, input: { title: string; body?: string }): Promise<{ changeId: string; title: string }> {
-  const result = await createChange(project, { title: input.title, body: input.body });
+export async function createWorkbenchTopic(project: ManagedProject, input: { title: string; body?: string }): Promise<{ changeId: string; title: string; state: "active" | "parking" }> {
+  let result;
+  let state: "active" | "parking" = "active";
+  try {
+    result = await createChange(project, { title: input.title, body: input.body });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (!message.includes("Cannot create a new change while an active change exists")) throw error;
+    result = await createParkedChange(project, { title: input.title, body: input.body });
+    state = "parking";
+  }
   await appendTopicThreadEntry(project, result.change.id, {
     type: "user.message",
     text: input.body ?? input.title,
   });
-  return { changeId: result.change.id, title: result.change.title };
+  return { changeId: result.change.id, title: result.change.title, state };
 }
 
 export async function listTopicMessages(project: ManagedProject, changeId: string): Promise<TopicThreadEntry[]> {
@@ -1444,10 +1453,14 @@ async function finishOrchestratorRun(path: string, run: RunMetadata, status: Run
 
 async function resolveTopic(project: ManagedProject, changeId: string): Promise<{ memory: ResolvedMemory; changePath: string }> {
   const memory = await resolveProjectMemory(project);
-  const active = await getActiveChanges(memory);
-  const match = active.find((item) => item.name === changeId);
-  if (!match) throw new Error(`Topic not found or not active: ${changeId}.`);
-  return { memory, changePath: match.path };
+  const roots = [join(memory.changesRoot, "active"), join(memory.changesRoot, "parking"), join(memory.changesRoot, "archive")];
+  for (const root of roots) {
+    const candidate = join(root, changeId);
+    if (existsSync(candidate)) {
+      return { memory, changePath: relative(memory.memoryRoot, candidate).replace(/\\/g, "/") };
+    }
+  }
+  throw new Error(`Topic not found: ${changeId}.`);
 }
 
 async function getSingleActiveChangeId(project: ManagedProject): Promise<string> {
