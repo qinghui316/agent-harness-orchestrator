@@ -120,6 +120,23 @@ type WorkbenchTaskGraph = {
   changeLevelEvidence: WorkbenchTaskEvidence[];
   warnings: string[];
 };
+type WorkbenchCodingPackage = {
+  id: string;
+  title: string;
+  summary: string;
+  taskIds: string[];
+  completedTaskIds: string[];
+  acIds: string[];
+  coveredAcIds: string[];
+  missingEvidenceAcIds: string[];
+  recommendedRoleId: string;
+  executionUnit: "single-agent" | "future-parallel-candidate";
+  assignmentStatus: "suggested" | "not-assigned";
+  splitReadiness: "likely-single" | "candidate" | "unknown";
+  splitRationale: string;
+  mergeRisk: string;
+  status: "missing" | "suggested" | "blocked" | "evidence-ready" | "readonly";
+};
 type WorkbenchTaskQueueSummary = {
   id: string;
   status: string;
@@ -168,6 +185,7 @@ type Workpad = {
     auditStatus?: string;
   };
   tasks: Array<{ id: string; title: string; done: boolean; acIds: string[]; warnings: string[] }>;
+  codingPackages: WorkbenchCodingPackage[];
   taskGraph: WorkbenchTaskGraph;
   taskQueue?: WorkbenchTaskQueueSummary;
   evidence: Array<{ id: string; label: string; source: string; status?: string; artifact?: string; timestamp?: string }>;
@@ -1639,6 +1657,18 @@ function WorkpadView({
         <WorkpadMetric label="Validation / Audit" value={`${statusOrDash(workpad.progress.validationStatus)} / ${statusOrDash(workpad.progress.auditStatus)}`} />
       </section>
 
+      {workpad.codingPackages.length > 0 ? (
+        <section className="workpad-section">
+          <div className="workpad-section-header">
+            <h3>Coding Work Package</h3>
+            <span>{workpad.codingPackages.length} 个推荐执行单元</span>
+          </div>
+          <div className="coding-package-list">
+            {workpad.codingPackages.map((item) => <CodingPackageCard key={item.id} item={item} />)}
+          </div>
+        </section>
+      ) : null}
+
       {workpad.taskGraph.nodes.length > 0 ? (
         <section className="workpad-section">
           <div className="workpad-section-header">
@@ -1771,6 +1801,47 @@ function TaskQueuePanel({
         </div>
       ) : null}
     </div>
+  );
+}
+
+function CodingPackageCard({ item }: { item: WorkbenchCodingPackage }): ReactElement {
+  const pendingText = item.taskIds.length > 0 ? item.taskIds.join(", ") : "无待执行任务";
+  const completedText = item.completedTaskIds.length > 0 ? item.completedTaskIds.join(", ") : "无已完成任务上下文";
+  return (
+    <article className={`coding-package-card ${item.status}`} data-testid="coding-package-card">
+      <div className="coding-package-header">
+        <div>
+          <strong>{item.title}</strong>
+          <span>{item.summary}</span>
+        </div>
+        <span className={`task-status ${item.status}`}>{codingPackageStatusLabel(item.status)}</span>
+      </div>
+      <div className="coding-package-meta">
+        <span>推荐角色：{item.recommendedRoleId}</span>
+        <span>执行粒度：{codingPackageExecutionLabel(item.executionUnit)}</span>
+        <span>分拆判断：{codingPackageSplitLabel(item.splitReadiness)}</span>
+      </div>
+      <div className="coding-package-grid">
+        <div>
+          <strong>待执行任务</strong>
+          <p>{pendingText}</p>
+        </div>
+        <div>
+          <strong>已完成上下文</strong>
+          <p>{completedText}</p>
+        </div>
+      </div>
+      <div className="coding-package-chips" aria-label="Coding package AC coverage">
+        {item.acIds.map((acId) => (
+          <span key={acId} className={item.missingEvidenceAcIds.includes(acId) ? "missing" : "covered"}>
+            {acId}{item.missingEvidenceAcIds.includes(acId) ? " · 缺 evidence" : " · covered"}
+          </span>
+        ))}
+      </div>
+      <p className="panel-note">{item.splitRationale}</p>
+      <p className="panel-note">{item.mergeRisk}</p>
+      <p className="panel-note">5Y 只提供推荐执行单元；现有运行仍通过单任务或本地任务队列触发，不提供 package 级运行按钮。</p>
+    </article>
   );
 }
 
@@ -2654,6 +2725,7 @@ function emptyWorkpad(projectName = "未选择项目"): Workpad {
       runCount: 0,
     },
     tasks: [],
+    codingPackages: [],
     taskGraph: { source: "missing", nodes: [], changeLevelEvidence: [], warnings: [] },
     evidence: [],
     blockers: [],
@@ -2693,6 +2765,24 @@ function taskStatusLabel(status: WorkbenchTaskNode["status"]): string {
   if (status === "evidence-ready") return "有证据";
   if (status === "blocked") return "阻塞";
   return "已勾选";
+}
+
+function codingPackageStatusLabel(status: WorkbenchCodingPackage["status"]): string {
+  if (status === "suggested") return "建议执行";
+  if (status === "blocked") return "阻塞";
+  if (status === "evidence-ready") return "证据就绪";
+  if (status === "readonly") return "只读";
+  return "缺失";
+}
+
+function codingPackageExecutionLabel(value: WorkbenchCodingPackage["executionUnit"]): string {
+  return value === "future-parallel-candidate" ? "未来并行候选" : "单一 coder-agent";
+}
+
+function codingPackageSplitLabel(value: WorkbenchCodingPackage["splitReadiness"]): string {
+  if (value === "candidate") return "可作为未来拆分候选";
+  if (value === "unknown") return "信息不足";
+  return "默认不拆分";
 }
 
 function statusOrDash(value?: string): string {

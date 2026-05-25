@@ -640,6 +640,88 @@ input:focus-visible {
   color: var(--success);
 }
 
+.coding-package-list {
+  display: grid;
+  gap: 8px;
+}
+
+.coding-package-card {
+  display: grid;
+  gap: 9px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-subtle);
+}
+
+.coding-package-card.blocked {
+  border-color: #ffd0ca;
+  background: var(--danger-soft);
+}
+
+.coding-package-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.coding-package-header > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.coding-package-header strong,
+.coding-package-grid strong {
+  color: var(--text-strong);
+  font-size: 13.5px;
+}
+
+.coding-package-header span,
+.coding-package-grid p {
+  color: var(--text-muted);
+  font-size: 12.5px;
+}
+
+.coding-package-meta,
+.coding-package-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.coding-package-meta span,
+.coding-package-chips span {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  padding: 2px 7px;
+  background: var(--bg-panel);
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.coding-package-chips span.covered {
+  color: var(--success);
+}
+
+.coding-package-chips span.missing {
+  color: var(--text-faint);
+}
+
+.coding-package-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.coding-package-grid > div {
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-panel);
+}
+
 .workpad-progress-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

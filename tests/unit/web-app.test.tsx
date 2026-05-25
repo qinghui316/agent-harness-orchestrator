@@ -43,6 +43,23 @@ const snapshot = {
       tasks: [
         { id: "T-001", title: "实现会员折扣", done: true, acIds: ["AC-001"], warnings: [] },
       ],
+      codingPackages: [{
+        id: "coding-package:member-discount:implementation",
+        title: "会员折扣计价 implementation package",
+        summary: "默认由一个 coder-agent 处理当前变更实现范围。",
+        taskIds: ["T-001"],
+        completedTaskIds: ["T-001"],
+        acIds: ["AC-001"],
+        coveredAcIds: ["AC-001"],
+        missingEvidenceAcIds: [],
+        recommendedRoleId: "coder-agent",
+        executionUnit: "single-agent",
+        assignmentStatus: "not-assigned",
+        splitReadiness: "likely-single",
+        splitRationale: "当前只有一个主要待执行任务，默认不拆分。",
+        mergeRisk: "单 agent work package 的合并风险较低；TaskGraph 用于检查覆盖和 evidence，不强制拆分 coder。",
+        status: "evidence-ready",
+      }],
       taskGraph: {
         source: "accepted-tasks",
         nodes: [{
@@ -236,6 +253,11 @@ describe("Workbench web app", () => {
     await waitFor(() => expect(screen.getAllByText("会员折扣计价").length).toBeGreaterThan(0));
     expect(screen.getByTestId("workpad-view")).toBeTruthy();
     expect(screen.getByText("目标与当前理解")).toBeTruthy();
+    expect(screen.getByText("Coding Work Package")).toBeTruthy();
+    expect(screen.getByText("推荐角色：coder-agent")).toBeTruthy();
+    expect(screen.getByText("执行粒度：单一 coder-agent")).toBeTruthy();
+    expect(screen.queryByText("运行 Package")).toBeNull();
+    expect(screen.queryByText("并行执行")).toBeNull();
     expect(screen.getByText("TaskGraph")).toBeTruthy();
     expect(screen.getByText("证据与决策")).toBeTruthy();
     expect(screen.getAllByText("关闭已完成变更。").length).toBeGreaterThan(0);

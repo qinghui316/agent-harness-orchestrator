@@ -488,6 +488,19 @@ describe("workbench read model", () => {
         nextAction: expect.objectContaining({ actionType: "task.run.start", taskIds: ["T-001"], enabled: true }),
       }),
     ]);
+    expect(snapshot.center.workpad.codingPackages).toEqual([
+      expect.objectContaining({
+        id: "coding-package:task-preview:implementation",
+        recommendedRoleId: "coder-agent",
+        executionUnit: "single-agent",
+        assignmentStatus: "not-assigned",
+        taskIds: ["T-001"],
+        completedTaskIds: ["T-001"],
+        acIds: ["AC-001"],
+        coveredAcIds: ["AC-001"],
+        missingEvidenceAcIds: [],
+      }),
+    ]);
   });
 
   it("attaches task-scoped coder, validation, and audit evidence to the matching TaskGraph node", async () => {

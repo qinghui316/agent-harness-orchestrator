@@ -334,6 +334,29 @@ export interface WorkbenchTaskGraph {
   warnings: string[];
 }
 
+export type WorkbenchCodingPackageExecutionUnit = "single-agent" | "future-parallel-candidate";
+export type WorkbenchCodingPackageAssignmentStatus = "suggested" | "not-assigned";
+export type WorkbenchCodingPackageSplitReadiness = "likely-single" | "candidate" | "unknown";
+export type WorkbenchCodingPackageStatus = "missing" | "suggested" | "blocked" | "evidence-ready" | "readonly";
+
+export interface WorkbenchCodingPackage {
+  id: string;
+  title: string;
+  summary: string;
+  taskIds: string[];
+  completedTaskIds: string[];
+  acIds: string[];
+  coveredAcIds: string[];
+  missingEvidenceAcIds: string[];
+  recommendedRoleId: string;
+  executionUnit: WorkbenchCodingPackageExecutionUnit;
+  assignmentStatus: WorkbenchCodingPackageAssignmentStatus;
+  splitReadiness: WorkbenchCodingPackageSplitReadiness;
+  splitRationale: string;
+  mergeRisk: string;
+  status: WorkbenchCodingPackageStatus;
+}
+
 export interface WorkbenchTaskQueueItemSummary {
   id: string;
   taskId: string;
@@ -364,6 +387,7 @@ export interface WorkbenchWorkpad {
   intake: WorkpadIntakeSummary;
   progress: WorkpadProgress;
   tasks: WorkpadTaskPreview[];
+  codingPackages: WorkbenchCodingPackage[];
   taskGraph: WorkbenchTaskGraph;
   taskQueue?: WorkbenchTaskQueueSummary;
   evidence: WorkpadEvidenceSummary[];
@@ -660,6 +684,7 @@ function buildDiagnosticWorkpad(projectName: string, warnings: string[], gaps: H
     },
     progress: emptyProgress("none"),
     tasks: [],
+    codingPackages: [],
     taskGraph: emptyTaskGraph(),
     taskQueue: undefined,
     evidence: [],
@@ -708,6 +733,7 @@ async function buildWorkbenchWorkpad(input: {
       },
       progress: emptyProgress("none"),
       tasks: [],
+      codingPackages: [],
       taskGraph: emptyTaskGraph(),
       taskQueue: undefined,
       evidence: approvals.slice(0, 5).map(approvalWorkpadEvidence),
@@ -737,6 +763,7 @@ async function buildWorkbenchWorkpad(input: {
   const intake = buildWorkpadIntake(selectedTopic);
   const taskQueue = buildTaskQueueSummary(selectedTopic, { specReady, planReady, tasksReady });
   const taskGraph = buildTaskGraph(selectedTopic, { specReady, planReady, tasksReady }, taskQueue);
+  const codingPackages = buildCodingPackages(selectedTopic, taskGraph);
 
   return {
     title: selectedTopic.title,
@@ -756,6 +783,7 @@ async function buildWorkbenchWorkpad(input: {
       auditStatus: latestAudit?.status,
     },
     tasks: taskGraph.nodes.map(taskNodeToPreview),
+    codingPackages,
     taskGraph,
     taskQueue,
     evidence: buildWorkpadEvidence(selectedTopic, topicApprovals, topicDecisions),
@@ -791,6 +819,83 @@ function emptyTaskGraph(): WorkbenchTaskGraph {
     changeLevelEvidence: [],
     warnings: [],
   };
+}
+
+function buildCodingPackages(topic: WorkbenchTopicDetail, taskGraph: WorkbenchTaskGraph): WorkbenchCodingPackage[] {
+  if (taskGraph.nodes.length === 0) return [];
+  const pendingTasks = taskGraph.nodes.filter((node) => !node.checked);
+  const completedTasks = taskGraph.nodes.filter((node) => node.checked);
+  const packageTasks = pendingTasks.length > 0 ? pendingTasks : taskGraph.nodes;
+  const taskIds = packageTasks.map((node) => node.taskId);
+  const completedTaskIds = completedTasks.map((node) => node.taskId);
+  const acIds = uniqueStrings(taskGraph.nodes.flatMap((node) => node.acIds));
+  const coveredAcIds = uniqueStrings(taskGraph.nodes
+    .filter((node) => node.checked || node.latestEvidence.length > 0)
+    .flatMap((node) => node.acIds));
+  const missingEvidenceAcIds = acIds.filter((acId) => !coveredAcIds.includes(acId));
+  const blocked = packageTasks.some((node) => node.status === "blocked");
+  const hasEvidence = packageTasks.some((node) => node.latestEvidence.length > 0 || node.status === "evidence-ready" || node.status === "checked");
+  const status: WorkbenchCodingPackageStatus = topic.state !== "active"
+    ? "readonly"
+    : blocked
+      ? "blocked"
+      : pendingTasks.length === 0 && hasEvidence
+        ? "evidence-ready"
+        : "suggested";
+  const splitReadiness = codingPackageSplitReadiness(packageTasks);
+  const executionUnit: WorkbenchCodingPackageExecutionUnit = splitReadiness === "candidate" ? "future-parallel-candidate" : "single-agent";
+  return [{
+    id: `coding-package:${topic.id}:implementation`,
+    title: `${topic.title} implementation package`,
+    summary: pendingTasks.length > 0
+      ? `默认由一个 coder-agent 处理 ${pendingTasks.length} 个未勾选任务，并把已勾选任务作为上下文和 evidence。`
+      : "当前 accepted tasks 均已勾选；该 package 只保留为完成上下文和 evidence 汇总。",
+    taskIds,
+    completedTaskIds,
+    acIds,
+    coveredAcIds,
+    missingEvidenceAcIds,
+    recommendedRoleId: "coder-agent",
+    executionUnit,
+    assignmentStatus: pendingTasks.length > 0 ? "suggested" : "not-assigned",
+    splitReadiness,
+    splitRationale: codingPackageSplitRationale(splitReadiness, packageTasks),
+    mergeRisk: codingPackageMergeRisk(splitReadiness),
+    status,
+  }];
+}
+
+function codingPackageSplitReadiness(tasks: WorkbenchTaskNode[]): WorkbenchCodingPackageSplitReadiness {
+  if (tasks.length === 0) return "unknown";
+  if (tasks.length === 1) return "likely-single";
+  const mappedTasks = tasks.filter((task) => task.acIds.length > 0);
+  if (mappedTasks.length !== tasks.length) return "likely-single";
+  const seen = new Set<string>();
+  for (const task of mappedTasks) {
+    for (const acId of task.acIds) {
+      if (seen.has(acId)) return "likely-single";
+      seen.add(acId);
+    }
+  }
+  return "candidate";
+}
+
+function codingPackageSplitRationale(readiness: WorkbenchCodingPackageSplitReadiness, tasks: WorkbenchTaskNode[]): string {
+  if (readiness === "candidate") return "这些未完成任务映射到不同 AC，未来可作为并行 worktree 候选；5Y 仍不自动拆分执行。";
+  if (readiness === "unknown") return "缺少任务/AC 映射，无法判断是否适合拆分。";
+  return tasks.length <= 1
+    ? "当前只有一个主要待执行任务，默认不拆分。"
+    : "多个任务仍属于同一个需求实现包，先由一个 coder-agent 处理，避免过早引入拆分和合并成本。";
+}
+
+function codingPackageMergeRisk(readiness: WorkbenchCodingPackageSplitReadiness): string {
+  if (readiness === "candidate") return "未来并行执行需要 integration worktree、aggregate validation/audit 和 merge/rework 链路。";
+  if (readiness === "unknown") return "拆分风险未知；保持单 agent 执行更稳妥。";
+  return "单 agent work package 的合并风险较低；TaskGraph 用于检查覆盖和 evidence，不强制拆分 coder。";
+}
+
+function uniqueStrings(items: string[]): string[] {
+  return [...new Set(items.filter(Boolean))];
 }
 
 function emptyDecisionInspector(): WorkbenchDecisionInspector {
