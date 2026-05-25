@@ -156,6 +156,65 @@ export interface WorkbenchDecisionItem {
   completedAt?: string;
 }
 
+export type WorkbenchDecisionContextKind =
+  | "queue-blocker"
+  | "task-blocker"
+  | "validation-failed"
+  | "audit-blocked"
+  | "spec-proposal"
+  | "plan-proposal"
+  | "audit-approved"
+  | "apply-gate"
+  | "close-gate"
+  | "evolution-pending"
+  | "history";
+
+export interface WorkbenchDecisionAction {
+  id: string;
+  label: string;
+  kind: "approval" | "workflow-action" | "feedback" | "evidence" | "none";
+  enabled: boolean;
+  requiresConfirmation: boolean;
+  approvalId?: string;
+  action?: WorkbenchApprovalAction;
+  actionType?: ThreadStreamAction["actionType"];
+  taskIds?: string[];
+  taskRunId?: string;
+  artifact?: string;
+  disabledReason?: string;
+}
+
+export interface WorkbenchReworkPrompt {
+  mode: "inline-feedback" | "record-feedback";
+  label: string;
+  placeholder: string;
+}
+
+export interface WorkbenchDecisionContext {
+  id: string;
+  kind: WorkbenchDecisionContextKind;
+  title: string;
+  summary: string;
+  severity: "info" | "warning" | "blocking";
+  changeId?: string;
+  taskId?: string;
+  taskRunId?: string;
+  queueRunId?: string;
+  runId?: string;
+  targetId?: string;
+  artifact?: string;
+  timestamp?: string;
+  actions: WorkbenchDecisionAction[];
+  rework?: WorkbenchReworkPrompt;
+}
+
+export interface WorkbenchDecisionInspector {
+  primary: WorkbenchDecisionContext | null;
+  related: WorkbenchDecisionContext[];
+  history: WorkbenchDecisionContext[];
+  selectedContextId?: string;
+}
+
 export interface WorkpadIntakeSummary {
   goal: string;
   currentUnderstanding: string;
@@ -199,6 +258,8 @@ export interface WorkpadNextAction {
   requiresConfirmation: boolean;
   actionType?: ThreadStreamAction["actionType"];
   approvalId?: string;
+  taskIds?: string[];
+  taskRunId?: string;
   disabledReason?: string;
 }
 
@@ -412,6 +473,7 @@ export interface WorkbenchSnapshot {
   right: {
     approvals: WorkbenchApprovalItem[];
     decisions: WorkbenchDecisionItem[];
+    decisionInspector: WorkbenchDecisionInspector;
   };
   roles: WorkbenchRoleSummary[];
   harnessGaps: HarnessGap[];
@@ -452,7 +514,7 @@ export async function getWorkbenchSnapshot(input: WorkbenchProjectInput, options
         repo: buildRepoSummary(projectStatus),
       },
       center: { selectedTopic: null, workpad: diagnosticWorkpad, thread: { items: [] }, agentLoop: { runs: [] } },
-      right: { approvals: [], decisions: [] },
+      right: { approvals: [], decisions: [], decisionInspector: emptyDecisionInspector() },
       roles,
       harnessGaps: gaps,
       warnings,
@@ -473,6 +535,12 @@ export async function getWorkbenchSnapshot(input: WorkbenchProjectInput, options
     warnings,
     gaps,
   });
+  const decisionInspector = buildDecisionInspector({
+    selectedTopic,
+    workpad,
+    approvals,
+    decisions,
+  });
   return {
     project: input.project,
     memory: memoryStatus,
@@ -488,7 +556,7 @@ export async function getWorkbenchSnapshot(input: WorkbenchProjectInput, options
       thread: { items: selectedTopic?.threadItems ?? [] },
       agentLoop: { runs: selectedTopic?.runs ?? [] },
     },
-    right: { approvals, decisions },
+    right: { approvals, decisions, decisionInspector },
     roles,
     harnessGaps: gaps,
     warnings,
@@ -700,7 +768,7 @@ async function buildWorkbenchWorkpad(input: {
       ...workpadMissingWarnings(specReady, planReady, tasksReady, selectedTopic),
       ...gaps.filter((gap) => gap.status !== "available").map((gap) => gap.summary),
     ],
-    nextAction: buildWorkpadNextAction(selectedTopic, topicApprovals, { specReady, planReady, tasksReady }, intake),
+    nextAction: buildWorkpadNextAction(selectedTopic, topicApprovals, { specReady, planReady, tasksReady }, intake, taskQueue, taskGraph),
   };
 }
 
@@ -722,6 +790,14 @@ function emptyTaskGraph(): WorkbenchTaskGraph {
     nodes: [],
     changeLevelEvidence: [],
     warnings: [],
+  };
+}
+
+function emptyDecisionInspector(): WorkbenchDecisionInspector {
+  return {
+    primary: null,
+    related: [],
+    history: [],
   };
 }
 
@@ -1106,6 +1182,8 @@ function buildWorkpadNextAction(
   approvals: WorkbenchApprovalItem[],
   readiness: { specReady: boolean; planReady: boolean; tasksReady: boolean },
   intake?: WorkpadIntakeSummary,
+  queue?: WorkbenchTaskQueueSummary,
+  taskGraph?: WorkbenchTaskGraph,
 ): WorkpadNextAction {
   if (topic.state !== "active") {
     return {
@@ -1118,6 +1196,8 @@ function buildWorkpadNextAction(
       disabledReason: "Topic is not active.",
     };
   }
+  const queueBlockedAction = buildQueueBlockedNextAction(queue, taskGraph);
+  if (queueBlockedAction) return queueBlockedAction;
   const actionableApproval = approvals.find((approval) => approval.action);
   if (actionableApproval) {
     return {
@@ -1142,6 +1222,47 @@ function buildWorkpadNextAction(
   return workflowNextAction("code.run", "运行 Code", "基于已接受 Spec / Plan / Tasks 运行受控代码工作流。");
 }
 
+function buildQueueBlockedNextAction(queue?: WorkbenchTaskQueueSummary, taskGraph?: WorkbenchTaskGraph): WorkpadNextAction | null {
+  if (!queue || !["blocked", "failed"].includes(queue.status)) return null;
+  const blockedTask = taskGraph?.nodes.find((node) => node.taskId === queue.currentTaskId) ?? taskGraph?.nodes.find((node) => node.status === "blocked");
+  const retry = blockedTask?.nextAction.actionType === "task.run.retry" && blockedTask.nextAction.enabled ? blockedTask.nextAction : null;
+  if (retry) {
+    return {
+      id: `decision:${queue.id}:${blockedTask?.taskId}:retry`,
+      label: "重试阻塞任务",
+      description: queue.blockedReason ?? blockedTask?.blockers[0] ?? "任务队列已阻塞，需要重试当前任务或查看证据。",
+      kind: "workflow-action",
+      enabled: true,
+      requiresConfirmation: retry.requiresConfirmation,
+      actionType: "task.run.retry",
+      taskIds: retry.taskIds,
+      taskRunId: retry.taskRunId,
+    };
+  }
+  const reconcile = queue.nextAction?.actionType;
+  if (reconcile) {
+    return {
+      id: `decision:${queue.id}:reconcile`,
+      label: "刷新执行状态",
+      description: queue.blockedReason ?? queue.failureReason ?? "任务队列已阻塞，先刷新 durable evidence 状态。",
+      kind: "workflow-action",
+      enabled: queue.nextAction?.enabled ?? true,
+      requiresConfirmation: queue.nextAction?.requiresConfirmation ?? true,
+      actionType: reconcile,
+      disabledReason: queue.nextAction?.disabledReason,
+    };
+  }
+  return {
+    id: `decision:${queue.id}:blocked`,
+    label: "查看阻塞任务",
+    description: queue.blockedReason ?? queue.failureReason ?? "任务队列已阻塞，需要查看 evidence。",
+    kind: "read-only",
+    enabled: false,
+    requiresConfirmation: false,
+    disabledReason: "当前没有可执行的 retry/reconcile 路径。",
+  };
+}
+
 function workflowNextAction(actionType: ThreadStreamAction["actionType"], label: string, description: string, requiresConfirmation = true): WorkpadNextAction {
   return {
     id: `workflow:${actionType}`,
@@ -1152,6 +1273,299 @@ function workflowNextAction(actionType: ThreadStreamAction["actionType"], label:
     enabled: true,
     requiresConfirmation,
   };
+}
+
+function buildDecisionInspector(input: {
+  selectedTopic: WorkbenchTopicDetail | null;
+  workpad: WorkbenchWorkpad;
+  approvals: WorkbenchApprovalItem[];
+  decisions: WorkbenchDecisionItem[];
+}): WorkbenchDecisionInspector {
+  const contexts: WorkbenchDecisionContext[] = [];
+  if (input.selectedTopic) {
+    contexts.push(...queueDecisionContexts(input.selectedTopic, input.workpad));
+    contexts.push(...taskDecisionContexts(input.selectedTopic, input.workpad));
+    contexts.push(...latestValidationAuditContexts(input.selectedTopic));
+  }
+
+  const hasCurrentBlocker = contexts.some((context) => ["queue-blocker", "task-blocker", "validation-failed", "audit-blocked"].includes(context.kind));
+  const approvalContexts = input.approvals.map((approval) => approvalDecisionContext(approval));
+  for (const context of approvalContexts) {
+    if (hasCurrentBlocker && context.kind === "audit-approved") contexts.push({ ...context, kind: "history", severity: "info" });
+    else contexts.push(context);
+  }
+
+  const decisionHistory = input.decisions.map(decisionHistoryContext);
+  const current = contexts.filter((context) => context.kind !== "history");
+  const primary = current.sort(compareDecisionContexts)[0] ?? null;
+  const related = current.filter((context) => context.id !== primary?.id).sort(compareDecisionContexts);
+  const history = [
+    ...contexts.filter((context) => context.kind === "history"),
+    ...decisionHistory,
+  ].sort((a, b) => (b.timestamp ?? "").localeCompare(a.timestamp ?? ""));
+  return { primary, related, history };
+}
+
+function queueDecisionContexts(topic: WorkbenchTopicDetail, workpad: WorkbenchWorkpad): WorkbenchDecisionContext[] {
+  const queue = workpad.taskQueue;
+  if (!queue || !["blocked", "failed"].includes(queue.status)) return [];
+  const task = workpad.taskGraph.nodes.find((node) => node.taskId === queue.currentTaskId) ?? workpad.taskGraph.nodes.find((node) => node.status === "blocked");
+  return [{
+    id: `queue:${queue.id}:blocked`,
+    kind: "queue-blocker",
+    title: `任务队列已阻塞${task ? `：${task.taskId}` : ""}`,
+    summary: queue.blockedReason ?? queue.failureReason ?? task?.blockers[0] ?? "队列停在阻塞任务，等待你查看证据或重试。",
+    severity: "blocking",
+    changeId: topic.id,
+    taskId: task?.taskId ?? queue.currentTaskId,
+    taskRunId: task?.taskRun?.id,
+    queueRunId: queue.id,
+    runId: task?.taskRun?.runId,
+    actions: decisionActionsForQueueBlocker(queue, task),
+  }];
+}
+
+function taskDecisionContexts(topic: WorkbenchTopicDetail, workpad: WorkbenchWorkpad): WorkbenchDecisionContext[] {
+  return workpad.taskGraph.nodes
+    .filter((task) => task.status === "blocked")
+    .map((task) => ({
+      id: `task:${task.taskId}:blocked`,
+      kind: "task-blocker" as const,
+      title: `任务阻塞：${task.taskId}`,
+      summary: task.blockers[0] ?? "该任务需要处理阻塞后才能继续。",
+      severity: "blocking" as const,
+      changeId: topic.id,
+      taskId: task.taskId,
+      taskRunId: task.taskRun?.id,
+      runId: task.taskRun?.runId,
+      timestamp: latestTaskEvidenceTimestamp(task),
+      actions: decisionActionsForTaskBlocker(task),
+    }));
+}
+
+function latestValidationAuditContexts(topic: WorkbenchTopicDetail): WorkbenchDecisionContext[] {
+  const validations = (topic.validations as ValidationSummary[]).sort((a, b) => (b.finishedAt ?? "").localeCompare(a.finishedAt ?? ""));
+  const audits = (topic.audits as AuditSummary[]).sort((a, b) => (b.finishedAt ?? "").localeCompare(a.finishedAt ?? ""));
+  const contexts: WorkbenchDecisionContext[] = [];
+  const validation = validations[0];
+  if (validation?.status === "failed") {
+    contexts.push({
+      id: `validation:${validation.id}:failed`,
+      kind: "validation-failed",
+      title: `Validation failed: ${validation.id}`,
+      summary: "Validation failed and blocks safe progress.",
+      severity: "blocking",
+      changeId: topic.id,
+      targetId: validation.id,
+      runId: validation.runId,
+      timestamp: validation.finishedAt,
+      actions: evidenceActions(undefined),
+    });
+  }
+  const audit = audits[0];
+  if (audit?.status === "blocked" || audit?.status === "failed") {
+    contexts.push({
+      id: `audit:${audit.id}:blocked`,
+      kind: "audit-blocked",
+      title: `Audit ${audit.status}: ${audit.id}`,
+      summary: "Audit blocked safe progress. Review the blocker and retry the related task when a retry path exists.",
+      severity: "blocking",
+      changeId: topic.id,
+      targetId: audit.id,
+      runId: audit.runId,
+      timestamp: audit.finishedAt,
+      actions: evidenceActions(undefined),
+      rework: recordFeedbackPrompt("记录审查阻塞反馈"),
+    });
+  }
+  return contexts;
+}
+
+function approvalDecisionContext(approval: WorkbenchApprovalItem): WorkbenchDecisionContext {
+  const kind = decisionKindForApproval(approval.kind);
+  const title = decisionTitleForApproval(approval);
+  return {
+    id: `approval:${approval.id}`,
+    kind,
+    title,
+    summary: approval.reason ?? approval.label,
+    severity: approval.severity,
+    changeId: approval.changeId,
+    runId: approval.runId,
+    targetId: approval.targetId,
+    artifact: approval.artifact,
+    actions: decisionActionsForApproval(approval, kind),
+    rework: proposalLikeDecision(kind) ? inlineFeedbackPrompt("要求修改") : kind === "audit-approved" ? inlineFeedbackPrompt("要求复审") : undefined,
+  };
+}
+
+function decisionHistoryContext(decision: WorkbenchDecisionItem): WorkbenchDecisionContext {
+  return {
+    id: `decision:${decision.id}`,
+    kind: "history",
+    title: decision.label,
+    summary: decision.feedback ? `${decision.summary}\n${decision.feedback}` : decision.summary,
+    severity: decision.status === "failed" ? "blocking" : decision.status === "requested-changes" ? "warning" : "info",
+    changeId: decision.changeId,
+    runId: decision.runId,
+    targetId: decision.targetId,
+    artifact: decision.artifact,
+    timestamp: decision.completedAt ?? decision.updatedAt,
+    actions: decision.artifact ? evidenceActions(decision.artifact) : [],
+  };
+}
+
+function decisionActionsForQueueBlocker(queue: WorkbenchTaskQueueSummary, task?: WorkbenchTaskNode): WorkbenchDecisionAction[] {
+  const actions: WorkbenchDecisionAction[] = [];
+  if (task?.nextAction.actionType === "task.run.retry" && task.nextAction.taskRunId) {
+    actions.push({
+      id: `retry:${task.nextAction.taskRunId}`,
+      label: "重试任务",
+      kind: "workflow-action",
+      actionType: "task.run.retry",
+      taskIds: [task.taskId],
+      taskRunId: task.nextAction.taskRunId,
+      enabled: task.nextAction.enabled,
+      requiresConfirmation: true,
+      disabledReason: task.nextAction.disabledReason,
+    });
+  }
+  if (queue.nextAction?.actionType) {
+    actions.push({
+      id: `reconcile:${queue.id}`,
+      label: "刷新执行状态",
+      kind: "workflow-action",
+      actionType: queue.nextAction.actionType,
+      enabled: queue.nextAction.enabled,
+      requiresConfirmation: queue.nextAction.requiresConfirmation,
+      disabledReason: queue.nextAction.disabledReason,
+    });
+  }
+  return actions;
+}
+
+function decisionActionsForTaskBlocker(task: WorkbenchTaskNode): WorkbenchDecisionAction[] {
+  const actions = task.nextAction.actionType === "task.run.retry" && task.nextAction.taskRunId
+    ? [{
+        id: `retry:${task.nextAction.taskRunId}`,
+        label: "重试任务",
+        kind: "workflow-action" as const,
+        actionType: "task.run.retry" as const,
+        taskIds: [task.taskId],
+        taskRunId: task.nextAction.taskRunId,
+        enabled: task.nextAction.enabled,
+        requiresConfirmation: true,
+        disabledReason: task.nextAction.disabledReason,
+      }]
+    : [];
+  return [...actions, ...task.latestEvidence.flatMap((item) => evidenceActions(item.artifact))];
+}
+
+function decisionActionsForApproval(approval: WorkbenchApprovalItem, kind: WorkbenchDecisionContextKind): WorkbenchDecisionAction[] {
+  const actions: WorkbenchDecisionAction[] = [];
+  if (approval.action) {
+    actions.push({
+      id: `accept:${approval.id}`,
+      label: actionLabelForDecision(kind, approval.action.label),
+      kind: "approval",
+      approvalId: approval.id,
+      action: { ...approval.action, label: actionLabelForDecision(kind, approval.action.label) },
+      enabled: true,
+      requiresConfirmation: approval.action.requiresConfirmation,
+    });
+  }
+  if (approval.artifact) actions.push(...evidenceActions(approval.artifact));
+  if (proposalLikeDecision(kind) || kind === "audit-approved") {
+    actions.push({
+      id: `feedback:${approval.id}`,
+      label: kind === "audit-approved" ? "要求复审" : "要求修改",
+      kind: "feedback",
+      approvalId: approval.id,
+      action: approval.action,
+      enabled: Boolean(approval.action),
+      requiresConfirmation: false,
+      disabledReason: approval.action ? undefined : "该对象没有可记录反馈的 action context。",
+    });
+  }
+  return actions;
+}
+
+function evidenceActions(artifact?: string): WorkbenchDecisionAction[] {
+  return artifact ? [{
+    id: `evidence:${artifact}`,
+    label: "查看证据",
+    kind: "evidence",
+    enabled: true,
+    requiresConfirmation: false,
+    artifact,
+  }] : [];
+}
+
+function decisionKindForApproval(kind: WorkbenchApprovalKind): WorkbenchDecisionContextKind {
+  if (kind === "spec-proposal") return "spec-proposal";
+  if (kind === "plan-proposal" || kind === "spec-test-proposal") return "plan-proposal";
+  if (kind === "audit-proposal") return "audit-approved";
+  if (kind === "worktree-apply") return "apply-gate";
+  if (kind === "change-close") return "close-gate";
+  if (kind === "evolution") return "evolution-pending";
+  return "history";
+}
+
+function decisionTitleForApproval(approval: WorkbenchApprovalItem): string {
+  if (approval.kind === "spec-proposal") return `Spec proposal: ${approval.targetId ?? approval.id}`;
+  if (approval.kind === "plan-proposal") return `Plan proposal: ${approval.targetId ?? approval.id}`;
+  if (approval.kind === "audit-proposal") return `审查证据可接受：${approval.targetId ?? approval.id}`;
+  if (approval.kind === "worktree-apply") return `Worktree 可应用：${approval.targetId ?? approval.id}`;
+  if (approval.kind === "change-close") return `Change 可关闭：${approval.targetId ?? approval.id}`;
+  return approval.label;
+}
+
+function actionLabelForDecision(kind: WorkbenchDecisionContextKind, fallback: string): string {
+  if (kind === "spec-proposal") return "接受 Spec";
+  if (kind === "plan-proposal") return "接受 Plan";
+  if (kind === "audit-approved") return "接受审查证据";
+  if (kind === "apply-gate") return "应用到源码";
+  if (kind === "close-gate") return "关闭并归档";
+  return fallback;
+}
+
+function proposalLikeDecision(kind: WorkbenchDecisionContextKind): boolean {
+  return kind === "spec-proposal" || kind === "plan-proposal";
+}
+
+function inlineFeedbackPrompt(label: string): WorkbenchReworkPrompt {
+  return {
+    mode: "inline-feedback",
+    label,
+    placeholder: "写下需要修改的点、补充约束或复审要求。",
+  };
+}
+
+function recordFeedbackPrompt(label: string): WorkbenchReworkPrompt {
+  return {
+    mode: "record-feedback",
+    label,
+    placeholder: "记录你的判断或后续修复要求。",
+  };
+}
+
+function compareDecisionContexts(a: WorkbenchDecisionContext, b: WorkbenchDecisionContext): number {
+  return decisionPriority(a) - decisionPriority(b) || (b.timestamp ?? "").localeCompare(a.timestamp ?? "");
+}
+
+function decisionPriority(context: WorkbenchDecisionContext): number {
+  if (context.kind === "queue-blocker") return 0;
+  if (context.kind === "task-blocker") return 1;
+  if (context.kind === "validation-failed" || context.kind === "audit-blocked") return 2;
+  if (context.kind === "spec-proposal" || context.kind === "plan-proposal") return 3;
+  if (context.kind === "audit-approved") return 4;
+  if (context.kind === "apply-gate" || context.kind === "close-gate") return 5;
+  if (context.kind === "evolution-pending") return 6;
+  return 99;
+}
+
+function latestTaskEvidenceTimestamp(task: WorkbenchTaskNode): string | undefined {
+  return task.latestEvidence.map((item) => item.timestamp).filter((item): item is string => Boolean(item)).sort().at(-1);
 }
 
 function stateLabelForWorkpad(state: WorkbenchTopicState): string {

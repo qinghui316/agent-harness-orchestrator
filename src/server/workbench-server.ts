@@ -61,6 +61,13 @@ interface WorkbenchActionRequest {
   taskRunId?: string;
   confirm?: boolean;
   feedback?: string;
+  feedbackContext?: {
+    contextId?: string;
+    approvalId?: string;
+    changeId?: string;
+    targetId?: string;
+    runId?: string;
+  };
   options?: {
     commit?: boolean;
     message?: string;
@@ -392,19 +399,20 @@ export async function executeWorkbenchAction(input: WorkbenchProjectInput, body:
     throw error;
   }
   if (typeof body.feedback === "string" && body.feedback.trim()) {
+    const context = body.feedbackContext ?? {};
     await recordWorkbenchDecision(input.project, {
-      id: `feedback:${action.actionId}:${action.args.join(":")}:${Date.now()}`,
-      changeId: inferChangeIdFromAction(action, null),
+      id: `feedback:${context.contextId ?? action.actionId}:${action.args.join(":")}:${Date.now()}`,
+      changeId: context.changeId ?? inferChangeIdFromAction(action, null),
       decisionType: action.actionId,
       status: "requested-changes",
       label: `Requested changes: ${action.label}`,
       summary: "User requested changes instead of accepting this decision.",
-      targetId: inferTargetIdFromAction(action, null),
-      runId: null,
+      targetId: context.targetId ?? inferTargetIdFromAction(action, null),
+      runId: context.runId ?? null,
       artifact: null,
       actionId: action.actionId,
       feedback: body.feedback.trim(),
-      payload: { action, feedback: body.feedback.trim() },
+      payload: { action, feedback: body.feedback.trim(), context },
     });
     return { result: { status: "requested-changes" }, snapshot: await getWorkbenchSnapshot(input) };
   }

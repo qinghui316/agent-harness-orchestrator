@@ -40,7 +40,7 @@ type Snapshot = {
     agentLoop: { runs: RunSummary[] };
     thread: { items: ThreadStreamItem[] };
   };
-  right: { approvals: Approval[]; decisions: Decision[] };
+  right: { approvals: Approval[]; decisions: Decision[]; decisionInspector: DecisionInspector };
   harnessGaps: Array<{ id: string; status: string; summary: string }>;
   warnings: string[];
 };
@@ -62,6 +62,7 @@ type WorkpadNextAction = {
   actionType?: ThreadStreamAction["actionType"];
   approvalId?: string;
   taskIds?: string[];
+  taskRunId?: string;
   disabledReason?: string;
 };
 type WorkbenchTaskEvidence = {
@@ -240,6 +241,43 @@ type Approval = {
   reason?: string;
   action?: { actionId: string; label: string; command: string; args: string[]; mutates: boolean; requiresConfirmation: boolean };
 };
+type DecisionAction = {
+  id: string;
+  label: string;
+  kind: "approval" | "workflow-action" | "feedback" | "evidence" | "none";
+  enabled: boolean;
+  requiresConfirmation: boolean;
+  approvalId?: string;
+  action?: { actionId: string; label: string; command: string; args: string[]; mutates: boolean; requiresConfirmation: boolean };
+  actionType?: ThreadStreamAction["actionType"];
+  taskIds?: string[];
+  taskRunId?: string;
+  artifact?: string;
+  disabledReason?: string;
+};
+type DecisionContext = {
+  id: string;
+  kind: string;
+  title: string;
+  summary: string;
+  severity: "info" | "warning" | "blocking";
+  changeId?: string;
+  taskId?: string;
+  taskRunId?: string;
+  queueRunId?: string;
+  runId?: string;
+  targetId?: string;
+  artifact?: string;
+  timestamp?: string;
+  actions: DecisionAction[];
+  rework?: { mode: "inline-feedback" | "record-feedback"; label: string; placeholder: string };
+};
+type DecisionInspector = {
+  primary: DecisionContext | null;
+  related: DecisionContext[];
+  history: DecisionContext[];
+  selectedContextId?: string;
+};
 type Decision = {
   id: string;
   kind: string;
@@ -364,7 +402,7 @@ const emptySnapshot: Snapshot = {
   memory: {},
   left: { topics: [] },
   center: { selectedTopic: null, workpad: emptyWorkpad(), agentLoop: { runs: [] }, thread: { items: [] } },
-  right: { approvals: [], decisions: [] },
+  right: { approvals: [], decisions: [], decisionInspector: { primary: null, related: [], history: [] } },
   harnessGaps: [],
   warnings: [],
 };
@@ -380,6 +418,7 @@ export function App(): ReactElement {
   const [tab, setTab] = useState<"workpad" | "thread" | "loop">("workpad");
   const [navPanel, setNavPanel] = useState<"topics" | "repo" | "memory" | "settings">("topics");
   const [confirming, setConfirming] = useState<string | null>(null);
+  const [selectedDecisionContextId, setSelectedDecisionContextId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [composerText, setComposerText] = useState("");
   const [composerMode, setComposerMode] = useState<"chat" | "plan">("chat");
@@ -448,29 +487,47 @@ export function App(): ReactElement {
     setStream(await fetchJson<StreamPacket>(`/api/projects/${encodeURIComponent(selectedProjectId)}/workbench/stream/${encodeURIComponent(runId)}`));
   }
 
-  async function executeApproval(approval: Approval): Promise<void> {
-    if (!approval.action || !selectedProjectId) return;
-    const result = await fetch(`/api/projects/${encodeURIComponent(selectedProjectId)}/workbench/actions`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: approval.action, confirm: true }),
-    });
-    if (!result.ok) throw new Error(await result.text());
-    setConfirming(null);
-    await refresh();
+  async function executeDecisionAction(action: DecisionAction, context: DecisionContext): Promise<void> {
+    if (!selectedProjectId || !action.enabled) return;
+    if (action.kind === "approval" && action.action) {
+      const result = await fetch(`/api/projects/${encodeURIComponent(selectedProjectId)}/workbench/actions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: action.action, confirm: true }),
+      });
+      if (!result.ok) throw new Error(await result.text());
+      setConfirming(null);
+      await refresh();
+      return;
+    }
+    if (action.kind === "workflow-action" && action.actionType) {
+      await runWorkflowAction(action.actionType, { taskIds: action.taskIds, taskRunId: action.taskRunId });
+      return;
+    }
+    if (action.kind === "evidence" && context.runId) {
+      await chooseRun(context.runId);
+      setTab("loop");
+    }
   }
 
-  async function requestApprovalChanges(approval: Approval): Promise<void> {
-    if (!approval.action || !selectedProjectId) return;
-    const feedback = window.prompt("写下你希望修改的地方");
-    if (!feedback?.trim()) return;
+  async function requestDecisionFeedback(context: DecisionContext, action: DecisionAction, feedback: string): Promise<void> {
+    if (!selectedProjectId || !action.action || !feedback.trim()) return;
     const result = await fetch(`/api/projects/${encodeURIComponent(selectedProjectId)}/workbench/actions`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: approval.action, feedback }),
+      body: JSON.stringify({
+        action: action.action,
+        feedback: feedback.trim(),
+        feedbackContext: {
+          contextId: context.id,
+          approvalId: action.approvalId,
+          changeId: context.changeId,
+          targetId: context.targetId,
+          runId: context.runId,
+        },
+      }),
     });
     if (!result.ok) throw new Error(await result.text());
-    setConfirming(null);
     await refresh();
   }
 
@@ -735,6 +792,18 @@ export function App(): ReactElement {
   const threadItems = useMemo(() => {
     return [...snapshot.center.thread.items, ...liveItems].filter((item) => item.kind !== "change-state");
   }, [snapshot.center.thread.items, liveItems]);
+  const activeDecisionInspector = useMemo(() => {
+    const inspector = snapshot.right.decisionInspector ?? { primary: null, related: [], history: [] };
+    if (!selectedDecisionContextId) return inspector;
+    const selected = [inspector.primary, ...inspector.related, ...inspector.history].find((item): item is DecisionContext => Boolean(item && item.id === selectedDecisionContextId));
+    if (!selected) return inspector;
+    return {
+      primary: selected,
+      related: [inspector.primary, ...inspector.related].filter((item): item is DecisionContext => Boolean(item && item.id !== selected.id)),
+      history: inspector.history.filter((item) => item.id !== selected.id),
+      selectedContextId: selected.id,
+    };
+  }, [selectedDecisionContextId, snapshot.right.decisionInspector]);
 
   useEffect(() => {
     const node = threadScrollRef.current;
@@ -834,6 +903,7 @@ export function App(): ReactElement {
                         onWorkflowAction={runWorkflowAction}
                         onConfirmApproval={(approvalId) => setConfirming(approvalId)}
                         onAnswerClarification={answerClarification}
+                        onSelectDecisionContext={setSelectedDecisionContextId}
                       />
                     </div>
                     <TopicComposer
@@ -859,7 +929,13 @@ export function App(): ReactElement {
                         setLatestHidden(node.scrollHeight - node.scrollTop - node.clientHeight > 180);
                       }}
                     >
-                      <ThreadStreamView items={threadItems} liveTurns={liveTurns} busy={actionRunning !== null} onAction={runWorkflowAction} />
+                      <ThreadStreamView
+                        items={threadItems}
+                        liveTurns={liveTurns}
+                        busy={actionRunning !== null}
+                        onAction={runWorkflowAction}
+                        onSelectDecisionContext={setSelectedDecisionContextId}
+                      />
                     </div>
                     {latestHidden ? <button className="latest-button" onClick={() => { const node = threadScrollRef.current; if (node) node.scrollTop = node.scrollHeight; setLatestHidden(false); }}>最新</button> : null}
                     <TopicComposer
@@ -888,48 +964,15 @@ export function App(): ReactElement {
       </main>
 
       <aside className="approval-pane">
-        <div className="approval-header">
-          <h2>决策</h2>
-          <span>{snapshot.right.approvals.length}</span>
-        </div>
-        {error ? <div className="error-box">{error}</div> : null}
-        <div className="approval-list">
-          {snapshot.right.approvals.length === 0 ? (
-            <div className="approval-empty">
-              <h3>暂无待确认动作</h3>
-              <p>当审查、Worktree 应用或关闭变更需要你确认时，会显示在这里。</p>
-            </div>
-          ) : null}
-          {snapshot.right.approvals.map((approval) => (
-            <article key={approval.id} className="approval-card">
-              <div className="approval-meta">
-                <span>{approvalKind(approval.kind)}</span>
-                <small>{approval.severity}</small>
-              </div>
-              <h3>{approval.label}</h3>
-              <p>{approval.reason ?? "等待你确认后推进下一步。"}</p>
-              <dl className="approval-fields">
-                <div><dt>动作</dt><dd>{approval.action?.actionId ?? approval.kind}</dd></div>
-                <div><dt>变更</dt><dd>{approval.changeId ?? activeTopic?.title ?? "-"}</dd></div>
-                <div><dt>状态</dt><dd>{approval.severity}</dd></div>
-              </dl>
-              <div className="approval-actions">
-                {confirming === approval.id ? (
-                  <>
-                    <button className="primary-button" onClick={() => void executeApproval(approval)}><Check size={15} />确认执行</button>
-                    <button className="outline-button" onClick={() => setConfirming(null)}><X size={15} />取消</button>
-                  </>
-                ) : (
-                  <>
-                    <button className="primary-button" onClick={() => setConfirming(approval.id)}><Check size={15} />确认</button>
-                    <button className="outline-button" onClick={() => void requestApprovalChanges(approval)}><FileText size={15} />要求修改</button>
-                  </>
-                )}
-              </div>
-            </article>
-          ))}
-        </div>
-        <DecisionHistory decisions={snapshot.right.decisions ?? []} />
+        <DecisionInspectorPane
+          inspector={activeDecisionInspector}
+          confirming={confirming}
+          error={error}
+          onConfirmingChange={setConfirming}
+          onExecuteAction={executeDecisionAction}
+          onFeedback={requestDecisionFeedback}
+          onSelectContext={setSelectedDecisionContextId}
+        />
       </aside>
 
       <BottomStatusBar snapshot={snapshot} project={selectedProjectStatus} topic={activeTopic} />
@@ -1320,28 +1363,157 @@ function EmptyWorkbench({ title, description }: { title: string; description: st
   );
 }
 
-function DecisionHistory({ decisions }: { decisions: Decision[] }): ReactElement {
+function DecisionInspectorPane({
+  inspector,
+  confirming,
+  error,
+  onConfirmingChange,
+  onExecuteAction,
+  onFeedback,
+  onSelectContext,
+}: {
+  inspector: DecisionInspector;
+  confirming: string | null;
+  error: string | null;
+  onConfirmingChange: (id: string | null) => void;
+  onExecuteAction: (action: DecisionAction, context: DecisionContext) => Promise<void>;
+  onFeedback: (context: DecisionContext, action: DecisionAction, feedback: string) => Promise<void>;
+  onSelectContext: (id: string | null) => void;
+}): ReactElement {
+  return (
+    <>
+      <div className="approval-header">
+        <h2>当前决策</h2>
+        <span>{inspector.primary ? 1 : 0}</span>
+      </div>
+      {error ? <div className="error-box">{error}</div> : null}
+      {!inspector.primary ? (
+        <div className="approval-empty">
+          <h3>暂无当前决策</h3>
+          <p>当任务、审查、应用或关闭需要你介入时，会显示在这里。</p>
+        </div>
+      ) : (
+        <DecisionContextCard
+          context={inspector.primary}
+          confirming={confirming}
+          onConfirmingChange={onConfirmingChange}
+          onExecuteAction={onExecuteAction}
+          onFeedback={onFeedback}
+        />
+      )}
+      {inspector.related.length > 0 ? (
+        <section className="decision-related">
+          <div className="approval-header compact">
+            <h2>相关</h2>
+            <span>{inspector.related.length}</span>
+          </div>
+          {inspector.related.map((context) => (
+            <button className="decision-row" key={context.id} onClick={() => onSelectContext(context.id)}>
+              <strong>{context.title}</strong>
+              <span>{decisionKindLabel(context.kind)} · {context.severity}</span>
+            </button>
+          ))}
+        </section>
+      ) : null}
+      <DecisionContextHistory contexts={inspector.history} onSelectContext={onSelectContext} />
+    </>
+  );
+}
+
+function DecisionContextCard({
+  context,
+  confirming,
+  onConfirmingChange,
+  onExecuteAction,
+  onFeedback,
+}: {
+  context: DecisionContext;
+  confirming: string | null;
+  onConfirmingChange: (id: string | null) => void;
+  onExecuteAction: (action: DecisionAction, context: DecisionContext) => Promise<void>;
+  onFeedback: (context: DecisionContext, action: DecisionAction, feedback: string) => Promise<void>;
+}): ReactElement {
+  const [feedbackActionId, setFeedbackActionId] = useState<string | null>(null);
+  const [feedback, setFeedback] = useState("");
+  const feedbackAction = context.actions.find((action) => action.id === feedbackActionId);
+  async function submitFeedback(): Promise<void> {
+    if (!feedbackAction || !feedback.trim()) return;
+    await onFeedback(context, feedbackAction, feedback);
+    setFeedback("");
+    setFeedbackActionId(null);
+  }
+  return (
+    <article className={`approval-card decision-primary ${context.severity}`} data-testid="decision-inspector-primary">
+      <div className="approval-meta">
+        <span>{decisionKindLabel(context.kind)}</span>
+        <small>{context.severity}</small>
+      </div>
+      <h3>{context.title}</h3>
+      <p>{context.summary}</p>
+      <dl className="approval-fields">
+        <div><dt>变更</dt><dd>{context.changeId ?? "-"}</dd></div>
+        {context.taskId ? <div><dt>任务</dt><dd>{context.taskId}</dd></div> : null}
+        {context.queueRunId ? <div><dt>队列</dt><dd>{context.queueRunId}</dd></div> : null}
+        {context.taskRunId ? <div><dt>TaskRun</dt><dd>{context.taskRunId}</dd></div> : null}
+        {context.runId ? <div><dt>Run</dt><dd>{context.runId}</dd></div> : null}
+      </dl>
+      <div className="approval-actions">
+        {context.actions.map((action) => {
+          if (action.kind === "feedback") {
+            return <button key={action.id} className="outline-button" disabled={!action.enabled} title={action.disabledReason} onClick={() => setFeedbackActionId(action.id)}><FileText size={15} />{action.label}</button>;
+          }
+          if (action.kind === "evidence") {
+            return <button key={action.id} className="outline-button" disabled={!action.enabled} onClick={() => void onExecuteAction(action, context)}><FileText size={15} />{action.label}</button>;
+          }
+          if (action.kind !== "approval" && action.kind !== "workflow-action") return null;
+          return confirming === action.id ? (
+            <span className="confirm-inline" key={action.id}>
+              <button className="primary-button" onClick={() => void onExecuteAction(action, context)}><Check size={15} />确认执行</button>
+              <button className="outline-button" onClick={() => onConfirmingChange(null)}><X size={15} />取消</button>
+            </span>
+          ) : (
+            <button key={action.id} className="primary-button" disabled={!action.enabled} title={action.disabledReason} onClick={() => action.requiresConfirmation ? onConfirmingChange(action.id) : void onExecuteAction(action, context)}><Check size={15} />{action.label}</button>
+          );
+        })}
+      </div>
+      {feedbackAction ? (
+        <div className="decision-feedback" data-testid="decision-feedback-editor">
+          <label>
+            <span>{context.rework?.label ?? feedbackAction.label}</span>
+            <textarea
+              value={feedback}
+              onChange={(event) => setFeedback(event.target.value)}
+              placeholder={context.rework?.placeholder ?? "写下需要修改的地方"}
+              rows={4}
+            />
+          </label>
+          <div className="approval-actions">
+            <button className="primary-button" disabled={!feedback.trim()} onClick={() => void submitFeedback()}>提交反馈</button>
+            <button className="outline-button" onClick={() => { setFeedback(""); setFeedbackActionId(null); }}>取消</button>
+          </div>
+        </div>
+      ) : null}
+    </article>
+  );
+}
+
+function DecisionContextHistory({ contexts, onSelectContext }: { contexts: DecisionContext[]; onSelectContext: (id: string) => void }): ReactElement {
   return (
     <section className="decision-history">
       <div className="approval-header compact">
-        <h2>已完成</h2>
-        <span>{decisions.length}</span>
+        <h2>历史</h2>
+        <span>{contexts.length}</span>
       </div>
-      {decisions.length === 0 ? <div className="approval-empty"><h3>暂无决策记录</h3><p>接受、要求修改或完成的动作会保留在这里。</p></div> : null}
-      <div className="decision-list">
-        {decisions.slice(0, 8).map((decision) => (
-          <article key={decision.id} className="decision-item">
-            <div className="approval-meta"><span>{decision.status}</span><small>{formatTime(decision.completedAt ?? decision.updatedAt)}</small></div>
-            <h3>{decision.label}</h3>
-            <p>{decision.summary}</p>
-            <dl className="approval-fields">
-              <div><dt>目标</dt><dd>{decision.targetId ?? decision.changeId ?? "-"}</dd></div>
-              <div><dt>证据</dt><dd>{decision.artifact ?? decision.runId ?? "-"}</dd></div>
-            </dl>
-            {decision.feedback ? <p className="feedback-note">{decision.feedback}</p> : null}
-          </article>
+      {contexts.length === 0 ? <div className="approval-empty"><h3>暂无历史决策</h3><p>接受、要求修改或完成的动作会保留在这里。</p></div> : null}
+      <details className="decision-history-details" open={false}>
+        <summary>查看历史决策</summary>
+        {contexts.map((context) => (
+          <button className="decision-row" key={context.id} onClick={() => onSelectContext(context.id)}>
+            <strong>{context.title}</strong>
+            <span>{decisionKindLabel(context.kind)} · {context.timestamp ? formatTime(context.timestamp) : context.severity}</span>
+          </button>
         ))}
-      </div>
+      </details>
     </section>
   );
 }
@@ -1388,6 +1560,7 @@ function WorkpadView({
   onWorkflowAction,
   onConfirmApproval,
   onAnswerClarification,
+  onSelectDecisionContext,
 }: {
   workpad: Workpad;
   approvals: Approval[];
@@ -1395,6 +1568,7 @@ function WorkpadView({
   onWorkflowAction: (actionType: string, options?: Record<string, unknown>) => Promise<void>;
   onConfirmApproval: (approvalId: string) => void;
   onAnswerClarification: (clarificationId: string, answer: string) => Promise<void>;
+  onSelectDecisionContext: (contextId: string) => void;
 }): ReactElement {
   const approval = workpad.nextAction.approvalId ? approvals.find((item) => item.id === workpad.nextAction.approvalId) : undefined;
   const confirmedConstraints = workpad.intake.confirmedConstraints ?? [];
@@ -1476,6 +1650,7 @@ function WorkpadView({
               queue={workpad.taskQueue}
               busy={busy}
               onWorkflowAction={onWorkflowAction}
+              onSelectDecisionContext={onSelectDecisionContext}
             />
           ) : null}
           <div className="workpad-task-list">
@@ -1485,6 +1660,7 @@ function WorkpadView({
                 task={task}
                 busy={busy}
                 onWorkflowAction={onWorkflowAction}
+                onSelectDecisionContext={onSelectDecisionContext}
               />
             ))}
           </div>
@@ -1535,13 +1711,16 @@ function TaskQueuePanel({
   queue,
   busy,
   onWorkflowAction,
+  onSelectDecisionContext,
 }: {
   queue: WorkbenchTaskQueueSummary;
   busy: boolean;
   onWorkflowAction: (actionType: string, options?: Record<string, unknown>) => Promise<void>;
+  onSelectDecisionContext: (contextId: string) => void;
 }): ReactElement {
   const action = queue.nextAction;
   const disabled = busy || !action?.enabled || !action.actionType;
+  const blockerContextId = ["blocked", "failed"].includes(queue.status) ? `queue:${queue.id}:blocked` : null;
   const runningCopy = queue.status === "running"
     ? `当前任务 ${queue.currentTaskId ?? "待确定"}`
     : queue.status === "paused"
@@ -1577,6 +1756,11 @@ function TaskQueuePanel({
         ) : null}
       </div>
       <p>{runningCopy}</p>
+      {blockerContextId ? (
+        <button className="context-link" type="button" onClick={() => onSelectDecisionContext(blockerContextId)}>
+          查看当前决策
+        </button>
+      ) : null}
       {queue.items.length > 0 ? (
         <div className="task-queue-items" aria-label="Task queue items">
           {queue.items.map((item) => (
@@ -1594,13 +1778,16 @@ function TaskGraphCard({
   task,
   busy,
   onWorkflowAction,
+  onSelectDecisionContext,
 }: {
   task: WorkbenchTaskNode;
   busy: boolean;
   onWorkflowAction: (actionType: string, options?: Record<string, unknown>) => Promise<void>;
+  onSelectDecisionContext: (contextId: string) => void;
 }): ReactElement {
   const action = task.nextAction;
   const disabled = busy || !action.enabled || !action.actionType;
+  const blockerContextId = task.status === "blocked" ? `task:${task.taskId}:blocked` : null;
   function runTask(): void {
     if (!action.actionType || disabled) return;
     void onWorkflowAction(action.actionType, { taskIds: action.taskIds ?? [task.taskId], taskRunId: action.taskRunId });
@@ -1634,6 +1821,11 @@ function TaskGraphCard({
         <ul className="task-blockers">
           {task.blockers.map((blocker) => <li key={blocker}>{blocker}</li>)}
         </ul>
+      ) : null}
+      {blockerContextId ? (
+        <button className="context-link" type="button" onClick={() => onSelectDecisionContext(blockerContextId)}>
+          查看阻塞决策
+        </button>
       ) : null}
       <button
         className="secondary-button"
@@ -1724,7 +1916,7 @@ function WorkpadActionButton({
       onConfirmApproval(action.approvalId);
       return;
     }
-    if (action.kind === "workflow-action" && action.actionType) void onWorkflowAction(action.actionType, action.taskIds ? { taskIds: action.taskIds } : {});
+    if (action.kind === "workflow-action" && action.actionType) void onWorkflowAction(action.actionType, { taskIds: action.taskIds, taskRunId: action.taskRunId });
   }
   return (
     <div className="workpad-next-action">
@@ -1747,7 +1939,19 @@ function WorkpadMetric({ label, value }: { label: string; value: string }): Reac
   );
 }
 
-function ThreadStreamView({ items, liveTurns, busy, onAction }: { items: ThreadStreamItem[]; liveTurns: LiveAssistantTurn[]; busy: boolean; onAction: (actionType: string, options?: Record<string, unknown>) => Promise<void> }): ReactElement {
+function ThreadStreamView({
+  items,
+  liveTurns,
+  busy,
+  onAction,
+  onSelectDecisionContext,
+}: {
+  items: ThreadStreamItem[];
+  liveTurns: LiveAssistantTurn[];
+  busy: boolean;
+  onAction: (actionType: string, options?: Record<string, unknown>) => Promise<void>;
+  onSelectDecisionContext: (contextId: string) => void;
+}): ReactElement {
   if (items.length === 0 && liveTurns.length === 0) return <div className="empty-state">暂无线程内容。</div>;
   return (
     <div className="timeline">
@@ -1767,6 +1971,11 @@ function ThreadStreamView({ items, liveTurns, busy, onAction }: { items: ThreadS
               </>
             )}
             {item.artifact && !(item.blocks && item.blocks.some((block) => block.artifactRef === item.artifact)) ? <small className="artifact-link">查看证据：{artifactName(item.artifact)}</small> : null}
+            {item.kind === "decision" ? (
+              <button className="context-link" type="button" onClick={() => onSelectDecisionContext(`decision:${item.id}`)}>
+                在右侧查看决策
+              </button>
+            ) : null}
           </div>
           <time>{formatTime(item.timestamp)}</time>
         </div>
@@ -2579,13 +2788,18 @@ function threadIcon(item: ThreadStreamItem): ReactElement {
   return <CircleCheck size={16} />;
 }
 
-function approvalKind(kind: string): string {
-  if (kind.includes("audit")) return "审查";
-  if (kind.includes("apply")) return "应用";
-  if (kind.includes("close")) return "关闭";
-  if (kind.includes("spec")) return "Spec";
-  if (kind.includes("plan")) return "计划";
-  return "确认";
+function decisionKindLabel(kind: string): string {
+  if (kind === "queue-blocker") return "队列阻塞";
+  if (kind === "task-blocker") return "任务阻塞";
+  if (kind === "validation-failed") return "验证失败";
+  if (kind === "audit-blocked") return "审查阻塞";
+  if (kind === "spec-proposal") return "Spec";
+  if (kind === "plan-proposal") return "计划";
+  if (kind === "audit-approved") return "审查";
+  if (kind === "apply-gate") return "应用";
+  if (kind === "close-gate") return "关闭";
+  if (kind === "evolution-pending") return "Harness";
+  return "历史";
 }
 
 function workflowActionLabel(actionType: string | undefined): string {

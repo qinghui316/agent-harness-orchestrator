@@ -654,6 +654,81 @@ describe("workbench read model", () => {
     expect(node?.nextAction).toMatchObject({ enabled: false, disabledReason: "任务队列正在运行或等待恢复。" });
   });
 
+  it("projects blocked queue as the primary decision and moves stale audit approvals to history", async () => {
+    await initHarness(project());
+    await createChange(project(), { title: "Queue Blocked Decision" });
+    await writeAcceptedSpecAndTasks("queue-blocked-decision");
+    await writeTaskQueueRecord("queue-blocked-decision", "queue-blocked-1", "blocked", { currentTaskId: "T-001", totalCount: 1, blockedReason: "T-001: Audit blocked." });
+    await writeTaskQueueItemRecord("queue-blocked-decision", "queue-blocked-1", "queue-blocked-1-item-001", "T-001", 1, "blocked", { taskRunId: "taskrun-blocked-1", blockedReason: "Audit blocked." });
+    await writeTaskRunRecord("queue-blocked-decision", "taskrun-blocked-1", "T-001", "blocked", 1, {
+      runId: "run-blocked-1",
+      worktreeId: "wt-blocked-1",
+      blockedReason: "Audit blocked.",
+    });
+    await writeCoderRun("queue-blocked-decision", "run-blocked-1", ["T-001"], "wt-blocked-1", "completed", "taskrun-blocked-1");
+    await writeAuditResult("queue-blocked-decision", "audit-old-approved", "wt-blocked-1", "approved-with-notes");
+    await writeAuditResult("queue-blocked-decision", "audit-latest-blocked", "wt-blocked-1", "blocked");
+
+    const snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: "queue-blocked-decision" });
+
+    expect(snapshot.center.workpad.nextAction).toMatchObject({
+      actionType: "task.run.retry",
+      taskRunId: "taskrun-blocked-1",
+      label: "重试阻塞任务",
+    });
+    expect(snapshot.right.decisionInspector.primary).toMatchObject({
+      kind: "queue-blocker",
+      queueRunId: "queue-blocked-1",
+      taskId: "T-001",
+      taskRunId: "taskrun-blocked-1",
+    });
+    expect(snapshot.right.decisionInspector.primary?.actions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: "workflow-action", actionType: "task.run.retry", taskRunId: "taskrun-blocked-1" }),
+      expect.objectContaining({ kind: "workflow-action", actionType: "task.queue.reconcile" }),
+    ]));
+    expect(snapshot.right.decisionInspector.history).toEqual(expect.arrayContaining([
+      expect.objectContaining({ title: expect.stringContaining("audit-old-approved") }),
+    ]));
+  });
+
+  it("records proposal request-changes feedback without accepting the proposal", async () => {
+    await initHarness(project());
+    await createChange(project(), { title: "Feedback Proposal" });
+    const run = await writeSpecProposalRun("feedback-proposal");
+    const before = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: "feedback-proposal" });
+    const action = before.right.approvals.find((item) => item.id === `spec:${run.id}`)?.action;
+    expect(action).toBeTruthy();
+    if (!action) throw new Error("Expected spec proposal action");
+
+    await executeWorkbenchAction({ project: project(), path: tempDir }, {
+      action,
+      feedback: "补充边界后再生成 Spec。",
+      feedbackContext: {
+        contextId: `approval:spec:${run.id}`,
+        approvalId: `spec:${run.id}`,
+        changeId: "feedback-proposal",
+        targetId: run.id,
+        runId: run.id,
+      },
+    });
+
+    const after = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: "feedback-proposal" });
+
+    expect(after.right.approvals.some((item) => item.id === `spec:${run.id}`)).toBe(true);
+    expect(after.right.decisions).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        status: "requested-changes",
+        changeId: "feedback-proposal",
+        targetId: run.id,
+        runId: run.id,
+        feedback: "补充边界后再生成 Spec。",
+      }),
+    ]));
+    expect(after.center.thread.items).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: "decision", status: "requested-changes", body: "User requested changes instead of accepting this decision." }),
+    ]));
+  });
+
   it("reconciles a running TaskQueue item from completed TaskRun evidence", async () => {
     await initHarness(project());
     await createChange(project(), { title: "Queue Reconcile" });

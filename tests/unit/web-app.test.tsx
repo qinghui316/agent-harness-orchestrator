@@ -152,6 +152,37 @@ const snapshot = {
       updatedAt: "2026-05-15T12:00:00.000Z",
       completedAt: "2026-05-15T12:00:00.000Z",
     }],
+    decisionInspector: {
+      primary: {
+        id: "approval:close:member-discount",
+        kind: "close-gate",
+        title: "Change 可关闭：member-discount",
+        summary: "关闭已完成变更。",
+        severity: "info",
+        changeId: "member-discount",
+        targetId: "member-discount",
+        actions: [{
+          id: "accept:close:member-discount",
+          label: "关闭并归档",
+          kind: "approval",
+          approvalId: "close:member-discount",
+          action: { actionId: "change.close", label: "关闭并归档", command: "change", args: ["close", "repo"], mutates: true, requiresConfirmation: true },
+          enabled: true,
+          requiresConfirmation: true,
+        }],
+      },
+      related: [],
+      history: [{
+        id: "decision:decision-1",
+        kind: "history",
+        title: "接受 Spec",
+        summary: "已接受 Spec proposal",
+        severity: "info",
+        targetId: "proposal-1",
+        timestamp: "2026-05-15T12:00:00.000Z",
+        actions: [],
+      }],
+    },
   },
   harnessGaps: [],
   warnings: [],
@@ -207,9 +238,9 @@ describe("Workbench web app", () => {
     expect(screen.getByText("目标与当前理解")).toBeTruthy();
     expect(screen.getByText("TaskGraph")).toBeTruthy();
     expect(screen.getByText("证据与决策")).toBeTruthy();
-    expect(screen.getByText("关闭已完成变更。")).toBeTruthy();
+    expect(screen.getAllByText("关闭已完成变更。").length).toBeGreaterThan(0);
     expect(screen.getAllByText("主题").length).toBeGreaterThan(0);
-    expect(screen.getByText("决策")).toBeTruthy();
+    expect(screen.getByText("当前决策")).toBeTruthy();
     expect(screen.getAllByText("已完成").length).toBeGreaterThan(0);
     fireEvent.click(screen.getByText("线程"));
     expect(screen.getByText("用户消息")).toBeTruthy();
@@ -231,7 +262,7 @@ describe("Workbench web app", () => {
     expect(screen.getByText("生成 Spec")).toBeTruthy();
     expect(screen.getAllByText("运行 Code").length).toBeGreaterThan(0);
     expect((screen.getByText("生成 Spec") as HTMLButtonElement).disabled).toBe(true);
-    expect(screen.getByText("关闭变更")).toBeTruthy();
+    expect(screen.getByText("Change 可关闭：member-discount")).toBeTruthy();
     expect(screen.getByText("接受 Spec")).toBeTruthy();
     expect(screen.getByText("刷新状态")).toBeTruthy();
     expect(screen.queryByText("更多")).toBeNull();
@@ -247,7 +278,7 @@ describe("Workbench web app", () => {
     expect(screen.getByText("查看原始日志")).toBeTruthy();
     expect(screen.getByText("done")).toBeTruthy();
 
-    fireEvent.click(screen.getByText("确认"));
+    fireEvent.click(screen.getByText("关闭并归档"));
     expect(screen.getByText("确认执行")).toBeTruthy();
     fireEvent.click(screen.getByText("确认执行"));
     await waitFor(() => {
@@ -298,6 +329,151 @@ describe("Workbench web app", () => {
     expect(document.querySelectorAll("[data-testid='assistant-block-command']")).toHaveLength(1);
     expect(document.querySelectorAll("[data-testid='assistant-block-usage']")).toHaveLength(1);
     expect(document.querySelectorAll("[data-testid='assistant-block-error']")).toHaveLength(1);
+  });
+
+  it("shows a blocked queue as the primary decision instead of a generic approval list", async () => {
+    const blockedSnapshot = {
+      ...snapshot,
+      center: {
+        ...snapshot.center,
+        workpad: {
+          ...snapshot.center.workpad,
+          taskQueue: {
+            id: "queue-blocked",
+            status: "blocked",
+            currentTaskId: "T-001",
+            totalCount: 1,
+            completedCount: 0,
+            blockedReason: "T-001: Audit blocked.",
+            nextAction: { id: "task-queue:queue-blocked:task.queue.reconcile", label: "刷新执行状态", actionType: "task.queue.reconcile", enabled: true, requiresConfirmation: true },
+            items: [{ id: "queue-blocked-item-001", taskId: "T-001", order: 1, status: "blocked", taskRunId: "taskrun-blocked" }],
+          },
+          nextAction: {
+            id: "decision:queue-blocked:T-001:retry",
+            label: "重试阻塞任务",
+            description: "T-001: Audit blocked.",
+            kind: "workflow-action",
+            enabled: true,
+            requiresConfirmation: true,
+            actionType: "task.run.retry",
+            taskIds: ["T-001"],
+            taskRunId: "taskrun-blocked",
+          },
+          taskGraph: {
+            ...snapshot.center.workpad.taskGraph,
+            nodes: [{
+              ...snapshot.center.workpad.taskGraph.nodes[0],
+              status: "blocked",
+              taskRun: { id: "taskrun-blocked", status: "blocked", attempt: 1, roleId: "coder", runId: "run-blocked", worktreeId: "wt-blocked", blockedReason: "Audit blocked." },
+              blockers: ["Audit blocked."],
+              nextAction: { id: "task:T-001:task.run.retry:taskrun-blocked", label: "重试此任务", actionType: "task.run.retry", taskIds: ["T-001"], taskRunId: "taskrun-blocked", enabled: true, requiresConfirmation: true },
+            }],
+          },
+        },
+      },
+      right: {
+        ...snapshot.right,
+        decisionInspector: {
+          primary: {
+            id: "queue:queue-blocked:blocked",
+            kind: "queue-blocker",
+            title: "任务队列已阻塞：T-001",
+            summary: "T-001: Audit blocked.",
+            severity: "blocking",
+            changeId: "member-discount",
+            taskId: "T-001",
+            taskRunId: "taskrun-blocked",
+            queueRunId: "queue-blocked",
+            runId: "run-blocked",
+            actions: [
+              { id: "retry:taskrun-blocked", label: "重试任务", kind: "workflow-action", actionType: "task.run.retry", taskIds: ["T-001"], taskRunId: "taskrun-blocked", enabled: true, requiresConfirmation: true },
+              { id: "reconcile:queue-blocked", label: "刷新执行状态", kind: "workflow-action", actionType: "task.queue.reconcile", enabled: true, requiresConfirmation: true },
+            ],
+          },
+          related: [],
+          history: [{
+            id: "approval:audit-old-approved",
+            kind: "history",
+            title: "审查证据可接受：audit-old-approved",
+            summary: "旧审查证据",
+            severity: "info",
+            timestamp: "2026-05-15T12:00:00.000Z",
+            actions: [],
+          }],
+        },
+      },
+    };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
+      if (url === "/api/projects") return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
+      if (url.endsWith("/workbench/actions/live")) return sseResponse([["snapshot", blockedSnapshot], ["done", { status: "completed" }]]);
+      return jsonResponse(url.includes("/stream/") ? stream : blockedSnapshot);
+    }));
+
+    render(<App />);
+
+    await waitFor(() => expect(screen.getByTestId("decision-inspector-primary")).toBeTruthy());
+    expect(screen.getByText("任务队列已阻塞：T-001")).toBeTruthy();
+    expect(screen.getAllByText("T-001: Audit blocked.").length).toBeGreaterThan(0);
+    expect(screen.getByText("重试任务")).toBeTruthy();
+    expect(screen.getAllByText("刷新执行状态").length).toBeGreaterThan(0);
+    expect(screen.queryByText("确认")).toBeNull();
+    expect(screen.getByText("查看历史决策")).toBeTruthy();
+  });
+
+  it("uses inline feedback for proposal request-changes", async () => {
+    const proposalSnapshot = {
+      ...snapshot,
+      right: {
+        ...snapshot.right,
+        decisionInspector: {
+          primary: {
+            id: "approval:spec:run-spec",
+            kind: "spec-proposal",
+            title: "Spec proposal: run-spec",
+            summary: "等待接受或要求修改。",
+            severity: "info",
+            changeId: "member-discount",
+            targetId: "run-spec",
+            runId: "run-spec",
+            actions: [
+              { id: "accept:spec:run-spec", label: "接受 Spec", kind: "approval", approvalId: "spec:run-spec", action: { actionId: "change.spec.accept", label: "接受 Spec", command: "change", args: ["spec", "accept", "repo", "run-spec"], mutates: true, requiresConfirmation: true }, enabled: true, requiresConfirmation: true },
+              { id: "feedback:spec:run-spec", label: "要求修改", kind: "feedback", approvalId: "spec:run-spec", action: { actionId: "change.spec.accept", label: "接受 Spec", command: "change", args: ["spec", "accept", "repo", "run-spec"], mutates: true, requiresConfirmation: true }, enabled: true, requiresConfirmation: false },
+            ],
+            rework: { mode: "inline-feedback", label: "要求修改", placeholder: "写下需要修改的点、补充约束或复审要求。" },
+          },
+          related: [],
+          history: [],
+        },
+      },
+    };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
+      if (url === "/api/projects") return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
+      if (url.endsWith("/workbench/actions")) return jsonResponse({ result: { status: "requested-changes" }, snapshot: proposalSnapshot });
+      return jsonResponse(url.includes("/stream/") ? stream : proposalSnapshot);
+    }));
+
+    render(<App />);
+
+    await waitFor(() => expect(screen.getByText("Spec proposal: run-spec")).toBeTruthy());
+    fireEvent.click(screen.getByText("要求修改"));
+    expect(screen.getByTestId("decision-feedback-editor")).toBeTruthy();
+    fireEvent.change(screen.getByPlaceholderText("写下需要修改的点、补充约束或复审要求。"), { target: { value: "补充金额舍入规则。" } });
+    fireEvent.click(screen.getByText("提交反馈"));
+
+    await waitFor(() => {
+      expect(fetch).toHaveBeenCalledWith("/api/projects/repo/workbench/actions", expect.objectContaining({
+        method: "POST",
+        body: expect.stringContaining("\"feedback\":\"补充金额舍入规则。\""),
+      }));
+      expect(fetch).toHaveBeenCalledWith("/api/projects/repo/workbench/actions", expect.objectContaining({
+        method: "POST",
+        body: expect.stringContaining("\"contextId\":\"approval:spec:run-spec\""),
+      }));
+    });
   });
 
   it("runs a single TaskGraph task with taskIds in the Workbench action payload", async () => {
@@ -686,7 +862,7 @@ describe("Workbench web app", () => {
     await waitFor(() => expect(screen.getByText("选择一个项目开始")).toBeTruthy());
     expect(screen.getByText("添加")).toBeTruthy();
     expect(screen.getByText("新建")).toBeTruthy();
-    expect(screen.getByText("暂无待确认动作")).toBeTruthy();
+    expect(screen.getByText("暂无当前决策")).toBeTruthy();
     fireEvent.click(screen.getByText("Repo"));
     await waitFor(() => expect(screen.getByText("初始化 Harness")).toBeTruthy());
   });
