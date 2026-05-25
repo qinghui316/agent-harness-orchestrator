@@ -579,18 +579,21 @@ async function sendWorkbenchActionLive(input: WorkbenchProjectInput & { project:
   }
 }
 
-function createLiveSink(sse: ReturnType<typeof createSseResponse>): { emit(event: WorkbenchLiveEvent): void } {
+function createLiveSink(sse: ReturnType<typeof createSseResponse>): { emit(event: WorkbenchLiveEvent): void; isClosed(): boolean } {
   let id = 0;
   return {
     emit(event: WorkbenchLiveEvent): void {
       if (sse.closed) return;
       sse.send(event.event, event.data, ++id);
     },
+    isClosed(): boolean {
+      return sse.closed;
+    },
   };
 }
 
 function isLiveWorkflowAction(actionType: string): actionType is WorkbenchWorkflowActionRequest["actionType"] {
-  return actionType === "chat.ask" || actionType === "change.spec.propose" || actionType === "change.plan.propose" || actionType === "code.run" || actionType === "task.run.start" || actionType === "task.run.retry";
+  return actionType === "chat.ask" || actionType === "change.spec.propose" || actionType === "change.plan.propose" || actionType === "code.run" || actionType === "task.run.start" || actionType === "task.run.retry" || actionType === "task.queue.start" || actionType === "task.queue.reconcile";
 }
 
 function matchProjectWorkbenchRoute(pathname: string): { projectId: string; rest: string } | null {

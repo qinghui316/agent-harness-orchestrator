@@ -119,6 +119,26 @@ type WorkbenchTaskGraph = {
   changeLevelEvidence: WorkbenchTaskEvidence[];
   warnings: string[];
 };
+type WorkbenchTaskQueueSummary = {
+  id: string;
+  status: string;
+  currentTaskId?: string;
+  totalCount: number;
+  completedCount: number;
+  blockedReason?: string;
+  failureReason?: string;
+  pausedReason?: string;
+  nextAction?: WorkbenchTaskNextAction;
+  items: Array<{
+    id: string;
+    taskId: string;
+    order: number;
+    status: string;
+    taskRunId?: string;
+    blockedReason?: string;
+    failureReason?: string;
+  }>;
+};
 type Workpad = {
   title: string;
   subtitle: string;
@@ -148,6 +168,7 @@ type Workpad = {
   };
   tasks: Array<{ id: string; title: string; done: boolean; acIds: string[]; warnings: string[] }>;
   taskGraph: WorkbenchTaskGraph;
+  taskQueue?: WorkbenchTaskQueueSummary;
   evidence: Array<{ id: string; label: string; source: string; status?: string; artifact?: string; timestamp?: string }>;
   blockers: string[];
   warnings: string[];
@@ -161,7 +182,7 @@ type PlanCard = {
 };
 type ThreadEvent = { id: string; type: string; label: string; timestamp?: string; status?: string; runId?: string; planCard?: PlanCard };
 type ThreadStreamAction = {
-  actionType: "change.spec.propose" | "change.plan.propose" | "code.run" | "task.run.start" | "task.run.retry" | "intake.scan" | "intake.reanalyze" | "clarification.answer" | "clarification.skip";
+  actionType: "change.spec.propose" | "change.plan.propose" | "code.run" | "task.run.start" | "task.run.retry" | "task.queue.start" | "task.queue.reconcile" | "intake.scan" | "intake.reanalyze" | "clarification.answer" | "clarification.skip";
   label: string;
   enabled: boolean;
   requiresConfirmation: boolean;
@@ -511,7 +532,7 @@ export function App(): ReactElement {
   async function runWorkflowAction(actionType: string, options: Record<string, unknown> = {}): Promise<void> {
     if (!selectedProjectId || !activeTopic) return;
     setActionRunning(actionType);
-    if (!actionType.startsWith("intake.") && !actionType.startsWith("clarification.")) setTab("thread");
+    if (!actionType.startsWith("intake.") && !actionType.startsWith("clarification.") && actionType !== "task.queue.reconcile") setTab("thread");
     setError(null);
     try {
       if (actionType === "intake.scan") {
@@ -1450,6 +1471,13 @@ function WorkpadView({
             <h3>TaskGraph</h3>
             <span>{workpad.taskGraph.nodes.length} 个任务 · 来自 tasks.md / ac-map.json</span>
           </div>
+          {workpad.taskQueue ? (
+            <TaskQueuePanel
+              queue={workpad.taskQueue}
+              busy={busy}
+              onWorkflowAction={onWorkflowAction}
+            />
+          ) : null}
           <div className="workpad-task-list">
             {workpad.taskGraph.nodes.map((task) => (
               <TaskGraphCard
@@ -1498,6 +1526,65 @@ function WorkpadView({
             {[...workpad.blockers, ...workpad.warnings, ...workpad.intake.missingInfo, ...openQuestions.map((item) => `待确认：${item}`), ...assumptions.map((item) => `假设：${item}`)].map((item, index) => <li key={`${item}:${index}`}>{item}</li>)}
           </ul>
         </section>
+      ) : null}
+    </div>
+  );
+}
+
+function TaskQueuePanel({
+  queue,
+  busy,
+  onWorkflowAction,
+}: {
+  queue: WorkbenchTaskQueueSummary;
+  busy: boolean;
+  onWorkflowAction: (actionType: string, options?: Record<string, unknown>) => Promise<void>;
+}): ReactElement {
+  const action = queue.nextAction;
+  const disabled = busy || !action?.enabled || !action.actionType;
+  const runningCopy = queue.status === "running"
+    ? `当前任务 ${queue.currentTaskId ?? "待确定"}`
+    : queue.status === "paused"
+      ? queue.pausedReason ?? "队列已暂停，等待继续。"
+      : queue.status === "blocked"
+        ? queue.blockedReason ?? "队列已阻塞。"
+        : queue.status === "failed"
+          ? queue.failureReason ?? "队列执行失败。"
+          : queue.status === "completed"
+            ? "队列已完成，等待查看 evidence 与后续人工 gate。"
+            : "本地顺序执行 accepted TaskGraph。";
+  function runQueueAction(): void {
+    if (!action?.actionType || disabled) return;
+    void onWorkflowAction(action.actionType);
+  }
+  return (
+    <div className={`task-queue-panel ${queue.status}`} data-testid="task-queue-panel">
+      <div className="task-queue-summary">
+        <div>
+          <strong>本地任务队列</strong>
+          <span>{humanStatus(queue.status)} · {queue.completedCount}/{queue.totalCount}</span>
+        </div>
+        {action ? (
+          <button
+            className="secondary-button"
+            type="button"
+            disabled={disabled}
+            title={action.disabledReason}
+            onClick={runQueueAction}
+          >
+            {action.label}
+          </button>
+        ) : null}
+      </div>
+      <p>{runningCopy}</p>
+      {queue.items.length > 0 ? (
+        <div className="task-queue-items" aria-label="Task queue items">
+          {queue.items.map((item) => (
+            <span key={item.id} className={`task-queue-item ${item.status}`}>
+              {item.order}. {item.taskId} · {humanStatus(item.status)}
+            </span>
+          ))}
+        </div>
       ) : null}
     </div>
   );

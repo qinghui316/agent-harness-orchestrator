@@ -12,7 +12,8 @@ import { answerClarification, reanalyzeIntake, runIntakeScan } from "../../src/w
 import { getWorkbenchSnapshot, getWorkbenchStream, getWorkbenchTopic, listWorkbenchApprovals, listWorkbenchRoles, listWorkbenchTopics } from "../../src/workbench/manager.js";
 import { WorkbenchStore } from "../../src/workbench/store.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
-import type { ManagedProject, RunMetadata, TaskRun, WorkerLease } from "../../src/types/index.js";
+import { listTaskQueueItems, listTaskQueues, reconcileTaskQueues, startOrResumeTaskQueue } from "../../src/task-queue/manager.js";
+import type { ManagedProject, RunMetadata, TaskQueueItem, TaskQueueRun, TaskRun, WorkerLease } from "../../src/types/index.js";
 
 let tempDir: string;
 
@@ -609,6 +610,74 @@ describe("workbench read model", () => {
       workerLease: expect.objectContaining({ id: "lease-reconcile-1", status: "released" }),
     });
   });
+
+  it("creates a TaskQueue from accepted tasks and skips checked tasks", async () => {
+    await initHarness(project());
+    await createChange(project(), { title: "Task Queue" });
+    await writeAcceptedSpecAndTasks("task-queue");
+    await writeFile(join(tempDir, "harness", "changes", "active", "task-queue", "tasks.md"), [
+      "# Tasks",
+      "",
+      "- [x] T-001: Completed task.",
+      "  - Covers: AC-001",
+      "- [ ] T-002: Runnable task.",
+      "  - Covers: AC-001",
+      "",
+    ].join("\n"), "utf8");
+
+    const result = await startOrResumeTaskQueue(project(), { changeId: "task-queue" });
+    const memory = await resolveProjectMemory(project());
+    const items = await listTaskQueueItems(memory, "task-queue", result.queue.id);
+
+    expect(result.queue).toMatchObject({ status: "queued", totalCount: 1, completedCount: 0 });
+    expect(items).toEqual([
+      expect.objectContaining({ taskId: "T-001", status: "skipped", order: 1 }),
+      expect.objectContaining({ taskId: "T-002", status: "queued", order: 2 }),
+    ]);
+  });
+
+  it("projects TaskQueue status into Workpad and disables single-task actions while queued", async () => {
+    await initHarness(project());
+    await createChange(project(), { title: "Queued Workpad" });
+    await writeAcceptedSpecAndTasks("queued-workpad");
+    const result = await startOrResumeTaskQueue(project(), { changeId: "queued-workpad" });
+
+    const snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: "queued-workpad" });
+    const node = snapshot.center.workpad.taskGraph.nodes.find((item) => item.taskId === "T-001");
+
+    expect(snapshot.center.workpad.taskQueue).toMatchObject({
+      id: result.queue.id,
+      status: "queued",
+      totalCount: 1,
+      nextAction: expect.objectContaining({ actionType: "task.queue.reconcile", label: "刷新执行状态" }),
+    });
+    expect(node?.nextAction).toMatchObject({ enabled: false, disabledReason: "任务队列正在运行或等待恢复。" });
+  });
+
+  it("reconciles a running TaskQueue item from completed TaskRun evidence", async () => {
+    await initHarness(project());
+    await createChange(project(), { title: "Queue Reconcile" });
+    await writeAcceptedSpecAndTasks("queue-reconcile");
+    await writeTaskQueueRecord("queue-reconcile", "queue-1", "running", { currentTaskId: "T-001", totalCount: 1 });
+    await writeTaskQueueItemRecord("queue-reconcile", "queue-1", "queue-1-item-001", "T-001", 1, "running", { taskRunId: "taskrun-queue-1" });
+    await writeTaskRunRecord("queue-reconcile", "taskrun-queue-1", "T-001", "completed", 1, {
+      runId: "run-queue-1",
+      worktreeId: "wt-queue-1",
+      leaseId: "lease-queue-1",
+    });
+    await writeWorkerLeaseRecord("queue-reconcile", "lease-queue-1", "taskrun-queue-1", "T-001", "claimed");
+    await writeCoderRun("queue-reconcile", "run-queue-1", ["T-001"], "wt-queue-1", "completed", "taskrun-queue-1");
+    await writeValidationResult("queue-reconcile", "validation-queue-1", "wt-queue-1", "passed");
+    await writeAuditResult("queue-reconcile", "audit-queue-1", "wt-queue-1", "approved-with-notes");
+
+    const result = await reconcileTaskQueues(project(), { changeId: "queue-reconcile", queueRunId: "queue-1" });
+
+    expect(result.queues).toEqual([expect.objectContaining({ id: "queue-1", status: "completed", completedCount: 1 })]);
+    expect(result.items).toEqual([expect.objectContaining({ id: "queue-1-item-001", status: "completed", taskRunId: "taskrun-queue-1" })]);
+    const memory = await resolveProjectMemory(project());
+    const leases = await listTaskQueues(memory, "queue-reconcile");
+    expect(leases[0]).toMatchObject({ status: "completed" });
+  });
 });
 
 async function writeAcceptedSpecAndTasks(changeId: string): Promise<void> {
@@ -722,6 +791,62 @@ async function writeWorkerLeaseRecord(changeId: string, leaseId: string, taskRun
     expiresAt: new Date(Date.now() + 60_000).toISOString(),
   };
   await writeFile(join(dir, `${leaseId}.json`), JSON.stringify(lease, null, 2), "utf8");
+}
+
+async function writeTaskQueueRecord(
+  changeId: string,
+  queueId: string,
+  status: TaskQueueRun["status"],
+  overrides: Partial<TaskQueueRun> = {},
+): Promise<void> {
+  const dir = join(tempDir, ".agent-harness", "runs", "task-queues", changeId);
+  await mkdir(dir, { recursive: true });
+  const now = new Date().toISOString();
+  const queue: TaskQueueRun = {
+    version: "1.0",
+    id: queueId,
+    projectId: "test-project",
+    changeId,
+    status,
+    createdAt: now,
+    updatedAt: now,
+    startedAt: status === "queued" ? null : now,
+    finishedAt: status === "completed" || status === "blocked" || status === "failed" ? now : null,
+    totalCount: 1,
+    completedCount: status === "completed" ? 1 : 0,
+    ...overrides,
+  };
+  await writeFile(join(dir, `${queueId}.json`), JSON.stringify(queue, null, 2), "utf8");
+}
+
+async function writeTaskQueueItemRecord(
+  changeId: string,
+  queueRunId: string,
+  itemId: string,
+  taskId: string,
+  order: number,
+  status: TaskQueueItem["status"],
+  overrides: Partial<TaskQueueItem> = {},
+): Promise<void> {
+  const dir = join(tempDir, ".agent-harness", "runs", "task-queue-items", changeId);
+  await mkdir(dir, { recursive: true });
+  const now = new Date().toISOString();
+  const item: TaskQueueItem = {
+    version: "1.0",
+    id: itemId,
+    projectId: "test-project",
+    changeId,
+    queueRunId,
+    taskId,
+    order,
+    status,
+    createdAt: now,
+    updatedAt: now,
+    startedAt: status === "queued" || status === "skipped" ? null : now,
+    finishedAt: status === "completed" || status === "blocked" || status === "failed" || status === "skipped" ? now : null,
+    ...overrides,
+  };
+  await writeFile(join(dir, `${itemId}.json`), JSON.stringify(item, null, 2), "utf8");
 }
 
 async function writeValidationResult(changeId: string, validationId: string, worktreeId: string, status: "passed" | "failed"): Promise<void> {

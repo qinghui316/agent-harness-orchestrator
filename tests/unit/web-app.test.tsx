@@ -63,6 +63,14 @@ const snapshot = {
         changeLevelEvidence: [],
         warnings: [],
       },
+      taskQueue: {
+        id: "none",
+        status: "none",
+        totalCount: 1,
+        completedCount: 0,
+        nextAction: { id: "task-queue:start", label: "运行任务队列", actionType: "task.queue.start", enabled: true, requiresConfirmation: true },
+        items: [],
+      },
       evidence: [
         { id: "validation:run-1", source: "validation", label: "Validation passed", status: "passed" },
         { id: "audit:run-1", source: "audit", label: "Audit approved-with-notes", status: "approved-with-notes" },
@@ -321,6 +329,77 @@ describe("Workbench web app", () => {
         body: expect.stringContaining("\"taskIds\":[\"T-001\"]"),
       }));
     });
+  });
+
+  it("runs the local TaskQueue from Workpad without exposing fake parallel controls", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
+      if (url === "/api/projects") return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
+      if (url.endsWith("/workbench/actions/live")) {
+        return sseResponse([
+          ["snapshot", snapshot],
+          ["done", { status: "completed" }],
+        ]);
+      }
+      return jsonResponse(url.includes("/stream/") ? stream : snapshot);
+    }));
+
+    render(<App />);
+
+    await waitFor(() => expect(screen.getByTestId("task-queue-panel")).toBeTruthy());
+    expect(screen.getByText("本地任务队列")).toBeTruthy();
+    expect(screen.queryByText(/并行执行|worker pool|多 agent 协作/)).toBeNull();
+    fireEvent.click(screen.getByText("运行任务队列"));
+
+    await waitFor(() => {
+      expect(fetch).toHaveBeenCalledWith("/api/projects/repo/workbench/actions/live", expect.objectContaining({
+        method: "POST",
+        body: expect.stringContaining("\"actionType\":\"task.queue.start\""),
+      }));
+    });
+  });
+
+  it("shows paused TaskQueue recovery copy and disables individual task run", async () => {
+    const pausedSnapshot = {
+      ...snapshot,
+      center: {
+        ...snapshot.center,
+        workpad: {
+          ...snapshot.center.workpad,
+          taskQueue: {
+            id: "queue-1",
+            status: "paused",
+            currentTaskId: "T-001",
+            totalCount: 1,
+            completedCount: 0,
+            pausedReason: "队列已暂停，等待继续。",
+            nextAction: { id: "task-queue:queue-1:task.queue.start", label: "恢复队列状态", actionType: "task.queue.start", enabled: true, requiresConfirmation: true },
+            items: [{ id: "queue-1-item-001", taskId: "T-001", order: 1, status: "queued" }],
+          },
+          taskGraph: {
+            ...snapshot.center.workpad.taskGraph,
+            nodes: [{
+              ...snapshot.center.workpad.taskGraph.nodes[0],
+              nextAction: { id: "task:T-001:task.run.start", label: "运行此任务", actionType: "task.run.start", taskIds: ["T-001"], enabled: false, requiresConfirmation: true, disabledReason: "任务队列正在运行或等待恢复。" },
+              blockers: ["任务队列正在运行或等待恢复。"],
+            }],
+          },
+        },
+      },
+    };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
+      if (url === "/api/projects") return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
+      return jsonResponse(url.includes("/stream/") ? stream : pausedSnapshot);
+    }));
+
+    render(<App />);
+
+    await waitFor(() => expect(screen.getByText("队列已暂停，等待继续。")).toBeTruthy());
+    expect(screen.getByText("恢复队列状态")).toBeTruthy();
+    expect((screen.getByText("运行此任务") as HTMLButtonElement).disabled).toBe(true);
   });
 
   it("renders clarification questions and submits answers through the intake API", async () => {

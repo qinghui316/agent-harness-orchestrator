@@ -609,6 +609,45 @@ export interface WorkerLease {
   expiresAt: string;
 }
 
+export type TaskQueueRunStatus = "queued" | "running" | "paused" | "blocked" | "failed" | "completed";
+export type TaskQueueItemStatus = "queued" | "running" | "blocked" | "failed" | "completed" | "skipped";
+
+export interface TaskQueueRun {
+  version: "1.0";
+  id: string;
+  projectId: string | null;
+  changeId: string;
+  status: TaskQueueRunStatus;
+  createdAt: string;
+  updatedAt: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+  currentTaskId?: string;
+  totalCount: number;
+  completedCount: number;
+  blockedReason?: string;
+  failureReason?: string;
+  pausedReason?: string;
+}
+
+export interface TaskQueueItem {
+  version: "1.0";
+  id: string;
+  projectId: string | null;
+  changeId: string;
+  queueRunId: string;
+  taskId: string;
+  order: number;
+  status: TaskQueueItemStatus;
+  createdAt: string;
+  updatedAt: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+  taskRunId?: string;
+  blockedReason?: string;
+  failureReason?: string;
+}
+
 export interface RunSkillRecord {
   id: string;
   sourceHash: string;

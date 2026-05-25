@@ -16,6 +16,17 @@ import { executeProcessStreaming } from "../run/process.js";
 import { getEnabledSkillContext } from "../skill/catalog.js";
 import { getSpecTestDriftReport } from "../spec-test/drift.js";
 import { finishTaskRunFromWorkflowResult, markTaskRunStarted, reconcileTaskRuns, retryTaskRun, startTaskRun } from "../task-run/manager.js";
+import {
+  failQueuedTaskItem,
+  getNextQueuedTaskQueueItem,
+  markTaskQueueItemRunning,
+  markTaskQueueRunning,
+  pauseTaskQueue,
+  reconcileTaskQueues,
+  startOrResumeTaskQueue,
+  updateTaskQueueAfterItem,
+  finishTaskQueueItem,
+} from "../task-queue/manager.js";
 import { startValidationRun } from "../validation/manager.js";
 import { buildAgentSystemPrompt, buildRunAgentRecord, resolveAgentRole } from "../agent/catalog.js";
 import type { ManagedProject, ResolvedMemory, RunMetadata, RunStatus } from "../types/index.js";
@@ -152,6 +163,7 @@ export type WorkbenchLiveEvent =
 
 export interface WorkbenchLiveSink {
   emit(event: WorkbenchLiveEvent): void;
+  isClosed?(): boolean;
 }
 
 function emitLive(live: WorkbenchLiveSink | undefined, event: WorkbenchLiveEvent): void {
@@ -453,6 +465,8 @@ export type WorkbenchWorkflowActionType =
   | "task.run.start"
   | "task.run.retry"
   | "task.run.reconcile"
+  | "task.queue.start"
+  | "task.queue.reconcile"
   | "validate.run"
   | "audit.run"
   | "spec-test.drift";
@@ -624,6 +638,10 @@ async function executeWorkflowAction(project: ManagedProject, changeId: string, 
       return runTaskRunCodeValidateAuditSequence(project, changeId, request, live, "retry");
     case "task.run.reconcile":
       return reconcileTaskRuns(project, { changeId, taskRunId: request.taskRunId });
+    case "task.queue.start":
+      return runTaskQueueSequence(project, changeId, request, live);
+    case "task.queue.reconcile":
+      return reconcileTaskQueues(project, { changeId });
     case "validate.run":
       return startValidationRun(project, { worktree: request.worktreeId });
     case "audit.run":
@@ -816,6 +834,15 @@ async function runTaskRunCodeValidateAuditSequence(
   const started = mode === "start"
     ? await startTaskRun(project, { changeId, taskId: requireSingleTaskId(request.taskIds) })
     : await retryTaskRun(project, { changeId, taskRunId: requireTaskRunId(request.taskRunId) });
+  return executeStartedTaskRunWorkflow(project, started, request.prompt, live);
+}
+
+async function executeStartedTaskRunWorkflow(
+  project: ManagedProject,
+  started: Awaited<ReturnType<typeof startTaskRun>>,
+  prompt: string | undefined,
+  live: WorkbenchLiveSink | undefined,
+): Promise<unknown> {
   emitAssistantEvent(live, {
     runId: started.taskRun.id,
     kind: "status",
@@ -833,7 +860,7 @@ async function runTaskRunCodeValidateAuditSequence(
       title: "TaskRun running",
       summary: `${started.taskRun.taskId} attempt ${started.taskRun.attempt} started the Coder -> Validation -> Audit workflow.`,
     });
-    const workflow = await runCodeValidateAuditSequence(project, request.prompt, live, [started.taskRun.taskId], started.taskRun.id);
+    const workflow = await runCodeValidateAuditSequence(project, prompt, live, [started.taskRun.taskId], started.taskRun.id);
     const taskRun = await finishTaskRunFromWorkflowResult(memory, started.taskRun.id, workflow);
     return { taskRun, lease: started.lease, workflow };
   } catch (cause) {
@@ -841,6 +868,97 @@ async function runTaskRunCodeValidateAuditSequence(
     await finishTaskRunFromWorkflowResult(memory, started.taskRun.id, { stoppedAt: "code", code: { run: { status: "failed" } } }).catch(() => undefined);
     throw cause;
   }
+}
+
+async function runTaskQueueSequence(
+  project: ManagedProject,
+  changeId: string,
+  request: WorkbenchWorkflowActionRequest,
+  live: WorkbenchLiveSink | undefined,
+): Promise<unknown> {
+  const memory = await resolveProjectMemory(project);
+  const start = await startOrResumeTaskQueue(project, { changeId });
+  let queue = start.queue;
+  if (start.resumed) {
+    const reconciled = await reconcileTaskQueues(project, { changeId, queueRunId: queue.id });
+    queue = reconciled.queues.find((item) => item.id === queue.id) ?? queue;
+  }
+  queue = await markTaskQueueRunning(memory, queue);
+  emitAssistantEvent(live, {
+    runId: queue.id,
+    kind: "status",
+    phase: start.resumed ? "resumed" : "queued",
+    title: start.resumed ? "任务队列已恢复" : "任务队列已创建",
+    summary: `本地顺序执行 ${queue.totalCount} 个任务。`,
+  });
+
+  while (true) {
+    const nextItem = await getNextQueuedTaskQueueItem(memory, queue);
+    if (!nextItem) {
+      queue = await updateTaskQueueAfterItem(memory, queue);
+      return { queue, items: (await reconcileTaskQueues(project, { changeId, queueRunId: queue.id })).items };
+    }
+    if (live?.isClosed?.()) {
+      queue = await pauseTaskQueue(memory, queue, "队列已暂停，等待继续。");
+      return { queue, items: (await reconcileTaskQueues(project, { changeId, queueRunId: queue.id })).items };
+    }
+
+    queue = await markTaskQueueRunning(memory, queue, nextItem.taskId);
+    emitAssistantEvent(live, {
+      runId: queue.id,
+      kind: "status",
+      phase: "running",
+      title: "运行任务队列",
+      summary: `当前任务 ${nextItem.taskId}，已完成 ${queue.completedCount}/${queue.totalCount}。`,
+    });
+    try {
+      const started = await startTaskRun(project, { changeId, taskId: nextItem.taskId });
+      await markTaskQueueItemRunning(memory, nextItem, started.taskRun);
+      const result = await executeStartedTaskRunWorkflow(project, started, request.prompt, live);
+      const taskRun = isRecord(result) && isRecord(result.taskRun) ? result.taskRun : null;
+      if (!isTaskRunLike(taskRun)) throw new Error(`Task ${nextItem.taskId} did not return a TaskRun result.`);
+      const finishedItem = await finishTaskQueueItem(memory, nextItem, taskRun);
+      queue = await updateTaskQueueAfterItem(memory, queue);
+      if (finishedItem.status === "blocked" || finishedItem.status === "failed") {
+        emitAssistantEvent(live, {
+          runId: queue.id,
+          kind: "error",
+          phase: finishedItem.status,
+          title: "任务队列已停止",
+          summary: queue.blockedReason ?? queue.failureReason ?? `${finishedItem.taskId} 未完成。`,
+        });
+        return { queue, items: (await reconcileTaskQueues(project, { changeId, queueRunId: queue.id })).items };
+      }
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : String(cause);
+      const failedItem = await failQueuedTaskItem(memory, nextItem, message);
+      queue = await updateTaskQueueAfterItem(memory, queue);
+      emitAssistantEvent(live, {
+        runId: queue.id,
+        kind: "error",
+        phase: "failed",
+        title: "任务队列已停止",
+        summary: `${failedItem.taskId}: ${message}`,
+      });
+      return { queue, items: (await reconcileTaskQueues(project, { changeId, queueRunId: queue.id })).items };
+    }
+
+    if (live?.isClosed?.()) {
+      queue = await pauseTaskQueue(memory, queue, "队列已暂停，等待继续。");
+      return { queue, items: (await reconcileTaskQueues(project, { changeId, queueRunId: queue.id })).items };
+    }
+    if (queue.status === "blocked" || queue.status === "failed" || queue.status === "completed") {
+      return { queue, items: (await reconcileTaskQueues(project, { changeId, queueRunId: queue.id })).items };
+    }
+  }
+}
+
+function isTaskRunLike(value: unknown): value is Awaited<ReturnType<typeof startTaskRun>>["taskRun"] {
+  return isRecord(value)
+    && typeof value.id === "string"
+    && typeof value.changeId === "string"
+    && typeof value.taskId === "string"
+    && typeof value.status === "string";
 }
 
 function requireSingleTaskId(taskIds: string[] | undefined): string {
@@ -1439,6 +1557,15 @@ function summarizeActionResult(actionType: string, result: unknown): string {
   if (actionType === "task.run.reconcile" && isRecord(result) && Array.isArray(result.taskRuns)) {
     return `Reconciled ${result.taskRuns.length} TaskRun record(s).`;
   }
+  if (actionType === "task.queue.reconcile" && isRecord(result) && Array.isArray(result.queues)) {
+    return `Recovered ${result.queues.length} task queue record(s).`;
+  }
+  if (actionType === "task.queue.start" && isRecord(result) && isRecord(result.queue)) {
+    const status = typeof result.queue.status === "string" ? result.queue.status : "completed";
+    const completed = typeof result.queue.completedCount === "number" ? result.queue.completedCount : 0;
+    const total = typeof result.queue.totalCount === "number" ? result.queue.totalCount : 0;
+    return `Task queue finished with status ${status}. Completed ${completed}/${total}.`;
+  }
   if (actionType === "code.run" && isRecord(result)) {
     const stoppedAt = typeof result.stoppedAt === "string" && result.stoppedAt ? ` Stopped at ${result.stoppedAt}.` : " Validation and audit sequence completed.";
     return `Coder run was confirmed by the user.${stoppedAt}`;
@@ -1473,6 +1600,8 @@ function labelForAction(actionType: string): string {
     case "task.run.start": return "Task workflow started";
     case "task.run.retry": return "Task workflow retried";
     case "task.run.reconcile": return "Task runs reconciled";
+    case "task.queue.start": return "Task queue started";
+    case "task.queue.reconcile": return "Task queue reconciled";
     case "validate.run": return "Validation run completed";
     case "audit.run": return "Audit run completed";
     case "spec-test.drift": return "Spec-Test drift checked";

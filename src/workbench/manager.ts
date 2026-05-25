@@ -19,6 +19,7 @@ import { getSpecTestDriftReport } from "../spec-test/drift.js";
 import { getSpecTestStatus } from "../spec-test/manager.js";
 import { listSpecTestProposalSummaries } from "../spec-test/proposal.js";
 import { isActiveTaskRunStatus, listTaskRuns, listWorkerLeases } from "../task-run/manager.js";
+import { listTaskQueueItems, listTaskQueues } from "../task-queue/manager.js";
 import { listValidationResults, summarizeValidation } from "../validation/artifacts.js";
 import { listWorktreeStatuses, listWorktreesForChange } from "../worktree/manager.js";
 import { readTopicThreadLog, type AssistantTurnActivity, type AssistantTurnBlock, type OrchestrationPlanCard, type TopicThreadEntry } from "./chat.js";
@@ -34,6 +35,8 @@ import type {
   ResolvedMemory,
   RunEvent,
   RunMetadata,
+  TaskQueueItem,
+  TaskQueueRun,
   TaskRun,
   ValidationSummary,
   WorkerLease,
@@ -82,7 +85,7 @@ export interface WorkbenchThreadEvent {
 }
 
 export interface ThreadStreamAction {
-  actionType: "change.spec.propose" | "change.plan.propose" | "code.run" | "task.run.start" | "task.run.retry" | "intake.scan" | "intake.reanalyze" | "clarification.answer" | "clarification.skip";
+  actionType: "change.spec.propose" | "change.plan.propose" | "code.run" | "task.run.start" | "task.run.retry" | "task.queue.start" | "task.queue.reconcile" | "intake.scan" | "intake.reanalyze" | "clarification.answer" | "clarification.skip";
   label: string;
   enabled: boolean;
   requiresConfirmation: boolean;
@@ -270,6 +273,29 @@ export interface WorkbenchTaskGraph {
   warnings: string[];
 }
 
+export interface WorkbenchTaskQueueItemSummary {
+  id: string;
+  taskId: string;
+  order: number;
+  status: string;
+  taskRunId?: string;
+  blockedReason?: string;
+  failureReason?: string;
+}
+
+export interface WorkbenchTaskQueueSummary {
+  id: string;
+  status: string;
+  currentTaskId?: string;
+  totalCount: number;
+  completedCount: number;
+  blockedReason?: string;
+  failureReason?: string;
+  pausedReason?: string;
+  nextAction?: WorkbenchTaskNextAction;
+  items: WorkbenchTaskQueueItemSummary[];
+}
+
 export interface WorkbenchWorkpad {
   title: string;
   subtitle: string;
@@ -278,6 +304,7 @@ export interface WorkbenchWorkpad {
   progress: WorkpadProgress;
   tasks: WorkpadTaskPreview[];
   taskGraph: WorkbenchTaskGraph;
+  taskQueue?: WorkbenchTaskQueueSummary;
   evidence: WorkpadEvidenceSummary[];
   blockers: string[];
   warnings: string[];
@@ -347,6 +374,8 @@ export interface WorkbenchTopicDetail extends WorkbenchTopicSummary {
   specTest?: unknown;
   drift?: unknown;
   runs: RunMetadata[];
+  taskQueues: TaskQueueRun[];
+  taskQueueItems: TaskQueueItem[];
   taskRuns: TaskRun[];
   workerLeases: WorkerLease[];
   worktrees: unknown[];
@@ -564,6 +593,7 @@ function buildDiagnosticWorkpad(projectName: string, warnings: string[], gaps: H
     progress: emptyProgress("none"),
     tasks: [],
     taskGraph: emptyTaskGraph(),
+    taskQueue: undefined,
     evidence: [],
     blockers: warnings,
     warnings: gaps.filter((gap) => gap.status !== "available").map((gap) => gap.summary),
@@ -611,6 +641,7 @@ async function buildWorkbenchWorkpad(input: {
       progress: emptyProgress("none"),
       tasks: [],
       taskGraph: emptyTaskGraph(),
+      taskQueue: undefined,
       evidence: approvals.slice(0, 5).map(approvalWorkpadEvidence),
       blockers: warnings,
       warnings: gaps.filter((gap) => gap.status !== "available").map((gap) => gap.summary),
@@ -636,7 +667,8 @@ async function buildWorkbenchWorkpad(input: {
   const latestValidation = [...(selectedTopic.validations as ValidationSummary[])].sort((a, b) => (b.finishedAt ?? "").localeCompare(a.finishedAt ?? ""))[0];
   const latestAudit = [...(selectedTopic.audits as AuditSummary[])].sort((a, b) => (b.finishedAt ?? "").localeCompare(a.finishedAt ?? ""))[0];
   const intake = buildWorkpadIntake(selectedTopic);
-  const taskGraph = buildTaskGraph(selectedTopic, { specReady, planReady, tasksReady });
+  const taskQueue = buildTaskQueueSummary(selectedTopic, { specReady, planReady, tasksReady });
+  const taskGraph = buildTaskGraph(selectedTopic, { specReady, planReady, tasksReady }, taskQueue);
 
   return {
     title: selectedTopic.title,
@@ -657,6 +689,7 @@ async function buildWorkbenchWorkpad(input: {
     },
     tasks: taskGraph.nodes.map(taskNodeToPreview),
     taskGraph,
+    taskQueue,
     evidence: buildWorkpadEvidence(selectedTopic, topicApprovals, topicDecisions),
     blockers: [
       ...(selectedTopic.closeGate?.blockingIssues ?? []),
@@ -733,9 +766,68 @@ function taskNodeToPreview(node: WorkbenchTaskNode): WorkpadTaskPreview {
   };
 }
 
+function buildTaskQueueSummary(
+  topic: WorkbenchTopicDetail,
+  readiness: { specReady: boolean; planReady: boolean; tasksReady: boolean },
+): WorkbenchTaskQueueSummary | undefined {
+  const queue = [...(topic.taskQueues ?? [])].sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
+  const disabledReason = taskActionDisabledReason(topic, readiness, false);
+  const queueActionType = queue?.status === "paused" ? "task.queue.start" : "task.queue.reconcile";
+  const baseAction: WorkbenchTaskNextAction | undefined = queue
+    ? {
+        id: `task-queue:${queue.id}:${queueActionType}`,
+        label: queue.status === "paused" ? "恢复队列状态" : "刷新执行状态",
+        actionType: queueActionType,
+        enabled: topic.state === "active",
+        requiresConfirmation: true,
+        disabledReason: topic.state === "active" ? undefined : "Topic is not active.",
+      }
+    : {
+        id: "task-queue:start",
+        label: "运行任务队列",
+        actionType: "task.queue.start",
+        enabled: !disabledReason,
+        requiresConfirmation: true,
+        disabledReason,
+      };
+  if (!queue) return {
+    id: "none",
+    status: "none",
+    totalCount: topic.acMap?.tasks.filter((task) => !task.done).length ?? 0,
+    completedCount: 0,
+    nextAction: baseAction,
+    items: [],
+  };
+  const items = topic.taskQueueItems
+    .filter((item) => item.queueRunId === queue.id)
+    .sort((a, b) => a.order - b.order)
+    .map((item) => ({
+      id: item.id,
+      taskId: item.taskId,
+      order: item.order,
+      status: item.status,
+      taskRunId: item.taskRunId,
+      blockedReason: item.blockedReason,
+      failureReason: item.failureReason,
+    }));
+  return {
+    id: queue.id,
+    status: queue.status,
+    currentTaskId: queue.currentTaskId,
+    totalCount: queue.totalCount,
+    completedCount: queue.completedCount,
+    blockedReason: queue.blockedReason,
+    failureReason: queue.failureReason,
+    pausedReason: queue.pausedReason,
+    nextAction: baseAction,
+    items,
+  };
+}
+
 function buildTaskGraph(
   topic: WorkbenchTopicDetail,
   readiness: { specReady: boolean; planReady: boolean; tasksReady: boolean },
+  queue?: WorkbenchTaskQueueSummary,
 ): WorkbenchTaskGraph {
   if (!topic.acMap || topic.acMap.tasks.length === 0) return emptyTaskGraph();
 
@@ -773,7 +865,8 @@ function buildTaskGraph(
       ...taskValidations.map(taskValidationEvidence),
       ...taskAudits.map(taskAuditEvidence),
     ].sort(compareEvidenceDesc).slice(0, 6);
-    const blockers = buildTaskBlockers(topic, readiness, runs, taskValidations, taskAudits, running, latestTaskRun);
+    const queueActiveForTask = isQueueActiveForTask(queue, task.id);
+    const blockers = buildTaskBlockers(topic, readiness, runs, taskValidations, taskAudits, running || queueActiveForTask, latestTaskRun, queueActiveForTask);
     const status: WorkbenchTaskNodeStatus = task.done
       ? "checked"
       : running
@@ -794,7 +887,7 @@ function buildTaskGraph(
       workerLease: latestLease ? summarizeWorkerLease(latestLease) : undefined,
       latestEvidence: evidence,
       blockers,
-      nextAction: buildTaskNextAction(topic, readiness, task.id, running, latestTaskRun),
+      nextAction: buildTaskNextAction(topic, readiness, task.id, running, latestTaskRun, queueActiveForTask),
     };
   });
 
@@ -810,6 +903,12 @@ function buildTaskGraph(
     changeLevelEvidence,
     warnings: [],
   };
+}
+
+function isQueueActiveForTask(queue: WorkbenchTaskQueueSummary | undefined, taskId: string): boolean {
+  if (!queue || queue.status === "none") return false;
+  if (!["queued", "running", "paused"].includes(queue.status)) return false;
+  return queue.items.length === 0 || queue.items.some((item) => item.taskId === taskId && (item.status === "queued" || item.status === "running"));
 }
 
 function summarizeTaskRun(taskRun: TaskRun): WorkbenchTaskRunSummary {
@@ -884,11 +983,13 @@ function buildTaskBlockers(
   audits: AuditSummary[],
   running: boolean,
   latestTaskRun?: TaskRun,
+  queueActiveForTask = false,
 ): string[] {
   const blockers: string[] = [];
   if (topic.state !== "active") blockers.push("Topic is read-only.");
   if (!readiness.specReady || !readiness.planReady || !readiness.tasksReady) blockers.push("前置条件未满足：需要 accepted Spec / Plan / Tasks。");
-  if (running) blockers.push("已有该任务的运行正在进行。");
+  if (queueActiveForTask) blockers.push("任务队列正在运行或等待恢复。");
+  else if (running) blockers.push("已有该任务的运行正在进行。");
   const latestRun = [...runs].sort((a, b) => (b.finishedAt ?? b.startedAt ?? "").localeCompare(a.finishedAt ?? a.startedAt ?? ""))[0];
   const latestValidation = [...validations].sort((a, b) => (b.finishedAt ?? "").localeCompare(a.finishedAt ?? ""))[0];
   const latestAudit = [...audits].sort((a, b) => (b.finishedAt ?? "").localeCompare(a.finishedAt ?? ""))[0];
@@ -906,8 +1007,9 @@ function buildTaskNextAction(
   taskId: string,
   running: boolean,
   latestTaskRun?: TaskRun,
+  queueActiveForTask = false,
 ): WorkbenchTaskNextAction {
-  const disabledReason = taskActionDisabledReason(topic, readiness, running);
+  const disabledReason = queueActiveForTask ? "任务队列正在运行或等待恢复。" : taskActionDisabledReason(topic, readiness, running);
   if ((latestTaskRun?.status === "blocked" || latestTaskRun?.status === "failed") && !disabledReason) {
     return {
       id: `task:${taskId}:task.run.retry:${latestTaskRun.id}`,
@@ -1115,12 +1217,14 @@ async function selectTopicDetail(project: ManagedProject | null, memory: Resolve
   const change = await readChangeMetadataAt(memory, topic.path);
   const allRuns = await listRuns(memory);
   const runs = allRuns.filter((run) => run.changeId === topic.id || run.changeId === topic.name);
-  const [worktrees, validations, audits, taskRuns, workerLeases] = await Promise.all([
+  const [worktrees, validations, audits, taskRuns, workerLeases, taskQueues, taskQueueItems] = await Promise.all([
     listWorktreesForChange(memory, topic.id).catch(() => []),
     listValidationResults(memory, topic.id).then((items) => items.map(summarizeValidation)).catch(() => []),
     listAuditResults(memory, topic.id).then((items) => items.map(summarizeAudit)).catch(() => []),
     listTaskRuns(memory, topic.id).catch(() => []),
     listWorkerLeases(memory, topic.id).catch(() => []),
+    listTaskQueues(memory, topic.id).catch(() => []),
+    listTaskQueueItems(memory, topic.id).catch(() => []),
   ]);
 
   let statusDetail: Awaited<ReturnType<typeof getChangeStatus>> | null = null;
@@ -1146,6 +1250,8 @@ async function selectTopicDetail(project: ManagedProject | null, memory: Resolve
     specTest,
     drift,
     runs,
+    taskQueues,
+    taskQueueItems,
     taskRuns,
     workerLeases,
     worktrees,
