@@ -48,11 +48,17 @@ type Snapshot = {
 
 type Topic = { id: string; title: string; state: string; updatedAt?: string };
 type WorkpadRuntimeStatus = "active" | "running" | "queued" | "blocked" | "waiting-decision" | "archived" | "readonly";
+type WorkpadUserStatus = "processing" | "waiting-confirmation" | "needs-rework" | "later" | "completed" | "abandoned";
+type ConversationLifecycle = "active" | "running" | "waiting-user" | "archived-readonly" | "abandoned";
 type WorkpadSummary = {
   id: string;
   title: string;
   state: string;
   runtimeStatus: WorkpadRuntimeStatus;
+  userStatus?: WorkpadUserStatus;
+  userStatusLabel?: string;
+  conversationLifecycle?: ConversationLifecycle;
+  linkedFromChangeId?: string;
   selected: boolean;
   waitingDecisionCount: number;
   latestRunStatus?: string;
@@ -80,6 +86,7 @@ type WorkpadNextAction = {
   taskRunId?: string;
   disabledReason?: string;
 };
+type DecisionActionKind = "approval" | "workflow-action" | "feedback" | "evidence" | "abandon" | "none";
 type WorkbenchTaskEvidence = {
   id: string;
   label: string;
@@ -109,6 +116,9 @@ type WorkbenchTaskRunSummary = {
   worktreeId?: string;
   blockedReason?: string;
   failureReason?: string;
+  officialReworkAttempt?: number;
+  autoReworkAvailable?: boolean;
+  reworkBudget?: number;
 };
 type WorkbenchWorkerLeaseSummary = {
   id: string;
@@ -128,6 +138,7 @@ type WorkbenchTaskNode = {
   latestEvidence: WorkbenchTaskEvidence[];
   blockers: string[];
   nextAction: WorkbenchTaskNextAction;
+  autoRework?: { available: boolean; attempt: number; budget: number; reason: string; failureClassification: string };
 };
 type WorkbenchTaskGraph = {
   source: "accepted-tasks" | "missing";
@@ -176,6 +187,23 @@ type Workpad = {
   title: string;
   subtitle: string;
   state: "diagnostic" | "empty" | "active" | "readonly";
+  userStatus?: WorkpadUserStatus;
+  userStatusLabel?: string;
+  conversationId?: string;
+  demandId?: string;
+  boundChangeId?: string;
+  conversationLifecycle?: ConversationLifecycle;
+  linkedFromChangeId?: string;
+  pendingFeedback?: Array<{ id: string; text: string; timestamp: string; runId?: string; status: "pending-next-turn" | "applied" }>;
+  coderSelfTestSummary?: string;
+  officialValidationResult?: string;
+  officialAuditResult?: string;
+  officialReworkAttempt?: number;
+  reworkBudget?: number;
+  failureClassification?: string;
+  requiresUserInputReason?: string;
+  scopedFeedbackTarget?: Record<string, unknown>;
+  postArchiveEvolutionCandidate?: { changeId: string; status: "candidate"; sources: string[]; summary: string };
   intake: {
     goal: string;
     currentUnderstanding: string;
@@ -295,7 +323,7 @@ type Approval = {
 type DecisionAction = {
   id: string;
   label: string;
-  kind: "approval" | "workflow-action" | "feedback" | "evidence" | "none";
+  kind: DecisionActionKind;
   enabled: boolean;
   requiresConfirmation: boolean;
   approvalId?: string;
@@ -311,6 +339,10 @@ type DecisionContext = {
   kind: string;
   title: string;
   summary: string;
+  userStatus?: WorkpadUserStatus;
+  resultSummary?: string;
+  recommendation?: string;
+  explanation?: string;
   severity: "info" | "warning" | "blocking";
   changeId?: string;
   taskId?: string;
@@ -555,6 +587,29 @@ export function App(): ReactElement {
       await runWorkflowAction(action.actionType, { taskIds: action.taskIds, taskRunId: action.taskRunId });
       return;
     }
+    if (action.kind === "abandon") {
+      const result = await fetch(`/api/projects/${encodeURIComponent(selectedProjectId)}/workbench/actions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          abandon: {
+            changeId: context.changeId,
+            reason: "用户选择放弃这个需求。",
+          },
+          confirm: true,
+          feedbackContext: {
+            contextId: context.id,
+            changeId: context.changeId,
+            targetId: context.targetId,
+            runId: context.runId,
+          },
+        }),
+      });
+      if (!result.ok) throw new Error(await result.text());
+      setConfirming(null);
+      await refresh();
+      return;
+    }
     if (action.kind === "evidence" && context.runId) {
       await chooseRun(context.runId);
       setTab("loop");
@@ -562,7 +617,7 @@ export function App(): ReactElement {
   }
 
   async function requestDecisionFeedback(context: DecisionContext, action: DecisionAction, feedback: string): Promise<void> {
-    if (!selectedProjectId || !action.action || !feedback.trim()) return;
+    if (!selectedProjectId || !feedback.trim()) return;
     const result = await fetch(`/api/projects/${encodeURIComponent(selectedProjectId)}/workbench/actions`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -937,7 +992,7 @@ export function App(): ReactElement {
             </header>
 
             <div className="tabs">
-              <button className={tab === "workpad" ? "active" : ""} onClick={() => setTab("workpad")}>Workpad</button>
+              <button className={tab === "workpad" ? "active" : ""} onClick={() => setTab("workpad")}>需求</button>
               <button className={tab === "thread" ? "active" : ""} onClick={() => setTab("thread")}>线程</button>
               <button className={tab === "loop" ? "active" : ""} onClick={() => setTab("loop")}>Agent 循环</button>
             </div>
@@ -1217,14 +1272,16 @@ function SidebarPanel({
           title: topic.title,
           state: topic.state,
           runtimeStatus: topic.state === "archive" ? "archived" : topic.state === "parking" ? "queued" : "active",
+          userStatus: topic.state === "archive" ? "completed" : topic.state === "parking" ? "later" : "waiting-confirmation",
+          userStatusLabel: topic.state === "archive" ? "已完成" : topic.state === "parking" ? "稍后处理" : "等你确认",
           selected: activeTopic?.id === topic.id,
           waitingDecisionCount: 0,
           blocker: undefined,
         } satisfies WorkpadSummary))).map((workpad) => (
           <button key={workpad.id} className={`topic-row ${activeTopic?.id === workpad.id ? "selected" : ""}`} onClick={() => void onChooseTopic(workpad.id)}>
-            <span>{workpad.title}</span>
-            <small>{workpadStatusLabel(workpad.runtimeStatus)}{workpad.waitingDecisionCount > 0 ? ` · ${workpad.waitingDecisionCount} 决策` : ""}</small>
-            {workpad.blocker ? <em>{workpad.blocker}</em> : null}
+            <span>{userFacingText(workpad.title)}</span>
+            <small>{workpad.userStatusLabel ?? workpadStatusLabel(workpad.runtimeStatus)}{workpad.waitingDecisionCount > 0 ? ` · ${workpad.waitingDecisionCount} 个待确认` : ""}</small>
+            {workpad.blocker ? <em>{userFacingText(workpad.blocker)}</em> : null}
           </button>
         ))}
       </section>
@@ -1514,41 +1571,52 @@ function DecisionContextCard({
   return (
     <article className={`approval-card decision-primary ${context.severity}`} data-testid="decision-inspector-primary">
       <div className="approval-meta">
-        <span>{decisionKindLabel(context.kind)}</span>
-        <small>{context.severity}</small>
+        <span>当前需要你决定</span>
+        <small>{context.userStatus ? userStatusLabel(context.userStatus) : decisionKindLabel(context.kind)}</small>
       </div>
-      <h3>{context.title}</h3>
-      <p>{context.summary}</p>
+      <h3>{userFacingText(context.title)}</h3>
+      <div className="decision-explainer">
+        <strong>结果摘要</strong>
+        <p>{userFacingText(context.resultSummary ?? context.summary)}</p>
+      </div>
+      <div className="decision-explainer">
+        <strong>推荐动作</strong>
+        <p>{userFacingText(context.recommendation ?? "查看证据后选择同意、要求修改或放弃。")}</p>
+      </div>
+      <div className="decision-explainer muted">
+        <strong>说明</strong>
+        <p>{userFacingText(context.explanation ?? "内部运行状态只作为证据和恢复信息，不是用户主决策语言。")}</p>
+      </div>
       <dl className="approval-fields">
         <div><dt>变更</dt><dd>{context.changeId ?? "-"}</dd></div>
         {context.taskId ? <div><dt>任务</dt><dd>{context.taskId}</dd></div> : null}
         {context.queueRunId ? <div><dt>队列</dt><dd>{context.queueRunId}</dd></div> : null}
-        {context.taskRunId ? <div><dt>TaskRun</dt><dd>{context.taskRunId}</dd></div> : null}
-        {context.runId ? <div><dt>Run</dt><dd>{context.runId}</dd></div> : null}
+        {context.taskRunId ? <div><dt>执行尝试</dt><dd>{context.taskRunId}</dd></div> : null}
+        {context.runId ? <div><dt>运行证据</dt><dd>{context.runId}</dd></div> : null}
       </dl>
       <div className="approval-actions">
         {context.actions.map((action) => {
           if (action.kind === "feedback") {
-            return <button key={action.id} className="outline-button" disabled={!action.enabled} title={action.disabledReason} onClick={() => setFeedbackActionId(action.id)}><FileText size={15} />{action.label}</button>;
+            return <button key={action.id} className="outline-button" disabled={!action.enabled} title={action.disabledReason} onClick={() => setFeedbackActionId(action.id)}><FileText size={15} />{userFacingText(action.label)}</button>;
           }
           if (action.kind === "evidence") {
-            return <button key={action.id} className="outline-button" disabled={!action.enabled} onClick={() => void onExecuteAction(action, context)}><FileText size={15} />{action.label}</button>;
+            return <button key={action.id} className="outline-button" disabled={!action.enabled} onClick={() => void onExecuteAction(action, context)}><FileText size={15} />{userFacingText(action.label)}</button>;
           }
-          if (action.kind !== "approval" && action.kind !== "workflow-action") return null;
+          if (action.kind !== "approval" && action.kind !== "workflow-action" && action.kind !== "abandon") return null;
           return confirming === action.id ? (
             <span className="confirm-inline" key={action.id}>
-              <button className="primary-button" onClick={() => void onExecuteAction(action, context)}><Check size={15} />确认执行</button>
+              <button className="primary-button" onClick={() => void onExecuteAction(action, context)}><Check size={15} />确认</button>
               <button className="outline-button" onClick={() => onConfirmingChange(null)}><X size={15} />取消</button>
             </span>
           ) : (
-            <button key={action.id} className="primary-button" disabled={!action.enabled} title={action.disabledReason} onClick={() => action.requiresConfirmation ? onConfirmingChange(action.id) : void onExecuteAction(action, context)}><Check size={15} />{action.label}</button>
+            <button key={action.id} className="primary-button" disabled={!action.enabled} title={action.disabledReason} onClick={() => action.requiresConfirmation ? onConfirmingChange(action.id) : void onExecuteAction(action, context)}><Check size={15} />{userFacingText(action.label)}</button>
           );
         })}
       </div>
       {feedbackAction ? (
         <div className="decision-feedback" data-testid="decision-feedback-editor">
           <label>
-            <span>{context.rework?.label ?? feedbackAction.label}</span>
+            <span>{userFacingText(context.rework?.label ?? feedbackAction.label)}</span>
             <textarea
               value={feedback}
               onChange={(event) => setFeedback(event.target.value)}
@@ -1578,8 +1646,8 @@ function DecisionContextHistory({ contexts, onSelectContext }: { contexts: Decis
         <summary>查看历史决策</summary>
         {contexts.map((context) => (
           <button className="decision-row" key={context.id} onClick={() => onSelectContext(context.id)}>
-            <strong>{context.title}</strong>
-            <span>{decisionKindLabel(context.kind)} · {context.timestamp ? formatTime(context.timestamp) : context.severity}</span>
+            <strong>{userFacingText(context.title)}</strong>
+            <span>{decisionKindLabel(context.kind)} · {context.timestamp ? formatTime(context.timestamp) : userFacingText(context.severity)}</span>
           </button>
         ))}
       </details>
@@ -1649,11 +1717,12 @@ function WorkpadView({
       <section className="workpad-hero">
         <div>
           <span className={`workpad-state ${workpad.state}`}>{workpadStateLabel(workpad.state)}</span>
+          <span className={`workpad-state user-state ${workpad.userStatus ?? "later"}`}>{workpad.userStatusLabel ?? userStatusLabel(workpad.userStatus)}</span>
           <h2>{workpad.title}</h2>
           <p>{workpad.subtitle}</p>
           {workpad.background && (workpad.background.runningCount + workpad.background.queuedCount + workpad.background.blockedCount + workpad.background.waitingDecisionCount) > 0 ? (
             <p className="workpad-background-summary" data-testid="workpad-background-summary">
-              后台 Workpad：{workpad.background.runningCount} 个运行中，{workpad.background.queuedCount} 个等待，{workpad.background.blockedCount} 个阻塞，{workpad.background.waitingDecisionCount} 个等决策
+              后台需求：{workpad.background.runningCount} 个处理中，{workpad.background.queuedCount} 个稍后处理，{workpad.background.blockedCount} 个需要修改或补证据，{workpad.background.waitingDecisionCount} 个等你确认
             </p>
           ) : null}
         </div>
@@ -1666,15 +1735,38 @@ function WorkpadView({
         />
       </section>
 
+      {(workpad.pendingFeedback?.length || workpad.coderSelfTestSummary || workpad.postArchiveEvolutionCandidate) ? (
+        <section className="workpad-section compact-section" data-testid="conversation-lifecycle">
+          <div className="workpad-section-header">
+            <h3>对话状态</h3>
+            <span>{conversationLifecycleLabel(workpad.conversationLifecycle)}</span>
+          </div>
+          {workpad.pendingFeedback?.length ? (
+            <div className="workpad-evidence-list">
+              {workpad.pendingFeedback.map((feedback) => (
+                <div className="workpad-evidence" key={feedback.id}>
+                  <strong>已记录，将在本轮完成后用于下一次修改</strong>
+                  <span>{feedback.text}</span>
+                </div>
+              ))}
+            </div>
+          ) : null}
+          {workpad.coderSelfTestSummary ? <p>{workpad.coderSelfTestSummary}</p> : null}
+          {workpad.postArchiveEvolutionCandidate ? (
+            <p>{workpad.postArchiveEvolutionCandidate.summary}</p>
+          ) : null}
+        </section>
+      ) : null}
+
       {workpad.background?.items.length ? (
         <section className="workpad-section compact-section" data-testid="background-workpads">
           <div className="workpad-section-header">
-            <h3>后台 Workpads</h3>
+            <h3>后台需求</h3>
             <span>{workpad.background.items.length}</span>
           </div>
           <div className="workpad-chip-list">
             {workpad.background.items.map((item) => (
-              <span key={item.id}>{item.title} · {workpadStatusLabel(item.runtimeStatus)}</span>
+              <span key={item.id}>{userFacingText(item.title)} · {item.userStatusLabel ?? workpadStatusLabel(item.runtimeStatus)}</span>
             ))}
           </div>
         </section>
@@ -1724,7 +1816,7 @@ function WorkpadView({
         <WorkpadMetric label="Tasks" value={readinessLabel(workpad.progress.tasks)} />
         <WorkpadMetric label="AC / Tasks" value={`${workpad.progress.acCount} / ${workpad.progress.taskCount}`} />
         <WorkpadMetric label="Runs" value={`${workpad.progress.runCount}${workpad.progress.latestRunStatus ? ` · ${humanStatus(workpad.progress.latestRunStatus)}` : ""}`} />
-        <WorkpadMetric label="Validation / Audit" value={`${statusOrDash(workpad.progress.validationStatus)} / ${statusOrDash(workpad.progress.auditStatus)}`} />
+        <WorkpadMetric label="验证 / 审查" value={`${statusOrDash(workpad.progress.validationStatus)} / ${statusOrDash(workpad.progress.auditStatus)}`} />
       </section>
 
       {workpad.codingPackages.length > 0 ? (
@@ -1768,7 +1860,7 @@ function WorkpadView({
             <div className="workpad-task-change-evidence">
               <strong>Change-level evidence</strong>
               {workpad.taskGraph.changeLevelEvidence.slice(0, 4).map((item) => (
-                <span key={item.id}>{item.label}{item.status ? ` · ${humanStatus(item.status)}` : ""}</span>
+                <span key={item.id}>{userFacingText(item.label)}{item.status ? ` · ${humanStatus(item.status)}` : ""}</span>
               ))}
             </div>
           ) : null}
@@ -1784,8 +1876,8 @@ function WorkpadView({
         <div className="workpad-evidence-list">
           {workpad.evidence.map((item) => (
             <div className="workpad-evidence" key={item.id}>
-              <strong>{item.label}</strong>
-              <span>{item.source}{item.status ? ` · ${humanStatus(item.status)}` : ""}</span>
+              <strong>{userFacingText(item.label)}</strong>
+              <span>{sourceLabel(item.source)}{item.status ? ` · ${humanStatus(item.status)}` : ""}</span>
               {item.artifact ? <small className="artifact-link">查看证据：{artifactName(item.artifact)}</small> : null}
             </div>
           ))}
@@ -1799,16 +1891,16 @@ function WorkpadView({
             <span>{workpad.memoryIsolation.currentChangeNamespace ?? "project"}</span>
           </div>
           <p>项目稳定记忆：{workpad.memoryIsolation.projectStableNamespace}</p>
-          {workpad.memoryIsolation.runNamespaces.length > 0 ? <p>本 Workpad 运行证据：{workpad.memoryIsolation.runNamespaces.slice(0, 3).join("，")}</p> : null}
+          {workpad.memoryIsolation.runNamespaces.length > 0 ? <p>本需求运行证据：{workpad.memoryIsolation.runNamespaces.slice(0, 3).join("，")}</p> : null}
           {workpad.memoryIsolation.relatedWorkpads.length > 0 ? (
             <div className="workpad-links">
               {workpad.memoryIsolation.relatedWorkpads.map((item) => (
-                <span className="artifact-link" key={item.changeId}>{item.title} · {workpadStatusLabel(item.status)} · {item.factBoundary === "local-evidence-only" ? "局部证据" : "摘要可读"}</span>
+                <span className="artifact-link" key={item.changeId}>{userFacingText(item.title)} · {workpadStatusLabel(item.status)} · {item.factBoundary === "local-evidence-only" ? "局部证据" : "摘要可读"}</span>
               ))}
             </div>
           ) : null}
           <ul className="workpad-issue-list">
-            {workpad.memoryIsolation.warnings.slice(0, 3).map((warning) => <li key={warning}>{warning}</li>)}
+            {workpad.memoryIsolation.warnings.slice(0, 3).map((warning) => <li key={warning}>{userFacingText(warning)}</li>)}
           </ul>
         </section>
       ) : null}
@@ -1816,11 +1908,11 @@ function WorkpadView({
       {(workpad.blockers.length > 0 || workpad.warnings.length > 0 || workpad.intake.missingInfo.length > 0 || openQuestions.length > 0 || assumptions.length > 0) ? (
         <section className="workpad-section">
           <div className="workpad-section-header">
-            <h3>阻塞与缺口</h3>
+            <h3>需要处理的问题</h3>
             <span>{workpad.blockers.length + workpad.warnings.length + workpad.intake.missingInfo.length + openQuestions.length + assumptions.length}</span>
           </div>
           <ul className="workpad-issue-list">
-            {[...workpad.blockers, ...workpad.warnings, ...workpad.intake.missingInfo, ...openQuestions.map((item) => `待确认：${item}`), ...assumptions.map((item) => `假设：${item}`)].map((item, index) => <li key={`${item}:${index}`}>{item}</li>)}
+            {[...workpad.blockers, ...workpad.warnings, ...workpad.intake.missingInfo, ...openQuestions.map((item) => `待确认：${item}`), ...assumptions.map((item) => `假设：${item}`)].map((item, index) => <li key={`${item}:${index}`}>{userFacingText(item)}</li>)}
           </ul>
         </section>
       ) : null}
@@ -1842,14 +1934,15 @@ function TaskQueuePanel({
   const action = queue.nextAction;
   const disabled = busy || !action?.enabled || !action.actionType;
   const blockerContextId = ["blocked", "failed"].includes(queue.status) ? `queue:${queue.id}:blocked` : null;
+  const showQueueAction = action && !["blocked", "failed"].includes(queue.status);
   const runningCopy = queue.status === "running"
     ? `当前任务 ${queue.currentTaskId ?? "待确定"}`
     : queue.status === "paused"
-      ? queue.pausedReason ?? "队列已暂停，等待继续。"
+      ? userFacingText(queue.pausedReason ?? "任务已暂停，等待继续。")
       : queue.status === "blocked"
-        ? queue.blockedReason ?? "队列已阻塞。"
+        ? userFacingText(queue.blockedReason ?? "任务暂停，需要修改或补证据。")
         : queue.status === "failed"
-          ? queue.failureReason ?? "队列执行失败。"
+          ? userFacingText(queue.failureReason ?? "任务执行未通过。")
           : queue.status === "completed"
             ? "队列已完成，等待查看 evidence 与后续人工 gate。"
             : "本地顺序执行 accepted TaskGraph。";
@@ -1864,7 +1957,7 @@ function TaskQueuePanel({
           <strong>本地任务队列</strong>
           <span>{humanStatus(queue.status)} · {queue.completedCount}/{queue.totalCount}</span>
         </div>
-        {action ? (
+        {showQueueAction ? (
           <button
             className="secondary-button"
             type="button"
@@ -1872,7 +1965,7 @@ function TaskQueuePanel({
             title={action.disabledReason}
             onClick={runQueueAction}
           >
-            {action.label}
+            {userFacingText(action.label)}
           </button>
         ) : null}
       </div>
@@ -1959,34 +2052,34 @@ function TaskGraphCard({
       <div className="workpad-task-header">
         <div>
           <strong>{task.taskId}</strong>
-          <span>{task.title}</span>
+          <span>{userFacingText(task.title)}</span>
         </div>
         <span className={`task-status ${task.status}`}>{taskStatusLabel(task.status)}</span>
       </div>
       <small>{task.checked ? "已勾选" : "未勾选"} · {task.acIds.join(", ") || "未映射 AC"}</small>
       {task.taskRun ? (
         <div className="task-run-summary">
-          <span>TaskRun #{task.taskRun.attempt}</span>
+          <span>执行尝试 #{task.taskRun.attempt}</span>
           <strong>{humanStatus(task.taskRun.status)}</strong>
           <small>{task.taskRun.id}</small>
-          {task.workerLease ? <small>Lease {humanStatus(task.workerLease.status)} · {task.workerLease.workerId}</small> : null}
+          {task.workerLease ? <small>执行会话 {humanStatus(task.workerLease.status)} · {task.workerLease.workerId}</small> : null}
         </div>
       ) : null}
       {task.latestEvidence.length > 0 ? (
         <div className="task-evidence-list">
           {task.latestEvidence.map((item) => (
-            <span key={item.id}>{item.label}{item.status ? ` · ${humanStatus(item.status)}` : ""}</span>
+            <span key={item.id}>{userFacingText(item.label)}{item.status ? ` · ${humanStatus(item.status)}` : ""}</span>
           ))}
         </div>
       ) : <small className="panel-note">暂无任务级 evidence。</small>}
       {task.blockers.length > 0 ? (
         <ul className="task-blockers">
-          {task.blockers.map((blocker) => <li key={blocker}>{blocker}</li>)}
+          {task.blockers.map((blocker) => <li key={blocker}>{userFacingText(blocker)}</li>)}
         </ul>
       ) : null}
       {blockerContextId ? (
         <button className="context-link" type="button" onClick={() => onSelectDecisionContext(blockerContextId)}>
-          查看阻塞决策
+          查看当前决策
         </button>
       ) : null}
       <button
@@ -1996,7 +2089,7 @@ function TaskGraphCard({
         title={action.disabledReason}
         onClick={runTask}
       >
-        {action.label}
+        {userFacingText(action.label)}
       </button>
     </article>
   );
@@ -2083,8 +2176,8 @@ function WorkpadActionButton({
   return (
     <div className="workpad-next-action">
       <span>下一步</span>
-      <strong>{approval?.action?.label ?? action.label}</strong>
-      <p>{action.description}</p>
+      <strong>{userFacingText(approval?.action?.label ?? action.label)}</strong>
+      <p>{userFacingText(action.description)}</p>
       <button className="primary-button" disabled={disabled} title={action.disabledReason} onClick={run}>
         {action.enabled ? "执行" : "不可执行"}
       </button>
@@ -2557,15 +2650,15 @@ function PlanCardView({ planCard, actions, busy, onAction }: { planCard: PlanCar
 function TopicComposer({
   value,
   onChange,
-  mode,
-  onModeChange,
+  mode: _mode,
+  onModeChange: _onModeChange,
   busy,
   disabledReason,
   onSend,
   onNewWorkpad,
-  onRunCode,
+  onRunCode: _onRunCode,
   actionRunning,
-  canRunCode,
+  canRunCode: _canRunCode,
   currentWorkpadStatus,
 }: {
   value: string;
@@ -2581,50 +2674,27 @@ function TopicComposer({
   canRunCode: boolean;
   currentWorkpadStatus?: WorkpadRuntimeStatus;
 }): ReactElement {
-  const [confirmingCode, setConfirmingCode] = useState(false);
-  const riskyCurrentWorkpad = currentWorkpadStatus ? ["running", "blocked", "waiting-decision"].includes(currentWorkpadStatus) : false;
+  const runningConversation = currentWorkpadStatus === "running";
   return (
     <div className="topic-composer" aria-label="Topic composer">
         <textarea
         value={value}
         onChange={(event) => onChange(event.target.value)}
         disabled={Boolean(disabledReason)}
-        placeholder={disabledReason ?? (mode === "chat" ? "输入问题或下一步需求" : "要求后续变更")}
+        placeholder={disabledReason ?? (runningConversation ? "补充要求会先记录，本轮完成后用于下一次修改" : "输入问题或下一步需求")}
       />
       <div className="composer-toolbar">
-        {riskyCurrentWorkpad ? (
+        {runningConversation ? (
           <div className="workpad-route-switch" aria-label="Workpad routing choice">
             <button type="button" className="active" disabled={Boolean(disabledReason) || busy} onClick={() => void onSend()}>
-              继续当前 Workpad
+              记录到当前需求
             </button>
             <button type="button" disabled={!onNewWorkpad || Boolean(disabledReason) || busy || !value.trim()} onClick={() => void onNewWorkpad?.()}>
-              新建 Workpad
+              新需求对话
             </button>
           </div>
         ) : null}
-        <div className="mode-switch compact" role="tablist" aria-label="Composer mode">
-          <button className={mode === "chat" ? "active" : ""} disabled={Boolean(disabledReason)} onClick={() => onModeChange("chat")}>Chat</button>
-          <button className={mode === "plan" ? "active" : ""} disabled={Boolean(disabledReason)} onClick={() => onModeChange("plan")}>Plan</button>
-        </div>
         {disabledReason ? <span className="composer-pill">只读</span> : null}
-        {canRunCode ? (
-          <button
-            className="composer-link"
-            type="button"
-            disabled={busy}
-            title="运行 Code workflow"
-            onClick={() => setConfirmingCode(true)}
-          >
-            运行 Code
-          </button>
-        ) : null}
-        {confirmingCode ? (
-          <div className="inline-confirm composer-confirm">
-            <span>确认运行 Code workflow</span>
-            <button className="primary-button" disabled={busy} onClick={() => { setConfirmingCode(false); void onRunCode?.(); }}>确认执行</button>
-            <button className="outline-button" disabled={busy} onClick={() => setConfirmingCode(false)}>取消</button>
-          </div>
-        ) : null}
         <span className="composer-spacer" />
         {actionRunning ? <span className="composer-pill subtle">正在运行：{workflowActionLabel(actionRunning)}</span> : null}
         <button
@@ -2807,9 +2877,13 @@ function snapshotForProject(project: ProjectStatus | null | undefined): Snapshot
 
 function emptyWorkpad(projectName = "未选择项目"): Workpad {
   return {
-    title: "项目 Workpad",
+    title: "项目需求",
     subtitle: projectName,
     state: "diagnostic",
+    userStatus: "later",
+    userStatusLabel: "稍后处理",
+    conversationLifecycle: "active",
+    pendingFeedback: [],
     intake: {
       goal: "尚未选择可用 Topic。",
       currentUnderstanding: "选择项目并创建 Topic 后，AHO 会在这里汇总目标、进度、证据和下一步。",
@@ -2860,13 +2934,30 @@ function workpadStateLabel(state: Workpad["state"]): string {
 }
 
 function workpadStatusLabel(status: WorkpadRuntimeStatus): string {
-  if (status === "running") return "运行中";
-  if (status === "queued") return "等待执行";
-  if (status === "blocked") return "阻塞";
-  if (status === "waiting-decision") return "等决策";
-  if (status === "archived") return "已归档";
-  if (status === "readonly") return "只读";
-  return "可继续";
+  if (status === "running") return "处理中";
+  if (status === "queued") return "稍后处理";
+  if (status === "blocked") return "需要修改或补证据";
+  if (status === "waiting-decision") return "等你确认";
+  if (status === "archived") return "已完成";
+  if (status === "readonly") return "稍后处理";
+  return "等你确认";
+}
+
+function userStatusLabel(status?: WorkpadUserStatus): string {
+  if (status === "processing") return "处理中";
+  if (status === "waiting-confirmation") return "等你确认";
+  if (status === "needs-rework") return "需要修改或补证据";
+  if (status === "later") return "稍后处理";
+  if (status === "abandoned") return "已放弃";
+  return "已完成";
+}
+
+function conversationLifecycleLabel(status?: ConversationLifecycle): string {
+  if (status === "running") return "执行中";
+  if (status === "waiting-user") return "等待补充";
+  if (status === "archived-readonly") return "历史只读";
+  if (status === "abandoned") return "已放弃";
+  return "当前需求";
 }
 
 function readinessLabel(value: "missing" | "ready" | "unknown"): string {
@@ -2877,15 +2968,15 @@ function readinessLabel(value: "missing" | "ready" | "unknown"): string {
 
 function taskStatusLabel(status: WorkbenchTaskNode["status"]): string {
   if (status === "planned") return "计划中";
-  if (status === "running") return "运行中";
+  if (status === "running") return "处理中";
   if (status === "evidence-ready") return "有证据";
-  if (status === "blocked") return "阻塞";
+  if (status === "blocked") return "需要修改";
   return "已勾选";
 }
 
 function codingPackageStatusLabel(status: WorkbenchCodingPackage["status"]): string {
   if (status === "suggested") return "建议执行";
-  if (status === "blocked") return "阻塞";
+  if (status === "blocked") return "需要修改";
   if (status === "evidence-ready") return "证据就绪";
   if (status === "readonly") return "只读";
   return "缺失";
@@ -2903,6 +2994,54 @@ function codingPackageSplitLabel(value: WorkbenchCodingPackage["splitReadiness"]
 
 function statusOrDash(value?: string): string {
   return value ? humanStatus(value) : "-";
+}
+
+function sourceLabel(source: string): string {
+  if (source === "run" || source === "workflow") return "执行";
+  if (source === "validation") return "验证";
+  if (source === "audit") return "审查";
+  if (source === "decision") return "决策";
+  if (source === "thread") return "线程";
+  if (source === "task") return "任务";
+  if (source === "queue") return "任务队列";
+  return userFacingText(source);
+}
+
+function userFacingText(value: string): string {
+  return value
+    .replace(/\bTask queue started\b/gi, "任务队列已开始")
+    .replace(/\bTask runs reconciled\b/gi, "任务状态已同步")
+    .replace(/\bTask workflow started\b/gi, "任务执行已开始")
+    .replace(/\bCoder run confirmed\b/gi, "代码执行已确认")
+    .replace(/\bRefresh execution status\b/gi, "继续处理")
+    .replace(/\bWorkpad\b/g, "需求")
+    .replace(/\bChange\b/g, "需求")
+    .replace(/刷新执行状态/g, "继续处理")
+    .replace(/重试此任务/g, "重试")
+    .replace(/\bDirty worktree blocks close:/gi, "未清理的工作区会阻止完成：")
+    .replace(/\bLatest Audit blocked close:/gi, "最新审查未通过，会阻止完成：")
+    .replace(/\bReview status is pending\./gi, "Review 还未完成。")
+    .replace(/\bAC-([0-9]+) has no linked test evidence\./gi, "AC-$1 还没有关联测试证据。")
+    .replace(/\bActive change has AHO-managed worktree:/gi, "当前需求有 AHO 管理的工作区：")
+    .replace(/Running Workpad proposals, diffs, stdout\/stderr, JSONL, and process metadata are not project stable facts\./g, "进行中的需求草案、diff、原始输出、JSONL 和进程信息不会进入项目稳定记忆。")
+    .replace(/Memory consolidation candidates and conflict review are future human-gated workflows\./g, "记忆合并候选和冲突复核是后续人工确认流程。")
+    .replace(/\bAudit blocked\.?/gi, "审查未通过，需要修改或补证据。")
+    .replace(/\bAudit failed\.?/gi, "审查未通过。")
+    .replace(/\bAudit approved-with-notes\b/gi, "审查带备注通过")
+    .replace(/\bAudit approved\b/gi, "审查通过")
+    .replace(/\bValidation failed\.?/gi, "验证未通过。")
+    .replace(/\bValidation passed\b/gi, "验证已通过")
+    .replace(/\bCoder completed\b/gi, "代码执行已完成")
+    .replace(/\bTask queue\b/gi, "任务队列")
+    .replace(/\bqueue\b/gi, "任务队列")
+    .replace(/\bblocked\b/gi, "需要修改或补证据")
+    .replace(/\bfailed\b/gi, "未通过")
+    .replace(/\brunning\b/gi, "处理中")
+    .replace(/\bqueued\b/gi, "稍后处理")
+    .replace(/\bwaiting-decision\b/gi, "等你确认")
+    .replace(/\bblocking\b/gi, "需处理")
+    .replace(/\bstdout\/stderr, JSONL\b/gi, "原始输出和 JSONL")
+    .replace(/\band process metadata are not project stable facts\./gi, "和进程信息不会进入项目稳定记忆。");
 }
 
 function stateLabel(state: string): string {
@@ -2927,7 +3066,15 @@ function humanStatus(status: string): string {
   if (status === "created") return "已创建";
   if (status === "preparing") return "正在准备";
   if (status === "context-prepared") return "上下文已准备";
-  if (status === "running") return "运行中";
+  if (status === "running") return "处理中";
+  if (status === "queued") return "稍后处理";
+  if (status === "paused") return "稍后处理";
+  if (status === "blocked") return "需要修改或补证据";
+  if (status === "waiting-decision") return "等你确认";
+  if (status === "claimed") return "已领取";
+  if (status === "released") return "已释放";
+  if (status === "evidence-ready") return "证据就绪";
+  if (status === "readonly") return "只读";
   if (status === "streaming") return "流式输出中";
   if (status === "completed") return "已完成";
   if (status === "passed") return "已通过";
@@ -2995,15 +3142,15 @@ function threadIcon(item: ThreadStreamItem): ReactElement {
 }
 
 function decisionKindLabel(kind: string): string {
-  if (kind === "queue-blocker") return "队列阻塞";
-  if (kind === "task-blocker") return "任务阻塞";
-  if (kind === "validation-failed") return "验证失败";
-  if (kind === "audit-blocked") return "审查阻塞";
+  if (kind === "queue-blocker") return "任务暂停";
+  if (kind === "task-blocker") return "需要修改";
+  if (kind === "validation-failed") return "验证未通过";
+  if (kind === "audit-blocked") return "审查未通过";
   if (kind === "spec-proposal") return "Spec";
   if (kind === "plan-proposal") return "计划";
   if (kind === "audit-approved") return "审查";
   if (kind === "apply-gate") return "应用";
-  if (kind === "close-gate") return "关闭";
+  if (kind === "close-gate") return "完成";
   if (kind === "evolution-pending") return "Harness";
   return "历史";
 }

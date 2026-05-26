@@ -57,6 +57,13 @@ export interface ChangeCloseResult {
   index: ChangeIndex;
 }
 
+export interface ChangeAbandonResult {
+  archivePath: string;
+  change: ChangeMetadata;
+  index: ChangeIndex;
+  reason?: string;
+}
+
 export async function createChange(project: ManagedProject, options: { title: string; body?: string }): Promise<ChangeCreateResult> {
   return createChangeInDirectory(project, options, "active", true);
 }
@@ -271,6 +278,34 @@ export async function closeChange(project: ManagedProject | string): Promise<Cha
   await rename(activePath, archivePath);
   const index = await writeChangeIndex(memory);
   return { archivePath: archiveRelativePath, change: updated, index };
+}
+
+export async function abandonChange(project: ManagedProject | string, reason?: string): Promise<ChangeAbandonResult> {
+  const memory = await resolveChangeMemory(project);
+  assertWritableMemory(memory, "Change abandon");
+  const status = await getChangeStatus(memory);
+  if (!status.change || status.activeChanges.length !== 1) {
+    throw new Error("Cannot abandon change: expected exactly one active change with valid metadata.");
+  }
+
+  const active = status.activeChanges[0];
+  const activePath = join(memory.memoryRoot, active.path);
+  const archiveRelativePath = await getArchiveRelativePath(memory, status.change.id);
+  const archivePath = join(memory.memoryRoot, archiveRelativePath);
+  const now = new Date().toISOString();
+  const updated: ChangeMetadata = {
+    ...status.change,
+    state: "archived",
+    updatedAt: now,
+    closedAt: now,
+    archivePath: archiveRelativePath,
+  };
+
+  await writeJsonFile(join(activePath, "change.json"), updated);
+  await mkdir(dirname(archivePath), { recursive: true });
+  await rename(activePath, archivePath);
+  const index = await writeChangeIndex(memory);
+  return { archivePath: archiveRelativePath, change: updated, index, reason };
 }
 
 function evaluateActiveCount(activeChanges: ChangeIndexItem[]): CloseGateResult {

@@ -7,7 +7,7 @@ import { extname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { applyWorktree } from "../apply/manager.js";
 import { acceptAudit } from "../audit/manager.js";
-import { closeChange } from "../change/manager.js";
+import { abandonChange, closeChange } from "../change/manager.js";
 import { acceptPlanProposal, acceptSpecProposal } from "../change/proposals.js";
 import { resolveExistingDirectory } from "../fs/path.js";
 import { initHarness } from "../harness/init.js";
@@ -67,6 +67,10 @@ interface WorkbenchActionRequest {
     changeId?: string;
     targetId?: string;
     runId?: string;
+  };
+  abandon?: {
+    changeId?: string;
+    reason?: string;
   };
   options?: {
     commit?: boolean;
@@ -377,6 +381,31 @@ async function handleProjectWorkbenchApi(input: WorkbenchProjectInput, request: 
 
 export async function executeWorkbenchAction(input: WorkbenchProjectInput, body: WorkbenchActionRequest): Promise<{ result: unknown; snapshot: unknown }> {
   if (!input.project) throw new Error("Workbench actions require a registered project.");
+  if (body.abandon) {
+    if (body.confirm !== true) {
+      const error = new Error("Abandoning a Workpad requires confirm: true.");
+      error.name = "Conflict";
+      throw error;
+    }
+    const changeId = body.abandon.changeId ?? body.feedbackContext?.changeId ?? null;
+    await recordWorkbenchDecision(input.project, {
+      id: `abandon:${changeId ?? "active"}:${Date.now()}`,
+      changeId,
+      decisionType: "workpad.abandon",
+      status: "dismissed",
+      label: "放弃这个 Workpad",
+      summary: "User abandoned this Workpad. Source code was not changed by this action.",
+      targetId: changeId,
+      runId: null,
+      artifact: null,
+      actionId: "workpad.abandon",
+      feedback: body.abandon.reason ?? body.feedback ?? null,
+      payload: body.abandon,
+      completedAt: new Date().toISOString(),
+    });
+    const result = await abandonChange(input.project, body.abandon.reason ?? body.feedback);
+    return { result, snapshot: await getWorkbenchSnapshot(input) };
+  }
   if (body.actionType) {
     if (body.actionType !== "chat.ask" && body.confirm !== true) {
       const error = new Error("Mutating Workbench workflow actions require confirm: true.");
@@ -395,7 +424,7 @@ export async function executeWorkbenchAction(input: WorkbenchProjectInput, body:
     return { result, snapshot: await getWorkbenchSnapshot(input, { topicId: body.changeId }) };
   }
   const action = body.action;
-  if (!action || !allowedActionIds.has(action.actionId)) {
+  if ((!action || !allowedActionIds.has(action.actionId)) && !(typeof body.feedback === "string" && body.feedback.trim())) {
     const error = new Error("Unknown or unsupported Workbench action.");
     error.name = "BadRequest";
     throw error;
@@ -403,27 +432,32 @@ export async function executeWorkbenchAction(input: WorkbenchProjectInput, body:
   if (typeof body.feedback === "string" && body.feedback.trim()) {
     const context = body.feedbackContext ?? {};
     await recordWorkbenchDecision(input.project, {
-      id: `feedback:${context.contextId ?? action.actionId}:${action.args.join(":")}:${Date.now()}`,
-      changeId: context.changeId ?? inferChangeIdFromAction(action, null),
-      decisionType: action.actionId,
+      id: `feedback:${context.contextId ?? action?.actionId ?? "scoped"}:${action?.args.join(":") ?? context.targetId ?? "target"}:${Date.now()}`,
+      changeId: context.changeId ?? (action ? inferChangeIdFromAction(action, null) : null),
+      decisionType: action?.actionId ?? "scoped.feedback",
       status: "requested-changes",
-      label: `Requested changes: ${action.label}`,
+      label: `Requested changes: ${action?.label ?? "scoped feedback"}`,
       summary: "User requested changes instead of accepting this decision.",
-      targetId: context.targetId ?? inferTargetIdFromAction(action, null),
+      targetId: context.targetId ?? (action ? inferTargetIdFromAction(action, null) : null),
       runId: context.runId ?? null,
       artifact: null,
-      actionId: action.actionId,
+      actionId: action?.actionId ?? "scoped.feedback",
       feedback: body.feedback.trim(),
       payload: { action, feedback: body.feedback.trim(), context },
     });
     return { result: { status: "requested-changes" }, snapshot: await getWorkbenchSnapshot(input) };
+  }
+  if (!action) {
+    const error = new Error("Unknown or unsupported Workbench action.");
+    error.name = "BadRequest";
+    throw error;
   }
   if (action.mutates && body.confirm !== true) {
     const error = new Error("Mutating Workbench actions require confirm: true.");
     error.name = "Conflict";
     throw error;
   }
-  const result = await runAllowlistedAction(input.project, action, body.options);
+  let result = await runAllowlistedAction(input.project, action, body.options);
   await recordWorkbenchDecision(input.project, {
     id: `approval:${action.actionId}:${action.args.join(":")}`,
     changeId: inferChangeIdFromAction(action, result),
@@ -439,6 +473,28 @@ export async function executeWorkbenchAction(input: WorkbenchProjectInput, body:
     payload: result,
     completedAt: new Date().toISOString(),
   });
+  if (action.actionId === "worktree.apply") {
+    try {
+      const finalized = await closeChange(input.project);
+      result = { result, finalization: { status: "archived", archivePath: finalized.archivePath, changeId: finalized.change.id } };
+      await recordWorkbenchDecision(input.project, {
+        id: `auto-close:${finalized.change.id}:${Date.now()}`,
+        changeId: finalized.change.id,
+        decisionType: "workpad.auto-finalize",
+        status: "completed",
+        label: "Workpad auto finalized",
+        summary: "Applied source change was accepted, so the Workpad was automatically closed and archived.",
+        targetId: finalized.change.id,
+        runId: null,
+        artifact: finalized.archivePath,
+        actionId: "workpad.auto-finalize",
+        payload: result,
+        completedAt: new Date().toISOString(),
+      });
+    } catch (cause) {
+      result = { result, finalization: { status: "not-archived", error: cause instanceof Error ? cause.message : String(cause) } };
+    }
+  }
   return { result, snapshot: await getWorkbenchSnapshot(input) };
 }
 

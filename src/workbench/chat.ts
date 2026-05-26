@@ -11,7 +11,7 @@ import { acceptPlanProposal, acceptSpecProposal, startPlanProposalRun, startSpec
 import { getActiveChanges } from "../ecl/index.js";
 import { readJsonFile, writeJsonFile } from "../fs/json.js";
 import { assertWritableMemory, resolveProjectMemory } from "../memory/resolver.js";
-import { appendRunEvent, buildContextProjection, buildRunId } from "../run/manager.js";
+import { appendRunEvent, buildContextProjection, buildRunId, listRuns } from "../run/manager.js";
 import { executeProcessStreaming } from "../run/process.js";
 import { getEnabledSkillContext } from "../skill/catalog.js";
 import { getSpecTestDriftReport } from "../spec-test/drift.js";
@@ -499,6 +499,7 @@ const runtimeMetadataSchema = z.object({
 const threadChangeMetadataSchema = z.object({
   id: z.string(),
 });
+const OFFICIAL_REWORK_BUDGET = 1;
 
 export async function createWorkbenchTopic(project: ManagedProject, input: { title: string; body?: string }): Promise<{ changeId: string; title: string; state: "active" | "parking" }> {
   let result;
@@ -530,6 +531,36 @@ export async function readTopicThreadLog(memory: ResolvedMemory, changePath: str
 export async function postTopicMessage(project: ManagedProject, changeId: string, input: string | TopicMessageInput, live?: WorkbenchLiveSink): Promise<TopicMessageResult> {
   const parsed = normalizeTopicMessageInput(input);
   if (parsed.mode === "plan") return postTopicPlanMessage(project, changeId, parsed.message, live);
+  const topicState = await getTopicLifecycleState(project, changeId);
+  const runningRun = await findRunningRunForChange(project, changeId);
+  if (topicState === "archive" && looksLikeImplementationRequest(parsed.message)) {
+    const user = await appendTopicThreadEntry(project, changeId, { type: "user.message", text: parsed.message, status: "follow-up-requested" });
+    live?.emit({ event: "topic.message", data: user });
+    const followUp = await createWorkbenchTopic(project, {
+      title: `后续：${parsed.message.split(/\r?\n/)[0].slice(0, 44)}`,
+      body: [`Linked follow-up from archived demand ${changeId}.`, "", parsed.message].join("\n"),
+    });
+    const assistant = await appendTopicThreadEntry(project, changeId, {
+      type: "assistant.message",
+      text: `这个需求对话已归档，不能继续承载新的实现工作。我已创建 linked follow-up 需求对话：${followUp.changeId}。`,
+      status: "follow-up-created",
+      artifact: followUp.changeId,
+    });
+    live?.emit({ event: "assistant.message", data: assistant });
+    return { user, assistant, run: null, codexSessionId: null, mode: "chat", routingDecision: "new-topic-required", assistantMessage: assistant.text ?? "" };
+  }
+  if (runningRun) {
+    const user = await appendTopicThreadEntry(project, changeId, { type: "user.message", text: parsed.message, status: "pending-feedback", runId: runningRun.id });
+    live?.emit({ event: "topic.message", data: user });
+    const assistant = await appendTopicThreadEntry(project, changeId, {
+      type: "assistant.message",
+      text: "已记录，将在本轮完成后用于下一次修改。",
+      status: "pending-feedback",
+      runId: runningRun.id,
+    });
+    live?.emit({ event: "assistant.message", data: assistant });
+    return { user, assistant, run: null, codexSessionId: null, mode: "chat", routingDecision: "same-topic", assistantMessage: assistant.text ?? "" };
+  }
   const user = await appendTopicThreadEntry(project, changeId, { type: "user.message", text: parsed.message });
   live?.emit({ event: "topic.message", data: user });
   const capture = createAssistantTranscriptCapture(live);
@@ -545,6 +576,23 @@ export async function postTopicMessage(project: ManagedProject, changeId: string
   });
   live?.emit({ event: "assistant.message", data: assistant });
   return { user, assistant, run: chat.run, codexSessionId: chat.codexSessionId, mode: "chat", routingDecision: "same-topic", assistantMessage: assistantText };
+}
+
+async function findRunningRunForChange(project: ManagedProject, changeId: string): Promise<RunMetadata | null> {
+  const memory = await resolveProjectMemory(project);
+  const runs = await listRuns(memory).catch(() => []);
+  return runs.find((run) => run.changeId === changeId && (run.status === "created" || run.status === "running")) ?? null;
+}
+
+async function getTopicLifecycleState(project: ManagedProject, changeId: string): Promise<"active" | "parking" | "archive"> {
+  const { changePath } = await resolveTopic(project, changeId);
+  if (changePath.includes("/archive/")) return "archive";
+  if (changePath.includes("/parking/")) return "parking";
+  return "active";
+}
+
+function looksLikeImplementationRequest(message: string): boolean {
+  return /(新增|修改|实现|修复|继续做|继续改|执行|开发|补测试|改代码|apply|merge|implement|fix|code)/i.test(message);
 }
 
 export async function appendTopicThreadEntry(project: ManagedProject, changeId: string, input: Omit<TopicThreadEntry, "id" | "timestamp" | "changeId">): Promise<TopicThreadEntry> {
@@ -871,12 +919,38 @@ async function executeStartedTaskRunWorkflow(
     });
     const workflow = await runCodeValidateAuditSequence(project, prompt, live, [started.taskRun.taskId], started.taskRun.id);
     const taskRun = await finishTaskRunFromWorkflowResult(memory, started.taskRun.id, workflow);
+    if (shouldAutoReworkTaskRun(taskRun)) {
+      emitAssistantEvent(live, {
+        runId: taskRun.id,
+        kind: "status",
+        phase: "auto-rework",
+        title: "正在根据验证/审查结果自动修改",
+        summary: `${taskRun.taskId} official attempt ${taskRun.attempt} did not pass. AHO is handing the evidence back to coder-agent for one bounded rework cycle.`,
+      });
+      const retry = await retryTaskRun(project, { changeId: taskRun.changeId, taskRunId: taskRun.id });
+      const reworkPrompt = [
+        prompt,
+        "",
+        "AHO official validation/audit did not accept the previous attempt.",
+        "Read the latest validation/audit/run evidence for this Change and fix the assigned worktree proposal.",
+        "Do not ask the user unless the evidence shows requirement ambiguity, product tradeoff, environment failure, or no real code rework path.",
+      ].filter((item): item is string => Boolean(item)).join("\n");
+      const rework = await executeStartedTaskRunWorkflow(project, retry, reworkPrompt, live);
+      const finalTaskRun = isRecord(rework) && isTaskRunLike(rework.taskRun) ? rework.taskRun : taskRun;
+      return { taskRun: finalTaskRun, lease: started.lease, workflow, autoRework: { previousTaskRun: taskRun, result: rework } };
+    }
     return { taskRun, lease: started.lease, workflow };
   } catch (cause) {
     const memory = await resolveProjectMemory(project);
     await finishTaskRunFromWorkflowResult(memory, started.taskRun.id, { stoppedAt: "code", code: { run: { status: "failed" } } }).catch(() => undefined);
     throw cause;
   }
+}
+
+function shouldAutoReworkTaskRun(taskRun: Awaited<ReturnType<typeof finishTaskRunFromWorkflowResult>>): boolean {
+  if (taskRun.status !== "blocked" && taskRun.status !== "failed") return false;
+  const officialReworkAttempt = Math.max(0, taskRun.attempt - 1);
+  return officialReworkAttempt < OFFICIAL_REWORK_BUDGET;
 }
 
 async function runTaskQueueSequence(
@@ -1459,6 +1533,17 @@ async function resolveTopic(project: ManagedProject, changeId: string): Promise<
     if (existsSync(candidate)) {
       return { memory, changePath: relative(memory.memoryRoot, candidate).replace(/\\/g, "/") };
     }
+    if (root.endsWith("archive")) {
+      const archived = await readdir(root, { withFileTypes: true }).catch(() => []);
+      for (const entry of archived) {
+        if (!entry.isDirectory()) continue;
+        const archivedCandidate = join(root, entry.name);
+        const metadata = await readJsonFile(join(archivedCandidate, "change.json"), z.object({ id: z.string().optional() }), { id: undefined }).catch(() => ({ id: undefined }));
+        if (metadata.id === changeId) {
+          return { memory, changePath: relative(memory.memoryRoot, archivedCandidate).replace(/\\/g, "/") };
+        }
+      }
+    }
   }
   throw new Error(`Topic not found: ${changeId}.`);
 }
@@ -1615,6 +1700,7 @@ function labelForAction(actionType: string): string {
     case "task.run.reconcile": return "Task runs reconciled";
     case "task.queue.start": return "Task queue started";
     case "task.queue.reconcile": return "Task queue reconciled";
+    case "workpad.abandon": return "Workpad abandoned";
     case "validate.run": return "Validation run completed";
     case "audit.run": return "Audit run completed";
     case "spec-test.drift": return "Spec-Test drift checked";

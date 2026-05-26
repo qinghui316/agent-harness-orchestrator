@@ -7,7 +7,7 @@ import { createChange, closeChange } from "../../src/change/manager.js";
 import { initHarness } from "../../src/harness/init.js";
 import { startLocalCommandRun } from "../../src/run/manager.js";
 import { executeWorkbenchAction } from "../../src/server/workbench-server.js";
-import { appendTopicThreadEntry, createWorkbenchTopic } from "../../src/workbench/chat.js";
+import { appendTopicThreadEntry, createWorkbenchTopic, postTopicMessage } from "../../src/workbench/chat.js";
 import { answerClarification, reanalyzeIntake, runIntakeScan } from "../../src/workbench/intake.js";
 import { getWorkbenchSnapshot, getWorkbenchStream, getWorkbenchTopic, listWorkbenchApprovals, listWorkbenchRoles, listWorkbenchTopics } from "../../src/workbench/manager.js";
 import { WorkbenchStore } from "../../src/workbench/store.js";
@@ -584,7 +584,8 @@ describe("workbench read model", () => {
       status: "blocked",
       taskRun: expect.objectContaining({ id: "taskrun-1", status: "blocked", attempt: 1, runId: "run-taskrun-1", worktreeId: "wt-taskrun-1" }),
       workerLease: expect.objectContaining({ id: "lease-1", status: "released", workerId: expect.stringContaining("local") }),
-      nextAction: expect.objectContaining({ actionType: "task.run.retry", taskRunId: "taskrun-1", enabled: true }),
+      nextAction: expect.objectContaining({ actionType: "task.run.retry", taskRunId: "taskrun-1", enabled: false, label: "正在自动修改" }),
+      autoRework: expect.objectContaining({ available: true, attempt: 0, budget: 1 }),
       blockers: expect.arrayContaining(["Audit failed."]),
     });
   });
@@ -673,7 +674,7 @@ describe("workbench read model", () => {
     await writeAcceptedSpecAndTasks("queue-blocked-decision");
     await writeTaskQueueRecord("queue-blocked-decision", "queue-blocked-1", "blocked", { currentTaskId: "T-001", totalCount: 1, blockedReason: "T-001: Audit blocked." });
     await writeTaskQueueItemRecord("queue-blocked-decision", "queue-blocked-1", "queue-blocked-1-item-001", "T-001", 1, "blocked", { taskRunId: "taskrun-blocked-1", blockedReason: "Audit blocked." });
-    await writeTaskRunRecord("queue-blocked-decision", "taskrun-blocked-1", "T-001", "blocked", 1, {
+    await writeTaskRunRecord("queue-blocked-decision", "taskrun-blocked-1", "T-001", "blocked", 2, {
       runId: "run-blocked-1",
       worktreeId: "wt-blocked-1",
       blockedReason: "Audit blocked.",
@@ -687,18 +688,21 @@ describe("workbench read model", () => {
     expect(snapshot.center.workpad.nextAction).toMatchObject({
       actionType: "task.run.retry",
       taskRunId: "taskrun-blocked-1",
-      label: "重试阻塞任务",
+      label: "要求修改",
     });
     expect(snapshot.right.decisionInspector.primary).toMatchObject({
       kind: "queue-blocker",
       queueRunId: "queue-blocked-1",
       taskId: "T-001",
       taskRunId: "taskrun-blocked-1",
+      title: "任务暂停：T-001",
+      userStatus: "needs-rework",
     });
     expect(snapshot.right.decisionInspector.primary?.actions).toEqual(expect.arrayContaining([
-      expect.objectContaining({ kind: "workflow-action", actionType: "task.run.retry", taskRunId: "taskrun-blocked-1" }),
-      expect.objectContaining({ kind: "workflow-action", actionType: "task.queue.reconcile" }),
+      expect.objectContaining({ kind: "feedback", label: "要求修改" }),
+      expect.objectContaining({ kind: "evidence", label: "查看证据" }),
     ]));
+    expect(snapshot.right.decisionInspector.primary?.actions.filter((action) => action.kind === "evidence")).toHaveLength(1);
     expect(snapshot.right.decisionInspector.history).toEqual(expect.arrayContaining([
       expect.objectContaining({ title: expect.stringContaining("audit-old-approved") }),
     ]));
@@ -740,6 +744,22 @@ describe("workbench read model", () => {
     expect(after.center.thread.items).toEqual(expect.arrayContaining([
       expect.objectContaining({ kind: "decision", status: "requested-changes", body: "User requested changes instead of accepting this decision." }),
     ]));
+  });
+
+  it("abandons an active Workpad without requiring close readiness", async () => {
+    await initHarness(project());
+    await createChange(project(), { title: "Abandon Workpad" });
+
+    const result = await executeWorkbenchAction({ project: project(), path: tempDir }, {
+      abandon: { changeId: "abandon-workpad", reason: "用户不需要继续。" },
+      confirm: true,
+    });
+    const topics = await listWorkbenchTopics({ project: project(), path: tempDir });
+
+    expect(result.result).toMatchObject({
+      change: expect.objectContaining({ id: "abandon-workpad", state: "archived" }),
+    });
+    expect(topics.find((topic) => topic.id === "abandon-workpad")).toMatchObject({ state: "archive" });
   });
 
   it("reconciles a running TaskQueue item from completed TaskRun evidence", async () => {
@@ -815,11 +835,8 @@ describe("workbench read model", () => {
     });
     const memoryText = JSON.stringify(snapshot.center.workpad.memoryIsolation);
     expect(memoryText).not.toMatch(/stdout\.log|stderr\.log|events\.jsonl|codex-events\.jsonl|process\.started/);
-    expect(snapshot.right.decisionInspector.primary).toMatchObject({
-      kind: "queue-blocker",
-      taskId: "T-001",
-      taskRunId: "taskrun-selected-1",
-    });
+    expect(snapshot.center.workpad.nextAction).toMatchObject({ label: "正在自动修改", enabled: false });
+    expect(snapshot.right.decisionInspector.primary).toBeNull();
   });
 
   it("creates a separate parked Workpad instead of appending when another Workpad is active", async () => {
@@ -841,6 +858,44 @@ describe("workbench read model", () => {
     ]));
     expect(snapshot.center.thread.items).toEqual(expect.arrayContaining([
       expect.objectContaining({ kind: "user-message", body: "这是另一个独立需求，不应污染当前 Workpad。" }),
+    ]));
+  });
+
+  it("records supplemental input as pending feedback while a demand run is still running", async () => {
+    await initHarness(project());
+    await createChange(project(), { title: "Running Demand" });
+    await writeAcceptedSpecAndTasks("running-demand");
+    await writeCoderRun("running-demand", "run-running-1", ["T-001"], "wt-running-1", "running");
+
+    const result = await postTopicMessage(project(), "running-demand", "补充：金额需要四舍五入到分。");
+    const snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: "running-demand" });
+
+    expect(result).toMatchObject({ run: null, routingDecision: "same-topic", assistantMessage: "已记录，将在本轮完成后用于下一次修改。" });
+    expect(snapshot.center.workpad.pendingFeedback).toEqual(expect.arrayContaining([
+      expect.objectContaining({ text: "补充：金额需要四舍五入到分。", runId: "run-running-1", status: "pending-next-turn" }),
+    ]));
+    expect(snapshot.center.thread.items).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: "user-message", body: "补充：金额需要四舍五入到分。", runId: "run-running-1" }),
+      expect.objectContaining({ kind: "assistant-turn", body: "已记录，将在本轮完成后用于下一次修改。", runId: "run-running-1" }),
+    ]));
+  });
+
+  it("creates a linked follow-up demand instead of mutating an archived conversation", async () => {
+    await initHarness(project());
+    await createChange(project(), { title: "Archived Demand" });
+    await writeFile(join(tempDir, "harness", "changes", "active", "archived-demand", "reviews", "review.md"), "Status: approved\n", "utf8");
+    await closeChange(tempDir);
+
+    const result = await postTopicMessage(project(), "archived-demand", "继续修改实现并补测试。");
+    const snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: "archived-demand" });
+
+    expect(result.routingDecision).toBe("new-topic-required");
+    expect(result.assistantMessage).toContain("linked follow-up");
+    const followUpId = snapshot.center.thread.items.find((item) => item.kind === "assistant-turn" && item.body?.includes("linked follow-up"))?.artifact;
+    expect(followUpId).toBeTruthy();
+    expect(snapshot.center.workpad.conversationLifecycle).toBe("archived-readonly");
+    expect(snapshot.center.thread.items).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: "user-message", body: "继续修改实现并补测试。" }),
     ]));
   });
 });

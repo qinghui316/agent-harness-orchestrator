@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "../../src/web/src/App.js";
 
@@ -192,17 +192,21 @@ const snapshot = {
       primary: {
         id: "approval:close:member-discount",
         kind: "close-gate",
-        title: "Change 可关闭：member-discount",
+        title: "确认完成 Workpad",
         summary: "关闭已完成变更。",
+        userStatus: "waiting-confirmation",
+        resultSummary: "这个 Workpad 可以结束并归档。",
+        recommendation: "同意会完成并归档这个 Workpad。",
+        explanation: "归档是 Workpad 生命周期收口，之后仍可从历史查看。",
         severity: "info",
         changeId: "member-discount",
         targetId: "member-discount",
         actions: [{
           id: "accept:close:member-discount",
-          label: "关闭并归档",
+          label: "同意",
           kind: "approval",
           approvalId: "close:member-discount",
-          action: { actionId: "change.close", label: "关闭并归档", command: "change", args: ["close", "repo"], mutates: true, requiresConfirmation: true },
+          action: { actionId: "change.close", label: "同意", command: "change", args: ["close", "repo"], mutates: true, requiresConfirmation: true },
           enabled: true,
           requiresConfirmation: true,
         }],
@@ -303,7 +307,9 @@ describe("Workbench web app", () => {
     expect(screen.getByText("生成 Spec")).toBeTruthy();
     expect(screen.getAllByText("运行 Code").length).toBeGreaterThan(0);
     expect((screen.getByText("生成 Spec") as HTMLButtonElement).disabled).toBe(true);
-    expect(screen.getByText("Change 可关闭：member-discount")).toBeTruthy();
+    expect(screen.getByText("当前需要你决定")).toBeTruthy();
+    expect(screen.getByText("结果摘要")).toBeTruthy();
+    expect(screen.getByText("推荐动作")).toBeTruthy();
     expect(screen.getByText("接受 Spec")).toBeTruthy();
     expect(screen.getByText("刷新状态")).toBeTruthy();
     expect(screen.queryByText("更多")).toBeNull();
@@ -319,9 +325,9 @@ describe("Workbench web app", () => {
     expect(screen.getByText("查看原始日志")).toBeTruthy();
     expect(screen.getByText("done")).toBeTruthy();
 
-    fireEvent.click(screen.getByText("关闭并归档"));
-    expect(screen.getByText("确认执行")).toBeTruthy();
-    fireEvent.click(screen.getByText("确认执行"));
+    fireEvent.click(screen.getAllByText("同意")[0] as HTMLElement);
+    expect(screen.getByText("确认")).toBeTruthy();
+    fireEvent.click(screen.getByText("确认"));
     await waitFor(() => {
       expect(fetch).toHaveBeenCalledWith("/api/projects/repo/workbench/actions", expect.objectContaining({ method: "POST" }));
     });
@@ -385,19 +391,17 @@ describe("Workbench web app", () => {
             currentTaskId: "T-001",
             totalCount: 1,
             completedCount: 0,
-            blockedReason: "T-001: Audit blocked.",
-            nextAction: { id: "task-queue:queue-blocked:task.queue.reconcile", label: "刷新执行状态", actionType: "task.queue.reconcile", enabled: true, requiresConfirmation: true },
+            blockedReason: "T-001: 审查未通过，需要补证据。",
+            nextAction: { id: "task-queue:queue-blocked:task.queue.reconcile", label: "继续处理", actionType: "task.queue.reconcile", enabled: true, requiresConfirmation: true },
             items: [{ id: "queue-blocked-item-001", taskId: "T-001", order: 1, status: "blocked", taskRunId: "taskrun-blocked" }],
           },
           nextAction: {
-            id: "decision:queue-blocked:T-001:retry",
-            label: "重试阻塞任务",
-            description: "T-001: Audit blocked.",
-            kind: "workflow-action",
+            id: "decision:queue-blocked:T-001:feedback",
+            label: "要求修改",
+            description: "T-001: 审查未通过，需要补证据。",
+            kind: "feedback",
             enabled: true,
-            requiresConfirmation: true,
-            actionType: "task.run.retry",
-            taskIds: ["T-001"],
+            requiresConfirmation: false,
             taskRunId: "taskrun-blocked",
           },
           taskGraph: {
@@ -405,9 +409,9 @@ describe("Workbench web app", () => {
             nodes: [{
               ...snapshot.center.workpad.taskGraph.nodes[0],
               status: "blocked",
-              taskRun: { id: "taskrun-blocked", status: "blocked", attempt: 1, roleId: "coder", runId: "run-blocked", worktreeId: "wt-blocked", blockedReason: "Audit blocked." },
-              blockers: ["Audit blocked."],
-              nextAction: { id: "task:T-001:task.run.retry:taskrun-blocked", label: "重试此任务", actionType: "task.run.retry", taskIds: ["T-001"], taskRunId: "taskrun-blocked", enabled: true, requiresConfirmation: true },
+              taskRun: { id: "taskrun-blocked", status: "blocked", attempt: 1, roleId: "coder", runId: "run-blocked", worktreeId: "wt-blocked", blockedReason: "审查未通过，需要补证据。" },
+              blockers: ["审查未通过，需要补证据。"],
+              nextAction: { id: "task:T-001:task.run.retry:taskrun-blocked", label: "要求修改", actionType: "task.run.retry", taskIds: ["T-001"], taskRunId: "taskrun-blocked", enabled: true, requiresConfirmation: true },
             }],
           },
         },
@@ -418,8 +422,12 @@ describe("Workbench web app", () => {
           primary: {
             id: "queue:queue-blocked:blocked",
             kind: "queue-blocker",
-            title: "任务队列已阻塞：T-001",
-            summary: "T-001: Audit blocked.",
+            title: "任务暂停：T-001",
+            summary: "T-001: 审查未通过，需要补证据。",
+            userStatus: "needs-rework",
+            resultSummary: "任务暂停在 T-001。",
+            recommendation: "主对话会接收失败原因；你可以要求修改，系统会把反馈绑定到该任务结果。",
+            explanation: "内部队列状态仍用于恢复和归因；用户只需要处理当前暂停的任务。",
             severity: "blocking",
             changeId: "member-discount",
             taskId: "T-001",
@@ -427,8 +435,9 @@ describe("Workbench web app", () => {
             queueRunId: "queue-blocked",
             runId: "run-blocked",
             actions: [
-              { id: "retry:taskrun-blocked", label: "重试任务", kind: "workflow-action", actionType: "task.run.retry", taskIds: ["T-001"], taskRunId: "taskrun-blocked", enabled: true, requiresConfirmation: true },
-              { id: "reconcile:queue-blocked", label: "刷新执行状态", kind: "workflow-action", actionType: "task.queue.reconcile", enabled: true, requiresConfirmation: true },
+              { id: "feedback:taskrun-blocked", label: "要求修改", kind: "feedback", enabled: true, requiresConfirmation: false },
+              { id: "evidence:run-blocked", label: "查看证据", kind: "evidence", enabled: true, requiresConfirmation: false, runId: "run-blocked" },
+              { id: "abandon:member-discount", label: "放弃", kind: "workflow-action", actionType: "change.abandon", enabled: true, requiresConfirmation: true },
             ],
           },
           related: [],
@@ -455,10 +464,10 @@ describe("Workbench web app", () => {
     render(<App />);
 
     await waitFor(() => expect(screen.getByTestId("decision-inspector-primary")).toBeTruthy());
-    expect(screen.getByText("任务队列已阻塞：T-001")).toBeTruthy();
-    expect(screen.getAllByText("T-001: Audit blocked.").length).toBeGreaterThan(0);
-    expect(screen.getByText("重试任务")).toBeTruthy();
-    expect(screen.getAllByText("刷新执行状态").length).toBeGreaterThan(0);
+    expect(screen.getByText("任务暂停：T-001")).toBeTruthy();
+    expect(screen.getAllByText("T-001: 审查未通过，需要补证据。").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("要求修改").length).toBeGreaterThan(0);
+    expect(within(screen.getByTestId("decision-inspector-primary")).getAllByText("查看证据")).toHaveLength(1);
     expect(screen.queryByText("确认")).toBeNull();
     expect(screen.getByText("查看历史决策")).toBeTruthy();
   });
@@ -892,7 +901,7 @@ describe("Workbench web app", () => {
       left: {
         ...snapshot.left,
         workpads: [
-          { id: "member-discount", title: "会员折扣计价", state: "active", runtimeStatus: "blocked", selected: true, waitingDecisionCount: 1, latestRunStatus: "completed", blocker: "T-001: Audit blocked." },
+          { id: "member-discount", title: "会员折扣计价", state: "active", runtimeStatus: "running", selected: true, waitingDecisionCount: 1, latestRunStatus: "running", latestRunId: "run-member-1" },
           { id: "shipping-rule", title: "配送规则调整", state: "active", runtimeStatus: "running", selected: false, waitingDecisionCount: 0, latestRunStatus: "running", latestRunId: "run-shipping-1" },
         ],
       },
@@ -930,13 +939,13 @@ describe("Workbench web app", () => {
 
     await waitFor(() => expect(screen.getByTestId("workpad-view")).toBeTruthy());
     expect(screen.getAllByText("配送规则调整").length).toBeGreaterThan(0);
-    expect(screen.getByText(/后台 Workpad：1 个运行中/)).toBeTruthy();
+    expect(screen.getByText(/后台需求：1 个处理中/)).toBeTruthy();
     expect(screen.getByText("记忆边界")).toBeTruthy();
     expect(screen.getByText(/project\/stable/)).toBeTruthy();
     expect(screen.getByText(/change\/member-discount/)).toBeTruthy();
-    expect(screen.getAllByText(/配送规则调整 · 运行中/).length).toBeGreaterThan(0);
-    expect(screen.getByText("继续当前 Workpad")).toBeTruthy();
-    expect(screen.getByText("新建 Workpad")).toBeTruthy();
+    expect(screen.getAllByText(/配送规则调整 · 处理中/).length).toBeGreaterThan(0);
+    expect(screen.getByText("记录到当前需求")).toBeTruthy();
+    expect(screen.getByText("新需求对话")).toBeTruthy();
     expect(screen.queryByText(/worker pool|并行 worktree|merge queue/)).toBeNull();
   });
 
