@@ -433,6 +433,10 @@ export interface RunArtifactPaths {
   stderr: string;
   prompt?: string;
   codexEvents?: string;
+  appServerEvents?: string;
+  appServerStderr?: string;
+  appServerLastMessage?: string;
+  agentSession?: string;
   lastMessage?: string;
   implementation?: string;
   worktree?: string;
@@ -678,6 +682,10 @@ export interface RunEvent {
     | "codex.capabilities.failed"
     | "codex.started"
     | "codex.exited"
+    | "app-server.capabilities.detected"
+    | "app-server.started"
+    | "app-server.exited"
+    | "app-server.unavailable"
     | "validation.started"
     | "validation.command.started"
     | "validation.command.exited"

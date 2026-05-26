@@ -5,6 +5,7 @@ import { z } from "zod";
 import { startAuditRun } from "../audit/manager.js";
 import { startCodeRun } from "../code/manager.js";
 import { buildCodexReadonlyArgv, buildCodexReadonlyResumeArgv, detectCodexCapabilities } from "../codex/capabilities.js";
+import { detectCodexAppServerCapability, getActiveCodexAppServerTurn, runCodexAppServerTurn, type CodexAppServerNotification } from "../codex/app-server.js";
 import { createCodexJsonlStreamParser, extractCodexSessionIdFromJsonl, extractFinalMessageFromCodexJsonl, truncateReadablePreview, type CodexJsonlStreamEvent, type CodexReadableEvent } from "../codex/jsonl.js";
 import { createChange, createParkedChange } from "../change/manager.js";
 import { acceptPlanProposal, acceptSpecProposal, startPlanProposalRun, startSpecProposalRun } from "../change/proposals.js";
@@ -470,6 +471,9 @@ export type WorkbenchWorkflowActionType =
   | "role.pipeline.stop"
   | "role.pipeline.continue"
   | "role.pipeline.reconcile"
+  | "conversation.steer"
+  | "conversation.interrupt"
+  | "conversation.continue"
   | "code.run"
   | "task.run.start"
   | "task.run.retry"
@@ -577,11 +581,32 @@ export async function postTopicMessage(project: ManagedProject, changeId: string
     return { user, assistant, run: null, codexSessionId: null, mode: "chat", routingDecision: "new-topic-required", assistantMessage: assistant.text ?? "" };
   }
   if (runningRun) {
+    const activeTurn = getActiveCodexAppServerTurn(changeId);
+    if (activeTurn) {
+      const user = await appendTopicThreadEntry(project, changeId, { type: "user.message", text: parsed.message, status: "steering-sent", runId: activeTurn.runId });
+      live?.emit({ event: "topic.message", data: user });
+      await activeTurn.steer(parsed.message);
+      const assistant = await appendTopicThreadEntry(project, changeId, {
+        type: "assistant.message",
+        text: "已发送给当前执行。",
+        status: "steering-sent",
+        runId: activeTurn.runId,
+      });
+      live?.emit({ event: "assistant.message", data: assistant });
+      emitAssistantEvent(live, {
+        runId: activeTurn.runId,
+        kind: "status",
+        phase: "steered",
+        title: "已发送给当前执行",
+        summary: "这条输入已通过 Codex app-server 发送给当前运行中的 turn。",
+      });
+      return { user, assistant, run: null, codexSessionId: null, mode: "chat", routingDecision: "same-topic", assistantMessage: assistant.text ?? "" };
+    }
     const user = await appendTopicThreadEntry(project, changeId, { type: "user.message", text: parsed.message, status: "pending-feedback", runId: runningRun.id });
     live?.emit({ event: "topic.message", data: user });
     const assistant = await appendTopicThreadEntry(project, changeId, {
       type: "assistant.message",
-      text: "已记录，将在本轮完成后用于下一次修改。",
+      text: "已记录，将在下一轮生效。",
       status: "pending-feedback",
       runId: runningRun.id,
     });
@@ -726,6 +751,12 @@ async function executeWorkflowAction(project: ManagedProject, changeId: string, 
       return stopRunningPipeline(project, changeId, request.prompt, live);
     case "role.pipeline.reconcile":
       return reconcileTaskRuns(project, { changeId, taskRunId: request.taskRunId });
+    case "conversation.steer":
+      return steerConversation(project, changeId, request.prompt, live);
+    case "conversation.interrupt":
+      return interruptConversation(project, changeId, request.prompt, live);
+    case "conversation.continue":
+      return runRolePipelineSequence(project, changeId, request.prompt, live, true);
     case "code.run":
       return runCodeValidateAuditSequence(project, request.prompt, live, request.taskIds);
     case "task.run.start":
@@ -763,6 +794,23 @@ async function generatePlanningDraft(
   const latestUserText = prompt?.trim()
     || [...thread].reverse().find((entry) => entry.type === "user.message")?.text
     || changeId;
+  const planningRuntime = await runCodexChat(project, changeId, [
+    "作为 planning-agent，请基于当前需求对话生成或修订方案草案。",
+    "输出目标、约束、验收标准、实现方案、任务清单、风险和待确认点。",
+    "不要修改文件；AHO 会在用户确认执行后再写入 canonical artifacts。",
+    "",
+    latestUserText,
+  ].join("\n")).catch((error: unknown) => {
+    emitAssistantEvent(live, {
+      runId: changeId,
+      kind: "status",
+      phase: "planning-runtime-fallback",
+      title: "方案草案运行时不可用",
+      summary: error instanceof Error ? error.message : String(error),
+      isError: true,
+    });
+    return null;
+  });
   const previous = await readLatestPlanningBundle(memory, changePath).catch(() => null);
   const bundle = buildDeterministicPlanningBundle(memory, changePath, changeId, latestUserText, previous, revision);
   await writePlanningBundle(memory, changePath, bundle);
@@ -787,19 +835,20 @@ async function generatePlanningDraft(
   const assistant = await appendTopicThreadEntry(project, changeId, {
     type: "assistant.message",
     status: "planning-draft",
-    text: renderPlanningBundleSummary(bundle),
-    artifact: bundle.artifact,
+    text: [planningRuntime?.message.trim(), renderPlanningBundleSummary(bundle)].filter(Boolean).join("\n\n"),
+    runId: planningRuntime?.run.id,
+    artifact: planningRuntime?.run.artifacts.lastMessage ?? bundle.artifact,
     planCard,
     blocks: [
       {
         id: `${bundle.id}:prose`,
-        runId: bundle.id,
+        runId: planningRuntime?.run.id ?? bundle.id,
         sequence: 1,
         kind: "prose",
         timestamp: new Date().toISOString(),
-        source: "aho",
+        source: planningRuntime ? "codex" : "aho",
         title: revision ? "方案草案已更新" : "方案草案",
-        text: renderPlanningBundleSummary(bundle),
+        text: [planningRuntime?.message.trim(), renderPlanningBundleSummary(bundle)].filter(Boolean).join("\n\n"),
       },
       {
         id: `${bundle.id}:plan-card`,
@@ -955,6 +1004,82 @@ async function stopRunningPipeline(
     summary: "AHO requested local runner termination; this is not Codex app-server resume.",
   });
   return { status: "stop-requested", runId: runningRun.id };
+}
+
+async function steerConversation(
+  project: ManagedProject,
+  changeId: string,
+  prompt: string | undefined,
+  live: WorkbenchLiveSink | undefined,
+): Promise<unknown> {
+  const message = prompt?.trim();
+  if (!message) throw new Error("conversation.steer requires prompt.");
+  const activeTurn = getActiveCodexAppServerTurn(changeId);
+  if (!activeTurn) {
+    const runningRun = await findRunningRunForChange(project, changeId);
+    const user = await appendTopicThreadEntry(project, changeId, { type: "user.message", text: message, status: "pending-feedback", runId: runningRun?.id });
+    live?.emit({ event: "topic.message", data: user });
+    const assistant = await appendTopicThreadEntry(project, changeId, {
+      type: "assistant.message",
+      status: "pending-feedback",
+      runId: runningRun?.id,
+      text: "当前运行时不支持实时引导，已记录，将在下一轮生效。",
+    });
+    live?.emit({ event: "assistant.message", data: assistant });
+    return { status: "pending-feedback", realtime: false };
+  }
+  const user = await appendTopicThreadEntry(project, changeId, { type: "user.message", text: message, status: "steering-sent", runId: activeTurn.runId });
+  live?.emit({ event: "topic.message", data: user });
+  await activeTurn.steer(message);
+  const assistant = await appendTopicThreadEntry(project, changeId, {
+    type: "assistant.message",
+    status: "steering-sent",
+    runId: activeTurn.runId,
+    text: "已发送给当前执行。",
+  });
+  live?.emit({ event: "assistant.message", data: assistant });
+  emitAssistantEvent(live, {
+    runId: activeTurn.runId,
+    kind: "status",
+    phase: "steered",
+    title: "已发送给当前执行",
+    summary: "这条输入已通过 Codex app-server 发送给当前运行中的 turn。",
+  });
+  return { status: "steered", realtime: true, runId: activeTurn.runId, roleId: activeTurn.roleId };
+}
+
+async function interruptConversation(
+  project: ManagedProject,
+  changeId: string,
+  prompt: string | undefined,
+  live: WorkbenchLiveSink | undefined,
+): Promise<unknown> {
+  const activeTurn = getActiveCodexAppServerTurn(changeId);
+  if (!activeTurn) {
+    return stopRunningPipeline(project, changeId, prompt, live);
+  }
+  const message = prompt?.trim();
+  if (message) {
+    const user = await appendTopicThreadEntry(project, changeId, { type: "user.message", text: message, status: "interrupt-requested", runId: activeTurn.runId });
+    live?.emit({ event: "topic.message", data: user });
+  }
+  await activeTurn.interrupt(message || "User requested interrupt from the main conversation.");
+  const assistant = await appendTopicThreadEntry(project, changeId, {
+    type: "assistant.message",
+    status: "interrupt-requested",
+    runId: activeTurn.runId,
+    text: "已请求停止当前执行。停止证据会保留，你可以继续用自然语言说明下一步。",
+  });
+  live?.emit({ event: "assistant.message", data: assistant });
+  emitAssistantEvent(live, {
+    runId: activeTurn.runId,
+    kind: "status",
+    phase: "interrupt-requested",
+    title: "已请求停止当前执行",
+    summary: "AHO sent turn/interrupt to the active Codex app-server turn.",
+    isError: true,
+  });
+  return { status: "interrupt-requested", realtime: true, runId: activeTurn.runId, roleId: activeTurn.roleId };
 }
 
 async function runOrchestratorPlan(project: ManagedProject, changeId: string, userMessage: string, live?: WorkbenchLiveSink): Promise<{
@@ -1361,6 +1486,10 @@ async function runCodexChat(project: ManagedProject, changeId: string, userMessa
     stdout: join(directory, "stdout.log"),
     stderr: join(directory, "stderr.log"),
     codexEvents: join(directory, "codex-events.jsonl"),
+    appServerEvents: join(directory, "app-server-events.jsonl"),
+    appServerStderr: join(directory, "app-server-stderr.log"),
+    appServerLastMessage: join(directory, "app-server-last-message.md"),
+    agentSession: join(directory, "agent-session.json"),
     lastMessage: join(directory, "last-message.md"),
   };
   await mkdir(directory, { recursive: true });
@@ -1388,6 +1517,10 @@ async function runCodexChat(project: ManagedProject, changeId: string, userMessa
       stdout: `${relativeDir}/stdout.log`,
       stderr: `${relativeDir}/stderr.log`,
       codexEvents: `${relativeDir}/codex-events.jsonl`,
+      appServerEvents: `${relativeDir}/app-server-events.jsonl`,
+      appServerStderr: `${relativeDir}/app-server-stderr.log`,
+      appServerLastMessage: `${relativeDir}/app-server-last-message.md`,
+      agentSession: `${relativeDir}/agent-session.json`,
       lastMessage: `${relativeDir}/last-message.md`,
     },
     promptStack: ["active-change", "topic-thread", "aho-skills", "user-message"],
@@ -1401,6 +1534,50 @@ async function runCodexChat(project: ManagedProject, changeId: string, userMessa
   const prompt = `${context}${skillContext.promptSection ? `\n\n${skillContext.promptSection}` : ""}\n\n## User Message\n\n${userMessage}\n`;
   await writeFile(paths.prompt, prompt, "utf8");
   await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "context.prepared", runId, data: { path: run.artifacts.context } });
+
+  const appServerCapabilities = await detectCodexAppServerCapability();
+  if (appServerCapabilities.available) {
+    run = { ...run, command: ["codex", "app-server", "--listen", "stdio://"], status: "running" };
+    await writeJsonFile(paths.run, run);
+    await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "app-server.started", runId, data: { phase: "chat", resumed: Boolean(runtime.codexSessionId) } });
+    const result = await runCodexAppServerTurn({
+      projectId: project.id,
+      changeId,
+      roleId: "planning-agent",
+      runId,
+      cwd: project.path,
+      prompt,
+      sandboxPolicy: "read-only",
+      paths: {
+        events: paths.appServerEvents,
+        stderr: paths.appServerStderr,
+        lastMessage: paths.appServerLastMessage,
+        session: paths.agentSession,
+      },
+      existingThreadId: runtime.codexSessionId,
+      onTextDelta: (delta) => emitLive(live, { event: "assistant.delta", data: { delta, runId } }),
+      onNotification: (notification) => forwardAppServerNotification(runId, notification, live),
+      onError: (error) => emitLive(live, { event: "error", data: { runId, message: error instanceof Error ? error.message : String(error) } }),
+    });
+    const status: RunStatus = result.status === "completed" ? "completed" : "failed";
+    const lastMessage = result.lastMessage.trim() || result.error || "Codex app-server did not return a final message.";
+    await writeFile(paths.lastMessage, lastMessage, "utf8");
+    await writeTopicRuntime(memory, changePath, { version: "1.0", changeId, codexSessionId: result.threadId ?? runtime.codexSessionId, updatedAt: new Date().toISOString() });
+    await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "app-server.exited", runId, data: { phase: "chat", status: result.status, threadId: result.threadId, turnId: result.turnId, error: result.error } });
+    run = { ...run, status, exitCode: status === "completed" ? 0 : 1, signal: null, finishedAt: new Date().toISOString() };
+    await writeJsonFile(paths.run, run);
+    await appendRunEvent(paths.events, { timestamp: run.finishedAt ?? new Date().toISOString(), type: status === "completed" ? "run.completed" : "run.failed", runId });
+    live?.emit({ event: "run.status", data: { runId, status } });
+    return { run, message: lastMessage, codexSessionId: result.threadId ?? runtime.codexSessionId };
+  }
+  emitAssistantEvent(live, {
+    runId,
+    kind: "status",
+    phase: "fallback",
+    title: "实时引导不可用",
+    summary: "Codex app-server 不可用，当前输入会在下一轮生效。",
+  });
+  await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "app-server.unavailable", runId, data: { errors: appServerCapabilities.errors } });
 
   const capabilities = await detectCodexCapabilities();
   const canResume = Boolean(runtime.codexSessionId) && capabilities.supportsSafeResume;
@@ -1495,6 +1672,45 @@ function forwardCodexStreamEvent(runId: string, event: CodexJsonlStreamEvent, li
     }
 }
 
+function forwardAppServerNotification(runId: string, notification: CodexAppServerNotification, live: WorkbenchLiveSink | undefined): void {
+  if (!live) return;
+  const method = notification.method;
+  if (method === "turn/completed") {
+    emitLive(live, { event: "run.status", data: { runId, status: "completed" } });
+    return;
+  }
+  if (method === "turn/failed") {
+    const message = JSON.stringify(notification.params);
+    emitLive(live, { event: "error", data: { runId, message } });
+    emitAssistantEvent(live, { runId, kind: "error", phase: "failed", title: "Codex app-server turn failed", summary: message, isError: true });
+    return;
+  }
+  if (method.includes("commandExecution")) {
+    const command = commandFromAppServerParams(notification.params);
+    emitAssistantEvent(live, {
+      runId,
+      itemId: itemIdFromAppServerParams(notification.params),
+      kind: "command",
+      phase: method.includes("completed") || method.includes("finished") ? "completed" : "running",
+      title: "Command event",
+      summary: command ?? method,
+      command,
+      preview: previewFromAppServerParams(notification.params),
+    });
+    return;
+  }
+  if (method.startsWith("item/") || method.startsWith("tool/")) {
+    emitAssistantEvent(live, {
+      runId,
+      itemId: itemIdFromAppServerParams(notification.params),
+      kind: "status",
+      phase: "running",
+      title: "Codex activity",
+      summary: method,
+    });
+  }
+}
+
 function emitAssistantEvent(live: WorkbenchLiveSink | undefined, event: WorkbenchAssistantEvent): void {
   emitLive(live, { event: "assistant.event", data: { ...event, timestamp: event.timestamp ?? new Date().toISOString() } });
 }
@@ -1572,6 +1788,28 @@ function exitCodeFromRaw(raw: unknown): number | undefined {
   if (!item || typeof item !== "object" || !("exit_code" in item)) return undefined;
   const exitCode = (item as { exit_code?: unknown }).exit_code;
   return typeof exitCode === "number" ? exitCode : undefined;
+}
+
+function itemIdFromAppServerParams(params: Record<string, unknown>): string | undefined {
+  if (typeof params.itemId === "string") return params.itemId;
+  if (typeof params.id === "string") return params.id;
+  if (isRecord(params.item) && typeof params.item.id === "string") return params.item.id;
+  return undefined;
+}
+
+function commandFromAppServerParams(params: Record<string, unknown>): string | undefined {
+  if (typeof params.command === "string") return params.command;
+  if (Array.isArray(params.command)) return params.command.filter((part): part is string => typeof part === "string").join(" ");
+  if (isRecord(params.item) && typeof params.item.command === "string") return params.item.command;
+  if (isRecord(params.item) && Array.isArray(params.item.command)) return params.item.command.filter((part): part is string => typeof part === "string").join(" ");
+  return undefined;
+}
+
+function previewFromAppServerParams(params: Record<string, unknown>): string | undefined {
+  if (typeof params.output === "string") return truncateReadablePreview(params.output).preview;
+  if (typeof params.text === "string") return truncateReadablePreview(params.text).preview;
+  if (isRecord(params.item) && typeof params.item.output === "string") return truncateReadablePreview(params.item.output).preview;
+  return undefined;
 }
 
 async function buildChatContext(project: ManagedProject, memory: ResolvedMemory, changeId: string, userMessage: string): Promise<string> {
@@ -2152,6 +2390,9 @@ function labelForAction(actionType: string): string {
     case "role.pipeline.stop": return "Role pipeline stop requested";
     case "role.pipeline.continue": return "Role pipeline continued";
     case "role.pipeline.reconcile": return "Role pipeline reconciled";
+    case "conversation.steer": return "Conversation steering recorded";
+    case "conversation.interrupt": return "Conversation interrupt requested";
+    case "conversation.continue": return "Conversation continued";
     case "code.run": return "Coder run confirmed";
     case "task.run.start": return "Task workflow started";
     case "task.run.retry": return "Task workflow retried";

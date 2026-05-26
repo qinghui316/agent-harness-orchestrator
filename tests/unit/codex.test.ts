@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { evaluateCodexAppServerCapabilities } from "../../src/codex/app-server.js";
 import { buildCodexReadonlyArgv, buildCodexReadonlyResumeArgv, buildCodexWorkspaceWriteArgv, evaluateCodexCapabilities } from "../../src/codex/capabilities.js";
 import { createCodexJsonlStreamParser, extractFinalMessageFromCodexJsonl, truncateReadablePreview, type CodexJsonlStreamEvent } from "../../src/codex/jsonl.js";
 import { composeCodexPrompt, readPromptInput } from "../../src/codex/prompt.js";
@@ -15,6 +16,27 @@ const execHelp = [
 ].join("\n");
 
 describe("codex capabilities", () => {
+  it("detects app-server stdio lifecycle support from help", () => {
+    const capabilities = evaluateCodexAppServerCapabilities("Usage: codex app-server [OPTIONS]\n  --listen <URL>  default: stdio://\nRun the app server");
+
+    expect(capabilities).toMatchObject({
+      available: true,
+      supportsStdio: true,
+      supportsRequiredLifecycle: true,
+      errors: [],
+    });
+  });
+
+  it("falls back when app-server stdio transport is unavailable", () => {
+    const capabilities = evaluateCodexAppServerCapabilities("Usage: codex app-server [OPTIONS]", "spawn failed");
+
+    expect(capabilities.available).toBe(false);
+    expect(capabilities.errors).toEqual(expect.arrayContaining([
+      "spawn failed",
+      "Codex app-server does not advertise stdio transport.",
+    ]));
+  });
+
   it("builds root-level approval argv", () => {
     const capabilities = evaluateCodexCapabilities("codex-cli 1.0", rootHelp, execHelp);
 

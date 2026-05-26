@@ -3,6 +3,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { getChangeStatus } from "../change/manager.js";
 import { buildCodexWorkspaceWriteArgv, detectCodexCapabilities } from "../codex/capabilities.js";
+import { detectCodexAppServerCapability, runCodexAppServerTurn } from "../codex/app-server.js";
 import { CodexCompletionTracker, codexLifecycleTiming, type CodexCompletionSnapshot } from "../codex/completion.js";
 import { createCodexJsonlStreamParser, extractFinalMessageFromCodexJsonl, type CodexJsonlStreamEvent } from "../codex/jsonl.js";
 import { readPromptInput } from "../codex/prompt.js";
@@ -107,6 +108,10 @@ export async function startCodeRun(project: ManagedProject, options: CodeRunOpti
     stderr: `${relativeDir}/stderr.log`,
     prompt: `${relativeDir}/prompt.md`,
     codexEvents: `${relativeDir}/codex-events.jsonl`,
+    appServerEvents: `${relativeDir}/app-server-events.jsonl`,
+    appServerStderr: `${relativeDir}/app-server-stderr.log`,
+    appServerLastMessage: `${relativeDir}/app-server-last-message.md`,
+    agentSession: `${relativeDir}/agent-session.json`,
     lastMessage: `${relativeDir}/last-message.md`,
     diff: `${relativeDir}/diff.patch`,
     diffStat: `${relativeDir}/diff-stat.txt`,
@@ -120,6 +125,10 @@ export async function startCodeRun(project: ManagedProject, options: CodeRunOpti
     stderr: join(directory, "stderr.log"),
     prompt: join(directory, "prompt.md"),
     codexEvents: join(directory, "codex-events.jsonl"),
+    appServerEvents: join(directory, "app-server-events.jsonl"),
+    appServerStderr: join(directory, "app-server-stderr.log"),
+    appServerLastMessage: join(directory, "app-server-last-message.md"),
+    agentSession: join(directory, "agent-session.json"),
     lastMessage: join(directory, "last-message.md"),
     diff: join(directory, "diff.patch"),
     diffStat: join(directory, "diff-stat.txt"),
@@ -168,6 +177,89 @@ export async function startCodeRun(project: ManagedProject, options: CodeRunOpti
     coderProfile: buildAgentSystemPrompt(role),
   });
   await writeFile(paths.prompt, prompt, "utf8");
+
+  const appServerCapabilities = await detectCodexAppServerCapability();
+  if (appServerCapabilities.available) {
+    await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "app-server.capabilities.detected", runId, data: { supportsStdio: appServerCapabilities.supportsStdio } });
+    run = { ...run, command: ["codex", "app-server", "--listen", "stdio://"], status: "running" };
+    await writeJsonFile(paths.run, run);
+    await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "coder.started", runId, data: { cwd: worktree.checkoutPath, command: run.command, adapter: "codex-app-server" } });
+    await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "app-server.started", runId, data: { cwd: worktree.checkoutPath } });
+    emitCodeLiveRunStarted(options.live, run);
+    emitCodeLiveStatus(options.live, { runId, status: "running", label: "Coder" });
+    const appServerResult = await runCodexAppServerTurn({
+      projectId: project.id,
+      changeId,
+      roleId: "coder-agent",
+      runId,
+      cwd: worktree.checkoutPath,
+      prompt,
+      sandboxPolicy: "workspace-write",
+      paths: {
+        events: paths.appServerEvents,
+        stderr: paths.appServerStderr,
+        lastMessage: paths.appServerLastMessage,
+        session: paths.agentSession,
+      },
+      onTextDelta: (delta) => {
+        try {
+          options.live?.onCodexEvent?.({ type: "text_delta", delta, runId, raw: { source: "app-server" } });
+        } catch (error) {
+          emitCodeLiveCallbackError(options.live, runId, error);
+        }
+      },
+      onNotification: (notification) => {
+        try {
+          options.live?.onCodexEvent?.({
+            type: "readable_event",
+            event: {
+              kind: notification.method.includes("commandExecution") ? "command" : "status",
+              phase: notification.method,
+              title: notification.method.includes("commandExecution") ? "Command event" : "Codex app-server activity",
+              summary: notification.method,
+            },
+            runId,
+            raw: notification.raw,
+          });
+        } catch (error) {
+          emitCodeLiveCallbackError(options.live, runId, error);
+        }
+      },
+      onError: (error) => emitCodeLiveCallbackError(options.live, runId, error),
+    });
+    await writeFile(paths.lastMessage, appServerResult.lastMessage || appServerResult.error || "# Coder App-Server Output Not Captured\n", "utf8");
+    await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "app-server.exited", runId, data: { status: appServerResult.status, threadId: appServerResult.threadId, turnId: appServerResult.turnId, error: appServerResult.error } });
+
+    const diffResult = await collectWorktreeDiff(memory, worktree.worktreeId, changeId);
+    await writeFile(paths.diff, diffResult.diff, "utf8");
+    await writeFile(paths.diffStat, diffResult.diffStat, "utf8");
+    await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "diff.collected", runId, data: { bytes: Buffer.byteLength(diffResult.diff, "utf8"), stat: diffResult.diffStat } });
+    const sourceAfter = await getSortedSourceStatus(project.path);
+    const sourceChanged = JSON.stringify(sourceBefore) !== JSON.stringify(sourceAfter);
+    await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "source.checked", runId, data: { before: sourceBefore, after: sourceAfter, changed: sourceChanged } });
+    const lastMessage = appServerResult.lastMessage || appServerResult.error || "";
+    const warnings = [
+      ...created.warnings,
+      ...(diffResult.diff.trim() ? [] : ["Coder run completed without producing a worktree diff."]),
+      ...(sourceChanged ? ["Source project git status changed during coder run; Codex may have modified outside the assigned worktree."] : []),
+      ...(appServerResult.status === "interrupted" ? ["Coder app-server turn was interrupted by the user."] : []),
+    ];
+    await writeFile(paths.implementation, renderImplementationSummary({
+      lastMessage,
+      diffStat: diffResult.diffStat,
+      diff: diffResult.diff,
+      warnings,
+      sourceBefore,
+      sourceAfter,
+    }), "utf8");
+    const status: RunStatus = appServerResult.status === "completed" && !sourceChanged ? "completed" : "failed";
+    run = await finishRun(paths.run, run, status, sourceChanged ? 1 : status === "completed" ? 0 : 1, null);
+    await appendRunEvent(paths.events, { timestamp: run.finishedAt ?? new Date().toISOString(), type: status === "completed" ? "run.completed" : "run.failed", runId, data: { warnings, adapter: "codex-app-server" } });
+    emitCodeLiveStatus(options.live, { runId, status, label: "Coder" });
+    return { run, warnings };
+  }
+  await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "app-server.unavailable", runId, data: { errors: appServerCapabilities.errors } });
+  emitCodeLiveStatus(options.live, { runId, status: "fallback-next-turn", label: "实时引导不可用" });
 
   const capabilities = await detectCodexCapabilities();
   if (capabilities.errors.length > 0) {

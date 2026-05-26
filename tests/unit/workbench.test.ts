@@ -870,13 +870,13 @@ describe("workbench read model", () => {
     const result = await postTopicMessage(project(), "running-demand", "补充：金额需要四舍五入到分。");
     const snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: "running-demand" });
 
-    expect(result).toMatchObject({ run: null, routingDecision: "same-topic", assistantMessage: "已记录，将在本轮完成后用于下一次修改。" });
+    expect(result).toMatchObject({ run: null, routingDecision: "same-topic", assistantMessage: "已记录，将在下一轮生效。" });
     expect(snapshot.center.workpad.pendingFeedback).toEqual(expect.arrayContaining([
       expect.objectContaining({ text: "补充：金额需要四舍五入到分。", runId: "run-running-1", status: "pending-next-turn" }),
     ]));
     expect(snapshot.center.thread.items).toEqual(expect.arrayContaining([
       expect.objectContaining({ kind: "user-message", body: "补充：金额需要四舍五入到分。", runId: "run-running-1" }),
-      expect.objectContaining({ kind: "assistant-turn", body: "已记录，将在本轮完成后用于下一次修改。", runId: "run-running-1" }),
+      expect.objectContaining({ kind: "assistant-turn", body: "已记录，将在下一轮生效。", runId: "run-running-1" }),
     ]));
   });
 

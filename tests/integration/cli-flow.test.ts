@@ -175,8 +175,10 @@ describe("CLI flow", () => {
 
     expect(messages.filter((item) => item.type === "user.message")).toHaveLength(3);
     expect(messages.filter((item) => item.type === "assistant.message")).toHaveLength(2);
-    expect(argvLog[0]).toEqual(expect.arrayContaining(["exec", "--json", "--sandbox", "read-only"]));
-    expect(argvLog[1]).toEqual(expect.arrayContaining(["exec", "resume", "sess-chat-123"]));
+    const execArgvLog = argvLog.filter((args) => args.includes("exec"));
+    expect(argvLog.some((args) => args[0] === "app-server" && args.includes("--help"))).toBe(true);
+    expect(execArgvLog[0]).toEqual(expect.arrayContaining(["exec", "--json", "--sandbox", "read-only"]));
+    expect(execArgvLog[1]).toEqual(expect.arrayContaining(["exec", "resume", "sess-chat-123"]));
     expect(snapshot.center.thread.items.some((item) => item.kind === "assistant-turn")).toBe(true);
   });
 

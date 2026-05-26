@@ -288,7 +288,7 @@ type PlanCard = {
 };
 type ThreadEvent = { id: string; type: string; label: string; timestamp?: string; status?: string; runId?: string; planCard?: PlanCard };
 type ThreadStreamAction = {
-  actionType: "change.spec.propose" | "change.plan.propose" | "planning.generate" | "planning.revise" | "planning.confirm-execution" | "role.pipeline.start" | "role.pipeline.stop" | "role.pipeline.continue" | "role.pipeline.reconcile" | "code.run" | "task.run.start" | "task.run.retry" | "task.queue.start" | "task.queue.reconcile" | "intake.scan" | "intake.reanalyze" | "clarification.answer" | "clarification.skip";
+  actionType: "change.spec.propose" | "change.plan.propose" | "planning.generate" | "planning.revise" | "planning.confirm-execution" | "role.pipeline.start" | "role.pipeline.stop" | "role.pipeline.continue" | "role.pipeline.reconcile" | "conversation.steer" | "conversation.interrupt" | "conversation.continue" | "code.run" | "task.run.start" | "task.run.retry" | "task.queue.start" | "task.queue.reconcile" | "intake.scan" | "intake.reanalyze" | "clarification.answer" | "clarification.skip";
   label: string;
   enabled: boolean;
   requiresConfirmation: boolean;
@@ -834,7 +834,7 @@ export function App(): ReactElement {
       setError("请输入停止后要按什么修改。");
       return;
     }
-    await runWorkflowAction("role.pipeline.stop", { prompt: composerText.trim() });
+    await runWorkflowAction("conversation.interrupt", { prompt: composerText.trim() });
   }
 
   async function answerClarification(clarificationId: string, answer: string): Promise<void> {
@@ -1940,7 +1940,7 @@ function WorkpadView({
             <div className="workpad-evidence-list">
               {workpad.pendingFeedback.map((feedback) => (
                 <div className="workpad-evidence" key={feedback.id}>
-                  <strong>已记录，将在本轮完成后用于下一次修改</strong>
+                  <strong>已记录，将在下一轮生效</strong>
                   <span>{feedback.text}</span>
                 </div>
               ))}
@@ -2918,20 +2918,20 @@ function TopicComposer({
   canRunCode: boolean;
   currentWorkpadStatus?: WorkpadRuntimeStatus;
 }): ReactElement {
-  const runningConversation = currentWorkpadStatus === "running";
+  const runningConversation = Boolean(actionRunning) || currentWorkpadStatus === "running";
   return (
     <div className="topic-composer" aria-label="需求对话输入框">
         <textarea
         value={value}
         onChange={(event) => onChange(event.target.value)}
         disabled={Boolean(disabledReason)}
-        placeholder={disabledReason ?? (runningConversation ? "补充要求会先记录，本轮完成后用于下一次修改" : "输入问题或下一步需求")}
+        placeholder={disabledReason ?? (runningConversation ? "补充要求；支持实时引导时会发送给当前执行" : "输入问题或下一步需求")}
       />
       <div className="composer-toolbar">
         {runningConversation ? (
           <div className="workpad-route-switch" aria-label="需求对话路由选择">
             <button type="button" className="active" disabled={Boolean(disabledReason) || !value.trim()} onClick={() => void onSend()}>
-              记录到下一轮
+              发送给当前执行
             </button>
             <button type="button" disabled={!onStopAndContinue || Boolean(disabledReason) || !value.trim()} onClick={() => void onStopAndContinue?.()}>
               停止并按这条修改
@@ -3015,7 +3015,7 @@ function RunReplay({ stream, run }: { stream: StreamPacket | null; run?: RunSumm
         <pre className="code-preview">{rawPreview}</pre>
       </details>
       <div className="artifact-grid">
-        {(stream?.artifacts ?? []).filter((item) => ["events", "stdout", "stderr", "codexEvents", "lastMessage", "diff", "implementation", "validation", "audit"].includes(item.key)).map((artifact) => (
+        {(stream?.artifacts ?? []).filter((item) => ["events", "stdout", "stderr", "codexEvents", "lastMessage", "appServerEvents", "appServerStderr", "appServerLastMessage", "agentSession", "diff", "implementation", "validation", "audit"].includes(item.key)).map((artifact) => (
           <div className="artifact-chip" key={artifact.key}>
             <FileText size={15} />
             <span>{artifact.path.split("/").at(-1)}</span>
@@ -3447,6 +3447,9 @@ function workflowActionLabel(actionType: string | undefined): string {
   if (actionType === "planning.confirm-execution") return "确认执行";
   if (actionType === "role.pipeline.start") return "角色流水线";
   if (actionType === "role.pipeline.stop") return "停止当前执行";
+  if (actionType === "conversation.steer") return "引导当前执行";
+  if (actionType === "conversation.interrupt") return "停止当前执行";
+  if (actionType === "conversation.continue") return "继续执行";
   if (actionType === "role.pipeline.continue") return "继续执行";
   if (actionType === "role.pipeline.reconcile") return "恢复执行状态";
   if (actionType === "code.run") return "Code workflow";

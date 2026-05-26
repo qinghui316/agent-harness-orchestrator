@@ -107,7 +107,7 @@ export interface WorkbenchThreadEvent {
 }
 
 export interface ThreadStreamAction {
-  actionType: "change.spec.propose" | "change.plan.propose" | "planning.generate" | "planning.revise" | "planning.confirm-execution" | "role.pipeline.start" | "role.pipeline.stop" | "role.pipeline.continue" | "role.pipeline.reconcile" | "code.run" | "task.run.start" | "task.run.retry" | "task.queue.start" | "task.queue.reconcile" | "intake.scan" | "intake.reanalyze" | "clarification.answer" | "clarification.skip";
+  actionType: "change.spec.propose" | "change.plan.propose" | "planning.generate" | "planning.revise" | "planning.confirm-execution" | "role.pipeline.start" | "role.pipeline.stop" | "role.pipeline.continue" | "role.pipeline.reconcile" | "conversation.steer" | "conversation.interrupt" | "conversation.continue" | "code.run" | "task.run.start" | "task.run.retry" | "task.queue.start" | "task.queue.reconcile" | "intake.scan" | "intake.reanalyze" | "clarification.answer" | "clarification.skip";
   label: string;
   enabled: boolean;
   requiresConfirmation: boolean;
@@ -972,9 +972,9 @@ async function buildWorkbenchWorkpad(input: {
     rolePipeline,
     runControlState: {
       canStop: Boolean(runningRun),
-      stopActionType: runningRun ? "role.pipeline.stop" : undefined,
+      stopActionType: runningRun ? "conversation.interrupt" : undefined,
       pendingFeedbackCount: selectedTopic.threadItems.filter((item) => item.kind === "user-message" && item.status === "pending-feedback").length,
-      explanation: runningRun ? "当前本地执行可请求停止；停止后会保留证据并进入下一轮方案或修改。" : "当前没有正在执行的本地 role pipeline。",
+      explanation: runningRun ? "支持实时引导时，补充要求会发送给当前执行；不支持时会记录到下一轮。停止会保留证据并进入下一轮方案或修改。" : "当前没有正在执行的需求。",
     },
     intake,
     progress: {
