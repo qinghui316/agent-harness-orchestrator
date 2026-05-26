@@ -1378,7 +1378,7 @@ function buildTaskQueueSummary(
   const baseAction: WorkbenchTaskNextAction | undefined = queue
     ? {
         id: `task-queue:${queue.id}:${queueActionType}`,
-        label: queue.status === "paused" ? "恢复队列状态" : "刷新执行状态",
+        label: queue.status === "paused" ? "继续处理" : "刷新执行状态",
         actionType: queueActionType,
         enabled: topic.state === "active",
         requiresConfirmation: true,
@@ -1940,7 +1940,7 @@ function userResultSummary(context: WorkbenchDecisionContext): string {
 }
 
 function userRecommendation(context: WorkbenchDecisionContext): string {
-  if (context.kind === "queue-blocker" || context.kind === "task-blocker") return "补充修改要求后，主 Agent 会把反馈路由到对应 agent 的下一轮修改。";
+  if (context.kind === "queue-blocker" || context.kind === "task-blocker") return "补充修改要求后，系统会把反馈带入下一轮修改。";
   if (context.kind === "validation-failed") return "验证失败会先作为 agent 修改输入；若自动修改用尽，再请你补充要求。";
   if (context.kind === "audit-blocked") return "审查失败会先作为 agent 修改输入；若仍失败，再请你补充业务判断。";
   if (context.kind === "spec-proposal" || context.kind === "plan-proposal") return "同意会接受该草案；要求修改会把反馈记录回当前需求。";
@@ -1951,7 +1951,7 @@ function userRecommendation(context: WorkbenchDecisionContext): string {
 }
 
 function userDecisionExplanation(context: WorkbenchDecisionContext): string {
-  if (context.kind === "queue-blocker") return "内部队列状态仍用于恢复和归因；用户只需要处理当前暂停的任务。";
+  if (context.kind === "queue-blocker") return "执行状态仍用于恢复和归因；你只需要处理当前暂停的任务。";
   if (context.kind === "task-blocker") return "任务状态来自 TaskRun / Validation / Audit evidence，不会自动修改 tasks.md。";
   if (context.kind === "validation-failed" || context.kind === "audit-blocked") return "这不是最终失败，而是需要修改或补证据的检查结果。";
   if (context.kind === "apply-gate") return "应用是高影响动作，仍需要明确确认。";

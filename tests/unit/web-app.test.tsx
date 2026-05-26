@@ -47,7 +47,7 @@ const snapshot = {
       codingPackages: [{
         id: "coding-package:member-discount:implementation",
         title: "会员折扣计价 implementation package",
-        summary: "默认由一个 coder-agent 处理当前变更实现范围。",
+        summary: "默认由一个 coder-agent 处理当前需求实现范围。",
         taskIds: ["T-001"],
         completedTaskIds: ["T-001"],
         acIds: ["AC-001"],
@@ -192,12 +192,12 @@ const snapshot = {
       primary: {
         id: "approval:close:member-discount",
         kind: "close-gate",
-        title: "确认完成 Workpad",
+        title: "确认完成需求对话",
         summary: "关闭已完成变更。",
         userStatus: "waiting-confirmation",
-        resultSummary: "这个 Workpad 可以结束并归档。",
-        recommendation: "同意会完成并归档这个 Workpad。",
-        explanation: "归档是 Workpad 生命周期收口，之后仍可从历史查看。",
+        resultSummary: "这个需求对话可以结束并归档。",
+        recommendation: "同意会完成并归档这个需求对话。",
+        explanation: "归档是需求生命周期收口，之后仍可从历史查看。",
         severity: "info",
         changeId: "member-discount",
         targetId: "member-discount",
@@ -276,15 +276,15 @@ describe("Workbench web app", () => {
     await waitFor(() => expect(screen.getAllByText("会员折扣计价").length).toBeGreaterThan(0));
     expect(screen.getByTestId("workpad-view")).toBeTruthy();
     expect(screen.getByText("目标与当前理解")).toBeTruthy();
-    expect(screen.getByText("Coding Work Package")).toBeTruthy();
     expect(screen.getByText("推荐角色：coder-agent")).toBeTruthy();
+    expect(screen.getByText("执行范围")).toBeTruthy();
     expect(screen.getByText("执行粒度：单一 coder-agent")).toBeTruthy();
     expect(screen.queryByText("运行 Package")).toBeNull();
     expect(screen.queryByText("并行执行")).toBeNull();
-    expect(screen.getByText("TaskGraph")).toBeTruthy();
+    expect(screen.getByText("任务清单")).toBeTruthy();
     expect(screen.getByText("证据与决策")).toBeTruthy();
     expect(screen.getAllByText("关闭已完成变更。").length).toBeGreaterThan(0);
-    expect(screen.getByText("新对话")).toBeTruthy();
+    expect(screen.getByLabelText("在 Repo 中开始新对话")).toBeTruthy();
     expect(screen.getByLabelText("搜索已加载对话")).toBeTruthy();
     expect(screen.getAllByText("项目").length).toBeGreaterThan(0);
     expect(screen.getByText("Repo")).toBeTruthy();
@@ -292,7 +292,7 @@ describe("Workbench web app", () => {
     expect(screen.queryByText("远程项目")).toBeNull();
     expect(screen.getByText("当前决策")).toBeTruthy();
     expect(screen.getAllByText("已完成").length).toBeGreaterThan(0);
-    fireEvent.click(screen.getByText("线程"));
+    fireEvent.click(screen.getByText("对话"));
     expect(screen.getByText("用户消息")).toBeTruthy();
     expect(screen.getByText("AI 计划")).toBeTruthy();
     expect(screen.getAllByText("执行结果").length).toBeGreaterThan(0);
@@ -308,21 +308,25 @@ describe("Workbench web app", () => {
     expect(screen.getByText("验证：已通过")).toBeTruthy();
     expect(screen.getByText("审查：带备注批准")).toBeTruthy();
     expect(screen.getByText("会员折扣计划")).toBeTruthy();
-    expect(screen.getByText("生成 Plan")).toBeTruthy();
-    expect(screen.getByText("生成 Spec")).toBeTruthy();
-    expect(screen.getAllByText("运行 Code").length).toBeGreaterThan(0);
-    expect((screen.getByText("生成 Spec") as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByText("生成执行方案")).toBeTruthy();
+    expect(screen.getByText("生成需求说明")).toBeTruthy();
+    expect(screen.queryByText("运行 Code")).toBeNull();
+    expect((screen.getByText("生成需求说明") as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByText("当前需要你决定")).toBeTruthy();
     expect(screen.getByText("结果摘要")).toBeTruthy();
     expect(screen.getByText("推荐动作")).toBeTruthy();
-    expect(screen.getByText("接受 Spec")).toBeTruthy();
+    expect(screen.getByText("接受需求说明")).toBeTruthy();
     expect(screen.getByText("刷新状态")).toBeTruthy();
     expect(screen.queryByText("更多")).toBeNull();
     expect(screen.queryByText("稍后")).toBeNull();
     expect(screen.getByText("记忆：external-local")).toBeTruthy();
-    expect(screen.getByText("当前变更：会员折扣计价")).toBeTruthy();
+    expect(screen.getByText("当前需求：会员折扣计价")).toBeTruthy();
+    const primarySurface = document.querySelector(".workspace")?.textContent ?? "";
+    for (const forbidden of ["Topic", "Workpad", "Change-level evidence", "TaskRun", "WorkerLease", "audit-blocked", "queue blocked", "Plan mode", "AC ", "Tasks", "Agent 循环"]) {
+      expect(primarySurface).not.toContain(forbidden);
+    }
 
-    fireEvent.click(screen.getByText("Agent 循环"));
+    fireEvent.click(screen.getByText("执行证据"));
     expect(screen.getAllByText("代码实现").length).toBeGreaterThan(0);
     expect(screen.getByText("运行阶段")).toBeTruthy();
     expect(screen.getByText("模型事件转录")).toBeTruthy();
@@ -375,7 +379,7 @@ describe("Workbench web app", () => {
     render(<App />);
 
     await waitFor(() => expect(screen.getAllByText("会员折扣计价").length).toBeGreaterThan(0));
-    fireEvent.click(screen.getByText("线程"));
+    fireEvent.click(screen.getByText("对话"));
     await waitFor(() => expect(screen.getByText("我会检查现有实现。")).toBeTruthy());
     expect(document.querySelectorAll("[data-testid='assistant-block-command-group']")).toHaveLength(1);
     expect(document.querySelectorAll("[data-testid='assistant-block-command']")).toHaveLength(1);
@@ -432,7 +436,7 @@ describe("Workbench web app", () => {
             userStatus: "needs-rework",
             resultSummary: "任务暂停在 T-001。",
             recommendation: "主对话会接收失败原因；你可以要求修改，系统会把反馈绑定到该任务结果。",
-            explanation: "内部队列状态仍用于恢复和归因；用户只需要处理当前暂停的任务。",
+            explanation: "执行状态仍用于恢复和归因；你只需要处理当前暂停的任务。",
             severity: "blocking",
             changeId: "member-discount",
             taskId: "T-001",
@@ -513,7 +517,7 @@ describe("Workbench web app", () => {
 
     render(<App />);
 
-    await waitFor(() => expect(screen.getByText("Spec proposal: run-spec")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("需求说明草案: run-spec")).toBeTruthy());
     fireEvent.click(screen.getByText("要求修改"));
     expect(screen.getByTestId("decision-feedback-editor")).toBeTruthy();
     fireEvent.change(screen.getByPlaceholderText("写下需要修改的点、补充约束或复审要求。"), { target: { value: "补充金额舍入规则。" } });
@@ -605,7 +609,7 @@ describe("Workbench web app", () => {
             totalCount: 1,
             completedCount: 0,
             pausedReason: "队列已暂停，等待继续。",
-            nextAction: { id: "task-queue:queue-1:task.queue.start", label: "恢复队列状态", actionType: "task.queue.start", enabled: true, requiresConfirmation: true },
+            nextAction: { id: "task-queue:queue-1:task.queue.start", label: "继续处理", actionType: "task.queue.start", enabled: true, requiresConfirmation: true },
             items: [{ id: "queue-1-item-001", taskId: "T-001", order: 1, status: "queued" }],
           },
           taskGraph: {
@@ -629,7 +633,7 @@ describe("Workbench web app", () => {
     render(<App />);
 
     await waitFor(() => expect(screen.getByText("队列已暂停，等待继续。")).toBeTruthy());
-    expect(screen.getByText("恢复队列状态")).toBeTruthy();
+    expect(screen.getByText("继续处理")).toBeTruthy();
     expect((screen.getByText("运行此任务") as HTMLButtonElement).disabled).toBe(true);
   });
 
@@ -970,7 +974,7 @@ describe("Workbench web app", () => {
     render(<App />);
 
     await waitFor(() => expect(screen.getByText("选择一个项目开始")).toBeTruthy());
-    expect(screen.getByText("新对话")).toBeTruthy();
+    expect(screen.queryByText("新对话")).toBeNull();
     fireEvent.click(screen.getByLabelText("项目菜单"));
     expect(screen.getByText("使用现有文件夹")).toBeTruthy();
     expect(screen.getByText("新建空项目")).toBeTruthy();

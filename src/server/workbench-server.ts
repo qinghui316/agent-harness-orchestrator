@@ -383,7 +383,7 @@ export async function executeWorkbenchAction(input: WorkbenchProjectInput, body:
   if (!input.project) throw new Error("Workbench actions require a registered project.");
   if (body.abandon) {
     if (body.confirm !== true) {
-      const error = new Error("Abandoning a Workpad requires confirm: true.");
+      const error = new Error("Abandoning a demand conversation requires confirm: true.");
       error.name = "Conflict";
       throw error;
     }
@@ -393,8 +393,8 @@ export async function executeWorkbenchAction(input: WorkbenchProjectInput, body:
       changeId,
       decisionType: "workpad.abandon",
       status: "dismissed",
-      label: "放弃这个 Workpad",
-      summary: "User abandoned this Workpad. Source code was not changed by this action.",
+      label: "放弃这个需求对话",
+      summary: "User abandoned this demand conversation. Source code was not changed by this action.",
       targetId: changeId,
       runId: null,
       artifact: null,
@@ -482,8 +482,8 @@ export async function executeWorkbenchAction(input: WorkbenchProjectInput, body:
         changeId: finalized.change.id,
         decisionType: "workpad.auto-finalize",
         status: "completed",
-        label: "Workpad auto finalized",
-        summary: "Applied source change was accepted, so the Workpad was automatically closed and archived.",
+        label: "Demand conversation auto finalized",
+        summary: "Applied source change was accepted, so the demand conversation was automatically closed and archived.",
         targetId: finalized.change.id,
         runId: null,
         artifact: finalized.archivePath,
@@ -551,12 +551,12 @@ function assertRegisteredProject(input: WorkbenchProjectInput): asserts input is
 async function readCreateTopicBody(request: IncomingMessage): Promise<{ title: string; body?: string }> {
   const body = await readJsonBody<CreateTopicRequest>(request);
   if (body.confirm !== true) {
-    const error = new Error("Creating a Topic requires confirm: true.");
+    const error = new Error("Creating a demand conversation requires confirm: true.");
     error.name = "Conflict";
     throw error;
   }
   if (typeof body.title !== "string" || body.title.trim() === "") {
-    const error = new Error("Topic title is required.");
+    const error = new Error("Demand conversation title is required.");
     error.name = "BadRequest";
     throw error;
   }

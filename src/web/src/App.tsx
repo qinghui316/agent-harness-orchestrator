@@ -599,15 +599,37 @@ export function App(): ReactElement {
     await refresh(projectId, null);
   }
 
-  async function beginNewConversation(): Promise<void> {
-    if (!selectedProjectId) {
-      setError("请先选择或添加项目。");
+  async function beginNewConversation(projectId = selectedProjectId ?? undefined): Promise<void> {
+    if (!projectId) {
+      setError("请先选择项目，再在该项目下新建需求对话。");
       return;
     }
+    const status = projects.find((item) => item.project?.id === projectId);
+    if (!status?.managed) {
+      setError("请先初始化这个项目，再新建需求对话。");
+      return;
+    }
+    const baseSnapshot = projectSnapshots[projectId] ?? (status.project?.id === selectedProjectId ? snapshot : await fetchJson<Snapshot>(`/api/projects/${encodeURIComponent(projectId)}/workbench/snapshot`));
     setComposerText("");
+    setSelectedProjectId(projectId);
     setSelectedTopic(null);
+    setExpandedProjects((current) => new Set([...current, projectId]));
     setTab("workpad");
-    await refresh(selectedProjectId, null);
+    const nextSnapshot = {
+      ...baseSnapshot,
+      center: {
+        selectedTopic: null,
+        workpad: emptyWorkpad(baseSnapshot.project?.name ?? status.project?.name ?? "当前项目"),
+        thread: { items: [] },
+        agentLoop: { runs: [] },
+      },
+      right: {
+        ...baseSnapshot.right,
+        decisionInspector: { primary: null, related: [], history: [] },
+      },
+    };
+    setSnapshot(nextSnapshot);
+    setProjectSnapshots((current) => ({ ...current, [projectId]: nextSnapshot }));
   }
 
   async function toggleProjectFolder(projectId: string): Promise<void> {
@@ -730,7 +752,7 @@ export function App(): ReactElement {
   async function sendTopicMessage(): Promise<void> {
     if (!selectedProjectId || !activeTopic || !composerText.trim()) return;
     if (activeTopic.state !== "active") {
-      setError("归档或暂停 Topic 为只读，不能继续发送消息。");
+      setError("已完成或稍后处理的需求对话为只读，不能继续发送消息。");
       return;
     }
     const message = composerText.trim();
@@ -1052,7 +1074,7 @@ export function App(): ReactElement {
 
       <main className="workspace">
         {!selectedProjectId ? (
-          <EmptyWorkbench title="选择一个项目开始" description="从左侧添加已有项目或新建空仓库。AHO 会把项目、记忆、主题和确认动作组织在这个工作台里。" />
+          <EmptyWorkbench title="选择一个项目开始" description="从左侧添加已有项目或新建空仓库。AHO 会把项目、记忆、需求对话和确认动作组织在这个工作台里。" />
         ) : !selectedProjectStatus?.managed ? (
           <UnmanagedProjectView project={selectedProjectStatus} onDone={() => loadApp().then(() => selectedProjectId ? refresh(selectedProjectId, null) : undefined)} />
         ) : !activeTopic ? (
@@ -1068,7 +1090,7 @@ export function App(): ReactElement {
             <header className="thread-header">
               <div className="thread-title-block">
                 <strong>{activeTopic.title}</strong>
-                <span>{snapshot.project?.name ?? "project"} · {stateLabel(activeTopic.state)} · AC {activeTopic.acCount ?? 0} · Tasks {activeTopic.taskCount ?? 0}</span>
+                <span>{snapshot.project?.name ?? "project"} · {stateLabel(activeTopic.state)} · 验收 {activeTopic.acCount ?? 0} · 任务 {activeTopic.taskCount ?? 0}</span>
               </div>
               <div className="topic-actions">
                 <button className="secondary-button" onClick={() => void refresh()}><Settings size={15} />刷新状态</button>
@@ -1077,8 +1099,8 @@ export function App(): ReactElement {
 
             <div className="tabs">
               <button className={tab === "workpad" ? "active" : ""} onClick={() => setTab("workpad")}>需求</button>
-              <button className={tab === "thread" ? "active" : ""} onClick={() => setTab("thread")}>线程</button>
-              <button className={tab === "loop" ? "active" : ""} onClick={() => setTab("loop")}>Agent 循环</button>
+              <button className={tab === "thread" ? "active" : ""} onClick={() => setTab("thread")}>对话</button>
+              <button className={tab === "loop" ? "active" : ""} onClick={() => setTab("loop")}>执行证据</button>
             </div>
 
             <section className="center-grid">
@@ -1102,7 +1124,7 @@ export function App(): ReactElement {
                       mode={composerMode}
                       onModeChange={setComposerMode}
                       busy={actionRunning !== null || activeTopic.state !== "active"}
-                      disabledReason={activeTopic.state !== "active" ? "归档或暂停 Topic 为只读。" : undefined}
+                      disabledReason={activeTopic.state !== "active" ? "已完成或稍后处理的需求对话为只读。" : undefined}
                       onSend={sendTopicMessage}
                       onStopAndContinue={stopAndContinueCurrentRun}
                       onNewWorkpad={createTopicFromComposer}
@@ -1137,7 +1159,7 @@ export function App(): ReactElement {
                       mode={composerMode}
                       onModeChange={setComposerMode}
                       busy={actionRunning !== null || activeTopic.state !== "active"}
-                      disabledReason={activeTopic.state !== "active" ? "归档或暂停 Topic 为只读。" : undefined}
+                      disabledReason={activeTopic.state !== "active" ? "已完成或稍后处理的需求对话为只读。" : undefined}
                       onSend={sendTopicMessage}
                       onStopAndContinue={stopAndContinueCurrentRun}
                       onNewWorkpad={createTopicFromComposer}
@@ -1335,7 +1357,7 @@ function ProjectConversationSidebar({
   projectDetailsId: string | null;
   onProjectMenuMode: (mode: "closed" | "add" | "new") => void;
   onProjectDetails: (projectId: string | null) => void;
-  onNewConversation: () => Promise<void>;
+  onNewConversation: (projectId?: string) => Promise<void>;
   onOpenProject: (projectId: string) => Promise<void>;
   onToggleProject: (projectId: string) => Promise<void>;
   onChooseConversation: (projectId: string, conversationId: string) => Promise<void>;
@@ -1353,7 +1375,6 @@ function ProjectConversationSidebar({
   return (
     <div className="codex-sidebar">
       <nav className="global-nav" aria-label="全局入口">
-        <button className="global-nav-item" onClick={() => void onNewConversation()}><FileText size={16} />新对话</button>
         <label className="sidebar-search">
           <Search size={15} />
           <input value={search} onChange={(event) => onSearch(event.target.value)} placeholder="搜索" aria-label="搜索已加载对话" />
@@ -1399,6 +1420,16 @@ function ProjectConversationSidebar({
                     <span>{projectName}</span>
                     {item.managed ? null : <small>未初始化</small>}
                   </button>
+                  {item.project && item.managed ? (
+                    <button
+                      className="project-folder-new"
+                      aria-label={`在 ${projectName} 中开始新对话`}
+                      title={`在 ${projectName} 中开始新对话`}
+                      onClick={() => void onNewConversation(item.project?.id)}
+                    >
+                      <FileText size={15} />
+                    </button>
+                  ) : null}
                   <button className="project-folder-more" aria-label="项目详情" onClick={() => onProjectDetails(projectDetailsId === projectId ? null : projectId)}>
                     <MoreHorizontal size={15} />
                   </button>
@@ -1629,14 +1660,14 @@ function TopicEmptyView({
 }): ReactElement {
   return (
     <section className="topic-empty-view">
-      <div className="breadcrumb">{snapshot.project?.name ?? "project"} / 主题</div>
+      <div className="breadcrumb">{snapshot.project?.name ?? "project"} / 需求对话</div>
       <div className="topic-empty-content">
         <p className="eyebrow">本地工作台</p>
-        <h1>暂无主题</h1>
-        <p>输入一个需求或问题来创建第一个 Topic。AHO 会先进入计划模式，而不是直接写代码。</p>
+        <h1>暂无需求对话</h1>
+        <p>输入一个需求或问题来创建第一个需求对话。AHO 会先生成方案草案，而不是直接写代码。</p>
         <div className="empty-composer">
           <textarea value={composerText} onChange={(event) => setComposerText(event.target.value)} placeholder="例如：帮我新增会员满 100 元 9 折，并补测试。" />
-          <button className="primary-button" disabled={busy || !composerText.trim()} onClick={() => void onCreate()}>创建 Topic</button>
+          <button className="primary-button" disabled={busy || !composerText.trim()} onClick={() => void onCreate()}>创建需求对话</button>
         </div>
       </div>
     </section>
@@ -1700,7 +1731,7 @@ function DecisionInspectorPane({
           {inspector.related.map((context) => (
             <button className="decision-row" key={context.id} onClick={() => onSelectContext(context.id)}>
               <strong>{context.title}</strong>
-              <span>{decisionKindLabel(context.kind)} · {context.severity}</span>
+              <span>{decisionKindLabel(context.kind)} · {decisionSeverityLabel(context.severity)}</span>
             </button>
           ))}
         </section>
@@ -1827,7 +1858,7 @@ function BottomStatusBar({ snapshot, project, topic }: { snapshot: Snapshot; pro
       <span>记忆：{snapshot.memory.memoryMode ?? (project?.project ? "unknown" : "未选择")}</span>
       <span>根目录：{repoPath}</span>
       <span><i className={snapshot.memory.harnessReady ? "status-dot ready-dot" : "status-dot muted-dot"} />状态：{snapshot.memory.harnessReady ? "就绪" : "未就绪"}</span>
-      <span>当前变更：{topic?.title ?? "无"}</span>
+      <span>当前需求：{topic?.title ?? "无"}</span>
       <span><i className={snapshot.memory.harnessReady ? "status-dot ready-dot" : "status-dot muted-dot"} />Harness {snapshot.memory.harnessReady ? "就绪" : "未就绪"}</span>
       <span>{issueCount} 个问题</span>
     </footer>
@@ -2020,19 +2051,19 @@ function WorkpadView({
         </section>
       ) : null}
 
-      <section className="workpad-progress-grid" aria-label="Workpad progress">
-        <WorkpadMetric label="Spec" value={readinessLabel(workpad.progress.spec)} />
-        <WorkpadMetric label="Plan" value={readinessLabel(workpad.progress.plan)} />
-        <WorkpadMetric label="Tasks" value={readinessLabel(workpad.progress.tasks)} />
-        <WorkpadMetric label="AC / Tasks" value={`${workpad.progress.acCount} / ${workpad.progress.taskCount}`} />
-        <WorkpadMetric label="Runs" value={`${workpad.progress.runCount}${workpad.progress.latestRunStatus ? ` · ${humanStatus(workpad.progress.latestRunStatus)}` : ""}`} />
+      <section className="workpad-progress-grid" aria-label="需求进度">
+        <WorkpadMetric label="需求说明" value={readinessLabel(workpad.progress.spec)} />
+        <WorkpadMetric label="执行方案" value={readinessLabel(workpad.progress.plan)} />
+        <WorkpadMetric label="任务" value={readinessLabel(workpad.progress.tasks)} />
+        <WorkpadMetric label="验收 / 任务" value={`${workpad.progress.acCount} / ${workpad.progress.taskCount}`} />
+        <WorkpadMetric label="执行" value={`${workpad.progress.runCount}${workpad.progress.latestRunStatus ? ` · ${humanStatus(workpad.progress.latestRunStatus)}` : ""}`} />
         <WorkpadMetric label="验证 / 审查" value={`${statusOrDash(workpad.progress.validationStatus)} / ${statusOrDash(workpad.progress.auditStatus)}`} />
       </section>
 
       {workpad.codingPackages.length > 0 ? (
         <section className="workpad-section">
           <div className="workpad-section-header">
-            <h3>Coding Work Package</h3>
+            <h3>执行范围</h3>
             <span>{workpad.codingPackages.length} 个推荐执行单元</span>
           </div>
           <div className="coding-package-list">
@@ -2044,8 +2075,8 @@ function WorkpadView({
       {workpad.taskGraph.nodes.length > 0 ? (
         <section className="workpad-section">
           <div className="workpad-section-header">
-            <h3>TaskGraph</h3>
-            <span>{workpad.taskGraph.nodes.length} 个任务 · 来自 tasks.md / ac-map.json</span>
+            <h3>任务清单</h3>
+            <span>{workpad.taskGraph.nodes.length} 个任务 · 来自已确认方案</span>
           </div>
           {workpad.taskQueue ? (
             <TaskQueuePanel
@@ -2068,7 +2099,7 @@ function WorkpadView({
           </div>
           {workpad.taskGraph.changeLevelEvidence.length > 0 ? (
             <div className="workpad-task-change-evidence">
-              <strong>Change-level evidence</strong>
+              <strong>需求级证据</strong>
               {workpad.taskGraph.changeLevelEvidence.slice(0, 4).map((item) => (
                 <span key={item.id}>{userFacingText(item.label)}{item.status ? ` · ${humanStatus(item.status)}` : ""}</span>
               ))}
@@ -2082,7 +2113,7 @@ function WorkpadView({
           <h3>证据与决策</h3>
           <span>{workpad.evidence.length}</span>
         </div>
-        {workpad.evidence.length === 0 ? <p className="panel-note">暂无 run、validation、audit 或 decision evidence。</p> : null}
+        {workpad.evidence.length === 0 ? <p className="panel-note">暂无执行、验证、审查或决策证据。</p> : null}
         <div className="workpad-evidence-list">
           {workpad.evidence.map((item) => (
             <div className="workpad-evidence" key={item.id}>
@@ -2417,7 +2448,7 @@ function ThreadStreamView({
   onAction: (actionType: string, options?: Record<string, unknown>) => Promise<void>;
   onSelectDecisionContext: (contextId: string) => void;
 }): ReactElement {
-  if (items.length === 0 && liveTurns.length === 0) return <div className="empty-state">暂无线程内容。</div>;
+  if (items.length === 0 && liveTurns.length === 0) return <div className="empty-state">暂无对话内容。</div>;
   return (
     <div className="timeline">
       {items.map((item) => (
@@ -2823,24 +2854,25 @@ function ToolEventCard({ event }: { event: WorkbenchLiveToolEvent }): ReactEleme
 
 function PlanCardView({ planCard, actions, busy, onAction }: { planCard: PlanCard; actions: ThreadStreamAction[]; busy: boolean; onAction: (actionType: string, options?: Record<string, unknown>) => Promise<void> }): ReactElement {
   const [confirmingAction, setConfirmingAction] = useState<ThreadStreamAction | null>(null);
+  const visibleActions = actions.filter((action) => action.actionType !== "code.run");
   return (
     <div className="plan-card">
       <h3>{planCard.title}</h3>
-      <p>{planCard.summary}</p>
+      <p>{userFacingText(planCard.summary)}</p>
       <ol>
-        {planCard.steps.map((step, index) => <li key={`${step.label}-${index}`}><strong>{step.label}</strong><span>{step.description}</span></li>)}
+        {planCard.steps.map((step, index) => <li key={`${step.label}-${index}`}><strong>{userFacingText(step.label)}</strong><span>{userFacingText(step.description)}</span></li>)}
       </ol>
-      {planCard.warnings.length > 0 ? <div className="plan-warnings">{planCard.warnings.join(" · ")}</div> : null}
-      {actions.length > 0 ? (
+      {planCard.warnings.length > 0 ? <div className="plan-warnings">{planCard.warnings.map(userFacingText).join(" · ")}</div> : null}
+      {visibleActions.length > 0 ? (
         <div className="plan-actions">
           {confirmingAction ? (
             <div className="inline-confirm">
-              <span>确认执行 {confirmingAction.label}</span>
+              <span>确认执行 {userFacingText(confirmingAction.label)}</span>
               <button className="primary-button" disabled={busy} onClick={() => { setConfirmingAction(null); void onAction(confirmingAction.actionType); }}>确认执行</button>
               <button className="outline-button" disabled={busy} onClick={() => setConfirmingAction(null)}>取消</button>
             </div>
           ) : null}
-          {actions.map((action) => (
+          {visibleActions.map((action) => (
             <button
               className={action.enabled ? "outline-button" : "outline-button disabled"}
               disabled={busy || !action.enabled}
@@ -2848,7 +2880,7 @@ function PlanCardView({ planCard, actions, busy, onAction }: { planCard: PlanCar
               title={action.disabledReason}
               onClick={() => action.requiresConfirmation ? setConfirmingAction(action) : void onAction(action.actionType)}
             >
-              {action.label}
+              {userFacingText(action.label)}
             </button>
           ))}
         </div>
@@ -2888,7 +2920,7 @@ function TopicComposer({
 }): ReactElement {
   const runningConversation = currentWorkpadStatus === "running";
   return (
-    <div className="topic-composer" aria-label="Topic composer">
+    <div className="topic-composer" aria-label="需求对话输入框">
         <textarea
         value={value}
         onChange={(event) => onChange(event.target.value)}
@@ -2897,7 +2929,7 @@ function TopicComposer({
       />
       <div className="composer-toolbar">
         {runningConversation ? (
-          <div className="workpad-route-switch" aria-label="Workpad routing choice">
+          <div className="workpad-route-switch" aria-label="需求对话路由选择">
             <button type="button" className="active" disabled={Boolean(disabledReason) || !value.trim()} onClick={() => void onSend()}>
               记录到下一轮
             </button>
@@ -3100,8 +3132,8 @@ function emptyWorkpad(projectName = "未选择项目"): Workpad {
     conversationLifecycle: "active",
     pendingFeedback: [],
     intake: {
-      goal: "尚未选择可用 Topic。",
-      currentUnderstanding: "选择项目并创建 Topic 后，AHO 会在这里汇总目标、进度、证据和下一步。",
+      goal: "尚未选择可用需求对话。",
+      currentUnderstanding: "选择项目并创建需求对话后，AHO 会在这里汇总目标、进度、证据和下一步。",
       source: "diagnostic",
       relatedArtifacts: [],
       missingInfo: [],
@@ -3127,8 +3159,8 @@ function emptyWorkpad(projectName = "未选择项目"): Workpad {
     warnings: [],
     nextAction: {
       id: "empty",
-      label: "选择或创建 Topic",
-      description: "先选择项目中的 Topic，或在输入框里创建新需求。",
+      label: "选择或创建需求对话",
+      description: "先选择项目中的需求对话，或在输入框里创建新需求。",
       kind: "read-only",
       enabled: false,
       requiresConfirmation: false,
@@ -3216,7 +3248,7 @@ function sourceLabel(source: string): string {
   if (source === "validation") return "验证";
   if (source === "audit") return "审查";
   if (source === "decision") return "决策";
-  if (source === "thread") return "线程";
+  if (source === "thread") return "对话";
   if (source === "task") return "任务";
   if (source === "queue") return "任务队列";
   return userFacingText(source);
@@ -3248,6 +3280,23 @@ function userFacingText(value: string): string {
     .replace(/\bValidation passed\b/gi, "验证已通过")
     .replace(/\bCoder completed\b/gi, "代码执行已完成")
     .replace(/\bTask queue\b/gi, "任务队列")
+    .replace(/\bGenerate Spec\b/gi, "生成需求说明")
+    .replace(/\bGenerate Plan\b/gi, "生成执行方案")
+    .replace(/\bGenerate Tasks\b/gi, "生成任务")
+    .replace(/生成 Spec/g, "生成需求说明")
+    .replace(/生成 Plan/g, "生成执行方案")
+    .replace(/生成 Tasks/g, "生成任务")
+    .replace(/\bAccept spec proposal\b/gi, "接受需求说明")
+    .replace(/\bAccept plan proposal\b/gi, "接受执行方案")
+    .replace(/\bAccept audit proposal\b/gi, "接受审查证据")
+    .replace(/接受 Spec/g, "接受需求说明")
+    .replace(/接受 Plan/g, "接受执行方案")
+    .replace(/\bPlan\/Tasks proposal\b/gi, "执行方案草案")
+    .replace(/\bPlan\/Tasks acceptance\b/gi, "执行方案确认")
+    .replace(/\bSpec proposal\b/gi, "需求说明草案")
+    .replace(/\bSpec\b/g, "需求说明")
+    .replace(/\bPlan\b/g, "执行方案")
+    .replace(/\bTasks\b/g, "任务")
     .replace(/\bqueue\b/gi, "任务队列")
     .replace(/\bblocked\b/gi, "需要修改或补证据")
     .replace(/\bfailed\b/gi, "未通过")
@@ -3381,6 +3430,13 @@ function decisionKindLabel(kind: string): string {
   if (kind === "close-gate") return "完成";
   if (kind === "evolution-pending") return "Harness";
   return "历史";
+}
+
+function decisionSeverityLabel(severity: string): string {
+  if (severity === "blocking") return "需处理";
+  if (severity === "warning") return "需注意";
+  if (severity === "info") return "信息";
+  return userFacingText(severity);
 }
 
 function workflowActionLabel(actionType: string | undefined): string {

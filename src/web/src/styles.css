@@ -300,7 +300,7 @@ input:focus-visible {
 
 .project-folder-row {
   display: grid;
-  grid-template-columns: 22px minmax(0, 1fr) 28px;
+  grid-template-columns: 22px minmax(0, 1fr) 28px 28px;
   align-items: center;
   min-height: 34px;
   border-radius: var(--radius-sm);
@@ -313,6 +313,7 @@ input:focus-visible {
 
 .project-folder-toggle,
 .project-folder-main,
+.project-folder-new,
 .project-folder-more {
   border: 0;
   background: transparent;
@@ -321,12 +322,28 @@ input:focus-visible {
 }
 
 .project-folder-toggle,
+.project-folder-new,
 .project-folder-more {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   height: 28px;
   padding: 0;
+}
+
+.project-folder-new {
+  opacity: 0;
+}
+
+.project-folder-row:hover .project-folder-new,
+.project-folder-row.selected .project-folder-new,
+.project-folder-new:focus-visible {
+  opacity: 1;
+}
+
+.project-folder-new:hover,
+.project-folder-more:hover {
+  color: var(--text);
 }
 
 .project-folder-main {
