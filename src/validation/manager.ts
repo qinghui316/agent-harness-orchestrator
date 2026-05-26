@@ -16,6 +16,7 @@ import type {
   ValidationStatus,
 } from "../types/index.js";
 import { appendRunEvent, assertRunnableChange, buildContextProjection, buildRunId } from "../run/manager.js";
+import { isRunStopRequested } from "../run/control.js";
 import { executeProcessStreaming } from "../run/process.js";
 import { collectWorktreeDiff } from "../audit/diff.js";
 import { listValidationResults, readValidationResult, summarizeValidation } from "./artifacts.js";
@@ -150,6 +151,7 @@ export async function startValidationRun(project: ManagedProject, options: Valid
       args: item.command.slice(1),
       stdoutPath,
       stderrPath,
+      stopSignal: () => isRunStopRequested(runId),
     });
     if (processResult.stderrSample) {
       await appendStderr(paths.stderr, `## ${item.name}\n${processResult.stderrSample}\n`);

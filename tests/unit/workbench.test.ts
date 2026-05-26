@@ -273,7 +273,7 @@ describe("workbench read model", () => {
       "要覆盖会员满 100、会员未满 100、非会员三类测试",
     ]));
     expect(snapshot.center.workpad.intake.pendingClarifications).toHaveLength(0);
-    expect(snapshot.center.workpad.nextAction).toMatchObject({ actionType: "change.spec.propose", enabled: true });
+    expect(snapshot.center.workpad.nextAction).toMatchObject({ actionType: "planning.generate", enabled: true });
     expect(snapshot.center.thread.items).toEqual(expect.arrayContaining([
       expect.objectContaining({ kind: "intake-summary", label: "需求分析" }),
       expect.objectContaining({ kind: "clarification", label: "需要确认" }),

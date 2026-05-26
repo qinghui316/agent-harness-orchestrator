@@ -101,4 +101,16 @@ describe("agent role profiles", () => {
     expect(content).toContain("Do not write code.");
     expect(content).toContain("Only `aho change plan accept`");
   });
+
+  it("bundles Phase 6B role prompt contracts", async () => {
+    for (const name of ["planning-agent", "coder-agent", "validator", "auditor-agent", "rework-coder"]) {
+      const content = await readProfile(name);
+      for (const marker of ["roleId:", "description:", "writeCapability:", "preferredRuntime:"]) {
+        expect(content).toContain(marker);
+      }
+      for (const section of ["## Role", "## Success Criteria", "## Constraints", "## Inputs", "## Workflow", "## Output Contract", "## Escalate When", "## Avoid"]) {
+        expect(content).toContain(section);
+      }
+    }
+  });
 });

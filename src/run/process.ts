@@ -17,12 +17,13 @@ export interface ProcessExecutionOptions {
   onStderrChunk?: (text: string) => void;
   onCallbackError?: (stream: "stdout" | "stderr", error: unknown) => void;
   completionSignal?: () => boolean;
+  stopSignal?: () => boolean;
   completionGraceMs?: number;
   timeoutMs?: number;
   killGraceMs?: number;
 }
 
-export type ProcessTerminationReason = "completion-grace-expired" | "timeout" | "process-error";
+export type ProcessTerminationReason = "completion-grace-expired" | "timeout" | "process-error" | "user-stop";
 
 export interface ProcessExecutionResult {
   exitCode: number | null;
@@ -65,6 +66,7 @@ export async function executeProcessStreaming(options: ProcessExecutionOptions):
     let timeoutTimer: NodeJS.Timeout | null = null;
     let killGraceTimer: NodeJS.Timeout | null = null;
     let completionPollTimer: NodeJS.Timeout | null = null;
+    let stopPollTimer: NodeJS.Timeout | null = null;
     let settled = false;
 
     child.stdout?.on("data", (chunk: Buffer) => {
@@ -108,6 +110,10 @@ export async function executeProcessStreaming(options: ProcessExecutionOptions):
     if (options.completionSignal) {
       completionPollTimer = setInterval(checkCompletionSignal, 250);
       checkCompletionSignal();
+    }
+    if (options.stopSignal) {
+      stopPollTimer = setInterval(checkStopSignal, 250);
+      checkStopSignal();
     }
 
     function settle(exitCode: number | null, signal: NodeJS.Signals | null): void {
@@ -188,6 +194,22 @@ export async function executeProcessStreaming(options: ProcessExecutionOptions):
       if (timeoutTimer) clearTimeout(timeoutTimer);
       if (killGraceTimer) clearTimeout(killGraceTimer);
       if (completionPollTimer) clearInterval(completionPollTimer);
+      if (stopPollTimer) clearInterval(stopPollTimer);
+    }
+
+    function checkStopSignal(): void {
+      if (settled || terminated || !options.stopSignal) return;
+      let shouldStop = false;
+      try {
+        shouldStop = options.stopSignal();
+      } catch (error) {
+        try {
+          options.onCallbackError?.("stderr", error);
+        } catch {
+          // Stop callbacks are best-effort and must not affect process lifecycle.
+        }
+      }
+      if (shouldStop) terminate("user-stop");
     }
 
     function invokeChunkCallback(stream: "stdout" | "stderr", text: string): void {

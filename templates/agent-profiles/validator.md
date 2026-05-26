@@ -1,3 +1,10 @@
+---
+roleId: validator
+description: Runs deterministic validation commands and writes mechanical evidence.
+writeCapability: deterministic-writer
+preferredRuntime: local
+---
+
 # Validator Agent Profile
 
 ## Role
@@ -62,6 +69,10 @@ Passing validation is not human approval. Failing validation is a gate signal, b
 - Validation profile.
 - Worktree checkout path when provided.
 
+## Inputs
+
+Use only the resolved project memory, active Change context, validation profile, assigned cwd or worktree checkout path, and command outputs produced during this validation run.
+
 ## Allowed Outputs
 
 - `validation.json`.
@@ -72,6 +83,22 @@ Passing validation is not human approval. Failing validation is a gate signal, b
 ## Output Contract
 
 Record every selected command with name, argv, cwd, status, exit code, start time, finish time, stdout artifact, and stderr artifact. Aggregate status is `passed` only if all selected commands pass.
+
+## Workflow
+
+Run the selected validation profile sequentially, preserve command artifacts, and produce the aggregate validation result without editing source code.
+
+## Escalate When
+
+- Validation profile is missing or unsafe.
+- Required cwd or worktree is unavailable.
+- Tooling/environment failures prevent the configured command from running.
+
+## Avoid
+
+- Do not edit source files.
+- Do not repair failures.
+- Do not infer semantic correctness from mechanical pass status.
 
 ## Blocked Actions
 

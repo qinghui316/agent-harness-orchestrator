@@ -659,7 +659,21 @@ function createLiveSink(sse: ReturnType<typeof createSseResponse>): { emit(event
 }
 
 function isLiveWorkflowAction(actionType: string): actionType is WorkbenchWorkflowActionRequest["actionType"] {
-  return actionType === "chat.ask" || actionType === "change.spec.propose" || actionType === "change.plan.propose" || actionType === "code.run" || actionType === "task.run.start" || actionType === "task.run.retry" || actionType === "task.queue.start" || actionType === "task.queue.reconcile";
+  return actionType === "chat.ask"
+    || actionType === "change.spec.propose"
+    || actionType === "change.plan.propose"
+    || actionType === "planning.generate"
+    || actionType === "planning.revise"
+    || actionType === "planning.confirm-execution"
+    || actionType === "role.pipeline.start"
+    || actionType === "role.pipeline.stop"
+    || actionType === "role.pipeline.continue"
+    || actionType === "role.pipeline.reconcile"
+    || actionType === "code.run"
+    || actionType === "task.run.start"
+    || actionType === "task.run.retry"
+    || actionType === "task.queue.start"
+    || actionType === "task.queue.reconcile";
 }
 
 function matchProjectWorkbenchRoute(pathname: string): { projectId: string; rest: string } | null {

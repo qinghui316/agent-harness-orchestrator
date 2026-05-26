@@ -89,9 +89,13 @@ const defaultCatalog: AgentCatalog = {
     role("orchestrator", "Orchestrator", "Turns Topic requests into visible plan cards and suggested gated actions.", "read-only", ["active-change", "topic-thread", "approvals", "role-catalog"], ["orchestration-plan", "suggested-actions"], ["human-confirmation"]),
     role("spec-agent", "Spec Agent", "Drafts WHAT/WHY and Acceptance Criteria proposals.", "read-only", ["active-change", "topic-thread"], ["spec-proposal"], ["spec-accept"]),
     role("planner", "Planner", "Drafts HOW, plan, and executable tasks.", "read-only", ["accepted-spec", "ac-map"], ["plan-proposal", "tasks-proposal"], ["plan-accept"]),
+    role("planning-agent", "Planning Agent", "Runs the main demand conversation and drafts proposal/spec/design/tasks/AC artifacts before execution.", "read-only", ["active-change", "topic-thread", "project-summary", "reference-open-spec"], ["planning-artifact-bundle"], ["confirm-execution"]),
     role("coder", "Coder", "Implements proposal diffs in AHO-owned worktrees.", "worktree-write", ["active-change", "tasks", "worktree"], ["diff", "implementation-notes"], ["validation", "audit", "human-apply"], false),
+    role("coder-agent", "Coder Agent", "Implements one Coding Work Package in an AHO-owned worktree and performs internal self-tests.", "worktree-write", ["accepted-planning-artifacts", "task-context", "worktree"], ["diff", "implementation-notes", "self-test-summary"], ["validation", "audit", "human-apply"], false),
     role("validator", "Validator", "Runs deterministic validation commands.", "deterministic-writer", ["validation-profile"], ["validation-result"], [], false, "local"),
     role("auditor", "Auditor", "Reviews diff and evidence as a read-only semantic proposal.", "read-only", ["active-change", "diff", "validation"], ["audit-proposal"], ["audit-accept"]),
+    role("auditor-agent", "Auditor Agent", "Reviews task implementation evidence against accepted planning artifacts.", "read-only", ["accepted-planning-artifacts", "diff", "validation"], ["audit-proposal"], ["audit-accept"]),
+    role("rework-coder", "Rework Coder", "Repairs a failed implementation attempt from validation or audit evidence within the same bounded workflow.", "worktree-write", ["failed-validation", "audit-findings", "worktree"], ["repair-diff", "rework-notes", "self-test-summary"], ["validation", "audit", "human-apply"], false),
     role("spec-test-proposer", "Spec-Test Proposer", "Finds existing source-root evidence candidates.", "read-only", ["ac-map", "spec-tests", "validation"], ["spec-test-proposal"], ["spec-test-proposal-accept"]),
     role("spec-test-generator", "Spec-Test Generator", "Generates passing test-only proposals in worktrees.", "worktree-write", ["missing-ac", "worktree"], ["test-diff", "implementation-notes"], ["validation", "audit", "human-apply"]),
   ],
@@ -153,6 +157,7 @@ export async function resolveAgentRole(memory: ResolvedMemory, roleIdInput: stri
   const sourcePath = resolveProfilePath(memory, entry);
   if (!existsSync(sourcePath)) throw new Error(`Agent role ${roleId} profile is missing: ${sourcePath}`);
   const markdown = await readFile(sourcePath, "utf8");
+  validateRolePromptContract(entry.roleId, markdown);
   const sourceHash = hashText(markdown);
   return {
     ...entry,
@@ -163,6 +168,17 @@ export async function resolveAgentRole(memory: ResolvedMemory, roleIdInput: stri
     catalogHash: hashText(JSON.stringify(catalog)),
     markdown,
   };
+}
+
+export function validateRolePromptContract(roleId: string, markdown: string): void {
+  const requiredRoles = new Set(["planning-agent", "coder-agent", "validator", "auditor-agent", "rework-coder"]);
+  if (!requiredRoles.has(roleId)) return;
+  const missingFrontmatter = ["roleId:", "description:", "writeCapability:", "preferredRuntime:"].filter((marker) => !markdown.includes(marker));
+  const requiredSections = ["## Role", "## Success Criteria", "## Constraints", "## Inputs", "## Workflow", "## Output Contract", "## Escalate When", "## Avoid"];
+  const missingSections = requiredSections.filter((section) => !markdown.includes(section));
+  if (missingFrontmatter.length > 0 || missingSections.length > 0) {
+    throw new Error(`Agent role ${roleId} profile is missing required contract fields: ${[...missingFrontmatter, ...missingSections].join(", ")}`);
+  }
 }
 
 export function buildRunAgentRecord(role: AgentRole, materialized?: { hash?: string | null }): RunAgentRecord {
@@ -248,9 +264,13 @@ function validateUniqueRoles(catalog: AgentCatalog): void {
 }
 
 function normalizeCatalog(parsed: z.infer<typeof catalogSchema>): AgentCatalog {
+  const entries = [...parsed.agents];
+  for (const bundled of defaultCatalog.agents) {
+    if (!entries.some((entry) => entry.roleId === bundled.roleId)) entries.push(bundled);
+  }
   return {
     version: "1.0",
-    agents: parsed.agents.map((entry) => ({
+    agents: entries.map((entry) => ({
       roleId: entry.roleId,
       displayName: entry.displayName,
       description: entry.description ?? "",

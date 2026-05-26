@@ -10,6 +10,7 @@ import { writeJsonFile } from "../fs/json.js";
 import { assertWritableMemory, resolveProjectMemory } from "../memory/resolver.js";
 import { getEnabledSkillContext } from "../skill/catalog.js";
 import type { ManagedProject, ResolvedMemory, RunMetadata, RunStatus } from "../types/index.js";
+import { isRunStopRequested } from "./control.js";
 import { appendRunEvent, assertRunnableChange, buildContextProjection, buildRunId } from "./manager.js";
 import { executeProcessStreaming, type ProcessExecutionResult } from "./process.js";
 
@@ -131,6 +132,7 @@ export async function startCodexReadonlyRun(project: ManagedProject, options: Co
     mirrorStdoutPath: paths.codexEvents,
     onStdoutChunk: (text) => parser.feed(text),
     completionSignal: () => completion.isComplete(),
+    stopSignal: () => isRunStopRequested(runId),
     completionGraceMs: lifecycleTiming.completionGraceMs,
     killGraceMs: lifecycleTiming.killGraceMs,
     timeoutMs: lifecycleTiming.timeoutMs,

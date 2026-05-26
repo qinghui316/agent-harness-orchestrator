@@ -9,9 +9,11 @@ import { createCodexJsonlStreamParser, extractCodexSessionIdFromJsonl, extractFi
 import { createChange, createParkedChange } from "../change/manager.js";
 import { acceptPlanProposal, acceptSpecProposal, startPlanProposalRun, startSpecProposalRun } from "../change/proposals.js";
 import { getActiveChanges } from "../ecl/index.js";
-import { readJsonFile, writeJsonFile } from "../fs/json.js";
+import { buildAcMap } from "../ecl/anchors.js";
+import { readJsonFile, readRequiredJsonFile, writeJsonFile } from "../fs/json.js";
 import { assertWritableMemory, resolveProjectMemory } from "../memory/resolver.js";
 import { appendRunEvent, buildContextProjection, buildRunId, listRuns } from "../run/manager.js";
+import { isRunStopRequested, requestRunStop } from "../run/control.js";
 import { executeProcessStreaming } from "../run/process.js";
 import { getEnabledSkillContext } from "../skill/catalog.js";
 import { getSpecTestDriftReport } from "../spec-test/drift.js";
@@ -461,6 +463,13 @@ export type WorkbenchWorkflowActionType =
   | "change.spec.accept"
   | "change.plan.propose"
   | "change.plan.accept"
+  | "planning.generate"
+  | "planning.revise"
+  | "planning.confirm-execution"
+  | "role.pipeline.start"
+  | "role.pipeline.stop"
+  | "role.pipeline.continue"
+  | "role.pipeline.reconcile"
   | "code.run"
   | "task.run.start"
   | "task.run.retry"
@@ -488,6 +497,24 @@ export interface WorkbenchWorkflowActionResult {
   result?: unknown;
   runId?: string;
   error?: string;
+}
+
+export interface PlanningArtifactBundle {
+  id: string;
+  status: "draft" | "confirmed";
+  goal: string;
+  constraints: string[];
+  acceptanceCriteria: string[];
+  design: string;
+  tasks: Array<{ id: string; title: string; acIds: string[] }>;
+  risks: string[];
+  openQuestions: string[];
+  specMd: string;
+  planMd: string;
+  tasksMd: string;
+  acMapCandidate?: unknown;
+  artifact: string;
+  updatedAt: string;
 }
 
 const runtimeMetadataSchema = z.object({
@@ -687,6 +714,18 @@ async function executeWorkflowAction(project: ManagedProject, changeId: string, 
     case "change.plan.accept":
       if (!request.proposalId) throw new Error("change.plan.accept requires proposalId.");
       return acceptPlanProposal(project, request.proposalId);
+    case "planning.generate":
+    case "planning.revise":
+      return generatePlanningDraft(project, changeId, request.prompt, live, request.actionType === "planning.revise");
+    case "planning.confirm-execution":
+      return confirmPlanningAndStartPipeline(project, changeId, request, live);
+    case "role.pipeline.start":
+    case "role.pipeline.continue":
+      return runRolePipelineSequence(project, changeId, request.prompt, live, request.actionType === "role.pipeline.continue");
+    case "role.pipeline.stop":
+      return stopRunningPipeline(project, changeId, request.prompt, live);
+    case "role.pipeline.reconcile":
+      return reconcileTaskRuns(project, { changeId, taskRunId: request.taskRunId });
     case "code.run":
       return runCodeValidateAuditSequence(project, request.prompt, live, request.taskIds);
     case "task.run.start":
@@ -708,6 +747,214 @@ async function executeWorkflowAction(project: ManagedProject, changeId: string, 
     default:
       return assertNever(request.actionType);
   }
+}
+
+async function generatePlanningDraft(
+  project: ManagedProject,
+  changeId: string,
+  prompt: string | undefined,
+  live: WorkbenchLiveSink | undefined,
+  revision: boolean,
+): Promise<{ bundle: PlanningArtifactBundle }> {
+  const { memory, changePath } = await resolveTopic(project, changeId);
+  assertWritableMemory(memory, "Planning draft");
+  const role = await resolveAgentRole(memory, "planning-agent");
+  const thread = await readThreadLog(memory, changePath);
+  const latestUserText = prompt?.trim()
+    || [...thread].reverse().find((entry) => entry.type === "user.message")?.text
+    || changeId;
+  const previous = await readLatestPlanningBundle(memory, changePath).catch(() => null);
+  const bundle = buildDeterministicPlanningBundle(memory, changePath, changeId, latestUserText, previous, revision);
+  await writePlanningBundle(memory, changePath, bundle);
+  emitAssistantEvent(live, {
+    runId: bundle.id,
+    kind: "plan-update",
+    phase: "draft",
+    title: revision ? "Planning draft revised" : "Planning draft generated",
+    summary: "planning-agent produced a proposal/spec/design/tasks bundle for user review.",
+    artifactRef: bundle.artifact,
+  });
+  const planCard: OrchestrationPlanCard = {
+    title: "方案草案",
+    summary: `目标：${bundle.goal}`,
+    steps: [
+      { label: "验收标准", description: bundle.acceptanceCriteria.join("；") || "等待补充验收标准。" },
+      { label: "实现方案", description: bundle.design },
+      { label: "任务清单", description: bundle.tasks.map((task) => `${task.id} ${task.title}`).join("；") || "等待拆解任务。" },
+    ],
+    warnings: bundle.openQuestions,
+  };
+  const assistant = await appendTopicThreadEntry(project, changeId, {
+    type: "assistant.message",
+    status: "planning-draft",
+    text: renderPlanningBundleSummary(bundle),
+    artifact: bundle.artifact,
+    planCard,
+    blocks: [
+      {
+        id: `${bundle.id}:prose`,
+        runId: bundle.id,
+        sequence: 1,
+        kind: "prose",
+        timestamp: new Date().toISOString(),
+        source: "aho",
+        title: revision ? "方案草案已更新" : "方案草案",
+        text: renderPlanningBundleSummary(bundle),
+      },
+      {
+        id: `${bundle.id}:plan-card`,
+        runId: bundle.id,
+        sequence: 2,
+        kind: "plan-card",
+        timestamp: new Date().toISOString(),
+        source: "aho",
+        title: "方案草案",
+        planCard,
+      },
+    ],
+  });
+  live?.emit({ event: "assistant.message", data: assistant });
+  await recordWorkbenchDecision(project, {
+    id: `planning:${bundle.id}`,
+    changeId,
+    decisionType: revision ? "planning.revise" : "planning.generate",
+    status: "completed",
+    label: revision ? "方案草案已更新" : "方案草案已生成",
+    summary: "planning-agent generated a draft bundle. It is not canonical until confirmation.",
+    targetId: bundle.id,
+    runId: null,
+    artifact: bundle.artifact,
+    actionId: revision ? "planning.revise" : "planning.generate",
+    payload: { role: buildRunAgentRecord(role), bundle },
+    completedAt: new Date().toISOString(),
+  });
+  return { bundle };
+}
+
+async function confirmPlanningAndStartPipeline(
+  project: ManagedProject,
+  changeId: string,
+  request: WorkbenchWorkflowActionRequest,
+  live: WorkbenchLiveSink | undefined,
+): Promise<unknown> {
+  const { memory, changePath } = await resolveTopic(project, changeId);
+  assertWritableMemory(memory, "Confirm planning execution");
+  const bundle = await readLatestPlanningBundle(memory, changePath);
+  const changeDir = join(memory.memoryRoot, changePath);
+  await writeFile(join(changeDir, "spec.md"), bundle.specMd, "utf8");
+  await writeFile(join(changeDir, "plan.md"), bundle.planMd, "utf8");
+  await writeFile(join(changeDir, "tasks.md"), bundle.tasksMd, "utf8");
+  const acMap = buildAcMap({
+    changeId,
+    specContent: bundle.specMd,
+    tasksContent: bundle.tasksMd,
+    placeholderFiles: [
+      { path: "spec.md", content: bundle.specMd },
+      { path: "plan.md", content: bundle.planMd },
+      { path: "tasks.md", content: bundle.tasksMd },
+    ],
+  });
+  await writeJsonFile(join(changeDir, "ac-map.json"), acMap);
+  const confirmed = { ...bundle, status: "confirmed" as const, acMapCandidate: acMap, updatedAt: new Date().toISOString() };
+  await writePlanningBundle(memory, changePath, confirmed);
+  await appendTopicThreadEntry(project, changeId, {
+    type: "assistant.message",
+    status: "planning-confirmed",
+    text: "已确认执行：方案草案已写入内部 spec/plan/tasks/ac-map，开始角色流水线。",
+    artifact: confirmed.artifact,
+  });
+  emitAssistantEvent(live, {
+    runId: confirmed.id,
+    kind: "status",
+    phase: "confirmed",
+    title: "Planning confirmed",
+    summary: "Canonical planning artifacts were written after user confirmation.",
+    artifactRef: confirmed.artifact,
+  });
+  return runRolePipelineSequence(project, changeId, request.prompt ?? renderPipelinePromptFromBundle(confirmed), live, false);
+}
+
+async function runRolePipelineSequence(
+  project: ManagedProject,
+  changeId: string,
+  prompt: string | undefined,
+  live: WorkbenchLiveSink | undefined,
+  continuation: boolean,
+): Promise<unknown> {
+  emitAssistantEvent(live, {
+    runId: changeId,
+    kind: "status",
+    phase: "role-pipeline",
+    title: continuation ? "Role pipeline continued" : "Role pipeline started",
+    summary: "AHO is running coder-agent, validator, and auditor in sequence.",
+  });
+  const first = await runCodeValidateAuditSequence(project, prompt, live);
+  const stoppedAt = isRecord(first) && typeof first.stoppedAt === "string" ? first.stoppedAt : null;
+  if (!stoppedAt) return { status: "completed", attempts: [{ kind: "initial", result: first }], reworkUsed: 0 };
+  if (stoppedAt === "code") return { status: "failed", attempts: [{ kind: "initial", result: first }], reworkUsed: 0, requiresUserInput: true };
+  emitAssistantEvent(live, {
+    runId: changeId,
+    kind: "status",
+    phase: "automatic-rework",
+    title: "Automatic rework started",
+    summary: `${stoppedAt} did not pass, so AHO is sending the evidence back to rework-coder once.`,
+    isError: true,
+  });
+  const reworkPrompt = [
+    "Use the failed official validation/audit evidence from the previous attempt.",
+    "Repair only the accepted demand in the assigned worktree.",
+    "Do not change canonical planning artifacts.",
+    prompt ?? "",
+  ].join("\n\n");
+  const second = await runCodeValidateAuditSequence(project, reworkPrompt, live);
+  const secondStoppedAt = isRecord(second) && typeof second.stoppedAt === "string" ? second.stoppedAt : null;
+  return {
+    status: secondStoppedAt ? "needs-user-input" : "completed",
+    attempts: [
+      { kind: "initial", result: first },
+      { kind: "automatic-rework", result: second },
+    ],
+    reworkUsed: 1,
+    requiresUserInput: Boolean(secondStoppedAt),
+    stoppedAt: secondStoppedAt,
+  };
+}
+
+async function stopRunningPipeline(
+  project: ManagedProject,
+  changeId: string,
+  prompt: string | undefined,
+  live: WorkbenchLiveSink | undefined,
+): Promise<unknown> {
+  const runningRun = await findRunningRunForChange(project, changeId);
+  if (!runningRun) {
+    const message = prompt?.trim()
+      ? "当前执行已经结束，这条输入会作为完成后的修改反馈处理。"
+      : "当前没有正在执行的本地 run。";
+    const assistant = await appendTopicThreadEntry(project, changeId, { type: "assistant.message", status: "stop-not-needed", text: message });
+    live?.emit({ event: "assistant.message", data: assistant });
+    return { status: "already-completed", message };
+  }
+  requestRunStop(runningRun.id, prompt?.trim() || "User requested stop from the main conversation.");
+  const user = prompt?.trim()
+    ? await appendTopicThreadEntry(project, changeId, { type: "user.message", text: prompt.trim(), status: "stop-and-continue", runId: runningRun.id })
+    : null;
+  if (user) live?.emit({ event: "topic.message", data: user });
+  const assistant = await appendTopicThreadEntry(project, changeId, {
+    type: "assistant.message",
+    status: "stop-requested",
+    runId: runningRun.id,
+    text: "已请求停止当前本地执行。停止证据会保留，随后会基于你的新指令进入下一轮方案或修改。",
+  });
+  live?.emit({ event: "assistant.message", data: assistant });
+  emitAssistantEvent(live, {
+    runId: runningRun.id,
+    kind: "status",
+    phase: "stopping",
+    title: "Stop requested",
+    summary: "AHO requested local runner termination; this is not Codex app-server resume.",
+  });
+  return { status: "stop-requested", runId: runningRun.id };
 }
 
 async function runOrchestratorPlan(project: ManagedProject, changeId: string, userMessage: string, live?: WorkbenchLiveSink): Promise<{
@@ -813,6 +1060,7 @@ async function runOrchestratorPlan(project: ManagedProject, changeId: string, us
     mirrorStdoutPath: paths.codexEvents,
     onStdoutChunk: (text) => parser.feed(text),
     onCallbackError: (_stream, error) => emitLive(live, { event: "error", data: { message: error instanceof Error ? error.message : String(error), runId } }),
+    stopSignal: () => isRunStopRequested(runId),
   });
   parser.flush();
   const lastMessage = existsSync(paths.lastMessage)
@@ -1174,6 +1422,7 @@ async function runCodexChat(project: ManagedProject, changeId: string, userMessa
     mirrorStdoutPath: paths.codexEvents,
     onStdoutChunk: (text) => parser.feed(text),
     onCallbackError: (_stream, error) => emitLive(live, { event: "error", data: { message: error instanceof Error ? error.message : String(error), runId } }),
+    stopSignal: () => isRunStopRequested(runId),
   });
   parser.flush();
   const stdout = processResult.stdoutSample;
@@ -1519,6 +1768,201 @@ function renderPlanCardMarkdown(plan: { routingDecision: TopicRoutingDecision; a
   ].join("\n");
 }
 
+function buildDeterministicPlanningBundle(
+  memory: ResolvedMemory,
+  changePath: string,
+  changeId: string,
+  prompt: string,
+  previous: PlanningArtifactBundle | null,
+  revision: boolean,
+): PlanningArtifactBundle {
+  const now = new Date().toISOString();
+  const id = `planning-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+  const goal = revision && previous ? `${previous.goal}\n\nRevision request: ${prompt}` : prompt;
+  const constraints = uniqueStrings([
+    ...(previous?.constraints ?? []),
+    ...extractConstraintCandidates(prompt),
+  ]);
+  const acceptanceCriteria = buildAcceptanceCriteria(goal, constraints);
+  const tasks = [
+    { id: "T-001", title: "Implement the accepted demand and update tests.", acIds: acceptanceCriteria.map((_item, index) => `AC-${String(index + 1).padStart(3, "0")}`) },
+  ];
+  const specMd = renderSpecMarkdown(changeId, goal, constraints, acceptanceCriteria);
+  const planMd = renderImplementationPlanMarkdown(goal, tasks);
+  const tasksMd = renderTasksMarkdown(tasks);
+  const changeDir = join(memory.memoryRoot, changePath);
+  const artifact = displayArtifactPath(memory, join(changeDir, "planning", "latest-bundle.md"));
+  return {
+    id,
+    status: "draft",
+    goal,
+    constraints,
+    acceptanceCriteria,
+    design: "Use the smallest focused implementation in an AHO-owned worktree, add or update tests for the pricing rule, then run independent validation and audit.",
+    tasks,
+    risks: ["Validation or audit may require one bounded rework cycle.", "User confirmation is still required before applying/merging source changes."],
+    openQuestions: constraints.length > 0 ? [] : ["Confirm rounding, membership eligibility, and test coverage expectations if they are not already stated."],
+    specMd,
+    planMd,
+    tasksMd,
+    acMapCandidate: buildAcMap({ changeId, specContent: specMd, tasksContent: tasksMd, placeholderFiles: [] }),
+    artifact,
+    updatedAt: now,
+  };
+}
+
+async function writePlanningBundle(memory: ResolvedMemory, changePath: string, bundle: PlanningArtifactBundle): Promise<void> {
+  const dir = join(memory.memoryRoot, changePath, "planning");
+  await mkdir(dir, { recursive: true });
+  await writeJsonFile(join(dir, "latest-bundle.json"), bundle);
+  await writeFile(join(dir, "latest-bundle.md"), renderPlanningBundleMarkdown(bundle), "utf8");
+}
+
+async function readLatestPlanningBundle(memory: ResolvedMemory, changePath: string): Promise<PlanningArtifactBundle> {
+  const schema = z.object({
+    id: z.string(),
+    status: z.enum(["draft", "confirmed"]),
+    goal: z.string(),
+    constraints: z.array(z.string()),
+    acceptanceCriteria: z.array(z.string()),
+    design: z.string(),
+    tasks: z.array(z.object({ id: z.string(), title: z.string(), acIds: z.array(z.string()) })),
+    risks: z.array(z.string()),
+    openQuestions: z.array(z.string()),
+    specMd: z.string(),
+    planMd: z.string(),
+    tasksMd: z.string(),
+    acMapCandidate: z.any(),
+    artifact: z.string(),
+    updatedAt: z.string(),
+  });
+  return readRequiredJsonFile(join(memory.memoryRoot, changePath, "planning", "latest-bundle.json"), schema);
+}
+
+function extractConstraintCandidates(prompt: string): string[] {
+  const candidates: string[] = [];
+  if (/四舍五入|分/.test(prompt)) candidates.push("金额按分处理，涉及折扣时需要明确舍入规则。");
+  if (/会员/.test(prompt)) candidates.push("只有会员订单参与会员折扣规则。");
+  if (/非会员/.test(prompt)) candidates.push("非会员不打折。");
+  if (/100/.test(prompt)) candidates.push("会员订单满 100 元才触发折扣。");
+  if (/测试|test/i.test(prompt)) candidates.push("需要补充或更新测试覆盖核心规则。");
+  return candidates;
+}
+
+function buildAcceptanceCriteria(goal: string, constraints: string[]): string[] {
+  const criteria = constraints.length > 0 ? constraints : [goal];
+  return criteria.slice(0, 5).map((criterion, index) => `AC-${String(index + 1).padStart(3, "0")}: ${criterion}`);
+}
+
+function renderSpecMarkdown(changeId: string, goal: string, constraints: string[], acceptanceCriteria: string[]): string {
+  return [
+    `# Spec: ${changeId}`,
+    "",
+    "## Goal",
+    "",
+    goal,
+    "",
+    "## Constraints",
+    "",
+    ...(constraints.length > 0 ? constraints.map((item) => `- ${item}`) : ["- No extra constraints confirmed yet."]),
+    "",
+    "## Acceptance Criteria",
+    "",
+    ...acceptanceCriteria.map((item) => `- ${item}`),
+    "",
+  ].join("\n");
+}
+
+function renderImplementationPlanMarkdown(goal: string, tasks: PlanningArtifactBundle["tasks"]): string {
+  return [
+    "# Plan",
+    "",
+    "## Approach",
+    "",
+    `Implement the accepted demand in one Coding Work Package: ${goal}`,
+    "",
+    "## Tasks",
+    "",
+    ...tasks.map((task) => `- ${task.id}: ${task.title} (${task.acIds.join(", ")})`),
+    "",
+    "## Verification",
+    "",
+    "- Run targeted tests, then independent validation and audit.",
+    "",
+  ].join("\n");
+}
+
+function renderTasksMarkdown(tasks: PlanningArtifactBundle["tasks"]): string {
+  return [
+    "# Tasks",
+    "",
+    ...tasks.map((task) => `- [ ] ${task.id}: ${task.title} Covers: ${task.acIds.join(", ")}`),
+    "",
+  ].join("\n");
+}
+
+function renderPlanningBundleSummary(bundle: PlanningArtifactBundle): string {
+  return [
+    `我准备了方案草案：${bundle.goal}`,
+    "",
+    `验收标准：${bundle.acceptanceCriteria.join("；")}`,
+    `实现方案：${bundle.design}`,
+    `任务：${bundle.tasks.map((task) => `${task.id} ${task.title}`).join("；")}`,
+    bundle.openQuestions.length > 0 ? `待确认：${bundle.openQuestions.join("；")}` : "如果认可，可以确认执行；如果不认可，可以直接在主对话里要求修改。",
+  ].join("\n");
+}
+
+function renderPlanningBundleMarkdown(bundle: PlanningArtifactBundle): string {
+  return [
+    `# Planning Draft ${bundle.id}`,
+    "",
+    `Status: ${bundle.status}`,
+    "",
+    "## Goal",
+    "",
+    bundle.goal,
+    "",
+    "## Constraints",
+    "",
+    ...(bundle.constraints.length > 0 ? bundle.constraints.map((item) => `- ${item}`) : ["- None confirmed."]),
+    "",
+    "## Acceptance Criteria",
+    "",
+    ...bundle.acceptanceCriteria.map((item) => `- ${item}`),
+    "",
+    "## Design",
+    "",
+    bundle.design,
+    "",
+    "## Tasks",
+    "",
+    ...bundle.tasks.map((task) => `- ${task.id}: ${task.title} (${task.acIds.join(", ")})`),
+    "",
+    "## Risks",
+    "",
+    ...bundle.risks.map((item) => `- ${item}`),
+    "",
+    "## Open Questions",
+    "",
+    ...(bundle.openQuestions.length > 0 ? bundle.openQuestions.map((item) => `- ${item}`) : ["- None."]),
+    "",
+  ].join("\n");
+}
+
+function renderPipelinePromptFromBundle(bundle: PlanningArtifactBundle): string {
+  return [
+    "# Accepted Planning Bundle",
+    "",
+    renderPlanningBundleMarkdown(bundle),
+    "",
+    "Implement this demand in the assigned worktree, run targeted self-tests, and leave final apply/merge to AHO human confirmation.",
+  ].join("\n");
+}
+
+function uniqueStrings(items: string[]): string[] {
+  return Array.from(new Set(items.map((item) => item.trim()).filter(Boolean)));
+}
+
 async function finishOrchestratorRun(path: string, run: RunMetadata, status: RunStatus, exitCode: number | null, signal: NodeJS.Signals | null): Promise<RunMetadata> {
   const next = { ...run, status, exitCode, signal, finishedAt: new Date().toISOString() };
   await writeJsonFile(path, next);
@@ -1673,6 +2117,13 @@ function summarizeActionResult(actionType: string, result: unknown): string {
     const status = typeof result.taskRun.status === "string" ? result.taskRun.status : "completed";
     return `TaskRun for ${taskId} finished with status ${status}.`;
   }
+  if ((actionType === "planning.generate" || actionType === "planning.revise") && isRecord(result) && isRecord(result.bundle)) {
+    return `Planning draft is ready: ${typeof result.bundle.goal === "string" ? result.bundle.goal : "draft bundle"}.`;
+  }
+  if ((actionType === "planning.confirm-execution" || actionType.startsWith("role.pipeline.")) && isRecord(result)) {
+    const status = typeof result.status === "string" ? result.status : "completed";
+    return `Role pipeline finished with status ${status}.`;
+  }
   return `${labelForAction(actionType)} completed.`;
 }
 
@@ -1694,6 +2145,13 @@ function labelForAction(actionType: string): string {
     case "change.spec.accept": return "Spec proposal accepted";
     case "change.plan.propose": return "Plan proposal generated";
     case "change.plan.accept": return "Plan proposal accepted";
+    case "planning.generate": return "Planning draft generated";
+    case "planning.revise": return "Planning draft revised";
+    case "planning.confirm-execution": return "Planning confirmed and execution started";
+    case "role.pipeline.start": return "Role pipeline started";
+    case "role.pipeline.stop": return "Role pipeline stop requested";
+    case "role.pipeline.continue": return "Role pipeline continued";
+    case "role.pipeline.reconcile": return "Role pipeline reconciled";
     case "code.run": return "Coder run confirmed";
     case "task.run.start": return "Task workflow started";
     case "task.run.retry": return "Task workflow retried";

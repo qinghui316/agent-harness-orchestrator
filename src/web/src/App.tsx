@@ -204,6 +204,16 @@ type Workpad = {
   requiresUserInputReason?: string;
   scopedFeedbackTarget?: Record<string, unknown>;
   postArchiveEvolutionCandidate?: { changeId: string; status: "candidate"; sources: string[]; summary: string };
+  planningDraft?: PlanningArtifactBundle;
+  planningArtifactBundle?: PlanningArtifactBundle;
+  rolePipeline?: {
+    stage: "planning" | "coding" | "validation" | "audit" | "rework" | "done" | "needs-user-input";
+    status: "draft" | "running" | "completed" | "needs-user-input" | "stopped";
+    runs: Array<{ roleId: string; status: string; runId?: string; summary: string; artifact?: string }>;
+    reworkUsed: number;
+    reworkBudget: number;
+  };
+  runControlState?: { canStop: boolean; stopActionType?: ThreadStreamAction["actionType"]; pendingFeedbackCount: number; explanation: string };
   intake: {
     goal: string;
     currentUnderstanding: string;
@@ -254,6 +264,19 @@ type Workpad = {
     warnings: string[];
   };
 };
+type PlanningArtifactBundle = {
+  id: string;
+  status?: "draft" | "confirmed";
+  goal: string;
+  constraints: string[];
+  acceptanceCriteria: string[];
+  design: string;
+  tasks: Array<{ id: string; title: string; acIds: string[] }>;
+  risks: string[];
+  openQuestions: string[];
+  artifact?: string;
+  updatedAt?: string;
+};
 type PlanCard = {
   title: string;
   summary: string;
@@ -262,7 +285,7 @@ type PlanCard = {
 };
 type ThreadEvent = { id: string; type: string; label: string; timestamp?: string; status?: string; runId?: string; planCard?: PlanCard };
 type ThreadStreamAction = {
-  actionType: "change.spec.propose" | "change.plan.propose" | "code.run" | "task.run.start" | "task.run.retry" | "task.queue.start" | "task.queue.reconcile" | "intake.scan" | "intake.reanalyze" | "clarification.answer" | "clarification.skip";
+  actionType: "change.spec.propose" | "change.plan.propose" | "planning.generate" | "planning.revise" | "planning.confirm-execution" | "role.pipeline.start" | "role.pipeline.stop" | "role.pipeline.continue" | "role.pipeline.reconcile" | "code.run" | "task.run.start" | "task.run.retry" | "task.queue.start" | "task.queue.reconcile" | "intake.scan" | "intake.reanalyze" | "clarification.answer" | "clarification.skip";
   label: string;
   enabled: boolean;
   requiresConfirmation: boolean;
@@ -663,6 +686,10 @@ export function App(): ReactElement {
     }
     const message = composerText.trim();
     const pendingClarificationCount = activeWorkpad.intake.pendingClarifications?.length ?? 0;
+    if (composerMode === "chat" && tab === "workpad" && (activeWorkpad.nextAction.actionType === "planning.generate" || activeWorkpad.nextAction.actionType === "planning.revise")) {
+      await runWorkflowAction(activeWorkpad.nextAction.actionType, { prompt: message });
+      return;
+    }
     if (composerMode === "chat" && tab === "workpad" && (activeWorkpad.nextAction.actionType === "intake.reanalyze" || activeWorkpad.nextAction.actionType === "change.spec.propose" || pendingClarificationCount > 0)) {
       setActionRunning("intake.reanalyze");
       setComposerText("");
@@ -729,6 +756,14 @@ export function App(): ReactElement {
     } finally {
       setActionRunning(null);
     }
+  }
+
+  async function stopAndContinueCurrentRun(): Promise<void> {
+    if (!composerText.trim()) {
+      setError("请输入停止后要按什么修改。");
+      return;
+    }
+    await runWorkflowAction("role.pipeline.stop", { prompt: composerText.trim() });
   }
 
   async function answerClarification(clarificationId: string, answer: string): Promise<void> {
@@ -1020,11 +1055,12 @@ export function App(): ReactElement {
                       busy={actionRunning !== null || activeTopic.state !== "active"}
                       disabledReason={activeTopic.state !== "active" ? "归档或暂停 Topic 为只读。" : undefined}
                       onSend={sendTopicMessage}
+                      onStopAndContinue={stopAndContinueCurrentRun}
                       onNewWorkpad={createTopicFromComposer}
                       onRunCode={() => runWorkflowAction("code.run")}
                       actionRunning={actionRunning}
                       canRunCode={activeTopic.state === "active" && (activeTopic.taskCount ?? 0) > 0}
-                      currentWorkpadStatus={currentWorkpadSummary(snapshot, activeTopic)?.runtimeStatus}
+                      currentWorkpadStatus={activeWorkpad.conversationLifecycle === "running" || activeWorkpad.runControlState?.canStop ? "running" : currentWorkpadSummary(snapshot, activeTopic)?.runtimeStatus}
                     />
                   </>
                 ) : tab === "thread" ? (
@@ -1054,11 +1090,12 @@ export function App(): ReactElement {
                       busy={actionRunning !== null || activeTopic.state !== "active"}
                       disabledReason={activeTopic.state !== "active" ? "归档或暂停 Topic 为只读。" : undefined}
                       onSend={sendTopicMessage}
+                      onStopAndContinue={stopAndContinueCurrentRun}
                       onNewWorkpad={createTopicFromComposer}
                       onRunCode={() => runWorkflowAction("code.run")}
                       actionRunning={actionRunning}
                       canRunCode={activeTopic.state === "active" && (activeTopic.taskCount ?? 0) > 0}
-                      currentWorkpadStatus={currentWorkpadSummary(snapshot, activeTopic)?.runtimeStatus}
+                      currentWorkpadStatus={activeWorkpad.conversationLifecycle === "running" || activeWorkpad.runControlState?.canStop ? "running" : currentWorkpadSummary(snapshot, activeTopic)?.runtimeStatus}
                     />
                   </>
                 ) : (
@@ -1755,6 +1792,52 @@ function WorkpadView({
           {workpad.postArchiveEvolutionCandidate ? (
             <p>{workpad.postArchiveEvolutionCandidate.summary}</p>
           ) : null}
+        </section>
+      ) : null}
+
+      {workpad.planningArtifactBundle ? (
+        <section className="workpad-section" data-testid="planning-draft-card">
+          <div className="workpad-section-header">
+            <h3>{workpad.planningArtifactBundle.status === "confirmed" ? "已确认方案" : "方案草案"}</h3>
+            <span>planning-agent</span>
+          </div>
+          <p className="workpad-goal">{workpad.planningArtifactBundle.goal}</p>
+          <div className="workpad-chip-list">
+            {workpad.planningArtifactBundle.acceptanceCriteria.slice(0, 5).map((item) => <span key={item}>{userFacingText(item)}</span>)}
+          </div>
+          <p>{workpad.planningArtifactBundle.design}</p>
+          <div className="workpad-evidence-list">
+            {workpad.planningArtifactBundle.tasks.map((task) => (
+              <div className="workpad-evidence" key={task.id}>
+                <strong>{task.id} {task.title}</strong>
+                <span>{task.acIds.join(" · ")}</span>
+              </div>
+            ))}
+          </div>
+          {workpad.planningArtifactBundle.openQuestions.length > 0 ? (
+            <ul className="workpad-issue-list">
+              {workpad.planningArtifactBundle.openQuestions.map((item) => <li key={item}>{userFacingText(item)}</li>)}
+            </ul>
+          ) : null}
+          {workpad.planningArtifactBundle.artifact ? <small className="artifact-link">查看证据：{artifactName(workpad.planningArtifactBundle.artifact)}</small> : null}
+        </section>
+      ) : null}
+
+      {workpad.rolePipeline ? (
+        <section className="workpad-section" data-testid="role-pipeline-summary">
+          <div className="workpad-section-header">
+            <h3>角色流水线</h3>
+            <span>{humanStatus(workpad.rolePipeline.status)}</span>
+          </div>
+          <div className="workpad-evidence-list">
+            {workpad.rolePipeline.runs.map((run) => (
+              <div className="workpad-evidence" key={`${run.roleId}:${run.runId ?? run.artifact ?? run.status}`}>
+                <strong>{roleLabel(run.roleId)} · {humanStatus(run.status)}</strong>
+                <span>{userFacingText(run.summary)}</span>
+                {run.artifact ? <small className="artifact-link">查看证据：{artifactName(run.artifact)}</small> : null}
+              </div>
+            ))}
+          </div>
         </section>
       ) : null}
 
@@ -2655,6 +2738,7 @@ function TopicComposer({
   busy,
   disabledReason,
   onSend,
+  onStopAndContinue,
   onNewWorkpad,
   onRunCode: _onRunCode,
   actionRunning,
@@ -2668,6 +2752,7 @@ function TopicComposer({
   busy: boolean;
   disabledReason?: string;
   onSend: () => Promise<void>;
+  onStopAndContinue?: () => Promise<void>;
   onNewWorkpad?: () => Promise<void>;
   onRunCode?: () => Promise<void>;
   actionRunning: string | null;
@@ -2686,8 +2771,11 @@ function TopicComposer({
       <div className="composer-toolbar">
         {runningConversation ? (
           <div className="workpad-route-switch" aria-label="Workpad routing choice">
-            <button type="button" className="active" disabled={Boolean(disabledReason) || busy} onClick={() => void onSend()}>
-              记录到当前需求
+            <button type="button" className="active" disabled={Boolean(disabledReason) || !value.trim()} onClick={() => void onSend()}>
+              记录到下一轮
+            </button>
+            <button type="button" disabled={!onStopAndContinue || Boolean(disabledReason) || !value.trim()} onClick={() => void onStopAndContinue?.()}>
+              停止并按这条修改
             </button>
             <button type="button" disabled={!onNewWorkpad || Boolean(disabledReason) || busy || !value.trim()} onClick={() => void onNewWorkpad?.()}>
               新需求对话
@@ -3083,7 +3171,20 @@ function humanStatus(status: string): string {
   if (status === "failed") return "失败";
   if (status === "started") return "已开始";
   if (status === "stderr") return "错误输出";
+  if (status === "draft") return "草案";
+  if (status === "confirmed") return "已确认";
+  if (status === "needs-user-input") return "需要用户补充";
+  if (status === "stopped") return "已停止";
   return status;
+}
+
+function roleLabel(roleId: string): string {
+  if (roleId === "planning-agent") return "规划";
+  if (roleId === "coder-agent" || roleId === "coder") return "实现";
+  if (roleId === "validator") return "验证";
+  if (roleId === "auditor-agent" || roleId === "auditor") return "审查";
+  if (roleId === "rework-coder") return "自动修改";
+  return roleId;
 }
 
 function eventLabel(type: string): string {
@@ -3158,6 +3259,13 @@ function decisionKindLabel(kind: string): string {
 function workflowActionLabel(actionType: string | undefined): string {
   if (actionType === "change.spec.propose") return "Spec proposal";
   if (actionType === "change.plan.propose") return "Plan/Tasks proposal";
+  if (actionType === "planning.generate") return "生成方案草案";
+  if (actionType === "planning.revise") return "修改方案草案";
+  if (actionType === "planning.confirm-execution") return "确认执行";
+  if (actionType === "role.pipeline.start") return "角色流水线";
+  if (actionType === "role.pipeline.stop") return "停止当前执行";
+  if (actionType === "role.pipeline.continue") return "继续执行";
+  if (actionType === "role.pipeline.reconcile") return "恢复执行状态";
   if (actionType === "code.run") return "Code workflow";
   if (actionType === "task.run.start") return "Task workflow";
   if (actionType === "task.run.retry") return "Retry task";

@@ -944,7 +944,8 @@ describe("Workbench web app", () => {
     expect(screen.getByText(/project\/stable/)).toBeTruthy();
     expect(screen.getByText(/change\/member-discount/)).toBeTruthy();
     expect(screen.getAllByText(/配送规则调整 · 处理中/).length).toBeGreaterThan(0);
-    expect(screen.getByText("记录到当前需求")).toBeTruthy();
+    expect(screen.getByText("记录到下一轮")).toBeTruthy();
+    expect(screen.getByText("停止并按这条修改")).toBeTruthy();
     expect(screen.getByText("新需求对话")).toBeTruthy();
     expect(screen.queryByText(/worker pool|并行 worktree|merge queue/)).toBeNull();
   });

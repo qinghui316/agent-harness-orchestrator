@@ -11,6 +11,7 @@ import { assertWritableMemory, resolveProjectMemory } from "../memory/resolver.j
 import { getLatestValidationSummary } from "../validation/artifacts.js";
 import type { AuditResult, AuditStatus, AuditSummary, ManagedProject, ResolvedMemory, RunMetadata, RunStatus } from "../types/index.js";
 import { appendRunEvent, assertRunnableChange, buildContextProjection, buildRunId } from "../run/manager.js";
+import { isRunStopRequested } from "../run/control.js";
 import { executeProcessStreaming, type ProcessExecutionResult } from "../run/process.js";
 import { collectWorktreeDiff } from "./diff.js";
 import { listAuditResults, readAuditResult, summarizeAudit } from "./artifacts.js";
@@ -40,7 +41,7 @@ export async function startAuditRun(project: ManagedProject, options: AuditRunOp
   assertRunnableChange(changeStatus);
   const changeId = changeStatus.change?.id ?? changeStatus.activeChanges[0]?.name;
   if (!changeId) throw new Error("Cannot start audit without an active change id.");
-  const role = await resolveAgentRole(memory, "auditor");
+  const role = await resolveAgentRole(memory, "auditor-agent");
 
   const runId = buildRunId(changeId, ["auditor", options.worktreeId ?? "no-worktree", options.prompt ?? ""]);
   const directory = join(memory.runsRoot, runId);
@@ -175,6 +176,7 @@ export async function startAuditRun(project: ManagedProject, options: AuditRunOp
     mirrorStdoutPath: paths.codexEvents,
     onStdoutChunk: (text) => parser.feed(text),
     completionSignal: () => completion.isComplete(),
+    stopSignal: () => isRunStopRequested(runId),
     completionGraceMs: lifecycleTiming.completionGraceMs,
     killGraceMs: lifecycleTiming.killGraceMs,
     timeoutMs: lifecycleTiming.timeoutMs,

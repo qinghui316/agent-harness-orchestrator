@@ -11,6 +11,7 @@ import { writeJsonFile } from "../fs/json.js";
 import { assertWritableMemory, resolveProjectMemory } from "../memory/resolver.js";
 import { getGitStatusShort } from "../project/git.js";
 import { appendRunEvent, assertRunnableChange, buildContextProjection, buildRunId, listRuns, readRun } from "../run/manager.js";
+import { isRunStopRequested } from "../run/control.js";
 import { executeProcessStreaming, type ProcessExecutionResult } from "../run/process.js";
 import type { ManagedProject, ResolvedMemory, RunMetadata, RunStatus, RunWorktreeInfo } from "../types/index.js";
 import { collectWorktreeDiff } from "../audit/diff.js";
@@ -79,7 +80,7 @@ export async function startCodeRun(project: ManagedProject, options: CodeRunOpti
   if (!changeId) throw new Error("Cannot start code run without an active change id.");
 
   const selectedTasks = normalizeAndValidateTasks(changeStatus, options.taskIds ?? []);
-  const role = await resolveAgentRole(memory, "coder");
+  const role = await resolveAgentRole(memory, "coder-agent");
   const extraPrompt = options.prompt || options.promptFile
     ? await readPromptInput({ prompt: options.prompt, promptFile: options.promptFile })
     : undefined;
@@ -232,6 +233,7 @@ export async function startCodeRun(project: ManagedProject, options: CodeRunOpti
       }
     },
     completionSignal: () => completion.isComplete(),
+    stopSignal: () => isRunStopRequested(runId),
     completionGraceMs: lifecycleTiming.completionGraceMs,
     killGraceMs: lifecycleTiming.killGraceMs,
     timeoutMs: lifecycleTiming.timeoutMs,

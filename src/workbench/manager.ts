@@ -107,7 +107,7 @@ export interface WorkbenchThreadEvent {
 }
 
 export interface ThreadStreamAction {
-  actionType: "change.spec.propose" | "change.plan.propose" | "code.run" | "task.run.start" | "task.run.retry" | "task.queue.start" | "task.queue.reconcile" | "intake.scan" | "intake.reanalyze" | "clarification.answer" | "clarification.skip";
+  actionType: "change.spec.propose" | "change.plan.propose" | "planning.generate" | "planning.revise" | "planning.confirm-execution" | "role.pipeline.start" | "role.pipeline.stop" | "role.pipeline.continue" | "role.pipeline.reconcile" | "code.run" | "task.run.start" | "task.run.retry" | "task.queue.start" | "task.queue.reconcile" | "intake.scan" | "intake.reanalyze" | "clarification.answer" | "clarification.skip";
   label: string;
   enabled: boolean;
   requiresConfirmation: boolean;
@@ -473,6 +473,10 @@ export interface WorkbenchWorkpad {
   requiresUserInputReason?: string;
   scopedFeedbackTarget?: WorkbenchScopedFeedbackTarget;
   postArchiveEvolutionCandidate?: WorkbenchPostArchiveEvolutionCandidate;
+  planningDraft?: WorkbenchPlanningDraft;
+  planningArtifactBundle?: WorkbenchPlanningArtifactBundle;
+  rolePipeline?: WorkbenchRolePipelineSummary;
+  runControlState?: WorkbenchRunControlState;
   intake: WorkpadIntakeSummary;
   progress: WorkpadProgress;
   tasks: WorkpadTaskPreview[];
@@ -485,6 +489,46 @@ export interface WorkbenchWorkpad {
   nextAction: WorkpadNextAction;
   background: WorkpadBackgroundActivitySummary;
   memoryIsolation: WorkpadMemoryIsolationSummary;
+}
+
+export interface WorkbenchPlanningDraft {
+  id: string;
+  goal: string;
+  constraints: string[];
+  acceptanceCriteria: string[];
+  design: string;
+  tasks: Array<{ id: string; title: string; acIds: string[] }>;
+  risks: string[];
+  openQuestions: string[];
+  artifact?: string;
+  updatedAt?: string;
+}
+
+export interface WorkbenchPlanningArtifactBundle extends WorkbenchPlanningDraft {
+  status: "draft" | "confirmed";
+}
+
+export interface WorkbenchRoleRunSummary {
+  roleId: "planning-agent" | "coder-agent" | "validator" | "auditor-agent" | "rework-coder" | string;
+  status: string;
+  runId?: string;
+  summary: string;
+  artifact?: string;
+}
+
+export interface WorkbenchRolePipelineSummary {
+  stage: "planning" | "coding" | "validation" | "audit" | "rework" | "done" | "needs-user-input";
+  status: "draft" | "running" | "completed" | "needs-user-input" | "stopped";
+  runs: WorkbenchRoleRunSummary[];
+  reworkUsed: number;
+  reworkBudget: number;
+}
+
+export interface WorkbenchRunControlState {
+  canStop: boolean;
+  stopActionType?: ThreadStreamAction["actionType"];
+  pendingFeedbackCount: number;
+  explanation: string;
 }
 
 export interface WorkbenchPendingFeedback {
@@ -899,6 +943,9 @@ async function buildWorkbenchWorkpad(input: {
   const taskQueue = buildTaskQueueSummary(selectedTopic, { specReady, planReady, tasksReady });
   const taskGraph = buildTaskGraph(selectedTopic, { specReady, planReady, tasksReady }, taskQueue);
   const codingPackages = buildCodingPackages(selectedTopic, taskGraph);
+  const planningBundle = await readLatestPlanningBundleProjection(memory, selectedTopic.path);
+  const rolePipeline = buildRolePipelineSummary(selectedTopic, planningBundle);
+  const runningRun = selectedTopic.runs.find((run) => run.status === "created" || run.status === "running");
 
   return {
     title: selectedTopic.title,
@@ -920,6 +967,15 @@ async function buildWorkbenchWorkpad(input: {
     requiresUserInputReason: requiresUserInputReason(selectedTopic, latestValidation, latestAudit, taskGraph),
     scopedFeedbackTarget: buildScopedFeedbackTarget(selectedTopic, taskGraph),
     postArchiveEvolutionCandidate: selectedTopic.state === "archive" ? buildPostArchiveEvolutionCandidate(selectedTopic) : undefined,
+    planningDraft: planningBundle?.status === "draft" ? planningBundle : undefined,
+    planningArtifactBundle: planningBundle ?? undefined,
+    rolePipeline,
+    runControlState: {
+      canStop: Boolean(runningRun),
+      stopActionType: runningRun ? "role.pipeline.stop" : undefined,
+      pendingFeedbackCount: selectedTopic.threadItems.filter((item) => item.kind === "user-message" && item.status === "pending-feedback").length,
+      explanation: runningRun ? "当前本地执行可请求停止；停止后会保留证据并进入下一轮方案或修改。" : "当前没有正在执行的本地 role pipeline。",
+    },
     intake,
     progress: {
       topicState: selectedTopic.state,
@@ -1034,6 +1090,56 @@ function buildPostArchiveEvolutionCandidate(topic: WorkbenchTopicDetail): Workbe
     sources: ["main-thread", "accepted-artifacts", "diff", "validation", "audit", "final-decision", "archive-summary"],
     summary: "该归档需求可作为后续 Documentation / Architecture / Evolution agent 的候选输入；Phase 6A 不自动修改 canonical docs。",
   };
+}
+
+const planningBundleProjectionSchema = z.object({
+  id: z.string(),
+  status: z.enum(["draft", "confirmed"]),
+  goal: z.string(),
+  constraints: z.array(z.string()).default([]),
+  acceptanceCriteria: z.array(z.string()).default([]),
+  design: z.string().default(""),
+  tasks: z.array(z.object({ id: z.string(), title: z.string(), acIds: z.array(z.string()).default([]) })).default([]),
+  risks: z.array(z.string()).default([]),
+  openQuestions: z.array(z.string()).default([]),
+  artifact: z.string().optional(),
+  updatedAt: z.string().optional(),
+});
+
+async function readLatestPlanningBundleProjection(memory: ResolvedMemory, changePath: string): Promise<WorkbenchPlanningArtifactBundle | null> {
+  const path = join(memory.memoryRoot, changePath, "planning", "latest-bundle.json");
+  if (!existsSync(path)) return null;
+  const content = await readFile(path, "utf8").catch(() => "");
+  if (!content.trim()) return null;
+  const parsed = planningBundleProjectionSchema.safeParse(JSON.parse(content));
+  if (!parsed.success) return null;
+  return parsed.data;
+}
+
+function buildRolePipelineSummary(topic: WorkbenchTopicDetail, planningBundle: WorkbenchPlanningArtifactBundle | null): WorkbenchRolePipelineSummary | undefined {
+  const coderRuns = topic.runs.filter((run) => run.runtime === "coder-codex");
+  const validationRuns = topic.validations as ValidationSummary[];
+  const auditRuns = topic.audits as AuditSummary[];
+  if (!planningBundle && coderRuns.length === 0 && validationRuns.length === 0 && auditRuns.length === 0) return undefined;
+  const latestCoder = [...coderRuns].sort((a, b) => (b.finishedAt ?? b.startedAt ?? "").localeCompare(a.finishedAt ?? a.startedAt ?? ""))[0];
+  const latestValidation = [...validationRuns].sort((a, b) => (b.finishedAt ?? "").localeCompare(a.finishedAt ?? ""))[0];
+  const latestAudit = [...auditRuns].sort((a, b) => (b.finishedAt ?? "").localeCompare(a.finishedAt ?? ""))[0];
+  const runs: WorkbenchRoleRunSummary[] = [];
+  if (planningBundle) runs.push({ roleId: "planning-agent", status: planningBundle.status, summary: planningBundle.goal, artifact: planningBundle.artifact });
+  if (latestCoder) runs.push({ roleId: "coder-agent", status: latestCoder.status, runId: latestCoder.id, summary: latestCoder.status === "completed" ? "Coder finished implementation/self-test attempt." : "Coder attempt is not completed.", artifact: latestCoder.artifacts.directory });
+  if (latestValidation) runs.push({ roleId: "validator", status: latestValidation.status, runId: latestValidation.runId, summary: `Validation ${latestValidation.status}.` });
+  if (latestAudit) runs.push({ roleId: "auditor-agent", status: latestAudit.status, runId: latestAudit.runId, summary: `Audit ${latestAudit.status}.` });
+  const stage: WorkbenchRolePipelineSummary["stage"] = latestAudit
+    ? (latestAudit.status === "approved" || latestAudit.status === "approved-with-notes" ? "done" : "needs-user-input")
+    : latestValidation
+      ? (latestValidation.status === "passed" ? "audit" : "rework")
+      : latestCoder
+        ? (latestCoder.status === "completed" ? "validation" : "coding")
+        : "planning";
+  const status: WorkbenchRolePipelineSummary["status"] = topic.runs.some((run) => run.status === "created" || run.status === "running")
+    ? "running"
+    : stage === "needs-user-input" ? "needs-user-input" : stage === "done" ? "completed" : planningBundle?.status === "confirmed" ? "completed" : "draft";
+  return { stage, status, runs, reworkUsed: 0, reworkBudget: OFFICIAL_REWORK_BUDGET };
 }
 
 function classifySelectedTopicFailure(
@@ -1693,10 +1799,10 @@ function buildWorkpadNextAction(
   if (!readiness.specReady && (intake?.pendingClarifications.length || intake?.openQuestions.length)) {
     return workflowNextAction("intake.reanalyze", "继续澄清需求", "回答需要确认的问题，AHO 会更新当前理解。", false);
   }
-  if (!readiness.specReady) return workflowNextAction("change.spec.propose", "生成 Spec", "先生成需求和验收标准 proposal。");
-  if (!readiness.planReady) return workflowNextAction("change.plan.propose", "生成 Plan", "基于已接受 Spec 生成实现计划。");
-  if (!readiness.tasksReady) return workflowNextAction("change.plan.propose", "生成 Tasks", "补齐可执行任务和 AC 映射。");
-  return workflowNextAction("code.run", "运行 Code", "基于已接受 Spec / Plan / Tasks 运行受控代码工作流。");
+  if (!readiness.specReady || !readiness.planReady || !readiness.tasksReady) {
+    return workflowNextAction("planning.generate", "生成方案草案", "在主对话里生成 proposal/spec/design/tasks 草案；确认执行后才写入内部 artifacts。");
+  }
+  return workflowNextAction("planning.confirm-execution", "确认执行", "确认当前方案并启动 coder-agent、validator、auditor 角色流水线。");
 }
 
 function buildQueueBlockedNextAction(queue?: WorkbenchTaskQueueSummary, taskGraph?: WorkbenchTaskGraph): WorkpadNextAction | null {
