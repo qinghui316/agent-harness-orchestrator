@@ -284,7 +284,12 @@ describe("Workbench web app", () => {
     expect(screen.getByText("TaskGraph")).toBeTruthy();
     expect(screen.getByText("证据与决策")).toBeTruthy();
     expect(screen.getAllByText("关闭已完成变更。").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("主题").length).toBeGreaterThan(0);
+    expect(screen.getByText("新对话")).toBeTruthy();
+    expect(screen.getByLabelText("搜索已加载对话")).toBeTruthy();
+    expect(screen.getAllByText("项目").length).toBeGreaterThan(0);
+    expect(screen.getByText("Repo")).toBeTruthy();
+    expect(screen.getByText("设置")).toBeTruthy();
+    expect(screen.queryByText("远程项目")).toBeNull();
     expect(screen.getByText("当前决策")).toBeTruthy();
     expect(screen.getAllByText("已完成").length).toBeGreaterThan(0);
     fireEvent.click(screen.getByText("线程"));
@@ -886,13 +891,13 @@ describe("Workbench web app", () => {
     render(<App />);
 
     await waitFor(() => expect(screen.getAllByText("会员折扣计价").length).toBeGreaterThan(0));
-    fireEvent.click(screen.getByText("仓库"));
-    expect(screen.getByText("分支")).toBeTruthy();
+    fireEvent.click(screen.getByLabelText("项目详情"));
     expect(screen.getByText("main")).toBeTruthy();
-    fireEvent.click(screen.getByText("记忆"));
+    expect(screen.getByText("仓库")).toBeTruthy();
+    expect(screen.getByText("记忆")).toBeTruthy();
     expect(screen.getByText("external-local")).toBeTruthy();
-    fireEvent.click(screen.getByText("设置"));
-    expect(screen.getByText("刷新工作台")).toBeTruthy();
+    expect(screen.getByText("刷新项目")).toBeTruthy();
+    expect(screen.getByText("设置")).toBeTruthy();
   });
 
   it("shows Multi-Workpad background state, memory isolation, and explicit composer routing", async () => {
@@ -965,8 +970,11 @@ describe("Workbench web app", () => {
     render(<App />);
 
     await waitFor(() => expect(screen.getByText("选择一个项目开始")).toBeTruthy());
-    expect(screen.getByText("添加")).toBeTruthy();
-    expect(screen.getByText("新建")).toBeTruthy();
+    expect(screen.getByText("新对话")).toBeTruthy();
+    fireEvent.click(screen.getByLabelText("项目菜单"));
+    expect(screen.getByText("使用现有文件夹")).toBeTruthy();
+    expect(screen.getByText("新建空项目")).toBeTruthy();
+    expect(screen.queryByText("远程项目")).toBeNull();
     expect(screen.getByText("暂无当前决策")).toBeTruthy();
     fireEvent.click(screen.getByText("Repo"));
     await waitFor(() => expect(screen.getByText("初始化 Harness")).toBeTruthy());
@@ -990,7 +998,8 @@ describe("Workbench web app", () => {
     render(<App />);
 
     await waitFor(() => expect(screen.getByText("选择一个项目开始")).toBeTruthy());
-    fireEvent.click(screen.getByText("添加"));
+    fireEvent.click(screen.getByLabelText("项目菜单"));
+    fireEvent.click(screen.getByText("使用现有文件夹"));
     fireEvent.click(screen.getByText("选择文件夹添加"));
 
     await waitFor(() => {

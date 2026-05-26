@@ -1,18 +1,21 @@
 import { useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import {
   Check,
+  ChevronDown,
+  ChevronRight,
   CircleCheck,
   Clock3,
   Code2,
   FileText,
   Folder,
-  GitBranch,
-  MemoryStick,
+  FolderPlus,
+  MoreHorizontal,
   Plus,
   RefreshCw,
   Send,
   Settings,
   ShieldCheck,
+  Search,
   Upload,
   UserRound,
   X,
@@ -514,7 +517,7 @@ const emptySnapshot: Snapshot = {
 };
 
 export function App(): ReactElement {
-  const [, setAppStatus] = useState<AppStatus | null>(null);
+  const [appStatus, setAppStatus] = useState<AppStatus | null>(null);
   const [projects, setProjects] = useState<ProjectStatus[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [snapshot, setSnapshot] = useState<Snapshot>(emptySnapshot);
@@ -522,7 +525,11 @@ export function App(): ReactElement {
   const [selectedRun, setSelectedRun] = useState<string | null>(null);
   const [stream, setStream] = useState<StreamPacket | null>(null);
   const [tab, setTab] = useState<"workpad" | "thread" | "loop">("workpad");
-  const [navPanel, setNavPanel] = useState<"topics" | "repo" | "memory" | "settings">("topics");
+  const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set());
+  const [projectSnapshots, setProjectSnapshots] = useState<Record<string, Snapshot>>({});
+  const [sidebarSearch, setSidebarSearch] = useState("");
+  const [projectMenuMode, setProjectMenuMode] = useState<"closed" | "add" | "new">("closed");
+  const [projectDetailsId, setProjectDetailsId] = useState<string | null>(null);
   const [confirming, setConfirming] = useState<string | null>(null);
   const [selectedDecisionContextId, setSelectedDecisionContextId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -542,6 +549,7 @@ export function App(): ReactElement {
     const directProject = status.directProjectId;
     if (directProject) {
       setSelectedProjectId(directProject);
+      setExpandedProjects(new Set([directProject]));
       const directStatus = list.projects.find((item) => item.project?.id === directProject);
       if (directStatus?.managed) await refresh(directProject, null);
       else setSnapshot(snapshotForProject(directStatus));
@@ -565,6 +573,7 @@ export function App(): ReactElement {
     const query = topic ? `?topic=${encodeURIComponent(topic)}` : "";
     const next = await fetchJson<Snapshot>(`/api/projects/${encodeURIComponent(projectId)}/workbench/snapshot${query}`);
     setSnapshot(next);
+    setProjectSnapshots((current) => ({ ...current, [projectId]: next }));
     const runId = selectedRun ?? next.center.agentLoop.runs[0]?.id ?? null;
     setSelectedRun(runId);
     if (runId) setStream(await fetchJson<StreamPacket>(`/api/projects/${encodeURIComponent(projectId)}/workbench/stream/${encodeURIComponent(runId)}`));
@@ -576,15 +585,55 @@ export function App(): ReactElement {
 
   async function openProject(projectId: string): Promise<void> {
     setSelectedProjectId(projectId);
+    setExpandedProjects((current) => new Set([...current, projectId]));
     setSelectedTopic(null);
     setSelectedRun(null);
     setStream(null);
+    const status = projects.find((item) => item.project?.id === projectId);
+    if (!status?.managed) {
+      const next = snapshotForProject(status);
+      setSnapshot(next);
+      setProjectSnapshots((current) => ({ ...current, [projectId]: next }));
+      return;
+    }
     await refresh(projectId, null);
   }
 
-  async function chooseTopic(topicId: string): Promise<void> {
-    setSelectedTopic(topicId);
-    await refresh(selectedProjectId, topicId);
+  async function beginNewConversation(): Promise<void> {
+    if (!selectedProjectId) {
+      setError("请先选择或添加项目。");
+      return;
+    }
+    setComposerText("");
+    setSelectedTopic(null);
+    setTab("workpad");
+    await refresh(selectedProjectId, null);
+  }
+
+  async function toggleProjectFolder(projectId: string): Promise<void> {
+    const shouldOpen = !expandedProjects.has(projectId);
+    setExpandedProjects((current) => {
+      const next = new Set(current);
+      if (shouldOpen) next.add(projectId);
+      else next.delete(projectId);
+      return next;
+    });
+    if (shouldOpen && !projectSnapshots[projectId]) {
+      const status = projects.find((item) => item.project?.id === projectId);
+      if (status?.managed) {
+        const next = await fetchJson<Snapshot>(`/api/projects/${encodeURIComponent(projectId)}/workbench/snapshot`);
+        setProjectSnapshots((current) => ({ ...current, [projectId]: next }));
+      }
+    }
+  }
+
+  async function chooseConversation(projectId: string, conversationId: string): Promise<void> {
+    setSelectedProjectId(projectId);
+    setSelectedTopic(conversationId);
+    setExpandedProjects((current) => new Set([...current, projectId]));
+    setSelectedRun(null);
+    setStream(null);
+    await refresh(projectId, conversationId);
   }
 
   async function chooseRun(runId: string): Promise<void> {
@@ -975,29 +1024,29 @@ export function App(): ReactElement {
   return (
     <div className="app-shell">
       <aside className="sidebar">
-        <div className="brand">
+        <div className="brand compact-brand">
           <div className="brand-title">Agent Harness<br />Orchestrator</div>
           <button className="icon-button" aria-label="刷新项目" onClick={() => void loadApp()}><RefreshCw size={14} /></button>
         </div>
-        <section className="nav-section">
-          <div className="section-label">项目</div>
-          <div className="project-select"><Folder size={16} />{selectedProjectStatus?.project?.name ?? "未选择项目"}</div>
-          <ProjectSidebar projects={projects} selectedProjectId={selectedProjectId} onOpen={openProject} onRefresh={loadApp} />
-        </section>
-        <nav className="nav-list">
-          <button className={`nav-item ${navPanel === "topics" ? "active" : ""}`} onClick={() => setNavPanel("topics")}><FileText size={17} />主题</button>
-          <button className={`nav-item ${navPanel === "repo" ? "active" : ""}`} onClick={() => setNavPanel("repo")}><GitBranch size={17} />仓库</button>
-          <button className={`nav-item ${navPanel === "memory" ? "active" : ""}`} onClick={() => setNavPanel("memory")}><MemoryStick size={17} />记忆</button>
-          <button className={`nav-item ${navPanel === "settings" ? "active" : ""}`} onClick={() => setNavPanel("settings")}><Settings size={17} />设置</button>
-        </nav>
-        <SidebarPanel
-          panel={navPanel}
-          snapshot={snapshot}
-          project={selectedProjectStatus}
-          activeTopic={activeTopic}
+        <ProjectConversationSidebar
+          appStatus={appStatus}
+          projects={projects}
           selectedProjectId={selectedProjectId}
-          onChooseTopic={chooseTopic}
-          onRefresh={() => refresh()}
+          selectedTopicId={activeTopic?.id ?? selectedTopic}
+          snapshots={projectSnapshots}
+          snapshot={snapshot}
+          search={sidebarSearch}
+          onSearch={setSidebarSearch}
+          expandedProjects={expandedProjects}
+          projectMenuMode={projectMenuMode}
+          projectDetailsId={projectDetailsId}
+          onProjectMenuMode={setProjectMenuMode}
+          onProjectDetails={setProjectDetailsId}
+          onNewConversation={beginNewConversation}
+          onOpenProject={openProject}
+          onToggleProject={toggleProjectFolder}
+          onChooseConversation={chooseConversation}
+          onRefresh={loadApp}
         />
       </aside>
 
@@ -1253,109 +1302,187 @@ function normalizeBlockText(text: string | undefined): string {
   return (text ?? "").replace(/\s+/g, " ").trim().toLowerCase();
 }
 
-function ProjectSidebar({ projects, selectedProjectId, onRefresh, onOpen }: { projects: ProjectStatus[]; selectedProjectId: string | null; onRefresh: () => Promise<void>; onOpen: (projectId: string) => Promise<void> }): ReactElement {
-  const [mode, setMode] = useState<"list" | "add" | "new">("list");
+function ProjectConversationSidebar({
+  appStatus,
+  projects,
+  selectedProjectId,
+  selectedTopicId,
+  snapshots,
+  snapshot,
+  search,
+  onSearch,
+  expandedProjects,
+  projectMenuMode,
+  projectDetailsId,
+  onProjectMenuMode,
+  onProjectDetails,
+  onNewConversation,
+  onOpenProject,
+  onToggleProject,
+  onChooseConversation,
+  onRefresh,
+}: {
+  appStatus: AppStatus | null;
+  projects: ProjectStatus[];
+  selectedProjectId: string | null;
+  selectedTopicId: string | null;
+  snapshots: Record<string, Snapshot>;
+  snapshot: Snapshot;
+  search: string;
+  onSearch: (value: string) => void;
+  expandedProjects: Set<string>;
+  projectMenuMode: "closed" | "add" | "new";
+  projectDetailsId: string | null;
+  onProjectMenuMode: (mode: "closed" | "add" | "new") => void;
+  onProjectDetails: (projectId: string | null) => void;
+  onNewConversation: () => Promise<void>;
+  onOpenProject: (projectId: string) => Promise<void>;
+  onToggleProject: (projectId: string) => Promise<void>;
+  onChooseConversation: (projectId: string, conversationId: string) => Promise<void>;
+  onRefresh: () => Promise<void>;
+}): ReactElement {
+  const visibleProjects = appStatus?.mode === "project" && appStatus.directProjectId
+    ? projects.filter((item) => item.project?.id === appStatus.directProjectId)
+    : projects;
+  const normalizedSearch = search.trim().toLowerCase();
   async function afterProjectAdded(projectId?: string): Promise<void> {
     await onRefresh();
-    if (projectId) await onOpen(projectId);
-    setMode("list");
+    if (projectId) await onOpenProject(projectId);
+    onProjectMenuMode("closed");
   }
   return (
-    <div className="project-sidebar">
-      <div className="project-actions">
-        <button className="small-action primary" onClick={() => setMode(mode === "add" ? "list" : "add")}><Plus size={14} />添加</button>
-        <button className="small-action" onClick={() => setMode(mode === "new" ? "list" : "new")}>新建</button>
-      </div>
-      {mode === "add" ? <div className="project-inline-panel"><ProjectAddForm onDone={afterProjectAdded} /></div> : null}
-      {mode === "new" ? <div className="project-inline-panel"><ProjectCreateForm onDone={afterProjectAdded} /></div> : null}
-      <div className="project-rows">
-        {projects.length === 0 ? <div className="empty-state sidebar-empty">还没有注册项目。</div> : null}
-        {projects.map((item) => (
-          <button key={item.project?.id ?? item.path} className={`project-row ${item.project?.id === selectedProjectId ? "selected" : ""}`} onClick={() => item.project ? void onOpen(item.project.id) : undefined}>
-            <span>{item.project?.name ?? item.path}</span>
-            <small>{item.managed ? "Harness 就绪" : "未初始化"}</small>
-          </button>
-        ))}
+    <div className="codex-sidebar">
+      <nav className="global-nav" aria-label="全局入口">
+        <button className="global-nav-item" onClick={() => void onNewConversation()}><FileText size={16} />新对话</button>
+        <label className="sidebar-search">
+          <Search size={15} />
+          <input value={search} onChange={(event) => onSearch(event.target.value)} placeholder="搜索" aria-label="搜索已加载对话" />
+        </label>
+      </nav>
+
+      <section className="project-tree" aria-label="项目">
+        <div className="project-tree-header">
+          <span className="section-label">项目</span>
+          <button className="icon-button compact-icon" aria-label="项目菜单" onClick={() => onProjectMenuMode(projectMenuMode === "closed" ? "add" : "closed")}><FolderPlus size={15} /></button>
+        </div>
+        {projectMenuMode !== "closed" ? (
+          <div className="project-menu-popover">
+            <button className={`project-menu-item ${projectMenuMode === "new" ? "selected" : ""}`} onClick={() => onProjectMenuMode("new")}><FolderPlus size={15} />新建空项目</button>
+            <button className={`project-menu-item ${projectMenuMode === "add" ? "selected" : ""}`} onClick={() => onProjectMenuMode("add")}><Folder size={15} />使用现有文件夹</button>
+            {projectMenuMode === "add" ? <ProjectAddForm onDone={afterProjectAdded} /> : null}
+            {projectMenuMode === "new" ? <ProjectCreateForm onDone={afterProjectAdded} /> : null}
+          </div>
+        ) : null}
+
+        <div className="project-folder-list">
+          {visibleProjects.length === 0 ? <div className="empty-state sidebar-empty">还没有注册项目。</div> : null}
+          {visibleProjects.map((item) => {
+            const projectId = item.project?.id ?? item.path;
+            const projectName = item.project?.name ?? item.path;
+            const selected = item.project?.id === selectedProjectId;
+            const expanded = selected || expandedProjects.has(projectId);
+            const projectSnapshot = item.project?.id === selectedProjectId ? snapshot : item.project?.id ? snapshots[item.project.id] : undefined;
+            const conversations = conversationsForSidebar(projectSnapshot, selectedTopicId);
+            const filteredConversations = normalizedSearch
+              ? conversations.filter((conversation) => conversation.title.toLowerCase().includes(normalizedSearch) || conversation.status.toLowerCase().includes(normalizedSearch))
+              : conversations;
+            const showProject = !normalizedSearch || projectName.toLowerCase().includes(normalizedSearch) || filteredConversations.length > 0;
+            if (!showProject) return null;
+            return (
+              <div className="project-folder" key={projectId}>
+                <div className={`project-folder-row ${selected ? "selected" : ""}`}>
+                  <button className="project-folder-toggle" aria-label={expanded ? "收起项目" : "展开项目"} onClick={() => item.project ? void onToggleProject(item.project.id) : undefined}>
+                    {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                  </button>
+                  <button className="project-folder-main" onClick={() => item.project ? void onOpenProject(item.project.id) : undefined}>
+                    <Folder size={16} />
+                    <span>{projectName}</span>
+                    {item.managed ? null : <small>未初始化</small>}
+                  </button>
+                  <button className="project-folder-more" aria-label="项目详情" onClick={() => onProjectDetails(projectDetailsId === projectId ? null : projectId)}>
+                    <MoreHorizontal size={15} />
+                  </button>
+                </div>
+                {projectDetailsId === projectId ? (
+                  <ProjectDetailsPanel
+                    project={item}
+                    snapshot={projectSnapshot}
+                    selected={selected}
+                    onOpen={() => item.project ? void onOpenProject(item.project.id) : undefined}
+                    onRefresh={() => void onRefresh()}
+                  />
+                ) : null}
+                {expanded ? (
+                  <div className="conversation-list">
+                    {item.managed && !projectSnapshot ? <div className="conversation-placeholder">展开后加载对话。</div> : null}
+                    {!item.managed ? <div className="conversation-placeholder">选择项目后初始化 Harness。</div> : null}
+                    {filteredConversations.map((conversation) => (
+                      <button
+                        key={conversation.id}
+                        className={`conversation-row ${conversation.selected ? "selected" : ""}`}
+                        onClick={() => item.project ? void onChooseConversation(item.project.id, conversation.id) : undefined}
+                      >
+                        <span>{userFacingText(conversation.title)}</span>
+                        <small>{conversation.status}{conversation.waitingDecisionCount > 0 ? ` · ${conversation.waitingDecisionCount} 个待确认` : ""}</small>
+                        {conversation.blocker ? <em>{userFacingText(conversation.blocker)}</em> : null}
+                      </button>
+                    ))}
+                    {item.managed && projectSnapshot && filteredConversations.length === 0 ? <div className="conversation-placeholder">暂无已加载对话。</div> : null}
+                  </div>
+                ) : null}
+              </div>
+            );
+          })}
+        </div>
+      </section>
+
+      <div className="sidebar-settings">
+        <button className="global-nav-item settings-entry"><Settings size={16} />设置</button>
       </div>
     </div>
   );
 }
 
-function SidebarPanel({
-  panel,
-  snapshot,
-  project,
-  activeTopic,
-  selectedProjectId,
-  onChooseTopic,
-  onRefresh,
-}: {
-  panel: "topics" | "repo" | "memory" | "settings";
-  snapshot: Snapshot;
-  project: ProjectStatus | null;
-  activeTopic: TopicDetail | null;
-  selectedProjectId: string | null;
-  onChooseTopic: (topicId: string) => Promise<void>;
-  onRefresh: () => Promise<void>;
-}): ReactElement {
-  if (panel === "topics") {
-    return (
-      <section className="topic-list">
-        <div className="section-label">主题</div>
-        {!selectedProjectId ? <div className="empty-state sidebar-empty">先在项目区添加或选择项目。</div> : null}
-        {selectedProjectId && !project?.managed ? <div className="empty-state sidebar-empty">初始化 Harness 后显示主题。</div> : null}
-        {(snapshot.left.workpads ?? snapshot.left.topics.map((topic) => ({
-          id: topic.id,
-          title: topic.title,
-          state: topic.state,
-          runtimeStatus: topic.state === "archive" ? "archived" : topic.state === "parking" ? "queued" : "active",
-          userStatus: topic.state === "archive" ? "completed" : topic.state === "parking" ? "later" : "waiting-confirmation",
-          userStatusLabel: topic.state === "archive" ? "已完成" : topic.state === "parking" ? "稍后处理" : "等你确认",
-          selected: activeTopic?.id === topic.id,
-          waitingDecisionCount: 0,
-          blocker: undefined,
-        } satisfies WorkpadSummary))).map((workpad) => (
-          <button key={workpad.id} className={`topic-row ${activeTopic?.id === workpad.id ? "selected" : ""}`} onClick={() => void onChooseTopic(workpad.id)}>
-            <span>{userFacingText(workpad.title)}</span>
-            <small>{workpad.userStatusLabel ?? workpadStatusLabel(workpad.runtimeStatus)}{workpad.waitingDecisionCount > 0 ? ` · ${workpad.waitingDecisionCount} 个待确认` : ""}</small>
-            {workpad.blocker ? <em>{userFacingText(workpad.blocker)}</em> : null}
-          </button>
-        ))}
-      </section>
-    );
-  }
-  if (panel === "repo") {
-    return (
-      <section className="topic-list operational-panel">
-        <div className="section-label">仓库</div>
-        <InfoRow label="路径" value={snapshot.left.repo?.path ?? project?.path ?? "-"} />
-        <InfoRow label="Git" value={snapshot.left.repo?.git ? "已初始化" : project?.isGitRepo ? "已初始化" : "未检测到"} />
-        <InfoRow label="分支" value={snapshot.left.repo?.branch ?? "-"} />
-        <InfoRow label="工作区" value={snapshot.left.repo?.dirty ? "有未提交改动" : "干净或未知"} />
-        <InfoRow label="Runs" value={`${snapshot.center.agentLoop.runs.length}`} />
-      </section>
-    );
-  }
-  if (panel === "memory") {
-    return (
-      <section className="topic-list operational-panel">
-        <div className="section-label">记忆</div>
-        <InfoRow label="模式" value={snapshot.memory.memoryMode ?? "unknown"} />
-        <InfoRow label="Harness" value={snapshot.memory.harnessReady ? "就绪" : "未就绪"} />
-        <InfoRow label="Artifact" value={snapshot.memory.artifactBase ?? "-"} />
-        <InfoRow label="Gaps" value={`${snapshot.harnessGaps.length}`} />
-        {snapshot.harnessGaps.slice(0, 4).map((gap) => <p className="panel-note" key={gap.id}>{gap.summary}</p>)}
-      </section>
-    );
-  }
+type SidebarConversation = {
+  id: string;
+  title: string;
+  status: string;
+  selected: boolean;
+  waitingDecisionCount: number;
+  blocker?: string;
+};
+
+function conversationsForSidebar(snapshot: Snapshot | undefined, selectedTopicId: string | null): SidebarConversation[] {
+  if (!snapshot) return [];
+  return (snapshot.left.workpads ?? snapshot.left.topics.map((topic) => ({
+    id: topic.id,
+    title: topic.title,
+    state: topic.state,
+    runtimeStatus: topic.state === "archive" ? "archived" : topic.state === "parking" ? "queued" : "active",
+    userStatus: topic.state === "archive" ? "completed" : topic.state === "parking" ? "later" : "waiting-confirmation",
+    userStatusLabel: topic.state === "archive" ? "已完成" : topic.state === "parking" ? "稍后处理" : "等你确认",
+    selected: selectedTopicId === topic.id,
+    waitingDecisionCount: 0,
+    blocker: undefined,
+  } satisfies WorkpadSummary))).map((workpad) => ({
+    id: workpad.id,
+    title: workpad.title,
+    status: workpad.userStatusLabel ?? workpadStatusLabel(workpad.runtimeStatus),
+    selected: selectedTopicId === workpad.id || workpad.selected,
+    waitingDecisionCount: workpad.waitingDecisionCount,
+    blocker: workpad.blocker,
+  }));
+}
+
+function ProjectDetailsPanel({ project, snapshot, selected, onOpen, onRefresh }: { project: ProjectStatus; snapshot: Snapshot | undefined; selected: boolean; onOpen: () => void; onRefresh: () => void }): ReactElement {
   return (
-    <section className="topic-list operational-panel">
-      <div className="section-label">设置</div>
-      <InfoRow label="项目" value={project?.project?.name ?? "未选择"} />
-      <InfoRow label="状态" value={project?.managed ? "Harness 就绪" : "未初始化"} />
-      <InfoRow label="当前 Topic" value={activeTopic?.id ?? "-"} />
-      <button className="outline-button wide-button" onClick={() => void onRefresh()}><RefreshCw size={15} />刷新工作台</button>
-    </section>
+    <div className="project-details-panel">
+      <InfoRow label="仓库" value={snapshot?.left.repo?.branch ?? (project.isGitRepo ? "已初始化" : "未检测到")} />
+      <InfoRow label="记忆" value={snapshot?.memory.memoryMode ?? (project.managed ? "已配置" : "未初始化")} />
+      <InfoRow label="状态" value={project.managed ? "Harness 就绪" : "未初始化"} />
+      {!selected ? <button className="project-detail-action" onClick={onOpen}>{project.managed ? "打开项目" : "初始化 Harness"}</button> : null}
+      <button className="project-detail-action" onClick={onRefresh}>刷新项目</button>
+    </div>
   );
 }
 
