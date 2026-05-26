@@ -1,0 +1,32 @@
+[submodule "reference-projects/agent-orchestrator"]
+	path = reference-projects/agent-orchestrator
+	url = https://github.com/ComposioHQ/agent-orchestrator.git
+	ignore = all
+[submodule "reference-projects/oh-my-codex"]
+	path = reference-projects/oh-my-codex
+	url = https://github.com/sigridjineth/oh-my-codex.git
+	ignore = all
+[submodule "reference-projects/ecl-harness-engineer"]
+	path = reference-projects/ecl-harness-engineer
+	url = https://github.com/qinghui316/ecl-harness-engineer.git
+	ignore = all
+[submodule "reference-projects/openai-codex"]
+	path = reference-projects/openai-codex
+	url = https://github.com/openai/codex.git
+	ignore = all
+[submodule "reference-projects/agentscope-java"]
+	path = reference-projects/agentscope-java
+	url = https://github.com/agentscope-ai/agentscope-java.git
+	ignore = all
+[submodule "reference-projects/open-design"]
+	path = reference-projects/open-design
+	url = https://github.com/nexu-io/open-design.git
+	ignore = all
+[submodule "reference-projects/symphony"]
+	path = reference-projects/symphony
+	url = https://github.com/openai/symphony.git
+	ignore = all
+[submodule "reference-projects/openspec"]
+	path = reference-projects/openspec
+	url = https://github.com/Fission-AI/OpenSpec.git
+	ignore = all
