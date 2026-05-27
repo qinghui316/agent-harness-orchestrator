@@ -15,6 +15,7 @@ import { getWorkbenchSnapshot, getWorkbenchStream, getWorkbenchTopic, listWorkbe
 import { WorkbenchStore } from "../../src/workbench/store.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import { collectWorktreeDiff } from "../../src/audit/diff.js";
+import { completeAgentTask, createAgentTask, listAgentTasks, recordMaintenanceLedgerEntry, runMaintenanceCandidatePipeline } from "../../src/agent-task/manager.js";
 import { createWorktree } from "../../src/worktree/manager.js";
 import { listTaskQueueItems, listTaskQueues, reconcileTaskQueues, startOrResumeTaskQueue } from "../../src/task-queue/manager.js";
 import type { ManagedProject, RunMetadata, TaskQueueItem, TaskQueueRun, TaskRun, WorkerLease } from "../../src/types/index.js";
@@ -957,6 +958,67 @@ describe("workbench read model", () => {
     expect(snapshot.center.thread.items).toEqual(expect.arrayContaining([
       expect.objectContaining({ kind: "user-message", body: "继续修改实现并补测试。" }),
     ]));
+  });
+
+  it("persists AgentTaskRepository results and projects them into the role pipeline", async () => {
+    await initHarness(project());
+    await createChange(project(), { title: "Agent Task Demand" });
+    const memory = await resolveProjectMemory(project());
+
+    const task = await createAgentTask(memory, {
+      conversationId: "agent-task-demand",
+      changeId: "agent-task-demand",
+      roleId: "coder-agent",
+      kind: "foreground",
+      summary: "Implement the accepted demand.",
+      inputArtifacts: ["harness/changes/active/agent-task-demand/spec.md"],
+    });
+    await completeAgentTask(memory, task, {
+      status: "completed",
+      summary: "Coder returned a worktree proposal.",
+      artifactRefs: ["runs/run-agent-task/implementation.md"],
+      nextRecommendation: "Run validation.",
+    });
+
+    const tasks = await listAgentTasks(memory, "agent-task-demand");
+    const snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: "agent-task-demand" });
+
+    expect(tasks).toHaveLength(1);
+    expect(snapshot.center.workpad.rolePipeline?.agentTasks).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: task.id,
+        roleId: "coder-agent",
+        status: "completed",
+        resultSummary: "Coder returned a worktree proposal.",
+        evidenceRefs: ["runs/run-agent-task/implementation.md"],
+      }),
+    ]));
+  });
+
+  it("records background maintenance ledger entries and creates human-gated candidate reviews", async () => {
+    await initHarness(project());
+    const memory = await resolveProjectMemory(project());
+
+    await recordMaintenanceLedgerEntry(memory, {
+      eventType: "apply",
+      changeId: "maintenance-demand",
+      summary: "Applied demand created reusable documentation evidence.",
+      artifactRefs: ["harness/changes/archive/maintenance/summary.md"],
+    });
+    const result = await runMaintenanceCandidatePipeline(memory);
+    const snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir });
+
+    expect(result.status).toBe("reviewed");
+    expect(result.candidate).toMatchObject({
+      status: "candidate",
+      sourceLedgerEntryIds: expect.any(Array),
+    });
+    expect(result.score).toMatchObject({ confidence: expect.any(String) });
+    expect(result.review).toMatchObject({ recommendation: expect.stringMatching(/accept|defer|reject/) });
+    expect(snapshot.center.workpad.maintenance).toMatchObject({
+      ledgerCount: 1,
+      latest: expect.objectContaining({ eventType: "apply" }),
+    });
   });
 });
 

@@ -6,11 +6,13 @@ import { platform } from "node:os";
 import { extname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { applyResultToProject, applyWorktree, discardWorktree } from "../apply/manager.js";
+import { recordMaintenanceLedgerEntry, runMaintenanceCandidatePipeline } from "../agent-task/manager.js";
 import { acceptAudit } from "../audit/manager.js";
 import { abandonChange, closeChange } from "../change/manager.js";
 import { acceptPlanProposal, acceptSpecProposal } from "../change/proposals.js";
 import { resolveExistingDirectory } from "../fs/path.js";
 import { initHarness } from "../harness/init.js";
+import { resolveProjectMemory } from "../memory/resolver.js";
 import { getProjectStatus } from "../project/status.js";
 import { ProjectRegistryStore } from "../registry/store.js";
 import { acceptSpecTestProposal } from "../spec-test/proposal.js";
@@ -406,6 +408,7 @@ export async function executeWorkbenchAction(input: WorkbenchProjectInput, body:
       completedAt: new Date().toISOString(),
     });
     const result = await abandonChange(input.project, body.abandon.reason ?? body.feedback);
+    await recordPostDecisionMaintenance(input.project, changeId ?? result.change.id, "user-feedback", "Demand conversation was abandoned by the user.", [result.archivePath]);
     return { result, snapshot: await getWorkbenchSnapshot(input) };
   }
   if (body.actionType) {
@@ -433,9 +436,10 @@ export async function executeWorkbenchAction(input: WorkbenchProjectInput, body:
   }
   if (typeof body.feedback === "string" && body.feedback.trim()) {
     const context = body.feedbackContext ?? {};
+    const feedbackChangeId = context.changeId ?? (action ? inferChangeIdFromAction(action, null) : null);
     await recordWorkbenchDecision(input.project, {
       id: `feedback:${context.contextId ?? action?.actionId ?? "scoped"}:${action?.args.join(":") ?? context.targetId ?? "target"}:${Date.now()}`,
-      changeId: context.changeId ?? (action ? inferChangeIdFromAction(action, null) : null),
+      changeId: feedbackChangeId,
       decisionType: action?.actionId ?? "scoped.feedback",
       status: "requested-changes",
       label: `Requested changes: ${action?.label ?? "scoped feedback"}`,
@@ -447,6 +451,9 @@ export async function executeWorkbenchAction(input: WorkbenchProjectInput, body:
       feedback: body.feedback.trim(),
       payload: { action, feedback: body.feedback.trim(), context },
     });
+    if (feedbackChangeId) {
+      await recordPostDecisionMaintenance(input.project, feedbackChangeId, "user-feedback", body.feedback.trim(), []);
+    }
     return { result: { status: "requested-changes" }, snapshot: await getWorkbenchSnapshot(input) };
   }
   if (!action) {
@@ -493,11 +500,33 @@ export async function executeWorkbenchAction(input: WorkbenchProjectInput, body:
         payload: result,
         completedAt: new Date().toISOString(),
       });
+      await recordPostDecisionMaintenance(input.project, finalized.change.id, "apply", "Applied source change was accepted and the demand conversation was archived.", [finalized.archivePath]);
     } catch (cause) {
       result = { result, finalization: { status: "not-archived", error: cause instanceof Error ? cause.message : String(cause) } };
     }
   }
   return { result, snapshot: await getWorkbenchSnapshot(input) };
+}
+
+async function recordPostDecisionMaintenance(
+  project: ManagedProject,
+  changeId: string,
+  eventType: "archive" | "apply" | "failure" | "user-feedback" | "doc-drift" | "reference-drift" | "harness-evolution",
+  summary: string,
+  artifactRefs: string[],
+): Promise<void> {
+  try {
+    const memory = await resolveProjectMemory(project);
+    await recordMaintenanceLedgerEntry(memory, {
+      eventType,
+      changeId,
+      summary,
+      artifactRefs,
+    });
+    await runMaintenanceCandidatePipeline(memory);
+  } catch {
+    // Maintenance suggestions are advisory; action results must not depend on them.
+  }
 }
 
 async function handleIntakeScan(input: WorkbenchProjectInput & { project: ManagedProject }, body: IntakeRequest): Promise<{ result: unknown; snapshot: unknown }> {

@@ -575,6 +575,93 @@ export interface RunMetadata {
 
 export type TaskRunStatus = "queued" | "claimed" | "running" | "evidence-ready" | "blocked" | "failed" | "completed";
 
+export type AgentTaskKind = "foreground" | "background";
+export type AgentTaskStatus = "queued" | "running" | "completed" | "failed" | "needs-user-input" | "cancelled";
+export type AgentTaskCreatedBy = "main-agent-policy" | "maintenance-policy" | "system";
+
+export interface AgentTask {
+  version: "1.0";
+  id: string;
+  projectId: string | null;
+  conversationId: string;
+  changeId: string;
+  roleId: string;
+  kind: AgentTaskKind;
+  status: AgentTaskStatus;
+  inputArtifacts: string[];
+  outputArtifacts: string[];
+  parentTaskId?: string;
+  createdBy: AgentTaskCreatedBy;
+  summary: string;
+  createdAt: string;
+  updatedAt: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+}
+
+export interface AgentTaskResult {
+  version: "1.0";
+  taskId: string;
+  roleId: string;
+  status: AgentTaskStatus;
+  summary: string;
+  artifactRefs: string[];
+  nextRecommendation?: string;
+  failureClassification?: string;
+  requiresUserInputReason?: string;
+  createdAt: string;
+}
+
+export type MaintenanceLedgerEventType =
+  | "archive"
+  | "apply"
+  | "failure"
+  | "user-feedback"
+  | "doc-drift"
+  | "reference-drift"
+  | "harness-evolution";
+
+export interface MaintenanceLedgerEntry {
+  version: "1.0";
+  id: string;
+  projectId: string | null;
+  changeId?: string;
+  eventType: MaintenanceLedgerEventType;
+  summary: string;
+  artifactRefs: string[];
+  createdAt: string;
+}
+
+export interface EvolutionCandidate {
+  version: "1.0";
+  id: string;
+  sourceLedgerEntryIds: string[];
+  title: string;
+  summary: string;
+  artifactRefs: string[];
+  status: "candidate";
+  createdAt: string;
+}
+
+export interface CandidateScore {
+  version: "1.0";
+  candidateId: string;
+  score: number;
+  rationale: string;
+  risks: string[];
+  confidence: "low" | "medium" | "high";
+  createdAt: string;
+}
+
+export interface CandidateReview {
+  version: "1.0";
+  candidateId: string;
+  recommendation: "accept" | "defer" | "reject";
+  summary: string;
+  evidenceRefs: string[];
+  createdAt: string;
+}
+
 export interface TaskRun {
   version: "1.0";
   id: string;

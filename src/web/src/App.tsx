@@ -213,6 +213,19 @@ type Workpad = {
     stage: "planning" | "coding" | "validation" | "audit" | "rework" | "done" | "needs-user-input";
     status: "draft" | "running" | "completed" | "needs-user-input" | "stopped";
     runs: Array<{ roleId: string; status: string; runId?: string; summary: string; artifact?: string }>;
+    agentTasks: Array<{
+      id: string;
+      roleId: string;
+      kind: "foreground" | "background";
+      status: string;
+      changeId?: string;
+      runId?: string;
+      summary: string;
+      resultSummary?: string;
+      evidenceRefs: string[];
+      createdAt: string;
+      completedAt?: string;
+    }>;
     reworkUsed: number;
     reworkBudget: number;
   };
@@ -227,6 +240,12 @@ type Workpad = {
     audit?: { id: string; status: string; runId: string; findingCount: number; notes: string[]; artifact?: string };
     applyReadiness: { ready: boolean; label: string; blockingIssues: string[]; warnings: string[] };
     evidence: Array<{ id: string; label: string; source: string; status?: string; artifact?: string; timestamp?: string }>;
+  };
+  maintenance?: {
+    ledgerCount: number;
+    latest?: { id: string; eventType: string; changeId?: string; summary: string; severity: string; createdAt: string };
+    status: "idle" | "collecting";
+    note: string;
   };
   runControlState?: { canStop: boolean; stopActionType?: ThreadStreamAction["actionType"]; pendingFeedbackCount: number; explanation: string };
   intake: {
@@ -2007,6 +2026,13 @@ function WorkpadView({
                 {run.artifact ? <small className="artifact-link">查看证据：{artifactName(run.artifact)}</small> : null}
               </div>
             ))}
+            {workpad.rolePipeline.agentTasks.slice(-6).map((task) => (
+              <div className="workpad-evidence" key={task.id}>
+                <strong>{roleLabel(task.roleId)} 任务 · {humanStatus(task.status)}</strong>
+                <span>{userFacingText(task.resultSummary ?? task.summary)}</span>
+                {task.evidenceRefs[0] ? <small className="artifact-link">查看证据：{artifactName(task.evidenceRefs[0])}</small> : null}
+              </div>
+            ))}
           </div>
         </section>
       ) : null}
@@ -2054,6 +2080,22 @@ function WorkpadView({
               <span key={item.id}>{userFacingText(item.title)} · {item.userStatusLabel ?? workpadStatusLabel(item.runtimeStatus)}</span>
             ))}
           </div>
+        </section>
+      ) : null}
+
+      {workpad.maintenance ? (
+        <section className="workpad-section compact-section" data-testid="maintenance-summary">
+          <div className="workpad-section-header">
+            <h3>后台维护</h3>
+            <span>{workpad.maintenance.ledgerCount}</span>
+          </div>
+          <p>{userFacingText(workpad.maintenance.note)}</p>
+          {workpad.maintenance.latest ? (
+            <div className="workpad-evidence">
+              <strong>{userFacingText(workpad.maintenance.latest.eventType)}</strong>
+              <span>{userFacingText(workpad.maintenance.latest.summary)}</span>
+            </div>
+          ) : null}
         </section>
       ) : null}
 

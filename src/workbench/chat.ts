@@ -3,6 +3,12 @@ import { appendFile, mkdir, readFile, readdir, writeFile } from "node:fs/promise
 import { join, relative } from "node:path";
 import { z } from "zod";
 import { startAuditRun } from "../audit/manager.js";
+import {
+  completeAgentTask,
+  createAgentTask,
+  recordMainAgentDecision,
+  recordMaintenanceLedgerEntry,
+} from "../agent-task/manager.js";
 import { startCodeRun } from "../code/manager.js";
 import { buildCodexReadonlyArgv, buildCodexReadonlyResumeArgv, detectCodexCapabilities } from "../codex/capabilities.js";
 import { detectCodexAppServerCapability, getActiveCodexAppServerTurn, runCodexAppServerTurn, type CodexAppServerNotification } from "../codex/app-server.js";
@@ -758,7 +764,7 @@ async function executeWorkflowAction(project: ManagedProject, changeId: string, 
     case "conversation.continue":
       return runRolePipelineSequence(project, changeId, request.prompt, live, true);
     case "code.run":
-      return runCodeValidateAuditSequence(project, request.prompt, live, request.taskIds);
+      return runCodeValidateAuditSequence(project, changeId, request.prompt, live, request.taskIds);
     case "task.run.start":
       return runTaskRunCodeValidateAuditSequence(project, changeId, request, live, "start");
     case "task.run.retry":
@@ -789,6 +795,27 @@ async function generatePlanningDraft(
 ): Promise<{ bundle: PlanningArtifactBundle }> {
   const { memory, changePath } = await resolveTopic(project, changeId);
   assertWritableMemory(memory, "Planning draft");
+  const task = await createAgentTask(memory, {
+    conversationId: changeId,
+    changeId,
+    roleId: "planning-agent",
+    kind: "foreground",
+    summary: revision ? "Revise planning artifact bundle from user feedback." : "Generate planning artifact bundle from the demand conversation.",
+    inputArtifacts: [changePath],
+  });
+  await recordMainAgentDecision(memory, {
+    changeId,
+    recommendedAction: revision ? "planning.revise" : "planning.generate",
+    userMessage: revision ? "修改方案草案" : "生成方案草案",
+    requiresUserDecision: false,
+    createTask: {
+      roleId: "planning-agent",
+      kind: "foreground",
+      summary: task.summary,
+      inputArtifacts: task.inputArtifacts,
+    },
+    reason: "The current demand needs a user-reviewable planning draft before canonical artifacts are written.",
+  });
   const role = await resolveAgentRole(memory, "planning-agent");
   const thread = await readThreadLog(memory, changePath);
   const latestUserText = prompt?.trim()
@@ -877,6 +904,12 @@ async function generatePlanningDraft(
     payload: { role: buildRunAgentRecord(role), bundle },
     completedAt: new Date().toISOString(),
   });
+  await completeAgentTask(memory, task, {
+    status: "completed",
+    summary: revision ? "Planning draft revised for user review." : "Planning draft generated for user review.",
+    artifactRefs: [bundle.artifact, ...(planningRuntime?.run.artifacts.lastMessage ? [planningRuntime.run.artifacts.lastMessage] : [])],
+    nextRecommendation: "Ask the user to confirm execution or request changes.",
+  });
   return { bundle };
 }
 
@@ -906,6 +939,19 @@ async function confirmPlanningAndStartPipeline(
   await writeJsonFile(join(changeDir, "ac-map.json"), acMap);
   const confirmed = { ...bundle, status: "confirmed" as const, acMapCandidate: acMap, updatedAt: new Date().toISOString() };
   await writePlanningBundle(memory, changePath, confirmed);
+  await recordMainAgentDecision(memory, {
+    changeId,
+    recommendedAction: "planning.confirm-execution",
+    userMessage: "确认执行",
+    requiresUserDecision: false,
+    createTask: {
+      roleId: "coder-agent",
+      kind: "foreground",
+      summary: "Start implementation from confirmed planning artifacts.",
+      inputArtifacts: [confirmed.artifact],
+    },
+    reason: "The user confirmed the planning artifact bundle; implementation can start in an AHO-owned worktree.",
+  });
   await appendTopicThreadEntry(project, changeId, {
     type: "assistant.message",
     status: "planning-confirmed",
@@ -937,7 +983,7 @@ async function runRolePipelineSequence(
     title: continuation ? "Role pipeline continued" : "Role pipeline started",
     summary: "AHO is running coder-agent, validator, and auditor in sequence.",
   });
-  const first = await runCodeValidateAuditSequence(project, prompt, live);
+  const first = await runCodeValidateAuditSequence(project, changeId, prompt, live);
   const stoppedAt = isRecord(first) && typeof first.stoppedAt === "string" ? first.stoppedAt : null;
   if (!stoppedAt) return { status: "completed", attempts: [{ kind: "initial", result: first }], reworkUsed: 0 };
   if (stoppedAt === "code") return { status: "failed", attempts: [{ kind: "initial", result: first }], reworkUsed: 0, requiresUserInput: true };
@@ -955,7 +1001,7 @@ async function runRolePipelineSequence(
     "Do not change canonical planning artifacts.",
     prompt ?? "",
   ].join("\n\n");
-  const second = await runCodeValidateAuditSequence(project, reworkPrompt, live);
+  const second = await runCodeValidateAuditSequence(project, changeId, reworkPrompt, live, undefined, undefined, "rework-coder");
   const secondStoppedAt = isRecord(second) && typeof second.stoppedAt === "string" ? second.stoppedAt : null;
   return {
     status: secondStoppedAt ? "needs-user-input" : "completed",
@@ -1290,7 +1336,7 @@ async function executeStartedTaskRunWorkflow(
       title: "TaskRun running",
       summary: `${started.taskRun.taskId} attempt ${started.taskRun.attempt} started the Coder -> Validation -> Audit workflow.`,
     });
-    const workflow = await runCodeValidateAuditSequence(project, prompt, live, [started.taskRun.taskId], started.taskRun.id);
+    const workflow = await runCodeValidateAuditSequence(project, started.taskRun.changeId, prompt, live, [started.taskRun.taskId], started.taskRun.id);
     const taskRun = await finishTaskRunFromWorkflowResult(memory, started.taskRun.id, workflow);
     if (shouldAutoReworkTaskRun(taskRun)) {
       emitAssistantEvent(live, {
@@ -1428,7 +1474,39 @@ function requireTaskRunId(taskRunId: string | undefined): string {
   throw new Error("task.run.retry requires taskRunId.");
 }
 
-async function runCodeValidateAuditSequence(project: ManagedProject, prompt?: string, live?: WorkbenchLiveSink, taskIds?: string[], taskRunId?: string): Promise<unknown> {
+async function runCodeValidateAuditSequence(
+  project: ManagedProject,
+  changeId: string,
+  prompt?: string,
+  live?: WorkbenchLiveSink,
+  taskIds?: string[],
+  taskRunId?: string,
+  coderRoleId = "coder-agent",
+): Promise<unknown> {
+  const memory = await resolveProjectMemory(project);
+  const coderTask = await createAgentTask(memory, {
+    conversationId: changeId,
+    changeId,
+    roleId: coderRoleId,
+    kind: "foreground",
+    summary: coderRoleId === "rework-coder" ? "Repair implementation from validation or audit evidence." : "Implement the confirmed demand in an AHO-owned worktree.",
+    inputArtifacts: taskRunId ? [taskRunId] : [],
+  });
+  await recordMainAgentDecision(memory, {
+    changeId,
+    recommendedAction: coderRoleId === "rework-coder" ? "rework-coder" : "coder-agent",
+    userMessage: coderRoleId === "rework-coder" ? "自动修改未通过结果" : "开始实现",
+    requiresUserDecision: false,
+    createTask: {
+      roleId: coderRoleId,
+      kind: "foreground",
+      summary: coderTask.summary,
+      inputArtifacts: coderTask.inputArtifacts,
+    },
+    reason: coderRoleId === "rework-coder"
+      ? "Official validation or audit evidence requires bounded automatic rework."
+      : "The demand has confirmed planning artifacts and can move to implementation.",
+  });
   live?.emit({ event: "run.status", data: { status: "running", label: "Coder" } });
   let coderStartedEmitted = false;
   const code = await startCodeRun(project, {
@@ -1447,7 +1525,36 @@ async function runCodeValidateAuditSequence(project: ManagedProject, prompt?: st
   });
   if (!coderStartedEmitted) live?.emit({ event: "run.started", data: { runId: code.run.id, changeId: code.run.changeId, runtime: code.run.runtime, actionType: "code.run", taskIds: code.run.taskIds } });
   live?.emit({ event: "run.status", data: { runId: code.run.id, status: code.run.status, label: "Coder" } });
-  if (code.run.status !== "completed" || !code.run.worktree?.worktreeId) return { code, stoppedAt: "code" };
+  if (code.run.status !== "completed" || !code.run.worktree?.worktreeId) {
+    await completeAgentTask(memory, coderTask, {
+      status: "failed",
+      summary: "Coder did not produce a completed worktree proposal.",
+      artifactRefs: [code.run.artifacts.directory],
+      failureClassification: "code-failure",
+      requiresUserInputReason: "Implementation failed before official validation could run.",
+    });
+    await recordMaintenanceLedgerEntry(memory, {
+      eventType: "failure",
+      changeId,
+      summary: "Coder task failed before validation.",
+      artifactRefs: [code.run.artifacts.directory],
+    });
+    return { code, stoppedAt: "code" };
+  }
+  await completeAgentTask(memory, coderTask, {
+    status: "completed",
+    summary: "Coder produced a completed worktree proposal.",
+    artifactRefs: compactArtifactRefs(code.run.artifacts.directory, code.run.artifacts.implementation),
+    nextRecommendation: "Run independent validation.",
+  });
+  const validatorTask = await createAgentTask(memory, {
+    conversationId: changeId,
+    changeId,
+    roleId: "validator",
+    kind: "foreground",
+    summary: "Run independent mechanical validation for the coder worktree.",
+    inputArtifacts: [code.run.artifacts.directory],
+  });
   live?.emit({ event: "run.status", data: { runId: code.run.id, status: "running", label: "Validation" } });
   live?.emit({ event: "tool.event", data: { runId: code.run.id, phase: "status", name: "Validation", status: "running" } });
   emitAssistantEvent(live, { runId: code.run.id, kind: "status", phase: "running", title: "Validation running", summary: "AHO started validation for the coder worktree." });
@@ -1455,7 +1562,36 @@ async function runCodeValidateAuditSequence(project: ManagedProject, prompt?: st
   live?.emit({ event: "run.status", data: { runId: code.run.id, status: validation.validation.status, label: "Validation" } });
   live?.emit({ event: "tool.event", data: { runId: code.run.id, phase: "status", name: "Validation", status: validation.validation.status } });
   emitValidationAssistantEvents(live, code.run.id, validation);
-  if (validation.validation.status !== "passed") return { code, validation, stoppedAt: "validation" };
+  if (validation.validation.status !== "passed") {
+    await completeAgentTask(memory, validatorTask, {
+      status: "failed",
+      summary: "Independent validation failed.",
+      artifactRefs: compactArtifactRefs(validation.run.artifacts.validation, validation.run.artifacts.stdout, validation.run.artifacts.stderr),
+      failureClassification: "validation-failure",
+      requiresUserInputReason: "Validation failed; bounded automatic rework may be attempted.",
+    });
+    await recordMaintenanceLedgerEntry(memory, {
+      eventType: "failure",
+      changeId,
+      summary: "Validation failed for a foreground role pipeline attempt.",
+      artifactRefs: compactArtifactRefs(validation.run.artifacts.validation, validation.run.artifacts.stderr),
+    });
+    return { code, validation, stoppedAt: "validation" };
+  }
+  await completeAgentTask(memory, validatorTask, {
+    status: "completed",
+    summary: "Independent validation passed.",
+    artifactRefs: compactArtifactRefs(validation.run.artifacts.validation, validation.run.artifacts.stdout),
+    nextRecommendation: "Run semantic audit.",
+  });
+  const auditorTask = await createAgentTask(memory, {
+    conversationId: changeId,
+    changeId,
+    roleId: "auditor-agent",
+    kind: "foreground",
+    summary: "Run independent semantic audit for the validated worktree.",
+    inputArtifacts: compactArtifactRefs(validation.run.artifacts.validation, validation.run.artifacts.stdout),
+  });
   live?.emit({ event: "run.status", data: { runId: code.run.id, status: "running", label: "Audit" } });
   live?.emit({ event: "tool.event", data: { runId: code.run.id, phase: "status", name: "Audit", status: "running" } });
   emitAssistantEvent(live, { runId: code.run.id, kind: "status", phase: "running", title: "Audit running", summary: "AHO started audit after validation passed." });
@@ -1466,6 +1602,23 @@ async function runCodeValidateAuditSequence(project: ManagedProject, prompt?: st
   live?.emit({ event: "run.status", data: { runId: code.run.id, status: audit.audit.status, label: "Audit" } });
   live?.emit({ event: "tool.event", data: { runId: code.run.id, phase: "status", name: "Audit", status: audit.audit.status } });
   emitAuditAssistantEvent(live, code.run.id, audit);
+  await completeAgentTask(memory, auditorTask, {
+    status: audit.audit.status === "approved" || audit.audit.status === "approved-with-notes" ? "completed" : "failed",
+    summary: audit.audit.status === "approved" || audit.audit.status === "approved-with-notes"
+      ? "Independent audit accepted the validated worktree evidence."
+      : "Independent audit did not accept the worktree evidence.",
+    artifactRefs: compactArtifactRefs(audit.audit.artifacts.audit, audit.audit.artifacts.auditMarkdown, audit.audit.artifacts.lastMessage),
+    nextRecommendation: audit.audit.status === "approved" || audit.audit.status === "approved-with-notes" ? "Show result review and apply handoff." : "Attempt bounded automatic rework if budget remains.",
+    ...(audit.audit.status === "approved" || audit.audit.status === "approved-with-notes" ? {} : { failureClassification: "audit-failure", requiresUserInputReason: "Audit did not accept the current evidence." }),
+  });
+  if (!(audit.audit.status === "approved" || audit.audit.status === "approved-with-notes")) {
+    await recordMaintenanceLedgerEntry(memory, {
+      eventType: "failure",
+      changeId,
+      summary: "Audit did not accept foreground role pipeline evidence.",
+      artifactRefs: compactArtifactRefs(audit.audit.artifacts.auditMarkdown),
+    });
+  }
   return { code, validation, audit, stoppedAt: audit.audit.status === "approved" || audit.audit.status === "approved-with-notes" ? null : "audit" };
 }
 
@@ -1616,6 +1769,10 @@ async function runCodexChat(project: ManagedProject, changeId: string, userMessa
   await appendRunEvent(paths.events, { timestamp: run.finishedAt ?? new Date().toISOString(), type: status === "completed" ? "run.completed" : "run.failed", runId });
   live?.emit({ event: "run.status", data: { runId, status } });
   return { run, message: lastMessage.trim() || processResult.stderrSample || "Codex did not return a final message.", codexSessionId: nextSessionId };
+}
+
+function compactArtifactRefs(...refs: Array<string | undefined | null>): string[] {
+  return refs.filter((ref): ref is string => typeof ref === "string" && ref.trim().length > 0);
 }
 
 function createLiveCodexParser(runId: string, live: WorkbenchLiveSink | undefined): ReturnType<typeof createCodexJsonlStreamParser> {

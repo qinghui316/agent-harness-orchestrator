@@ -3,6 +3,7 @@ import { open, readFile, readdir, stat } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
 import { z } from "zod";
 import { canApplyResultFromGate, previewWorktreeApply, type WorktreeGateState } from "../apply/manager.js";
+import { listAgentTasks, listMaintenanceLedgerEntries, readAgentTaskResult } from "../agent-task/manager.js";
 import { listAuditResults, summarizeAudit } from "../audit/artifacts.js";
 import { listPlanProposalSummaries, listSpecProposalSummaries } from "../change/proposals.js";
 import { getChangeStatus } from "../change/manager.js";
@@ -42,6 +43,8 @@ import type {
   ValidationSummary,
   WorkerLease,
   WorktreeStatus,
+  AgentTask,
+  MaintenanceLedgerEntry,
 } from "../types/index.js";
 
 export type WorkbenchTopicState = "active" | "parking" | "archive";
@@ -479,6 +482,7 @@ export interface WorkbenchWorkpad {
   planningArtifactBundle?: WorkbenchPlanningArtifactBundle;
   rolePipeline?: WorkbenchRolePipelineSummary;
   resultReview?: WorkbenchResultReview;
+  maintenance?: WorkbenchMaintenanceSummary;
   runControlState?: WorkbenchRunControlState;
   intake: WorkpadIntakeSummary;
   progress: WorkpadProgress;
@@ -519,10 +523,39 @@ export interface WorkbenchRoleRunSummary {
   artifact?: string;
 }
 
+export interface WorkbenchAgentTaskSummary {
+  id: string;
+  roleId: string;
+  kind: "foreground" | "background";
+  status: string;
+  changeId?: string;
+  runId?: string;
+  summary: string;
+  resultSummary?: string;
+  evidenceRefs: string[];
+  createdAt: string;
+  completedAt?: string;
+}
+
+export interface WorkbenchMaintenanceSummary {
+  ledgerCount: number;
+  latest?: {
+    id: string;
+    eventType: string;
+    changeId?: string;
+    summary: string;
+    severity: string;
+    createdAt: string;
+  };
+  status: "idle" | "collecting";
+  note: string;
+}
+
 export interface WorkbenchRolePipelineSummary {
   stage: "planning" | "coding" | "validation" | "audit" | "rework" | "done" | "needs-user-input";
   status: "draft" | "running" | "completed" | "needs-user-input" | "stopped";
   runs: WorkbenchRoleRunSummary[];
+  agentTasks: WorkbenchAgentTaskSummary[];
   reworkUsed: number;
   reworkBudget: number;
 }
@@ -965,6 +998,7 @@ async function buildWorkbenchWorkpad(input: {
       },
       background: buildWorkpadBackground(workpads, undefined),
       memoryIsolation: buildWorkpadMemoryIsolation(memory, null, workpads),
+      maintenance: await buildMaintenanceSummary(memory),
     };
   }
 
@@ -983,8 +1017,10 @@ async function buildWorkbenchWorkpad(input: {
   const taskGraph = buildTaskGraph(selectedTopic, { specReady, planReady, tasksReady }, taskQueue);
   const codingPackages = buildCodingPackages(selectedTopic, taskGraph);
   const planningBundle = await readLatestPlanningBundleProjection(memory, selectedTopic.path);
-  const rolePipeline = buildRolePipelineSummary(selectedTopic, planningBundle);
+  const agentTasks = await buildAgentTaskSummaries(memory, selectedTopic.id);
+  const rolePipeline = buildRolePipelineSummary(selectedTopic, planningBundle, agentTasks);
   const resultReview = await buildResultReview(project, memory, selectedTopic);
+  const maintenance = await buildMaintenanceSummary(memory);
   const runningRun = selectedTopic.runs.find((run) => run.status === "created" || run.status === "running");
 
   return {
@@ -1011,6 +1047,7 @@ async function buildWorkbenchWorkpad(input: {
     planningArtifactBundle: planningBundle ?? undefined,
     rolePipeline,
     resultReview,
+    maintenance,
     runControlState: {
       canStop: Boolean(runningRun),
       stopActionType: runningRun ? "conversation.interrupt" : undefined,
@@ -1157,11 +1194,15 @@ async function readLatestPlanningBundleProjection(memory: ResolvedMemory, change
   return parsed.data;
 }
 
-function buildRolePipelineSummary(topic: WorkbenchTopicDetail, planningBundle: WorkbenchPlanningArtifactBundle | null): WorkbenchRolePipelineSummary | undefined {
+function buildRolePipelineSummary(
+  topic: WorkbenchTopicDetail,
+  planningBundle: WorkbenchPlanningArtifactBundle | null,
+  agentTasks: WorkbenchAgentTaskSummary[],
+): WorkbenchRolePipelineSummary | undefined {
   const coderRuns = topic.runs.filter((run) => run.runtime === "coder-codex");
   const validationRuns = topic.validations as ValidationSummary[];
   const auditRuns = topic.audits as AuditSummary[];
-  if (!planningBundle && coderRuns.length === 0 && validationRuns.length === 0 && auditRuns.length === 0) return undefined;
+  if (!planningBundle && coderRuns.length === 0 && validationRuns.length === 0 && auditRuns.length === 0 && agentTasks.length === 0) return undefined;
   const latestCoder = [...coderRuns].sort((a, b) => (b.finishedAt ?? b.startedAt ?? "").localeCompare(a.finishedAt ?? a.startedAt ?? ""))[0];
   const latestValidation = [...validationRuns].sort((a, b) => (b.finishedAt ?? "").localeCompare(a.finishedAt ?? ""))[0];
   const latestAudit = [...auditRuns].sort((a, b) => (b.finishedAt ?? "").localeCompare(a.finishedAt ?? ""))[0];
@@ -1180,7 +1221,53 @@ function buildRolePipelineSummary(topic: WorkbenchTopicDetail, planningBundle: W
   const status: WorkbenchRolePipelineSummary["status"] = topic.runs.some((run) => run.status === "created" || run.status === "running")
     ? "running"
     : stage === "needs-user-input" ? "needs-user-input" : stage === "done" ? "completed" : planningBundle?.status === "confirmed" ? "completed" : "draft";
-  return { stage, status, runs, reworkUsed: 0, reworkBudget: OFFICIAL_REWORK_BUDGET };
+  return { stage, status, runs, agentTasks, reworkUsed: 0, reworkBudget: OFFICIAL_REWORK_BUDGET };
+}
+
+async function buildAgentTaskSummaries(memory: ResolvedMemory, changeId: string): Promise<WorkbenchAgentTaskSummary[]> {
+  const tasks = await listAgentTasks(memory, changeId).catch(() => []);
+  return Promise.all(tasks.slice(-12).map(async (task) => agentTaskToSummary(memory, task)));
+}
+
+async function agentTaskToSummary(memory: ResolvedMemory, task: AgentTask): Promise<WorkbenchAgentTaskSummary> {
+  const result = await readAgentTaskResult(memory, task.id).catch(() => null);
+  return {
+    id: task.id,
+    roleId: task.roleId,
+    kind: task.kind,
+    status: task.status,
+    changeId: task.changeId,
+    runId: result?.artifactRefs.find((ref) => ref.includes("/runs/") || ref.startsWith("runs/")),
+    summary: task.summary,
+    resultSummary: result?.summary,
+    evidenceRefs: result?.artifactRefs ?? task.outputArtifacts ?? task.inputArtifacts,
+    createdAt: task.createdAt,
+    completedAt: task.finishedAt ?? undefined,
+  };
+}
+
+async function buildMaintenanceSummary(memory: ResolvedMemory): Promise<WorkbenchMaintenanceSummary> {
+  const entries = await listMaintenanceLedgerEntries(memory).catch(() => []);
+  const latest = latestMaintenanceEntry(entries);
+  return {
+    ledgerCount: entries.length,
+    latest: latest ? {
+      id: latest.id,
+      eventType: latest.eventType,
+      changeId: latest.changeId,
+      summary: latest.summary,
+      severity: "info",
+      createdAt: latest.createdAt,
+    } : undefined,
+    status: entries.length > 0 ? "collecting" : "idle",
+    note: entries.length > 0
+      ? "后台维护候选会先进入证据账本和评分/审查，不能直接修改项目文档或稳定记忆。"
+      : "尚无后台维护证据。归档、应用、失败和用户反馈会自动进入维护证据账本。",
+  };
+}
+
+function latestMaintenanceEntry(entries: MaintenanceLedgerEntry[]): MaintenanceLedgerEntry | undefined {
+  return [...entries].sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
 }
 
 async function buildResultReview(project: ManagedProject | null, memory: ResolvedMemory, topic: WorkbenchTopicDetail): Promise<WorkbenchResultReview | undefined> {
