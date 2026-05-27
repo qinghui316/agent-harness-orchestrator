@@ -3,6 +3,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { getChangeStatus } from "../change/manager.js";
 import { collectWorktreeDiff } from "../audit/diff.js";
+import { acceptAudit } from "../audit/manager.js";
 import { listAuditResults } from "../audit/artifacts.js";
 import { writeJsonFile } from "../fs/json.js";
 import { assertWritableMemory, resolveProjectMemory } from "../memory/resolver.js";
@@ -53,6 +54,13 @@ export interface WorktreeApplyResult {
   };
 }
 
+export interface WorktreeResultApplyResult extends WorktreeApplyResult {
+  auditAccepted?: {
+    auditId: string;
+    reviewPath: string;
+  };
+}
+
 export interface WorktreeDiscardResult {
   run: RunMetadata;
   discard: {
@@ -67,6 +75,34 @@ export async function previewWorktreeApply(project: ManagedProject, worktreeId: 
   const memory = await resolveProjectMemory(project);
   assertWritableMemory(memory, "Worktree preview");
   return { gate: await evaluateApplyGate(project, memory, worktreeId) };
+}
+
+export function canAutoAcceptAuditForApply(gate: WorktreeGateState): boolean {
+  if (!gate.audit || (gate.audit.status !== "approved" && gate.audit.status !== "approved-with-notes")) return false;
+  if (!gate.validation || gate.validation.status !== "passed") return false;
+  const autoAcceptableIssues = gate.blockingIssues.filter((issue) => {
+    return issue.includes("reviews/review.md does not reference an accepted Audit ID")
+      || /^reviews\/review\.md accepts audit .+ not latest matching audit .+\.$/.test(issue);
+  });
+  return gate.blockingIssues.length > 0 && autoAcceptableIssues.length === gate.blockingIssues.length;
+}
+
+export function canApplyResultFromGate(gate: WorktreeGateState): boolean {
+  return gate.ready || canAutoAcceptAuditForApply(gate);
+}
+
+export async function applyResultToProject(project: ManagedProject, worktreeId: string, options: WorktreeApplyOptions = {}): Promise<WorktreeResultApplyResult> {
+  const preview = await previewWorktreeApply(project, worktreeId);
+  let auditAccepted: WorktreeResultApplyResult["auditAccepted"];
+  if (!preview.gate.ready && canAutoAcceptAuditForApply(preview.gate) && preview.gate.audit) {
+    const accepted = await acceptAudit(project, preview.gate.audit.id);
+    auditAccepted = {
+      auditId: accepted.audit.id,
+      reviewPath: accepted.reviewPath,
+    };
+  }
+  const applied = await applyWorktree(project, worktreeId, options);
+  return auditAccepted ? { ...applied, auditAccepted } : applied;
 }
 
 export async function applyWorktree(project: ManagedProject, worktreeId: string, options: WorktreeApplyOptions = {}): Promise<WorktreeApplyResult> {

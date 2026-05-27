@@ -93,6 +93,28 @@ const snapshot = {
         { id: "validation:run-1", source: "validation", label: "Validation passed", status: "passed" },
         { id: "audit:run-1", source: "audit", label: "Audit approved-with-notes", status: "approved-with-notes" },
       ],
+      resultReview: {
+        status: "ready-to-apply",
+        title: "结果可应用到项目",
+        summary: "已生成本地结果，验证通过，审查带备注批准。",
+        worktreeId: "wt-1",
+        changedFiles: ["src/pricing.ts", "tests/pricing.test.ts"],
+        diffStat: " src/pricing.ts | 8 ++++++++\n tests/pricing.test.ts | 12 ++++++++++++",
+        validation: { id: "validation-1", status: "passed", runId: "validation-1" },
+        audit: {
+          id: "audit-1",
+          status: "approved-with-notes",
+          runId: "audit-1",
+          findingCount: 1,
+          notes: ["边界金额建议人工复核。"],
+          artifact: "harness/runs/audit-1/audit.md",
+        },
+        applyReadiness: { ready: true, label: "可以应用到项目", blockingIssues: [], warnings: [] },
+        evidence: [
+          { id: "validation:validation-1", label: "验证：passed", status: "passed", runId: "validation-1" },
+          { id: "audit:audit-1", label: "审查：approved-with-notes", status: "approved-with-notes", runId: "audit-1" },
+        ],
+      },
       blockers: [],
       warnings: [],
       nextAction: {
@@ -283,6 +305,10 @@ describe("Workbench web app", () => {
     expect(screen.queryByText("并行执行")).toBeNull();
     expect(screen.getByText("任务清单")).toBeTruthy();
     expect(screen.getByText("证据与决策")).toBeTruthy();
+    expect(screen.getByTestId("result-review-card")).toBeTruthy();
+    expect(screen.getByText("结果可应用到项目")).toBeTruthy();
+    expect(screen.getByText("src/pricing.ts")).toBeTruthy();
+    expect(screen.getByText(/边界金额建议人工复核/)).toBeTruthy();
     expect(screen.getAllByText("关闭已完成变更。").length).toBeGreaterThan(0);
     expect(screen.getByLabelText("在 Repo 中开始新对话")).toBeTruthy();
     expect(screen.getByLabelText("搜索已加载对话")).toBeTruthy();

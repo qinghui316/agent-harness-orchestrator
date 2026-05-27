@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { open, readFile, readdir, stat } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
 import { z } from "zod";
-import { previewWorktreeApply } from "../apply/manager.js";
+import { canApplyResultFromGate, previewWorktreeApply, type WorktreeGateState } from "../apply/manager.js";
 import { listAuditResults, summarizeAudit } from "../audit/artifacts.js";
 import { listPlanProposalSummaries, listSpecProposalSummaries } from "../change/proposals.js";
 import { getChangeStatus } from "../change/manager.js";
@@ -12,6 +12,7 @@ import { readRequiredJsonFile } from "../fs/json.js";
 import { getTemplateRoot } from "../template-source/paths.js";
 import { getMemoryStatus } from "../memory/status.js";
 import { resolveMemory } from "../memory/resolver.js";
+import { isGitDirty } from "../project/git.js";
 import { readProjectMarker } from "../project/marker.js";
 import { getProjectStatus } from "../project/status.js";
 import { listRuns, readRun } from "../run/manager.js";
@@ -40,6 +41,7 @@ import type {
   TaskRun,
   ValidationSummary,
   WorkerLease,
+  WorktreeStatus,
 } from "../types/index.js";
 
 export type WorkbenchTopicState = "active" | "parking" | "archive";
@@ -476,6 +478,7 @@ export interface WorkbenchWorkpad {
   planningDraft?: WorkbenchPlanningDraft;
   planningArtifactBundle?: WorkbenchPlanningArtifactBundle;
   rolePipeline?: WorkbenchRolePipelineSummary;
+  resultReview?: WorkbenchResultReview;
   runControlState?: WorkbenchRunControlState;
   intake: WorkpadIntakeSummary;
   progress: WorkpadProgress;
@@ -522,6 +525,42 @@ export interface WorkbenchRolePipelineSummary {
   runs: WorkbenchRoleRunSummary[];
   reworkUsed: number;
   reworkBudget: number;
+}
+
+export type WorkbenchResultReviewStatus =
+  | "not-ready"
+  | "ready-to-apply"
+  | "needs-rework"
+  | "applied-clean"
+  | "applied-source-dirty";
+
+export interface WorkbenchResultReview {
+  status: WorkbenchResultReviewStatus;
+  title: string;
+  summary: string;
+  worktreeId?: string;
+  changedFiles: string[];
+  diffStat?: string;
+  validation?: {
+    id: string;
+    status: string;
+    runId: string;
+  };
+  audit?: {
+    id: string;
+    status: string;
+    runId: string;
+    findingCount: number;
+    notes: string[];
+    artifact?: string;
+  };
+  applyReadiness: {
+    ready: boolean;
+    label: string;
+    blockingIssues: string[];
+    warnings: string[];
+  };
+  evidence: WorkpadEvidenceSummary[];
 }
 
 export interface WorkbenchRunControlState {
@@ -945,6 +984,7 @@ async function buildWorkbenchWorkpad(input: {
   const codingPackages = buildCodingPackages(selectedTopic, taskGraph);
   const planningBundle = await readLatestPlanningBundleProjection(memory, selectedTopic.path);
   const rolePipeline = buildRolePipelineSummary(selectedTopic, planningBundle);
+  const resultReview = await buildResultReview(project, memory, selectedTopic);
   const runningRun = selectedTopic.runs.find((run) => run.status === "created" || run.status === "running");
 
   return {
@@ -970,6 +1010,7 @@ async function buildWorkbenchWorkpad(input: {
     planningDraft: planningBundle?.status === "draft" ? planningBundle : undefined,
     planningArtifactBundle: planningBundle ?? undefined,
     rolePipeline,
+    resultReview,
     runControlState: {
       canStop: Boolean(runningRun),
       stopActionType: runningRun ? "conversation.interrupt" : undefined,
@@ -1140,6 +1181,117 @@ function buildRolePipelineSummary(topic: WorkbenchTopicDetail, planningBundle: W
     ? "running"
     : stage === "needs-user-input" ? "needs-user-input" : stage === "done" ? "completed" : planningBundle?.status === "confirmed" ? "completed" : "draft";
   return { stage, status, runs, reworkUsed: 0, reworkBudget: OFFICIAL_REWORK_BUDGET };
+}
+
+async function buildResultReview(project: ManagedProject | null, memory: ResolvedMemory, topic: WorkbenchTopicDetail): Promise<WorkbenchResultReview | undefined> {
+  const worktrees = (topic.worktrees as WorktreeStatus[])
+    .filter((worktree) => worktree.changeId === topic.id)
+    .sort((a, b) => (b.appliedAt ?? b.createdAt).localeCompare(a.appliedAt ?? a.createdAt));
+  const worktree = worktrees.find((item) => item.status === "active") ?? worktrees[0];
+  const validations = await listValidationResults(memory, topic.id).catch(() => []);
+  const audits = await listAuditResults(memory, topic.id).catch(() => []);
+  const validation = latestResultForWorktree(validations, worktree?.worktreeId);
+  const audit = latestResultForWorktree(audits, worktree?.worktreeId);
+  if (!worktree && !validation && !audit) return undefined;
+
+  const preview = project && worktree && worktree.status !== "applied"
+    ? await previewWorktreeApply(project, worktree.worktreeId).catch(() => null)
+    : null;
+  const sourceDirty = project && worktree?.status === "applied" ? await isGitDirty(project.path).catch(() => null) : null;
+  const auditNotes = audit?.findings.filter((finding) => finding.severity === "note").map((finding) => finding.text) ?? [];
+  const blockingIssues = preview?.gate.blockingIssues ?? [];
+  const canApply = preview ? canApplyResultFromGate(preview.gate) : false;
+  const hasFailedEvidence = validation?.status === "failed" || audit?.status === "blocked" || audit?.status === "failed";
+  const status: WorkbenchResultReviewStatus = worktree?.status === "applied"
+    ? sourceDirty === true ? "applied-source-dirty" : "applied-clean"
+    : hasFailedEvidence
+      ? "needs-rework"
+      : canApply
+        ? "ready-to-apply"
+        : "not-ready";
+  const diffStat = preview?.gate.diffStat || audit?.artifacts.diffStat;
+  const evidence: WorkpadEvidenceSummary[] = [];
+  if (validation) {
+    evidence.push({
+      id: `result-validation:${validation.id}`,
+      label: `验证 ${validation.status}`,
+      source: "validation",
+      status: validation.status,
+      timestamp: validation.finishedAt,
+    });
+  }
+  if (audit) {
+    evidence.push({
+      id: `result-audit:${audit.id}`,
+      label: audit.status === "approved-with-notes" ? "审查通过，有注意事项" : `审查 ${audit.status}`,
+      source: "audit",
+      status: audit.status,
+      artifact: audit.artifacts.audit,
+      timestamp: audit.finishedAt,
+    });
+  }
+  return {
+    status,
+    title: resultReviewTitle(status),
+    summary: resultReviewSummary(status, validation?.status, audit?.status, auditNotes.length),
+    worktreeId: worktree?.worktreeId,
+    changedFiles: changedFilesFromWorktree(worktree),
+    diffStat,
+    validation: validation ? { id: validation.id, status: validation.status, runId: validation.runId } : undefined,
+    audit: audit ? {
+      id: audit.id,
+      status: audit.status,
+      runId: audit.runId,
+      findingCount: audit.findings.length,
+      notes: auditNotes,
+      artifact: audit.artifacts.audit,
+    } : undefined,
+    applyReadiness: {
+      ready: status === "ready-to-apply",
+      label: applyReadinessLabel(status, preview?.gate),
+      blockingIssues,
+      warnings: preview?.gate.warnings ?? [],
+    },
+    evidence,
+  };
+}
+
+function latestResultForWorktree<T extends { worktreeId?: string; finishedAt: string }>(items: T[], worktreeId: string | undefined): T | undefined {
+  const scoped = worktreeId ? items.filter((item) => item.worktreeId === worktreeId) : items;
+  return [...scoped].sort((a, b) => b.finishedAt.localeCompare(a.finishedAt))[0];
+}
+
+function changedFilesFromWorktree(worktree: WorktreeStatus | undefined): string[] {
+  if (!worktree) return [];
+  return worktree.diffSummary.map((line) => line.replace(/^(\?\?|[ MADRCU]{1,2})\s+/, "").trim()).filter(Boolean).slice(0, 8);
+}
+
+function resultReviewTitle(status: WorkbenchResultReviewStatus): string {
+  if (status === "ready-to-apply") return "结果可应用到项目";
+  if (status === "needs-rework") return "结果需要修改";
+  if (status === "applied-clean") return "结果已应用并收口";
+  if (status === "applied-source-dirty") return "结果已应用，等待你处理本地改动";
+  return "结果证据尚未完整";
+}
+
+function resultReviewSummary(status: WorkbenchResultReviewStatus, validationStatus: string | undefined, auditStatus: string | undefined, noteCount: number): string {
+  if (status === "ready-to-apply") {
+    return auditStatus === "approved-with-notes"
+      ? `验证已通过，审查有 ${noteCount} 条注意事项，但可以由你决定是否应用。`
+      : "验证和审查已通过，可以由你确认应用到项目。";
+  }
+  if (status === "needs-rework") return "验证或审查还没有通过，反馈会进入下一轮修改。";
+  if (status === "applied-clean") return "源码应用完成，当前需求可以归档。";
+  if (status === "applied-source-dirty") return "源码已经应用，但本地仍有未提交改动，需求不会自动归档。";
+  return `当前结果还缺少可应用证据。验证：${validationStatus ?? "未完成"}，审查：${auditStatus ?? "未完成"}。`;
+}
+
+function applyReadinessLabel(status: WorkbenchResultReviewStatus, gate: WorktreeGateState | undefined): string {
+  if (status === "ready-to-apply") return "可以应用到项目";
+  if (status === "applied-clean") return "已应用且本地状态可收口";
+  if (status === "applied-source-dirty") return "已应用，但本地改动需要你处理";
+  if (gate?.blockingIssues.length) return gate.blockingIssues[0] ?? "证据不完整";
+  return "等待验证、审查或结果证据";
 }
 
 function classifySelectedTopicFailure(
@@ -1920,7 +2072,7 @@ function userDecisionTitle(context: WorkbenchDecisionContext): string {
   if (context.kind === "spec-proposal") return "确认需求说明";
   if (context.kind === "plan-proposal") return "确认实施计划";
   if (context.kind === "audit-approved") return "确认审查证据";
-  if (context.kind === "apply-gate") return "确认应用到源码";
+  if (context.kind === "apply-gate") return "确认应用到项目";
   if (context.kind === "close-gate") return "确认完成需求";
   if (context.kind === "evolution-pending") return "确认 Harness 演进";
   return context.title;
@@ -1934,7 +2086,7 @@ function userResultSummary(context: WorkbenchDecisionContext): string {
   if (context.kind === "spec-proposal") return context.summary || "AI 提出了 Spec 草案。";
   if (context.kind === "plan-proposal") return context.summary || "AI 提出了 Plan / Tasks 草案。";
   if (context.kind === "audit-approved") return context.summary || "审查证据显示结果可以接受。";
-  if (context.kind === "apply-gate") return context.summary || "当前结果已准备应用到源码。";
+  if (context.kind === "apply-gate") return context.summary || "当前结果已准备应用到项目。";
   if (context.kind === "close-gate") return context.summary || "这个需求可以结束并归档。";
   return context.summary;
 }
@@ -1945,7 +2097,7 @@ function userRecommendation(context: WorkbenchDecisionContext): string {
   if (context.kind === "audit-blocked") return "审查失败会先作为 agent 修改输入；若仍失败，再请你补充业务判断。";
   if (context.kind === "spec-proposal" || context.kind === "plan-proposal") return "同意会接受该草案；要求修改会把反馈记录回当前需求。";
   if (context.kind === "audit-approved") return "同意会接受审查证据；要求修改会记录复审要求。";
-  if (context.kind === "apply-gate") return "同意会应用源码变更；放弃会丢弃这次结果或结束需求。";
+  if (context.kind === "apply-gate") return "应用会把当前结果写入项目；要求修改会进入下一轮修改；放弃只丢弃这次结果。";
   if (context.kind === "close-gate") return "同意会完成并归档这个需求。";
   return "查看历史决策和证据。";
 }
@@ -1954,7 +2106,7 @@ function userDecisionExplanation(context: WorkbenchDecisionContext): string {
   if (context.kind === "queue-blocker") return "执行状态仍用于恢复和归因；你只需要处理当前暂停的任务。";
   if (context.kind === "task-blocker") return "任务状态来自 TaskRun / Validation / Audit evidence，不会自动修改 tasks.md。";
   if (context.kind === "validation-failed" || context.kind === "audit-blocked") return "这不是最终失败，而是需要修改或补证据的检查结果。";
-  if (context.kind === "apply-gate") return "应用是高影响动作，仍需要明确确认。";
+  if (context.kind === "apply-gate") return "应用是高影响动作，仍需要明确确认；这不是 PR、push 或 merge queue。";
   if (context.kind === "close-gate") return "归档是需求生命周期收口，之后仍可从历史查看。";
   return "右侧只显示当前对象的主决策，旧决策折叠到历史。";
 }
@@ -2127,10 +2279,10 @@ function decisionActionsForApproval(approval: WorkbenchApprovalItem, kind: Workb
     });
   }
   if (approval.artifact) actions.push(...evidenceActions(approval.artifact));
-  if (proposalLikeDecision(kind) || kind === "audit-approved") {
+  if (proposalLikeDecision(kind) || kind === "audit-approved" || kind === "apply-gate") {
     actions.push({
       id: `feedback:${approval.id}`,
-      label: "要求修改",
+      label: kind === "audit-approved" ? "要求复审" : "要求修改",
       kind: "feedback",
       approvalId: approval.id,
       action: approval.action,
@@ -2138,6 +2290,18 @@ function decisionActionsForApproval(approval: WorkbenchApprovalItem, kind: Workb
       requiresConfirmation: false,
       disabledReason: approval.action ? undefined : "该对象没有可记录反馈的 action context。",
     });
+  }
+  if (kind === "apply-gate" && approval.targetId) {
+    actions.push({
+      id: `discard:${approval.targetId}`,
+      label: "放弃这次结果",
+      kind: "approval",
+      approvalId: approval.id,
+      action: approvalAction("worktree.discard", "放弃这次结果", "worktree", ["discard", approval.changeId ?? "", approval.targetId], true),
+      enabled: true,
+      requiresConfirmation: true,
+    });
+    return actions;
   }
   if (kind === "spec-proposal" || kind === "plan-proposal" || kind === "audit-approved" || kind === "apply-gate" || kind === "close-gate") {
     actions.push({
@@ -2182,13 +2346,14 @@ function decisionTitleForApproval(approval: WorkbenchApprovalItem): string {
   if (approval.kind === "spec-proposal") return `Spec proposal: ${approval.targetId ?? approval.id}`;
   if (approval.kind === "plan-proposal") return `Plan proposal: ${approval.targetId ?? approval.id}`;
   if (approval.kind === "audit-proposal") return `审查证据可接受：${approval.targetId ?? approval.id}`;
-  if (approval.kind === "worktree-apply") return `Worktree 可应用：${approval.targetId ?? approval.id}`;
+  if (approval.kind === "worktree-apply") return `结果可应用到项目：${approval.targetId ?? approval.id}`;
   if (approval.kind === "change-close") return `Change 可关闭：${approval.targetId ?? approval.id}`;
   return approval.label;
 }
 
 function actionLabelForDecision(kind: WorkbenchDecisionContextKind, fallback: string): string {
-  if (kind === "spec-proposal" || kind === "plan-proposal" || kind === "audit-approved" || kind === "apply-gate" || kind === "close-gate") return "同意";
+  if (kind === "apply-gate") return "应用到项目";
+  if (kind === "spec-proposal" || kind === "plan-proposal" || kind === "audit-approved" || kind === "close-gate") return "同意";
   return fallback;
 }
 
@@ -2221,8 +2386,8 @@ function decisionPriority(context: WorkbenchDecisionContext): number {
   if (context.kind === "task-blocker") return 1;
   if (context.kind === "validation-failed" || context.kind === "audit-blocked") return 2;
   if (context.kind === "spec-proposal" || context.kind === "plan-proposal") return 3;
-  if (context.kind === "audit-approved") return 4;
-  if (context.kind === "apply-gate" || context.kind === "close-gate") return 5;
+  if (context.kind === "apply-gate") return 4;
+  if (context.kind === "audit-approved" || context.kind === "close-gate") return 5;
   if (context.kind === "evolution-pending") return 6;
   return 99;
 }
@@ -3263,15 +3428,16 @@ async function buildApprovalInbox(project: ManagedProject, memory: ResolvedMemor
     const worktrees = await listWorktreeStatuses(memory).catch(() => []);
     for (const worktree of worktrees.filter((item) => item.changeId === activeTopic.id && item.status !== "applied")) {
       const preview = await previewWorktreeApply(project, worktree.worktreeId).catch(() => null);
-      if (preview?.gate.ready) {
+      if (preview && canApplyResultFromGate(preview.gate)) {
         approvals.push({
           id: `apply:${worktree.worktreeId}`,
           kind: "worktree-apply",
-          label: `Worktree ready to apply: ${worktree.worktreeId}`,
+          label: `结果可应用到项目：${worktree.worktreeId}`,
           changeId: worktree.changeId,
           targetId: worktree.worktreeId,
           severity: "info",
-          action: approvalAction("worktree.apply", "Apply worktree", "worktree", ["apply", project.id, worktree.worktreeId], true),
+          action: approvalAction("result.apply", "应用到项目", "result", ["apply", project.id, worktree.worktreeId], true),
+          artifact: preview.gate.audit?.artifacts.audit,
         });
       }
     }

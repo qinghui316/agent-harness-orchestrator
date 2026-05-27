@@ -815,6 +815,25 @@ input:focus-visible {
   padding: 13px;
 }
 
+.result-review {
+  border-color: color-mix(in srgb, var(--accent) 24%, var(--border));
+}
+
+.result-diff-stat {
+  max-height: 120px;
+  overflow: auto;
+  margin: 0;
+  padding: 9px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-subtle);
+  color: var(--text-muted);
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+
 .workpad-section-header {
   display: flex;
   align-items: center;

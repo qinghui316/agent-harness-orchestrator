@@ -5,7 +5,7 @@ import { execFile, spawn } from "node:child_process";
 import { platform } from "node:os";
 import { extname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { applyWorktree } from "../apply/manager.js";
+import { applyResultToProject, applyWorktree, discardWorktree } from "../apply/manager.js";
 import { acceptAudit } from "../audit/manager.js";
 import { abandonChange, closeChange } from "../change/manager.js";
 import { acceptPlanProposal, acceptSpecProposal } from "../change/proposals.js";
@@ -145,7 +145,9 @@ const allowedActionIds = new Set([
   "change.plan.accept",
   "spec-test.proposal.accept-all-existing",
   "audit.accept",
+  "result.apply",
   "worktree.apply",
+  "worktree.discard",
   "change.close",
 ]);
 
@@ -473,7 +475,7 @@ export async function executeWorkbenchAction(input: WorkbenchProjectInput, body:
     payload: result,
     completedAt: new Date().toISOString(),
   });
-  if (action.actionId === "worktree.apply") {
+  if (action.actionId === "worktree.apply" || action.actionId === "result.apply") {
     try {
       const finalized = await closeChange(input.project);
       result = { result, finalization: { status: "archived", archivePath: finalized.archivePath, changeId: finalized.change.id } };
@@ -846,7 +848,9 @@ function inferTargetIdFromAction(action: WorkbenchApprovalAction, result: unknow
   if (action.actionId === "change.spec.accept" || action.actionId === "change.plan.accept") return action.args[3] ?? null;
   if (action.actionId === "spec-test.proposal.accept-all-existing") return action.args[3] ?? null;
   if (action.actionId === "audit.accept") return action.args[2] ?? null;
+  if (action.actionId === "result.apply") return action.args[2] ?? null;
   if (action.actionId === "worktree.apply") return action.args[2] ?? null;
+  if (action.actionId === "worktree.discard") return action.args[2] ?? null;
   if (action.actionId === "change.close") return action.args[1] ?? null;
   return null;
 }
@@ -855,6 +859,7 @@ function inferChangeIdFromAction(action: WorkbenchApprovalAction, result: unknow
   if (isRecord(result) && isRecord(result.proposal) && typeof result.proposal.changeId === "string") return result.proposal.changeId;
   if (isRecord(result) && isRecord(result.audit) && typeof result.audit.changeId === "string") return result.audit.changeId;
   if (isRecord(result) && isRecord(result.apply) && typeof result.apply.changeId === "string") return result.apply.changeId;
+  if (isRecord(result) && isRecord(result.discard) && typeof result.discard.changeId === "string") return result.discard.changeId;
   if (isRecord(result) && isRecord(result.change) && typeof result.change.id === "string") return result.change.id;
   if (isRecord(result) && typeof result.changeId === "string") return result.changeId;
   return null;
@@ -876,6 +881,7 @@ function inferArtifactFromActionResult(result: unknown): string | null {
   if (isRecord(result) && isRecord(result.run) && isRecord(result.run.artifacts)) {
     const artifacts = result.run.artifacts;
     if (typeof artifacts.apply === "string") return artifacts.apply;
+    if (typeof artifacts.discard === "string") return artifacts.discard;
     if (typeof artifacts.directory === "string") return artifacts.directory;
   }
   return null;
@@ -983,9 +989,15 @@ async function runAllowlistedAction(project: NonNullable<WorkbenchProjectInput["
     case "audit.accept":
       assertArgs(action, "audit", ["accept"], 3);
       return acceptAudit(project, args[2]);
+    case "result.apply":
+      assertArgs(action, "result", ["apply"], 3);
+      return applyResultToProject(project, args[2], { commit: options?.commit === true, message: options?.message });
     case "worktree.apply":
       assertArgs(action, "worktree", ["apply"], 3);
       return applyWorktree(project, args[2], { commit: options?.commit === true, message: options?.message });
+    case "worktree.discard":
+      assertArgs(action, "worktree", ["discard"], 3);
+      return discardWorktree(project, args[2]);
     case "change.close":
       assertArgs(action, "change", ["close"], 2);
       return closeChange(project);

@@ -216,6 +216,18 @@ type Workpad = {
     reworkUsed: number;
     reworkBudget: number;
   };
+  resultReview?: {
+    status: "not-ready" | "ready-to-apply" | "needs-rework" | "applied-clean" | "applied-source-dirty";
+    title: string;
+    summary: string;
+    worktreeId?: string;
+    changedFiles: string[];
+    diffStat?: string;
+    validation?: { id: string; status: string; runId: string };
+    audit?: { id: string; status: string; runId: string; findingCount: number; notes: string[]; artifact?: string };
+    applyReadiness: { ready: boolean; label: string; blockingIssues: string[]; warnings: string[] };
+    evidence: Array<{ id: string; label: string; source: string; status?: string; artifact?: string; timestamp?: string }>;
+  };
   runControlState?: { canStop: boolean; stopActionType?: ThreadStreamAction["actionType"]; pendingFeedbackCount: number; explanation: string };
   intake: {
     goal: string;
@@ -1999,6 +2011,38 @@ function WorkpadView({
         </section>
       ) : null}
 
+      {workpad.resultReview ? (
+        <section className={`workpad-section result-review ${workpad.resultReview.status}`} data-testid="result-review-card">
+          <div className="workpad-section-header">
+            <h3>结果</h3>
+            <span>{resultReviewStatusLabel(workpad.resultReview.status)}</span>
+          </div>
+          <p className="workpad-goal">{userFacingText(workpad.resultReview.title)}</p>
+          <p>{userFacingText(workpad.resultReview.summary)}</p>
+          {workpad.resultReview.changedFiles.length > 0 ? (
+            <div className="workpad-chip-list" aria-label="Changed files">
+              {workpad.resultReview.changedFiles.map((file) => <span key={file}>{file}</span>)}
+            </div>
+          ) : null}
+          <div className="workpad-progress-grid">
+            <WorkpadMetric label="验证" value={workpad.resultReview.validation ? humanStatus(workpad.resultReview.validation.status) : "未完成"} />
+            <WorkpadMetric label="审查" value={workpad.resultReview.audit ? humanStatus(workpad.resultReview.audit.status) : "未完成"} />
+            <WorkpadMetric label="应用状态" value={userFacingText(workpad.resultReview.applyReadiness.label)} />
+          </div>
+          {workpad.resultReview.audit?.notes.length ? (
+            <ul className="workpad-issue-list">
+              {workpad.resultReview.audit.notes.slice(0, 3).map((note) => <li key={note}>注意事项：{userFacingText(note)}</li>)}
+            </ul>
+          ) : null}
+          {workpad.resultReview.applyReadiness.blockingIssues.length > 0 ? (
+            <ul className="workpad-issue-list">
+              {workpad.resultReview.applyReadiness.blockingIssues.slice(0, 3).map((issue) => <li key={issue}>{userFacingText(issue)}</li>)}
+            </ul>
+          ) : null}
+          {workpad.resultReview.diffStat ? <pre className="result-diff-stat">{workpad.resultReview.diffStat}</pre> : null}
+        </section>
+      ) : null}
+
       {workpad.background?.items.length ? (
         <section className="workpad-section compact-section" data-testid="background-workpads">
           <div className="workpad-section-header">
@@ -3352,6 +3396,14 @@ function humanStatus(status: string): string {
   if (status === "needs-user-input") return "需要用户补充";
   if (status === "stopped") return "已停止";
   return status;
+}
+
+function resultReviewStatusLabel(status: NonNullable<Workpad["resultReview"]>["status"]): string {
+  if (status === "ready-to-apply") return "可应用";
+  if (status === "needs-rework") return "需要修改";
+  if (status === "applied-clean") return "已应用";
+  if (status === "applied-source-dirty") return "已应用，待处理本地改动";
+  return "证据未完整";
 }
 
 function roleLabel(roleId: string): string {

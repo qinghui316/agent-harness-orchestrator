@@ -1,7 +1,9 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
+import { execFile } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { promisify } from "node:util";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createChange, closeChange } from "../../src/change/manager.js";
 import { initHarness } from "../../src/harness/init.js";
@@ -12,10 +14,13 @@ import { answerClarification, reanalyzeIntake, runIntakeScan } from "../../src/w
 import { getWorkbenchSnapshot, getWorkbenchStream, getWorkbenchTopic, listWorkbenchApprovals, listWorkbenchRoles, listWorkbenchTopics } from "../../src/workbench/manager.js";
 import { WorkbenchStore } from "../../src/workbench/store.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
+import { collectWorktreeDiff } from "../../src/audit/diff.js";
+import { createWorktree } from "../../src/worktree/manager.js";
 import { listTaskQueueItems, listTaskQueues, reconcileTaskQueues, startOrResumeTaskQueue } from "../../src/task-queue/manager.js";
 import type { ManagedProject, RunMetadata, TaskQueueItem, TaskQueueRun, TaskRun, WorkerLease } from "../../src/types/index.js";
 
 let tempDir: string;
+const execFileAsync = promisify(execFile);
 
 beforeEach(async () => {
   tempDir = await mkdtemp(join(tmpdir(), "aho-workbench-"));
@@ -880,6 +885,61 @@ describe("workbench read model", () => {
     ]));
   });
 
+  it("projects result review and applies a reviewed worktree through one user decision", async () => {
+    const oldAhoHome = process.env.AHO_HOME;
+    process.env.AHO_HOME = join(tempDir, ".aho-home");
+    try {
+      await initGitRepository(tempDir);
+      await writeFile(join(tempDir, ".gitignore"), ".aho-home/\n.agent-harness/\nharness/\nAGENTS.md\ndocs/\nscripts/\n", "utf8");
+      await writeFile(join(tempDir, "package.json"), "{\"scripts\":{\"test\":\"node -e \\\"process.exit(0)\\\"\"}}\n", "utf8");
+      await git(tempDir, ["add", "."]);
+      await git(tempDir, ["commit", "-m", "initial"]);
+      await initHarness(project());
+      await createChange(project(), { title: "Result Review Demand" });
+      await writeAcceptedSpecAndTasks("result-review-demand");
+      const memory = await resolveProjectMemory(project());
+      const worktree = await createWorktree(project(), memory, "result-review-demand");
+      await writeFile(join(worktree.metadata.checkoutPath, "package.json"), "{\"scripts\":{\"test\":\"node -e \\\"console.log('ok')\\\"\"}}\n", "utf8");
+      const diff = await collectWorktreeDiff(memory, worktree.metadata.worktreeId, "result-review-demand");
+      await writeValidationResultWithHash("result-review-demand", "run-validation-review", worktree.metadata.worktreeId, diff.diffHash, "passed");
+      await writeAuditResultWithHash("result-review-demand", "run-audit-review", worktree.metadata.worktreeId, diff.diffHash, "approved-with-notes");
+
+      const beforeApply = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: "result-review-demand" });
+      expect(beforeApply.center.workpad.resultReview).toMatchObject({
+        status: "ready-to-apply",
+        worktreeId: worktree.metadata.worktreeId,
+        validation: expect.objectContaining({ status: "passed" }),
+        audit: expect.objectContaining({ status: "approved-with-notes" }),
+      });
+      const applyApproval = beforeApply.right.decisionInspector.primary;
+      expect(applyApproval).toMatchObject({ kind: "apply-gate" });
+      expect(applyApproval?.actions.find((action) => action.kind === "approval")?.action).toMatchObject({
+        actionId: "result.apply",
+      });
+
+      const resultApplyAction = applyApproval?.actions.find((action) => action.action?.actionId === "result.apply")?.action;
+      if (!resultApplyAction) throw new Error("Missing result.apply action.");
+      const applied = await executeWorkbenchAction({ project: project(), path: tempDir }, {
+        action: resultApplyAction,
+        confirm: true,
+      });
+
+      expect(applied.result).toMatchObject({
+        result: {
+          apply: expect.objectContaining({ status: "applied", committed: false }),
+          auditAccepted: expect.objectContaining({ auditId: "run-audit-review" }),
+        },
+        finalization: expect.objectContaining({ status: "not-archived" }),
+      });
+      const afterApply = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: "result-review-demand" });
+      expect(afterApply.center.workpad.resultReview).toMatchObject({ status: "applied-source-dirty" });
+      expect(afterApply.center.selectedTopic?.state).toBe("active");
+    } finally {
+      if (oldAhoHome === undefined) delete process.env.AHO_HOME;
+      else process.env.AHO_HOME = oldAhoHome;
+    }
+  });
+
   it("creates a linked follow-up demand instead of mutating an archived conversation", async () => {
     await initHarness(project());
     await createChange(project(), { title: "Archived Demand" });
@@ -1088,6 +1148,72 @@ async function writeTaskQueueItemRecord(
     ...overrides,
   };
   await writeFile(join(dir, `${itemId}.json`), JSON.stringify(item, null, 2), "utf8");
+}
+
+async function initGitRepository(cwd: string): Promise<void> {
+  await git(cwd, ["init"]);
+  await git(cwd, ["config", "user.email", "test@example.com"]);
+  await git(cwd, ["config", "user.name", "Test User"]);
+}
+
+async function git(cwd: string, args: string[]): Promise<void> {
+  await execFileAsync("git", args, { cwd });
+}
+
+async function writeValidationResultWithHash(changeId: string, runId: string, worktreeId: string, diffHash: string, status: "passed" | "failed"): Promise<void> {
+  const dir = join(tempDir, ".agent-harness", "runs", runId);
+  await mkdir(dir, { recursive: true });
+  const now = new Date().toISOString();
+  const validation = {
+    version: "1.0",
+    id: runId,
+    runId,
+    changeId,
+    profile: "test",
+    status,
+    executionMode: "worktree",
+    worktreeId,
+    worktreeDiffHash: diffHash,
+    startedAt: now,
+    finishedAt: now,
+    commands: [],
+  };
+  await writeFile(join(dir, "validation.json"), JSON.stringify(validation, null, 2), "utf8");
+}
+
+async function writeAuditResultWithHash(changeId: string, runId: string, worktreeId: string, diffHash: string, status: "approved" | "approved-with-notes" | "blocked" | "failed"): Promise<void> {
+  const dir = join(tempDir, ".agent-harness", "runs", runId);
+  await mkdir(dir, { recursive: true });
+  const now = new Date().toISOString();
+  const audit = {
+    version: "1.0",
+    id: runId,
+    runId,
+    changeId,
+    status,
+    worktreeId,
+    validationId: "run-validation-review",
+    worktreeDiffHash: diffHash,
+    startedAt: now,
+    finishedAt: now,
+    findings: status === "approved-with-notes" ? [{
+      severity: "note",
+      area: "risk",
+      evidence: "unit test fixture",
+      recommendation: "review before applying",
+      text: "Package script changed; review before applying.",
+    }] : [],
+    artifacts: {
+      audit: `harness/runs/${runId}/audit.json`,
+      auditMarkdown: `harness/runs/${runId}/audit.md`,
+      lastMessage: `harness/runs/${runId}/last-message.md`,
+      diffStat: `harness/runs/${runId}/diff-stat.txt`,
+    },
+  };
+  await writeFile(join(dir, "audit.json"), JSON.stringify(audit, null, 2), "utf8");
+  await writeFile(join(dir, "audit.md"), "Status: approved-with-notes\n", "utf8");
+  await writeFile(join(dir, "last-message.md"), "Audit approved with notes.\n", "utf8");
+  await writeFile(join(dir, "diff-stat.txt"), " package.json | 2 +-\n", "utf8");
 }
 
 async function writeValidationResult(changeId: string, validationId: string, worktreeId: string, status: "passed" | "failed"): Promise<void> {
