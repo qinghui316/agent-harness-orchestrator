@@ -44,7 +44,7 @@ type Snapshot = {
     agentLoop: { runs: RunSummary[] };
     thread: { items: ThreadStreamItem[] };
   };
-  right: { approvals: Approval[]; decisions: Decision[]; decisionInspector: DecisionInspector };
+  right: { approvals: Approval[]; decisions: Decision[]; decisionInspector: DecisionInspector; confirmationQueue: ConfirmationQueue };
   harnessGaps: Array<{ id: string; status: string; summary: string }>;
   warnings: string[];
 };
@@ -319,7 +319,7 @@ type PlanCard = {
 };
 type ThreadEvent = { id: string; type: string; label: string; timestamp?: string; status?: string; runId?: string; planCard?: PlanCard };
 type ThreadStreamAction = {
-  actionType: "change.spec.propose" | "change.plan.propose" | "planning.generate" | "planning.revise" | "planning.confirm-execution" | "orchestrator.evaluate" | "orchestrator.pump" | "demand.worker.enqueue" | "demand.worker.claim" | "demand.worker.start-next" | "demand.worker.start-available" | "demand.worker.reconcile" | "demand.worker.release" | "role.pipeline.start" | "role.pipeline.stop" | "role.pipeline.continue" | "role.pipeline.reconcile" | "conversation.steer" | "conversation.interrupt" | "conversation.continue" | "result.refresh-rework" | "result.revalidate" | "result.reaudit" | "result.refresh-status" | "code.run" | "task.run.start" | "task.run.retry" | "task.queue.start" | "task.queue.reconcile" | "intake.scan" | "intake.reanalyze" | "clarification.answer" | "clarification.skip";
+  actionType: "change.spec.propose" | "change.plan.propose" | "planning.generate" | "planning.revise" | "planning.confirm-execution" | "orchestrator.evaluate" | "orchestrator.pump" | "demand.worker.enqueue" | "demand.worker.claim" | "demand.worker.start-next" | "demand.worker.start-available" | "demand.worker.reconcile" | "demand.worker.release" | "role.pipeline.start" | "role.pipeline.stop" | "role.pipeline.continue" | "role.pipeline.reconcile" | "conversation.steer" | "conversation.interrupt" | "conversation.continue" | "result.refresh-rework" | "result.revalidate" | "result.reaudit" | "result.refresh-status" | "apply-check.run" | "code.run" | "task.run.start" | "task.run.retry" | "task.queue.start" | "task.queue.reconcile" | "intake.scan" | "intake.reanalyze" | "clarification.answer" | "clarification.skip";
   label: string;
   enabled: boolean;
   requiresConfirmation: boolean;
@@ -388,6 +388,7 @@ type DecisionAction = {
   actionType?: ThreadStreamAction["actionType"];
   taskIds?: string[];
   taskRunId?: string;
+  worktreeIds?: string[];
   artifact?: string;
   disabledReason?: string;
 };
@@ -417,6 +418,32 @@ type DecisionInspector = {
   related: DecisionContext[];
   history: DecisionContext[];
   selectedContextId?: string;
+};
+type ConfirmationQueueItem = {
+  id: string;
+  kind: string;
+  projectId?: string | null;
+  conversationId?: string;
+  changeId?: string;
+  resultId?: string;
+  runId?: string;
+  worktreeId?: string;
+  applyCheckId?: string;
+  summary: string;
+  whyNeedsConfirmation: string;
+  confirmEffect: string;
+  riskSummary: string;
+  evidenceRefs: string[];
+  actions: DecisionAction[];
+  primary: boolean;
+  status?: string;
+};
+type ConfirmationQueue = {
+  primary: ConfirmationQueueItem | null;
+  current: ConfirmationQueueItem[];
+  otherDemands: ConfirmationQueueItem[];
+  maintenance: ConfirmationQueueItem[];
+  history: ConfirmationQueueItem[];
 };
 type Decision = {
   id: string;
@@ -542,7 +569,7 @@ const emptySnapshot: Snapshot = {
   memory: {},
   left: { topics: [], workpads: [] },
   center: { selectedTopic: null, workpad: emptyWorkpad(), agentLoop: { runs: [] }, thread: { items: [] } },
-  right: { approvals: [], decisions: [], decisionInspector: { primary: null, related: [], history: [] } },
+  right: { approvals: [], decisions: [], decisionInspector: { primary: null, related: [], history: [] }, confirmationQueue: { primary: null, current: [], otherDemands: [], maintenance: [], history: [] } },
   harnessGaps: [],
   warnings: [],
 };
@@ -657,6 +684,7 @@ export function App(): ReactElement {
       right: {
         ...baseSnapshot.right,
         decisionInspector: { primary: null, related: [], history: [] },
+        confirmationQueue: { primary: null, current: [], otherDemands: [], maintenance: [], history: [] },
       },
     };
     setSnapshot(nextSnapshot);
@@ -709,7 +737,7 @@ export function App(): ReactElement {
       return;
     }
     if (action.kind === "workflow-action" && action.actionType) {
-      await runWorkflowAction(action.actionType, { taskIds: action.taskIds, taskRunId: action.taskRunId, worktreeId: context.targetId });
+      await runWorkflowAction(action.actionType, { taskIds: action.taskIds, taskRunId: action.taskRunId, worktreeId: context.targetId, worktreeIds: action.worktreeIds });
       return;
     }
     if (action.kind === "abandon") {
@@ -1048,6 +1076,7 @@ export function App(): ReactElement {
       selectedContextId: selected.id,
     };
   }, [selectedDecisionContextId, snapshot.right.decisionInspector]);
+  const activeConfirmationQueue = snapshot.right.confirmationQueue ?? { primary: null, current: [], otherDemands: [], maintenance: [], history: [] };
 
   useEffect(() => {
     const node = threadScrollRef.current;
@@ -1216,6 +1245,7 @@ export function App(): ReactElement {
       <aside className="approval-pane">
         <DecisionInspectorPane
           inspector={activeDecisionInspector}
+          confirmationQueue={activeConfirmationQueue}
           confirming={confirming}
           error={error}
           onConfirmingChange={setConfirming}
@@ -1718,6 +1748,7 @@ function EmptyWorkbench({ title, description }: { title: string; description: st
 
 function DecisionInspectorPane({
   inspector,
+  confirmationQueue,
   confirming,
   error,
   onConfirmingChange,
@@ -1726,6 +1757,7 @@ function DecisionInspectorPane({
   onSelectContext,
 }: {
   inspector: DecisionInspector;
+  confirmationQueue: ConfirmationQueue;
   confirming: string | null;
   error: string | null;
   onConfirmingChange: (id: string | null) => void;
@@ -1733,44 +1765,103 @@ function DecisionInspectorPane({
   onFeedback: (context: DecisionContext, action: DecisionAction, feedback: string) => Promise<void>;
   onSelectContext: (id: string | null) => void;
 }): ReactElement {
+  const primaryQueueItem = confirmationQueue.primary;
   return (
     <>
       <div className="approval-header">
-        <h2>当前决策</h2>
-        <span>{inspector.primary ? 1 : 0}</span>
+        <h2>需要你确认</h2>
+        <span>{primaryQueueItem ? 1 : 0}</span>
       </div>
       {error ? <div className="error-box">{error}</div> : null}
-      {!inspector.primary ? (
+      {!primaryQueueItem ? (
         <div className="approval-empty">
-          <h3>暂无当前决策</h3>
-          <p>当任务、审查、应用或关闭需要你介入时，会显示在这里。</p>
+          <h3>暂无需要确认</h3>
+          <p>执行过程、证据和后台维护不会堆在这里；只有需要你做决定的事项会出现。</p>
         </div>
       ) : (
-        <DecisionContextCard
-          context={inspector.primary}
+        <ConfirmationQueueCard
+          item={primaryQueueItem}
           confirming={confirming}
           onConfirmingChange={onConfirmingChange}
           onExecuteAction={onExecuteAction}
           onFeedback={onFeedback}
         />
       )}
-      {inspector.related.length > 0 ? (
+      {confirmationQueue.otherDemands.length > 0 ? (
         <section className="decision-related">
           <div className="approval-header compact">
-            <h2>相关</h2>
-            <span>{inspector.related.length}</span>
+            <h2>其他需求等你确认</h2>
+            <span>{confirmationQueue.otherDemands.length}</span>
           </div>
-          {inspector.related.map((context) => (
-            <button className="decision-row" key={context.id} onClick={() => onSelectContext(context.id)}>
-              <strong>{context.title}</strong>
-              <span>{decisionKindLabel(context.kind)} · {decisionSeverityLabel(context.severity)}</span>
+          {confirmationQueue.otherDemands.map((item) => (
+            <button className="decision-row" key={item.id} onClick={() => item.changeId ? onSelectContext(`confirm:${item.changeId}`) : undefined}>
+              <strong>{userFacingText(item.whyNeedsConfirmation)}</strong>
+              <span>{confirmationKindLabel(item.kind)} · {userFacingText(item.summary)}</span>
             </button>
+          ))}
+        </section>
+      ) : null}
+      {confirmationQueue.maintenance.length > 0 ? (
+        <section className="decision-related">
+          <div className="approval-header compact">
+            <h2>维护建议</h2>
+            <span>{confirmationQueue.maintenance.length}</span>
+          </div>
+          {confirmationQueue.maintenance.map((item) => (
+            <div className="decision-row passive" key={item.id}>
+              <strong>{userFacingText(item.whyNeedsConfirmation)}</strong>
+              <span>{userFacingText(item.summary)}</span>
+            </div>
           ))}
         </section>
       ) : null}
       <DecisionContextHistory contexts={inspector.history} onSelectContext={onSelectContext} />
     </>
   );
+}
+
+function ConfirmationQueueCard({
+  item,
+  confirming,
+  onConfirmingChange,
+  onExecuteAction,
+  onFeedback,
+}: {
+  item: ConfirmationQueueItem;
+  confirming: string | null;
+  onConfirmingChange: (id: string | null) => void;
+  onExecuteAction: (action: DecisionAction, context: DecisionContext) => Promise<void>;
+  onFeedback: (context: DecisionContext, action: DecisionAction, feedback: string) => Promise<void>;
+}): ReactElement {
+  const context = confirmationItemToDecisionContext(item);
+  return (
+    <DecisionContextCard
+      context={context}
+      confirming={confirming}
+      onConfirmingChange={onConfirmingChange}
+      onExecuteAction={onExecuteAction}
+      onFeedback={onFeedback}
+    />
+  );
+}
+
+function confirmationItemToDecisionContext(item: ConfirmationQueueItem): DecisionContext {
+  return {
+    id: item.id,
+    kind: item.kind,
+    title: item.whyNeedsConfirmation,
+    summary: item.summary,
+    resultSummary: item.summary,
+    recommendation: item.confirmEffect,
+    explanation: item.riskSummary,
+    severity: item.status === "failed" ? "blocking" : "info",
+    changeId: item.changeId ?? item.conversationId,
+    runId: item.runId,
+    targetId: item.worktreeId ?? item.applyCheckId ?? item.resultId,
+    artifact: item.evidenceRefs[0],
+    actions: item.actions,
+    userStatus: "waiting-confirmation",
+  };
 }
 
 function DecisionContextCard({
@@ -3732,11 +3823,15 @@ function decisionKindLabel(kind: string): string {
   return "历史";
 }
 
-function decisionSeverityLabel(severity: string): string {
-  if (severity === "blocking") return "需处理";
-  if (severity === "warning") return "需注意";
-  if (severity === "info") return "信息";
-  return userFacingText(severity);
+function confirmationKindLabel(kind: string): string {
+  if (kind === "planning-confirm") return "方案确认";
+  if (kind === "single-result-apply") return "结果应用";
+  if (kind === "integration-check") return "兼容性检查";
+  if (kind === "integration-apply") return "组合应用";
+  if (kind === "request-changes") return "要求修改";
+  if (kind === "discard-result") return "放弃结果";
+  if (kind === "maintenance") return "维护建议";
+  return userFacingText(kind);
 }
 
 function workflowActionLabel(actionType: string | undefined): string {
@@ -3762,6 +3857,7 @@ function workflowActionLabel(actionType: string | undefined): string {
   if (actionType === "result.revalidate") return "重新验证";
   if (actionType === "result.reaudit") return "重新审查";
   if (actionType === "result.refresh-status") return "刷新状态";
+  if (actionType === "apply-check.run") return "检查兼容性";
   if (actionType === "role.pipeline.continue") return "继续执行";
   if (actionType === "role.pipeline.reconcile") return "恢复执行状态";
   if (actionType === "code.run") return "Code workflow";

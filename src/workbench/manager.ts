@@ -11,6 +11,7 @@ import { buildAcMap } from "../ecl/anchors.js";
 import { buildChangeIndex, hasPendingEvolution } from "../ecl/index.js";
 import { readRequiredJsonFile } from "../fs/json.js";
 import { getTemplateRoot } from "../template-source/paths.js";
+import { findIntegrationCheckCandidate, listIntegrationChecks, type IntegrationCheckCandidate, type IntegrationCheckRecord } from "../integration-check/manager.js";
 import { getMemoryStatus } from "../memory/status.js";
 import { resolveMemory } from "../memory/resolver.js";
 import { isGitDirty } from "../project/git.js";
@@ -113,7 +114,7 @@ export interface WorkbenchThreadEvent {
 }
 
 export interface ThreadStreamAction {
-  actionType: "change.spec.propose" | "change.plan.propose" | "planning.generate" | "planning.revise" | "planning.confirm-execution" | "orchestrator.evaluate" | "orchestrator.pump" | "demand.worker.enqueue" | "demand.worker.claim" | "demand.worker.start-next" | "demand.worker.start-available" | "demand.worker.reconcile" | "demand.worker.release" | "role.pipeline.start" | "role.pipeline.stop" | "role.pipeline.continue" | "role.pipeline.reconcile" | "conversation.steer" | "conversation.interrupt" | "conversation.continue" | "result.refresh-rework" | "result.revalidate" | "result.reaudit" | "result.refresh-status" | "code.run" | "task.run.start" | "task.run.retry" | "task.queue.start" | "task.queue.reconcile" | "intake.scan" | "intake.reanalyze" | "clarification.answer" | "clarification.skip";
+  actionType: "change.spec.propose" | "change.plan.propose" | "planning.generate" | "planning.revise" | "planning.confirm-execution" | "orchestrator.evaluate" | "orchestrator.pump" | "demand.worker.enqueue" | "demand.worker.claim" | "demand.worker.start-next" | "demand.worker.start-available" | "demand.worker.reconcile" | "demand.worker.release" | "role.pipeline.start" | "role.pipeline.stop" | "role.pipeline.continue" | "role.pipeline.reconcile" | "conversation.steer" | "conversation.interrupt" | "conversation.continue" | "result.refresh-rework" | "result.revalidate" | "result.reaudit" | "result.refresh-status" | "apply-check.run" | "code.run" | "task.run.start" | "task.run.retry" | "task.queue.start" | "task.queue.reconcile" | "intake.scan" | "intake.reanalyze" | "clarification.answer" | "clarification.skip";
   label: string;
   enabled: boolean;
   requiresConfirmation: boolean;
@@ -208,6 +209,7 @@ export interface WorkbenchDecisionAction {
   actionType?: ThreadStreamAction["actionType"];
   taskIds?: string[];
   taskRunId?: string;
+  worktreeIds?: string[];
   artifact?: string;
   disabledReason?: string;
 }
@@ -245,6 +247,43 @@ export interface WorkbenchDecisionInspector {
   related: WorkbenchDecisionContext[];
   history: WorkbenchDecisionContext[];
   selectedContextId?: string;
+}
+
+export type WorkbenchConfirmationQueueItemKind =
+  | "planning-confirm"
+  | "single-result-apply"
+  | "integration-check"
+  | "integration-apply"
+  | "request-changes"
+  | "discard-result"
+  | "maintenance";
+
+export interface WorkbenchConfirmationQueueItem {
+  id: string;
+  kind: WorkbenchConfirmationQueueItemKind;
+  projectId?: string | null;
+  conversationId?: string;
+  changeId?: string;
+  resultId?: string;
+  runId?: string;
+  worktreeId?: string;
+  applyCheckId?: string;
+  summary: string;
+  whyNeedsConfirmation: string;
+  confirmEffect: string;
+  riskSummary: string;
+  evidenceRefs: string[];
+  actions: WorkbenchDecisionAction[];
+  primary: boolean;
+  status?: "pending" | "passed" | "failed" | "applied" | "discarded";
+}
+
+export interface WorkbenchConfirmationQueue {
+  primary: WorkbenchConfirmationQueueItem | null;
+  current: WorkbenchConfirmationQueueItem[];
+  otherDemands: WorkbenchConfirmationQueueItem[];
+  maintenance: WorkbenchConfirmationQueueItem[];
+  history: WorkbenchConfirmationQueueItem[];
 }
 
 export interface WorkpadIntakeSummary {
@@ -733,6 +772,7 @@ export interface WorkbenchSnapshot {
     approvals: WorkbenchApprovalItem[];
     decisions: WorkbenchDecisionItem[];
     decisionInspector: WorkbenchDecisionInspector;
+    confirmationQueue: WorkbenchConfirmationQueue;
   };
   roles: WorkbenchRoleSummary[];
   harnessGaps: HarnessGap[];
@@ -776,7 +816,7 @@ export async function getWorkbenchSnapshot(input: WorkbenchProjectInput, options
         repo: buildRepoSummary(projectStatus),
       },
       center: { selectedTopic: null, workpad: diagnosticWorkpad, thread: { items: [] }, agentLoop: { runs: [] } },
-      right: { approvals: [], decisions: [], decisionInspector: emptyDecisionInspector() },
+      right: { approvals: [], decisions: [], decisionInspector: emptyDecisionInspector(), confirmationQueue: emptyConfirmationQueue() },
       roles,
       harnessGaps: gaps,
       warnings,
@@ -805,6 +845,12 @@ export async function getWorkbenchSnapshot(input: WorkbenchProjectInput, options
     approvals,
     decisions,
   });
+  const confirmationQueue = await buildConfirmationQueue({
+    project: input.project,
+    memory,
+    selectedTopic,
+    decisionInspector,
+  });
   return {
     project: input.project,
     memory: memoryStatus,
@@ -821,7 +867,7 @@ export async function getWorkbenchSnapshot(input: WorkbenchProjectInput, options
       thread: { items: selectedTopic?.threadItems ?? [] },
       agentLoop: { runs: selectedTopic?.runs ?? [] },
     },
-    right: { approvals, decisions, decisionInspector },
+    right: { approvals, decisions, decisionInspector, confirmationQueue },
     roles,
     harnessGaps: gaps,
     warnings,
@@ -1574,6 +1620,16 @@ function emptyDecisionInspector(): WorkbenchDecisionInspector {
   };
 }
 
+function emptyConfirmationQueue(): WorkbenchConfirmationQueue {
+  return {
+    primary: null,
+    current: [],
+    otherDemands: [],
+    maintenance: [],
+    history: [],
+  };
+}
+
 function buildWorkpadIntake(topic: WorkbenchTopicDetail): WorkpadIntakeSummary {
   const firstUser = topic.threadItems.find((item) => item.kind === "user-message" && item.body?.trim());
   const latestAssistant = [...topic.threadItems].reverse().find((item) => (item.kind === "assistant-turn" || item.kind === "assistant-message") && item.body?.trim());
@@ -2141,6 +2197,240 @@ function buildDecisionInspector(input: {
     ...enrichedHistory,
   ].sort((a, b) => (b.timestamp ?? "").localeCompare(a.timestamp ?? ""));
   return { primary, related, history };
+}
+
+async function buildConfirmationQueue(input: {
+  project: ManagedProject | null;
+  memory: ResolvedMemory;
+  selectedTopic: WorkbenchTopicDetail | null;
+  decisionInspector: WorkbenchDecisionInspector;
+}): Promise<WorkbenchConfirmationQueue> {
+  const queue = emptyConfirmationQueue();
+  const currentItems = [
+    ...decisionContextToConfirmationItems(input.decisionInspector.primary, true),
+    ...input.decisionInspector.related.flatMap((context) => decisionContextToConfirmationItems(context, false)),
+  ];
+  queue.current = currentItems;
+
+  if (input.project) {
+    const project = input.project;
+    const checks = await listIntegrationChecks(input.memory).catch(() => []);
+    const latestActionableCheck = checks.find((check) => integrationCheckNeedsUserAction(check.status));
+    if (latestActionableCheck) {
+      const item = integrationCheckNeedsActionQueueItem(project, latestActionableCheck, input.selectedTopic?.id);
+      if (item.primary) queue.current.unshift(item);
+      else queue.otherDemands.push(item);
+    }
+    const candidate = await findIntegrationCheckCandidate(project).catch(() => null);
+    const candidateAlreadyChecked = candidate && latestActionableCheck
+      ? sameIntegrationTargets(candidate.targets, latestActionableCheck.resultTargets)
+      : false;
+    if (candidate && !candidateAlreadyChecked) {
+      const item = integrationCandidateQueueItem(project, candidate, input.selectedTopic?.id);
+      if (item.primary) queue.current.unshift(item);
+      else queue.otherDemands.push(item);
+    }
+    const latestPassed = checks.find((check) => check.status === "passed");
+    if (latestPassed) {
+      const item = integrationCheckQueueItem(project, latestPassed, input.selectedTopic?.id);
+      if (item.primary) queue.current.unshift(item);
+      else queue.otherDemands.push(item);
+    }
+    queue.history = checks
+      .filter((check) => check.status === "applied" || check.status === "discarded" || check.status === "conflict" || check.status === "failed")
+      .slice(0, 8)
+      .map((check) => integrationCheckHistoryItem(project, check));
+  }
+
+  queue.maintenance = currentItems.filter((item) => item.kind === "maintenance");
+  queue.current = dedupeConfirmationItems(queue.current.filter((item) => item.kind !== "maintenance"));
+  queue.otherDemands = dedupeConfirmationItems(queue.otherDemands);
+  queue.primary = queue.current.find((item) => item.primary) ?? queue.current[0] ?? null;
+  return queue;
+}
+
+function decisionContextToConfirmationItems(context: WorkbenchDecisionContext | null, primary: boolean): WorkbenchConfirmationQueueItem[] {
+  if (!context) return [];
+  const confirmActions = context.actions.filter((action) => action.kind !== "none" && action.enabled);
+  if (confirmActions.length === 0) return [];
+  const kind: WorkbenchConfirmationQueueItemKind = context.kind === "spec-proposal" || context.kind === "plan-proposal"
+    ? "planning-confirm"
+    : context.kind === "apply-gate"
+      ? "single-result-apply"
+      : context.kind === "evolution-pending"
+        ? "maintenance"
+        : context.kind === "queue-blocker" || context.kind === "task-blocker" || context.kind === "validation-failed" || context.kind === "audit-blocked"
+          ? "request-changes"
+          : "request-changes";
+  return [{
+    id: `confirm:${context.id}`,
+    kind,
+    conversationId: context.changeId,
+    changeId: context.changeId,
+    resultId: context.targetId,
+    runId: context.runId,
+    worktreeId: context.kind === "apply-gate" ? context.targetId : undefined,
+    summary: context.resultSummary ?? context.summary,
+    whyNeedsConfirmation: context.title,
+    confirmEffect: context.recommendation ?? "确认后会推进当前需求的下一步。",
+    riskSummary: context.explanation ?? "执行前请确认摘要和证据。",
+    evidenceRefs: [context.artifact].filter((item): item is string => Boolean(item)),
+    actions: confirmActions,
+    primary,
+    status: "pending",
+  }];
+}
+
+function integrationCandidateQueueItem(project: ManagedProject, candidate: IntegrationCheckCandidate, selectedChangeId: string | undefined): WorkbenchConfirmationQueueItem {
+  const selected = Boolean(selectedChangeId && candidate.targets.some((target) => target.changeId === selectedChangeId));
+  return {
+    id: `apply-check:candidate:${candidate.targets.map((target) => target.worktreeId).join("+")}`,
+    kind: "integration-check",
+    projectId: project.id,
+    conversationId: selectedChangeId,
+    changeId: selectedChangeId,
+    summary: candidate.summary,
+    whyNeedsConfirmation: "多个结果都已准备好应用。",
+    confirmEffect: "会在临时工作区检查这些结果能否一起应用；不会修改项目源码。",
+    riskSummary: candidate.riskSummary,
+    evidenceRefs: [],
+    actions: [{
+      id: `run-apply-check:${candidate.targets.map((target) => target.worktreeId).join("+")}`,
+      label: "检查兼容性",
+      kind: "workflow-action",
+      actionType: "apply-check.run",
+      worktreeIds: candidate.targets.map((target) => target.worktreeId),
+      enabled: true,
+      requiresConfirmation: true,
+    }],
+    primary: selected,
+    status: "pending",
+  };
+}
+
+function integrationCheckNeedsUserAction(status: IntegrationCheckRecord["status"]): boolean {
+  return status === "conflict" || status === "validation-failed" || status === "audit-failed" || status === "failed" || status === "stale-result";
+}
+
+function sameIntegrationTargets(left: IntegrationCheckCandidate["targets"], right: IntegrationCheckRecord["resultTargets"]): boolean {
+  const normalize = (targets: Array<{ changeId: string; worktreeId: string; diffHash: string }>): string[] => {
+    return targets.map((target) => `${target.changeId}:${target.worktreeId}:${target.diffHash}`).sort();
+  };
+  const leftKey = normalize(left);
+  const rightKey = normalize(right);
+  return leftKey.length === rightKey.length && leftKey.every((item, index) => item === rightKey[index]);
+}
+
+function integrationCheckQueueItem(project: ManagedProject, check: IntegrationCheckRecord, selectedChangeId: string | undefined): WorkbenchConfirmationQueueItem {
+  const selected = Boolean(selectedChangeId && check.resultTargets.some((target) => target.changeId === selectedChangeId));
+  return {
+    id: `apply-check:${check.id}`,
+    kind: "integration-apply",
+    projectId: project.id,
+    conversationId: selectedChangeId,
+    changeId: selectedChangeId,
+    applyCheckId: check.id,
+    summary: check.summary,
+    whyNeedsConfirmation: "兼容性检查已通过，是否应用这些结果需要你确认。",
+    confirmEffect: "确认后会把检查通过的组合结果应用到项目源码。",
+    riskSummary: check.riskSummary,
+    evidenceRefs: check.artifactRefs,
+    actions: [
+      {
+        id: `apply-check-apply:${check.id}`,
+        label: "确认应用到项目",
+        kind: "approval",
+        action: approvalAction("apply-check.apply", "确认应用到项目", "apply-check", ["apply", check.id], true),
+        enabled: true,
+        requiresConfirmation: true,
+      },
+      {
+        id: `apply-check-feedback:${check.id}`,
+        label: "要求修改",
+        kind: "feedback",
+        enabled: true,
+        requiresConfirmation: false,
+      },
+      {
+        id: `apply-check-discard:${check.id}`,
+        label: "放弃",
+        kind: "approval",
+        action: approvalAction("apply-check.discard", "放弃组合结果", "apply-check", ["discard", check.id], true),
+        enabled: true,
+        requiresConfirmation: true,
+      },
+      ...(check.artifactRefs[0] ? evidenceActions(check.artifactRefs[0]).map((action) => ({ ...action, label: "查看证据" })) : []),
+    ],
+    primary: selected,
+    status: "passed",
+  };
+}
+
+function integrationCheckNeedsActionQueueItem(project: ManagedProject, check: IntegrationCheckRecord, selectedChangeId: string | undefined): WorkbenchConfirmationQueueItem {
+  const selected = Boolean(selectedChangeId && check.resultTargets.some((target) => target.changeId === selectedChangeId));
+  return {
+    id: `apply-check-needs-action:${check.id}`,
+    kind: "request-changes",
+    projectId: project.id,
+    conversationId: selectedChangeId,
+    changeId: selectedChangeId,
+    applyCheckId: check.id,
+    summary: check.summary,
+    whyNeedsConfirmation: check.status === "stale-result"
+      ? "结果已过期，需要回到对应需求重新处理。"
+      : "兼容性检查没有通过，需要修改其中一个结果或放弃这次组合应用。",
+    confirmEffect: "要求修改会把反馈绑定到这次检查和相关需求；放弃只结束这次组合应用结果，不修改项目源码。",
+    riskSummary: check.riskSummary,
+    evidenceRefs: check.artifactRefs,
+    actions: [
+      {
+        id: `apply-check-feedback:${check.id}`,
+        label: "要求修改",
+        kind: "feedback",
+        enabled: true,
+        requiresConfirmation: false,
+      },
+      {
+        id: `apply-check-discard:${check.id}`,
+        label: "放弃",
+        kind: "approval",
+        action: approvalAction("apply-check.discard", "放弃组合结果", "apply-check", ["discard", check.id], true),
+        enabled: true,
+        requiresConfirmation: true,
+      },
+      ...(check.artifactRefs[0] ? evidenceActions(check.artifactRefs[0]).map((action) => ({ ...action, label: "查看证据" })) : []),
+    ],
+    primary: selected,
+    status: "failed",
+  };
+}
+
+function integrationCheckHistoryItem(project: ManagedProject, check: IntegrationCheckRecord): WorkbenchConfirmationQueueItem {
+  return {
+    id: `apply-check-history:${check.id}`,
+    kind: "integration-apply",
+    projectId: project.id,
+    applyCheckId: check.id,
+    summary: check.summary,
+    whyNeedsConfirmation: "历史兼容性检查。",
+    confirmEffect: "无当前动作。",
+    riskSummary: check.riskSummary,
+    evidenceRefs: check.artifactRefs,
+    actions: check.artifactRefs[0] ? evidenceActions(check.artifactRefs[0]) : [],
+    primary: false,
+    status: check.status === "applied" ? "applied" : check.status === "discarded" ? "discarded" : "failed",
+  };
+}
+
+function dedupeConfirmationItems(items: WorkbenchConfirmationQueueItem[]): WorkbenchConfirmationQueueItem[] {
+  const seen = new Set<string>();
+  const result: WorkbenchConfirmationQueueItem[] = [];
+  for (const item of items) {
+    if (seen.has(item.id)) continue;
+    seen.add(item.id);
+    result.push(item);
+  }
+  return result;
 }
 
 function resultReviewDecisionContext(topic: WorkbenchTopicDetail, workpad: WorkbenchWorkpad): WorkbenchDecisionContext | null {

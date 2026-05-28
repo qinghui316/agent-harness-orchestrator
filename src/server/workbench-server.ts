@@ -12,6 +12,7 @@ import { abandonChange, closeChange } from "../change/manager.js";
 import { acceptPlanProposal, acceptSpecProposal } from "../change/proposals.js";
 import { resolveExistingDirectory } from "../fs/path.js";
 import { initHarness } from "../harness/init.js";
+import { applyIntegrationCheck, discardIntegrationCheck } from "../integration-check/manager.js";
 import { resolveProjectMemory } from "../memory/resolver.js";
 import { getProjectStatus } from "../project/status.js";
 import { ProjectRegistryStore } from "../registry/store.js";
@@ -59,6 +60,7 @@ interface WorkbenchActionRequest {
   prompt?: string;
   proposalId?: string;
   worktreeId?: string;
+  worktreeIds?: string[];
   taskIds?: string[];
   taskRunId?: string;
   confirm?: boolean;
@@ -150,6 +152,8 @@ const allowedActionIds = new Set([
   "result.apply",
   "worktree.apply",
   "worktree.discard",
+  "apply-check.apply",
+  "apply-check.discard",
   "change.close",
 ]);
 
@@ -423,6 +427,7 @@ export async function executeWorkbenchAction(input: WorkbenchProjectInput, body:
       prompt: body.prompt,
       proposalId: body.proposalId,
       worktreeId: body.worktreeId,
+      worktreeIds: body.worktreeIds,
       taskIds: body.taskIds,
       taskRunId: body.taskRunId,
     });
@@ -658,6 +663,7 @@ async function sendWorkbenchActionLive(input: WorkbenchProjectInput & { project:
         prompt: body.prompt,
         proposalId: body.proposalId,
         worktreeId: body.worktreeId,
+        worktreeIds: body.worktreeIds,
         taskIds: body.taskIds,
         taskRunId: body.taskRunId,
       }, sink);
@@ -715,6 +721,7 @@ function isLiveWorkflowAction(actionType: string): actionType is WorkbenchWorkfl
     || actionType === "result.revalidate"
     || actionType === "result.reaudit"
     || actionType === "result.refresh-status"
+    || actionType === "apply-check.run"
     || actionType === "code.run"
     || actionType === "task.run.start"
     || actionType === "task.run.retry"
@@ -892,6 +899,7 @@ function inferTargetIdFromAction(action: WorkbenchApprovalAction, result: unknow
   if (action.actionId === "result.apply") return scopedWorktreeArg(action) ?? null;
   if (action.actionId === "worktree.apply") return scopedWorktreeArg(action) ?? null;
   if (action.actionId === "worktree.discard") return scopedWorktreeArg(action) ?? null;
+  if (action.actionId === "apply-check.apply" || action.actionId === "apply-check.discard") return action.args[2] ?? action.args[1] ?? null;
   if (action.actionId === "change.close") return action.args[1] ?? null;
   return null;
 }
@@ -903,6 +911,7 @@ function inferChangeIdFromAction(action: WorkbenchApprovalAction, result: unknow
   if (isRecord(result) && isRecord(result.discard) && typeof result.discard.changeId === "string") return result.discard.changeId;
   if (isRecord(result) && isRecord(result.change) && typeof result.change.id === "string") return result.change.id;
   if (isRecord(result) && typeof result.changeId === "string") return result.changeId;
+  if (isRecord(result) && isRecord(result.check) && Array.isArray(result.check.resultTargets) && isRecord(result.check.resultTargets[0]) && typeof result.check.resultTargets[0].changeId === "string") return result.check.resultTargets[0].changeId;
   return null;
 }
 
@@ -919,6 +928,7 @@ function inferArtifactFromActionResult(result: unknown): string | null {
   if (isRecord(result) && typeof result.planPath === "string") return result.planPath;
   if (isRecord(result) && typeof result.reviewPath === "string") return result.reviewPath;
   if (isRecord(result) && typeof result.archivePath === "string") return result.archivePath;
+  if (isRecord(result) && typeof result.artifactDirectory === "string") return result.artifactDirectory;
   if (isRecord(result) && isRecord(result.run) && isRecord(result.run.artifacts)) {
     const artifacts = result.run.artifacts;
     if (typeof artifacts.apply === "string") return artifacts.apply;
@@ -1039,6 +1049,12 @@ async function runAllowlistedAction(project: NonNullable<WorkbenchProjectInput["
     case "worktree.discard":
       assertArgs(action, "worktree", ["discard"], 3);
       return discardWorktree(project, scopedWorktreeArgOrThrow(action));
+    case "apply-check.apply":
+      assertArgs(action, "apply-check", ["apply"], 2);
+      return applyIntegrationCheck(project, args[2] ?? args[1]);
+    case "apply-check.discard":
+      assertArgs(action, "apply-check", ["discard"], 2);
+      return discardIntegrationCheck(project, args[2] ?? args[1]);
     case "change.close":
       assertArgs(action, "change", ["close"], 2);
       return closeChange(project);

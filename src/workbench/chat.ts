@@ -36,6 +36,7 @@ import { isRunStopRequested, requestRunStop } from "../run/control.js";
 import { executeProcessStreaming } from "../run/process.js";
 import { getEnabledSkillContext } from "../skill/catalog.js";
 import { getSpecTestDriftReport } from "../spec-test/drift.js";
+import { runIntegrationCheck } from "../integration-check/manager.js";
 import { finishTaskRunFromWorkflowResult, markTaskRunStarted, reconcileTaskRuns, retryTaskRun, startTaskRun } from "../task-run/manager.js";
 import {
   failQueuedTaskItem,
@@ -504,6 +505,7 @@ export type WorkbenchWorkflowActionType =
   | "result.revalidate"
   | "result.reaudit"
   | "result.refresh-status"
+  | "apply-check.run"
   | "code.run"
   | "task.run.start"
   | "task.run.retry"
@@ -521,6 +523,7 @@ export interface WorkbenchWorkflowActionRequest {
   proposalId?: string;
   worktreeId?: string;
   taskIds?: string[];
+  worktreeIds?: string[];
   taskRunId?: string;
 }
 
@@ -802,6 +805,8 @@ async function executeWorkflowAction(project: ManagedProject, changeId: string, 
       return startAuditRun(project, { changeId, worktreeId: request.worktreeId, prompt: request.prompt ?? "Re-run audit for the selected result review evidence." });
     case "result.refresh-status":
       return { status: "refreshed", changeId, worktreeId: request.worktreeId };
+    case "apply-check.run":
+      return runIntegrationCheck(project, request.worktreeIds ?? (request.worktreeId ? [request.worktreeId] : undefined));
     case "code.run":
       return runCodeValidateAuditSequence(project, changeId, request.prompt, live, request.taskIds);
     case "task.run.start":
@@ -1154,6 +1159,16 @@ async function runClaimedDemandWorker(
     summary: "本地主 orchestrator 已领取该需求，开始执行角色流水线。",
   });
   try {
+    if (!await hasConfirmedPlanningArtifacts(project, changeId)) {
+      const completed = await completeDemandWorkerAttempt(memory, running.worker, running.attempt, {
+        status: "needs-user-input",
+        resultStatus: "needs-user-input",
+        summary: "Demand execution needs confirmed planning artifacts before role agents can run.",
+        failureReason: "The demand worker was queued without confirmed spec, plan, tasks, and AC map artifacts.",
+      });
+      scheduleDemandWorkerPump(project);
+      return { status: completed.worker.status, worker: completed.worker, attempt: completed.attempt, decision: completed.decision };
+    }
     const beforeTasks = await listAgentTasks(memory, changeId).catch(() => []);
     const result = await runRolePipelineSequence(project, changeId, prompt, live, false);
     const afterTasks = await listAgentTasks(memory, changeId).catch(() => []);
@@ -1180,6 +1195,27 @@ async function runClaimedDemandWorker(
     scheduleDemandWorkerPump(project);
     throw Object.assign(error instanceof Error ? error : new Error(message), { demandWorker: completed.worker.id });
   }
+}
+
+async function hasConfirmedPlanningArtifacts(project: ManagedProject, changeId: string): Promise<boolean> {
+  try {
+    const { memory, changePath } = await resolveTopic(project, changeId);
+    const changeDir = join(memory.memoryRoot, changePath);
+    if (!existsSync(join(changeDir, "ac-map.json"))) return false;
+    for (const file of ["spec.md", "plan.md", "tasks.md"]) {
+      const path = join(changeDir, file);
+      if (!existsSync(path)) return false;
+      const content = await readFile(path, "utf8");
+      if (hasUnresolvedPlanningPlaceholder(content)) return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function hasUnresolvedPlanningPlaceholder(content: string): boolean {
+  return /(^|\n)\s*(?:-\s*)?(?:\[[ xX]\]\s*)?TBD\s*(?=\n|$)/.test(content);
 }
 
 function scheduleClaimedDemandWorker(
@@ -2822,6 +2858,7 @@ function labelForAction(actionType: string): string {
     case "result.revalidate": return "Result validation refreshed";
     case "result.reaudit": return "Result audit refreshed";
     case "result.refresh-status": return "Result status refreshed";
+    case "apply-check.run": return "Integration check completed";
     case "code.run": return "Coder run confirmed";
     case "task.run.start": return "Task workflow started";
     case "task.run.retry": return "Task workflow retried";

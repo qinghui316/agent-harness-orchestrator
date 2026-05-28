@@ -1027,6 +1027,99 @@ describe("workbench read model", () => {
     }
   });
 
+  it("projects multiple ready results into a confirmation queue integration check", async () => {
+    const oldAhoHome = process.env.AHO_HOME;
+    process.env.AHO_HOME = join(tempDir, ".aho-home");
+    try {
+      await initGitRepository(tempDir);
+      await writeFile(join(tempDir, ".gitignore"), ".aho-home/\n.agent-harness/\nharness/\nAGENTS.md\ndocs/\nscripts/\n", "utf8");
+      await writeFile(join(tempDir, "package.json"), "{\"scripts\":{\"test\":\"node -e \\\"process.exit(0)\\\"\"}}\n", "utf8");
+      await writeFile(join(tempDir, "pricing.ts"), "export const base = 1;\n", "utf8");
+      await git(tempDir, ["add", "."]);
+      await git(tempDir, ["commit", "-m", "initial"]);
+      await initHarness(project());
+      await writeRawActiveChange("demand-a", "Demand A");
+      await writeRawActiveChange("demand-b", "Demand B");
+      await writeAcceptedSpecAndTasks("demand-a");
+      await writeAcceptedSpecAndTasks("demand-b");
+      const memory = await resolveProjectMemory(project());
+      const worktreeA = await createWorktree(project(), memory, "demand-a");
+      await writeFile(join(worktreeA.metadata.checkoutPath, "a.txt"), "a\n", "utf8");
+      const diffA = await collectWorktreeDiff(memory, worktreeA.metadata.worktreeId, "demand-a");
+      await writeValidationResultWithHash("demand-a", "run-validation-a", worktreeA.metadata.worktreeId, diffA.diffHash, "passed");
+      await writeAuditResultWithHash("demand-a", "run-audit-a", worktreeA.metadata.worktreeId, diffA.diffHash, "approved-with-notes");
+      const worktreeB = await createWorktree(project(), memory, "demand-b");
+      await writeFile(join(worktreeB.metadata.checkoutPath, "b.txt"), "b\n", "utf8");
+      const diffB = await collectWorktreeDiff(memory, worktreeB.metadata.worktreeId, "demand-b");
+      await writeValidationResultWithHash("demand-b", "run-validation-b", worktreeB.metadata.worktreeId, diffB.diffHash, "passed");
+      await writeAuditResultWithHash("demand-b", "run-audit-b", worktreeB.metadata.worktreeId, diffB.diffHash, "approved-with-notes");
+
+      const snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: "demand-a" });
+      expect(snapshot.right.confirmationQueue.primary).toMatchObject({
+        kind: "integration-check",
+        whyNeedsConfirmation: "多个结果都已准备好应用。",
+      });
+      expect(snapshot.right.confirmationQueue.primary?.actions[0]).toMatchObject({
+        actionType: "apply-check.run",
+        worktreeIds: expect.arrayContaining([worktreeA.metadata.worktreeId, worktreeB.metadata.worktreeId]),
+      });
+    } finally {
+      if (oldAhoHome === undefined) delete process.env.AHO_HOME;
+      else process.env.AHO_HOME = oldAhoHome;
+    }
+  });
+
+  it("runs an integration check in a temporary worktree without changing source root", async () => {
+    const oldAhoHome = process.env.AHO_HOME;
+    process.env.AHO_HOME = join(tempDir, ".aho-home");
+    try {
+      await initGitRepository(tempDir);
+      await writeFile(join(tempDir, ".gitignore"), ".aho-home/\n.agent-harness/\nharness/\nAGENTS.md\ndocs/\nscripts/\n", "utf8");
+      await writeFile(join(tempDir, "package.json"), "{\"scripts\":{\"test\":\"node -e \\\"process.exit(0)\\\"\"}}\n", "utf8");
+      await git(tempDir, ["add", "."]);
+      await git(tempDir, ["commit", "-m", "initial"]);
+      await initHarness(project());
+      await writeRawActiveChange("demand-a", "Demand A");
+      await writeRawActiveChange("demand-b", "Demand B");
+      await writeAcceptedSpecAndTasks("demand-a");
+      await writeAcceptedSpecAndTasks("demand-b");
+      const memory = await resolveProjectMemory(project());
+      const worktreeA = await createWorktree(project(), memory, "demand-a");
+      await writeFile(join(worktreeA.metadata.checkoutPath, "a.txt"), "a\n", "utf8");
+      const diffA = await collectWorktreeDiff(memory, worktreeA.metadata.worktreeId, "demand-a");
+      await writeValidationResultWithHash("demand-a", "run-validation-a", worktreeA.metadata.worktreeId, diffA.diffHash, "passed");
+      await writeAuditResultWithHash("demand-a", "run-audit-a", worktreeA.metadata.worktreeId, diffA.diffHash, "approved-with-notes");
+      const worktreeB = await createWorktree(project(), memory, "demand-b");
+      await writeFile(join(worktreeB.metadata.checkoutPath, "b.txt"), "b\n", "utf8");
+      const diffB = await collectWorktreeDiff(memory, worktreeB.metadata.worktreeId, "demand-b");
+      await writeValidationResultWithHash("demand-b", "run-validation-b", worktreeB.metadata.worktreeId, diffB.diffHash, "passed");
+      await writeAuditResultWithHash("demand-b", "run-audit-b", worktreeB.metadata.worktreeId, diffB.diffHash, "approved-with-notes");
+
+      const checked = await executeWorkbenchAction({ project: project(), path: tempDir }, {
+        actionType: "apply-check.run",
+        changeId: "demand-a",
+        worktreeIds: [worktreeA.metadata.worktreeId, worktreeB.metadata.worktreeId],
+        confirm: true,
+      });
+      expect(checked.result).toMatchObject({
+        result: {
+          check: expect.objectContaining({ status: "passed" }),
+        },
+      });
+      expect(existsSync(join(tempDir, "a.txt"))).toBe(false);
+      expect(existsSync(join(tempDir, "b.txt"))).toBe(false);
+
+      const after = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: "demand-a" });
+      expect(after.right.confirmationQueue.primary).toMatchObject({
+        kind: "integration-apply",
+        whyNeedsConfirmation: "兼容性检查已通过，是否应用这些结果需要你确认。",
+      });
+    } finally {
+      if (oldAhoHome === undefined) delete process.env.AHO_HOME;
+      else process.env.AHO_HOME = oldAhoHome;
+    }
+  });
+
   it("classifies source drift as same-demand refresh rework instead of apply", async () => {
     const oldAhoHome = process.env.AHO_HOME;
     process.env.AHO_HOME = join(tempDir, ".aho-home");

@@ -245,6 +245,34 @@ const snapshot = {
         actions: [],
       }],
     },
+    confirmationQueue: {
+      primary: {
+        id: "confirm:close:member-discount",
+        kind: "planning-confirm",
+        conversationId: "member-discount",
+        changeId: "member-discount",
+        summary: "这个需求对话可以结束并归档。",
+        whyNeedsConfirmation: "确认完成需求对话",
+        confirmEffect: "同意会完成并归档这个需求对话。",
+        riskSummary: "归档后仍可从历史查看。",
+        evidenceRefs: [],
+        actions: [{
+          id: "accept:close:member-discount",
+          label: "同意",
+          kind: "approval",
+          approvalId: "close:member-discount",
+          action: { actionId: "change.close", label: "同意", command: "change", args: ["close", "repo"], mutates: true, requiresConfirmation: true },
+          enabled: true,
+          requiresConfirmation: true,
+        }],
+        primary: true,
+        status: "pending",
+      },
+      current: [],
+      otherDemands: [],
+      maintenance: [],
+      history: [],
+    },
   },
   harnessGaps: [],
   warnings: [],
@@ -329,7 +357,7 @@ describe("Workbench web app", () => {
     expect(screen.getByText("Repo")).toBeTruthy();
     expect(screen.getByText("设置")).toBeTruthy();
     expect(screen.queryByText("远程项目")).toBeNull();
-    expect(screen.getByText("当前决策")).toBeTruthy();
+    expect(screen.getByText("需要你确认")).toBeTruthy();
     expect(screen.getAllByText("已完成").length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole("button", { name: "对话" }));
     expect(screen.getByText("用户消息")).toBeTruthy();
@@ -494,6 +522,30 @@ describe("Workbench web app", () => {
             actions: [],
           }],
         },
+        confirmationQueue: {
+          primary: {
+            id: "confirm:queue:queue-blocked:blocked",
+            kind: "request-changes",
+            conversationId: "member-discount",
+            changeId: "member-discount",
+            runId: "run-blocked",
+            summary: "T-001: 审查未通过，需要补证据。",
+            whyNeedsConfirmation: "任务暂停：T-001",
+            confirmEffect: "主对话会接收失败原因；你可以要求修改，系统会把反馈绑定到该任务结果。",
+            riskSummary: "执行状态仍用于恢复和归因；你只需要处理当前暂停的任务。",
+            evidenceRefs: [],
+            actions: [
+              { id: "feedback:taskrun-blocked", label: "要求修改", kind: "feedback", enabled: true, requiresConfirmation: false },
+              { id: "evidence:run-blocked", label: "查看证据", kind: "evidence", enabled: true, requiresConfirmation: false },
+            ],
+            primary: true,
+            status: "pending",
+          },
+          current: [],
+          otherDemands: [],
+          maintenance: [],
+          history: [],
+        },
       },
     };
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
@@ -539,6 +591,31 @@ describe("Workbench web app", () => {
           related: [],
           history: [],
         },
+        confirmationQueue: {
+          primary: {
+            id: "confirm:approval:spec:run-spec",
+            kind: "planning-confirm",
+            conversationId: "member-discount",
+            changeId: "member-discount",
+            runId: "run-spec",
+            resultId: "run-spec",
+            summary: "等待接受或要求修改。",
+            whyNeedsConfirmation: "需求说明草案: run-spec",
+            confirmEffect: "确认后会更新内部需求说明。",
+            riskSummary: "也可以要求修改并补充约束。",
+            evidenceRefs: [],
+            actions: [
+              { id: "accept:spec:run-spec", label: "接受 Spec", kind: "approval", approvalId: "spec:run-spec", action: { actionId: "change.spec.accept", label: "接受 Spec", command: "change", args: ["spec", "accept", "repo", "run-spec"], mutates: true, requiresConfirmation: true }, enabled: true, requiresConfirmation: true },
+              { id: "feedback:spec:run-spec", label: "要求修改", kind: "feedback", approvalId: "spec:run-spec", action: { actionId: "change.spec.accept", label: "接受 Spec", command: "change", args: ["spec", "accept", "repo", "run-spec"], mutates: true, requiresConfirmation: true }, enabled: true, requiresConfirmation: false },
+            ],
+            primary: true,
+            status: "pending",
+          },
+          current: [],
+          otherDemands: [],
+          maintenance: [],
+          history: [],
+        },
       },
     };
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
@@ -554,7 +631,7 @@ describe("Workbench web app", () => {
     await waitFor(() => expect(screen.getByText("需求说明草案: run-spec")).toBeTruthy());
     fireEvent.click(screen.getByText("要求修改"));
     expect(screen.getByTestId("decision-feedback-editor")).toBeTruthy();
-    fireEvent.change(screen.getByPlaceholderText("写下需要修改的点、补充约束或复审要求。"), { target: { value: "补充金额舍入规则。" } });
+    fireEvent.change(screen.getByPlaceholderText("写下需要修改的地方"), { target: { value: "补充金额舍入规则。" } });
     fireEvent.click(screen.getByText("提交反馈"));
 
     await waitFor(() => {
@@ -564,7 +641,7 @@ describe("Workbench web app", () => {
       }));
       expect(fetch).toHaveBeenCalledWith("/api/projects/repo/workbench/actions", expect.objectContaining({
         method: "POST",
-        body: expect.stringContaining("\"contextId\":\"approval:spec:run-spec\""),
+        body: expect.stringContaining("\"contextId\":\"confirm:approval:spec:run-spec\""),
       }));
     });
   });
@@ -1023,7 +1100,7 @@ describe("Workbench web app", () => {
     expect(screen.getByText("使用现有文件夹")).toBeTruthy();
     expect(screen.getByText("新建空项目")).toBeTruthy();
     expect(screen.queryByText("远程项目")).toBeNull();
-    expect(screen.getByText("暂无当前决策")).toBeTruthy();
+    expect(screen.getByText("暂无需要确认")).toBeTruthy();
     fireEvent.click(screen.getByText("Repo"));
     await waitFor(() => expect(screen.getByText("初始化 Harness")).toBeTruthy());
   });
