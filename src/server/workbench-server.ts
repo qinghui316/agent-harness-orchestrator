@@ -899,7 +899,7 @@ function inferTargetIdFromAction(action: WorkbenchApprovalAction, result: unknow
   if (action.actionId === "result.apply") return scopedWorktreeArg(action) ?? null;
   if (action.actionId === "worktree.apply") return scopedWorktreeArg(action) ?? null;
   if (action.actionId === "worktree.discard") return scopedWorktreeArg(action) ?? null;
-  if (action.actionId === "apply-check.apply" || action.actionId === "apply-check.discard") return action.args[2] ?? action.args[1] ?? null;
+  if (action.actionId === "apply-check.apply" || action.actionId === "apply-check.discard") return action.args[1] ?? null;
   if (action.actionId === "change.close") return action.args[1] ?? null;
   return null;
 }
@@ -1051,7 +1051,7 @@ async function runAllowlistedAction(project: NonNullable<WorkbenchProjectInput["
       return discardWorktree(project, scopedWorktreeArgOrThrow(action));
     case "apply-check.apply":
       assertArgs(action, "apply-check", ["apply"], 2);
-      return applyIntegrationCheck(project, args[2] ?? args[1]);
+      return applyIntegrationCheck(project, args[1], args[2]);
     case "apply-check.discard":
       assertArgs(action, "apply-check", ["discard"], 2);
       return discardIntegrationCheck(project, args[2] ?? args[1]);

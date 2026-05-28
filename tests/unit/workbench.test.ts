@@ -1120,6 +1120,71 @@ describe("workbench read model", () => {
     }
   });
 
+  it("runs integration fix on aggregate validation failure and applies repaired artifact only after confirmation", async () => {
+    const oldAhoHome = process.env.AHO_HOME;
+    process.env.AHO_HOME = join(tempDir, ".aho-home");
+    try {
+      await initGitRepository(tempDir);
+      await writeFile(join(tempDir, ".gitignore"), ".aho-home/\n.agent-harness/\nharness/\nAGENTS.md\ndocs/\nscripts/\n", "utf8");
+      await writeFile(join(tempDir, "package.json"), "{\"scripts\":{\"test\":\"node -e \\\"process.exit(0)\\\"\"}}\n", "utf8");
+      await git(tempDir, ["add", "."]);
+      await git(tempDir, ["commit", "-m", "initial"]);
+      await initHarness(project());
+      await writeRawActiveChange("demand-a", "Demand A");
+      await writeRawActiveChange("demand-b", "Demand B");
+      await writeAcceptedSpecAndTasks("demand-a");
+      await writeAcceptedSpecAndTasks("demand-b");
+      const memory = await resolveProjectMemory(project());
+      const worktreeA = await createWorktree(project(), memory, "demand-a");
+      await writeFile(join(worktreeA.metadata.checkoutPath, "a.txt"), "a\n", "utf8");
+      const diffA = await collectWorktreeDiff(memory, worktreeA.metadata.worktreeId, "demand-a");
+      await writeValidationResultWithHash("demand-a", "run-validation-a", worktreeA.metadata.worktreeId, diffA.diffHash, "passed");
+      await writeAuditResultWithHash("demand-a", "run-audit-a", worktreeA.metadata.worktreeId, diffA.diffHash, "approved-with-notes");
+      const worktreeB = await createWorktree(project(), memory, "demand-b");
+      await writeFile(join(worktreeB.metadata.checkoutPath, "integration-validation-fail.txt"), "temporary aggregate failure marker\n", "utf8");
+      await writeFile(join(worktreeB.metadata.checkoutPath, "b.txt"), "b\n", "utf8");
+      const diffB = await collectWorktreeDiff(memory, worktreeB.metadata.worktreeId, "demand-b");
+      await writeValidationResultWithHash("demand-b", "run-validation-b", worktreeB.metadata.worktreeId, diffB.diffHash, "passed");
+      await writeAuditResultWithHash("demand-b", "run-audit-b", worktreeB.metadata.worktreeId, diffB.diffHash, "approved-with-notes");
+
+      const checked = await executeWorkbenchAction({ project: project(), path: tempDir }, {
+        actionType: "apply-check.run",
+        changeId: "demand-a",
+        worktreeIds: [worktreeA.metadata.worktreeId, worktreeB.metadata.worktreeId],
+        confirm: true,
+      });
+      const check = (checked.result as { result: { check: { id: string; status: string; latestArtifactRef?: string; aggregateValidation?: { status: string }; aggregateAudit?: { status: string }; fixAttempts?: Array<{ status: string }> } } }).result.check;
+      expect(check).toMatchObject({
+        status: "passed",
+        latestArtifactRef: expect.stringContaining("repaired.patch"),
+        aggregateValidation: expect.objectContaining({ status: "passed" }),
+        aggregateAudit: expect.objectContaining({ status: "approved" }),
+      });
+      expect(check.fixAttempts?.[0]).toMatchObject({ status: "completed" });
+      expect(existsSync(join(tempDir, "a.txt"))).toBe(false);
+      expect(existsSync(join(tempDir, "b.txt"))).toBe(false);
+      expect(existsSync(join(tempDir, "integration-validation-fail.txt"))).toBe(false);
+
+      await executeWorkbenchAction({ project: project(), path: tempDir }, {
+        action: {
+          actionId: "apply-check.apply",
+          command: "apply-check",
+          args: ["apply", check.id],
+          label: "确认应用到项目",
+          mutates: true,
+          requiresConfirmation: true,
+        },
+        confirm: true,
+      });
+      expect(existsSync(join(tempDir, "a.txt"))).toBe(true);
+      expect(existsSync(join(tempDir, "b.txt"))).toBe(true);
+      expect(existsSync(join(tempDir, "integration-validation-fail.txt"))).toBe(false);
+    } finally {
+      if (oldAhoHome === undefined) delete process.env.AHO_HOME;
+      else process.env.AHO_HOME = oldAhoHome;
+    }
+  });
+
   it("classifies source drift as same-demand refresh rework instead of apply", async () => {
     const oldAhoHome = process.env.AHO_HOME;
     process.env.AHO_HOME = join(tempDir, ".aho-home");

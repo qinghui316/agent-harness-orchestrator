@@ -2340,7 +2340,7 @@ function integrationCheckQueueItem(project: ManagedProject, check: IntegrationCh
         id: `apply-check-apply:${check.id}`,
         label: "确认应用到项目",
         kind: "approval",
-        action: approvalAction("apply-check.apply", "确认应用到项目", "apply-check", ["apply", check.id], true),
+        action: approvalAction("apply-check.apply", "确认应用到项目", "apply-check", ["apply", check.id, check.latestArtifactHash ?? ""], true),
         enabled: true,
         requiresConfirmation: true,
       },
