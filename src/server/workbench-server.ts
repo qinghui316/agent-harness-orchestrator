@@ -711,6 +711,10 @@ function isLiveWorkflowAction(actionType: string): actionType is WorkbenchWorkfl
     || actionType === "conversation.steer"
     || actionType === "conversation.interrupt"
     || actionType === "conversation.continue"
+    || actionType === "result.refresh-rework"
+    || actionType === "result.revalidate"
+    || actionType === "result.reaudit"
+    || actionType === "result.refresh-status"
     || actionType === "code.run"
     || actionType === "task.run.start"
     || actionType === "task.run.retry"
@@ -885,9 +889,9 @@ function inferTargetIdFromAction(action: WorkbenchApprovalAction, result: unknow
   if (action.actionId === "change.spec.accept" || action.actionId === "change.plan.accept") return action.args[3] ?? null;
   if (action.actionId === "spec-test.proposal.accept-all-existing") return action.args[3] ?? null;
   if (action.actionId === "audit.accept") return action.args[2] ?? null;
-  if (action.actionId === "result.apply") return action.args[2] ?? null;
-  if (action.actionId === "worktree.apply") return action.args[2] ?? null;
-  if (action.actionId === "worktree.discard") return action.args[2] ?? null;
+  if (action.actionId === "result.apply") return scopedWorktreeArg(action) ?? null;
+  if (action.actionId === "worktree.apply") return scopedWorktreeArg(action) ?? null;
+  if (action.actionId === "worktree.discard") return scopedWorktreeArg(action) ?? null;
   if (action.actionId === "change.close") return action.args[1] ?? null;
   return null;
 }
@@ -1028,19 +1032,33 @@ async function runAllowlistedAction(project: NonNullable<WorkbenchProjectInput["
       return acceptAudit(project, args[2]);
     case "result.apply":
       assertArgs(action, "result", ["apply"], 3);
-      return applyResultToProject(project, args[2], { commit: options?.commit === true, message: options?.message });
+      return applyResultToProject(project, scopedWorktreeArgOrThrow(action), { commit: options?.commit === true, message: options?.message });
     case "worktree.apply":
       assertArgs(action, "worktree", ["apply"], 3);
-      return applyWorktree(project, args[2], { commit: options?.commit === true, message: options?.message });
+      return applyWorktree(project, scopedWorktreeArgOrThrow(action), { commit: options?.commit === true, message: options?.message });
     case "worktree.discard":
       assertArgs(action, "worktree", ["discard"], 3);
-      return discardWorktree(project, args[2]);
+      return discardWorktree(project, scopedWorktreeArgOrThrow(action));
     case "change.close":
       assertArgs(action, "change", ["close"], 2);
       return closeChange(project);
     default:
       throw new Error("Unsupported Workbench action.");
   }
+}
+
+function scopedWorktreeArg(action: WorkbenchApprovalAction): string | undefined {
+  return action.args.length >= 4 ? action.args[3] : action.args[2];
+}
+
+function scopedWorktreeArgOrThrow(action: WorkbenchApprovalAction): string {
+  const value = scopedWorktreeArg(action);
+  if (!value) {
+    const error = new Error(`Missing worktree id for action ${action.actionId}.`);
+    error.name = "BadRequest";
+    throw error;
+  }
+  return value;
 }
 
 function assertArgs(action: WorkbenchApprovalAction, command: string, prefix: string[], minLength: number): void {

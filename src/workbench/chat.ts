@@ -500,6 +500,10 @@ export type WorkbenchWorkflowActionType =
   | "conversation.steer"
   | "conversation.interrupt"
   | "conversation.continue"
+  | "result.refresh-rework"
+  | "result.revalidate"
+  | "result.reaudit"
+  | "result.refresh-status"
   | "code.run"
   | "task.run.start"
   | "task.run.retry"
@@ -787,6 +791,17 @@ async function executeWorkflowAction(project: ManagedProject, changeId: string, 
       return interruptConversation(project, changeId, request.prompt, live);
     case "conversation.continue":
       return runRolePipelineSequence(project, changeId, request.prompt, live, true);
+    case "result.refresh-rework":
+      if (!request.worktreeId) throw new Error("result.refresh-rework requires worktreeId.");
+      return runCodeValidateAuditSequence(project, changeId, sourceRefreshReworkPrompt(request.worktreeId, request.prompt), live, undefined, undefined, "rework-coder");
+    case "result.revalidate":
+      if (!request.worktreeId) throw new Error("result.revalidate requires worktreeId.");
+      return startValidationRun(project, { changeId, worktree: request.worktreeId });
+    case "result.reaudit":
+      if (!request.worktreeId) throw new Error("result.reaudit requires worktreeId.");
+      return startAuditRun(project, { changeId, worktreeId: request.worktreeId, prompt: request.prompt ?? "Re-run audit for the selected result review evidence." });
+    case "result.refresh-status":
+      return { status: "refreshed", changeId, worktreeId: request.worktreeId };
     case "code.run":
       return runCodeValidateAuditSequence(project, changeId, request.prompt, live, request.taskIds);
     case "task.run.start":
@@ -1855,6 +1870,16 @@ async function runCodeValidateAuditSequence(
   return { code, validation, audit, stoppedAt: audit.audit.status === "approved" || audit.audit.status === "approved-with-notes" ? null : "audit" };
 }
 
+function sourceRefreshReworkPrompt(worktreeId: string, extraPrompt?: string): string {
+  return [
+    "The previous result is no longer safe to apply because the project source changed after the worktree was created.",
+    "Re-read the accepted demand artifacts, current source tree, prior result summary, validation/audit evidence, and user feedback.",
+    `Do not patch the old result in place. Create a fresh same-demand implementation attempt from the current source state. Prior worktree: ${worktreeId}.`,
+    "After implementation, preserve evidence for independent validation and audit.",
+    extraPrompt?.trim() ? `Additional user feedback:\n${extraPrompt.trim()}` : "",
+  ].filter(Boolean).join("\n\n");
+}
+
 async function runCodexChat(project: ManagedProject, changeId: string, userMessage: string, live?: WorkbenchLiveSink): Promise<{ run: RunMetadata; message: string; codexSessionId: string | null }> {
   const memory = await resolveProjectMemory(project);
   assertWritableMemory(memory, "Topic chat");
@@ -2793,6 +2818,10 @@ function labelForAction(actionType: string): string {
     case "conversation.steer": return "Conversation steering recorded";
     case "conversation.interrupt": return "Conversation interrupt requested";
     case "conversation.continue": return "Conversation continued";
+    case "result.refresh-rework": return "Result refreshed against latest project state";
+    case "result.revalidate": return "Result validation refreshed";
+    case "result.reaudit": return "Result audit refreshed";
+    case "result.refresh-status": return "Result status refreshed";
     case "code.run": return "Coder run confirmed";
     case "task.run.start": return "Task workflow started";
     case "task.run.retry": return "Task workflow retried";

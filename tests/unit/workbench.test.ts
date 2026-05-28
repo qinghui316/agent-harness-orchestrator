@@ -961,6 +961,7 @@ describe("workbench read model", () => {
       expect(applyApproval).toMatchObject({ kind: "apply-gate" });
       expect(applyApproval?.actions.find((action) => action.kind === "approval")?.action).toMatchObject({
         actionId: "result.apply",
+        args: ["apply", "", "result-review-demand", worktree.metadata.worktreeId],
       });
 
       const resultApplyAction = applyApproval?.actions.find((action) => action.action?.actionId === "result.apply")?.action;
@@ -980,6 +981,124 @@ describe("workbench read model", () => {
       const afterApply = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: "result-review-demand" });
       expect(afterApply.center.workpad.resultReview).toMatchObject({ status: "applied-source-dirty" });
       expect(afterApply.center.selectedTopic?.state).toBe("active");
+    } finally {
+      if (oldAhoHome === undefined) delete process.env.AHO_HOME;
+      else process.env.AHO_HOME = oldAhoHome;
+    }
+  });
+
+  it("scopes result review apply decisions to the selected demand worktree", async () => {
+    const oldAhoHome = process.env.AHO_HOME;
+    process.env.AHO_HOME = join(tempDir, ".aho-home");
+    try {
+      await initGitRepository(tempDir);
+      await writeFile(join(tempDir, ".gitignore"), ".aho-home/\n.agent-harness/\nharness/\nAGENTS.md\ndocs/\nscripts/\n", "utf8");
+      await writeFile(join(tempDir, "package.json"), "{\"scripts\":{\"test\":\"node -e \\\"process.exit(0)\\\"\"}}\n", "utf8");
+      await git(tempDir, ["add", "."]);
+      await git(tempDir, ["commit", "-m", "initial"]);
+      await initHarness(project());
+      await writeRawActiveChange("demand-a", "Demand A");
+      await writeRawActiveChange("demand-b", "Demand B");
+      await writeAcceptedSpecAndTasks("demand-a");
+      await writeAcceptedSpecAndTasks("demand-b");
+      const memory = await resolveProjectMemory(project());
+      const worktreeB = await createWorktree(project(), memory, "demand-b");
+      await writeFile(join(worktreeB.metadata.checkoutPath, "package.json"), "{\"scripts\":{\"test\":\"node -e \\\"console.log('b')\\\"\"}}\n", "utf8");
+      const diffB = await collectWorktreeDiff(memory, worktreeB.metadata.worktreeId, "demand-b");
+      await writeValidationResultWithHash("demand-b", "run-validation-b", worktreeB.metadata.worktreeId, diffB.diffHash, "passed");
+      await writeAuditResultWithHash("demand-b", "run-audit-b", worktreeB.metadata.worktreeId, diffB.diffHash, "approved-with-notes");
+
+      const snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: "demand-b" });
+      const applyAction = snapshot.right.decisionInspector.primary?.actions.find((action) => action.action?.actionId === "result.apply")?.action;
+
+      expect(snapshot.center.selectedTopic?.id).toBe("demand-b");
+      expect(snapshot.center.workpad.resultReview).toMatchObject({
+        status: "ready-to-apply",
+        worktreeId: worktreeB.metadata.worktreeId,
+        applyReadiness: expect.objectContaining({ kind: "ready" }),
+      });
+      expect(applyAction).toMatchObject({
+        actionId: "result.apply",
+        args: ["apply", "", "demand-b", worktreeB.metadata.worktreeId],
+      });
+    } finally {
+      if (oldAhoHome === undefined) delete process.env.AHO_HOME;
+      else process.env.AHO_HOME = oldAhoHome;
+    }
+  });
+
+  it("classifies source drift as same-demand refresh rework instead of apply", async () => {
+    const oldAhoHome = process.env.AHO_HOME;
+    process.env.AHO_HOME = join(tempDir, ".aho-home");
+    try {
+      await initGitRepository(tempDir);
+      await writeFile(join(tempDir, ".gitignore"), ".aho-home/\n.agent-harness/\nharness/\nAGENTS.md\ndocs/\nscripts/\n", "utf8");
+      await writeFile(join(tempDir, "package.json"), "{\"scripts\":{\"test\":\"node -e \\\"process.exit(0)\\\"\"}}\n", "utf8");
+      await git(tempDir, ["add", "."]);
+      await git(tempDir, ["commit", "-m", "initial"]);
+      await initHarness(project());
+      await createChange(project(), { title: "Source Drift Demand" });
+      await writeAcceptedSpecAndTasks("source-drift-demand");
+      const memory = await resolveProjectMemory(project());
+      const worktree = await createWorktree(project(), memory, "source-drift-demand");
+      await writeFile(join(worktree.metadata.checkoutPath, "package.json"), "{\"scripts\":{\"test\":\"node -e \\\"console.log('drift')\\\"\"}}\n", "utf8");
+      const diff = await collectWorktreeDiff(memory, worktree.metadata.worktreeId, "source-drift-demand");
+      await writeValidationResultWithHash("source-drift-demand", "run-validation-drift", worktree.metadata.worktreeId, diff.diffHash, "passed");
+      await writeAuditResultWithHash("source-drift-demand", "run-audit-drift", worktree.metadata.worktreeId, diff.diffHash, "approved-with-notes");
+      await writeFile(join(tempDir, "README.md"), "Project changed after result review.\n", "utf8");
+      await git(tempDir, ["add", "README.md"]);
+      await git(tempDir, ["commit", "-m", "source changed"]);
+
+      const snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: "source-drift-demand" });
+      const primary = snapshot.right.decisionInspector.primary;
+
+      expect(snapshot.center.workpad.resultReview?.applyReadiness).toMatchObject({
+        kind: "source-drift",
+        message: "项目已变化，需要重新处理这个结果。",
+      });
+      expect(primary).toMatchObject({
+        title: "项目已变化，需要重新处理这个结果。",
+        targetId: worktree.metadata.worktreeId,
+      });
+      expect(primary?.actions.some((action) => action.actionType === "result.refresh-rework")).toBe(true);
+      expect(primary?.actions.some((action) => action.action?.actionId === "result.apply")).toBe(false);
+      expect(JSON.stringify(snapshot.center.workpad.resultReview)).not.toContain("Source HEAD drifted");
+    } finally {
+      if (oldAhoHome === undefined) delete process.env.AHO_HOME;
+      else process.env.AHO_HOME = oldAhoHome;
+    }
+  });
+
+  it("classifies dirty source as refresh status without automatic coder rework", async () => {
+    const oldAhoHome = process.env.AHO_HOME;
+    process.env.AHO_HOME = join(tempDir, ".aho-home");
+    try {
+      await initGitRepository(tempDir);
+      await writeFile(join(tempDir, ".gitignore"), ".aho-home/\n.agent-harness/\nharness/\nAGENTS.md\ndocs/\nscripts/\n", "utf8");
+      await writeFile(join(tempDir, "package.json"), "{\"scripts\":{\"test\":\"node -e \\\"process.exit(0)\\\"\"}}\n", "utf8");
+      await git(tempDir, ["add", "."]);
+      await git(tempDir, ["commit", "-m", "initial"]);
+      await initHarness(project());
+      await createChange(project(), { title: "Dirty Source Demand" });
+      await writeAcceptedSpecAndTasks("dirty-source-demand");
+      const memory = await resolveProjectMemory(project());
+      const worktree = await createWorktree(project(), memory, "dirty-source-demand");
+      await writeFile(join(worktree.metadata.checkoutPath, "package.json"), "{\"scripts\":{\"test\":\"node -e \\\"console.log('dirty')\\\"\"}}\n", "utf8");
+      const diff = await collectWorktreeDiff(memory, worktree.metadata.worktreeId, "dirty-source-demand");
+      await writeValidationResultWithHash("dirty-source-demand", "run-validation-dirty", worktree.metadata.worktreeId, diff.diffHash, "passed");
+      await writeAuditResultWithHash("dirty-source-demand", "run-audit-dirty", worktree.metadata.worktreeId, diff.diffHash, "approved-with-notes");
+      await writeFile(join(tempDir, "README.md"), "Uncommitted local edit.\n", "utf8");
+
+      const snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: "dirty-source-demand" });
+      const primary = snapshot.right.decisionInspector.primary;
+
+      expect(snapshot.center.workpad.resultReview?.applyReadiness).toMatchObject({
+        kind: "dirty-source",
+        message: "项目里有未处理的本地改动，暂时不能应用。",
+      });
+      expect(primary?.actions.some((action) => action.actionType === "result.refresh-status")).toBe(true);
+      expect(primary?.actions.some((action) => action.actionType === "result.refresh-rework")).toBe(false);
+      expect(primary?.actions.some((action) => action.action?.actionId === "result.apply")).toBe(false);
     } finally {
       if (oldAhoHome === undefined) delete process.env.AHO_HOME;
       else process.env.AHO_HOME = oldAhoHome;

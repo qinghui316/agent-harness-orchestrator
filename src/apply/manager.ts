@@ -1,14 +1,14 @@
 import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join, relative } from "node:path";
-import { getChangeStatus } from "../change/manager.js";
+import { getChangeStatusForChange } from "../change/manager.js";
 import { collectWorktreeDiff } from "../audit/diff.js";
 import { acceptAudit } from "../audit/manager.js";
 import { listAuditResults } from "../audit/artifacts.js";
 import { writeJsonFile } from "../fs/json.js";
 import { assertWritableMemory, resolveProjectMemory } from "../memory/resolver.js";
 import { getGitCommit, git, isGitDirty } from "../project/git.js";
-import { appendRunEvent, assertRunnableChange, buildRunId } from "../run/manager.js";
+import { appendRunEvent, buildRunId } from "../run/manager.js";
 import { listValidationResults } from "../validation/artifacts.js";
 import { getWorktreeStatus, markWorktreeApplied, removeWorktree } from "../worktree/manager.js";
 import type { AuditResult, ManagedProject, ResolvedMemory, RunMetadata, RunStatus, ValidationResult, WorktreeStatus } from "../types/index.js";
@@ -25,6 +25,20 @@ export interface WorktreeGateState {
   audit: AuditResult | null;
   reviewAuditId: string | null;
   sourceHead: string | null;
+}
+
+export type ApplyReadinessKind =
+  | "ready"
+  | "source-drift"
+  | "dirty-source"
+  | "stale-validation"
+  | "stale-audit"
+  | "not-approved";
+
+export interface ApplyReadinessClassification {
+  kind: ApplyReadinessKind;
+  message: string;
+  primaryAction: "apply" | "refresh-rework" | "refresh-status" | "revalidate" | "reaudit" | "request-changes";
 }
 
 export interface WorktreePreviewResult {
@@ -89,6 +103,31 @@ export function canAutoAcceptAuditForApply(gate: WorktreeGateState): boolean {
 
 export function canApplyResultFromGate(gate: WorktreeGateState): boolean {
   return gate.ready || canAutoAcceptAuditForApply(gate);
+}
+
+export function classifyApplyReadiness(gate: WorktreeGateState): ApplyReadinessClassification {
+  if (canApplyResultFromGate(gate)) {
+    return { kind: "ready", message: "可以应用到项目", primaryAction: "apply" };
+  }
+  if (gate.blockingIssues.some((issue) => issue.includes("Source repo has uncommitted changes"))) {
+    return { kind: "dirty-source", message: "项目里有未处理的本地改动，暂时不能应用。", primaryAction: "refresh-status" };
+  }
+  if (gate.sourceHead !== gate.worktree.baseCommit) {
+    return { kind: "source-drift", message: "项目已变化，需要重新处理这个结果。", primaryAction: "refresh-rework" };
+  }
+  if (!gate.validation) {
+    return { kind: "stale-validation", message: "验证证据缺失或已过期，需要重新验证。", primaryAction: "revalidate" };
+  }
+  if (gate.validation.status !== "passed") {
+    return { kind: "not-approved", message: "验证未通过，需要修改后再应用。", primaryAction: "request-changes" };
+  }
+  if (!gate.audit) {
+    return { kind: "stale-audit", message: "审查证据缺失或已过期，需要重新审查。", primaryAction: "reaudit" };
+  }
+  if (gate.audit.status !== "approved" && gate.audit.status !== "approved-with-notes") {
+    return { kind: "not-approved", message: "审查未通过，需要修改或补证据。", primaryAction: "request-changes" };
+  }
+  return { kind: "not-approved", message: "结果证据还不完整，暂时不能应用。", primaryAction: "request-changes" };
 }
 
 export async function applyResultToProject(project: ManagedProject, worktreeId: string, options: WorktreeApplyOptions = {}): Promise<WorktreeResultApplyResult> {
@@ -212,14 +251,10 @@ export async function applyWorktree(project: ManagedProject, worktreeId: string,
 export async function discardWorktree(project: ManagedProject, worktreeId: string): Promise<WorktreeDiscardResult> {
   const memory = await resolveProjectMemory(project);
   assertWritableMemory(memory, "Worktree discard");
-  const status = await getChangeStatus(project);
-  assertRunnableChange(status);
-  const changeId = status.change?.id ?? status.activeChanges[0]?.name;
-  if (!changeId) throw new Error("Cannot discard worktree without an active change id.");
   const worktree = await getWorktreeStatus(memory, worktreeId);
-  if (worktree.changeId !== changeId) {
-    throw new Error(`Cannot discard worktree ${worktreeId}: it belongs to change ${worktree.changeId}, not ${changeId}.`);
-  }
+  const changeId = worktree.changeId;
+  const status = await getChangeStatusForChange(project, changeId);
+  if (!status.change) throw new Error(`Cannot discard worktree ${worktreeId}: demand conversation is not active: ${changeId}.`);
   if (worktree.status === "applied") {
     throw new Error(`Cannot discard applied worktree ${worktreeId}. Use worktree remove for cleanup.`);
   }
@@ -279,10 +314,10 @@ export async function discardWorktree(project: ManagedProject, worktreeId: strin
 }
 
 async function evaluateApplyGate(project: ManagedProject, memory: ResolvedMemory, worktreeId: string): Promise<WorktreeGateState> {
-  const status = await getChangeStatus(project);
-  assertRunnableChange(status);
-  const changeId = status.change?.id ?? status.activeChanges[0]?.name;
-  if (!changeId) throw new Error("Cannot evaluate apply gate without an active change id.");
+  const worktree = await getWorktreeStatus(memory, worktreeId);
+  const changeId = worktree.changeId;
+  const status = await getChangeStatusForChange(project, changeId);
+  if (!status.change) throw new Error(`Cannot evaluate apply gate: demand conversation is not active: ${changeId}.`);
   const diff = await collectWorktreeDiff(memory, worktreeId, changeId);
   const sourceHead = await getGitCommit(project.path);
   const warnings: string[] = [];
@@ -308,7 +343,7 @@ async function evaluateApplyGate(project: ManagedProject, memory: ResolvedMemory
     blockingIssues.push(`Latest matching audit is not approved: ${audit.id} (${audit.status}).`);
   }
 
-  const reviewAuditId = await readAcceptedReviewAuditId(memory, status.activeChanges[0]?.path);
+  const reviewAuditId = await readAcceptedReviewAuditId(memory, status.activeChanges.find((item) => item.name === changeId)?.path);
   if (!reviewAuditId) {
     blockingIssues.push("reviews/review.md does not reference an accepted Audit ID.");
   } else if (audit && reviewAuditId !== audit.id) {

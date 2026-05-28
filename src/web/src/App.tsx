@@ -238,7 +238,7 @@ type Workpad = {
     diffStat?: string;
     validation?: { id: string; status: string; runId: string };
     audit?: { id: string; status: string; runId: string; findingCount: number; notes: string[]; artifact?: string };
-    applyReadiness: { ready: boolean; label: string; blockingIssues: string[]; warnings: string[] };
+    applyReadiness: { ready: boolean; kind?: string; label: string; message?: string; blockingIssues: string[]; warnings: string[] };
     evidence: Array<{ id: string; label: string; source: string; status?: string; artifact?: string; timestamp?: string }>;
   };
   maintenance?: {
@@ -319,7 +319,7 @@ type PlanCard = {
 };
 type ThreadEvent = { id: string; type: string; label: string; timestamp?: string; status?: string; runId?: string; planCard?: PlanCard };
 type ThreadStreamAction = {
-  actionType: "change.spec.propose" | "change.plan.propose" | "planning.generate" | "planning.revise" | "planning.confirm-execution" | "orchestrator.evaluate" | "orchestrator.pump" | "demand.worker.enqueue" | "demand.worker.claim" | "demand.worker.start-next" | "demand.worker.start-available" | "demand.worker.reconcile" | "demand.worker.release" | "role.pipeline.start" | "role.pipeline.stop" | "role.pipeline.continue" | "role.pipeline.reconcile" | "conversation.steer" | "conversation.interrupt" | "conversation.continue" | "code.run" | "task.run.start" | "task.run.retry" | "task.queue.start" | "task.queue.reconcile" | "intake.scan" | "intake.reanalyze" | "clarification.answer" | "clarification.skip";
+  actionType: "change.spec.propose" | "change.plan.propose" | "planning.generate" | "planning.revise" | "planning.confirm-execution" | "orchestrator.evaluate" | "orchestrator.pump" | "demand.worker.enqueue" | "demand.worker.claim" | "demand.worker.start-next" | "demand.worker.start-available" | "demand.worker.reconcile" | "demand.worker.release" | "role.pipeline.start" | "role.pipeline.stop" | "role.pipeline.continue" | "role.pipeline.reconcile" | "conversation.steer" | "conversation.interrupt" | "conversation.continue" | "result.refresh-rework" | "result.revalidate" | "result.reaudit" | "result.refresh-status" | "code.run" | "task.run.start" | "task.run.retry" | "task.queue.start" | "task.queue.reconcile" | "intake.scan" | "intake.reanalyze" | "clarification.answer" | "clarification.skip";
   label: string;
   enabled: boolean;
   requiresConfirmation: boolean;
@@ -709,7 +709,7 @@ export function App(): ReactElement {
       return;
     }
     if (action.kind === "workflow-action" && action.actionType) {
-      await runWorkflowAction(action.actionType, { taskIds: action.taskIds, taskRunId: action.taskRunId });
+      await runWorkflowAction(action.actionType, { taskIds: action.taskIds, taskRunId: action.taskRunId, worktreeId: context.targetId });
       return;
     }
     if (action.kind === "abandon") {
@@ -2088,7 +2088,7 @@ function ResultReviewNarrative({ review }: { review: NonNullable<Workpad["result
       <div className="role-result-list">
         <div className="role-result-row"><strong>验证</strong><span>{review.validation ? humanStatus(review.validation.status) : "未完成"}</span></div>
         <div className="role-result-row"><strong>审查</strong><span>{review.audit ? humanStatus(review.audit.status) : "未完成"}</span></div>
-        <div className="role-result-row"><strong>下一步</strong><span>{userFacingText(review.applyReadiness.label)}</span></div>
+        <div className="role-result-row"><strong>下一步</strong><span>{userFacingText(review.applyReadiness.message ?? review.applyReadiness.label)}</span></div>
       </div>
       {review.audit?.notes.length ? <p className="parent-agent-note">注意事项：{userFacingText(review.audit.notes[0])}</p> : null}
     </section>
@@ -2260,7 +2260,7 @@ function WorkpadDiagnosticDetails({
           <div className="workpad-progress-grid">
             <WorkpadMetric label="验证" value={workpad.resultReview.validation ? humanStatus(workpad.resultReview.validation.status) : "未完成"} />
             <WorkpadMetric label="审查" value={workpad.resultReview.audit ? humanStatus(workpad.resultReview.audit.status) : "未完成"} />
-            <WorkpadMetric label="应用状态" value={userFacingText(workpad.resultReview.applyReadiness.label)} />
+            <WorkpadMetric label="应用状态" value={userFacingText(workpad.resultReview.applyReadiness.message ?? workpad.resultReview.applyReadiness.label)} />
           </div>
           {workpad.resultReview.audit?.notes.length ? (
             <ul className="workpad-issue-list">
@@ -3758,6 +3758,10 @@ function workflowActionLabel(actionType: string | undefined): string {
   if (actionType === "conversation.steer") return "引导当前执行";
   if (actionType === "conversation.interrupt") return "停止当前执行";
   if (actionType === "conversation.continue") return "继续执行";
+  if (actionType === "result.refresh-rework") return "重新处理这个结果";
+  if (actionType === "result.revalidate") return "重新验证";
+  if (actionType === "result.reaudit") return "重新审查";
+  if (actionType === "result.refresh-status") return "刷新状态";
   if (actionType === "role.pipeline.continue") return "继续执行";
   if (actionType === "role.pipeline.reconcile") return "恢复执行状态";
   if (actionType === "code.run") return "Code workflow";

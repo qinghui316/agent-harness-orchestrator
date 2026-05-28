@@ -2,11 +2,11 @@ import { existsSync } from "node:fs";
 import { open, readFile, readdir, stat } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
 import { z } from "zod";
-import { canApplyResultFromGate, previewWorktreeApply, type WorktreeGateState } from "../apply/manager.js";
+import { canApplyResultFromGate, classifyApplyReadiness, previewWorktreeApply, type ApplyReadinessKind, type WorktreeGateState } from "../apply/manager.js";
 import { listAgentTasks, listMaintenanceLedgerEntries, readAgentTaskResult } from "../agent-task/manager.js";
 import { listAuditResults, summarizeAudit } from "../audit/artifacts.js";
 import { listPlanProposalSummaries, listSpecProposalSummaries } from "../change/proposals.js";
-import { getChangeStatus } from "../change/manager.js";
+import { getChangeStatusForChange } from "../change/manager.js";
 import { buildAcMap } from "../ecl/anchors.js";
 import { buildChangeIndex, hasPendingEvolution } from "../ecl/index.js";
 import { readRequiredJsonFile } from "../fs/json.js";
@@ -113,7 +113,7 @@ export interface WorkbenchThreadEvent {
 }
 
 export interface ThreadStreamAction {
-  actionType: "change.spec.propose" | "change.plan.propose" | "planning.generate" | "planning.revise" | "planning.confirm-execution" | "orchestrator.evaluate" | "orchestrator.pump" | "demand.worker.enqueue" | "demand.worker.claim" | "demand.worker.start-next" | "demand.worker.start-available" | "demand.worker.reconcile" | "demand.worker.release" | "role.pipeline.start" | "role.pipeline.stop" | "role.pipeline.continue" | "role.pipeline.reconcile" | "conversation.steer" | "conversation.interrupt" | "conversation.continue" | "code.run" | "task.run.start" | "task.run.retry" | "task.queue.start" | "task.queue.reconcile" | "intake.scan" | "intake.reanalyze" | "clarification.answer" | "clarification.skip";
+  actionType: "change.spec.propose" | "change.plan.propose" | "planning.generate" | "planning.revise" | "planning.confirm-execution" | "orchestrator.evaluate" | "orchestrator.pump" | "demand.worker.enqueue" | "demand.worker.claim" | "demand.worker.start-next" | "demand.worker.start-available" | "demand.worker.reconcile" | "demand.worker.release" | "role.pipeline.start" | "role.pipeline.stop" | "role.pipeline.continue" | "role.pipeline.reconcile" | "conversation.steer" | "conversation.interrupt" | "conversation.continue" | "result.refresh-rework" | "result.revalidate" | "result.reaudit" | "result.refresh-status" | "code.run" | "task.run.start" | "task.run.retry" | "task.queue.start" | "task.queue.reconcile" | "intake.scan" | "intake.reanalyze" | "clarification.answer" | "clarification.skip";
   label: string;
   enabled: boolean;
   requiresConfirmation: boolean;
@@ -590,7 +590,9 @@ export interface WorkbenchResultReview {
   };
   applyReadiness: {
     ready: boolean;
+    kind: ApplyReadinessKind;
     label: string;
+    message: string;
     blockingIssues: string[];
     warnings: string[];
   };
@@ -685,7 +687,7 @@ export interface WorkbenchTopicDetail extends WorkbenchTopicSummary {
     warnings: string[];
     blockingIssues: string[];
   };
-  acMap?: Awaited<ReturnType<typeof getChangeStatus>>["acMap"];
+  acMap?: Awaited<ReturnType<typeof getChangeStatusForChange>>["acMap"];
   acCount?: number;
   taskCount?: number;
   specTest?: unknown;
@@ -1291,6 +1293,7 @@ async function buildResultReview(project: ManagedProject | null, memory: Resolve
   const auditNotes = audit?.findings.filter((finding) => finding.severity === "note").map((finding) => finding.text) ?? [];
   const blockingIssues = preview?.gate.blockingIssues ?? [];
   const canApply = preview ? canApplyResultFromGate(preview.gate) : false;
+  const readiness = preview?.gate ? classifyApplyReadiness(preview.gate) : undefined;
   const hasFailedEvidence = validation?.status === "failed" || audit?.status === "blocked" || audit?.status === "failed";
   const status: WorkbenchResultReviewStatus = worktree?.status === "applied"
     ? sourceDirty === true ? "applied-source-dirty" : "applied-clean"
@@ -1338,8 +1341,10 @@ async function buildResultReview(project: ManagedProject | null, memory: Resolve
     } : undefined,
     applyReadiness: {
       ready: status === "ready-to-apply",
+      kind: readiness?.kind ?? (status === "ready-to-apply" ? "ready" : "not-approved"),
       label: applyReadinessLabel(status, preview?.gate),
-      blockingIssues,
+      message: readiness?.message ?? applyReadinessLabel(status, preview?.gate),
+      blockingIssues: readiness && readiness.kind !== "ready" ? [readiness.message] : blockingIssues,
       warnings: preview?.gate.warnings ?? [],
     },
     evidence,
@@ -1380,7 +1385,7 @@ function applyReadinessLabel(status: WorkbenchResultReviewStatus, gate: Worktree
   if (status === "ready-to-apply") return "可以应用到项目";
   if (status === "applied-clean") return "已应用且本地状态可收口";
   if (status === "applied-source-dirty") return "已应用，但本地改动需要你处理";
-  if (gate?.blockingIssues.length) return gate.blockingIssues[0] ?? "证据不完整";
+  if (gate) return classifyApplyReadiness(gate).message;
   return "等待验证、审查或结果证据";
 }
 
@@ -2108,6 +2113,8 @@ function buildDecisionInspector(input: {
 }): WorkbenchDecisionInspector {
   const contexts: WorkbenchDecisionContext[] = [];
   if (input.selectedTopic) {
+    const resultContext = resultReviewDecisionContext(input.selectedTopic, input.workpad);
+    if (resultContext) contexts.push(resultContext);
     const autoReworkAvailable = input.workpad.taskGraph.nodes.some((node) => node.autoRework?.available);
     if (!autoReworkAvailable) {
       contexts.push(...queueDecisionContexts(input.selectedTopic, input.workpad));
@@ -2136,6 +2143,95 @@ function buildDecisionInspector(input: {
   return { primary, related, history };
 }
 
+function resultReviewDecisionContext(topic: WorkbenchTopicDetail, workpad: WorkbenchWorkpad): WorkbenchDecisionContext | null {
+  const review = workpad.resultReview;
+  if (!review?.worktreeId) return null;
+  if (review.status === "applied-clean" || review.status === "applied-source-dirty") return null;
+  const severity: WorkbenchDecisionContext["severity"] = review.applyReadiness.kind === "ready" ? "info" : review.applyReadiness.kind === "dirty-source" ? "warning" : "blocking";
+  return {
+    id: `result:${topic.id}:${review.worktreeId}:${review.applyReadiness.kind}`,
+    kind: "apply-gate",
+    title: review.applyReadiness.kind === "ready" ? "结果可以应用到项目" : review.applyReadiness.message,
+    summary: review.summary,
+    severity,
+    changeId: topic.id,
+    targetId: review.worktreeId,
+    artifact: review.audit?.artifact,
+    actions: decisionActionsForResultReview(topic, review),
+    rework: review.applyReadiness.kind === "not-approved" ? recordFeedbackPrompt("要求修改") : undefined,
+  };
+}
+
+function decisionActionsForResultReview(topic: WorkbenchTopicDetail, review: WorkbenchResultReview): WorkbenchDecisionAction[] {
+  const worktreeId = review.worktreeId;
+  if (!worktreeId) return [];
+  const actions: WorkbenchDecisionAction[] = [];
+  if (review.applyReadiness.kind === "ready") {
+    actions.push({
+      id: `apply:${worktreeId}`,
+      label: "应用到项目",
+      kind: "approval",
+      action: approvalAction("result.apply", "应用到项目", "result", ["apply", "", topic.id, worktreeId], true),
+      enabled: true,
+      requiresConfirmation: true,
+    });
+  } else if (review.applyReadiness.kind === "source-drift") {
+    actions.push({
+      id: `refresh-rework:${worktreeId}`,
+      label: "重新处理这个结果",
+      kind: "workflow-action",
+      actionType: "result.refresh-rework",
+      enabled: true,
+      requiresConfirmation: true,
+    });
+  } else if (review.applyReadiness.kind === "dirty-source") {
+    actions.push({
+      id: `refresh-status:${worktreeId}`,
+      label: "刷新状态",
+      kind: "workflow-action",
+      actionType: "result.refresh-status",
+      enabled: true,
+      requiresConfirmation: false,
+    });
+  } else if (review.applyReadiness.kind === "stale-validation") {
+    actions.push({
+      id: `revalidate:${worktreeId}`,
+      label: "重新验证",
+      kind: "workflow-action",
+      actionType: "result.revalidate",
+      enabled: true,
+      requiresConfirmation: true,
+    });
+  } else if (review.applyReadiness.kind === "stale-audit") {
+    actions.push({
+      id: `reaudit:${worktreeId}`,
+      label: "重新审查",
+      kind: "workflow-action",
+      actionType: "result.reaudit",
+      enabled: true,
+      requiresConfirmation: true,
+    });
+  } else {
+    actions.push({
+      id: `feedback:${worktreeId}`,
+      label: "要求修改",
+      kind: "feedback",
+      enabled: true,
+      requiresConfirmation: false,
+    });
+  }
+  if (review.audit?.artifact) actions.push(...evidenceActions(review.audit.artifact));
+  actions.push({
+    id: `discard:${worktreeId}`,
+    label: "放弃这次结果",
+    kind: "approval",
+    action: approvalAction("worktree.discard", "放弃这次结果", "worktree", ["discard", "", topic.id, worktreeId], true),
+    enabled: true,
+    requiresConfirmation: true,
+  });
+  return actions;
+}
+
 function enrichDecisionContext(context: WorkbenchDecisionContext): WorkbenchDecisionContext {
   const userStatus = userDecisionStateForDecisionContext(context);
   return {
@@ -2162,7 +2258,11 @@ function userDecisionTitle(context: WorkbenchDecisionContext): string {
   if (context.kind === "spec-proposal") return "确认需求说明";
   if (context.kind === "plan-proposal") return "确认实施计划";
   if (context.kind === "audit-approved") return "确认审查证据";
-  if (context.kind === "apply-gate") return "确认应用到项目";
+  if (context.kind === "apply-gate") {
+    return context.actions.some((action) => action.actionType === "result.refresh-rework" || action.actionType === "result.revalidate" || action.actionType === "result.reaudit" || action.actionType === "result.refresh-status")
+      ? context.title
+      : "确认应用到项目";
+  }
   if (context.kind === "close-gate") return "确认完成需求";
   if (context.kind === "evolution-pending") return "确认 Harness 演进";
   return context.title;
@@ -2187,7 +2287,13 @@ function userRecommendation(context: WorkbenchDecisionContext): string {
   if (context.kind === "audit-blocked") return "审查失败会先作为 agent 修改输入；若仍失败，再请你补充业务判断。";
   if (context.kind === "spec-proposal" || context.kind === "plan-proposal") return "同意会接受该草案；要求修改会把反馈记录回当前需求。";
   if (context.kind === "audit-approved") return "同意会接受审查证据；要求修改会记录复审要求。";
-  if (context.kind === "apply-gate") return "应用会把当前结果写入项目；要求修改会进入下一轮修改；放弃只丢弃这次结果。";
+  if (context.kind === "apply-gate") {
+    if (context.actions.some((action) => action.actionType === "result.refresh-rework")) return "重新处理会基于最新项目状态创建同一需求的新结果；旧结果保留为历史证据。";
+    if (context.actions.some((action) => action.actionType === "result.revalidate")) return "当前结果需要先重新验证，验证通过后再决定是否应用。";
+    if (context.actions.some((action) => action.actionType === "result.reaudit")) return "当前结果需要先重新审查，审查通过后再决定是否应用。";
+    if (context.actions.some((action) => action.actionType === "result.refresh-status")) return "先刷新当前项目状态或处理本地改动；系统不会把本地脏状态自动交给 coder 修改。";
+    return "应用会把当前结果写入项目；要求修改会进入下一轮修改；放弃只丢弃这次结果。";
+  }
   if (context.kind === "close-gate") return "同意会完成并归档这个需求。";
   return "查看历史决策和证据。";
 }
@@ -2678,11 +2784,11 @@ async function selectTopicDetail(project: ManagedProject | null, memory: Resolve
     listTaskQueueItems(memory, topic.id).catch(() => []),
   ]);
 
-  let statusDetail: Awaited<ReturnType<typeof getChangeStatus>> | null = null;
+  let statusDetail: Awaited<ReturnType<typeof getChangeStatusForChange>> | null = null;
   let specTest: unknown = null;
   let drift: unknown = null;
   if (project && topic.state === "active") {
-    statusDetail = await getChangeStatus(project).catch(() => null);
+    statusDetail = await getChangeStatusForChange(project, topic.id).catch(() => null);
     specTest = await getSpecTestStatus(memory).catch(() => null);
     drift = await getSpecTestDriftReport(memory).catch(() => null);
   }
@@ -3462,7 +3568,7 @@ function parseRunEventLine(line: string, index: number, run: RunMetadata): Workb
 
 async function buildApprovalInbox(project: ManagedProject, memory: ResolvedMemory, topics: WorkbenchTopicSummary[]): Promise<WorkbenchApprovalItem[]> {
   const approvals: WorkbenchApprovalItem[] = [];
-  const activeTopic = topics.find((item) => item.state === "active") ?? null;
+  const activeTopics = topics.filter((item) => item.state === "active");
   const [specProposals, planProposals, specTestProposals] = await Promise.all([
     listSpecProposalSummaries(project).catch(() => []),
     listPlanProposalSummaries(project).catch(() => []),
@@ -3508,7 +3614,8 @@ async function buildApprovalInbox(project: ManagedProject, memory: ResolvedMemor
     });
   }
 
-  if (activeTopic) {
+  const worktrees = await listWorktreeStatuses(memory).catch(() => []);
+  for (const activeTopic of activeTopics) {
     const audits = await listAuditResults(memory, activeTopic.id).catch(() => []);
     for (const audit of audits.filter((item) => item.status === "approved" || item.status === "approved-with-notes").slice(0, 3)) {
       if (await auditAlreadyAccepted(memory, activeTopic.path, audit.id)) continue;
@@ -3524,7 +3631,6 @@ async function buildApprovalInbox(project: ManagedProject, memory: ResolvedMemor
         artifact: audit.artifacts.audit,
       });
     }
-    const worktrees = await listWorktreeStatuses(memory).catch(() => []);
     for (const worktree of worktrees.filter((item) => item.changeId === activeTopic.id && item.status !== "applied")) {
       const preview = await previewWorktreeApply(project, worktree.worktreeId).catch(() => null);
       if (preview && canApplyResultFromGate(preview.gate)) {
@@ -3535,12 +3641,12 @@ async function buildApprovalInbox(project: ManagedProject, memory: ResolvedMemor
           changeId: worktree.changeId,
           targetId: worktree.worktreeId,
           severity: "info",
-          action: approvalAction("result.apply", "应用到项目", "result", ["apply", project.id, worktree.worktreeId], true),
+          action: approvalAction("result.apply", "应用到项目", "result", ["apply", project.id, worktree.changeId, worktree.worktreeId], true),
           artifact: preview.gate.audit?.artifacts.audit,
         });
       }
     }
-    const status = await getChangeStatus(project).catch(() => null);
+    const status = await getChangeStatusForChange(project, activeTopic.id).catch(() => null);
     if (status?.closeGate.ready) {
       approvals.push({
         id: `close:${activeTopic.id}`,
@@ -3549,12 +3655,12 @@ async function buildApprovalInbox(project: ManagedProject, memory: ResolvedMemor
         changeId: activeTopic.id,
         targetId: activeTopic.id,
         severity: "info",
-        action: approvalAction("change.close", "Close change", "change", ["close", project.id], true),
+        action: approvalAction("change.close", "Close change", "change", ["close", project.id, activeTopic.id], true),
       });
     }
     if (status?.latestValidation?.status === "failed") {
       approvals.push({
-        id: `attention:validation:${status.latestValidation.id}`,
+        id: `attention:validation:${activeTopic.id}:${status.latestValidation.id}`,
         kind: "attention",
         label: `Latest validation failed: ${status.latestValidation.id}`,
         changeId: activeTopic.id,
@@ -3565,7 +3671,7 @@ async function buildApprovalInbox(project: ManagedProject, memory: ResolvedMemor
     }
     if (status?.latestAudit?.status === "blocked") {
       approvals.push({
-        id: `attention:audit:${status.latestAudit.id}`,
+        id: `attention:audit:${activeTopic.id}:${status.latestAudit.id}`,
         kind: "attention",
         label: `Latest audit blocked: ${status.latestAudit.id}`,
         changeId: activeTopic.id,
