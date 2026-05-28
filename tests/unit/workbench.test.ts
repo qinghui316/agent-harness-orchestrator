@@ -17,6 +17,7 @@ import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import { collectWorktreeDiff } from "../../src/audit/diff.js";
 import { completeAgentTask, createAgentTask, listAgentTasks, recordMaintenanceLedgerEntry, runMaintenanceCandidatePipeline } from "../../src/agent-task/manager.js";
 import {
+  claimAvailableDemandWorkers,
   claimNextDemandWorker,
   enqueueDemandWorker,
   listDemandWorkerAttempts,
@@ -47,6 +48,16 @@ function project(path = tempDir): ManagedProject {
     addedAt: new Date().toISOString(),
     lastSeenAt: new Date().toISOString(),
   };
+}
+
+async function waitForDemandWorkersToStop(memory: Awaited<ReturnType<typeof resolveProjectMemory>>, timeoutMs = 15000): Promise<void> {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    const workers = await listDemandWorkers(memory);
+    if (!workers.some((worker) => worker.status === "claimed" || worker.status === "running")) return;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw new Error("Timed out waiting for demand workers to stop.");
 }
 
 async function writePlanningBundleFixture(changeId: string, goal = "Implement pricing rule"): Promise<void> {
@@ -879,7 +890,7 @@ describe("workbench read model", () => {
     expect(snapshot.right.decisionInspector.primary).toBeNull();
   });
 
-  it("creates a separate parked Workpad instead of appending when another Workpad is active", async () => {
+  it("creates a separate active demand conversation instead of appending when another demand is active", async () => {
     await initHarness(project());
     await createChange(project(), { title: "Current Active Demand" });
 
@@ -890,11 +901,11 @@ describe("workbench read model", () => {
     const snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: next.changeId });
 
     expect(next.changeId).toBe("independent-follow-up-demand");
-    expect(snapshot.center.selectedTopic).toMatchObject({ id: next.changeId, state: "parking" });
-    expect(snapshot.center.workpad.state).toBe("readonly");
+    expect(snapshot.center.selectedTopic).toMatchObject({ id: next.changeId, state: "active" });
+    expect(snapshot.center.workpad.state).toBe("active");
     expect(snapshot.left.workpads).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: "current-active-demand", runtimeStatus: "active" }),
-      expect.objectContaining({ id: "independent-follow-up-demand", runtimeStatus: "queued", selected: true }),
+      expect.objectContaining({ id: "independent-follow-up-demand", runtimeStatus: "active", selected: true }),
     ]));
     expect(snapshot.center.thread.items).toEqual(expect.arrayContaining([
       expect.objectContaining({ kind: "user-message", body: "这是另一个独立需求，不应污染当前 Workpad。" }),
@@ -1033,12 +1044,17 @@ describe("workbench read model", () => {
     await initHarness(project());
     const active = await createWorkbenchTopic(project(), { title: "Queued Demand", body: "Implement later." });
     const running = await createWorkbenchTopic(project(), { title: "Running Demand", body: "Already running." });
+    const runningTwo = await createWorkbenchTopic(project(), { title: "Running Demand 2", body: "Already running too." });
     await writePlanningBundleFixture(active.changeId);
     const memory = await resolveProjectMemory(project());
     await enqueueDemandWorker(memory, { changeId: running.changeId });
     const claimed = await claimNextDemandWorker(memory, { changeId: running.changeId });
     if (!claimed) throw new Error("Expected running demand to be claimed.");
     await markDemandWorkerRunning(memory, claimed.worker, claimed.attempt);
+    await enqueueDemandWorker(memory, { changeId: runningTwo.changeId });
+    const claimedTwo = await claimNextDemandWorker(memory, { changeId: runningTwo.changeId });
+    if (!claimedTwo) throw new Error("Expected second running demand to be claimed.");
+    await markDemandWorkerRunning(memory, claimedTwo.worker, claimedTwo.attempt);
 
     const result = await executeWorkbenchAction({ project: project(), path: tempDir }, {
       actionType: "planning.confirm-execution",
@@ -1052,13 +1068,43 @@ describe("workbench read model", () => {
     const workers = await listDemandWorkers(memory);
     expect(workers).toEqual(expect.arrayContaining([
       expect.objectContaining({ changeId: running.changeId, status: "running" }),
+      expect.objectContaining({ changeId: runningTwo.changeId, status: "running" }),
       expect.objectContaining({ changeId: active.changeId, status: "queued" }),
     ]));
     const tasks = await listAgentTasks(memory, active.changeId);
     expect(tasks).toHaveLength(0);
   });
 
-  it("claims one demand at a time and prevents duplicate active worker attempts", async () => {
+  it("does not wait on background demand workers when the current demand remains queued", async () => {
+    await initHarness(project());
+    const older = await createWorkbenchTopic(project(), { title: "Older Demand", body: "Run first." });
+    const olderTwo = await createWorkbenchTopic(project(), { title: "Older Demand 2", body: "Run second." });
+    const active = await createWorkbenchTopic(project(), { title: "Current Demand", body: "Run after earlier demands." });
+    await writePlanningBundleFixture(active.changeId);
+    const memory = await resolveProjectMemory(project());
+    await enqueueDemandWorker(memory, { changeId: older.changeId });
+    await enqueueDemandWorker(memory, { changeId: olderTwo.changeId });
+
+    const result = await executeWorkbenchAction({ project: project(), path: tempDir }, {
+      actionType: "planning.confirm-execution",
+      changeId: active.changeId,
+      confirm: true,
+      prompt: "current-demand-prompt",
+    });
+
+    expect(result.result).toMatchObject({
+      status: "completed",
+      result: expect.objectContaining({
+        status: "queued",
+        claimed: 2,
+        backgroundStarted: 2,
+        worker: expect.objectContaining({ changeId: active.changeId, status: "queued" }),
+      }),
+    });
+    await waitForDemandWorkersToStop(memory);
+  });
+
+  it("claims one demand at a time when configured for sequential execution", async () => {
     await initHarness(project());
     const first = await createWorkbenchTopic(project(), { title: "First Demand", body: "A" });
     const second = await createWorkbenchTopic(project(), { title: "Second Demand", body: "B" });
@@ -1066,10 +1112,10 @@ describe("workbench read model", () => {
     await enqueueDemandWorker(memory, { changeId: first.changeId });
     await enqueueDemandWorker(memory, { changeId: second.changeId });
 
-    const claimed = await claimNextDemandWorker(memory);
+    const claimed = await claimNextDemandWorker(memory, { maxConcurrentDemands: 1 });
     if (!claimed) throw new Error("Expected first queued demand to be claimed.");
     await markDemandWorkerRunning(memory, claimed.worker, claimed.attempt);
-    const blockedBySlot = await claimNextDemandWorker(memory);
+    const blockedBySlot = await claimNextDemandWorker(memory, { maxConcurrentDemands: 1 });
 
     expect(blockedBySlot).toBeNull();
     const attempts = await listDemandWorkerAttempts(memory, first.changeId);
@@ -1078,6 +1124,30 @@ describe("workbench read model", () => {
     expect(workers).toEqual(expect.arrayContaining([
       expect.objectContaining({ changeId: first.changeId, status: "running" }),
       expect.objectContaining({ changeId: second.changeId, status: "queued" }),
+    ]));
+  });
+
+  it("claims available demand workers up to the default bounded worker slots", async () => {
+    await initHarness(project());
+    const first = await createWorkbenchTopic(project(), { title: "First Demand", body: "A" });
+    const second = await createWorkbenchTopic(project(), { title: "Second Demand", body: "B" });
+    const third = await createWorkbenchTopic(project(), { title: "Third Demand", body: "C" });
+    const memory = await resolveProjectMemory(project());
+    await enqueueDemandWorker(memory, { changeId: first.changeId });
+    await enqueueDemandWorker(memory, { changeId: second.changeId });
+    await enqueueDemandWorker(memory, { changeId: third.changeId });
+
+    const claimed = await claimAvailableDemandWorkers(memory);
+    for (const claim of claimed) {
+      await markDemandWorkerRunning(memory, claim.worker, claim.attempt);
+    }
+
+    expect(claimed.map((claim) => claim.worker.changeId)).toEqual([first.changeId, second.changeId]);
+    const workers = await listDemandWorkers(memory);
+    expect(workers).toEqual(expect.arrayContaining([
+      expect.objectContaining({ changeId: first.changeId, status: "running" }),
+      expect.objectContaining({ changeId: second.changeId, status: "running" }),
+      expect.objectContaining({ changeId: third.changeId, status: "queued" }),
     ]));
   });
 

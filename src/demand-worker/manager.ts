@@ -16,7 +16,8 @@ import type {
   ResolvedMemory,
 } from "../types/index.js";
 
-export const DEFAULT_MAX_CONCURRENT_DEMANDS = 1;
+export const DEFAULT_MAX_CONCURRENT_DEMANDS = 2;
+export const MIN_MAX_CONCURRENT_DEMANDS = 1;
 
 const demandWorkerStatusSchema = z.enum(["queued", "claimed", "running", "result-ready", "needs-user-input", "failed", "completed", "released"]);
 const demandWorkerAttemptStatusSchema = z.enum(["claimed", "running", "completed", "needs-user-input", "failed", "cancelled"]);
@@ -91,6 +92,8 @@ export interface ClaimDemandWorkerResult {
   slot: DemandWorkerSlot;
 }
 
+export type ClaimAvailableDemandWorkerOptions = ClaimDemandWorkerOptions;
+
 export interface CompleteDemandWorkerInput {
   status: "result-ready" | "needs-user-input" | "failed" | "completed" | "released";
   resultStatus?: string;
@@ -131,7 +134,7 @@ export async function enqueueDemandWorker(memory: ResolvedMemory, input: Enqueue
 }
 
 export async function claimNextDemandWorker(memory: ResolvedMemory, options: ClaimDemandWorkerOptions = {}): Promise<ClaimDemandWorkerResult | null> {
-  const maxConcurrentDemands = options.maxConcurrentDemands ?? DEFAULT_MAX_CONCURRENT_DEMANDS;
+  const maxConcurrentDemands = normalizeMaxConcurrentDemands(options.maxConcurrentDemands);
   const slot = await getDemandWorkerSlot(memory, maxConcurrentDemands);
   if (!slot.available) return null;
   const queued = (await listDemandWorkers(memory))
@@ -177,6 +180,17 @@ export async function claimNextDemandWorker(memory: ResolvedMemory, options: Cla
     artifactRefs: [],
   });
   return { worker, attempt, slot };
+}
+
+export async function claimAvailableDemandWorkers(memory: ResolvedMemory, options: ClaimAvailableDemandWorkerOptions = {}): Promise<ClaimDemandWorkerResult[]> {
+  const claimed: ClaimDemandWorkerResult[] = [];
+  const maxConcurrentDemands = normalizeMaxConcurrentDemands(options.maxConcurrentDemands);
+  while (true) {
+    const next = await claimNextDemandWorker(memory, { ...options, maxConcurrentDemands });
+    if (!next) break;
+    claimed.push(next);
+  }
+  return claimed;
 }
 
 export async function markDemandWorkerRunning(memory: ResolvedMemory, worker: DemandWorker, attempt: DemandWorkerAttempt): Promise<{ worker: DemandWorker; attempt: DemandWorkerAttempt }> {
@@ -303,11 +317,12 @@ export async function listAllDemandWorkerAttempts(memory: ResolvedMemory): Promi
 }
 
 export async function getDemandWorkerSlot(memory: ResolvedMemory, maxConcurrentDemands = DEFAULT_MAX_CONCURRENT_DEMANDS): Promise<DemandWorkerSlot> {
+  const normalizedMax = normalizeMaxConcurrentDemands(maxConcurrentDemands);
   const runningCount = (await listDemandWorkers(memory)).filter((worker) => isDemandWorkerRunningStatus(worker.status)).length;
   return {
-    maxConcurrentDemands,
+    maxConcurrentDemands: normalizedMax,
     runningCount,
-    available: runningCount < maxConcurrentDemands,
+    available: runningCount < normalizedMax,
   };
 }
 
@@ -407,6 +422,11 @@ function resultReasonFromWorkerStatus(status: CompleteDemandWorkerInput["status"
   if (status === "needs-user-input") return "Role pipeline needs user input before continuing.";
   if (status === "failed") return "Role pipeline failed before result review.";
   return "Demand worker reached a terminal state.";
+}
+
+function normalizeMaxConcurrentDemands(value: number | undefined): number {
+  if (!Number.isFinite(value)) return DEFAULT_MAX_CONCURRENT_DEMANDS;
+  return Math.max(MIN_MAX_CONCURRENT_DEMANDS, Math.floor(value ?? DEFAULT_MAX_CONCURRENT_DEMANDS));
 }
 
 function demandWorkersRoot(memory: ResolvedMemory): string {

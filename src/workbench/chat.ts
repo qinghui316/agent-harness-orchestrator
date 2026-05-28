@@ -14,11 +14,12 @@ import { startCodeRun } from "../code/manager.js";
 import { buildCodexReadonlyArgv, buildCodexReadonlyResumeArgv, detectCodexCapabilities } from "../codex/capabilities.js";
 import { detectCodexAppServerCapability, getActiveCodexAppServerTurn, runCodexAppServerTurn, type CodexAppServerNotification } from "../codex/app-server.js";
 import { createCodexJsonlStreamParser, extractCodexSessionIdFromJsonl, extractFinalMessageFromCodexJsonl, truncateReadablePreview, type CodexJsonlStreamEvent, type CodexReadableEvent } from "../codex/jsonl.js";
-import { createChange, createParkedChange } from "../change/manager.js";
+import { createConcurrentChange } from "../change/manager.js";
 import { acceptPlanProposal, acceptSpecProposal, startPlanProposalRun, startSpecProposalRun } from "../change/proposals.js";
 import { getActiveChanges } from "../ecl/index.js";
 import { buildAcMap } from "../ecl/anchors.js";
 import {
+  claimAvailableDemandWorkers,
   claimNextDemandWorker,
   completeDemandWorkerAttempt,
   enqueueDemandWorker,
@@ -488,8 +489,10 @@ export type WorkbenchWorkflowActionType =
   | "demand.worker.enqueue"
   | "demand.worker.claim"
   | "demand.worker.start-next"
+  | "demand.worker.start-available"
   | "demand.worker.reconcile"
   | "demand.worker.release"
+  | "orchestrator.pump"
   | "role.pipeline.start"
   | "role.pipeline.stop"
   | "role.pipeline.continue"
@@ -555,22 +558,13 @@ const threadChangeMetadataSchema = z.object({
 });
 const OFFICIAL_REWORK_BUDGET = 1;
 
-export async function createWorkbenchTopic(project: ManagedProject, input: { title: string; body?: string }): Promise<{ changeId: string; title: string; state: "active" | "parking" }> {
-  let result;
-  let state: "active" | "parking" = "active";
-  try {
-    result = await createChange(project, { title: input.title, body: input.body });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    if (!message.includes("Cannot create a new change while an active change exists")) throw error;
-    result = await createParkedChange(project, { title: input.title, body: input.body });
-    state = "parking";
-  }
+export async function createWorkbenchTopic(project: ManagedProject, input: { title: string; body?: string }): Promise<{ changeId: string; title: string; state: "active" }> {
+  const result = await createConcurrentChange(project, { title: input.title, body: input.body });
   await appendTopicThreadEntry(project, result.change.id, {
     type: "user.message",
     text: input.body ?? input.title,
   });
-  return { changeId: result.change.id, title: result.change.title, state };
+  return { changeId: result.change.id, title: result.change.title, state: "active" };
 }
 
 export async function listTopicMessages(project: ManagedProject, changeId: string): Promise<TopicThreadEntry[]> {
@@ -659,10 +653,9 @@ async function findRunningRunForChange(project: ManagedProject, changeId: string
   return runs.find((run) => run.changeId === changeId && (run.status === "created" || run.status === "running")) ?? null;
 }
 
-async function getTopicLifecycleState(project: ManagedProject, changeId: string): Promise<"active" | "parking" | "archive"> {
+async function getTopicLifecycleState(project: ManagedProject, changeId: string): Promise<"active" | "archive"> {
   const { changePath } = await resolveTopic(project, changeId);
   if (changePath.includes("/archive/")) return "archive";
-  if (changePath.includes("/parking/")) return "parking";
   return "active";
 }
 
@@ -774,6 +767,9 @@ async function executeWorkflowAction(project: ManagedProject, changeId: string, 
     case "demand.worker.claim":
     case "demand.worker.start-next":
       return startNextDemandWorkerForAction(project, changeId, request.prompt, live);
+    case "demand.worker.start-available":
+    case "orchestrator.pump":
+      return pumpDemandWorkersForAction(project, request.prompt, live, changeId);
     case "demand.worker.reconcile":
       return reconcileDemandWorkers(await resolveProjectMemory(project));
     case "demand.worker.release":
@@ -804,9 +800,9 @@ async function executeWorkflowAction(project: ManagedProject, changeId: string, 
     case "task.queue.reconcile":
       return reconcileTaskQueues(project, { changeId });
     case "validate.run":
-      return startValidationRun(project, { worktree: request.worktreeId });
+      return startValidationRun(project, { changeId, worktree: request.worktreeId });
     case "audit.run":
-      return startAuditRun(project, { worktreeId: request.worktreeId, prompt: request.prompt });
+      return startAuditRun(project, { changeId, worktreeId: request.worktreeId, prompt: request.prompt });
     case "spec-test.drift":
       return getSpecTestDriftReport(project, { worktreeId: request.worktreeId });
     default:
@@ -1005,7 +1001,7 @@ async function confirmPlanningAndStartPipeline(
     title: queued.resumed ? "Demand already queued" : "Demand enqueued",
     summary: queued.resumed ? "该需求已经在本地处理队列中。" : "该需求已加入本地处理队列。",
   });
-  return startDemandWorkerForChange(project, changeId, request.prompt ?? renderPipelinePromptFromBundle(confirmed), live);
+  return pumpDemandWorkersForAction(project, request.prompt ?? renderPipelinePromptFromBundle(confirmed), live, changeId);
 }
 
 async function enqueueDemandWorkerForAction(project: ManagedProject, changeId: string): Promise<unknown> {
@@ -1021,6 +1017,72 @@ async function startNextDemandWorkerForAction(
   live: WorkbenchLiveSink | undefined,
 ): Promise<unknown> {
   return startDemandWorkerForChange(project, changeId, prompt, live);
+}
+
+async function pumpDemandWorkersForAction(
+  project: ManagedProject,
+  prompt: string | undefined,
+  live: WorkbenchLiveSink | undefined,
+  liveChangeId?: string,
+): Promise<unknown> {
+  const memory = await resolveProjectMemory(project);
+  assertWritableMemory(memory, "Demand worker pump");
+  const claimed = await claimAvailableDemandWorkers(memory);
+  if (claimed.length === 0) {
+    if (liveChangeId) {
+      const worker = await getDemandWorkerForChange(memory, liveChangeId);
+      if (worker && worker.status === "queued") {
+        await recordMainOrchestratorDecision(memory, {
+          changeId: liveChangeId,
+          workerId: worker.id,
+          action: "enqueue",
+          summary: "Demand is waiting for a local worker slot.",
+          reason: "No demand worker slot is currently available.",
+          artifactRefs: [],
+        });
+        return { status: "queued", claimed: 0, worker, results: [] };
+      }
+    }
+    return { status: "idle", claimed: 0, results: [] };
+  }
+  const liveClaim = liveChangeId ? claimed.find((claim) => claim.worker.changeId === liveChangeId) : undefined;
+  const backgroundClaims = claimed.filter((claim) => claim !== liveClaim);
+  for (const claim of backgroundClaims) {
+    scheduleClaimedDemandWorker(project, memory, claim);
+  }
+  if (!liveClaim) {
+    if (liveChangeId) {
+      const worker = await getDemandWorkerForChange(memory, liveChangeId);
+      if (worker && worker.status === "queued") {
+        await recordMainOrchestratorDecision(memory, {
+          changeId: liveChangeId,
+          workerId: worker.id,
+          action: "enqueue",
+          summary: "Demand is waiting for a local worker slot.",
+          reason: "Available demand worker slots were assigned to earlier queued demands.",
+          artifactRefs: [],
+        });
+        return { status: "queued", claimed: claimed.length, backgroundStarted: backgroundClaims.length, worker, results: [] };
+      }
+    }
+    return { status: "pumped", claimed: claimed.length, backgroundStarted: backgroundClaims.length, results: [] };
+  }
+  try {
+    const result = await runClaimedDemandWorker(project, memory, liveClaim, prompt, live);
+    return { status: "pumped", claimed: claimed.length, backgroundStarted: backgroundClaims.length, results: [result] };
+  } catch (error) {
+    return {
+      status: "pumped",
+      claimed: claimed.length,
+      backgroundStarted: backgroundClaims.length,
+      results: [{
+        status: "failed",
+        worker: liveClaim.worker,
+        attempt: liveClaim.attempt,
+        error: error instanceof Error ? error.message : String(error),
+      }],
+    };
+  }
 }
 
 async function evaluateDemandOrchestrator(project: ManagedProject, changeId: string): Promise<unknown> {
@@ -1057,6 +1119,17 @@ async function startDemandWorkerForChange(
     });
     return { status: "queued", worker };
   }
+  return runClaimedDemandWorker(project, memory, claimed, prompt, live);
+}
+
+async function runClaimedDemandWorker(
+  project: ManagedProject,
+  memory: ResolvedMemory,
+  claimed: NonNullable<Awaited<ReturnType<typeof claimNextDemandWorker>>>,
+  prompt: string | undefined,
+  live: WorkbenchLiveSink | undefined,
+): Promise<unknown> {
+  const changeId = claimed.worker.changeId;
   const running = await markDemandWorkerRunning(memory, claimed.worker, claimed.attempt);
   emitAssistantEvent(live, {
     runId: running.worker.id,
@@ -1079,6 +1152,7 @@ async function startDemandWorkerForChange(
       failureReason: status === "needs-user-input" || status === "failed" ? summarizePipelineResult(result) : undefined,
       agentTaskIds: newAgentTaskIds,
     });
+    scheduleDemandWorkerPump(project);
     return { status: completed.worker.status, worker: completed.worker, attempt: completed.attempt, rolePipeline: result, decision: completed.decision };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -1088,8 +1162,25 @@ async function startDemandWorkerForChange(
       summary: `Role pipeline failed: ${message}`,
       failureReason: message,
     });
+    scheduleDemandWorkerPump(project);
     throw Object.assign(error instanceof Error ? error : new Error(message), { demandWorker: completed.worker.id });
   }
+}
+
+function scheduleClaimedDemandWorker(
+  project: ManagedProject,
+  memory: ResolvedMemory,
+  claimed: NonNullable<Awaited<ReturnType<typeof claimNextDemandWorker>>>,
+): void {
+  setTimeout(() => {
+    void runClaimedDemandWorker(project, memory, claimed, undefined, undefined).catch(() => undefined);
+  }, 0);
+}
+
+function scheduleDemandWorkerPump(project: ManagedProject): void {
+  setTimeout(() => {
+    void pumpDemandWorkersForAction(project, undefined, undefined).catch(() => undefined);
+  }, 0);
 }
 
 function workerStatusFromPipelineResult(result: unknown): "result-ready" | "needs-user-input" | "failed" {
@@ -1650,6 +1741,7 @@ async function runCodeValidateAuditSequence(
   live?.emit({ event: "run.status", data: { status: "running", label: "Coder" } });
   let coderStartedEmitted = false;
   const code = await startCodeRun(project, {
+    changeId,
     prompt,
     taskIds,
     taskRunId,
@@ -1698,7 +1790,7 @@ async function runCodeValidateAuditSequence(
   live?.emit({ event: "run.status", data: { runId: code.run.id, status: "running", label: "Validation" } });
   live?.emit({ event: "tool.event", data: { runId: code.run.id, phase: "status", name: "Validation", status: "running" } });
   emitAssistantEvent(live, { runId: code.run.id, kind: "status", phase: "running", title: "Validation running", summary: "AHO started validation for the coder worktree." });
-  const validation = await startValidationRun(project, { worktree: code.run.worktree.worktreeId });
+  const validation = await startValidationRun(project, { changeId, worktree: code.run.worktree.worktreeId });
   live?.emit({ event: "run.status", data: { runId: code.run.id, status: validation.validation.status, label: "Validation" } });
   live?.emit({ event: "tool.event", data: { runId: code.run.id, phase: "status", name: "Validation", status: validation.validation.status } });
   emitValidationAssistantEvents(live, code.run.id, validation);
@@ -1736,6 +1828,7 @@ async function runCodeValidateAuditSequence(
   live?.emit({ event: "tool.event", data: { runId: code.run.id, phase: "status", name: "Audit", status: "running" } });
   emitAssistantEvent(live, { runId: code.run.id, kind: "status", phase: "running", title: "Audit running", summary: "AHO started audit after validation passed." });
   const audit = await startAuditRun(project, {
+    changeId,
     worktreeId: code.run.worktree.worktreeId,
     prompt: "This audit was automatically started after the user confirmed the Coder run and validation passed for the same worktree.",
   });
@@ -2506,7 +2599,7 @@ async function finishOrchestratorRun(path: string, run: RunMetadata, status: Run
 
 async function resolveTopic(project: ManagedProject, changeId: string): Promise<{ memory: ResolvedMemory; changePath: string }> {
   const memory = await resolveProjectMemory(project);
-  const roots = [join(memory.changesRoot, "active"), join(memory.changesRoot, "parking"), join(memory.changesRoot, "archive")];
+  const roots = [join(memory.changesRoot, "active"), join(memory.changesRoot, "archive")];
   for (const root of roots) {
     const candidate = join(root, changeId);
     if (existsSync(candidate)) {
@@ -2602,7 +2695,7 @@ async function collectAllThreadEntries(memory: ResolvedMemory): Promise<TopicThr
       store.close();
     }
   }
-  const roots = [join(memory.changesRoot, "active"), join(memory.changesRoot, "parking"), join(memory.changesRoot, "archive")];
+  const roots = [join(memory.changesRoot, "active"), join(memory.changesRoot, "archive")];
   const entries: TopicThreadEntry[] = [];
   for (const root of roots) {
     if (!existsSync(root)) continue;
@@ -2686,9 +2779,11 @@ function labelForAction(actionType: string): string {
     case "planning.revise": return "Planning draft revised";
     case "planning.confirm-execution": return "Planning confirmed and demand enqueued";
     case "orchestrator.evaluate": return "Main orchestrator evaluated";
+    case "orchestrator.pump": return "Main orchestrator pumped available demands";
     case "demand.worker.enqueue": return "Demand enqueued";
     case "demand.worker.claim": return "Demand worker claimed";
     case "demand.worker.start-next": return "Demand worker started";
+    case "demand.worker.start-available": return "Available demand workers started";
     case "demand.worker.reconcile": return "Demand workers reconciled";
     case "demand.worker.release": return "Demand worker released";
     case "role.pipeline.start": return "Role pipeline started";

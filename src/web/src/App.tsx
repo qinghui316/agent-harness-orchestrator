@@ -319,7 +319,7 @@ type PlanCard = {
 };
 type ThreadEvent = { id: string; type: string; label: string; timestamp?: string; status?: string; runId?: string; planCard?: PlanCard };
 type ThreadStreamAction = {
-  actionType: "change.spec.propose" | "change.plan.propose" | "planning.generate" | "planning.revise" | "planning.confirm-execution" | "orchestrator.evaluate" | "demand.worker.enqueue" | "demand.worker.claim" | "demand.worker.start-next" | "demand.worker.reconcile" | "demand.worker.release" | "role.pipeline.start" | "role.pipeline.stop" | "role.pipeline.continue" | "role.pipeline.reconcile" | "conversation.steer" | "conversation.interrupt" | "conversation.continue" | "code.run" | "task.run.start" | "task.run.retry" | "task.queue.start" | "task.queue.reconcile" | "intake.scan" | "intake.reanalyze" | "clarification.answer" | "clarification.skip";
+  actionType: "change.spec.propose" | "change.plan.propose" | "planning.generate" | "planning.revise" | "planning.confirm-execution" | "orchestrator.evaluate" | "orchestrator.pump" | "demand.worker.enqueue" | "demand.worker.claim" | "demand.worker.start-next" | "demand.worker.start-available" | "demand.worker.reconcile" | "demand.worker.release" | "role.pipeline.start" | "role.pipeline.stop" | "role.pipeline.continue" | "role.pipeline.reconcile" | "conversation.steer" | "conversation.interrupt" | "conversation.continue" | "code.run" | "task.run.start" | "task.run.retry" | "task.queue.start" | "task.queue.reconcile" | "intake.scan" | "intake.reanalyze" | "clarification.answer" | "clarification.skip";
   label: string;
   enabled: boolean;
   requiresConfirmation: boolean;
@@ -1521,9 +1521,9 @@ function conversationsForSidebar(snapshot: Snapshot | undefined, selectedTopicId
     id: topic.id,
     title: topic.title,
     state: topic.state,
-    runtimeStatus: topic.state === "archive" ? "archived" : topic.state === "parking" ? "queued" : "active",
-    userStatus: topic.state === "archive" ? "completed" : topic.state === "parking" ? "later" : "waiting-confirmation",
-    userStatusLabel: topic.state === "archive" ? "已完成" : topic.state === "parking" ? "稍后处理" : "等你确认",
+    runtimeStatus: topic.state === "archive" ? "archived" : "active",
+    userStatus: topic.state === "archive" ? "completed" : "waiting-confirmation",
+    userStatusLabel: topic.state === "archive" ? "已完成" : "等你确认",
     selected: selectedTopicId === topic.id,
     waitingDecisionCount: 0,
     blocker: undefined,
@@ -3604,7 +3604,6 @@ function userFacingText(value: string): string {
 function stateLabel(state: string): string {
   if (state === "active") return "进行中";
   if (state === "archive") return "已归档";
-  if (state === "parking") return "暂停";
   return state;
 }
 
@@ -3747,9 +3746,11 @@ function workflowActionLabel(actionType: string | undefined): string {
   if (actionType === "planning.revise") return "修改方案草案";
   if (actionType === "planning.confirm-execution") return "确认执行";
   if (actionType === "orchestrator.evaluate") return "检查处理状态";
+  if (actionType === "orchestrator.pump") return "继续处理需求";
   if (actionType === "demand.worker.enqueue") return "加入处理队列";
   if (actionType === "demand.worker.claim") return "领取需求";
   if (actionType === "demand.worker.start-next") return "开始处理";
+  if (actionType === "demand.worker.start-available") return "开始可处理需求";
   if (actionType === "demand.worker.reconcile") return "恢复处理状态";
   if (actionType === "demand.worker.release") return "结束处理";
   if (actionType === "role.pipeline.start") return "角色流水线";

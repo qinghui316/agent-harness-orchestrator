@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join, relative } from "node:path";
-import { getChangeStatus } from "../change/manager.js";
+import { getChangeStatus, getChangeStatusForChange } from "../change/manager.js";
 import { buildCodexReadonlyArgv, detectCodexCapabilities } from "../codex/capabilities.js";
 import { CodexCompletionTracker, codexLifecycleTiming, type CodexCompletionSnapshot } from "../codex/completion.js";
 import { createCodexJsonlStreamParser, extractFinalMessageFromCodexJsonl } from "../codex/jsonl.js";
@@ -19,6 +19,7 @@ import { parseAuditMessage } from "./parser.js";
 import { composeAuditPrompt } from "./prompt.js";
 
 export interface AuditRunOptions {
+  changeId?: string;
   worktreeId?: string;
   prompt?: string;
 }
@@ -37,7 +38,7 @@ export interface AuditStatusResult {
 export async function startAuditRun(project: ManagedProject, options: AuditRunOptions = {}): Promise<AuditRunResult> {
   const memory = await resolveProjectMemory(project);
   assertWritableMemory(memory, "Audit run");
-  const changeStatus = await getChangeStatus(project);
+  const changeStatus = options.changeId ? await getChangeStatusForChange(project, options.changeId) : await getChangeStatus(project);
   assertRunnableChange(changeStatus);
   const changeId = changeStatus.change?.id ?? changeStatus.activeChanges[0]?.name;
   if (!changeId) throw new Error("Cannot start audit without an active change id.");

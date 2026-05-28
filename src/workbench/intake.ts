@@ -65,7 +65,6 @@ export interface WorkbenchIntakeScan {
   candidateFiles: string[];
   changes: {
     active: string[];
-    parking: string[];
     archive: string[];
   };
   evidence: Array<{ label: string; status?: string; artifact?: string }>;
@@ -237,7 +236,7 @@ export async function skipClarification(project: ManagedProject, changeId: strin
 
 export async function readIntakeState(memory: ResolvedMemory, changeId: string): Promise<IntakeState> {
   const entries = await readTopicThreadLog(memory, `harness/changes/active/${changeId}`).catch(async () => {
-    const allRoots = ["active", "parking", "archive"];
+    const allRoots = ["active", "archive"];
     for (const root of allRoots) {
       const path = `harness/changes/${root}/${changeId}`;
       if (existsSync(join(memory.memoryRoot, path))) return readTopicThreadLog(memory, path);
@@ -287,7 +286,6 @@ async function buildIntakeScan(project: ManagedProject, memory: ResolvedMemory, 
     candidateFiles: await discoverCandidateFiles(project.path),
     changes: {
       active: index.active.map((item) => item.name),
-      parking: index.parking.map((item) => item.name),
       archive: index.archive.slice(-8).map((item) => item.name),
     },
     evidence: [

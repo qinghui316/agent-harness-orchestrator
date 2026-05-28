@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join, relative } from "node:path";
-import { getChangeStatus } from "../change/manager.js";
+import { getChangeStatus, getChangeStatusForChange } from "../change/manager.js";
 import { buildCodexWorkspaceWriteArgv, detectCodexCapabilities } from "../codex/capabilities.js";
 import { detectCodexAppServerCapability, runCodexAppServerTurn } from "../codex/app-server.js";
 import { CodexCompletionTracker, codexLifecycleTiming, type CodexCompletionSnapshot } from "../codex/completion.js";
@@ -20,6 +20,7 @@ import { createWorktree, getWorktreeMetadataPath } from "../worktree/manager.js"
 import { composeCoderPrompt } from "./prompt.js";
 
 export interface CodeRunOptions {
+  changeId?: string;
   taskIds?: string[];
   taskRunId?: string;
   prompt?: string;
@@ -75,7 +76,7 @@ export interface CodeStatusResult {
 export async function startCodeRun(project: ManagedProject, options: CodeRunOptions = {}): Promise<CodeRunResult> {
   const memory = await resolveProjectMemory(project);
   assertWritableMemory(memory, "Code run");
-  const changeStatus = await getChangeStatus(project);
+  const changeStatus = options.changeId ? await getChangeStatusForChange(project, options.changeId) : await getChangeStatus(project);
   assertRunnableChange(changeStatus);
   const changeId = changeStatus.change?.id ?? changeStatus.activeChanges[0]?.name;
   if (!changeId) throw new Error("Cannot start code run without an active change id.");

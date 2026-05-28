@@ -48,7 +48,7 @@ import type {
   MaintenanceLedgerEntry,
 } from "../types/index.js";
 
-export type WorkbenchTopicState = "active" | "parking" | "archive";
+export type WorkbenchTopicState = "active" | "archive";
 export type WorkbenchApprovalKind =
   | "spec-proposal"
   | "plan-proposal"
@@ -113,7 +113,7 @@ export interface WorkbenchThreadEvent {
 }
 
 export interface ThreadStreamAction {
-  actionType: "change.spec.propose" | "change.plan.propose" | "planning.generate" | "planning.revise" | "planning.confirm-execution" | "orchestrator.evaluate" | "demand.worker.enqueue" | "demand.worker.claim" | "demand.worker.start-next" | "demand.worker.reconcile" | "demand.worker.release" | "role.pipeline.start" | "role.pipeline.stop" | "role.pipeline.continue" | "role.pipeline.reconcile" | "conversation.steer" | "conversation.interrupt" | "conversation.continue" | "code.run" | "task.run.start" | "task.run.retry" | "task.queue.start" | "task.queue.reconcile" | "intake.scan" | "intake.reanalyze" | "clarification.answer" | "clarification.skip";
+  actionType: "change.spec.propose" | "change.plan.propose" | "planning.generate" | "planning.revise" | "planning.confirm-execution" | "orchestrator.evaluate" | "orchestrator.pump" | "demand.worker.enqueue" | "demand.worker.claim" | "demand.worker.start-next" | "demand.worker.start-available" | "demand.worker.reconcile" | "demand.worker.release" | "role.pipeline.start" | "role.pipeline.stop" | "role.pipeline.continue" | "role.pipeline.reconcile" | "conversation.steer" | "conversation.interrupt" | "conversation.continue" | "code.run" | "task.run.start" | "task.run.retry" | "task.queue.start" | "task.queue.reconcile" | "intake.scan" | "intake.reanalyze" | "clarification.answer" | "clarification.skip";
   label: string;
   enabled: boolean;
   requiresConfirmation: boolean;
@@ -1116,7 +1116,6 @@ function emptyWorkpadBackground(): WorkpadBackgroundActivitySummary {
 
 function conversationLifecycleForTopic(topic: WorkbenchTopicDetail, queue?: WorkbenchTaskQueueSummary): WorkbenchConversationLifecycle {
   if (topic.state === "archive") return "archived-readonly";
-  if (topic.state === "parking") return "waiting-user";
   if (topic.runs.some((run) => run.status === "created" || run.status === "running") || queue?.status === "running") return "running";
   const hasPendingFeedback = topic.threadItems.some((item) => item.status === "pending-feedback");
   return hasPendingFeedback ? "waiting-user" : "active";
@@ -2504,7 +2503,7 @@ async function buildMultiWorkpadSummaries(
     const latestQueue = [...queues].sort((a, b) => (b.updatedAt ?? b.createdAt).localeCompare(a.updatedAt ?? a.createdAt))[0];
     const topicApprovals = approvals.filter((approval) => approval.changeId === topic.id || approval.changeId === topic.name);
     const blockingApproval = topicApprovals.find((approval) => approval.severity === "blocking");
-    let runtimeStatus: WorkbenchWorkpadRuntimeStatus = topic.state === "archive" ? "archived" : topic.state === "parking" ? "queued" : "active";
+    let runtimeStatus: WorkbenchWorkpadRuntimeStatus = topic.state === "archive" ? "archived" : "active";
     let blocker = blockingApproval?.reason ?? blockingApproval?.label;
     if (topic.state === "active") {
       if (demandWorker && ["claimed", "running"].includes(demandWorker.status)) {
@@ -2586,7 +2585,6 @@ function userDecisionStateForSelectedTopic(
   taskGraph: WorkbenchTaskGraph,
 ): WorkbenchUserDecisionState {
   if (topic.state === "archive") return "completed";
-  if (topic.state === "parking") return "later";
   if (taskGraph.nodes.some((task) => task.autoRework?.available)) return "processing";
   if (queue && ["blocked", "failed"].includes(queue.status)) return "needs-rework";
   if (taskGraph.nodes.some((task) => task.status === "blocked")) return "needs-rework";
@@ -2611,7 +2609,6 @@ function userDecisionStateLabel(state: WorkbenchUserDecisionState): string {
 
 function stateLabelForWorkpad(state: WorkbenchTopicState): string {
   if (state === "active") return "进行中";
-  if (state === "parking") return "暂停";
   return "已归档";
 }
 
@@ -2619,7 +2616,6 @@ async function listWorkbenchTopicsFromMemory(memory: ResolvedMemory): Promise<Wo
   const index = await buildChangeIndex(memory);
   const groups: Array<[WorkbenchTopicState, ChangeIndexItem[]]> = [
     ["active", index.active],
-    ["parking", index.parking],
     ["archive", index.archive],
   ];
   const topics: WorkbenchTopicSummary[] = [];
@@ -3821,8 +3817,7 @@ async function readChangeMetadataAt(memory: ResolvedMemory, relativePath: string
 
 function stateRank(state: WorkbenchTopicState): number {
   if (state === "active") return 0;
-  if (state === "parking") return 1;
-  return 2;
+  return 1;
 }
 
 function buildRepoSummary(status: Awaited<ReturnType<typeof getProjectStatus>>): WorkbenchSnapshot["left"]["repo"] {

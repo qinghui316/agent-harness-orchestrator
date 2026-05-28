@@ -68,8 +68,8 @@ export async function createChange(project: ManagedProject, options: { title: st
   return createChangeInDirectory(project, options, "active", true);
 }
 
-export async function createParkedChange(project: ManagedProject, options: { title: string; body?: string }): Promise<ChangeCreateResult> {
-  return createChangeInDirectory(project, options, "parking", false);
+export async function createConcurrentChange(project: ManagedProject, options: { title: string; body?: string }): Promise<ChangeCreateResult> {
+  return createChangeInDirectory(project, options, "active", false);
 }
 
 async function createChangeInDirectory(project: ManagedProject, options: { title: string; body?: string }, directory: "active" | "parking", requireNoActive: boolean): Promise<ChangeCreateResult> {
@@ -148,6 +148,40 @@ export async function getChangeStatus(project: ManagedProject | string | Resolve
   }
 
   const active = activeChanges[0];
+  return getChangeStatusForActive(memory, active, activeChanges, baseGate);
+}
+
+export async function getChangeStatusForChange(project: ManagedProject | string | ResolvedMemory, changeId: string): Promise<ChangeStatus> {
+  const memory = await resolveChangeMemory(project);
+  const activeChanges = await getActiveChanges(memory);
+  const index = await writeChangeIndex(memory);
+  const active = index.active.find((item) => item.name === changeId);
+  if (!active) {
+    return {
+      projectPath: memory.projectRoot,
+      activeChanges,
+      change: null,
+      reviewStatus: "missing",
+      acMap: null,
+      specTest: null,
+      latestValidation: null,
+      latestAudit: null,
+      closeGate: {
+        ready: false,
+        warnings: [],
+        blockingIssues: [`Active demand conversation not found for scoped run: ${changeId}.`],
+      },
+    };
+  }
+  return getChangeStatusForActive(memory, active, [active], evaluateActiveCount([active]));
+}
+
+async function getChangeStatusForActive(
+  memory: ResolvedMemory,
+  active: ChangeIndexItem,
+  activeChanges: ChangeIndexItem[],
+  baseGate: CloseGateResult,
+): Promise<ChangeStatus> {
   const changePath = join(memory.memoryRoot, active.path);
   const missingFiles = getMissingRequiredFiles(changePath);
   const warnings: string[] = [];
