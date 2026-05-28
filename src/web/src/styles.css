@@ -728,6 +728,144 @@ input:focus-visible {
   padding-bottom: 12px;
 }
 
+.parent-conversation {
+  display: grid;
+  gap: 12px;
+  padding-bottom: 12px;
+}
+
+.parent-agent-card,
+.parent-agent-section,
+.parent-details {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-panel);
+}
+
+.parent-agent-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(210px, 286px);
+  gap: 14px;
+  align-items: stretch;
+  padding: 14px;
+}
+
+.parent-agent-card h2 {
+  margin: 8px 0 6px;
+  color: var(--text-strong);
+  font-size: 18px;
+  line-height: 1.32;
+  letter-spacing: 0;
+}
+
+.parent-agent-card p,
+.parent-agent-section p {
+  margin: 0;
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.parent-agent-section {
+  display: grid;
+  gap: 9px;
+  padding: 13px;
+}
+
+.parent-agent-section h3 {
+  margin: 0;
+  color: var(--text-strong);
+  font-size: 14px;
+}
+
+.parent-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.parent-section-header span,
+.parent-agent-note,
+.muted-inline {
+  color: var(--text-muted);
+  font-size: 12.5px;
+}
+
+.parent-agent-lead {
+  color: var(--text-strong) !important;
+  font-weight: 600;
+}
+
+.parent-chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.parent-chip-list span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: var(--bg-subtle);
+  color: var(--text-muted);
+  font-size: 12.5px;
+}
+
+.role-result-list {
+  display: grid;
+  gap: 8px;
+}
+
+.role-result-row {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: start;
+  padding: 9px 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-subtle);
+}
+
+.role-result-row strong {
+  color: var(--text-strong);
+  font-size: 13px;
+}
+
+.role-result-row span {
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.role-result-row small {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.parent-details {
+  overflow: hidden;
+}
+
+.parent-details > summary {
+  cursor: pointer;
+  padding: 12px 13px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.parent-details[open] > summary {
+  border-bottom: 1px solid var(--border);
+}
+
+.parent-details .workpad {
+  padding: 12px;
+}
+
 .workpad-hero,
 .workpad-section,
 .workpad-next-action {

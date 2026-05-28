@@ -297,6 +297,18 @@ describe("Workbench web app", () => {
 
     await waitFor(() => expect(screen.getAllByText("会员折扣计价").length).toBeGreaterThan(0));
     expect(screen.getByTestId("workpad-view")).toBeTruthy();
+    expect(screen.getByText("当前理解")).toBeTruthy();
+    expect(screen.getByText(/我已经整理了本轮实现结果/)).toBeTruthy();
+    expect(screen.getByText("查看详情与证据")).toBeTruthy();
+    expect(screen.queryByText("目标与当前理解")).toBeNull();
+    expect(screen.queryByText("推荐角色：coder-agent")).toBeNull();
+    expect(screen.queryByText("执行范围")).toBeNull();
+    expect(screen.queryByText("任务清单")).toBeNull();
+    const primarySurface = document.querySelector(".timeline-panel")?.textContent ?? "";
+    for (const forbidden of ["Workpad", "Change-level evidence", "TaskRun", "WorkerLease", "audit-blocked", "queue blocked", "Plan mode", "AC ", "Tasks", "Agent 循环", "latest-bundle", "planning-agent"]) {
+      expect(primarySurface).not.toContain(forbidden);
+    }
+    fireEvent.click(screen.getByText("查看详情与证据"));
     expect(screen.getByText("目标与当前理解")).toBeTruthy();
     expect(screen.getByText("推荐角色：coder-agent")).toBeTruthy();
     expect(screen.getByText("执行范围")).toBeTruthy();
@@ -305,10 +317,11 @@ describe("Workbench web app", () => {
     expect(screen.queryByText("并行执行")).toBeNull();
     expect(screen.getByText("任务清单")).toBeTruthy();
     expect(screen.getByText("证据与决策")).toBeTruthy();
-    expect(screen.getByTestId("result-review-card")).toBeTruthy();
-    expect(screen.getByText("结果可应用到项目")).toBeTruthy();
-    expect(screen.getByText("src/pricing.ts")).toBeTruthy();
-    expect(screen.getByText(/边界金额建议人工复核/)).toBeTruthy();
+    const resultReviewCard = screen.getByTestId("result-review-card");
+    expect(resultReviewCard).toBeTruthy();
+    expect(within(resultReviewCard).getByText("结果可应用到项目")).toBeTruthy();
+    expect(within(resultReviewCard).getByText("src/pricing.ts")).toBeTruthy();
+    expect(within(resultReviewCard).getByText(/边界金额建议人工复核/)).toBeTruthy();
     expect(screen.getAllByText("关闭已完成变更。").length).toBeGreaterThan(0);
     expect(screen.getByLabelText("在 Repo 中开始新对话")).toBeTruthy();
     expect(screen.getByLabelText("搜索已加载对话")).toBeTruthy();
@@ -347,11 +360,6 @@ describe("Workbench web app", () => {
     expect(screen.queryByText("稍后")).toBeNull();
     expect(screen.getByText("记忆：external-local")).toBeTruthy();
     expect(screen.getByText("当前需求：会员折扣计价")).toBeTruthy();
-    const primarySurface = document.querySelector(".workspace")?.textContent ?? "";
-    for (const forbidden of ["Topic", "Workpad", "Change-level evidence", "TaskRun", "WorkerLease", "audit-blocked", "queue blocked", "Plan mode", "AC ", "Tasks", "Agent 循环"]) {
-      expect(primarySurface).not.toContain(forbidden);
-    }
-
     fireEvent.click(screen.getByText("执行证据"));
     expect(screen.getAllByText("代码实现").length).toBeGreaterThan(0);
     expect(screen.getByText("运行阶段")).toBeTruthy();
@@ -500,7 +508,7 @@ describe("Workbench web app", () => {
 
     await waitFor(() => expect(screen.getByTestId("decision-inspector-primary")).toBeTruthy());
     expect(screen.getByText("任务暂停：T-001")).toBeTruthy();
-    expect(screen.getAllByText("T-001: 审查未通过，需要补证据。").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("审查未通过，需要补证据。").length).toBeGreaterThan(0);
     expect(screen.getAllByText("要求修改").length).toBeGreaterThan(0);
     expect(within(screen.getByTestId("decision-inspector-primary")).getAllByText("查看证据")).toHaveLength(1);
     expect(screen.queryByText("确认")).toBeNull();
@@ -577,6 +585,8 @@ describe("Workbench web app", () => {
 
     render(<App />);
 
+    await waitFor(() => expect(screen.getByTestId("workpad-view")).toBeTruthy());
+    fireEvent.click(screen.getByText("查看详情与证据"));
     await waitFor(() => expect(screen.getByTestId("taskgraph-node-T-001")).toBeTruthy());
     fireEvent.click(screen.getByText("运行此任务"));
 
@@ -608,6 +618,8 @@ describe("Workbench web app", () => {
 
     render(<App />);
 
+    await waitFor(() => expect(screen.getByTestId("workpad-view")).toBeTruthy());
+    fireEvent.click(screen.getByText("查看详情与证据"));
     await waitFor(() => expect(screen.getByTestId("task-queue-panel")).toBeTruthy());
     expect(screen.getByText("本地顺序执行")).toBeTruthy();
     expect(screen.queryByText(/并行执行|worker pool|多 agent 协作/)).toBeNull();
@@ -658,6 +670,8 @@ describe("Workbench web app", () => {
 
     render(<App />);
 
+    await waitFor(() => expect(screen.getByTestId("workpad-view")).toBeTruthy());
+    fireEvent.click(screen.getByText("查看详情与证据"));
     await waitFor(() => expect(screen.getByText("队列已暂停，等待继续。")).toBeTruthy());
     expect(screen.getByText("继续处理")).toBeTruthy();
     expect((screen.getByText("运行此任务") as HTMLButtonElement).disabled).toBe(true);
@@ -930,7 +944,7 @@ describe("Workbench web app", () => {
     expect(screen.getByText("设置")).toBeTruthy();
   });
 
-  it("shows Multi-Workpad background state, memory isolation, and explicit composer routing", async () => {
+  it("keeps background demand and memory diagnostics out of the primary conversation surface", async () => {
     const multiSnapshot = {
       ...snapshot,
       left: {
@@ -974,14 +988,18 @@ describe("Workbench web app", () => {
 
     await waitFor(() => expect(screen.getByTestId("workpad-view")).toBeTruthy());
     expect(screen.getAllByText("配送规则调整").length).toBeGreaterThan(0);
-    expect(screen.getByText(/后台需求：1 个处理中/)).toBeTruthy();
+    expect(screen.queryByText(/后台需求：1 个处理中/)).toBeNull();
+    expect(screen.queryByText("记忆边界")).toBeNull();
+    expect(screen.queryByText("发送给当前执行")).toBeNull();
+    expect(screen.queryByText("停止并按这条修改")).toBeNull();
+    expect(screen.queryByText("新需求对话")).toBeNull();
+    expect(screen.getByTitle("停止当前执行")).toBeTruthy();
+    fireEvent.click(screen.getByText("查看详情与证据"));
+    expect(screen.getByText("后台需求")).toBeTruthy();
     expect(screen.getByText("记忆边界")).toBeTruthy();
     expect(screen.getByText(/project\/stable/)).toBeTruthy();
     expect(screen.getByText(/change\/member-discount/)).toBeTruthy();
     expect(screen.getAllByText(/配送规则调整 · 处理中/).length).toBeGreaterThan(0);
-    expect(screen.getByText("发送给当前执行")).toBeTruthy();
-    expect(screen.getByText("停止并按这条修改")).toBeTruthy();
-    expect(screen.getByText("新需求对话")).toBeTruthy();
     expect(screen.queryByText(/worker pool|并行 worktree|merge queue/)).toBeNull();
   });
 

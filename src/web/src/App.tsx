@@ -787,6 +787,11 @@ export function App(): ReactElement {
       return;
     }
     const message = composerText.trim();
+    const runningConversation = activeWorkpad.conversationLifecycle === "running" || activeWorkpad.runControlState?.canStop || currentWorkpadSummary(snapshot, activeTopic)?.runtimeStatus === "running";
+    if (runningConversation) {
+      await runWorkflowAction("conversation.steer", { prompt: message });
+      return;
+    }
     const pendingClarificationCount = activeWorkpad.intake.pendingClarifications?.length ?? 0;
     if (composerMode === "chat" && tab === "workpad" && (activeWorkpad.nextAction.actionType === "planning.generate" || activeWorkpad.nextAction.actionType === "planning.revise")) {
       await runWorkflowAction(activeWorkpad.nextAction.actionType, { prompt: message });
@@ -861,11 +866,7 @@ export function App(): ReactElement {
   }
 
   async function stopAndContinueCurrentRun(): Promise<void> {
-    if (!composerText.trim()) {
-      setError("请输入停止后要按什么修改。");
-      return;
-    }
-    await runWorkflowAction("conversation.interrupt", { prompt: composerText.trim() });
+    await runWorkflowAction("conversation.interrupt", { prompt: composerText.trim() || undefined });
   }
 
   async function answerClarification(clarificationId: string, answer: string): Promise<void> {
@@ -1916,7 +1917,213 @@ function HarnessInitButton({ projectId, onDone }: { projectId: string; onDone: (
   );
 }
 
-function WorkpadView({
+function WorkpadView(props: {
+  workpad: Workpad;
+  approvals: Approval[];
+  busy: boolean;
+  onWorkflowAction: (actionType: string, options?: Record<string, unknown>) => Promise<void>;
+  onConfirmApproval: (approvalId: string) => void;
+  onAnswerClarification: (clarificationId: string, answer: string) => Promise<void>;
+  onSelectDecisionContext: (contextId: string) => void;
+}): ReactElement {
+  const { workpad, approvals, busy, onWorkflowAction, onConfirmApproval } = props;
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const approval = workpad.nextAction.approvalId ? approvals.find((item) => item.id === workpad.nextAction.approvalId) : undefined;
+  const actionableMaintenance = workpad.maintenance?.latest && workpad.maintenance.ledgerCount > 0 ? workpad.maintenance.latest : null;
+  return (
+    <div className="parent-conversation" data-testid="workpad-view">
+      <section className="parent-agent-card">
+        <div>
+          <span className={`workpad-state user-state ${workpad.userStatus ?? "later"}`}>{workpad.userStatusLabel ?? userStatusLabel(workpad.userStatus)}</span>
+          <h2>{workpad.title}</h2>
+          <p>{parentAgentNarrative(workpad)}</p>
+        </div>
+        <WorkpadActionButton
+          action={workpad.nextAction}
+          approval={approval}
+          busy={busy}
+          sanitizeInternal
+          onWorkflowAction={onWorkflowAction}
+          onConfirmApproval={onConfirmApproval}
+        />
+      </section>
+
+      {workpad.pendingFeedback?.length ? (
+        <section className="parent-agent-section">
+          <h3>已记录的补充</h3>
+          {workpad.pendingFeedback.slice(-3).map((feedback) => (
+            <p key={feedback.id}>{feedback.text} <span className="muted-inline">本轮完成后会用于下一次调整。</span></p>
+          ))}
+        </section>
+      ) : null}
+
+      {workpad.planningArtifactBundle ? <PlanningNarrativeCard bundle={workpad.planningArtifactBundle} /> : null}
+      {workpad.rolePipeline ? <RoleToolResultRows pipeline={workpad.rolePipeline} /> : null}
+      {workpad.resultReview ? <ResultReviewNarrative review={workpad.resultReview} /> : null}
+
+      <section className="parent-agent-section">
+        <h3>当前理解</h3>
+        <p className="parent-agent-lead">{workpad.intake.goal}</p>
+        <p>{workpad.intake.currentUnderstanding}</p>
+        {workpad.intake.confirmedConstraints?.length ? (
+          <div className="parent-chip-list">
+            {workpad.intake.confirmedConstraints.slice(0, 4).map((constraint) => <span key={constraint}>{constraint}</span>)}
+          </div>
+        ) : null}
+      </section>
+
+      {workpad.intake.pendingClarifications?.length ? (
+        <section className="parent-agent-section">
+          <div className="parent-section-header">
+            <h3>需要确认</h3>
+            <span>{workpad.intake.pendingClarifications.length}</span>
+          </div>
+          <div className="clarification-list">
+            {workpad.intake.pendingClarifications.map((clarification) => (
+              <ClarificationCard
+                key={clarification.id}
+                clarification={clarification}
+                busy={busy}
+                onAnswer={props.onAnswerClarification}
+              />
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      {actionableMaintenance ? (
+        <section className="parent-agent-section maintenance-nudge">
+          <h3>有一条后台建议需要你确认</h3>
+          <p>{userFacingText(actionableMaintenance.summary)}</p>
+        </section>
+      ) : null}
+
+      <details className="parent-details" open={detailsOpen}>
+        <summary
+          onClick={(event) => {
+            event.preventDefault();
+            setDetailsOpen((open) => !open);
+          }}
+        >
+          查看详情与证据
+        </summary>
+        {detailsOpen ? <WorkpadDiagnosticDetails {...props} /> : null}
+      </details>
+    </div>
+  );
+}
+
+function PlanningNarrativeCard({ bundle }: { bundle: NonNullable<Workpad["planningArtifactBundle"]> }): ReactElement {
+  const criteria = bundle.acceptanceCriteria.filter((item) => !/^\s*(AC-\d+|TBD)\s*$/i.test(item)).slice(0, 4);
+  const tasks = bundle.tasks.filter((task) => task.title && !/^\s*TBD\s*$/i.test(task.title)).slice(0, 3);
+  return (
+    <section className="parent-agent-section" data-testid="planning-draft-card">
+      <div className="parent-section-header">
+        <h3>{bundle.status === "confirmed" ? "已确认方案" : "方案草案"}</h3>
+        <span>{bundle.status === "confirmed" ? "准备执行" : "等待确认"}</span>
+      </div>
+      <p className="parent-agent-lead">我理解你要做的是：{parentSurfaceText(bundle.goal)}</p>
+      {bundle.design ? <p>实现上，我会按现有代码结构处理：{userFacingText(stripInternalPlanningText(bundle.design))}</p> : null}
+      {criteria.length > 0 ? (
+        <div className="parent-chip-list">
+          {criteria.map((item) => <span key={item}>{userFacingText(stripInternalPlanningText(item))}</span>)}
+        </div>
+      ) : null}
+      {tasks.length > 0 ? (
+        <div className="role-result-list">
+          {tasks.map((task) => (
+            <div className="role-result-row" key={task.id}>
+              <strong>会处理</strong>
+              <span>{userFacingText(stripInternalPlanningText(task.title))}</span>
+            </div>
+          ))}
+        </div>
+      ) : null}
+      {bundle.openQuestions.length > 0 ? (
+        <p className="parent-agent-note">还有 {bundle.openQuestions.length} 个点需要确认后再执行。</p>
+      ) : null}
+    </section>
+  );
+}
+
+function RoleToolResultRows({ pipeline }: { pipeline: NonNullable<Workpad["rolePipeline"]> }): ReactElement {
+  const rows = [
+    ...pipeline.runs.map((run) => ({ id: `${run.roleId}:${run.runId ?? run.artifact ?? run.status}`, roleId: run.roleId, status: run.status, summary: run.summary, artifact: run.artifact })),
+    ...pipeline.agentTasks.slice(-6).map((task) => ({ id: task.id, roleId: task.roleId, status: task.status, summary: task.resultSummary ?? task.summary, artifact: task.evidenceRefs[0] })),
+  ];
+  if (rows.length === 0) return <></>;
+  return (
+    <section className="parent-agent-section" data-testid="role-pipeline-summary">
+      <div className="parent-section-header">
+        <h3>执行过程</h3>
+        <span>{humanStatus(pipeline.status)}</span>
+      </div>
+      <div className="role-result-list">
+        {rows.map((row) => (
+          <div className="role-result-row" key={row.id}>
+            <strong>{roleLabel(row.roleId)}</strong>
+            <span>{parentSurfaceText(row.summary)}</span>
+            <small>{humanStatus(row.status)}</small>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function ResultReviewNarrative({ review }: { review: NonNullable<Workpad["resultReview"]> }): ReactElement {
+  return (
+    <section className={`parent-agent-section result-review ${review.status}`} data-testid="result-review-card">
+      <div className="parent-section-header">
+        <h3>结果</h3>
+        <span>{resultReviewStatusLabel(review.status)}</span>
+      </div>
+      <p className="parent-agent-lead">{userFacingText(review.title)}</p>
+      <p>{userFacingText(review.summary)}</p>
+      {review.changedFiles.length > 0 ? (
+        <div className="parent-chip-list">
+          {review.changedFiles.slice(0, 6).map((file) => <span key={file}>{file}</span>)}
+        </div>
+      ) : null}
+      <div className="role-result-list">
+        <div className="role-result-row"><strong>验证</strong><span>{review.validation ? humanStatus(review.validation.status) : "未完成"}</span></div>
+        <div className="role-result-row"><strong>审查</strong><span>{review.audit ? humanStatus(review.audit.status) : "未完成"}</span></div>
+        <div className="role-result-row"><strong>下一步</strong><span>{userFacingText(review.applyReadiness.label)}</span></div>
+      </div>
+      {review.audit?.notes.length ? <p className="parent-agent-note">注意事项：{userFacingText(review.audit.notes[0])}</p> : null}
+    </section>
+  );
+}
+
+function parentAgentNarrative(workpad: Workpad): string {
+  if (workpad.resultReview) return "我已经整理了本轮实现结果、验证与审查证据。你可以查看摘要后决定是否应用到项目，或继续要求修改。";
+  if (workpad.rolePipeline) return "我正在把这次需求交给内部角色执行，并会把实现、验证和审查结果汇总回这个对话。";
+  if (workpad.planningArtifactBundle) return workpad.planningArtifactBundle.status === "confirmed"
+    ? "方案已经确认，接下来会进入实现、验证和审查。"
+    : "我先把需求整理成可执行方案。你可以继续补充要求，或确认后开始执行。";
+  if (workpad.intake.currentUnderstanding) return "我会基于当前需求对话继续分析目标、约束和下一步。";
+  return "描述你的需求后，我会先整理方案，再进入实现和验证。";
+}
+
+function stripInternalPlanningText(value: string): string {
+  return value
+    .replace(/\bT-\d+\s*[:：]?\s*/g, "")
+    .replace(/\bAC-\d+\s*[:：]?\s*/g, "")
+    .replace(/\blatest-bundle\.md\b/gi, "")
+    .replace(/\bplanning-agent\b/gi, "主 agent")
+    .replace(/\bAgentTask\b/gi, "执行记录")
+    .replace(/\bTaskRepository\b/gi, "后台任务")
+    .replace(/\bTBD\b/gi, "待确认")
+    .replace(/^\s*[:：]\s*/, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function parentSurfaceText(value: string): string {
+  return userFacingText(stripInternalPlanningText(value));
+}
+
+function WorkpadDiagnosticDetails({
   workpad,
   approvals,
   busy,
@@ -2038,7 +2245,7 @@ function WorkpadView({
       ) : null}
 
       {workpad.resultReview ? (
-        <section className={`workpad-section result-review ${workpad.resultReview.status}`} data-testid="result-review-card">
+        <section className={`workpad-section result-review ${workpad.resultReview.status}`} data-testid="workpad-result-review-card">
           <div className="workpad-section-header">
             <h3>结果</h3>
             <span>{resultReviewStatusLabel(workpad.resultReview.status)}</span>
@@ -2483,16 +2690,19 @@ function WorkpadActionButton({
   action,
   approval,
   busy,
+  sanitizeInternal = false,
   onWorkflowAction,
   onConfirmApproval,
 }: {
   action: WorkpadNextAction;
   approval?: Approval;
   busy: boolean;
+  sanitizeInternal?: boolean;
   onWorkflowAction: (actionType: string, options?: Record<string, unknown>) => Promise<void>;
   onConfirmApproval: (approvalId: string) => void;
 }): ReactElement {
   const disabled = busy || !action.enabled || action.kind === "none" || action.kind === "read-only";
+  const format = sanitizeInternal ? parentSurfaceText : userFacingText;
   function run(): void {
     if (action.kind === "approval" && action.approvalId) {
       onConfirmApproval(action.approvalId);
@@ -2503,8 +2713,8 @@ function WorkpadActionButton({
   return (
     <div className="workpad-next-action">
       <span>下一步</span>
-      <strong>{userFacingText(approval?.action?.label ?? action.label)}</strong>
-      <p>{userFacingText(action.description)}</p>
+      <strong>{format(approval?.action?.label ?? action.label)}</strong>
+      <p>{format(action.description)}</p>
       <button className="primary-button" disabled={disabled} title={action.disabledReason} onClick={run}>
         {action.enabled ? "执行" : "不可执行"}
       </button>
@@ -2980,11 +3190,11 @@ function TopicComposer({
   onChange,
   mode: _mode,
   onModeChange: _onModeChange,
-  busy,
+  busy: _busy,
   disabledReason,
   onSend,
   onStopAndContinue,
-  onNewWorkpad,
+  onNewWorkpad: _onNewWorkpad,
   onRunCode: _onRunCode,
   actionRunning,
   canRunCode: _canRunCode,
@@ -3005,6 +3215,15 @@ function TopicComposer({
   currentWorkpadStatus?: WorkpadRuntimeStatus;
 }): ReactElement {
   const runningConversation = Boolean(actionRunning) || currentWorkpadStatus === "running";
+  const canStop = runningConversation && Boolean(onStopAndContinue) && !value.trim();
+  const canSend = Boolean(value.trim());
+  const sendDisabled = Boolean(disabledReason) || (!canSend && !canStop);
+  const buttonTitle = canStop ? "停止当前执行" : runningConversation ? "发送给当前执行" : "发送";
+  const buttonIcon = canStop ? <X size={16} /> : <Send size={16} />;
+  function submit(): void {
+    if (canStop) void onStopAndContinue?.();
+    else void onSend();
+  }
   return (
     <div className="topic-composer" aria-label="需求对话输入框">
         <textarea
@@ -3014,29 +3233,17 @@ function TopicComposer({
         placeholder={disabledReason ?? (runningConversation ? "补充要求；支持实时引导时会发送给当前执行" : "输入问题或下一步需求")}
       />
       <div className="composer-toolbar">
-        {runningConversation ? (
-          <div className="workpad-route-switch" aria-label="需求对话路由选择">
-            <button type="button" className="active" disabled={Boolean(disabledReason) || !value.trim()} onClick={() => void onSend()}>
-              发送给当前执行
-            </button>
-            <button type="button" disabled={!onStopAndContinue || Boolean(disabledReason) || !value.trim()} onClick={() => void onStopAndContinue?.()}>
-              停止并按这条修改
-            </button>
-            <button type="button" disabled={!onNewWorkpad || Boolean(disabledReason) || busy || !value.trim()} onClick={() => void onNewWorkpad?.()}>
-              新需求对话
-            </button>
-          </div>
-        ) : null}
         {disabledReason ? <span className="composer-pill">只读</span> : null}
+        {runningConversation ? <span className="composer-pill subtle">{value.trim() ? "会发送给当前执行" : "可停止当前执行"}</span> : null}
         <span className="composer-spacer" />
         {actionRunning ? <span className="composer-pill subtle">正在运行：{workflowActionLabel(actionRunning)}</span> : null}
         <button
           className={`composer-send ${actionRunning ? "running" : ""}`}
-          disabled={Boolean(disabledReason) || Boolean(actionRunning) || !value.trim()}
-          title={actionRunning ? "正在运行，当前版本会让运行完成" : "发送"}
-          onClick={() => void onSend()}
+          disabled={sendDisabled}
+          title={buttonTitle}
+          onClick={submit}
         >
-          {actionRunning ? <Clock3 size={16} /> : <Send size={16} />}
+          {buttonIcon}
         </button>
       </div>
     </div>
