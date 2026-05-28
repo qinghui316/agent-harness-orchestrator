@@ -86,7 +86,7 @@ const snapshot = {
         status: "none",
         totalCount: 1,
         completedCount: 0,
-        nextAction: { id: "task-queue:start", label: "运行任务队列", actionType: "task.queue.start", enabled: true, requiresConfirmation: true },
+        nextAction: { id: "task-queue:start", label: "运行当前任务", actionType: "task.queue.start", enabled: true, requiresConfirmation: true },
         items: [],
       },
       evidence: [
@@ -318,7 +318,7 @@ describe("Workbench web app", () => {
     expect(screen.queryByText("远程项目")).toBeNull();
     expect(screen.getByText("当前决策")).toBeTruthy();
     expect(screen.getAllByText("已完成").length).toBeGreaterThan(0);
-    fireEvent.click(screen.getByText("对话"));
+    fireEvent.click(screen.getByRole("button", { name: "对话" }));
     expect(screen.getByText("用户消息")).toBeTruthy();
     expect(screen.getByText("AI 计划")).toBeTruthy();
     expect(screen.getAllByText("执行结果").length).toBeGreaterThan(0);
@@ -405,7 +405,7 @@ describe("Workbench web app", () => {
     render(<App />);
 
     await waitFor(() => expect(screen.getAllByText("会员折扣计价").length).toBeGreaterThan(0));
-    fireEvent.click(screen.getByText("对话"));
+    fireEvent.click(screen.getByRole("button", { name: "对话" }));
     await waitFor(() => expect(screen.getByText("我会检查现有实现。")).toBeTruthy());
     expect(document.querySelectorAll("[data-testid='assistant-block-command-group']")).toHaveLength(1);
     expect(document.querySelectorAll("[data-testid='assistant-block-command']")).toHaveLength(1);
@@ -609,9 +609,9 @@ describe("Workbench web app", () => {
     render(<App />);
 
     await waitFor(() => expect(screen.getByTestId("task-queue-panel")).toBeTruthy());
-    expect(screen.getByText("本地任务队列")).toBeTruthy();
+    expect(screen.getByText("本地顺序执行")).toBeTruthy();
     expect(screen.queryByText(/并行执行|worker pool|多 agent 协作/)).toBeNull();
-    fireEvent.click(screen.getByText("运行任务队列"));
+    fireEvent.click(screen.getByText("运行当前任务"));
 
     await waitFor(() => {
       expect(fetch).toHaveBeenCalledWith("/api/projects/repo/workbench/actions/live", expect.objectContaining({
@@ -642,8 +642,8 @@ describe("Workbench web app", () => {
             ...snapshot.center.workpad.taskGraph,
             nodes: [{
               ...snapshot.center.workpad.taskGraph.nodes[0],
-              nextAction: { id: "task:T-001:task.run.start", label: "运行此任务", actionType: "task.run.start", taskIds: ["T-001"], enabled: false, requiresConfirmation: true, disabledReason: "任务队列正在运行或等待恢复。" },
-              blockers: ["任务队列正在运行或等待恢复。"],
+              nextAction: { id: "task:T-001:task.run.start", label: "运行此任务", actionType: "task.run.start", taskIds: ["T-001"], enabled: false, requiresConfirmation: true, disabledReason: "本地顺序执行正在运行或等待恢复。" },
+              blockers: ["本地顺序执行正在运行或等待恢复。"],
             }],
           },
         },

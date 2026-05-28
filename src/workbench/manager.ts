@@ -20,6 +20,7 @@ import { listRuns, readRun } from "../run/manager.js";
 import { getSpecTestDriftReport } from "../spec-test/drift.js";
 import { getSpecTestStatus } from "../spec-test/manager.js";
 import { listSpecTestProposalSummaries } from "../spec-test/proposal.js";
+import { listDemandWorkers } from "../demand-worker/manager.js";
 import { isActiveTaskRunStatus, listTaskRuns, listWorkerLeases } from "../task-run/manager.js";
 import { listTaskQueueItems, listTaskQueues } from "../task-queue/manager.js";
 import { listValidationResults, summarizeValidation } from "../validation/artifacts.js";
@@ -112,7 +113,7 @@ export interface WorkbenchThreadEvent {
 }
 
 export interface ThreadStreamAction {
-  actionType: "change.spec.propose" | "change.plan.propose" | "planning.generate" | "planning.revise" | "planning.confirm-execution" | "role.pipeline.start" | "role.pipeline.stop" | "role.pipeline.continue" | "role.pipeline.reconcile" | "conversation.steer" | "conversation.interrupt" | "conversation.continue" | "code.run" | "task.run.start" | "task.run.retry" | "task.queue.start" | "task.queue.reconcile" | "intake.scan" | "intake.reanalyze" | "clarification.answer" | "clarification.skip";
+  actionType: "change.spec.propose" | "change.plan.propose" | "planning.generate" | "planning.revise" | "planning.confirm-execution" | "orchestrator.evaluate" | "demand.worker.enqueue" | "demand.worker.claim" | "demand.worker.start-next" | "demand.worker.reconcile" | "demand.worker.release" | "role.pipeline.start" | "role.pipeline.stop" | "role.pipeline.continue" | "role.pipeline.reconcile" | "conversation.steer" | "conversation.interrupt" | "conversation.continue" | "code.run" | "task.run.start" | "task.run.retry" | "task.queue.start" | "task.queue.reconcile" | "intake.scan" | "intake.reanalyze" | "clarification.answer" | "clarification.skip";
   label: string;
   enabled: boolean;
   requiresConfirmation: boolean;
@@ -990,7 +991,7 @@ async function buildWorkbenchWorkpad(input: {
       warnings: gaps.filter((gap) => gap.status !== "available").map((gap) => gap.summary),
       nextAction: {
         id: "create-topic",
-        label: "输入需求创建 Topic",
+        label: "输入需求创建需求对话",
         description: "在底部输入自然语言需求，创建新的需求对话。",
         kind: "read-only",
         enabled: true,
@@ -1022,17 +1023,20 @@ async function buildWorkbenchWorkpad(input: {
   const resultReview = await buildResultReview(project, memory, selectedTopic);
   const maintenance = await buildMaintenanceSummary(memory);
   const runningRun = selectedTopic.runs.find((run) => run.status === "created" || run.status === "running");
+  const selectedWorkpadSummary = workpads.find((item) => item.id === selectedTopic.id || item.id === selectedTopic.name);
+  const selectedUserState = selectedWorkpadSummary?.userStatus ?? userDecisionStateForSelectedTopic(selectedTopic, topicApprovals, taskQueue, taskGraph);
+  const selectedLifecycle = selectedWorkpadSummary?.conversationLifecycle ?? conversationLifecycleForTopic(selectedTopic, taskQueue);
 
   return {
     title: selectedTopic.title,
     subtitle: `${project?.name ?? "project"} · ${stateLabelForWorkpad(selectedTopic.state)} · ${selectedTopic.id}`,
     state: selectedTopic.state === "active" ? "active" : "readonly",
-    userStatus: userDecisionStateForSelectedTopic(selectedTopic, topicApprovals, taskQueue, taskGraph),
-    userStatusLabel: userDecisionStateLabel(userDecisionStateForSelectedTopic(selectedTopic, topicApprovals, taskQueue, taskGraph)),
+    userStatus: selectedUserState,
+    userStatusLabel: userDecisionStateLabel(selectedUserState),
     conversationId: selectedTopic.id,
     demandId: selectedTopic.id,
     boundChangeId: selectedTopic.id,
-    conversationLifecycle: conversationLifecycleForTopic(selectedTopic, taskQueue),
+    conversationLifecycle: selectedLifecycle,
     pendingFeedback: buildPendingFeedback(selectedTopic),
     coderSelfTestSummary: summarizeCoderSelfTest(selectedTopic),
     officialValidationResult: latestValidation?.status,
@@ -1457,9 +1461,9 @@ function buildWorkpadMemoryIsolation(memory: ResolvedMemory, selectedTopic: Work
     relatedWorkpads,
     stableFactSources: [
       "applied source changes",
-      "accepted spec / plan / tasks",
-      "accepted architecture / product docs",
-      "accepted Harness evolution results",
+      "已确认的需求说明 / 执行方案 / 任务",
+      "已确认的架构 / 产品文档",
+      "已确认的 Harness evolution 结果",
       "explicit human memory accepts",
     ],
     writeBoundaries: [
@@ -1509,7 +1513,7 @@ function buildCodingPackages(topic: WorkbenchTopicDetail, taskGraph: WorkbenchTa
     title: `${topic.title} implementation package`,
     summary: pendingTasks.length > 0
       ? `默认由一个 coder-agent 处理 ${pendingTasks.length} 个未勾选任务，并把已勾选任务作为上下文和 evidence。`
-      : "当前 accepted tasks 均已勾选；该 package 只保留为完成上下文和 evidence 汇总。",
+      : "当前已确认任务均已勾选；该执行单元只保留为完成上下文和证据汇总。",
     taskIds,
     completedTaskIds,
     acIds,
@@ -1551,7 +1555,7 @@ function codingPackageSplitRationale(readiness: WorkbenchCodingPackageSplitReadi
 function codingPackageMergeRisk(readiness: WorkbenchCodingPackageSplitReadiness): string {
   if (readiness === "candidate") return "未来并行执行需要 integration worktree、aggregate validation/audit 和 merge/rework 链路。";
   if (readiness === "unknown") return "拆分风险未知；保持单 agent 执行更稳妥。";
-  return "单 agent work package 的合并风险较低；TaskGraph 用于检查覆盖和 evidence，不强制拆分 coder。";
+  return "单 agent work package 的合并风险较低；任务覆盖检查用于确认验收范围，不强制拆分 coder。";
 }
 
 function uniqueStrings(items: string[]): string[] {
@@ -1583,11 +1587,11 @@ function buildWorkpadIntake(topic: WorkbenchTopicDetail): WorkpadIntakeSummary {
     .slice(0, 5);
   return {
     goal: firstUser?.body?.trim() || topic.change?.title || topic.title,
-    currentUnderstanding: latestIteration?.currentUnderstanding || latestAssistant?.body?.trim() || "等待 AHO 基于当前 Topic 事实继续推进。",
+    currentUnderstanding: latestIteration?.currentUnderstanding || latestAssistant?.body?.trim() || "等待 AHO 基于当前需求对话事实继续推进。",
     source: latestScan ? "thread" : firstUser ? "thread" : "topic",
     relatedArtifacts: artifacts,
     missingInfo: [
-      ...(topic.state === "active" ? [] : ["Topic is read-only because it is not active."]),
+      ...(topic.state === "active" ? [] : ["需求对话已只读，不能继续执行。"]),
       ...(latestIteration?.openQuestions ?? latestScan?.missingInfo ?? []),
     ],
     confirmedConstraints: latestIteration?.confirmedConstraints ?? [],
@@ -1621,11 +1625,11 @@ function buildTaskQueueSummary(
         actionType: queueActionType,
         enabled: topic.state === "active",
         requiresConfirmation: true,
-        disabledReason: topic.state === "active" ? undefined : "Topic is not active.",
+        disabledReason: topic.state === "active" ? undefined : "需求对话不是可执行状态。",
       }
     : {
         id: "task-queue:start",
-        label: "运行任务队列",
+        label: "运行当前任务",
         actionType: "task.queue.start",
         enabled: !disabledReason,
         requiresConfirmation: true,
@@ -1859,9 +1863,9 @@ function buildTaskBlockers(
   queueActiveForTask = false,
 ): string[] {
   const blockers: string[] = [];
-  if (topic.state !== "active") blockers.push("Topic is read-only.");
-  if (!readiness.specReady || !readiness.planReady || !readiness.tasksReady) blockers.push("前置条件未满足：需要 accepted Spec / Plan / Tasks。");
-  if (queueActiveForTask) blockers.push("任务队列正在运行或等待恢复。");
+  if (topic.state !== "active") blockers.push("需求对话已只读。");
+  if (!readiness.specReady || !readiness.planReady || !readiness.tasksReady) blockers.push("前置条件未满足：需要已确认的需求说明 / 执行方案 / 任务。");
+  if (queueActiveForTask) blockers.push("本地顺序执行正在运行或等待恢复。");
   else if (running) blockers.push("已有该任务的运行正在进行。");
   const latestRun = [...runs].sort((a, b) => (b.finishedAt ?? b.startedAt ?? "").localeCompare(a.finishedAt ?? a.startedAt ?? ""))[0];
   const latestValidation = [...validations].sort((a, b) => (b.finishedAt ?? "").localeCompare(a.finishedAt ?? ""))[0];
@@ -1882,7 +1886,7 @@ function buildTaskNextAction(
   latestTaskRun?: TaskRun,
   queueActiveForTask = false,
 ): WorkbenchTaskNextAction {
-  const disabledReason = queueActiveForTask ? "任务队列正在运行或等待恢复。" : taskActionDisabledReason(topic, readiness, running);
+  const disabledReason = queueActiveForTask ? "本地顺序执行正在运行或等待恢复。" : taskActionDisabledReason(topic, readiness, running);
   if ((latestTaskRun?.status === "blocked" || latestTaskRun?.status === "failed") && !disabledReason) {
     const officialReworkAttempt = Math.max(0, latestTaskRun.attempt - 1);
     if (officialReworkAttempt < OFFICIAL_REWORK_BUDGET) {
@@ -1923,7 +1927,7 @@ function taskActionDisabledReason(
   readiness: { specReady: boolean; planReady: boolean; tasksReady: boolean },
   running: boolean,
 ): string | undefined {
-  if (topic.state !== "active") return "Topic is not active.";
+  if (topic.state !== "active") return "需求对话不是可执行状态。";
   if (!readiness.specReady) return "先接受 Spec。";
   if (!readiness.planReady) return "先接受 Plan。";
   if (!readiness.tasksReady) return "先接受 Tasks。";
@@ -1999,11 +2003,11 @@ function buildWorkpadNextAction(
     return {
       id: "readonly-topic",
       label: "只读查看历史",
-      description: "归档或暂停 Topic 只能查看 Thread、Evidence 和 Run Replay。",
+      description: "归档或暂停的需求对话只能查看对话、证据和运行回放。",
       kind: "none",
       enabled: false,
       requiresConfirmation: false,
-      disabledReason: "Topic is not active.",
+      disabledReason: "需求对话不是可执行状态。",
     };
   }
   const autoReworkTask = taskGraph?.nodes.find((node) => node.autoRework?.available);
@@ -2166,7 +2170,7 @@ function userDecisionTitle(context: WorkbenchDecisionContext): string {
 }
 
 function userResultSummary(context: WorkbenchDecisionContext): string {
-  if (context.kind === "queue-blocker") return context.summary || "任务队列暂停在当前任务。";
+  if (context.kind === "queue-blocker") return context.summary || "本地顺序执行暂停在当前任务。";
   if (context.kind === "task-blocker") return context.summary || "当前任务还没有形成可接受结果。";
   if (context.kind === "validation-failed") return context.summary || "机械验证没有通过。";
   if (context.kind === "audit-blocked") return context.summary || "审查认为当前结果还不能安全接受。";
@@ -2191,7 +2195,7 @@ function userRecommendation(context: WorkbenchDecisionContext): string {
 
 function userDecisionExplanation(context: WorkbenchDecisionContext): string {
   if (context.kind === "queue-blocker") return "执行状态仍用于恢复和归因；你只需要处理当前暂停的任务。";
-  if (context.kind === "task-blocker") return "任务状态来自 TaskRun / Validation / Audit evidence，不会自动修改 tasks.md。";
+  if (context.kind === "task-blocker") return "任务状态来自执行记录、验证和审查证据，不会自动修改任务清单。";
   if (context.kind === "validation-failed" || context.kind === "audit-blocked") return "这不是最终失败，而是需要修改或补证据的检查结果。";
   if (context.kind === "apply-gate") return "应用是高影响动作，仍需要明确确认；这不是 PR、push 或 merge queue。";
   if (context.kind === "close-gate") return "归档是需求生命周期收口，之后仍可从历史查看。";
@@ -2490,10 +2494,12 @@ async function buildMultiWorkpadSummaries(
   selectedTopicId: string | undefined,
 ): Promise<WorkbenchWorkpadSummary[]> {
   const allRuns = await listRuns(memory).catch(() => []);
+  const demandWorkers = await listDemandWorkers(memory).catch(() => []);
   const summaries = await Promise.all(topics.map(async (topic): Promise<WorkbenchWorkpadSummary> => {
     const runs = allRuns.filter((run) => run.changeId === topic.id || run.changeId === topic.name);
     const latestRun = [...runs].sort((a, b) => (b.finishedAt ?? b.startedAt ?? "").localeCompare(a.finishedAt ?? a.startedAt ?? ""))[0];
     const runningRun = runs.find((run) => run.status === "created" || run.status === "running");
+    const demandWorker = demandWorkers.find((worker) => worker.changeId === topic.id || worker.changeId === topic.name);
     const queues = await listTaskQueues(memory, topic.id).catch(() => []);
     const latestQueue = [...queues].sort((a, b) => (b.updatedAt ?? b.createdAt).localeCompare(a.updatedAt ?? a.createdAt))[0];
     const topicApprovals = approvals.filter((approval) => approval.changeId === topic.id || approval.changeId === topic.name);
@@ -2501,7 +2507,17 @@ async function buildMultiWorkpadSummaries(
     let runtimeStatus: WorkbenchWorkpadRuntimeStatus = topic.state === "archive" ? "archived" : topic.state === "parking" ? "queued" : "active";
     let blocker = blockingApproval?.reason ?? blockingApproval?.label;
     if (topic.state === "active") {
-      if (latestQueue && ["blocked", "failed"].includes(latestQueue.status)) {
+      if (demandWorker && ["claimed", "running"].includes(demandWorker.status)) {
+        runtimeStatus = "running";
+      } else if (demandWorker?.status === "queued") {
+        runtimeStatus = "queued";
+        blocker = demandWorker.waitingReason ?? "等待本地处理槽位。";
+      } else if (demandWorker && ["needs-user-input", "failed"].includes(demandWorker.status)) {
+        runtimeStatus = "blocked";
+        blocker = demandWorker.failureReason ?? demandWorker.resultSummary ?? "需要用户补充要求或处理证据。";
+      } else if (demandWorker?.status === "result-ready") {
+        runtimeStatus = "waiting-decision";
+      } else if (latestQueue && ["blocked", "failed"].includes(latestQueue.status)) {
         runtimeStatus = "blocked";
         blocker = latestQueue.blockedReason ?? latestQueue.failureReason ?? "任务暂停，需要处理当前任务。";
       } else if (blockingApproval) {
@@ -2524,11 +2540,11 @@ async function buildMultiWorkpadSummaries(
       conversationLifecycle: topic.state === "archive" ? "archived-readonly" : runtimeStatus === "running" ? "running" : "active",
       selected: topic.id === selectedTopicId || topic.name === selectedTopicId,
       waitingDecisionCount: topicApprovals.length,
-      latestRunStatus: latestRun?.status,
+      latestRunStatus: demandWorker?.status ?? latestRun?.status,
       latestRunId: latestRun?.id,
-      queueStatus: latestQueue?.status,
+      queueStatus: demandWorker?.status ?? latestQueue?.status,
       blocker,
-      updatedAt: latestRun?.finishedAt ?? latestRun?.startedAt ?? latestQueue?.updatedAt ?? topic.updatedAt,
+      updatedAt: demandWorker?.updatedAt ?? latestRun?.finishedAt ?? latestRun?.startedAt ?? latestQueue?.updatedAt ?? topic.updatedAt,
     };
   }));
   const running = summaries
@@ -3340,28 +3356,28 @@ async function buildPlanCardActions(memory: ResolvedMemory, topic: WorkbenchTopi
       label: "生成 Spec",
       enabled: topic.state === "active" && !specReady,
       requiresConfirmation: true,
-      disabledReason: specReady ? "Spec 已存在" : topic.state === "active" ? undefined : "归档或暂停 Topic 不能执行动作",
+      disabledReason: specReady ? "需求说明已存在" : topic.state === "active" ? undefined : "归档或暂停的需求对话不能执行动作",
     },
     {
       actionType: "change.plan.propose",
       label: "生成 Plan",
       enabled: topic.state === "active" && specReady && !planReady,
       requiresConfirmation: true,
-      disabledReason: !specReady ? "先生成并接受 Spec" : planReady ? "Plan 已存在" : topic.state === "active" ? undefined : "归档或暂停 Topic 不能执行动作",
+      disabledReason: !specReady ? "先生成并接受需求说明" : planReady ? "执行方案已存在" : topic.state === "active" ? undefined : "归档或暂停的需求对话不能执行动作",
     },
     {
       actionType: "change.plan.propose",
       label: "生成 Tasks",
       enabled: topic.state === "active" && specReady && planReady && !tasksReady,
       requiresConfirmation: true,
-      disabledReason: !specReady ? "先生成并接受 Spec" : !planReady ? "先生成 Plan" : tasksReady ? "Tasks 已存在" : topic.state === "active" ? undefined : "归档或暂停 Topic 不能执行动作",
+      disabledReason: !specReady ? "先生成并接受需求说明" : !planReady ? "先生成执行方案" : tasksReady ? "任务清单已存在" : topic.state === "active" ? undefined : "归档或暂停的需求对话不能执行动作",
     },
     {
       actionType: "code.run",
       label: "运行 Code",
       enabled: topic.state === "active" && specReady && planReady && tasksReady,
       requiresConfirmation: true,
-      disabledReason: !specReady ? "先生成并接受 Spec" : !planReady ? "先生成并接受 Plan" : !tasksReady ? "先生成 Tasks" : topic.state === "active" ? undefined : "归档或暂停 Topic 不能执行动作",
+      disabledReason: !specReady ? "先生成并接受需求说明" : !planReady ? "先生成并接受执行方案" : !tasksReady ? "先生成任务清单" : topic.state === "active" ? undefined : "归档或暂停的需求对话不能执行动作",
     },
   ];
 }
@@ -3755,7 +3771,7 @@ function buildHarnessGaps(): HarnessGap[] {
       severity: "info",
       status: "partial",
       recommendedPhase: "Phase 5B",
-      summary: "Approvals are derived from canonical state; no materialized approval queue exists.",
+      summary: "审批项从 canonical state 派生；当前没有独立持久化审批列表。",
     },
     {
       id: "sessionModel",
@@ -3783,7 +3799,7 @@ function buildHarnessGaps(): HarnessGap[] {
       severity: "warning",
       status: "partial",
       recommendedPhase: "Future",
-      summary: "Evolution is explicit and controlled. There is no asynchronous background evolution queue.",
+      summary: "演进仍是显式受控流程；当前没有自动修改 canonical 文档的后台维护通道。",
     },
   ];
 }

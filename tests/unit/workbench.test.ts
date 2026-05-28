@@ -16,6 +16,14 @@ import { WorkbenchStore } from "../../src/workbench/store.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import { collectWorktreeDiff } from "../../src/audit/diff.js";
 import { completeAgentTask, createAgentTask, listAgentTasks, recordMaintenanceLedgerEntry, runMaintenanceCandidatePipeline } from "../../src/agent-task/manager.js";
+import {
+  claimNextDemandWorker,
+  enqueueDemandWorker,
+  listDemandWorkerAttempts,
+  listDemandWorkers,
+  listMainOrchestratorDecisions,
+  markDemandWorkerRunning,
+} from "../../src/demand-worker/manager.js";
 import { createWorktree } from "../../src/worktree/manager.js";
 import { listTaskQueueItems, listTaskQueues, reconcileTaskQueues, startOrResumeTaskQueue } from "../../src/task-queue/manager.js";
 import type { ManagedProject, RunMetadata, TaskQueueItem, TaskQueueRun, TaskRun, WorkerLease } from "../../src/types/index.js";
@@ -39,6 +47,32 @@ function project(path = tempDir): ManagedProject {
     addedAt: new Date().toISOString(),
     lastSeenAt: new Date().toISOString(),
   };
+}
+
+async function writePlanningBundleFixture(changeId: string, goal = "Implement pricing rule"): Promise<void> {
+  const changeDir = join(tempDir, "harness", "changes", "active", changeId);
+  const planningDir = join(changeDir, "planning");
+  await mkdir(planningDir, { recursive: true });
+  const specMd = `# Spec\n\n## Goal\n\n${goal}\n\n## Acceptance Criteria\n\n- AC-001: Implement and test the requested behavior.\n`;
+  const planMd = "# Plan\n\n1. Update implementation.\n2. Add tests.\n";
+  const tasksMd = "- [ ] T-001: Implement requested behavior\n  - Covers: AC-001\n";
+  await writeFile(join(planningDir, "latest-bundle.json"), JSON.stringify({
+    id: `bundle-${changeId}`,
+    status: "draft",
+    goal,
+    constraints: ["Do not apply source root without confirmation."],
+    acceptanceCriteria: ["Implement and test the requested behavior."],
+    design: "Use existing pricing module and tests.",
+    tasks: [{ id: "T-001", title: "Implement requested behavior", acIds: ["AC-001"] }],
+    risks: [],
+    openQuestions: [],
+    specMd,
+    planMd,
+    tasksMd,
+    acMapCandidate: null,
+    artifact: `harness/changes/active/${changeId}/planning/latest-bundle.md`,
+    updatedAt: new Date().toISOString(),
+  }, null, 2), "utf8");
 }
 
 describe("workbench read model", () => {
@@ -549,7 +583,7 @@ describe("workbench read model", () => {
     expect(snapshot.center.workpad.taskGraph.nodes).toEqual([
       expect.objectContaining({
         taskId: "T-001",
-        nextAction: expect.objectContaining({ enabled: false, disabledReason: "Topic is not active." }),
+        nextAction: expect.objectContaining({ enabled: false, disabledReason: "需求对话不是可执行状态。" }),
       }),
     ]);
   });
@@ -671,7 +705,7 @@ describe("workbench read model", () => {
       totalCount: 1,
       nextAction: expect.objectContaining({ actionType: "task.queue.reconcile", label: "刷新执行状态" }),
     });
-    expect(node?.nextAction).toMatchObject({ enabled: false, disabledReason: "任务队列正在运行或等待恢复。" });
+    expect(node?.nextAction).toMatchObject({ enabled: false, disabledReason: "本地顺序执行正在运行或等待恢复。" });
   });
 
   it("projects blocked queue as the primary decision and moves stale audit approvals to history", async () => {
@@ -993,6 +1027,92 @@ describe("workbench read model", () => {
         evidenceRefs: ["runs/run-agent-task/implementation.md"],
       }),
     ]));
+  });
+
+  it("routes planning confirmation through a demand worker queue when no worker slot is available", async () => {
+    await initHarness(project());
+    const active = await createWorkbenchTopic(project(), { title: "Queued Demand", body: "Implement later." });
+    const running = await createWorkbenchTopic(project(), { title: "Running Demand", body: "Already running." });
+    await writePlanningBundleFixture(active.changeId);
+    const memory = await resolveProjectMemory(project());
+    await enqueueDemandWorker(memory, { changeId: running.changeId });
+    const claimed = await claimNextDemandWorker(memory, { changeId: running.changeId });
+    if (!claimed) throw new Error("Expected running demand to be claimed.");
+    await markDemandWorkerRunning(memory, claimed.worker, claimed.attempt);
+
+    const result = await executeWorkbenchAction({ project: project(), path: tempDir }, {
+      actionType: "planning.confirm-execution",
+      changeId: active.changeId,
+      confirm: true,
+    });
+
+    expect(result.result).toMatchObject({ status: "completed", result: expect.objectContaining({ status: "queued" }) });
+    expect(existsSync(join(tempDir, "harness", "changes", "active", active.changeId, "spec.md"))).toBe(true);
+    expect(existsSync(join(tempDir, "harness", "changes", "active", active.changeId, "ac-map.json"))).toBe(true);
+    const workers = await listDemandWorkers(memory);
+    expect(workers).toEqual(expect.arrayContaining([
+      expect.objectContaining({ changeId: running.changeId, status: "running" }),
+      expect.objectContaining({ changeId: active.changeId, status: "queued" }),
+    ]));
+    const tasks = await listAgentTasks(memory, active.changeId);
+    expect(tasks).toHaveLength(0);
+  });
+
+  it("claims one demand at a time and prevents duplicate active worker attempts", async () => {
+    await initHarness(project());
+    const first = await createWorkbenchTopic(project(), { title: "First Demand", body: "A" });
+    const second = await createWorkbenchTopic(project(), { title: "Second Demand", body: "B" });
+    const memory = await resolveProjectMemory(project());
+    await enqueueDemandWorker(memory, { changeId: first.changeId });
+    await enqueueDemandWorker(memory, { changeId: second.changeId });
+
+    const claimed = await claimNextDemandWorker(memory);
+    if (!claimed) throw new Error("Expected first queued demand to be claimed.");
+    await markDemandWorkerRunning(memory, claimed.worker, claimed.attempt);
+    const blockedBySlot = await claimNextDemandWorker(memory);
+
+    expect(blockedBySlot).toBeNull();
+    const attempts = await listDemandWorkerAttempts(memory, first.changeId);
+    expect(attempts).toHaveLength(1);
+    const workers = await listDemandWorkers(memory);
+    expect(workers).toEqual(expect.arrayContaining([
+      expect.objectContaining({ changeId: first.changeId, status: "running" }),
+      expect.objectContaining({ changeId: second.changeId, status: "queued" }),
+    ]));
+  });
+
+  it("projects demand worker state into conversation summaries without task-level queue coupling", async () => {
+    await initHarness(project());
+    const running = await createWorkbenchTopic(project(), { title: "Running Demand", body: "A" });
+    const queued = await createWorkbenchTopic(project(), { title: "Queued Demand", body: "B" });
+    const memory = await resolveProjectMemory(project());
+    await enqueueDemandWorker(memory, { changeId: running.changeId });
+    const claimed = await claimNextDemandWorker(memory, { changeId: running.changeId });
+    if (!claimed) throw new Error("Expected worker to be claimed.");
+    await markDemandWorkerRunning(memory, claimed.worker, claimed.attempt);
+    await enqueueDemandWorker(memory, { changeId: queued.changeId, waitingReason: "等待本地处理槽位。" });
+
+    const snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: running.changeId });
+
+    expect(snapshot.left.workpads).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: running.changeId, userStatusLabel: "处理中" }),
+      expect.objectContaining({ id: queued.changeId, userStatusLabel: "稍后处理" }),
+    ]));
+    expect(snapshot.center.workpad.background).toMatchObject({ queuedCount: 1 });
+    expect(snapshot.center.workpad.background.items[0]).toMatchObject({ id: queued.changeId, userStatusLabel: "稍后处理" });
+  });
+
+  it("records MainOrchestrator decisions for demand enqueue and claim", async () => {
+    await initHarness(project());
+    const topic = await createWorkbenchTopic(project(), { title: "Decision Demand", body: "A" });
+    const memory = await resolveProjectMemory(project());
+    await enqueueDemandWorker(memory, { changeId: topic.changeId });
+    const claimed = await claimNextDemandWorker(memory, { changeId: topic.changeId });
+    expect(claimed).toBeTruthy();
+
+    const decisions = await listMainOrchestratorDecisions(memory);
+    expect(decisions.map((decision) => decision.action)).toEqual(expect.arrayContaining(["enqueue", "coding"]));
+    expect(decisions.every((decision) => decision.changeId === topic.changeId)).toBe(true);
   });
 
   it("records background maintenance ledger entries and creates human-gated candidate reviews", async () => {

@@ -319,7 +319,7 @@ type PlanCard = {
 };
 type ThreadEvent = { id: string; type: string; label: string; timestamp?: string; status?: string; runId?: string; planCard?: PlanCard };
 type ThreadStreamAction = {
-  actionType: "change.spec.propose" | "change.plan.propose" | "planning.generate" | "planning.revise" | "planning.confirm-execution" | "role.pipeline.start" | "role.pipeline.stop" | "role.pipeline.continue" | "role.pipeline.reconcile" | "conversation.steer" | "conversation.interrupt" | "conversation.continue" | "code.run" | "task.run.start" | "task.run.retry" | "task.queue.start" | "task.queue.reconcile" | "intake.scan" | "intake.reanalyze" | "clarification.answer" | "clarification.skip";
+  actionType: "change.spec.propose" | "change.plan.propose" | "planning.generate" | "planning.revise" | "planning.confirm-execution" | "orchestrator.evaluate" | "demand.worker.enqueue" | "demand.worker.claim" | "demand.worker.start-next" | "demand.worker.reconcile" | "demand.worker.release" | "role.pipeline.start" | "role.pipeline.stop" | "role.pipeline.continue" | "role.pipeline.reconcile" | "conversation.steer" | "conversation.interrupt" | "conversation.continue" | "code.run" | "task.run.start" | "task.run.retry" | "task.queue.start" | "task.queue.reconcile" | "intake.scan" | "intake.reanalyze" | "clarification.answer" | "clarification.skip";
   label: string;
   enabled: boolean;
   requiresConfirmation: boolean;
@@ -2102,7 +2102,7 @@ function WorkpadView({
       <section className="workpad-section">
         <div className="workpad-section-header">
           <h3>目标与当前理解</h3>
-          <span>{workpad.intake.source}</span>
+          <span>{sourceLabel(workpad.intake.source)}</span>
         </div>
         <p className="workpad-goal">{workpad.intake.goal}</p>
         <p>{workpad.intake.currentUnderstanding}</p>
@@ -2272,7 +2272,7 @@ function TaskQueuePanel({
           ? userFacingText(queue.failureReason ?? "任务执行未通过。")
           : queue.status === "completed"
             ? "队列已完成，等待查看 evidence 与后续人工 gate。"
-            : "本地顺序执行 accepted TaskGraph。";
+            : "本地顺序执行已确认任务。";
   function runQueueAction(): void {
     if (!action?.actionType || disabled) return;
     void onWorkflowAction(action.actionType);
@@ -2281,7 +2281,7 @@ function TaskQueuePanel({
     <div className={`task-queue-panel ${queue.status}`} data-testid="task-queue-panel">
       <div className="task-queue-summary">
         <div>
-          <strong>本地任务队列</strong>
+          <strong>本地顺序执行</strong>
           <span>{humanStatus(queue.status)} · {queue.completedCount}/{queue.totalCount}</span>
         </div>
         {showQueueAction ? (
@@ -2351,7 +2351,7 @@ function CodingPackageCard({ item }: { item: WorkbenchCodingPackage }): ReactEle
       </div>
       <p className="panel-note">{item.splitRationale}</p>
       <p className="panel-note">{item.mergeRisk}</p>
-      <p className="panel-note">5Y 只提供推荐执行单元；现有运行仍通过单任务或本地任务队列触发，不提供 package 级运行按钮。</p>
+      <p className="panel-note">5Y 只提供推荐执行单元；现有运行仍通过单任务或本地顺序执行入口触发，不提供执行单元级运行按钮。</p>
     </article>
   );
 }
@@ -3336,13 +3336,13 @@ function sourceLabel(source: string): string {
   if (source === "decision") return "决策";
   if (source === "thread") return "对话";
   if (source === "task") return "任务";
-  if (source === "queue") return "任务队列";
+  if (source === "queue") return "本地顺序执行";
   return userFacingText(source);
 }
 
 function userFacingText(value: string): string {
   return value
-    .replace(/\bTask queue started\b/gi, "任务队列已开始")
+    .replace(/\bTask queue started\b/gi, "本地顺序执行已开始")
     .replace(/\bTask runs reconciled\b/gi, "任务状态已同步")
     .replace(/\bTask workflow started\b/gi, "任务执行已开始")
     .replace(/\bCoder run confirmed\b/gi, "代码执行已确认")
@@ -3365,7 +3365,7 @@ function userFacingText(value: string): string {
     .replace(/\bValidation failed\.?/gi, "验证未通过。")
     .replace(/\bValidation passed\b/gi, "验证已通过")
     .replace(/\bCoder completed\b/gi, "代码执行已完成")
-    .replace(/\bTask queue\b/gi, "任务队列")
+    .replace(/\bTask queue\b/gi, "本地顺序执行")
     .replace(/\bGenerate Spec\b/gi, "生成需求说明")
     .replace(/\bGenerate Plan\b/gi, "生成执行方案")
     .replace(/\bGenerate Tasks\b/gi, "生成任务")
@@ -3383,7 +3383,7 @@ function userFacingText(value: string): string {
     .replace(/\bSpec\b/g, "需求说明")
     .replace(/\bPlan\b/g, "执行方案")
     .replace(/\bTasks\b/g, "任务")
-    .replace(/\bqueue\b/gi, "任务队列")
+    .replace(/\bqueue\b/gi, "本地顺序执行")
     .replace(/\bblocked\b/gi, "需要修改或补证据")
     .replace(/\bfailed\b/gi, "未通过")
     .replace(/\brunning\b/gi, "处理中")
@@ -3539,6 +3539,12 @@ function workflowActionLabel(actionType: string | undefined): string {
   if (actionType === "planning.generate") return "生成方案草案";
   if (actionType === "planning.revise") return "修改方案草案";
   if (actionType === "planning.confirm-execution") return "确认执行";
+  if (actionType === "orchestrator.evaluate") return "检查处理状态";
+  if (actionType === "demand.worker.enqueue") return "加入处理队列";
+  if (actionType === "demand.worker.claim") return "领取需求";
+  if (actionType === "demand.worker.start-next") return "开始处理";
+  if (actionType === "demand.worker.reconcile") return "恢复处理状态";
+  if (actionType === "demand.worker.release") return "结束处理";
   if (actionType === "role.pipeline.start") return "角色流水线";
   if (actionType === "role.pipeline.stop") return "停止当前执行";
   if (actionType === "conversation.steer") return "引导当前执行";

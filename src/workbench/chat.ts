@@ -6,6 +6,7 @@ import { startAuditRun } from "../audit/manager.js";
 import {
   completeAgentTask,
   createAgentTask,
+  listAgentTasks,
   recordMainAgentDecision,
   recordMaintenanceLedgerEntry,
 } from "../agent-task/manager.js";
@@ -17,6 +18,16 @@ import { createChange, createParkedChange } from "../change/manager.js";
 import { acceptPlanProposal, acceptSpecProposal, startPlanProposalRun, startSpecProposalRun } from "../change/proposals.js";
 import { getActiveChanges } from "../ecl/index.js";
 import { buildAcMap } from "../ecl/anchors.js";
+import {
+  claimNextDemandWorker,
+  completeDemandWorkerAttempt,
+  enqueueDemandWorker,
+  getDemandWorkerForChange,
+  markDemandWorkerRunning,
+  reconcileDemandWorkers,
+  recordMainOrchestratorDecision,
+  releaseDemandWorker,
+} from "../demand-worker/manager.js";
 import { readJsonFile, readRequiredJsonFile, writeJsonFile } from "../fs/json.js";
 import { assertWritableMemory, resolveProjectMemory } from "../memory/resolver.js";
 import { appendRunEvent, buildContextProjection, buildRunId, listRuns } from "../run/manager.js";
@@ -473,6 +484,12 @@ export type WorkbenchWorkflowActionType =
   | "planning.generate"
   | "planning.revise"
   | "planning.confirm-execution"
+  | "orchestrator.evaluate"
+  | "demand.worker.enqueue"
+  | "demand.worker.claim"
+  | "demand.worker.start-next"
+  | "demand.worker.reconcile"
+  | "demand.worker.release"
   | "role.pipeline.start"
   | "role.pipeline.stop"
   | "role.pipeline.continue"
@@ -750,6 +767,17 @@ async function executeWorkflowAction(project: ManagedProject, changeId: string, 
       return generatePlanningDraft(project, changeId, request.prompt, live, request.actionType === "planning.revise");
     case "planning.confirm-execution":
       return confirmPlanningAndStartPipeline(project, changeId, request, live);
+    case "orchestrator.evaluate":
+      return evaluateDemandOrchestrator(project, changeId);
+    case "demand.worker.enqueue":
+      return enqueueDemandWorkerForAction(project, changeId);
+    case "demand.worker.claim":
+    case "demand.worker.start-next":
+      return startNextDemandWorkerForAction(project, changeId, request.prompt, live);
+    case "demand.worker.reconcile":
+      return reconcileDemandWorkers(await resolveProjectMemory(project));
+    case "demand.worker.release":
+      return releaseDemandWorkerForAction(project, changeId, request.prompt);
     case "role.pipeline.start":
     case "role.pipeline.continue":
       return runRolePipelineSequence(project, changeId, request.prompt, live, request.actionType === "role.pipeline.continue");
@@ -955,7 +983,7 @@ async function confirmPlanningAndStartPipeline(
   await appendTopicThreadEntry(project, changeId, {
     type: "assistant.message",
     status: "planning-confirmed",
-    text: "已确认执行：方案草案已写入内部 spec/plan/tasks/ac-map，开始角色流水线。",
+    text: "已确认执行：方案草案已写入内部 spec/plan/tasks/ac-map，需求已交给本地主 orchestrator 排队处理。",
     artifact: confirmed.artifact,
   });
   emitAssistantEvent(live, {
@@ -966,7 +994,119 @@ async function confirmPlanningAndStartPipeline(
     summary: "Canonical planning artifacts were written after user confirmation.",
     artifactRef: confirmed.artifact,
   });
-  return runRolePipelineSequence(project, changeId, request.prompt ?? renderPipelinePromptFromBundle(confirmed), live, false);
+  const queued = await enqueueDemandWorker(memory, {
+    changeId,
+    waitingReason: "用户已确认执行，等待本地处理槽位。",
+  });
+  emitAssistantEvent(live, {
+    runId: queued.worker.id,
+    kind: "status",
+    phase: queued.resumed ? "demand-worker-resumed" : "demand-worker-enqueued",
+    title: queued.resumed ? "Demand already queued" : "Demand enqueued",
+    summary: queued.resumed ? "该需求已经在本地处理队列中。" : "该需求已加入本地处理队列。",
+  });
+  return startDemandWorkerForChange(project, changeId, request.prompt ?? renderPipelinePromptFromBundle(confirmed), live);
+}
+
+async function enqueueDemandWorkerForAction(project: ManagedProject, changeId: string): Promise<unknown> {
+  const memory = await resolveProjectMemory(project);
+  assertWritableMemory(memory, "Demand worker enqueue");
+  return enqueueDemandWorker(memory, { changeId, waitingReason: "用户请求加入本地处理队列。" });
+}
+
+async function startNextDemandWorkerForAction(
+  project: ManagedProject,
+  changeId: string,
+  prompt: string | undefined,
+  live: WorkbenchLiveSink | undefined,
+): Promise<unknown> {
+  return startDemandWorkerForChange(project, changeId, prompt, live);
+}
+
+async function evaluateDemandOrchestrator(project: ManagedProject, changeId: string): Promise<unknown> {
+  const memory = await resolveProjectMemory(project);
+  const worker = await getDemandWorkerForChange(memory, changeId);
+  const decisions = (await reconcileDemandWorkers(memory)).decisions.filter((decision) => decision.changeId === changeId);
+  return { worker, decisions };
+}
+
+async function releaseDemandWorkerForAction(project: ManagedProject, changeId: string, reason: string | undefined): Promise<unknown> {
+  const memory = await resolveProjectMemory(project);
+  assertWritableMemory(memory, "Demand worker release");
+  return releaseDemandWorker(memory, changeId, reason?.trim() || "Demand worker released by user action.");
+}
+
+async function startDemandWorkerForChange(
+  project: ManagedProject,
+  changeId: string,
+  prompt: string | undefined,
+  live: WorkbenchLiveSink | undefined,
+): Promise<unknown> {
+  const memory = await resolveProjectMemory(project);
+  assertWritableMemory(memory, "Demand worker start");
+  const claimed = await claimNextDemandWorker(memory, { changeId });
+  if (!claimed) {
+    const worker = await getDemandWorkerForChange(memory, changeId);
+    await recordMainOrchestratorDecision(memory, {
+      changeId,
+      workerId: worker?.id,
+      action: "enqueue",
+      summary: "Demand is waiting for a local worker slot.",
+      reason: "No demand worker slot is currently available.",
+      artifactRefs: [],
+    });
+    return { status: "queued", worker };
+  }
+  const running = await markDemandWorkerRunning(memory, claimed.worker, claimed.attempt);
+  emitAssistantEvent(live, {
+    runId: running.worker.id,
+    kind: "status",
+    phase: "demand-worker-running",
+    title: "Demand worker started",
+    summary: "本地主 orchestrator 已领取该需求，开始执行角色流水线。",
+  });
+  try {
+    const beforeTasks = await listAgentTasks(memory, changeId).catch(() => []);
+    const result = await runRolePipelineSequence(project, changeId, prompt, live, false);
+    const afterTasks = await listAgentTasks(memory, changeId).catch(() => []);
+    const beforeTaskIds = new Set(beforeTasks.map((task) => task.id));
+    const newAgentTaskIds = afterTasks.filter((task) => !beforeTaskIds.has(task.id)).map((task) => task.id);
+    const status = workerStatusFromPipelineResult(result);
+    const completed = await completeDemandWorkerAttempt(memory, running.worker, running.attempt, {
+      status,
+      resultStatus: isRecord(result) && typeof result.status === "string" ? result.status : status,
+      summary: summarizePipelineResult(result),
+      failureReason: status === "needs-user-input" || status === "failed" ? summarizePipelineResult(result) : undefined,
+      agentTaskIds: newAgentTaskIds,
+    });
+    return { status: completed.worker.status, worker: completed.worker, attempt: completed.attempt, rolePipeline: result, decision: completed.decision };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const completed = await completeDemandWorkerAttempt(memory, running.worker, running.attempt, {
+      status: "failed",
+      resultStatus: "failed",
+      summary: `Role pipeline failed: ${message}`,
+      failureReason: message,
+    });
+    throw Object.assign(error instanceof Error ? error : new Error(message), { demandWorker: completed.worker.id });
+  }
+}
+
+function workerStatusFromPipelineResult(result: unknown): "result-ready" | "needs-user-input" | "failed" {
+  if (!isRecord(result)) return "result-ready";
+  if (result.status === "failed") return "failed";
+  if (result.status === "needs-user-input" || result.requiresUserInput) return "needs-user-input";
+  return "result-ready";
+}
+
+function summarizePipelineResult(result: unknown): string {
+  if (!isRecord(result)) return "Role pipeline completed and produced result review evidence.";
+  if (typeof result.status === "string") {
+    if (result.status === "completed") return "Role pipeline completed and produced result review evidence.";
+    if (result.status === "needs-user-input") return `Role pipeline needs user input${typeof result.stoppedAt === "string" ? ` after ${result.stoppedAt}` : ""}.`;
+    if (result.status === "failed") return "Role pipeline failed before result review.";
+  }
+  return "Role pipeline finished with recorded evidence.";
 }
 
 async function runRolePipelineSequence(
@@ -2515,9 +2655,11 @@ function summarizeActionResult(actionType: string, result: unknown): string {
   if ((actionType === "planning.generate" || actionType === "planning.revise") && isRecord(result) && isRecord(result.bundle)) {
     return `Planning draft is ready: ${typeof result.bundle.goal === "string" ? result.bundle.goal : "draft bundle"}.`;
   }
-  if ((actionType === "planning.confirm-execution" || actionType.startsWith("role.pipeline.")) && isRecord(result)) {
+  if ((actionType === "planning.confirm-execution" || actionType.startsWith("role.pipeline.") || actionType.startsWith("demand.worker.")) && isRecord(result)) {
     const status = typeof result.status === "string" ? result.status : "completed";
-    return `Role pipeline finished with status ${status}.`;
+    return actionType.startsWith("demand.worker.") || actionType === "planning.confirm-execution"
+      ? `Demand worker finished with status ${status}.`
+      : `Role pipeline finished with status ${status}.`;
   }
   return `${labelForAction(actionType)} completed.`;
 }
@@ -2542,7 +2684,13 @@ function labelForAction(actionType: string): string {
     case "change.plan.accept": return "Plan proposal accepted";
     case "planning.generate": return "Planning draft generated";
     case "planning.revise": return "Planning draft revised";
-    case "planning.confirm-execution": return "Planning confirmed and execution started";
+    case "planning.confirm-execution": return "Planning confirmed and demand enqueued";
+    case "orchestrator.evaluate": return "Main orchestrator evaluated";
+    case "demand.worker.enqueue": return "Demand enqueued";
+    case "demand.worker.claim": return "Demand worker claimed";
+    case "demand.worker.start-next": return "Demand worker started";
+    case "demand.worker.reconcile": return "Demand workers reconciled";
+    case "demand.worker.release": return "Demand worker released";
     case "role.pipeline.start": return "Role pipeline started";
     case "role.pipeline.stop": return "Role pipeline stop requested";
     case "role.pipeline.continue": return "Role pipeline continued";
