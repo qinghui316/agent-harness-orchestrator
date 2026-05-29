@@ -9,7 +9,7 @@ import { readRequiredJsonFile, writeJsonFile } from "../fs/json.js";
 import { readLandingPackage, type LandingReadinessPackage } from "../landing/manager.js";
 import { assertWritableMemory, resolveProjectMemory } from "../memory/resolver.js";
 import { getGitBranch, gitText } from "../project/git.js";
-import type { ManagedProject, ResolvedMemory } from "../types/index.js";
+import type { ManagedProject, PrDraftRevision, ResolvedMemory } from "../types/index.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -47,6 +47,20 @@ export interface PrDraftPackage {
   updatedAt: string;
 }
 
+const prDraftRevisionSchema: z.ZodType<PrDraftRevision> = z.object({
+  version: z.literal("1.0"),
+  id: z.string(),
+  prDraftPackageId: z.string(),
+  previousLandingPackageId: z.string(),
+  landingPackageId: z.string(),
+  projectId: z.string().nullable(),
+  branchName: z.string(),
+  prUrl: z.string().optional(),
+  commitHash: z.string().optional(),
+  artifactRefs: z.array(z.string()),
+  createdAt: z.string(),
+});
+
 const prDraftPackageSchema: z.ZodType<PrDraftPackage> = z.object({
   version: z.literal("1.0"),
   id: z.string(),
@@ -83,11 +97,12 @@ export async function detectRemoteProviderCapability(project: ManagedProject): P
   }
   const remoteName = remotes.includes("origin") ? "origin" : remotes[0];
   const remoteUrl = await gitText(project.path, ["remote", "get-url", remoteName]).then((value) => value.trim()).catch(() => undefined);
-  const hasGh = await commandOk("gh", ["--version"], project.path);
+  const gh = githubCliCommand();
+  const hasGh = await commandOk(gh, ["--version"], project.path);
   if (!hasGh) {
     return { ...base, status: "no-gh", ready: false, currentBranch, remoteName, remoteUrl, reason: "未检测到 GitHub CLI gh。" };
   }
-  const hasAuth = await commandOk("gh", ["auth", "status"], project.path);
+  const hasAuth = await commandOk(gh, ["auth", "status"], project.path);
   if (!hasAuth) {
     return { ...base, status: "no-auth", ready: false, currentBranch, remoteName, remoteUrl, reason: "GitHub CLI 尚未完成认证或当前仓库无权限。" };
   }
@@ -161,12 +176,13 @@ export async function createDraftPr(project: ManagedProject, landingPackageId: s
   if (!staged) throw new Error("Cannot create Draft PR: there are no reviewed source changes staged for commit.");
   await gitText(project.path, ["commit", "-m", prepared.title]);
   await gitText(project.path, ["push", "-u", capability.remoteName, prepared.branchName]);
-  const existingUrl = await commandText("gh", ["pr", "view", "--head", prepared.branchName, "--json", "url", "--jq", ".url"], project.path).then((value) => value.trim()).catch(() => "");
+  const gh = githubCliCommand();
+  const existingUrl = await commandText(gh, ["pr", "view", "--head", prepared.branchName, "--json", "url", "--jq", ".url"], project.path).then((value) => value.trim()).catch(() => "");
   let prUrl = existingUrl;
   if (prUrl) {
-    await commandText("gh", ["pr", "edit", prUrl, "--title", prepared.title, "--body-file", bodyPath], project.path);
+    await commandText(gh, ["pr", "edit", prUrl, "--title", prepared.title, "--body-file", bodyPath], project.path);
   } else {
-    prUrl = (await commandText("gh", [
+    prUrl = (await commandText(gh, [
       "pr",
       "create",
       "--draft",
@@ -199,7 +215,7 @@ export async function refreshPrDraftStatus(project: ManagedProject, landingPacka
   if (!pkg) return preparePrDraftPackage(project, landingPackageId);
   const capability = await detectRemoteProviderCapability(project);
   if (!capability.ready) return pkg;
-  const prUrl = await commandText("gh", ["pr", "view", "--head", pkg.branchName, "--json", "url", "--jq", ".url"], project.path)
+  const prUrl = await commandText(githubCliCommand(), ["pr", "view", "--head", pkg.branchName, "--json", "url", "--jq", ".url"], project.path)
     .then((value) => value.trim())
     .catch(() => pkg.prUrl);
   const refreshed: PrDraftPackage = { ...pkg, prUrl, updatedAt: new Date().toISOString() };
@@ -207,9 +223,92 @@ export async function refreshPrDraftStatus(project: ManagedProject, landingPacka
   return refreshed;
 }
 
+export async function updateDraftPrFromLanding(project: ManagedProject, landingPackageId: string): Promise<{ package: PrDraftPackage; revision: PrDraftRevision }> {
+  const memory = await resolveProjectMemory(project);
+  assertWritableMemory(memory, "Draft PR update");
+  const landing = await readLandingPackage(memory, landingPackageId);
+  assertLandingReady(landing);
+  const exactExisting = await findPrDraftPackageForLanding(memory, landingPackageId);
+  if (!exactExisting || !(await sourceRootIsClean(project.path))) {
+    await assertSourceStillMatchesLanding(project, landing);
+  }
+  const existing = exactExisting ?? await findLatestCreatedPrDraftPackageForChanges(memory, landing.target.changeIds);
+  if (!existing || existing.status !== "created") {
+    throw new Error("Cannot update Draft PR: no existing Draft PR package is associated with this demand.");
+  }
+  const capability = await detectRemoteProviderCapability(project);
+  if (!capability.ready || !capability.remoteName) {
+    throw new Error(capability.reason ?? "Draft PR provider is unavailable.");
+  }
+  const directory = join(prDraftRoot(memory), existing.id);
+  await mkdir(directory, { recursive: true });
+  const title = prTitleForLanding(landing);
+  const body = renderPrBody(landing);
+  const bodyPath = join(directory, "pr-body.md");
+  await writeFile(bodyPath, body, "utf8");
+  await gitText(project.path, ["checkout", existing.branchName]);
+  if (landing.changedFiles.length > 0) {
+    await gitText(project.path, ["add", "-A", "--", ...landing.changedFiles]);
+  } else {
+    await gitText(project.path, ["add", "-A"]);
+  }
+  const staged = (await gitText(project.path, ["diff", "--cached", "--name-only"])).trim();
+  let commitHash: string | undefined;
+  if (staged) {
+    await gitText(project.path, ["commit", "-m", title]);
+    commitHash = (await gitText(project.path, ["rev-parse", "HEAD"])).trim();
+    await gitText(project.path, ["push", "-u", capability.remoteName, existing.branchName]);
+  }
+  const prRef = existing.prUrl ?? existing.branchName;
+  const gh = githubCliCommand();
+  await commandText(gh, ["pr", "edit", prRef, "--title", title, "--body-file", bodyPath], project.path);
+  const prUrl = await commandText(gh, ["pr", "view", "--head", existing.branchName, "--json", "url", "--jq", ".url"], project.path)
+    .then((value) => value.trim())
+    .catch(() => existing.prUrl);
+  const now = new Date().toISOString();
+  const updated: PrDraftPackage = {
+    ...existing,
+    landingPackageId,
+    title,
+    bodyArtifact: displayArtifactPath(memory, bodyPath),
+    remoteName: capability.remoteName,
+    remoteUrl: capability.remoteUrl,
+    prUrl,
+    landingEvidenceRefs: landing.artifactRefs,
+    updatedAt: now,
+  };
+  const revision: PrDraftRevision = {
+    version: "1.0",
+    id: `pr-revision-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+    prDraftPackageId: existing.id,
+    previousLandingPackageId: existing.landingPackageId,
+    landingPackageId,
+    projectId: memory.projectId,
+    branchName: existing.branchName,
+    ...(prUrl ? { prUrl } : {}),
+    ...(commitHash ? { commitHash } : {}),
+    artifactRefs: [updated.bodyArtifact, updated.packageArtifact, ...landing.artifactRefs],
+    createdAt: now,
+  };
+  prDraftRevisionSchema.parse(revision);
+  await writeJsonFile(join(directory, "pr-draft-package.json"), updated);
+  await writeJsonFile(join(directory, "revisions", `${revision.id}.json`), revision);
+  return { package: updated, revision };
+}
+
 export async function findPrDraftPackageForLanding(memory: ResolvedMemory, landingPackageId: string): Promise<PrDraftPackage | null> {
   const packages = await listPrDraftPackages(memory);
   return packages.find((pkg) => pkg.landingPackageId === landingPackageId) ?? null;
+}
+
+export async function findLatestCreatedPrDraftPackageForChanges(memory: ResolvedMemory, changeIds: string[]): Promise<PrDraftPackage | null> {
+  const wanted = new Set(changeIds);
+  for (const pkg of await listPrDraftPackages(memory)) {
+    if (pkg.status !== "created") continue;
+    const landing = await readLandingPackage(memory, pkg.landingPackageId).catch(() => null);
+    if (landing && landing.target.changeIds.some((changeId) => wanted.has(changeId))) return pkg;
+  }
+  return null;
 }
 
 export async function listPrDraftPackages(memory: ResolvedMemory): Promise<PrDraftPackage[]> {
@@ -240,6 +339,11 @@ async function assertSourceStillMatchesLanding(project: ManagedProject, landing:
   if (hash !== landing.sourceDiffHash) {
     throw new Error("Cannot create Draft PR: local source diff no longer matches the reviewed landing package.");
   }
+}
+
+async function sourceRootIsClean(cwd: string): Promise<boolean> {
+  const status = await gitText(cwd, ["status", "--short"]).catch(() => "unknown");
+  return status.trim().length === 0;
 }
 
 async function renderUntrackedTextPatch(cwd: string, file: string): Promise<string> {
@@ -323,4 +427,9 @@ function displayArtifactPath(memory: ResolvedMemory, absolutePath: string): stri
 
 function contentHash(content: string): string {
   return createHash("sha256").update(Buffer.from(content, "utf8")).digest("hex");
+}
+
+export function githubCliCommand(): string {
+  const portable = process.env.LOCALAPPDATA ? join(process.env.LOCALAPPDATA, "Programs", "GitHub CLI Portable", "bin", "gh.exe") : "";
+  return portable && existsSync(portable) ? portable : "gh";
 }

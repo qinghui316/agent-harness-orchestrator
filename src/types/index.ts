@@ -612,6 +612,81 @@ export interface AgentTaskResult {
   createdAt: string;
 }
 
+export type PrFeedbackClassification =
+  | "no-action"
+  | "checks-failed"
+  | "changes-requested"
+  | "comments-only"
+  | "provider-unavailable"
+  | "stale-pr";
+
+export interface PrFeedbackSnapshot {
+  version: "1.0";
+  id: string;
+  prDraftPackageId: string;
+  landingPackageId: string;
+  projectId: string | null;
+  prUrl?: string;
+  state: string;
+  isDraft: boolean;
+  reviewDecision?: string | null;
+  headRefName?: string | null;
+  baseRefName?: string | null;
+  headRefOid?: string | null;
+  baseRefOid?: string | null;
+  reviews: unknown[];
+  comments: unknown[];
+  statusCheckRollup: unknown[];
+  rawArtifact: string;
+  snapshotArtifact: string;
+  summaryArtifact: string;
+  createdAt: string;
+}
+
+export interface PrFeedbackSummary {
+  version: "1.0";
+  snapshotId: string;
+  prDraftPackageId: string;
+  landingPackageId: string;
+  classification: PrFeedbackClassification;
+  actionable: boolean;
+  summary: string;
+  reviewDecision?: string | null;
+  commentsCount: number;
+  failedChecksCount: number;
+  evidenceRefs: string[];
+  recommendedAction: string;
+  createdAt: string;
+}
+
+export interface PrFeedbackReworkAttempt {
+  version: "1.0";
+  id: string;
+  changeId: string;
+  prDraftPackageId: string;
+  landingPackageId: string;
+  snapshotId: string;
+  status: "started" | "completed" | "failed";
+  agentTaskId?: string;
+  artifactRefs: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PrDraftRevision {
+  version: "1.0";
+  id: string;
+  prDraftPackageId: string;
+  previousLandingPackageId: string;
+  landingPackageId: string;
+  projectId: string | null;
+  branchName: string;
+  prUrl?: string;
+  commitHash?: string;
+  artifactRefs: string[];
+  createdAt: string;
+}
+
 export type MainOrchestratorDecisionAction =
   | "planning"
   | "enqueue"

@@ -18,8 +18,22 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await rm(tempDir, { recursive: true, force: true });
+  await removeTempDir(tempDir);
 });
+
+async function removeTempDir(path: string): Promise<void> {
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    try {
+      await rm(path, { recursive: true, force: true });
+      return;
+    } catch (error) {
+      if (attempt === 4) {
+        throw error;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+  }
+}
 
 function project(path: string): ManagedProject {
   return {

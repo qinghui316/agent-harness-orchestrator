@@ -39,6 +39,12 @@ import { getSpecTestDriftReport } from "../spec-test/drift.js";
 import { runIntegrationCheck } from "../integration-check/manager.js";
 import { prepareLandingPackage, reviewLandingPackage } from "../landing/manager.js";
 import { createDraftPr, preparePrDraftPackage, refreshPrDraftStatus } from "../pr-draft/manager.js";
+import {
+  completePrFeedbackReworkAttempt,
+  refreshPrFeedback,
+  startPrFeedbackReworkAttempt,
+  updatePrDraftFromFeedback,
+} from "../pr-feedback/manager.js";
 import { finishTaskRunFromWorkflowResult, markTaskRunStarted, reconcileTaskRuns, retryTaskRun, startTaskRun } from "../task-run/manager.js";
 import {
   failQueuedTaskItem,
@@ -514,6 +520,10 @@ export type WorkbenchWorkflowActionType =
   | "pr-draft.prepare"
   | "pr-draft.create"
   | "pr-draft.refresh"
+  | "pr-feedback.refresh"
+  | "pr-feedback.evaluate"
+  | "pr-feedback.rework"
+  | "pr-feedback.update-draft"
   | "code.run"
   | "task.run.start"
   | "task.run.retry"
@@ -829,6 +839,13 @@ async function executeWorkflowAction(project: ManagedProject, changeId: string, 
       return createPrDraftForAction(project, changeId, request, live);
     case "pr-draft.refresh":
       return refreshPrDraftForAction(project, changeId, request, live);
+    case "pr-feedback.refresh":
+    case "pr-feedback.evaluate":
+      return refreshPrFeedbackForAction(project, changeId, request, live);
+    case "pr-feedback.rework":
+      return reworkPrFeedbackForAction(project, changeId, request, live);
+    case "pr-feedback.update-draft":
+      return updatePrDraftForAction(project, changeId, request, live);
     case "code.run":
       return runCodeValidateAuditSequence(project, changeId, request.prompt, live, request.taskIds);
     case "task.run.start":
@@ -1185,6 +1202,122 @@ async function refreshPrDraftForAction(
   });
   live?.emit({ event: "assistant.message", data: entry });
   return { package: pkg };
+}
+
+async function refreshPrFeedbackForAction(
+  project: ManagedProject,
+  changeId: string,
+  request: WorkbenchWorkflowActionRequest,
+  live: WorkbenchLiveSink | undefined,
+): Promise<unknown> {
+  if (!request.landingPackageId) throw new Error("pr-feedback.refresh requires landingPackageId.");
+  const feedback = await refreshPrFeedback(project, request.landingPackageId);
+  const text = [
+    "已读取 Draft PR 远端反馈。",
+    "",
+    feedback.summary.summary,
+    "",
+    feedback.summary.actionable
+      ? "主 agent 判断：这些反馈需要在同一需求中重新处理。"
+      : "主 agent 判断：当前没有必须自动修改的远端反馈。",
+  ].join("\n");
+  const entry = await appendTopicThreadEntry(project, changeId, {
+    type: "assistant.message",
+    status: "pr-feedback-refreshed",
+    text,
+    artifact: feedback.summary.evidenceRefs[0],
+    blocks: [
+      {
+        id: `${feedback.snapshot.id}:pr-feedback-prose`,
+        runId: feedback.snapshot.id,
+        sequence: 1,
+        kind: "prose",
+        timestamp: new Date().toISOString(),
+        source: "aho",
+        title: "PR 反馈",
+        text,
+      },
+      {
+        id: `${feedback.snapshot.id}:pr-feedback-result`,
+        runId: feedback.snapshot.id,
+        sequence: 2,
+        kind: "tool-result",
+        timestamp: new Date().toISOString(),
+        source: "aho",
+        title: feedback.summary.actionable ? "需要修改" : "暂无必须修改项",
+        text: feedback.summary.recommendedAction,
+        artifactRef: feedback.summary.evidenceRefs[0],
+      },
+    ],
+  });
+  live?.emit({ event: "assistant.message", data: entry });
+  return feedback;
+}
+
+async function reworkPrFeedbackForAction(
+  project: ManagedProject,
+  changeId: string,
+  request: WorkbenchWorkflowActionRequest,
+  live: WorkbenchLiveSink | undefined,
+): Promise<unknown> {
+  if (!request.landingPackageId) throw new Error("pr-feedback.rework requires landingPackageId.");
+  const memory = await resolveProjectMemory(project);
+  const started = await startPrFeedbackReworkAttempt(project, request.landingPackageId, request.prompt);
+  const intro = await appendTopicThreadEntry(project, changeId, {
+    type: "assistant.message",
+    status: "pr-feedback-rework-started",
+    text: [
+      "已根据 PR 反馈创建同一需求的修改任务。",
+      "",
+      started.feedback.summary.summary,
+      "",
+      "接下来会复用 coder-agent、validator、auditor 这条角色链路；通过后还需要重新做落地检查，再由你确认是否更新 Draft PR。",
+    ].join("\n"),
+    artifact: started.feedback.summary.evidenceRefs[0],
+  });
+  live?.emit({ event: "assistant.message", data: intro });
+  const workflow = await runCodeValidateAuditSequence(project, changeId, started.prompt, live, undefined, undefined, "rework-coder");
+  const artifactRefs = compactArtifactRefs(
+    ...(isRecord(workflow) && isRecord(workflow.code) && isRecord(workflow.code.run) && isRecord(workflow.code.run.artifacts) && typeof workflow.code.run.artifacts.directory === "string"
+      ? [workflow.code.run.artifacts.directory]
+      : []),
+  );
+  const failed = isRecord(workflow) && typeof workflow.stoppedAt === "string" && workflow.stoppedAt;
+  await completePrFeedbackReworkAttempt(memory, started.attempt, failed ? "failed" : "completed", artifactRefs);
+  await completeAgentTask(memory, started.task, {
+    status: failed ? "failed" : "completed",
+    summary: failed ? "PR feedback rework needs more attention." : "PR feedback rework completed through role pipeline.",
+    artifactRefs: [...started.feedback.summary.evidenceRefs, ...artifactRefs],
+    nextRecommendation: failed ? "Return to the main conversation for next instructions." : "Prepare a new landing review before updating the Draft PR.",
+    ...(failed ? { failureClassification: "pr-feedback-rework-failed", requiresUserInputReason: "Role pipeline did not complete after PR feedback rework." } : {}),
+  });
+  return { attempt: started.attempt, task: started.task, workflow };
+}
+
+async function updatePrDraftForAction(
+  project: ManagedProject,
+  changeId: string,
+  request: WorkbenchWorkflowActionRequest,
+  live: WorkbenchLiveSink | undefined,
+): Promise<unknown> {
+  if (!request.landingPackageId) throw new Error("pr-feedback.update-draft requires landingPackageId.");
+  const result = await updatePrDraftFromFeedback(project, request.landingPackageId);
+  const text = [
+    "已更新同一个 Draft PR 分支。",
+    "",
+    `PR: ${result.package.prUrl ?? "unknown"}`,
+    `Branch: ${result.package.branchName}`,
+    "",
+    "这只是更新 Draft PR，不会 merge、land、标记 ready for review 或归档需求。",
+  ].join("\n");
+  const entry = await appendTopicThreadEntry(project, changeId, {
+    type: "assistant.message",
+    status: "pr-draft-updated",
+    text,
+    artifact: result.revision.artifactRefs[0],
+  });
+  live?.emit({ event: "assistant.message", data: entry });
+  return result;
 }
 
 async function startNextDemandWorkerForAction(
@@ -2936,6 +3069,8 @@ function extractRunId(result: unknown): string | undefined {
 
 function artifactForActionResult(result: unknown): string | null {
   if (isRecord(result) && isRecord(result.package) && Array.isArray(result.package.artifactRefs) && typeof result.package.artifactRefs[0] === "string") return result.package.artifactRefs[0];
+  if (isRecord(result) && isRecord(result.summary) && Array.isArray(result.summary.evidenceRefs) && typeof result.summary.evidenceRefs[0] === "string") return result.summary.evidenceRefs[0];
+  if (isRecord(result) && isRecord(result.revision) && Array.isArray(result.revision.artifactRefs) && typeof result.revision.artifactRefs[0] === "string") return result.revision.artifactRefs[0];
   if (isRecord(result) && isRecord(result.run) && isRecord(result.run.artifacts) && typeof result.run.artifacts.directory === "string") return result.run.artifacts.directory;
   if (isRecord(result) && isRecord(result.code) && isRecord(result.code.run) && isRecord(result.code.run.artifacts) && typeof result.code.run.artifacts.directory === "string") return result.code.run.artifacts.directory;
   if (isRecord(result) && isRecord(result.workflow) && isRecord(result.workflow.code) && isRecord(result.workflow.code.run) && isRecord(result.workflow.code.run.artifacts) && typeof result.workflow.code.run.artifacts.directory === "string") return result.workflow.code.run.artifacts.directory;
@@ -2950,6 +3085,16 @@ function summarizeActionResult(actionType: string, result: unknown): string {
   if ((actionType === "pr-draft.prepare" || actionType === "pr-draft.create" || actionType === "pr-draft.refresh") && isRecord(result) && isRecord(result.package)) {
     const prUrl = typeof result.package.prUrl === "string" ? ` ${result.package.prUrl}` : "";
     return `Draft PR handoff updated.${prUrl}`;
+  }
+  if ((actionType === "pr-feedback.refresh" || actionType === "pr-feedback.evaluate") && isRecord(result) && isRecord(result.summary)) {
+    return typeof result.summary.summary === "string" ? result.summary.summary : "PR feedback refreshed.";
+  }
+  if (actionType === "pr-feedback.rework" && isRecord(result)) {
+    return "PR feedback rework was routed through the same demand.";
+  }
+  if (actionType === "pr-feedback.update-draft" && isRecord(result) && isRecord(result.package)) {
+    const prUrl = typeof result.package.prUrl === "string" ? ` ${result.package.prUrl}` : "";
+    return `Draft PR branch updated.${prUrl}`;
   }
   if (actionType === "task.run.reconcile" && isRecord(result) && Array.isArray(result.taskRuns)) {
     return `Reconciled ${result.taskRuns.length} TaskRun record(s).`;
@@ -3031,6 +3176,10 @@ function labelForAction(actionType: string): string {
     case "pr-draft.prepare": return "PR draft package prepared";
     case "pr-draft.create": return "Draft PR created";
     case "pr-draft.refresh": return "Draft PR refreshed";
+    case "pr-feedback.refresh": return "PR feedback refreshed";
+    case "pr-feedback.evaluate": return "PR feedback evaluated";
+    case "pr-feedback.rework": return "PR feedback rework started";
+    case "pr-feedback.update-draft": return "Draft PR updated";
     case "code.run": return "Coder run confirmed";
     case "task.run.start": return "Task workflow started";
     case "task.run.retry": return "Task workflow retried";

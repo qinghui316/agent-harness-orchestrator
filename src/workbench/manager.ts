@@ -13,7 +13,8 @@ import { readRequiredJsonFile } from "../fs/json.js";
 import { getTemplateRoot } from "../template-source/paths.js";
 import { findIntegrationCheckCandidate, listIntegrationChecks, type IntegrationCheckCandidate, type IntegrationCheckRecord } from "../integration-check/manager.js";
 import { findLandingCandidate, listLandingPackages, type LandingCandidate, type LandingReadinessPackage } from "../landing/manager.js";
-import { detectRemoteProviderCapability, findPrDraftPackageForLanding, type RemoteProviderCapability } from "../pr-draft/manager.js";
+import { detectRemoteProviderCapability, findLatestCreatedPrDraftPackageForChanges, findPrDraftPackageForLanding, type RemoteProviderCapability } from "../pr-draft/manager.js";
+import { latestPrFeedbackSummaryForDraft } from "../pr-feedback/manager.js";
 import { getMemoryStatus } from "../memory/status.js";
 import { resolveMemory } from "../memory/resolver.js";
 import { isGitDirty } from "../project/git.js";
@@ -116,7 +117,7 @@ export interface WorkbenchThreadEvent {
 }
 
 export interface ThreadStreamAction {
-  actionType: "change.spec.propose" | "change.plan.propose" | "planning.generate" | "planning.revise" | "planning.confirm-execution" | "orchestrator.evaluate" | "orchestrator.pump" | "demand.worker.enqueue" | "demand.worker.claim" | "demand.worker.start-next" | "demand.worker.start-available" | "demand.worker.reconcile" | "demand.worker.release" | "role.pipeline.start" | "role.pipeline.stop" | "role.pipeline.continue" | "role.pipeline.reconcile" | "conversation.steer" | "conversation.interrupt" | "conversation.continue" | "result.refresh-rework" | "result.revalidate" | "result.reaudit" | "result.refresh-status" | "apply-check.run" | "landing.prepare" | "landing.review" | "landing.refresh" | "pr-draft.prepare" | "pr-draft.create" | "pr-draft.refresh" | "code.run" | "task.run.start" | "task.run.retry" | "task.queue.start" | "task.queue.reconcile" | "intake.scan" | "intake.reanalyze" | "clarification.answer" | "clarification.skip";
+  actionType: "change.spec.propose" | "change.plan.propose" | "planning.generate" | "planning.revise" | "planning.confirm-execution" | "orchestrator.evaluate" | "orchestrator.pump" | "demand.worker.enqueue" | "demand.worker.claim" | "demand.worker.start-next" | "demand.worker.start-available" | "demand.worker.reconcile" | "demand.worker.release" | "role.pipeline.start" | "role.pipeline.stop" | "role.pipeline.continue" | "role.pipeline.reconcile" | "conversation.steer" | "conversation.interrupt" | "conversation.continue" | "result.refresh-rework" | "result.revalidate" | "result.reaudit" | "result.refresh-status" | "apply-check.run" | "landing.prepare" | "landing.review" | "landing.refresh" | "pr-draft.prepare" | "pr-draft.create" | "pr-draft.refresh" | "pr-feedback.refresh" | "pr-feedback.evaluate" | "pr-feedback.rework" | "pr-feedback.update-draft" | "code.run" | "task.run.start" | "task.run.retry" | "task.queue.start" | "task.queue.reconcile" | "intake.scan" | "intake.reanalyze" | "clarification.answer" | "clarification.skip";
   label: string;
   enabled: boolean;
   requiresConfirmation: boolean;
@@ -2336,7 +2337,38 @@ async function prDraftQueueItem(
   const itemChangeId = selected ? selectedChangeId : pkg.target.changeIds[0];
   const reviewArtifact = pkg.artifactRefs.find((ref) => ref.endsWith("merge-review.md")) ?? pkg.artifactRefs[1] ?? pkg.artifactRefs[0];
   const existingDraft = await findPrDraftPackageForLanding(memory, pkg.id).catch(() => null);
+  const existingDemandDraft = existingDraft ?? await findLatestCreatedPrDraftPackageForChanges(memory, pkg.target.changeIds).catch(() => null);
+  if (!existingDraft && existingDemandDraft?.status === "created") {
+    return {
+      id: `pr-draft:update:${existingDemandDraft.id}:${pkg.id}`,
+      kind: "pr-draft",
+      projectId: project.id,
+      conversationId: itemChangeId,
+      changeId: itemChangeId,
+      landingPackageId: pkg.id,
+      summary: existingDemandDraft.prUrl ? `可以更新已有 Draft PR：${existingDemandDraft.prUrl}` : "可以更新已有 Draft PR。",
+      whyNeedsConfirmation: "同一需求已有 Draft PR；新结果通过落地检查后需要你确认是否更新它。",
+      confirmEffect: "会 push 到同一个 Draft PR 分支并更新 PR body；不会 merge、land、标记 ready for review 或归档需求。",
+      riskSummary: "这是远端草稿更新，不是合并授权。",
+      evidenceRefs: [existingDemandDraft.bodyArtifact, ...pkg.artifactRefs],
+      actions: [
+        {
+          id: `pr-feedback-update-draft:${pkg.id}`,
+          label: "更新 PR 草稿",
+          kind: "workflow-action",
+          actionType: "pr-feedback.update-draft",
+          landingPackageId: pkg.id,
+          enabled: true,
+          requiresConfirmation: true,
+        },
+        ...(reviewArtifact ? evidenceActions(reviewArtifact) : []),
+      ],
+      primary: selected,
+      status: "pending",
+    };
+  }
   if (existingDraft?.status === "created") {
+    const feedback = await latestPrFeedbackSummaryForDraft(memory, existingDraft.id).catch(() => null);
     return {
       id: `pr-draft:created:${existingDraft.id}`,
       kind: "pr-draft",
@@ -2344,12 +2376,32 @@ async function prDraftQueueItem(
       conversationId: itemChangeId,
       changeId: itemChangeId,
       landingPackageId: pkg.id,
-      summary: existingDraft.prUrl ? `Draft PR 已创建：${existingDraft.prUrl}` : "Draft PR 已创建。",
-      whyNeedsConfirmation: "远端 PR 草稿已经创建。",
-      confirmEffect: "后续 review / merge 仍需要在远端或后续阶段处理；AHO 不会自动 merge。",
-      riskSummary: "这是 Draft PR handoff，不是 merge authority。",
-      evidenceRefs: [existingDraft.bodyArtifact, ...pkg.artifactRefs],
+      summary: feedback?.summary ?? (existingDraft.prUrl ? `Draft PR 已创建：${existingDraft.prUrl}` : "Draft PR 已创建。"),
+      whyNeedsConfirmation: feedback?.actionable ? "远端 PR 反馈需要修改。" : "远端 PR 草稿已经创建。",
+      confirmEffect: feedback?.actionable
+        ? "会在同一需求中创建修改任务；通过后仍需要重新落地检查并由你确认更新 PR 草稿。"
+        : "可以刷新远端反馈；后续 review / merge 仍需要在远端或后续阶段处理。",
+      riskSummary: feedback?.actionable ? "PR 反馈修改不会自动 push；更新 Draft PR 仍需要确认。" : "这是 Draft PR handoff，不是 merge authority。",
+      evidenceRefs: feedback?.evidenceRefs ?? [existingDraft.bodyArtifact, ...pkg.artifactRefs],
       actions: [
+        ...(feedback?.actionable ? [{
+          id: `pr-feedback-rework:${pkg.id}`,
+          label: "根据 PR 反馈修改",
+          kind: "workflow-action" as const,
+          actionType: "pr-feedback.rework" as const,
+          landingPackageId: pkg.id,
+          enabled: true,
+          requiresConfirmation: true,
+        }] : []),
+        {
+          id: `pr-feedback-refresh:${pkg.id}`,
+          label: feedback ? "重新检查 PR 反馈" : "检查 PR 反馈",
+          kind: "workflow-action",
+          actionType: "pr-feedback.refresh",
+          landingPackageId: pkg.id,
+          enabled: true,
+          requiresConfirmation: false,
+        },
         {
           id: `pr-draft-refresh:${pkg.id}`,
           label: "刷新 PR 状态",

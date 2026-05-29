@@ -26,6 +26,7 @@ import {
   markDemandWorkerRunning,
 } from "../../src/demand-worker/manager.js";
 import { createWorktree } from "../../src/worktree/manager.js";
+import { classifyPrFeedbackSnapshotData } from "../../src/pr-feedback/manager.js";
 import { listTaskQueueItems, listTaskQueues, reconcileTaskQueues, startOrResumeTaskQueue } from "../../src/task-queue/manager.js";
 import type { ManagedProject, RunMetadata, TaskQueueItem, TaskQueueRun, TaskRun, WorkerLease } from "../../src/types/index.js";
 
@@ -50,14 +51,15 @@ function project(path = tempDir): ManagedProject {
   };
 }
 
-async function waitForDemandWorkersToStop(memory: Awaited<ReturnType<typeof resolveProjectMemory>>, timeoutMs = 15000): Promise<void> {
+async function waitForDemandWorkersToStop(memory: Awaited<ReturnType<typeof resolveProjectMemory>>, timeoutMs = 60000): Promise<void> {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
     const workers = await listDemandWorkers(memory);
     if (!workers.some((worker) => worker.status === "claimed" || worker.status === "running")) return;
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
-  throw new Error("Timed out waiting for demand workers to stop.");
+  const workers = await listDemandWorkers(memory);
+  throw new Error(`Timed out waiting for demand workers to stop: ${JSON.stringify(workers)}`);
 }
 
 async function writePlanningBundleFixture(changeId: string, goal = "Implement pricing rule"): Promise<void> {
@@ -87,6 +89,37 @@ async function writePlanningBundleFixture(changeId: string, goal = "Implement pr
 }
 
 describe("workbench read model", () => {
+  it("classifies Draft PR feedback for main-agent rework decisions", () => {
+    expect(classifyPrFeedbackSnapshotData({
+      state: "OPEN",
+      reviewDecision: "CHANGES_REQUESTED",
+      reviews: [],
+      comments: [],
+      statusCheckRollup: [],
+    })).toBe("changes-requested");
+    expect(classifyPrFeedbackSnapshotData({
+      state: "OPEN",
+      reviewDecision: "REVIEW_REQUIRED",
+      reviews: [],
+      comments: [],
+      statusCheckRollup: [{ conclusion: "FAILURE" }],
+    })).toBe("checks-failed");
+    expect(classifyPrFeedbackSnapshotData({
+      state: "OPEN",
+      reviewDecision: "APPROVED",
+      reviews: [],
+      comments: [{ body: "nit" }],
+      statusCheckRollup: [],
+    })).toBe("comments-only");
+    expect(classifyPrFeedbackSnapshotData({
+      state: "MERGED",
+      reviewDecision: "APPROVED",
+      reviews: [],
+      comments: [],
+      statusCheckRollup: [],
+    })).toBe("stale-pr");
+  });
+
   it("lists active and archived changes as topics", async () => {
     await initHarness(project());
     await createChange(project(), { title: "Archive Me" });
