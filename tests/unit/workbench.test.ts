@@ -1044,12 +1044,31 @@ describe("workbench read model", () => {
 
       const reviewedSnapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: "landing-demand" });
       expect(reviewedSnapshot.right.confirmationQueue.primary).toMatchObject({
-        kind: "landing-readiness",
-        whyNeedsConfirmation: "提交/PR 前检查已通过。",
+        kind: "pr-draft",
+        whyNeedsConfirmation: "远端 PR 能力未配置。",
       });
-      expect(reviewedSnapshot.right.confirmationQueue.primary?.actions).toEqual([
-        expect.objectContaining({ kind: "evidence", label: "查看证据" }),
-      ]);
+      expect(reviewedSnapshot.right.confirmationQueue.primary?.actions.some((action) => action.actionType === "pr-draft.create")).toBe(false);
+      const prPrepared = await executeWorkbenchAction({ project: project(), path: tempDir }, {
+        actionType: "pr-draft.prepare",
+        changeId: "landing-demand",
+        landingPackageId: pkg.id,
+        confirm: true,
+      });
+      const prPkg = (prPrepared.result as { result: { package: { landingPackageId: string; bodyArtifact: string; status: string } } }).result.package;
+      expect(prPkg).toMatchObject({
+        landingPackageId: pkg.id,
+        status: "prepared",
+      });
+      expect(prPkg.bodyArtifact).toContain("pr-body.md");
+      const prCreate = await executeWorkbenchAction({ project: project(), path: tempDir }, {
+        actionType: "pr-draft.create",
+        changeId: "landing-demand",
+        landingPackageId: pkg.id,
+        confirm: true,
+      });
+      expect(prCreate.result as { status: string; error?: string }).toMatchObject({
+        status: "failed",
+      });
     } finally {
       if (oldAhoHome === undefined) delete process.env.AHO_HOME;
       else process.env.AHO_HOME = oldAhoHome;

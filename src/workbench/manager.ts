@@ -13,6 +13,7 @@ import { readRequiredJsonFile } from "../fs/json.js";
 import { getTemplateRoot } from "../template-source/paths.js";
 import { findIntegrationCheckCandidate, listIntegrationChecks, type IntegrationCheckCandidate, type IntegrationCheckRecord } from "../integration-check/manager.js";
 import { findLandingCandidate, listLandingPackages, type LandingCandidate, type LandingReadinessPackage } from "../landing/manager.js";
+import { detectRemoteProviderCapability, findPrDraftPackageForLanding, type RemoteProviderCapability } from "../pr-draft/manager.js";
 import { getMemoryStatus } from "../memory/status.js";
 import { resolveMemory } from "../memory/resolver.js";
 import { isGitDirty } from "../project/git.js";
@@ -115,7 +116,7 @@ export interface WorkbenchThreadEvent {
 }
 
 export interface ThreadStreamAction {
-  actionType: "change.spec.propose" | "change.plan.propose" | "planning.generate" | "planning.revise" | "planning.confirm-execution" | "orchestrator.evaluate" | "orchestrator.pump" | "demand.worker.enqueue" | "demand.worker.claim" | "demand.worker.start-next" | "demand.worker.start-available" | "demand.worker.reconcile" | "demand.worker.release" | "role.pipeline.start" | "role.pipeline.stop" | "role.pipeline.continue" | "role.pipeline.reconcile" | "conversation.steer" | "conversation.interrupt" | "conversation.continue" | "result.refresh-rework" | "result.revalidate" | "result.reaudit" | "result.refresh-status" | "apply-check.run" | "landing.prepare" | "landing.review" | "landing.refresh" | "code.run" | "task.run.start" | "task.run.retry" | "task.queue.start" | "task.queue.reconcile" | "intake.scan" | "intake.reanalyze" | "clarification.answer" | "clarification.skip";
+  actionType: "change.spec.propose" | "change.plan.propose" | "planning.generate" | "planning.revise" | "planning.confirm-execution" | "orchestrator.evaluate" | "orchestrator.pump" | "demand.worker.enqueue" | "demand.worker.claim" | "demand.worker.start-next" | "demand.worker.start-available" | "demand.worker.reconcile" | "demand.worker.release" | "role.pipeline.start" | "role.pipeline.stop" | "role.pipeline.continue" | "role.pipeline.reconcile" | "conversation.steer" | "conversation.interrupt" | "conversation.continue" | "result.refresh-rework" | "result.revalidate" | "result.reaudit" | "result.refresh-status" | "apply-check.run" | "landing.prepare" | "landing.review" | "landing.refresh" | "pr-draft.prepare" | "pr-draft.create" | "pr-draft.refresh" | "code.run" | "task.run.start" | "task.run.retry" | "task.queue.start" | "task.queue.reconcile" | "intake.scan" | "intake.reanalyze" | "clarification.answer" | "clarification.skip";
   label: string;
   enabled: boolean;
   requiresConfirmation: boolean;
@@ -259,6 +260,7 @@ export type WorkbenchConfirmationQueueItemKind =
   | "integration-check"
   | "integration-apply"
   | "landing-readiness"
+  | "pr-draft"
   | "request-changes"
   | "discard-result"
   | "maintenance";
@@ -2245,7 +2247,9 @@ async function buildConfirmationQueue(input: {
     const landingPackages = await listLandingPackages(input.memory).catch(() => []);
     const latestLanding = landingPackages[0];
     if (latestLanding && latestLanding.reviewedAt) {
-      const item = landingPackageQueueItem(project, latestLanding, input.selectedTopic?.id);
+      const item = latestLanding.review?.verdict === "ready"
+        ? await prDraftQueueItem(project, input.memory, latestLanding, input.selectedTopic?.id)
+        : landingPackageQueueItem(project, latestLanding, input.selectedTopic?.id);
       if (item.primary) queue.current.unshift(item);
       else queue.otherDemands.push(item);
     }
@@ -2319,6 +2323,99 @@ function landingPackageQueueItem(project: ManagedProject, pkg: LandingReadinessP
     actions: reviewArtifact ? evidenceActions(reviewArtifact) : [],
     primary: selected,
     status: pkg.review?.verdict === "ready" ? "passed" : "failed",
+  };
+}
+
+async function prDraftQueueItem(
+  project: ManagedProject,
+  memory: ResolvedMemory,
+  pkg: LandingReadinessPackage,
+  selectedChangeId: string | undefined,
+): Promise<WorkbenchConfirmationQueueItem> {
+  const selected = Boolean(selectedChangeId && pkg.target.changeIds.includes(selectedChangeId));
+  const itemChangeId = selected ? selectedChangeId : pkg.target.changeIds[0];
+  const reviewArtifact = pkg.artifactRefs.find((ref) => ref.endsWith("merge-review.md")) ?? pkg.artifactRefs[1] ?? pkg.artifactRefs[0];
+  const existingDraft = await findPrDraftPackageForLanding(memory, pkg.id).catch(() => null);
+  if (existingDraft?.status === "created") {
+    return {
+      id: `pr-draft:created:${existingDraft.id}`,
+      kind: "pr-draft",
+      projectId: project.id,
+      conversationId: itemChangeId,
+      changeId: itemChangeId,
+      landingPackageId: pkg.id,
+      summary: existingDraft.prUrl ? `Draft PR 已创建：${existingDraft.prUrl}` : "Draft PR 已创建。",
+      whyNeedsConfirmation: "远端 PR 草稿已经创建。",
+      confirmEffect: "后续 review / merge 仍需要在远端或后续阶段处理；AHO 不会自动 merge。",
+      riskSummary: "这是 Draft PR handoff，不是 merge authority。",
+      evidenceRefs: [existingDraft.bodyArtifact, ...pkg.artifactRefs],
+      actions: [
+        {
+          id: `pr-draft-refresh:${pkg.id}`,
+          label: "刷新 PR 状态",
+          kind: "workflow-action",
+          actionType: "pr-draft.refresh",
+          landingPackageId: pkg.id,
+          enabled: true,
+          requiresConfirmation: true,
+        },
+        ...(reviewArtifact ? evidenceActions(reviewArtifact) : []),
+      ],
+      primary: selected,
+      status: "passed",
+    };
+  }
+  const capability = await detectRemoteProviderCapability(project).catch((cause: unknown): RemoteProviderCapability => ({
+    provider: "github-cli",
+    status: "unsupported",
+    ready: false,
+    reason: cause instanceof Error ? cause.message : String(cause),
+    setupHint: "无法检测远端 PR 能力；请确认 GitHub CLI 和仓库 remote 配置。",
+  }));
+  if (!capability.ready) {
+    return {
+      id: `pr-draft:provider:${pkg.id}`,
+      kind: "pr-draft",
+      projectId: project.id,
+      conversationId: itemChangeId,
+      changeId: itemChangeId,
+      landingPackageId: pkg.id,
+      summary: capability.reason ?? "Draft PR provider 未配置。",
+      whyNeedsConfirmation: "远端 PR 能力未配置。",
+      confirmEffect: capability.setupHint,
+      riskSummary: "AHO 不会伪造创建 PR；provider ready 前不会显示创建 PR 草稿按钮。",
+      evidenceRefs: pkg.artifactRefs,
+      actions: reviewArtifact ? evidenceActions(reviewArtifact) : [],
+      primary: selected,
+      status: "pending",
+    };
+  }
+  return {
+    id: `pr-draft:create:${pkg.id}`,
+    kind: "pr-draft",
+    projectId: project.id,
+    conversationId: itemChangeId,
+    changeId: itemChangeId,
+    landingPackageId: pkg.id,
+    summary: "提交/PR 前检查已通过，可以创建 Draft PR。",
+    whyNeedsConfirmation: "需要你确认是否创建远端 Draft PR。",
+    confirmEffect: "会创建或更新远端分支并创建 Draft PR；不会 merge、land 或启用自动合并。",
+    riskSummary: "创建 Draft PR 会产生本地提交并 push 到远端分支。",
+    evidenceRefs: pkg.artifactRefs,
+    actions: [
+      {
+        id: `pr-draft-create:${pkg.id}`,
+        label: "创建 PR 草稿",
+        kind: "workflow-action",
+        actionType: "pr-draft.create",
+        landingPackageId: pkg.id,
+        enabled: true,
+        requiresConfirmation: true,
+      },
+      ...(reviewArtifact ? evidenceActions(reviewArtifact) : []),
+    ],
+    primary: selected,
+    status: "pending",
   };
 }
 

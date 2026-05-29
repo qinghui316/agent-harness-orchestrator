@@ -449,22 +449,22 @@ describe("Workbench web app", () => {
     expect(document.querySelectorAll("[data-testid='assistant-block-error']")).toHaveLength(1);
   });
 
-  it("renders landing readiness as a confirmation queue evidence item without fake remote actions", async () => {
+  it("renders PR provider guidance without a fake create button when remote handoff is unavailable", async () => {
     const landingSnapshot = {
       ...snapshot,
       right: {
         ...snapshot.right,
         confirmationQueue: {
           primary: {
-            id: "landing:package:landing-worktree-abc123",
-            kind: "landing-readiness",
+            id: "pr-draft:provider:landing-worktree-abc123",
+            kind: "pr-draft",
             conversationId: "member-discount",
             changeId: "member-discount",
             landingPackageId: "landing-worktree-abc123",
-            summary: "提交/PR 前检查通过：当前本地结果有可追溯证据。",
-            whyNeedsConfirmation: "提交/PR 前检查已通过。",
-            confirmEffect: "这是本地落地证据；当前版本不会 commit、push、创建 PR 或 merge。",
-            riskSummary: "本地结果可作为后续提交或 PR 准备输入。",
+            summary: "当前项目没有配置 Git remote。",
+            whyNeedsConfirmation: "远端 PR 能力未配置。",
+            confirmEffect: "配置 Git remote、安装 GitHub CLI，并运行 gh auth login 后才能创建 Draft PR。",
+            riskSummary: "AHO 不会伪造创建 PR；provider ready 前不会显示创建 PR 草稿按钮。",
             evidenceRefs: ["project://.agent-harness/workbench/landing/landing-worktree-abc123/merge-review.md"],
             actions: [{
               id: "evidence:merge-review",
@@ -493,11 +493,62 @@ describe("Workbench web app", () => {
 
     render(<App />);
 
-    await waitFor(() => expect(screen.getByText("提交/PR 前检查已通过。")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("远端 PR 能力未配置。")).toBeTruthy());
     expect(screen.getAllByText("查看证据").length).toBeGreaterThan(0);
-    expect(screen.queryByText("创建 PR")).toBeNull();
+    expect(screen.queryByText("创建 PR 草稿")).toBeNull();
     expect(screen.queryByText("推送")).toBeNull();
     expect(screen.queryByText("远程合并")).toBeNull();
+  });
+
+  it("renders a single Draft PR confirmation when provider is ready", async () => {
+    const prReadySnapshot = {
+      ...snapshot,
+      right: {
+        ...snapshot.right,
+        confirmationQueue: {
+          primary: {
+            id: "pr-draft:create:landing-worktree-abc123",
+            kind: "pr-draft",
+            conversationId: "member-discount",
+            changeId: "member-discount",
+            landingPackageId: "landing-worktree-abc123",
+            summary: "提交/PR 前检查已通过，可以创建 Draft PR。",
+            whyNeedsConfirmation: "需要你确认是否创建远端 Draft PR。",
+            confirmEffect: "会创建或更新远端分支并创建 Draft PR；不会 merge、land 或启用自动合并。",
+            riskSummary: "创建 Draft PR 会产生本地提交并 push 到远端分支。",
+            evidenceRefs: ["project://.agent-harness/workbench/landing/landing-worktree-abc123/merge-review.md"],
+            actions: [{
+              id: "pr-draft-create:landing-worktree-abc123",
+              label: "创建 PR 草稿",
+              kind: "workflow-action",
+              actionType: "pr-draft.create",
+              landingPackageId: "landing-worktree-abc123",
+              enabled: true,
+              requiresConfirmation: true,
+            }],
+            primary: true,
+            status: "pending",
+          },
+          current: [],
+          otherDemands: [],
+          maintenance: [],
+          history: [],
+        },
+      },
+    };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
+      if (url === "/api/projects") return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
+      return jsonResponse(url.includes("/stream/") ? stream : prReadySnapshot);
+    }));
+
+    render(<App />);
+
+    await waitFor(() => expect(screen.getByText("需要你确认是否创建远端 Draft PR。")).toBeTruthy());
+    expect(screen.getByRole("button", { name: /创建 PR 草稿/ })).toBeTruthy();
+    expect(screen.queryByText("merge queue")).toBeNull();
+    expect(screen.queryByText("auto merge")).toBeNull();
   });
 
   it("shows a blocked queue as the primary decision instead of a generic approval list", async () => {

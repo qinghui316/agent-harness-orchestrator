@@ -38,6 +38,7 @@ import { getEnabledSkillContext } from "../skill/catalog.js";
 import { getSpecTestDriftReport } from "../spec-test/drift.js";
 import { runIntegrationCheck } from "../integration-check/manager.js";
 import { prepareLandingPackage, reviewLandingPackage } from "../landing/manager.js";
+import { createDraftPr, preparePrDraftPackage, refreshPrDraftStatus } from "../pr-draft/manager.js";
 import { finishTaskRunFromWorkflowResult, markTaskRunStarted, reconcileTaskRuns, retryTaskRun, startTaskRun } from "../task-run/manager.js";
 import {
   failQueuedTaskItem,
@@ -510,6 +511,9 @@ export type WorkbenchWorkflowActionType =
   | "landing.prepare"
   | "landing.review"
   | "landing.refresh"
+  | "pr-draft.prepare"
+  | "pr-draft.create"
+  | "pr-draft.refresh"
   | "code.run"
   | "task.run.start"
   | "task.run.retry"
@@ -819,6 +823,12 @@ async function executeWorkflowAction(project: ManagedProject, changeId: string, 
       return reviewLandingForAction(project, changeId, request, live);
     case "landing.refresh":
       return prepareLandingForAction(project, changeId, request, live);
+    case "pr-draft.prepare":
+      return preparePrDraftForAction(project, changeId, request, live);
+    case "pr-draft.create":
+      return createPrDraftForAction(project, changeId, request, live);
+    case "pr-draft.refresh":
+      return refreshPrDraftForAction(project, changeId, request, live);
     case "code.run":
       return runCodeValidateAuditSequence(project, changeId, request.prompt, live, request.taskIds);
     case "task.run.start":
@@ -1113,6 +1123,68 @@ async function reviewLandingForAction(
   });
   live?.emit({ event: "assistant.message", data: entry });
   return { package: reviewed };
+}
+
+async function preparePrDraftForAction(
+  project: ManagedProject,
+  changeId: string,
+  request: WorkbenchWorkflowActionRequest,
+  live: WorkbenchLiveSink | undefined,
+): Promise<unknown> {
+  if (!request.landingPackageId) throw new Error("pr-draft.prepare requires landingPackageId.");
+  const pkg = await preparePrDraftPackage(project, request.landingPackageId);
+  const entry = await appendTopicThreadEntry(project, changeId, {
+    type: "assistant.message",
+    status: "pr-draft-prepared",
+    text: `PR 草稿材料已准备好。这不会 push、创建 PR 或 merge。\n\n证据：${pkg.bodyArtifact}`,
+    artifact: pkg.bodyArtifact,
+  });
+  live?.emit({ event: "assistant.message", data: entry });
+  return { package: pkg };
+}
+
+async function createPrDraftForAction(
+  project: ManagedProject,
+  changeId: string,
+  request: WorkbenchWorkflowActionRequest,
+  live: WorkbenchLiveSink | undefined,
+): Promise<unknown> {
+  if (!request.landingPackageId) throw new Error("pr-draft.create requires landingPackageId.");
+  const pkg = await createDraftPr(project, request.landingPackageId);
+  const text = [
+    "已创建或更新 Draft PR。",
+    "",
+    `PR: ${pkg.prUrl ?? "unknown"}`,
+    `Branch: ${pkg.branchName}`,
+    "",
+    "这是远端协作草稿，不会自动 merge 或 land。",
+  ].join("\n");
+  const entry = await appendTopicThreadEntry(project, changeId, {
+    type: "assistant.message",
+    status: "pr-draft-created",
+    text,
+    artifact: pkg.bodyArtifact,
+  });
+  live?.emit({ event: "assistant.message", data: entry });
+  return { package: pkg };
+}
+
+async function refreshPrDraftForAction(
+  project: ManagedProject,
+  changeId: string,
+  request: WorkbenchWorkflowActionRequest,
+  live: WorkbenchLiveSink | undefined,
+): Promise<unknown> {
+  if (!request.landingPackageId) throw new Error("pr-draft.refresh requires landingPackageId.");
+  const pkg = await refreshPrDraftStatus(project, request.landingPackageId);
+  const entry = await appendTopicThreadEntry(project, changeId, {
+    type: "assistant.message",
+    status: "pr-draft-refreshed",
+    text: pkg.prUrl ? `Draft PR 状态已刷新：${pkg.prUrl}` : "Draft PR 状态已刷新；还没有可用 PR URL。",
+    artifact: pkg.packageArtifact,
+  });
+  live?.emit({ event: "assistant.message", data: entry });
+  return { package: pkg };
 }
 
 async function startNextDemandWorkerForAction(
@@ -2875,6 +2947,10 @@ function summarizeActionResult(actionType: string, result: unknown): string {
     const summary = typeof result.package.summary === "string" ? result.package.summary : "Landing readiness package updated.";
     return summary;
   }
+  if ((actionType === "pr-draft.prepare" || actionType === "pr-draft.create" || actionType === "pr-draft.refresh") && isRecord(result) && isRecord(result.package)) {
+    const prUrl = typeof result.package.prUrl === "string" ? ` ${result.package.prUrl}` : "";
+    return `Draft PR handoff updated.${prUrl}`;
+  }
   if (actionType === "task.run.reconcile" && isRecord(result) && Array.isArray(result.taskRuns)) {
     return `Reconciled ${result.taskRuns.length} TaskRun record(s).`;
   }
@@ -2952,6 +3028,9 @@ function labelForAction(actionType: string): string {
     case "landing.prepare": return "Landing readiness prepared";
     case "landing.review": return "Landing readiness reviewed";
     case "landing.refresh": return "Landing readiness refreshed";
+    case "pr-draft.prepare": return "PR draft package prepared";
+    case "pr-draft.create": return "Draft PR created";
+    case "pr-draft.refresh": return "Draft PR refreshed";
     case "code.run": return "Coder run confirmed";
     case "task.run.start": return "Task workflow started";
     case "task.run.retry": return "Task workflow retried";
