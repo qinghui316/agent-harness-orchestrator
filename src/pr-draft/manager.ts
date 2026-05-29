@@ -98,11 +98,12 @@ export async function detectRemoteProviderCapability(project: ManagedProject): P
   const remoteName = remotes.includes("origin") ? "origin" : remotes[0];
   const remoteUrl = await gitText(project.path, ["remote", "get-url", remoteName]).then((value) => value.trim()).catch(() => undefined);
   const gh = githubCliCommand();
-  const hasGh = await commandOk(gh, ["--version"], project.path);
+  const ghArgs = githubCliArgs();
+  const hasGh = await commandOk(gh, [...ghArgs, "--version"], project.path);
   if (!hasGh) {
     return { ...base, status: "no-gh", ready: false, currentBranch, remoteName, remoteUrl, reason: "未检测到 GitHub CLI gh。" };
   }
-  const hasAuth = await commandOk(gh, ["auth", "status"], project.path);
+  const hasAuth = await commandOk(gh, [...ghArgs, "auth", "status"], project.path);
   if (!hasAuth) {
     return { ...base, status: "no-auth", ready: false, currentBranch, remoteName, remoteUrl, reason: "GitHub CLI 尚未完成认证或当前仓库无权限。" };
   }
@@ -177,12 +178,14 @@ export async function createDraftPr(project: ManagedProject, landingPackageId: s
   await gitText(project.path, ["commit", "-m", prepared.title]);
   await gitText(project.path, ["push", "-u", capability.remoteName, prepared.branchName]);
   const gh = githubCliCommand();
-  const existingUrl = await commandText(gh, ["pr", "view", "--head", prepared.branchName, "--json", "url", "--jq", ".url"], project.path).then((value) => value.trim()).catch(() => "");
+  const ghArgs = githubCliArgs();
+  const existingUrl = await commandText(gh, [...ghArgs, "pr", "view", "--head", prepared.branchName, "--json", "url", "--jq", ".url"], project.path).then((value) => value.trim()).catch(() => "");
   let prUrl = existingUrl;
   if (prUrl) {
-    await commandText(gh, ["pr", "edit", prUrl, "--title", prepared.title, "--body-file", bodyPath], project.path);
+    await commandText(gh, [...ghArgs, "pr", "edit", prUrl, "--title", prepared.title, "--body-file", bodyPath], project.path);
   } else {
     prUrl = (await commandText(gh, [
+      ...ghArgs,
       "pr",
       "create",
       "--draft",
@@ -215,7 +218,7 @@ export async function refreshPrDraftStatus(project: ManagedProject, landingPacka
   if (!pkg) return preparePrDraftPackage(project, landingPackageId);
   const capability = await detectRemoteProviderCapability(project);
   if (!capability.ready) return pkg;
-  const prUrl = await commandText(githubCliCommand(), ["pr", "view", "--head", pkg.branchName, "--json", "url", "--jq", ".url"], project.path)
+  const prUrl = await commandText(githubCliCommand(), [...githubCliArgs(), "pr", "view", "--head", pkg.branchName, "--json", "url", "--jq", ".url"], project.path)
     .then((value) => value.trim())
     .catch(() => pkg.prUrl);
   const refreshed: PrDraftPackage = { ...pkg, prUrl, updatedAt: new Date().toISOString() };
@@ -261,8 +264,9 @@ export async function updateDraftPrFromLanding(project: ManagedProject, landingP
   }
   const prRef = existing.prUrl ?? existing.branchName;
   const gh = githubCliCommand();
-  await commandText(gh, ["pr", "edit", prRef, "--title", title, "--body-file", bodyPath], project.path);
-  const prUrl = await commandText(gh, ["pr", "view", "--head", existing.branchName, "--json", "url", "--jq", ".url"], project.path)
+  const ghArgs = githubCliArgs();
+  await commandText(gh, [...ghArgs, "pr", "edit", prRef, "--title", title, "--body-file", bodyPath], project.path);
+  const prUrl = await commandText(gh, [...ghArgs, "pr", "view", "--head", existing.branchName, "--json", "url", "--jq", ".url"], project.path)
     .then((value) => value.trim())
     .catch(() => existing.prUrl);
   const now = new Date().toISOString();
@@ -430,6 +434,19 @@ function contentHash(content: string): string {
 }
 
 export function githubCliCommand(): string {
+  if (process.env.AHO_GH_COMMAND) return process.env.AHO_GH_COMMAND;
   const portable = process.env.LOCALAPPDATA ? join(process.env.LOCALAPPDATA, "Programs", "GitHub CLI Portable", "bin", "gh.exe") : "";
   return portable && existsSync(portable) ? portable : "gh";
+}
+
+export function githubCliArgs(): string[] {
+  const raw = process.env.AHO_GH_COMMAND_ARGS;
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (Array.isArray(parsed) && parsed.every((item) => typeof item === "string")) return parsed;
+  } catch {
+    // Simple local overrides can still be space-delimited.
+  }
+  return raw.split(/\s+/).filter(Boolean);
 }

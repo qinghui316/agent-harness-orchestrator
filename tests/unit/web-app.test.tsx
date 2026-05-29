@@ -551,6 +551,59 @@ describe("Workbench web app", () => {
     expect(screen.queryByText("auto merge")).toBeNull();
   });
 
+  it("renders a ready-for-review confirmation without merge controls", async () => {
+    const reviewReadySnapshot = {
+      ...snapshot,
+      right: {
+        ...snapshot.right,
+        confirmationQueue: {
+          primary: {
+            id: "pr-review:pr-draft-abc123:landing-worktree-abc123",
+            kind: "pr-review",
+            conversationId: "member-discount",
+            changeId: "member-discount",
+            landingPackageId: "landing-worktree-abc123",
+            summary: "Draft PR 已准备好提交人工评审。",
+            whyNeedsConfirmation: "需要你确认是否提交人工评审。",
+            confirmEffect: "会将 Draft PR 标记为 Ready for Review；不会 merge、land 或启用自动合并。",
+            riskSummary: "提交后进入人工评审，后续反馈仍回到当前需求对话处理。",
+            evidenceRefs: ["project://.agent-harness/workbench/pr-review/pr-review-abc/pr-review-summary.md"],
+            actions: [{
+              id: "pr-review-submit:landing-worktree-abc123",
+              label: "提交人工评审",
+              kind: "workflow-action",
+              actionType: "pr-review.submit",
+              landingPackageId: "landing-worktree-abc123",
+              enabled: true,
+              requiresConfirmation: true,
+            }],
+            primary: true,
+            status: "pending",
+          },
+          current: [],
+          otherDemands: [],
+          maintenance: [],
+          history: [],
+        },
+      },
+    };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
+      if (url === "/api/projects") return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
+      return jsonResponse(url.includes("/stream/") ? stream : reviewReadySnapshot);
+    }));
+
+    render(<App />);
+
+    await waitFor(() => expect(screen.getByText("需要你确认是否提交人工评审。")).toBeTruthy());
+    expect(screen.getByRole("button", { name: /提交人工评审/ })).toBeTruthy();
+    expect(screen.getByText("会将 Draft PR 标记为 Ready for Review；不会 merge、land 或启用自动合并。")).toBeTruthy();
+    expect(screen.queryByText("merge queue")).toBeNull();
+    expect(screen.queryByText("auto merge")).toBeNull();
+    expect(screen.queryByText("land")).toBeNull();
+  });
+
   it("shows a blocked queue as the primary decision instead of a generic approval list", async () => {
     const blockedSnapshot = {
       ...snapshot,

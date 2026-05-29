@@ -687,6 +687,66 @@ export interface PrDraftRevision {
   createdAt: string;
 }
 
+export type PrReviewReadinessStatus =
+  | "ready"
+  | "ready-with-comments"
+  | "already-ready"
+  | "missing-pr"
+  | "provider-unavailable"
+  | "actionable-feedback"
+  | "checks-failed"
+  | "stale-pr";
+
+export interface PrReviewStateSnapshot {
+  version: "1.0";
+  id: string;
+  prDraftPackageId: string;
+  landingPackageId: string;
+  projectId: string | null;
+  prUrl?: string;
+  state: string;
+  isDraft: boolean;
+  reviewDecision?: string | null;
+  feedbackClassification?: PrFeedbackClassification;
+  commentsCount: number;
+  failedChecksCount: number;
+  evidenceRefs: string[];
+  createdAt: string;
+}
+
+export interface PrReviewReadiness {
+  version: "1.0";
+  id: string;
+  prDraftPackageId: string;
+  landingPackageId: string;
+  projectId: string | null;
+  status: PrReviewReadinessStatus;
+  canSubmit: boolean;
+  summary: string;
+  reason: string;
+  confirmEffect: string;
+  riskSummary: string;
+  prUrl?: string;
+  stateSnapshotArtifact: string;
+  readinessArtifact: string;
+  summaryArtifact: string;
+  evidenceRefs: string[];
+  createdAt: string;
+}
+
+export interface PrReviewHandoff {
+  version: "1.0";
+  id: string;
+  readinessId: string;
+  prDraftPackageId: string;
+  landingPackageId: string;
+  projectId: string | null;
+  prUrl?: string;
+  status: "submitted";
+  artifactRefs: string[];
+  submittedAt: string;
+}
+
 export type MainOrchestratorDecisionAction =
   | "planning"
   | "enqueue"

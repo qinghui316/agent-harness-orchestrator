@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { execFile } from "node:child_process";
 import { tmpdir } from "node:os";
@@ -51,15 +51,60 @@ function project(path = tempDir): ManagedProject {
   };
 }
 
-async function waitForDemandWorkersToStop(memory: Awaited<ReturnType<typeof resolveProjectMemory>>, timeoutMs = 60000): Promise<void> {
-  const start = Date.now();
-  while (Date.now() - start < timeoutMs) {
-    const workers = await listDemandWorkers(memory);
-    if (!workers.some((worker) => worker.status === "claimed" || worker.status === "running")) return;
-    await new Promise((resolve) => setTimeout(resolve, 100));
-  }
-  const workers = await listDemandWorkers(memory);
-  throw new Error(`Timed out waiting for demand workers to stop: ${JSON.stringify(workers)}`);
+async function createFakeGh(initial: { isDraft?: boolean; comments?: unknown[]; failedChecks?: number } = {}): Promise<{ command: string; args: string[]; stateFile: string }> {
+  const binDir = join(tempDir, "fake-gh-bin");
+  await mkdir(binDir, { recursive: true });
+  const stateFile = join(binDir, "state.json");
+  await writeFile(stateFile, JSON.stringify({
+    isDraft: initial.isDraft ?? true,
+    comments: initial.comments ?? [],
+    failedChecks: initial.failedChecks ?? 0,
+  }), "utf8");
+  const script = join(binDir, "fake-gh.js");
+  await writeFile(script, `#!/usr/bin/env node
+const fs = require("fs");
+const stateFile = ${JSON.stringify(stateFile)};
+const args = process.argv.slice(2);
+const readState = () => JSON.parse(fs.readFileSync(stateFile, "utf8"));
+const writeState = (state) => fs.writeFileSync(stateFile, JSON.stringify(state), "utf8");
+if (args[0] === "--version") {
+  console.log("gh version 2.0.0");
+  process.exit(0);
+}
+if (args[0] === "auth" && args[1] === "status") {
+  console.log("Logged in to github.com");
+  process.exit(0);
+}
+if (args[0] === "pr" && args[1] === "view") {
+  const state = readState();
+  const failedChecks = Array.from({ length: state.failedChecks || 0 }, (_, index) => ({ name: "check-" + index, conclusion: "FAILURE", status: "COMPLETED" }));
+  console.log(JSON.stringify({
+    url: "https://github.com/qinghui316/private-acceptance/pull/1",
+    state: "OPEN",
+    isDraft: Boolean(state.isDraft),
+    reviewDecision: null,
+    reviews: [],
+    comments: state.comments || [],
+    headRefName: "aho/test",
+    baseRefName: "main",
+    headRefOid: "head",
+    baseRefOid: "base",
+    statusCheckRollup: failedChecks,
+  }));
+  process.exit(0);
+}
+if (args[0] === "pr" && args[1] === "ready") {
+  const state = readState();
+  state.isDraft = false;
+  writeState(state);
+  console.log("Ready for review");
+  process.exit(0);
+}
+console.error("Unsupported fake gh command: " + args.join(" "));
+process.exit(1);
+`, "utf8");
+  await chmod(script, 0o755).catch(() => undefined);
+  return { command: process.execPath, args: [script], stateFile };
 }
 
 async function writePlanningBundleFixture(changeId: string, goal = "Implement pricing rule"): Promise<void> {
@@ -1108,6 +1153,110 @@ describe("workbench read model", () => {
     }
   });
 
+  it("prepares and submits a Draft PR for human review without merging or archiving", async () => {
+    const oldAhoHome = process.env.AHO_HOME;
+    const oldGhCommand = process.env.AHO_GH_COMMAND;
+    const oldGhCommandArgs = process.env.AHO_GH_COMMAND_ARGS;
+    process.env.AHO_HOME = join(tempDir, ".aho-home");
+    const fakeGh = await createFakeGh();
+    process.env.AHO_GH_COMMAND = fakeGh.command;
+    process.env.AHO_GH_COMMAND_ARGS = JSON.stringify(fakeGh.args);
+    try {
+      await initGitRepository(tempDir);
+      await git(tempDir, ["remote", "add", "origin", "https://github.com/qinghui316/private-acceptance.git"]);
+      await writeFile(join(tempDir, ".gitignore"), ".aho-home/\n.agent-harness/\nharness/\nAGENTS.md\ndocs/\nscripts/\n", "utf8");
+      await writeFile(join(tempDir, "package.json"), "{\"scripts\":{\"test\":\"node -e \\\"process.exit(0)\\\"\"}}\n", "utf8");
+      await git(tempDir, ["add", "."]);
+      await git(tempDir, ["commit", "-m", "initial"]);
+      await initHarness(project());
+      await createChange(project(), { title: "PR Review Demand" });
+      await writeAcceptedSpecAndTasks("pr-review-demand");
+      const memory = await resolveProjectMemory(project());
+      const worktree = await createWorktree(project(), memory, "pr-review-demand");
+      await writeFile(join(worktree.metadata.checkoutPath, "package.json"), "{\"scripts\":{\"test\":\"node -e \\\"console.log('review')\\\"\"}}\n", "utf8");
+      const diff = await collectWorktreeDiff(memory, worktree.metadata.worktreeId, "pr-review-demand");
+      await writeValidationResultWithHash("pr-review-demand", "run-validation-pr-review", worktree.metadata.worktreeId, diff.diffHash, "passed");
+      await writeAuditResultWithHash("pr-review-demand", "run-audit-pr-review", worktree.metadata.worktreeId, diff.diffHash, "approved-with-notes");
+
+      const snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: "pr-review-demand" });
+      const applyAction = snapshot.right.decisionInspector.primary?.actions.find((action) => action.action?.actionId === "result.apply")?.action;
+      if (!applyAction) throw new Error("Missing result.apply action.");
+      await executeWorkbenchAction({ project: project(), path: tempDir }, { action: applyAction, confirm: true });
+      const landingPrepared = await executeWorkbenchAction({ project: project(), path: tempDir }, {
+        actionType: "landing.prepare",
+        changeId: "pr-review-demand",
+        worktreeId: worktree.metadata.worktreeId,
+        confirm: true,
+      });
+      const landingPackage = (landingPrepared.result as { result: { package: { id: string } } }).result.package;
+      const prPrepared = await executeWorkbenchAction({ project: project(), path: tempDir }, {
+        actionType: "pr-draft.prepare",
+        changeId: "pr-review-demand",
+        landingPackageId: landingPackage.id,
+        confirm: true,
+      });
+      const prPackage = (prPrepared.result as { result: { package: { id: string; packageArtifact: string } } }).result.package;
+      const prPackagePath = join(memory.workbenchRoot, "pr-drafts", prPackage.id, "pr-draft-package.json");
+      const createdPackage = {
+        ...JSON.parse(await readFile(prPackagePath, "utf8")),
+        status: "created",
+        prUrl: "https://github.com/qinghui316/private-acceptance/pull/1",
+      };
+      await writeFile(prPackagePath, JSON.stringify(createdPackage, null, 2), "utf8");
+
+      const preparedReview = await executeWorkbenchAction({ project: project(), path: tempDir }, {
+        actionType: "pr-review.prepare",
+        changeId: "pr-review-demand",
+        landingPackageId: landingPackage.id,
+        confirm: true,
+      });
+      expect(preparedReview.result).toMatchObject({
+        result: {
+          readiness: expect.objectContaining({
+            status: "ready",
+            canSubmit: true,
+            prUrl: "https://github.com/qinghui316/private-acceptance/pull/1",
+          }),
+        },
+      });
+
+      const readySnapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: "pr-review-demand" });
+      expect(readySnapshot.right.confirmationQueue.primary).toMatchObject({
+        kind: "pr-review",
+        summary: "Draft PR 已准备好提交人工评审。",
+      });
+      expect(readySnapshot.right.confirmationQueue.primary?.actions).toEqual(expect.arrayContaining([
+        expect.objectContaining({ actionType: "pr-review.submit", label: "提交人工评审" }),
+      ]));
+
+      const submitted = await executeWorkbenchAction({ project: project(), path: tempDir }, {
+        actionType: "pr-review.submit",
+        changeId: "pr-review-demand",
+        landingPackageId: landingPackage.id,
+        confirm: true,
+      });
+      expect(submitted.result).toMatchObject({
+        result: {
+          readiness: expect.objectContaining({ status: "already-ready", canSubmit: false }),
+          handoff: expect.objectContaining({ status: "submitted" }),
+        },
+      });
+      const state = JSON.parse(await readFile(fakeGh.stateFile, "utf8"));
+      expect(state.isDraft).toBe(false);
+      const afterSubmit = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: "pr-review-demand" });
+      expect(afterSubmit.center.selectedTopic?.state).toBe("active");
+      expect(afterSubmit.right.confirmationQueue.primary?.actions.some((action) => action.actionType === "pr-review.submit")).toBe(false);
+      expect(afterSubmit.right.confirmationQueue.primary?.actions.some((action) => action.actionType === "pr-feedback.refresh")).toBe(true);
+    } finally {
+      if (oldAhoHome === undefined) delete process.env.AHO_HOME;
+      else process.env.AHO_HOME = oldAhoHome;
+      if (oldGhCommand === undefined) delete process.env.AHO_GH_COMMAND;
+      else process.env.AHO_GH_COMMAND = oldGhCommand;
+      if (oldGhCommandArgs === undefined) delete process.env.AHO_GH_COMMAND_ARGS;
+      else process.env.AHO_GH_COMMAND_ARGS = oldGhCommandArgs;
+    }
+  });
+
   it("scopes result review apply decisions to the selected demand worktree", async () => {
     const oldAhoHome = process.env.AHO_HOME;
     process.env.AHO_HOME = join(tempDir, ".aho-home");
@@ -1499,7 +1648,6 @@ describe("workbench read model", () => {
         worker: expect.objectContaining({ changeId: active.changeId, status: "queued" }),
       }),
     });
-    await waitForDemandWorkersToStop(memory);
   });
 
   it("claims one demand at a time when configured for sequential execution", async () => {

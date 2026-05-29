@@ -12,6 +12,7 @@ import {
   detectRemoteProviderCapability,
   findPrDraftPackageForLanding,
   findLatestCreatedPrDraftPackageForChanges,
+  githubCliArgs,
   githubCliCommand,
   updateDraftPrFromLanding,
   type PrDraftPackage,
@@ -332,7 +333,7 @@ function renderPrFeedbackReworkPrompt(summary: PrFeedbackSummary, feedbackPrompt
 
 async function ghPrView(cwd: string, pr: string): Promise<Record<string, unknown>> {
   const fields = ["url", "state", "isDraft", "reviewDecision", "reviews", "comments", "headRefName", "baseRefName", "headRefOid", "baseRefOid", "statusCheckRollup"];
-  const stdout = await commandText(githubCliCommand(), ["pr", "view", pr, "--json", fields.join(",")], cwd);
+  const stdout = await commandText(githubCliCommand(), [...githubCliArgs(), "pr", "view", pr, "--json", fields.join(",")], cwd);
   return JSON.parse(stdout) as Record<string, unknown>;
 }
 

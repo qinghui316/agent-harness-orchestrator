@@ -45,6 +45,7 @@ import {
   startPrFeedbackReworkAttempt,
   updatePrDraftFromFeedback,
 } from "../pr-feedback/manager.js";
+import { preparePrReviewReadiness, refreshPrReviewState, submitPrForHumanReview } from "../pr-review/manager.js";
 import { finishTaskRunFromWorkflowResult, markTaskRunStarted, reconcileTaskRuns, retryTaskRun, startTaskRun } from "../task-run/manager.js";
 import {
   failQueuedTaskItem,
@@ -524,6 +525,9 @@ export type WorkbenchWorkflowActionType =
   | "pr-feedback.evaluate"
   | "pr-feedback.rework"
   | "pr-feedback.update-draft"
+  | "pr-review.prepare"
+  | "pr-review.submit"
+  | "pr-review.refresh"
   | "code.run"
   | "task.run.start"
   | "task.run.retry"
@@ -846,6 +850,12 @@ async function executeWorkflowAction(project: ManagedProject, changeId: string, 
       return reworkPrFeedbackForAction(project, changeId, request, live);
     case "pr-feedback.update-draft":
       return updatePrDraftForAction(project, changeId, request, live);
+    case "pr-review.prepare":
+      return preparePrReviewForAction(project, changeId, request, live);
+    case "pr-review.submit":
+      return submitPrReviewForAction(project, changeId, request, live);
+    case "pr-review.refresh":
+      return refreshPrReviewForAction(project, changeId, request, live);
     case "code.run":
       return runCodeValidateAuditSequence(project, changeId, request.prompt, live, request.taskIds);
     case "task.run.start":
@@ -1318,6 +1328,78 @@ async function updatePrDraftForAction(
   });
   live?.emit({ event: "assistant.message", data: entry });
   return result;
+}
+
+async function preparePrReviewForAction(
+  project: ManagedProject,
+  changeId: string,
+  request: WorkbenchWorkflowActionRequest,
+  live: WorkbenchLiveSink | undefined,
+): Promise<unknown> {
+  if (!request.landingPackageId) throw new Error("pr-review.prepare requires landingPackageId.");
+  const readiness = await preparePrReviewReadiness(project, request.landingPackageId);
+  const text = [
+    readiness.summary,
+    "",
+    readiness.reason,
+    "",
+    readiness.canSubmit
+      ? "右侧可以提交人工评审；这不会 merge、land 或启用自动合并。"
+      : "当前不能提交人工评审，请先处理上面的原因。",
+    readiness.prUrl ? `\nPR: ${readiness.prUrl}` : "",
+  ].filter(Boolean).join("\n");
+  const entry = await appendTopicThreadEntry(project, changeId, {
+    type: "assistant.message",
+    status: "pr-review-readiness",
+    text,
+    artifact: readiness.summaryArtifact,
+  });
+  live?.emit({ event: "assistant.message", data: entry });
+  return { readiness };
+}
+
+async function submitPrReviewForAction(
+  project: ManagedProject,
+  changeId: string,
+  request: WorkbenchWorkflowActionRequest,
+  live: WorkbenchLiveSink | undefined,
+): Promise<unknown> {
+  if (!request.landingPackageId) throw new Error("pr-review.submit requires landingPackageId.");
+  const result = await submitPrForHumanReview(project, request.landingPackageId);
+  const text = [
+    "Draft PR 已提交人工评审。",
+    "",
+    result.handoff.prUrl ? `PR: ${result.handoff.prUrl}` : "PR: unknown",
+    "",
+    "当前需求进入等待远端评审状态。后续反馈仍通过“检查 PR 反馈”回到同一需求对话处理。",
+    "这不会 merge、land、push main、启用自动合并或归档需求。",
+  ].join("\n");
+  const entry = await appendTopicThreadEntry(project, changeId, {
+    type: "assistant.message",
+    status: "pr-review-submitted",
+    text,
+    artifact: result.handoff.artifactRefs[0],
+  });
+  live?.emit({ event: "assistant.message", data: entry });
+  return result;
+}
+
+async function refreshPrReviewForAction(
+  project: ManagedProject,
+  changeId: string,
+  request: WorkbenchWorkflowActionRequest,
+  live: WorkbenchLiveSink | undefined,
+): Promise<unknown> {
+  if (!request.landingPackageId) throw new Error("pr-review.refresh requires landingPackageId.");
+  const readiness = await refreshPrReviewState(project, request.landingPackageId);
+  const entry = await appendTopicThreadEntry(project, changeId, {
+    type: "assistant.message",
+    status: "pr-review-refreshed",
+    text: `${readiness.summary}\n\n${readiness.reason}`,
+    artifact: readiness.summaryArtifact,
+  });
+  live?.emit({ event: "assistant.message", data: entry });
+  return { readiness };
 }
 
 async function startNextDemandWorkerForAction(
@@ -3070,6 +3152,8 @@ function extractRunId(result: unknown): string | undefined {
 function artifactForActionResult(result: unknown): string | null {
   if (isRecord(result) && isRecord(result.package) && Array.isArray(result.package.artifactRefs) && typeof result.package.artifactRefs[0] === "string") return result.package.artifactRefs[0];
   if (isRecord(result) && isRecord(result.summary) && Array.isArray(result.summary.evidenceRefs) && typeof result.summary.evidenceRefs[0] === "string") return result.summary.evidenceRefs[0];
+  if (isRecord(result) && isRecord(result.readiness) && typeof result.readiness.summaryArtifact === "string") return result.readiness.summaryArtifact;
+  if (isRecord(result) && isRecord(result.handoff) && Array.isArray(result.handoff.artifactRefs) && typeof result.handoff.artifactRefs[0] === "string") return result.handoff.artifactRefs[0];
   if (isRecord(result) && isRecord(result.revision) && Array.isArray(result.revision.artifactRefs) && typeof result.revision.artifactRefs[0] === "string") return result.revision.artifactRefs[0];
   if (isRecord(result) && isRecord(result.run) && isRecord(result.run.artifacts) && typeof result.run.artifacts.directory === "string") return result.run.artifacts.directory;
   if (isRecord(result) && isRecord(result.code) && isRecord(result.code.run) && isRecord(result.code.run.artifacts) && typeof result.code.run.artifacts.directory === "string") return result.code.run.artifacts.directory;
@@ -3095,6 +3179,13 @@ function summarizeActionResult(actionType: string, result: unknown): string {
   if (actionType === "pr-feedback.update-draft" && isRecord(result) && isRecord(result.package)) {
     const prUrl = typeof result.package.prUrl === "string" ? ` ${result.package.prUrl}` : "";
     return `Draft PR branch updated.${prUrl}`;
+  }
+  if ((actionType === "pr-review.prepare" || actionType === "pr-review.refresh") && isRecord(result) && isRecord(result.readiness)) {
+    return typeof result.readiness.summary === "string" ? result.readiness.summary : "PR review readiness refreshed.";
+  }
+  if (actionType === "pr-review.submit" && isRecord(result) && isRecord(result.handoff)) {
+    const prUrl = typeof result.handoff.prUrl === "string" ? ` ${result.handoff.prUrl}` : "";
+    return `Draft PR submitted for human review.${prUrl}`;
   }
   if (actionType === "task.run.reconcile" && isRecord(result) && Array.isArray(result.taskRuns)) {
     return `Reconciled ${result.taskRuns.length} TaskRun record(s).`;
@@ -3180,6 +3271,9 @@ function labelForAction(actionType: string): string {
     case "pr-feedback.evaluate": return "PR feedback evaluated";
     case "pr-feedback.rework": return "PR feedback rework started";
     case "pr-feedback.update-draft": return "Draft PR updated";
+    case "pr-review.prepare": return "PR review readiness prepared";
+    case "pr-review.submit": return "Draft PR submitted for review";
+    case "pr-review.refresh": return "PR review state refreshed";
     case "code.run": return "Coder run confirmed";
     case "task.run.start": return "Task workflow started";
     case "task.run.retry": return "Task workflow retried";

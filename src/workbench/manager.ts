@@ -15,6 +15,7 @@ import { findIntegrationCheckCandidate, listIntegrationChecks, type IntegrationC
 import { findLandingCandidate, listLandingPackages, type LandingCandidate, type LandingReadinessPackage } from "../landing/manager.js";
 import { detectRemoteProviderCapability, findLatestCreatedPrDraftPackageForChanges, findPrDraftPackageForLanding, type RemoteProviderCapability } from "../pr-draft/manager.js";
 import { latestPrFeedbackSummaryForDraft } from "../pr-feedback/manager.js";
+import { latestPrReviewReadinessForDraft } from "../pr-review/manager.js";
 import { getMemoryStatus } from "../memory/status.js";
 import { resolveMemory } from "../memory/resolver.js";
 import { isGitDirty } from "../project/git.js";
@@ -117,7 +118,7 @@ export interface WorkbenchThreadEvent {
 }
 
 export interface ThreadStreamAction {
-  actionType: "change.spec.propose" | "change.plan.propose" | "planning.generate" | "planning.revise" | "planning.confirm-execution" | "orchestrator.evaluate" | "orchestrator.pump" | "demand.worker.enqueue" | "demand.worker.claim" | "demand.worker.start-next" | "demand.worker.start-available" | "demand.worker.reconcile" | "demand.worker.release" | "role.pipeline.start" | "role.pipeline.stop" | "role.pipeline.continue" | "role.pipeline.reconcile" | "conversation.steer" | "conversation.interrupt" | "conversation.continue" | "result.refresh-rework" | "result.revalidate" | "result.reaudit" | "result.refresh-status" | "apply-check.run" | "landing.prepare" | "landing.review" | "landing.refresh" | "pr-draft.prepare" | "pr-draft.create" | "pr-draft.refresh" | "pr-feedback.refresh" | "pr-feedback.evaluate" | "pr-feedback.rework" | "pr-feedback.update-draft" | "code.run" | "task.run.start" | "task.run.retry" | "task.queue.start" | "task.queue.reconcile" | "intake.scan" | "intake.reanalyze" | "clarification.answer" | "clarification.skip";
+  actionType: "change.spec.propose" | "change.plan.propose" | "planning.generate" | "planning.revise" | "planning.confirm-execution" | "orchestrator.evaluate" | "orchestrator.pump" | "demand.worker.enqueue" | "demand.worker.claim" | "demand.worker.start-next" | "demand.worker.start-available" | "demand.worker.reconcile" | "demand.worker.release" | "role.pipeline.start" | "role.pipeline.stop" | "role.pipeline.continue" | "role.pipeline.reconcile" | "conversation.steer" | "conversation.interrupt" | "conversation.continue" | "result.refresh-rework" | "result.revalidate" | "result.reaudit" | "result.refresh-status" | "apply-check.run" | "landing.prepare" | "landing.review" | "landing.refresh" | "pr-draft.prepare" | "pr-draft.create" | "pr-draft.refresh" | "pr-feedback.refresh" | "pr-feedback.evaluate" | "pr-feedback.rework" | "pr-feedback.update-draft" | "pr-review.prepare" | "pr-review.submit" | "pr-review.refresh" | "code.run" | "task.run.start" | "task.run.retry" | "task.queue.start" | "task.queue.reconcile" | "intake.scan" | "intake.reanalyze" | "clarification.answer" | "clarification.skip";
   label: string;
   enabled: boolean;
   requiresConfirmation: boolean;
@@ -262,6 +263,7 @@ export type WorkbenchConfirmationQueueItemKind =
   | "integration-apply"
   | "landing-readiness"
   | "pr-draft"
+  | "pr-review"
   | "request-changes"
   | "discard-result"
   | "maintenance";
@@ -2368,6 +2370,65 @@ async function prDraftQueueItem(
     };
   }
   if (existingDraft?.status === "created") {
+    const readiness = await latestPrReviewReadinessForDraft(memory, existingDraft.id).catch(() => null);
+    if (readiness?.canSubmit) {
+      return {
+        id: `pr-review:submit:${readiness.id}`,
+        kind: "pr-review",
+        projectId: project.id,
+        conversationId: itemChangeId,
+        changeId: itemChangeId,
+        landingPackageId: pkg.id,
+        summary: readiness.summary,
+        whyNeedsConfirmation: readiness.reason,
+        confirmEffect: readiness.confirmEffect,
+        riskSummary: readiness.riskSummary,
+        evidenceRefs: readiness.evidenceRefs,
+        actions: [
+          {
+            id: `pr-review-submit:${pkg.id}`,
+            label: "提交人工评审",
+            kind: "workflow-action",
+            actionType: "pr-review.submit",
+            landingPackageId: pkg.id,
+            enabled: true,
+            requiresConfirmation: true,
+          },
+          ...(readiness.summaryArtifact ? evidenceActions(readiness.summaryArtifact) : []),
+        ],
+        primary: selected,
+        status: "pending",
+      };
+    }
+    if (readiness?.status === "already-ready") {
+      return {
+        id: `pr-review:ready:${readiness.id}`,
+        kind: "pr-review",
+        projectId: project.id,
+        conversationId: itemChangeId,
+        changeId: itemChangeId,
+        landingPackageId: pkg.id,
+        summary: readiness.summary,
+        whyNeedsConfirmation: "PR 已进入人工评审。",
+        confirmEffect: "无需重复提交；后续请检查远端反馈。",
+        riskSummary: "这不是 merge 或 land。",
+        evidenceRefs: readiness.evidenceRefs,
+        actions: [
+          {
+            id: `pr-feedback-refresh:${pkg.id}`,
+            label: "检查 PR 反馈",
+            kind: "workflow-action",
+            actionType: "pr-feedback.refresh",
+            landingPackageId: pkg.id,
+            enabled: true,
+            requiresConfirmation: false,
+          },
+          ...(readiness.summaryArtifact ? evidenceActions(readiness.summaryArtifact) : []),
+        ],
+        primary: selected,
+        status: "passed",
+      };
+    }
     const feedback = await latestPrFeedbackSummaryForDraft(memory, existingDraft.id).catch(() => null);
     return {
       id: `pr-draft:created:${existingDraft.id}`,
@@ -2392,6 +2453,15 @@ async function prDraftQueueItem(
           landingPackageId: pkg.id,
           enabled: true,
           requiresConfirmation: true,
+        }] : []),
+        ...(!feedback?.actionable ? [{
+          id: `pr-review-prepare:${pkg.id}`,
+          label: "准备人工评审",
+          kind: "workflow-action" as const,
+          actionType: "pr-review.prepare" as const,
+          landingPackageId: pkg.id,
+          enabled: true,
+          requiresConfirmation: false,
         }] : []),
         {
           id: `pr-feedback-refresh:${pkg.id}`,
