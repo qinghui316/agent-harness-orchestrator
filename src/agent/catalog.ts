@@ -96,6 +96,7 @@ const defaultCatalog: AgentCatalog = {
     role("auditor", "Auditor", "Reviews diff and evidence as a read-only semantic proposal.", "read-only", ["active-change", "diff", "validation"], ["audit-proposal"], ["audit-accept"]),
     role("auditor-agent", "Auditor Agent", "Reviews task implementation evidence against accepted planning artifacts.", "read-only", ["accepted-planning-artifacts", "diff", "validation"], ["audit-proposal"], ["audit-accept"]),
     role("rework-coder", "Rework Coder", "Repairs a failed implementation attempt from validation or audit evidence within the same bounded workflow.", "worktree-write", ["failed-validation", "audit-findings", "worktree"], ["repair-diff", "rework-notes", "self-test-summary"], ["validation", "audit", "human-apply"], false),
+    role("merge-reviewer-agent", "Merge Reviewer Agent", "Reviews local landing readiness packages before future commit or PR preparation.", "read-only", ["landing-package", "source-diff", "validation", "audit", "aggregate-evidence"], ["landing-readiness-review"], ["human-apply"], false, "local"),
     role("spec-test-proposer", "Spec-Test Proposer", "Finds existing source-root evidence candidates.", "read-only", ["ac-map", "spec-tests", "validation"], ["spec-test-proposal"], ["spec-test-proposal-accept"]),
     role("spec-test-generator", "Spec-Test Generator", "Generates passing test-only proposals in worktrees.", "worktree-write", ["missing-ac", "worktree"], ["test-diff", "implementation-notes"], ["validation", "audit", "human-apply"]),
   ],

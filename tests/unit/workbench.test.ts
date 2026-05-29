@@ -987,6 +987,75 @@ describe("workbench read model", () => {
     }
   });
 
+  it("prepares a local landing package after apply without committing, pushing, or creating PR controls", async () => {
+    const oldAhoHome = process.env.AHO_HOME;
+    process.env.AHO_HOME = join(tempDir, ".aho-home");
+    try {
+      await initGitRepository(tempDir);
+      await writeFile(join(tempDir, ".gitignore"), ".aho-home/\n.agent-harness/\nharness/\nAGENTS.md\ndocs/\nscripts/\n", "utf8");
+      await writeFile(join(tempDir, "package.json"), "{\"scripts\":{\"test\":\"node -e \\\"process.exit(0)\\\"\"}}\n", "utf8");
+      await git(tempDir, ["add", "."]);
+      await git(tempDir, ["commit", "-m", "initial"]);
+      await initHarness(project());
+      await createChange(project(), { title: "Landing Demand" });
+      await writeAcceptedSpecAndTasks("landing-demand");
+      const memory = await resolveProjectMemory(project());
+      const worktree = await createWorktree(project(), memory, "landing-demand");
+      await writeFile(join(worktree.metadata.checkoutPath, "package.json"), "{\"scripts\":{\"test\":\"node -e \\\"console.log('landing')\\\"\"}}\n", "utf8");
+      const diff = await collectWorktreeDiff(memory, worktree.metadata.worktreeId, "landing-demand");
+      await writeValidationResultWithHash("landing-demand", "run-validation-landing", worktree.metadata.worktreeId, diff.diffHash, "passed");
+      await writeAuditResultWithHash("landing-demand", "run-audit-landing", worktree.metadata.worktreeId, diff.diffHash, "approved-with-notes");
+
+      const snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: "landing-demand" });
+      const applyAction = snapshot.right.decisionInspector.primary?.actions.find((action) => action.action?.actionId === "result.apply")?.action;
+      if (!applyAction) throw new Error("Missing result.apply action.");
+      await executeWorkbenchAction({ project: project(), path: tempDir }, { action: applyAction, confirm: true });
+      const statusBeforeLanding = (await execFileAsync("git", ["status", "--short"], { cwd: tempDir })).stdout;
+
+      const afterApply = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: "landing-demand" });
+      expect(afterApply.right.confirmationQueue.primary).toMatchObject({
+        kind: "landing-readiness",
+        whyNeedsConfirmation: "本地结果已应用，可以做提交/PR 前检查。",
+      });
+      expect(afterApply.right.confirmationQueue.primary?.actions[0]).toMatchObject({
+        actionType: "landing.prepare",
+        worktreeId: worktree.metadata.worktreeId,
+      });
+
+      const prepared = await executeWorkbenchAction({ project: project(), path: tempDir }, {
+        actionType: "landing.prepare",
+        changeId: "landing-demand",
+        worktreeId: worktree.metadata.worktreeId,
+        confirm: true,
+      });
+      const pkg = (prepared.result as { result: { package: { status: string; review?: { roleId: string; verdict: string }; artifactRefs: string[] } } }).result.package;
+      expect(pkg).toMatchObject({
+        status: "ready",
+        review: expect.objectContaining({ roleId: "merge-reviewer-agent", verdict: "ready" }),
+      });
+      expect(pkg.artifactRefs).toEqual(expect.arrayContaining([
+        expect.stringContaining("landing-package.json"),
+        expect.stringContaining("landing-summary.md"),
+        expect.stringContaining("source-diff.patch"),
+        expect.stringContaining("merge-review.md"),
+      ]));
+      const statusAfterLanding = (await execFileAsync("git", ["status", "--short"], { cwd: tempDir })).stdout;
+      expect(statusAfterLanding).toBe(statusBeforeLanding);
+
+      const reviewedSnapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: "landing-demand" });
+      expect(reviewedSnapshot.right.confirmationQueue.primary).toMatchObject({
+        kind: "landing-readiness",
+        whyNeedsConfirmation: "提交/PR 前检查已通过。",
+      });
+      expect(reviewedSnapshot.right.confirmationQueue.primary?.actions).toEqual([
+        expect.objectContaining({ kind: "evidence", label: "查看证据" }),
+      ]);
+    } finally {
+      if (oldAhoHome === undefined) delete process.env.AHO_HOME;
+      else process.env.AHO_HOME = oldAhoHome;
+    }
+  });
+
   it("scopes result review apply decisions to the selected demand worktree", async () => {
     const oldAhoHome = process.env.AHO_HOME;
     process.env.AHO_HOME = join(tempDir, ".aho-home");

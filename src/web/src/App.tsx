@@ -319,7 +319,7 @@ type PlanCard = {
 };
 type ThreadEvent = { id: string; type: string; label: string; timestamp?: string; status?: string; runId?: string; planCard?: PlanCard };
 type ThreadStreamAction = {
-  actionType: "change.spec.propose" | "change.plan.propose" | "planning.generate" | "planning.revise" | "planning.confirm-execution" | "orchestrator.evaluate" | "orchestrator.pump" | "demand.worker.enqueue" | "demand.worker.claim" | "demand.worker.start-next" | "demand.worker.start-available" | "demand.worker.reconcile" | "demand.worker.release" | "role.pipeline.start" | "role.pipeline.stop" | "role.pipeline.continue" | "role.pipeline.reconcile" | "conversation.steer" | "conversation.interrupt" | "conversation.continue" | "result.refresh-rework" | "result.revalidate" | "result.reaudit" | "result.refresh-status" | "apply-check.run" | "code.run" | "task.run.start" | "task.run.retry" | "task.queue.start" | "task.queue.reconcile" | "intake.scan" | "intake.reanalyze" | "clarification.answer" | "clarification.skip";
+  actionType: "change.spec.propose" | "change.plan.propose" | "planning.generate" | "planning.revise" | "planning.confirm-execution" | "orchestrator.evaluate" | "orchestrator.pump" | "demand.worker.enqueue" | "demand.worker.claim" | "demand.worker.start-next" | "demand.worker.start-available" | "demand.worker.reconcile" | "demand.worker.release" | "role.pipeline.start" | "role.pipeline.stop" | "role.pipeline.continue" | "role.pipeline.reconcile" | "conversation.steer" | "conversation.interrupt" | "conversation.continue" | "result.refresh-rework" | "result.revalidate" | "result.reaudit" | "result.refresh-status" | "apply-check.run" | "landing.prepare" | "landing.review" | "landing.refresh" | "code.run" | "task.run.start" | "task.run.retry" | "task.queue.start" | "task.queue.reconcile" | "intake.scan" | "intake.reanalyze" | "clarification.answer" | "clarification.skip";
   label: string;
   enabled: boolean;
   requiresConfirmation: boolean;
@@ -388,7 +388,10 @@ type DecisionAction = {
   actionType?: ThreadStreamAction["actionType"];
   taskIds?: string[];
   taskRunId?: string;
+  worktreeId?: string;
   worktreeIds?: string[];
+  applyCheckId?: string;
+  landingPackageId?: string;
   artifact?: string;
   disabledReason?: string;
 };
@@ -737,7 +740,7 @@ export function App(): ReactElement {
       return;
     }
     if (action.kind === "workflow-action" && action.actionType) {
-      await runWorkflowAction(action.actionType, { taskIds: action.taskIds, taskRunId: action.taskRunId, worktreeId: context.targetId, worktreeIds: action.worktreeIds });
+      await runWorkflowAction(action.actionType, { taskIds: action.taskIds, taskRunId: action.taskRunId, worktreeId: action.worktreeId ?? context.targetId, worktreeIds: action.worktreeIds, applyCheckId: action.applyCheckId, landingPackageId: action.landingPackageId });
       return;
     }
     if (action.kind === "abandon") {
@@ -3828,6 +3831,7 @@ function confirmationKindLabel(kind: string): string {
   if (kind === "single-result-apply") return "结果应用";
   if (kind === "integration-check") return "兼容性检查";
   if (kind === "integration-apply") return "组合应用";
+  if (kind === "landing-readiness") return "落地检查";
   if (kind === "request-changes") return "要求修改";
   if (kind === "discard-result") return "放弃结果";
   if (kind === "maintenance") return "维护建议";
@@ -3858,6 +3862,9 @@ function workflowActionLabel(actionType: string | undefined): string {
   if (actionType === "result.reaudit") return "重新审查";
   if (actionType === "result.refresh-status") return "刷新状态";
   if (actionType === "apply-check.run") return "检查兼容性";
+  if (actionType === "landing.prepare") return "提交/PR 前检查";
+  if (actionType === "landing.review") return "审查落地检查";
+  if (actionType === "landing.refresh") return "刷新落地检查";
   if (actionType === "role.pipeline.continue") return "继续执行";
   if (actionType === "role.pipeline.reconcile") return "恢复执行状态";
   if (actionType === "code.run") return "Code workflow";

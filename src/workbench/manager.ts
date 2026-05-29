@@ -12,6 +12,7 @@ import { buildChangeIndex, hasPendingEvolution } from "../ecl/index.js";
 import { readRequiredJsonFile } from "../fs/json.js";
 import { getTemplateRoot } from "../template-source/paths.js";
 import { findIntegrationCheckCandidate, listIntegrationChecks, type IntegrationCheckCandidate, type IntegrationCheckRecord } from "../integration-check/manager.js";
+import { findLandingCandidate, listLandingPackages, type LandingCandidate, type LandingReadinessPackage } from "../landing/manager.js";
 import { getMemoryStatus } from "../memory/status.js";
 import { resolveMemory } from "../memory/resolver.js";
 import { isGitDirty } from "../project/git.js";
@@ -114,7 +115,7 @@ export interface WorkbenchThreadEvent {
 }
 
 export interface ThreadStreamAction {
-  actionType: "change.spec.propose" | "change.plan.propose" | "planning.generate" | "planning.revise" | "planning.confirm-execution" | "orchestrator.evaluate" | "orchestrator.pump" | "demand.worker.enqueue" | "demand.worker.claim" | "demand.worker.start-next" | "demand.worker.start-available" | "demand.worker.reconcile" | "demand.worker.release" | "role.pipeline.start" | "role.pipeline.stop" | "role.pipeline.continue" | "role.pipeline.reconcile" | "conversation.steer" | "conversation.interrupt" | "conversation.continue" | "result.refresh-rework" | "result.revalidate" | "result.reaudit" | "result.refresh-status" | "apply-check.run" | "code.run" | "task.run.start" | "task.run.retry" | "task.queue.start" | "task.queue.reconcile" | "intake.scan" | "intake.reanalyze" | "clarification.answer" | "clarification.skip";
+  actionType: "change.spec.propose" | "change.plan.propose" | "planning.generate" | "planning.revise" | "planning.confirm-execution" | "orchestrator.evaluate" | "orchestrator.pump" | "demand.worker.enqueue" | "demand.worker.claim" | "demand.worker.start-next" | "demand.worker.start-available" | "demand.worker.reconcile" | "demand.worker.release" | "role.pipeline.start" | "role.pipeline.stop" | "role.pipeline.continue" | "role.pipeline.reconcile" | "conversation.steer" | "conversation.interrupt" | "conversation.continue" | "result.refresh-rework" | "result.revalidate" | "result.reaudit" | "result.refresh-status" | "apply-check.run" | "landing.prepare" | "landing.review" | "landing.refresh" | "code.run" | "task.run.start" | "task.run.retry" | "task.queue.start" | "task.queue.reconcile" | "intake.scan" | "intake.reanalyze" | "clarification.answer" | "clarification.skip";
   label: string;
   enabled: boolean;
   requiresConfirmation: boolean;
@@ -209,7 +210,10 @@ export interface WorkbenchDecisionAction {
   actionType?: ThreadStreamAction["actionType"];
   taskIds?: string[];
   taskRunId?: string;
+  worktreeId?: string;
   worktreeIds?: string[];
+  applyCheckId?: string;
+  landingPackageId?: string;
   artifact?: string;
   disabledReason?: string;
 }
@@ -254,6 +258,7 @@ export type WorkbenchConfirmationQueueItemKind =
   | "single-result-apply"
   | "integration-check"
   | "integration-apply"
+  | "landing-readiness"
   | "request-changes"
   | "discard-result"
   | "maintenance";
@@ -268,6 +273,7 @@ export interface WorkbenchConfirmationQueueItem {
   runId?: string;
   worktreeId?: string;
   applyCheckId?: string;
+  landingPackageId?: string;
   summary: string;
   whyNeedsConfirmation: string;
   confirmEffect: string;
@@ -2236,6 +2242,19 @@ async function buildConfirmationQueue(input: {
       if (item.primary) queue.current.unshift(item);
       else queue.otherDemands.push(item);
     }
+    const landingPackages = await listLandingPackages(input.memory).catch(() => []);
+    const latestLanding = landingPackages[0];
+    if (latestLanding && latestLanding.reviewedAt) {
+      const item = landingPackageQueueItem(project, latestLanding, input.selectedTopic?.id);
+      if (item.primary) queue.current.unshift(item);
+      else queue.otherDemands.push(item);
+    }
+    const landingCandidate = await findLandingCandidate(project).catch(() => null);
+    if (landingCandidate) {
+      const item = landingCandidateQueueItem(project, landingCandidate, input.selectedTopic?.id);
+      if (item.primary) queue.current.unshift(item);
+      else queue.otherDemands.push(item);
+    }
     queue.history = checks
       .filter((check) => check.status === "applied" || check.status === "discarded" || check.status === "conflict" || check.status === "failed")
       .slice(0, 8)
@@ -2247,6 +2266,60 @@ async function buildConfirmationQueue(input: {
   queue.otherDemands = dedupeConfirmationItems(queue.otherDemands);
   queue.primary = queue.current.find((item) => item.primary) ?? queue.current[0] ?? null;
   return queue;
+}
+
+function landingCandidateQueueItem(project: ManagedProject, candidate: LandingCandidate, selectedChangeId: string | undefined): WorkbenchConfirmationQueueItem {
+  const selected = Boolean(selectedChangeId && candidate.changeIds.includes(selectedChangeId));
+  const itemChangeId = selected ? selectedChangeId : candidate.changeIds[0];
+  return {
+    id: `landing:candidate:${candidate.applyCheckId ?? candidate.worktreeId ?? candidate.changeIds.join("+")}`,
+    kind: "landing-readiness",
+    projectId: project.id,
+    conversationId: itemChangeId,
+    changeId: itemChangeId,
+    worktreeId: candidate.worktreeId,
+    applyCheckId: candidate.applyCheckId,
+    summary: candidate.summary,
+    whyNeedsConfirmation: "本地结果已应用，可以做提交/PR 前检查。",
+    confirmEffect: "会生成本地落地证据包和 merge-reviewer 审查；不会 commit、push、创建 PR 或 merge。",
+    riskSummary: candidate.riskSummary,
+    evidenceRefs: [],
+    actions: [{
+      id: `landing-prepare:${candidate.applyCheckId ?? candidate.worktreeId}`,
+      label: "开始落地检查",
+      kind: "workflow-action",
+      actionType: "landing.prepare",
+      worktreeId: candidate.worktreeId,
+      worktreeIds: candidate.worktreeId ? [candidate.worktreeId] : undefined,
+      applyCheckId: candidate.applyCheckId,
+      enabled: true,
+      requiresConfirmation: true,
+    }],
+    primary: selected,
+    status: "pending",
+  };
+}
+
+function landingPackageQueueItem(project: ManagedProject, pkg: LandingReadinessPackage, selectedChangeId: string | undefined): WorkbenchConfirmationQueueItem {
+  const selected = Boolean(selectedChangeId && pkg.target.changeIds.includes(selectedChangeId));
+  const itemChangeId = selected ? selectedChangeId : pkg.target.changeIds[0];
+  const reviewArtifact = pkg.artifactRefs.find((ref) => ref.endsWith("merge-review.md")) ?? pkg.artifactRefs[1] ?? pkg.artifactRefs[0];
+  return {
+    id: `landing:package:${pkg.id}`,
+    kind: "landing-readiness",
+    projectId: project.id,
+    conversationId: itemChangeId,
+    changeId: itemChangeId,
+    landingPackageId: pkg.id,
+    summary: pkg.review?.summary ?? pkg.summary,
+    whyNeedsConfirmation: pkg.review?.verdict === "ready" ? "提交/PR 前检查已通过。" : "提交/PR 前检查需要处理。",
+    confirmEffect: "这是本地落地证据；当前版本不会 commit、push、创建 PR 或 merge。",
+    riskSummary: pkg.review?.riskSummary ?? pkg.riskSummary,
+    evidenceRefs: pkg.artifactRefs,
+    actions: reviewArtifact ? evidenceActions(reviewArtifact) : [],
+    primary: selected,
+    status: pkg.review?.verdict === "ready" ? "passed" : "failed",
+  };
 }
 
 function decisionContextToConfirmationItems(context: WorkbenchDecisionContext | null, primary: boolean): WorkbenchConfirmationQueueItem[] {

@@ -37,6 +37,7 @@ import { executeProcessStreaming } from "../run/process.js";
 import { getEnabledSkillContext } from "../skill/catalog.js";
 import { getSpecTestDriftReport } from "../spec-test/drift.js";
 import { runIntegrationCheck } from "../integration-check/manager.js";
+import { prepareLandingPackage, reviewLandingPackage } from "../landing/manager.js";
 import { finishTaskRunFromWorkflowResult, markTaskRunStarted, reconcileTaskRuns, retryTaskRun, startTaskRun } from "../task-run/manager.js";
 import {
   failQueuedTaskItem,
@@ -506,6 +507,9 @@ export type WorkbenchWorkflowActionType =
   | "result.reaudit"
   | "result.refresh-status"
   | "apply-check.run"
+  | "landing.prepare"
+  | "landing.review"
+  | "landing.refresh"
   | "code.run"
   | "task.run.start"
   | "task.run.retry"
@@ -525,6 +529,8 @@ export interface WorkbenchWorkflowActionRequest {
   taskIds?: string[];
   worktreeIds?: string[];
   taskRunId?: string;
+  applyCheckId?: string;
+  landingPackageId?: string;
 }
 
 export interface WorkbenchWorkflowActionResult {
@@ -807,6 +813,12 @@ async function executeWorkflowAction(project: ManagedProject, changeId: string, 
       return { status: "refreshed", changeId, worktreeId: request.worktreeId };
     case "apply-check.run":
       return runIntegrationCheck(project, request.worktreeIds ?? (request.worktreeId ? [request.worktreeId] : undefined));
+    case "landing.prepare":
+      return prepareLandingForAction(project, changeId, request, live);
+    case "landing.review":
+      return reviewLandingForAction(project, changeId, request, live);
+    case "landing.refresh":
+      return prepareLandingForAction(project, changeId, request, live);
     case "code.run":
       return runCodeValidateAuditSequence(project, changeId, request.prompt, live, request.taskIds);
     case "task.run.start":
@@ -1028,6 +1040,79 @@ async function enqueueDemandWorkerForAction(project: ManagedProject, changeId: s
   const memory = await resolveProjectMemory(project);
   assertWritableMemory(memory, "Demand worker enqueue");
   return enqueueDemandWorker(memory, { changeId, waitingReason: "用户请求加入本地处理队列。" });
+}
+
+async function prepareLandingForAction(
+  project: ManagedProject,
+  changeId: string,
+  request: WorkbenchWorkflowActionRequest,
+  live: WorkbenchLiveSink | undefined,
+): Promise<unknown> {
+  const pkg = await prepareLandingPackage(project, { worktreeId: request.worktreeId, applyCheckId: request.applyCheckId });
+  const reviewed = await reviewLandingPackage(project, pkg.id);
+  const text = [
+    "已完成提交/PR 前检查。",
+    reviewed.review?.summary ?? reviewed.summary,
+    "",
+    reviewed.review?.riskSummary ?? reviewed.riskSummary,
+  ].filter(Boolean).join("\n");
+  const entry = await appendTopicThreadEntry(project, changeId, {
+    type: "assistant.message",
+    status: "landing-readiness",
+    text,
+    artifact: reviewed.artifactRefs[1] ?? reviewed.artifactRefs[0],
+    blocks: [
+      {
+        id: `${reviewed.id}:landing-prose`,
+        runId: reviewed.id,
+        sequence: 1,
+        kind: "prose",
+        timestamp: new Date().toISOString(),
+        source: "aho",
+        title: "提交/PR 前检查",
+        text,
+      },
+      {
+        id: `${reviewed.id}:landing-result`,
+        runId: reviewed.id,
+        sequence: 2,
+        kind: "tool-result",
+        timestamp: new Date().toISOString(),
+        source: "aho",
+        title: reviewed.review?.verdict === "ready" ? "落地检查通过" : "落地检查需要处理",
+        text: reviewed.review?.suggestedNextAction ?? "请查看证据后决定下一步。",
+        artifactRef: reviewed.review ? reviewed.artifactRefs.find((ref) => ref.endsWith("merge-review.md")) : reviewed.artifactRefs[0],
+      },
+    ],
+  });
+  live?.emit({ event: "assistant.message", data: entry });
+  emitAssistantEvent(live, {
+    runId: reviewed.id,
+    kind: "tool-result",
+    phase: "landing-readiness",
+    title: "Landing readiness reviewed",
+    summary: reviewed.review?.summary ?? reviewed.summary,
+    artifactRef: reviewed.artifactRefs[0],
+  });
+  return { package: reviewed };
+}
+
+async function reviewLandingForAction(
+  project: ManagedProject,
+  changeId: string,
+  request: WorkbenchWorkflowActionRequest,
+  live: WorkbenchLiveSink | undefined,
+): Promise<unknown> {
+  if (!request.landingPackageId) throw new Error("landing.review requires landingPackageId.");
+  const reviewed = await reviewLandingPackage(project, request.landingPackageId);
+  const entry = await appendTopicThreadEntry(project, changeId, {
+    type: "assistant.message",
+    status: "landing-review",
+    text: reviewed.review?.summary ?? reviewed.summary,
+    artifact: reviewed.artifactRefs.find((ref) => ref.endsWith("merge-review.md")) ?? reviewed.artifactRefs[0],
+  });
+  live?.emit({ event: "assistant.message", data: entry });
+  return { package: reviewed };
 }
 
 async function startNextDemandWorkerForAction(
@@ -2778,6 +2863,7 @@ function extractRunId(result: unknown): string | undefined {
 }
 
 function artifactForActionResult(result: unknown): string | null {
+  if (isRecord(result) && isRecord(result.package) && Array.isArray(result.package.artifactRefs) && typeof result.package.artifactRefs[0] === "string") return result.package.artifactRefs[0];
   if (isRecord(result) && isRecord(result.run) && isRecord(result.run.artifacts) && typeof result.run.artifacts.directory === "string") return result.run.artifacts.directory;
   if (isRecord(result) && isRecord(result.code) && isRecord(result.code.run) && isRecord(result.code.run.artifacts) && typeof result.code.run.artifacts.directory === "string") return result.code.run.artifacts.directory;
   if (isRecord(result) && isRecord(result.workflow) && isRecord(result.workflow.code) && isRecord(result.workflow.code.run) && isRecord(result.workflow.code.run.artifacts) && typeof result.workflow.code.run.artifacts.directory === "string") return result.workflow.code.run.artifacts.directory;
@@ -2785,6 +2871,10 @@ function artifactForActionResult(result: unknown): string | null {
 }
 
 function summarizeActionResult(actionType: string, result: unknown): string {
+  if ((actionType === "landing.prepare" || actionType === "landing.review" || actionType === "landing.refresh") && isRecord(result) && isRecord(result.package)) {
+    const summary = typeof result.package.summary === "string" ? result.package.summary : "Landing readiness package updated.";
+    return summary;
+  }
   if (actionType === "task.run.reconcile" && isRecord(result) && Array.isArray(result.taskRuns)) {
     return `Reconciled ${result.taskRuns.length} TaskRun record(s).`;
   }
@@ -2859,6 +2949,9 @@ function labelForAction(actionType: string): string {
     case "result.reaudit": return "Result audit refreshed";
     case "result.refresh-status": return "Result status refreshed";
     case "apply-check.run": return "Integration check completed";
+    case "landing.prepare": return "Landing readiness prepared";
+    case "landing.review": return "Landing readiness reviewed";
+    case "landing.refresh": return "Landing readiness refreshed";
     case "code.run": return "Coder run confirmed";
     case "task.run.start": return "Task workflow started";
     case "task.run.retry": return "Task workflow retried";

@@ -449,6 +449,57 @@ describe("Workbench web app", () => {
     expect(document.querySelectorAll("[data-testid='assistant-block-error']")).toHaveLength(1);
   });
 
+  it("renders landing readiness as a confirmation queue evidence item without fake remote actions", async () => {
+    const landingSnapshot = {
+      ...snapshot,
+      right: {
+        ...snapshot.right,
+        confirmationQueue: {
+          primary: {
+            id: "landing:package:landing-worktree-abc123",
+            kind: "landing-readiness",
+            conversationId: "member-discount",
+            changeId: "member-discount",
+            landingPackageId: "landing-worktree-abc123",
+            summary: "提交/PR 前检查通过：当前本地结果有可追溯证据。",
+            whyNeedsConfirmation: "提交/PR 前检查已通过。",
+            confirmEffect: "这是本地落地证据；当前版本不会 commit、push、创建 PR 或 merge。",
+            riskSummary: "本地结果可作为后续提交或 PR 准备输入。",
+            evidenceRefs: ["project://.agent-harness/workbench/landing/landing-worktree-abc123/merge-review.md"],
+            actions: [{
+              id: "evidence:merge-review",
+              label: "查看证据",
+              kind: "evidence",
+              enabled: true,
+              requiresConfirmation: false,
+              artifact: "project://.agent-harness/workbench/landing/landing-worktree-abc123/merge-review.md",
+            }],
+            primary: true,
+            status: "passed",
+          },
+          current: [],
+          otherDemands: [],
+          maintenance: [],
+          history: [],
+        },
+      },
+    };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
+      if (url === "/api/projects") return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
+      return jsonResponse(url.includes("/stream/") ? stream : landingSnapshot);
+    }));
+
+    render(<App />);
+
+    await waitFor(() => expect(screen.getByText("提交/PR 前检查已通过。")).toBeTruthy());
+    expect(screen.getAllByText("查看证据").length).toBeGreaterThan(0);
+    expect(screen.queryByText("创建 PR")).toBeNull();
+    expect(screen.queryByText("推送")).toBeNull();
+    expect(screen.queryByText("远程合并")).toBeNull();
+  });
+
   it("shows a blocked queue as the primary decision instead of a generic approval list", async () => {
     const blockedSnapshot = {
       ...snapshot,

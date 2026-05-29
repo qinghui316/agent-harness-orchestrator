@@ -61,6 +61,8 @@ interface WorkbenchActionRequest {
   proposalId?: string;
   worktreeId?: string;
   worktreeIds?: string[];
+  applyCheckId?: string;
+  landingPackageId?: string;
   taskIds?: string[];
   taskRunId?: string;
   confirm?: boolean;
@@ -428,6 +430,8 @@ export async function executeWorkbenchAction(input: WorkbenchProjectInput, body:
       proposalId: body.proposalId,
       worktreeId: body.worktreeId,
       worktreeIds: body.worktreeIds,
+      applyCheckId: body.applyCheckId,
+      landingPackageId: body.landingPackageId,
       taskIds: body.taskIds,
       taskRunId: body.taskRunId,
     });
@@ -722,6 +726,9 @@ function isLiveWorkflowAction(actionType: string): actionType is WorkbenchWorkfl
     || actionType === "result.reaudit"
     || actionType === "result.refresh-status"
     || actionType === "apply-check.run"
+    || actionType === "landing.prepare"
+    || actionType === "landing.review"
+    || actionType === "landing.refresh"
     || actionType === "code.run"
     || actionType === "task.run.start"
     || actionType === "task.run.retry"
