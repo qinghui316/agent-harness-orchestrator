@@ -61,7 +61,7 @@ const ledgerSchema = z.object({
   id: z.string(),
   projectId: z.string().nullable(),
   changeId: z.string().optional(),
-  eventType: z.enum(["archive", "apply", "failure", "user-feedback", "doc-drift", "reference-drift", "harness-evolution", "change-closeout", "maintenance-review"]),
+  eventType: z.enum(["archive", "apply", "remote-landing", "failure", "user-feedback", "doc-drift", "reference-drift", "harness-evolution", "change-closeout", "maintenance-review"]),
   summary: z.string(),
   artifactRefs: z.array(z.string()),
   createdAt: z.string(),
@@ -341,7 +341,7 @@ export async function recordDemandMemoryCloseout(memory: ResolvedMemory, input: 
   ledger?: MaintenanceLedgerEntry;
   review?: MaintenanceReviewRun;
 }> {
-  const existingCloseout = (await listDemandMemoryCloseouts(memory)).find((closeout) => closeout.changeId === input.changeId);
+  const existingCloseout = (await listDemandMemoryCloseouts(memory)).find((closeout) => closeout.changeId === input.changeId && closeout.terminalKind === input.terminalKind);
   if (existingCloseout) {
     return { closeout: existingCloseout };
   }
@@ -416,7 +416,7 @@ export async function maybeRunMaintenanceReviewWindow(memory: ResolvedMemory): P
   const closeouts = await listDemandMemoryCloseouts(memory);
   const watermark = await readMaintenanceReviewWatermark(memory);
   const reviewed = new Set(watermark.lastReviewedChangeIds);
-  const unreviewed = closeouts.filter((closeout) => !reviewed.has(closeout.changeId));
+  const unreviewed = closeouts.filter((closeout) => !reviewed.has(closeoutReviewKey(closeout)));
   if (unreviewed.length < TERMINAL_REVIEW_WINDOW) {
     return { status: "skipped", reason: `Need ${TERMINAL_REVIEW_WINDOW} unreviewed terminal changes; found ${unreviewed.length}.` };
   }
@@ -450,7 +450,7 @@ export async function runMaintenanceReviewWindow(memory: ResolvedMemory, windowC
   const reviewRun: MaintenanceReviewRun = {
     version: "1.0",
     id,
-    windowChangeIds: closeouts.map((closeout) => closeout.changeId),
+    windowChangeIds: closeouts.map(closeoutReviewKey),
     hotCloseoutRefs: closeoutRefs,
     warmIndexRef: displayMaintenancePath(memory, warmIndexPath(memory)),
     coldArchiveRef: displayMaintenancePath(memory, coldArchiveIndexPath(memory)),
@@ -465,7 +465,7 @@ export async function runMaintenanceReviewWindow(memory: ResolvedMemory, windowC
   await writeJsonFile(join(root, "maintenance-review.json"), reviewRun);
   await writeFile(join(root, "maintenance-review.md"), renderMaintenanceReviewMarkdown(reviewRun, closeouts, candidates, scores, reviews, docBudget), "utf8");
   const previous = await readMaintenanceReviewWatermark(memory);
-  const reviewedIds = uniqueSorted([...previous.lastReviewedChangeIds, ...closeouts.map((closeout) => closeout.changeId)]);
+  const reviewedIds = uniqueSorted([...previous.lastReviewedChangeIds, ...closeouts.map(closeoutReviewKey)]);
   await writeJsonFile(watermarkPath(memory), {
     version: "1.0",
     lastReviewedChangeIds: reviewedIds,
@@ -851,6 +851,10 @@ function estimateWordCount(text: string): number {
 
 function uniqueSorted(values: string[]): string[] {
   return [...new Set(values.filter((value) => value.trim().length > 0))].sort();
+}
+
+function closeoutReviewKey(closeout: DemandMemoryCloseout): string {
+  return `${closeout.changeId}:${closeout.terminalKind}`;
 }
 
 function safeSegment(value: string): string {

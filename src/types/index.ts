@@ -845,6 +845,96 @@ export interface PrReviewHandoff {
   submittedAt: string;
 }
 
+export type RemoteLandingReadinessStatus =
+  | "ready"
+  | "ready-with-comments"
+  | "missing-pr"
+  | "provider-unavailable"
+  | "draft"
+  | "closed"
+  | "already-merged"
+  | "checks-failed"
+  | "actionable-feedback"
+  | "stale-pr"
+  | "merge-unavailable";
+
+export interface RemoteLandingStateSnapshot {
+  version: "1.0";
+  id: string;
+  prDraftPackageId: string;
+  landingPackageId: string;
+  projectId: string | null;
+  prUrl?: string;
+  state: string;
+  isDraft: boolean;
+  reviewDecision?: string | null;
+  feedbackClassification?: PrFeedbackClassification;
+  failedChecksCount: number;
+  commentsCount: number;
+  mergeable?: string | null;
+  mergeStateStatus?: string | null;
+  headRefName?: string | null;
+  baseRefName?: string | null;
+  headRefOid?: string | null;
+  baseRefOid?: string | null;
+  evidenceRefs: string[];
+  createdAt: string;
+}
+
+export interface RemoteLandingReadiness {
+  version: "1.0";
+  id: string;
+  prDraftPackageId: string;
+  landingPackageId: string;
+  projectId: string | null;
+  status: RemoteLandingReadinessStatus;
+  canMerge: boolean;
+  mergeMethod: "squash";
+  summary: string;
+  reason: string;
+  confirmEffect: string;
+  riskSummary: string;
+  prUrl?: string;
+  stateSnapshotArtifact: string;
+  readinessArtifact: string;
+  summaryArtifact: string;
+  evidenceRefs: string[];
+  createdAt: string;
+}
+
+export interface RemoteLandingAttempt {
+  version: "1.0";
+  id: string;
+  readinessId: string;
+  prDraftPackageId: string;
+  landingPackageId: string;
+  projectId: string | null;
+  prUrl?: string;
+  mergeMethod: "squash";
+  status: "started" | "merged" | "failed";
+  artifactRefs: string[];
+  startedAt: string;
+  finishedAt?: string;
+}
+
+export interface RemoteLandingResult {
+  version: "1.0";
+  id: string;
+  attemptId: string;
+  readinessId: string;
+  prDraftPackageId: string;
+  landingPackageId: string;
+  projectId: string | null;
+  prUrl?: string;
+  status: "merged" | "failed";
+  mergeMethod: "squash";
+  mergeCommit?: string | null;
+  mergedAt?: string | null;
+  failureReason?: string;
+  artifactRefs: string[];
+  createdAt: string;
+}
+
 export type MainOrchestratorDecisionAction =
   | "planning"
   | "enqueue"
@@ -930,6 +1020,7 @@ export interface DemandWorkerReconcileResult {
 export type MaintenanceLedgerEventType =
   | "archive"
   | "apply"
+  | "remote-landing"
   | "failure"
   | "user-feedback"
   | "doc-drift"

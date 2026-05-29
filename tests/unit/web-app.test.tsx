@@ -668,6 +668,59 @@ describe("Workbench web app", () => {
     expect(screen.queryByText("land")).toBeNull();
   });
 
+  it("renders a user-confirmed remote landing item without auto-merge controls", async () => {
+    const mergeSnapshot = {
+      ...snapshot,
+      right: {
+        ...snapshot.right,
+        confirmationQueue: {
+          primary: {
+            id: "remote-landing:merge:remote-landing-abc123",
+            kind: "remote-landing",
+            conversationId: "member-discount",
+            changeId: "member-discount",
+            landingPackageId: "landing-worktree-abc123",
+            summary: "PR 已满足远端合并条件。",
+            whyNeedsConfirmation: "PR 已提交评审，远端检查没有失败，也没有必须先处理的反馈。",
+            confirmEffect: "会执行 GitHub squash merge；不会 push main、启用 auto-merge、删除远端分支或同步本地源码。",
+            riskSummary: "合并后远端代码成为稳定边界，本地工作区仍需后续手动同步。",
+            evidenceRefs: ["project://.agent-harness/workbench/remote-landing/remote-landing-abc123/remote-landing-summary.md"],
+            actions: [{
+              id: "remote-landing-merge:landing-worktree-abc123",
+              label: "合并 PR",
+              kind: "workflow-action",
+              actionType: "remote-landing.merge",
+              landingPackageId: "landing-worktree-abc123",
+              enabled: true,
+              requiresConfirmation: true,
+            }],
+            primary: true,
+            status: "pending",
+          },
+          current: [],
+          otherDemands: [],
+          maintenance: [],
+          history: [],
+        },
+      },
+    };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
+      if (url === "/api/projects") return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
+      return jsonResponse(url.includes("/stream/") ? stream : mergeSnapshot);
+    }));
+
+    render(<App />);
+
+    await waitFor(() => expect(screen.getByText("PR 已满足远端合并条件。")).toBeTruthy());
+    expect(screen.getByRole("button", { name: /合并 PR/ })).toBeTruthy();
+    expect(screen.getByText("会执行 GitHub squash merge；不会 push main、启用 auto-merge、删除远端分支或同步本地源码。")).toBeTruthy();
+    expect(screen.queryByText("merge queue")).toBeNull();
+    expect(screen.queryByText("auto merge")).toBeNull();
+    expect(screen.queryByText("push main")).toBeNull();
+  });
+
   it("shows a blocked queue as the primary decision instead of a generic approval list", async () => {
     const blockedSnapshot = {
       ...snapshot,

@@ -53,6 +53,7 @@ import {
   submitPrForHumanReview,
   submitPrReviewReply,
 } from "../pr-review/manager.js";
+import { mergeRemoteLanding, prepareRemoteLandingReadiness, refreshRemoteLanding } from "../remote-landing/manager.js";
 import { finishTaskRunFromWorkflowResult, markTaskRunStarted, reconcileTaskRuns, retryTaskRun, startTaskRun } from "../task-run/manager.js";
 import {
   failQueuedTaskItem,
@@ -541,6 +542,9 @@ export type WorkbenchWorkflowActionType =
   | "pr-review.reply-prepare"
   | "pr-review.reply-submit"
   | "pr-review.thread-resolve"
+  | "remote-landing.prepare"
+  | "remote-landing.merge"
+  | "remote-landing.refresh"
   | "code.run"
   | "task.run.start"
   | "task.run.retry"
@@ -880,6 +884,12 @@ async function executeWorkflowAction(project: ManagedProject, changeId: string, 
       return submitPrReviewReplyForAction(project, changeId, request, live);
     case "pr-review.thread-resolve":
       return resolvePrReviewThreadForAction(project, changeId, request, live);
+    case "remote-landing.prepare":
+      return prepareRemoteLandingForAction(project, changeId, request, live);
+    case "remote-landing.merge":
+      return mergeRemoteLandingForAction(project, changeId, request, live);
+    case "remote-landing.refresh":
+      return refreshRemoteLandingForAction(project, changeId, request, live);
     case "code.run":
       return runCodeValidateAuditSequence(project, changeId, request.prompt, live, request.taskIds);
     case "task.run.start":
@@ -1492,6 +1502,86 @@ async function resolvePrReviewThreadForAction(
   });
   live?.emit({ event: "assistant.message", data: entry });
   return result;
+}
+
+async function prepareRemoteLandingForAction(
+  project: ManagedProject,
+  changeId: string,
+  request: WorkbenchWorkflowActionRequest,
+  live: WorkbenchLiveSink | undefined,
+): Promise<unknown> {
+  if (!request.landingPackageId) throw new Error("remote-landing.prepare requires landingPackageId.");
+  const readiness = await prepareRemoteLandingReadiness(project, request.landingPackageId);
+  const text = [
+    readiness.summary,
+    "",
+    readiness.reason,
+    "",
+    readiness.canMerge
+      ? "右侧可以确认合并 PR。确认后会执行远端 squash merge，但不会同步本地源码。"
+      : "当前不能合并 PR；请先处理上面的原因。",
+    readiness.prUrl ? `\nPR: ${readiness.prUrl}` : "",
+  ].filter(Boolean).join("\n");
+  const entry = await appendTopicThreadEntry(project, changeId, {
+    type: "assistant.message",
+    status: "remote-landing-readiness",
+    text,
+    artifact: readiness.summaryArtifact,
+  });
+  live?.emit({ event: "assistant.message", data: entry });
+  return { readiness };
+}
+
+async function mergeRemoteLandingForAction(
+  project: ManagedProject,
+  changeId: string,
+  request: WorkbenchWorkflowActionRequest,
+  live: WorkbenchLiveSink | undefined,
+): Promise<unknown> {
+  if (!request.landingPackageId) throw new Error("remote-landing.merge requires landingPackageId.");
+  const result = await mergeRemoteLanding(project, request.landingPackageId);
+  const text = result.result.status === "merged"
+    ? [
+      "PR 已在远端合并。",
+      "",
+      result.result.prUrl ? `PR: ${result.result.prUrl}` : "PR: unknown",
+      result.result.mergeCommit ? `Merge commit: ${result.result.mergeCommit}` : "",
+      "",
+      "远端代码现在是稳定边界；本地项目不会自动同步。后台已记录本次合并的需求记忆 closeout 和维护账本。",
+    ].filter(Boolean).join("\n")
+    : [
+      "PR 远端合并失败。",
+      "",
+      result.result.failureReason ?? "未提供失败原因。",
+      "",
+      "AHO 只记录失败证据，不会自动修复、合并或改写稳定记忆。",
+    ].join("\n");
+  const entry = await appendTopicThreadEntry(project, changeId, {
+    type: "assistant.message",
+    status: result.result.status === "merged" ? "remote-landing-merged" : "remote-landing-failed",
+    text,
+    artifact: result.result.artifactRefs[0],
+  });
+  live?.emit({ event: "assistant.message", data: entry });
+  return result;
+}
+
+async function refreshRemoteLandingForAction(
+  project: ManagedProject,
+  changeId: string,
+  request: WorkbenchWorkflowActionRequest,
+  live: WorkbenchLiveSink | undefined,
+): Promise<unknown> {
+  if (!request.landingPackageId) throw new Error("remote-landing.refresh requires landingPackageId.");
+  const readiness = await refreshRemoteLanding(project, request.landingPackageId);
+  const entry = await appendTopicThreadEntry(project, changeId, {
+    type: "assistant.message",
+    status: "remote-landing-refreshed",
+    text: `${readiness.summary}\n\n${readiness.reason}`,
+    artifact: readiness.summaryArtifact,
+  });
+  live?.emit({ event: "assistant.message", data: entry });
+  return { readiness };
 }
 
 async function startNextDemandWorkerForAction(
@@ -3288,6 +3378,14 @@ function summarizeActionResult(actionType: string, result: unknown): string {
     const prUrl = typeof result.handoff.prUrl === "string" ? ` ${result.handoff.prUrl}` : "";
     return `Draft PR submitted for human review.${prUrl}`;
   }
+  if ((actionType === "remote-landing.prepare" || actionType === "remote-landing.refresh") && isRecord(result) && isRecord(result.readiness)) {
+    return typeof result.readiness.summary === "string" ? result.readiness.summary : "Remote landing readiness refreshed.";
+  }
+  if (actionType === "remote-landing.merge" && isRecord(result) && isRecord(result.result)) {
+    const status = typeof result.result.status === "string" ? result.result.status : "completed";
+    const prUrl = typeof result.result.prUrl === "string" ? ` ${result.result.prUrl}` : "";
+    return `Remote landing ${status}.${prUrl}`;
+  }
   if (actionType === "task.run.reconcile" && isRecord(result) && Array.isArray(result.taskRuns)) {
     return `Reconciled ${result.taskRuns.length} TaskRun record(s).`;
   }
@@ -3381,6 +3479,9 @@ function labelForAction(actionType: string): string {
     case "pr-review.reply-prepare": return "PR review reply draft prepared";
     case "pr-review.reply-submit": return "PR review reply submitted";
     case "pr-review.thread-resolve": return "PR review thread resolved";
+    case "remote-landing.prepare": return "Remote landing readiness prepared";
+    case "remote-landing.merge": return "Remote PR merged";
+    case "remote-landing.refresh": return "Remote landing state refreshed";
     case "code.run": return "Coder run confirmed";
     case "task.run.start": return "Task workflow started";
     case "task.run.retry": return "Task workflow retried";

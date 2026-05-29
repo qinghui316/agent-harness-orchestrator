@@ -322,7 +322,7 @@ type PlanCard = {
 };
 type ThreadEvent = { id: string; type: string; label: string; timestamp?: string; status?: string; runId?: string; planCard?: PlanCard };
 type ThreadStreamAction = {
-  actionType: "change.spec.propose" | "change.plan.propose" | "planning.generate" | "planning.revise" | "planning.confirm-execution" | "orchestrator.evaluate" | "orchestrator.pump" | "demand.worker.enqueue" | "demand.worker.claim" | "demand.worker.start-next" | "demand.worker.start-available" | "demand.worker.reconcile" | "demand.worker.release" | "role.pipeline.start" | "role.pipeline.stop" | "role.pipeline.continue" | "role.pipeline.reconcile" | "conversation.steer" | "conversation.interrupt" | "conversation.continue" | "result.refresh-rework" | "result.revalidate" | "result.reaudit" | "result.refresh-status" | "apply-check.run" | "landing.prepare" | "landing.review" | "landing.refresh" | "pr-draft.prepare" | "pr-draft.create" | "pr-draft.refresh" | "pr-feedback.refresh" | "pr-feedback.evaluate" | "pr-feedback.rework" | "pr-feedback.update-draft" | "pr-review.prepare" | "pr-review.submit" | "pr-review.refresh" | "pr-review.feedback-refresh" | "pr-review.feedback-evaluate" | "pr-review.rework" | "pr-review.reply-prepare" | "pr-review.reply-submit" | "pr-review.thread-resolve" | "code.run" | "task.run.start" | "task.run.retry" | "task.queue.start" | "task.queue.reconcile" | "intake.scan" | "intake.reanalyze" | "clarification.answer" | "clarification.skip";
+  actionType: "change.spec.propose" | "change.plan.propose" | "planning.generate" | "planning.revise" | "planning.confirm-execution" | "orchestrator.evaluate" | "orchestrator.pump" | "demand.worker.enqueue" | "demand.worker.claim" | "demand.worker.start-next" | "demand.worker.start-available" | "demand.worker.reconcile" | "demand.worker.release" | "role.pipeline.start" | "role.pipeline.stop" | "role.pipeline.continue" | "role.pipeline.reconcile" | "conversation.steer" | "conversation.interrupt" | "conversation.continue" | "result.refresh-rework" | "result.revalidate" | "result.reaudit" | "result.refresh-status" | "apply-check.run" | "landing.prepare" | "landing.review" | "landing.refresh" | "pr-draft.prepare" | "pr-draft.create" | "pr-draft.refresh" | "pr-feedback.refresh" | "pr-feedback.evaluate" | "pr-feedback.rework" | "pr-feedback.update-draft" | "pr-review.prepare" | "pr-review.submit" | "pr-review.refresh" | "pr-review.feedback-refresh" | "pr-review.feedback-evaluate" | "pr-review.rework" | "pr-review.reply-prepare" | "pr-review.reply-submit" | "pr-review.thread-resolve" | "remote-landing.prepare" | "remote-landing.merge" | "remote-landing.refresh" | "code.run" | "task.run.start" | "task.run.retry" | "task.queue.start" | "task.queue.reconcile" | "intake.scan" | "intake.reanalyze" | "clarification.answer" | "clarification.skip";
   label: string;
   enabled: boolean;
   requiresConfirmation: boolean;
@@ -3824,6 +3824,7 @@ function confirmationKindLabel(kind: string): string {
   if (kind === "landing-readiness") return "落地检查";
   if (kind === "pr-draft") return "PR 草稿";
   if (kind === "pr-review") return "人工评审";
+  if (kind === "remote-landing") return "远端合并";
   if (kind === "request-changes") return "要求修改";
   if (kind === "discard-result") return "放弃结果";
   if (kind === "maintenance") return "维护建议";
@@ -3873,6 +3874,9 @@ function workflowActionLabel(actionType: string | undefined): string {
   if (actionType === "pr-review.reply-prepare") return "准备评审回复";
   if (actionType === "pr-review.reply-submit") return "回复评审";
   if (actionType === "pr-review.thread-resolve") return "标记已处理";
+  if (actionType === "remote-landing.prepare") return "检查合并状态";
+  if (actionType === "remote-landing.merge") return "合并 PR";
+  if (actionType === "remote-landing.refresh") return "刷新合并状态";
   if (actionType === "role.pipeline.continue") return "继续执行";
   if (actionType === "role.pipeline.reconcile") return "恢复执行状态";
   if (actionType === "code.run") return "Code workflow";

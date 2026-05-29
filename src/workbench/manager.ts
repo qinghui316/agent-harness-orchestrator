@@ -16,6 +16,7 @@ import { findLandingCandidate, listLandingPackages, type LandingCandidate, type 
 import { detectRemoteProviderCapability, findLatestCreatedPrDraftPackageForChanges, findPrDraftPackageForLanding, type RemoteProviderCapability } from "../pr-draft/manager.js";
 import { latestPrFeedbackSummaryForDraft } from "../pr-feedback/manager.js";
 import { latestPrReviewReadinessForDraft, latestPrReviewReplyDraftForLanding } from "../pr-review/manager.js";
+import { latestRemoteLandingReadinessForDraft } from "../remote-landing/manager.js";
 import { getMemoryStatus } from "../memory/status.js";
 import { resolveMemory } from "../memory/resolver.js";
 import { isGitDirty } from "../project/git.js";
@@ -119,7 +120,7 @@ export interface WorkbenchThreadEvent {
 }
 
 export interface ThreadStreamAction {
-  actionType: "change.spec.propose" | "change.plan.propose" | "planning.generate" | "planning.revise" | "planning.confirm-execution" | "orchestrator.evaluate" | "orchestrator.pump" | "demand.worker.enqueue" | "demand.worker.claim" | "demand.worker.start-next" | "demand.worker.start-available" | "demand.worker.reconcile" | "demand.worker.release" | "role.pipeline.start" | "role.pipeline.stop" | "role.pipeline.continue" | "role.pipeline.reconcile" | "conversation.steer" | "conversation.interrupt" | "conversation.continue" | "result.refresh-rework" | "result.revalidate" | "result.reaudit" | "result.refresh-status" | "apply-check.run" | "landing.prepare" | "landing.review" | "landing.refresh" | "pr-draft.prepare" | "pr-draft.create" | "pr-draft.refresh" | "pr-feedback.refresh" | "pr-feedback.evaluate" | "pr-feedback.rework" | "pr-feedback.update-draft" | "pr-review.prepare" | "pr-review.submit" | "pr-review.refresh" | "pr-review.feedback-refresh" | "pr-review.feedback-evaluate" | "pr-review.rework" | "pr-review.reply-prepare" | "pr-review.reply-submit" | "pr-review.thread-resolve" | "code.run" | "task.run.start" | "task.run.retry" | "task.queue.start" | "task.queue.reconcile" | "intake.scan" | "intake.reanalyze" | "clarification.answer" | "clarification.skip";
+  actionType: "change.spec.propose" | "change.plan.propose" | "planning.generate" | "planning.revise" | "planning.confirm-execution" | "orchestrator.evaluate" | "orchestrator.pump" | "demand.worker.enqueue" | "demand.worker.claim" | "demand.worker.start-next" | "demand.worker.start-available" | "demand.worker.reconcile" | "demand.worker.release" | "role.pipeline.start" | "role.pipeline.stop" | "role.pipeline.continue" | "role.pipeline.reconcile" | "conversation.steer" | "conversation.interrupt" | "conversation.continue" | "result.refresh-rework" | "result.revalidate" | "result.reaudit" | "result.refresh-status" | "apply-check.run" | "landing.prepare" | "landing.review" | "landing.refresh" | "pr-draft.prepare" | "pr-draft.create" | "pr-draft.refresh" | "pr-feedback.refresh" | "pr-feedback.evaluate" | "pr-feedback.rework" | "pr-feedback.update-draft" | "pr-review.prepare" | "pr-review.submit" | "pr-review.refresh" | "pr-review.feedback-refresh" | "pr-review.feedback-evaluate" | "pr-review.rework" | "pr-review.reply-prepare" | "pr-review.reply-submit" | "pr-review.thread-resolve" | "remote-landing.prepare" | "remote-landing.merge" | "remote-landing.refresh" | "code.run" | "task.run.start" | "task.run.retry" | "task.queue.start" | "task.queue.reconcile" | "intake.scan" | "intake.reanalyze" | "clarification.answer" | "clarification.skip";
   label: string;
   enabled: boolean;
   requiresConfirmation: boolean;
@@ -265,6 +266,7 @@ export type WorkbenchConfirmationQueueItemKind =
   | "landing-readiness"
   | "pr-draft"
   | "pr-review"
+  | "remote-landing"
   | "request-changes"
   | "discard-result"
   | "maintenance";
@@ -1318,7 +1320,7 @@ async function buildMaintenanceSummary(memory: ResolvedMemory): Promise<Workbenc
   const watermark = await readMaintenanceReviewWatermark(memory).catch(() => null);
   const latest = latestMaintenanceEntry(entries);
   const reviewed = new Set(watermark?.lastReviewedChangeIds ?? []);
-  const unreviewed = closeouts.filter((closeout) => !reviewed.has(closeout.changeId)).length;
+  const unreviewed = closeouts.filter((closeout) => !reviewed.has(`${closeout.changeId}:${closeout.terminalKind}`)).length;
   const latestCloseout = latestCloseoutEntry(closeouts);
   const status: WorkbenchMaintenanceSummary["status"] = watermark?.lastReviewWindowId
     ? "reviewed"
@@ -2404,6 +2406,36 @@ async function prDraftQueueItem(
     };
   }
   if (existingDraft?.status === "created") {
+    const remoteReadiness = await latestRemoteLandingReadinessForDraft(memory, existingDraft.id).catch(() => null);
+    if (remoteReadiness?.canMerge) {
+      return {
+        id: `remote-landing:merge:${remoteReadiness.id}`,
+        kind: "remote-landing",
+        projectId: project.id,
+        conversationId: itemChangeId,
+        changeId: itemChangeId,
+        landingPackageId: pkg.id,
+        summary: remoteReadiness.summary,
+        whyNeedsConfirmation: remoteReadiness.reason,
+        confirmEffect: remoteReadiness.confirmEffect,
+        riskSummary: remoteReadiness.riskSummary,
+        evidenceRefs: remoteReadiness.evidenceRefs,
+        actions: [
+          {
+            id: `remote-landing-merge:${pkg.id}`,
+            label: "合并 PR",
+            kind: "workflow-action" as const,
+            actionType: "remote-landing.merge" as const,
+            landingPackageId: pkg.id,
+            enabled: true,
+            requiresConfirmation: true,
+          },
+          ...(remoteReadiness.summaryArtifact ? evidenceActions(remoteReadiness.summaryArtifact) : []),
+        ],
+        primary: selected,
+        status: "pending",
+      };
+    }
     const readiness = await latestPrReviewReadinessForDraft(memory, existingDraft.id).catch(() => null);
     if (readiness?.canSubmit) {
       return {
@@ -2435,6 +2467,74 @@ async function prDraftQueueItem(
       };
     }
     if (readiness?.status === "already-ready") {
+      const landingReadiness = await latestRemoteLandingReadinessForDraft(memory, existingDraft.id).catch(() => null);
+      if (landingReadiness?.canMerge) {
+        return {
+          id: `remote-landing:merge:${landingReadiness.id}`,
+          kind: "remote-landing",
+          projectId: project.id,
+          conversationId: itemChangeId,
+          changeId: itemChangeId,
+          landingPackageId: pkg.id,
+          summary: landingReadiness.summary,
+          whyNeedsConfirmation: landingReadiness.reason,
+          confirmEffect: landingReadiness.confirmEffect,
+          riskSummary: landingReadiness.riskSummary,
+          evidenceRefs: landingReadiness.evidenceRefs,
+          actions: [
+            {
+              id: `remote-landing-merge:${pkg.id}`,
+              label: "合并 PR",
+              kind: "workflow-action" as const,
+              actionType: "remote-landing.merge" as const,
+              landingPackageId: pkg.id,
+              enabled: true,
+              requiresConfirmation: true,
+            },
+            ...(landingReadiness.summaryArtifact ? evidenceActions(landingReadiness.summaryArtifact) : []),
+          ],
+          primary: selected,
+          status: "pending",
+        };
+      }
+      if (landingReadiness && !landingReadiness.canMerge) {
+        return {
+          id: `remote-landing:status:${landingReadiness.id}`,
+          kind: "remote-landing",
+          projectId: project.id,
+          conversationId: itemChangeId,
+          changeId: itemChangeId,
+          landingPackageId: pkg.id,
+          summary: landingReadiness.summary,
+          whyNeedsConfirmation: landingReadiness.reason,
+          confirmEffect: "请先处理 PR 反馈、远端检查或 provider 状态；AHO 不会显示假合并按钮。",
+          riskSummary: landingReadiness.riskSummary,
+          evidenceRefs: landingReadiness.evidenceRefs,
+          actions: [
+            {
+              id: `remote-landing-refresh:${pkg.id}`,
+              label: "刷新合并状态",
+              kind: "workflow-action" as const,
+              actionType: "remote-landing.refresh" as const,
+              landingPackageId: pkg.id,
+              enabled: true,
+              requiresConfirmation: false,
+            },
+            {
+              id: `pr-feedback-refresh:${pkg.id}`,
+              label: "检查 PR 反馈",
+              kind: "workflow-action" as const,
+              actionType: "pr-review.feedback-refresh" as const,
+              landingPackageId: pkg.id,
+              enabled: true,
+              requiresConfirmation: false,
+            },
+            ...(landingReadiness.summaryArtifact ? evidenceActions(landingReadiness.summaryArtifact) : []),
+          ],
+          primary: selected,
+          status: "pending",
+        };
+      }
       const replyDraft = await latestPrReviewReplyDraftForLanding(memory, pkg.id).catch(() => null);
       if (replyDraft && (replyDraft.status === "draft" || (replyDraft.status === "submitted" && replyDraft.canResolveThread))) {
         return {
@@ -2487,6 +2587,15 @@ async function prDraftQueueItem(
         riskSummary: "这不是 merge 或 land。",
         evidenceRefs: readiness.evidenceRefs,
         actions: [
+          {
+            id: `remote-landing-prepare:${pkg.id}`,
+            label: "检查合并状态",
+            kind: "workflow-action",
+            actionType: "remote-landing.prepare",
+            landingPackageId: pkg.id,
+            enabled: true,
+            requiresConfirmation: false,
+          },
           {
             id: `pr-feedback-refresh:${pkg.id}`,
             label: "检查 PR 反馈",

@@ -62,7 +62,7 @@ function project(path = tempDir): ManagedProject {
   };
 }
 
-async function createFakeGh(initial: { isDraft?: boolean; comments?: unknown[]; inlineComments?: unknown[]; failedChecks?: number; canResolveThreads?: boolean } = {}): Promise<{ command: string; args: string[]; stateFile: string }> {
+async function createFakeGh(initial: { isDraft?: boolean; comments?: unknown[]; inlineComments?: unknown[]; failedChecks?: number; canResolveThreads?: boolean; mergeFails?: boolean } = {}): Promise<{ command: string; args: string[]; stateFile: string }> {
   const binDir = join(tempDir, "fake-gh-bin");
   await mkdir(binDir, { recursive: true });
   const stateFile = join(binDir, "state.json");
@@ -72,6 +72,8 @@ async function createFakeGh(initial: { isDraft?: boolean; comments?: unknown[]; 
     inlineComments: initial.inlineComments ?? [],
     failedChecks: initial.failedChecks ?? 0,
     canResolveThreads: initial.canResolveThreads ?? true,
+    mergeFails: initial.mergeFails ?? false,
+    merged: false,
     replies: [],
     resolvedThreads: [],
   }), "utf8");
@@ -95,7 +97,7 @@ if (args[0] === "pr" && args[1] === "view") {
   const failedChecks = Array.from({ length: state.failedChecks || 0 }, (_, index) => ({ name: "check-" + index, conclusion: "FAILURE", status: "COMPLETED" }));
   console.log(JSON.stringify({
     url: "https://github.com/qinghui316/private-acceptance/pull/1",
-    state: "OPEN",
+    state: state.merged ? "MERGED" : "OPEN",
     isDraft: Boolean(state.isDraft),
     reviewDecision: null,
     reviews: [],
@@ -104,8 +106,23 @@ if (args[0] === "pr" && args[1] === "view") {
     baseRefName: "main",
     headRefOid: "head",
     baseRefOid: "base",
+    mergeable: "MERGEABLE",
+    mergeStateStatus: "CLEAN",
+    mergedAt: state.merged ? "2026-05-30T00:00:00.000Z" : null,
+    mergeCommit: state.merged ? { oid: "merge-commit-sha" } : null,
     statusCheckRollup: failedChecks,
   }));
+  process.exit(0);
+}
+if (args[0] === "pr" && args[1] === "merge") {
+  const state = readState();
+  if (state.mergeFails) {
+    console.error("Branch protection blocked merge");
+    process.exit(1);
+  }
+  state.merged = true;
+  writeState(state);
+  console.log("Merged pull request");
   process.exit(0);
 }
 if (args[0] === "pr" && args[1] === "ready") {
@@ -1333,6 +1350,118 @@ describe("workbench read model", () => {
     }
   });
 
+  it("prepares and performs a user-confirmed remote PR merge with merged closeout", async () => {
+    const oldAhoHome = process.env.AHO_HOME;
+    const oldGhCommand = process.env.AHO_GH_COMMAND;
+    const oldGhCommandArgs = process.env.AHO_GH_COMMAND_ARGS;
+    process.env.AHO_HOME = join(tempDir, ".aho-home");
+    const fakeGh = await createFakeGh({ isDraft: false });
+    process.env.AHO_GH_COMMAND = fakeGh.command;
+    process.env.AHO_GH_COMMAND_ARGS = JSON.stringify(fakeGh.args);
+    try {
+      await initGitRepository(tempDir);
+      await git(tempDir, ["remote", "add", "origin", "https://github.com/qinghui316/private-acceptance.git"]);
+      await writeFile(join(tempDir, ".gitignore"), ".aho-home/\n.agent-harness/\nharness/\nAGENTS.md\ndocs/\nscripts/\n", "utf8");
+      await writeFile(join(tempDir, "package.json"), "{\"scripts\":{\"test\":\"node -e \\\"process.exit(0)\\\"\"}}\n", "utf8");
+      await git(tempDir, ["add", "."]);
+      await git(tempDir, ["commit", "-m", "initial"]);
+      await initHarness(project());
+      await createChange(project(), { title: "Remote Landing Demand" });
+      await writeAcceptedSpecAndTasks("remote-landing-demand");
+      const memory = await resolveProjectMemory(project());
+      const worktree = await createWorktree(project(), memory, "remote-landing-demand");
+      await writeFile(join(worktree.metadata.checkoutPath, "package.json"), "{\"scripts\":{\"test\":\"node -e \\\"console.log('landing')\\\"\"}}\n", "utf8");
+      const diff = await collectWorktreeDiff(memory, worktree.metadata.worktreeId, "remote-landing-demand");
+      await writeValidationResultWithHash("remote-landing-demand", "run-validation-remote-landing", worktree.metadata.worktreeId, diff.diffHash, "passed");
+      await writeAuditResultWithHash("remote-landing-demand", "run-audit-remote-landing", worktree.metadata.worktreeId, diff.diffHash, "approved-with-notes");
+
+      const snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: "remote-landing-demand" });
+      const applyAction = snapshot.right.decisionInspector.primary?.actions.find((action) => action.action?.actionId === "result.apply")?.action;
+      if (!applyAction) throw new Error("Missing result.apply action.");
+      await executeWorkbenchAction({ project: project(), path: tempDir }, { action: applyAction, confirm: true });
+      await recordDemandMemoryCloseout(memory, {
+        changeId: "remote-landing-demand",
+        title: "Remote landing demand applied locally",
+        terminalKind: "applied",
+        finalResult: "Local apply completed before remote landing.",
+        userDecision: "applied",
+      });
+      const landingPrepared = await executeWorkbenchAction({ project: project(), path: tempDir }, {
+        actionType: "landing.prepare",
+        changeId: "remote-landing-demand",
+        worktreeId: worktree.metadata.worktreeId,
+        confirm: true,
+      });
+      const landingPackage = (landingPrepared.result as { result: { package: { id: string } } }).result.package;
+      const prPrepared = await executeWorkbenchAction({ project: project(), path: tempDir }, {
+        actionType: "pr-draft.prepare",
+        changeId: "remote-landing-demand",
+        landingPackageId: landingPackage.id,
+        confirm: true,
+      });
+      const prPackage = (prPrepared.result as { result: { package: { id: string } } }).result.package;
+      const prPackagePath = join(memory.workbenchRoot, "pr-drafts", prPackage.id, "pr-draft-package.json");
+      await writeFile(prPackagePath, JSON.stringify({
+        ...JSON.parse(await readFile(prPackagePath, "utf8")),
+        status: "created",
+        prUrl: "https://github.com/qinghui316/private-acceptance/pull/1",
+      }, null, 2), "utf8");
+
+      const readiness = await executeWorkbenchAction({ project: project(), path: tempDir }, {
+        actionType: "remote-landing.prepare",
+        changeId: "remote-landing-demand",
+        landingPackageId: landingPackage.id,
+        confirm: true,
+      });
+      expect(readiness.result).toMatchObject({
+        result: {
+          readiness: expect.objectContaining({
+            status: "ready",
+            canMerge: true,
+            prUrl: "https://github.com/qinghui316/private-acceptance/pull/1",
+          }),
+        },
+      });
+      const readySnapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: "remote-landing-demand" });
+      expect(readySnapshot.right.confirmationQueue.primary).toMatchObject({
+        kind: "remote-landing",
+        summary: "PR 已满足远端合并条件。",
+      });
+      expect(readySnapshot.right.confirmationQueue.primary?.actions).toEqual(expect.arrayContaining([
+        expect.objectContaining({ actionType: "remote-landing.merge", label: "合并 PR" }),
+      ]));
+
+      const merged = await executeWorkbenchAction({ project: project(), path: tempDir }, {
+        actionType: "remote-landing.merge",
+        changeId: "remote-landing-demand",
+        landingPackageId: landingPackage.id,
+        confirm: true,
+      });
+      expect(merged.result).toMatchObject({
+        result: {
+          result: expect.objectContaining({
+            status: "merged",
+            mergeMethod: "squash",
+          }),
+        },
+      });
+      const ghState = JSON.parse(await readFile(fakeGh.stateFile, "utf8"));
+      expect(ghState.merged).toBe(true);
+      const closeouts = await listDemandMemoryCloseouts(memory);
+      expect(closeouts).toEqual(expect.arrayContaining([
+        expect.objectContaining({ changeId: "remote-landing-demand", terminalKind: "applied" }),
+        expect.objectContaining({ changeId: "remote-landing-demand", terminalKind: "merged" }),
+      ]));
+    } finally {
+      if (oldAhoHome === undefined) delete process.env.AHO_HOME;
+      else process.env.AHO_HOME = oldAhoHome;
+      if (oldGhCommand === undefined) delete process.env.AHO_GH_COMMAND;
+      else process.env.AHO_GH_COMMAND = oldGhCommand;
+      if (oldGhCommandArgs === undefined) delete process.env.AHO_GH_COMMAND_ARGS;
+      else process.env.AHO_GH_COMMAND_ARGS = oldGhCommandArgs;
+    }
+  });
+
   it("captures inline PR review feedback and routes replies through explicit review actions", async () => {
     const oldAhoHome = process.env.AHO_HOME;
     const oldGhCommand = process.env.AHO_GH_COMMAND;
@@ -1990,10 +2119,10 @@ describe("workbench read model", () => {
     });
     await recordDemandMemoryCloseout(memory, {
       changeId: "closeout-5",
-      title: "Demand 5 duplicate archive event",
-      terminalKind: "archived",
+      title: "Demand 5 duplicate applied event",
+      terminalKind: "applied",
       finalResult: "Duplicate terminal event should not create a second closeout.",
-      userDecision: "archived",
+      userDecision: "applied",
     });
 
     const closeouts = await listDemandMemoryCloseouts(memory);
@@ -2001,7 +2130,7 @@ describe("workbench read model", () => {
     const snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir });
 
     expect(closeouts).toHaveLength(5);
-    expect(watermark?.lastReviewedChangeIds).toEqual(["closeout-1", "closeout-2", "closeout-3", "closeout-4", "closeout-5"]);
+    expect(watermark?.lastReviewedChangeIds).toEqual(["closeout-1:archived", "closeout-2:archived", "closeout-3:archived", "closeout-4:archived", "closeout-5:applied"]);
     expect(watermark?.lastReviewWindowId).toMatch(/^maintenance-review-/);
     expect(snapshot.center.workpad.maintenance).toMatchObject({
       closeoutCount: 5,
