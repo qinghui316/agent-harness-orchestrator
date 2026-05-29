@@ -934,7 +934,9 @@ export type MaintenanceLedgerEventType =
   | "user-feedback"
   | "doc-drift"
   | "reference-drift"
-  | "harness-evolution";
+  | "harness-evolution"
+  | "change-closeout"
+  | "maintenance-review";
 
 export interface MaintenanceLedgerEntry {
   version: "1.0";
@@ -951,6 +953,9 @@ export interface EvolutionCandidate {
   version: "1.0";
   id: string;
   sourceLedgerEntryIds: string[];
+  subtype?: MaintenanceCandidateSubtype;
+  fingerprint?: string;
+  supersededBy?: string;
   title: string;
   summary: string;
   artifactRefs: string[];
@@ -965,15 +970,107 @@ export interface CandidateScore {
   rationale: string;
   risks: string[];
   confidence: "low" | "medium" | "high";
+  dimensions?: Record<string, number>;
   createdAt: string;
 }
 
 export interface CandidateReview {
   version: "1.0";
   candidateId: string;
-  recommendation: "accept" | "defer" | "reject";
+  recommendation: "accept" | "defer" | "reject" | "needs-human-review";
   summary: string;
   evidenceRefs: string[];
+  createdAt: string;
+}
+
+export type MaintenanceCandidateSubtype =
+  | "stable-memory"
+  | "docs-drift"
+  | "harness-evolution"
+  | "reusable-lesson"
+  | "doc-budget"
+  | "reference-drift";
+
+export interface DemandMemoryCloseout {
+  version: "1.0";
+  id: string;
+  changeId: string;
+  title: string;
+  terminalKind: "archived" | "applied" | "remote-handoff" | "merged";
+  goal: string;
+  finalResult: string;
+  userDecision: string;
+  changedFiles: string[];
+  affectedModules: string[];
+  evidenceRefs: string[];
+  reusableLessonCandidates: ReusableLessonCandidate[];
+  docsDriftCandidates: DocsDriftCandidate[];
+  memoryBoundaryNotes: string[];
+  createdAt: string;
+}
+
+export interface ReusableLessonCandidate {
+  id: string;
+  fingerprint: string;
+  summary: string;
+  evidenceRefs: string[];
+  status: "candidate" | "superseded";
+  supersededBy?: string;
+}
+
+export interface DocsDriftCandidate {
+  id: string;
+  fingerprint: string;
+  document: string;
+  summary: string;
+  evidenceRefs: string[];
+  status: "candidate" | "superseded";
+  supersededBy?: string;
+}
+
+export interface MaintenanceReviewWatermark {
+  version: "1.0";
+  lastReviewedChangeIds: string[];
+  lastReviewedArchiveIndex: number;
+  lastReviewWindowId: string | null;
+  lastReviewedAt: string | null;
+}
+
+export interface DocBudgetReport {
+  version: "1.0";
+  id: string;
+  documents: Array<{
+    path: string;
+    wordCount: number;
+    softLimit: number;
+    hardLimit: number;
+    status: "ok" | "soft-exceeded" | "hard-exceeded";
+  }>;
+  createdAt: string;
+}
+
+export interface MaintenanceReviewRun {
+  version: "1.0";
+  id: string;
+  windowChangeIds: string[];
+  hotCloseoutRefs: string[];
+  warmIndexRef: string;
+  coldArchiveRef: string;
+  docBudgetReportRef: string;
+  candidateRefs: string[];
+  scoreRefs: string[];
+  reviewRefs: string[];
+  summary: string;
+  createdAt: string;
+}
+
+export interface RoleScopedContextProjection {
+  version: "1.0";
+  roleId: string;
+  allowedMemoryTier: "current-demand" | "compact-stable" | "maintenance-hot-warm-cold";
+  includesMaintenanceWindow: boolean;
+  includedSources: string[];
+  excludedSources: string[];
   createdAt: string;
 }
 

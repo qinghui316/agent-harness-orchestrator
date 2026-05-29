@@ -15,7 +15,18 @@ import { getWorkbenchSnapshot, getWorkbenchStream, getWorkbenchTopic, listWorkbe
 import { WorkbenchStore } from "../../src/workbench/store.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import { collectWorktreeDiff } from "../../src/audit/diff.js";
-import { completeAgentTask, createAgentTask, listAgentTasks, recordMaintenanceLedgerEntry, runMaintenanceCandidatePipeline } from "../../src/agent-task/manager.js";
+import {
+  buildRoleScopedContextProjection,
+  completeAgentTask,
+  createAgentTask,
+  listAgentTasks,
+  listDemandMemoryCloseouts,
+  maybeRunMaintenanceReviewWindow,
+  readMaintenanceReviewWatermark,
+  recordDemandMemoryCloseout,
+  recordMaintenanceLedgerEntry,
+  runMaintenanceCandidatePipeline,
+} from "../../src/agent-task/manager.js";
 import {
   claimAvailableDemandWorkers,
   claimNextDemandWorker,
@@ -1936,13 +1947,89 @@ describe("workbench read model", () => {
     expect(result.candidate).toMatchObject({
       status: "candidate",
       sourceLedgerEntryIds: expect.any(Array),
+      subtype: expect.any(String),
+      fingerprint: expect.any(String),
     });
-    expect(result.score).toMatchObject({ confidence: expect.any(String) });
-    expect(result.review).toMatchObject({ recommendation: expect.stringMatching(/accept|defer|reject/) });
+    expect(result.score).toMatchObject({ confidence: expect.any(String), dimensions: expect.any(Object) });
+    expect(result.review).toMatchObject({ recommendation: expect.stringMatching(/accept|defer|reject|needs-human-review/) });
     expect(snapshot.center.workpad.maintenance).toMatchObject({
       ledgerCount: 1,
       latest: expect.objectContaining({ eventType: "apply" }),
     });
+  });
+
+  it("records terminal demand closeouts, runs five-change maintenance review, and keeps maintenance out of confirmation queue", async () => {
+    await initHarness(project());
+    const memory = await resolveProjectMemory(project());
+
+    for (let index = 1; index <= 4; index += 1) {
+      await recordDemandMemoryCloseout(memory, {
+        changeId: `closeout-${index}`,
+        title: `Demand ${index}`,
+        terminalKind: "archived",
+        finalResult: `Demand ${index} completed.`,
+        userDecision: "archived",
+        evidenceRefs: [`harness/changes/archive/closeout-${index}/summary.md`],
+        reusableLessonCandidates: [{ summary: "Keep validation evidence linked.", evidenceRefs: [`evidence-${index}.md`] }],
+        docsDriftCandidates: [{ document: "docs/STATUS.md", summary: "Status handoff needs a refresh.", evidenceRefs: [`status-${index}.md`] }],
+      });
+    }
+
+    expect(await maybeRunMaintenanceReviewWindow(memory)).toMatchObject({ status: "skipped" });
+
+    await recordDemandMemoryCloseout(memory, {
+      changeId: "closeout-5",
+      title: "Demand 5",
+      terminalKind: "applied",
+      finalResult: "Demand 5 applied.",
+      userDecision: "applied",
+      changedFiles: ["src/pricing.ts"],
+      evidenceRefs: ["harness/changes/archive/closeout-5/summary.md"],
+      reusableLessonCandidates: [{ summary: "Keep source apply decisions scoped to explicit result targets." }],
+      docsDriftCandidates: [{ document: "docs/MEMORY.md", summary: "Memory tier rules need update." }],
+    });
+    await recordDemandMemoryCloseout(memory, {
+      changeId: "closeout-5",
+      title: "Demand 5 duplicate archive event",
+      terminalKind: "archived",
+      finalResult: "Duplicate terminal event should not create a second closeout.",
+      userDecision: "archived",
+    });
+
+    const closeouts = await listDemandMemoryCloseouts(memory);
+    const watermark = await readMaintenanceReviewWatermark(memory);
+    const snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir });
+
+    expect(closeouts).toHaveLength(5);
+    expect(watermark?.lastReviewedChangeIds).toEqual(["closeout-1", "closeout-2", "closeout-3", "closeout-4", "closeout-5"]);
+    expect(watermark?.lastReviewWindowId).toMatch(/^maintenance-review-/);
+    expect(snapshot.center.workpad.maintenance).toMatchObject({
+      closeoutCount: 5,
+      status: "reviewed",
+      unreviewedTerminalCount: 0,
+      latestReviewWindowId: watermark?.lastReviewWindowId,
+    });
+    expect(snapshot.right.confirmationQueue.maintenance).toEqual([]);
+
+    const coderContext = buildRoleScopedContextProjection({
+      roleId: "coder-agent",
+      currentDemandRefs: ["change/current/summary.md"],
+      stableMemoryRefs: ["project/stable/compact.md"],
+      selectedHistoryRefs: ["hot/1.md", "hot/2.md", "hot/3.md", "hot/4.md"],
+    });
+    const maintenanceContext = buildRoleScopedContextProjection({
+      roleId: "memory-maintenance-agent",
+      currentDemandRefs: ["change/current/summary.md"],
+      stableMemoryRefs: ["project/stable/compact.md"],
+      selectedHistoryRefs: ["hot/1.md", "hot/2.md", "hot/3.md", "hot/4.md"],
+    });
+
+    expect(coderContext.includesMaintenanceWindow).toBe(false);
+    expect(coderContext.excludedSources).toContain("hot/warm/cold maintenance window");
+    expect(coderContext.includedSources).not.toContain("hot/4.md");
+    expect(maintenanceContext.includesMaintenanceWindow).toBe(true);
+    expect(maintenanceContext.allowedMemoryTier).toBe("maintenance-hot-warm-cold");
+    expect(maintenanceContext.includedSources).toContain("hot/4.md");
   });
 });
 

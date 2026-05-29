@@ -6,7 +6,7 @@ import { platform } from "node:os";
 import { extname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { applyResultToProject, applyWorktree, discardWorktree } from "../apply/manager.js";
-import { recordMaintenanceLedgerEntry, runMaintenanceCandidatePipeline } from "../agent-task/manager.js";
+import { recordDemandMemoryCloseout, recordMaintenanceLedgerEntry, runMaintenanceCandidatePipeline } from "../agent-task/manager.js";
 import { acceptAudit } from "../audit/manager.js";
 import { abandonChange, closeChange } from "../change/manager.js";
 import { acceptPlanProposal, acceptSpecProposal } from "../change/proposals.js";
@@ -491,6 +491,16 @@ export async function executeWorkbenchAction(input: WorkbenchProjectInput, body:
     payload: result,
     completedAt: new Date().toISOString(),
   });
+  if (action.actionId === "change.close" && isRecord(result) && isRecord(result.change) && typeof result.change.id === "string") {
+    const archiveRef = typeof result.archivePath === "string" ? result.archivePath : undefined;
+    await recordPostDecisionMaintenance(
+      input.project,
+      result.change.id,
+      "archive",
+      "Demand conversation was closed and archived.",
+      archiveRef ? [archiveRef] : [],
+    );
+  }
   if (action.actionId === "worktree.apply" || action.actionId === "result.apply") {
     try {
       const finalized = await closeChange(input.project);
@@ -526,13 +536,28 @@ async function recordPostDecisionMaintenance(
 ): Promise<void> {
   try {
     const memory = await resolveProjectMemory(project);
-    await recordMaintenanceLedgerEntry(memory, {
-      eventType,
-      changeId,
-      summary,
-      artifactRefs,
-    });
-    await runMaintenanceCandidatePipeline(memory);
+    if (eventType === "archive" || eventType === "apply") {
+      await recordDemandMemoryCloseout(memory, {
+        changeId,
+        title: changeId,
+        terminalKind: eventType === "archive" ? "archived" : "applied",
+        finalResult: summary,
+        userDecision: eventType,
+        evidenceRefs: artifactRefs,
+        reusableLessonCandidates: [{
+          summary: "Terminal demand evidence is available for future maintenance review.",
+          evidenceRefs: artifactRefs,
+        }],
+      });
+    } else {
+      await recordMaintenanceLedgerEntry(memory, {
+        eventType,
+        changeId,
+        summary,
+        artifactRefs,
+      });
+      await runMaintenanceCandidatePipeline(memory);
+    }
   } catch {
     // Maintenance suggestions are advisory; action results must not depend on them.
   }

@@ -243,8 +243,11 @@ type Workpad = {
   };
   maintenance?: {
     ledgerCount: number;
+    closeoutCount?: number;
+    latestReviewWindowId?: string;
+    unreviewedTerminalCount?: number;
     latest?: { id: string; eventType: string; changeId?: string; summary: string; severity: string; createdAt: string };
-    status: "idle" | "collecting";
+    status: "idle" | "collecting" | "review-ready" | "reviewed";
     note: string;
   };
   runControlState?: { canStop: boolean; stopActionType?: ThreadStreamAction["actionType"]; pendingFeedbackCount: number; explanation: string };
@@ -1804,20 +1807,6 @@ function DecisionInspectorPane({
           ))}
         </section>
       ) : null}
-      {confirmationQueue.maintenance.length > 0 ? (
-        <section className="decision-related">
-          <div className="approval-header compact">
-            <h2>维护建议</h2>
-            <span>{confirmationQueue.maintenance.length}</span>
-          </div>
-          {confirmationQueue.maintenance.map((item) => (
-            <div className="decision-row passive" key={item.id}>
-              <strong>{userFacingText(item.whyNeedsConfirmation)}</strong>
-              <span>{userFacingText(item.summary)}</span>
-            </div>
-          ))}
-        </section>
-      ) : null}
       <DecisionContextHistory contexts={inspector.history} onSelectContext={onSelectContext} />
     </>
   );
@@ -2023,7 +2012,7 @@ function WorkpadView(props: {
   const { workpad, approvals, busy, onWorkflowAction, onConfirmApproval } = props;
   const [detailsOpen, setDetailsOpen] = useState(false);
   const approval = workpad.nextAction.approvalId ? approvals.find((item) => item.id === workpad.nextAction.approvalId) : undefined;
-  const actionableMaintenance = workpad.maintenance?.latest && workpad.maintenance.ledgerCount > 0 ? workpad.maintenance.latest : null;
+  const maintenanceNotice = workpad.maintenance?.status && workpad.maintenance.status !== "idle" ? workpad.maintenance : null;
   return (
     <div className="parent-conversation" data-testid="workpad-view">
       <section className="parent-agent-card">
@@ -2085,10 +2074,10 @@ function WorkpadView(props: {
         </section>
       ) : null}
 
-      {actionableMaintenance ? (
+      {maintenanceNotice ? (
         <section className="parent-agent-section maintenance-nudge">
-          <h3>有一条后台建议需要你确认</h3>
-          <p>{userFacingText(actionableMaintenance.summary)}</p>
+          <h3>后台维护</h3>
+          <p>{userFacingText(maintenanceNotice.note)}</p>
         </section>
       ) : null}
 
@@ -2388,9 +2377,10 @@ function WorkpadDiagnosticDetails({
         <section className="workpad-section compact-section" data-testid="maintenance-summary">
           <div className="workpad-section-header">
             <h3>后台维护</h3>
-            <span>{workpad.maintenance.ledgerCount}</span>
+            <span>{workpad.maintenance.closeoutCount ?? workpad.maintenance.ledgerCount}</span>
           </div>
           <p>{userFacingText(workpad.maintenance.note)}</p>
+          <p className="panel-note">终态需求：{workpad.maintenance.closeoutCount ?? 0} · 待维护审查：{workpad.maintenance.unreviewedTerminalCount ?? 0}</p>
           {workpad.maintenance.latest ? (
             <div className="workpad-evidence">
               <strong>{userFacingText(workpad.maintenance.latest.eventType)}</strong>
