@@ -604,6 +604,70 @@ describe("Workbench web app", () => {
     expect(screen.queryByText("land")).toBeNull();
   });
 
+  it("renders PR review reply and resolve confirmations without merge controls", async () => {
+    const replySnapshot = {
+      ...snapshot,
+      right: {
+        ...snapshot.right,
+        confirmationQueue: {
+          primary: {
+            id: "pr-review:reply:reply-draft-abc123",
+            kind: "pr-review",
+            conversationId: "member-discount",
+            changeId: "member-discount",
+            landingPackageId: "landing-worktree-abc123",
+            summary: "评审回复草稿已准备好。",
+            whyNeedsConfirmation: "回复评审需要你确认。",
+            confirmEffect: "会向 PR 评审反馈提交回复；不会 merge、land 或归档需求。",
+            riskSummary: "这是 PR review handoff，不是合并授权。",
+            evidenceRefs: ["project://.agent-harness/workbench/pr-review/reply-drafts/reply-draft-abc123/pr-review-reply-draft.json"],
+            actions: [
+              {
+                id: "pr-review-reply-submit:landing-worktree-abc123",
+                label: "回复评审",
+                kind: "workflow-action",
+                actionType: "pr-review.reply-submit",
+                landingPackageId: "landing-worktree-abc123",
+                enabled: true,
+                requiresConfirmation: true,
+              },
+              {
+                id: "pr-review-thread-resolve:landing-worktree-abc123",
+                label: "标记已处理",
+                kind: "workflow-action",
+                actionType: "pr-review.thread-resolve",
+                landingPackageId: "landing-worktree-abc123",
+                enabled: true,
+                requiresConfirmation: true,
+              },
+            ],
+            primary: true,
+            status: "pending",
+          },
+          current: [],
+          otherDemands: [],
+          maintenance: [],
+          history: [],
+        },
+      },
+    };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
+      if (url === "/api/projects") return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
+      return jsonResponse(url.includes("/stream/") ? stream : replySnapshot);
+    }));
+
+    render(<App />);
+
+    await waitFor(() => expect(screen.getByText("回复评审需要你确认。")).toBeTruthy());
+    expect(screen.getByRole("button", { name: /回复评审/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /标记已处理/ })).toBeTruthy();
+    expect(screen.queryByText("merge queue")).toBeNull();
+    expect(screen.queryByText("auto merge")).toBeNull();
+    expect(screen.queryByText("land")).toBeNull();
+  });
+
   it("shows a blocked queue as the primary decision instead of a generic approval list", async () => {
     const blockedSnapshot = {
       ...snapshot,

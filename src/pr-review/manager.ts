@@ -14,15 +14,20 @@ import {
   githubCliArgs,
   githubCliCommand,
 } from "../pr-draft/manager.js";
-import { refreshPrFeedback } from "../pr-feedback/manager.js";
+import { recordReviewFeedbackUserContext, refreshPrFeedback } from "../pr-feedback/manager.js";
 import { readLandingPackage } from "../landing/manager.js";
 import type {
   ManagedProject,
   PrFeedbackClassification,
+  PrFeedbackSnapshot,
+  PrReviewReplyDraft,
+  PrReviewReplyHandoff,
   PrReviewHandoff,
   PrReviewReadiness,
   PrReviewReadinessStatus,
   PrReviewStateSnapshot,
+  PrReviewThreadFinding,
+  PrReviewThreadResolution,
   ResolvedMemory,
 } from "../types/index.js";
 
@@ -38,7 +43,7 @@ const stateSnapshotSchema: z.ZodType<PrReviewStateSnapshot> = z.object({
   state: z.string(),
   isDraft: z.boolean(),
   reviewDecision: z.string().nullable().optional(),
-  feedbackClassification: z.enum(["no-action", "checks-failed", "changes-requested", "comments-only", "provider-unavailable", "stale-pr"]).optional(),
+  feedbackClassification: z.enum(["no-action", "checks-failed", "changes-requested", "inline-comments-actionable", "comments-only", "user-pushback-requested", "provider-unavailable", "stale-pr"]).optional(),
   commentsCount: z.number(),
   failedChecksCount: z.number(),
   evidenceRefs: z.array(z.string()),
@@ -76,6 +81,51 @@ const handoffSchema: z.ZodType<PrReviewHandoff> = z.object({
   status: z.literal("submitted"),
   artifactRefs: z.array(z.string()),
   submittedAt: z.string(),
+});
+
+const replyDraftSchema: z.ZodType<PrReviewReplyDraft> = z.object({
+  version: z.literal("1.0"),
+  id: z.string(),
+  changeId: z.string(),
+  prDraftPackageId: z.string(),
+  landingPackageId: z.string(),
+  snapshotId: z.string().optional(),
+  targetKind: z.enum(["inline-comment", "issue-comment", "review-thread", "pr"]),
+  targetId: z.string().optional(),
+  threadId: z.string().optional(),
+  commentId: z.string().optional(),
+  body: z.string(),
+  canResolveThread: z.boolean(),
+  status: z.enum(["draft", "submitted", "resolved"]),
+  artifactRef: z.string(),
+  evidenceRefs: z.array(z.string()),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+
+const replyHandoffSchema: z.ZodType<PrReviewReplyHandoff> = z.object({
+  version: z.literal("1.0"),
+  id: z.string(),
+  draftId: z.string(),
+  landingPackageId: z.string(),
+  prDraftPackageId: z.string(),
+  targetKind: z.enum(["inline-comment", "issue-comment", "review-thread", "pr"]),
+  targetId: z.string().optional(),
+  status: z.literal("submitted"),
+  artifactRefs: z.array(z.string()),
+  submittedAt: z.string(),
+});
+
+const threadResolutionSchema: z.ZodType<PrReviewThreadResolution> = z.object({
+  version: z.literal("1.0"),
+  id: z.string(),
+  draftId: z.string(),
+  landingPackageId: z.string(),
+  prDraftPackageId: z.string(),
+  threadId: z.string(),
+  status: z.literal("resolved"),
+  artifactRefs: z.array(z.string()),
+  resolvedAt: z.string(),
 });
 
 export async function preparePrReviewReadiness(project: ManagedProject, landingPackageId: string): Promise<PrReviewReadiness> {
@@ -194,6 +244,157 @@ export async function refreshPrReviewState(project: ManagedProject, landingPacka
   return preparePrReviewReadiness(project, landingPackageId);
 }
 
+export async function preparePrReviewReplyDraft(
+  project: ManagedProject,
+  landingPackageId: string,
+  input: { changeId?: string; message?: string } = {},
+): Promise<PrReviewReplyDraft> {
+  const memory = await resolveProjectMemory(project);
+  assertWritableMemory(memory, "PR review reply draft");
+  const landing = await readLandingPackage(memory, landingPackageId);
+  const pkg = await findPrDraftPackageForLanding(memory, landingPackageId)
+    ?? await findLatestCreatedPrDraftPackageForChanges(memory, landing.target.changeIds);
+  if (!pkg?.prUrl) throw new Error("Cannot prepare PR review reply without an existing PR URL.");
+  const feedback = await refreshPrFeedback(project, landingPackageId);
+  const changeId = input.changeId ?? landing.target.changeIds[0] ?? feedback.snapshot.landingPackageId;
+  const userContext = input.message?.trim()
+    ? await recordReviewFeedbackUserContext(memory, {
+        changeId,
+        landingPackageId,
+        prDraftPackageId: pkg.id,
+        intent: inferReplyIntent(input.message),
+        message: input.message,
+      })
+    : null;
+  const target = selectReplyTarget(feedback.snapshot);
+  const now = new Date().toISOString();
+  const id = `pr-review-reply-${contentHash(`${pkg.id}:${landingPackageId}:${target.targetKind}:${target.targetId ?? ""}:${now}`).slice(0, 12)}`;
+  const directory = join(prReviewRoot(memory), "reply-drafts", id);
+  await mkdir(directory, { recursive: true });
+  const file = join(directory, "pr-review-reply-draft.json");
+  const body = input.message?.trim() || defaultReplyBody(feedback.summary.summary, target);
+  const draft: PrReviewReplyDraft = {
+    version: "1.0",
+    id,
+    changeId,
+    prDraftPackageId: pkg.id,
+    landingPackageId,
+    snapshotId: feedback.snapshot.id,
+    targetKind: target.targetKind,
+    ...(target.targetId ? { targetId: target.targetId } : {}),
+    ...(target.threadId ? { threadId: target.threadId } : {}),
+    ...(target.commentId ? { commentId: target.commentId } : {}),
+    body,
+    canResolveThread: Boolean(target.threadId && feedback.snapshot.threadCapability?.canResolveThreads),
+    status: "draft",
+    artifactRef: displayArtifactPath(memory, file),
+    evidenceRefs: Array.from(new Set([
+      ...feedback.summary.evidenceRefs,
+      ...(userContext ? [userContext.artifactRef] : []),
+    ])),
+    createdAt: now,
+    updatedAt: now,
+  };
+  replyDraftSchema.parse(draft);
+  await writeJsonFile(file, draft);
+  await writeFile(join(directory, "pr-review-reply-draft.md"), renderReplyDraft(draft), "utf8");
+  return draft;
+}
+
+export async function submitPrReviewReply(
+  project: ManagedProject,
+  landingPackageId: string,
+): Promise<{ draft: PrReviewReplyDraft; handoff: PrReviewReplyHandoff }> {
+  const memory = await resolveProjectMemory(project);
+  assertWritableMemory(memory, "PR review reply submit");
+  const draft = await latestPrReviewReplyDraftForLanding(memory, landingPackageId);
+  if (!draft) throw new Error("No PR review reply draft is available.");
+  if (draft.status !== "draft") throw new Error(`PR review reply draft is already ${draft.status}.`);
+  const pkg = await findPrDraftPackageForLanding(memory, landingPackageId)
+    ?? await findLatestCreatedPrDraftPackageForChanges(memory, [draft.changeId]);
+  if (!pkg?.prUrl) throw new Error("Cannot submit PR review reply without an existing PR URL.");
+  const prRef = parseGitHubPrUrl(pkg.prUrl);
+  if (draft.commentId && prRef) {
+    await commandText(githubCliCommand(), [
+      ...githubCliArgs(),
+      "api",
+      `repos/${prRef.owner}/${prRef.repo}/pulls/${prRef.number}/comments/${draft.commentId}/replies`,
+      "-f",
+      `body=${draft.body}`,
+    ], project.path);
+  } else {
+    await commandText(githubCliCommand(), [...githubCliArgs(), "pr", "comment", pkg.prUrl, "--body", draft.body], project.path);
+  }
+  const now = new Date().toISOString();
+  const submitted = await updateReplyDraft(memory, { ...draft, status: "submitted", updatedAt: now });
+  const directory = join(prReviewRoot(memory), "reply-handoffs", submitted.id);
+  await mkdir(directory, { recursive: true });
+  const handoff: PrReviewReplyHandoff = {
+    version: "1.0",
+    id: `pr-review-reply-handoff-${contentHash(`${submitted.id}:${now}`).slice(0, 12)}`,
+    draftId: submitted.id,
+    landingPackageId,
+    prDraftPackageId: submitted.prDraftPackageId,
+    targetKind: submitted.targetKind,
+    ...(submitted.targetId ? { targetId: submitted.targetId } : {}),
+    status: "submitted",
+    artifactRefs: Array.from(new Set([submitted.artifactRef, ...submitted.evidenceRefs])),
+    submittedAt: now,
+  };
+  replyHandoffSchema.parse(handoff);
+  await writeJsonFile(join(directory, "pr-review-reply-handoff.json"), handoff);
+  return { draft: submitted, handoff };
+}
+
+export async function resolvePrReviewThread(
+  project: ManagedProject,
+  landingPackageId: string,
+): Promise<{ draft: PrReviewReplyDraft; resolution: PrReviewThreadResolution }> {
+  const memory = await resolveProjectMemory(project);
+  assertWritableMemory(memory, "PR review thread resolve");
+  const draft = await latestPrReviewReplyDraftForLanding(memory, landingPackageId);
+  if (!draft) throw new Error("No PR review reply draft is available.");
+  if (!draft.threadId || !draft.canResolveThread) throw new Error("Selected PR review feedback does not expose a resolvable thread.");
+  const query = "mutation($threadId:ID!){resolveReviewThread(input:{threadId:$threadId}){thread{id isResolved}}}";
+  await commandText(githubCliCommand(), [...githubCliArgs(), "api", "graphql", "-f", `query=${query}`, "-f", `threadId=${draft.threadId}`], project.path);
+  const now = new Date().toISOString();
+  const resolved = await updateReplyDraft(memory, { ...draft, status: "resolved", updatedAt: now });
+  const directory = join(prReviewRoot(memory), "thread-resolutions", resolved.id);
+  await mkdir(directory, { recursive: true });
+  const resolution: PrReviewThreadResolution = {
+    version: "1.0",
+    id: `pr-review-thread-resolution-${contentHash(`${resolved.id}:${now}`).slice(0, 12)}`,
+    draftId: resolved.id,
+    landingPackageId,
+    prDraftPackageId: resolved.prDraftPackageId,
+    threadId: draft.threadId,
+    status: "resolved",
+    artifactRefs: Array.from(new Set([resolved.artifactRef, ...resolved.evidenceRefs])),
+    resolvedAt: now,
+  };
+  threadResolutionSchema.parse(resolution);
+  await writeJsonFile(join(directory, "pr-review-thread-resolution.json"), resolution);
+  return { draft: resolved, resolution };
+}
+
+export async function latestPrReviewReplyDraftForLanding(memory: ResolvedMemory, landingPackageId: string): Promise<PrReviewReplyDraft | null> {
+  return (await listPrReviewReplyDrafts(memory)).find((item) => item.landingPackageId === landingPackageId) ?? null;
+}
+
+export async function listPrReviewReplyDrafts(memory: ResolvedMemory): Promise<PrReviewReplyDraft[]> {
+  const root = join(prReviewRoot(memory), "reply-drafts");
+  if (!existsSync(root)) return [];
+  const entries = await readdir(root, { withFileTypes: true });
+  const items: PrReviewReplyDraft[] = [];
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const file = join(root, entry.name, "pr-review-reply-draft.json");
+    if (!existsSync(file)) continue;
+    items.push(await readRequiredJsonFile(file, replyDraftSchema));
+  }
+  return items.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+}
+
 export async function latestPrReviewReadinessForDraft(memory: ResolvedMemory, prDraftPackageId: string): Promise<PrReviewReadiness | null> {
   return (await listPrReviewReadiness(memory)).find((item) => item.prDraftPackageId === prDraftPackageId) ?? null;
 }
@@ -221,7 +422,7 @@ function classifyReadiness(
   if (state !== "OPEN") return "stale-pr";
   if (!isDraft) return "already-ready";
   if (failedChecksCount > 0 || classification === "checks-failed") return "checks-failed";
-  if (classification === "changes-requested") return "actionable-feedback";
+  if (classification === "changes-requested" || classification === "inline-comments-actionable") return "actionable-feedback";
   if (classification === "stale-pr" || classification === "provider-unavailable") return classification;
   if (classification === "comments-only") return "ready-with-comments";
   return "ready";
@@ -367,6 +568,124 @@ function renderReadinessSummary(readiness: PrReviewReadiness): string {
     `Risk: ${readiness.riskSummary}`,
     "",
   ].join("\n");
+}
+
+interface ReplyTarget {
+  targetKind: PrReviewReplyDraft["targetKind"];
+  targetId?: string;
+  threadId?: string;
+  commentId?: string;
+  body?: string;
+}
+
+function selectReplyTarget(snapshot: PrFeedbackSnapshot): ReplyTarget {
+  const actionableFinding = snapshot.threadFindings?.find((finding) => finding.actionable) ?? snapshot.threadFindings?.[0];
+  if (actionableFinding) return targetFromFinding(actionableFinding);
+  const inline = snapshot.inlineComments?.find((comment) => isActionableCommentText(comment.body)) ?? snapshot.inlineComments?.[0];
+  if (inline) {
+    return {
+      targetKind: "inline-comment",
+      targetId: inline.id,
+      commentId: inline.id,
+      body: inline.body,
+    };
+  }
+  const comment = Array.isArray(snapshot.comments) ? snapshot.comments[0] : null;
+  const commentId = comment && typeof comment === "object" ? stringField(comment, "id") ?? String(numberField(comment, "id") ?? "") : "";
+  return {
+    targetKind: commentId ? "issue-comment" : "pr",
+    ...(commentId ? { targetId: commentId } : {}),
+  };
+}
+
+function targetFromFinding(finding: PrReviewThreadFinding): ReplyTarget {
+  if (finding.threadId) {
+    return {
+      targetKind: "review-thread",
+      targetId: finding.threadId,
+      threadId: finding.threadId,
+      ...(finding.commentId ? { commentId: finding.commentId } : {}),
+      body: finding.body,
+    };
+  }
+  if (finding.commentId) {
+    return {
+      targetKind: "inline-comment",
+      targetId: finding.commentId,
+      commentId: finding.commentId,
+      body: finding.body,
+    };
+  }
+  return { targetKind: "pr", body: finding.body };
+}
+
+function defaultReplyBody(summary: string, target: ReplyTarget): string {
+  const prefix = target.body ? `Regarding this feedback: "${target.body.trim().slice(0, 240)}"` : "Regarding the PR feedback";
+  return [
+    `${prefix}`,
+    "",
+    "AHO has reviewed this feedback and will route it through the same demand context.",
+    "",
+    `Current feedback summary: ${summary}`,
+  ].join("\n");
+}
+
+function inferReplyIntent(message: string): "rework" | "reply" | "pushback" | "clarify" {
+  if (/反驳|解释|不同意|pushback/i.test(message)) return "pushback";
+  if (/回复|reply|comment|评论/i.test(message)) return "reply";
+  if (/按.*改|修改|修复|change|fix/i.test(message)) return "rework";
+  return "clarify";
+}
+
+async function updateReplyDraft(memory: ResolvedMemory, draft: PrReviewReplyDraft): Promise<PrReviewReplyDraft> {
+  replyDraftSchema.parse(draft);
+  const file = join(prReviewRoot(memory), "reply-drafts", draft.id, "pr-review-reply-draft.json");
+  await writeJsonFile(file, draft);
+  await writeFile(join(prReviewRoot(memory), "reply-drafts", draft.id, "pr-review-reply-draft.md"), renderReplyDraft(draft), "utf8");
+  return draft;
+}
+
+function renderReplyDraft(draft: PrReviewReplyDraft): string {
+  return [
+    "# PR Review Reply Draft",
+    "",
+    `Status: ${draft.status}`,
+    `Target: ${draft.targetKind}${draft.targetId ? ` ${draft.targetId}` : ""}`,
+    draft.canResolveThread ? "Thread resolve: available" : "Thread resolve: unavailable",
+    "",
+    draft.body,
+    "",
+  ].join("\n");
+}
+
+interface GitHubPrRef {
+  owner: string;
+  repo: string;
+  number: number;
+}
+
+function parseGitHubPrUrl(url?: string): GitHubPrRef | null {
+  if (!url) return null;
+  const match = url.match(/^https:\/\/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)/i);
+  if (!match?.[1] || !match?.[2] || !match?.[3]) return null;
+  return { owner: match[1], repo: match[2], number: Number(match[3]) };
+}
+
+function isActionableCommentText(text: string): boolean {
+  const normalized = text.toLowerCase();
+  return /please|must|should|change|fix|fail|broken|missing|required|建议|需要|必须|修改|修复|失败|缺少|不通过/.test(normalized);
+}
+
+function stringField(value: unknown, key: string): string | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const field = (value as Record<string, unknown>)[key];
+  return typeof field === "string" ? field : undefined;
+}
+
+function numberField(value: unknown, key: string): number | null {
+  if (!value || typeof value !== "object") return null;
+  const field = (value as Record<string, unknown>)[key];
+  return typeof field === "number" ? field : null;
 }
 
 async function commandText(command: string, args: string[], cwd: string): Promise<string> {

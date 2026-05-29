@@ -15,7 +15,7 @@ import { findIntegrationCheckCandidate, listIntegrationChecks, type IntegrationC
 import { findLandingCandidate, listLandingPackages, type LandingCandidate, type LandingReadinessPackage } from "../landing/manager.js";
 import { detectRemoteProviderCapability, findLatestCreatedPrDraftPackageForChanges, findPrDraftPackageForLanding, type RemoteProviderCapability } from "../pr-draft/manager.js";
 import { latestPrFeedbackSummaryForDraft } from "../pr-feedback/manager.js";
-import { latestPrReviewReadinessForDraft } from "../pr-review/manager.js";
+import { latestPrReviewReadinessForDraft, latestPrReviewReplyDraftForLanding } from "../pr-review/manager.js";
 import { getMemoryStatus } from "../memory/status.js";
 import { resolveMemory } from "../memory/resolver.js";
 import { isGitDirty } from "../project/git.js";
@@ -118,7 +118,7 @@ export interface WorkbenchThreadEvent {
 }
 
 export interface ThreadStreamAction {
-  actionType: "change.spec.propose" | "change.plan.propose" | "planning.generate" | "planning.revise" | "planning.confirm-execution" | "orchestrator.evaluate" | "orchestrator.pump" | "demand.worker.enqueue" | "demand.worker.claim" | "demand.worker.start-next" | "demand.worker.start-available" | "demand.worker.reconcile" | "demand.worker.release" | "role.pipeline.start" | "role.pipeline.stop" | "role.pipeline.continue" | "role.pipeline.reconcile" | "conversation.steer" | "conversation.interrupt" | "conversation.continue" | "result.refresh-rework" | "result.revalidate" | "result.reaudit" | "result.refresh-status" | "apply-check.run" | "landing.prepare" | "landing.review" | "landing.refresh" | "pr-draft.prepare" | "pr-draft.create" | "pr-draft.refresh" | "pr-feedback.refresh" | "pr-feedback.evaluate" | "pr-feedback.rework" | "pr-feedback.update-draft" | "pr-review.prepare" | "pr-review.submit" | "pr-review.refresh" | "code.run" | "task.run.start" | "task.run.retry" | "task.queue.start" | "task.queue.reconcile" | "intake.scan" | "intake.reanalyze" | "clarification.answer" | "clarification.skip";
+  actionType: "change.spec.propose" | "change.plan.propose" | "planning.generate" | "planning.revise" | "planning.confirm-execution" | "orchestrator.evaluate" | "orchestrator.pump" | "demand.worker.enqueue" | "demand.worker.claim" | "demand.worker.start-next" | "demand.worker.start-available" | "demand.worker.reconcile" | "demand.worker.release" | "role.pipeline.start" | "role.pipeline.stop" | "role.pipeline.continue" | "role.pipeline.reconcile" | "conversation.steer" | "conversation.interrupt" | "conversation.continue" | "result.refresh-rework" | "result.revalidate" | "result.reaudit" | "result.refresh-status" | "apply-check.run" | "landing.prepare" | "landing.review" | "landing.refresh" | "pr-draft.prepare" | "pr-draft.create" | "pr-draft.refresh" | "pr-feedback.refresh" | "pr-feedback.evaluate" | "pr-feedback.rework" | "pr-feedback.update-draft" | "pr-review.prepare" | "pr-review.submit" | "pr-review.refresh" | "pr-review.feedback-refresh" | "pr-review.feedback-evaluate" | "pr-review.rework" | "pr-review.reply-prepare" | "pr-review.reply-submit" | "pr-review.thread-resolve" | "code.run" | "task.run.start" | "task.run.retry" | "task.queue.start" | "task.queue.reconcile" | "intake.scan" | "intake.reanalyze" | "clarification.answer" | "clarification.skip";
   label: string;
   enabled: boolean;
   requiresConfirmation: boolean;
@@ -2401,6 +2401,45 @@ async function prDraftQueueItem(
       };
     }
     if (readiness?.status === "already-ready") {
+      const replyDraft = await latestPrReviewReplyDraftForLanding(memory, pkg.id).catch(() => null);
+      if (replyDraft && (replyDraft.status === "draft" || (replyDraft.status === "submitted" && replyDraft.canResolveThread))) {
+        return {
+          id: `pr-review:reply:${replyDraft.id}`,
+          kind: "pr-review",
+          projectId: project.id,
+          conversationId: itemChangeId,
+          changeId: itemChangeId,
+          landingPackageId: pkg.id,
+          summary: replyDraft.status === "draft" ? "评审回复草稿已准备好。" : "评审回复已提交，可标记对应反馈已处理。",
+          whyNeedsConfirmation: replyDraft.status === "draft" ? "回复评审需要你确认。" : "只有 provider 支持 review thread 时才可以标记已处理。",
+          confirmEffect: replyDraft.status === "draft" ? "会向 PR 评审反馈提交回复；不会 merge、land 或归档需求。" : "会在远端标记 review thread 已处理；不会 merge、land 或归档需求。",
+          riskSummary: "这是 PR review handoff，不是合并授权。",
+          evidenceRefs: replyDraft.evidenceRefs,
+          actions: [
+            ...(replyDraft.status === "draft" ? [{
+              id: `pr-review-reply-submit:${pkg.id}`,
+              label: "回复评审",
+              kind: "workflow-action" as const,
+              actionType: "pr-review.reply-submit" as const,
+              landingPackageId: pkg.id,
+              enabled: true,
+              requiresConfirmation: true,
+            }] : []),
+            ...(replyDraft.canResolveThread ? [{
+              id: `pr-review-thread-resolve:${pkg.id}`,
+              label: "标记已处理",
+              kind: "workflow-action" as const,
+              actionType: "pr-review.thread-resolve" as const,
+              landingPackageId: pkg.id,
+              enabled: true,
+              requiresConfirmation: true,
+            }] : []),
+            ...evidenceActions(replyDraft.artifactRef),
+          ],
+          primary: selected,
+          status: "pending",
+        };
+      }
       return {
         id: `pr-review:ready:${readiness.id}`,
         kind: "pr-review",
@@ -2418,7 +2457,7 @@ async function prDraftQueueItem(
             id: `pr-feedback-refresh:${pkg.id}`,
             label: "检查 PR 反馈",
             kind: "workflow-action",
-            actionType: "pr-feedback.refresh",
+            actionType: "pr-review.feedback-refresh",
             landingPackageId: pkg.id,
             enabled: true,
             requiresConfirmation: false,
@@ -2449,7 +2488,7 @@ async function prDraftQueueItem(
           id: `pr-feedback-rework:${pkg.id}`,
           label: "根据 PR 反馈修改",
           kind: "workflow-action" as const,
-          actionType: "pr-feedback.rework" as const,
+          actionType: "pr-review.rework" as const,
           landingPackageId: pkg.id,
           enabled: true,
           requiresConfirmation: true,
@@ -2463,11 +2502,20 @@ async function prDraftQueueItem(
           enabled: true,
           requiresConfirmation: false,
         }] : []),
+        ...(!feedback?.actionable && feedback?.classification === "comments-only" ? [{
+          id: `pr-review-reply-prepare:${pkg.id}`,
+          label: "准备评审回复",
+          kind: "workflow-action" as const,
+          actionType: "pr-review.reply-prepare" as const,
+          landingPackageId: pkg.id,
+          enabled: true,
+          requiresConfirmation: false,
+        }] : []),
         {
           id: `pr-feedback-refresh:${pkg.id}`,
           label: feedback ? "重新检查 PR 反馈" : "检查 PR 反馈",
           kind: "workflow-action",
-          actionType: "pr-feedback.refresh",
+          actionType: "pr-review.feedback-refresh",
           landingPackageId: pkg.id,
           enabled: true,
           requiresConfirmation: false,

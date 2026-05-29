@@ -51,14 +51,18 @@ function project(path = tempDir): ManagedProject {
   };
 }
 
-async function createFakeGh(initial: { isDraft?: boolean; comments?: unknown[]; failedChecks?: number } = {}): Promise<{ command: string; args: string[]; stateFile: string }> {
+async function createFakeGh(initial: { isDraft?: boolean; comments?: unknown[]; inlineComments?: unknown[]; failedChecks?: number; canResolveThreads?: boolean } = {}): Promise<{ command: string; args: string[]; stateFile: string }> {
   const binDir = join(tempDir, "fake-gh-bin");
   await mkdir(binDir, { recursive: true });
   const stateFile = join(binDir, "state.json");
   await writeFile(stateFile, JSON.stringify({
     isDraft: initial.isDraft ?? true,
     comments: initial.comments ?? [],
+    inlineComments: initial.inlineComments ?? [],
     failedChecks: initial.failedChecks ?? 0,
+    canResolveThreads: initial.canResolveThreads ?? true,
+    replies: [],
+    resolvedThreads: [],
   }), "utf8");
   const script = join(binDir, "fake-gh.js");
   await writeFile(script, `#!/usr/bin/env node
@@ -99,6 +103,67 @@ if (args[0] === "pr" && args[1] === "ready") {
   writeState(state);
   console.log("Ready for review");
   process.exit(0);
+}
+if (args[0] === "pr" && args[1] === "comment") {
+  const state = readState();
+  const bodyIndex = args.indexOf("--body");
+  state.replies = state.replies || [];
+  state.replies.push({ kind: "pr", body: bodyIndex >= 0 ? args[bodyIndex + 1] : "" });
+  writeState(state);
+  console.log("Commented");
+  process.exit(0);
+}
+if (args[0] === "api") {
+  const state = readState();
+  if (args[1] === "graphql") {
+    const queryArg = args.find((arg) => String(arg).startsWith("query=")) || "";
+    if (queryArg.includes("resolveReviewThread")) {
+      if (!state.canResolveThreads) {
+        console.error("Thread resolve is unavailable");
+        process.exit(1);
+      }
+      const threadArg = args.find((arg) => String(arg).startsWith("threadId=")) || "threadId=thread-1";
+      const threadId = threadArg.slice("threadId=".length);
+      state.resolvedThreads = state.resolvedThreads || [];
+      state.resolvedThreads.push(threadId);
+      writeState(state);
+      console.log(JSON.stringify({ data: { resolveReviewThread: { thread: { id: threadId, isResolved: true } } } }));
+      process.exit(0);
+    }
+    if (!state.canResolveThreads) {
+      console.error("GraphQL reviewThreads unavailable");
+      process.exit(1);
+    }
+    console.log(JSON.stringify({
+      data: {
+        repository: {
+          pullRequest: {
+            reviewThreads: {
+              nodes: (state.inlineComments || []).map((comment, index) => ({
+                id: comment.threadId || "thread-" + (index + 1),
+                isResolved: false,
+                comments: { nodes: [{ id: "graphql-comment-" + String(comment.id || index + 1), databaseId: Number(comment.id || index + 1), body: comment.body || "", path: comment.path || null, line: comment.line || null, author: { login: "reviewer" }, createdAt: "2026-05-29T00:00:00.000Z" }] },
+              })),
+            },
+          },
+        },
+      },
+    }));
+    process.exit(0);
+  }
+  if (/^repos\\/[^/]+\\/[^/]+\\/pulls\\/\\d+\\/comments$/.test(args[1])) {
+    console.log(JSON.stringify(state.inlineComments || []));
+    process.exit(0);
+  }
+  const replyMatch = args[1].match(/^repos\\/[^/]+\\/[^/]+\\/pulls\\/\\d+\\/comments\\/(\\d+)\\/replies$/);
+  if (replyMatch) {
+    const bodyArg = args.find((arg) => String(arg).startsWith("body=")) || "body=";
+    state.replies = state.replies || [];
+    state.replies.push({ kind: "inline", commentId: replyMatch[1], body: bodyArg.slice("body=".length) });
+    writeState(state);
+    console.log(JSON.stringify({ id: 999, body: bodyArg.slice("body=".length) }));
+    process.exit(0);
+  }
 }
 console.error("Unsupported fake gh command: " + args.join(" "));
 process.exit(1);
@@ -1246,7 +1311,130 @@ describe("workbench read model", () => {
       const afterSubmit = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: "pr-review-demand" });
       expect(afterSubmit.center.selectedTopic?.state).toBe("active");
       expect(afterSubmit.right.confirmationQueue.primary?.actions.some((action) => action.actionType === "pr-review.submit")).toBe(false);
-      expect(afterSubmit.right.confirmationQueue.primary?.actions.some((action) => action.actionType === "pr-feedback.refresh")).toBe(true);
+      expect(afterSubmit.right.confirmationQueue.primary?.actions.some((action) => action.actionType === "pr-review.feedback-refresh")).toBe(true);
+    } finally {
+      if (oldAhoHome === undefined) delete process.env.AHO_HOME;
+      else process.env.AHO_HOME = oldAhoHome;
+      if (oldGhCommand === undefined) delete process.env.AHO_GH_COMMAND;
+      else process.env.AHO_GH_COMMAND = oldGhCommand;
+      if (oldGhCommandArgs === undefined) delete process.env.AHO_GH_COMMAND_ARGS;
+      else process.env.AHO_GH_COMMAND_ARGS = oldGhCommandArgs;
+    }
+  });
+
+  it("captures inline PR review feedback and routes replies through explicit review actions", async () => {
+    const oldAhoHome = process.env.AHO_HOME;
+    const oldGhCommand = process.env.AHO_GH_COMMAND;
+    const oldGhCommandArgs = process.env.AHO_GH_COMMAND_ARGS;
+    process.env.AHO_HOME = join(tempDir, ".aho-home");
+    const fakeGh = await createFakeGh({
+      isDraft: false,
+      inlineComments: [
+        { id: 101, body: "Please fix the missing threshold edge case.", path: "src/pricing.ts", line: 12, html_url: "https://github.com/qinghui316/private-acceptance/pull/1#discussion_r101" },
+      ],
+      canResolveThreads: true,
+    });
+    process.env.AHO_GH_COMMAND = fakeGh.command;
+    process.env.AHO_GH_COMMAND_ARGS = JSON.stringify(fakeGh.args);
+    try {
+      await initGitRepository(tempDir);
+      await git(tempDir, ["remote", "add", "origin", "https://github.com/qinghui316/private-acceptance.git"]);
+      await writeFile(join(tempDir, ".gitignore"), ".aho-home/\n.agent-harness/\nharness/\nAGENTS.md\ndocs/\nscripts/\n", "utf8");
+      await writeFile(join(tempDir, "package.json"), "{\"scripts\":{\"test\":\"node -e \\\"process.exit(0)\\\"\"}}\n", "utf8");
+      await git(tempDir, ["add", "."]);
+      await git(tempDir, ["commit", "-m", "initial"]);
+      await initHarness(project());
+      await createChange(project(), { title: "PR Feedback Demand" });
+      await writeAcceptedSpecAndTasks("pr-feedback-demand");
+      const memory = await resolveProjectMemory(project());
+      const worktree = await createWorktree(project(), memory, "pr-feedback-demand");
+      await writeFile(join(worktree.metadata.checkoutPath, "package.json"), "{\"scripts\":{\"test\":\"node -e \\\"console.log('feedback')\\\"\"}}\n", "utf8");
+      const diff = await collectWorktreeDiff(memory, worktree.metadata.worktreeId, "pr-feedback-demand");
+      await writeValidationResultWithHash("pr-feedback-demand", "run-validation-pr-feedback", worktree.metadata.worktreeId, diff.diffHash, "passed");
+      await writeAuditResultWithHash("pr-feedback-demand", "run-audit-pr-feedback", worktree.metadata.worktreeId, diff.diffHash, "approved-with-notes");
+
+      const snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: "pr-feedback-demand" });
+      const applyAction = snapshot.right.decisionInspector.primary?.actions.find((action) => action.action?.actionId === "result.apply")?.action;
+      if (!applyAction) throw new Error("Missing result.apply action.");
+      await executeWorkbenchAction({ project: project(), path: tempDir }, { action: applyAction, confirm: true });
+      const landingPrepared = await executeWorkbenchAction({ project: project(), path: tempDir }, {
+        actionType: "landing.prepare",
+        changeId: "pr-feedback-demand",
+        worktreeId: worktree.metadata.worktreeId,
+        confirm: true,
+      });
+      const landingPackage = (landingPrepared.result as { result: { package: { id: string } } }).result.package;
+      const prPrepared = await executeWorkbenchAction({ project: project(), path: tempDir }, {
+        actionType: "pr-draft.prepare",
+        changeId: "pr-feedback-demand",
+        landingPackageId: landingPackage.id,
+        confirm: true,
+      });
+      const prPackage = (prPrepared.result as { result: { package: { id: string } } }).result.package;
+      const prPackagePath = join(memory.workbenchRoot, "pr-drafts", prPackage.id, "pr-draft-package.json");
+      await writeFile(prPackagePath, JSON.stringify({
+        ...JSON.parse(await readFile(prPackagePath, "utf8")),
+        status: "created",
+        prUrl: "https://github.com/qinghui316/private-acceptance/pull/1",
+      }, null, 2), "utf8");
+
+      const feedback = await executeWorkbenchAction({ project: project(), path: tempDir }, {
+        actionType: "pr-review.feedback-refresh",
+        changeId: "pr-feedback-demand",
+        landingPackageId: landingPackage.id,
+        confirm: true,
+      });
+      expect(feedback.result).toMatchObject({
+        result: {
+          summary: expect.objectContaining({
+            classification: "inline-comments-actionable",
+            actionable: true,
+            inlineCommentsCount: 1,
+          }),
+        },
+      });
+      await executeWorkbenchAction({ project: project(), path: tempDir }, {
+        actionType: "pr-review.refresh",
+        changeId: "pr-feedback-demand",
+        landingPackageId: landingPackage.id,
+        confirm: true,
+      });
+      const draft = await executeWorkbenchAction({ project: project(), path: tempDir }, {
+        actionType: "pr-review.reply-prepare",
+        changeId: "pr-feedback-demand",
+        landingPackageId: landingPackage.id,
+        prompt: "这个评论请解释原因后回复",
+        confirm: true,
+      });
+      expect(draft.result).toMatchObject({
+        result: {
+          draft: expect.objectContaining({
+            targetKind: "review-thread",
+            canResolveThread: true,
+            status: "draft",
+          }),
+        },
+      });
+      const replySnapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: "pr-feedback-demand" });
+      expect(replySnapshot.right.confirmationQueue.primary?.actions).toEqual(expect.arrayContaining([
+        expect.objectContaining({ actionType: "pr-review.reply-submit", label: "回复评审" }),
+        expect.objectContaining({ actionType: "pr-review.thread-resolve", label: "标记已处理" }),
+      ]));
+      await executeWorkbenchAction({ project: project(), path: tempDir }, {
+        actionType: "pr-review.reply-submit",
+        changeId: "pr-feedback-demand",
+        landingPackageId: landingPackage.id,
+        confirm: true,
+      });
+      await executeWorkbenchAction({ project: project(), path: tempDir }, {
+        actionType: "pr-review.thread-resolve",
+        changeId: "pr-feedback-demand",
+        landingPackageId: landingPackage.id,
+        confirm: true,
+      });
+      const state = JSON.parse(await readFile(fakeGh.stateFile, "utf8"));
+      expect(state.replies).toEqual(expect.arrayContaining([expect.objectContaining({ kind: "inline", commentId: "101" })]));
+      expect(state.resolvedThreads).toEqual(expect.arrayContaining(["thread-1"]));
     } finally {
       if (oldAhoHome === undefined) delete process.env.AHO_HOME;
       else process.env.AHO_HOME = oldAhoHome;

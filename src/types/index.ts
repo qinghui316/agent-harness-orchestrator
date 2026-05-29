@@ -613,12 +613,46 @@ export interface AgentTaskResult {
 }
 
 export type PrFeedbackClassification =
-  | "no-action"
-  | "checks-failed"
-  | "changes-requested"
-  | "comments-only"
-  | "provider-unavailable"
-  | "stale-pr";
+    | "no-action"
+    | "checks-failed"
+    | "changes-requested"
+    | "inline-comments-actionable"
+    | "comments-only"
+    | "user-pushback-requested"
+    | "provider-unavailable"
+    | "stale-pr";
+
+export interface PrReviewInlineComment {
+  id: string;
+  body: string;
+  path?: string | null;
+  line?: number | null;
+  side?: string | null;
+  author?: string | null;
+  createdAt?: string | null;
+  url?: string | null;
+  inReplyToId?: string | null;
+}
+
+export interface PrReviewThreadCapability {
+  provider: "github-cli";
+  canReadThreads: boolean;
+  canResolveThreads: boolean;
+  reason?: string;
+  evidenceRefs: string[];
+}
+
+export interface PrReviewThreadFinding {
+  id: string;
+  threadId?: string;
+  commentId?: string;
+  path?: string | null;
+  line?: number | null;
+  body: string;
+  author?: string | null;
+  resolved?: boolean;
+  actionable: boolean;
+}
 
 export interface PrFeedbackSnapshot {
   version: "1.0";
@@ -636,6 +670,9 @@ export interface PrFeedbackSnapshot {
   baseRefOid?: string | null;
   reviews: unknown[];
   comments: unknown[];
+  inlineComments?: PrReviewInlineComment[];
+  threadCapability?: PrReviewThreadCapability;
+  threadFindings?: PrReviewThreadFinding[];
   statusCheckRollup: unknown[];
   rawArtifact: string;
   snapshotArtifact: string;
@@ -653,10 +690,24 @@ export interface PrFeedbackSummary {
   summary: string;
   reviewDecision?: string | null;
   commentsCount: number;
+  inlineCommentsCount?: number;
+  actionableCommentsCount?: number;
   failedChecksCount: number;
   evidenceRefs: string[];
   recommendedAction: string;
   createdAt: string;
+}
+
+export interface ReviewFeedbackUserContext {
+  version: "1.0";
+  id: string;
+  changeId: string;
+  landingPackageId: string;
+  prDraftPackageId?: string;
+  intent: "rework" | "reply" | "pushback" | "clarify";
+  message: string;
+  createdAt: string;
+  artifactRef: string;
 }
 
 export interface PrFeedbackReworkAttempt {
@@ -666,6 +717,8 @@ export interface PrFeedbackReworkAttempt {
   prDraftPackageId: string;
   landingPackageId: string;
   snapshotId: string;
+  userContextId?: string;
+  reworkContextArtifact?: string;
   status: "started" | "completed" | "failed";
   agentTaskId?: string;
   artifactRefs: string[];
@@ -685,6 +738,51 @@ export interface PrDraftRevision {
   commitHash?: string;
   artifactRefs: string[];
   createdAt: string;
+}
+
+export interface PrReviewReplyDraft {
+  version: "1.0";
+  id: string;
+  changeId: string;
+  prDraftPackageId: string;
+  landingPackageId: string;
+  snapshotId?: string;
+  targetKind: "inline-comment" | "issue-comment" | "review-thread" | "pr";
+  targetId?: string;
+  threadId?: string;
+  commentId?: string;
+  body: string;
+  canResolveThread: boolean;
+  status: "draft" | "submitted" | "resolved";
+  artifactRef: string;
+  evidenceRefs: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PrReviewReplyHandoff {
+  version: "1.0";
+  id: string;
+  draftId: string;
+  landingPackageId: string;
+  prDraftPackageId: string;
+  targetKind: PrReviewReplyDraft["targetKind"];
+  targetId?: string;
+  status: "submitted";
+  artifactRefs: string[];
+  submittedAt: string;
+}
+
+export interface PrReviewThreadResolution {
+  version: "1.0";
+  id: string;
+  draftId: string;
+  landingPackageId: string;
+  prDraftPackageId: string;
+  threadId: string;
+  status: "resolved";
+  artifactRefs: string[];
+  resolvedAt: string;
 }
 
 export type PrReviewReadinessStatus =
