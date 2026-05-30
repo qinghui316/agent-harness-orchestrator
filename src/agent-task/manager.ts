@@ -51,6 +51,13 @@ const resultSchema = z.object({
   status: taskStatusSchema,
   summary: z.string(),
   artifactRefs: z.array(z.string()),
+  policyAuditRefs: z.array(z.string()).optional(),
+  boundaryAuditRefs: z.array(z.string()).optional(),
+  boundaryViolations: z.array(z.object({
+    kind: z.enum(["source-root-modified", "denied-path", "outside-write-root", "cross-demand-artifact", "readonly-role-write", "dirty-state"]),
+    path: z.string().optional(),
+    reason: z.string(),
+  })).optional(),
   nextRecommendation: z.string().optional(),
   failureClassification: z.string().optional(),
   requiresUserInputReason: z.string().optional(),
@@ -195,6 +202,9 @@ export interface CompleteAgentTaskInput {
   status: AgentTaskStatus;
   summary: string;
   artifactRefs?: string[];
+  policyAuditRefs?: string[];
+  boundaryAuditRefs?: string[];
+  boundaryViolations?: AgentTaskResult["boundaryViolations"];
   nextRecommendation?: string;
   failureClassification?: string;
   requiresUserInputReason?: string;
@@ -277,6 +287,9 @@ export async function completeAgentTask(memory: ResolvedMemory, task: AgentTask,
     status: input.status,
     summary: input.summary,
     artifactRefs: input.artifactRefs ?? [],
+    ...(input.policyAuditRefs?.length ? { policyAuditRefs: input.policyAuditRefs } : {}),
+    ...(input.boundaryAuditRefs?.length ? { boundaryAuditRefs: input.boundaryAuditRefs } : {}),
+    ...(input.boundaryViolations?.length ? { boundaryViolations: input.boundaryViolations } : {}),
     ...(input.nextRecommendation ? { nextRecommendation: input.nextRecommendation } : {}),
     ...(input.failureClassification ? { failureClassification: input.failureClassification } : {}),
     ...(input.requiresUserInputReason ? { requiresUserInputReason: input.requiresUserInputReason } : {}),

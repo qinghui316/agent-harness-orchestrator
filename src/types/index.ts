@@ -606,9 +606,75 @@ export interface AgentTaskResult {
   status: AgentTaskStatus;
   summary: string;
   artifactRefs: string[];
+  policyAuditRefs?: string[];
+  boundaryAuditRefs?: string[];
+  boundaryViolations?: BoundaryViolation[];
   nextRecommendation?: string;
   failureClassification?: string;
   requiresUserInputReason?: string;
+  createdAt: string;
+}
+
+export type DelegationMode = "runtime-tool" | "orchestrator-policy";
+export type RuntimeEnforcementMode = "broker-enforced" | "hook-observed" | "sandbox-audited";
+export type ToolPolicyDecisionStatus = "allowed" | "denied" | "needs-user-confirmation" | "unavailable";
+
+export interface ToolPolicyDecision {
+  version: "1.0";
+  id: string;
+  actionType: string;
+  actorRoleId: string;
+  targetId?: string;
+  status: ToolPolicyDecisionStatus;
+  enforcementMode: RuntimeEnforcementMode;
+  reason: string;
+  readableMessage: string;
+  createdAt: string;
+}
+
+export interface WorkerPermissionProfile {
+  version: "1.0";
+  roleId: string;
+  allowedReadRoots: string[];
+  allowedWriteRoots: string[];
+  deniedPaths: string[];
+  allowedCommands: string[];
+  sandboxPolicy: "read-only" | "workspace-write";
+  mayDelegate: boolean;
+}
+
+export interface ToolEventAuditEntry {
+  version: "1.0";
+  id: string;
+  changeId?: string;
+  conversationId?: string;
+  actorRoleId: string;
+  actionType: string;
+  targetId?: string;
+  decisionStatus: ToolPolicyDecisionStatus;
+  enforcementMode: RuntimeEnforcementMode;
+  reason: string;
+  evidenceRefs: string[];
+  createdAt: string;
+}
+
+export interface BoundaryViolation {
+  kind: "source-root-modified" | "denied-path" | "outside-write-root" | "cross-demand-artifact" | "readonly-role-write" | "dirty-state";
+  path?: string;
+  reason: string;
+}
+
+export interface PostRunBoundaryAudit {
+  version: "1.0";
+  id: string;
+  changeId: string;
+  roleId: string;
+  runId?: string;
+  taskId?: string;
+  enforcementMode: RuntimeEnforcementMode;
+  status: "passed" | "failed";
+  violations: BoundaryViolation[];
+  evidenceRefs: string[];
   createdAt: string;
 }
 

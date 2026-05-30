@@ -334,6 +334,17 @@ function roleDelegationBlocks(pipeline: WorkbenchRolePipelineSummary | undefined
       }
     : null;
   const taskBlocks = tasks.flatMap((task) => {
+    const policyBlock: ParentAgentTranscriptBlock | null = task.policyAuditRefs.length > 0
+      ? {
+          id: `derived:delegate-task:policy:${task.id}`,
+          kind: "process",
+          source: "aho-orchestration",
+          title: "ToolPolicyGate 已检查",
+          text: "主 agent 的委派请求已经过角色、范围、权限和人类确认边界检查。",
+          status: "allowed",
+          evidenceRefs: task.policyAuditRefs.map((ref) => ({ label: "策略审计", ref, kind: "artifact" as const })),
+        }
+      : null;
     const title = task.status === "completed"
       ? `${roleLabel(task.roleId)} 返回结果`
       : task.status === "failed" || task.status === "needs-user-input"
@@ -351,7 +362,21 @@ function roleDelegationBlocks(pipeline: WorkbenchRolePipelineSummary | undefined
       isError: task.status === "failed" || task.status === "needs-user-input",
       evidenceRefs,
     };
-    return [block];
+    const boundaryBlock: ParentAgentTranscriptBlock | null = task.boundaryAuditRefs.length > 0
+      ? {
+          id: `derived:delegate-task:boundary:${task.id}`,
+          kind: "process",
+          source: "workflow-evidence",
+          title: task.boundaryViolations.length > 0 ? "边界审计发现越界" : "边界审计通过",
+          text: task.boundaryViolations.length > 0
+            ? task.boundaryViolations.join("\n")
+            : `${roleLabel(task.roleId)} 的输出没有越过本次需求边界。`,
+          status: task.boundaryViolations.length > 0 ? "failed" : "passed",
+          isError: task.boundaryViolations.length > 0,
+          evidenceRefs: task.boundaryAuditRefs.map((ref) => ({ label: "边界审计", ref, kind: "artifact" as const })),
+        }
+      : null;
+    return [policyBlock, block, boundaryBlock].filter((item): item is ParentAgentTranscriptBlock => Boolean(item));
   });
   return capabilityBlock ? [capabilityBlock, ...taskBlocks] : taskBlocks;
 }

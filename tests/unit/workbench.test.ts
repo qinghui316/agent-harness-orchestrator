@@ -17,7 +17,6 @@ import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import { collectWorktreeDiff } from "../../src/audit/diff.js";
 import {
   buildRoleScopedContextProjection,
-  claimAgentTask,
   completeAgentTask,
   createAgentTask,
   listAgentTasks,
@@ -27,9 +26,11 @@ import {
   recordDemandMemoryCloseout,
   recordMaintenanceLedgerEntry,
   runMaintenanceCandidatePipeline,
-  startAgentTask,
 } from "../../src/agent-task/manager.js";
 import { buildDelegateTaskManifest, validateDelegateTaskPolicy } from "../../src/agent-task/delegate-task.js";
+import { findBoundaryViolations } from "../../src/agent-task/boundary-audit.js";
+import { dispatchForegroundRoleTask } from "../../src/agent-task/role-dispatcher.js";
+import { evaluateToolPolicy, workerPermissionProfileForRole } from "../../src/agent-task/tool-policy.js";
 import {
   claimAvailableDemandWorkers,
   claimNextDemandWorker,
@@ -1094,6 +1095,30 @@ describe("workbench read model", () => {
     ]));
     expect(snapshot.center.thread.items).toEqual(expect.arrayContaining([
       expect.objectContaining({ kind: "user-message", body: "这是另一个独立需求，不应污染当前 Workpad。" }),
+    ]));
+  });
+
+  it("projects confirmed planning next action into the right confirmation queue", async () => {
+    await initHarness(project());
+    const topic = await createWorkbenchTopic(project(), {
+      title: "Ready Demand",
+      body: "Run the accepted plan.",
+    });
+    await writeAcceptedSpecAndTasks(topic.changeId);
+
+    const snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: topic.changeId });
+
+    expect(snapshot.center.workpad.nextAction).toMatchObject({
+      actionType: "planning.confirm-execution",
+      enabled: true,
+    });
+    expect(snapshot.right.confirmationQueue.primary).toMatchObject({
+      kind: "planning-confirm",
+      changeId: topic.changeId,
+      summary: expect.stringContaining("方案已经准备好"),
+    });
+    expect(snapshot.right.confirmationQueue.primary?.actions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ actionType: "planning.confirm-execution", label: "确认执行" }),
     ]));
   });
 
@@ -2260,21 +2285,79 @@ describe("workbench read model", () => {
     expect(forbidden.ok).toBe(false);
     expect(forbidden.readableMessage).toContain("用户确认");
 
-    const queued = await createAgentTask(memory, {
+    const dispatched = await dispatchForegroundRoleTask(memory, {
       conversationId: "delegate-task-demand",
       changeId: "delegate-task-demand",
       roleId: "coder-agent",
       kind: "foreground",
-      summary: "Implement via delegated task.",
+      goal: "Implement via delegated task.",
       inputArtifacts: ["harness/changes/active/delegate-task-demand/spec.md"],
+      delegationMode: "orchestrator-policy",
     });
-    expect(queued.status).toBe("queued");
-    expect(queued.startedAt).toBeNull();
-    const claimed = await claimAgentTask(memory, queued);
-    expect(claimed.status).toBe("claimed");
-    const running = await startAgentTask(memory, claimed);
-    expect(running.status).toBe("running");
-    expect(running.startedAt).toBeTruthy();
+    expect(dispatched.task.status).toBe("running");
+    expect(dispatched.task.startedAt).toBeTruthy();
+    expect(dispatched.policyAuditRef).toContain("tool-events.jsonl");
+    const tasks = await listAgentTasks(memory, "delegate-task-demand");
+    expect(tasks).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: dispatched.task.id, roleId: "coder-agent", status: "running" }),
+    ]));
+  });
+
+  it("enforces worker permission boundaries for delegation and high-impact actions", () => {
+    expect(workerPermissionProfileForRole("main-agent").mayDelegate).toBe(true);
+    expect(workerPermissionProfileForRole("coder-agent").mayDelegate).toBe(false);
+
+    const workerDelegation = evaluateToolPolicy({
+      actionType: "delegateTask",
+      actorRoleId: "coder-agent",
+      changeId: "boundary-demand",
+      conversationId: "boundary-demand",
+    });
+    expect(workerDelegation.status).toBe("denied");
+    expect(workerDelegation.readableMessage).toContain("不能继续委派");
+
+    const roleMerge = evaluateToolPolicy({
+      actionType: "remote-landing.merge",
+      actorRoleId: "auditor-agent",
+      changeId: "boundary-demand",
+      conversationId: "boundary-demand",
+    });
+    expect(roleMerge.status).toBe("denied");
+
+    const mainApply = evaluateToolPolicy({
+      actionType: "remote-landing.merge",
+      actorRoleId: "main-agent",
+      changeId: "boundary-demand",
+      conversationId: "boundary-demand",
+    });
+    expect(mainApply.status).toBe("needs-user-confirmation");
+  });
+
+  it("detects post-run boundary violations for source writes and read-only role writes", () => {
+    const coderViolations = findBoundaryViolations(workerPermissionProfileForRole("coder-agent"), {
+      sourceChanged: true,
+      changedPaths: ["src/pricing.ts", ".env"],
+      artifactRefs: ["runs/run-1/implementation.md"],
+    });
+    expect(coderViolations).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: "source-root-modified" }),
+      expect.objectContaining({ kind: "denied-path", path: ".env" }),
+    ]));
+
+    const validatorViolations = findBoundaryViolations(workerPermissionProfileForRole("validator"), {
+      changedPaths: ["src/pricing.ts"],
+      artifactRefs: ["validation/run-1/validation.json"],
+    });
+    expect(validatorViolations).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: "readonly-role-write", path: "src/pricing.ts" }),
+    ]));
+
+    const scopedViolations = findBoundaryViolations(workerPermissionProfileForRole("auditor-agent"), {
+      artifactRefs: ["C:/outside/audit.json", "../other-change/audit.json"],
+    });
+    expect(scopedViolations).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: "cross-demand-artifact" }),
+    ]));
   });
 
   it("routes planning confirmation through a demand worker queue when no worker slot is available", async () => {

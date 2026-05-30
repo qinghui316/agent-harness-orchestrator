@@ -418,9 +418,9 @@ function decisionActionFromWorkerStatus(status: CompleteDemandWorkerInput["statu
 }
 
 function resultReasonFromWorkerStatus(status: CompleteDemandWorkerInput["status"]): string {
-  if (status === "result-ready") return "Role pipeline produced evidence for user result review.";
-  if (status === "needs-user-input") return "Role pipeline needs user input before continuing.";
-  if (status === "failed") return "Role pipeline failed before result review.";
+  if (status === "result-ready") return "Main-agent role orchestration produced evidence for user result review.";
+  if (status === "needs-user-input") return "Main-agent role orchestration needs user input before continuing.";
+  if (status === "failed") return "Main-agent role orchestration failed before result review.";
   return "Demand worker reached a terminal state.";
 }
 

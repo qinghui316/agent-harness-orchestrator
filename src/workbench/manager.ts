@@ -595,6 +595,9 @@ export interface WorkbenchAgentTaskSummary {
   summary: string;
   resultSummary?: string;
   evidenceRefs: string[];
+  policyAuditRefs: string[];
+  boundaryAuditRefs: string[];
+  boundaryViolations: string[];
   createdAt: string;
   completedAt?: string;
 }
@@ -628,6 +631,9 @@ export interface WorkbenchRolePipelineSummary {
 export type DemandAgentRunGraphLaneId = "main" | "roles" | "integration" | "maintenance";
 export type DemandAgentRunGraphNodeKind =
   | "main-agent"
+  | "delegate-task"
+  | "tool-policy-gate"
+  | "boundary-audit"
   | "planning-agent"
   | "coder-agent"
   | "rework-coder"
@@ -984,6 +990,7 @@ export async function getWorkbenchSnapshot(input: WorkbenchProjectInput, options
     project: input.project,
     memory,
     selectedTopic,
+    workpad,
     decisionInspector,
   });
   const agentRunGraph = buildDemandAgentRunGraph({
@@ -1402,6 +1409,8 @@ function addRolePipelineGraphNodes(
     const nodeId = `role:${roleId}`;
     const evidenceRefs = [
       ...(task?.evidenceRefs ?? []).map((ref): DemandAgentRunEvidenceRef => ({ label: "角色输出", ref, kind: "artifact" })),
+      ...(task?.policyAuditRefs ?? []).map((ref): DemandAgentRunEvidenceRef => ({ label: "策略审计", ref, kind: "artifact" })),
+      ...(task?.boundaryAuditRefs ?? []).map((ref): DemandAgentRunEvidenceRef => ({ label: "边界审计", ref, kind: "artifact" })),
       ...(run?.artifact ? [{ label: "运行证据", ref: run.artifact, kind: "artifact" } satisfies DemandAgentRunEvidenceRef] : []),
       ...(run?.runId ? [{ label: "运行记录", ref: run.runId, kind: "run" } satisfies DemandAgentRunEvidenceRef] : []),
     ];
@@ -1422,9 +1431,59 @@ function addRolePipelineGraphNodes(
     });
     addGraphEdge(edges, "main-agent", nodeId, "delegates", `委派 ${roleLabelForGraph(roleId)}`);
     addGraphEdge(edges, nodeId, "main-agent", "returns", "结果回到主对话");
+    addRolePolicyAndBoundaryGraphNodes(nodes, edges, targetBase, task, nodeId);
     roleIds.push(nodeId);
   }
   return roleIds;
+}
+
+function addRolePolicyAndBoundaryGraphNodes(
+  nodes: Map<string, DemandAgentRunGraphNode>,
+  edges: DemandAgentRunGraphEdge[],
+  targetBase: DemandAgentRunGraphNode["target"],
+  task: WorkbenchAgentTaskSummary | undefined,
+  roleNodeId: string,
+): void {
+  if (!task) return;
+  if (task.policyAuditRefs.length > 0) {
+    const policyNodeId = `policy:${task.id}`;
+    addGraphNode(nodes, {
+      id: policyNodeId,
+      kind: "tool-policy-gate",
+      lane: "roles",
+      label: "ToolPolicyGate",
+      status: "completed",
+      summary: "已检查角色、范围、权限和人类确认边界。",
+      reason: "主 agent 的委派请求必须先通过 AHO 级策略门，不能让角色 agent 直接执行高影响动作。",
+      target: { ...targetBase, roleId: task.roleId, agentTaskId: task.id },
+      inputSummary: task.summary,
+      outputSummary: "delegateTask 请求已按策略记录和审计。",
+      evidenceRefs: task.policyAuditRefs.map((ref): DemandAgentRunEvidenceRef => ({ label: "策略审计", ref, kind: "artifact" })),
+      attempts: [],
+    });
+    addGraphEdge(edges, "main-agent", policyNodeId, "delegates", "请求策略检查");
+    addGraphEdge(edges, policyNodeId, roleNodeId, "continues-to", "策略放行后委派角色");
+  }
+  if (task.boundaryAuditRefs.length > 0) {
+    const failed = task.boundaryViolations.length > 0;
+    const boundaryNodeId = `boundary:${task.id}`;
+    addGraphNode(nodes, {
+      id: boundaryNodeId,
+      kind: "boundary-audit",
+      lane: "roles",
+      label: "边界审计",
+      status: failed ? "failed" : "completed",
+      summary: failed ? task.boundaryViolations.join("；") : "角色输出没有越过本次需求边界。",
+      reason: "AHO 对角色运行后的 worktree/source/evidence 状态做兜底检查，发现越界时阻止结果进入应用流程。",
+      target: { ...targetBase, roleId: task.roleId, agentTaskId: task.id },
+      inputSummary: task.resultSummary ?? task.summary,
+      outputSummary: failed ? "发现越界，结果已隔离。" : "边界审计通过。",
+      evidenceRefs: task.boundaryAuditRefs.map((ref): DemandAgentRunEvidenceRef => ({ label: "边界审计", ref, kind: "artifact" })),
+      attempts: [],
+    });
+    addGraphEdge(edges, roleNodeId, boundaryNodeId, "returns", "输出进入边界审计");
+    addGraphEdge(edges, boundaryNodeId, "main-agent", "returns", failed ? "边界问题回到主对话" : "审计结果回到主对话");
+  }
 }
 
 function latestAgentTaskByRole(tasks: WorkbenchAgentTaskSummary[]): Map<string, WorkbenchAgentTaskSummary> {
@@ -1452,7 +1511,7 @@ function buildRoleAttempts(roleId: string, tasks: WorkbenchAgentTaskSummary[], r
       status: graphStatusFromRoleStatus(task.status),
       summary: task.resultSummary ?? task.summary,
       timestamp: task.completedAt ?? task.createdAt,
-      evidenceRefs: task.evidenceRefs.map((ref): DemandAgentRunEvidenceRef => ({ label: "角色输出", ref, kind: "artifact" })),
+    evidenceRefs: task.evidenceRefs.map((ref): DemandAgentRunEvidenceRef => ({ label: "角色输出", ref, kind: "artifact" })),
     }));
   for (const run of runs.filter((item) => item.roleId === roleId && item.runId)) {
     attempts.push({
@@ -1720,6 +1779,9 @@ function roleReason(roleId: string): string {
 function graphNodeKindLabel(kind: DemandAgentRunGraphNodeKind): string {
   const labels: Record<DemandAgentRunGraphNodeKind, string> = {
     "main-agent": "主 agent",
+    "delegate-task": "delegateTask",
+    "tool-policy-gate": "ToolPolicyGate",
+    "boundary-audit": "边界审计",
     "planning-agent": "planning-agent",
     "coder-agent": "coder-agent",
     "rework-coder": "rework-coder",
@@ -1898,6 +1960,9 @@ async function agentTaskToSummary(memory: ResolvedMemory, task: AgentTask): Prom
     summary: task.summary,
     resultSummary: result?.summary,
     evidenceRefs: result?.artifactRefs ?? task.outputArtifacts ?? task.inputArtifacts,
+    policyAuditRefs: result?.policyAuditRefs ?? [],
+    boundaryAuditRefs: result?.boundaryAuditRefs ?? [],
+    boundaryViolations: (result?.boundaryViolations ?? []).map((violation) => violation.reason),
     createdAt: task.createdAt,
     completedAt: task.finishedAt ?? undefined,
   };
@@ -2839,10 +2904,12 @@ async function buildConfirmationQueue(input: {
   project: ManagedProject | null;
   memory: ResolvedMemory;
   selectedTopic: WorkbenchTopicDetail | null;
+  workpad: WorkbenchWorkpad;
   decisionInspector: WorkbenchDecisionInspector;
 }): Promise<WorkbenchConfirmationQueue> {
   const queue = emptyConfirmationQueue();
   const currentItems = [
+    ...workpadNextActionToConfirmationItems(input.project, input.selectedTopic, input.workpad),
     ...decisionContextToConfirmationItems(input.decisionInspector.primary, true),
     ...input.decisionInspector.related.flatMap((context) => decisionContextToConfirmationItems(context, false)),
   ];
@@ -2914,6 +2981,38 @@ async function buildConfirmationQueue(input: {
   queue.otherDemands = dedupeConfirmationItems(queue.otherDemands);
   queue.primary = queue.current.find((item) => item.primary) ?? queue.current[0] ?? null;
   return queue;
+}
+
+function workpadNextActionToConfirmationItems(
+  project: ManagedProject | null,
+  selectedTopic: WorkbenchTopicDetail | null,
+  workpad: WorkbenchWorkpad,
+): WorkbenchConfirmationQueueItem[] {
+  const action = workpad.nextAction;
+  if (!selectedTopic || !action.enabled || action.kind !== "workflow-action" || !action.requiresConfirmation || !action.actionType) return [];
+  if (action.actionType !== "planning.confirm-execution") return [];
+  return [{
+    id: `confirm:planning:${selectedTopic.id}`,
+    kind: "planning-confirm",
+    projectId: project?.id ?? null,
+    conversationId: selectedTopic.id,
+    changeId: selectedTopic.id,
+    summary: "方案已经准备好，可以进入实现、验证和审查。",
+    whyNeedsConfirmation: "需要你确认当前方案进入执行。",
+    confirmEffect: action.description || "确认后，主 agent 会通过受控委派启动后续角色执行。",
+    riskSummary: "执行只会在 AHO-owned worktree 中产出结果；应用到项目仍需要之后单独确认。",
+    evidenceRefs: workpad.planningArtifactBundle?.artifact ? [workpad.planningArtifactBundle.artifact] : [],
+    actions: [{
+      id: `workflow:planning.confirm-execution:${selectedTopic.id}`,
+      label: action.label,
+      kind: "workflow-action",
+      actionType: "planning.confirm-execution",
+      enabled: true,
+      requiresConfirmation: true,
+    }],
+    primary: true,
+    status: "pending",
+  }];
 }
 
 function landingCandidateQueueItem(project: ManagedProject, candidate: LandingCandidate, selectedChangeId: string | undefined): WorkbenchConfirmationQueueItem {
