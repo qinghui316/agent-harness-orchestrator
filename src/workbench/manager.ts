@@ -624,6 +624,105 @@ export interface WorkbenchRolePipelineSummary {
   reworkBudget: number;
 }
 
+export type DemandAgentRunGraphLaneId = "main" | "roles" | "integration" | "maintenance";
+export type DemandAgentRunGraphNodeKind =
+  | "main-agent"
+  | "planning-agent"
+  | "coder-agent"
+  | "rework-coder"
+  | "validator"
+  | "auditor-agent"
+  | "result-review"
+  | "integration-check"
+  | "integration-fix-agent"
+  | "merge-reviewer-agent"
+  | "pr-draft-adapter"
+  | "pr-feedback-sweep"
+  | "pr-review-handoff"
+  | "remote-landing"
+  | "post-merge-sync"
+  | "remote-branch-cleanup"
+  | "memory-closeout"
+  | "documentation-agent"
+  | "architecture-agent"
+  | "evolution-agent"
+  | "evolution-scorer"
+  | "evolution-reviewer";
+export type DemandAgentRunGraphNodeStatus = "idle" | "queued" | "running" | "completed" | "needs-change" | "failed" | "waiting-user" | "skipped";
+export type DemandAgentRunGraphEdgeKind = "delegates" | "returns" | "requires-evidence" | "triggers-rework" | "continues-to" | "background-maintenance";
+
+export interface DemandAgentRunEvidenceRef {
+  label: string;
+  ref: string;
+  kind: "artifact" | "run" | "task" | "decision" | "remote" | "maintenance";
+}
+
+export interface DemandAgentRunAttemptSummary {
+  id: string;
+  status: DemandAgentRunGraphNodeStatus;
+  summary: string;
+  timestamp?: string;
+  evidenceRefs: DemandAgentRunEvidenceRef[];
+}
+
+export interface DemandAgentRunGraphNode {
+  id: string;
+  kind: DemandAgentRunGraphNodeKind;
+  lane: DemandAgentRunGraphLaneId;
+  label: string;
+  roleId?: string;
+  status: DemandAgentRunGraphNodeStatus;
+  summary: string;
+  reason: string;
+  target: {
+    projectId?: string | null;
+    conversationId?: string;
+    changeId?: string;
+    roleId?: string;
+    agentTaskId?: string;
+    runId?: string;
+    worktreeId?: string;
+    resultId?: string;
+    applyCheckId?: string;
+    landingPackageId?: string;
+    prDraftPackageId?: string;
+    prUrl?: string;
+    remoteLandingResultId?: string;
+    maintenanceRunId?: string;
+    candidateId?: string;
+  };
+  inputSummary?: string;
+  outputSummary?: string;
+  evidenceRefs: DemandAgentRunEvidenceRef[];
+  attempts: DemandAgentRunAttemptSummary[];
+  feedbackAction?: WorkbenchDecisionAction;
+}
+
+export interface DemandAgentRunGraphEdge {
+  id: string;
+  from: string;
+  to: string;
+  kind: DemandAgentRunGraphEdgeKind;
+  label: string;
+}
+
+export interface DemandAgentRunGraphLane {
+  id: DemandAgentRunGraphLaneId;
+  label: string;
+  description: string;
+}
+
+export interface DemandAgentRunGraph {
+  conversationId?: string;
+  changeId?: string;
+  title: string;
+  summary: string;
+  lanes: DemandAgentRunGraphLane[];
+  nodes: DemandAgentRunGraphNode[];
+  edges: DemandAgentRunGraphEdge[];
+  updatedAt?: string;
+}
+
 export type WorkbenchResultReviewStatus =
   | "not-ready"
   | "ready-to-apply"
@@ -791,6 +890,7 @@ export interface WorkbenchSnapshot {
     agentLoop: {
       runs: RunMetadata[];
     };
+    agentRunGraph: DemandAgentRunGraph;
   };
   right: {
     approvals: WorkbenchApprovalItem[];
@@ -839,7 +939,7 @@ export async function getWorkbenchSnapshot(input: WorkbenchProjectInput, options
         workpads: [],
         repo: buildRepoSummary(projectStatus),
       },
-      center: { selectedTopic: null, workpad: diagnosticWorkpad, thread: { items: [] }, agentLoop: { runs: [] } },
+      center: { selectedTopic: null, workpad: diagnosticWorkpad, thread: { items: [] }, agentLoop: { runs: [] }, agentRunGraph: emptyAgentRunGraph() },
       right: { approvals: [], decisions: [], decisionInspector: emptyDecisionInspector(), confirmationQueue: emptyConfirmationQueue() },
       roles,
       harnessGaps: gaps,
@@ -875,6 +975,12 @@ export async function getWorkbenchSnapshot(input: WorkbenchProjectInput, options
     selectedTopic,
     decisionInspector,
   });
+  const agentRunGraph = buildDemandAgentRunGraph({
+    project: input.project,
+    selectedTopic,
+    workpad,
+    confirmationQueue,
+  });
   return {
     project: input.project,
     memory: memoryStatus,
@@ -890,6 +996,7 @@ export async function getWorkbenchSnapshot(input: WorkbenchProjectInput, options
       workpad,
       thread: { items: selectedTopic?.threadItems ?? [] },
       agentLoop: { runs: selectedTopic?.runs ?? [] },
+      agentRunGraph,
     },
     right: { approvals, decisions, decisionInspector, confirmationQueue },
     roles,
@@ -1161,6 +1268,464 @@ async function buildWorkbenchWorkpad(input: {
     background: buildWorkpadBackground(workpads, selectedTopic.id),
     memoryIsolation: buildWorkpadMemoryIsolation(memory, selectedTopic, workpads),
   };
+}
+
+function emptyAgentRunGraph(): DemandAgentRunGraph {
+  return {
+    title: "执行过程",
+    summary: "选择一个需求后，这里会显示主 agent 调用了哪些角色和工具。",
+    lanes: demandAgentRunGraphLanes(),
+    nodes: [],
+    edges: [],
+  };
+}
+
+function demandAgentRunGraphLanes(): DemandAgentRunGraphLane[] {
+  return [
+    { id: "main", label: "主 agent", description: "用户交互入口和调度解释。" },
+    { id: "roles", label: "主流程", description: "规划、实现、验证、审查和结果整理。" },
+    { id: "integration", label: "集成 / PR / 合并", description: "兼容性检查、PR、评审、远端合并和合并后处理。" },
+    { id: "maintenance", label: "后台维护", description: "需求记忆、文档漂移和 Harness 演进候选。" },
+  ];
+}
+
+function buildDemandAgentRunGraph(input: {
+  project: ManagedProject | null;
+  selectedTopic: WorkbenchTopicDetail | null;
+  workpad: WorkbenchWorkpad;
+  confirmationQueue: WorkbenchConfirmationQueue;
+}): DemandAgentRunGraph {
+  const { project, selectedTopic, workpad, confirmationQueue } = input;
+  if (!selectedTopic) return emptyAgentRunGraph();
+
+  const nodes = new Map<string, DemandAgentRunGraphNode>();
+  const edges: DemandAgentRunGraphEdge[] = [];
+  const targetBase = { projectId: project?.id ?? null, conversationId: selectedTopic.id, changeId: selectedTopic.id };
+
+  const mainStatus = graphStatusFromLifecycle(workpad.conversationLifecycle);
+  addGraphNode(nodes, {
+    id: "main-agent",
+    kind: "main-agent",
+    lane: "main",
+    label: "主 agent",
+    status: mainStatus,
+    summary: parentAgentGraphSummary(workpad),
+    reason: "负责理解需求、解释进展、委派角色，并把结果回到主对话。",
+    target: targetBase,
+    inputSummary: workpad.intake.goal,
+    outputSummary: workpad.intake.currentUnderstanding,
+    evidenceRefs: [],
+    attempts: [],
+  });
+
+  if (workpad.planningArtifactBundle || workpad.planningDraft) {
+    const bundle = workpad.planningArtifactBundle ?? workpad.planningDraft;
+    if (bundle) {
+      addGraphNode(nodes, {
+        id: "role:planning-agent",
+        kind: "planning-agent",
+        lane: "roles",
+        label: "planning-agent",
+        roleId: "planning-agent",
+        status: workpad.planningArtifactBundle?.status === "confirmed" ? "completed" : "waiting-user",
+        summary: bundle.goal,
+        reason: "主 agent 用它把需求沉淀为可执行方案。",
+        target: { ...targetBase, roleId: "planning-agent" },
+        inputSummary: workpad.intake.currentUnderstanding,
+        outputSummary: bundle.design,
+        evidenceRefs: bundle.artifact ? [{ label: "方案证据", ref: bundle.artifact, kind: "artifact" }] : [],
+        attempts: [],
+      });
+      addGraphEdge(edges, "main-agent", "role:planning-agent", "delegates", "整理方案");
+      addGraphEdge(edges, "role:planning-agent", "main-agent", "returns", "方案回到主对话");
+    }
+  }
+
+  const roleNodeIds = addRolePipelineGraphNodes(nodes, edges, targetBase, workpad.rolePipeline);
+  connectRolePath(edges, roleNodeIds);
+  addResultReviewGraphNode(nodes, edges, targetBase, workpad.resultReview, roleNodeIds.at(-1));
+  addConfirmationGraphNodes(nodes, edges, targetBase, confirmationQueue);
+  addMaintenanceGraphNodes(nodes, edges, targetBase, workpad.maintenance);
+
+  return {
+    conversationId: selectedTopic.id,
+    changeId: selectedTopic.id,
+    title: selectedTopic.title,
+    summary: `${nodes.size} 个 agent/tool 节点；${workpad.maintenance?.status && workpad.maintenance.status !== "idle" ? "包含后台维护节点。" : "后台维护空闲。"}`,
+    lanes: demandAgentRunGraphLanes(),
+    nodes: [...nodes.values()],
+    edges: dedupeGraphEdges(edges),
+    updatedAt: selectedTopic.updatedAt,
+  };
+}
+
+function parentAgentGraphSummary(workpad: WorkbenchWorkpad): string {
+  if (workpad.resultReview) return "已汇总实现结果、验证、审查和下一步决定。";
+  if (workpad.rolePipeline?.status === "running") return "正在调度角色 agent 执行当前需求。";
+  if (workpad.rolePipeline) return "已建立角色执行链路并收集结果。";
+  if (workpad.planningArtifactBundle) return "已整理方案，等待确认或进入执行。";
+  return "正在理解当前需求。";
+}
+
+function addRolePipelineGraphNodes(
+  nodes: Map<string, DemandAgentRunGraphNode>,
+  edges: DemandAgentRunGraphEdge[],
+  targetBase: DemandAgentRunGraphNode["target"],
+  pipeline: WorkbenchRolePipelineSummary | undefined,
+): string[] {
+  if (!pipeline) return [];
+  const roleIds: string[] = [];
+  const taskByRole = latestAgentTaskByRole(pipeline.agentTasks);
+  const runByRole = latestRunByRole(pipeline.runs);
+  const orderedRoles = ["planning-agent", "coder-agent", "rework-coder", "validator", "auditor-agent"];
+  for (const roleId of orderedRoles) {
+    const task = taskByRole.get(roleId);
+    const run = runByRole.get(roleId);
+    if (!task && !run) continue;
+    const nodeId = `role:${roleId}`;
+    const evidenceRefs = [
+      ...(task?.evidenceRefs ?? []).map((ref): DemandAgentRunEvidenceRef => ({ label: "角色输出", ref, kind: "artifact" })),
+      ...(run?.artifact ? [{ label: "运行证据", ref: run.artifact, kind: "artifact" } satisfies DemandAgentRunEvidenceRef] : []),
+      ...(run?.runId ? [{ label: "运行记录", ref: run.runId, kind: "run" } satisfies DemandAgentRunEvidenceRef] : []),
+    ];
+    addGraphNode(nodes, {
+      id: nodeId,
+      kind: roleKindFromRoleId(roleId),
+      lane: "roles",
+      label: roleLabelForGraph(roleId),
+      roleId,
+      status: graphStatusFromRoleStatus(task?.status ?? run?.status),
+      summary: task?.resultSummary ?? task?.summary ?? run?.summary ?? "角色执行记录已生成。",
+      reason: roleReason(roleId),
+      target: { ...targetBase, roleId, agentTaskId: task?.id, runId: run?.runId },
+      inputSummary: task?.summary,
+      outputSummary: task?.resultSummary ?? run?.summary,
+      evidenceRefs,
+      attempts: buildRoleAttempts(roleId, pipeline.agentTasks, pipeline.runs),
+    });
+    addGraphEdge(edges, "main-agent", nodeId, "delegates", `委派 ${roleLabelForGraph(roleId)}`);
+    addGraphEdge(edges, nodeId, "main-agent", "returns", "结果回到主对话");
+    roleIds.push(nodeId);
+  }
+  return roleIds;
+}
+
+function latestAgentTaskByRole(tasks: WorkbenchAgentTaskSummary[]): Map<string, WorkbenchAgentTaskSummary> {
+  const map = new Map<string, WorkbenchAgentTaskSummary>();
+  for (const task of tasks) {
+    const existing = map.get(task.roleId);
+    if (!existing || (task.completedAt ?? task.createdAt).localeCompare(existing.completedAt ?? existing.createdAt) > 0) {
+      map.set(task.roleId, task);
+    }
+  }
+  return map;
+}
+
+function latestRunByRole(runs: WorkbenchRoleRunSummary[]): Map<string, WorkbenchRoleRunSummary> {
+  const map = new Map<string, WorkbenchRoleRunSummary>();
+  for (const run of runs) map.set(run.roleId, run);
+  return map;
+}
+
+function buildRoleAttempts(roleId: string, tasks: WorkbenchAgentTaskSummary[], runs: WorkbenchRoleRunSummary[]): DemandAgentRunAttemptSummary[] {
+  const attempts: DemandAgentRunAttemptSummary[] = tasks
+    .filter((task) => task.roleId === roleId)
+    .map((task) => ({
+      id: task.id,
+      status: graphStatusFromRoleStatus(task.status),
+      summary: task.resultSummary ?? task.summary,
+      timestamp: task.completedAt ?? task.createdAt,
+      evidenceRefs: task.evidenceRefs.map((ref): DemandAgentRunEvidenceRef => ({ label: "角色输出", ref, kind: "artifact" })),
+    }));
+  for (const run of runs.filter((item) => item.roleId === roleId && item.runId)) {
+    attempts.push({
+      id: run.runId ?? `${roleId}:${run.status}`,
+      status: graphStatusFromRoleStatus(run.status),
+      summary: run.summary,
+      evidenceRefs: [
+        ...(run.runId ? [{ label: "运行记录", ref: run.runId, kind: "run" } satisfies DemandAgentRunEvidenceRef] : []),
+        ...(run.artifact ? [{ label: "运行证据", ref: run.artifact, kind: "artifact" } satisfies DemandAgentRunEvidenceRef] : []),
+      ],
+    });
+  }
+  return attempts.slice(-5);
+}
+
+function addResultReviewGraphNode(
+  nodes: Map<string, DemandAgentRunGraphNode>,
+  edges: DemandAgentRunGraphEdge[],
+  targetBase: DemandAgentRunGraphNode["target"],
+  review: WorkbenchResultReview | undefined,
+  previousNodeId: string | undefined,
+): void {
+  if (!review) return;
+  const evidenceRefs = review.evidence.map((item): DemandAgentRunEvidenceRef => ({
+    label: item.label,
+    ref: item.artifact ?? item.id,
+    kind: item.artifact ? "artifact" : "decision",
+  }));
+  if (review.validation?.runId) evidenceRefs.push({ label: "验证运行", ref: review.validation.runId, kind: "run" });
+  if (review.audit?.artifact) evidenceRefs.push({ label: "审查证据", ref: review.audit.artifact, kind: "artifact" });
+  addGraphNode(nodes, {
+    id: "result-review",
+    kind: "result-review",
+    lane: "roles",
+    label: "结果整理",
+    status: review.status === "needs-rework" ? "needs-change" : review.status === "not-ready" ? "idle" : "completed",
+    summary: review.summary,
+    reason: "主 agent 把实现、验证和审查整理成用户可决定的结果。",
+    target: { ...targetBase, worktreeId: review.worktreeId, resultId: review.worktreeId },
+    inputSummary: review.changedFiles.join(", "),
+    outputSummary: review.applyReadiness.message,
+    evidenceRefs,
+    attempts: [],
+  });
+  if (previousNodeId) addGraphEdge(edges, previousNodeId, "result-review", "continues-to", "汇总结果");
+  addGraphEdge(edges, "result-review", "main-agent", "returns", "结果回到主对话");
+}
+
+function addConfirmationGraphNodes(
+  nodes: Map<string, DemandAgentRunGraphNode>,
+  edges: DemandAgentRunGraphEdge[],
+  targetBase: DemandAgentRunGraphNode["target"],
+  queue: WorkbenchConfirmationQueue,
+): void {
+  const items = [...queue.current, ...(queue.primary ? [queue.primary] : [])];
+  for (const item of dedupeConfirmationItems(items).filter((entry) => entry.changeId === targetBase.changeId || entry.conversationId === targetBase.conversationId)) {
+    const node = confirmationNodeFromItem(targetBase, item);
+    if (!node) continue;
+    addGraphNode(nodes, node);
+    addGraphEdge(edges, "main-agent", node.id, node.kind === "memory-closeout" ? "background-maintenance" : "continues-to", item.summary);
+    if (nodes.has("result-review")) addGraphEdge(edges, "result-review", node.id, "continues-to", item.whyNeedsConfirmation);
+  }
+}
+
+function confirmationNodeFromItem(targetBase: DemandAgentRunGraphNode["target"], item: WorkbenchConfirmationQueueItem): DemandAgentRunGraphNode | null {
+  const map: Partial<Record<WorkbenchConfirmationQueueItemKind, DemandAgentRunGraphNodeKind>> = {
+    "integration-check": "integration-check",
+    "integration-apply": "integration-check",
+    "landing-readiness": "merge-reviewer-agent",
+    "landing-queue": "remote-landing",
+    "pr-draft": "pr-draft-adapter",
+    "pr-review": "pr-review-handoff",
+    "remote-landing": "remote-landing",
+    "post-merge": "post-merge-sync",
+  };
+  const kind = map[item.kind];
+  if (!kind) return null;
+  const lane: DemandAgentRunGraphLaneId = kind === "pr-draft-adapter" || kind === "pr-review-handoff" || kind === "remote-landing" || kind === "post-merge-sync" || kind === "merge-reviewer-agent" || kind === "integration-check"
+    ? "integration"
+    : "roles";
+  return {
+    id: `confirm:${item.id}`,
+    kind,
+    lane,
+    label: graphNodeKindLabel(kind),
+    status: item.status === "failed" ? "failed" : item.status === "passed" || item.status === "applied" ? "completed" : "waiting-user",
+    summary: item.summary,
+    reason: item.whyNeedsConfirmation,
+    target: {
+      ...targetBase,
+      resultId: item.resultId,
+      runId: item.runId,
+      worktreeId: item.worktreeId,
+      applyCheckId: item.applyCheckId,
+      landingPackageId: item.landingPackageId,
+    },
+    inputSummary: item.riskSummary,
+    outputSummary: item.confirmEffect,
+    evidenceRefs: item.evidenceRefs.map((ref): DemandAgentRunEvidenceRef => ({ label: "确认证据", ref, kind: "artifact" })),
+    attempts: [],
+  };
+}
+
+function addMaintenanceGraphNodes(
+  nodes: Map<string, DemandAgentRunGraphNode>,
+  edges: DemandAgentRunGraphEdge[],
+  targetBase: DemandAgentRunGraphNode["target"],
+  maintenance: WorkbenchMaintenanceSummary | undefined,
+): void {
+  if (!maintenance || maintenance.status === "idle") return;
+  if (maintenance.closeoutCount > 0) {
+    addGraphNode(nodes, {
+      id: "maintenance:memory-closeout",
+      kind: "memory-closeout",
+      lane: "maintenance",
+      label: "记忆 closeout",
+      status: "completed",
+      summary: maintenance.latest?.summary ?? "已记录终态需求记忆。",
+      reason: "后台维护把终态需求写入 append-only evidence ledger。",
+      target: { ...targetBase, maintenanceRunId: maintenance.latest?.id },
+      inputSummary: "终态需求、用户决定和证据引用。",
+      outputSummary: maintenance.note,
+      evidenceRefs: maintenance.latest ? [{ label: "维护记录", ref: maintenance.latest.id, kind: "maintenance" }] : [],
+      attempts: [],
+    });
+    addGraphEdge(edges, "main-agent", "maintenance:memory-closeout", "background-maintenance", "记录需求记忆");
+  }
+  if (maintenance.unreviewedTerminalCount > 0 || maintenance.status === "review-ready" || maintenance.status === "reviewed") {
+    const docStatus = maintenance.status === "review-ready" ? "queued" : maintenance.status === "reviewed" ? "completed" : "idle";
+    addGraphNode(nodes, {
+      id: "maintenance:documentation-agent",
+      kind: "documentation-agent",
+      lane: "maintenance",
+      label: "documentation-agent",
+      status: docStatus,
+      summary: `待维护审查 ${maintenance.unreviewedTerminalCount} 个终态需求。`,
+      reason: "后台检查文档漂移候选，但不会静默修改 canonical docs。",
+      target: { ...targetBase, maintenanceRunId: maintenance.latestReviewWindowId },
+      evidenceRefs: [],
+      attempts: [],
+    });
+    addGraphEdge(edges, "maintenance:memory-closeout", "maintenance:documentation-agent", "background-maintenance", "检查文档漂移");
+  }
+  if (maintenance.latestReviewWindowId) {
+    for (const [id, kind, label] of [
+      ["maintenance:evolution-scorer", "evolution-scorer", "evolution-scorer"],
+      ["maintenance:evolution-reviewer", "evolution-reviewer", "evolution-reviewer"],
+    ] as const) {
+      addGraphNode(nodes, {
+        id,
+        kind,
+        lane: "maintenance",
+        label,
+        status: "completed",
+        summary: `维护窗口 ${maintenance.latestReviewWindowId} 已完成评分/审查。`,
+        reason: "后台维护只产生候选、评分和审查，不进入当前需求确认队列。",
+        target: { ...targetBase, maintenanceRunId: maintenance.latestReviewWindowId },
+        evidenceRefs: [{ label: "维护窗口", ref: maintenance.latestReviewWindowId, kind: "maintenance" }],
+        attempts: [],
+      });
+    }
+    addGraphEdge(edges, "maintenance:documentation-agent", "maintenance:evolution-scorer", "background-maintenance", "评分候选");
+    addGraphEdge(edges, "maintenance:evolution-scorer", "maintenance:evolution-reviewer", "background-maintenance", "审查候选");
+  }
+}
+
+function connectRolePath(edges: DemandAgentRunGraphEdge[], nodeIds: string[]): void {
+  for (let index = 1; index < nodeIds.length; index += 1) {
+    addGraphEdge(edges, nodeIds[index - 1], nodeIds[index], nodeIds[index].includes("validator") || nodeIds[index].includes("auditor") ? "requires-evidence" : "continues-to", "进入下一角色");
+  }
+}
+
+function addGraphNode(nodes: Map<string, DemandAgentRunGraphNode>, node: DemandAgentRunGraphNode): void {
+  const existing = nodes.get(node.id);
+  if (!existing) {
+    nodes.set(node.id, node);
+    return;
+  }
+  nodes.set(node.id, {
+    ...existing,
+    ...node,
+    evidenceRefs: dedupeEvidenceRefs([...existing.evidenceRefs, ...node.evidenceRefs]),
+    attempts: dedupeGraphAttempts([...existing.attempts, ...node.attempts]),
+  });
+}
+
+function addGraphEdge(edges: DemandAgentRunGraphEdge[], from: string, to: string, kind: DemandAgentRunGraphEdgeKind, label: string): void {
+  if (from === to) return;
+  edges.push({ id: `${from}->${to}:${kind}`, from, to, kind, label });
+}
+
+function dedupeGraphEdges(edges: DemandAgentRunGraphEdge[]): DemandAgentRunGraphEdge[] {
+  const seen = new Set<string>();
+  return edges.filter((edge) => {
+    if (seen.has(edge.id)) return false;
+    seen.add(edge.id);
+    return true;
+  });
+}
+
+function dedupeEvidenceRefs(refs: DemandAgentRunEvidenceRef[]): DemandAgentRunEvidenceRef[] {
+  const seen = new Set<string>();
+  return refs.filter((item) => {
+    const key = `${item.kind}:${item.ref}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function dedupeGraphAttempts(attempts: DemandAgentRunAttemptSummary[]): DemandAgentRunAttemptSummary[] {
+  const seen = new Set<string>();
+  return attempts.filter((attempt) => {
+    if (seen.has(attempt.id)) return false;
+    seen.add(attempt.id);
+    return true;
+  }).slice(-8);
+}
+
+function graphStatusFromLifecycle(lifecycle: WorkbenchConversationLifecycle): DemandAgentRunGraphNodeStatus {
+  if (lifecycle === "running") return "running";
+  if (lifecycle === "waiting-user") return "waiting-user";
+  if (lifecycle === "archived-readonly") return "completed";
+  if (lifecycle === "abandoned") return "skipped";
+  return "idle";
+}
+
+function graphStatusFromRoleStatus(status: string | undefined): DemandAgentRunGraphNodeStatus {
+  const normalized = (status ?? "").toLowerCase();
+  if (["running", "created", "claimed", "in-progress"].includes(normalized)) return "running";
+  if (["queued", "pending", "draft"].includes(normalized)) return "queued";
+  if (["completed", "passed", "approved", "approved-with-notes", "ready", "done"].includes(normalized)) return "completed";
+  if (["failed", "error", "blocked"].includes(normalized)) return normalized === "blocked" ? "needs-change" : "failed";
+  if (["needs-user-input", "needs-rework", "changes-requested"].includes(normalized)) return "needs-change";
+  if (["cancelled", "skipped", "stopped"].includes(normalized)) return "skipped";
+  return "idle";
+}
+
+function roleKindFromRoleId(roleId: string): DemandAgentRunGraphNodeKind {
+  if (roleId === "planning-agent") return "planning-agent";
+  if (roleId === "rework-coder") return "rework-coder";
+  if (roleId === "validator") return "validator";
+  if (roleId === "auditor-agent") return "auditor-agent";
+  return "coder-agent";
+}
+
+function roleLabelForGraph(roleId: string): string {
+  if (roleId === "planning-agent") return "planning-agent";
+  if (roleId === "coder-agent") return "coder-agent";
+  if (roleId === "rework-coder") return "rework-coder";
+  if (roleId === "validator") return "validator";
+  if (roleId === "auditor-agent") return "auditor-agent";
+  return roleId;
+}
+
+function roleReason(roleId: string): string {
+  if (roleId === "planning-agent") return "主 agent 委派它把需求澄清和方案沉淀为可执行草案。";
+  if (roleId === "coder-agent") return "主 agent 委派它在隔离工作区实现并自测。";
+  if (roleId === "rework-coder") return "主 agent 根据失败证据或用户反馈委派它重新处理。";
+  if (roleId === "validator") return "主 agent 委派它做独立机械验证。";
+  if (roleId === "auditor-agent") return "主 agent 委派它做语义审查。";
+  return "主 agent 委派该角色处理当前需求的一部分。";
+}
+
+function graphNodeKindLabel(kind: DemandAgentRunGraphNodeKind): string {
+  const labels: Record<DemandAgentRunGraphNodeKind, string> = {
+    "main-agent": "主 agent",
+    "planning-agent": "planning-agent",
+    "coder-agent": "coder-agent",
+    "rework-coder": "rework-coder",
+    "validator": "validator",
+    "auditor-agent": "auditor-agent",
+    "result-review": "结果整理",
+    "integration-check": "兼容性检查",
+    "integration-fix-agent": "integration-fix-agent",
+    "merge-reviewer-agent": "merge-reviewer-agent",
+    "pr-draft-adapter": "PR 草稿",
+    "pr-feedback-sweep": "PR 反馈检查",
+    "pr-review-handoff": "人工评审",
+    "remote-landing": "远端合并",
+    "post-merge-sync": "本地同步",
+    "remote-branch-cleanup": "远端分支清理",
+    "memory-closeout": "记忆 closeout",
+    "documentation-agent": "documentation-agent",
+    "architecture-agent": "architecture-agent",
+    "evolution-agent": "evolution-agent",
+    "evolution-scorer": "evolution-scorer",
+    "evolution-reviewer": "evolution-reviewer",
+  };
+  return labels[kind];
 }
 
 function emptyProgress(topicState: WorkpadProgress["topicState"]): WorkpadProgress {

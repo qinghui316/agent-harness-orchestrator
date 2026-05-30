@@ -43,6 +43,7 @@ type Snapshot = {
     workpad: Workpad;
     agentLoop: { runs: RunSummary[] };
     thread: { items: ThreadStreamItem[] };
+    agentRunGraph: DemandAgentRunGraph;
   };
   right: { approvals: Approval[]; decisions: Decision[]; decisionInspector: DecisionInspector; confirmationQueue: ConfirmationQueue };
   harnessGaps: Array<{ id: string; status: string; summary: string }>;
@@ -68,6 +69,53 @@ type WorkpadSummary = {
   latestRunId?: string;
   queueStatus?: string;
   blocker?: string;
+  updatedAt?: string;
+};
+type DemandAgentRunGraphLaneId = "main" | "roles" | "integration" | "maintenance";
+type DemandAgentRunGraphNodeStatus = "idle" | "queued" | "running" | "completed" | "needs-change" | "failed" | "waiting-user" | "skipped";
+type DemandAgentRunGraphEvidenceRef = { label: string; ref: string; kind: "artifact" | "run" | "task" | "decision" | "remote" | "maintenance" };
+type DemandAgentRunGraphAttempt = { id: string; status: DemandAgentRunGraphNodeStatus; summary: string; timestamp?: string; evidenceRefs: DemandAgentRunGraphEvidenceRef[] };
+type DemandAgentRunGraphNode = {
+  id: string;
+  kind: string;
+  lane: DemandAgentRunGraphLaneId;
+  label: string;
+  roleId?: string;
+  status: DemandAgentRunGraphNodeStatus;
+  summary: string;
+  reason: string;
+  target: {
+    projectId?: string | null;
+    conversationId?: string;
+    changeId?: string;
+    roleId?: string;
+    agentTaskId?: string;
+    runId?: string;
+    worktreeId?: string;
+    resultId?: string;
+    applyCheckId?: string;
+    landingPackageId?: string;
+    prDraftPackageId?: string;
+    prUrl?: string;
+    remoteLandingResultId?: string;
+    maintenanceRunId?: string;
+    candidateId?: string;
+  };
+  inputSummary?: string;
+  outputSummary?: string;
+  evidenceRefs: DemandAgentRunGraphEvidenceRef[];
+  attempts: DemandAgentRunGraphAttempt[];
+};
+type DemandAgentRunGraphEdge = { id: string; from: string; to: string; kind: string; label: string };
+type DemandAgentRunGraphLane = { id: DemandAgentRunGraphLaneId; label: string; description: string };
+type DemandAgentRunGraph = {
+  conversationId?: string;
+  changeId?: string;
+  title: string;
+  summary: string;
+  lanes: DemandAgentRunGraphLane[];
+  nodes: DemandAgentRunGraphNode[];
+  edges: DemandAgentRunGraphEdge[];
   updatedAt?: string;
 };
 type TopicDetail = Topic & {
@@ -575,7 +623,7 @@ const emptySnapshot: Snapshot = {
   project: null,
   memory: {},
   left: { topics: [], workpads: [] },
-  center: { selectedTopic: null, workpad: emptyWorkpad(), agentLoop: { runs: [] }, thread: { items: [] } },
+  center: { selectedTopic: null, workpad: emptyWorkpad(), agentLoop: { runs: [] }, thread: { items: [] }, agentRunGraph: emptyAgentRunGraph() },
   right: { approvals: [], decisions: [], decisionInspector: { primary: null, related: [], history: [] }, confirmationQueue: { primary: null, current: [], otherDemands: [], maintenance: [], history: [] } },
   harnessGaps: [],
   warnings: [],
@@ -589,7 +637,8 @@ export function App(): ReactElement {
   const [selectedTopic, setSelectedTopic] = useState<string | null>(null);
   const [selectedRun, setSelectedRun] = useState<string | null>(null);
   const [stream, setStream] = useState<StreamPacket | null>(null);
-  const [tab, setTab] = useState<"workpad" | "thread" | "loop">("workpad");
+  const [runGraphOpen, setRunGraphOpen] = useState(false);
+  const [selectedRunGraphNodeId, setSelectedRunGraphNodeId] = useState<string | null>(null);
   const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set());
   const [projectSnapshots, setProjectSnapshots] = useState<Record<string, Snapshot>>({});
   const [sidebarSearch, setSidebarSearch] = useState("");
@@ -679,7 +728,6 @@ export function App(): ReactElement {
     setSelectedProjectId(projectId);
     setSelectedTopic(null);
     setExpandedProjects((current) => new Set([...current, projectId]));
-    setTab("workpad");
     const nextSnapshot = {
       ...baseSnapshot,
       center: {
@@ -687,6 +735,7 @@ export function App(): ReactElement {
         workpad: emptyWorkpad(baseSnapshot.project?.name ?? status.project?.name ?? "当前项目"),
         thread: { items: [] },
         agentLoop: { runs: [] },
+        agentRunGraph: emptyAgentRunGraph(),
       },
       right: {
         ...baseSnapshot.right,
@@ -772,7 +821,7 @@ export function App(): ReactElement {
     }
     if (action.kind === "evidence" && context.runId) {
       await chooseRun(context.runId);
-      setTab("loop");
+      setRunGraphOpen(true);
     }
   }
 
@@ -828,11 +877,11 @@ export function App(): ReactElement {
       return;
     }
     const pendingClarificationCount = activeWorkpad.intake.pendingClarifications?.length ?? 0;
-    if (composerMode === "chat" && tab === "workpad" && (activeWorkpad.nextAction.actionType === "planning.generate" || activeWorkpad.nextAction.actionType === "planning.revise")) {
+    if (composerMode === "chat" && (activeWorkpad.nextAction.actionType === "planning.generate" || activeWorkpad.nextAction.actionType === "planning.revise")) {
       await runWorkflowAction(activeWorkpad.nextAction.actionType, { prompt: message });
       return;
     }
-    if (composerMode === "chat" && tab === "workpad" && (activeWorkpad.nextAction.actionType === "intake.reanalyze" || activeWorkpad.nextAction.actionType === "change.spec.propose" || pendingClarificationCount > 0)) {
+    if (composerMode === "chat" && (activeWorkpad.nextAction.actionType === "intake.reanalyze" || activeWorkpad.nextAction.actionType === "change.spec.propose" || pendingClarificationCount > 0)) {
       setActionRunning("intake.reanalyze");
       setComposerText("");
       setError(null);
@@ -848,7 +897,6 @@ export function App(): ReactElement {
       return;
     }
     setActionRunning(composerMode === "plan" ? "orchestrator.plan" : "chat.ask");
-    setTab("thread");
     setComposerText("");
     setError(null);
     try {
@@ -864,7 +912,6 @@ export function App(): ReactElement {
   async function runWorkflowAction(actionType: string, options: Record<string, unknown> = {}): Promise<void> {
     if (!selectedProjectId || !activeTopic) return;
     setActionRunning(actionType);
-    if (!actionType.startsWith("intake.") && !actionType.startsWith("clarification.") && actionType !== "task.queue.reconcile") setTab("thread");
     setError(null);
     try {
       if (actionType === "intake.scan") {
@@ -1084,6 +1131,20 @@ export function App(): ReactElement {
     };
   }, [selectedDecisionContextId, snapshot.right.decisionInspector]);
   const activeConfirmationQueue = snapshot.right.confirmationQueue ?? { primary: null, current: [], otherDemands: [], maintenance: [], history: [] };
+  const activeRunGraph = snapshot.center.agentRunGraph ?? emptyAgentRunGraph();
+  const selectedRunGraphNode = useMemo(() => {
+    return activeRunGraph.nodes.find((node) => node.id === selectedRunGraphNodeId) ?? activeRunGraph.nodes[0] ?? null;
+  }, [activeRunGraph.nodes, selectedRunGraphNodeId]);
+
+  function openRunGraph(nodeId?: string): void {
+    setSelectedRunGraphNodeId(nodeId ?? activeRunGraph.nodes[0]?.id ?? null);
+    setRunGraphOpen(true);
+  }
+
+  function closeRunGraph(): void {
+    setRunGraphOpen(false);
+    setSelectedRunGraphNodeId(null);
+  }
 
   useEffect(() => {
     const node = threadScrollRef.current;
@@ -1165,86 +1226,57 @@ export function App(): ReactElement {
               </div>
             </header>
 
-            <div className="tabs">
-              <button className={tab === "workpad" ? "active" : ""} onClick={() => setTab("workpad")}>需求</button>
-              <button className={tab === "thread" ? "active" : ""} onClick={() => setTab("thread")}>对话</button>
-              <button className={tab === "loop" ? "active" : ""} onClick={() => setTab("loop")}>执行证据</button>
-            </div>
-
             <section className="center-grid">
               <div className="timeline-panel">
-                {tab === "workpad" ? (
-                  <>
-                    <div className="thread-scroll workpad-scroll">
-                      <WorkpadView
-                        workpad={activeWorkpad}
-                        approvals={snapshot.right.approvals}
-                        busy={actionRunning !== null}
-                        onWorkflowAction={runWorkflowAction}
-                        onConfirmApproval={(approvalId) => setConfirming(approvalId)}
-                        onAnswerClarification={answerClarification}
-                        onSelectDecisionContext={setSelectedDecisionContextId}
-                      />
-                    </div>
-                    <TopicComposer
-                      value={composerText}
-                      onChange={setComposerText}
-                      mode={composerMode}
-                      onModeChange={setComposerMode}
-                      busy={actionRunning !== null || activeTopic.state !== "active"}
-                      disabledReason={activeTopic.state !== "active" ? "已完成或稍后处理的需求对话为只读。" : undefined}
-                      onSend={sendTopicMessage}
-                      onStopAndContinue={stopAndContinueCurrentRun}
-                      onNewWorkpad={createTopicFromComposer}
-                      onRunCode={() => runWorkflowAction("code.run")}
-                      actionRunning={actionRunning}
-                      canRunCode={activeTopic.state === "active" && (activeTopic.taskCount ?? 0) > 0}
-                      currentWorkpadStatus={activeWorkpad.conversationLifecycle === "running" || activeWorkpad.runControlState?.canStop ? "running" : currentWorkpadSummary(snapshot, activeTopic)?.runtimeStatus}
-                    />
-                  </>
-                ) : tab === "thread" ? (
-                  <>
-                    <div
-                      className="thread-scroll"
-                      ref={threadScrollRef}
-                      onScroll={(event) => {
-                        const node = event.currentTarget;
-                        setLatestHidden(node.scrollHeight - node.scrollTop - node.clientHeight > 180);
-                      }}
-                    >
-                      <ThreadStreamView
-                        items={threadItems}
-                        liveTurns={liveTurns}
-                        busy={actionRunning !== null}
-                        onAction={runWorkflowAction}
-                        onSelectDecisionContext={setSelectedDecisionContextId}
-                      />
-                    </div>
-                    {latestHidden ? <button className="latest-button" onClick={() => { const node = threadScrollRef.current; if (node) node.scrollTop = node.scrollHeight; setLatestHidden(false); }}>最新</button> : null}
-                    <TopicComposer
-                      value={composerText}
-                      onChange={setComposerText}
-                      mode={composerMode}
-                      onModeChange={setComposerMode}
-                      busy={actionRunning !== null || activeTopic.state !== "active"}
-                      disabledReason={activeTopic.state !== "active" ? "已完成或稍后处理的需求对话为只读。" : undefined}
-                      onSend={sendTopicMessage}
-                      onStopAndContinue={stopAndContinueCurrentRun}
-                      onNewWorkpad={createTopicFromComposer}
-                      onRunCode={() => runWorkflowAction("code.run")}
-                      actionRunning={actionRunning}
-                      canRunCode={activeTopic.state === "active" && (activeTopic.taskCount ?? 0) > 0}
-                      currentWorkpadStatus={activeWorkpad.conversationLifecycle === "running" || activeWorkpad.runControlState?.canStop ? "running" : currentWorkpadSummary(snapshot, activeTopic)?.runtimeStatus}
-                    />
-                  </>
-                ) : (
-                  <div className="loop-stack">
-                    <RunList runs={snapshot.center.agentLoop.runs} selectedRun={activeRun?.id} onSelect={chooseRun} />
-                    <RunReplay stream={stream} run={activeRun} />
-                  </div>
-                )}
+                <div
+                  className="thread-scroll"
+                  ref={threadScrollRef}
+                  onScroll={(event) => {
+                    const node = event.currentTarget;
+                    setLatestHidden(node.scrollHeight - node.scrollTop - node.clientHeight > 180);
+                  }}
+                >
+                  <MainConversationView
+                    workpad={activeWorkpad}
+                    graph={activeRunGraph}
+                    items={threadItems}
+                    liveTurns={liveTurns}
+                    busy={actionRunning !== null}
+                    onAction={runWorkflowAction}
+                    onAnswerClarification={answerClarification}
+                    onSelectDecisionContext={setSelectedDecisionContextId}
+                    onOpenGraph={openRunGraph}
+                  />
+                </div>
+                {latestHidden ? <button className="latest-button" onClick={() => { const node = threadScrollRef.current; if (node) node.scrollTop = node.scrollHeight; setLatestHidden(false); }}>最新</button> : null}
+                <TopicComposer
+                  value={composerText}
+                  onChange={setComposerText}
+                  mode={composerMode}
+                  onModeChange={setComposerMode}
+                  busy={actionRunning !== null || activeTopic.state !== "active"}
+                  disabledReason={activeTopic.state !== "active" ? "已完成或稍后处理的需求对话为只读。" : undefined}
+                  onSend={sendTopicMessage}
+                  onStopAndContinue={stopAndContinueCurrentRun}
+                  onNewWorkpad={createTopicFromComposer}
+                  onRunCode={() => runWorkflowAction("code.run")}
+                  actionRunning={actionRunning}
+                  canRunCode={activeTopic.state === "active" && (activeTopic.taskCount ?? 0) > 0}
+                  currentWorkpadStatus={activeWorkpad.conversationLifecycle === "running" || activeWorkpad.runControlState?.canStop ? "running" : currentWorkpadSummary(snapshot, activeTopic)?.runtimeStatus}
+                />
               </div>
             </section>
+            {runGraphOpen ? (
+              <AgentRunGraphModal
+                graph={activeRunGraph}
+                selectedNode={selectedRunGraphNode}
+                activeRun={activeRun}
+                stream={stream}
+                onClose={closeRunGraph}
+                onSelectNode={setSelectedRunGraphNodeId}
+                onSelectRun={(runId) => void chooseRun(runId)}
+              />
+            ) : null}
           </>
         )}
       </main>
@@ -1753,6 +1785,289 @@ function EmptyWorkbench({ title, description }: { title: string; description: st
   );
 }
 
+function MainConversationView({
+  workpad,
+  graph,
+  items,
+  liveTurns,
+  busy,
+  onAction,
+  onAnswerClarification,
+  onSelectDecisionContext,
+  onOpenGraph,
+}: {
+  workpad: Workpad;
+  graph: DemandAgentRunGraph;
+  items: ThreadStreamItem[];
+  liveTurns: LiveAssistantTurn[];
+  busy: boolean;
+  onAction: (actionType: string, options?: Record<string, unknown>) => Promise<void>;
+  onAnswerClarification: (clarificationId: string, answer: string) => Promise<void>;
+  onSelectDecisionContext: (contextId: string) => void;
+  onOpenGraph: (nodeId?: string) => void;
+}): ReactElement {
+  const visibleGraphNodes = graph.nodes.length;
+  const runningNodes = graph.nodes.filter((node) => node.status === "running").length;
+  const attentionNodes = graph.nodes.filter((node) => node.status === "failed" || node.status === "needs-change" || node.status === "waiting-user").length;
+  const shouldShowDerivedSummary = items.length === 0
+    || liveTurns.length === 0 && Boolean(workpad.pendingFeedback?.length || workpad.intake.pendingClarifications?.length || workpad.planningArtifactBundle || workpad.rolePipeline || workpad.resultReview);
+  return (
+    <div className="main-conversation-view" data-testid="main-conversation-view">
+      <section className="parent-agent-card main-agent-entry">
+        <div>
+          <span className={`workpad-state user-state ${workpad.userStatus ?? "later"}`}>{workpad.userStatusLabel ?? userStatusLabel(workpad.userStatus)}</span>
+          <h2>{workpad.title}</h2>
+          <p>{parentAgentNarrative(workpad)}</p>
+        </div>
+        <button className="graph-entry-button" type="button" onClick={() => onOpenGraph()} data-testid="open-agent-run-graph">
+          <strong>查看运行图</strong>
+          <span>{visibleGraphNodes} 个节点 · {runningNodes} 个进行中 · {attentionNodes} 个需关注</span>
+        </button>
+      </section>
+      {shouldShowDerivedSummary ? <ParentAgentSnapshot workpad={workpad} busy={busy} onAnswerClarification={onAnswerClarification} /> : null}
+      <ThreadStreamView
+        items={items}
+        liveTurns={liveTurns}
+        busy={busy}
+        onAction={onAction}
+        onSelectDecisionContext={onSelectDecisionContext}
+      />
+    </div>
+  );
+}
+
+function ParentAgentSnapshot({
+  workpad,
+  busy,
+  onAnswerClarification,
+}: {
+  workpad: Workpad;
+  busy: boolean;
+  onAnswerClarification: (clarificationId: string, answer: string) => Promise<void>;
+}): ReactElement {
+  const maintenanceNotice = workpad.maintenance?.status && workpad.maintenance.status !== "idle" ? workpad.maintenance : null;
+  return (
+    <div className="parent-conversation-snapshot">
+      {workpad.pendingFeedback?.length ? (
+        <section className="parent-agent-section">
+          <h3>已记录的补充</h3>
+          {workpad.pendingFeedback.slice(-3).map((feedback) => (
+            <p key={feedback.id}>{feedback.text} <span className="muted-inline">本轮完成后会用于下一次调整。</span></p>
+          ))}
+        </section>
+      ) : null}
+      {workpad.planningArtifactBundle ? <PlanningNarrativeCard bundle={workpad.planningArtifactBundle} /> : null}
+      {workpad.rolePipeline ? <RoleToolResultRows pipeline={workpad.rolePipeline} /> : null}
+      {workpad.resultReview ? <ResultReviewNarrative review={workpad.resultReview} /> : null}
+      {!workpad.planningArtifactBundle && !workpad.rolePipeline && !workpad.resultReview ? (
+        <section className="parent-agent-section">
+          <h3>当前理解</h3>
+          <p className="parent-agent-lead">{workpad.intake.goal}</p>
+          <p>{workpad.intake.currentUnderstanding}</p>
+          {workpad.intake.confirmedConstraints?.length ? (
+            <div className="parent-chip-list">
+              {workpad.intake.confirmedConstraints.slice(0, 4).map((constraint) => <span key={constraint}>{constraint}</span>)}
+            </div>
+          ) : null}
+        </section>
+      ) : null}
+      {workpad.intake.pendingClarifications?.length ? (
+        <section className="parent-agent-section">
+          <div className="parent-section-header">
+            <h3>需要确认</h3>
+            <span>{workpad.intake.pendingClarifications.length}</span>
+          </div>
+          <div className="clarification-list">
+            {workpad.intake.pendingClarifications.map((clarification) => (
+              <ClarificationCard
+                key={clarification.id}
+                clarification={clarification}
+                busy={busy}
+                onAnswer={onAnswerClarification}
+              />
+            ))}
+          </div>
+        </section>
+      ) : null}
+      {maintenanceNotice ? (
+        <section className="parent-agent-section maintenance-nudge">
+          <h3>后台维护</h3>
+          <p>{userFacingText(maintenanceNotice.note)}</p>
+        </section>
+      ) : null}
+    </div>
+  );
+}
+
+function AgentRunGraphModal({
+  graph,
+  selectedNode,
+  activeRun,
+  stream,
+  onClose,
+  onSelectNode,
+  onSelectRun,
+}: {
+  graph: DemandAgentRunGraph;
+  selectedNode: DemandAgentRunGraphNode | null;
+  activeRun?: RunSummary;
+  stream: StreamPacket | null;
+  onClose: () => void;
+  onSelectNode: (nodeId: string) => void;
+  onSelectRun: (runId: string) => void;
+}): ReactElement {
+  return (
+    <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="需求运行图">
+      <div className="agent-graph-modal">
+        <header className="agent-graph-header">
+          <div>
+            <p className="eyebrow">运行图</p>
+            <h2>{graph.title}</h2>
+            <p>{graph.summary}</p>
+          </div>
+          <button className="icon-button" type="button" aria-label="关闭运行图" onClick={onClose}><X size={16} /></button>
+        </header>
+        <div className="agent-graph-body">
+          <AgentRunGraphCanvas graph={graph} selectedNodeId={selectedNode?.id ?? null} onSelectNode={onSelectNode} />
+          <AgentRunNodeDetail node={selectedNode} activeRun={activeRun} stream={stream} onSelectRun={onSelectRun} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AgentRunGraphCanvas({
+  graph,
+  selectedNodeId,
+  onSelectNode,
+}: {
+  graph: DemandAgentRunGraph;
+  selectedNodeId: string | null;
+  onSelectNode: (nodeId: string) => void;
+}): ReactElement {
+  const laneNodes = new Map<DemandAgentRunGraphLaneId, DemandAgentRunGraphNode[]>();
+  for (const lane of graph.lanes) laneNodes.set(lane.id, []);
+  for (const node of graph.nodes) {
+    laneNodes.set(node.lane, [...(laneNodes.get(node.lane) ?? []), node]);
+  }
+  return (
+    <div className="agent-graph-canvas" data-testid="agent-run-graph">
+      {graph.lanes.map((lane) => {
+        const nodes = laneNodes.get(lane.id) ?? [];
+        if (nodes.length === 0) return null;
+        return (
+          <section className={`agent-graph-lane ${lane.id}`} key={lane.id}>
+            <div className="agent-graph-lane-title">
+              <strong>{lane.label}</strong>
+              <span>{lane.description}</span>
+            </div>
+            <div className="agent-graph-node-list">
+              {nodes.map((node) => (
+                <button
+                  type="button"
+                  className={`agent-graph-node ${node.status} ${selectedNodeId === node.id ? "selected" : ""}`}
+                  key={node.id}
+                  onClick={() => onSelectNode(node.id)}
+                  data-testid={`agent-run-node-${node.kind}`}
+                >
+                  <span className="node-status-dot" />
+                  <strong>{node.label}</strong>
+                  <small>{agentRunStatusLabel(node.status)}</small>
+                  <p>{node.summary}</p>
+                </button>
+              ))}
+            </div>
+          </section>
+        );
+      })}
+      {graph.edges.length > 0 ? (
+        <div className="agent-graph-edge-summary">
+          {graph.edges.slice(0, 10).map((edge) => <span key={edge.id}>{edge.label}</span>)}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function AgentRunNodeDetail({
+  node,
+  activeRun,
+  stream,
+  onSelectRun,
+}: {
+  node: DemandAgentRunGraphNode | null;
+  activeRun?: RunSummary;
+  stream: StreamPacket | null;
+  onSelectRun: (runId: string) => void;
+}): ReactElement {
+  if (!node) {
+    return (
+      <aside className="agent-node-detail">
+        <h3>选择一个节点</h3>
+        <p>点击运行图里的主 agent、角色 agent、工具或后台维护节点查看详情。</p>
+      </aside>
+    );
+  }
+  const runId = node.target.runId;
+  const showRunReplay = runId && activeRun?.id === runId;
+  return (
+    <aside className="agent-node-detail" data-testid="agent-run-node-detail">
+      <div className="node-detail-heading">
+        <span className={`node-kind ${node.status}`}>{agentRunStatusLabel(node.status)}</span>
+        <h3>{node.label}</h3>
+        <p>{node.reason}</p>
+      </div>
+      <div className="node-detail-section">
+        <strong>输入摘要</strong>
+        <p>{node.inputSummary ?? "输入来自当前需求对话和已确认的执行证据。"}</p>
+      </div>
+      <div className="node-detail-section">
+        <strong>输出摘要</strong>
+        <p>{node.outputSummary ?? node.summary}</p>
+      </div>
+      {node.attempts.length > 0 ? (
+        <div className="node-detail-section">
+          <strong>尝试历史</strong>
+          <div className="node-attempt-list">
+            {node.attempts.map((attempt) => (
+              <div className="node-attempt" key={attempt.id}>
+                <span>{agentRunStatusLabel(attempt.status)}</span>
+                <p>{attempt.summary}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+      {node.evidenceRefs.length > 0 ? (
+        <div className="node-detail-section">
+          <strong>证据</strong>
+          <div className="node-evidence-list">
+            {node.evidenceRefs.map((ref) => (
+              <span key={`${ref.kind}:${ref.ref}`}>{ref.label}: {artifactName(ref.ref)}</span>
+            ))}
+          </div>
+        </div>
+      ) : null}
+      {node.lane === "maintenance" ? (
+        <p className="panel-note">后台维护节点只生成 closeout、候选、评分和审查证据，不会自动修改 canonical docs、ECL 或项目稳定记忆。</p>
+      ) : null}
+      {runId ? (
+        <button className="secondary-button" type="button" onClick={() => onSelectRun(runId)}>
+          打开原始日志
+        </button>
+      ) : null}
+      {showRunReplay ? (
+        <div className="node-run-replay">
+          <RunReplay stream={stream} run={activeRun} />
+        </div>
+      ) : null}
+      {node.status === "needs-change" || node.status === "failed" ? (
+        <p className="panel-note">如果当前结果有真实修改路径，可以在右侧确认队列或主对话中补充反馈；这里不伪装成独立子 agent 对话。</p>
+      ) : null}
+    </aside>
+  );
+}
+
 function DecisionInspectorPane({
   inspector,
   confirmationQueue,
@@ -2001,7 +2316,7 @@ function HarnessInitButton({ projectId, onDone }: { projectId: string; onDone: (
   );
 }
 
-function WorkpadView(props: {
+export function WorkpadView(props: {
   workpad: Workpad;
   approvals: Approval[];
   busy: boolean;
@@ -3335,7 +3650,7 @@ function TopicComposer({
   );
 }
 
-function RunList({ runs, selectedRun, onSelect }: { runs: RunSummary[]; selectedRun?: string; onSelect: (runId: string) => Promise<void> }): ReactElement {
+export function RunList({ runs, selectedRun, onSelect }: { runs: RunSummary[]; selectedRun?: string; onSelect: (runId: string) => Promise<void> }): ReactElement {
   if (runs.length === 0) return <div className="empty-state">暂无运行记录。</div>;
   return (
     <div className="run-list">
@@ -3489,6 +3804,21 @@ function artifactName(path: string): string {
   return path.split(/[\\/]/).filter(Boolean).at(-1) ?? path;
 }
 
+function emptyAgentRunGraph(): DemandAgentRunGraph {
+  return {
+    title: "暂无运行图",
+    summary: "选择需求对话后，AHO 会把主 agent 调用角色 agent、工具和后台维护的过程投影到这里。",
+    lanes: [
+      { id: "main", label: "主 agent", description: "用户交流和调度入口" },
+      { id: "roles", label: "角色执行", description: "方案、实现、验证和审查" },
+      { id: "integration", label: "集成与远端", description: "应用、PR、评审、合并和同步" },
+      { id: "maintenance", label: "后台维护", description: "记忆、文档漂移和演进候选" },
+    ],
+    nodes: [],
+    edges: [],
+  };
+}
+
 function snapshotForProject(project: ProjectStatus | null | undefined): Snapshot {
   if (!project?.project) return emptySnapshot;
   return {
@@ -3583,6 +3913,17 @@ function conversationLifecycleLabel(status?: ConversationLifecycle): string {
   if (status === "archived-readonly") return "历史只读";
   if (status === "abandoned") return "已放弃";
   return "当前需求";
+}
+
+function agentRunStatusLabel(status: DemandAgentRunGraphNodeStatus): string {
+  if (status === "running") return "进行中";
+  if (status === "queued") return "等待中";
+  if (status === "completed") return "已完成";
+  if (status === "needs-change") return "需要修改";
+  if (status === "failed") return "失败";
+  if (status === "waiting-user") return "等你确认";
+  if (status === "skipped") return "已跳过";
+  return "待开始";
 }
 
 function readinessLabel(value: "missing" | "ready" | "unknown"): string {

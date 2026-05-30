@@ -2182,6 +2182,42 @@ describe("workbench read model", () => {
         evidenceRefs: ["runs/run-agent-task/implementation.md"],
       }),
     ]));
+    expect(snapshot.center.agentRunGraph.nodes).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: "main-agent",
+        kind: "main-agent",
+        status: "idle",
+      }),
+      expect.objectContaining({
+        kind: "coder-agent",
+        roleId: "coder-agent",
+        status: "completed",
+        outputSummary: "Coder returned a worktree proposal.",
+        evidenceRefs: expect.arrayContaining([
+          expect.objectContaining({ ref: "runs/run-agent-task/implementation.md", kind: "artifact" }),
+        ]),
+      }),
+    ]));
+    const coderNode = snapshot.center.agentRunGraph.nodes.find((node) => node.kind === "coder-agent");
+    expect(coderNode?.attempts).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: task.id,
+        status: "completed",
+        summary: "Coder returned a worktree proposal.",
+      }),
+    ]));
+    expect(snapshot.center.agentRunGraph.edges).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        from: "main-agent",
+        to: coderNode?.id,
+        kind: "delegates",
+      }),
+      expect.objectContaining({
+        from: coderNode?.id,
+        to: "main-agent",
+        kind: "returns",
+      }),
+    ]));
   });
 
   it("routes planning confirmation through a demand worker queue when no worker slot is available", async () => {

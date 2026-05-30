@@ -191,6 +191,33 @@ const snapshot = {
       },
     ] },
     agentLoop: { runs: [{ id: "run-1", runtime: "coder-codex", status: "completed" }] },
+    agentRunGraph: {
+      conversationId: "member-discount",
+      changeId: "member-discount",
+      title: "会员折扣计价",
+      summary: "主 agent 已调用规划、实现、验证和审查节点，并整理了后台维护结果。",
+      lanes: [
+        { id: "main", label: "主流程", description: "主 agent 用户入口" },
+        { id: "roles", label: "角色执行", description: "规划、实现、验证、审查" },
+        { id: "integration", label: "集成 / PR / 合并", description: "应用、远端和合并后处理" },
+        { id: "maintenance", label: "后台维护", description: "记忆、文档和演进候选" },
+      ],
+      nodes: [
+        { id: "main-agent", kind: "main-agent", lane: "main", label: "主 agent", status: "completed", summary: "负责和用户对话并分派角色。", reason: "用户入口和调度入口。", target: { projectId: "repo", conversationId: "member-discount", changeId: "member-discount" }, inputSummary: "用户提出会员折扣需求。", outputSummary: "需求已执行并生成结果。", evidenceRefs: [], attempts: [] },
+        { id: "role:planning-agent", kind: "planning-agent", lane: "roles", label: "规划", roleId: "planning-agent", status: "completed", summary: "整理方案草案。", reason: "主 agent 需要把需求转成可执行方案。", target: { projectId: "repo", conversationId: "member-discount", changeId: "member-discount", roleId: "planning-agent" }, inputSummary: "当前需求。", outputSummary: "方案已确认。", evidenceRefs: [{ label: "方案", ref: "latest-bundle.md", kind: "artifact" }], attempts: [] },
+        { id: "role:coder-agent", kind: "coder-agent", lane: "roles", label: "coder-agent", roleId: "coder-agent", status: "completed", summary: "已实现会员折扣。", reason: "主 agent 委派实现。", target: { projectId: "repo", conversationId: "member-discount", changeId: "member-discount", roleId: "coder-agent", runId: "run-1", worktreeId: "wt-1" }, inputSummary: "已确认方案。", outputSummary: "代码和测试已更新。", evidenceRefs: [{ label: "执行", ref: "run-1", kind: "run" }], attempts: [{ id: "run-1", status: "completed", summary: "实现完成。", evidenceRefs: [{ label: "执行", ref: "run-1", kind: "run" }] }] },
+        { id: "role:validator", kind: "validator", lane: "roles", label: "validator", roleId: "validator", status: "completed", summary: "验证通过。", reason: "需要独立机械验证。", target: { projectId: "repo", conversationId: "member-discount", changeId: "member-discount", roleId: "validator", runId: "validation-1" }, inputSummary: "验收标准和 worktree。", outputSummary: "测试通过。", evidenceRefs: [{ label: "验证", ref: "validation-1", kind: "run" }], attempts: [] },
+        { id: "role:auditor-agent", kind: "auditor-agent", lane: "roles", label: "auditor-agent", roleId: "auditor-agent", status: "completed", summary: "审查带备注批准。", reason: "需要独立语义审查。", target: { projectId: "repo", conversationId: "member-discount", changeId: "member-discount", roleId: "auditor-agent", runId: "audit-1" }, inputSummary: "diff 和验证证据。", outputSummary: "可应用但有注意事项。", evidenceRefs: [{ label: "审查", ref: "audit-1", kind: "run" }], attempts: [] },
+        { id: "maintenance:closeout", kind: "memory-closeout", lane: "maintenance", label: "记忆 closeout", status: "completed", summary: "后台整理本次需求记忆。", reason: "终态需求需要写入维护账本。", target: { projectId: "repo", conversationId: "member-discount", changeId: "member-discount", maintenanceRunId: "maintenance-1" }, inputSummary: "终态需求证据。", outputSummary: "closeout 已记录。", evidenceRefs: [{ label: "closeout", ref: "maintenance-1", kind: "maintenance" }], attempts: [] },
+      ],
+      edges: [
+        { id: "edge:main:planning", from: "main-agent", to: "role:planning-agent", kind: "delegates", label: "整理方案" },
+        { id: "edge:planning:coder", from: "role:planning-agent", to: "role:coder-agent", kind: "continues-to", label: "确认后执行" },
+        { id: "edge:coder:validator", from: "role:coder-agent", to: "role:validator", kind: "requires-evidence", label: "验证" },
+        { id: "edge:validator:auditor", from: "role:validator", to: "role:auditor-agent", kind: "requires-evidence", label: "审查" },
+        { id: "edge:main:maintenance", from: "main-agent", to: "maintenance:closeout", kind: "background-maintenance", label: "后台维护" },
+      ],
+    },
   },
   right: {
     approvals: [{
@@ -324,10 +351,9 @@ describe("Workbench web app", () => {
     render(<App />);
 
     await waitFor(() => expect(screen.getAllByText("会员折扣计价").length).toBeGreaterThan(0));
-    expect(screen.getByTestId("workpad-view")).toBeTruthy();
-    expect(screen.getByText("当前理解")).toBeTruthy();
+    expect(screen.getByTestId("main-conversation-view")).toBeTruthy();
     expect(screen.getByText(/我已经整理了本轮实现结果/)).toBeTruthy();
-    expect(screen.getByText("查看详情与证据")).toBeTruthy();
+    expect(screen.getByTestId("open-agent-run-graph")).toBeTruthy();
     expect(screen.queryByText("目标与当前理解")).toBeNull();
     expect(screen.queryByText("推荐角色：coder-agent")).toBeNull();
     expect(screen.queryByText("执行范围")).toBeNull();
@@ -336,21 +362,12 @@ describe("Workbench web app", () => {
     for (const forbidden of ["Workpad", "Change-level evidence", "TaskRun", "WorkerLease", "audit-blocked", "queue blocked", "Plan mode", "AC ", "Tasks", "Agent 循环", "latest-bundle", "planning-agent"]) {
       expect(primarySurface).not.toContain(forbidden);
     }
-    fireEvent.click(screen.getByText("查看详情与证据"));
-    expect(screen.getByText("目标与当前理解")).toBeTruthy();
-    expect(screen.getByText("推荐角色：coder-agent")).toBeTruthy();
-    expect(screen.getByText("执行范围")).toBeTruthy();
-    expect(screen.getByText("执行粒度：单一 coder-agent")).toBeTruthy();
-    expect(screen.queryByText("运行 Package")).toBeNull();
-    expect(screen.queryByText("并行执行")).toBeNull();
-    expect(screen.getByText("任务清单")).toBeTruthy();
-    expect(screen.getByText("证据与决策")).toBeTruthy();
     const resultReviewCard = screen.getByTestId("result-review-card");
     expect(resultReviewCard).toBeTruthy();
     expect(within(resultReviewCard).getByText("结果可应用到项目")).toBeTruthy();
     expect(within(resultReviewCard).getByText("src/pricing.ts")).toBeTruthy();
     expect(within(resultReviewCard).getByText(/边界金额建议人工复核/)).toBeTruthy();
-    expect(screen.getAllByText("关闭已完成变更。").length).toBeGreaterThan(0);
+    expect(screen.getByText("确认完成需求对话")).toBeTruthy();
     expect(screen.getByLabelText("在 Repo 中开始新对话")).toBeTruthy();
     expect(screen.getByLabelText("搜索已加载对话")).toBeTruthy();
     expect(screen.getAllByText("项目").length).toBeGreaterThan(0);
@@ -359,7 +376,6 @@ describe("Workbench web app", () => {
     expect(screen.queryByText("远程项目")).toBeNull();
     expect(screen.getByText("需要你确认")).toBeTruthy();
     expect(screen.getAllByText("已完成").length).toBeGreaterThan(0);
-    fireEvent.click(screen.getByRole("button", { name: "对话" }));
     expect(screen.getByText("用户消息")).toBeTruthy();
     expect(screen.getByText("AI 计划")).toBeTruthy();
     expect(screen.getAllByText("执行结果").length).toBeGreaterThan(0);
@@ -388,13 +404,17 @@ describe("Workbench web app", () => {
     expect(screen.queryByText("稍后")).toBeNull();
     expect(screen.getByText("记忆：external-local")).toBeTruthy();
     expect(screen.getByText("当前需求：会员折扣计价")).toBeTruthy();
-    fireEvent.click(screen.getByText("执行证据"));
-    expect(screen.getAllByText("代码实现").length).toBeGreaterThan(0);
-    expect(screen.getByText("运行阶段")).toBeTruthy();
-    expect(screen.getByText("模型事件转录")).toBeTruthy();
-    expect(screen.getByText("AI 最终输出")).toBeTruthy();
-    expect(screen.getByText("查看原始日志")).toBeTruthy();
-    expect(screen.getByText("done")).toBeTruthy();
+    fireEvent.click(screen.getByTestId("open-agent-run-graph"));
+    expect(screen.getByTestId("agent-run-graph")).toBeTruthy();
+    expect(screen.getByTestId("agent-run-node-main-agent")).toBeTruthy();
+    expect(screen.getByTestId("agent-run-node-coder-agent")).toBeTruthy();
+    expect(screen.getByTestId("agent-run-node-memory-closeout")).toBeTruthy();
+    fireEvent.click(screen.getByTestId("agent-run-node-coder-agent"));
+    expect(screen.getByTestId("agent-run-node-detail")).toBeTruthy();
+    expect(screen.getByText("打开原始日志")).toBeTruthy();
+    fireEvent.click(screen.getByText("打开原始日志"));
+    await waitFor(() => expect(screen.getByText("模型事件转录")).toBeTruthy());
+    fireEvent.click(screen.getByLabelText("关闭运行图"));
 
     fireEvent.click(screen.getAllByText("同意")[0] as HTMLElement);
     expect(screen.getByText("确认")).toBeTruthy();
@@ -441,7 +461,6 @@ describe("Workbench web app", () => {
     render(<App />);
 
     await waitFor(() => expect(screen.getAllByText("会员折扣计价").length).toBeGreaterThan(0));
-    fireEvent.click(screen.getByRole("button", { name: "对话" }));
     await waitFor(() => expect(screen.getByText("我会检查现有实现。")).toBeTruthy());
     expect(document.querySelectorAll("[data-testid='assistant-block-command-group']")).toHaveLength(1);
     expect(document.querySelectorAll("[data-testid='assistant-block-command']")).toHaveLength(1);
@@ -967,7 +986,7 @@ describe("Workbench web app", () => {
 
     await waitFor(() => expect(screen.getByTestId("decision-inspector-primary")).toBeTruthy());
     expect(screen.getByText("任务暂停：T-001")).toBeTruthy();
-    expect(screen.getAllByText("审查未通过，需要补证据。").length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/审查未通过，需要补证据。/).length).toBeGreaterThan(0);
     expect(screen.getAllByText("要求修改").length).toBeGreaterThan(0);
     expect(within(screen.getByTestId("decision-inspector-primary")).getAllByText("查看证据")).toHaveLength(1);
     expect(screen.queryByText("确认")).toBeNull();
@@ -1069,21 +1088,11 @@ describe("Workbench web app", () => {
 
     render(<App />);
 
-    await waitFor(() => expect(screen.getByTestId("workpad-view")).toBeTruthy());
-    fireEvent.click(screen.getByText("查看详情与证据"));
-    await waitFor(() => expect(screen.getByTestId("taskgraph-node-T-001")).toBeTruthy());
-    fireEvent.click(screen.getByText("运行此任务"));
-
-    await waitFor(() => {
-      expect(fetch).toHaveBeenCalledWith("/api/projects/repo/workbench/actions/live", expect.objectContaining({
-        method: "POST",
-        body: expect.stringContaining("\"actionType\":\"task.run.start\""),
-      }));
-      expect(fetch).toHaveBeenCalledWith("/api/projects/repo/workbench/actions/live", expect.objectContaining({
-        method: "POST",
-        body: expect.stringContaining("\"taskIds\":[\"T-001\"]"),
-      }));
-    });
+    await waitFor(() => expect(screen.getByTestId("main-conversation-view")).toBeTruthy());
+    expect(screen.queryByTestId("taskgraph-node-T-001")).toBeNull();
+    expect(screen.queryByText("运行此任务")).toBeNull();
+    fireEvent.click(screen.getByTestId("open-agent-run-graph"));
+    expect(screen.getByTestId("agent-run-graph")).toBeTruthy();
   });
 
   it("runs the local TaskQueue from Workpad without exposing fake parallel controls", async () => {
@@ -1102,19 +1111,11 @@ describe("Workbench web app", () => {
 
     render(<App />);
 
-    await waitFor(() => expect(screen.getByTestId("workpad-view")).toBeTruthy());
-    fireEvent.click(screen.getByText("查看详情与证据"));
-    await waitFor(() => expect(screen.getByTestId("task-queue-panel")).toBeTruthy());
-    expect(screen.getByText("本地顺序执行")).toBeTruthy();
+    await waitFor(() => expect(screen.getByTestId("main-conversation-view")).toBeTruthy());
+    expect(screen.queryByTestId("task-queue-panel")).toBeNull();
+    expect(screen.queryByText("本地顺序执行")).toBeNull();
     expect(screen.queryByText(/并行执行|worker pool|多 agent 协作/)).toBeNull();
-    fireEvent.click(screen.getByText("运行当前任务"));
-
-    await waitFor(() => {
-      expect(fetch).toHaveBeenCalledWith("/api/projects/repo/workbench/actions/live", expect.objectContaining({
-        method: "POST",
-        body: expect.stringContaining("\"actionType\":\"task.queue.start\""),
-      }));
-    });
+    expect(screen.getByTestId("open-agent-run-graph")).toBeTruthy();
   });
 
   it("shows paused TaskQueue recovery copy and disables individual task run", async () => {
@@ -1154,11 +1155,10 @@ describe("Workbench web app", () => {
 
     render(<App />);
 
-    await waitFor(() => expect(screen.getByTestId("workpad-view")).toBeTruthy());
-    fireEvent.click(screen.getByText("查看详情与证据"));
-    await waitFor(() => expect(screen.getByText("队列已暂停，等待继续。")).toBeTruthy());
-    expect(screen.getByText("继续处理")).toBeTruthy();
-    expect((screen.getByText("运行此任务") as HTMLButtonElement).disabled).toBe(true);
+    await waitFor(() => expect(screen.getByTestId("main-conversation-view")).toBeTruthy());
+    expect(screen.queryByText("队列已暂停，等待继续。")).toBeNull();
+    expect(screen.queryByText("继续处理")).toBeNull();
+    expect(screen.queryByText("运行此任务")).toBeNull();
   });
 
   it("renders clarification questions and submits answers through the intake API", async () => {
@@ -1223,7 +1223,6 @@ describe("Workbench web app", () => {
         method: "POST",
         body: expect.stringContaining("补全三类测试"),
       }));
-      expect(screen.getByText("测试范围需要覆盖")).toBeTruthy();
     });
   });
 
@@ -1470,7 +1469,7 @@ describe("Workbench web app", () => {
 
     render(<App />);
 
-    await waitFor(() => expect(screen.getByTestId("workpad-view")).toBeTruthy());
+    await waitFor(() => expect(screen.getByTestId("main-conversation-view")).toBeTruthy());
     expect(screen.getAllByText("配送规则调整").length).toBeGreaterThan(0);
     expect(screen.queryByText(/后台需求：1 个处理中/)).toBeNull();
     expect(screen.queryByText("记忆边界")).toBeNull();
@@ -1478,12 +1477,7 @@ describe("Workbench web app", () => {
     expect(screen.queryByText("停止并按这条修改")).toBeNull();
     expect(screen.queryByText("新需求对话")).toBeNull();
     expect(screen.getByTitle("停止当前执行")).toBeTruthy();
-    fireEvent.click(screen.getByText("查看详情与证据"));
-    expect(screen.getByText("后台需求")).toBeTruthy();
-    expect(screen.getByText("记忆边界")).toBeTruthy();
-    expect(screen.getByText(/project\/stable/)).toBeTruthy();
-    expect(screen.getByText(/change\/member-discount/)).toBeTruthy();
-    expect(screen.getAllByText(/配送规则调整 · 处理中/).length).toBeGreaterThan(0);
+    expect(screen.getByTestId("open-agent-run-graph")).toBeTruthy();
     expect(screen.queryByText(/worker pool|并行 worktree|merge queue/)).toBeNull();
   });
 
