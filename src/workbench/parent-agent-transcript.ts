@@ -1,4 +1,5 @@
 import type { AssistantTurnBlock } from "./chat.js";
+import { detectDelegateTaskMcpCapability } from "../agent-task/delegate-task.js";
 import type {
   ThreadStreamEvidence,
   ThreadStreamItem,
@@ -9,8 +10,8 @@ import type {
 } from "./manager.js";
 
 export type ParentAgentTranscriptActor = "user" | "parent-agent";
-export type ParentAgentTranscriptBlockKind = "prose" | "tool-result" | "evidence";
-export type ParentAgentTranscriptBlockSource = "user" | "assistant-output" | "derived-tool-result" | "evidence";
+export type ParentAgentTranscriptBlockKind = "prose" | "process" | "tool-result" | "evidence";
+export type ParentAgentTranscriptBlockSource = "user" | "codex-runtime" | "aho-orchestration" | "workflow-evidence" | "maintenance";
 
 export interface ParentAgentEvidenceRef {
   label: string;
@@ -53,11 +54,12 @@ export function buildParentAgentTranscript(input: {
     .filter((item) => item.kind !== "change-state")
     .flatMap((item) => transcriptItemFromThreadItem(item));
   const derivedItems = derivedTranscriptItems(input.workpad, items.length === 0);
+  const transcriptItems = dedupeTranscriptEvidenceRefs([...items, ...derivedItems]);
   return {
     conversationId: input.workpad.conversationId,
     changeId: input.workpad.boundChangeId,
     title: cleanPrimaryText(input.workpad.title) || "需求对话",
-    items: [...items, ...derivedItems],
+    items: transcriptItems,
     emptyMessage: "暂无对话内容。输入需求后，主 agent 会在这里持续回复。",
   };
 }
@@ -101,7 +103,7 @@ function transcriptBlocksFromThreadItem(item: ThreadStreamItem): ParentAgentTran
     blocks.push({
       id: `block:plan:${item.id}`,
       kind: "tool-result",
-      source: "derived-tool-result",
+      source: "aho-orchestration",
       title: "方案草案",
       text: cleanPrimaryText([item.planCard.title, item.planCard.summary].filter(Boolean).join("\n")) || "主 agent 已整理方案草案。",
       evidenceRefs: evidenceRefsFromThreadItem(item),
@@ -111,7 +113,7 @@ function transcriptBlocksFromThreadItem(item: ThreadStreamItem): ParentAgentTran
     blocks.push({
       id: `block:body:${item.id}`,
       kind: item.source === "workflow" ? "tool-result" : "prose",
-      source: item.source === "workflow" ? "derived-tool-result" : "assistant-output",
+      source: item.source === "workflow" ? "workflow-evidence" : "codex-runtime",
       title: item.source === "workflow" ? "处理完成" : undefined,
       text: cleanPrimaryText(item.body),
       status: item.status,
@@ -122,7 +124,7 @@ function transcriptBlocksFromThreadItem(item: ThreadStreamItem): ParentAgentTran
     blocks.push({
       id: `block:evidence:${item.id}`,
       kind: "evidence",
-      source: "evidence",
+      source: "workflow-evidence",
       title: "证据",
       text: "相关证据已保存，可从详情中查看。",
       evidenceRefs,
@@ -146,7 +148,7 @@ function activityBlocksFromThreadItem(item: ThreadStreamItem): ParentAgentTransc
   return [{
     id: `block:activity:${item.id}`,
     kind: "prose",
-    source: "derived-tool-result",
+    source: "aho-orchestration",
     text: parts.join("\n"),
     status: item.status,
     isError: errorCount > 0,
@@ -161,7 +163,7 @@ function transcriptBlockFromAssistantBlock(block: AssistantTurnBlock, itemId: st
     return {
       id: `block:status:${block.id}`,
       kind: "prose",
-      source: "assistant-output",
+      source: "codex-runtime",
       text,
       status: block.status,
       isError: block.isError,
@@ -174,7 +176,7 @@ function transcriptBlockFromAssistantBlock(block: AssistantTurnBlock, itemId: st
     return {
       id: `block:command-group:${block.id}`,
       kind: "tool-result",
-      source: "derived-tool-result",
+      source: "aho-orchestration",
       title: "执行过程",
       text,
       status: block.status,
@@ -185,7 +187,7 @@ function transcriptBlockFromAssistantBlock(block: AssistantTurnBlock, itemId: st
     return {
       id: `block:command:${block.id}`,
       kind: "tool-result",
-      source: "derived-tool-result",
+      source: "aho-orchestration",
       title: block.isError ? "命令需要关注" : "已运行命令",
       text: cleanPrimaryText(block.preview ?? (block.isError ? "工具执行失败，需要查看证据。" : "工具执行完成。")),
       status: block.status,
@@ -194,12 +196,15 @@ function transcriptBlockFromAssistantBlock(block: AssistantTurnBlock, itemId: st
   }
   if (block.kind === "tool-result" || block.kind === "file-change" || block.kind === "reasoning-summary") {
     const title = block.kind === "file-change" ? "文件变更" : cleanToolTitle(block.title);
-    const text = cleanPrimaryText(block.text ?? block.preview ?? "");
+    const rawText = block.text ?? block.preview ?? "";
+    const text = isGeneratedRunContext(rawText)
+      ? "planning-agent 已读取当前需求上下文并生成方案草案；完整运行上下文保留在证据中。"
+      : cleanPrimaryText(rawText);
     if (!text) return null;
     return {
       id: `block:${block.kind}:${block.id}`,
       kind: block.kind === "reasoning-summary" ? "prose" : "tool-result",
-      source: block.source === "codex" ? "assistant-output" : "derived-tool-result",
+      source: block.source === "codex" ? "codex-runtime" : "aho-orchestration",
       title,
       text,
       status: block.status,
@@ -211,7 +216,7 @@ function transcriptBlockFromAssistantBlock(block: AssistantTurnBlock, itemId: st
     return {
       id: `block:workflow-evidence:${block.id}`,
       kind: "tool-result",
-      source: "derived-tool-result",
+      source: "workflow-evidence",
       title: cleanToolTitle(block.title) || "证据摘要",
       text: cleanPrimaryText(block.text ?? "证据已记录。"),
       status: block.status,
@@ -220,12 +225,15 @@ function transcriptBlockFromAssistantBlock(block: AssistantTurnBlock, itemId: st
     };
   }
   if (block.kind === "plan-card") {
+    const rawText = [block.title, block.text].filter(Boolean).join("\n");
     return {
       id: `block:plan-card:${block.id}`,
       kind: "tool-result",
-      source: "derived-tool-result",
+      source: "aho-orchestration",
       title: "方案草案",
-      text: cleanPrimaryText([block.title, block.text].filter(Boolean).join("\n")) || "主 agent 已整理方案草案。",
+      text: isGeneratedRunContext(rawText)
+        ? "主 agent 已整理方案草案；详情见方案证据。"
+        : cleanPrimaryText(rawText) || "主 agent 已整理方案草案。",
       evidenceRefs: block.artifactRef ? [{ label: "方案", ref: block.artifactRef, kind: "artifact" }] : undefined,
     };
   }
@@ -233,19 +241,21 @@ function transcriptBlockFromAssistantBlock(block: AssistantTurnBlock, itemId: st
     return {
       id: `block:error:${block.id}`,
       kind: "tool-result",
-      source: "derived-tool-result",
+      source: "aho-orchestration",
       title: "处理失败",
       text: cleanPrimaryText(block.text ?? "处理失败，需要查看证据。"),
       status: block.status,
       isError: true,
     };
   }
-  const text = cleanPrimaryText(block.text ?? block.preview ?? "");
+  const rawText = block.text ?? block.preview ?? "";
+  if (isGeneratedRunContext(rawText)) return null;
+  const text = cleanPrimaryText(rawText);
   if (!text) return null;
   return {
     id: `block:prose:${block.id ?? itemId}`,
     kind: "prose",
-    source: block.source === "codex" ? "assistant-output" : "derived-tool-result",
+    source: block.source === "codex" ? "codex-runtime" : "aho-orchestration",
     title: cleanToolTitle(block.title),
     text,
     status: block.status,
@@ -274,10 +284,11 @@ function derivedTranscriptItems(workpad: WorkbenchWorkpad, includeCurrentUnderst
   const blocks: ParentAgentTranscriptBlock[] = [];
   if (includeCurrentUnderstanding) {
     const text = cleanPrimaryText(workpad.intake.currentUnderstanding || workpad.intake.goal || "我会基于当前需求对话继续分析目标、约束和下一步。");
-    if (text) blocks.push({ id: "derived:understanding", kind: "prose", source: "derived-tool-result", text });
+    if (text) blocks.push({ id: "derived:understanding", kind: "prose", source: "aho-orchestration", text });
   }
   const planning = planningBlock(workpad.planningArtifactBundle);
   if (planning) blocks.push(planning);
+  blocks.push(...roleDelegationBlocks(workpad.rolePipeline));
   const role = rolePipelineBlock(workpad.rolePipeline);
   if (role) blocks.push(role);
   const review = resultReviewBlock(workpad.resultReview);
@@ -301,11 +312,48 @@ function planningBlock(bundle: WorkbenchPlanningArtifactBundle | undefined): Par
   return {
     id: `derived:planning:${bundle.id}`,
     kind: "tool-result",
-    source: "derived-tool-result",
+    source: "aho-orchestration",
     title: bundle.status === "confirmed" ? "已确认方案" : "方案草案",
     text: cleanPrimaryText(parts.join("\n")) || "主 agent 已整理方案。",
     evidenceRefs: bundle.artifact ? [{ label: "方案", ref: bundle.artifact, kind: "artifact" }] : undefined,
   };
+}
+
+function roleDelegationBlocks(pipeline: WorkbenchRolePipelineSummary | undefined): ParentAgentTranscriptBlock[] {
+  if (!pipeline) return [];
+  const tasks = pipeline.agentTasks.filter((task) => task.kind === "foreground").slice(-8);
+  const capability = detectDelegateTaskMcpCapability();
+  const capabilityBlock: ParentAgentTranscriptBlock | null = tasks.length > 0 && !capability.available
+    ? {
+        id: "derived:delegate-task:capability-unavailable",
+        kind: "process",
+        source: "aho-orchestration",
+        title: "delegateTask 运行时能力",
+        text: "本地 delegateTask 合约和策略已启用；当前 Codex runtime 未配置动态加载 AHO MCP tool，因此 AHO 通过受控 orchestrator-policy 路径记录委派，不伪装运行时 MCP 调用成功。",
+        status: "capability-unavailable",
+      }
+    : null;
+  const taskBlocks = tasks.flatMap((task) => {
+    const title = task.status === "completed"
+      ? `${roleLabel(task.roleId)} 返回结果`
+      : task.status === "failed" || task.status === "needs-user-input"
+        ? `${roleLabel(task.roleId)} 需要处理`
+        : `调用 ${task.roleId}`;
+    const text = cleanPrimaryText(task.resultSummary ?? task.summary);
+    const evidenceRefs = dedupeEvidenceRefs(task.evidenceRefs.map((ref) => ({ label: roleLabel(task.roleId), ref, kind: "artifact" as const })));
+    const block: ParentAgentTranscriptBlock = {
+      id: `derived:delegate-task:${task.id}:${task.status}`,
+      kind: "process",
+      source: "aho-orchestration",
+      title,
+      text: text || "角色任务状态已更新。",
+      status: task.status,
+      isError: task.status === "failed" || task.status === "needs-user-input",
+      evidenceRefs,
+    };
+    return [block];
+  });
+  return capabilityBlock ? [capabilityBlock, ...taskBlocks] : taskBlocks;
 }
 
 function rolePipelineBlock(pipeline: WorkbenchRolePipelineSummary | undefined): ParentAgentTranscriptBlock | null {
@@ -315,11 +363,11 @@ function rolePipelineBlock(pipeline: WorkbenchRolePipelineSummary | undefined): 
   return {
     id: `derived:role-pipeline:${pipeline.stage}:${pipeline.status}`,
     kind: "tool-result",
-    source: "derived-tool-result",
+    source: "workflow-evidence",
     title: "执行进度",
     text,
     status: pipeline.status,
-    evidenceRefs: pipeline.runs.flatMap((run) => run.artifact ? [{ label: roleLabel(run.roleId), ref: run.artifact, kind: "artifact" as const }] : []),
+    evidenceRefs: dedupeEvidenceRefs(pipeline.runs.flatMap((run) => run.artifact ? [{ label: roleLabel(run.roleId), ref: run.artifact, kind: "artifact" as const }] : [])),
   };
 }
 
@@ -328,15 +376,15 @@ function resultReviewBlock(review: WorkbenchResultReview | undefined): ParentAge
   return {
     id: `derived:result-review:${review.worktreeId ?? review.status}`,
     kind: "tool-result",
-    source: "derived-tool-result",
+    source: "workflow-evidence",
     title: "结果摘要",
     text: cleanPrimaryText(`${review.title}\n${review.summary}`),
     status: review.status,
-    evidenceRefs: review.evidence.map((evidence) => ({
+    evidenceRefs: dedupeEvidenceRefs(review.evidence.map((evidence) => ({
       label: cleanPrimaryText(evidence.label) || "证据",
       ref: evidence.artifact ?? evidence.id,
       kind: evidence.artifact ? "artifact" as const : "run" as const,
-    })),
+    }))),
   };
 }
 
@@ -368,12 +416,52 @@ function dedupeTranscriptBlocks(blocks: ParentAgentTranscriptBlock[]): ParentAge
   const seen = new Set<string>();
   const result: ParentAgentTranscriptBlock[] = [];
   for (const block of blocks) {
-    const key = `${block.kind}:${block.title ?? ""}:${block.text}:${block.status ?? ""}`;
+    const refs = block.evidenceRefs ? dedupeEvidenceRefs(block.evidenceRefs) : undefined;
+    const key = `${block.kind}:${block.title ?? ""}:${block.text}:${block.status ?? ""}:${refs?.map((ref) => ref.ref).join("|") ?? ""}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    result.push(block);
+    result.push({ ...block, ...(refs ? { evidenceRefs: refs } : {}) });
   }
   return result;
+}
+
+function dedupeTranscriptEvidenceRefs(items: ParentAgentTranscriptItem[]): ParentAgentTranscriptItem[] {
+  const seen = new Set<string>();
+  return items.flatMap((item) => {
+    const blocks = item.blocks.flatMap((block) => {
+      if (!block.evidenceRefs?.length) return [block];
+      const refs = block.evidenceRefs.filter((ref) => {
+        const key = `${ref.kind}:${ref.ref}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+      if (refs.length === 0 && block.kind === "evidence") return [];
+      return [{ ...block, ...(refs.length > 0 ? { evidenceRefs: refs } : { evidenceRefs: undefined }) }];
+    });
+    return blocks.length > 0 ? [{ ...item, blocks }] : [];
+  });
+}
+
+function dedupeEvidenceRefs(refs: ParentAgentEvidenceRef[] | undefined): ParentAgentEvidenceRef[] | undefined {
+  if (!refs || refs.length === 0) return undefined;
+  const seen = new Set<string>();
+  const result: ParentAgentEvidenceRef[] = [];
+  for (const ref of refs) {
+    const key = `${ref.kind}:${ref.ref}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(ref);
+  }
+  return result;
+}
+
+function isGeneratedRunContext(value: string | undefined): boolean {
+  const text = value ?? "";
+  return text.includes("# AHO 需求对话 Chat")
+    || text.includes("# Run Context Projection")
+    || text.includes("## Current User Message")
+    || text.includes("## User Message");
 }
 
 function cleanToolTitle(value: string | undefined): string | undefined {

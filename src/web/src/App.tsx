@@ -123,8 +123,8 @@ type DemandAgentRunGraph = {
 type CenterTab = "conversation" | "agentGraph";
 type ParentAgentTranscriptBlock = {
   id: string;
-  kind: "prose" | "tool-result" | "evidence";
-  source: "user" | "assistant-output" | "derived-tool-result" | "evidence";
+  kind: "prose" | "process" | "tool-result" | "evidence";
+  source: "user" | "codex-runtime" | "aho-orchestration" | "workflow-evidence" | "maintenance";
   title?: string;
   text: string;
   status?: string;
@@ -689,7 +689,7 @@ function buildClientParentAgentTranscript(workpad: Workpad, items: ThreadStreamI
     derivedBlocks.push({
       id: `client-derived:planning:${workpad.planningArtifactBundle.id}`,
       kind: "tool-result",
-      source: "derived-tool-result",
+      source: "aho-orchestration",
       title: workpad.planningArtifactBundle.status === "confirmed" ? "已确认方案" : "方案草案",
       text: cleanTranscriptText([workpad.planningArtifactBundle.goal, workpad.planningArtifactBundle.design].filter(Boolean).join("\n")),
       evidenceRefs: workpad.planningArtifactBundle.artifact ? [{ label: "方案", ref: workpad.planningArtifactBundle.artifact, kind: "artifact" }] : undefined,
@@ -699,7 +699,7 @@ function buildClientParentAgentTranscript(workpad: Workpad, items: ThreadStreamI
     derivedBlocks.push({
       id: `client-derived:pipeline:${workpad.rolePipeline.stage}:${workpad.rolePipeline.status}`,
       kind: "tool-result",
-      source: "derived-tool-result",
+      source: "workflow-evidence",
       title: "执行进度",
       text: cleanTranscriptText(workpad.rolePipeline.runs.map((run) => `${roleDisplayName(run.roleId)}：${run.summary}`).join("\n") || `当前阶段：${workpad.rolePipeline.stage}`),
       status: workpad.rolePipeline.status,
@@ -709,7 +709,7 @@ function buildClientParentAgentTranscript(workpad: Workpad, items: ThreadStreamI
     derivedBlocks.push({
       id: `client-derived:result:${workpad.resultReview.worktreeId ?? workpad.resultReview.status}`,
       kind: "tool-result",
-      source: "derived-tool-result",
+      source: "workflow-evidence",
       title: "结果摘要",
       text: cleanTranscriptText(`${workpad.resultReview.title}\n${workpad.resultReview.summary}\n${workpad.resultReview.changedFiles.join("、")}`),
       status: workpad.resultReview.status,
@@ -720,7 +720,7 @@ function buildClientParentAgentTranscript(workpad: Workpad, items: ThreadStreamI
     derivedBlocks.push({
       id: `client-derived:maintenance:${workpad.maintenance.latestReviewWindowId ?? workpad.maintenance.status}`,
       kind: "tool-result",
-      source: "derived-tool-result",
+      source: "maintenance",
       title: "后台维护",
       text: cleanTranscriptText(workpad.maintenance.note),
       status: workpad.maintenance.status,
@@ -760,7 +760,7 @@ function parentTranscriptItemsFromLiveThreadItem(item: ThreadStreamItem): Parent
     blocks.push({
       id: `live-block:${block.id}`,
       kind: block.kind === "prose" ? "prose" : "tool-result",
-      source: block.source === "codex" ? "assistant-output" : "derived-tool-result",
+      source: block.source === "codex" ? "codex-runtime" : "aho-orchestration",
       title: cleanTranscriptTitle(block.title),
       text,
       status: block.status,
@@ -772,7 +772,7 @@ function parentTranscriptItemsFromLiveThreadItem(item: ThreadStreamItem): Parent
     blocks.push({
       id: `live-block:body:${item.id}`,
       kind: item.source === "workflow" ? "tool-result" : "prose",
-      source: item.source === "workflow" ? "derived-tool-result" : "assistant-output",
+      source: item.source === "workflow" ? "workflow-evidence" : "codex-runtime",
       title: item.source === "workflow" ? "处理完成" : undefined,
       text: cleanTranscriptText(item.body),
       status: item.status,
@@ -2095,7 +2095,7 @@ function resultReviewTranscriptItem(review: NonNullable<Workpad["resultReview"]>
     blocks: [{
       id: `result-review-block:${review.worktreeId ?? review.status}`,
       kind: "tool-result",
-      source: "derived-tool-result",
+      source: "workflow-evidence",
       title: "结果摘要",
       text: cleanTranscriptText(`${review.title}\n${review.summary}\n${review.changedFiles.join("、")}`),
       status: review.status,
@@ -2120,7 +2120,7 @@ function ParentAgentMessageBubble({ item }: { item: ParentAgentTranscriptItem })
 }
 
 function ParentAgentMessageBlockView({ block }: { block: ParentAgentTranscriptBlock }): ReactElement {
-  if (block.kind === "tool-result" || block.kind === "evidence") return <ParentAgentToolResultBlock block={block} />;
+  if (block.kind === "process" || block.kind === "tool-result" || block.kind === "evidence") return <ParentAgentToolResultBlock block={block} />;
   return (
     <div className={`parent-agent-prose ${block.isError ? "danger" : ""}`}>
       {block.title ? <strong>{block.title}</strong> : null}
@@ -2130,6 +2130,7 @@ function ParentAgentMessageBlockView({ block }: { block: ParentAgentTranscriptBl
 }
 
 function ParentAgentToolResultBlock({ block }: { block: ParentAgentTranscriptBlock }): ReactElement {
+  const evidenceRefs = dedupeParentEvidenceRefs(block.evidenceRefs ?? []);
   return (
     <div className={`parent-agent-tool-result ${block.isError ? "danger" : ""}`}>
       {(block.title || block.status) ? (
@@ -2139,13 +2140,23 @@ function ParentAgentToolResultBlock({ block }: { block: ParentAgentTranscriptBlo
         </div>
       ) : null}
       <p>{block.text}</p>
-      {block.evidenceRefs?.length ? (
+      {evidenceRefs.length ? (
         <div className="tool-result-evidence">
-          {block.evidenceRefs.map((ref) => <span key={`${ref.kind}:${ref.ref}`}>查看证据：{artifactName(ref.ref)}</span>)}
+          {evidenceRefs.map((ref) => <span key={`${ref.kind}:${ref.ref}`}>查看证据：{artifactName(ref.ref)}</span>)}
         </div>
       ) : null}
     </div>
   );
+}
+
+function dedupeParentEvidenceRefs(refs: NonNullable<ParentAgentTranscriptBlock["evidenceRefs"]>): NonNullable<ParentAgentTranscriptBlock["evidenceRefs"]> {
+  const seen = new Set<string>();
+  return refs.filter((ref) => {
+    const key = `${ref.kind}:${ref.ref}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 function LiveParentAgentTurnBubble({ turn }: { turn: LiveAssistantTurn }): ReactElement {

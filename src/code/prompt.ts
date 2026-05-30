@@ -32,6 +32,8 @@ export async function composeCoderPrompt(input: CoderPromptInput): Promise<strin
     "",
     "## Command Boundary",
     "",
+    "- You are a worker role, not the orchestrator.",
+    "- Do not call delegateTask, do not spawn subagents, and do not create additional role tasks.",
     "- Modify files only inside the assigned worktree checkout.",
     "- Treat the source project path as read-only context.",
     "- Do not apply, merge, close, archive, or evolve Harness rules.",

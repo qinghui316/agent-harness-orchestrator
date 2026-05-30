@@ -22,6 +22,8 @@ export async function composeAuditPrompt(input: AuditPromptInput): Promise<strin
     "",
     "## Output Contract",
     "",
+    "You are a worker role, not the orchestrator. Do not call delegateTask, do not spawn subagents, and do not create additional role tasks.",
+    "",
     "Your final answer must include exactly one status line:",
     "",
     "Status: approved | approved-with-notes | blocked",

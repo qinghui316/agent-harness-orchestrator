@@ -24,7 +24,7 @@ import type {
   RoleScopedContextProjection,
 } from "../types/index.js";
 
-const taskStatusSchema = z.enum(["queued", "running", "completed", "failed", "needs-user-input", "cancelled"]);
+const taskStatusSchema = z.enum(["queued", "claimed", "running", "completed", "failed", "needs-user-input", "cancelled"]);
 const taskSchema = z.object({
   version: z.literal("1.0"),
   id: z.string(),
@@ -188,6 +188,7 @@ export interface CreateAgentTaskInput {
   inputArtifacts?: string[];
   parentTaskId?: string;
   createdBy?: AgentTaskCreatedBy;
+  initialStatus?: Extract<AgentTaskStatus, "queued" | "running">;
 }
 
 export interface CompleteAgentTaskInput {
@@ -220,6 +221,7 @@ export interface MainAgentDecision {
 export async function createAgentTask(memory: ResolvedMemory, input: CreateAgentTaskInput): Promise<AgentTask> {
   const now = new Date().toISOString();
   const id = buildTaskId(input.changeId, input.roleId);
+  const initialStatus = input.initialStatus ?? "queued";
   const task: AgentTask = {
     version: "1.0",
     id,
@@ -228,7 +230,7 @@ export async function createAgentTask(memory: ResolvedMemory, input: CreateAgent
     changeId: input.changeId,
     roleId: input.roleId,
     kind: input.kind,
-    status: "running",
+    status: initialStatus,
     inputArtifacts: input.inputArtifacts ?? [],
     outputArtifacts: [],
     ...(input.parentTaskId ? { parentTaskId: input.parentTaskId } : {}),
@@ -236,11 +238,34 @@ export async function createAgentTask(memory: ResolvedMemory, input: CreateAgent
     summary: input.summary,
     createdAt: now,
     updatedAt: now,
-    startedAt: now,
+    startedAt: initialStatus === "running" ? now : null,
     finishedAt: null,
   };
   await writeTask(memory, task);
   return task;
+}
+
+export async function claimAgentTask(memory: ResolvedMemory, task: AgentTask): Promise<AgentTask> {
+  const now = new Date().toISOString();
+  const claimed: AgentTask = {
+    ...task,
+    status: "claimed",
+    updatedAt: now,
+  };
+  await writeTask(memory, claimed);
+  return claimed;
+}
+
+export async function startAgentTask(memory: ResolvedMemory, task: AgentTask): Promise<AgentTask> {
+  const now = new Date().toISOString();
+  const running: AgentTask = {
+    ...task,
+    status: "running",
+    updatedAt: now,
+    startedAt: task.startedAt ?? now,
+  };
+  await writeTask(memory, running);
+  return running;
 }
 
 export async function completeAgentTask(memory: ResolvedMemory, task: AgentTask, input: CompleteAgentTaskInput): Promise<AgentTaskResult> {

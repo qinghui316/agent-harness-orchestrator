@@ -4,12 +4,19 @@ import { join, relative } from "node:path";
 import { z } from "zod";
 import { startAuditRun } from "../audit/manager.js";
 import {
+  claimAgentTask,
   completeAgentTask,
   createAgentTask,
   listAgentTasks,
   recordMainAgentDecision,
   recordMaintenanceLedgerEntry,
+  startAgentTask,
 } from "../agent-task/manager.js";
+import {
+  buildDelegateTaskDecisionInput,
+  validateDelegateTaskPolicy,
+  type AgentTaskRequest,
+} from "../agent-task/delegate-task.js";
 import { startCodeRun } from "../code/manager.js";
 import { buildCodexReadonlyArgv, buildCodexReadonlyResumeArgv, detectCodexCapabilities } from "../codex/capabilities.js";
 import { detectCodexAppServerCapability, getActiveCodexAppServerTurn, runCodexAppServerTurn, type CodexAppServerNotification } from "../codex/app-server.js";
@@ -76,7 +83,7 @@ import {
 } from "../task-queue/manager.js";
 import { startValidationRun } from "../validation/manager.js";
 import { buildAgentSystemPrompt, buildRunAgentRecord, resolveAgentRole } from "../agent/catalog.js";
-import type { ManagedProject, ResolvedMemory, RunMetadata, RunStatus } from "../types/index.js";
+import type { AgentTask, ManagedProject, ResolvedMemory, RunMetadata, RunStatus } from "../types/index.js";
 import { importThreadJsonlIfNeeded, WorkbenchStore, type StoredDecisionRecord, type StoredTopicMessage } from "./store.js";
 
 export type TopicThreadEventType =
@@ -969,6 +976,7 @@ async function generatePlanningDraft(
     kind: "foreground",
     summary: revision ? "Revise planning artifact bundle from user feedback." : "Generate planning artifact bundle from the demand conversation.",
     inputArtifacts: [changePath],
+    initialStatus: "running",
   });
   await recordMainAgentDecision(memory, {
     changeId,
@@ -2515,6 +2523,57 @@ function requireTaskRunId(taskRunId: string | undefined): string {
   throw new Error("task.run.retry requires taskRunId.");
 }
 
+async function createDelegatedForegroundTask(
+  memory: ResolvedMemory,
+  request: AgentTaskRequest,
+  live: WorkbenchLiveSink | undefined,
+): Promise<AgentTask> {
+  const policy = await validateDelegateTaskPolicy(memory, request);
+  emitAssistantEvent(live, {
+    runId: request.changeId,
+    kind: "status",
+    phase: policy.ok ? "delegateTask.accepted" : "delegateTask.rejected",
+    title: policy.ok ? `调用 ${request.roleId}` : "委派未通过",
+    summary: policy.readableMessage,
+    isError: !policy.ok,
+  });
+  if (!policy.ok) throw new Error(policy.readableMessage);
+  await recordMainAgentDecision(memory, buildDelegateTaskDecisionInput(policy.request, policy.reason));
+  const queued = await createAgentTask(memory, {
+    conversationId: policy.request.conversationId,
+    changeId: policy.request.changeId,
+    roleId: policy.request.roleId,
+    kind: "foreground",
+    summary: policy.request.goal,
+    inputArtifacts: policy.request.inputArtifacts ?? [],
+    parentTaskId: policy.request.parentTaskId,
+    createdBy: "main-agent-policy",
+    initialStatus: "queued",
+  });
+  const claimed = await claimAgentTask(memory, queued);
+  const running = await startAgentTask(memory, claimed);
+  emitAssistantEvent(live, {
+    runId: request.changeId,
+    kind: "status",
+    phase: "delegateTask.running",
+    title: `${request.roleId} 开始处理`,
+    summary: "主 agent 已通过受控委派路径启动角色任务。",
+  });
+  return running;
+}
+
+function emitDelegatedRoleReturn(live: WorkbenchLiveSink | undefined, changeId: string, roleId: string, status: string, summary: string, artifactRef?: string): void {
+  emitAssistantEvent(live, {
+    runId: changeId,
+    kind: "tool-result",
+    phase: `delegateTask.${status}`,
+    title: `${roleId} 返回结果`,
+    summary,
+    artifactRef,
+    isError: status !== "completed",
+  });
+}
+
 async function runCodeValidateAuditSequence(
   project: ManagedProject,
   changeId: string,
@@ -2525,29 +2584,15 @@ async function runCodeValidateAuditSequence(
   coderRoleId = "coder-agent",
 ): Promise<unknown> {
   const memory = await resolveProjectMemory(project);
-  const coderTask = await createAgentTask(memory, {
+  const coderTask = await createDelegatedForegroundTask(memory, {
     conversationId: changeId,
     changeId,
     roleId: coderRoleId,
     kind: "foreground",
-    summary: coderRoleId === "rework-coder" ? "Repair implementation from validation or audit evidence." : "Implement the confirmed demand in an AHO-owned worktree.",
+    goal: coderRoleId === "rework-coder" ? "Repair implementation from validation or audit evidence." : "Implement the confirmed demand in an AHO-owned worktree.",
     inputArtifacts: taskRunId ? [taskRunId] : [],
-  });
-  await recordMainAgentDecision(memory, {
-    changeId,
-    recommendedAction: coderRoleId === "rework-coder" ? "rework-coder" : "coder-agent",
-    userMessage: coderRoleId === "rework-coder" ? "自动修改未通过结果" : "开始实现",
-    requiresUserDecision: false,
-    createTask: {
-      roleId: coderRoleId,
-      kind: "foreground",
-      summary: coderTask.summary,
-      inputArtifacts: coderTask.inputArtifacts,
-    },
-    reason: coderRoleId === "rework-coder"
-      ? "Official validation or audit evidence requires bounded automatic rework."
-      : "The demand has confirmed planning artifacts and can move to implementation.",
-  });
+    delegationMode: "runtime-tool",
+  }, live);
   live?.emit({ event: "run.status", data: { status: "running", label: "Coder" } });
   let coderStartedEmitted = false;
   const code = await startCodeRun(project, {
@@ -2575,6 +2620,7 @@ async function runCodeValidateAuditSequence(
       failureClassification: "code-failure",
       requiresUserInputReason: "Implementation failed before official validation could run.",
     });
+    emitDelegatedRoleReturn(live, changeId, coderRoleId, "failed", "coder-agent 没有产出可验证的 worktree 结果。", code.run.artifacts.directory);
     await recordMaintenanceLedgerEntry(memory, {
       eventType: "failure",
       changeId,
@@ -2589,14 +2635,16 @@ async function runCodeValidateAuditSequence(
     artifactRefs: compactArtifactRefs(code.run.artifacts.directory, code.run.artifacts.implementation),
     nextRecommendation: "Run independent validation.",
   });
-  const validatorTask = await createAgentTask(memory, {
+  emitDelegatedRoleReturn(live, changeId, coderRoleId, "completed", "coder-agent 已返回实现和自测结果。", code.run.artifacts.directory);
+  const validatorTask = await createDelegatedForegroundTask(memory, {
     conversationId: changeId,
     changeId,
     roleId: "validator",
     kind: "foreground",
-    summary: "Run independent mechanical validation for the coder worktree.",
+    goal: "Run independent mechanical validation for the coder worktree.",
     inputArtifacts: [code.run.artifacts.directory],
-  });
+    delegationMode: "runtime-tool",
+  }, live);
   live?.emit({ event: "run.status", data: { runId: code.run.id, status: "running", label: "Validation" } });
   live?.emit({ event: "tool.event", data: { runId: code.run.id, phase: "status", name: "Validation", status: "running" } });
   emitAssistantEvent(live, { runId: code.run.id, kind: "status", phase: "running", title: "Validation running", summary: "AHO started validation for the coder worktree." });
@@ -2612,6 +2660,7 @@ async function runCodeValidateAuditSequence(
       failureClassification: "validation-failure",
       requiresUserInputReason: "Validation failed; bounded automatic rework may be attempted.",
     });
+    emitDelegatedRoleReturn(live, changeId, "validator", "failed", "validator 返回验证失败结果。", validation.run.artifacts.validation);
     await recordMaintenanceLedgerEntry(memory, {
       eventType: "failure",
       changeId,
@@ -2626,14 +2675,16 @@ async function runCodeValidateAuditSequence(
     artifactRefs: compactArtifactRefs(validation.run.artifacts.validation, validation.run.artifacts.stdout),
     nextRecommendation: "Run semantic audit.",
   });
-  const auditorTask = await createAgentTask(memory, {
+  emitDelegatedRoleReturn(live, changeId, "validator", "completed", "validator 返回验证通过结果。", validation.run.artifacts.validation);
+  const auditorTask = await createDelegatedForegroundTask(memory, {
     conversationId: changeId,
     changeId,
     roleId: "auditor-agent",
     kind: "foreground",
-    summary: "Run independent semantic audit for the validated worktree.",
+    goal: "Run independent semantic audit for the validated worktree.",
     inputArtifacts: compactArtifactRefs(validation.run.artifacts.validation, validation.run.artifacts.stdout),
-  });
+    delegationMode: "runtime-tool",
+  }, live);
   live?.emit({ event: "run.status", data: { runId: code.run.id, status: "running", label: "Audit" } });
   live?.emit({ event: "tool.event", data: { runId: code.run.id, phase: "status", name: "Audit", status: "running" } });
   emitAssistantEvent(live, { runId: code.run.id, kind: "status", phase: "running", title: "Audit running", summary: "AHO started audit after validation passed." });
@@ -2654,6 +2705,16 @@ async function runCodeValidateAuditSequence(
     nextRecommendation: audit.audit.status === "approved" || audit.audit.status === "approved-with-notes" ? "Show result review and apply handoff." : "Attempt bounded automatic rework if budget remains.",
     ...(audit.audit.status === "approved" || audit.audit.status === "approved-with-notes" ? {} : { failureClassification: "audit-failure", requiresUserInputReason: "Audit did not accept the current evidence." }),
   });
+  emitDelegatedRoleReturn(
+    live,
+    changeId,
+    "auditor-agent",
+    audit.audit.status === "approved" || audit.audit.status === "approved-with-notes" ? "completed" : "failed",
+    audit.audit.status === "approved" || audit.audit.status === "approved-with-notes"
+      ? "auditor-agent 返回审查通过结果。"
+      : "auditor-agent 返回需要修改或补证据的结果。",
+    audit.audit.artifacts.auditMarkdown,
+  );
   if (!(audit.audit.status === "approved" || audit.audit.status === "approved-with-notes")) {
     await recordMaintenanceLedgerEntry(memory, {
       eventType: "failure",

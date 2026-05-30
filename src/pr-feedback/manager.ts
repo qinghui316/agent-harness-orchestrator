@@ -295,6 +295,7 @@ export async function startPrFeedbackReworkAttempt(
     kind: "foreground",
     summary: "Revise the demand result from remote Draft PR feedback.",
     inputArtifacts: feedback.summary.evidenceRefs,
+    initialStatus: "running",
   });
   const withTask: PrFeedbackReworkAttempt = { ...attempt, agentTaskId: task.id };
   reworkSchema.parse(withTask);

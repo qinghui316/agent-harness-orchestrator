@@ -576,7 +576,7 @@ export interface RunMetadata {
 export type TaskRunStatus = "queued" | "claimed" | "running" | "evidence-ready" | "blocked" | "failed" | "completed";
 
 export type AgentTaskKind = "foreground" | "background";
-export type AgentTaskStatus = "queued" | "running" | "completed" | "failed" | "needs-user-input" | "cancelled";
+export type AgentTaskStatus = "queued" | "claimed" | "running" | "completed" | "failed" | "needs-user-input" | "cancelled";
 export type AgentTaskCreatedBy = "main-agent-policy" | "maintenance-policy" | "system";
 
 export interface AgentTask {

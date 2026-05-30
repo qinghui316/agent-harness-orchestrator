@@ -17,6 +17,7 @@ import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import { collectWorktreeDiff } from "../../src/audit/diff.js";
 import {
   buildRoleScopedContextProjection,
+  claimAgentTask,
   completeAgentTask,
   createAgentTask,
   listAgentTasks,
@@ -26,7 +27,9 @@ import {
   recordDemandMemoryCloseout,
   recordMaintenanceLedgerEntry,
   runMaintenanceCandidatePipeline,
+  startAgentTask,
 } from "../../src/agent-task/manager.js";
+import { buildDelegateTaskManifest, validateDelegateTaskPolicy } from "../../src/agent-task/delegate-task.js";
 import {
   claimAvailableDemandWorkers,
   claimNextDemandWorker,
@@ -2189,6 +2192,9 @@ describe("workbench read model", () => {
         evidenceRefs: ["runs/run-agent-task/implementation.md"],
       }),
     ]));
+    const transcriptText = JSON.stringify(snapshot.center.parentAgentTranscript);
+    expect(transcriptText).toContain("实现 返回结果");
+    expect(transcriptText).toContain("workflow-evidence");
     expect(snapshot.center.agentRunGraph.nodes).toEqual(expect.arrayContaining([
       expect.objectContaining({
         id: "main-agent",
@@ -2225,6 +2231,50 @@ describe("workbench read model", () => {
         kind: "returns",
       }),
     ]));
+  });
+
+  it("validates delegateTask policy and records queued to running AgentTask lifecycle", async () => {
+    await initHarness(project());
+    await createChange(project(), { title: "Delegate Task Demand" });
+    const memory = await resolveProjectMemory(project());
+    const manifest = buildDelegateTaskManifest();
+
+    expect(manifest.allowedRoles.map((role) => role.roleId)).toEqual(expect.arrayContaining(["coder-agent", "validator", "auditor-agent", "rework-coder"]));
+    const accepted = await validateDelegateTaskPolicy(memory, {
+      conversationId: "delegate-task-demand",
+      changeId: "delegate-task-demand",
+      roleId: "coder-agent",
+      kind: "foreground",
+      goal: "Implement the confirmed demand in an AHO-owned worktree.",
+      inputArtifacts: ["harness/changes/active/delegate-task-demand/spec.md"],
+    });
+    expect(accepted.ok).toBe(true);
+    const forbidden = await validateDelegateTaskPolicy(memory, {
+      conversationId: "delegate-task-demand",
+      changeId: "delegate-task-demand",
+      roleId: "coder-agent",
+      kind: "foreground",
+      goal: "Apply this result and merge the PR.",
+      inputArtifacts: ["harness/changes/active/delegate-task-demand/spec.md"],
+    });
+    expect(forbidden.ok).toBe(false);
+    expect(forbidden.readableMessage).toContain("用户确认");
+
+    const queued = await createAgentTask(memory, {
+      conversationId: "delegate-task-demand",
+      changeId: "delegate-task-demand",
+      roleId: "coder-agent",
+      kind: "foreground",
+      summary: "Implement via delegated task.",
+      inputArtifacts: ["harness/changes/active/delegate-task-demand/spec.md"],
+    });
+    expect(queued.status).toBe("queued");
+    expect(queued.startedAt).toBeNull();
+    const claimed = await claimAgentTask(memory, queued);
+    expect(claimed.status).toBe("claimed");
+    const running = await startAgentTask(memory, claimed);
+    expect(running.status).toBe("running");
+    expect(running.startedAt).toBeTruthy();
   });
 
   it("routes planning confirmation through a demand worker queue when no worker slot is available", async () => {
