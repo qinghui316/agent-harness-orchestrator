@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactElement } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from "react";
 import {
   Check,
   ChevronDown,
@@ -131,6 +131,19 @@ type ParentAgentTranscriptBlock = {
   evidenceRefs?: Array<{ label: string; ref: string; kind: "artifact" | "run" | "decision" | "remote" | "maintenance" }>;
   isError?: boolean;
 };
+type ParentAgentTranscriptCell = {
+  id: string;
+  kind: "user-message" | "assistant-message" | "process-row" | "evidence-row" | "detail-only";
+  source: "user" | "codex-runtime" | "aho-orchestration" | "workflow-evidence" | "maintenance";
+  timestamp?: string;
+  title?: string;
+  text: string;
+  status?: string;
+  evidenceRefs?: ParentAgentTranscriptBlock["evidenceRefs"];
+  isError?: boolean;
+  realtime?: boolean;
+  detailText?: string;
+};
 type ParentAgentTranscriptItem = {
   id: string;
   actor: "user" | "parent-agent";
@@ -142,6 +155,7 @@ type ParentAgentTranscript = {
   conversationId?: string;
   changeId?: string;
   title: string;
+  cells?: ParentAgentTranscriptCell[];
   items: ParentAgentTranscriptItem[];
   emptyMessage?: string;
 };
@@ -667,158 +681,118 @@ const emptySnapshot: Snapshot = {
 function emptyParentAgentTranscript(): ParentAgentTranscript {
   return {
     title: "需求对话",
+    cells: [],
     items: [],
     emptyMessage: "暂无对话内容。输入需求后，主 agent 会在这里持续回复。",
   };
 }
 
 function mergeLiveItemsIntoTranscript(transcript: ParentAgentTranscript, liveItems: ThreadStreamItem[]): ParentAgentTranscript {
-  const liveTranscriptItems = liveItems.flatMap(parentTranscriptItemsFromLiveThreadItem);
-  if (liveTranscriptItems.length === 0) return transcript;
+  const liveTranscriptCells = liveItems.flatMap(parentTranscriptCellsFromLiveThreadItem);
+  if (liveTranscriptCells.length === 0) return transcript;
+  const existingCellIds = new Set((transcript.cells ?? []).map((cell) => cell.id));
+  const cells = [...(transcript.cells ?? []), ...liveTranscriptCells.filter((cell) => !existingCellIds.has(cell.id))];
+  const liveTranscriptItems = transcriptItemsFromCells(liveTranscriptCells);
   const existingIds = new Set(transcript.items.map((item) => item.id));
   return {
     ...transcript,
+    cells,
     items: [...transcript.items, ...liveTranscriptItems.filter((item) => !existingIds.has(item.id))],
   };
 }
 
-function buildClientParentAgentTranscript(workpad: Workpad, items: ThreadStreamItem[]): ParentAgentTranscript {
-  const transcriptItems = items.flatMap(parentTranscriptItemsFromLiveThreadItem);
-  const derivedBlocks: ParentAgentTranscriptBlock[] = [];
-  if (workpad.planningArtifactBundle) {
-    derivedBlocks.push({
-      id: `client-derived:planning:${workpad.planningArtifactBundle.id}`,
-      kind: "tool-result",
-      source: "aho-orchestration",
-      title: workpad.planningArtifactBundle.status === "confirmed" ? "已确认方案" : "方案草案",
-      text: cleanTranscriptText([workpad.planningArtifactBundle.goal, workpad.planningArtifactBundle.design].filter(Boolean).join("\n")),
-      evidenceRefs: workpad.planningArtifactBundle.artifact ? [{ label: "方案", ref: workpad.planningArtifactBundle.artifact, kind: "artifact" }] : undefined,
-    });
-  }
-  if (workpad.rolePipeline) {
-    derivedBlocks.push({
-      id: `client-derived:pipeline:${workpad.rolePipeline.stage}:${workpad.rolePipeline.status}`,
-      kind: "tool-result",
-      source: "workflow-evidence",
-      title: "执行进度",
-      text: cleanTranscriptText(workpad.rolePipeline.runs.map((run) => `${roleDisplayName(run.roleId)}：${run.summary}`).join("\n") || `当前阶段：${workpad.rolePipeline.stage}`),
-      status: workpad.rolePipeline.status,
-    });
-  }
-  if (workpad.resultReview) {
-    derivedBlocks.push({
-      id: `client-derived:result:${workpad.resultReview.worktreeId ?? workpad.resultReview.status}`,
-      kind: "tool-result",
-      source: "workflow-evidence",
-      title: "结果摘要",
-      text: cleanTranscriptText(`${workpad.resultReview.title}\n${workpad.resultReview.summary}\n${workpad.resultReview.changedFiles.join("、")}`),
-      status: workpad.resultReview.status,
-      evidenceRefs: workpad.resultReview.evidence.map((evidence) => ({ label: evidence.label, ref: evidence.artifact ?? evidence.id, kind: evidence.artifact ? "artifact" : "run" })),
-    });
-  }
-  if (workpad.maintenance && workpad.maintenance.status !== "idle") {
-    derivedBlocks.push({
-      id: `client-derived:maintenance:${workpad.maintenance.latestReviewWindowId ?? workpad.maintenance.status}`,
-      kind: "tool-result",
-      source: "maintenance",
-      title: "后台维护",
-      text: cleanTranscriptText(workpad.maintenance.note),
-      status: workpad.maintenance.status,
-    });
-  }
-  const derivedItem: ParentAgentTranscriptItem[] = derivedBlocks.length > 0 ? [{
-    id: `client-derived:${workpad.boundChangeId ?? workpad.conversationId ?? workpad.title}`,
-    actor: "parent-agent",
-    derived: true,
-    blocks: derivedBlocks,
-  }] : [];
-  return {
-    conversationId: workpad.conversationId,
-    changeId: workpad.boundChangeId,
-    title: workpad.title || "需求对话",
-    items: [...transcriptItems, ...derivedItem],
-    emptyMessage: "暂无对话内容。输入需求后，主 agent 会在这里持续回复。",
-  };
-}
-
-function parentTranscriptItemsFromLiveThreadItem(item: ThreadStreamItem): ParentAgentTranscriptItem[] {
+function parentTranscriptCellsFromLiveThreadItem(item: ThreadStreamItem): ParentAgentTranscriptCell[] {
   if (item.kind === "change-state") return [];
   if (item.kind === "user-message") {
     const text = cleanTranscriptText(item.body ?? item.label);
-    if (!text) return [];
-    return [{
-      id: `live-parent:user:${item.id}`,
-      actor: "user",
+    return text ? [{
+      id: `live-cell:user:${item.id}`,
+      kind: "user-message",
+      source: "user",
       timestamp: item.timestamp,
-      blocks: [{ id: `live-block:user:${item.id}`, kind: "prose", source: "user", text }],
-    }];
+      text,
+    }] : [];
   }
-  const blocks: ParentAgentTranscriptBlock[] = [];
+  const cells: ParentAgentTranscriptCell[] = [];
   for (const block of item.blocks ?? []) {
     const text = cleanTranscriptText(block.text ?? block.preview ?? "");
     if (!text || block.kind === "usage") continue;
-    blocks.push({
-      id: `live-block:${block.id}`,
-      kind: block.kind === "prose" ? "prose" : "tool-result",
-      source: block.source === "codex" ? "codex-runtime" : "aho-orchestration",
-      title: cleanTranscriptTitle(block.title),
+    const source = block.source === "codex" ? "codex-runtime" : "aho-orchestration";
+    if (source !== "codex-runtime" && block.kind !== "error") continue;
+    if (block.kind === "workflow-evidence" || block.kind === "plan-card") continue;
+    const isProcess = block.kind === "command" || block.kind === "command-group" || block.kind === "tool-result" || block.kind === "file-change" || block.kind === "status" || block.kind === "error";
+    const title = block.kind === "command" || block.kind === "command-group"
+      ? block.isError || block.status === "failed" ? "命令需要关注" : block.status === "running" ? "命令执行中" : "已运行命令"
+      : block.kind === "file-change" ? "文件变更" : cleanTranscriptTitle(block.title);
+    if (isGeneratedRunContextText(text)) {
+      cells.push({
+        id: `live-cell:detail:${block.id}`,
+        kind: "detail-only",
+        source,
+        timestamp: item.timestamp,
+        title: "运行上下文",
+        text,
+        status: block.status,
+        isError: block.isError,
+      });
+      continue;
+    }
+    if (block.kind === "status" && !block.isError) continue;
+    cells.push({
+      id: `live-cell:${block.id}`,
+      kind: block.kind === "prose" || block.kind === "reasoning-summary" ? "assistant-message" : isProcess ? "process-row" : "detail-only",
+      source,
+      timestamp: item.timestamp,
+      title,
       text,
       status: block.status,
       isError: block.isError,
-      evidenceRefs: block.artifactRef ? [{ label: cleanTranscriptTitle(block.title) ?? "证据", ref: block.artifactRef, kind: "artifact" }] : undefined,
+      evidenceRefs: block.artifactRef ? [{ label: title ?? "详情", ref: block.artifactRef, kind: "artifact" }] : undefined,
     });
   }
-  if (blocks.length === 0 && item.body) {
-    blocks.push({
-      id: `live-block:body:${item.id}`,
-      kind: item.source === "workflow" ? "tool-result" : "prose",
-      source: item.source === "workflow" ? "workflow-evidence" : "codex-runtime",
-      title: item.source === "workflow" ? "处理完成" : undefined,
-      text: cleanTranscriptText(item.body),
-      status: item.status,
-      evidenceRefs: item.artifact ? [{ label: "证据", ref: item.artifact, kind: "artifact" }] : undefined,
-    });
-  }
-  if (blocks.length === 0) return [];
-  return [{
-    id: `live-parent:agent:${item.id}`,
-    actor: "parent-agent",
-    timestamp: item.timestamp,
-    derived: item.source === "workflow",
-    blocks,
-  }];
+  return cells;
+}
+
+function isGeneratedRunContextText(value: string): boolean {
+  return value.includes("# AHO 需求对话 Chat")
+    || value.includes("# Run Context Projection")
+    || value.includes("You are answering inside the AHO Workbench")
+    || value.includes("## Current User Message")
+    || value.includes("## User Message");
+}
+
+function transcriptItemsFromCells(cells: ParentAgentTranscriptCell[]): ParentAgentTranscriptItem[] {
+  return cells
+    .filter((cell) => cell.kind !== "detail-only")
+    .map((cell) => ({
+      id: `cell-item:${cell.id}`,
+      actor: cell.kind === "user-message" ? "user" : "parent-agent",
+      timestamp: cell.timestamp,
+      derived: cell.source !== "codex-runtime" && cell.source !== "user",
+      blocks: [{
+        id: `cell-block:${cell.id}`,
+        kind: cell.kind === "assistant-message" || cell.kind === "user-message" ? "prose" : cell.kind === "process-row" ? "process" : "evidence",
+        source: cell.source,
+        title: cell.title,
+        text: cell.text,
+        status: cell.status,
+        evidenceRefs: cell.evidenceRefs,
+        isError: cell.isError,
+      }],
+    }));
 }
 
 function cleanTranscriptTitle(value?: string): string | undefined {
   const text = cleanTranscriptText(value ?? "");
   if (!text || text === "AI" || text === "AI 回复" || text === "执行结果") return undefined;
+  if (text === "Command completed") return "已运行命令";
+  if (text === "Command started") return "命令执行中";
+  if (text === "Command failed") return "命令需要关注";
   return text;
 }
 
 function cleanTranscriptText(value?: string): string {
-  return (value ?? "")
-    .replace(/\bWorkpad\b/g, "需求对话")
-    .replace(/\bTopic\b/g, "需求对话")
-    .replace(/\bTaskRun\b/g, "执行记录")
-    .replace(/\bWorkerLease\b/g, "执行占用")
-    .replace(/\bDemandWorker\b/g, "后台执行")
-    .replace(/\bTaskRepository\b/g, "任务仓库")
-    .replace(/\baudit-blocked\b/gi, "需要修改或补证据")
-    .replace(/\bblocked\b/gi, "需要处理")
-    .replace(/\bT-\d+\b/g, "任务")
-    .replace(/\bAC-\d+\b/g, "验收点")
-    .trim();
-}
-
-function roleDisplayName(roleId: string): string {
-  const names: Record<string, string> = {
-    "planning-agent": "规划",
-    "coder-agent": "实现",
-    "rework-coder": "修改",
-    validator: "验证",
-    "auditor-agent": "审查",
-  };
-  return names[roleId] ?? "角色结果";
+  return (value ?? "").trim();
 }
 
 export function App(): ReactElement {
@@ -1277,8 +1251,8 @@ export function App(): ReactElement {
     setLiveTurns((current) => current.map((turn) => turn.runId === runId ? {
       ...turn,
       status: "completed",
-      text: turn.text || text || "",
-      blocks: turn.blocks.length > 0 ? turn.blocks : text ? [proseBlock(runId, text, 1)] : turn.blocks,
+      text: text || turn.text || "",
+      blocks: text ? [proseBlock(runId, text, 1), ...turn.blocks.filter((block) => block.kind !== "prose")] : turn.blocks,
       endedAt: new Date().toISOString(),
     } : turn));
   }
@@ -1310,10 +1284,8 @@ export function App(): ReactElement {
   const selectedProjectStatus = useMemo(() => projects.find((item) => item.project?.id === selectedProjectId) ?? null, [projects, selectedProjectId]);
   const runIds = useMemo(() => snapshot.center.agentLoop.runs.map((run) => run.id).join("|"), [snapshot.center.agentLoop.runs]);
   const snapshotTranscript = useMemo(() => {
-    return snapshot.center.parentAgentTranscript?.items?.length
-      ? snapshot.center.parentAgentTranscript
-      : buildClientParentAgentTranscript(activeWorkpad, snapshot.center.thread.items ?? []);
-  }, [activeWorkpad, snapshot.center.parentAgentTranscript, snapshot.center.thread.items]);
+    return snapshot.center.parentAgentTranscript ?? emptyParentAgentTranscript();
+  }, [snapshot.center.parentAgentTranscript]);
   const activeTranscript = useMemo(() => {
     return mergeLiveItemsIntoTranscript(snapshotTranscript, liveItems);
   }, [snapshotTranscript, liveItems]);
@@ -2054,14 +2026,12 @@ function ParentAgentTranscriptView({
   onAnswerClarification: (clarificationId: string, answer: string) => Promise<void>;
   onSelectDecisionContext: (contextId: string) => void;
 }): ReactElement {
+  const cells = transcript.cells?.length ? transcript.cells.filter((cell) => cell.kind !== "detail-only") : [];
   return (
     <div className="parent-agent-transcript" data-testid="parent-agent-transcript">
       <div className="parent-agent-message-list">
-        {transcript.items.length === 0 ? <div className="empty-state">{transcript.emptyMessage ?? "暂无对话内容。"}</div> : null}
-        {transcript.items.map((item) => <ParentAgentMessageBubble key={item.id} item={item} />)}
-        {workpad.resultReview && !transcriptContainsText(transcript, workpad.resultReview.title) ? (
-          <ParentAgentMessageBubble item={resultReviewTranscriptItem(workpad.resultReview)} />
-        ) : null}
+        {cells.length === 0 ? <div className="empty-state">{transcript.emptyMessage ?? "暂无对话内容。"}</div> : null}
+        {cells.map((cell) => <ParentAgentTranscriptCellView key={cell.id} cell={cell} />)}
         {workpad.intake.pendingClarifications?.length ? (
           <div className="parent-agent-message-row parent">
             <div className="parent-agent-bubble">
@@ -2081,75 +2051,60 @@ function ParentAgentTranscriptView({
   );
 }
 
-function transcriptContainsText(transcript: ParentAgentTranscript, text?: string): boolean {
-  const target = cleanTranscriptText(text ?? "");
-  if (!target) return false;
-  return transcript.items.some((item) => item.blocks.some((block) => `${block.title ?? ""}\n${block.text}`.includes(target)));
-}
-
-function resultReviewTranscriptItem(review: NonNullable<Workpad["resultReview"]>): ParentAgentTranscriptItem {
-  return {
-    id: `result-review-transcript:${review.worktreeId ?? review.status}`,
-    actor: "parent-agent",
-    derived: true,
-    blocks: [{
-      id: `result-review-block:${review.worktreeId ?? review.status}`,
-      kind: "tool-result",
-      source: "workflow-evidence",
-      title: "结果摘要",
-      text: cleanTranscriptText(`${review.title}\n${review.summary}\n${review.changedFiles.join("、")}`),
-      status: review.status,
-      evidenceRefs: review.evidence.map((evidence) => ({
-        label: evidence.label,
-        ref: evidence.artifact ?? evidence.id,
-        kind: evidence.artifact ? "artifact" : "run",
-      })),
-    }],
-  };
-}
-
-function ParentAgentMessageBubble({ item }: { item: ParentAgentTranscriptItem }): ReactElement {
+function ParentAgentTranscriptCellView({ cell }: { cell: ParentAgentTranscriptCell }): ReactElement {
+  const isUser = cell.kind === "user-message";
   return (
-    <div className={`parent-agent-message-row ${item.actor === "user" ? "user" : "parent"}`} data-testid={`parent-message-${item.actor}`}>
-      <div className={`parent-agent-bubble ${item.actor === "user" ? "user" : "parent"}`}>
-        {item.blocks.map((block) => <ParentAgentMessageBlockView key={block.id} block={block} />)}
+    <div className={`parent-agent-message-row ${isUser ? "user" : "parent"}`} data-testid={isUser ? "parent-message-user" : "parent-message-parent-agent"}>
+      <div className={`parent-agent-bubble ${isUser ? "user" : "parent"} ${cell.kind}`}>
+        {cell.kind === "assistant-message" || cell.kind === "user-message"
+          ? <ParentAgentTranscriptMessageCell cell={cell} />
+          : <ParentAgentTranscriptProcessCell cell={cell} />}
       </div>
-      {item.timestamp ? <time>{formatTime(item.timestamp)}</time> : null}
+      {cell.timestamp ? <time>{formatTime(cell.timestamp)}</time> : null}
     </div>
   );
 }
 
-function ParentAgentMessageBlockView({ block }: { block: ParentAgentTranscriptBlock }): ReactElement {
-  if (block.kind === "process" || block.kind === "tool-result" || block.kind === "evidence") return <ParentAgentToolResultBlock block={block} />;
+function ParentAgentTranscriptMessageCell({ cell }: { cell: ParentAgentTranscriptCell }): ReactElement {
+  const title = cleanTranscriptTitle(cell.title);
+  const text = normalizeCodexTranscriptText(cleanTranscriptText(cell.text));
   return (
-    <div className={`parent-agent-prose ${block.isError ? "danger" : ""}`}>
-      {block.title ? <strong>{block.title}</strong> : null}
-      <p>{block.text}</p>
+    <div className={`parent-agent-prose ${cell.isError ? "danger" : ""}`}>
+      {title ? <strong>{title}</strong> : null}
+      <MarkdownLite text={text} idPrefix={cell.id} />
     </div>
   );
 }
 
-function ParentAgentToolResultBlock({ block }: { block: ParentAgentTranscriptBlock }): ReactElement {
-  const evidenceRefs = dedupeParentEvidenceRefs(block.evidenceRefs ?? []);
+function ParentAgentTranscriptProcessCell({ cell }: { cell: ParentAgentTranscriptCell }): ReactElement {
+  const evidenceRefs = dedupeParentCellEvidenceRefs(cell.evidenceRefs ?? []);
+  const hasDetails = Boolean(cell.detailText?.trim()) || evidenceRefs.length > 0;
+  const title = cleanTranscriptTitle(cell.title) || (cell.kind === "process-row" ? "运行" : "详情");
+  const text = normalizeCodexTranscriptText(cleanTranscriptText(cell.text));
+  const detailText = normalizeCodexTranscriptText(cleanTranscriptText(cell.detailText));
   return (
-    <div className={`parent-agent-tool-result ${block.isError ? "danger" : ""}`}>
-      {(block.title || block.status) ? (
-        <div className="tool-result-heading">
-          {block.title ? <strong>{block.title}</strong> : <span />}
-          {block.status ? <span>{humanStatus(block.status)}</span> : null}
-        </div>
-      ) : null}
-      <p>{block.text}</p>
-      {evidenceRefs.length ? (
-        <div className="tool-result-evidence">
-          {evidenceRefs.map((ref) => <span key={`${ref.kind}:${ref.ref}`}>查看证据：{artifactName(ref.ref)}</span>)}
-        </div>
+    <div className={`parent-agent-tool-result compact ${cell.kind} ${cell.isError ? "danger" : ""}`}>
+      <div className="tool-result-heading">
+        <strong>{title}</strong>
+        {cell.status && shouldShowTranscriptStatus(cell) ? <span>{humanStatus(cell.status)}</span> : null}
+      </div>
+      <MarkdownLite text={text} idPrefix={`${cell.id}:summary`} compact />
+      {hasDetails ? (
+        <details className="tool-result-details">
+          <summary>查看详情</summary>
+          {detailText ? <pre>{detailText}</pre> : null}
+          {evidenceRefs.length ? (
+            <div className="tool-result-evidence">
+              {evidenceRefs.map((ref) => <span key={`${ref.kind}:${ref.ref}`}>材料：{artifactName(ref.ref)}</span>)}
+            </div>
+          ) : null}
+        </details>
       ) : null}
     </div>
   );
 }
 
-function dedupeParentEvidenceRefs(refs: NonNullable<ParentAgentTranscriptBlock["evidenceRefs"]>): NonNullable<ParentAgentTranscriptBlock["evidenceRefs"]> {
+function dedupeParentCellEvidenceRefs(refs: NonNullable<ParentAgentTranscriptCell["evidenceRefs"]>): NonNullable<ParentAgentTranscriptCell["evidenceRefs"]> {
   const seen = new Set<string>();
   return refs.filter((ref) => {
     const key = `${ref.kind}:${ref.ref}`;
@@ -2157,6 +2112,69 @@ function dedupeParentEvidenceRefs(refs: NonNullable<ParentAgentTranscriptBlock["
     seen.add(key);
     return true;
   });
+}
+
+function shouldShowTranscriptStatus(cell: ParentAgentTranscriptCell): boolean {
+  if (!cell.status) return false;
+  if (cell.isError) return true;
+  return ["running", "queued", "waiting-user", "needs-user-input", "failed"].includes(cell.status);
+}
+
+function normalizeCodexTranscriptText(value: string): string {
+  return value.trim();
+}
+
+function MarkdownLite({ text, idPrefix, compact = false }: { text: string; idPrefix: string; compact?: boolean }): ReactElement {
+  const blocks = text.split(/\n{2,}/).map((block) => block.trim()).filter(Boolean);
+  return (
+    <>
+      {blocks.map((block, index) => {
+        const lines = block.split(/\n/).map((line) => line.trimEnd()).filter(Boolean);
+        if (lines.length > 0 && lines.every((line) => /^[-*]\s+/.test(line))) {
+          return (
+            <ul key={`${idPrefix}:ul:${index}`} className={compact ? "markdown-lite-list compact" : "markdown-lite-list"}>
+              {lines.map((line, lineIndex) => <li key={`${idPrefix}:li:${index}:${lineIndex}`}>{renderInlineMarkdown(line.replace(/^[-*]\s+/, ""), `${idPrefix}:li:${index}:${lineIndex}`)}</li>)}
+            </ul>
+          );
+        }
+        if (lines.length > 1 && /^[^。.!?]{2,48}:$/.test(lines[0]) && lines.slice(1).every((line) => /^[-*]\s+/.test(line))) {
+          return (
+            <div key={`${idPrefix}:section-list:${index}`} className="markdown-lite-section-list">
+              <strong className="markdown-lite-heading">{lines[0].replace(/:$/, "")}</strong>
+              <ul className={compact ? "markdown-lite-list compact" : "markdown-lite-list"}>
+                {lines.slice(1).map((line, lineIndex) => <li key={`${idPrefix}:section-li:${index}:${lineIndex}`}>{renderInlineMarkdown(line.replace(/^[-*]\s+/, ""), `${idPrefix}:section-li:${index}:${lineIndex}`)}</li>)}
+              </ul>
+            </div>
+          );
+        }
+        if (/^```/.test(block)) {
+          return <pre key={`${idPrefix}:pre:${index}`} className="markdown-lite-code">{block.replace(/^```[a-z]*\n?/i, "").replace(/\n?```$/, "")}</pre>;
+        }
+        if (!compact && lines.length === 1 && /^[^。.!?]{2,32}:$/.test(lines[0])) {
+          return <strong key={`${idPrefix}:heading:${index}`} className="markdown-lite-heading">{lines[0].replace(/:$/, "")}</strong>;
+        }
+        return <p key={`${idPrefix}:p:${index}`}>{renderInlineMarkdown(block, `${idPrefix}:p:${index}`)}</p>;
+      })}
+    </>
+  );
+}
+
+function renderInlineMarkdown(text: string, keyPrefix: string): ReactNode[] {
+  const nodes: ReactNode[] = [];
+  const pattern = /`([^`]+)`|\[([^\]]+)\]\(([^)]+)\)/g;
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(text)) !== null) {
+    if (match.index > lastIndex) nodes.push(text.slice(lastIndex, match.index));
+    if (match[1]) {
+      nodes.push(<code key={`${keyPrefix}:code:${match.index}`}>{match[1]}</code>);
+    } else if (match[2]) {
+      nodes.push(<span key={`${keyPrefix}:link:${match.index}`} className="markdown-lite-link">{match[2]}</span>);
+    }
+    lastIndex = match.index + match[0].length;
+  }
+  if (lastIndex < text.length) nodes.push(text.slice(lastIndex));
+  return nodes;
 }
 
 function LiveParentAgentTurnBubble({ turn }: { turn: LiveAssistantTurn }): ReactElement {
@@ -2181,7 +2199,7 @@ function LiveParentAgentTurnBubble({ turn }: { turn: LiveAssistantTurn }): React
 
 function parentLiveTurnTitle(turn: LiveAssistantTurn): string {
   if (turn.status === "failed") return "处理失败";
-  if (turn.status === "completed") return "处理完成";
+  if (turn.status === "completed") return "已处理";
   return "正在处理";
 }
 
@@ -4329,6 +4347,7 @@ function sourceLabel(source: string): string {
 
 function userFacingText(value: string): string {
   return value
+    .replace(/确认当前方案并启动 coder-agent、validator、auditor 角色流水线。/gi, "确认当前方案，并启动实现、验证和审查流程。")
     .replace(/\bTask queue started\b/gi, "本地顺序执行已开始")
     .replace(/\bTask runs reconciled\b/gi, "任务状态已同步")
     .replace(/\bTask workflow started\b/gi, "任务执行已开始")
@@ -4352,6 +4371,12 @@ function userFacingText(value: string): string {
     .replace(/\bValidation failed\.?/gi, "验证未通过。")
     .replace(/\bValidation passed\b/gi, "验证已通过")
     .replace(/\bCoder completed\b/gi, "代码执行已完成")
+    .replace(/\bcoder-agent\b/gi, "实现 agent")
+    .replace(/\bvalidator\b/gi, "验证")
+    .replace(/\bauditor-agent\b/gi, "审查")
+    .replace(/\bauditor\b/gi, "审查")
+    .replace(/角色流水线/g, "实现、验证和审查流程")
+    .replace(/AHO-owned worktree/gi, "隔离工作区")
     .replace(/\bTask queue\b/gi, "本地顺序执行")
     .replace(/\bGenerate Spec\b/gi, "生成需求说明")
     .replace(/\bGenerate Plan\b/gi, "生成执行方案")

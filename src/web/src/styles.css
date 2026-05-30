@@ -848,10 +848,77 @@ input:focus-visible {
   color: var(--text-strong);
 }
 
+.parent-agent-prose code,
+.parent-agent-tool-result code {
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: var(--bg-subtle);
+  color: var(--text-strong);
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+}
+
+.markdown-lite-heading {
+  margin-top: 2px;
+  font-size: 15px;
+}
+
+.markdown-lite-list {
+  margin: 0;
+  padding-left: 20px;
+  color: var(--text);
+  font-size: 15.5px;
+  line-height: 1.68;
+}
+
+.markdown-lite-list.compact {
+  font-size: 14px;
+}
+
+.markdown-lite-list li + li {
+  margin-top: 4px;
+}
+
+.markdown-lite-section-list {
+  display: grid;
+  gap: 6px;
+}
+
+.markdown-lite-code {
+  max-width: 100%;
+  margin: 0;
+  padding: 10px 12px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-subtle);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+
+.markdown-lite-link {
+  color: var(--selected);
+}
+
 .parent-agent-tool-result {
   padding: 8px 0 8px 14px;
   border-left: 2px solid var(--border-strong);
   background: transparent;
+}
+
+.parent-agent-tool-result.compact {
+  gap: 6px;
+  padding: 6px 0 6px 12px;
+}
+
+.parent-agent-tool-result.compact.process-row {
+  border-left-color: var(--accent);
+}
+
+.parent-agent-tool-result.compact.evidence-row {
+  border-left-color: var(--success);
 }
 
 .parent-agent-tool-result.danger {
@@ -885,6 +952,31 @@ input:focus-visible {
   background: var(--bg-subtle);
   color: var(--text-muted);
   font-size: 12px;
+}
+
+.tool-result-details {
+  display: grid;
+  gap: 8px;
+}
+
+.tool-result-details summary {
+  width: fit-content;
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.tool-result-details pre {
+  max-width: 100%;
+  margin: 0;
+  padding: 8px 10px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-subtle);
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .parent-conversation-snapshot {

@@ -190,6 +190,37 @@ const snapshot = {
         ],
       },
     ] },
+    parentAgentTranscript: {
+      title: "会员折扣计价",
+      cells: [
+        {
+          id: "cell:user:e1",
+          kind: "user-message",
+          source: "user",
+          timestamp: "2026-05-15T12:00:00.000Z",
+          text: "会员用户满 100 元享 9 折",
+        },
+        {
+          id: "cell:assistant:e3",
+          kind: "assistant-message",
+          source: "codex-runtime",
+          timestamp: "2026-05-15T12:01:00.000Z",
+          text: "Codex final summary 完整显示。\n\n下一步可以查看验证和审查证据。",
+        },
+        {
+          id: "cell:command:b2",
+          kind: "process-row",
+          source: "codex-runtime",
+          timestamp: "2026-05-15T12:01:05.000Z",
+          title: "已运行命令",
+          text: "测试通过",
+          status: "completed",
+          detailText: "npm test",
+        },
+      ],
+      items: [],
+      emptyMessage: "暂无对话内容。输入需求后，主 agent 会在这里持续回复。",
+    },
     agentLoop: { runs: [{ id: "run-1", runtime: "coder-codex", status: "completed" }] },
     agentRunGraph: {
       conversationId: "member-discount",
@@ -364,8 +395,10 @@ describe("Workbench web app", () => {
     for (const forbidden of ["Workpad", "Change-level evidence", "TaskRun", "WorkerLease", "audit-blocked", "queue blocked", "Plan mode", "AC ", "Tasks", "Agent 循环", "latest-bundle", "planning-agent"]) {
       expect(primarySurface).not.toContain(forbidden);
     }
-    expect(document.querySelector(".parent-agent-transcript")?.textContent).toContain("结果可应用到项目");
-    expect(document.querySelector(".parent-agent-transcript")?.textContent).toContain("src/pricing.ts");
+    expect(document.querySelector(".parent-agent-transcript")?.textContent).toContain("Codex final summary 完整显示。");
+    expect(document.querySelector(".parent-agent-transcript")?.textContent).toContain("已运行命令");
+    expect(document.querySelector(".parent-agent-transcript")?.textContent).not.toContain("结果摘要");
+    expect(document.querySelector(".parent-agent-transcript")?.textContent).not.toContain("已生成本地结果");
     expect(screen.getByText("确认完成需求对话")).toBeTruthy();
     expect(screen.getByLabelText("在 Repo 中开始新对话")).toBeTruthy();
     expect(screen.getByLabelText("搜索已加载对话")).toBeTruthy();
@@ -374,7 +407,6 @@ describe("Workbench web app", () => {
     expect(screen.getByText("设置")).toBeTruthy();
     expect(screen.queryByText("远程项目")).toBeNull();
     expect(screen.getByText("需要你确认")).toBeTruthy();
-    expect(document.querySelector(".parent-agent-transcript")?.textContent).toContain("Command completed");
     expect(screen.getAllByTestId("parent-message-user").length).toBeGreaterThan(0);
     expect(screen.getAllByTestId("parent-message-parent-agent").length).toBeGreaterThan(0);
     expect(screen.queryByText("用户消息")).toBeNull();
@@ -382,12 +414,12 @@ describe("Workbench web app", () => {
     expect(screen.queryByText("执行结果")).toBeNull();
     expect(screen.queryByText("工具结果")).toBeNull();
     expect(screen.getByText("Codex final summary 完整显示。")).toBeTruthy();
-    expect(screen.getByText("验证：已通过")).toBeTruthy();
-    expect(screen.getByText("审查：带备注批准")).toBeTruthy();
-    expect(screen.getByText("生成受控计划")).toBeTruthy();
+    expect(screen.queryByText("验证：已通过")).toBeNull();
+    expect(screen.queryByText("审查：带备注批准")).toBeNull();
+    expect(document.querySelector(".parent-agent-transcript")?.textContent).not.toContain("生成受控计划");
     expect(screen.queryByText("运行 Code")).toBeNull();
     expect(screen.getByText("当前需要你决定")).toBeTruthy();
-    expect(screen.getAllByText("结果摘要").length).toBeGreaterThan(0);
+    expect(document.querySelector(".parent-agent-transcript")?.textContent).not.toContain("结果摘要");
     expect(screen.getByText("推荐动作")).toBeTruthy();
     expect(screen.getByText("接受需求说明")).toBeTruthy();
     expect(screen.getByText("刷新状态")).toBeTruthy();
@@ -439,6 +471,36 @@ describe("Workbench web app", () => {
             ],
           }],
         },
+        parentAgentTranscript: {
+          title: "会员折扣计价",
+          cells: [
+            {
+              id: "cell:assistant:p1",
+              kind: "assistant-message",
+              source: "codex-runtime",
+              text: "我会检查现有实现。",
+            },
+            {
+              id: "cell:error:err1",
+              kind: "process-row",
+              source: "codex-runtime",
+              title: "Error",
+              text: "Reconnecting...",
+              isError: true,
+            },
+            {
+              id: "cell:command:c-done",
+              kind: "process-row",
+              source: "codex-runtime",
+              title: "已运行命令",
+              text: "ok",
+              status: "completed",
+              detailText: "npm test",
+            },
+          ],
+          items: [],
+          emptyMessage: "暂无对话内容。输入需求后，主 agent 会在这里持续回复。",
+        },
         agentLoop: { runs: [{ id: "run-dedupe", runtime: "codex-readonly", status: "completed" }] },
       },
     };
@@ -459,6 +521,44 @@ describe("Workbench web app", () => {
     expect(screen.queryByText("执行结果")).toBeNull();
     expect(screen.queryByText(/用量/)).toBeNull();
     expect(document.querySelectorAll("[data-testid^='assistant-block']")).toHaveLength(0);
+  });
+
+  it("does not render legacy parent transcript items when runtime cells are absent", async () => {
+    const legacyOnlySnapshot = {
+      ...snapshot,
+      center: {
+        ...snapshot.center,
+        parentAgentTranscript: {
+          title: "会员折扣计价",
+          cells: [],
+          items: [{
+            id: "legacy-derived-item",
+            actor: "parent-agent",
+            blocks: [{
+              id: "legacy-derived-block",
+              kind: "evidence",
+              source: "workflow-evidence",
+              title: "证据摘要",
+              text: "The confirmed workflow action completed.",
+            }],
+          }],
+          emptyMessage: "暂无真实运行记录。",
+        },
+      },
+    };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
+      if (url === "/api/projects") return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
+      return jsonResponse(url.includes("/stream/") ? stream : legacyOnlySnapshot);
+    }));
+
+    render(<App />);
+
+    await waitFor(() => expect(screen.getByText("暂无真实运行记录。")).toBeTruthy());
+    const transcriptText = document.querySelector(".parent-agent-transcript")?.textContent ?? "";
+    expect(transcriptText).not.toContain("证据摘要");
+    expect(transcriptText).not.toContain("The confirmed workflow action completed.");
   });
 
   it("renders PR provider guidance without a fake create button when remote handoff is unavailable", async () => {
@@ -1290,6 +1390,33 @@ describe("Workbench web app", () => {
             },
           ],
         },
+        parentAgentTranscript: {
+          ...snapshot.center.parentAgentTranscript,
+          cells: [
+            ...snapshot.center.parentAgentTranscript.cells,
+            {
+              id: "cell:user:live-user-final",
+              kind: "user-message",
+              source: "user",
+              text: "继续说明边界",
+            },
+            {
+              id: "cell:assistant:live-ai-final",
+              kind: "assistant-message",
+              source: "codex-runtime",
+              text: "完整 AI 输出已经落盘。",
+            },
+            {
+              id: "cell:command:live-cmd-1",
+              kind: "process-row",
+              source: "codex-runtime",
+              title: "已运行命令",
+              text: "测试通过",
+              status: "completed",
+              detailText: "npm test",
+            },
+          ],
+        },
       },
     };
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
@@ -1336,7 +1463,7 @@ describe("Workbench web app", () => {
     expect(screen.queryByText(/codex-events\.jsonl/)).toBeNull();
     expect(screen.queryByText("Usage recorded")).toBeNull();
     expect(screen.queryByText("Codex turn running")).toBeNull();
-    expect(screen.queryByText("npm test")).toBeNull();
+    expect(screen.getAllByText("npm test").length).toBeGreaterThan(0);
     expect(document.querySelectorAll("[data-testid^='assistant-block']")).toHaveLength(0);
     expect(document.querySelector(".parent-agent-transcript")?.textContent).toContain("完整 AI 输出已经落盘。");
     expect(fetch).toHaveBeenCalledWith("/api/projects/repo/workbench/topics/member-discount/messages/live", expect.objectContaining({ method: "POST" }));
@@ -1404,7 +1531,7 @@ describe("Workbench web app", () => {
     expect(screen.getByText("正在处理")).toBeTruthy();
     expect(screen.queryByText("AI 只读回复")).toBeNull();
     expect(screen.queryByText("Reasoning summary")).toBeNull();
-    expect(screen.queryByText("npm test")).toBeNull();
+    expect(screen.getAllByText("npm test").length).toBeGreaterThan(0);
     expect(screen.queryByText("exit 0")).toBeNull();
     expect(screen.queryByText(/5 output tokens/)).toBeNull();
   });

@@ -300,8 +300,8 @@ describe("workbench read model", () => {
     expect(snapshot.center.thread.items.some((item) => item.kind === "change-state")).toBe(true);
     expect(snapshot.center.thread.items.some((item) => item.runId === snapshot.center.agentLoop.runs[0]?.id)).toBe(false);
     expect(snapshot.center.activeTab).toBe("conversation");
-    expect(snapshot.center.parentAgentTranscript.items.length).toBeGreaterThan(0);
-    expect(snapshot.center.parentAgentTranscript.items.some((item) => item.actor === "parent-agent")).toBe(true);
+    expect(snapshot.center.parentAgentTranscript.cells).toHaveLength(0);
+    expect(snapshot.center.parentAgentTranscript.items).toHaveLength(0);
     const transcriptText = JSON.stringify(snapshot.center.parentAgentTranscript);
     for (const forbidden of ["AI 回复", "执行结果", "TaskRun", "WorkerLease", "DemandWorker", "TaskRepository", "blocked", "T-001", "AC-001"]) {
       expect(transcriptText).not.toContain(forbidden);
@@ -314,6 +314,41 @@ describe("workbench read model", () => {
     });
     expect(snapshot.roles.map((item) => item.id)).toEqual(expect.arrayContaining(["coder", "auditor", "validator"]));
     expect(snapshot.harnessGaps.map((item) => item.id)).toEqual(expect.arrayContaining(["roleCatalog", "sessionModel", "subagentSpec"]));
+  });
+
+  it("projects Codex runtime output into transcript cells before derived workflow summaries", async () => {
+    await initHarness(project());
+    const topic = await createWorkbenchTopic(project(), { title: "Codex Transcript", body: "实现会员满 100 九折" });
+    await appendTopicThreadEntry(project(), topic.changeId, {
+      type: "assistant.message",
+      text: "Fallback final message should not duplicate the cell stream.",
+      runId: "run-codex-transcript",
+      blocks: [
+        { id: "p1", runId: "run-codex-transcript", sequence: 1, kind: "prose", timestamp: "2026-05-31T00:00:00.000Z", source: "codex", text: "我会先检查计价模块。" },
+        { id: "p2", runId: "run-codex-transcript", sequence: 2, kind: "prose", timestamp: "2026-05-31T00:00:01.000Z", source: "codex", text: "然后补充边界测试。" },
+        { id: "cmd", runId: "run-codex-transcript", sequence: 3, kind: "command", timestamp: "2026-05-31T00:00:02.000Z", source: "codex", title: "Command completed", command: "npm test", preview: "测试通过", status: "completed", exitCode: 0 },
+        { id: "validation", runId: "run-codex-transcript", sequence: 4, kind: "workflow-evidence", timestamp: "2026-05-31T00:00:03.000Z", source: "validation", title: "验证通过", text: "targeted tests passed", status: "passed", artifactRef: "runs/validation.md" },
+      ],
+    });
+
+    const snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: topic.id });
+    const cells = snapshot.center.parentAgentTranscript.cells;
+
+    expect(cells).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: "assistant-message",
+        source: "codex-runtime",
+        text: expect.stringContaining("我会先检查计价模块"),
+      }),
+      expect.objectContaining({
+        kind: "process-row",
+        title: "已运行命令",
+      }),
+    ]));
+    expect(cells.filter((cell) => cell.kind === "assistant-message")).toHaveLength(1);
+    expect(JSON.stringify(cells)).not.toContain("Fallback final message should not duplicate");
+    expect(JSON.stringify(cells)).not.toContain("验证通过");
+    expect(JSON.stringify(cells)).not.toContain("targeted tests passed");
   });
 
   it("keeps archived topic messages in the semantic thread stream", async () => {
@@ -2217,9 +2252,7 @@ describe("workbench read model", () => {
         evidenceRefs: ["runs/run-agent-task/implementation.md"],
       }),
     ]));
-    const transcriptText = JSON.stringify(snapshot.center.parentAgentTranscript);
-    expect(transcriptText).toContain("实现 返回结果");
-    expect(transcriptText).toContain("workflow-evidence");
+    expect(snapshot.center.parentAgentTranscript.cells).toHaveLength(0);
     expect(snapshot.center.agentRunGraph.nodes).toEqual(expect.arrayContaining([
       expect.objectContaining({
         id: "main-agent",
