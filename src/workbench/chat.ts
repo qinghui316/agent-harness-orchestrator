@@ -54,6 +54,13 @@ import {
   submitPrReviewReply,
 } from "../pr-review/manager.js";
 import { mergeRemoteLanding, prepareRemoteLandingReadiness, refreshRemoteLanding } from "../remote-landing/manager.js";
+import {
+  cleanupRemoteBranchAfterMerge,
+  prepareLocalSync,
+  preparePostMergeHandoff,
+  prepareRemoteBranchCleanup,
+  syncLocalAfterMerge,
+} from "../post-merge/manager.js";
 import { finishTaskRunFromWorkflowResult, markTaskRunStarted, reconcileTaskRuns, retryTaskRun, startTaskRun } from "../task-run/manager.js";
 import {
   failQueuedTaskItem,
@@ -545,6 +552,12 @@ export type WorkbenchWorkflowActionType =
   | "remote-landing.prepare"
   | "remote-landing.merge"
   | "remote-landing.refresh"
+  | "post-merge.prepare"
+  | "post-merge.refresh"
+  | "post-merge.sync-local.prepare"
+  | "post-merge.sync-local.run"
+  | "post-merge.cleanup-branch.prepare"
+  | "post-merge.cleanup-branch.run"
   | "code.run"
   | "task.run.start"
   | "task.run.retry"
@@ -566,6 +579,7 @@ export interface WorkbenchWorkflowActionRequest {
   taskRunId?: string;
   applyCheckId?: string;
   landingPackageId?: string;
+  remoteLandingResultId?: string;
 }
 
 export interface WorkbenchWorkflowActionResult {
@@ -890,6 +904,17 @@ async function executeWorkflowAction(project: ManagedProject, changeId: string, 
       return mergeRemoteLandingForAction(project, changeId, request, live);
     case "remote-landing.refresh":
       return refreshRemoteLandingForAction(project, changeId, request, live);
+    case "post-merge.prepare":
+    case "post-merge.refresh":
+      return preparePostMergeForAction(project, changeId, request, live);
+    case "post-merge.sync-local.prepare":
+      return prepareLocalSyncForAction(project, changeId, request, live);
+    case "post-merge.sync-local.run":
+      return syncLocalForAction(project, changeId, request, live);
+    case "post-merge.cleanup-branch.prepare":
+      return prepareRemoteBranchCleanupForAction(project, changeId, request, live);
+    case "post-merge.cleanup-branch.run":
+      return cleanupRemoteBranchForAction(project, changeId, request, live);
     case "code.run":
       return runCodeValidateAuditSequence(project, changeId, request.prompt, live, request.taskIds);
     case "task.run.start":
@@ -1582,6 +1607,113 @@ async function refreshRemoteLandingForAction(
   });
   live?.emit({ event: "assistant.message", data: entry });
   return { readiness };
+}
+
+async function preparePostMergeForAction(
+  project: ManagedProject,
+  changeId: string,
+  request: WorkbenchWorkflowActionRequest,
+  live: WorkbenchLiveSink | undefined,
+): Promise<unknown> {
+  if (!request.landingPackageId) throw new Error("post-merge.prepare requires landingPackageId.");
+  if (!request.remoteLandingResultId) throw new Error("post-merge.prepare requires remoteLandingResultId.");
+  const handoff = await preparePostMergeHandoff(project, request.landingPackageId, request.remoteLandingResultId);
+  const entry = await appendTopicThreadEntry(project, changeId, {
+    type: "assistant.message",
+    status: "post-merge-prepared",
+    text: [
+      handoff.summary,
+      "",
+      handoff.localStatusSummary,
+      "",
+      handoff.cleanupSummary,
+      "",
+      "本地同步和远端分支清理是合并后的可选维护动作，不影响这个需求已合并的状态。",
+    ].join("\n"),
+    artifact: handoff.summaryArtifact,
+  });
+  live?.emit({ event: "assistant.message", data: entry });
+  return { handoff };
+}
+
+async function prepareLocalSyncForAction(
+  project: ManagedProject,
+  changeId: string,
+  request: WorkbenchWorkflowActionRequest,
+  live: WorkbenchLiveSink | undefined,
+): Promise<unknown> {
+  if (!request.landingPackageId) throw new Error("post-merge.sync-local.prepare requires landingPackageId.");
+  if (!request.remoteLandingResultId) throw new Error("post-merge.sync-local.prepare requires remoteLandingResultId.");
+  const readiness = await prepareLocalSync(project, request.landingPackageId, request.remoteLandingResultId);
+  const entry = await appendTopicThreadEntry(project, changeId, {
+    type: "assistant.message",
+    status: "post-merge-local-sync-readiness",
+    text: `${readiness.summary}\n\n${readiness.reason}`,
+    artifact: readiness.readinessArtifact,
+  });
+  live?.emit({ event: "assistant.message", data: entry });
+  return { readiness };
+}
+
+async function syncLocalForAction(
+  project: ManagedProject,
+  changeId: string,
+  request: WorkbenchWorkflowActionRequest,
+  live: WorkbenchLiveSink | undefined,
+): Promise<unknown> {
+  if (!request.landingPackageId) throw new Error("post-merge.sync-local.run requires landingPackageId.");
+  if (!request.remoteLandingResultId) throw new Error("post-merge.sync-local.run requires remoteLandingResultId.");
+  const result = await syncLocalAfterMerge(project, request.landingPackageId, request.remoteLandingResultId);
+  const entry = await appendTopicThreadEntry(project, changeId, {
+    type: "assistant.message",
+    status: result.result.status === "synced" ? "post-merge-local-synced" : "post-merge-local-sync-skipped",
+    text: result.result.status === "synced"
+      ? "本地项目已通过 fast-forward 同步到远端合并后的 base branch。AHO 没有 checkout、stash、reset、rebase 或创建 merge commit。"
+      : `${result.readiness.summary}\n\n${result.result.failureReason ?? result.readiness.reason}`,
+    artifact: result.result.artifactRefs[0],
+  });
+  live?.emit({ event: "assistant.message", data: entry });
+  return result;
+}
+
+async function prepareRemoteBranchCleanupForAction(
+  project: ManagedProject,
+  changeId: string,
+  request: WorkbenchWorkflowActionRequest,
+  live: WorkbenchLiveSink | undefined,
+): Promise<unknown> {
+  if (!request.landingPackageId) throw new Error("post-merge.cleanup-branch.prepare requires landingPackageId.");
+  if (!request.remoteLandingResultId) throw new Error("post-merge.cleanup-branch.prepare requires remoteLandingResultId.");
+  const readiness = await prepareRemoteBranchCleanup(project, request.landingPackageId, request.remoteLandingResultId);
+  const entry = await appendTopicThreadEntry(project, changeId, {
+    type: "assistant.message",
+    status: "post-merge-branch-cleanup-readiness",
+    text: `${readiness.summary}\n\n${readiness.reason}`,
+    artifact: readiness.readinessArtifact,
+  });
+  live?.emit({ event: "assistant.message", data: entry });
+  return { readiness };
+}
+
+async function cleanupRemoteBranchForAction(
+  project: ManagedProject,
+  changeId: string,
+  request: WorkbenchWorkflowActionRequest,
+  live: WorkbenchLiveSink | undefined,
+): Promise<unknown> {
+  if (!request.landingPackageId) throw new Error("post-merge.cleanup-branch.run requires landingPackageId.");
+  if (!request.remoteLandingResultId) throw new Error("post-merge.cleanup-branch.run requires remoteLandingResultId.");
+  const result = await cleanupRemoteBranchAfterMerge(project, request.landingPackageId, request.remoteLandingResultId);
+  const entry = await appendTopicThreadEntry(project, changeId, {
+    type: "assistant.message",
+    status: result.result.status === "deleted" ? "post-merge-branch-cleaned" : "post-merge-branch-cleanup-skipped",
+    text: result.result.status === "deleted"
+      ? "远端 PR 分支已清理。本地分支没有被删除。"
+      : `${result.readiness.summary}\n\n${result.result.failureReason ?? result.readiness.reason}`,
+    artifact: result.result.artifactRefs[0],
+  });
+  live?.emit({ event: "assistant.message", data: entry });
+  return result;
 }
 
 async function startNextDemandWorkerForAction(
@@ -3386,6 +3518,23 @@ function summarizeActionResult(actionType: string, result: unknown): string {
     const prUrl = typeof result.result.prUrl === "string" ? ` ${result.result.prUrl}` : "";
     return `Remote landing ${status}.${prUrl}`;
   }
+  if ((actionType === "post-merge.prepare" || actionType === "post-merge.refresh") && isRecord(result) && isRecord(result.handoff)) {
+    return typeof result.handoff.summary === "string" ? result.handoff.summary : "Post-merge state refreshed.";
+  }
+  if (actionType === "post-merge.sync-local.prepare" && isRecord(result) && isRecord(result.readiness)) {
+    return typeof result.readiness.summary === "string" ? result.readiness.summary : "Local sync readiness refreshed.";
+  }
+  if (actionType === "post-merge.sync-local.run" && isRecord(result) && isRecord(result.result)) {
+    const status = typeof result.result.status === "string" ? result.result.status : "completed";
+    return `Post-merge local sync ${status}.`;
+  }
+  if (actionType === "post-merge.cleanup-branch.prepare" && isRecord(result) && isRecord(result.readiness)) {
+    return typeof result.readiness.summary === "string" ? result.readiness.summary : "Remote branch cleanup readiness refreshed.";
+  }
+  if (actionType === "post-merge.cleanup-branch.run" && isRecord(result) && isRecord(result.result)) {
+    const status = typeof result.result.status === "string" ? result.result.status : "completed";
+    return `Post-merge remote branch cleanup ${status}.`;
+  }
   if (actionType === "task.run.reconcile" && isRecord(result) && Array.isArray(result.taskRuns)) {
     return `Reconciled ${result.taskRuns.length} TaskRun record(s).`;
   }
@@ -3482,6 +3631,12 @@ function labelForAction(actionType: string): string {
     case "remote-landing.prepare": return "Remote landing readiness prepared";
     case "remote-landing.merge": return "Remote PR merged";
     case "remote-landing.refresh": return "Remote landing state refreshed";
+    case "post-merge.prepare": return "Post-merge state prepared";
+    case "post-merge.refresh": return "Post-merge state refreshed";
+    case "post-merge.sync-local.prepare": return "Local sync readiness prepared";
+    case "post-merge.sync-local.run": return "Local project synchronized";
+    case "post-merge.cleanup-branch.prepare": return "Remote branch cleanup readiness prepared";
+    case "post-merge.cleanup-branch.run": return "Remote PR branch cleaned up";
     case "code.run": return "Coder run confirmed";
     case "task.run.start": return "Task workflow started";
     case "task.run.retry": return "Task workflow retried";

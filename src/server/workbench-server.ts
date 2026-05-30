@@ -63,6 +63,7 @@ interface WorkbenchActionRequest {
   worktreeIds?: string[];
   applyCheckId?: string;
   landingPackageId?: string;
+  remoteLandingResultId?: string;
   taskIds?: string[];
   taskRunId?: string;
   confirm?: boolean;
@@ -432,6 +433,7 @@ export async function executeWorkbenchAction(input: WorkbenchProjectInput, body:
       worktreeIds: body.worktreeIds,
       applyCheckId: body.applyCheckId,
       landingPackageId: body.landingPackageId,
+      remoteLandingResultId: body.remoteLandingResultId,
       taskIds: body.taskIds,
       taskRunId: body.taskRunId,
     });
@@ -693,6 +695,9 @@ async function sendWorkbenchActionLive(input: WorkbenchProjectInput & { project:
         proposalId: body.proposalId,
         worktreeId: body.worktreeId,
         worktreeIds: body.worktreeIds,
+        applyCheckId: body.applyCheckId,
+        landingPackageId: body.landingPackageId,
+        remoteLandingResultId: body.remoteLandingResultId,
         taskIds: body.taskIds,
         taskRunId: body.taskRunId,
       }, sink);
@@ -773,6 +778,12 @@ function isLiveWorkflowAction(actionType: string): actionType is WorkbenchWorkfl
     || actionType === "remote-landing.prepare"
     || actionType === "remote-landing.merge"
     || actionType === "remote-landing.refresh"
+    || actionType === "post-merge.prepare"
+    || actionType === "post-merge.refresh"
+    || actionType === "post-merge.sync-local.prepare"
+    || actionType === "post-merge.sync-local.run"
+    || actionType === "post-merge.cleanup-branch.prepare"
+    || actionType === "post-merge.cleanup-branch.run"
     || actionType === "code.run"
     || actionType === "task.run.start"
     || actionType === "task.run.retry"

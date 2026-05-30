@@ -935,6 +935,141 @@ export interface RemoteLandingResult {
   createdAt: string;
 }
 
+export type LocalSyncReadinessStatus =
+  | "ready"
+  | "already-current"
+  | "not-merged"
+  | "provider-unavailable"
+  | "dirty-source"
+  | "wrong-branch"
+  | "missing-base"
+  | "fetch-failed"
+  | "not-fast-forward";
+
+export type RemoteBranchCleanupReadinessStatus =
+  | "ready"
+  | "not-merged"
+  | "provider-unavailable"
+  | "missing-head"
+  | "already-deleted"
+  | "unsafe-head"
+  | "delete-unavailable";
+
+export interface PostMergeStateSnapshot {
+  version: "1.0";
+  id: string;
+  remoteLandingResultId: string;
+  landingPackageId: string;
+  prDraftPackageId: string;
+  projectId: string | null;
+  prUrl?: string;
+  prState: string;
+  baseBranch?: string | null;
+  headBranch?: string | null;
+  mergeCommit?: string | null;
+  mergedAt?: string | null;
+  currentBranch?: string | null;
+  workingTreeClean: boolean | null;
+  localHead?: string | null;
+  remoteName?: string;
+  remoteBaseHead?: string | null;
+  remoteHeadBranchExists?: boolean | null;
+  canFastForward: boolean;
+  alreadyCurrent: boolean;
+  evidenceRefs: string[];
+  createdAt: string;
+}
+
+export interface LocalSyncReadiness {
+  version: "1.0";
+  id: string;
+  postMergeHandoffId: string;
+  remoteLandingResultId: string;
+  landingPackageId: string;
+  projectId: string | null;
+  status: LocalSyncReadinessStatus;
+  canSync: boolean;
+  summary: string;
+  reason: string;
+  confirmEffect: string;
+  riskSummary: string;
+  readinessArtifact: string;
+  evidenceRefs: string[];
+  createdAt: string;
+}
+
+export interface LocalSyncResult {
+  version: "1.0";
+  id: string;
+  readinessId: string;
+  postMergeHandoffId: string;
+  remoteLandingResultId: string;
+  landingPackageId: string;
+  projectId: string | null;
+  status: "synced" | "skipped" | "failed";
+  beforeHead?: string | null;
+  afterHead?: string | null;
+  failureReason?: string;
+  artifactRefs: string[];
+  createdAt: string;
+}
+
+export interface RemoteBranchCleanupReadiness {
+  version: "1.0";
+  id: string;
+  postMergeHandoffId: string;
+  remoteLandingResultId: string;
+  landingPackageId: string;
+  projectId: string | null;
+  status: RemoteBranchCleanupReadinessStatus;
+  canCleanup: boolean;
+  headBranch?: string | null;
+  remoteName?: string;
+  summary: string;
+  reason: string;
+  confirmEffect: string;
+  riskSummary: string;
+  readinessArtifact: string;
+  evidenceRefs: string[];
+  createdAt: string;
+}
+
+export interface RemoteBranchCleanupResult {
+  version: "1.0";
+  id: string;
+  readinessId: string;
+  postMergeHandoffId: string;
+  remoteLandingResultId: string;
+  landingPackageId: string;
+  projectId: string | null;
+  status: "deleted" | "skipped" | "failed";
+  headBranch?: string | null;
+  remoteName?: string;
+  failureReason?: string;
+  artifactRefs: string[];
+  createdAt: string;
+}
+
+export interface PostMergeHandoff {
+  version: "1.0";
+  id: string;
+  remoteLandingResultId: string;
+  landingPackageId: string;
+  prDraftPackageId: string;
+  projectId: string | null;
+  prUrl?: string;
+  status: "merged" | "not-merged";
+  summary: string;
+  localStatusSummary: string;
+  cleanupSummary: string;
+  stateSnapshotArtifact: string;
+  summaryArtifact: string;
+  evidenceRefs: string[];
+  localSyncReadiness: LocalSyncReadiness;
+  remoteBranchCleanupReadiness: RemoteBranchCleanupReadiness;
+  createdAt: string;
+}
+
 export type MainOrchestratorDecisionAction =
   | "planning"
   | "enqueue"

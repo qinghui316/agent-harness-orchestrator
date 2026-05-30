@@ -721,6 +721,73 @@ describe("Workbench web app", () => {
     expect(screen.queryByText("push main")).toBeNull();
   });
 
+  it("renders post-merge sync and cleanup as explicit confirmation actions", async () => {
+    const postMergeSnapshot = {
+      ...snapshot,
+      right: {
+        ...snapshot.right,
+        confirmationQueue: {
+          primary: {
+            id: "post-merge:handoff:post-merge-abc123",
+            kind: "post-merge",
+            conversationId: "member-discount",
+            changeId: "member-discount",
+            landingPackageId: "landing-worktree-abc123",
+            summary: "远端 PR 已合并。本地项目状态已刷新。",
+            whyNeedsConfirmation: "远端 PR 已合并；本地同步和远端分支清理是可选收尾动作。",
+            confirmEffect: "会执行一次 fast-forward 同步；不会 checkout、stash、reset、rebase 或创建 merge commit。",
+            riskSummary: "同步后本地 base branch 会前进到远端合并后的提交。删除后该远端分支不再可用于继续 push；PR 记录仍保留。",
+            evidenceRefs: ["project://.agent-harness/workbench/post-merge/post-merge-abc123/post-merge-summary.md"],
+            actions: [
+              {
+                id: "post-merge-sync-local:landing-worktree-abc123",
+                label: "同步本地项目",
+                kind: "workflow-action",
+                actionType: "post-merge.sync-local.run",
+                landingPackageId: "landing-worktree-abc123",
+                remoteLandingResultId: "remote-landing-result-abc123",
+                enabled: true,
+                requiresConfirmation: true,
+              },
+              {
+                id: "post-merge-cleanup-branch:landing-worktree-abc123",
+                label: "清理远端 PR 分支",
+                kind: "workflow-action",
+                actionType: "post-merge.cleanup-branch.run",
+                landingPackageId: "landing-worktree-abc123",
+                remoteLandingResultId: "remote-landing-result-abc123",
+                enabled: true,
+                requiresConfirmation: true,
+              },
+            ],
+            primary: true,
+            status: "passed",
+          },
+          current: [],
+          otherDemands: [],
+          maintenance: [],
+          history: [],
+        },
+      },
+    };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
+      if (url === "/api/projects") return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
+      return jsonResponse(url.includes("/stream/") ? stream : postMergeSnapshot);
+    }));
+
+    render(<App />);
+
+    await waitFor(() => expect(screen.getByText("远端 PR 已合并。本地项目状态已刷新。")).toBeTruthy());
+    expect(screen.getByRole("button", { name: /同步本地项目/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /清理远端 PR 分支/ })).toBeTruthy();
+    expect(screen.queryByText("reset")).toBeNull();
+    expect(screen.queryByText("stash")).toBeNull();
+    expect(screen.queryByText("rebase")).toBeNull();
+    expect(screen.queryByText("merge queue")).toBeNull();
+  });
+
   it("shows a blocked queue as the primary decision instead of a generic approval list", async () => {
     const blockedSnapshot = {
       ...snapshot,

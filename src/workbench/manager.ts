@@ -16,7 +16,8 @@ import { findLandingCandidate, listLandingPackages, type LandingCandidate, type 
 import { detectRemoteProviderCapability, findLatestCreatedPrDraftPackageForChanges, findPrDraftPackageForLanding, type RemoteProviderCapability } from "../pr-draft/manager.js";
 import { latestPrFeedbackSummaryForDraft } from "../pr-feedback/manager.js";
 import { latestPrReviewReadinessForDraft, latestPrReviewReplyDraftForLanding } from "../pr-review/manager.js";
-import { latestRemoteLandingReadinessForDraft } from "../remote-landing/manager.js";
+import { latestMergedRemoteLandingResultForLanding, latestRemoteLandingReadinessForDraft } from "../remote-landing/manager.js";
+import { latestPostMergeHandoffForLanding } from "../post-merge/manager.js";
 import { getMemoryStatus } from "../memory/status.js";
 import { resolveMemory } from "../memory/resolver.js";
 import { isGitDirty } from "../project/git.js";
@@ -120,7 +121,7 @@ export interface WorkbenchThreadEvent {
 }
 
 export interface ThreadStreamAction {
-  actionType: "change.spec.propose" | "change.plan.propose" | "planning.generate" | "planning.revise" | "planning.confirm-execution" | "orchestrator.evaluate" | "orchestrator.pump" | "demand.worker.enqueue" | "demand.worker.claim" | "demand.worker.start-next" | "demand.worker.start-available" | "demand.worker.reconcile" | "demand.worker.release" | "role.pipeline.start" | "role.pipeline.stop" | "role.pipeline.continue" | "role.pipeline.reconcile" | "conversation.steer" | "conversation.interrupt" | "conversation.continue" | "result.refresh-rework" | "result.revalidate" | "result.reaudit" | "result.refresh-status" | "apply-check.run" | "landing.prepare" | "landing.review" | "landing.refresh" | "pr-draft.prepare" | "pr-draft.create" | "pr-draft.refresh" | "pr-feedback.refresh" | "pr-feedback.evaluate" | "pr-feedback.rework" | "pr-feedback.update-draft" | "pr-review.prepare" | "pr-review.submit" | "pr-review.refresh" | "pr-review.feedback-refresh" | "pr-review.feedback-evaluate" | "pr-review.rework" | "pr-review.reply-prepare" | "pr-review.reply-submit" | "pr-review.thread-resolve" | "remote-landing.prepare" | "remote-landing.merge" | "remote-landing.refresh" | "code.run" | "task.run.start" | "task.run.retry" | "task.queue.start" | "task.queue.reconcile" | "intake.scan" | "intake.reanalyze" | "clarification.answer" | "clarification.skip";
+  actionType: "change.spec.propose" | "change.plan.propose" | "planning.generate" | "planning.revise" | "planning.confirm-execution" | "orchestrator.evaluate" | "orchestrator.pump" | "demand.worker.enqueue" | "demand.worker.claim" | "demand.worker.start-next" | "demand.worker.start-available" | "demand.worker.reconcile" | "demand.worker.release" | "role.pipeline.start" | "role.pipeline.stop" | "role.pipeline.continue" | "role.pipeline.reconcile" | "conversation.steer" | "conversation.interrupt" | "conversation.continue" | "result.refresh-rework" | "result.revalidate" | "result.reaudit" | "result.refresh-status" | "apply-check.run" | "landing.prepare" | "landing.review" | "landing.refresh" | "pr-draft.prepare" | "pr-draft.create" | "pr-draft.refresh" | "pr-feedback.refresh" | "pr-feedback.evaluate" | "pr-feedback.rework" | "pr-feedback.update-draft" | "pr-review.prepare" | "pr-review.submit" | "pr-review.refresh" | "pr-review.feedback-refresh" | "pr-review.feedback-evaluate" | "pr-review.rework" | "pr-review.reply-prepare" | "pr-review.reply-submit" | "pr-review.thread-resolve" | "remote-landing.prepare" | "remote-landing.merge" | "remote-landing.refresh" | "post-merge.prepare" | "post-merge.refresh" | "post-merge.sync-local.prepare" | "post-merge.sync-local.run" | "post-merge.cleanup-branch.prepare" | "post-merge.cleanup-branch.run" | "code.run" | "task.run.start" | "task.run.retry" | "task.queue.start" | "task.queue.reconcile" | "intake.scan" | "intake.reanalyze" | "clarification.answer" | "clarification.skip";
   label: string;
   enabled: boolean;
   requiresConfirmation: boolean;
@@ -219,6 +220,7 @@ export interface WorkbenchDecisionAction {
   worktreeIds?: string[];
   applyCheckId?: string;
   landingPackageId?: string;
+  remoteLandingResultId?: string;
   artifact?: string;
   disabledReason?: string;
 }
@@ -267,6 +269,7 @@ export type WorkbenchConfirmationQueueItemKind =
   | "pr-draft"
   | "pr-review"
   | "remote-landing"
+  | "post-merge"
   | "request-changes"
   | "discard-result"
   | "maintenance";
@@ -2406,6 +2409,102 @@ async function prDraftQueueItem(
     };
   }
   if (existingDraft?.status === "created") {
+    const mergedLanding = await latestMergedRemoteLandingResultForLanding(memory, pkg.id).catch(() => null);
+    if (mergedLanding) {
+      const postMerge = await latestPostMergeHandoffForLanding(memory, pkg.id).catch(() => null);
+      if (postMerge) {
+        const actions: WorkbenchDecisionAction[] = [
+          ...(postMerge.localSyncReadiness.canSync ? [{
+            id: `post-merge-sync-local:${pkg.id}`,
+            label: "同步本地项目",
+            kind: "workflow-action" as const,
+            actionType: "post-merge.sync-local.run" as const,
+            landingPackageId: pkg.id,
+            remoteLandingResultId: mergedLanding.id,
+            enabled: true,
+            requiresConfirmation: true,
+          }] : [{
+            id: `post-merge-refresh-sync:${pkg.id}`,
+            label: "刷新本地同步状态",
+            kind: "workflow-action" as const,
+            actionType: "post-merge.sync-local.prepare" as const,
+            landingPackageId: pkg.id,
+            remoteLandingResultId: mergedLanding.id,
+            enabled: true,
+            requiresConfirmation: false,
+          }]),
+          ...(postMerge.remoteBranchCleanupReadiness.canCleanup ? [{
+            id: `post-merge-cleanup-branch:${pkg.id}`,
+            label: "清理远端 PR 分支",
+            kind: "workflow-action" as const,
+            actionType: "post-merge.cleanup-branch.run" as const,
+            landingPackageId: pkg.id,
+            remoteLandingResultId: mergedLanding.id,
+            enabled: true,
+            requiresConfirmation: true,
+          }] : []),
+          {
+            id: `post-merge-refresh:${pkg.id}`,
+            label: "刷新合并后状态",
+            kind: "workflow-action" as const,
+            actionType: "post-merge.refresh" as const,
+            landingPackageId: pkg.id,
+            remoteLandingResultId: mergedLanding.id,
+            enabled: true,
+            requiresConfirmation: false,
+          },
+          ...(postMerge.summaryArtifact ? evidenceActions(postMerge.summaryArtifact) : []),
+        ];
+        return {
+          id: `post-merge:handoff:${postMerge.id}`,
+          kind: "post-merge",
+          projectId: project.id,
+          conversationId: itemChangeId,
+          changeId: itemChangeId,
+          landingPackageId: pkg.id,
+          summary: postMerge.summary,
+          whyNeedsConfirmation: "远端 PR 已合并；本地同步和远端分支清理是可选收尾动作。",
+          confirmEffect: postMerge.localSyncReadiness.canSync
+            ? postMerge.localSyncReadiness.confirmEffect
+            : postMerge.remoteBranchCleanupReadiness.canCleanup
+              ? postMerge.remoteBranchCleanupReadiness.confirmEffect
+              : "当前没有安全的一键收尾动作；只会刷新状态或查看证据。",
+          riskSummary: [postMerge.localSyncReadiness.riskSummary, postMerge.remoteBranchCleanupReadiness.riskSummary].filter(Boolean).join(" "),
+          evidenceRefs: postMerge.evidenceRefs,
+          actions,
+          primary: selected,
+          status: "passed",
+        };
+      }
+      return {
+        id: `post-merge:prepare:${mergedLanding.id}`,
+        kind: "post-merge",
+        projectId: project.id,
+        conversationId: itemChangeId,
+        changeId: itemChangeId,
+        landingPackageId: pkg.id,
+        summary: "PR 已远端合并，可以检查本地项目和远端分支收尾状态。",
+        whyNeedsConfirmation: "先刷新远端/本地状态，再决定是否显示同步或清理动作。",
+        confirmEffect: "只读取状态并写入 post-merge evidence；不会修改本地项目或删除分支。",
+        riskSummary: "AHO 不会假设本地一定在 base branch，也不会自动 checkout/reset/stash/rebase。",
+        evidenceRefs: mergedLanding.artifactRefs,
+        actions: [
+          {
+            id: `post-merge-prepare:${pkg.id}`,
+            label: "检查合并后状态",
+            kind: "workflow-action" as const,
+            actionType: "post-merge.prepare" as const,
+            landingPackageId: pkg.id,
+            remoteLandingResultId: mergedLanding.id,
+            enabled: true,
+            requiresConfirmation: false,
+          },
+          ...(mergedLanding.artifactRefs[0] ? evidenceActions(mergedLanding.artifactRefs[0]) : []),
+        ],
+        primary: selected,
+        status: "pending",
+      };
+    }
     const remoteReadiness = await latestRemoteLandingReadinessForDraft(memory, existingDraft.id).catch(() => null);
     if (remoteReadiness?.canMerge) {
       return {

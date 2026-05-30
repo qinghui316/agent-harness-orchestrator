@@ -38,6 +38,7 @@ import {
 } from "../../src/demand-worker/manager.js";
 import { createWorktree } from "../../src/worktree/manager.js";
 import { classifyPrFeedbackSnapshotData } from "../../src/pr-feedback/manager.js";
+import { cleanupRemoteBranchAfterMerge, preparePostMergeHandoff, syncLocalAfterMerge } from "../../src/post-merge/manager.js";
 import { listTaskQueueItems, listTaskQueues, reconcileTaskQueues, startOrResumeTaskQueue } from "../../src/task-queue/manager.js";
 import type { ManagedProject, RunMetadata, TaskQueueItem, TaskQueueRun, TaskRun, WorkerLease } from "../../src/types/index.js";
 
@@ -1452,6 +1453,156 @@ describe("workbench read model", () => {
         expect.objectContaining({ changeId: "remote-landing-demand", terminalKind: "applied" }),
         expect.objectContaining({ changeId: "remote-landing-demand", terminalKind: "merged" }),
       ]));
+      const mergedResult = (merged.result as { result: { result: { id: string } } }).result.result;
+      const postMergeSnapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: "remote-landing-demand" });
+      expect(postMergeSnapshot.right.confirmationQueue.primary).toMatchObject({
+        kind: "post-merge",
+        summary: "PR 已远端合并，可以检查本地项目和远端分支收尾状态。",
+      });
+      const postMerge = await executeWorkbenchAction({ project: project(), path: tempDir }, {
+        actionType: "post-merge.prepare",
+        changeId: "remote-landing-demand",
+        landingPackageId: landingPackage.id,
+        remoteLandingResultId: mergedResult.id,
+        confirm: true,
+      });
+      expect(postMerge.result).toMatchObject({
+        result: {
+          handoff: expect.objectContaining({
+            status: "merged",
+            localSyncReadiness: expect.objectContaining({
+              canSync: false,
+            }),
+          }),
+        },
+      });
+    } finally {
+      if (oldAhoHome === undefined) delete process.env.AHO_HOME;
+      else process.env.AHO_HOME = oldAhoHome;
+      if (oldGhCommand === undefined) delete process.env.AHO_GH_COMMAND;
+      else process.env.AHO_GH_COMMAND = oldGhCommand;
+      if (oldGhCommandArgs === undefined) delete process.env.AHO_GH_COMMAND_ARGS;
+      else process.env.AHO_GH_COMMAND_ARGS = oldGhCommandArgs;
+    }
+  });
+
+  it("allows post-merge fast-forward sync and remote branch cleanup only from explicit merged evidence", async () => {
+    const oldAhoHome = process.env.AHO_HOME;
+    const oldGhCommand = process.env.AHO_GH_COMMAND;
+    const oldGhCommandArgs = process.env.AHO_GH_COMMAND_ARGS;
+    process.env.AHO_HOME = join(tempDir, ".aho-home");
+    const fakeGh = await createFakeGh({ isDraft: false });
+    const ghState = JSON.parse(await readFile(fakeGh.stateFile, "utf8"));
+    ghState.merged = true;
+    await writeFile(fakeGh.stateFile, JSON.stringify(ghState), "utf8");
+    process.env.AHO_GH_COMMAND = fakeGh.command;
+    process.env.AHO_GH_COMMAND_ARGS = JSON.stringify(fakeGh.args);
+    try {
+      await initGitRepository(tempDir);
+      await git(tempDir, ["branch", "-M", "main"]);
+      await writeFile(join(tempDir, ".gitignore"), ".aho-home/\n.agent-harness/\nharness/\nAGENTS.md\ndocs/\nscripts/\n.tmp-origin.git/\n.tmp-updater/\n", "utf8");
+      await writeFile(join(tempDir, "README.md"), "initial\n", "utf8");
+      await git(tempDir, ["add", "."]);
+      await git(tempDir, ["commit", "-m", "initial"]);
+      const originDir = join(tempDir, ".tmp-origin.git");
+      await git(tempDir, ["init", "--bare", originDir]);
+      await git(tempDir, ["remote", "add", "origin", originDir]);
+      await git(tempDir, ["push", "-u", "origin", "HEAD:main"]);
+      await git(tempDir, ["branch", "aho/test"]);
+      await git(tempDir, ["push", "origin", "aho/test"]);
+      const updaterDir = join(tempDir, ".tmp-updater");
+      await execFileAsync("git", ["clone", originDir, updaterDir]);
+      await git(updaterDir, ["checkout", "main"]);
+      await git(updaterDir, ["config", "user.email", "test@example.com"]);
+      await git(updaterDir, ["config", "user.name", "Test User"]);
+      await writeFile(join(updaterDir, "README.md"), "initial\nmerged remotely\n", "utf8");
+      await git(updaterDir, ["add", "README.md"]);
+      await git(updaterDir, ["commit", "-m", "simulate remote merge"]);
+      await git(updaterDir, ["push", "origin", "main"]);
+      await initHarness(project());
+      const memory = await resolveProjectMemory(project());
+      const now = new Date().toISOString();
+      const landingId = "landing-post-merge-test";
+      const prDraftId = "pr-draft-post-merge-test";
+      const remoteLandingResultId = "remote-landing-result-post-merge-test";
+      await mkdir(join(memory.workbenchRoot, "landing", landingId), { recursive: true });
+      await writeFile(join(memory.workbenchRoot, "landing", landingId, "landing-package.json"), JSON.stringify({
+        version: "1.0",
+        id: landingId,
+        projectId: memory.projectId,
+        target: { kind: "worktree", changeIds: ["post-merge-demand"], worktreeIds: ["worktree-post-merge"], expectedDiffHash: "diff", evidenceRefs: [] },
+        status: "ready",
+        sourceHead: null,
+        sourceDiffHash: "diff",
+        sourceDiffStat: "README.md | 1 +",
+        changedFiles: ["README.md"],
+        attributable: true,
+        unattributedFiles: [],
+        summary: "Post-merge landing package.",
+        riskSummary: "Test package.",
+        artifactRefs: [],
+        createdAt: now,
+        reviewedAt: now,
+        review: {
+          version: "1.0",
+          packageId: landingId,
+          roleId: "merge-reviewer-agent",
+          verdict: "ready",
+          summary: "Ready.",
+          riskSummary: "Low.",
+          evidenceRefs: [],
+          missingChecks: [],
+          suggestedNextAction: "Prepare PR.",
+          createdAt: now,
+        },
+      }, null, 2), "utf8");
+      await mkdir(join(memory.workbenchRoot, "pr-drafts", prDraftId), { recursive: true });
+      await writeFile(join(memory.workbenchRoot, "pr-drafts", prDraftId, "pr-draft-package.json"), JSON.stringify({
+        version: "1.0",
+        id: prDraftId,
+        landingPackageId: landingId,
+        projectId: memory.projectId,
+        provider: "github-cli",
+        status: "created",
+        title: "AHO: post-merge-demand",
+        bodyArtifact: "project://body.md",
+        packageArtifact: "project://pr-draft-package.json",
+        remoteName: "origin",
+        remoteUrl: originDir,
+        baseBranch: "main",
+        branchName: "aho/test",
+        prUrl: "https://github.com/qinghui316/private-acceptance/pull/1",
+        landingEvidenceRefs: [],
+        createdAt: now,
+        updatedAt: now,
+      }, null, 2), "utf8");
+      await mkdir(join(memory.workbenchRoot, "remote-landing", "remote-landing-attempt-post-merge-test"), { recursive: true });
+      await writeFile(join(memory.workbenchRoot, "remote-landing", "remote-landing-attempt-post-merge-test", "remote-landing-result.json"), JSON.stringify({
+        version: "1.0",
+        id: remoteLandingResultId,
+        attemptId: "remote-landing-attempt-post-merge-test",
+        readinessId: "remote-landing-ready-post-merge-test",
+        prDraftPackageId: prDraftId,
+        landingPackageId: landingId,
+        projectId: memory.projectId,
+        prUrl: "https://github.com/qinghui316/private-acceptance/pull/1",
+        status: "merged",
+        mergeMethod: "squash",
+        mergeCommit: "merge-commit-sha",
+        mergedAt: now,
+        artifactRefs: [],
+        createdAt: now,
+      }, null, 2), "utf8");
+
+      const handoff = await preparePostMergeHandoff(project(), landingId, remoteLandingResultId);
+      expect(handoff.localSyncReadiness).toMatchObject({ status: "ready", canSync: true });
+      expect(handoff.remoteBranchCleanupReadiness).toMatchObject({ status: "ready", canCleanup: true, headBranch: "aho/test" });
+      const sync = await syncLocalAfterMerge(project(), landingId, remoteLandingResultId);
+      expect(sync.result.status).toBe("synced");
+      const cleanup = await cleanupRemoteBranchAfterMerge(project(), landingId, remoteLandingResultId);
+      expect(cleanup.result.status).toBe("deleted");
+      const remoteBranch = await execFileAsync("git", ["ls-remote", "--heads", "origin", "aho/test"], { cwd: tempDir });
+      expect(remoteBranch.stdout.trim()).toBe("");
     } finally {
       if (oldAhoHome === undefined) delete process.env.AHO_HOME;
       else process.env.AHO_HOME = oldAhoHome;

@@ -328,6 +328,16 @@ export async function listRemoteLandingResults(memory: ResolvedMemory): Promise<
   return items.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
+export async function readRemoteLandingResult(memory: ResolvedMemory, remoteLandingResultId: string): Promise<RemoteLandingResult> {
+  const result = (await listRemoteLandingResults(memory)).find((item) => item.id === remoteLandingResultId);
+  if (!result) throw new Error(`Remote landing result not found: ${remoteLandingResultId}`);
+  return result;
+}
+
+export async function latestMergedRemoteLandingResultForLanding(memory: ResolvedMemory, landingPackageId: string): Promise<RemoteLandingResult | null> {
+  return (await listRemoteLandingResults(memory)).find((item) => item.landingPackageId === landingPackageId && item.status === "merged") ?? null;
+}
+
 function classifyRemoteLandingReadiness(snapshot: RemoteLandingStateSnapshot): RemoteLandingReadinessStatus {
   const state = snapshot.state.toUpperCase();
   if (state === "MERGED") return "already-merged";

@@ -112,6 +112,25 @@ describe("workbench server", () => {
     expect(replayBody.live).toBe(false);
   });
 
+  it("forwards scoped workflow targets through the live endpoint", async () => {
+    const live = await fetch(`${handle!.url}/api/workbench/actions/live`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        actionType: "post-merge.prepare",
+        changeId: "server-topic",
+        landingPackageId: "landing-server",
+        remoteLandingResultId: "remote-landing-server",
+        confirm: true,
+      }),
+    });
+    expect(live.ok).toBe(true);
+    const body = await live.text();
+    expect(body).toContain("event: error");
+    expect(body).not.toContain("requires landingPackageId");
+    expect(body).not.toContain("requires remoteLandingResultId");
+  });
+
   it("rejects unknown and unconfirmed actions", async () => {
     await expect(executeWorkbenchAction({ project: project(), path: tempDir }, {
       action: { actionId: "unknown", label: "Unknown", command: "bad", args: [], mutates: true, requiresConfirmation: true },
