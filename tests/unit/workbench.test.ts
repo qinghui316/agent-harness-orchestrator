@@ -295,6 +295,13 @@ describe("workbench read model", () => {
     expect(snapshot.center.agentLoop.runs).toHaveLength(1);
     expect(snapshot.center.thread.items.some((item) => item.kind === "change-state")).toBe(true);
     expect(snapshot.center.thread.items.some((item) => item.runId === snapshot.center.agentLoop.runs[0]?.id)).toBe(false);
+    expect(snapshot.center.activeTab).toBe("conversation");
+    expect(snapshot.center.parentAgentTranscript.items.length).toBeGreaterThan(0);
+    expect(snapshot.center.parentAgentTranscript.items.some((item) => item.actor === "parent-agent")).toBe(true);
+    const transcriptText = JSON.stringify(snapshot.center.parentAgentTranscript);
+    for (const forbidden of ["AI 回复", "执行结果", "TaskRun", "WorkerLease", "DemandWorker", "TaskRepository", "blocked", "T-001", "AC-001"]) {
+      expect(transcriptText).not.toContain(forbidden);
+    }
     expect(snapshot.right.approvals.some((item) => item.kind === "change-close")).toBe(true);
     expect(snapshot.right.approvals.find((item) => item.kind === "change-close")?.action).toMatchObject({
       actionId: "change.close",

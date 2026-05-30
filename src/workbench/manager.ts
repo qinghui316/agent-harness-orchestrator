@@ -35,6 +35,7 @@ import { listValidationResults, summarizeValidation } from "../validation/artifa
 import { listWorktreeStatuses, listWorktreesForChange } from "../worktree/manager.js";
 import { readTopicThreadLog, type AssistantTurnActivity, type AssistantTurnBlock, type OrchestrationPlanCard, type TopicThreadEntry } from "./chat.js";
 import type { ClarificationRequest, WorkbenchIntakeIteration, WorkbenchIntakeScan } from "./intake.js";
+import { buildParentAgentTranscript, type ParentAgentTranscript } from "./parent-agent-transcript.js";
 import { WorkbenchStore, type StoredDecisionRecord } from "./store.js";
 import type {
   AuditSummary,
@@ -887,6 +888,8 @@ export interface WorkbenchSnapshot {
     thread: {
       items: ThreadStreamItem[];
     };
+    parentAgentTranscript: ParentAgentTranscript;
+    activeTab: "conversation" | "agentGraph";
     agentLoop: {
       runs: RunMetadata[];
     };
@@ -939,7 +942,15 @@ export async function getWorkbenchSnapshot(input: WorkbenchProjectInput, options
         workpads: [],
         repo: buildRepoSummary(projectStatus),
       },
-      center: { selectedTopic: null, workpad: diagnosticWorkpad, thread: { items: [] }, agentLoop: { runs: [] }, agentRunGraph: emptyAgentRunGraph() },
+      center: {
+        selectedTopic: null,
+        workpad: diagnosticWorkpad,
+        thread: { items: [] },
+        parentAgentTranscript: buildParentAgentTranscript({ workpad: diagnosticWorkpad, threadItems: [] }),
+        activeTab: "conversation",
+        agentLoop: { runs: [] },
+        agentRunGraph: emptyAgentRunGraph(),
+      },
       right: { approvals: [], decisions: [], decisionInspector: emptyDecisionInspector(), confirmationQueue: emptyConfirmationQueue() },
       roles,
       harnessGaps: gaps,
@@ -981,6 +992,10 @@ export async function getWorkbenchSnapshot(input: WorkbenchProjectInput, options
     workpad,
     confirmationQueue,
   });
+  const parentAgentTranscript = buildParentAgentTranscript({
+    workpad,
+    threadItems: selectedTopic?.threadItems ?? [],
+  });
   return {
     project: input.project,
     memory: memoryStatus,
@@ -995,6 +1010,8 @@ export async function getWorkbenchSnapshot(input: WorkbenchProjectInput, options
       selectedTopic,
       workpad,
       thread: { items: selectedTopic?.threadItems ?? [] },
+      parentAgentTranscript,
+      activeTab: "conversation",
       agentLoop: { runs: selectedTopic?.runs ?? [] },
       agentRunGraph,
     },

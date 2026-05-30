@@ -43,6 +43,8 @@ type Snapshot = {
     workpad: Workpad;
     agentLoop: { runs: RunSummary[] };
     thread: { items: ThreadStreamItem[] };
+    parentAgentTranscript: ParentAgentTranscript;
+    activeTab?: CenterTab;
     agentRunGraph: DemandAgentRunGraph;
   };
   right: { approvals: Approval[]; decisions: Decision[]; decisionInspector: DecisionInspector; confirmationQueue: ConfirmationQueue };
@@ -117,6 +119,31 @@ type DemandAgentRunGraph = {
   nodes: DemandAgentRunGraphNode[];
   edges: DemandAgentRunGraphEdge[];
   updatedAt?: string;
+};
+type CenterTab = "conversation" | "agentGraph";
+type ParentAgentTranscriptBlock = {
+  id: string;
+  kind: "prose" | "tool-result" | "evidence";
+  source: "user" | "assistant-output" | "derived-tool-result" | "evidence";
+  title?: string;
+  text: string;
+  status?: string;
+  evidenceRefs?: Array<{ label: string; ref: string; kind: "artifact" | "run" | "decision" | "remote" | "maintenance" }>;
+  isError?: boolean;
+};
+type ParentAgentTranscriptItem = {
+  id: string;
+  actor: "user" | "parent-agent";
+  timestamp?: string;
+  blocks: ParentAgentTranscriptBlock[];
+  derived?: boolean;
+};
+type ParentAgentTranscript = {
+  conversationId?: string;
+  changeId?: string;
+  title: string;
+  items: ParentAgentTranscriptItem[];
+  emptyMessage?: string;
 };
 type TopicDetail = Topic & {
   closeGate?: { ready: boolean; warnings: string[]; blockingIssues: string[] };
@@ -623,11 +650,176 @@ const emptySnapshot: Snapshot = {
   project: null,
   memory: {},
   left: { topics: [], workpads: [] },
-  center: { selectedTopic: null, workpad: emptyWorkpad(), agentLoop: { runs: [] }, thread: { items: [] }, agentRunGraph: emptyAgentRunGraph() },
+  center: {
+    selectedTopic: null,
+    workpad: emptyWorkpad(),
+    agentLoop: { runs: [] },
+    thread: { items: [] },
+    parentAgentTranscript: emptyParentAgentTranscript(),
+    activeTab: "conversation",
+    agentRunGraph: emptyAgentRunGraph(),
+  },
   right: { approvals: [], decisions: [], decisionInspector: { primary: null, related: [], history: [] }, confirmationQueue: { primary: null, current: [], otherDemands: [], maintenance: [], history: [] } },
   harnessGaps: [],
   warnings: [],
 };
+
+function emptyParentAgentTranscript(): ParentAgentTranscript {
+  return {
+    title: "需求对话",
+    items: [],
+    emptyMessage: "暂无对话内容。输入需求后，主 agent 会在这里持续回复。",
+  };
+}
+
+function mergeLiveItemsIntoTranscript(transcript: ParentAgentTranscript, liveItems: ThreadStreamItem[]): ParentAgentTranscript {
+  const liveTranscriptItems = liveItems.flatMap(parentTranscriptItemsFromLiveThreadItem);
+  if (liveTranscriptItems.length === 0) return transcript;
+  const existingIds = new Set(transcript.items.map((item) => item.id));
+  return {
+    ...transcript,
+    items: [...transcript.items, ...liveTranscriptItems.filter((item) => !existingIds.has(item.id))],
+  };
+}
+
+function buildClientParentAgentTranscript(workpad: Workpad, items: ThreadStreamItem[]): ParentAgentTranscript {
+  const transcriptItems = items.flatMap(parentTranscriptItemsFromLiveThreadItem);
+  const derivedBlocks: ParentAgentTranscriptBlock[] = [];
+  if (workpad.planningArtifactBundle) {
+    derivedBlocks.push({
+      id: `client-derived:planning:${workpad.planningArtifactBundle.id}`,
+      kind: "tool-result",
+      source: "derived-tool-result",
+      title: workpad.planningArtifactBundle.status === "confirmed" ? "已确认方案" : "方案草案",
+      text: cleanTranscriptText([workpad.planningArtifactBundle.goal, workpad.planningArtifactBundle.design].filter(Boolean).join("\n")),
+      evidenceRefs: workpad.planningArtifactBundle.artifact ? [{ label: "方案", ref: workpad.planningArtifactBundle.artifact, kind: "artifact" }] : undefined,
+    });
+  }
+  if (workpad.rolePipeline) {
+    derivedBlocks.push({
+      id: `client-derived:pipeline:${workpad.rolePipeline.stage}:${workpad.rolePipeline.status}`,
+      kind: "tool-result",
+      source: "derived-tool-result",
+      title: "执行进度",
+      text: cleanTranscriptText(workpad.rolePipeline.runs.map((run) => `${roleDisplayName(run.roleId)}：${run.summary}`).join("\n") || `当前阶段：${workpad.rolePipeline.stage}`),
+      status: workpad.rolePipeline.status,
+    });
+  }
+  if (workpad.resultReview) {
+    derivedBlocks.push({
+      id: `client-derived:result:${workpad.resultReview.worktreeId ?? workpad.resultReview.status}`,
+      kind: "tool-result",
+      source: "derived-tool-result",
+      title: "结果摘要",
+      text: cleanTranscriptText(`${workpad.resultReview.title}\n${workpad.resultReview.summary}\n${workpad.resultReview.changedFiles.join("、")}`),
+      status: workpad.resultReview.status,
+      evidenceRefs: workpad.resultReview.evidence.map((evidence) => ({ label: evidence.label, ref: evidence.artifact ?? evidence.id, kind: evidence.artifact ? "artifact" : "run" })),
+    });
+  }
+  if (workpad.maintenance && workpad.maintenance.status !== "idle") {
+    derivedBlocks.push({
+      id: `client-derived:maintenance:${workpad.maintenance.latestReviewWindowId ?? workpad.maintenance.status}`,
+      kind: "tool-result",
+      source: "derived-tool-result",
+      title: "后台维护",
+      text: cleanTranscriptText(workpad.maintenance.note),
+      status: workpad.maintenance.status,
+    });
+  }
+  const derivedItem: ParentAgentTranscriptItem[] = derivedBlocks.length > 0 ? [{
+    id: `client-derived:${workpad.boundChangeId ?? workpad.conversationId ?? workpad.title}`,
+    actor: "parent-agent",
+    derived: true,
+    blocks: derivedBlocks,
+  }] : [];
+  return {
+    conversationId: workpad.conversationId,
+    changeId: workpad.boundChangeId,
+    title: workpad.title || "需求对话",
+    items: [...transcriptItems, ...derivedItem],
+    emptyMessage: "暂无对话内容。输入需求后，主 agent 会在这里持续回复。",
+  };
+}
+
+function parentTranscriptItemsFromLiveThreadItem(item: ThreadStreamItem): ParentAgentTranscriptItem[] {
+  if (item.kind === "change-state") return [];
+  if (item.kind === "user-message") {
+    const text = cleanTranscriptText(item.body ?? item.label);
+    if (!text) return [];
+    return [{
+      id: `live-parent:user:${item.id}`,
+      actor: "user",
+      timestamp: item.timestamp,
+      blocks: [{ id: `live-block:user:${item.id}`, kind: "prose", source: "user", text }],
+    }];
+  }
+  const blocks: ParentAgentTranscriptBlock[] = [];
+  for (const block of item.blocks ?? []) {
+    const text = cleanTranscriptText(block.text ?? block.preview ?? "");
+    if (!text || block.kind === "usage") continue;
+    blocks.push({
+      id: `live-block:${block.id}`,
+      kind: block.kind === "prose" ? "prose" : "tool-result",
+      source: block.source === "codex" ? "assistant-output" : "derived-tool-result",
+      title: cleanTranscriptTitle(block.title),
+      text,
+      status: block.status,
+      isError: block.isError,
+      evidenceRefs: block.artifactRef ? [{ label: cleanTranscriptTitle(block.title) ?? "证据", ref: block.artifactRef, kind: "artifact" }] : undefined,
+    });
+  }
+  if (blocks.length === 0 && item.body) {
+    blocks.push({
+      id: `live-block:body:${item.id}`,
+      kind: item.source === "workflow" ? "tool-result" : "prose",
+      source: item.source === "workflow" ? "derived-tool-result" : "assistant-output",
+      title: item.source === "workflow" ? "处理完成" : undefined,
+      text: cleanTranscriptText(item.body),
+      status: item.status,
+      evidenceRefs: item.artifact ? [{ label: "证据", ref: item.artifact, kind: "artifact" }] : undefined,
+    });
+  }
+  if (blocks.length === 0) return [];
+  return [{
+    id: `live-parent:agent:${item.id}`,
+    actor: "parent-agent",
+    timestamp: item.timestamp,
+    derived: item.source === "workflow",
+    blocks,
+  }];
+}
+
+function cleanTranscriptTitle(value?: string): string | undefined {
+  const text = cleanTranscriptText(value ?? "");
+  if (!text || text === "AI" || text === "AI 回复" || text === "执行结果") return undefined;
+  return text;
+}
+
+function cleanTranscriptText(value?: string): string {
+  return (value ?? "")
+    .replace(/\bWorkpad\b/g, "需求对话")
+    .replace(/\bTopic\b/g, "需求对话")
+    .replace(/\bTaskRun\b/g, "执行记录")
+    .replace(/\bWorkerLease\b/g, "执行占用")
+    .replace(/\bDemandWorker\b/g, "后台执行")
+    .replace(/\bTaskRepository\b/g, "任务仓库")
+    .replace(/\baudit-blocked\b/gi, "需要修改或补证据")
+    .replace(/\bblocked\b/gi, "需要处理")
+    .replace(/\bT-\d+\b/g, "任务")
+    .replace(/\bAC-\d+\b/g, "验收点")
+    .trim();
+}
+
+function roleDisplayName(roleId: string): string {
+  const names: Record<string, string> = {
+    "planning-agent": "规划",
+    "coder-agent": "实现",
+    "rework-coder": "修改",
+    validator: "验证",
+    "auditor-agent": "审查",
+  };
+  return names[roleId] ?? "角色结果";
+}
 
 export function App(): ReactElement {
   const [appStatus, setAppStatus] = useState<AppStatus | null>(null);
@@ -637,7 +829,7 @@ export function App(): ReactElement {
   const [selectedTopic, setSelectedTopic] = useState<string | null>(null);
   const [selectedRun, setSelectedRun] = useState<string | null>(null);
   const [stream, setStream] = useState<StreamPacket | null>(null);
-  const [runGraphOpen, setRunGraphOpen] = useState(false);
+  const [centerTab, setCenterTab] = useState<CenterTab>("conversation");
   const [selectedRunGraphNodeId, setSelectedRunGraphNodeId] = useState<string | null>(null);
   const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set());
   const [projectSnapshots, setProjectSnapshots] = useState<Record<string, Snapshot>>({});
@@ -734,6 +926,8 @@ export function App(): ReactElement {
         selectedTopic: null,
         workpad: emptyWorkpad(baseSnapshot.project?.name ?? status.project?.name ?? "当前项目"),
         thread: { items: [] },
+        parentAgentTranscript: emptyParentAgentTranscript(),
+        activeTab: "conversation" as const,
         agentLoop: { runs: [] },
         agentRunGraph: emptyAgentRunGraph(),
       },
@@ -821,7 +1015,7 @@ export function App(): ReactElement {
     }
     if (action.kind === "evidence" && context.runId) {
       await chooseRun(context.runId);
-      setRunGraphOpen(true);
+      setCenterTab("agentGraph");
     }
   }
 
@@ -1115,9 +1309,14 @@ export function App(): ReactElement {
   const activeRun = useMemo(() => snapshot.center.agentLoop.runs.find((run) => run.id === selectedRun) ?? snapshot.center.agentLoop.runs[0], [snapshot, selectedRun]);
   const selectedProjectStatus = useMemo(() => projects.find((item) => item.project?.id === selectedProjectId) ?? null, [projects, selectedProjectId]);
   const runIds = useMemo(() => snapshot.center.agentLoop.runs.map((run) => run.id).join("|"), [snapshot.center.agentLoop.runs]);
-  const threadItems = useMemo(() => {
-    return [...snapshot.center.thread.items, ...liveItems].filter((item) => item.kind !== "change-state");
-  }, [snapshot.center.thread.items, liveItems]);
+  const snapshotTranscript = useMemo(() => {
+    return snapshot.center.parentAgentTranscript?.items?.length
+      ? snapshot.center.parentAgentTranscript
+      : buildClientParentAgentTranscript(activeWorkpad, snapshot.center.thread.items ?? []);
+  }, [activeWorkpad, snapshot.center.parentAgentTranscript, snapshot.center.thread.items]);
+  const activeTranscript = useMemo(() => {
+    return mergeLiveItemsIntoTranscript(snapshotTranscript, liveItems);
+  }, [snapshotTranscript, liveItems]);
   const activeDecisionInspector = useMemo(() => {
     const inspector = snapshot.right.decisionInspector ?? { primary: null, related: [], history: [] };
     if (!selectedDecisionContextId) return inspector;
@@ -1136,15 +1335,10 @@ export function App(): ReactElement {
     return activeRunGraph.nodes.find((node) => node.id === selectedRunGraphNodeId) ?? activeRunGraph.nodes[0] ?? null;
   }, [activeRunGraph.nodes, selectedRunGraphNodeId]);
 
-  function openRunGraph(nodeId?: string): void {
-    setSelectedRunGraphNodeId(nodeId ?? activeRunGraph.nodes[0]?.id ?? null);
-    setRunGraphOpen(true);
-  }
-
-  function closeRunGraph(): void {
-    setRunGraphOpen(false);
+  useEffect(() => {
+    setCenterTab("conversation");
     setSelectedRunGraphNodeId(null);
-  }
+  }, [activeTopic?.id]);
 
   useEffect(() => {
     const node = threadScrollRef.current;
@@ -1156,7 +1350,7 @@ export function App(): ReactElement {
     } else {
       setLatestHidden(true);
     }
-  }, [threadItems.length, liveTurns.length]);
+  }, [activeTranscript.items.length, liveTurns.length, centerTab]);
 
   useEffect(() => {
     if (!selectedProjectId) return;
@@ -1239,13 +1433,19 @@ export function App(): ReactElement {
                   <MainConversationView
                     workpad={activeWorkpad}
                     graph={activeRunGraph}
-                    items={threadItems}
+                    transcript={activeTranscript}
+                    activeTab={centerTab}
                     liveTurns={liveTurns}
+                    activeRun={activeRun}
+                    stream={stream}
                     busy={actionRunning !== null}
                     onAction={runWorkflowAction}
                     onAnswerClarification={answerClarification}
                     onSelectDecisionContext={setSelectedDecisionContextId}
-                    onOpenGraph={openRunGraph}
+                    onTabChange={setCenterTab}
+                    selectedNode={selectedRunGraphNode}
+                    onSelectNode={setSelectedRunGraphNodeId}
+                    onSelectRun={(runId) => void chooseRun(runId)}
                   />
                 </div>
                 {latestHidden ? <button className="latest-button" onClick={() => { const node = threadScrollRef.current; if (node) node.scrollTop = node.scrollHeight; setLatestHidden(false); }}>最新</button> : null}
@@ -1266,17 +1466,6 @@ export function App(): ReactElement {
                 />
               </div>
             </section>
-            {runGraphOpen ? (
-              <AgentRunGraphModal
-                graph={activeRunGraph}
-                selectedNode={selectedRunGraphNode}
-                activeRun={activeRun}
-                stream={stream}
-                onClose={closeRunGraph}
-                onSelectNode={setSelectedRunGraphNodeId}
-                onSelectRun={(runId) => void chooseRun(runId)}
-              />
-            ) : null}
           </>
         )}
       </main>
@@ -1788,52 +1977,208 @@ function EmptyWorkbench({ title, description }: { title: string; description: st
 function MainConversationView({
   workpad,
   graph,
-  items,
+  transcript,
+  activeTab,
+  liveTurns,
+  activeRun,
+  stream,
+  busy,
+  onAction,
+  onAnswerClarification,
+  onSelectDecisionContext,
+  onTabChange,
+  selectedNode,
+  onSelectNode,
+  onSelectRun,
+}: {
+  workpad: Workpad;
+  graph: DemandAgentRunGraph;
+  transcript: ParentAgentTranscript;
+  activeTab: CenterTab;
+  liveTurns: LiveAssistantTurn[];
+  activeRun?: RunSummary;
+  stream: StreamPacket | null;
+  busy: boolean;
+  onAction: (actionType: string, options?: Record<string, unknown>) => Promise<void>;
+  onAnswerClarification: (clarificationId: string, answer: string) => Promise<void>;
+  onSelectDecisionContext: (contextId: string) => void;
+  onTabChange: (tab: CenterTab) => void;
+  selectedNode: DemandAgentRunGraphNode | null;
+  onSelectNode: (nodeId: string) => void;
+  onSelectRun: (runId: string) => void;
+}): ReactElement {
+  return (
+    <div className="main-conversation-view" data-testid="main-conversation-view">
+      <div className="center-demand-tabs" role="tablist" aria-label="需求对话视图">
+        <button type="button" role="tab" aria-selected={activeTab === "conversation"} className={activeTab === "conversation" ? "active" : ""} onClick={() => onTabChange("conversation")}>对话</button>
+        <button type="button" role="tab" aria-selected={activeTab === "agentGraph"} className={activeTab === "agentGraph" ? "active" : ""} onClick={() => onTabChange("agentGraph")}>Agent 运行图</button>
+      </div>
+      {activeTab === "conversation" ? (
+        <ParentAgentTranscriptView
+          workpad={workpad}
+          transcript={transcript}
+          liveTurns={liveTurns}
+          busy={busy}
+          onAction={onAction}
+          onAnswerClarification={onAnswerClarification}
+          onSelectDecisionContext={onSelectDecisionContext}
+        />
+      ) : (
+        <AgentRunGraphPanel
+          graph={graph}
+          selectedNode={selectedNode}
+          activeRun={activeRun}
+          stream={stream}
+          onSelectNode={onSelectNode}
+          onSelectRun={onSelectRun}
+        />
+      )}
+    </div>
+  );
+}
+
+function ParentAgentTranscriptView({
+  workpad,
+  transcript,
   liveTurns,
   busy,
   onAction,
   onAnswerClarification,
   onSelectDecisionContext,
-  onOpenGraph,
 }: {
   workpad: Workpad;
-  graph: DemandAgentRunGraph;
-  items: ThreadStreamItem[];
+  transcript: ParentAgentTranscript;
   liveTurns: LiveAssistantTurn[];
   busy: boolean;
   onAction: (actionType: string, options?: Record<string, unknown>) => Promise<void>;
   onAnswerClarification: (clarificationId: string, answer: string) => Promise<void>;
   onSelectDecisionContext: (contextId: string) => void;
-  onOpenGraph: (nodeId?: string) => void;
 }): ReactElement {
-  const visibleGraphNodes = graph.nodes.length;
-  const runningNodes = graph.nodes.filter((node) => node.status === "running").length;
-  const attentionNodes = graph.nodes.filter((node) => node.status === "failed" || node.status === "needs-change" || node.status === "waiting-user").length;
-  const shouldShowDerivedSummary = items.length === 0
-    || liveTurns.length === 0 && Boolean(workpad.pendingFeedback?.length || workpad.intake.pendingClarifications?.length || workpad.planningArtifactBundle || workpad.rolePipeline || workpad.resultReview);
   return (
-    <div className="main-conversation-view" data-testid="main-conversation-view">
-      <section className="parent-agent-card main-agent-entry">
-        <div>
-          <span className={`workpad-state user-state ${workpad.userStatus ?? "later"}`}>{workpad.userStatusLabel ?? userStatusLabel(workpad.userStatus)}</span>
-          <h2>{workpad.title}</h2>
-          <p>{parentAgentNarrative(workpad)}</p>
-        </div>
-        <button className="graph-entry-button" type="button" onClick={() => onOpenGraph()} data-testid="open-agent-run-graph">
-          <strong>查看运行图</strong>
-          <span>{visibleGraphNodes} 个节点 · {runningNodes} 个进行中 · {attentionNodes} 个需关注</span>
-        </button>
-      </section>
-      {shouldShowDerivedSummary ? <ParentAgentSnapshot workpad={workpad} busy={busy} onAnswerClarification={onAnswerClarification} /> : null}
-      <ThreadStreamView
-        items={items}
-        liveTurns={liveTurns}
-        busy={busy}
-        onAction={onAction}
-        onSelectDecisionContext={onSelectDecisionContext}
-      />
+    <div className="parent-agent-transcript" data-testid="parent-agent-transcript">
+      <div className="parent-agent-message-list">
+        {transcript.items.length === 0 ? <div className="empty-state">{transcript.emptyMessage ?? "暂无对话内容。"}</div> : null}
+        {transcript.items.map((item) => <ParentAgentMessageBubble key={item.id} item={item} />)}
+        {workpad.resultReview && !transcriptContainsText(transcript, workpad.resultReview.title) ? (
+          <ParentAgentMessageBubble item={resultReviewTranscriptItem(workpad.resultReview)} />
+        ) : null}
+        {workpad.intake.pendingClarifications?.length ? (
+          <div className="parent-agent-message-row parent">
+            <div className="parent-agent-bubble">
+              <strong>需要确认</strong>
+              <div className="clarification-list">
+                {workpad.intake.pendingClarifications.map((clarification) => (
+                  <ClarificationCard key={clarification.id} clarification={clarification} busy={busy} onAnswer={onAnswerClarification} />
+                ))}
+              </div>
+            </div>
+          </div>
+        ) : null}
+        {liveTurns.map((turn) => <LiveParentAgentTurnBubble key={turn.id} turn={turn} />)}
+      </div>
+      <HiddenLegacyThreadHooks onAction={onAction} onSelectDecisionContext={onSelectDecisionContext} />
     </div>
   );
+}
+
+function transcriptContainsText(transcript: ParentAgentTranscript, text?: string): boolean {
+  const target = cleanTranscriptText(text ?? "");
+  if (!target) return false;
+  return transcript.items.some((item) => item.blocks.some((block) => `${block.title ?? ""}\n${block.text}`.includes(target)));
+}
+
+function resultReviewTranscriptItem(review: NonNullable<Workpad["resultReview"]>): ParentAgentTranscriptItem {
+  return {
+    id: `result-review-transcript:${review.worktreeId ?? review.status}`,
+    actor: "parent-agent",
+    derived: true,
+    blocks: [{
+      id: `result-review-block:${review.worktreeId ?? review.status}`,
+      kind: "tool-result",
+      source: "derived-tool-result",
+      title: "结果摘要",
+      text: cleanTranscriptText(`${review.title}\n${review.summary}\n${review.changedFiles.join("、")}`),
+      status: review.status,
+      evidenceRefs: review.evidence.map((evidence) => ({
+        label: evidence.label,
+        ref: evidence.artifact ?? evidence.id,
+        kind: evidence.artifact ? "artifact" : "run",
+      })),
+    }],
+  };
+}
+
+function ParentAgentMessageBubble({ item }: { item: ParentAgentTranscriptItem }): ReactElement {
+  return (
+    <div className={`parent-agent-message-row ${item.actor === "user" ? "user" : "parent"}`} data-testid={`parent-message-${item.actor}`}>
+      <div className={`parent-agent-bubble ${item.actor === "user" ? "user" : "parent"}`}>
+        {item.blocks.map((block) => <ParentAgentMessageBlockView key={block.id} block={block} />)}
+      </div>
+      {item.timestamp ? <time>{formatTime(item.timestamp)}</time> : null}
+    </div>
+  );
+}
+
+function ParentAgentMessageBlockView({ block }: { block: ParentAgentTranscriptBlock }): ReactElement {
+  if (block.kind === "tool-result" || block.kind === "evidence") return <ParentAgentToolResultBlock block={block} />;
+  return (
+    <div className={`parent-agent-prose ${block.isError ? "danger" : ""}`}>
+      {block.title ? <strong>{block.title}</strong> : null}
+      <p>{block.text}</p>
+    </div>
+  );
+}
+
+function ParentAgentToolResultBlock({ block }: { block: ParentAgentTranscriptBlock }): ReactElement {
+  return (
+    <div className={`parent-agent-tool-result ${block.isError ? "danger" : ""}`}>
+      {(block.title || block.status) ? (
+        <div className="tool-result-heading">
+          {block.title ? <strong>{block.title}</strong> : <span />}
+          {block.status ? <span>{humanStatus(block.status)}</span> : null}
+        </div>
+      ) : null}
+      <p>{block.text}</p>
+      {block.evidenceRefs?.length ? (
+        <div className="tool-result-evidence">
+          {block.evidenceRefs.map((ref) => <span key={`${ref.kind}:${ref.ref}`}>查看证据：{artifactName(ref.ref)}</span>)}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function LiveParentAgentTurnBubble({ turn }: { turn: LiveAssistantTurn }): ReactElement {
+  const latestStatus = turn.events.filter((event): event is Extract<LiveTurnEvent, { kind: "status" }> => event.kind === "status").at(-1);
+  const text = turn.text || turn.blocks.map((block) => block.text ?? block.preview).filter(Boolean).join("\n");
+  return (
+    <div className="parent-agent-message-row parent live">
+      <div className="parent-agent-bubble parent">
+        <div className="parent-agent-tool-result">
+          <div className="tool-result-heading">
+            <strong>{parentLiveTurnTitle(turn)}</strong>
+            <span>{humanStatus(latestStatus?.label ?? turn.status)}</span>
+          </div>
+          {latestStatus?.detail ? <p>{latestStatus.detail}</p> : null}
+          {text ? <p>{text}</p> : null}
+        </div>
+      </div>
+      <time>{formatTime(turn.startedAt)}</time>
+    </div>
+  );
+}
+
+function parentLiveTurnTitle(turn: LiveAssistantTurn): string {
+  if (turn.status === "failed") return "处理失败";
+  if (turn.status === "completed") return "处理完成";
+  return "正在处理";
+}
+
+function HiddenLegacyThreadHooks(_: {
+  onAction: (actionType: string, options?: Record<string, unknown>) => Promise<void>;
+  onSelectDecisionContext: (contextId: string) => void;
+}): ReactElement | null {
+  return null;
 }
 
 function ParentAgentSnapshot({
@@ -1899,12 +2244,11 @@ function ParentAgentSnapshot({
   );
 }
 
-function AgentRunGraphModal({
+function AgentRunGraphPanel({
   graph,
   selectedNode,
   activeRun,
   stream,
-  onClose,
   onSelectNode,
   onSelectRun,
 }: {
@@ -1912,25 +2256,21 @@ function AgentRunGraphModal({
   selectedNode: DemandAgentRunGraphNode | null;
   activeRun?: RunSummary;
   stream: StreamPacket | null;
-  onClose: () => void;
   onSelectNode: (nodeId: string) => void;
   onSelectRun: (runId: string) => void;
 }): ReactElement {
   return (
-    <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="需求运行图">
-      <div className="agent-graph-modal">
-        <header className="agent-graph-header">
-          <div>
-            <p className="eyebrow">运行图</p>
-            <h2>{graph.title}</h2>
-            <p>{graph.summary}</p>
-          </div>
-          <button className="icon-button" type="button" aria-label="关闭运行图" onClick={onClose}><X size={16} /></button>
-        </header>
-        <div className="agent-graph-body">
-          <AgentRunGraphCanvas graph={graph} selectedNodeId={selectedNode?.id ?? null} onSelectNode={onSelectNode} />
-          <AgentRunNodeDetail node={selectedNode} activeRun={activeRun} stream={stream} onSelectRun={onSelectRun} />
+    <div className="agent-graph-panel" data-testid="agent-run-graph-panel">
+      <header className="agent-graph-header">
+        <div>
+          <p className="eyebrow">Agent 运行图</p>
+          <h2>{graph.title}</h2>
+          <p>{graph.summary}</p>
         </div>
+      </header>
+      <div className="agent-graph-body">
+        <AgentRunGraphCanvas graph={graph} selectedNodeId={selectedNode?.id ?? null} onSelectNode={onSelectNode} />
+        <AgentRunNodeDetail node={selectedNode} activeRun={activeRun} stream={stream} onSelectRun={onSelectRun} />
       </div>
     </div>
   );
@@ -3875,6 +4215,9 @@ function emptyWorkpad(projectName = "未选择项目"): Workpad {
     },
   };
 }
+
+void ParentAgentSnapshot;
+void ThreadStreamView;
 
 function formatTime(value?: string): string {
   if (!value) return "";

@@ -352,8 +352,10 @@ describe("Workbench web app", () => {
 
     await waitFor(() => expect(screen.getAllByText("会员折扣计价").length).toBeGreaterThan(0));
     expect(screen.getByTestId("main-conversation-view")).toBeTruthy();
-    expect(screen.getByText(/我已经整理了本轮实现结果/)).toBeTruthy();
-    expect(screen.getByTestId("open-agent-run-graph")).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "对话" })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "Agent 运行图" })).toBeTruthy();
+    expect(screen.getByTestId("parent-agent-transcript")).toBeTruthy();
+    expect(screen.queryByTestId("open-agent-run-graph")).toBeNull();
     expect(screen.queryByText("目标与当前理解")).toBeNull();
     expect(screen.queryByText("推荐角色：coder-agent")).toBeNull();
     expect(screen.queryByText("执行范围")).toBeNull();
@@ -362,11 +364,8 @@ describe("Workbench web app", () => {
     for (const forbidden of ["Workpad", "Change-level evidence", "TaskRun", "WorkerLease", "audit-blocked", "queue blocked", "Plan mode", "AC ", "Tasks", "Agent 循环", "latest-bundle", "planning-agent"]) {
       expect(primarySurface).not.toContain(forbidden);
     }
-    const resultReviewCard = screen.getByTestId("result-review-card");
-    expect(resultReviewCard).toBeTruthy();
-    expect(within(resultReviewCard).getByText("结果可应用到项目")).toBeTruthy();
-    expect(within(resultReviewCard).getByText("src/pricing.ts")).toBeTruthy();
-    expect(within(resultReviewCard).getByText(/边界金额建议人工复核/)).toBeTruthy();
+    expect(document.querySelector(".parent-agent-transcript")?.textContent).toContain("结果可应用到项目");
+    expect(document.querySelector(".parent-agent-transcript")?.textContent).toContain("src/pricing.ts");
     expect(screen.getByText("确认完成需求对话")).toBeTruthy();
     expect(screen.getByLabelText("在 Repo 中开始新对话")).toBeTruthy();
     expect(screen.getByLabelText("搜索已加载对话")).toBeTruthy();
@@ -375,28 +374,20 @@ describe("Workbench web app", () => {
     expect(screen.getByText("设置")).toBeTruthy();
     expect(screen.queryByText("远程项目")).toBeNull();
     expect(screen.getByText("需要你确认")).toBeTruthy();
-    expect(screen.getAllByText("已完成").length).toBeGreaterThan(0);
-    expect(screen.getByText("用户消息")).toBeTruthy();
-    expect(screen.getByText("AI 计划")).toBeTruthy();
-    expect(screen.getAllByText("执行结果").length).toBeGreaterThan(0);
-    const blockNodes = Array.from(document.querySelectorAll("[data-testid^='assistant-block']"));
-    expect(blockNodes.map((node) => node.getAttribute("data-testid"))).toEqual(expect.arrayContaining([
-      "assistant-block-prose",
-      "assistant-block-command-group",
-      "assistant-block-usage",
-      "assistant-block-workflow-evidence",
-    ]));
-    expect(blockNodes.findIndex((node) => node.textContent?.includes("Codex final summary"))).toBeLessThan(blockNodes.findIndex((node) => node.textContent?.includes("npm test")));
-    expect(blockNodes.findIndex((node) => node.textContent?.includes("npm test"))).toBeLessThan(blockNodes.findIndex((node) => node.textContent?.includes("下一步可以查看")));
+    expect(document.querySelector(".parent-agent-transcript")?.textContent).toContain("Command completed");
+    expect(screen.getAllByTestId("parent-message-user").length).toBeGreaterThan(0);
+    expect(screen.getAllByTestId("parent-message-parent-agent").length).toBeGreaterThan(0);
+    expect(screen.queryByText("用户消息")).toBeNull();
+    expect(screen.queryByText("AI 计划")).toBeNull();
+    expect(screen.queryByText("执行结果")).toBeNull();
+    expect(screen.queryByText("工具结果")).toBeNull();
+    expect(screen.getByText("Codex final summary 完整显示。")).toBeTruthy();
     expect(screen.getByText("验证：已通过")).toBeTruthy();
     expect(screen.getByText("审查：带备注批准")).toBeTruthy();
-    expect(screen.getByText("会员折扣计划")).toBeTruthy();
-    expect(screen.getByText("生成执行方案")).toBeTruthy();
-    expect(screen.getByText("生成需求说明")).toBeTruthy();
+    expect(screen.getByText("生成受控计划")).toBeTruthy();
     expect(screen.queryByText("运行 Code")).toBeNull();
-    expect((screen.getByText("生成需求说明") as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByText("当前需要你决定")).toBeTruthy();
-    expect(screen.getByText("结果摘要")).toBeTruthy();
+    expect(screen.getAllByText("结果摘要").length).toBeGreaterThan(0);
     expect(screen.getByText("推荐动作")).toBeTruthy();
     expect(screen.getByText("接受需求说明")).toBeTruthy();
     expect(screen.getByText("刷新状态")).toBeTruthy();
@@ -404,7 +395,8 @@ describe("Workbench web app", () => {
     expect(screen.queryByText("稍后")).toBeNull();
     expect(screen.getByText("记忆：external-local")).toBeTruthy();
     expect(screen.getByText("当前需求：会员折扣计价")).toBeTruthy();
-    fireEvent.click(screen.getByTestId("open-agent-run-graph"));
+    fireEvent.click(screen.getByRole("tab", { name: "Agent 运行图" }));
+    expect(screen.getByRole("tab", { name: "Agent 运行图" }).getAttribute("aria-selected")).toBe("true");
     expect(screen.getByTestId("agent-run-graph")).toBeTruthy();
     expect(screen.getByTestId("agent-run-node-main-agent")).toBeTruthy();
     expect(screen.getByTestId("agent-run-node-coder-agent")).toBeTruthy();
@@ -414,7 +406,6 @@ describe("Workbench web app", () => {
     expect(screen.getByText("打开原始日志")).toBeTruthy();
     fireEvent.click(screen.getByText("打开原始日志"));
     await waitFor(() => expect(screen.getByText("模型事件转录")).toBeTruthy());
-    fireEvent.click(screen.getByLabelText("关闭运行图"));
 
     fireEvent.click(screen.getAllByText("同意")[0] as HTMLElement);
     expect(screen.getByText("确认")).toBeTruthy();
@@ -462,10 +453,12 @@ describe("Workbench web app", () => {
 
     await waitFor(() => expect(screen.getAllByText("会员折扣计价").length).toBeGreaterThan(0));
     await waitFor(() => expect(screen.getByText("我会检查现有实现。")).toBeTruthy());
-    expect(document.querySelectorAll("[data-testid='assistant-block-command-group']")).toHaveLength(1);
-    expect(document.querySelectorAll("[data-testid='assistant-block-command']")).toHaveLength(1);
-    expect(document.querySelectorAll("[data-testid='assistant-block-usage']")).toHaveLength(1);
-    expect(document.querySelectorAll("[data-testid='assistant-block-error']")).toHaveLength(1);
+    expect(screen.getByTestId("parent-agent-transcript")).toBeTruthy();
+    expect(screen.getAllByTestId("parent-message-parent-agent").length).toBeGreaterThan(0);
+    expect(screen.queryByText("AI 回复")).toBeNull();
+    expect(screen.queryByText("执行结果")).toBeNull();
+    expect(screen.queryByText(/用量/)).toBeNull();
+    expect(document.querySelectorAll("[data-testid^='assistant-block']")).toHaveLength(0);
   });
 
   it("renders PR provider guidance without a fake create button when remote handoff is unavailable", async () => {
@@ -1091,7 +1084,7 @@ describe("Workbench web app", () => {
     await waitFor(() => expect(screen.getByTestId("main-conversation-view")).toBeTruthy());
     expect(screen.queryByTestId("taskgraph-node-T-001")).toBeNull();
     expect(screen.queryByText("运行此任务")).toBeNull();
-    fireEvent.click(screen.getByTestId("open-agent-run-graph"));
+    fireEvent.click(screen.getByRole("tab", { name: "Agent 运行图" }));
     expect(screen.getByTestId("agent-run-graph")).toBeTruthy();
   });
 
@@ -1115,7 +1108,7 @@ describe("Workbench web app", () => {
     expect(screen.queryByTestId("task-queue-panel")).toBeNull();
     expect(screen.queryByText("本地顺序执行")).toBeNull();
     expect(screen.queryByText(/并行执行|worker pool|多 agent 协作/)).toBeNull();
-    expect(screen.getByTestId("open-agent-run-graph")).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "Agent 运行图" })).toBeTruthy();
   });
 
   it("shows paused TaskQueue recovery copy and disables individual task run", async () => {
@@ -1335,15 +1328,17 @@ describe("Workbench web app", () => {
     fireEvent.click(screen.getByTitle("发送"));
 
     await waitFor(() => expect(screen.getByText("完整 AI 输出已经落盘。")).toBeTruthy());
-    expect(screen.getAllByText("测试通过").length).toBeGreaterThan(0);
-    expect(screen.getByText("内部执行详情已记录到 Agent Loop，可在原始日志中查看。")).toBeTruthy();
+    expect(screen.getByTestId("parent-agent-transcript")).toBeTruthy();
+    expect(screen.queryByText("AI 回复")).toBeNull();
+    expect(screen.queryByText("执行结果")).toBeNull();
+    expect(screen.queryByText("用户消息")).toBeNull();
+    expect(screen.queryByText("AI 计划")).toBeNull();
     expect(screen.queryByText(/codex-events\.jsonl/)).toBeNull();
-    expect(screen.getByText("Usage recorded")).toBeTruthy();
+    expect(screen.queryByText("Usage recorded")).toBeNull();
     expect(screen.queryByText("Codex turn running")).toBeNull();
-    expect(screen.getAllByText("npm test").length).toBeGreaterThan(0);
-    expect(document.querySelectorAll("[data-testid='assistant-block-usage']")).toHaveLength(1);
-    expect(document.querySelectorAll("[data-testid='assistant-block-command']")).toHaveLength(1);
-    expect(screen.getByText("查看证据：last-message.md")).toBeTruthy();
+    expect(screen.queryByText("npm test")).toBeNull();
+    expect(document.querySelectorAll("[data-testid^='assistant-block']")).toHaveLength(0);
+    expect(document.querySelector(".parent-agent-transcript")?.textContent).toContain("完整 AI 输出已经落盘。");
     expect(fetch).toHaveBeenCalledWith("/api/projects/repo/workbench/topics/member-discount/messages/live", expect.objectContaining({ method: "POST" }));
   });
 
@@ -1406,12 +1401,12 @@ describe("Workbench web app", () => {
     fireEvent.click(screen.getByTitle("发送"));
 
     await waitFor(() => expect(screen.getByText("实时 AI 输出")).toBeTruthy());
-    expect(screen.getByText("AI 只读回复")).toBeTruthy();
-    expect(screen.getAllByText("测试通过").length).toBeGreaterThan(0);
-    expect(screen.getByText("Reasoning summary")).toBeTruthy();
-    expect(screen.getAllByText("npm test").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("exit 0").length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/5 output tokens/).length).toBeGreaterThan(0);
+    expect(screen.getByText("正在处理")).toBeTruthy();
+    expect(screen.queryByText("AI 只读回复")).toBeNull();
+    expect(screen.queryByText("Reasoning summary")).toBeNull();
+    expect(screen.queryByText("npm test")).toBeNull();
+    expect(screen.queryByText("exit 0")).toBeNull();
+    expect(screen.queryByText(/5 output tokens/)).toBeNull();
   });
 
   it("renders operational sidebar panels for repo memory and settings", async () => {
@@ -1477,7 +1472,7 @@ describe("Workbench web app", () => {
     expect(screen.queryByText("停止并按这条修改")).toBeNull();
     expect(screen.queryByText("新需求对话")).toBeNull();
     expect(screen.getByTitle("停止当前执行")).toBeTruthy();
-    expect(screen.getByTestId("open-agent-run-graph")).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "Agent 运行图" })).toBeTruthy();
     expect(screen.queryByText(/worker pool|并行 worktree|merge queue/)).toBeNull();
   });
 
