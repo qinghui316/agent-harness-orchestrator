@@ -39,6 +39,7 @@ import {
 import { createWorktree } from "../../src/worktree/manager.js";
 import { classifyPrFeedbackSnapshotData } from "../../src/pr-feedback/manager.js";
 import { cleanupRemoteBranchAfterMerge, preparePostMergeHandoff, syncLocalAfterMerge } from "../../src/post-merge/manager.js";
+import { mergeNextLandingQueueCandidate, prepareLandingQueue } from "../../src/landing-queue/manager.js";
 import { listTaskQueueItems, listTaskQueues, reconcileTaskQueues, startOrResumeTaskQueue } from "../../src/task-queue/manager.js";
 import type { ManagedProject, RunMetadata, TaskQueueItem, TaskQueueRun, TaskRun, WorkerLease } from "../../src/types/index.js";
 
@@ -74,6 +75,7 @@ async function createFakeGh(initial: { isDraft?: boolean; comments?: unknown[]; 
     failedChecks: initial.failedChecks ?? 0,
     canResolveThreads: initial.canResolveThreads ?? true,
     mergeFails: initial.mergeFails ?? false,
+    mergeCount: 0,
     merged: false,
     replies: [],
     resolvedThreads: [],
@@ -122,6 +124,7 @@ if (args[0] === "pr" && args[1] === "merge") {
     process.exit(1);
   }
   state.merged = true;
+  state.mergeCount = (state.mergeCount || 0) + 1;
   writeState(state);
   console.log("Merged pull request");
   process.exit(0);
@@ -1476,6 +1479,121 @@ describe("workbench read model", () => {
           }),
         },
       });
+    } finally {
+      if (oldAhoHome === undefined) delete process.env.AHO_HOME;
+      else process.env.AHO_HOME = oldAhoHome;
+      if (oldGhCommand === undefined) delete process.env.AHO_GH_COMMAND;
+      else process.env.AHO_GH_COMMAND = oldGhCommand;
+      if (oldGhCommandArgs === undefined) delete process.env.AHO_GH_COMMAND_ARGS;
+      else process.env.AHO_GH_COMMAND_ARGS = oldGhCommandArgs;
+    }
+  });
+
+  it("builds a landing queue from explicit PR targets and merges only one refreshed PR", async () => {
+    const oldAhoHome = process.env.AHO_HOME;
+    const oldGhCommand = process.env.AHO_GH_COMMAND;
+    const oldGhCommandArgs = process.env.AHO_GH_COMMAND_ARGS;
+    process.env.AHO_HOME = join(tempDir, ".aho-home");
+    const fakeGh = await createFakeGh({ isDraft: false });
+    process.env.AHO_GH_COMMAND = fakeGh.command;
+    process.env.AHO_GH_COMMAND_ARGS = JSON.stringify(fakeGh.args);
+    try {
+      await initGitRepository(tempDir);
+      await git(tempDir, ["remote", "add", "origin", "https://github.com/qinghui316/private-acceptance.git"]);
+      await writeFile(join(tempDir, "package.json"), "{\"scripts\":{\"test\":\"node -e \\\"process.exit(0)\\\"\"}}\n", "utf8");
+      await git(tempDir, ["add", "."]);
+      await git(tempDir, ["commit", "-m", "initial"]);
+      await initHarness(project());
+      const memory = await resolveProjectMemory(project());
+      await mkdir(join(memory.workbenchRoot, "landing", "landing-a"), { recursive: true });
+      await mkdir(join(memory.workbenchRoot, "landing", "landing-b"), { recursive: true });
+      const landingBase = {
+        version: "1.0",
+        projectId: memory.projectId,
+        status: "ready",
+        sourceHead: "head",
+        sourceDiffHash: "diff",
+        sourceDiffStat: " package.json | 1 +",
+        changedFiles: ["package.json"],
+        attributable: true,
+        unattributedFiles: [],
+        summary: "Landing package ready.",
+        riskSummary: "Reviewed local landing evidence.",
+        artifactRefs: ["project://.agent-harness/workbench/landing/landing-summary.md"],
+        createdAt: "2026-05-30T00:00:00.000Z",
+        reviewedAt: "2026-05-30T00:00:00.000Z",
+        review: {
+          version: "1.0",
+          roleId: "merge-reviewer-agent",
+          verdict: "ready",
+          summary: "Ready.",
+          riskSummary: "No blocker.",
+          evidenceRefs: [],
+          missingChecks: [],
+          suggestedNextAction: "Remote landing.",
+          createdAt: "2026-05-30T00:00:00.000Z",
+        },
+      };
+      await writeFile(join(memory.workbenchRoot, "landing", "landing-a", "landing-package.json"), JSON.stringify({
+        ...landingBase,
+        id: "landing-a",
+        target: { kind: "worktree", changeIds: ["demand-a"], worktreeIds: ["worktree-a"], applyRunId: "apply-a", expectedDiffHash: "diff", evidenceRefs: [] },
+        review: { ...landingBase.review, packageId: "landing-a" },
+      }, null, 2), "utf8");
+      await writeFile(join(memory.workbenchRoot, "landing", "landing-b", "landing-package.json"), JSON.stringify({
+        ...landingBase,
+        id: "landing-b",
+        target: { kind: "worktree", changeIds: ["demand-b"], worktreeIds: ["worktree-b"], applyRunId: "apply-b", expectedDiffHash: "diff", evidenceRefs: [] },
+        createdAt: "2026-05-30T00:01:00.000Z",
+        reviewedAt: "2026-05-30T00:01:00.000Z",
+        review: { ...landingBase.review, packageId: "landing-b", createdAt: "2026-05-30T00:01:00.000Z" },
+      }, null, 2), "utf8");
+      await mkdir(join(memory.workbenchRoot, "pr-drafts", "pr-draft-a"), { recursive: true });
+      await mkdir(join(memory.workbenchRoot, "pr-drafts", "pr-draft-b"), { recursive: true });
+      const draftBase = {
+        version: "1.0",
+        projectId: memory.projectId,
+        provider: "github-cli",
+        status: "created",
+        title: "AHO test",
+        bodyArtifact: "project://.agent-harness/workbench/pr-drafts/body.md",
+        packageArtifact: "project://.agent-harness/workbench/pr-drafts/package.json",
+        remoteName: "origin",
+        remoteUrl: "https://github.com/qinghui316/private-acceptance.git",
+        baseBranch: "main",
+        branchName: "aho/test",
+        landingEvidenceRefs: [],
+        createdAt: "2026-05-30T00:00:00.000Z",
+        updatedAt: "2026-05-30T00:00:00.000Z",
+      };
+      await writeFile(join(memory.workbenchRoot, "pr-drafts", "pr-draft-a", "pr-draft-package.json"), JSON.stringify({
+        ...draftBase,
+        id: "pr-draft-a",
+        landingPackageId: "landing-a",
+        prUrl: "https://github.com/qinghui316/private-acceptance/pull/1",
+      }, null, 2), "utf8");
+      await writeFile(join(memory.workbenchRoot, "pr-drafts", "pr-draft-b", "pr-draft-package.json"), JSON.stringify({
+        ...draftBase,
+        id: "pr-draft-b",
+        landingPackageId: "landing-b",
+        prUrl: "https://github.com/qinghui316/private-acceptance/pull/2",
+        branchName: "aho/test-b",
+        updatedAt: "2026-05-30T00:01:00.000Z",
+      }, null, 2), "utf8");
+
+      const queue = await prepareLandingQueue(project());
+      expect(queue.readyCount).toBe(2);
+      expect(queue.candidates.map((candidate) => candidate.landingPackageId)).toEqual(["landing-a", "landing-b"]);
+      expect(queue.candidates.every((candidate) => candidate.canMerge)).toBe(true);
+
+      const merged = await mergeNextLandingQueueCandidate(project(), "landing-a");
+      expect(merged.result).toMatchObject({
+        status: "merged",
+        landingPackageId: "landing-a",
+      });
+      expect(merged.after).toBeTruthy();
+      const ghState = JSON.parse(await readFile(fakeGh.stateFile, "utf8"));
+      expect(ghState.mergeCount).toBe(1);
     } finally {
       if (oldAhoHome === undefined) delete process.env.AHO_HOME;
       else process.env.AHO_HOME = oldAhoHome;

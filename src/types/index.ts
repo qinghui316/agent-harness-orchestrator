@@ -1050,6 +1050,78 @@ export interface RemoteBranchCleanupResult {
   createdAt: string;
 }
 
+export type LandingQueueCandidateStatus =
+  | "ready"
+  | "ready-with-comments"
+  | "needs-attention"
+  | "merged";
+
+export interface LandingQueueCandidate {
+  version: "1.0";
+  id: string;
+  projectId: string | null;
+  conversationId: string;
+  changeIds: string[];
+  landingPackageId: string;
+  prDraftPackageId: string;
+  prUrl?: string;
+  status: LandingQueueCandidateStatus;
+  canMerge: boolean;
+  summary: string;
+  reason: string;
+  confirmEffect: string;
+  riskSummary: string;
+  readinessId?: string;
+  readinessStatus?: RemoteLandingReadinessStatus;
+  evidenceRefs: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface LandingQueueSnapshot {
+  version: "1.0";
+  id: string;
+  projectId: string | null;
+  status: "empty" | "ready" | "needs-attention";
+  summary: string;
+  readyCount: number;
+  needsAttentionCount: number;
+  mergedCount: number;
+  candidates: LandingQueueCandidate[];
+  snapshotArtifact: string;
+  summaryArtifact: string;
+  evidenceRefs: string[];
+  createdAt: string;
+}
+
+export interface LandingQueueDecision {
+  version: "1.0";
+  id: string;
+  snapshotId: string;
+  selectedLandingPackageId?: string;
+  selectedCandidateId?: string;
+  action: "merge-next" | "skip" | "remove-stale";
+  status: "completed" | "failed" | "skipped";
+  reason?: string;
+  artifactRefs: string[];
+  createdAt: string;
+}
+
+export interface LandingQueueResult {
+  version: "1.0";
+  id: string;
+  decisionId: string;
+  beforeSnapshotId: string;
+  afterSnapshotId?: string;
+  selectedCandidateId?: string;
+  landingPackageId?: string;
+  remoteLandingResultId?: string;
+  status: "merged" | "failed" | "skipped";
+  summary: string;
+  artifactRefs: string[];
+  createdAt: string;
+}
+
 export interface PostMergeHandoff {
   version: "1.0";
   id: string;

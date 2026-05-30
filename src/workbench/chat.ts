@@ -38,6 +38,7 @@ import { getEnabledSkillContext } from "../skill/catalog.js";
 import { getSpecTestDriftReport } from "../spec-test/drift.js";
 import { runIntegrationCheck } from "../integration-check/manager.js";
 import { prepareLandingPackage, reviewLandingPackage } from "../landing/manager.js";
+import { mergeNextLandingQueueCandidate, prepareLandingQueue, refreshLandingQueue } from "../landing-queue/manager.js";
 import { createDraftPr, preparePrDraftPackage, refreshPrDraftStatus } from "../pr-draft/manager.js";
 import {
   completePrFeedbackReworkAttempt,
@@ -533,6 +534,11 @@ export type WorkbenchWorkflowActionType =
   | "landing.prepare"
   | "landing.review"
   | "landing.refresh"
+  | "landing-queue.prepare"
+  | "landing-queue.refresh"
+  | "landing-queue.merge-next"
+  | "landing-queue.skip"
+  | "landing-queue.remove-stale"
   | "pr-draft.prepare"
   | "pr-draft.create"
   | "pr-draft.refresh"
@@ -868,6 +874,15 @@ async function executeWorkflowAction(project: ManagedProject, changeId: string, 
       return reviewLandingForAction(project, changeId, request, live);
     case "landing.refresh":
       return prepareLandingForAction(project, changeId, request, live);
+    case "landing-queue.prepare":
+      return prepareLandingQueueForAction(project, changeId, live);
+    case "landing-queue.refresh":
+      return refreshLandingQueueForAction(project, changeId, live);
+    case "landing-queue.merge-next":
+      return mergeNextLandingQueueForAction(project, changeId, request, live);
+    case "landing-queue.skip":
+    case "landing-queue.remove-stale":
+      return refreshLandingQueueForAction(project, changeId, live);
     case "pr-draft.prepare":
       return preparePrDraftForAction(project, changeId, request, live);
     case "pr-draft.create":
@@ -1524,6 +1539,64 @@ async function resolvePrReviewThreadForAction(
     status: "pr-review-thread-resolved",
     text: "已标记评审 thread 为已处理。此操作不会 merge、land、push main 或归档需求。",
     artifact: result.resolution.artifactRefs[0],
+  });
+  live?.emit({ event: "assistant.message", data: entry });
+  return result;
+}
+
+async function prepareLandingQueueForAction(
+  project: ManagedProject,
+  changeId: string,
+  live: WorkbenchLiveSink | undefined,
+): Promise<unknown> {
+  const snapshot = await prepareLandingQueue(project);
+  const entry = await appendTopicThreadEntry(project, changeId, {
+    type: "assistant.message",
+    status: "landing-queue-prepared",
+    text: `${snapshot.summary}\n\n右侧会只显示当前需要确认的 PR 合并动作；不会自动合并全部。`,
+    artifact: snapshot.summaryArtifact,
+  });
+  live?.emit({ event: "assistant.message", data: entry });
+  return { snapshot };
+}
+
+async function refreshLandingQueueForAction(
+  project: ManagedProject,
+  changeId: string,
+  live: WorkbenchLiveSink | undefined,
+): Promise<unknown> {
+  const snapshot = await refreshLandingQueue(project);
+  const entry = await appendTopicThreadEntry(project, changeId, {
+    type: "assistant.message",
+    status: "landing-queue-refreshed",
+    text: `${snapshot.summary}\n\n我已经重新检查队列。每次合并前仍会再次刷新选中的 PR。`,
+    artifact: snapshot.summaryArtifact,
+  });
+  live?.emit({ event: "assistant.message", data: entry });
+  return { snapshot };
+}
+
+async function mergeNextLandingQueueForAction(
+  project: ManagedProject,
+  changeId: string,
+  request: WorkbenchWorkflowActionRequest,
+  live: WorkbenchLiveSink | undefined,
+): Promise<unknown> {
+  const result = await mergeNextLandingQueueCandidate(project, request.landingPackageId);
+  const text = [
+    result.result.summary,
+    "",
+    result.after
+      ? `剩余队列已刷新：${result.after.readyCount} 个可合并，${result.after.needsAttentionCount} 个需要先处理。`
+      : "当前没有执行远端合并。",
+    "",
+    "每个 PR 仍需要单独确认；AHO 不会自动合并剩余 PR。",
+  ].join("\n");
+  const entry = await appendTopicThreadEntry(project, changeId, {
+    type: "assistant.message",
+    status: result.result.status === "merged" ? "landing-queue-merged-one" : "landing-queue-not-merged",
+    text,
+    artifact: result.result.artifactRefs[0],
   });
   live?.emit({ event: "assistant.message", data: entry });
   return result;
@@ -3466,6 +3539,8 @@ function extractRunId(result: unknown): string | undefined {
 function artifactForActionResult(result: unknown): string | null {
   if (isRecord(result) && isRecord(result.package) && Array.isArray(result.package.artifactRefs) && typeof result.package.artifactRefs[0] === "string") return result.package.artifactRefs[0];
   if (isRecord(result) && isRecord(result.summary) && Array.isArray(result.summary.evidenceRefs) && typeof result.summary.evidenceRefs[0] === "string") return result.summary.evidenceRefs[0];
+  if (isRecord(result) && isRecord(result.snapshot) && typeof result.snapshot.summaryArtifact === "string") return result.snapshot.summaryArtifact;
+  if (isRecord(result) && isRecord(result.result) && Array.isArray(result.result.artifactRefs) && typeof result.result.artifactRefs[0] === "string") return result.result.artifactRefs[0];
   if (isRecord(result) && isRecord(result.readiness) && typeof result.readiness.summaryArtifact === "string") return result.readiness.summaryArtifact;
   if (isRecord(result) && isRecord(result.handoff) && Array.isArray(result.handoff.artifactRefs) && typeof result.handoff.artifactRefs[0] === "string") return result.handoff.artifactRefs[0];
   if (isRecord(result) && isRecord(result.revision) && Array.isArray(result.revision.artifactRefs) && typeof result.revision.artifactRefs[0] === "string") return result.revision.artifactRefs[0];
@@ -3479,6 +3554,12 @@ function summarizeActionResult(actionType: string, result: unknown): string {
   if ((actionType === "landing.prepare" || actionType === "landing.review" || actionType === "landing.refresh") && isRecord(result) && isRecord(result.package)) {
     const summary = typeof result.package.summary === "string" ? result.package.summary : "Landing readiness package updated.";
     return summary;
+  }
+  if ((actionType === "landing-queue.prepare" || actionType === "landing-queue.refresh") && isRecord(result) && isRecord(result.snapshot)) {
+    return typeof result.snapshot.summary === "string" ? result.snapshot.summary : "Landing queue refreshed.";
+  }
+  if (actionType === "landing-queue.merge-next" && isRecord(result) && isRecord(result.result)) {
+    return typeof result.result.summary === "string" ? result.result.summary : "Landing queue merge step completed.";
   }
   if ((actionType === "pr-draft.prepare" || actionType === "pr-draft.create" || actionType === "pr-draft.refresh") && isRecord(result) && isRecord(result.package)) {
     const prUrl = typeof result.package.prUrl === "string" ? ` ${result.package.prUrl}` : "";
@@ -3612,6 +3693,11 @@ function labelForAction(actionType: string): string {
     case "landing.prepare": return "Landing readiness prepared";
     case "landing.review": return "Landing readiness reviewed";
     case "landing.refresh": return "Landing readiness refreshed";
+    case "landing-queue.prepare": return "Landing queue prepared";
+    case "landing-queue.refresh": return "Landing queue refreshed";
+    case "landing-queue.merge-next": return "Landing queue merged next PR";
+    case "landing-queue.skip": return "Landing queue item skipped";
+    case "landing-queue.remove-stale": return "Landing queue stale item removed";
     case "pr-draft.prepare": return "PR draft package prepared";
     case "pr-draft.create": return "Draft PR created";
     case "pr-draft.refresh": return "Draft PR refreshed";

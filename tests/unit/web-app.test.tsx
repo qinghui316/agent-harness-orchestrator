@@ -721,6 +721,74 @@ describe("Workbench web app", () => {
     expect(screen.queryByText("push main")).toBeNull();
   });
 
+  it("renders landing queue as one current confirmation with folded background PRs", async () => {
+    const queueSnapshot = {
+      ...snapshot,
+      right: {
+        ...snapshot.right,
+        confirmationQueue: {
+          primary: {
+            id: "landing-queue:candidate:queue-a",
+            kind: "landing-queue",
+            conversationId: "member-discount",
+            changeId: "member-discount",
+            landingPackageId: "landing-a",
+            summary: "PR 可合并，但有普通评论需要你确认。",
+            whyNeedsConfirmation: "检测到普通评论；请确认是否仍然合并。",
+            confirmEffect: "会执行 GitHub squash merge；不会自动回复评论或解决 thread。 合并成功后会刷新剩余 1 个可合并 PR。",
+            riskSummary: "普通评论可能仍有人工判断价值；合并前请确认摘要和证据。 该 PR 有普通评论；请确认仍要合并。",
+            evidenceRefs: ["project://.agent-harness/workbench/landing-queue/queue/landing-queue-summary.md"],
+            actions: [{
+              id: "landing-queue-merge-next:landing-a",
+              label: "合并 PR",
+              kind: "workflow-action",
+              actionType: "landing-queue.merge-next",
+              landingPackageId: "landing-a",
+              enabled: true,
+              requiresConfirmation: true,
+            }],
+            primary: true,
+            status: "pending",
+          },
+          current: [],
+          otherDemands: [{
+            id: "landing-queue:candidate:queue-b",
+            kind: "landing-queue",
+            conversationId: "second-demand",
+            changeId: "second-demand",
+            landingPackageId: "landing-b",
+            summary: "PR 已进入合并队列，可以逐个确认合并。",
+            whyNeedsConfirmation: "PR 已提交评审，远端检查没有失败，也没有必须先处理的反馈。",
+            confirmEffect: "会执行 GitHub squash merge；不会 push main、启用 auto-merge、删除远端分支或同步本地源码。 合并成功后会刷新剩余 1 个可合并 PR。",
+            riskSummary: "合并后远端代码成为稳定边界，本地工作区仍需后续手动同步。",
+            evidenceRefs: [],
+            actions: [],
+            primary: false,
+            status: "pending",
+          }],
+          maintenance: [],
+          history: [],
+        },
+      },
+    };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
+      if (url === "/api/projects") return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
+      return jsonResponse(url.includes("/stream/") ? stream : queueSnapshot);
+    }));
+
+    render(<App />);
+
+    await waitFor(() => expect(screen.getByText("PR 可合并，但有普通评论需要你确认。")).toBeTruthy());
+    expect(screen.getByRole("button", { name: /合并 PR/ })).toBeTruthy();
+    expect(screen.getByText("其他需求等你确认")).toBeTruthy();
+    expect(screen.getByText("该 PR 有普通评论；请确认仍要合并。", { exact: false })).toBeTruthy();
+    expect(screen.queryByText("自动合并全部")).toBeNull();
+    expect(screen.queryByText("push main")).toBeNull();
+    expect(screen.queryByText("branch-protection bypass")).toBeNull();
+  });
+
   it("renders post-merge sync and cleanup as explicit confirmation actions", async () => {
     const postMergeSnapshot = {
       ...snapshot,

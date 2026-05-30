@@ -13,6 +13,7 @@ import { readRequiredJsonFile } from "../fs/json.js";
 import { getTemplateRoot } from "../template-source/paths.js";
 import { findIntegrationCheckCandidate, listIntegrationChecks, type IntegrationCheckCandidate, type IntegrationCheckRecord } from "../integration-check/manager.js";
 import { findLandingCandidate, listLandingPackages, type LandingCandidate, type LandingReadinessPackage } from "../landing/manager.js";
+import { latestLandingQueueSnapshot } from "../landing-queue/manager.js";
 import { detectRemoteProviderCapability, findLatestCreatedPrDraftPackageForChanges, findPrDraftPackageForLanding, type RemoteProviderCapability } from "../pr-draft/manager.js";
 import { latestPrFeedbackSummaryForDraft } from "../pr-feedback/manager.js";
 import { latestPrReviewReadinessForDraft, latestPrReviewReplyDraftForLanding } from "../pr-review/manager.js";
@@ -54,6 +55,8 @@ import type {
   AgentTask,
   MaintenanceLedgerEntry,
   DemandMemoryCloseout,
+  LandingQueueCandidate,
+  LandingQueueSnapshot,
 } from "../types/index.js";
 
 export type WorkbenchTopicState = "active" | "archive";
@@ -121,7 +124,7 @@ export interface WorkbenchThreadEvent {
 }
 
 export interface ThreadStreamAction {
-  actionType: "change.spec.propose" | "change.plan.propose" | "planning.generate" | "planning.revise" | "planning.confirm-execution" | "orchestrator.evaluate" | "orchestrator.pump" | "demand.worker.enqueue" | "demand.worker.claim" | "demand.worker.start-next" | "demand.worker.start-available" | "demand.worker.reconcile" | "demand.worker.release" | "role.pipeline.start" | "role.pipeline.stop" | "role.pipeline.continue" | "role.pipeline.reconcile" | "conversation.steer" | "conversation.interrupt" | "conversation.continue" | "result.refresh-rework" | "result.revalidate" | "result.reaudit" | "result.refresh-status" | "apply-check.run" | "landing.prepare" | "landing.review" | "landing.refresh" | "pr-draft.prepare" | "pr-draft.create" | "pr-draft.refresh" | "pr-feedback.refresh" | "pr-feedback.evaluate" | "pr-feedback.rework" | "pr-feedback.update-draft" | "pr-review.prepare" | "pr-review.submit" | "pr-review.refresh" | "pr-review.feedback-refresh" | "pr-review.feedback-evaluate" | "pr-review.rework" | "pr-review.reply-prepare" | "pr-review.reply-submit" | "pr-review.thread-resolve" | "remote-landing.prepare" | "remote-landing.merge" | "remote-landing.refresh" | "post-merge.prepare" | "post-merge.refresh" | "post-merge.sync-local.prepare" | "post-merge.sync-local.run" | "post-merge.cleanup-branch.prepare" | "post-merge.cleanup-branch.run" | "code.run" | "task.run.start" | "task.run.retry" | "task.queue.start" | "task.queue.reconcile" | "intake.scan" | "intake.reanalyze" | "clarification.answer" | "clarification.skip";
+  actionType: "change.spec.propose" | "change.plan.propose" | "planning.generate" | "planning.revise" | "planning.confirm-execution" | "orchestrator.evaluate" | "orchestrator.pump" | "demand.worker.enqueue" | "demand.worker.claim" | "demand.worker.start-next" | "demand.worker.start-available" | "demand.worker.reconcile" | "demand.worker.release" | "role.pipeline.start" | "role.pipeline.stop" | "role.pipeline.continue" | "role.pipeline.reconcile" | "conversation.steer" | "conversation.interrupt" | "conversation.continue" | "result.refresh-rework" | "result.revalidate" | "result.reaudit" | "result.refresh-status" | "apply-check.run" | "landing.prepare" | "landing.review" | "landing.refresh" | "landing-queue.prepare" | "landing-queue.refresh" | "landing-queue.merge-next" | "landing-queue.skip" | "landing-queue.remove-stale" | "pr-draft.prepare" | "pr-draft.create" | "pr-draft.refresh" | "pr-feedback.refresh" | "pr-feedback.evaluate" | "pr-feedback.rework" | "pr-feedback.update-draft" | "pr-review.prepare" | "pr-review.submit" | "pr-review.refresh" | "pr-review.feedback-refresh" | "pr-review.feedback-evaluate" | "pr-review.rework" | "pr-review.reply-prepare" | "pr-review.reply-submit" | "pr-review.thread-resolve" | "remote-landing.prepare" | "remote-landing.merge" | "remote-landing.refresh" | "post-merge.prepare" | "post-merge.refresh" | "post-merge.sync-local.prepare" | "post-merge.sync-local.run" | "post-merge.cleanup-branch.prepare" | "post-merge.cleanup-branch.run" | "code.run" | "task.run.start" | "task.run.retry" | "task.queue.start" | "task.queue.reconcile" | "intake.scan" | "intake.reanalyze" | "clarification.answer" | "clarification.skip";
   label: string;
   enabled: boolean;
   requiresConfirmation: boolean;
@@ -266,6 +269,7 @@ export type WorkbenchConfirmationQueueItemKind =
   | "integration-check"
   | "integration-apply"
   | "landing-readiness"
+  | "landing-queue"
   | "pr-draft"
   | "pr-review"
   | "remote-landing"
@@ -2287,8 +2291,24 @@ async function buildConfirmationQueue(input: {
       else queue.otherDemands.push(item);
     }
     const landingPackages = await listLandingPackages(input.memory).catch(() => []);
+    const queueSnapshot = await latestLandingQueueSnapshot(input.memory).catch(() => null);
+    const queuedLandingPackageIds = new Set<string>();
+    if (queueSnapshot) {
+      const queueItems = landingQueueSnapshotItems(project, queueSnapshot, input.selectedTopic?.id);
+      for (const item of queueItems) {
+        if (item.landingPackageId) queuedLandingPackageIds.add(item.landingPackageId);
+        if (item.primary) queue.current.unshift(item);
+        else queue.otherDemands.push(item);
+      }
+    } else {
+      const prepareItem = await landingQueuePrepareItem(project, input.memory, landingPackages, input.selectedTopic?.id).catch(() => null);
+      if (prepareItem) {
+        if (prepareItem.primary) queue.current.unshift(prepareItem);
+        else queue.otherDemands.push(prepareItem);
+      }
+    }
     const latestLanding = landingPackages[0];
-    if (latestLanding && latestLanding.reviewedAt) {
+    if (latestLanding && latestLanding.reviewedAt && !queuedLandingPackageIds.has(latestLanding.id)) {
       const item = latestLanding.review?.verdict === "ready"
         ? await prDraftQueueItem(project, input.memory, latestLanding, input.selectedTopic?.id)
         : landingPackageQueueItem(project, latestLanding, input.selectedTopic?.id);
@@ -2343,6 +2363,148 @@ function landingCandidateQueueItem(project: ManagedProject, candidate: LandingCa
     }],
     primary: selected,
     status: "pending",
+  };
+}
+
+async function landingQueuePrepareItem(
+  project: ManagedProject,
+  memory: ResolvedMemory,
+  packages: LandingReadinessPackage[],
+  selectedChangeId: string | undefined,
+): Promise<WorkbenchConfirmationQueueItem | null> {
+  const readyPackages: LandingReadinessPackage[] = [];
+  for (const pkg of packages.filter((item) => item.review?.verdict === "ready")) {
+    const draft = await findPrDraftPackageForLanding(memory, pkg.id).catch(() => null);
+    if (!draft || draft.status !== "created" || !draft.prUrl) continue;
+    const merged = await latestMergedRemoteLandingResultForLanding(memory, pkg.id).catch(() => null);
+    if (!merged) readyPackages.push(pkg);
+  }
+  if (readyPackages.length < 2) return null;
+  const selectedPackage = selectedChangeId
+    ? readyPackages.find((pkg) => pkg.target.changeIds.includes(selectedChangeId))
+    : undefined;
+  const primaryPkg = selectedPackage ?? readyPackages[0];
+  const itemChangeId = (selectedPackage && selectedChangeId) || primaryPkg?.target.changeIds[0];
+  if (!primaryPkg || !itemChangeId) return null;
+  return {
+    id: `landing-queue:prepare:${readyPackages.map((pkg) => pkg.id).join("+")}`,
+    kind: "landing-queue",
+    projectId: project.id,
+    conversationId: itemChangeId,
+    changeId: itemChangeId,
+    landingPackageId: primaryPkg.id,
+    summary: `${readyPackages.length} 个 PR 可以进入合并队列检查。`,
+    whyNeedsConfirmation: "先刷新每个 PR 的远端状态，再决定哪些可以逐个确认合并。",
+    confirmEffect: "只会读取 PR 状态并写入 landing queue evidence；不会合并 PR。",
+    riskSummary: "AHO 不会自动合并全部；每个 PR 合并前仍需要单独确认。",
+    evidenceRefs: readyPackages.flatMap((pkg) => pkg.artifactRefs).slice(0, 8),
+    actions: [{
+      id: "landing-queue-prepare",
+      label: "检查合并队列",
+      kind: "workflow-action",
+      actionType: "landing-queue.prepare",
+      landingPackageId: primaryPkg.id,
+      enabled: true,
+      requiresConfirmation: false,
+    }],
+    primary: Boolean(selectedPackage),
+    status: "pending",
+  };
+}
+
+function landingQueueSnapshotItems(project: ManagedProject, snapshot: LandingQueueSnapshot, selectedChangeId: string | undefined): WorkbenchConfirmationQueueItem[] {
+  const items: WorkbenchConfirmationQueueItem[] = [];
+  for (const candidate of snapshot.candidates) {
+    if (candidate.status === "merged") continue;
+    const selected = Boolean(selectedChangeId && candidate.changeIds.includes(selectedChangeId));
+    const item = landingQueueCandidateItem(project, snapshot, candidate, selectedChangeId, selected);
+    if (item) items.push(item);
+  }
+  if (items.length === 0 && snapshot.candidates.length > 0) {
+    const first = snapshot.candidates[0];
+    if (first) {
+      items.push({
+        id: `landing-queue:status:${snapshot.id}`,
+        kind: "landing-queue",
+        projectId: project.id,
+        conversationId: selectedChangeId ?? first.conversationId,
+        changeId: selectedChangeId ?? first.conversationId,
+        summary: snapshot.summary,
+        whyNeedsConfirmation: "当前合并队列没有可直接合并的 PR。",
+        confirmEffect: "只会刷新队列状态；不会执行远端合并。",
+        riskSummary: "请先处理 PR 反馈、checks 或 provider 状态。",
+        evidenceRefs: snapshot.evidenceRefs,
+        actions: [{
+          id: `landing-queue-refresh:${snapshot.id}`,
+          label: "刷新合并队列",
+          kind: "workflow-action",
+          actionType: "landing-queue.refresh",
+          enabled: true,
+          requiresConfirmation: false,
+        }, ...evidenceActions(snapshot.summaryArtifact)],
+        primary: true,
+        status: "pending",
+      });
+    }
+  }
+  return items;
+}
+
+function landingQueueCandidateItem(
+  project: ManagedProject,
+  snapshot: LandingQueueSnapshot,
+  candidate: LandingQueueCandidate,
+  selectedChangeId: string | undefined,
+  selected: boolean,
+): WorkbenchConfirmationQueueItem | null {
+  const itemChangeId = selected ? selectedChangeId : candidate.conversationId;
+  if (!itemChangeId) return null;
+  const otherReadyCount = snapshot.candidates.filter((item) => item.canMerge && item.id !== candidate.id).length;
+  const readyWithComments = candidate.status === "ready-with-comments";
+  return {
+    id: `landing-queue:candidate:${candidate.id}`,
+    kind: "landing-queue",
+    projectId: project.id,
+    conversationId: itemChangeId,
+    changeId: itemChangeId,
+    landingPackageId: candidate.landingPackageId,
+    summary: candidate.canMerge
+      ? readyWithComments
+        ? "PR 可合并，但有普通评论需要你确认。"
+        : "PR 已进入合并队列，可以逐个确认合并。"
+      : candidate.summary,
+    whyNeedsConfirmation: candidate.canMerge
+      ? candidate.reason
+      : "该 PR 当前不能合并，需要先处理远端状态。",
+    confirmEffect: candidate.canMerge
+      ? `${candidate.confirmEffect} 合并成功后会刷新剩余 ${otherReadyCount} 个可合并 PR。`
+      : "只会刷新队列或查看证据；不会执行远端合并。",
+    riskSummary: readyWithComments
+      ? `${candidate.riskSummary} 该 PR 有普通评论；请确认仍要合并。`
+      : candidate.riskSummary,
+    evidenceRefs: candidate.evidenceRefs,
+    actions: [
+      ...(candidate.canMerge ? [{
+        id: `landing-queue-merge-next:${candidate.landingPackageId}`,
+        label: "合并 PR",
+        kind: "workflow-action" as const,
+        actionType: "landing-queue.merge-next" as const,
+        landingPackageId: candidate.landingPackageId,
+        enabled: true,
+        requiresConfirmation: true,
+      }] : [{
+        id: `landing-queue-refresh:${candidate.landingPackageId}`,
+        label: "刷新合并队列",
+        kind: "workflow-action" as const,
+        actionType: "landing-queue.refresh" as const,
+        landingPackageId: candidate.landingPackageId,
+        enabled: true,
+        requiresConfirmation: false,
+      }]),
+      ...evidenceActions(snapshot.summaryArtifact),
+    ],
+    primary: selected,
+    status: candidate.canMerge ? "pending" : "failed",
   };
 }
 
