@@ -687,8 +687,11 @@ function emptyParentAgentTranscript(): ParentAgentTranscript {
   };
 }
 
-function mergeLiveItemsIntoTranscript(transcript: ParentAgentTranscript, liveItems: ThreadStreamItem[]): ParentAgentTranscript {
-  const liveTranscriptCells = liveItems.flatMap(parentTranscriptCellsFromLiveThreadItem);
+function mergeLiveItemsIntoTranscript(transcript: ParentAgentTranscript, liveItems: ThreadStreamItem[], liveTurns: LiveAssistantTurn[]): ParentAgentTranscript {
+  const liveTranscriptCells = [
+    ...liveItems.flatMap(parentTranscriptCellsFromLiveThreadItem),
+    ...liveTurns.flatMap(parentTranscriptCellsFromLiveTurn),
+  ];
   if (liveTranscriptCells.length === 0) return transcript;
   const existingCellIds = new Set((transcript.cells ?? []).map((cell) => cell.id));
   const cells = [...(transcript.cells ?? []), ...liveTranscriptCells.filter((cell) => !existingCellIds.has(cell.id))];
@@ -699,6 +702,20 @@ function mergeLiveItemsIntoTranscript(transcript: ParentAgentTranscript, liveIte
     cells,
     items: [...transcript.items, ...liveTranscriptItems.filter((item) => !existingIds.has(item.id))],
   };
+}
+
+function parentTranscriptCellsFromLiveTurn(turn: LiveAssistantTurn): ParentAgentTranscriptCell[] {
+  const item: ThreadStreamItem = {
+    id: turn.id,
+    kind: "assistant-turn",
+    label: "assistant",
+    source: "chat",
+    timestamp: turn.startedAt,
+    body: turn.text,
+    runId: turn.runId,
+    blocks: turn.blocks,
+  };
+  return parentTranscriptCellsFromLiveThreadItem(item);
 }
 
 function parentTranscriptCellsFromLiveThreadItem(item: ThreadStreamItem): ParentAgentTranscriptCell[] {
@@ -716,7 +733,9 @@ function parentTranscriptCellsFromLiveThreadItem(item: ThreadStreamItem): Parent
   const cells: ParentAgentTranscriptCell[] = [];
   for (const block of item.blocks ?? []) {
     const text = cleanTranscriptText(block.text ?? block.preview ?? "");
-    if (!text || block.kind === "usage") continue;
+    if (block.kind === "usage") continue;
+    const canRenderWithoutText = block.kind === "command" || block.kind === "command-group" || block.kind === "tool-result" || block.kind === "file-change" || block.kind === "status" || block.kind === "error";
+    if (!text && !canRenderWithoutText) continue;
     const source = block.source === "codex" ? "codex-runtime" : "aho-orchestration";
     if (source !== "codex-runtime" && block.kind !== "error") continue;
     if (block.kind === "workflow-evidence" || block.kind === "plan-card") continue;
@@ -738,19 +757,51 @@ function parentTranscriptCellsFromLiveThreadItem(item: ThreadStreamItem): Parent
       continue;
     }
     if (block.kind === "status" && !block.isError) continue;
+    const processSummary = liveProcessSummary(block);
+    const detailText = liveProcessDetailText(block);
     cells.push({
       id: `live-cell:${block.id}`,
       kind: block.kind === "prose" || block.kind === "reasoning-summary" ? "assistant-message" : isProcess ? "process-row" : "detail-only",
       source,
       timestamp: item.timestamp,
       title,
-      text,
+      text: isProcess ? processSummary : text,
       status: block.status,
       isError: block.isError,
+      detailText,
       evidenceRefs: block.artifactRef ? [{ label: title ?? "详情", ref: block.artifactRef, kind: "artifact" }] : undefined,
     });
   }
   return cells;
+}
+
+function liveProcessSummary(block: AssistantTurnBlock): string {
+  if (block.kind === "command" || block.kind === "command-group") {
+    const commandCount = block.kind === "command-group" ? block.children?.filter((child) => child.kind === "command").length ?? 0 : 1;
+    const failedCount = block.kind === "command-group" ? block.children?.filter((child) => child.kind === "command" && child.isError).length ?? 0 : block.isError || block.status === "failed" ? 1 : 0;
+    const count = commandCount > 0 ? commandCount : 1;
+    if (block.status === "running" || block.status === "started") return "正在运行命令";
+    if (block.isError || block.status === "failed" || failedCount > 0) return failedCount > 0 ? `已运行 ${count} 条命令，${failedCount} 条需要关注` : `已运行 ${count} 条命令，需要关注`;
+    return `已运行 ${count} 条命令`;
+  }
+  if (block.kind === "file-change") return "文件已变更";
+  if (block.kind === "tool-result") return block.isError ? "工具调用失败" : "工具调用已完成";
+  if (block.kind === "error") return cleanTranscriptText(block.text ?? block.preview ?? "运行出错");
+  return cleanTranscriptText(block.title ?? block.text ?? block.preview ?? "运行状态已更新");
+}
+
+function liveProcessDetailText(block: AssistantTurnBlock): string | undefined {
+  if (block.kind === "command-group" && block.children?.length) {
+    const childDetails = block.children.map(liveProcessDetailText).filter((item): item is string => Boolean(item));
+    return childDetails.length ? childDetails.join("\n\n---\n\n") : undefined;
+  }
+  const parts: string[] = [];
+  if (block.command) parts.push(`$ ${block.command}`);
+  if (block.cwd) parts.push(`cwd: ${block.cwd}`);
+  if (typeof block.exitCode === "number") parts.push(`exit: ${block.exitCode}`);
+  const output = cleanTranscriptText([block.text, block.preview].filter(Boolean).join("\n\n"));
+  if (output && block.kind !== "error") parts.push(output);
+  return parts.length ? parts.join("\n") : undefined;
 }
 
 function isGeneratedRunContextText(value: string): boolean {
@@ -1287,8 +1338,8 @@ export function App(): ReactElement {
     return snapshot.center.parentAgentTranscript ?? emptyParentAgentTranscript();
   }, [snapshot.center.parentAgentTranscript]);
   const activeTranscript = useMemo(() => {
-    return mergeLiveItemsIntoTranscript(snapshotTranscript, liveItems);
-  }, [snapshotTranscript, liveItems]);
+    return mergeLiveItemsIntoTranscript(snapshotTranscript, liveItems, liveTurns);
+  }, [snapshotTranscript, liveItems, liveTurns]);
   const activeDecisionInspector = useMemo(() => {
     const inspector = snapshot.right.decisionInspector ?? { primary: null, related: [], history: [] };
     if (!selectedDecisionContextId) return inspector;
@@ -2026,25 +2077,16 @@ function ParentAgentTranscriptView({
   onAnswerClarification: (clarificationId: string, answer: string) => Promise<void>;
   onSelectDecisionContext: (contextId: string) => void;
 }): ReactElement {
+  void workpad;
+  void liveTurns;
+  void busy;
+  void onAnswerClarification;
   const cells = transcript.cells?.length ? transcript.cells.filter((cell) => cell.kind !== "detail-only") : [];
   return (
     <div className="parent-agent-transcript" data-testid="parent-agent-transcript">
       <div className="parent-agent-message-list">
         {cells.length === 0 ? <div className="empty-state">{transcript.emptyMessage ?? "暂无对话内容。"}</div> : null}
         {cells.map((cell) => <ParentAgentTranscriptCellView key={cell.id} cell={cell} />)}
-        {workpad.intake.pendingClarifications?.length ? (
-          <div className="parent-agent-message-row parent">
-            <div className="parent-agent-bubble">
-              <strong>需要确认</strong>
-              <div className="clarification-list">
-                {workpad.intake.pendingClarifications.map((clarification) => (
-                  <ClarificationCard key={clarification.id} clarification={clarification} busy={busy} onAnswer={onAnswerClarification} />
-                ))}
-              </div>
-            </div>
-          </div>
-        ) : null}
-        {liveTurns.map((turn) => <LiveParentAgentTurnBubble key={turn.id} turn={turn} />)}
       </div>
       <HiddenLegacyThreadHooks onAction={onAction} onSelectDecisionContext={onSelectDecisionContext} />
     </div>
@@ -2079,8 +2121,10 @@ function ParentAgentTranscriptMessageCell({ cell }: { cell: ParentAgentTranscrip
 function ParentAgentTranscriptProcessCell({ cell }: { cell: ParentAgentTranscriptCell }): ReactElement {
   const evidenceRefs = dedupeParentCellEvidenceRefs(cell.evidenceRefs ?? []);
   const hasDetails = Boolean(cell.detailText?.trim()) || evidenceRefs.length > 0;
-  const title = cleanTranscriptTitle(cell.title) || (cell.kind === "process-row" ? "运行" : "详情");
-  const text = normalizeCodexTranscriptText(cleanTranscriptText(cell.text));
+  const rawTitle = cleanTranscriptTitle(cell.title) || (cell.kind === "process-row" ? "运行" : "详情");
+  const rawText = normalizeCodexTranscriptText(cleanTranscriptText(cell.text));
+  const title = rawTitle === "已运行命令" && /^已运行\s+\d+\s+条命令/.test(rawText) ? rawText : rawTitle;
+  const text = title === rawText ? "" : rawText;
   const detailText = normalizeCodexTranscriptText(cleanTranscriptText(cell.detailText));
   return (
     <div className={`parent-agent-tool-result compact ${cell.kind} ${cell.isError ? "danger" : ""}`}>
@@ -2088,7 +2132,7 @@ function ParentAgentTranscriptProcessCell({ cell }: { cell: ParentAgentTranscrip
         <strong>{title}</strong>
         {cell.status && shouldShowTranscriptStatus(cell) ? <span>{humanStatus(cell.status)}</span> : null}
       </div>
-      <MarkdownLite text={text} idPrefix={`${cell.id}:summary`} compact />
+      {text ? <MarkdownLite text={text} idPrefix={`${cell.id}:summary`} compact /> : null}
       {hasDetails ? (
         <details className="tool-result-details">
           <summary>查看详情</summary>
@@ -2175,32 +2219,6 @@ function renderInlineMarkdown(text: string, keyPrefix: string): ReactNode[] {
   }
   if (lastIndex < text.length) nodes.push(text.slice(lastIndex));
   return nodes;
-}
-
-function LiveParentAgentTurnBubble({ turn }: { turn: LiveAssistantTurn }): ReactElement {
-  const latestStatus = turn.events.filter((event): event is Extract<LiveTurnEvent, { kind: "status" }> => event.kind === "status").at(-1);
-  const text = turn.text || turn.blocks.map((block) => block.text ?? block.preview).filter(Boolean).join("\n");
-  return (
-    <div className="parent-agent-message-row parent live">
-      <div className="parent-agent-bubble parent">
-        <div className="parent-agent-tool-result">
-          <div className="tool-result-heading">
-            <strong>{parentLiveTurnTitle(turn)}</strong>
-            <span>{humanStatus(latestStatus?.label ?? turn.status)}</span>
-          </div>
-          {latestStatus?.detail ? <p>{latestStatus.detail}</p> : null}
-          {text ? <p>{text}</p> : null}
-        </div>
-      </div>
-      <time>{formatTime(turn.startedAt)}</time>
-    </div>
-  );
-}
-
-function parentLiveTurnTitle(turn: LiveAssistantTurn): string {
-  if (turn.status === "failed") return "处理失败";
-  if (turn.status === "completed") return "已处理";
-  return "正在处理";
 }
 
 function HiddenLegacyThreadHooks(_: {

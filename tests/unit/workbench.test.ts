@@ -343,12 +343,15 @@ describe("workbench read model", () => {
       expect.objectContaining({
         kind: "process-row",
         title: "已运行命令",
+        text: "已运行 1 条命令",
+        detailText: expect.stringContaining("npm test"),
       }),
     ]));
     expect(cells.filter((cell) => cell.kind === "assistant-message")).toHaveLength(1);
     expect(JSON.stringify(cells)).not.toContain("Fallback final message should not duplicate");
     expect(JSON.stringify(cells)).not.toContain("验证通过");
     expect(JSON.stringify(cells)).not.toContain("targeted tests passed");
+    expect(cells.find((cell) => cell.kind === "process-row")?.text).not.toContain("测试通过");
   });
 
   it("keeps archived topic messages in the semantic thread stream", async () => {

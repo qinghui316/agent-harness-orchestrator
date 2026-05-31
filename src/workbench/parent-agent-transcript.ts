@@ -159,7 +159,8 @@ function transcriptCellFromAssistantBlock(block: AssistantTurnBlock, itemId: str
   if (block.kind === "command-group") {
     const commandCount = block.children?.filter((child) => child.kind === "command").length ?? 0;
     const failedCount = block.children?.filter((child) => child.kind === "command" && child.isError).length ?? 0;
-    const commandText = cleanPrimaryText(block.text ?? block.preview ?? `已运行 ${commandCount || "多"} 条命令${failedCount ? `，${failedCount} 条需要关注` : ""}`);
+    const commandText = summarizeCommandCount(commandCount, failedCount, block.status, block.isError);
+    const detailText = commandGroupDetailText(block.children ?? []);
     return {
       id: `cell:command-group:${block.id}`,
       kind: "process-row",
@@ -169,6 +170,7 @@ function transcriptCellFromAssistantBlock(block: AssistantTurnBlock, itemId: str
       text: commandText,
       status: block.status,
       isError: block.isError || failedCount > 0,
+      detailText,
     };
   }
 
@@ -179,25 +181,33 @@ function transcriptCellFromAssistantBlock(block: AssistantTurnBlock, itemId: str
       source,
       timestamp,
       title: block.isError ? "命令需要关注" : "已运行命令",
-      text: cleanPrimaryText(block.preview ?? (block.isError ? "命令执行失败" : "命令执行完成")),
+      text: summarizeCommandCount(1, block.isError ? 1 : 0, block.status, block.isError),
       status: block.status,
       isError: block.isError,
-      detailText: "command" in block && block.command ? String(block.command) : undefined,
+      detailText: commandDetailText(block),
     };
   }
 
   if (block.kind === "tool-result" || block.kind === "file-change") {
-    if (!text) return null;
     const title = block.kind === "file-change" ? "文件变更" : cleanToolTitle(block.title);
+    const summary = block.kind === "file-change"
+      ? "文件已变更"
+      : title
+        ? `${title} 已完成`
+        : block.isError
+          ? "工具调用失败"
+          : "工具调用已完成";
+    const detailText = cleanPrimaryText([block.text, block.preview].filter(Boolean).join("\n\n"));
     return {
       id: `cell:${block.kind}:${block.id}`,
       kind: "process-row",
       source,
       timestamp,
       title,
-      text,
+      text: summary,
       status: block.status,
       isError: block.isError,
+      detailText: detailText || undefined,
       evidenceRefs: block.artifactRef ? [{ label: title || "详情", ref: block.artifactRef, kind: "artifact" }] : undefined,
     };
   }
@@ -274,6 +284,31 @@ function dedupeTranscriptCellEvidenceRefs(cells: ParentAgentTranscriptCell[]): P
     result.push({ ...cell, ...(refs?.length ? { evidenceRefs: refs } : { evidenceRefs: undefined }) });
   }
   return result;
+}
+
+function summarizeCommandCount(commandCount: number, failedCount: number, status?: string, isError?: boolean): string {
+  if (status === "running" || status === "started") return "正在运行命令";
+  const count = commandCount > 0 ? commandCount : 1;
+  if (isError || failedCount > 0) return failedCount > 0 ? `已运行 ${count} 条命令，${failedCount} 条需要关注` : `已运行 ${count} 条命令，需要关注`;
+  return `已运行 ${count} 条命令`;
+}
+
+function commandGroupDetailText(children: AssistantTurnBlock[]): string | undefined {
+  const details = children
+    .filter((child) => child.kind === "command")
+    .map(commandDetailText)
+    .filter((item): item is string => Boolean(item));
+  return details.length ? details.join("\n\n---\n\n") : undefined;
+}
+
+function commandDetailText(block: AssistantTurnBlock): string | undefined {
+  const sections: string[] = [];
+  if (block.command) sections.push(`$ ${block.command}`);
+  if (block.cwd) sections.push(`cwd: ${block.cwd}`);
+  if (typeof block.exitCode === "number") sections.push(`exit: ${block.exitCode}`);
+  const output = cleanPrimaryText([block.text, block.preview].filter(Boolean).join("\n\n"));
+  if (output) sections.push(output);
+  return sections.length ? sections.join("\n") : undefined;
 }
 
 function transcriptItemsFromCells(cells: ParentAgentTranscriptCell[]): ParentAgentTranscriptItem[] {

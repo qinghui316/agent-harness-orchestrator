@@ -213,9 +213,9 @@ const snapshot = {
           source: "codex-runtime",
           timestamp: "2026-05-15T12:01:05.000Z",
           title: "已运行命令",
-          text: "测试通过",
+          text: "已运行 1 条命令",
           status: "completed",
-          detailText: "npm test",
+          detailText: "npm test\n测试通过",
         },
       ],
       items: [],
@@ -396,7 +396,7 @@ describe("Workbench web app", () => {
       expect(primarySurface).not.toContain(forbidden);
     }
     expect(document.querySelector(".parent-agent-transcript")?.textContent).toContain("Codex final summary 完整显示。");
-    expect(document.querySelector(".parent-agent-transcript")?.textContent).toContain("已运行命令");
+    expect(document.querySelector(".parent-agent-transcript")?.textContent).toContain("已运行 1 条命令");
     expect(document.querySelector(".parent-agent-transcript")?.textContent).not.toContain("结果摘要");
     expect(document.querySelector(".parent-agent-transcript")?.textContent).not.toContain("已生成本地结果");
     expect(screen.getByText("确认完成需求对话")).toBeTruthy();
@@ -493,9 +493,9 @@ describe("Workbench web app", () => {
               kind: "process-row",
               source: "codex-runtime",
               title: "已运行命令",
-              text: "ok",
+              text: "已运行 1 条命令",
               status: "completed",
-              detailText: "npm test",
+              detailText: "npm test\nok",
             },
           ],
           items: [],
@@ -1254,7 +1254,7 @@ describe("Workbench web app", () => {
     expect(screen.queryByText("运行此任务")).toBeNull();
   });
 
-  it("renders clarification questions and submits answers through the intake API", async () => {
+  it("keeps clarification questions out of the default main transcript", async () => {
     const clarificationSnapshot = {
       ...snapshot,
       center: {
@@ -1281,42 +1281,20 @@ describe("Workbench web app", () => {
         },
       },
     };
-    const answeredSnapshot = {
-      ...clarificationSnapshot,
-      center: {
-        ...clarificationSnapshot.center,
-        workpad: {
-          ...clarificationSnapshot.center.workpad,
-          intake: {
-            ...clarificationSnapshot.center.workpad.intake,
-            confirmedConstraints: ["测试范围需要覆盖"],
-            pendingClarifications: [],
-          },
-        },
-      },
-    };
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
       if (url === "/api/projects") return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
-      if (url.includes("/clarifications/clarify-1/answer")) return jsonResponse({ snapshot: answeredSnapshot });
       return jsonResponse(url.includes("/stream/") ? stream : clarificationSnapshot);
     }));
 
     render(<App />);
 
-    await waitFor(() => expect(screen.getByText("需要确认")).toBeTruthy());
-    expect(screen.getByTestId("clarification-card")).toBeTruthy();
-    expect(screen.getByText("是否需要覆盖会员满 100、会员未满 100 和非会员三类测试？")).toBeTruthy();
-    fireEvent.click(screen.getByText("需要"));
-    fireEvent.click(screen.getByText("提交回答"));
-
-    await waitFor(() => {
-      expect(fetch).toHaveBeenCalledWith("/api/projects/repo/workbench/clarifications/clarify-1/answer", expect.objectContaining({
-        method: "POST",
-        body: expect.stringContaining("补全三类测试"),
-      }));
-    });
+    await waitFor(() => expect(screen.getByTestId("main-conversation-view")).toBeTruthy());
+    const transcriptText = document.querySelector(".parent-agent-transcript")?.textContent ?? "";
+    expect(transcriptText).not.toContain("是否需要覆盖会员满 100、会员未满 100 和非会员三类测试？");
+    expect(screen.queryByTestId("clarification-card")).toBeNull();
+    expect(fetch).not.toHaveBeenCalledWith("/api/projects/repo/workbench/clarifications/clarify-1/answer", expect.anything());
   });
 
   it("routes Workpad supplemental demand text through intake reanalysis before Spec", async () => {
@@ -1411,9 +1389,9 @@ describe("Workbench web app", () => {
               kind: "process-row",
               source: "codex-runtime",
               title: "已运行命令",
-              text: "测试通过",
+              text: "已运行 1 条命令",
               status: "completed",
-              detailText: "npm test",
+              detailText: "npm test\n测试通过",
             },
           ],
         },
@@ -1463,7 +1441,11 @@ describe("Workbench web app", () => {
     expect(screen.queryByText(/codex-events\.jsonl/)).toBeNull();
     expect(screen.queryByText("Usage recorded")).toBeNull();
     expect(screen.queryByText("Codex turn running")).toBeNull();
-    expect(screen.getAllByText("npm test").length).toBeGreaterThan(0);
+    const commandCell = Array.from(document.querySelectorAll(".parent-agent-tool-result"))
+      .find((node) => node.textContent?.includes("已运行 1 条命令")) as HTMLElement | undefined;
+    expect(commandCell).toBeTruthy();
+    fireEvent.click(within(commandCell as HTMLElement).getByText("查看详情"));
+    expect(commandCell?.textContent).toMatch(/npm test/);
     expect(document.querySelectorAll("[data-testid^='assistant-block']")).toHaveLength(0);
     expect(document.querySelector(".parent-agent-transcript")?.textContent).toContain("完整 AI 输出已经落盘。");
     expect(fetch).toHaveBeenCalledWith("/api/projects/repo/workbench/topics/member-discount/messages/live", expect.objectContaining({ method: "POST" }));
@@ -1528,10 +1510,14 @@ describe("Workbench web app", () => {
     fireEvent.click(screen.getByTitle("发送"));
 
     await waitFor(() => expect(screen.getByText("实时 AI 输出")).toBeTruthy());
-    expect(screen.getByText("正在处理")).toBeTruthy();
+    expect(screen.queryByText("正在处理")).toBeNull();
     expect(screen.queryByText("AI 只读回复")).toBeNull();
-    expect(screen.queryByText("Reasoning summary")).toBeNull();
-    expect(screen.getAllByText("npm test").length).toBeGreaterThan(0);
+    expect(screen.getByText("Reasoning summary")).toBeTruthy();
+    const commandCell = Array.from(document.querySelectorAll(".parent-agent-tool-result"))
+      .find((node) => node.textContent?.includes("已运行 1 条命令")) as HTMLElement | undefined;
+    expect(commandCell).toBeTruthy();
+    fireEvent.click(within(commandCell as HTMLElement).getByText("查看详情"));
+    expect(commandCell?.textContent).toMatch(/npm test/);
     expect(screen.queryByText("exit 0")).toBeNull();
     expect(screen.queryByText(/5 output tokens/)).toBeNull();
   });
