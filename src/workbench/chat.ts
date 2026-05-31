@@ -16,6 +16,14 @@ import {
 import { recordPostRunBoundaryAudit, boundaryAuditArtifactRef, recordToolEventAuditEntry } from "../agent-task/boundary-audit.js";
 import { dispatchForegroundRoleTask } from "../agent-task/role-dispatcher.js";
 import { evaluateToolPolicy, highImpactActions } from "../agent-task/tool-policy.js";
+import {
+  createMainAgentOrchestrationState,
+  decideNextMainAgentOrchestration,
+  recordMainAgentOrchestrationStep,
+  type MainAgentOrchestrationDecision,
+  type MainAgentOrchestrationRole,
+  type MainAgentOrchestrationState,
+} from "../agent-task/orchestration-engine.js";
 import { startCodeRun } from "../code/manager.js";
 import { buildCodexReadonlyArgv, buildCodexReadonlyResumeArgv, detectCodexCapabilities } from "../codex/capabilities.js";
 import { detectCodexAppServerCapability, getActiveCodexAppServerTurn, runCodexAppServerTurn, type CodexAppServerNotification } from "../codex/app-server.js";
@@ -2185,16 +2193,28 @@ async function runMainAgentToolOrchestration(
     title: continuation ? "Main-agent orchestration continued" : "Main-agent orchestration started",
     summary: "主 agent 将按当前证据逐步委派角色任务；每一步都经过 ToolPolicyGate、RoleDispatcher 和 AgentTaskResult。",
   });
-  const first = await runCodeValidateAuditSequence(project, changeId, prompt, live, taskIds);
-  const stoppedAt = isRecord(first) && typeof first.stoppedAt === "string" ? first.stoppedAt : null;
-  if (!stoppedAt) return { status: "completed", attempts: [{ kind: "initial", result: first }], reworkUsed: 0 };
-  if (stoppedAt === "code") return { status: "failed", attempts: [{ kind: "initial", result: first }], reworkUsed: 0, requiresUserInput: true };
+  let orchestration = createMainAgentOrchestrationState({ changeId });
+  const firstDecision = decideNextMainAgentOrchestration(orchestration);
+  assertDelegateDecision(firstDecision, "coder-agent");
+  const first = await runCodeValidateAuditSequence(project, changeId, prompt, live, taskIds, undefined, firstDecision.roleId, orchestration, firstDecision);
+  orchestration = readWorkflowOrchestration(first, orchestration);
+  const next = decideNextMainAgentOrchestration(orchestration);
+  if (next.kind === "completed") {
+    return { status: "completed", attempts: [{ kind: "initial", result: first }], reworkUsed: 0, orchestration };
+  }
+  if (next.kind === "failed") {
+    return { status: "failed", attempts: [{ kind: "initial", result: first }], reworkUsed: 0, requiresUserInput: true, stoppedAt: next.stoppedAt, orchestration };
+  }
+  if (next.kind === "needs-user-input") {
+    return { status: "needs-user-input", attempts: [{ kind: "initial", result: first }], reworkUsed: 0, requiresUserInput: true, stoppedAt: next.stoppedAt, orchestration };
+  }
+  assertDelegateDecision(next, "rework-coder");
   emitAssistantEvent(live, {
     runId: changeId,
     kind: "status",
     phase: "automatic-rework",
     title: "Automatic rework started",
-    summary: `${stoppedAt} did not pass, so AHO is sending the evidence back to rework-coder once.`,
+    summary: `${next.reason} AHO is sending the evidence back to rework-coder once.`,
     isError: true,
   });
   const reworkPrompt = [
@@ -2203,18 +2223,36 @@ async function runMainAgentToolOrchestration(
     "Do not change canonical planning artifacts.",
     prompt ?? "",
   ].join("\n\n");
-  const second = await runCodeValidateAuditSequence(project, changeId, reworkPrompt, live, undefined, undefined, "rework-coder");
-  const secondStoppedAt = isRecord(second) && typeof second.stoppedAt === "string" ? second.stoppedAt : null;
+  const second = await runCodeValidateAuditSequence(project, changeId, reworkPrompt, live, undefined, undefined, next.roleId, orchestration, next);
+  orchestration = readWorkflowOrchestration(second, orchestration);
+  const finalDecision = decideNextMainAgentOrchestration(orchestration);
   return {
-    status: secondStoppedAt ? "needs-user-input" : "completed",
+    status: finalDecision.kind === "completed" ? "completed" : finalDecision.kind,
     attempts: [
       { kind: "initial", result: first },
       { kind: "automatic-rework", result: second },
     ],
     reworkUsed: 1,
-    requiresUserInput: Boolean(secondStoppedAt),
-    stoppedAt: secondStoppedAt,
+    requiresUserInput: finalDecision.kind !== "completed",
+    stoppedAt: finalDecision.kind === "needs-user-input" || finalDecision.kind === "failed" ? finalDecision.stoppedAt : undefined,
+    orchestration,
   };
+}
+
+function assertDelegateDecision(decision: MainAgentOrchestrationDecision, roleId: MainAgentOrchestrationRole): asserts decision is Extract<MainAgentOrchestrationDecision, { kind: "delegate-role" }> {
+  if (decision.kind !== "delegate-role" || decision.roleId !== roleId) {
+    throw new Error(`Main-agent decision engine expected ${roleId}, got ${decision.kind}${decision.kind === "delegate-role" ? `:${decision.roleId}` : ""}.`);
+  }
+}
+
+function readWorkflowOrchestration(result: unknown, fallback: MainAgentOrchestrationState): MainAgentOrchestrationState {
+  if (isRecord(result) && isRecord(result.orchestration)) {
+    const state = result.orchestration;
+    if (typeof state.changeId === "string" && Array.isArray(state.steps) && typeof state.maxReworkAttempts === "number") {
+      return state as unknown as MainAgentOrchestrationState;
+    }
+  }
+  return fallback;
 }
 
 async function stopRunningPipeline(
@@ -2721,15 +2759,20 @@ async function runCodeValidateAuditSequence(
   taskIds?: string[],
   taskRunId?: string,
   coderRoleId = "coder-agent",
+  orchestrationState?: MainAgentOrchestrationState,
+  coderDecision?: Extract<MainAgentOrchestrationDecision, { kind: "delegate-role" }>,
 ): Promise<unknown> {
   const memory = await resolveProjectMemory(project);
+  let orchestration = orchestrationState ?? createMainAgentOrchestrationState({ changeId });
+  const coderRole = orchestrationCoderRole(coderRoleId);
+  const coderInputArtifacts = coderDecision?.inputArtifacts.length ? coderDecision.inputArtifacts : taskRunId ? [taskRunId] : [];
   const coderDispatch = await createDelegatedForegroundTask(memory, {
     conversationId: changeId,
     changeId,
     roleId: coderRoleId,
     kind: "foreground",
-    goal: coderRoleId === "rework-coder" ? "Repair implementation from validation or audit evidence." : "Implement the confirmed demand in an AHO-owned worktree.",
-    inputArtifacts: taskRunId ? [taskRunId] : [],
+    goal: coderDecision?.goal ?? (coderRoleId === "rework-coder" ? "Repair implementation from validation or audit evidence." : "Implement the confirmed demand in an AHO-owned worktree."),
+    inputArtifacts: coderInputArtifacts,
     delegationMode: "orchestrator-policy",
   }, live);
   const coderTask = coderDispatch.task;
@@ -2772,6 +2815,16 @@ async function runCodeValidateAuditSequence(
     isError: coderBoundaryAudit.status === "failed",
   });
   if (coderBoundaryAudit.status === "failed") {
+    const coderOutputArtifacts = compactArtifactRefs(code.run.artifacts.directory, code.run.artifacts.implementation, coderBoundaryRef);
+    orchestration = recordMainAgentOrchestrationStep(orchestration, {
+      roleId: coderRole,
+      status: "failed",
+      inputArtifacts: coderInputArtifacts,
+      outputArtifacts: coderOutputArtifacts,
+      failureClassification: "boundary-violation",
+      stoppedAt: "boundary",
+      summary: "Coder run failed boundary audit.",
+    });
     await completeAgentTask(memory, coderTask, {
       status: "failed",
       summary: "Coder run failed boundary audit.",
@@ -2783,9 +2836,19 @@ async function runCodeValidateAuditSequence(
       requiresUserInputReason: "Coder modified outside its allowed boundary.",
     });
     emitDelegatedRoleReturn(live, changeId, coderRoleId, "failed", "coder-agent 越过了允许边界，结果不会进入应用流程。", coderBoundaryRef);
-    return { code, stoppedAt: "boundary", boundaryAudit: coderBoundaryAudit };
+    return { code, stoppedAt: "boundary", boundaryAudit: coderBoundaryAudit, orchestration };
   }
   if (code.run.status !== "completed" || !code.run.worktree?.worktreeId) {
+    const coderOutputArtifacts = compactArtifactRefs(code.run.artifacts.directory, code.run.artifacts.implementation);
+    orchestration = recordMainAgentOrchestrationStep(orchestration, {
+      roleId: coderRole,
+      status: "failed",
+      inputArtifacts: coderInputArtifacts,
+      outputArtifacts: coderOutputArtifacts,
+      failureClassification: "code-failure",
+      stoppedAt: "code",
+      summary: "Coder did not produce a completed worktree proposal.",
+    });
     await completeAgentTask(memory, coderTask, {
       status: "failed",
       summary: "Coder did not produce a completed worktree proposal.",
@@ -2802,8 +2865,16 @@ async function runCodeValidateAuditSequence(
       summary: "Coder task failed before validation.",
       artifactRefs: [code.run.artifacts.directory],
     });
-    return { code, stoppedAt: "code" };
+    return { code, stoppedAt: "code", orchestration };
   }
+  const coderOutputArtifacts = compactArtifactRefs(code.run.artifacts.directory, code.run.artifacts.implementation);
+  orchestration = recordMainAgentOrchestrationStep(orchestration, {
+    roleId: coderRole,
+    status: "completed",
+    inputArtifacts: coderInputArtifacts,
+    outputArtifacts: coderOutputArtifacts,
+    summary: "Coder produced a completed worktree proposal.",
+  });
   await completeAgentTask(memory, coderTask, {
     status: "completed",
     summary: "Coder produced a completed worktree proposal.",
@@ -2813,13 +2884,15 @@ async function runCodeValidateAuditSequence(
     nextRecommendation: "Run independent validation.",
   });
   emitDelegatedRoleReturn(live, changeId, coderRoleId, "completed", "coder-agent 已返回实现和自测结果。", code.run.artifacts.directory);
+  const validationDecision = decideNextMainAgentOrchestration(orchestration);
+  assertDelegateDecision(validationDecision, "validator");
   const validatorDispatch = await createDelegatedForegroundTask(memory, {
     conversationId: changeId,
     changeId,
     roleId: "validator",
     kind: "foreground",
-    goal: "Run independent mechanical validation for the coder worktree.",
-    inputArtifacts: [code.run.artifacts.directory],
+    goal: validationDecision.goal,
+    inputArtifacts: validationDecision.inputArtifacts,
     delegationMode: "orchestrator-policy",
   }, live);
   const validatorTask = validatorDispatch.task;
@@ -2839,6 +2912,16 @@ async function runCodeValidateAuditSequence(
   });
   const validationBoundaryRef = boundaryAuditArtifactRef(memory, validationBoundaryAudit);
   if (validation.validation.status !== "passed") {
+    const validationOutputArtifacts = compactArtifactRefs(validation.run.artifacts.validation, validation.run.artifacts.stdout, validation.run.artifacts.stderr, validationBoundaryRef);
+    orchestration = recordMainAgentOrchestrationStep(orchestration, {
+      roleId: "validator",
+      status: "failed",
+      inputArtifacts: validationDecision.inputArtifacts,
+      outputArtifacts: validationOutputArtifacts,
+      failureClassification: "validation-failure",
+      stoppedAt: "validation",
+      summary: "Independent validation failed.",
+    });
     await completeAgentTask(memory, validatorTask, {
       status: "failed",
       summary: "Independent validation failed.",
@@ -2855,8 +2938,16 @@ async function runCodeValidateAuditSequence(
       summary: "Validation failed for a foreground main-agent role orchestration attempt.",
       artifactRefs: compactArtifactRefs(validation.run.artifacts.validation, validation.run.artifacts.stderr),
     });
-    return { code, validation, stoppedAt: "validation" };
+    return { code, validation, stoppedAt: "validation", orchestration };
   }
+  const validationOutputArtifacts = compactArtifactRefs(validation.run.artifacts.validation, validation.run.artifacts.stdout, validationBoundaryRef);
+  orchestration = recordMainAgentOrchestrationStep(orchestration, {
+    roleId: "validator",
+    status: "completed",
+    inputArtifacts: validationDecision.inputArtifacts,
+    outputArtifacts: validationOutputArtifacts,
+    summary: "Independent validation passed.",
+  });
   await completeAgentTask(memory, validatorTask, {
     status: "completed",
     summary: "Independent validation passed.",
@@ -2866,13 +2957,15 @@ async function runCodeValidateAuditSequence(
     nextRecommendation: "Run semantic audit.",
   });
   emitDelegatedRoleReturn(live, changeId, "validator", "completed", "validator 返回验证通过结果。", validation.run.artifacts.validation);
+  const auditDecision = decideNextMainAgentOrchestration(orchestration);
+  assertDelegateDecision(auditDecision, "auditor-agent");
   const auditorDispatch = await createDelegatedForegroundTask(memory, {
     conversationId: changeId,
     changeId,
     roleId: "auditor-agent",
     kind: "foreground",
-    goal: "Run independent semantic audit for the validated worktree.",
-    inputArtifacts: compactArtifactRefs(validation.run.artifacts.validation, validation.run.artifacts.stdout),
+    goal: auditDecision.goal,
+    inputArtifacts: auditDecision.inputArtifacts,
     delegationMode: "orchestrator-policy",
   }, live);
   const auditorTask = auditorDispatch.task;
@@ -2895,28 +2988,38 @@ async function runCodeValidateAuditSequence(
     artifactRefs: compactArtifactRefs(audit.audit.artifacts.audit, audit.audit.artifacts.auditMarkdown, audit.audit.artifacts.lastMessage),
   });
   const auditBoundaryRef = boundaryAuditArtifactRef(memory, auditBoundaryAudit);
+  const auditAccepted = audit.audit.status === "approved" || audit.audit.status === "approved-with-notes";
+  const auditOutputArtifacts = compactArtifactRefs(audit.audit.artifacts.audit, audit.audit.artifacts.auditMarkdown, audit.audit.artifacts.lastMessage, auditBoundaryRef);
+  orchestration = recordMainAgentOrchestrationStep(orchestration, {
+    roleId: "auditor-agent",
+    status: auditAccepted ? "completed" : "failed",
+    inputArtifacts: auditDecision.inputArtifacts,
+    outputArtifacts: auditOutputArtifacts,
+    ...(auditAccepted ? {} : { failureClassification: "audit-failure" as const, stoppedAt: "audit" as const }),
+    summary: auditAccepted ? "Independent audit accepted the validated worktree evidence." : "Independent audit did not accept the worktree evidence.",
+  });
   await completeAgentTask(memory, auditorTask, {
-    status: audit.audit.status === "approved" || audit.audit.status === "approved-with-notes" ? "completed" : "failed",
-    summary: audit.audit.status === "approved" || audit.audit.status === "approved-with-notes"
+    status: auditAccepted ? "completed" : "failed",
+    summary: auditAccepted
       ? "Independent audit accepted the validated worktree evidence."
       : "Independent audit did not accept the worktree evidence.",
     artifactRefs: compactArtifactRefs(audit.audit.artifacts.audit, audit.audit.artifacts.auditMarkdown, audit.audit.artifacts.lastMessage),
     policyAuditRefs: [auditorDispatch.policyAuditRef],
     boundaryAuditRefs: [auditBoundaryRef],
-    nextRecommendation: audit.audit.status === "approved" || audit.audit.status === "approved-with-notes" ? "Show result review and apply handoff." : "Attempt bounded automatic rework if budget remains.",
-    ...(audit.audit.status === "approved" || audit.audit.status === "approved-with-notes" ? {} : { failureClassification: "audit-failure", requiresUserInputReason: "Audit did not accept the current evidence." }),
+    nextRecommendation: auditAccepted ? "Show result review and apply handoff." : "Attempt bounded automatic rework if budget remains.",
+    ...(auditAccepted ? {} : { failureClassification: "audit-failure", requiresUserInputReason: "Audit did not accept the current evidence." }),
   });
   emitDelegatedRoleReturn(
     live,
     changeId,
     "auditor-agent",
-    audit.audit.status === "approved" || audit.audit.status === "approved-with-notes" ? "completed" : "failed",
-    audit.audit.status === "approved" || audit.audit.status === "approved-with-notes"
+    auditAccepted ? "completed" : "failed",
+    auditAccepted
       ? "auditor-agent 返回审查通过结果。"
       : "auditor-agent 返回需要修改或补证据的结果。",
     audit.audit.artifacts.auditMarkdown,
   );
-  if (!(audit.audit.status === "approved" || audit.audit.status === "approved-with-notes")) {
+  if (!auditAccepted) {
     await recordMaintenanceLedgerEntry(memory, {
       eventType: "failure",
       changeId,
@@ -2924,7 +3027,11 @@ async function runCodeValidateAuditSequence(
       artifactRefs: compactArtifactRefs(audit.audit.artifacts.auditMarkdown),
     });
   }
-  return { code, validation, audit, stoppedAt: audit.audit.status === "approved" || audit.audit.status === "approved-with-notes" ? null : "audit" };
+  return { code, validation, audit, stoppedAt: auditAccepted ? null : "audit", orchestration };
+}
+
+function orchestrationCoderRole(roleId: string): MainAgentOrchestrationRole {
+  return roleId === "rework-coder" ? "rework-coder" : "coder-agent";
 }
 
 function sourceRefreshReworkPrompt(worktreeId: string, extraPrompt?: string): string {
