@@ -1,6 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join, relative } from "node:path";
-import { getChangeStatus, getChangeStatusForChange } from "../change/manager.js";
+import { getChangeStatus } from "../change/manager.js";
+import { resolveRunnableChangeTarget } from "../change/target.js";
 import { writeJsonFile } from "../fs/json.js";
 import { slugify } from "../fs/path.js";
 import { assertWritableMemory, resolveProjectMemory } from "../memory/resolver.js";
@@ -15,7 +16,7 @@ import type {
   ValidationResult,
   ValidationStatus,
 } from "../types/index.js";
-import { appendRunEvent, assertRunnableChange, buildContextProjection, buildRunId } from "../run/manager.js";
+import { appendRunEvent, buildContextProjection, buildRunId } from "../run/manager.js";
 import { isRunStopRequested } from "../run/control.js";
 import { executeProcessStreaming } from "../run/process.js";
 import { collectWorktreeDiff } from "../audit/diff.js";
@@ -43,10 +44,9 @@ export async function startValidationRun(project: ManagedProject, options: Valid
   const profileName = options.profile ?? "default";
   const memory = await resolveProjectMemory(project);
   assertWritableMemory(memory, "Validation run");
-  const changeStatus = options.changeId ? await getChangeStatusForChange(project, options.changeId) : await getChangeStatus(project);
-  assertRunnableChange(changeStatus);
-  const changeId = changeStatus.change?.id ?? changeStatus.activeChanges[0]?.name;
-  if (!changeId) throw new Error("Cannot start validation without an active change id.");
+  const target = await resolveRunnableChangeTarget(project, { changeId: options.changeId });
+  const changeStatus = target.status;
+  const changeId = target.changeId;
 
   const profile = await resolveValidationProfile(memory, profileName);
   const worktreeMode = options.worktree === true ? "new-worktree" : typeof options.worktree === "string" ? options.worktree : "direct";

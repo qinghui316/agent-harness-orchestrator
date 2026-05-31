@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { appendFile, mkdir, readdir, writeFile } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { z } from "zod";
-import { getChangeStatus } from "../change/manager.js";
+import { resolveRunnableChangeTarget } from "../change/target.js";
 import { readRequiredJsonFile, writeJsonFile } from "../fs/json.js";
 import { shortHash, slugify } from "../fs/path.js";
 import { assertWritableMemory, resolveMemory, resolveProjectMemory } from "../memory/resolver.js";
@@ -100,10 +100,9 @@ export async function startLocalCommandRun(project: ManagedProject, command: str
 
   const memory = await resolveProjectMemory(project);
   assertWritableMemory(memory, "Local command run");
-  const changeStatus = await getChangeStatus(project);
-  assertRunnableChange(changeStatus);
-  const changeId = changeStatus.change?.id ?? changeStatus.activeChanges[0]?.name;
-  if (!changeId) throw new Error("Cannot start run without an active change id.");
+  const target = await resolveRunnableChangeTarget(project);
+  const changeStatus = target.status;
+  const changeId = target.changeId;
 
   const runId = buildRunId(changeId, command);
   let cwd = project.path;

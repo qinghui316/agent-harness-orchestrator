@@ -2,14 +2,13 @@ import { existsSync } from "node:fs";
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
-import { getChangeStatus } from "../change/manager.js";
+import { resolveRunnableChangeTarget } from "../change/target.js";
 import { readRequiredJsonFile, writeJsonFile } from "../fs/json.js";
 import { shortHash } from "../fs/path.js";
 import { assertWritableMemory, resolveProjectMemory } from "../memory/resolver.js";
 import { listAuditResults } from "../audit/artifacts.js";
 import { listValidationResults } from "../validation/artifacts.js";
 import { listRuns } from "../run/manager.js";
-import { assertRunnableChange } from "../run/manager.js";
 import { isActiveTaskRunStatus, listTaskRuns, listWorkerLeases } from "../task-run/manager.js";
 import type {
   ManagedProject,
@@ -78,10 +77,8 @@ export interface TaskQueueStartResult {
 export async function startOrResumeTaskQueue(project: ManagedProject, options: TaskQueueStartOptions): Promise<TaskQueueStartResult> {
   const memory = await resolveProjectMemory(project);
   assertWritableMemory(memory, "TaskQueue start");
-  const changeStatus = await getChangeStatus(project);
-  assertRunnableChange(changeStatus);
-  const activeChangeId = changeStatus.change?.id ?? changeStatus.activeChanges[0]?.name;
-  if (activeChangeId !== options.changeId) throw new Error(`TaskQueue can only start for the active change. Active: ${activeChangeId ?? "none"}. Requested: ${options.changeId}.`);
+  const target = await resolveRunnableChangeTarget(project, { changeId: options.changeId, allowLegacyActiveFallback: false });
+  const changeStatus = target.status;
 
   const existingQueues = await listTaskQueues(memory, options.changeId);
   const activeQueue = existingQueues.find((queue) => isActiveQueueStatus(queue.status));

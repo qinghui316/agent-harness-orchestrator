@@ -1,11 +1,11 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { getChangeStatus } from "../change/manager.js";
+import { resolveRunnableChangeTarget } from "../change/target.js";
 import { buildCodexReadonlyArgv, buildCodexWorkspaceWriteArgv, detectCodexCapabilities } from "../codex/capabilities.js";
 import { extractFinalMessageFromCodexJsonl } from "../codex/jsonl.js";
 import { writeJsonFile } from "../fs/json.js";
 import { assertWritableMemory, resolveProjectMemory } from "../memory/resolver.js";
-import { displayArtifactPath, appendRunEvent, assertRunnableChange, buildContextProjection, buildRunId } from "../run/manager.js";
+import { displayArtifactPath, appendRunEvent, buildContextProjection, buildRunId } from "../run/manager.js";
 import { executeProcessStreaming } from "../run/process.js";
 import { getEnabledSkillContext } from "../skill/catalog.js";
 import type { ManagedProject, RunMetadata, RunStatus, RunWorktreeInfo } from "../types/index.js";
@@ -27,10 +27,9 @@ export interface AgentRunResult {
 export async function startAgentRun(project: ManagedProject, roleId: string, options: AgentRunOptions): Promise<AgentRunResult> {
   const memory = await resolveProjectMemory(project);
   assertWritableMemory(memory, "Agent run");
-  const changeStatus = await getChangeStatus(project);
-  assertRunnableChange(changeStatus);
-  const changeId = changeStatus.change?.id ?? changeStatus.activeChanges[0]?.name;
-  if (!changeId) throw new Error("Cannot start agent run without an active change id.");
+  const target = await resolveRunnableChangeTarget(project);
+  const changeStatus = target.status;
+  const changeId = target.changeId;
 
   const role = await resolveAgentRole(memory, roleId);
   if (role.runtime !== "codex") throw new Error(`Agent role ${role.roleId} does not use the Codex runtime.`);

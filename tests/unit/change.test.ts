@@ -3,7 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { buildAcMap, parseAcceptanceCriteria, parseReviewStatus, parseTasks } from "../../src/ecl/anchors.js";
-import { closeChange, createChange, getChangeStatus } from "../../src/change/manager.js";
+import { closeChange, closeChangeForChange, createChange, createConcurrentChange, getChangeStatus } from "../../src/change/manager.js";
+import { resolveCloseableChangeTarget, resolveRunnableChangeTarget } from "../../src/change/target.js";
 import { initHarness } from "../../src/harness/init.js";
 import type { ManagedProject } from "../../src/types/index.js";
 
@@ -88,6 +89,40 @@ describe("change manager", () => {
     await createChange(project(tempDir), { title: "First" });
 
     await expect(createChange(project(tempDir), { title: "Second" })).rejects.toThrow("active change");
+  });
+
+  it("resolves explicit Change targets without requiring a single active change", async () => {
+    await initHarness(project(tempDir));
+    await createChange(project(tempDir), { title: "First Target" });
+    await createConcurrentChange(project(tempDir), { title: "Second Target" });
+
+    await expect(resolveRunnableChangeTarget(project(tempDir))).rejects.toThrow("expected exactly one active change");
+    const target = await resolveRunnableChangeTarget(project(tempDir), { changeId: "second-target" });
+
+    expect(target).toMatchObject({
+      changeId: "second-target",
+      source: "explicit-change-id",
+      capability: "runnable",
+    });
+    expect(target.status.change?.id).toBe("second-target");
+  });
+
+  it("rejects missing scoped Change targets and disabled legacy fallback", async () => {
+    await initHarness(project(tempDir));
+
+    await expect(resolveRunnableChangeTarget(project(tempDir))).rejects.toThrow("no active change");
+    await expect(resolveRunnableChangeTarget(project(tempDir), { allowLegacyActiveFallback: false })).rejects.toThrow("explicit changeId required");
+    await expect(resolveCloseableChangeTarget(project(tempDir), { changeId: "missing-demand" })).rejects.toThrow("Active demand conversation not found for scoped run: missing-demand");
+  });
+
+  it("rejects archived Change targets for scoped writable capabilities", async () => {
+    await initHarness(project(tempDir));
+    await createChange(project(tempDir), { title: "Archived Target" });
+    await writeFile(join(tempDir, "harness", "changes", "active", "archived-target", "reviews", "review.md"), "Status: approved\n", "utf8");
+    await closeChangeForChange(project(tempDir), "archived-target");
+
+    await expect(resolveRunnableChangeTarget(project(tempDir), { changeId: "archived-target" })).rejects.toThrow("Active demand conversation not found for scoped run: archived-target");
+    await expect(resolveCloseableChangeTarget(project(tempDir), { changeId: "archived-target" })).rejects.toThrow("Active demand conversation not found for scoped run: archived-target");
   });
 
   it("blocks close while review is pending and archives when approved", async () => {

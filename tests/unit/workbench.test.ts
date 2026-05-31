@@ -701,6 +701,39 @@ describe("workbench read model", () => {
     ]));
   });
 
+  it("closes only the scoped active demand when multiple demands are active", async () => {
+    await initHarness(project());
+    await createWorkbenchTopic(project(), { title: "First Close Target", body: "First" });
+    await createWorkbenchTopic(project(), { title: "Second Close Target", body: "Second" });
+    await writeFile(join(tempDir, "harness", "changes", "active", "second-close-target", "reviews", "review.md"), "Status: approved\n", "utf8");
+
+    const before = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: "second-close-target" });
+    const closeAction = before.right.approvals.find((item) => item.kind === "change-close")?.action;
+    expect(closeAction).toMatchObject({ actionId: "change.close", args: ["close", "repo", "second-close-target"] });
+    if (!closeAction) throw new Error("Expected close action");
+
+    await executeWorkbenchAction({ project: project(), path: tempDir }, { action: closeAction, confirm: true });
+    const topics = await listWorkbenchTopics(project());
+
+    expect(topics.find((topic) => topic.id === "first-close-target")).toMatchObject({ state: "active" });
+    expect(topics.find((topic) => topic.id === "second-close-target")).toMatchObject({ state: "archive" });
+  });
+
+  it("abandons only the scoped active demand when multiple demands are active", async () => {
+    await initHarness(project());
+    await createWorkbenchTopic(project(), { title: "First Abandon Target", body: "First" });
+    await createWorkbenchTopic(project(), { title: "Second Abandon Target", body: "Second" });
+
+    await executeWorkbenchAction({ project: project(), path: tempDir }, {
+      abandon: { changeId: "second-abandon-target", reason: "Not needed." },
+      confirm: true,
+    });
+    const topics = await listWorkbenchTopics(project());
+
+    expect(topics.find((topic) => topic.id === "first-abandon-target")).toMatchObject({ state: "active" });
+    expect(topics.find((topic) => topic.id === "second-abandon-target")).toMatchObject({ state: "archive" });
+  });
+
   it("lists project-level approvals and filters display by topic", async () => {
     await initHarness(project());
     await createChange(project(), { title: "Approval Topic" });
@@ -1229,6 +1262,47 @@ describe("workbench read model", () => {
       const afterApply = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: "result-review-demand" });
       expect(afterApply.center.workpad.resultReview).toMatchObject({ status: "applied-source-dirty" });
       expect(afterApply.center.selectedTopic?.state).toBe("active");
+    } finally {
+      if (oldAhoHome === undefined) delete process.env.AHO_HOME;
+      else process.env.AHO_HOME = oldAhoHome;
+    }
+  });
+
+  it("auto-finalizes the applied result's scoped Change when multiple demands are active", async () => {
+    const oldAhoHome = process.env.AHO_HOME;
+    process.env.AHO_HOME = join(tempDir, ".aho-home");
+    try {
+      await initGitRepository(tempDir);
+      await writeFile(join(tempDir, ".gitignore"), ".aho-home/\n.agent-harness/\nharness/\nAGENTS.md\ndocs/\nscripts/\n", "utf8");
+      await writeFile(join(tempDir, "package.json"), "{\"scripts\":{\"test\":\"node -e \\\"process.exit(0)\\\"\"}}\n", "utf8");
+      await git(tempDir, ["add", "."]);
+      await git(tempDir, ["commit", "-m", "initial"]);
+      await initHarness(project());
+      await createChange(project(), { title: "Finalize Target" });
+      await createWorkbenchTopic(project(), { title: "Other Active Demand", body: "Keep open." });
+      await writeAcceptedSpecAndTasks("finalize-target");
+      const memory = await resolveProjectMemory(project());
+      const worktree = await createWorktree(project(), memory, "finalize-target");
+      await writeFile(join(worktree.metadata.checkoutPath, "package.json"), "{\"scripts\":{\"test\":\"node -e \\\"console.log('finalize')\\\"\"}}\n", "utf8");
+      const diff = await collectWorktreeDiff(memory, worktree.metadata.worktreeId, "finalize-target");
+      await writeValidationResultWithHash("finalize-target", "run-validation-finalize", worktree.metadata.worktreeId, diff.diffHash, "passed");
+      await writeAuditResultWithHash("finalize-target", "run-audit-finalize", worktree.metadata.worktreeId, diff.diffHash, "approved");
+
+      const snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: "finalize-target" });
+      const applyAction = snapshot.right.decisionInspector.primary?.actions.find((action) => action.action?.actionId === "result.apply")?.action;
+      if (!applyAction) throw new Error("Missing result.apply action.");
+      const applied = await executeWorkbenchAction({ project: project(), path: tempDir }, {
+        action: applyAction,
+        confirm: true,
+        options: { commit: true, message: "Apply finalize target" },
+      });
+      const topics = await listWorkbenchTopics(project());
+
+      expect(applied.result).toMatchObject({
+        finalization: expect.objectContaining({ status: "archived", changeId: "finalize-target" }),
+      });
+      expect(topics.find((topic) => topic.id === "finalize-target")).toMatchObject({ state: "archive" });
+      expect(topics.find((topic) => topic.id === "other-active-demand")).toMatchObject({ state: "active" });
     } finally {
       if (oldAhoHome === undefined) delete process.env.AHO_HOME;
       else process.env.AHO_HOME = oldAhoHome;

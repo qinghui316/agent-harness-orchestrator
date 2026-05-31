@@ -5,11 +5,11 @@ import { collectWorktreeDiff } from "../audit/diff.js";
 import { buildCodexWorkspaceWriteArgv, detectCodexCapabilities } from "../codex/capabilities.js";
 import { extractFinalMessageFromCodexJsonl } from "../codex/jsonl.js";
 import { readPromptInput } from "../codex/prompt.js";
-import { getChangeStatus } from "../change/manager.js";
+import { resolveRunnableChangeTarget } from "../change/target.js";
 import { writeJsonFile } from "../fs/json.js";
 import { assertWritableMemory, resolveProjectMemory } from "../memory/resolver.js";
 import { getGitStatusShort } from "../project/git.js";
-import { appendRunEvent, assertRunnableChange, buildContextProjection, buildRunId } from "../run/manager.js";
+import { appendRunEvent, buildContextProjection, buildRunId } from "../run/manager.js";
 import { executeProcessStreaming } from "../run/process.js";
 import { getTemplateRoot } from "../template-source/paths.js";
 import { getLatestValidationSummary } from "../validation/artifacts.js";
@@ -46,10 +46,9 @@ export async function startSpecTestGenerationRun(project: ManagedProject, option
 
   const memory = await resolveProjectMemory(project);
   assertWritableMemory(memory, "Spec-test generation run");
-  const changeStatus = await getChangeStatus(project);
-  assertRunnableChange(changeStatus);
-  const changeId = changeStatus.change?.id ?? changeStatus.activeChanges[0]?.name;
-  if (!changeId) throw new Error("Cannot start spec-test generation without an active change id.");
+  const target = await resolveRunnableChangeTarget(project);
+  const changeStatus = target.status;
+  const changeId = target.changeId;
 
   const specTestStatus = await getSpecTestStatus(project);
   const selectedAcs = selectAcs(specTestStatus.acceptanceCriteria, options);

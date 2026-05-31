@@ -2,11 +2,11 @@ import { existsSync } from "node:fs";
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
-import { getChangeStatus } from "../change/manager.js";
+import { resolveRunnableChangeTarget } from "../change/target.js";
 import { readRequiredJsonFile, writeJsonFile } from "../fs/json.js";
 import { shortHash } from "../fs/path.js";
 import { assertWritableMemory, resolveProjectMemory } from "../memory/resolver.js";
-import { assertRunnableChange, listRuns } from "../run/manager.js";
+import { listRuns } from "../run/manager.js";
 import { listAuditResults } from "../audit/artifacts.js";
 import { listValidationResults } from "../validation/artifacts.js";
 import type { ManagedProject, ResolvedMemory, RunMetadata, TaskRun, TaskRunStatus, WorkerLease } from "../types/index.js";
@@ -74,10 +74,8 @@ export interface TaskRunReconcileOptions {
 export async function startTaskRun(project: ManagedProject, options: TaskRunStartOptions): Promise<TaskRunStartResult> {
   const memory = await resolveProjectMemory(project);
   assertWritableMemory(memory, "TaskRun start");
-  const changeStatus = await getChangeStatus(project);
-  assertRunnableChange(changeStatus);
-  const activeChangeId = changeStatus.change?.id ?? changeStatus.activeChanges[0]?.name;
-  if (activeChangeId !== options.changeId) throw new Error(`TaskRun can only start for the active change. Active: ${activeChangeId ?? "none"}. Requested: ${options.changeId}.`);
+  const target = await resolveRunnableChangeTarget(project, { changeId: options.changeId, allowLegacyActiveFallback: false });
+  const changeStatus = target.status;
   const taskId = normalizeKnownTaskId(changeStatus.acMap?.tasks ?? [], options.taskId);
   const existing = await listTaskRuns(memory, options.changeId);
   assertNoActiveTaskRun(existing, taskId);
@@ -93,10 +91,8 @@ export async function startTaskRun(project: ManagedProject, options: TaskRunStar
 export async function retryTaskRun(project: ManagedProject, options: TaskRunRetryOptions): Promise<TaskRunStartResult> {
   const memory = await resolveProjectMemory(project);
   assertWritableMemory(memory, "TaskRun retry");
-  const changeStatus = await getChangeStatus(project);
-  assertRunnableChange(changeStatus);
-  const activeChangeId = changeStatus.change?.id ?? changeStatus.activeChanges[0]?.name;
-  if (activeChangeId !== options.changeId) throw new Error(`TaskRun retry can only run for the active change. Active: ${activeChangeId ?? "none"}. Requested: ${options.changeId}.`);
+  const target = await resolveRunnableChangeTarget(project, { changeId: options.changeId, allowLegacyActiveFallback: false });
+  const changeStatus = target.status;
   const runs = await listTaskRuns(memory, options.changeId);
   const previous = runs.find((run) => run.id === options.taskRunId);
   if (!previous) throw new Error(`TaskRun not found: ${options.taskRunId}.`);

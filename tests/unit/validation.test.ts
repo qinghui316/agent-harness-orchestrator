@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { createChange, getChangeStatus } from "../../src/change/manager.js";
+import { createChange, createConcurrentChange, getChangeStatus } from "../../src/change/manager.js";
 import { writeJsonFile } from "../../src/fs/json.js";
 import { initHarness } from "../../src/harness/init.js";
 import { repoLocalMemory } from "../../src/memory/resolver.js";
@@ -117,6 +117,27 @@ describe("validation", () => {
     expect(existsSync(join(runDir, "validation.json"))).toBe(true);
     expect(await readFile(join(runDir, "commands", "001-pass.stdout.log"), "utf8")).toContain("pass");
     expect(await readFile(join(runDir, "commands", "002-fail.stderr.log"), "utf8")).toContain("fail");
+  });
+
+  it("runs validation for an explicit Change target when multiple active demands exist", async () => {
+    await initHarness(project(tempDir));
+    await createChange(project(tempDir), { title: "First Validation Target" });
+    await createConcurrentChange(project(tempDir), { title: "Second Validation Target" });
+    await writeFile(join(tempDir, "harness", "config", "environment.json"), JSON.stringify({
+      validation: {
+        profiles: {
+          default: [
+            { name: "pass", command: [process.execPath, "-e", "console.log('pass')"] },
+          ],
+        },
+      },
+    }), "utf8");
+
+    const result = await startValidationRun(project(tempDir), { changeId: "second-validation-target" });
+
+    expect(result.validation.changeId).toBe("second-validation-target");
+    expect(result.run.changeId).toBe("second-validation-target");
+    expect(result.validation.status).toBe("passed");
   });
 
   it("adds validation state to the close gate for the current change", async () => {

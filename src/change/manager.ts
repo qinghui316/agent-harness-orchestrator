@@ -213,7 +213,7 @@ async function getChangeStatusForActive(
     blockingIssues.push(...acMap.blockingIssues);
   }
 
-  const specTest = change ? await getSpecTestStatusForMemory(memory) : null;
+  const specTest = change ? await getSpecTestStatusForMemory(memory, change.id) : null;
   if (specTest) {
     warnings.push(...specTest.warnings);
     blockingIssues.push(...specTest.blockingIssues);
@@ -287,10 +287,25 @@ export async function closeChange(project: ManagedProject | string): Promise<Cha
   const memory = await resolveChangeMemory(project);
   assertWritableMemory(memory, "Change close");
   const status = await getChangeStatus(memory);
+  return closeChangeFromStatus(memory, status, "legacy");
+}
+
+export async function closeChangeForChange(project: ManagedProject | string, changeId: string): Promise<ChangeCloseResult> {
+  const memory = await resolveChangeMemory(project);
+  assertWritableMemory(memory, "Change close");
+  const status = await getChangeStatusForChange(memory, changeId);
+  return closeChangeFromStatus(memory, status, "scoped");
+}
+
+async function closeChangeFromStatus(memory: ResolvedMemory, status: ChangeStatus, mode: "legacy" | "scoped"): Promise<ChangeCloseResult> {
   if (!status.closeGate.ready) {
     throw new Error(`Cannot close change:\n${status.closeGate.blockingIssues.map((issue) => `- ${issue}`).join("\n")}`);
   }
   if (!status.change || status.activeChanges.length !== 1) {
+    if (mode === "scoped") {
+      const reason = status.closeGate.blockingIssues[0] ?? "scoped active change is missing valid metadata.";
+      throw new Error(`Cannot close change: ${reason}`);
+    }
     throw new Error("Cannot close change: expected exactly one active change with valid metadata.");
   }
 
@@ -318,7 +333,22 @@ export async function abandonChange(project: ManagedProject | string, reason?: s
   const memory = await resolveChangeMemory(project);
   assertWritableMemory(memory, "Change abandon");
   const status = await getChangeStatus(memory);
+  return abandonChangeFromStatus(memory, status, reason, "legacy");
+}
+
+export async function abandonChangeForChange(project: ManagedProject | string, changeId: string, reason?: string): Promise<ChangeAbandonResult> {
+  const memory = await resolveChangeMemory(project);
+  assertWritableMemory(memory, "Change abandon");
+  const status = await getChangeStatusForChange(memory, changeId);
+  return abandonChangeFromStatus(memory, status, reason, "scoped");
+}
+
+async function abandonChangeFromStatus(memory: ResolvedMemory, status: ChangeStatus, reason: string | undefined, mode: "legacy" | "scoped"): Promise<ChangeAbandonResult> {
   if (!status.change || status.activeChanges.length !== 1) {
+    if (mode === "scoped") {
+      const cause = status.closeGate.blockingIssues[0] ?? "scoped active change is missing valid metadata.";
+      throw new Error(`Cannot abandon change: ${cause}`);
+    }
     throw new Error("Cannot abandon change: expected exactly one active change with valid metadata.");
   }
 
@@ -459,13 +489,13 @@ function uniqueSorted(values: string[]): string[] {
   return [...new Set(values)].sort((a, b) => a.localeCompare(b));
 }
 
-async function getSpecTestStatusForMemory(memory: ResolvedMemory) {
+async function getSpecTestStatusForMemory(memory: ResolvedMemory, changeId: string) {
   try {
-    return await getSpecTestStatus(memory);
+    return await getSpecTestStatus(memory, { changeId });
   } catch (error) {
     return {
       version: "1.0" as const,
-      changeId: "",
+      changeId,
       selectedRoot: memory.projectRoot,
       latestValidation: null,
       mappings: [],

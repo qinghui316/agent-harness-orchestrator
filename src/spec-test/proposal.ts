@@ -7,12 +7,12 @@ import { buildCodexReadonlyArgv, detectCodexCapabilities } from "../codex/capabi
 import { extractFinalMessageFromCodexJsonl } from "../codex/jsonl.js";
 import { readRequiredJsonFile, writeJsonFile } from "../fs/json.js";
 import { assertWritableMemory, resolveProjectMemory } from "../memory/resolver.js";
-import { appendRunEvent, assertRunnableChange, buildContextProjection, buildRunId } from "../run/manager.js";
+import { appendRunEvent, buildContextProjection, buildRunId } from "../run/manager.js";
 import { executeProcessStreaming } from "../run/process.js";
 import { getTemplateRoot } from "../template-source/paths.js";
 import { getLatestValidationSummary } from "../validation/artifacts.js";
-import { getChangeStatus } from "../change/manager.js";
-import { getSpecTestStatus, linkSpecTestRefs } from "./manager.js";
+import { resolveRunnableChangeTarget } from "../change/target.js";
+import { getSpecTestContextForChange, getSpecTestStatus, linkSpecTestRefs } from "./manager.js";
 import type {
   ManagedProject,
   ResolvedMemory,
@@ -90,10 +90,9 @@ export interface SpecTestProposalAcceptResult {
 export async function startSpecTestProposalRun(project: ManagedProject, options: SpecTestProposeOptions = {}): Promise<SpecTestProposalRunResult> {
   const memory = await resolveProjectMemory(project);
   assertWritableMemory(memory, "Spec-test proposal run");
-  const changeStatus = await getChangeStatus(project);
-  assertRunnableChange(changeStatus);
-  const changeId = changeStatus.change?.id ?? changeStatus.activeChanges[0]?.name;
-  if (!changeId) throw new Error("Cannot start spec-test proposal without an active change id.");
+  const target = await resolveRunnableChangeTarget(project);
+  const changeStatus = target.status;
+  const changeId = target.changeId;
 
   const runId = buildRunId(changeId, ["spec-test-proposer", options.worktreeId ?? "source-root", options.prompt ?? ""]);
   const directory = join(memory.runsRoot, runId);
@@ -270,7 +269,8 @@ export async function acceptSpecTestProposal(project: ManagedProject, proposalId
     throw new Error(`Proposal evidence not found for AC ${options.ac} and ref ${options.ref}.`);
   }
 
-  let status = await getSpecTestStatus(project);
+  const context = await getSpecTestContextForChange(project, proposal.changeId);
+  let status = await getSpecTestStatus(project, { changeId: proposal.changeId });
   for (const candidate of candidates) {
     const reason = getAcceptRejectReason(candidate, memory);
     if (reason) {
@@ -280,7 +280,7 @@ export async function acceptSpecTestProposal(project: ManagedProject, proposalId
       skipped.push({ refId: candidate.refId, reason });
       continue;
     }
-    status = await linkSpecTestRefs(project, candidate.acId, candidate.refs);
+    status = await linkSpecTestRefs(project, candidate.acId, candidate.refs, context);
     accepted.push(candidate);
   }
 

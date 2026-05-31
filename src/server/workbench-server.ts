@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 import { applyResultToProject, applyWorktree, discardWorktree } from "../apply/manager.js";
 import { recordDemandMemoryCloseout, recordMaintenanceLedgerEntry, runMaintenanceCandidatePipeline } from "../agent-task/manager.js";
 import { acceptAudit } from "../audit/manager.js";
-import { abandonChange, closeChange } from "../change/manager.js";
+import { abandonChangeForChange, closeChangeForChange } from "../change/manager.js";
 import { acceptPlanProposal, acceptSpecProposal } from "../change/proposals.js";
 import { resolveExistingDirectory } from "../fs/path.js";
 import { initHarness } from "../harness/init.js";
@@ -459,7 +459,12 @@ export async function executeWorkbenchAction(input: WorkbenchProjectInput, body:
       payload: body.abandon,
       completedAt: new Date().toISOString(),
     });
-    const result = await abandonChange(input.project, body.abandon.reason ?? body.feedback);
+    if (!changeId) {
+      const error = new Error("Abandoning a demand conversation requires an explicit changeId.");
+      error.name = "BadRequest";
+      throw error;
+    }
+    const result = await abandonChangeForChange(input.project, changeId, body.abandon.reason ?? body.feedback);
     await recordPostDecisionMaintenance(input.project, changeId ?? result.change.id, "user-feedback", "Demand conversation was abandoned by the user.", [result.archivePath]);
     return { result, snapshot: await getWorkbenchSnapshot(input) };
   }
@@ -551,7 +556,9 @@ export async function executeWorkbenchAction(input: WorkbenchProjectInput, body:
   }
   if (action.actionId === "worktree.apply" || action.actionId === "result.apply") {
     try {
-      const finalized = await closeChange(input.project);
+      const changeId = inferChangeIdFromAction(action, result);
+      if (!changeId) throw new Error("Cannot auto-finalize applied result without a scoped changeId.");
+      const finalized = await closeChangeForChange(input.project, changeId);
       result = { result, finalization: { status: "archived", archivePath: finalized.archivePath, changeId: finalized.change.id } };
       await recordWorkbenchDecision(input.project, {
         id: `auto-close:${finalized.change.id}:${Date.now()}`,
@@ -1055,7 +1062,7 @@ function inferTargetIdFromAction(action: WorkbenchApprovalAction, result: unknow
   if (action.actionId === "worktree.apply") return scopedWorktreeArg(action) ?? null;
   if (action.actionId === "worktree.discard") return scopedWorktreeArg(action) ?? null;
   if (action.actionId === "apply-check.apply" || action.actionId === "apply-check.discard") return action.args[1] ?? null;
-  if (action.actionId === "change.close") return action.args[1] ?? null;
+  if (action.actionId === "change.close") return action.args[2] ?? null;
   return null;
 }
 
@@ -1211,8 +1218,8 @@ async function runAllowlistedAction(project: NonNullable<WorkbenchProjectInput["
       assertArgs(action, "apply-check", ["discard"], 2);
       return discardIntegrationCheck(project, args[2] ?? args[1]);
     case "change.close":
-      assertArgs(action, "change", ["close"], 2);
-      return closeChange(project);
+      assertArgs(action, "change", ["close"], 3);
+      return closeChangeForChange(project, args[2] as string);
     default:
       throw new Error("Unsupported Workbench action.");
   }

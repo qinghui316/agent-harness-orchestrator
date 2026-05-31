@@ -1,7 +1,8 @@
 import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join, relative } from "node:path";
-import { getChangeStatus, getChangeStatusForChange } from "../change/manager.js";
+import { getChangeStatus } from "../change/manager.js";
+import { resolveRunnableChangeTarget } from "../change/target.js";
 import { buildCodexWorkspaceWriteArgv, detectCodexCapabilities } from "../codex/capabilities.js";
 import { detectCodexAppServerCapability, runCodexAppServerTurn } from "../codex/app-server.js";
 import { CodexCompletionTracker, codexLifecycleTiming, type CodexCompletionSnapshot } from "../codex/completion.js";
@@ -11,7 +12,7 @@ import { buildAgentSystemPrompt, buildRunAgentRecord, resolveAgentRole } from ".
 import { writeJsonFile } from "../fs/json.js";
 import { assertWritableMemory, resolveProjectMemory } from "../memory/resolver.js";
 import { getGitStatusShort } from "../project/git.js";
-import { appendRunEvent, assertRunnableChange, buildContextProjection, buildRunId, listRuns, readRun } from "../run/manager.js";
+import { appendRunEvent, buildContextProjection, buildRunId, listRuns, readRun } from "../run/manager.js";
 import { isRunStopRequested } from "../run/control.js";
 import { executeProcessStreaming, type ProcessExecutionResult } from "../run/process.js";
 import type { ManagedProject, ResolvedMemory, RunMetadata, RunStatus, RunWorktreeInfo } from "../types/index.js";
@@ -76,10 +77,9 @@ export interface CodeStatusResult {
 export async function startCodeRun(project: ManagedProject, options: CodeRunOptions = {}): Promise<CodeRunResult> {
   const memory = await resolveProjectMemory(project);
   assertWritableMemory(memory, "Code run");
-  const changeStatus = options.changeId ? await getChangeStatusForChange(project, options.changeId) : await getChangeStatus(project);
-  assertRunnableChange(changeStatus);
-  const changeId = changeStatus.change?.id ?? changeStatus.activeChanges[0]?.name;
-  if (!changeId) throw new Error("Cannot start code run without an active change id.");
+  const target = await resolveRunnableChangeTarget(project, { changeId: options.changeId });
+  const changeStatus = target.status;
+  const changeId = target.changeId;
 
   const selectedTasks = normalizeAndValidateTasks(changeStatus, options.taskIds ?? []);
   const role = await resolveAgentRole(memory, "coder-agent");

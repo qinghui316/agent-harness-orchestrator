@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { getChangeStatus, getChangeStatusForChange } from "../change/manager.js";
+import { resolveRunnableChangeTarget } from "../change/target.js";
 import { buildCodexReadonlyArgv, detectCodexCapabilities } from "../codex/capabilities.js";
 import { CodexCompletionTracker, codexLifecycleTiming, type CodexCompletionSnapshot } from "../codex/completion.js";
 import { createCodexJsonlStreamParser, extractFinalMessageFromCodexJsonl } from "../codex/jsonl.js";
@@ -10,7 +11,7 @@ import { writeJsonFile } from "../fs/json.js";
 import { assertWritableMemory, resolveProjectMemory } from "../memory/resolver.js";
 import { getLatestValidationSummary } from "../validation/artifacts.js";
 import type { AuditResult, AuditStatus, AuditSummary, ManagedProject, ResolvedMemory, RunMetadata, RunStatus } from "../types/index.js";
-import { appendRunEvent, assertRunnableChange, buildContextProjection, buildRunId } from "../run/manager.js";
+import { appendRunEvent, buildContextProjection, buildRunId } from "../run/manager.js";
 import { isRunStopRequested } from "../run/control.js";
 import { executeProcessStreaming, type ProcessExecutionResult } from "../run/process.js";
 import { collectWorktreeDiff } from "./diff.js";
@@ -38,10 +39,9 @@ export interface AuditStatusResult {
 export async function startAuditRun(project: ManagedProject, options: AuditRunOptions = {}): Promise<AuditRunResult> {
   const memory = await resolveProjectMemory(project);
   assertWritableMemory(memory, "Audit run");
-  const changeStatus = options.changeId ? await getChangeStatusForChange(project, options.changeId) : await getChangeStatus(project);
-  assertRunnableChange(changeStatus);
-  const changeId = changeStatus.change?.id ?? changeStatus.activeChanges[0]?.name;
-  if (!changeId) throw new Error("Cannot start audit without an active change id.");
+  const target = await resolveRunnableChangeTarget(project, { changeId: options.changeId });
+  const changeStatus = target.status;
+  const changeId = target.changeId;
   const role = await resolveAgentRole(memory, "auditor-agent");
 
   const runId = buildRunId(changeId, ["auditor", options.worktreeId ?? "no-worktree", options.prompt ?? ""]);
@@ -232,13 +232,9 @@ export async function showAudit(project: ManagedProject, auditId: string): Promi
 export async function acceptAudit(project: ManagedProject, auditId: string): Promise<{ audit: AuditResult; reviewPath: string }> {
   const memory = await resolveProjectMemory(project);
   assertWritableMemory(memory, "Audit accept");
-  const status = await getChangeStatus(project);
-  assertRunnableChange(status);
-  if (!status.change || status.activeChanges.length !== 1) throw new Error("Cannot accept audit without exactly one active change.");
   const audit = await readAuditResult(memory, auditId);
-  if (audit.changeId !== status.change.id) {
-    throw new Error(`Cannot accept audit for change ${audit.changeId}; current active change is ${status.change.id}.`);
-  }
+  const status = await getChangeStatusForChange(project, audit.changeId);
+  if (!status.change || status.activeChanges.length !== 1) throw new Error(`Cannot accept audit for change ${audit.changeId}: active demand conversation not found.`);
   if (audit.status !== "approved" && audit.status !== "approved-with-notes") {
     throw new Error(`Cannot accept audit with status ${audit.status}. Only approved and approved-with-notes can be accepted.`);
   }

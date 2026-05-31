@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join, relative } from "node:path";
-import { getChangeStatus } from "../change/manager.js";
+import { resolveRunnableChangeTarget } from "../change/target.js";
 import { buildCodexReadonlyArgv, detectCodexCapabilities } from "../codex/capabilities.js";
 import { CodexCompletionTracker, codexLifecycleTiming, type CodexCompletionSnapshot } from "../codex/completion.js";
 import { createCodexJsonlStreamParser, extractFinalMessageFromCodexJsonl } from "../codex/jsonl.js";
@@ -11,7 +11,7 @@ import { assertWritableMemory, resolveProjectMemory } from "../memory/resolver.j
 import { getEnabledSkillContext } from "../skill/catalog.js";
 import type { ManagedProject, ResolvedMemory, RunMetadata, RunStatus } from "../types/index.js";
 import { isRunStopRequested } from "./control.js";
-import { appendRunEvent, assertRunnableChange, buildContextProjection, buildRunId } from "./manager.js";
+import { appendRunEvent, buildContextProjection, buildRunId } from "./manager.js";
 import { executeProcessStreaming, type ProcessExecutionResult } from "./process.js";
 
 export interface CodexReadonlyRunOptions {
@@ -27,10 +27,9 @@ export interface CodexReadonlyRunResult {
 export async function startCodexReadonlyRun(project: ManagedProject, options: CodexReadonlyRunOptions): Promise<CodexReadonlyRunResult> {
   const memory = await resolveProjectMemory(project);
   assertWritableMemory(memory, "Codex read-only run");
-  const changeStatus = await getChangeStatus(project);
-  assertRunnableChange(changeStatus);
-  const changeId = changeStatus.change?.id ?? changeStatus.activeChanges[0]?.name;
-  if (!changeId) throw new Error("Cannot start Codex run without an active change id.");
+  const target = await resolveRunnableChangeTarget(project);
+  const changeStatus = target.status;
+  const changeId = target.changeId;
   const skillContext = await getEnabledSkillContext(project, changeId);
 
   const runId = buildRunId(changeId, ["codex-readonly", options.prompt]);

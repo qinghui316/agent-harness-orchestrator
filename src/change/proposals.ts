@@ -10,9 +10,10 @@ import { buildAcMap, parseAcceptanceCriteria, parseTasks } from "../ecl/anchors.
 import { getActiveChanges } from "../ecl/index.js";
 import { atomicWriteFile, readRequiredJsonFile, writeJsonFile } from "../fs/json.js";
 import { assertWritableMemory, resolveProjectMemory } from "../memory/resolver.js";
-import { appendRunEvent, assertRunnableChange, buildContextProjection, buildRunId } from "../run/manager.js";
+import { appendRunEvent, buildContextProjection, buildRunId } from "../run/manager.js";
 import { executeProcessStreaming } from "../run/process.js";
-import { getChangeStatus } from "./manager.js";
+import { getChangeStatusForChange } from "./manager.js";
+import { resolveRunnableChangeTarget } from "./target.js";
 import type {
   ChangeProposalStatus,
   ChangeProposalSummary,
@@ -226,11 +227,11 @@ export async function acceptSpecProposal(project: ManagedProject, proposalId: st
   if (parseAcceptanceCriteria(proposal.specMd).criteria.length === 0) {
     throw new Error("Cannot accept spec proposal: proposal must contain at least one Acceptance Criterion ID such as AC-001.");
   }
-  const active = await getActiveChangePath(memory);
+  const active = await getActiveChangePathForChange(memory, proposal.changeId);
   const specPath = join(active.changePath, "spec.md");
   await assertTargetHashesUnchanged({ spec: specPath }, proposal.targetHashes);
   await atomicWriteFile(specPath, ensureTrailingNewline(proposal.specMd));
-  const changeStatus = await getChangeStatus(project);
+  const changeStatus = await getChangeStatusForChange(project, proposal.changeId);
   await appendAcceptedEvent(memory, proposal.runId, "change.spec.proposal.accepted", { specPath: displayArtifactPath(memory, specPath) });
   return { proposal, changeStatus, specPath: displayArtifactPath(memory, specPath) };
 }
@@ -245,7 +246,7 @@ export async function acceptPlanProposal(project: ManagedProject, proposalId: st
   if (!proposal.planMd.trim() || !proposal.tasksMd.trim()) {
     throw new Error("Cannot accept plan proposal: planMd and tasksMd are required.");
   }
-  const active = await getActiveChangePath(memory);
+  const active = await getActiveChangePathForChange(memory, proposal.changeId);
   const specPath = join(active.changePath, "spec.md");
   const planPath = join(active.changePath, "plan.md");
   const tasksPath = join(active.changePath, "tasks.md");
@@ -268,7 +269,7 @@ export async function acceptPlanProposal(project: ManagedProject, proposalId: st
   }
   await atomicWriteFile(planPath, ensureTrailingNewline(proposal.planMd));
   await atomicWriteFile(tasksPath, ensureTrailingNewline(proposal.tasksMd));
-  const changeStatus = await getChangeStatus(project);
+  const changeStatus = await getChangeStatusForChange(project, proposal.changeId);
   await appendAcceptedEvent(memory, proposal.runId, "change.plan.proposal.accepted", {
     planPath: displayArtifactPath(memory, planPath),
     tasksPath: displayArtifactPath(memory, tasksPath),
@@ -310,10 +311,9 @@ export function parsePlanProposalMessage(message: string): Pick<PlanProposal, "s
 async function prepareProposalRun(project: ManagedProject, kind: ProposalKind, extraPrompt?: string): Promise<CommonProposalRun> {
   const memory = await resolveProjectMemory(project);
   assertWritableMemory(memory, `${kind} proposal run`);
-  const changeStatus = await getChangeStatus(project);
-  assertRunnableChange(changeStatus);
-  const changeId = changeStatus.change?.id ?? changeStatus.activeChanges[0]?.name;
-  if (!changeId) throw new Error(`Cannot start ${kind} proposal without an active change id.`);
+  const target = await resolveRunnableChangeTarget(project);
+  const changeStatus = target.status;
+  const changeId = target.changeId;
 
   const runId = buildRunId(changeId, [kind === "spec" ? "spec-agent" : "planner", extraPrompt ?? ""]);
   const directory = join(memory.runsRoot, runId);
@@ -527,6 +527,15 @@ async function getActiveChangePath(memory: ResolvedMemory): Promise<{ changeId: 
     throw new Error(`Expected exactly one active change; found ${active.length}.`);
   }
   return { changeId: active[0].name, changePath: join(memory.memoryRoot, active[0].path) };
+}
+
+async function getActiveChangePathForChange(memory: ResolvedMemory, changeId: string): Promise<{ changeId: string; changePath: string }> {
+  const active = await getActiveChanges(memory);
+  const match = active.find((item) => item.name === changeId);
+  if (!match) {
+    throw new Error(`Active demand conversation not found for scoped proposal accept: ${changeId}.`);
+  }
+  return { changeId: match.name, changePath: join(memory.memoryRoot, match.path) };
 }
 
 async function readTargetHashes(memory: ResolvedMemory): Promise<ChangeProposalTargetHashes> {

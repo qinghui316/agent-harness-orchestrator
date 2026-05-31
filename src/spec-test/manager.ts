@@ -52,6 +52,7 @@ export interface SpecTestLinkOptions {
 
 export interface SpecTestStatusOptions {
   worktreeId?: string;
+  changeId?: string;
 }
 
 export async function createEmptySpecTests(changeDir: string, changeId: string): Promise<SpecTests> {
@@ -84,7 +85,7 @@ export async function linkSpecTestRefs(
   const current = await readOrCreateSpecTests(context.changeDir, context.changeId);
   const mappings = upsertRefs(current.mappings, acId, refs.map(normalizeRef));
   await writeSpecTests(context.changeDir, { ...current, updatedAt: new Date().toISOString(), mappings });
-  return getSpecTestStatus(project);
+  return getSpecTestStatus(project, { changeId: context.changeId });
 }
 
 export async function unlinkSpecTest(project: ManagedProject, options: SpecTestLinkOptions): Promise<SpecTestStatus> {
@@ -99,7 +100,13 @@ export async function unlinkSpecTest(project: ManagedProject, options: SpecTestL
 }
 
 export async function getSpecTestStatus(project: ManagedProject | ResolvedMemory, options: SpecTestStatusOptions = {}): Promise<SpecTestStatus> {
-  const context = await getActiveSpecTestContext(project);
+  const context = options.changeId
+    ? await getSpecTestContextForChange(project, options.changeId)
+    : await getActiveSpecTestContext(project);
+  return buildSpecTestStatus(context, options);
+}
+
+async function buildSpecTestStatus(context: Awaited<ReturnType<typeof getActiveSpecTestContext>>, options: SpecTestStatusOptions = {}): Promise<SpecTestStatus> {
   const specTests = await readSpecTestsOrDefault(context.changeDir, context.changeId);
   const selected = await selectValidationContext(context.memory, context.changeId, options.worktreeId);
   const commandStatuses = selected.validation ? commandStatusMap(selected.validation) : new Map<string, ValidationStatus>();
@@ -174,6 +181,35 @@ export async function getActiveSpecTestContext(project: ManagedProject | Resolve
   }
   const changeId = active[0].name;
   const changeDir = join(memory.memoryRoot, active[0].path);
+  const specPath = join(changeDir, "spec.md");
+  if (!existsSync(specPath)) {
+    throw new Error(`Cannot resolve spec-test context: missing spec.md for ${changeId}.`);
+  }
+  const specContent = await readFile(specPath, "utf8");
+  const criteria = parseAcceptanceCriteria(specContent).criteria.map((criterion) => ({
+    id: criterion.id,
+    text: criterion.text,
+    taskIds: [],
+    validationRefs: [],
+    warnings: [],
+  }));
+  return { memory, changeId, changeDir, criteria };
+}
+
+export async function getSpecTestContextForChange(project: ManagedProject | ResolvedMemory, changeId: string): Promise<{
+  memory: ResolvedMemory;
+  changeId: string;
+  changeDir: string;
+  criteria: AcceptanceCriterion[];
+}> {
+  const memory = "harnessRoot" in project ? project : await resolveProjectMemory(project);
+  const { getActiveChanges } = await import("../ecl/index.js");
+  const active = await getActiveChanges(memory);
+  const match = active.find((item) => item.name === changeId);
+  if (!match) {
+    throw new Error(`Active demand conversation not found for scoped spec-test context: ${changeId}.`);
+  }
+  const changeDir = join(memory.memoryRoot, match.path);
   const specPath = join(changeDir, "spec.md");
   if (!existsSync(specPath)) {
     throw new Error(`Cannot resolve spec-test context: missing spec.md for ${changeId}.`);
