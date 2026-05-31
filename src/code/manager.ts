@@ -9,10 +9,11 @@ import { CodexCompletionTracker, codexLifecycleTiming, type CodexCompletionSnaps
 import { createCodexJsonlStreamParser, extractFinalMessageFromCodexJsonl, type CodexJsonlStreamEvent } from "../codex/jsonl.js";
 import { readPromptInput } from "../codex/prompt.js";
 import { buildAgentSystemPrompt, buildRunAgentRecord, resolveAgentRole } from "../agent/catalog.js";
+import { buildRoleContextArtifact, buildRoleContextPacket, contextSourceRef } from "../context/packets.js";
 import { writeJsonFile } from "../fs/json.js";
 import { assertWritableMemory, resolveProjectMemory } from "../memory/resolver.js";
 import { getGitStatusShort } from "../project/git.js";
-import { appendRunEvent, buildContextProjection, buildRunId, listRuns, readRun } from "../run/manager.js";
+import { appendRunEvent, buildRunId, listRuns, readRun } from "../run/manager.js";
 import { isRunStopRequested } from "../run/control.js";
 import { executeProcessStreaming, type ProcessExecutionResult } from "../run/process.js";
 import type { ManagedProject, ResolvedMemory, RunMetadata, RunStatus, RunWorktreeInfo } from "../types/index.js";
@@ -24,6 +25,7 @@ export interface CodeRunOptions {
   changeId?: string;
   taskIds?: string[];
   taskRunId?: string;
+  roleId?: string;
   prompt?: string;
   promptFile?: string;
   model?: string;
@@ -82,7 +84,8 @@ export async function startCodeRun(project: ManagedProject, options: CodeRunOpti
   const changeId = target.changeId;
 
   const selectedTasks = normalizeAndValidateTasks(changeStatus, options.taskIds ?? []);
-  const role = await resolveAgentRole(memory, "coder-agent");
+  const roleId = options.roleId ?? "coder-agent";
+  const role = await resolveAgentRole(memory, roleId);
   const extraPrompt = options.prompt || options.promptFile
     ? await readPromptInput({ prompt: options.prompt, promptFile: options.promptFile })
     : undefined;
@@ -104,6 +107,7 @@ export async function startCodeRun(project: ManagedProject, options: CodeRunOpti
     base: memory.artifactBase,
     directory: relativeDir,
     context: `${relativeDir}/context.md`,
+    contextPacket: `${relativeDir}/context-packet.json`,
     events: `${relativeDir}/events.jsonl`,
     stdout: `${relativeDir}/stdout.log`,
     stderr: `${relativeDir}/stderr.log`,
@@ -121,6 +125,7 @@ export async function startCodeRun(project: ManagedProject, options: CodeRunOpti
   const paths = {
     run: join(directory, "run.json"),
     context: join(directory, "context.md"),
+    contextPacket: join(directory, "context-packet.json"),
     events: join(directory, "events.jsonl"),
     stdout: join(directory, "stdout.log"),
     stderr: join(directory, "stderr.log"),
@@ -138,6 +143,25 @@ export async function startCodeRun(project: ManagedProject, options: CodeRunOpti
 
   await mkdir(directory, { recursive: true });
   const now = new Date().toISOString();
+  const contextArtifact = buildRoleContextArtifact(buildRoleContextPacket({
+    roleId,
+    changeStatus,
+    goal: roleId === "rework-coder" ? "Repair implementation from validation or audit evidence." : "Implement the confirmed demand in an AHO-owned worktree.",
+    runId,
+    taskIds: selectedTasks,
+    worktree,
+    evidenceSummary: [
+      roleId === "rework-coder" ? "Rework run: use selected validation, audit, or human feedback evidence from the current Change." : "Coder run: implement the accepted Change in the assigned worktree.",
+      changeStatus.latestValidation ? `Latest validation before run: ${changeStatus.latestValidation.status} (${changeStatus.latestValidation.id}).` : "No prior validation summary selected.",
+      changeStatus.latestAudit ? `Latest audit before run: ${changeStatus.latestAudit.status} (${changeStatus.latestAudit.id}).` : "No prior audit summary selected.",
+    ],
+    evidenceRefs: [
+      contextSourceRef("worktree-metadata", worktree.metadataPath, "inline", "Assigned worktree metadata and write boundary."),
+      ...(options.taskRunId ? [contextSourceRef("task-run", options.taskRunId, "ref", "TaskRun that requested this role run.")] : []),
+      ...(extraPrompt ? [contextSourceRef("human-prompt", "prompt.md", "inline", "Additional human or rework instruction included in the role prompt.")] : []),
+    ],
+    createdAt: now,
+  }), `${relativeDir}/context-packet.json`);
   let run: RunMetadata = {
     version: "1.0",
     id: runId,
@@ -154,6 +178,7 @@ export async function startCodeRun(project: ManagedProject, options: CodeRunOpti
     finishedAt: null,
     artifacts,
     worktree,
+    contextPacket: contextArtifact.ref,
     ...(selectedTasks.length > 0 ? { taskIds: selectedTasks } : {}),
     ...(options.taskRunId ? { taskRunId: options.taskRunId } : {}),
     promptStack: ["agent-role", "active-change", "worktree", "task-scope", "human-prompt"],
@@ -164,9 +189,10 @@ export async function startCodeRun(project: ManagedProject, options: CodeRunOpti
   await appendRunEvent(paths.events, { timestamp: now, type: "worktree.created", runId, data: { worktreeId: worktree.worktreeId, checkoutPath: worktree.checkoutPath } });
   emitCodeLiveStatus(options.live, { runId, status: "preparing", label: "Coder" });
 
-  const context = buildContextProjection(changeStatus);
+  const context = contextArtifact.markdown;
+  await writeJsonFile(paths.contextPacket, contextArtifact.packet);
   await writeFile(paths.context, context, "utf8");
-  await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "context.prepared", runId, data: { path: artifacts.context } });
+  await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "context.prepared", runId, data: { path: artifacts.context, contextPacket: artifacts.contextPacket, contextPacketHash: contextArtifact.hash } });
   emitCodeLiveStatus(options.live, { runId, status: "context-prepared", label: "Coder" });
   const prompt = await composeCoderPrompt({
     context,

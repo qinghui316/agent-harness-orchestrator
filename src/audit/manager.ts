@@ -6,12 +6,14 @@ import { resolveRunnableChangeTarget } from "../change/target.js";
 import { buildCodexReadonlyArgv, detectCodexCapabilities } from "../codex/capabilities.js";
 import { CodexCompletionTracker, codexLifecycleTiming, type CodexCompletionSnapshot } from "../codex/completion.js";
 import { createCodexJsonlStreamParser, extractFinalMessageFromCodexJsonl } from "../codex/jsonl.js";
+import { buildRoleContextArtifact, buildRoleContextPacket, contextSourceRef } from "../context/packets.js";
 import { buildAgentSystemPrompt, buildRunAgentRecord, resolveAgentRole } from "../agent/catalog.js";
 import { writeJsonFile } from "../fs/json.js";
 import { assertWritableMemory, resolveProjectMemory } from "../memory/resolver.js";
+import { getWorktreeMetadataPath } from "../worktree/manager.js";
 import { getLatestValidationSummary } from "../validation/artifacts.js";
 import type { AuditResult, AuditStatus, AuditSummary, ManagedProject, ResolvedMemory, RunMetadata, RunStatus } from "../types/index.js";
-import { appendRunEvent, buildContextProjection, buildRunId } from "../run/manager.js";
+import { appendRunEvent, buildRunId } from "../run/manager.js";
 import { isRunStopRequested } from "../run/control.js";
 import { executeProcessStreaming, type ProcessExecutionResult } from "../run/process.js";
 import { collectWorktreeDiff } from "./diff.js";
@@ -51,6 +53,7 @@ export async function startAuditRun(project: ManagedProject, options: AuditRunOp
     base: memory.artifactBase,
     directory: relativeDir,
     context: `${relativeDir}/context.md`,
+    contextPacket: `${relativeDir}/context-packet.json`,
     events: `${relativeDir}/events.jsonl`,
     stdout: `${relativeDir}/stdout.log`,
     stderr: `${relativeDir}/stderr.log`,
@@ -65,6 +68,7 @@ export async function startAuditRun(project: ManagedProject, options: AuditRunOp
   const paths = {
     run: join(directory, "run.json"),
     context: join(directory, "context.md"),
+    contextPacket: join(directory, "context-packet.json"),
     events: join(directory, "events.jsonl"),
     stdout: join(directory, "stdout.log"),
     stderr: join(directory, "stderr.log"),
@@ -100,16 +104,46 @@ export async function startAuditRun(project: ManagedProject, options: AuditRunOp
   await writeJsonFile(paths.run, run);
   await appendRunEvent(paths.events, { timestamp: now, type: "run.created", runId, data: { changeId, runtime: "auditor", worktreeId: options.worktreeId } });
 
-  const context = buildContextProjection(changeStatus);
-  await writeFile(paths.context, context, "utf8");
-  await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "context.prepared", runId, data: { path: artifacts.context } });
-
   const diffResult = options.worktreeId ? await collectWorktreeDiff(memory, options.worktreeId, changeId) : null;
   const latestValidation = await getLatestValidationSummary(memory, changeId, diffResult
     ? { worktreeId: diffResult.worktree.worktreeId, worktreeDiffHash: diffResult.diffHash }
     : {});
   await writeFile(paths.diff, diffResult?.diff ?? "", "utf8");
   await writeFile(paths.diffStat, diffResult?.diffStat ?? "", "utf8");
+
+  const contextArtifact = buildRoleContextArtifact(buildRoleContextPacket({
+    roleId: "auditor-agent",
+    changeStatus,
+    goal: "Audit the current Change implementation against accepted AC, validation evidence, and diff evidence.",
+    runId,
+    worktree: diffResult ? {
+      worktreeId: diffResult.worktree.worktreeId,
+      branchName: diffResult.worktree.branchName,
+      baseRef: diffResult.worktree.baseRef,
+      baseCommit: diffResult.worktree.baseCommit,
+      checkoutPath: diffResult.worktree.checkoutPath,
+      metadataPath: getWorktreeMetadataPath(memory, diffResult.worktree.worktreeId),
+    } : undefined,
+    evidenceSummary: [
+      latestValidation ? `Latest validation selected: ${latestValidation.status} (${latestValidation.id}).` : "No validation run recorded for this change.",
+      diffResult ? `Diff hash selected: ${diffResult.diffHash}.` : "No worktree diff selected.",
+      diffResult?.diffStat ? `Diff stat available in ${artifacts.diffStat}.` : "No diff stat available.",
+    ],
+    evidenceRefs: [
+      ...(latestValidation ? [contextSourceRef("latest-validation", latestValidation.id, "inline", "Latest validation summary selected for audit.")] : []),
+      ...(diffResult ? [
+        contextSourceRef("worktree-diff-stat", artifacts.diffStat, "inline", "Diff stat is inlined in prompt and referenced in packet."),
+        contextSourceRef("worktree-diff", artifacts.diff, "ref", "Full diff is referenced and not treated as full Harness context."),
+      ] : []),
+    ],
+    createdAt: now,
+  }), `${relativeDir}/context-packet.json`);
+  run = { ...run, contextPacket: contextArtifact.ref };
+  await writeJsonFile(paths.run, run);
+  const context = contextArtifact.markdown;
+  await writeJsonFile(paths.contextPacket, contextArtifact.packet);
+  await writeFile(paths.context, context, "utf8");
+  await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "context.prepared", runId, data: { path: artifacts.context, contextPacket: artifacts.contextPacket, contextPacketHash: contextArtifact.hash } });
 
   const prompt = await composeAuditPrompt({
     context,

@@ -28,6 +28,7 @@ const runMetadataSchema = z.object({
     base: z.enum(["project-root", "memory-root"]).default("project-root"),
     directory: z.string(),
     context: z.string(),
+    contextPacket: z.string().optional(),
     events: z.string(),
     stdout: z.string(),
     stderr: z.string(),
@@ -82,6 +83,11 @@ const runMetadataSchema = z.object({
     catalogHash: z.string(),
     bridge: z.string().optional(),
     materializedHash: z.string().nullable().optional(),
+  }).optional(),
+  contextPacket: z.object({
+    ref: z.string(),
+    hash: z.string(),
+    format: z.literal("role-context-packet@1.0"),
   }).optional(),
 });
 

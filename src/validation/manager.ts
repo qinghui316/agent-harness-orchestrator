@@ -2,6 +2,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { getChangeStatus } from "../change/manager.js";
 import { resolveRunnableChangeTarget } from "../change/target.js";
+import { buildRoleContextArtifact, buildRoleContextPacket, contextSourceRef } from "../context/packets.js";
 import { writeJsonFile } from "../fs/json.js";
 import { slugify } from "../fs/path.js";
 import { assertWritableMemory, resolveProjectMemory } from "../memory/resolver.js";
@@ -16,7 +17,7 @@ import type {
   ValidationResult,
   ValidationStatus,
 } from "../types/index.js";
-import { appendRunEvent, buildContextProjection, buildRunId } from "../run/manager.js";
+import { appendRunEvent, buildRunId } from "../run/manager.js";
 import { isRunStopRequested } from "../run/control.js";
 import { executeProcessStreaming } from "../run/process.js";
 import { collectWorktreeDiff } from "../audit/diff.js";
@@ -91,6 +92,7 @@ export async function startValidationRun(project: ManagedProject, options: Valid
     base: memory.artifactBase,
     directory: relativeDir,
     context: `${relativeDir}/context.md`,
+    contextPacket: `${relativeDir}/context-packet.json`,
     events: `${relativeDir}/events.jsonl`,
     stdout: `${relativeDir}/stdout.log`,
     stderr: `${relativeDir}/stderr.log`,
@@ -99,6 +101,7 @@ export async function startValidationRun(project: ManagedProject, options: Valid
   const paths = {
     run: join(directory, "run.json"),
     context: join(directory, "context.md"),
+    contextPacket: join(directory, "context-packet.json"),
     events: join(directory, "events.jsonl"),
     stdout: join(directory, "stdout.log"),
     stderr: join(directory, "stderr.log"),
@@ -107,6 +110,23 @@ export async function startValidationRun(project: ManagedProject, options: Valid
 
   await mkdir(commandsDir, { recursive: true });
   const now = new Date().toISOString();
+  const contextArtifact = buildRoleContextArtifact(buildRoleContextPacket({
+    roleId: "validator",
+    changeStatus,
+    goal: `Run validation profile ${profileName} for the current Change target.`,
+    runId,
+    worktree,
+    evidenceSummary: [
+      `Validation profile: ${profileName}.`,
+      `Execution mode: ${options.worktree ? "worktree" : "direct"}.`,
+      `Command count: ${profile.commands.length}.`,
+    ],
+    evidenceRefs: [
+      contextSourceRef("validation-profile", profileName, "inline", "Selected deterministic validation profile."),
+      ...(worktree ? [contextSourceRef("worktree-metadata", worktree.metadataPath, "inline", "Worktree being validated.")] : []),
+    ],
+    createdAt: now,
+  }), `${relativeDir}/context-packet.json`);
   let run: RunMetadata = {
     version: "1.0",
     id: runId,
@@ -123,14 +143,16 @@ export async function startValidationRun(project: ManagedProject, options: Valid
     finishedAt: null,
     artifacts,
     worktree,
+    contextPacket: contextArtifact.ref,
   };
   await writeJsonFile(paths.run, run);
   await appendRunEvent(paths.events, { timestamp: now, type: "run.created", runId, data: { changeId, runtime: "validator", profile: profileName, executionMode: run.executionMode, worktree } });
 
-  await writeFile(paths.context, buildContextProjection(changeStatus), "utf8");
+  await writeJsonFile(paths.contextPacket, contextArtifact.packet);
+  await writeFile(paths.context, contextArtifact.markdown, "utf8");
   await writeFile(paths.stdout, "", "utf8");
   await writeFile(paths.stderr, "", "utf8");
-  await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "context.prepared", runId, data: { path: artifacts.context } });
+  await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "context.prepared", runId, data: { path: artifacts.context, contextPacket: artifacts.contextPacket, contextPacketHash: contextArtifact.hash } });
 
   run = { ...run, status: "running" };
   await writeJsonFile(paths.run, run);

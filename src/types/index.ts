@@ -428,6 +428,7 @@ export interface RunArtifactPaths {
   base?: ArtifactBase;
   directory: string;
   context: string;
+  contextPacket?: string;
   events: string;
   stdout: string;
   stderr: string;
@@ -458,6 +459,12 @@ export interface RunArtifactPaths {
   orchestrationPlanMarkdown?: string;
   intakeScan?: string;
   intakeScanMarkdown?: string;
+}
+
+export interface RunContextPacketRef {
+  ref: string;
+  hash: string;
+  format: "role-context-packet@1.0";
 }
 
 export type ValidationStatus = "passed" | "failed";
@@ -571,6 +578,7 @@ export interface RunMetadata {
   promptStack?: string[];
   enabledSkills?: RunSkillRecord[];
   agent?: RunAgentRecord;
+  contextPacket?: RunContextPacketRef;
 }
 
 export type TaskRunStatus = "queued" | "claimed" | "running" | "evidence-ready" | "blocked" | "failed" | "completed";

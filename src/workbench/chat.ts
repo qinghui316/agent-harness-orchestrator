@@ -2737,6 +2737,7 @@ async function runCodeValidateAuditSequence(
   let coderStartedEmitted = false;
   const code = await startCodeRun(project, {
     changeId,
+    roleId: coderRoleId,
     prompt,
     taskIds,
     taskRunId,
