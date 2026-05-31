@@ -147,6 +147,38 @@ describe("workbench server", () => {
     })).rejects.toThrow("confirm");
   });
 
+  it("fails closed for missing demand scope and stale workflow targets", async () => {
+    await expect(executeWorkbenchAction({ project: project(), path: tempDir }, {
+      actionType: "validate.run",
+      confirm: true,
+    })).rejects.toThrow("requires changeId");
+
+    const missingTarget = await executeWorkbenchAction({ project: project(), path: tempDir }, {
+      actionType: "validate.run",
+      changeId: "server-topic",
+      confirm: true,
+    });
+    expect(JSON.stringify(missingTarget.result)).toContain("requires worktreeId");
+
+    await expect(executeWorkbenchAction({ project: project(), path: tempDir }, {
+      actionType: "landing-queue.merge-next",
+      changeId: "server-topic",
+      landingPackageId: "forged-landing-package",
+      confirm: true,
+    })).rejects.toThrow("stale or no longer available");
+  });
+
+  it("serves lazy Workbench projections separately from the snapshot shell", async () => {
+    const snapshot = await getJson<SnapshotResponse & { center: { agentRunGraph: { nodes: unknown[] }; agentLoop: { runs: Array<{ id: string }> } } }>(`${handle!.url}/api/workbench/snapshot?topic=server-topic`);
+    expect(snapshot.center.agentRunGraph.nodes).toEqual([]);
+
+    const transcript = await getJson<{ cells: unknown[] }>(`${handle!.url}/api/workbench/projections/transcript/server-topic`);
+    expect(Array.isArray(transcript.cells)).toBe(true);
+
+    const graph = await getJson<{ nodes: Array<{ id: string }> }>(`${handle!.url}/api/workbench/projections/run-graph/server-topic`);
+    expect(graph.nodes.some((node) => node.id === "main-agent")).toBe(true);
+  });
+
   it("serves app-level project onboarding routes", async () => {
     const store = new ProjectRegistryStore(registryRoot);
     const appHandle = await startWorkbenchServer(null, { port: 0, staticRoot, store });

@@ -44,7 +44,7 @@ import { getEnabledSkillContext } from "../skill/catalog.js";
 import { getSpecTestDriftReport } from "../spec-test/drift.js";
 import { runIntegrationCheck } from "../integration-check/manager.js";
 import { prepareLandingPackage, reviewLandingPackage } from "../landing/manager.js";
-import { mergeNextLandingQueueCandidate, prepareLandingQueue, refreshLandingQueue } from "../landing-queue/manager.js";
+import { latestLandingQueueSnapshot, mergeNextLandingQueueCandidate, prepareLandingQueue, refreshLandingQueue } from "../landing-queue/manager.js";
 import { createDraftPr, preparePrDraftPackage, refreshPrDraftStatus } from "../pr-draft/manager.js";
 import {
   completePrFeedbackReworkAttempt,
@@ -631,6 +631,11 @@ const threadChangeMetadataSchema = z.object({
   id: z.string(),
 });
 const OFFICIAL_REWORK_BUDGET = 1;
+const PROJECT_SCOPED_WORKFLOW_ACTIONS = new Set<WorkbenchWorkflowActionType>([
+  "demand.worker.start-available",
+  "demand.worker.reconcile",
+  "orchestrator.pump",
+]);
 
 export async function createWorkbenchTopic(project: ManagedProject, input: { title: string; body?: string }): Promise<{ changeId: string; title: string; state: "active" }> {
   const result = await createConcurrentChange(project, { title: input.title, body: input.body });
@@ -758,7 +763,7 @@ export async function appendTopicThreadEntry(project: ManagedProject, changeId: 
 
 export async function runWorkbenchWorkflowAction(project: ManagedProject, request: WorkbenchWorkflowActionRequest, live?: WorkbenchLiveSink): Promise<WorkbenchWorkflowActionResult> {
   const actionRunId = `action-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
-  const changeId = request.changeId ?? await getSingleActiveChangeId(project);
+  const changeId = await resolveWorkflowActionChangeId(project, request);
   const started = await appendTopicThreadEntry(project, changeId, { type: "workflow.started", actionRunId, actionType: request.actionType, status: "running" });
   live?.emit({ event: "topic.message", data: started });
   live?.emit({ event: "run.status", data: { actionRunId, status: "running", label: labelForAction(request.actionType) } });
@@ -790,11 +795,11 @@ export async function runWorkbenchWorkflowAction(project: ManagedProject, reques
       status: finalStatus,
       label: labelForAction(request.actionType),
       summary: failureMessage ?? summarizeActionResult(request.actionType, result),
-      targetId: request.proposalId ?? request.worktreeId ?? null,
+      targetId: workflowActionTargetId(request, changeId),
       runId: runId ?? null,
       artifact: artifactForActionResult(result),
       actionId: request.actionType,
-      payload: result,
+      payload: { scope: workflowActionScopePayload(request, changeId), result },
       completedAt: new Date().toISOString(),
     });
     return { actionRunId, actionType: request.actionType, status: finalStatus, result, runId, error: failureMessage ?? undefined };
@@ -807,6 +812,12 @@ export async function runWorkbenchWorkflowAction(project: ManagedProject, reques
   }
 }
 
+async function resolveWorkflowActionChangeId(project: ManagedProject, request: WorkbenchWorkflowActionRequest): Promise<string> {
+  if (request.changeId) return request.changeId;
+  if (PROJECT_SCOPED_WORKFLOW_ACTIONS.has(request.actionType)) return getSingleActiveChangeId(project);
+  throw new Error(`${request.actionType} requires changeId.`);
+}
+
 export async function getWorkbenchActionEvents(project: ManagedProject, actionRunId: string): Promise<TopicThreadEntry[]> {
   const memory = await resolveProjectMemory(project);
   if (!existsSync(join(memory.changesRoot, "active"))) return [];
@@ -815,6 +826,7 @@ export async function getWorkbenchActionEvents(project: ManagedProject, actionRu
 }
 
 async function executeWorkflowAction(project: ManagedProject, changeId: string, request: WorkbenchWorkflowActionRequest, live?: WorkbenchLiveSink): Promise<unknown> {
+  assertWorkflowActionScope(request);
   await auditHighImpactWorkflowAction(project, changeId, request, live);
   switch (request.actionType) {
     case "chat.ask":
@@ -960,19 +972,82 @@ async function executeWorkflowAction(project: ManagedProject, changeId: string, 
   }
 }
 
+function assertWorkflowActionScope(request: WorkbenchWorkflowActionRequest): void {
+  const requireOne = (label: string, values: Array<unknown>): void => {
+    if (!values.some((value) => Array.isArray(value) ? value.length > 0 : Boolean(value))) throw new Error(`${request.actionType} requires ${label}.`);
+  };
+  switch (request.actionType) {
+    case "result.refresh-rework":
+    case "result.revalidate":
+    case "result.reaudit":
+    case "result.refresh-status":
+    case "validate.run":
+    case "audit.run":
+    case "spec-test.drift":
+      requireOne("worktreeId", [request.worktreeId]);
+      return;
+    case "apply-check.run":
+      requireOne("worktreeId or worktreeIds", [request.worktreeId, request.worktreeIds]);
+      return;
+    case "landing.prepare":
+    case "landing.review":
+    case "landing.refresh":
+      requireOne("applyCheckId or worktreeId/worktreeIds", [request.applyCheckId, request.worktreeId, request.worktreeIds]);
+      return;
+    case "landing-queue.merge-next":
+    case "landing-queue.refresh":
+      requireOne("landingPackageId", [request.landingPackageId]);
+      return;
+    case "pr-draft.prepare":
+    case "pr-draft.create":
+    case "pr-draft.refresh":
+    case "pr-feedback.refresh":
+    case "pr-feedback.evaluate":
+    case "pr-feedback.rework":
+    case "pr-feedback.update-draft":
+    case "pr-review.prepare":
+    case "pr-review.submit":
+    case "pr-review.refresh":
+    case "pr-review.feedback-refresh":
+    case "pr-review.feedback-evaluate":
+    case "pr-review.rework":
+    case "pr-review.reply-prepare":
+    case "pr-review.reply-submit":
+    case "pr-review.thread-resolve":
+    case "remote-landing.prepare":
+    case "remote-landing.merge":
+    case "remote-landing.refresh":
+    case "post-merge.prepare":
+    case "post-merge.refresh":
+    case "post-merge.sync-local.prepare":
+    case "post-merge.cleanup-branch.prepare":
+      requireOne("landingPackageId", [request.landingPackageId]);
+      return;
+    case "post-merge.sync-local.run":
+    case "post-merge.cleanup-branch.run":
+      requireOne("landingPackageId", [request.landingPackageId]);
+      requireOne("remoteLandingResultId", [request.remoteLandingResultId]);
+      return;
+    case "task.run.start":
+    case "task.run.retry":
+    case "code.run":
+      requireOne("taskIds or taskRunId", [request.taskIds, request.taskRunId]);
+      return;
+    case "task.run.reconcile":
+      requireOne("taskRunId", [request.taskRunId]);
+      return;
+    default:
+      return;
+  }
+}
+
 const HIGH_IMPACT_WORKBENCH_ACTIONS = new Set(highImpactActions());
 
 async function auditHighImpactWorkflowAction(project: ManagedProject, changeId: string, request: WorkbenchWorkflowActionRequest, live?: WorkbenchLiveSink): Promise<void> {
   if (!HIGH_IMPACT_WORKBENCH_ACTIONS.has(request.actionType)) return;
   const memory = await resolveProjectMemory(project);
-  const targetId = request.remoteLandingResultId
-    ?? request.landingPackageId
-    ?? request.applyCheckId
-    ?? request.worktreeId
-    ?? request.proposalId
-    ?? request.taskRunId
-    ?? request.taskIds?.join(",")
-    ?? changeId;
+  await assertCurrentHighImpactWorkflowTarget(memory, changeId, request);
+  const targetId = workflowActionTargetId(request, changeId);
   const decision = evaluateToolPolicy({
     actionType: request.actionType,
     actorRoleId: "main-agent",
@@ -1000,6 +1075,41 @@ async function auditHighImpactWorkflowAction(project: ManagedProject, changeId: 
   if (decision.status === "denied" || decision.status === "unavailable") {
     throw new Error(`${decision.readableMessage} Evidence: ${artifact}`);
   }
+}
+
+async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, changeId: string, request: WorkbenchWorkflowActionRequest): Promise<void> {
+  if (request.actionType === "landing-queue.merge-next") {
+    const snapshot = await latestLandingQueueSnapshot(memory);
+    const candidate = snapshot?.candidates.find((item) => item.landingPackageId === request.landingPackageId);
+    if (!candidate || !candidate.canMerge || !candidate.changeIds.includes(changeId)) {
+      throw new Error("landing-queue.merge-next target is stale or not currently mergeable.");
+    }
+  }
+}
+
+function workflowActionTargetId(request: WorkbenchWorkflowActionRequest, changeId: string): string {
+  return request.remoteLandingResultId
+    ?? request.landingPackageId
+    ?? request.applyCheckId
+    ?? request.worktreeId
+    ?? request.worktreeIds?.join(",")
+    ?? request.proposalId
+    ?? request.taskRunId
+    ?? request.taskIds?.join(",")
+    ?? changeId;
+}
+
+function workflowActionScopePayload(request: WorkbenchWorkflowActionRequest, changeId: string): Record<string, unknown> {
+  return {
+    changeId,
+    worktreeId: request.worktreeId,
+    worktreeIds: request.worktreeIds,
+    applyCheckId: request.applyCheckId,
+    landingPackageId: request.landingPackageId,
+    remoteLandingResultId: request.remoteLandingResultId,
+    taskRunId: request.taskRunId,
+    taskIds: request.taskIds,
+  };
 }
 
 async function generatePlanningDraft(

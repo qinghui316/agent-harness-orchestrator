@@ -11,7 +11,7 @@ import { startLocalCommandRun } from "../../src/run/manager.js";
 import { executeWorkbenchAction } from "../../src/server/workbench-server.js";
 import { appendTopicThreadEntry, createWorkbenchTopic, postTopicMessage } from "../../src/workbench/chat.js";
 import { answerClarification, reanalyzeIntake, runIntakeScan } from "../../src/workbench/intake.js";
-import { getWorkbenchSnapshot, getWorkbenchStream, getWorkbenchTopic, listWorkbenchApprovals, listWorkbenchRoles, listWorkbenchTopics } from "../../src/workbench/manager.js";
+import { getWorkbenchMaintenanceProjection, getWorkbenchRunGraphProjection, getWorkbenchSnapshot, getWorkbenchStream, getWorkbenchTopic, listWorkbenchApprovals, listWorkbenchRoles, listWorkbenchTopics } from "../../src/workbench/manager.js";
 import { WorkbenchStore } from "../../src/workbench/store.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import { collectWorktreeDiff } from "../../src/audit/diff.js";
@@ -2256,7 +2256,9 @@ describe("workbench read model", () => {
       }),
     ]));
     expect(snapshot.center.parentAgentTranscript.cells).toHaveLength(0);
-    expect(snapshot.center.agentRunGraph.nodes).toEqual(expect.arrayContaining([
+    expect(snapshot.center.agentRunGraph.nodes).toEqual([]);
+    const graph = await getWorkbenchRunGraphProjection({ project: project(), path: tempDir }, "agent-task-demand");
+    expect(graph.nodes).toEqual(expect.arrayContaining([
       expect.objectContaining({
         id: "main-agent",
         kind: "main-agent",
@@ -2272,7 +2274,7 @@ describe("workbench read model", () => {
         ]),
       }),
     ]));
-    const coderNode = snapshot.center.agentRunGraph.nodes.find((node) => node.kind === "coder-agent");
+    const coderNode = graph.nodes.find((node) => node.kind === "coder-agent");
     expect(coderNode?.attempts).toEqual(expect.arrayContaining([
       expect.objectContaining({
         id: task.id,
@@ -2280,7 +2282,7 @@ describe("workbench read model", () => {
         summary: "Coder returned a worktree proposal.",
       }),
     ]));
-    expect(snapshot.center.agentRunGraph.edges).toEqual(expect.arrayContaining([
+    expect(graph.edges).toEqual(expect.arrayContaining([
       expect.objectContaining({
         from: "main-agent",
         to: coderNode?.id,
@@ -2552,6 +2554,7 @@ describe("workbench read model", () => {
     });
     const result = await runMaintenanceCandidatePipeline(memory);
     const snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir });
+    const maintenance = await getWorkbenchMaintenanceProjection({ project: project(), path: tempDir });
 
     expect(result.status).toBe("reviewed");
     expect(result.candidate).toMatchObject({
@@ -2562,7 +2565,8 @@ describe("workbench read model", () => {
     });
     expect(result.score).toMatchObject({ confidence: expect.any(String), dimensions: expect.any(Object) });
     expect(result.review).toMatchObject({ recommendation: expect.stringMatching(/accept|defer|reject|needs-human-review/) });
-    expect(snapshot.center.workpad.maintenance).toMatchObject({
+    expect(snapshot.center.workpad.maintenance).toBeUndefined();
+    expect(maintenance).toMatchObject({
       ledgerCount: 1,
       latest: expect.objectContaining({ eventType: "apply" }),
     });
@@ -2609,11 +2613,13 @@ describe("workbench read model", () => {
     const closeouts = await listDemandMemoryCloseouts(memory);
     const watermark = await readMaintenanceReviewWatermark(memory);
     const snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir });
+    const maintenance = await getWorkbenchMaintenanceProjection({ project: project(), path: tempDir });
 
     expect(closeouts).toHaveLength(5);
     expect(watermark?.lastReviewedChangeIds).toEqual(["closeout-1:archived", "closeout-2:archived", "closeout-3:archived", "closeout-4:archived", "closeout-5:applied"]);
     expect(watermark?.lastReviewWindowId).toMatch(/^maintenance-review-/);
-    expect(snapshot.center.workpad.maintenance).toMatchObject({
+    expect(snapshot.center.workpad.maintenance).toBeUndefined();
+    expect(maintenance).toMatchObject({
       closeoutCount: 5,
       status: "reviewed",
       unreviewedTerminalCount: 0,
@@ -2640,6 +2646,41 @@ describe("workbench read model", () => {
     expect(maintenanceContext.includesMaintenanceWindow).toBe(true);
     expect(maintenanceContext.allowedMemoryTier).toBe("maintenance-hot-warm-cold");
     expect(maintenanceContext.includedSources).toContain("hot/4.md");
+  });
+
+  it("returns review-ready when five new closeouts arrive after an older maintenance watermark", async () => {
+    await initHarness(project());
+    const memory = await resolveProjectMemory(project());
+
+    for (let index = 1; index <= 5; index += 1) {
+      await recordDemandMemoryCloseout(memory, {
+        changeId: `old-closeout-${index}`,
+        title: `Old demand ${index}`,
+        terminalKind: "archived",
+        finalResult: `Old demand ${index} completed.`,
+        userDecision: "archived",
+        reusableLessonCandidates: [{ summary: "Keep maintenance review windows evidence-backed." }],
+      });
+    }
+    await maybeRunMaintenanceReviewWindow(memory);
+    const oldWatermark = await readMaintenanceReviewWatermark(memory);
+    expect(oldWatermark).toMatchObject({ lastReviewWindowId: expect.any(String) });
+
+    for (let index = 1; index <= 5; index += 1) {
+      await recordDemandMemoryCloseout(memory, {
+        changeId: `new-closeout-${index}`,
+        title: `New demand ${index}`,
+        terminalKind: "archived",
+        finalResult: `New demand ${index} completed.`,
+        userDecision: "archived",
+      });
+    }
+    await writeFile(join(memory.workbenchRoot, "maintenance", "review-watermark.json"), JSON.stringify(oldWatermark, null, 2), "utf8");
+
+    await expect(getWorkbenchMaintenanceProjection({ project: project(), path: tempDir })).resolves.toMatchObject({
+      status: "review-ready",
+      unreviewedTerminalCount: 5,
+    });
   });
 });
 

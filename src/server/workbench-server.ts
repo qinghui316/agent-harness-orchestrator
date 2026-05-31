@@ -30,9 +30,15 @@ import {
   type WorkbenchWorkflowActionRequest,
 } from "../workbench/chat.js";
 import {
+  getWorkbenchEvidenceProjection,
+  getWorkbenchLandingQueueProjection,
+  getWorkbenchMaintenanceProjection,
+  getWorkbenchRunGraphProjection,
   getWorkbenchSnapshot,
   getWorkbenchStream,
   getWorkbenchTopic,
+  getWorkbenchTranscriptProjection,
+  getWorkbenchWorkpadProjection,
   listWorkbenchApprovals,
   listWorkbenchTopics,
   type WorkbenchApprovalAction,
@@ -229,6 +235,11 @@ async function handleApi(context: WorkbenchServerContext, request: IncomingMessa
     sendJson(response, 200, await getWorkbenchSnapshot(input, { topicId: url.searchParams.get("topic") ?? undefined }));
     return;
   }
+  if (request.method === "GET" && url.pathname.startsWith("/api/workbench/projections/")) {
+    assertDirectProjectInput(input);
+    sendJson(response, 200, await getWorkbenchProjection(input, url.pathname.slice("/api/workbench/projections/".length)));
+    return;
+  }
   if (request.method === "GET" && url.pathname === "/api/workbench/topics") {
     assertDirectProjectInput(input);
     sendJson(response, 200, await listWorkbenchTopics(input));
@@ -286,6 +297,10 @@ async function handleApi(context: WorkbenchServerContext, request: IncomingMessa
 async function handleProjectWorkbenchApi(input: WorkbenchProjectInput, request: IncomingMessage, response: ServerResponse, rest: string, url: URL): Promise<void> {
   if (request.method === "GET" && rest === "snapshot") {
     sendJson(response, 200, await getWorkbenchSnapshot(input, { topicId: url.searchParams.get("topic") ?? undefined }));
+    return;
+  }
+  if (request.method === "GET" && rest.startsWith("projections/")) {
+    sendJson(response, 200, await getWorkbenchProjection(input, rest.slice("projections/".length)));
     return;
   }
   if (request.method === "GET" && rest === "topics") {
@@ -390,6 +405,36 @@ async function handleProjectWorkbenchApi(input: WorkbenchProjectInput, request: 
   sendJson(response, 404, { error: "Not found." });
 }
 
+async function getWorkbenchProjection(input: WorkbenchProjectInput, rest: string): Promise<unknown> {
+  const [kind, encodedChangeId] = rest.split("/");
+  const changeId = encodedChangeId ? decodeURIComponent(encodedChangeId) : undefined;
+  if (kind === "transcript") {
+    if (!changeId) throw badRequest("transcript projection requires changeId.");
+    return getWorkbenchTranscriptProjection(input, changeId);
+  }
+  if (kind === "run-graph") {
+    if (!changeId) throw badRequest("run-graph projection requires changeId.");
+    return getWorkbenchRunGraphProjection(input, changeId);
+  }
+  if (kind === "workpad") {
+    if (!changeId) throw badRequest("workpad projection requires changeId.");
+    return getWorkbenchWorkpadProjection(input, changeId);
+  }
+  if (kind === "evidence") {
+    if (!changeId) throw badRequest("evidence projection requires changeId.");
+    return getWorkbenchEvidenceProjection(input, changeId);
+  }
+  if (kind === "maintenance") return getWorkbenchMaintenanceProjection(input);
+  if (kind === "landing-queue") return getWorkbenchLandingQueueProjection(input);
+  throw badRequest(`Unknown Workbench projection: ${kind ?? ""}`);
+}
+
+function badRequest(message: string): Error {
+  const error = new Error(message);
+  error.name = "BadRequest";
+  return error;
+}
+
 export async function executeWorkbenchAction(input: WorkbenchProjectInput, body: WorkbenchActionRequest): Promise<{ result: unknown; snapshot: unknown }> {
   if (!input.project) throw new Error("Workbench actions require a registered project.");
   if (body.abandon) {
@@ -424,6 +469,7 @@ export async function executeWorkbenchAction(input: WorkbenchProjectInput, body:
       error.name = "Conflict";
       throw error;
     }
+    await assertCurrentWorkflowAction(input, body);
     const result = await runWorkbenchWorkflowAction(input.project, {
       actionType: body.actionType,
       changeId: body.changeId,
@@ -527,6 +573,47 @@ export async function executeWorkbenchAction(input: WorkbenchProjectInput, body:
     }
   }
   return { result, snapshot: await getWorkbenchSnapshot(input) };
+}
+
+const REVALIDATED_WORKFLOW_ACTION_IDS = new Set<string>([
+  "landing-queue.merge-next",
+  "remote-landing.merge",
+  "post-merge.sync-local.run",
+  "post-merge.cleanup-branch.run",
+]);
+
+async function assertCurrentWorkflowAction(input: WorkbenchProjectInput, body: WorkbenchActionRequest): Promise<void> {
+  if (!body.actionType || !REVALIDATED_WORKFLOW_ACTION_IDS.has(body.actionType)) return;
+  const snapshot = await getWorkbenchSnapshot(input, { topicId: body.changeId });
+  const queue = snapshot.right.confirmationQueue;
+  const actions = [queue.primary, ...queue.current, ...queue.otherDemands]
+    .filter((item): item is NonNullable<typeof item> => Boolean(item))
+    .flatMap((item) => item.actions);
+  const matches = actions.some((action) => action.kind === "workflow-action"
+    && action.actionType === body.actionType
+    && action.changeId === body.changeId
+    && sameOptional(action.worktreeId, body.worktreeId)
+    && sameOptionalArray(action.worktreeIds, body.worktreeIds)
+    && sameOptional(action.applyCheckId, body.applyCheckId)
+    && sameOptional(action.landingPackageId, body.landingPackageId)
+    && sameOptional(action.remoteLandingResultId, body.remoteLandingResultId)
+    && sameOptional(action.taskRunId, body.taskRunId)
+    && sameOptionalArray(action.taskIds, body.taskIds));
+  if (!matches) {
+    const error = new Error("Workflow action target is stale or no longer available.");
+    error.name = "Conflict";
+    throw error;
+  }
+}
+
+function sameOptional(left: string | undefined, right: string | undefined): boolean {
+  return (left ?? "") === (right ?? "");
+}
+
+function sameOptionalArray(left: string[] | undefined, right: string[] | undefined): boolean {
+  const l = left ?? [];
+  const r = right ?? [];
+  return l.length === r.length && l.every((value, index) => value === r[index]);
 }
 
 async function recordPostDecisionMaintenance(
@@ -688,6 +775,7 @@ async function sendWorkbenchActionLive(input: WorkbenchProjectInput & { project:
         error.name = "BadRequest";
         throw error;
       }
+      await assertCurrentWorkflowAction(input, body);
       const result = await runWorkbenchWorkflowAction(input.project, {
         actionType: body.actionType,
         changeId: body.changeId,

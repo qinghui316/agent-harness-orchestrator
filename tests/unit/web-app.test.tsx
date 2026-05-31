@@ -366,6 +366,22 @@ describe("Workbench web app", () => {
           headers: { "Content-Type": "application/json" },
         });
       }
+      if (url.includes("/workbench/projections/transcript/")) {
+        return new Response(JSON.stringify(snapshot.center.parentAgentTranscript), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (url.includes("/workbench/projections/run-graph/")) {
+        return new Response(JSON.stringify({
+          ...snapshot.center.agentRunGraph,
+          nodes: snapshot.center.agentRunGraph.nodes.filter((node) => node.lane !== "maintenance"),
+          edges: snapshot.center.agentRunGraph.edges.filter((edge) => edge.kind !== "background-maintenance"),
+        }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
       return new Response(JSON.stringify(url.includes("/stream/") ? stream : snapshot), {
         status: 200,
         headers: { "Content-Type": "application/json" },
@@ -429,10 +445,11 @@ describe("Workbench web app", () => {
     expect(screen.getByText("当前需求：会员折扣计价")).toBeTruthy();
     fireEvent.click(screen.getByRole("tab", { name: "Agent 运行图" }));
     expect(screen.getByRole("tab", { name: "Agent 运行图" }).getAttribute("aria-selected")).toBe("true");
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith("/api/projects/repo/workbench/projections/run-graph/member-discount"));
     expect(screen.getByTestId("agent-run-graph")).toBeTruthy();
     expect(screen.getByTestId("agent-run-node-main-agent")).toBeTruthy();
     expect(screen.getByTestId("agent-run-node-coder-agent")).toBeTruthy();
-    expect(screen.getByTestId("agent-run-node-memory-closeout")).toBeTruthy();
+    expect(screen.queryByTestId("agent-run-node-memory-closeout")).toBeNull();
     fireEvent.click(screen.getByTestId("agent-run-node-coder-agent"));
     expect(screen.getByTestId("agent-run-node-detail")).toBeTruthy();
     expect(screen.getByText("打开原始日志")).toBeTruthy();

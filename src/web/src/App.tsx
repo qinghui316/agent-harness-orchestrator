@@ -475,6 +475,7 @@ type DecisionAction = {
   kind: DecisionActionKind;
   enabled: boolean;
   requiresConfirmation: boolean;
+  changeId?: string;
   approvalId?: string;
   action?: { actionId: string; label: string; command: string; args: string[]; mutates: boolean; requiresConfirmation: boolean };
   actionType?: ThreadStreamAction["actionType"];
@@ -846,6 +847,20 @@ function cleanTranscriptText(value?: string): string {
   return (value ?? "").trim();
 }
 
+function normalizeParentAgentTranscript(value: ParentAgentTranscript | null | undefined): ParentAgentTranscript {
+  const empty = emptyParentAgentTranscript();
+  return {
+    ...empty,
+    ...(value ?? {}),
+    cells: Array.isArray(value?.cells) ? value.cells : [],
+    items: Array.isArray(value?.items) ? value.items : [],
+  };
+}
+
+function isParentAgentTranscriptPayload(value: ParentAgentTranscript | null | undefined): boolean {
+  return Array.isArray(value?.cells) || Array.isArray(value?.items);
+}
+
 export function App(): ReactElement {
   const [appStatus, setAppStatus] = useState<AppStatus | null>(null);
   const [projects, setProjects] = useState<ProjectStatus[]>([]);
@@ -869,6 +884,9 @@ export function App(): ReactElement {
   const [actionRunning, setActionRunning] = useState<string | null>(null);
   const [liveItems, setLiveItems] = useState<ThreadStreamItem[]>([]);
   const [liveTurns, setLiveTurns] = useState<LiveAssistantTurn[]>([]);
+  const [loadedTranscript, setLoadedTranscript] = useState<ParentAgentTranscript | null>(null);
+  const [loadedRunGraph, setLoadedRunGraph] = useState<DemandAgentRunGraph | null>(null);
+  const [projectionVersion, setProjectionVersion] = useState(0);
   const [latestHidden, setLatestHidden] = useState(false);
   const threadScrollRef = useRef<HTMLDivElement | null>(null);
 
@@ -904,6 +922,7 @@ export function App(): ReactElement {
     const query = topic ? `?topic=${encodeURIComponent(topic)}` : "";
     const next = await fetchJson<Snapshot>(`/api/projects/${encodeURIComponent(projectId)}/workbench/snapshot${query}`);
     setSnapshot(next);
+    invalidateProjectionCache();
     setProjectSnapshots((current) => ({ ...current, [projectId]: next }));
     const runId = selectedRun ?? next.center.agentLoop.runs[0]?.id ?? null;
     setSelectedRun(runId);
@@ -989,6 +1008,7 @@ export function App(): ReactElement {
     setExpandedProjects((current) => new Set([...current, projectId]));
     setSelectedRun(null);
     setStream(null);
+    invalidateProjectionCache();
     await refresh(projectId, conversationId);
   }
 
@@ -1012,7 +1032,7 @@ export function App(): ReactElement {
       return;
     }
     if (action.kind === "workflow-action" && action.actionType) {
-        await runWorkflowAction(action.actionType, { taskIds: action.taskIds, taskRunId: action.taskRunId, worktreeId: action.worktreeId ?? context.targetId, worktreeIds: action.worktreeIds, applyCheckId: action.applyCheckId, landingPackageId: action.landingPackageId, remoteLandingResultId: action.remoteLandingResultId });
+        await runWorkflowAction(action.actionType, { changeId: action.changeId ?? context.changeId, taskIds: action.taskIds, taskRunId: action.taskRunId, worktreeId: action.worktreeId ?? context.targetId, worktreeIds: action.worktreeIds, applyCheckId: action.applyCheckId, landingPackageId: action.landingPackageId, remoteLandingResultId: action.remoteLandingResultId });
       return;
     }
     if (action.kind === "abandon") {
@@ -1190,6 +1210,7 @@ export function App(): ReactElement {
       setSnapshot(event.data);
       setLiveItems([]);
       setLiveTurns([]);
+      invalidateProjectionCache();
       return;
     }
     if (event.event === "error") {
@@ -1329,14 +1350,20 @@ export function App(): ReactElement {
     });
   }
 
+  function invalidateProjectionCache(): void {
+    setLoadedTranscript(null);
+    setLoadedRunGraph(null);
+    setProjectionVersion((value) => value + 1);
+  }
+
   const activeTopic = snapshot.center.selectedTopic;
   const activeWorkpad = snapshot.center.workpad ?? emptyWorkpad(activeTopic?.title ?? snapshot.project?.name);
   const activeRun = useMemo(() => snapshot.center.agentLoop.runs.find((run) => run.id === selectedRun) ?? snapshot.center.agentLoop.runs[0], [snapshot, selectedRun]);
   const selectedProjectStatus = useMemo(() => projects.find((item) => item.project?.id === selectedProjectId) ?? null, [projects, selectedProjectId]);
   const runIds = useMemo(() => snapshot.center.agentLoop.runs.map((run) => run.id).join("|"), [snapshot.center.agentLoop.runs]);
   const snapshotTranscript = useMemo(() => {
-    return snapshot.center.parentAgentTranscript ?? emptyParentAgentTranscript();
-  }, [snapshot.center.parentAgentTranscript]);
+    return normalizeParentAgentTranscript(loadedTranscript ?? snapshot.center.parentAgentTranscript);
+  }, [loadedTranscript, snapshot.center.parentAgentTranscript]);
   const activeTranscript = useMemo(() => {
     return mergeLiveItemsIntoTranscript(snapshotTranscript, liveItems, liveTurns);
   }, [snapshotTranscript, liveItems, liveTurns]);
@@ -1353,7 +1380,7 @@ export function App(): ReactElement {
     };
   }, [selectedDecisionContextId, snapshot.right.decisionInspector]);
   const activeConfirmationQueue = snapshot.right.confirmationQueue ?? { primary: null, current: [], otherDemands: [], maintenance: [], history: [] };
-  const activeRunGraph = snapshot.center.agentRunGraph ?? emptyAgentRunGraph();
+  const activeRunGraph = loadedRunGraph ?? snapshot.center.agentRunGraph ?? emptyAgentRunGraph();
   const selectedRunGraphNode = useMemo(() => {
     return activeRunGraph.nodes.find((node) => node.id === selectedRunGraphNodeId) ?? activeRunGraph.nodes[0] ?? null;
   }, [activeRunGraph.nodes, selectedRunGraphNodeId]);
@@ -1361,7 +1388,35 @@ export function App(): ReactElement {
   useEffect(() => {
     setCenterTab("conversation");
     setSelectedRunGraphNodeId(null);
+    setLoadedTranscript(null);
+    setLoadedRunGraph(null);
   }, [activeTopic?.id]);
+
+  useEffect(() => {
+    if (!selectedProjectId || !activeTopic?.id) return;
+    let cancelled = false;
+    fetchJson<ParentAgentTranscript>(`/api/projects/${encodeURIComponent(selectedProjectId)}/workbench/projections/transcript/${encodeURIComponent(activeTopic.id)}`)
+      .then((projection) => {
+        if (!cancelled && isParentAgentTranscriptPayload(projection)) setLoadedTranscript(normalizeParentAgentTranscript(projection));
+      })
+      .catch((cause: unknown) => {
+        if (!cancelled) setError(cause instanceof Error ? cause.message : String(cause));
+      });
+    return () => { cancelled = true; };
+  }, [selectedProjectId, activeTopic?.id, projectionVersion]);
+
+  useEffect(() => {
+    if (!selectedProjectId || !activeTopic?.id || centerTab !== "agentGraph") return;
+    let cancelled = false;
+    fetchJson<DemandAgentRunGraph>(`/api/projects/${encodeURIComponent(selectedProjectId)}/workbench/projections/run-graph/${encodeURIComponent(activeTopic.id)}`)
+      .then((projection) => {
+        if (!cancelled) setLoadedRunGraph(projection);
+      })
+      .catch((cause: unknown) => {
+        if (!cancelled) setError(cause instanceof Error ? cause.message : String(cause));
+      });
+    return () => { cancelled = true; };
+  }, [selectedProjectId, activeTopic?.id, centerTab, projectionVersion]);
 
   useEffect(() => {
     const node = threadScrollRef.current;

@@ -215,6 +215,7 @@ export interface WorkbenchDecisionAction {
   kind: "approval" | "workflow-action" | "feedback" | "evidence" | "abandon" | "none";
   enabled: boolean;
   requiresConfirmation: boolean;
+  changeId?: string;
   approvalId?: string;
   action?: WorkbenchApprovalAction;
   actionType?: ThreadStreamAction["actionType"];
@@ -993,12 +994,7 @@ export async function getWorkbenchSnapshot(input: WorkbenchProjectInput, options
     workpad,
     decisionInspector,
   });
-  const agentRunGraph = buildDemandAgentRunGraph({
-    project: input.project,
-    selectedTopic,
-    workpad,
-    confirmationQueue,
-  });
+  const shellWorkpad = shellWorkbenchWorkpad(workpad);
   const parentAgentTranscript = buildParentAgentTranscript({
     workpad,
     threadItems: selectedTopic?.threadItems ?? [],
@@ -1015,18 +1011,115 @@ export async function getWorkbenchSnapshot(input: WorkbenchProjectInput, options
     },
     center: {
       selectedTopic,
-      workpad,
+      workpad: shellWorkpad,
       thread: { items: selectedTopic?.threadItems ?? [] },
       parentAgentTranscript,
       activeTab: "conversation",
       agentLoop: { runs: selectedTopic?.runs ?? [] },
-      agentRunGraph,
+      agentRunGraph: emptyAgentRunGraph(),
     },
     right: { approvals, decisions, decisionInspector, confirmationQueue },
     roles,
     harnessGaps: gaps,
     warnings,
   };
+}
+
+export async function getWorkbenchTranscriptProjection(input: WorkbenchProjectInput, changeId: string): Promise<ParentAgentTranscript> {
+  const memory = await resolveWorkbenchMemory(input);
+  if (!memory.supported) return emptyParentAgentTranscript();
+  const topics = await listWorkbenchTopicsFromMemory(memory);
+  const selectedTopic = await selectTopicDetail(input.project, memory, topics, changeId);
+  if (!selectedTopic) return emptyParentAgentTranscript();
+  const workpad = await buildWorkbenchProjectionWorkpad(input, memory, topics, selectedTopic);
+  return buildParentAgentTranscript({ workpad, threadItems: selectedTopic.threadItems });
+}
+
+export async function getWorkbenchRunGraphProjection(input: WorkbenchProjectInput, changeId: string): Promise<DemandAgentRunGraph> {
+  const memory = await resolveWorkbenchMemory(input);
+  if (!memory.supported) return emptyAgentRunGraph();
+  const topics = await listWorkbenchTopicsFromMemory(memory);
+  const selectedTopic = await selectTopicDetail(input.project, memory, topics, changeId);
+  if (!selectedTopic) return emptyAgentRunGraph();
+  const approvals = input.project ? await buildApprovalInbox(input.project, memory, topics) : [];
+  const decisions = input.project ? await listWorkbenchDecisions(memory, changeId) : [];
+  const workpads = await buildMultiWorkpadSummaries(memory, topics, approvals, selectedTopic.id);
+  const workpad = await buildWorkbenchWorkpad({
+    project: input.project,
+    memory,
+    topics,
+    workpads,
+    selectedTopic,
+    approvals,
+    decisions,
+    warnings: [],
+    gaps: buildHarnessGaps(),
+  });
+  const decisionInspector = buildDecisionInspector({ selectedTopic, workpad, approvals, decisions });
+  const confirmationQueue = await buildConfirmationQueue({
+    project: input.project,
+    memory,
+    selectedTopic,
+    workpad,
+    decisionInspector,
+  });
+  return buildDemandAgentRunGraph({ project: input.project, selectedTopic, workpad, confirmationQueue });
+}
+
+export async function getWorkbenchWorkpadProjection(input: WorkbenchProjectInput, changeId: string): Promise<WorkbenchWorkpad> {
+  const memory = await resolveWorkbenchMemory(input);
+  if (!memory.supported) return buildDiagnosticWorkpad(input.project?.name ?? "未选择项目", ["Durable memory is unavailable."], buildHarnessGaps());
+  const topics = await listWorkbenchTopicsFromMemory(memory);
+  const selectedTopic = await selectTopicDetail(input.project, memory, topics, changeId);
+  return buildWorkbenchProjectionWorkpad(input, memory, topics, selectedTopic);
+}
+
+export async function getWorkbenchEvidenceProjection(input: WorkbenchProjectInput, changeId: string): Promise<{
+  changeId: string;
+  evidence: WorkpadEvidenceSummary[];
+  graphEvidenceRefs: DemandAgentRunEvidenceRef[];
+}> {
+  const workpad = await getWorkbenchWorkpadProjection(input, changeId);
+  const graph = await getWorkbenchRunGraphProjection(input, changeId);
+  return {
+    changeId,
+    evidence: workpad.evidence,
+    graphEvidenceRefs: graph.nodes.flatMap((node) => node.evidenceRefs),
+  };
+}
+
+export async function getWorkbenchMaintenanceProjection(input: WorkbenchProjectInput): Promise<WorkbenchMaintenanceSummary | null> {
+  const memory = await resolveWorkbenchMemory(input);
+  if (!memory.supported) return null;
+  return buildMaintenanceSummary(memory);
+}
+
+export async function getWorkbenchLandingQueueProjection(input: WorkbenchProjectInput): Promise<LandingQueueSnapshot | null> {
+  const memory = await resolveWorkbenchMemory(input);
+  if (!memory.supported) return null;
+  return latestLandingQueueSnapshot(memory).catch(() => null);
+}
+
+async function buildWorkbenchProjectionWorkpad(
+  input: WorkbenchProjectInput,
+  memory: ResolvedMemory,
+  topics: WorkbenchTopicSummary[],
+  selectedTopic: WorkbenchTopicDetail | null,
+): Promise<WorkbenchWorkpad> {
+  const approvals = input.project ? await buildApprovalInbox(input.project, memory, topics) : [];
+  const decisions = input.project ? await listWorkbenchDecisions(memory, selectedTopic?.id) : [];
+  const workpads = await buildMultiWorkpadSummaries(memory, topics, approvals, selectedTopic?.id);
+  return buildWorkbenchWorkpad({
+    project: input.project,
+    memory,
+    topics,
+    workpads,
+    selectedTopic,
+    approvals,
+    decisions,
+    warnings: [],
+    gaps: buildHarnessGaps(),
+  });
 }
 
 export async function listWorkbenchTopics(input: WorkbenchProjectInput): Promise<WorkbenchTopicSummary[]> {
@@ -1304,6 +1397,22 @@ function emptyAgentRunGraph(): DemandAgentRunGraph {
   };
 }
 
+function emptyParentAgentTranscript(): ParentAgentTranscript {
+  return {
+    title: "需求对话",
+    cells: [],
+    items: [],
+    emptyMessage: "打开对话后会加载运行时 transcript。",
+  };
+}
+
+function shellWorkbenchWorkpad(workpad: WorkbenchWorkpad): WorkbenchWorkpad {
+  return {
+    ...workpad,
+    maintenance: undefined,
+  };
+}
+
 function demandAgentRunGraphLanes(): DemandAgentRunGraphLane[] {
   return [
     { id: "main", label: "主 agent", description: "用户交互入口和调度解释。" },
@@ -1369,13 +1478,12 @@ function buildDemandAgentRunGraph(input: {
   connectRolePath(edges, roleNodeIds);
   addResultReviewGraphNode(nodes, edges, targetBase, workpad.resultReview, roleNodeIds.at(-1));
   addConfirmationGraphNodes(nodes, edges, targetBase, confirmationQueue);
-  addMaintenanceGraphNodes(nodes, edges, targetBase, workpad.maintenance);
 
   return {
     conversationId: selectedTopic.id,
     changeId: selectedTopic.id,
     title: selectedTopic.title,
-    summary: `${nodes.size} 个 agent/tool 节点；${workpad.maintenance?.status && workpad.maintenance.status !== "idle" ? "包含后台维护节点。" : "后台维护空闲。"}`,
+    summary: `${nodes.size} 个 agent/tool 节点；项目维护不进入默认选中需求运行图。`,
     lanes: demandAgentRunGraphLanes(),
     nodes: [...nodes.values()],
     edges: dedupeGraphEdges(edges),
@@ -1613,69 +1721,6 @@ function confirmationNodeFromItem(targetBase: DemandAgentRunGraphNode["target"],
     evidenceRefs: item.evidenceRefs.map((ref): DemandAgentRunEvidenceRef => ({ label: "确认证据", ref, kind: "artifact" })),
     attempts: [],
   };
-}
-
-function addMaintenanceGraphNodes(
-  nodes: Map<string, DemandAgentRunGraphNode>,
-  edges: DemandAgentRunGraphEdge[],
-  targetBase: DemandAgentRunGraphNode["target"],
-  maintenance: WorkbenchMaintenanceSummary | undefined,
-): void {
-  if (!maintenance || maintenance.status === "idle") return;
-  if (maintenance.closeoutCount > 0) {
-    addGraphNode(nodes, {
-      id: "maintenance:memory-closeout",
-      kind: "memory-closeout",
-      lane: "maintenance",
-      label: "记忆 closeout",
-      status: "completed",
-      summary: maintenance.latest?.summary ?? "已记录终态需求记忆。",
-      reason: "后台维护把终态需求写入 append-only evidence ledger。",
-      target: { ...targetBase, maintenanceRunId: maintenance.latest?.id },
-      inputSummary: "终态需求、用户决定和证据引用。",
-      outputSummary: maintenance.note,
-      evidenceRefs: maintenance.latest ? [{ label: "维护记录", ref: maintenance.latest.id, kind: "maintenance" }] : [],
-      attempts: [],
-    });
-    addGraphEdge(edges, "main-agent", "maintenance:memory-closeout", "background-maintenance", "记录需求记忆");
-  }
-  if (maintenance.unreviewedTerminalCount > 0 || maintenance.status === "review-ready" || maintenance.status === "reviewed") {
-    const docStatus = maintenance.status === "review-ready" ? "queued" : maintenance.status === "reviewed" ? "completed" : "idle";
-    addGraphNode(nodes, {
-      id: "maintenance:documentation-agent",
-      kind: "documentation-agent",
-      lane: "maintenance",
-      label: "documentation-agent",
-      status: docStatus,
-      summary: `待维护审查 ${maintenance.unreviewedTerminalCount} 个终态需求。`,
-      reason: "后台检查文档漂移候选，但不会静默修改 canonical docs。",
-      target: { ...targetBase, maintenanceRunId: maintenance.latestReviewWindowId },
-      evidenceRefs: [],
-      attempts: [],
-    });
-    addGraphEdge(edges, "maintenance:memory-closeout", "maintenance:documentation-agent", "background-maintenance", "检查文档漂移");
-  }
-  if (maintenance.latestReviewWindowId) {
-    for (const [id, kind, label] of [
-      ["maintenance:evolution-scorer", "evolution-scorer", "evolution-scorer"],
-      ["maintenance:evolution-reviewer", "evolution-reviewer", "evolution-reviewer"],
-    ] as const) {
-      addGraphNode(nodes, {
-        id,
-        kind,
-        lane: "maintenance",
-        label,
-        status: "completed",
-        summary: `维护窗口 ${maintenance.latestReviewWindowId} 已完成评分/审查。`,
-        reason: "后台维护只产生候选、评分和审查，不进入当前需求确认队列。",
-        target: { ...targetBase, maintenanceRunId: maintenance.latestReviewWindowId },
-        evidenceRefs: [{ label: "维护窗口", ref: maintenance.latestReviewWindowId, kind: "maintenance" }],
-        attempts: [],
-      });
-    }
-    addGraphEdge(edges, "maintenance:documentation-agent", "maintenance:evolution-scorer", "background-maintenance", "评分候选");
-    addGraphEdge(edges, "maintenance:evolution-scorer", "maintenance:evolution-reviewer", "background-maintenance", "审查候选");
-  }
 }
 
 function connectRolePath(edges: DemandAgentRunGraphEdge[], nodeIds: string[]): void {
@@ -1976,10 +2021,10 @@ async function buildMaintenanceSummary(memory: ResolvedMemory): Promise<Workbenc
   const reviewed = new Set(watermark?.lastReviewedChangeIds ?? []);
   const unreviewed = closeouts.filter((closeout) => !reviewed.has(`${closeout.changeId}:${closeout.terminalKind}`)).length;
   const latestCloseout = latestCloseoutEntry(closeouts);
-  const status: WorkbenchMaintenanceSummary["status"] = watermark?.lastReviewWindowId
-    ? "reviewed"
-    : unreviewed >= 5
-      ? "review-ready"
+  const status: WorkbenchMaintenanceSummary["status"] = unreviewed >= 5
+    ? "review-ready"
+    : watermark?.lastReviewWindowId
+      ? "reviewed"
       : entries.length > 0 || closeouts.length > 0
         ? "collecting"
         : "idle";
@@ -2977,10 +3022,24 @@ async function buildConfirmationQueue(input: {
   }
 
   queue.maintenance = [];
-  queue.current = dedupeConfirmationItems(queue.current.filter((item) => item.kind !== "maintenance"));
-  queue.otherDemands = dedupeConfirmationItems(queue.otherDemands);
+  queue.current = dedupeConfirmationItems(queue.current.filter((item) => item.kind !== "maintenance").map(scopeConfirmationQueueItemActions));
+  queue.otherDemands = dedupeConfirmationItems(queue.otherDemands.map(scopeConfirmationQueueItemActions));
+  queue.history = dedupeConfirmationItems(queue.history.map(scopeConfirmationQueueItemActions));
   queue.primary = queue.current.find((item) => item.primary) ?? queue.current[0] ?? null;
   return queue;
+}
+
+function scopeConfirmationQueueItemActions(item: WorkbenchConfirmationQueueItem): WorkbenchConfirmationQueueItem {
+  return {
+    ...item,
+    actions: item.actions.map((action) => ({
+      ...action,
+      changeId: action.changeId ?? item.changeId,
+      worktreeId: action.worktreeId ?? item.worktreeId,
+      applyCheckId: action.applyCheckId ?? item.applyCheckId,
+      landingPackageId: action.landingPackageId ?? item.landingPackageId,
+    })),
+  };
 }
 
 function workpadNextActionToConfirmationItems(
@@ -3006,6 +3065,7 @@ function workpadNextActionToConfirmationItems(
       id: `workflow:planning.confirm-execution:${selectedTopic.id}`,
       label: action.label,
       kind: "workflow-action",
+      changeId: selectedTopic.id,
       actionType: "planning.confirm-execution",
       enabled: true,
       requiresConfirmation: true,
@@ -3748,12 +3808,13 @@ function sameIntegrationTargets(left: IntegrationCheckCandidate["targets"], righ
 
 function integrationCheckQueueItem(project: ManagedProject, check: IntegrationCheckRecord, selectedChangeId: string | undefined): WorkbenchConfirmationQueueItem {
   const selected = Boolean(selectedChangeId && check.resultTargets.some((target) => target.changeId === selectedChangeId));
+  const itemChangeId = selected ? selectedChangeId : check.resultTargets[0]?.changeId;
   return {
     id: `apply-check:${check.id}`,
     kind: "integration-apply",
     projectId: project.id,
-    conversationId: selectedChangeId,
-    changeId: selectedChangeId,
+    conversationId: itemChangeId,
+    changeId: itemChangeId,
     applyCheckId: check.id,
     summary: check.summary,
     whyNeedsConfirmation: "兼容性检查已通过，是否应用这些结果需要你确认。",
@@ -3793,12 +3854,13 @@ function integrationCheckQueueItem(project: ManagedProject, check: IntegrationCh
 
 function integrationCheckNeedsActionQueueItem(project: ManagedProject, check: IntegrationCheckRecord, selectedChangeId: string | undefined): WorkbenchConfirmationQueueItem {
   const selected = Boolean(selectedChangeId && check.resultTargets.some((target) => target.changeId === selectedChangeId));
+  const itemChangeId = selected ? selectedChangeId : check.resultTargets[0]?.changeId;
   return {
     id: `apply-check-needs-action:${check.id}`,
     kind: "request-changes",
     projectId: project.id,
-    conversationId: selectedChangeId,
-    changeId: selectedChangeId,
+    conversationId: itemChangeId,
+    changeId: itemChangeId,
     applyCheckId: check.id,
     summary: check.summary,
     whyNeedsConfirmation: check.status === "stale-result"
@@ -3886,6 +3948,7 @@ function decisionActionsForResultReview(topic: WorkbenchTopicDetail, review: Wor
       id: `apply:${worktreeId}`,
       label: "应用到项目",
       kind: "approval",
+      changeId: topic.id,
       action: approvalAction("result.apply", "应用到项目", "result", ["apply", "", topic.id, worktreeId], true),
       enabled: true,
       requiresConfirmation: true,
@@ -3895,7 +3958,9 @@ function decisionActionsForResultReview(topic: WorkbenchTopicDetail, review: Wor
       id: `refresh-rework:${worktreeId}`,
       label: "重新处理这个结果",
       kind: "workflow-action",
+      changeId: topic.id,
       actionType: "result.refresh-rework",
+      worktreeId,
       enabled: true,
       requiresConfirmation: true,
     });
@@ -3904,7 +3969,9 @@ function decisionActionsForResultReview(topic: WorkbenchTopicDetail, review: Wor
       id: `refresh-status:${worktreeId}`,
       label: "刷新状态",
       kind: "workflow-action",
+      changeId: topic.id,
       actionType: "result.refresh-status",
+      worktreeId,
       enabled: true,
       requiresConfirmation: false,
     });
@@ -3913,7 +3980,9 @@ function decisionActionsForResultReview(topic: WorkbenchTopicDetail, review: Wor
       id: `revalidate:${worktreeId}`,
       label: "重新验证",
       kind: "workflow-action",
+      changeId: topic.id,
       actionType: "result.revalidate",
+      worktreeId,
       enabled: true,
       requiresConfirmation: true,
     });
@@ -3922,7 +3991,9 @@ function decisionActionsForResultReview(topic: WorkbenchTopicDetail, review: Wor
       id: `reaudit:${worktreeId}`,
       label: "重新审查",
       kind: "workflow-action",
+      changeId: topic.id,
       actionType: "result.reaudit",
+      worktreeId,
       enabled: true,
       requiresConfirmation: true,
     });
@@ -3931,6 +4002,7 @@ function decisionActionsForResultReview(topic: WorkbenchTopicDetail, review: Wor
       id: `feedback:${worktreeId}`,
       label: "要求修改",
       kind: "feedback",
+      changeId: topic.id,
       enabled: true,
       requiresConfirmation: false,
     });
@@ -3940,6 +4012,7 @@ function decisionActionsForResultReview(topic: WorkbenchTopicDetail, review: Wor
     id: `discard:${worktreeId}`,
     label: "放弃这次结果",
     kind: "approval",
+    changeId: topic.id,
     action: approvalAction("worktree.discard", "放弃这次结果", "worktree", ["discard", "", topic.id, worktreeId], true),
     enabled: true,
     requiresConfirmation: true,
@@ -4183,6 +4256,7 @@ function decisionActionsForApproval(approval: WorkbenchApprovalItem, kind: Workb
       id: `accept:${approval.id}`,
       label: actionLabelForDecision(kind, approval.action.label),
       kind: "approval",
+      changeId: approval.changeId,
       approvalId: approval.id,
       action: { ...approval.action, label: actionLabelForDecision(kind, approval.action.label) },
       enabled: true,
@@ -4195,6 +4269,7 @@ function decisionActionsForApproval(approval: WorkbenchApprovalItem, kind: Workb
       id: `feedback:${approval.id}`,
       label: kind === "audit-approved" ? "要求复审" : "要求修改",
       kind: "feedback",
+      changeId: approval.changeId,
       approvalId: approval.id,
       action: approval.action,
       enabled: Boolean(approval.action),
@@ -4207,6 +4282,7 @@ function decisionActionsForApproval(approval: WorkbenchApprovalItem, kind: Workb
       id: `discard:${approval.targetId}`,
       label: "放弃这次结果",
       kind: "approval",
+      changeId: approval.changeId,
       approvalId: approval.id,
       action: approvalAction("worktree.discard", "放弃这次结果", "worktree", ["discard", approval.changeId ?? "", approval.targetId], true),
       enabled: true,
@@ -4219,6 +4295,7 @@ function decisionActionsForApproval(approval: WorkbenchApprovalItem, kind: Workb
       id: `abandon:${approval.id}`,
       label: "放弃",
       kind: "abandon",
+      changeId: approval.changeId,
       enabled: Boolean(approval.changeId),
       requiresConfirmation: true,
       disabledReason: approval.changeId ? undefined : "该决策缺少需求上下文，不能结束需求。",
