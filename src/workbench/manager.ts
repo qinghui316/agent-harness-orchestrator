@@ -33,7 +33,7 @@ import { isActiveTaskRunStatus, listTaskRuns, listWorkerLeases } from "../task-r
 import { listTaskQueueItems, listTaskQueues } from "../task-queue/manager.js";
 import { listValidationResults, summarizeValidation } from "../validation/artifacts.js";
 import { listWorktreeStatuses, listWorktreesForChange } from "../worktree/manager.js";
-import { readTopicThreadLog, type AssistantTurnActivity, type AssistantTurnBlock, type OrchestrationPlanCard, type TopicThreadEntry } from "./chat.js";
+import { readLatestDecompositionPlan, readTopicThreadLog, type AssistantTurnActivity, type AssistantTurnBlock, type DecompositionPlan, type DecompositionRecommendation, type OrchestrationPlanCard, type TopicThreadEntry } from "./chat.js";
 import type { ClarificationRequest, WorkbenchIntakeIteration, WorkbenchIntakeScan } from "./intake.js";
 import { buildParentAgentTranscript, type ParentAgentTranscript } from "./parent-agent-transcript.js";
 import { WorkbenchStore, type StoredDecisionRecord } from "./store.js";
@@ -125,7 +125,7 @@ export interface WorkbenchThreadEvent {
 }
 
 export interface ThreadStreamAction {
-  actionType: "change.spec.propose" | "change.plan.propose" | "planning.generate" | "planning.revise" | "planning.confirm-execution" | "orchestrator.evaluate" | "orchestrator.pump" | "demand.worker.enqueue" | "demand.worker.claim" | "demand.worker.start-next" | "demand.worker.start-available" | "demand.worker.reconcile" | "demand.worker.release" | "role.pipeline.start" | "role.pipeline.stop" | "role.pipeline.continue" | "role.pipeline.reconcile" | "conversation.steer" | "conversation.interrupt" | "conversation.continue" | "result.refresh-rework" | "result.revalidate" | "result.reaudit" | "result.refresh-status" | "apply-check.run" | "landing.prepare" | "landing.review" | "landing.refresh" | "landing-queue.prepare" | "landing-queue.refresh" | "landing-queue.merge-next" | "landing-queue.skip" | "landing-queue.remove-stale" | "pr-draft.prepare" | "pr-draft.create" | "pr-draft.refresh" | "pr-feedback.refresh" | "pr-feedback.evaluate" | "pr-feedback.rework" | "pr-feedback.update-draft" | "pr-review.prepare" | "pr-review.submit" | "pr-review.refresh" | "pr-review.feedback-refresh" | "pr-review.feedback-evaluate" | "pr-review.rework" | "pr-review.reply-prepare" | "pr-review.reply-submit" | "pr-review.thread-resolve" | "remote-landing.prepare" | "remote-landing.merge" | "remote-landing.refresh" | "post-merge.prepare" | "post-merge.refresh" | "post-merge.sync-local.prepare" | "post-merge.sync-local.run" | "post-merge.cleanup-branch.prepare" | "post-merge.cleanup-branch.run" | "code.run" | "task.run.start" | "task.run.retry" | "task.queue.start" | "task.queue.reconcile" | "intake.scan" | "intake.reanalyze" | "clarification.answer" | "clarification.skip";
+  actionType: "change.spec.propose" | "change.plan.propose" | "planning.generate" | "planning.revise" | "planning.confirm-execution" | "planning.decompose" | "planning.decomposition.confirm" | "orchestrator.evaluate" | "orchestrator.pump" | "demand.worker.enqueue" | "demand.worker.claim" | "demand.worker.start-next" | "demand.worker.start-available" | "demand.worker.reconcile" | "demand.worker.release" | "role.pipeline.start" | "role.pipeline.stop" | "role.pipeline.continue" | "role.pipeline.reconcile" | "conversation.steer" | "conversation.interrupt" | "conversation.continue" | "result.refresh-rework" | "result.revalidate" | "result.reaudit" | "result.refresh-status" | "apply-check.run" | "landing.prepare" | "landing.review" | "landing.refresh" | "landing-queue.prepare" | "landing-queue.refresh" | "landing-queue.merge-next" | "landing-queue.skip" | "landing-queue.remove-stale" | "pr-draft.prepare" | "pr-draft.create" | "pr-draft.refresh" | "pr-feedback.refresh" | "pr-feedback.evaluate" | "pr-feedback.rework" | "pr-feedback.update-draft" | "pr-review.prepare" | "pr-review.submit" | "pr-review.refresh" | "pr-review.feedback-refresh" | "pr-review.feedback-evaluate" | "pr-review.rework" | "pr-review.reply-prepare" | "pr-review.reply-submit" | "pr-review.thread-resolve" | "remote-landing.prepare" | "remote-landing.merge" | "remote-landing.refresh" | "post-merge.prepare" | "post-merge.refresh" | "post-merge.sync-local.prepare" | "post-merge.sync-local.run" | "post-merge.cleanup-branch.prepare" | "post-merge.cleanup-branch.run" | "code.run" | "task.run.start" | "task.run.retry" | "task.queue.start" | "task.queue.reconcile" | "intake.scan" | "intake.reanalyze" | "clarification.answer" | "clarification.skip";
   label: string;
   enabled: boolean;
   requiresConfirmation: boolean;
@@ -219,6 +219,8 @@ export interface WorkbenchDecisionAction {
   approvalId?: string;
   action?: WorkbenchApprovalAction;
   actionType?: ThreadStreamAction["actionType"];
+  planningBundleId?: string;
+  decompositionPlanId?: string;
   taskIds?: string[];
   taskRunId?: string;
   worktreeId?: string;
@@ -352,6 +354,8 @@ export interface WorkpadNextAction {
   requiresConfirmation: boolean;
   actionType?: ThreadStreamAction["actionType"];
   approvalId?: string;
+  planningBundleId?: string;
+  decompositionPlanId?: string;
   taskIds?: string[];
   taskRunId?: string;
   disabledReason?: string;
@@ -543,6 +547,7 @@ export interface WorkbenchWorkpad {
   postArchiveEvolutionCandidate?: WorkbenchPostArchiveEvolutionCandidate;
   planningDraft?: WorkbenchPlanningDraft;
   planningArtifactBundle?: WorkbenchPlanningArtifactBundle;
+  decompositionPlan?: WorkbenchDecompositionPlanSummary;
   rolePipeline?: WorkbenchRolePipelineSummary;
   resultReview?: WorkbenchResultReview;
   maintenance?: WorkbenchMaintenanceSummary;
@@ -576,6 +581,22 @@ export interface WorkbenchPlanningDraft {
 
 export interface WorkbenchPlanningArtifactBundle extends WorkbenchPlanningDraft {
   status: "draft" | "confirmed";
+}
+
+export interface WorkbenchDecompositionPlanSummary {
+  id: string;
+  changeId: string;
+  status: DecompositionPlan["status"];
+  recommendation: DecompositionRecommendation;
+  rationale: string;
+  unitCount: number;
+  dependencyCount: number;
+  conflictScopeCount: number;
+  riskSummary: string;
+  openQuestionCount: number;
+  artifact?: string;
+  markdownArtifact?: string;
+  updatedAt: string;
 }
 
 export interface WorkbenchRoleRunSummary {
@@ -1314,6 +1335,7 @@ async function buildWorkbenchWorkpad(input: {
   const taskGraph = buildTaskGraph(selectedTopic, { specReady, planReady, tasksReady }, taskQueue);
   const codingPackages = buildCodingPackages(selectedTopic, taskGraph);
   const planningBundle = await readLatestPlanningBundleProjection(memory, selectedTopic.path);
+  const decompositionPlan = await readLatestDecompositionPlanSummary(memory, selectedTopic.path);
   const agentTasks = await buildAgentTaskSummaries(memory, selectedTopic.id);
   const rolePipeline = buildRolePipelineSummary(selectedTopic, planningBundle, agentTasks);
   const resultReview = await buildResultReview(project, memory, selectedTopic);
@@ -1345,6 +1367,7 @@ async function buildWorkbenchWorkpad(input: {
     postArchiveEvolutionCandidate: selectedTopic.state === "archive" ? buildPostArchiveEvolutionCandidate(selectedTopic) : undefined,
     planningDraft: planningBundle?.status === "draft" ? planningBundle : undefined,
     planningArtifactBundle: planningBundle ?? undefined,
+    decompositionPlan: decompositionPlan ?? undefined,
     rolePipeline,
     resultReview,
     maintenance,
@@ -1381,7 +1404,7 @@ async function buildWorkbenchWorkpad(input: {
       ...workpadMissingWarnings(specReady, planReady, tasksReady, selectedTopic),
       ...gaps.filter((gap) => gap.status !== "available").map((gap) => gap.summary),
     ],
-    nextAction: buildWorkpadNextAction(selectedTopic, topicApprovals, { specReady, planReady, tasksReady }, intake, taskQueue, taskGraph),
+    nextAction: buildWorkpadNextAction(selectedTopic, topicApprovals, { specReady, planReady, tasksReady }, intake, taskQueue, taskGraph, planningBundle),
     background: buildWorkpadBackground(workpads, selectedTopic.id),
     memoryIsolation: buildWorkpadMemoryIsolation(memory, selectedTopic, workpads),
   };
@@ -1956,6 +1979,35 @@ async function readLatestPlanningBundleProjection(memory: ResolvedMemory, change
   const parsed = planningBundleProjectionSchema.safeParse(JSON.parse(content));
   if (!parsed.success) return null;
   return parsed.data;
+}
+
+async function readLatestDecompositionPlanSummary(memory: ResolvedMemory, changePath: string): Promise<WorkbenchDecompositionPlanSummary | null> {
+  const plan = await readLatestDecompositionPlan(memory, changePath).catch(() => null);
+  if (!plan) return null;
+  return {
+    id: plan.id,
+    changeId: plan.changeId,
+    status: plan.status,
+    recommendation: plan.recommendation,
+    rationale: plan.rationale,
+    unitCount: plan.units.length,
+    dependencyCount: plan.dependencies.length,
+    conflictScopeCount: plan.conflictScopes.length,
+    riskSummary: plan.riskSummary,
+    openQuestionCount: plan.openQuestions.length,
+    artifact: plan.artifact,
+    markdownArtifact: plan.markdownArtifact,
+    updatedAt: plan.updatedAt,
+  };
+}
+
+export async function getWorkbenchDecompositionPlanProjection(input: WorkbenchProjectInput, changeId: string): Promise<DecompositionPlan | null> {
+  const memory = await resolveWorkbenchMemory(input);
+  if (!memory.supported) return null;
+  const topics = await listWorkbenchTopicsFromMemory(memory);
+  const topic = topics.find((item) => item.id === changeId || item.name === changeId);
+  if (!topic) return null;
+  return readLatestDecompositionPlan(memory, topic.path).catch(() => null);
 }
 
 function buildRolePipelineSummary(
@@ -2804,6 +2856,7 @@ function buildWorkpadNextAction(
   intake?: WorkpadIntakeSummary,
   queue?: WorkbenchTaskQueueSummary,
   taskGraph?: WorkbenchTaskGraph,
+  planningBundle?: WorkbenchPlanningArtifactBundle | null,
 ): WorkpadNextAction {
   if (topic.state !== "active") {
     return {
@@ -2848,10 +2901,15 @@ function buildWorkpadNextAction(
   if (!readiness.specReady && (intake?.pendingClarifications.length || intake?.openQuestions.length)) {
     return workflowNextAction("intake.reanalyze", "继续澄清需求", "回答需要确认的问题，AHO 会更新当前理解。", false);
   }
+  if (planningBundle?.status === "draft") {
+    const next = workflowNextAction("planning.confirm-execution", "确认执行", "确认当前方案并启动 coder-agent、validator、auditor 角色流水线。");
+    return { ...next, planningBundleId: planningBundle.id };
+  }
   if (!readiness.specReady || !readiness.planReady || !readiness.tasksReady) {
     return workflowNextAction("planning.generate", "生成方案草案", "在主对话里生成 proposal/spec/design/tasks 草案；确认执行后才写入内部 artifacts。");
   }
-  return workflowNextAction("planning.confirm-execution", "确认执行", "确认当前方案并启动 coder-agent、validator、auditor 角色流水线。");
+  const next = workflowNextAction("planning.confirm-execution", "确认执行", "确认当前方案并启动 coder-agent、validator、auditor 角色流水线。");
+  return { ...next, enabled: false, disabledReason: "需要先生成可确认的方案草案。" };
 }
 
 function buildQueueBlockedNextAction(queue?: WorkbenchTaskQueueSummary, taskGraph?: WorkbenchTaskGraph): WorkpadNextAction | null {
@@ -2955,6 +3013,7 @@ async function buildConfirmationQueue(input: {
   const queue = emptyConfirmationQueue();
   const currentItems = [
     ...workpadNextActionToConfirmationItems(input.project, input.selectedTopic, input.workpad),
+    ...decompositionPlanToConfirmationItems(input.project, input.selectedTopic, input.workpad),
     ...decisionContextToConfirmationItems(input.decisionInspector.primary, true),
     ...input.decisionInspector.related.flatMap((context) => decisionContextToConfirmationItems(context, false)),
   ];
@@ -3048,8 +3107,9 @@ function workpadNextActionToConfirmationItems(
   workpad: WorkbenchWorkpad,
 ): WorkbenchConfirmationQueueItem[] {
   const action = workpad.nextAction;
-  if (!selectedTopic || !action.enabled || action.kind !== "workflow-action" || !action.requiresConfirmation || !action.actionType) return [];
-  if (action.actionType !== "planning.confirm-execution") return [];
+  if (!selectedTopic) return [];
+  const planningBundleId = workpad.planningArtifactBundle?.status === "draft" ? workpad.planningArtifactBundle.id : undefined;
+  if (!planningBundleId) return [];
   return [{
     id: `confirm:planning:${selectedTopic.id}`,
     kind: "planning-confirm",
@@ -3058,21 +3118,65 @@ function workpadNextActionToConfirmationItems(
     changeId: selectedTopic.id,
     summary: "方案已经准备好，可以进入实现、验证和审查。",
     whyNeedsConfirmation: "需要你确认当前方案进入执行。",
-    confirmEffect: action.description || "确认后，主 agent 会通过受控委派启动后续角色执行。",
+    confirmEffect: action.actionType === "planning.confirm-execution" ? action.description : "确认后，主 agent 会通过受控委派启动后续角色执行。",
     riskSummary: "执行只会在 AHO-owned worktree 中产出结果；应用到项目仍需要之后单独确认。",
     evidenceRefs: workpad.planningArtifactBundle?.artifact ? [workpad.planningArtifactBundle.artifact] : [],
     actions: [{
       id: `workflow:planning.confirm-execution:${selectedTopic.id}`,
-      label: action.label,
+      label: action.actionType === "planning.confirm-execution" ? action.label : "确认执行",
       kind: "workflow-action",
       changeId: selectedTopic.id,
       actionType: "planning.confirm-execution",
+      planningBundleId,
       enabled: true,
       requiresConfirmation: true,
     }],
     primary: true,
     status: "pending",
   }];
+}
+
+function decompositionPlanToConfirmationItems(
+  project: ManagedProject | null,
+  selectedTopic: WorkbenchTopicDetail | null,
+  workpad: WorkbenchWorkpad,
+): WorkbenchConfirmationQueueItem[] {
+  const plan = workpad.decompositionPlan;
+  if (!selectedTopic || !plan || plan.status !== "draft") return [];
+  return [{
+    id: `confirm:decomposition:${selectedTopic.id}:${plan.id}`,
+    kind: "planning-confirm",
+    projectId: project?.id ?? null,
+    conversationId: selectedTopic.id,
+    changeId: selectedTopic.id,
+    summary: `拆分建议：${decompositionRecommendationSummary(plan.recommendation)}。`,
+    whyNeedsConfirmation: "需要你确认这个拆分方向。确认只记录 proposal 接受，不会启动执行。",
+    confirmEffect: "记录 DecompositionPlan 已确认；不会创建子 Change、TaskRun、AgentTask 或启动 Code。",
+    riskSummary: plan.riskSummary,
+    evidenceRefs: plan.artifact ? [plan.artifact] : [],
+    actions: [{
+      id: `workflow:planning.decomposition.confirm:${selectedTopic.id}:${plan.id}`,
+      label: "确认拆分方向",
+      kind: "workflow-action",
+      changeId: selectedTopic.id,
+      actionType: "planning.decomposition.confirm",
+      decompositionPlanId: plan.id,
+      enabled: true,
+      requiresConfirmation: true,
+    }],
+    primary: false,
+    status: "pending",
+  }];
+}
+
+function decompositionRecommendationSummary(recommendation: DecompositionRecommendation): string {
+  switch (recommendation) {
+    case "single-change": return "保持单 Change";
+    case "taskgraph-sequential": return "TaskGraph 顺序候选";
+    case "taskgraph-parallel-candidate": return "TaskGraph 并行候选";
+    case "multi-change-candidate": return "多 Change 候选";
+    case "needs-clarification": return "先澄清";
+  }
 }
 
 function landingCandidateQueueItem(project: ManagedProject, candidate: LandingCandidate, selectedChangeId: string | undefined): WorkbenchConfirmationQueueItem {
@@ -5265,6 +5369,13 @@ async function buildPlanCardActions(memory: ResolvedMemory, topic: WorkbenchTopi
       enabled: topic.state === "active" && specReady && planReady && !tasksReady,
       requiresConfirmation: true,
       disabledReason: !specReady ? "先生成并接受需求说明" : !planReady ? "先生成执行方案" : tasksReady ? "任务清单已存在" : topic.state === "active" ? undefined : "归档或暂停的需求对话不能执行动作",
+    },
+    {
+      actionType: "planning.decompose",
+      label: "拆分评估",
+      enabled: topic.state === "active" && specReady && planReady && tasksReady,
+      requiresConfirmation: true,
+      disabledReason: !specReady ? "先生成并接受需求说明" : !planReady ? "先生成执行方案" : !tasksReady ? "先生成任务清单" : topic.state === "active" ? undefined : "归档或暂停的需求对话不能执行动作",
     },
     {
       actionType: "code.run",

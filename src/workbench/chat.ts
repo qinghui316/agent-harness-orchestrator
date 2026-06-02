@@ -28,7 +28,7 @@ import { startCodeRun } from "../code/manager.js";
 import { buildCodexReadonlyArgv, buildCodexReadonlyResumeArgv, detectCodexCapabilities } from "../codex/capabilities.js";
 import { detectCodexAppServerCapability, getActiveCodexAppServerTurn, runCodexAppServerTurn, type CodexAppServerNotification } from "../codex/app-server.js";
 import { createCodexJsonlStreamParser, extractCodexSessionIdFromJsonl, extractFinalMessageFromCodexJsonl, truncateReadablePreview, type CodexJsonlStreamEvent, type CodexReadableEvent } from "../codex/jsonl.js";
-import { createConcurrentChange } from "../change/manager.js";
+import { createConcurrentChange, getChangeStatusForChange } from "../change/manager.js";
 import { acceptPlanProposal, acceptSpecProposal, startPlanProposalRun, startSpecProposalRun } from "../change/proposals.js";
 import { getActiveChanges } from "../ecl/index.js";
 import { buildAcMap } from "../ecl/anchors.js";
@@ -76,7 +76,7 @@ import {
   prepareRemoteBranchCleanup,
   syncLocalAfterMerge,
 } from "../post-merge/manager.js";
-import { finishTaskRunFromWorkflowResult, markTaskRunStarted, reconcileTaskRuns, retryTaskRun, startTaskRun } from "../task-run/manager.js";
+import { finishTaskRunFromWorkflowResult, listTaskRuns, markTaskRunStarted, reconcileTaskRuns, retryTaskRun, startTaskRun } from "../task-run/manager.js";
 import {
   failQueuedTaskItem,
   getNextQueuedTaskQueueItem,
@@ -525,6 +525,8 @@ export type WorkbenchWorkflowActionType =
   | "planning.generate"
   | "planning.revise"
   | "planning.confirm-execution"
+  | "planning.decompose"
+  | "planning.decomposition.confirm"
   | "orchestrator.evaluate"
   | "demand.worker.enqueue"
   | "demand.worker.claim"
@@ -593,6 +595,8 @@ export interface WorkbenchWorkflowActionRequest {
   changeId?: string;
   prompt?: string;
   proposalId?: string;
+  planningBundleId?: string;
+  decompositionPlanId?: string;
   worktreeId?: string;
   taskIds?: string[];
   worktreeIds?: string[];
@@ -626,6 +630,54 @@ export interface PlanningArtifactBundle {
   tasksMd: string;
   acMapCandidate?: unknown;
   artifact: string;
+  updatedAt: string;
+}
+
+export type DecompositionRecommendation =
+  | "single-change"
+  | "taskgraph-sequential"
+  | "taskgraph-parallel-candidate"
+  | "multi-change-candidate"
+  | "needs-clarification";
+
+export interface WorkflowRecoveryKeyInputs {
+  changeId: string;
+  planningBundleId?: string;
+  acceptedArtifactRefs: string[];
+  contextScope: "selected-demand";
+  sourceRevision?: string;
+  worktreeBase?: string;
+  rolePolicyProfile: string;
+  notes: string[];
+}
+
+export interface DecompositionUnit {
+  id: string;
+  title: string;
+  summary: string;
+  taskIds: string[];
+  acIds: string[];
+  scopeHints: string[];
+  dependsOn: string[];
+  recommendedRoleId: string;
+}
+
+export interface DecompositionPlan {
+  id: string;
+  changeId: string;
+  status: "draft" | "confirmed" | "superseded" | "rejected";
+  recommendation: DecompositionRecommendation;
+  rationale: string;
+  units: DecompositionUnit[];
+  dependencies: Array<{ from: string; to: string; kind: "blocks" | "synthesizes" | "conflicts" }>;
+  conflictScopes: string[];
+  riskSummary: string;
+  openQuestions: string[];
+  artifactRefs: string[];
+  recoveryKeyInputs: WorkflowRecoveryKeyInputs;
+  artifact: string;
+  markdownArtifact: string;
+  createdAt: string;
   updatedAt: string;
 }
 
@@ -855,6 +907,10 @@ async function executeWorkflowAction(project: ManagedProject, changeId: string, 
       return generatePlanningDraft(project, changeId, request.prompt, live, request.actionType === "planning.revise");
     case "planning.confirm-execution":
       return confirmPlanningAndStartPipeline(project, changeId, request, live);
+    case "planning.decompose":
+      return generateDecompositionPlan(project, changeId, request.prompt, live);
+    case "planning.decomposition.confirm":
+      return confirmDecompositionPlan(project, changeId, request, live);
     case "orchestrator.evaluate":
       return evaluateDemandOrchestrator(project, changeId);
     case "demand.worker.enqueue":
@@ -1038,7 +1094,6 @@ function assertWorkflowActionScope(request: WorkbenchWorkflowActionRequest): voi
       return;
     case "task.run.start":
     case "task.run.retry":
-    case "code.run":
       requireOne("taskIds or taskRunId", [request.taskIds, request.taskRunId]);
       return;
     case "task.run.reconcile":
@@ -1086,6 +1141,37 @@ async function auditHighImpactWorkflowAction(project: ManagedProject, changeId: 
 }
 
 async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, changeId: string, request: WorkbenchWorkflowActionRequest): Promise<void> {
+  if (request.actionType === "planning.confirm-execution") {
+    const active = await getActiveChanges(memory);
+    const target = active.find((item) => item.name === changeId);
+    if (!target) throw new Error(`planning.confirm-execution target is stale or missing active Change: ${changeId}.`);
+    if (!request.planningBundleId) throw new Error("planning.confirm-execution requires planningBundleId.");
+    const bundle = await readLatestPlanningBundle(memory, target.path);
+    if (bundle.id !== request.planningBundleId || bundle.status !== "draft" || !existsSync(join(memory.memoryRoot, target.path, "planning", "latest-bundle.json"))) {
+      throw new Error("planning.confirm-execution target is stale or no longer confirmable.");
+    }
+  }
+  if (request.actionType === "planning.decomposition.confirm") {
+    const active = await getActiveChanges(memory);
+    const target = active.find((item) => item.name === changeId);
+    if (!target) throw new Error(`planning.decomposition.confirm target is stale or missing active Change: ${changeId}.`);
+    if (!request.decompositionPlanId) throw new Error("planning.decomposition.confirm requires decompositionPlanId.");
+    const plan = await readLatestDecompositionPlan(memory, target.path);
+    if (plan.id !== request.decompositionPlanId || plan.status !== "draft") {
+      throw new Error("planning.decomposition.confirm target is stale or no longer confirmable.");
+    }
+  }
+  if (request.actionType === "code.run" && request.taskIds?.length) {
+    assertKnownTaskIds(await getChangeStatusForChange(memory, changeId), request.taskIds, "code.run");
+  }
+  if (request.actionType === "task.run.start") {
+    assertKnownTaskIds(await getChangeStatusForChange(memory, changeId), [requireSingleTaskId(request.taskIds)], "task.run.start");
+  }
+  if (request.actionType === "task.run.retry") {
+    const taskRunId = requireTaskRunId(request.taskRunId);
+    const runs = await listTaskRuns(memory, changeId);
+    if (!runs.some((run) => run.id === taskRunId)) throw new Error(`task.run.retry target is stale or not scoped to Change ${changeId}.`);
+  }
   if (request.actionType === "landing-queue.merge-next") {
     const snapshot = await latestLandingQueueSnapshot(memory);
     const candidate = snapshot?.candidates.find((item) => item.landingPackageId === request.landingPackageId);
@@ -1101,6 +1187,8 @@ function workflowActionTargetId(request: WorkbenchWorkflowActionRequest, changeI
     ?? request.applyCheckId
     ?? request.worktreeId
     ?? request.worktreeIds?.join(",")
+    ?? request.decompositionPlanId
+    ?? request.planningBundleId
     ?? request.proposalId
     ?? request.taskRunId
     ?? request.taskIds?.join(",")
@@ -1110,6 +1198,9 @@ function workflowActionTargetId(request: WorkbenchWorkflowActionRequest, changeI
 function workflowActionScopePayload(request: WorkbenchWorkflowActionRequest, changeId: string): Record<string, unknown> {
   return {
     changeId,
+    proposalId: request.proposalId,
+    planningBundleId: request.planningBundleId,
+    decompositionPlanId: request.decompositionPlanId,
     worktreeId: request.worktreeId,
     worktreeIds: request.worktreeIds,
     applyCheckId: request.applyCheckId,
@@ -1257,6 +1348,8 @@ async function confirmPlanningAndStartPipeline(
   const { memory, changePath } = await resolveTopic(project, changeId);
   assertWritableMemory(memory, "Confirm planning execution");
   const bundle = await readLatestPlanningBundle(memory, changePath);
+  if (!request.planningBundleId) throw new Error("planning.confirm-execution requires planningBundleId.");
+  if (bundle.id !== request.planningBundleId || bundle.status !== "draft") throw new Error("planning.confirm-execution target is stale or no longer confirmable.");
   const changeDir = join(memory.memoryRoot, changePath);
   await writeFile(join(changeDir, "spec.md"), bundle.specMd, "utf8");
   await writeFile(join(changeDir, "plan.md"), bundle.planMd, "utf8");
@@ -1313,6 +1406,106 @@ async function confirmPlanningAndStartPipeline(
     summary: queued.resumed ? "该需求已经在本地处理队列中。" : "该需求已加入本地处理队列。",
   });
   return pumpDemandWorkersForAction(project, request.prompt ?? renderPipelinePromptFromBundle(confirmed), live, changeId);
+}
+
+async function generateDecompositionPlan(
+  project: ManagedProject,
+  changeId: string,
+  prompt: string | undefined,
+  live: WorkbenchLiveSink | undefined,
+): Promise<{ plan: DecompositionPlan }> {
+  const { memory, changePath } = await resolveTopic(project, changeId);
+  assertWritableMemory(memory, "Generate decomposition plan");
+  const bundle = await readLatestPlanningBundle(memory, changePath).catch(() => null);
+  const thread = await readThreadLog(memory, changePath);
+  const plan = buildDeterministicDecompositionPlan(memory, changePath, changeId, bundle, thread, prompt);
+  await writeDecompositionPlan(memory, changePath, plan);
+  const planCard: OrchestrationPlanCard = {
+    title: "拆分评估",
+    summary: decompositionRecommendationLabel(plan.recommendation),
+    steps: [
+      { label: "建议", description: plan.rationale },
+      { label: "执行单元", description: plan.units.map((unit) => `${unit.id} ${unit.title}`).join("；") || "无需拆分。" },
+      { label: "恢复边界", description: plan.recoveryKeyInputs.notes.join("；") },
+    ],
+    warnings: [...plan.openQuestions, plan.riskSummary].filter(Boolean),
+  };
+  const assistant = await appendTopicThreadEntry(project, changeId, {
+    type: "assistant.message",
+    status: "decomposition-draft",
+    text: renderDecompositionPlanSummary(plan),
+    artifact: plan.artifact,
+    planCard,
+    blocks: [
+      {
+        id: `${plan.id}:plan-card`,
+        runId: plan.id,
+        sequence: 1,
+        kind: "plan-card",
+        timestamp: new Date().toISOString(),
+        source: "aho",
+        title: "拆分评估",
+        planCard,
+        artifactRef: plan.artifact,
+      },
+    ],
+  });
+  live?.emit({ event: "assistant.message", data: assistant });
+  emitAssistantEvent(live, {
+    runId: plan.id,
+    kind: "plan-update",
+    phase: "decomposition-draft",
+    title: "DecompositionPlan drafted",
+    summary: "Main-agent proposal was recorded for user review. It does not start execution.",
+    artifactRef: plan.artifact,
+  });
+  await recordWorkbenchDecision(project, {
+    id: `decomposition:${plan.id}`,
+    changeId,
+    decisionType: "planning.decompose",
+    status: "completed",
+    label: "拆分评估已生成",
+    summary: "Generated a proposal-only DecompositionPlan. No execution artifacts were created.",
+    targetId: plan.id,
+    runId: null,
+    artifact: plan.artifact,
+    actionId: "planning.decompose",
+    payload: { plan },
+    completedAt: new Date().toISOString(),
+  });
+  return { plan };
+}
+
+async function confirmDecompositionPlan(
+  project: ManagedProject,
+  changeId: string,
+  request: WorkbenchWorkflowActionRequest,
+  live: WorkbenchLiveSink | undefined,
+): Promise<{ plan: DecompositionPlan; executionStarted: false }> {
+  const { memory, changePath } = await resolveTopic(project, changeId);
+  assertWritableMemory(memory, "Confirm decomposition plan");
+  if (!request.decompositionPlanId) throw new Error("planning.decomposition.confirm requires decompositionPlanId.");
+  const plan = await readLatestDecompositionPlan(memory, changePath);
+  if (plan.id !== request.decompositionPlanId || plan.status !== "draft") {
+    throw new Error("planning.decomposition.confirm target is stale or no longer confirmable.");
+  }
+  const confirmed: DecompositionPlan = { ...plan, status: "confirmed", updatedAt: new Date().toISOString() };
+  await writeDecompositionPlan(memory, changePath, confirmed);
+  await appendTopicThreadEntry(project, changeId, {
+    type: "assistant.message",
+    status: "decomposition-confirmed",
+    text: "已确认拆分方向：本阶段只记录 DecompositionPlan 接受，不会创建子 Change、TaskRun、AgentTask 或启动执行。",
+    artifact: confirmed.artifact,
+  });
+  emitAssistantEvent(live, {
+    runId: confirmed.id,
+    kind: "status",
+    phase: "decomposition-confirmed",
+    title: "DecompositionPlan confirmed",
+    summary: "Proposal acceptance was recorded without starting execution.",
+    artifactRef: confirmed.artifact,
+  });
+  return { plan: confirmed, executionStarted: false };
 }
 
 async function enqueueDemandWorkerForAction(project: ManagedProject, changeId: string): Promise<unknown> {
@@ -2714,6 +2907,14 @@ function requireTaskRunId(taskRunId: string | undefined): string {
   throw new Error("task.run.retry requires taskRunId.");
 }
 
+function assertKnownTaskIds(status: Awaited<ReturnType<typeof getChangeStatusForChange>>, taskIds: string[], actionType: string): void {
+  const known = new Set(status.acMap?.tasks.map((task) => task.id) ?? []);
+  const unique = Array.from(new Set(taskIds.map((taskId) => taskId.trim()).filter(Boolean)));
+  if (unique.length === 0) throw new Error(`${actionType} requires taskIds.`);
+  const missing = unique.filter((taskId) => !known.has(taskId));
+  if (missing.length > 0) throw new Error(`${actionType} target taskIds are stale or not scoped to Change ${status.change?.id ?? "unknown"}: ${missing.join(", ")}.`);
+}
+
 async function createDelegatedForegroundTask(
   memory: ResolvedMemory,
   request: AgentTaskRequest,
@@ -3392,7 +3593,7 @@ function previewFromAppServerParams(params: Record<string, unknown>): string | u
 }
 
 async function buildChatContext(project: ManagedProject, memory: ResolvedMemory, changeId: string, userMessage: string): Promise<string> {
-  const status = await import("../change/manager.js").then((module) => module.getChangeStatus(project));
+  const status = await getChangeStatusForChange(project, changeId);
   const { changePath } = await resolveTopic(project, changeId);
   const recentMessages = (await readThreadLog(memory, changePath)).slice(-12);
   return [
@@ -3414,7 +3615,7 @@ async function buildChatContext(project: ManagedProject, memory: ResolvedMemory,
 }
 
 async function buildOrchestratorContext(project: ManagedProject, memory: ResolvedMemory, changePath: string, changeId: string, userMessage: string): Promise<string> {
-  const status = await import("../change/manager.js").then((module) => module.getChangeStatus(project));
+  const status = await getChangeStatusForChange(project, changeId);
   const recentMessages = (await readThreadLog(memory, changePath)).slice(-16);
   return [
     "# AHO Workbench Orchestrator Context",
@@ -3654,6 +3855,188 @@ async function readLatestPlanningBundle(memory: ResolvedMemory, changePath: stri
     updatedAt: z.string(),
   });
   return readRequiredJsonFile(join(memory.memoryRoot, changePath, "planning", "latest-bundle.json"), schema);
+}
+
+const decompositionPlanSchema: z.ZodType<DecompositionPlan> = z.object({
+  id: z.string(),
+  changeId: z.string(),
+  status: z.enum(["draft", "confirmed", "superseded", "rejected"]),
+  recommendation: z.enum(["single-change", "taskgraph-sequential", "taskgraph-parallel-candidate", "multi-change-candidate", "needs-clarification"]),
+  rationale: z.string(),
+  units: z.array(z.object({
+    id: z.string(),
+    title: z.string(),
+    summary: z.string(),
+    taskIds: z.array(z.string()),
+    acIds: z.array(z.string()),
+    scopeHints: z.array(z.string()),
+    dependsOn: z.array(z.string()),
+    recommendedRoleId: z.string(),
+  })),
+  dependencies: z.array(z.object({ from: z.string(), to: z.string(), kind: z.enum(["blocks", "synthesizes", "conflicts"]) })),
+  conflictScopes: z.array(z.string()),
+  riskSummary: z.string(),
+  openQuestions: z.array(z.string()),
+  artifactRefs: z.array(z.string()),
+  recoveryKeyInputs: z.object({
+    changeId: z.string(),
+    planningBundleId: z.string().optional(),
+    acceptedArtifactRefs: z.array(z.string()),
+    contextScope: z.literal("selected-demand"),
+    sourceRevision: z.string().optional(),
+    worktreeBase: z.string().optional(),
+    rolePolicyProfile: z.string(),
+    notes: z.array(z.string()),
+  }),
+  artifact: z.string(),
+  markdownArtifact: z.string(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+
+function buildDeterministicDecompositionPlan(
+  memory: ResolvedMemory,
+  changePath: string,
+  changeId: string,
+  bundle: PlanningArtifactBundle | null,
+  thread: TopicThreadEntry[],
+  prompt: string | undefined,
+): DecompositionPlan {
+  const now = new Date().toISOString();
+  const id = `decomposition-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+  const threadText = thread.map((entry) => entry.text ?? "").join("\n");
+  const signalText = [bundle?.goal, bundle?.design, prompt, threadText].filter(Boolean).join("\n");
+  const tasks = bundle?.tasks.length ? bundle.tasks : [{ id: "T-001", title: bundle?.goal ?? "Clarify and implement the accepted demand.", acIds: [] }];
+  const asksClarification = (bundle?.openQuestions.length ?? 0) > 0 || /不明确|澄清|clarify/i.test(signalText);
+  const parallelSignal = /并行|parallel|多个模块|多模块|independent|独立/.test(signalText);
+  const multiChangeSignal = /多个 change|multi-change|多个需求|拆成多个/.test(signalText);
+  const recommendation: DecompositionRecommendation = asksClarification
+    ? "needs-clarification"
+    : multiChangeSignal
+      ? "multi-change-candidate"
+      : tasks.length > 1
+        ? parallelSignal ? "taskgraph-parallel-candidate" : "taskgraph-sequential"
+        : "single-change";
+  const units: DecompositionUnit[] = tasks.map((task, index) => ({
+    id: `DU-${String(index + 1).padStart(3, "0")}`,
+    title: task.title,
+    summary: recommendation === "single-change" ? "Keep this demand as one Coding Work Package." : "Candidate scoped execution unit from accepted planning tasks.",
+    taskIds: [task.id],
+    acIds: task.acIds,
+    scopeHints: ["selected-demand", "AHO-owned worktree only"],
+    dependsOn: index === 0 ? [] : [`DU-${String(index).padStart(3, "0")}`],
+    recommendedRoleId: "coder-agent",
+  }));
+  const dependencies = units.slice(1).map((unit, index) => ({ from: units[index]?.id ?? units[0]?.id ?? unit.id, to: unit.id, kind: "blocks" as const }));
+  const changeDir = join(memory.memoryRoot, changePath);
+  const artifact = displayArtifactPath(memory, join(changeDir, "planning", "decomposition-plan.json"));
+  const markdownArtifact = displayArtifactPath(memory, join(changeDir, "planning", "decomposition-plan.md"));
+  return {
+    id,
+    changeId,
+    status: "draft",
+    recommendation,
+    rationale: rationaleForRecommendation(recommendation, units.length),
+    units,
+    dependencies,
+    conflictScopes: recommendation === "single-change" ? [] : ["source overlap must be checked before parallel execution"],
+    riskSummary: "This is a proposal only. User confirmation does not start execution, create child Changes, or trust recovered work.",
+    openQuestions: bundle?.openQuestions ?? [],
+    artifactRefs: [bundle?.artifact].filter((item): item is string => Boolean(item)),
+    recoveryKeyInputs: {
+      changeId,
+      planningBundleId: bundle?.id,
+      acceptedArtifactRefs: [bundle?.artifact].filter((item): item is string => Boolean(item)),
+      contextScope: "selected-demand",
+      rolePolicyProfile: "main-agent proposal; worker roles remain leaves",
+      notes: [
+        "Recovery may reuse only scoped execution progress in later phases.",
+        "Change, context, source, policy, and accepted artifact hashes must still match.",
+      ],
+    },
+    artifact,
+    markdownArtifact,
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
+async function writeDecompositionPlan(memory: ResolvedMemory, changePath: string, plan: DecompositionPlan): Promise<void> {
+  const dir = join(memory.memoryRoot, changePath, "planning");
+  await mkdir(dir, { recursive: true });
+  await writeJsonFile(join(dir, "decomposition-plan.json"), plan);
+  await writeFile(join(dir, "decomposition-plan.md"), renderDecompositionPlanMarkdown(plan), "utf8");
+}
+
+export async function readLatestDecompositionPlan(memory: ResolvedMemory, changePath: string): Promise<DecompositionPlan> {
+  return readRequiredJsonFile(join(memory.memoryRoot, changePath, "planning", "decomposition-plan.json"), decompositionPlanSchema);
+}
+
+function rationaleForRecommendation(recommendation: DecompositionRecommendation, unitCount: number): string {
+  switch (recommendation) {
+    case "needs-clarification": return "The current demand still has open questions, so execution should wait for user clarification.";
+    case "multi-change-candidate": return "The demand appears broad enough to consider multiple child Changes, but this phase records only the proposal.";
+    case "taskgraph-parallel-candidate": return "Multiple execution units may be independent, but conflict scopes and synthesis still need Harness checks.";
+    case "taskgraph-sequential": return `The demand maps to ${unitCount} ordered TaskGraph candidate units.`;
+    case "single-change": return "The accepted scope fits one Change and one Coding Work Package.";
+  }
+}
+
+function decompositionRecommendationLabel(recommendation: DecompositionRecommendation): string {
+  switch (recommendation) {
+    case "needs-clarification": return "需要先澄清";
+    case "multi-change-candidate": return "可考虑拆成多个 Change";
+    case "taskgraph-parallel-candidate": return "可考虑 TaskGraph 并行候选";
+    case "taskgraph-sequential": return "建议 TaskGraph 顺序执行";
+    case "single-change": return "建议保持单 Change";
+  }
+}
+
+function renderDecompositionPlanSummary(plan: DecompositionPlan): string {
+  return [
+    `拆分建议：${decompositionRecommendationLabel(plan.recommendation)}`,
+    "",
+    plan.rationale,
+    "",
+    `执行单元：${plan.units.map((unit) => `${unit.id} ${unit.title}`).join("；") || "无需拆分"}`,
+    "",
+    "确认这个拆分方向只会记录 proposal 接受，不会启动执行。",
+  ].join("\n");
+}
+
+function renderDecompositionPlanMarkdown(plan: DecompositionPlan): string {
+  return [
+    `# DecompositionPlan ${plan.id}`,
+    "",
+    `Status: ${plan.status}`,
+    `Recommendation: ${plan.recommendation}`,
+    "",
+    "## Rationale",
+    "",
+    plan.rationale,
+    "",
+    "## Units",
+    "",
+    ...plan.units.map((unit) => `- ${unit.id}: ${unit.title} (${unit.taskIds.join(", ") || "no task ids"})`),
+    "",
+    "## Dependencies",
+    "",
+    ...(plan.dependencies.length ? plan.dependencies.map((item) => `- ${item.from} -> ${item.to}: ${item.kind}`) : ["- None."]),
+    "",
+    "## Conflict Scopes",
+    "",
+    ...(plan.conflictScopes.length ? plan.conflictScopes.map((item) => `- ${item}`) : ["- None identified."]),
+    "",
+    "## Recovery Key Inputs",
+    "",
+    ...plan.recoveryKeyInputs.notes.map((item) => `- ${item}`),
+    "",
+    "## Boundary",
+    "",
+    "- Proposal only; not executable workflow truth.",
+    "- Confirmation does not create child Changes, TaskRuns, AgentTasks, or code runs.",
+    "",
+  ].join("\n");
 }
 
 function extractConstraintCandidates(prompt: string): string[] {
@@ -4039,6 +4422,8 @@ function labelForAction(actionType: string): string {
     case "planning.generate": return "Planning draft generated";
     case "planning.revise": return "Planning draft revised";
     case "planning.confirm-execution": return "Planning confirmed and demand enqueued";
+    case "planning.decompose": return "DecompositionPlan drafted";
+    case "planning.decomposition.confirm": return "DecompositionPlan confirmed";
     case "orchestrator.evaluate": return "Main orchestrator evaluated";
     case "orchestrator.pump": return "Main orchestrator pumped available demands";
     case "demand.worker.enqueue": return "Demand enqueued";

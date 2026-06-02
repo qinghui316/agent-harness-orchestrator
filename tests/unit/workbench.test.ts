@@ -11,7 +11,7 @@ import { startLocalCommandRun } from "../../src/run/manager.js";
 import { executeWorkbenchAction } from "../../src/server/workbench-server.js";
 import { appendTopicThreadEntry, createWorkbenchTopic, postTopicMessage } from "../../src/workbench/chat.js";
 import { answerClarification, reanalyzeIntake, runIntakeScan } from "../../src/workbench/intake.js";
-import { getWorkbenchMaintenanceProjection, getWorkbenchRunGraphProjection, getWorkbenchSnapshot, getWorkbenchStream, getWorkbenchTopic, listWorkbenchApprovals, listWorkbenchRoles, listWorkbenchTopics } from "../../src/workbench/manager.js";
+import { getWorkbenchDecompositionPlanProjection, getWorkbenchMaintenanceProjection, getWorkbenchRunGraphProjection, getWorkbenchSnapshot, getWorkbenchStream, getWorkbenchTopic, listWorkbenchApprovals, listWorkbenchRoles, listWorkbenchTopics } from "../../src/workbench/manager.js";
 import { WorkbenchStore } from "../../src/workbench/store.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import { collectWorktreeDiff } from "../../src/audit/diff.js";
@@ -208,15 +208,16 @@ process.exit(1);
   return { command: process.execPath, args: [script], stateFile };
 }
 
-async function writePlanningBundleFixture(changeId: string, goal = "Implement pricing rule"): Promise<void> {
+async function writePlanningBundleFixture(changeId: string, goal = "Implement pricing rule", suffix = changeId): Promise<string> {
   const changeDir = join(tempDir, "harness", "changes", "active", changeId);
   const planningDir = join(changeDir, "planning");
   await mkdir(planningDir, { recursive: true });
+  const id = `bundle-${suffix}`;
   const specMd = `# Spec\n\n## Goal\n\n${goal}\n\n## Acceptance Criteria\n\n- AC-001: Implement and test the requested behavior.\n`;
   const planMd = "# Plan\n\n1. Update implementation.\n2. Add tests.\n";
   const tasksMd = "- [ ] T-001: Implement requested behavior\n  - Covers: AC-001\n";
   await writeFile(join(planningDir, "latest-bundle.json"), JSON.stringify({
-    id: `bundle-${changeId}`,
+    id,
     status: "draft",
     goal,
     constraints: ["Do not apply source root without confirmation."],
@@ -232,6 +233,8 @@ async function writePlanningBundleFixture(changeId: string, goal = "Implement pr
     artifact: `harness/changes/active/${changeId}/planning/latest-bundle.md`,
     updatedAt: new Date().toISOString(),
   }, null, 2), "utf8");
+  await writeFile(join(planningDir, "latest-bundle.md"), `# Planning Draft ${id}\n\n${goal}\n`, "utf8");
+  return id;
 }
 
 describe("workbench read model", () => {
@@ -868,7 +871,42 @@ describe("workbench read model", () => {
       confirm: true,
     });
 
-    expect(result.result).toMatchObject({ status: "failed", error: expect.stringContaining("Unknown task id") });
+    expect(result.result).toMatchObject({ status: "failed", error: expect.stringContaining("target taskIds are stale") });
+  });
+
+  it("fails closed when task-scoped Workbench actions miss required targets", async () => {
+    await initHarness(project());
+    await createChange(project(), { title: "Missing Task Scope" });
+    await writeAcceptedSpecAndTasks("missing-task-scope");
+
+    const missingStart = await executeWorkbenchAction({ project: project(), path: tempDir }, {
+      actionType: "task.run.start",
+      changeId: "missing-task-scope",
+      confirm: true,
+    });
+    expect(missingStart.result).toMatchObject({ status: "failed", error: expect.stringContaining("requires taskIds") });
+
+    const missingRetry = await executeWorkbenchAction({ project: project(), path: tempDir }, {
+      actionType: "task.run.retry",
+      changeId: "missing-task-scope",
+      confirm: true,
+    });
+    expect(missingRetry.result).toMatchObject({ status: "failed", error: expect.stringContaining("requires taskIds or taskRunId") });
+  });
+
+  it("rejects forged task ids on change-level code.run when task scope is explicit", async () => {
+    await initHarness(project());
+    await createChange(project(), { title: "Code Scope" });
+    await writeAcceptedSpecAndTasks("code-scope");
+
+    const result = await executeWorkbenchAction({ project: project(), path: tempDir }, {
+      actionType: "code.run",
+      changeId: "code-scope",
+      taskIds: ["T-999"],
+      confirm: true,
+    });
+
+    expect(result.result).toMatchObject({ status: "failed", error: expect.stringContaining("target taskIds are stale") });
   });
 
   it("projects latest TaskRun and WorkerLease state on the matching TaskGraph node", async () => {
@@ -1176,6 +1214,7 @@ describe("workbench read model", () => {
       body: "Run the accepted plan.",
     });
     await writeAcceptedSpecAndTasks(topic.changeId);
+    const planningBundleId = await writePlanningBundleFixture(topic.changeId);
 
     const snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: topic.changeId });
 
@@ -1189,8 +1228,72 @@ describe("workbench read model", () => {
       summary: expect.stringContaining("方案已经准备好"),
     });
     expect(snapshot.right.confirmationQueue.primary?.actions).toEqual(expect.arrayContaining([
-      expect.objectContaining({ actionType: "planning.confirm-execution", label: "确认执行" }),
+      expect.objectContaining({ actionType: "planning.confirm-execution", label: "确认执行", planningBundleId }),
     ]));
+  });
+
+  it("rejects stale planning bundle confirmation", async () => {
+    await initHarness(project());
+    const topic = await createWorkbenchTopic(project(), {
+      title: "Stale Planning",
+      body: "Confirm only the visible planning bundle.",
+    });
+    await writeAcceptedSpecAndTasks(topic.changeId);
+    const staleBundleId = await writePlanningBundleFixture(topic.changeId, "First bundle", "first");
+    await writePlanningBundleFixture(topic.changeId, "Second bundle", "second");
+
+    await expect(executeWorkbenchAction({ project: project(), path: tempDir }, {
+      actionType: "planning.confirm-execution",
+      changeId: topic.changeId,
+      planningBundleId: staleBundleId,
+      confirm: true,
+    })).rejects.toThrow("stale or no longer available");
+  });
+
+  it("generates and confirms a DecompositionPlan without creating execution artifacts", async () => {
+    await initHarness(project());
+    const topic = await createWorkbenchTopic(project(), {
+      title: "Decompose Demand",
+      body: "Assess whether this should be split before execution.",
+    });
+    await writeAcceptedSpecAndTasks(topic.changeId);
+    await writePlanningBundleFixture(topic.changeId, "Implement one scoped demand.");
+
+    const draft = await executeWorkbenchAction({ project: project(), path: tempDir }, {
+      actionType: "planning.decompose",
+      changeId: topic.changeId,
+      confirm: true,
+    });
+    const planId = ((draft.result as { result?: { plan?: { id?: string } } }).result?.plan?.id);
+    expect(planId).toBeTruthy();
+
+    const snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: topic.changeId });
+    expect(snapshot.center.workpad.decompositionPlan).toMatchObject({
+      id: planId,
+      status: "draft",
+      recommendation: "single-change",
+    });
+    expect(snapshot.right.confirmationQueue.current).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: "planning-confirm",
+        actions: expect.arrayContaining([
+          expect.objectContaining({ actionType: "planning.decomposition.confirm", decompositionPlanId: planId }),
+        ]),
+      }),
+    ]));
+    const fullPlan = await getWorkbenchDecompositionPlanProjection({ project: project(), path: tempDir }, topic.changeId);
+    expect(fullPlan).toMatchObject({ id: planId, status: "draft", units: expect.any(Array) });
+
+    const confirmed = await executeWorkbenchAction({ project: project(), path: tempDir }, {
+      actionType: "planning.decomposition.confirm",
+      changeId: topic.changeId,
+      decompositionPlanId: planId,
+      confirm: true,
+    });
+    expect(confirmed.result).toMatchObject({ status: "completed", result: expect.objectContaining({ executionStarted: false }) });
+    const memory = await resolveProjectMemory(project());
+    expect(await listAgentTasks(memory, topic.changeId)).toHaveLength(0);
+    expect((await getWorkbenchDecompositionPlanProjection({ project: project(), path: tempDir }, topic.changeId))?.status).toBe("confirmed");
   });
 
   it("records supplemental input as pending feedback while a demand run is still running", async () => {
@@ -2477,7 +2580,7 @@ describe("workbench read model", () => {
     const active = await createWorkbenchTopic(project(), { title: "Queued Demand", body: "Implement later." });
     const running = await createWorkbenchTopic(project(), { title: "Running Demand", body: "Already running." });
     const runningTwo = await createWorkbenchTopic(project(), { title: "Running Demand 2", body: "Already running too." });
-    await writePlanningBundleFixture(active.changeId);
+    const planningBundleId = await writePlanningBundleFixture(active.changeId);
     const memory = await resolveProjectMemory(project());
     await enqueueDemandWorker(memory, { changeId: running.changeId });
     const claimed = await claimNextDemandWorker(memory, { changeId: running.changeId });
@@ -2491,6 +2594,7 @@ describe("workbench read model", () => {
     const result = await executeWorkbenchAction({ project: project(), path: tempDir }, {
       actionType: "planning.confirm-execution",
       changeId: active.changeId,
+      planningBundleId,
       confirm: true,
     });
 
@@ -2512,7 +2616,7 @@ describe("workbench read model", () => {
     const older = await createWorkbenchTopic(project(), { title: "Older Demand", body: "Run first." });
     const olderTwo = await createWorkbenchTopic(project(), { title: "Older Demand 2", body: "Run second." });
     const active = await createWorkbenchTopic(project(), { title: "Current Demand", body: "Run after earlier demands." });
-    await writePlanningBundleFixture(active.changeId);
+    const planningBundleId = await writePlanningBundleFixture(active.changeId);
     const memory = await resolveProjectMemory(project());
     await enqueueDemandWorker(memory, { changeId: older.changeId });
     await enqueueDemandWorker(memory, { changeId: olderTwo.changeId });
@@ -2520,6 +2624,7 @@ describe("workbench read model", () => {
     const result = await executeWorkbenchAction({ project: project(), path: tempDir }, {
       actionType: "planning.confirm-execution",
       changeId: active.changeId,
+      planningBundleId,
       confirm: true,
       prompt: "current-demand-prompt",
     });

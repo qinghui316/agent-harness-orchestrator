@@ -31,6 +31,7 @@ import {
 } from "../workbench/chat.js";
 import {
   getWorkbenchEvidenceProjection,
+  getWorkbenchDecompositionPlanProjection,
   getWorkbenchLandingQueueProjection,
   getWorkbenchMaintenanceProjection,
   getWorkbenchRunGraphProjection,
@@ -65,6 +66,8 @@ interface WorkbenchActionRequest {
   changeId?: string;
   prompt?: string;
   proposalId?: string;
+  planningBundleId?: string;
+  decompositionPlanId?: string;
   worktreeId?: string;
   worktreeIds?: string[];
   applyCheckId?: string;
@@ -424,6 +427,10 @@ async function getWorkbenchProjection(input: WorkbenchProjectInput, rest: string
     if (!changeId) throw badRequest("evidence projection requires changeId.");
     return getWorkbenchEvidenceProjection(input, changeId);
   }
+  if (kind === "decomposition-plan") {
+    if (!changeId) throw badRequest("decomposition-plan projection requires changeId.");
+    return getWorkbenchDecompositionPlanProjection(input, changeId);
+  }
   if (kind === "maintenance") return getWorkbenchMaintenanceProjection(input);
   if (kind === "landing-queue") return getWorkbenchLandingQueueProjection(input);
   throw badRequest(`Unknown Workbench projection: ${kind ?? ""}`);
@@ -480,6 +487,8 @@ export async function executeWorkbenchAction(input: WorkbenchProjectInput, body:
       changeId: body.changeId,
       prompt: body.prompt,
       proposalId: body.proposalId,
+      planningBundleId: body.planningBundleId,
+      decompositionPlanId: body.decompositionPlanId,
       worktreeId: body.worktreeId,
       worktreeIds: body.worktreeIds,
       applyCheckId: body.applyCheckId,
@@ -584,6 +593,8 @@ export async function executeWorkbenchAction(input: WorkbenchProjectInput, body:
 
 const REVALIDATED_WORKFLOW_ACTION_IDS = new Set<string>([
   "landing-queue.merge-next",
+  "planning.confirm-execution",
+  "planning.decomposition.confirm",
   "remote-landing.merge",
   "post-merge.sync-local.run",
   "post-merge.cleanup-branch.run",
@@ -599,6 +610,8 @@ async function assertCurrentWorkflowAction(input: WorkbenchProjectInput, body: W
   const matches = actions.some((action) => action.kind === "workflow-action"
     && action.actionType === body.actionType
     && action.changeId === body.changeId
+    && sameOptional(action.planningBundleId, body.planningBundleId)
+    && sameOptional(action.decompositionPlanId, body.decompositionPlanId)
     && sameOptional(action.worktreeId, body.worktreeId)
     && sameOptionalArray(action.worktreeIds, body.worktreeIds)
     && sameOptional(action.applyCheckId, body.applyCheckId)
@@ -788,6 +801,8 @@ async function sendWorkbenchActionLive(input: WorkbenchProjectInput & { project:
         changeId: body.changeId,
         prompt: body.prompt,
         proposalId: body.proposalId,
+        planningBundleId: body.planningBundleId,
+        decompositionPlanId: body.decompositionPlanId,
         worktreeId: body.worktreeId,
         worktreeIds: body.worktreeIds,
         applyCheckId: body.applyCheckId,
@@ -831,6 +846,8 @@ function isLiveWorkflowAction(actionType: string): actionType is WorkbenchWorkfl
     || actionType === "planning.generate"
     || actionType === "planning.revise"
     || actionType === "planning.confirm-execution"
+    || actionType === "planning.decompose"
+    || actionType === "planning.decomposition.confirm"
     || actionType === "orchestrator.evaluate"
     || actionType === "orchestrator.pump"
     || actionType === "demand.worker.enqueue"
