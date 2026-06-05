@@ -50,6 +50,7 @@ import { isRunStopRequested, requestRunStop } from "../run/control.js";
 import { executeProcessStreaming } from "../run/process.js";
 import { getEnabledSkillContext } from "../skill/catalog.js";
 import { getSpecTestDriftReport } from "../spec-test/drift.js";
+import { shortHash } from "../fs/path.js";
 import { runIntegrationCheck } from "../integration-check/manager.js";
 import { prepareLandingPackage, reviewLandingPackage } from "../landing/manager.js";
 import { latestLandingQueueSnapshot, mergeNextLandingQueueCandidate, prepareLandingQueue, refreshLandingQueue } from "../landing-queue/manager.js";
@@ -80,6 +81,7 @@ import { finishTaskRunFromWorkflowResult, listTaskRuns, markTaskRunStarted, reco
 import {
   failQueuedTaskItem,
   getNextQueuedTaskQueueItem,
+  listTaskQueues,
   markTaskQueueItemRunning,
   markTaskQueueRunning,
   pauseTaskQueue,
@@ -528,6 +530,8 @@ export type WorkbenchWorkflowActionType =
   | "planning.decompose"
   | "planning.decomposition.confirm"
   | "planning.decomposition.assess-readiness"
+  | "planning.taskqueue.propose"
+  | "planning.taskqueue.confirm-start"
   | "orchestrator.evaluate"
   | "demand.worker.enqueue"
   | "demand.worker.claim"
@@ -599,6 +603,8 @@ export interface WorkbenchWorkflowActionRequest {
   planningBundleId?: string;
   decompositionPlanId?: string;
   readinessManifestId?: string;
+  taskQueueProposalId?: string;
+  queueRunId?: string;
   worktreeId?: string;
   taskIds?: string[];
   worktreeIds?: string[];
@@ -728,6 +734,39 @@ export interface DecompositionReadinessManifest {
     taskIds: string[];
     acIds: string[];
   };
+  artifactRefs: string[];
+  artifact: string;
+  markdownArtifact: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type TaskQueueProposalStatus = "draft" | "confirmed" | "started" | "superseded" | "rejected";
+
+export interface TaskQueueProposalItem {
+  id: string;
+  taskId: string;
+  unitId: string;
+  title: string;
+  order: number;
+  dependsOn: string[];
+  sourceScopes: string[];
+  acIds: string[];
+}
+
+export interface TaskQueueProposal {
+  id: string;
+  changeId: string;
+  decompositionPlanId: string;
+  readinessManifestId: string;
+  status: TaskQueueProposalStatus;
+  recommendation: "taskgraph-sequential";
+  queueMode: "sequential";
+  items: TaskQueueProposalItem[];
+  dependencies: DecompositionPlan["dependencies"];
+  conflictScopes: string[];
+  sourceArtifactHashes: Record<string, string>;
+  recoveryKeyMaterial: DecompositionReadinessManifest["recoveryKeyMaterial"];
   artifactRefs: string[];
   artifact: string;
   markdownArtifact: string;
@@ -967,6 +1006,10 @@ async function executeWorkflowAction(project: ManagedProject, changeId: string, 
       return confirmDecompositionPlan(project, changeId, request, live);
     case "planning.decomposition.assess-readiness":
       return assessDecompositionReadiness(project, changeId, request, live);
+    case "planning.taskqueue.propose":
+      return proposeTaskQueue(project, changeId, request, live);
+    case "planning.taskqueue.confirm-start":
+      return confirmTaskQueueProposalAndStart(project, changeId, request, live);
     case "orchestrator.evaluate":
       return evaluateDemandOrchestrator(project, changeId);
     case "demand.worker.enqueue":
@@ -1080,7 +1123,7 @@ async function executeWorkflowAction(project: ManagedProject, changeId: string, 
     case "task.queue.start":
       return runTaskQueueSequence(project, changeId, request, live);
     case "task.queue.reconcile":
-      return reconcileTaskQueues(project, { changeId });
+      return reconcileTaskQueues(project, { changeId, queueRunId: request.queueRunId });
     case "validate.run":
       return startValidationRun(project, { changeId, worktree: request.worktreeId });
     case "audit.run":
@@ -1155,6 +1198,15 @@ function assertWorkflowActionScope(request: WorkbenchWorkflowActionRequest): voi
     case "planning.decomposition.assess-readiness":
       requireOne("decompositionPlanId", [request.decompositionPlanId]);
       return;
+    case "planning.taskqueue.propose":
+      requireOne("readinessManifestId", [request.readinessManifestId]);
+      return;
+    case "planning.taskqueue.confirm-start":
+      requireOne("taskQueueProposalId", [request.taskQueueProposalId]);
+      return;
+    case "task.queue.start":
+      requireOne("queueRunId or taskQueueProposalId", [request.queueRunId, request.taskQueueProposalId]);
+      return;
     case "task.run.reconcile":
       requireOne("taskRunId", [request.taskRunId]);
       return;
@@ -1170,6 +1222,7 @@ async function auditHighImpactWorkflowAction(project: ManagedProject, changeId: 
   const memory = await resolveProjectMemory(project);
   await assertCurrentHighImpactWorkflowTarget(memory, changeId, request);
   const targetId = workflowActionTargetId(request, changeId);
+  const scope = workflowActionScopePayload(request, changeId);
   const decision = evaluateToolPolicy({
     actionType: request.actionType,
     actorRoleId: "main-agent",
@@ -1184,6 +1237,7 @@ async function auditHighImpactWorkflowAction(project: ManagedProject, changeId: 
     actorRoleId: "main-agent",
     actionType: request.actionType,
     targetId,
+    scope,
     decision,
   });
   live?.emit({
@@ -1230,6 +1284,30 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
       throw new Error("planning.decomposition.assess-readiness target is stale or no longer assessable.");
     }
   }
+  if (request.actionType === "planning.taskqueue.propose") {
+    const active = await getActiveChanges(memory);
+    const target = active.find((item) => item.name === changeId);
+    if (!target) throw new Error(`planning.taskqueue.propose target is stale or missing active Change: ${changeId}.`);
+    if (!request.readinessManifestId) throw new Error("planning.taskqueue.propose requires readinessManifestId.");
+    const manifest = await readLatestDecompositionReadinessManifest(memory, target.path);
+    if (manifest.id !== request.readinessManifestId || manifest.status !== "ready-for-sequential-taskqueue-proposal" || manifest.nextAllowedAction !== "taskqueue.proposal") {
+      throw new Error("planning.taskqueue.propose target is stale or no longer proposal-ready.");
+    }
+  }
+  if (request.actionType === "planning.taskqueue.confirm-start") {
+    const active = await getActiveChanges(memory);
+    const target = active.find((item) => item.name === changeId);
+    if (!target) throw new Error(`planning.taskqueue.confirm-start target is stale or missing active Change: ${changeId}.`);
+    if (!request.taskQueueProposalId) throw new Error("planning.taskqueue.confirm-start requires taskQueueProposalId.");
+    const proposal = await readLatestTaskQueueProposal(memory, target.path);
+    if (proposal.id !== request.taskQueueProposalId || proposal.changeId !== changeId || !["draft", "confirmed"].includes(proposal.status)) {
+      throw new Error("planning.taskqueue.confirm-start target is stale or no longer startable.");
+    }
+    const manifest = await readLatestDecompositionReadinessManifest(memory, target.path);
+    if (manifest.id !== proposal.readinessManifestId || manifest.status !== "ready-for-sequential-taskqueue-proposal") {
+      throw new Error("planning.taskqueue.confirm-start readiness target is stale.");
+    }
+  }
   if (request.actionType === "code.run" && request.taskIds?.length) {
     assertKnownTaskIds(await getChangeStatusForChange(memory, changeId), request.taskIds, "code.run");
   }
@@ -1248,6 +1326,15 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
       throw new Error("landing-queue.merge-next target is stale or not currently mergeable.");
     }
   }
+  if (request.actionType === "task.queue.start") {
+    const queues = await listTaskQueues(memory, changeId);
+    if (request.queueRunId) {
+      const queue = queues.find((item) => item.id === request.queueRunId);
+      if (!queue || queue.status !== "paused") throw new Error("task.queue.start target is stale or not paused.");
+      return;
+    }
+    if (!request.taskQueueProposalId) throw new Error("task.queue.start requires queueRunId for resume or taskQueueProposalId from planning.taskqueue.confirm-start.");
+  }
 }
 
 function workflowActionTargetId(request: WorkbenchWorkflowActionRequest, changeId: string, result?: unknown): string {
@@ -1256,6 +1343,9 @@ function workflowActionTargetId(request: WorkbenchWorkflowActionRequest, changeI
     ?? request.applyCheckId
     ?? request.worktreeId
     ?? request.worktreeIds?.join(",")
+    ?? request.taskQueueProposalId
+    ?? extractTaskQueueProposalId(result)
+    ?? request.queueRunId
     ?? request.readinessManifestId
     ?? extractReadinessManifestId(result)
     ?? request.decompositionPlanId
@@ -1273,6 +1363,8 @@ function workflowActionScopePayload(request: WorkbenchWorkflowActionRequest, cha
     planningBundleId: request.planningBundleId,
     decompositionPlanId: request.decompositionPlanId,
     readinessManifestId: request.readinessManifestId ?? extractReadinessManifestId(result),
+    taskQueueProposalId: request.taskQueueProposalId ?? extractTaskQueueProposalId(result),
+    queueRunId: request.queueRunId,
     worktreeId: request.worktreeId,
     worktreeIds: request.worktreeIds,
     applyCheckId: request.applyCheckId,
@@ -1288,6 +1380,13 @@ function extractReadinessManifestId(result: unknown): string | undefined {
   const manifest = result.manifest;
   if (!isRecord(manifest)) return undefined;
   return typeof manifest.id === "string" ? manifest.id : undefined;
+}
+
+function extractTaskQueueProposalId(result: unknown): string | undefined {
+  if (!isRecord(result)) return undefined;
+  const proposal = result.proposal;
+  if (!isRecord(proposal)) return undefined;
+  return typeof proposal.id === "string" ? proposal.id : undefined;
 }
 
 async function generatePlanningDraft(
@@ -1452,17 +1551,17 @@ async function confirmPlanningAndStartPipeline(
     userMessage: "确认执行",
     requiresUserDecision: false,
     createTask: {
-      roleId: "coder-agent",
+      roleId: "main-agent",
       kind: "foreground",
-      summary: "Start implementation from confirmed planning artifacts.",
+      summary: "Canonical planning artifacts were accepted; execution requires decomposition and readiness gates.",
       inputArtifacts: [confirmed.artifact],
     },
-    reason: "The user confirmed the planning artifact bundle; implementation can start in an AHO-owned worktree.",
+    reason: "The user confirmed the planning artifact bundle; Phase 7J requires typed readiness before code-producing execution.",
   });
   await appendTopicThreadEntry(project, changeId, {
     type: "assistant.message",
     status: "planning-confirmed",
-    text: "已确认执行：方案草案已写入内部 spec/plan/tasks/ac-map，需求已交给本地主 orchestrator 排队处理。",
+    text: "已确认规划：方案草案已写入内部 spec/plan/tasks/ac-map。下一步需要生成或确认 DecompositionPlan，并通过 readiness gate 后才能启动执行。",
     artifact: confirmed.artifact,
   });
   emitAssistantEvent(live, {
@@ -1473,18 +1572,7 @@ async function confirmPlanningAndStartPipeline(
     summary: "Canonical planning artifacts were written after user confirmation.",
     artifactRef: confirmed.artifact,
   });
-  const queued = await enqueueDemandWorker(memory, {
-    changeId,
-    waitingReason: "用户已确认执行，等待本地处理槽位。",
-  });
-  emitAssistantEvent(live, {
-    runId: queued.worker.id,
-    kind: "status",
-    phase: queued.resumed ? "demand-worker-resumed" : "demand-worker-enqueued",
-    title: queued.resumed ? "Demand already queued" : "Demand enqueued",
-    summary: queued.resumed ? "该需求已经在本地处理队列中。" : "该需求已加入本地处理队列。",
-  });
-  return pumpDemandWorkersForAction(project, request.prompt ?? renderPipelinePromptFromBundle(confirmed), live, changeId);
+  return { bundle: confirmed, executionStarted: false };
 }
 
 async function generateDecompositionPlan(
@@ -1618,6 +1706,67 @@ async function assessDecompositionReadiness(
     artifactRef: manifest.artifact,
   });
   return { manifest, executionStarted: false };
+}
+
+async function proposeTaskQueue(
+  project: ManagedProject,
+  changeId: string,
+  request: WorkbenchWorkflowActionRequest,
+  live: WorkbenchLiveSink | undefined,
+): Promise<{ proposal: TaskQueueProposal; executionStarted: false }> {
+  const { memory, changePath } = await resolveTopic(project, changeId);
+  assertWritableMemory(memory, "TaskQueueProposal generation");
+  if (!request.readinessManifestId) throw new Error("planning.taskqueue.propose requires readinessManifestId.");
+  const manifest = await readLatestDecompositionReadinessManifest(memory, changePath);
+  if (manifest.id !== request.readinessManifestId || manifest.changeId !== changeId) {
+    throw new Error("planning.taskqueue.propose target is stale or not scoped to the selected Change.");
+  }
+  await supersedeExistingTaskQueueProposal(memory, changePath);
+  const proposal = buildTaskQueueProposalFromReadiness(memory, changePath, changeId, manifest);
+  await writeTaskQueueProposal(memory, changePath, proposal);
+  await appendTopicThreadEntry(project, changeId, {
+    type: "assistant.message",
+    status: "taskqueue-proposal",
+    text: renderTaskQueueProposalMarkdown(proposal),
+    artifact: proposal.artifact,
+  });
+  emitAssistantEvent(live, {
+    runId: proposal.id,
+    kind: "status",
+    phase: "taskqueue-proposal",
+    title: "TaskQueue proposal prepared",
+    summary: "A typed TaskQueueProposal was generated; no execution records were created.",
+    artifactRef: proposal.artifact,
+  });
+  return { proposal, executionStarted: false };
+}
+
+async function confirmTaskQueueProposalAndStart(
+  project: ManagedProject,
+  changeId: string,
+  request: WorkbenchWorkflowActionRequest,
+  live: WorkbenchLiveSink | undefined,
+): Promise<unknown> {
+  const { memory, changePath } = await resolveTopic(project, changeId);
+  assertWritableMemory(memory, "TaskQueueProposal start");
+  if (!request.taskQueueProposalId) throw new Error("planning.taskqueue.confirm-start requires taskQueueProposalId.");
+  const proposal = await readLatestTaskQueueProposal(memory, changePath);
+  if (proposal.id !== request.taskQueueProposalId || proposal.changeId !== changeId || !["draft", "confirmed"].includes(proposal.status)) {
+    throw new Error("planning.taskqueue.confirm-start target is stale or no longer startable.");
+  }
+  const manifest = await readLatestDecompositionReadinessManifest(memory, changePath);
+  if (manifest.id !== proposal.readinessManifestId || manifest.status !== "ready-for-sequential-taskqueue-proposal") {
+    throw new Error("planning.taskqueue.confirm-start readiness target is stale.");
+  }
+  const started = { ...proposal, status: "started" as const, updatedAt: new Date().toISOString() };
+  await writeTaskQueueProposal(memory, changePath, started);
+  await appendTopicThreadEntry(project, changeId, {
+    type: "assistant.message",
+    status: "taskqueue-starting",
+    text: `TaskQueueProposal ${started.id} confirmed; starting scoped sequential TaskQueue.`,
+    artifact: started.artifact,
+  });
+  return runTaskQueueSequence(project, changeId, { ...request, actionType: "task.queue.start", taskQueueProposalId: started.id }, live);
 }
 
 async function enqueueDemandWorkerForAction(project: ManagedProject, changeId: string): Promise<unknown> {
@@ -2863,6 +3012,7 @@ async function executeStartedTaskRunWorkflow(
   started: Awaited<ReturnType<typeof startTaskRun>>,
   prompt: string | undefined,
   live: WorkbenchLiveSink | undefined,
+  executionGate?: { mode: "taskqueue-proposal"; taskQueueProposalId: string },
 ): Promise<unknown> {
   emitAssistantEvent(live, {
     runId: started.taskRun.id,
@@ -2881,7 +3031,7 @@ async function executeStartedTaskRunWorkflow(
       title: "TaskRun running",
       summary: `${started.taskRun.taskId} attempt ${started.taskRun.attempt} started the Coder -> Validation -> Audit workflow.`,
     });
-    const workflow = await runCodeValidateAuditSequence(project, started.taskRun.changeId, prompt, live, [started.taskRun.taskId], started.taskRun.id);
+    const workflow = await runCodeValidateAuditSequence(project, started.taskRun.changeId, prompt, live, [started.taskRun.taskId], started.taskRun.id, "coder-agent", undefined, undefined, executionGate);
     const taskRun = await finishTaskRunFromWorkflowResult(memory, started.taskRun.id, workflow);
     if (shouldAutoReworkTaskRun(taskRun)) {
       emitAssistantEvent(live, {
@@ -2899,7 +3049,7 @@ async function executeStartedTaskRunWorkflow(
         "Read the latest validation/audit/run evidence for this Change and fix the assigned worktree proposal.",
         "Do not ask the user unless the evidence shows requirement ambiguity, product tradeoff, environment failure, or no real code rework path.",
       ].filter((item): item is string => Boolean(item)).join("\n");
-      const rework = await executeStartedTaskRunWorkflow(project, retry, reworkPrompt, live);
+      const rework = await executeStartedTaskRunWorkflow(project, retry, reworkPrompt, live, executionGate);
       const finalTaskRun = isRecord(rework) && isTaskRunLike(rework.taskRun) ? rework.taskRun : taskRun;
       return { taskRun: finalTaskRun, lease: started.lease, workflow, autoRework: { previousTaskRun: taskRun, result: rework } };
     }
@@ -2924,8 +3074,16 @@ async function runTaskQueueSequence(
   live: WorkbenchLiveSink | undefined,
 ): Promise<unknown> {
   const memory = await resolveProjectMemory(project);
-  const start = await startOrResumeTaskQueue(project, { changeId });
+  const proposal = request.taskQueueProposalId ? await readLatestTaskQueueProposal(memory, (await resolveTopic(project, changeId)).changePath) : null;
+  const start = await startOrResumeTaskQueue(project, {
+    changeId,
+    taskQueueProposalId: request.taskQueueProposalId,
+    decompositionPlanId: proposal?.decompositionPlanId,
+    readinessManifestId: proposal?.readinessManifestId,
+    queueRunId: request.queueRunId,
+  });
   let queue = start.queue;
+  const taskQueueProposalId = request.taskQueueProposalId ?? queue.taskQueueProposalId;
   if (start.resumed) {
     const reconciled = await reconcileTaskQueues(project, { changeId, queueRunId: queue.id });
     queue = reconciled.queues.find((item) => item.id === queue.id) ?? queue;
@@ -2961,7 +3119,13 @@ async function runTaskQueueSequence(
     try {
       const started = await startTaskRun(project, { changeId, taskId: nextItem.taskId });
       await markTaskQueueItemRunning(memory, nextItem, started.taskRun);
-      const result = await executeStartedTaskRunWorkflow(project, started, request.prompt, live);
+      const result = await executeStartedTaskRunWorkflow(
+        project,
+        started,
+        request.prompt,
+        live,
+        taskQueueProposalId ? { mode: "taskqueue-proposal", taskQueueProposalId } : undefined,
+      );
       const taskRun = isRecord(result) && isRecord(result.taskRun) ? result.taskRun : null;
       if (!isTaskRunLike(taskRun)) throw new Error(`Task ${nextItem.taskId} did not return a TaskRun result.`);
       const finishedItem = await finishTaskQueueItem(memory, nextItem, taskRun);
@@ -3074,6 +3238,7 @@ async function runCodeValidateAuditSequence(
   coderRoleId = "coder-agent",
   orchestrationState?: MainAgentOrchestrationState,
   coderDecision?: Extract<MainAgentOrchestrationDecision, { kind: "delegate-role" }>,
+  executionGate?: { mode: "taskqueue-proposal"; taskQueueProposalId: string },
 ): Promise<unknown> {
   const memory = await resolveProjectMemory(project);
   let orchestration = orchestrationState ?? createMainAgentOrchestrationState({ changeId });
@@ -3097,6 +3262,7 @@ async function runCodeValidateAuditSequence(
     prompt,
     taskIds,
     taskRunId,
+    executionGate,
     live: {
       onRunStarted: (run) => {
         coderStartedEmitted = true;
@@ -4059,6 +4225,47 @@ const decompositionReadinessManifestSchema: z.ZodType<DecompositionReadinessMani
   updatedAt: z.string(),
 });
 
+const taskQueueProposalSchema: z.ZodType<TaskQueueProposal> = z.object({
+  id: z.string(),
+  changeId: z.string(),
+  decompositionPlanId: z.string(),
+  readinessManifestId: z.string(),
+  status: z.enum(["draft", "confirmed", "started", "superseded", "rejected"]),
+  recommendation: z.literal("taskgraph-sequential"),
+  queueMode: z.literal("sequential"),
+  items: z.array(z.object({
+    id: z.string(),
+    taskId: z.string(),
+    unitId: z.string(),
+    title: z.string(),
+    order: z.number(),
+    dependsOn: z.array(z.string()),
+    sourceScopes: z.array(z.string()),
+    acIds: z.array(z.string()),
+  })),
+  dependencies: z.array(z.object({ from: z.string(), to: z.string(), kind: z.enum(["blocks", "synthesizes", "conflicts"]) })),
+  conflictScopes: z.array(z.string()),
+  sourceArtifactHashes: z.record(z.string()),
+  recoveryKeyMaterial: z.object({
+    changeId: z.string(),
+    planningBundleId: z.string().optional(),
+    acceptedArtifactRefs: z.array(z.string()),
+    contextScope: z.literal("selected-demand"),
+    sourceRevision: z.string().optional(),
+    worktreeBase: z.string().optional(),
+    rolePolicyProfile: z.string(),
+    notes: z.array(z.string()),
+    decompositionPlanId: z.string(),
+    taskIds: z.array(z.string()),
+    acIds: z.array(z.string()),
+  }),
+  artifactRefs: z.array(z.string()),
+  artifact: z.string(),
+  markdownArtifact: z.string(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+
 function buildDeterministicDecompositionPlan(
   memory: ResolvedMemory,
   changePath: string,
@@ -4139,6 +4346,72 @@ export async function readLatestDecompositionPlan(memory: ResolvedMemory, change
 
 export async function readLatestDecompositionReadinessManifest(memory: ResolvedMemory, changePath: string): Promise<DecompositionReadinessManifest> {
   return readRequiredJsonFile(join(memory.memoryRoot, changePath, "planning", "decomposition-readiness.json"), decompositionReadinessManifestSchema);
+}
+
+export async function readLatestTaskQueueProposal(memory: ResolvedMemory, changePath: string): Promise<TaskQueueProposal> {
+  return readRequiredJsonFile(join(memory.memoryRoot, changePath, "planning", "taskqueue-proposal.json"), taskQueueProposalSchema);
+}
+
+async function writeTaskQueueProposal(memory: ResolvedMemory, changePath: string, proposal: TaskQueueProposal): Promise<void> {
+  const dir = join(memory.memoryRoot, changePath, "planning");
+  await mkdir(dir, { recursive: true });
+  await writeJsonFile(join(dir, "taskqueue-proposal.json"), proposal);
+  await writeFile(join(dir, "taskqueue-proposal.md"), renderTaskQueueProposalMarkdown(proposal), "utf8");
+}
+
+async function supersedeExistingTaskQueueProposal(memory: ResolvedMemory, changePath: string): Promise<void> {
+  const current = await readLatestTaskQueueProposal(memory, changePath).catch(() => null);
+  if (!current || !["draft", "confirmed"].includes(current.status)) return;
+  await writeTaskQueueProposal(memory, changePath, { ...current, status: "superseded", updatedAt: new Date().toISOString() });
+}
+
+function buildTaskQueueProposalFromReadiness(memory: ResolvedMemory, changePath: string, changeId: string, manifest: DecompositionReadinessManifest): TaskQueueProposal {
+  if (manifest.changeId !== changeId) throw new Error("TaskQueueProposal readiness is not scoped to the selected Change.");
+  if (manifest.status !== "ready-for-sequential-taskqueue-proposal" || manifest.nextAllowedAction !== "taskqueue.proposal") {
+    throw new Error(`TaskQueueProposal requires sequential taskqueue readiness; current readiness is ${manifest.status}.`);
+  }
+  const now = new Date().toISOString();
+  const dir = join(memory.memoryRoot, changePath, "planning");
+  const id = `taskqueue-proposal-${now.replace(/[-:.TZ]/g, "").slice(0, 14)}-${shortHash(`${changeId}:${manifest.id}:${now}`).slice(0, 8)}`;
+  const seenTaskIds = new Set<string>();
+  const items: TaskQueueProposalItem[] = [];
+  for (const unit of manifest.units) {
+    for (const taskId of unit.taskIds) {
+      if (seenTaskIds.has(taskId)) continue;
+      seenTaskIds.add(taskId);
+      const order = items.length + 1;
+      items.push({
+        id: `${id}-item-${String(order).padStart(3, "0")}`,
+        taskId,
+        unitId: unit.id,
+        title: unit.title,
+        order,
+        dependsOn: unit.dependsOn,
+        sourceScopes: unit.sourceScopes,
+        acIds: unit.acIds,
+      });
+    }
+  }
+  if (items.length === 0) throw new Error("TaskQueueProposal requires at least one task item.");
+  return {
+    id,
+    changeId,
+    decompositionPlanId: manifest.decompositionPlanId,
+    readinessManifestId: manifest.id,
+    status: "draft",
+    recommendation: "taskgraph-sequential",
+    queueMode: "sequential",
+    items,
+    dependencies: manifest.dependencies,
+    conflictScopes: manifest.conflictScopes,
+    sourceArtifactHashes: Object.fromEntries(manifest.artifactRefs.map((ref) => [ref, shortHash(ref)])),
+    recoveryKeyMaterial: manifest.recoveryKeyMaterial,
+    artifactRefs: unique([...manifest.artifactRefs, manifest.artifact, manifest.markdownArtifact]),
+    artifact: displayArtifactPath(memory, join(dir, "taskqueue-proposal.json")),
+    markdownArtifact: displayArtifactPath(memory, join(dir, "taskqueue-proposal.md")),
+    createdAt: now,
+    updatedAt: now,
+  };
 }
 
 async function buildDecompositionReadinessManifest(
@@ -4388,6 +4661,27 @@ function renderDecompositionReadinessMarkdown(manifest: DecompositionReadinessMa
   ].join("\n");
 }
 
+function renderTaskQueueProposalMarkdown(proposal: TaskQueueProposal): string {
+  return [
+    `# TaskQueueProposal ${proposal.id}`,
+    "",
+    `- Change: ${proposal.changeId}`,
+    `- Status: ${proposal.status}`,
+    `- DecompositionPlan: ${proposal.decompositionPlanId}`,
+    `- ReadinessManifest: ${proposal.readinessManifestId}`,
+    `- Queue mode: ${proposal.queueMode}`,
+    "",
+    "## Items",
+    ...proposal.items.map((item) => `- ${item.order}. ${item.taskId} (${item.unitId}) - ${item.title}`),
+    "",
+    "## Boundaries",
+    "- This proposal does not create TaskQueue, TaskRun, AgentTask, worktree, child Change, or run records.",
+    "- Queue execution requires a separate user-confirmed planning.taskqueue.confirm-start action.",
+    "- The proposal is not workflow truth; Harness artifacts, run evidence, validation, audit, and human gates remain authoritative.",
+    "",
+  ].join("\n");
+}
+
 function extractConstraintCandidates(prompt: string): string[] {
   const candidates: string[] = [];
   if (/四舍五入|分/.test(prompt)) candidates.push("金额按分处理，涉及折扣时需要明确舍入规则。");
@@ -4495,16 +4789,6 @@ function renderPlanningBundleMarkdown(bundle: PlanningArtifactBundle): string {
     "",
     ...(bundle.openQuestions.length > 0 ? bundle.openQuestions.map((item) => `- ${item}`) : ["- None."]),
     "",
-  ].join("\n");
-}
-
-function renderPipelinePromptFromBundle(bundle: PlanningArtifactBundle): string {
-  return [
-    "# Accepted Planning Bundle",
-    "",
-    renderPlanningBundleMarkdown(bundle),
-    "",
-    "Implement this demand in the assigned worktree, run targeted self-tests, and leave final apply/merge to AHO human confirmation.",
   ].join("\n");
 }
 
@@ -4747,9 +5031,17 @@ function summarizeActionResult(actionType: string, result: unknown): string {
       ? `Decomposition readiness assessed: ${result.manifest.status}. No execution was started.`
       : "Decomposition readiness assessed. No execution was started.";
   }
-  if ((actionType === "planning.confirm-execution" || actionType.startsWith("role.pipeline.") || actionType.startsWith("demand.worker.")) && isRecord(result)) {
+  if (actionType === "planning.taskqueue.propose" && isRecord(result) && isRecord(result.proposal)) {
+    return typeof result.proposal.id === "string"
+      ? `TaskQueueProposal ${result.proposal.id} generated. No execution was started.`
+      : "TaskQueueProposal generated. No execution was started.";
+  }
+  if (actionType === "planning.confirm-execution" && isRecord(result)) {
+    return "Planning confirmed and canonical artifacts were written. No execution was started.";
+  }
+  if ((actionType.startsWith("role.pipeline.") || actionType.startsWith("demand.worker.")) && isRecord(result)) {
     const status = typeof result.status === "string" ? result.status : "completed";
-    return actionType.startsWith("demand.worker.") || actionType === "planning.confirm-execution"
+    return actionType.startsWith("demand.worker.")
       ? `Demand worker finished with status ${status}.`
       : `Main-agent role orchestration finished with status ${status}.`;
   }
@@ -4776,10 +5068,12 @@ function labelForAction(actionType: string): string {
     case "change.plan.accept": return "Plan proposal accepted";
     case "planning.generate": return "Planning draft generated";
     case "planning.revise": return "Planning draft revised";
-    case "planning.confirm-execution": return "Planning confirmed and demand enqueued";
+    case "planning.confirm-execution": return "Planning confirmed";
     case "planning.decompose": return "DecompositionPlan drafted";
     case "planning.decomposition.confirm": return "DecompositionPlan confirmed";
     case "planning.decomposition.assess-readiness": return "Decomposition readiness assessed";
+    case "planning.taskqueue.propose": return "TaskQueueProposal generated";
+    case "planning.taskqueue.confirm-start": return "TaskQueueProposal confirmed and started";
     case "orchestrator.evaluate": return "Main orchestrator evaluated";
     case "orchestrator.pump": return "Main orchestrator pumped available demands";
     case "demand.worker.enqueue": return "Demand enqueued";

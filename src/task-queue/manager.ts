@@ -34,6 +34,9 @@ const taskQueueRunSchema = z.object({
   startedAt: z.string().nullable(),
   finishedAt: z.string().nullable(),
   currentTaskId: z.string().optional(),
+  taskQueueProposalId: z.string().optional(),
+  decompositionPlanId: z.string().optional(),
+  readinessManifestId: z.string().optional(),
   totalCount: z.number(),
   completedCount: z.number(),
   blockedReason: z.string().optional(),
@@ -55,12 +58,19 @@ const taskQueueItemSchema = z.object({
   startedAt: z.string().nullable(),
   finishedAt: z.string().nullable(),
   taskRunId: z.string().optional(),
+  taskQueueProposalId: z.string().optional(),
+  decompositionPlanId: z.string().optional(),
+  readinessManifestId: z.string().optional(),
   blockedReason: z.string().optional(),
   failureReason: z.string().optional(),
 });
 
 export interface TaskQueueStartOptions {
   changeId: string;
+  taskQueueProposalId?: string;
+  decompositionPlanId?: string;
+  readinessManifestId?: string;
+  queueRunId?: string;
 }
 
 export interface TaskQueueReconcileOptions {
@@ -84,6 +94,7 @@ export async function startOrResumeTaskQueue(project: ManagedProject, options: T
   const activeQueue = existingQueues.find((queue) => isActiveQueueStatus(queue.status));
   if (activeQueue && activeQueue.status !== "paused") throw new Error(`Task queue already active: ${activeQueue.id}.`);
   if (activeQueue?.status === "paused") {
+    if (!options.queueRunId || activeQueue.id !== options.queueRunId) throw new Error("TaskQueue resume requires the paused queueRunId.");
     const now = new Date().toISOString();
     const queue = await writeTaskQueueRun(memory, {
       ...activeQueue,
@@ -97,6 +108,7 @@ export async function startOrResumeTaskQueue(project: ManagedProject, options: T
     });
     return { queue, items: await listTaskQueueItems(memory, options.changeId, queue.id), resumed: true };
   }
+  if (!options.taskQueueProposalId) throw new Error("TaskQueue start requires a confirmed TaskQueueProposal.");
 
   const tasks = changeStatus.acMap?.tasks ?? [];
   if (tasks.length === 0) throw new Error("Task queue requires accepted tasks.");
@@ -119,6 +131,9 @@ export async function startOrResumeTaskQueue(project: ManagedProject, options: T
     updatedAt: now,
     startedAt: null,
     finishedAt: task.done ? now : null,
+    taskQueueProposalId: options.taskQueueProposalId,
+    decompositionPlanId: options.decompositionPlanId,
+    readinessManifestId: options.readinessManifestId,
   }));
   if (!items.some((item) => item.status === "queued")) throw new Error("Task queue has no runnable tasks.");
   const queue: TaskQueueRun = {
@@ -131,6 +146,9 @@ export async function startOrResumeTaskQueue(project: ManagedProject, options: T
     updatedAt: now,
     startedAt: null,
     finishedAt: null,
+    taskQueueProposalId: options.taskQueueProposalId,
+    decompositionPlanId: options.decompositionPlanId,
+    readinessManifestId: options.readinessManifestId,
     totalCount: items.filter((item) => item.status !== "skipped").length,
     completedCount: 0,
   };

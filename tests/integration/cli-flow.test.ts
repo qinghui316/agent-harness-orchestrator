@@ -38,6 +38,62 @@ function managedProject(): ManagedProject {
   };
 }
 
+async function writeCliSingleChangeReadiness(changeId: string, memoryRoot: string): Promise<string> {
+  const planningDir = join(memoryRoot, "harness", "changes", "active", changeId, "planning");
+  await mkdir(planningDir, { recursive: true });
+  const id = `readiness-${changeId}`;
+  const now = new Date().toISOString();
+  const manifest = {
+    id,
+    changeId,
+    decompositionPlanId: `decomposition-${changeId}`,
+    status: "ready-for-single-change",
+    recommendation: "single-change",
+    executable: false,
+    schedulerEligible: false,
+    nextAllowedAction: "code.run",
+    units: [{
+      id: "DU-001",
+      title: "Single change",
+      taskIds: ["T-001"],
+      acIds: ["AC-001"],
+      dependsOn: [],
+      guardrailStatus: "passed",
+      sourceScopes: ["selected-demand"],
+    }],
+    dependencies: [],
+    conflictScopes: [],
+    guardrails: [{
+      id: "test-readiness",
+      status: "passed",
+      summary: "CLI fixture authorizes single-change code.run.",
+      refs: [changeId],
+    }],
+    recoveryKeyMaterial: {
+      changeId,
+      decompositionPlanId: `decomposition-${changeId}`,
+      acceptedArtifactRefs: [
+        `harness/changes/active/${changeId}/spec.md`,
+        `harness/changes/active/${changeId}/plan.md`,
+        `harness/changes/active/${changeId}/tasks.md`,
+      ],
+      contextScope: "selected-demand",
+      rolePolicyProfile: "test-cli-single-change",
+      taskIds: ["T-001"],
+      acIds: ["AC-001"],
+      notes: ["Test fixture for the Phase 7J code execution gate."],
+    },
+    artifactRefs: [`harness/changes/active/${changeId}/planning/decomposition-readiness.json`],
+    artifact: `harness/changes/active/${changeId}/planning/decomposition-readiness.json`,
+    markdownArtifact: `harness/changes/active/${changeId}/planning/decomposition-readiness.md`,
+    createdAt: now,
+    updatedAt: now,
+  };
+  await writeFile(join(planningDir, "decomposition-readiness.json"), JSON.stringify(manifest, null, 2), "utf8");
+  await writeFile(join(planningDir, "decomposition-readiness.md"), `# Test readiness ${id}\n`, "utf8");
+  return id;
+}
+
 beforeEach(async () => {
   tempDir = await mkdtemp(join(tmpdir(), "aho-cli-"));
   homeDir = join(tempDir, "home");
@@ -841,6 +897,14 @@ describe("CLI flow", () => {
     expect(review).toContain(`Audit ID: ${runIds[0]}`);
   });
 
+  it("rejects CLI code runs before the readiness gate authorizes execution", async () => {
+    await runCli(["project", "add", repoDir, "--name", "Repo"]);
+    await runCli(["harness", "init", "repo", "--memory", "external-local"]);
+    await runCli(["change", "new", "repo", "--title", "Ungated Code"]);
+
+    await expect(runCli(["code", "run", "repo", "--json"])).rejects.toThrow("decomposition-readiness.json");
+  });
+
   it("records Codex coder worktree runs and validates the same worktree", async () => {
     await installFakeCodex("code-write");
     await writeFile(join(repoDir, "README.md"), "hello\n", "utf8");
@@ -858,9 +922,10 @@ describe("CLI flow", () => {
     await runCli(["project", "add", repoDir, "--name", "Repo"]);
     await runCli(["harness", "init", "repo", "--memory", "external-local"]);
     await runCli(["change", "new", "repo", "--title", "Coder Worktree"]);
+    const memoryRoot = join(homeDir, "projects", "repo");
+    await writeCliSingleChangeReadiness("coder-worktree", memoryRoot);
     await runCli(["code", "run", "repo", "--task", "T-001", "--prompt", "Append a Usage section", "--json"]);
 
-    const memoryRoot = join(homeDir, "projects", "repo");
     const runIds = await readdir(join(memoryRoot, "runs"));
     expect(runIds).toHaveLength(1);
     const runDir = join(memoryRoot, "runs", runIds[0]);
@@ -914,9 +979,10 @@ describe("CLI flow", () => {
     await execFileAsync("git", ["-C", repoDir, "add", "AGENTS.md", ".agent-harness"]);
     await execFileAsync("git", ["-C", repoDir, "commit", "-m", "init aho marker"]);
     await runCli(["change", "new", "repo", "--title", "Apply Worktree"]);
+    const memoryRoot = join(homeDir, "projects", "repo");
+    await writeCliSingleChangeReadiness("apply-worktree", memoryRoot);
     await runCli(["code", "run", "repo", "--prompt", "Append a Usage section", "--json"]);
 
-    const memoryRoot = join(homeDir, "projects", "repo");
     const coderRunId = (await readdir(join(memoryRoot, "runs")))[0];
     const coderRun = JSON.parse(await readFile(join(memoryRoot, "runs", coderRunId, "run.json"), "utf8"));
     const worktreeId = coderRun.worktree.worktreeId;
@@ -984,9 +1050,10 @@ describe("CLI flow", () => {
     await execFileAsync("git", ["-C", repoDir, "add", "AGENTS.md", ".agent-harness"]);
     await execFileAsync("git", ["-C", repoDir, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "init aho marker"]);
     await runCli(["change", "new", "repo", "--title", "Stale Apply"]);
+    const memoryRoot = join(homeDir, "projects", "repo");
+    await writeCliSingleChangeReadiness("stale-apply", memoryRoot);
     await runCli(["code", "run", "repo", "--json"]);
 
-    const memoryRoot = join(homeDir, "projects", "repo");
     const coderRunId = (await readdir(join(memoryRoot, "runs")))[0];
     const coderRun = JSON.parse(await readFile(join(memoryRoot, "runs", coderRunId, "run.json"), "utf8"));
     const worktreeId = coderRun.worktree.worktreeId;
@@ -1009,9 +1076,10 @@ describe("CLI flow", () => {
     await runCli(["project", "add", repoDir, "--name", "Repo"]);
     await runCli(["harness", "init", "repo", "--memory", "external-local"]);
     await runCli(["change", "new", "repo", "--title", "No Diff Code"]);
+    const memoryRoot = join(homeDir, "projects", "repo");
+    await writeCliSingleChangeReadiness("no-diff-code", memoryRoot);
     await runCli(["code", "run", "repo", "--json"]);
 
-    const memoryRoot = join(homeDir, "projects", "repo");
     const runIds = await readdir(join(memoryRoot, "runs"));
     const implementation = await readFile(join(memoryRoot, "runs", runIds[0], "implementation.md"), "utf8");
     expect(implementation).toContain("without producing a worktree diff");
@@ -1027,9 +1095,10 @@ describe("CLI flow", () => {
     await runCli(["project", "add", repoDir, "--name", "Repo"]);
     await runCli(["harness", "init", "repo", "--memory", "external-local"]);
     await runCli(["change", "new", "repo", "--title", "Source Pollution"]);
+    const memoryRoot = join(homeDir, "projects", "repo");
+    await writeCliSingleChangeReadiness("source-pollution", memoryRoot);
     await runCli(["code", "run", "repo", "--json"]);
 
-    const memoryRoot = join(homeDir, "projects", "repo");
     const runIds = await readdir(join(memoryRoot, "runs"));
     const run = JSON.parse(await readFile(join(memoryRoot, "runs", runIds[0], "run.json"), "utf8"));
     expect(run).toMatchObject({ runtime: "coder-codex", status: "failed", exitCode: 1 });

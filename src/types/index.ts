@@ -659,6 +659,7 @@ export interface ToolEventAuditEntry {
   actorRoleId: string;
   actionType: string;
   targetId?: string;
+  scope?: Record<string, unknown>;
   decisionStatus: ToolPolicyDecisionStatus;
   enforcementMode: RuntimeEnforcementMode;
   reason: string;
@@ -1498,6 +1499,9 @@ export interface TaskQueueRun {
   startedAt: string | null;
   finishedAt: string | null;
   currentTaskId?: string;
+  taskQueueProposalId?: string;
+  decompositionPlanId?: string;
+  readinessManifestId?: string;
   totalCount: number;
   completedCount: number;
   blockedReason?: string;
@@ -1519,6 +1523,9 @@ export interface TaskQueueItem {
   startedAt: string | null;
   finishedAt: string | null;
   taskRunId?: string;
+  taskQueueProposalId?: string;
+  decompositionPlanId?: string;
+  readinessManifestId?: string;
   blockedReason?: string;
   failureReason?: string;
 }

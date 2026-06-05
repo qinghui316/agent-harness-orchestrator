@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join, relative } from "node:path";
+import { z } from "zod";
 import { getChangeStatus } from "../change/manager.js";
 import { resolveRunnableChangeTarget } from "../change/target.js";
 import { buildCodexWorkspaceWriteArgv, detectCodexCapabilities } from "../codex/capabilities.js";
@@ -10,13 +11,13 @@ import { createCodexJsonlStreamParser, extractFinalMessageFromCodexJsonl, type C
 import { readPromptInput } from "../codex/prompt.js";
 import { buildAgentSystemPrompt, buildRunAgentRecord, resolveAgentRole } from "../agent/catalog.js";
 import { buildRoleContextArtifact, buildRoleContextPacket, contextSourceRef } from "../context/packets.js";
-import { writeJsonFile } from "../fs/json.js";
+import { readRequiredJsonFile, writeJsonFile } from "../fs/json.js";
 import { assertWritableMemory, resolveProjectMemory } from "../memory/resolver.js";
 import { getGitStatusShort } from "../project/git.js";
 import { appendRunEvent, buildRunId, listRuns, readRun } from "../run/manager.js";
 import { isRunStopRequested } from "../run/control.js";
 import { executeProcessStreaming, type ProcessExecutionResult } from "../run/process.js";
-import type { ManagedProject, ResolvedMemory, RunMetadata, RunStatus, RunWorktreeInfo } from "../types/index.js";
+import type { ChangeStatus, ManagedProject, ResolvedMemory, RunMetadata, RunStatus, RunWorktreeInfo } from "../types/index.js";
 import { collectWorktreeDiff } from "../audit/diff.js";
 import { createWorktree, getWorktreeMetadataPath } from "../worktree/manager.js";
 import { composeCoderPrompt } from "./prompt.js";
@@ -26,12 +27,46 @@ export interface CodeRunOptions {
   taskIds?: string[];
   taskRunId?: string;
   roleId?: string;
+  executionGate?: CodeExecutionGateOptions;
   prompt?: string;
   promptFile?: string;
   model?: string;
   profile?: string;
   live?: CodeRunLiveCallbacks;
 }
+
+export type CodeExecutionGateMode = "single-change-readiness" | "taskqueue-proposal" | "rework";
+
+export interface CodeExecutionGateOptions {
+  mode?: CodeExecutionGateMode;
+  readinessManifestId?: string;
+  taskQueueProposalId?: string;
+}
+
+export interface CodeExecutionGateVerdict {
+  allowed: boolean;
+  mode: CodeExecutionGateMode;
+  changeId: string;
+  readinessManifestId?: string;
+  taskQueueProposalId?: string;
+  reason: string;
+}
+
+const codeReadinessGateSchema = z.object({
+  id: z.string(),
+  changeId: z.string(),
+  status: z.string(),
+  nextAllowedAction: z.string(),
+  decompositionPlanId: z.string(),
+});
+
+const taskQueueProposalGateSchema = z.object({
+  id: z.string(),
+  changeId: z.string(),
+  status: z.enum(["draft", "confirmed", "started", "superseded", "rejected"]),
+  readinessManifestId: z.string(),
+  decompositionPlanId: z.string(),
+});
 
 export interface CodeRunResult {
   run: RunMetadata;
@@ -44,6 +79,61 @@ export interface CodeRunLiveCallbacks {
   onCodexEvent?: (event: CodexJsonlStreamEvent & { runId: string }) => void;
   onStderrChunk?: (event: { runId: string; chunk: string }) => void;
   onCallbackError?: (event: { runId: string; error: unknown }) => void;
+}
+
+async function assertCodeExecutionGate(
+  memory: ResolvedMemory,
+  changeStatus: ChangeStatus,
+  changeId: string,
+  options: CodeRunOptions,
+  roleId: string,
+): Promise<CodeExecutionGateVerdict> {
+  const mode = options.executionGate?.mode ?? (roleId === "rework-coder" ? "rework" : "single-change-readiness");
+  if (mode === "rework") {
+    return { allowed: true, mode, changeId, reason: "Rework code execution remains scoped to existing result review evidence." };
+  }
+  const changePath = changeStatus.activeChanges.find((item) => item.name === changeId)?.path;
+  if (!changePath) throw new Error(`Code execution gate cannot resolve active Change path for ${changeId}.`);
+
+  if (mode === "taskqueue-proposal") {
+    const taskQueueProposalId = options.executionGate?.taskQueueProposalId;
+    if (!taskQueueProposalId) throw new Error("TaskQueue code execution requires taskQueueProposalId.");
+    if (!options.taskRunId) throw new Error("TaskQueue code execution requires taskRunId.");
+    const proposal = await readRequiredJsonFile(
+      join(memory.memoryRoot, changePath, "planning", "taskqueue-proposal.json"),
+      taskQueueProposalGateSchema,
+    );
+    if (proposal.changeId !== changeId || proposal.id !== taskQueueProposalId || !["confirmed", "started"].includes(proposal.status)) {
+      throw new Error("TaskQueue code execution target is stale or not confirmed.");
+    }
+    return {
+      allowed: true,
+      mode,
+      changeId,
+      taskQueueProposalId,
+      readinessManifestId: proposal.readinessManifestId,
+      reason: "Confirmed TaskQueueProposal authorizes task-scoped code execution.",
+    };
+  }
+
+  const readiness = await readRequiredJsonFile(
+    join(memory.memoryRoot, changePath, "planning", "decomposition-readiness.json"),
+    codeReadinessGateSchema,
+  );
+  if (readiness.changeId !== changeId) throw new Error("Code execution readiness is not scoped to the selected Change.");
+  if (options.executionGate?.readinessManifestId && readiness.id !== options.executionGate.readinessManifestId) {
+    throw new Error("Code execution readiness target is stale.");
+  }
+  if (readiness.status !== "ready-for-single-change" || readiness.nextAllowedAction !== "code.run") {
+    throw new Error(`Code execution requires ready-for-single-change readiness; current readiness is ${readiness.status}.`);
+  }
+  return {
+    allowed: true,
+    mode,
+    changeId,
+    readinessManifestId: readiness.id,
+    reason: "DecompositionReadinessManifest authorizes direct single-change code.run.",
+  };
 }
 
 function emitCodeLiveStatus(live: CodeRunLiveCallbacks | undefined, event: { runId: string; status: string; label?: string }): void {
@@ -85,6 +175,7 @@ export async function startCodeRun(project: ManagedProject, options: CodeRunOpti
 
   const selectedTasks = normalizeAndValidateTasks(changeStatus, options.taskIds ?? []);
   const roleId = options.roleId ?? "coder-agent";
+  await assertCodeExecutionGate(memory, changeStatus, changeId, options, roleId);
   const role = await resolveAgentRole(memory, roleId);
   const extraPrompt = options.prompt || options.promptFile
     ? await readPromptInput({ prompt: options.prompt, promptFile: options.promptFile })

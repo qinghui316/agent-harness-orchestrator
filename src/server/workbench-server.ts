@@ -33,6 +33,7 @@ import {
   getWorkbenchEvidenceProjection,
   getWorkbenchDecompositionReadinessProjection,
   getWorkbenchDecompositionPlanProjection,
+  getWorkbenchTaskQueueProposalProjection,
   getWorkbenchLandingQueueProjection,
   getWorkbenchMaintenanceProjection,
   getWorkbenchRunGraphProjection,
@@ -70,6 +71,8 @@ interface WorkbenchActionRequest {
   planningBundleId?: string;
   decompositionPlanId?: string;
   readinessManifestId?: string;
+  taskQueueProposalId?: string;
+  queueRunId?: string;
   worktreeId?: string;
   worktreeIds?: string[];
   applyCheckId?: string;
@@ -437,6 +440,10 @@ async function getWorkbenchProjection(input: WorkbenchProjectInput, rest: string
     if (!changeId) throw badRequest("decomposition-readiness projection requires changeId.");
     return getWorkbenchDecompositionReadinessProjection(input, changeId);
   }
+  if (kind === "taskqueue-proposal") {
+    if (!changeId) throw badRequest("taskqueue-proposal projection requires changeId.");
+    return getWorkbenchTaskQueueProposalProjection(input, changeId);
+  }
   if (kind === "maintenance") return getWorkbenchMaintenanceProjection(input);
   if (kind === "landing-queue") return getWorkbenchLandingQueueProjection(input);
   throw badRequest(`Unknown Workbench projection: ${kind ?? ""}`);
@@ -496,6 +503,8 @@ export async function executeWorkbenchAction(input: WorkbenchProjectInput, body:
       planningBundleId: body.planningBundleId,
       decompositionPlanId: body.decompositionPlanId,
       readinessManifestId: body.readinessManifestId,
+      taskQueueProposalId: body.taskQueueProposalId,
+      queueRunId: body.queueRunId,
       worktreeId: body.worktreeId,
       worktreeIds: body.worktreeIds,
       applyCheckId: body.applyCheckId,
@@ -603,6 +612,8 @@ const REVALIDATED_WORKFLOW_ACTION_IDS = new Set<string>([
   "planning.confirm-execution",
   "planning.decomposition.confirm",
   "planning.decomposition.assess-readiness",
+  "planning.taskqueue.propose",
+  "planning.taskqueue.confirm-start",
   "remote-landing.merge",
   "post-merge.sync-local.run",
   "post-merge.cleanup-branch.run",
@@ -621,6 +632,8 @@ async function assertCurrentWorkflowAction(input: WorkbenchProjectInput, body: W
     && sameOptional(action.planningBundleId, body.planningBundleId)
     && sameOptional(action.decompositionPlanId, body.decompositionPlanId)
     && sameOptional(action.readinessManifestId, body.readinessManifestId)
+    && sameOptional(action.taskQueueProposalId, body.taskQueueProposalId)
+    && sameOptional(action.queueRunId, body.queueRunId)
     && sameOptional(action.worktreeId, body.worktreeId)
     && sameOptionalArray(action.worktreeIds, body.worktreeIds)
     && sameOptional(action.applyCheckId, body.applyCheckId)
@@ -812,6 +825,9 @@ async function sendWorkbenchActionLive(input: WorkbenchProjectInput & { project:
         proposalId: body.proposalId,
         planningBundleId: body.planningBundleId,
         decompositionPlanId: body.decompositionPlanId,
+        readinessManifestId: body.readinessManifestId,
+        taskQueueProposalId: body.taskQueueProposalId,
+        queueRunId: body.queueRunId,
         worktreeId: body.worktreeId,
         worktreeIds: body.worktreeIds,
         applyCheckId: body.applyCheckId,
@@ -858,6 +874,8 @@ function isLiveWorkflowAction(actionType: string): actionType is WorkbenchWorkfl
     || actionType === "planning.decompose"
     || actionType === "planning.decomposition.confirm"
     || actionType === "planning.decomposition.assess-readiness"
+    || actionType === "planning.taskqueue.propose"
+    || actionType === "planning.taskqueue.confirm-start"
     || actionType === "orchestrator.evaluate"
     || actionType === "orchestrator.pump"
     || actionType === "demand.worker.enqueue"

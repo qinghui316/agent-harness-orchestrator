@@ -11,7 +11,7 @@ import { startLocalCommandRun } from "../../src/run/manager.js";
 import { executeWorkbenchAction } from "../../src/server/workbench-server.js";
 import { appendTopicThreadEntry, createWorkbenchTopic, postTopicMessage } from "../../src/workbench/chat.js";
 import { answerClarification, reanalyzeIntake, runIntakeScan } from "../../src/workbench/intake.js";
-import { getWorkbenchDecompositionPlanProjection, getWorkbenchDecompositionReadinessProjection, getWorkbenchMaintenanceProjection, getWorkbenchRunGraphProjection, getWorkbenchSnapshot, getWorkbenchStream, getWorkbenchTopic, listWorkbenchApprovals, listWorkbenchRoles, listWorkbenchTopics } from "../../src/workbench/manager.js";
+import { getWorkbenchDecompositionPlanProjection, getWorkbenchDecompositionReadinessProjection, getWorkbenchMaintenanceProjection, getWorkbenchRunGraphProjection, getWorkbenchSnapshot, getWorkbenchStream, getWorkbenchTaskQueueProposalProjection, getWorkbenchTopic, listWorkbenchApprovals, listWorkbenchRoles, listWorkbenchTopics } from "../../src/workbench/manager.js";
 import { WorkbenchStore } from "../../src/workbench/store.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import { collectWorktreeDiff } from "../../src/audit/diff.js";
@@ -909,6 +909,20 @@ describe("workbench read model", () => {
     expect(result.result).toMatchObject({ status: "failed", error: expect.stringContaining("target taskIds are stale") });
   });
 
+  it("rejects code.run before single-change readiness authorizes execution", async () => {
+    await initHarness(project());
+    await createChange(project(), { title: "Ungated Code Run" });
+    await writeAcceptedSpecAndTasks("ungated-code-run");
+
+    const result = await executeWorkbenchAction({ project: project(), path: tempDir }, {
+      actionType: "code.run",
+      changeId: "ungated-code-run",
+      confirm: true,
+    });
+
+    expect(result.result).toMatchObject({ status: "failed", error: expect.stringContaining("decomposition-readiness.json") });
+  });
+
   it("projects latest TaskRun and WorkerLease state on the matching TaskGraph node", async () => {
     await initHarness(project());
     await createChange(project(), { title: "TaskRun State" });
@@ -985,22 +999,30 @@ describe("workbench read model", () => {
       "",
     ].join("\n"), "utf8");
 
-    const result = await startOrResumeTaskQueue(project(), { changeId: "task-queue" });
+    const result = await startOrResumeTaskQueue(project(), { changeId: "task-queue", taskQueueProposalId: "proposal-task-queue" });
     const memory = await resolveProjectMemory(project());
     const items = await listTaskQueueItems(memory, "task-queue", result.queue.id);
 
     expect(result.queue).toMatchObject({ status: "queued", totalCount: 1, completedCount: 0 });
     expect(items).toEqual([
-      expect.objectContaining({ taskId: "T-001", status: "skipped", order: 1 }),
-      expect.objectContaining({ taskId: "T-002", status: "queued", order: 2 }),
+      expect.objectContaining({ taskId: "T-001", status: "skipped", order: 1, taskQueueProposalId: "proposal-task-queue" }),
+      expect.objectContaining({ taskId: "T-002", status: "queued", order: 2, taskQueueProposalId: "proposal-task-queue" }),
     ]);
+  });
+
+  it("rejects direct TaskQueue start without a TaskQueueProposal", async () => {
+    await initHarness(project());
+    const change = await createChange(project(), { title: "Task Queue Direct Start" });
+    await writeAcceptedSpecAndTasks(change.change.id);
+
+    await expect(startOrResumeTaskQueue(project(), { changeId: change.change.id })).rejects.toThrow("TaskQueue start requires a confirmed TaskQueueProposal");
   });
 
   it("projects TaskQueue status into Workpad and disables single-task actions while queued", async () => {
     await initHarness(project());
     await createChange(project(), { title: "Queued Workpad" });
     await writeAcceptedSpecAndTasks("queued-workpad");
-    const result = await startOrResumeTaskQueue(project(), { changeId: "queued-workpad" });
+    const result = await startOrResumeTaskQueue(project(), { changeId: "queued-workpad", taskQueueProposalId: "proposal-queued-workpad" });
 
     const snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: "queued-workpad" });
     const node = snapshot.center.workpad.taskGraph.nodes.find((item) => item.taskId === "T-001");
@@ -1009,7 +1031,7 @@ describe("workbench read model", () => {
       id: result.queue.id,
       status: "queued",
       totalCount: 1,
-      nextAction: expect.objectContaining({ actionType: "task.queue.reconcile", label: "刷新执行状态" }),
+      nextAction: expect.objectContaining({ actionType: "task.queue.reconcile", label: "刷新执行状态", queueRunId: result.queue.id }),
     });
     expect(node?.nextAction).toMatchObject({ enabled: false, disabledReason: "本地顺序执行正在运行或等待恢复。" });
   });
@@ -1228,7 +1250,7 @@ describe("workbench read model", () => {
       summary: expect.stringContaining("方案已经准备好"),
     });
     expect(snapshot.right.confirmationQueue.primary?.actions).toEqual(expect.arrayContaining([
-      expect.objectContaining({ actionType: "planning.confirm-execution", label: "确认执行", planningBundleId }),
+      expect.objectContaining({ actionType: "planning.confirm-execution", label: "确认规划", planningBundleId }),
     ]));
   });
 
@@ -1409,6 +1431,92 @@ describe("workbench read model", () => {
     expect(await listAgentTasks(memory, topic.changeId)).toHaveLength(0);
     expect(await listTaskQueues(memory, topic.changeId)).toHaveLength(0);
     expect(await getWorkbenchDecompositionReadinessProjection({ project: project(), path: tempDir }, topic.changeId)).toBeNull();
+  });
+
+  it("generates TaskQueueProposal only from latest sequential readiness without starting execution", async () => {
+    await initHarness(project());
+    const topic = await createWorkbenchTopic(project(), {
+      title: "Sequential Proposal",
+      body: "Split this into ordered taskgraph work.",
+    });
+    await writeAcceptedSpecAndTasks(topic.changeId);
+    const changeDir = join(tempDir, "harness", "changes", "active", topic.changeId);
+    await writeFile(join(changeDir, "tasks.md"), [
+      "# Tasks",
+      "",
+      "- [ ] T-001: First task.",
+      "  - Covers: AC-001",
+      "- [ ] T-002: Second task.",
+      "  - Covers: AC-001",
+      "",
+    ].join("\n"), "utf8");
+    await writePlanningBundleFixture(topic.changeId, "Implement ordered split work.");
+    const bundlePath = join(changeDir, "planning", "latest-bundle.json");
+    const bundle = JSON.parse(await readFile(bundlePath, "utf8"));
+    bundle.tasks = [
+      { id: "T-001", title: "First task", acIds: ["AC-001"] },
+      { id: "T-002", title: "Second task", acIds: ["AC-001"] },
+    ];
+    bundle.tasksMd = "- [ ] T-001: First task\n  - Covers: AC-001\n- [ ] T-002: Second task\n  - Covers: AC-001\n";
+    await writeFile(bundlePath, JSON.stringify(bundle, null, 2), "utf8");
+
+    const draft = await executeWorkbenchAction({ project: project(), path: tempDir }, {
+      actionType: "planning.decompose",
+      changeId: topic.changeId,
+      confirm: true,
+    });
+    const planId = ((draft.result as { result?: { plan?: { id?: string; recommendation?: string } } }).result?.plan?.id);
+    expect((draft.result as { result?: { plan?: { recommendation?: string } } }).result?.plan?.recommendation).toBe("taskgraph-sequential");
+    await executeWorkbenchAction({ project: project(), path: tempDir }, {
+      actionType: "planning.decomposition.confirm",
+      changeId: topic.changeId,
+      decompositionPlanId: planId,
+      confirm: true,
+    });
+    const readiness = await executeWorkbenchAction({ project: project(), path: tempDir }, {
+      actionType: "planning.decomposition.assess-readiness",
+      changeId: topic.changeId,
+      decompositionPlanId: planId,
+      confirm: true,
+    });
+    const manifest = (readiness.result as { result?: { manifest?: { id?: string; status?: string; nextAllowedAction?: string } } }).result?.manifest;
+    expect(manifest).toMatchObject({ status: "ready-for-sequential-taskqueue-proposal", nextAllowedAction: "taskqueue.proposal" });
+
+    await expect(executeWorkbenchAction({ project: project(), path: tempDir }, {
+      actionType: "planning.taskqueue.propose",
+      changeId: topic.changeId,
+      readinessManifestId: "forged-readiness",
+      confirm: true,
+    })).rejects.toThrow("stale or no longer available");
+
+    const proposed = await executeWorkbenchAction({ project: project(), path: tempDir }, {
+      actionType: "planning.taskqueue.propose",
+      changeId: topic.changeId,
+      readinessManifestId: manifest?.id,
+      confirm: true,
+    });
+    const proposal = (proposed.result as { result?: { proposal?: { id?: string; itemCount?: number; status?: string; readinessManifestId?: string; executionStarted?: boolean } } }).result?.proposal;
+    expect(proposal).toMatchObject({ status: "draft", readinessManifestId: manifest?.id });
+    const snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: topic.changeId });
+    expect(snapshot.center.workpad.taskQueueProposal).toMatchObject({ id: proposal?.id, itemCount: 2, status: "draft" });
+    expect(snapshot.right.confirmationQueue.current).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        actions: expect.arrayContaining([
+          expect.objectContaining({ actionType: "planning.taskqueue.confirm-start", taskQueueProposalId: proposal?.id }),
+        ]),
+      }),
+    ]));
+    const fullProposal = await getWorkbenchTaskQueueProposalProjection({ project: project(), path: tempDir }, topic.changeId);
+    expect(fullProposal).toMatchObject({ id: proposal?.id, items: expect.arrayContaining([expect.objectContaining({ taskId: "T-002" })]) });
+    const memory = await resolveProjectMemory(project());
+    expect(await listTaskQueues(memory, topic.changeId)).toHaveLength(0);
+
+    await expect(executeWorkbenchAction({ project: project(), path: tempDir }, {
+      actionType: "planning.taskqueue.confirm-start",
+      changeId: topic.changeId,
+      taskQueueProposalId: "forged-proposal",
+      confirm: true,
+    })).rejects.toThrow("stale or no longer available");
   });
 
   it("records supplemental input as pending feedback while a demand run is still running", async () => {
@@ -2713,15 +2821,15 @@ describe("workbench read model", () => {
       confirm: true,
     });
 
-    expect(result.result).toMatchObject({ status: "completed", result: expect.objectContaining({ status: "queued" }) });
+    expect(result.result).toMatchObject({ status: "completed", result: expect.objectContaining({ executionStarted: false }) });
     expect(existsSync(join(tempDir, "harness", "changes", "active", active.changeId, "spec.md"))).toBe(true);
     expect(existsSync(join(tempDir, "harness", "changes", "active", active.changeId, "ac-map.json"))).toBe(true);
     const workers = await listDemandWorkers(memory);
     expect(workers).toEqual(expect.arrayContaining([
       expect.objectContaining({ changeId: running.changeId, status: "running" }),
       expect.objectContaining({ changeId: runningTwo.changeId, status: "running" }),
-      expect.objectContaining({ changeId: active.changeId, status: "queued" }),
     ]));
+    expect(workers.some((worker) => worker.changeId === active.changeId)).toBe(false);
     const tasks = await listAgentTasks(memory, active.changeId);
     expect(tasks).toHaveLength(0);
   });
@@ -2746,13 +2854,10 @@ describe("workbench read model", () => {
 
     expect(result.result).toMatchObject({
       status: "completed",
-      result: expect.objectContaining({
-        status: "queued",
-        claimed: 2,
-        backgroundStarted: 2,
-        worker: expect.objectContaining({ changeId: active.changeId, status: "queued" }),
-      }),
+      result: expect.objectContaining({ executionStarted: false }),
     });
+    const workers = await listDemandWorkers(memory);
+    expect(workers.some((worker) => worker.changeId === active.changeId)).toBe(false);
   });
 
   it("claims one demand at a time when configured for sequential execution", async () => {

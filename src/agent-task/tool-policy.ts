@@ -21,6 +21,8 @@ const HIGH_IMPACT_ACTIONS = new Set([
   "planning.confirm-execution",
   "planning.decomposition.confirm",
   "planning.decomposition.assess-readiness",
+  "planning.taskqueue.propose",
+  "planning.taskqueue.confirm-start",
   "code.run",
   "task.run.start",
   "task.run.retry",
