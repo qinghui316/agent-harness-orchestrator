@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+﻿import { existsSync } from "node:fs";
 import { open, readFile, readdir, stat } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
 import { z } from "zod";
@@ -33,7 +33,7 @@ import { isActiveTaskRunStatus, listTaskRuns, listWorkerLeases } from "../task-r
 import { listTaskQueueItems, listTaskQueues } from "../task-queue/manager.js";
 import { listValidationResults, summarizeValidation } from "../validation/artifacts.js";
 import { listWorktreeStatuses, listWorktreesForChange } from "../worktree/manager.js";
-import { readLatestDecompositionPlan, readTopicThreadLog, type AssistantTurnActivity, type AssistantTurnBlock, type DecompositionPlan, type DecompositionRecommendation, type OrchestrationPlanCard, type TopicThreadEntry } from "./chat.js";
+import { readLatestDecompositionPlan, readLatestDecompositionReadinessManifest, readTopicThreadLog, type AssistantTurnActivity, type AssistantTurnBlock, type DecompositionPlan, type DecompositionReadinessManifest, type DecompositionRecommendation, type OrchestrationPlanCard, type TopicThreadEntry } from "./chat.js";
 import type { ClarificationRequest, WorkbenchIntakeIteration, WorkbenchIntakeScan } from "./intake.js";
 import { buildParentAgentTranscript, type ParentAgentTranscript } from "./parent-agent-transcript.js";
 import { WorkbenchStore, type StoredDecisionRecord } from "./store.js";
@@ -125,7 +125,7 @@ export interface WorkbenchThreadEvent {
 }
 
 export interface ThreadStreamAction {
-  actionType: "change.spec.propose" | "change.plan.propose" | "planning.generate" | "planning.revise" | "planning.confirm-execution" | "planning.decompose" | "planning.decomposition.confirm" | "orchestrator.evaluate" | "orchestrator.pump" | "demand.worker.enqueue" | "demand.worker.claim" | "demand.worker.start-next" | "demand.worker.start-available" | "demand.worker.reconcile" | "demand.worker.release" | "role.pipeline.start" | "role.pipeline.stop" | "role.pipeline.continue" | "role.pipeline.reconcile" | "conversation.steer" | "conversation.interrupt" | "conversation.continue" | "result.refresh-rework" | "result.revalidate" | "result.reaudit" | "result.refresh-status" | "apply-check.run" | "landing.prepare" | "landing.review" | "landing.refresh" | "landing-queue.prepare" | "landing-queue.refresh" | "landing-queue.merge-next" | "landing-queue.skip" | "landing-queue.remove-stale" | "pr-draft.prepare" | "pr-draft.create" | "pr-draft.refresh" | "pr-feedback.refresh" | "pr-feedback.evaluate" | "pr-feedback.rework" | "pr-feedback.update-draft" | "pr-review.prepare" | "pr-review.submit" | "pr-review.refresh" | "pr-review.feedback-refresh" | "pr-review.feedback-evaluate" | "pr-review.rework" | "pr-review.reply-prepare" | "pr-review.reply-submit" | "pr-review.thread-resolve" | "remote-landing.prepare" | "remote-landing.merge" | "remote-landing.refresh" | "post-merge.prepare" | "post-merge.refresh" | "post-merge.sync-local.prepare" | "post-merge.sync-local.run" | "post-merge.cleanup-branch.prepare" | "post-merge.cleanup-branch.run" | "code.run" | "task.run.start" | "task.run.retry" | "task.queue.start" | "task.queue.reconcile" | "intake.scan" | "intake.reanalyze" | "clarification.answer" | "clarification.skip";
+  actionType: "change.spec.propose" | "change.plan.propose" | "planning.generate" | "planning.revise" | "planning.confirm-execution" | "planning.decompose" | "planning.decomposition.confirm" | "planning.decomposition.assess-readiness" | "orchestrator.evaluate" | "orchestrator.pump" | "demand.worker.enqueue" | "demand.worker.claim" | "demand.worker.start-next" | "demand.worker.start-available" | "demand.worker.reconcile" | "demand.worker.release" | "role.pipeline.start" | "role.pipeline.stop" | "role.pipeline.continue" | "role.pipeline.reconcile" | "conversation.steer" | "conversation.interrupt" | "conversation.continue" | "result.refresh-rework" | "result.revalidate" | "result.reaudit" | "result.refresh-status" | "apply-check.run" | "landing.prepare" | "landing.review" | "landing.refresh" | "landing-queue.prepare" | "landing-queue.refresh" | "landing-queue.merge-next" | "landing-queue.skip" | "landing-queue.remove-stale" | "pr-draft.prepare" | "pr-draft.create" | "pr-draft.refresh" | "pr-feedback.refresh" | "pr-feedback.evaluate" | "pr-feedback.rework" | "pr-feedback.update-draft" | "pr-review.prepare" | "pr-review.submit" | "pr-review.refresh" | "pr-review.feedback-refresh" | "pr-review.feedback-evaluate" | "pr-review.rework" | "pr-review.reply-prepare" | "pr-review.reply-submit" | "pr-review.thread-resolve" | "remote-landing.prepare" | "remote-landing.merge" | "remote-landing.refresh" | "post-merge.prepare" | "post-merge.refresh" | "post-merge.sync-local.prepare" | "post-merge.sync-local.run" | "post-merge.cleanup-branch.prepare" | "post-merge.cleanup-branch.run" | "code.run" | "task.run.start" | "task.run.retry" | "task.queue.start" | "task.queue.reconcile" | "intake.scan" | "intake.reanalyze" | "clarification.answer" | "clarification.skip";
   label: string;
   enabled: boolean;
   requiresConfirmation: boolean;
@@ -221,6 +221,7 @@ export interface WorkbenchDecisionAction {
   actionType?: ThreadStreamAction["actionType"];
   planningBundleId?: string;
   decompositionPlanId?: string;
+  readinessManifestId?: string;
   taskIds?: string[];
   taskRunId?: string;
   worktreeId?: string;
@@ -356,6 +357,7 @@ export interface WorkpadNextAction {
   approvalId?: string;
   planningBundleId?: string;
   decompositionPlanId?: string;
+  readinessManifestId?: string;
   taskIds?: string[];
   taskRunId?: string;
   disabledReason?: string;
@@ -548,6 +550,7 @@ export interface WorkbenchWorkpad {
   planningDraft?: WorkbenchPlanningDraft;
   planningArtifactBundle?: WorkbenchPlanningArtifactBundle;
   decompositionPlan?: WorkbenchDecompositionPlanSummary;
+  decompositionReadiness?: WorkbenchDecompositionReadinessSummary;
   rolePipeline?: WorkbenchRolePipelineSummary;
   resultReview?: WorkbenchResultReview;
   maintenance?: WorkbenchMaintenanceSummary;
@@ -594,6 +597,21 @@ export interface WorkbenchDecompositionPlanSummary {
   conflictScopeCount: number;
   riskSummary: string;
   openQuestionCount: number;
+  artifact?: string;
+  markdownArtifact?: string;
+  updatedAt: string;
+}
+
+export interface WorkbenchDecompositionReadinessSummary {
+  id: string;
+  changeId: string;
+  decompositionPlanId: string;
+  status: DecompositionReadinessManifest["status"];
+  recommendation: DecompositionRecommendation;
+  schedulerEligible: boolean;
+  nextAllowedAction: DecompositionReadinessManifest["nextAllowedAction"];
+  guardrailStatus: "passed" | "blocked" | "failed";
+  unitCount: number;
   artifact?: string;
   markdownArtifact?: string;
   updatedAt: string;
@@ -1336,6 +1354,7 @@ async function buildWorkbenchWorkpad(input: {
   const codingPackages = buildCodingPackages(selectedTopic, taskGraph);
   const planningBundle = await readLatestPlanningBundleProjection(memory, selectedTopic.path);
   const decompositionPlan = await readLatestDecompositionPlanSummary(memory, selectedTopic.path);
+  const decompositionReadiness = await readLatestDecompositionReadinessSummary(memory, selectedTopic.path);
   const agentTasks = await buildAgentTaskSummaries(memory, selectedTopic.id);
   const rolePipeline = buildRolePipelineSummary(selectedTopic, planningBundle, agentTasks);
   const resultReview = await buildResultReview(project, memory, selectedTopic);
@@ -1368,6 +1387,7 @@ async function buildWorkbenchWorkpad(input: {
     planningDraft: planningBundle?.status === "draft" ? planningBundle : undefined,
     planningArtifactBundle: planningBundle ?? undefined,
     decompositionPlan: decompositionPlan ?? undefined,
+    decompositionReadiness: decompositionReadiness ?? undefined,
     rolePipeline,
     resultReview,
     maintenance,
@@ -2001,6 +2021,30 @@ async function readLatestDecompositionPlanSummary(memory: ResolvedMemory, change
   };
 }
 
+async function readLatestDecompositionReadinessSummary(memory: ResolvedMemory, changePath: string): Promise<WorkbenchDecompositionReadinessSummary | null> {
+  const manifest = await readLatestDecompositionReadinessManifest(memory, changePath).catch(() => null);
+  if (!manifest) return null;
+  const guardrailStatus = manifest.guardrails.some((item) => item.status === "failed")
+    ? "failed"
+    : manifest.guardrails.some((item) => item.status === "blocked")
+      ? "blocked"
+      : "passed";
+  return {
+    id: manifest.id,
+    changeId: manifest.changeId,
+    decompositionPlanId: manifest.decompositionPlanId,
+    status: manifest.status,
+    recommendation: manifest.recommendation,
+    schedulerEligible: manifest.schedulerEligible,
+    nextAllowedAction: manifest.nextAllowedAction,
+    guardrailStatus,
+    unitCount: manifest.units.length,
+    artifact: manifest.artifact,
+    markdownArtifact: manifest.markdownArtifact,
+    updatedAt: manifest.updatedAt,
+  };
+}
+
 export async function getWorkbenchDecompositionPlanProjection(input: WorkbenchProjectInput, changeId: string): Promise<DecompositionPlan | null> {
   const memory = await resolveWorkbenchMemory(input);
   if (!memory.supported) return null;
@@ -2008,6 +2052,15 @@ export async function getWorkbenchDecompositionPlanProjection(input: WorkbenchPr
   const topic = topics.find((item) => item.id === changeId || item.name === changeId);
   if (!topic) return null;
   return readLatestDecompositionPlan(memory, topic.path).catch(() => null);
+}
+
+export async function getWorkbenchDecompositionReadinessProjection(input: WorkbenchProjectInput, changeId: string): Promise<DecompositionReadinessManifest | null> {
+  const memory = await resolveWorkbenchMemory(input);
+  if (!memory.supported) return null;
+  const topics = await listWorkbenchTopicsFromMemory(memory);
+  const topic = topics.find((item) => item.id === changeId || item.name === changeId);
+  if (!topic) return null;
+  return readLatestDecompositionReadinessManifest(memory, topic.path).catch(() => null);
 }
 
 function buildRolePipelineSummary(
@@ -3142,7 +3195,36 @@ function decompositionPlanToConfirmationItems(
   workpad: WorkbenchWorkpad,
 ): WorkbenchConfirmationQueueItem[] {
   const plan = workpad.decompositionPlan;
-  if (!selectedTopic || !plan || plan.status !== "draft") return [];
+  if (!selectedTopic || !plan) return [];
+  if (plan.status === "confirmed") {
+    const readiness = workpad.decompositionReadiness;
+    if (readiness?.decompositionPlanId === plan.id) return [];
+    return [{
+      id: `confirm:decomposition-readiness:${selectedTopic.id}:${plan.id}`,
+      kind: "planning-confirm",
+      projectId: project?.id ?? null,
+      conversationId: selectedTopic.id,
+      changeId: selectedTopic.id,
+      summary: `拆分方向已确认：${decompositionRecommendationSummary(plan.recommendation)}。`,
+      whyNeedsConfirmation: "需要你确认检查执行边界。检查只写 readiness manifest，不会启动执行。",
+      confirmEffect: "生成 DecompositionReadinessManifest；不会创建 TaskQueue、TaskRun、AgentTask、子 Change、worktree 或 run。",
+      riskSummary: "Manifest 只说明后续执行层是否可安全消费该拆分提案；不能绕过 Harness workflow truth。",
+      evidenceRefs: plan.artifact ? [plan.artifact] : [],
+      actions: [{
+        id: `workflow:planning.decomposition.assess-readiness:${selectedTopic.id}:${plan.id}`,
+        label: "检查执行边界",
+        kind: "workflow-action",
+        changeId: selectedTopic.id,
+        actionType: "planning.decomposition.assess-readiness",
+        decompositionPlanId: plan.id,
+        enabled: true,
+        requiresConfirmation: true,
+      }],
+      primary: false,
+      status: "pending",
+    }];
+  }
+  if (plan.status !== "draft") return [];
   return [{
     id: `confirm:decomposition:${selectedTopic.id}:${plan.id}`,
     kind: "planning-confirm",
@@ -5415,6 +5497,7 @@ function workflowActionLabel(actionType: string): string {
     case "change.spec.accept": return "Spec acceptance";
     case "change.plan.propose": return "Plan/Tasks proposal";
     case "change.plan.accept": return "Plan/Tasks acceptance";
+    case "planning.decomposition.assess-readiness": return "Decomposition readiness";
     case "code.run": return "Code workflow";
     case "validate.run": return "Validation";
     case "audit.run": return "Audit";
@@ -5864,3 +5947,4 @@ function humanConfirmationForRole(id: string): string {
   if (id === "auditor") return "Requires explicit audit accept before writing review.md.";
   return "Requires explicit accept command before canonical state changes.";
 }
+

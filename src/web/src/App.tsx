@@ -176,6 +176,7 @@ type WorkpadNextAction = {
   approvalId?: string;
   planningBundleId?: string;
   decompositionPlanId?: string;
+  readinessManifestId?: string;
   taskIds?: string[];
   taskRunId?: string;
   disabledReason?: string;
@@ -301,6 +302,7 @@ type Workpad = {
   planningDraft?: PlanningArtifactBundle;
   planningArtifactBundle?: PlanningArtifactBundle;
   decompositionPlan?: DecompositionPlanSummary;
+  decompositionReadiness?: DecompositionReadinessSummary;
   rolePipeline?: {
     stage: "planning" | "coding" | "validation" | "audit" | "rework" | "done" | "needs-user-input";
     status: "draft" | "running" | "completed" | "needs-user-input" | "stopped";
@@ -421,6 +423,20 @@ type DecompositionPlanSummary = {
   markdownArtifact?: string;
   updatedAt: string;
 };
+type DecompositionReadinessSummary = {
+  id: string;
+  changeId: string;
+  decompositionPlanId: string;
+  status: "ready-for-single-change" | "ready-for-sequential-taskqueue-proposal" | "blocked-parallel-guardrails" | "blocked-multi-change-boundary" | "blocked-needs-clarification" | "invalid";
+  recommendation: DecompositionPlanSummary["recommendation"];
+  schedulerEligible: boolean;
+  nextAllowedAction: "code.run" | "taskqueue.proposal" | "clarification.answer" | "none";
+  guardrailStatus: "passed" | "blocked" | "failed";
+  unitCount: number;
+  artifact?: string;
+  markdownArtifact?: string;
+  updatedAt: string;
+};
 type PlanCard = {
   title: string;
   summary: string;
@@ -429,7 +445,7 @@ type PlanCard = {
 };
 type ThreadEvent = { id: string; type: string; label: string; timestamp?: string; status?: string; runId?: string; planCard?: PlanCard };
 type ThreadStreamAction = {
-  actionType: "change.spec.propose" | "change.plan.propose" | "planning.generate" | "planning.revise" | "planning.confirm-execution" | "planning.decompose" | "planning.decomposition.confirm" | "orchestrator.evaluate" | "orchestrator.pump" | "demand.worker.enqueue" | "demand.worker.claim" | "demand.worker.start-next" | "demand.worker.start-available" | "demand.worker.reconcile" | "demand.worker.release" | "role.pipeline.start" | "role.pipeline.stop" | "role.pipeline.continue" | "role.pipeline.reconcile" | "conversation.steer" | "conversation.interrupt" | "conversation.continue" | "result.refresh-rework" | "result.revalidate" | "result.reaudit" | "result.refresh-status" | "apply-check.run" | "landing.prepare" | "landing.review" | "landing.refresh" | "landing-queue.prepare" | "landing-queue.refresh" | "landing-queue.merge-next" | "landing-queue.skip" | "landing-queue.remove-stale" | "pr-draft.prepare" | "pr-draft.create" | "pr-draft.refresh" | "pr-feedback.refresh" | "pr-feedback.evaluate" | "pr-feedback.rework" | "pr-feedback.update-draft" | "pr-review.prepare" | "pr-review.submit" | "pr-review.refresh" | "pr-review.feedback-refresh" | "pr-review.feedback-evaluate" | "pr-review.rework" | "pr-review.reply-prepare" | "pr-review.reply-submit" | "pr-review.thread-resolve" | "remote-landing.prepare" | "remote-landing.merge" | "remote-landing.refresh" | "post-merge.prepare" | "post-merge.refresh" | "post-merge.sync-local.prepare" | "post-merge.sync-local.run" | "post-merge.cleanup-branch.prepare" | "post-merge.cleanup-branch.run" | "code.run" | "task.run.start" | "task.run.retry" | "task.queue.start" | "task.queue.reconcile" | "intake.scan" | "intake.reanalyze" | "clarification.answer" | "clarification.skip";
+  actionType: "change.spec.propose" | "change.plan.propose" | "planning.generate" | "planning.revise" | "planning.confirm-execution" | "planning.decompose" | "planning.decomposition.confirm" | "planning.decomposition.assess-readiness" | "orchestrator.evaluate" | "orchestrator.pump" | "demand.worker.enqueue" | "demand.worker.claim" | "demand.worker.start-next" | "demand.worker.start-available" | "demand.worker.reconcile" | "demand.worker.release" | "role.pipeline.start" | "role.pipeline.stop" | "role.pipeline.continue" | "role.pipeline.reconcile" | "conversation.steer" | "conversation.interrupt" | "conversation.continue" | "result.refresh-rework" | "result.revalidate" | "result.reaudit" | "result.refresh-status" | "apply-check.run" | "landing.prepare" | "landing.review" | "landing.refresh" | "landing-queue.prepare" | "landing-queue.refresh" | "landing-queue.merge-next" | "landing-queue.skip" | "landing-queue.remove-stale" | "pr-draft.prepare" | "pr-draft.create" | "pr-draft.refresh" | "pr-feedback.refresh" | "pr-feedback.evaluate" | "pr-feedback.rework" | "pr-feedback.update-draft" | "pr-review.prepare" | "pr-review.submit" | "pr-review.refresh" | "pr-review.feedback-refresh" | "pr-review.feedback-evaluate" | "pr-review.rework" | "pr-review.reply-prepare" | "pr-review.reply-submit" | "pr-review.thread-resolve" | "remote-landing.prepare" | "remote-landing.merge" | "remote-landing.refresh" | "post-merge.prepare" | "post-merge.refresh" | "post-merge.sync-local.prepare" | "post-merge.sync-local.run" | "post-merge.cleanup-branch.prepare" | "post-merge.cleanup-branch.run" | "code.run" | "task.run.start" | "task.run.retry" | "task.queue.start" | "task.queue.reconcile" | "intake.scan" | "intake.reanalyze" | "clarification.answer" | "clarification.skip";
   label: string;
   enabled: boolean;
   requiresConfirmation: boolean;
@@ -499,6 +515,7 @@ type DecisionAction = {
   actionType?: ThreadStreamAction["actionType"];
   planningBundleId?: string;
   decompositionPlanId?: string;
+  readinessManifestId?: string;
   taskIds?: string[];
   taskRunId?: string;
   worktreeId?: string;
@@ -1052,7 +1069,7 @@ export function App(): ReactElement {
       return;
     }
     if (action.kind === "workflow-action" && action.actionType) {
-        await runWorkflowAction(action.actionType, { changeId: action.changeId ?? context.changeId, planningBundleId: action.planningBundleId, decompositionPlanId: action.decompositionPlanId, taskIds: action.taskIds, taskRunId: action.taskRunId, worktreeId: action.worktreeId ?? context.targetId, worktreeIds: action.worktreeIds, applyCheckId: action.applyCheckId, landingPackageId: action.landingPackageId, remoteLandingResultId: action.remoteLandingResultId });
+        await runWorkflowAction(action.actionType, { changeId: action.changeId ?? context.changeId, planningBundleId: action.planningBundleId, decompositionPlanId: action.decompositionPlanId, readinessManifestId: action.readinessManifestId, taskIds: action.taskIds, taskRunId: action.taskRunId, worktreeId: action.worktreeId ?? context.targetId, worktreeIds: action.worktreeIds, applyCheckId: action.applyCheckId, landingPackageId: action.landingPackageId, remoteLandingResultId: action.remoteLandingResultId });
       return;
     }
     if (action.kind === "abandon") {
@@ -3098,6 +3115,22 @@ function WorkpadDiagnosticDetails({
         </section>
       ) : null}
 
+      {workpad.decompositionReadiness ? (
+        <section className="workpad-section" data-testid="decomposition-readiness-card">
+          <div className="workpad-section-header">
+            <h3>执行边界</h3>
+            <span>{humanStatus(workpad.decompositionReadiness.guardrailStatus)}</span>
+          </div>
+          <p className="workpad-goal">{decompositionReadinessLabel(workpad.decompositionReadiness.status)}</p>
+          <div className="workpad-chip-list">
+            <span>{workpad.decompositionReadiness.unitCount} 个单元</span>
+            <span>{workpad.decompositionReadiness.schedulerEligible ? "可进入后续 proposal" : "不可直接调度"}</span>
+            <span>{workflowActionLabel(workpad.decompositionReadiness.nextAllowedAction)}</span>
+          </div>
+          {workpad.decompositionReadiness.artifact ? <small className="artifact-link">查看证据：{artifactName(workpad.decompositionReadiness.artifact)}</small> : null}
+        </section>
+      ) : null}
+
       {workpad.rolePipeline ? (
         <section className="workpad-section" data-testid="role-pipeline-summary">
           <div className="workpad-section-header">
@@ -3588,7 +3621,7 @@ function WorkpadActionButton({
       onConfirmApproval(action.approvalId);
       return;
     }
-    if (action.kind === "workflow-action" && action.actionType) void onWorkflowAction(action.actionType, { planningBundleId: action.planningBundleId, decompositionPlanId: action.decompositionPlanId, taskIds: action.taskIds, taskRunId: action.taskRunId });
+    if (action.kind === "workflow-action" && action.actionType) void onWorkflowAction(action.actionType, { planningBundleId: action.planningBundleId, decompositionPlanId: action.decompositionPlanId, readinessManifestId: action.readinessManifestId, taskIds: action.taskIds, taskRunId: action.taskRunId });
   }
   return (
     <div className="workpad-next-action">
@@ -4571,6 +4604,16 @@ function decompositionRecommendationLabel(recommendation: DecompositionPlanSumma
   return recommendation;
 }
 
+function decompositionReadinessLabel(status: DecompositionReadinessSummary["status"]): string {
+  if (status === "ready-for-single-change") return "可回到单 Change Code 执行";
+  if (status === "ready-for-sequential-taskqueue-proposal") return "可进入后续 TaskQueue proposal";
+  if (status === "blocked-parallel-guardrails") return "并行边界未通过";
+  if (status === "blocked-multi-change-boundary") return "多 Change 仍需后续边界";
+  if (status === "blocked-needs-clarification") return "需要先澄清需求";
+  if (status === "invalid") return "拆分提案无效";
+  return status;
+}
+
 function resultReviewStatusLabel(status: NonNullable<Workpad["resultReview"]>["status"]): string {
   if (status === "ready-to-apply") return "可应用";
   if (status === "needs-rework") return "需要修改";
@@ -4682,6 +4725,9 @@ function workflowActionLabel(actionType: string | undefined): string {
   if (actionType === "planning.confirm-execution") return "确认执行";
   if (actionType === "planning.decompose") return "拆分评估";
   if (actionType === "planning.decomposition.confirm") return "确认拆分方向";
+  if (actionType === "planning.decomposition.assess-readiness") return "检查执行边界";
+  if (actionType === "taskqueue.proposal") return "TaskQueue proposal";
+  if (actionType === "none") return "无后续动作";
   if (actionType === "orchestrator.evaluate") return "检查处理状态";
   if (actionType === "orchestrator.pump") return "继续处理需求";
   if (actionType === "demand.worker.enqueue") return "加入处理队列";

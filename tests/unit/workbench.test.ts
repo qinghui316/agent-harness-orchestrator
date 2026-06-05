@@ -11,7 +11,7 @@ import { startLocalCommandRun } from "../../src/run/manager.js";
 import { executeWorkbenchAction } from "../../src/server/workbench-server.js";
 import { appendTopicThreadEntry, createWorkbenchTopic, postTopicMessage } from "../../src/workbench/chat.js";
 import { answerClarification, reanalyzeIntake, runIntakeScan } from "../../src/workbench/intake.js";
-import { getWorkbenchDecompositionPlanProjection, getWorkbenchMaintenanceProjection, getWorkbenchRunGraphProjection, getWorkbenchSnapshot, getWorkbenchStream, getWorkbenchTopic, listWorkbenchApprovals, listWorkbenchRoles, listWorkbenchTopics } from "../../src/workbench/manager.js";
+import { getWorkbenchDecompositionPlanProjection, getWorkbenchDecompositionReadinessProjection, getWorkbenchMaintenanceProjection, getWorkbenchRunGraphProjection, getWorkbenchSnapshot, getWorkbenchStream, getWorkbenchTopic, listWorkbenchApprovals, listWorkbenchRoles, listWorkbenchTopics } from "../../src/workbench/manager.js";
 import { WorkbenchStore } from "../../src/workbench/store.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import { collectWorktreeDiff } from "../../src/audit/diff.js";
@@ -1291,9 +1291,124 @@ describe("workbench read model", () => {
       confirm: true,
     });
     expect(confirmed.result).toMatchObject({ status: "completed", result: expect.objectContaining({ executionStarted: false }) });
+    const confirmedSnapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: topic.changeId });
+    expect(confirmedSnapshot.right.confirmationQueue.current).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        actions: expect.arrayContaining([
+          expect.objectContaining({ actionType: "planning.decomposition.assess-readiness", decompositionPlanId: planId }),
+        ]),
+      }),
+    ]));
+    const readiness = await executeWorkbenchAction({ project: project(), path: tempDir }, {
+      actionType: "planning.decomposition.assess-readiness",
+      changeId: topic.changeId,
+      decompositionPlanId: planId,
+      confirm: true,
+    });
+    const manifest = (readiness.result as { result?: { manifest?: { id?: string; status?: string; executable?: boolean; nextAllowedAction?: string } } }).result?.manifest;
+    expect(manifest).toMatchObject({
+      status: "ready-for-single-change",
+      executable: false,
+      nextAllowedAction: "code.run",
+    });
+    const readinessSnapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: topic.changeId });
+    expect(readinessSnapshot.center.workpad.decompositionReadiness).toMatchObject({
+      id: manifest?.id,
+      decompositionPlanId: planId,
+      status: "ready-for-single-change",
+      nextAllowedAction: "code.run",
+    });
+    const fullManifest = await getWorkbenchDecompositionReadinessProjection({ project: project(), path: tempDir }, topic.changeId);
+    expect(fullManifest).toMatchObject({
+      id: manifest?.id,
+      changeId: topic.changeId,
+      decompositionPlanId: planId,
+      executable: false,
+    });
     const memory = await resolveProjectMemory(project());
     expect(await listAgentTasks(memory, topic.changeId)).toHaveLength(0);
+    expect(await listTaskQueues(memory, topic.changeId)).toHaveLength(0);
     expect((await getWorkbenchDecompositionPlanProjection({ project: project(), path: tempDir }, topic.changeId))?.status).toBe("confirmed");
+  });
+
+  it("rejects draft or stale DecompositionPlan readiness assessment", async () => {
+    await initHarness(project());
+    const topic = await createWorkbenchTopic(project(), {
+      title: "Readiness Stale Plan",
+      body: "Assess only the visible confirmed decomposition plan.",
+    });
+    await writeAcceptedSpecAndTasks(topic.changeId);
+    await writePlanningBundleFixture(topic.changeId, "Implement one scoped demand.");
+
+    const draft = await executeWorkbenchAction({ project: project(), path: tempDir }, {
+      actionType: "planning.decompose",
+      changeId: topic.changeId,
+      confirm: true,
+    });
+    const planId = ((draft.result as { result?: { plan?: { id?: string } } }).result?.plan?.id);
+    expect(planId).toBeTruthy();
+
+    await expect(executeWorkbenchAction({ project: project(), path: tempDir }, {
+      actionType: "planning.decomposition.assess-readiness",
+      changeId: topic.changeId,
+      decompositionPlanId: planId,
+      confirm: true,
+    })).rejects.toThrow("stale or no longer available");
+
+    await executeWorkbenchAction({ project: project(), path: tempDir }, {
+      actionType: "planning.decomposition.confirm",
+      changeId: topic.changeId,
+      decompositionPlanId: planId,
+      confirm: true,
+    });
+    await expect(executeWorkbenchAction({ project: project(), path: tempDir }, {
+      actionType: "planning.decomposition.assess-readiness",
+      changeId: topic.changeId,
+      decompositionPlanId: "forged-plan",
+      confirm: true,
+    })).rejects.toThrow("stale or no longer available");
+  });
+
+  it("fails closed when readiness plan references forged task ids", async () => {
+    await initHarness(project());
+    const topic = await createWorkbenchTopic(project(), {
+      title: "Forged Readiness Task",
+      body: "Reject decomposition plans that no longer match accepted tasks.",
+    });
+    await writeAcceptedSpecAndTasks(topic.changeId);
+    await writePlanningBundleFixture(topic.changeId, "Implement one scoped demand.");
+
+    const draft = await executeWorkbenchAction({ project: project(), path: tempDir }, {
+      actionType: "planning.decompose",
+      changeId: topic.changeId,
+      confirm: true,
+    });
+    const planId = ((draft.result as { result?: { plan?: { id?: string } } }).result?.plan?.id);
+    await executeWorkbenchAction({ project: project(), path: tempDir }, {
+      actionType: "planning.decomposition.confirm",
+      changeId: topic.changeId,
+      decompositionPlanId: planId,
+      confirm: true,
+    });
+    const planPath = join(tempDir, "harness", "changes", "active", topic.changeId, "planning", "decomposition-plan.json");
+    const plan = JSON.parse(await readFile(planPath, "utf8"));
+    plan.units[0].taskIds = ["T-FORGED"];
+    await writeFile(planPath, JSON.stringify(plan, null, 2), "utf8");
+
+    const result = await executeWorkbenchAction({ project: project(), path: tempDir }, {
+      actionType: "planning.decomposition.assess-readiness",
+      changeId: topic.changeId,
+      decompositionPlanId: planId,
+      confirm: true,
+    });
+    expect(result.result).toMatchObject({
+      status: "failed",
+      error: expect.stringContaining("task-ids-known"),
+    });
+    const memory = await resolveProjectMemory(project());
+    expect(await listAgentTasks(memory, topic.changeId)).toHaveLength(0);
+    expect(await listTaskQueues(memory, topic.changeId)).toHaveLength(0);
+    expect(await getWorkbenchDecompositionReadinessProjection({ project: project(), path: tempDir }, topic.changeId)).toBeNull();
   });
 
   it("records supplemental input as pending feedback while a demand run is still running", async () => {

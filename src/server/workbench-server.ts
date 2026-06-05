@@ -31,6 +31,7 @@ import {
 } from "../workbench/chat.js";
 import {
   getWorkbenchEvidenceProjection,
+  getWorkbenchDecompositionReadinessProjection,
   getWorkbenchDecompositionPlanProjection,
   getWorkbenchLandingQueueProjection,
   getWorkbenchMaintenanceProjection,
@@ -68,6 +69,7 @@ interface WorkbenchActionRequest {
   proposalId?: string;
   planningBundleId?: string;
   decompositionPlanId?: string;
+  readinessManifestId?: string;
   worktreeId?: string;
   worktreeIds?: string[];
   applyCheckId?: string;
@@ -431,6 +433,10 @@ async function getWorkbenchProjection(input: WorkbenchProjectInput, rest: string
     if (!changeId) throw badRequest("decomposition-plan projection requires changeId.");
     return getWorkbenchDecompositionPlanProjection(input, changeId);
   }
+  if (kind === "decomposition-readiness") {
+    if (!changeId) throw badRequest("decomposition-readiness projection requires changeId.");
+    return getWorkbenchDecompositionReadinessProjection(input, changeId);
+  }
   if (kind === "maintenance") return getWorkbenchMaintenanceProjection(input);
   if (kind === "landing-queue") return getWorkbenchLandingQueueProjection(input);
   throw badRequest(`Unknown Workbench projection: ${kind ?? ""}`);
@@ -489,6 +495,7 @@ export async function executeWorkbenchAction(input: WorkbenchProjectInput, body:
       proposalId: body.proposalId,
       planningBundleId: body.planningBundleId,
       decompositionPlanId: body.decompositionPlanId,
+      readinessManifestId: body.readinessManifestId,
       worktreeId: body.worktreeId,
       worktreeIds: body.worktreeIds,
       applyCheckId: body.applyCheckId,
@@ -595,6 +602,7 @@ const REVALIDATED_WORKFLOW_ACTION_IDS = new Set<string>([
   "landing-queue.merge-next",
   "planning.confirm-execution",
   "planning.decomposition.confirm",
+  "planning.decomposition.assess-readiness",
   "remote-landing.merge",
   "post-merge.sync-local.run",
   "post-merge.cleanup-branch.run",
@@ -612,6 +620,7 @@ async function assertCurrentWorkflowAction(input: WorkbenchProjectInput, body: W
     && action.changeId === body.changeId
     && sameOptional(action.planningBundleId, body.planningBundleId)
     && sameOptional(action.decompositionPlanId, body.decompositionPlanId)
+    && sameOptional(action.readinessManifestId, body.readinessManifestId)
     && sameOptional(action.worktreeId, body.worktreeId)
     && sameOptionalArray(action.worktreeIds, body.worktreeIds)
     && sameOptional(action.applyCheckId, body.applyCheckId)
@@ -848,6 +857,7 @@ function isLiveWorkflowAction(actionType: string): actionType is WorkbenchWorkfl
     || actionType === "planning.confirm-execution"
     || actionType === "planning.decompose"
     || actionType === "planning.decomposition.confirm"
+    || actionType === "planning.decomposition.assess-readiness"
     || actionType === "orchestrator.evaluate"
     || actionType === "orchestrator.pump"
     || actionType === "demand.worker.enqueue"

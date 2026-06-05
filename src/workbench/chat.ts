@@ -527,6 +527,7 @@ export type WorkbenchWorkflowActionType =
   | "planning.confirm-execution"
   | "planning.decompose"
   | "planning.decomposition.confirm"
+  | "planning.decomposition.assess-readiness"
   | "orchestrator.evaluate"
   | "demand.worker.enqueue"
   | "demand.worker.claim"
@@ -597,6 +598,7 @@ export interface WorkbenchWorkflowActionRequest {
   proposalId?: string;
   planningBundleId?: string;
   decompositionPlanId?: string;
+  readinessManifestId?: string;
   worktreeId?: string;
   taskIds?: string[];
   worktreeIds?: string[];
@@ -675,6 +677,58 @@ export interface DecompositionPlan {
   openQuestions: string[];
   artifactRefs: string[];
   recoveryKeyInputs: WorkflowRecoveryKeyInputs;
+  artifact: string;
+  markdownArtifact: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type DecompositionReadinessStatus =
+  | "ready-for-single-change"
+  | "ready-for-sequential-taskqueue-proposal"
+  | "blocked-parallel-guardrails"
+  | "blocked-multi-change-boundary"
+  | "blocked-needs-clarification"
+  | "invalid";
+
+export type DecompositionReadinessGuardrailStatus = "passed" | "blocked" | "failed";
+
+export interface DecompositionReadinessGuardrail {
+  id: string;
+  status: DecompositionReadinessGuardrailStatus;
+  summary: string;
+  refs: string[];
+}
+
+export interface DecompositionReadinessUnit {
+  id: string;
+  title: string;
+  taskIds: string[];
+  acIds: string[];
+  dependsOn: string[];
+  guardrailStatus: DecompositionReadinessGuardrailStatus;
+  sourceScopes: string[];
+}
+
+export interface DecompositionReadinessManifest {
+  id: string;
+  changeId: string;
+  decompositionPlanId: string;
+  status: DecompositionReadinessStatus;
+  recommendation: DecompositionRecommendation;
+  executable: false;
+  schedulerEligible: boolean;
+  nextAllowedAction: "code.run" | "taskqueue.proposal" | "clarification.answer" | "none";
+  units: DecompositionReadinessUnit[];
+  dependencies: DecompositionPlan["dependencies"];
+  conflictScopes: string[];
+  guardrails: DecompositionReadinessGuardrail[];
+  recoveryKeyMaterial: WorkflowRecoveryKeyInputs & {
+    decompositionPlanId: string;
+    taskIds: string[];
+    acIds: string[];
+  };
+  artifactRefs: string[];
   artifact: string;
   markdownArtifact: string;
   createdAt: string;
@@ -855,11 +909,11 @@ export async function runWorkbenchWorkflowAction(project: ManagedProject, reques
       status: finalStatus,
       label: labelForAction(request.actionType),
       summary: failureMessage ?? summarizeActionResult(request.actionType, result),
-      targetId: workflowActionTargetId(request, changeId),
+      targetId: workflowActionTargetId(request, changeId, result),
       runId: runId ?? null,
       artifact: artifactForActionResult(result),
       actionId: request.actionType,
-      payload: { scope: workflowActionScopePayload(request, changeId), result },
+      payload: { scope: workflowActionScopePayload(request, changeId, result), result },
       completedAt: new Date().toISOString(),
     });
     return { actionRunId, actionType: request.actionType, status: finalStatus, result, runId, error: failureMessage ?? undefined };
@@ -911,6 +965,8 @@ async function executeWorkflowAction(project: ManagedProject, changeId: string, 
       return generateDecompositionPlan(project, changeId, request.prompt, live);
     case "planning.decomposition.confirm":
       return confirmDecompositionPlan(project, changeId, request, live);
+    case "planning.decomposition.assess-readiness":
+      return assessDecompositionReadiness(project, changeId, request, live);
     case "orchestrator.evaluate":
       return evaluateDemandOrchestrator(project, changeId);
     case "demand.worker.enqueue":
@@ -1096,6 +1152,9 @@ function assertWorkflowActionScope(request: WorkbenchWorkflowActionRequest): voi
     case "task.run.retry":
       requireOne("taskIds or taskRunId", [request.taskIds, request.taskRunId]);
       return;
+    case "planning.decomposition.assess-readiness":
+      requireOne("decompositionPlanId", [request.decompositionPlanId]);
+      return;
     case "task.run.reconcile":
       requireOne("taskRunId", [request.taskRunId]);
       return;
@@ -1161,6 +1220,16 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
       throw new Error("planning.decomposition.confirm target is stale or no longer confirmable.");
     }
   }
+  if (request.actionType === "planning.decomposition.assess-readiness") {
+    const active = await getActiveChanges(memory);
+    const target = active.find((item) => item.name === changeId);
+    if (!target) throw new Error(`planning.decomposition.assess-readiness target is stale or missing active Change: ${changeId}.`);
+    if (!request.decompositionPlanId) throw new Error("planning.decomposition.assess-readiness requires decompositionPlanId.");
+    const plan = await readLatestDecompositionPlan(memory, target.path);
+    if (plan.id !== request.decompositionPlanId || plan.status !== "confirmed") {
+      throw new Error("planning.decomposition.assess-readiness target is stale or no longer assessable.");
+    }
+  }
   if (request.actionType === "code.run" && request.taskIds?.length) {
     assertKnownTaskIds(await getChangeStatusForChange(memory, changeId), request.taskIds, "code.run");
   }
@@ -1181,12 +1250,14 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
   }
 }
 
-function workflowActionTargetId(request: WorkbenchWorkflowActionRequest, changeId: string): string {
+function workflowActionTargetId(request: WorkbenchWorkflowActionRequest, changeId: string, result?: unknown): string {
   return request.remoteLandingResultId
     ?? request.landingPackageId
     ?? request.applyCheckId
     ?? request.worktreeId
     ?? request.worktreeIds?.join(",")
+    ?? request.readinessManifestId
+    ?? extractReadinessManifestId(result)
     ?? request.decompositionPlanId
     ?? request.planningBundleId
     ?? request.proposalId
@@ -1195,12 +1266,13 @@ function workflowActionTargetId(request: WorkbenchWorkflowActionRequest, changeI
     ?? changeId;
 }
 
-function workflowActionScopePayload(request: WorkbenchWorkflowActionRequest, changeId: string): Record<string, unknown> {
+function workflowActionScopePayload(request: WorkbenchWorkflowActionRequest, changeId: string, result?: unknown): Record<string, unknown> {
   return {
     changeId,
     proposalId: request.proposalId,
     planningBundleId: request.planningBundleId,
     decompositionPlanId: request.decompositionPlanId,
+    readinessManifestId: request.readinessManifestId ?? extractReadinessManifestId(result),
     worktreeId: request.worktreeId,
     worktreeIds: request.worktreeIds,
     applyCheckId: request.applyCheckId,
@@ -1209,6 +1281,13 @@ function workflowActionScopePayload(request: WorkbenchWorkflowActionRequest, cha
     taskRunId: request.taskRunId,
     taskIds: request.taskIds,
   };
+}
+
+function extractReadinessManifestId(result: unknown): string | undefined {
+  if (!isRecord(result)) return undefined;
+  const manifest = result.manifest;
+  if (!isRecord(manifest)) return undefined;
+  return typeof manifest.id === "string" ? manifest.id : undefined;
 }
 
 async function generatePlanningDraft(
@@ -1506,6 +1585,39 @@ async function confirmDecompositionPlan(
     artifactRef: confirmed.artifact,
   });
   return { plan: confirmed, executionStarted: false };
+}
+
+async function assessDecompositionReadiness(
+  project: ManagedProject,
+  changeId: string,
+  request: WorkbenchWorkflowActionRequest,
+  live: WorkbenchLiveSink | undefined,
+): Promise<{ manifest: DecompositionReadinessManifest; executionStarted: false }> {
+  const { memory, changePath } = await resolveTopic(project, changeId);
+  assertWritableMemory(memory, "Assess decomposition readiness");
+  if (!request.decompositionPlanId) throw new Error("planning.decomposition.assess-readiness requires decompositionPlanId.");
+  const plan = await readLatestDecompositionPlan(memory, changePath);
+  if (plan.id !== request.decompositionPlanId || plan.status !== "confirmed") {
+    throw new Error("planning.decomposition.assess-readiness target is stale or no longer assessable.");
+  }
+  const manifest = await buildDecompositionReadinessManifest(memory, changePath, changeId, plan);
+  await writeDecompositionReadinessManifest(memory, changePath, manifest);
+  const assistant = await appendTopicThreadEntry(project, changeId, {
+    type: "assistant.message",
+    status: "decomposition-readiness",
+    text: renderDecompositionReadinessSummary(manifest),
+    artifact: manifest.artifact,
+  });
+  live?.emit({ event: "assistant.message", data: assistant });
+  emitAssistantEvent(live, {
+    runId: manifest.id,
+    kind: "status",
+    phase: "decomposition-readiness",
+    title: "Decomposition readiness assessed",
+    summary: "Confirmed DecompositionPlan was checked against execution guardrails. No execution artifacts were created.",
+    artifactRef: manifest.artifact,
+  });
+  return { manifest, executionStarted: false };
 }
 
 async function enqueueDemandWorkerForAction(project: ManagedProject, changeId: string): Promise<unknown> {
@@ -3894,6 +4006,59 @@ const decompositionPlanSchema: z.ZodType<DecompositionPlan> = z.object({
   updatedAt: z.string(),
 });
 
+const decompositionReadinessManifestSchema: z.ZodType<DecompositionReadinessManifest> = z.object({
+  id: z.string(),
+  changeId: z.string(),
+  decompositionPlanId: z.string(),
+  status: z.enum([
+    "ready-for-single-change",
+    "ready-for-sequential-taskqueue-proposal",
+    "blocked-parallel-guardrails",
+    "blocked-multi-change-boundary",
+    "blocked-needs-clarification",
+    "invalid",
+  ]),
+  recommendation: z.enum(["single-change", "taskgraph-sequential", "taskgraph-parallel-candidate", "multi-change-candidate", "needs-clarification"]),
+  executable: z.literal(false),
+  schedulerEligible: z.boolean(),
+  nextAllowedAction: z.enum(["code.run", "taskqueue.proposal", "clarification.answer", "none"]),
+  units: z.array(z.object({
+    id: z.string(),
+    title: z.string(),
+    taskIds: z.array(z.string()),
+    acIds: z.array(z.string()),
+    dependsOn: z.array(z.string()),
+    guardrailStatus: z.enum(["passed", "blocked", "failed"]),
+    sourceScopes: z.array(z.string()),
+  })),
+  dependencies: z.array(z.object({ from: z.string(), to: z.string(), kind: z.enum(["blocks", "synthesizes", "conflicts"]) })),
+  conflictScopes: z.array(z.string()),
+  guardrails: z.array(z.object({
+    id: z.string(),
+    status: z.enum(["passed", "blocked", "failed"]),
+    summary: z.string(),
+    refs: z.array(z.string()),
+  })),
+  recoveryKeyMaterial: z.object({
+    changeId: z.string(),
+    planningBundleId: z.string().optional(),
+    acceptedArtifactRefs: z.array(z.string()),
+    contextScope: z.literal("selected-demand"),
+    sourceRevision: z.string().optional(),
+    worktreeBase: z.string().optional(),
+    rolePolicyProfile: z.string(),
+    notes: z.array(z.string()),
+    decompositionPlanId: z.string(),
+    taskIds: z.array(z.string()),
+    acIds: z.array(z.string()),
+  }),
+  artifactRefs: z.array(z.string()),
+  artifact: z.string(),
+  markdownArtifact: z.string(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+
 function buildDeterministicDecompositionPlan(
   memory: ResolvedMemory,
   changePath: string,
@@ -3972,6 +4137,147 @@ export async function readLatestDecompositionPlan(memory: ResolvedMemory, change
   return readRequiredJsonFile(join(memory.memoryRoot, changePath, "planning", "decomposition-plan.json"), decompositionPlanSchema);
 }
 
+export async function readLatestDecompositionReadinessManifest(memory: ResolvedMemory, changePath: string): Promise<DecompositionReadinessManifest> {
+  return readRequiredJsonFile(join(memory.memoryRoot, changePath, "planning", "decomposition-readiness.json"), decompositionReadinessManifestSchema);
+}
+
+async function buildDecompositionReadinessManifest(
+  memory: ResolvedMemory,
+  changePath: string,
+  changeId: string,
+  plan: DecompositionPlan,
+): Promise<DecompositionReadinessManifest> {
+  const status = await getChangeStatusForChange(memory, changeId);
+  if (!status.change) throw new Error(`planning.decomposition.assess-readiness target is stale or missing active Change: ${changeId}.`);
+  if (plan.changeId !== changeId) throw new Error("DecompositionPlan is not scoped to the selected Change.");
+  const knownTasks = new Set((status.acMap?.tasks ?? []).map((task) => task.id));
+  const knownAcs = new Set((status.acMap?.acceptanceCriteria ?? []).map((ac) => ac.id));
+  const unitIds = new Set(plan.units.map((unit) => unit.id));
+  const taskIds = unique(plan.units.flatMap((unit) => unit.taskIds));
+  const acIds = unique(plan.units.flatMap((unit) => unit.acIds));
+  const guardrails: DecompositionReadinessGuardrail[] = [];
+  const addGuardrail = (id: string, passed: boolean, summary: string, refs: string[] = []): void => {
+    guardrails.push({ id, status: passed ? "passed" : "failed", summary, refs });
+  };
+  addGuardrail("change-scope", status.acMap?.changeId === changeId, "Plan and accepted AC map must belong to the selected demand.", [changeId]);
+  addGuardrail("plan-confirmed", plan.status === "confirmed", "Only a confirmed DecompositionPlan can be assessed.", [plan.id]);
+  addGuardrail("task-ids-known", taskIds.every((id) => knownTasks.has(id)), "Every referenced task id must exist in accepted tasks.", taskIds);
+  addGuardrail("ac-ids-known", acIds.every((id) => knownAcs.has(id)), "Every referenced AC id must exist in accepted acceptance criteria.", acIds);
+  addGuardrail(
+    "dependency-units-known",
+    plan.units.every((unit) => unit.dependsOn.every((id) => unitIds.has(id))) && plan.dependencies.every((dep) => unitIds.has(dep.from) && unitIds.has(dep.to)),
+    "Every dependency must reference a known DecompositionUnit.",
+    plan.dependencies.flatMap((dep) => [dep.from, dep.to]),
+  );
+  const integrityFailure = guardrails.some((item) => item.status === "failed");
+  if (integrityFailure) {
+    throw new Error(`DecompositionReadiness guardrail failed: ${guardrails.filter((item) => item.status === "failed").map((item) => item.id).join(", ")}.`);
+  }
+
+  const sourceScopesSpecific = plan.units.every((unit) => unit.scopeHints.some((hint) => isSpecificSourceScope(hint)));
+  const conflictScopesSpecific = plan.conflictScopes.length > 0 && plan.conflictScopes.every((scope) => isSpecificSourceScope(scope));
+  const parallelReady = sourceScopesSpecific && conflictScopesSpecific;
+  const recommendationGuardrail: DecompositionReadinessGuardrail = plan.recommendation === "taskgraph-parallel-candidate"
+    ? {
+        id: "parallel-conflict-scopes",
+        status: parallelReady ? "passed" : "blocked",
+        summary: parallelReady
+          ? "Parallel candidate has explicit source and conflict scopes."
+          : "Parallel candidate is blocked until source/task scopes and conflict scopes are concrete.",
+        refs: [...plan.conflictScopes, ...plan.units.flatMap((unit) => unit.scopeHints)],
+      }
+    : {
+        id: "recommendation-boundary",
+        status: "passed",
+        summary: "Recommendation maps to a non-executing readiness verdict in this phase.",
+        refs: [plan.recommendation],
+      };
+  guardrails.push(recommendationGuardrail);
+
+  const readinessStatus = readinessStatusForRecommendation(plan.recommendation, parallelReady);
+  const now = new Date().toISOString();
+  const dir = join(memory.memoryRoot, changePath, "planning");
+  const artifact = displayArtifactPath(memory, join(dir, "decomposition-readiness.json"));
+  const markdownArtifact = displayArtifactPath(memory, join(dir, "decomposition-readiness.md"));
+  const units: DecompositionReadinessUnit[] = plan.units.map((unit) => ({
+    id: unit.id,
+    title: unit.title,
+    taskIds: unit.taskIds,
+    acIds: unit.acIds,
+    dependsOn: unit.dependsOn,
+    guardrailStatus: recommendationGuardrail.status === "failed" ? "failed" : recommendationGuardrail.status === "blocked" ? "blocked" : "passed",
+    sourceScopes: unit.scopeHints,
+  }));
+  return {
+    id: `readiness-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+    changeId,
+    decompositionPlanId: plan.id,
+    status: readinessStatus,
+    recommendation: plan.recommendation,
+    executable: false,
+    schedulerEligible: readinessStatus === "ready-for-sequential-taskqueue-proposal",
+    nextAllowedAction: nextAllowedActionForReadiness(readinessStatus),
+    units,
+    dependencies: plan.dependencies,
+    conflictScopes: plan.conflictScopes,
+    guardrails,
+    recoveryKeyMaterial: {
+      ...plan.recoveryKeyInputs,
+      decompositionPlanId: plan.id,
+      taskIds,
+      acIds,
+    },
+    artifactRefs: unique([...plan.artifactRefs, plan.artifact, plan.markdownArtifact, ...plan.recoveryKeyInputs.acceptedArtifactRefs]),
+    artifact,
+    markdownArtifact,
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
+async function writeDecompositionReadinessManifest(memory: ResolvedMemory, changePath: string, manifest: DecompositionReadinessManifest): Promise<void> {
+  const dir = join(memory.memoryRoot, changePath, "planning");
+  await mkdir(dir, { recursive: true });
+  await writeJsonFile(join(dir, "decomposition-readiness.json"), manifest);
+  await writeFile(join(dir, "decomposition-readiness.md"), renderDecompositionReadinessMarkdown(manifest), "utf8");
+}
+
+function readinessStatusForRecommendation(recommendation: DecompositionRecommendation, parallelReady: boolean): DecompositionReadinessStatus {
+  switch (recommendation) {
+    case "single-change": return "ready-for-single-change";
+    case "taskgraph-sequential": return "ready-for-sequential-taskqueue-proposal";
+    case "taskgraph-parallel-candidate": return parallelReady ? "ready-for-sequential-taskqueue-proposal" : "blocked-parallel-guardrails";
+    case "multi-change-candidate": return "blocked-multi-change-boundary";
+    case "needs-clarification": return "blocked-needs-clarification";
+  }
+}
+
+function nextAllowedActionForReadiness(status: DecompositionReadinessStatus): DecompositionReadinessManifest["nextAllowedAction"] {
+  switch (status) {
+    case "ready-for-single-change": return "code.run";
+    case "ready-for-sequential-taskqueue-proposal": return "taskqueue.proposal";
+    case "blocked-needs-clarification": return "clarification.answer";
+    case "blocked-parallel-guardrails":
+    case "blocked-multi-change-boundary":
+    case "invalid":
+      return "none";
+  }
+}
+
+function isSpecificSourceScope(scope: string): boolean {
+  const normalized = scope.trim().toLowerCase();
+  if (!normalized) return false;
+  if (normalized === "selected-demand") return false;
+  if (normalized === "aho-owned worktree only") return false;
+  if (normalized.includes("must be checked")) return false;
+  if (normalized.includes("source overlap")) return false;
+  return /[/.\\]/.test(normalized) || /\bsrc\b|\btest\b|\bdocs\b|\bmodule\b|\bpackage\b/.test(normalized);
+}
+
+function unique(values: string[]): string[] {
+  return [...new Set(values.filter(Boolean))];
+}
+
 function rationaleForRecommendation(recommendation: DecompositionRecommendation, unitCount: number): string {
   switch (recommendation) {
     case "needs-clarification": return "The current demand still has open questions, so execution should wait for user clarification.";
@@ -4035,6 +4341,49 @@ function renderDecompositionPlanMarkdown(plan: DecompositionPlan): string {
     "",
     "- Proposal only; not executable workflow truth.",
     "- Confirmation does not create child Changes, TaskRuns, AgentTasks, or code runs.",
+    "",
+  ].join("\n");
+}
+
+function renderDecompositionReadinessSummary(manifest: DecompositionReadinessManifest): string {
+  return [
+    `执行边界检查：${manifest.status}`,
+    "",
+    `建议：${decompositionRecommendationLabel(manifest.recommendation)}`,
+    `下一步允许动作：${manifest.nextAllowedAction}`,
+    "",
+    `调度资格：${manifest.schedulerEligible ? "可进入后续 TaskQueue proposal" : "不可直接调度"}`,
+    "本检查不会启动执行、创建子 Change、TaskRun、AgentTask、worktree 或恢复重放。",
+  ].join("\n");
+}
+
+function renderDecompositionReadinessMarkdown(manifest: DecompositionReadinessManifest): string {
+  return [
+    `# DecompositionReadinessManifest ${manifest.id}`,
+    "",
+    `Status: ${manifest.status}`,
+    `Recommendation: ${manifest.recommendation}`,
+    `Executable: ${String(manifest.executable)}`,
+    `Scheduler eligible: ${String(manifest.schedulerEligible)}`,
+    `Next allowed action: ${manifest.nextAllowedAction}`,
+    "",
+    "## Units",
+    "",
+    ...manifest.units.map((unit) => `- ${unit.id}: ${unit.title} (${unit.guardrailStatus}; tasks ${unit.taskIds.join(", ") || "none"}; AC ${unit.acIds.join(", ") || "none"})`),
+    "",
+    "## Dependencies",
+    "",
+    ...(manifest.dependencies.length ? manifest.dependencies.map((item) => `- ${item.from} -> ${item.to}: ${item.kind}`) : ["- None."]),
+    "",
+    "## Guardrails",
+    "",
+    ...manifest.guardrails.map((item) => `- ${item.id}: ${item.status} - ${item.summary}`),
+    "",
+    "## Boundary",
+    "",
+    "- Readiness only; not executable workflow truth.",
+    "- This artifact does not create child Changes, TaskQueues, TaskRuns, AgentTasks, worktrees, or runs.",
+    "- Recovery material is only input material for a later verified recovery key; this phase does not replay cached work.",
     "",
   ].join("\n");
 }
@@ -4294,6 +4643,7 @@ function artifactForActionResult(result: unknown): string | null {
   if (isRecord(result) && isRecord(result.snapshot) && typeof result.snapshot.summaryArtifact === "string") return result.snapshot.summaryArtifact;
   if (isRecord(result) && isRecord(result.result) && Array.isArray(result.result.artifactRefs) && typeof result.result.artifactRefs[0] === "string") return result.result.artifactRefs[0];
   if (isRecord(result) && isRecord(result.readiness) && typeof result.readiness.summaryArtifact === "string") return result.readiness.summaryArtifact;
+  if (isRecord(result) && isRecord(result.manifest) && typeof result.manifest.artifact === "string") return result.manifest.artifact;
   if (isRecord(result) && isRecord(result.handoff) && Array.isArray(result.handoff.artifactRefs) && typeof result.handoff.artifactRefs[0] === "string") return result.handoff.artifactRefs[0];
   if (isRecord(result) && isRecord(result.revision) && Array.isArray(result.revision.artifactRefs) && typeof result.revision.artifactRefs[0] === "string") return result.revision.artifactRefs[0];
   if (isRecord(result) && isRecord(result.run) && isRecord(result.run.artifacts) && typeof result.run.artifacts.directory === "string") return result.run.artifacts.directory;
@@ -4392,6 +4742,11 @@ function summarizeActionResult(actionType: string, result: unknown): string {
   if ((actionType === "planning.generate" || actionType === "planning.revise") && isRecord(result) && isRecord(result.bundle)) {
     return `Planning draft is ready: ${typeof result.bundle.goal === "string" ? result.bundle.goal : "draft bundle"}.`;
   }
+  if (actionType === "planning.decomposition.assess-readiness" && isRecord(result) && isRecord(result.manifest)) {
+    return typeof result.manifest.status === "string"
+      ? `Decomposition readiness assessed: ${result.manifest.status}. No execution was started.`
+      : "Decomposition readiness assessed. No execution was started.";
+  }
   if ((actionType === "planning.confirm-execution" || actionType.startsWith("role.pipeline.") || actionType.startsWith("demand.worker.")) && isRecord(result)) {
     const status = typeof result.status === "string" ? result.status : "completed";
     return actionType.startsWith("demand.worker.") || actionType === "planning.confirm-execution"
@@ -4424,6 +4779,7 @@ function labelForAction(actionType: string): string {
     case "planning.confirm-execution": return "Planning confirmed and demand enqueued";
     case "planning.decompose": return "DecompositionPlan drafted";
     case "planning.decomposition.confirm": return "DecompositionPlan confirmed";
+    case "planning.decomposition.assess-readiness": return "Decomposition readiness assessed";
     case "orchestrator.evaluate": return "Main orchestrator evaluated";
     case "orchestrator.pump": return "Main orchestrator pumped available demands";
     case "demand.worker.enqueue": return "Demand enqueued";
