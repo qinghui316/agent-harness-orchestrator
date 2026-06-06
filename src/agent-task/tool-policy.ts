@@ -4,6 +4,7 @@ import type {
   ToolPolicyDecisionStatus,
   WorkerPermissionProfile,
 } from "../types/index.js";
+import { HIGH_IMPACT_WORKFLOW_ACTION_TYPES } from "../workflow-actions/registry.js";
 
 export interface ToolPolicyRequest {
   actionType: string;
@@ -15,34 +16,7 @@ export interface ToolPolicyRequest {
   enforcementMode?: RuntimeEnforcementMode;
 }
 
-const HIGH_IMPACT_ACTIONS = new Set([
-  "change.spec.accept",
-  "change.plan.accept",
-  "planning.confirm-execution",
-  "planning.decomposition.confirm",
-  "planning.decomposition.assess-readiness",
-  "planning.taskqueue.propose",
-  "planning.taskqueue.confirm-start",
-  "code.run",
-  "task.run.start",
-  "task.run.retry",
-  "task.queue.start",
-  "worktree.apply",
-  "result.apply",
-  "apply-check.apply",
-  "landing-queue.merge-next",
-  "pr-draft.create",
-  "pr-feedback.update-draft",
-  "pr-review.submit",
-  "pr-review.reply-submit",
-  "pr-review.thread-resolve",
-  "remote-landing.merge",
-  "post-merge.sync-local.run",
-  "post-merge.cleanup-branch.run",
-  "harness-change.close",
-  "harness-evolve.apply",
-  "harness-evolve.mark-complete",
-]);
+const HIGH_IMPACT_ACTIONS = new Set<string>(HIGH_IMPACT_WORKFLOW_ACTION_TYPES);
 
 const FORBIDDEN_ROLE_GOAL_PHRASES = [
   "apply",

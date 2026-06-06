@@ -34,6 +34,7 @@ import {
   getWorkbenchDecompositionReadinessProjection,
   getWorkbenchDecompositionPlanProjection,
   getWorkbenchTaskQueueProposalProjection,
+  getWorkbenchWorkflowGraphPlanProjection,
   getWorkbenchWorkflowRunProjection,
   getWorkbenchLandingQueueProjection,
   getWorkbenchMaintenanceProjection,
@@ -50,6 +51,7 @@ import {
 } from "../workbench/manager.js";
 import { answerClarification, reanalyzeIntake, runIntakeScan, skipClarification, type ClarificationAnswer } from "../workbench/intake.js";
 import type { ManagedProject, MemoryMode } from "../types/index.js";
+import { isLiveWorkflowActionType, revalidatedWorkflowActionSet, workflowActionScopesMatch } from "../workflow-actions/registry.js";
 
 export interface WorkbenchServeOptions {
   host?: string;
@@ -73,6 +75,7 @@ interface WorkbenchActionRequest {
   decompositionPlanId?: string;
   readinessManifestId?: string;
   taskQueueProposalId?: string;
+  workflowGraphPlanId?: string;
   workflowRunId?: string;
   queueRunId?: string;
   worktreeId?: string;
@@ -447,6 +450,10 @@ async function getWorkbenchProjection(input: WorkbenchProjectInput, rest: string
     if (!changeId) throw badRequest("taskqueue-proposal projection requires changeId.");
     return getWorkbenchTaskQueueProposalProjection(input, changeId);
   }
+  if (kind === "workflow-graph-plan") {
+    if (!changeId) throw badRequest("workflow-graph-plan projection requires changeId.");
+    return getWorkbenchWorkflowGraphPlanProjection(input, changeId, id);
+  }
   if (kind === "workflow-run") {
     if (!changeId) throw badRequest("workflow-run projection requires changeId.");
     if (!id) throw badRequest("workflow-run projection requires id.");
@@ -512,6 +519,7 @@ export async function executeWorkbenchAction(input: WorkbenchProjectInput, body:
       decompositionPlanId: body.decompositionPlanId,
       readinessManifestId: body.readinessManifestId,
       taskQueueProposalId: body.taskQueueProposalId,
+      workflowGraphPlanId: body.workflowGraphPlanId,
       workflowRunId: body.workflowRunId,
       queueRunId: body.queueRunId,
       worktreeId: body.worktreeId,
@@ -616,19 +624,7 @@ export async function executeWorkbenchAction(input: WorkbenchProjectInput, body:
   return { result, snapshot: await getWorkbenchSnapshot(input) };
 }
 
-const REVALIDATED_WORKFLOW_ACTION_IDS = new Set<string>([
-  "landing-queue.merge-next",
-  "planning.confirm-execution",
-  "planning.decomposition.confirm",
-  "planning.decomposition.assess-readiness",
-  "planning.taskqueue.propose",
-  "planning.taskqueue.confirm-start",
-  "code.run",
-  "task.queue.start",
-  "remote-landing.merge",
-  "post-merge.sync-local.run",
-  "post-merge.cleanup-branch.run",
-]);
+const REVALIDATED_WORKFLOW_ACTION_IDS = revalidatedWorkflowActionSet();
 
 async function assertCurrentWorkflowAction(input: WorkbenchProjectInput, body: WorkbenchActionRequest): Promise<void> {
   if (!body.actionType || !REVALIDATED_WORKFLOW_ACTION_IDS.has(body.actionType)) return;
@@ -651,6 +647,7 @@ async function assertCurrentWorkflowAction(input: WorkbenchProjectInput, body: W
     && sameOptional(action.decompositionPlanId, body.decompositionPlanId)
     && sameOptional(action.readinessManifestId, body.readinessManifestId)
     && sameOptional(action.taskQueueProposalId, body.taskQueueProposalId)
+    && sameOptional(action.workflowGraphPlanId, body.workflowGraphPlanId)
     && sameOptional(action.workflowRunId, body.workflowRunId)
     && sameOptional(action.queueRunId, body.queueRunId)
     && sameOptional(action.worktreeId, body.worktreeId)
@@ -659,7 +656,8 @@ async function assertCurrentWorkflowAction(input: WorkbenchProjectInput, body: W
     && sameOptional(action.landingPackageId, body.landingPackageId)
     && sameOptional(action.remoteLandingResultId, body.remoteLandingResultId)
     && sameOptional(action.taskRunId, body.taskRunId)
-    && sameOptionalArray(action.taskIds, body.taskIds));
+    && sameOptionalArray(action.taskIds, body.taskIds)
+    && workflowActionScopesMatch(action, body));
   if (!matches) {
     const error = new Error("Workflow action target is stale or no longer available.");
     error.name = "Conflict";
@@ -846,6 +844,7 @@ async function sendWorkbenchActionLive(input: WorkbenchProjectInput & { project:
         decompositionPlanId: body.decompositionPlanId,
         readinessManifestId: body.readinessManifestId,
         taskQueueProposalId: body.taskQueueProposalId,
+        workflowGraphPlanId: body.workflowGraphPlanId,
         workflowRunId: body.workflowRunId,
         queueRunId: body.queueRunId,
         worktreeId: body.worktreeId,
@@ -885,75 +884,7 @@ function createLiveSink(sse: ReturnType<typeof createSseResponse>): { emit(event
 }
 
 function isLiveWorkflowAction(actionType: string): actionType is WorkbenchWorkflowActionRequest["actionType"] {
-  return actionType === "chat.ask"
-    || actionType === "change.spec.propose"
-    || actionType === "change.plan.propose"
-    || actionType === "planning.generate"
-    || actionType === "planning.revise"
-    || actionType === "planning.confirm-execution"
-    || actionType === "planning.decompose"
-    || actionType === "planning.decomposition.confirm"
-    || actionType === "planning.decomposition.assess-readiness"
-    || actionType === "planning.taskqueue.propose"
-    || actionType === "planning.taskqueue.confirm-start"
-    || actionType === "orchestrator.evaluate"
-    || actionType === "orchestrator.pump"
-    || actionType === "demand.worker.enqueue"
-    || actionType === "demand.worker.claim"
-    || actionType === "demand.worker.start-next"
-    || actionType === "demand.worker.start-available"
-    || actionType === "demand.worker.reconcile"
-    || actionType === "demand.worker.release"
-    || actionType === "role.pipeline.start"
-    || actionType === "role.pipeline.stop"
-    || actionType === "role.pipeline.continue"
-    || actionType === "role.pipeline.reconcile"
-    || actionType === "conversation.steer"
-    || actionType === "conversation.interrupt"
-    || actionType === "conversation.continue"
-    || actionType === "result.refresh-rework"
-    || actionType === "result.revalidate"
-    || actionType === "result.reaudit"
-    || actionType === "result.refresh-status"
-    || actionType === "apply-check.run"
-    || actionType === "landing.prepare"
-    || actionType === "landing.review"
-    || actionType === "landing.refresh"
-    || actionType === "landing-queue.prepare"
-    || actionType === "landing-queue.refresh"
-    || actionType === "landing-queue.merge-next"
-    || actionType === "landing-queue.skip"
-    || actionType === "landing-queue.remove-stale"
-    || actionType === "pr-draft.prepare"
-    || actionType === "pr-draft.create"
-    || actionType === "pr-draft.refresh"
-    || actionType === "pr-feedback.refresh"
-    || actionType === "pr-feedback.evaluate"
-    || actionType === "pr-feedback.rework"
-    || actionType === "pr-feedback.update-draft"
-    || actionType === "pr-review.prepare"
-    || actionType === "pr-review.submit"
-    || actionType === "pr-review.refresh"
-    || actionType === "pr-review.feedback-refresh"
-    || actionType === "pr-review.feedback-evaluate"
-    || actionType === "pr-review.rework"
-    || actionType === "pr-review.reply-prepare"
-    || actionType === "pr-review.reply-submit"
-    || actionType === "pr-review.thread-resolve"
-    || actionType === "remote-landing.prepare"
-    || actionType === "remote-landing.merge"
-    || actionType === "remote-landing.refresh"
-    || actionType === "post-merge.prepare"
-    || actionType === "post-merge.refresh"
-    || actionType === "post-merge.sync-local.prepare"
-    || actionType === "post-merge.sync-local.run"
-    || actionType === "post-merge.cleanup-branch.prepare"
-    || actionType === "post-merge.cleanup-branch.run"
-    || actionType === "code.run"
-    || actionType === "task.run.start"
-    || actionType === "task.run.retry"
-    || actionType === "task.queue.start"
-    || actionType === "task.queue.reconcile";
+  return isLiveWorkflowActionType(actionType);
 }
 
 function matchProjectWorkbenchRoute(pathname: string): { projectId: string; rest: string } | null {

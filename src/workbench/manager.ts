@@ -34,7 +34,29 @@ import { listTaskQueueItems, listTaskQueues } from "../task-queue/manager.js";
 import { getLatestWorkflowRun, readWorkflowRun, readWorkflowRunEvents, summarizeWorkflowRun } from "../workflow-run/manager.js";
 import { listValidationResults, summarizeValidation } from "../validation/artifacts.js";
 import { listWorktreeStatuses, listWorktreesForChange } from "../worktree/manager.js";
-import { readLatestDecompositionPlan, readLatestDecompositionReadinessManifest, readLatestTaskQueueProposal, readTopicThreadLog, type AssistantTurnActivity, type AssistantTurnBlock, type DecompositionPlan, type DecompositionReadinessManifest, type DecompositionRecommendation, type OrchestrationPlanCard, type TaskQueueProposal, type TopicThreadEntry } from "./chat.js";
+import { readTopicThreadLog, type AssistantTurnActivity, type AssistantTurnBlock, type OrchestrationPlanCard, type TopicThreadEntry } from "./chat.js";
+import {
+  type DecompositionPlan,
+  type DecompositionReadinessManifest,
+  type DecompositionRecommendation,
+  type TaskQueueProposal,
+  type WorkflowGraphPlan,
+} from "../workflow-artifacts/manager.js";
+import {
+  buildTypedWorkflowNextAction,
+  readDecompositionPlanProjection,
+  readDecompositionReadinessProjection,
+  readLatestDecompositionPlanSummary,
+  readLatestDecompositionReadinessSummary,
+  readLatestTaskQueueProposalSummary,
+  readLatestWorkflowGraphPlanSummary,
+  readTaskQueueProposalProjection,
+  readWorkflowGraphPlanProjection,
+  type WorkbenchDecompositionPlanSummary,
+  type WorkbenchDecompositionReadinessSummary,
+  type WorkbenchTaskQueueProposalSummary,
+  type WorkbenchWorkflowGraphPlanSummary,
+} from "./workflow-projection.js";
 import type { ClarificationRequest, WorkbenchIntakeIteration, WorkbenchIntakeScan } from "./intake.js";
 import { buildParentAgentTranscript, type ParentAgentTranscript } from "./parent-agent-transcript.js";
 import { WorkbenchStore, type StoredDecisionRecord } from "./store.js";
@@ -127,7 +149,7 @@ export interface WorkbenchThreadEvent {
 }
 
 export interface ThreadStreamAction {
-  actionType: "change.spec.propose" | "change.plan.propose" | "planning.generate" | "planning.revise" | "planning.confirm-execution" | "planning.decompose" | "planning.decomposition.confirm" | "planning.decomposition.assess-readiness" | "planning.taskqueue.propose" | "planning.taskqueue.confirm-start" | "orchestrator.evaluate" | "orchestrator.pump" | "demand.worker.enqueue" | "demand.worker.claim" | "demand.worker.start-next" | "demand.worker.start-available" | "demand.worker.reconcile" | "demand.worker.release" | "role.pipeline.start" | "role.pipeline.stop" | "role.pipeline.continue" | "role.pipeline.reconcile" | "conversation.steer" | "conversation.interrupt" | "conversation.continue" | "result.refresh-rework" | "result.revalidate" | "result.reaudit" | "result.refresh-status" | "apply-check.run" | "landing.prepare" | "landing.review" | "landing.refresh" | "landing-queue.prepare" | "landing-queue.refresh" | "landing-queue.merge-next" | "landing-queue.skip" | "landing-queue.remove-stale" | "pr-draft.prepare" | "pr-draft.create" | "pr-draft.refresh" | "pr-feedback.refresh" | "pr-feedback.evaluate" | "pr-feedback.rework" | "pr-feedback.update-draft" | "pr-review.prepare" | "pr-review.submit" | "pr-review.refresh" | "pr-review.feedback-refresh" | "pr-review.feedback-evaluate" | "pr-review.rework" | "pr-review.reply-prepare" | "pr-review.reply-submit" | "pr-review.thread-resolve" | "remote-landing.prepare" | "remote-landing.merge" | "remote-landing.refresh" | "post-merge.prepare" | "post-merge.refresh" | "post-merge.sync-local.prepare" | "post-merge.sync-local.run" | "post-merge.cleanup-branch.prepare" | "post-merge.cleanup-branch.run" | "code.run" | "task.run.start" | "task.run.retry" | "task.queue.start" | "task.queue.reconcile" | "intake.scan" | "intake.reanalyze" | "clarification.answer" | "clarification.skip";
+  actionType: "change.spec.propose" | "change.plan.propose" | "planning.generate" | "planning.revise" | "planning.confirm-execution" | "planning.decompose" | "planning.decomposition.confirm" | "planning.decomposition.assess-readiness" | "planning.taskqueue.propose" | "planning.workflowgraph.compile" | "planning.taskqueue.confirm-start" | "orchestrator.evaluate" | "orchestrator.pump" | "demand.worker.enqueue" | "demand.worker.claim" | "demand.worker.start-next" | "demand.worker.start-available" | "demand.worker.reconcile" | "demand.worker.release" | "role.pipeline.start" | "role.pipeline.stop" | "role.pipeline.continue" | "role.pipeline.reconcile" | "conversation.steer" | "conversation.interrupt" | "conversation.continue" | "result.refresh-rework" | "result.revalidate" | "result.reaudit" | "result.refresh-status" | "apply-check.run" | "landing.prepare" | "landing.review" | "landing.refresh" | "landing-queue.prepare" | "landing-queue.refresh" | "landing-queue.merge-next" | "landing-queue.skip" | "landing-queue.remove-stale" | "pr-draft.prepare" | "pr-draft.create" | "pr-draft.refresh" | "pr-feedback.refresh" | "pr-feedback.evaluate" | "pr-feedback.rework" | "pr-feedback.update-draft" | "pr-review.prepare" | "pr-review.submit" | "pr-review.refresh" | "pr-review.feedback-refresh" | "pr-review.feedback-evaluate" | "pr-review.rework" | "pr-review.reply-prepare" | "pr-review.reply-submit" | "pr-review.thread-resolve" | "remote-landing.prepare" | "remote-landing.merge" | "remote-landing.refresh" | "post-merge.prepare" | "post-merge.refresh" | "post-merge.sync-local.prepare" | "post-merge.sync-local.run" | "post-merge.cleanup-branch.prepare" | "post-merge.cleanup-branch.run" | "code.run" | "task.run.start" | "task.run.retry" | "task.queue.start" | "task.queue.reconcile" | "intake.scan" | "intake.reanalyze" | "clarification.answer" | "clarification.skip";
   label: string;
   enabled: boolean;
   requiresConfirmation: boolean;
@@ -136,6 +158,7 @@ export interface ThreadStreamAction {
   decompositionPlanId?: string;
   readinessManifestId?: string;
   taskQueueProposalId?: string;
+  workflowGraphPlanId?: string;
   workflowRunId?: string;
   queueRunId?: string;
   taskIds?: string[];
@@ -233,6 +256,7 @@ export interface WorkbenchDecisionAction {
   decompositionPlanId?: string;
   readinessManifestId?: string;
   taskQueueProposalId?: string;
+  workflowGraphPlanId?: string;
   workflowRunId?: string;
   queueRunId?: string;
   taskIds?: string[];
@@ -373,6 +397,7 @@ export interface WorkpadNextAction {
   decompositionPlanId?: string;
   readinessManifestId?: string;
   taskQueueProposalId?: string;
+  workflowGraphPlanId?: string;
   workflowRunId?: string;
   queueRunId?: string;
   taskIds?: string[];
@@ -440,6 +465,7 @@ export interface WorkbenchTaskNextAction {
   taskIds?: string[];
   taskRunId?: string;
   taskQueueProposalId?: string;
+  workflowGraphPlanId?: string;
   workflowRunId?: string;
   queueRunId?: string;
   enabled: boolean;
@@ -578,6 +604,7 @@ export interface WorkbenchWorkpad {
   decompositionPlan?: WorkbenchDecompositionPlanSummary;
   decompositionReadiness?: WorkbenchDecompositionReadinessSummary;
   taskQueueProposal?: WorkbenchTaskQueueProposalSummary;
+  workflowGraphPlan?: WorkbenchWorkflowGraphPlanSummary;
   workflowRun?: WorkflowRunSummary;
   rolePipeline?: WorkbenchRolePipelineSummary;
   resultReview?: WorkbenchResultReview;
@@ -612,52 +639,6 @@ export interface WorkbenchPlanningDraft {
 
 export interface WorkbenchPlanningArtifactBundle extends WorkbenchPlanningDraft {
   status: "draft" | "confirmed";
-}
-
-export interface WorkbenchDecompositionPlanSummary {
-  id: string;
-  changeId: string;
-  status: DecompositionPlan["status"];
-  recommendation: DecompositionRecommendation;
-  rationale: string;
-  unitCount: number;
-  dependencyCount: number;
-  conflictScopeCount: number;
-  riskSummary: string;
-  openQuestionCount: number;
-  artifact?: string;
-  markdownArtifact?: string;
-  updatedAt: string;
-}
-
-export interface WorkbenchDecompositionReadinessSummary {
-  id: string;
-  changeId: string;
-  decompositionPlanId: string;
-  status: DecompositionReadinessManifest["status"];
-  recommendation: DecompositionRecommendation;
-  schedulerEligible: boolean;
-  nextAllowedAction: DecompositionReadinessManifest["nextAllowedAction"];
-  guardrailStatus: "passed" | "blocked" | "failed";
-  unitCount: number;
-  artifact?: string;
-  markdownArtifact?: string;
-  updatedAt: string;
-}
-
-export interface WorkbenchTaskQueueProposalSummary {
-  id: string;
-  changeId: string;
-  decompositionPlanId: string;
-  readinessManifestId: string;
-  status: TaskQueueProposal["status"];
-  queueMode: TaskQueueProposal["queueMode"];
-  itemCount: number;
-  dependencyCount: number;
-  conflictScopeCount: number;
-  artifact?: string;
-  markdownArtifact?: string;
-  updatedAt: string;
 }
 
 export interface WorkbenchRoleRunSummary {
@@ -1399,6 +1380,7 @@ async function buildWorkbenchWorkpad(input: {
   const decompositionPlan = await readLatestDecompositionPlanSummary(memory, selectedTopic.path);
   const decompositionReadiness = await readLatestDecompositionReadinessSummary(memory, selectedTopic.path);
   const taskQueueProposal = await readLatestTaskQueueProposalSummary(memory, selectedTopic.path);
+  const workflowGraphPlan = await readLatestWorkflowGraphPlanSummary(memory, selectedTopic.path);
   const workflowRun = await getLatestWorkflowRun(memory, selectedTopic.id).then((run) => run ? summarizeWorkflowRun(run) : null).catch(() => null);
   const agentTasks = await buildAgentTaskSummaries(memory, selectedTopic.id);
   const rolePipeline = buildRolePipelineSummary(selectedTopic, planningBundle, agentTasks);
@@ -1434,6 +1416,7 @@ async function buildWorkbenchWorkpad(input: {
     decompositionPlan: decompositionPlan ?? undefined,
     decompositionReadiness: decompositionReadiness ?? undefined,
     taskQueueProposal: taskQueueProposal ?? undefined,
+    workflowGraphPlan: workflowGraphPlan ?? undefined,
     workflowRun: workflowRun ?? undefined,
     rolePipeline,
     resultReview,
@@ -1471,7 +1454,7 @@ async function buildWorkbenchWorkpad(input: {
       ...workpadMissingWarnings(specReady, planReady, tasksReady, selectedTopic),
       ...gaps.filter((gap) => gap.status !== "available").map((gap) => gap.summary),
     ],
-    nextAction: buildWorkpadNextAction(selectedTopic, topicApprovals, { specReady, planReady, tasksReady }, intake, taskQueue, taskGraph, planningBundle, decompositionPlan, decompositionReadiness, taskQueueProposal),
+    nextAction: buildWorkpadNextAction(selectedTopic, topicApprovals, { specReady, planReady, tasksReady }, intake, taskQueue, taskGraph, planningBundle, decompositionPlan, decompositionReadiness, taskQueueProposal, workflowGraphPlan, workflowRun),
     background: buildWorkpadBackground(workpads, selectedTopic.id),
     memoryIsolation: buildWorkpadMemoryIsolation(memory, selectedTopic, workpads),
   };
@@ -2048,76 +2031,13 @@ async function readLatestPlanningBundleProjection(memory: ResolvedMemory, change
   return parsed.data;
 }
 
-async function readLatestDecompositionPlanSummary(memory: ResolvedMemory, changePath: string): Promise<WorkbenchDecompositionPlanSummary | null> {
-  const plan = await readLatestDecompositionPlan(memory, changePath).catch(() => null);
-  if (!plan) return null;
-  return {
-    id: plan.id,
-    changeId: plan.changeId,
-    status: plan.status,
-    recommendation: plan.recommendation,
-    rationale: plan.rationale,
-    unitCount: plan.units.length,
-    dependencyCount: plan.dependencies.length,
-    conflictScopeCount: plan.conflictScopes.length,
-    riskSummary: plan.riskSummary,
-    openQuestionCount: plan.openQuestions.length,
-    artifact: plan.artifact,
-    markdownArtifact: plan.markdownArtifact,
-    updatedAt: plan.updatedAt,
-  };
-}
-
-async function readLatestDecompositionReadinessSummary(memory: ResolvedMemory, changePath: string): Promise<WorkbenchDecompositionReadinessSummary | null> {
-  const manifest = await readLatestDecompositionReadinessManifest(memory, changePath).catch(() => null);
-  if (!manifest) return null;
-  const guardrailStatus = manifest.guardrails.some((item) => item.status === "failed")
-    ? "failed"
-    : manifest.guardrails.some((item) => item.status === "blocked")
-      ? "blocked"
-      : "passed";
-  return {
-    id: manifest.id,
-    changeId: manifest.changeId,
-    decompositionPlanId: manifest.decompositionPlanId,
-    status: manifest.status,
-    recommendation: manifest.recommendation,
-    schedulerEligible: manifest.schedulerEligible,
-    nextAllowedAction: manifest.nextAllowedAction,
-    guardrailStatus,
-    unitCount: manifest.units.length,
-    artifact: manifest.artifact,
-    markdownArtifact: manifest.markdownArtifact,
-    updatedAt: manifest.updatedAt,
-  };
-}
-
-async function readLatestTaskQueueProposalSummary(memory: ResolvedMemory, changePath: string): Promise<WorkbenchTaskQueueProposalSummary | null> {
-  const proposal = await readLatestTaskQueueProposal(memory, changePath).catch(() => null);
-  if (!proposal) return null;
-  return {
-    id: proposal.id,
-    changeId: proposal.changeId,
-    decompositionPlanId: proposal.decompositionPlanId,
-    readinessManifestId: proposal.readinessManifestId,
-    status: proposal.status,
-    queueMode: proposal.queueMode,
-    itemCount: proposal.items.length,
-    dependencyCount: proposal.dependencies.length,
-    conflictScopeCount: proposal.conflictScopes.length,
-    artifact: proposal.artifact,
-    markdownArtifact: proposal.markdownArtifact,
-    updatedAt: proposal.updatedAt,
-  };
-}
-
 export async function getWorkbenchDecompositionPlanProjection(input: WorkbenchProjectInput, changeId: string): Promise<DecompositionPlan | null> {
   const memory = await resolveWorkbenchMemory(input);
   if (!memory.supported) return null;
   const topics = await listWorkbenchTopicsFromMemory(memory);
   const topic = topics.find((item) => item.id === changeId || item.name === changeId);
   if (!topic) return null;
-  return readLatestDecompositionPlan(memory, topic.path).catch(() => null);
+  return readDecompositionPlanProjection(memory, topic.path);
 }
 
 export async function getWorkbenchDecompositionReadinessProjection(input: WorkbenchProjectInput, changeId: string): Promise<DecompositionReadinessManifest | null> {
@@ -2126,7 +2046,7 @@ export async function getWorkbenchDecompositionReadinessProjection(input: Workbe
   const topics = await listWorkbenchTopicsFromMemory(memory);
   const topic = topics.find((item) => item.id === changeId || item.name === changeId);
   if (!topic) return null;
-  return readLatestDecompositionReadinessManifest(memory, topic.path).catch(() => null);
+  return readDecompositionReadinessProjection(memory, topic.path);
 }
 
 export async function getWorkbenchTaskQueueProposalProjection(input: WorkbenchProjectInput, changeId: string): Promise<TaskQueueProposal | null> {
@@ -2135,7 +2055,16 @@ export async function getWorkbenchTaskQueueProposalProjection(input: WorkbenchPr
   const topics = await listWorkbenchTopicsFromMemory(memory);
   const topic = topics.find((item) => item.id === changeId || item.name === changeId);
   if (!topic) return null;
-  return readLatestTaskQueueProposal(memory, topic.path).catch(() => null);
+  return readTaskQueueProposalProjection(memory, topic.path);
+}
+
+export async function getWorkbenchWorkflowGraphPlanProjection(input: WorkbenchProjectInput, changeId: string, workflowGraphPlanId?: string): Promise<WorkflowGraphPlan | null> {
+  const memory = await resolveWorkbenchMemory(input);
+  if (!memory.supported) return null;
+  const topics = await listWorkbenchTopicsFromMemory(memory);
+  const topic = topics.find((item) => item.id === changeId || item.name === changeId);
+  if (!topic) return null;
+  return readWorkflowGraphPlanProjection(memory, topic.path, workflowGraphPlanId);
 }
 
 export async function getWorkbenchWorkflowRunProjection(input: WorkbenchProjectInput, changeId: string, workflowRunId: string): Promise<{ run: Awaited<ReturnType<typeof readWorkflowRun>>; events: Awaited<ReturnType<typeof readWorkflowRunEvents>> } | null> {
@@ -2624,6 +2553,7 @@ function buildTaskQueueSummary(
         requiresConfirmation: true,
         workflowRunId: queue.workflowRunId,
         queueRunId: queue.id,
+        workflowGraphPlanId: queue.workflowGraphPlanId,
         disabledReason: topic.state === "active" ? undefined : "需求对话不是可执行状态。",
       }
     : undefined;
@@ -2995,6 +2925,8 @@ function buildWorkpadNextAction(
   decompositionPlan?: WorkbenchDecompositionPlanSummary | null,
   decompositionReadiness?: WorkbenchDecompositionReadinessSummary | null,
   taskQueueProposal?: WorkbenchTaskQueueProposalSummary | null,
+  workflowGraphPlan?: WorkbenchWorkflowGraphPlanSummary | null,
+  workflowRun?: WorkflowRunSummary | null,
 ): WorkpadNextAction {
   if (topic.state !== "active") {
     return {
@@ -3033,44 +2965,17 @@ function buildWorkpadNextAction(
       approvalId: actionableApproval.id,
     };
   }
-  if (!readiness.specReady && !topic.runs.some((run) => run.runtime === "intake-scan")) {
-    return workflowNextAction("intake.scan", "分析需求", "先只读扫描项目，整理当前理解、相关文件和待确认问题。", false);
-  }
-  if (!readiness.specReady && (intake?.pendingClarifications.length || intake?.openQuestions.length)) {
-    return workflowNextAction("intake.reanalyze", "继续澄清需求", "回答需要确认的问题，AHO 会更新当前理解。", false);
-  }
-  if (planningBundle?.status === "draft") {
-    const next = workflowNextAction("planning.confirm-execution", "确认规划", "确认当前方案并写入内部 spec/plan/tasks/ac-map；不会启动执行。");
-    return { ...next, planningBundleId: planningBundle.id };
-  }
-  if (!readiness.specReady || !readiness.planReady || !readiness.tasksReady) {
-    return workflowNextAction("planning.generate", "生成方案草案", "在主对话里生成 proposal/spec/design/tasks 草案；确认执行后才写入内部 artifacts。");
-  }
-  if (!decompositionPlan) {
-    return workflowNextAction("planning.decompose", "生成拆分提案", "根据已确认方案生成 DecompositionPlan；不会启动执行。");
-  }
-  if (decompositionPlan.status === "draft") {
-    return { ...workflowNextAction("planning.decomposition.confirm", "确认拆分方向", "确认这个 DecompositionPlan；不会启动执行。"), decompositionPlanId: decompositionPlan.id };
-  }
-  if (decompositionPlan.status === "confirmed" && decompositionReadiness?.decompositionPlanId !== decompositionPlan.id) {
-    return { ...workflowNextAction("planning.decomposition.assess-readiness", "检查执行边界", "生成 DecompositionReadinessManifest；不会启动执行。"), decompositionPlanId: decompositionPlan.id };
-  }
-  if (decompositionReadiness?.nextAllowedAction === "code.run") {
-    return { ...workflowNextAction("code.run", "运行 Code", "readiness 已授权单 Change code.run。"), readinessManifestId: decompositionReadiness.id };
-  }
-  if (decompositionReadiness?.nextAllowedAction === "taskqueue.proposal") {
-    if (!taskQueueProposal || taskQueueProposal.readinessManifestId !== decompositionReadiness.id || ["superseded", "rejected"].includes(taskQueueProposal.status)) {
-      return { ...workflowNextAction("planning.taskqueue.propose", "生成 TaskQueue 提案", "生成顺序 TaskQueueProposal；不会启动执行。"), readinessManifestId: decompositionReadiness.id };
-    }
-    if (taskQueueProposal.status !== "started") {
-      return { ...workflowNextAction("planning.taskqueue.confirm-start", "确认启动 TaskQueue", "重新校验 proposal/readiness 后创建 TaskQueue/TaskRun 并开始顺序执行。"), taskQueueProposalId: taskQueueProposal.id };
-    }
-  }
-  return {
-    ...workflowNextAction("planning.decomposition.assess-readiness", "等待执行边界", "当前 readiness 不允许直接执行。"),
-    enabled: false,
-    disabledReason: "当前 DecompositionReadinessManifest 未授权 code.run 或 TaskQueueProposal。",
-  };
+  return buildTypedWorkflowNextAction({
+    topic,
+    readiness,
+    intake,
+    planningBundle,
+    decompositionPlan,
+    decompositionReadiness,
+    taskQueueProposal,
+    workflowGraphPlan,
+    workflowRun,
+  });
 }
 
 function buildQueueBlockedNextAction(queue?: WorkbenchTaskQueueSummary, taskGraph?: WorkbenchTaskGraph): WorkpadNextAction | null {
@@ -3102,6 +3007,7 @@ function buildQueueBlockedNextAction(queue?: WorkbenchTaskQueueSummary, taskGrap
       actionType: reconcile,
       workflowRunId: queue.nextAction?.workflowRunId,
       queueRunId: queue.nextAction?.queueRunId,
+      workflowGraphPlanId: queue.nextAction?.workflowGraphPlanId,
       disabledReason: queue.nextAction?.disabledReason,
     };
   }
@@ -3113,18 +3019,6 @@ function buildQueueBlockedNextAction(queue?: WorkbenchTaskQueueSummary, taskGrap
     enabled: false,
     requiresConfirmation: false,
     disabledReason: "当前没有可执行的 retry/reconcile 路径。",
-  };
-}
-
-function workflowNextAction(actionType: ThreadStreamAction["actionType"], label: string, description: string, requiresConfirmation = true): WorkpadNextAction {
-  return {
-    id: `workflow:${actionType}`,
-    label,
-    description,
-    kind: "workflow-action",
-    actionType,
-    enabled: true,
-    requiresConfirmation,
   };
 }
 
@@ -3397,25 +3291,54 @@ function taskQueueProposalToConfirmationItems(
       status: "pending",
     }];
   }
-  if (proposal.status === "started") return [];
+  const graph = workpad.workflowGraphPlan;
+  if (!graph || graph.taskQueueProposalId !== proposal.id || graph.readinessManifestId !== readiness.id) {
+    return [{
+      id: `confirm:workflowgraph-compile:${selectedTopic.id}:${proposal.id}`,
+      kind: "planning-confirm",
+      projectId: project?.id ?? null,
+      conversationId: selectedTopic.id,
+      changeId: selectedTopic.id,
+      summary: `TaskQueue 提案包含 ${proposal.itemCount} 个顺序任务，可编译执行图。`,
+      whyNeedsConfirmation: "需要你确认编译 versioned WorkflowGraphPlan。编译不会启动执行。",
+      confirmEffect: "写入 workflow-graphs 下的 versioned graph artifact；不会创建 TaskQueue、TaskRun、AgentTask、worktree 或 run。",
+      riskSummary: "过期、伪造或已 superseded 的 proposal/readiness 会被拒绝。",
+      evidenceRefs: proposal.artifact ? [proposal.artifact] : [],
+      actions: [{
+        id: `workflow:planning.workflowgraph.compile:${selectedTopic.id}:${proposal.id}`,
+        label: "编译执行图",
+        kind: "workflow-action",
+        changeId: selectedTopic.id,
+        actionType: "planning.workflowgraph.compile",
+        taskQueueProposalId: proposal.id,
+        readinessManifestId: readiness.id,
+        enabled: true,
+        requiresConfirmation: true,
+      }],
+      primary: false,
+      status: "pending",
+    }];
+  }
+  if (workpad.workflowRun?.workflowGraphPlanId === graph.id) return [];
   return [{
-    id: `confirm:taskqueue-start:${selectedTopic.id}:${proposal.id}`,
+    id: `confirm:taskqueue-start:${selectedTopic.id}:${graph.id}`,
     kind: "planning-confirm",
     projectId: project?.id ?? null,
     conversationId: selectedTopic.id,
     changeId: selectedTopic.id,
-    summary: `TaskQueue 提案包含 ${proposal.itemCount} 个顺序任务。`,
-    whyNeedsConfirmation: "需要你确认启动这个 latest TaskQueueProposal。",
-    confirmEffect: "重新读取 proposal/readiness 后创建 TaskQueue/TaskRun 记录并开始顺序执行。",
-    riskSummary: "过期、伪造或已 superseded 的 proposal 会被拒绝。",
-    evidenceRefs: proposal.artifact ? [proposal.artifact] : [],
+    summary: `执行图 ${graph.id} 包含 ${graph.nodeCount} 个顺序任务节点。`,
+    whyNeedsConfirmation: "需要你确认启动这个 latest WorkflowGraphPlan。",
+    confirmEffect: "重新读取 graph/proposal/readiness 后创建 TaskQueue/TaskRun 记录并开始顺序执行。",
+    riskSummary: "过期、伪造或已 superseded 的 graph/proposal/readiness 会被拒绝。",
+    evidenceRefs: graph.artifact ? [graph.artifact] : [],
     actions: [{
-      id: `workflow:planning.taskqueue.confirm-start:${selectedTopic.id}:${proposal.id}`,
+      id: `workflow:planning.taskqueue.confirm-start:${selectedTopic.id}:${graph.id}`,
       label: "确认启动 TaskQueue",
       kind: "workflow-action",
       changeId: selectedTopic.id,
       actionType: "planning.taskqueue.confirm-start",
       taskQueueProposalId: proposal.id,
+      workflowGraphPlanId: graph.id,
       enabled: true,
       requiresConfirmation: true,
     }],
@@ -5672,6 +5595,7 @@ function workflowActionLabel(actionType: string): string {
     case "change.plan.accept": return "Plan/Tasks acceptance";
     case "planning.decomposition.assess-readiness": return "Decomposition readiness";
     case "planning.taskqueue.propose": return "TaskQueue proposal";
+    case "planning.workflowgraph.compile": return "WorkflowGraphPlan compile";
     case "planning.taskqueue.confirm-start": return "TaskQueue start confirmation";
     case "code.run": return "Code workflow";
     case "validate.run": return "Validation";

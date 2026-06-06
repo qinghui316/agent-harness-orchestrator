@@ -44,6 +44,7 @@ const taskQueueRunSchema = z.object({
   currentTaskId: z.string().optional(),
   workflowRunId: z.string().optional(),
   taskQueueProposalId: z.string().optional(),
+  workflowGraphPlanId: z.string().optional(),
   decompositionPlanId: z.string().optional(),
   readinessManifestId: z.string().optional(),
   totalCount: z.number(),
@@ -69,6 +70,7 @@ const taskQueueItemSchema = z.object({
   taskRunId: z.string().optional(),
   workflowRunId: z.string().optional(),
   taskQueueProposalId: z.string().optional(),
+  workflowGraphPlanId: z.string().optional(),
   decompositionPlanId: z.string().optional(),
   readinessManifestId: z.string().optional(),
   blockedReason: z.string().optional(),
@@ -78,6 +80,7 @@ const taskQueueItemSchema = z.object({
 export interface TaskQueueStartOptions {
   changeId: string;
   taskQueueProposalId?: string;
+  workflowGraphPlanId?: string;
   decompositionPlanId?: string;
   readinessManifestId?: string;
   workflowRunId?: string;
@@ -137,14 +140,16 @@ export async function startOrResumeTaskQueue(project: ManagedProject, options: T
     return { queue, items, resumed: true };
   }
   if (!options.taskQueueProposalId) throw new Error("TaskQueue start requires a confirmed TaskQueueProposal.");
+  if (!options.workflowGraphPlanId) throw new Error("TaskQueue start requires workflowGraphPlanId.");
   if (!options.workflowRunId) throw new Error("TaskQueue start requires workflowRunId.");
-  const validated = await validateTaskQueueProposalStart(memory, project, options.changeId, options.taskQueueProposalId);
+  const validated = await validateTaskQueueProposalStart(memory, project, options.changeId, options.taskQueueProposalId, options.workflowGraphPlanId);
   const workflow = await readWorkflowRun(memory, options.changeId, options.workflowRunId).catch(() => null);
   if (
     !workflow
     || workflow.status !== "created"
     || workflow.changeId !== options.changeId
     || workflow.taskQueueProposalId !== validated.proposal.id
+    || workflow.workflowGraphPlanId !== validated.graph.id
     || workflow.decompositionPlanId !== validated.proposal.decompositionPlanId
     || workflow.readinessManifestId !== validated.proposal.readinessManifestId
     || workflow.queueRunId
@@ -183,6 +188,7 @@ export async function startOrResumeTaskQueue(project: ManagedProject, options: T
     finishedAt: doneTasks.has(task.taskId.toUpperCase()) ? now : null,
     workflowRunId: options.workflowRunId,
     taskQueueProposalId: validated.proposal.id,
+    workflowGraphPlanId: validated.graph.id,
     decompositionPlanId: validated.proposal.decompositionPlanId,
     readinessManifestId: validated.proposal.readinessManifestId,
   }));
@@ -199,6 +205,7 @@ export async function startOrResumeTaskQueue(project: ManagedProject, options: T
     finishedAt: null,
     workflowRunId: options.workflowRunId,
     taskQueueProposalId: validated.proposal.id,
+    workflowGraphPlanId: validated.graph.id,
     decompositionPlanId: validated.proposal.decompositionPlanId,
     readinessManifestId: validated.proposal.readinessManifestId,
     totalCount: items.filter((item) => item.status !== "skipped").length,

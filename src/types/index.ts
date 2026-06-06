@@ -675,13 +675,55 @@ export interface WorkflowRecoveryKey {
   decompositionPlanId: string;
   readinessManifestId: string;
   taskQueueProposalId: string;
+  workflowGraphPlanId?: string;
   acceptedArtifactHashes: Record<string, string>;
   proposalHash: string;
   readinessHash: string;
+  workflowGraphPlanHash?: string;
   sourceHash: string;
   policyHash: string;
   capabilityHash: string;
   createdAt: string;
+}
+
+export type WorkflowGraphPlanStatus = "compiled" | "superseded" | "rejected";
+export type WorkflowGraphStage = "coder" | "validation" | "audit" | "bounded-rework";
+
+export interface WorkflowGraphNode {
+  id: string;
+  taskId: string;
+  taskQueueProposalItemId: string;
+  unitId: string;
+  title: string;
+  order: number;
+  stages: WorkflowGraphStage[];
+  acIds: string[];
+  sourceScopes: string[];
+}
+
+export interface WorkflowGraphEdge {
+  from: string;
+  to: string;
+  kind: "task-order" | "stage-order";
+}
+
+export interface WorkflowGraphPlan {
+  version: "1.0";
+  id: string;
+  changeId: string;
+  status: WorkflowGraphPlanStatus;
+  graphMode: "sequential-v1";
+  decompositionPlanId: string;
+  readinessManifestId: string;
+  taskQueueProposalId: string;
+  nodes: WorkflowGraphNode[];
+  edges: WorkflowGraphEdge[];
+  sourceArtifactHashes: Record<string, string>;
+  artifactRefs: string[];
+  artifact: string;
+  markdownArtifact: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export type WorkflowRunEventType =
@@ -728,6 +770,7 @@ export interface WorkflowRun {
   status: WorkflowRunStatus;
   source: "taskqueue-proposal";
   taskQueueProposalId: string;
+  workflowGraphPlanId?: string;
   readinessManifestId: string;
   decompositionPlanId: string;
   queueRunId?: string;
@@ -749,6 +792,7 @@ export interface WorkflowRunSummary {
   completedCount: number;
   totalCount: number;
   queueRunId?: string;
+  workflowGraphPlanId?: string;
   updatedAt: string;
 }
 
@@ -1600,6 +1644,7 @@ export interface TaskQueueRun {
   currentTaskId?: string;
   workflowRunId?: string;
   taskQueueProposalId?: string;
+  workflowGraphPlanId?: string;
   decompositionPlanId?: string;
   readinessManifestId?: string;
   totalCount: number;
@@ -1625,6 +1670,7 @@ export interface TaskQueueItem {
   taskRunId?: string;
   workflowRunId?: string;
   taskQueueProposalId?: string;
+  workflowGraphPlanId?: string;
   decompositionPlanId?: string;
   readinessManifestId?: string;
   blockedReason?: string;

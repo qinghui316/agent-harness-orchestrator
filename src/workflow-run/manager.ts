@@ -1,12 +1,22 @@
 import { existsSync } from "node:fs";
 import { appendFile, mkdir, readFile, readdir } from "node:fs/promises";
-import { createHash } from "node:crypto";
-import { basename, dirname, join, resolve } from "node:path";
+import { dirname, join } from "node:path";
 import { z } from "zod";
 import { getActiveChanges } from "../ecl/index.js";
 import { readRequiredJsonFile, writeJsonFile } from "../fs/json.js";
 import { shortHash } from "../fs/path.js";
 import { getGitCommit, getGitStatusShort } from "../project/git.js";
+import {
+  hashArtifactRefs,
+  hashFile,
+  hashText,
+  readWorkflowGraphPlan,
+  resolveArtifactRef,
+  taskQueueProposalSchema,
+  workflowGraphPlanSchema,
+  type DecompositionReadinessManifest,
+  type TaskQueueProposal,
+} from "../workflow-artifacts/manager.js";
 import { listAuditResults } from "../audit/artifacts.js";
 import { listValidationResults } from "../validation/artifacts.js";
 import { listRuns } from "../run/manager.js";
@@ -23,24 +33,10 @@ import type {
   WorkflowRunEventType,
   WorkflowRunStatus,
   WorkflowRunSummary,
+  WorkflowGraphPlan,
 } from "../types/index.js";
 
 const workflowRunStatusSchema = z.enum(["created", "running", "paused", "blocked", "failed", "completed"]);
-const taskQueueProposalSchema = z.object({
-  id: z.string(),
-  changeId: z.string(),
-  decompositionPlanId: z.string(),
-  readinessManifestId: z.string(),
-  status: z.enum(["draft", "confirmed", "started", "superseded", "rejected"]),
-  items: z.array(z.object({
-    taskId: z.string(),
-    order: z.number(),
-  })),
-  sourceArtifactHashes: z.record(z.string()),
-  artifactRefs: z.array(z.string()),
-  artifact: z.string(),
-  markdownArtifact: z.string(),
-});
 const readinessSchema = z.object({
   id: z.string(),
   changeId: z.string(),
@@ -57,9 +53,11 @@ const workflowRecoveryKeySchema = z.object({
   decompositionPlanId: z.string(),
   readinessManifestId: z.string(),
   taskQueueProposalId: z.string(),
+  workflowGraphPlanId: z.string().optional(),
   acceptedArtifactHashes: z.record(z.string()),
   proposalHash: z.string(),
   readinessHash: z.string(),
+  workflowGraphPlanHash: z.string().optional(),
   sourceHash: z.string(),
   policyHash: z.string(),
   capabilityHash: z.string(),
@@ -73,6 +71,7 @@ const workflowRunSchema: z.ZodType<WorkflowRun> = z.object({
   status: workflowRunStatusSchema,
   source: z.literal("taskqueue-proposal"),
   taskQueueProposalId: z.string(),
+  workflowGraphPlanId: z.string().optional(),
   readinessManifestId: z.string(),
   decompositionPlanId: z.string(),
   queueRunId: z.string().optional(),
@@ -94,35 +93,43 @@ const workflowRunSchema: z.ZodType<WorkflowRun> = z.object({
 });
 
 export interface ValidatedTaskQueueProposal {
-  proposal: z.infer<typeof taskQueueProposalSchema>;
-  readiness: z.infer<typeof readinessSchema>;
+  proposal: TaskQueueProposal;
+  readiness: DecompositionReadinessManifest;
+  graph: WorkflowGraphPlan;
   changePath: string;
   recoveryKey: WorkflowRecoveryKey;
 }
 
-export async function validateTaskQueueProposalStart(memory: ResolvedMemory, project: ManagedProject, changeId: string, taskQueueProposalId: string): Promise<ValidatedTaskQueueProposal> {
+export async function validateTaskQueueProposalStart(memory: ResolvedMemory, project: ManagedProject, changeId: string, taskQueueProposalId: string, workflowGraphPlanId: string): Promise<ValidatedTaskQueueProposal> {
   const changePath = await activeChangePath(memory, changeId);
-  const proposalPath = join(memory.memoryRoot, changePath, "planning", "taskqueue-proposal.json");
-  const readinessPath = join(memory.memoryRoot, changePath, "planning", "decomposition-readiness.json");
-  const proposal = await readRequiredJsonFile(proposalPath, taskQueueProposalSchema);
-  if (proposal.id !== taskQueueProposalId || proposal.changeId !== changeId || proposal.status !== "confirmed") {
-    throw new Error("TaskQueue start requires the latest confirmed TaskQueueProposal.");
+  const latestGraph = await readRequiredJsonFile(join(memory.memoryRoot, changePath, "planning", "workflow-graph-plan.json"), workflowGraphPlanSchema);
+  if (latestGraph.id !== workflowGraphPlanId) throw new Error("TaskQueue start requires the latest WorkflowGraphPlan.");
+  const graph = await readWorkflowGraphPlan(memory, changePath, workflowGraphPlanId);
+  if (graph.id !== latestGraph.id || graph.changeId !== changeId || graph.taskQueueProposalId !== taskQueueProposalId || graph.status !== "compiled") {
+    throw new Error("TaskQueue start requires a matching compiled WorkflowGraphPlan.");
   }
-  const readiness = await readRequiredJsonFile(readinessPath, readinessSchema);
+  const proposalRef = requiredGraphRef(graph, ".taskqueue-proposal.json");
+  const readinessRef = requiredGraphRef(graph, ".decomposition-readiness.json");
+  const proposal = await readRequiredJsonFile(resolveArtifactRef(memory, proposalRef), taskQueueProposalSchema);
+  if (proposal.id !== taskQueueProposalId || proposal.changeId !== changeId || proposal.status !== "confirmed") {
+    throw new Error("TaskQueue start requires a confirmed TaskQueueProposal snapshot.");
+  }
+  const readiness = await readRequiredJsonFile(resolveArtifactRef(memory, readinessRef), readinessSchema) as DecompositionReadinessManifest;
   if (readiness.id !== proposal.readinessManifestId || readiness.changeId !== changeId || readiness.status !== "ready-for-sequential-taskqueue-proposal" || readiness.nextAllowedAction !== "taskqueue.proposal") {
     throw new Error("TaskQueue start readiness target is stale or no longer queue-ready.");
   }
-  const expectedSourceHashes = await hashArtifactRefs(memory, proposal.artifactRefs);
+  const expectedSourceHashes = await hashArtifactRefs(memory, Object.keys(graph.sourceArtifactHashes));
   for (const [artifact, hash] of Object.entries(expectedSourceHashes)) {
-    if (proposal.sourceArtifactHashes[artifact] !== hash) {
-      throw new Error(`TaskQueueProposal source artifact hash mismatch: ${artifact}.`);
+    if (graph.sourceArtifactHashes[artifact] !== hash) {
+      throw new Error(`WorkflowGraphPlan source artifact hash mismatch: ${artifact}.`);
     }
   }
   return {
     proposal,
     readiness,
+    graph,
     changePath,
-    recoveryKey: await buildWorkflowRecoveryKey(memory, project, changePath, proposal, readiness),
+    recoveryKey: await buildWorkflowRecoveryKey(memory, project, changePath, proposal, readiness, graph),
   };
 }
 
@@ -136,6 +143,7 @@ export async function createWorkflowRunForTaskQueue(memory: ResolvedMemory, proj
     status: "created",
     source: "taskqueue-proposal",
     taskQueueProposalId: validated.proposal.id,
+    workflowGraphPlanId: validated.graph.id,
     readinessManifestId: validated.proposal.readinessManifestId,
     decompositionPlanId: validated.proposal.decompositionPlanId,
     items: validated.proposal.items.map((item) => ({
@@ -145,14 +153,14 @@ export async function createWorkflowRunForTaskQueue(memory: ResolvedMemory, proj
       updatedAt: now,
     })),
     recoveryKey: validated.recoveryKey,
-    artifactRefs: [validated.proposal.artifact, validated.proposal.markdownArtifact, validated.readiness.artifact, validated.readiness.markdownArtifact],
+    artifactRefs: unique([validated.graph.artifact, validated.graph.markdownArtifact, ...validated.graph.artifactRefs]),
     createdAt: now,
     updatedAt: now,
     startedAt: null,
     finishedAt: null,
   };
   await writeWorkflowRun(memory, run);
-  await appendWorkflowRunEvent(memory, run, "workflow.created", { data: { projectId: project.id, taskQueueProposalId: run.taskQueueProposalId } });
+  await appendWorkflowRunEvent(memory, run, "workflow.created", { data: { projectId: project.id, taskQueueProposalId: run.taskQueueProposalId, workflowGraphPlanId: run.workflowGraphPlanId } });
   return run;
 }
 
@@ -249,6 +257,7 @@ export function summarizeWorkflowRun(run: WorkflowRun): WorkflowRunSummary {
     completedCount: run.items.filter((item) => item.status === "completed" || item.status === "skipped").length,
     totalCount: run.items.filter((item) => item.status !== "skipped").length,
     queueRunId: run.queueRunId,
+    workflowGraphPlanId: run.workflowGraphPlanId,
     updatedAt: run.updatedAt,
   };
 }
@@ -281,30 +290,26 @@ export async function deriveStageResumeVerdict(memory: ResolvedMemory, changeId:
   return { kind: "continue-rework", taskRunId: taskRun.id, taskId: taskRun.taskId, runId: coderRun.id, worktreeId: coderRun.worktree.worktreeId, validationId: validation.id, auditId: audit.id, reason: `Audit ${audit.status}; bounded rework is the next safe stage.`, evidenceRefs: [coderRun.artifacts.directory, validation.id, audit.id] };
 }
 
-export async function hashArtifactRefs(memory: ResolvedMemory, refs: string[]): Promise<Record<string, string>> {
-  const result: Record<string, string> = {};
-  for (const ref of refs) {
-    result[ref] = await hashFile(resolveArtifactRef(memory, ref));
-  }
-  return result;
-}
-
-async function buildWorkflowRecoveryKey(memory: ResolvedMemory, project: ManagedProject, changePath: string, proposal: z.infer<typeof taskQueueProposalSchema>, _readiness: z.infer<typeof readinessSchema>): Promise<WorkflowRecoveryKey> {
+async function buildWorkflowRecoveryKey(memory: ResolvedMemory, project: ManagedProject, changePath: string, proposal: TaskQueueProposal, _readiness: DecompositionReadinessManifest, graph: WorkflowGraphPlan): Promise<WorkflowRecoveryKey> {
   const acceptedArtifactHashes: Record<string, string> = {};
   for (const name of ["spec.md", "plan.md", "tasks.md", "ac-map.json"]) {
     acceptedArtifactHashes[name] = await hashFile(join(memory.memoryRoot, changePath, name));
   }
+  const proposalRef = requiredGraphRef(graph, ".taskqueue-proposal.json");
+  const readinessRef = requiredGraphRef(graph, ".decomposition-readiness.json");
   return {
     version: "1.0",
     changeId: proposal.changeId,
     decompositionPlanId: proposal.decompositionPlanId,
     readinessManifestId: proposal.readinessManifestId,
     taskQueueProposalId: proposal.id,
+    workflowGraphPlanId: graph.id,
     acceptedArtifactHashes,
-    proposalHash: await hashFile(join(memory.memoryRoot, changePath, "planning", "taskqueue-proposal.json")),
-    readinessHash: await hashFile(join(memory.memoryRoot, changePath, "planning", "decomposition-readiness.json")),
+    proposalHash: await hashFile(resolveArtifactRef(memory, proposalRef)),
+    readinessHash: await hashFile(resolveArtifactRef(memory, readinessRef)),
+    workflowGraphPlanHash: await hashFile(resolveArtifactRef(memory, graph.artifact)),
     sourceHash: await sourceHash(project.path),
-    policyHash: hashText("tool-policy-gate@phase-7k:sequential-taskqueue"),
+    policyHash: hashText("tool-policy-gate@phase-7l:sequential-workflowgraph"),
     capabilityHash: hashText("local-runtime:taskqueue-sequential:codex-worktree"),
     createdAt: new Date().toISOString(),
   };
@@ -312,9 +317,11 @@ async function buildWorkflowRecoveryKey(memory: ResolvedMemory, project: Managed
 
 async function recomputeWorkflowRecoveryKey(memory: ResolvedMemory, project: ManagedProject, run: WorkflowRun): Promise<WorkflowRecoveryKey> {
   const changePath = await activeChangePath(memory, run.changeId);
-  const proposal = await readRequiredJsonFile(join(memory.memoryRoot, changePath, "planning", "taskqueue-proposal.json"), taskQueueProposalSchema);
-  const readiness = await readRequiredJsonFile(join(memory.memoryRoot, changePath, "planning", "decomposition-readiness.json"), readinessSchema);
-  const next = await buildWorkflowRecoveryKey(memory, project, changePath, proposal, readiness);
+  if (!run.workflowGraphPlanId) throw new Error("WorkflowRun resume requires workflowGraphPlanId.");
+  const graph = await readWorkflowGraphPlan(memory, changePath, run.workflowGraphPlanId);
+  const proposal = await readRequiredJsonFile(resolveArtifactRef(memory, requiredGraphRef(graph, ".taskqueue-proposal.json")), taskQueueProposalSchema);
+  const readiness = await readRequiredJsonFile(resolveArtifactRef(memory, requiredGraphRef(graph, ".decomposition-readiness.json")), readinessSchema) as DecompositionReadinessManifest;
+  const next = await buildWorkflowRecoveryKey(memory, project, changePath, proposal, readiness, graph);
   return { ...next, createdAt: run.recoveryKey.createdAt };
 }
 
@@ -377,33 +384,6 @@ function workflowEventPath(memory: ResolvedMemory, changeId: string, workflowRun
   return join(memory.runsRoot, "workflow-events", changeId, `${workflowRunId}.jsonl`);
 }
 
-function resolveArtifactRef(memory: ResolvedMemory, ref: string): string {
-  if (/^[a-zA-Z]:[\\/]/.test(ref) || ref.startsWith("/")) return ref;
-  const memoryPath = join(memory.memoryRoot, ref);
-  if (existsSync(memoryPath)) return memoryPath;
-  const projectPath = join(memory.projectRoot, ref);
-  if (existsSync(projectPath)) return projectPath;
-  return resolve(memory.memoryRoot, ref);
-}
-
-async function hashFile(path: string): Promise<string> {
-  const bytes = await readFile(path);
-  if (basename(path) === "ac-map.json") {
-    try {
-      const parsed = JSON.parse(bytes.toString("utf8")) as { generatedAt?: string };
-      delete parsed.generatedAt;
-      return hashText(JSON.stringify(parsed));
-    } catch {
-      return createHash("sha256").update(bytes).digest("hex");
-    }
-  }
-  return createHash("sha256").update(bytes).digest("hex");
-}
-
-function hashText(value: string): string {
-  return createHash("sha256").update(value, "utf8").digest("hex");
-}
-
 async function sourceHash(projectPath: string): Promise<string> {
   const [head, status] = await Promise.all([
     getGitCommit(projectPath).catch(() => null),
@@ -415,4 +395,14 @@ async function sourceHash(projectPath: string): Promise<string> {
 
 function sameJson(left: unknown, right: unknown): boolean {
   return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function requiredGraphRef(graph: WorkflowGraphPlan, suffix: string): string {
+  const ref = graph.artifactRefs.find((item) => item.endsWith(suffix));
+  if (!ref) throw new Error(`WorkflowGraphPlan ${graph.id} is missing ${suffix} source ref.`);
+  return ref;
+}
+
+function unique(values: string[]): string[] {
+  return [...new Set(values.filter(Boolean))];
 }

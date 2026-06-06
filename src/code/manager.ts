@@ -17,6 +17,8 @@ import { getGitStatusShort } from "../project/git.js";
 import { appendRunEvent, buildRunId, listRuns, readRun } from "../run/manager.js";
 import { isRunStopRequested } from "../run/control.js";
 import { executeProcessStreaming, type ProcessExecutionResult } from "../run/process.js";
+import { listTaskQueueItems } from "../task-queue/manager.js";
+import { readWorkflowGraphPlan, resolveArtifactRef, taskQueueProposalSchema } from "../workflow-artifacts/manager.js";
 import type { ChangeStatus, ManagedProject, ResolvedMemory, RunMetadata, RunStatus, RunWorktreeInfo } from "../types/index.js";
 import { collectWorktreeDiff } from "../audit/diff.js";
 import { createWorktree, getWorktreeMetadataPath } from "../worktree/manager.js";
@@ -41,6 +43,7 @@ export interface CodeExecutionGateOptions {
   mode?: CodeExecutionGateMode;
   readinessManifestId?: string;
   taskQueueProposalId?: string;
+  workflowGraphPlanId?: string;
 }
 
 export interface CodeExecutionGateVerdict {
@@ -49,6 +52,7 @@ export interface CodeExecutionGateVerdict {
   changeId: string;
   readinessManifestId?: string;
   taskQueueProposalId?: string;
+  workflowGraphPlanId?: string;
   reason: string;
 }
 
@@ -57,14 +61,6 @@ const codeReadinessGateSchema = z.object({
   changeId: z.string(),
   status: z.string(),
   nextAllowedAction: z.string(),
-  decompositionPlanId: z.string(),
-});
-
-const taskQueueProposalGateSchema = z.object({
-  id: z.string(),
-  changeId: z.string(),
-  status: z.enum(["draft", "confirmed", "started", "superseded", "rejected"]),
-  readinessManifestId: z.string(),
   decompositionPlanId: z.string(),
 });
 
@@ -97,22 +93,38 @@ async function assertCodeExecutionGate(
 
   if (mode === "taskqueue-proposal") {
     const taskQueueProposalId = options.executionGate?.taskQueueProposalId;
+    const workflowGraphPlanId = options.executionGate?.workflowGraphPlanId;
     if (!taskQueueProposalId) throw new Error("TaskQueue code execution requires taskQueueProposalId.");
+    if (!workflowGraphPlanId) throw new Error("TaskQueue code execution requires workflowGraphPlanId.");
     if (!options.taskRunId) throw new Error("TaskQueue code execution requires taskRunId.");
-    const proposal = await readRequiredJsonFile(
-      join(memory.memoryRoot, changePath, "planning", "taskqueue-proposal.json"),
-      taskQueueProposalGateSchema,
-    );
-    if (proposal.changeId !== changeId || proposal.id !== taskQueueProposalId || !["confirmed", "started"].includes(proposal.status)) {
+    const graph = await readWorkflowGraphPlan(memory, changePath, workflowGraphPlanId);
+    const proposalRef = graph.artifactRefs.find((item) => item.endsWith(".taskqueue-proposal.json"));
+    if (!proposalRef) throw new Error("TaskQueue code execution graph is missing proposal snapshot.");
+    const proposal = await readRequiredJsonFile(resolveArtifactRef(memory, proposalRef), taskQueueProposalSchema);
+    if (proposal.changeId !== changeId || proposal.id !== taskQueueProposalId || proposal.status !== "confirmed") {
       throw new Error("TaskQueue code execution target is stale or not confirmed.");
+    }
+    if (graph.changeId !== changeId || graph.taskQueueProposalId !== taskQueueProposalId || graph.readinessManifestId !== proposal.readinessManifestId || graph.status !== "compiled") {
+      throw new Error("TaskQueue code execution graph target is stale.");
+    }
+    const taskIds = options.taskIds ?? [];
+    const graphTasks = new Set(graph.nodes.map((node) => node.taskId.toUpperCase()));
+    for (const taskId of taskIds) {
+      if (!graphTasks.has(taskId.toUpperCase())) throw new Error(`TaskQueue code execution task is not in WorkflowGraphPlan: ${taskId}.`);
+    }
+    const queueItems = await listTaskQueueItems(memory, changeId);
+    const matchingItem = queueItems.find((item) => item.taskRunId === options.taskRunId);
+    if (!matchingItem || matchingItem.taskQueueProposalId !== taskQueueProposalId || matchingItem.workflowGraphPlanId !== workflowGraphPlanId) {
+      throw new Error("TaskQueue code execution taskRun is not scoped to the WorkflowGraphPlan.");
     }
     return {
       allowed: true,
       mode,
       changeId,
       taskQueueProposalId,
+      workflowGraphPlanId,
       readinessManifestId: proposal.readinessManifestId,
-      reason: "Confirmed TaskQueueProposal authorizes task-scoped code execution.",
+      reason: "Compiled WorkflowGraphPlan authorizes task-scoped code execution.",
     };
   }
 

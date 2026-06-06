@@ -11,7 +11,7 @@ import { listRuns, startLocalCommandRun } from "../../src/run/manager.js";
 import { executeWorkbenchAction } from "../../src/server/workbench-server.js";
 import { appendTopicThreadEntry, createWorkbenchTopic, postTopicMessage } from "../../src/workbench/chat.js";
 import { answerClarification, reanalyzeIntake, runIntakeScan } from "../../src/workbench/intake.js";
-import { getWorkbenchDecompositionPlanProjection, getWorkbenchDecompositionReadinessProjection, getWorkbenchMaintenanceProjection, getWorkbenchRunGraphProjection, getWorkbenchSnapshot, getWorkbenchStream, getWorkbenchTaskQueueProposalProjection, getWorkbenchTopic, listWorkbenchApprovals, listWorkbenchRoles, listWorkbenchTopics } from "../../src/workbench/manager.js";
+import { getWorkbenchDecompositionPlanProjection, getWorkbenchDecompositionReadinessProjection, getWorkbenchMaintenanceProjection, getWorkbenchRunGraphProjection, getWorkbenchSnapshot, getWorkbenchStream, getWorkbenchTaskQueueProposalProjection, getWorkbenchTopic, getWorkbenchWorkflowGraphPlanProjection, listWorkbenchApprovals, listWorkbenchRoles, listWorkbenchTopics } from "../../src/workbench/manager.js";
 import { WorkbenchStore } from "../../src/workbench/store.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import { collectWorktreeDiff } from "../../src/audit/diff.js";
@@ -45,7 +45,8 @@ import { classifyPrFeedbackSnapshotData } from "../../src/pr-feedback/manager.js
 import { cleanupRemoteBranchAfterMerge, preparePostMergeHandoff, syncLocalAfterMerge } from "../../src/post-merge/manager.js";
 import { mergeNextLandingQueueCandidate, prepareLandingQueue } from "../../src/landing-queue/manager.js";
 import { listTaskQueueItems, listTaskQueues, pauseTaskQueue, reconcileTaskQueues, startOrResumeTaskQueue } from "../../src/task-queue/manager.js";
-import { createWorkflowRunForTaskQueue, hashArtifactRefs, readWorkflowRun, readWorkflowRunEvents, validateTaskQueueProposalStart } from "../../src/workflow-run/manager.js";
+import { createWorkflowRunForTaskQueue, readWorkflowRun, readWorkflowRunEvents, validateTaskQueueProposalStart } from "../../src/workflow-run/manager.js";
+import { compileWorkflowGraphPlan, hashArtifactRefs } from "../../src/workflow-artifacts/manager.js";
 import type { ManagedProject, RunMetadata, TaskQueueItem, TaskQueueRun, TaskRun, WorkerLease } from "../../src/types/index.js";
 
 let tempDir: string;
@@ -997,20 +998,21 @@ describe("workbench read model", () => {
     ].join("\n"), "utf8");
 
     const prepared = await prepareConfirmedTaskQueueProposalWithWorkflow("task-queue", ["T-001", "T-002"]);
-    const result = await startOrResumeTaskQueue(project(), { changeId: "task-queue", taskQueueProposalId: prepared.proposalId, workflowRunId: prepared.workflowRunId });
+    const result = await startOrResumeTaskQueue(project(), { changeId: "task-queue", taskQueueProposalId: prepared.proposalId, workflowGraphPlanId: prepared.workflowGraphPlanId, workflowRunId: prepared.workflowRunId });
     const memory = await resolveProjectMemory(project());
     const items = await listTaskQueueItems(memory, "task-queue", result.queue.id);
 
     expect(result.queue).toMatchObject({ status: "queued", totalCount: 1, completedCount: 0 });
     expect(items).toEqual([
-      expect.objectContaining({ taskId: "T-001", status: "skipped", order: 1, taskQueueProposalId: prepared.proposalId, workflowRunId: prepared.workflowRunId }),
-      expect.objectContaining({ taskId: "T-002", status: "queued", order: 2, taskQueueProposalId: prepared.proposalId, workflowRunId: prepared.workflowRunId }),
+      expect.objectContaining({ taskId: "T-001", status: "skipped", order: 1, taskQueueProposalId: prepared.proposalId, workflowGraphPlanId: prepared.workflowGraphPlanId, workflowRunId: prepared.workflowRunId }),
+      expect.objectContaining({ taskId: "T-002", status: "queued", order: 2, taskQueueProposalId: prepared.proposalId, workflowGraphPlanId: prepared.workflowGraphPlanId, workflowRunId: prepared.workflowRunId }),
     ]);
     await expect(readWorkflowRun(memory, "task-queue", prepared.workflowRunId)).resolves.toMatchObject({
       id: prepared.workflowRunId,
       status: "running",
       queueRunId: result.queue.id,
       taskQueueProposalId: prepared.proposalId,
+      workflowGraphPlanId: prepared.workflowGraphPlanId,
     });
   });
 
@@ -1031,6 +1033,7 @@ describe("workbench read model", () => {
     await expect(startOrResumeTaskQueue(project(), {
       changeId: "forged-workflowrun",
       taskQueueProposalId: prepared.proposalId,
+      workflowGraphPlanId: prepared.workflowGraphPlanId,
       workflowRunId: "workflow-forged",
     })).rejects.toThrow("TaskQueue start requires a matching unstarted WorkflowRun");
 
@@ -1046,6 +1049,7 @@ describe("workbench read model", () => {
     const startedQueue = await startOrResumeTaskQueue(project(), {
       changeId: "workflow-resume-evidence",
       taskQueueProposalId: prepared.proposalId,
+      workflowGraphPlanId: prepared.workflowGraphPlanId,
       workflowRunId: prepared.workflowRunId,
     });
     const memory = await resolveProjectMemory(project());
@@ -1062,6 +1066,7 @@ describe("workbench read model", () => {
       actionType: "task.queue.start",
       changeId: "workflow-resume-evidence",
       workflowRunId: prepared.workflowRunId,
+      workflowGraphPlanId: prepared.workflowGraphPlanId,
       queueRunId: startedQueue.queue.id,
       confirm: true,
     });
@@ -1088,7 +1093,7 @@ describe("workbench read model", () => {
     await createChange(project(), { title: "Queued Workpad" });
     await writeAcceptedSpecAndTasks("queued-workpad");
     const prepared = await prepareConfirmedTaskQueueProposalWithWorkflow("queued-workpad", ["T-001"]);
-    const result = await startOrResumeTaskQueue(project(), { changeId: "queued-workpad", taskQueueProposalId: prepared.proposalId, workflowRunId: prepared.workflowRunId });
+    const result = await startOrResumeTaskQueue(project(), { changeId: "queued-workpad", taskQueueProposalId: prepared.proposalId, workflowGraphPlanId: prepared.workflowGraphPlanId, workflowRunId: prepared.workflowRunId });
 
     const snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: "queued-workpad" });
     const node = snapshot.center.workpad.taskGraph.nodes.find((item) => item.taskId === "T-001");
@@ -1569,7 +1574,7 @@ describe("workbench read model", () => {
     expect(snapshot.right.confirmationQueue.current).toEqual(expect.arrayContaining([
       expect.objectContaining({
         actions: expect.arrayContaining([
-          expect.objectContaining({ actionType: "planning.taskqueue.confirm-start", taskQueueProposalId: proposal?.id }),
+          expect.objectContaining({ actionType: "planning.workflowgraph.compile", taskQueueProposalId: proposal?.id, readinessManifestId: manifest?.id }),
         ]),
       }),
     ]));
@@ -1578,10 +1583,24 @@ describe("workbench read model", () => {
     const memory = await resolveProjectMemory(project());
     expect(await listTaskQueues(memory, topic.changeId)).toHaveLength(0);
 
+    const compiled = await executeWorkbenchAction({ project: project(), path: tempDir }, {
+      actionType: "planning.workflowgraph.compile",
+      changeId: topic.changeId,
+      taskQueueProposalId: proposal?.id,
+      readinessManifestId: manifest?.id,
+      confirm: true,
+    });
+    const graph = (compiled.result as { result?: { graph?: { id?: string; taskQueueProposalId?: string; readinessManifestId?: string } } }).result?.graph;
+    expect(graph).toMatchObject({ taskQueueProposalId: proposal?.id, readinessManifestId: manifest?.id });
+    expect(await listTaskQueues(memory, topic.changeId)).toHaveLength(0);
+    const fullGraph = await getWorkbenchWorkflowGraphPlanProjection({ project: project(), path: tempDir }, topic.changeId, graph?.id);
+    expect(fullGraph).toMatchObject({ id: graph?.id, graphMode: "sequential-v1", taskQueueProposalId: proposal?.id });
+
     await expect(executeWorkbenchAction({ project: project(), path: tempDir }, {
       actionType: "planning.taskqueue.confirm-start",
       changeId: topic.changeId,
       taskQueueProposalId: "forged-proposal",
+      workflowGraphPlanId: graph?.id,
       confirm: true,
     })).rejects.toThrow("stale or no longer available");
   });
@@ -3191,7 +3210,7 @@ async function writeAcceptedSpecAndTasks(changeId: string): Promise<void> {
   ].join("\n"), "utf8");
 }
 
-async function prepareConfirmedTaskQueueProposalWithWorkflow(changeId: string, taskIds: string[]): Promise<{ proposalId: string; workflowRunId: string }> {
+async function prepareConfirmedTaskQueueProposalWithWorkflow(changeId: string, taskIds: string[]): Promise<{ proposalId: string; workflowGraphPlanId: string; workflowRunId: string }> {
   const memory = await resolveProjectMemory(project());
   const planningDir = join(tempDir, "harness", "changes", "active", changeId, "planning");
   await mkdir(planningDir, { recursive: true });
@@ -3270,9 +3289,10 @@ async function prepareConfirmedTaskQueueProposalWithWorkflow(changeId: string, t
   };
   await writeFile(join(planningDir, "taskqueue-proposal.json"), JSON.stringify(proposal, null, 2), "utf8");
   await writeFile(join(planningDir, "taskqueue-proposal.md"), `# ${proposal.id}\n`, "utf8");
-  const validated = await validateTaskQueueProposalStart(memory, project(), changeId, proposalId);
+  const graph = await compileWorkflowGraphPlan(memory, join("harness", "changes", "active", changeId), proposal, readiness);
+  const validated = await validateTaskQueueProposalStart(memory, project(), changeId, proposalId, graph.id);
   const workflow = await createWorkflowRunForTaskQueue(memory, project(), validated);
-  return { proposalId, workflowRunId: workflow.id };
+  return { proposalId, workflowGraphPlanId: graph.id, workflowRunId: workflow.id };
 }
 
 async function writeCoderRun(changeId: string, runId: string, taskIds: string[], worktreeId: string, status: RunMetadata["status"], taskRunId?: string): Promise<RunMetadata> {

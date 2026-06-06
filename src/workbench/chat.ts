@@ -50,7 +50,6 @@ import { isRunStopRequested, requestRunStop } from "../run/control.js";
 import { executeProcessStreaming } from "../run/process.js";
 import { getEnabledSkillContext } from "../skill/catalog.js";
 import { getSpecTestDriftReport } from "../spec-test/drift.js";
-import { shortHash } from "../fs/path.js";
 import { runIntegrationCheck } from "../integration-check/manager.js";
 import { prepareLandingPackage, reviewLandingPackage } from "../landing/manager.js";
 import { latestLandingQueueSnapshot, mergeNextLandingQueueCandidate, prepareLandingQueue, refreshLandingQueue } from "../landing-queue/manager.js";
@@ -93,11 +92,37 @@ import {
 import {
   createWorkflowRunForTaskQueue,
   deriveStageResumeVerdict,
-  hashArtifactRefs,
   readWorkflowRun,
   syncWorkflowRunFromQueue,
   validateTaskQueueProposalStart,
 } from "../workflow-run/manager.js";
+import {
+  buildTaskQueueProposalFromReadiness,
+  compileWorkflowGraphPlan,
+  displayArtifactPath,
+  hashArtifactRefs,
+  readLatestDecompositionPlan,
+  readLatestDecompositionReadinessManifest,
+  readLatestTaskQueueProposal,
+  readLatestWorkflowGraphPlan,
+  readWorkflowGraphPlan,
+  renderTaskQueueProposalMarkdown,
+  supersedeExistingTaskQueueProposal,
+  writeDecompositionPlan,
+  writeDecompositionReadinessManifest,
+  writeTaskQueueProposal,
+  type DecompositionPlan,
+  type DecompositionReadinessGuardrail,
+  type DecompositionReadinessManifest,
+  type DecompositionReadinessStatus,
+  type DecompositionReadinessUnit,
+  type DecompositionRecommendation,
+  type DecompositionUnit,
+  type TaskQueueProposal,
+  type WorkflowGraphPlan,
+} from "../workflow-artifacts/manager.js";
+import type { WorkflowActionType } from "../workflow-actions/registry.js";
+import { workflowActionScopePayload as buildWorkflowActionScopePayload, workflowActionTargetId as buildWorkflowActionTargetId } from "../workflow-actions/registry.js";
 import { startValidationRun } from "../validation/manager.js";
 import { buildAgentSystemPrompt, buildRunAgentRecord, resolveAgentRole } from "../agent/catalog.js";
 import type { AgentTask, ManagedProject, ResolvedMemory, RunMetadata, RunStatus, StageResumeVerdict, TaskRun } from "../types/index.js";
@@ -526,82 +551,7 @@ export interface TopicMessageInput {
   text?: string;
 }
 
-export type WorkbenchWorkflowActionType =
-  | "chat.ask"
-  | "change.spec.propose"
-  | "change.spec.accept"
-  | "change.plan.propose"
-  | "change.plan.accept"
-  | "planning.generate"
-  | "planning.revise"
-  | "planning.confirm-execution"
-  | "planning.decompose"
-  | "planning.decomposition.confirm"
-  | "planning.decomposition.assess-readiness"
-  | "planning.taskqueue.propose"
-  | "planning.taskqueue.confirm-start"
-  | "orchestrator.evaluate"
-  | "demand.worker.enqueue"
-  | "demand.worker.claim"
-  | "demand.worker.start-next"
-  | "demand.worker.start-available"
-  | "demand.worker.reconcile"
-  | "demand.worker.release"
-  | "orchestrator.pump"
-  | "role.pipeline.start"
-  | "role.pipeline.stop"
-  | "role.pipeline.continue"
-  | "role.pipeline.reconcile"
-  | "conversation.steer"
-  | "conversation.interrupt"
-  | "conversation.continue"
-  | "result.refresh-rework"
-  | "result.revalidate"
-  | "result.reaudit"
-  | "result.refresh-status"
-  | "apply-check.run"
-  | "landing.prepare"
-  | "landing.review"
-  | "landing.refresh"
-  | "landing-queue.prepare"
-  | "landing-queue.refresh"
-  | "landing-queue.merge-next"
-  | "landing-queue.skip"
-  | "landing-queue.remove-stale"
-  | "pr-draft.prepare"
-  | "pr-draft.create"
-  | "pr-draft.refresh"
-  | "pr-feedback.refresh"
-  | "pr-feedback.evaluate"
-  | "pr-feedback.rework"
-  | "pr-feedback.update-draft"
-  | "pr-review.prepare"
-  | "pr-review.submit"
-  | "pr-review.refresh"
-  | "pr-review.feedback-refresh"
-  | "pr-review.feedback-evaluate"
-  | "pr-review.rework"
-  | "pr-review.reply-prepare"
-  | "pr-review.reply-submit"
-  | "pr-review.thread-resolve"
-  | "remote-landing.prepare"
-  | "remote-landing.merge"
-  | "remote-landing.refresh"
-  | "post-merge.prepare"
-  | "post-merge.refresh"
-  | "post-merge.sync-local.prepare"
-  | "post-merge.sync-local.run"
-  | "post-merge.cleanup-branch.prepare"
-  | "post-merge.cleanup-branch.run"
-  | "code.run"
-  | "task.run.start"
-  | "task.run.retry"
-  | "task.run.reconcile"
-  | "task.queue.start"
-  | "task.queue.reconcile"
-  | "validate.run"
-  | "audit.run"
-  | "spec-test.drift";
+export type WorkbenchWorkflowActionType = WorkflowActionType;
 
 export interface WorkbenchWorkflowActionRequest {
   actionType: WorkbenchWorkflowActionType;
@@ -612,6 +562,7 @@ export interface WorkbenchWorkflowActionRequest {
   decompositionPlanId?: string;
   readinessManifestId?: string;
   taskQueueProposalId?: string;
+  workflowGraphPlanId?: string;
   workflowRunId?: string;
   queueRunId?: string;
   worktreeId?: string;
@@ -647,139 +598,6 @@ export interface PlanningArtifactBundle {
   tasksMd: string;
   acMapCandidate?: unknown;
   artifact: string;
-  updatedAt: string;
-}
-
-export type DecompositionRecommendation =
-  | "single-change"
-  | "taskgraph-sequential"
-  | "taskgraph-parallel-candidate"
-  | "multi-change-candidate"
-  | "needs-clarification";
-
-export interface WorkflowRecoveryKeyInputs {
-  changeId: string;
-  planningBundleId?: string;
-  acceptedArtifactRefs: string[];
-  contextScope: "selected-demand";
-  sourceRevision?: string;
-  worktreeBase?: string;
-  rolePolicyProfile: string;
-  notes: string[];
-}
-
-export interface DecompositionUnit {
-  id: string;
-  title: string;
-  summary: string;
-  taskIds: string[];
-  acIds: string[];
-  scopeHints: string[];
-  dependsOn: string[];
-  recommendedRoleId: string;
-}
-
-export interface DecompositionPlan {
-  id: string;
-  changeId: string;
-  status: "draft" | "confirmed" | "superseded" | "rejected";
-  recommendation: DecompositionRecommendation;
-  rationale: string;
-  units: DecompositionUnit[];
-  dependencies: Array<{ from: string; to: string; kind: "blocks" | "synthesizes" | "conflicts" }>;
-  conflictScopes: string[];
-  riskSummary: string;
-  openQuestions: string[];
-  artifactRefs: string[];
-  recoveryKeyInputs: WorkflowRecoveryKeyInputs;
-  artifact: string;
-  markdownArtifact: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export type DecompositionReadinessStatus =
-  | "ready-for-single-change"
-  | "ready-for-sequential-taskqueue-proposal"
-  | "blocked-parallel-guardrails"
-  | "blocked-multi-change-boundary"
-  | "blocked-needs-clarification"
-  | "invalid";
-
-export type DecompositionReadinessGuardrailStatus = "passed" | "blocked" | "failed";
-
-export interface DecompositionReadinessGuardrail {
-  id: string;
-  status: DecompositionReadinessGuardrailStatus;
-  summary: string;
-  refs: string[];
-}
-
-export interface DecompositionReadinessUnit {
-  id: string;
-  title: string;
-  taskIds: string[];
-  acIds: string[];
-  dependsOn: string[];
-  guardrailStatus: DecompositionReadinessGuardrailStatus;
-  sourceScopes: string[];
-}
-
-export interface DecompositionReadinessManifest {
-  id: string;
-  changeId: string;
-  decompositionPlanId: string;
-  status: DecompositionReadinessStatus;
-  recommendation: DecompositionRecommendation;
-  executable: false;
-  schedulerEligible: boolean;
-  nextAllowedAction: "code.run" | "taskqueue.proposal" | "clarification.answer" | "none";
-  units: DecompositionReadinessUnit[];
-  dependencies: DecompositionPlan["dependencies"];
-  conflictScopes: string[];
-  guardrails: DecompositionReadinessGuardrail[];
-  recoveryKeyMaterial: WorkflowRecoveryKeyInputs & {
-    decompositionPlanId: string;
-    taskIds: string[];
-    acIds: string[];
-  };
-  artifactRefs: string[];
-  artifact: string;
-  markdownArtifact: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export type TaskQueueProposalStatus = "draft" | "confirmed" | "started" | "superseded" | "rejected";
-
-export interface TaskQueueProposalItem {
-  id: string;
-  taskId: string;
-  unitId: string;
-  title: string;
-  order: number;
-  dependsOn: string[];
-  sourceScopes: string[];
-  acIds: string[];
-}
-
-export interface TaskQueueProposal {
-  id: string;
-  changeId: string;
-  decompositionPlanId: string;
-  readinessManifestId: string;
-  status: TaskQueueProposalStatus;
-  recommendation: "taskgraph-sequential";
-  queueMode: "sequential";
-  items: TaskQueueProposalItem[];
-  dependencies: DecompositionPlan["dependencies"];
-  conflictScopes: string[];
-  sourceArtifactHashes: Record<string, string>;
-  recoveryKeyMaterial: DecompositionReadinessManifest["recoveryKeyMaterial"];
-  artifactRefs: string[];
-  artifact: string;
-  markdownArtifact: string;
-  createdAt: string;
   updatedAt: string;
 }
 
@@ -1017,6 +835,8 @@ async function executeWorkflowAction(project: ManagedProject, changeId: string, 
       return assessDecompositionReadiness(project, changeId, request, live);
     case "planning.taskqueue.propose":
       return proposeTaskQueue(project, changeId, request, live);
+    case "planning.workflowgraph.compile":
+      return compileTaskQueueWorkflowGraph(project, changeId, request, live);
     case "planning.taskqueue.confirm-start":
       return confirmTaskQueueProposalAndStart(project, changeId, request, live);
     case "orchestrator.evaluate":
@@ -1210,8 +1030,13 @@ function assertWorkflowActionScope(request: WorkbenchWorkflowActionRequest): voi
     case "planning.taskqueue.propose":
       requireOne("readinessManifestId", [request.readinessManifestId]);
       return;
+    case "planning.workflowgraph.compile":
+      requireOne("taskQueueProposalId", [request.taskQueueProposalId]);
+      requireOne("readinessManifestId", [request.readinessManifestId]);
+      return;
     case "planning.taskqueue.confirm-start":
       requireOne("taskQueueProposalId", [request.taskQueueProposalId]);
+      requireOne("workflowGraphPlanId", [request.workflowGraphPlanId]);
       return;
     case "code.run":
       requireOne("readinessManifestId", [request.readinessManifestId]);
@@ -1307,18 +1132,38 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
       throw new Error("planning.taskqueue.propose target is stale or no longer proposal-ready.");
     }
   }
+  if (request.actionType === "planning.workflowgraph.compile") {
+    const active = await getActiveChanges(memory);
+    const target = active.find((item) => item.name === changeId);
+    if (!target) throw new Error(`planning.workflowgraph.compile target is stale or missing active Change: ${changeId}.`);
+    if (!request.taskQueueProposalId) throw new Error("planning.workflowgraph.compile requires taskQueueProposalId.");
+    if (!request.readinessManifestId) throw new Error("planning.workflowgraph.compile requires readinessManifestId.");
+    const proposal = await readLatestTaskQueueProposal(memory, target.path);
+    if (proposal.id !== request.taskQueueProposalId || proposal.changeId !== changeId || !["draft", "confirmed"].includes(proposal.status)) {
+      throw new Error("planning.workflowgraph.compile target is stale or no longer compilable.");
+    }
+    const manifest = await readLatestDecompositionReadinessManifest(memory, target.path);
+    if (manifest.id !== request.readinessManifestId || manifest.id !== proposal.readinessManifestId || manifest.status !== "ready-for-sequential-taskqueue-proposal") {
+      throw new Error("planning.workflowgraph.compile readiness target is stale.");
+    }
+  }
   if (request.actionType === "planning.taskqueue.confirm-start") {
     const active = await getActiveChanges(memory);
     const target = active.find((item) => item.name === changeId);
     if (!target) throw new Error(`planning.taskqueue.confirm-start target is stale or missing active Change: ${changeId}.`);
     if (!request.taskQueueProposalId) throw new Error("planning.taskqueue.confirm-start requires taskQueueProposalId.");
+    if (!request.workflowGraphPlanId) throw new Error("planning.taskqueue.confirm-start requires workflowGraphPlanId.");
     const proposal = await readLatestTaskQueueProposal(memory, target.path);
-    if (proposal.id !== request.taskQueueProposalId || proposal.changeId !== changeId || !["draft", "confirmed"].includes(proposal.status)) {
+    if (proposal.id !== request.taskQueueProposalId || proposal.changeId !== changeId || proposal.status !== "confirmed") {
       throw new Error("planning.taskqueue.confirm-start target is stale or no longer startable.");
     }
     const manifest = await readLatestDecompositionReadinessManifest(memory, target.path);
     if (manifest.id !== proposal.readinessManifestId || manifest.status !== "ready-for-sequential-taskqueue-proposal") {
       throw new Error("planning.taskqueue.confirm-start readiness target is stale.");
+    }
+    const graph = await readLatestWorkflowGraphPlan(memory, target.path);
+    if (graph.id !== request.workflowGraphPlanId || graph.taskQueueProposalId !== proposal.id || graph.readinessManifestId !== manifest.id || graph.status !== "compiled") {
+      throw new Error("planning.taskqueue.confirm-start graph target is stale.");
     }
   }
   if (request.actionType === "code.run" && request.taskIds?.length) {
@@ -1351,64 +1196,11 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
 }
 
 function workflowActionTargetId(request: WorkbenchWorkflowActionRequest, changeId: string, result?: unknown): string {
-  return request.remoteLandingResultId
-    ?? request.landingPackageId
-    ?? request.applyCheckId
-    ?? request.worktreeId
-    ?? request.worktreeIds?.join(",")
-    ?? request.workflowRunId
-    ?? request.taskQueueProposalId
-    ?? extractTaskQueueProposalId(result)
-    ?? request.queueRunId
-    ?? request.readinessManifestId
-    ?? extractReadinessManifestId(result)
-    ?? request.decompositionPlanId
-    ?? request.planningBundleId
-    ?? request.proposalId
-    ?? request.taskRunId
-    ?? request.taskIds?.join(",")
-    ?? changeId;
+  return buildWorkflowActionTargetId(request, changeId, result);
 }
 
 function workflowActionScopePayload(request: WorkbenchWorkflowActionRequest, changeId: string, result?: unknown): Record<string, unknown> {
-  return {
-    changeId,
-    proposalId: request.proposalId,
-    planningBundleId: request.planningBundleId,
-    decompositionPlanId: request.decompositionPlanId,
-    readinessManifestId: request.readinessManifestId ?? extractReadinessManifestId(result),
-    taskQueueProposalId: request.taskQueueProposalId ?? extractTaskQueueProposalId(result),
-    workflowRunId: request.workflowRunId ?? extractWorkflowRunId(result),
-    queueRunId: request.queueRunId,
-    worktreeId: request.worktreeId,
-    worktreeIds: request.worktreeIds,
-    applyCheckId: request.applyCheckId,
-    landingPackageId: request.landingPackageId,
-    remoteLandingResultId: request.remoteLandingResultId,
-    taskRunId: request.taskRunId,
-    taskIds: request.taskIds,
-  };
-}
-
-function extractWorkflowRunId(result: unknown): string | undefined {
-  if (!isRecord(result)) return undefined;
-  const workflow = result.workflowRun ?? result.workflow;
-  if (!isRecord(workflow)) return undefined;
-  return typeof workflow.id === "string" ? workflow.id : undefined;
-}
-
-function extractReadinessManifestId(result: unknown): string | undefined {
-  if (!isRecord(result)) return undefined;
-  const manifest = result.manifest;
-  if (!isRecord(manifest)) return undefined;
-  return typeof manifest.id === "string" ? manifest.id : undefined;
-}
-
-function extractTaskQueueProposalId(result: unknown): string | undefined {
-  if (!isRecord(result)) return undefined;
-  const proposal = result.proposal;
-  if (!isRecord(proposal)) return undefined;
-  return typeof proposal.id === "string" ? proposal.id : undefined;
+  return buildWorkflowActionScopePayload(request, changeId, result);
 }
 
 async function generatePlanningDraft(
@@ -1763,6 +1555,52 @@ async function proposeTaskQueue(
   return { proposal, executionStarted: false };
 }
 
+async function compileTaskQueueWorkflowGraph(
+  project: ManagedProject,
+  changeId: string,
+  request: WorkbenchWorkflowActionRequest,
+  live: WorkbenchLiveSink | undefined,
+): Promise<{ graph: WorkflowGraphPlan; executionStarted: false }> {
+  const { memory, changePath } = await resolveTopic(project, changeId);
+  assertWritableMemory(memory, "WorkflowGraphPlan compile");
+  if (!request.taskQueueProposalId) throw new Error("planning.workflowgraph.compile requires taskQueueProposalId.");
+  if (!request.readinessManifestId) throw new Error("planning.workflowgraph.compile requires readinessManifestId.");
+  const proposal = await readLatestTaskQueueProposal(memory, changePath);
+  if (proposal.id !== request.taskQueueProposalId || proposal.changeId !== changeId || !["draft", "confirmed"].includes(proposal.status)) {
+    throw new Error("planning.workflowgraph.compile target is stale or no longer compilable.");
+  }
+  const manifest = await readLatestDecompositionReadinessManifest(memory, changePath);
+  if (manifest.id !== request.readinessManifestId || manifest.id !== proposal.readinessManifestId || manifest.status !== "ready-for-sequential-taskqueue-proposal") {
+    throw new Error("planning.workflowgraph.compile readiness target is stale.");
+  }
+  const expectedSourceHashes = await hashArtifactRefs(memory, proposal.artifactRefs);
+  for (const [artifact, hash] of Object.entries(expectedSourceHashes)) {
+    if (proposal.sourceArtifactHashes[artifact] !== hash) {
+      throw new Error(`WorkflowGraphPlan compile source artifact hash mismatch: ${artifact}.`);
+    }
+  }
+  const confirmed = proposal.status === "confirmed"
+    ? proposal
+    : { ...proposal, status: "confirmed" as const, updatedAt: new Date().toISOString() };
+  if (proposal.status !== "confirmed") await writeTaskQueueProposal(memory, changePath, confirmed);
+  const graph = await compileWorkflowGraphPlan(memory, changePath, confirmed, manifest);
+  await appendTopicThreadEntry(project, changeId, {
+    type: "assistant.message",
+    status: "workflowgraph-compiled",
+    text: `WorkflowGraphPlan ${graph.id} compiled from TaskQueueProposal ${confirmed.id}. No execution records were created.`,
+    artifact: graph.artifact,
+  });
+  emitAssistantEvent(live, {
+    runId: graph.id,
+    kind: "file-change",
+    phase: "workflowgraph-compiled",
+    title: "WorkflowGraphPlan compiled",
+    summary: "A versioned typed workflow graph was generated; no TaskQueue or WorkflowRun was started.",
+    artifactRef: graph.artifact,
+  });
+  return { graph, executionStarted: false };
+}
+
 async function confirmTaskQueueProposalAndStart(
   project: ManagedProject,
   changeId: string,
@@ -1772,26 +1610,30 @@ async function confirmTaskQueueProposalAndStart(
   const { memory, changePath } = await resolveTopic(project, changeId);
   assertWritableMemory(memory, "TaskQueueProposal start");
   if (!request.taskQueueProposalId) throw new Error("planning.taskqueue.confirm-start requires taskQueueProposalId.");
+  if (!request.workflowGraphPlanId) throw new Error("planning.taskqueue.confirm-start requires workflowGraphPlanId.");
   const proposal = await readLatestTaskQueueProposal(memory, changePath);
-  if (proposal.id !== request.taskQueueProposalId || proposal.changeId !== changeId || !["draft", "confirmed"].includes(proposal.status)) {
+  if (proposal.id !== request.taskQueueProposalId || proposal.changeId !== changeId || proposal.status !== "confirmed") {
     throw new Error("planning.taskqueue.confirm-start target is stale or no longer startable.");
   }
   const manifest = await readLatestDecompositionReadinessManifest(memory, changePath);
   if (manifest.id !== proposal.readinessManifestId || manifest.status !== "ready-for-sequential-taskqueue-proposal") {
     throw new Error("planning.taskqueue.confirm-start readiness target is stale.");
   }
-  const confirmed = { ...proposal, status: "confirmed" as const, updatedAt: new Date().toISOString() };
-  await writeTaskQueueProposal(memory, changePath, confirmed);
-  const validated = await validateTaskQueueProposalStart(memory, project, changeId, confirmed.id);
+  const graph = await readWorkflowGraphPlan(memory, changePath, request.workflowGraphPlanId);
+  if (graph.status !== "compiled" || graph.changeId !== changeId || graph.taskQueueProposalId !== proposal.id || graph.readinessManifestId !== manifest.id) {
+    throw new Error("planning.taskqueue.confirm-start graph target is stale.");
+  }
+  const latestGraph = await readLatestWorkflowGraphPlan(memory, changePath);
+  if (latestGraph.id !== graph.id) throw new Error("planning.taskqueue.confirm-start requires the latest matching WorkflowGraphPlan.");
+  const validated = await validateTaskQueueProposalStart(memory, project, changeId, proposal.id, graph.id);
   const workflow = await createWorkflowRunForTaskQueue(memory, project, validated);
   await appendTopicThreadEntry(project, changeId, {
     type: "assistant.message",
     status: "taskqueue-starting",
-    text: `TaskQueueProposal ${confirmed.id} confirmed; starting scoped sequential TaskQueue through WorkflowRun ${workflow.id}.`,
-    artifact: confirmed.artifact,
+    text: `WorkflowGraphPlan ${graph.id} confirmed for start; starting scoped sequential TaskQueue through WorkflowRun ${workflow.id}.`,
+    artifact: graph.artifact,
   });
-  const result = await runTaskQueueSequence(project, changeId, { ...request, actionType: "task.queue.start", taskQueueProposalId: confirmed.id, workflowRunId: workflow.id }, live);
-  await writeTaskQueueProposal(memory, changePath, { ...confirmed, status: "started", updatedAt: new Date().toISOString() });
+  const result = await runTaskQueueSequence(project, changeId, { ...request, actionType: "task.queue.start", taskQueueProposalId: proposal.id, workflowGraphPlanId: graph.id, workflowRunId: workflow.id }, live);
   return result;
 }
 
@@ -3105,6 +2947,7 @@ async function runTaskQueueSequence(
   const start = await startOrResumeTaskQueue(project, {
     changeId,
     taskQueueProposalId: request.taskQueueProposalId,
+    workflowGraphPlanId: request.workflowGraphPlanId,
     decompositionPlanId: proposal?.decompositionPlanId,
     readinessManifestId: proposal?.readinessManifestId,
     workflowRunId: request.workflowRunId,
@@ -3114,6 +2957,7 @@ async function runTaskQueueSequence(
   let workflow = request.workflowRunId ? await readWorkflowRun(memory, changeId, request.workflowRunId) : null;
   if (queue.workflowRunId) workflow = await readWorkflowRun(memory, changeId, queue.workflowRunId).catch(() => workflow);
   const taskQueueProposalId = request.taskQueueProposalId ?? queue.taskQueueProposalId;
+  const workflowGraphPlanId = request.workflowGraphPlanId ?? queue.workflowGraphPlanId ?? workflow?.workflowGraphPlanId;
   if (start.resumed) {
     const reconciled = await reconcileTaskQueues(project, { changeId, queueRunId: queue.id });
     queue = reconciled.queues.find((item) => item.id === queue.id) ?? queue;
@@ -3167,7 +3011,7 @@ async function runTaskQueueSequence(
         if (workflow) workflow = await syncWorkflowRunFromQueue(memory, workflow, queue, reconciled.items, "workflow.blocked", resume.verdict.reason);
         return { queue, workflowRun: workflow, items: reconciled.items };
       }
-      const executionGate = taskQueueProposalId ? { mode: "taskqueue-proposal" as const, taskQueueProposalId } : undefined;
+      const executionGate = taskQueueProposalId && workflowGraphPlanId ? { mode: "taskqueue-proposal" as const, taskQueueProposalId, workflowGraphPlanId } : undefined;
       const started = resume
         ? { taskRun: resume.taskRun, lease: null }
         : await startTaskRun(project, { changeId, taskId: nextItem.taskId });
@@ -4297,137 +4141,6 @@ async function readLatestPlanningBundle(memory: ResolvedMemory, changePath: stri
   return readRequiredJsonFile(join(memory.memoryRoot, changePath, "planning", "latest-bundle.json"), schema);
 }
 
-const decompositionPlanSchema: z.ZodType<DecompositionPlan> = z.object({
-  id: z.string(),
-  changeId: z.string(),
-  status: z.enum(["draft", "confirmed", "superseded", "rejected"]),
-  recommendation: z.enum(["single-change", "taskgraph-sequential", "taskgraph-parallel-candidate", "multi-change-candidate", "needs-clarification"]),
-  rationale: z.string(),
-  units: z.array(z.object({
-    id: z.string(),
-    title: z.string(),
-    summary: z.string(),
-    taskIds: z.array(z.string()),
-    acIds: z.array(z.string()),
-    scopeHints: z.array(z.string()),
-    dependsOn: z.array(z.string()),
-    recommendedRoleId: z.string(),
-  })),
-  dependencies: z.array(z.object({ from: z.string(), to: z.string(), kind: z.enum(["blocks", "synthesizes", "conflicts"]) })),
-  conflictScopes: z.array(z.string()),
-  riskSummary: z.string(),
-  openQuestions: z.array(z.string()),
-  artifactRefs: z.array(z.string()),
-  recoveryKeyInputs: z.object({
-    changeId: z.string(),
-    planningBundleId: z.string().optional(),
-    acceptedArtifactRefs: z.array(z.string()),
-    contextScope: z.literal("selected-demand"),
-    sourceRevision: z.string().optional(),
-    worktreeBase: z.string().optional(),
-    rolePolicyProfile: z.string(),
-    notes: z.array(z.string()),
-  }),
-  artifact: z.string(),
-  markdownArtifact: z.string(),
-  createdAt: z.string(),
-  updatedAt: z.string(),
-});
-
-const decompositionReadinessManifestSchema: z.ZodType<DecompositionReadinessManifest> = z.object({
-  id: z.string(),
-  changeId: z.string(),
-  decompositionPlanId: z.string(),
-  status: z.enum([
-    "ready-for-single-change",
-    "ready-for-sequential-taskqueue-proposal",
-    "blocked-parallel-guardrails",
-    "blocked-multi-change-boundary",
-    "blocked-needs-clarification",
-    "invalid",
-  ]),
-  recommendation: z.enum(["single-change", "taskgraph-sequential", "taskgraph-parallel-candidate", "multi-change-candidate", "needs-clarification"]),
-  executable: z.literal(false),
-  schedulerEligible: z.boolean(),
-  nextAllowedAction: z.enum(["code.run", "taskqueue.proposal", "clarification.answer", "none"]),
-  units: z.array(z.object({
-    id: z.string(),
-    title: z.string(),
-    taskIds: z.array(z.string()),
-    acIds: z.array(z.string()),
-    dependsOn: z.array(z.string()),
-    guardrailStatus: z.enum(["passed", "blocked", "failed"]),
-    sourceScopes: z.array(z.string()),
-  })),
-  dependencies: z.array(z.object({ from: z.string(), to: z.string(), kind: z.enum(["blocks", "synthesizes", "conflicts"]) })),
-  conflictScopes: z.array(z.string()),
-  guardrails: z.array(z.object({
-    id: z.string(),
-    status: z.enum(["passed", "blocked", "failed"]),
-    summary: z.string(),
-    refs: z.array(z.string()),
-  })),
-  recoveryKeyMaterial: z.object({
-    changeId: z.string(),
-    planningBundleId: z.string().optional(),
-    acceptedArtifactRefs: z.array(z.string()),
-    contextScope: z.literal("selected-demand"),
-    sourceRevision: z.string().optional(),
-    worktreeBase: z.string().optional(),
-    rolePolicyProfile: z.string(),
-    notes: z.array(z.string()),
-    decompositionPlanId: z.string(),
-    taskIds: z.array(z.string()),
-    acIds: z.array(z.string()),
-  }),
-  artifactRefs: z.array(z.string()),
-  artifact: z.string(),
-  markdownArtifact: z.string(),
-  createdAt: z.string(),
-  updatedAt: z.string(),
-});
-
-const taskQueueProposalSchema: z.ZodType<TaskQueueProposal> = z.object({
-  id: z.string(),
-  changeId: z.string(),
-  decompositionPlanId: z.string(),
-  readinessManifestId: z.string(),
-  status: z.enum(["draft", "confirmed", "started", "superseded", "rejected"]),
-  recommendation: z.literal("taskgraph-sequential"),
-  queueMode: z.literal("sequential"),
-  items: z.array(z.object({
-    id: z.string(),
-    taskId: z.string(),
-    unitId: z.string(),
-    title: z.string(),
-    order: z.number(),
-    dependsOn: z.array(z.string()),
-    sourceScopes: z.array(z.string()),
-    acIds: z.array(z.string()),
-  })),
-  dependencies: z.array(z.object({ from: z.string(), to: z.string(), kind: z.enum(["blocks", "synthesizes", "conflicts"]) })),
-  conflictScopes: z.array(z.string()),
-  sourceArtifactHashes: z.record(z.string()),
-  recoveryKeyMaterial: z.object({
-    changeId: z.string(),
-    planningBundleId: z.string().optional(),
-    acceptedArtifactRefs: z.array(z.string()),
-    contextScope: z.literal("selected-demand"),
-    sourceRevision: z.string().optional(),
-    worktreeBase: z.string().optional(),
-    rolePolicyProfile: z.string(),
-    notes: z.array(z.string()),
-    decompositionPlanId: z.string(),
-    taskIds: z.array(z.string()),
-    acIds: z.array(z.string()),
-  }),
-  artifactRefs: z.array(z.string()),
-  artifact: z.string(),
-  markdownArtifact: z.string(),
-  createdAt: z.string(),
-  updatedAt: z.string(),
-});
-
 function buildDeterministicDecompositionPlan(
   memory: ResolvedMemory,
   changePath: string,
@@ -4490,87 +4203,6 @@ function buildDeterministicDecompositionPlan(
     },
     artifact,
     markdownArtifact,
-    createdAt: now,
-    updatedAt: now,
-  };
-}
-
-async function writeDecompositionPlan(memory: ResolvedMemory, changePath: string, plan: DecompositionPlan): Promise<void> {
-  const dir = join(memory.memoryRoot, changePath, "planning");
-  await mkdir(dir, { recursive: true });
-  await writeJsonFile(join(dir, "decomposition-plan.json"), plan);
-  await writeFile(join(dir, "decomposition-plan.md"), renderDecompositionPlanMarkdown(plan), "utf8");
-}
-
-export async function readLatestDecompositionPlan(memory: ResolvedMemory, changePath: string): Promise<DecompositionPlan> {
-  return readRequiredJsonFile(join(memory.memoryRoot, changePath, "planning", "decomposition-plan.json"), decompositionPlanSchema);
-}
-
-export async function readLatestDecompositionReadinessManifest(memory: ResolvedMemory, changePath: string): Promise<DecompositionReadinessManifest> {
-  return readRequiredJsonFile(join(memory.memoryRoot, changePath, "planning", "decomposition-readiness.json"), decompositionReadinessManifestSchema);
-}
-
-export async function readLatestTaskQueueProposal(memory: ResolvedMemory, changePath: string): Promise<TaskQueueProposal> {
-  return readRequiredJsonFile(join(memory.memoryRoot, changePath, "planning", "taskqueue-proposal.json"), taskQueueProposalSchema);
-}
-
-async function writeTaskQueueProposal(memory: ResolvedMemory, changePath: string, proposal: TaskQueueProposal): Promise<void> {
-  const dir = join(memory.memoryRoot, changePath, "planning");
-  await mkdir(dir, { recursive: true });
-  await writeJsonFile(join(dir, "taskqueue-proposal.json"), proposal);
-  await writeFile(join(dir, "taskqueue-proposal.md"), renderTaskQueueProposalMarkdown(proposal), "utf8");
-}
-
-async function supersedeExistingTaskQueueProposal(memory: ResolvedMemory, changePath: string): Promise<void> {
-  const current = await readLatestTaskQueueProposal(memory, changePath).catch(() => null);
-  if (!current || !["draft", "confirmed"].includes(current.status)) return;
-  await writeTaskQueueProposal(memory, changePath, { ...current, status: "superseded", updatedAt: new Date().toISOString() });
-}
-
-async function buildTaskQueueProposalFromReadiness(memory: ResolvedMemory, changePath: string, changeId: string, manifest: DecompositionReadinessManifest): Promise<TaskQueueProposal> {
-  if (manifest.changeId !== changeId) throw new Error("TaskQueueProposal readiness is not scoped to the selected Change.");
-  if (manifest.status !== "ready-for-sequential-taskqueue-proposal" || manifest.nextAllowedAction !== "taskqueue.proposal") {
-    throw new Error(`TaskQueueProposal requires sequential taskqueue readiness; current readiness is ${manifest.status}.`);
-  }
-  const now = new Date().toISOString();
-  const dir = join(memory.memoryRoot, changePath, "planning");
-  const id = `taskqueue-proposal-${now.replace(/[-:.TZ]/g, "").slice(0, 14)}-${shortHash(`${changeId}:${manifest.id}:${now}`).slice(0, 8)}`;
-  const seenTaskIds = new Set<string>();
-  const items: TaskQueueProposalItem[] = [];
-  for (const unit of manifest.units) {
-    for (const taskId of unit.taskIds) {
-      if (seenTaskIds.has(taskId)) continue;
-      seenTaskIds.add(taskId);
-      const order = items.length + 1;
-      items.push({
-        id: `${id}-item-${String(order).padStart(3, "0")}`,
-        taskId,
-        unitId: unit.id,
-        title: unit.title,
-        order,
-        dependsOn: unit.dependsOn,
-        sourceScopes: unit.sourceScopes,
-        acIds: unit.acIds,
-      });
-    }
-  }
-  if (items.length === 0) throw new Error("TaskQueueProposal requires at least one task item.");
-  return {
-    id,
-    changeId,
-    decompositionPlanId: manifest.decompositionPlanId,
-    readinessManifestId: manifest.id,
-    status: "draft",
-    recommendation: "taskgraph-sequential",
-    queueMode: "sequential",
-    items,
-    dependencies: manifest.dependencies,
-    conflictScopes: manifest.conflictScopes,
-    sourceArtifactHashes: await hashArtifactRefs(memory, unique([...manifest.artifactRefs, manifest.artifact, manifest.markdownArtifact])),
-    recoveryKeyMaterial: manifest.recoveryKeyMaterial,
-    artifactRefs: unique([...manifest.artifactRefs, manifest.artifact, manifest.markdownArtifact]),
-    artifact: displayArtifactPath(memory, join(dir, "taskqueue-proposal.json")),
-    markdownArtifact: displayArtifactPath(memory, join(dir, "taskqueue-proposal.md")),
     createdAt: now,
     updatedAt: now,
   };
@@ -4670,13 +4302,6 @@ async function buildDecompositionReadinessManifest(
   };
 }
 
-async function writeDecompositionReadinessManifest(memory: ResolvedMemory, changePath: string, manifest: DecompositionReadinessManifest): Promise<void> {
-  const dir = join(memory.memoryRoot, changePath, "planning");
-  await mkdir(dir, { recursive: true });
-  await writeJsonFile(join(dir, "decomposition-readiness.json"), manifest);
-  await writeFile(join(dir, "decomposition-readiness.md"), renderDecompositionReadinessMarkdown(manifest), "utf8");
-}
-
 function readinessStatusForRecommendation(recommendation: DecompositionRecommendation, parallelReady: boolean): DecompositionReadinessStatus {
   switch (recommendation) {
     case "single-change": return "ready-for-single-change";
@@ -4745,41 +4370,6 @@ function renderDecompositionPlanSummary(plan: DecompositionPlan): string {
   ].join("\n");
 }
 
-function renderDecompositionPlanMarkdown(plan: DecompositionPlan): string {
-  return [
-    `# DecompositionPlan ${plan.id}`,
-    "",
-    `Status: ${plan.status}`,
-    `Recommendation: ${plan.recommendation}`,
-    "",
-    "## Rationale",
-    "",
-    plan.rationale,
-    "",
-    "## Units",
-    "",
-    ...plan.units.map((unit) => `- ${unit.id}: ${unit.title} (${unit.taskIds.join(", ") || "no task ids"})`),
-    "",
-    "## Dependencies",
-    "",
-    ...(plan.dependencies.length ? plan.dependencies.map((item) => `- ${item.from} -> ${item.to}: ${item.kind}`) : ["- None."]),
-    "",
-    "## Conflict Scopes",
-    "",
-    ...(plan.conflictScopes.length ? plan.conflictScopes.map((item) => `- ${item}`) : ["- None identified."]),
-    "",
-    "## Recovery Key Inputs",
-    "",
-    ...plan.recoveryKeyInputs.notes.map((item) => `- ${item}`),
-    "",
-    "## Boundary",
-    "",
-    "- Proposal only; not executable workflow truth.",
-    "- Confirmation does not create child Changes, TaskRuns, AgentTasks, or code runs.",
-    "",
-  ].join("\n");
-}
-
 function renderDecompositionReadinessSummary(manifest: DecompositionReadinessManifest): string {
   return [
     `执行边界检查：${manifest.status}`,
@@ -4789,58 +4379,6 @@ function renderDecompositionReadinessSummary(manifest: DecompositionReadinessMan
     "",
     `调度资格：${manifest.schedulerEligible ? "可进入后续 TaskQueue proposal" : "不可直接调度"}`,
     "本检查不会启动执行、创建子 Change、TaskRun、AgentTask、worktree 或恢复重放。",
-  ].join("\n");
-}
-
-function renderDecompositionReadinessMarkdown(manifest: DecompositionReadinessManifest): string {
-  return [
-    `# DecompositionReadinessManifest ${manifest.id}`,
-    "",
-    `Status: ${manifest.status}`,
-    `Recommendation: ${manifest.recommendation}`,
-    `Executable: ${String(manifest.executable)}`,
-    `Scheduler eligible: ${String(manifest.schedulerEligible)}`,
-    `Next allowed action: ${manifest.nextAllowedAction}`,
-    "",
-    "## Units",
-    "",
-    ...manifest.units.map((unit) => `- ${unit.id}: ${unit.title} (${unit.guardrailStatus}; tasks ${unit.taskIds.join(", ") || "none"}; AC ${unit.acIds.join(", ") || "none"})`),
-    "",
-    "## Dependencies",
-    "",
-    ...(manifest.dependencies.length ? manifest.dependencies.map((item) => `- ${item.from} -> ${item.to}: ${item.kind}`) : ["- None."]),
-    "",
-    "## Guardrails",
-    "",
-    ...manifest.guardrails.map((item) => `- ${item.id}: ${item.status} - ${item.summary}`),
-    "",
-    "## Boundary",
-    "",
-    "- Readiness only; not executable workflow truth.",
-    "- This artifact does not create child Changes, TaskQueues, TaskRuns, AgentTasks, worktrees, or runs.",
-    "- Recovery material is only input material for a later verified recovery key; this phase does not replay cached work.",
-    "",
-  ].join("\n");
-}
-
-function renderTaskQueueProposalMarkdown(proposal: TaskQueueProposal): string {
-  return [
-    `# TaskQueueProposal ${proposal.id}`,
-    "",
-    `- Change: ${proposal.changeId}`,
-    `- Status: ${proposal.status}`,
-    `- DecompositionPlan: ${proposal.decompositionPlanId}`,
-    `- ReadinessManifest: ${proposal.readinessManifestId}`,
-    `- Queue mode: ${proposal.queueMode}`,
-    "",
-    "## Items",
-    ...proposal.items.map((item) => `- ${item.order}. ${item.taskId} (${item.unitId}) - ${item.title}`),
-    "",
-    "## Boundaries",
-    "- This proposal does not create TaskQueue, TaskRun, AgentTask, worktree, child Change, or run records.",
-    "- Queue execution requires a separate user-confirmed planning.taskqueue.confirm-start action.",
-    "- The proposal is not workflow truth; Harness artifacts, run evidence, validation, audit, and human gates remain authoritative.",
-    "",
   ].join("\n");
 }
 
@@ -5198,6 +4736,11 @@ function summarizeActionResult(actionType: string, result: unknown): string {
       ? `TaskQueueProposal ${result.proposal.id} generated. No execution was started.`
       : "TaskQueueProposal generated. No execution was started.";
   }
+  if (actionType === "planning.workflowgraph.compile" && isRecord(result) && isRecord(result.graph)) {
+    return typeof result.graph.id === "string"
+      ? `WorkflowGraphPlan ${result.graph.id} compiled. No execution was started.`
+      : "WorkflowGraphPlan compiled. No execution was started.";
+  }
   if (actionType === "planning.confirm-execution" && isRecord(result)) {
     return "Planning confirmed and canonical artifacts were written. No execution was started.";
   }
@@ -5235,6 +4778,7 @@ function labelForAction(actionType: string): string {
     case "planning.decomposition.confirm": return "DecompositionPlan confirmed";
     case "planning.decomposition.assess-readiness": return "Decomposition readiness assessed";
     case "planning.taskqueue.propose": return "TaskQueueProposal generated";
+    case "planning.workflowgraph.compile": return "WorkflowGraphPlan compiled";
     case "planning.taskqueue.confirm-start": return "TaskQueueProposal confirmed and started";
     case "orchestrator.evaluate": return "Main orchestrator evaluated";
     case "orchestrator.pump": return "Main orchestrator pumped available demands";
@@ -5343,11 +4887,6 @@ export async function recordWorkbenchDecision(project: ManagedProject, input: {
   } finally {
     store.close();
   }
-}
-
-function displayArtifactPath(memory: ResolvedMemory, absolutePath: string): string {
-  const base = memory.artifactBase === "memory-root" ? memory.memoryRoot : memory.projectRoot;
-  return relative(base, absolutePath).replace(/\\/g, "/");
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
