@@ -84,11 +84,10 @@ import {
   markTaskQueueItemRunning,
   markTaskQueueRunning,
   pauseTaskQueue,
-  reconcileTaskQueues,
-  startOrResumeTaskQueue,
   updateTaskQueueAfterItem,
   finishTaskQueueItem,
 } from "../task-queue/manager.js";
+import { reconcileWorkflowTaskQueue, startOrResumeWorkflowTaskQueue } from "../workflow-runtime/taskqueue.js";
 import {
   createWorkflowRunForTaskQueue,
   deriveStageResumeVerdict,
@@ -122,7 +121,12 @@ import {
   type WorkflowGraphPlan,
 } from "../workflow-artifacts/manager.js";
 import type { WorkflowActionType } from "../workflow-actions/registry.js";
-import { workflowActionScopePayload as buildWorkflowActionScopePayload, workflowActionTargetId as buildWorkflowActionTargetId } from "../workflow-actions/registry.js";
+import {
+  assertWorkflowActionRequiredTargets,
+  workflowActionScopePayload as buildWorkflowActionScopePayload,
+  workflowActionScopesMatchStrict,
+  workflowActionTargetId as buildWorkflowActionTargetId,
+} from "../workflow-actions/registry.js";
 import { startValidationRun } from "../validation/manager.js";
 import { buildAgentSystemPrompt, buildRunAgentRecord, resolveAgentRole } from "../agent/catalog.js";
 import type { AgentTask, ManagedProject, ResolvedMemory, RunMetadata, RunStatus, StageResumeVerdict, TaskRun } from "../types/index.js";
@@ -952,7 +956,7 @@ async function executeWorkflowAction(project: ManagedProject, changeId: string, 
     case "task.queue.start":
       return runTaskQueueSequence(project, changeId, request, live);
     case "task.queue.reconcile":
-      return reconcileTaskQueues(project, { changeId, queueRunId: request.queueRunId });
+      return reconcileWorkflowTaskQueue(project, { changeId, queueRunId: request.queueRunId });
     case "validate.run":
       return startValidationRun(project, { changeId, worktree: request.worktreeId });
     case "audit.run":
@@ -965,6 +969,7 @@ async function executeWorkflowAction(project: ManagedProject, changeId: string, 
 }
 
 function assertWorkflowActionScope(request: WorkbenchWorkflowActionRequest): void {
+  assertWorkflowActionRequiredTargets(request);
   const requireOne = (label: string, values: Array<unknown>): void => {
     if (!values.some((value) => Array.isArray(value) ? value.length > 0 : Boolean(value))) throw new Error(`${request.actionType} requires ${label}.`);
   };
@@ -978,9 +983,6 @@ function assertWorkflowActionScope(request: WorkbenchWorkflowActionRequest): voi
     case "spec-test.drift":
       requireOne("worktreeId", [request.worktreeId]);
       return;
-    case "apply-check.run":
-      requireOne("worktreeId or worktreeIds", [request.worktreeId, request.worktreeIds]);
-      return;
     case "landing.prepare":
     case "landing.review":
     case "landing.refresh":
@@ -989,64 +991,6 @@ function assertWorkflowActionScope(request: WorkbenchWorkflowActionRequest): voi
     case "landing-queue.merge-next":
     case "landing-queue.refresh":
       requireOne("landingPackageId", [request.landingPackageId]);
-      return;
-    case "pr-draft.prepare":
-    case "pr-draft.create":
-    case "pr-draft.refresh":
-    case "pr-feedback.refresh":
-    case "pr-feedback.evaluate":
-    case "pr-feedback.rework":
-    case "pr-feedback.update-draft":
-    case "pr-review.prepare":
-    case "pr-review.submit":
-    case "pr-review.refresh":
-    case "pr-review.feedback-refresh":
-    case "pr-review.feedback-evaluate":
-    case "pr-review.rework":
-    case "pr-review.reply-prepare":
-    case "pr-review.reply-submit":
-    case "pr-review.thread-resolve":
-    case "remote-landing.prepare":
-    case "remote-landing.merge":
-    case "remote-landing.refresh":
-    case "post-merge.prepare":
-    case "post-merge.refresh":
-    case "post-merge.sync-local.prepare":
-    case "post-merge.cleanup-branch.prepare":
-      requireOne("landingPackageId", [request.landingPackageId]);
-      return;
-    case "post-merge.sync-local.run":
-    case "post-merge.cleanup-branch.run":
-      requireOne("landingPackageId", [request.landingPackageId]);
-      requireOne("remoteLandingResultId", [request.remoteLandingResultId]);
-      return;
-    case "task.run.start":
-    case "task.run.retry":
-      requireOne("taskIds or taskRunId", [request.taskIds, request.taskRunId]);
-      return;
-    case "planning.decomposition.assess-readiness":
-      requireOne("decompositionPlanId", [request.decompositionPlanId]);
-      return;
-    case "planning.taskqueue.propose":
-      requireOne("readinessManifestId", [request.readinessManifestId]);
-      return;
-    case "planning.workflowgraph.compile":
-      requireOne("taskQueueProposalId", [request.taskQueueProposalId]);
-      requireOne("readinessManifestId", [request.readinessManifestId]);
-      return;
-    case "planning.taskqueue.confirm-start":
-      requireOne("taskQueueProposalId", [request.taskQueueProposalId]);
-      requireOne("workflowGraphPlanId", [request.workflowGraphPlanId]);
-      return;
-    case "code.run":
-      requireOne("readinessManifestId", [request.readinessManifestId]);
-      return;
-    case "task.queue.start":
-      requireOne("workflowRunId", [request.workflowRunId]);
-      requireOne("queueRunId", [request.queueRunId]);
-      return;
-    case "task.run.reconcile":
-      requireOne("taskRunId", [request.taskRunId]);
       return;
     default:
       return;
@@ -1153,8 +1097,10 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
     if (!target) throw new Error(`planning.taskqueue.confirm-start target is stale or missing active Change: ${changeId}.`);
     if (!request.taskQueueProposalId) throw new Error("planning.taskqueue.confirm-start requires taskQueueProposalId.");
     if (!request.workflowGraphPlanId) throw new Error("planning.taskqueue.confirm-start requires workflowGraphPlanId.");
+    if (!request.readinessManifestId) throw new Error("planning.taskqueue.confirm-start requires readinessManifestId.");
+    if (!request.decompositionPlanId) throw new Error("planning.taskqueue.confirm-start requires decompositionPlanId.");
     const proposal = await readLatestTaskQueueProposal(memory, target.path);
-    if (proposal.id !== request.taskQueueProposalId || proposal.changeId !== changeId || proposal.status !== "confirmed") {
+    if (proposal.id !== request.taskQueueProposalId || proposal.changeId !== changeId || proposal.status !== "confirmed" || proposal.decompositionPlanId !== request.decompositionPlanId || proposal.readinessManifestId !== request.readinessManifestId) {
       throw new Error("planning.taskqueue.confirm-start target is stale or no longer startable.");
     }
     const manifest = await readLatestDecompositionReadinessManifest(memory, target.path);
@@ -1189,6 +1135,10 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
     if (request.queueRunId) {
       const queue = queues.find((item) => item.id === request.queueRunId);
       if (!queue || queue.status !== "paused") throw new Error("task.queue.start target is stale or not paused.");
+      if (!workflowActionScopesMatchStrict({ ...queue, queueRunId: queue.id }, request)) throw new Error("task.queue.start target scope is stale or incomplete.");
+      if (!queue.workflowRunId) throw new Error("task.queue.start target has no WorkflowRun binding.");
+      const workflow = await readWorkflowRun(memory, changeId, queue.workflowRunId);
+      if (!workflowActionScopesMatchStrict({ ...workflow, workflowRunId: workflow.id }, request)) throw new Error("task.queue.start WorkflowRun scope is stale or incomplete.");
       return;
     }
     if (!request.taskQueueProposalId) throw new Error("task.queue.start requires queueRunId for resume or taskQueueProposalId from planning.taskqueue.confirm-start.");
@@ -1611,8 +1561,10 @@ async function confirmTaskQueueProposalAndStart(
   assertWritableMemory(memory, "TaskQueueProposal start");
   if (!request.taskQueueProposalId) throw new Error("planning.taskqueue.confirm-start requires taskQueueProposalId.");
   if (!request.workflowGraphPlanId) throw new Error("planning.taskqueue.confirm-start requires workflowGraphPlanId.");
+  if (!request.readinessManifestId) throw new Error("planning.taskqueue.confirm-start requires readinessManifestId.");
+  if (!request.decompositionPlanId) throw new Error("planning.taskqueue.confirm-start requires decompositionPlanId.");
   const proposal = await readLatestTaskQueueProposal(memory, changePath);
-  if (proposal.id !== request.taskQueueProposalId || proposal.changeId !== changeId || proposal.status !== "confirmed") {
+  if (proposal.id !== request.taskQueueProposalId || proposal.changeId !== changeId || proposal.status !== "confirmed" || proposal.decompositionPlanId !== request.decompositionPlanId || proposal.readinessManifestId !== request.readinessManifestId) {
     throw new Error("planning.taskqueue.confirm-start target is stale or no longer startable.");
   }
   const manifest = await readLatestDecompositionReadinessManifest(memory, changePath);
@@ -1633,7 +1585,15 @@ async function confirmTaskQueueProposalAndStart(
     text: `WorkflowGraphPlan ${graph.id} confirmed for start; starting scoped sequential TaskQueue through WorkflowRun ${workflow.id}.`,
     artifact: graph.artifact,
   });
-  const result = await runTaskQueueSequence(project, changeId, { ...request, actionType: "task.queue.start", taskQueueProposalId: proposal.id, workflowGraphPlanId: graph.id, workflowRunId: workflow.id }, live);
+  const result = await runTaskQueueSequence(project, changeId, {
+    ...request,
+    actionType: "task.queue.start",
+    taskQueueProposalId: proposal.id,
+    workflowGraphPlanId: graph.id,
+    readinessManifestId: manifest.id,
+    decompositionPlanId: proposal.decompositionPlanId,
+    workflowRunId: workflow.id,
+  }, live);
   return result;
 }
 
@@ -2943,13 +2903,12 @@ async function runTaskQueueSequence(
   live: WorkbenchLiveSink | undefined,
 ): Promise<unknown> {
   const memory = await resolveProjectMemory(project);
-  const proposal = request.taskQueueProposalId ? await readLatestTaskQueueProposal(memory, (await resolveTopic(project, changeId)).changePath) : null;
-  const start = await startOrResumeTaskQueue(project, {
+  const start = await startOrResumeWorkflowTaskQueue(project, {
     changeId,
     taskQueueProposalId: request.taskQueueProposalId,
     workflowGraphPlanId: request.workflowGraphPlanId,
-    decompositionPlanId: proposal?.decompositionPlanId,
-    readinessManifestId: proposal?.readinessManifestId,
+    decompositionPlanId: request.decompositionPlanId,
+    readinessManifestId: request.readinessManifestId,
     workflowRunId: request.workflowRunId,
     queueRunId: request.queueRunId,
   });
@@ -2959,7 +2918,7 @@ async function runTaskQueueSequence(
   const taskQueueProposalId = request.taskQueueProposalId ?? queue.taskQueueProposalId;
   const workflowGraphPlanId = request.workflowGraphPlanId ?? queue.workflowGraphPlanId ?? workflow?.workflowGraphPlanId;
   if (start.resumed) {
-    const reconciled = await reconcileTaskQueues(project, { changeId, queueRunId: queue.id });
+    const reconciled = await reconcileWorkflowTaskQueue(project, { changeId, queueRunId: queue.id });
     queue = reconciled.queues.find((item) => item.id === queue.id) ?? queue;
   }
   queue = await markTaskQueueRunning(memory, queue);
@@ -2975,13 +2934,13 @@ async function runTaskQueueSequence(
     const nextItem = await getNextQueuedTaskQueueItem(memory, queue);
     if (!nextItem) {
       queue = await updateTaskQueueAfterItem(memory, queue);
-      const reconciled = await reconcileTaskQueues(project, { changeId, queueRunId: queue.id });
+      const reconciled = await reconcileWorkflowTaskQueue(project, { changeId, queueRunId: queue.id });
       if (workflow) workflow = await syncWorkflowRunFromQueue(memory, workflow, queue, reconciled.items, queue.status === "completed" ? "workflow.completed" : "workflow.reconciled");
       return { queue, workflowRun: workflow, items: reconciled.items };
     }
     if (live?.isClosed?.()) {
       queue = await pauseTaskQueue(memory, queue, "队列已暂停，等待继续。");
-      const reconciled = await reconcileTaskQueues(project, { changeId, queueRunId: queue.id });
+      const reconciled = await reconcileWorkflowTaskQueue(project, { changeId, queueRunId: queue.id });
       if (workflow) workflow = await syncWorkflowRunFromQueue(memory, workflow, queue, reconciled.items, "workflow.paused", queue.pausedReason);
       return { queue, workflowRun: workflow, items: reconciled.items };
     }
@@ -3007,7 +2966,7 @@ async function runTaskQueueSequence(
         });
         await failQueuedTaskItem(memory, nextItem, resume.verdict.reason);
         queue = await updateTaskQueueAfterItem(memory, queue);
-        const reconciled = await reconcileTaskQueues(project, { changeId, queueRunId: queue.id });
+        const reconciled = await reconcileWorkflowTaskQueue(project, { changeId, queueRunId: queue.id });
         if (workflow) workflow = await syncWorkflowRunFromQueue(memory, workflow, queue, reconciled.items, "workflow.blocked", resume.verdict.reason);
         return { queue, workflowRun: workflow, items: reconciled.items };
       }
@@ -3041,7 +3000,7 @@ async function runTaskQueueSequence(
           title: "任务队列已停止",
           summary: queue.blockedReason ?? queue.failureReason ?? `${finishedItem.taskId} 未完成。`,
         });
-        const reconciled = await reconcileTaskQueues(project, { changeId, queueRunId: queue.id });
+        const reconciled = await reconcileWorkflowTaskQueue(project, { changeId, queueRunId: queue.id });
         if (workflow) workflow = await syncWorkflowRunFromQueue(memory, workflow, queue, reconciled.items, queue.status === "blocked" ? "workflow.blocked" : "workflow.failed", queue.blockedReason ?? queue.failureReason);
         return { queue, workflowRun: workflow, items: reconciled.items };
       }
@@ -3056,19 +3015,19 @@ async function runTaskQueueSequence(
         title: "任务队列已停止",
         summary: `${failedItem.taskId}: ${message}`,
       });
-      const reconciled = await reconcileTaskQueues(project, { changeId, queueRunId: queue.id });
+      const reconciled = await reconcileWorkflowTaskQueue(project, { changeId, queueRunId: queue.id });
       if (workflow) workflow = await syncWorkflowRunFromQueue(memory, workflow, queue, reconciled.items, "workflow.failed", queue.failureReason);
       return { queue, workflowRun: workflow, items: reconciled.items };
     }
 
     if (live?.isClosed?.()) {
       queue = await pauseTaskQueue(memory, queue, "队列已暂停，等待继续。");
-      const reconciled = await reconcileTaskQueues(project, { changeId, queueRunId: queue.id });
+      const reconciled = await reconcileWorkflowTaskQueue(project, { changeId, queueRunId: queue.id });
       if (workflow) workflow = await syncWorkflowRunFromQueue(memory, workflow, queue, reconciled.items, "workflow.paused", queue.pausedReason);
       return { queue, workflowRun: workflow, items: reconciled.items };
     }
     if (queue.status === "blocked" || queue.status === "failed" || queue.status === "completed") {
-      const reconciled = await reconcileTaskQueues(project, { changeId, queueRunId: queue.id });
+      const reconciled = await reconcileWorkflowTaskQueue(project, { changeId, queueRunId: queue.id });
       if (workflow) workflow = await syncWorkflowRunFromQueue(memory, workflow, queue, reconciled.items, queue.status === "completed" ? "workflow.completed" : queue.status === "blocked" ? "workflow.blocked" : "workflow.failed", queue.blockedReason ?? queue.failureReason);
       return { queue, workflowRun: workflow, items: reconciled.items };
     }

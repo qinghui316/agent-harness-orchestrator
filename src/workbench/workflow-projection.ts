@@ -265,7 +265,13 @@ export function buildTypedWorkflowNextAction(input: {
       return { ...workflowNextAction("planning.workflowgraph.compile", "编译执行图", "生成 versioned WorkflowGraphPlan；不会启动执行。"), taskQueueProposalId: taskQueueProposal.id, readinessManifestId: decompositionReadiness.id };
     }
     if (!workflowRun || workflowRun.workflowGraphPlanId !== workflowGraphPlan.id) {
-      return { ...workflowNextAction("planning.taskqueue.confirm-start", "确认启动 TaskQueue", "重新校验 graph/proposal/readiness 后创建 TaskQueue/TaskRun 并开始顺序执行。"), taskQueueProposalId: taskQueueProposal.id, workflowGraphPlanId: workflowGraphPlan.id };
+      return {
+        ...workflowNextAction("planning.taskqueue.confirm-start", "确认启动 TaskQueue", "重新校验 graph/proposal/readiness 后创建 TaskQueue/TaskRun 并开始顺序执行。"),
+        taskQueueProposalId: taskQueueProposal.id,
+        workflowGraphPlanId: workflowGraphPlan.id,
+        readinessManifestId: decompositionReadiness.id,
+        decompositionPlanId: taskQueueProposal.decompositionPlanId,
+      };
     }
   }
   return {

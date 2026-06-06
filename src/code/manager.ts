@@ -51,8 +51,11 @@ export interface CodeExecutionGateVerdict {
   mode: CodeExecutionGateMode;
   changeId: string;
   readinessManifestId?: string;
+  decompositionPlanId?: string;
   taskQueueProposalId?: string;
   workflowGraphPlanId?: string;
+  taskRunId?: string;
+  taskIds?: string[];
   reason: string;
 }
 
@@ -86,7 +89,7 @@ async function assertCodeExecutionGate(
 ): Promise<CodeExecutionGateVerdict> {
   const mode = options.executionGate?.mode ?? (roleId === "rework-coder" ? "rework" : "single-change-readiness");
   if (mode === "rework") {
-    return { allowed: true, mode, changeId, reason: "Rework code execution remains scoped to existing result review evidence." };
+    return { allowed: true, mode, changeId, taskRunId: options.taskRunId, taskIds: options.taskIds, reason: "Rework code execution remains scoped to existing result review evidence." };
   }
   const changePath = changeStatus.activeChanges.find((item) => item.name === changeId)?.path;
   if (!changePath) throw new Error(`Code execution gate cannot resolve active Change path for ${changeId}.`);
@@ -124,6 +127,9 @@ async function assertCodeExecutionGate(
       taskQueueProposalId,
       workflowGraphPlanId,
       readinessManifestId: proposal.readinessManifestId,
+      decompositionPlanId: proposal.decompositionPlanId,
+      taskRunId: options.taskRunId,
+      taskIds: options.taskIds,
       reason: "Compiled WorkflowGraphPlan authorizes task-scoped code execution.",
     };
   }
@@ -144,6 +150,9 @@ async function assertCodeExecutionGate(
     mode,
     changeId,
     readinessManifestId: readiness.id,
+    decompositionPlanId: readiness.decompositionPlanId,
+    taskRunId: options.taskRunId,
+    taskIds: options.taskIds,
     reason: "DecompositionReadinessManifest authorizes direct single-change code.run.",
   };
 }
@@ -187,7 +196,7 @@ export async function startCodeRun(project: ManagedProject, options: CodeRunOpti
 
   const selectedTasks = normalizeAndValidateTasks(changeStatus, options.taskIds ?? []);
   const roleId = options.roleId ?? "coder-agent";
-  await assertCodeExecutionGate(memory, changeStatus, changeId, options, roleId);
+  const executionGate = await assertCodeExecutionGate(memory, changeStatus, changeId, options, roleId);
   const role = await resolveAgentRole(memory, roleId);
   const extraPrompt = options.prompt || options.promptFile
     ? await readPromptInput({ prompt: options.prompt, promptFile: options.promptFile })
@@ -282,13 +291,15 @@ export async function startCodeRun(project: ManagedProject, options: CodeRunOpti
     artifacts,
     worktree,
     contextPacket: contextArtifact.ref,
+    executionGate,
     ...(selectedTasks.length > 0 ? { taskIds: selectedTasks } : {}),
     ...(options.taskRunId ? { taskRunId: options.taskRunId } : {}),
     promptStack: ["agent-role", "active-change", "worktree", "task-scope", "human-prompt"],
     agent: buildRunAgentRecord(role),
   };
   await writeJsonFile(paths.run, run);
-  await appendRunEvent(paths.events, { timestamp: now, type: "run.created", runId, data: { changeId, runtime: "coder-codex", worktree, taskIds: selectedTasks, taskRunId: options.taskRunId } });
+  await appendRunEvent(paths.events, { timestamp: now, type: "run.created", runId, data: { changeId, runtime: "coder-codex", worktree, taskIds: selectedTasks, taskRunId: options.taskRunId, executionGate: { ...executionGate } } });
+  await appendRunEvent(paths.events, { timestamp: now, type: "code.execution_gate.allowed", runId, data: { ...executionGate } });
   await appendRunEvent(paths.events, { timestamp: now, type: "worktree.created", runId, data: { worktreeId: worktree.worktreeId, checkoutPath: worktree.checkoutPath } });
   emitCodeLiveStatus(options.live, { runId, status: "preparing", label: "Coder" });
 

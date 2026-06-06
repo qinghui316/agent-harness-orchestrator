@@ -18,6 +18,7 @@ import {
   syncWorkflowRunFromQueue,
   validateTaskQueueProposalStart,
 } from "../workflow-run/manager.js";
+import { workflowActionScopesMatchStrict } from "../workflow-actions/registry.js";
 import type {
   ManagedProject,
   ResolvedMemory,
@@ -110,9 +111,15 @@ export async function startOrResumeTaskQueue(project: ManagedProject, options: T
   if (activeQueue?.status === "paused") {
     if (!options.queueRunId || activeQueue.id !== options.queueRunId) throw new Error("TaskQueue resume requires the paused queueRunId.");
     if (!options.workflowRunId) throw new Error("TaskQueue resume requires workflowRunId.");
+    if (!options.taskQueueProposalId) throw new Error("TaskQueue resume requires taskQueueProposalId.");
+    if (!options.workflowGraphPlanId) throw new Error("TaskQueue resume requires workflowGraphPlanId.");
+    if (!options.readinessManifestId) throw new Error("TaskQueue resume requires readinessManifestId.");
+    if (!options.decompositionPlanId) throw new Error("TaskQueue resume requires decompositionPlanId.");
+    if (!workflowActionScopesMatchStrict({ ...activeQueue, queueRunId: activeQueue.id }, options)) throw new Error("TaskQueue resume scope is stale or incomplete.");
     let workflow;
     try {
       workflow = await assertWorkflowResumeAllowed(memory, project, options.workflowRunId, activeQueue);
+      if (!workflowActionScopesMatchStrict({ ...workflow, workflowRunId: workflow.id }, options)) throw new Error("TaskQueue resume WorkflowRun scope is stale or incomplete.");
     } catch (error) {
       const now = new Date().toISOString();
       await writeTaskQueueRun(memory, {

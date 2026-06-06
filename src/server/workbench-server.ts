@@ -51,7 +51,7 @@ import {
 } from "../workbench/manager.js";
 import { answerClarification, reanalyzeIntake, runIntakeScan, skipClarification, type ClarificationAnswer } from "../workbench/intake.js";
 import type { ManagedProject, MemoryMode } from "../types/index.js";
-import { isLiveWorkflowActionType, revalidatedWorkflowActionSet, workflowActionScopesMatch } from "../workflow-actions/registry.js";
+import { isLiveWorkflowActionType, revalidatedWorkflowActionSet, workflowActionScopesMatchStrict } from "../workflow-actions/registry.js";
 
 export interface WorkbenchServeOptions {
   host?: string;
@@ -643,36 +643,12 @@ async function assertCurrentWorkflowAction(input: WorkbenchProjectInput, body: W
   const matches = actions.some((action) => action.kind === "workflow-action"
     && action.actionType === body.actionType
     && (!action.changeId || action.changeId === body.changeId)
-    && sameOptional(action.planningBundleId, body.planningBundleId)
-    && sameOptional(action.decompositionPlanId, body.decompositionPlanId)
-    && sameOptional(action.readinessManifestId, body.readinessManifestId)
-    && sameOptional(action.taskQueueProposalId, body.taskQueueProposalId)
-    && sameOptional(action.workflowGraphPlanId, body.workflowGraphPlanId)
-    && sameOptional(action.workflowRunId, body.workflowRunId)
-    && sameOptional(action.queueRunId, body.queueRunId)
-    && sameOptional(action.worktreeId, body.worktreeId)
-    && sameOptionalArray(action.worktreeIds, body.worktreeIds)
-    && sameOptional(action.applyCheckId, body.applyCheckId)
-    && sameOptional(action.landingPackageId, body.landingPackageId)
-    && sameOptional(action.remoteLandingResultId, body.remoteLandingResultId)
-    && sameOptional(action.taskRunId, body.taskRunId)
-    && sameOptionalArray(action.taskIds, body.taskIds)
-    && workflowActionScopesMatch(action, body));
+    && workflowActionScopesMatchStrict(action, body));
   if (!matches) {
     const error = new Error("Workflow action target is stale or no longer available.");
     error.name = "Conflict";
     throw error;
   }
-}
-
-function sameOptional(left: string | undefined, right: string | undefined): boolean {
-  return (left ?? "") === (right ?? "");
-}
-
-function sameOptionalArray(left: string[] | undefined, right: string[] | undefined): boolean {
-  const l = left ?? [];
-  const r = right ?? [];
-  return l.length === r.length && l.every((value, index) => value === r[index]);
 }
 
 async function recordPostDecisionMaintenance(

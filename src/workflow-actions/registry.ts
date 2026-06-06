@@ -79,6 +79,16 @@ export const WORKFLOW_ACTION_TYPES = [
 
 export type WorkflowActionType = typeof WORKFLOW_ACTION_TYPES[number];
 
+export const WORKBENCH_THREAD_ACTION_TYPES = [
+  ...WORKFLOW_ACTION_TYPES,
+  "intake.scan",
+  "intake.reanalyze",
+  "clarification.answer",
+  "clarification.skip",
+] as const;
+
+export type WorkbenchThreadActionType = typeof WORKBENCH_THREAD_ACTION_TYPES[number];
+
 export const LIVE_WORKFLOW_ACTION_TYPES = [
   "chat.ask",
   "change.spec.propose",
@@ -225,6 +235,12 @@ export type WorkflowActionScopeCarrier = {
   taskIds?: string[];
 };
 
+export interface WorkflowActionRequiredTargetIssue {
+  actionType: string;
+  label: string;
+  message: string;
+}
+
 export function isWorkflowActionType(actionType: string): actionType is WorkflowActionType {
   return (WORKFLOW_ACTION_TYPES as readonly string[]).includes(actionType);
 }
@@ -235,6 +251,110 @@ export function isLiveWorkflowActionType(actionType: string): actionType is Work
 
 export function revalidatedWorkflowActionSet(): Set<string> {
   return new Set(REVALIDATED_WORKFLOW_ACTION_TYPES);
+}
+
+export function validateWorkflowActionRequiredTargets(request: WorkflowActionScopeCarrier): WorkflowActionRequiredTargetIssue[] {
+  const actionType = request.actionType ?? "";
+  const issues: WorkflowActionRequiredTargetIssue[] = [];
+  const requireOne = (label: string, values: Array<unknown>): void => {
+    if (!values.some(hasScopeValue)) issues.push({ actionType, label, message: `${actionType} requires ${label}.` });
+  };
+  const requireSingleTaskId = (): void => {
+    if ((request.taskIds?.length ?? 0) !== 1 || !request.taskIds?.[0]) {
+      issues.push({ actionType, label: "single taskIds[0]", message: `${actionType} requires a single taskIds[0].` });
+    }
+  };
+
+  switch (actionType) {
+    case "change.spec.accept":
+    case "change.plan.accept":
+      requireOne("proposalId", [request.proposalId]);
+      break;
+    case "planning.confirm-execution":
+      requireOne("planningBundleId", [request.planningBundleId]);
+      break;
+    case "planning.decomposition.confirm":
+    case "planning.decomposition.assess-readiness":
+      requireOne("decompositionPlanId", [request.decompositionPlanId]);
+      break;
+    case "planning.taskqueue.propose":
+      requireOne("readinessManifestId", [request.readinessManifestId]);
+      break;
+    case "planning.workflowgraph.compile":
+      requireOne("taskQueueProposalId", [request.taskQueueProposalId]);
+      requireOne("readinessManifestId", [request.readinessManifestId]);
+      break;
+    case "planning.taskqueue.confirm-start":
+      requireOne("taskQueueProposalId", [request.taskQueueProposalId]);
+      requireOne("workflowGraphPlanId", [request.workflowGraphPlanId]);
+      requireOne("readinessManifestId", [request.readinessManifestId]);
+      requireOne("decompositionPlanId", [request.decompositionPlanId]);
+      break;
+    case "code.run":
+      requireOne("readinessManifestId", [request.readinessManifestId]);
+      break;
+    case "task.run.start":
+      requireSingleTaskId();
+      break;
+    case "task.run.retry":
+    case "task.run.reconcile":
+      requireOne("taskRunId", [request.taskRunId]);
+      break;
+    case "task.queue.start":
+      requireOne("workflowRunId", [request.workflowRunId]);
+      requireOne("queueRunId", [request.queueRunId]);
+      requireOne("taskQueueProposalId", [request.taskQueueProposalId]);
+      requireOne("workflowGraphPlanId", [request.workflowGraphPlanId]);
+      requireOne("readinessManifestId", [request.readinessManifestId]);
+      requireOne("decompositionPlanId", [request.decompositionPlanId]);
+      break;
+    case "apply-check.run":
+      requireOne("worktreeId or worktreeIds", [request.worktreeId, request.worktreeIds]);
+      break;
+    case "landing.prepare":
+    case "landing.review":
+    case "landing.refresh":
+      requireOne("applyCheckId or worktreeId/worktreeIds", [request.applyCheckId, request.worktreeId, request.worktreeIds]);
+      break;
+    case "remote-landing.merge":
+      requireOne("landingPackageId", [request.landingPackageId]);
+      break;
+    case "post-merge.sync-local.run":
+    case "post-merge.cleanup-branch.run":
+      requireOne("landingPackageId", [request.landingPackageId]);
+      requireOne("remoteLandingResultId", [request.remoteLandingResultId]);
+      break;
+    case "pr-draft.prepare":
+    case "pr-draft.create":
+    case "pr-draft.refresh":
+    case "pr-feedback.refresh":
+    case "pr-feedback.evaluate":
+    case "pr-feedback.rework":
+    case "pr-feedback.update-draft":
+    case "pr-review.prepare":
+    case "pr-review.submit":
+    case "pr-review.refresh":
+    case "pr-review.feedback-refresh":
+    case "pr-review.feedback-evaluate":
+    case "pr-review.rework":
+    case "pr-review.reply-prepare":
+    case "pr-review.reply-submit":
+    case "pr-review.thread-resolve":
+    case "remote-landing.prepare":
+    case "remote-landing.refresh":
+    case "post-merge.prepare":
+    case "post-merge.refresh":
+    case "post-merge.sync-local.prepare":
+    case "post-merge.cleanup-branch.prepare":
+      requireOne("landingPackageId", [request.landingPackageId]);
+      break;
+  }
+  return issues;
+}
+
+export function assertWorkflowActionRequiredTargets(request: WorkflowActionScopeCarrier): void {
+  const [issue] = validateWorkflowActionRequiredTargets(request);
+  if (issue) throw new Error(issue.message);
 }
 
 export function workflowActionScopePayload(request: WorkflowActionScopeCarrier, changeId: string, result?: unknown): Record<string, unknown> {
@@ -281,20 +401,41 @@ export function workflowActionTargetId(request: WorkflowActionScopeCarrier, chan
 }
 
 export function workflowActionScopesMatch(left: WorkflowActionScopeCarrier, right: WorkflowActionScopeCarrier): boolean {
-  return sameOptional(left.planningBundleId, right.planningBundleId)
-    && sameOptional(left.decompositionPlanId, right.decompositionPlanId)
-    && sameOptional(left.readinessManifestId, right.readinessManifestId)
-    && sameOptional(left.taskQueueProposalId, right.taskQueueProposalId)
-    && sameOptional(left.workflowGraphPlanId, right.workflowGraphPlanId)
-    && sameOptional(left.workflowRunId, right.workflowRunId)
-    && sameOptional(left.queueRunId, right.queueRunId)
-    && sameOptional(left.worktreeId, right.worktreeId)
-    && sameOptionalArray(left.worktreeIds, right.worktreeIds)
-    && sameOptional(left.applyCheckId, right.applyCheckId)
-    && sameOptional(left.landingPackageId, right.landingPackageId)
-    && sameOptional(left.remoteLandingResultId, right.remoteLandingResultId)
-    && sameOptional(left.taskRunId, right.taskRunId)
-    && sameOptionalArray(left.taskIds, right.taskIds);
+  return workflowActionScopesMatchStrict(left, right);
+}
+
+export function workflowActionScopesMatchStrict(left: WorkflowActionScopeCarrier, right: WorkflowActionScopeCarrier): boolean {
+  return sameStrictOptional(left.planningBundleId, right.planningBundleId)
+    && sameStrictOptional(left.decompositionPlanId, right.decompositionPlanId)
+    && sameStrictOptional(left.readinessManifestId, right.readinessManifestId)
+    && sameStrictOptional(left.taskQueueProposalId, right.taskQueueProposalId)
+    && sameStrictOptional(left.workflowGraphPlanId, right.workflowGraphPlanId)
+    && sameStrictOptional(left.workflowRunId, right.workflowRunId)
+    && sameStrictOptional(left.queueRunId, right.queueRunId)
+    && sameStrictOptional(left.worktreeId, right.worktreeId)
+    && sameStrictOptionalArray(left.worktreeIds, right.worktreeIds)
+    && sameStrictOptional(left.applyCheckId, right.applyCheckId)
+    && sameStrictOptional(left.landingPackageId, right.landingPackageId)
+    && sameStrictOptional(left.remoteLandingResultId, right.remoteLandingResultId)
+    && sameStrictOptional(left.taskRunId, right.taskRunId)
+    && sameStrictOptionalArray(left.taskIds, right.taskIds);
+}
+
+export function workflowActionScopesMatchCompatible(left: WorkflowActionScopeCarrier, right: WorkflowActionScopeCarrier): boolean {
+  return sameCompatibleOptional(left.planningBundleId, right.planningBundleId)
+    && sameCompatibleOptional(left.decompositionPlanId, right.decompositionPlanId)
+    && sameCompatibleOptional(left.readinessManifestId, right.readinessManifestId)
+    && sameCompatibleOptional(left.taskQueueProposalId, right.taskQueueProposalId)
+    && sameCompatibleOptional(left.workflowGraphPlanId, right.workflowGraphPlanId)
+    && sameCompatibleOptional(left.workflowRunId, right.workflowRunId)
+    && sameCompatibleOptional(left.queueRunId, right.queueRunId)
+    && sameCompatibleOptional(left.worktreeId, right.worktreeId)
+    && sameCompatibleOptionalArray(left.worktreeIds, right.worktreeIds)
+    && sameCompatibleOptional(left.applyCheckId, right.applyCheckId)
+    && sameCompatibleOptional(left.landingPackageId, right.landingPackageId)
+    && sameCompatibleOptional(left.remoteLandingResultId, right.remoteLandingResultId)
+    && sameCompatibleOptional(left.taskRunId, right.taskRunId)
+    && sameCompatibleOptionalArray(left.taskIds, right.taskIds);
 }
 
 function extractString(value: unknown, objectKey: string, fieldKey: string): string | undefined {
@@ -305,14 +446,28 @@ function extractString(value: unknown, objectKey: string, fieldKey: string): str
   return typeof result === "string" ? result : undefined;
 }
 
-function sameOptional(left: string | undefined, right: string | undefined): boolean {
+function hasScopeValue(value: unknown): boolean {
+  return Array.isArray(value) ? value.length > 0 : Boolean(value);
+}
+
+function sameCompatibleOptional(left: string | undefined, right: string | undefined): boolean {
   return !left || !right || left === right;
 }
 
-function sameOptionalArray(left: string[] | undefined, right: string[] | undefined): boolean {
+function sameCompatibleOptionalArray(left: string[] | undefined, right: string[] | undefined): boolean {
   if (!left?.length || !right?.length) return true;
   if (left.length !== right.length) return false;
   return left.every((item, index) => item === right[index]);
+}
+
+function sameStrictOptional(left: string | undefined, right: string | undefined): boolean {
+  return (left ?? "") === (right ?? "");
+}
+
+function sameStrictOptionalArray(left: string[] | undefined, right: string[] | undefined): boolean {
+  const l = left ?? [];
+  const r = right ?? [];
+  return l.length === r.length && l.every((item, index) => item === r[index]);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -20,6 +20,7 @@ import {
   UserRound,
   X,
 } from "lucide-react";
+import { workflowActionPayloadFromScope, type WorkbenchThreadActionType } from "./workflow-actions.js";
 
 type AppStatus = { mode: "app" | "project"; directProjectId: string | null };
 type ProjectStatus = {
@@ -202,6 +203,8 @@ type WorkbenchTaskNextAction = {
   actionType?: ThreadStreamAction["actionType"];
   taskIds?: string[];
   taskRunId?: string;
+  decompositionPlanId?: string;
+  readinessManifestId?: string;
   taskQueueProposalId?: string;
   workflowGraphPlanId?: string;
   workflowRunId?: string;
@@ -275,6 +278,11 @@ type WorkbenchTaskQueueSummary = {
   blockedReason?: string;
   failureReason?: string;
   pausedReason?: string;
+  workflowRunId?: string;
+  taskQueueProposalId?: string;
+  workflowGraphPlanId?: string;
+  readinessManifestId?: string;
+  decompositionPlanId?: string;
   nextAction?: WorkbenchTaskNextAction;
   items: Array<{
     id: string;
@@ -483,7 +491,7 @@ type PlanCard = {
 };
 type ThreadEvent = { id: string; type: string; label: string; timestamp?: string; status?: string; runId?: string; planCard?: PlanCard };
 type ThreadStreamAction = {
-  actionType: "change.spec.propose" | "change.plan.propose" | "planning.generate" | "planning.revise" | "planning.confirm-execution" | "planning.decompose" | "planning.decomposition.confirm" | "planning.decomposition.assess-readiness" | "planning.taskqueue.propose" | "planning.workflowgraph.compile" | "planning.taskqueue.confirm-start" | "orchestrator.evaluate" | "orchestrator.pump" | "demand.worker.enqueue" | "demand.worker.claim" | "demand.worker.start-next" | "demand.worker.start-available" | "demand.worker.reconcile" | "demand.worker.release" | "role.pipeline.start" | "role.pipeline.stop" | "role.pipeline.continue" | "role.pipeline.reconcile" | "conversation.steer" | "conversation.interrupt" | "conversation.continue" | "result.refresh-rework" | "result.revalidate" | "result.reaudit" | "result.refresh-status" | "apply-check.run" | "landing.prepare" | "landing.review" | "landing.refresh" | "landing-queue.prepare" | "landing-queue.refresh" | "landing-queue.merge-next" | "landing-queue.skip" | "landing-queue.remove-stale" | "pr-draft.prepare" | "pr-draft.create" | "pr-draft.refresh" | "pr-feedback.refresh" | "pr-feedback.evaluate" | "pr-feedback.rework" | "pr-feedback.update-draft" | "pr-review.prepare" | "pr-review.submit" | "pr-review.refresh" | "pr-review.feedback-refresh" | "pr-review.feedback-evaluate" | "pr-review.rework" | "pr-review.reply-prepare" | "pr-review.reply-submit" | "pr-review.thread-resolve" | "remote-landing.prepare" | "remote-landing.merge" | "remote-landing.refresh" | "post-merge.prepare" | "post-merge.refresh" | "post-merge.sync-local.prepare" | "post-merge.sync-local.run" | "post-merge.cleanup-branch.prepare" | "post-merge.cleanup-branch.run" | "code.run" | "task.run.start" | "task.run.retry" | "task.queue.start" | "task.queue.reconcile" | "intake.scan" | "intake.reanalyze" | "clarification.answer" | "clarification.skip";
+  actionType: WorkbenchThreadActionType;
   label: string;
   enabled: boolean;
   requiresConfirmation: boolean;
@@ -1125,7 +1133,7 @@ export function App(): ReactElement {
       return;
     }
     if (action.kind === "workflow-action" && action.actionType) {
-        await runWorkflowAction(action.actionType, { changeId: action.changeId ?? context.changeId, planningBundleId: action.planningBundleId, decompositionPlanId: action.decompositionPlanId, readinessManifestId: action.readinessManifestId, taskQueueProposalId: action.taskQueueProposalId, workflowGraphPlanId: action.workflowGraphPlanId, workflowRunId: action.workflowRunId, queueRunId: action.queueRunId, taskIds: action.taskIds, taskRunId: action.taskRunId, worktreeId: action.worktreeId ?? context.targetId, worktreeIds: action.worktreeIds, applyCheckId: action.applyCheckId, landingPackageId: action.landingPackageId, remoteLandingResultId: action.remoteLandingResultId });
+      await runWorkflowAction(action.actionType, workflowActionPayloadFromScope(action, { changeId: action.changeId ?? context.changeId, worktreeId: action.worktreeId ?? context.targetId }));
       return;
     }
     if (action.kind === "abandon") {
@@ -3485,7 +3493,7 @@ function TaskQueuePanel({
             : "本地顺序执行已确认任务。";
   function runQueueAction(): void {
     if (!action?.actionType || disabled) return;
-    void onWorkflowAction(action.actionType, { queueRunId: action.queueRunId, workflowRunId: action.workflowRunId, workflowGraphPlanId: action.workflowGraphPlanId, taskQueueProposalId: action.taskQueueProposalId });
+    void onWorkflowAction(action.actionType, workflowActionPayloadFromScope(action));
   }
   return (
     <div className={`task-queue-panel ${queue.status}`} data-testid="task-queue-panel">
@@ -3711,7 +3719,7 @@ function WorkpadActionButton({
       onConfirmApproval(action.approvalId);
       return;
     }
-    if (action.kind === "workflow-action" && action.actionType) void onWorkflowAction(action.actionType, { planningBundleId: action.planningBundleId, decompositionPlanId: action.decompositionPlanId, readinessManifestId: action.readinessManifestId, taskQueueProposalId: action.taskQueueProposalId, workflowGraphPlanId: action.workflowGraphPlanId, workflowRunId: action.workflowRunId, queueRunId: action.queueRunId, taskIds: action.taskIds, taskRunId: action.taskRunId });
+    if (action.kind === "workflow-action" && action.actionType) void onWorkflowAction(action.actionType, workflowActionPayloadFromScope(action));
   }
   return (
     <div className="workpad-next-action">

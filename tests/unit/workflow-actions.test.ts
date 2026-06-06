@@ -4,9 +4,13 @@ import {
   HIGH_IMPACT_WORKFLOW_ACTION_TYPES,
   LIVE_WORKFLOW_ACTION_TYPES,
   REVALIDATED_WORKFLOW_ACTION_TYPES,
+  WORKBENCH_THREAD_ACTION_TYPES,
   WORKFLOW_ACTION_TYPES,
+  validateWorkflowActionRequiredTargets,
   workflowActionScopePayload,
   workflowActionScopesMatch,
+  workflowActionScopesMatchCompatible,
+  workflowActionScopesMatchStrict,
   workflowActionTargetId,
 } from "../../src/workflow-actions/registry.js";
 
@@ -19,6 +23,7 @@ describe("workflow action registry", () => {
       expect(all.has(actionType)).toBe(true);
     }
     for (const actionType of REVALIDATED_WORKFLOW_ACTION_TYPES) expect(all.has(actionType)).toBe(true);
+    for (const actionType of WORKFLOW_ACTION_TYPES) expect(WORKBENCH_THREAD_ACTION_TYPES).toContain(actionType);
 
     expect(highImpactActions()).toEqual([...HIGH_IMPACT_WORKFLOW_ACTION_TYPES].sort());
     expect(LIVE_WORKFLOW_ACTION_TYPES).toContain("planning.workflowgraph.compile");
@@ -29,6 +34,8 @@ describe("workflow action registry", () => {
   it("keeps graph ids in target and audit scope matching", () => {
     const request = {
       changeId: "change-1",
+      decompositionPlanId: "decomposition-1",
+      readinessManifestId: "readiness-1",
       taskQueueProposalId: "proposal-1",
       workflowGraphPlanId: "graph-1",
       workflowRunId: "workflow-1",
@@ -38,12 +45,36 @@ describe("workflow action registry", () => {
     expect(workflowActionTargetId(request, request.changeId)).toBe("workflow-1");
     expect(workflowActionScopePayload(request, request.changeId, { graph: { id: "graph-1" } })).toMatchObject({
       changeId: "change-1",
+      decompositionPlanId: "decomposition-1",
+      readinessManifestId: "readiness-1",
       taskQueueProposalId: "proposal-1",
       workflowGraphPlanId: "graph-1",
       workflowRunId: "workflow-1",
       queueRunId: "queue-1",
     });
     expect(workflowActionScopesMatch(request, { ...request })).toBe(true);
+    expect(workflowActionScopesMatchStrict(request, { ...request })).toBe(true);
     expect(workflowActionScopesMatch(request, { ...request, workflowGraphPlanId: "graph-2" })).toBe(false);
+    expect(workflowActionScopesMatchStrict(request, { ...request, readinessManifestId: undefined })).toBe(false);
+    expect(workflowActionScopesMatchCompatible(request, { ...request, readinessManifestId: undefined })).toBe(true);
+  });
+
+  it("requires exact targets for task and taskqueue workflow actions", () => {
+    expect(validateWorkflowActionRequiredTargets({ actionType: "task.run.start", taskRunId: "taskrun-1" }).map((item) => item.label)).toEqual(["single taskIds[0]"]);
+    expect(validateWorkflowActionRequiredTargets({ actionType: "task.run.retry", taskIds: ["T-001"] }).map((item) => item.label)).toEqual(["taskRunId"]);
+    expect(validateWorkflowActionRequiredTargets({
+      actionType: "task.queue.start",
+      workflowRunId: "workflow-1",
+      queueRunId: "queue-1",
+      taskQueueProposalId: "proposal-1",
+      workflowGraphPlanId: "graph-1",
+      readinessManifestId: "readiness-1",
+      decompositionPlanId: "decomposition-1",
+    })).toEqual([]);
+    expect(validateWorkflowActionRequiredTargets({
+      actionType: "planning.taskqueue.confirm-start",
+      taskQueueProposalId: "proposal-1",
+      workflowGraphPlanId: "graph-1",
+    }).map((item) => item.label)).toEqual(["readinessManifestId", "decompositionPlanId"]);
   });
 });

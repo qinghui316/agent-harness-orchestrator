@@ -579,6 +579,18 @@ export interface RunMetadata {
   enabledSkills?: RunSkillRecord[];
   agent?: RunAgentRecord;
   contextPacket?: RunContextPacketRef;
+  executionGate?: {
+    allowed: boolean;
+    mode: string;
+    changeId: string;
+    readinessManifestId?: string;
+    decompositionPlanId?: string;
+    taskQueueProposalId?: string;
+    workflowGraphPlanId?: string;
+    taskRunId?: string;
+    taskIds?: string[];
+    reason: string;
+  };
 }
 
 export type TaskRunStatus = "queued" | "claimed" | "running" | "evidence-ready" | "blocked" | "failed" | "completed";
@@ -1726,6 +1738,7 @@ export interface RunEvent {
     | "worktree.discard.started"
     | "worktree.discard.completed"
     | "worktree.discard.failed"
+    | "code.execution_gate.allowed"
     | "coder.started"
     | "coder.exited"
     | "spec-test.proposal.started"

@@ -60,6 +60,7 @@ import {
 import type { ClarificationRequest, WorkbenchIntakeIteration, WorkbenchIntakeScan } from "./intake.js";
 import { buildParentAgentTranscript, type ParentAgentTranscript } from "./parent-agent-transcript.js";
 import { WorkbenchStore, type StoredDecisionRecord } from "./store.js";
+import type { WorkbenchThreadActionType } from "../workflow-actions/registry.js";
 import type {
   AuditSummary,
   AcMap,
@@ -149,7 +150,7 @@ export interface WorkbenchThreadEvent {
 }
 
 export interface ThreadStreamAction {
-  actionType: "change.spec.propose" | "change.plan.propose" | "planning.generate" | "planning.revise" | "planning.confirm-execution" | "planning.decompose" | "planning.decomposition.confirm" | "planning.decomposition.assess-readiness" | "planning.taskqueue.propose" | "planning.workflowgraph.compile" | "planning.taskqueue.confirm-start" | "orchestrator.evaluate" | "orchestrator.pump" | "demand.worker.enqueue" | "demand.worker.claim" | "demand.worker.start-next" | "demand.worker.start-available" | "demand.worker.reconcile" | "demand.worker.release" | "role.pipeline.start" | "role.pipeline.stop" | "role.pipeline.continue" | "role.pipeline.reconcile" | "conversation.steer" | "conversation.interrupt" | "conversation.continue" | "result.refresh-rework" | "result.revalidate" | "result.reaudit" | "result.refresh-status" | "apply-check.run" | "landing.prepare" | "landing.review" | "landing.refresh" | "landing-queue.prepare" | "landing-queue.refresh" | "landing-queue.merge-next" | "landing-queue.skip" | "landing-queue.remove-stale" | "pr-draft.prepare" | "pr-draft.create" | "pr-draft.refresh" | "pr-feedback.refresh" | "pr-feedback.evaluate" | "pr-feedback.rework" | "pr-feedback.update-draft" | "pr-review.prepare" | "pr-review.submit" | "pr-review.refresh" | "pr-review.feedback-refresh" | "pr-review.feedback-evaluate" | "pr-review.rework" | "pr-review.reply-prepare" | "pr-review.reply-submit" | "pr-review.thread-resolve" | "remote-landing.prepare" | "remote-landing.merge" | "remote-landing.refresh" | "post-merge.prepare" | "post-merge.refresh" | "post-merge.sync-local.prepare" | "post-merge.sync-local.run" | "post-merge.cleanup-branch.prepare" | "post-merge.cleanup-branch.run" | "code.run" | "task.run.start" | "task.run.retry" | "task.queue.start" | "task.queue.reconcile" | "intake.scan" | "intake.reanalyze" | "clarification.answer" | "clarification.skip";
+  actionType: WorkbenchThreadActionType;
   label: string;
   enabled: boolean;
   requiresConfirmation: boolean;
@@ -464,6 +465,8 @@ export interface WorkbenchTaskNextAction {
   actionType?: ThreadStreamAction["actionType"];
   taskIds?: string[];
   taskRunId?: string;
+  decompositionPlanId?: string;
+  readinessManifestId?: string;
   taskQueueProposalId?: string;
   workflowGraphPlanId?: string;
   workflowRunId?: string;
@@ -574,6 +577,10 @@ export interface WorkbenchTaskQueueSummary {
   failureReason?: string;
   pausedReason?: string;
   workflowRunId?: string;
+  taskQueueProposalId?: string;
+  workflowGraphPlanId?: string;
+  readinessManifestId?: string;
+  decompositionPlanId?: string;
   nextAction?: WorkbenchTaskNextAction;
   items: WorkbenchTaskQueueItemSummary[];
 }
@@ -2553,7 +2560,10 @@ function buildTaskQueueSummary(
         requiresConfirmation: true,
         workflowRunId: queue.workflowRunId,
         queueRunId: queue.id,
+        taskQueueProposalId: queue.taskQueueProposalId,
         workflowGraphPlanId: queue.workflowGraphPlanId,
+        readinessManifestId: queue.readinessManifestId,
+        decompositionPlanId: queue.decompositionPlanId,
         disabledReason: topic.state === "active" ? undefined : "需求对话不是可执行状态。",
       }
     : undefined;
@@ -2587,6 +2597,10 @@ function buildTaskQueueSummary(
     failureReason: queue.failureReason,
     pausedReason: queue.pausedReason,
     workflowRunId: queue.workflowRunId,
+    taskQueueProposalId: queue.taskQueueProposalId,
+    workflowGraphPlanId: queue.workflowGraphPlanId,
+    readinessManifestId: queue.readinessManifestId,
+    decompositionPlanId: queue.decompositionPlanId,
     nextAction: baseAction,
     items,
   };
@@ -3007,7 +3021,10 @@ function buildQueueBlockedNextAction(queue?: WorkbenchTaskQueueSummary, taskGrap
       actionType: reconcile,
       workflowRunId: queue.nextAction?.workflowRunId,
       queueRunId: queue.nextAction?.queueRunId,
+      taskQueueProposalId: queue.nextAction?.taskQueueProposalId,
       workflowGraphPlanId: queue.nextAction?.workflowGraphPlanId,
+      readinessManifestId: queue.nextAction?.readinessManifestId,
+      decompositionPlanId: queue.nextAction?.decompositionPlanId,
       disabledReason: queue.nextAction?.disabledReason,
     };
   }
@@ -3339,6 +3356,8 @@ function taskQueueProposalToConfirmationItems(
       actionType: "planning.taskqueue.confirm-start",
       taskQueueProposalId: proposal.id,
       workflowGraphPlanId: graph.id,
+      readinessManifestId: readiness.id,
+      decompositionPlanId: proposal.decompositionPlanId,
       enabled: true,
       requiresConfirmation: true,
     }],
