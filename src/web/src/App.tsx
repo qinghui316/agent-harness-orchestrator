@@ -178,6 +178,7 @@ type WorkpadNextAction = {
   decompositionPlanId?: string;
   readinessManifestId?: string;
   taskQueueProposalId?: string;
+  workflowRunId?: string;
   queueRunId?: string;
   taskIds?: string[];
   taskRunId?: string;
@@ -536,6 +537,7 @@ type DecisionAction = {
   decompositionPlanId?: string;
   readinessManifestId?: string;
   taskQueueProposalId?: string;
+  workflowRunId?: string;
   queueRunId?: string;
   taskIds?: string[];
   taskRunId?: string;
@@ -1090,7 +1092,7 @@ export function App(): ReactElement {
       return;
     }
     if (action.kind === "workflow-action" && action.actionType) {
-        await runWorkflowAction(action.actionType, { changeId: action.changeId ?? context.changeId, planningBundleId: action.planningBundleId, decompositionPlanId: action.decompositionPlanId, readinessManifestId: action.readinessManifestId, taskQueueProposalId: action.taskQueueProposalId, queueRunId: action.queueRunId, taskIds: action.taskIds, taskRunId: action.taskRunId, worktreeId: action.worktreeId ?? context.targetId, worktreeIds: action.worktreeIds, applyCheckId: action.applyCheckId, landingPackageId: action.landingPackageId, remoteLandingResultId: action.remoteLandingResultId });
+        await runWorkflowAction(action.actionType, { changeId: action.changeId ?? context.changeId, planningBundleId: action.planningBundleId, decompositionPlanId: action.decompositionPlanId, readinessManifestId: action.readinessManifestId, taskQueueProposalId: action.taskQueueProposalId, workflowRunId: action.workflowRunId, queueRunId: action.queueRunId, taskIds: action.taskIds, taskRunId: action.taskRunId, worktreeId: action.worktreeId ?? context.targetId, worktreeIds: action.worktreeIds, applyCheckId: action.applyCheckId, landingPackageId: action.landingPackageId, remoteLandingResultId: action.remoteLandingResultId });
       return;
     }
     if (action.kind === "abandon") {
@@ -1595,9 +1597,11 @@ export function App(): ReactElement {
                   onSend={sendTopicMessage}
                   onStopAndContinue={stopAndContinueCurrentRun}
                   onNewWorkpad={createTopicFromComposer}
-                  onRunCode={() => runWorkflowAction("code.run")}
+                  onRunCode={() => runWorkflowAction("code.run", {
+                    readinessManifestId: activeWorkpad.nextAction.actionType === "code.run" ? activeWorkpad.nextAction.readinessManifestId : undefined,
+                  })}
                   actionRunning={actionRunning}
-                  canRunCode={activeTopic.state === "active" && (activeTopic.taskCount ?? 0) > 0}
+                  canRunCode={activeTopic.state === "active" && activeWorkpad.nextAction.actionType === "code.run" && Boolean(activeWorkpad.nextAction.readinessManifestId)}
                   currentWorkpadStatus={activeWorkpad.conversationLifecycle === "running" || activeWorkpad.runControlState?.canStop ? "running" : currentWorkpadSummary(snapshot, activeTopic)?.runtimeStatus}
                 />
               </div>
@@ -3658,7 +3662,7 @@ function WorkpadActionButton({
       onConfirmApproval(action.approvalId);
       return;
     }
-    if (action.kind === "workflow-action" && action.actionType) void onWorkflowAction(action.actionType, { planningBundleId: action.planningBundleId, decompositionPlanId: action.decompositionPlanId, readinessManifestId: action.readinessManifestId, taskQueueProposalId: action.taskQueueProposalId, queueRunId: action.queueRunId, taskIds: action.taskIds, taskRunId: action.taskRunId });
+    if (action.kind === "workflow-action" && action.actionType) void onWorkflowAction(action.actionType, { planningBundleId: action.planningBundleId, decompositionPlanId: action.decompositionPlanId, readinessManifestId: action.readinessManifestId, taskQueueProposalId: action.taskQueueProposalId, workflowRunId: action.workflowRunId, queueRunId: action.queueRunId, taskIds: action.taskIds, taskRunId: action.taskRunId });
   }
   return (
     <div className="workpad-next-action">

@@ -86,7 +86,6 @@ const snapshot = {
         status: "none",
         totalCount: 1,
         completedCount: 0,
-        nextAction: { id: "task-queue:start", label: "运行当前任务", actionType: "task.queue.start", enabled: true, requiresConfirmation: true },
         items: [],
       },
       evidence: [
@@ -995,12 +994,13 @@ describe("Workbench web app", () => {
           taskQueue: {
             id: "queue-blocked",
             status: "blocked",
+            workflowRunId: "workflow-blocked",
             currentTaskId: "T-001",
             totalCount: 1,
             completedCount: 0,
             blockedReason: "T-001: 审查未通过，需要补证据。",
-            nextAction: { id: "task-queue:queue-blocked:task.queue.reconcile", label: "继续处理", actionType: "task.queue.reconcile", enabled: true, requiresConfirmation: true },
-            items: [{ id: "queue-blocked-item-001", taskId: "T-001", order: 1, status: "blocked", taskRunId: "taskrun-blocked" }],
+            nextAction: { id: "task-queue:queue-blocked:task.queue.reconcile", label: "继续处理", actionType: "task.queue.reconcile", workflowRunId: "workflow-blocked", queueRunId: "queue-blocked", enabled: true, requiresConfirmation: true },
+            items: [{ id: "queue-blocked-item-001", taskId: "T-001", order: 1, status: "blocked", taskRunId: "taskrun-blocked", workflowRunId: "workflow-blocked" }],
           },
           nextAction: {
             id: "decision:queue-blocked:T-001:feedback",
@@ -1238,12 +1238,13 @@ describe("Workbench web app", () => {
           taskQueue: {
             id: "queue-1",
             status: "paused",
+            workflowRunId: "workflow-1",
             currentTaskId: "T-001",
             totalCount: 1,
             completedCount: 0,
             pausedReason: "队列已暂停，等待继续。",
-            nextAction: { id: "task-queue:queue-1:task.queue.start", label: "继续处理", actionType: "task.queue.start", enabled: true, requiresConfirmation: true },
-            items: [{ id: "queue-1-item-001", taskId: "T-001", order: 1, status: "queued" }],
+            nextAction: { id: "task-queue:queue-1:task.queue.start", label: "继续处理", actionType: "task.queue.start", workflowRunId: "workflow-1", queueRunId: "queue-1", enabled: true, requiresConfirmation: true },
+            items: [{ id: "queue-1-item-001", taskId: "T-001", order: 1, status: "queued", workflowRunId: "workflow-1" }],
           },
           taskGraph: {
             ...snapshot.center.workpad.taskGraph,

@@ -667,6 +667,105 @@ export interface ToolEventAuditEntry {
   createdAt: string;
 }
 
+export type WorkflowRunStatus = "created" | "running" | "paused" | "blocked" | "failed" | "completed";
+
+export interface WorkflowRecoveryKey {
+  version: "1.0";
+  changeId: string;
+  decompositionPlanId: string;
+  readinessManifestId: string;
+  taskQueueProposalId: string;
+  acceptedArtifactHashes: Record<string, string>;
+  proposalHash: string;
+  readinessHash: string;
+  sourceHash: string;
+  policyHash: string;
+  capabilityHash: string;
+  createdAt: string;
+}
+
+export type WorkflowRunEventType =
+  | "workflow.created"
+  | "workflow.started"
+  | "queue.created"
+  | "task.started"
+  | "task.completed"
+  | "task.blocked"
+  | "task.failed"
+  | "workflow.paused"
+  | "workflow.completed"
+  | "workflow.failed"
+  | "workflow.blocked"
+  | "workflow.reconciled";
+
+export interface WorkflowRunEvent {
+  version: "1.0";
+  id: string;
+  workflowRunId: string;
+  changeId: string;
+  type: WorkflowRunEventType;
+  timestamp: string;
+  queueRunId?: string;
+  taskId?: string;
+  taskRunId?: string;
+  status?: string;
+  reason?: string;
+  data?: Record<string, unknown>;
+}
+
+export interface WorkflowRunItem {
+  taskId: string;
+  status: TaskQueueItemStatus;
+  taskRunId?: string;
+  order: number;
+  updatedAt?: string;
+}
+
+export interface WorkflowRun {
+  version: "1.0";
+  id: string;
+  changeId: string;
+  status: WorkflowRunStatus;
+  source: "taskqueue-proposal";
+  taskQueueProposalId: string;
+  readinessManifestId: string;
+  decompositionPlanId: string;
+  queueRunId?: string;
+  currentTaskId?: string;
+  items: WorkflowRunItem[];
+  recoveryKey: WorkflowRecoveryKey;
+  statusReason?: string;
+  artifactRefs: string[];
+  createdAt: string;
+  updatedAt: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+}
+
+export interface WorkflowRunSummary {
+  id: string;
+  status: WorkflowRunStatus;
+  currentTaskId?: string;
+  completedCount: number;
+  totalCount: number;
+  queueRunId?: string;
+  updatedAt: string;
+}
+
+export type StageResumeVerdictKind = "start-coder" | "continue-validation" | "continue-audit" | "continue-rework" | "completed" | "blocked";
+
+export interface StageResumeVerdict {
+  kind: StageResumeVerdictKind;
+  taskRunId?: string;
+  taskId?: string;
+  runId?: string;
+  worktreeId?: string;
+  validationId?: string;
+  auditId?: string;
+  reason: string;
+  evidenceRefs: string[];
+}
+
 export interface BoundaryViolation {
   kind: "source-root-modified" | "denied-path" | "outside-write-root" | "cross-demand-artifact" | "readonly-role-write" | "dirty-state";
   path?: string;
@@ -1499,6 +1598,7 @@ export interface TaskQueueRun {
   startedAt: string | null;
   finishedAt: string | null;
   currentTaskId?: string;
+  workflowRunId?: string;
   taskQueueProposalId?: string;
   decompositionPlanId?: string;
   readinessManifestId?: string;
@@ -1523,6 +1623,7 @@ export interface TaskQueueItem {
   startedAt: string | null;
   finishedAt: string | null;
   taskRunId?: string;
+  workflowRunId?: string;
   taskQueueProposalId?: string;
   decompositionPlanId?: string;
   readinessManifestId?: string;

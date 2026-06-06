@@ -34,6 +34,7 @@ import {
   getWorkbenchDecompositionReadinessProjection,
   getWorkbenchDecompositionPlanProjection,
   getWorkbenchTaskQueueProposalProjection,
+  getWorkbenchWorkflowRunProjection,
   getWorkbenchLandingQueueProjection,
   getWorkbenchMaintenanceProjection,
   getWorkbenchRunGraphProjection,
@@ -72,6 +73,7 @@ interface WorkbenchActionRequest {
   decompositionPlanId?: string;
   readinessManifestId?: string;
   taskQueueProposalId?: string;
+  workflowRunId?: string;
   queueRunId?: string;
   worktreeId?: string;
   worktreeIds?: string[];
@@ -414,8 +416,9 @@ async function handleProjectWorkbenchApi(input: WorkbenchProjectInput, request: 
 }
 
 async function getWorkbenchProjection(input: WorkbenchProjectInput, rest: string): Promise<unknown> {
-  const [kind, encodedChangeId] = rest.split("/");
+  const [kind, encodedChangeId, encodedId] = rest.split("/");
   const changeId = encodedChangeId ? decodeURIComponent(encodedChangeId) : undefined;
+  const id = encodedId ? decodeURIComponent(encodedId) : undefined;
   if (kind === "transcript") {
     if (!changeId) throw badRequest("transcript projection requires changeId.");
     return getWorkbenchTranscriptProjection(input, changeId);
@@ -443,6 +446,11 @@ async function getWorkbenchProjection(input: WorkbenchProjectInput, rest: string
   if (kind === "taskqueue-proposal") {
     if (!changeId) throw badRequest("taskqueue-proposal projection requires changeId.");
     return getWorkbenchTaskQueueProposalProjection(input, changeId);
+  }
+  if (kind === "workflow-run") {
+    if (!changeId) throw badRequest("workflow-run projection requires changeId.");
+    if (!id) throw badRequest("workflow-run projection requires id.");
+    return getWorkbenchWorkflowRunProjection(input, changeId, id);
   }
   if (kind === "maintenance") return getWorkbenchMaintenanceProjection(input);
   if (kind === "landing-queue") return getWorkbenchLandingQueueProjection(input);
@@ -504,6 +512,7 @@ export async function executeWorkbenchAction(input: WorkbenchProjectInput, body:
       decompositionPlanId: body.decompositionPlanId,
       readinessManifestId: body.readinessManifestId,
       taskQueueProposalId: body.taskQueueProposalId,
+      workflowRunId: body.workflowRunId,
       queueRunId: body.queueRunId,
       worktreeId: body.worktreeId,
       worktreeIds: body.worktreeIds,
@@ -614,6 +623,8 @@ const REVALIDATED_WORKFLOW_ACTION_IDS = new Set<string>([
   "planning.decomposition.assess-readiness",
   "planning.taskqueue.propose",
   "planning.taskqueue.confirm-start",
+  "code.run",
+  "task.queue.start",
   "remote-landing.merge",
   "post-merge.sync-local.run",
   "post-merge.cleanup-branch.run",
@@ -623,16 +634,24 @@ async function assertCurrentWorkflowAction(input: WorkbenchProjectInput, body: W
   if (!body.actionType || !REVALIDATED_WORKFLOW_ACTION_IDS.has(body.actionType)) return;
   const snapshot = await getWorkbenchSnapshot(input, { topicId: body.changeId });
   const queue = snapshot.right.confirmationQueue;
-  const actions = [queue.primary, ...queue.current, ...queue.otherDemands]
+  const queueActions = [queue.primary, ...queue.current, ...queue.otherDemands]
     .filter((item): item is NonNullable<typeof item> => Boolean(item))
     .flatMap((item) => item.actions);
+  const nextAction = snapshot.center.workpad.nextAction;
+  const taskQueueNextAction = snapshot.center.workpad.taskQueue?.nextAction;
+  const actions = [
+    ...queueActions,
+    ...(nextAction.kind === "workflow-action" && nextAction.actionType ? [nextAction] : []),
+    ...(taskQueueNextAction?.actionType ? [{ ...taskQueueNextAction, kind: "workflow-action" as const, changeId: body.changeId }] : []),
+  ];
   const matches = actions.some((action) => action.kind === "workflow-action"
     && action.actionType === body.actionType
-    && action.changeId === body.changeId
+    && (!action.changeId || action.changeId === body.changeId)
     && sameOptional(action.planningBundleId, body.planningBundleId)
     && sameOptional(action.decompositionPlanId, body.decompositionPlanId)
     && sameOptional(action.readinessManifestId, body.readinessManifestId)
     && sameOptional(action.taskQueueProposalId, body.taskQueueProposalId)
+    && sameOptional(action.workflowRunId, body.workflowRunId)
     && sameOptional(action.queueRunId, body.queueRunId)
     && sameOptional(action.worktreeId, body.worktreeId)
     && sameOptionalArray(action.worktreeIds, body.worktreeIds)
@@ -827,6 +846,7 @@ async function sendWorkbenchActionLive(input: WorkbenchProjectInput & { project:
         decompositionPlanId: body.decompositionPlanId,
         readinessManifestId: body.readinessManifestId,
         taskQueueProposalId: body.taskQueueProposalId,
+        workflowRunId: body.workflowRunId,
         queueRunId: body.queueRunId,
         worktreeId: body.worktreeId,
         worktreeIds: body.worktreeIds,

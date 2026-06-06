@@ -31,6 +31,7 @@ import { listSpecTestProposalSummaries } from "../spec-test/proposal.js";
 import { listDemandWorkers } from "../demand-worker/manager.js";
 import { isActiveTaskRunStatus, listTaskRuns, listWorkerLeases } from "../task-run/manager.js";
 import { listTaskQueueItems, listTaskQueues } from "../task-queue/manager.js";
+import { getLatestWorkflowRun, readWorkflowRun, readWorkflowRunEvents, summarizeWorkflowRun } from "../workflow-run/manager.js";
 import { listValidationResults, summarizeValidation } from "../validation/artifacts.js";
 import { listWorktreeStatuses, listWorktreesForChange } from "../worktree/manager.js";
 import { readLatestDecompositionPlan, readLatestDecompositionReadinessManifest, readLatestTaskQueueProposal, readTopicThreadLog, type AssistantTurnActivity, type AssistantTurnBlock, type DecompositionPlan, type DecompositionReadinessManifest, type DecompositionRecommendation, type OrchestrationPlanCard, type TaskQueueProposal, type TopicThreadEntry } from "./chat.js";
@@ -58,6 +59,7 @@ import type {
   DemandMemoryCloseout,
   LandingQueueCandidate,
   LandingQueueSnapshot,
+  WorkflowRunSummary,
 } from "../types/index.js";
 
 export type WorkbenchTopicState = "active" | "archive";
@@ -130,6 +132,14 @@ export interface ThreadStreamAction {
   enabled: boolean;
   requiresConfirmation: boolean;
   disabledReason?: string;
+  planningBundleId?: string;
+  decompositionPlanId?: string;
+  readinessManifestId?: string;
+  taskQueueProposalId?: string;
+  workflowRunId?: string;
+  queueRunId?: string;
+  taskIds?: string[];
+  taskRunId?: string;
 }
 
 export interface ThreadStreamEvidence {
@@ -223,6 +233,7 @@ export interface WorkbenchDecisionAction {
   decompositionPlanId?: string;
   readinessManifestId?: string;
   taskQueueProposalId?: string;
+  workflowRunId?: string;
   queueRunId?: string;
   taskIds?: string[];
   taskRunId?: string;
@@ -356,14 +367,21 @@ export interface WorkpadNextAction {
   enabled: boolean;
   requiresConfirmation: boolean;
   actionType?: ThreadStreamAction["actionType"];
+  changeId?: string;
   approvalId?: string;
   planningBundleId?: string;
   decompositionPlanId?: string;
   readinessManifestId?: string;
   taskQueueProposalId?: string;
+  workflowRunId?: string;
   queueRunId?: string;
   taskIds?: string[];
   taskRunId?: string;
+  worktreeId?: string;
+  worktreeIds?: string[];
+  applyCheckId?: string;
+  landingPackageId?: string;
+  remoteLandingResultId?: string;
   disabledReason?: string;
 }
 
@@ -422,6 +440,7 @@ export interface WorkbenchTaskNextAction {
   taskIds?: string[];
   taskRunId?: string;
   taskQueueProposalId?: string;
+  workflowRunId?: string;
   queueRunId?: string;
   enabled: boolean;
   requiresConfirmation: boolean;
@@ -528,6 +547,7 @@ export interface WorkbenchTaskQueueSummary {
   blockedReason?: string;
   failureReason?: string;
   pausedReason?: string;
+  workflowRunId?: string;
   nextAction?: WorkbenchTaskNextAction;
   items: WorkbenchTaskQueueItemSummary[];
 }
@@ -558,6 +578,7 @@ export interface WorkbenchWorkpad {
   decompositionPlan?: WorkbenchDecompositionPlanSummary;
   decompositionReadiness?: WorkbenchDecompositionReadinessSummary;
   taskQueueProposal?: WorkbenchTaskQueueProposalSummary;
+  workflowRun?: WorkflowRunSummary;
   rolePipeline?: WorkbenchRolePipelineSummary;
   resultReview?: WorkbenchResultReview;
   maintenance?: WorkbenchMaintenanceSummary;
@@ -1378,6 +1399,7 @@ async function buildWorkbenchWorkpad(input: {
   const decompositionPlan = await readLatestDecompositionPlanSummary(memory, selectedTopic.path);
   const decompositionReadiness = await readLatestDecompositionReadinessSummary(memory, selectedTopic.path);
   const taskQueueProposal = await readLatestTaskQueueProposalSummary(memory, selectedTopic.path);
+  const workflowRun = await getLatestWorkflowRun(memory, selectedTopic.id).then((run) => run ? summarizeWorkflowRun(run) : null).catch(() => null);
   const agentTasks = await buildAgentTaskSummaries(memory, selectedTopic.id);
   const rolePipeline = buildRolePipelineSummary(selectedTopic, planningBundle, agentTasks);
   const resultReview = await buildResultReview(project, memory, selectedTopic);
@@ -1412,6 +1434,7 @@ async function buildWorkbenchWorkpad(input: {
     decompositionPlan: decompositionPlan ?? undefined,
     decompositionReadiness: decompositionReadiness ?? undefined,
     taskQueueProposal: taskQueueProposal ?? undefined,
+    workflowRun: workflowRun ?? undefined,
     rolePipeline,
     resultReview,
     maintenance,
@@ -2115,6 +2138,18 @@ export async function getWorkbenchTaskQueueProposalProjection(input: WorkbenchPr
   return readLatestTaskQueueProposal(memory, topic.path).catch(() => null);
 }
 
+export async function getWorkbenchWorkflowRunProjection(input: WorkbenchProjectInput, changeId: string, workflowRunId: string): Promise<{ run: Awaited<ReturnType<typeof readWorkflowRun>>; events: Awaited<ReturnType<typeof readWorkflowRunEvents>> } | null> {
+  const memory = await resolveWorkbenchMemory(input);
+  if (!memory.supported) return null;
+  const topics = await listWorkbenchTopicsFromMemory(memory);
+  const topic = topics.find((item) => item.id === changeId || item.name === changeId);
+  if (!topic) return null;
+  const run = await readWorkflowRun(memory, changeId, workflowRunId).catch(() => null);
+  if (!run) return null;
+  const events = await readWorkflowRunEvents(memory, changeId, workflowRunId);
+  return { run, events };
+}
+
 function buildRolePipelineSummary(
   topic: WorkbenchTopicDetail,
   planningBundle: WorkbenchPlanningArtifactBundle | null,
@@ -2587,6 +2622,7 @@ function buildTaskQueueSummary(
         actionType: queueActionType,
         enabled: topic.state === "active",
         requiresConfirmation: true,
+        workflowRunId: queue.workflowRunId,
         queueRunId: queue.id,
         disabledReason: topic.state === "active" ? undefined : "需求对话不是可执行状态。",
       }
@@ -2620,6 +2656,7 @@ function buildTaskQueueSummary(
     blockedReason: queue.blockedReason,
     failureReason: queue.failureReason,
     pausedReason: queue.pausedReason,
+    workflowRunId: queue.workflowRunId,
     nextAction: baseAction,
     items,
   };
@@ -3063,6 +3100,8 @@ function buildQueueBlockedNextAction(queue?: WorkbenchTaskQueueSummary, taskGrap
       enabled: queue.nextAction?.enabled ?? true,
       requiresConfirmation: queue.nextAction?.requiresConfirmation ?? true,
       actionType: reconcile,
+      workflowRunId: queue.nextAction?.workflowRunId,
+      queueRunId: queue.nextAction?.queueRunId,
       disabledReason: queue.nextAction?.disabledReason,
     };
   }

@@ -24,7 +24,7 @@ import {
   type MainAgentOrchestrationRole,
   type MainAgentOrchestrationState,
 } from "../agent-task/orchestration-engine.js";
-import { startCodeRun } from "../code/manager.js";
+import { startCodeRun, type CodeExecutionGateOptions } from "../code/manager.js";
 import { buildCodexReadonlyArgv, buildCodexReadonlyResumeArgv, detectCodexCapabilities } from "../codex/capabilities.js";
 import { detectCodexAppServerCapability, getActiveCodexAppServerTurn, runCodexAppServerTurn, type CodexAppServerNotification } from "../codex/app-server.js";
 import { createCodexJsonlStreamParser, extractCodexSessionIdFromJsonl, extractFinalMessageFromCodexJsonl, truncateReadablePreview, type CodexJsonlStreamEvent, type CodexReadableEvent } from "../codex/jsonl.js";
@@ -90,9 +90,17 @@ import {
   updateTaskQueueAfterItem,
   finishTaskQueueItem,
 } from "../task-queue/manager.js";
+import {
+  createWorkflowRunForTaskQueue,
+  deriveStageResumeVerdict,
+  hashArtifactRefs,
+  readWorkflowRun,
+  syncWorkflowRunFromQueue,
+  validateTaskQueueProposalStart,
+} from "../workflow-run/manager.js";
 import { startValidationRun } from "../validation/manager.js";
 import { buildAgentSystemPrompt, buildRunAgentRecord, resolveAgentRole } from "../agent/catalog.js";
-import type { AgentTask, ManagedProject, ResolvedMemory, RunMetadata, RunStatus } from "../types/index.js";
+import type { AgentTask, ManagedProject, ResolvedMemory, RunMetadata, RunStatus, StageResumeVerdict, TaskRun } from "../types/index.js";
 import { importThreadJsonlIfNeeded, WorkbenchStore, type StoredDecisionRecord, type StoredTopicMessage } from "./store.js";
 
 export type TopicThreadEventType =
@@ -604,6 +612,7 @@ export interface WorkbenchWorkflowActionRequest {
   decompositionPlanId?: string;
   readinessManifestId?: string;
   taskQueueProposalId?: string;
+  workflowRunId?: string;
   queueRunId?: string;
   worktreeId?: string;
   taskIds?: string[];
@@ -1113,7 +1122,7 @@ async function executeWorkflowAction(project: ManagedProject, changeId: string, 
     case "post-merge.cleanup-branch.run":
       return cleanupRemoteBranchForAction(project, changeId, request, live);
     case "code.run":
-      return runMainAgentToolOrchestration(project, changeId, request.prompt, live, false, request.taskIds);
+      return runMainAgentToolOrchestration(project, changeId, request.prompt, live, false, request.taskIds, request.readinessManifestId);
     case "task.run.start":
       return runTaskRunCodeValidateAuditSequence(project, changeId, request, live, "start");
     case "task.run.retry":
@@ -1204,8 +1213,12 @@ function assertWorkflowActionScope(request: WorkbenchWorkflowActionRequest): voi
     case "planning.taskqueue.confirm-start":
       requireOne("taskQueueProposalId", [request.taskQueueProposalId]);
       return;
+    case "code.run":
+      requireOne("readinessManifestId", [request.readinessManifestId]);
+      return;
     case "task.queue.start":
-      requireOne("queueRunId or taskQueueProposalId", [request.queueRunId, request.taskQueueProposalId]);
+      requireOne("workflowRunId", [request.workflowRunId]);
+      requireOne("queueRunId", [request.queueRunId]);
       return;
     case "task.run.reconcile":
       requireOne("taskRunId", [request.taskRunId]);
@@ -1343,6 +1356,7 @@ function workflowActionTargetId(request: WorkbenchWorkflowActionRequest, changeI
     ?? request.applyCheckId
     ?? request.worktreeId
     ?? request.worktreeIds?.join(",")
+    ?? request.workflowRunId
     ?? request.taskQueueProposalId
     ?? extractTaskQueueProposalId(result)
     ?? request.queueRunId
@@ -1364,6 +1378,7 @@ function workflowActionScopePayload(request: WorkbenchWorkflowActionRequest, cha
     decompositionPlanId: request.decompositionPlanId,
     readinessManifestId: request.readinessManifestId ?? extractReadinessManifestId(result),
     taskQueueProposalId: request.taskQueueProposalId ?? extractTaskQueueProposalId(result),
+    workflowRunId: request.workflowRunId ?? extractWorkflowRunId(result),
     queueRunId: request.queueRunId,
     worktreeId: request.worktreeId,
     worktreeIds: request.worktreeIds,
@@ -1373,6 +1388,13 @@ function workflowActionScopePayload(request: WorkbenchWorkflowActionRequest, cha
     taskRunId: request.taskRunId,
     taskIds: request.taskIds,
   };
+}
+
+function extractWorkflowRunId(result: unknown): string | undefined {
+  if (!isRecord(result)) return undefined;
+  const workflow = result.workflowRun ?? result.workflow;
+  if (!isRecord(workflow)) return undefined;
+  return typeof workflow.id === "string" ? workflow.id : undefined;
 }
 
 function extractReadinessManifestId(result: unknown): string | undefined {
@@ -1722,7 +1744,7 @@ async function proposeTaskQueue(
     throw new Error("planning.taskqueue.propose target is stale or not scoped to the selected Change.");
   }
   await supersedeExistingTaskQueueProposal(memory, changePath);
-  const proposal = buildTaskQueueProposalFromReadiness(memory, changePath, changeId, manifest);
+  const proposal = await buildTaskQueueProposalFromReadiness(memory, changePath, changeId, manifest);
   await writeTaskQueueProposal(memory, changePath, proposal);
   await appendTopicThreadEntry(project, changeId, {
     type: "assistant.message",
@@ -1758,15 +1780,19 @@ async function confirmTaskQueueProposalAndStart(
   if (manifest.id !== proposal.readinessManifestId || manifest.status !== "ready-for-sequential-taskqueue-proposal") {
     throw new Error("planning.taskqueue.confirm-start readiness target is stale.");
   }
-  const started = { ...proposal, status: "started" as const, updatedAt: new Date().toISOString() };
-  await writeTaskQueueProposal(memory, changePath, started);
+  const confirmed = { ...proposal, status: "confirmed" as const, updatedAt: new Date().toISOString() };
+  await writeTaskQueueProposal(memory, changePath, confirmed);
+  const validated = await validateTaskQueueProposalStart(memory, project, changeId, confirmed.id);
+  const workflow = await createWorkflowRunForTaskQueue(memory, project, validated);
   await appendTopicThreadEntry(project, changeId, {
     type: "assistant.message",
     status: "taskqueue-starting",
-    text: `TaskQueueProposal ${started.id} confirmed; starting scoped sequential TaskQueue.`,
-    artifact: started.artifact,
+    text: `TaskQueueProposal ${confirmed.id} confirmed; starting scoped sequential TaskQueue through WorkflowRun ${workflow.id}.`,
+    artifact: confirmed.artifact,
   });
-  return runTaskQueueSequence(project, changeId, { ...request, actionType: "task.queue.start", taskQueueProposalId: started.id }, live);
+  const result = await runTaskQueueSequence(project, changeId, { ...request, actionType: "task.queue.start", taskQueueProposalId: confirmed.id, workflowRunId: workflow.id }, live);
+  await writeTaskQueueProposal(memory, changePath, { ...confirmed, status: "started", updatedAt: new Date().toISOString() });
+  return result;
 }
 
 async function enqueueDemandWorkerForAction(project: ManagedProject, changeId: string): Promise<unknown> {
@@ -2639,6 +2665,7 @@ async function runMainAgentToolOrchestration(
   live: WorkbenchLiveSink | undefined,
   continuation: boolean,
   taskIds?: string[],
+  readinessManifestId?: string,
 ): Promise<unknown> {
   emitAssistantEvent(live, {
     runId: changeId,
@@ -2650,7 +2677,7 @@ async function runMainAgentToolOrchestration(
   let orchestration = createMainAgentOrchestrationState({ changeId });
   const firstDecision = decideNextMainAgentOrchestration(orchestration);
   assertDelegateDecision(firstDecision, "coder-agent");
-  const first = await runCodeValidateAuditSequence(project, changeId, prompt, live, taskIds, undefined, firstDecision.roleId, orchestration, firstDecision);
+  const first = await runCodeValidateAuditSequence(project, changeId, prompt, live, taskIds, undefined, firstDecision.roleId, orchestration, firstDecision, readinessManifestId ? { mode: "single-change-readiness", readinessManifestId } : undefined);
   orchestration = readWorkflowOrchestration(first, orchestration);
   const next = decideNextMainAgentOrchestration(orchestration);
   if (next.kind === "completed") {
@@ -3012,7 +3039,7 @@ async function executeStartedTaskRunWorkflow(
   started: Awaited<ReturnType<typeof startTaskRun>>,
   prompt: string | undefined,
   live: WorkbenchLiveSink | undefined,
-  executionGate?: { mode: "taskqueue-proposal"; taskQueueProposalId: string },
+  executionGate?: CodeExecutionGateOptions,
 ): Promise<unknown> {
   emitAssistantEvent(live, {
     runId: started.taskRun.id,
@@ -3080,9 +3107,12 @@ async function runTaskQueueSequence(
     taskQueueProposalId: request.taskQueueProposalId,
     decompositionPlanId: proposal?.decompositionPlanId,
     readinessManifestId: proposal?.readinessManifestId,
+    workflowRunId: request.workflowRunId,
     queueRunId: request.queueRunId,
   });
   let queue = start.queue;
+  let workflow = request.workflowRunId ? await readWorkflowRun(memory, changeId, request.workflowRunId) : null;
+  if (queue.workflowRunId) workflow = await readWorkflowRun(memory, changeId, queue.workflowRunId).catch(() => workflow);
   const taskQueueProposalId = request.taskQueueProposalId ?? queue.taskQueueProposalId;
   if (start.resumed) {
     const reconciled = await reconcileTaskQueues(project, { changeId, queueRunId: queue.id });
@@ -3101,11 +3131,15 @@ async function runTaskQueueSequence(
     const nextItem = await getNextQueuedTaskQueueItem(memory, queue);
     if (!nextItem) {
       queue = await updateTaskQueueAfterItem(memory, queue);
-      return { queue, items: (await reconcileTaskQueues(project, { changeId, queueRunId: queue.id })).items };
+      const reconciled = await reconcileTaskQueues(project, { changeId, queueRunId: queue.id });
+      if (workflow) workflow = await syncWorkflowRunFromQueue(memory, workflow, queue, reconciled.items, queue.status === "completed" ? "workflow.completed" : "workflow.reconciled");
+      return { queue, workflowRun: workflow, items: reconciled.items };
     }
     if (live?.isClosed?.()) {
       queue = await pauseTaskQueue(memory, queue, "队列已暂停，等待继续。");
-      return { queue, items: (await reconcileTaskQueues(project, { changeId, queueRunId: queue.id })).items };
+      const reconciled = await reconcileTaskQueues(project, { changeId, queueRunId: queue.id });
+      if (workflow) workflow = await syncWorkflowRunFromQueue(memory, workflow, queue, reconciled.items, "workflow.paused", queue.pausedReason);
+      return { queue, workflowRun: workflow, items: reconciled.items };
     }
 
     queue = await markTaskQueueRunning(memory, queue, nextItem.taskId);
@@ -3117,18 +3151,43 @@ async function runTaskQueueSequence(
       summary: `当前任务 ${nextItem.taskId}，已完成 ${queue.completedCount}/${queue.totalCount}。`,
     });
     try {
-      const started = await startTaskRun(project, { changeId, taskId: nextItem.taskId });
-      await markTaskQueueItemRunning(memory, nextItem, started.taskRun);
-      const result = await executeStartedTaskRunWorkflow(
-        project,
-        started,
-        request.prompt,
-        live,
-        taskQueueProposalId ? { mode: "taskqueue-proposal", taskQueueProposalId } : undefined,
-      );
+      const resume = await findTaskQueueStageResumeCandidate(memory, changeId, nextItem.taskId);
+      if (resume?.verdict.kind === "blocked") {
+        emitAssistantEvent(live, {
+          runId: queue.id,
+          kind: "error",
+          phase: "stage-resume-blocked",
+          title: "恢复阶段判定",
+          summary: resume.verdict.reason,
+          artifactRef: resume.verdict.evidenceRefs[0],
+        });
+        await failQueuedTaskItem(memory, nextItem, resume.verdict.reason);
+        queue = await updateTaskQueueAfterItem(memory, queue);
+        const reconciled = await reconcileTaskQueues(project, { changeId, queueRunId: queue.id });
+        if (workflow) workflow = await syncWorkflowRunFromQueue(memory, workflow, queue, reconciled.items, "workflow.blocked", resume.verdict.reason);
+        return { queue, workflowRun: workflow, items: reconciled.items };
+      }
+      const executionGate = taskQueueProposalId ? { mode: "taskqueue-proposal" as const, taskQueueProposalId } : undefined;
+      const started = resume
+        ? { taskRun: resume.taskRun, lease: null }
+        : await startTaskRun(project, { changeId, taskId: nextItem.taskId });
+      const runningItem = await markTaskQueueItemRunning(memory, nextItem, started.taskRun);
+      if (resume) {
+        emitAssistantEvent(live, {
+          runId: queue.id,
+          kind: "status",
+          phase: "stage-resume-verdict",
+          title: "恢复阶段判定",
+          summary: resume.verdict.reason,
+          artifactRef: resume.verdict.evidenceRefs[0],
+        });
+      }
+      const result = resume
+        ? await executeResumedTaskRunStage(project, started.taskRun, resume.verdict, request.prompt, live, executionGate)
+        : await executeStartedTaskRunWorkflow(project, started as Awaited<ReturnType<typeof startTaskRun>>, request.prompt, live, executionGate);
       const taskRun = isRecord(result) && isRecord(result.taskRun) ? result.taskRun : null;
       if (!isTaskRunLike(taskRun)) throw new Error(`Task ${nextItem.taskId} did not return a TaskRun result.`);
-      const finishedItem = await finishTaskQueueItem(memory, nextItem, taskRun);
+      const finishedItem = await finishTaskQueueItem(memory, runningItem, taskRun);
       queue = await updateTaskQueueAfterItem(memory, queue);
       if (finishedItem.status === "blocked" || finishedItem.status === "failed") {
         emitAssistantEvent(live, {
@@ -3138,7 +3197,9 @@ async function runTaskQueueSequence(
           title: "任务队列已停止",
           summary: queue.blockedReason ?? queue.failureReason ?? `${finishedItem.taskId} 未完成。`,
         });
-        return { queue, items: (await reconcileTaskQueues(project, { changeId, queueRunId: queue.id })).items };
+        const reconciled = await reconcileTaskQueues(project, { changeId, queueRunId: queue.id });
+        if (workflow) workflow = await syncWorkflowRunFromQueue(memory, workflow, queue, reconciled.items, queue.status === "blocked" ? "workflow.blocked" : "workflow.failed", queue.blockedReason ?? queue.failureReason);
+        return { queue, workflowRun: workflow, items: reconciled.items };
       }
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : String(cause);
@@ -3151,17 +3212,118 @@ async function runTaskQueueSequence(
         title: "任务队列已停止",
         summary: `${failedItem.taskId}: ${message}`,
       });
-      return { queue, items: (await reconcileTaskQueues(project, { changeId, queueRunId: queue.id })).items };
+      const reconciled = await reconcileTaskQueues(project, { changeId, queueRunId: queue.id });
+      if (workflow) workflow = await syncWorkflowRunFromQueue(memory, workflow, queue, reconciled.items, "workflow.failed", queue.failureReason);
+      return { queue, workflowRun: workflow, items: reconciled.items };
     }
 
     if (live?.isClosed?.()) {
       queue = await pauseTaskQueue(memory, queue, "队列已暂停，等待继续。");
-      return { queue, items: (await reconcileTaskQueues(project, { changeId, queueRunId: queue.id })).items };
+      const reconciled = await reconcileTaskQueues(project, { changeId, queueRunId: queue.id });
+      if (workflow) workflow = await syncWorkflowRunFromQueue(memory, workflow, queue, reconciled.items, "workflow.paused", queue.pausedReason);
+      return { queue, workflowRun: workflow, items: reconciled.items };
     }
     if (queue.status === "blocked" || queue.status === "failed" || queue.status === "completed") {
-      return { queue, items: (await reconcileTaskQueues(project, { changeId, queueRunId: queue.id })).items };
+      const reconciled = await reconcileTaskQueues(project, { changeId, queueRunId: queue.id });
+      if (workflow) workflow = await syncWorkflowRunFromQueue(memory, workflow, queue, reconciled.items, queue.status === "completed" ? "workflow.completed" : queue.status === "blocked" ? "workflow.blocked" : "workflow.failed", queue.blockedReason ?? queue.failureReason);
+      return { queue, workflowRun: workflow, items: reconciled.items };
     }
   }
+}
+
+async function findTaskQueueStageResumeCandidate(memory: ResolvedMemory, changeId: string, taskId: string): Promise<{ taskRun: TaskRun; verdict: StageResumeVerdict } | null> {
+  const taskRuns = await listTaskRuns(memory, changeId);
+  const candidates = taskRuns.filter((run) => run.taskId.toUpperCase() === taskId.toUpperCase() && !["queued", "claimed", "running"].includes(run.status));
+  for (const taskRun of candidates) {
+    const verdict = await deriveStageResumeVerdict(memory, changeId, taskRun);
+    if (verdict.kind !== "start-coder") return { taskRun, verdict };
+  }
+  return null;
+}
+
+async function executeResumedTaskRunStage(
+  project: ManagedProject,
+  taskRun: TaskRun,
+  verdict: StageResumeVerdict,
+  prompt: string | undefined,
+  live: WorkbenchLiveSink | undefined,
+  executionGate?: CodeExecutionGateOptions,
+): Promise<unknown> {
+  const memory = await resolveProjectMemory(project);
+  const coderRun = verdict.runId ? (await listRuns(memory)).find((run) => run.id === verdict.runId) : undefined;
+  if (!coderRun || coderRun.status !== "completed" || !coderRun.worktree?.worktreeId) {
+    const blocked = await finishTaskRunFromWorkflowResult(memory, taskRun.id, { stoppedAt: "code", code: { run: coderRun ?? { status: "failed" } } });
+    return { taskRun: blocked, workflow: { stoppedAt: "code", code: { run: coderRun } } };
+  }
+
+  if (verdict.kind === "completed") {
+    const completed = await finishTaskRunFromWorkflowResult(memory, taskRun.id, { stoppedAt: null, code: { run: coderRun }, audit: { audit: { status: "approved" } } });
+    return { taskRun: completed, workflow: { stoppedAt: null, code: { run: coderRun } } };
+  }
+
+  if (verdict.kind === "continue-rework") {
+    return executeBoundedTaskRunRework(project, taskRun, prompt, live, executionGate);
+  }
+
+  let validation: Awaited<ReturnType<typeof startValidationRun>> | undefined;
+  if (verdict.kind === "continue-validation") {
+    emitAssistantEvent(live, {
+      runId: taskRun.id,
+      kind: "status",
+      phase: "validation-resume",
+      title: "Validation running",
+      summary: "Coder evidence already exists; AHO is resuming from validation.",
+      artifactRef: coderRun.artifacts.directory,
+    });
+    validation = await startValidationRun(project, { changeId: taskRun.changeId, worktree: coderRun.worktree.worktreeId });
+    emitValidationAssistantEvents(live, coderRun.id, validation);
+    if (validation.validation.status !== "passed") {
+      const workflow = { code: { run: coderRun }, validation, stoppedAt: "validation" };
+      const blocked = await finishTaskRunFromWorkflowResult(memory, taskRun.id, workflow);
+      if (shouldAutoReworkTaskRun(blocked)) return executeBoundedTaskRunRework(project, blocked, prompt, live, executionGate);
+      return { taskRun: blocked, workflow };
+    }
+  }
+
+  emitAssistantEvent(live, {
+    runId: taskRun.id,
+    kind: "status",
+    phase: "audit-resume",
+    title: "Audit running",
+    summary: "Validation evidence is available; AHO is resuming from audit.",
+    artifactRef: validation?.run.artifacts.validation ?? verdict.evidenceRefs[0],
+  });
+  const audit = await startAuditRun(project, {
+    changeId: taskRun.changeId,
+    worktreeId: coderRun.worktree.worktreeId,
+    prompt: "This audit resumed from WorkflowRun stage recovery after coder and validation evidence were already present.",
+  });
+  emitAuditAssistantEvent(live, coderRun.id, audit);
+  const auditAccepted = audit.audit.status === "approved" || audit.audit.status === "approved-with-notes";
+  const workflow = { code: { run: coderRun }, ...(validation ? { validation } : {}), audit, stoppedAt: auditAccepted ? null : "audit" };
+  const finished = await finishTaskRunFromWorkflowResult(memory, taskRun.id, workflow);
+  if (!auditAccepted && shouldAutoReworkTaskRun(finished)) return executeBoundedTaskRunRework(project, finished, prompt, live, executionGate);
+  return { taskRun: finished, workflow };
+}
+
+async function executeBoundedTaskRunRework(
+  project: ManagedProject,
+  taskRun: TaskRun,
+  prompt: string | undefined,
+  live: WorkbenchLiveSink | undefined,
+  executionGate?: CodeExecutionGateOptions,
+): Promise<unknown> {
+  const retry = await retryTaskRun(project, { changeId: taskRun.changeId, taskRunId: taskRun.id });
+  const reworkPrompt = [
+    prompt,
+    "",
+    "AHO resumed a WorkflowRun and found validation/audit evidence that requires bounded rework.",
+    "Read the latest validation/audit/run evidence for this Change and fix the assigned worktree proposal.",
+    "Do not ask the user unless the evidence shows requirement ambiguity, product tradeoff, environment failure, or no real code rework path.",
+  ].filter((item): item is string => Boolean(item)).join("\n");
+  const rework = await executeStartedTaskRunWorkflow(project, retry, reworkPrompt, live, executionGate);
+  const finalTaskRun = isRecord(rework) && isTaskRunLike(rework.taskRun) ? rework.taskRun : taskRun;
+  return { taskRun: finalTaskRun, workflow: rework, autoRework: { previousTaskRun: taskRun, result: rework } };
 }
 
 function isTaskRunLike(value: unknown): value is Awaited<ReturnType<typeof startTaskRun>>["taskRun"] {
@@ -3238,7 +3400,7 @@ async function runCodeValidateAuditSequence(
   coderRoleId = "coder-agent",
   orchestrationState?: MainAgentOrchestrationState,
   coderDecision?: Extract<MainAgentOrchestrationDecision, { kind: "delegate-role" }>,
-  executionGate?: { mode: "taskqueue-proposal"; taskQueueProposalId: string },
+  executionGate?: CodeExecutionGateOptions,
 ): Promise<unknown> {
   const memory = await resolveProjectMemory(project);
   let orchestration = orchestrationState ?? createMainAgentOrchestrationState({ changeId });
@@ -4365,7 +4527,7 @@ async function supersedeExistingTaskQueueProposal(memory: ResolvedMemory, change
   await writeTaskQueueProposal(memory, changePath, { ...current, status: "superseded", updatedAt: new Date().toISOString() });
 }
 
-function buildTaskQueueProposalFromReadiness(memory: ResolvedMemory, changePath: string, changeId: string, manifest: DecompositionReadinessManifest): TaskQueueProposal {
+async function buildTaskQueueProposalFromReadiness(memory: ResolvedMemory, changePath: string, changeId: string, manifest: DecompositionReadinessManifest): Promise<TaskQueueProposal> {
   if (manifest.changeId !== changeId) throw new Error("TaskQueueProposal readiness is not scoped to the selected Change.");
   if (manifest.status !== "ready-for-sequential-taskqueue-proposal" || manifest.nextAllowedAction !== "taskqueue.proposal") {
     throw new Error(`TaskQueueProposal requires sequential taskqueue readiness; current readiness is ${manifest.status}.`);
@@ -4404,7 +4566,7 @@ function buildTaskQueueProposalFromReadiness(memory: ResolvedMemory, changePath:
     items,
     dependencies: manifest.dependencies,
     conflictScopes: manifest.conflictScopes,
-    sourceArtifactHashes: Object.fromEntries(manifest.artifactRefs.map((ref) => [ref, shortHash(ref)])),
+    sourceArtifactHashes: await hashArtifactRefs(memory, unique([...manifest.artifactRefs, manifest.artifact, manifest.markdownArtifact])),
     recoveryKeyMaterial: manifest.recoveryKeyMaterial,
     artifactRefs: unique([...manifest.artifactRefs, manifest.artifact, manifest.markdownArtifact]),
     artifact: displayArtifactPath(memory, join(dir, "taskqueue-proposal.json")),
