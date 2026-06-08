@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from "react";
+﻿import { useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from "react";
 import {
   Check,
   ChevronDown,
@@ -20,6 +20,9 @@ import {
   UserRound,
   X,
 } from "lucide-react";
+import { workflowActionLabel } from "./action-labels.js";
+import { consumeWorkbenchLiveStream, fetchJson, postJson } from "./api.js";
+import { TaskQueuePanel } from "./panels/TaskQueuePanel.js";
 import { workflowActionPayloadFromScope, type WorkbenchThreadActionType } from "./workflow-actions.js";
 
 type AppStatus = { mode: "app" | "project"; directProjectId: string | null };
@@ -3388,6 +3391,8 @@ function WorkpadDiagnosticDetails({
               busy={busy}
               onWorkflowAction={onWorkflowAction}
               onSelectDecisionContext={onSelectDecisionContext}
+              humanStatus={humanStatus}
+              userFacingText={userFacingText}
             />
           ) : null}
           <div className="workpad-task-list">
@@ -3460,74 +3465,6 @@ function WorkpadDiagnosticDetails({
             {[...workpad.blockers, ...workpad.warnings, ...workpad.intake.missingInfo, ...openQuestions.map((item) => `待确认：${item}`), ...assumptions.map((item) => `假设：${item}`)].map((item, index) => <li key={`${item}:${index}`}>{userFacingText(item)}</li>)}
           </ul>
         </section>
-      ) : null}
-    </div>
-  );
-}
-
-function TaskQueuePanel({
-  queue,
-  busy,
-  onWorkflowAction,
-  onSelectDecisionContext,
-}: {
-  queue: WorkbenchTaskQueueSummary;
-  busy: boolean;
-  onWorkflowAction: (actionType: string, options?: Record<string, unknown>) => Promise<void>;
-  onSelectDecisionContext: (contextId: string) => void;
-}): ReactElement {
-  const action = queue.nextAction;
-  const disabled = busy || !action?.enabled || !action.actionType;
-  const blockerContextId = ["blocked", "failed"].includes(queue.status) ? `queue:${queue.id}:blocked` : null;
-  const showQueueAction = action && !["blocked", "failed"].includes(queue.status);
-  const runningCopy = queue.status === "running"
-    ? `当前任务 ${queue.currentTaskId ?? "待确定"}`
-    : queue.status === "paused"
-      ? userFacingText(queue.pausedReason ?? "任务已暂停，等待继续。")
-      : queue.status === "blocked"
-        ? userFacingText(queue.blockedReason ?? "任务暂停，需要修改或补证据。")
-        : queue.status === "failed"
-          ? userFacingText(queue.failureReason ?? "任务执行未通过。")
-          : queue.status === "completed"
-            ? "队列已完成，等待查看 evidence 与后续人工 gate。"
-            : "本地顺序执行已确认任务。";
-  function runQueueAction(): void {
-    if (!action?.actionType || disabled) return;
-    void onWorkflowAction(action.actionType, workflowActionPayloadFromScope(action));
-  }
-  return (
-    <div className={`task-queue-panel ${queue.status}`} data-testid="task-queue-panel">
-      <div className="task-queue-summary">
-        <div>
-          <strong>本地顺序执行</strong>
-          <span>{humanStatus(queue.status)} · {queue.completedCount}/{queue.totalCount}</span>
-        </div>
-        {showQueueAction ? (
-          <button
-            className="secondary-button"
-            type="button"
-            disabled={disabled}
-            title={action.disabledReason}
-            onClick={runQueueAction}
-          >
-            {userFacingText(action.label)}
-          </button>
-        ) : null}
-      </div>
-      <p>{runningCopy}</p>
-      {blockerContextId ? (
-        <button className="context-link" type="button" onClick={() => onSelectDecisionContext(blockerContextId)}>
-          查看当前决策
-        </button>
-      ) : null}
-      {queue.items.length > 0 ? (
-        <div className="task-queue-items" aria-label="Task queue items">
-          {queue.items.map((item) => (
-            <span key={item.id} className={`task-queue-item ${item.status}`}>
-              {item.order}. {item.taskId} · {humanStatus(item.status)}
-            </span>
-          ))}
-        </div>
       ) : null}
     </div>
   );
@@ -4330,65 +4267,6 @@ function RunReplay({ stream, run }: { stream: StreamPacket | null; run?: RunSumm
   );
 }
 
-async function fetchJson<T>(url: string): Promise<T> {
-  const response = await fetch(url);
-  if (!response.ok) throw new Error(await response.text());
-  return response.json() as Promise<T>;
-}
-
-async function postJson<T>(url: string, body: unknown): Promise<T> {
-  const response = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  if (!response.ok) throw new Error(await response.text());
-  return response.json() as Promise<T>;
-}
-
-async function consumeWorkbenchLiveStream(url: string, body: unknown, onEvent: (event: WorkbenchLiveEvent) => void): Promise<void> {
-  const response = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  if (!response.ok) throw new Error(await response.text());
-  if (!response.body) throw new Error("Live response did not include a readable body.");
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-  while (true) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    let index = buffer.indexOf("\n\n");
-    while (index !== -1) {
-      const frame = buffer.slice(0, index);
-      buffer = buffer.slice(index + 2);
-      const event = parseWorkbenchSseFrame(frame);
-      if (event) onEvent(event);
-      index = buffer.indexOf("\n\n");
-    }
-  }
-  const trailing = buffer.trim();
-  if (trailing) {
-    const event = parseWorkbenchSseFrame(trailing);
-    if (event) onEvent(event);
-  }
-}
-
-function parseWorkbenchSseFrame(frame: string): WorkbenchLiveEvent | null {
-  if (!frame.trim() || frame.trim().startsWith(":")) return null;
-  let eventName = "";
-  const dataLines: string[] = [];
-  for (const line of frame.split(/\r?\n/)) {
-    if (line.startsWith("event:")) eventName = line.slice("event:".length).trim();
-    if (line.startsWith("data:")) dataLines.push(line.slice("data:".length).trimStart());
-  }
-  if (!eventName || dataLines.length === 0) return null;
-  return { event: eventName, data: JSON.parse(dataLines.join("\n")) } as WorkbenchLiveEvent;
-}
-
 function threadItemFromTopicEntry(entry: TopicMessageEntry): ThreadStreamItem | null {
   if (entry.type === "user.message") {
     return { id: `live:${entry.id}`, kind: "user-message", label: "User", timestamp: entry.timestamp, body: entry.text, source: "chat" };
@@ -4813,80 +4691,6 @@ function confirmationKindLabel(kind: string): string {
   if (kind === "discard-result") return "放弃结果";
   if (kind === "maintenance") return "维护建议";
   return userFacingText(kind);
-}
-
-function workflowActionLabel(actionType: string | undefined): string {
-  if (actionType === "change.spec.propose") return "Spec proposal";
-  if (actionType === "change.plan.propose") return "Plan/Tasks proposal";
-  if (actionType === "planning.generate") return "生成方案草案";
-  if (actionType === "planning.revise") return "修改方案草案";
-  if (actionType === "planning.confirm-execution") return "确认规划";
-  if (actionType === "planning.decompose") return "拆分评估";
-  if (actionType === "planning.decomposition.confirm") return "确认拆分方向";
-  if (actionType === "planning.decomposition.assess-readiness") return "检查执行边界";
-  if (actionType === "taskqueue.proposal") return "TaskQueue proposal";
-  if (actionType === "planning.taskqueue.propose") return "生成 TaskQueue 提案";
-  if (actionType === "planning.workflowgraph.compile") return "编译执行图";
-  if (actionType === "planning.taskqueue.confirm-start") return "确认启动 TaskQueue";
-  if (actionType === "none") return "无后续动作";
-  if (actionType === "orchestrator.evaluate") return "检查处理状态";
-  if (actionType === "orchestrator.pump") return "继续处理需求";
-  if (actionType === "demand.worker.enqueue") return "加入处理队列";
-  if (actionType === "demand.worker.claim") return "领取需求";
-  if (actionType === "demand.worker.start-next") return "开始处理";
-  if (actionType === "demand.worker.start-available") return "开始可处理需求";
-  if (actionType === "demand.worker.reconcile") return "恢复处理状态";
-  if (actionType === "demand.worker.release") return "结束处理";
-  if (actionType === "role.pipeline.start") return "角色流水线";
-  if (actionType === "role.pipeline.stop") return "停止当前执行";
-  if (actionType === "conversation.steer") return "引导当前执行";
-  if (actionType === "conversation.interrupt") return "停止当前执行";
-  if (actionType === "conversation.continue") return "继续执行";
-  if (actionType === "result.refresh-rework") return "重新处理这个结果";
-  if (actionType === "result.revalidate") return "重新验证";
-  if (actionType === "result.reaudit") return "重新审查";
-  if (actionType === "result.refresh-status") return "刷新状态";
-  if (actionType === "apply-check.run") return "检查兼容性";
-  if (actionType === "landing.prepare") return "提交/PR 前检查";
-  if (actionType === "landing.review") return "审查落地检查";
-  if (actionType === "landing.refresh") return "刷新落地检查";
-  if (actionType === "landing-queue.prepare") return "检查合并队列";
-  if (actionType === "landing-queue.refresh") return "刷新合并队列";
-  if (actionType === "landing-queue.merge-next") return "合并 PR";
-  if (actionType === "landing-queue.skip") return "跳过这个 PR";
-  if (actionType === "landing-queue.remove-stale") return "移出过期项";
-  if (actionType === "pr-draft.prepare") return "准备 PR 草稿";
-  if (actionType === "pr-draft.create") return "创建 PR 草稿";
-  if (actionType === "pr-draft.refresh") return "刷新 PR 状态";
-  if (actionType === "pr-feedback.refresh") return "检查 PR 反馈";
-  if (actionType === "pr-feedback.evaluate") return "分析 PR 反馈";
-  if (actionType === "pr-feedback.rework") return "根据 PR 反馈修改";
-  if (actionType === "pr-feedback.update-draft") return "更新 PR 草稿";
-  if (actionType === "pr-review.prepare") return "准备人工评审";
-  if (actionType === "pr-review.submit") return "提交人工评审";
-  if (actionType === "pr-review.refresh") return "刷新评审状态";
-  if (actionType === "pr-review.feedback-refresh") return "检查评审反馈";
-  if (actionType === "pr-review.feedback-evaluate") return "分析评审反馈";
-  if (actionType === "pr-review.rework") return "根据评审修改";
-  if (actionType === "pr-review.reply-prepare") return "准备评审回复";
-  if (actionType === "pr-review.reply-submit") return "回复评审";
-  if (actionType === "pr-review.thread-resolve") return "标记已处理";
-  if (actionType === "remote-landing.prepare") return "检查合并状态";
-  if (actionType === "remote-landing.merge") return "合并 PR";
-  if (actionType === "remote-landing.refresh") return "刷新合并状态";
-  if (actionType === "post-merge.prepare") return "检查合并后状态";
-  if (actionType === "post-merge.refresh") return "刷新合并后状态";
-  if (actionType === "post-merge.sync-local.prepare") return "检查本地同步";
-  if (actionType === "post-merge.sync-local.run") return "同步本地项目";
-  if (actionType === "post-merge.cleanup-branch.prepare") return "检查远端分支";
-  if (actionType === "post-merge.cleanup-branch.run") return "清理远端 PR 分支";
-  if (actionType === "role.pipeline.continue") return "继续执行";
-  if (actionType === "role.pipeline.reconcile") return "恢复执行状态";
-  if (actionType === "code.run") return "Code workflow";
-  if (actionType === "task.run.start") return "Task workflow";
-  if (actionType === "task.run.retry") return "Retry task";
-  if (actionType === "chat.ask") return "Chat";
-  return actionType ?? "Workflow";
 }
 
 function artifactPreview(stream: StreamPacket | null, key: string): string | null {

@@ -1,5 +1,4 @@
-import type { AssistantTurnBlock } from "./chat.js";
-import type { ThreadStreamItem, WorkbenchWorkpad } from "./manager.js";
+import type { AssistantTurnActivity, AssistantTurnBlock } from "./types.js";
 
 export type ParentAgentTranscriptActor = "user" | "parent-agent";
 export type ParentAgentTranscriptBlockKind = "prose" | "process" | "tool-result" | "evidence";
@@ -54,9 +53,27 @@ export interface ParentAgentTranscript {
   emptyMessage?: string;
 }
 
+interface TranscriptWorkpadInput {
+  conversationId?: string;
+  boundChangeId?: string;
+  title: string;
+}
+
+interface TranscriptThreadItemInput {
+  id: string;
+  kind: string;
+  label: string;
+  body?: string;
+  timestamp?: string;
+  source?: string;
+  status?: string;
+  activity?: AssistantTurnActivity[];
+  blocks?: AssistantTurnBlock[];
+}
+
 export function buildParentAgentTranscript(input: {
-  workpad: WorkbenchWorkpad;
-  threadItems: ThreadStreamItem[];
+  workpad: TranscriptWorkpadInput;
+  threadItems: TranscriptThreadItemInput[];
 }): ParentAgentTranscript {
   const cells = dedupeTranscriptCellEvidenceRefs(consolidateTranscriptCells(input.threadItems
     .filter((item) => item.kind !== "change-state")
@@ -71,7 +88,7 @@ export function buildParentAgentTranscript(input: {
   };
 }
 
-function transcriptCellsFromThreadItem(item: ThreadStreamItem): ParentAgentTranscriptCell[] {
+function transcriptCellsFromThreadItem(item: TranscriptThreadItemInput): ParentAgentTranscriptCell[] {
   if (item.kind === "user-message") {
     const text = cleanPrimaryText(item.body ?? item.label);
     return text
@@ -94,7 +111,7 @@ function transcriptCellsFromThreadItem(item: ThreadStreamItem): ParentAgentTrans
   return cells.filter((cell) => Boolean(cell.text.trim()));
 }
 
-function activityCellsFromThreadItem(item: ThreadStreamItem): ParentAgentTranscriptCell[] {
+function activityCellsFromThreadItem(item: TranscriptThreadItemInput): ParentAgentTranscriptCell[] {
   if (item.source === "workflow") return [];
   const activities = item.activity ?? [];
   if (activities.length === 0) return [];

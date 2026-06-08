@@ -1,5 +1,5 @@
-import { existsSync } from "node:fs";
-import { appendFile, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
+﻿import { existsSync } from "node:fs";
+import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { z } from "zod";
 import { startAuditRun } from "../audit/manager.js";
@@ -27,7 +27,7 @@ import {
 import { startCodeRun, type CodeExecutionGateOptions } from "../code/manager.js";
 import { buildCodexReadonlyArgv, buildCodexReadonlyResumeArgv, detectCodexCapabilities } from "../codex/capabilities.js";
 import { detectCodexAppServerCapability, getActiveCodexAppServerTurn, runCodexAppServerTurn, type CodexAppServerNotification } from "../codex/app-server.js";
-import { createCodexJsonlStreamParser, extractCodexSessionIdFromJsonl, extractFinalMessageFromCodexJsonl, truncateReadablePreview, type CodexJsonlStreamEvent, type CodexReadableEvent } from "../codex/jsonl.js";
+import { createCodexJsonlStreamParser, extractCodexSessionIdFromJsonl, extractFinalMessageFromCodexJsonl, truncateReadablePreview, type CodexJsonlStreamEvent } from "../codex/jsonl.js";
 import { createConcurrentChange, getChangeStatusForChange } from "../change/manager.js";
 import { acceptPlanProposal, acceptSpecProposal, startPlanProposalRun, startSpecProposalRun } from "../change/proposals.js";
 import { getActiveChanges } from "../ecl/index.js";
@@ -87,14 +87,15 @@ import {
   updateTaskQueueAfterItem,
   finishTaskQueueItem,
 } from "../task-queue/manager.js";
-import { reconcileWorkflowTaskQueue, startOrResumeWorkflowTaskQueue } from "../workflow-runtime/taskqueue.js";
 import {
-  createWorkflowRunForTaskQueue,
-  deriveStageResumeVerdict,
-  readWorkflowRun,
-  syncWorkflowRunFromQueue,
-  validateTaskQueueProposalStart,
-} from "../workflow-run/manager.js";
+  createWorkflowRunForValidatedTaskQueue,
+  deriveWorkflowStageResumeVerdict,
+  reconcileWorkflowTaskQueue,
+  startOrResumeWorkflowTaskQueue,
+  syncWorkflowRunFromTaskQueue,
+  validateWorkflowTaskQueueProposalStart,
+} from "../workflow-runtime/taskqueue.js";
+import { readWorkflowRun } from "../workflow-run/manager.js";
 import {
   buildTaskQueueProposalFromReadiness,
   compileWorkflowGraphPlan,
@@ -120,7 +121,6 @@ import {
   type TaskQueueProposal,
   type WorkflowGraphPlan,
 } from "../workflow-artifacts/manager.js";
-import type { WorkflowActionType } from "../workflow-actions/registry.js";
 import {
   assertWorkflowActionRequiredTargets,
   workflowActionScopePayload as buildWorkflowActionScopePayload,
@@ -130,141 +130,50 @@ import {
 import { startValidationRun } from "../validation/manager.js";
 import { buildAgentSystemPrompt, buildRunAgentRecord, resolveAgentRole } from "../agent/catalog.js";
 import type { AgentTask, ManagedProject, ResolvedMemory, RunMetadata, RunStatus, StageResumeVerdict, TaskRun } from "../types/index.js";
-import { importThreadJsonlIfNeeded, WorkbenchStore, type StoredDecisionRecord, type StoredTopicMessage } from "./store.js";
-
-export type TopicThreadEventType =
-  | "user.message"
-  | "assistant.message"
-  | "orchestrator.plan"
-  | "workflow.started"
-  | "workflow.completed"
-  | "workflow.failed"
-  | "intake.scan"
-  | "intake.iteration"
-  | "clarification.request"
-  | "clarification.answer"
-  | "clarification.skip";
-
-export type WorkbenchMessageMode = "chat" | "plan";
-export type TopicRoutingDecision = "same-topic" | "new-topic-required" | "clarify";
-
-export interface SuggestedAction {
-  actionType: Exclude<WorkbenchWorkflowActionType, "chat.ask" | "change.spec.accept" | "change.plan.accept" | "validate.run" | "audit.run">;
-  label: string;
-  requiresConfirmation: boolean;
-  prompt?: string;
-}
-
-export interface OrchestrationPlanCard {
-  title: string;
-  summary: string;
-  steps: Array<{
-    label: string;
-    description: string;
-    actionId?: string;
-    requiresConfirmation?: boolean;
-  }>;
-  warnings: string[];
-}
-
-export interface TopicThreadEntry {
-  id: string;
-  type: TopicThreadEventType;
-  timestamp: string;
-  changeId: string;
-  position?: number;
-  text?: string;
-  actionRunId?: string;
-  actionType?: string;
-  status?: string;
-  runId?: string;
-  artifact?: string;
-  error?: string;
-  planCard?: OrchestrationPlanCard;
-  activity?: AssistantTurnActivity[];
-  blocks?: AssistantTurnBlock[];
-  intake?: unknown;
-  clarification?: unknown;
-}
-
-export type AssistantTurnBlockKind =
-  | "prose"
-  | "status"
-  | "command-group"
-  | "command"
-  | "tool-result"
-  | "file-change"
-  | "reasoning-summary"
-  | "plan-card"
-  | "workflow-evidence"
-  | "usage"
-  | "error";
-
-export interface AssistantTurnBlock {
-  id: string;
-  runId?: string;
-  sequence: number;
-  kind: AssistantTurnBlockKind;
-  timestamp: string;
-  source: "codex" | "aho" | "workflow" | "validation" | "audit" | "decision" | "legacy";
-  status?: string;
-  title?: string;
-  text?: string;
-  command?: string;
-  cwd?: string;
-  exitCode?: number;
-  preview?: string;
-  artifactRef?: string;
-  isError?: boolean;
-  truncated?: boolean;
-  itemId?: string;
-  children?: AssistantTurnBlock[];
-  planCard?: OrchestrationPlanCard;
-}
-
-export type AssistantTurnActivity =
-  | { kind: "status"; label: string; detail?: string; timestamp: string }
-  | { kind: "assistant-event"; event: WorkbenchAssistantEvent; timestamp: string }
-  | { kind: "tool"; tool: WorkbenchLiveToolEvent; timestamp: string }
-  | { kind: "usage"; usage: Record<string, unknown>; timestamp: string }
-  | { kind: "error"; message: string; timestamp: string };
-
-export interface TopicRuntimeMetadata {
-  version: "1.0";
-  changeId: string;
-  codexSessionId: string | null;
-  updatedAt: string;
-}
-
-export interface TopicMessageResult {
-  user: TopicThreadEntry;
-  assistant: TopicThreadEntry | null;
-  run: RunMetadata | null;
-  codexSessionId: string | null;
-  mode?: WorkbenchMessageMode;
-  routingDecision?: TopicRoutingDecision;
-  assistantMessage?: string;
-  planCard?: OrchestrationPlanCard;
-  suggestedActions?: SuggestedAction[];
-}
-
-export type WorkbenchLiveEvent =
-  | { event: "topic.message"; data: TopicThreadEntry }
-  | { event: "run.started"; data: { runId: string; changeId: string; actionType?: string; runtime?: string; taskIds?: string[] } }
-  | { event: "run.status"; data: { runId?: string; actionRunId?: string; status: string; label?: string } }
-  | { event: "assistant.delta"; data: { delta: string; runId?: string } }
-  | { event: "assistant.message"; data: TopicThreadEntry }
-  | { event: "assistant.event"; data: WorkbenchAssistantEvent }
-  | { event: "tool.event"; data: WorkbenchLiveToolEvent }
-  | { event: "usage"; data: { runId?: string; usage?: Record<string, unknown> } }
-  | { event: "snapshot"; data: unknown }
-  | { event: "error"; data: { message: string; runId?: string; actionRunId?: string } }
-  | { event: "done"; data: { status: "completed" | "failed" } };
-
-export interface WorkbenchLiveSink {
-  emit(event: WorkbenchLiveEvent): void;
-  isClosed?(): boolean;
-}
+import { runWorkbenchWorkflowActionService } from "./actions/service.js";
+import { WorkbenchStore, type StoredDecisionRecord } from "./store.js";
+import { appendTopicThreadLogEntry, collectAllTopicThreadEntries, readTopicThreadLog as readThreadLog } from "./thread-log.js";
+import type {
+  AssistantTurnActivity,
+  AssistantTurnBlock,
+  AssistantTurnBlockKind,
+  OrchestrationPlanCard,
+  PlanningArtifactBundle,
+  SuggestedAction,
+  TopicMessageInput,
+  TopicMessageResult,
+  TopicRoutingDecision,
+  TopicRuntimeMetadata,
+  TopicThreadEntry,
+  WorkbenchAssistantEvent,
+  WorkbenchLiveEvent,
+  WorkbenchLiveSink,
+  WorkbenchLiveToolEvent,
+  WorkbenchWorkflowActionRequest,
+  WorkbenchWorkflowActionResult,
+  WorkbenchWorkflowActionType,
+} from "./types.js";
+export type {
+  AssistantTurnActivity,
+  AssistantTurnBlock,
+  AssistantTurnBlockKind,
+  OrchestrationPlanCard,
+  PlanningArtifactBundle,
+  SuggestedAction,
+  TopicMessageInput,
+  TopicMessageResult,
+  TopicRoutingDecision,
+  TopicRuntimeMetadata,
+  TopicThreadEntry,
+  WorkbenchAssistantEvent,
+  WorkbenchLiveEvent,
+  WorkbenchLiveSink,
+  WorkbenchLiveToolEvent,
+  WorkbenchMessageMode,
+  WorkbenchWorkflowActionRequest,
+  WorkbenchWorkflowActionResult,
+  WorkbenchWorkflowActionType,
+} from "./types.js";
 
 function emitLive(live: WorkbenchLiveSink | undefined, event: WorkbenchLiveEvent): void {
   try {
@@ -390,23 +299,6 @@ function createAssistantTranscriptCapture(live: WorkbenchLiveSink | undefined): 
     },
   };
   return capture;
-}
-
-export interface WorkbenchLiveToolEvent {
-  runId: string;
-  itemId?: string;
-  phase: "started" | "completed" | "stderr" | "status";
-  name?: string;
-  command?: string;
-  outputTail?: string;
-  isError?: boolean;
-  exitCode?: number;
-  status?: string;
-}
-
-export interface WorkbenchAssistantEvent extends CodexReadableEvent {
-  runId: string;
-  timestamp?: string;
 }
 
 interface AssistantTranscriptCapture {
@@ -549,70 +441,11 @@ function isMainThreadAssistantStatus(event: WorkbenchAssistantEvent): boolean {
   return Boolean(event.isError) || normalized.includes("validation") || normalized.includes("audit") || normalized.includes("failed") || normalized.includes("blocked");
 }
 
-export interface TopicMessageInput {
-  mode?: WorkbenchMessageMode;
-  message?: string;
-  text?: string;
-}
-
-export type WorkbenchWorkflowActionType = WorkflowActionType;
-
-export interface WorkbenchWorkflowActionRequest {
-  actionType: WorkbenchWorkflowActionType;
-  changeId?: string;
-  prompt?: string;
-  proposalId?: string;
-  planningBundleId?: string;
-  decompositionPlanId?: string;
-  readinessManifestId?: string;
-  taskQueueProposalId?: string;
-  workflowGraphPlanId?: string;
-  workflowRunId?: string;
-  queueRunId?: string;
-  worktreeId?: string;
-  taskIds?: string[];
-  worktreeIds?: string[];
-  taskRunId?: string;
-  applyCheckId?: string;
-  landingPackageId?: string;
-  remoteLandingResultId?: string;
-}
-
-export interface WorkbenchWorkflowActionResult {
-  actionRunId: string;
-  actionType: WorkbenchWorkflowActionType;
-  status: "completed" | "failed";
-  result?: unknown;
-  runId?: string;
-  error?: string;
-}
-
-export interface PlanningArtifactBundle {
-  id: string;
-  status: "draft" | "confirmed";
-  goal: string;
-  constraints: string[];
-  acceptanceCriteria: string[];
-  design: string;
-  tasks: Array<{ id: string; title: string; acIds: string[] }>;
-  risks: string[];
-  openQuestions: string[];
-  specMd: string;
-  planMd: string;
-  tasksMd: string;
-  acMapCandidate?: unknown;
-  artifact: string;
-  updatedAt: string;
-}
-
 const runtimeMetadataSchema = z.object({
   version: z.literal("1.0"),
   changeId: z.string(),
   codexSessionId: z.string().nullable(),
   updatedAt: z.string(),
-});
-const threadChangeMetadataSchema = z.object({
-  id: z.string(),
 });
 const OFFICIAL_REWORK_BUDGET = 1;
 const PROJECT_SCOPED_WORKFLOW_ACTIONS = new Set<WorkbenchWorkflowActionType>([
@@ -735,65 +568,25 @@ export async function appendTopicThreadEntry(project: ManagedProject, changeId: 
     changeId,
     ...input,
   };
-  await appendFile(join(memory.memoryRoot, changePath, "thread.jsonl"), `${JSON.stringify(entry)}\n`, "utf8");
-  const store = await WorkbenchStore.open(memory);
-  try {
-    store.appendMessage(toStoredMessage(memory, entry));
-  } finally {
-    store.close();
-  }
+  await appendTopicThreadLogEntry(memory, changePath, entry);
   return entry;
 }
 
 export async function runWorkbenchWorkflowAction(project: ManagedProject, request: WorkbenchWorkflowActionRequest, live?: WorkbenchLiveSink): Promise<WorkbenchWorkflowActionResult> {
-  const actionRunId = `action-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
-  const changeId = await resolveWorkflowActionChangeId(project, request);
-  const started = await appendTopicThreadEntry(project, changeId, { type: "workflow.started", actionRunId, actionType: request.actionType, status: "running" });
-  live?.emit({ event: "topic.message", data: started });
-  live?.emit({ event: "run.status", data: { actionRunId, status: "running", label: labelForAction(request.actionType) } });
-  const capture = createAssistantTranscriptCapture(live);
-  try {
-    capture.sink.emit({ event: "run.status", data: { actionRunId, status: "running", label: labelForAction(request.actionType) } });
-    const result = await executeWorkflowAction(project, changeId, request, capture.sink);
-    const runId = extractRunId(result);
-    const failureMessage = workflowFailureMessage(request.actionType, result);
-    const finalStatus = failureMessage ? "failed" : "completed";
-    capture.sink.emit({ event: "run.status", data: { runId, actionRunId, status: finalStatus, label: labelForAction(request.actionType) } });
-    const completed = await appendTopicThreadEntry(project, changeId, {
-      type: failureMessage ? "workflow.failed" : "workflow.completed",
-      actionRunId,
-      actionType: request.actionType,
-      status: finalStatus,
-      runId,
-      error: failureMessage ?? undefined,
-      text: capture.text.trim() || undefined,
-      activity: capture.activity,
-      blocks: capture.blocks,
-    });
-    live?.emit({ event: "topic.message", data: completed });
-    if (failureMessage) live?.emit({ event: "error", data: { message: failureMessage, runId, actionRunId } });
-    await recordWorkbenchDecision(project, {
-      id: `workflow:${actionRunId}`,
-      changeId,
-      decisionType: request.actionType,
-      status: finalStatus,
-      label: labelForAction(request.actionType),
-      summary: failureMessage ?? summarizeActionResult(request.actionType, result),
-      targetId: workflowActionTargetId(request, changeId, result),
-      runId: runId ?? null,
-      artifact: artifactForActionResult(result),
-      actionId: request.actionType,
-      payload: { scope: workflowActionScopePayload(request, changeId, result), result },
-      completedAt: new Date().toISOString(),
-    });
-    return { actionRunId, actionType: request.actionType, status: finalStatus, result, runId, error: failureMessage ?? undefined };
-  } catch (cause) {
-    const error = cause instanceof Error ? cause.message : String(cause);
-    capture.sink.emit({ event: "error", data: { message: error, actionRunId } });
-    const failed = await appendTopicThreadEntry(project, changeId, { type: "workflow.failed", actionRunId, actionType: request.actionType, status: "failed", error, text: capture.text.trim() || undefined, activity: capture.activity, blocks: capture.blocks });
-    live?.emit({ event: "topic.message", data: failed });
-    return { actionRunId, actionType: request.actionType, status: "failed", error };
-  }
+  return runWorkbenchWorkflowActionService(project, request, live, {
+    resolveChangeId: resolveWorkflowActionChangeId,
+    createTranscriptCapture: createAssistantTranscriptCapture,
+    appendThreadEntry: appendTopicThreadEntry,
+    execute: executeWorkflowAction,
+    labelForAction,
+    extractRunId,
+    failureMessage: workflowFailureMessage,
+    summarizeResult: summarizeActionResult,
+    artifactForResult: artifactForActionResult,
+    targetId: workflowActionTargetId,
+    scopePayload: workflowActionScopePayload,
+    recordDecision: recordWorkbenchDecision,
+  });
 }
 
 async function resolveWorkflowActionChangeId(project: ManagedProject, request: WorkbenchWorkflowActionRequest): Promise<string> {
@@ -805,7 +598,7 @@ async function resolveWorkflowActionChangeId(project: ManagedProject, request: W
 export async function getWorkbenchActionEvents(project: ManagedProject, actionRunId: string): Promise<TopicThreadEntry[]> {
   const memory = await resolveProjectMemory(project);
   if (!existsSync(join(memory.changesRoot, "active"))) return [];
-  const entries = await collectAllThreadEntries(memory);
+  const entries = await collectAllTopicThreadEntries(memory);
   return entries.filter((entry) => entry.actionRunId === actionRunId);
 }
 
@@ -1577,8 +1370,8 @@ async function confirmTaskQueueProposalAndStart(
   }
   const latestGraph = await readLatestWorkflowGraphPlan(memory, changePath);
   if (latestGraph.id !== graph.id) throw new Error("planning.taskqueue.confirm-start requires the latest matching WorkflowGraphPlan.");
-  const validated = await validateTaskQueueProposalStart(memory, project, changeId, proposal.id, graph.id);
-  const workflow = await createWorkflowRunForTaskQueue(memory, project, validated);
+  const validated = await validateWorkflowTaskQueueProposalStart(memory, project, changeId, proposal.id, graph.id);
+  const workflow = await createWorkflowRunForValidatedTaskQueue(memory, project, validated);
   await appendTopicThreadEntry(project, changeId, {
     type: "assistant.message",
     status: "taskqueue-starting",
@@ -2935,13 +2728,13 @@ async function runTaskQueueSequence(
     if (!nextItem) {
       queue = await updateTaskQueueAfterItem(memory, queue);
       const reconciled = await reconcileWorkflowTaskQueue(project, { changeId, queueRunId: queue.id });
-      if (workflow) workflow = await syncWorkflowRunFromQueue(memory, workflow, queue, reconciled.items, queue.status === "completed" ? "workflow.completed" : "workflow.reconciled");
+      if (workflow) workflow = await syncWorkflowRunFromTaskQueue(memory, workflow, queue, reconciled.items, queue.status === "completed" ? "workflow.completed" : "workflow.reconciled");
       return { queue, workflowRun: workflow, items: reconciled.items };
     }
     if (live?.isClosed?.()) {
       queue = await pauseTaskQueue(memory, queue, "队列已暂停，等待继续。");
       const reconciled = await reconcileWorkflowTaskQueue(project, { changeId, queueRunId: queue.id });
-      if (workflow) workflow = await syncWorkflowRunFromQueue(memory, workflow, queue, reconciled.items, "workflow.paused", queue.pausedReason);
+      if (workflow) workflow = await syncWorkflowRunFromTaskQueue(memory, workflow, queue, reconciled.items, "workflow.paused", queue.pausedReason);
       return { queue, workflowRun: workflow, items: reconciled.items };
     }
 
@@ -2967,7 +2760,7 @@ async function runTaskQueueSequence(
         await failQueuedTaskItem(memory, nextItem, resume.verdict.reason);
         queue = await updateTaskQueueAfterItem(memory, queue);
         const reconciled = await reconcileWorkflowTaskQueue(project, { changeId, queueRunId: queue.id });
-        if (workflow) workflow = await syncWorkflowRunFromQueue(memory, workflow, queue, reconciled.items, "workflow.blocked", resume.verdict.reason);
+        if (workflow) workflow = await syncWorkflowRunFromTaskQueue(memory, workflow, queue, reconciled.items, "workflow.blocked", resume.verdict.reason);
         return { queue, workflowRun: workflow, items: reconciled.items };
       }
       const executionGate = taskQueueProposalId && workflowGraphPlanId ? { mode: "taskqueue-proposal" as const, taskQueueProposalId, workflowGraphPlanId } : undefined;
@@ -3001,7 +2794,7 @@ async function runTaskQueueSequence(
           summary: queue.blockedReason ?? queue.failureReason ?? `${finishedItem.taskId} 未完成。`,
         });
         const reconciled = await reconcileWorkflowTaskQueue(project, { changeId, queueRunId: queue.id });
-        if (workflow) workflow = await syncWorkflowRunFromQueue(memory, workflow, queue, reconciled.items, queue.status === "blocked" ? "workflow.blocked" : "workflow.failed", queue.blockedReason ?? queue.failureReason);
+        if (workflow) workflow = await syncWorkflowRunFromTaskQueue(memory, workflow, queue, reconciled.items, queue.status === "blocked" ? "workflow.blocked" : "workflow.failed", queue.blockedReason ?? queue.failureReason);
         return { queue, workflowRun: workflow, items: reconciled.items };
       }
     } catch (cause) {
@@ -3016,19 +2809,19 @@ async function runTaskQueueSequence(
         summary: `${failedItem.taskId}: ${message}`,
       });
       const reconciled = await reconcileWorkflowTaskQueue(project, { changeId, queueRunId: queue.id });
-      if (workflow) workflow = await syncWorkflowRunFromQueue(memory, workflow, queue, reconciled.items, "workflow.failed", queue.failureReason);
+      if (workflow) workflow = await syncWorkflowRunFromTaskQueue(memory, workflow, queue, reconciled.items, "workflow.failed", queue.failureReason);
       return { queue, workflowRun: workflow, items: reconciled.items };
     }
 
     if (live?.isClosed?.()) {
       queue = await pauseTaskQueue(memory, queue, "队列已暂停，等待继续。");
       const reconciled = await reconcileWorkflowTaskQueue(project, { changeId, queueRunId: queue.id });
-      if (workflow) workflow = await syncWorkflowRunFromQueue(memory, workflow, queue, reconciled.items, "workflow.paused", queue.pausedReason);
+      if (workflow) workflow = await syncWorkflowRunFromTaskQueue(memory, workflow, queue, reconciled.items, "workflow.paused", queue.pausedReason);
       return { queue, workflowRun: workflow, items: reconciled.items };
     }
     if (queue.status === "blocked" || queue.status === "failed" || queue.status === "completed") {
       const reconciled = await reconcileWorkflowTaskQueue(project, { changeId, queueRunId: queue.id });
-      if (workflow) workflow = await syncWorkflowRunFromQueue(memory, workflow, queue, reconciled.items, queue.status === "completed" ? "workflow.completed" : queue.status === "blocked" ? "workflow.blocked" : "workflow.failed", queue.blockedReason ?? queue.failureReason);
+      if (workflow) workflow = await syncWorkflowRunFromTaskQueue(memory, workflow, queue, reconciled.items, queue.status === "completed" ? "workflow.completed" : queue.status === "blocked" ? "workflow.blocked" : "workflow.failed", queue.blockedReason ?? queue.failureReason);
       return { queue, workflowRun: workflow, items: reconciled.items };
     }
   }
@@ -3038,7 +2831,7 @@ async function findTaskQueueStageResumeCandidate(memory: ResolvedMemory, changeI
   const taskRuns = await listTaskRuns(memory, changeId);
   const candidates = taskRuns.filter((run) => run.taskId.toUpperCase() === taskId.toUpperCase() && !["queued", "claimed", "running"].includes(run.status));
   for (const taskRun of candidates) {
-    const verdict = await deriveStageResumeVerdict(memory, changeId, taskRun);
+    const verdict = await deriveWorkflowStageResumeVerdict(memory, changeId, taskRun);
     if (verdict.kind !== "start-coder") return { taskRun, verdict };
   }
   return null;
@@ -4491,32 +4284,6 @@ async function getSingleActiveChangeId(project: ManagedProject): Promise<string>
   return active[0].name;
 }
 
-async function readThreadLog(memory: ResolvedMemory, changePath: string): Promise<TopicThreadEntry[]> {
-  const changeId = await readCanonicalChangeId(memory, changePath);
-  const projectId = memory.projectId ?? "unregistered";
-  await importThreadJsonlIfNeeded(memory, projectId, changeId, changePath);
-  const store = await WorkbenchStore.open(memory);
-  try {
-    const rows = store.listMessages(projectId, changeId);
-    if (rows.length > 0) return rows.map(fromStoredMessage);
-  } finally {
-    store.close();
-  }
-  const path = join(memory.memoryRoot, changePath, "thread.jsonl");
-  if (!existsSync(path)) return [];
-  const content = await readFile(path, "utf8");
-  return content
-    .split(/\r?\n/)
-    .filter((line) => line.trim().length > 0)
-    .map((line, index) => ({ ...(JSON.parse(line) as TopicThreadEntry), position: index + 1 }));
-}
-
-async function readCanonicalChangeId(memory: ResolvedMemory, changePath: string): Promise<string> {
-  const fallback = changePath.split(/[\\/]/).at(-1) ?? "";
-  const metadata = await readJsonFile(join(memory.memoryRoot, changePath, "change.json"), threadChangeMetadataSchema, { id: fallback });
-  return metadata.id;
-}
-
 async function readTopicRuntime(memory: ResolvedMemory, changePath: string, changeId: string): Promise<TopicRuntimeMetadata> {
   const projectId = memory.projectId ?? "unregistered";
   const store = await WorkbenchStore.open(memory);
@@ -4547,29 +4314,6 @@ async function writeTopicRuntime(memory: ResolvedMemory, changePath: string, met
     store.close();
   }
   await writeJsonFile(join(memory.memoryRoot, changePath, "topic-runtime.json"), metadata);
-}
-
-async function collectAllThreadEntries(memory: ResolvedMemory): Promise<TopicThreadEntry[]> {
-  if (memory.projectId) {
-    const store = await WorkbenchStore.open(memory);
-    try {
-      const rows = store.listAllMessages(memory.projectId);
-      if (rows.length > 0) return rows.map(fromStoredMessage);
-    } finally {
-      store.close();
-    }
-  }
-  const roots = [join(memory.changesRoot, "active"), join(memory.changesRoot, "archive")];
-  const entries: TopicThreadEntry[] = [];
-  for (const root of roots) {
-    if (!existsSync(root)) continue;
-    for (const entry of await readdir(root, { withFileTypes: true })) {
-      if (!entry.isDirectory()) continue;
-      const changePath = relative(memory.memoryRoot, join(root, entry.name)).replace(/\\/g, "/");
-      entries.push(...await readThreadLog(memory, changePath));
-    }
-  }
-  return entries.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
 }
 
 function extractRunId(result: unknown): string | undefined {
@@ -4856,95 +4600,3 @@ function assertNever(value: never): never {
   throw new Error(`Unsupported workflow action: ${value}`);
 }
 
-function toStoredMessage(memory: ResolvedMemory, entry: TopicThreadEntry): Omit<StoredTopicMessage, "position"> {
-  return {
-    id: entry.id,
-    projectId: memory.projectId ?? "unregistered",
-    changeId: entry.changeId,
-    type: entry.type,
-    timestamp: entry.timestamp,
-    text: entry.text ?? null,
-    actionRunId: entry.actionRunId ?? null,
-    actionType: entry.actionType ?? null,
-    status: entry.status ?? null,
-    runId: entry.runId ?? null,
-    artifact: entry.artifact ?? null,
-    error: entry.error ?? null,
-    rawJson: JSON.stringify(entry),
-  };
-}
-
-function fromStoredMessage(row: StoredTopicMessage): TopicThreadEntry {
-  const raw = parseStoredRawJson(row.rawJson);
-  return {
-    id: row.id,
-    type: row.type as TopicThreadEventType,
-    timestamp: row.timestamp,
-    changeId: row.changeId,
-    text: row.text ?? undefined,
-    actionRunId: row.actionRunId ?? undefined,
-    actionType: row.actionType ?? undefined,
-    status: row.status ?? undefined,
-    runId: row.runId ?? undefined,
-    artifact: row.artifact ?? undefined,
-    error: row.error ?? undefined,
-    planCard: isPlanCard(raw.planCard) ? raw.planCard : undefined,
-    activity: Array.isArray(raw.activity) ? raw.activity.filter(isAssistantTurnActivity) : undefined,
-    blocks: Array.isArray(raw.blocks) ? raw.blocks.filter(isAssistantTurnBlock) : undefined,
-    intake: raw.intake,
-    clarification: raw.clarification,
-    position: row.position,
-  };
-}
-
-function parseStoredRawJson(rawJson: string): Record<string, unknown> {
-  try {
-    const parsed = JSON.parse(rawJson) as unknown;
-    return isRecord(parsed) ? parsed : {};
-  } catch {
-    return {};
-  }
-}
-
-function isPlanCard(value: unknown): value is OrchestrationPlanCard {
-  return isRecord(value) && typeof value.title === "string" && typeof value.summary === "string" && Array.isArray(value.steps);
-}
-
-function isAssistantTurnActivity(value: unknown): value is AssistantTurnActivity {
-  if (!isRecord(value) || typeof value.kind !== "string" || typeof value.timestamp !== "string") return false;
-  if (value.kind === "status") return typeof value.label === "string";
-  if (value.kind === "assistant-event") return isWorkbenchAssistantEvent(value.event);
-  if (value.kind === "tool") return isRecord(value.tool) && typeof value.tool.runId === "string";
-  if (value.kind === "usage") return isRecord(value.usage);
-  if (value.kind === "error") return typeof value.message === "string";
-  return false;
-}
-
-function isAssistantTurnBlock(value: unknown): value is AssistantTurnBlock {
-  if (!isRecord(value)) return false;
-  if (typeof value.id !== "string" || typeof value.sequence !== "number" || typeof value.timestamp !== "string") return false;
-  if (!isAssistantTurnBlockKind(value.kind) || typeof value.source !== "string") return false;
-  if (value.children !== undefined && (!Array.isArray(value.children) || !value.children.every(isAssistantTurnBlock))) return false;
-  if (value.planCard !== undefined && !isPlanCard(value.planCard)) return false;
-  return true;
-}
-
-function isAssistantTurnBlockKind(value: unknown): value is AssistantTurnBlockKind {
-  return typeof value === "string" && [
-    "prose",
-    "status",
-    "command-group",
-    "command",
-    "tool-result",
-    "file-change",
-    "reasoning-summary",
-    "plan-card",
-    "workflow-evidence",
-    "usage",
-    "error",
-  ].includes(value);
-}
-
-function isWorkbenchAssistantEvent(value: unknown): value is WorkbenchAssistantEvent {
-  return isRecord(value) && typeof value.runId === "string" && typeof value.kind === "string";
-}

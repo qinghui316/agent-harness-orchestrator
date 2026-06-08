@@ -31,10 +31,11 @@ import { listSpecTestProposalSummaries } from "../spec-test/proposal.js";
 import { listDemandWorkers } from "../demand-worker/manager.js";
 import { isActiveTaskRunStatus, listTaskRuns, listWorkerLeases } from "../task-run/manager.js";
 import { listTaskQueueItems, listTaskQueues } from "../task-queue/manager.js";
-import { getLatestWorkflowRun, readWorkflowRun, readWorkflowRunEvents, summarizeWorkflowRun } from "../workflow-run/manager.js";
+import { getLatestWorkflowRun, summarizeWorkflowRun } from "../workflow-run/manager.js";
 import { listValidationResults, summarizeValidation } from "../validation/artifacts.js";
 import { listWorktreeStatuses, listWorktreesForChange } from "../worktree/manager.js";
-import { readTopicThreadLog, type AssistantTurnActivity, type AssistantTurnBlock, type OrchestrationPlanCard, type TopicThreadEntry } from "./chat.js";
+import { readTopicThreadLog } from "./thread-log.js";
+import type { AssistantTurnActivity, AssistantTurnBlock, OrchestrationPlanCard, TopicThreadEntry } from "./types.js";
 import {
   type DecompositionPlan,
   type DecompositionReadinessManifest,
@@ -44,19 +45,23 @@ import {
 } from "../workflow-artifacts/manager.js";
 import {
   buildTypedWorkflowNextAction,
-  readDecompositionPlanProjection,
-  readDecompositionReadinessProjection,
   readLatestDecompositionPlanSummary,
   readLatestDecompositionReadinessSummary,
   readLatestTaskQueueProposalSummary,
   readLatestWorkflowGraphPlanSummary,
-  readTaskQueueProposalProjection,
-  readWorkflowGraphPlanProjection,
   type WorkbenchDecompositionPlanSummary,
   type WorkbenchDecompositionReadinessSummary,
   type WorkbenchTaskQueueProposalSummary,
   type WorkbenchWorkflowGraphPlanSummary,
 } from "./workflow-projection.js";
+import {
+  findWorkbenchTopicPath,
+  getDecompositionPlanProjectionForPath,
+  getDecompositionReadinessProjectionForPath,
+  getTaskQueueProposalProjectionForPath,
+  getWorkflowGraphPlanProjectionForPath,
+  getWorkflowRunProjectionForChange,
+} from "./projections/typed-workflow.js";
 import type { ClarificationRequest, WorkbenchIntakeIteration, WorkbenchIntakeScan } from "./intake.js";
 import { buildParentAgentTranscript, type ParentAgentTranscript } from "./parent-agent-transcript.js";
 import { WorkbenchStore, type StoredDecisionRecord } from "./store.js";
@@ -2042,48 +2047,45 @@ export async function getWorkbenchDecompositionPlanProjection(input: WorkbenchPr
   const memory = await resolveWorkbenchMemory(input);
   if (!memory.supported) return null;
   const topics = await listWorkbenchTopicsFromMemory(memory);
-  const topic = topics.find((item) => item.id === changeId || item.name === changeId);
-  if (!topic) return null;
-  return readDecompositionPlanProjection(memory, topic.path);
+  const changePath = findWorkbenchTopicPath(topics, changeId);
+  if (!changePath) return null;
+  return getDecompositionPlanProjectionForPath(memory, changePath);
 }
 
 export async function getWorkbenchDecompositionReadinessProjection(input: WorkbenchProjectInput, changeId: string): Promise<DecompositionReadinessManifest | null> {
   const memory = await resolveWorkbenchMemory(input);
   if (!memory.supported) return null;
   const topics = await listWorkbenchTopicsFromMemory(memory);
-  const topic = topics.find((item) => item.id === changeId || item.name === changeId);
-  if (!topic) return null;
-  return readDecompositionReadinessProjection(memory, topic.path);
+  const changePath = findWorkbenchTopicPath(topics, changeId);
+  if (!changePath) return null;
+  return getDecompositionReadinessProjectionForPath(memory, changePath);
 }
 
 export async function getWorkbenchTaskQueueProposalProjection(input: WorkbenchProjectInput, changeId: string): Promise<TaskQueueProposal | null> {
   const memory = await resolveWorkbenchMemory(input);
   if (!memory.supported) return null;
   const topics = await listWorkbenchTopicsFromMemory(memory);
-  const topic = topics.find((item) => item.id === changeId || item.name === changeId);
-  if (!topic) return null;
-  return readTaskQueueProposalProjection(memory, topic.path);
+  const changePath = findWorkbenchTopicPath(topics, changeId);
+  if (!changePath) return null;
+  return getTaskQueueProposalProjectionForPath(memory, changePath);
 }
 
 export async function getWorkbenchWorkflowGraphPlanProjection(input: WorkbenchProjectInput, changeId: string, workflowGraphPlanId?: string): Promise<WorkflowGraphPlan | null> {
   const memory = await resolveWorkbenchMemory(input);
   if (!memory.supported) return null;
   const topics = await listWorkbenchTopicsFromMemory(memory);
-  const topic = topics.find((item) => item.id === changeId || item.name === changeId);
-  if (!topic) return null;
-  return readWorkflowGraphPlanProjection(memory, topic.path, workflowGraphPlanId);
+  const changePath = findWorkbenchTopicPath(topics, changeId);
+  if (!changePath) return null;
+  return getWorkflowGraphPlanProjectionForPath(memory, changePath, workflowGraphPlanId);
 }
 
-export async function getWorkbenchWorkflowRunProjection(input: WorkbenchProjectInput, changeId: string, workflowRunId: string): Promise<{ run: Awaited<ReturnType<typeof readWorkflowRun>>; events: Awaited<ReturnType<typeof readWorkflowRunEvents>> } | null> {
+export async function getWorkbenchWorkflowRunProjection(input: WorkbenchProjectInput, changeId: string, workflowRunId: string): Promise<Awaited<ReturnType<typeof getWorkflowRunProjectionForChange>> | null> {
   const memory = await resolveWorkbenchMemory(input);
   if (!memory.supported) return null;
   const topics = await listWorkbenchTopicsFromMemory(memory);
-  const topic = topics.find((item) => item.id === changeId || item.name === changeId);
-  if (!topic) return null;
-  const run = await readWorkflowRun(memory, changeId, workflowRunId).catch(() => null);
-  if (!run) return null;
-  const events = await readWorkflowRunEvents(memory, changeId, workflowRunId);
-  return { run, events };
+  const changePath = findWorkbenchTopicPath(topics, changeId);
+  if (!changePath) return null;
+  return getWorkflowRunProjectionForChange(memory, changeId, workflowRunId);
 }
 
 function buildRolePipelineSummary(

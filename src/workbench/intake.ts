@@ -11,7 +11,9 @@ import { listRuns } from "../run/manager.js";
 import { listAuditResults, summarizeAudit } from "../audit/artifacts.js";
 import { listValidationResults, summarizeValidation } from "../validation/artifacts.js";
 import type { ManagedProject, ResolvedMemory, RunMetadata } from "../types/index.js";
-import { appendTopicThreadEntry, readTopicThreadLog, type TopicThreadEntry } from "./chat.js";
+import { appendTopicThreadEntry } from "./chat.js";
+import { readTopicThreadLog } from "./thread-log.js";
+import type { TopicThreadEntry } from "./types.js";
 
 export type ClarificationSource = "aho" | "codex";
 export type ClarificationStatus = "pending" | "answered" | "skipped" | "expired";
