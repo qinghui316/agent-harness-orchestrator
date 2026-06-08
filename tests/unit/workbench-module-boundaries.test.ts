@@ -7,6 +7,12 @@ import { readTopicThreadLog } from "../../src/workbench/thread-log.js";
 import { runWorkbenchWorkflowActionService } from "../../src/workbench/actions/service.js";
 import { assertWorkflowActionScope } from "../../src/workbench/actions/boundary.js";
 import { dispatchWorkbenchWorkflowAction } from "../../src/workbench/actions/dispatcher.js";
+import { generatePlanningDraft } from "../../src/workbench/actions/handlers/planning.js";
+import { runCodexChat } from "../../src/workbench/codex-chat/bridge.js";
+import { runMainAgentToolOrchestration } from "../../src/workbench/demand-workers/orchestration.js";
+import { recordWorkbenchDecision } from "../../src/workbench/decisions.js";
+import { emitAssistantEvent } from "../../src/workbench/live-events.js";
+import { buildDeterministicPlanningBundle } from "../../src/workbench/planning/builders.js";
 import { createLiveSink, readWorkbenchActionEvents } from "../../src/server/workbench/live.js";
 import { getWorkbenchProjection } from "../../src/server/workbench/projections.js";
 import { matchProjectWorkbenchRoute } from "../../src/server/workbench/routes.js";
@@ -32,6 +38,12 @@ describe("Workbench module boundaries", () => {
     expect(typeof runWorkbenchWorkflowActionService).toBe("function");
     expect(typeof assertWorkflowActionScope).toBe("function");
     expect(typeof dispatchWorkbenchWorkflowAction).toBe("function");
+    expect(typeof generatePlanningDraft).toBe("function");
+    expect(typeof runCodexChat).toBe("function");
+    expect(typeof runMainAgentToolOrchestration).toBe("function");
+    expect(typeof recordWorkbenchDecision).toBe("function");
+    expect(typeof emitAssistantEvent).toBe("function");
+    expect(typeof buildDeterministicPlanningBundle).toBe("function");
     expect(typeof createLiveSink).toBe("function");
     expect(typeof readWorkbenchActionEvents).toBe("function");
     expect(typeof getWorkbenchProjection).toBe("function");
@@ -96,6 +108,25 @@ describe("Workbench module boundaries", () => {
           /from\s+["']\.\.\/web\//,
           /from\s+["']\.\.\/workbench\/chat\.js["']/,
           /from\s+["']\.\.\/workbench\/manager\.js["']/,
+        ],
+      },
+      {
+        roots: [
+          "src/workbench/codex-chat",
+          "src/workbench/demand-workers",
+          "src/workbench/planning",
+          "src/workbench/topic-resolver.ts",
+          "src/workbench/topic-runtime.ts",
+          "src/workbench/topic-thread.ts",
+          "src/workbench/decisions.ts",
+          "src/workbench/live-events.ts",
+        ],
+        forbidden: [
+          /from\s+["']\.\.?\/chat\.js["']/,
+          /from\s+["']\.\.\/server\//,
+          /from\s+["']\.\.\/web\//,
+          /from\s+["']\.\/manager\.js["']/,
+          /from\s+["']\.\/projections\//,
         ],
       },
     ];
