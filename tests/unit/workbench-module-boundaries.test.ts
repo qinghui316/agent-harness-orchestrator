@@ -20,7 +20,19 @@ import { summarizeRunArtifacts } from "../../src/workbench/projections/artifact-
 import { findWorkbenchTopicPath } from "../../src/workbench/projections/typed-workflow.js";
 import { buildDemandAgentRunGraph, emptyAgentRunGraph } from "../../src/workbench/projections/read-model/run-graph.js";
 import { buildThreadStream, isConcreteChangeFile } from "../../src/workbench/projections/read-model/thread-stream.js";
-import { runTaskQueueSequence } from "../../src/workflow-runtime/code-workflow.js";
+import {
+  assertKnownTaskIds,
+  requireSingleTaskId,
+  requireTaskRunId,
+  runCodeValidateAuditSequence,
+  runTaskQueueSequence,
+  runTaskRunCodeValidateAuditSequence,
+  sourceRefreshReworkPrompt,
+} from "../../src/workflow-runtime/code-workflow.js";
+import { shouldAutoReworkTaskRun } from "../../src/workflow-runtime/kernel/bounded-rework.js";
+import { emitValidationAssistantEvents } from "../../src/workflow-runtime/kernel/live-events.js";
+import { findTaskQueueStageResumeCandidate } from "../../src/workflow-runtime/kernel/stage-resume-runner.js";
+import { executeStartedTaskRunWorkflow } from "../../src/workflow-runtime/kernel/task-run-sequence.js";
 import { startOrResumeWorkflowTaskQueue, validateWorkflowTaskQueueProposalStart } from "../../src/workflow-runtime/taskqueue.js";
 import { fetchJson } from "../../src/web/src/api.js";
 import { workflowActionLabel } from "../../src/web/src/action-labels.js";
@@ -60,6 +72,16 @@ describe("Workbench module boundaries", () => {
     expect(typeof startOrResumeWorkflowTaskQueue).toBe("function");
     expect(typeof validateWorkflowTaskQueueProposalStart).toBe("function");
     expect(typeof runTaskQueueSequence).toBe("function");
+    expect(typeof runTaskRunCodeValidateAuditSequence).toBe("function");
+    expect(typeof runCodeValidateAuditSequence).toBe("function");
+    expect(typeof sourceRefreshReworkPrompt).toBe("function");
+    expect(typeof requireSingleTaskId).toBe("function");
+    expect(typeof requireTaskRunId).toBe("function");
+    expect(typeof assertKnownTaskIds).toBe("function");
+    expect(typeof shouldAutoReworkTaskRun).toBe("function");
+    expect(typeof emitValidationAssistantEvents).toBe("function");
+    expect(typeof findTaskQueueStageResumeCandidate).toBe("function");
+    expect(typeof executeStartedTaskRunWorkflow).toBe("function");
     expect(typeof fetchJson).toBe("function");
     expect(typeof MainConversationView).toBe("function");
     expect(typeof DecisionInspectorPane).toBe("function");
@@ -174,6 +196,17 @@ describe("Workbench module boundaries", () => {
     const shell = readFileSync("src/web/src/shell/WorkbenchShellParts.tsx", "utf8");
     expect(shell).toContain("workflowActionPayloadFromScope(confirmingAction)");
     expect(shell).toContain("workflowActionPayloadFromScope(action)");
+  });
+
+  it("keeps workflow runtime code-workflow as a compatibility facade", () => {
+    const facade = readFileSync("src/workflow-runtime/code-workflow.ts", "utf8");
+    expect(facade).toContain('export { sourceRefreshReworkPrompt } from "./kernel/bounded-rework.js";');
+    expect(facade).toContain('export { runCodeValidateAuditSequence } from "./kernel/role-stage-runner.js";');
+    expect(facade).toContain('export { runTaskRunCodeValidateAuditSequence } from "./kernel/task-run-sequence.js";');
+    expect(facade).toContain('export { runTaskQueueSequence } from "./kernel/task-queue-runner.js";');
+    expect(facade).not.toMatch(/startCodeRun\(/);
+    expect(facade).not.toMatch(/startValidationRun\(/);
+    expect(facade).not.toMatch(/startAuditRun\(/);
   });
 });
 
