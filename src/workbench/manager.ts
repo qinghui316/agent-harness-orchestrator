@@ -1,6 +1,6 @@
 ﻿import { existsSync } from "node:fs";
-import { open, readFile, readdir, stat } from "node:fs/promises";
-import { dirname, join, relative, resolve } from "node:path";
+import { readFile, readdir } from "node:fs/promises";
+import { dirname, join, relative } from "node:path";
 import { z } from "zod";
 import { canApplyResultFromGate, classifyApplyReadiness, previewWorktreeApply, type ApplyReadinessKind, type WorktreeGateState } from "../apply/manager.js";
 import { listAgentTasks, listDemandMemoryCloseouts, listMaintenanceLedgerEntries, readAgentTaskResult, readMaintenanceReviewWatermark } from "../agent-task/manager.js";
@@ -65,6 +65,7 @@ import {
 import type { ClarificationRequest, WorkbenchIntakeIteration, WorkbenchIntakeScan } from "./intake.js";
 import { buildParentAgentTranscript, type ParentAgentTranscript } from "./parent-agent-transcript.js";
 import { WorkbenchStore, type StoredDecisionRecord } from "./store.js";
+import { summarizeRunArtifacts, type WorkbenchArtifactPreview } from "./projections/artifact-preview.js";
 import type { WorkbenchThreadActionType } from "../workflow-actions/registry.js";
 import type {
   AuditSummary,
@@ -882,18 +883,6 @@ export interface WorkbenchApprovalAction {
   args: string[];
   mutates: boolean;
   requiresConfirmation: boolean;
-}
-
-export interface WorkbenchArtifactPreview {
-  key: string;
-  path: string;
-  kind: string;
-  exists: boolean;
-  sizeBytes?: number;
-  preview?: string;
-  tail?: string;
-  truncated?: boolean;
-  diagnostic?: string;
 }
 
 export interface WorkbenchStreamPacket {
@@ -5821,112 +5810,6 @@ async function auditAlreadyAccepted(memory: ResolvedMemory, changePath: string, 
   } catch {
     return false;
   }
-}
-
-async function summarizeRunArtifacts(memory: ResolvedMemory, run: RunMetadata): Promise<{ artifacts: WorkbenchArtifactPreview[]; diagnostics: string[]; warnings: string[] }> {
-  const diagnostics: string[] = [];
-  const warnings: string[] = [];
-  const artifacts: WorkbenchArtifactPreview[] = [];
-  const baseRoot = run.artifacts.base === "memory-root" ? memory.memoryRoot : memory.projectRoot;
-  const runDirectory = resolve(baseRoot, run.artifacts.directory);
-  const known = Object.entries(run.artifacts)
-    .filter(([key, value]) => key !== "base" && key !== "directory" && typeof value === "string") as Array<[string, string]>;
-  const extraKnown = ["codex-events.jsonl", "last-message.md", "diff.patch", "diff-stat.txt", "validation.json", "audit.json", "audit.md", "implementation.md"];
-
-  for (const [key, artifactPath] of known) {
-    artifacts.push(await summarizeArtifact(key, artifactPath, baseRoot, runDirectory, diagnostics));
-  }
-  for (const fileName of extraKnown) {
-    const artifactPath = `${run.artifacts.directory}/${fileName}`;
-    if (known.some(([, existing]) => existing === artifactPath)) continue;
-    const key = keyForKnownArtifact(fileName);
-    const summary = await summarizeArtifact(key, artifactPath, baseRoot, runDirectory, diagnostics, false);
-    if (summary.exists) artifacts.push(summary);
-  }
-  if (!artifacts.some((item) => item.key === "events" && item.exists)) {
-    diagnostics.push("Run events artifact is missing.");
-  }
-  return { artifacts, diagnostics, warnings };
-}
-
-async function summarizeArtifact(key: string, artifactPath: string, baseRoot: string, runDirectory: string, diagnostics: string[], includeMissing = true): Promise<WorkbenchArtifactPreview> {
-  const absolutePath = resolve(baseRoot, artifactPath);
-  const base: WorkbenchArtifactPreview = {
-    key,
-    path: artifactPath,
-    kind: artifactKind(key, artifactPath),
-    exists: false,
-  };
-  if (!isWithinDirectory(absolutePath, runDirectory)) {
-    const diagnostic = `Artifact ${key} is outside the run directory and was not read.`;
-    diagnostics.push(diagnostic);
-    return { ...base, diagnostic };
-  }
-  if (!existsSync(absolutePath)) {
-    if (includeMissing) diagnostics.push(`Artifact ${key} is missing: ${artifactPath}`);
-    return base;
-  }
-  const stats = await stat(absolutePath);
-  if (!stats.isFile()) return { ...base, exists: true, sizeBytes: stats.size, diagnostic: "Artifact path is not a file." };
-  const preview = await readTextPreview(absolutePath, stats.size);
-  return {
-    ...base,
-    exists: true,
-    sizeBytes: stats.size,
-    ...preview,
-  };
-}
-
-async function readTextPreview(path: string, sizeBytes: number): Promise<Pick<WorkbenchArtifactPreview, "preview" | "tail" | "truncated">> {
-  const maxChars = 4000;
-  if (sizeBytes > 1024 * 1024) {
-    const chunkBytes = 16 * 1024;
-    const file = await open(path, "r");
-    try {
-      const firstBuffer = Buffer.alloc(chunkBytes);
-      const lastBuffer = Buffer.alloc(chunkBytes);
-      const firstRead = await file.read(firstBuffer, 0, chunkBytes, 0);
-      const lastRead = await file.read(lastBuffer, 0, chunkBytes, Math.max(0, sizeBytes - chunkBytes));
-      const firstText = firstBuffer.subarray(0, firstRead.bytesRead).toString("utf8");
-      const lastText = lastBuffer.subarray(0, lastRead.bytesRead).toString("utf8");
-      return {
-        preview: firstText.slice(0, maxChars),
-        tail: lastText.slice(-maxChars),
-        truncated: true,
-      };
-    } finally {
-      await file.close();
-    }
-  }
-  const content = await readFile(path, "utf8");
-  return {
-    preview: content.slice(0, maxChars),
-    tail: content.length > maxChars ? content.slice(-maxChars) : content,
-    truncated: content.length > maxChars,
-  };
-}
-
-function isWithinDirectory(path: string, directory: string): boolean {
-  const relativePath = relative(directory, path);
-  return relativePath === "" || (!relativePath.startsWith("..") && !relativePath.includes(":"));
-}
-
-function keyForKnownArtifact(fileName: string): string {
-  if (fileName === "codex-events.jsonl") return "codexEvents";
-  if (fileName === "last-message.md") return "lastMessage";
-  if (fileName === "diff.patch") return "diff";
-  if (fileName === "diff-stat.txt") return "diffStat";
-  if (fileName === "audit.md") return "auditMarkdown";
-  return fileName.replace(/\.[^.]+$/, "");
-}
-
-function artifactKind(key: string, path: string): string {
-  if (key === "stdout" || key === "stderr") return "log";
-  if (key === "events" || key === "codexEvents") return "jsonl";
-  if (path.endsWith(".json")) return "json";
-  if (path.endsWith(".patch")) return "patch";
-  if (path.endsWith(".md")) return "markdown";
-  return "text";
 }
 
 function approvalAction(actionId: string, label: string, command: string, args: string[], mutates: boolean): WorkbenchApprovalAction {

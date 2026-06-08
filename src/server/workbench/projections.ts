@@ -1,0 +1,66 @@
+import {
+  getWorkbenchDecompositionPlanProjection,
+  getWorkbenchDecompositionReadinessProjection,
+  getWorkbenchEvidenceProjection,
+  getWorkbenchLandingQueueProjection,
+  getWorkbenchMaintenanceProjection,
+  getWorkbenchRunGraphProjection,
+  getWorkbenchTaskQueueProposalProjection,
+  getWorkbenchTranscriptProjection,
+  getWorkbenchWorkflowGraphPlanProjection,
+  getWorkbenchWorkflowRunProjection,
+  getWorkbenchWorkpadProjection,
+  type WorkbenchProjectInput,
+} from "../../workbench/manager.js";
+
+export async function getWorkbenchProjection(input: WorkbenchProjectInput, rest: string): Promise<unknown> {
+  const [kind, encodedChangeId, encodedId] = rest.split("/");
+  const changeId = encodedChangeId ? decodeURIComponent(encodedChangeId) : undefined;
+  const id = encodedId ? decodeURIComponent(encodedId) : undefined;
+  if (kind === "transcript") {
+    if (!changeId) throw badRequest("transcript projection requires changeId.");
+    return getWorkbenchTranscriptProjection(input, changeId);
+  }
+  if (kind === "run-graph") {
+    if (!changeId) throw badRequest("run-graph projection requires changeId.");
+    return getWorkbenchRunGraphProjection(input, changeId);
+  }
+  if (kind === "workpad") {
+    if (!changeId) throw badRequest("workpad projection requires changeId.");
+    return getWorkbenchWorkpadProjection(input, changeId);
+  }
+  if (kind === "evidence") {
+    if (!changeId) throw badRequest("evidence projection requires changeId.");
+    return getWorkbenchEvidenceProjection(input, changeId);
+  }
+  if (kind === "decomposition-plan") {
+    if (!changeId) throw badRequest("decomposition-plan projection requires changeId.");
+    return getWorkbenchDecompositionPlanProjection(input, changeId);
+  }
+  if (kind === "decomposition-readiness") {
+    if (!changeId) throw badRequest("decomposition-readiness projection requires changeId.");
+    return getWorkbenchDecompositionReadinessProjection(input, changeId);
+  }
+  if (kind === "taskqueue-proposal") {
+    if (!changeId) throw badRequest("taskqueue-proposal projection requires changeId.");
+    return getWorkbenchTaskQueueProposalProjection(input, changeId);
+  }
+  if (kind === "workflow-graph-plan") {
+    if (!changeId) throw badRequest("workflow-graph-plan projection requires changeId.");
+    return getWorkbenchWorkflowGraphPlanProjection(input, changeId, id);
+  }
+  if (kind === "workflow-run") {
+    if (!changeId) throw badRequest("workflow-run projection requires changeId.");
+    if (!id) throw badRequest("workflow-run projection requires id.");
+    return getWorkbenchWorkflowRunProjection(input, changeId, id);
+  }
+  if (kind === "maintenance") return getWorkbenchMaintenanceProjection(input);
+  if (kind === "landing-queue") return getWorkbenchLandingQueueProjection(input);
+  throw badRequest(`Unknown Workbench projection: ${kind ?? ""}`);
+}
+
+function badRequest(message: string): Error {
+  const error = new Error(message);
+  error.name = "BadRequest";
+  return error;
+}

@@ -8,23 +8,14 @@ import {
   createAgentTask,
   listAgentTasks,
   recordMainAgentDecision,
-  recordMaintenanceLedgerEntry,
 } from "../agent-task/manager.js";
-import {
-  type AgentTaskRequest,
-} from "../agent-task/delegate-task.js";
-import { recordPostRunBoundaryAudit, boundaryAuditArtifactRef, recordToolEventAuditEntry } from "../agent-task/boundary-audit.js";
-import { dispatchForegroundRoleTask } from "../agent-task/role-dispatcher.js";
-import { evaluateToolPolicy, highImpactActions } from "../agent-task/tool-policy.js";
 import {
   createMainAgentOrchestrationState,
   decideNextMainAgentOrchestration,
-  recordMainAgentOrchestrationStep,
   type MainAgentOrchestrationDecision,
   type MainAgentOrchestrationRole,
   type MainAgentOrchestrationState,
 } from "../agent-task/orchestration-engine.js";
-import { startCodeRun, type CodeExecutionGateOptions } from "../code/manager.js";
 import { buildCodexReadonlyArgv, buildCodexReadonlyResumeArgv, detectCodexCapabilities } from "../codex/capabilities.js";
 import { detectCodexAppServerCapability, getActiveCodexAppServerTurn, runCodexAppServerTurn, type CodexAppServerNotification } from "../codex/app-server.js";
 import { createCodexJsonlStreamParser, extractCodexSessionIdFromJsonl, extractFinalMessageFromCodexJsonl, truncateReadablePreview, type CodexJsonlStreamEvent } from "../codex/jsonl.js";
@@ -43,7 +34,7 @@ import {
   recordMainOrchestratorDecision,
   releaseDemandWorker,
 } from "../demand-worker/manager.js";
-import { readJsonFile, readRequiredJsonFile, writeJsonFile } from "../fs/json.js";
+import { readJsonFile, writeJsonFile } from "../fs/json.js";
 import { assertWritableMemory, resolveProjectMemory } from "../memory/resolver.js";
 import { appendRunEvent, buildContextProjection, buildRunId, listRuns } from "../run/manager.js";
 import { isRunStopRequested, requestRunStop } from "../run/control.js";
@@ -52,7 +43,7 @@ import { getEnabledSkillContext } from "../skill/catalog.js";
 import { getSpecTestDriftReport } from "../spec-test/drift.js";
 import { runIntegrationCheck } from "../integration-check/manager.js";
 import { prepareLandingPackage, reviewLandingPackage } from "../landing/manager.js";
-import { latestLandingQueueSnapshot, mergeNextLandingQueueCandidate, prepareLandingQueue, refreshLandingQueue } from "../landing-queue/manager.js";
+import { mergeNextLandingQueueCandidate, prepareLandingQueue, refreshLandingQueue } from "../landing-queue/manager.js";
 import { createDraftPr, preparePrDraftPackage, refreshPrDraftStatus } from "../pr-draft/manager.js";
 import {
   completePrFeedbackReworkAttempt,
@@ -76,26 +67,18 @@ import {
   prepareRemoteBranchCleanup,
   syncLocalAfterMerge,
 } from "../post-merge/manager.js";
-import { finishTaskRunFromWorkflowResult, listTaskRuns, markTaskRunStarted, reconcileTaskRuns, retryTaskRun, startTaskRun } from "../task-run/manager.js";
-import {
-  failQueuedTaskItem,
-  getNextQueuedTaskQueueItem,
-  listTaskQueues,
-  markTaskQueueItemRunning,
-  markTaskQueueRunning,
-  pauseTaskQueue,
-  updateTaskQueueAfterItem,
-  finishTaskQueueItem,
-} from "../task-queue/manager.js";
+import { reconcileTaskRuns } from "../task-run/manager.js";
 import {
   createWorkflowRunForValidatedTaskQueue,
-  deriveWorkflowStageResumeVerdict,
   reconcileWorkflowTaskQueue,
-  startOrResumeWorkflowTaskQueue,
-  syncWorkflowRunFromTaskQueue,
   validateWorkflowTaskQueueProposalStart,
 } from "../workflow-runtime/taskqueue.js";
-import { readWorkflowRun } from "../workflow-run/manager.js";
+import {
+  runCodeValidateAuditSequence,
+  runTaskQueueSequence,
+  runTaskRunCodeValidateAuditSequence,
+  sourceRefreshReworkPrompt,
+} from "../workflow-runtime/code-workflow.js";
 import {
   buildTaskQueueProposalFromReadiness,
   compileWorkflowGraphPlan,
@@ -121,22 +104,18 @@ import {
   type TaskQueueProposal,
   type WorkflowGraphPlan,
 } from "../workflow-artifacts/manager.js";
-import {
-  assertWorkflowActionRequiredTargets,
-  workflowActionScopePayload as buildWorkflowActionScopePayload,
-  workflowActionScopesMatchStrict,
-  workflowActionTargetId as buildWorkflowActionTargetId,
-} from "../workflow-actions/registry.js";
 import { startValidationRun } from "../validation/manager.js";
 import { buildAgentSystemPrompt, buildRunAgentRecord, resolveAgentRole } from "../agent/catalog.js";
-import type { AgentTask, ManagedProject, ResolvedMemory, RunMetadata, RunStatus, StageResumeVerdict, TaskRun } from "../types/index.js";
+import type { ManagedProject, ResolvedMemory, RunMetadata, RunStatus } from "../types/index.js";
 import { runWorkbenchWorkflowActionService } from "./actions/service.js";
+import { artifactForActionResult, extractRunId, labelForAction, summarizeActionResult, workflowFailureMessage } from "./actions/results.js";
+import { assertWorkflowActionScope, auditHighImpactWorkflowAction, workflowActionScopePayload, workflowActionTargetId } from "./actions/boundary.js";
+import { dispatchWorkbenchWorkflowAction, type WorkbenchActionHandlerMap } from "./actions/dispatcher.js";
+import { readLatestPlanningBundle } from "./actions/planning-bundle.js";
+import { createAssistantTranscriptCapture } from "./live-transcript.js";
 import { WorkbenchStore, type StoredDecisionRecord } from "./store.js";
 import { appendTopicThreadLogEntry, collectAllTopicThreadEntries, readTopicThreadLog as readThreadLog } from "./thread-log.js";
 import type {
-  AssistantTurnActivity,
-  AssistantTurnBlock,
-  AssistantTurnBlockKind,
   OrchestrationPlanCard,
   PlanningArtifactBundle,
   SuggestedAction,
@@ -148,7 +127,6 @@ import type {
   WorkbenchAssistantEvent,
   WorkbenchLiveEvent,
   WorkbenchLiveSink,
-  WorkbenchLiveToolEvent,
   WorkbenchWorkflowActionRequest,
   WorkbenchWorkflowActionResult,
   WorkbenchWorkflowActionType,
@@ -183,271 +161,12 @@ function emitLive(live: WorkbenchLiveSink | undefined, event: WorkbenchLiveEvent
   }
 }
 
-function createAssistantTranscriptCapture(live: WorkbenchLiveSink | undefined): AssistantTranscriptCapture {
-  const activity: AssistantTurnActivity[] = [];
-  const blocks: AssistantTurnBlock[] = [];
-  let sequence = 0;
-
-  function nextSequence(): number {
-    sequence += 1;
-    return sequence;
-  }
-
-  function appendBlock(block: Omit<AssistantTurnBlock, "id" | "sequence" | "timestamp"> & { id?: string; sequence?: number; timestamp?: string }): void {
-    const timestamp = block.timestamp ?? new Date().toISOString();
-    const currentSequence = block.sequence ?? nextSequence();
-    upsertTranscriptBlock(blocks, {
-      ...block,
-      id: block.id ?? `block-${timestamp}-${currentSequence}`,
-      sequence: currentSequence,
-      timestamp,
-    });
-  }
-
-  function appendProse(delta: string, runId?: string): void {
-    if (!delta) return;
-    const last = blocks.at(-1);
-    if (last?.kind === "prose" && last.source === "codex") {
-      last.text = `${last.text ?? ""}${delta}`;
-      return;
-    }
-    const currentSequence = nextSequence();
-    appendBlock({
-      id: `prose:${runId ?? "assistant"}:${currentSequence}`,
-      runId,
-      sequence: currentSequence,
-      kind: "prose",
-      source: "codex",
-      text: delta,
-    });
-  }
-
-  function appendAssistantEventBlock(event: WorkbenchAssistantEvent, timestamp: string): void {
-    const block = assistantEventToBlock(event, timestamp, nextSequence());
-    if (block) upsertTranscriptBlock(blocks, block);
-  }
-
-  function appendToolEventBlock(event: WorkbenchLiveToolEvent, timestamp: string): void {
-    const block = toolEventToBlock(event, timestamp, nextSequence());
-    if (block) upsertTranscriptBlock(blocks, block);
-  }
-
-  const capture: AssistantTranscriptCapture = {
-    text: "",
-    activity,
-    blocks,
-    sink: {
-      emit(event: WorkbenchLiveEvent): void {
-        const timestamp = new Date().toISOString();
-        if (event.event === "run.started") {
-          activity.push({
-            kind: "status",
-            label: "started",
-            detail: event.data.runtime ?? event.data.actionType,
-            timestamp,
-          });
-        } else if (event.event === "run.status") {
-          activity.push({
-            kind: "status",
-            label: event.data.status,
-            detail: event.data.label,
-            timestamp,
-          });
-        } else if (event.event === "assistant.delta") {
-          capture.text += event.data.delta;
-          appendProse(event.data.delta, event.data.runId);
-        } else if (event.event === "assistant.event") {
-          activity.push({
-            kind: "assistant-event",
-            event: { ...event.data, timestamp: event.data.timestamp ?? timestamp },
-            timestamp,
-          });
-          appendAssistantEventBlock({ ...event.data, timestamp: event.data.timestamp ?? timestamp }, timestamp);
-        } else if (event.event === "tool.event") {
-          activity.push({ kind: "tool", tool: event.data, timestamp });
-          appendToolEventBlock(event.data, timestamp);
-        } else if (event.event === "usage" && isRecord(event.data.usage)) {
-          activity.push({ kind: "usage", usage: event.data.usage, timestamp });
-          const currentSequence = nextSequence();
-          upsertTranscriptBlock(blocks, {
-            id: `usage:${event.data.runId ?? "assistant"}:${currentSequence}`,
-            runId: event.data.runId,
-            sequence: currentSequence,
-            kind: "usage",
-            timestamp,
-            source: "codex",
-            title: "Usage recorded",
-            text: formatUsageSummary(event.data.usage),
-          });
-        } else if (event.event === "error") {
-          activity.push({ kind: "error", message: event.data.message, timestamp });
-          const currentSequence = nextSequence();
-          blocks.push({
-            id: `error:${event.data.runId ?? event.data.actionRunId ?? "assistant"}:${currentSequence}`,
-            runId: event.data.runId,
-            sequence: currentSequence,
-            kind: "error",
-            timestamp,
-            source: "codex",
-            title: "Error",
-            text: event.data.message,
-            isError: true,
-          });
-        }
-        emitLive(live, event);
-      },
-    },
-  };
-  return capture;
-}
-
-interface AssistantTranscriptCapture {
-  sink: WorkbenchLiveSink;
-  text: string;
-  activity: AssistantTurnActivity[];
-  blocks: AssistantTurnBlock[];
-}
-
-function assistantEventToBlock(event: WorkbenchAssistantEvent, timestamp: string, sequence: number): AssistantTurnBlock | null {
-  if (!isMainThreadAssistantStatus(event)) return null;
-  const kind = assistantEventBlockKind(event.kind);
-  const text = event.summary ?? (kind === "usage" ? undefined : event.preview);
-  return {
-    id: `assistant:${event.runId}:${event.itemId ?? event.kind}:${event.phase ?? "event"}:${sequence}`,
-    runId: event.runId,
-    sequence,
-    kind,
-    timestamp: event.timestamp ?? timestamp,
-    source: "codex",
-    status: event.phase,
-    title: event.title ?? assistantEventTitle(event.kind),
-    text,
-    command: event.command,
-    cwd: event.cwd,
-    exitCode: event.exitCode,
-    preview: kind === "usage" ? event.summary : event.preview,
-    artifactRef: event.artifactRef,
-    isError: event.isError,
-    truncated: event.truncated,
-    itemId: event.itemId,
-  };
-}
-
-function toolEventToBlock(event: WorkbenchLiveToolEvent, timestamp: string, sequence: number): AssistantTurnBlock | null {
-  if (event.phase === "stderr") return null;
-  if (!event.command && event.phase === "status" && !event.isError) return null;
-  return {
-    id: `tool:${event.runId}:${event.command ?? event.name ?? event.phase}:${event.phase}:${sequence}`,
-    runId: event.runId,
-    sequence,
-    kind: event.command ? "command" : "status",
-    timestamp,
-    source: "codex",
-    status: event.status ?? event.phase,
-    title: event.command
-      ? event.phase === "started" ? "Command started" : event.isError ? "Command failed" : "Command completed"
-      : event.name ?? "Run status",
-    text: event.name,
-    command: event.command,
-    exitCode: event.exitCode,
-    preview: event.outputTail,
-    isError: event.isError,
-    truncated: event.outputTail?.includes("[truncated") ? true : undefined,
-    itemId: event.itemId,
-  };
-}
-
-function upsertTranscriptBlock(blocks: AssistantTurnBlock[], block: AssistantTurnBlock): void {
-  const key = assistantBlockSemanticKey(block);
-  const index = blocks.findIndex((item) => assistantBlockSemanticKey(item) === key);
-  if (index === -1) {
-    blocks.push(block);
-    return;
-  }
-  blocks[index] = mergeAssistantBlocks(blocks[index], block);
-}
-
-function mergeAssistantBlocks(existing: AssistantTurnBlock, incoming: AssistantTurnBlock): AssistantTurnBlock {
-  return {
-    ...existing,
-    ...incoming,
-    id: existing.id,
-    sequence: existing.sequence,
-    timestamp: existing.timestamp,
-    text: incoming.text ?? existing.text,
-    preview: incoming.preview ?? existing.preview,
-    title: incoming.title ?? existing.title,
-    status: incoming.status ?? existing.status,
-    command: incoming.command ?? existing.command,
-    cwd: incoming.cwd ?? existing.cwd,
-    exitCode: incoming.exitCode ?? existing.exitCode,
-    artifactRef: incoming.artifactRef ?? existing.artifactRef,
-    truncated: incoming.truncated ?? existing.truncated,
-    isError: incoming.isError ?? existing.isError,
-  };
-}
-
-function assistantBlockSemanticKey(block: AssistantTurnBlock): string {
-  const runId = block.runId ?? "";
-  if (block.kind === "usage") return `usage:${runId}`;
-  if (block.kind === "error") return `error:${runId}:${normalizeBlockText(block.text ?? block.preview ?? block.title)}`;
-  if (block.kind === "workflow-evidence") return `workflow-evidence:${runId}:${block.artifactRef ?? block.title ?? block.status ?? block.id}`;
-  if (block.kind === "command") {
-    if (block.itemId) return `command:${runId}:item:${block.itemId}`;
-    return `command:${runId}:command:${normalizeCommandKey(block.command)}`;
-  }
-  return block.itemId ? `${block.kind}:${runId}:item:${block.itemId}` : `${block.id}:${block.kind}`;
-}
-
-function normalizeCommandKey(command: string | undefined): string {
-  return (command ?? "").replace(/\s+/g, " ").trim().toLowerCase();
-}
-
-function normalizeBlockText(text: string | undefined): string {
-  return (text ?? "").replace(/\s+/g, " ").trim().toLowerCase();
-}
-
-function assistantEventBlockKind(kind: WorkbenchAssistantEvent["kind"]): AssistantTurnBlockKind {
-  if (kind === "reasoning-summary") return "reasoning-summary";
-  if (kind === "command") return "command";
-  if (kind === "file-change") return "file-change";
-  if (kind === "usage") return "usage";
-  if (kind === "error") return "error";
-  if (kind === "status") return "status";
-  return "tool-result";
-}
-
-function assistantEventTitle(kind: WorkbenchAssistantEvent["kind"]): string {
-  if (kind === "reasoning-summary") return "Reasoning summary";
-  if (kind === "command") return "Command";
-  if (kind === "file-change") return "File change";
-  if (kind === "mcp-tool") return "Tool call";
-  if (kind === "web-search") return "Web search";
-  if (kind === "plan-update") return "Plan update";
-  if (kind === "tool-result") return "Tool result";
-  if (kind === "usage") return "Usage";
-  if (kind === "error") return "Error";
-  return "Run status";
-}
-
-function isMainThreadAssistantStatus(event: WorkbenchAssistantEvent): boolean {
-  if (event.kind !== "status") return true;
-  const normalized = `${event.title ?? ""} ${event.summary ?? ""} ${event.phase ?? ""}`.toLowerCase();
-  if (normalized.includes("codex thread started")) return false;
-  if (normalized.includes("codex initialized the thread")) return false;
-  if (normalized.includes("codex turn running")) return false;
-  if (normalized.includes("codex started processing the turn")) return false;
-  if (normalized.includes("codex turn completed")) return false;
-  return Boolean(event.isError) || normalized.includes("validation") || normalized.includes("audit") || normalized.includes("failed") || normalized.includes("blocked");
-}
-
 const runtimeMetadataSchema = z.object({
   version: z.literal("1.0"),
   changeId: z.string(),
   codexSessionId: z.string().nullable(),
   updatedAt: z.string(),
 });
-const OFFICIAL_REWORK_BUDGET = 1;
 const PROJECT_SCOPED_WORKFLOW_ACTIONS = new Set<WorkbenchWorkflowActionType>([
   "demand.worker.start-available",
   "demand.worker.reconcile",
@@ -605,346 +324,105 @@ export async function getWorkbenchActionEvents(project: ManagedProject, actionRu
 async function executeWorkflowAction(project: ManagedProject, changeId: string, request: WorkbenchWorkflowActionRequest, live?: WorkbenchLiveSink): Promise<unknown> {
   assertWorkflowActionScope(request);
   await auditHighImpactWorkflowAction(project, changeId, request, live);
-  switch (request.actionType) {
-    case "chat.ask":
-      if (!request.prompt) throw new Error("chat.ask requires prompt.");
-      return postTopicMessage(project, changeId, request.prompt, live);
-    case "change.spec.propose":
-      return startSpecProposalRun(project, { prompt: request.prompt });
-    case "change.spec.accept":
-      if (!request.proposalId) throw new Error("change.spec.accept requires proposalId.");
-      return acceptSpecProposal(project, request.proposalId);
-    case "change.plan.propose":
-      return startPlanProposalRun(project, { prompt: request.prompt });
-    case "change.plan.accept":
-      if (!request.proposalId) throw new Error("change.plan.accept requires proposalId.");
-      return acceptPlanProposal(project, request.proposalId);
-    case "planning.generate":
-    case "planning.revise":
-      return generatePlanningDraft(project, changeId, request.prompt, live, request.actionType === "planning.revise");
-    case "planning.confirm-execution":
-      return confirmPlanningAndStartPipeline(project, changeId, request, live);
-    case "planning.decompose":
-      return generateDecompositionPlan(project, changeId, request.prompt, live);
-    case "planning.decomposition.confirm":
-      return confirmDecompositionPlan(project, changeId, request, live);
-    case "planning.decomposition.assess-readiness":
-      return assessDecompositionReadiness(project, changeId, request, live);
-    case "planning.taskqueue.propose":
-      return proposeTaskQueue(project, changeId, request, live);
-    case "planning.workflowgraph.compile":
-      return compileTaskQueueWorkflowGraph(project, changeId, request, live);
-    case "planning.taskqueue.confirm-start":
-      return confirmTaskQueueProposalAndStart(project, changeId, request, live);
-    case "orchestrator.evaluate":
-      return evaluateDemandOrchestrator(project, changeId);
-    case "demand.worker.enqueue":
-      return enqueueDemandWorkerForAction(project, changeId);
-    case "demand.worker.claim":
-    case "demand.worker.start-next":
-      return startNextDemandWorkerForAction(project, changeId, request.prompt, live);
-    case "demand.worker.start-available":
-    case "orchestrator.pump":
-      return pumpDemandWorkersForAction(project, request.prompt, live, changeId);
-    case "demand.worker.reconcile":
-      return reconcileDemandWorkers(await resolveProjectMemory(project));
-    case "demand.worker.release":
-      return releaseDemandWorkerForAction(project, changeId, request.prompt);
-    case "role.pipeline.start":
-    case "role.pipeline.continue":
-      return runMainAgentToolOrchestration(project, changeId, request.prompt, live, request.actionType === "role.pipeline.continue");
-    case "role.pipeline.stop":
-      return stopRunningPipeline(project, changeId, request.prompt, live);
-    case "role.pipeline.reconcile":
-      return reconcileTaskRuns(project, { changeId, taskRunId: request.taskRunId });
-    case "conversation.steer":
-      return steerConversation(project, changeId, request.prompt, live);
-    case "conversation.interrupt":
-      return interruptConversation(project, changeId, request.prompt, live);
-    case "conversation.continue":
-      return runMainAgentToolOrchestration(project, changeId, request.prompt, live, true);
-    case "result.refresh-rework":
-      if (!request.worktreeId) throw new Error("result.refresh-rework requires worktreeId.");
-      return runCodeValidateAuditSequence(project, changeId, sourceRefreshReworkPrompt(request.worktreeId, request.prompt), live, undefined, undefined, "rework-coder");
-    case "result.revalidate":
-      if (!request.worktreeId) throw new Error("result.revalidate requires worktreeId.");
-      return startValidationRun(project, { changeId, worktree: request.worktreeId });
-    case "result.reaudit":
-      if (!request.worktreeId) throw new Error("result.reaudit requires worktreeId.");
-      return startAuditRun(project, { changeId, worktreeId: request.worktreeId, prompt: request.prompt ?? "Re-run audit for the selected result review evidence." });
-    case "result.refresh-status":
-      return { status: "refreshed", changeId, worktreeId: request.worktreeId };
-    case "apply-check.run":
-      return runIntegrationCheck(project, request.worktreeIds ?? (request.worktreeId ? [request.worktreeId] : undefined));
-    case "landing.prepare":
-      return prepareLandingForAction(project, changeId, request, live);
-    case "landing.review":
-      return reviewLandingForAction(project, changeId, request, live);
-    case "landing.refresh":
-      return prepareLandingForAction(project, changeId, request, live);
-    case "landing-queue.prepare":
-      return prepareLandingQueueForAction(project, changeId, live);
-    case "landing-queue.refresh":
-      return refreshLandingQueueForAction(project, changeId, live);
-    case "landing-queue.merge-next":
-      return mergeNextLandingQueueForAction(project, changeId, request, live);
-    case "landing-queue.skip":
-    case "landing-queue.remove-stale":
-      return refreshLandingQueueForAction(project, changeId, live);
-    case "pr-draft.prepare":
-      return preparePrDraftForAction(project, changeId, request, live);
-    case "pr-draft.create":
-      return createPrDraftForAction(project, changeId, request, live);
-    case "pr-draft.refresh":
-      return refreshPrDraftForAction(project, changeId, request, live);
-    case "pr-feedback.refresh":
-    case "pr-feedback.evaluate":
-      return refreshPrFeedbackForAction(project, changeId, request, live);
-    case "pr-feedback.rework":
-      return reworkPrFeedbackForAction(project, changeId, request, live);
-    case "pr-feedback.update-draft":
-      return updatePrDraftForAction(project, changeId, request, live);
-    case "pr-review.prepare":
-      return preparePrReviewForAction(project, changeId, request, live);
-    case "pr-review.submit":
-      return submitPrReviewForAction(project, changeId, request, live);
-    case "pr-review.refresh":
-      return refreshPrReviewForAction(project, changeId, request, live);
-    case "pr-review.feedback-refresh":
-    case "pr-review.feedback-evaluate":
-      return refreshPrFeedbackForAction(project, changeId, { ...request, actionType: "pr-feedback.refresh" }, live);
-    case "pr-review.rework":
-      return reworkPrFeedbackForAction(project, changeId, { ...request, actionType: "pr-feedback.rework" }, live);
-    case "pr-review.reply-prepare":
-      return preparePrReviewReplyForAction(project, changeId, request, live);
-    case "pr-review.reply-submit":
-      return submitPrReviewReplyForAction(project, changeId, request, live);
-    case "pr-review.thread-resolve":
-      return resolvePrReviewThreadForAction(project, changeId, request, live);
-    case "remote-landing.prepare":
-      return prepareRemoteLandingForAction(project, changeId, request, live);
-    case "remote-landing.merge":
-      return mergeRemoteLandingForAction(project, changeId, request, live);
-    case "remote-landing.refresh":
-      return refreshRemoteLandingForAction(project, changeId, request, live);
-    case "post-merge.prepare":
-    case "post-merge.refresh":
-      return preparePostMergeForAction(project, changeId, request, live);
-    case "post-merge.sync-local.prepare":
-      return prepareLocalSyncForAction(project, changeId, request, live);
-    case "post-merge.sync-local.run":
-      return syncLocalForAction(project, changeId, request, live);
-    case "post-merge.cleanup-branch.prepare":
-      return prepareRemoteBranchCleanupForAction(project, changeId, request, live);
-    case "post-merge.cleanup-branch.run":
-      return cleanupRemoteBranchForAction(project, changeId, request, live);
-    case "code.run":
-      return runMainAgentToolOrchestration(project, changeId, request.prompt, live, false, request.taskIds, request.readinessManifestId);
-    case "task.run.start":
-      return runTaskRunCodeValidateAuditSequence(project, changeId, request, live, "start");
-    case "task.run.retry":
-      return runTaskRunCodeValidateAuditSequence(project, changeId, request, live, "retry");
-    case "task.run.reconcile":
-      return reconcileTaskRuns(project, { changeId, taskRunId: request.taskRunId });
-    case "task.queue.start":
-      return runTaskQueueSequence(project, changeId, request, live);
-    case "task.queue.reconcile":
-      return reconcileWorkflowTaskQueue(project, { changeId, queueRunId: request.queueRunId });
-    case "validate.run":
-      return startValidationRun(project, { changeId, worktree: request.worktreeId });
-    case "audit.run":
-      return startAuditRun(project, { changeId, worktreeId: request.worktreeId, prompt: request.prompt });
-    case "spec-test.drift":
-      return getSpecTestDriftReport(project, { worktreeId: request.worktreeId });
-    default:
-      return assertNever(request.actionType);
-  }
+  return dispatchWorkbenchWorkflowAction(workflowActionHandlers, project, changeId, request, live);
 }
 
-function assertWorkflowActionScope(request: WorkbenchWorkflowActionRequest): void {
-  assertWorkflowActionRequiredTargets(request);
-  const requireOne = (label: string, values: Array<unknown>): void => {
-    if (!values.some((value) => Array.isArray(value) ? value.length > 0 : Boolean(value))) throw new Error(`${request.actionType} requires ${label}.`);
-  };
-  switch (request.actionType) {
-    case "result.refresh-rework":
-    case "result.revalidate":
-    case "result.reaudit":
-    case "result.refresh-status":
-    case "validate.run":
-    case "audit.run":
-    case "spec-test.drift":
-      requireOne("worktreeId", [request.worktreeId]);
-      return;
-    case "landing.prepare":
-    case "landing.review":
-    case "landing.refresh":
-      requireOne("applyCheckId or worktreeId/worktreeIds", [request.applyCheckId, request.worktreeId, request.worktreeIds]);
-      return;
-    case "landing-queue.merge-next":
-    case "landing-queue.refresh":
-      requireOne("landingPackageId", [request.landingPackageId]);
-      return;
-    default:
-      return;
-  }
-}
-
-const HIGH_IMPACT_WORKBENCH_ACTIONS = new Set(highImpactActions());
-
-async function auditHighImpactWorkflowAction(project: ManagedProject, changeId: string, request: WorkbenchWorkflowActionRequest, live?: WorkbenchLiveSink): Promise<void> {
-  if (!HIGH_IMPACT_WORKBENCH_ACTIONS.has(request.actionType)) return;
-  const memory = await resolveProjectMemory(project);
-  await assertCurrentHighImpactWorkflowTarget(memory, changeId, request);
-  const targetId = workflowActionTargetId(request, changeId);
-  const scope = workflowActionScopePayload(request, changeId);
-  const decision = evaluateToolPolicy({
-    actionType: request.actionType,
-    actorRoleId: "main-agent",
-    changeId,
-    conversationId: changeId,
-    targetId,
-    enforcementMode: "broker-enforced",
-  });
-  const artifact = await recordToolEventAuditEntry(memory, {
-    changeId,
-    conversationId: changeId,
-    actorRoleId: "main-agent",
-    actionType: request.actionType,
-    targetId,
-    scope,
-    decision,
-  });
-  live?.emit({
-    event: "run.status",
-    data: {
-      actionRunId: decision.id,
-      status: decision.status === "denied" || decision.status === "unavailable" ? "failed" : "running",
-      label: "ToolPolicyGate",
-    },
-  });
-  if (decision.status === "denied" || decision.status === "unavailable") {
-    throw new Error(`${decision.readableMessage} Evidence: ${artifact}`);
-  }
-}
-
-async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, changeId: string, request: WorkbenchWorkflowActionRequest): Promise<void> {
-  if (request.actionType === "planning.confirm-execution") {
-    const active = await getActiveChanges(memory);
-    const target = active.find((item) => item.name === changeId);
-    if (!target) throw new Error(`planning.confirm-execution target is stale or missing active Change: ${changeId}.`);
-    if (!request.planningBundleId) throw new Error("planning.confirm-execution requires planningBundleId.");
-    const bundle = await readLatestPlanningBundle(memory, target.path);
-    if (bundle.id !== request.planningBundleId || bundle.status !== "draft" || !existsSync(join(memory.memoryRoot, target.path, "planning", "latest-bundle.json"))) {
-      throw new Error("planning.confirm-execution target is stale or no longer confirmable.");
-    }
-  }
-  if (request.actionType === "planning.decomposition.confirm") {
-    const active = await getActiveChanges(memory);
-    const target = active.find((item) => item.name === changeId);
-    if (!target) throw new Error(`planning.decomposition.confirm target is stale or missing active Change: ${changeId}.`);
-    if (!request.decompositionPlanId) throw new Error("planning.decomposition.confirm requires decompositionPlanId.");
-    const plan = await readLatestDecompositionPlan(memory, target.path);
-    if (plan.id !== request.decompositionPlanId || plan.status !== "draft") {
-      throw new Error("planning.decomposition.confirm target is stale or no longer confirmable.");
-    }
-  }
-  if (request.actionType === "planning.decomposition.assess-readiness") {
-    const active = await getActiveChanges(memory);
-    const target = active.find((item) => item.name === changeId);
-    if (!target) throw new Error(`planning.decomposition.assess-readiness target is stale or missing active Change: ${changeId}.`);
-    if (!request.decompositionPlanId) throw new Error("planning.decomposition.assess-readiness requires decompositionPlanId.");
-    const plan = await readLatestDecompositionPlan(memory, target.path);
-    if (plan.id !== request.decompositionPlanId || plan.status !== "confirmed") {
-      throw new Error("planning.decomposition.assess-readiness target is stale or no longer assessable.");
-    }
-  }
-  if (request.actionType === "planning.taskqueue.propose") {
-    const active = await getActiveChanges(memory);
-    const target = active.find((item) => item.name === changeId);
-    if (!target) throw new Error(`planning.taskqueue.propose target is stale or missing active Change: ${changeId}.`);
-    if (!request.readinessManifestId) throw new Error("planning.taskqueue.propose requires readinessManifestId.");
-    const manifest = await readLatestDecompositionReadinessManifest(memory, target.path);
-    if (manifest.id !== request.readinessManifestId || manifest.status !== "ready-for-sequential-taskqueue-proposal" || manifest.nextAllowedAction !== "taskqueue.proposal") {
-      throw new Error("planning.taskqueue.propose target is stale or no longer proposal-ready.");
-    }
-  }
-  if (request.actionType === "planning.workflowgraph.compile") {
-    const active = await getActiveChanges(memory);
-    const target = active.find((item) => item.name === changeId);
-    if (!target) throw new Error(`planning.workflowgraph.compile target is stale or missing active Change: ${changeId}.`);
-    if (!request.taskQueueProposalId) throw new Error("planning.workflowgraph.compile requires taskQueueProposalId.");
-    if (!request.readinessManifestId) throw new Error("planning.workflowgraph.compile requires readinessManifestId.");
-    const proposal = await readLatestTaskQueueProposal(memory, target.path);
-    if (proposal.id !== request.taskQueueProposalId || proposal.changeId !== changeId || !["draft", "confirmed"].includes(proposal.status)) {
-      throw new Error("planning.workflowgraph.compile target is stale or no longer compilable.");
-    }
-    const manifest = await readLatestDecompositionReadinessManifest(memory, target.path);
-    if (manifest.id !== request.readinessManifestId || manifest.id !== proposal.readinessManifestId || manifest.status !== "ready-for-sequential-taskqueue-proposal") {
-      throw new Error("planning.workflowgraph.compile readiness target is stale.");
-    }
-  }
-  if (request.actionType === "planning.taskqueue.confirm-start") {
-    const active = await getActiveChanges(memory);
-    const target = active.find((item) => item.name === changeId);
-    if (!target) throw new Error(`planning.taskqueue.confirm-start target is stale or missing active Change: ${changeId}.`);
-    if (!request.taskQueueProposalId) throw new Error("planning.taskqueue.confirm-start requires taskQueueProposalId.");
-    if (!request.workflowGraphPlanId) throw new Error("planning.taskqueue.confirm-start requires workflowGraphPlanId.");
-    if (!request.readinessManifestId) throw new Error("planning.taskqueue.confirm-start requires readinessManifestId.");
-    if (!request.decompositionPlanId) throw new Error("planning.taskqueue.confirm-start requires decompositionPlanId.");
-    const proposal = await readLatestTaskQueueProposal(memory, target.path);
-    if (proposal.id !== request.taskQueueProposalId || proposal.changeId !== changeId || proposal.status !== "confirmed" || proposal.decompositionPlanId !== request.decompositionPlanId || proposal.readinessManifestId !== request.readinessManifestId) {
-      throw new Error("planning.taskqueue.confirm-start target is stale or no longer startable.");
-    }
-    const manifest = await readLatestDecompositionReadinessManifest(memory, target.path);
-    if (manifest.id !== proposal.readinessManifestId || manifest.status !== "ready-for-sequential-taskqueue-proposal") {
-      throw new Error("planning.taskqueue.confirm-start readiness target is stale.");
-    }
-    const graph = await readLatestWorkflowGraphPlan(memory, target.path);
-    if (graph.id !== request.workflowGraphPlanId || graph.taskQueueProposalId !== proposal.id || graph.readinessManifestId !== manifest.id || graph.status !== "compiled") {
-      throw new Error("planning.taskqueue.confirm-start graph target is stale.");
-    }
-  }
-  if (request.actionType === "code.run" && request.taskIds?.length) {
-    assertKnownTaskIds(await getChangeStatusForChange(memory, changeId), request.taskIds, "code.run");
-  }
-  if (request.actionType === "task.run.start") {
-    assertKnownTaskIds(await getChangeStatusForChange(memory, changeId), [requireSingleTaskId(request.taskIds)], "task.run.start");
-  }
-  if (request.actionType === "task.run.retry") {
-    const taskRunId = requireTaskRunId(request.taskRunId);
-    const runs = await listTaskRuns(memory, changeId);
-    if (!runs.some((run) => run.id === taskRunId)) throw new Error(`task.run.retry target is stale or not scoped to Change ${changeId}.`);
-  }
-  if (request.actionType === "landing-queue.merge-next") {
-    const snapshot = await latestLandingQueueSnapshot(memory);
-    const candidate = snapshot?.candidates.find((item) => item.landingPackageId === request.landingPackageId);
-    if (!candidate || !candidate.canMerge || !candidate.changeIds.includes(changeId)) {
-      throw new Error("landing-queue.merge-next target is stale or not currently mergeable.");
-    }
-  }
-  if (request.actionType === "task.queue.start") {
-    const queues = await listTaskQueues(memory, changeId);
-    if (request.queueRunId) {
-      const queue = queues.find((item) => item.id === request.queueRunId);
-      if (!queue || queue.status !== "paused") throw new Error("task.queue.start target is stale or not paused.");
-      if (!workflowActionScopesMatchStrict({ ...queue, queueRunId: queue.id }, request)) throw new Error("task.queue.start target scope is stale or incomplete.");
-      if (!queue.workflowRunId) throw new Error("task.queue.start target has no WorkflowRun binding.");
-      const workflow = await readWorkflowRun(memory, changeId, queue.workflowRunId);
-      if (!workflowActionScopesMatchStrict({ ...workflow, workflowRunId: workflow.id }, request)) throw new Error("task.queue.start WorkflowRun scope is stale or incomplete.");
-      return;
-    }
-    if (!request.taskQueueProposalId) throw new Error("task.queue.start requires queueRunId for resume or taskQueueProposalId from planning.taskqueue.confirm-start.");
-  }
-}
-
-function workflowActionTargetId(request: WorkbenchWorkflowActionRequest, changeId: string, result?: unknown): string {
-  return buildWorkflowActionTargetId(request, changeId, result);
-}
-
-function workflowActionScopePayload(request: WorkbenchWorkflowActionRequest, changeId: string, result?: unknown): Record<string, unknown> {
-  return buildWorkflowActionScopePayload(request, changeId, result);
-}
+const workflowActionHandlers: WorkbenchActionHandlerMap = {
+  "chat.ask": async (project, changeId, request, live) => {
+    if (!request.prompt) throw new Error("chat.ask requires prompt.");
+    return postTopicMessage(project, changeId, request.prompt, live);
+  },
+  "change.spec.propose": async (project, _changeId, request) => startSpecProposalRun(project, { prompt: request.prompt }),
+  "change.spec.accept": async (project, _changeId, request) => {
+    if (!request.proposalId) throw new Error("change.spec.accept requires proposalId.");
+    return acceptSpecProposal(project, request.proposalId);
+  },
+  "change.plan.propose": async (project, _changeId, request) => startPlanProposalRun(project, { prompt: request.prompt }),
+  "change.plan.accept": async (project, _changeId, request) => {
+    if (!request.proposalId) throw new Error("change.plan.accept requires proposalId.");
+    return acceptPlanProposal(project, request.proposalId);
+  },
+  "planning.generate": async (project, changeId, request, live) => generatePlanningDraft(project, changeId, request.prompt, live, false),
+  "planning.revise": async (project, changeId, request, live) => generatePlanningDraft(project, changeId, request.prompt, live, true),
+  "planning.confirm-execution": async (project, changeId, request, live) => confirmPlanningAndStartPipeline(project, changeId, request, live),
+  "planning.decompose": async (project, changeId, request, live) => generateDecompositionPlan(project, changeId, request.prompt, live),
+  "planning.decomposition.confirm": async (project, changeId, request, live) => confirmDecompositionPlan(project, changeId, request, live),
+  "planning.decomposition.assess-readiness": async (project, changeId, request, live) => assessDecompositionReadiness(project, changeId, request, live),
+  "planning.taskqueue.propose": async (project, changeId, request, live) => proposeTaskQueue(project, changeId, request, live),
+  "planning.workflowgraph.compile": async (project, changeId, request, live) => compileTaskQueueWorkflowGraph(project, changeId, request, live),
+  "planning.taskqueue.confirm-start": async (project, changeId, request, live) => confirmTaskQueueProposalAndStart(project, changeId, request, live),
+  "orchestrator.evaluate": async (project, changeId) => evaluateDemandOrchestrator(project, changeId),
+  "orchestrator.pump": async (project, changeId, request, live) => pumpDemandWorkersForAction(project, request.prompt, live, changeId),
+  "demand.worker.enqueue": async (project, changeId) => enqueueDemandWorkerForAction(project, changeId),
+  "demand.worker.claim": async (project, changeId, request, live) => startNextDemandWorkerForAction(project, changeId, request.prompt, live),
+  "demand.worker.start-next": async (project, changeId, request, live) => startNextDemandWorkerForAction(project, changeId, request.prompt, live),
+  "demand.worker.start-available": async (project, changeId, request, live) => pumpDemandWorkersForAction(project, request.prompt, live, changeId),
+  "demand.worker.reconcile": async (project) => reconcileDemandWorkers(await resolveProjectMemory(project)),
+  "demand.worker.release": async (project, changeId, request) => releaseDemandWorkerForAction(project, changeId, request.prompt),
+  "role.pipeline.start": async (project, changeId, request, live) => runMainAgentToolOrchestration(project, changeId, request.prompt, live, false),
+  "role.pipeline.continue": async (project, changeId, request, live) => runMainAgentToolOrchestration(project, changeId, request.prompt, live, true),
+  "role.pipeline.stop": async (project, changeId, request, live) => stopRunningPipeline(project, changeId, request.prompt, live),
+  "role.pipeline.reconcile": async (project, changeId, request) => reconcileTaskRuns(project, { changeId, taskRunId: request.taskRunId }),
+  "conversation.steer": async (project, changeId, request, live) => steerConversation(project, changeId, request.prompt, live),
+  "conversation.interrupt": async (project, changeId, request, live) => interruptConversation(project, changeId, request.prompt, live),
+  "conversation.continue": async (project, changeId, request, live) => runMainAgentToolOrchestration(project, changeId, request.prompt, live, true),
+  "result.refresh-rework": async (project, changeId, request, live) => {
+    if (!request.worktreeId) throw new Error("result.refresh-rework requires worktreeId.");
+    return runCodeValidateAuditSequence(project, changeId, sourceRefreshReworkPrompt(request.worktreeId, request.prompt), live, undefined, undefined, "rework-coder");
+  },
+  "result.revalidate": async (project, changeId, request) => {
+    if (!request.worktreeId) throw new Error("result.revalidate requires worktreeId.");
+    return startValidationRun(project, { changeId, worktree: request.worktreeId });
+  },
+  "result.reaudit": async (project, changeId, request) => {
+    if (!request.worktreeId) throw new Error("result.reaudit requires worktreeId.");
+    return startAuditRun(project, { changeId, worktreeId: request.worktreeId, prompt: request.prompt ?? "Re-run audit for the selected result review evidence." });
+  },
+  "result.refresh-status": async (_project, changeId, request) => ({ status: "refreshed", changeId, worktreeId: request.worktreeId }),
+  "apply-check.run": async (project, _changeId, request) => runIntegrationCheck(project, request.worktreeIds ?? (request.worktreeId ? [request.worktreeId] : undefined)),
+  "landing.prepare": async (project, changeId, request, live) => prepareLandingForAction(project, changeId, request, live),
+  "landing.review": async (project, changeId, request, live) => reviewLandingForAction(project, changeId, request, live),
+  "landing.refresh": async (project, changeId, request, live) => prepareLandingForAction(project, changeId, request, live),
+  "landing-queue.prepare": async (project, changeId, _request, live) => prepareLandingQueueForAction(project, changeId, live),
+  "landing-queue.refresh": async (project, changeId, _request, live) => refreshLandingQueueForAction(project, changeId, live),
+  "landing-queue.merge-next": async (project, changeId, request, live) => mergeNextLandingQueueForAction(project, changeId, request, live),
+  "landing-queue.skip": async (project, changeId, _request, live) => refreshLandingQueueForAction(project, changeId, live),
+  "landing-queue.remove-stale": async (project, changeId, _request, live) => refreshLandingQueueForAction(project, changeId, live),
+  "pr-draft.prepare": async (project, changeId, request, live) => preparePrDraftForAction(project, changeId, request, live),
+  "pr-draft.create": async (project, changeId, request, live) => createPrDraftForAction(project, changeId, request, live),
+  "pr-draft.refresh": async (project, changeId, request, live) => refreshPrDraftForAction(project, changeId, request, live),
+  "pr-feedback.refresh": async (project, changeId, request, live) => refreshPrFeedbackForAction(project, changeId, request, live),
+  "pr-feedback.evaluate": async (project, changeId, request, live) => refreshPrFeedbackForAction(project, changeId, request, live),
+  "pr-feedback.rework": async (project, changeId, request, live) => reworkPrFeedbackForAction(project, changeId, request, live),
+  "pr-feedback.update-draft": async (project, changeId, request, live) => updatePrDraftForAction(project, changeId, request, live),
+  "pr-review.prepare": async (project, changeId, request, live) => preparePrReviewForAction(project, changeId, request, live),
+  "pr-review.submit": async (project, changeId, request, live) => submitPrReviewForAction(project, changeId, request, live),
+  "pr-review.refresh": async (project, changeId, request, live) => refreshPrReviewForAction(project, changeId, request, live),
+  "pr-review.feedback-refresh": async (project, changeId, request, live) => refreshPrFeedbackForAction(project, changeId, { ...request, actionType: "pr-feedback.refresh" }, live),
+  "pr-review.feedback-evaluate": async (project, changeId, request, live) => refreshPrFeedbackForAction(project, changeId, { ...request, actionType: "pr-feedback.refresh" }, live),
+  "pr-review.rework": async (project, changeId, request, live) => reworkPrFeedbackForAction(project, changeId, { ...request, actionType: "pr-feedback.rework" }, live),
+  "pr-review.reply-prepare": async (project, changeId, request, live) => preparePrReviewReplyForAction(project, changeId, request, live),
+  "pr-review.reply-submit": async (project, changeId, request, live) => submitPrReviewReplyForAction(project, changeId, request, live),
+  "pr-review.thread-resolve": async (project, changeId, request, live) => resolvePrReviewThreadForAction(project, changeId, request, live),
+  "remote-landing.prepare": async (project, changeId, request, live) => prepareRemoteLandingForAction(project, changeId, request, live),
+  "remote-landing.merge": async (project, changeId, request, live) => mergeRemoteLandingForAction(project, changeId, request, live),
+  "remote-landing.refresh": async (project, changeId, request, live) => refreshRemoteLandingForAction(project, changeId, request, live),
+  "post-merge.prepare": async (project, changeId, request, live) => preparePostMergeForAction(project, changeId, request, live),
+  "post-merge.refresh": async (project, changeId, request, live) => preparePostMergeForAction(project, changeId, request, live),
+  "post-merge.sync-local.prepare": async (project, changeId, request, live) => prepareLocalSyncForAction(project, changeId, request, live),
+  "post-merge.sync-local.run": async (project, changeId, request, live) => syncLocalForAction(project, changeId, request, live),
+  "post-merge.cleanup-branch.prepare": async (project, changeId, request, live) => prepareRemoteBranchCleanupForAction(project, changeId, request, live),
+  "post-merge.cleanup-branch.run": async (project, changeId, request, live) => cleanupRemoteBranchForAction(project, changeId, request, live),
+  "code.run": async (project, changeId, request, live) => runMainAgentToolOrchestration(project, changeId, request.prompt, live, false, request.taskIds, request.readinessManifestId),
+  "task.run.start": async (project, changeId, request, live) => runTaskRunCodeValidateAuditSequence(project, changeId, request, live, "start"),
+  "task.run.retry": async (project, changeId, request, live) => runTaskRunCodeValidateAuditSequence(project, changeId, request, live, "retry"),
+  "task.run.reconcile": async (project, changeId, request) => reconcileTaskRuns(project, { changeId, taskRunId: request.taskRunId }),
+  "task.queue.start": async (project, changeId, request, live) => runTaskQueueSequence(project, changeId, request, live),
+  "task.queue.reconcile": async (project, changeId, request) => reconcileWorkflowTaskQueue(project, { changeId, queueRunId: request.queueRunId }),
+  "validate.run": async (project, changeId, request) => startValidationRun(project, { changeId, worktree: request.worktreeId }),
+  "audit.run": async (project, changeId, request) => startAuditRun(project, { changeId, worktreeId: request.worktreeId, prompt: request.prompt }),
+  "spec-test.drift": async (project, _changeId, request) => getSpecTestDriftReport(project, { worktreeId: request.worktreeId }),
+};
 
 async function generatePlanningDraft(
   project: ManagedProject,
@@ -2616,671 +2094,6 @@ async function postTopicPlanMessage(project: ManagedProject, changeId: string, m
   };
 }
 
-async function runTaskRunCodeValidateAuditSequence(
-  project: ManagedProject,
-  changeId: string,
-  request: WorkbenchWorkflowActionRequest,
-  live: WorkbenchLiveSink | undefined,
-  mode: "start" | "retry",
-): Promise<unknown> {
-  const started = mode === "start"
-    ? await startTaskRun(project, { changeId, taskId: requireSingleTaskId(request.taskIds) })
-    : await retryTaskRun(project, { changeId, taskRunId: requireTaskRunId(request.taskRunId) });
-  return executeStartedTaskRunWorkflow(project, started, request.prompt, live);
-}
-
-async function executeStartedTaskRunWorkflow(
-  project: ManagedProject,
-  started: Awaited<ReturnType<typeof startTaskRun>>,
-  prompt: string | undefined,
-  live: WorkbenchLiveSink | undefined,
-  executionGate?: CodeExecutionGateOptions,
-): Promise<unknown> {
-  emitAssistantEvent(live, {
-    runId: started.taskRun.id,
-    kind: "status",
-    phase: "claimed",
-    title: "TaskRun claimed",
-    summary: `${started.taskRun.taskId} attempt ${started.taskRun.attempt} was claimed by ${started.lease.workerId}.`,
-  });
-  try {
-    const memory = await resolveProjectMemory(project);
-    await markTaskRunStarted(memory, started.taskRun.id);
-    emitAssistantEvent(live, {
-      runId: started.taskRun.id,
-      kind: "status",
-      phase: "running",
-      title: "TaskRun running",
-      summary: `${started.taskRun.taskId} attempt ${started.taskRun.attempt} started the Coder -> Validation -> Audit workflow.`,
-    });
-    const workflow = await runCodeValidateAuditSequence(project, started.taskRun.changeId, prompt, live, [started.taskRun.taskId], started.taskRun.id, "coder-agent", undefined, undefined, executionGate);
-    const taskRun = await finishTaskRunFromWorkflowResult(memory, started.taskRun.id, workflow);
-    if (shouldAutoReworkTaskRun(taskRun)) {
-      emitAssistantEvent(live, {
-        runId: taskRun.id,
-        kind: "status",
-        phase: "auto-rework",
-        title: "正在根据验证/审查结果自动修改",
-        summary: `${taskRun.taskId} official attempt ${taskRun.attempt} did not pass. AHO is handing the evidence back to coder-agent for one bounded rework cycle.`,
-      });
-      const retry = await retryTaskRun(project, { changeId: taskRun.changeId, taskRunId: taskRun.id });
-      const reworkPrompt = [
-        prompt,
-        "",
-        "AHO official validation/audit did not accept the previous attempt.",
-        "Read the latest validation/audit/run evidence for this Change and fix the assigned worktree proposal.",
-        "Do not ask the user unless the evidence shows requirement ambiguity, product tradeoff, environment failure, or no real code rework path.",
-      ].filter((item): item is string => Boolean(item)).join("\n");
-      const rework = await executeStartedTaskRunWorkflow(project, retry, reworkPrompt, live, executionGate);
-      const finalTaskRun = isRecord(rework) && isTaskRunLike(rework.taskRun) ? rework.taskRun : taskRun;
-      return { taskRun: finalTaskRun, lease: started.lease, workflow, autoRework: { previousTaskRun: taskRun, result: rework } };
-    }
-    return { taskRun, lease: started.lease, workflow };
-  } catch (cause) {
-    const memory = await resolveProjectMemory(project);
-    await finishTaskRunFromWorkflowResult(memory, started.taskRun.id, { stoppedAt: "code", code: { run: { status: "failed" } } }).catch(() => undefined);
-    throw cause;
-  }
-}
-
-function shouldAutoReworkTaskRun(taskRun: Awaited<ReturnType<typeof finishTaskRunFromWorkflowResult>>): boolean {
-  if (taskRun.status !== "blocked" && taskRun.status !== "failed") return false;
-  const officialReworkAttempt = Math.max(0, taskRun.attempt - 1);
-  return officialReworkAttempt < OFFICIAL_REWORK_BUDGET;
-}
-
-async function runTaskQueueSequence(
-  project: ManagedProject,
-  changeId: string,
-  request: WorkbenchWorkflowActionRequest,
-  live: WorkbenchLiveSink | undefined,
-): Promise<unknown> {
-  const memory = await resolveProjectMemory(project);
-  const start = await startOrResumeWorkflowTaskQueue(project, {
-    changeId,
-    taskQueueProposalId: request.taskQueueProposalId,
-    workflowGraphPlanId: request.workflowGraphPlanId,
-    decompositionPlanId: request.decompositionPlanId,
-    readinessManifestId: request.readinessManifestId,
-    workflowRunId: request.workflowRunId,
-    queueRunId: request.queueRunId,
-  });
-  let queue = start.queue;
-  let workflow = request.workflowRunId ? await readWorkflowRun(memory, changeId, request.workflowRunId) : null;
-  if (queue.workflowRunId) workflow = await readWorkflowRun(memory, changeId, queue.workflowRunId).catch(() => workflow);
-  const taskQueueProposalId = request.taskQueueProposalId ?? queue.taskQueueProposalId;
-  const workflowGraphPlanId = request.workflowGraphPlanId ?? queue.workflowGraphPlanId ?? workflow?.workflowGraphPlanId;
-  if (start.resumed) {
-    const reconciled = await reconcileWorkflowTaskQueue(project, { changeId, queueRunId: queue.id });
-    queue = reconciled.queues.find((item) => item.id === queue.id) ?? queue;
-  }
-  queue = await markTaskQueueRunning(memory, queue);
-  emitAssistantEvent(live, {
-    runId: queue.id,
-    kind: "status",
-    phase: start.resumed ? "resumed" : "queued",
-    title: start.resumed ? "任务队列已恢复" : "任务队列已创建",
-    summary: `本地顺序执行 ${queue.totalCount} 个任务。`,
-  });
-
-  while (true) {
-    const nextItem = await getNextQueuedTaskQueueItem(memory, queue);
-    if (!nextItem) {
-      queue = await updateTaskQueueAfterItem(memory, queue);
-      const reconciled = await reconcileWorkflowTaskQueue(project, { changeId, queueRunId: queue.id });
-      if (workflow) workflow = await syncWorkflowRunFromTaskQueue(memory, workflow, queue, reconciled.items, queue.status === "completed" ? "workflow.completed" : "workflow.reconciled");
-      return { queue, workflowRun: workflow, items: reconciled.items };
-    }
-    if (live?.isClosed?.()) {
-      queue = await pauseTaskQueue(memory, queue, "队列已暂停，等待继续。");
-      const reconciled = await reconcileWorkflowTaskQueue(project, { changeId, queueRunId: queue.id });
-      if (workflow) workflow = await syncWorkflowRunFromTaskQueue(memory, workflow, queue, reconciled.items, "workflow.paused", queue.pausedReason);
-      return { queue, workflowRun: workflow, items: reconciled.items };
-    }
-
-    queue = await markTaskQueueRunning(memory, queue, nextItem.taskId);
-    emitAssistantEvent(live, {
-      runId: queue.id,
-      kind: "status",
-      phase: "running",
-      title: "运行任务队列",
-      summary: `当前任务 ${nextItem.taskId}，已完成 ${queue.completedCount}/${queue.totalCount}。`,
-    });
-    try {
-      const resume = await findTaskQueueStageResumeCandidate(memory, changeId, nextItem.taskId);
-      if (resume?.verdict.kind === "blocked") {
-        emitAssistantEvent(live, {
-          runId: queue.id,
-          kind: "error",
-          phase: "stage-resume-blocked",
-          title: "恢复阶段判定",
-          summary: resume.verdict.reason,
-          artifactRef: resume.verdict.evidenceRefs[0],
-        });
-        await failQueuedTaskItem(memory, nextItem, resume.verdict.reason);
-        queue = await updateTaskQueueAfterItem(memory, queue);
-        const reconciled = await reconcileWorkflowTaskQueue(project, { changeId, queueRunId: queue.id });
-        if (workflow) workflow = await syncWorkflowRunFromTaskQueue(memory, workflow, queue, reconciled.items, "workflow.blocked", resume.verdict.reason);
-        return { queue, workflowRun: workflow, items: reconciled.items };
-      }
-      const executionGate = taskQueueProposalId && workflowGraphPlanId ? { mode: "taskqueue-proposal" as const, taskQueueProposalId, workflowGraphPlanId } : undefined;
-      const started = resume
-        ? { taskRun: resume.taskRun, lease: null }
-        : await startTaskRun(project, { changeId, taskId: nextItem.taskId });
-      const runningItem = await markTaskQueueItemRunning(memory, nextItem, started.taskRun);
-      if (resume) {
-        emitAssistantEvent(live, {
-          runId: queue.id,
-          kind: "status",
-          phase: "stage-resume-verdict",
-          title: "恢复阶段判定",
-          summary: resume.verdict.reason,
-          artifactRef: resume.verdict.evidenceRefs[0],
-        });
-      }
-      const result = resume
-        ? await executeResumedTaskRunStage(project, started.taskRun, resume.verdict, request.prompt, live, executionGate)
-        : await executeStartedTaskRunWorkflow(project, started as Awaited<ReturnType<typeof startTaskRun>>, request.prompt, live, executionGate);
-      const taskRun = isRecord(result) && isRecord(result.taskRun) ? result.taskRun : null;
-      if (!isTaskRunLike(taskRun)) throw new Error(`Task ${nextItem.taskId} did not return a TaskRun result.`);
-      const finishedItem = await finishTaskQueueItem(memory, runningItem, taskRun);
-      queue = await updateTaskQueueAfterItem(memory, queue);
-      if (finishedItem.status === "blocked" || finishedItem.status === "failed") {
-        emitAssistantEvent(live, {
-          runId: queue.id,
-          kind: "error",
-          phase: finishedItem.status,
-          title: "任务队列已停止",
-          summary: queue.blockedReason ?? queue.failureReason ?? `${finishedItem.taskId} 未完成。`,
-        });
-        const reconciled = await reconcileWorkflowTaskQueue(project, { changeId, queueRunId: queue.id });
-        if (workflow) workflow = await syncWorkflowRunFromTaskQueue(memory, workflow, queue, reconciled.items, queue.status === "blocked" ? "workflow.blocked" : "workflow.failed", queue.blockedReason ?? queue.failureReason);
-        return { queue, workflowRun: workflow, items: reconciled.items };
-      }
-    } catch (cause) {
-      const message = cause instanceof Error ? cause.message : String(cause);
-      const failedItem = await failQueuedTaskItem(memory, nextItem, message);
-      queue = await updateTaskQueueAfterItem(memory, queue);
-      emitAssistantEvent(live, {
-        runId: queue.id,
-        kind: "error",
-        phase: "failed",
-        title: "任务队列已停止",
-        summary: `${failedItem.taskId}: ${message}`,
-      });
-      const reconciled = await reconcileWorkflowTaskQueue(project, { changeId, queueRunId: queue.id });
-      if (workflow) workflow = await syncWorkflowRunFromTaskQueue(memory, workflow, queue, reconciled.items, "workflow.failed", queue.failureReason);
-      return { queue, workflowRun: workflow, items: reconciled.items };
-    }
-
-    if (live?.isClosed?.()) {
-      queue = await pauseTaskQueue(memory, queue, "队列已暂停，等待继续。");
-      const reconciled = await reconcileWorkflowTaskQueue(project, { changeId, queueRunId: queue.id });
-      if (workflow) workflow = await syncWorkflowRunFromTaskQueue(memory, workflow, queue, reconciled.items, "workflow.paused", queue.pausedReason);
-      return { queue, workflowRun: workflow, items: reconciled.items };
-    }
-    if (queue.status === "blocked" || queue.status === "failed" || queue.status === "completed") {
-      const reconciled = await reconcileWorkflowTaskQueue(project, { changeId, queueRunId: queue.id });
-      if (workflow) workflow = await syncWorkflowRunFromTaskQueue(memory, workflow, queue, reconciled.items, queue.status === "completed" ? "workflow.completed" : queue.status === "blocked" ? "workflow.blocked" : "workflow.failed", queue.blockedReason ?? queue.failureReason);
-      return { queue, workflowRun: workflow, items: reconciled.items };
-    }
-  }
-}
-
-async function findTaskQueueStageResumeCandidate(memory: ResolvedMemory, changeId: string, taskId: string): Promise<{ taskRun: TaskRun; verdict: StageResumeVerdict } | null> {
-  const taskRuns = await listTaskRuns(memory, changeId);
-  const candidates = taskRuns.filter((run) => run.taskId.toUpperCase() === taskId.toUpperCase() && !["queued", "claimed", "running"].includes(run.status));
-  for (const taskRun of candidates) {
-    const verdict = await deriveWorkflowStageResumeVerdict(memory, changeId, taskRun);
-    if (verdict.kind !== "start-coder") return { taskRun, verdict };
-  }
-  return null;
-}
-
-async function executeResumedTaskRunStage(
-  project: ManagedProject,
-  taskRun: TaskRun,
-  verdict: StageResumeVerdict,
-  prompt: string | undefined,
-  live: WorkbenchLiveSink | undefined,
-  executionGate?: CodeExecutionGateOptions,
-): Promise<unknown> {
-  const memory = await resolveProjectMemory(project);
-  const coderRun = verdict.runId ? (await listRuns(memory)).find((run) => run.id === verdict.runId) : undefined;
-  if (!coderRun || coderRun.status !== "completed" || !coderRun.worktree?.worktreeId) {
-    const blocked = await finishTaskRunFromWorkflowResult(memory, taskRun.id, { stoppedAt: "code", code: { run: coderRun ?? { status: "failed" } } });
-    return { taskRun: blocked, workflow: { stoppedAt: "code", code: { run: coderRun } } };
-  }
-
-  if (verdict.kind === "completed") {
-    const completed = await finishTaskRunFromWorkflowResult(memory, taskRun.id, { stoppedAt: null, code: { run: coderRun }, audit: { audit: { status: "approved" } } });
-    return { taskRun: completed, workflow: { stoppedAt: null, code: { run: coderRun } } };
-  }
-
-  if (verdict.kind === "continue-rework") {
-    return executeBoundedTaskRunRework(project, taskRun, prompt, live, executionGate);
-  }
-
-  let validation: Awaited<ReturnType<typeof startValidationRun>> | undefined;
-  if (verdict.kind === "continue-validation") {
-    emitAssistantEvent(live, {
-      runId: taskRun.id,
-      kind: "status",
-      phase: "validation-resume",
-      title: "Validation running",
-      summary: "Coder evidence already exists; AHO is resuming from validation.",
-      artifactRef: coderRun.artifacts.directory,
-    });
-    validation = await startValidationRun(project, { changeId: taskRun.changeId, worktree: coderRun.worktree.worktreeId });
-    emitValidationAssistantEvents(live, coderRun.id, validation);
-    if (validation.validation.status !== "passed") {
-      const workflow = { code: { run: coderRun }, validation, stoppedAt: "validation" };
-      const blocked = await finishTaskRunFromWorkflowResult(memory, taskRun.id, workflow);
-      if (shouldAutoReworkTaskRun(blocked)) return executeBoundedTaskRunRework(project, blocked, prompt, live, executionGate);
-      return { taskRun: blocked, workflow };
-    }
-  }
-
-  emitAssistantEvent(live, {
-    runId: taskRun.id,
-    kind: "status",
-    phase: "audit-resume",
-    title: "Audit running",
-    summary: "Validation evidence is available; AHO is resuming from audit.",
-    artifactRef: validation?.run.artifacts.validation ?? verdict.evidenceRefs[0],
-  });
-  const audit = await startAuditRun(project, {
-    changeId: taskRun.changeId,
-    worktreeId: coderRun.worktree.worktreeId,
-    prompt: "This audit resumed from WorkflowRun stage recovery after coder and validation evidence were already present.",
-  });
-  emitAuditAssistantEvent(live, coderRun.id, audit);
-  const auditAccepted = audit.audit.status === "approved" || audit.audit.status === "approved-with-notes";
-  const workflow = { code: { run: coderRun }, ...(validation ? { validation } : {}), audit, stoppedAt: auditAccepted ? null : "audit" };
-  const finished = await finishTaskRunFromWorkflowResult(memory, taskRun.id, workflow);
-  if (!auditAccepted && shouldAutoReworkTaskRun(finished)) return executeBoundedTaskRunRework(project, finished, prompt, live, executionGate);
-  return { taskRun: finished, workflow };
-}
-
-async function executeBoundedTaskRunRework(
-  project: ManagedProject,
-  taskRun: TaskRun,
-  prompt: string | undefined,
-  live: WorkbenchLiveSink | undefined,
-  executionGate?: CodeExecutionGateOptions,
-): Promise<unknown> {
-  const retry = await retryTaskRun(project, { changeId: taskRun.changeId, taskRunId: taskRun.id });
-  const reworkPrompt = [
-    prompt,
-    "",
-    "AHO resumed a WorkflowRun and found validation/audit evidence that requires bounded rework.",
-    "Read the latest validation/audit/run evidence for this Change and fix the assigned worktree proposal.",
-    "Do not ask the user unless the evidence shows requirement ambiguity, product tradeoff, environment failure, or no real code rework path.",
-  ].filter((item): item is string => Boolean(item)).join("\n");
-  const rework = await executeStartedTaskRunWorkflow(project, retry, reworkPrompt, live, executionGate);
-  const finalTaskRun = isRecord(rework) && isTaskRunLike(rework.taskRun) ? rework.taskRun : taskRun;
-  return { taskRun: finalTaskRun, workflow: rework, autoRework: { previousTaskRun: taskRun, result: rework } };
-}
-
-function isTaskRunLike(value: unknown): value is Awaited<ReturnType<typeof startTaskRun>>["taskRun"] {
-  return isRecord(value)
-    && typeof value.id === "string"
-    && typeof value.changeId === "string"
-    && typeof value.taskId === "string"
-    && typeof value.status === "string";
-}
-
-function requireSingleTaskId(taskIds: string[] | undefined): string {
-  const unique = Array.from(new Set((taskIds ?? []).map((taskId) => taskId.trim()).filter(Boolean)));
-  if (unique.length !== 1) throw new Error("task.run.start requires exactly one taskId.");
-  return unique[0];
-}
-
-function requireTaskRunId(taskRunId: string | undefined): string {
-  if (typeof taskRunId === "string" && taskRunId.trim()) return taskRunId.trim();
-  throw new Error("task.run.retry requires taskRunId.");
-}
-
-function assertKnownTaskIds(status: Awaited<ReturnType<typeof getChangeStatusForChange>>, taskIds: string[], actionType: string): void {
-  const known = new Set(status.acMap?.tasks.map((task) => task.id) ?? []);
-  const unique = Array.from(new Set(taskIds.map((taskId) => taskId.trim()).filter(Boolean)));
-  if (unique.length === 0) throw new Error(`${actionType} requires taskIds.`);
-  const missing = unique.filter((taskId) => !known.has(taskId));
-  if (missing.length > 0) throw new Error(`${actionType} target taskIds are stale or not scoped to Change ${status.change?.id ?? "unknown"}: ${missing.join(", ")}.`);
-}
-
-async function createDelegatedForegroundTask(
-  memory: ResolvedMemory,
-  request: AgentTaskRequest,
-  live: WorkbenchLiveSink | undefined,
-): Promise<{ task: AgentTask; policyAuditRef: string }> {
-  const result = await dispatchForegroundRoleTask(memory, { ...request, delegationMode: request.delegationMode ?? "orchestrator-policy" });
-  emitAssistantEvent(live, {
-    runId: request.changeId,
-    kind: "status",
-    phase: "delegateTask.accepted",
-    title: `调用 ${request.roleId}`,
-    summary: "主 agent 已通过 ToolPolicyGate 和 RoleDispatcher 启动角色任务。",
-    artifactRef: result.policyAuditRef,
-  });
-  emitAssistantEvent(live, {
-    runId: request.changeId,
-    kind: "status",
-    phase: "delegateTask.running",
-    title: `${request.roleId} 开始处理`,
-    summary: "角色任务已进入 queued/claimed/running 生命周期。",
-    artifactRef: result.policyAuditRef,
-  });
-  return result;
-}
-
-function emitDelegatedRoleReturn(live: WorkbenchLiveSink | undefined, changeId: string, roleId: string, status: string, summary: string, artifactRef?: string): void {
-  emitAssistantEvent(live, {
-    runId: changeId,
-    kind: "tool-result",
-    phase: `delegateTask.${status}`,
-    title: `${roleId} 返回结果`,
-    summary,
-    artifactRef,
-    isError: status !== "completed",
-  });
-}
-
-async function runCodeValidateAuditSequence(
-  project: ManagedProject,
-  changeId: string,
-  prompt?: string,
-  live?: WorkbenchLiveSink,
-  taskIds?: string[],
-  taskRunId?: string,
-  coderRoleId = "coder-agent",
-  orchestrationState?: MainAgentOrchestrationState,
-  coderDecision?: Extract<MainAgentOrchestrationDecision, { kind: "delegate-role" }>,
-  executionGate?: CodeExecutionGateOptions,
-): Promise<unknown> {
-  const memory = await resolveProjectMemory(project);
-  let orchestration = orchestrationState ?? createMainAgentOrchestrationState({ changeId });
-  const coderRole = orchestrationCoderRole(coderRoleId);
-  const coderInputArtifacts = coderDecision?.inputArtifacts.length ? coderDecision.inputArtifacts : taskRunId ? [taskRunId] : [];
-  const coderDispatch = await createDelegatedForegroundTask(memory, {
-    conversationId: changeId,
-    changeId,
-    roleId: coderRoleId,
-    kind: "foreground",
-    goal: coderDecision?.goal ?? (coderRoleId === "rework-coder" ? "Repair implementation from validation or audit evidence." : "Implement the confirmed demand in an AHO-owned worktree."),
-    inputArtifacts: coderInputArtifacts,
-    delegationMode: "orchestrator-policy",
-  }, live);
-  const coderTask = coderDispatch.task;
-  live?.emit({ event: "run.status", data: { status: "running", label: "Coder" } });
-  let coderStartedEmitted = false;
-  const code = await startCodeRun(project, {
-    changeId,
-    roleId: coderRoleId,
-    prompt,
-    taskIds,
-    taskRunId,
-    executionGate,
-    live: {
-      onRunStarted: (run) => {
-        coderStartedEmitted = true;
-        live?.emit({ event: "run.started", data: { runId: run.id, changeId: run.changeId, runtime: run.runtime, actionType: "code.run", taskIds: run.taskIds } });
-      },
-      onStatus: (event) => live?.emit({ event: "run.status", data: event }),
-      onCodexEvent: (event) => forwardCodexStreamEvent(event.runId, event, live),
-      onCallbackError: (event) => emitLive(live, { event: "error", data: { runId: event.runId, message: event.error instanceof Error ? event.error.message : String(event.error) } }),
-    },
-  });
-  if (!coderStartedEmitted) live?.emit({ event: "run.started", data: { runId: code.run.id, changeId: code.run.changeId, runtime: code.run.runtime, actionType: "code.run", taskIds: code.run.taskIds } });
-  live?.emit({ event: "run.status", data: { runId: code.run.id, status: code.run.status, label: "Coder" } });
-  const coderBoundaryAudit = await recordPostRunBoundaryAudit(memory, {
-    changeId,
-    roleId: coderRoleId,
-    runId: code.run.id,
-    taskId: coderTask.id,
-    sourceChanged: code.warnings.some((warning) => warning.toLowerCase().includes("source project git status changed")),
-    artifactRefs: compactArtifactRefs(code.run.artifacts.directory, code.run.artifacts.implementation),
-  });
-  const coderBoundaryRef = boundaryAuditArtifactRef(memory, coderBoundaryAudit);
-  emitAssistantEvent(live, {
-    runId: code.run.id,
-    kind: "tool-result",
-    phase: "boundary-audit",
-    title: coderBoundaryAudit.status === "passed" ? "边界审计通过" : "边界审计发现越界",
-    summary: coderBoundaryAudit.status === "passed" ? "coder-agent 的输出未越过本次需求的运行边界。" : coderBoundaryAudit.violations.map((violation) => violation.reason).join("\n"),
-    artifactRef: coderBoundaryRef,
-    isError: coderBoundaryAudit.status === "failed",
-  });
-  if (coderBoundaryAudit.status === "failed") {
-    const coderOutputArtifacts = compactArtifactRefs(code.run.artifacts.directory, code.run.artifacts.implementation, coderBoundaryRef);
-    orchestration = recordMainAgentOrchestrationStep(orchestration, {
-      roleId: coderRole,
-      status: "failed",
-      inputArtifacts: coderInputArtifacts,
-      outputArtifacts: coderOutputArtifacts,
-      failureClassification: "boundary-violation",
-      stoppedAt: "boundary",
-      summary: "Coder run failed boundary audit.",
-    });
-    await completeAgentTask(memory, coderTask, {
-      status: "failed",
-      summary: "Coder run failed boundary audit.",
-      artifactRefs: [code.run.artifacts.directory],
-      policyAuditRefs: [coderDispatch.policyAuditRef],
-      boundaryAuditRefs: [coderBoundaryRef],
-      boundaryViolations: coderBoundaryAudit.violations,
-      failureClassification: "boundary-violation",
-      requiresUserInputReason: "Coder modified outside its allowed boundary.",
-    });
-    emitDelegatedRoleReturn(live, changeId, coderRoleId, "failed", "coder-agent 越过了允许边界，结果不会进入应用流程。", coderBoundaryRef);
-    return { code, stoppedAt: "boundary", boundaryAudit: coderBoundaryAudit, orchestration };
-  }
-  if (code.run.status !== "completed" || !code.run.worktree?.worktreeId) {
-    const coderOutputArtifacts = compactArtifactRefs(code.run.artifacts.directory, code.run.artifacts.implementation);
-    orchestration = recordMainAgentOrchestrationStep(orchestration, {
-      roleId: coderRole,
-      status: "failed",
-      inputArtifacts: coderInputArtifacts,
-      outputArtifacts: coderOutputArtifacts,
-      failureClassification: "code-failure",
-      stoppedAt: "code",
-      summary: "Coder did not produce a completed worktree proposal.",
-    });
-    await completeAgentTask(memory, coderTask, {
-      status: "failed",
-      summary: "Coder did not produce a completed worktree proposal.",
-      artifactRefs: [code.run.artifacts.directory],
-      policyAuditRefs: [coderDispatch.policyAuditRef],
-      boundaryAuditRefs: [coderBoundaryRef],
-      failureClassification: "code-failure",
-      requiresUserInputReason: "Implementation failed before official validation could run.",
-    });
-    emitDelegatedRoleReturn(live, changeId, coderRoleId, "failed", "coder-agent 没有产出可验证的 worktree 结果。", code.run.artifacts.directory);
-    await recordMaintenanceLedgerEntry(memory, {
-      eventType: "failure",
-      changeId,
-      summary: "Coder task failed before validation.",
-      artifactRefs: [code.run.artifacts.directory],
-    });
-    return { code, stoppedAt: "code", orchestration };
-  }
-  const coderOutputArtifacts = compactArtifactRefs(code.run.artifacts.directory, code.run.artifacts.implementation);
-  orchestration = recordMainAgentOrchestrationStep(orchestration, {
-    roleId: coderRole,
-    status: "completed",
-    inputArtifacts: coderInputArtifacts,
-    outputArtifacts: coderOutputArtifacts,
-    summary: "Coder produced a completed worktree proposal.",
-  });
-  await completeAgentTask(memory, coderTask, {
-    status: "completed",
-    summary: "Coder produced a completed worktree proposal.",
-    artifactRefs: compactArtifactRefs(code.run.artifacts.directory, code.run.artifacts.implementation),
-    policyAuditRefs: [coderDispatch.policyAuditRef],
-    boundaryAuditRefs: [coderBoundaryRef],
-    nextRecommendation: "Run independent validation.",
-  });
-  emitDelegatedRoleReturn(live, changeId, coderRoleId, "completed", "coder-agent 已返回实现和自测结果。", code.run.artifacts.directory);
-  const validationDecision = decideNextMainAgentOrchestration(orchestration);
-  assertDelegateDecision(validationDecision, "validator");
-  const validatorDispatch = await createDelegatedForegroundTask(memory, {
-    conversationId: changeId,
-    changeId,
-    roleId: "validator",
-    kind: "foreground",
-    goal: validationDecision.goal,
-    inputArtifacts: validationDecision.inputArtifacts,
-    delegationMode: "orchestrator-policy",
-  }, live);
-  const validatorTask = validatorDispatch.task;
-  live?.emit({ event: "run.status", data: { runId: code.run.id, status: "running", label: "Validation" } });
-  live?.emit({ event: "tool.event", data: { runId: code.run.id, phase: "status", name: "Validation", status: "running" } });
-  emitAssistantEvent(live, { runId: code.run.id, kind: "status", phase: "running", title: "Validation running", summary: "AHO started validation for the coder worktree." });
-  const validation = await startValidationRun(project, { changeId, worktree: code.run.worktree.worktreeId });
-  live?.emit({ event: "run.status", data: { runId: code.run.id, status: validation.validation.status, label: "Validation" } });
-  live?.emit({ event: "tool.event", data: { runId: code.run.id, phase: "status", name: "Validation", status: validation.validation.status } });
-  emitValidationAssistantEvents(live, code.run.id, validation);
-  const validationBoundaryAudit = await recordPostRunBoundaryAudit(memory, {
-    changeId,
-    roleId: "validator",
-    runId: validation.run.id,
-    taskId: validatorTask.id,
-    artifactRefs: compactArtifactRefs(validation.run.artifacts.validation, validation.run.artifacts.stdout, validation.run.artifacts.stderr),
-  });
-  const validationBoundaryRef = boundaryAuditArtifactRef(memory, validationBoundaryAudit);
-  if (validation.validation.status !== "passed") {
-    const validationOutputArtifacts = compactArtifactRefs(validation.run.artifacts.validation, validation.run.artifacts.stdout, validation.run.artifacts.stderr, validationBoundaryRef);
-    orchestration = recordMainAgentOrchestrationStep(orchestration, {
-      roleId: "validator",
-      status: "failed",
-      inputArtifacts: validationDecision.inputArtifacts,
-      outputArtifacts: validationOutputArtifacts,
-      failureClassification: "validation-failure",
-      stoppedAt: "validation",
-      summary: "Independent validation failed.",
-    });
-    await completeAgentTask(memory, validatorTask, {
-      status: "failed",
-      summary: "Independent validation failed.",
-      artifactRefs: compactArtifactRefs(validation.run.artifacts.validation, validation.run.artifacts.stdout, validation.run.artifacts.stderr),
-      policyAuditRefs: [validatorDispatch.policyAuditRef],
-      boundaryAuditRefs: [validationBoundaryRef],
-      failureClassification: "validation-failure",
-      requiresUserInputReason: "Validation failed; bounded automatic rework may be attempted.",
-    });
-    emitDelegatedRoleReturn(live, changeId, "validator", "failed", "validator 返回验证失败结果。", validation.run.artifacts.validation);
-    await recordMaintenanceLedgerEntry(memory, {
-      eventType: "failure",
-      changeId,
-      summary: "Validation failed for a foreground main-agent role orchestration attempt.",
-      artifactRefs: compactArtifactRefs(validation.run.artifacts.validation, validation.run.artifacts.stderr),
-    });
-    return { code, validation, stoppedAt: "validation", orchestration };
-  }
-  const validationOutputArtifacts = compactArtifactRefs(validation.run.artifacts.validation, validation.run.artifacts.stdout, validationBoundaryRef);
-  orchestration = recordMainAgentOrchestrationStep(orchestration, {
-    roleId: "validator",
-    status: "completed",
-    inputArtifacts: validationDecision.inputArtifacts,
-    outputArtifacts: validationOutputArtifacts,
-    summary: "Independent validation passed.",
-  });
-  await completeAgentTask(memory, validatorTask, {
-    status: "completed",
-    summary: "Independent validation passed.",
-    artifactRefs: compactArtifactRefs(validation.run.artifacts.validation, validation.run.artifacts.stdout),
-    policyAuditRefs: [validatorDispatch.policyAuditRef],
-    boundaryAuditRefs: [validationBoundaryRef],
-    nextRecommendation: "Run semantic audit.",
-  });
-  emitDelegatedRoleReturn(live, changeId, "validator", "completed", "validator 返回验证通过结果。", validation.run.artifacts.validation);
-  const auditDecision = decideNextMainAgentOrchestration(orchestration);
-  assertDelegateDecision(auditDecision, "auditor-agent");
-  const auditorDispatch = await createDelegatedForegroundTask(memory, {
-    conversationId: changeId,
-    changeId,
-    roleId: "auditor-agent",
-    kind: "foreground",
-    goal: auditDecision.goal,
-    inputArtifacts: auditDecision.inputArtifacts,
-    delegationMode: "orchestrator-policy",
-  }, live);
-  const auditorTask = auditorDispatch.task;
-  live?.emit({ event: "run.status", data: { runId: code.run.id, status: "running", label: "Audit" } });
-  live?.emit({ event: "tool.event", data: { runId: code.run.id, phase: "status", name: "Audit", status: "running" } });
-  emitAssistantEvent(live, { runId: code.run.id, kind: "status", phase: "running", title: "Audit running", summary: "AHO started audit after validation passed." });
-  const audit = await startAuditRun(project, {
-    changeId,
-    worktreeId: code.run.worktree.worktreeId,
-    prompt: "This audit was automatically started after the user confirmed the Coder run and validation passed for the same worktree.",
-  });
-  live?.emit({ event: "run.status", data: { runId: code.run.id, status: audit.audit.status, label: "Audit" } });
-  live?.emit({ event: "tool.event", data: { runId: code.run.id, phase: "status", name: "Audit", status: audit.audit.status } });
-  emitAuditAssistantEvent(live, code.run.id, audit);
-  const auditBoundaryAudit = await recordPostRunBoundaryAudit(memory, {
-    changeId,
-    roleId: "auditor-agent",
-    runId: audit.run.id,
-    taskId: auditorTask.id,
-    artifactRefs: compactArtifactRefs(audit.audit.artifacts.audit, audit.audit.artifacts.auditMarkdown, audit.audit.artifacts.lastMessage),
-  });
-  const auditBoundaryRef = boundaryAuditArtifactRef(memory, auditBoundaryAudit);
-  const auditAccepted = audit.audit.status === "approved" || audit.audit.status === "approved-with-notes";
-  const auditOutputArtifacts = compactArtifactRefs(audit.audit.artifacts.audit, audit.audit.artifacts.auditMarkdown, audit.audit.artifacts.lastMessage, auditBoundaryRef);
-  orchestration = recordMainAgentOrchestrationStep(orchestration, {
-    roleId: "auditor-agent",
-    status: auditAccepted ? "completed" : "failed",
-    inputArtifacts: auditDecision.inputArtifacts,
-    outputArtifacts: auditOutputArtifacts,
-    ...(auditAccepted ? {} : { failureClassification: "audit-failure" as const, stoppedAt: "audit" as const }),
-    summary: auditAccepted ? "Independent audit accepted the validated worktree evidence." : "Independent audit did not accept the worktree evidence.",
-  });
-  await completeAgentTask(memory, auditorTask, {
-    status: auditAccepted ? "completed" : "failed",
-    summary: auditAccepted
-      ? "Independent audit accepted the validated worktree evidence."
-      : "Independent audit did not accept the worktree evidence.",
-    artifactRefs: compactArtifactRefs(audit.audit.artifacts.audit, audit.audit.artifacts.auditMarkdown, audit.audit.artifacts.lastMessage),
-    policyAuditRefs: [auditorDispatch.policyAuditRef],
-    boundaryAuditRefs: [auditBoundaryRef],
-    nextRecommendation: auditAccepted ? "Show result review and apply handoff." : "Attempt bounded automatic rework if budget remains.",
-    ...(auditAccepted ? {} : { failureClassification: "audit-failure", requiresUserInputReason: "Audit did not accept the current evidence." }),
-  });
-  emitDelegatedRoleReturn(
-    live,
-    changeId,
-    "auditor-agent",
-    auditAccepted ? "completed" : "failed",
-    auditAccepted
-      ? "auditor-agent 返回审查通过结果。"
-      : "auditor-agent 返回需要修改或补证据的结果。",
-    audit.audit.artifacts.auditMarkdown,
-  );
-  if (!auditAccepted) {
-    await recordMaintenanceLedgerEntry(memory, {
-      eventType: "failure",
-      changeId,
-      summary: "Audit did not accept foreground main-agent role orchestration evidence.",
-      artifactRefs: compactArtifactRefs(audit.audit.artifacts.auditMarkdown),
-    });
-  }
-  return { code, validation, audit, stoppedAt: auditAccepted ? null : "audit", orchestration };
-}
-
-function orchestrationCoderRole(roleId: string): MainAgentOrchestrationRole {
-  return roleId === "rework-coder" ? "rework-coder" : "coder-agent";
-}
-
-function sourceRefreshReworkPrompt(worktreeId: string, extraPrompt?: string): string {
-  return [
-    "The previous result is no longer safe to apply because the project source changed after the worktree was created.",
-    "Re-read the accepted demand artifacts, current source tree, prior result summary, validation/audit evidence, and user feedback.",
-    `Do not patch the old result in place. Create a fresh same-demand implementation attempt from the current source state. Prior worktree: ${worktreeId}.`,
-    "After implementation, preserve evidence for independent validation and audit.",
-    extraPrompt?.trim() ? `Additional user feedback:\n${extraPrompt.trim()}` : "",
-  ].filter(Boolean).join("\n\n");
-}
-
 async function runCodexChat(project: ManagedProject, changeId: string, userMessage: string, live?: WorkbenchLiveSink): Promise<{ run: RunMetadata; message: string; codexSessionId: string | null }> {
   const memory = await resolveProjectMemory(project);
   assertWritableMemory(memory, "Topic chat");
@@ -3529,63 +2342,6 @@ function forwardAppServerNotification(runId: string, notification: CodexAppServe
 
 function emitAssistantEvent(live: WorkbenchLiveSink | undefined, event: WorkbenchAssistantEvent): void {
   emitLive(live, { event: "assistant.event", data: { ...event, timestamp: event.timestamp ?? new Date().toISOString() } });
-}
-
-function emitValidationAssistantEvents(live: WorkbenchLiveSink | undefined, runId: string, result: unknown): void {
-  const validation = isRecord(result) && isRecord(result.validation) ? result.validation : undefined;
-  const status = typeof validation?.status === "string" ? validation.status : "completed";
-  emitAssistantEvent(live, {
-    runId,
-    kind: "status",
-    phase: status,
-    title: status === "passed" ? "Validation passed" : "Validation completed",
-    summary: `Validation ${status}.`,
-    artifactRef: artifactRefFromRecord(validation?.artifacts),
-    isError: status !== "passed",
-  });
-  const commands = Array.isArray(validation?.commands) ? validation.commands.filter(isRecord) : [];
-  for (const [index, command] of commands.entries()) {
-    const commandText = Array.isArray(command.command)
-      ? command.command.filter((part): part is string => typeof part === "string").join(" ")
-      : typeof command.command === "string" ? command.command : undefined;
-    const exitCode = typeof command.exitCode === "number" ? command.exitCode : undefined;
-    const commandStatus = typeof command.status === "string" ? command.status : undefined;
-    emitAssistantEvent(live, {
-      runId,
-      itemId: `validation:${index}`,
-      kind: "command",
-      phase: commandStatus ?? (exitCode === 0 ? "completed" : "failed"),
-      title: exitCode === 0 || commandStatus === "passed" ? "Validation command passed" : "Validation command completed",
-      summary: commandText ?? "Validation command",
-      command: commandText,
-      exitCode,
-      isError: exitCode !== undefined ? exitCode !== 0 : commandStatus === "failed",
-      artifactRef: artifactRefFromRecord(command.artifacts),
-    });
-  }
-}
-
-function emitAuditAssistantEvent(live: WorkbenchLiveSink | undefined, runId: string, result: unknown): void {
-  const audit = isRecord(result) && isRecord(result.audit) ? result.audit : undefined;
-  const status = typeof audit?.status === "string" ? audit.status : "completed";
-  emitAssistantEvent(live, {
-    runId,
-    kind: "status",
-    phase: status,
-    title: status === "approved" || status === "approved-with-notes" ? "Audit approved" : "Audit completed",
-    summary: `Audit ${status}.`,
-    artifactRef: artifactRefFromRecord(audit?.artifacts),
-    isError: status !== "approved" && status !== "approved-with-notes",
-  });
-}
-
-function artifactRefFromRecord(value: unknown): string | undefined {
-  if (!isRecord(value)) return undefined;
-  for (const key of ["lastMessage", "auditMarkdown", "validationMarkdown", "report", "stdout", "stderr", "directory"]) {
-    const candidate = value[key];
-    if (typeof candidate === "string" && candidate) return candidate;
-  }
-  return undefined;
 }
 
 function formatUsageSummary(usage: Record<string, unknown>): string {
@@ -3870,27 +2626,6 @@ async function writePlanningBundle(memory: ResolvedMemory, changePath: string, b
   await mkdir(dir, { recursive: true });
   await writeJsonFile(join(dir, "latest-bundle.json"), bundle);
   await writeFile(join(dir, "latest-bundle.md"), renderPlanningBundleMarkdown(bundle), "utf8");
-}
-
-async function readLatestPlanningBundle(memory: ResolvedMemory, changePath: string): Promise<PlanningArtifactBundle> {
-  const schema = z.object({
-    id: z.string(),
-    status: z.enum(["draft", "confirmed"]),
-    goal: z.string(),
-    constraints: z.array(z.string()),
-    acceptanceCriteria: z.array(z.string()),
-    design: z.string(),
-    tasks: z.array(z.object({ id: z.string(), title: z.string(), acIds: z.array(z.string()) })),
-    risks: z.array(z.string()),
-    openQuestions: z.array(z.string()),
-    specMd: z.string(),
-    planMd: z.string(),
-    tasksMd: z.string(),
-    acMapCandidate: z.any(),
-    artifact: z.string(),
-    updatedAt: z.string(),
-  });
-  return readRequiredJsonFile(join(memory.memoryRoot, changePath, "planning", "latest-bundle.json"), schema);
 }
 
 function buildDeterministicDecompositionPlan(
@@ -4316,240 +3051,6 @@ async function writeTopicRuntime(memory: ResolvedMemory, changePath: string, met
   await writeJsonFile(join(memory.memoryRoot, changePath, "topic-runtime.json"), metadata);
 }
 
-function extractRunId(result: unknown): string | undefined {
-  if (isRecord(result) && isRecord(result.run) && typeof result.run.id === "string") return result.run.id;
-  if (isRecord(result) && isRecord(result.code) && isRecord(result.code.run) && typeof result.code.run.id === "string") return result.code.run.id;
-  if (isRecord(result) && isRecord(result.workflow) && isRecord(result.workflow.code) && isRecord(result.workflow.code.run) && typeof result.workflow.code.run.id === "string") return result.workflow.code.run.id;
-  if (isRecord(result) && isRecord(result.result) && isRecord(result.result.run) && typeof result.result.run.id === "string") return result.result.run.id;
-  return undefined;
-}
-
-function artifactForActionResult(result: unknown): string | null {
-  if (isRecord(result) && isRecord(result.package) && Array.isArray(result.package.artifactRefs) && typeof result.package.artifactRefs[0] === "string") return result.package.artifactRefs[0];
-  if (isRecord(result) && isRecord(result.summary) && Array.isArray(result.summary.evidenceRefs) && typeof result.summary.evidenceRefs[0] === "string") return result.summary.evidenceRefs[0];
-  if (isRecord(result) && isRecord(result.snapshot) && typeof result.snapshot.summaryArtifact === "string") return result.snapshot.summaryArtifact;
-  if (isRecord(result) && isRecord(result.result) && Array.isArray(result.result.artifactRefs) && typeof result.result.artifactRefs[0] === "string") return result.result.artifactRefs[0];
-  if (isRecord(result) && isRecord(result.readiness) && typeof result.readiness.summaryArtifact === "string") return result.readiness.summaryArtifact;
-  if (isRecord(result) && isRecord(result.manifest) && typeof result.manifest.artifact === "string") return result.manifest.artifact;
-  if (isRecord(result) && isRecord(result.handoff) && Array.isArray(result.handoff.artifactRefs) && typeof result.handoff.artifactRefs[0] === "string") return result.handoff.artifactRefs[0];
-  if (isRecord(result) && isRecord(result.revision) && Array.isArray(result.revision.artifactRefs) && typeof result.revision.artifactRefs[0] === "string") return result.revision.artifactRefs[0];
-  if (isRecord(result) && isRecord(result.run) && isRecord(result.run.artifacts) && typeof result.run.artifacts.directory === "string") return result.run.artifacts.directory;
-  if (isRecord(result) && isRecord(result.code) && isRecord(result.code.run) && isRecord(result.code.run.artifacts) && typeof result.code.run.artifacts.directory === "string") return result.code.run.artifacts.directory;
-  if (isRecord(result) && isRecord(result.workflow) && isRecord(result.workflow.code) && isRecord(result.workflow.code.run) && isRecord(result.workflow.code.run.artifacts) && typeof result.workflow.code.run.artifacts.directory === "string") return result.workflow.code.run.artifacts.directory;
-  return null;
-}
-
-function summarizeActionResult(actionType: string, result: unknown): string {
-  if ((actionType === "landing.prepare" || actionType === "landing.review" || actionType === "landing.refresh") && isRecord(result) && isRecord(result.package)) {
-    const summary = typeof result.package.summary === "string" ? result.package.summary : "Landing readiness package updated.";
-    return summary;
-  }
-  if ((actionType === "landing-queue.prepare" || actionType === "landing-queue.refresh") && isRecord(result) && isRecord(result.snapshot)) {
-    return typeof result.snapshot.summary === "string" ? result.snapshot.summary : "Landing queue refreshed.";
-  }
-  if (actionType === "landing-queue.merge-next" && isRecord(result) && isRecord(result.result)) {
-    return typeof result.result.summary === "string" ? result.result.summary : "Landing queue merge step completed.";
-  }
-  if ((actionType === "pr-draft.prepare" || actionType === "pr-draft.create" || actionType === "pr-draft.refresh") && isRecord(result) && isRecord(result.package)) {
-    const prUrl = typeof result.package.prUrl === "string" ? ` ${result.package.prUrl}` : "";
-    return `Draft PR handoff updated.${prUrl}`;
-  }
-  if ((actionType === "pr-feedback.refresh" || actionType === "pr-feedback.evaluate" || actionType === "pr-review.feedback-refresh" || actionType === "pr-review.feedback-evaluate") && isRecord(result) && isRecord(result.summary)) {
-    return typeof result.summary.summary === "string" ? result.summary.summary : "PR feedback refreshed.";
-  }
-  if ((actionType === "pr-feedback.rework" || actionType === "pr-review.rework") && isRecord(result)) {
-    return "PR feedback rework was routed through the same demand.";
-  }
-  if (actionType === "pr-review.reply-prepare" && isRecord(result) && isRecord(result.draft)) {
-    return "PR review reply draft prepared.";
-  }
-  if (actionType === "pr-review.reply-submit" && isRecord(result) && isRecord(result.handoff)) {
-    return "PR review reply submitted.";
-  }
-  if (actionType === "pr-review.thread-resolve" && isRecord(result) && isRecord(result.resolution)) {
-    return "PR review thread marked as handled.";
-  }
-  if (actionType === "pr-feedback.update-draft" && isRecord(result) && isRecord(result.package)) {
-    const prUrl = typeof result.package.prUrl === "string" ? ` ${result.package.prUrl}` : "";
-    return `Draft PR branch updated.${prUrl}`;
-  }
-  if ((actionType === "pr-review.prepare" || actionType === "pr-review.refresh") && isRecord(result) && isRecord(result.readiness)) {
-    return typeof result.readiness.summary === "string" ? result.readiness.summary : "PR review readiness refreshed.";
-  }
-  if (actionType === "pr-review.submit" && isRecord(result) && isRecord(result.handoff)) {
-    const prUrl = typeof result.handoff.prUrl === "string" ? ` ${result.handoff.prUrl}` : "";
-    return `Draft PR submitted for human review.${prUrl}`;
-  }
-  if ((actionType === "remote-landing.prepare" || actionType === "remote-landing.refresh") && isRecord(result) && isRecord(result.readiness)) {
-    return typeof result.readiness.summary === "string" ? result.readiness.summary : "Remote landing readiness refreshed.";
-  }
-  if (actionType === "remote-landing.merge" && isRecord(result) && isRecord(result.result)) {
-    const status = typeof result.result.status === "string" ? result.result.status : "completed";
-    const prUrl = typeof result.result.prUrl === "string" ? ` ${result.result.prUrl}` : "";
-    return `Remote landing ${status}.${prUrl}`;
-  }
-  if ((actionType === "post-merge.prepare" || actionType === "post-merge.refresh") && isRecord(result) && isRecord(result.handoff)) {
-    return typeof result.handoff.summary === "string" ? result.handoff.summary : "Post-merge state refreshed.";
-  }
-  if (actionType === "post-merge.sync-local.prepare" && isRecord(result) && isRecord(result.readiness)) {
-    return typeof result.readiness.summary === "string" ? result.readiness.summary : "Local sync readiness refreshed.";
-  }
-  if (actionType === "post-merge.sync-local.run" && isRecord(result) && isRecord(result.result)) {
-    const status = typeof result.result.status === "string" ? result.result.status : "completed";
-    return `Post-merge local sync ${status}.`;
-  }
-  if (actionType === "post-merge.cleanup-branch.prepare" && isRecord(result) && isRecord(result.readiness)) {
-    return typeof result.readiness.summary === "string" ? result.readiness.summary : "Remote branch cleanup readiness refreshed.";
-  }
-  if (actionType === "post-merge.cleanup-branch.run" && isRecord(result) && isRecord(result.result)) {
-    const status = typeof result.result.status === "string" ? result.result.status : "completed";
-    return `Post-merge remote branch cleanup ${status}.`;
-  }
-  if (actionType === "task.run.reconcile" && isRecord(result) && Array.isArray(result.taskRuns)) {
-    return `Reconciled ${result.taskRuns.length} TaskRun record(s).`;
-  }
-  if (actionType === "task.queue.reconcile" && isRecord(result) && Array.isArray(result.queues)) {
-    return `Recovered ${result.queues.length} task queue record(s).`;
-  }
-  if (actionType === "task.queue.start" && isRecord(result) && isRecord(result.queue)) {
-    const status = typeof result.queue.status === "string" ? result.queue.status : "completed";
-    const completed = typeof result.queue.completedCount === "number" ? result.queue.completedCount : 0;
-    const total = typeof result.queue.totalCount === "number" ? result.queue.totalCount : 0;
-    return `Task queue finished with status ${status}. Completed ${completed}/${total}.`;
-  }
-  if (actionType === "code.run" && isRecord(result)) {
-    const stoppedAt = typeof result.stoppedAt === "string" && result.stoppedAt ? ` Stopped at ${result.stoppedAt}.` : " Validation and audit sequence completed.";
-    return `Coder run was confirmed by the user.${stoppedAt}`;
-  }
-  if ((actionType === "task.run.start" || actionType === "task.run.retry") && isRecord(result) && isRecord(result.taskRun)) {
-    const taskId = typeof result.taskRun.taskId === "string" ? result.taskRun.taskId : "task";
-    const status = typeof result.taskRun.status === "string" ? result.taskRun.status : "completed";
-    return `TaskRun for ${taskId} finished with status ${status}.`;
-  }
-  if ((actionType === "planning.generate" || actionType === "planning.revise") && isRecord(result) && isRecord(result.bundle)) {
-    return `Planning draft is ready: ${typeof result.bundle.goal === "string" ? result.bundle.goal : "draft bundle"}.`;
-  }
-  if (actionType === "planning.decomposition.assess-readiness" && isRecord(result) && isRecord(result.manifest)) {
-    return typeof result.manifest.status === "string"
-      ? `Decomposition readiness assessed: ${result.manifest.status}. No execution was started.`
-      : "Decomposition readiness assessed. No execution was started.";
-  }
-  if (actionType === "planning.taskqueue.propose" && isRecord(result) && isRecord(result.proposal)) {
-    return typeof result.proposal.id === "string"
-      ? `TaskQueueProposal ${result.proposal.id} generated. No execution was started.`
-      : "TaskQueueProposal generated. No execution was started.";
-  }
-  if (actionType === "planning.workflowgraph.compile" && isRecord(result) && isRecord(result.graph)) {
-    return typeof result.graph.id === "string"
-      ? `WorkflowGraphPlan ${result.graph.id} compiled. No execution was started.`
-      : "WorkflowGraphPlan compiled. No execution was started.";
-  }
-  if (actionType === "planning.confirm-execution" && isRecord(result)) {
-    return "Planning confirmed and canonical artifacts were written. No execution was started.";
-  }
-  if ((actionType.startsWith("role.pipeline.") || actionType.startsWith("demand.worker.")) && isRecord(result)) {
-    const status = typeof result.status === "string" ? result.status : "completed";
-    return actionType.startsWith("demand.worker.")
-      ? `Demand worker finished with status ${status}.`
-      : `Main-agent role orchestration finished with status ${status}.`;
-  }
-  return `${labelForAction(actionType)} completed.`;
-}
-
-function workflowFailureMessage(actionType: string, result: unknown): string | null {
-  if (!isRecord(result)) return null;
-  const workflow = (actionType === "task.run.start" || actionType === "task.run.retry") && isRecord(result.workflow) ? result.workflow : result;
-  if (actionType !== "code.run" && actionType !== "task.run.start" && actionType !== "task.run.retry") return null;
-  const stoppedAt = typeof workflow.stoppedAt === "string" ? workflow.stoppedAt : null;
-  if (!stoppedAt) return null;
-  if (stoppedAt === "code") return "Code workflow stopped because the Coder run did not complete successfully.";
-  if (stoppedAt === "validation") return "Code workflow stopped because validation did not pass.";
-  if (stoppedAt === "audit") return "Code workflow stopped because audit did not approve the worktree.";
-  return `Code workflow stopped at ${stoppedAt}.`;
-}
-
-function labelForAction(actionType: string): string {
-  switch (actionType) {
-    case "change.spec.propose": return "Spec proposal generated";
-    case "change.spec.accept": return "Spec proposal accepted";
-    case "change.plan.propose": return "Plan proposal generated";
-    case "change.plan.accept": return "Plan proposal accepted";
-    case "planning.generate": return "Planning draft generated";
-    case "planning.revise": return "Planning draft revised";
-    case "planning.confirm-execution": return "Planning confirmed";
-    case "planning.decompose": return "DecompositionPlan drafted";
-    case "planning.decomposition.confirm": return "DecompositionPlan confirmed";
-    case "planning.decomposition.assess-readiness": return "Decomposition readiness assessed";
-    case "planning.taskqueue.propose": return "TaskQueueProposal generated";
-    case "planning.workflowgraph.compile": return "WorkflowGraphPlan compiled";
-    case "planning.taskqueue.confirm-start": return "TaskQueueProposal confirmed and started";
-    case "orchestrator.evaluate": return "Main orchestrator evaluated";
-    case "orchestrator.pump": return "Main orchestrator pumped available demands";
-    case "demand.worker.enqueue": return "Demand enqueued";
-    case "demand.worker.claim": return "Demand worker claimed";
-    case "demand.worker.start-next": return "Demand worker started";
-    case "demand.worker.start-available": return "Available demand workers started";
-    case "demand.worker.reconcile": return "Demand workers reconciled";
-    case "demand.worker.release": return "Demand worker released";
-    case "role.pipeline.start": return "Role orchestration started";
-    case "role.pipeline.stop": return "Role orchestration stop requested";
-    case "role.pipeline.continue": return "Role orchestration continued";
-    case "role.pipeline.reconcile": return "Role orchestration reconciled";
-    case "conversation.steer": return "Conversation steering recorded";
-    case "conversation.interrupt": return "Conversation interrupt requested";
-    case "conversation.continue": return "Conversation continued";
-    case "result.refresh-rework": return "Result refreshed against latest project state";
-    case "result.revalidate": return "Result validation refreshed";
-    case "result.reaudit": return "Result audit refreshed";
-    case "result.refresh-status": return "Result status refreshed";
-    case "apply-check.run": return "Integration check completed";
-    case "landing.prepare": return "Landing readiness prepared";
-    case "landing.review": return "Landing readiness reviewed";
-    case "landing.refresh": return "Landing readiness refreshed";
-    case "landing-queue.prepare": return "Landing queue prepared";
-    case "landing-queue.refresh": return "Landing queue refreshed";
-    case "landing-queue.merge-next": return "Landing queue merged next PR";
-    case "landing-queue.skip": return "Landing queue item skipped";
-    case "landing-queue.remove-stale": return "Landing queue stale item removed";
-    case "pr-draft.prepare": return "PR draft package prepared";
-    case "pr-draft.create": return "Draft PR created";
-    case "pr-draft.refresh": return "Draft PR refreshed";
-    case "pr-feedback.refresh": return "PR feedback refreshed";
-    case "pr-feedback.evaluate": return "PR feedback evaluated";
-    case "pr-feedback.rework": return "PR feedback rework started";
-    case "pr-feedback.update-draft": return "Draft PR updated";
-    case "pr-review.prepare": return "PR review readiness prepared";
-    case "pr-review.submit": return "Draft PR submitted for review";
-    case "pr-review.refresh": return "PR review state refreshed";
-    case "pr-review.feedback-refresh": return "PR review feedback refreshed";
-    case "pr-review.feedback-evaluate": return "PR review feedback evaluated";
-    case "pr-review.rework": return "PR review feedback rework started";
-    case "pr-review.reply-prepare": return "PR review reply draft prepared";
-    case "pr-review.reply-submit": return "PR review reply submitted";
-    case "pr-review.thread-resolve": return "PR review thread resolved";
-    case "remote-landing.prepare": return "Remote landing readiness prepared";
-    case "remote-landing.merge": return "Remote PR merged";
-    case "remote-landing.refresh": return "Remote landing state refreshed";
-    case "post-merge.prepare": return "Post-merge state prepared";
-    case "post-merge.refresh": return "Post-merge state refreshed";
-    case "post-merge.sync-local.prepare": return "Local sync readiness prepared";
-    case "post-merge.sync-local.run": return "Local project synchronized";
-    case "post-merge.cleanup-branch.prepare": return "Remote branch cleanup readiness prepared";
-    case "post-merge.cleanup-branch.run": return "Remote PR branch cleaned up";
-    case "code.run": return "Coder run confirmed";
-    case "task.run.start": return "Task workflow started";
-    case "task.run.retry": return "Task workflow retried";
-    case "task.run.reconcile": return "Task runs reconciled";
-    case "task.queue.start": return "Task queue started";
-    case "task.queue.reconcile": return "Task queue reconciled";
-    case "workpad.abandon": return "Workpad abandoned";
-    case "validate.run": return "Validation run completed";
-    case "audit.run": return "Audit run completed";
-    case "spec-test.drift": return "Spec-Test drift checked";
-    default: return actionType;
-  }
-}
-
 export async function recordWorkbenchDecision(project: ManagedProject, input: {
   id: string;
   changeId: string | null;
@@ -4596,7 +3097,4 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
-function assertNever(value: never): never {
-  throw new Error(`Unsupported workflow action: ${value}`);
-}
 

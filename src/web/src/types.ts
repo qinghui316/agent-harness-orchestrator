@@ -1,0 +1,741 @@
+import type { WorkbenchThreadActionType } from "./workflow-actions.js";
+
+export type AppStatus = { mode: "app" | "project"; directProjectId: string | null };
+export type ProjectStatus = {
+  project: { id: string; name: string; path: string } | null;
+  path: string;
+  pathExists: boolean;
+  isGitRepo: boolean;
+  managed: boolean;
+  harness: { readiness: string };
+};
+export type Snapshot = {
+  project: { id: string; name: string; path: string } | null;
+  memory: { memoryMode?: string; harnessReady?: boolean; artifactBase?: string };
+  left: {
+    topics: Topic[];
+    workpads?: WorkpadSummary[];
+    repo?: { branch?: string; dirty?: boolean; path?: string; git?: boolean };
+  };
+  center: {
+    selectedTopic: TopicDetail | null;
+    workpad: Workpad;
+    agentLoop: { runs: RunSummary[] };
+    thread: { items: ThreadStreamItem[] };
+    parentAgentTranscript: ParentAgentTranscript;
+    activeTab?: CenterTab;
+    agentRunGraph: DemandAgentRunGraph;
+  };
+  right: { approvals: Approval[]; decisions: Decision[]; decisionInspector: DecisionInspector; confirmationQueue: ConfirmationQueue };
+  harnessGaps: Array<{ id: string; status: string; summary: string }>;
+  warnings: string[];
+};
+
+export type Topic = { id: string; title: string; state: string; updatedAt?: string };
+export type WorkpadRuntimeStatus = "active" | "running" | "queued" | "blocked" | "waiting-decision" | "archived" | "readonly";
+export type WorkpadUserStatus = "processing" | "waiting-confirmation" | "needs-rework" | "later" | "completed" | "abandoned";
+export type ConversationLifecycle = "active" | "running" | "waiting-user" | "archived-readonly" | "abandoned";
+export type WorkpadSummary = {
+  id: string;
+  title: string;
+  state: string;
+  runtimeStatus: WorkpadRuntimeStatus;
+  userStatus?: WorkpadUserStatus;
+  userStatusLabel?: string;
+  conversationLifecycle?: ConversationLifecycle;
+  linkedFromChangeId?: string;
+  selected: boolean;
+  waitingDecisionCount: number;
+  latestRunStatus?: string;
+  latestRunId?: string;
+  queueStatus?: string;
+  blocker?: string;
+  updatedAt?: string;
+};
+export type DemandAgentRunGraphLaneId = "main" | "roles" | "integration" | "maintenance";
+export type DemandAgentRunGraphNodeStatus = "idle" | "queued" | "running" | "completed" | "needs-change" | "failed" | "waiting-user" | "skipped";
+export type DemandAgentRunGraphEvidenceRef = { label: string; ref: string; kind: "artifact" | "run" | "task" | "decision" | "remote" | "maintenance" };
+export type DemandAgentRunGraphAttempt = { id: string; status: DemandAgentRunGraphNodeStatus; summary: string; timestamp?: string; evidenceRefs: DemandAgentRunGraphEvidenceRef[] };
+export type DemandAgentRunGraphNode = {
+  id: string;
+  kind: string;
+  lane: DemandAgentRunGraphLaneId;
+  label: string;
+  roleId?: string;
+  status: DemandAgentRunGraphNodeStatus;
+  summary: string;
+  reason: string;
+  target: {
+    projectId?: string | null;
+    conversationId?: string;
+    changeId?: string;
+    roleId?: string;
+    agentTaskId?: string;
+    runId?: string;
+    worktreeId?: string;
+    resultId?: string;
+    applyCheckId?: string;
+    landingPackageId?: string;
+    prDraftPackageId?: string;
+    prUrl?: string;
+    remoteLandingResultId?: string;
+    maintenanceRunId?: string;
+    candidateId?: string;
+  };
+  inputSummary?: string;
+  outputSummary?: string;
+  evidenceRefs: DemandAgentRunGraphEvidenceRef[];
+  attempts: DemandAgentRunGraphAttempt[];
+};
+export type DemandAgentRunGraphEdge = { id: string; from: string; to: string; kind: string; label: string };
+export type DemandAgentRunGraphLane = { id: DemandAgentRunGraphLaneId; label: string; description: string };
+export type DemandAgentRunGraph = {
+  conversationId?: string;
+  changeId?: string;
+  title: string;
+  summary: string;
+  lanes: DemandAgentRunGraphLane[];
+  nodes: DemandAgentRunGraphNode[];
+  edges: DemandAgentRunGraphEdge[];
+  updatedAt?: string;
+};
+export type CenterTab = "conversation" | "agentGraph";
+export type ParentAgentTranscriptBlock = {
+  id: string;
+  kind: "prose" | "process" | "tool-result" | "evidence";
+  source: "user" | "codex-runtime" | "aho-orchestration" | "workflow-evidence" | "maintenance";
+  title?: string;
+  text: string;
+  status?: string;
+  evidenceRefs?: Array<{ label: string; ref: string; kind: "artifact" | "run" | "decision" | "remote" | "maintenance" }>;
+  isError?: boolean;
+};
+export type ParentAgentTranscriptCell = {
+  id: string;
+  kind: "user-message" | "assistant-message" | "process-row" | "evidence-row" | "detail-only";
+  source: "user" | "codex-runtime" | "aho-orchestration" | "workflow-evidence" | "maintenance";
+  timestamp?: string;
+  title?: string;
+  text: string;
+  status?: string;
+  evidenceRefs?: ParentAgentTranscriptBlock["evidenceRefs"];
+  isError?: boolean;
+  realtime?: boolean;
+  detailText?: string;
+};
+export type ParentAgentTranscriptItem = {
+  id: string;
+  actor: "user" | "parent-agent";
+  timestamp?: string;
+  blocks: ParentAgentTranscriptBlock[];
+  derived?: boolean;
+};
+export type ParentAgentTranscript = {
+  conversationId?: string;
+  changeId?: string;
+  title: string;
+  cells?: ParentAgentTranscriptCell[];
+  items: ParentAgentTranscriptItem[];
+  emptyMessage?: string;
+};
+export type TopicDetail = Topic & {
+  closeGate?: { ready: boolean; warnings: string[]; blockingIssues: string[] };
+  reviewStatus?: string | null;
+  acCount?: number;
+  taskCount?: number;
+};
+export type WorkpadNextAction = {
+  id: string;
+  label: string;
+  description: string;
+  kind: "workflow-action" | "approval" | "read-only" | "none";
+  enabled: boolean;
+  requiresConfirmation: boolean;
+  actionType?: ThreadStreamAction["actionType"];
+  approvalId?: string;
+  planningBundleId?: string;
+  decompositionPlanId?: string;
+  readinessManifestId?: string;
+  taskQueueProposalId?: string;
+  workflowGraphPlanId?: string;
+  workflowRunId?: string;
+  queueRunId?: string;
+  taskIds?: string[];
+  taskRunId?: string;
+  disabledReason?: string;
+};
+export type DecisionActionKind = "approval" | "workflow-action" | "feedback" | "evidence" | "abandon" | "none";
+export type WorkbenchTaskEvidence = {
+  id: string;
+  label: string;
+  source: "run" | "validation" | "audit";
+  status?: string;
+  runId?: string;
+  worktreeId?: string;
+  artifact?: string;
+  timestamp?: string;
+};
+export type WorkbenchTaskNextAction = {
+  id: string;
+  label: string;
+  actionType?: ThreadStreamAction["actionType"];
+  taskIds?: string[];
+  taskRunId?: string;
+  decompositionPlanId?: string;
+  readinessManifestId?: string;
+  taskQueueProposalId?: string;
+  workflowGraphPlanId?: string;
+  workflowRunId?: string;
+  queueRunId?: string;
+  enabled: boolean;
+  requiresConfirmation: boolean;
+  disabledReason?: string;
+};
+export type WorkbenchTaskRunSummary = {
+  id: string;
+  status: string;
+  attempt: number;
+  roleId: string;
+  runId?: string;
+  worktreeId?: string;
+  blockedReason?: string;
+  failureReason?: string;
+  officialReworkAttempt?: number;
+  autoReworkAvailable?: boolean;
+  reworkBudget?: number;
+};
+export type WorkbenchWorkerLeaseSummary = {
+  id: string;
+  status: string;
+  workerId: string;
+  claimedAt: string;
+  expiresAt: string;
+};
+export type WorkbenchTaskNode = {
+  taskId: string;
+  title: string;
+  acIds: string[];
+  checked: boolean;
+  status: "planned" | "running" | "evidence-ready" | "blocked" | "checked";
+  taskRun?: WorkbenchTaskRunSummary;
+  workerLease?: WorkbenchWorkerLeaseSummary;
+  latestEvidence: WorkbenchTaskEvidence[];
+  blockers: string[];
+  nextAction: WorkbenchTaskNextAction;
+  autoRework?: { available: boolean; attempt: number; budget: number; reason: string; failureClassification: string };
+};
+export type WorkbenchTaskGraph = {
+  source: "accepted-tasks" | "missing";
+  nodes: WorkbenchTaskNode[];
+  changeLevelEvidence: WorkbenchTaskEvidence[];
+  warnings: string[];
+};
+export type WorkbenchCodingPackage = {
+  id: string;
+  title: string;
+  summary: string;
+  taskIds: string[];
+  completedTaskIds: string[];
+  acIds: string[];
+  coveredAcIds: string[];
+  missingEvidenceAcIds: string[];
+  recommendedRoleId: string;
+  executionUnit: "single-agent" | "future-parallel-candidate";
+  assignmentStatus: "suggested" | "not-assigned";
+  splitReadiness: "likely-single" | "candidate" | "unknown";
+  splitRationale: string;
+  mergeRisk: string;
+  status: "missing" | "suggested" | "blocked" | "evidence-ready" | "readonly";
+};
+export type WorkbenchTaskQueueSummary = {
+  id: string;
+  status: string;
+  currentTaskId?: string;
+  totalCount: number;
+  completedCount: number;
+  blockedReason?: string;
+  failureReason?: string;
+  pausedReason?: string;
+  workflowRunId?: string;
+  taskQueueProposalId?: string;
+  workflowGraphPlanId?: string;
+  readinessManifestId?: string;
+  decompositionPlanId?: string;
+  nextAction?: WorkbenchTaskNextAction;
+  items: Array<{
+    id: string;
+    taskId: string;
+    order: number;
+    status: string;
+    taskRunId?: string;
+    blockedReason?: string;
+    failureReason?: string;
+  }>;
+};
+export type Workpad = {
+  title: string;
+  subtitle: string;
+  state: "diagnostic" | "empty" | "active" | "readonly";
+  userStatus?: WorkpadUserStatus;
+  userStatusLabel?: string;
+  conversationId?: string;
+  demandId?: string;
+  boundChangeId?: string;
+  conversationLifecycle?: ConversationLifecycle;
+  linkedFromChangeId?: string;
+  pendingFeedback?: Array<{ id: string; text: string; timestamp: string; runId?: string; status: "pending-next-turn" | "applied" }>;
+  coderSelfTestSummary?: string;
+  officialValidationResult?: string;
+  officialAuditResult?: string;
+  officialReworkAttempt?: number;
+  reworkBudget?: number;
+  failureClassification?: string;
+  requiresUserInputReason?: string;
+  scopedFeedbackTarget?: Record<string, unknown>;
+  postArchiveEvolutionCandidate?: { changeId: string; status: "candidate"; sources: string[]; summary: string };
+  planningDraft?: PlanningArtifactBundle;
+  planningArtifactBundle?: PlanningArtifactBundle;
+  decompositionPlan?: DecompositionPlanSummary;
+  decompositionReadiness?: DecompositionReadinessSummary;
+  taskQueueProposal?: TaskQueueProposalSummary;
+  workflowGraphPlan?: WorkflowGraphPlanSummary;
+  rolePipeline?: {
+    stage: "planning" | "coding" | "validation" | "audit" | "rework" | "done" | "needs-user-input";
+    status: "draft" | "running" | "completed" | "needs-user-input" | "stopped";
+    runs: Array<{ roleId: string; status: string; runId?: string; summary: string; artifact?: string }>;
+    agentTasks: Array<{
+      id: string;
+      roleId: string;
+      kind: "foreground" | "background";
+      status: string;
+      changeId?: string;
+      runId?: string;
+      summary: string;
+      resultSummary?: string;
+      evidenceRefs: string[];
+      createdAt: string;
+      completedAt?: string;
+    }>;
+    reworkUsed: number;
+    reworkBudget: number;
+  };
+  resultReview?: {
+    status: "not-ready" | "ready-to-apply" | "needs-rework" | "applied-clean" | "applied-source-dirty";
+    title: string;
+    summary: string;
+    worktreeId?: string;
+    changedFiles: string[];
+    diffStat?: string;
+    validation?: { id: string; status: string; runId: string };
+    audit?: { id: string; status: string; runId: string; findingCount: number; notes: string[]; artifact?: string };
+    applyReadiness: { ready: boolean; kind?: string; label: string; message?: string; blockingIssues: string[]; warnings: string[] };
+    evidence: Array<{ id: string; label: string; source: string; status?: string; artifact?: string; timestamp?: string }>;
+  };
+  maintenance?: {
+    ledgerCount: number;
+    closeoutCount?: number;
+    latestReviewWindowId?: string;
+    unreviewedTerminalCount?: number;
+    latest?: { id: string; eventType: string; changeId?: string; summary: string; severity: string; createdAt: string };
+    status: "idle" | "collecting" | "review-ready" | "reviewed";
+    note: string;
+  };
+  runControlState?: { canStop: boolean; stopActionType?: ThreadStreamAction["actionType"]; pendingFeedbackCount: number; explanation: string };
+  intake: {
+    goal: string;
+    currentUnderstanding: string;
+    source: "project" | "topic" | "thread" | "diagnostic";
+    relatedArtifacts: string[];
+    missingInfo: string[];
+    confirmedConstraints: string[];
+    openQuestions: string[];
+    assumptions: string[];
+    pendingClarifications: ClarificationRequest[];
+  };
+  progress: {
+    topicState: string;
+    spec: "missing" | "ready" | "unknown";
+    plan: "missing" | "ready" | "unknown";
+    tasks: "missing" | "ready" | "unknown";
+    acCount: number;
+    taskCount: number;
+    runCount: number;
+    latestRunStatus?: string;
+    validationStatus?: string;
+    auditStatus?: string;
+  };
+  tasks: Array<{ id: string; title: string; done: boolean; acIds: string[]; warnings: string[] }>;
+  codingPackages: WorkbenchCodingPackage[];
+  taskGraph: WorkbenchTaskGraph;
+  taskQueue?: WorkbenchTaskQueueSummary;
+  evidence: Array<{ id: string; label: string; source: string; status?: string; artifact?: string; timestamp?: string }>;
+  blockers: string[];
+  warnings: string[];
+  nextAction: WorkpadNextAction;
+  background?: {
+    totalCount: number;
+    runningCount: number;
+    queuedCount: number;
+    blockedCount: number;
+    waitingDecisionCount: number;
+    items: WorkpadSummary[];
+  };
+  memoryIsolation?: {
+    projectStableNamespace: "project/stable";
+    currentChangeNamespace?: string;
+    runNamespaces: string[];
+    agentSessionNamespace: "agent/{roleId}/session/{sessionId}";
+    relatedWorkpads: Array<{ changeId: string; title: string; status: WorkpadRuntimeStatus; factBoundary: "summary-only" | "local-evidence-only" }>;
+    stableFactSources: string[];
+    writeBoundaries: string[];
+    warnings: string[];
+  };
+};
+export type PlanningArtifactBundle = {
+  id: string;
+  status?: "draft" | "confirmed";
+  goal: string;
+  constraints: string[];
+  acceptanceCriteria: string[];
+  design: string;
+  tasks: Array<{ id: string; title: string; acIds: string[] }>;
+  risks: string[];
+  openQuestions: string[];
+  artifact?: string;
+  updatedAt?: string;
+};
+export type DecompositionPlanSummary = {
+  id: string;
+  changeId: string;
+  status: "draft" | "confirmed" | "superseded" | "rejected";
+  recommendation: "single-change" | "taskgraph-sequential" | "taskgraph-parallel-candidate" | "multi-change-candidate" | "needs-clarification";
+  rationale: string;
+  unitCount: number;
+  dependencyCount: number;
+  conflictScopeCount: number;
+  riskSummary: string;
+  openQuestionCount: number;
+  artifact?: string;
+  markdownArtifact?: string;
+  updatedAt: string;
+};
+export type DecompositionReadinessSummary = {
+  id: string;
+  changeId: string;
+  decompositionPlanId: string;
+  status: "ready-for-single-change" | "ready-for-sequential-taskqueue-proposal" | "blocked-parallel-guardrails" | "blocked-multi-change-boundary" | "blocked-needs-clarification" | "invalid";
+  recommendation: DecompositionPlanSummary["recommendation"];
+  schedulerEligible: boolean;
+  nextAllowedAction: "code.run" | "taskqueue.proposal" | "clarification.answer" | "none";
+  guardrailStatus: "passed" | "blocked" | "failed";
+  unitCount: number;
+  artifact?: string;
+  markdownArtifact?: string;
+  updatedAt: string;
+};
+export type TaskQueueProposalSummary = {
+  id: string;
+  changeId: string;
+  decompositionPlanId: string;
+  readinessManifestId: string;
+  status: "draft" | "confirmed" | "started" | "superseded" | "rejected";
+  queueMode: "sequential";
+  itemCount: number;
+  dependencyCount: number;
+  conflictScopeCount: number;
+  artifact?: string;
+  markdownArtifact?: string;
+  updatedAt: string;
+};
+export type WorkflowGraphPlanSummary = {
+  id: string;
+  changeId: string;
+  taskQueueProposalId: string;
+  readinessManifestId: string;
+  status: "compiled" | "superseded" | "rejected";
+  graphMode: "sequential-v1";
+  nodeCount: number;
+  edgeCount: number;
+  stageCount: number;
+  artifact?: string;
+  markdownArtifact?: string;
+  updatedAt: string;
+};
+export type PlanCard = {
+  title: string;
+  summary: string;
+  steps: Array<{ label: string; description: string; actionId?: string; requiresConfirmation?: boolean }>;
+  warnings: string[];
+};
+export type ThreadEvent = { id: string; type: string; label: string; timestamp?: string; status?: string; runId?: string; planCard?: PlanCard };
+export type ThreadStreamAction = {
+  actionType: WorkbenchThreadActionType;
+  label: string;
+  enabled: boolean;
+  requiresConfirmation: boolean;
+  disabledReason?: string;
+  planningBundleId?: string;
+  decompositionPlanId?: string;
+  readinessManifestId?: string;
+  taskQueueProposalId?: string;
+  workflowGraphPlanId?: string;
+  workflowRunId?: string;
+  queueRunId?: string;
+  taskIds?: string[];
+  taskRunId?: string;
+  worktreeId?: string;
+  worktreeIds?: string[];
+  applyCheckId?: string;
+  landingPackageId?: string;
+  remoteLandingResultId?: string;
+};
+export type ThreadStreamItem = {
+  id: string;
+  kind: "user-message" | "assistant-turn" | "assistant-message" | "plan-card" | "workflow-summary" | "evidence" | "decision" | "change-state" | "intake-summary" | "clarification";
+  label: string;
+  timestamp?: string;
+  body?: string;
+  source: string;
+  artifact?: string;
+  status?: string;
+  runId?: string;
+  actionRunId?: string;
+  semanticKey?: string;
+  planCard?: PlanCard;
+  actions?: ThreadStreamAction[];
+  activity?: LiveTurnEvent[];
+  evidence?: ThreadStreamEvidence[];
+  blocks?: AssistantTurnBlock[];
+  intake?: {
+    scan?: { runId: string; candidateFiles?: string[]; scripts?: Array<{ name: string; command: string }>; missingInfo?: string[] };
+    iteration?: { currentUnderstanding: string; confirmedConstraints: string[]; openQuestions: string[]; assumptions: string[] };
+  };
+  clarification?: ClarificationRequest;
+};
+export type ClarificationRequest = {
+  id: string;
+  status: "pending" | "answered" | "skipped" | "expired";
+  source: "aho" | "codex";
+  stage: "intake" | "spec" | "plan" | "run";
+  questions: Array<{ id: string; header?: string; question: string; options?: Array<{ label: string; description?: string }>; allowFreeform: boolean }>;
+  answers?: Array<{ questionId: string; answer: string }>;
+};
+export type ThreadStreamEvidence = {
+  id: string;
+  label: string;
+  source: "workflow" | "validation" | "audit" | "decision";
+  timestamp?: string;
+  body?: string;
+  artifact?: string;
+  status?: string;
+  runId?: string;
+  actionRunId?: string;
+};
+export type RunSummary = { id: string; runtime: string; status: string; startedAt?: string; finishedAt?: string };
+export type Approval = {
+  id: string;
+  kind: string;
+  label: string;
+  severity: string;
+  changeId?: string;
+  reason?: string;
+  action?: { actionId: string; label: string; command: string; args: string[]; mutates: boolean; requiresConfirmation: boolean };
+};
+export type DecisionAction = {
+  id: string;
+  label: string;
+  kind: DecisionActionKind;
+  enabled: boolean;
+  requiresConfirmation: boolean;
+  changeId?: string;
+  approvalId?: string;
+  action?: { actionId: string; label: string; command: string; args: string[]; mutates: boolean; requiresConfirmation: boolean };
+  actionType?: ThreadStreamAction["actionType"];
+  planningBundleId?: string;
+  decompositionPlanId?: string;
+  readinessManifestId?: string;
+  taskQueueProposalId?: string;
+  workflowGraphPlanId?: string;
+  workflowRunId?: string;
+  queueRunId?: string;
+  taskIds?: string[];
+  taskRunId?: string;
+  worktreeId?: string;
+  worktreeIds?: string[];
+  applyCheckId?: string;
+  landingPackageId?: string;
+  remoteLandingResultId?: string;
+  artifact?: string;
+  disabledReason?: string;
+};
+export type DecisionContext = {
+  id: string;
+  kind: string;
+  title: string;
+  summary: string;
+  userStatus?: WorkpadUserStatus;
+  resultSummary?: string;
+  recommendation?: string;
+  explanation?: string;
+  severity: "info" | "warning" | "blocking";
+  changeId?: string;
+  taskId?: string;
+  taskRunId?: string;
+  queueRunId?: string;
+  runId?: string;
+  targetId?: string;
+  artifact?: string;
+  timestamp?: string;
+  actions: DecisionAction[];
+  rework?: { mode: "inline-feedback" | "record-feedback"; label: string; placeholder: string };
+};
+export type DecisionInspector = {
+  primary: DecisionContext | null;
+  related: DecisionContext[];
+  history: DecisionContext[];
+  selectedContextId?: string;
+};
+export type ConfirmationQueueItem = {
+  id: string;
+  kind: string;
+  projectId?: string | null;
+  conversationId?: string;
+  changeId?: string;
+  resultId?: string;
+  runId?: string;
+  worktreeId?: string;
+  applyCheckId?: string;
+  summary: string;
+  whyNeedsConfirmation: string;
+  confirmEffect: string;
+  riskSummary: string;
+  evidenceRefs: string[];
+  actions: DecisionAction[];
+  primary: boolean;
+  status?: string;
+};
+export type ConfirmationQueue = {
+  primary: ConfirmationQueueItem | null;
+  current: ConfirmationQueueItem[];
+  otherDemands: ConfirmationQueueItem[];
+  maintenance: ConfirmationQueueItem[];
+  history: ConfirmationQueueItem[];
+};
+export type Decision = {
+  id: string;
+  kind: string;
+  label: string;
+  status: string;
+  changeId?: string;
+  runId?: string;
+  targetId?: string;
+  artifact?: string;
+  summary: string;
+  feedback?: string;
+  updatedAt: string;
+  completedAt?: string;
+};
+export type StreamPacket = {
+  run: RunSummary;
+  live: boolean;
+  events: ThreadEvent[];
+  artifacts: Array<{ key: string; path: string; kind: string; exists: boolean; preview?: string; tail?: string; truncated?: boolean; diagnostic?: string }>;
+  diagnostics: string[];
+};
+export type FolderDialogResult = { path: string | null; canceled: boolean; supported: boolean; error?: string };
+export type WorkbenchLiveEvent =
+  | { event: "topic.message"; data: TopicMessageEntry }
+  | { event: "run.started"; data: { runId: string; changeId: string; actionType?: string; runtime?: string; taskIds?: string[] } }
+  | { event: "run.status"; data: { runId?: string; actionRunId?: string; status: string; label?: string } }
+  | { event: "assistant.delta"; data: { delta: string; runId?: string } }
+  | { event: "assistant.message"; data: TopicMessageEntry }
+  | { event: "assistant.event"; data: AssistantReadableEvent }
+  | { event: "tool.event"; data: WorkbenchLiveToolEvent }
+  | { event: "usage"; data: { runId?: string; usage?: Record<string, unknown> } }
+  | { event: "snapshot"; data: Snapshot }
+  | { event: "error"; data: { message: string; runId?: string; actionRunId?: string } }
+  | { event: "done"; data: { status: "completed" | "failed" } };
+export type WorkbenchLiveToolEvent = {
+  runId: string;
+  itemId?: string;
+  phase: "started" | "completed" | "stderr" | "status";
+  name?: string;
+  command?: string;
+  outputTail?: string;
+  isError?: boolean;
+  exitCode?: number;
+  status?: string;
+};
+export type AssistantReadableEvent = {
+  runId: string;
+  itemId?: string;
+  kind: "status" | "reasoning-summary" | "command" | "file-change" | "mcp-tool" | "web-search" | "plan-update" | "tool-result" | "usage" | "error";
+  phase?: string;
+  title?: string;
+  summary?: string;
+  preview?: string;
+  artifactRef?: string;
+  command?: string;
+  cwd?: string;
+  exitCode?: number;
+  isError?: boolean;
+  truncated?: boolean;
+  timestamp?: string;
+};
+export type AssistantTurnBlock = {
+  id: string;
+  runId?: string;
+  sequence: number;
+  kind: "prose" | "status" | "command-group" | "command" | "tool-result" | "file-change" | "reasoning-summary" | "plan-card" | "workflow-evidence" | "usage" | "error";
+  timestamp: string;
+  source: "codex" | "aho" | "workflow" | "validation" | "audit" | "decision" | "legacy";
+  status?: string;
+  title?: string;
+  text?: string;
+  command?: string;
+  cwd?: string;
+  exitCode?: number;
+  preview?: string;
+  artifactRef?: string;
+  isError?: boolean;
+  truncated?: boolean;
+  itemId?: string;
+  children?: AssistantTurnBlock[];
+  planCard?: PlanCard;
+};
+export type LiveTurnEvent =
+  | { kind: "status"; label: string; detail?: string }
+  | { kind: "assistant-event"; event: AssistantReadableEvent }
+  | { kind: "tool"; tool: WorkbenchLiveToolEvent }
+  | { kind: "usage"; usage: Record<string, unknown> }
+  | { kind: "error"; message: string };
+export type LiveAssistantTurn = {
+  id: string;
+  runId: string;
+  runtime?: string;
+  actionType?: string;
+  status: string;
+  text: string;
+  events: LiveTurnEvent[];
+  blocks: AssistantTurnBlock[];
+  startedAt: string;
+  endedAt?: string;
+};
+export type TopicMessageEntry = {
+  id: string;
+  type: "user.message" | "assistant.message" | "orchestrator.plan" | "workflow.started" | "workflow.completed" | "workflow.failed" | "intake.scan" | "intake.iteration" | "clarification.request" | "clarification.answer" | "clarification.skip";
+  timestamp?: string;
+  changeId: string;
+  text?: string;
+  actionRunId?: string;
+  actionType?: string;
+  status?: string;
+  runId?: string;
+  artifact?: string;
+  error?: string;
+  planCard?: PlanCard;
+  activity?: LiveTurnEvent[];
+  blocks?: AssistantTurnBlock[];
+  intake?: ThreadStreamItem["intake"];
+  clarification?: ClarificationRequest;
+};

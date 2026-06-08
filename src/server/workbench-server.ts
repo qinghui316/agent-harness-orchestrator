@@ -18,32 +18,22 @@ import { getProjectStatus } from "../project/status.js";
 import { ProjectRegistryStore } from "../registry/store.js";
 import { acceptSpecTestProposal } from "../spec-test/proposal.js";
 import { createSseResponse } from "./sse.js";
+import { createLiveSink, readWorkbenchActionEvents, sendActionEventReplay } from "./workbench/live.js";
+import { getWorkbenchProjection } from "./workbench/projections.js";
+import { matchProjectWorkbenchRoute, resolveProjectInput } from "./workbench/routes.js";
 import {
   createWorkbenchTopic,
-  getWorkbenchActionEvents,
   listTopicMessages,
   postTopicMessage,
   recordWorkbenchDecision,
   runWorkbenchWorkflowAction,
   type TopicMessageInput,
-  type WorkbenchLiveEvent,
   type WorkbenchWorkflowActionRequest,
 } from "../workbench/chat.js";
 import {
-  getWorkbenchEvidenceProjection,
-  getWorkbenchDecompositionReadinessProjection,
-  getWorkbenchDecompositionPlanProjection,
-  getWorkbenchTaskQueueProposalProjection,
-  getWorkbenchWorkflowGraphPlanProjection,
-  getWorkbenchWorkflowRunProjection,
-  getWorkbenchLandingQueueProjection,
-  getWorkbenchMaintenanceProjection,
-  getWorkbenchRunGraphProjection,
   getWorkbenchSnapshot,
   getWorkbenchStream,
   getWorkbenchTopic,
-  getWorkbenchTranscriptProjection,
-  getWorkbenchWorkpadProjection,
   listWorkbenchApprovals,
   listWorkbenchTopics,
   type WorkbenchApprovalAction,
@@ -412,62 +402,10 @@ async function handleProjectWorkbenchApi(input: WorkbenchProjectInput, request: 
   const actionMatch = rest.match(/^actions\/([^/]+)$/);
   if (request.method === "GET" && actionMatch?.[1]) {
     assertRegisteredProject(input);
-    sendJson(response, 200, { events: await getWorkbenchActionEvents(input.project, decodeURIComponent(actionMatch[1])) });
+    sendJson(response, 200, { events: await readWorkbenchActionEvents(input.project, decodeURIComponent(actionMatch[1])) });
     return;
   }
   sendJson(response, 404, { error: "Not found." });
-}
-
-async function getWorkbenchProjection(input: WorkbenchProjectInput, rest: string): Promise<unknown> {
-  const [kind, encodedChangeId, encodedId] = rest.split("/");
-  const changeId = encodedChangeId ? decodeURIComponent(encodedChangeId) : undefined;
-  const id = encodedId ? decodeURIComponent(encodedId) : undefined;
-  if (kind === "transcript") {
-    if (!changeId) throw badRequest("transcript projection requires changeId.");
-    return getWorkbenchTranscriptProjection(input, changeId);
-  }
-  if (kind === "run-graph") {
-    if (!changeId) throw badRequest("run-graph projection requires changeId.");
-    return getWorkbenchRunGraphProjection(input, changeId);
-  }
-  if (kind === "workpad") {
-    if (!changeId) throw badRequest("workpad projection requires changeId.");
-    return getWorkbenchWorkpadProjection(input, changeId);
-  }
-  if (kind === "evidence") {
-    if (!changeId) throw badRequest("evidence projection requires changeId.");
-    return getWorkbenchEvidenceProjection(input, changeId);
-  }
-  if (kind === "decomposition-plan") {
-    if (!changeId) throw badRequest("decomposition-plan projection requires changeId.");
-    return getWorkbenchDecompositionPlanProjection(input, changeId);
-  }
-  if (kind === "decomposition-readiness") {
-    if (!changeId) throw badRequest("decomposition-readiness projection requires changeId.");
-    return getWorkbenchDecompositionReadinessProjection(input, changeId);
-  }
-  if (kind === "taskqueue-proposal") {
-    if (!changeId) throw badRequest("taskqueue-proposal projection requires changeId.");
-    return getWorkbenchTaskQueueProposalProjection(input, changeId);
-  }
-  if (kind === "workflow-graph-plan") {
-    if (!changeId) throw badRequest("workflow-graph-plan projection requires changeId.");
-    return getWorkbenchWorkflowGraphPlanProjection(input, changeId, id);
-  }
-  if (kind === "workflow-run") {
-    if (!changeId) throw badRequest("workflow-run projection requires changeId.");
-    if (!id) throw badRequest("workflow-run projection requires id.");
-    return getWorkbenchWorkflowRunProjection(input, changeId, id);
-  }
-  if (kind === "maintenance") return getWorkbenchMaintenanceProjection(input);
-  if (kind === "landing-queue") return getWorkbenchLandingQueueProjection(input);
-  throw badRequest(`Unknown Workbench projection: ${kind ?? ""}`);
-}
-
-function badRequest(message: string): Error {
-  const error = new Error(message);
-  error.name = "BadRequest";
-  return error;
 }
 
 export async function executeWorkbenchAction(input: WorkbenchProjectInput, body: WorkbenchActionRequest): Promise<{ result: unknown; snapshot: unknown }> {
@@ -761,15 +699,6 @@ async function sendTopicMessageReplay(project: ManagedProject, changeId: string,
   response.end();
 }
 
-async function sendActionEventReplay(project: ManagedProject, actionRunId: string, response: ServerResponse): Promise<void> {
-  response.writeHead(200, { "Content-Type": "text/event-stream; charset=utf-8", "Cache-Control": "no-store", Connection: "close" });
-  for (const event of await getWorkbenchActionEvents(project, actionRunId)) {
-    response.write(`event: action\n`);
-    response.write(`data: ${JSON.stringify(event)}\n\n`);
-  }
-  response.end();
-}
-
 async function sendTopicMessageLive(input: WorkbenchProjectInput & { project: ManagedProject }, changeId: string, request: IncomingMessage, response: ServerResponse): Promise<void> {
   const message = await readJsonBody<TopicMessageRequest>(request);
   if (typeof (message.message ?? message.text) !== "string" || (message.message ?? message.text ?? "").trim() === "") {
@@ -846,37 +775,8 @@ async function sendWorkbenchActionLive(input: WorkbenchProjectInput & { project:
   }
 }
 
-function createLiveSink(sse: ReturnType<typeof createSseResponse>): { emit(event: WorkbenchLiveEvent): void; isClosed(): boolean } {
-  let id = 0;
-  return {
-    emit(event: WorkbenchLiveEvent): void {
-      if (sse.closed) return;
-      sse.send(event.event, event.data, ++id);
-    },
-    isClosed(): boolean {
-      return sse.closed;
-    },
-  };
-}
-
 function isLiveWorkflowAction(actionType: string): actionType is WorkbenchWorkflowActionRequest["actionType"] {
   return isLiveWorkflowActionType(actionType);
-}
-
-function matchProjectWorkbenchRoute(pathname: string): { projectId: string; rest: string } | null {
-  const match = pathname.match(/^\/api\/projects\/([^/]+)\/workbench(?:\/(.*))?$/);
-  if (!match?.[1]) return null;
-  return { projectId: decodeURIComponent(match[1]), rest: match[2] ?? "snapshot" };
-}
-
-async function resolveProjectInput(store: ProjectRegistryStore, projectId: string): Promise<WorkbenchProjectInput> {
-  const project = await store.resolveProject(projectId);
-  if (!project) {
-    const error = new Error(`Project not found: ${projectId}`);
-    error.name = "NotFound";
-    throw error;
-  }
-  return { project, path: project.path };
 }
 
 function assertDirectProjectInput(input: WorkbenchProjectInput | null): asserts input is WorkbenchProjectInput {
