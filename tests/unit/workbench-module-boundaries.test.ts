@@ -26,6 +26,10 @@ import { fetchJson } from "../../src/web/src/api.js";
 import { workflowActionLabel } from "../../src/web/src/action-labels.js";
 import { userFacingText } from "../../src/web/src/formatters.js";
 import { emptyParentAgentTranscript } from "../../src/web/src/liveTranscript.js";
+import { MainConversationView, DecisionInspectorPane, WorkpadView } from "../../src/web/src/panels/WorkbenchPanels.js";
+import { RunReplay } from "../../src/web/src/panels/workbench/RunReplayPanel.js";
+import { ProjectConversationSidebar, appendProseBlock, threadItemFromTopicEntry } from "../../src/web/src/shell/WorkbenchShellParts.js";
+import { workflowActionPayloadFromTaskAction } from "../../src/web/src/workflow-actions.js";
 
 describe("Workbench module boundaries", () => {
   it("keeps legacy facades available while exposing split modules", () => {
@@ -57,6 +61,14 @@ describe("Workbench module boundaries", () => {
     expect(typeof validateWorkflowTaskQueueProposalStart).toBe("function");
     expect(typeof runTaskQueueSequence).toBe("function");
     expect(typeof fetchJson).toBe("function");
+    expect(typeof MainConversationView).toBe("function");
+    expect(typeof DecisionInspectorPane).toBe("function");
+    expect(typeof WorkpadView).toBe("function");
+    expect(typeof RunReplay).toBe("function");
+    expect(typeof ProjectConversationSidebar).toBe("function");
+    expect(typeof appendProseBlock).toBe("function");
+    expect(typeof threadItemFromTopicEntry).toBe("function");
+    expect(typeof workflowActionPayloadFromTaskAction).toBe("function");
     expect(emptyParentAgentTranscript().title).toBe("需求对话");
     expect(userFacingText("Task queue started")).toBe("本地顺序执行已开始");
     expect(workflowActionLabel("planning.workflowgraph.compile")).toBe("编译执行图");
@@ -102,6 +114,10 @@ describe("Workbench module boundaries", () => {
         forbidden: [/from\s+["']\.\.\/App\.js["']/],
       },
       {
+        roots: ["src/web/src/shell", "src/web/src/panels/workbench"],
+        forbidden: [/from\s+["']\.\.\/App\.js["']/, /from\s+["']\.\.\/\.\.\/App\.js["']/],
+      },
+      {
         roots: ["src/workflow-runtime"],
         forbidden: [
           /from\s+["']\.\.\/server\//,
@@ -138,6 +154,26 @@ describe("Workbench module boundaries", () => {
   it("keeps the read-model compatibility facade thin", () => {
     const facade = readFileSync("src/workbench/projections/read-model.ts", "utf8");
     expect(facade.trim()).toBe('export * from "./read-model/implementation.js";');
+  });
+
+  it("keeps frontend surface facades and scoped payload helpers centralized", () => {
+    const app = readFileSync("src/web/src/App.tsx", "utf8");
+    expect(app).not.toMatch(/function ProjectConversationSidebar/);
+    expect(app).not.toMatch(/function TopicComposer/);
+    expect(app).not.toMatch(/function AssistantTurnBlocks/);
+
+    const facade = readFileSync("src/web/src/panels/WorkbenchPanels.tsx", "utf8");
+    expect(facade).toContain('export { MainConversationView, BottomStatusBar } from "./workbench/ConversationPanel.js";');
+    expect(facade).toContain('export { DecisionInspectorPane } from "./workbench/DecisionPanels.js";');
+    expect(facade).toContain('export { WorkpadView } from "./workbench/WorkpadPanel.js";');
+
+    const workpad = readFileSync("src/web/src/panels/workbench/WorkpadPanel.tsx", "utf8");
+    expect(workpad).toContain("workflowActionPayloadFromTaskAction");
+    expect(workpad).not.toMatch(/taskIds:\s*action\.taskIds/);
+
+    const shell = readFileSync("src/web/src/shell/WorkbenchShellParts.tsx", "utf8");
+    expect(shell).toContain("workflowActionPayloadFromScope(confirmingAction)");
+    expect(shell).toContain("workflowActionPayloadFromScope(action)");
   });
 });
 

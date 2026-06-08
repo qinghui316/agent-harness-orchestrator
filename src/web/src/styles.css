@@ -33,6 +33,8 @@
   text-rendering: optimizeLegibility;
 }
 
+/* Base reset */
+
 * {
   box-sizing: border-box;
 }
@@ -67,6 +69,8 @@ input:focus-visible {
   outline: 2px solid var(--selected);
   outline-offset: 2px;
 }
+
+/* App shell layout */
 
 .app-shell {
   display: grid;
@@ -191,6 +195,8 @@ input:focus-visible {
   gap: 10px;
   margin-top: 10px;
 }
+
+/* Project sidebar */
 
 .codex-sidebar {
   display: flex;
@@ -722,6 +728,8 @@ input:focus-visible {
   padding-bottom: 18px;
 }
 
+/* Conversation and transcript */
+
 .workpad {
   display: grid;
   gap: 12px;
@@ -1039,6 +1047,8 @@ input:focus-visible {
   box-shadow: var(--shadow-soft);
   overflow: hidden;
 }
+
+/* Agent run graph */
 
 .agent-graph-modal {
   width: min(1180px, calc(100vw - 48px));
@@ -2451,6 +2461,8 @@ input:focus-visible {
   border-left: 1px solid var(--border);
   background: var(--bg-panel);
 }
+
+/* Decision and confirmation queue */
 
 .approval-header {
   display: flex;

@@ -30,4 +30,14 @@ export function workflowActionPayloadFromScope(
   );
 }
 
+export function workflowActionPayloadFromTaskAction(
+  source: WorkflowActionPayloadSource,
+  fallbackTaskId: string,
+): WorkflowActionPayload {
+  return workflowActionPayloadFromScope(source, {
+    taskIds: source.taskIds ?? [fallbackTaskId],
+    taskRunId: source.taskRunId,
+  });
+}
+
 export type { WorkbenchThreadActionType };
