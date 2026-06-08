@@ -12,6 +12,8 @@ import { getWorkbenchProjection } from "../../src/server/workbench/projections.j
 import { matchProjectWorkbenchRoute } from "../../src/server/workbench/routes.js";
 import { summarizeRunArtifacts } from "../../src/workbench/projections/artifact-preview.js";
 import { findWorkbenchTopicPath } from "../../src/workbench/projections/typed-workflow.js";
+import { buildDemandAgentRunGraph, emptyAgentRunGraph } from "../../src/workbench/projections/read-model/run-graph.js";
+import { buildThreadStream, isConcreteChangeFile } from "../../src/workbench/projections/read-model/thread-stream.js";
 import { runTaskQueueSequence } from "../../src/workflow-runtime/code-workflow.js";
 import { startOrResumeWorkflowTaskQueue, validateWorkflowTaskQueueProposalStart } from "../../src/workflow-runtime/taskqueue.js";
 import { fetchJson } from "../../src/web/src/api.js";
@@ -35,6 +37,10 @@ describe("Workbench module boundaries", () => {
     expect(typeof getWorkbenchProjection).toBe("function");
     expect(typeof matchProjectWorkbenchRoute).toBe("function");
     expect(typeof summarizeRunArtifacts).toBe("function");
+    expect(typeof emptyAgentRunGraph).toBe("function");
+    expect(typeof buildDemandAgentRunGraph).toBe("function");
+    expect(typeof buildThreadStream).toBe("function");
+    expect(typeof isConcreteChangeFile).toBe("function");
     expect(typeof startOrResumeWorkflowTaskQueue).toBe("function");
     expect(typeof validateWorkflowTaskQueueProposalStart).toBe("function");
     expect(typeof runTaskQueueSequence).toBe("function");
@@ -55,6 +61,15 @@ describe("Workbench module boundaries", () => {
       {
         roots: ["src/workbench/projections", "src/workbench/actions"],
         forbidden: [/from\s+["']\.\.\/manager\.js["']/, /from\s+["']\.\.\/chat\.js["']/],
+      },
+      {
+        roots: ["src/workbench/projections/read-model"],
+        forbidden: [
+          /from\s+["']\.\.\/\.\.\/manager\.js["']/,
+          /from\s+["']\.\.\/\.\.\/chat\.js["']/,
+          /from\s+["']\.\.\/\.\.\/\.\.\/server\//,
+          /from\s+["']\.\.\/\.\.\/\.\.\/web\//,
+        ],
       },
       {
         roots: ["src/workbench/read-model-types.ts", "src/workbench/artifact-types.ts"],
@@ -87,6 +102,11 @@ describe("Workbench module boundaries", () => {
     const offenders = checks.flatMap((check) => listSourceFiles(check.roots)
       .flatMap((file) => check.forbidden.some((pattern) => pattern.test(readFileSync(file, "utf8"))) ? [file] : []));
     expect(offenders).toEqual([]);
+  });
+
+  it("keeps the read-model compatibility facade thin", () => {
+    const facade = readFileSync("src/workbench/projections/read-model.ts", "utf8");
+    expect(facade.trim()).toBe('export * from "./read-model/implementation.js";');
   });
 });
 

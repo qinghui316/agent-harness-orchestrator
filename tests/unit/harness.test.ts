@@ -34,6 +34,16 @@ function project(path: string): ManagedProject {
 }
 
 describe("harness", () => {
+  it("keeps module handoff map coverage in ECL and the review template", async () => {
+    const ecl = await readFile("docs/ECL.md", "utf8");
+    const template = await readFile("harness/templates/change/reviews/review.md", "utf8");
+
+    expect(ecl).toContain("module handoff map");
+    expect(ecl).toContain("forbidden write-back locations");
+    expect(template).toContain("forbidden write-back locations");
+    expect(template).toContain("boundary tests or lint checks");
+  });
+
   it("audits a missing harness", async () => {
     const audit = await auditHarness(tempDir);
     expect(audit.readiness).toBe("missing");
