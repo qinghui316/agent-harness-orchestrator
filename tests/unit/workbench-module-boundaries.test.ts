@@ -57,6 +57,16 @@ describe("Workbench module boundaries", () => {
         forbidden: [/from\s+["']\.\.\/manager\.js["']/, /from\s+["']\.\.\/chat\.js["']/],
       },
       {
+        roots: ["src/workbench/read-model-types.ts", "src/workbench/artifact-types.ts"],
+        forbidden: [
+          /from\s+["']\.\/projections\//,
+          /from\s+["']\.\/manager\.js["']/,
+          /from\s+["']\.\/chat\.js["']/,
+          /from\s+["']\.\.\/server\//,
+          /from\s+["']\.\.\/web\//,
+        ],
+      },
+      {
         roots: ["src/server/workbench"],
         forbidden: [/from\s+["']\.\.\/workbench-server\.js["']/],
       },

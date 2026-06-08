@@ -2,18 +2,9 @@ import { existsSync } from "node:fs";
 import { open, readFile, stat } from "node:fs/promises";
 import { relative, resolve } from "node:path";
 import type { ResolvedMemory, RunMetadata } from "../../types/index.js";
+import type { WorkbenchArtifactPreview } from "../artifact-types.js";
+export type { WorkbenchArtifactPreview } from "../artifact-types.js";
 
-export interface WorkbenchArtifactPreview {
-  key: string;
-  path: string;
-  kind: string;
-  exists: boolean;
-  sizeBytes?: number;
-  preview?: string;
-  tail?: string;
-  truncated?: boolean;
-  diagnostic?: string;
-}
 export async function summarizeRunArtifacts(memory: ResolvedMemory, run: RunMetadata): Promise<{ artifacts: WorkbenchArtifactPreview[]; diagnostics: string[]; warnings: string[] }> {
   const diagnostics: string[] = [];
   const warnings: string[] = [];
