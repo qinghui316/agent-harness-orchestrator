@@ -2,13 +2,13 @@
 
 ## Current Handoff
 
-- Current date: 2026-06-09.
-- Active ECL change: `harness/changes/active/phase-8g-scoped-spec-test-evidence-boundary-split/summary.md`.
+- Current date: 2026-06-10.
+- Active ECL change: none.
 - Pending Harness evolution: none.
 - Latest archived product change: `harness/changes/archive/20260531-phase-7f-mainagent-orchestration-decision-engine/summary.md`.
 - Latest archived product/Harness docs change: `harness/changes/archive/20260602-phase-7g-open-dynamic-workflows-reference-alignment/summary.md`.
-- Latest archived Harness evolution: `harness/changes/archive/20260609-auto-evolve-harness-phase-7y-8c-modular-boundary/summary.md`.
-- Active product phase: Phase 8G Scoped Spec Test Evidence Boundary Split.
+- Latest archived Harness evolution: `harness/changes/archive/20260610-auto-evolve-harness-phase-8c-8g-boundary-evidence/summary.md`.
+- Active product phase: none.
 
 Current baseline:
 
@@ -84,8 +84,8 @@ Last completed phase:
 
 Latest Harness evolution:
 
-- `harness/changes/archive/20260609-auto-evolve-harness-phase-7y-8c-modular-boundary/summary.md`
-- Purpose: handled the Phase 7Y through Phase 8C pending evolution window as `noop`; authorized subagent review recommended no new Harness rule because existing module-boundary, handoff-drift, scoped action payload, and proposal/runtime boundary coverage was sufficient.
+- `harness/changes/archive/20260610-auto-evolve-harness-phase-8c-8g-boundary-evidence/summary.md`
+- Purpose: handled the Phase 8C through Phase 8G pending evolution window as `noop/subagent_review`; authorized subagent review scored the window `88/100` and recommended no new Harness rule because existing module-boundary, handoff-drift, scoped action payload, proposal/runtime, source apply, and remote handoff rules were sufficient.
 
 Previous documentation phase:
 
@@ -108,7 +108,9 @@ Active implementation track:
 ```text
 Active implementation track: none.
 
-Pending Harness evolution: none. The Phase 7Y-8C window is archived at `harness/changes/archive/20260609-auto-evolve-harness-phase-7y-8c-modular-boundary/summary.md`.
+Pending Harness evolution: none. The Phase 8C-8G window is archived at `harness/changes/archive/20260610-auto-evolve-harness-phase-8c-8g-boundary-evidence/summary.md`.
+
+Phase 8H is closed and archived at `harness/changes/archive/20260610-phase-8h-strict-taskqueue-domain-boundary-split/summary.md`. It tightened low-level TaskQueue new-start typed scope to match the Workbench confirmation contract and split TaskQueue internals behind `src/task-queue/manager.ts` without changing TaskQueue artifact/API shapes, Workbench behavior, route/action shapes, scheduler behavior, parallel execution, automatic child Changes, ODWF JavaScript runtime, or cache/replay.
 
 Phase 7V is closed and archived at `harness/changes/archive/20260609-phase-7v-workbench-read-model-confirmation-queue-boundary-split/summary.md`. It was a pure read-model / confirmation queue boundary split: it repaired planning confirmation copy, kept typed scope on `WorkbenchDecisionAction` payloads without expanding confirmation item public JSON, and split residual Workbench read-model / confirmation queue builders behind compatibility facades. It did not add runtime capability, Workbench actions, routes, scheduler behavior, parallel execution, multi-Change automatic creation, ODWF JavaScript runtime, or cache/replay.
 
@@ -134,7 +136,9 @@ Phase 8E is closed and archived at `harness/changes/archive/20260609-phase-8e-re
 
 Phase 8F is closed and archived at `harness/changes/archive/20260609-phase-8f-apply-landing-pr-draft-boundary-split/summary.md`. It repaired scoped action required-target drift for landing and PR draft actions, added stale-target revalidation for Draft PR creation, and split apply / landing / PR draft / landing queue internals behind compatibility facades. It did not add runtime capability, CLI commands, Workbench actions, routes, scheduler behavior, parallel execution, automatic child Changes, ODWF JavaScript runtime, or cache/replay.
 
-Phase 8G is active at `harness/changes/active/phase-8g-scoped-spec-test-evidence-boundary-split/summary.md`. It repairs selected-demand Spec-Test evidence scope for Workbench status/drift/proposal/generation and splits spec-test evidence mapping, drift, proposal, and generation internals behind compatibility facades. It must not add CLI commands, Workbench actions, routes, runtime capability, scheduler behavior, parallel execution, automatic child Changes, ODWF JavaScript runtime, cache/replay, or change spec-test artifact/API shapes.
+Phase 8G is closed and archived at `harness/changes/archive/20260610-phase-8g-scoped-spec-test-evidence-boundary-split/summary.md`. It repaired selected-demand Spec-Test evidence scope for Workbench status/drift/proposal/generation and split spec-test evidence mapping, drift, proposal, and generation internals behind compatibility facades without adding CLI commands, Workbench actions, routes, runtime capability, scheduler behavior, parallel execution, automatic child Changes, ODWF JavaScript runtime, cache/replay, or changing spec-test artifact/API shapes.
+
+Auto Evolve Harness Phase 8C 8G Boundary Evidence is closed and archived at `harness/changes/archive/20260610-auto-evolve-harness-phase-8c-8g-boundary-evidence/summary.md`. It reviewed the Phase 8C-8G pending Harness evolution window, accepted the authorized subagent `noop` recommendation with score `88/100`, wrote `harness/evolution/proposals/20260610-phase8c-8g-boundary-evidence-noop.md`, and marked evolution complete without adding a new Harness rule.
 
 Phase 7J is closed and archived at `harness/changes/archive/20260605-phase-7j-strict-harness-gated-execution-path/summary.md`. It narrowed execution entrypoints: planning confirmation writes canonical artifacts only, `code.run` requires a valid single-change readiness verdict, and sequential taskgraph execution must pass through a typed TaskQueueProposal before queue records are created.
 

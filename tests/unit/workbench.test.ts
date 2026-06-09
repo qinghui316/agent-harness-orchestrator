@@ -1015,7 +1015,14 @@ describe("workbench read model", () => {
     ].join("\n"), "utf8");
 
     const prepared = await prepareConfirmedTaskQueueProposalWithWorkflow("task-queue", ["T-001", "T-002"]);
-    const result = await startOrResumeTaskQueue(project(), { changeId: "task-queue", taskQueueProposalId: prepared.proposalId, workflowGraphPlanId: prepared.workflowGraphPlanId, workflowRunId: prepared.workflowRunId });
+    const result = await startOrResumeTaskQueue(project(), {
+      changeId: "task-queue",
+      taskQueueProposalId: prepared.proposalId,
+      workflowGraphPlanId: prepared.workflowGraphPlanId,
+      readinessManifestId: prepared.readinessManifestId,
+      decompositionPlanId: prepared.decompositionPlanId,
+      workflowRunId: prepared.workflowRunId,
+    });
     const memory = await resolveProjectMemory(project());
     const items = await listTaskQueueItems(memory, "task-queue", result.queue.id);
 
@@ -1041,6 +1048,29 @@ describe("workbench read model", () => {
     await expect(startOrResumeTaskQueue(project(), { changeId: change.change.id })).rejects.toThrow("TaskQueue start requires a confirmed TaskQueueProposal");
   });
 
+  it("rejects direct TaskQueue start without full readiness and decomposition scope", async () => {
+    await initHarness(project());
+    await createChange(project(), { title: "Missing TaskQueue Scope" });
+    await writeAcceptedSpecAndTasks("missing-taskqueue-scope");
+    const prepared = await prepareConfirmedTaskQueueProposalWithWorkflow("missing-taskqueue-scope", ["T-001"]);
+
+    await expect(startOrResumeTaskQueue(project(), {
+      changeId: "missing-taskqueue-scope",
+      taskQueueProposalId: prepared.proposalId,
+      workflowGraphPlanId: prepared.workflowGraphPlanId,
+      decompositionPlanId: prepared.decompositionPlanId,
+      workflowRunId: prepared.workflowRunId,
+    })).rejects.toThrow("TaskQueue start requires readinessManifestId");
+
+    await expect(startOrResumeTaskQueue(project(), {
+      changeId: "missing-taskqueue-scope",
+      taskQueueProposalId: prepared.proposalId,
+      workflowGraphPlanId: prepared.workflowGraphPlanId,
+      readinessManifestId: prepared.readinessManifestId,
+      workflowRunId: prepared.workflowRunId,
+    })).rejects.toThrow("TaskQueue start requires decompositionPlanId");
+  });
+
   it("rejects forged WorkflowRun ids for TaskQueue start without creating a queue", async () => {
     await initHarness(project());
     await createChange(project(), { title: "Forged WorkflowRun" });
@@ -1051,6 +1081,8 @@ describe("workbench read model", () => {
       changeId: "forged-workflowrun",
       taskQueueProposalId: prepared.proposalId,
       workflowGraphPlanId: prepared.workflowGraphPlanId,
+      readinessManifestId: prepared.readinessManifestId,
+      decompositionPlanId: prepared.decompositionPlanId,
       workflowRunId: "workflow-forged",
     })).rejects.toThrow("TaskQueue start requires a matching unstarted WorkflowRun");
 
@@ -1067,6 +1099,8 @@ describe("workbench read model", () => {
       changeId: "workflow-resume-evidence",
       taskQueueProposalId: prepared.proposalId,
       workflowGraphPlanId: prepared.workflowGraphPlanId,
+      readinessManifestId: prepared.readinessManifestId,
+      decompositionPlanId: prepared.decompositionPlanId,
       workflowRunId: prepared.workflowRunId,
     });
     const memory = await resolveProjectMemory(project());
@@ -1117,6 +1151,8 @@ describe("workbench read model", () => {
       changeId: "workflow-resume-forged-scope",
       taskQueueProposalId: prepared.proposalId,
       workflowGraphPlanId: prepared.workflowGraphPlanId,
+      readinessManifestId: prepared.readinessManifestId,
+      decompositionPlanId: prepared.decompositionPlanId,
       workflowRunId: prepared.workflowRunId,
     });
     const memory = await resolveProjectMemory(project());
@@ -1138,7 +1174,14 @@ describe("workbench read model", () => {
     await createChange(project(), { title: "Queued Workpad" });
     await writeAcceptedSpecAndTasks("queued-workpad");
     const prepared = await prepareConfirmedTaskQueueProposalWithWorkflow("queued-workpad", ["T-001"]);
-    const result = await startOrResumeTaskQueue(project(), { changeId: "queued-workpad", taskQueueProposalId: prepared.proposalId, workflowGraphPlanId: prepared.workflowGraphPlanId, workflowRunId: prepared.workflowRunId });
+    const result = await startOrResumeTaskQueue(project(), {
+      changeId: "queued-workpad",
+      taskQueueProposalId: prepared.proposalId,
+      workflowGraphPlanId: prepared.workflowGraphPlanId,
+      readinessManifestId: prepared.readinessManifestId,
+      decompositionPlanId: prepared.decompositionPlanId,
+      workflowRunId: prepared.workflowRunId,
+    });
 
     const snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: "queued-workpad" });
     const node = snapshot.center.workpad.taskGraph.nodes.find((item) => item.taskId === "T-001");

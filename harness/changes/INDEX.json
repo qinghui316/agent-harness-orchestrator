@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-09T16:28:55.4635507Z",
+    "generated_at":  "2026-06-09T17:48:50.8462629Z",
     "active":  [
 
                ],
@@ -539,8 +539,16 @@
                         "path":  "harness/changes/archive/20260609-phase-8f-apply-landing-pr-draft-boundary-split"
                     },
                     {
+                        "name":  "20260610-auto-evolve-harness-phase-8c-8g-boundary-evidence",
+                        "path":  "harness/changes/archive/20260610-auto-evolve-harness-phase-8c-8g-boundary-evidence"
+                    },
+                    {
                         "name":  "20260610-phase-8g-scoped-spec-test-evidence-boundary-split",
                         "path":  "harness/changes/archive/20260610-phase-8g-scoped-spec-test-evidence-boundary-split"
+                    },
+                    {
+                        "name":  "20260610-phase-8h-strict-taskqueue-domain-boundary-split",
+                        "path":  "harness/changes/archive/20260610-phase-8h-strict-taskqueue-domain-boundary-split"
                     }
                 ]
 }

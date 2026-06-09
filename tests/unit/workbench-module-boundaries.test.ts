@@ -79,6 +79,11 @@ import {
   runTaskRunCodeValidateAuditSequence,
   sourceRefreshReworkPrompt,
 } from "../../src/workflow-runtime/code-workflow.js";
+import { listTaskQueueItems as listTaskQueueItemsFacade, listTaskQueues as listTaskQueuesFacade, reconcileTaskQueues as reconcileTaskQueuesFacade, startOrResumeTaskQueue as startOrResumeTaskQueueFacade } from "../../src/task-queue/manager.js";
+import { createTaskQueueRunFromProposal } from "../../src/task-queue/queue-creation.js";
+import { readTaskQueueRun } from "../../src/task-queue/repository.js";
+import { validateNewTaskQueueStart } from "../../src/task-queue/start-validation.js";
+import { markTaskQueueRunning } from "../../src/task-queue/item-transitions.js";
 import { shouldAutoReworkTaskRun } from "../../src/workflow-runtime/kernel/bounded-rework.js";
 import { emitValidationAssistantEvents } from "../../src/workflow-runtime/kernel/live-events.js";
 import { findTaskQueueStageResumeCandidate } from "../../src/workflow-runtime/kernel/stage-resume-runner.js";
@@ -211,6 +216,14 @@ describe("Workbench module boundaries", () => {
     expect(typeof buildTaskQueueSummary).toBe("function");
     expect(typeof buildDiagnosticWorkpad).toBe("function");
     expect(typeof buildWorkbenchWorkpad).toBe("function");
+    expect(typeof startOrResumeTaskQueueFacade).toBe("function");
+    expect(typeof listTaskQueuesFacade).toBe("function");
+    expect(typeof listTaskQueueItemsFacade).toBe("function");
+    expect(typeof reconcileTaskQueuesFacade).toBe("function");
+    expect(typeof validateNewTaskQueueStart).toBe("function");
+    expect(typeof createTaskQueueRunFromProposal).toBe("function");
+    expect(typeof readTaskQueueRun).toBe("function");
+    expect(typeof markTaskQueueRunning).toBe("function");
     expect(typeof startOrResumeWorkflowTaskQueue).toBe("function");
     expect(typeof validateWorkflowTaskQueueProposalStart).toBe("function");
     expect(typeof runTaskQueueSequence).toBe("function");
@@ -417,6 +430,16 @@ describe("Workbench module boundaries", () => {
         ],
       },
       {
+        roots: ["src/task-queue"],
+        forbidden: [
+          /from\s+["']\.\/manager\.js["']/,
+          /from\s+["']\.\.\/workbench\//,
+          /from\s+["']\.\.\/server\//,
+          /from\s+["']\.\.\/web\//,
+          /from\s+["']\.\.\/cli\//,
+        ],
+      },
+      {
         roots: [
           "src/types/change-ecl.ts",
           "src/types/maintenance.ts",
@@ -572,6 +595,23 @@ describe("Workbench module boundaries", () => {
     const drift = readFileSync("src/spec-test/core/drift-report.ts", "utf8");
     expect(drift).toContain("getSpecTestContextForChange");
     expect(drift).toContain("getSpecTestStatus(context.memory, { changeId: context.changeId, worktreeId: options.worktreeId })");
+  });
+
+  it("keeps task-queue manager as a compatibility facade with strict start validation", () => {
+    const facade = readFileSync("src/task-queue/manager.ts", "utf8");
+    expect(facade).toContain('export * from "./service.js";');
+    expect(facade).toContain('export * from "./repository.js";');
+    expect(facade).toContain('export * from "./item-transitions.js";');
+    expect(facade).toContain('export * from "./reconcile.js";');
+    expect(facade).not.toMatch(/async function startOrResumeTaskQueue/);
+    expect(facade).not.toMatch(/taskQueueRunSchema/);
+    expect(facade).not.toMatch(/appendWorkflowTaskEvent/);
+
+    const startValidation = readFileSync("src/task-queue/start-validation.ts", "utf8");
+    expect(startValidation).toContain('if (!options.readinessManifestId) throw new Error("TaskQueue start requires readinessManifestId.");');
+    expect(startValidation).toContain('if (!options.decompositionPlanId) throw new Error("TaskQueue start requires decompositionPlanId.");');
+    expect(startValidation).toContain("options.decompositionPlanId !== validated.proposal.decompositionPlanId");
+    expect(startValidation).toContain("options.readinessManifestId !== validated.proposal.readinessManifestId");
   });
 
   it("keeps type index as a compatibility re-export barrel", () => {
