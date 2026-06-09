@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
+import type { Command } from "commander";
+import { createProgram } from "../../src/cli/program.js";
+import type { MaintenanceLedgerEntry, ManagedProject, RemoteLandingResult, RunMetadata, WorkflowRun } from "../../src/types/index.js";
 import { appendTopicThreadEntry, runWorkbenchWorkflowAction } from "../../src/workbench/chat.js";
 import { getWorkbenchSnapshot, getWorkbenchWorkflowGraphPlanProjection } from "../../src/workbench/manager.js";
 import { readTopicThreadLog } from "../../src/workbench/thread-log.js";
@@ -74,6 +77,7 @@ describe("Workbench module boundaries", () => {
     expect(typeof runWorkbenchWorkflowAction).toBe("function");
     expect(typeof getWorkbenchSnapshot).toBe("function");
     expect(typeof getWorkbenchWorkflowGraphPlanProjection).toBe("function");
+    expect(typeof createProgram).toBe("function");
 
     expect(typeof readTopicThreadLog).toBe("function");
     expect(typeof runWorkbenchWorkflowActionService).toBe("function");
@@ -144,6 +148,30 @@ describe("Workbench module boundaries", () => {
     expect(emptyParentAgentTranscript().title).toBe("需求对话");
     expect(userFacingText("Task queue started")).toBe("本地顺序执行已开始");
     expect(workflowActionLabel("planning.workflowgraph.compile")).toBe("编译执行图");
+  });
+
+  it("keeps CLI command modules behind the createProgram facade", () => {
+    const program = createProgram();
+    expect(program.name()).toBe("aho");
+
+    expect(findCommand(program, ["project", "add"]).description()).toBe("");
+    expect(findCommand(program, ["harness", "init"]).opts()).toMatchObject({ memory: "repo-local" });
+    expect(findCommand(program, ["workbench", "serve"]).opts()).toMatchObject({ host: "127.0.0.1", port: 4317 });
+    expect(findCommand(program, ["change", "spec", "propose"]).options.map((option) => option.long)).toEqual(expect.arrayContaining(["--prompt", "--prompt-file", "--json"]));
+    expect(findCommand(program, ["worktree", "apply"]).options.map((option) => option.long)).toEqual(expect.arrayContaining(["--commit", "--message", "--json"]));
+    expect(findCommand(program, ["code", "run"]).options.map((option) => option.long)).toEqual(expect.arrayContaining(["--prompt", "--prompt-file", "--task", "--model", "--profile", "--json"]));
+    expect(findCommand(program, ["spec-test", "generate"]).options.map((option) => option.long)).toEqual(expect.arrayContaining(["--ac", "--missing", "--prompt", "--json"]));
+  });
+
+  it("keeps legacy type barrel imports compile-compatible", () => {
+    const compileOnly: {
+      project?: ManagedProject;
+      run?: RunMetadata;
+      workflow?: WorkflowRun;
+      remote?: RemoteLandingResult;
+      maintenance?: MaintenanceLedgerEntry;
+    } = {};
+    expect(Object.keys(compileOnly)).toEqual([]);
   });
 
   it("resolves typed workflow topic paths outside the manager facade", () => {
@@ -222,10 +250,50 @@ describe("Workbench module boundaries", () => {
           /from\s+["']\.\/projections\//,
         ],
       },
+      {
+        roots: ["src/cli/commands"],
+        forbidden: [/from\s+["']\.\.\/program\.js["']/],
+      },
+      {
+        roots: [
+          "src/types/change-ecl.ts",
+          "src/types/maintenance.ts",
+          "src/types/pr-remote-landing.ts",
+          "src/types/project-memory.ts",
+          "src/types/proposals.ts",
+          "src/types/run-worktree.ts",
+          "src/types/spec-test.ts",
+          "src/types/task-agent-workflow.ts",
+        ],
+        forbidden: [
+          /from\s+["']\.\.\/cli\//,
+          /from\s+["']\.\.\/server\//,
+          /from\s+["']\.\.\/web\//,
+          /from\s+["']\.\.\/workbench\//,
+          /from\s+["']\.\.\/workflow-runtime\//,
+          /from\s+["']\.\.\/code\//,
+          /from\s+["']\.\.\/agent\//,
+        ],
+      },
     ];
     const offenders = checks.flatMap((check) => listSourceFiles(check.roots)
       .flatMap((file) => check.forbidden.some((pattern) => pattern.test(readFileSync(file, "utf8"))) ? [file] : []));
     expect(offenders).toEqual([]);
+  });
+
+  it("keeps type index as a compatibility re-export barrel", () => {
+    const barrel = readFileSync("src/types/index.ts", "utf8");
+    expect(barrel).toContain('export * from "./project-memory.js";');
+    expect(barrel).toContain('export * from "./change-ecl.js";');
+    expect(barrel).toContain('export * from "./spec-test.js";');
+    expect(barrel).toContain('export * from "./proposals.js";');
+    expect(barrel).toContain('export * from "./run-worktree.js";');
+    expect(barrel).toContain('export * from "./task-agent-workflow.js";');
+    expect(barrel).toContain('export * from "./pr-remote-landing.js";');
+    expect(barrel).toContain('export * from "./maintenance.js";');
+    expect(barrel).not.toMatch(/export interface ManagedProject/);
+    expect(barrel).not.toMatch(/export interface RunMetadata/);
+    expect(barrel).not.toMatch(/export interface WorkflowRun/);
   });
 
   it("keeps the read-model compatibility facade thin", () => {
@@ -385,4 +453,14 @@ function collect(path: string, files: string[]): void {
     return;
   }
   for (const entry of readdirSync(path)) collect(join(path, entry), files);
+}
+
+function findCommand(program: Command, path: string[]): Command {
+  let current = program;
+  for (const name of path) {
+    const next = current.commands.find((command) => command.name() === name);
+    if (!next) throw new Error(`Missing command ${path.join(" ")}`);
+    current = next;
+  }
+  return current;
 }
