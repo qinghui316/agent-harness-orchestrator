@@ -35,6 +35,11 @@ import { listWorkbenchTopicsFromMemory } from "../../src/workbench/projections/r
 import { workpadNextActionToConfirmationItems } from "../../src/workbench/projections/read-model/confirmation/typed-workflow.js";
 import { buildDemandAgentRunGraph, emptyAgentRunGraph } from "../../src/workbench/projections/read-model/run-graph.js";
 import { buildThreadStream, isConcreteChangeFile } from "../../src/workbench/projections/read-model/thread-stream.js";
+import { buildDecisionInspector } from "../../src/workbench/projections/read-model/decision-inspector.js";
+import { readLatestPlanningBundleProjection } from "../../src/workbench/projections/read-model/lazy-projections.js";
+import { buildResultReview } from "../../src/workbench/projections/read-model/result-review.js";
+import { buildTaskGraph, buildTaskQueueSummary, emptyTaskGraph } from "../../src/workbench/projections/read-model/task-graph.js";
+import { buildDiagnosticWorkpad, buildWorkbenchWorkpad } from "../../src/workbench/projections/read-model/workpad.js";
 import {
   assertKnownTaskIds,
   requireSingleTaskId,
@@ -100,6 +105,14 @@ describe("Workbench module boundaries", () => {
     expect(typeof buildDemandAgentRunGraph).toBe("function");
     expect(typeof buildThreadStream).toBe("function");
     expect(typeof isConcreteChangeFile).toBe("function");
+    expect(typeof buildDecisionInspector).toBe("function");
+    expect(typeof readLatestPlanningBundleProjection).toBe("function");
+    expect(typeof buildResultReview).toBe("function");
+    expect(typeof emptyTaskGraph).toBe("function");
+    expect(typeof buildTaskGraph).toBe("function");
+    expect(typeof buildTaskQueueSummary).toBe("function");
+    expect(typeof buildDiagnosticWorkpad).toBe("function");
+    expect(typeof buildWorkbenchWorkpad).toBe("function");
     expect(typeof startOrResumeWorkflowTaskQueue).toBe("function");
     expect(typeof validateWorkflowTaskQueueProposalStart).toBe("function");
     expect(typeof runTaskQueueSequence).toBe("function");
@@ -217,9 +230,20 @@ describe("Workbench module boundaries", () => {
     expect(implementation).toContain('from "./approval-inbox.js"');
     expect(implementation).toContain('from "./maintenance-summary.js"');
     expect(implementation).toContain('from "./topics.js"');
+    expect(implementation).toContain('from "./decision-inspector.js"');
+    expect(implementation).toContain('from "./workpad.js"');
+    const workpad = readFileSync("src/workbench/projections/read-model/workpad.ts", "utf8");
+    expect(workpad).toContain('from "./task-graph.js"');
+    expect(workpad).toContain('from "./result-review.js"');
     expect(implementation).not.toMatch(/function buildApprovalInbox/);
     expect(implementation).not.toMatch(/function listWorkbenchTopicsFromMemory/);
     expect(implementation).not.toMatch(/function buildMaintenanceSummary/);
+    expect(implementation).not.toMatch(/function buildDecisionInspector/);
+    expect(implementation).not.toMatch(/function buildTaskGraph/);
+    expect(implementation).not.toMatch(/function buildTaskQueueSummary/);
+    expect(implementation).not.toMatch(/function buildResultReview/);
+    expect(implementation).not.toMatch(/function buildWorkbenchWorkpad/);
+    expect(implementation).not.toMatch(/function getWorkbenchDecompositionPlanProjection/);
   });
 
   it("keeps confirmation queue planning copy non-executing and preserves explicit action scope", () => {
