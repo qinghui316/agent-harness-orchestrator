@@ -1,0 +1,62 @@
+import type { LandingReadinessPackage, LandingReadinessReview } from "./types.js";
+
+export function renderLandingSummary(pkg: LandingReadinessPackage): string {
+  return [
+    "# Landing Readiness Package",
+    "",
+    `- Package: ${pkg.id}`,
+    `- Target: ${pkg.target.kind}`,
+    `- Changes: ${pkg.target.changeIds.join(", ")}`,
+    `- Worktrees: ${pkg.target.worktreeIds.join(", ")}`,
+    `- Status: ${pkg.status}`,
+    `- Source head: ${pkg.sourceHead ?? "unknown"}`,
+    `- Diff hash: ${pkg.sourceDiffHash}`,
+    "",
+    "## Summary",
+    "",
+    pkg.summary,
+    "",
+    "## Changed Files",
+    "",
+    ...(pkg.changedFiles.length ? pkg.changedFiles.map((file) => `- ${file}`) : ["- None"]),
+    "",
+    "## Evidence",
+    "",
+    ...(pkg.target.evidenceRefs.length ? pkg.target.evidenceRefs.map((ref) => `- ${ref}`) : ["- None"]),
+    "",
+    "## Boundary",
+    "",
+    "This package is local landing readiness evidence only. It does not commit, push, create a PR, or merge.",
+    "",
+  ].join("\n");
+}
+
+export function renderMergeReview(review: LandingReadinessReview): string {
+  return [
+    "# Merge Reviewer",
+    "",
+    `- Verdict: ${review.verdict}`,
+    `- Created: ${review.createdAt}`,
+    "",
+    "## Summary",
+    "",
+    review.summary,
+    "",
+    "## Risks",
+    "",
+    review.riskSummary,
+    "",
+    "## Missing Checks",
+    "",
+    ...(review.missingChecks.length ? review.missingChecks.map((item) => `- ${item}`) : ["- None"]),
+    "",
+    "## Evidence",
+    "",
+    ...(review.evidenceRefs.length ? review.evidenceRefs.map((ref) => `- ${ref}`) : ["- None"]),
+    "",
+    "## Suggested Next Action",
+    "",
+    review.suggestedNextAction,
+    "",
+  ].join("\n");
+}

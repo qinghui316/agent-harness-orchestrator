@@ -7,6 +7,7 @@ import type { MaintenanceLedgerEntry, ManagedProject, RemoteLandingResult, RunMe
 import { appendTopicThreadEntry, runWorkbenchWorkflowAction } from "../../src/workbench/chat.js";
 import { getWorkbenchSnapshot, getWorkbenchWorkflowGraphPlanProjection } from "../../src/workbench/manager.js";
 import { getCodeStatus, listCodeRuns, showCodeRun, startCodeRun } from "../../src/code/manager.js";
+import { applyResultToProject, applyWorktree, classifyApplyReadiness, discardWorktree, previewWorktreeApply } from "../../src/apply/manager.js";
 import { applyIntegrationCheck, discardIntegrationCheck, findIntegrationCheckCandidate, listIntegrationChecks, readIntegrationCheck, runIntegrationCheck } from "../../src/integration-check/manager.js";
 import { collectReadyTargets } from "../../src/integration-check/candidates.js";
 import { runAggregateValidation } from "../../src/integration-check/aggregate-validation.js";
@@ -25,6 +26,9 @@ import { recordReviewFeedbackUserContext } from "../../src/pr-feedback/rework.js
 import { preparePrReviewReadiness, submitPrForHumanReview, listPrReviewReadiness } from "../../src/pr-review/manager.js";
 import { refreshPrReviewState } from "../../src/pr-review/readiness.js";
 import { preparePrReviewReplyDraft } from "../../src/pr-review/replies.js";
+import { findLandingCandidate, listLandingPackages, prepareLandingPackage, readLandingPackage, reviewLandingPackage } from "../../src/landing/manager.js";
+import { createDraftPr, detectRemoteProviderCapability, findPrDraftPackageForLanding, listPrDraftPackages, preparePrDraftPackage, refreshPrDraftStatus, updateDraftPrFromLanding } from "../../src/pr-draft/manager.js";
+import { latestLandingQueueSnapshot, listLandingQueueSnapshots, mergeNextLandingQueueCandidate, prepareLandingQueue, refreshLandingQueue } from "../../src/landing-queue/manager.js";
 import { readTopicThreadLog } from "../../src/workbench/thread-log.js";
 import { runWorkbenchWorkflowActionService } from "../../src/workbench/actions/service.js";
 import { assertWorkflowActionScope } from "../../src/workbench/actions/boundary.js";
@@ -101,6 +105,11 @@ describe("Workbench module boundaries", () => {
     expect(typeof getCodeStatus).toBe("function");
     expect(typeof listCodeRuns).toBe("function");
     expect(typeof showCodeRun).toBe("function");
+    expect(typeof previewWorktreeApply).toBe("function");
+    expect(typeof applyResultToProject).toBe("function");
+    expect(typeof applyWorktree).toBe("function");
+    expect(typeof discardWorktree).toBe("function");
+    expect(typeof classifyApplyReadiness).toBe("function");
     expect(typeof findIntegrationCheckCandidate).toBe("function");
     expect(typeof runIntegrationCheck).toBe("function");
     expect(typeof applyIntegrationCheck).toBe("function");
@@ -132,6 +141,23 @@ describe("Workbench module boundaries", () => {
     expect(typeof submitPrForHumanReview).toBe("function");
     expect(typeof preparePrReviewReplyDraft).toBe("function");
     expect(typeof listPrReviewReadiness).toBe("function");
+    expect(typeof findLandingCandidate).toBe("function");
+    expect(typeof prepareLandingPackage).toBe("function");
+    expect(typeof reviewLandingPackage).toBe("function");
+    expect(typeof listLandingPackages).toBe("function");
+    expect(typeof readLandingPackage).toBe("function");
+    expect(typeof detectRemoteProviderCapability).toBe("function");
+    expect(typeof preparePrDraftPackage).toBe("function");
+    expect(typeof createDraftPr).toBe("function");
+    expect(typeof refreshPrDraftStatus).toBe("function");
+    expect(typeof updateDraftPrFromLanding).toBe("function");
+    expect(typeof findPrDraftPackageForLanding).toBe("function");
+    expect(typeof listPrDraftPackages).toBe("function");
+    expect(typeof prepareLandingQueue).toBe("function");
+    expect(typeof refreshLandingQueue).toBe("function");
+    expect(typeof mergeNextLandingQueueCandidate).toBe("function");
+    expect(typeof latestLandingQueueSnapshot).toBe("function");
+    expect(typeof listLandingQueueSnapshots).toBe("function");
 
     expect(typeof readTopicThreadLog).toBe("function");
     expect(typeof runWorkbenchWorkflowActionService).toBe("function");
@@ -359,6 +385,16 @@ describe("Workbench module boundaries", () => {
         ],
       },
       {
+        roots: ["src/apply", "src/landing", "src/pr-draft", "src/landing-queue"],
+        forbidden: [
+          /from\s+["']\.\/manager\.js["']/,
+          /from\s+["']\.\.\/workbench\//,
+          /from\s+["']\.\.\/server\//,
+          /from\s+["']\.\.\/web\//,
+          /from\s+["']\.\.\/cli\//,
+        ],
+      },
+      {
         roots: [
           "src/types/change-ecl.ts",
           "src/types/maintenance.ts",
@@ -453,6 +489,36 @@ describe("Workbench module boundaries", () => {
     expect(prReview).toContain('from "./repository.js"');
     expect(prReview).not.toMatch(/async function preparePrReviewReadiness/);
     expect(prReview).not.toMatch(/async function submitPrForHumanReview/);
+  });
+
+  it("keeps apply, landing, PR draft, and landing queue managers as compatibility facades", () => {
+    const apply = readFileSync("src/apply/manager.ts", "utf8");
+    expect(apply).toContain('from "./preview.js"');
+    expect(apply).toContain('from "./apply-discard.js"');
+    expect(apply).toContain('from "./gate.js"');
+    expect(apply).not.toMatch(/async function previewWorktreeApply/);
+    expect(apply).not.toMatch(/async function applyWorktree/);
+
+    const landing = readFileSync("src/landing/manager.ts", "utf8");
+    expect(landing).toContain('from "./candidates.js"');
+    expect(landing).toContain('from "./service.js"');
+    expect(landing).toContain('from "./repository.js"');
+    expect(landing).not.toMatch(/async function prepareLandingPackage/);
+    expect(landing).not.toMatch(/async function reviewLandingPackage/);
+
+    const prDraft = readFileSync("src/pr-draft/manager.ts", "utf8");
+    expect(prDraft).toContain('from "./provider.js"');
+    expect(prDraft).toContain('from "./repository.js"');
+    expect(prDraft).toContain('from "./service.js"');
+    expect(prDraft).not.toMatch(/async function createDraftPr/);
+    expect(prDraft).not.toMatch(/async function preparePrDraftPackage/);
+
+    const landingQueue = readFileSync("src/landing-queue/manager.ts", "utf8");
+    expect(landingQueue).toContain('from "./service.js"');
+    expect(landingQueue).toContain('from "./merge-next.js"');
+    expect(landingQueue).toContain('from "./repository.js"');
+    expect(landingQueue).not.toMatch(/async function prepareLandingQueue/);
+    expect(landingQueue).not.toMatch(/async function mergeNextLandingQueueCandidate/);
   });
 
   it("keeps type index as a compatibility re-export barrel", () => {

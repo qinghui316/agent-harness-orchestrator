@@ -44,12 +44,15 @@ export function assertWorkflowActionScope(request: WorkbenchWorkflowActionReques
       requireOne("worktreeId", [request.worktreeId]);
       return;
     case "landing.prepare":
-    case "landing.review":
     case "landing.refresh":
-      requireOne("applyCheckId or worktreeId/worktreeIds", [request.applyCheckId, request.worktreeId, request.worktreeIds]);
+      requireOne("applyCheckId or worktreeId", [request.applyCheckId, request.worktreeId]);
+      return;
+    case "landing.review":
+      requireOne("landingPackageId", [request.landingPackageId]);
+      return;
+    case "landing-queue.refresh":
       return;
     case "landing-queue.merge-next":
-    case "landing-queue.refresh":
       requireOne("landingPackageId", [request.landingPackageId]);
       return;
     default:
@@ -187,6 +190,9 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
     if (!candidate || !candidate.canMerge || !candidate.changeIds.includes(changeId)) {
       throw new Error("landing-queue.merge-next target is stale or not currently mergeable.");
     }
+  }
+  if (request.actionType === "pr-draft.create") {
+    if (!request.landingPackageId) throw new Error("pr-draft.create requires landingPackageId.");
   }
   if (request.actionType === "task.queue.start") {
     const queues = await listTaskQueues(memory, changeId);

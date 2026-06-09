@@ -1,0 +1,41 @@
+import { z } from "zod";
+import type { LandingReadinessPackage } from "./types.js";
+
+export const landingPackageSchema: z.ZodType<LandingReadinessPackage> = z.object({
+  version: z.literal("1.0"),
+  id: z.string(),
+  projectId: z.string().nullable(),
+  target: z.object({
+    kind: z.enum(["worktree", "integration-check"]),
+    changeIds: z.array(z.string()),
+    worktreeIds: z.array(z.string()),
+    applyRunId: z.string().optional(),
+    applyCheckId: z.string().optional(),
+    expectedDiffHash: z.string(),
+    evidenceRefs: z.array(z.string()),
+  }),
+  status: z.enum(["ready", "needs-review", "unattributed-dirty-source", "missing-evidence"]),
+  sourceHead: z.string().nullable(),
+  sourceDiffHash: z.string(),
+  sourceDiffStat: z.string(),
+  changedFiles: z.array(z.string()),
+  attributable: z.boolean(),
+  unattributedFiles: z.array(z.string()),
+  summary: z.string(),
+  riskSummary: z.string(),
+  artifactRefs: z.array(z.string()),
+  createdAt: z.string(),
+  reviewedAt: z.string().optional(),
+  review: z.object({
+    version: z.literal("1.0"),
+    packageId: z.string(),
+    roleId: z.literal("merge-reviewer-agent"),
+    verdict: z.enum(["ready", "needs-user-review", "needs-rework"]),
+    summary: z.string(),
+    riskSummary: z.string(),
+    evidenceRefs: z.array(z.string()),
+    missingChecks: z.array(z.string()),
+    suggestedNextAction: z.string(),
+    createdAt: z.string(),
+  }).optional(),
+});

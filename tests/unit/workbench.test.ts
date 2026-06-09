@@ -1854,15 +1854,12 @@ describe("workbench read model", () => {
         status: "prepared",
       });
       expect(prPkg.bodyArtifact).toContain("pr-body.md");
-      const prCreate = await executeWorkbenchAction({ project: project(), path: tempDir }, {
+      await expect(executeWorkbenchAction({ project: project(), path: tempDir }, {
         actionType: "pr-draft.create",
         changeId: "landing-demand",
         landingPackageId: pkg.id,
         confirm: true,
-      });
-      expect(prCreate.result as { status: string; error?: string }).toMatchObject({
-        status: "failed",
-      });
+      })).rejects.toThrow("Workflow action target is stale or no longer available.");
     } finally {
       if (oldAhoHome === undefined) delete process.env.AHO_HOME;
       else process.env.AHO_HOME = oldAhoHome;

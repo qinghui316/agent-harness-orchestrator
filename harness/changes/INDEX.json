@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-09T14:12:32.1093866Z",
+    "generated_at":  "2026-06-09T15:09:57.8021580Z",
     "active":  [
 
                ],
@@ -533,6 +533,10 @@
                     {
                         "name":  "20260609-phase-8e-remote-handoff-pr-landing-boundary-split",
                         "path":  "harness/changes/archive/20260609-phase-8e-remote-handoff-pr-landing-boundary-split"
+                    },
+                    {
+                        "name":  "20260609-phase-8f-apply-landing-pr-draft-boundary-split",
+                        "path":  "harness/changes/archive/20260609-phase-8f-apply-landing-pr-draft-boundary-split"
                     }
                 ]
 }

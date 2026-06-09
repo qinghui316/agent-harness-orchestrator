@@ -194,6 +194,7 @@ export const HIGH_IMPACT_WORKFLOW_ACTION_TYPES = [
 
 export const REVALIDATED_WORKFLOW_ACTION_TYPES = [
   "landing-queue.merge-next",
+  "pr-draft.create",
   "planning.confirm-execution",
   "planning.decomposition.confirm",
   "planning.decomposition.assess-readiness",
@@ -312,9 +313,14 @@ export function validateWorkflowActionRequiredTargets(request: WorkflowActionSco
       requireOne("worktreeId or worktreeIds", [request.worktreeId, request.worktreeIds]);
       break;
     case "landing.prepare":
-    case "landing.review":
     case "landing.refresh":
-      requireOne("applyCheckId or worktreeId/worktreeIds", [request.applyCheckId, request.worktreeId, request.worktreeIds]);
+      requireOne("applyCheckId or worktreeId", [request.applyCheckId, request.worktreeId]);
+      break;
+    case "landing.review":
+      requireOne("landingPackageId", [request.landingPackageId]);
+      break;
+    case "landing-queue.merge-next":
+      requireOne("landingPackageId", [request.landingPackageId]);
       break;
     case "remote-landing.merge":
       requireOne("landingPackageId", [request.landingPackageId]);
