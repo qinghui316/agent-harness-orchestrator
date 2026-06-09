@@ -1,6 +1,6 @@
 import type { AgentTaskKind, AgentTaskStatus } from "../types/index.js";
-import { listAgentTasks } from "./manager.js";
-import type { MainAgentDecision } from "./manager.js";
+import type { MainAgentDecision } from "./decisions.js";
+import { listAgentTasks } from "./repository.js";
 import type { ResolvedMemory } from "../types/index.js";
 
 export const DELEGATE_TASK_ALLOWED_ROLES = [

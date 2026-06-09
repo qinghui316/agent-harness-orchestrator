@@ -255,6 +255,16 @@ describe("Workbench module boundaries", () => {
         forbidden: [/from\s+["']\.\.\/program\.js["']/],
       },
       {
+        roots: ["src/agent-task"],
+        forbidden: [
+          /from\s+["']\.\/manager\.js["']/,
+          /from\s+["']\.\.\/server\//,
+          /from\s+["']\.\.\/web\//,
+          /from\s+["']\.\.\/cli\//,
+          /from\s+["']\.\.\/workbench\//,
+        ],
+      },
+      {
         roots: [
           "src/types/change-ecl.ts",
           "src/types/maintenance.ts",
