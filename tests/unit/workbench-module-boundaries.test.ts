@@ -84,6 +84,10 @@ import { createTaskQueueRunFromProposal } from "../../src/task-queue/queue-creat
 import { readTaskQueueRun } from "../../src/task-queue/repository.js";
 import { validateNewTaskQueueStart } from "../../src/task-queue/start-validation.js";
 import { markTaskQueueRunning } from "../../src/task-queue/item-transitions.js";
+import { claimNextDemandWorker as claimNextDemandWorkerFacade, enqueueDemandWorker as enqueueDemandWorkerFacade, reconcileDemandWorkers as reconcileDemandWorkersFacade } from "../../src/demand-worker/manager.js";
+import { listDemandWorkers } from "../../src/demand-worker/repository.js";
+import { getDemandWorkerSlot } from "../../src/demand-worker/slot-policy.js";
+import { recordMainOrchestratorDecision } from "../../src/demand-worker/decisions.js";
 import { shouldAutoReworkTaskRun } from "../../src/workflow-runtime/kernel/bounded-rework.js";
 import { emitValidationAssistantEvents } from "../../src/workflow-runtime/kernel/live-events.js";
 import { findTaskQueueStageResumeCandidate } from "../../src/workflow-runtime/kernel/stage-resume-runner.js";
@@ -224,6 +228,12 @@ describe("Workbench module boundaries", () => {
     expect(typeof createTaskQueueRunFromProposal).toBe("function");
     expect(typeof readTaskQueueRun).toBe("function");
     expect(typeof markTaskQueueRunning).toBe("function");
+    expect(typeof enqueueDemandWorkerFacade).toBe("function");
+    expect(typeof claimNextDemandWorkerFacade).toBe("function");
+    expect(typeof reconcileDemandWorkersFacade).toBe("function");
+    expect(typeof listDemandWorkers).toBe("function");
+    expect(typeof getDemandWorkerSlot).toBe("function");
+    expect(typeof recordMainOrchestratorDecision).toBe("function");
     expect(typeof startOrResumeWorkflowTaskQueue).toBe("function");
     expect(typeof validateWorkflowTaskQueueProposalStart).toBe("function");
     expect(typeof runTaskQueueSequence).toBe("function");
@@ -440,6 +450,16 @@ describe("Workbench module boundaries", () => {
         ],
       },
       {
+        roots: ["src/demand-worker"],
+        forbidden: [
+          /from\s+["']\.\/manager\.js["']/,
+          /from\s+["']\.\.\/workbench\//,
+          /from\s+["']\.\.\/server\//,
+          /from\s+["']\.\.\/web\//,
+          /from\s+["']\.\.\/cli\//,
+        ],
+      },
+      {
         roots: [
           "src/types/change-ecl.ts",
           "src/types/maintenance.ts",
@@ -612,6 +632,32 @@ describe("Workbench module boundaries", () => {
     expect(startValidation).toContain('if (!options.decompositionPlanId) throw new Error("TaskQueue start requires decompositionPlanId.");');
     expect(startValidation).toContain("options.decompositionPlanId !== validated.proposal.decompositionPlanId");
     expect(startValidation).toContain("options.readinessManifestId !== validated.proposal.readinessManifestId");
+  });
+
+  it("keeps demand-worker manager as a compatibility facade", () => {
+    const facade = readFileSync("src/demand-worker/manager.ts", "utf8");
+    expect(facade).toContain('export * from "./schemas.js";');
+    expect(facade).toContain('export * from "./repository.js";');
+    expect(facade).toContain('export * from "./claim-service.js";');
+    expect(facade).toContain('export * from "./lifecycle.js";');
+    expect(facade).toContain('export * from "./reconcile.js";');
+    expect(facade).not.toMatch(/async function enqueueDemandWorker/);
+    expect(facade).not.toMatch(/async function claimNextDemandWorker/);
+    expect(facade).not.toMatch(/demandWorkerSchema/);
+    expect(facade).not.toMatch(/mainOrchestratorDecisionLogPath/);
+
+    const claimService = readFileSync("src/demand-worker/claim-service.ts", "utf8");
+    expect(claimService).toContain('from "./repository.js"');
+    expect(claimService).toContain('from "./slot-policy.js"');
+    expect(claimService).toContain("isActiveDemandWorkerAttemptStatus");
+
+    const lifecycle = readFileSync("src/demand-worker/lifecycle.ts", "utf8");
+    expect(lifecycle).toContain('from "./decisions.js"');
+    expect(lifecycle).toContain("decisionActionFromWorkerStatus");
+
+    const repository = readFileSync("src/demand-worker/repository.ts", "utf8");
+    expect(repository).toContain('from "./queue-projection.js"');
+    expect(repository).toContain("writeDemandWorkerQueueProjection");
   });
 
   it("keeps type index as a compatibility re-export barrel", () => {
