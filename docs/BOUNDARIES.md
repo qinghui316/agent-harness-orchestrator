@@ -160,6 +160,8 @@ Phase 5F introduces an AHO-owned agent runtime bridge:
 
 Skills remain discoverable runtime capabilities. AHO must not inject all enabled skill bodies into every prompt. Enabled skills are recorded as available provenance; actual skill usage is only recorded when observable evidence exists.
 
+Phase 8C keeps this execution boundary unchanged while splitting `src/code/manager.ts` into owned code execution modules. Code execution gate checks, run session setup, context packet writing, live events, Codex app-server execution, Codex exec streaming, artifact summarization, and status helpers remain implementation boundaries under the code domain. The app-server branch must preserve the resolved role id in session and active-turn metadata; a rework-coder run must not be labeled as a coder-agent run. This is metadata correctness, not a new execution capability.
+
 ## 7. Memory Unavailable Boundary
 
 Memory can be unavailable on a new machine, after a plain repository clone, when AHO home was not synced, when permissions are missing, or when a future remote memory service is offline.

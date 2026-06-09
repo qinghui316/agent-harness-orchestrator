@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-09T11:10:10.9380663Z",
+    "generated_at":  "2026-06-09T12:19:28.3318956Z",
     "active":  [
 
                ],
@@ -517,6 +517,10 @@
                     {
                         "name":  "20260609-phase-8b-scoped-change-proposal-boundary-split",
                         "path":  "harness/changes/archive/20260609-phase-8b-scoped-change-proposal-boundary-split"
+                    },
+                    {
+                        "name":  "20260609-phase-8c-code-execution-manager-boundary-split",
+                        "path":  "harness/changes/archive/20260609-phase-8c-code-execution-manager-boundary-split"
                     }
                 ]
 }

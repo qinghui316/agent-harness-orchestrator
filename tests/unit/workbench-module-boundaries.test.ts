@@ -6,6 +6,7 @@ import { createProgram } from "../../src/cli/program.js";
 import type { MaintenanceLedgerEntry, ManagedProject, RemoteLandingResult, RunMetadata, WorkflowRun } from "../../src/types/index.js";
 import { appendTopicThreadEntry, runWorkbenchWorkflowAction } from "../../src/workbench/chat.js";
 import { getWorkbenchSnapshot, getWorkbenchWorkflowGraphPlanProjection } from "../../src/workbench/manager.js";
+import { getCodeStatus, listCodeRuns, showCodeRun, startCodeRun } from "../../src/code/manager.js";
 import { readTopicThreadLog } from "../../src/workbench/thread-log.js";
 import { runWorkbenchWorkflowActionService } from "../../src/workbench/actions/service.js";
 import { assertWorkflowActionScope } from "../../src/workbench/actions/boundary.js";
@@ -78,6 +79,10 @@ describe("Workbench module boundaries", () => {
     expect(typeof getWorkbenchSnapshot).toBe("function");
     expect(typeof getWorkbenchWorkflowGraphPlanProjection).toBe("function");
     expect(typeof createProgram).toBe("function");
+    expect(typeof startCodeRun).toBe("function");
+    expect(typeof getCodeStatus).toBe("function");
+    expect(typeof listCodeRuns).toBe("function");
+    expect(typeof showCodeRun).toBe("function");
 
     expect(typeof readTopicThreadLog).toBe("function");
     expect(typeof runWorkbenchWorkflowActionService).toBe("function");
@@ -275,6 +280,16 @@ describe("Workbench module boundaries", () => {
         ],
       },
       {
+        roots: ["src/code"],
+        forbidden: [
+          /from\s+["']\.\/manager\.js["']/,
+          /from\s+["']\.\.\/cli\//,
+          /from\s+["']\.\.\/workbench\//,
+          /from\s+["']\.\.\/server\//,
+          /from\s+["']\.\.\/web\//,
+        ],
+      },
+      {
         roots: [
           "src/types/change-ecl.ts",
           "src/types/maintenance.ts",
@@ -309,6 +324,21 @@ describe("Workbench module boundaries", () => {
     expect(facade).not.toMatch(/function startSpecProposalRun/);
     expect(facade).not.toMatch(/function acceptPlanProposal/);
     expect(facade).not.toMatch(/detectCodexCapabilities/);
+  });
+
+  it("keeps code manager as a compatibility facade with scoped app-server role metadata", () => {
+    const facade = readFileSync("src/code/manager.ts", "utf8");
+    expect(facade).toContain('from "./execution-gate.js"');
+    expect(facade).toContain('from "./codex-app-server-runner.js"');
+    expect(facade).toContain('from "./codex-exec-runner.js"');
+    expect(facade).toContain('from "./status.js"');
+    expect(facade).not.toMatch(/runCodexAppServerTurn/);
+    expect(facade).not.toMatch(/executeProcessStreaming/);
+    expect(facade).not.toMatch(/createCodexJsonlStreamParser/);
+
+    const appServerRunner = readFileSync("src/code/codex-app-server-runner.ts", "utf8");
+    expect(appServerRunner).toContain("roleId: input.roleId");
+    expect(appServerRunner).not.toContain('roleId: "coder-agent"');
   });
 
   it("keeps type index as a compatibility re-export barrel", () => {
