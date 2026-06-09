@@ -162,6 +162,8 @@ Skills remain discoverable runtime capabilities. AHO must not inject all enabled
 
 Phase 8C keeps this execution boundary unchanged while splitting `src/code/manager.ts` into owned code execution modules. Code execution gate checks, run session setup, context packet writing, live events, Codex app-server execution, Codex exec streaming, artifact summarization, and status helpers remain implementation boundaries under the code domain. The app-server branch must preserve the resolved role id in session and active-turn metadata; a rework-coder run must not be labeled as a coder-agent run. This is metadata correctness, not a new execution capability.
 
+Phase 8D applies the same ownership rule to integration checks. Integration-check target collection, patch workspace setup, aggregate validation, aggregate audit, IntegrationFix attempts, repository access, and apply/discard safety belong in owned integration-check modules behind the `src/integration-check/manager.ts` facade. Explicit `worktreeIds` are scoped targets: if any requested id is missing, stale, applied, discarded, preview-failed, or not ready, the integration check must fail closed instead of silently running on the remaining targets. Integration checks remain source-root apply preparation evidence, not automatic merge truth.
+
 ## 7. Memory Unavailable Boundary
 
 Memory can be unavailable on a new machine, after a plain repository clone, when AHO home was not synced, when permissions are missing, or when a future remote memory service is offline.

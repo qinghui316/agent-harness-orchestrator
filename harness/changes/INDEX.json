@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-09T12:19:28.3318956Z",
+    "generated_at":  "2026-06-09T13:27:57.7878198Z",
     "active":  [
 
                ],
@@ -479,6 +479,10 @@
                         "path":  "harness/changes/archive/20260609-auto-evolve-harness-phase-7u-7y-modular-boundary"
                     },
                     {
+                        "name":  "20260609-auto-evolve-harness-phase-7y-8c-modular-boundary",
+                        "path":  "harness/changes/archive/20260609-auto-evolve-harness-phase-7y-8c-modular-boundary"
+                    },
+                    {
                         "name":  "20260609-phase-7s-workbench-chat-boundary-split",
                         "path":  "harness/changes/archive/20260609-phase-7s-workbench-chat-boundary-split"
                     },
@@ -521,6 +525,10 @@
                     {
                         "name":  "20260609-phase-8c-code-execution-manager-boundary-split",
                         "path":  "harness/changes/archive/20260609-phase-8c-code-execution-manager-boundary-split"
+                    },
+                    {
+                        "name":  "20260609-phase-8d-scoped-integration-check-boundary-split",
+                        "path":  "harness/changes/archive/20260609-phase-8d-scoped-integration-check-boundary-split"
                     }
                 ]
 }

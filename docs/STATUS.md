@@ -4,10 +4,10 @@
 
 - Current date: 2026-06-09.
 - Active ECL change: none.
-- Pending Harness evolution: `harness/evolution/pending.md` was generated after Phase 8C close and lists Phase 7Y through Phase 8C archives.
+- Pending Harness evolution: none.
 - Latest archived product change: `harness/changes/archive/20260531-phase-7f-mainagent-orchestration-decision-engine/summary.md`.
 - Latest archived product/Harness docs change: `harness/changes/archive/20260602-phase-7g-open-dynamic-workflows-reference-alignment/summary.md`.
-- Latest archived Harness evolution: `harness/changes/archive/20260609-auto-evolve-harness-phase-7u-7y-modular-boundary/summary.md`.
+- Latest archived Harness evolution: `harness/changes/archive/20260609-auto-evolve-harness-phase-7y-8c-modular-boundary/summary.md`.
 - Active product phase: none.
 
 Current baseline:
@@ -67,6 +67,8 @@ Current baseline:
 - Phase 8A AgentTask Maintenance Domain Boundary Split is closed and archived at `harness/changes/archive/20260609-phase-8a-agenttask-maintenance-domain-boundary-split/summary.md`. It split AgentTask repository, decisions, maintenance ledger, closeouts, maintenance review, doc budgets, candidates, schemas, paths/utils, and role-scoped context projection behind the `src/agent-task/manager.ts` facade.
 - Phase 8B Scoped Change Proposal Boundary Split is closed and archived at `harness/changes/archive/20260609-phase-8b-scoped-change-proposal-boundary-split/summary.md`. It fixed selected-demand Change Proposal scoping and plan-accept stale-spec checks, then split proposal internals behind the `src/change/proposals.ts` facade without changing proposal artifacts, CLI/API behavior, Workbench actions, or workflow truth.
 - Phase 8C Code Execution Manager Boundary Split is closed and archived at `harness/changes/archive/20260609-phase-8c-code-execution-manager-boundary-split/summary.md`. It was a pure code execution manager boundary split plus one scoped role metadata fix: Codex app-server code runs now record the resolved `roleId` instead of labeling rework-coder sessions as `coder-agent`. It did not add runtime capability, CLI commands, Workbench actions, routes, scheduler behavior, parallel execution, automatic child Changes, ODWF JavaScript runtime, or cache/replay.
+- Harness evolution after Phase 8C completed as noop and is archived at `harness/changes/archive/20260609-auto-evolve-harness-phase-7y-8c-modular-boundary/summary.md`. Authorized subagent review recommended `noop` with score `90/100`; existing module-boundary, handoff-drift, scoped action payload, and proposal/runtime boundary rules were sufficient for the Phase 7Y-8C window.
+- Phase 8D Scoped Integration Check Boundary Split is closed and archived at `harness/changes/archive/20260609-phase-8d-scoped-integration-check-boundary-split/summary.md`. It fixed explicit integration-check `worktreeIds` to be all-or-nothing and split the integration-check manager behind a compatibility facade without adding runtime capability, CLI commands, Workbench actions, routes, scheduler behavior, parallel execution, automatic child Changes, ODWF JavaScript runtime, or cache/replay.
 - Harness evolution after Phase 7M promoted close/handoff drift evidence, typed workflow boundary matrix coverage, and module-boundary coverage. It is archived at `harness/changes/archive/20260607-auto-evolve-harness-phase-7i-7m-runtime-modular-boundary/summary.md` and did not add product runtime behavior.
 - Harness evolution after Phase 7I promoted proposal/runtime boundary coverage and is archived at `harness/changes/archive/20260605-auto-evolve-harness-phase-7e-7i/summary.md`. Authorized subagent review recommended `modify`; the rule now requires planning/proposal/manifest/workflow/recovery artifacts to record authority classification and no-execution/stale-target boundary evidence.
 - Harness evolution after Phase 7E completed as noop and is archived at `harness/changes/archive/20260531-auto-evolve-harness-phase-7a-7e-context-boundary/summary.md`. Independent review recommended `noop` with score `78/100`; transcript and scoped-action patterns were already covered by existing ECL rules, and RoleContextPacket evidence remains future signal rather than a new permanent rule.
@@ -80,8 +82,8 @@ Last completed phase:
 
 Latest Harness evolution:
 
-- `harness/changes/archive/20260609-auto-evolve-harness-phase-7u-7y-modular-boundary/summary.md`
-- Purpose: handled the Phase 7U through Phase 7Y pending evolution window as `noop`; authorized subagent review recommended no new Harness rule because existing module-boundary and handoff-drift coverage was sufficient.
+- `harness/changes/archive/20260609-auto-evolve-harness-phase-7y-8c-modular-boundary/summary.md`
+- Purpose: handled the Phase 7Y through Phase 8C pending evolution window as `noop`; authorized subagent review recommended no new Harness rule because existing module-boundary, handoff-drift, scoped action payload, and proposal/runtime boundary coverage was sufficient.
 
 Previous documentation phase:
 
@@ -104,7 +106,7 @@ Active implementation track:
 ```text
 Active implementation track: none.
 
-Pending Harness evolution: none. The Phase 7U-7Y window is archived at `harness/changes/archive/20260609-auto-evolve-harness-phase-7u-7y-modular-boundary/summary.md`.
+Pending Harness evolution: none. The Phase 7Y-8C window is archived at `harness/changes/archive/20260609-auto-evolve-harness-phase-7y-8c-modular-boundary/summary.md`.
 
 Phase 7V is closed and archived at `harness/changes/archive/20260609-phase-7v-workbench-read-model-confirmation-queue-boundary-split/summary.md`. It was a pure read-model / confirmation queue boundary split: it repaired planning confirmation copy, kept typed scope on `WorkbenchDecisionAction` payloads without expanding confirmation item public JSON, and split residual Workbench read-model / confirmation queue builders behind compatibility facades. It did not add runtime capability, Workbench actions, routes, scheduler behavior, parallel execution, multi-Change automatic creation, ODWF JavaScript runtime, or cache/replay.
 
@@ -124,6 +126,8 @@ Phase 8B is closed and archived at `harness/changes/archive/20260609-phase-8b-sc
 
 Phase 8C is closed and archived at `harness/changes/archive/20260609-phase-8c-code-execution-manager-boundary-split/summary.md`. It narrowed `src/code/manager.ts` into a compatibility facade over owned code execution modules for execution gate, run session, context packet writing, live events, Codex app-server execution, Codex exec streaming, artifacts, and status helpers. The behavior fix was scoped metadata: the app-server runner now passes the resolved `roleId` through to `runCodexAppServerTurn()` so rework-coder runs are not recorded as coder-agent turns.
 
+Phase 8D is closed and archived at `harness/changes/archive/20260609-phase-8d-scoped-integration-check-boundary-split/summary.md`. It fixed explicit integration-check `worktreeIds` to fail closed when any requested id is missing, stale, applied, discarded, preview-failed, or not ready, then split integration-check internals behind `src/integration-check/manager.ts`.
+
 Phase 7J is closed and archived at `harness/changes/archive/20260605-phase-7j-strict-harness-gated-execution-path/summary.md`. It narrowed execution entrypoints: planning confirmation writes canonical artifacts only, `code.run` requires a valid single-change readiness verdict, and sequential taskgraph execution must pass through a typed TaskQueueProposal before queue records are created.
 
 Phase 7K is closed and archived at `harness/changes/archive/20260606-phase-7k-workflowrun-journal-and-recoverable-taskqueue/summary.md`. It added an AHO-owned typed `WorkflowRun` journal/recovery layer for confirmed sequential TaskQueue execution. `WorkflowRun` records runtime coordination and recovery evidence; it is not workflow truth. Resume recomputes accepted artifact, proposal, readiness, source, policy, and capability hashes before continuing. Reconcile may update state/events but must not call agents; continue must use a matching paused `WorkflowRun + TaskQueueRun`.
@@ -138,7 +142,7 @@ Phase 7I implementation was verified before close. Product verification passed w
 
 The Phase 7E-7I pending evolution is closed and archived at `harness/changes/archive/20260605-auto-evolve-harness-phase-7e-7i/summary.md`. It promoted proposal/runtime boundary coverage in `docs/ECL.md` and `harness/templates/change/reviews/review.md`; `scripts/harness-evolve.ps1 check` reports no pending evolution.
 
-The latest completed product-code phase remains Phase 7F, archived at `harness/changes/archive/20260531-phase-7f-mainagent-orchestration-decision-engine/summary.md`. The latest completed product/Harness docs change is Phase 7G, archived at `harness/changes/archive/20260602-phase-7g-open-dynamic-workflows-reference-alignment/summary.md`. The latest Harness evolution, archived at `harness/changes/archive/20260609-auto-evolve-harness-phase-7u-7y-modular-boundary/summary.md`, closed the Phase 7U through Phase 7Y pending window as `noop`.
+The latest completed product-code phase remains Phase 7F, archived at `harness/changes/archive/20260531-phase-7f-mainagent-orchestration-decision-engine/summary.md`. The latest completed product/Harness docs change is Phase 7G, archived at `harness/changes/archive/20260602-phase-7g-open-dynamic-workflows-reference-alignment/summary.md`. The latest Harness evolution, archived at `harness/changes/archive/20260609-auto-evolve-harness-phase-7y-8c-modular-boundary/summary.md`, closed the Phase 7Y through Phase 8C pending window as `noop`.
 ```
 
 Phase 6S is the background maintenance layer: every terminal demand can produce a compact closeout, and every five terminal demands can produce an independent maintenance review. The review may propose reusable lessons, doc drift findings, Harness evolution candidates, and doc refinement tasks, but it must not silently edit canonical docs, ECL, curated stable memory, or source root.

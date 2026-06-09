@@ -47,6 +47,7 @@ import { mergeNextLandingQueueCandidate, prepareLandingQueue } from "../../src/l
 import { listTaskQueueItems, listTaskQueues, pauseTaskQueue, reconcileTaskQueues, startOrResumeTaskQueue } from "../../src/task-queue/manager.js";
 import { createWorkflowRunForTaskQueue, readWorkflowRun, readWorkflowRunEvents, validateTaskQueueProposalStart } from "../../src/workflow-run/manager.js";
 import { compileWorkflowGraphPlan, hashArtifactRefs } from "../../src/workflow-artifacts/manager.js";
+import { listIntegrationChecks } from "../../src/integration-check/manager.js";
 import type { ManagedProject, RunMetadata, TaskQueueItem, TaskQueueRun, TaskRun, WorkerLease } from "../../src/types/index.js";
 
 let tempDir: string;
@@ -2599,6 +2600,47 @@ describe("workbench read model", () => {
         kind: "integration-apply",
         whyNeedsConfirmation: "兼容性检查已通过，是否应用这些结果需要你确认。",
       });
+    } finally {
+      if (oldAhoHome === undefined) delete process.env.AHO_HOME;
+      else process.env.AHO_HOME = oldAhoHome;
+    }
+  });
+
+  it("rejects explicit integration check targets when any requested worktree id is forged", async () => {
+    const oldAhoHome = process.env.AHO_HOME;
+    process.env.AHO_HOME = join(tempDir, ".aho-home");
+    try {
+      await initGitRepository(tempDir);
+      await writeFile(join(tempDir, ".gitignore"), ".aho-home/\n.agent-harness/\nharness/\nAGENTS.md\ndocs/\nscripts/\n", "utf8");
+      await writeFile(join(tempDir, "package.json"), "{\"scripts\":{\"test\":\"node -e \\\"process.exit(0)\\\"\"}}\n", "utf8");
+      await git(tempDir, ["add", "."]);
+      await git(tempDir, ["commit", "-m", "initial"]);
+      await initHarness(project());
+      await writeRawActiveChange("demand-a", "Demand A");
+      await writeRawActiveChange("demand-b", "Demand B");
+      await writeAcceptedSpecAndTasks("demand-a");
+      await writeAcceptedSpecAndTasks("demand-b");
+      const memory = await resolveProjectMemory(project());
+      const worktreeA = await createWorktree(project(), memory, "demand-a");
+      await writeFile(join(worktreeA.metadata.checkoutPath, "a.txt"), "a\n", "utf8");
+      const diffA = await collectWorktreeDiff(memory, worktreeA.metadata.worktreeId, "demand-a");
+      await writeValidationResultWithHash("demand-a", "run-validation-a", worktreeA.metadata.worktreeId, diffA.diffHash, "passed");
+      await writeAuditResultWithHash("demand-a", "run-audit-a", worktreeA.metadata.worktreeId, diffA.diffHash, "approved-with-notes");
+      const worktreeB = await createWorktree(project(), memory, "demand-b");
+      await writeFile(join(worktreeB.metadata.checkoutPath, "b.txt"), "b\n", "utf8");
+      const diffB = await collectWorktreeDiff(memory, worktreeB.metadata.worktreeId, "demand-b");
+      await writeValidationResultWithHash("demand-b", "run-validation-b", worktreeB.metadata.worktreeId, diffB.diffHash, "passed");
+      await writeAuditResultWithHash("demand-b", "run-audit-b", worktreeB.metadata.worktreeId, diffB.diffHash, "approved-with-notes");
+
+      const result = await executeWorkbenchAction({ project: project(), path: tempDir }, {
+        actionType: "apply-check.run",
+        changeId: "demand-a",
+        worktreeIds: [worktreeA.metadata.worktreeId, worktreeB.metadata.worktreeId, "forged-worktree"],
+        confirm: true,
+      });
+      expect(result.result.status).toBe("failed");
+      expect(result.result.error).toMatch(/forged-worktree|requested worktree/i);
+      await expect(listIntegrationChecks(memory)).resolves.toHaveLength(0);
     } finally {
       if (oldAhoHome === undefined) delete process.env.AHO_HOME;
       else process.env.AHO_HOME = oldAhoHome;

@@ -7,6 +7,12 @@ import type { MaintenanceLedgerEntry, ManagedProject, RemoteLandingResult, RunMe
 import { appendTopicThreadEntry, runWorkbenchWorkflowAction } from "../../src/workbench/chat.js";
 import { getWorkbenchSnapshot, getWorkbenchWorkflowGraphPlanProjection } from "../../src/workbench/manager.js";
 import { getCodeStatus, listCodeRuns, showCodeRun, startCodeRun } from "../../src/code/manager.js";
+import { applyIntegrationCheck, discardIntegrationCheck, findIntegrationCheckCandidate, listIntegrationChecks, readIntegrationCheck, runIntegrationCheck } from "../../src/integration-check/manager.js";
+import { collectReadyTargets } from "../../src/integration-check/candidates.js";
+import { runAggregateValidation } from "../../src/integration-check/aggregate-validation.js";
+import { runAggregateAudit } from "../../src/integration-check/aggregate-audit.js";
+import { runIntegrationFixAttempt } from "../../src/integration-check/fix-attempts.js";
+import { prepareIntegrationCheckout } from "../../src/integration-check/patch-workspace.js";
 import { readTopicThreadLog } from "../../src/workbench/thread-log.js";
 import { runWorkbenchWorkflowActionService } from "../../src/workbench/actions/service.js";
 import { assertWorkflowActionScope } from "../../src/workbench/actions/boundary.js";
@@ -83,6 +89,17 @@ describe("Workbench module boundaries", () => {
     expect(typeof getCodeStatus).toBe("function");
     expect(typeof listCodeRuns).toBe("function");
     expect(typeof showCodeRun).toBe("function");
+    expect(typeof findIntegrationCheckCandidate).toBe("function");
+    expect(typeof runIntegrationCheck).toBe("function");
+    expect(typeof applyIntegrationCheck).toBe("function");
+    expect(typeof discardIntegrationCheck).toBe("function");
+    expect(typeof listIntegrationChecks).toBe("function");
+    expect(typeof readIntegrationCheck).toBe("function");
+    expect(typeof collectReadyTargets).toBe("function");
+    expect(typeof runAggregateValidation).toBe("function");
+    expect(typeof runAggregateAudit).toBe("function");
+    expect(typeof runIntegrationFixAttempt).toBe("function");
+    expect(typeof prepareIntegrationCheckout).toBe("function");
 
     expect(typeof readTopicThreadLog).toBe("function");
     expect(typeof runWorkbenchWorkflowActionService).toBe("function");
@@ -290,6 +307,16 @@ describe("Workbench module boundaries", () => {
         ],
       },
       {
+        roots: ["src/integration-check"],
+        forbidden: [
+          /from\s+["']\.\/manager\.js["']/,
+          /from\s+["']\.\.\/workbench\//,
+          /from\s+["']\.\.\/server\//,
+          /from\s+["']\.\.\/web\//,
+          /from\s+["']\.\.\/cli\//,
+        ],
+      },
+      {
         roots: [
           "src/types/change-ecl.ts",
           "src/types/maintenance.ts",
@@ -339,6 +366,18 @@ describe("Workbench module boundaries", () => {
     const appServerRunner = readFileSync("src/code/codex-app-server-runner.ts", "utf8");
     expect(appServerRunner).toContain("roleId: input.roleId");
     expect(appServerRunner).not.toContain('roleId: "coder-agent"');
+  });
+
+  it("keeps integration-check manager as a compatibility facade", () => {
+    const facade = readFileSync("src/integration-check/manager.ts", "utf8");
+    expect(facade).toContain('from "./service.js"');
+    expect(facade).toContain('from "./apply-discard.js"');
+    expect(facade).toContain('from "./repository.js"');
+    expect(facade).toContain('from "./candidates.js"');
+    expect(facade).not.toMatch(/async function runIntegrationCheck/);
+    expect(facade).not.toMatch(/async function applyIntegrationCheck/);
+    expect(facade).not.toMatch(/async function collectReadyTargets/);
+    expect(facade).not.toMatch(/async function runAggregateValidation/);
   });
 
   it("keeps type index as a compatibility re-export barrel", () => {
