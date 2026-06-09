@@ -13,6 +13,18 @@ import { runAggregateValidation } from "../../src/integration-check/aggregate-va
 import { runAggregateAudit } from "../../src/integration-check/aggregate-audit.js";
 import { runIntegrationFixAttempt } from "../../src/integration-check/fix-attempts.js";
 import { prepareIntegrationCheckout } from "../../src/integration-check/patch-workspace.js";
+import { prepareRemoteLandingReadiness, mergeRemoteLanding, listRemoteLandingResults } from "../../src/remote-landing/manager.js";
+import { refreshRemoteLanding } from "../../src/remote-landing/readiness.js";
+import { readRemoteLandingResult } from "../../src/remote-landing/repository.js";
+import { preparePostMergeHandoff, syncLocalAfterMerge, listPostMergeHandoffs } from "../../src/post-merge/manager.js";
+import { prepareLocalSync } from "../../src/post-merge/handoff.js";
+import { cleanupRemoteBranchAfterMerge } from "../../src/post-merge/branch-cleanup.js";
+import { refreshPrFeedback, startPrFeedbackReworkAttempt, listPrFeedbackSummaries } from "../../src/pr-feedback/manager.js";
+import { classifyPrFeedbackSnapshotData } from "../../src/pr-feedback/snapshot.js";
+import { recordReviewFeedbackUserContext } from "../../src/pr-feedback/rework.js";
+import { preparePrReviewReadiness, submitPrForHumanReview, listPrReviewReadiness } from "../../src/pr-review/manager.js";
+import { refreshPrReviewState } from "../../src/pr-review/readiness.js";
+import { preparePrReviewReplyDraft } from "../../src/pr-review/replies.js";
 import { readTopicThreadLog } from "../../src/workbench/thread-log.js";
 import { runWorkbenchWorkflowActionService } from "../../src/workbench/actions/service.js";
 import { assertWorkflowActionScope } from "../../src/workbench/actions/boundary.js";
@@ -100,6 +112,26 @@ describe("Workbench module boundaries", () => {
     expect(typeof runAggregateAudit).toBe("function");
     expect(typeof runIntegrationFixAttempt).toBe("function");
     expect(typeof prepareIntegrationCheckout).toBe("function");
+    expect(typeof prepareRemoteLandingReadiness).toBe("function");
+    expect(typeof refreshRemoteLanding).toBe("function");
+    expect(typeof mergeRemoteLanding).toBe("function");
+    expect(typeof listRemoteLandingResults).toBe("function");
+    expect(typeof readRemoteLandingResult).toBe("function");
+    expect(typeof preparePostMergeHandoff).toBe("function");
+    expect(typeof prepareLocalSync).toBe("function");
+    expect(typeof syncLocalAfterMerge).toBe("function");
+    expect(typeof cleanupRemoteBranchAfterMerge).toBe("function");
+    expect(typeof listPostMergeHandoffs).toBe("function");
+    expect(typeof refreshPrFeedback).toBe("function");
+    expect(typeof classifyPrFeedbackSnapshotData).toBe("function");
+    expect(typeof startPrFeedbackReworkAttempt).toBe("function");
+    expect(typeof recordReviewFeedbackUserContext).toBe("function");
+    expect(typeof listPrFeedbackSummaries).toBe("function");
+    expect(typeof preparePrReviewReadiness).toBe("function");
+    expect(typeof refreshPrReviewState).toBe("function");
+    expect(typeof submitPrForHumanReview).toBe("function");
+    expect(typeof preparePrReviewReplyDraft).toBe("function");
+    expect(typeof listPrReviewReadiness).toBe("function");
 
     expect(typeof readTopicThreadLog).toBe("function");
     expect(typeof runWorkbenchWorkflowActionService).toBe("function");
@@ -317,6 +349,16 @@ describe("Workbench module boundaries", () => {
         ],
       },
       {
+        roots: ["src/remote-landing", "src/post-merge", "src/pr-feedback", "src/pr-review"],
+        forbidden: [
+          /from\s+["']\.\/manager\.js["']/,
+          /from\s+["']\.\.\/workbench\//,
+          /from\s+["']\.\.\/server\//,
+          /from\s+["']\.\.\/web\//,
+          /from\s+["']\.\.\/cli\//,
+        ],
+      },
+      {
         roots: [
           "src/types/change-ecl.ts",
           "src/types/maintenance.ts",
@@ -378,6 +420,39 @@ describe("Workbench module boundaries", () => {
     expect(facade).not.toMatch(/async function applyIntegrationCheck/);
     expect(facade).not.toMatch(/async function collectReadyTargets/);
     expect(facade).not.toMatch(/async function runAggregateValidation/);
+  });
+
+  it("keeps remote handoff managers as compatibility facades", () => {
+    const remoteLanding = readFileSync("src/remote-landing/manager.ts", "utf8");
+    expect(remoteLanding).toContain('from "./readiness.js"');
+    expect(remoteLanding).toContain('from "./merge.js"');
+    expect(remoteLanding).toContain('from "./repository.js"');
+    expect(remoteLanding).not.toMatch(/async function prepareRemoteLandingReadiness/);
+    expect(remoteLanding).not.toMatch(/async function mergeRemoteLanding/);
+
+    const postMerge = readFileSync("src/post-merge/manager.ts", "utf8");
+    expect(postMerge).toContain('from "./handoff.js"');
+    expect(postMerge).toContain('from "./local-sync.js"');
+    expect(postMerge).toContain('from "./branch-cleanup.js"');
+    expect(postMerge).toContain('from "./repository.js"');
+    expect(postMerge).not.toMatch(/async function preparePostMergeHandoff/);
+    expect(postMerge).not.toMatch(/async function syncLocalAfterMerge/);
+
+    const prFeedback = readFileSync("src/pr-feedback/manager.ts", "utf8");
+    expect(prFeedback).toContain('from "./snapshot.js"');
+    expect(prFeedback).toContain('from "./rework.js"');
+    expect(prFeedback).toContain('from "./draft-update.js"');
+    expect(prFeedback).toContain('from "./repository.js"');
+    expect(prFeedback).not.toMatch(/async function refreshPrFeedback/);
+    expect(prFeedback).not.toMatch(/async function startPrFeedbackReworkAttempt/);
+
+    const prReview = readFileSync("src/pr-review/manager.ts", "utf8");
+    expect(prReview).toContain('from "./readiness.js"');
+    expect(prReview).toContain('from "./handoff.js"');
+    expect(prReview).toContain('from "./replies.js"');
+    expect(prReview).toContain('from "./repository.js"');
+    expect(prReview).not.toMatch(/async function preparePrReviewReadiness/);
+    expect(prReview).not.toMatch(/async function submitPrForHumanReview/);
   });
 
   it("keeps type index as a compatibility re-export barrel", () => {

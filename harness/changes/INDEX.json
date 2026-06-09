@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-09T13:27:57.7878198Z",
+    "generated_at":  "2026-06-09T14:12:32.1093866Z",
     "active":  [
 
                ],
@@ -529,6 +529,10 @@
                     {
                         "name":  "20260609-phase-8d-scoped-integration-check-boundary-split",
                         "path":  "harness/changes/archive/20260609-phase-8d-scoped-integration-check-boundary-split"
+                    },
+                    {
+                        "name":  "20260609-phase-8e-remote-handoff-pr-landing-boundary-split",
+                        "path":  "harness/changes/archive/20260609-phase-8e-remote-handoff-pr-landing-boundary-split"
                     }
                 ]
 }

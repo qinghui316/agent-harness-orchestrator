@@ -3,12 +3,12 @@
 ## Current Handoff
 
 - Current date: 2026-06-09.
-- Active ECL change: none.
+- Active ECL change: `phase-8e-remote-handoff-pr-landing-boundary-split` at `harness/changes/active/phase-8e-remote-handoff-pr-landing-boundary-split/`.
 - Pending Harness evolution: none.
 - Latest archived product change: `harness/changes/archive/20260531-phase-7f-mainagent-orchestration-decision-engine/summary.md`.
 - Latest archived product/Harness docs change: `harness/changes/archive/20260602-phase-7g-open-dynamic-workflows-reference-alignment/summary.md`.
 - Latest archived Harness evolution: `harness/changes/archive/20260609-auto-evolve-harness-phase-7y-8c-modular-boundary/summary.md`.
-- Active product phase: none.
+- Active product phase: Phase 8E Remote Handoff PR Landing Boundary Split.
 
 Current baseline:
 
@@ -69,6 +69,7 @@ Current baseline:
 - Phase 8C Code Execution Manager Boundary Split is closed and archived at `harness/changes/archive/20260609-phase-8c-code-execution-manager-boundary-split/summary.md`. It was a pure code execution manager boundary split plus one scoped role metadata fix: Codex app-server code runs now record the resolved `roleId` instead of labeling rework-coder sessions as `coder-agent`. It did not add runtime capability, CLI commands, Workbench actions, routes, scheduler behavior, parallel execution, automatic child Changes, ODWF JavaScript runtime, or cache/replay.
 - Harness evolution after Phase 8C completed as noop and is archived at `harness/changes/archive/20260609-auto-evolve-harness-phase-7y-8c-modular-boundary/summary.md`. Authorized subagent review recommended `noop` with score `90/100`; existing module-boundary, handoff-drift, scoped action payload, and proposal/runtime boundary rules were sufficient for the Phase 7Y-8C window.
 - Phase 8D Scoped Integration Check Boundary Split is closed and archived at `harness/changes/archive/20260609-phase-8d-scoped-integration-check-boundary-split/summary.md`. It fixed explicit integration-check `worktreeIds` to be all-or-nothing and split the integration-check manager behind a compatibility facade without adding runtime capability, CLI commands, Workbench actions, routes, scheduler behavior, parallel execution, automatic child Changes, ODWF JavaScript runtime, or cache/replay.
+- Phase 8E Remote Handoff PR Landing Boundary Split is active at `harness/changes/active/phase-8e-remote-handoff-pr-landing-boundary-split/`. It splits PR review, PR feedback, remote landing, and post-merge managers behind compatibility facades without adding remote capability, CLI commands, Workbench actions, routes, scheduler behavior, parallel execution, automatic child Changes, ODWF JavaScript runtime, or cache/replay.
 - Harness evolution after Phase 7M promoted close/handoff drift evidence, typed workflow boundary matrix coverage, and module-boundary coverage. It is archived at `harness/changes/archive/20260607-auto-evolve-harness-phase-7i-7m-runtime-modular-boundary/summary.md` and did not add product runtime behavior.
 - Harness evolution after Phase 7I promoted proposal/runtime boundary coverage and is archived at `harness/changes/archive/20260605-auto-evolve-harness-phase-7e-7i/summary.md`. Authorized subagent review recommended `modify`; the rule now requires planning/proposal/manifest/workflow/recovery artifacts to record authority classification and no-execution/stale-target boundary evidence.
 - Harness evolution after Phase 7E completed as noop and is archived at `harness/changes/archive/20260531-auto-evolve-harness-phase-7a-7e-context-boundary/summary.md`. Independent review recommended `noop` with score `78/100`; transcript and scoped-action patterns were already covered by existing ECL rules, and RoleContextPacket evidence remains future signal rather than a new permanent rule.
@@ -104,7 +105,7 @@ Phase 7F baseline: project demand conversation -> explicit ChangeTarget binding 
 Active implementation track:
 
 ```text
-Active implementation track: none.
+Active implementation track: `phase-8e-remote-handoff-pr-landing-boundary-split` at `harness/changes/active/phase-8e-remote-handoff-pr-landing-boundary-split/`.
 
 Pending Harness evolution: none. The Phase 7Y-8C window is archived at `harness/changes/archive/20260609-auto-evolve-harness-phase-7y-8c-modular-boundary/summary.md`.
 
@@ -127,6 +128,8 @@ Phase 8B is closed and archived at `harness/changes/archive/20260609-phase-8b-sc
 Phase 8C is closed and archived at `harness/changes/archive/20260609-phase-8c-code-execution-manager-boundary-split/summary.md`. It narrowed `src/code/manager.ts` into a compatibility facade over owned code execution modules for execution gate, run session, context packet writing, live events, Codex app-server execution, Codex exec streaming, artifacts, and status helpers. The behavior fix was scoped metadata: the app-server runner now passes the resolved `roleId` through to `runCodexAppServerTurn()` so rework-coder runs are not recorded as coder-agent turns.
 
 Phase 8D is closed and archived at `harness/changes/archive/20260609-phase-8d-scoped-integration-check-boundary-split/summary.md`. It fixed explicit integration-check `worktreeIds` to fail closed when any requested id is missing, stale, applied, discarded, preview-failed, or not ready, then split integration-check internals behind `src/integration-check/manager.ts`.
+
+Phase 8E is active at `harness/changes/active/phase-8e-remote-handoff-pr-landing-boundary-split/`. It is a pure remote handoff / PR landing domain split over `pr-review`, `pr-feedback`, `remote-landing`, and `post-merge`; PR review, feedback refresh/rework/reply, remote merge, post-merge sync, cleanup, confirmation, action payload, decision/audit scope, and artifact behavior must remain unchanged.
 
 Phase 7J is closed and archived at `harness/changes/archive/20260605-phase-7j-strict-harness-gated-execution-path/summary.md`. It narrowed execution entrypoints: planning confirmation writes canonical artifacts only, `code.run` requires a valid single-change readiness verdict, and sequential taskgraph execution must pass through a typed TaskQueueProposal before queue records are created.
 

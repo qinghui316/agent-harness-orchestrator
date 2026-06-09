@@ -164,6 +164,8 @@ Phase 8C keeps this execution boundary unchanged while splitting `src/code/manag
 
 Phase 8D applies the same ownership rule to integration checks. Integration-check target collection, patch workspace setup, aggregate validation, aggregate audit, IntegrationFix attempts, repository access, and apply/discard safety belong in owned integration-check modules behind the `src/integration-check/manager.ts` facade. Explicit `worktreeIds` are scoped targets: if any requested id is missing, stale, applied, discarded, preview-failed, or not ready, the integration check must fail closed instead of silently running on the remaining targets. Integration checks remain source-root apply preparation evidence, not automatic merge truth.
 
+Phase 8E applies the ownership rule to remote handoff and PR landing. PR review, PR feedback, remote landing, and post-merge managers remain compatibility facades; schemas, artifact repositories, provider/GitHub CLI adapters, readiness checks, handoff/attempt/result records, rendering, and post-decision side effects belong in owned modules. Remote review, merge, local sync, and remote branch cleanup remain evidence-backed, human-gated transitions. The refactor must not add unattended merge, reviewer assignment, new route/action/CLI behavior, or broader maintenance side effects.
+
 ## 7. Memory Unavailable Boundary
 
 Memory can be unavailable on a new machine, after a plain repository clone, when AHO home was not synced, when permissions are missing, or when a future remote memory service is offline.
