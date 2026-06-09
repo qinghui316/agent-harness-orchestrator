@@ -16,6 +16,16 @@ import { buildDeterministicPlanningBundle } from "../../src/workbench/planning/b
 import { createLiveSink, readWorkbenchActionEvents } from "../../src/server/workbench/live.js";
 import { getWorkbenchProjection } from "../../src/server/workbench/projections.js";
 import { matchProjectWorkbenchRoute } from "../../src/server/workbench/routes.js";
+import { assertCurrentWorkflowAction } from "../../src/server/workbench/action-revalidation.js";
+import { executeWorkbenchAction as executeWorkbenchServerAction } from "../../src/server/workbench/actions.js";
+import { handleApi } from "../../src/server/workbench/api-router.js";
+import { allowedActionIds } from "../../src/server/workbench/approval-actions.js";
+import { handleDirectWorkbenchApi } from "../../src/server/workbench/direct-routes.js";
+import { sendJson } from "../../src/server/workbench/http.js";
+import { sendWorkbenchActionLive } from "../../src/server/workbench/live-actions.js";
+import { buildNativeFolderDialogCommand } from "../../src/server/workbench/native-dialog.js";
+import { handleProjectWorkbenchApi } from "../../src/server/workbench/project-routes.js";
+import { serveStatic } from "../../src/server/workbench/static.js";
 import { summarizeRunArtifacts } from "../../src/workbench/projections/artifact-preview.js";
 import { findWorkbenchTopicPath } from "../../src/workbench/projections/typed-workflow.js";
 import { buildConfirmationQueue, scopeConfirmationQueueItemActions } from "../../src/workbench/projections/read-model/confirmation-queue.js";
@@ -69,6 +79,16 @@ describe("Workbench module boundaries", () => {
     expect(typeof readWorkbenchActionEvents).toBe("function");
     expect(typeof getWorkbenchProjection).toBe("function");
     expect(typeof matchProjectWorkbenchRoute).toBe("function");
+    expect(typeof assertCurrentWorkflowAction).toBe("function");
+    expect(typeof executeWorkbenchServerAction).toBe("function");
+    expect(typeof handleApi).toBe("function");
+    expect(allowedActionIds.has("change.close")).toBe(true);
+    expect(typeof handleDirectWorkbenchApi).toBe("function");
+    expect(typeof sendJson).toBe("function");
+    expect(typeof sendWorkbenchActionLive).toBe("function");
+    expect(typeof buildNativeFolderDialogCommand).toBe("function");
+    expect(typeof handleProjectWorkbenchApi).toBe("function");
+    expect(typeof serveStatic).toBe("function");
     expect(typeof summarizeRunArtifacts).toBe("function");
     expect(typeof buildConfirmationQueue).toBe("function");
     expect(typeof scopeConfirmationQueueItemActions).toBe("function");
@@ -140,7 +160,12 @@ describe("Workbench module boundaries", () => {
       },
       {
         roots: ["src/server/workbench"],
-        forbidden: [/from\s+["']\.\.\/workbench-server\.js["']/],
+        forbidden: [
+          /from\s+["']\.\.\/workbench-server\.js["']/,
+          /from\s+["']\.\.\/\.\.\/web\//,
+          /from\s+["']\.\.\/\.\.\/cli\//,
+          /from\s+["']\.\.\/\.\.\/workbench\/projections\/read-model\/implementation\.js["']/,
+        ],
       },
       {
         roots: ["src/web/src/panels"],
@@ -279,6 +304,18 @@ describe("Workbench module boundaries", () => {
     expect(facade).not.toMatch(/startCodeRun\(/);
     expect(facade).not.toMatch(/startValidationRun\(/);
     expect(facade).not.toMatch(/startAuditRun\(/);
+  });
+
+  it("keeps workbench-server as a compatibility facade", () => {
+    const facade = readFileSync("src/server/workbench-server.ts", "utf8");
+    expect(facade).toContain('export { executeWorkbenchAction } from "./workbench/actions.js";');
+    expect(facade).toContain('export { buildNativeFolderDialogCommand, openNativeFolderDialog } from "./workbench/native-dialog.js";');
+    expect(facade).toContain("startWorkbenchServer");
+    expect(facade).not.toMatch(/function handleProjectWorkbenchApi/);
+    expect(facade).not.toMatch(/function runAllowlistedAction/);
+    expect(facade).not.toMatch(/function assertCurrentWorkflowAction/);
+    expect(facade).not.toMatch(/function sendWorkbenchActionLive/);
+    expect(facade).not.toMatch(/event: snapshot/);
   });
 });
 

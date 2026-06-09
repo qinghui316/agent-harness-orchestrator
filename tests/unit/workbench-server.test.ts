@@ -105,6 +105,12 @@ describe("workbench server", () => {
     expect(body).toContain("event: error");
     expect(body).toContain("is not supported by the live endpoint");
     expect(body).toContain("event: done");
+    const errorIndex = body.indexOf("event: error");
+    const snapshotIndex = body.indexOf("event: snapshot");
+    const doneIndex = body.indexOf("event: done");
+    expect(errorIndex).toBeGreaterThanOrEqual(0);
+    expect(snapshotIndex).toBeGreaterThan(errorIndex);
+    expect(doneIndex).toBeGreaterThan(snapshotIndex);
 
     const snapshot = await getJson<SnapshotResponse>(`${handle!.url}/api/workbench/snapshot`);
     const replay = await fetch(`${handle!.url}/api/workbench/stream/${snapshot.center.agentLoop.runs[0].id}`);
@@ -200,6 +206,20 @@ describe("workbench server", () => {
       });
       expect(added.ok).toBe(true);
       const addedBody = await added.json() as { project: { id: string } };
+
+      const projectTopic = await fetch(`${appHandle.url}/api/projects/${addedBody.project.id}/workbench/topics`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: "Project scoped topic", body: "Keep route behavior", confirm: true }),
+      });
+      expect(projectTopic.ok).toBe(true);
+
+      const directTopic = await fetch(`${handle!.url}/api/workbench/topics`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: "Direct topic", body: "Direct route remains unsupported", confirm: true }),
+      });
+      expect(directTopic.status).toBe(404);
 
       const projects = await getJson<{ projects: unknown[] }>(`${appHandle.url}/api/projects`);
       expect(projects.projects).toHaveLength(1);
