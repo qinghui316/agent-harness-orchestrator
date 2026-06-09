@@ -1,0 +1,523 @@
+﻿{
+    "generated_at":  "2026-06-09T11:10:10.9380663Z",
+    "active":  [
+
+               ],
+    "parking":  [
+                    {
+                        "name":  "phase-5i-readable-stream-ui-followup",
+                        "path":  "harness/changes/parking/phase-5i-readable-stream-ui-followup"
+                    },
+                    {
+                        "name":  "phase-5j-rich-live-workbench",
+                        "path":  "harness/changes/parking/phase-5j-rich-live-workbench"
+                    }
+                ],
+    "archive":  [
+                    {
+                        "name":  "20260510-bootstrap-harness",
+                        "path":  "harness/changes/archive/20260510-bootstrap-harness"
+                    },
+                    {
+                        "name":  "20260510-phase-1-cli",
+                        "path":  "harness/changes/archive/20260510-phase-1-cli"
+                    },
+                    {
+                        "name":  "20260512-architecture-boundaries",
+                        "path":  "harness/changes/archive/20260512-architecture-boundaries"
+                    },
+                    {
+                        "name":  "20260512-auto-evolve-harness-20260512",
+                        "path":  "harness/changes/archive/20260512-auto-evolve-harness-20260512"
+                    },
+                    {
+                        "name":  "20260512-phase-2a-change-foundation",
+                        "path":  "harness/changes/archive/20260512-phase-2a-change-foundation"
+                    },
+                    {
+                        "name":  "20260512-phase-2b-local-command-runs",
+                        "path":  "harness/changes/archive/20260512-phase-2b-local-command-runs"
+                    },
+                    {
+                        "name":  "20260512-phase-2c-codex-readonly-adapter",
+                        "path":  "harness/changes/archive/20260512-phase-2c-codex-readonly-adapter"
+                    },
+                    {
+                        "name":  "20260512-phase-2d-memory-resolver-foundation",
+                        "path":  "harness/changes/archive/20260512-phase-2d-memory-resolver-foundation"
+                    },
+                    {
+                        "name":  "20260513-auto-evolve-harness-20260513",
+                        "path":  "harness/changes/archive/20260513-auto-evolve-harness-20260513"
+                    },
+                    {
+                        "name":  "20260513-phase-2e-external-local-memory",
+                        "path":  "harness/changes/archive/20260513-phase-2e-external-local-memory"
+                    },
+                    {
+                        "name":  "20260513-phase-3a-worktree-manager",
+                        "path":  "harness/changes/archive/20260513-phase-3a-worktree-manager"
+                    },
+                    {
+                        "name":  "20260513-phase-3b-validation-gate",
+                        "path":  "harness/changes/archive/20260513-phase-3b-validation-gate"
+                    },
+                    {
+                        "name":  "20260513-phase-3c-auditor-proposal-gate",
+                        "path":  "harness/changes/archive/20260513-phase-3c-auditor-proposal-gate"
+                    },
+                    {
+                        "name":  "20260513-phase-3d-codex-write-coder",
+                        "path":  "harness/changes/archive/20260513-phase-3d-codex-write-coder"
+                    },
+                    {
+                        "name":  "20260514-agent-profile-ecl-hardening",
+                        "path":  "harness/changes/archive/20260514-agent-profile-ecl-hardening"
+                    },
+                    {
+                        "name":  "20260514-auto-evolve-harness-20260514",
+                        "path":  "harness/changes/archive/20260514-auto-evolve-harness-20260514"
+                    },
+                    {
+                        "name":  "20260514-auto-evolve-harness-20260514-phase4",
+                        "path":  "harness/changes/archive/20260514-auto-evolve-harness-20260514-phase4"
+                    },
+                    {
+                        "name":  "20260514-phase-3f-real-project-acceptance-stabilization",
+                        "path":  "harness/changes/archive/20260514-phase-3f-real-project-acceptance-stabilization"
+                    },
+                    {
+                        "name":  "20260514-phase-4a-spec-test-mapping",
+                        "path":  "harness/changes/archive/20260514-phase-4a-spec-test-mapping"
+                    },
+                    {
+                        "name":  "20260514-phase-4b-spec-test-evidence-proposal",
+                        "path":  "harness/changes/archive/20260514-phase-4b-spec-test-evidence-proposal"
+                    },
+                    {
+                        "name":  "20260514-phase-4c-spec-test-generation",
+                        "path":  "harness/changes/archive/20260514-phase-4c-spec-test-generation"
+                    },
+                    {
+                        "name":  "20260514-phase-4d-spec-test-drift-readiness",
+                        "path":  "harness/changes/archive/20260514-phase-4d-spec-test-drift-readiness"
+                    },
+                    {
+                        "name":  "20260515-auto-evolve-harness-20260515",
+                        "path":  "harness/changes/archive/20260515-auto-evolve-harness-20260515"
+                    },
+                    {
+                        "name":  "20260515-phase-4e-spec-planner-agents",
+                        "path":  "harness/changes/archive/20260515-phase-4e-spec-planner-agents"
+                    },
+                    {
+                        "name":  "20260515-phase-5a-prep-workbench-runtime-model",
+                        "path":  "harness/changes/archive/20260515-phase-5a-prep-workbench-runtime-model"
+                    },
+                    {
+                        "name":  "20260515-phase-5a-workbench-snapshot",
+                        "path":  "harness/changes/archive/20260515-phase-5a-workbench-snapshot"
+                    },
+                    {
+                        "name":  "20260515-phase-5b-workbench-stream-approvals",
+                        "path":  "harness/changes/archive/20260515-phase-5b-workbench-stream-approvals"
+                    },
+                    {
+                        "name":  "20260515-phase-5c-design-prep-ui-style",
+                        "path":  "harness/changes/archive/20260515-phase-5c-design-prep-ui-style"
+                    },
+                    {
+                        "name":  "20260515-phase-5c-workbench-gui-shell",
+                        "path":  "harness/changes/archive/20260515-phase-5c-workbench-gui-shell"
+                    },
+                    {
+                        "name":  "20260515-reference-agentscope-java-grounding",
+                        "path":  "harness/changes/archive/20260515-reference-agentscope-java-grounding"
+                    },
+                    {
+                        "name":  "20260516-phase-5d-topic-chat-codex-plan-mode",
+                        "path":  "harness/changes/archive/20260516-phase-5d-topic-chat-codex-plan-mode"
+                    },
+                    {
+                        "name":  "20260516-phase-5e-codex-skill-bridge-workspace-store",
+                        "path":  "harness/changes/archive/20260516-phase-5e-codex-skill-bridge-workspace-store"
+                    },
+                    {
+                        "name":  "20260516-phase-5g-orchestrator-chat-plan-workbench",
+                        "path":  "harness/changes/archive/20260516-phase-5g-orchestrator-chat-plan-workbench"
+                    },
+                    {
+                        "name":  "20260516-phase-5g-real-business-acceptance",
+                        "path":  "harness/changes/archive/20260516-phase-5g-real-business-acceptance"
+                    },
+                    {
+                        "name":  "20260516-runtime-bridge-boundary-coverage",
+                        "path":  "harness/changes/archive/20260516-runtime-bridge-boundary-coverage"
+                    },
+                    {
+                        "name":  "20260517-auto-evolve-harness-phase-5h",
+                        "path":  "harness/changes/archive/20260517-auto-evolve-harness-phase-5h"
+                    },
+                    {
+                        "name":  "20260517-phase-5h-real-ui-acceptance",
+                        "path":  "harness/changes/archive/20260517-phase-5h-real-ui-acceptance"
+                    },
+                    {
+                        "name":  "20260517-phase-5h-thread-stream-read-model",
+                        "path":  "harness/changes/archive/20260517-phase-5h-thread-stream-read-model"
+                    },
+                    {
+                        "name":  "20260517-phase-5i-live-workbench-ui",
+                        "path":  "harness/changes/archive/20260517-phase-5i-live-workbench-ui"
+                    },
+                    {
+                        "name":  "20260523-active-change-preflight-guard",
+                        "path":  "harness/changes/archive/20260523-active-change-preflight-guard"
+                    },
+                    {
+                        "name":  "20260523-auto-evolve-harness-subagent-review",
+                        "path":  "harness/changes/archive/20260523-auto-evolve-harness-subagent-review"
+                    },
+                    {
+                        "name":  "20260523-phase-5p-assistant-block-dedupe",
+                        "path":  "harness/changes/archive/20260523-phase-5p-assistant-block-dedupe"
+                    },
+                    {
+                        "name":  "20260523-phase-5q-symphony-agent-os-reference",
+                        "path":  "harness/changes/archive/20260523-phase-5q-symphony-agent-os-reference"
+                    },
+                    {
+                        "name":  "20260523-phase-5r-workpad-intake-read-model",
+                        "path":  "harness/changes/archive/20260523-phase-5r-workpad-intake-read-model"
+                    },
+                    {
+                        "name":  "20260523-phase-5r-workpad-real-ui-acceptance",
+                        "path":  "harness/changes/archive/20260523-phase-5r-workpad-real-ui-acceptance"
+                    },
+                    {
+                        "name":  "20260524-auto-evolve-phase5p-5s-harness-review",
+                        "path":  "harness/changes/archive/20260524-auto-evolve-phase5p-5s-harness-review"
+                    },
+                    {
+                        "name":  "20260524-phase-5s-intake-clarification-loop",
+                        "path":  "harness/changes/archive/20260524-phase-5s-intake-clarification-loop"
+                    },
+                    {
+                        "name":  "20260524-phase-5t-taskgraph-workpad-task-code-run",
+                        "path":  "harness/changes/archive/20260524-phase-5t-taskgraph-workpad-task-code-run"
+                    },
+                    {
+                        "name":  "20260524-phase-5u-taskrun-workerlease-orchestration",
+                        "path":  "harness/changes/archive/20260524-phase-5u-taskrun-workerlease-orchestration"
+                    },
+                    {
+                        "name":  "20260525-auto-evolve-phase5s-5w-harness-review",
+                        "path":  "harness/changes/archive/20260525-auto-evolve-phase5s-5w-harness-review"
+                    },
+                    {
+                        "name":  "20260525-phase-5v-docs-agent-os-roadmap",
+                        "path":  "harness/changes/archive/20260525-phase-5v-docs-agent-os-roadmap"
+                    },
+                    {
+                        "name":  "20260525-phase-5w-taskrun-queue-local-orchestrator",
+                        "path":  "harness/changes/archive/20260525-phase-5w-taskrun-queue-local-orchestrator"
+                    },
+                    {
+                        "name":  "20260525-phase-5x-current-decision-inspector-rework-handoff",
+                        "path":  "harness/changes/archive/20260525-phase-5x-current-decision-inspector-rework-handoff"
+                    },
+                    {
+                        "name":  "20260525-phase-5y-coding-work-package-read-model",
+                        "path":  "harness/changes/archive/20260525-phase-5y-coding-work-package-read-model"
+                    },
+                    {
+                        "name":  "20260525-phase-5z-multi-workpad-concurrency-memory-isolation",
+                        "path":  "harness/changes/archive/20260525-phase-5z-multi-workpad-concurrency-memory-isolation"
+                    },
+                    {
+                        "name":  "20260526-auto-evolve-harness-phase-6d",
+                        "path":  "harness/changes/archive/20260526-auto-evolve-harness-phase-6d"
+                    },
+                    {
+                        "name":  "20260526-auto-evolve-phase5w-6a-harness-review",
+                        "path":  "harness/changes/archive/20260526-auto-evolve-phase5w-6a-harness-review"
+                    },
+                    {
+                        "name":  "20260526-phase-6a-user-decision-layer-auto-workpad-finalization",
+                        "path":  "harness/changes/archive/20260526-phase-6a-user-decision-layer-auto-workpad-finalization"
+                    },
+                    {
+                        "name":  "20260526-phase-6b-main-planning-agent-role-pipeline",
+                        "path":  "harness/changes/archive/20260526-phase-6b-main-planning-agent-role-pipeline"
+                    },
+                    {
+                        "name":  "20260526-phase-6b-prep-openspec-reference-docs",
+                        "path":  "harness/changes/archive/20260526-phase-6b-prep-openspec-reference-docs"
+                    },
+                    {
+                        "name":  "20260526-phase-6c-codex-style-project-conversation-sidebar",
+                        "path":  "harness/changes/archive/20260526-phase-6c-codex-style-project-conversation-sidebar"
+                    },
+                    {
+                        "name":  "20260526-phase-6d-conversation-first-docs-ui-alignment",
+                        "path":  "harness/changes/archive/20260526-phase-6d-conversation-first-docs-ui-alignment"
+                    },
+                    {
+                        "name":  "20260526-phase-6e-codex-app-server-adapter-v1",
+                        "path":  "harness/changes/archive/20260526-phase-6e-codex-app-server-adapter-v1"
+                    },
+                    {
+                        "name":  "20260526-phase-6f-result-review-apply-handoff",
+                        "path":  "harness/changes/archive/20260526-phase-6f-result-review-apply-handoff"
+                    },
+                    {
+                        "name":  "20260527-auto-evolve-harness-phase-6g-real-acceptance-feedback",
+                        "path":  "harness/changes/archive/20260527-auto-evolve-harness-phase-6g-real-acceptance-feedback"
+                    },
+                    {
+                        "name":  "20260527-phase-6g-main-agent-task-repository-background-evolution",
+                        "path":  "harness/changes/archive/20260527-phase-6g-main-agent-task-repository-background-evolution"
+                    },
+                    {
+                        "name":  "20260527-phase-6g-prep-harness-docs-agent-task-evolution-alignment",
+                        "path":  "harness/changes/archive/20260527-phase-6g-prep-harness-docs-agent-task-evolution-alignment"
+                    },
+                    {
+                        "name":  "20260528-auto-evolve-harness-phase-6l-terminal-tool-result-coverage",
+                        "path":  "harness/changes/archive/20260528-auto-evolve-harness-phase-6l-terminal-tool-result-coverage"
+                    },
+                    {
+                        "name":  "20260528-phase-6h-main-orchestrator-demand-worker-queue",
+                        "path":  "harness/changes/archive/20260528-phase-6h-main-orchestrator-demand-worker-queue"
+                    },
+                    {
+                        "name":  "20260528-phase-6i-parent-agent-conversation-surface",
+                        "path":  "harness/changes/archive/20260528-phase-6i-parent-agent-conversation-surface"
+                    },
+                    {
+                        "name":  "20260528-phase-6j-bounded-demand-worker-slots-orchestrator-pump",
+                        "path":  "harness/changes/archive/20260528-phase-6j-bounded-demand-worker-slots-orchestrator-pump"
+                    },
+                    {
+                        "name":  "20260528-phase-6k-scoped-apply-readiness-source-refresh-rework",
+                        "path":  "harness/changes/archive/20260528-phase-6k-scoped-apply-readiness-source-refresh-rework"
+                    },
+                    {
+                        "name":  "20260528-phase-6l-conversation-first-confirmation-queue-integration-check",
+                        "path":  "harness/changes/archive/20260528-phase-6l-conversation-first-confirmation-queue-integration-check"
+                    },
+                    {
+                        "name":  "20260529-auto-evolve-harness-phase-6p-pr-feedback-loop",
+                        "path":  "harness/changes/archive/20260529-auto-evolve-harness-phase-6p-pr-feedback-loop"
+                    },
+                    {
+                        "name":  "20260529-phase-6m-integrationfix-agent-local-merge-readiness-foundation",
+                        "path":  "harness/changes/archive/20260529-phase-6m-integrationfix-agent-local-merge-readiness-foundation"
+                    },
+                    {
+                        "name":  "20260529-phase-6n-local-landing-readiness-package-merge-reviewer",
+                        "path":  "harness/changes/archive/20260529-phase-6n-local-landing-readiness-package-merge-reviewer"
+                    },
+                    {
+                        "name":  "20260529-phase-6o-pr-draft-adapter-remote-handoff",
+                        "path":  "harness/changes/archive/20260529-phase-6o-pr-draft-adapter-remote-handoff"
+                    },
+                    {
+                        "name":  "20260529-phase-6p-main-agent-pr-feedback-orchestration-draft-update",
+                        "path":  "harness/changes/archive/20260529-phase-6p-main-agent-pr-feedback-orchestration-draft-update"
+                    },
+                    {
+                        "name":  "20260529-phase-6q-pr-human-review-handoff-ready-state",
+                        "path":  "harness/changes/archive/20260529-phase-6q-pr-human-review-handoff-ready-state"
+                    },
+                    {
+                        "name":  "20260529-phase-6r-thread-aware-pr-review-feedback-rework-handoff",
+                        "path":  "harness/changes/archive/20260529-phase-6r-thread-aware-pr-review-feedback-rework-handoff"
+                    },
+                    {
+                        "name":  "20260530-auto-evolve-harness-phase-6p-6t",
+                        "path":  "harness/changes/archive/20260530-auto-evolve-harness-phase-6p-6t"
+                    },
+                    {
+                        "name":  "20260530-auto-evolve-harness-phase-6t-6x",
+                        "path":  "harness/changes/archive/20260530-auto-evolve-harness-phase-6t-6x"
+                    },
+                    {
+                        "name":  "20260530-phase-6s-change-memory-consolidation-doc-drift-budget-guard",
+                        "path":  "harness/changes/archive/20260530-phase-6s-change-memory-consolidation-doc-drift-budget-guard"
+                    },
+                    {
+                        "name":  "20260530-phase-6t-user-confirmed-remote-landing-post-merge-memory-boundary",
+                        "path":  "harness/changes/archive/20260530-phase-6t-user-confirmed-remote-landing-post-merge-memory-boundary"
+                    },
+                    {
+                        "name":  "20260530-phase-6u-post-merge-reconcile-safe-sync-cleanup",
+                        "path":  "harness/changes/archive/20260530-phase-6u-post-merge-reconcile-safe-sync-cleanup"
+                    },
+                    {
+                        "name":  "20260530-phase-6v-remote-landing-queue-policy-v1",
+                        "path":  "harness/changes/archive/20260530-phase-6v-remote-landing-queue-policy-v1"
+                    },
+                    {
+                        "name":  "20260530-phase-6w-main-conversation-demand-agent-run-graph",
+                        "path":  "harness/changes/archive/20260530-phase-6w-main-conversation-demand-agent-run-graph"
+                    },
+                    {
+                        "name":  "20260530-phase-6x-parent-agent-transcript-inline-run-graph-tabs",
+                        "path":  "harness/changes/archive/20260530-phase-6x-parent-agent-transcript-inline-run-graph-tabs"
+                    },
+                    {
+                        "name":  "20260530-phase-6y-mcp-delegatetask-tool-main-agent-transcript-events",
+                        "path":  "harness/changes/archive/20260530-phase-6y-mcp-delegatetask-tool-main-agent-transcript-events"
+                    },
+                    {
+                        "name":  "20260531-agent-orchestration-harness-decoupling-docs",
+                        "path":  "harness/changes/archive/20260531-agent-orchestration-harness-decoupling-docs"
+                    },
+                    {
+                        "name":  "20260531-auto-evolve-harness-phase-6x-7b-transcript-boundary",
+                        "path":  "harness/changes/archive/20260531-auto-evolve-harness-phase-6x-7b-transcript-boundary"
+                    },
+                    {
+                        "name":  "20260531-auto-evolve-harness-phase-7a-7e-context-boundary",
+                        "path":  "harness/changes/archive/20260531-auto-evolve-harness-phase-7a-7e-context-boundary"
+                    },
+                    {
+                        "name":  "20260531-phase-6z-main-agent-tool-orchestration-runtime-boundary-enforcement",
+                        "path":  "harness/changes/archive/20260531-phase-6z-main-agent-tool-orchestration-runtime-boundary-enforcement"
+                    },
+                    {
+                        "name":  "20260531-phase-7a-codex-runtime-transcript-cells",
+                        "path":  "harness/changes/archive/20260531-phase-7a-codex-runtime-transcript-cells"
+                    },
+                    {
+                        "name":  "20260531-phase-7b-codex-open-design-transcript-renderer-alignment",
+                        "path":  "harness/changes/archive/20260531-phase-7b-codex-open-design-transcript-renderer-alignment"
+                    },
+                    {
+                        "name":  "20260531-phase-7c-workbench-snapshot-layered-loading",
+                        "path":  "harness/changes/archive/20260531-phase-7c-workbench-snapshot-layered-loading"
+                    },
+                    {
+                        "name":  "20260531-phase-7d-change-target-binding-foundation",
+                        "path":  "harness/changes/archive/20260531-phase-7d-change-target-binding-foundation"
+                    },
+                    {
+                        "name":  "20260531-phase-7e-role-context-packet-a2a-projection",
+                        "path":  "harness/changes/archive/20260531-phase-7e-role-context-packet-a2a-projection"
+                    },
+                    {
+                        "name":  "20260531-phase-7f-mainagent-orchestration-decision-engine",
+                        "path":  "harness/changes/archive/20260531-phase-7f-mainagent-orchestration-decision-engine"
+                    },
+                    {
+                        "name":  "20260602-phase-7g-open-dynamic-workflows-reference-alignment",
+                        "path":  "harness/changes/archive/20260602-phase-7g-open-dynamic-workflows-reference-alignment"
+                    },
+                    {
+                        "name":  "20260602-phase-7h-doc-drift-and-scoped-decompositionplan-boundary",
+                        "path":  "harness/changes/archive/20260602-phase-7h-doc-drift-and-scoped-decompositionplan-boundary"
+                    },
+                    {
+                        "name":  "20260605-auto-evolve-harness-phase-7e-7i",
+                        "path":  "harness/changes/archive/20260605-auto-evolve-harness-phase-7e-7i"
+                    },
+                    {
+                        "name":  "20260605-phase-7i-decomposition-readiness-manifest",
+                        "path":  "harness/changes/archive/20260605-phase-7i-decomposition-readiness-manifest"
+                    },
+                    {
+                        "name":  "20260605-phase-7j-strict-harness-gated-execution-path",
+                        "path":  "harness/changes/archive/20260605-phase-7j-strict-harness-gated-execution-path"
+                    },
+                    {
+                        "name":  "20260606-phase-7k-workflowrun-journal-and-recoverable-taskqueue",
+                        "path":  "harness/changes/archive/20260606-phase-7k-workflowrun-journal-and-recoverable-taskqueue"
+                    },
+                    {
+                        "name":  "20260606-phase-7l-modular-versioned-workflowgraphplan-boundary",
+                        "path":  "harness/changes/archive/20260606-phase-7l-modular-versioned-workflowgraphplan-boundary"
+                    },
+                    {
+                        "name":  "20260607-auto-evolve-harness-phase-7i-7m-runtime-modular-boundary",
+                        "path":  "harness/changes/archive/20260607-auto-evolve-harness-phase-7i-7m-runtime-modular-boundary"
+                    },
+                    {
+                        "name":  "20260607-phase-7m-scoped-boundary-fixes-and-workbench-runtime-modularization",
+                        "path":  "harness/changes/archive/20260607-phase-7m-scoped-boundary-fixes-and-workbench-runtime-modularization"
+                    },
+                    {
+                        "name":  "20260608-auto-evolve-harness-phase-7m-7q-modular-boundary",
+                        "path":  "harness/changes/archive/20260608-auto-evolve-harness-phase-7m-7q-modular-boundary"
+                    },
+                    {
+                        "name":  "20260608-phase-7n-workbench-runtime-large-file-boundary-split",
+                        "path":  "harness/changes/archive/20260608-phase-7n-workbench-runtime-large-file-boundary-split"
+                    },
+                    {
+                        "name":  "20260608-phase-7o-workbench-server-projection-ui-boundary-split",
+                        "path":  "harness/changes/archive/20260608-phase-7o-workbench-server-projection-ui-boundary-split"
+                    },
+                    {
+                        "name":  "20260608-phase-7p-action-execution-runtime-kernel-boundary-split",
+                        "path":  "harness/changes/archive/20260608-phase-7p-action-execution-runtime-kernel-boundary-split"
+                    },
+                    {
+                        "name":  "20260608-phase-7q-workbench-read-model-ui-boundary-split",
+                        "path":  "harness/changes/archive/20260608-phase-7q-workbench-read-model-ui-boundary-split"
+                    },
+                    {
+                        "name":  "20260608-phase-7r-workbench-projection-builder-boundary-split",
+                        "path":  "harness/changes/archive/20260608-phase-7r-workbench-projection-builder-boundary-split"
+                    },
+                    {
+                        "name":  "20260609-auto-evolve-harness-phase-7q-7u-runtime-boundary",
+                        "path":  "harness/changes/archive/20260609-auto-evolve-harness-phase-7q-7u-runtime-boundary"
+                    },
+                    {
+                        "name":  "20260609-auto-evolve-harness-phase-7u-7y-modular-boundary",
+                        "path":  "harness/changes/archive/20260609-auto-evolve-harness-phase-7u-7y-modular-boundary"
+                    },
+                    {
+                        "name":  "20260609-phase-7s-workbench-chat-boundary-split",
+                        "path":  "harness/changes/archive/20260609-phase-7s-workbench-chat-boundary-split"
+                    },
+                    {
+                        "name":  "20260609-phase-7t-workbench-frontend-surface-boundary-split",
+                        "path":  "harness/changes/archive/20260609-phase-7t-workbench-frontend-surface-boundary-split"
+                    },
+                    {
+                        "name":  "20260609-phase-7u-workflow-runtime-kernel-boundary-split",
+                        "path":  "harness/changes/archive/20260609-phase-7u-workflow-runtime-kernel-boundary-split"
+                    },
+                    {
+                        "name":  "20260609-phase-7v-workbench-read-model-confirmation-queue-boundary-split",
+                        "path":  "harness/changes/archive/20260609-phase-7v-workbench-read-model-confirmation-queue-boundary-split"
+                    },
+                    {
+                        "name":  "20260609-phase-7w-workbench-server-api-boundary-split",
+                        "path":  "harness/changes/archive/20260609-phase-7w-workbench-server-api-boundary-split"
+                    },
+                    {
+                        "name":  "20260609-phase-7x-workbench-read-model-residual-split",
+                        "path":  "harness/changes/archive/20260609-phase-7x-workbench-read-model-residual-split"
+                    },
+                    {
+                        "name":  "20260609-phase-7y-workbench-frontend-residual-surface-split",
+                        "path":  "harness/changes/archive/20260609-phase-7y-workbench-frontend-residual-surface-split"
+                    },
+                    {
+                        "name":  "20260609-phase-7z-cli-command-type-barrel-boundary-split",
+                        "path":  "harness/changes/archive/20260609-phase-7z-cli-command-type-barrel-boundary-split"
+                    },
+                    {
+                        "name":  "20260609-phase-8a-agenttask-maintenance-domain-boundary-split",
+                        "path":  "harness/changes/archive/20260609-phase-8a-agenttask-maintenance-domain-boundary-split"
+                    },
+                    {
+                        "name":  "20260609-phase-8b-scoped-change-proposal-boundary-split",
+                        "path":  "harness/changes/archive/20260609-phase-8b-scoped-change-proposal-boundary-split"
+                    }
+                ]
+}
+

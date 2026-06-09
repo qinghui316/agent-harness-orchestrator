@@ -1,0 +1,282 @@
+# Project Status
+
+## Current Handoff
+
+- Current date: 2026-06-09.
+- Active ECL change: none.
+- Pending Harness evolution: none; Phase 7U-7Y evolution is archived at `harness/changes/archive/20260609-auto-evolve-harness-phase-7u-7y-modular-boundary/summary.md`.
+- Latest archived product change: `harness/changes/archive/20260531-phase-7f-mainagent-orchestration-decision-engine/summary.md`.
+- Latest archived product/Harness docs change: `harness/changes/archive/20260602-phase-7g-open-dynamic-workflows-reference-alignment/summary.md`.
+- Latest archived Harness evolution: `harness/changes/archive/20260609-auto-evolve-harness-phase-7u-7y-modular-boundary/summary.md`.
+- Active product phase: none.
+
+Current baseline:
+
+- User-facing product model: projects contain demand conversations.
+- Internal workflow model: each demand conversation binds to Change/Workpad/Topic state, role pipeline evidence, validation/audit, result review, apply/close records, and later landing/remote handoff evidence.
+- `planning-agent` and `coder-agent` may use Codex app-server when available; `codex exec` fallback remains valid and must be labeled honestly.
+- Validator and auditor remain independent evidence runners.
+- Phase 6F completed the single-demand local loop through result review and local apply handoff.
+- Phase 6G-Prep completed documentation alignment for Harness handoff, AgentTaskRepository, background maintenance, and two-layer self-evolution boundaries.
+- Phase 6G completed foreground AgentTaskRepository integration and advisory background maintenance ledger/candidate/score/review artifacts.
+- Harness evolution after Phase 6G completed and is archived at `harness/changes/archive/20260527-auto-evolve-harness-phase-6g-real-acceptance-feedback/summary.md`.
+- Phase 6H completed Main Orchestrator + Demand Worker Queue v1 and is archived at `harness/changes/archive/20260528-phase-6h-main-orchestrator-demand-worker-queue/summary.md`.
+- Phase 6I completed Parent-Agent Conversation Surface + AgentScope-style Tool Result Boundaries and is archived at `harness/changes/archive/20260528-phase-6i-parent-agent-conversation-surface/summary.md`.
+- Phase 6J completed bounded independent demand worker slots plus a local orchestrator pump and is archived at `harness/changes/archive/20260528-phase-6j-bounded-demand-worker-slots-orchestrator-pump/summary.md`.
+- Phase 6K completed scoped apply readiness plus same-demand source refresh rework so concurrent demand results cannot apply against stale source state or the wrong demand result.
+- Phase 6L completed conversation-first confirmation queue plus local integration check for multiple ready results and is archived at `harness/changes/archive/20260528-phase-6l-conversation-first-confirmation-queue-integration-check/summary.md`.
+- Phase 6M completed IntegrationFix Agent + Local Merge Readiness Foundation and is archived at `harness/changes/archive/20260529-phase-6m-integrationfix-agent-local-merge-readiness-foundation/summary.md`.
+- Phase 6N completed Local Landing Readiness Package + Merge Reviewer v1 and is archived at `harness/changes/archive/20260529-phase-6n-local-landing-readiness-package-merge-reviewer/summary.md`.
+- Phase 6O completed PR Draft Adapter v1 + Remote Handoff Boundary and is archived at `harness/changes/archive/20260529-phase-6o-pr-draft-adapter-remote-handoff/summary.md`.
+- Phase 6P completed Main-Agent PR Feedback Orchestration + Draft PR Update v1 and is archived at `harness/changes/archive/20260529-phase-6p-main-agent-pr-feedback-orchestration-draft-update/summary.md`.
+- Phase 6Q completed PR human-review handoff / ready-for-review state and is archived at `harness/changes/archive/20260529-phase-6q-pr-human-review-handoff-ready-state/summary.md`.
+- Phase 6R completed thread-aware PR review feedback, same-demand rework/reply context, and user-confirmed review reply / thread resolve handoff and is archived at `harness/changes/archive/20260529-phase-6r-thread-aware-pr-review-feedback-rework-handoff/summary.md`.
+- Phase 6S completed demand memory closeouts, five-terminal-change maintenance review, doc drift/budget guardrails, and role-scoped context projection for maintenance memory. It is archived at `harness/changes/archive/20260530-phase-6s-change-memory-consolidation-doc-drift-budget-guard/summary.md`.
+- Phase 6T completed user-confirmed remote PR landing plus post-merge memory boundaries and is archived at `harness/changes/archive/20260530-phase-6t-user-confirmed-remote-landing-post-merge-memory-boundary/summary.md`.
+- Phase 6U completed post-merge reconcile plus safe fast-forward local sync and remote PR head branch cleanup and is archived at `harness/changes/archive/20260530-phase-6u-post-merge-reconcile-safe-sync-cleanup/summary.md`.
+- Phase 6V completed remote landing queue / landing policy v1 and is archived at `harness/changes/archive/20260530-phase-6v-remote-landing-queue-policy-v1/summary.md`.
+- Phase 6W completed Main Conversation + Demand Agent Run Graph v1 and is archived at `harness/changes/archive/20260530-phase-6w-main-conversation-demand-agent-run-graph/summary.md`.
+- Phase 6X completed Codex-style Parent-Agent Transcript + Inline Agent Run Graph Tabs and is archived at `harness/changes/archive/20260530-phase-6x-parent-agent-transcript-inline-run-graph-tabs/summary.md`.
+- Harness evolution after Phase 6X promoted scoped Workbench action payload coverage and is archived at `harness/changes/archive/20260530-auto-evolve-harness-phase-6t-6x/summary.md`.
+- Phase 6Y completed MCP DelegateTask Tool + Main-Agent Process Transcript v1 and is archived at `harness/changes/archive/20260530-phase-6y-mcp-delegatetask-tool-main-agent-transcript-events/summary.md`.
+- Phase 6Z completed Main-Agent Tool Orchestration + Runtime Boundary Enforcement v1 and is archived at `harness/changes/archive/20260531-phase-6z-main-agent-tool-orchestration-runtime-boundary-enforcement/summary.md`.
+- Phase 7A completed Codex Runtime Transcript Cells v1 and is archived at `harness/changes/archive/20260531-phase-7a-codex-runtime-transcript-cells/summary.md`.
+- Phase 7B completed Codex/Open Design Transcript Renderer Alignment and is archived at `harness/changes/archive/20260531-phase-7b-codex-open-design-transcript-renderer-alignment/summary.md`.
+- Phase 7C completed Workbench Snapshot Layered Loading and is archived at `harness/changes/archive/20260531-phase-7c-workbench-snapshot-layered-loading/summary.md`. `getWorkbenchSnapshot()` is now a lightweight derived UI shell, while transcript, run graph, workpad/detail, evidence, maintenance, and landing queue views load as scoped projections from canonical facts. It also tightened scoped action payload and maintenance review boundaries.
+- Phase 7D completed Change Target Binding Foundation and is archived at `harness/changes/archive/20260531-phase-7d-change-target-binding-foundation/summary.md`. It added a ChangeTarget runtime boundary for runnable and closeable active demand targets, scoped Workbench close/abandon/apply auto-finalize, and preserved legacy single-active fallback for CLI-compatible paths.
+- Phase 7E completed Role Context Packet / A2A Context Projection and is archived at `harness/changes/archive/20260531-phase-7e-role-context-packet-a2a-projection/summary.md`. It added role context packet artifacts for core coder, validator, auditor, and rework-coder role runs so A2A context is scoped, auditable, and evidence-backed without injecting full Harness or parent conversation state.
+- Phase 7F completed MainAgent Orchestration Decision Engine v1 and is archived at `harness/changes/archive/20260531-phase-7f-mainagent-orchestration-decision-engine/summary.md`. It added a deterministic role-step decision engine for the default foreground coder/validator/auditor/rework template and refactored Workbench orchestration to use evidence-derived decisions instead of hidden hard-coded control flow.
+- Phase 7G completed Open Dynamic Workflows reference alignment and is archived at `harness/changes/archive/20260602-phase-7g-open-dynamic-workflows-reference-alignment/summary.md`. It added the `imsai-sh/open-dynamic-workflows` reference, repaired Phase 7F baseline drift, and documented future WorkflowPlan / DecompositionPlan plus scoped WorkflowRun recovery boundaries without implementing runtime scheduling.
+- Phase 7H completed Doc Drift and Scoped DecompositionPlan Boundary and is archived at `harness/changes/archive/20260602-phase-7h-doc-drift-and-scoped-decompositionplan-boundary/summary.md`. It repaired post-7G docs, fixed selected-demand Workbench context/action target boundaries, added stale planning/decomposition confirmation revalidation, and introduced proposal-only DecompositionPlan artifacts without starting execution.
+- Phase 7I completed Decomposition Readiness Manifest and is archived at `harness/changes/archive/20260605-phase-7i-decomposition-readiness-manifest/summary.md`. It repaired post-7H close drift, registered the Open Dynamic Workflows gitlink, and added a non-executable DecompositionReadinessManifest guardrail check for confirmed DecompositionPlan artifacts without starting execution.
+- Phase 7J completed Strict Harness-Gated Execution Path and is archived at `harness/changes/archive/20260605-phase-7j-strict-harness-gated-execution-path/summary.md`. It made planning confirmation non-executing, required direct code runs to pass typed readiness, and required sequential taskgraph execution to pass through `TaskQueueProposal`.
+- Phase 7K completed WorkflowRun Journal and Recoverable TaskQueue and is archived at `harness/changes/archive/20260606-phase-7k-workflowrun-journal-and-recoverable-taskqueue/summary.md`. It added typed `WorkflowRun` state/events/recovery keys for confirmed sequential TaskQueue execution and kept recovery evidence separate from workflow truth.
+- Phase 7L completed Modular Versioned WorkflowGraphPlan Boundary and is archived at `harness/changes/archive/20260606-phase-7l-modular-versioned-workflowgraphplan-boundary/summary.md`. It added versioned `WorkflowGraphPlan` execution input between TaskQueueProposal and WorkflowRun start.
+- Phase 7M completed Scoped Boundary Fixes and Workbench Runtime Modularization and is archived at `harness/changes/archive/20260607-phase-7m-scoped-boundary-fixes-and-workbench-runtime-modularization/summary.md`. It repaired scoped action payload/revalidation drift and added the first typed workflow action/runtime/projection modular boundaries.
+- Phase 7N completed Workbench Runtime Large File Boundary Split and is archived at `harness/changes/archive/20260608-phase-7n-workbench-runtime-large-file-boundary-split/summary.md`.
+- Phase 7O completed Workbench Server Projection UI Boundary Split and is archived at `harness/changes/archive/20260608-phase-7o-workbench-server-projection-ui-boundary-split/summary.md`.
+- Phase 7P completed Action Execution Runtime Kernel Boundary Split and is archived at `harness/changes/archive/20260608-phase-7p-action-execution-runtime-kernel-boundary-split/summary.md`.
+- Phase 7Q completed Workbench Read Model UI Boundary Split and is archived at `harness/changes/archive/20260608-phase-7q-workbench-read-model-ui-boundary-split/summary.md`.
+- Harness evolution after Phase 7Q promoted module handoff map coverage and is archived at `harness/changes/archive/20260608-auto-evolve-harness-phase-7m-7q-modular-boundary/summary.md`.
+- Harness evolution after Phase 7U completed as noop and is archived at `harness/changes/archive/20260609-auto-evolve-harness-phase-7q-7u-runtime-boundary/summary.md`. Authorized subagent review recommended `noop` with score `88/100`; existing module handoff map coverage was sufficient for the Phase 7Q-7U modularization window.
+- Phase 7V completed Workbench Read Model Confirmation Queue Boundary Split and is archived at `harness/changes/archive/20260609-phase-7v-workbench-read-model-confirmation-queue-boundary-split/summary.md`. It repaired confirmation queue execution-copy drift and split residual read-model / confirmation queue builders behind compatibility facades without changing Workbench JSON/API behavior.
+- Phase 7W completed Workbench Server API Boundary Split and is archived at `harness/changes/archive/20260609-phase-7w-workbench-server-api-boundary-split/summary.md`.
+- Phase 7X completed Workbench Read Model Residual Split and is archived at `harness/changes/archive/20260609-phase-7x-workbench-read-model-residual-split/summary.md`. It was a pure Workbench read-model residual split that preserved snapshot/lazy projection JSON, confirmation queue behavior, action payloads, route shapes, SSE events, thread storage, and decision/audit scope.
+- Phase 7Y completed Workbench Frontend Residual Surface Split and is archived at `harness/changes/archive/20260609-phase-7y-workbench-frontend-residual-surface-split/summary.md`. It was a pure Workbench frontend residual surface split that moved residual shell, transcript, assistant rendering, live-turn helper, and Workpad surface implementations behind owned frontend modules while preserving HTTP/API, SSE, snapshot/lazy projection JSON, action payloads, decision/audit scope, thread storage, live cache, and UI behavior.
+- Phase 7Z completed CLI Command Type Barrel Boundary Split and is archived at `harness/changes/archive/20260609-phase-7z-cli-command-type-barrel-boundary-split/summary.md`. It was a pure CLI command / type barrel boundary split that preserved CLI command names, options, defaults, output, runtime, Workbench, HTTP/API, SSE, action payloads, decision/audit scope, thread storage, and UI behavior.
+- Phase 8A AgentTask Maintenance Domain Boundary Split is closed and archived at `harness/changes/archive/20260609-phase-8a-agenttask-maintenance-domain-boundary-split/summary.md`. It split AgentTask repository, decisions, maintenance ledger, closeouts, maintenance review, doc budgets, candidates, schemas, paths/utils, and role-scoped context projection behind the `src/agent-task/manager.ts` facade.
+- Phase 8B Scoped Change Proposal Boundary Split is closed and archived at `harness/changes/archive/20260609-phase-8b-scoped-change-proposal-boundary-split/summary.md`. It fixed selected-demand Change Proposal scoping and plan-accept stale-spec checks, then split proposal internals behind the `src/change/proposals.ts` facade without changing proposal artifacts, CLI/API behavior, Workbench actions, or workflow truth.
+- Harness evolution after Phase 7M promoted close/handoff drift evidence, typed workflow boundary matrix coverage, and module-boundary coverage. It is archived at `harness/changes/archive/20260607-auto-evolve-harness-phase-7i-7m-runtime-modular-boundary/summary.md` and did not add product runtime behavior.
+- Harness evolution after Phase 7I promoted proposal/runtime boundary coverage and is archived at `harness/changes/archive/20260605-auto-evolve-harness-phase-7e-7i/summary.md`. Authorized subagent review recommended `modify`; the rule now requires planning/proposal/manifest/workflow/recovery artifacts to record authority classification and no-execution/stale-target boundary evidence.
+- Harness evolution after Phase 7E completed as noop and is archived at `harness/changes/archive/20260531-auto-evolve-harness-phase-7a-7e-context-boundary/summary.md`. Independent review recommended `noop` with score `78/100`; transcript and scoped-action patterns were already covered by existing ECL rules, and RoleContextPacket evidence remains future signal rather than a new permanent rule.
+- Harness evolution after Phase 6T completed as noop/defer and is archived at `harness/changes/archive/20260530-auto-evolve-harness-phase-6p-6t/summary.md`.
+- Harness evolution after Phase 6L promoted source apply safety acceptance and is archived at `harness/changes/archive/20260528-auto-evolve-harness-phase-6l-terminal-tool-result-coverage/summary.md`.
+
+Last completed phase:
+
+- Phase 7F was implementation + acceptance and is archived at `harness/changes/archive/20260531-phase-7f-mainagent-orchestration-decision-engine/summary.md`.
+- It added `MainAgentOrchestrationState`, role-step failure classification, and `decideNextMainAgentOrchestration()` so the default foreground role loop is explicit and testable while preserving ToolPolicyGate, RoleDispatcher, AgentTaskResult, RoleContextPacket, validation/audit, boundary audit, and human-gate boundaries.
+
+Latest Harness evolution:
+
+- `harness/changes/archive/20260609-auto-evolve-harness-phase-7u-7y-modular-boundary/summary.md`
+- Purpose: handled the Phase 7U through Phase 7Y pending evolution window as `noop`; authorized subagent review recommended no new Harness rule because existing module-boundary and handoff-drift coverage was sufficient.
+
+Previous documentation phase:
+
+- Phase 7G Open Dynamic Workflows Reference Alignment is archived at `harness/changes/archive/20260602-phase-7g-open-dynamic-workflows-reference-alignment/summary.md`.
+- It added a pinned Open Dynamic Workflows reference map, updated reference indexes, repaired Phase 7F baseline drift, and recorded the future WorkflowPlan / DecompositionPlan architecture plus resumability boundaries.
+- It did not change runtime code, Workbench UI, public TypeScript APIs, dynamic workflow execution, automatic multi-Change creation, task-level parallel scheduling, or source apply/merge/close behavior.
+
+- Phase 6G-Prep was documentation-only and is archived at `harness/changes/archive/20260527-phase-6g-prep-harness-docs-agent-task-evolution-alignment/summary.md`.
+- It aligned AHO's product/Harness documentation with the current conversation-first product model and the next AgentScope-style agent task/background evolution model.
+- It did not change runtime code, Workbench UI, evolve scripts, `.gitignore`, `harness/evolution/state.json`, reference submodule commits, AgentTaskRepository implementation, background maintenance runner, memory consolidation engine, or parallel worker behavior.
+
+Current baseline:
+
+```text
+Phase 7F baseline: project demand conversation -> explicit ChangeTarget binding for runnable/closeable active demand targets -> RoleContextPacket / ChangeContextPacket / EvidenceContextPacket artifacts for core role-run A2A context -> deterministic MainAgentOrchestrationDecisionEngine for default foreground role/rework choices -> lightweight Workbench snapshot shell -> scoped lazy transcript / run graph / detail / evidence projections -> Codex-equivalent runtime transcript cells in the main conversation -> compact expandable command/tool/file rows -> Agent run graph / details for AHO orchestration and evidence -> controlled main-agent delegateTask orchestration -> ToolPolicyGate -> RoleDispatcher -> AgentTaskResult -> bounded local demand worker slots -> scoped result review -> confirmation queue -> local integration check -> bounded IntegrationFix when needed -> user-confirmed source-root apply -> local landing readiness package -> merge-reviewer evidence -> user-confirmed Draft PR handoff -> main-agent PR feedback refresh/classification -> same-demand rework when actionable -> user-confirmed Draft PR update -> user-confirmed ready-for-review -> thread-aware review feedback/reply handoff -> terminal-demand closeout -> append-only project-level maintenance ledger -> generated maintenance index/cache -> every-five-terminal-change project maintenance review -> scorer/reviewer output -> proposal-only doc/memory/evolution candidates -> remote landing readiness -> user-confirmed GitHub CLI squash merge -> RemoteLandingResult -> terminalKind=merged closeout -> maintenance ledger/index/cache refresh -> post-merge reconcile -> optional safe fast-forward local sync / remote PR head branch cleanup -> project-level landing queue -> one user-confirmed PR merge at a time -> refresh remaining PR candidates -> boundary audit evidence
+```
+
+Active implementation track:
+
+```text
+Active implementation track: none.
+
+Pending Harness evolution: none. The Phase 7U-7Y window is archived at `harness/changes/archive/20260609-auto-evolve-harness-phase-7u-7y-modular-boundary/summary.md`.
+
+Phase 7V is closed and archived at `harness/changes/archive/20260609-phase-7v-workbench-read-model-confirmation-queue-boundary-split/summary.md`. It was a pure read-model / confirmation queue boundary split: it repaired planning confirmation copy, kept typed scope on `WorkbenchDecisionAction` payloads without expanding confirmation item public JSON, and split residual Workbench read-model / confirmation queue builders behind compatibility facades. It did not add runtime capability, Workbench actions, routes, scheduler behavior, parallel execution, multi-Change automatic creation, ODWF JavaScript runtime, or cache/replay.
+
+Phase 7W is closed and archived at `harness/changes/archive/20260609-phase-7w-workbench-server-api-boundary-split/summary.md`. It was a pure Workbench server/API boundary split: it moved server route dispatch, request/response helpers, project admin handlers, direct/project-scoped routes, topic live/replay, action/live endpoints, approval allowlist execution, stale-target revalidation, static serving, and native dialog helpers behind owned modules while preserving all existing HTTP/SSE/API behavior.
+
+Phase 7X is closed and archived at `harness/changes/archive/20260609-phase-7x-workbench-read-model-residual-split/summary.md`. It was a pure Workbench read-model residual split: it moved residual snapshot, workpad, task graph/task queue, result review, decision inspector, evidence/background/memory isolation, and lazy typed-workflow projection builders out of `read-model/implementation.ts` while preserving public read-model entrypoints and Workbench JSON/API behavior.
+
+Phase 7Y is closed and archived at `harness/changes/archive/20260609-phase-7y-workbench-frontend-residual-surface-split/summary.md`. It was a pure Workbench frontend residual surface split: it moved residual `WorkbenchShellParts.tsx` sidebar/thread/assistant/live helpers and `WorkpadPanel.tsx` planning/typed-workflow/task/evidence/action button surfaces into owned frontend modules while preserving Workbench JSON/API/SSE/action payload/live cache and UI behavior.
+
+Auto Evolve Harness Phase 7U-7Y Modular Boundary is closed and archived at `harness/changes/archive/20260609-auto-evolve-harness-phase-7u-7y-modular-boundary/summary.md`. It completed the pending evolution generated after Phase 7Y as `noop/subagent_review`; authorized subagent review recommended `noop` with score `86/100`, and no new Harness rule was added because existing module-boundary and handoff-drift coverage was sufficient.
+
+Phase 7Z is closed and archived at `harness/changes/archive/20260609-phase-7z-cli-command-type-barrel-boundary-split/summary.md`. It was a pure CLI command / type barrel compatibility split: `src/cli/program.ts` became the command composition facade, CLI domain modules register existing commands through one shared `CliContext`, and `src/types/index.ts` became a compatibility re-export barrel over owned domain type modules. It did not add CLI commands, change command parameters/defaults/output, split frontend DTOs, or change runtime, Workbench, HTTP/API, SSE, action payload, decision/audit scope, thread storage, or UI behavior. Note: `AGENTS.md`, `docs/`, and `harness/` are ignored by this repository's `.gitignore`; Harness files remain authoritative for implementation and verification even when ordinary `git status` omits them.
+
+Phase 8A is closed and archived at `harness/changes/archive/20260609-phase-8a-agenttask-maintenance-domain-boundary-split/summary.md`. It was a pure AgentTask / maintenance domain boundary split: `src/agent-task/manager.ts` remains the compatibility facade, while AgentTask repository, decisions, maintenance ledger, demand closeouts, maintenance review windows, doc budgets, evolution candidates, schemas, paths/utils, and role-scoped context projection moved into owned modules without changing runtime capability, CLI commands, Workbench actions, routes, scheduler behavior, parallel execution, automatic child Changes, ODWF JavaScript runtime, cache/replay, or automatic canonical doc/memory/source mutation.
+
+Phase 8B is closed and archived at `harness/changes/archive/20260609-phase-8b-scoped-change-proposal-boundary-split/summary.md`. It was a scoped Change Proposal boundary split: selected Workbench demand ids bind into proposal runs, plan acceptance rejects stale `spec.md`, and `src/change/proposals.ts` is a compatibility facade over owned proposal modules. Proposal artifacts remain candidates and only explicit accept writes canonical `spec.md`, `plan.md`, or `tasks.md`.
+
+Phase 7J is closed and archived at `harness/changes/archive/20260605-phase-7j-strict-harness-gated-execution-path/summary.md`. It narrowed execution entrypoints: planning confirmation writes canonical artifacts only, `code.run` requires a valid single-change readiness verdict, and sequential taskgraph execution must pass through a typed TaskQueueProposal before queue records are created.
+
+Phase 7K is closed and archived at `harness/changes/archive/20260606-phase-7k-workflowrun-journal-and-recoverable-taskqueue/summary.md`. It added an AHO-owned typed `WorkflowRun` journal/recovery layer for confirmed sequential TaskQueue execution. `WorkflowRun` records runtime coordination and recovery evidence; it is not workflow truth. Resume recomputes accepted artifact, proposal, readiness, source, policy, and capability hashes before continuing. Reconcile may update state/events but must not call agents; continue must use a matching paused `WorkflowRun + TaskQueueRun`.
+
+Phase 7L is closed and archived at `harness/changes/archive/20260606-phase-7l-modular-versioned-workflowgraphplan-boundary/summary.md`. It added `WorkflowGraphPlan` as a versioned execution input compiled from a confirmed sequential TaskQueueProposal. Graph compile does not start execution; TaskQueue start must bind the matching graph/proposal/readiness refs and recovery keys must hash versioned refs instead of mutable latest files.
+
+Phase 7M is closed and archived at `harness/changes/archive/20260607-phase-7m-scoped-boundary-fixes-and-workbench-runtime-modularization/summary.md`. It repaired scoped action payload/revalidation drift after Phase 7L and modularized the typed workflow artifact/action/projection/runtime path without adding ODWF runtime, JS workflow scripts, parallel scheduling, multi-Change auto creation, or cache reuse.
+
+Phase 7N is closed and archived at `harness/changes/archive/20260608-phase-7n-workbench-runtime-large-file-boundary-split/summary.md`. Phase 7O is closed and archived at `harness/changes/archive/20260608-phase-7o-workbench-server-projection-ui-boundary-split/summary.md`. Phase 7P is closed and archived at `harness/changes/archive/20260608-phase-7p-action-execution-runtime-kernel-boundary-split/summary.md`. Phase 7Q is closed and archived at `harness/changes/archive/20260608-phase-7q-workbench-read-model-ui-boundary-split/summary.md`. Phase 7R is closed and archived at `harness/changes/archive/20260608-phase-7r-workbench-projection-builder-boundary-split/summary.md`; it was a pure projection-builder boundary split and did not add product runtime behavior. Phase 7S is closed and archived at `harness/changes/archive/20260609-phase-7s-workbench-chat-boundary-split/summary.md`; it was a pure Workbench chat boundary split and did not add product runtime behavior. Phase 7T is closed and archived at `harness/changes/archive/20260609-phase-7t-workbench-frontend-surface-boundary-split/summary.md`; it was a pure Workbench frontend surface boundary split and did not add product runtime behavior. Phase 7U is closed and archived at `harness/changes/archive/20260609-phase-7u-workflow-runtime-kernel-boundary-split/summary.md`; it was a pure workflow runtime kernel boundary split and did not change TaskRun, TaskQueue, WorkflowRun, code execution gate, Workbench action, or live event behavior. Auto Evolve Harness Phase 7Q-7U Runtime Boundary is closed and archived at `harness/changes/archive/20260609-auto-evolve-harness-phase-7q-7u-runtime-boundary/summary.md`; it completed the pending evolution generated after Phase 7U as `noop/subagent_review`.
+
+Phase 7I implementation was verified before close. Product verification passed with `npm run typecheck`, `npm run lint`, `npm run test -- tests/unit/workbench.test.ts`, `npm run test`, and `npm run build`. Harness verification passed with `scripts/lint-ecl.ps1`, `scripts/lint-encoding.ps1`, `scripts/harness-change.ps1 reindex`, and `scripts/harness-evolve.ps1 check`. Reference/drift checks confirmed `reference-projects/open-dynamic-workflows` at `d9bc8decabe7455242d1ca8ab3928a01e27ca259` and no stale Phase 7H active/ready-to-close/current-date claims in `AGENTS.md` / `docs`.
+
+The Phase 7E-7I pending evolution is closed and archived at `harness/changes/archive/20260605-auto-evolve-harness-phase-7e-7i/summary.md`. It promoted proposal/runtime boundary coverage in `docs/ECL.md` and `harness/templates/change/reviews/review.md`; `scripts/harness-evolve.ps1 check` reports no pending evolution.
+
+The latest completed product-code phase remains Phase 7F, archived at `harness/changes/archive/20260531-phase-7f-mainagent-orchestration-decision-engine/summary.md`. The latest completed product/Harness docs change is Phase 7G, archived at `harness/changes/archive/20260602-phase-7g-open-dynamic-workflows-reference-alignment/summary.md`. The latest Harness evolution, archived at `harness/changes/archive/20260609-auto-evolve-harness-phase-7u-7y-modular-boundary/summary.md`, closed the Phase 7U through Phase 7Y pending window as `noop`.
+```
+
+Phase 6S is the background maintenance layer: every terminal demand can produce a compact closeout, and every five terminal demands can produce an independent maintenance review. The review may propose reusable lessons, doc drift findings, Harness evolution candidates, and doc refinement tasks, but it must not silently edit canonical docs, ECL, curated stable memory, or source root.
+
+Phase 6T is the first remote landing boundary. PR ready/review/check state is evidence; only user-confirmed `remote-landing.merge` may run the provider merge. A successful merge writes `RemoteLandingResult(status=merged)`, a `terminalKind=merged` closeout, and maintenance ledger/index/cache evidence. It must not silently sync local source, delete remote branches, push main, enable auto-merge, start a batch merge queue, or edit canonical docs/ECL/stable memory.
+
+Phase 6U is now baseline. It reads merged PR evidence, refreshes local and remote state, explains whether local fast-forward sync is safe, and exposes optional remote PR head branch cleanup only when prerequisites are met. It must not checkout, stash, reset, rebase, create merge commits, delete local branches, push main, or treat sync/cleanup as demand completion gates.
+
+Phase 6V is now baseline. It builds a project-level queue from explicit PR landing candidates, refreshes each candidate through existing remote landing readiness, and exposes only one user-confirmed `合并 PR` action at a time. It merges at most one PR per confirmation, refreshes remaining candidates after each merge, preserves post-merge sync/cleanup as separate 6U actions, and avoids unattended auto-merge or merge-all controls.
+
+Phase 6W completed the first demand agent run graph projection and is archived at `harness/changes/archive/20260530-phase-6w-main-conversation-demand-agent-run-graph/summary.md`.
+
+Phase 6X is completed and archived. It replaced the mixed parent-card/timeline center surface with a Codex-style `ParentAgentTranscript` and two inline tabs: `对话` and `Agent 运行图`. The graph remains one graph per selected demand conversation, with `main-agent` as root and delegated role/tool/process nodes as child nodes. Project maintenance is not default selected-demand graph content; it stays in project maintenance or evidence/detail projections. Node details expose evidence without becoming workflow truth or a fake SubAgent chat.
+
+Phase 6Y is completed. It added a controlled `delegateTask` tool contract for the main-agent/orchestrator path, keeps worker roles from delegating, records role work as `MainAgentDecision -> AgentTask -> AgentTaskResult`, and projects delegate/process/evidence rows into the parent-agent transcript. Runtime MCP capability must be labeled honestly; when custom MCP tool loading is unavailable, AHO must not fake a successful tool call.
+
+Phase 6Z is completed. It makes foreground role execution pass through `MainAgentDecision -> delegateTask request -> ToolPolicyGate -> AgentTask -> RoleDispatcher -> AgentTaskResult -> next MainAgentDecision`, records tool/action policy decisions, and adds post-run boundary audits for source/worktree/evidence scope. AHO-owned high-impact actions must be broker/gate checked. Codex internal shell/write activity that AHO cannot observe is constrained by runtime sandbox/worktree setup and checked after the run; documents and UI must not claim per-tool interception that the current Codex runtime cannot provide.
+
+Phase 7A is completed. It changed the Workbench conversation projection from legacy mixed transcript blocks to `ParentAgentTranscriptCell[]`: the default conversation renders only real Codex app-server/runtime events or `codex exec` replay cells. AHO orchestration/evidence, role results, result review, policy/audit success, and maintenance records no longer synthesize main conversation prose; they stay in the run graph, node details, right confirmation queue, or evidence drawers unless they are literally present in the Codex-visible transcript.
+
+Phase 7B is completed. It closed the remaining renderer gap by making `ParentAgentTranscriptCell[]` the only default conversation renderer input, removing frontend-added pending clarification/live fallback bubbles, collapsing command/tool/file details behind expandable rows, and ensuring AHO workflow-derived planning, role, result review, and maintenance text cannot enter the `对话` tab unless it is literal Codex runtime/replay output.
+
+Phase 7C is completed. It makes `getWorkbenchSnapshot()` a first-screen shell only: project/memory/repo summaries, topic/workpad summaries, selected-demand light summary, confirmation queue, counters, refs, warnings, roles, and Harness gaps. Full transcript, run graph, workpad/detail, evidence bundle, maintenance summary, and landing queue data are scoped lazy projections from canonical facts. The snapshot is not workflow truth and must not be treated as a replacement for Change/ECL, AgentTaskResult, runs, validation/audit, apply/landing/PR records, or maintenance evidence.
+
+Phase 7D is completed. It adds `ChangeTarget` as a derived runtime boundary over active Change facts. Runnable entrypoints can use explicit `changeId` targets without requiring exactly one active Change, while legacy CLI paths still use the single-active fallback. Workbench close, abandon, and apply auto-finalize now mutate only the scoped demand target, and spec-test close-gate evaluation no longer falls back to global active state.
+
+Phase 7E is completed. It adds structured role context packet artifacts for core worker runs. `context-packet.json` records role, permission profile, Change summary, selected evidence refs, included sources, excluded sources, and packet hash; `context.md` is the model-facing rendering. This keeps A2A as Harness-mediated evidence handoff rather than shared parent chat or full Harness injection.
+
+Phase 7F is completed. It moves the default foreground code-change role policy into `MainAgentOrchestrationDecisionEngine`. Workbench records coder/rework, validator, and auditor role steps with selected evidence refs and failure classification, then asks the engine for the next decision. Validation/audit failures can trigger one bounded rework attempt; boundary/code failures stop; exhausted rework returns to user input.
+
+Post-6X Harness evolution is complete. It promoted scoped Workbench action payload coverage: future Workbench live/server actions that depend on explicit target ids must prove the rendered action and live/server payload preserve those ids, avoid global active-state fallback, and avoid duplicate action/evidence affordances.
+
+## Current Product Model
+
+AHO's current user-facing loop is:
+
+```text
+Project
+-> Demand conversation
+-> Main planning-agent draft/revise/confirm execution
+-> coder-agent in AHO-owned worktree
+-> validator evidence
+-> auditor evidence
+-> result review
+-> user apply/discard/request changes
+-> archive
+```
+
+The user should see `项目`, `需求对话`, `方案`, `执行`, `结果`, `证据`, and `应用/合并`. Internal names such as `Topic`, `Change`, `Workpad`, `TaskRun`, `WorkerLease`, queue state, and blocked/audit-blocked status may appear in architecture, runtime, ECL, and evidence-detail docs, but they are not primary UI terms.
+
+## Future Self-Evolution Direction
+
+The current fixed-window Harness evolution mechanism remains available:
+
+- `harness/evolution/pending.md` may be generated after the configured archive threshold.
+- `harness/evolution/state.json` currently contains `archive_threshold = 5`.
+- Acting on pending evolution still requires proposal, review/scoring, validation, `results.tsv`, and explicit `mark-complete`.
+
+This is a current lightweight compatibility mechanism, not the final AHO product model.
+
+The target AHO model is AgentScope-style but AHO-owned:
+
+```text
+event from archive/apply/failure/user feedback/doc drift/reference drift
+-> append-only maintenance ledger
+-> background candidate extraction
+-> candidate scoring
+-> candidate review
+-> maintenance report / proposal artifacts
+-> human-gated apply to canonical docs/ECL/memory only when explicitly chosen
+```
+
+Background agents may generate closeouts, candidates, scores, reviews, generated indexes, generated caches, and doc budget/refinement proposals. They must not silently change canonical docs, ECL rules, product roadmap, source root, or `project/stable` memory. Phase 6S keeps those maintenance artifacts out of the current demand confirmation queue; project maintenance views can show them separately.
+
+## Recent Archive Index
+
+| Phase | Archive | Notes |
+| --- | --- | --- |
+| 6R | `harness/changes/archive/20260529-phase-6r-thread-aware-pr-review-feedback-rework-handoff/summary.md` | Thread-aware PR review feedback, same-demand rework/reply, review reply/thread resolve handoff |
+| 6Q | `harness/changes/archive/20260529-phase-6q-pr-human-review-handoff-ready-state/summary.md` | Ready-for-review handoff for Draft PRs |
+| 6P | `harness/changes/archive/20260529-phase-6p-main-agent-pr-feedback-orchestration-draft-update/summary.md` | Main-agent PR feedback rework and Draft PR updates |
+| 6O | `harness/changes/archive/20260529-phase-6o-pr-draft-adapter-remote-handoff/summary.md` | GitHub CLI Draft PR handoff |
+| 6N | `harness/changes/archive/20260529-phase-6n-local-landing-readiness-package-merge-reviewer/summary.md` | Local landing readiness package and merge-reviewer evidence |
+| 6M | `harness/changes/archive/20260529-phase-6m-integrationfix-agent-local-merge-readiness-foundation/summary.md` | IntegrationFix and aggregate validation/audit |
+| 6L | `harness/changes/archive/20260528-phase-6l-conversation-first-confirmation-queue-integration-check/summary.md` | Confirmation queue and local integration check |
+| 6K | `harness/changes/archive/20260528-phase-6k-scoped-apply-readiness-source-refresh-rework/summary.md` | Scoped apply readiness and source refresh rework |
+| 6J | `harness/changes/archive/20260528-phase-6j-bounded-demand-worker-slots-orchestrator-pump/summary.md` | Bounded independent demand worker slots and local orchestrator pump |
+| 6I | `harness/changes/archive/20260528-phase-6i-parent-agent-conversation-surface/summary.md` | Parent-agent conversation surface and folded evidence details |
+| 6H | `harness/changes/archive/20260528-phase-6h-main-orchestrator-demand-worker-queue/summary.md` | Main orchestrator and single-worker demand queue |
+| 6G | `harness/changes/archive/20260527-phase-6g-main-agent-task-repository-background-evolution/summary.md` | AgentTaskRepository and advisory background maintenance pipeline |
+| 6G-Prep | `harness/changes/archive/20260527-phase-6g-prep-harness-docs-agent-task-evolution-alignment/summary.md` | Harness docs, AgentTaskRepository, and background evolution model alignment |
+| 6F | `harness/changes/archive/20260526-phase-6f-result-review-apply-handoff/summary.md` | Result review, apply/discard handoff, isolated pricing-demo acceptance |
+| 6E | `harness/changes/archive/20260526-phase-6e-codex-app-server-adapter-v1/summary.md` | Optional Codex app-server sessions for planning/coder steering and interrupt |
+| 6D | `harness/changes/archive/20260526-phase-6d-conversation-first-docs-ui-alignment/summary.md` | Conversation-first UI/documentation alignment |
+| 6C | `harness/changes/archive/20260526-phase-6c-codex-style-project-conversation-sidebar/summary.md` | Codex-style project/conversation sidebar |
+| 6B | `harness/changes/archive/20260526-phase-6b-main-planning-agent-role-pipeline/summary.md` | Main planning conversation and local role pipeline |
+| 6B-Prep | `harness/changes/archive/20260526-phase-6b-prep-openspec-reference-docs/summary.md` | OpenSpec reference and planning artifact flow |
+| 6A | `harness/changes/archive/20260526-phase-6a-user-decision-layer-auto-workpad-finalization/summary.md` | User decision layer and auto finalization |
+| 5Z | `harness/changes/archive/20260525-phase-5z-multi-workpad-concurrency-memory-isolation/summary.md` | Multi-demand projection and memory isolation |
+| 5Y | `harness/changes/archive/20260525-phase-5y-coding-work-package-read-model/summary.md` | Coding Work Package semantics |
+| 5X | `harness/changes/archive/20260525-phase-5x-current-decision-inspector-rework-handoff/summary.md` | Decision Inspector and rework handoff |
+| 5W | `harness/changes/archive/20260525-phase-5w-taskrun-queue-local-orchestrator/summary.md` | Local sequential TaskRun queue |
+| 5V | `harness/changes/archive/20260525-phase-5v-docs-agent-os-roadmap/summary.md` | Agent Development OS roadmap and role model |
+
+Harness evolution archive references:
+
+- `harness/changes/archive/20260526-auto-evolve-harness-phase-6d/summary.md`
+- `harness/changes/archive/20260526-auto-evolve-phase5w-6a-harness-review/summary.md`
+- `harness/changes/archive/20260525-auto-evolve-phase5s-5w-harness-review/summary.md`
+
+For older implementation details, start from `harness/changes/INDEX.json` and read the relevant archived `summary.md`. Avoid treating old STATUS entries as current handoff.
+
+## Verification Baseline
+
+For product changes, run:
+
+```powershell
+npm run typecheck
+npm run lint
+npm run test
+npm run build
+```
+
+For Harness/documentation changes, run:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/lint-ecl.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/lint-encoding.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/harness-change.ps1 reindex
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/harness-evolve.ps1 check
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/harness-change.ps1 status
+```
+
+## Drift Watchlist
+
+When editing docs, confirm:
+
+- `AGENTS.md` and this file agree on active change and next resume point.
+- `Topic` is internal/historical/API context, not the user-facing primary label.
+- `Workpad` is an internal read model/control surface, not the main user object.
+- `pending evolution` and `archive_threshold=5` are current lightweight mechanisms, not final self-evolution architecture.
+- `AgentTaskRepository`, maintenance ledger, candidate scoring, and candidate review are implemented advisory/proposal layers; terminal closeouts, five-change maintenance review, and doc budget guard are Phase 6S baseline.
+- Remote landing is Phase 6T baseline; it is user-confirmed provider merge plus post-merge closeout/ledger evidence, not a merge queue or automatic memory/doc rewrite path.
+- Documentation/evolution agents produce proposals/evidence only; human gates remain required for canonical docs, ECL, product roadmap, and stable project memory.

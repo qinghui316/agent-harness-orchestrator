@@ -1,0 +1,496 @@
+# Architecture
+
+> Status: AHO has implemented the Workbench and product-definition track through Phase 7F: deterministic intake, rich conversation evidence, TaskGraph projection, task-scoped runs, Codex lifecycle fallback, TaskRun / WorkerLease orchestration v1, local TaskRun Queue, Current Decision Inspector, Coding Work Package semantics, multi-demand projection, user decision finalization, main planning-agent role pipeline, Codex-style project conversation sidebar, conversation-first docs/UI alignment, optional Codex app-server steering/interrupt for planning/coder turns, local Result Review + Apply Handoff, foreground AgentTasks/background maintenance candidates, demand-level bounded worker queueing, parent-agent conversation projection, scoped apply readiness/source refresh rework, right-side confirmation queue, local integration check tool result, aggregate validation/audit, bounded IntegrationFix for failed local integration checks, local landing readiness packages plus read-only merge-reviewer evidence after source-root apply, GitHub CLI Draft PR handoff after landing review passes, main-agent PR feedback orchestration plus same-Draft-PR branch updates, a user-confirmed ready-for-review handoff for safe Draft PRs, thread-aware PR review feedback/reply handoff, demand memory closeouts with five-terminal-change maintenance reviews, role-scoped context projection, doc drift/budget guardrails, user-confirmed remote PR landing with post-merge memory boundaries, post-merge reconcile plus optional safe local fast-forward sync / remote PR head branch cleanup, remote landing queue, parent-agent transcript tabs, read-only demand agent run graph, controlled delegateTask contract, main-agent tool orchestration with ToolPolicyGate / WorkerPermissionProfile / ToolEventAudit / PostRunBoundaryAudit, Codex-equivalent transcript renderer boundaries, lightweight Workbench snapshot shell, scoped lazy loaders, tighter action target validation, selected-demand maintenance separation, ChangeTarget binding for runnable and closeable active demand targets, RoleContextPacket artifacts for core role-run A2A context, and a deterministic MainAgentOrchestrationDecisionEngine for the default foreground role/rework policy. Unattended auto-merge, merge-all, reviewer assignment, CI drift gates, task-level parallelism inside one demand, true SubAgent chat, dynamic multi-Change project conversations, automatic Draft Change creation, executable WorkflowPlan runtime, remote memory, unsafe local source rewrite, local branch deletion, container sandbox, and remote worker isolation remain planned future work.
+
+## 1. Current Status
+
+Agent Harness Orchestrator is a single-package TypeScript CLI plus a local browser Workbench shell. It currently manages local project registration, Harness audit/init, ECL index rebuilds, structured change creation/status/close, demand conversation interaction logs, Workbench SQLite interaction/config state, AHO skill sources, Codex bridge projection, main planning-agent proposal bundles, Acceptance Criteria parsing, task mapping, generated `ac-map.json`, explicit `spec-tests.json` evidence mapping, deterministic Spec-Test drift diagnostics, local command run artifacts, Codex read-only proposal artifacts, validation artifacts, Auditor proposal artifacts, Codex Coder proposal artifacts, apply/discard artifacts, diagnostic memory status, opt-in external-local memory, AHO-owned worktrees, Workpad snapshots, TaskGraph projection, TaskRun / WorkerLease orchestration records, local TaskRun Queue, role pipeline projection, Decision Inspector projection, and local result review/apply handoff.
+
+The long-term architecture is a local-first Agent Development OS with a Spec-Anchored Harness Kernel. AHO keeps durable project memory in AHO-managed stores, prepares context for constrained external agents, records execution evidence, and routes every high-impact result through human confirmation.
+
+Phase 5S added a deterministic intake loop before Spec. Phase 5T/5U added task-level execution projection and TaskRun / WorkerLease orchestration. Phase 5W added local sequential queueing, Phase 5X aligned human decision context, Phase 5Y defined Coding Work Package as the default coder-agent assignment grain, Phase 6A/6B moved planning and execution results into one demand conversation, Phase 6C aligned the sidebar with project folders and nested demand conversations, Phase 6E introduced an optional app-server runtime adapter for steerable planning/coder turns, Phase 6F completed the local result review/apply handoff, Phase 6G introduced AgentTaskRepository/background maintenance candidates, Phase 6H added demand-level queueing, and Phase 6I made the parent-agent conversation the default surface. Phase 6J extends the demand queue to bounded independent demand concurrency. Phase 6K scopes result apply/discard to explicit demand result targets and turns source drift into a fresh same-demand rework attempt. Phase 6L keeps the center as parent-agent explanation and moves human-gate items into a narrow confirmation queue, with a temporary local integration check before applying multiple ready results. Phase 6M adds local IntegrationFix attempts for failed combined-result checks without introducing remote merge queues. Phase 6N prepares local landing readiness evidence and merge-reviewer verdicts after user-confirmed source-root apply. Phase 6O creates the first remote handoff boundary by preparing and optionally creating a Draft PR through GitHub CLI. Phase 6P reads Draft PR feedback/checks as remote evidence and routes actionable feedback through the same demand's AgentTask rework path before updating the existing Draft PR branch after confirmation. Phase 6Q marks safe Draft PRs ready for human review after confirmation. Phase 6R handles the review feedback that arrives after human review starts: comments, inline comments, user stance, same-demand rework, reply draft, and optional thread resolve. Phase 6S consolidates terminal demand memory and doc drift evidence without interrupting the demand confirmation queue. Phase 6T is the first remote landing slice: a clean, ready PR can be merged by GitHub CLI only after explicit user confirmation, and the successful merge becomes a `merged` closeout input for maintenance memory. Phase 6U reconciles remote/local state after merge and exposes only safe fast-forward local sync or remote PR head branch cleanup. Phase 6V adds project-level landing queue coordination for multiple ready PRs, while still requiring a fresh readiness check and user confirmation for each individual merge. Phase 6W/6X reshape the center UI into a parent-agent transcript plus inline run graph. Phase 6Y introduces the controlled `delegateTask` contract and transcript process rows. Phase 6Z makes policy-gated main-agent tool orchestration the foreground role path and adds post-run boundary audits for role outputs. Phase 7A/7B make Codex runtime/replay cells the only default conversation renderer input. Phase 7C made the first-screen Workbench snapshot a lightweight shell and moved heavy transcript, graph, detail, evidence, maintenance, and landing queue views behind scoped lazy loaders. Phase 7D adds ChangeTarget binding so runnable entrypoints and selected close/abandon/finalize actions can use explicit active demand targets while legacy CLI paths keep single-active fallback. Phase 7E adds RoleContextPacket artifacts so core worker role runs receive scoped, auditable context instead of shared parent chat or full Harness context. Phase 7F moves the default foreground role-order policy into `MainAgentOrchestrationDecisionEngine`, which derives coder/validator/auditor/rework next steps from recorded evidence instead of hidden Workbench control flow.
+
+## 2. Product Kernel
+
+The product kernel is not "run many agents." The kernel is keeping specs, acceptance criteria, plans, tasks, code changes, validation, review, and Harness evolution synchronized.
+
+Core chain:
+
+```text
+User Intent
+-> Demand Conversation
+-> Intake / Clarification
+-> Main planning-agent proposal
+-> Human confirm execution
+-> MainAgentDecision / delegateTask / ToolPolicyGate
+-> Worktree Run
+-> Coder Agent proposal/diff
+-> PostRunBoundaryAudit
+-> Validator result
+-> Auditor Agent evidence
+-> Human confirm apply/merge
+-> Spec/Status update if needed
+-> Archive
+-> Evolution evidence
+-> Human confirm Harness evolution
+```
+
+This chain is a safety and evidence contract, not a mandatory role order. The main agent may clarify, split a request, create or select Changes, delegate roles, repeat validation-driven repair, or stop for user input. The invariant is that write-capable work and high-impact transitions pass through explicit Change binding, scoped context, evidence records, and human gates.
+
+Domain relationship:
+
+```text
+Project -> Change -> Spec / Acceptance Criteria -> Plan -> Tasks
+-> Context Projection -> Run -> Events / Artifacts -> Validation / Review
+```
+
+Target runtime-boundary chain:
+
+```text
+MainAgent
+-> ChangeGuard
+-> RoleContextPacket / Context Projection
+-> Worker
+-> Harness Event Sink
+-> GateEvaluator
+```
+
+`ChangeGuard` is a future boundary concept: any mutating run must bind to an explicit `changeId` or create/select a future lightweight Draft Change before write capability is granted. `Harness Event Sink` records intent, context refs, diffs, validation, reviews, decisions, and closeout inputs. `GateEvaluator` checks those records before apply, close, archive, merge, or memory/documentation promotion. These names describe the target direction; Phase 7C and earlier phases do not yet implement them as a single runtime API.
+
+Phase 7D implements the first narrow slice of that boundary as `ChangeTarget`. `RunnableChangeTarget` resolves active Changes for code, validation, audit, TaskRun, local run, Codex run, spec-test, proposal, and agent runtime entrypoints. `CloseableChangeTarget` resolves active Changes for close, abandon, and apply auto-finalize. These targets are derived from Change/ECL facts and do not replace Change, Context Projection, evidence records, or human gates.
+
+Phase 7E implements the next slice as context packet artifacts. Core coder, validator, auditor, and rework-coder runs write `context-packet.json` and model-facing `context.md`; run metadata records the packet ref/hash. This makes A2A context an evidence handoff: main agent delegates, Harness selects the scoped Change/evidence packet, a worker runs as a leaf role, and the result returns through run/validation/audit/boundary artifacts.
+
+Phase 7F implements a narrow decision-policy slice for foreground code-change orchestration. `MainAgentOrchestrationState` records role steps, selected input/output evidence, failure classification, and the bounded rework budget. `decideNextMainAgentOrchestration()` chooses the next default role or stop state from that evidence. The current default template still runs coder/rework, validator, and auditor in order, but the Workbench no longer owns that policy as hidden control flow.
+
+Phase 7H added the first proposal boundary for future WorkflowPlan / DecompositionPlan work above this decision engine. A main agent may propose a deterministic workflow-as-artifact for a complex demand: classify the demand as single-Change, multi-task-in-one-Change, multi-Change candidate, or needs clarification; describe child tasks, dependencies, conflict hints, AC coverage, file/module scope, pipeline/barrier relationships, required role runs, and synthesis evidence. The plan is not workflow truth and does not execute high-impact actions. Confirming a DecompositionPlan records proposal acceptance only; AHO still must not create child Changes, TaskGraph execution units, AgentTasks, TaskRuns, or code runs from that confirmation. Phase 7I adds a DecompositionReadinessManifest between proposal acceptance and any future executor. It is a typed guardrail verdict over the latest confirmed plan and accepted Harness facts, not an executable workflow graph or scheduler trigger. Phase 7J makes that verdict enforceable for code-producing execution: direct `code.run` is allowed only for `ready-for-single-change`, while `ready-for-sequential-taskqueue-proposal` must first become a typed TaskQueueProposal. Phase 7L inserts a versioned `WorkflowGraphPlan` compile step between TaskQueueProposal and TaskQueue start. Graph compile locks the matching proposal/readiness refs into immutable execution input and does not create WorkflowRun, TaskQueue, TaskRun, AgentTask, worktree, or agent calls.
+
+Harness compiles an accepted plan into scoped records. Every leaf worker still binds to explicit `changeId`, TaskGraph node ids, role id, RoleContextPacket / EvidenceContextPacket refs, permission profile, worktree/session, and run ids. Workers remain leaf roles and cannot freely spawn more agents unless a later AgentSpec and ToolPolicyGate explicitly allow bounded delegation. Workflow phase/agent/run events may feed Workbench graph and detail projections, but Change/ECL, TaskGraph, AgentTaskResult, validation, audit, apply/merge/close records, and human gates remain authoritative.
+
+WorkflowRun recovery is execution-progress recovery only. Phase 7K implements this for confirmed sequential TaskQueue execution: AHO records typed `WorkflowRun` state and append-only events, recomputes accepted artifact, proposal, readiness, source, policy, and capability hashes on resume, and continues only when the paused `WorkflowRun + TaskQueueRun` still matches. Missing records, stale context, source drift, policy drift, or failed worktree isolation must fail closed and stop for user input. Reused progress still requires validation, audit, and human confirmation before any source or canonical-state transition.
+
+Phase 7L tightens that recovery boundary: a started WorkflowRun records the versioned WorkflowGraphPlan, proposal snapshot, readiness snapshot, and graph hash that authorized it. Resume/reconcile must use those versioned refs from WorkflowRun artifactRefs and recovery keys, not mutable latest planning files. Creating a newer proposal/readiness/graph for the same Change must not alter an older paused WorkflowRun.
+
+Phase 7M repairs the scoped boundary around this path and modularizes the implementation. TaskQueue resume and confirm-start actions must carry the same typed ids that the user saw, server revalidation checked, ToolPolicyGate audited, and low-level runtime accepted. The action registry, strict target matching, required target rules, typed workflow projections, and TaskQueue/WorkflowRun runtime facade are maintained as shared modules so future workflow changes do not add parallel hand-written branches in Workbench/server/frontend files.
+
+Phase 7N completed the first Workbench/runtime large-file boundary split. Phase 7O continued the same pure-refactor track by splitting Workbench server route/live/projection helpers, projection builder groups, frontend types/panels/helpers, and selected chat action/live-transcript helpers behind compatibility facades. Phase 7P moved Workbench action dispatch, high-impact target checks, and direct code / TaskRun / TaskQueue runtime sequence glue outside `chat.ts`. Phase 7Q moved Workbench read-model DTOs and the first UI panels behind owned modules. Phase 7R completed the behavior-preserving projection-builder split. Phase 7S completed the Workbench chat boundary split while keeping `chat.ts` as a compatibility conversation facade. Phase 7T completed the behavior-preserving frontend surface refactor that split app shell, panels, transcript/rendering, scoped payload helper, and CSS organization boundaries. Phase 7U completed the behavior-preserving runtime kernel refactor that split TaskRun sequence, TaskQueue runner, stage resume, role stage execution, bounded rework, live event forwarding, and runtime guard modules behind the existing `code-workflow.ts` facade. Phase 7V completed the pure read-model / confirmation queue boundary split: residual snapshot/topic/workpad/approval/helper builders and confirmation queue risk domains moved behind owned modules while preserving Workbench JSON/API behavior and typed action scope. Phase 7W completed the pure Workbench server/API boundary split: route dispatch, request/response helpers, direct/project-scoped routes, action/live endpoints, project admin, static serving, and native dialog helpers moved behind owned server modules without changing HTTP, SSE, action, projection, thread, or workflow behavior. Phase 7X completed the pure Workbench read-model residual split: residual snapshot, workpad, task graph/task queue, result review, decision inspector, evidence/background/memory isolation, and lazy typed-workflow projection builders moved behind owned read-model modules while preserving public entrypoints and JSON/API behavior. Phase 7Y completed the pure frontend residual surface split: residual Workbench shell, thread stream, assistant rendering/live helper, and Workpad planning/typed-workflow/task/evidence/action surfaces moved behind owned frontend modules while preserving existing HTTP/API, SSE, snapshot/lazy projection, action payload, live cache, and UI behavior. Phase 7Z completed the pure CLI command / type barrel boundary split: `src/cli/program.ts` became a CLI composition facade, command groups live in owned modules registered through shared context, and `src/types/index.ts` became a compatibility re-export barrel over owned domain type modules. Phase 8A completed the pure AgentTask / maintenance domain split behind the `src/agent-task/manager.ts` facade. Phase 8B completed the scoped Change Proposal boundary split: proposal runs bind selected demand ids, plan accept rejects stale specs, and `src/change/proposals.ts` is a facade over owned proposal modules. These refactors make future scheduler/runtime changes cheaper, but they do not add runtime authority, new actions, routes, CLI commands, parallel scheduling, automatic child Changes, or ODWF-style executable scripts.
+
+Workbench relationship:
+
+```text
+Project
+  -> Demand Conversation
+    -> Main Conversation / Thread
+    -> Role Pipeline Results
+    -> Agent Loop / Evidence Detail
+    -> Decision Inspector
+```
+
+Demand conversation is GUI vocabulary. Change remains the internal domain object and business work unit. Topic/chat records are interaction records. Main conversation, Agent Loop, and Decision Inspector are projections, not new sources of truth.
+
+Internal Workpad relationship:
+
+```text
+Project
+  -> Change
+    -> Workpad
+      -> Goal / current understanding
+      -> Spec / Plan / Tasks / AC state
+      -> TaskGraph
+      -> AgentRuns / WorkerLeases / blocked state
+      -> Evidence / next decision
+```
+
+Workpad is the internal read model backing the demand conversation. It summarizes canonical facts and runtime state; it does not replace canonical ECL artifacts or run evidence.
+
+## 2A. Final Layering Target
+
+AHO should converge on these layers:
+
+| Layer | Responsibility | Source of truth |
+| --- | --- | --- |
+| Harness Kernel | Change, ECL, accepted artifacts, validation, audit, apply/close, evolution | ECL files and run artifacts |
+| Intake / Project Scan | Read-only project understanding, current state detection, ambiguity surfacing | Derived scan artifacts and user confirmation |
+| Demand Conversation | User-facing conversation for one demand | Interaction records bound to internal Change/Workpad |
+| Workpad | Internal read model for one Change | Projection plus durable Workpad notes |
+| TaskGraph | Accepted task dependency and execution graph | Derived/materialized from accepted Plan/Tasks |
+| Coding Work Package | Default coder-agent implementation assignment over one Change | Projection over TaskGraph, not a new run/action truth |
+| Agent Orchestration Layer | Demand queue, bounded slots, dispatch, worker leases, retry, blocked, reconcile | Runtime state reconciled to demand conversations, AgentTasks, and Run artifacts |
+| AgentTaskRepository | Main-agent delegation surface for foreground role tasks and background maintenance tasks | Runtime coordination and evidence routing, implemented as file-backed v1 |
+| WorkflowPlan / DecompositionPlan | Future main-agent-authored orchestration proposal for complex demands | Proposal artifact compiled by Harness only after user confirmation |
+| DecompositionReadinessManifest | Guardrail verdict for a confirmed DecompositionPlan | Execution precondition evidence, not executable workflow truth |
+| TaskQueueProposal | Typed pre-execution proposal for sequential taskqueue readiness | Confirmed by the user before TaskQueue/TaskRun records are created |
+| WorkflowGraphPlan | Versioned typed execution input for sequential taskqueue readiness | Compiled from matching proposal/readiness; immutable input for WorkflowRun start, not a JS script or scheduler |
+| WorkflowRun | Runtime coordination and recovery evidence for confirmed sequential TaskQueue execution | Records progress/events and gates resume; not workflow truth |
+| TaskRun Queue | User-confirmed queued execution over accepted TaskGraph nodes | Queue records plus TaskRun/WorkerLease artifacts |
+| Bounded Demand Worker Slots | Bounded concurrent dispatch over independent demand conversations | Demand worker records reconciled to AgentTasks, Run artifacts, validation/audit, and result review |
+| Parallel Task Scheduler | Future bounded concurrent dispatch inside one demand after dependency/conflict modeling | Scheduler state reconciled to TaskGraph and leases |
+| Integration Layer | Future integration worktree, aggregate validation/audit, merge attempts, and integration-fix runs | Integration artifacts and human-gated decisions |
+| Codex App-Server Runtime Bridge | Rich session execution and live events | Runtime adapter, not workflow truth |
+| Workbench / Evidence / Decision UI | Human-facing demand conversation, Agent Loop, Inspector | Derived views over canonical facts |
+
+Future `AgentTaskRepository` should sit above role execution and below the main orchestrator decision policy. Foreground AgentTasks cover planning, coding, validation, audit, rework, result review, and apply handoff. Background AgentTasks cover documentation scan, architecture drift scan, evolution candidate extraction, candidate scoring, and candidate review. The repository is a delegation and recovery surface, not a replacement for ECL, accepted artifacts, run evidence, or human gates.
+
+This is the AHO translation of the Symphony lesson: manage work at the Workpad/TaskGraph level, not by watching a single agent terminal.
+
+## 2B. Harness As Runtime Boundary
+
+Harness state and agent execution are intentionally decoupled. Agents decide and execute through runtime adapters, but Harness owns the durable contract: Change binding, accepted artifacts, scoped Context Projection, evidence records, validation/audit, apply/close decisions, archive, and maintenance candidates.
+
+The long-term direction is:
+
+```text
+MainAgent -> ChangeGuard -> Context Projection -> Worker -> Harness Event Sink -> GateEvaluator
+```
+
+This means main-agent orchestration can become freer without weakening safety. A future main agent may split a broad request into several Changes, choose a non-default role order, retry a repair loop, or ask the user for clarification. A worker result still cannot become project truth until Harness evidence and gates accept it. `coder -> validator -> auditor` remains a recommended evidence-producing template for ordinary code changes, not the only legal orchestration path.
+
+Phase 6J applies that lesson at demand-conversation granularity first. The safe concurrency unit is an independent demand conversation with its own internal Change/Workpad, Coding Work Package, coder-agent, worktree, runs, validation/audit, and result review. The local orchestrator pump may fill multiple demand worker slots, but it does not split one demand into multiple coders and it does not apply results automatically.
+
+The long-term integration chain is intentionally staged. A task worktree is a single-task proposal. An integration worktree is a combined proposal assembled from multiple task worktrees. The source tree changes only after aggregate validation, aggregate audit, merge readiness review, and human apply/merge confirmation.
+
+In the current Phase 5S implementation, Intake / Project Scan consists of `intake.scan`, `intake.reanalyze`, and `ClarificationRequest`. `intake.scan` produces bounded `scan.json` / `scan.md` run artifacts using repo state, manifests, scripts, AGENTS/README, active/parked/archive change metadata, recent runs, validation/audit evidence, and candidate source/test/config files. `intake.reanalyze` deterministically merges the latest user message with previous understanding and scan facts. Future Codex app-server `tool/requestUserInput` prompts should map into `ClarificationRequest`, but Phase 5S does not claim live Codex question synchronization.
+
+## 3. Layered Architecture
+
+```mermaid
+graph TD
+    CLI["CLI"] --> Registry["Project Registry"]
+    CLI --> Marker["Project Marker"]
+    Marker --> Resolver["Memory Resolver"]
+    Resolver --> Store["Memory Store"]
+    CLI --> Orchestrator["Run Orchestrator"]
+    Registry --> Project["Project Adapter"]
+    Orchestrator --> Memory["Harness Memory"]
+    Store --> Memory
+    Memory --> Change["Change / Spec / AC Layer"]
+    Change --> Context["Context Projection"]
+    Context --> Runtime["Runtime Adapter"]
+    Runtime --> Worktree["Worktree Manager"]
+    Runtime --> Executor["Codex / Claude / Shell Executor"]
+    Executor --> Artifacts["Events / Logs / Diff Artifacts"]
+    Artifacts --> Validator["Validator"]
+    Artifacts --> Auditor["Auditor"]
+    Validator --> Gate["Human Confirmation Gate"]
+    Auditor --> Gate
+    Gate --> Evolution["Evolution Evidence"]
+    Evolution --> Memory
+```
+
+## 4. Project Memory Model
+
+Project memory is durable and AHO-managed. Repo-local memory is the current implementation and compatibility mode, not the long-term default.
+
+Memory modes:
+
+| Mode | Source of truth | Use | Status |
+| --- | --- | --- | --- |
+| `repo-local` | Target repository files | Default today, compatibility, portable/offline export | Implemented |
+| `external-local` | AHO home on the user's machine | Personal multi-project target default | Implemented as opt-in |
+| `remote` | Remote memory service | Team and cross-device workflows | Future |
+
+Repo-local shape:
+
+```text
+AGENTS.md                 routing map
+docs/                     durable product, architecture, and boundary knowledge
+harness/changes/          specs, plans, tasks, reviews, archive history
+.agent-harness/runs/      events, logs, diffs, validation reports, run artifacts
+harness/evolution/        evidence, proposals, results, controlled evolution state
+```
+
+External-local target shape:
+
+```text
+target repo:
+  AGENTS.md
+  .agent-harness/project.json
+  .agent-harness/.gitignore
+
+AHO home:
+  ~/.agent-harness/projects/{project-id}/docs/
+  ~/.agent-harness/projects/{project-id}/harness/changes/
+  ~/.agent-harness/projects/{project-id}/harness/evolution/
+  ~/.agent-harness/projects/{project-id}/scripts/
+  ~/.agent-harness/projects/{project-id}/runs/
+```
+
+`AGENTS.md` routes agents to memory. It is not the memory database. `context.md` is a per-run projection created from durable memory and is not source of truth.
+
+Dashboards, indexes, and future SQLite stores must be derived views unless a later architecture decision explicitly changes that.
+
+Phase 6S adds a second memory layer above archive history:
+
+```text
+terminal demand
+-> DemandMemoryCloseout
+-> append-only maintenance ledger
+-> generated closeout index/cache
+-> five-terminal-change maintenance review
+-> scored/reviewed candidates and doc budget proposals
+```
+
+This layer is maintenance evidence, not source truth. It may write closeouts, ledger entries, generated indexes/cache, candidate files, scores, reviews, and reports. It must not automatically rewrite `AGENTS.md`, canonical `docs/*.md`, ECL rules, Harness templates, product roadmap, curated `project/stable`, or source root. Hot/warm/cold maintenance windows are inputs for documentation/architecture/evolution/memory-maintenance roles, not default context for coding roles.
+
+See `docs/MEMORY.md` for the detailed memory mode boundary.
+
+## 5. Agent and Runtime Model
+
+AHO treats Codex-style tools as disposable external executors. It does not depend on their internal memory, hidden session state, or internal tool traces.
+
+Local managed-agent mapping:
+
+| Managed-agent concept | AHO local equivalent |
+| --- | --- |
+| Agent Profile | Local role definition and prompt template |
+| Session | Run |
+| Events | `events.jsonl` |
+| Resources | Repo, worktree, context bundle, files |
+| Memory Store | AHO-managed memory store: repo-local today, external-local target, remote future |
+| Environment | Local shell, worktree, validator config |
+| Vault | Future credential boundary |
+
+Agent profiles define roles such as Spec Agent, Planner Agent, Coder Agent, Validator, Auditor, and Evolution Agent. Profiles are definitions, not runtime state.
+
+Future multi-agent scheduling should depend on declarative role/subagent specs, TaskGraph nodes, scoped Runs, artifacts, worker leases, retry/blocked handling, and approval gates rather than one shared chat transcript. See `docs/AGENT-MODEL.md`.
+
+Phase 6E starts the Codex app-server runtime bridge as an optional adapter. The adapter owns handshake, `thread/start` / `thread/resume`, `turn/start`, `turn/steer`, `turn/interrupt`, protocol event artifacts, stderr, timeout diagnostics, and `AgentSession` records. It is used only for `planning-agent` and `coder-agent` turns in v1. `codex exec` remains the fallback and must be labeled honestly in the Workbench: realtime steering is unavailable and user input applies to the next turn.
+
+Phase 6F keeps apply as a local source-transition handoff rather than a merge system. Result Review is a Workbench projection over the current worktree diff, validation result, audit result, audit notes, and apply gate. `应用到项目` delegates to the existing apply manager and still requires source cleanliness, HEAD stability, matching diff hash, validation, and audit evidence. Phase 6K tightens this handoff for bounded concurrent demands: every apply/discard/readiness decision must carry an explicit `changeId + worktreeId + result/run id`, and source drift creates a fresh same-demand rework attempt from current source instead of patching the stale result. Phase 6N adds a post-apply local landing package and merge-reviewer verdict so commit/PR adapters have a stable evidence input. Phase 6O adds a Draft PR adapter on top of that package: it may create/update a remote branch and Draft PR after explicit confirmation, but it still does not merge, land, enable auto-merge, or handle PR feedback. Phase 6P reads feedback/checks and updates the same Draft PR branch after confirmation. Phase 6Q may mark that Draft PR ready for human review after checks and actionable feedback are clear. Phase 6R may read thread-aware review feedback, prepare replies, route same-demand rework, and resolve review threads only when capability exists. Phase 6T may prepare remote landing readiness and run `gh pr merge --squash` only after a user confirms `合并 PR`. It records remote landing results and merged closeouts, but does not push main, delete branches, enable auto-merge, sync the local source checkout, or silently update canonical docs/ECL/stable memory. Phase 6U adds a separate post-merge tool-result layer: it can reconcile remote/local state, offer fast-forward-only local sync when already on a clean base branch, and delete only the remote PR head branch after confirmation. Phase 6V adds a project-level landing queue over explicit PR handoff targets: it sorts and explains candidates, refreshes each candidate through remote landing readiness, merges at most one selected PR per confirmation, and refreshes remaining candidates after every merge. It is a coordination projection, not workflow truth, and it still cannot merge all, bypass provider policy, push main, or batch local sync/cleanup.
+
+`AgentSession` is a runtime handle, not workflow truth. AHO still owns demand conversations, internal Change/Workpad state, planning artifacts, run artifacts, validation/audit evidence, worktree state, and apply/merge decisions. Interrupting an app-server turn records stopped evidence and partial output; it does not discard the worktree, close/archive the demand, or erase planning artifacts.
+
+## 6. Run Lifecycle
+
+A Run is one execution attempt against an explicit runnable Change target. Legacy CLI-compatible paths may resolve the single active Change when no `changeId` is supplied, but Workbench-managed multi-demand actions must carry an explicit target.
+
+Planned run lifecycle:
+
+```text
+created
+context_prepared
+agent_started
+agent_completed
+validating
+reviewing
+awaiting_human_confirmation
+completed
+failed
+abandoned
+```
+
+Each run should produce durable artifacts:
+
+```text
+.agent-harness/runs/{run-id}/
+  run.json
+  context.md
+  events.jsonl
+  stdout.log
+  stderr.log
+  diff.patch
+  validation.json
+  validation.md
+  review.md
+```
+
+Phase 2B implements `run.json`, `context.md`, `events.jsonl`, `stdout.log`, and `stderr.log` for local command runs. Phase 2C adds `prompt.md`, `codex-events.jsonl`, and `last-message.md` for Codex read-only proposal runs. Phase 2E lets these artifacts live under either project-root or memory-root depending on memory mode. Phase 3B adds `validation.json` and per-command validation logs. Phase 3C adds `audit.json`, `audit.md`, `diff.patch`, and `diff-stat.txt` for Auditor proposal runs. Phase 3D adds Coder workspace-write runs with `implementation.md`, worktree diff artifacts, and source-root pollution checks. Phase 3E adds `apply.json` and `discard.json` for explicit worktree adoption or rejection gates. Phase 4B adds `spec-test-proposal.json` and `spec-test-proposal.md` for read-only evidence proposals. Phase 4C reuses the worktree artifact shape for `spec-test-generator` runs that generate test-only diff proposals. Phase 4E adds `spec-proposal.json/md` and `plan-proposal.json/md` for front-of-change Spec and Planner proposal gates.
+
+The Run Orchestrator should receive memory through a Memory Resolver and Context Projector. Runtime adapters must not hardcode repo-local Harness paths.
+
+Run-level streaming output belongs to the execution layer. Topic chat uses read-only Codex and records messages in the interaction log. A future GUI may expose live streams, replay, interrupt, and cancel controls, but stopping one Run does not close the owning Change.
+
+## 7. Worktree Isolation
+
+Worktree isolation is the preferred local code-change isolation boundary.
+
+Worktrees isolate file changes and diffs. They do not isolate processes, networks, environment variables, credentials, dependencies, or OS permissions.
+
+Planned execution levels:
+
+| Level | Meaning | Use |
+| --- | --- | --- |
+| L0 Direct Mode | Run in the target working tree | Explicit local convenience only |
+| L1 Worktree Mode | Run in AHO-owned Git worktrees under AHO home | Default direction for local AHO |
+| L2 Container Mode | Run in Docker/devcontainer/remote sandbox | Future optional high-risk/team mode |
+
+Container sandboxing is not required for the personal MVP. Automatic merge is out of scope until explicitly added behind human confirmation gates.
+
+## 8. Validation and Review Gates
+
+Validation and audit are separate gates.
+
+- Validator runs mechanical checks such as lint, typecheck, test, build, and Spec-linked checks when available.
+- Auditor reviews spec alignment, diff quality, safety, and validation evidence.
+- Human confirmation is required before apply/merge, close/archive, and Harness evolution apply.
+
+Every agent output is a proposal until confirmed. Auditor approval is not merge authority.
+
+Phase 3B implements deterministic Validator execution. Validator output is mechanical evidence, not semantic approval. Phase 3C implements Codex-powered read-only Auditor proposal capture. Auditor output is semantic evidence, not human approval; it updates `reviews/review.md` only through explicit `audit accept`.
+
+Phase 3D implements Codex workspace-write Coder runs only inside AHO-owned worktrees. Coder output is an implementation proposal, not an accepted change. Authoritative validation still requires `aho validate run <project> --worktree <coder-worktree-id>` and semantic review still requires `aho audit run`.
+
+Phase 3E implements explicit `worktree apply` and `worktree discard` gates. Apply requires a clean source repo, unchanged source `HEAD`, a non-empty worktree diff, matching `worktreeDiffHash` across validation and audit artifacts, and an accepted audit recorded in `reviews/review.md`. Apply may optionally commit through `--commit`; merge, PR, push, and conflict resolution remain future work.
+
+Future integration work should add a separate integration worktree before source apply. Per-task validation/audit remains task evidence; aggregate validation/audit is required for the combined integration proposal. Merge conflicts, aggregate validation failures, and aggregate audit blockers should create IntegrationFix TaskRuns rather than silently modifying the source tree. Agent review remains evidence; human confirmation remains the apply/merge authority.
+
+Phase 4A implements deterministic Spec-Test evidence mapping through `spec-tests.json`. Phase 4B adds a Codex read-only proposer that can inspect existing tests and validation artifacts, but only human-accepted `source-root` `existingEvidence` candidates are written back by AHO's deterministic writer. Worktree-only evidence and suggested new tests remain proposals until they are applied to the source repo.
+
+Phase 4C adds a Codex workspace-write Spec-Test Generator that creates passing test evidence proposals in AHO-owned worktrees. It is test-only and proposal-only: it must not edit production code, package manifests, docs, Harness files, or `spec-tests.json`. Generated tests become accepted source-root evidence only after validation, audit, human apply, and a later `spec-test propose` / `proposal accept` pass.
+
+Phase 4D adds deterministic Spec-Test drift readiness. `aho spec-test drift` explains whether accepted evidence appears missing, invalid, stale, failed, unknown, or ok relative to the selected latest validation and source/worktree root. Drift is a risk diagnosis, not proof of coverage or proof of inconsistency. CI-level drift failure gates remain future work.
+
+Phase 4E adds the missing front half of the single-role agent workflow. `aho change spec propose` uses Codex read-only mode to draft a `spec.md` proposal from raw request and active Change context; `aho change spec accept` is the human confirmation gate that writes canonical `spec.md`. `aho change plan propose` then drafts `plan.md` and `tasks.md`; `aho change plan accept` writes them and rebuilds `ac-map.json`. These agents are not a scheduler and do not start Coder, Validator, Auditor, or worktree runs automatically.
+
+## 9. Harness Evolution Loop
+
+Harness evolution improves the collaboration system from evidence.
+
+Evidence sources:
+
+- archived changes
+- validation failures
+- repeated user corrections
+- weak or ambiguous acceptance criteria
+- Spec/code/test drift
+- review findings
+- agent execution gaps
+
+Evolution may update process rules, templates, lint checks, docs, validation defaults, and routing guidance. It must not automatically edit business code or silently rewrite business specs.
+
+Required evolution gates:
+
+```text
+evidence -> proposal -> independent review -> validation -> human approval -> apply or noop
+```
+
+## 10. Public Repo Shape
+
+The public repository should remain a normal product repository.
+
+Public by default:
+
+- product source
+- public docs
+- tests
+- templates
+- package and build configuration
+
+Local development state by default:
+
+- active/archive local changes
+- reference project checkouts
+- run logs and events
+- worktrees
+- local registry and temporary artifacts
+
+Product Harness templates are public assets. This repository's own Harness runtime workspace is local development state.
+
+## 11. Implementation Module Boundaries
+
+Future code should preserve these module boundaries:
+
+| Layer | Responsibility |
+| --- | --- |
+| Project Registry | Registered projects and user-level registry state |
+| Project Marker | `.agent-harness/project.json` read/write and marker validation |
+| Memory Resolver | Resolve project id and memory mode into a durable memory store |
+| Memory Store | Repo-local, external-local, or future remote storage implementation |
+| Harness IO | Read/write Harness docs, templates, indexes, evolution files |
+| Change Manager | ECL change lifecycle, AC mapping, close gates |
+| Run Artifact Store | Run directory creation, metadata, events, logs, artifact lookup |
+| Runtime Adapter | Codex/local command/future agent invocation only |
+| Context Projector | Per-run context generation from durable memory |
+
+Codex adapters, change manager, and run manager must not directly assume `harness/changes` lives in the target repository. They should depend on Memory Resolver or receive resolved paths.
+
+The current implementation provides repo-local and external-local resolver layouts. Remote memory remains unsupported future work.
+
+## 12. Workbench and Runtime Read Models
+
+The personal GUI should be a conversation-centered development workbench, not a chat-only app, generic admin console, or issue board.
+
+- Left side: Codex-style project folders and nested demand conversations.
+- Center: main demand conversation, planning drafts, execution/result summaries, and Thread / Agent Loop detail access.
+- Right side: selected-demand Decision Inspector, role/result cards, evidence links, and apply/merge decisions.
+
+The Workbench Snapshot derives first-screen UI shell state from canonical artifacts plus interaction/action records. In Phase 7C, `getWorkbenchSnapshot()` returns project, memory, repo, topic/workpad summaries, selected-demand light summary, confirmation queue, counters, refs, warnings, roles, and Harness gaps. It must not carry full run graphs, raw evidence bundles, maintenance review windows, or landing queue internals, and it must not become workflow truth or a second workflow database. Heavy surfaces such as transcript, demand run graph, workpad/detail, evidence bundle, maintenance summary, and landing queue snapshot are scoped lazy projections from Change/ECL, AgentTaskResult, run artifacts, validation/audit, apply/landing/PR records, and maintenance evidence. `center.thread.items` and legacy semantic thread data are compatibility/detail inputs, not default conversation truth; the default conversation renderer consumes Codex runtime or `codex exec` replay cells. Structured actions describe existing CLI state transitions for UI buttons, and the server must revalidate high-impact action targets against current derived state before execution. The local Workbench server binds to `127.0.0.1` by default, serves the static GUI, and exposes sidebar project onboarding plus only allowlisted JSON actions that require explicit confirmation for mutation. Existing projects are added through a native folder picker when available, new projects are created from a selected parent folder, and Harness memory initialization remains an explicit confirmation. Demand conversation APIs store ordinary messages in Workbench SQLite, with legacy `thread.jsonl` imported best-effort. Codex session links are runtime cache, not project facts. Main planning-agent drafts return planning artifact projections and suggested allowlisted actions; they do not write canonical ECL files until the user confirms execution.
+
+## 12A. Codex Skill Bridge
+
+AHO can project enabled project/topic skills into Codex so the inner executor sees the same role and domain context that AHO exposes in the GUI.
+
+```text
+Memory root skills/          source of truth
+Workbench SQLite             enablement and bridge sync state
+~/.codex/plugins/aho-managed runtime projection
+Run metadata                 skill ids, source hashes, materialized hashes, prompt stack
+```
+
+The bridge follows the Codex / oh-my-codex idea of explicit file-based skills, agents, and commands, but AHO owns the source files. The materialized `aho-managed` plugin can be deleted and rebuilt. It must not overwrite user-managed Codex skills or global config.
+
+## 12B. Agent Runtime Bridge
+
+Phase 5F adds an AHO-owned agent-role bridge. It mirrors oh-my-codex's practical pattern: `agent_role` is an AHO input, AHO resolves role Markdown and wraps it into the prompt, then Codex executes a normal `codex exec` run.
+
+```text
+agent-catalog.json        durable role declarations
+agents/{role-id}.md       role contracts
+commands/{command-id}.md  future workflow command contracts
+Codex exec                external executor
+run.json                  role/catalog/skill provenance
+```
+
+The bridge does not make Codex the workflow authority. Canonical ECL files, approvals, worktrees, validation, audit, and apply/close gates remain AHO-owned.
+
+See:
+
+- `docs/WORKBENCH.md`
+- `docs/RUNTIME.md`
+- `docs/AGENT-MODEL.md`
+
+## 13. Phase Roadmap
+
+| Phase | Goal |
+| --- | --- |
+| Phase 1 | Project registry and Harness audit/init/reindex |
+| Phase 2A | Node-native structured change manager |
+| Phase 2B | Run sessions, event logs, and local command runtime |
+| Phase 2C | Codex read-only proposal adapter |
+| Phase 2D | Memory Resolver foundation and memory status diagnostics |
+| Phase 2E | External-local memory MVP |
+| Phase 3A | AHO-owned worktree manager and worktree local command runs |
+| Phase 3B | Change-scoped validation gate and agent role contracts |
+| Phase 3C | Auditor proposal gate |
+| Phase 3D | Codex write mode inside AHO-owned worktrees |
+| Phase 3E | Apply/discard gate for accepted worktree proposals |
+| Phase 4A | Explicit Spec-Test evidence mapping |
+| Phase 4B | Codex-assisted existing Spec-Test evidence proposals |
+| Phase 4C | Codex-assisted passing Spec-Test generation proposals |
+| Phase 4D | Deterministic Spec-Test drift readiness |
+| Phase 4E | Spec Agent and Planner proposal gates |
+| Phase 4F+ | Drift gates and stricter Spec-Test enforcement |
+| Phase 5A-prep | Workspace runtime model and Workbench information architecture |
+| Phase 5A | Workbench Snapshot read model and Harness gap report |
+| Phase 5B | Workbench stream replay and structured approval actions |
+| Phase 5C | Local browser Workbench GUI shell and sidebar project onboarding |
+| Phase 5D | Topic chat and Codex plan-mode runtime |
+| Phase 5E | Codex Skill Bridge and Workbench SQLite store |
+| Phase 5F | AHO Agent Runtime Bridge and declarative role/skill catalog |
+| Phase 5F+ | Live streaming, cancel/interrupt, and richer run controls |
+| Future | External-local default switch, remote memory, team mode, and Spec-as-Source experiments |
+
+## 14. Non-Goals
+
+Not in the current architecture baseline:
+
+- cloud sync
+- multi-user permissions
+- hosted managed agents
+- remote memory gateway/server in the current implementation
+- cross-project knowledge store in the current implementation
+- automatic merge
+- default container sandbox
+- direct dependence on model-provider memory
+- automatic CI drift gates
+- L3 Spec-as-Source as an immediate invariant

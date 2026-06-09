@@ -265,6 +265,16 @@ describe("Workbench module boundaries", () => {
         ],
       },
       {
+        roots: ["src/change/proposals"],
+        forbidden: [
+          /from\s+["']\.\.\/proposals\.js["']/,
+          /from\s+["']\.\.\/\.\.\/cli\//,
+          /from\s+["']\.\.\/\.\.\/server\//,
+          /from\s+["']\.\.\/\.\.\/web\//,
+          /from\s+["']\.\.\/\.\.\/workbench\//,
+        ],
+      },
+      {
         roots: [
           "src/types/change-ecl.ts",
           "src/types/maintenance.ts",
@@ -289,6 +299,16 @@ describe("Workbench module boundaries", () => {
     const offenders = checks.flatMap((check) => listSourceFiles(check.roots)
       .flatMap((file) => check.forbidden.some((pattern) => pattern.test(readFileSync(file, "utf8"))) ? [file] : []));
     expect(offenders).toEqual([]);
+  });
+
+  it("keeps change proposals as a compatibility facade", () => {
+    const facade = readFileSync("src/change/proposals.ts", "utf8");
+    expect(facade).toContain('from "./proposals/service.js"');
+    expect(facade).toContain('from "./proposals/acceptance.js"');
+    expect(facade).toContain('from "./proposals/parser-renderer.js"');
+    expect(facade).not.toMatch(/function startSpecProposalRun/);
+    expect(facade).not.toMatch(/function acceptPlanProposal/);
+    expect(facade).not.toMatch(/detectCodexCapabilities/);
   });
 
   it("keeps type index as a compatibility re-export barrel", () => {

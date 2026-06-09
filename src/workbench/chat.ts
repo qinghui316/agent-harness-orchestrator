@@ -259,12 +259,12 @@ const workflowActionHandlers: WorkbenchActionHandlerMap = {
     if (!request.prompt) throw new Error("chat.ask requires prompt.");
     return postTopicMessage(project, changeId, request.prompt, live);
   },
-  "change.spec.propose": async (project, _changeId, request) => startSpecProposalRun(project, { prompt: request.prompt }),
+  "change.spec.propose": async (project, changeId, request) => startSpecProposalRun(project, { prompt: request.prompt, changeId }),
   "change.spec.accept": async (project, _changeId, request) => {
     if (!request.proposalId) throw new Error("change.spec.accept requires proposalId.");
     return acceptSpecProposal(project, request.proposalId);
   },
-  "change.plan.propose": async (project, _changeId, request) => startPlanProposalRun(project, { prompt: request.prompt }),
+  "change.plan.propose": async (project, changeId, request) => startPlanProposalRun(project, { prompt: request.prompt, changeId }),
   "change.plan.accept": async (project, _changeId, request) => {
     if (!request.proposalId) throw new Error("change.plan.accept requires proposalId.");
     return acceptPlanProposal(project, request.proposalId);
