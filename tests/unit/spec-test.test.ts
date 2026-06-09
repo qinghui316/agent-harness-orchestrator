@@ -2,13 +2,18 @@ import { mkdir, mkdtemp, readFile, rm, utimes, writeFile } from "node:fs/promise
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { createChange } from "../../src/change/manager.js";
+import { createChange, createConcurrentChange } from "../../src/change/manager.js";
 import { initHarness } from "../../src/harness/init.js";
-import { getSpecTestStatus, linkSpecTest, unlinkSpecTest } from "../../src/spec-test/manager.js";
+import { getSpecTestContextForChange, getSpecTestStatus, linkSpecTest, linkSpecTestRefs, unlinkSpecTest } from "../../src/spec-test/manager.js";
 import { parseSpecTestProposalMessage } from "../../src/spec-test/proposal.js";
 import { classifySpecTestDiff, composeSpecTestGeneratorPrompt, selectAcsForGeneration } from "../../src/spec-test/generate.js";
 import { getSpecTestDriftReport } from "../../src/spec-test/drift.js";
 import { writeJsonFile } from "../../src/fs/json.js";
+import { executeWorkbenchAction } from "../../src/server/workbench-server.js";
+import { getWorkbenchSnapshot } from "../../src/workbench/manager.js";
+import { createWorktree } from "../../src/worktree/manager.js";
+import { resolveProjectMemory } from "../../src/memory/resolver.js";
+import { git } from "../../src/project/git.js";
 import type { ChangeStatus, ManagedProject, RunWorktreeInfo, SpecTestAcStatus, ValidationResult } from "../../src/types/index.js";
 
 let tempDir: string;
@@ -106,6 +111,80 @@ describe("spec-test manager", () => {
 
     status = await unlinkSpecTest(item, { ac: "AC-001", command: "test" });
     expect(status.mappings).toHaveLength(0);
+  });
+
+  it("uses selected change scoped evidence when multiple active demands exist", async () => {
+    const item = project(tempDir);
+    await initHarness(item);
+    await createChange(item, { title: "Demand A" });
+    await createConcurrentChange(item, { title: "Demand B" });
+    const contextB = await getSpecTestContextForChange(item, "demand-b");
+    await linkSpecTestRefs(item, "AC-001", [{ type: "command", commandName: "test-b" }], contextB);
+    await writeValidation("run-b", { changeId: "demand-b", commandName: "test-b", commandStatus: "passed" });
+
+    await expect(getSpecTestStatus(item)).rejects.toThrow("Expected exactly one active change");
+    await expect(getSpecTestDriftReport(item)).rejects.toThrow("Expected exactly one active change");
+
+    const status = await getSpecTestStatus(item, { changeId: "demand-b" });
+    expect(status).toMatchObject({ changeId: "demand-b" });
+    expect(status.acceptanceCriteria[0]).toMatchObject({ confidence: "validation-passed" });
+    expect(status.acceptanceCriteria[0]?.commandEvidence).toEqual([{ commandName: "test-b", validationStatus: "passed" }]);
+
+    const drift = await getSpecTestDriftReport(item, { changeId: "demand-b" });
+    expect(drift).toMatchObject({ changeId: "demand-b", latestValidationId: "run-b" });
+    expect(drift.acceptanceCriteria[0]).toMatchObject({ status: "ok" });
+  });
+
+  it("projects selected Workbench topic spec-test status and drift from the selected demand", async () => {
+    const item = project(tempDir);
+    await initHarness(item);
+    await createChange(item, { title: "Demand A" });
+    await createConcurrentChange(item, { title: "Demand B" });
+    const contextB = await getSpecTestContextForChange(item, "demand-b");
+    await linkSpecTestRefs(item, "AC-001", [{ type: "command", commandName: "test-b" }], contextB);
+    await writeValidation("run-b", { changeId: "demand-b", commandName: "test-b", commandStatus: "passed" });
+
+    const snapshot = await getWorkbenchSnapshot({ project: item, path: tempDir }, { topicId: "demand-b" });
+    const selected = snapshot.center.selectedTopic as { specTest?: { changeId?: string }; drift?: { changeId?: string; latestValidationId?: string } } | null;
+
+    expect(selected?.specTest).toMatchObject({ changeId: "demand-b" });
+    expect(selected?.drift).toMatchObject({ changeId: "demand-b", latestValidationId: "run-b" });
+  });
+
+  it("runs Workbench spec-test drift against the selected demand changeId", async () => {
+    const item = project(tempDir);
+    await initGitRepository(tempDir);
+    await initHarness(item);
+    await createChange(item, { title: "Demand A" });
+    await createConcurrentChange(item, { title: "Demand B" });
+    await git(tempDir, ["add", "."]);
+    await git(tempDir, ["commit", "-m", "initial"]);
+    const memory = await resolveProjectMemory(item);
+    const worktreeB = await createWorktree(item, memory, "demand-b");
+    const contextB = await getSpecTestContextForChange(item, "demand-b");
+    await linkSpecTestRefs(item, "AC-001", [{ type: "command", commandName: "test-b" }], contextB);
+    await writeValidation("run-b", {
+      changeId: "demand-b",
+      commandName: "test-b",
+      commandStatus: "passed",
+      worktreeId: worktreeB.metadata.worktreeId,
+    });
+
+    const result = await executeWorkbenchAction({ project: item, path: tempDir }, {
+      actionType: "spec-test.drift",
+      changeId: "demand-b",
+      worktreeId: worktreeB.metadata.worktreeId,
+      confirm: true,
+    });
+
+    expect(result.result).toMatchObject({
+      status: "completed",
+      result: {
+        changeId: "demand-b",
+        selectedWorktreeId: worktreeB.metadata.worktreeId,
+        latestValidationId: "run-b",
+      },
+    });
   });
 });
 
@@ -292,7 +371,7 @@ describe("spec-test generator helpers", () => {
   });
 });
 
-async function writeValidation(runId: string, options: { commandName: string; commandStatus: "passed" | "failed" }): Promise<void> {
+async function writeValidation(runId: string, options: { commandName: string; commandStatus: "passed" | "failed"; changeId?: string; worktreeId?: string }): Promise<void> {
   const runDir = join(tempDir, ".agent-harness", "runs", runId);
   await mkdir(runDir, { recursive: true });
   const now = new Date().toISOString();
@@ -300,10 +379,11 @@ async function writeValidation(runId: string, options: { commandName: string; co
     version: "1.0",
     id: runId,
     runId,
-    changeId: "spec-test-mapping",
+    changeId: options.changeId ?? "spec-test-mapping",
     profile: "default",
     status: options.commandStatus,
     executionMode: "direct",
+    worktreeId: options.worktreeId,
     startedAt: now,
     finishedAt: now,
     commands: [{
@@ -335,4 +415,10 @@ function acStatus(acId: string, linkedEvidence: boolean, confidence: SpecTestAcS
     warnings: [],
     blockingIssues: confidence === "invalid" ? [`${acId} missing file`] : [],
   };
+}
+
+async function initGitRepository(cwd: string): Promise<void> {
+  await git(cwd, ["init"]);
+  await git(cwd, ["config", "user.email", "test@example.com"]);
+  await git(cwd, ["config", "user.name", "Test User"]);
 }

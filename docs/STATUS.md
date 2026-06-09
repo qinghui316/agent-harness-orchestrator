@@ -3,12 +3,12 @@
 ## Current Handoff
 
 - Current date: 2026-06-09.
-- Active ECL change: none.
+- Active ECL change: `harness/changes/active/phase-8g-scoped-spec-test-evidence-boundary-split/summary.md`.
 - Pending Harness evolution: none.
 - Latest archived product change: `harness/changes/archive/20260531-phase-7f-mainagent-orchestration-decision-engine/summary.md`.
 - Latest archived product/Harness docs change: `harness/changes/archive/20260602-phase-7g-open-dynamic-workflows-reference-alignment/summary.md`.
 - Latest archived Harness evolution: `harness/changes/archive/20260609-auto-evolve-harness-phase-7y-8c-modular-boundary/summary.md`.
-- Active product phase: none.
+- Active product phase: Phase 8G Scoped Spec Test Evidence Boundary Split.
 
 Current baseline:
 
@@ -133,6 +133,8 @@ Phase 8D is closed and archived at `harness/changes/archive/20260609-phase-8d-sc
 Phase 8E is closed and archived at `harness/changes/archive/20260609-phase-8e-remote-handoff-pr-landing-boundary-split/summary.md`. It was a pure remote handoff / PR landing domain split over `pr-review`, `pr-feedback`, `remote-landing`, and `post-merge`; PR review, feedback refresh/rework/reply, remote merge, post-merge sync, cleanup, confirmation, action payload, decision/audit scope, and artifact behavior remain unchanged.
 
 Phase 8F is closed and archived at `harness/changes/archive/20260609-phase-8f-apply-landing-pr-draft-boundary-split/summary.md`. It repaired scoped action required-target drift for landing and PR draft actions, added stale-target revalidation for Draft PR creation, and split apply / landing / PR draft / landing queue internals behind compatibility facades. It did not add runtime capability, CLI commands, Workbench actions, routes, scheduler behavior, parallel execution, automatic child Changes, ODWF JavaScript runtime, or cache/replay.
+
+Phase 8G is active at `harness/changes/active/phase-8g-scoped-spec-test-evidence-boundary-split/summary.md`. It repairs selected-demand Spec-Test evidence scope for Workbench status/drift/proposal/generation and splits spec-test evidence mapping, drift, proposal, and generation internals behind compatibility facades. It must not add CLI commands, Workbench actions, routes, runtime capability, scheduler behavior, parallel execution, automatic child Changes, ODWF JavaScript runtime, cache/replay, or change spec-test artifact/API shapes.
 
 Phase 7J is closed and archived at `harness/changes/archive/20260605-phase-7j-strict-harness-gated-execution-path/summary.md`. It narrowed execution entrypoints: planning confirmation writes canonical artifacts only, `code.run` requires a valid single-change readiness verdict, and sequential taskgraph execution must pass through a typed TaskQueueProposal before queue records are created.
 

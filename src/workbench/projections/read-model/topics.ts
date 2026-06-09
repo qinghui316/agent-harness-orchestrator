@@ -91,8 +91,8 @@ export async function selectTopicDetail(project: ManagedProject | null, memory: 
   let drift: unknown = null;
   if (project && topic.state === "active") {
     statusDetail = await getChangeStatusForChange(project, topic.id).catch(() => null);
-    specTest = await getSpecTestStatus(memory).catch(() => null);
-    drift = await getSpecTestDriftReport(memory).catch(() => null);
+    specTest = await getSpecTestStatus(memory, { changeId: topic.id }).catch(() => null);
+    drift = await getSpecTestDriftReport(memory, { changeId: topic.id }).catch(() => null);
   }
   const acMap = statusDetail?.acMap ?? await buildTopicAcMap(memory, topic);
 

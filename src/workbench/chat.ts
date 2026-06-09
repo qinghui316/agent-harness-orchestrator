@@ -348,7 +348,7 @@ const workflowActionHandlers: WorkbenchActionHandlerMap = {
   "task.queue.reconcile": async (project, changeId, request) => reconcileWorkflowTaskQueue(project, { changeId, queueRunId: request.queueRunId }),
   "validate.run": async (project, changeId, request) => startValidationRun(project, { changeId, worktree: request.worktreeId }),
   "audit.run": async (project, changeId, request) => startAuditRun(project, { changeId, worktreeId: request.worktreeId, prompt: request.prompt }),
-  "spec-test.drift": async (project, _changeId, request) => getSpecTestDriftReport(project, { worktreeId: request.worktreeId }),
+  "spec-test.drift": async (project, changeId, request) => getSpecTestDriftReport(project, { changeId, worktreeId: request.worktreeId }),
 };
 
 async function prepareLandingForAction(

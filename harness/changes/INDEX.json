@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-09T15:09:57.8021580Z",
+    "generated_at":  "2026-06-09T16:28:55.4635507Z",
     "active":  [
 
                ],
@@ -537,6 +537,10 @@
                     {
                         "name":  "20260609-phase-8f-apply-landing-pr-draft-boundary-split",
                         "path":  "harness/changes/archive/20260609-phase-8f-apply-landing-pr-draft-boundary-split"
+                    },
+                    {
+                        "name":  "20260610-phase-8g-scoped-spec-test-evidence-boundary-split",
+                        "path":  "harness/changes/archive/20260610-phase-8g-scoped-spec-test-evidence-boundary-split"
                     }
                 ]
 }

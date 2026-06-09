@@ -29,6 +29,10 @@ import { preparePrReviewReplyDraft } from "../../src/pr-review/replies.js";
 import { findLandingCandidate, listLandingPackages, prepareLandingPackage, readLandingPackage, reviewLandingPackage } from "../../src/landing/manager.js";
 import { createDraftPr, detectRemoteProviderCapability, findPrDraftPackageForLanding, listPrDraftPackages, preparePrDraftPackage, refreshPrDraftStatus, updateDraftPrFromLanding } from "../../src/pr-draft/manager.js";
 import { latestLandingQueueSnapshot, listLandingQueueSnapshots, mergeNextLandingQueueCandidate, prepareLandingQueue, refreshLandingQueue } from "../../src/landing-queue/manager.js";
+import { getSpecTestStatus, linkSpecTest } from "../../src/spec-test/manager.js";
+import { getSpecTestDriftReport } from "../../src/spec-test/drift.js";
+import { startSpecTestGenerationRun } from "../../src/spec-test/generate.js";
+import { startSpecTestProposalRun } from "../../src/spec-test/proposal.js";
 import { readTopicThreadLog } from "../../src/workbench/thread-log.js";
 import { runWorkbenchWorkflowActionService } from "../../src/workbench/actions/service.js";
 import { assertWorkflowActionScope } from "../../src/workbench/actions/boundary.js";
@@ -158,6 +162,11 @@ describe("Workbench module boundaries", () => {
     expect(typeof mergeNextLandingQueueCandidate).toBe("function");
     expect(typeof latestLandingQueueSnapshot).toBe("function");
     expect(typeof listLandingQueueSnapshots).toBe("function");
+    expect(typeof getSpecTestStatus).toBe("function");
+    expect(typeof linkSpecTest).toBe("function");
+    expect(typeof getSpecTestDriftReport).toBe("function");
+    expect(typeof startSpecTestProposalRun).toBe("function");
+    expect(typeof startSpecTestGenerationRun).toBe("function");
 
     expect(typeof readTopicThreadLog).toBe("function");
     expect(typeof runWorkbenchWorkflowActionService).toBe("function");
@@ -395,6 +404,19 @@ describe("Workbench module boundaries", () => {
         ],
       },
       {
+        roots: ["src/spec-test/core"],
+        forbidden: [
+          /from\s+["']\.\.\/manager\.js["']/,
+          /from\s+["']\.\.\/proposal\.js["']/,
+          /from\s+["']\.\.\/generate\.js["']/,
+          /from\s+["']\.\.\/drift\.js["']/,
+          /from\s+["']\.\.\/\.\.\/cli\//,
+          /from\s+["']\.\.\/\.\.\/workbench\//,
+          /from\s+["']\.\.\/\.\.\/server\//,
+          /from\s+["']\.\.\/\.\.\/web\//,
+        ],
+      },
+      {
         roots: [
           "src/types/change-ecl.ts",
           "src/types/maintenance.ts",
@@ -519,6 +541,37 @@ describe("Workbench module boundaries", () => {
     expect(landingQueue).toContain('from "./repository.js"');
     expect(landingQueue).not.toMatch(/async function prepareLandingQueue/);
     expect(landingQueue).not.toMatch(/async function mergeNextLandingQueueCandidate/);
+  });
+
+  it("keeps spec-test facades thin and scoped to the selected demand", () => {
+    expect(readFileSync("src/spec-test/manager.ts", "utf8").trim()).toBe('export * from "./core/status.js";');
+    expect(readFileSync("src/spec-test/drift.ts", "utf8").trim()).toBe('export * from "./core/drift-report.js";');
+    expect(readFileSync("src/spec-test/proposal.ts", "utf8").trim()).toBe('export * from "./core/proposal-runner.js";');
+    expect(readFileSync("src/spec-test/generate.ts", "utf8").trim()).toBe('export * from "./core/generation-runner.js";');
+
+    const status = readFileSync("src/spec-test/core/status.ts", "utf8");
+    expect(status).toContain('from "./context.js"');
+    expect(status).toContain('from "./repository.js"');
+    expect(status).not.toContain("specTestsSchema");
+    expect(status).not.toMatch(/readRequiredJsonFile/);
+    expect(status).not.toMatch(/writeJsonFile/);
+
+    const repository = readFileSync("src/spec-test/core/repository.ts", "utf8");
+    expect(repository).toContain('from "./schemas.js"');
+    expect(repository).toContain("readOrCreateSpecTests");
+    expect(repository).toContain("writeSpecTests");
+
+    const proposalRunner = readFileSync("src/spec-test/core/proposal-runner.ts", "utf8");
+    expect(proposalRunner).toContain("resolveRunnableChangeTarget(project, { changeId: options.changeId })");
+    expect(proposalRunner).toContain("getSpecTestStatus(project, { changeId, worktreeId: options.worktreeId })");
+
+    const generationRunner = readFileSync("src/spec-test/core/generation-runner.ts", "utf8");
+    expect(generationRunner).toContain("resolveRunnableChangeTarget(project, { changeId: options.changeId })");
+    expect(generationRunner).toContain("getSpecTestStatus(project, { changeId })");
+
+    const drift = readFileSync("src/spec-test/core/drift-report.ts", "utf8");
+    expect(drift).toContain("getSpecTestContextForChange");
+    expect(drift).toContain("getSpecTestStatus(context.memory, { changeId: context.changeId, worktreeId: options.worktreeId })");
   });
 
   it("keeps type index as a compatibility re-export barrel", () => {

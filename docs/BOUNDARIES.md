@@ -168,6 +168,8 @@ Phase 8E applied the ownership rule to remote handoff and PR landing. PR review,
 
 Phase 8F applies the ownership rule to source-root apply, local landing packages, Draft PR handoff, and landing queues. Apply readiness/gate, source diff attribution, Draft PR provider/source-match checks, and landing queue candidate/result orchestration belong in owned modules behind compatibility facades. Landing scoped action targets must match the execution layer, Draft PR creation must reject stale confirmation targets, and the refactor must not add unattended merge, reviewer assignment, new route/action/CLI behavior, source-root rewrite bypasses, or broader maintenance side effects.
 
+Phase 8G applies the ownership rule to Spec-Test evidence. Workbench selected-demand status, drift, proposal, and generation must resolve the selected `changeId` instead of using project-global exactly-one-active fallback. CLI spec-test commands keep legacy single-active behavior and fail closed when multiple active Changes exist. Spec-Test proposal accept remains an evidence mapping transition only; it must not run tests, mutate source root, or bypass validation, audit, apply, or human gates.
+
 ## 7. Memory Unavailable Boundary
 
 Memory can be unavailable on a new machine, after a plain repository clone, when AHO home was not synced, when permissions are missing, or when a future remote memory service is offline.
