@@ -60,7 +60,12 @@ import { userFacingText } from "../../src/web/src/formatters.js";
 import { emptyParentAgentTranscript } from "../../src/web/src/liveTranscript.js";
 import { MainConversationView, DecisionInspectorPane, WorkpadView } from "../../src/web/src/panels/WorkbenchPanels.js";
 import { RunReplay } from "../../src/web/src/panels/workbench/RunReplayPanel.js";
-import { ProjectConversationSidebar, appendProseBlock, threadItemFromTopicEntry } from "../../src/web/src/shell/WorkbenchShellParts.js";
+import {
+  ProjectConversationSidebar,
+  appendProseBlock,
+  blockFromAssistantEvent,
+  threadItemFromTopicEntry,
+} from "../../src/web/src/shell/WorkbenchShellParts.js";
 import { workflowActionPayloadFromTaskAction } from "../../src/web/src/workflow-actions.js";
 
 describe("Workbench module boundaries", () => {
@@ -133,6 +138,7 @@ describe("Workbench module boundaries", () => {
     expect(typeof RunReplay).toBe("function");
     expect(typeof ProjectConversationSidebar).toBe("function");
     expect(typeof appendProseBlock).toBe("function");
+    expect(typeof blockFromAssistantEvent).toBe("function");
     expect(typeof threadItemFromTopicEntry).toBe("function");
     expect(typeof workflowActionPayloadFromTaskAction).toBe("function");
     expect(emptyParentAgentTranscript().title).toBe("需求对话");
@@ -310,13 +316,36 @@ describe("Workbench module boundaries", () => {
     expect(facade).toContain('export { DecisionInspectorPane } from "./workbench/DecisionPanels.js";');
     expect(facade).toContain('export { WorkpadView } from "./workbench/WorkpadPanel.js";');
 
-    const workpad = readFileSync("src/web/src/panels/workbench/WorkpadPanel.tsx", "utf8");
-    expect(workpad).toContain("workflowActionPayloadFromTaskAction");
-    expect(workpad).not.toMatch(/taskIds:\s*action\.taskIds/);
-
     const shell = readFileSync("src/web/src/shell/WorkbenchShellParts.tsx", "utf8");
-    expect(shell).toContain("workflowActionPayloadFromScope(confirmingAction)");
-    expect(shell).toContain("workflowActionPayloadFromScope(action)");
+    expect(shell).toContain('from "./assistant-blocks.js"');
+    expect(shell).toContain('from "./assistant-rendering.js"');
+    expect(shell).toContain('from "./sidebar.js"');
+    expect(shell).not.toMatch(/function ProjectConversationSidebar/);
+    expect(shell).not.toMatch(/function TopicComposer/);
+    expect(shell).not.toMatch(/function AssistantTurnBlocks/);
+
+    const assistantBlocks = readFileSync("src/web/src/shell/assistant-blocks.ts", "utf8");
+    expect(assistantBlocks).toContain("function isMainThreadAssistantEvent");
+    expect(assistantBlocks).toContain("function hasInternalRunMetadata");
+    expect(assistantBlocks).toContain("function dedupeBlocks");
+
+    const assistantRendering = readFileSync("src/web/src/shell/assistant-rendering.tsx", "utf8");
+    expect(assistantRendering).toContain("workflowActionPayloadFromScope(confirmingAction)");
+    expect(assistantRendering).toContain("workflowActionPayloadFromScope(action)");
+
+    const workpad = readFileSync("src/web/src/panels/workbench/WorkpadPanel.tsx", "utf8");
+    expect(workpad).toContain('from "./workpad/WorkpadDetails.js"');
+    expect(workpad).toContain('from "./workpad/WorkpadActionButton.js"');
+    expect(workpad).not.toMatch(/function PlanningNarrativeCard/);
+    expect(workpad).not.toMatch(/function TaskGraphCard/);
+    expect(workpad).not.toMatch(/function WorkpadActionButton/);
+
+    const taskGraphCards = readFileSync("src/web/src/panels/workbench/workpad/TaskGraphCards.tsx", "utf8");
+    expect(taskGraphCards).toContain("workflowActionPayloadFromTaskAction");
+    expect(taskGraphCards).not.toMatch(/taskIds:\s*action\.taskIds/);
+
+    const workpadActionButton = readFileSync("src/web/src/panels/workbench/workpad/WorkpadActionButton.tsx", "utf8");
+    expect(workpadActionButton).toContain("workflowActionPayloadFromScope(action)");
   });
 
   it("keeps workflow runtime code-workflow as a compatibility facade", () => {
