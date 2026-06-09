@@ -1376,7 +1376,7 @@ describe("workbench read model", () => {
     expect(snapshot.right.confirmationQueue.primary).toMatchObject({
       kind: "planning-confirm",
       changeId: topic.changeId,
-      summary: expect.stringContaining("方案已经准备好"),
+      summary: expect.stringContaining("写入内部 spec/plan/tasks/ac-map"),
     });
     expect(snapshot.right.confirmationQueue.primary?.actions).toEqual(expect.arrayContaining([
       expect.objectContaining({ actionType: "planning.confirm-execution", label: "确认规划", planningBundleId }),

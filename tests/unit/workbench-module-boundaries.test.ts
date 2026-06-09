@@ -18,6 +18,11 @@ import { getWorkbenchProjection } from "../../src/server/workbench/projections.j
 import { matchProjectWorkbenchRoute } from "../../src/server/workbench/routes.js";
 import { summarizeRunArtifacts } from "../../src/workbench/projections/artifact-preview.js";
 import { findWorkbenchTopicPath } from "../../src/workbench/projections/typed-workflow.js";
+import { buildConfirmationQueue, scopeConfirmationQueueItemActions } from "../../src/workbench/projections/read-model/confirmation-queue.js";
+import { buildApprovalInbox } from "../../src/workbench/projections/read-model/approval-inbox.js";
+import { buildMaintenanceSummary } from "../../src/workbench/projections/read-model/maintenance-summary.js";
+import { listWorkbenchTopicsFromMemory } from "../../src/workbench/projections/read-model/topics.js";
+import { workpadNextActionToConfirmationItems } from "../../src/workbench/projections/read-model/confirmation/typed-workflow.js";
 import { buildDemandAgentRunGraph, emptyAgentRunGraph } from "../../src/workbench/projections/read-model/run-graph.js";
 import { buildThreadStream, isConcreteChangeFile } from "../../src/workbench/projections/read-model/thread-stream.js";
 import {
@@ -65,6 +70,12 @@ describe("Workbench module boundaries", () => {
     expect(typeof getWorkbenchProjection).toBe("function");
     expect(typeof matchProjectWorkbenchRoute).toBe("function");
     expect(typeof summarizeRunArtifacts).toBe("function");
+    expect(typeof buildConfirmationQueue).toBe("function");
+    expect(typeof scopeConfirmationQueueItemActions).toBe("function");
+    expect(typeof buildApprovalInbox).toBe("function");
+    expect(typeof buildMaintenanceSummary).toBe("function");
+    expect(typeof listWorkbenchTopicsFromMemory).toBe("function");
+    expect(typeof workpadNextActionToConfirmationItems).toBe("function");
     expect(typeof emptyAgentRunGraph).toBe("function");
     expect(typeof buildDemandAgentRunGraph).toBe("function");
     expect(typeof buildThreadStream).toBe("function");
@@ -176,6 +187,67 @@ describe("Workbench module boundaries", () => {
   it("keeps the read-model compatibility facade thin", () => {
     const facade = readFileSync("src/workbench/projections/read-model.ts", "utf8");
     expect(facade.trim()).toBe('export * from "./read-model/implementation.js";');
+
+    const implementation = readFileSync("src/workbench/projections/read-model/implementation.ts", "utf8");
+    expect(implementation).toContain('from "./approval-inbox.js"');
+    expect(implementation).toContain('from "./maintenance-summary.js"');
+    expect(implementation).toContain('from "./topics.js"');
+    expect(implementation).not.toMatch(/function buildApprovalInbox/);
+    expect(implementation).not.toMatch(/function listWorkbenchTopicsFromMemory/);
+    expect(implementation).not.toMatch(/function buildMaintenanceSummary/);
+  });
+
+  it("keeps confirmation queue planning copy non-executing and preserves explicit action scope", () => {
+    const typedWorkflow = readFileSync("src/workbench/projections/read-model/confirmation/typed-workflow.ts", "utf8");
+    expect(typedWorkflow).toContain("不会启动 coder、validator、auditor、TaskQueue、TaskRun 或 AgentTask");
+    expect(typedWorkflow).not.toContain("需要你确认当前方案进入执行");
+    expect(typedWorkflow).not.toContain("确认后，主 agent 会通过受控委派启动后续角色执行");
+
+    const item = {
+      id: "confirm:scope",
+      kind: "planning-confirm",
+      changeId: "change-from-item",
+      worktreeId: "worktree-from-item",
+      applyCheckId: "apply-from-item",
+      landingPackageId: "landing-from-item",
+      summary: "summary",
+      whyNeedsConfirmation: "why",
+      confirmEffect: "effect",
+      riskSummary: "risk",
+      evidenceRefs: [],
+      primary: true,
+      status: "pending",
+      actions: [{
+        id: "action:scope",
+        label: "Action",
+        kind: "workflow-action",
+        actionType: "planning.taskqueue.confirm-start",
+        changeId: "change-explicit",
+        taskQueueProposalId: "proposal-1",
+        workflowGraphPlanId: "graph-1",
+        readinessManifestId: "readiness-1",
+        decompositionPlanId: "decomposition-1",
+        workflowRunId: "workflow-1",
+        queueRunId: "queue-1",
+        taskRunId: "task-run-1",
+        taskIds: ["task-1"],
+        enabled: true,
+        requiresConfirmation: true,
+      }],
+    } as const;
+
+    const scoped = scopeConfirmationQueueItemActions(item);
+    expect(scoped.actions[0]?.changeId).toBe("change-explicit");
+    expect(scoped.actions[0]?.worktreeId).toBe("worktree-from-item");
+    expect(scoped.actions[0]?.landingPackageId).toBe("landing-from-item");
+    expect(scoped.actions[0]?.taskQueueProposalId).toBe("proposal-1");
+    expect(scoped.actions[0]?.workflowGraphPlanId).toBe("graph-1");
+    expect(scoped.actions[0]?.readinessManifestId).toBe("readiness-1");
+    expect(scoped.actions[0]?.decompositionPlanId).toBe("decomposition-1");
+    expect(scoped.actions[0]?.workflowRunId).toBe("workflow-1");
+    expect(scoped.actions[0]?.queueRunId).toBe("queue-1");
+    expect(scoped.actions[0]?.taskRunId).toBe("task-run-1");
+    expect(scoped.actions[0]?.taskIds).toEqual(["task-1"]);
   });
 
   it("keeps frontend surface facades and scoped payload helpers centralized", () => {

@@ -130,7 +130,7 @@ function parentAgentGraphSummary(workpad: WorkbenchWorkpad): string {
   if (workpad.resultReview) return "已汇总实现结果、验证、审查和下一步决定。";
   if (workpad.rolePipeline?.status === "running") return "正在调度角色 agent 执行当前需求。";
   if (workpad.rolePipeline) return "已建立角色执行链路并收集结果。";
-  if (workpad.planningArtifactBundle) return "已整理方案，等待确认或进入执行。";
+  if (workpad.planningArtifactBundle) return "已整理方案，等待确认或后续边界检查。";
   return "正在理解当前需求。";
 }
 

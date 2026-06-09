@@ -1,54 +1,26 @@
 ﻿import {
   existsSync } from "node:fs";
-import { readFile,
-  readdir } from "node:fs/promises";
-import { dirname,
-  join,
-  relative } from "node:path";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { z } from "zod";
 import { canApplyResultFromGate,
   classifyApplyReadiness,
   previewWorktreeApply,
   type WorktreeGateState
 } from "../../../apply/manager.js";
-import { listAgentTasks,
-  listDemandMemoryCloseouts,
-  listMaintenanceLedgerEntries,
-  readAgentTaskResult,
-  readMaintenanceReviewWatermark } from "../../../agent-task/manager.js";
-import { listAuditResults,
-  summarizeAudit } from "../../../audit/artifacts.js";
-import { listPlanProposalSummaries,
-  listSpecProposalSummaries } from "../../../change/proposals.js";
-import { getChangeStatusForChange } from "../../../change/manager.js";
-import { buildAcMap } from "../../../ecl/anchors.js";
-import { buildChangeIndex,
-  hasPendingEvolution } from "../../../ecl/index.js";
-import { readRequiredJsonFile } from "../../../fs/json.js";
-import { getTemplateRoot } from "../../../template-source/paths.js";
+import { listAuditResults } from "../../../audit/artifacts.js";
 import { latestLandingQueueSnapshot } from "../../../landing-queue/manager.js";
 import { getMemoryStatus } from "../../../memory/status.js";
-import { resolveMemory } from "../../../memory/resolver.js";
 import { isGitDirty } from "../../../project/git.js";
-import { readProjectMarker } from "../../../project/marker.js";
 import { getProjectStatus } from "../../../project/status.js";
 import { listRuns,
   readRun } from "../../../run/manager.js";
-import { getSpecTestDriftReport } from "../../../spec-test/drift.js";
-import { getSpecTestStatus } from "../../../spec-test/manager.js";
-import { listSpecTestProposalSummaries } from "../../../spec-test/proposal.js";
 import { listDemandWorkers } from "../../../demand-worker/manager.js";
-import { isActiveTaskRunStatus,
-  listTaskRuns,
-  listWorkerLeases } from "../../../task-run/manager.js";
-import { listTaskQueueItems,
-  listTaskQueues } from "../../../task-queue/manager.js";
+import { isActiveTaskRunStatus } from "../../../task-run/manager.js";
+import { listTaskQueues } from "../../../task-queue/manager.js";
 import { getLatestWorkflowRun,
   summarizeWorkflowRun } from "../../../workflow-run/manager.js";
-import { listValidationResults,
-  summarizeValidation } from "../../../validation/artifacts.js";
-import { listWorktreeStatuses,
-  listWorktreesForChange } from "../../../worktree/manager.js";
+import { listValidationResults } from "../../../validation/artifacts.js";
 import {
   type DecompositionPlan,
   type DecompositionReadinessManifest,
@@ -77,21 +49,27 @@ import {
 import type { ClarificationRequest } from "../../intake.js";
 import { buildParentAgentTranscript,
   type ParentAgentTranscript } from "../../parent-agent-transcript.js";
-import { WorkbenchStore,
-  type StoredDecisionRecord } from "../../store.js";
 import { summarizeRunArtifacts
 } from "../artifact-preview.js";
-import { buildThreadStream, isConcreteChangeFile, readRunEvents } from "./thread-stream.js";
+import { isConcreteChangeFile, readRunEvents } from "./thread-stream.js";
 import { buildConfirmationQueue, emptyConfirmationQueue } from "./confirmation-queue.js";
+import { listWorkbenchDecisions } from "./decision-store.js";
+import { buildAgentTaskSummaries } from "./agent-task-summary.js";
+import { buildApprovalInbox, approvalAction } from "./approval-inbox.js";
+import { buildMaintenanceSummary } from "./maintenance-summary.js";
 import { buildDemandAgentRunGraph,
   emptyAgentRunGraph,
   emptyParentAgentTranscript,
   shellWorkbenchWorkpad } from "./run-graph.js";
+import { listWorkbenchRoles } from "./roles.js";
+import {
+  buildHarnessGaps,
+  buildRepoSummary,
+  resolveWorkbenchMemory,
+} from "./support.js";
+import { listWorkbenchTopicsFromMemory, selectTopicDetail } from "./topics.js";
 import type {
   AuditSummary,
-  AcMap,
-  ChangeIndexItem,
-  ChangeMetadata,
   ManagedProject,
   ResolvedMemory,
   RunMetadata,
@@ -99,9 +77,6 @@ import type {
   ValidationSummary,
   WorkerLease,
   WorktreeStatus,
-  AgentTask,
-  MaintenanceLedgerEntry,
-  DemandMemoryCloseout,
   LandingQueueSnapshot,
   WorkflowRunSummary
 } from "../../../types/index.js";
@@ -110,7 +85,6 @@ import type {
   DemandAgentRunGraph,
   HarnessGap,
   WorkbenchAgentTaskSummary,
-  WorkbenchApprovalAction,
   WorkbenchApprovalItem,
   WorkbenchApprovalKind,
   WorkbenchAutoReworkSummary,
@@ -135,7 +109,6 @@ import type {
   WorkbenchReworkPrompt,
   WorkbenchRolePipelineSummary,
   WorkbenchRoleRunSummary,
-  WorkbenchRoleSummary,
   WorkbenchScopedFeedbackTarget,
   WorkbenchSnapshot,
   WorkbenchStreamPacket,
@@ -243,16 +216,8 @@ export type {
   WorkpadRelatedMemorySummary,
   WorkpadTaskPreview,
 } from "../../read-model-types.js";
-const changeMetadataSchema = z.object({
-  version: z.literal("1.0"),
-  id: z.string(),
-  title: z.string(),
-  state: z.enum(["active", "archived"]),
-  createdAt: z.string(),
-  updatedAt: z.string(),
-  closedAt: z.string().nullable(),
-  archivePath: z.string().nullable(),
-});
+
+export { listWorkbenchRoles } from "./roles.js";
 
 const OFFICIAL_REWORK_BUDGET = 1;
 
@@ -492,43 +457,6 @@ export async function listWorkbenchApprovals(input: WorkbenchProjectInput, optio
   const approvals = await buildApprovalInbox(input.project, memory, topics);
   if (!options.topicId) return approvals;
   return approvals.filter((item) => !item.changeId || item.changeId === options.topicId);
-}
-
-export async function listWorkbenchRoles(): Promise<WorkbenchRoleSummary[]> {
-  const profileRoot = join(dirname(getTemplateRoot()), "agent-profiles");
-  if (!existsSync(profileRoot)) return [];
-  const entries = await readdir(profileRoot, { withFileTypes: true });
-  const roles = await Promise.all(entries
-    .filter((entry) => entry.isFile() && entry.name.endsWith(".md"))
-    .map(async (entry) => summarizeRoleProfile(profileRoot, entry.name)));
-  return roles.sort((a, b) => a.id.localeCompare(b.id));
-}
-
-async function listWorkbenchDecisions(memory: ResolvedMemory, topicId?: string): Promise<WorkbenchDecisionItem[]> {
-  if (!memory.projectId) return [];
-  const store = await WorkbenchStore.open(memory);
-  try {
-    return store.listDecisions(memory.projectId, topicId).slice(0, 20).map(mapDecisionRecord);
-  } finally {
-    store.close();
-  }
-}
-
-function mapDecisionRecord(record: StoredDecisionRecord): WorkbenchDecisionItem {
-  return {
-    id: record.id,
-    kind: record.decisionType,
-    label: record.label,
-    status: record.status,
-    changeId: record.changeId ?? undefined,
-    runId: record.runId ?? undefined,
-    targetId: record.targetId ?? undefined,
-    artifact: record.artifact ?? undefined,
-    summary: record.summary,
-    feedback: record.feedback ?? undefined,
-    updatedAt: record.updatedAt,
-    completedAt: record.completedAt ?? undefined,
-  };
 }
 
 function buildDiagnosticWorkpad(projectName: string, warnings: string[], gaps: HarnessGap[]): WorkbenchWorkpad {
@@ -906,85 +834,6 @@ function buildRolePipelineSummary(
     ? "running"
     : stage === "needs-user-input" ? "needs-user-input" : stage === "done" ? "completed" : planningBundle?.status === "confirmed" ? "completed" : "draft";
   return { stage, status, runs, agentTasks, reworkUsed: 0, reworkBudget: OFFICIAL_REWORK_BUDGET };
-}
-
-async function buildAgentTaskSummaries(memory: ResolvedMemory, changeId: string): Promise<WorkbenchAgentTaskSummary[]> {
-  const tasks = await listAgentTasks(memory, changeId).catch(() => []);
-  return Promise.all(tasks.slice(-12).map(async (task) => agentTaskToSummary(memory, task)));
-}
-
-async function agentTaskToSummary(memory: ResolvedMemory, task: AgentTask): Promise<WorkbenchAgentTaskSummary> {
-  const result = await readAgentTaskResult(memory, task.id).catch(() => null);
-  return {
-    id: task.id,
-    roleId: task.roleId,
-    kind: task.kind,
-    status: task.status,
-    changeId: task.changeId,
-    runId: result?.artifactRefs.find((ref) => ref.includes("/runs/") || ref.startsWith("runs/")),
-    summary: task.summary,
-    resultSummary: result?.summary,
-    evidenceRefs: result?.artifactRefs ?? task.outputArtifacts ?? task.inputArtifacts,
-    policyAuditRefs: result?.policyAuditRefs ?? [],
-    boundaryAuditRefs: result?.boundaryAuditRefs ?? [],
-    boundaryViolations: (result?.boundaryViolations ?? []).map((violation) => violation.reason),
-    createdAt: task.createdAt,
-    completedAt: task.finishedAt ?? undefined,
-  };
-}
-
-async function buildMaintenanceSummary(memory: ResolvedMemory): Promise<WorkbenchMaintenanceSummary> {
-  const entries = await listMaintenanceLedgerEntries(memory).catch(() => []);
-  const closeouts = await listDemandMemoryCloseouts(memory).catch(() => []);
-  const watermark = await readMaintenanceReviewWatermark(memory).catch(() => null);
-  const latest = latestMaintenanceEntry(entries);
-  const reviewed = new Set(watermark?.lastReviewedChangeIds ?? []);
-  const unreviewed = closeouts.filter((closeout) => !reviewed.has(`${closeout.changeId}:${closeout.terminalKind}`)).length;
-  const latestCloseout = latestCloseoutEntry(closeouts);
-  const status: WorkbenchMaintenanceSummary["status"] = unreviewed >= 5
-    ? "review-ready"
-    : watermark?.lastReviewWindowId
-      ? "reviewed"
-      : entries.length > 0 || closeouts.length > 0
-        ? "collecting"
-        : "idle";
-  return {
-    ledgerCount: entries.length,
-    closeoutCount: closeouts.length,
-    latestReviewWindowId: watermark?.lastReviewWindowId ?? undefined,
-    unreviewedTerminalCount: unreviewed,
-    latest: latest ? {
-      id: latest.id,
-      eventType: latest.eventType,
-      changeId: latest.changeId,
-      summary: latest.summary,
-      severity: "info",
-      createdAt: latest.createdAt,
-    } : latestCloseout ? {
-      id: latestCloseout.id,
-      eventType: "change-closeout",
-      changeId: latestCloseout.changeId,
-      summary: latestCloseout.finalResult,
-      severity: "info",
-      createdAt: latestCloseout.createdAt,
-    } : undefined,
-    status,
-    note: status === "reviewed"
-      ? "后台维护已生成独立审查。维护结果只在项目维护中查看，不进入当前需求确认队列。"
-      : unreviewed >= 5
-        ? "后台维护已有 5 个终态需求可审查。系统会生成候选、评分和审查，不会静默改写项目文档或稳定记忆。"
-        : closeouts.length > 0 || entries.length > 0
-          ? "后台会自动整理需求记忆、候选和索引；维护项不进入当前需求确认队列。"
-          : "尚无后台维护证据。归档、应用、失败和用户反馈会自动进入维护证据账本。",
-  };
-}
-
-function latestMaintenanceEntry(entries: MaintenanceLedgerEntry[]): MaintenanceLedgerEntry | undefined {
-  return [...entries].sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
-}
-
-function latestCloseoutEntry(closeouts: DemandMemoryCloseout[]): DemandMemoryCloseout | undefined {
-  return [...closeouts].sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
 }
 
 async function buildResultReview(project: ManagedProject | null, memory: ResolvedMemory, topic: WorkbenchTopicDetail): Promise<WorkbenchResultReview | undefined> {
@@ -2448,398 +2297,3 @@ function stateLabelForWorkpad(state: WorkbenchTopicState): string {
   if (state === "active") return "进行中";
   return "已归档";
 }
-
-async function listWorkbenchTopicsFromMemory(memory: ResolvedMemory): Promise<WorkbenchTopicSummary[]> {
-  const index = await buildChangeIndex(memory);
-  const groups: Array<[WorkbenchTopicState, ChangeIndexItem[]]> = [
-    ["active", index.active],
-    ["archive", index.archive],
-  ];
-  const topics: WorkbenchTopicSummary[] = [];
-  for (const [state, items] of groups) {
-    for (const item of items) topics.push(await topicSummaryFromItem(memory, state, item));
-  }
-  return topics.sort((a, b) => stateRank(a.state) - stateRank(b.state) || (b.updatedAt ?? b.name).localeCompare(a.updatedAt ?? a.name));
-}
-
-async function topicSummaryFromItem(memory: ResolvedMemory, state: WorkbenchTopicState, item: ChangeIndexItem): Promise<WorkbenchTopicSummary> {
-  const metadata = await readChangeMetadataAt(memory, item.path);
-  return {
-    id: metadata?.id ?? item.name,
-    name: item.name,
-    title: metadata?.title ?? item.name,
-    state,
-    path: item.path,
-    createdAt: metadata?.createdAt,
-    updatedAt: metadata?.updatedAt,
-    closedAt: metadata?.closedAt,
-    archivePath: metadata?.archivePath,
-  };
-}
-
-async function buildTopicAcMap(memory: ResolvedMemory, topic: WorkbenchTopicSummary): Promise<AcMap | null> {
-  const specPath = join(memory.memoryRoot, topic.path, "spec.md");
-  const tasksPath = join(memory.memoryRoot, topic.path, "tasks.md");
-  if (!existsSync(specPath) || !existsSync(tasksPath)) return null;
-  const [specContent, tasksContent] = await Promise.all([
-    readFile(specPath, "utf8"),
-    readFile(tasksPath, "utf8"),
-  ]);
-  return buildAcMap({
-    changeId: topic.id,
-    specContent,
-    tasksContent,
-    placeholderFiles: [
-      { path: "spec.md", content: specContent },
-      { path: "tasks.md", content: tasksContent },
-    ],
-  });
-}
-
-async function selectTopicDetail(project: ManagedProject | null, memory: ResolvedMemory, topics: WorkbenchTopicSummary[], topicId?: string): Promise<WorkbenchTopicDetail | null> {
-  const topic = topicId
-    ? topics.find((item) => item.id === topicId || item.name === topicId)
-    : topics.find((item) => item.state === "active") ?? topics[0];
-  if (!topic) return null;
-
-  const change = await readChangeMetadataAt(memory, topic.path);
-  const allRuns = await listRuns(memory);
-  const runs = allRuns.filter((run) => run.changeId === topic.id || run.changeId === topic.name);
-  const [worktrees, validations, audits, taskRuns, workerLeases, taskQueues, taskQueueItems] = await Promise.all([
-    listWorktreesForChange(memory, topic.id).catch(() => []),
-    listValidationResults(memory, topic.id).then((items) => items.map(summarizeValidation)).catch(() => []),
-    listAuditResults(memory, topic.id).then((items) => items.map(summarizeAudit)).catch(() => []),
-    listTaskRuns(memory, topic.id).catch(() => []),
-    listWorkerLeases(memory, topic.id).catch(() => []),
-    listTaskQueues(memory, topic.id).catch(() => []),
-    listTaskQueueItems(memory, topic.id).catch(() => []),
-  ]);
-
-  let statusDetail: Awaited<ReturnType<typeof getChangeStatusForChange>> | null = null;
-  let specTest: unknown = null;
-  let drift: unknown = null;
-  if (project && topic.state === "active") {
-    statusDetail = await getChangeStatusForChange(project, topic.id).catch(() => null);
-    specTest = await getSpecTestStatus(memory).catch(() => null);
-    drift = await getSpecTestDriftReport(memory).catch(() => null);
-  }
-  const acMap = statusDetail?.acMap ?? await buildTopicAcMap(memory, topic);
-
-  const decisions = project ? await listWorkbenchDecisions(memory, topic.id) : [];
-  const threadItems = await buildThreadStream(memory, topic, runs, validations, audits, decisions);
-  return {
-    ...topic,
-    change,
-    reviewStatus: statusDetail?.reviewStatus,
-    closeGate: statusDetail?.closeGate,
-    acMap,
-    acCount: acMap?.acceptanceCriteria.length,
-    taskCount: acMap?.tasks.length,
-    specTest,
-    drift,
-    runs,
-    taskQueues,
-    taskQueueItems,
-    taskRuns,
-    workerLeases,
-    worktrees,
-    validations,
-    audits,
-    threadItems,
-  };
-}
-
-async function buildApprovalInbox(project: ManagedProject, memory: ResolvedMemory, topics: WorkbenchTopicSummary[]): Promise<WorkbenchApprovalItem[]> {
-  const approvals: WorkbenchApprovalItem[] = [];
-  const activeTopics = topics.filter((item) => item.state === "active");
-  const [specProposals, planProposals, specTestProposals] = await Promise.all([
-    listSpecProposalSummaries(project).catch(() => []),
-    listPlanProposalSummaries(project).catch(() => []),
-    listSpecTestProposalSummaries(project).catch(() => []),
-  ]);
-
-  for (const proposal of specProposals.filter((item) => item.status === "proposed")) {
-    if (await runHasEvent(memory, proposal.runId, "change.spec.proposal.accepted")) continue;
-    approvals.push({
-      id: `spec:${proposal.id}`,
-      kind: "spec-proposal",
-      label: `Spec proposal ready: ${proposal.id}`,
-      changeId: proposal.changeId,
-      runId: proposal.runId,
-      targetId: proposal.id,
-      severity: "info",
-      action: approvalAction("change.spec.accept", "Accept spec proposal", "change", ["spec", "accept", project.id, proposal.id], true),
-    });
-  }
-  for (const proposal of planProposals.filter((item) => item.status === "proposed")) {
-    if (await runHasEvent(memory, proposal.runId, "change.plan.proposal.accepted")) continue;
-    approvals.push({
-      id: `plan:${proposal.id}`,
-      kind: "plan-proposal",
-      label: `Plan proposal ready: ${proposal.id}`,
-      changeId: proposal.changeId,
-      runId: proposal.runId,
-      targetId: proposal.id,
-      severity: "info",
-      action: approvalAction("change.plan.accept", "Accept plan proposal", "change", ["plan", "accept", project.id, proposal.id], true),
-    });
-  }
-  for (const proposal of specTestProposals.filter((item) => item.status === "proposed" && item.acceptedSourceRootCount === 0)) {
-    approvals.push({
-      id: `spec-test:${proposal.id}`,
-      kind: "spec-test-proposal",
-      label: `Spec-test evidence proposal ready: ${proposal.id}`,
-      changeId: proposal.changeId,
-      runId: proposal.runId,
-      targetId: proposal.id,
-      severity: "info",
-      action: approvalAction("spec-test.proposal.accept-all-existing", "Accept source-root spec-test evidence", "spec-test", ["proposal", "accept", project.id, proposal.id, "--all-existing"], true),
-    });
-  }
-
-  const worktrees = await listWorktreeStatuses(memory).catch(() => []);
-  for (const activeTopic of activeTopics) {
-    const audits = await listAuditResults(memory, activeTopic.id).catch(() => []);
-    for (const audit of audits.filter((item) => item.status === "approved" || item.status === "approved-with-notes").slice(0, 3)) {
-      if (await auditAlreadyAccepted(memory, activeTopic.path, audit.id)) continue;
-      approvals.push({
-        id: `audit:${audit.id}`,
-        kind: "audit-proposal",
-        label: `Audit proposal can be accepted: ${audit.id}`,
-        changeId: audit.changeId,
-        runId: audit.runId,
-        targetId: audit.id,
-        severity: "info",
-        action: approvalAction("audit.accept", "Accept audit", "audit", ["accept", project.id, audit.id], true),
-        artifact: audit.artifacts.audit,
-      });
-    }
-    for (const worktree of worktrees.filter((item) => item.changeId === activeTopic.id && item.status !== "applied")) {
-      const preview = await previewWorktreeApply(project, worktree.worktreeId).catch(() => null);
-      if (preview && canApplyResultFromGate(preview.gate)) {
-        approvals.push({
-          id: `apply:${worktree.worktreeId}`,
-          kind: "worktree-apply",
-          label: `结果可应用到项目：${worktree.worktreeId}`,
-          changeId: worktree.changeId,
-          targetId: worktree.worktreeId,
-          severity: "info",
-          action: approvalAction("result.apply", "应用到项目", "result", ["apply", project.id, worktree.changeId, worktree.worktreeId], true),
-          artifact: preview.gate.audit?.artifacts.audit,
-        });
-      }
-    }
-    const status = await getChangeStatusForChange(project, activeTopic.id).catch(() => null);
-    if (status?.closeGate.ready) {
-      approvals.push({
-        id: `close:${activeTopic.id}`,
-        kind: "change-close",
-        label: `Change ready to close: ${activeTopic.id}`,
-        changeId: activeTopic.id,
-        targetId: activeTopic.id,
-        severity: "info",
-        action: approvalAction("change.close", "Close change", "change", ["close", project.id, activeTopic.id], true),
-      });
-    }
-    if (status?.latestValidation?.status === "failed") {
-      approvals.push({
-        id: `attention:validation:${activeTopic.id}:${status.latestValidation.id}`,
-        kind: "attention",
-        label: `Latest validation failed: ${status.latestValidation.id}`,
-        changeId: activeTopic.id,
-        targetId: status.latestValidation.id,
-        severity: "blocking",
-        reason: "Failed validation blocks close.",
-      });
-    }
-    if (status?.latestAudit?.status === "blocked") {
-      approvals.push({
-        id: `attention:audit:${activeTopic.id}:${status.latestAudit.id}`,
-        kind: "attention",
-        label: `Latest audit blocked: ${status.latestAudit.id}`,
-        changeId: activeTopic.id,
-        targetId: status.latestAudit.id,
-        severity: "blocking",
-        reason: "Blocked audit prevents safe close.",
-      });
-    }
-  }
-
-  if (hasPendingEvolution(memory)) {
-    approvals.push({
-      id: "evolution:pending",
-      kind: "evolution",
-      label: "Harness evolution pending",
-      severity: "warning",
-      action: approvalAction("evolution.handle", "Handle Harness evolution", "harness-evolve", ["status"], false),
-      artifact: "harness/evolution/pending.md",
-      reason: "Handle through proposal, independent review, validation, results.tsv, and mark-complete.",
-    });
-  }
-  return approvals;
-}
-
-async function runHasEvent(memory: ResolvedMemory, runId: string, eventType: string): Promise<boolean> {
-  try {
-    const run = await readRun(memory, runId);
-    const events = await readRunEvents(memory, run);
-    return events.some((event) => event.type === eventType);
-  } catch {
-    return false;
-  }
-}
-
-async function auditAlreadyAccepted(memory: ResolvedMemory, changePath: string, auditId: string): Promise<boolean> {
-  const reviewPath = join(memory.memoryRoot, changePath, "reviews", "review.md");
-  if (!existsSync(reviewPath)) return false;
-  try {
-    const content = await readFile(reviewPath, "utf8");
-    return content.includes(`- Audit ID: ${auditId}`) || content.includes(`Audit ID: ${auditId}`);
-  } catch {
-    return false;
-  }
-}
-
-function approvalAction(actionId: string, label: string, command: string, args: string[], mutates: boolean): WorkbenchApprovalAction {
-  return {
-    actionId,
-    label,
-    command,
-    args,
-    mutates,
-    requiresConfirmation: mutates,
-  };
-}
-
-async function summarizeRoleProfile(profileRoot: string, fileName: string): Promise<WorkbenchRoleSummary> {
-  const profilePath = join(profileRoot, fileName);
-  const content = await readFile(profilePath, "utf8");
-  const id = fileName.replace(/\.md$/, "");
-  const title = /^#\s+(.+)\s*$/m.exec(content)?.[1] ?? id;
-  const sections = [...content.matchAll(/^##\s+(.+)\s*$/gm)].map((match) => match[1]);
-  return {
-    id,
-    name: title,
-    profilePath: relative(dirname(getTemplateRoot()), profilePath).replace(/\\/g, "/"),
-    writeCapability: writeCapabilityForRole(id),
-    preferredRuntime: preferredRuntimeForRole(id),
-    delegatable: id !== "validator",
-    humanConfirmation: humanConfirmationForRole(id),
-    sections,
-  };
-}
-
-function buildHarnessGaps(): HarnessGap[] {
-  return [
-    {
-      id: "roleCatalog",
-      severity: "info",
-      status: "partial",
-      recommendedPhase: "Phase 5A",
-      summary: "Bundled role profiles exist and are readable, but there is no declarative project role registry yet.",
-    },
-    {
-      id: "runStreamIndex",
-      severity: "info",
-      status: "partial",
-      recommendedPhase: "Phase 5B",
-      summary: "Run stream replay packets are available after Phase 5B, but live transport and cancel/interrupt remain future work.",
-    },
-    {
-      id: "approvalIndex",
-      severity: "info",
-      status: "partial",
-      recommendedPhase: "Phase 5B",
-      summary: "审批项从 canonical state 派生；当前没有独立持久化审批列表。",
-    },
-    {
-      id: "sessionModel",
-      severity: "info",
-      status: "missing",
-      recommendedPhase: "Future",
-      summary: "Run is the current execution source of truth. Session remains a future runtime auxiliary.",
-    },
-    {
-      id: "workspaceIndex",
-      severity: "info",
-      status: "partial",
-      recommendedPhase: "Phase 5C",
-      summary: "Memory Resolver provides roots, but there is no workspace-wide index comparable to AgentScope workspace indexes.",
-    },
-    {
-      id: "subagentSpec",
-      severity: "info",
-      status: "missing",
-      recommendedPhase: "Phase 5C",
-      summary: "No declarative subagent registry exists. Current roles are bundled profiles selected by commands.",
-    },
-    {
-      id: "backgroundEvolutionQueue",
-      severity: "warning",
-      status: "partial",
-      recommendedPhase: "Future",
-      summary: "演进仍是显式受控流程；当前没有自动修改 canonical 文档的后台维护通道。",
-    },
-  ];
-}
-
-async function resolveWorkbenchMemory(input: WorkbenchProjectInput): Promise<ResolvedMemory> {
-  const marker = await readProjectMarker(input.path);
-  return resolveMemory(input.project ? { ...input.project, marker } : { path: input.path, marker });
-}
-
-async function readChangeMetadataAt(memory: ResolvedMemory, relativePath: string): Promise<ChangeMetadata | null> {
-  const path = join(memory.memoryRoot, relativePath, "change.json");
-  if (!existsSync(path)) return null;
-  try {
-    return await readRequiredJsonFile(path, changeMetadataSchema);
-  } catch {
-    return null;
-  }
-}
-
-function stateRank(state: WorkbenchTopicState): number {
-  if (state === "active") return 0;
-  return 1;
-}
-
-function buildRepoSummary(status: Awaited<ReturnType<typeof getProjectStatus>>): WorkbenchSnapshot["left"]["repo"] {
-  return {
-    path: status.path,
-    exists: status.pathExists,
-    git: status.isGitRepo,
-    branch: status.branch,
-    dirty: status.dirty,
-  };
-}
-
-function writeCapabilityForRole(id: string): WorkbenchRoleSummary["writeCapability"] {
-  if (id === "coder" || id === "spec-test-generator") return "worktree-write";
-  if (id === "validator") return "deterministic-writer";
-  return "read-only";
-}
-
-function preferredRuntimeForRole(id: string): string {
-  if (id === "validator") return "local-command";
-  return "codex";
-}
-
-function humanConfirmationForRole(id: string): string {
-  if (id === "validator") return "Validation is mechanical evidence; failed validation blocks close.";
-  if (id === "coder" || id === "spec-test-generator") return "Requires validation, audit, and explicit worktree apply.";
-  if (id === "auditor") return "Requires explicit audit accept before writing review.md.";
-  return "Requires explicit accept command before canonical state changes.";
-}
-
-
-
-
-
-
-
-
-
-
-
-
-
