@@ -37,7 +37,7 @@ export async function executeStartedTaskRunWorkflow(
   });
   try {
     const memory = await resolveProjectMemory(project);
-    await markTaskRunStarted(memory, started.taskRun.id);
+    await markTaskRunStarted(memory, started.taskRun.id, { changeId: started.taskRun.changeId, taskId: started.taskRun.taskId });
     emitAssistantEvent(live, {
       runId: started.taskRun.id,
       kind: "status",
@@ -46,7 +46,7 @@ export async function executeStartedTaskRunWorkflow(
       summary: `${started.taskRun.taskId} attempt ${started.taskRun.attempt} started the Coder -> Validation -> Audit workflow.`,
     });
     const workflow = await runCodeValidateAuditSequence(project, started.taskRun.changeId, prompt, live, [started.taskRun.taskId], started.taskRun.id, "coder-agent", undefined, undefined, executionGate);
-    const taskRun = await finishTaskRunFromWorkflowResult(memory, started.taskRun.id, workflow);
+    const taskRun = await finishTaskRunFromWorkflowResult(memory, started.taskRun.id, workflow, { changeId: started.taskRun.changeId, taskId: started.taskRun.taskId });
     if (shouldAutoReworkTaskRun(taskRun)) {
       emitAssistantEvent(live, {
         runId: taskRun.id,
@@ -62,7 +62,7 @@ export async function executeStartedTaskRunWorkflow(
     return { taskRun, lease: started.lease, workflow };
   } catch (cause) {
     const memory = await resolveProjectMemory(project);
-    await finishTaskRunFromWorkflowResult(memory, started.taskRun.id, { stoppedAt: "code", code: { run: { status: "failed" } } }).catch(() => undefined);
+    await finishTaskRunFromWorkflowResult(memory, started.taskRun.id, { stoppedAt: "code", code: { run: { status: "failed" } } }, { changeId: started.taskRun.changeId, taskId: started.taskRun.taskId }).catch(() => undefined);
     throw cause;
   }
 }

@@ -80,6 +80,7 @@ import {
   sourceRefreshReworkPrompt,
 } from "../../src/workflow-runtime/code-workflow.js";
 import { listTaskQueueItems as listTaskQueueItemsFacade, listTaskQueues as listTaskQueuesFacade, reconcileTaskQueues as reconcileTaskQueuesFacade, startOrResumeTaskQueue as startOrResumeTaskQueueFacade } from "../../src/task-queue/manager.js";
+import { finishTaskRunFromWorkflowResult, listTaskRuns as listTaskRunsFacade, listWorkerLeases as listWorkerLeasesFacade, markTaskRunStarted, reconcileTaskRuns as reconcileTaskRunsFacade, startTaskRun } from "../../src/task-run/manager.js";
 import { createTaskQueueRunFromProposal } from "../../src/task-queue/queue-creation.js";
 import { readTaskQueueRun } from "../../src/task-queue/repository.js";
 import { validateNewTaskQueueStart } from "../../src/task-queue/start-validation.js";
@@ -224,6 +225,12 @@ describe("Workbench module boundaries", () => {
     expect(typeof listTaskQueuesFacade).toBe("function");
     expect(typeof listTaskQueueItemsFacade).toBe("function");
     expect(typeof reconcileTaskQueuesFacade).toBe("function");
+    expect(typeof startTaskRun).toBe("function");
+    expect(typeof listTaskRunsFacade).toBe("function");
+    expect(typeof listWorkerLeasesFacade).toBe("function");
+    expect(typeof reconcileTaskRunsFacade).toBe("function");
+    expect(typeof markTaskRunStarted).toBe("function");
+    expect(typeof finishTaskRunFromWorkflowResult).toBe("function");
     expect(typeof validateNewTaskQueueStart).toBe("function");
     expect(typeof createTaskQueueRunFromProposal).toBe("function");
     expect(typeof readTaskQueueRun).toBe("function");
@@ -460,6 +467,16 @@ describe("Workbench module boundaries", () => {
         ],
       },
       {
+        roots: ["src/task-run"],
+        forbidden: [
+          /from\s+["']\.\/manager\.js["']/,
+          /from\s+["']\.\.\/workbench\//,
+          /from\s+["']\.\.\/server\//,
+          /from\s+["']\.\.\/web\//,
+          /from\s+["']\.\.\/cli\//,
+        ],
+      },
+      {
         roots: [
           "src/types/change-ecl.ts",
           "src/types/maintenance.ts",
@@ -658,6 +675,29 @@ describe("Workbench module boundaries", () => {
     const repository = readFileSync("src/demand-worker/repository.ts", "utf8");
     expect(repository).toContain('from "./queue-projection.js"');
     expect(repository).toContain("writeDemandWorkerQueueProjection");
+  });
+
+  it("keeps task-run manager as a compatibility facade with scoped evidence modules", () => {
+    const facade = readFileSync("src/task-run/manager.ts", "utf8");
+    expect(facade).toContain('export * from "./schemas.js";');
+    expect(facade).toContain('export * from "./repository.js";');
+    expect(facade).toContain('export * from "./lease-service.js";');
+    expect(facade).toContain('export * from "./start-retry.js";');
+    expect(facade).toContain('export * from "./reconcile.js";');
+    expect(facade).toContain('export * from "./workflow-result.js";');
+    expect(facade).not.toMatch(/async function startTaskRun/);
+    expect(facade).not.toMatch(/async function reconcileTaskRuns/);
+    expect(facade).not.toMatch(/taskRunSchema/);
+
+    const reconcile = readFileSync("src/task-run/reconcile.ts", "utf8");
+    expect(reconcile).toContain("run.taskRunId === taskRun.id && run.changeId === options.changeId");
+
+    const workflowResult = readFileSync("src/task-run/workflow-result.ts", "utf8");
+    expect(workflowResult).toContain("assertWorkflowResultLinkMatchesTaskRun");
+    expect(workflowResult).toContain("link.changeId !== taskRun.changeId");
+
+    const artifacts = readFileSync("src/task-run/artifacts.ts", "utf8");
+    expect(artifacts).toContain("assertTaskRunMatchesScope");
   });
 
   it("keeps type index as a compatibility re-export barrel", () => {

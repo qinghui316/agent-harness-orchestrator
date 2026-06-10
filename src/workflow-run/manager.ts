@@ -264,7 +264,7 @@ export function summarizeWorkflowRun(run: WorkflowRun): WorkflowRunSummary {
 
 export async function deriveStageResumeVerdict(memory: ResolvedMemory, changeId: string, taskRun: TaskRun): Promise<StageResumeVerdict> {
   const runs = await listRuns(memory);
-  const coderRun = runs.find((run) => run.taskRunId === taskRun.id);
+  const coderRun = runs.find((run) => run.taskRunId === taskRun.id && run.changeId === changeId);
   if (!coderRun) {
     return { kind: "start-coder", taskRunId: taskRun.id, taskId: taskRun.taskId, reason: "No coder run evidence exists for this TaskRun.", evidenceRefs: [] };
   }

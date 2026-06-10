@@ -47,6 +47,7 @@ import { classifyPrFeedbackSnapshotData } from "../../src/pr-feedback/manager.js
 import { cleanupRemoteBranchAfterMerge, preparePostMergeHandoff, syncLocalAfterMerge } from "../../src/post-merge/manager.js";
 import { mergeNextLandingQueueCandidate, prepareLandingQueue } from "../../src/landing-queue/manager.js";
 import { listTaskQueueItems, listTaskQueues, pauseTaskQueue, reconcileTaskQueues, startOrResumeTaskQueue } from "../../src/task-queue/manager.js";
+import { finishTaskRunFromWorkflowResult, markTaskRunStarted } from "../../src/task-run/manager.js";
 import { createWorkflowRunForTaskQueue, readWorkflowRun, readWorkflowRunEvents, validateTaskQueueProposalStart } from "../../src/workflow-run/manager.js";
 import { compileWorkflowGraphPlan, hashArtifactRefs } from "../../src/workflow-artifacts/manager.js";
 import { listIntegrationChecks } from "../../src/integration-check/manager.js";
@@ -1000,6 +1001,64 @@ describe("workbench read model", () => {
       taskRun: expect.objectContaining({ id: "taskrun-reconcile-1", status: "completed" }),
       workerLease: expect.objectContaining({ id: "lease-reconcile-1", status: "released" }),
     });
+  });
+
+  it("does not reconcile a TaskRun from cross-change coder Run evidence", async () => {
+    await initHarness(project());
+    await createChange(project(), { title: "TaskRun Scoped Reconcile" });
+    await writeAcceptedSpecAndTasks("taskrun-scoped-reconcile");
+    await writeTaskRunRecord("taskrun-scoped-reconcile", "taskrun-scoped-1", "T-001", "claimed", 1, {
+      leaseId: "lease-scoped-1",
+    });
+    await writeWorkerLeaseRecord("taskrun-scoped-reconcile", "lease-scoped-1", "taskrun-scoped-1", "T-001", "claimed");
+    await writeCoderRun("other-change", "run-cross-change-1", ["T-001"], "wt-cross-change-1", "completed", "taskrun-scoped-1");
+    await writeValidationResult("taskrun-scoped-reconcile", "validation-scoped-1", "wt-cross-change-1", "passed");
+    await writeAuditResult("taskrun-scoped-reconcile", "audit-scoped-1", "wt-cross-change-1", "approved");
+
+    const result = await executeWorkbenchAction({ project: project(), path: tempDir }, {
+      actionType: "task.run.reconcile",
+      changeId: "taskrun-scoped-reconcile",
+      taskRunId: "taskrun-scoped-1",
+      confirm: true,
+    });
+
+    expect(result.result).toMatchObject({
+      status: "completed",
+      result: {
+        taskRuns: [expect.objectContaining({ id: "taskrun-scoped-1", status: "claimed" })],
+        workerLeases: [expect.objectContaining({ id: "lease-scoped-1", status: "claimed" })],
+      },
+    });
+    const taskRun = result.result.status === "completed" && Array.isArray(result.result.result?.taskRuns)
+      ? result.result.result.taskRuns[0]
+      : null;
+    expect(taskRun).not.toHaveProperty("runId");
+    expect(taskRun).not.toHaveProperty("worktreeId");
+  });
+
+  it("rejects scoped TaskRun started/completion updates for the wrong Change", async () => {
+    await initHarness(project());
+    await writeTaskRunRecord("taskrun-finish-scope", "taskrun-finish-1", "T-001", "claimed", 1, {
+      leaseId: "lease-finish-1",
+    });
+    await writeWorkerLeaseRecord("taskrun-finish-scope", "lease-finish-1", "taskrun-finish-1", "T-001", "claimed");
+    const memory = await resolveProjectMemory(project());
+
+    await expect(markTaskRunStarted(memory, "taskrun-finish-1", { changeId: "wrong-change", taskId: "T-001" }))
+      .rejects.toThrow();
+    await expect(finishTaskRunFromWorkflowResult(memory, "taskrun-finish-1", {
+      stoppedAt: null,
+      code: {
+        run: {
+          id: "run-wrong-change",
+          changeId: "wrong-change",
+          taskRunId: "taskrun-finish-1",
+          taskIds: ["T-001"],
+          worktree: { worktreeId: "wt-wrong-change" },
+        },
+      },
+      audit: { audit: { status: "approved" } },
+    }, { changeId: "taskrun-finish-scope", taskId: "T-001" })).rejects.toThrow("belongs to Change wrong-change");
   });
 
   it("creates a TaskQueue from accepted tasks and skips checked tasks", async () => {
