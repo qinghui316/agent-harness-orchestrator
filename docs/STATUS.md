@@ -4,10 +4,10 @@
 
 - Current date: 2026-06-10.
 - Active ECL change: none.
-- Pending Harness evolution: `harness/evolution/pending.md` for the Phase 8K-8O archive window.
+- Pending Harness evolution: none. The Phase 8K-8O window was marked complete as `noop/dry_run`; no subagent review was used.
 - Latest archived product change: `harness/changes/archive/20260531-phase-7f-mainagent-orchestration-decision-engine/summary.md`.
 - Latest archived product/Harness docs change: `harness/changes/archive/20260602-phase-7g-open-dynamic-workflows-reference-alignment/summary.md`.
-- Latest archived Harness evolution: `harness/changes/archive/20260610-auto-evolve-harness-phase-8g-8k-boundary-evidence/summary.md`.
+- Latest archived Harness evolution: `harness/changes/archive/20260610-auto-evolve-harness-phase-8k-8o-boundary-evidence/summary.md`.
 - Active product phase: none.
 
 Current baseline:
@@ -84,8 +84,8 @@ Last completed phase:
 
 Latest Harness evolution:
 
-- `harness/changes/archive/20260610-auto-evolve-harness-phase-8g-8k-boundary-evidence/summary.md`
-- Purpose: handled the Phase 8G through Phase 8K pending evolution window as `noop/subagent_review`; authorized subagent review scored the window `90/100` and recommended no new Harness rule because existing module-boundary, handoff-drift, scoped action payload, proposal/runtime, source apply, remote handoff, and scoped evidence rules were sufficient.
+- `harness/changes/archive/20260610-auto-evolve-harness-phase-8k-8o-boundary-evidence/summary.md`
+- Purpose: handled the Phase 8K through Phase 8O pending evolution window as `noop/dry_run`; no subagent review was used, and no new Harness rule was added because existing module-boundary, handoff-drift, proposal/runtime, source/apply, remote handoff, and scoped metadata/artifact/event guard rules were sufficient.
 
 Previous documentation phase:
 
@@ -108,9 +108,11 @@ Active implementation track:
 ```text
 Active implementation track: none.
 
+Auto Evolve Harness Phase 8K 8O Boundary Evidence is closed and archived at `harness/changes/archive/20260610-auto-evolve-harness-phase-8k-8o-boundary-evidence/summary.md`. It reviewed the Phase 8K-8O pending evolution window as `noop/dry_run`, wrote `harness/evolution/proposals/20260610-phase8k-8o-boundary-evidence-noop.md`, and marked evolution complete without adding a new Harness rule. No subagent review was used because this execution was not explicitly authorized for subagents. It does not change product runtime behavior.
+
 Phase 8O is closed and archived at `harness/changes/archive/20260610-phase-8o-scoped-worktree-metadata-boundary-split/summary.md`. It repaired Worktree metadata filename/project/checkout-root scope guards and split `src/worktree/manager.ts` behind owned modules. This phase did not add runtime capability, Workbench actions, CLI commands, HTTP routes, scheduler behavior, parallel execution, automatic child Changes, ODWF JavaScript runtime, or cache/replay.
 
-Pending Harness evolution: `harness/evolution/pending.md` for the Phase 8K-8O archive window. The Phase 8G-8K window was marked complete as `noop/subagent_review` with subagent score `90/100`.
+Pending Harness evolution: none. The Phase 8K-8O window was marked complete as `noop/dry_run`; no subagent review was used. The Phase 8G-8K window was marked complete as `noop/subagent_review` with subagent score `90/100`.
 
 Phase 8N is closed and archived at `harness/changes/archive/20260610-phase-8n-run-evidence-manager-boundary-split/summary.md`. It split Run evidence internals behind `src/run/manager.ts` while keeping Run artifacts, Validation, and Audit as evidence.
 
@@ -170,7 +172,7 @@ Phase 7I implementation was verified before close. Product verification passed w
 
 The Phase 7E-7I pending evolution is closed and archived at `harness/changes/archive/20260605-auto-evolve-harness-phase-7e-7i/summary.md`. It promoted proposal/runtime boundary coverage in `docs/ECL.md` and `harness/templates/change/reviews/review.md`; `scripts/harness-evolve.ps1 check` reports no pending evolution.
 
-The latest completed product-code phase remains Phase 7F, archived at `harness/changes/archive/20260531-phase-7f-mainagent-orchestration-decision-engine/summary.md`. The latest completed product/Harness docs change is Phase 7G, archived at `harness/changes/archive/20260602-phase-7g-open-dynamic-workflows-reference-alignment/summary.md`. The latest Harness evolution, archived at `harness/changes/archive/20260609-auto-evolve-harness-phase-7y-8c-modular-boundary/summary.md`, closed the Phase 7Y through Phase 8C pending window as `noop`.
+The latest completed product-code phase remains Phase 7F, archived at `harness/changes/archive/20260531-phase-7f-mainagent-orchestration-decision-engine/summary.md`. The latest completed product/Harness docs change is Phase 7G, archived at `harness/changes/archive/20260602-phase-7g-open-dynamic-workflows-reference-alignment/summary.md`. The latest Harness evolution, archived at `harness/changes/archive/20260610-auto-evolve-harness-phase-8k-8o-boundary-evidence/summary.md`, closed the Phase 8K through Phase 8O pending window as `noop/dry_run`.
 ```
 
 Phase 6S is the background maintenance layer: every terminal demand can produce a compact closeout, and every five terminal demands can produce an independent maintenance review. The review may propose reusable lessons, doc drift findings, Harness evolution candidates, and doc refinement tasks, but it must not silently edit canonical docs, ECL, curated stable memory, or source root.
