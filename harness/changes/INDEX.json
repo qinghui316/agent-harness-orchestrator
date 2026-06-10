@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-10T15:32:23.7852101Z",
+    "generated_at":  "2026-06-10T16:17:48.4437986Z",
     "active":  [
 
                ],
@@ -585,6 +585,10 @@
                     {
                         "name":  "20260610-phase-8o-scoped-worktree-metadata-boundary-split",
                         "path":  "harness/changes/archive/20260610-phase-8o-scoped-worktree-metadata-boundary-split"
+                    },
+                    {
+                        "name":  "20260611-phase-8p-scoped-validation-audit-evidence-boundary-split",
+                        "path":  "harness/changes/archive/20260611-phase-8p-scoped-validation-audit-evidence-boundary-split"
                     }
                 ]
 }

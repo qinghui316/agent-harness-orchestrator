@@ -9,6 +9,7 @@ import { initHarness } from "../../src/harness/init.js";
 import { repoLocalMemory } from "../../src/memory/resolver.js";
 import { resolveValidationProfile } from "../../src/validation/profiles.js";
 import { startValidationRun } from "../../src/validation/manager.js";
+import { listValidationResults, readValidationResult } from "../../src/validation/artifacts.js";
 import type { ManagedProject, ValidationResult } from "../../src/types/index.js";
 
 let tempDir: string;
@@ -170,6 +171,27 @@ describe("validation", () => {
     expect(passed.closeGate.blockingIssues.join("\n")).not.toContain("Latest validation failed");
   });
 
+  it("rejects forged validation evidence on direct read and skips it in list paths", async () => {
+    await initHarness(project(tempDir));
+    await createChange(project(tempDir), { title: "Validation Scope" });
+    const memory = repoLocalMemory(tempDir, "repo");
+
+    await mkdir(join(tempDir, ".agent-harness", "runs", "validation-good"), { recursive: true });
+    await writeValidation("validation-good", "validation-scope", "passed");
+    await mkdir(join(tempDir, ".agent-harness", "runs", "validation-forged"), { recursive: true });
+    await writeValidationAt("validation-forged", "validation-other-id", "validation-scope", "failed");
+    await mkdir(join(tempDir, ".agent-harness", "runs", "validation-malformed"), { recursive: true });
+    await writeFile(join(tempDir, ".agent-harness", "runs", "validation-malformed", "validation.json"), "{", "utf8");
+
+    await expect(readValidationResult(memory, "validation-forged")).rejects.toThrow("does not match run directory");
+    await expect(readValidationResult(memory, "validation-good", { changeId: "other-change" })).rejects.toThrow("does not match requested change");
+    const listed = await listValidationResults(memory, "validation-scope");
+    expect(listed.map((item) => item.id)).toEqual(["validation-good"]);
+
+    const status = await getChangeStatus(project(tempDir));
+    expect(status.latestValidation?.id).toBe("validation-good");
+  });
+
   it("bundles agent role contracts with required sections", async () => {
     for (const name of ["validator", "auditor", "coder"]) {
       const content = await readFile(join(process.cwd(), "templates", "agent-profiles", `${name}.md`), "utf8");
@@ -190,6 +212,10 @@ describe("validation", () => {
 });
 
 async function writeValidation(id: string, changeId: string, status: "passed" | "failed", startedAt = "2026-01-01T00:00:00.000Z"): Promise<void> {
+  await writeValidationAt(id, id, changeId, status, startedAt);
+}
+
+async function writeValidationAt(directoryId: string, id: string, changeId: string, status: "passed" | "failed", startedAt = "2026-01-01T00:00:00.000Z"): Promise<void> {
   const validation: ValidationResult = {
     version: "1.0",
     id,
@@ -202,5 +228,5 @@ async function writeValidation(id: string, changeId: string, status: "passed" | 
     finishedAt: startedAt,
     commands: [],
   };
-  await writeJsonFile(join(tempDir, ".agent-harness", "runs", id, "validation.json"), validation);
+  await writeJsonFile(join(tempDir, ".agent-harness", "runs", directoryId, "validation.json"), validation);
 }

@@ -16,6 +16,7 @@ Current baseline:
 - Internal workflow model: each demand conversation binds to Change/Workpad/Topic state, role pipeline evidence, validation/audit, result review, apply/close records, and later landing/remote handoff evidence.
 - `planning-agent` and `coder-agent` may use Codex app-server when available; `codex exec` fallback remains valid and must be labeled honestly.
 - Validator and auditor remain independent evidence runners.
+- Phase 8P completed Scoped Validation Audit Evidence Boundary Split and is archived at `harness/changes/archive/20260611-phase-8p-scoped-validation-audit-evidence-boundary-split/summary.md`. It keeps Validation/Audit as evidence gates, adds strict direct-read/accept guards for malformed, forged, misplaced, or cross-Change evidence, keeps list/projection paths projection-safe by skipping bad records, and moves Validation/Audit internals behind compatibility facades without changing artifact shapes, CLI behavior, Workbench projections, or workflow truth.
 - Phase 6F completed the single-demand local loop through result review and local apply handoff.
 - Phase 6G-Prep completed documentation alignment for Harness handoff, AgentTaskRepository, background maintenance, and two-layer self-evolution boundaries.
 - Phase 6G completed foreground AgentTaskRepository integration and advisory background maintenance ledger/candidate/score/review artifacts.
@@ -111,6 +112,8 @@ Active implementation track: none.
 Auto Evolve Harness Phase 8K 8O Boundary Evidence is closed and archived at `harness/changes/archive/20260610-auto-evolve-harness-phase-8k-8o-boundary-evidence/summary.md`. It reviewed the Phase 8K-8O pending evolution window as `noop/dry_run`, wrote `harness/evolution/proposals/20260610-phase8k-8o-boundary-evidence-noop.md`, and marked evolution complete without adding a new Harness rule. No subagent review was used because this execution was not explicitly authorized for subagents. It does not change product runtime behavior.
 
 Phase 8O is closed and archived at `harness/changes/archive/20260610-phase-8o-scoped-worktree-metadata-boundary-split/summary.md`. It repaired Worktree metadata filename/project/checkout-root scope guards and split `src/worktree/manager.ts` behind owned modules. This phase did not add runtime capability, Workbench actions, CLI commands, HTTP routes, scheduler behavior, parallel execution, automatic child Changes, ODWF JavaScript runtime, or cache/replay.
+
+Phase 8P is closed and archived at `harness/changes/archive/20260611-phase-8p-scoped-validation-audit-evidence-boundary-split/summary.md`. It repaired Validation/Audit scoped evidence guards and split Validation/Audit managers behind compatibility facades while preserving artifact paths, JSON/event shapes, CLI behavior, Workbench projections, and workflow truth. This phase did not add runtime capability, Workbench actions, CLI commands, HTTP routes, scheduler behavior, parallel execution, automatic child Changes, ODWF JavaScript runtime, or cache/replay.
 
 Pending Harness evolution: none. The Phase 8K-8O window was marked complete as `noop/dry_run`; no subagent review was used. The Phase 8G-8K window was marked complete as `noop/subagent_review` with subagent score `90/100`.
 

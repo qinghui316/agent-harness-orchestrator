@@ -450,7 +450,7 @@ describe("workbench read model", () => {
     });
     await writeFile(join(tempDir, ".agent-harness", "runs", run.run.id, "validation.json"), JSON.stringify({
       version: "1.0",
-      id: "validation-code",
+      id: run.run.id,
       runId: run.run.id,
       changeId: topic.changeId,
       profile: "default",
@@ -473,7 +473,7 @@ describe("workbench read model", () => {
     }, null, 2), "utf8");
     await writeFile(join(tempDir, ".agent-harness", "runs", run.run.id, "audit.json"), JSON.stringify({
       version: "1.0",
-      id: "audit-code",
+      id: run.run.id,
       runId: run.run.id,
       changeId: topic.changeId,
       status: "approved-with-notes",
@@ -4124,6 +4124,9 @@ async function writeAuditResultWithHash(changeId: string, runId: string, worktre
   const dir = join(tempDir, ".agent-harness", "runs", runId);
   await mkdir(dir, { recursive: true });
   const now = new Date().toISOString();
+  const validationId = runId.startsWith("run-audit-")
+    ? runId.replace("run-audit-", "run-validation-")
+    : undefined;
   const audit = {
     version: "1.0",
     id: runId,
@@ -4131,7 +4134,7 @@ async function writeAuditResultWithHash(changeId: string, runId: string, worktre
     changeId,
     status,
     worktreeId,
-    validationId: "run-validation-review",
+    validationId,
     worktreeDiffHash: diffHash,
     startedAt: now,
     finishedAt: now,

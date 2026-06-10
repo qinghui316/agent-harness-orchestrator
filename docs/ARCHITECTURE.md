@@ -77,6 +77,8 @@ Phase 7N completed the first Workbench/runtime large-file boundary split. Phase 
 
 Phase 8O applies the same scoped ownership rule to Worktree metadata. Worktree records must prove filename id, JSON id, project id, and checkout root scope before status, projection, apply, remove, or mark-applied paths can trust them. Worktree internals belong in owned `src/worktree/*` modules behind the `src/worktree/manager.ts` facade; this phase does not change Worktree JSON shape, apply semantics, or workflow truth.
 
+Phase 8P applies the same scoped ownership rule to Validation and Audit evidence. `validation.json` and `audit.json` records must prove directory id, artifact id, run id, and requested Change scope before direct read, accept, close gate, apply gate, spec-test, task reconcile, queue reconcile, or workflow stage resume paths can trust them. List/projection paths skip malformed or misplaced evidence; direct read/show/accept paths fail closed. Validation and Audit internals belong in owned modules behind the `src/validation/manager.ts` and `src/audit/manager.ts` facades, and Validation/Audit remain evidence gates rather than workflow truth.
+
 Workbench relationship:
 
 ```text

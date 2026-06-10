@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { gitRaw, gitText } from "../project/git.js";
-import { getWorktreeStatus } from "../worktree/manager.js";
+import { getWorktreeStatus } from "../worktree/status.js";
 import type { ResolvedMemory, WorktreeStatus } from "../types/index.js";
 
 export interface WorktreeDiffResult {

@@ -35,6 +35,10 @@ import { getSpecTestDriftReport } from "../../src/spec-test/drift.js";
 import { startSpecTestGenerationRun } from "../../src/spec-test/generate.js";
 import { startSpecTestProposalRun } from "../../src/spec-test/proposal.js";
 import { appendRunEvent, buildContextProjection, buildRunId, listRuns, readRun, startLocalCommandRun } from "../../src/run/manager.js";
+import { getValidationStatus, listValidationSummaries, showValidation, startValidationRun } from "../../src/validation/manager.js";
+import { getLatestValidationSummary, listValidationResults, readValidationResult } from "../../src/validation/artifacts.js";
+import { acceptAudit, getAuditStatus, listAuditSummaries, showAudit, startAuditRun } from "../../src/audit/manager.js";
+import { getLatestAuditSummary, listAuditResults, readAuditResult } from "../../src/audit/artifacts.js";
 import { createWorktree as createWorktreeFacade, getWorktreeStatus as getWorktreeStatusFacade, listWorktreeStatuses as listWorktreeStatusesFacade, removeWorktree as removeWorktreeFacade } from "../../src/worktree/manager.js";
 import { readTopicThreadLog } from "../../src/workbench/thread-log.js";
 import { runWorkbenchWorkflowActionService } from "../../src/workbench/actions/service.js";
@@ -192,6 +196,21 @@ describe("Workbench module boundaries", () => {
     expect(typeof appendRunEvent).toBe("function");
     expect(typeof buildRunId).toBe("function");
     expect(typeof buildContextProjection).toBe("function");
+    expect(typeof startValidationRun).toBe("function");
+    expect(typeof getValidationStatus).toBe("function");
+    expect(typeof listValidationSummaries).toBe("function");
+    expect(typeof showValidation).toBe("function");
+    expect(typeof listValidationResults).toBe("function");
+    expect(typeof readValidationResult).toBe("function");
+    expect(typeof getLatestValidationSummary).toBe("function");
+    expect(typeof startAuditRun).toBe("function");
+    expect(typeof getAuditStatus).toBe("function");
+    expect(typeof listAuditSummaries).toBe("function");
+    expect(typeof showAudit).toBe("function");
+    expect(typeof acceptAudit).toBe("function");
+    expect(typeof listAuditResults).toBe("function");
+    expect(typeof readAuditResult).toBe("function");
+    expect(typeof getLatestAuditSummary).toBe("function");
     expect(typeof createWorktreeFacade).toBe("function");
     expect(typeof getWorktreeStatusFacade).toBe("function");
     expect(typeof listWorktreeStatusesFacade).toBe("function");
@@ -572,6 +591,16 @@ describe("Workbench module boundaries", () => {
         ],
       },
       {
+        roots: ["src/validation", "src/audit"],
+        forbidden: [
+          /from\s+["'][^"']*manager\.js["']/,
+          /from\s+["']\.\.\/workbench\//,
+          /from\s+["']\.\.\/server\//,
+          /from\s+["']\.\.\/web\//,
+          /from\s+["']\.\.\/cli\//,
+        ],
+      },
+      {
         roots: [
           "src/types/change-ecl.ts",
           "src/types/maintenance.ts",
@@ -620,6 +649,38 @@ describe("Workbench module boundaries", () => {
     expect(localCommandRunner).toContain('from "./events.js"');
     expect(localCommandRunner).toContain('from "./paths.js"');
     expect(localCommandRunner).toContain('from "./run-id.js"');
+  });
+
+  it("keeps validation and audit managers as compatibility facades with scoped evidence modules", () => {
+    const validationFacade = readFileSync("src/validation/manager.ts", "utf8");
+    expect(validationFacade).toContain('from "./service.js"');
+    expect(validationFacade).not.toMatch(/async function startValidationRun/);
+    expect(validationFacade).not.toMatch(/validationResultSchema\s*=\s*z\.object/);
+    expect(validationFacade).not.toMatch(/executeProcessStreaming/);
+
+    const validationArtifacts = readFileSync("src/validation/artifacts.ts", "utf8");
+    expect(validationArtifacts).toContain('export * from "./schemas.js";');
+    expect(validationArtifacts).toContain('export * from "./repository.js";');
+    const validationRepository = readFileSync("src/validation/repository.ts", "utf8");
+    expect(validationRepository).toContain("assertValidationScope");
+    expect(validationRepository).not.toContain('from "./manager.js"');
+
+    const auditFacade = readFileSync("src/audit/manager.ts", "utf8");
+    expect(auditFacade).toContain('from "./service.js"');
+    expect(auditFacade).toContain('from "./acceptance.js"');
+    expect(auditFacade).not.toMatch(/async function startAuditRun/);
+    expect(auditFacade).not.toMatch(/auditResultSchema\s*=\s*z\.object/);
+    expect(auditFacade).not.toMatch(/executeProcessStreaming/);
+
+    const auditArtifacts = readFileSync("src/audit/artifacts.ts", "utf8");
+    expect(auditArtifacts).toContain('export * from "./schemas.js";');
+    expect(auditArtifacts).toContain('export * from "./repository.js";');
+    const auditRepository = readFileSync("src/audit/repository.ts", "utf8");
+    expect(auditRepository).toContain("assertAuditScope");
+    expect(auditRepository).not.toContain('from "./manager.js"');
+    const auditAcceptance = readFileSync("src/audit/acceptance.ts", "utf8");
+    expect(auditAcceptance).toContain("readValidationResult");
+    expect(auditAcceptance).not.toContain('from "./manager.js"');
   });
 
   it("keeps worktree manager as a compatibility facade with scoped metadata modules", () => {

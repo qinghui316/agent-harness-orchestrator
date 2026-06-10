@@ -4,10 +4,14 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { parseAuditMessage } from "../../src/audit/parser.js";
 import { composeAuditPrompt } from "../../src/audit/prompt.js";
+import { acceptAudit } from "../../src/audit/manager.js";
+import { listAuditResults, readAuditResult } from "../../src/audit/artifacts.js";
 import { createChange, getChangeStatus } from "../../src/change/manager.js";
 import { writeJsonFile } from "../../src/fs/json.js";
 import { initHarness } from "../../src/harness/init.js";
+import { repoLocalMemory } from "../../src/memory/resolver.js";
 import type { AuditResult, ManagedProject } from "../../src/types/index.js";
+import type { ValidationResult } from "../../src/types/index.js";
 
 let tempDir: string;
 
@@ -96,15 +100,70 @@ describe("audit close gate", () => {
     const blocked = await getChangeStatus(project(tempDir));
     expect(blocked.closeGate.blockingIssues).toContain("Latest audit blocked close: audit-blocked.");
   });
+
+  it("rejects forged audit evidence on direct read and skips it in list paths", async () => {
+    await initHarness(project(tempDir));
+    await createChange(project(tempDir), { title: "Audit Scope" });
+    const memory = repoLocalMemory(tempDir, "repo");
+
+    await mkdir(join(tempDir, ".agent-harness", "runs", "audit-good"), { recursive: true });
+    await writeAudit("audit-good", "audit-scope", "approved");
+    await mkdir(join(tempDir, ".agent-harness", "runs", "audit-forged"), { recursive: true });
+    await writeAuditAt("audit-forged", "audit-other-id", "audit-scope", "blocked");
+    await mkdir(join(tempDir, ".agent-harness", "runs", "audit-malformed"), { recursive: true });
+    await writeFile(join(tempDir, ".agent-harness", "runs", "audit-malformed", "audit.json"), "{", "utf8");
+
+    await expect(readAuditResult(memory, "audit-forged")).rejects.toThrow("does not match run directory");
+    await expect(readAuditResult(memory, "audit-good", { changeId: "other-change" })).rejects.toThrow("does not match requested change");
+    const listed = await listAuditResults(memory, "audit-scope");
+    expect(listed.map((item) => item.id)).toEqual(["audit-good"]);
+
+    const status = await getChangeStatus(project(tempDir));
+    expect(status.latestAudit?.id).toBe("audit-good");
+  });
+
+  it("rejects audit acceptance when referenced validation evidence is missing or cross-change", async () => {
+    await initHarness(project(tempDir));
+    await createChange(project(tempDir), { title: "Audit Accept Scope" });
+    const changeDir = join(tempDir, "harness", "changes", "active", "audit-accept-scope");
+    await writeFile(join(changeDir, "reviews", "review.md"), "Status: approved\n", "utf8");
+    await mkdir(join(tempDir, ".agent-harness", "runs", "audit-with-missing-validation"), { recursive: true });
+    await writeAudit("audit-with-missing-validation", "audit-accept-scope", "approved", "2026-01-01T00:00:00.000Z", "missing-validation");
+    await expect(acceptAudit(project(tempDir), "audit-with-missing-validation")).rejects.toThrow();
+
+    await mkdir(join(tempDir, ".agent-harness", "runs", "cross-validation"), { recursive: true });
+    await writeValidation("cross-validation", "other-change", "passed");
+    await mkdir(join(tempDir, ".agent-harness", "runs", "audit-with-cross-validation"), { recursive: true });
+    await writeAudit("audit-with-cross-validation", "audit-accept-scope", "approved", "2026-01-02T00:00:00.000Z", "cross-validation");
+    await expect(acceptAudit(project(tempDir), "audit-with-cross-validation")).rejects.toThrow("does not match requested change");
+  });
 });
 
-async function writeAudit(id: string, changeId: string, status: AuditResult["status"], startedAt = "2026-01-01T00:00:00.000Z"): Promise<void> {
+async function writeAudit(
+  id: string,
+  changeId: string,
+  status: AuditResult["status"],
+  startedAt = "2026-01-01T00:00:00.000Z",
+  validationId?: string,
+): Promise<void> {
+  await writeAuditAt(id, id, changeId, status, startedAt, validationId);
+}
+
+async function writeAuditAt(
+  directoryId: string,
+  id: string,
+  changeId: string,
+  status: AuditResult["status"],
+  startedAt = "2026-01-01T00:00:00.000Z",
+  validationId?: string,
+): Promise<void> {
   const audit: AuditResult = {
     version: "1.0",
     id,
     runId: id,
     changeId,
     status,
+    validationId,
     startedAt,
     finishedAt: startedAt,
     findings: [],
@@ -114,5 +173,21 @@ async function writeAudit(id: string, changeId: string, status: AuditResult["sta
       lastMessage: `.agent-harness/runs/${id}/last-message.md`,
     },
   };
-  await writeJsonFile(join(tempDir, ".agent-harness", "runs", id, "audit.json"), audit);
+  await writeJsonFile(join(tempDir, ".agent-harness", "runs", directoryId, "audit.json"), audit);
+}
+
+async function writeValidation(id: string, changeId: string, status: ValidationResult["status"], startedAt = "2026-01-01T00:00:00.000Z"): Promise<void> {
+  const validation: ValidationResult = {
+    version: "1.0",
+    id,
+    runId: id,
+    changeId,
+    profile: "default",
+    status,
+    executionMode: "direct",
+    startedAt,
+    finishedAt: startedAt,
+    commands: [],
+  };
+  await writeJsonFile(join(tempDir, ".agent-harness", "runs", id, "validation.json"), validation);
 }
