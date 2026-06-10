@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-10T16:49:04.2528805Z",
+    "generated_at":  "2026-06-10T17:38:58.9010006Z",
     "active":  [
 
                ],
@@ -593,6 +593,10 @@
                     {
                         "name":  "20260611-phase-8q-workbench-action-handler-residual-boundary-split",
                         "path":  "harness/changes/archive/20260611-phase-8q-workbench-action-handler-residual-boundary-split"
+                    },
+                    {
+                        "name":  "20260611-phase-8r-future-feature-module-boundary-rule",
+                        "path":  "harness/changes/archive/20260611-phase-8r-future-feature-module-boundary-rule"
                     }
                 ]
 }

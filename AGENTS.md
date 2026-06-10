@@ -97,6 +97,7 @@ Current baseline:
 - Phase 8O completed Scoped Worktree Metadata Boundary Split and is archived at `harness/changes/archive/20260610-phase-8o-scoped-worktree-metadata-boundary-split/summary.md`.
 - Phase 8P completed Scoped Validation Audit Evidence Boundary Split and is archived at `harness/changes/archive/20260611-phase-8p-scoped-validation-audit-evidence-boundary-split/summary.md`.
 - Phase 8Q completed Workbench Action Handler Residual Boundary Split and is archived at `harness/changes/archive/20260611-phase-8q-workbench-action-handler-residual-boundary-split/summary.md`.
+- Phase 8R completed Future Feature Module Boundary Rule and is archived at `harness/changes/archive/20260611-phase-8r-future-feature-module-boundary-rule/summary.md`. It records the long-term rule that future product features extend owned modules first rather than putting main implementation logic back into broad compatibility facades.
 - Active change: none.
 - Pending Harness evolution: none. The Phase 8K-8O window was marked complete as `noop/dry_run`; no subagent review was used.
 - Latest Harness evolution: `harness/changes/archive/20260610-auto-evolve-harness-phase-8k-8o-boundary-evidence/summary.md`, which completed the Phase 8K-8O pending window as `noop/dry_run`; no subagent review was used.
