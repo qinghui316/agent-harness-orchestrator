@@ -48,7 +48,7 @@ import { cleanupRemoteBranchAfterMerge, preparePostMergeHandoff, syncLocalAfterM
 import { mergeNextLandingQueueCandidate, prepareLandingQueue } from "../../src/landing-queue/manager.js";
 import { listTaskQueueItems, listTaskQueues, pauseTaskQueue, reconcileTaskQueues, startOrResumeTaskQueue } from "../../src/task-queue/manager.js";
 import { finishTaskRunFromWorkflowResult, markTaskRunStarted } from "../../src/task-run/manager.js";
-import { createWorkflowRunForTaskQueue, readWorkflowRun, readWorkflowRunEvents, validateTaskQueueProposalStart } from "../../src/workflow-run/manager.js";
+import { appendWorkflowTaskEvent, createWorkflowRunForTaskQueue, listWorkflowRuns, readWorkflowRun, readWorkflowRunEvents, syncWorkflowRunFromQueue, validateTaskQueueProposalStart } from "../../src/workflow-run/manager.js";
 import {
   buildTaskQueueProposalFromReadiness,
   compileWorkflowGraphPlan,
@@ -62,7 +62,7 @@ import {
   writeTaskQueueProposal,
 } from "../../src/workflow-artifacts/manager.js";
 import { listIntegrationChecks } from "../../src/integration-check/manager.js";
-import type { ManagedProject, RunMetadata, TaskQueueItem, TaskQueueRun, TaskRun, WorkerLease, WorkflowGraphPlan } from "../../src/types/index.js";
+import type { ManagedProject, RunMetadata, TaskQueueItem, TaskQueueRun, TaskRun, WorkerLease, WorkflowGraphPlan, WorkflowRun } from "../../src/types/index.js";
 import type { DecompositionPlan, DecompositionReadinessManifest, TaskQueueProposal } from "../../src/workflow-artifacts/manager.js";
 
 let tempDir: string;
@@ -1188,6 +1188,78 @@ describe("workbench read model", () => {
       taskQueueProposalId: prepared.proposalId,
       workflowGraphPlanId: prepared.workflowGraphPlanId,
     });
+  });
+
+  it("guards WorkflowRun read, list, and event journal scope", async () => {
+    await initHarness(project());
+    await createChange(project(), { title: "Workflow Scope A" });
+    await createConcurrentChange(project(), { title: "Workflow Scope B" });
+    await writeAcceptedSpecAndTasks("workflow-scope-a");
+    await writeAcceptedSpecAndTasks("workflow-scope-b");
+    const prepared = await prepareConfirmedTaskQueueProposalWithWorkflow("workflow-scope-a", ["T-001"]);
+    const memory = await resolveProjectMemory(project());
+    const run = await readWorkflowRun(memory, "workflow-scope-a", prepared.workflowRunId);
+
+    const misplacedDir = join(tempDir, ".agent-harness", "runs", "workflows", "workflow-scope-b");
+    await mkdir(misplacedDir, { recursive: true });
+    await writeFile(join(misplacedDir, `${run.id}.json`), JSON.stringify(run, null, 2), "utf8");
+
+    await expect(readWorkflowRun(memory, "workflow-scope-b", run.id)).rejects.toThrow("not scoped to Change workflow-scope-b");
+    expect(await listWorkflowRuns(memory, "workflow-scope-b")).toEqual([]);
+
+    const eventDir = join(tempDir, ".agent-harness", "runs", "workflow-events", "workflow-scope-a");
+    await mkdir(eventDir, { recursive: true });
+    await writeFile(join(eventDir, `${run.id}.jsonl`), `${JSON.stringify({
+      version: "1.0",
+      id: "workflow-event-forged",
+      workflowRunId: run.id,
+      changeId: "workflow-scope-b",
+      type: "workflow.reconciled",
+      timestamp: new Date().toISOString(),
+    })}\n`, "utf8");
+
+    await expect(readWorkflowRunEvents(memory, "workflow-scope-a", run.id)).rejects.toThrow("not scoped to WorkflowRun");
+  });
+
+  it("keeps WorkflowRun event append canonical and rejects cross-queue lifecycle sync", async () => {
+    await initHarness(project());
+    await createChange(project(), { title: "Workflow Event Scope" });
+    await writeAcceptedSpecAndTasks("workflow-event-scope");
+    const prepared = await prepareConfirmedTaskQueueProposalWithWorkflow("workflow-event-scope", ["T-001"]);
+    const result = await startOrResumeTaskQueue(project(), {
+      changeId: "workflow-event-scope",
+      taskQueueProposalId: prepared.proposalId,
+      workflowGraphPlanId: prepared.workflowGraphPlanId,
+      readinessManifestId: prepared.readinessManifestId,
+      decompositionPlanId: prepared.decompositionPlanId,
+      workflowRunId: prepared.workflowRunId,
+    });
+    const memory = await resolveProjectMemory(project());
+
+    await appendWorkflowTaskEvent(memory, prepared.workflowRunId, "workflow-event-scope", "task.started", {
+      workflowRunId: "workflow-forged",
+      changeId: "workflow-forged-change",
+      taskId: "T-001",
+      taskRunId: "taskrun-1",
+    } as never);
+
+    const events = await readWorkflowRunEvents(memory, "workflow-event-scope", prepared.workflowRunId);
+    expect(events).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: "task.started",
+        workflowRunId: prepared.workflowRunId,
+        changeId: "workflow-event-scope",
+        taskId: "T-001",
+        taskRunId: "taskrun-1",
+      }),
+    ]));
+
+    const run = await readWorkflowRun(memory, "workflow-event-scope", prepared.workflowRunId);
+    const items = await listTaskQueueItems(memory, "workflow-event-scope", result.queue.id);
+    await expect(syncWorkflowRunFromQueue(memory, run, { ...result.queue, id: "queue-forged" } as TaskQueueRun, items))
+      .rejects.toThrow("already bound to a different queueRunId");
+    await expect(syncWorkflowRunFromQueue(memory, { ...run, changeId: "workflow-other-change" } as WorkflowRun, result.queue, items))
+      .rejects.toThrow("must belong to the same Change");
   });
 
   it("rejects direct TaskQueue start without a TaskQueueProposal", async () => {

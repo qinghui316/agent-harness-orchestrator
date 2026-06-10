@@ -81,6 +81,7 @@ import {
 } from "../../src/workflow-runtime/code-workflow.js";
 import { listTaskQueueItems as listTaskQueueItemsFacade, listTaskQueues as listTaskQueuesFacade, reconcileTaskQueues as reconcileTaskQueuesFacade, startOrResumeTaskQueue as startOrResumeTaskQueueFacade } from "../../src/task-queue/manager.js";
 import { finishTaskRunFromWorkflowResult, listTaskRuns as listTaskRunsFacade, listWorkerLeases as listWorkerLeasesFacade, markTaskRunStarted, reconcileTaskRuns as reconcileTaskRunsFacade, startTaskRun } from "../../src/task-run/manager.js";
+import { appendWorkflowTaskEvent, createWorkflowRunForTaskQueue, getLatestWorkflowRun, listWorkflowRuns, readWorkflowRun, readWorkflowRunEvents, summarizeWorkflowRun, syncWorkflowRunFromQueue, validateTaskQueueProposalStart } from "../../src/workflow-run/manager.js";
 import { createTaskQueueRunFromProposal } from "../../src/task-queue/queue-creation.js";
 import { readTaskQueueRun } from "../../src/task-queue/repository.js";
 import { validateNewTaskQueueStart } from "../../src/task-queue/start-validation.js";
@@ -232,6 +233,15 @@ describe("Workbench module boundaries", () => {
     expect(typeof reconcileTaskRunsFacade).toBe("function");
     expect(typeof markTaskRunStarted).toBe("function");
     expect(typeof finishTaskRunFromWorkflowResult).toBe("function");
+    expect(typeof validateTaskQueueProposalStart).toBe("function");
+    expect(typeof createWorkflowRunForTaskQueue).toBe("function");
+    expect(typeof readWorkflowRun).toBe("function");
+    expect(typeof listWorkflowRuns).toBe("function");
+    expect(typeof getLatestWorkflowRun).toBe("function");
+    expect(typeof readWorkflowRunEvents).toBe("function");
+    expect(typeof appendWorkflowTaskEvent).toBe("function");
+    expect(typeof syncWorkflowRunFromQueue).toBe("function");
+    expect(typeof summarizeWorkflowRun).toBe("function");
     expect(typeof validateNewTaskQueueStart).toBe("function");
     expect(typeof createTaskQueueRunFromProposal).toBe("function");
     expect(typeof readTaskQueueRun).toBe("function");
@@ -492,6 +502,16 @@ describe("Workbench module boundaries", () => {
         ],
       },
       {
+        roots: ["src/workflow-run"],
+        forbidden: [
+          /from\s+["']\.\/manager\.js["']/,
+          /from\s+["']\.\.\/workbench\//,
+          /from\s+["']\.\.\/server\//,
+          /from\s+["']\.\.\/web\//,
+          /from\s+["']\.\.\/cli\//,
+        ],
+      },
+      {
         roots: [
           "src/types/change-ecl.ts",
           "src/types/maintenance.ts",
@@ -735,6 +755,30 @@ describe("Workbench module boundaries", () => {
     const graph = readFileSync("src/workflow-artifacts/workflow-graph-plan.ts", "utf8");
     expect(graph).toContain("assertWorkflowArtifactScope(memory, changePath, proposal");
     expect(graph).toContain("assertWorkflowArtifactScope(memory, changePath, readiness");
+  });
+
+  it("keeps workflow-run manager as a compatibility facade with scoped recovery modules", () => {
+    const facade = readFileSync("src/workflow-run/manager.ts", "utf8");
+    expect(facade).toContain('export * from "./schemas.js";');
+    expect(facade).toContain('export * from "./repository.js";');
+    expect(facade).toContain('export * from "./events.js";');
+    expect(facade).toContain('export * from "./lifecycle-sync.js";');
+    expect(facade).toContain('export * from "./stage-resume.js";');
+    expect(facade).not.toMatch(/async function readWorkflowRun/);
+    expect(facade).not.toMatch(/workflowRunSchema/);
+    expect(facade).not.toMatch(/appendWorkflowRunEvent/);
+
+    const repository = readFileSync("src/workflow-run/repository.ts", "utf8");
+    expect(repository).toContain("assertWorkflowRunChangeScope(run, changeId)");
+    expect(repository).toContain("isWorkflowRunScopedToChange(run, changeId)");
+
+    const events = readFileSync("src/workflow-run/events.ts", "utf8");
+    expect(events).toContain("assertWorkflowRunEventScope(event, run.changeId, run.id)");
+    expect(events).toContain("canonicalWorkflowRunEventInput(input)");
+
+    const lifecycle = readFileSync("src/workflow-run/lifecycle-sync.ts", "utf8");
+    expect(lifecycle).toContain("assertWorkflowRunQueueScope(run, queue)");
+    expect(lifecycle).toContain("recomputeWorkflowRecoveryKey");
   });
 
   it("keeps type index as a compatibility re-export barrel", () => {

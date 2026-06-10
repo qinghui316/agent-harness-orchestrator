@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-10T10:38:54.5415366Z",
+    "generated_at":  "2026-06-10T13:09:58.5374725Z",
     "active":  [
 
                ],
@@ -565,6 +565,10 @@
                     {
                         "name":  "20260610-phase-8k-scoped-workflow-artifact-boundary-split",
                         "path":  "harness/changes/archive/20260610-phase-8k-scoped-workflow-artifact-boundary-split"
+                    },
+                    {
+                        "name":  "20260610-phase-8l-scoped-workflowrun-boundary-split",
+                        "path":  "harness/changes/archive/20260610-phase-8l-scoped-workflowrun-boundary-split"
                     }
                 ]
 }

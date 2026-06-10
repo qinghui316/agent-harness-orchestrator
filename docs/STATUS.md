@@ -110,6 +110,8 @@ Active implementation track: none.
 
 Pending Harness evolution: none. The Phase 8G-8K window was marked complete as `noop/subagent_review` with subagent score `90/100`.
 
+Phase 8L is closed and archived at `harness/changes/archive/20260610-phase-8l-scoped-workflowrun-boundary-split/summary.md`. It repaired WorkflowRun Change/queue/event scope guards and split `src/workflow-run/manager.ts` behind owned modules. WorkflowRun remains runtime coordination and recovery evidence, not workflow truth. This phase did not add runtime capability, Workbench actions, CLI commands, HTTP routes, scheduler behavior, parallel execution, automatic child Changes, ODWF JavaScript runtime, or cache/replay.
+
 Auto Evolve Harness Phase 8G 8K Boundary Evidence is closed and archived at `harness/changes/archive/20260610-auto-evolve-harness-phase-8g-8k-boundary-evidence/summary.md`. It reviewed the Phase 8G-8K pending evolution window, accepted the authorized subagent `noop` recommendation with score `90/100`, wrote `harness/evolution/proposals/20260610-phase8g-8k-boundary-evidence-noop.md`, and marked evolution complete without adding a new Harness rule. It did not change product runtime behavior.
 
 Phase 8H is closed and archived at `harness/changes/archive/20260610-phase-8h-strict-taskqueue-domain-boundary-split/summary.md`. It tightened low-level TaskQueue new-start typed scope to match the Workbench confirmation contract and split TaskQueue internals behind `src/task-queue/manager.ts` without changing TaskQueue artifact/API shapes, Workbench behavior, route/action shapes, scheduler behavior, parallel execution, automatic child Changes, ODWF JavaScript runtime, or cache/replay.
