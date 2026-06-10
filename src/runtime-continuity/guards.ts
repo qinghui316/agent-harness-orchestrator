@@ -25,8 +25,17 @@ export function assertRuntimeWorkspaceScope(workspace: RuntimeWorkspace, session
   if (workspace.id !== session.runtimeWorkspaceId) {
     throw new Error(`RuntimeWorkspace ${workspace.id} does not match WorkerSession ${session.id}.`);
   }
+  if (workspace.workspaceKind === "local-worktree" && (!workspace.worktreeId || !workspace.checkoutPath)) {
+    throw new Error(`RuntimeWorkspace ${workspace.id} is missing local worktree scope.`);
+  }
+  if (workspace.workspaceKind === "source-root" && (workspace.worktreeId || workspace.checkoutPath)) {
+    throw new Error(`RuntimeWorkspace ${workspace.id} source-root scope must not include worktree fields.`);
+  }
   if (session.worktreeId && workspace.worktreeId !== session.worktreeId) {
     throw new Error(`RuntimeWorkspace ${workspace.id} does not match WorkerSession worktree.`);
+  }
+  if (!session.worktreeId && workspace.worktreeId) {
+    throw new Error(`RuntimeWorkspace ${workspace.id} carries a worktree scope missing from WorkerSession.`);
   }
 }
 
@@ -60,4 +69,3 @@ function assertScope(label: string, actual: RuntimeContinuityScope, expected: Ru
     }
   }
 }
-

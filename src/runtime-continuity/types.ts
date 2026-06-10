@@ -1,8 +1,8 @@
 import type { WorkerPermissionProfile } from "../types/index.js";
 
-export type RuntimeContinuityAdapter = "codex-app-server" | "codex-exec";
+export type RuntimeContinuityAdapter = "codex-app-server" | "codex-exec" | "validation-command" | "audit-codex-readonly";
 export type WorkerSessionStatus = "initialized" | "running" | "completed" | "interrupted" | "failed";
-export type RuntimeWorkspaceKind = "local-worktree";
+export type RuntimeWorkspaceKind = "local-worktree" | "source-root";
 export type EventSourceStatus = "initialized" | "running" | "completed" | "interrupted" | "failed";
 
 export interface RuntimeContinuityScope {
@@ -43,8 +43,8 @@ export interface RuntimeWorkspace {
   roleId: string;
   workspaceKind: RuntimeWorkspaceKind;
   cwd: string;
-  checkoutPath: string;
-  worktreeId: string;
+  checkoutPath?: string;
+  worktreeId?: string;
   allowedReadRoots: string[];
   allowedWriteRoots: string[];
   deniedPaths: string[];
@@ -87,4 +87,3 @@ export interface RuntimeContinuityArtifacts {
   workspace: RuntimeWorkspace;
   eventSource: EventSource;
 }
-

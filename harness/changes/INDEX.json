@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-10T20:06:40.7640893Z",
+    "generated_at":  "2026-06-10T20:40:28.3460638Z",
     "active":  [
 
                ],
@@ -613,6 +613,10 @@
                     {
                         "name":  "20260611-phase-8u-runtime-continuity-contract-foundation",
                         "path":  "harness/changes/archive/20260611-phase-8u-runtime-continuity-contract-foundation"
+                    },
+                    {
+                        "name":  "20260611-phase-8v-validation-audit-runtime-continuity-coverage",
+                        "path":  "harness/changes/archive/20260611-phase-8v-validation-audit-runtime-continuity-coverage"
                     }
                 ]
 }

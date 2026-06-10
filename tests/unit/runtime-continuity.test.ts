@@ -110,5 +110,69 @@ describe("runtime continuity evidence", () => {
     await expect(readWorkerSession(paths, { projectId: "project-1", changeId: "change-1", runId: "run-1", roleId: "rework-coder" }))
       .rejects.toThrow("WorkerSession scope mismatch");
   });
-});
 
+  it("supports source-root workspaces without worktree scope", async () => {
+    const paths = runtimeContinuityPaths(tempDir);
+    const artifacts = await createRuntimeContinuityArtifacts(paths, {
+      projectId: "project-1",
+      changeId: "change-1",
+      runId: "run-1",
+      roleId: "validator",
+      adapter: "validation-command",
+      workspace: {
+        workspaceKind: "source-root",
+        cwd: join(tempDir, "source"),
+      },
+      permissionProfile: {
+        ...permissionProfile,
+        roleId: "validator",
+        sandboxPolicy: "read-only",
+      },
+      rawArtifactRefs: ["runs/run-1/validation.json"],
+      sandboxPolicy: "read-only",
+    });
+
+    const workspace = await readRuntimeWorkspace(paths, artifacts.session);
+
+    expect(artifacts.session).toMatchObject({
+      adapter: "validation-command",
+      roleId: "validator",
+      sandboxPolicy: "read-only",
+    });
+    expect(artifacts.session.worktreeId).toBeUndefined();
+    expect(workspace).toMatchObject({
+      workspaceKind: "source-root",
+      cwd: join(tempDir, "source"),
+      sandboxPolicy: "read-only",
+    });
+    expect(workspace.worktreeId).toBeUndefined();
+    expect(workspace.checkoutPath).toBeUndefined();
+  });
+
+  it("rejects source-root workspace descriptors that also carry worktree scope", async () => {
+    const paths = runtimeContinuityPaths(tempDir);
+
+    await expect(createRuntimeContinuityArtifacts(paths, {
+      projectId: "project-1",
+      changeId: "change-1",
+      runId: "run-1",
+      roleId: "validator",
+      adapter: "validation-command",
+      workspace: {
+        workspaceKind: "source-root",
+        cwd: join(tempDir, "source"),
+      },
+      worktree: {
+        worktreeId: "wt-1",
+        branchName: "aho/wt-1",
+        baseRef: "main",
+        baseCommit: "abc123",
+        checkoutPath: join(tempDir, "checkout"),
+        metadataPath: join(tempDir, "wt-1.json"),
+      },
+      permissionProfile,
+      rawArtifactRefs: [],
+      sandboxPolicy: "read-only",
+    })).rejects.toThrow("source-root runtime continuity workspace must not include worktree scope");
+  });
+});

@@ -6,6 +6,10 @@ import { buildRoleContextArtifact, buildRoleContextPacket, contextSourceRef } fr
 import { writeJsonFile } from "../fs/json.js";
 import { slugify } from "../fs/path.js";
 import { assertWritableMemory, resolveProjectMemory } from "../memory/resolver.js";
+import { workerPermissionProfileForRole } from "../agent-task/tool-policy.js";
+import { runtimeContinuityPaths, type RuntimeContinuityPaths } from "../runtime-continuity/paths.js";
+import { appendAgentEventEnvelope, createRuntimeContinuityArtifacts, markRuntimeContinuityStatus, type RuntimeContinuityWorkspaceDescriptor } from "../runtime-continuity/repository.js";
+import type { RuntimeContinuityArtifacts } from "../runtime-continuity/types.js";
 import { createWorktree } from "../worktree/creation.js";
 import { getWorktreeMetadataPath } from "../worktree/paths.js";
 import { getWorktreeStatus } from "../worktree/status.js";
@@ -109,6 +113,7 @@ export async function startValidationRun(project: ManagedProject, options: Valid
     stdout: join(directory, "stdout.log"),
     stderr: join(directory, "stderr.log"),
     validation: join(directory, "validation.json"),
+    ...runtimeContinuityPaths(directory),
   };
 
   await mkdir(commandsDir, { recursive: true });
@@ -157,9 +162,32 @@ export async function startValidationRun(project: ManagedProject, options: Valid
   await writeFile(paths.stderr, "", "utf8");
   await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "context.prepared", runId, data: { path: artifacts.context, contextPacket: artifacts.contextPacket, contextPacketHash: contextArtifact.hash } });
 
+  let continuity = await createRuntimeContinuityArtifacts(paths, {
+    projectId: project.id,
+    changeId,
+    runId,
+    roleId: "validator",
+    adapter: "validation-command",
+    workspace: runtimeWorkspaceForValidation(project.path, cwd, worktree),
+    permissionProfile: workerPermissionProfileForRole("validator"),
+    rawArtifactRefs: [
+      artifacts.events,
+      artifacts.stdout,
+      artifacts.stderr,
+      artifacts.validation,
+    ],
+    sandboxPolicy: "read-only",
+  });
+
   run = { ...run, status: "running" };
   await writeJsonFile(paths.run, run);
+  continuity = await markRuntimeContinuityStatus(paths, continuity, "running");
   await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "validation.started", runId, data: { profile: profileName, commandCount: profile.commands.length } });
+  await appendValidationContinuityEvent(paths, continuity, "validation.started", {
+    profile: profileName,
+    commandCount: profile.commands.length,
+    cwd,
+  }, `Validation profile ${profileName} started.`);
 
   const commandResults: ValidationCommandResult[] = [];
   for (let index = 0; index < profile.commands.length; index += 1) {
@@ -171,6 +199,11 @@ export async function startValidationRun(project: ManagedProject, options: Valid
     const stdoutArtifact = `${relativeDir}/commands/${prefix}.stdout.log`;
     const stderrArtifact = `${relativeDir}/commands/${prefix}.stderr.log`;
     await appendRunEvent(paths.events, { timestamp: commandStartedAt, type: "validation.command.started", runId, data: { name: item.name, command: item.command, cwd } });
+    await appendValidationContinuityEvent(paths, continuity, "validation.command.started", {
+      name: item.name,
+      command: item.command,
+      cwd,
+    }, item.name);
     const processResult = await executeProcessStreaming({
       cwd,
       command: item.command[0],
@@ -202,6 +235,12 @@ export async function startValidationRun(project: ManagedProject, options: Valid
       runId,
       data: { name: item.name, exitCode: processResult.exitCode, signal: processResult.signal, status: commandStatus },
     });
+    await appendValidationContinuityEvent(paths, continuity, "validation.command.exited", {
+      name: item.name,
+      exitCode: processResult.exitCode,
+      signal: processResult.signal,
+      status: commandStatus,
+    }, `${item.name}: ${commandStatus}`);
   }
 
   const validationStatus: ValidationStatus = commandResults.every((item) => item.status === "passed") ? "passed" : "failed";
@@ -235,6 +274,10 @@ export async function startValidationRun(project: ManagedProject, options: Valid
   };
   await writeJsonFile(paths.run, run);
   await appendRunEvent(paths.events, { timestamp: finishedAt, type: validationStatus === "passed" ? "validation.completed" : "validation.failed", runId, data: { status: validationStatus } });
+  await appendValidationContinuityEvent(paths, continuity, validationStatus === "passed" ? "validation.completed" : "validation.failed", {
+    status: validationStatus,
+  }, `Validation ${validationStatus}.`);
+  continuity = await markRuntimeContinuityStatus(paths, continuity, status === "completed" ? "completed" : "failed");
   await appendRunEvent(paths.events, { timestamp: finishedAt, type: status === "completed" ? "run.completed" : "run.failed", runId });
 
   return { run, validation };
@@ -272,4 +315,38 @@ function displayArtifactPath(memory: ResolvedMemory, absolutePath: string): stri
 async function appendStderr(path: string, content: string): Promise<void> {
   const { appendFile } = await import("node:fs/promises");
   await appendFile(path, content, "utf8");
+}
+
+function runtimeWorkspaceForValidation(projectPath: string, cwd: string, worktree: RunWorktreeInfo | undefined): RuntimeContinuityWorkspaceDescriptor {
+  if (worktree) {
+    return {
+      workspaceKind: "local-worktree",
+      cwd,
+      checkoutPath: worktree.checkoutPath,
+      worktreeId: worktree.worktreeId,
+    };
+  }
+  return {
+    workspaceKind: "source-root",
+    cwd: projectPath,
+  };
+}
+
+async function appendValidationContinuityEvent(
+  paths: RuntimeContinuityPaths & { events: string },
+  continuity: RuntimeContinuityArtifacts,
+  eventType: string,
+  raw: Record<string, unknown>,
+  summary?: string,
+): Promise<void> {
+  await appendAgentEventEnvelope(paths, continuity.session, continuity.eventSource, {
+    eventType,
+    raw,
+    summary,
+  }).catch((error) => appendRunEvent(paths.events, {
+    timestamp: new Date().toISOString(),
+    type: "runtime_continuity.append_failed",
+    runId: continuity.session.runId,
+    data: { error: error instanceof Error ? error.message : String(error) },
+  }).catch(() => undefined));
 }

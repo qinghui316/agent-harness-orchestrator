@@ -17,9 +17,22 @@ import type {
   WorkerSessionStatus,
 } from "./types.js";
 
+export type RuntimeContinuityWorkspaceDescriptor =
+  | {
+    workspaceKind: "local-worktree";
+    cwd: string;
+    checkoutPath: string;
+    worktreeId: string;
+  }
+  | {
+    workspaceKind: "source-root";
+    cwd: string;
+  };
+
 export interface CreateRuntimeContinuityInput extends RuntimeContinuityScope {
   adapter: RuntimeContinuityAdapter;
-  worktree: RunWorktreeInfo;
+  worktree?: RunWorktreeInfo;
+  workspace?: RuntimeContinuityWorkspaceDescriptor;
   permissionProfile: WorkerPermissionProfile;
   rawArtifactRefs: string[];
   sandboxPolicy: "read-only" | "workspace-write";
@@ -35,8 +48,9 @@ export interface AppendAgentEventInput {
 
 export async function createRuntimeContinuityArtifacts(paths: RuntimeContinuityFilePaths, input: CreateRuntimeContinuityInput): Promise<RuntimeContinuityArtifacts> {
   const now = input.createdAt ?? new Date().toISOString();
+  const workspaceDescriptor = resolveWorkspaceDescriptor(input);
   const sessionId = stableId("worker-session", input.runId, input.roleId);
-  const workspaceId = stableId("runtime-workspace", input.runId, input.worktree.worktreeId);
+  const workspaceId = stableId("runtime-workspace", input.runId, workspaceDescriptor.workspaceKind === "local-worktree" ? workspaceDescriptor.worktreeId : "source-root");
   const eventSourceId = stableId("event-source", input.runId, input.adapter);
   const workspace: RuntimeWorkspace = {
     version: "1.0",
@@ -46,10 +60,12 @@ export async function createRuntimeContinuityArtifacts(paths: RuntimeContinuityF
     changeId: input.changeId,
     runId: input.runId,
     roleId: input.roleId,
-    workspaceKind: "local-worktree",
-    cwd: input.worktree.checkoutPath,
-    checkoutPath: input.worktree.checkoutPath,
-    worktreeId: input.worktree.worktreeId,
+    workspaceKind: workspaceDescriptor.workspaceKind,
+    cwd: workspaceDescriptor.cwd,
+    ...(workspaceDescriptor.workspaceKind === "local-worktree" ? {
+      checkoutPath: workspaceDescriptor.checkoutPath,
+      worktreeId: workspaceDescriptor.worktreeId,
+    } : {}),
     allowedReadRoots: input.permissionProfile.allowedReadRoots,
     allowedWriteRoots: input.permissionProfile.allowedWriteRoots,
     deniedPaths: input.permissionProfile.deniedPaths,
@@ -92,7 +108,7 @@ export async function createRuntimeContinuityArtifacts(paths: RuntimeContinuityF
     adapter: input.adapter,
     runtimeWorkspaceId: workspaceId,
     eventSourceId,
-    worktreeId: input.worktree.worktreeId,
+    ...(workspaceDescriptor.workspaceKind === "local-worktree" ? { worktreeId: workspaceDescriptor.worktreeId } : {}),
     permissionProfile: input.permissionProfile,
     sandboxPolicy: input.sandboxPolicy,
     status: "initialized",
@@ -107,6 +123,27 @@ export async function createRuntimeContinuityArtifacts(paths: RuntimeContinuityF
     prepareJsonl(paths.agentEvents),
   ]);
   return { session, workspace, eventSource };
+}
+
+function resolveWorkspaceDescriptor(input: CreateRuntimeContinuityInput): RuntimeContinuityWorkspaceDescriptor {
+  if (input.workspace) {
+    if (input.workspace.workspaceKind === "source-root" && input.worktree) {
+      throw new Error("source-root runtime continuity workspace must not include worktree scope.");
+    }
+    if (input.workspace.workspaceKind === "local-worktree" && input.worktree && input.workspace.worktreeId !== input.worktree.worktreeId) {
+      throw new Error(`Runtime continuity workspace worktree mismatch: ${input.workspace.worktreeId} does not match ${input.worktree.worktreeId}.`);
+    }
+    return input.workspace;
+  }
+  if (!input.worktree) {
+    throw new Error("Runtime continuity requires an explicit workspace descriptor when no worktree is supplied.");
+  }
+  return {
+    workspaceKind: "local-worktree",
+    cwd: input.worktree.checkoutPath,
+    checkoutPath: input.worktree.checkoutPath,
+    worktreeId: input.worktree.worktreeId,
+  };
 }
 
 export async function readWorkerSession(paths: RuntimeContinuityFilePaths, expected: RuntimeContinuityScope): Promise<WorkerSession> {

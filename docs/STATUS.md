@@ -3,12 +3,12 @@
 ## Current Handoff
 
 - Current date: 2026-06-11.
-- Active ECL change: `harness/changes/active/phase-8u-runtime-continuity-contract-foundation/summary.md`.
+- Active ECL change: `harness/changes/active/phase-8v-validation-audit-runtime-continuity-coverage/summary.md`.
 - Pending Harness evolution: none.
-- Latest archived product change: `harness/changes/archive/20260611-phase-8s-parallel-taskgraph-readiness-scheduler-contract/summary.md`.
+- Latest archived product change: `harness/changes/archive/20260611-phase-8u-runtime-continuity-contract-foundation/summary.md`.
 - Latest archived product/Harness docs change: `harness/changes/archive/20260611-phase-8t-agentscope-harness-reference-alignment/summary.md`.
 - Latest archived Harness evolution: `harness/changes/archive/20260611-auto-evolve-harness-phase-8o-8s-boundary-evidence/summary.md`.
-- Active product phase: Phase 8U Runtime Continuity Contract Foundation.
+- Active product phase: Phase 8V Validation Audit Runtime Continuity Coverage.
 
 Current baseline:
 
@@ -22,7 +22,8 @@ Current baseline:
 - Phase 8S completed Parallel TaskGraph Readiness Scheduler Contract and is archived at `harness/changes/archive/20260611-phase-8s-parallel-taskgraph-readiness-scheduler-contract/summary.md`. It added a non-executing SchedulerContract typed artifact for parallel TaskGraph candidates and keeps real parallel execution, scheduler runtime, child Change creation, ODWF JavaScript runtime, and cache/replay out of scope.
 - Harness evolution after Phase 8S completed as `noop/subagent_review` and is archived at `harness/changes/archive/20260611-auto-evolve-harness-phase-8o-8s-boundary-evidence/summary.md`. Authorized subagent review recommended `noop` with score `92/100`; existing scoped evidence, module-boundary, proposal/runtime, and SchedulerContract no-execution coverage was sufficient.
 - Phase 8T AgentScope Harness Reference Alignment completed and is archived at `harness/changes/archive/20260611-phase-8t-agentscope-harness-reference-alignment/summary.md`. It added AgentScope 2.0 Python as a reference project, refreshed the AgentScope Java Harness mapping, and recorded Runtime Continuity Layer boundaries before future parallel scheduler, true subagent, sandbox, or worker-session implementation. It did not add runtime behavior, Workbench actions, routes, CLI commands, UI features, scheduler execution, child Changes, ODWF JavaScript runtime, or cache/replay.
-- Phase 8U Runtime Continuity Contract Foundation is active at `harness/changes/active/phase-8u-runtime-continuity-contract-foundation/summary.md`. It adds AHO-owned WorkerSession, RuntimeWorkspace, EventSource, and AgentEventEnvelope evidence for code runs only; it does not add parallel execution, scheduler runtime, Workbench actions, routes, CLI commands, sandbox backends, child Changes, ODWF JavaScript runtime, or cache/replay.
+- Phase 8U Runtime Continuity Contract Foundation completed and is archived at `harness/changes/archive/20260611-phase-8u-runtime-continuity-contract-foundation/summary.md`. It added AHO-owned WorkerSession, RuntimeWorkspace, EventSource, and AgentEventEnvelope evidence for code runs only; it did not add parallel execution, scheduler runtime, Workbench actions, routes, CLI commands, sandbox backends, child Changes, ODWF JavaScript runtime, or cache/replay.
+- Phase 8V Validation Audit Runtime Continuity Coverage is active at `harness/changes/active/phase-8v-validation-audit-runtime-continuity-coverage/summary.md`. It extends Runtime Continuity sidecar evidence to validation command runs and audit Codex readonly runs while preserving public Run, Validation, Audit, CLI, Workbench, SSE, and workflow truth shapes.
 - Phase 6F completed the single-demand local loop through result review and local apply handoff.
 - Phase 6G-Prep completed documentation alignment for Harness handoff, AgentTaskRepository, background maintenance, and two-layer self-evolution boundaries.
 - Phase 6G completed foreground AgentTaskRepository integration and advisory background maintenance ledger/candidate/score/review artifacts.
@@ -113,7 +114,7 @@ Phase 7F baseline: project demand conversation -> explicit ChangeTarget binding 
 Active implementation track:
 
 ```text
-Active implementation track: Phase 8U Runtime Continuity Contract Foundation.
+Active implementation track: Phase 8V Validation Audit Runtime Continuity Coverage.
 
 Phase 8T AgentScope Harness Reference Alignment is closed and archived at `harness/changes/archive/20260611-phase-8t-agentscope-harness-reference-alignment/summary.md`. It added the Python AgentScope 2.0 reference and refreshed AgentScope Java Harness mapping so future runtime-continuity work can borrow session, workspace, event, permission, sandbox, and plan-mode boundaries without changing AHO workflow truth or adding execution behavior.
 

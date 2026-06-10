@@ -1,10 +1,10 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { parseAuditMessage } from "../../src/audit/parser.js";
 import { composeAuditPrompt } from "../../src/audit/prompt.js";
-import { acceptAudit } from "../../src/audit/manager.js";
+import { acceptAudit, startAuditRun } from "../../src/audit/manager.js";
 import { listAuditResults, readAuditResult } from "../../src/audit/artifacts.js";
 import { createChange, getChangeStatus } from "../../src/change/manager.js";
 import { writeJsonFile } from "../../src/fs/json.js";
@@ -12,6 +12,23 @@ import { initHarness } from "../../src/harness/init.js";
 import { repoLocalMemory } from "../../src/memory/resolver.js";
 import type { AuditResult, ManagedProject } from "../../src/types/index.js";
 import type { ValidationResult } from "../../src/types/index.js";
+
+vi.mock("../../src/codex/capabilities.js", () => ({
+  detectCodexCapabilities: vi.fn(async () => ({
+    available: false,
+    version: null,
+    approvalFlagPlacement: "unsupported",
+    supportsJson: false,
+    supportsSandbox: false,
+    supportsCd: false,
+    supportsAddDir: false,
+    supportsColor: false,
+    supportsOutputLastMessage: false,
+    supportsSafeResume: false,
+    errors: ["Codex CLI is not available on PATH."],
+  })),
+  buildCodexReadonlyArgv: vi.fn(() => ({ command: "codex", args: ["exec", "--json"] })),
+}));
 
 let tempDir: string;
 
@@ -136,6 +153,27 @@ describe("audit close gate", () => {
     await mkdir(join(tempDir, ".agent-harness", "runs", "audit-with-cross-validation"), { recursive: true });
     await writeAudit("audit-with-cross-validation", "audit-accept-scope", "approved", "2026-01-02T00:00:00.000Z", "cross-validation");
     await expect(acceptAudit(project(tempDir), "audit-with-cross-validation")).rejects.toThrow("does not match requested change");
+  });
+
+  it("records runtime continuity sidecars for direct audit capability failures", async () => {
+    await initHarness(project(tempDir));
+    await createChange(project(tempDir), { title: "Audit Runtime Continuity" });
+
+    const result = await startAuditRun(project(tempDir));
+    const runDir = join(tempDir, result.run.artifacts.directory);
+    const workerSession = JSON.parse(await readFile(join(runDir, "worker-session.json"), "utf8"));
+    const runtimeWorkspace = JSON.parse(await readFile(join(runDir, "runtime-workspace.json"), "utf8"));
+    const eventSource = JSON.parse(await readFile(join(runDir, "event-source.json"), "utf8"));
+    const agentEvents = (await readFile(join(runDir, "agent-events.jsonl"), "utf8")).trim().split(/\r?\n/).map((line) => JSON.parse(line));
+
+    expect(result.run.status).toBe("failed");
+    expect(result.audit.status).toBe("failed");
+    expect(workerSession).toMatchObject({ adapter: "audit-codex-readonly", changeId: "audit-runtime-continuity", runId: result.run.id, roleId: "auditor-agent", status: "failed" });
+    expect(runtimeWorkspace).toMatchObject({ workspaceKind: "source-root", cwd: tempDir, roleId: "auditor-agent" });
+    expect(runtimeWorkspace.worktreeId).toBeUndefined();
+    expect(eventSource).toMatchObject({ adapter: "audit-codex-readonly", status: "failed", workerSessionId: workerSession.id });
+    expect(agentEvents.map((event) => event.eventType)).toContain("codex.capabilities.failed");
+    expect(agentEvents[0]).toMatchObject({ changeId: "audit-runtime-continuity", runId: result.run.id, roleId: "auditor-agent" });
   });
 });
 

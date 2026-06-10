@@ -1037,6 +1037,10 @@ describe("Workbench module boundaries", () => {
     expect(repository).toContain("export async function createRuntimeContinuityArtifacts");
     expect(repository).toContain("export async function appendAgentEventEnvelope");
     expect(repository).toContain("assertEventSourceScope");
+    expect(repository).toContain("RuntimeContinuityWorkspaceDescriptor");
+    expect(readFileSync("src/runtime-continuity/types.ts", "utf8")).toContain('"validation-command"');
+    expect(readFileSync("src/runtime-continuity/types.ts", "utf8")).toContain('"audit-codex-readonly"');
+    expect(readFileSync("src/runtime-continuity/types.ts", "utf8")).toContain('"source-root"');
   });
 
   it("keeps workflow-run manager as a compatibility facade with scoped recovery modules", () => {

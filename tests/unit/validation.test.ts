@@ -7,6 +7,7 @@ import { createChange, createConcurrentChange, getChangeStatus } from "../../src
 import { writeJsonFile } from "../../src/fs/json.js";
 import { initHarness } from "../../src/harness/init.js";
 import { repoLocalMemory } from "../../src/memory/resolver.js";
+import { git } from "../../src/project/git.js";
 import { resolveValidationProfile } from "../../src/validation/profiles.js";
 import { startValidationRun } from "../../src/validation/manager.js";
 import { listValidationResults, readValidationResult } from "../../src/validation/artifacts.js";
@@ -123,6 +124,50 @@ describe("validation", () => {
     expect(await readFile(join(runDir, "context-packet.json"), "utf8")).toContain("\"roleId\": \"validator\"");
     expect(await readFile(join(runDir, "commands", "001-pass.stdout.log"), "utf8")).toContain("pass");
     expect(await readFile(join(runDir, "commands", "002-fail.stderr.log"), "utf8")).toContain("fail");
+    const workerSession = JSON.parse(await readFile(join(runDir, "worker-session.json"), "utf8"));
+    const runtimeWorkspace = JSON.parse(await readFile(join(runDir, "runtime-workspace.json"), "utf8"));
+    const eventSource = JSON.parse(await readFile(join(runDir, "event-source.json"), "utf8"));
+    const agentEvents = (await readFile(join(runDir, "agent-events.jsonl"), "utf8")).trim().split(/\r?\n/).map((line) => JSON.parse(line));
+    expect(workerSession).toMatchObject({ adapter: "validation-command", changeId: "validate-me", runId: result.run.id, roleId: "validator", status: "failed" });
+    expect(runtimeWorkspace).toMatchObject({ workspaceKind: "source-root", cwd: tempDir, roleId: "validator" });
+    expect(runtimeWorkspace.worktreeId).toBeUndefined();
+    expect(eventSource).toMatchObject({ adapter: "validation-command", status: "failed", workerSessionId: workerSession.id });
+    expect(agentEvents.map((event) => event.eventType)).toEqual(expect.arrayContaining([
+      "validation.started",
+      "validation.command.started",
+      "validation.command.exited",
+      "validation.failed",
+    ]));
+    expect(agentEvents[0]).toMatchObject({ changeId: "validate-me", runId: result.run.id, roleId: "validator" });
+    expect(agentEvents[0].raw.changeId).toBeUndefined();
+  });
+
+  it("records runtime continuity sidecars for worktree validation", async () => {
+    await initGitRepo(tempDir);
+    await initHarness(project(tempDir));
+    await createChange(project(tempDir), { title: "Worktree Validate" });
+    await writeFile(join(tempDir, "harness", "config", "environment.json"), JSON.stringify({
+      validation: {
+        profiles: {
+          default: [
+            { name: "pass", command: [process.execPath, "-e", "console.log('pass')"] },
+          ],
+        },
+      },
+    }), "utf8");
+
+    const result = await startValidationRun(project(tempDir), { worktree: true });
+    const runDir = join(tempDir, result.run.artifacts.directory);
+    const workerSession = JSON.parse(await readFile(join(runDir, "worker-session.json"), "utf8"));
+    const runtimeWorkspace = JSON.parse(await readFile(join(runDir, "runtime-workspace.json"), "utf8"));
+
+    expect(result.validation.status).toBe("passed");
+    expect(workerSession).toMatchObject({ adapter: "validation-command", roleId: "validator", status: "completed", worktreeId: result.run.worktree?.worktreeId });
+    expect(runtimeWorkspace).toMatchObject({
+      workspaceKind: "local-worktree",
+      worktreeId: result.run.worktree?.worktreeId,
+      checkoutPath: result.run.worktree?.checkoutPath,
+    });
   });
 
   it("runs validation for an explicit Change target when multiple active demands exist", async () => {
@@ -229,4 +274,13 @@ async function writeValidationAt(directoryId: string, id: string, changeId: stri
     commands: [],
   };
   await writeJsonFile(join(tempDir, ".agent-harness", "runs", directoryId, "validation.json"), validation);
+}
+
+async function initGitRepo(cwd: string): Promise<void> {
+  await git(cwd, ["init"]);
+  await git(cwd, ["config", "user.email", "test@example.com"]);
+  await git(cwd, ["config", "user.name", "Test User"]);
+  await writeFile(join(cwd, "README.md"), "initial\n", "utf8");
+  await git(cwd, ["add", "."]);
+  await git(cwd, ["commit", "-m", "initial"]);
 }
