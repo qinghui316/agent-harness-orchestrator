@@ -199,6 +199,8 @@ Phase 8R turns the repeated ownership rule into a long-term Future Feature Modul
 
 Phase 8S makes `src/workflow-scheduler/` the owner for scheduler-readiness contracts. `SchedulerContract` is non-executing evidence for parallel TaskGraph readiness; it must not be treated as workflow truth, a sequential `WorkflowGraphPlan`, a TaskQueue start input, or an executable ODWF script. SchedulerContract compile may write typed artifacts and decision/audit evidence only. It must not create WorkflowRun, TaskQueueRun, TaskRun, WorkerLease, AgentTask, worktree, run, child Change, source mutations, or cache/replay records.
 
+Phase 8T adds AgentScope 2.0 and AgentScope Java Harness to the reference system and names the future Runtime Continuity Layer. The next product-code work after SchedulerContract must not jump straight to a parallel executor. It should first define WorkerSession / AgentSession ownership, RuntimeWorkspace / sandbox boundaries, AgentEventEnvelope / EventSource replay, permission / external-execution records, and recovery semantics. These contracts are runtime auxiliaries. They must not replace Change/ECL, accepted Spec/Plan/Tasks/AC, Run, Validation, Audit, Apply/Close human gates, or Harness evolution, and reference code must not be vendor-copied into AHO product code.
+
 ## 7. Memory Unavailable Boundary
 
 Memory can be unavailable on a new machine, after a plain repository clone, when AHO home was not synced, when permissions are missing, or when a future remote memory service is offline.

@@ -61,6 +61,8 @@ Phase 8P keeps Validation and Audit as scoped evidence gates while requiring dir
 Phase 8Q keeps Workbench action handling as UI/action orchestration, not workflow truth. It moves the residual handler map plus landing, PR, remote handoff, post-merge, landing queue, and conversation-control action glue out of `src/workbench/chat.ts` into owned handler modules. `chat.ts` remains the conversation facade and public compatibility entrypoint. This changes module ownership only; action ids, payloads, decision/audit scope, stale-target revalidation, ToolPolicyGate behavior, SSE/live events, thread logs, projections, and runtime authority remain unchanged.
 
 Phase 8S introduces `SchedulerContract` as non-executing scheduler-readiness evidence. It can describe parallel candidate nodes and topological waves, but it cannot dispatch TaskRuns, create WorkerLeases, start agents, create worktrees, create child Changes, mutate source, or reuse cached LLM output. Later parallel execution must consume the contract through a separate scheduler phase and still preserve validation, audit, integration, and human gates.
+
+Phase 8T adds AgentScope 2.0 and AgentScope Java Harness as references for a future Runtime Continuity Layer. `AgentSession` / `WorkerSession`, `RuntimeWorkspace`, `AgentEventEnvelope` / `EventSource`, permission / external-execution protocol, and recovery metadata are future runtime auxiliary records. They may make worker execution resumable, replayable, sandboxed, and permission-aware, but they do not become workflow truth. AHO must not jump from `SchedulerContract` directly to parallel execution until these boundaries exist.
 | MainAgentOrchestrationStep | runtime coordination/projection record | Role result summary with selected input/output artifact refs, status, stoppedAt, and failure classification |
 | MainAgentOrchestrationDecisionEngine | runtime policy | Deterministic next-step policy for the default coder/validator/auditor/rework template; does not replace ToolPolicyGate, AgentTaskResult, validation, audit, or human gates |
 | DelegateTaskRequest | runtime request | Main-agent request to run a role task; must pass policy before dispatch |
@@ -80,6 +82,10 @@ Phase 8S introduces `SchedulerContract` as non-executing scheduler-readiness evi
 | TaskRun | source of truth once recorded | One role-scoped execution attempt for one TaskGraph node |
 | WorkerLease | runtime layer | Temporary claim that a worker/session owns a TaskRun; must reconcile after restart |
 | AgentSession | runtime auxiliary | Codex app-server or other runtime session metadata |
+| WorkerSession | runtime auxiliary | Future per-worker continuity record binding role, TaskRun, RuntimeWorkspace, EventSource, permission state, and recovery key; not workflow truth |
+| RuntimeWorkspace | runtime auxiliary | Future abstraction over local worktree, sandbox, or remote workspace; must be scoped to Change/TaskRun and cannot replace Worktree or source-root gates |
+| AgentEventEnvelope | event/projection record | Future normalized event envelope for worker, child, tool, permission, and runtime events; replay input, not authority unless persisted as AHO evidence |
+| EventSource | runtime auxiliary | Future source identity for replayable worker/child event streams; must bind to Change/session/task scope |
 | AgentTask | runtime coordination record | Parent-orchestrator delegation item for foreground role work or background maintenance |
 | AgentTaskRepository | runtime coordination layer | Durable file-backed task surface for orchestrator-owned role/background tasks |
 | AgentTaskResult | evidence/projection record | Task result that points to artifacts instead of living only in chat |
@@ -329,6 +335,8 @@ TaskRun records one attempt to execute a TaskGraph node. WorkerLease is runtime 
 
 None of these replaces Run artifacts or Change state. They exist so a future orchestrator can dispatch, retry, block, resume, and reconcile agents without losing the ECL audit trail.
 
+Future `WorkerSession` extends this boundary for scheduler-backed worker execution. It may bind a TaskRun to a runtime workspace, permission state, event source, and recovery key, but it still cannot authorize apply, merge, close, child Change creation, or canonical artifact rewrites. Those transitions remain gated by accepted artifacts, validation, audit, and human confirmation.
+
 ### AgentTask / AgentTaskRepository / AgentTaskResult
 
 AgentTaskRepository is the parent-orchestrator delegation surface introduced in Phase 6G.
@@ -428,6 +436,8 @@ A Run is one attempt against a ChangeTarget and, for core role runs, one RoleCon
 If a future runtime adapter exposes sessions, they may help resume a process or thread. They remain runtime auxiliaries. They do not become the product kernel and must not replace Change as the durable work unit.
 
 Phase 5D uses Codex session ids only as a runtime continuity optimization for ordinary Topic chat. If Codex cannot expose or resume a session, AHO rebuilds the prompt from Topic context and canonical memory. The session id is never a project fact.
+
+Phase 8T names the broader Runtime Continuity Layer for later work. `RuntimeWorkspace` can unify local worktrees, sandbox directories, and future remote workspaces; `AgentEventEnvelope` / `EventSource` can unify worker, child, tool, permission, and runtime replay; permission records can model HITL/external execution requests. These are adapter and replay boundaries, not a new source of workflow truth.
 
 ### Topic Interaction Log
 

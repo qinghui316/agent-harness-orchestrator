@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-10T18:44:22.1167115Z",
+    "generated_at":  "2026-06-10T19:22:41.7273358Z",
     "active":  [
 
                ],
@@ -587,6 +587,10 @@
                         "path":  "harness/changes/archive/20260610-phase-8o-scoped-worktree-metadata-boundary-split"
                     },
                     {
+                        "name":  "20260611-auto-evolve-harness-phase-8o-8s-boundary-evidence",
+                        "path":  "harness/changes/archive/20260611-auto-evolve-harness-phase-8o-8s-boundary-evidence"
+                    },
+                    {
                         "name":  "20260611-phase-8p-scoped-validation-audit-evidence-boundary-split",
                         "path":  "harness/changes/archive/20260611-phase-8p-scoped-validation-audit-evidence-boundary-split"
                     },
@@ -601,6 +605,10 @@
                     {
                         "name":  "20260611-phase-8s-parallel-taskgraph-readiness-scheduler-contract",
                         "path":  "harness/changes/archive/20260611-phase-8s-parallel-taskgraph-readiness-scheduler-contract"
+                    },
+                    {
+                        "name":  "20260611-phase-8t-agentscope-harness-reference-alignment",
+                        "path":  "harness/changes/archive/20260611-phase-8t-agentscope-harness-reference-alignment"
                     }
                 ]
 }

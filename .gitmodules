@@ -34,3 +34,10 @@
 	path = reference-projects/open-dynamic-workflows
 	url = https://github.com/imsai-sh/open-dynamic-workflows.git
 	ignore = all
+[submodule "reference-projects/agentscope"]
+	path = reference-projects/agentscope
+	url = https://github.com/agentscope-ai/agentscope.git
+	ignore = all
+[submodule "reference-projects/agentscope"]
+	path = reference-projects/agentscope
+	url = https://github.com/agentscope-ai/agentscope.git

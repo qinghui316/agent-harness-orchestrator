@@ -83,6 +83,8 @@ Phase 8Q is the final broad module-ownership pass. Residual Workbench action han
 
 Phase 8S starts the next product capability line with a non-executing scheduler contract. A confirmed `taskgraph-parallel-candidate` may compile into an AHO-owned `SchedulerContract` artifact that records dependency edges, conflict/source scopes, and topological waves. This borrows Open Dynamic Workflows' pipeline/parallel/event/journal vocabulary and Symphony's dispatch/reconcile/slot vocabulary as references only. The contract is evidence and later scheduler input, not workflow truth, not a `WorkflowGraphPlan`, and not a parallel executor.
 
+Phase 8T records AgentScope 2.0 and AgentScope Java Harness as complementary references for a future Runtime Continuity Layer. AgentScope 2.0 is useful for event/message streams, permission requests, workspace/sandbox adapters, multi-session service, and agent team boundaries. AgentScope Java is useful for the Harness layer: `HarnessAgent` as a thin wrapper, `RuntimeContext`, workspace-driven persona, state persistence, memory, compaction, tool-result offload, subagent/background task sessions, sandbox, plan mode, and channel routing. AHO borrows these boundary ideas only. Before a later SchedulerContract-backed parallel executor exists, AHO needs explicit `AgentSession` / `WorkerSession`, `RuntimeWorkspace`, `AgentEventEnvelope` / `EventSource`, permission / external-execution, and recovery contracts. These are runtime auxiliary contracts and must not replace Change/ECL, accepted artifacts, Run, Validation, Audit, Apply/Close human gates, or Harness evolution.
+
 Workbench relationship:
 
 ```text
@@ -133,6 +135,7 @@ AHO should converge on these layers:
 | TaskRun Queue | User-confirmed queued execution over accepted TaskGraph nodes | Queue records plus TaskRun/WorkerLease artifacts |
 | Bounded Demand Worker Slots | Bounded concurrent dispatch over independent demand conversations | Demand worker records reconciled to AgentTasks, Run artifacts, validation/audit, and result review |
 | Parallel Task Scheduler | Future bounded concurrent dispatch inside one demand after dependency/conflict modeling | Scheduler state reconciled to TaskGraph and leases |
+| Runtime Continuity Layer | Future worker sessions, runtime workspaces/sandboxes, event sources, permission handoff, and recovery contracts | Runtime auxiliary records; never workflow truth |
 | Integration Layer | Future integration worktree, aggregate validation/audit, merge attempts, and integration-fix runs | Integration artifacts and human-gated decisions |
 | Codex App-Server Runtime Bridge | Rich session execution and live events | Runtime adapter, not workflow truth |
 | Workbench / Evidence / Decision UI | Human-facing demand conversation, Agent Loop, Inspector | Derived views over canonical facts |
