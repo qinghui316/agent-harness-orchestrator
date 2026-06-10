@@ -79,6 +79,8 @@ Phase 8O applies the same scoped ownership rule to Worktree metadata. Worktree r
 
 Phase 8P applies the same scoped ownership rule to Validation and Audit evidence. `validation.json` and `audit.json` records must prove directory id, artifact id, run id, and requested Change scope before direct read, accept, close gate, apply gate, spec-test, task reconcile, queue reconcile, or workflow stage resume paths can trust them. List/projection paths skip malformed or misplaced evidence; direct read/show/accept paths fail closed. Validation and Audit internals belong in owned modules behind the `src/validation/manager.ts` and `src/audit/manager.ts` facades, and Validation/Audit remain evidence gates rather than workflow truth.
 
+Phase 8Q is the final broad module-ownership pass. Residual Workbench action handler map and landing, PR, remote handoff, post-merge, landing queue, and conversation-control action glue move out of `src/workbench/chat.ts` into owned action handler modules. `chat.ts` remains the public conversation/action facade. This changes implementation ownership only and does not change action ids, payloads, decision/audit scope, stale-target revalidation, ToolPolicyGate behavior, live/SSE events, projections, thread logs, or workflow truth.
+
 Workbench relationship:
 
 ```text

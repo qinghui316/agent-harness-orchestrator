@@ -44,7 +44,10 @@ import { readTopicThreadLog } from "../../src/workbench/thread-log.js";
 import { runWorkbenchWorkflowActionService } from "../../src/workbench/actions/service.js";
 import { assertWorkflowActionScope } from "../../src/workbench/actions/boundary.js";
 import { dispatchWorkbenchWorkflowAction } from "../../src/workbench/actions/dispatcher.js";
+import { buildWorkbenchActionHandlers } from "../../src/workbench/actions/handlers/index.js";
 import { generatePlanningDraft } from "../../src/workbench/actions/handlers/planning.js";
+import { interruptConversation, steerConversation, stopRunningPipeline } from "../../src/workbench/actions/handlers/control.js";
+import { mergeRemoteLandingForAction, prepareLandingForAction, preparePrDraftForAction } from "../../src/workbench/actions/handlers/remote-handoff.js";
 import { runCodexChat } from "../../src/workbench/codex-chat/bridge.js";
 import { runMainAgentToolOrchestration } from "../../src/workbench/demand-workers/orchestration.js";
 import { recordWorkbenchDecision } from "../../src/workbench/decisions.js";
@@ -220,7 +223,14 @@ describe("Workbench module boundaries", () => {
     expect(typeof runWorkbenchWorkflowActionService).toBe("function");
     expect(typeof assertWorkflowActionScope).toBe("function");
     expect(typeof dispatchWorkbenchWorkflowAction).toBe("function");
+    expect(typeof buildWorkbenchActionHandlers).toBe("function");
     expect(typeof generatePlanningDraft).toBe("function");
+    expect(typeof stopRunningPipeline).toBe("function");
+    expect(typeof steerConversation).toBe("function");
+    expect(typeof interruptConversation).toBe("function");
+    expect(typeof prepareLandingForAction).toBe("function");
+    expect(typeof preparePrDraftForAction).toBe("function");
+    expect(typeof mergeRemoteLandingForAction).toBe("function");
     expect(typeof runCodexChat).toBe("function");
     expect(typeof runMainAgentToolOrchestration).toBe("function");
     expect(typeof recordWorkbenchDecision).toBe("function");
@@ -355,6 +365,16 @@ describe("Workbench module boundaries", () => {
       {
         roots: ["src/workbench/projections", "src/workbench/actions"],
         forbidden: [/from\s+["']\.\.\/manager\.js["']/, /from\s+["']\.\.\/chat\.js["']/],
+      },
+      {
+        roots: ["src/workbench/actions/handlers"],
+        forbidden: [
+          /from\s+["'][^"']*\/chat\.js["']/,
+          /from\s+["'][^"']*\/server\//,
+          /from\s+["'][^"']*\/web\//,
+          /from\s+["'][^"']*\/cli\//,
+          /from\s+["'][^"']*\/projections\//,
+        ],
       },
       {
         roots: ["src/workbench/projections/read-model"],
@@ -625,6 +645,36 @@ describe("Workbench module boundaries", () => {
     const offenders = checks.flatMap((check) => listSourceFiles(check.roots)
       .flatMap((file) => check.forbidden.some((pattern) => pattern.test(readFileSync(file, "utf8"))) ? [file] : []));
     expect(offenders).toEqual([]);
+  });
+
+  it("keeps workbench chat as a conversation/action facade with owned action handlers", () => {
+    const chat = readFileSync("src/workbench/chat.ts", "utf8");
+    expect(chat).toContain('from "./actions/handlers/index.js"');
+    expect(chat).toContain("buildWorkbenchActionHandlers({");
+    expect(chat).not.toMatch(/const workflowActionHandlers:\s*WorkbenchActionHandlerMap/);
+    expect(chat).not.toMatch(/async function prepareLandingForAction/);
+    expect(chat).not.toMatch(/async function preparePrDraftForAction/);
+    expect(chat).not.toMatch(/async function mergeRemoteLandingForAction/);
+    expect(chat).not.toMatch(/async function stopRunningPipeline/);
+    expect(chat).not.toMatch(/async function steerConversation/);
+    expect(chat).not.toMatch(/async function interruptConversation/);
+
+    const handlerIndex = readFileSync("src/workbench/actions/handlers/index.ts", "utf8");
+    expect(handlerIndex).toContain("export function buildWorkbenchActionHandlers");
+    expect(handlerIndex).toContain('"chat.ask"');
+    expect(handlerIndex).toContain("deps.postTopicMessage(project, changeId, request.prompt, live)");
+    expect(handlerIndex).toContain('from "./remote-handoff.js"');
+    expect(handlerIndex).toContain('from "./control.js"');
+
+    const remoteHandoff = readFileSync("src/workbench/actions/handlers/remote-handoff.ts", "utf8");
+    expect(remoteHandoff).toContain("export async function prepareLandingForAction");
+    expect(remoteHandoff).toContain("export async function createPrDraftForAction");
+    expect(remoteHandoff).toContain("export async function mergeRemoteLandingForAction");
+
+    const control = readFileSync("src/workbench/actions/handlers/control.ts", "utf8");
+    expect(control).toContain("export async function stopRunningPipeline");
+    expect(control).toContain("export async function steerConversation");
+    expect(control).toContain("export async function interruptConversation");
   });
 
   it("keeps run manager as a compatibility facade with owned evidence modules", () => {
