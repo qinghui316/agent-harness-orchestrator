@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { createChange, closeChange } from "../../src/change/manager.js";
+import { createChange, createConcurrentChange, closeChange } from "../../src/change/manager.js";
 import { initHarness } from "../../src/harness/init.js";
 import { listRuns, startLocalCommandRun } from "../../src/run/manager.js";
 import { executeWorkbenchAction } from "../../src/server/workbench-server.js";
@@ -49,9 +49,21 @@ import { mergeNextLandingQueueCandidate, prepareLandingQueue } from "../../src/l
 import { listTaskQueueItems, listTaskQueues, pauseTaskQueue, reconcileTaskQueues, startOrResumeTaskQueue } from "../../src/task-queue/manager.js";
 import { finishTaskRunFromWorkflowResult, markTaskRunStarted } from "../../src/task-run/manager.js";
 import { createWorkflowRunForTaskQueue, readWorkflowRun, readWorkflowRunEvents, validateTaskQueueProposalStart } from "../../src/workflow-run/manager.js";
-import { compileWorkflowGraphPlan, hashArtifactRefs } from "../../src/workflow-artifacts/manager.js";
+import {
+  buildTaskQueueProposalFromReadiness,
+  compileWorkflowGraphPlan,
+  hashArtifactRefs,
+  hashFile,
+  readLatestDecompositionPlan,
+  readLatestDecompositionReadinessManifest,
+  readLatestTaskQueueProposal,
+  readLatestWorkflowGraphPlan,
+  writeDecompositionReadinessManifest,
+  writeTaskQueueProposal,
+} from "../../src/workflow-artifacts/manager.js";
 import { listIntegrationChecks } from "../../src/integration-check/manager.js";
-import type { ManagedProject, RunMetadata, TaskQueueItem, TaskQueueRun, TaskRun, WorkerLease } from "../../src/types/index.js";
+import type { ManagedProject, RunMetadata, TaskQueueItem, TaskQueueRun, TaskRun, WorkerLease, WorkflowGraphPlan } from "../../src/types/index.js";
+import type { DecompositionPlan, DecompositionReadinessManifest, TaskQueueProposal } from "../../src/workflow-artifacts/manager.js";
 
 let tempDir: string;
 const execFileAsync = promisify(execFile);
@@ -1059,6 +1071,83 @@ describe("workbench read model", () => {
       },
       audit: { audit: { status: "approved" } },
     }, { changeId: "taskrun-finish-scope", taskId: "T-001" })).rejects.toThrow("belongs to Change wrong-change");
+  });
+
+  it("rejects workflow artifacts whose changeId does not match the Change path", async () => {
+    await initHarness(project());
+    await createChange(project(), { title: "Workflow Artifact A" });
+    await createConcurrentChange(project(), { title: "Workflow Artifact B" });
+    await writeAcceptedSpecAndTasks("workflow-artifact-a");
+    await writeAcceptedSpecAndTasks("workflow-artifact-b");
+    const memory = await resolveProjectMemory(project());
+    const pathA = join("harness", "changes", "active", "workflow-artifact-a");
+    const planningA = join(tempDir, pathA, "planning");
+    await mkdir(planningA, { recursive: true });
+    const planB = minimalDecompositionPlan("workflow-artifact-b");
+    const readinessB = minimalReadiness("workflow-artifact-b", ["T-001"]);
+    const proposalB = minimalTaskQueueProposal("workflow-artifact-b", readinessB);
+    const graphB = minimalWorkflowGraphPlan("workflow-artifact-b", proposalB, readinessB);
+
+    await expect(writeDecompositionReadinessManifest(memory, pathA, readinessB)).rejects.toThrow("not scoped to the selected Change");
+    await expect(writeTaskQueueProposal(memory, pathA, proposalB)).rejects.toThrow("not scoped to the selected Change");
+
+    await writeFile(join(planningA, "decomposition-plan.json"), JSON.stringify(planB, null, 2), "utf8");
+    await writeFile(join(planningA, "decomposition-readiness.json"), JSON.stringify(readinessB, null, 2), "utf8");
+    await writeFile(join(planningA, "taskqueue-proposal.json"), JSON.stringify(proposalB, null, 2), "utf8");
+    await writeFile(join(planningA, "workflow-graph-plan.json"), JSON.stringify(graphB, null, 2), "utf8");
+
+    await expect(readLatestDecompositionPlan(memory, pathA)).rejects.toThrow("not scoped to the selected Change");
+    await expect(readLatestDecompositionReadinessManifest(memory, pathA)).rejects.toThrow("not scoped to the selected Change");
+    await expect(readLatestTaskQueueProposal(memory, pathA)).rejects.toThrow("not scoped to the selected Change");
+    await expect(readLatestWorkflowGraphPlan(memory, pathA)).rejects.toThrow("not scoped to the selected Change");
+  });
+
+  it("guards TaskQueueProposal build and WorkflowGraphPlan compile against cross-change artifacts", async () => {
+    await initHarness(project());
+    await createChange(project(), { title: "Workflow Artifact Build A" });
+    await createConcurrentChange(project(), { title: "Workflow Artifact Build B" });
+    await writeAcceptedSpecAndTasks("workflow-artifact-build-a");
+    await writeAcceptedSpecAndTasks("workflow-artifact-build-b");
+    const memory = await resolveProjectMemory(project());
+    const pathA = join("harness", "changes", "active", "workflow-artifact-build-a");
+    const pathB = join("harness", "changes", "active", "workflow-artifact-build-b");
+    const readinessB = minimalReadiness("workflow-artifact-build-b", ["T-001"]);
+    const proposalB = minimalTaskQueueProposal("workflow-artifact-build-b", readinessB, "confirmed");
+
+    await expect(buildTaskQueueProposalFromReadiness(memory, pathA, "workflow-artifact-build-a", readinessB))
+      .rejects.toThrow("not scoped to the selected Change");
+    await expect(compileWorkflowGraphPlan(memory, pathA, proposalB, readinessB))
+      .rejects.toThrow("not scoped to the selected Change");
+
+    await writeDecompositionReadinessManifest(memory, pathB, readinessB);
+    const proposal = await buildTaskQueueProposalFromReadiness(memory, pathB, "workflow-artifact-build-b", readinessB);
+    const confirmed = { ...proposal, status: "confirmed" as const };
+    await writeTaskQueueProposal(memory, pathB, confirmed);
+    const graph = await compileWorkflowGraphPlan(memory, pathB, confirmed, readinessB);
+    const latest = await readLatestWorkflowGraphPlan(memory, pathB);
+
+    expect(latest).toMatchObject({
+      id: graph.id,
+      changeId: "workflow-artifact-build-b",
+      taskQueueProposalId: confirmed.id,
+      readinessManifestId: readinessB.id,
+      graphMode: "sequential-v1",
+    });
+    expect(graph.nodes.map((node) => node.stages.join(" -> "))).toEqual(["coder -> validation -> audit -> bounded-rework"]);
+  });
+
+  it("keeps workflow artifact hash normalization stable", async () => {
+    await initHarness(project());
+    await createChange(project(), { title: "Workflow Artifact Hash" });
+    const memory = await resolveProjectMemory(project());
+    const acMapPath = join(tempDir, "harness", "changes", "active", "workflow-artifact-hash", "ac-map.json");
+    await writeFile(acMapPath, JSON.stringify({ version: "1.0", generatedAt: "one", acceptance: [] }), "utf8");
+    const first = await hashFile(acMapPath);
+    await writeFile(acMapPath, JSON.stringify({ version: "1.0", generatedAt: "two", acceptance: [] }), "utf8");
+
+    await expect(hashFile(acMapPath)).resolves.toBe(first);
+    await expect(hashArtifactRefs(memory, ["harness/changes/active/workflow-artifact-hash/ac-map.json"]))
+      .resolves.toEqual({ "harness/changes/active/workflow-artifact-hash/ac-map.json": first });
   });
 
   it("creates a TaskQueue from accepted tasks and skips checked tasks", async () => {
@@ -3555,6 +3644,156 @@ async function prepareConfirmedTaskQueueProposalWithWorkflow(changeId: string, t
   const validated = await validateTaskQueueProposalStart(memory, project(), changeId, proposalId, graph.id);
   const workflow = await createWorkflowRunForTaskQueue(memory, project(), validated);
   return { proposalId, workflowGraphPlanId: graph.id, workflowRunId: workflow.id, readinessManifestId: readiness.id, decompositionPlanId: readiness.decompositionPlanId };
+}
+
+function minimalDecompositionPlan(changeId: string): DecompositionPlan {
+  const now = new Date().toISOString();
+  return {
+    id: `decomposition-${changeId}`,
+    changeId,
+    status: "confirmed",
+    recommendation: "taskgraph-sequential",
+    rationale: "Test decomposition.",
+    units: [{
+      id: "DU-001",
+      title: "Task T-001",
+      summary: "Test unit.",
+      taskIds: ["T-001"],
+      acIds: ["AC-001"],
+      scopeHints: ["src"],
+      dependsOn: [],
+      recommendedRoleId: "coder-agent",
+    }],
+    dependencies: [],
+    conflictScopes: [],
+    riskSummary: "",
+    openQuestions: [],
+    artifactRefs: [`harness/changes/active/${changeId}/spec.md`],
+    recoveryKeyInputs: {
+      changeId,
+      acceptedArtifactRefs: [`harness/changes/active/${changeId}/spec.md`],
+      contextScope: "selected-demand",
+      rolePolicyProfile: "test",
+      notes: [],
+    },
+    artifact: `harness/changes/active/${changeId}/planning/decomposition-plan.json`,
+    markdownArtifact: `harness/changes/active/${changeId}/planning/decomposition-plan.md`,
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
+function minimalReadiness(changeId: string, taskIds: string[]): DecompositionReadinessManifest {
+  const now = new Date().toISOString();
+  const artifactRefs = [
+    `harness/changes/active/${changeId}/spec.md`,
+    `harness/changes/active/${changeId}/plan.md`,
+    `harness/changes/active/${changeId}/tasks.md`,
+    `harness/changes/active/${changeId}/ac-map.json`,
+  ];
+  return {
+    id: `readiness-${changeId}`,
+    changeId,
+    decompositionPlanId: `decomposition-${changeId}`,
+    status: "ready-for-sequential-taskqueue-proposal",
+    recommendation: "taskgraph-sequential",
+    executable: false,
+    schedulerEligible: true,
+    nextAllowedAction: "taskqueue.proposal",
+    units: taskIds.map((taskId, index) => ({
+      id: `DU-${String(index + 1).padStart(3, "0")}`,
+      title: `Task ${taskId}`,
+      taskIds: [taskId],
+      acIds: ["AC-001"],
+      dependsOn: index === 0 ? [] : [`DU-${String(index).padStart(3, "0")}`],
+      guardrailStatus: "passed",
+      sourceScopes: ["src"],
+    })),
+    dependencies: taskIds.slice(1).map((_, index) => ({ from: `DU-${String(index + 1).padStart(3, "0")}`, to: `DU-${String(index + 2).padStart(3, "0")}`, kind: "blocks" })),
+    conflictScopes: [],
+    guardrails: [{ id: "tasks", status: "passed", summary: "Tasks are scoped.", refs: [] }],
+    recoveryKeyMaterial: {
+      changeId,
+      decompositionPlanId: `decomposition-${changeId}`,
+      taskIds,
+      acIds: ["AC-001"],
+      acceptedArtifactRefs: artifactRefs,
+      contextScope: "selected-demand",
+      rolePolicyProfile: "test",
+      notes: [],
+    },
+    artifactRefs,
+    artifact: `harness/changes/active/${changeId}/planning/decomposition-readiness.json`,
+    markdownArtifact: `harness/changes/active/${changeId}/planning/decomposition-readiness.md`,
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
+function minimalTaskQueueProposal(changeId: string, readiness: DecompositionReadinessManifest, status: TaskQueueProposal["status"] = "draft"): TaskQueueProposal {
+  const now = new Date().toISOString();
+  const id = `taskqueue-proposal-${changeId}`;
+  return {
+    id,
+    changeId,
+    decompositionPlanId: readiness.decompositionPlanId,
+    readinessManifestId: readiness.id,
+    status,
+    recommendation: "taskgraph-sequential",
+    queueMode: "sequential",
+    items: readiness.units.map((unit, index) => ({
+      id: `${id}-item-${String(index + 1).padStart(3, "0")}`,
+      taskId: unit.taskIds[0] ?? `T-${String(index + 1).padStart(3, "0")}`,
+      unitId: unit.id,
+      title: unit.title,
+      order: index + 1,
+      dependsOn: unit.dependsOn,
+      sourceScopes: unit.sourceScopes,
+      acIds: unit.acIds,
+    })),
+    dependencies: readiness.dependencies,
+    conflictScopes: readiness.conflictScopes,
+    sourceArtifactHashes: {},
+    recoveryKeyMaterial: readiness.recoveryKeyMaterial,
+    artifactRefs: readiness.artifactRefs,
+    artifact: `harness/changes/active/${changeId}/planning/taskqueue-proposal.json`,
+    markdownArtifact: `harness/changes/active/${changeId}/planning/taskqueue-proposal.md`,
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
+function minimalWorkflowGraphPlan(changeId: string, proposal: TaskQueueProposal, readiness: DecompositionReadinessManifest): WorkflowGraphPlan {
+  const now = new Date().toISOString();
+  const id = `workflow-graph-${changeId}`;
+  return {
+    version: "1.0",
+    id,
+    changeId,
+    status: "compiled",
+    graphMode: "sequential-v1",
+    decompositionPlanId: proposal.decompositionPlanId,
+    readinessManifestId: readiness.id,
+    taskQueueProposalId: proposal.id,
+    nodes: proposal.items.map((item) => ({
+      id: `${id}-node-${String(item.order).padStart(3, "0")}`,
+      taskId: item.taskId,
+      taskQueueProposalItemId: item.id,
+      unitId: item.unitId,
+      title: item.title,
+      order: item.order,
+      stages: ["coder", "validation", "audit", "bounded-rework"],
+      acIds: item.acIds,
+      sourceScopes: item.sourceScopes,
+    })),
+    edges: [],
+    sourceArtifactHashes: {},
+    artifactRefs: proposal.artifactRefs,
+    artifact: `harness/changes/active/${changeId}/planning/workflow-graphs/${id}.json`,
+    markdownArtifact: `harness/changes/active/${changeId}/planning/workflow-graphs/${id}.md`,
+    createdAt: now,
+    updatedAt: now,
+  };
 }
 
 async function writeCoderRun(changeId: string, runId: string, taskIds: string[], worktreeId: string, status: RunMetadata["status"], taskRunId?: string): Promise<RunMetadata> {

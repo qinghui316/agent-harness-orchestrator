@@ -1,0 +1,11 @@
+﻿# Tasks: Phase 8K Scoped Workflow Artifact Boundary Split
+- [x] T-001: Repair Phase 8K docs drift and handoff language.
+  - Covers: AC-001
+- [x] T-002: Add workflow artifact Change-scope guards and apply them to read/write/build/compile paths.
+  - Covers: AC-002, AC-003, AC-006, AC-007
+- [x] T-003: Split `src/workflow-artifacts/manager.ts` into owned domain modules behind a compatibility facade.
+  - Covers: AC-004, AC-005, AC-008
+- [x] T-004: Add focused tests for scope mismatch, facade compatibility, forbidden imports, hash/ref behavior, and graph compile compatibility.
+  - Covers: AC-002, AC-003, AC-006, AC-008
+- [x] T-005: Run focused tests, full product verification, and Harness verification.
+  - Covers: AC-009, AC-010

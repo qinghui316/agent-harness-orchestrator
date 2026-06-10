@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-10T04:23:54.1798003Z",
+    "generated_at":  "2026-06-10T10:11:48.3922143Z",
     "active":  [
 
                ],
@@ -557,6 +557,10 @@
                     {
                         "name":  "20260610-phase-8j-scoped-taskrun-workerlease-boundary-split",
                         "path":  "harness/changes/archive/20260610-phase-8j-scoped-taskrun-workerlease-boundary-split"
+                    },
+                    {
+                        "name":  "20260610-phase-8k-scoped-workflow-artifact-boundary-split",
+                        "path":  "harness/changes/archive/20260610-phase-8k-scoped-workflow-artifact-boundary-split"
                     }
                 ]
 }

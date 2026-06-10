@@ -4,7 +4,7 @@
 
 - Current date: 2026-06-10.
 - Active ECL change: none.
-- Pending Harness evolution: none.
+- Pending Harness evolution: `harness/evolution/pending.md`, generated after Phase 8K close for the Phase 8G-8K archive window.
 - Latest archived product change: `harness/changes/archive/20260531-phase-7f-mainagent-orchestration-decision-engine/summary.md`.
 - Latest archived product/Harness docs change: `harness/changes/archive/20260602-phase-7g-open-dynamic-workflows-reference-alignment/summary.md`.
 - Latest archived Harness evolution: `harness/changes/archive/20260610-auto-evolve-harness-phase-8c-8g-boundary-evidence/summary.md`.
@@ -108,13 +108,15 @@ Active implementation track:
 ```text
 Active implementation track: none.
 
-Pending Harness evolution: none. The Phase 8C-8G window is archived at `harness/changes/archive/20260610-auto-evolve-harness-phase-8c-8g-boundary-evidence/summary.md`.
+Pending Harness evolution: `harness/evolution/pending.md`, generated after Phase 8K close for the Phase 8G-8K archive window.
 
 Phase 8H is closed and archived at `harness/changes/archive/20260610-phase-8h-strict-taskqueue-domain-boundary-split/summary.md`. It tightened low-level TaskQueue new-start typed scope to match the Workbench confirmation contract and split TaskQueue internals behind `src/task-queue/manager.ts` without changing TaskQueue artifact/API shapes, Workbench behavior, route/action shapes, scheduler behavior, parallel execution, automatic child Changes, ODWF JavaScript runtime, or cache/replay.
 
 Phase 8I is closed and archived at `harness/changes/archive/20260610-phase-8i-demandworker-domain-boundary-split/summary.md`. It split DemandWorker internals behind `src/demand-worker/manager.ts` without adding scheduler behavior, parallel execution, automatic child Changes, ODWF JavaScript runtime, cache/replay, Workbench actions, routes, CLI commands, or runtime authority. DemandWorker remains bounded local demand execution coordination evidence, not workflow truth.
 
 Phase 8J is closed and archived at `harness/changes/archive/20260610-phase-8j-scoped-taskrun-workerlease-boundary-split/summary.md`. It repaired scoped TaskRun / WorkerLease evidence matching so TaskRun reconciliation and workflow-result completion bind evidence to the owning Change, then split TaskRun internals behind `src/task-run/manager.ts` without adding scheduler behavior, parallel execution, automatic child Changes, ODWF JavaScript runtime, cache/replay, Workbench actions, routes, CLI commands, or runtime authority. TaskRun / WorkerLease remain execution coordination evidence, not workflow truth.
+
+Phase 8K is closed and archived at `harness/changes/archive/20260610-phase-8k-scoped-workflow-artifact-boundary-split/summary.md`. It repaired workflow artifact Change-scope guards and split `src/workflow-artifacts/manager.ts` behind owned modules. DecompositionPlan remains proposal, DecompositionReadinessManifest remains guardrail verdict, TaskQueueProposal remains proposal, and WorkflowGraphPlan remains versioned execution input; none becomes workflow truth.
 
 Phase 7V is closed and archived at `harness/changes/archive/20260609-phase-7v-workbench-read-model-confirmation-queue-boundary-split/summary.md`. It was a pure read-model / confirmation queue boundary split: it repaired planning confirmation copy, kept typed scope on `WorkbenchDecisionAction` payloads without expanding confirmation item public JSON, and split residual Workbench read-model / confirmation queue builders behind compatibility facades. It did not add runtime capability, Workbench actions, routes, scheduler behavior, parallel execution, multi-Change automatic creation, ODWF JavaScript runtime, or cache/replay.
 

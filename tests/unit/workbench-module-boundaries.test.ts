@@ -89,6 +89,7 @@ import { claimNextDemandWorker as claimNextDemandWorkerFacade, enqueueDemandWork
 import { listDemandWorkers } from "../../src/demand-worker/repository.js";
 import { getDemandWorkerSlot } from "../../src/demand-worker/slot-policy.js";
 import { recordMainOrchestratorDecision } from "../../src/demand-worker/decisions.js";
+import { compileWorkflowGraphPlan, hashArtifactRefs, readLatestTaskQueueProposal, renderWorkflowGraphPlanMarkdown } from "../../src/workflow-artifacts/manager.js";
 import { shouldAutoReworkTaskRun } from "../../src/workflow-runtime/kernel/bounded-rework.js";
 import { emitValidationAssistantEvents } from "../../src/workflow-runtime/kernel/live-events.js";
 import { findTaskQueueStageResumeCandidate } from "../../src/workflow-runtime/kernel/stage-resume-runner.js";
@@ -241,6 +242,10 @@ describe("Workbench module boundaries", () => {
     expect(typeof listDemandWorkers).toBe("function");
     expect(typeof getDemandWorkerSlot).toBe("function");
     expect(typeof recordMainOrchestratorDecision).toBe("function");
+    expect(typeof compileWorkflowGraphPlan).toBe("function");
+    expect(typeof hashArtifactRefs).toBe("function");
+    expect(typeof readLatestTaskQueueProposal).toBe("function");
+    expect(typeof renderWorkflowGraphPlanMarkdown).toBe("function");
     expect(typeof startOrResumeWorkflowTaskQueue).toBe("function");
     expect(typeof validateWorkflowTaskQueueProposalStart).toBe("function");
     expect(typeof runTaskQueueSequence).toBe("function");
@@ -477,6 +482,16 @@ describe("Workbench module boundaries", () => {
         ],
       },
       {
+        roots: ["src/workflow-artifacts"],
+        forbidden: [
+          /from\s+["']\.\/manager\.js["']/,
+          /from\s+["']\.\.\/workbench\//,
+          /from\s+["']\.\.\/server\//,
+          /from\s+["']\.\.\/web\//,
+          /from\s+["']\.\.\/cli\//,
+        ],
+      },
+      {
         roots: [
           "src/types/change-ecl.ts",
           "src/types/maintenance.ts",
@@ -698,6 +713,28 @@ describe("Workbench module boundaries", () => {
 
     const artifacts = readFileSync("src/task-run/artifacts.ts", "utf8");
     expect(artifacts).toContain("assertTaskRunMatchesScope");
+  });
+
+  it("keeps workflow-artifacts manager as a compatibility facade with scoped artifact modules", () => {
+    const facade = readFileSync("src/workflow-artifacts/manager.ts", "utf8");
+    expect(facade).toContain('export * from "./schemas.js";');
+    expect(facade).toContain('export * from "./guards.js";');
+    expect(facade).toContain('export * from "./taskqueue-proposal.js";');
+    expect(facade).toContain('export * from "./workflow-graph-plan.js";');
+    expect(facade).not.toMatch(/async function compileWorkflowGraphPlan/);
+    expect(facade).not.toMatch(/decompositionPlanSchema/);
+
+    const guards = readFileSync("src/workflow-artifacts/guards.ts", "utf8");
+    expect(guards).toContain('join(memory.memoryRoot, changePath, "change.json")');
+    expect(guards).toContain("artifact.changeId");
+
+    const proposal = readFileSync("src/workflow-artifacts/taskqueue-proposal.ts", "utf8");
+    expect(proposal).toContain("assertChangePathScope");
+    expect(proposal).toContain("assertWorkflowArtifactScope");
+
+    const graph = readFileSync("src/workflow-artifacts/workflow-graph-plan.ts", "utf8");
+    expect(graph).toContain("assertWorkflowArtifactScope(memory, changePath, proposal");
+    expect(graph).toContain("assertWorkflowArtifactScope(memory, changePath, readiness");
   });
 
   it("keeps type index as a compatibility re-export barrel", () => {
