@@ -1,9 +1,8 @@
 import { existsSync } from "node:fs";
 import { readdir } from "node:fs/promises";
 import { join, relative } from "node:path";
-import { z } from "zod";
+import { readScopedChangeMetadataAt } from "../change/metadata.js";
 import { getActiveChanges } from "../ecl/index.js";
-import { readJsonFile } from "../fs/json.js";
 import { resolveProjectMemory } from "../memory/resolver.js";
 import type { ManagedProject, ResolvedMemory } from "../types/index.js";
 
@@ -13,15 +12,23 @@ export async function resolveTopic(project: ManagedProject, changeId: string): P
   for (const root of roots) {
     const candidate = join(root, changeId);
     if (existsSync(candidate)) {
-      return { memory, changePath: relative(memory.memoryRoot, candidate).replace(/\\/g, "/") };
+      const relativePath = relative(memory.memoryRoot, candidate).replace(/\\/g, "/");
+      if (root.endsWith("active")) {
+        return { memory, changePath: relativePath };
+      }
+      const metadata = await readScopedChangeMetadataAt(memory, relativePath, "archive").catch(() => ({ metadata: null })).then((result) => result.metadata);
+      if (metadata?.id === changeId) {
+        return { memory, changePath: relativePath };
+      }
     }
     if (root.endsWith("archive")) {
       const archived = await readdir(root, { withFileTypes: true }).catch(() => []);
       for (const entry of archived) {
         if (!entry.isDirectory()) continue;
         const archivedCandidate = join(root, entry.name);
-        const metadata = await readJsonFile(join(archivedCandidate, "change.json"), z.object({ id: z.string().optional() }), { id: undefined }).catch(() => ({ id: undefined }));
-        if (metadata.id === changeId) {
+        const relativePath = relative(memory.memoryRoot, archivedCandidate).replace(/\\/g, "/");
+        const metadata = await readScopedChangeMetadataAt(memory, relativePath, "archive").catch(() => ({ metadata: null })).then((result) => result.metadata);
+        if (metadata?.id === changeId) {
           return { memory, changePath: relative(memory.memoryRoot, archivedCandidate).replace(/\\/g, "/") };
         }
       }

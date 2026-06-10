@@ -4,6 +4,7 @@ import { join } from "node:path";
 import type { Command } from "commander";
 import { createProgram } from "../../src/cli/program.js";
 import type { MaintenanceLedgerEntry, ManagedProject, RemoteLandingResult, RunMetadata, WorkflowRun } from "../../src/types/index.js";
+import { closeChange, createChange, getChangeStatus, getChangeStatusForChange } from "../../src/change/manager.js";
 import { appendTopicThreadEntry, runWorkbenchWorkflowAction } from "../../src/workbench/chat.js";
 import { getWorkbenchSnapshot, getWorkbenchWorkflowGraphPlanProjection } from "../../src/workbench/manager.js";
 import { getCodeStatus, listCodeRuns, showCodeRun, startCodeRun } from "../../src/code/manager.js";
@@ -114,6 +115,10 @@ describe("Workbench module boundaries", () => {
   it("keeps legacy facades available while exposing split modules", () => {
     expect(typeof appendTopicThreadEntry).toBe("function");
     expect(typeof runWorkbenchWorkflowAction).toBe("function");
+    expect(typeof createChange).toBe("function");
+    expect(typeof getChangeStatus).toBe("function");
+    expect(typeof getChangeStatusForChange).toBe("function");
+    expect(typeof closeChange).toBe("function");
     expect(typeof getWorkbenchSnapshot).toBe("function");
     expect(typeof getWorkbenchWorkflowGraphPlanProjection).toBe("function");
     expect(typeof createProgram).toBe("function");
@@ -399,6 +404,29 @@ describe("Workbench module boundaries", () => {
         ],
       },
       {
+        roots: [
+          "src/change/close-gate.ts",
+          "src/change/creation.ts",
+          "src/change/guards.ts",
+          "src/change/lifecycle.ts",
+          "src/change/metadata.ts",
+          "src/change/paths.ts",
+          "src/change/repository.ts",
+          "src/change/schemas.ts",
+          "src/change/status.ts",
+          "src/change/templates.ts",
+          "src/change/types.ts",
+          "src/change/utils.ts",
+        ],
+        forbidden: [
+          /from\s+["']\.\/manager\.js["']/,
+          /from\s+["']\.\.\/workbench\//,
+          /from\s+["']\.\.\/server\//,
+          /from\s+["']\.\.\/web\//,
+          /from\s+["']\.\.\/cli\//,
+        ],
+      },
+      {
         roots: ["src/change/proposals"],
         forbidden: [
           /from\s+["']\.\.\/proposals\.js["']/,
@@ -546,6 +574,25 @@ describe("Workbench module boundaries", () => {
     expect(facade).not.toMatch(/function startSpecProposalRun/);
     expect(facade).not.toMatch(/function acceptPlanProposal/);
     expect(facade).not.toMatch(/detectCodexCapabilities/);
+  });
+
+  it("keeps change manager as a compatibility facade with scoped metadata guards", () => {
+    const facade = readFileSync("src/change/manager.ts", "utf8");
+    expect(facade).toContain('export * from "./metadata.js";');
+    expect(facade).toContain('export * from "./creation.js";');
+    expect(facade).toContain('export * from "./status.js";');
+    expect(facade).toContain('export * from "./lifecycle.js";');
+    expect(facade).not.toMatch(/async function createChange/);
+    expect(facade).not.toMatch(/async function getChangeStatus/);
+    expect(facade).not.toMatch(/changeMetadataSchema/);
+
+    const metadata = readFileSync("src/change/metadata.ts", "utf8");
+    expect(metadata).toContain("Change metadata id mismatch");
+    expect(metadata).toContain("archivePath mismatch");
+
+    const status = readFileSync("src/change/status.ts", "utf8");
+    expect(status).toContain('readScopedChangeMetadata(memory, active, "active")');
+    expect(status).toContain("const change = scoped.metadata");
   });
 
   it("keeps code manager as a compatibility facade with scoped app-server role metadata", () => {

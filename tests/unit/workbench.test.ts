@@ -10,6 +10,7 @@ import { initHarness } from "../../src/harness/init.js";
 import { listRuns, startLocalCommandRun } from "../../src/run/manager.js";
 import { executeWorkbenchAction } from "../../src/server/workbench-server.js";
 import { appendTopicThreadEntry, createWorkbenchTopic, postTopicMessage } from "../../src/workbench/chat.js";
+import { readTopicThreadLog } from "../../src/workbench/thread-log.js";
 import { answerClarification, reanalyzeIntake, runIntakeScan } from "../../src/workbench/intake.js";
 import { getWorkbenchDecompositionPlanProjection, getWorkbenchDecompositionReadinessProjection, getWorkbenchMaintenanceProjection, getWorkbenchRunGraphProjection, getWorkbenchSnapshot, getWorkbenchStream, getWorkbenchTaskQueueProposalProjection, getWorkbenchTopic, getWorkbenchWorkflowGraphPlanProjection, listWorkbenchApprovals, listWorkbenchRoles, listWorkbenchTopics } from "../../src/workbench/manager.js";
 import { WorkbenchStore } from "../../src/workbench/store.js";
@@ -84,6 +85,12 @@ function project(path = tempDir): ManagedProject {
     addedAt: new Date().toISOString(),
     lastSeenAt: new Date().toISOString(),
   };
+}
+
+async function rewriteActiveChangeMetadata(changeId: string, update: Record<string, unknown>): Promise<void> {
+  const path = join(tempDir, "harness", "changes", "active", changeId, "change.json");
+  const metadata = JSON.parse(await readFile(path, "utf8")) as Record<string, unknown>;
+  await writeFile(path, `${JSON.stringify({ ...metadata, ...update }, null, 2)}\n`, "utf8");
 }
 
 async function createFakeGh(initial: { isDraft?: boolean; comments?: unknown[]; inlineComments?: unknown[]; failedChecks?: number; canResolveThreads?: boolean; mergeFails?: boolean } = {}): Promise<{ command: string; args: string[]; stateFile: string }> {
@@ -780,6 +787,71 @@ describe("workbench read model", () => {
     const topic = await getWorkbenchTopic({ project: project(), path: tempDir }, "specific-topic");
 
     expect(topic).toMatchObject({ id: "specific-topic", state: "active" });
+  });
+
+  it("does not expose forged active Change metadata in topic summaries or details", async () => {
+    await initHarness(project());
+    await createChange(project(), { title: "Scoped Metadata Topic" });
+    await rewriteActiveChangeMetadata("scoped-metadata-topic", { id: "forged-topic", title: "Forged Topic Title" });
+
+    const topics = await listWorkbenchTopics({ project: project(), path: tempDir });
+    const topic = await getWorkbenchTopic({ project: project(), path: tempDir }, "scoped-metadata-topic");
+
+    expect(topics.find((item) => item.id === "forged-topic")).toBeUndefined();
+    expect(topics.find((item) => item.id === "scoped-metadata-topic")).toMatchObject({
+      id: "scoped-metadata-topic",
+      title: "scoped-metadata-topic",
+      state: "active",
+    });
+    expect(topic).toMatchObject({
+      id: "scoped-metadata-topic",
+      title: "scoped-metadata-topic",
+      change: null,
+      closeGate: expect.objectContaining({
+        ready: false,
+        blockingIssues: expect.arrayContaining(["Change metadata id mismatch: directory scoped-metadata-topic contains forged-topic."]),
+      }),
+    });
+  });
+
+  it("imports thread logs under the canonical directory id when active metadata is forged", async () => {
+    await initHarness(project());
+    await createChange(project(), { title: "Thread Scope Topic" });
+    await rewriteActiveChangeMetadata("thread-scope-topic", { id: "forged-thread-topic", title: "Forged Thread Topic" });
+    const memory = await resolveProjectMemory(project());
+    const changePath = "harness/changes/active/thread-scope-topic";
+    await writeFile(join(tempDir, changePath, "thread.jsonl"), `${JSON.stringify({
+      id: "thread-entry-1",
+      type: "user",
+      timestamp: "2026-06-10T00:00:00.000Z",
+      changeId: "thread-scope-topic",
+      text: "hello",
+    })}\n`, "utf8");
+
+    const entries = await readTopicThreadLog(memory, changePath);
+    const store = await WorkbenchStore.open(memory);
+    try {
+      expect(entries).toHaveLength(1);
+      expect(store.listMessages("repo", "thread-scope-topic")).toHaveLength(1);
+      expect(store.listMessages("repo", "forged-thread-topic")).toHaveLength(0);
+    } finally {
+      store.close();
+    }
+  });
+
+  it("keeps valid archived topic lookup scoped by archived metadata", async () => {
+    await initHarness(project());
+    await createChange(project(), { title: "Archived Topic Lookup" });
+    await writeFile(join(tempDir, "harness", "changes", "active", "archived-topic-lookup", "reviews", "review.md"), "Status: approved\n", "utf8");
+    await closeChange(tempDir);
+
+    const topic = await getWorkbenchTopic({ project: project(), path: tempDir }, "archived-topic-lookup");
+
+    expect(topic).toMatchObject({
+      id: "archived-topic-lookup",
+      state: "archive",
+      change: expect.objectContaining({ id: "archived-topic-lookup", state: "archived" }),
+    });
   });
 
   it("derives Workpad TaskGraph from accepted tasks and AC map", async () => {

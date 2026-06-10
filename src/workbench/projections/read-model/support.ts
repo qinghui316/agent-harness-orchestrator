@@ -1,23 +1,11 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { z } from "zod";
 import { readProjectMarker } from "../../../project/marker.js";
 import { getProjectStatus } from "../../../project/status.js";
 import { resolveMemory } from "../../../memory/resolver.js";
-import { readRequiredJsonFile } from "../../../fs/json.js";
+import { readScopedChangeMetadataAt } from "../../../change/metadata.js";
 import type { ChangeMetadata, ResolvedMemory } from "../../../types/index.js";
 import type { HarnessGap, WorkbenchProjectInput, WorkbenchRoleSummary, WorkbenchSnapshot, WorkbenchTopicState } from "../../read-model-types.js";
-
-const changeMetadataSchema = z.object({
-  version: z.literal("1.0"),
-  id: z.string(),
-  title: z.string(),
-  state: z.enum(["active", "archived"]),
-  createdAt: z.string(),
-  updatedAt: z.string(),
-  closedAt: z.string().nullable(),
-  archivePath: z.string().nullable(),
-});
 
 export function buildHarnessGaps(): HarnessGap[] {
   return [
@@ -79,13 +67,9 @@ export async function resolveWorkbenchMemory(input: WorkbenchProjectInput): Prom
 }
 
 export async function readChangeMetadataAt(memory: ResolvedMemory, relativePath: string): Promise<ChangeMetadata | null> {
-  const path = join(memory.memoryRoot, relativePath, "change.json");
-  if (!existsSync(path)) return null;
-  try {
-    return await readRequiredJsonFile(path, changeMetadataSchema);
-  } catch {
-    return null;
-  }
+  if (!existsSync(join(memory.memoryRoot, relativePath, "change.json"))) return null;
+  const state = relativePath.includes("/archive/") || relativePath.includes("\\archive\\") ? "archive" : "active";
+  return (await readScopedChangeMetadataAt(memory, relativePath, state)).metadata;
 }
 
 export function stateRank(state: WorkbenchTopicState): number {

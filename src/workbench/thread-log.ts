@@ -1,8 +1,7 @@
 import { existsSync } from "node:fs";
 import { appendFile, readFile, readdir } from "node:fs/promises";
 import { join, relative } from "node:path";
-import { z } from "zod";
-import { readJsonFile } from "../fs/json.js";
+import { canonicalThreadChangeIdForPath, readChangeMetadataFile } from "../change/metadata.js";
 import type { ResolvedMemory } from "../types/index.js";
 import { importThreadJsonlIfNeeded, WorkbenchStore, type StoredTopicMessage } from "./store.js";
 import type {
@@ -14,10 +13,6 @@ import type {
   TopicThreadEventType,
   WorkbenchAssistantEvent,
 } from "./types.js";
-
-const threadChangeMetadataSchema = z.object({
-  id: z.string(),
-});
 
 export async function readTopicThreadLog(memory: ResolvedMemory, changePath: string): Promise<TopicThreadEntry[]> {
   const changeId = await readCanonicalThreadChangeId(memory, changePath);
@@ -74,8 +69,9 @@ export async function collectAllTopicThreadEntries(memory: ResolvedMemory): Prom
 
 async function readCanonicalThreadChangeId(memory: ResolvedMemory, changePath: string): Promise<string> {
   const fallback = changePath.split(/[\\/]/).at(-1) ?? "";
-  const metadata = await readJsonFile(join(memory.memoryRoot, changePath, "change.json"), threadChangeMetadataSchema, { id: fallback });
-  return metadata.id;
+  const metadata = await readChangeMetadataFile(join(memory.memoryRoot, changePath)).catch(() => null);
+  if (metadata) return canonicalThreadChangeIdForPath(memory, changePath, metadata);
+  return fallback;
 }
 
 function toStoredThreadMessage(memory: ResolvedMemory, entry: TopicThreadEntry): Omit<StoredTopicMessage, "position"> {
