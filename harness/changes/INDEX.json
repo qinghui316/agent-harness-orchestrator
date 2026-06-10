@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-10T19:22:41.7273358Z",
+    "generated_at":  "2026-06-10T20:06:40.7640893Z",
     "active":  [
 
                ],
@@ -609,6 +609,10 @@
                     {
                         "name":  "20260611-phase-8t-agentscope-harness-reference-alignment",
                         "path":  "harness/changes/archive/20260611-phase-8t-agentscope-harness-reference-alignment"
+                    },
+                    {
+                        "name":  "20260611-phase-8u-runtime-continuity-contract-foundation",
+                        "path":  "harness/changes/archive/20260611-phase-8u-runtime-continuity-contract-foundation"
                     }
                 ]
 }

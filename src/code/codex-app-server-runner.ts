@@ -1,8 +1,10 @@
 import { Buffer } from "node:buffer";
 import { writeFile } from "node:fs/promises";
+import { workerPermissionProfileForRole } from "../agent-task/tool-policy.js";
 import { collectWorktreeDiff } from "../audit/diff.js";
 import { runCodexAppServerTurn } from "../codex/app-server.js";
 import { writeJsonFile } from "../fs/json.js";
+import { appendAgentEventEnvelope, createRuntimeContinuityArtifacts, markRuntimeContinuityStatus } from "../runtime-continuity/repository.js";
 import { appendRunEvent } from "../run/manager.js";
 import type { ManagedProject, ResolvedMemory, RunMetadata, RunStatus, RunWorktreeInfo } from "../types/index.js";
 import { getSortedSourceStatus, renderImplementationSummary } from "./artifacts.js";
@@ -25,6 +27,28 @@ export async function runCodexAppServerCode(input: {
 }): Promise<CodeRunResult> {
   let run: RunMetadata = { ...input.run, command: ["codex", "app-server", "--listen", "stdio://"], status: "running" };
   await writeRunAndStartedEvents(input.paths, run, input.worktree, input.live);
+  let continuity = await createRuntimeContinuityArtifacts(input.paths, {
+    projectId: input.project.id,
+    changeId: input.changeId,
+    runId: run.id,
+    roleId: input.roleId,
+    ...(run.taskRunId ? { taskRunId: run.taskRunId } : {}),
+    adapter: "codex-app-server",
+    worktree: input.worktree,
+    permissionProfile: workerPermissionProfileForRole(input.roleId),
+    rawArtifactRefs: [
+      input.run.artifacts.appServerEvents,
+      input.run.artifacts.appServerStderr,
+      input.run.artifacts.appServerLastMessage,
+      input.run.artifacts.agentSession,
+    ].filter((ref): ref is string => Boolean(ref)),
+    sandboxPolicy: "workspace-write",
+  });
+  continuity = await markRuntimeContinuityStatus(input.paths, continuity, "running");
+  const continuityWrites: Promise<void>[] = [];
+  const recordContinuity = (promise: Promise<unknown>): void => {
+    continuityWrites.push(promise.then(() => undefined).catch((error) => appendRuntimeContinuityFailure(input.paths, run.id, error)));
+  };
   const appServerResult = await runCodexAppServerTurn({
     projectId: input.project.id,
     changeId: input.changeId,
@@ -40,6 +64,11 @@ export async function runCodexAppServerCode(input: {
       session: input.paths.agentSession,
     },
     onTextDelta: (delta) => {
+      recordContinuity(appendAgentEventEnvelope(input.paths, continuity.session, continuity.eventSource, {
+        eventType: "text_delta",
+        summary: delta.slice(0, 160),
+        raw: { source: "codex-app-server", delta },
+      }));
       try {
         input.live?.onCodexEvent?.({ type: "text_delta", delta, runId: run.id, raw: { source: "app-server" } });
       } catch (error) {
@@ -47,6 +76,11 @@ export async function runCodexAppServerCode(input: {
       }
     },
     onNotification: (notification) => {
+      recordContinuity(appendAgentEventEnvelope(input.paths, continuity.session, continuity.eventSource, {
+        eventType: notification.method,
+        summary: notification.method,
+        raw: notification.raw,
+      }));
       try {
         input.live?.onCodexEvent?.({
           type: "readable_event",
@@ -65,6 +99,8 @@ export async function runCodexAppServerCode(input: {
     },
     onError: (error) => emitCodeLiveCallbackError(input.live, run.id, error),
   });
+  await Promise.all(continuityWrites);
+  continuity = await markRuntimeContinuityStatus(input.paths, continuity, appServerResult.status, appServerResult.error);
   await writeFile(input.paths.lastMessage, appServerResult.lastMessage || appServerResult.error || "# Coder App-Server Output Not Captured\n", "utf8");
   await appendRunEvent(input.paths.events, { timestamp: new Date().toISOString(), type: "app-server.exited", runId: run.id, data: { status: appServerResult.status, threadId: appServerResult.threadId, turnId: appServerResult.turnId, error: appServerResult.error } });
 
@@ -95,6 +131,15 @@ export async function runCodexAppServerCode(input: {
   await appendRunEvent(input.paths.events, { timestamp: run.finishedAt ?? new Date().toISOString(), type: status === "completed" ? "run.completed" : "run.failed", runId: run.id, data: { warnings, adapter: "codex-app-server" } });
   emitCodeLiveStatus(input.live, { runId: run.id, status, label: "Coder" });
   return { run, warnings };
+}
+
+async function appendRuntimeContinuityFailure(paths: CodeRunPaths, runId: string, error: unknown): Promise<void> {
+  await appendRunEvent(paths.events, {
+    timestamp: new Date().toISOString(),
+    type: "runtime_continuity.append_failed",
+    runId,
+    data: { error: error instanceof Error ? error.message : String(error) },
+  }).catch(() => undefined);
 }
 
 async function writeRunAndStartedEvents(paths: CodeRunPaths, run: RunMetadata, worktree: RunWorktreeInfo, live: CodeRunLiveCallbacks | undefined): Promise<void> {

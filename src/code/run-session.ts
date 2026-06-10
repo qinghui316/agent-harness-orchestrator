@@ -1,6 +1,7 @@
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { writeJsonFile } from "../fs/json.js";
+import { runtimeContinuityPaths } from "../runtime-continuity/paths.js";
 import type { ResolvedMemory, RunMetadata, RunStatus } from "../types/index.js";
 import { displayArtifactPath } from "./artifacts.js";
 
@@ -28,6 +29,10 @@ export interface CodeRunPaths {
   diff: string;
   diffStat: string;
   implementation: string;
+  workerSession: string;
+  runtimeWorkspace: string;
+  eventSource: string;
+  agentEvents: string;
 }
 
 export async function createCodeRunSession(memory: ResolvedMemory, runId: string): Promise<CodeRunSession> {
@@ -52,6 +57,7 @@ export async function createCodeRunSession(memory: ResolvedMemory, runId: string
     diffStat: `${relativeDir}/diff-stat.txt`,
     implementation: `${relativeDir}/implementation.md`,
   };
+  const runtimePaths = runtimeContinuityPaths(directory);
   const paths = {
     run: join(directory, "run.json"),
     context: join(directory, "context.md"),
@@ -69,6 +75,10 @@ export async function createCodeRunSession(memory: ResolvedMemory, runId: string
     diff: join(directory, "diff.patch"),
     diffStat: join(directory, "diff-stat.txt"),
     implementation: join(directory, "implementation.md"),
+    workerSession: runtimePaths.workerSession,
+    runtimeWorkspace: runtimePaths.runtimeWorkspace,
+    eventSource: runtimePaths.eventSource,
+    agentEvents: runtimePaths.agentEvents,
   };
   await mkdir(directory, { recursive: true });
   return { directory, relativeDir, artifacts, paths };

@@ -108,6 +108,8 @@ Phase 8S adds a SchedulerContract foundation for parallel candidates. The contra
 
 Phase 8T clarifies the missing runtime-continuity step between SchedulerContract and a real parallel scheduler. Before parallel execution, AHO needs worker session identity, runtime workspace/sandbox binding, event source replay, permission/external execution, and recovery contracts. These may be inspired by AgentScope 2.0 and AgentScope Java Harness, but they remain AHO-owned runtime auxiliaries and cannot replace workflow truth.
 
+Phase 8U implements the first code-run-only slice of that runtime-continuity step. Coder execution now records `WorkerSession`, `RuntimeWorkspace`, `EventSource`, and `AgentEventEnvelope` evidence beside existing Run artifacts. This gives later worker-session, sandbox, event replay, and parallel scheduler work a scoped contract without changing role authority: workers remain leaves, validation/audit remain independent evidence gates, and high-impact transitions still require Harness and human gates.
+
 Phase 7M is a boundary/module repair phase for this model. It does not let workers spawn agents or author executable workflow scripts; it makes the main-agent-facing action registry, scope checks, projections, and TaskQueue/WorkflowRun runtime facade explicit so later subagent or scheduler features can be added behind Harness-owned typed artifacts.
 
 Phase 7N continues that direction as a pure large-file boundary split. It moves Workbench shared types/thread-log helpers, action execution, runtime facade calls, projection builders, and frontend panels behind module owners. It does not grant workers delegation power, add a scheduler, or change the Harness-owned typed artifact chain.

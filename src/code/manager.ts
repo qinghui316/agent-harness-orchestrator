@@ -141,6 +141,7 @@ export async function startCodeRun(project: ManagedProject, options: CodeRunOpti
     run,
     paths: session.paths,
     changeId,
+    roleId,
     worktree,
     prompt,
     sourceBefore,

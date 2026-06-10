@@ -85,6 +85,8 @@ Phase 8S starts the next product capability line with a non-executing scheduler 
 
 Phase 8T records AgentScope 2.0 and AgentScope Java Harness as complementary references for a future Runtime Continuity Layer. AgentScope 2.0 is useful for event/message streams, permission requests, workspace/sandbox adapters, multi-session service, and agent team boundaries. AgentScope Java is useful for the Harness layer: `HarnessAgent` as a thin wrapper, `RuntimeContext`, workspace-driven persona, state persistence, memory, compaction, tool-result offload, subagent/background task sessions, sandbox, plan mode, and channel routing. AHO borrows these boundary ideas only. Before a later SchedulerContract-backed parallel executor exists, AHO needs explicit `AgentSession` / `WorkerSession`, `RuntimeWorkspace`, `AgentEventEnvelope` / `EventSource`, permission / external-execution, and recovery contracts. These are runtime auxiliary contracts and must not replace Change/ECL, accepted artifacts, Run, Validation, Audit, Apply/Close human gates, or Harness evolution.
 
+Phase 8U materializes the first AHO-owned Runtime Continuity Layer for code runs. Code execution writes additive `WorkerSession`, `RuntimeWorkspace`, `EventSource`, and `AgentEventEnvelope` evidence beside existing run artifacts while preserving `run.json`, Codex raw event logs, Workbench projections, CLI behavior, and workflow truth. V1 covers coder code runs only; validation and audit continue using their existing Run evidence paths. The layer records worker identity, workspace/sandbox policy snapshot, event source, and normalized worker events. It does not start a scheduler, create parallel TaskRuns, create WorkerLeases, create AgentTasks, create worktrees beyond the existing code path, create child Changes, or introduce a permission engine.
+
 Workbench relationship:
 
 ```text
@@ -135,7 +137,7 @@ AHO should converge on these layers:
 | TaskRun Queue | User-confirmed queued execution over accepted TaskGraph nodes | Queue records plus TaskRun/WorkerLease artifacts |
 | Bounded Demand Worker Slots | Bounded concurrent dispatch over independent demand conversations | Demand worker records reconciled to AgentTasks, Run artifacts, validation/audit, and result review |
 | Parallel Task Scheduler | Future bounded concurrent dispatch inside one demand after dependency/conflict modeling | Scheduler state reconciled to TaskGraph and leases |
-| Runtime Continuity Layer | Future worker sessions, runtime workspaces/sandboxes, event sources, permission handoff, and recovery contracts | Runtime auxiliary records; never workflow truth |
+| Runtime Continuity Layer | Worker sessions, runtime workspaces/sandboxes, event sources, permission snapshots, and recovery-oriented event envelopes | Runtime auxiliary records; never workflow truth |
 | Integration Layer | Future integration worktree, aggregate validation/audit, merge attempts, and integration-fix runs | Integration artifacts and human-gated decisions |
 | Codex App-Server Runtime Bridge | Rich session execution and live events | Runtime adapter, not workflow truth |
 | Workbench / Evidence / Decision UI | Human-facing demand conversation, Agent Loop, Inspector | Derived views over canonical facts |

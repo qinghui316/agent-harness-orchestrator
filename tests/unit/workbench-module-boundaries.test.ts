@@ -615,6 +615,16 @@ describe("Workbench module boundaries", () => {
         ],
       },
       {
+        roots: ["src/runtime-continuity"],
+        forbidden: [
+          /from\s+["'][^"']*\/manager\.js["']/,
+          /from\s+["']\.\.\/workbench\//,
+          /from\s+["']\.\.\/server\//,
+          /from\s+["']\.\.\/web\//,
+          /from\s+["']\.\.\/cli\//,
+        ],
+      },
+      {
         roots: ["src/validation", "src/audit"],
         forbidden: [
           /from\s+["'][^"']*manager\.js["']/,
@@ -1012,6 +1022,21 @@ describe("Workbench module boundaries", () => {
       const content = readFileSync(file, "utf8");
       expect(content).not.toMatch(/workbench\/|server\/|web\/src|cli\/commands|workflow-artifacts\/manager/);
     }
+  });
+
+  it("keeps runtime-continuity as an owned evidence module", () => {
+    const files = listSourceFiles(["src/runtime-continuity"]);
+    expect(files.map((file) => file.replace(/\\/g, "/"))).toEqual(expect.arrayContaining([
+      "src/runtime-continuity/types.ts",
+      "src/runtime-continuity/schemas.ts",
+      "src/runtime-continuity/paths.ts",
+      "src/runtime-continuity/repository.ts",
+      "src/runtime-continuity/guards.ts",
+    ]));
+    const repository = readFileSync("src/runtime-continuity/repository.ts", "utf8");
+    expect(repository).toContain("export async function createRuntimeContinuityArtifacts");
+    expect(repository).toContain("export async function appendAgentEventEnvelope");
+    expect(repository).toContain("assertEventSourceScope");
   });
 
   it("keeps workflow-run manager as a compatibility facade with scoped recovery modules", () => {

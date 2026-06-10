@@ -247,6 +247,7 @@ export interface RunEvent {
     | "app-server.started"
     | "app-server.exited"
     | "app-server.unavailable"
+    | "runtime_continuity.append_failed"
     | "validation.started"
     | "validation.command.started"
     | "validation.command.exited"
