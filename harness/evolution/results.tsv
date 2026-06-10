@@ -1,0 +1,28 @@
+timestamp	change_id	status	eval_mode	archive_count	notes
+2026-05-12T09:28:42.6013665Z	manual	keep	independent_review	5	auto-evolve-harness-20260512 placeholder gate; scorer=keep score=90; validation=passed
+2026-05-13T06:55:45.7053973Z	manual	keep	independent_review	10	close-handoff-gate; scorer=keep score=84; validation=passed
+2026-05-14T06:14:06.2132543Z	manual	keep	independent_review	15	real-acceptance-feedback-loop; scorer=keep score=88; validation=passed
+2026-05-14T11:37:40.8633124Z	manual	keep	independent_review	20	worktree-diff-new-file-coverage; scorer=keep score=84; validation=passed
+2026-05-15T11:12:38.6391537Z	manual	keep	independent_review	26	read-model-projection-coverage; scorer=keep score=88; validation=passed
+2026-05-15T17:12:26.8470630Z	manual	keep	independent_review	31	runtime-bridge-boundary-coverage; scorer=keep score=88; validation=passed
+2026-05-16T22:31:17.1090431Z	manual	noop	independent_review	36	Reviewed five-archive pending window; no durable Harness rule kept because evidence was already covered or fixed in product.
+2026-05-23T11:34:01.1101843Z	manual	keep	independent_review	41	Added narrow ECL guidance for explicitly authorized subagent independent review during pending Harness evolution; scorer=keep score=84; validation=passed
+2026-05-24T06:49:29.9729846Z	manual	keep	independent_review	46	Added external source/state safety recording rule for real acceptance using demo/reference/temp AHO state; scorer=change score=82; validation=passed
+2026-05-25T09:52:57.6178440Z	manual	noop	independent_review	51	auto-evolve-phase5s-5w-harness-review: independent subagent recommended noop/keep score 88; existing ECL rules cover candidate evidence
+2026-05-26T05:53:44.3229905Z	manual	promoted-rule	subagent_review	56	Promoted Workbench user-surface honesty coverage after Phase 5W-6A archive review.
+2026-05-26T10:14:23.7787751Z	manual	noop	subagent_review	61	Phase6D window reviewed; existing Workbench user-surface honesty rule covers evidence; no new lint/rule added.
+2026-05-27T10:12:46.3214124Z	manual	keep	subagent_review	66	Phase6G window promoted narrow real acceptance feedback template and stale active handoff lint; subagent keep score 84; validation passed
+2026-05-28T15:17:46.0145080Z	manual	keep	subagent_review	72	Phase6L window promoted source apply safety acceptance; subagent score 86; validation passed
+2026-05-29T07:10:37.5626569Z	manual	keep	subagent_review	77	Phase6P window promoted remote handoff acceptance and roadmap handoff sync; subagent scores 88/78; validation passed
+2026-05-29T17:29:50.7147453Z	manual	noop	subagent_review	82	Phase6P-6T window reviewed; subagent recommended noop score 62 because existing ECL/product docs already cover remote handoff and post-terminal memory boundaries.
+2026-05-30T12:47:45.8350762Z	manual	keep	subagent_review	87	Phase6T-6X window promoted scoped Workbench action payload coverage; subagent score 84; validation passed
+2026-05-31T06:26:47.2452980Z	manual	keep	subagent_review	92	Phase6X-7B transcript source-boundary rule promoted; subagent score 88; validation passed
+2026-05-31T11:13:36.1470201Z	manual	noop	independent_review	97	Phase7A-7E reviewed; transcript and scoped-action patterns already covered; RoleContextPacket evidence promising but single-window, no new Harness rule.
+2026-06-05T09:33:27.5382152Z	manual	promoted-rule	subagent_review	102	Phase7E-7I promoted proposal/runtime boundary coverage; subagent recommended modify; validation passed.
+2026-06-06T18:08:23.8088180Z	manual	promoted-rule	subagent_review	107	Phase7I-7M promoted close handoff drift evidence, typed workflow boundary matrix, and module boundary coverage; subagent reviewed pending window; validation passed
+2026-06-08T13:43:46.8805983Z	manual	promoted-rule	subagent_review	112	Phase7M-7Q promoted module handoff map coverage; validation passed
+2026-06-09T04:28:53.9555755Z	manual	noop	subagent_review	117	Phase7Q-7U noop; existing module handoff map coverage sufficient; subagent score 88; validation passed
+2026-06-09T08:47:03.5074403Z	manual	noop	subagent_review	122	Phase7U-7Y noop; existing module boundary and handoff drift coverage sufficient; subagent score 86; validation passed
+2026-06-09T12:34:24.8456077Z	manual	noop	subagent_review	127	Phase 7Y-8C reviewed; existing module-boundary, handoff-drift, scoped action payload, and proposal/runtime boundary rules are sufficient. No Harness rule/template/lint/test change recommended; subagent score 90.
+2026-06-09T16:46:06.1813352Z	manual	noop	subagent_review	132	Phase 8C-8G reviewed; existing module-boundary, handoff-drift, scoped action payload, proposal/runtime, source apply, and remote handoff rules are sufficient; subagent score 88.
+2026-06-10T10:33:17.8336694Z	manual	noop	subagent_review	137	Phase 8G-8K reviewed; existing scoped action, proposal/runtime, module-boundary, and handoff-drift coverage is sufficient; subagent score 90.

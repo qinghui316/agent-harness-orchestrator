@@ -4,10 +4,10 @@
 
 - Current date: 2026-06-10.
 - Active ECL change: none.
-- Pending Harness evolution: `harness/evolution/pending.md`, generated after Phase 8K close for the Phase 8G-8K archive window.
+- Pending Harness evolution: none. The Phase 8G-8K window was marked complete as `noop/subagent_review` with subagent score `90/100`.
 - Latest archived product change: `harness/changes/archive/20260531-phase-7f-mainagent-orchestration-decision-engine/summary.md`.
 - Latest archived product/Harness docs change: `harness/changes/archive/20260602-phase-7g-open-dynamic-workflows-reference-alignment/summary.md`.
-- Latest archived Harness evolution: `harness/changes/archive/20260610-auto-evolve-harness-phase-8c-8g-boundary-evidence/summary.md`.
+- Latest archived Harness evolution: `harness/changes/archive/20260610-auto-evolve-harness-phase-8g-8k-boundary-evidence/summary.md`.
 - Active product phase: none.
 
 Current baseline:
@@ -84,8 +84,8 @@ Last completed phase:
 
 Latest Harness evolution:
 
-- `harness/changes/archive/20260610-auto-evolve-harness-phase-8c-8g-boundary-evidence/summary.md`
-- Purpose: handled the Phase 8C through Phase 8G pending evolution window as `noop/subagent_review`; authorized subagent review scored the window `88/100` and recommended no new Harness rule because existing module-boundary, handoff-drift, scoped action payload, proposal/runtime, source apply, and remote handoff rules were sufficient.
+- `harness/changes/archive/20260610-auto-evolve-harness-phase-8g-8k-boundary-evidence/summary.md`
+- Purpose: handled the Phase 8G through Phase 8K pending evolution window as `noop/subagent_review`; authorized subagent review scored the window `90/100` and recommended no new Harness rule because existing module-boundary, handoff-drift, scoped action payload, proposal/runtime, source apply, remote handoff, and scoped evidence rules were sufficient.
 
 Previous documentation phase:
 
@@ -108,7 +108,9 @@ Active implementation track:
 ```text
 Active implementation track: none.
 
-Pending Harness evolution: `harness/evolution/pending.md`, generated after Phase 8K close for the Phase 8G-8K archive window.
+Pending Harness evolution: none. The Phase 8G-8K window was marked complete as `noop/subagent_review` with subagent score `90/100`.
+
+Auto Evolve Harness Phase 8G 8K Boundary Evidence is closed and archived at `harness/changes/archive/20260610-auto-evolve-harness-phase-8g-8k-boundary-evidence/summary.md`. It reviewed the Phase 8G-8K pending evolution window, accepted the authorized subagent `noop` recommendation with score `90/100`, wrote `harness/evolution/proposals/20260610-phase8g-8k-boundary-evidence-noop.md`, and marked evolution complete without adding a new Harness rule. It did not change product runtime behavior.
 
 Phase 8H is closed and archived at `harness/changes/archive/20260610-phase-8h-strict-taskqueue-domain-boundary-split/summary.md`. It tightened low-level TaskQueue new-start typed scope to match the Workbench confirmation contract and split TaskQueue internals behind `src/task-queue/manager.ts` without changing TaskQueue artifact/API shapes, Workbench behavior, route/action shapes, scheduler behavior, parallel execution, automatic child Changes, ODWF JavaScript runtime, or cache/replay.
 
