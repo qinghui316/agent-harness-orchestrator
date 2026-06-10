@@ -3,12 +3,12 @@
 ## Current Handoff
 
 - Current date: 2026-06-10.
-- Active ECL change: `harness/changes/active/phase-8m-scoped-change-lifecycle-boundary-split/summary.md`.
+- Active ECL change: `harness/changes/active/phase-8n-run-evidence-manager-boundary-split/summary.md`.
 - Pending Harness evolution: none. The Phase 8G-8K window was marked complete as `noop/subagent_review` with subagent score `90/100`.
 - Latest archived product change: `harness/changes/archive/20260531-phase-7f-mainagent-orchestration-decision-engine/summary.md`.
 - Latest archived product/Harness docs change: `harness/changes/archive/20260602-phase-7g-open-dynamic-workflows-reference-alignment/summary.md`.
 - Latest archived Harness evolution: `harness/changes/archive/20260610-auto-evolve-harness-phase-8g-8k-boundary-evidence/summary.md`.
-- Active product phase: Phase 8M Scoped Change Lifecycle Boundary Split.
+- Active product phase: Phase 8N Run Evidence Manager Boundary Split.
 
 Current baseline:
 
@@ -106,11 +106,13 @@ Phase 7F baseline: project demand conversation -> explicit ChangeTarget binding 
 Active implementation track:
 
 ```text
-Active implementation track: Phase 8M Scoped Change Lifecycle Boundary Split.
+Active implementation track: Phase 8N Run Evidence Manager Boundary Split.
 
-Phase 8M is active at `harness/changes/active/phase-8m-scoped-change-lifecycle-boundary-split/summary.md`. It repairs Change metadata scope guards and splits `src/change/manager.ts` behind owned lifecycle modules. Change/ECL remains workflow truth. This phase does not add runtime capability, Workbench actions, CLI commands, HTTP routes, scheduler behavior, parallel execution, automatic child Changes, ODWF JavaScript runtime, or cache/replay.
+Phase 8N is active at `harness/changes/active/phase-8n-run-evidence-manager-boundary-split/summary.md`. It splits Run evidence internals behind `src/run/manager.ts` while keeping Run artifacts, Validation, and Audit as evidence. This phase does not add runtime capability, Workbench actions, CLI commands, HTTP routes, scheduler behavior, parallel execution, automatic child Changes, ODWF JavaScript runtime, or cache/replay.
 
 Pending Harness evolution: none. The Phase 8G-8K window was marked complete as `noop/subagent_review` with subagent score `90/100`.
+
+Phase 8M is closed and archived at `harness/changes/archive/20260610-phase-8m-scoped-change-lifecycle-boundary-split/summary.md`. It repaired Change metadata scope guards and split `src/change/manager.ts` behind owned lifecycle modules. Change/ECL remains workflow truth.
 
 Phase 8L is closed and archived at `harness/changes/archive/20260610-phase-8l-scoped-workflowrun-boundary-split/summary.md`. It repaired WorkflowRun Change/queue/event scope guards and split `src/workflow-run/manager.ts` behind owned modules. WorkflowRun remains runtime coordination and recovery evidence, not workflow truth. This phase did not add runtime capability, Workbench actions, CLI commands, HTTP routes, scheduler behavior, parallel execution, automatic child Changes, ODWF JavaScript runtime, or cache/replay.
 

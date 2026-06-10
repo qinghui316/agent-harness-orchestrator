@@ -34,6 +34,7 @@ import { getSpecTestStatus, linkSpecTest } from "../../src/spec-test/manager.js"
 import { getSpecTestDriftReport } from "../../src/spec-test/drift.js";
 import { startSpecTestGenerationRun } from "../../src/spec-test/generate.js";
 import { startSpecTestProposalRun } from "../../src/spec-test/proposal.js";
+import { appendRunEvent, buildContextProjection, buildRunId, listRuns, readRun, startLocalCommandRun } from "../../src/run/manager.js";
 import { readTopicThreadLog } from "../../src/workbench/thread-log.js";
 import { runWorkbenchWorkflowActionService } from "../../src/workbench/actions/service.js";
 import { assertWorkflowActionScope } from "../../src/workbench/actions/boundary.js";
@@ -184,6 +185,12 @@ describe("Workbench module boundaries", () => {
     expect(typeof getSpecTestDriftReport).toBe("function");
     expect(typeof startSpecTestProposalRun).toBe("function");
     expect(typeof startSpecTestGenerationRun).toBe("function");
+    expect(typeof startLocalCommandRun).toBe("function");
+    expect(typeof listRuns).toBe("function");
+    expect(typeof readRun).toBe("function");
+    expect(typeof appendRunEvent).toBe("function");
+    expect(typeof buildRunId).toBe("function");
+    expect(typeof buildContextProjection).toBe("function");
 
     expect(typeof readTopicThreadLog).toBe("function");
     expect(typeof runWorkbenchWorkflowActionService).toBe("function");
@@ -540,6 +547,16 @@ describe("Workbench module boundaries", () => {
         ],
       },
       {
+        roots: ["src/run"],
+        forbidden: [
+          /from\s+["']\.\/manager\.js["']/,
+          /from\s+["']\.\.\/workbench\//,
+          /from\s+["']\.\.\/server\//,
+          /from\s+["']\.\.\/web\//,
+          /from\s+["']\.\.\/cli\//,
+        ],
+      },
+      {
         roots: [
           "src/types/change-ecl.ts",
           "src/types/maintenance.ts",
@@ -564,6 +581,30 @@ describe("Workbench module boundaries", () => {
     const offenders = checks.flatMap((check) => listSourceFiles(check.roots)
       .flatMap((file) => check.forbidden.some((pattern) => pattern.test(readFileSync(file, "utf8"))) ? [file] : []));
     expect(offenders).toEqual([]);
+  });
+
+  it("keeps run manager as a compatibility facade with owned evidence modules", () => {
+    const facade = readFileSync("src/run/manager.ts", "utf8");
+    expect(facade).toContain('export { startLocalCommandRun } from "./local-command-runner.js";');
+    expect(facade).toContain('export { listRuns, readRun } from "./repository.js";');
+    expect(facade).toContain('export { appendRunEvent } from "./events.js";');
+    expect(facade).toContain('export { buildRunId } from "./run-id.js";');
+    expect(facade).toContain('export { buildContextProjection } from "./context-projection.js";');
+    expect(facade).not.toMatch(/async function startLocalCommandRun/);
+    expect(facade).not.toMatch(/runMetadataSchema\s*=\s*z\.object/);
+    expect(facade).not.toMatch(/executeProcessStreaming/);
+
+    const codex = readFileSync("src/run/codex.ts", "utf8");
+    expect(codex).not.toContain('from "./manager.js"');
+    expect(codex).toContain('from "./context-projection.js"');
+    expect(codex).toContain('from "./events.js"');
+    expect(codex).toContain('from "./run-id.js"');
+
+    const localCommandRunner = readFileSync("src/run/local-command-runner.ts", "utf8");
+    expect(localCommandRunner).toContain('from "./context-projection.js"');
+    expect(localCommandRunner).toContain('from "./events.js"');
+    expect(localCommandRunner).toContain('from "./paths.js"');
+    expect(localCommandRunner).toContain('from "./run-id.js"');
   });
 
   it("keeps change proposals as a compatibility facade", () => {

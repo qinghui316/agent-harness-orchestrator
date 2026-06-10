@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { join, relative } from "node:path";
+import { join } from "node:path";
 import { resolveRunnableChangeTarget } from "../change/target.js";
 import { buildCodexReadonlyArgv, detectCodexCapabilities } from "../codex/capabilities.js";
 import { CodexCompletionTracker, codexLifecycleTiming, type CodexCompletionSnapshot } from "../codex/completion.js";
@@ -9,10 +9,13 @@ import { composeCodexPrompt } from "../codex/prompt.js";
 import { writeJsonFile } from "../fs/json.js";
 import { assertWritableMemory, resolveProjectMemory } from "../memory/resolver.js";
 import { getEnabledSkillContext } from "../skill/catalog.js";
-import type { ManagedProject, ResolvedMemory, RunMetadata, RunStatus } from "../types/index.js";
+import type { ManagedProject, RunMetadata, RunStatus } from "../types/index.js";
 import { isRunStopRequested } from "./control.js";
-import { appendRunEvent, buildContextProjection, buildRunId } from "./manager.js";
+import { buildContextProjection } from "./context-projection.js";
+import { appendRunEvent } from "./events.js";
+import { displayArtifactPath } from "./paths.js";
 import { executeProcessStreaming, type ProcessExecutionResult } from "./process.js";
+import { buildRunId } from "./run-id.js";
 
 export interface CodexReadonlyRunOptions {
   prompt: string;
@@ -154,11 +157,6 @@ export async function startCodexReadonlyRun(project: ManagedProject, options: Co
   await appendRunEvent(paths.events, { timestamp: run.finishedAt ?? new Date().toISOString(), type: status === "completed" ? "run.completed" : "run.failed", runId });
 
   return { run };
-}
-
-function displayArtifactPath(memory: ResolvedMemory, absolutePath: string): string {
-  const base = memory.artifactBase === "memory-root" ? memory.memoryRoot : memory.projectRoot;
-  return relative(base, absolutePath).replace(/\\/g, "/");
 }
 
 function processDiagnosticsData(processResult: ProcessExecutionResult, completion: CodexCompletionSnapshot): Record<string, unknown> {

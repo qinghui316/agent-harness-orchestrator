@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-10T13:53:24.7252985Z",
+    "generated_at":  "2026-06-10T14:25:01.3765347Z",
     "active":  [
 
                ],
@@ -573,6 +573,10 @@
                     {
                         "name":  "20260610-phase-8m-scoped-change-lifecycle-boundary-split",
                         "path":  "harness/changes/archive/20260610-phase-8m-scoped-change-lifecycle-boundary-split"
+                    },
+                    {
+                        "name":  "20260610-phase-8n-run-evidence-manager-boundary-split",
+                        "path":  "harness/changes/archive/20260610-phase-8n-run-evidence-manager-boundary-split"
                     }
                 ]
 }
