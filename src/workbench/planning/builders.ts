@@ -197,7 +197,7 @@ export async function buildDecompositionReadinessManifest(
     status: readinessStatus,
     recommendation: plan.recommendation,
     executable: false,
-    schedulerEligible: readinessStatus === "ready-for-sequential-taskqueue-proposal",
+    schedulerEligible: readinessStatus === "ready-for-sequential-taskqueue-proposal" || readinessStatus === "ready-for-scheduler-contract",
     nextAllowedAction: nextAllowedActionForReadiness(readinessStatus),
     units,
     dependencies: plan.dependencies,
@@ -221,7 +221,7 @@ function readinessStatusForRecommendation(recommendation: DecompositionRecommend
   switch (recommendation) {
     case "single-change": return "ready-for-single-change";
     case "taskgraph-sequential": return "ready-for-sequential-taskqueue-proposal";
-    case "taskgraph-parallel-candidate": return parallelReady ? "ready-for-sequential-taskqueue-proposal" : "blocked-parallel-guardrails";
+    case "taskgraph-parallel-candidate": return parallelReady ? "ready-for-scheduler-contract" : "blocked-parallel-guardrails";
     case "multi-change-candidate": return "blocked-multi-change-boundary";
     case "needs-clarification": return "blocked-needs-clarification";
   }
@@ -231,6 +231,7 @@ function nextAllowedActionForReadiness(status: DecompositionReadinessStatus): De
   switch (status) {
     case "ready-for-single-change": return "code.run";
     case "ready-for-sequential-taskqueue-proposal": return "taskqueue.proposal";
+    case "ready-for-scheduler-contract": return "scheduler.contract";
     case "blocked-needs-clarification": return "clarification.answer";
     case "blocked-parallel-guardrails":
     case "blocked-multi-change-boundary":

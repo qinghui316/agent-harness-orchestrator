@@ -7,10 +7,12 @@ import {
   buildTypedWorkflowNextAction,
   readLatestDecompositionPlanSummary,
   readLatestDecompositionReadinessSummary,
+  readLatestSchedulerContractSummary,
   readLatestTaskQueueProposalSummary,
   readLatestWorkflowGraphPlanSummary,
   type WorkbenchDecompositionPlanSummary,
   type WorkbenchDecompositionReadinessSummary,
+  type WorkbenchSchedulerContractSummary,
   type WorkbenchTaskQueueProposalSummary,
   type WorkbenchWorkflowGraphPlanSummary,
 } from "../../workflow-projection.js";
@@ -188,6 +190,7 @@ export async function buildWorkbenchWorkpad(input: {
   const decompositionReadiness = await readLatestDecompositionReadinessSummary(memory, selectedTopic.path);
   const taskQueueProposal = await readLatestTaskQueueProposalSummary(memory, selectedTopic.path);
   const workflowGraphPlan = await readLatestWorkflowGraphPlanSummary(memory, selectedTopic.path);
+  const schedulerContract = await readLatestSchedulerContractSummary(memory, selectedTopic.path);
   const workflowRun = await getLatestWorkflowRun(memory, selectedTopic.id).then((run) => run ? summarizeWorkflowRun(run) : null).catch(() => null);
   const agentTasks = await buildAgentTaskSummaries(memory, selectedTopic.id);
   const rolePipeline = buildRolePipelineSummary(selectedTopic, planningBundle, agentTasks);
@@ -224,6 +227,7 @@ export async function buildWorkbenchWorkpad(input: {
     decompositionReadiness: decompositionReadiness ?? undefined,
     taskQueueProposal: taskQueueProposal ?? undefined,
     workflowGraphPlan: workflowGraphPlan ?? undefined,
+    schedulerContract: schedulerContract ?? undefined,
     workflowRun: workflowRun ?? undefined,
     rolePipeline,
     resultReview,
@@ -261,7 +265,7 @@ export async function buildWorkbenchWorkpad(input: {
       ...workpadMissingWarnings(specReady, planReady, tasksReady, selectedTopic),
       ...gaps.filter((gap) => gap.status !== "available").map((gap) => gap.summary),
     ],
-    nextAction: buildWorkpadNextAction(selectedTopic, topicApprovals, { specReady, planReady, tasksReady }, intake, taskQueue, taskGraph, planningBundle, decompositionPlan, decompositionReadiness, taskQueueProposal, workflowGraphPlan, workflowRun),
+    nextAction: buildWorkpadNextAction(selectedTopic, topicApprovals, { specReady, planReady, tasksReady }, intake, taskQueue, taskGraph, planningBundle, decompositionPlan, decompositionReadiness, taskQueueProposal, workflowGraphPlan, schedulerContract, workflowRun),
     background: buildWorkpadBackground(workpads, selectedTopic.id),
     memoryIsolation: buildWorkpadMemoryIsolation(memory, selectedTopic, workpads),
   };
@@ -533,6 +537,7 @@ function buildWorkpadNextAction(
   decompositionReadiness?: WorkbenchDecompositionReadinessSummary | null,
   taskQueueProposal?: WorkbenchTaskQueueProposalSummary | null,
   workflowGraphPlan?: WorkbenchWorkflowGraphPlanSummary | null,
+  schedulerContract?: WorkbenchSchedulerContractSummary | null,
   workflowRun?: WorkflowRunSummary | null,
 ): WorkpadNextAction {
   if (topic.state !== "active") {
@@ -560,6 +565,20 @@ function buildWorkpadNextAction(
   }
   const queueBlockedAction = buildQueueBlockedNextAction(queue, taskGraph);
   if (queueBlockedAction) return queueBlockedAction;
+  if (decompositionReadiness?.nextAllowedAction === "scheduler.contract") {
+    return buildTypedWorkflowNextAction({
+      topic,
+      readiness,
+      intake,
+      planningBundle,
+      decompositionPlan,
+      decompositionReadiness,
+      taskQueueProposal,
+      workflowGraphPlan,
+      schedulerContract,
+      workflowRun,
+    });
+  }
   const actionableApproval = approvals.find((approval) => approval.action);
   if (actionableApproval) {
     return {
@@ -581,6 +600,7 @@ function buildWorkpadNextAction(
     decompositionReadiness,
     taskQueueProposal,
     workflowGraphPlan,
+    schedulerContract,
     workflowRun,
   });
 }

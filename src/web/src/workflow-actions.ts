@@ -7,6 +7,7 @@ export type WorkflowActionPayloadSource = {
   readinessManifestId?: string;
   taskQueueProposalId?: string;
   workflowGraphPlanId?: string;
+  schedulerContractId?: string;
   workflowRunId?: string;
   queueRunId?: string;
   taskIds?: string[];

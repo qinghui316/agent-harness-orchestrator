@@ -12,7 +12,7 @@ import { executeWorkbenchAction } from "../../src/server/workbench-server.js";
 import { appendTopicThreadEntry, createWorkbenchTopic, postTopicMessage } from "../../src/workbench/chat.js";
 import { readTopicThreadLog } from "../../src/workbench/thread-log.js";
 import { answerClarification, reanalyzeIntake, runIntakeScan } from "../../src/workbench/intake.js";
-import { getWorkbenchDecompositionPlanProjection, getWorkbenchDecompositionReadinessProjection, getWorkbenchMaintenanceProjection, getWorkbenchRunGraphProjection, getWorkbenchSnapshot, getWorkbenchStream, getWorkbenchTaskQueueProposalProjection, getWorkbenchTopic, getWorkbenchWorkflowGraphPlanProjection, listWorkbenchApprovals, listWorkbenchRoles, listWorkbenchTopics } from "../../src/workbench/manager.js";
+import { getWorkbenchDecompositionPlanProjection, getWorkbenchDecompositionReadinessProjection, getWorkbenchMaintenanceProjection, getWorkbenchRunGraphProjection, getWorkbenchSchedulerContractProjection, getWorkbenchSnapshot, getWorkbenchStream, getWorkbenchTaskQueueProposalProjection, getWorkbenchTopic, getWorkbenchWorkflowGraphPlanProjection, listWorkbenchApprovals, listWorkbenchRoles, listWorkbenchTopics } from "../../src/workbench/manager.js";
 import { WorkbenchStore } from "../../src/workbench/store.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import { collectWorktreeDiff } from "../../src/audit/diff.js";
@@ -62,6 +62,7 @@ import {
   writeDecompositionReadinessManifest,
   writeTaskQueueProposal,
 } from "../../src/workflow-artifacts/manager.js";
+import { compileSchedulerContract } from "../../src/workflow-scheduler/manager.js";
 import { listIntegrationChecks } from "../../src/integration-check/manager.js";
 import type { ManagedProject, RunMetadata, TaskQueueItem, TaskQueueRun, TaskRun, WorkerLease, WorkflowGraphPlan, WorkflowRun } from "../../src/types/index.js";
 import type { DecompositionPlan, DecompositionReadinessManifest, TaskQueueProposal } from "../../src/workflow-artifacts/manager.js";
@@ -1208,6 +1209,82 @@ describe("workbench read model", () => {
     expect(graph.nodes.map((node) => node.stages.join(" -> "))).toEqual(["coder -> validation -> audit -> bounded-rework"]);
   });
 
+  it("compiles SchedulerContract waves and rejects unsafe parallel graphs", async () => {
+    await initHarness(project());
+    await createChange(project(), { title: "Scheduler Contract Kernel" });
+    await writeAcceptedSpecAndTasks("scheduler-contract-kernel");
+    const memory = await resolveProjectMemory(project());
+    const changePath = join("harness", "changes", "active", "scheduler-contract-kernel");
+    const planningDir = join(tempDir, changePath, "planning");
+    await mkdir(planningDir, { recursive: true });
+    const plan = minimalDecompositionPlan("scheduler-contract-kernel");
+    plan.recommendation = "taskgraph-parallel-candidate";
+    plan.units = [
+      { ...plan.units[0], id: "DU-001", title: "Module A", taskIds: ["T-001"], scopeHints: ["src/module-a.ts"], dependsOn: [] },
+      { ...plan.units[0], id: "DU-002", title: "Module B", taskIds: ["T-002"], scopeHints: ["src/module-b.ts"], dependsOn: [] },
+      { ...plan.units[0], id: "DU-003", title: "Synthesis", taskIds: ["T-003"], scopeHints: ["src/synthesis.ts"], dependsOn: ["DU-001", "DU-002"] },
+    ];
+    plan.dependencies = [
+      { from: "DU-001", to: "DU-003", kind: "blocks" },
+      { from: "DU-002", to: "DU-003", kind: "blocks" },
+    ];
+    plan.conflictScopes = ["src/module-a.ts", "src/module-b.ts", "src/synthesis.ts"];
+    plan.artifactRefs = [`harness/changes/active/scheduler-contract-kernel/spec.md`];
+    plan.recoveryKeyInputs.acceptedArtifactRefs = plan.artifactRefs;
+    const readiness = minimalReadiness("scheduler-contract-kernel", ["T-001", "T-002", "T-003"]);
+    readiness.status = "ready-for-scheduler-contract";
+    readiness.recommendation = "taskgraph-parallel-candidate";
+    readiness.nextAllowedAction = "scheduler.contract";
+    readiness.decompositionPlanId = plan.id;
+    readiness.units = plan.units.map((unit) => ({
+      id: unit.id,
+      title: unit.title,
+      taskIds: unit.taskIds,
+      acIds: unit.acIds,
+      dependsOn: unit.dependsOn,
+      guardrailStatus: "passed",
+      sourceScopes: unit.scopeHints,
+    }));
+    readiness.dependencies = plan.dependencies;
+    readiness.conflictScopes = plan.conflictScopes;
+    readiness.artifactRefs = plan.artifactRefs;
+    readiness.recoveryKeyMaterial.decompositionPlanId = plan.id;
+    readiness.recoveryKeyMaterial.acceptedArtifactRefs = plan.artifactRefs;
+    await writeFile(join(planningDir, "decomposition-plan.json"), JSON.stringify(plan, null, 2), "utf8");
+    await writeFile(join(planningDir, "decomposition-plan.md"), `# ${plan.id}\n`, "utf8");
+    await writeFile(join(planningDir, "decomposition-readiness.json"), JSON.stringify(readiness, null, 2), "utf8");
+    await writeFile(join(planningDir, "decomposition-readiness.md"), `# ${readiness.id}\n`, "utf8");
+
+    const contract = await compileSchedulerContract(memory, changePath, plan, readiness);
+    expect(contract.waves).toEqual([
+      { index: 0, nodeIds: ["scheduler-node-001", "scheduler-node-002"] },
+      { index: 1, nodeIds: ["scheduler-node-003"] },
+    ]);
+    expect(contract.edges).toEqual(expect.arrayContaining([
+      expect.objectContaining({ from: "scheduler-node-001", to: "scheduler-node-003", kind: "dependency" }),
+      expect.objectContaining({ from: "scheduler-node-002", to: "scheduler-node-003", kind: "dependency" }),
+    ]));
+
+    await expect(compileSchedulerContract(memory, changePath, {
+      ...plan,
+      dependencies: [{ from: "DU-001", to: "DU-002", kind: "conflicts" }],
+    }, { ...readiness, dependencies: [{ from: "DU-001", to: "DU-002", kind: "conflicts" }] })).rejects.toThrow("requires explicit ordering for conflict edge");
+
+    await expect(compileSchedulerContract(memory, changePath, {
+      ...plan,
+      dependencies: [
+        { from: "DU-001", to: "DU-002", kind: "blocks" },
+        { from: "DU-002", to: "DU-001", kind: "blocks" },
+      ],
+    }, {
+      ...readiness,
+      dependencies: [
+        { from: "DU-001", to: "DU-002", kind: "blocks" },
+        { from: "DU-002", to: "DU-001", kind: "blocks" },
+      ],
+    })).rejects.toThrow("contains a cycle");
+  });
+
   it("keeps workflow artifact hash normalization stable", async () => {
     await initHarness(project());
     await createChange(project(), { title: "Workflow Artifact Hash" });
@@ -2000,6 +2077,121 @@ describe("workbench read model", () => {
       decompositionPlanId: manifest?.decompositionPlanId,
       confirm: true,
     })).rejects.toThrow("stale or no longer available");
+  });
+
+  it("compiles SchedulerContract from parallel readiness without starting execution", async () => {
+    await initHarness(project());
+    const topic = await createWorkbenchTopic(project(), {
+      title: "Parallel Scheduler Contract",
+      body: "Split this into independent parallel work across multiple modules.",
+    });
+    await writeAcceptedSpecAndTasks(topic.changeId);
+    const changeDir = join(tempDir, "harness", "changes", "active", topic.changeId);
+    await writeFile(join(changeDir, "tasks.md"), [
+      "# Tasks",
+      "",
+      "- [ ] T-001: Update module A.",
+      "  - Covers: AC-001",
+      "- [ ] T-002: Update module B.",
+      "  - Covers: AC-001",
+      "",
+    ].join("\n"), "utf8");
+    await writePlanningBundleFixture(topic.changeId, "Implement independent parallel module updates.");
+    const bundlePath = join(changeDir, "planning", "latest-bundle.json");
+    const bundle = JSON.parse(await readFile(bundlePath, "utf8"));
+    bundle.status = "confirmed";
+    bundle.tasks = [
+      { id: "T-001", title: "Update module A", acIds: ["AC-001"] },
+      { id: "T-002", title: "Update module B", acIds: ["AC-001"] },
+    ];
+    bundle.tasksMd = "- [ ] T-001: Update module A\n  - Covers: AC-001\n- [ ] T-002: Update module B\n  - Covers: AC-001\n";
+    await writeFile(bundlePath, JSON.stringify(bundle, null, 2), "utf8");
+
+    const draft = await executeWorkbenchAction({ project: project(), path: tempDir }, {
+      actionType: "planning.decompose",
+      changeId: topic.changeId,
+      prompt: "并行 独立 src/module-a.ts src/module-b.ts",
+      confirm: true,
+    });
+    const planId = (draft.result as { result?: { plan?: { id?: string } } }).result?.plan?.id;
+    const planPath = join(changeDir, "planning", "decomposition-plan.json");
+    const plan = JSON.parse(await readFile(planPath, "utf8"));
+    plan.units[0].scopeHints = ["src/module-a.ts"];
+    plan.units[1].scopeHints = ["src/module-b.ts"];
+    plan.units[0].dependsOn = [];
+    plan.units[1].dependsOn = [];
+    plan.dependencies = [];
+    plan.conflictScopes = ["src/module-a.ts", "src/module-b.ts"];
+    await writeFile(planPath, JSON.stringify(plan, null, 2), "utf8");
+
+    await executeWorkbenchAction({ project: project(), path: tempDir }, {
+      actionType: "planning.decomposition.confirm",
+      changeId: topic.changeId,
+      decompositionPlanId: planId,
+      confirm: true,
+    });
+    const readiness = await executeWorkbenchAction({ project: project(), path: tempDir }, {
+      actionType: "planning.decomposition.assess-readiness",
+      changeId: topic.changeId,
+      decompositionPlanId: planId,
+      confirm: true,
+    });
+    const manifest = (readiness.result as { result?: { manifest?: { id?: string; status?: string; nextAllowedAction?: string; decompositionPlanId?: string } } }).result?.manifest;
+    expect(manifest).toMatchObject({ status: "ready-for-scheduler-contract", nextAllowedAction: "scheduler.contract" });
+
+    const beforeMemory = await resolveProjectMemory(project());
+    await expect(executeWorkbenchAction({ project: project(), path: tempDir }, {
+      actionType: "planning.taskqueue.propose",
+      changeId: topic.changeId,
+      readinessManifestId: manifest?.id,
+      confirm: true,
+    })).rejects.toThrow("stale or no longer available");
+
+    const snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: topic.changeId });
+    expect(snapshot.center.workpad.nextAction).toMatchObject({
+      actionType: "planning.scheduler.contract.compile",
+      decompositionPlanId: planId,
+      readinessManifestId: manifest?.id,
+    });
+    expect(snapshot.center.workpad.taskQueueProposal).toBeUndefined();
+    expect(snapshot.right.confirmationQueue.current).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        actions: expect.arrayContaining([
+          expect.objectContaining({
+            actionType: "planning.scheduler.contract.compile",
+            decompositionPlanId: planId,
+            readinessManifestId: manifest?.id,
+          }),
+        ]),
+      }),
+    ]));
+
+    const compiled = await executeWorkbenchAction({ project: project(), path: tempDir }, {
+      actionType: "planning.scheduler.contract.compile",
+      changeId: topic.changeId,
+      decompositionPlanId: planId,
+      readinessManifestId: manifest?.id,
+      confirm: true,
+    });
+    const contract = (compiled.result as { result?: { contract?: { id?: string; nodeCount?: number; waveCount?: number; readinessManifestId?: string } } }).result?.contract;
+    expect(contract).toMatchObject({ readinessManifestId: manifest?.id });
+    const fullContract = await getWorkbenchSchedulerContractProjection({ project: project(), path: tempDir }, topic.changeId, contract?.id);
+    expect(fullContract).toMatchObject({
+      id: contract?.id,
+      schedulerMode: "parallel-readiness-v1",
+      waves: [expect.objectContaining({ nodeIds: expect.arrayContaining(["scheduler-node-001", "scheduler-node-002"]) })],
+    });
+    const after = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: topic.changeId });
+    expect(after.center.workpad.schedulerContract).toMatchObject({ id: contract?.id, nodeCount: 2, waveCount: 1, dependencyCount: 0 });
+    expect(after.center.workpad.nextAction).toMatchObject({
+      actionType: "planning.scheduler.contract.compile",
+      enabled: false,
+      schedulerContractId: contract?.id,
+    });
+    expect(await listTaskQueues(beforeMemory, topic.changeId)).toHaveLength(0);
+    expect(await listWorkflowRuns(beforeMemory, topic.changeId)).toHaveLength(0);
+    expect(await listAgentTasks(beforeMemory, topic.changeId)).toHaveLength(0);
+    expect((await listRuns(beforeMemory)).filter((run) => run.changeId === topic.changeId)).toHaveLength(0);
   });
 
   it("records supplemental input as pending feedback while a demand run is still running", async () => {

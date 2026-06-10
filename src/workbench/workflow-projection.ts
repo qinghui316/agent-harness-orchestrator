@@ -11,6 +11,11 @@ import {
   type TaskQueueProposal,
   type WorkflowGraphPlan,
 } from "../workflow-artifacts/manager.js";
+import {
+  readLatestSchedulerContract,
+  readSchedulerContract,
+  type SchedulerContract,
+} from "../workflow-scheduler/manager.js";
 
 export interface WorkbenchDecompositionPlanSummary {
   id: string;
@@ -72,6 +77,22 @@ export interface WorkbenchWorkflowGraphPlanSummary {
   updatedAt: string;
 }
 
+export interface WorkbenchSchedulerContractSummary {
+  id: string;
+  changeId: string;
+  status: SchedulerContract["status"];
+  schedulerMode: SchedulerContract["schedulerMode"];
+  decompositionPlanId: string;
+  readinessManifestId: string;
+  nodeCount: number;
+  waveCount: number;
+  dependencyCount: number;
+  conflictCount: number;
+  artifact?: string;
+  markdownArtifact?: string;
+  updatedAt: string;
+}
+
 type WorkflowProjectionActionType =
   | "intake.scan"
   | "intake.reanalyze"
@@ -81,6 +102,7 @@ type WorkflowProjectionActionType =
   | "planning.decomposition.confirm"
   | "planning.decomposition.assess-readiness"
   | "planning.taskqueue.propose"
+  | "planning.scheduler.contract.compile"
   | "planning.workflowgraph.compile"
   | "planning.taskqueue.confirm-start"
   | "code.run";
@@ -98,6 +120,7 @@ export interface WorkbenchTypedWorkflowNextAction {
   readinessManifestId?: string;
   taskQueueProposalId?: string;
   workflowGraphPlanId?: string;
+  schedulerContractId?: string;
   disabledReason?: string;
 }
 
@@ -202,6 +225,26 @@ export async function readLatestWorkflowGraphPlanSummary(memory: ResolvedMemory,
   };
 }
 
+export async function readLatestSchedulerContractSummary(memory: ResolvedMemory, changePath: string): Promise<WorkbenchSchedulerContractSummary | null> {
+  const contract = await readLatestSchedulerContract(memory, changePath).catch(() => null);
+  if (!contract) return null;
+  return {
+    id: contract.id,
+    changeId: contract.changeId,
+    status: contract.status,
+    schedulerMode: contract.schedulerMode,
+    decompositionPlanId: contract.decompositionPlanId,
+    readinessManifestId: contract.readinessManifestId,
+    nodeCount: contract.nodes.length,
+    waveCount: contract.waves.length,
+    dependencyCount: contract.edges.length,
+    conflictCount: contract.conflictScopes.length,
+    artifact: contract.artifact,
+    markdownArtifact: contract.markdownArtifact,
+    updatedAt: contract.updatedAt,
+  };
+}
+
 export function readDecompositionPlanProjection(memory: ResolvedMemory, changePath: string): Promise<DecompositionPlan | null> {
   return readLatestDecompositionPlan(memory, changePath).catch(() => null);
 }
@@ -220,6 +263,12 @@ export function readWorkflowGraphPlanProjection(memory: ResolvedMemory, changePa
     : readLatestWorkflowGraphPlan(memory, changePath).catch(() => null);
 }
 
+export function readSchedulerContractProjection(memory: ResolvedMemory, changePath: string, schedulerContractId?: string): Promise<SchedulerContract | null> {
+  return schedulerContractId
+    ? readSchedulerContract(memory, changePath, schedulerContractId).catch(() => null)
+    : readLatestSchedulerContract(memory, changePath).catch(() => null);
+}
+
 export function buildTypedWorkflowNextAction(input: {
   topic: TypedWorkflowProjectionTopic;
   readiness: TypedWorkflowProjectionReadiness;
@@ -229,9 +278,10 @@ export function buildTypedWorkflowNextAction(input: {
   decompositionReadiness?: WorkbenchDecompositionReadinessSummary | null;
   taskQueueProposal?: WorkbenchTaskQueueProposalSummary | null;
   workflowGraphPlan?: WorkbenchWorkflowGraphPlanSummary | null;
+  schedulerContract?: WorkbenchSchedulerContractSummary | null;
   workflowRun?: WorkflowRunSummary | null;
 }): WorkbenchTypedWorkflowNextAction {
-  const { topic, readiness, intake, planningBundle, decompositionPlan, decompositionReadiness, taskQueueProposal, workflowGraphPlan, workflowRun } = input;
+  const { topic, readiness, intake, planningBundle, decompositionPlan, decompositionReadiness, taskQueueProposal, workflowGraphPlan, schedulerContract, workflowRun } = input;
   if (!readiness.specReady && !topic.runs.some((run) => run.runtime === "intake-scan")) {
     return workflowNextAction("intake.scan", "分析需求", "先只读扫描项目，整理当前理解、相关文件和待确认问题。", false);
   }
@@ -273,6 +323,30 @@ export function buildTypedWorkflowNextAction(input: {
         decompositionPlanId: taskQueueProposal.decompositionPlanId,
       };
     }
+  }
+  if (decompositionReadiness?.nextAllowedAction === "scheduler.contract") {
+    if (!decompositionPlan || decompositionPlan.id !== decompositionReadiness.decompositionPlanId) {
+      return {
+        ...workflowNextAction("planning.decomposition.assess-readiness", "等待执行边界", "当前 readiness 与 DecompositionPlan 不匹配。"),
+        enabled: false,
+        disabledReason: "当前 DecompositionReadinessManifest 与 DecompositionPlan 不匹配。",
+      };
+    }
+    if (!schedulerContract || schedulerContract.readinessManifestId !== decompositionReadiness.id || schedulerContract.decompositionPlanId !== decompositionPlan.id || schedulerContract.status !== "compiled") {
+      return {
+        ...workflowNextAction("planning.scheduler.contract.compile", "编译 Scheduler Contract", "生成并行调度合同；不会启动 scheduler、TaskRun、WorkerLease 或 worktree。"),
+        decompositionPlanId: decompositionPlan.id,
+        readinessManifestId: decompositionReadiness.id,
+      };
+    }
+    return {
+      ...workflowNextAction("planning.scheduler.contract.compile", "Scheduler Contract 已生成", "已生成并行调度合同；当前阶段不提供 parallel start 控件。"),
+      enabled: false,
+      decompositionPlanId: decompositionPlan.id,
+      readinessManifestId: decompositionReadiness.id,
+      schedulerContractId: schedulerContract.id,
+      disabledReason: "Phase 8S 只生成 SchedulerContract，不启动并行执行。",
+    };
   }
   return {
     ...workflowNextAction("planning.decomposition.assess-readiness", "等待执行边界", "当前 readiness 不允许直接执行。"),

@@ -30,6 +30,11 @@ import {
   type TaskQueueProposal,
   type WorkflowGraphPlan,
 } from "../../../workflow-artifacts/manager.js";
+import {
+  compileSchedulerContract,
+  renderSchedulerContractMarkdown,
+  type SchedulerContract,
+} from "../../../workflow-scheduler/manager.js";
 import { readLatestPlanningBundle } from "../planning-bundle.js";
 import { runCodexChat } from "../../codex-chat/bridge.js";
 import { recordWorkbenchDecision } from "../../decisions.js";
@@ -452,6 +457,56 @@ export async function compileTaskQueueWorkflowGraph(
     artifactRef: graph.artifact,
   });
   return { graph, executionStarted: false };
+}
+
+export async function compilePlanningSchedulerContract(
+  project: ManagedProject,
+  changeId: string,
+  request: WorkbenchWorkflowActionRequest,
+  live: WorkbenchLiveSink | undefined,
+): Promise<{ contract: SchedulerContract; executionStarted: false }> {
+  const { memory, changePath } = await resolveTopic(project, changeId);
+  assertWritableMemory(memory, "SchedulerContract compile");
+  if (!request.decompositionPlanId) throw new Error("planning.scheduler.contract.compile requires decompositionPlanId.");
+  if (!request.readinessManifestId) throw new Error("planning.scheduler.contract.compile requires readinessManifestId.");
+  const plan = await readLatestDecompositionPlan(memory, changePath);
+  if (plan.id !== request.decompositionPlanId || plan.changeId !== changeId || plan.status !== "confirmed" || plan.recommendation !== "taskgraph-parallel-candidate") {
+    throw new Error("planning.scheduler.contract.compile plan target is stale or no longer compilable.");
+  }
+  const manifest = await readLatestDecompositionReadinessManifest(memory, changePath);
+  if (manifest.id !== request.readinessManifestId || manifest.changeId !== changeId || manifest.decompositionPlanId !== plan.id || manifest.status !== "ready-for-scheduler-contract" || manifest.nextAllowedAction !== "scheduler.contract") {
+    throw new Error("planning.scheduler.contract.compile readiness target is stale.");
+  }
+  const contract = await compileSchedulerContract(memory, changePath, plan, manifest);
+  await appendTopicThreadEntry(project, changeId, {
+    type: "assistant.message",
+    status: "scheduler-contract-compiled",
+    text: renderSchedulerContractMarkdown(contract),
+    artifact: contract.artifact,
+  });
+  emitAssistantEvent(live, {
+    runId: contract.id,
+    kind: "file-change",
+    phase: "scheduler-contract-compiled",
+    title: "SchedulerContract compiled",
+    summary: "A non-executing parallel scheduler contract was generated; no scheduler, TaskRun, WorkerLease, worktree, or run was started.",
+    artifactRef: contract.artifact,
+  });
+  await recordWorkbenchDecision(project, {
+    id: `scheduler-contract:${contract.id}`,
+    changeId,
+    decisionType: "planning.scheduler.contract.compile",
+    status: "completed",
+    label: "Scheduler Contract 已编译",
+    summary: "Generated a non-executing SchedulerContract from a parallel readiness manifest.",
+    targetId: contract.id,
+    runId: null,
+    artifact: contract.artifact,
+    actionId: "planning.scheduler.contract.compile",
+    payload: { contract },
+    completedAt: new Date().toISOString(),
+  });
+  return { contract, executionStarted: false };
 }
 
 export async function confirmTaskQueueProposalAndStart(

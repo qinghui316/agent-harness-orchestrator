@@ -108,6 +108,37 @@ export function taskQueueProposalToConfirmationItems(
 ): WorkbenchConfirmationQueueItem[] {
   if (!selectedTopic) return [];
   const readiness = workpad.decompositionReadiness;
+  if (readiness?.status === "ready-for-scheduler-contract" && readiness.nextAllowedAction === "scheduler.contract") {
+    const plan = workpad.decompositionPlan;
+    if (!plan || plan.id !== readiness.decompositionPlanId) return [];
+    const contract = workpad.schedulerContract;
+    if (contract?.status === "compiled" && contract.decompositionPlanId === plan.id && contract.readinessManifestId === readiness.id) return [];
+    return [{
+      id: `confirm:scheduler-contract:${selectedTopic.id}:${readiness.id}`,
+      kind: "planning-confirm",
+      projectId: project?.id ?? null,
+      conversationId: selectedTopic.id,
+      changeId: selectedTopic.id,
+      summary: "执行边界已通过：可编译并行 Scheduler Contract。",
+      whyNeedsConfirmation: "需要你确认生成 SchedulerContract。生成 contract 不会启动 scheduler 或并行执行。",
+      confirmEffect: "写入 scheduler-contract.json/.md 和 versioned scheduler-contracts artifact；不会创建 WorkflowRun、TaskQueue、TaskRun、AgentTask、worktree 或 run。",
+      riskSummary: "SchedulerContract 是 execution-planning evidence，不是 workflow truth；后续真正 parallel scheduler 必须另行确认。",
+      evidenceRefs: readiness.artifact ? [readiness.artifact] : [],
+      actions: [{
+        id: `workflow:planning.scheduler.contract.compile:${selectedTopic.id}:${readiness.id}`,
+        label: "编译 Scheduler Contract",
+        kind: "workflow-action",
+        changeId: selectedTopic.id,
+        actionType: "planning.scheduler.contract.compile",
+        decompositionPlanId: plan.id,
+        readinessManifestId: readiness.id,
+        enabled: true,
+        requiresConfirmation: true,
+      }],
+      primary: false,
+      status: "pending",
+    }];
+  }
   if (!readiness || readiness.status !== "ready-for-sequential-taskqueue-proposal" || readiness.nextAllowedAction !== "taskqueue.proposal") return [];
   const proposal = workpad.taskQueueProposal;
   if (!proposal || proposal.readinessManifestId !== readiness.id || proposal.status === "superseded" || proposal.status === "rejected") {

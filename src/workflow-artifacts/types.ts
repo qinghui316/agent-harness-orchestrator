@@ -51,6 +51,7 @@ export interface DecompositionPlan {
 export type DecompositionReadinessStatus =
   | "ready-for-single-change"
   | "ready-for-sequential-taskqueue-proposal"
+  | "ready-for-scheduler-contract"
   | "blocked-parallel-guardrails"
   | "blocked-multi-change-boundary"
   | "blocked-needs-clarification"
@@ -83,7 +84,7 @@ export interface DecompositionReadinessManifest {
   recommendation: DecompositionRecommendation;
   executable: false;
   schedulerEligible: boolean;
-  nextAllowedAction: "code.run" | "taskqueue.proposal" | "clarification.answer" | "none";
+  nextAllowedAction: "code.run" | "taskqueue.proposal" | "scheduler.contract" | "clarification.answer" | "none";
   units: DecompositionReadinessUnit[];
   dependencies: DecompositionPlan["dependencies"];
   conflictScopes: string[];

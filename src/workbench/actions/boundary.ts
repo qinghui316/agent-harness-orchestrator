@@ -137,6 +137,21 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
       throw new Error("planning.taskqueue.propose target is stale or no longer proposal-ready.");
     }
   }
+  if (request.actionType === "planning.scheduler.contract.compile") {
+    const active = await getActiveChanges(memory);
+    const target = active.find((item) => item.name === changeId);
+    if (!target) throw new Error(`planning.scheduler.contract.compile target is stale or missing active Change: ${changeId}.`);
+    if (!request.decompositionPlanId) throw new Error("planning.scheduler.contract.compile requires decompositionPlanId.");
+    if (!request.readinessManifestId) throw new Error("planning.scheduler.contract.compile requires readinessManifestId.");
+    const plan = await readLatestDecompositionPlan(memory, target.path);
+    if (plan.id !== request.decompositionPlanId || plan.changeId !== changeId || plan.status !== "confirmed" || plan.recommendation !== "taskgraph-parallel-candidate") {
+      throw new Error("planning.scheduler.contract.compile plan target is stale or no longer compilable.");
+    }
+    const manifest = await readLatestDecompositionReadinessManifest(memory, target.path);
+    if (manifest.id !== request.readinessManifestId || manifest.changeId !== changeId || manifest.decompositionPlanId !== plan.id || manifest.status !== "ready-for-scheduler-contract" || manifest.nextAllowedAction !== "scheduler.contract") {
+      throw new Error("planning.scheduler.contract.compile readiness target is stale.");
+    }
+  }
   if (request.actionType === "planning.workflowgraph.compile") {
     const active = await getActiveChanges(memory);
     const target = active.find((item) => item.name === changeId);

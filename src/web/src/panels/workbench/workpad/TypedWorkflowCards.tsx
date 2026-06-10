@@ -69,7 +69,7 @@ export function DecompositionReadinessCard({ readiness }: { readiness: NonNullab
       <p className="workpad-goal">{decompositionReadinessLabel(readiness.status)}</p>
       <div className="workpad-chip-list">
         <span>{readiness.unitCount} 个单元</span>
-        <span>{readiness.schedulerEligible ? "可进入后续 proposal" : "不可直接调度"}</span>
+        <span>{readiness.schedulerEligible ? (readiness.nextAllowedAction === "scheduler.contract" ? "可编译调度合同" : "可进入后续 proposal") : "不可直接调度"}</span>
         <span>{workflowActionLabel(readiness.nextAllowedAction)}</span>
       </div>
       {readiness.artifact ? <small className="artifact-link">查看证据：{artifactName(readiness.artifact)}</small> : null}
@@ -109,6 +109,25 @@ export function WorkflowGraphPlanCard({ graph }: { graph: NonNullable<Workpad["w
         <span>{graph.stageCount} 个阶段</span>
       </div>
       {graph.artifact ? <small className="artifact-link">查看证据：{artifactName(graph.artifact)}</small> : null}
+    </section>
+  );
+}
+
+export function SchedulerContractCard({ contract }: { contract: NonNullable<Workpad["schedulerContract"]> }): ReactElement {
+  return (
+    <section className="workpad-section" data-testid="scheduler-contract-card">
+      <div className="workpad-section-header">
+        <h3>Scheduler Contract</h3>
+        <span>{humanStatus(contract.status)}</span>
+      </div>
+      <p className="workpad-goal">{contract.schedulerMode === "parallel-readiness-v1" ? "并行调度合同 v1（不启动执行）" : contract.schedulerMode}</p>
+      <div className="workpad-chip-list">
+        <span>{contract.nodeCount} 个节点</span>
+        <span>{contract.waveCount} 个 wave</span>
+        <span>{contract.dependencyCount} 条依赖</span>
+        <span>{contract.conflictCount} 个冲突范围</span>
+      </div>
+      {contract.artifact ? <small className="artifact-link">查看证据：{artifactName(contract.artifact)}</small> : null}
     </section>
   );
 }

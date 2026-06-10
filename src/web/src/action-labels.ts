@@ -8,7 +8,9 @@ export function workflowActionLabel(actionType: string | undefined): string {
   if (actionType === "planning.decomposition.confirm") return "确认拆分方向";
   if (actionType === "planning.decomposition.assess-readiness") return "检查执行边界";
   if (actionType === "taskqueue.proposal") return "TaskQueue proposal";
+  if (actionType === "scheduler.contract") return "Scheduler Contract";
   if (actionType === "planning.taskqueue.propose") return "生成 TaskQueue 提案";
+  if (actionType === "planning.scheduler.contract.compile") return "编译 Scheduler Contract";
   if (actionType === "planning.workflowgraph.compile") return "编译执行图";
   if (actionType === "planning.taskqueue.confirm-start") return "确认启动 TaskQueue";
   if (actionType === "none") return "无后续动作";

@@ -81,6 +81,8 @@ Phase 8P applies the same scoped ownership rule to Validation and Audit evidence
 
 Phase 8Q is the final broad module-ownership pass. Residual Workbench action handler map and landing, PR, remote handoff, post-merge, landing queue, and conversation-control action glue move out of `src/workbench/chat.ts` into owned action handler modules. `chat.ts` remains the public conversation/action facade. This changes implementation ownership only and does not change action ids, payloads, decision/audit scope, stale-target revalidation, ToolPolicyGate behavior, live/SSE events, projections, thread logs, or workflow truth.
 
+Phase 8S starts the next product capability line with a non-executing scheduler contract. A confirmed `taskgraph-parallel-candidate` may compile into an AHO-owned `SchedulerContract` artifact that records dependency edges, conflict/source scopes, and topological waves. This borrows Open Dynamic Workflows' pipeline/parallel/event/journal vocabulary and Symphony's dispatch/reconcile/slot vocabulary as references only. The contract is evidence and later scheduler input, not workflow truth, not a `WorkflowGraphPlan`, and not a parallel executor.
+
 Workbench relationship:
 
 ```text

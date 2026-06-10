@@ -29,6 +29,38 @@ describe("workflow action registry", () => {
     expect(LIVE_WORKFLOW_ACTION_TYPES).toContain("planning.workflowgraph.compile");
     expect(HIGH_IMPACT_WORKFLOW_ACTION_TYPES).toContain("planning.workflowgraph.compile");
     expect(REVALIDATED_WORKFLOW_ACTION_TYPES).toContain("planning.workflowgraph.compile");
+    expect(LIVE_WORKFLOW_ACTION_TYPES).toContain("planning.scheduler.contract.compile");
+    expect(HIGH_IMPACT_WORKFLOW_ACTION_TYPES).toContain("planning.scheduler.contract.compile");
+    expect(REVALIDATED_WORKFLOW_ACTION_TYPES).toContain("planning.scheduler.contract.compile");
+  });
+
+  it("keeps SchedulerContract ids in target and audit scope matching", () => {
+    const request = {
+      changeId: "change-1",
+      decompositionPlanId: "decomposition-1",
+      readinessManifestId: "readiness-1",
+      schedulerContractId: "scheduler-contract-1",
+    };
+
+    expect(workflowActionTargetId(request, request.changeId)).toBe("scheduler-contract-1");
+    expect(workflowActionScopePayload(request, request.changeId, { contract: { id: "scheduler-contract-1" } })).toMatchObject({
+      changeId: "change-1",
+      decompositionPlanId: "decomposition-1",
+      readinessManifestId: "readiness-1",
+      schedulerContractId: "scheduler-contract-1",
+    });
+    expect(workflowActionScopesMatchStrict(request, { ...request })).toBe(true);
+    expect(workflowActionScopesMatchStrict(request, { ...request, schedulerContractId: undefined })).toBe(false);
+    expect(workflowActionScopesMatchCompatible(request, { ...request, schedulerContractId: undefined })).toBe(true);
+    expect(validateWorkflowActionRequiredTargets({
+      actionType: "planning.scheduler.contract.compile",
+      decompositionPlanId: "decomposition-1",
+      readinessManifestId: "readiness-1",
+    })).toEqual([]);
+    expect(validateWorkflowActionRequiredTargets({
+      actionType: "planning.scheduler.contract.compile",
+      readinessManifestId: "readiness-1",
+    }).map((item) => item.label)).toEqual(["decompositionPlanId"]);
   });
 
   it("keeps graph ids in target and audit scope matching", () => {

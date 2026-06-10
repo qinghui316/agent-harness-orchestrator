@@ -158,6 +158,7 @@ export type WorkpadNextAction = {
   readinessManifestId?: string;
   taskQueueProposalId?: string;
   workflowGraphPlanId?: string;
+  schedulerContractId?: string;
   workflowRunId?: string;
   queueRunId?: string;
   taskIds?: string[];
@@ -185,6 +186,7 @@ export type WorkbenchTaskNextAction = {
   readinessManifestId?: string;
   taskQueueProposalId?: string;
   workflowGraphPlanId?: string;
+  schedulerContractId?: string;
   workflowRunId?: string;
   queueRunId?: string;
   enabled: boolean;
@@ -299,6 +301,7 @@ export type Workpad = {
   decompositionReadiness?: DecompositionReadinessSummary;
   taskQueueProposal?: TaskQueueProposalSummary;
   workflowGraphPlan?: WorkflowGraphPlanSummary;
+  schedulerContract?: SchedulerContractSummary;
   rolePipeline?: {
     stage: "planning" | "coding" | "validation" | "audit" | "rework" | "done" | "needs-user-input";
     status: "draft" | "running" | "completed" | "needs-user-input" | "stopped";
@@ -423,10 +426,10 @@ export type DecompositionReadinessSummary = {
   id: string;
   changeId: string;
   decompositionPlanId: string;
-  status: "ready-for-single-change" | "ready-for-sequential-taskqueue-proposal" | "blocked-parallel-guardrails" | "blocked-multi-change-boundary" | "blocked-needs-clarification" | "invalid";
+  status: "ready-for-single-change" | "ready-for-sequential-taskqueue-proposal" | "ready-for-scheduler-contract" | "blocked-parallel-guardrails" | "blocked-multi-change-boundary" | "blocked-needs-clarification" | "invalid";
   recommendation: DecompositionPlanSummary["recommendation"];
   schedulerEligible: boolean;
-  nextAllowedAction: "code.run" | "taskqueue.proposal" | "clarification.answer" | "none";
+  nextAllowedAction: "code.run" | "taskqueue.proposal" | "scheduler.contract" | "clarification.answer" | "none";
   guardrailStatus: "passed" | "blocked" | "failed";
   unitCount: number;
   artifact?: string;
@@ -461,6 +464,21 @@ export type WorkflowGraphPlanSummary = {
   markdownArtifact?: string;
   updatedAt: string;
 };
+export type SchedulerContractSummary = {
+  id: string;
+  changeId: string;
+  decompositionPlanId: string;
+  readinessManifestId: string;
+  status: "compiled" | "superseded" | "rejected";
+  schedulerMode: "parallel-readiness-v1";
+  nodeCount: number;
+  waveCount: number;
+  dependencyCount: number;
+  conflictCount: number;
+  artifact?: string;
+  markdownArtifact?: string;
+  updatedAt: string;
+};
 export type PlanCard = {
   title: string;
   summary: string;
@@ -479,6 +497,7 @@ export type ThreadStreamAction = {
   readinessManifestId?: string;
   taskQueueProposalId?: string;
   workflowGraphPlanId?: string;
+  schedulerContractId?: string;
   workflowRunId?: string;
   queueRunId?: string;
   taskIds?: string[];
@@ -556,6 +575,7 @@ export type DecisionAction = {
   readinessManifestId?: string;
   taskQueueProposalId?: string;
   workflowGraphPlanId?: string;
+  schedulerContractId?: string;
   workflowRunId?: string;
   queueRunId?: string;
   taskIds?: string[];

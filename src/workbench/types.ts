@@ -170,6 +170,7 @@ export interface WorkbenchWorkflowActionRequest {
   readinessManifestId?: string;
   taskQueueProposalId?: string;
   workflowGraphPlanId?: string;
+  schedulerContractId?: string;
   workflowRunId?: string;
   queueRunId?: string;
   worktreeId?: string;

@@ -19,6 +19,7 @@ import type { ApplyReadinessKind } from "../apply/manager.js";
 import type {
   WorkbenchDecompositionPlanSummary,
   WorkbenchDecompositionReadinessSummary,
+  WorkbenchSchedulerContractSummary,
   WorkbenchTaskQueueProposalSummary,
   WorkbenchWorkflowGraphPlanSummary,
 } from "./workflow-projection.js";
@@ -97,6 +98,7 @@ export interface ThreadStreamAction {
   readinessManifestId?: string;
   taskQueueProposalId?: string;
   workflowGraphPlanId?: string;
+  schedulerContractId?: string;
   workflowRunId?: string;
   queueRunId?: string;
   taskIds?: string[];
@@ -195,6 +197,7 @@ export interface WorkbenchDecisionAction {
   readinessManifestId?: string;
   taskQueueProposalId?: string;
   workflowGraphPlanId?: string;
+  schedulerContractId?: string;
   workflowRunId?: string;
   queueRunId?: string;
   taskIds?: string[];
@@ -336,6 +339,7 @@ export interface WorkpadNextAction {
   readinessManifestId?: string;
   taskQueueProposalId?: string;
   workflowGraphPlanId?: string;
+  schedulerContractId?: string;
   workflowRunId?: string;
   queueRunId?: string;
   taskIds?: string[];
@@ -406,6 +410,7 @@ export interface WorkbenchTaskNextAction {
   readinessManifestId?: string;
   taskQueueProposalId?: string;
   workflowGraphPlanId?: string;
+  schedulerContractId?: string;
   workflowRunId?: string;
   queueRunId?: string;
   enabled: boolean;
@@ -549,6 +554,7 @@ export interface WorkbenchWorkpad {
   decompositionReadiness?: WorkbenchDecompositionReadinessSummary;
   taskQueueProposal?: WorkbenchTaskQueueProposalSummary;
   workflowGraphPlan?: WorkbenchWorkflowGraphPlanSummary;
+  schedulerContract?: WorkbenchSchedulerContractSummary;
   workflowRun?: WorkflowRunSummary;
   rolePipeline?: WorkbenchRolePipelineSummary;
   resultReview?: WorkbenchResultReview;

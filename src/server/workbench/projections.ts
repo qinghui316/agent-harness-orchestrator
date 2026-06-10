@@ -8,6 +8,7 @@ import {
   getWorkbenchTaskQueueProposalProjection,
   getWorkbenchTranscriptProjection,
   getWorkbenchWorkflowGraphPlanProjection,
+  getWorkbenchSchedulerContractProjection,
   getWorkbenchWorkflowRunProjection,
   getWorkbenchWorkpadProjection,
   type WorkbenchProjectInput,
@@ -48,6 +49,10 @@ export async function getWorkbenchProjection(input: WorkbenchProjectInput, rest:
   if (kind === "workflow-graph-plan") {
     if (!changeId) throw badRequest("workflow-graph-plan projection requires changeId.");
     return getWorkbenchWorkflowGraphPlanProjection(input, changeId, id);
+  }
+  if (kind === "scheduler-contract") {
+    if (!changeId) throw badRequest("scheduler-contract projection requires changeId.");
+    return getWorkbenchSchedulerContractProjection(input, changeId, id);
   }
   if (kind === "workflow-run") {
     if (!changeId) throw badRequest("workflow-run projection requires changeId.");

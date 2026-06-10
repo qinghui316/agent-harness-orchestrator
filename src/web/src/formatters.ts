@@ -215,6 +215,7 @@ export function decompositionRecommendationLabel(recommendation: DecompositionPl
 export function decompositionReadinessLabel(status: DecompositionReadinessSummary["status"]): string {
   if (status === "ready-for-single-change") return "可回到单 Change Code 执行";
   if (status === "ready-for-sequential-taskqueue-proposal") return "可进入后续 TaskQueue proposal";
+  if (status === "ready-for-scheduler-contract") return "可编译 Scheduler Contract";
   if (status === "blocked-parallel-guardrails") return "并行边界未通过";
   if (status === "blocked-multi-change-boundary") return "多 Change 仍需后续边界";
   if (status === "blocked-needs-clarification") return "需要先澄清需求";

@@ -8,6 +8,7 @@ import type {
   TaskQueueProposal,
   WorkflowGraphPlan,
 } from "../../../workflow-artifacts/manager.js";
+import type { SchedulerContract } from "../../../workflow-scheduler/manager.js";
 import type { ResolvedMemory } from "../../../types/index.js";
 import type { WorkbenchPlanningArtifactBundle, WorkbenchProjectInput } from "../../read-model-types.js";
 import { resolveWorkbenchMemory } from "./support.js";
@@ -18,6 +19,7 @@ import {
   getDecompositionReadinessProjectionForPath,
   getTaskQueueProposalProjectionForPath,
   getWorkflowGraphPlanProjectionForPath,
+  getSchedulerContractProjectionForPath,
   getWorkflowRunProjectionForChange,
 } from "../typed-workflow.js";
 
@@ -79,6 +81,15 @@ export async function getWorkbenchWorkflowGraphPlanProjection(input: WorkbenchPr
   const changePath = findWorkbenchTopicPath(topics, changeId);
   if (!changePath) return null;
   return getWorkflowGraphPlanProjectionForPath(memory, changePath, workflowGraphPlanId);
+}
+
+export async function getWorkbenchSchedulerContractProjection(input: WorkbenchProjectInput, changeId: string, schedulerContractId?: string): Promise<SchedulerContract | null> {
+  const memory = await resolveWorkbenchMemory(input);
+  if (!memory.supported) return null;
+  const topics = await listWorkbenchTopicsFromMemory(memory);
+  const changePath = findWorkbenchTopicPath(topics, changeId);
+  if (!changePath) return null;
+  return getSchedulerContractProjectionForPath(memory, changePath, schedulerContractId);
 }
 
 export async function getWorkbenchWorkflowRunProjection(input: WorkbenchProjectInput, changeId: string, workflowRunId: string): Promise<Awaited<ReturnType<typeof getWorkflowRunProjectionForChange>> | null> {

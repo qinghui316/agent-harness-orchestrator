@@ -49,11 +49,11 @@ export const decompositionReadinessManifestSchema = z.object({
   id: z.string(),
   changeId: z.string(),
   decompositionPlanId: z.string(),
-  status: z.enum(["ready-for-single-change", "ready-for-sequential-taskqueue-proposal", "blocked-parallel-guardrails", "blocked-multi-change-boundary", "blocked-needs-clarification", "invalid"]),
+  status: z.enum(["ready-for-single-change", "ready-for-sequential-taskqueue-proposal", "ready-for-scheduler-contract", "blocked-parallel-guardrails", "blocked-multi-change-boundary", "blocked-needs-clarification", "invalid"]),
   recommendation: z.enum(["single-change", "taskgraph-sequential", "taskgraph-parallel-candidate", "multi-change-candidate", "needs-clarification"]),
   executable: z.literal(false),
   schedulerEligible: z.boolean(),
-  nextAllowedAction: z.enum(["code.run", "taskqueue.proposal", "clarification.answer", "none"]),
+  nextAllowedAction: z.enum(["code.run", "taskqueue.proposal", "scheduler.contract", "clarification.answer", "none"]),
   units: z.array(z.object({
     id: z.string(),
     title: z.string(),

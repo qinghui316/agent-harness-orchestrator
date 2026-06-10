@@ -4,9 +4,9 @@
 
 - Current date: 2026-06-11.
 - Active ECL change: none.
-- Pending Harness evolution: none. The Phase 8K-8O window was marked complete as `noop/dry_run`; no subagent review was used.
-- Latest archived product change: `harness/changes/archive/20260531-phase-7f-mainagent-orchestration-decision-engine/summary.md`.
-- Latest archived product/Harness docs change: `harness/changes/archive/20260602-phase-7g-open-dynamic-workflows-reference-alignment/summary.md`.
+- Pending Harness evolution: `harness/evolution/pending.md`, generated after Phase 8S for the Phase 8O-8S window.
+- Latest archived product change: `harness/changes/archive/20260611-phase-8s-parallel-taskgraph-readiness-scheduler-contract/summary.md`.
+- Latest archived product/Harness docs change: `harness/changes/archive/20260611-phase-8r-future-feature-module-boundary-rule/summary.md`.
 - Latest archived Harness evolution: `harness/changes/archive/20260610-auto-evolve-harness-phase-8k-8o-boundary-evidence/summary.md`.
 - Active product phase: none.
 
@@ -19,6 +19,7 @@ Current baseline:
 - Phase 8P completed Scoped Validation Audit Evidence Boundary Split and is archived at `harness/changes/archive/20260611-phase-8p-scoped-validation-audit-evidence-boundary-split/summary.md`. It keeps Validation/Audit as evidence gates, adds strict direct-read/accept guards for malformed, forged, misplaced, or cross-Change evidence, keeps list/projection paths projection-safe by skipping bad records, and moves Validation/Audit internals behind compatibility facades without changing artifact shapes, CLI behavior, Workbench projections, or workflow truth.
 - Phase 8Q completed Workbench Action Handler Residual Boundary Split and is archived at `harness/changes/archive/20260611-phase-8q-workbench-action-handler-residual-boundary-split/summary.md`. It moved residual landing, PR, remote handoff, post-merge, landing queue, and conversation-control action glue out of `src/workbench/chat.ts` while preserving Workbench actions, payloads, decision/audit scope, thread logs, SSE/live events, projections, and workflow truth.
 - Phase 8R completed Future Feature Module Boundary Rule and is archived at `harness/changes/archive/20260611-phase-8r-future-feature-module-boundary-rule/summary.md`. It is a Harness rule/template hardening phase that records the long-term Future Feature Module Boundary Rule; it does not add product runtime, Workbench, CLI, route, action, UI, scheduler, parallel execution, child Change creation, ODWF JavaScript runtime, or cache/replay behavior.
+- Phase 8S completed Parallel TaskGraph Readiness Scheduler Contract and is archived at `harness/changes/archive/20260611-phase-8s-parallel-taskgraph-readiness-scheduler-contract/summary.md`. It added a non-executing SchedulerContract typed artifact for parallel TaskGraph candidates and keeps real parallel execution, scheduler runtime, child Change creation, ODWF JavaScript runtime, and cache/replay out of scope.
 - Phase 6F completed the single-demand local loop through result review and local apply handoff.
 - Phase 6G-Prep completed documentation alignment for Harness handoff, AgentTaskRepository, background maintenance, and two-layer self-evolution boundaries.
 - Phase 6G completed foreground AgentTaskRepository integration and advisory background maintenance ledger/candidate/score/review artifacts.
@@ -119,7 +120,7 @@ Phase 8P is closed and archived at `harness/changes/archive/20260611-phase-8p-sc
 
 Phase 8Q is closed and archived at `harness/changes/archive/20260611-phase-8q-workbench-action-handler-residual-boundary-split/summary.md`. It completed the final broad modularization pass for Workbench action handlers: `chat.ts` remains the conversation/action facade, while residual action handler map and landing/PR/remote/post-merge/control helpers live in owned handler modules. This phase did not add runtime capability, Workbench actions, CLI commands, HTTP routes, scheduler behavior, parallel execution, automatic child Changes, ODWF JavaScript runtime, or cache/replay.
 
-Pending Harness evolution: none. The Phase 8K-8O window was marked complete as `noop/dry_run`; no subagent review was used. The Phase 8G-8K window was marked complete as `noop/subagent_review` with subagent score `90/100`.
+Pending Harness evolution: `harness/evolution/pending.md`, generated after Phase 8S for the Phase 8O-8S window. The Phase 8K-8O window was marked complete as `noop/dry_run`; no subagent review was used. The Phase 8G-8K window was marked complete as `noop/subagent_review` with subagent score `90/100`.
 
 Phase 8N is closed and archived at `harness/changes/archive/20260610-phase-8n-run-evidence-manager-boundary-split/summary.md`. It split Run evidence internals behind `src/run/manager.ts` while keeping Run artifacts, Validation, and Audit as evidence.
 

@@ -34,9 +34,16 @@ export function renderDecompositionReadinessSummary(manifest: DecompositionReadi
     `建议：${decompositionRecommendationLabel(manifest.recommendation)}`,
     `下一步允许动作：${manifest.nextAllowedAction}`,
     "",
-    `调度资格：${manifest.schedulerEligible ? "可进入后续 TaskQueue proposal" : "不可直接调度"}`,
+    `调度资格：${readinessSchedulerLabel(manifest)}`,
     "本检查不会启动执行、创建子 Change、TaskRun、AgentTask、worktree 或恢复重放。",
   ].join("\n");
+}
+
+function readinessSchedulerLabel(manifest: DecompositionReadinessManifest): string {
+  if (!manifest.schedulerEligible) return "不可直接调度";
+  if (manifest.nextAllowedAction === "scheduler.contract") return "可编译 Scheduler Contract（不启动调度器）";
+  if (manifest.nextAllowedAction === "taskqueue.proposal") return "可进入后续 TaskQueue proposal";
+  return "可进入后续执行边界检查";
 }
 
 export function renderPlanningBundleSummary(bundle: PlanningArtifactBundle): string {
