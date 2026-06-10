@@ -3,12 +3,12 @@
 ## Current Handoff
 
 - Current date: 2026-06-10.
-- Active ECL change: `harness/changes/active/phase-8n-run-evidence-manager-boundary-split/summary.md`.
-- Pending Harness evolution: none. The Phase 8G-8K window was marked complete as `noop/subagent_review` with subagent score `90/100`.
+- Active ECL change: none.
+- Pending Harness evolution: `harness/evolution/pending.md` for the Phase 8K-8O archive window.
 - Latest archived product change: `harness/changes/archive/20260531-phase-7f-mainagent-orchestration-decision-engine/summary.md`.
 - Latest archived product/Harness docs change: `harness/changes/archive/20260602-phase-7g-open-dynamic-workflows-reference-alignment/summary.md`.
 - Latest archived Harness evolution: `harness/changes/archive/20260610-auto-evolve-harness-phase-8g-8k-boundary-evidence/summary.md`.
-- Active product phase: Phase 8N Run Evidence Manager Boundary Split.
+- Active product phase: none.
 
 Current baseline:
 
@@ -106,11 +106,13 @@ Phase 7F baseline: project demand conversation -> explicit ChangeTarget binding 
 Active implementation track:
 
 ```text
-Active implementation track: Phase 8N Run Evidence Manager Boundary Split.
+Active implementation track: none.
 
-Phase 8N is active at `harness/changes/active/phase-8n-run-evidence-manager-boundary-split/summary.md`. It splits Run evidence internals behind `src/run/manager.ts` while keeping Run artifacts, Validation, and Audit as evidence. This phase does not add runtime capability, Workbench actions, CLI commands, HTTP routes, scheduler behavior, parallel execution, automatic child Changes, ODWF JavaScript runtime, or cache/replay.
+Phase 8O is closed and archived at `harness/changes/archive/20260610-phase-8o-scoped-worktree-metadata-boundary-split/summary.md`. It repaired Worktree metadata filename/project/checkout-root scope guards and split `src/worktree/manager.ts` behind owned modules. This phase did not add runtime capability, Workbench actions, CLI commands, HTTP routes, scheduler behavior, parallel execution, automatic child Changes, ODWF JavaScript runtime, or cache/replay.
 
-Pending Harness evolution: none. The Phase 8G-8K window was marked complete as `noop/subagent_review` with subagent score `90/100`.
+Pending Harness evolution: `harness/evolution/pending.md` for the Phase 8K-8O archive window. The Phase 8G-8K window was marked complete as `noop/subagent_review` with subagent score `90/100`.
+
+Phase 8N is closed and archived at `harness/changes/archive/20260610-phase-8n-run-evidence-manager-boundary-split/summary.md`. It split Run evidence internals behind `src/run/manager.ts` while keeping Run artifacts, Validation, and Audit as evidence.
 
 Phase 8M is closed and archived at `harness/changes/archive/20260610-phase-8m-scoped-change-lifecycle-boundary-split/summary.md`. It repaired Change metadata scope guards and split `src/change/manager.ts` behind owned lifecycle modules. Change/ECL remains workflow truth.
 

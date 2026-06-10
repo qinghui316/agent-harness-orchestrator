@@ -35,6 +35,7 @@ import { getSpecTestDriftReport } from "../../src/spec-test/drift.js";
 import { startSpecTestGenerationRun } from "../../src/spec-test/generate.js";
 import { startSpecTestProposalRun } from "../../src/spec-test/proposal.js";
 import { appendRunEvent, buildContextProjection, buildRunId, listRuns, readRun, startLocalCommandRun } from "../../src/run/manager.js";
+import { createWorktree as createWorktreeFacade, getWorktreeStatus as getWorktreeStatusFacade, listWorktreeStatuses as listWorktreeStatusesFacade, removeWorktree as removeWorktreeFacade } from "../../src/worktree/manager.js";
 import { readTopicThreadLog } from "../../src/workbench/thread-log.js";
 import { runWorkbenchWorkflowActionService } from "../../src/workbench/actions/service.js";
 import { assertWorkflowActionScope } from "../../src/workbench/actions/boundary.js";
@@ -191,6 +192,10 @@ describe("Workbench module boundaries", () => {
     expect(typeof appendRunEvent).toBe("function");
     expect(typeof buildRunId).toBe("function");
     expect(typeof buildContextProjection).toBe("function");
+    expect(typeof createWorktreeFacade).toBe("function");
+    expect(typeof getWorktreeStatusFacade).toBe("function");
+    expect(typeof listWorktreeStatusesFacade).toBe("function");
+    expect(typeof removeWorktreeFacade).toBe("function");
 
     expect(typeof readTopicThreadLog).toBe("function");
     expect(typeof runWorkbenchWorkflowActionService).toBe("function");
@@ -557,6 +562,16 @@ describe("Workbench module boundaries", () => {
         ],
       },
       {
+        roots: ["src/worktree"],
+        forbidden: [
+          /from\s+["']\.\/manager\.js["']/,
+          /from\s+["']\.\.\/workbench\//,
+          /from\s+["']\.\.\/server\//,
+          /from\s+["']\.\.\/web\//,
+          /from\s+["']\.\.\/cli\//,
+        ],
+      },
+      {
         roots: [
           "src/types/change-ecl.ts",
           "src/types/maintenance.ts",
@@ -605,6 +620,26 @@ describe("Workbench module boundaries", () => {
     expect(localCommandRunner).toContain('from "./events.js"');
     expect(localCommandRunner).toContain('from "./paths.js"');
     expect(localCommandRunner).toContain('from "./run-id.js"');
+  });
+
+  it("keeps worktree manager as a compatibility facade with scoped metadata modules", () => {
+    const facade = readFileSync("src/worktree/manager.ts", "utf8");
+    expect(facade).toContain('export { createWorktree } from "./creation.js";');
+    expect(facade).toContain('export { listWorktreeMetadata } from "./repository.js";');
+    expect(facade).toContain('export { getWorktreeStatus, listWorktreeStatuses, listWorktreesForChange } from "./status.js";');
+    expect(facade).toContain('export { markWorktreeApplied, removeWorktree } from "./lifecycle.js";');
+    expect(facade).not.toMatch(/worktreeMetadataSchema\s*=\s*z\.object/);
+    expect(facade).not.toMatch(/async function createWorktree/);
+    expect(facade).not.toMatch(/async function readWorktreeMetadata/);
+
+    const repository = readFileSync("src/worktree/repository.ts", "utf8");
+    expect(repository).toContain("assertWorktreeMetadataScope");
+    expect(repository).toContain("tryReadWorktreeMetadata");
+
+    const guards = readFileSync("src/worktree/guards.ts", "utf8");
+    expect(guards).toContain("Worktree metadata id mismatch");
+    expect(guards).toContain("Worktree metadata project mismatch");
+    expect(guards).toContain("outside expected root");
   });
 
   it("keeps change proposals as a compatibility facade", () => {

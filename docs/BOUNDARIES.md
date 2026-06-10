@@ -189,6 +189,8 @@ context projection, local command execution, and small guards belong in owned
 and Audit remain evidence records; they do not replace Change/ECL, accepted
 artifacts, apply/close decisions, or human gates.
 
+Phase 8O applies the same ownership rule to Worktree metadata. Worktree metadata must prove filename `worktreeId`, JSON `worktreeId`, `projectId`, and checkout root scope before status, projection, apply, remove, or mark-applied paths can trust it. List/projection paths skip invalid metadata; direct read/update/delete paths fail closed. Worktree internals belong in owned `src/worktree/*` modules behind the `src/worktree/manager.ts` facade, and those modules must not depend on Workbench, server routes, web UI, CLI command modules, or the facade they sit behind.
+
 ## 7. Memory Unavailable Boundary
 
 Memory can be unavailable on a new machine, after a plain repository clone, when AHO home was not synced, when permissions are missing, or when a future remote memory service is offline.
