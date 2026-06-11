@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-11T14:03:50.7463591Z",
+    "generated_at":  "2026-06-11T14:23:04.9030526Z",
     "active":  [
 
                ],
@@ -597,6 +597,10 @@
                     {
                         "name":  "20260611-auto-evolve-harness-phase-8w-9b-scheduler-pre-executor-evidence",
                         "path":  "harness/changes/archive/20260611-auto-evolve-harness-phase-8w-9b-scheduler-pre-executor-evidence"
+                    },
+                    {
+                        "name":  "20260611-auto-evolve-harness-phase-9b-9f-scheduler-runtime-surface-evidence",
+                        "path":  "harness/changes/archive/20260611-auto-evolve-harness-phase-9b-9f-scheduler-runtime-surface-evidence"
                     },
                     {
                         "name":  "20260611-phase-8p-scoped-validation-audit-evidence-boundary-split",
