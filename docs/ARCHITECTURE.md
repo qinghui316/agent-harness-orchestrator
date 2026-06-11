@@ -93,6 +93,8 @@ Phase 8W extends Runtime Continuity to v1.1 by recording permission-profile and 
 
 Phase 8Y adds the next scheduler-readiness step as a non-executing Scheduler Dispatch / Reconcile dry-run. A selected `SchedulerContract` may produce `SchedulerDispatchDryRun` evidence that explains candidate waves, node verdicts, dependency readiness, conflict/source summaries, estimated max wave width, runtime-continuity prerequisites, blocked reasons, and source artifact hashes. This borrows Symphony's poll/dispatch/reconcile/slot discipline as an evidence model only: the dry-run must not allocate DemandWorker slots, create WorkerLeases, create TaskRuns, create WorkflowRuns, start agents, create worktrees, create child Changes, or authorize parallel execution.
 
+Phase 8Z adds the next non-executing scheduler foundation: a `SchedulerWorkerSessionPlan` / recovery contract compiled from a scoped SchedulerDispatchDryRun. It records future worker-session, workspace intent, permission profile, event source, and recovery-key inputs by node/stage so a later scheduler implementation does not infer those boundaries from prose. It is still evidence only and must not create Runtime Continuity sidecars, TaskRuns, WorkerLeases, WorkflowRuns, worktrees, runs, child Changes, or scheduler runtime state.
+
 Workbench relationship:
 
 ```text

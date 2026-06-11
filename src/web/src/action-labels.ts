@@ -12,6 +12,7 @@ export function workflowActionLabel(actionType: string | undefined): string {
   if (actionType === "planning.taskqueue.propose") return "生成 TaskQueue 提案";
   if (actionType === "planning.scheduler.contract.compile") return "编译 Scheduler Contract";
   if (actionType === "planning.scheduler.dispatch.dry-run") return "生成调度预演";
+  if (actionType === "planning.scheduler.worker-plan.compile") return "编译 Worker Session Plan";
   if (actionType === "planning.workflowgraph.compile") return "编译执行图";
   if (actionType === "planning.taskqueue.confirm-start") return "确认启动 TaskQueue";
   if (actionType === "none") return "无后续动作";

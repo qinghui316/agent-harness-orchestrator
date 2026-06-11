@@ -13,6 +13,7 @@ export const WORKFLOW_ACTION_TYPES = [
   "planning.taskqueue.propose",
   "planning.scheduler.contract.compile",
   "planning.scheduler.dispatch.dry-run",
+  "planning.scheduler.worker-plan.compile",
   "planning.workflowgraph.compile",
   "planning.taskqueue.confirm-start",
   "orchestrator.evaluate",
@@ -104,6 +105,7 @@ export const LIVE_WORKFLOW_ACTION_TYPES = [
   "planning.taskqueue.propose",
   "planning.scheduler.contract.compile",
   "planning.scheduler.dispatch.dry-run",
+  "planning.scheduler.worker-plan.compile",
   "planning.workflowgraph.compile",
   "planning.taskqueue.confirm-start",
   "orchestrator.evaluate",
@@ -175,6 +177,7 @@ export const HIGH_IMPACT_WORKFLOW_ACTION_TYPES = [
   "planning.taskqueue.propose",
   "planning.scheduler.contract.compile",
   "planning.scheduler.dispatch.dry-run",
+  "planning.scheduler.worker-plan.compile",
   "planning.workflowgraph.compile",
   "planning.taskqueue.confirm-start",
   "code.run",
@@ -207,6 +210,7 @@ export const REVALIDATED_WORKFLOW_ACTION_TYPES = [
   "planning.taskqueue.propose",
   "planning.scheduler.contract.compile",
   "planning.scheduler.dispatch.dry-run",
+  "planning.scheduler.worker-plan.compile",
   "planning.workflowgraph.compile",
   "planning.taskqueue.confirm-start",
   "code.run",
@@ -224,6 +228,8 @@ export const WORKFLOW_ACTION_SCOPE_KEYS = [
   "taskQueueProposalId",
   "workflowGraphPlanId",
   "schedulerContractId",
+  "schedulerDispatchDryRunId",
+  "schedulerWorkerPlanId",
   "workflowRunId",
   "queueRunId",
   "worktreeId",
@@ -296,6 +302,9 @@ export function validateWorkflowActionRequiredTargets(request: WorkflowActionSco
       break;
     case "planning.scheduler.dispatch.dry-run":
       requireOne("schedulerContractId", [request.schedulerContractId]);
+      break;
+    case "planning.scheduler.worker-plan.compile":
+      requireOne("schedulerDispatchDryRunId", [request.schedulerDispatchDryRunId]);
       break;
     case "planning.workflowgraph.compile":
       requireOne("taskQueueProposalId", [request.taskQueueProposalId]);
@@ -388,7 +397,9 @@ export function workflowActionScopePayload(request: WorkflowActionScopeCarrier, 
     readinessManifestId: request.readinessManifestId ?? extractString(result, "manifest", "id"),
     taskQueueProposalId: request.taskQueueProposalId ?? extractString(result, "proposal", "id"),
     workflowGraphPlanId: request.workflowGraphPlanId ?? extractString(result, "graph", "id"),
-    schedulerContractId: request.schedulerContractId ?? extractString(result, "contract", "id") ?? extractString(result, "dryRun", "schedulerContractId"),
+    schedulerContractId: request.schedulerContractId ?? extractString(result, "contract", "id") ?? extractString(result, "dryRun", "schedulerContractId") ?? extractString(result, "workerPlan", "schedulerContractId"),
+    schedulerDispatchDryRunId: request.schedulerDispatchDryRunId ?? extractString(result, "dryRun", "id") ?? extractString(result, "workerPlan", "schedulerDispatchDryRunId"),
+    schedulerWorkerPlanId: request.schedulerWorkerPlanId ?? extractString(result, "workerPlan", "id"),
     workflowRunId: request.workflowRunId ?? extractString(result, "workflowRun", "id") ?? extractString(result, "workflow", "id"),
     queueRunId: request.queueRunId,
     worktreeId: request.worktreeId,
@@ -410,9 +421,14 @@ export function workflowActionTargetId(request: WorkflowActionScopeCarrier, chan
     ?? request.workflowRunId
     ?? request.workflowGraphPlanId
     ?? extractString(result, "graph", "id")
+    ?? request.schedulerWorkerPlanId
+    ?? extractString(result, "workerPlan", "id")
+    ?? request.schedulerDispatchDryRunId
+    ?? extractString(result, "workerPlan", "schedulerDispatchDryRunId")
     ?? request.schedulerContractId
     ?? extractString(result, "contract", "id")
     ?? extractString(result, "dryRun", "schedulerContractId")
+    ?? extractString(result, "workerPlan", "schedulerContractId")
     ?? request.taskQueueProposalId
     ?? extractString(result, "proposal", "id")
     ?? request.queueRunId
@@ -437,6 +453,8 @@ export function workflowActionScopesMatchStrict(left: WorkflowActionScopeCarrier
     && sameStrictOptional(left.taskQueueProposalId, right.taskQueueProposalId)
     && sameStrictOptional(left.workflowGraphPlanId, right.workflowGraphPlanId)
     && sameStrictOptional(left.schedulerContractId, right.schedulerContractId)
+    && sameStrictOptional(left.schedulerDispatchDryRunId, right.schedulerDispatchDryRunId)
+    && sameStrictOptional(left.schedulerWorkerPlanId, right.schedulerWorkerPlanId)
     && sameStrictOptional(left.workflowRunId, right.workflowRunId)
     && sameStrictOptional(left.queueRunId, right.queueRunId)
     && sameStrictOptional(left.worktreeId, right.worktreeId)
@@ -455,6 +473,8 @@ export function workflowActionScopesMatchCompatible(left: WorkflowActionScopeCar
     && sameCompatibleOptional(left.taskQueueProposalId, right.taskQueueProposalId)
     && sameCompatibleOptional(left.workflowGraphPlanId, right.workflowGraphPlanId)
     && sameCompatibleOptional(left.schedulerContractId, right.schedulerContractId)
+    && sameCompatibleOptional(left.schedulerDispatchDryRunId, right.schedulerDispatchDryRunId)
+    && sameCompatibleOptional(left.schedulerWorkerPlanId, right.schedulerWorkerPlanId)
     && sameCompatibleOptional(left.workflowRunId, right.workflowRunId)
     && sameCompatibleOptional(left.queueRunId, right.queueRunId)
     && sameCompatibleOptional(left.worktreeId, right.worktreeId)

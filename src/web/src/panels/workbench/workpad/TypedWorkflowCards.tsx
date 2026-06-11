@@ -151,3 +151,23 @@ export function SchedulerDispatchDryRunCard({ dryRun }: { dryRun: NonNullable<Wo
     </section>
   );
 }
+
+export function SchedulerWorkerSessionPlanCard({ plan }: { plan: NonNullable<Workpad["schedulerWorkerSessionPlan"]> }): ReactElement {
+  return (
+    <section className="workpad-section" data-testid="scheduler-worker-session-plan-card">
+      <div className="workpad-section-header">
+        <h3>Worker Session Plan</h3>
+        <span>{humanStatus(plan.status)}</span>
+      </div>
+      <p className="workpad-goal">worker session / workspace / permission / event / recovery contract（不启动执行）</p>
+      <div className="workpad-chip-list">
+        <span>{plan.plannedWorkerCount} 个 worker</span>
+        <span>{plan.stageCount} 个阶段</span>
+        <span>{plan.blockedCount} 个阻塞</span>
+        <span>{plan.warningCount} 个 warning</span>
+        <span>恢复键 {plan.recoveryKeyCoverage === "complete" ? "完整" : "部分"}</span>
+      </div>
+      {plan.artifact ? <small className="artifact-link">查看证据：{artifactName(plan.artifact)}</small> : null}
+    </section>
+  );
+}

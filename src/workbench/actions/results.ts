@@ -137,6 +137,11 @@ export function summarizeActionResult(actionType: string, result: unknown): stri
       ? `Scheduler dispatch dry-run ${result.dryRun.id} generated. No execution was started.`
       : "Scheduler dispatch dry-run generated. No execution was started.";
   }
+  if (actionType === "planning.scheduler.worker-plan.compile" && isRecord(result) && isRecord(result.workerPlan)) {
+    return typeof result.workerPlan.id === "string"
+      ? `Scheduler worker session plan ${result.workerPlan.id} compiled. No execution was started.`
+      : "Scheduler worker session plan compiled. No execution was started.";
+  }
   if (actionType === "planning.confirm-execution" && isRecord(result)) {
     return "Planning confirmed and canonical artifacts were written. No execution was started.";
   }
@@ -176,6 +181,7 @@ export function labelForAction(actionType: string): string {
     case "planning.taskqueue.propose": return "TaskQueueProposal generated";
     case "planning.scheduler.contract.compile": return "SchedulerContract compiled";
     case "planning.scheduler.dispatch.dry-run": return "Scheduler dispatch dry-run generated";
+    case "planning.scheduler.worker-plan.compile": return "Scheduler worker session plan compiled";
     case "planning.workflowgraph.compile": return "WorkflowGraphPlan compiled";
     case "planning.taskqueue.confirm-start": return "TaskQueueProposal confirmed and started";
     case "orchestrator.evaluate": return "Main orchestrator evaluated";

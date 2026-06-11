@@ -21,6 +21,7 @@ import type {
   WorkbenchDecompositionReadinessSummary,
   WorkbenchSchedulerContractSummary,
   WorkbenchSchedulerDispatchDryRunSummary,
+  WorkbenchSchedulerWorkerSessionPlanSummary,
   WorkbenchTaskQueueProposalSummary,
   WorkbenchWorkflowGraphPlanSummary,
 } from "./workflow-projection.js";
@@ -100,6 +101,8 @@ export interface ThreadStreamAction {
   taskQueueProposalId?: string;
   workflowGraphPlanId?: string;
   schedulerContractId?: string;
+  schedulerDispatchDryRunId?: string;
+  schedulerWorkerPlanId?: string;
   workflowRunId?: string;
   queueRunId?: string;
   taskIds?: string[];
@@ -199,6 +202,8 @@ export interface WorkbenchDecisionAction {
   taskQueueProposalId?: string;
   workflowGraphPlanId?: string;
   schedulerContractId?: string;
+  schedulerDispatchDryRunId?: string;
+  schedulerWorkerPlanId?: string;
   workflowRunId?: string;
   queueRunId?: string;
   taskIds?: string[];
@@ -341,6 +346,8 @@ export interface WorkpadNextAction {
   taskQueueProposalId?: string;
   workflowGraphPlanId?: string;
   schedulerContractId?: string;
+  schedulerDispatchDryRunId?: string;
+  schedulerWorkerPlanId?: string;
   workflowRunId?: string;
   queueRunId?: string;
   taskIds?: string[];
@@ -412,6 +419,8 @@ export interface WorkbenchTaskNextAction {
   taskQueueProposalId?: string;
   workflowGraphPlanId?: string;
   schedulerContractId?: string;
+  schedulerDispatchDryRunId?: string;
+  schedulerWorkerPlanId?: string;
   workflowRunId?: string;
   queueRunId?: string;
   enabled: boolean;
@@ -557,6 +566,7 @@ export interface WorkbenchWorkpad {
   workflowGraphPlan?: WorkbenchWorkflowGraphPlanSummary;
   schedulerContract?: WorkbenchSchedulerContractSummary;
   schedulerDispatchDryRun?: WorkbenchSchedulerDispatchDryRunSummary;
+  schedulerWorkerSessionPlan?: WorkbenchSchedulerWorkerSessionPlanSummary;
   workflowRun?: WorkflowRunSummary;
   rolePipeline?: WorkbenchRolePipelineSummary;
   resultReview?: WorkbenchResultReview;

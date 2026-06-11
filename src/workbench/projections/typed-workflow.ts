@@ -6,6 +6,7 @@ import {
   readWorkflowGraphPlanProjection,
   readSchedulerContractProjection,
   readSchedulerDispatchDryRunProjection,
+  readSchedulerWorkerSessionPlanProjection,
 } from "../workflow-projection.js";
 import { readWorkflowRun, readWorkflowRunEvents } from "../../workflow-run/manager.js";
 import type {
@@ -14,7 +15,7 @@ import type {
   TaskQueueProposal,
   WorkflowGraphPlan,
 } from "../../workflow-artifacts/manager.js";
-import type { SchedulerContract, SchedulerDispatchDryRun } from "../../workflow-scheduler/manager.js";
+import type { SchedulerContract, SchedulerDispatchDryRun, SchedulerWorkerSessionPlan } from "../../workflow-scheduler/manager.js";
 
 export interface WorkbenchTopicPathRef {
   id: string;
@@ -48,6 +49,10 @@ export function getSchedulerContractProjectionForPath(memory: ResolvedMemory, ch
 
 export function getSchedulerDispatchDryRunProjectionForPath(memory: ResolvedMemory, changePath: string, dryRunId?: string): Promise<SchedulerDispatchDryRun | null> {
   return readSchedulerDispatchDryRunProjection(memory, changePath, dryRunId);
+}
+
+export function getSchedulerWorkerSessionPlanProjectionForPath(memory: ResolvedMemory, changePath: string, workerPlanId?: string): Promise<SchedulerWorkerSessionPlan | null> {
+  return readSchedulerWorkerSessionPlanProjection(memory, changePath, workerPlanId);
 }
 
 export async function getWorkflowRunProjectionForChange(

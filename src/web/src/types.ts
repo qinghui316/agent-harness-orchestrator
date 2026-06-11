@@ -159,6 +159,8 @@ export type WorkpadNextAction = {
   taskQueueProposalId?: string;
   workflowGraphPlanId?: string;
   schedulerContractId?: string;
+  schedulerDispatchDryRunId?: string;
+  schedulerWorkerPlanId?: string;
   workflowRunId?: string;
   queueRunId?: string;
   taskIds?: string[];
@@ -187,6 +189,8 @@ export type WorkbenchTaskNextAction = {
   taskQueueProposalId?: string;
   workflowGraphPlanId?: string;
   schedulerContractId?: string;
+  schedulerDispatchDryRunId?: string;
+  schedulerWorkerPlanId?: string;
   workflowRunId?: string;
   queueRunId?: string;
   enabled: boolean;
@@ -303,6 +307,7 @@ export type Workpad = {
   workflowGraphPlan?: WorkflowGraphPlanSummary;
   schedulerContract?: SchedulerContractSummary;
   schedulerDispatchDryRun?: SchedulerDispatchDryRunSummary;
+  schedulerWorkerSessionPlan?: SchedulerWorkerSessionPlanSummary;
   rolePipeline?: {
     stage: "planning" | "coding" | "validation" | "audit" | "rework" | "done" | "needs-user-input";
     status: "draft" | "running" | "completed" | "needs-user-input" | "stopped";
@@ -495,6 +500,22 @@ export type SchedulerDispatchDryRunSummary = {
   markdownArtifact?: string;
   updatedAt: string;
 };
+export type SchedulerWorkerSessionPlanSummary = {
+  id: string;
+  changeId: string;
+  schedulerContractId: string;
+  schedulerDispatchDryRunId: string;
+  status: "planned" | "superseded" | "rejected";
+  schedulerMode: "parallel-readiness-v1";
+  plannedWorkerCount: number;
+  stageCount: number;
+  blockedCount: number;
+  warningCount: number;
+  recoveryKeyCoverage: "complete" | "partial";
+  artifact?: string;
+  markdownArtifact?: string;
+  updatedAt: string;
+};
 export type PlanCard = {
   title: string;
   summary: string;
@@ -514,6 +535,8 @@ export type ThreadStreamAction = {
   taskQueueProposalId?: string;
   workflowGraphPlanId?: string;
   schedulerContractId?: string;
+  schedulerDispatchDryRunId?: string;
+  schedulerWorkerPlanId?: string;
   workflowRunId?: string;
   queueRunId?: string;
   taskIds?: string[];
@@ -592,6 +615,8 @@ export type DecisionAction = {
   taskQueueProposalId?: string;
   workflowGraphPlanId?: string;
   schedulerContractId?: string;
+  schedulerDispatchDryRunId?: string;
+  schedulerWorkerPlanId?: string;
   workflowRunId?: string;
   queueRunId?: string;
   taskIds?: string[];

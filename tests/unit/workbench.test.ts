@@ -12,7 +12,7 @@ import { executeWorkbenchAction } from "../../src/server/workbench-server.js";
 import { appendTopicThreadEntry, createWorkbenchTopic, postTopicMessage } from "../../src/workbench/chat.js";
 import { readTopicThreadLog } from "../../src/workbench/thread-log.js";
 import { answerClarification, reanalyzeIntake, runIntakeScan } from "../../src/workbench/intake.js";
-import { getWorkbenchDecompositionPlanProjection, getWorkbenchDecompositionReadinessProjection, getWorkbenchMaintenanceProjection, getWorkbenchRunGraphProjection, getWorkbenchSchedulerContractProjection, getWorkbenchSchedulerDispatchDryRunProjection, getWorkbenchSnapshot, getWorkbenchStream, getWorkbenchTaskQueueProposalProjection, getWorkbenchTopic, getWorkbenchWorkflowGraphPlanProjection, listWorkbenchApprovals, listWorkbenchRoles, listWorkbenchTopics } from "../../src/workbench/manager.js";
+import { getWorkbenchDecompositionPlanProjection, getWorkbenchDecompositionReadinessProjection, getWorkbenchMaintenanceProjection, getWorkbenchRunGraphProjection, getWorkbenchSchedulerContractProjection, getWorkbenchSchedulerDispatchDryRunProjection, getWorkbenchSchedulerWorkerSessionPlanProjection, getWorkbenchSnapshot, getWorkbenchStream, getWorkbenchTaskQueueProposalProjection, getWorkbenchTopic, getWorkbenchWorkflowGraphPlanProjection, listWorkbenchApprovals, listWorkbenchRoles, listWorkbenchTopics } from "../../src/workbench/manager.js";
 import { WorkbenchStore } from "../../src/workbench/store.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import { collectWorktreeDiff } from "../../src/audit/diff.js";
@@ -2224,6 +2224,29 @@ describe("workbench read model", () => {
       schedulerContractId: contract?.id,
       waveVerdicts: [expect.objectContaining({ nodeIds: expect.arrayContaining(["scheduler-node-001", "scheduler-node-002"]) })],
     });
+    const dryRunLatestPath = join(changeDir, "planning", "scheduler-dispatch-dry-run.json");
+    const dryRunVersionedPath = join(changeDir, "planning", "scheduler-dispatch-dry-runs", `${dryRun?.id}.json`);
+    const dryRunLatestJson = JSON.parse(await readFile(dryRunLatestPath, "utf8"));
+    const dryRunVersionedJson = JSON.parse(await readFile(dryRunVersionedPath, "utf8"));
+    const [hashRef] = Object.keys(dryRunVersionedJson.sourceArtifactHashes ?? {});
+    if (!hashRef) throw new Error("Expected dry-run source artifact hashes.");
+    dryRunLatestJson.sourceArtifactHashes[hashRef] = "forged-hash";
+    dryRunVersionedJson.sourceArtifactHashes[hashRef] = "forged-hash";
+    await writeFile(dryRunLatestPath, JSON.stringify(dryRunLatestJson, null, 2), "utf8");
+    await writeFile(dryRunVersionedPath, JSON.stringify(dryRunVersionedJson, null, 2), "utf8");
+    const hashMismatchResult = await executeWorkbenchAction({ project: project(), path: tempDir }, {
+      actionType: "planning.scheduler.worker-plan.compile",
+      changeId: topic.changeId,
+      schedulerContractId: contract?.id,
+      schedulerDispatchDryRunId: dryRun?.id,
+      confirm: true,
+    });
+    expect(hashMismatchResult.result).toMatchObject({
+      status: "failed",
+      error: expect.stringContaining("source artifact hash mismatch"),
+    });
+    await writeFile(dryRunLatestPath, JSON.stringify(fullDryRun, null, 2), "utf8");
+    await writeFile(dryRunVersionedPath, JSON.stringify(fullDryRun, null, 2), "utf8");
     const dryRunSnapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: topic.changeId });
     expect(dryRunSnapshot.center.workpad.schedulerDispatchDryRun).toMatchObject({
       id: dryRun?.id,
@@ -2232,12 +2255,67 @@ describe("workbench read model", () => {
       estimatedMaxWaveWidth: 2,
     });
     expect(dryRunSnapshot.center.workpad.nextAction).toMatchObject({
-      actionType: "planning.scheduler.dispatch.dry-run",
-      enabled: false,
+      actionType: "planning.scheduler.worker-plan.compile",
+      enabled: true,
       schedulerContractId: contract?.id,
+      schedulerDispatchDryRunId: dryRun?.id,
     });
-    expect(dryRunSnapshot.right.confirmationQueue.current.flatMap((item) => item.actions).map((action) => action.actionType))
-      .not.toContain("planning.scheduler.dispatch.dry-run");
+    expect(dryRunSnapshot.right.confirmationQueue.current).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        actions: expect.arrayContaining([
+          expect.objectContaining({
+            actionType: "planning.scheduler.worker-plan.compile",
+            schedulerContractId: contract?.id,
+            schedulerDispatchDryRunId: dryRun?.id,
+          }),
+        ]),
+      }),
+    ]));
+    await expect(executeWorkbenchAction({ project: project(), path: tempDir }, {
+      actionType: "planning.scheduler.worker-plan.compile",
+      changeId: topic.changeId,
+      schedulerContractId: contract?.id,
+      schedulerDispatchDryRunId: "forged-dry-run",
+      confirm: true,
+    })).rejects.toThrow("stale or no longer available");
+
+    const workerPlanResult = await executeWorkbenchAction({ project: project(), path: tempDir }, {
+      actionType: "planning.scheduler.worker-plan.compile",
+      changeId: topic.changeId,
+      schedulerContractId: contract?.id,
+      schedulerDispatchDryRunId: dryRun?.id,
+      confirm: true,
+    });
+    const workerPlan = (workerPlanResult.result as { result?: { workerPlan?: { id?: string; schedulerDispatchDryRunId?: string; plannedWorkerCount?: number; stageCount?: number; recoveryKeyCoverage?: string } } }).result?.workerPlan;
+    expect(workerPlan).toMatchObject({
+      schedulerDispatchDryRunId: dryRun?.id,
+      plannedWorkerCount: 8,
+      stageCount: 8,
+      recoveryKeyCoverage: "complete",
+    });
+    const fullWorkerPlan = await getWorkbenchSchedulerWorkerSessionPlanProjection({ project: project(), path: tempDir }, topic.changeId, workerPlan?.id);
+    expect(fullWorkerPlan).toMatchObject({
+      id: workerPlan?.id,
+      status: "planned",
+      schedulerContractId: contract?.id,
+      schedulerDispatchDryRunId: dryRun?.id,
+    });
+    expect(fullWorkerPlan?.plannedStages.map((stage) => stage.roleId)).toEqual(expect.arrayContaining(["coder-agent", "validator", "auditor-agent", "rework-coder"]));
+    const workerPlanSnapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: topic.changeId });
+    expect(workerPlanSnapshot.center.workpad.schedulerWorkerSessionPlan).toMatchObject({
+      id: workerPlan?.id,
+      schedulerDispatchDryRunId: dryRun?.id,
+      plannedWorkerCount: 8,
+      recoveryKeyCoverage: "complete",
+    });
+    expect(workerPlanSnapshot.center.workpad.nextAction).toMatchObject({
+      actionType: "planning.scheduler.worker-plan.compile",
+      enabled: false,
+      schedulerDispatchDryRunId: dryRun?.id,
+      schedulerWorkerPlanId: workerPlan?.id,
+    });
+    expect(workerPlanSnapshot.right.confirmationQueue.current.flatMap((item) => item.actions).map((action) => action.actionType))
+      .not.toContain("planning.scheduler.worker-plan.compile");
     expect(await listTaskQueues(beforeMemory, topic.changeId)).toHaveLength(0);
     expect(await listWorkflowRuns(beforeMemory, topic.changeId)).toHaveLength(0);
     expect(await listTaskRuns(beforeMemory, topic.changeId)).toHaveLength(0);

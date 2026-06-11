@@ -1,4 +1,4 @@
-import type { SchedulerContract, SchedulerDispatchDryRun } from "./types.js";
+import type { SchedulerContract, SchedulerDispatchDryRun, SchedulerWorkerSessionPlan } from "./types.js";
 
 export function renderSchedulerContractMarkdown(contract: SchedulerContract): string {
   const lines = [
@@ -96,6 +96,64 @@ export function renderSchedulerDispatchDryRunMarkdown(dryRun: SchedulerDispatchD
     "## Boundary",
     "",
     "This dry-run is non-executing evidence. It does not allocate DemandWorker slots, create WorkerLeases, create TaskRuns, create WorkflowRuns, start agents, create worktrees, create runs, create child Changes, or mutate source.",
+    "",
+  ];
+  return lines.join("\n");
+}
+
+export function renderSchedulerWorkerSessionPlanMarkdown(plan: SchedulerWorkerSessionPlan): string {
+  const lines = [
+    `# SchedulerWorkerSessionPlan ${plan.id}`,
+    "",
+    `Status: ${plan.status}`,
+    `Mode: ${plan.schedulerMode}`,
+    `Change: ${plan.changeId}`,
+    `SchedulerContract: ${plan.schedulerContractId}`,
+    `SchedulerDispatchDryRun: ${plan.schedulerDispatchDryRunId}`,
+    `DecompositionPlan: ${plan.decompositionPlanId}`,
+    `ReadinessManifest: ${plan.readinessManifestId}`,
+    "",
+    "## Summary",
+    "",
+    `- Planned workers: ${plan.plannedWorkerCount}`,
+    `- Stages: ${plan.stageCount}`,
+    `- Nodes: ${plan.plannedNodes.length}`,
+    `- Blocked entries: ${plan.blockedCount}`,
+    `- Warnings: ${plan.warningCount}`,
+    `- Recovery key coverage: ${plan.recoveryKeyCoverage}`,
+    "",
+    "## Nodes",
+    "",
+    ...plan.plannedNodes.map((node) => [
+      `### ${node.nodeId}`,
+      "",
+      `- Unit: ${node.unitId}`,
+      `- Wave: ${node.waveIndex + 1}`,
+      `- Status: ${node.status}`,
+      `- Stage plans: ${node.stageIds.join(", ") || "none"}`,
+      `- Blocked reasons: ${node.blockedReasons.length ? node.blockedReasons.join("; ") : "none"}`,
+      "",
+    ].join("\n")),
+    "## Stage Worker Plans",
+    "",
+    ...plan.plannedStages.map((stage) => [
+      `### ${stage.id}`,
+      "",
+      `- Node: ${stage.nodeId}`,
+      `- Stage: ${stage.stage}`,
+      `- Role: ${stage.roleId}`,
+      `- Adapter family: ${stage.adapterFamily}`,
+      `- Workspace: ${stage.workspaceIntent.kind}`,
+      `- Source scopes: ${stage.workspaceIntent.sourceScopes.join(", ") || "none"}`,
+      `- Sandbox policy: ${stage.permissionProfile.sandboxPolicy}`,
+      `- Event source: ${stage.eventSourceExpectation.adapterFamily}`,
+      `- Recovery keys: ${stage.recoveryKeyInputs.map((item) => item.key).join(", ") || "none"}`,
+      `- Blocked reasons: ${stage.blockedReasons.length ? stage.blockedReasons.join("; ") : "none"}`,
+      "",
+    ].join("\n")),
+    "## Boundary",
+    "",
+    "This worker session plan is non-executing evidence. It does not create Runtime Continuity sidecars, TaskRuns, WorkerLeases, AgentTasks, worktrees, runs, child Changes, or scheduler loops.",
     "",
   ];
   return lines.join("\n");

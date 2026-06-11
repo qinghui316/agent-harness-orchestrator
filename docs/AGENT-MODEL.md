@@ -114,6 +114,8 @@ Phase 8W adds the permission / external-execution evidence slice to that same co
 
 Phase 8Y adds a dry-run scheduler evidence slice before any real parallel executor. It can explain which SchedulerContract waves look dispatchable, which nodes would be blocked, and which runtime-continuity prerequisites a future worker launch would need. It cannot spawn workers, allocate leases, reserve slots, create child Changes, or let agent roles bypass validation, audit, integration, or human gates.
 
+Phase 8Z adds a worker-session/recovery planning slice after dry-run evidence. It can describe the future worker stage scopes, session/workspace intent, permission profile, event source expectation, and recovery key inputs a scheduler would need. It still cannot spawn workers, create runtime-continuity sidecars, allocate leases, reserve slots, create child Changes, or let agent roles bypass validation, audit, integration, or human gates.
+
 Phase 7M is a boundary/module repair phase for this model. It does not let workers spawn agents or author executable workflow scripts; it makes the main-agent-facing action registry, scope checks, projections, and TaskQueue/WorkflowRun runtime facade explicit so later subagent or scheduler features can be added behind Harness-owned typed artifacts.
 
 Phase 7N continues that direction as a pure large-file boundary split. It moves Workbench shared types/thread-log helpers, action execution, runtime facade calls, projection builders, and frontend panels behind module owners. It does not grant workers delegation power, add a scheduler, or change the Harness-owned typed artifact chain.

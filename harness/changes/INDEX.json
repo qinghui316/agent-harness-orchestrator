@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-11T05:01:07.1267221Z",
+    "generated_at":  "2026-06-11T06:13:43.7232565Z",
     "active":  [
 
                ],
@@ -629,6 +629,10 @@
                     {
                         "name":  "20260611-phase-8y-scheduler-dispatch-reconcile-dry-run-evidence",
                         "path":  "harness/changes/archive/20260611-phase-8y-scheduler-dispatch-reconcile-dry-run-evidence"
+                    },
+                    {
+                        "name":  "20260611-phase-8z-scheduler-worker-session-plan-recovery-contract",
+                        "path":  "harness/changes/archive/20260611-phase-8z-scheduler-worker-session-plan-recovery-contract"
                     }
                 ]
 }

@@ -171,6 +171,8 @@ export interface WorkbenchWorkflowActionRequest {
   taskQueueProposalId?: string;
   workflowGraphPlanId?: string;
   schedulerContractId?: string;
+  schedulerDispatchDryRunId?: string;
+  schedulerWorkerPlanId?: string;
   workflowRunId?: string;
   queueRunId?: string;
   worktreeId?: string;

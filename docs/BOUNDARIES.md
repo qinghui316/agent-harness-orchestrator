@@ -207,6 +207,8 @@ Phase 8W extends the Runtime Continuity event contract with permission and exter
 
 Phase 8Y makes `src/workflow-scheduler/` the owner for Scheduler Dispatch / Reconcile dry-run evidence. `SchedulerDispatchDryRun` is a non-executing projection over a scoped SchedulerContract: it may write versioned/latest dry-run artifacts and decision/audit evidence, but it must not allocate DemandWorker slots, create WorkerLeases, create TaskRuns, create WorkflowRuns, create AgentTasks, create worktrees, create runs, create child Changes, mutate source, introduce scheduler runtime state, or authorize parallel execution. Workbench, server, and frontend code may call/display the dry-run, but must not own the scheduling logic.
 
+Phase 8Z keeps `src/workflow-scheduler/` as owner for Scheduler Worker Session Plan / Recovery Contract evidence. `SchedulerWorkerSessionPlan` is a non-executing plan over a scoped dry-run and contract: it may write versioned/latest worker-plan artifacts and decision/audit evidence, but it must not create `WorkerSession`, `RuntimeWorkspace`, `EventSource`, `WorkflowRun`, `TaskQueueRun`, `TaskRun`, `WorkerLease`, `AgentTask`, worktree, run, child Change, scheduler runtime state, or parallel execution authorization. Workbench, server, and frontend code may call/display the worker plan, but must not own worker-session planning logic.
+
 ## 7. Memory Unavailable Boundary
 
 Memory can be unavailable on a new machine, after a plain repository clone, when AHO home was not synced, when permissions are missing, or when a future remote memory service is offline.

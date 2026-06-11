@@ -9,14 +9,18 @@ import {
   latestSchedulerContractPath,
   latestSchedulerDispatchDryRunMarkdownPath,
   latestSchedulerDispatchDryRunPath,
+  latestSchedulerWorkerSessionPlanMarkdownPath,
+  latestSchedulerWorkerSessionPlanPath,
   schedulerContractPath,
   schedulerContractsDir,
   schedulerDispatchDryRunPath,
   schedulerDispatchDryRunsDir,
+  schedulerWorkerSessionPlanPath,
+  schedulerWorkerSessionPlansDir,
 } from "./paths.js";
-import { renderSchedulerContractMarkdown, renderSchedulerDispatchDryRunMarkdown } from "./rendering.js";
-import { schedulerContractSchema, schedulerDispatchDryRunSchema } from "./schemas.js";
-import type { SchedulerContract, SchedulerDispatchDryRun } from "./types.js";
+import { renderSchedulerContractMarkdown, renderSchedulerDispatchDryRunMarkdown, renderSchedulerWorkerSessionPlanMarkdown } from "./rendering.js";
+import { schedulerContractSchema, schedulerDispatchDryRunSchema, schedulerWorkerSessionPlanSchema } from "./schemas.js";
+import type { SchedulerContract, SchedulerDispatchDryRun, SchedulerWorkerSessionPlan } from "./types.js";
 
 export async function writeSchedulerContract(memory: ResolvedMemory, changePath: string, contract: SchedulerContract): Promise<void> {
   await assertWorkflowArtifactScope(memory, changePath, contract, "SchedulerContract");
@@ -75,5 +79,35 @@ export function schedulerDispatchDryRunArtifactRefs(memory: ResolvedMemory, chan
   return {
     artifact: displayArtifactPath(memory, join(dir, `${dryRunId}.json`)),
     markdownArtifact: displayArtifactPath(memory, join(dir, `${dryRunId}.md`)),
+  };
+}
+
+export async function writeSchedulerWorkerSessionPlan(memory: ResolvedMemory, changePath: string, plan: SchedulerWorkerSessionPlan): Promise<void> {
+  await assertWorkflowArtifactScope(memory, changePath, plan, "SchedulerWorkerSessionPlan");
+  const dir = schedulerWorkerSessionPlansDir(memory, changePath);
+  await mkdir(dir, { recursive: true });
+  await writeJsonFile(join(dir, `${plan.id}.json`), plan);
+  await writeFile(join(dir, `${plan.id}.md`), renderSchedulerWorkerSessionPlanMarkdown(plan), "utf8");
+  await writeJsonFile(latestSchedulerWorkerSessionPlanPath(memory, changePath), plan);
+  await writeFile(latestSchedulerWorkerSessionPlanMarkdownPath(memory, changePath), renderSchedulerWorkerSessionPlanMarkdown(plan), "utf8");
+}
+
+export async function readLatestSchedulerWorkerSessionPlan(memory: ResolvedMemory, changePath: string): Promise<SchedulerWorkerSessionPlan> {
+  const plan = await readRequiredJsonFile(latestSchedulerWorkerSessionPlanPath(memory, changePath), schedulerWorkerSessionPlanSchema);
+  await assertWorkflowArtifactScope(memory, changePath, plan, "SchedulerWorkerSessionPlan");
+  return plan;
+}
+
+export async function readSchedulerWorkerSessionPlan(memory: ResolvedMemory, changePath: string, workerPlanId: string): Promise<SchedulerWorkerSessionPlan> {
+  const plan = await readRequiredJsonFile(schedulerWorkerSessionPlanPath(memory, changePath, workerPlanId), schedulerWorkerSessionPlanSchema);
+  await assertWorkflowArtifactScope(memory, changePath, plan, "SchedulerWorkerSessionPlan");
+  return plan;
+}
+
+export function schedulerWorkerSessionPlanArtifactRefs(memory: ResolvedMemory, changePath: string, workerPlanId: string): { artifact: string; markdownArtifact: string } {
+  const dir = schedulerWorkerSessionPlansDir(memory, changePath);
+  return {
+    artifact: displayArtifactPath(memory, join(dir, `${workerPlanId}.json`)),
+    markdownArtifact: displayArtifactPath(memory, join(dir, `${workerPlanId}.md`)),
   };
 }

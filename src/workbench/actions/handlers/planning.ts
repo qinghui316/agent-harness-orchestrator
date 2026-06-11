@@ -33,11 +33,15 @@ import {
 import {
   compileSchedulerDispatchDryRun,
   compileSchedulerContract,
+  compileSchedulerWorkerSessionPlan,
   readSchedulerContract,
+  readSchedulerDispatchDryRun,
   renderSchedulerDispatchDryRunMarkdown,
   renderSchedulerContractMarkdown,
+  renderSchedulerWorkerSessionPlanMarkdown,
   type SchedulerContract,
   type SchedulerDispatchDryRun,
+  type SchedulerWorkerSessionPlan,
 } from "../../../workflow-scheduler/manager.js";
 import { readLatestPlanningBundle } from "../planning-bundle.js";
 import { runCodexChat } from "../../codex-chat/bridge.js";
@@ -556,6 +560,55 @@ export async function generateSchedulerDispatchDryRun(
     completedAt: new Date().toISOString(),
   });
   return { dryRun, executionStarted: false };
+}
+
+export async function compilePlanningSchedulerWorkerSessionPlan(
+  project: ManagedProject,
+  changeId: string,
+  request: WorkbenchWorkflowActionRequest,
+  live: WorkbenchLiveSink | undefined,
+): Promise<{ workerPlan: SchedulerWorkerSessionPlan; executionStarted: false }> {
+  const { memory, changePath } = await resolveTopic(project, changeId);
+  assertWritableMemory(memory, "Scheduler worker session plan");
+  if (!request.schedulerDispatchDryRunId) throw new Error("planning.scheduler.worker-plan.compile requires schedulerDispatchDryRunId.");
+  const dryRun = await readSchedulerDispatchDryRun(memory, changePath, request.schedulerDispatchDryRunId);
+  if (dryRun.id !== request.schedulerDispatchDryRunId || dryRun.changeId !== changeId || dryRun.status !== "generated") {
+    throw new Error("planning.scheduler.worker-plan.compile SchedulerDispatchDryRun target is stale.");
+  }
+  const contract = await readSchedulerContract(memory, changePath, dryRun.schedulerContractId);
+  if (contract.id !== dryRun.schedulerContractId || contract.changeId !== changeId || contract.status !== "compiled") {
+    throw new Error("planning.scheduler.worker-plan.compile SchedulerContract lineage is stale.");
+  }
+  const workerPlan = await compileSchedulerWorkerSessionPlan(memory, changePath, dryRun, contract);
+  await appendTopicThreadEntry(project, changeId, {
+    type: "assistant.message",
+    status: "scheduler-worker-plan-compiled",
+    text: renderSchedulerWorkerSessionPlanMarkdown(workerPlan),
+    artifact: workerPlan.artifact,
+  });
+  emitAssistantEvent(live, {
+    runId: workerPlan.id,
+    kind: "file-change",
+    phase: "scheduler-worker-plan-compiled",
+    title: "Scheduler worker session plan compiled",
+    summary: "A non-executing worker session / workspace / permission / event / recovery contract was generated; no worker or scheduler was started.",
+    artifactRef: workerPlan.artifact,
+  });
+  await recordWorkbenchDecision(project, {
+    id: `scheduler-worker-plan:${workerPlan.id}`,
+    changeId,
+    decisionType: "planning.scheduler.worker-plan.compile",
+    status: "completed",
+    label: "Worker Session Plan 已编译",
+    summary: "Generated a non-executing SchedulerWorkerSessionPlan from a scheduler dispatch dry-run.",
+    targetId: workerPlan.id,
+    runId: null,
+    artifact: workerPlan.artifact,
+    actionId: "planning.scheduler.worker-plan.compile",
+    payload: { workerPlan },
+    completedAt: new Date().toISOString(),
+  });
+  return { workerPlan, executionStarted: false };
 }
 
 export async function confirmTaskQueueProposalAndStart(

@@ -35,6 +35,9 @@ describe("workflow action registry", () => {
     expect(LIVE_WORKFLOW_ACTION_TYPES).toContain("planning.scheduler.dispatch.dry-run");
     expect(HIGH_IMPACT_WORKFLOW_ACTION_TYPES).toContain("planning.scheduler.dispatch.dry-run");
     expect(REVALIDATED_WORKFLOW_ACTION_TYPES).toContain("planning.scheduler.dispatch.dry-run");
+    expect(LIVE_WORKFLOW_ACTION_TYPES).toContain("planning.scheduler.worker-plan.compile");
+    expect(HIGH_IMPACT_WORKFLOW_ACTION_TYPES).toContain("planning.scheduler.worker-plan.compile");
+    expect(REVALIDATED_WORKFLOW_ACTION_TYPES).toContain("planning.scheduler.worker-plan.compile");
   });
 
   it("keeps SchedulerContract ids in target and audit scope matching", () => {
@@ -71,6 +74,35 @@ describe("workflow action registry", () => {
     expect(validateWorkflowActionRequiredTargets({
       actionType: "planning.scheduler.dispatch.dry-run",
     }).map((item) => item.label)).toEqual(["schedulerContractId"]);
+    expect(validateWorkflowActionRequiredTargets({
+      actionType: "planning.scheduler.worker-plan.compile",
+      schedulerDispatchDryRunId: "scheduler-dry-run-1",
+    })).toEqual([]);
+    expect(validateWorkflowActionRequiredTargets({
+      actionType: "planning.scheduler.worker-plan.compile",
+      schedulerContractId: "scheduler-contract-1",
+    }).map((item) => item.label)).toEqual(["schedulerDispatchDryRunId"]);
+    const workerPlanRequest = {
+      changeId: "change-1",
+      schedulerContractId: "scheduler-contract-1",
+      schedulerDispatchDryRunId: "scheduler-dry-run-1",
+    };
+    expect(workflowActionTargetId(workerPlanRequest, workerPlanRequest.changeId)).toBe("scheduler-dry-run-1");
+    expect(workflowActionScopePayload(workerPlanRequest, workerPlanRequest.changeId, {
+      workerPlan: {
+        id: "scheduler-worker-plan-1",
+        schedulerContractId: "scheduler-contract-1",
+        schedulerDispatchDryRunId: "scheduler-dry-run-1",
+      },
+    })).toMatchObject({
+      changeId: "change-1",
+      schedulerContractId: "scheduler-contract-1",
+      schedulerDispatchDryRunId: "scheduler-dry-run-1",
+      schedulerWorkerPlanId: "scheduler-worker-plan-1",
+    });
+    expect(workflowActionScopesMatchStrict(workerPlanRequest, { ...workerPlanRequest })).toBe(true);
+    expect(workflowActionScopesMatchStrict(workerPlanRequest, { ...workerPlanRequest, schedulerDispatchDryRunId: undefined })).toBe(false);
+    expect(workflowActionScopesMatchCompatible(workerPlanRequest, { ...workerPlanRequest, schedulerDispatchDryRunId: undefined })).toBe(true);
   });
 
   it("keeps graph ids in target and audit scope matching", () => {

@@ -119,6 +119,7 @@ export {
   getWorkbenchWorkflowGraphPlanProjection,
   getWorkbenchSchedulerContractProjection,
   getWorkbenchSchedulerDispatchDryRunProjection,
+  getWorkbenchSchedulerWorkerSessionPlanProjection,
   getWorkbenchWorkflowRunProjection,
 } from "./lazy-projections.js";
 

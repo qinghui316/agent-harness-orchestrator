@@ -1,5 +1,16 @@
 import { z } from "zod";
-import type { SchedulerContract, SchedulerDispatchDryRun } from "./types.js";
+import type { SchedulerContract, SchedulerDispatchDryRun, SchedulerWorkerSessionPlan } from "./types.js";
+
+const workerPermissionProfileSchema = z.object({
+  version: z.literal("1.0"),
+  roleId: z.string(),
+  allowedReadRoots: z.array(z.string()),
+  allowedWriteRoots: z.array(z.string()),
+  deniedPaths: z.array(z.string()),
+  allowedCommands: z.array(z.string()),
+  sandboxPolicy: z.enum(["read-only", "workspace-write"]),
+  mayDelegate: z.boolean(),
+});
 
 export const schedulerContractSchema: z.ZodType<SchedulerContract> = z.object({
   version: z.literal("1.0"),
@@ -71,6 +82,62 @@ export const schedulerDispatchDryRunSchema: z.ZodType<SchedulerDispatchDryRun> =
   conflictScopes: z.array(z.string()),
   runtimeContinuityPrerequisites: z.array(z.string()),
   blockedReasons: z.array(z.string()),
+  sourceArtifactHashes: z.record(z.string()),
+  artifactRefs: z.array(z.string()),
+  artifact: z.string(),
+  markdownArtifact: z.string(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+
+export const schedulerWorkerSessionPlanSchema: z.ZodType<SchedulerWorkerSessionPlan> = z.object({
+  version: z.literal("1.0"),
+  id: z.string(),
+  changeId: z.string(),
+  status: z.enum(["planned", "superseded", "rejected"]),
+  schedulerMode: z.literal("parallel-readiness-v1"),
+  schedulerContractId: z.string(),
+  schedulerDispatchDryRunId: z.string(),
+  decompositionPlanId: z.string(),
+  readinessManifestId: z.string(),
+  plannedNodes: z.array(z.object({
+    nodeId: z.string(),
+    unitId: z.string(),
+    waveIndex: z.number(),
+    status: z.enum(["planned", "blocked"]),
+    stageIds: z.array(z.string()),
+    blockedReasons: z.array(z.string()),
+  })),
+  plannedStages: z.array(z.object({
+    id: z.string(),
+    nodeId: z.string(),
+    unitId: z.string(),
+    waveIndex: z.number(),
+    stage: z.enum(["coder", "validation", "audit", "bounded-rework"]),
+    roleId: z.string(),
+    status: z.enum(["planned", "blocked"]),
+    workspaceIntent: z.object({
+      kind: z.literal("future-local-worktree"),
+      sourceScopes: z.array(z.string()),
+      requiresFreshWorktree: z.boolean(),
+    }),
+    adapterFamily: z.enum(["codex-code", "validation-command", "audit-codex-readonly"]),
+    permissionProfile: workerPermissionProfileSchema,
+    eventSourceExpectation: z.object({
+      adapterFamily: z.enum(["codex-code", "validation-command", "audit-codex-readonly"]),
+      expectedEventTypes: z.array(z.string()),
+    }),
+    recoveryKeyInputs: z.array(z.object({
+      key: z.string(),
+      value: z.union([z.string(), z.array(z.string())]),
+    })),
+    blockedReasons: z.array(z.string()),
+  })),
+  plannedWorkerCount: z.number(),
+  stageCount: z.number(),
+  blockedCount: z.number(),
+  warningCount: z.number(),
+  recoveryKeyCoverage: z.enum(["complete", "partial"]),
   sourceArtifactHashes: z.record(z.string()),
   artifactRefs: z.array(z.string()),
   artifact: z.string(),

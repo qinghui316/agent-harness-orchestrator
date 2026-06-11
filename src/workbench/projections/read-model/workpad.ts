@@ -9,12 +9,14 @@ import {
   readLatestDecompositionReadinessSummary,
   readLatestSchedulerDispatchDryRunSummary,
   readLatestSchedulerContractSummary,
+  readLatestSchedulerWorkerSessionPlanSummary,
   readLatestTaskQueueProposalSummary,
   readLatestWorkflowGraphPlanSummary,
   type WorkbenchDecompositionPlanSummary,
   type WorkbenchDecompositionReadinessSummary,
   type WorkbenchSchedulerContractSummary,
   type WorkbenchSchedulerDispatchDryRunSummary,
+  type WorkbenchSchedulerWorkerSessionPlanSummary,
   type WorkbenchTaskQueueProposalSummary,
   type WorkbenchWorkflowGraphPlanSummary,
 } from "../../workflow-projection.js";
@@ -194,6 +196,8 @@ export async function buildWorkbenchWorkpad(input: {
   const workflowGraphPlan = await readLatestWorkflowGraphPlanSummary(memory, selectedTopic.path);
   const schedulerContract = await readLatestSchedulerContractSummary(memory, selectedTopic.path);
   const schedulerDispatchDryRun = await readLatestSchedulerDispatchDryRunSummary(memory, selectedTopic.path);
+  const schedulerWorkerSessionPlan = await readLatestSchedulerWorkerSessionPlanSummary(memory, selectedTopic.path);
+  const scopedSchedulerDispatchDryRun = schedulerContract && schedulerDispatchDryRun?.schedulerContractId === schedulerContract.id ? schedulerDispatchDryRun : null;
   const workflowRun = await getLatestWorkflowRun(memory, selectedTopic.id).then((run) => run ? summarizeWorkflowRun(run) : null).catch(() => null);
   const agentTasks = await buildAgentTaskSummaries(memory, selectedTopic.id);
   const rolePipeline = buildRolePipelineSummary(selectedTopic, planningBundle, agentTasks);
@@ -231,7 +235,8 @@ export async function buildWorkbenchWorkpad(input: {
     taskQueueProposal: taskQueueProposal ?? undefined,
     workflowGraphPlan: workflowGraphPlan ?? undefined,
     schedulerContract: schedulerContract ?? undefined,
-    schedulerDispatchDryRun: schedulerContract && schedulerDispatchDryRun?.schedulerContractId === schedulerContract.id ? schedulerDispatchDryRun : undefined,
+    schedulerDispatchDryRun: scopedSchedulerDispatchDryRun ?? undefined,
+    schedulerWorkerSessionPlan: scopedSchedulerDispatchDryRun && schedulerWorkerSessionPlan?.schedulerDispatchDryRunId === scopedSchedulerDispatchDryRun.id ? schedulerWorkerSessionPlan : undefined,
     workflowRun: workflowRun ?? undefined,
     rolePipeline,
     resultReview,
@@ -269,7 +274,7 @@ export async function buildWorkbenchWorkpad(input: {
       ...workpadMissingWarnings(specReady, planReady, tasksReady, selectedTopic),
       ...gaps.filter((gap) => gap.status !== "available").map((gap) => gap.summary),
     ],
-    nextAction: buildWorkpadNextAction(selectedTopic, topicApprovals, { specReady, planReady, tasksReady }, intake, taskQueue, taskGraph, planningBundle, decompositionPlan, decompositionReadiness, taskQueueProposal, workflowGraphPlan, schedulerContract, schedulerDispatchDryRun, workflowRun),
+    nextAction: buildWorkpadNextAction(selectedTopic, topicApprovals, { specReady, planReady, tasksReady }, intake, taskQueue, taskGraph, planningBundle, decompositionPlan, decompositionReadiness, taskQueueProposal, workflowGraphPlan, schedulerContract, scopedSchedulerDispatchDryRun, schedulerWorkerSessionPlan, workflowRun),
     background: buildWorkpadBackground(workpads, selectedTopic.id),
     memoryIsolation: buildWorkpadMemoryIsolation(memory, selectedTopic, workpads),
   };
@@ -543,6 +548,7 @@ function buildWorkpadNextAction(
   workflowGraphPlan?: WorkbenchWorkflowGraphPlanSummary | null,
   schedulerContract?: WorkbenchSchedulerContractSummary | null,
   schedulerDispatchDryRun?: WorkbenchSchedulerDispatchDryRunSummary | null,
+  schedulerWorkerSessionPlan?: WorkbenchSchedulerWorkerSessionPlanSummary | null,
   workflowRun?: WorkflowRunSummary | null,
 ): WorkpadNextAction {
   if (topic.state !== "active") {
@@ -582,6 +588,7 @@ function buildWorkpadNextAction(
       workflowGraphPlan,
       schedulerContract,
       schedulerDispatchDryRun,
+      schedulerWorkerSessionPlan,
       workflowRun,
     });
   }
@@ -608,6 +615,7 @@ function buildWorkpadNextAction(
     workflowGraphPlan,
     schedulerContract,
     schedulerDispatchDryRun,
+    schedulerWorkerSessionPlan,
     workflowRun,
   });
 }

@@ -16,7 +16,12 @@ import {
   readLatestTaskQueueProposal,
   readLatestWorkflowGraphPlan,
 } from "../../workflow-artifacts/manager.js";
-import { readSchedulerContract } from "../../workflow-scheduler/manager.js";
+import {
+  readLatestSchedulerContract,
+  readLatestSchedulerDispatchDryRun,
+  readSchedulerContract,
+  readSchedulerDispatchDryRun,
+} from "../../workflow-scheduler/manager.js";
 import {
   assertWorkflowActionRequiredTargets,
   workflowActionScopePayload as buildWorkflowActionScopePayload,
@@ -162,6 +167,24 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
     if (contract.id !== request.schedulerContractId || contract.changeId !== changeId || contract.status !== "compiled") {
       throw new Error("planning.scheduler.dispatch.dry-run SchedulerContract target is stale.");
     }
+  }
+  if (request.actionType === "planning.scheduler.worker-plan.compile") {
+    const active = await getActiveChanges(memory);
+    const target = active.find((item) => item.name === changeId);
+    if (!target) throw new Error(`planning.scheduler.worker-plan.compile target is stale or missing active Change: ${changeId}.`);
+    if (!request.schedulerDispatchDryRunId) throw new Error("planning.scheduler.worker-plan.compile requires schedulerDispatchDryRunId.");
+    const dryRun = await readSchedulerDispatchDryRun(memory, target.path, request.schedulerDispatchDryRunId);
+    if (dryRun.id !== request.schedulerDispatchDryRunId || dryRun.changeId !== changeId || dryRun.status !== "generated") {
+      throw new Error("planning.scheduler.worker-plan.compile SchedulerDispatchDryRun target is stale.");
+    }
+    const latestDryRun = await readLatestSchedulerDispatchDryRun(memory, target.path);
+    if (latestDryRun.id !== dryRun.id) throw new Error("planning.scheduler.worker-plan.compile requires the latest SchedulerDispatchDryRun.");
+    const contract = await readSchedulerContract(memory, target.path, dryRun.schedulerContractId);
+    if (contract.id !== dryRun.schedulerContractId || contract.changeId !== changeId || contract.status !== "compiled") {
+      throw new Error("planning.scheduler.worker-plan.compile SchedulerContract lineage is stale.");
+    }
+    const latestContract = await readLatestSchedulerContract(memory, target.path);
+    if (latestContract.id !== contract.id) throw new Error("planning.scheduler.worker-plan.compile requires the latest SchedulerContract.");
   }
   if (request.actionType === "planning.workflowgraph.compile") {
     const active = await getActiveChanges(memory);

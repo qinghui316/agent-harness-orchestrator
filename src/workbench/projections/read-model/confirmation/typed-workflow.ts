@@ -114,7 +114,35 @@ export function taskQueueProposalToConfirmationItems(
     const contract = workpad.schedulerContract;
     if (contract?.status === "compiled" && contract.decompositionPlanId === plan.id && contract.readinessManifestId === readiness.id) {
       const dryRun = workpad.schedulerDispatchDryRun;
-      if (dryRun?.status === "generated" && dryRun.schedulerContractId === contract.id) return [];
+      if (dryRun?.status === "generated" && dryRun.schedulerContractId === contract.id) {
+        const workerPlan = workpad.schedulerWorkerSessionPlan;
+        if (workerPlan?.status === "planned" && workerPlan.schedulerDispatchDryRunId === dryRun.id) return [];
+        return [{
+          id: `confirm:scheduler-worker-plan:${selectedTopic.id}:${dryRun.id}`,
+          kind: "planning-confirm",
+          projectId: project?.id ?? null,
+          conversationId: selectedTopic.id,
+          changeId: selectedTopic.id,
+          summary: "Scheduler Dispatch / Reconcile dry-run 已生成，可编译 Worker Session Plan。",
+          whyNeedsConfirmation: "需要你确认生成 SchedulerWorkerSessionPlan。worker plan 不会启动 scheduler、worker 或并行执行。",
+          confirmEffect: "写入 scheduler-worker-session-plan.json/.md 和 versioned worker plan artifact；不会创建 Runtime Continuity sidecars、WorkflowRun、TaskQueue、TaskRun、WorkerLease、AgentTask、worktree 或 run。",
+          riskSummary: "Worker Session Plan 只是 session/workspace/permission/event/recovery 合同，不是执行授权；真正 parallel executor 必须另行确认。",
+          evidenceRefs: dryRun.artifact ? [dryRun.artifact] : [],
+          actions: [{
+            id: `workflow:planning.scheduler.worker-plan.compile:${selectedTopic.id}:${dryRun.id}`,
+            label: "编译 Worker Session Plan",
+            kind: "workflow-action",
+            changeId: selectedTopic.id,
+            actionType: "planning.scheduler.worker-plan.compile",
+            schedulerContractId: contract.id,
+            schedulerDispatchDryRunId: dryRun.id,
+            enabled: true,
+            requiresConfirmation: true,
+          }],
+          primary: false,
+          status: "pending",
+        }];
+      }
       return [{
         id: `confirm:scheduler-dispatch-dry-run:${selectedTopic.id}:${contract.id}`,
         kind: "planning-confirm",
