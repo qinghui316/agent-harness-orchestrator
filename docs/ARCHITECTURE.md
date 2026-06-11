@@ -105,6 +105,8 @@ Phase 9D introduces the first scheduler runtime shell under the existing `Schedu
 
 Phase 9E extends `src/scheduler-runtime/` with SchedulerRun-scoped claim reservation evidence for a specific reconcile snapshot. This borrows Symphony's claim/slot/blocked/reconcile shape as audit evidence, but reservation is not a WorkerLease, WorkerSession, TaskRun, slot allocation, or worker start. A newer reconcile snapshot may supersede an older reservation; a duplicate reservation for the same snapshot must fail closed.
 
+Phase 9F does not add another scheduler artifact layer. It changes the product interaction boundary by introducing a high-level main-agent scheduler plan preparation / launch-confirmation surface. The implementation continues to call owned scheduler modules and preserves SchedulerContract, dry-run, worker-plan, claim/reconcile, launch-preflight, SchedulerRun, runtime-shell, reconcile, and claim-reservation evidence for audit and recovery. The ordinary Workbench confirmation surface is reduced to two user-facing Harness gates: prepare the parallel execution plan, then confirm the overall launch intent after the main Agent explains it. This follows the Codex/AgentScope-style main conversation pattern while keeping AHO's workflow truth in Change/ECL, accepted artifacts, Run/Validation/Audit, apply/close, and human gates.
+
 Workbench relationship:
 
 ```text

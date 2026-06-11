@@ -126,6 +126,15 @@ export function summarizeActionResult(actionType: string, result: unknown): stri
       ? `TaskQueueProposal ${result.proposal.id} generated. No execution was started.`
       : "TaskQueueProposal generated. No execution was started.";
   }
+  if (actionType === "planning.scheduler.plan.prepare" && isRecord(result)) {
+    if (isRecord(result.launchBrief) && typeof result.launchBrief.summary === "string") {
+      return `${result.launchBrief.summary} No execution was started.`;
+    }
+    if (typeof result.blockedSummary === "string") {
+      return `Parallel plan preparation blocked: ${result.blockedSummary}. No execution was started.`;
+    }
+    return "Parallel execution plan prepared. No execution was started.";
+  }
   if (actionType === "planning.workflowgraph.compile" && isRecord(result) && isRecord(result.graph)) {
     return typeof result.graph.id === "string"
       ? `WorkflowGraphPlan ${result.graph.id} compiled. No execution was started.`
@@ -213,6 +222,7 @@ export function labelForAction(actionType: string): string {
     case "planning.decomposition.confirm": return "DecompositionPlan confirmed";
     case "planning.decomposition.assess-readiness": return "Decomposition readiness assessed";
     case "planning.taskqueue.propose": return "TaskQueueProposal generated";
+    case "planning.scheduler.plan.prepare": return "Parallel execution plan prepared";
     case "planning.scheduler.contract.compile": return "SchedulerContract compiled";
     case "planning.scheduler.dispatch.dry-run": return "Scheduler dispatch dry-run generated";
     case "planning.scheduler.worker-plan.compile": return "Scheduler worker session plan compiled";

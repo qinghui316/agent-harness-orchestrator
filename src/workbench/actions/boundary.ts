@@ -6,7 +6,7 @@ import { getChangeStatusForChange } from "../../change/manager.js";
 import { getActiveChanges } from "../../ecl/index.js";
 import { resolveProjectMemory } from "../../memory/resolver.js";
 import { readSchedulerRuntimeLineage } from "../../scheduler-runtime/guards.js";
-import { findSchedulerClaimReservationForSnapshot, readSchedulerReconcileSnapshot, readSchedulerRuntimeStateProjection } from "../../scheduler-runtime/repository.js";
+import { findSchedulerClaimReservationForSnapshot, readSchedulerReconcileSnapshot, readSchedulerRuntimeClaimReservation, readSchedulerRuntimeStateProjection } from "../../scheduler-runtime/repository.js";
 import { latestLandingQueueSnapshot } from "../../landing-queue/manager.js";
 import { listTaskQueues } from "../../task-queue/manager.js";
 import { listTaskRuns } from "../../task-run/manager.js";
@@ -151,6 +151,45 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
     const manifest = await readLatestDecompositionReadinessManifest(memory, target.path);
     if (manifest.id !== request.readinessManifestId || manifest.status !== "ready-for-sequential-taskqueue-proposal" || manifest.nextAllowedAction !== "taskqueue.proposal") {
       throw new Error("planning.taskqueue.propose target is stale or no longer proposal-ready.");
+    }
+  }
+  if (request.actionType === "planning.scheduler.plan.prepare") {
+    const active = await getActiveChanges(memory);
+    const target = active.find((item) => item.name === changeId);
+    if (!target) throw new Error(`planning.scheduler.plan.prepare target is stale or missing active Change: ${changeId}.`);
+    if (request.changeId && request.changeId !== changeId) throw new Error("planning.scheduler.plan.prepare changeId scope mismatch.");
+    if (request.schedulerClaimReservationId || request.schedulerReconcileSnapshotId || request.schedulerRunId) {
+      if (!request.schedulerRunId) throw new Error("planning.scheduler.plan.prepare launch confirmation requires schedulerRunId.");
+      if (!request.schedulerReconcileSnapshotId) throw new Error("planning.scheduler.plan.prepare launch confirmation requires schedulerReconcileSnapshotId.");
+      if (!request.schedulerClaimReservationId) throw new Error("planning.scheduler.plan.prepare launch confirmation requires schedulerClaimReservationId.");
+      const run = await readSchedulerRun(memory, target.path, request.schedulerRunId);
+      if (run.changeId !== changeId || run.status !== "prepared") throw new Error("planning.scheduler.plan.prepare SchedulerRun target is stale.");
+      const latestRun = await readLatestSchedulerRun(memory, target.path);
+      if (latestRun.id !== run.id) throw new Error("planning.scheduler.plan.prepare requires the latest SchedulerRun.");
+      await readSchedulerRuntimeLineage(memory, target.path, run.id);
+      const runtimeState = await readSchedulerRuntimeStateProjection(memory, target.path, run.id);
+      if (!runtimeState) throw new Error("planning.scheduler.plan.prepare requires initialized SchedulerRuntimeState.");
+      if (runtimeState.lastReconcileSnapshotId !== request.schedulerReconcileSnapshotId) throw new Error("planning.scheduler.plan.prepare requires the latest SchedulerReconcileSnapshot.");
+      if (runtimeState.lastClaimReservationId !== request.schedulerClaimReservationId || runtimeState.lastClaimReservationSnapshotId !== request.schedulerReconcileSnapshotId) {
+        throw new Error("planning.scheduler.plan.prepare requires the latest SchedulerRuntimeClaimReservation.");
+      }
+      const snapshot = await readSchedulerReconcileSnapshot(memory, target.path, run.id, request.schedulerReconcileSnapshotId);
+      if (snapshot.changeId !== changeId || snapshot.schedulerRunId !== run.id || snapshot.schedulerRuntimeStateId !== runtimeState.id) {
+        throw new Error("planning.scheduler.plan.prepare SchedulerReconcileSnapshot target is stale.");
+      }
+      const reservation = await readSchedulerRuntimeClaimReservation(memory, target.path, run.id, request.schedulerClaimReservationId);
+      if (reservation.changeId !== changeId || reservation.schedulerRunId !== run.id || reservation.schedulerReconcileSnapshotId !== snapshot.id || reservation.schedulerRuntimeStateId !== runtimeState.id) {
+        throw new Error("planning.scheduler.plan.prepare SchedulerRuntimeClaimReservation target is stale.");
+      }
+      return;
+    }
+    const plan = await readLatestDecompositionPlan(memory, target.path);
+    if (plan.changeId !== changeId || plan.status !== "confirmed" || plan.recommendation !== "taskgraph-parallel-candidate") {
+      throw new Error("planning.scheduler.plan.prepare requires a confirmed parallel DecompositionPlan.");
+    }
+    const manifest = await readLatestDecompositionReadinessManifest(memory, target.path);
+    if (manifest.changeId !== changeId || manifest.decompositionPlanId !== plan.id || manifest.status !== "ready-for-scheduler-contract" || manifest.nextAllowedAction !== "scheduler.contract") {
+      throw new Error("planning.scheduler.plan.prepare readiness target is stale.");
     }
   }
   if (request.actionType === "planning.scheduler.contract.compile") {

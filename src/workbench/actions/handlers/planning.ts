@@ -7,14 +7,17 @@ import { writeJsonFile } from "../../../fs/json.js";
 import { assertWritableMemory } from "../../../memory/resolver.js";
 import {
   initializeSchedulerRuntime,
+  prepareSchedulerPlanEvidence,
   reconcileSchedulerRuntime,
   reserveSchedulerRuntimeClaims,
+  renderSchedulerLaunchBriefMarkdown,
   renderSchedulerRuntimeClaimReservationMarkdown,
   renderSchedulerReconcileSnapshotMarkdown,
   renderSchedulerRuntimeStateMarkdown,
   type SchedulerReconcileSnapshot,
   type SchedulerRuntimeClaimReservation,
   type SchedulerRuntimeState,
+  type SchedulerPlanPreparationResult,
 } from "../../../scheduler-runtime/manager.js";
 import type { ManagedProject } from "../../../types/index.js";
 import {
@@ -488,6 +491,77 @@ export async function compileTaskQueueWorkflowGraph(
     artifactRef: graph.artifact,
   });
   return { graph, executionStarted: false };
+}
+
+export async function preparePlanningSchedulerPlan(
+  project: ManagedProject,
+  changeId: string,
+  request: WorkbenchWorkflowActionRequest,
+  live: WorkbenchLiveSink | undefined,
+): Promise<SchedulerPlanPreparationResult> {
+  const { memory, changePath } = await resolveTopic(project, changeId);
+  assertWritableMemory(memory, "Scheduler plan prepare");
+  if (request.changeId && request.changeId !== changeId) throw new Error("planning.scheduler.plan.prepare changeId scope mismatch.");
+  const result = await prepareSchedulerPlanEvidence(memory, changePath, {
+    schedulerRunId: request.schedulerRunId,
+    schedulerReconcileSnapshotId: request.schedulerReconcileSnapshotId,
+    schedulerClaimReservationId: request.schedulerClaimReservationId,
+  });
+  const artifact = result.claimReservation?.artifact ?? result.launchPreflight?.artifact ?? result.schedulerRun?.artifact ?? result.contract?.artifact;
+  const text = result.launchBrief
+    ? renderSchedulerLaunchBriefMarkdown(result.launchBrief)
+    : [
+      "# 并行执行计划准备受阻",
+      "",
+      result.blockedSummary ?? "Scheduler pre-executor evidence is blocked.",
+      "",
+      "没有启动 worker、TaskRun、WorkerLease、WorkerSession、worktree、run 或 child Change。",
+      "",
+    ].join("\n");
+  await appendTopicThreadEntry(project, changeId, {
+    type: "assistant.message",
+    status: result.status === "prepared" ? "scheduler-plan-prepared" : "scheduler-plan-blocked",
+    text,
+    artifact,
+  });
+  emitAssistantEvent(live, {
+    runId: result.schedulerRun?.id ?? result.launchPreflight?.id ?? result.contract?.id ?? changeId,
+    kind: "file-change",
+    phase: result.status === "prepared" ? "scheduler-plan-prepared" : "scheduler-plan-blocked",
+    title: result.status === "prepared" ? "并行执行计划已准备" : "并行执行计划准备受阻",
+    summary: result.launchBrief?.summary ?? result.blockedSummary ?? "Scheduler plan preparation stopped before any execution records were created.",
+    artifactRef: artifact,
+  });
+  await recordWorkbenchDecision(project, {
+    id: result.mode === "launch-confirmation"
+      ? `scheduler-plan-launch-confirmed:${result.claimReservation?.id ?? changeId}`
+      : `scheduler-plan-prepared:${result.claimReservation?.id ?? result.launchPreflight?.id ?? changeId}`,
+    changeId,
+    decisionType: "planning.scheduler.plan.prepare",
+    status: "completed",
+    label: result.mode === "launch-confirmation" ? "并行执行计划启动意图已确认" : "并行执行计划已准备",
+    summary: result.launchBrief?.summary ?? result.blockedSummary ?? "Prepared scheduler pre-executor evidence without starting execution.",
+    targetId: result.claimReservation?.id ?? result.schedulerRun?.id ?? result.launchPreflight?.id ?? changeId,
+    runId: null,
+    artifact: artifact ?? null,
+    actionId: "planning.scheduler.plan.prepare",
+    payload: {
+      mode: result.mode,
+      status: result.status,
+      contractId: result.contract?.id ?? result.schedulerRun?.schedulerContractId,
+      schedulerDispatchDryRunId: result.dryRun?.id ?? result.schedulerRun?.schedulerDispatchDryRunId,
+      schedulerWorkerPlanId: result.workerPlan?.id ?? result.schedulerRun?.schedulerWorkerPlanId,
+      schedulerClaimReconcilePlanId: result.claimReconcilePlan?.id ?? result.schedulerRun?.schedulerClaimReconcilePlanId,
+      schedulerLaunchPreflightId: result.launchPreflight?.id ?? result.schedulerRun?.schedulerLaunchPreflightId,
+      schedulerRunId: result.schedulerRun?.id,
+      schedulerReconcileSnapshotId: result.reconcileSnapshot?.id,
+      schedulerClaimReservationId: result.claimReservation?.id,
+      launchBrief: result.launchBrief,
+      blockedSummary: result.blockedSummary,
+    },
+    completedAt: new Date().toISOString(),
+  });
+  return result;
 }
 
 export async function compilePlanningSchedulerContract(

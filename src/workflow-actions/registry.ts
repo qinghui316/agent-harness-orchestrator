@@ -11,6 +11,7 @@ export const WORKFLOW_ACTION_TYPES = [
   "planning.decomposition.confirm",
   "planning.decomposition.assess-readiness",
   "planning.taskqueue.propose",
+  "planning.scheduler.plan.prepare",
   "planning.scheduler.contract.compile",
   "planning.scheduler.dispatch.dry-run",
   "planning.scheduler.worker-plan.compile",
@@ -109,6 +110,7 @@ export const LIVE_WORKFLOW_ACTION_TYPES = [
   "planning.decomposition.confirm",
   "planning.decomposition.assess-readiness",
   "planning.taskqueue.propose",
+  "planning.scheduler.plan.prepare",
   "planning.scheduler.contract.compile",
   "planning.scheduler.dispatch.dry-run",
   "planning.scheduler.worker-plan.compile",
@@ -187,6 +189,7 @@ export const HIGH_IMPACT_WORKFLOW_ACTION_TYPES = [
   "planning.decomposition.confirm",
   "planning.decomposition.assess-readiness",
   "planning.taskqueue.propose",
+  "planning.scheduler.plan.prepare",
   "planning.scheduler.contract.compile",
   "planning.scheduler.dispatch.dry-run",
   "planning.scheduler.worker-plan.compile",
@@ -226,6 +229,7 @@ export const REVALIDATED_WORKFLOW_ACTION_TYPES = [
   "planning.decomposition.confirm",
   "planning.decomposition.assess-readiness",
   "planning.taskqueue.propose",
+  "planning.scheduler.plan.prepare",
   "planning.scheduler.contract.compile",
   "planning.scheduler.dispatch.dry-run",
   "planning.scheduler.worker-plan.compile",
@@ -324,6 +328,9 @@ export function validateWorkflowActionRequiredTargets(request: WorkflowActionSco
       break;
     case "planning.taskqueue.propose":
       requireOne("readinessManifestId", [request.readinessManifestId]);
+      break;
+    case "planning.scheduler.plan.prepare":
+      requireOne("changeId", [request.changeId]);
       break;
     case "planning.scheduler.contract.compile":
       requireOne("decompositionPlanId", [request.decompositionPlanId]);
@@ -443,7 +450,7 @@ export function workflowActionScopePayload(request: WorkflowActionScopeCarrier, 
     readinessManifestId: request.readinessManifestId ?? extractString(result, "manifest", "id"),
     taskQueueProposalId: request.taskQueueProposalId ?? extractString(result, "proposal", "id"),
     workflowGraphPlanId: request.workflowGraphPlanId ?? extractString(result, "graph", "id"),
-    schedulerContractId: request.schedulerContractId ?? extractString(result, "contract", "id") ?? extractString(result, "dryRun", "schedulerContractId") ?? extractString(result, "workerPlan", "schedulerContractId") ?? extractString(result, "claimReconcilePlan", "schedulerContractId") ?? extractString(result, "launchPreflight", "schedulerContractId") ?? extractString(result, "schedulerRun", "schedulerContractId"),
+    schedulerContractId: request.schedulerContractId ?? extractString(result, "contract", "id") ?? extractString(result, "dryRun", "schedulerContractId") ?? extractString(result, "workerPlan", "schedulerContractId") ?? extractString(result, "claimReconcilePlan", "schedulerContractId") ?? extractString(result, "launchPreflight", "schedulerContractId") ?? extractString(result, "schedulerRun", "schedulerContractId") ?? extractString(result, "runtimeState", "schedulerContractId") ?? extractString(result, "reconcileSnapshot", "schedulerContractId") ?? extractString(result, "claimReservation", "schedulerContractId"),
     schedulerDispatchDryRunId: request.schedulerDispatchDryRunId ?? extractString(result, "dryRun", "id") ?? extractString(result, "workerPlan", "schedulerDispatchDryRunId") ?? extractString(result, "claimReconcilePlan", "schedulerDispatchDryRunId") ?? extractString(result, "launchPreflight", "schedulerDispatchDryRunId") ?? extractString(result, "schedulerRun", "schedulerDispatchDryRunId"),
     schedulerWorkerPlanId: request.schedulerWorkerPlanId ?? extractString(result, "workerPlan", "id") ?? extractString(result, "claimReconcilePlan", "schedulerWorkerPlanId") ?? extractString(result, "launchPreflight", "schedulerWorkerPlanId") ?? extractString(result, "schedulerRun", "schedulerWorkerPlanId"),
     schedulerClaimReconcilePlanId: request.schedulerClaimReconcilePlanId ?? extractString(result, "claimReconcilePlan", "id") ?? extractString(result, "launchPreflight", "schedulerClaimReconcilePlanId") ?? extractString(result, "schedulerRun", "schedulerClaimReconcilePlanId"),

@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-11T11:57:33.3513066Z",
+    "generated_at":  "2026-06-11T14:03:50.7463591Z",
     "active":  [
 
                ],
@@ -657,6 +657,10 @@
                     {
                         "name":  "20260611-phase-9e-scheduler-runtime-claim-reservation-shell",
                         "path":  "harness/changes/archive/20260611-phase-9e-scheduler-runtime-claim-reservation-shell"
+                    },
+                    {
+                        "name":  "20260611-phase-9f-main-agent-parallel-plan-preparation-launch-confirmation-surface",
+                        "path":  "harness/changes/archive/20260611-phase-9f-main-agent-parallel-plan-preparation-launch-confirmation-surface"
                     }
                 ]
 }

@@ -276,6 +276,7 @@ type WorkflowProjectionActionType =
   | "planning.decomposition.confirm"
   | "planning.decomposition.assess-readiness"
   | "planning.taskqueue.propose"
+  | "planning.scheduler.plan.prepare"
   | "planning.scheduler.contract.compile"
   | "planning.scheduler.dispatch.dry-run"
   | "planning.scheduler.worker-plan.compile"
@@ -707,7 +708,7 @@ export function buildTypedWorkflowNextAction(input: {
   schedulerClaimReservation?: WorkbenchSchedulerClaimReservationSummary | null;
   workflowRun?: WorkflowRunSummary | null;
 }): WorkbenchTypedWorkflowNextAction {
-  const { topic, readiness, intake, planningBundle, decompositionPlan, decompositionReadiness, taskQueueProposal, workflowGraphPlan, schedulerContract, schedulerDispatchDryRun, schedulerWorkerSessionPlan, schedulerClaimReconcilePlan, schedulerLaunchPreflight, schedulerRun, schedulerRuntime, schedulerReconcileSnapshot, schedulerClaimReservation, workflowRun } = input;
+  const { topic, readiness, intake, planningBundle, decompositionPlan, decompositionReadiness, taskQueueProposal, workflowGraphPlan, schedulerRun, schedulerRuntime, schedulerReconcileSnapshot, schedulerClaimReservation, workflowRun } = input;
   if (!readiness.specReady && !topic.runs.some((run) => run.runtime === "intake-scan")) {
     return workflowNextAction("intake.scan", "分析需求", "先只读扫描项目，整理当前理解、相关文件和待确认问题。", false);
   }
@@ -758,111 +759,35 @@ export function buildTypedWorkflowNextAction(input: {
         disabledReason: "当前 DecompositionReadinessManifest 与 DecompositionPlan 不匹配。",
       };
     }
-    if (!schedulerContract || schedulerContract.readinessManifestId !== decompositionReadiness.id || schedulerContract.decompositionPlanId !== decompositionPlan.id || schedulerContract.status !== "compiled") {
+    if (
+      schedulerRun?.status === "prepared"
+      && schedulerRuntime?.schedulerRunId === schedulerRun.id
+      && schedulerRuntime.lastReconcileSnapshotId
+      && schedulerReconcileSnapshot?.id === schedulerRuntime.lastReconcileSnapshotId
+      && schedulerRuntime.lastClaimReservationId
+      && schedulerRuntime.lastClaimReservationSnapshotId === schedulerReconcileSnapshot.id
+      && schedulerClaimReservation?.id === schedulerRuntime.lastClaimReservationId
+      && schedulerClaimReservation.schedulerRunId === schedulerRun.id
+      && schedulerClaimReservation.schedulerReconcileSnapshotId === schedulerReconcileSnapshot.id
+    ) {
       return {
-        ...workflowNextAction("planning.scheduler.contract.compile", "编译 Scheduler Contract", "生成并行调度合同；不会启动 scheduler、TaskRun、WorkerLease 或 worktree。"),
+        ...workflowNextAction("planning.scheduler.plan.prepare", "确认启动这个并行执行计划", "主 Agent 会重读 prepared scheduler evidence，输出可读 launch brief 并记录你的整体启动意图；本阶段不会启动 worker。"),
         decompositionPlanId: decompositionPlan.id,
         readinessManifestId: decompositionReadiness.id,
-      };
-    }
-    if (!schedulerDispatchDryRun || schedulerDispatchDryRun.schedulerContractId !== schedulerContract.id || schedulerDispatchDryRun.status !== "generated") {
-      return {
-        ...workflowNextAction("planning.scheduler.dispatch.dry-run", "生成调度预演", "基于 SchedulerContract 生成 dispatch/reconcile dry-run evidence；不会启动 scheduler、TaskRun、WorkerLease 或 worktree。"),
-        schedulerContractId: schedulerContract.id,
-      };
-    }
-    if (!schedulerWorkerSessionPlan || schedulerWorkerSessionPlan.schedulerDispatchDryRunId !== schedulerDispatchDryRun.id || schedulerWorkerSessionPlan.status !== "planned") {
-      return {
-        ...workflowNextAction("planning.scheduler.worker-plan.compile", "编译 Worker Session Plan", "基于调度预演生成 worker session / workspace / permission / event / recovery 合同；不会启动 scheduler 或 worker。"),
-        schedulerContractId: schedulerContract.id,
-        schedulerDispatchDryRunId: schedulerDispatchDryRun.id,
-      };
-    }
-    if (!schedulerClaimReconcilePlan || schedulerClaimReconcilePlan.schedulerWorkerPlanId !== schedulerWorkerSessionPlan.id || schedulerClaimReconcilePlan.status !== "planned") {
-      return {
-        ...workflowNextAction("planning.scheduler.claim-reconcile.compile", "编译 Claim / Reconcile Plan", "基于 Worker Session Plan 生成 claim eligibility / source lock / reconcile checkpoint 合同；不会分配 lease 或启动 worker。"),
-        schedulerContractId: schedulerContract.id,
-        schedulerDispatchDryRunId: schedulerDispatchDryRun.id,
-        schedulerWorkerPlanId: schedulerWorkerSessionPlan.id,
-      };
-    }
-    if (!schedulerLaunchPreflight || schedulerLaunchPreflight.schedulerClaimReconcilePlanId !== schedulerClaimReconcilePlan.id || !["checked", "blocked"].includes(schedulerLaunchPreflight.status)) {
-      return {
-        ...workflowNextAction("planning.scheduler.launch-preflight.check", "检查 Launch Preflight", "基于 Claim / Reconcile Plan 生成启动前检查 evidence；不会授权或启动并行执行。"),
-        schedulerContractId: schedulerContract.id,
-        schedulerDispatchDryRunId: schedulerDispatchDryRun.id,
-        schedulerWorkerPlanId: schedulerWorkerSessionPlan.id,
-        schedulerClaimReconcilePlanId: schedulerClaimReconcilePlan.id,
-      };
-    }
-    if (schedulerLaunchPreflight.status !== "checked") {
-      return {
-        ...workflowNextAction("planning.scheduler.launch-preflight.check", "Launch Preflight 已阻塞", "启动前检查未通过；当前阶段不提供 parallel start 控件。"),
-        enabled: false,
-        schedulerContractId: schedulerContract.id,
-        schedulerDispatchDryRunId: schedulerDispatchDryRun.id,
-        schedulerWorkerPlanId: schedulerWorkerSessionPlan.id,
-        schedulerClaimReconcilePlanId: schedulerClaimReconcilePlan.id,
-        schedulerLaunchPreflightId: schedulerLaunchPreflight.id,
-        disabledReason: "SchedulerLaunchPreflight 未处于 checked 状态，不能准备 SchedulerRun 记录。",
-      };
-    }
-    if (!schedulerRun || schedulerRun.schedulerLaunchPreflightId !== schedulerLaunchPreflight.id || schedulerRun.status !== "prepared") {
-      return {
-        ...workflowNextAction("planning.scheduler.run.prepare", "准备调度运行记录", "基于 checked Launch Preflight 生成 SchedulerRun journal shell；不会启动 scheduler、worker、lease、worktree 或 run。"),
-        schedulerContractId: schedulerContract.id,
-        schedulerDispatchDryRunId: schedulerDispatchDryRun.id,
-        schedulerWorkerPlanId: schedulerWorkerSessionPlan.id,
-        schedulerClaimReconcilePlanId: schedulerClaimReconcilePlan.id,
-        schedulerLaunchPreflightId: schedulerLaunchPreflight.id,
-      };
-    }
-    if (!schedulerRuntime || schedulerRuntime.schedulerRunId !== schedulerRun.id) {
-      return {
-        ...workflowNextAction("planning.scheduler.runtime.initialize", "初始化 Scheduler Runtime 壳", "初始化 SchedulerRun-scoped runtime shell；不会启动 worker、lease、TaskRun、worktree 或 run。"),
-        schedulerContractId: schedulerContract.id,
-        schedulerDispatchDryRunId: schedulerDispatchDryRun.id,
-        schedulerWorkerPlanId: schedulerWorkerSessionPlan.id,
-        schedulerClaimReconcilePlanId: schedulerClaimReconcilePlan.id,
-        schedulerLaunchPreflightId: schedulerLaunchPreflight.id,
-        schedulerRunId: schedulerRun.id,
-      };
-    }
-    if (!schedulerRuntime.lastReconcileSnapshotId || schedulerReconcileSnapshot?.id !== schedulerRuntime.lastReconcileSnapshotId) {
-      return {
-        ...workflowNextAction("planning.scheduler.runtime.reconcile", "生成 Reconcile Snapshot", "基于 Scheduler Runtime 壳生成 reconcile snapshot；不会 claim worker、分配 slot 或启动执行。"),
-        schedulerContractId: schedulerContract.id,
-        schedulerDispatchDryRunId: schedulerDispatchDryRun.id,
-        schedulerWorkerPlanId: schedulerWorkerSessionPlan.id,
-        schedulerClaimReconcilePlanId: schedulerClaimReconcilePlan.id,
-        schedulerLaunchPreflightId: schedulerLaunchPreflight.id,
-        schedulerRunId: schedulerRun.id,
-      };
-    }
-    if (!schedulerRuntime.lastClaimReservationId || schedulerRuntime.lastClaimReservationSnapshotId !== schedulerReconcileSnapshot.id || schedulerClaimReservation?.id !== schedulerRuntime.lastClaimReservationId) {
-      return {
-        ...workflowNextAction("planning.scheduler.runtime.reserve-claims", "预占 Runtime Claims", "基于最新 Reconcile Snapshot 记录 claim reservation evidence；不会创建 WorkerLease、WorkerSession、TaskRun、slot、worktree 或 run。"),
-        schedulerContractId: schedulerContract.id,
-        schedulerDispatchDryRunId: schedulerDispatchDryRun.id,
-        schedulerWorkerPlanId: schedulerWorkerSessionPlan.id,
-        schedulerClaimReconcilePlanId: schedulerClaimReconcilePlan.id,
-        schedulerLaunchPreflightId: schedulerLaunchPreflight.id,
+        schedulerContractId: schedulerRun.schedulerContractId,
+        schedulerDispatchDryRunId: schedulerRun.schedulerDispatchDryRunId,
+        schedulerWorkerPlanId: schedulerRun.schedulerWorkerPlanId,
+        schedulerClaimReconcilePlanId: schedulerRun.schedulerClaimReconcilePlanId,
+        schedulerLaunchPreflightId: schedulerRun.schedulerLaunchPreflightId,
         schedulerRunId: schedulerRun.id,
         schedulerReconcileSnapshotId: schedulerReconcileSnapshot.id,
+        schedulerClaimReservationId: schedulerClaimReservation.id,
       };
     }
     return {
-      ...workflowNextAction("planning.scheduler.runtime.reserve-claims", "Runtime Claims 已预占", "已生成 runtime claim reservation；当前阶段不提供 parallel start 或 worker start 控件。"),
-      enabled: false,
-      schedulerContractId: schedulerContract.id,
-      schedulerDispatchDryRunId: schedulerDispatchDryRun.id,
-      schedulerWorkerPlanId: schedulerWorkerSessionPlan.id,
-      schedulerClaimReconcilePlanId: schedulerClaimReconcilePlan.id,
-      schedulerLaunchPreflightId: schedulerLaunchPreflight.id,
-      schedulerRunId: schedulerRun.id,
-      schedulerReconcileSnapshotId: schedulerReconcileSnapshot.id,
-      schedulerClaimReservationId: schedulerClaimReservation.id,
-      disabledReason: "Phase 9E 只记录 SchedulerRun-scoped claim reservation，不启动 worker、lease、slot 或并行执行。",
+      ...workflowNextAction("planning.scheduler.plan.prepare", "准备并行执行计划", "主 Agent 一次性补齐 scheduler pre-executor evidence，并在对话里解释计划；不会启动 scheduler、worker、lease、worktree 或 run。"),
+      decompositionPlanId: decompositionPlan.id,
+      readinessManifestId: decompositionReadiness.id,
     };
   }
   return {

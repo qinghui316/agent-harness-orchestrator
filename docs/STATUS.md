@@ -4,8 +4,8 @@
 
 - Current date: 2026-06-11.
 - Active ECL change: none.
-- Pending Harness evolution: none.
-- Latest archived product change: `harness/changes/archive/20260611-phase-9e-scheduler-runtime-claim-reservation-shell/summary.md`.
+- Pending Harness evolution: `harness/evolution/pending.md`.
+- Latest archived product change: `harness/changes/archive/20260611-phase-9f-main-agent-parallel-plan-preparation-launch-confirmation-surface/summary.md`.
 - Latest archived product/Harness docs change: `harness/changes/archive/20260611-phase-8t-agentscope-harness-reference-alignment/summary.md`.
 - Latest archived Harness evolution: `harness/changes/archive/20260611-auto-evolve-harness-phase-8w-9b-scheduler-pre-executor-evidence/summary.md`.
 - Active product phase: none.
@@ -32,6 +32,7 @@ Current baseline:
 - Phase 9C SchedulerRun Journal Shell Human Gated Launch Record completed and is archived at `harness/changes/archive/20260611-phase-9c-schedulerrun-journal-shell-human-gated-launch-record/summary.md`. It adds a non-executing SchedulerRun journal shell after checked launch preflight, records human-confirmed launch intent and recovery/journal evidence, and still does not start workers, allocate leases, create runtime sidecars, or authorize parallel execution.
 - Phase 9D Scheduler Runtime Reconcile Shell completed and is archived at `harness/changes/archive/20260611-phase-9d-scheduler-runtime-reconcile-shell/summary.md`. It adds SchedulerRun-scoped runtime sidecar state and reconcile snapshots without changing SchedulerRun JSON shape, starting workers, allocating leases, creating TaskRuns/WorkerSessions/worktrees/runs, or authorizing parallel execution.
 - Phase 9E Scheduler Runtime Claim Reservation Shell completed and is archived at `harness/changes/archive/20260611-phase-9e-scheduler-runtime-claim-reservation-shell/summary.md`. It adds SchedulerRun-scoped claim reservation evidence for a specific reconcile snapshot, with per-snapshot dedupe and supersession, while still not starting workers, allocating real slots, creating WorkerLeases/WorkerSessions/TaskRuns/worktrees/runs, or authorizing parallel execution.
+- Phase 9F Main Agent Parallel Plan Preparation Launch Confirmation Surface completed and is archived at `harness/changes/archive/20260611-phase-9f-main-agent-parallel-plan-preparation-launch-confirmation-surface/summary.md`. It collapses ordinary scheduler confirmation into two Harness phase gates: `准备并行执行计划` and `确认启动这个并行执行计划`, while preserving internal scheduler evidence for audit, stale revalidation, and recovery. It must not start workers, allocate leases, create TaskRuns/WorkerSessions/worktrees/runs/child Changes, or authorize parallel execution.
 - Harness evolution after Phase 9B completed as `noop/subagent_review` and is archived at `harness/changes/archive/20260611-auto-evolve-harness-phase-8w-9b-scheduler-pre-executor-evidence/summary.md`. Authorized subagent review recommended `noop` with score `93/100`; existing proposal/runtime, Runtime Continuity auxiliary evidence, ToolPolicy authority, human gate, and future feature module-boundary rules are sufficient for the Phase 8W-9B scheduler pre-executor evidence window.
 - The Phase 8S-8W pending Harness evolution window has been marked complete as `noop/subagent_review` with subagent score `94/100`.
 - Phase 6F completed the single-demand local loop through result review and local apply handoff.
@@ -150,7 +151,7 @@ Phase 8P is closed and archived at `harness/changes/archive/20260611-phase-8p-sc
 
 Phase 8Q is closed and archived at `harness/changes/archive/20260611-phase-8q-workbench-action-handler-residual-boundary-split/summary.md`. It completed the final broad modularization pass for Workbench action handlers: `chat.ts` remains the conversation/action facade, while residual action handler map and landing/PR/remote/post-merge/control helpers live in owned handler modules. This phase did not add runtime capability, Workbench actions, CLI commands, HTTP routes, scheduler behavior, parallel execution, automatic child Changes, ODWF JavaScript runtime, or cache/replay.
 
-Pending Harness evolution: none. The Phase 8W-9B pending window was marked complete as `noop/subagent_review` with subagent score `93/100`. The Phase 8S-8W pending window was marked complete as `noop/subagent_review` with subagent score `94/100`. The Phase 8O-8S window was marked complete as `noop/subagent_review` with subagent score `92/100`. The Phase 8K-8O window was marked complete as `noop/dry_run`; no subagent review was used. The Phase 8G-8K window was marked complete as `noop/subagent_review` with subagent score `90/100`.
+Pending Harness evolution: `harness/evolution/pending.md`. It was generated after closing Phase 9F and covers the current scheduler runtime / user-facing launch-confirmation window. The Phase 8W-9B pending window was marked complete as `noop/subagent_review` with subagent score `93/100`. The Phase 8S-8W pending window was marked complete as `noop/subagent_review` with subagent score `94/100`. The Phase 8O-8S window was marked complete as `noop/subagent_review` with subagent score `92/100`. The Phase 8K-8O window was marked complete as `noop/dry_run`; no subagent review was used. The Phase 8G-8K window was marked complete as `noop/subagent_review` with subagent score `90/100`.
 
 Phase 8N is closed and archived at `harness/changes/archive/20260610-phase-8n-run-evidence-manager-boundary-split/summary.md`. It split Run evidence internals behind `src/run/manager.ts` while keeping Run artifacts, Validation, and Audit as evidence.
 
