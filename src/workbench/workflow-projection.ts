@@ -12,8 +12,11 @@ import {
   type WorkflowGraphPlan,
 } from "../workflow-artifacts/manager.js";
 import {
+  readLatestSchedulerDispatchDryRun,
   readLatestSchedulerContract,
+  readSchedulerDispatchDryRun,
   readSchedulerContract,
+  type SchedulerDispatchDryRun,
   type SchedulerContract,
 } from "../workflow-scheduler/manager.js";
 
@@ -93,6 +96,22 @@ export interface WorkbenchSchedulerContractSummary {
   updatedAt: string;
 }
 
+export interface WorkbenchSchedulerDispatchDryRunSummary {
+  id: string;
+  changeId: string;
+  status: SchedulerDispatchDryRun["status"];
+  schedulerMode: SchedulerDispatchDryRun["schedulerMode"];
+  schedulerContractId: string;
+  waveCount: number;
+  nodeCount: number;
+  blockedCount: number;
+  estimatedMaxWaveWidth: number;
+  prerequisiteCount: number;
+  artifact?: string;
+  markdownArtifact?: string;
+  updatedAt: string;
+}
+
 type WorkflowProjectionActionType =
   | "intake.scan"
   | "intake.reanalyze"
@@ -103,6 +122,7 @@ type WorkflowProjectionActionType =
   | "planning.decomposition.assess-readiness"
   | "planning.taskqueue.propose"
   | "planning.scheduler.contract.compile"
+  | "planning.scheduler.dispatch.dry-run"
   | "planning.workflowgraph.compile"
   | "planning.taskqueue.confirm-start"
   | "code.run";
@@ -245,6 +265,26 @@ export async function readLatestSchedulerContractSummary(memory: ResolvedMemory,
   };
 }
 
+export async function readLatestSchedulerDispatchDryRunSummary(memory: ResolvedMemory, changePath: string): Promise<WorkbenchSchedulerDispatchDryRunSummary | null> {
+  const dryRun = await readLatestSchedulerDispatchDryRun(memory, changePath).catch(() => null);
+  if (!dryRun) return null;
+  return {
+    id: dryRun.id,
+    changeId: dryRun.changeId,
+    status: dryRun.status,
+    schedulerMode: dryRun.schedulerMode,
+    schedulerContractId: dryRun.schedulerContractId,
+    waveCount: dryRun.waveVerdicts.length,
+    nodeCount: dryRun.nodeVerdicts.length,
+    blockedCount: dryRun.nodeVerdicts.filter((node) => node.status === "blocked").length,
+    estimatedMaxWaveWidth: dryRun.estimatedMaxWaveWidth,
+    prerequisiteCount: dryRun.runtimeContinuityPrerequisites.length,
+    artifact: dryRun.artifact,
+    markdownArtifact: dryRun.markdownArtifact,
+    updatedAt: dryRun.updatedAt,
+  };
+}
+
 export function readDecompositionPlanProjection(memory: ResolvedMemory, changePath: string): Promise<DecompositionPlan | null> {
   return readLatestDecompositionPlan(memory, changePath).catch(() => null);
 }
@@ -269,6 +309,12 @@ export function readSchedulerContractProjection(memory: ResolvedMemory, changePa
     : readLatestSchedulerContract(memory, changePath).catch(() => null);
 }
 
+export function readSchedulerDispatchDryRunProjection(memory: ResolvedMemory, changePath: string, dryRunId?: string): Promise<SchedulerDispatchDryRun | null> {
+  return dryRunId
+    ? readSchedulerDispatchDryRun(memory, changePath, dryRunId).catch(() => null)
+    : readLatestSchedulerDispatchDryRun(memory, changePath).catch(() => null);
+}
+
 export function buildTypedWorkflowNextAction(input: {
   topic: TypedWorkflowProjectionTopic;
   readiness: TypedWorkflowProjectionReadiness;
@@ -279,9 +325,10 @@ export function buildTypedWorkflowNextAction(input: {
   taskQueueProposal?: WorkbenchTaskQueueProposalSummary | null;
   workflowGraphPlan?: WorkbenchWorkflowGraphPlanSummary | null;
   schedulerContract?: WorkbenchSchedulerContractSummary | null;
+  schedulerDispatchDryRun?: WorkbenchSchedulerDispatchDryRunSummary | null;
   workflowRun?: WorkflowRunSummary | null;
 }): WorkbenchTypedWorkflowNextAction {
-  const { topic, readiness, intake, planningBundle, decompositionPlan, decompositionReadiness, taskQueueProposal, workflowGraphPlan, schedulerContract, workflowRun } = input;
+  const { topic, readiness, intake, planningBundle, decompositionPlan, decompositionReadiness, taskQueueProposal, workflowGraphPlan, schedulerContract, schedulerDispatchDryRun, workflowRun } = input;
   if (!readiness.specReady && !topic.runs.some((run) => run.runtime === "intake-scan")) {
     return workflowNextAction("intake.scan", "分析需求", "先只读扫描项目，整理当前理解、相关文件和待确认问题。", false);
   }
@@ -339,13 +386,17 @@ export function buildTypedWorkflowNextAction(input: {
         readinessManifestId: decompositionReadiness.id,
       };
     }
+    if (!schedulerDispatchDryRun || schedulerDispatchDryRun.schedulerContractId !== schedulerContract.id || schedulerDispatchDryRun.status !== "generated") {
+      return {
+        ...workflowNextAction("planning.scheduler.dispatch.dry-run", "生成调度预演", "基于 SchedulerContract 生成 dispatch/reconcile dry-run evidence；不会启动 scheduler、TaskRun、WorkerLease 或 worktree。"),
+        schedulerContractId: schedulerContract.id,
+      };
+    }
     return {
-      ...workflowNextAction("planning.scheduler.contract.compile", "Scheduler Contract 已生成", "已生成并行调度合同；当前阶段不提供 parallel start 控件。"),
+      ...workflowNextAction("planning.scheduler.dispatch.dry-run", "调度预演已生成", "已生成非执行调度预演；当前阶段不提供 parallel start 控件。"),
       enabled: false,
-      decompositionPlanId: decompositionPlan.id,
-      readinessManifestId: decompositionReadiness.id,
       schedulerContractId: schedulerContract.id,
-      disabledReason: "Phase 8S 只生成 SchedulerContract，不启动并行执行。",
+      disabledReason: "Phase 8Y 只生成 Scheduler Dispatch / Reconcile dry-run，不启动并行执行。",
     };
   }
   return {

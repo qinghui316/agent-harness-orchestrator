@@ -717,6 +717,7 @@ function workflowActionLabel(actionType: string): string {
     case "planning.decomposition.assess-readiness": return "Decomposition readiness";
     case "planning.taskqueue.propose": return "TaskQueue proposal";
     case "planning.scheduler.contract.compile": return "SchedulerContract compile";
+    case "planning.scheduler.dispatch.dry-run": return "Scheduler dispatch dry-run";
     case "planning.workflowgraph.compile": return "WorkflowGraphPlan compile";
     case "planning.taskqueue.confirm-start": return "TaskQueue start confirmation";
     case "code.run": return "Code workflow";

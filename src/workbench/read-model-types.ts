@@ -20,6 +20,7 @@ import type {
   WorkbenchDecompositionPlanSummary,
   WorkbenchDecompositionReadinessSummary,
   WorkbenchSchedulerContractSummary,
+  WorkbenchSchedulerDispatchDryRunSummary,
   WorkbenchTaskQueueProposalSummary,
   WorkbenchWorkflowGraphPlanSummary,
 } from "./workflow-projection.js";
@@ -555,6 +556,7 @@ export interface WorkbenchWorkpad {
   taskQueueProposal?: WorkbenchTaskQueueProposalSummary;
   workflowGraphPlan?: WorkbenchWorkflowGraphPlanSummary;
   schedulerContract?: WorkbenchSchedulerContractSummary;
+  schedulerDispatchDryRun?: WorkbenchSchedulerDispatchDryRunSummary;
   workflowRun?: WorkflowRunSummary;
   rolePipeline?: WorkbenchRolePipelineSummary;
   resultReview?: WorkbenchResultReview;

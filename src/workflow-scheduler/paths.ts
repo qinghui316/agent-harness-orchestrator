@@ -16,3 +16,19 @@ export function latestSchedulerContractPath(memory: ResolvedMemory, changePath: 
 export function latestSchedulerContractMarkdownPath(memory: ResolvedMemory, changePath: string): string {
   return join(memory.memoryRoot, changePath, "planning", "scheduler-contract.md");
 }
+
+export function schedulerDispatchDryRunsDir(memory: ResolvedMemory, changePath: string): string {
+  return join(memory.memoryRoot, changePath, "planning", "scheduler-dispatch-dry-runs");
+}
+
+export function schedulerDispatchDryRunPath(memory: ResolvedMemory, changePath: string, dryRunId: string): string {
+  return join(schedulerDispatchDryRunsDir(memory, changePath), `${dryRunId}.json`);
+}
+
+export function latestSchedulerDispatchDryRunPath(memory: ResolvedMemory, changePath: string): string {
+  return join(memory.memoryRoot, changePath, "planning", "scheduler-dispatch-dry-run.json");
+}
+
+export function latestSchedulerDispatchDryRunMarkdownPath(memory: ResolvedMemory, changePath: string): string {
+  return join(memory.memoryRoot, changePath, "planning", "scheduler-dispatch-dry-run.md");
+}

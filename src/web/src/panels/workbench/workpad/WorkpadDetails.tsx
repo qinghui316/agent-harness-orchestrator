@@ -26,6 +26,7 @@ import {
   DecompositionReadinessCard,
   PlanningArtifactBundleCard,
   SchedulerContractCard,
+  SchedulerDispatchDryRunCard,
   TaskQueueProposalCard,
   WorkflowGraphPlanCard,
 } from "./TypedWorkflowCards.js";
@@ -105,6 +106,7 @@ export function WorkpadDiagnosticDetails({
       {workpad.taskQueueProposal ? <TaskQueueProposalCard proposal={workpad.taskQueueProposal} /> : null}
       {workpad.workflowGraphPlan ? <WorkflowGraphPlanCard graph={workpad.workflowGraphPlan} /> : null}
       {workpad.schedulerContract ? <SchedulerContractCard contract={workpad.schedulerContract} /> : null}
+      {workpad.schedulerDispatchDryRun ? <SchedulerDispatchDryRunCard dryRun={workpad.schedulerDispatchDryRun} /> : null}
 
       {workpad.rolePipeline ? (
         <section className="workpad-section" data-testid="role-pipeline-summary">

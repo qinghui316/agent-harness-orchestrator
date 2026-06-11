@@ -12,6 +12,7 @@ export const WORKFLOW_ACTION_TYPES = [
   "planning.decomposition.assess-readiness",
   "planning.taskqueue.propose",
   "planning.scheduler.contract.compile",
+  "planning.scheduler.dispatch.dry-run",
   "planning.workflowgraph.compile",
   "planning.taskqueue.confirm-start",
   "orchestrator.evaluate",
@@ -102,6 +103,7 @@ export const LIVE_WORKFLOW_ACTION_TYPES = [
   "planning.decomposition.assess-readiness",
   "planning.taskqueue.propose",
   "planning.scheduler.contract.compile",
+  "planning.scheduler.dispatch.dry-run",
   "planning.workflowgraph.compile",
   "planning.taskqueue.confirm-start",
   "orchestrator.evaluate",
@@ -172,6 +174,7 @@ export const HIGH_IMPACT_WORKFLOW_ACTION_TYPES = [
   "planning.decomposition.assess-readiness",
   "planning.taskqueue.propose",
   "planning.scheduler.contract.compile",
+  "planning.scheduler.dispatch.dry-run",
   "planning.workflowgraph.compile",
   "planning.taskqueue.confirm-start",
   "code.run",
@@ -203,6 +206,7 @@ export const REVALIDATED_WORKFLOW_ACTION_TYPES = [
   "planning.decomposition.assess-readiness",
   "planning.taskqueue.propose",
   "planning.scheduler.contract.compile",
+  "planning.scheduler.dispatch.dry-run",
   "planning.workflowgraph.compile",
   "planning.taskqueue.confirm-start",
   "code.run",
@@ -289,6 +293,9 @@ export function validateWorkflowActionRequiredTargets(request: WorkflowActionSco
     case "planning.scheduler.contract.compile":
       requireOne("decompositionPlanId", [request.decompositionPlanId]);
       requireOne("readinessManifestId", [request.readinessManifestId]);
+      break;
+    case "planning.scheduler.dispatch.dry-run":
+      requireOne("schedulerContractId", [request.schedulerContractId]);
       break;
     case "planning.workflowgraph.compile":
       requireOne("taskQueueProposalId", [request.taskQueueProposalId]);
@@ -381,7 +388,7 @@ export function workflowActionScopePayload(request: WorkflowActionScopeCarrier, 
     readinessManifestId: request.readinessManifestId ?? extractString(result, "manifest", "id"),
     taskQueueProposalId: request.taskQueueProposalId ?? extractString(result, "proposal", "id"),
     workflowGraphPlanId: request.workflowGraphPlanId ?? extractString(result, "graph", "id"),
-    schedulerContractId: request.schedulerContractId ?? extractString(result, "contract", "id"),
+    schedulerContractId: request.schedulerContractId ?? extractString(result, "contract", "id") ?? extractString(result, "dryRun", "schedulerContractId"),
     workflowRunId: request.workflowRunId ?? extractString(result, "workflowRun", "id") ?? extractString(result, "workflow", "id"),
     queueRunId: request.queueRunId,
     worktreeId: request.worktreeId,
@@ -405,6 +412,7 @@ export function workflowActionTargetId(request: WorkflowActionScopeCarrier, chan
     ?? extractString(result, "graph", "id")
     ?? request.schedulerContractId
     ?? extractString(result, "contract", "id")
+    ?? extractString(result, "dryRun", "schedulerContractId")
     ?? request.taskQueueProposalId
     ?? extractString(result, "proposal", "id")
     ?? request.queueRunId

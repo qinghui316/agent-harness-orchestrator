@@ -1,4 +1,4 @@
-import type { SchedulerContract } from "./types.js";
+import type { SchedulerContract, SchedulerDispatchDryRun } from "./types.js";
 
 export function renderSchedulerContractMarkdown(contract: SchedulerContract): string {
   const lines = [
@@ -37,6 +37,65 @@ export function renderSchedulerContractMarkdown(contract: SchedulerContract): st
     "## Boundary",
     "",
     "This SchedulerContract is non-executing evidence. It does not create TaskRuns, WorkerLeases, worktrees, runs, child Changes, or source mutations.",
+    "",
+  ];
+  return lines.join("\n");
+}
+
+export function renderSchedulerDispatchDryRunMarkdown(dryRun: SchedulerDispatchDryRun): string {
+  const lines = [
+    `# SchedulerDispatchDryRun ${dryRun.id}`,
+    "",
+    `Status: ${dryRun.status}`,
+    `Mode: ${dryRun.schedulerMode}`,
+    `Change: ${dryRun.changeId}`,
+    `SchedulerContract: ${dryRun.schedulerContractId}`,
+    `DecompositionPlan: ${dryRun.decompositionPlanId}`,
+    `ReadinessManifest: ${dryRun.readinessManifestId}`,
+    "",
+    "## Summary",
+    "",
+    `- Waves: ${dryRun.waveVerdicts.length}`,
+    `- Nodes: ${dryRun.nodeVerdicts.length}`,
+    `- Dependencies: ${dryRun.dependencyCount}`,
+    `- Conflict scopes: ${dryRun.conflictCount}`,
+    `- Estimated max wave width: ${dryRun.estimatedMaxWaveWidth}`,
+    `- Blocked reasons: ${dryRun.blockedReasons.length ? dryRun.blockedReasons.join("; ") : "none"}`,
+    "",
+    "## Runtime Continuity Prerequisites",
+    "",
+    ...dryRun.runtimeContinuityPrerequisites.map((item) => `- ${item}`),
+    "",
+    "## Wave Verdicts",
+    "",
+    ...dryRun.waveVerdicts.map((wave) => [
+      `### Wave ${wave.index + 1}`,
+      "",
+      `- Status: ${wave.status}`,
+      `- Candidate nodes: ${wave.candidateCount}`,
+      `- Blocked nodes: ${wave.blockedCount}`,
+      `- Nodes: ${wave.nodeIds.join(", ") || "none"}`,
+      `- Blocked reasons: ${wave.blockedReasons.length ? wave.blockedReasons.join("; ") : "none"}`,
+      "",
+    ].join("\n")),
+    "## Node Verdicts",
+    "",
+    ...dryRun.nodeVerdicts.map((node) => [
+      `### ${node.nodeId}`,
+      "",
+      `- Unit: ${node.unitId}`,
+      `- Wave: ${node.waveIndex + 1}`,
+      `- Status: ${node.status}`,
+      `- Dependencies satisfied: ${node.dependenciesSatisfied ? "yes" : "no"}`,
+      `- Dependency nodes: ${node.dependencyNodeIds.join(", ") || "none"}`,
+      `- Source scopes: ${node.sourceScopes.join(", ") || "none"}`,
+      `- Stages: ${node.stages.join(" -> ")}`,
+      `- Blocked reasons: ${node.blockedReasons.length ? node.blockedReasons.join("; ") : "none"}`,
+      "",
+    ].join("\n")),
+    "## Boundary",
+    "",
+    "This dry-run is non-executing evidence. It does not allocate DemandWorker slots, create WorkerLeases, create TaskRuns, create WorkflowRuns, start agents, create worktrees, create runs, create child Changes, or mutate source.",
     "",
   ];
   return lines.join("\n");

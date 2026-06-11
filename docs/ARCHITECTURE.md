@@ -91,6 +91,8 @@ Phase 8V extends that Runtime Continuity Layer to validation and audit role work
 
 Phase 8W extends Runtime Continuity to v1.1 by recording permission-profile and external-execution evidence in the existing `agent-events.jsonl` stream. New event types such as `permission.profile.attached`, `permission.decision.recorded`, `external-execution.requested`, `external-execution.completed`, and `external-execution.failed` are normalized evidence only. They mirror existing role permission profiles, ToolPolicy decisions, and worker adapter lifecycle facts; they do not introduce a permission engine, HITL permission prompt, route, Workbench action, CLI command, UI projection, scheduler, parallel executor, or new workflow authority. Canonical event scope continues to come from `WorkerSession`.
 
+Phase 8Y adds the next scheduler-readiness step as a non-executing Scheduler Dispatch / Reconcile dry-run. A selected `SchedulerContract` may produce `SchedulerDispatchDryRun` evidence that explains candidate waves, node verdicts, dependency readiness, conflict/source summaries, estimated max wave width, runtime-continuity prerequisites, blocked reasons, and source artifact hashes. This borrows Symphony's poll/dispatch/reconcile/slot discipline as an evidence model only: the dry-run must not allocate DemandWorker slots, create WorkerLeases, create TaskRuns, create WorkflowRuns, start agents, create worktrees, create child Changes, or authorize parallel execution.
+
 Workbench relationship:
 
 ```text

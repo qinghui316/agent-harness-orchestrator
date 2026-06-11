@@ -118,6 +118,7 @@ export {
   getWorkbenchTaskQueueProposalProjection,
   getWorkbenchWorkflowGraphPlanProjection,
   getWorkbenchSchedulerContractProjection,
+  getWorkbenchSchedulerDispatchDryRunProjection,
   getWorkbenchWorkflowRunProjection,
 } from "./lazy-projections.js";
 

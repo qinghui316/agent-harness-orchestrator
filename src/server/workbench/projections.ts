@@ -9,6 +9,7 @@ import {
   getWorkbenchTranscriptProjection,
   getWorkbenchWorkflowGraphPlanProjection,
   getWorkbenchSchedulerContractProjection,
+  getWorkbenchSchedulerDispatchDryRunProjection,
   getWorkbenchWorkflowRunProjection,
   getWorkbenchWorkpadProjection,
   type WorkbenchProjectInput,
@@ -53,6 +54,10 @@ export async function getWorkbenchProjection(input: WorkbenchProjectInput, rest:
   if (kind === "scheduler-contract") {
     if (!changeId) throw badRequest("scheduler-contract projection requires changeId.");
     return getWorkbenchSchedulerContractProjection(input, changeId, id);
+  }
+  if (kind === "scheduler-dispatch-dry-run") {
+    if (!changeId) throw badRequest("scheduler-dispatch-dry-run projection requires changeId.");
+    return getWorkbenchSchedulerDispatchDryRunProjection(input, changeId, id);
   }
   if (kind === "workflow-run") {
     if (!changeId) throw badRequest("workflow-run projection requires changeId.");

@@ -131,3 +131,23 @@ export function SchedulerContractCard({ contract }: { contract: NonNullable<Work
     </section>
   );
 }
+
+export function SchedulerDispatchDryRunCard({ dryRun }: { dryRun: NonNullable<Workpad["schedulerDispatchDryRun"]> }): ReactElement {
+  return (
+    <section className="workpad-section" data-testid="scheduler-dispatch-dry-run-card">
+      <div className="workpad-section-header">
+        <h3>调度预演</h3>
+        <span>{humanStatus(dryRun.status)}</span>
+      </div>
+      <p className="workpad-goal">dispatch / reconcile dry-run（不启动执行）</p>
+      <div className="workpad-chip-list">
+        <span>{dryRun.waveCount} 个 wave</span>
+        <span>{dryRun.nodeCount} 个节点</span>
+        <span>最大并发候选 {dryRun.estimatedMaxWaveWidth}</span>
+        <span>{dryRun.blockedCount} 个阻塞</span>
+        <span>{dryRun.prerequisiteCount} 个前置条件</span>
+      </div>
+      {dryRun.artifact ? <small className="artifact-link">查看证据：{artifactName(dryRun.artifact)}</small> : null}
+    </section>
+  );
+}

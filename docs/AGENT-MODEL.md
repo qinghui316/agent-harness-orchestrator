@@ -112,6 +112,8 @@ Phase 8U implements the first code-run slice of that runtime-continuity step, an
 
 Phase 8W adds the permission / external-execution evidence slice to that same contract. Worker runs may record `permission.profile.attached`, `permission.decision.recorded`, and `external-execution.*` envelopes, but those records are observational evidence. ToolPolicyGate remains the policy authority, human gates remain required for high-impact transitions, and no worker gains new delegation, apply, merge, close, scheduler, child-Change, or sandbox power from these events.
 
+Phase 8Y adds a dry-run scheduler evidence slice before any real parallel executor. It can explain which SchedulerContract waves look dispatchable, which nodes would be blocked, and which runtime-continuity prerequisites a future worker launch would need. It cannot spawn workers, allocate leases, reserve slots, create child Changes, or let agent roles bypass validation, audit, integration, or human gates.
+
 Phase 7M is a boundary/module repair phase for this model. It does not let workers spawn agents or author executable workflow scripts; it makes the main-agent-facing action registry, scope checks, projections, and TaskQueue/WorkflowRun runtime facade explicit so later subagent or scheduler features can be added behind Harness-owned typed artifacts.
 
 Phase 7N continues that direction as a pure large-file boundary split. It moves Workbench shared types/thread-log helpers, action execution, runtime facade calls, projection builders, and frontend panels behind module owners. It does not grant workers delegation power, add a scheduler, or change the Harness-owned typed artifact chain.

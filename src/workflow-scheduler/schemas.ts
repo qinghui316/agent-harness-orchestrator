@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { SchedulerContract } from "./types.js";
+import type { SchedulerContract, SchedulerDispatchDryRun } from "./types.js";
 
 export const schedulerContractSchema: z.ZodType<SchedulerContract> = z.object({
   version: z.literal("1.0"),
@@ -28,6 +28,49 @@ export const schedulerContractSchema: z.ZodType<SchedulerContract> = z.object({
     nodeIds: z.array(z.string()),
   })),
   conflictScopes: z.array(z.string()),
+  sourceArtifactHashes: z.record(z.string()),
+  artifactRefs: z.array(z.string()),
+  artifact: z.string(),
+  markdownArtifact: z.string(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+
+export const schedulerDispatchDryRunSchema: z.ZodType<SchedulerDispatchDryRun> = z.object({
+  version: z.literal("1.0"),
+  id: z.string(),
+  changeId: z.string(),
+  status: z.enum(["generated", "superseded", "rejected"]),
+  schedulerMode: z.literal("parallel-readiness-v1"),
+  schedulerContractId: z.string(),
+  decompositionPlanId: z.string(),
+  readinessManifestId: z.string(),
+  nodeVerdicts: z.array(z.object({
+    nodeId: z.string(),
+    unitId: z.string(),
+    waveIndex: z.number(),
+    status: z.enum(["candidate", "blocked"]),
+    dependencyNodeIds: z.array(z.string()),
+    dependenciesSatisfied: z.boolean(),
+    sourceScopes: z.array(z.string()),
+    stages: z.array(z.enum(["coder", "validation", "audit", "bounded-rework"])),
+    runtimeContinuityPrerequisites: z.array(z.string()),
+    blockedReasons: z.array(z.string()),
+  })),
+  waveVerdicts: z.array(z.object({
+    index: z.number(),
+    nodeIds: z.array(z.string()),
+    status: z.enum(["candidate", "blocked"]),
+    candidateCount: z.number(),
+    blockedCount: z.number(),
+    blockedReasons: z.array(z.string()),
+  })),
+  estimatedMaxWaveWidth: z.number(),
+  dependencyCount: z.number(),
+  conflictCount: z.number(),
+  conflictScopes: z.array(z.string()),
+  runtimeContinuityPrerequisites: z.array(z.string()),
+  blockedReasons: z.array(z.string()),
   sourceArtifactHashes: z.record(z.string()),
   artifactRefs: z.array(z.string()),
   artifact: z.string(),

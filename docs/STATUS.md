@@ -1,14 +1,14 @@
-# Project Status
+﻿# Project Status
 
 ## Current Handoff
 
 - Current date: 2026-06-11.
-- Active ECL change: none.
+- Active ECL change: `harness/changes/active/phase-8y-scheduler-dispatch-reconcile-dry-run-evidence/`.
 - Pending Harness evolution: none. The Phase 8S-8W pending window has been marked complete as `noop/subagent_review` with subagent score `94/100`.
 - Latest archived product change: `harness/changes/archive/20260611-phase-8w-runtime-permission-external-execution-evidence-contract/summary.md`.
 - Latest archived product/Harness docs change: `harness/changes/archive/20260611-phase-8t-agentscope-harness-reference-alignment/summary.md`.
 - Latest archived Harness evolution: `harness/changes/archive/20260611-auto-evolve-harness-phase-8s-8w-runtime-continuity-evidence/summary.md`.
-- Active product phase: none.
+- Active product phase: Phase 8Y Scheduler Dispatch Reconcile Dry Run Evidence.
 
 Current baseline:
 
@@ -24,7 +24,7 @@ Current baseline:
 - Phase 8T AgentScope Harness Reference Alignment completed and is archived at `harness/changes/archive/20260611-phase-8t-agentscope-harness-reference-alignment/summary.md`. It added AgentScope 2.0 Python as a reference project, refreshed the AgentScope Java Harness mapping, and recorded Runtime Continuity Layer boundaries before future parallel scheduler, true subagent, sandbox, or worker-session implementation. It did not add runtime behavior, Workbench actions, routes, CLI commands, UI features, scheduler execution, child Changes, ODWF JavaScript runtime, or cache/replay.
 - Phase 8U Runtime Continuity Contract Foundation completed and is archived at `harness/changes/archive/20260611-phase-8u-runtime-continuity-contract-foundation/summary.md`. It added AHO-owned WorkerSession, RuntimeWorkspace, EventSource, and AgentEventEnvelope evidence for code runs only; it did not add parallel execution, scheduler runtime, Workbench actions, routes, CLI commands, sandbox backends, child Changes, ODWF JavaScript runtime, or cache/replay.
 - Phase 8V Validation Audit Runtime Continuity Coverage completed and is archived at `harness/changes/archive/20260611-phase-8v-validation-audit-runtime-continuity-coverage/summary.md`. It extends Runtime Continuity sidecar evidence to validation command runs and audit Codex readonly runs while preserving public Run, Validation, Audit, CLI, Workbench, SSE, and workflow truth shapes.
-- Phase 8W Runtime Permission External Execution Evidence Contract completed and is archived at `harness/changes/archive/20260611-phase-8w-runtime-permission-external-execution-evidence-contract/summary.md`. It extends Runtime Continuity evidence with typed permission profile, mirrored ToolPolicy decision, and external execution lifecycle events in the existing `agent-events.jsonl` stream without adding a permission engine, Workbench action, route, CLI command, UI/lazy projection, scheduler, parallel executor, or workflow-truth authority.
+- Phase 8W Runtime Permission External Execution Evidence Contract completed and is archived at `harness/changes/archive/20260611-phase-8w-runtime-permission-external-execution-evidence-contract/summary.md`. It extends Runtime Continuity evidence with typed permission profile, mirrored ToolPolicy decision, and external execution lifecycle events in the existing `agent-events.jsonl` stream without adding a permission engine, Workbench action, route, CLI command, UI/lazy projection, scheduler, parallel executor, or workflow-truth authority. Phase 8Y is active at `harness/changes/active/phase-8y-scheduler-dispatch-reconcile-dry-run-evidence/`; it adds non-executing Scheduler Dispatch / Reconcile dry-run evidence on top of SchedulerContract without starting workers, allocating leases, creating runtime records, child Changes, ODWF runtime, or cache/replay.
 - The Phase 8S-8W pending Harness evolution window has been marked complete as `noop/subagent_review` with subagent score `94/100`.
 - Phase 6F completed the single-demand local loop through result review and local apply handoff.
 - Phase 6G-Prep completed documentation alignment for Harness handoff, AgentTaskRepository, background maintenance, and two-layer self-evolution boundaries.
@@ -337,3 +337,4 @@ When editing docs, confirm:
 - `AgentTaskRepository`, maintenance ledger, candidate scoring, and candidate review are implemented advisory/proposal layers; terminal closeouts, five-change maintenance review, and doc budget guard are Phase 6S baseline.
 - Remote landing is Phase 6T baseline; it is user-confirmed provider merge plus post-merge closeout/ledger evidence, not a merge queue or automatic memory/doc rewrite path.
 - Documentation/evolution agents produce proposals/evidence only; human gates remain required for canonical docs, ECL, product roadmap, and stable project memory.
+

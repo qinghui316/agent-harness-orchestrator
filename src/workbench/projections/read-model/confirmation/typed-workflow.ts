@@ -112,7 +112,34 @@ export function taskQueueProposalToConfirmationItems(
     const plan = workpad.decompositionPlan;
     if (!plan || plan.id !== readiness.decompositionPlanId) return [];
     const contract = workpad.schedulerContract;
-    if (contract?.status === "compiled" && contract.decompositionPlanId === plan.id && contract.readinessManifestId === readiness.id) return [];
+    if (contract?.status === "compiled" && contract.decompositionPlanId === plan.id && contract.readinessManifestId === readiness.id) {
+      const dryRun = workpad.schedulerDispatchDryRun;
+      if (dryRun?.status === "generated" && dryRun.schedulerContractId === contract.id) return [];
+      return [{
+        id: `confirm:scheduler-dispatch-dry-run:${selectedTopic.id}:${contract.id}`,
+        kind: "planning-confirm",
+        projectId: project?.id ?? null,
+        conversationId: selectedTopic.id,
+        changeId: selectedTopic.id,
+        summary: "SchedulerContract 已生成，可生成调度预演。",
+        whyNeedsConfirmation: "需要你确认生成 Scheduler Dispatch / Reconcile dry-run。dry-run 不会启动 scheduler 或并行执行。",
+        confirmEffect: "写入 scheduler-dispatch-dry-run.json/.md 和 versioned dry-run artifact；不会创建 WorkflowRun、TaskQueue、TaskRun、AgentTask、worktree 或 run。",
+        riskSummary: "Dry-run 只是 dispatch/reconcile evidence，不是执行授权；后续真正 parallel scheduler 必须另行确认。",
+        evidenceRefs: contract.artifact ? [contract.artifact] : [],
+        actions: [{
+          id: `workflow:planning.scheduler.dispatch.dry-run:${selectedTopic.id}:${contract.id}`,
+          label: "生成调度预演",
+          kind: "workflow-action",
+          changeId: selectedTopic.id,
+          actionType: "planning.scheduler.dispatch.dry-run",
+          schedulerContractId: contract.id,
+          enabled: true,
+          requiresConfirmation: true,
+        }],
+        primary: false,
+        status: "pending",
+      }];
+    }
     return [{
       id: `confirm:scheduler-contract:${selectedTopic.id}:${readiness.id}`,
       kind: "planning-confirm",

@@ -205,6 +205,8 @@ Phase 8U defines the first Runtime Continuity Layer contract for code runs, and 
 
 Phase 8W extends the Runtime Continuity event contract with permission and external-execution evidence rows in the existing `agent-events.jsonl` journal. `permission.profile.attached`, `permission.decision.recorded`, and `external-execution.requested/completed/failed` describe the role permission snapshot, existing ToolPolicy outcome, and adapter/process lifecycle for code, validation, and audit workers. They must not create a new permission authority, bypass ToolPolicyGate, prompt for HITL permission, alter Codex approval mode, change public artifacts, or create scheduler/runtime objects. Canonical scope must still come from `WorkerSession`; raw payload scope fields are ignored for the envelope.
 
+Phase 8Y makes `src/workflow-scheduler/` the owner for Scheduler Dispatch / Reconcile dry-run evidence. `SchedulerDispatchDryRun` is a non-executing projection over a scoped SchedulerContract: it may write versioned/latest dry-run artifacts and decision/audit evidence, but it must not allocate DemandWorker slots, create WorkerLeases, create TaskRuns, create WorkflowRuns, create AgentTasks, create worktrees, create runs, create child Changes, mutate source, introduce scheduler runtime state, or authorize parallel execution. Workbench, server, and frontend code may call/display the dry-run, but must not own the scheduling logic.
+
 ## 7. Memory Unavailable Boundary
 
 Memory can be unavailable on a new machine, after a plain repository clone, when AHO home was not synced, when permissions are missing, or when a future remote memory service is offline.

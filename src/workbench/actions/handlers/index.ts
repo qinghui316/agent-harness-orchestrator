@@ -8,7 +8,7 @@ import { startValidationRun } from "../../../validation/manager.js";
 import { getSpecTestDriftReport } from "../../../spec-test/drift.js";
 import type { ManagedProject, RunMetadata } from "../../../types/index.js";
 import { enqueueDemandWorkerForAction, evaluateDemandOrchestrator, pumpDemandWorkersForAction, reconcileDemandWorkersForAction, releaseDemandWorkerForAction, runMainAgentToolOrchestration, startNextDemandWorkerForAction } from "../../demand-workers/orchestration.js";
-import { assessDecompositionReadiness, compilePlanningSchedulerContract, compileTaskQueueWorkflowGraph, confirmDecompositionPlan, confirmPlanningAndStartPipeline, confirmTaskQueueProposalAndStart, generateDecompositionPlan, generatePlanningDraft, proposeTaskQueue } from "./planning.js";
+import { assessDecompositionReadiness, compilePlanningSchedulerContract, compileTaskQueueWorkflowGraph, confirmDecompositionPlan, confirmPlanningAndStartPipeline, confirmTaskQueueProposalAndStart, generateDecompositionPlan, generatePlanningDraft, generateSchedulerDispatchDryRun, proposeTaskQueue } from "./planning.js";
 import { cleanupRemoteBranchForAction, createPrDraftForAction, mergeNextLandingQueueForAction, mergeRemoteLandingForAction, prepareLandingForAction, prepareLandingQueueForAction, prepareLocalSyncForAction, preparePostMergeForAction, preparePrDraftForAction, preparePrReviewForAction, preparePrReviewReplyForAction, prepareRemoteBranchCleanupForAction, prepareRemoteLandingForAction, refreshLandingQueueForAction, refreshPrDraftForAction, refreshPrFeedbackForAction, refreshPrReviewForAction, refreshRemoteLandingForAction, reworkPrFeedbackForAction, resolvePrReviewThreadForAction, reviewLandingForAction, submitPrReviewForAction, submitPrReviewReplyForAction, syncLocalForAction, updatePrDraftForAction } from "./remote-handoff.js";
 import { interruptConversation, steerConversation, stopRunningPipeline } from "./control.js";
 import type { WorkbenchActionHandlerMap } from "../dispatcher.js";
@@ -43,6 +43,7 @@ export function buildWorkbenchActionHandlers(deps: WorkbenchActionHandlerDeps): 
   "planning.decomposition.assess-readiness": async (project, changeId, request, live) => assessDecompositionReadiness(project, changeId, request, live),
   "planning.taskqueue.propose": async (project, changeId, request, live) => proposeTaskQueue(project, changeId, request, live),
   "planning.scheduler.contract.compile": async (project, changeId, request, live) => compilePlanningSchedulerContract(project, changeId, request, live),
+  "planning.scheduler.dispatch.dry-run": async (project, changeId, request, live) => generateSchedulerDispatchDryRun(project, changeId, request, live),
   "planning.workflowgraph.compile": async (project, changeId, request, live) => compileTaskQueueWorkflowGraph(project, changeId, request, live),
   "planning.taskqueue.confirm-start": async (project, changeId, request, live) => confirmTaskQueueProposalAndStart(project, changeId, request, live),
   "orchestrator.evaluate": async (project, changeId) => evaluateDemandOrchestrator(project, changeId),

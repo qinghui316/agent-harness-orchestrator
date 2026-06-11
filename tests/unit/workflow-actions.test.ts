@@ -32,6 +32,9 @@ describe("workflow action registry", () => {
     expect(LIVE_WORKFLOW_ACTION_TYPES).toContain("planning.scheduler.contract.compile");
     expect(HIGH_IMPACT_WORKFLOW_ACTION_TYPES).toContain("planning.scheduler.contract.compile");
     expect(REVALIDATED_WORKFLOW_ACTION_TYPES).toContain("planning.scheduler.contract.compile");
+    expect(LIVE_WORKFLOW_ACTION_TYPES).toContain("planning.scheduler.dispatch.dry-run");
+    expect(HIGH_IMPACT_WORKFLOW_ACTION_TYPES).toContain("planning.scheduler.dispatch.dry-run");
+    expect(REVALIDATED_WORKFLOW_ACTION_TYPES).toContain("planning.scheduler.dispatch.dry-run");
   });
 
   it("keeps SchedulerContract ids in target and audit scope matching", () => {
@@ -61,6 +64,13 @@ describe("workflow action registry", () => {
       actionType: "planning.scheduler.contract.compile",
       readinessManifestId: "readiness-1",
     }).map((item) => item.label)).toEqual(["decompositionPlanId"]);
+    expect(validateWorkflowActionRequiredTargets({
+      actionType: "planning.scheduler.dispatch.dry-run",
+      schedulerContractId: "scheduler-contract-1",
+    })).toEqual([]);
+    expect(validateWorkflowActionRequiredTargets({
+      actionType: "planning.scheduler.dispatch.dry-run",
+    }).map((item) => item.label)).toEqual(["schedulerContractId"]);
   });
 
   it("keeps graph ids in target and audit scope matching", () => {

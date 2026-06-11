@@ -4,10 +4,19 @@ import { readRequiredJsonFile, writeJsonFile } from "../fs/json.js";
 import type { ResolvedMemory } from "../types/index.js";
 import { displayArtifactPath } from "../workflow-artifacts/artifact-refs.js";
 import { assertWorkflowArtifactScope } from "../workflow-artifacts/guards.js";
-import { latestSchedulerContractMarkdownPath, latestSchedulerContractPath, schedulerContractPath, schedulerContractsDir } from "./paths.js";
-import { renderSchedulerContractMarkdown } from "./rendering.js";
-import { schedulerContractSchema } from "./schemas.js";
-import type { SchedulerContract } from "./types.js";
+import {
+  latestSchedulerContractMarkdownPath,
+  latestSchedulerContractPath,
+  latestSchedulerDispatchDryRunMarkdownPath,
+  latestSchedulerDispatchDryRunPath,
+  schedulerContractPath,
+  schedulerContractsDir,
+  schedulerDispatchDryRunPath,
+  schedulerDispatchDryRunsDir,
+} from "./paths.js";
+import { renderSchedulerContractMarkdown, renderSchedulerDispatchDryRunMarkdown } from "./rendering.js";
+import { schedulerContractSchema, schedulerDispatchDryRunSchema } from "./schemas.js";
+import type { SchedulerContract, SchedulerDispatchDryRun } from "./types.js";
 
 export async function writeSchedulerContract(memory: ResolvedMemory, changePath: string, contract: SchedulerContract): Promise<void> {
   await assertWorkflowArtifactScope(memory, changePath, contract, "SchedulerContract");
@@ -36,5 +45,35 @@ export function schedulerContractArtifactRefs(memory: ResolvedMemory, changePath
   return {
     artifact: displayArtifactPath(memory, join(dir, `${schedulerContractId}.json`)),
     markdownArtifact: displayArtifactPath(memory, join(dir, `${schedulerContractId}.md`)),
+  };
+}
+
+export async function writeSchedulerDispatchDryRun(memory: ResolvedMemory, changePath: string, dryRun: SchedulerDispatchDryRun): Promise<void> {
+  await assertWorkflowArtifactScope(memory, changePath, dryRun, "SchedulerDispatchDryRun");
+  const dir = schedulerDispatchDryRunsDir(memory, changePath);
+  await mkdir(dir, { recursive: true });
+  await writeJsonFile(join(dir, `${dryRun.id}.json`), dryRun);
+  await writeFile(join(dir, `${dryRun.id}.md`), renderSchedulerDispatchDryRunMarkdown(dryRun), "utf8");
+  await writeJsonFile(latestSchedulerDispatchDryRunPath(memory, changePath), dryRun);
+  await writeFile(latestSchedulerDispatchDryRunMarkdownPath(memory, changePath), renderSchedulerDispatchDryRunMarkdown(dryRun), "utf8");
+}
+
+export async function readLatestSchedulerDispatchDryRun(memory: ResolvedMemory, changePath: string): Promise<SchedulerDispatchDryRun> {
+  const dryRun = await readRequiredJsonFile(latestSchedulerDispatchDryRunPath(memory, changePath), schedulerDispatchDryRunSchema);
+  await assertWorkflowArtifactScope(memory, changePath, dryRun, "SchedulerDispatchDryRun");
+  return dryRun;
+}
+
+export async function readSchedulerDispatchDryRun(memory: ResolvedMemory, changePath: string, dryRunId: string): Promise<SchedulerDispatchDryRun> {
+  const dryRun = await readRequiredJsonFile(schedulerDispatchDryRunPath(memory, changePath, dryRunId), schedulerDispatchDryRunSchema);
+  await assertWorkflowArtifactScope(memory, changePath, dryRun, "SchedulerDispatchDryRun");
+  return dryRun;
+}
+
+export function schedulerDispatchDryRunArtifactRefs(memory: ResolvedMemory, changePath: string, dryRunId: string): { artifact: string; markdownArtifact: string } {
+  const dir = schedulerDispatchDryRunsDir(memory, changePath);
+  return {
+    artifact: displayArtifactPath(memory, join(dir, `${dryRunId}.json`)),
+    markdownArtifact: displayArtifactPath(memory, join(dir, `${dryRunId}.md`)),
   };
 }

@@ -16,6 +16,7 @@ import {
   readLatestTaskQueueProposal,
   readLatestWorkflowGraphPlan,
 } from "../../workflow-artifacts/manager.js";
+import { readSchedulerContract } from "../../workflow-scheduler/manager.js";
 import {
   assertWorkflowActionRequiredTargets,
   workflowActionScopePayload as buildWorkflowActionScopePayload,
@@ -150,6 +151,16 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
     const manifest = await readLatestDecompositionReadinessManifest(memory, target.path);
     if (manifest.id !== request.readinessManifestId || manifest.changeId !== changeId || manifest.decompositionPlanId !== plan.id || manifest.status !== "ready-for-scheduler-contract" || manifest.nextAllowedAction !== "scheduler.contract") {
       throw new Error("planning.scheduler.contract.compile readiness target is stale.");
+    }
+  }
+  if (request.actionType === "planning.scheduler.dispatch.dry-run") {
+    const active = await getActiveChanges(memory);
+    const target = active.find((item) => item.name === changeId);
+    if (!target) throw new Error(`planning.scheduler.dispatch.dry-run target is stale or missing active Change: ${changeId}.`);
+    if (!request.schedulerContractId) throw new Error("planning.scheduler.dispatch.dry-run requires schedulerContractId.");
+    const contract = await readSchedulerContract(memory, target.path, request.schedulerContractId);
+    if (contract.id !== request.schedulerContractId || contract.changeId !== changeId || contract.status !== "compiled") {
+      throw new Error("planning.scheduler.dispatch.dry-run SchedulerContract target is stale.");
     }
   }
   if (request.actionType === "planning.workflowgraph.compile") {

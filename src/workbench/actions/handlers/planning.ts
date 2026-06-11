@@ -31,9 +31,13 @@ import {
   type WorkflowGraphPlan,
 } from "../../../workflow-artifacts/manager.js";
 import {
+  compileSchedulerDispatchDryRun,
   compileSchedulerContract,
+  readSchedulerContract,
+  renderSchedulerDispatchDryRunMarkdown,
   renderSchedulerContractMarkdown,
   type SchedulerContract,
+  type SchedulerDispatchDryRun,
 } from "../../../workflow-scheduler/manager.js";
 import { readLatestPlanningBundle } from "../planning-bundle.js";
 import { runCodexChat } from "../../codex-chat/bridge.js";
@@ -507,6 +511,51 @@ export async function compilePlanningSchedulerContract(
     completedAt: new Date().toISOString(),
   });
   return { contract, executionStarted: false };
+}
+
+export async function generateSchedulerDispatchDryRun(
+  project: ManagedProject,
+  changeId: string,
+  request: WorkbenchWorkflowActionRequest,
+  live: WorkbenchLiveSink | undefined,
+): Promise<{ dryRun: SchedulerDispatchDryRun; executionStarted: false }> {
+  const { memory, changePath } = await resolveTopic(project, changeId);
+  assertWritableMemory(memory, "Scheduler dispatch dry-run");
+  if (!request.schedulerContractId) throw new Error("planning.scheduler.dispatch.dry-run requires schedulerContractId.");
+  const contract = await readSchedulerContract(memory, changePath, request.schedulerContractId);
+  if (contract.id !== request.schedulerContractId || contract.changeId !== changeId || contract.status !== "compiled") {
+    throw new Error("planning.scheduler.dispatch.dry-run SchedulerContract target is stale.");
+  }
+  const dryRun = await compileSchedulerDispatchDryRun(memory, changePath, contract);
+  await appendTopicThreadEntry(project, changeId, {
+    type: "assistant.message",
+    status: "scheduler-dispatch-dry-run-generated",
+    text: renderSchedulerDispatchDryRunMarkdown(dryRun),
+    artifact: dryRun.artifact,
+  });
+  emitAssistantEvent(live, {
+    runId: dryRun.id,
+    kind: "file-change",
+    phase: "scheduler-dispatch-dry-run-generated",
+    title: "Scheduler dispatch dry-run generated",
+    summary: "A non-executing scheduler dispatch/reconcile dry-run was generated; no worker, lease, TaskRun, worktree, run, or child Change was created.",
+    artifactRef: dryRun.artifact,
+  });
+  await recordWorkbenchDecision(project, {
+    id: `scheduler-dry-run:${dryRun.id}`,
+    changeId,
+    decisionType: "planning.scheduler.dispatch.dry-run",
+    status: "completed",
+    label: "调度预演已生成",
+    summary: "Generated a non-executing Scheduler Dispatch / Reconcile dry-run from a SchedulerContract.",
+    targetId: dryRun.id,
+    runId: null,
+    artifact: dryRun.artifact,
+    actionId: "planning.scheduler.dispatch.dry-run",
+    payload: { dryRun },
+    completedAt: new Date().toISOString(),
+  });
+  return { dryRun, executionStarted: false };
 }
 
 export async function confirmTaskQueueProposalAndStart(

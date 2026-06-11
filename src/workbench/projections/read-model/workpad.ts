@@ -7,12 +7,14 @@ import {
   buildTypedWorkflowNextAction,
   readLatestDecompositionPlanSummary,
   readLatestDecompositionReadinessSummary,
+  readLatestSchedulerDispatchDryRunSummary,
   readLatestSchedulerContractSummary,
   readLatestTaskQueueProposalSummary,
   readLatestWorkflowGraphPlanSummary,
   type WorkbenchDecompositionPlanSummary,
   type WorkbenchDecompositionReadinessSummary,
   type WorkbenchSchedulerContractSummary,
+  type WorkbenchSchedulerDispatchDryRunSummary,
   type WorkbenchTaskQueueProposalSummary,
   type WorkbenchWorkflowGraphPlanSummary,
 } from "../../workflow-projection.js";
@@ -191,6 +193,7 @@ export async function buildWorkbenchWorkpad(input: {
   const taskQueueProposal = await readLatestTaskQueueProposalSummary(memory, selectedTopic.path);
   const workflowGraphPlan = await readLatestWorkflowGraphPlanSummary(memory, selectedTopic.path);
   const schedulerContract = await readLatestSchedulerContractSummary(memory, selectedTopic.path);
+  const schedulerDispatchDryRun = await readLatestSchedulerDispatchDryRunSummary(memory, selectedTopic.path);
   const workflowRun = await getLatestWorkflowRun(memory, selectedTopic.id).then((run) => run ? summarizeWorkflowRun(run) : null).catch(() => null);
   const agentTasks = await buildAgentTaskSummaries(memory, selectedTopic.id);
   const rolePipeline = buildRolePipelineSummary(selectedTopic, planningBundle, agentTasks);
@@ -228,6 +231,7 @@ export async function buildWorkbenchWorkpad(input: {
     taskQueueProposal: taskQueueProposal ?? undefined,
     workflowGraphPlan: workflowGraphPlan ?? undefined,
     schedulerContract: schedulerContract ?? undefined,
+    schedulerDispatchDryRun: schedulerContract && schedulerDispatchDryRun?.schedulerContractId === schedulerContract.id ? schedulerDispatchDryRun : undefined,
     workflowRun: workflowRun ?? undefined,
     rolePipeline,
     resultReview,
@@ -265,7 +269,7 @@ export async function buildWorkbenchWorkpad(input: {
       ...workpadMissingWarnings(specReady, planReady, tasksReady, selectedTopic),
       ...gaps.filter((gap) => gap.status !== "available").map((gap) => gap.summary),
     ],
-    nextAction: buildWorkpadNextAction(selectedTopic, topicApprovals, { specReady, planReady, tasksReady }, intake, taskQueue, taskGraph, planningBundle, decompositionPlan, decompositionReadiness, taskQueueProposal, workflowGraphPlan, schedulerContract, workflowRun),
+    nextAction: buildWorkpadNextAction(selectedTopic, topicApprovals, { specReady, planReady, tasksReady }, intake, taskQueue, taskGraph, planningBundle, decompositionPlan, decompositionReadiness, taskQueueProposal, workflowGraphPlan, schedulerContract, schedulerDispatchDryRun, workflowRun),
     background: buildWorkpadBackground(workpads, selectedTopic.id),
     memoryIsolation: buildWorkpadMemoryIsolation(memory, selectedTopic, workpads),
   };
@@ -538,6 +542,7 @@ function buildWorkpadNextAction(
   taskQueueProposal?: WorkbenchTaskQueueProposalSummary | null,
   workflowGraphPlan?: WorkbenchWorkflowGraphPlanSummary | null,
   schedulerContract?: WorkbenchSchedulerContractSummary | null,
+  schedulerDispatchDryRun?: WorkbenchSchedulerDispatchDryRunSummary | null,
   workflowRun?: WorkflowRunSummary | null,
 ): WorkpadNextAction {
   if (topic.state !== "active") {
@@ -576,6 +581,7 @@ function buildWorkpadNextAction(
       taskQueueProposal,
       workflowGraphPlan,
       schedulerContract,
+      schedulerDispatchDryRun,
       workflowRun,
     });
   }
@@ -601,6 +607,7 @@ function buildWorkpadNextAction(
     taskQueueProposal,
     workflowGraphPlan,
     schedulerContract,
+    schedulerDispatchDryRun,
     workflowRun,
   });
 }

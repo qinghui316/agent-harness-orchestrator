@@ -12,7 +12,7 @@ import { executeWorkbenchAction } from "../../src/server/workbench-server.js";
 import { appendTopicThreadEntry, createWorkbenchTopic, postTopicMessage } from "../../src/workbench/chat.js";
 import { readTopicThreadLog } from "../../src/workbench/thread-log.js";
 import { answerClarification, reanalyzeIntake, runIntakeScan } from "../../src/workbench/intake.js";
-import { getWorkbenchDecompositionPlanProjection, getWorkbenchDecompositionReadinessProjection, getWorkbenchMaintenanceProjection, getWorkbenchRunGraphProjection, getWorkbenchSchedulerContractProjection, getWorkbenchSnapshot, getWorkbenchStream, getWorkbenchTaskQueueProposalProjection, getWorkbenchTopic, getWorkbenchWorkflowGraphPlanProjection, listWorkbenchApprovals, listWorkbenchRoles, listWorkbenchTopics } from "../../src/workbench/manager.js";
+import { getWorkbenchDecompositionPlanProjection, getWorkbenchDecompositionReadinessProjection, getWorkbenchMaintenanceProjection, getWorkbenchRunGraphProjection, getWorkbenchSchedulerContractProjection, getWorkbenchSchedulerDispatchDryRunProjection, getWorkbenchSnapshot, getWorkbenchStream, getWorkbenchTaskQueueProposalProjection, getWorkbenchTopic, getWorkbenchWorkflowGraphPlanProjection, listWorkbenchApprovals, listWorkbenchRoles, listWorkbenchTopics } from "../../src/workbench/manager.js";
 import { WorkbenchStore } from "../../src/workbench/store.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import { collectWorktreeDiff } from "../../src/audit/diff.js";
@@ -43,12 +43,12 @@ import {
   reconcileDemandWorkers,
   writeDemandWorker,
 } from "../../src/demand-worker/manager.js";
-import { createWorktree } from "../../src/worktree/manager.js";
+import { createWorktree, listWorktreeStatuses } from "../../src/worktree/manager.js";
 import { classifyPrFeedbackSnapshotData } from "../../src/pr-feedback/manager.js";
 import { cleanupRemoteBranchAfterMerge, preparePostMergeHandoff, syncLocalAfterMerge } from "../../src/post-merge/manager.js";
 import { mergeNextLandingQueueCandidate, prepareLandingQueue } from "../../src/landing-queue/manager.js";
 import { listTaskQueueItems, listTaskQueues, pauseTaskQueue, reconcileTaskQueues, startOrResumeTaskQueue } from "../../src/task-queue/manager.js";
-import { finishTaskRunFromWorkflowResult, markTaskRunStarted } from "../../src/task-run/manager.js";
+import { finishTaskRunFromWorkflowResult, listTaskRuns, markTaskRunStarted } from "../../src/task-run/manager.js";
 import { appendWorkflowTaskEvent, createWorkflowRunForTaskQueue, listWorkflowRuns, readWorkflowRun, readWorkflowRunEvents, syncWorkflowRunFromQueue, validateTaskQueueProposalStart } from "../../src/workflow-run/manager.js";
 import {
   buildTaskQueueProposalFromReadiness,
@@ -2184,13 +2184,65 @@ describe("workbench read model", () => {
     const after = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: topic.changeId });
     expect(after.center.workpad.schedulerContract).toMatchObject({ id: contract?.id, nodeCount: 2, waveCount: 1, dependencyCount: 0 });
     expect(after.center.workpad.nextAction).toMatchObject({
-      actionType: "planning.scheduler.contract.compile",
+      actionType: "planning.scheduler.dispatch.dry-run",
+      enabled: true,
+      schedulerContractId: contract?.id,
+    });
+    expect(after.right.confirmationQueue.current).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        actions: expect.arrayContaining([
+          expect.objectContaining({
+            actionType: "planning.scheduler.dispatch.dry-run",
+            schedulerContractId: contract?.id,
+          }),
+        ]),
+      }),
+    ]));
+    await expect(executeWorkbenchAction({ project: project(), path: tempDir }, {
+      actionType: "planning.scheduler.dispatch.dry-run",
+      changeId: topic.changeId,
+      schedulerContractId: "forged-contract",
+      confirm: true,
+    })).rejects.toThrow("stale or no longer available");
+
+    const dryRunResult = await executeWorkbenchAction({ project: project(), path: tempDir }, {
+      actionType: "planning.scheduler.dispatch.dry-run",
+      changeId: topic.changeId,
+      schedulerContractId: contract?.id,
+      confirm: true,
+    });
+    const dryRun = (dryRunResult.result as { result?: { dryRun?: { id?: string; schedulerContractId?: string; waveVerdicts?: unknown[]; estimatedMaxWaveWidth?: number } } }).result?.dryRun;
+    expect(dryRun).toMatchObject({
+      schedulerContractId: contract?.id,
+      estimatedMaxWaveWidth: 2,
+    });
+    expect(dryRun?.waveVerdicts).toHaveLength(1);
+    const fullDryRun = await getWorkbenchSchedulerDispatchDryRunProjection({ project: project(), path: tempDir }, topic.changeId, dryRun?.id);
+    expect(fullDryRun).toMatchObject({
+      id: dryRun?.id,
+      status: "generated",
+      schedulerContractId: contract?.id,
+      waveVerdicts: [expect.objectContaining({ nodeIds: expect.arrayContaining(["scheduler-node-001", "scheduler-node-002"]) })],
+    });
+    const dryRunSnapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: topic.changeId });
+    expect(dryRunSnapshot.center.workpad.schedulerDispatchDryRun).toMatchObject({
+      id: dryRun?.id,
+      schedulerContractId: contract?.id,
+      waveCount: 1,
+      estimatedMaxWaveWidth: 2,
+    });
+    expect(dryRunSnapshot.center.workpad.nextAction).toMatchObject({
+      actionType: "planning.scheduler.dispatch.dry-run",
       enabled: false,
       schedulerContractId: contract?.id,
     });
+    expect(dryRunSnapshot.right.confirmationQueue.current.flatMap((item) => item.actions).map((action) => action.actionType))
+      .not.toContain("planning.scheduler.dispatch.dry-run");
     expect(await listTaskQueues(beforeMemory, topic.changeId)).toHaveLength(0);
     expect(await listWorkflowRuns(beforeMemory, topic.changeId)).toHaveLength(0);
+    expect(await listTaskRuns(beforeMemory, topic.changeId)).toHaveLength(0);
     expect(await listAgentTasks(beforeMemory, topic.changeId)).toHaveLength(0);
+    expect(await listWorktreeStatuses(beforeMemory)).toHaveLength(0);
     expect((await listRuns(beforeMemory)).filter((run) => run.changeId === topic.changeId)).toHaveLength(0);
   });
 

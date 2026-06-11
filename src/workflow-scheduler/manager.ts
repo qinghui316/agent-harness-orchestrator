@@ -1,4 +1,5 @@
 export * from "./compiler.js";
+export * from "./dry-run.js";
 export * from "./paths.js";
 export * from "./rendering.js";
 export * from "./repository.js";

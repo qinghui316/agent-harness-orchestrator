@@ -302,6 +302,7 @@ export type Workpad = {
   taskQueueProposal?: TaskQueueProposalSummary;
   workflowGraphPlan?: WorkflowGraphPlanSummary;
   schedulerContract?: SchedulerContractSummary;
+  schedulerDispatchDryRun?: SchedulerDispatchDryRunSummary;
   rolePipeline?: {
     stage: "planning" | "coding" | "validation" | "audit" | "rework" | "done" | "needs-user-input";
     status: "draft" | "running" | "completed" | "needs-user-input" | "stopped";
@@ -475,6 +476,21 @@ export type SchedulerContractSummary = {
   waveCount: number;
   dependencyCount: number;
   conflictCount: number;
+  artifact?: string;
+  markdownArtifact?: string;
+  updatedAt: string;
+};
+export type SchedulerDispatchDryRunSummary = {
+  id: string;
+  changeId: string;
+  schedulerContractId: string;
+  status: "generated" | "superseded" | "rejected";
+  schedulerMode: "parallel-readiness-v1";
+  waveCount: number;
+  nodeCount: number;
+  blockedCount: number;
+  estimatedMaxWaveWidth: number;
+  prerequisiteCount: number;
   artifact?: string;
   markdownArtifact?: string;
   updatedAt: string;
