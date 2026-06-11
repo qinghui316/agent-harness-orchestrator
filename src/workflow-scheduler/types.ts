@@ -4,8 +4,10 @@ import type { DecompositionPlan, DecompositionReadinessManifest } from "../workf
 export type SchedulerContractStatus = "compiled" | "superseded" | "rejected";
 export type SchedulerDispatchDryRunStatus = "generated" | "superseded" | "rejected";
 export type SchedulerWorkerSessionPlanStatus = "planned" | "superseded" | "rejected";
+export type SchedulerClaimReconcilePlanStatus = "planned" | "superseded" | "rejected";
 export type SchedulerMode = "parallel-readiness-v1";
 export type SchedulerWorkerStageStatus = "planned" | "blocked";
+export type SchedulerClaimIntentStatus = "planned" | "blocked";
 export type SchedulerWorkerWorkspaceKind = "future-local-worktree";
 export type SchedulerWorkerAdapterFamily = "codex-code" | "validation-command" | "audit-codex-readonly";
 export type SchedulerWorkerRecoveryKeyCoverage = "complete" | "partial";
@@ -160,6 +162,64 @@ export interface SchedulerWorkerSessionPlan {
   stageCount: number;
   blockedCount: number;
   warningCount: number;
+  recoveryKeyCoverage: SchedulerWorkerRecoveryKeyCoverage;
+  sourceArtifactHashes: Record<string, string>;
+  artifactRefs: string[];
+  artifact: string;
+  markdownArtifact: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SchedulerSourceLockIntent {
+  scope: string;
+  nodeId: string;
+  unitId: string;
+  waveIndex: number;
+  stageIds: string[];
+}
+
+export interface SchedulerClaimIntent {
+  claimIntentId: string;
+  plannedWorkerKey: string;
+  nodeId: string;
+  unitId: string;
+  waveIndex: number;
+  stageIds: string[];
+  roleIds: string[];
+  sourceScopes: string[];
+  status: SchedulerClaimIntentStatus;
+  plannedSlotDemand: number;
+  sourceLockIntents: SchedulerSourceLockIntent[];
+  recoveryKeyInputs: SchedulerWorkerRecoveryKeyInput[];
+  blockedReasons: string[];
+}
+
+export interface SchedulerReconcileWaveCheckpoint {
+  waveIndex: number;
+  claimIntentIds: string[];
+  candidateCount: number;
+  blockedCount: number;
+  plannedSlotDemand: number;
+  blockedReasons: string[];
+}
+
+export interface SchedulerClaimReconcilePlan {
+  version: "1.0";
+  id: string;
+  changeId: string;
+  status: SchedulerClaimReconcilePlanStatus;
+  schedulerMode: SchedulerMode;
+  schedulerContractId: string;
+  schedulerDispatchDryRunId: string;
+  schedulerWorkerPlanId: string;
+  decompositionPlanId: string;
+  readinessManifestId: string;
+  claimIntents: SchedulerClaimIntent[];
+  waveCheckpoints: SchedulerReconcileWaveCheckpoint[];
+  plannedSlotDemand: number;
+  maxPlannedWaveWidth: number;
+  blockedCount: number;
   recoveryKeyCoverage: SchedulerWorkerRecoveryKeyCoverage;
   sourceArtifactHashes: Record<string, string>;
   artifactRefs: string[];

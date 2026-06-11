@@ -3,12 +3,12 @@
 ## Current Handoff
 
 - Current date: 2026-06-11.
-- Active ECL change: none.
+- Active ECL change: `harness/changes/active/phase-9a-scheduler-claim-reconcile-plan-foundation/`.
 - Pending Harness evolution: none. The Phase 8S-8W pending window has been marked complete as `noop/subagent_review` with subagent score `94/100`.
 - Latest archived product change: `harness/changes/archive/20260611-phase-8z-scheduler-worker-session-plan-recovery-contract/summary.md`.
 - Latest archived product/Harness docs change: `harness/changes/archive/20260611-phase-8t-agentscope-harness-reference-alignment/summary.md`.
 - Latest archived Harness evolution: `harness/changes/archive/20260611-auto-evolve-harness-phase-8s-8w-runtime-continuity-evidence/summary.md`.
-- Active product phase: none.
+- Active product phase: Phase 9A Scheduler Claim Reconcile Plan Foundation.
 
 Current baseline:
 
@@ -27,6 +27,7 @@ Current baseline:
 - Phase 8W Runtime Permission External Execution Evidence Contract completed and is archived at `harness/changes/archive/20260611-phase-8w-runtime-permission-external-execution-evidence-contract/summary.md`. It extends Runtime Continuity evidence with typed permission profile, mirrored ToolPolicy decision, and external execution lifecycle events in the existing `agent-events.jsonl` stream without adding a permission engine, Workbench action, route, CLI command, UI/lazy projection, scheduler, parallel executor, or workflow-truth authority.
 - Phase 8Y Scheduler Dispatch Reconcile Dry Run Evidence completed and is archived at `harness/changes/archive/20260611-phase-8y-scheduler-dispatch-reconcile-dry-run-evidence/summary.md`. It adds non-executing Scheduler Dispatch / Reconcile dry-run evidence on top of SchedulerContract without starting workers, allocating leases, creating runtime records, child Changes, ODWF runtime, or cache/replay.
 - Phase 8Z Scheduler Worker Session Plan Recovery Contract completed and is archived at `harness/changes/archive/20260611-phase-8z-scheduler-worker-session-plan-recovery-contract/summary.md`. It adds non-executing Scheduler Worker Session Plan / Recovery Contract evidence after dry-run and before any parallel executor.
+- Phase 9A is active at `harness/changes/active/phase-9a-scheduler-claim-reconcile-plan-foundation/`. It adds non-executing Scheduler Claim / Reconcile Plan evidence after worker-session planning and before any scheduler runtime or parallel executor.
 - The Phase 8S-8W pending Harness evolution window has been marked complete as `noop/subagent_review` with subagent score `94/100`.
 - Phase 6F completed the single-demand local loop through result review and local apply handoff.
 - Phase 6G-Prep completed documentation alignment for Harness handoff, AgentTaskRepository, background maintenance, and two-layer self-evolution boundaries.

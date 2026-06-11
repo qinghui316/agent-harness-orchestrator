@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { SchedulerContract, SchedulerDispatchDryRun, SchedulerWorkerSessionPlan } from "./types.js";
+import type { SchedulerClaimReconcilePlan, SchedulerContract, SchedulerDispatchDryRun, SchedulerWorkerSessionPlan } from "./types.js";
 
 const workerPermissionProfileSchema = z.object({
   version: z.literal("1.0"),
@@ -137,6 +137,61 @@ export const schedulerWorkerSessionPlanSchema: z.ZodType<SchedulerWorkerSessionP
   stageCount: z.number(),
   blockedCount: z.number(),
   warningCount: z.number(),
+  recoveryKeyCoverage: z.enum(["complete", "partial"]),
+  sourceArtifactHashes: z.record(z.string()),
+  artifactRefs: z.array(z.string()),
+  artifact: z.string(),
+  markdownArtifact: z.string(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+
+export const schedulerClaimReconcilePlanSchema: z.ZodType<SchedulerClaimReconcilePlan> = z.object({
+  version: z.literal("1.0"),
+  id: z.string(),
+  changeId: z.string(),
+  status: z.enum(["planned", "superseded", "rejected"]),
+  schedulerMode: z.literal("parallel-readiness-v1"),
+  schedulerContractId: z.string(),
+  schedulerDispatchDryRunId: z.string(),
+  schedulerWorkerPlanId: z.string(),
+  decompositionPlanId: z.string(),
+  readinessManifestId: z.string(),
+  claimIntents: z.array(z.object({
+    claimIntentId: z.string(),
+    plannedWorkerKey: z.string(),
+    nodeId: z.string(),
+    unitId: z.string(),
+    waveIndex: z.number(),
+    stageIds: z.array(z.string()),
+    roleIds: z.array(z.string()),
+    sourceScopes: z.array(z.string()),
+    status: z.enum(["planned", "blocked"]),
+    plannedSlotDemand: z.number(),
+    sourceLockIntents: z.array(z.object({
+      scope: z.string(),
+      nodeId: z.string(),
+      unitId: z.string(),
+      waveIndex: z.number(),
+      stageIds: z.array(z.string()),
+    })),
+    recoveryKeyInputs: z.array(z.object({
+      key: z.string(),
+      value: z.union([z.string(), z.array(z.string())]),
+    })),
+    blockedReasons: z.array(z.string()),
+  })),
+  waveCheckpoints: z.array(z.object({
+    waveIndex: z.number(),
+    claimIntentIds: z.array(z.string()),
+    candidateCount: z.number(),
+    blockedCount: z.number(),
+    plannedSlotDemand: z.number(),
+    blockedReasons: z.array(z.string()),
+  })),
+  plannedSlotDemand: z.number(),
+  maxPlannedWaveWidth: z.number(),
+  blockedCount: z.number(),
   recoveryKeyCoverage: z.enum(["complete", "partial"]),
   sourceArtifactHashes: z.record(z.string()),
   artifactRefs: z.array(z.string()),

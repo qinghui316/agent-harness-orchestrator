@@ -48,3 +48,19 @@ export function latestSchedulerWorkerSessionPlanPath(memory: ResolvedMemory, cha
 export function latestSchedulerWorkerSessionPlanMarkdownPath(memory: ResolvedMemory, changePath: string): string {
   return join(memory.memoryRoot, changePath, "planning", "scheduler-worker-session-plan.md");
 }
+
+export function schedulerClaimReconcilePlansDir(memory: ResolvedMemory, changePath: string): string {
+  return join(memory.memoryRoot, changePath, "planning", "scheduler-claim-reconcile-plans");
+}
+
+export function schedulerClaimReconcilePlanPath(memory: ResolvedMemory, changePath: string, claimReconcilePlanId: string): string {
+  return join(schedulerClaimReconcilePlansDir(memory, changePath), `${claimReconcilePlanId}.json`);
+}
+
+export function latestSchedulerClaimReconcilePlanPath(memory: ResolvedMemory, changePath: string): string {
+  return join(memory.memoryRoot, changePath, "planning", "scheduler-claim-reconcile-plan.json");
+}
+
+export function latestSchedulerClaimReconcilePlanMarkdownPath(memory: ResolvedMemory, changePath: string): string {
+  return join(memory.memoryRoot, changePath, "planning", "scheduler-claim-reconcile-plan.md");
+}

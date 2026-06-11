@@ -95,6 +95,8 @@ Phase 8Y adds the next scheduler-readiness step as a non-executing Scheduler Dis
 
 Phase 8Z adds the next non-executing scheduler foundation: a `SchedulerWorkerSessionPlan` / recovery contract compiled from a scoped SchedulerDispatchDryRun. It records future worker-session, workspace intent, permission profile, event source, and recovery-key inputs by node/stage so a later scheduler implementation does not infer those boundaries from prose. It is still evidence only and must not create Runtime Continuity sidecars, TaskRuns, WorkerLeases, WorkflowRuns, worktrees, runs, child Changes, or scheduler runtime state.
 
+Phase 9A adds a non-executing `SchedulerClaimReconcilePlan` after `SchedulerWorkerSessionPlan`. It records future claim eligibility, planned worker keys, source lock intent, planned slot demand, wave reconcile checkpoints, blocked reasons, recovery-key coverage, and source artifact hashes. It is scheduler coordination evidence only: it must not create real WorkerLease ids, WorkerSession ids, Runtime Continuity sidecars, TaskRuns, WorkflowRuns, worktrees, runs, child Changes, slot allocator state, or a scheduler loop.
+
 Workbench relationship:
 
 ```text

@@ -142,6 +142,11 @@ export function summarizeActionResult(actionType: string, result: unknown): stri
       ? `Scheduler worker session plan ${result.workerPlan.id} compiled. No execution was started.`
       : "Scheduler worker session plan compiled. No execution was started.";
   }
+  if (actionType === "planning.scheduler.claim-reconcile.compile" && isRecord(result) && isRecord(result.claimReconcilePlan)) {
+    return typeof result.claimReconcilePlan.id === "string"
+      ? `Scheduler claim/reconcile plan ${result.claimReconcilePlan.id} compiled. No execution was started.`
+      : "Scheduler claim/reconcile plan compiled. No execution was started.";
+  }
   if (actionType === "planning.confirm-execution" && isRecord(result)) {
     return "Planning confirmed and canonical artifacts were written. No execution was started.";
   }
@@ -182,6 +187,7 @@ export function labelForAction(actionType: string): string {
     case "planning.scheduler.contract.compile": return "SchedulerContract compiled";
     case "planning.scheduler.dispatch.dry-run": return "Scheduler dispatch dry-run generated";
     case "planning.scheduler.worker-plan.compile": return "Scheduler worker session plan compiled";
+    case "planning.scheduler.claim-reconcile.compile": return "Scheduler claim/reconcile plan compiled";
     case "planning.workflowgraph.compile": return "WorkflowGraphPlan compiled";
     case "planning.taskqueue.confirm-start": return "TaskQueueProposal confirmed and started";
     case "orchestrator.evaluate": return "Main orchestrator evaluated";

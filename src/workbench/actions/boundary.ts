@@ -19,8 +19,10 @@ import {
 import {
   readLatestSchedulerContract,
   readLatestSchedulerDispatchDryRun,
+  readLatestSchedulerWorkerSessionPlan,
   readSchedulerContract,
   readSchedulerDispatchDryRun,
+  readSchedulerWorkerSessionPlan,
 } from "../../workflow-scheduler/manager.js";
 import {
   assertWorkflowActionRequiredTargets,
@@ -185,6 +187,30 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
     }
     const latestContract = await readLatestSchedulerContract(memory, target.path);
     if (latestContract.id !== contract.id) throw new Error("planning.scheduler.worker-plan.compile requires the latest SchedulerContract.");
+  }
+  if (request.actionType === "planning.scheduler.claim-reconcile.compile") {
+    const active = await getActiveChanges(memory);
+    const target = active.find((item) => item.name === changeId);
+    if (!target) throw new Error(`planning.scheduler.claim-reconcile.compile target is stale or missing active Change: ${changeId}.`);
+    if (!request.schedulerWorkerPlanId) throw new Error("planning.scheduler.claim-reconcile.compile requires schedulerWorkerPlanId.");
+    const workerPlan = await readSchedulerWorkerSessionPlan(memory, target.path, request.schedulerWorkerPlanId);
+    if (workerPlan.id !== request.schedulerWorkerPlanId || workerPlan.changeId !== changeId || workerPlan.status !== "planned") {
+      throw new Error("planning.scheduler.claim-reconcile.compile SchedulerWorkerSessionPlan target is stale.");
+    }
+    const latestWorkerPlan = await readLatestSchedulerWorkerSessionPlan(memory, target.path);
+    if (latestWorkerPlan.id !== workerPlan.id) throw new Error("planning.scheduler.claim-reconcile.compile requires the latest SchedulerWorkerSessionPlan.");
+    const dryRun = await readSchedulerDispatchDryRun(memory, target.path, workerPlan.schedulerDispatchDryRunId);
+    if (dryRun.id !== workerPlan.schedulerDispatchDryRunId || dryRun.changeId !== changeId || dryRun.status !== "generated") {
+      throw new Error("planning.scheduler.claim-reconcile.compile SchedulerDispatchDryRun lineage is stale.");
+    }
+    const latestDryRun = await readLatestSchedulerDispatchDryRun(memory, target.path);
+    if (latestDryRun.id !== dryRun.id) throw new Error("planning.scheduler.claim-reconcile.compile requires the latest SchedulerDispatchDryRun.");
+    const contract = await readSchedulerContract(memory, target.path, workerPlan.schedulerContractId);
+    if (contract.id !== workerPlan.schedulerContractId || contract.id !== dryRun.schedulerContractId || contract.changeId !== changeId || contract.status !== "compiled") {
+      throw new Error("planning.scheduler.claim-reconcile.compile SchedulerContract lineage is stale.");
+    }
+    const latestContract = await readLatestSchedulerContract(memory, target.path);
+    if (latestContract.id !== contract.id) throw new Error("planning.scheduler.claim-reconcile.compile requires the latest SchedulerContract.");
   }
   if (request.actionType === "planning.workflowgraph.compile") {
     const active = await getActiveChanges(memory);

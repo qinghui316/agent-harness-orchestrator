@@ -12,12 +12,15 @@ import {
   type WorkflowGraphPlan,
 } from "../workflow-artifacts/manager.js";
 import {
+  readLatestSchedulerClaimReconcilePlan,
   readLatestSchedulerDispatchDryRun,
   readLatestSchedulerContract,
   readLatestSchedulerWorkerSessionPlan,
+  readSchedulerClaimReconcilePlan,
   readSchedulerDispatchDryRun,
   readSchedulerContract,
   readSchedulerWorkerSessionPlan,
+  type SchedulerClaimReconcilePlan,
   type SchedulerWorkerSessionPlan,
   type SchedulerDispatchDryRun,
   type SchedulerContract,
@@ -132,6 +135,25 @@ export interface WorkbenchSchedulerWorkerSessionPlanSummary {
   updatedAt: string;
 }
 
+export interface WorkbenchSchedulerClaimReconcilePlanSummary {
+  id: string;
+  changeId: string;
+  status: SchedulerClaimReconcilePlan["status"];
+  schedulerMode: SchedulerClaimReconcilePlan["schedulerMode"];
+  schedulerContractId: string;
+  schedulerDispatchDryRunId: string;
+  schedulerWorkerPlanId: string;
+  waveCount: number;
+  claimIntentCount: number;
+  plannedSlotDemand: number;
+  maxPlannedWaveWidth: number;
+  blockedCount: number;
+  recoveryKeyCoverage: SchedulerClaimReconcilePlan["recoveryKeyCoverage"];
+  artifact?: string;
+  markdownArtifact?: string;
+  updatedAt: string;
+}
+
 type WorkflowProjectionActionType =
   | "intake.scan"
   | "intake.reanalyze"
@@ -144,6 +166,7 @@ type WorkflowProjectionActionType =
   | "planning.scheduler.contract.compile"
   | "planning.scheduler.dispatch.dry-run"
   | "planning.scheduler.worker-plan.compile"
+  | "planning.scheduler.claim-reconcile.compile"
   | "planning.workflowgraph.compile"
   | "planning.taskqueue.confirm-start"
   | "code.run";
@@ -164,6 +187,7 @@ export interface WorkbenchTypedWorkflowNextAction {
   schedulerContractId?: string;
   schedulerDispatchDryRunId?: string;
   schedulerWorkerPlanId?: string;
+  schedulerClaimReconcilePlanId?: string;
   disabledReason?: string;
 }
 
@@ -329,6 +353,29 @@ export async function readLatestSchedulerWorkerSessionPlanSummary(memory: Resolv
   };
 }
 
+export async function readLatestSchedulerClaimReconcilePlanSummary(memory: ResolvedMemory, changePath: string): Promise<WorkbenchSchedulerClaimReconcilePlanSummary | null> {
+  const plan = await readLatestSchedulerClaimReconcilePlan(memory, changePath).catch(() => null);
+  if (!plan) return null;
+  return {
+    id: plan.id,
+    changeId: plan.changeId,
+    status: plan.status,
+    schedulerMode: plan.schedulerMode,
+    schedulerContractId: plan.schedulerContractId,
+    schedulerDispatchDryRunId: plan.schedulerDispatchDryRunId,
+    schedulerWorkerPlanId: plan.schedulerWorkerPlanId,
+    waveCount: plan.waveCheckpoints.length,
+    claimIntentCount: plan.claimIntents.length,
+    plannedSlotDemand: plan.plannedSlotDemand,
+    maxPlannedWaveWidth: plan.maxPlannedWaveWidth,
+    blockedCount: plan.blockedCount,
+    recoveryKeyCoverage: plan.recoveryKeyCoverage,
+    artifact: plan.artifact,
+    markdownArtifact: plan.markdownArtifact,
+    updatedAt: plan.updatedAt,
+  };
+}
+
 export function readDecompositionPlanProjection(memory: ResolvedMemory, changePath: string): Promise<DecompositionPlan | null> {
   return readLatestDecompositionPlan(memory, changePath).catch(() => null);
 }
@@ -365,6 +412,12 @@ export function readSchedulerWorkerSessionPlanProjection(memory: ResolvedMemory,
     : readLatestSchedulerWorkerSessionPlan(memory, changePath).catch(() => null);
 }
 
+export function readSchedulerClaimReconcilePlanProjection(memory: ResolvedMemory, changePath: string, claimReconcilePlanId?: string): Promise<SchedulerClaimReconcilePlan | null> {
+  return claimReconcilePlanId
+    ? readSchedulerClaimReconcilePlan(memory, changePath, claimReconcilePlanId).catch(() => null)
+    : readLatestSchedulerClaimReconcilePlan(memory, changePath).catch(() => null);
+}
+
 export function buildTypedWorkflowNextAction(input: {
   topic: TypedWorkflowProjectionTopic;
   readiness: TypedWorkflowProjectionReadiness;
@@ -377,9 +430,10 @@ export function buildTypedWorkflowNextAction(input: {
   schedulerContract?: WorkbenchSchedulerContractSummary | null;
   schedulerDispatchDryRun?: WorkbenchSchedulerDispatchDryRunSummary | null;
   schedulerWorkerSessionPlan?: WorkbenchSchedulerWorkerSessionPlanSummary | null;
+  schedulerClaimReconcilePlan?: WorkbenchSchedulerClaimReconcilePlanSummary | null;
   workflowRun?: WorkflowRunSummary | null;
 }): WorkbenchTypedWorkflowNextAction {
-  const { topic, readiness, intake, planningBundle, decompositionPlan, decompositionReadiness, taskQueueProposal, workflowGraphPlan, schedulerContract, schedulerDispatchDryRun, schedulerWorkerSessionPlan, workflowRun } = input;
+  const { topic, readiness, intake, planningBundle, decompositionPlan, decompositionReadiness, taskQueueProposal, workflowGraphPlan, schedulerContract, schedulerDispatchDryRun, schedulerWorkerSessionPlan, schedulerClaimReconcilePlan, workflowRun } = input;
   if (!readiness.specReady && !topic.runs.some((run) => run.runtime === "intake-scan")) {
     return workflowNextAction("intake.scan", "分析需求", "先只读扫描项目，整理当前理解、相关文件和待确认问题。", false);
   }
@@ -450,13 +504,22 @@ export function buildTypedWorkflowNextAction(input: {
         schedulerDispatchDryRunId: schedulerDispatchDryRun.id,
       };
     }
+    if (!schedulerClaimReconcilePlan || schedulerClaimReconcilePlan.schedulerWorkerPlanId !== schedulerWorkerSessionPlan.id || schedulerClaimReconcilePlan.status !== "planned") {
+      return {
+        ...workflowNextAction("planning.scheduler.claim-reconcile.compile", "编译 Claim / Reconcile Plan", "基于 Worker Session Plan 生成 claim eligibility / source lock / reconcile checkpoint 合同；不会分配 lease 或启动 worker。"),
+        schedulerContractId: schedulerContract.id,
+        schedulerDispatchDryRunId: schedulerDispatchDryRun.id,
+        schedulerWorkerPlanId: schedulerWorkerSessionPlan.id,
+      };
+    }
     return {
-      ...workflowNextAction("planning.scheduler.worker-plan.compile", "Worker Session Plan 已生成", "已生成非执行 worker session plan；当前阶段不提供 parallel start 控件。"),
+      ...workflowNextAction("planning.scheduler.claim-reconcile.compile", "Claim / Reconcile Plan 已生成", "已生成非执行 claim/reconcile plan；当前阶段不提供 parallel start 控件。"),
       enabled: false,
       schedulerContractId: schedulerContract.id,
       schedulerDispatchDryRunId: schedulerDispatchDryRun.id,
       schedulerWorkerPlanId: schedulerWorkerSessionPlan.id,
-      disabledReason: "Phase 8Z 只生成 SchedulerWorkerSessionPlan，不启动并行执行。",
+      schedulerClaimReconcilePlanId: schedulerClaimReconcilePlan.id,
+      disabledReason: "Phase 9A 只生成 SchedulerClaimReconcilePlan，不启动并行执行。",
     };
   }
   return {

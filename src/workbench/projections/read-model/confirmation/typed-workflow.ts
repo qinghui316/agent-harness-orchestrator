@@ -116,7 +116,36 @@ export function taskQueueProposalToConfirmationItems(
       const dryRun = workpad.schedulerDispatchDryRun;
       if (dryRun?.status === "generated" && dryRun.schedulerContractId === contract.id) {
         const workerPlan = workpad.schedulerWorkerSessionPlan;
-        if (workerPlan?.status === "planned" && workerPlan.schedulerDispatchDryRunId === dryRun.id) return [];
+        if (workerPlan?.status === "planned" && workerPlan.schedulerDispatchDryRunId === dryRun.id) {
+          const claimReconcilePlan = workpad.schedulerClaimReconcilePlan;
+          if (claimReconcilePlan?.status === "planned" && claimReconcilePlan.schedulerWorkerPlanId === workerPlan.id) return [];
+          return [{
+            id: `confirm:scheduler-claim-reconcile-plan:${selectedTopic.id}:${workerPlan.id}`,
+            kind: "planning-confirm",
+            projectId: project?.id ?? null,
+            conversationId: selectedTopic.id,
+            changeId: selectedTopic.id,
+            summary: "Scheduler Worker Session Plan 已生成，可编译 Claim / Reconcile Plan。",
+            whyNeedsConfirmation: "需要你确认生成 SchedulerClaimReconcilePlan。claim/reconcile plan 不会分配 lease、创建 WorkerSession 或启动 scheduler。",
+            confirmEffect: "写入 scheduler-claim-reconcile-plan.json/.md 和 versioned claim/reconcile artifact；不会创建 WorkerLease、WorkerSession、RuntimeWorkspace、EventSource、WorkflowRun、TaskQueue、TaskRun、AgentTask、worktree 或 run。",
+            riskSummary: "Claim / Reconcile Plan 只是未来 claim eligibility、source lock、slot demand、reconcile checkpoint 合同，不是执行授权。",
+            evidenceRefs: workerPlan.artifact ? [workerPlan.artifact] : [],
+            actions: [{
+              id: `workflow:planning.scheduler.claim-reconcile.compile:${selectedTopic.id}:${workerPlan.id}`,
+              label: "编译 Claim / Reconcile Plan",
+              kind: "workflow-action",
+              changeId: selectedTopic.id,
+              actionType: "planning.scheduler.claim-reconcile.compile",
+              schedulerContractId: contract.id,
+              schedulerDispatchDryRunId: dryRun.id,
+              schedulerWorkerPlanId: workerPlan.id,
+              enabled: true,
+              requiresConfirmation: true,
+            }],
+            primary: false,
+            status: "pending",
+          }];
+        }
         return [{
           id: `confirm:scheduler-worker-plan:${selectedTopic.id}:${dryRun.id}`,
           kind: "planning-confirm",

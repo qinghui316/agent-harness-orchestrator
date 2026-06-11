@@ -161,6 +161,7 @@ export type WorkpadNextAction = {
   schedulerContractId?: string;
   schedulerDispatchDryRunId?: string;
   schedulerWorkerPlanId?: string;
+  schedulerClaimReconcilePlanId?: string;
   workflowRunId?: string;
   queueRunId?: string;
   taskIds?: string[];
@@ -191,6 +192,7 @@ export type WorkbenchTaskNextAction = {
   schedulerContractId?: string;
   schedulerDispatchDryRunId?: string;
   schedulerWorkerPlanId?: string;
+  schedulerClaimReconcilePlanId?: string;
   workflowRunId?: string;
   queueRunId?: string;
   enabled: boolean;
@@ -308,6 +310,7 @@ export type Workpad = {
   schedulerContract?: SchedulerContractSummary;
   schedulerDispatchDryRun?: SchedulerDispatchDryRunSummary;
   schedulerWorkerSessionPlan?: SchedulerWorkerSessionPlanSummary;
+  schedulerClaimReconcilePlan?: SchedulerClaimReconcilePlanSummary;
   rolePipeline?: {
     stage: "planning" | "coding" | "validation" | "audit" | "rework" | "done" | "needs-user-input";
     status: "draft" | "running" | "completed" | "needs-user-input" | "stopped";
@@ -516,6 +519,24 @@ export type SchedulerWorkerSessionPlanSummary = {
   markdownArtifact?: string;
   updatedAt: string;
 };
+export type SchedulerClaimReconcilePlanSummary = {
+  id: string;
+  changeId: string;
+  schedulerContractId: string;
+  schedulerDispatchDryRunId: string;
+  schedulerWorkerPlanId: string;
+  status: "planned" | "superseded" | "rejected";
+  schedulerMode: "parallel-readiness-v1";
+  waveCount: number;
+  claimIntentCount: number;
+  plannedSlotDemand: number;
+  maxPlannedWaveWidth: number;
+  blockedCount: number;
+  recoveryKeyCoverage: "complete" | "partial";
+  artifact?: string;
+  markdownArtifact?: string;
+  updatedAt: string;
+};
 export type PlanCard = {
   title: string;
   summary: string;
@@ -537,6 +558,7 @@ export type ThreadStreamAction = {
   schedulerContractId?: string;
   schedulerDispatchDryRunId?: string;
   schedulerWorkerPlanId?: string;
+  schedulerClaimReconcilePlanId?: string;
   workflowRunId?: string;
   queueRunId?: string;
   taskIds?: string[];
@@ -617,6 +639,7 @@ export type DecisionAction = {
   schedulerContractId?: string;
   schedulerDispatchDryRunId?: string;
   schedulerWorkerPlanId?: string;
+  schedulerClaimReconcilePlanId?: string;
   workflowRunId?: string;
   queueRunId?: string;
   taskIds?: string[];

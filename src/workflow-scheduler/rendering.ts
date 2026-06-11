@@ -1,4 +1,4 @@
-import type { SchedulerContract, SchedulerDispatchDryRun, SchedulerWorkerSessionPlan } from "./types.js";
+import type { SchedulerClaimReconcilePlan, SchedulerContract, SchedulerDispatchDryRun, SchedulerWorkerSessionPlan } from "./types.js";
 
 export function renderSchedulerContractMarkdown(contract: SchedulerContract): string {
   const lines = [
@@ -154,6 +154,67 @@ export function renderSchedulerWorkerSessionPlanMarkdown(plan: SchedulerWorkerSe
     "## Boundary",
     "",
     "This worker session plan is non-executing evidence. It does not create Runtime Continuity sidecars, TaskRuns, WorkerLeases, AgentTasks, worktrees, runs, child Changes, or scheduler loops.",
+    "",
+  ];
+  return lines.join("\n");
+}
+
+export function renderSchedulerClaimReconcilePlanMarkdown(plan: SchedulerClaimReconcilePlan): string {
+  const lines = [
+    `# SchedulerClaimReconcilePlan ${plan.id}`,
+    "",
+    `Status: ${plan.status}`,
+    `Mode: ${plan.schedulerMode}`,
+    `Change: ${plan.changeId}`,
+    `SchedulerContract: ${plan.schedulerContractId}`,
+    `SchedulerDispatchDryRun: ${plan.schedulerDispatchDryRunId}`,
+    `SchedulerWorkerSessionPlan: ${plan.schedulerWorkerPlanId}`,
+    `DecompositionPlan: ${plan.decompositionPlanId}`,
+    `ReadinessManifest: ${plan.readinessManifestId}`,
+    "",
+    "## Summary",
+    "",
+    `- Claim intents: ${plan.claimIntents.length}`,
+    `- Waves: ${plan.waveCheckpoints.length}`,
+    `- Planned slot demand: ${plan.plannedSlotDemand}`,
+    `- Max planned wave width: ${plan.maxPlannedWaveWidth}`,
+    `- Blocked entries: ${plan.blockedCount}`,
+    `- Recovery key coverage: ${plan.recoveryKeyCoverage}`,
+    "",
+    "## Wave Reconcile Checkpoints",
+    "",
+    ...plan.waveCheckpoints.map((wave) => [
+      `### Wave ${wave.waveIndex + 1}`,
+      "",
+      `- Claim intents: ${wave.claimIntentIds.join(", ") || "none"}`,
+      `- Candidate claims: ${wave.candidateCount}`,
+      `- Blocked claims: ${wave.blockedCount}`,
+      `- Planned slot demand: ${wave.plannedSlotDemand}`,
+      `- Blocked reasons: ${wave.blockedReasons.length ? wave.blockedReasons.join("; ") : "none"}`,
+      "",
+    ].join("\n")),
+    "## Claim Intents",
+    "",
+    ...plan.claimIntents.map((claim) => [
+      `### ${claim.claimIntentId}`,
+      "",
+      `- Planned worker key: ${claim.plannedWorkerKey}`,
+      `- Node: ${claim.nodeId}`,
+      `- Unit: ${claim.unitId}`,
+      `- Wave: ${claim.waveIndex + 1}`,
+      `- Status: ${claim.status}`,
+      `- Stages: ${claim.stageIds.join(", ") || "none"}`,
+      `- Roles: ${claim.roleIds.join(", ") || "none"}`,
+      `- Source scopes: ${claim.sourceScopes.join(", ") || "none"}`,
+      `- Planned slot demand: ${claim.plannedSlotDemand}`,
+      `- Source lock intents: ${claim.sourceLockIntents.map((intent) => intent.scope).join(", ") || "none"}`,
+      `- Recovery keys: ${claim.recoveryKeyInputs.map((item) => item.key).join(", ") || "none"}`,
+      `- Blocked reasons: ${claim.blockedReasons.length ? claim.blockedReasons.join("; ") : "none"}`,
+      "",
+    ].join("\n")),
+    "## Boundary",
+    "",
+    "This claim/reconcile plan is non-executing evidence. It does not create WorkerLeases, WorkerSessions, Runtime Continuity sidecars, TaskRuns, AgentTasks, worktrees, runs, child Changes, scheduler loops, slot allocators, or parallel execution authorization.",
     "",
   ];
   return lines.join("\n");

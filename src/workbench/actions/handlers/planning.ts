@@ -33,12 +33,16 @@ import {
 import {
   compileSchedulerDispatchDryRun,
   compileSchedulerContract,
+  compileSchedulerClaimReconcilePlan,
   compileSchedulerWorkerSessionPlan,
   readSchedulerContract,
   readSchedulerDispatchDryRun,
+  readSchedulerWorkerSessionPlan,
+  renderSchedulerClaimReconcilePlanMarkdown,
   renderSchedulerDispatchDryRunMarkdown,
   renderSchedulerContractMarkdown,
   renderSchedulerWorkerSessionPlanMarkdown,
+  type SchedulerClaimReconcilePlan,
   type SchedulerContract,
   type SchedulerDispatchDryRun,
   type SchedulerWorkerSessionPlan,
@@ -609,6 +613,59 @@ export async function compilePlanningSchedulerWorkerSessionPlan(
     completedAt: new Date().toISOString(),
   });
   return { workerPlan, executionStarted: false };
+}
+
+export async function compilePlanningSchedulerClaimReconcilePlan(
+  project: ManagedProject,
+  changeId: string,
+  request: WorkbenchWorkflowActionRequest,
+  live: WorkbenchLiveSink | undefined,
+): Promise<{ claimReconcilePlan: SchedulerClaimReconcilePlan; executionStarted: false }> {
+  const { memory, changePath } = await resolveTopic(project, changeId);
+  assertWritableMemory(memory, "Scheduler claim/reconcile plan");
+  if (!request.schedulerWorkerPlanId) throw new Error("planning.scheduler.claim-reconcile.compile requires schedulerWorkerPlanId.");
+  const workerPlan = await readSchedulerWorkerSessionPlan(memory, changePath, request.schedulerWorkerPlanId);
+  if (workerPlan.id !== request.schedulerWorkerPlanId || workerPlan.changeId !== changeId || workerPlan.status !== "planned") {
+    throw new Error("planning.scheduler.claim-reconcile.compile SchedulerWorkerSessionPlan target is stale.");
+  }
+  const dryRun = await readSchedulerDispatchDryRun(memory, changePath, workerPlan.schedulerDispatchDryRunId);
+  if (dryRun.id !== workerPlan.schedulerDispatchDryRunId || dryRun.changeId !== changeId || dryRun.status !== "generated") {
+    throw new Error("planning.scheduler.claim-reconcile.compile SchedulerDispatchDryRun lineage is stale.");
+  }
+  const contract = await readSchedulerContract(memory, changePath, workerPlan.schedulerContractId);
+  if (contract.id !== workerPlan.schedulerContractId || contract.id !== dryRun.schedulerContractId || contract.changeId !== changeId || contract.status !== "compiled") {
+    throw new Error("planning.scheduler.claim-reconcile.compile SchedulerContract lineage is stale.");
+  }
+  const claimReconcilePlan = await compileSchedulerClaimReconcilePlan(memory, changePath, workerPlan, dryRun, contract);
+  await appendTopicThreadEntry(project, changeId, {
+    type: "assistant.message",
+    status: "scheduler-claim-reconcile-plan-compiled",
+    text: renderSchedulerClaimReconcilePlanMarkdown(claimReconcilePlan),
+    artifact: claimReconcilePlan.artifact,
+  });
+  emitAssistantEvent(live, {
+    runId: claimReconcilePlan.id,
+    kind: "file-change",
+    phase: "scheduler-claim-reconcile-plan-compiled",
+    title: "Scheduler claim/reconcile plan compiled",
+    summary: "A non-executing claim/reconcile plan was generated; no lease, worker session, scheduler loop, worker, run, worktree, or child Change was created.",
+    artifactRef: claimReconcilePlan.artifact,
+  });
+  await recordWorkbenchDecision(project, {
+    id: `scheduler-claim-reconcile:${claimReconcilePlan.id}`,
+    changeId,
+    decisionType: "planning.scheduler.claim-reconcile.compile",
+    status: "completed",
+    label: "Claim / Reconcile Plan 已编译",
+    summary: "Generated a non-executing SchedulerClaimReconcilePlan from a worker session plan.",
+    targetId: claimReconcilePlan.id,
+    runId: null,
+    artifact: claimReconcilePlan.artifact,
+    actionId: "planning.scheduler.claim-reconcile.compile",
+    payload: { claimReconcilePlan },
+    completedAt: new Date().toISOString(),
+  });
+  return { claimReconcilePlan, executionStarted: false };
 }
 
 export async function confirmTaskQueueProposalAndStart(

@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-11T06:13:43.7232565Z",
+    "generated_at":  "2026-06-11T07:11:44.9577428Z",
     "active":  [
 
                ],
@@ -633,6 +633,10 @@
                     {
                         "name":  "20260611-phase-8z-scheduler-worker-session-plan-recovery-contract",
                         "path":  "harness/changes/archive/20260611-phase-8z-scheduler-worker-session-plan-recovery-contract"
+                    },
+                    {
+                        "name":  "20260611-phase-9a-scheduler-claim-reconcile-plan-foundation",
+                        "path":  "harness/changes/archive/20260611-phase-9a-scheduler-claim-reconcile-plan-foundation"
                     }
                 ]
 }

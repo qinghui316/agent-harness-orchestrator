@@ -10,6 +10,7 @@ import {
   getWorkbenchWorkflowGraphPlanProjection,
   getWorkbenchSchedulerContractProjection,
   getWorkbenchSchedulerDispatchDryRunProjection,
+  getWorkbenchSchedulerClaimReconcilePlanProjection,
   getWorkbenchSchedulerWorkerSessionPlanProjection,
   getWorkbenchWorkflowRunProjection,
   getWorkbenchWorkpadProjection,
@@ -63,6 +64,10 @@ export async function getWorkbenchProjection(input: WorkbenchProjectInput, rest:
   if (kind === "scheduler-worker-plan") {
     if (!changeId) throw badRequest("scheduler-worker-plan projection requires changeId.");
     return getWorkbenchSchedulerWorkerSessionPlanProjection(input, changeId, id);
+  }
+  if (kind === "scheduler-claim-reconcile-plan") {
+    if (!changeId) throw badRequest("scheduler-claim-reconcile-plan projection requires changeId.");
+    return getWorkbenchSchedulerClaimReconcilePlanProjection(input, changeId, id);
   }
   if (kind === "workflow-run") {
     if (!changeId) throw badRequest("workflow-run projection requires changeId.");

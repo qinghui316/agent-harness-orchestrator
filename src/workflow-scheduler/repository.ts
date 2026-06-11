@@ -7,20 +7,24 @@ import { assertWorkflowArtifactScope } from "../workflow-artifacts/guards.js";
 import {
   latestSchedulerContractMarkdownPath,
   latestSchedulerContractPath,
+  latestSchedulerClaimReconcilePlanMarkdownPath,
+  latestSchedulerClaimReconcilePlanPath,
   latestSchedulerDispatchDryRunMarkdownPath,
   latestSchedulerDispatchDryRunPath,
   latestSchedulerWorkerSessionPlanMarkdownPath,
   latestSchedulerWorkerSessionPlanPath,
   schedulerContractPath,
   schedulerContractsDir,
+  schedulerClaimReconcilePlanPath,
+  schedulerClaimReconcilePlansDir,
   schedulerDispatchDryRunPath,
   schedulerDispatchDryRunsDir,
   schedulerWorkerSessionPlanPath,
   schedulerWorkerSessionPlansDir,
 } from "./paths.js";
-import { renderSchedulerContractMarkdown, renderSchedulerDispatchDryRunMarkdown, renderSchedulerWorkerSessionPlanMarkdown } from "./rendering.js";
-import { schedulerContractSchema, schedulerDispatchDryRunSchema, schedulerWorkerSessionPlanSchema } from "./schemas.js";
-import type { SchedulerContract, SchedulerDispatchDryRun, SchedulerWorkerSessionPlan } from "./types.js";
+import { renderSchedulerClaimReconcilePlanMarkdown, renderSchedulerContractMarkdown, renderSchedulerDispatchDryRunMarkdown, renderSchedulerWorkerSessionPlanMarkdown } from "./rendering.js";
+import { schedulerClaimReconcilePlanSchema, schedulerContractSchema, schedulerDispatchDryRunSchema, schedulerWorkerSessionPlanSchema } from "./schemas.js";
+import type { SchedulerClaimReconcilePlan, SchedulerContract, SchedulerDispatchDryRun, SchedulerWorkerSessionPlan } from "./types.js";
 
 export async function writeSchedulerContract(memory: ResolvedMemory, changePath: string, contract: SchedulerContract): Promise<void> {
   await assertWorkflowArtifactScope(memory, changePath, contract, "SchedulerContract");
@@ -109,5 +113,35 @@ export function schedulerWorkerSessionPlanArtifactRefs(memory: ResolvedMemory, c
   return {
     artifact: displayArtifactPath(memory, join(dir, `${workerPlanId}.json`)),
     markdownArtifact: displayArtifactPath(memory, join(dir, `${workerPlanId}.md`)),
+  };
+}
+
+export async function writeSchedulerClaimReconcilePlan(memory: ResolvedMemory, changePath: string, plan: SchedulerClaimReconcilePlan): Promise<void> {
+  await assertWorkflowArtifactScope(memory, changePath, plan, "SchedulerClaimReconcilePlan");
+  const dir = schedulerClaimReconcilePlansDir(memory, changePath);
+  await mkdir(dir, { recursive: true });
+  await writeJsonFile(join(dir, `${plan.id}.json`), plan);
+  await writeFile(join(dir, `${plan.id}.md`), renderSchedulerClaimReconcilePlanMarkdown(plan), "utf8");
+  await writeJsonFile(latestSchedulerClaimReconcilePlanPath(memory, changePath), plan);
+  await writeFile(latestSchedulerClaimReconcilePlanMarkdownPath(memory, changePath), renderSchedulerClaimReconcilePlanMarkdown(plan), "utf8");
+}
+
+export async function readLatestSchedulerClaimReconcilePlan(memory: ResolvedMemory, changePath: string): Promise<SchedulerClaimReconcilePlan> {
+  const plan = await readRequiredJsonFile(latestSchedulerClaimReconcilePlanPath(memory, changePath), schedulerClaimReconcilePlanSchema);
+  await assertWorkflowArtifactScope(memory, changePath, plan, "SchedulerClaimReconcilePlan");
+  return plan;
+}
+
+export async function readSchedulerClaimReconcilePlan(memory: ResolvedMemory, changePath: string, claimReconcilePlanId: string): Promise<SchedulerClaimReconcilePlan> {
+  const plan = await readRequiredJsonFile(schedulerClaimReconcilePlanPath(memory, changePath, claimReconcilePlanId), schedulerClaimReconcilePlanSchema);
+  await assertWorkflowArtifactScope(memory, changePath, plan, "SchedulerClaimReconcilePlan");
+  return plan;
+}
+
+export function schedulerClaimReconcilePlanArtifactRefs(memory: ResolvedMemory, changePath: string, claimReconcilePlanId: string): { artifact: string; markdownArtifact: string } {
+  const dir = schedulerClaimReconcilePlansDir(memory, changePath);
+  return {
+    artifact: displayArtifactPath(memory, join(dir, `${claimReconcilePlanId}.json`)),
+    markdownArtifact: displayArtifactPath(memory, join(dir, `${claimReconcilePlanId}.md`)),
   };
 }

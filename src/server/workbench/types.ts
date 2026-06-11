@@ -37,6 +37,7 @@ export interface WorkbenchActionRequest {
   schedulerContractId?: string;
   schedulerDispatchDryRunId?: string;
   schedulerWorkerPlanId?: string;
+  schedulerClaimReconcilePlanId?: string;
   workflowRunId?: string;
   queueRunId?: string;
   worktreeId?: string;

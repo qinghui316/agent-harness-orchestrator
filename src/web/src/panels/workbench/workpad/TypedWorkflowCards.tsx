@@ -171,3 +171,23 @@ export function SchedulerWorkerSessionPlanCard({ plan }: { plan: NonNullable<Wor
     </section>
   );
 }
+
+export function SchedulerClaimReconcilePlanCard({ plan }: { plan: NonNullable<Workpad["schedulerClaimReconcilePlan"]> }): ReactElement {
+  return (
+    <section className="workpad-section" data-testid="scheduler-claim-reconcile-plan-card">
+      <div className="workpad-section-header">
+        <h3>Claim / Reconcile Plan</h3>
+        <span>{humanStatus(plan.status)}</span>
+      </div>
+      <p className="workpad-goal">claim eligibility / source lock / slot demand / reconcile checkpoint contract（不启动执行）</p>
+      <div className="workpad-chip-list">
+        <span>{plan.waveCount} 个 wave</span>
+        <span>{plan.claimIntentCount} 个 claim intent</span>
+        <span>最大计划宽度 {plan.maxPlannedWaveWidth}</span>
+        <span>{plan.blockedCount} 个阻塞</span>
+        <span>恢复覆盖 {plan.recoveryKeyCoverage === "complete" ? "完整" : "部分"}</span>
+      </div>
+      {plan.artifact ? <small className="artifact-link">查看证据：{artifactName(plan.artifact)}</small> : null}
+    </section>
+  );
+}

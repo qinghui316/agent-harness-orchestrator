@@ -1,3 +1,4 @@
+export * from "./claim-reconcile.js";
 export * from "./compiler.js";
 export * from "./dry-run.js";
 export * from "./paths.js";

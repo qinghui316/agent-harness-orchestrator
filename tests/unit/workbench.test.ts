@@ -12,7 +12,7 @@ import { executeWorkbenchAction } from "../../src/server/workbench-server.js";
 import { appendTopicThreadEntry, createWorkbenchTopic, postTopicMessage } from "../../src/workbench/chat.js";
 import { readTopicThreadLog } from "../../src/workbench/thread-log.js";
 import { answerClarification, reanalyzeIntake, runIntakeScan } from "../../src/workbench/intake.js";
-import { getWorkbenchDecompositionPlanProjection, getWorkbenchDecompositionReadinessProjection, getWorkbenchMaintenanceProjection, getWorkbenchRunGraphProjection, getWorkbenchSchedulerContractProjection, getWorkbenchSchedulerDispatchDryRunProjection, getWorkbenchSchedulerWorkerSessionPlanProjection, getWorkbenchSnapshot, getWorkbenchStream, getWorkbenchTaskQueueProposalProjection, getWorkbenchTopic, getWorkbenchWorkflowGraphPlanProjection, listWorkbenchApprovals, listWorkbenchRoles, listWorkbenchTopics } from "../../src/workbench/manager.js";
+import { getWorkbenchDecompositionPlanProjection, getWorkbenchDecompositionReadinessProjection, getWorkbenchMaintenanceProjection, getWorkbenchRunGraphProjection, getWorkbenchSchedulerClaimReconcilePlanProjection, getWorkbenchSchedulerContractProjection, getWorkbenchSchedulerDispatchDryRunProjection, getWorkbenchSchedulerWorkerSessionPlanProjection, getWorkbenchSnapshot, getWorkbenchStream, getWorkbenchTaskQueueProposalProjection, getWorkbenchTopic, getWorkbenchWorkflowGraphPlanProjection, listWorkbenchApprovals, listWorkbenchRoles, listWorkbenchTopics } from "../../src/workbench/manager.js";
 import { WorkbenchStore } from "../../src/workbench/store.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import { collectWorktreeDiff } from "../../src/audit/diff.js";
@@ -2301,6 +2301,30 @@ describe("workbench read model", () => {
       schedulerDispatchDryRunId: dryRun?.id,
     });
     expect(fullWorkerPlan?.plannedStages.map((stage) => stage.roleId)).toEqual(expect.arrayContaining(["coder-agent", "validator", "auditor-agent", "rework-coder"]));
+    const workerPlanLatestPath = join(changeDir, "planning", "scheduler-worker-session-plan.json");
+    const workerPlanVersionedPath = join(changeDir, "planning", "scheduler-worker-session-plans", `${workerPlan?.id}.json`);
+    const workerPlanLatestJson = JSON.parse(await readFile(workerPlanLatestPath, "utf8"));
+    const workerPlanVersionedJson = JSON.parse(await readFile(workerPlanVersionedPath, "utf8"));
+    const [workerHashRef] = Object.keys(workerPlanVersionedJson.sourceArtifactHashes ?? {});
+    if (!workerHashRef) throw new Error("Expected worker-plan source artifact hashes.");
+    workerPlanLatestJson.sourceArtifactHashes[workerHashRef] = "forged-hash";
+    workerPlanVersionedJson.sourceArtifactHashes[workerHashRef] = "forged-hash";
+    await writeFile(workerPlanLatestPath, JSON.stringify(workerPlanLatestJson, null, 2), "utf8");
+    await writeFile(workerPlanVersionedPath, JSON.stringify(workerPlanVersionedJson, null, 2), "utf8");
+    const claimHashMismatchResult = await executeWorkbenchAction({ project: project(), path: tempDir }, {
+      actionType: "planning.scheduler.claim-reconcile.compile",
+      changeId: topic.changeId,
+      schedulerContractId: contract?.id,
+      schedulerDispatchDryRunId: dryRun?.id,
+      schedulerWorkerPlanId: workerPlan?.id,
+      confirm: true,
+    });
+    expect(claimHashMismatchResult.result).toMatchObject({
+      status: "failed",
+      error: expect.stringContaining("source artifact hash mismatch"),
+    });
+    await writeFile(workerPlanLatestPath, JSON.stringify(fullWorkerPlan, null, 2), "utf8");
+    await writeFile(workerPlanVersionedPath, JSON.stringify(fullWorkerPlan, null, 2), "utf8");
     const workerPlanSnapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: topic.changeId });
     expect(workerPlanSnapshot.center.workpad.schedulerWorkerSessionPlan).toMatchObject({
       id: workerPlan?.id,
@@ -2309,13 +2333,70 @@ describe("workbench read model", () => {
       recoveryKeyCoverage: "complete",
     });
     expect(workerPlanSnapshot.center.workpad.nextAction).toMatchObject({
-      actionType: "planning.scheduler.worker-plan.compile",
-      enabled: false,
+      actionType: "planning.scheduler.claim-reconcile.compile",
+      enabled: true,
       schedulerDispatchDryRunId: dryRun?.id,
       schedulerWorkerPlanId: workerPlan?.id,
     });
-    expect(workerPlanSnapshot.right.confirmationQueue.current.flatMap((item) => item.actions).map((action) => action.actionType))
-      .not.toContain("planning.scheduler.worker-plan.compile");
+    expect(workerPlanSnapshot.right.confirmationQueue.current).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        actions: expect.arrayContaining([
+          expect.objectContaining({
+            actionType: "planning.scheduler.claim-reconcile.compile",
+            schedulerWorkerPlanId: workerPlan?.id,
+          }),
+        ]),
+      }),
+    ]));
+    await expect(executeWorkbenchAction({ project: project(), path: tempDir }, {
+      actionType: "planning.scheduler.claim-reconcile.compile",
+      changeId: topic.changeId,
+      schedulerContractId: contract?.id,
+      schedulerDispatchDryRunId: dryRun?.id,
+      schedulerWorkerPlanId: "forged-worker-plan",
+      confirm: true,
+    })).rejects.toThrow("stale or no longer available");
+
+    const claimReconcileResult = await executeWorkbenchAction({ project: project(), path: tempDir }, {
+      actionType: "planning.scheduler.claim-reconcile.compile",
+      changeId: topic.changeId,
+      schedulerContractId: contract?.id,
+      schedulerDispatchDryRunId: dryRun?.id,
+      schedulerWorkerPlanId: workerPlan?.id,
+      confirm: true,
+    });
+    const claimReconcilePlan = (claimReconcileResult.result as { result?: { claimReconcilePlan?: { id?: string; schedulerWorkerPlanId?: string; claimIntents?: unknown[]; maxPlannedWaveWidth?: number; recoveryKeyCoverage?: string } } }).result?.claimReconcilePlan;
+    expect(claimReconcilePlan).toMatchObject({
+      schedulerWorkerPlanId: workerPlan?.id,
+      maxPlannedWaveWidth: 2,
+      recoveryKeyCoverage: "complete",
+    });
+    expect(claimReconcilePlan?.claimIntents).toHaveLength(2);
+    const fullClaimReconcilePlan = await getWorkbenchSchedulerClaimReconcilePlanProjection({ project: project(), path: tempDir }, topic.changeId, claimReconcilePlan?.id);
+    expect(fullClaimReconcilePlan).toMatchObject({
+      id: claimReconcilePlan?.id,
+      status: "planned",
+      schedulerContractId: contract?.id,
+      schedulerDispatchDryRunId: dryRun?.id,
+      schedulerWorkerPlanId: workerPlan?.id,
+      waveCheckpoints: [expect.objectContaining({ plannedSlotDemand: 2, blockedCount: 0 })],
+    });
+    expect(fullClaimReconcilePlan?.claimIntents.every((claim) => claim.claimIntentId.startsWith("claim-intent-"))).toBe(true);
+    expect(fullClaimReconcilePlan?.claimIntents.every((claim) => claim.plannedWorkerKey.includes(workerPlan?.id ?? ""))).toBe(true);
+    const claimSnapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: topic.changeId });
+    expect(claimSnapshot.center.workpad.schedulerClaimReconcilePlan).toMatchObject({
+      id: claimReconcilePlan?.id,
+      schedulerWorkerPlanId: workerPlan?.id,
+      claimIntentCount: 2,
+      maxPlannedWaveWidth: 2,
+    });
+    expect(claimSnapshot.center.workpad.nextAction).toMatchObject({
+      actionType: "planning.scheduler.claim-reconcile.compile",
+      enabled: false,
+      schedulerClaimReconcilePlanId: claimReconcilePlan?.id,
+    });
+    expect(claimSnapshot.right.confirmationQueue.current.flatMap((item) => item.actions).map((action) => action.actionType))
+      .not.toContain("planning.scheduler.claim-reconcile.compile");
     expect(await listTaskQueues(beforeMemory, topic.changeId)).toHaveLength(0);
     expect(await listWorkflowRuns(beforeMemory, topic.changeId)).toHaveLength(0);
     expect(await listTaskRuns(beforeMemory, topic.changeId)).toHaveLength(0);
