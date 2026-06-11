@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { SchedulerClaimReconcilePlan, SchedulerContract, SchedulerDispatchDryRun, SchedulerLaunchPreflight, SchedulerWorkerSessionPlan } from "./types.js";
+import type { SchedulerClaimReconcilePlan, SchedulerContract, SchedulerDispatchDryRun, SchedulerLaunchPreflight, SchedulerRun, SchedulerRunJournalEvent, SchedulerWorkerSessionPlan } from "./types.js";
 
 const workerPermissionProfileSchema = z.object({
   version: z.literal("1.0"),
@@ -251,4 +251,47 @@ export const schedulerLaunchPreflightSchema: z.ZodType<SchedulerLaunchPreflight>
   markdownArtifact: z.string(),
   createdAt: z.string(),
   updatedAt: z.string(),
+});
+
+export const schedulerRunSchema: z.ZodType<SchedulerRun> = z.object({
+  version: z.literal("1.0"),
+  id: z.string(),
+  changeId: z.string(),
+  status: z.enum(["prepared", "blocked", "abandoned"]),
+  schedulerMode: z.literal("parallel-readiness-v1"),
+  schedulerContractId: z.string(),
+  schedulerDispatchDryRunId: z.string(),
+  schedulerWorkerPlanId: z.string(),
+  schedulerClaimReconcilePlanId: z.string(),
+  schedulerLaunchPreflightId: z.string(),
+  decompositionPlanId: z.string(),
+  readinessManifestId: z.string(),
+  claimIntentCount: z.number(),
+  plannedSlotDemand: z.number(),
+  maxPlannedWaveWidth: z.number(),
+  blockedCount: z.number(),
+  humanConfirmed: z.boolean(),
+  futureToolPolicyGateRequired: z.boolean(),
+  futureHumanGateRequired: z.boolean(),
+  sourceArtifactHashes: z.record(z.string()),
+  artifactRefs: z.array(z.string()),
+  artifact: z.string(),
+  markdownArtifact: z.string(),
+  journalArtifact: z.string(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+
+export const schedulerRunJournalEventSchema: z.ZodType<SchedulerRunJournalEvent> = z.object({
+  version: z.literal("1.0"),
+  id: z.string(),
+  schedulerRunId: z.string(),
+  changeId: z.string(),
+  schedulerLaunchPreflightId: z.string(),
+  type: z.enum(["scheduler-run.prepared", "scheduler-run.blocked", "scheduler-run.abandoned"]),
+  timestamp: z.string(),
+  status: z.enum(["prepared", "blocked", "abandoned"]).optional(),
+  summary: z.string().optional(),
+  artifactRefs: z.array(z.string()).optional(),
+  payload: z.record(z.unknown()).optional(),
 });

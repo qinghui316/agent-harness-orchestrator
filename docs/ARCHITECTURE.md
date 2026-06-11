@@ -99,6 +99,8 @@ Phase 9A adds a non-executing `SchedulerClaimReconcilePlan` after `SchedulerWork
 
 Phase 9B adds a non-executing `SchedulerLaunchPreflight` after `SchedulerClaimReconcilePlan`. It records launch prerequisite checks, lineage/source hash validation, claim intent and source lock summaries, runtime-continuity prerequisites, permission profile requirements, and the requirement that any future executor re-run ToolPolicyGate plus human confirmation. It is launch-readiness evidence only: it must not authorize execution or create WorkflowRun, TaskQueueRun, TaskRun, WorkerLease, WorkerSession, RuntimeWorkspace, EventSource, AgentTask, worktree, run, child Change, slot allocator state, scheduler loop, or parallel executor records.
 
+Phase 9C adds a non-executing `SchedulerRun` journal shell after a checked `SchedulerLaunchPreflight`. It records the human-confirmed launch intent, scheduler lineage, source hashes, future gate requirements, and a scoped journal anchor for later recovery. It is scheduler coordination evidence only: `prepared` does not mean running or authorized execution, and it must not create WorkflowRun, TaskQueueRun, TaskRun, WorkerLease, WorkerSession, RuntimeWorkspace, EventSource, AgentTask, worktree, run, child Change, slot allocator state, scheduler loop, or parallel executor records. A future executor must re-read the scoped SchedulerRun lineage and re-run ToolPolicyGate plus human confirmation before creating runtime state.
+
 Workbench relationship:
 
 ```text

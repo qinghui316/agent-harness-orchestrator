@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-11T08:28:27.4083161Z",
+    "generated_at":  "2026-06-11T09:46:44.1754038Z",
     "active":  [
 
                ],
@@ -645,6 +645,10 @@
                     {
                         "name":  "20260611-phase-9b-scheduler-launch-preflight-contract",
                         "path":  "harness/changes/archive/20260611-phase-9b-scheduler-launch-preflight-contract"
+                    },
+                    {
+                        "name":  "20260611-phase-9c-schedulerrun-journal-shell-human-gated-launch-record",
+                        "path":  "harness/changes/archive/20260611-phase-9c-schedulerrun-journal-shell-human-gated-launch-record"
                     }
                 ]
 }

@@ -163,6 +163,7 @@ export type WorkpadNextAction = {
   schedulerWorkerPlanId?: string;
   schedulerClaimReconcilePlanId?: string;
   schedulerLaunchPreflightId?: string;
+  schedulerRunId?: string;
   workflowRunId?: string;
   queueRunId?: string;
   taskIds?: string[];
@@ -195,6 +196,7 @@ export type WorkbenchTaskNextAction = {
   schedulerWorkerPlanId?: string;
   schedulerClaimReconcilePlanId?: string;
   schedulerLaunchPreflightId?: string;
+  schedulerRunId?: string;
   workflowRunId?: string;
   queueRunId?: string;
   enabled: boolean;
@@ -311,10 +313,11 @@ export type Workpad = {
   workflowGraphPlan?: WorkflowGraphPlanSummary;
   schedulerContract?: SchedulerContractSummary;
   schedulerDispatchDryRun?: SchedulerDispatchDryRunSummary;
-  schedulerWorkerSessionPlan?: SchedulerWorkerSessionPlanSummary;
-  schedulerClaimReconcilePlan?: SchedulerClaimReconcilePlanSummary;
-  schedulerLaunchPreflight?: SchedulerLaunchPreflightSummary;
-  rolePipeline?: {
+    schedulerWorkerSessionPlan?: SchedulerWorkerSessionPlanSummary;
+    schedulerClaimReconcilePlan?: SchedulerClaimReconcilePlanSummary;
+    schedulerLaunchPreflight?: SchedulerLaunchPreflightSummary;
+    schedulerRun?: SchedulerRunSummary;
+    rolePipeline?: {
     stage: "planning" | "coding" | "validation" | "audit" | "rework" | "done" | "needs-user-input";
     status: "draft" | "running" | "completed" | "needs-user-input" | "stopped";
     runs: Array<{ roleId: string; status: string; runId?: string; summary: string; artifact?: string }>;
@@ -559,6 +562,29 @@ export type SchedulerLaunchPreflightSummary = {
   markdownArtifact?: string;
   updatedAt: string;
 };
+export type SchedulerRunSummary = {
+  id: string;
+  changeId: string;
+  schedulerContractId: string;
+  schedulerDispatchDryRunId: string;
+  schedulerWorkerPlanId: string;
+  schedulerClaimReconcilePlanId: string;
+  schedulerLaunchPreflightId: string;
+  status: "prepared" | "blocked" | "abandoned";
+  schedulerMode: "parallel-readiness-v1";
+  claimIntentCount: number;
+  plannedSlotDemand: number;
+  maxPlannedWaveWidth: number;
+  blockedCount: number;
+  humanConfirmed: boolean;
+  futureToolPolicyGateRequired: boolean;
+  futureHumanGateRequired: boolean;
+  journalEventCount: number;
+  artifact?: string;
+  markdownArtifact?: string;
+  journalArtifact?: string;
+  updatedAt: string;
+};
 export type PlanCard = {
   title: string;
   summary: string;
@@ -582,6 +608,7 @@ export type ThreadStreamAction = {
   schedulerWorkerPlanId?: string;
   schedulerClaimReconcilePlanId?: string;
   schedulerLaunchPreflightId?: string;
+  schedulerRunId?: string;
   workflowRunId?: string;
   queueRunId?: string;
   taskIds?: string[];
@@ -664,6 +691,7 @@ export type DecisionAction = {
   schedulerWorkerPlanId?: string;
   schedulerClaimReconcilePlanId?: string;
   schedulerLaunchPreflightId?: string;
+  schedulerRunId?: string;
   workflowRunId?: string;
   queueRunId?: string;
   taskIds?: string[];

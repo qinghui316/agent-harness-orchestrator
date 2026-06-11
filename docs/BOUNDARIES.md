@@ -213,6 +213,8 @@ Phase 9A keeps `src/workflow-scheduler/` as owner for Scheduler Claim / Reconcil
 
 Phase 9B keeps `src/workflow-scheduler/` as owner for Scheduler Launch Preflight evidence. `SchedulerLaunchPreflight` is a non-executing launch-readiness contract over a scoped claim/reconcile plan, worker-session plan, dry-run, and contract: it may write versioned/latest launch-preflight artifacts and decision/audit evidence, but it must not pre-authorize ToolPolicy, bypass human gates, create runtime-continuity sidecars, or create any scheduler/runtime execution records. Workbench, server, and frontend code may call/display launch preflight evidence, but must not own launch-preflight planning logic.
 
+Phase 9C keeps `src/workflow-scheduler/` as owner for SchedulerRun journal shell evidence. `SchedulerRun` is a non-executing human-gated launch-intent and recovery/journal record over a scoped checked launch preflight: it may write versioned/latest SchedulerRun artifacts, a SchedulerRun journal, and decision/audit evidence, but it must not create WorkflowRun, TaskQueueRun, TaskRun, WorkerLease, AgentTask, WorkerSession, RuntimeWorkspace, EventSource, worktree, run, child Change, scheduler loop, slot allocator state, or parallel executor records. Workbench, server, and frontend code may call/display SchedulerRun evidence, but must not own SchedulerRun preparation logic or expose parallel execution controls.
+
 ## 7. Memory Unavailable Boundary
 
 Memory can be unavailable on a new machine, after a plain repository clone, when AHO home was not synced, when permissions are missing, or when a future remote memory service is offline.

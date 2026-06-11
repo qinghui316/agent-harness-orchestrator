@@ -29,6 +29,7 @@ import {
   SchedulerContractCard,
   SchedulerDispatchDryRunCard,
   SchedulerLaunchPreflightCard,
+  SchedulerRunCard,
   SchedulerWorkerSessionPlanCard,
   TaskQueueProposalCard,
   WorkflowGraphPlanCard,
@@ -113,6 +114,7 @@ export function WorkpadDiagnosticDetails({
       {workpad.schedulerWorkerSessionPlan ? <SchedulerWorkerSessionPlanCard plan={workpad.schedulerWorkerSessionPlan} /> : null}
       {workpad.schedulerClaimReconcilePlan ? <SchedulerClaimReconcilePlanCard plan={workpad.schedulerClaimReconcilePlan} /> : null}
       {workpad.schedulerLaunchPreflight ? <SchedulerLaunchPreflightCard preflight={workpad.schedulerLaunchPreflight} /> : null}
+      {workpad.schedulerRun ? <SchedulerRunCard run={workpad.schedulerRun} /> : null}
 
       {workpad.rolePipeline ? (
         <section className="workpad-section" data-testid="role-pipeline-summary">

@@ -1,6 +1,8 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { readRequiredJsonFile, writeJsonFile } from "../fs/json.js";
+import { shortHash } from "../fs/path.js";
 import type { ResolvedMemory } from "../types/index.js";
 import { displayArtifactPath } from "../workflow-artifacts/artifact-refs.js";
 import { assertWorkflowArtifactScope } from "../workflow-artifacts/guards.js";
@@ -13,6 +15,8 @@ import {
   latestSchedulerDispatchDryRunPath,
   latestSchedulerLaunchPreflightMarkdownPath,
   latestSchedulerLaunchPreflightPath,
+  latestSchedulerRunMarkdownPath,
+  latestSchedulerRunPath,
   latestSchedulerWorkerSessionPlanMarkdownPath,
   latestSchedulerWorkerSessionPlanPath,
   schedulerContractPath,
@@ -23,12 +27,15 @@ import {
   schedulerDispatchDryRunsDir,
   schedulerLaunchPreflightPath,
   schedulerLaunchPreflightsDir,
+  schedulerRunJournalPath,
+  schedulerRunPath,
+  schedulerRunsDir,
   schedulerWorkerSessionPlanPath,
   schedulerWorkerSessionPlansDir,
 } from "./paths.js";
-import { renderSchedulerClaimReconcilePlanMarkdown, renderSchedulerContractMarkdown, renderSchedulerDispatchDryRunMarkdown, renderSchedulerLaunchPreflightMarkdown, renderSchedulerWorkerSessionPlanMarkdown } from "./rendering.js";
-import { schedulerClaimReconcilePlanSchema, schedulerContractSchema, schedulerDispatchDryRunSchema, schedulerLaunchPreflightSchema, schedulerWorkerSessionPlanSchema } from "./schemas.js";
-import type { SchedulerClaimReconcilePlan, SchedulerContract, SchedulerDispatchDryRun, SchedulerLaunchPreflight, SchedulerWorkerSessionPlan } from "./types.js";
+import { renderSchedulerClaimReconcilePlanMarkdown, renderSchedulerContractMarkdown, renderSchedulerDispatchDryRunMarkdown, renderSchedulerLaunchPreflightMarkdown, renderSchedulerRunMarkdown, renderSchedulerWorkerSessionPlanMarkdown } from "./rendering.js";
+import { schedulerClaimReconcilePlanSchema, schedulerContractSchema, schedulerDispatchDryRunSchema, schedulerLaunchPreflightSchema, schedulerRunJournalEventSchema, schedulerRunSchema, schedulerWorkerSessionPlanSchema } from "./schemas.js";
+import type { SchedulerClaimReconcilePlan, SchedulerContract, SchedulerDispatchDryRun, SchedulerLaunchPreflight, SchedulerRun, SchedulerRunJournalEvent, SchedulerRunJournalEventType, SchedulerWorkerSessionPlan } from "./types.js";
 
 export async function writeSchedulerContract(memory: ResolvedMemory, changePath: string, contract: SchedulerContract): Promise<void> {
   await assertWorkflowArtifactScope(memory, changePath, contract, "SchedulerContract");
@@ -178,4 +185,78 @@ export function schedulerLaunchPreflightArtifactRefs(memory: ResolvedMemory, cha
     artifact: displayArtifactPath(memory, join(dir, `${preflightId}.json`)),
     markdownArtifact: displayArtifactPath(memory, join(dir, `${preflightId}.md`)),
   };
+}
+
+export async function writeSchedulerRun(memory: ResolvedMemory, changePath: string, run: SchedulerRun): Promise<void> {
+  await assertWorkflowArtifactScope(memory, changePath, run, "SchedulerRun");
+  const dir = schedulerRunsDir(memory, changePath);
+  await mkdir(dir, { recursive: true });
+  await writeJsonFile(join(dir, `${run.id}.json`), run);
+  await writeFile(join(dir, `${run.id}.md`), renderSchedulerRunMarkdown(run), "utf8");
+  await writeJsonFile(latestSchedulerRunPath(memory, changePath), run);
+  await writeFile(latestSchedulerRunMarkdownPath(memory, changePath), renderSchedulerRunMarkdown(run), "utf8");
+}
+
+export async function readLatestSchedulerRun(memory: ResolvedMemory, changePath: string): Promise<SchedulerRun> {
+  const run = await readRequiredJsonFile(latestSchedulerRunPath(memory, changePath), schedulerRunSchema);
+  await assertWorkflowArtifactScope(memory, changePath, run, "SchedulerRun");
+  return run;
+}
+
+export async function readSchedulerRun(memory: ResolvedMemory, changePath: string, schedulerRunId: string): Promise<SchedulerRun> {
+  const run = await readRequiredJsonFile(schedulerRunPath(memory, changePath, schedulerRunId), schedulerRunSchema);
+  await assertWorkflowArtifactScope(memory, changePath, run, "SchedulerRun");
+  if (run.id !== schedulerRunId) throw new Error("SchedulerRun id mismatch.");
+  return run;
+}
+
+export function schedulerRunArtifactRefs(memory: ResolvedMemory, changePath: string, schedulerRunId: string): { artifact: string; markdownArtifact: string; journalArtifact: string } {
+  const dir = schedulerRunsDir(memory, changePath);
+  return {
+    artifact: displayArtifactPath(memory, join(dir, `${schedulerRunId}.json`)),
+    markdownArtifact: displayArtifactPath(memory, join(dir, `${schedulerRunId}.md`)),
+    journalArtifact: displayArtifactPath(memory, join(dir, `${schedulerRunId}.jsonl`)),
+  };
+}
+
+export async function appendSchedulerRunJournalEvent(
+  memory: ResolvedMemory,
+  changePath: string,
+  run: SchedulerRun,
+  type: SchedulerRunJournalEventType,
+  input: Partial<SchedulerRunJournalEvent> = {},
+): Promise<SchedulerRunJournalEvent> {
+  await assertWorkflowArtifactScope(memory, changePath, run, "SchedulerRun journal");
+  const now = new Date().toISOString();
+  const event: SchedulerRunJournalEvent = {
+    version: "1.0",
+    id: `scheduler-run-event-${now.replace(/[-:.TZ]/g, "").slice(0, 14)}-${shortHash(`${run.id}:${type}:${now}:${Math.random()}`).slice(0, 8)}`,
+    schedulerRunId: run.id,
+    changeId: run.changeId,
+    schedulerLaunchPreflightId: run.schedulerLaunchPreflightId,
+    type,
+    timestamp: now,
+    status: input.status,
+    summary: input.summary,
+    artifactRefs: input.artifactRefs,
+    payload: input.payload,
+  };
+  schedulerRunJournalEventSchema.parse(event);
+  await mkdir(schedulerRunsDir(memory, changePath), { recursive: true });
+  await appendFile(schedulerRunJournalPath(memory, changePath, run.id), `${JSON.stringify(event)}\n`, "utf8");
+  return event;
+}
+
+export async function readSchedulerRunJournal(memory: ResolvedMemory, changePath: string, schedulerRunId: string): Promise<SchedulerRunJournalEvent[]> {
+  const run = await readSchedulerRun(memory, changePath, schedulerRunId);
+  const path = schedulerRunJournalPath(memory, changePath, run.id);
+  if (!existsSync(path)) return [];
+  const lines = (await readFile(path, "utf8")).split(/\r?\n/).filter(Boolean);
+  return lines.map((line) => {
+    const event = schedulerRunJournalEventSchema.parse(JSON.parse(line));
+    if (event.changeId !== run.changeId || event.schedulerRunId !== run.id || event.schedulerLaunchPreflightId !== run.schedulerLaunchPreflightId) {
+      throw new Error("SchedulerRun journal event scope mismatch.");
+    }
+    return event;
+  });
 }

@@ -721,6 +721,7 @@ function workflowActionLabel(actionType: string): string {
     case "planning.scheduler.worker-plan.compile": return "Scheduler worker session plan compile";
     case "planning.scheduler.claim-reconcile.compile": return "Scheduler claim/reconcile plan compile";
     case "planning.scheduler.launch-preflight.check": return "Scheduler launch preflight check";
+    case "planning.scheduler.run.prepare": return "SchedulerRun prepare";
     case "planning.workflowgraph.compile": return "WorkflowGraphPlan compile";
     case "planning.taskqueue.confirm-start": return "TaskQueue start confirmation";
     case "code.run": return "Code workflow";

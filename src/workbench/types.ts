@@ -175,6 +175,7 @@ export interface WorkbenchWorkflowActionRequest {
   schedulerWorkerPlanId?: string;
   schedulerClaimReconcilePlanId?: string;
   schedulerLaunchPreflightId?: string;
+  schedulerRunId?: string;
   workflowRunId?: string;
   queueRunId?: string;
   worktreeId?: string;

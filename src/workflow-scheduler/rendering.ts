@@ -1,4 +1,4 @@
-import type { SchedulerClaimReconcilePlan, SchedulerContract, SchedulerDispatchDryRun, SchedulerLaunchPreflight, SchedulerWorkerSessionPlan } from "./types.js";
+import type { SchedulerClaimReconcilePlan, SchedulerContract, SchedulerDispatchDryRun, SchedulerLaunchPreflight, SchedulerRun, SchedulerWorkerSessionPlan } from "./types.js";
 
 export function renderSchedulerContractMarkdown(contract: SchedulerContract): string {
   const lines = [
@@ -281,6 +281,45 @@ export function renderSchedulerLaunchPreflightMarkdown(preflight: SchedulerLaunc
     "## Boundary",
     "",
     "This launch preflight is non-executing evidence. Status `checked` is not execution authorization. A future executor must re-run ToolPolicyGate and require a human gate before creating WorkerLeases, WorkerSessions, Runtime Continuity sidecars, TaskRuns, WorkflowRuns, worktrees, runs, child Changes, scheduler loops, slot allocators, or parallel execution.",
+    "",
+  ];
+  return lines.join("\n");
+}
+
+export function renderSchedulerRunMarkdown(run: SchedulerRun): string {
+  const lines = [
+    `# SchedulerRun ${run.id}`,
+    "",
+    `Status: ${run.status}`,
+    `Mode: ${run.schedulerMode}`,
+    `Change: ${run.changeId}`,
+    `SchedulerContract: ${run.schedulerContractId}`,
+    `SchedulerDispatchDryRun: ${run.schedulerDispatchDryRunId}`,
+    `SchedulerWorkerSessionPlan: ${run.schedulerWorkerPlanId}`,
+    `SchedulerClaimReconcilePlan: ${run.schedulerClaimReconcilePlanId}`,
+    `SchedulerLaunchPreflight: ${run.schedulerLaunchPreflightId}`,
+    `DecompositionPlan: ${run.decompositionPlanId}`,
+    `ReadinessManifest: ${run.readinessManifestId}`,
+    "",
+    "## Summary",
+    "",
+    `- Claim intents: ${run.claimIntentCount}`,
+    `- Planned slot demand: ${run.plannedSlotDemand}`,
+    `- Max planned wave width: ${run.maxPlannedWaveWidth}`,
+    `- Blocked entries: ${run.blockedCount}`,
+    `- Human confirmed: ${run.humanConfirmed ? "yes" : "no"}`,
+    `- Future ToolPolicyGate required: ${run.futureToolPolicyGateRequired ? "yes" : "no"}`,
+    `- Future human gate required: ${run.futureHumanGateRequired ? "yes" : "no"}`,
+    "",
+    "## Journal",
+    "",
+    `- Journal artifact: ${run.journalArtifact}`,
+    "",
+    "## Boundary",
+    "",
+    "This SchedulerRun is a non-executing journal shell. Status `prepared` is not execution authorization. A future executor must re-read this run, re-run ToolPolicyGate, require a human gate, and then create runtime records in a separate phase.",
+    "",
+    "It does not create WorkerLeases, WorkerSessions, Runtime Continuity sidecars, TaskRuns, WorkflowRuns, worktrees, runs, child Changes, scheduler loops, slot allocators, or parallel execution.",
     "",
   ];
   return lines.join("\n");

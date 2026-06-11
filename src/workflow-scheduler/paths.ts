@@ -80,3 +80,23 @@ export function latestSchedulerLaunchPreflightPath(memory: ResolvedMemory, chang
 export function latestSchedulerLaunchPreflightMarkdownPath(memory: ResolvedMemory, changePath: string): string {
   return join(memory.memoryRoot, changePath, "planning", "scheduler-launch-preflight.md");
 }
+
+export function schedulerRunsDir(memory: ResolvedMemory, changePath: string): string {
+  return join(memory.memoryRoot, changePath, "planning", "scheduler-runs");
+}
+
+export function schedulerRunPath(memory: ResolvedMemory, changePath: string, schedulerRunId: string): string {
+  return join(schedulerRunsDir(memory, changePath), `${schedulerRunId}.json`);
+}
+
+export function schedulerRunJournalPath(memory: ResolvedMemory, changePath: string, schedulerRunId: string): string {
+  return join(schedulerRunsDir(memory, changePath), `${schedulerRunId}.jsonl`);
+}
+
+export function latestSchedulerRunPath(memory: ResolvedMemory, changePath: string): string {
+  return join(memory.memoryRoot, changePath, "planning", "scheduler-run.json");
+}
+
+export function latestSchedulerRunMarkdownPath(memory: ResolvedMemory, changePath: string): string {
+  return join(memory.memoryRoot, changePath, "planning", "scheduler-run.md");
+}

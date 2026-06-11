@@ -6,6 +6,8 @@ export type SchedulerDispatchDryRunStatus = "generated" | "superseded" | "reject
 export type SchedulerWorkerSessionPlanStatus = "planned" | "superseded" | "rejected";
 export type SchedulerClaimReconcilePlanStatus = "planned" | "superseded" | "rejected";
 export type SchedulerLaunchPreflightStatus = "checked" | "blocked" | "rejected";
+export type SchedulerRunStatus = "prepared" | "blocked" | "abandoned";
+export type SchedulerRunJournalEventType = "scheduler-run.prepared" | "scheduler-run.blocked" | "scheduler-run.abandoned";
 export type SchedulerMode = "parallel-readiness-v1";
 export type SchedulerWorkerStageStatus = "planned" | "blocked";
 export type SchedulerClaimIntentStatus = "planned" | "blocked";
@@ -284,4 +286,47 @@ export interface SchedulerLaunchPreflight {
   markdownArtifact: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface SchedulerRun {
+  version: "1.0";
+  id: string;
+  changeId: string;
+  status: SchedulerRunStatus;
+  schedulerMode: SchedulerMode;
+  schedulerContractId: string;
+  schedulerDispatchDryRunId: string;
+  schedulerWorkerPlanId: string;
+  schedulerClaimReconcilePlanId: string;
+  schedulerLaunchPreflightId: string;
+  decompositionPlanId: string;
+  readinessManifestId: string;
+  claimIntentCount: number;
+  plannedSlotDemand: number;
+  maxPlannedWaveWidth: number;
+  blockedCount: number;
+  humanConfirmed: boolean;
+  futureToolPolicyGateRequired: boolean;
+  futureHumanGateRequired: boolean;
+  sourceArtifactHashes: Record<string, string>;
+  artifactRefs: string[];
+  artifact: string;
+  markdownArtifact: string;
+  journalArtifact: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SchedulerRunJournalEvent {
+  version: "1.0";
+  id: string;
+  schedulerRunId: string;
+  changeId: string;
+  schedulerLaunchPreflightId: string;
+  type: SchedulerRunJournalEventType;
+  timestamp: string;
+  status?: SchedulerRunStatus;
+  summary?: string;
+  artifactRefs?: string[];
+  payload?: Record<string, unknown>;
 }

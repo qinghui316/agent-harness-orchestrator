@@ -120,7 +120,38 @@ export function taskQueueProposalToConfirmationItems(
           const claimReconcilePlan = workpad.schedulerClaimReconcilePlan;
           if (claimReconcilePlan?.status === "planned" && claimReconcilePlan.schedulerWorkerPlanId === workerPlan.id) {
             const launchPreflight = workpad.schedulerLaunchPreflight;
-            if (launchPreflight && launchPreflight.schedulerClaimReconcilePlanId === claimReconcilePlan.id) return [];
+            if (launchPreflight && launchPreflight.schedulerClaimReconcilePlanId === claimReconcilePlan.id) {
+              if (launchPreflight.status !== "checked") return [];
+              if (workpad.schedulerRun?.schedulerLaunchPreflightId === launchPreflight.id) return [];
+              return [{
+                id: `confirm:scheduler-run:${selectedTopic.id}:${launchPreflight.id}`,
+                kind: "planning-confirm",
+                projectId: project?.id ?? null,
+                conversationId: selectedTopic.id,
+                changeId: selectedTopic.id,
+                summary: "Scheduler Launch Preflight 已检查，可准备 SchedulerRun journal shell。",
+                whyNeedsConfirmation: "需要你确认准备 SchedulerRun 记录。该记录只是 future executor 的启动壳，不会启动 scheduler 或并行执行。",
+                confirmEffect: "写入 scheduler-run.json/.md、versioned scheduler run artifact 和 scheduler-run journal；不会创建 WorkerLease、WorkerSession、RuntimeWorkspace、EventSource、WorkflowRun、TaskQueue、TaskRun、AgentTask、worktree 或 run。",
+                riskSummary: "SchedulerRun journal shell 不是执行授权；真正 parallel executor 必须重新读取 scoped evidence、重新执行 ToolPolicyGate 并再次经过 human gate。",
+                evidenceRefs: launchPreflight.artifact ? [launchPreflight.artifact] : [],
+                actions: [{
+                  id: `workflow:planning.scheduler.run.prepare:${selectedTopic.id}:${launchPreflight.id}`,
+                  label: "准备调度运行记录",
+                  kind: "workflow-action",
+                  changeId: selectedTopic.id,
+                  actionType: "planning.scheduler.run.prepare",
+                  schedulerContractId: contract.id,
+                  schedulerDispatchDryRunId: dryRun.id,
+                  schedulerWorkerPlanId: workerPlan.id,
+                  schedulerClaimReconcilePlanId: claimReconcilePlan.id,
+                  schedulerLaunchPreflightId: launchPreflight.id,
+                  enabled: true,
+                  requiresConfirmation: true,
+                }],
+                primary: false,
+                status: "pending",
+              }];
+            }
             return [{
               id: `confirm:scheduler-launch-preflight:${selectedTopic.id}:${claimReconcilePlan.id}`,
               kind: "planning-confirm",

@@ -36,19 +36,23 @@ import {
   compileSchedulerClaimReconcilePlan,
   compileSchedulerLaunchPreflight,
   compileSchedulerWorkerSessionPlan,
+  prepareSchedulerRun,
   readSchedulerClaimReconcilePlan,
   readSchedulerContract,
   readSchedulerDispatchDryRun,
+  readSchedulerLaunchPreflight,
   readSchedulerWorkerSessionPlan,
   renderSchedulerClaimReconcilePlanMarkdown,
   renderSchedulerDispatchDryRunMarkdown,
   renderSchedulerContractMarkdown,
   renderSchedulerLaunchPreflightMarkdown,
+  renderSchedulerRunMarkdown,
   renderSchedulerWorkerSessionPlanMarkdown,
   type SchedulerClaimReconcilePlan,
   type SchedulerContract,
   type SchedulerDispatchDryRun,
   type SchedulerLaunchPreflight,
+  type SchedulerRun,
   type SchedulerWorkerSessionPlan,
 } from "../../../workflow-scheduler/manager.js";
 import { readLatestPlanningBundle } from "../planning-bundle.js";
@@ -727,6 +731,67 @@ export async function checkPlanningSchedulerLaunchPreflight(
     completedAt: new Date().toISOString(),
   });
   return { launchPreflight, executionStarted: false };
+}
+
+export async function preparePlanningSchedulerRun(
+  project: ManagedProject,
+  changeId: string,
+  request: WorkbenchWorkflowActionRequest,
+  live: WorkbenchLiveSink | undefined,
+): Promise<{ schedulerRun: SchedulerRun; executionStarted: false }> {
+  const { memory, changePath } = await resolveTopic(project, changeId);
+  assertWritableMemory(memory, "SchedulerRun prepare");
+  if (!request.schedulerLaunchPreflightId) throw new Error("planning.scheduler.run.prepare requires schedulerLaunchPreflightId.");
+  const launchPreflight = await readSchedulerLaunchPreflight(memory, changePath, request.schedulerLaunchPreflightId);
+  if (launchPreflight.id !== request.schedulerLaunchPreflightId || launchPreflight.changeId !== changeId || launchPreflight.status !== "checked") {
+    throw new Error("planning.scheduler.run.prepare SchedulerLaunchPreflight target is stale or not checked.");
+  }
+  const claimReconcilePlan = await readSchedulerClaimReconcilePlan(memory, changePath, launchPreflight.schedulerClaimReconcilePlanId);
+  if (claimReconcilePlan.id !== launchPreflight.schedulerClaimReconcilePlanId || claimReconcilePlan.changeId !== changeId || claimReconcilePlan.status !== "planned") {
+    throw new Error("planning.scheduler.run.prepare SchedulerClaimReconcilePlan lineage is stale.");
+  }
+  const workerPlan = await readSchedulerWorkerSessionPlan(memory, changePath, launchPreflight.schedulerWorkerPlanId);
+  if (workerPlan.id !== launchPreflight.schedulerWorkerPlanId || workerPlan.id !== claimReconcilePlan.schedulerWorkerPlanId || workerPlan.changeId !== changeId || workerPlan.status !== "planned") {
+    throw new Error("planning.scheduler.run.prepare SchedulerWorkerSessionPlan lineage is stale.");
+  }
+  const dryRun = await readSchedulerDispatchDryRun(memory, changePath, launchPreflight.schedulerDispatchDryRunId);
+  if (dryRun.id !== launchPreflight.schedulerDispatchDryRunId || dryRun.id !== claimReconcilePlan.schedulerDispatchDryRunId || dryRun.id !== workerPlan.schedulerDispatchDryRunId || dryRun.changeId !== changeId || dryRun.status !== "generated") {
+    throw new Error("planning.scheduler.run.prepare SchedulerDispatchDryRun lineage is stale.");
+  }
+  const contract = await readSchedulerContract(memory, changePath, launchPreflight.schedulerContractId);
+  if (contract.id !== launchPreflight.schedulerContractId || contract.id !== claimReconcilePlan.schedulerContractId || contract.id !== workerPlan.schedulerContractId || contract.id !== dryRun.schedulerContractId || contract.changeId !== changeId || contract.status !== "compiled") {
+    throw new Error("planning.scheduler.run.prepare SchedulerContract lineage is stale.");
+  }
+  const schedulerRun = await prepareSchedulerRun(memory, changePath, launchPreflight, claimReconcilePlan, workerPlan, dryRun, contract);
+  await appendTopicThreadEntry(project, changeId, {
+    type: "assistant.message",
+    status: "scheduler-run-prepared",
+    text: renderSchedulerRunMarkdown(schedulerRun),
+    artifact: schedulerRun.artifact,
+  });
+  emitAssistantEvent(live, {
+    runId: schedulerRun.id,
+    kind: "file-change",
+    phase: "scheduler-run-prepared",
+    title: "SchedulerRun journal shell prepared",
+    summary: "A non-executing SchedulerRun journal shell was prepared; no scheduler loop, lease, worker session, worktree, run, or child Change was created.",
+    artifactRef: schedulerRun.artifact,
+  });
+  await recordWorkbenchDecision(project, {
+    id: `scheduler-run:${schedulerRun.id}`,
+    changeId,
+    decisionType: "planning.scheduler.run.prepare",
+    status: "completed",
+    label: "SchedulerRun 已准备",
+    summary: "Prepared a non-executing SchedulerRun journal shell from a checked launch preflight.",
+    targetId: schedulerRun.id,
+    runId: null,
+    artifact: schedulerRun.artifact,
+    actionId: "planning.scheduler.run.prepare",
+    payload: { schedulerRun },
+    completedAt: new Date().toISOString(),
+  });
+  return { schedulerRun, executionStarted: false };
 }
 
 export async function confirmTaskQueueProposalAndStart(

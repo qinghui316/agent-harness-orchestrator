@@ -20,10 +20,12 @@ import {
   readLatestSchedulerContract,
   readLatestSchedulerClaimReconcilePlan,
   readLatestSchedulerDispatchDryRun,
+  readLatestSchedulerLaunchPreflight,
   readLatestSchedulerWorkerSessionPlan,
   readSchedulerClaimReconcilePlan,
   readSchedulerContract,
   readSchedulerDispatchDryRun,
+  readSchedulerLaunchPreflight,
   readSchedulerWorkerSessionPlan,
 } from "../../workflow-scheduler/manager.js";
 import {
@@ -243,6 +245,42 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
     }
     const latestContract = await readLatestSchedulerContract(memory, target.path);
     if (latestContract.id !== contract.id) throw new Error("planning.scheduler.launch-preflight.check requires the latest SchedulerContract.");
+  }
+  if (request.actionType === "planning.scheduler.run.prepare") {
+    const active = await getActiveChanges(memory);
+    const target = active.find((item) => item.name === changeId);
+    if (!target) throw new Error(`planning.scheduler.run.prepare target is stale or missing active Change: ${changeId}.`);
+    if (!request.schedulerLaunchPreflightId) throw new Error("planning.scheduler.run.prepare requires schedulerLaunchPreflightId.");
+    const preflight = await readSchedulerLaunchPreflight(memory, target.path, request.schedulerLaunchPreflightId);
+    if (preflight.id !== request.schedulerLaunchPreflightId || preflight.changeId !== changeId || preflight.status !== "checked") {
+      throw new Error("planning.scheduler.run.prepare SchedulerLaunchPreflight target is stale or not checked.");
+    }
+    const latestPreflight = await readLatestSchedulerLaunchPreflight(memory, target.path);
+    if (latestPreflight.id !== preflight.id) throw new Error("planning.scheduler.run.prepare requires the latest SchedulerLaunchPreflight.");
+    const claimPlan = await readSchedulerClaimReconcilePlan(memory, target.path, preflight.schedulerClaimReconcilePlanId);
+    if (claimPlan.id !== preflight.schedulerClaimReconcilePlanId || claimPlan.changeId !== changeId || claimPlan.status !== "planned") {
+      throw new Error("planning.scheduler.run.prepare SchedulerClaimReconcilePlan lineage is stale.");
+    }
+    const latestClaimPlan = await readLatestSchedulerClaimReconcilePlan(memory, target.path);
+    if (latestClaimPlan.id !== claimPlan.id) throw new Error("planning.scheduler.run.prepare requires the latest SchedulerClaimReconcilePlan.");
+    const workerPlan = await readSchedulerWorkerSessionPlan(memory, target.path, preflight.schedulerWorkerPlanId);
+    if (workerPlan.id !== preflight.schedulerWorkerPlanId || workerPlan.id !== claimPlan.schedulerWorkerPlanId || workerPlan.changeId !== changeId || workerPlan.status !== "planned") {
+      throw new Error("planning.scheduler.run.prepare SchedulerWorkerSessionPlan lineage is stale.");
+    }
+    const latestWorkerPlan = await readLatestSchedulerWorkerSessionPlan(memory, target.path);
+    if (latestWorkerPlan.id !== workerPlan.id) throw new Error("planning.scheduler.run.prepare requires the latest SchedulerWorkerSessionPlan.");
+    const dryRun = await readSchedulerDispatchDryRun(memory, target.path, preflight.schedulerDispatchDryRunId);
+    if (dryRun.id !== preflight.schedulerDispatchDryRunId || dryRun.id !== claimPlan.schedulerDispatchDryRunId || dryRun.id !== workerPlan.schedulerDispatchDryRunId || dryRun.changeId !== changeId || dryRun.status !== "generated") {
+      throw new Error("planning.scheduler.run.prepare SchedulerDispatchDryRun lineage is stale.");
+    }
+    const latestDryRun = await readLatestSchedulerDispatchDryRun(memory, target.path);
+    if (latestDryRun.id !== dryRun.id) throw new Error("planning.scheduler.run.prepare requires the latest SchedulerDispatchDryRun.");
+    const contract = await readSchedulerContract(memory, target.path, preflight.schedulerContractId);
+    if (contract.id !== preflight.schedulerContractId || contract.id !== claimPlan.schedulerContractId || contract.id !== workerPlan.schedulerContractId || contract.id !== dryRun.schedulerContractId || contract.changeId !== changeId || contract.status !== "compiled") {
+      throw new Error("planning.scheduler.run.prepare SchedulerContract lineage is stale.");
+    }
+    const latestContract = await readLatestSchedulerContract(memory, target.path);
+    if (latestContract.id !== contract.id) throw new Error("planning.scheduler.run.prepare requires the latest SchedulerContract.");
   }
   if (request.actionType === "planning.workflowgraph.compile") {
     const active = await getActiveChanges(memory);

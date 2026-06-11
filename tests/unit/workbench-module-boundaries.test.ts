@@ -6,7 +6,7 @@ import { createProgram } from "../../src/cli/program.js";
 import type { MaintenanceLedgerEntry, ManagedProject, RemoteLandingResult, RunMetadata, WorkflowRun } from "../../src/types/index.js";
 import { closeChange, createChange, getChangeStatus, getChangeStatusForChange } from "../../src/change/manager.js";
 import { appendTopicThreadEntry, runWorkbenchWorkflowAction } from "../../src/workbench/chat.js";
-import { getWorkbenchSchedulerClaimReconcilePlanProjection, getWorkbenchSchedulerContractProjection, getWorkbenchSchedulerDispatchDryRunProjection, getWorkbenchSchedulerWorkerSessionPlanProjection, getWorkbenchSnapshot, getWorkbenchWorkflowGraphPlanProjection } from "../../src/workbench/manager.js";
+import { getWorkbenchSchedulerClaimReconcilePlanProjection, getWorkbenchSchedulerContractProjection, getWorkbenchSchedulerDispatchDryRunProjection, getWorkbenchSchedulerRunProjection, getWorkbenchSchedulerWorkerSessionPlanProjection, getWorkbenchSnapshot, getWorkbenchWorkflowGraphPlanProjection } from "../../src/workbench/manager.js";
 import { getCodeStatus, listCodeRuns, showCodeRun, startCodeRun } from "../../src/code/manager.js";
 import { applyResultToProject, applyWorktree, classifyApplyReadiness, discardWorktree, previewWorktreeApply } from "../../src/apply/manager.js";
 import { applyIntegrationCheck, discardIntegrationCheck, findIntegrationCheckCandidate, listIntegrationChecks, readIntegrationCheck, runIntegrationCheck } from "../../src/integration-check/manager.js";
@@ -101,7 +101,7 @@ import { listDemandWorkers } from "../../src/demand-worker/repository.js";
 import { getDemandWorkerSlot } from "../../src/demand-worker/slot-policy.js";
 import { recordMainOrchestratorDecision } from "../../src/demand-worker/decisions.js";
 import { compileWorkflowGraphPlan, hashArtifactRefs, readLatestTaskQueueProposal, renderWorkflowGraphPlanMarkdown } from "../../src/workflow-artifacts/manager.js";
-import { compileSchedulerClaimReconcilePlan, compileSchedulerContract, compileSchedulerDispatchDryRun, compileSchedulerWorkerSessionPlan, renderSchedulerClaimReconcilePlanMarkdown, renderSchedulerContractMarkdown, renderSchedulerDispatchDryRunMarkdown, renderSchedulerWorkerSessionPlanMarkdown } from "../../src/workflow-scheduler/manager.js";
+import { compileSchedulerClaimReconcilePlan, compileSchedulerContract, compileSchedulerDispatchDryRun, compileSchedulerWorkerSessionPlan, prepareSchedulerRun, renderSchedulerClaimReconcilePlanMarkdown, renderSchedulerContractMarkdown, renderSchedulerDispatchDryRunMarkdown, renderSchedulerRunMarkdown, renderSchedulerWorkerSessionPlanMarkdown } from "../../src/workflow-scheduler/manager.js";
 import { shouldAutoReworkTaskRun } from "../../src/workflow-runtime/kernel/bounded-rework.js";
 import { emitValidationAssistantEvents } from "../../src/workflow-runtime/kernel/live-events.js";
 import { findTaskQueueStageResumeCandidate } from "../../src/workflow-runtime/kernel/stage-resume-runner.js";
@@ -135,6 +135,7 @@ describe("Workbench module boundaries", () => {
     expect(typeof getWorkbenchSchedulerDispatchDryRunProjection).toBe("function");
     expect(typeof getWorkbenchSchedulerWorkerSessionPlanProjection).toBe("function");
     expect(typeof getWorkbenchSchedulerClaimReconcilePlanProjection).toBe("function");
+    expect(typeof getWorkbenchSchedulerRunProjection).toBe("function");
     expect(typeof createProgram).toBe("function");
     expect(typeof startCodeRun).toBe("function");
     expect(typeof getCodeStatus).toBe("function");
@@ -315,6 +316,8 @@ describe("Workbench module boundaries", () => {
     expect(typeof renderSchedulerWorkerSessionPlanMarkdown).toBe("function");
     expect(typeof compileSchedulerClaimReconcilePlan).toBe("function");
     expect(typeof renderSchedulerClaimReconcilePlanMarkdown).toBe("function");
+    expect(typeof prepareSchedulerRun).toBe("function");
+    expect(typeof renderSchedulerRunMarkdown).toBe("function");
     expect(typeof startOrResumeWorkflowTaskQueue).toBe("function");
     expect(typeof validateWorkflowTaskQueueProposalStart).toBe("function");
     expect(typeof runTaskQueueSequence).toBe("function");
@@ -1021,6 +1024,7 @@ describe("Workbench module boundaries", () => {
     expect(manager).toContain('export * from "./dry-run.js";');
     expect(manager).toContain('export * from "./repository.js";');
     expect(manager).toContain('export * from "./schemas.js";');
+    expect(manager).toContain('export * from "./scheduler-run.js";');
     expect(manager).toContain('export * from "./worker-plan.js";');
 
     const compiler = readFileSync("src/workflow-scheduler/compiler.ts", "utf8");
@@ -1047,6 +1051,12 @@ describe("Workbench module boundaries", () => {
     expect(claimReconcile).toContain("plannedWorkerKey");
     expect(claimReconcile).toContain("SchedulerClaimReconcilePlan requires the latest SchedulerWorkerSessionPlan");
     expect(claimReconcile).toContain("source lock conflict");
+
+    const schedulerRun = readFileSync("src/workflow-scheduler/scheduler-run.ts", "utf8");
+    expect(schedulerRun).toContain("prepareSchedulerRun");
+    expect(schedulerRun).toContain("SchedulerRun requires a checked SchedulerLaunchPreflight");
+    expect(schedulerRun).toContain("SchedulerRun requires the latest SchedulerLaunchPreflight");
+    expect(schedulerRun).toContain("appendSchedulerRunJournalEvent");
 
     for (const file of listSourceFiles(["src/workflow-scheduler"])) {
       const content = readFileSync(file, "utf8");

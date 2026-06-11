@@ -8,7 +8,7 @@ import type {
   TaskQueueProposal,
   WorkflowGraphPlan,
 } from "../../../workflow-artifacts/manager.js";
-import type { SchedulerClaimReconcilePlan, SchedulerContract, SchedulerDispatchDryRun, SchedulerLaunchPreflight, SchedulerWorkerSessionPlan } from "../../../workflow-scheduler/manager.js";
+import type { SchedulerClaimReconcilePlan, SchedulerContract, SchedulerDispatchDryRun, SchedulerLaunchPreflight, SchedulerRun, SchedulerWorkerSessionPlan } from "../../../workflow-scheduler/manager.js";
 import type { ResolvedMemory } from "../../../types/index.js";
 import type { WorkbenchPlanningArtifactBundle, WorkbenchProjectInput } from "../../read-model-types.js";
 import { resolveWorkbenchMemory } from "./support.js";
@@ -23,6 +23,7 @@ import {
   getSchedulerDispatchDryRunProjectionForPath,
   getSchedulerClaimReconcilePlanProjectionForPath,
   getSchedulerLaunchPreflightProjectionForPath,
+  getSchedulerRunProjectionForPath,
   getSchedulerWorkerSessionPlanProjectionForPath,
   getWorkflowRunProjectionForChange,
 } from "../typed-workflow.js";
@@ -130,6 +131,15 @@ export async function getWorkbenchSchedulerLaunchPreflightProjection(input: Work
   const changePath = findWorkbenchTopicPath(topics, changeId);
   if (!changePath) return null;
   return getSchedulerLaunchPreflightProjectionForPath(memory, changePath, preflightId);
+}
+
+export async function getWorkbenchSchedulerRunProjection(input: WorkbenchProjectInput, changeId: string, schedulerRunId?: string): Promise<SchedulerRun | null> {
+  const memory = await resolveWorkbenchMemory(input);
+  if (!memory.supported) return null;
+  const topics = await listWorkbenchTopicsFromMemory(memory);
+  const changePath = findWorkbenchTopicPath(topics, changeId);
+  if (!changePath) return null;
+  return getSchedulerRunProjectionForPath(memory, changePath, schedulerRunId);
 }
 
 export async function getWorkbenchWorkflowRunProjection(input: WorkbenchProjectInput, changeId: string, workflowRunId: string): Promise<Awaited<ReturnType<typeof getWorkflowRunProjectionForChange>> | null> {

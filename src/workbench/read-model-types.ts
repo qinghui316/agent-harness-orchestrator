@@ -23,6 +23,7 @@ import type {
   WorkbenchSchedulerContractSummary,
   WorkbenchSchedulerDispatchDryRunSummary,
   WorkbenchSchedulerLaunchPreflightSummary,
+  WorkbenchSchedulerRunSummary,
   WorkbenchSchedulerWorkerSessionPlanSummary,
   WorkbenchTaskQueueProposalSummary,
   WorkbenchWorkflowGraphPlanSummary,
@@ -107,6 +108,7 @@ export interface ThreadStreamAction {
   schedulerWorkerPlanId?: string;
   schedulerClaimReconcilePlanId?: string;
   schedulerLaunchPreflightId?: string;
+  schedulerRunId?: string;
   workflowRunId?: string;
   queueRunId?: string;
   taskIds?: string[];
@@ -210,6 +212,7 @@ export interface WorkbenchDecisionAction {
   schedulerWorkerPlanId?: string;
   schedulerClaimReconcilePlanId?: string;
   schedulerLaunchPreflightId?: string;
+  schedulerRunId?: string;
   workflowRunId?: string;
   queueRunId?: string;
   taskIds?: string[];
@@ -356,6 +359,7 @@ export interface WorkpadNextAction {
   schedulerWorkerPlanId?: string;
   schedulerClaimReconcilePlanId?: string;
   schedulerLaunchPreflightId?: string;
+  schedulerRunId?: string;
   workflowRunId?: string;
   queueRunId?: string;
   taskIds?: string[];
@@ -431,6 +435,7 @@ export interface WorkbenchTaskNextAction {
   schedulerWorkerPlanId?: string;
   schedulerClaimReconcilePlanId?: string;
   schedulerLaunchPreflightId?: string;
+  schedulerRunId?: string;
   workflowRunId?: string;
   queueRunId?: string;
   enabled: boolean;
@@ -579,6 +584,7 @@ export interface WorkbenchWorkpad {
   schedulerWorkerSessionPlan?: WorkbenchSchedulerWorkerSessionPlanSummary;
   schedulerClaimReconcilePlan?: WorkbenchSchedulerClaimReconcilePlanSummary;
   schedulerLaunchPreflight?: WorkbenchSchedulerLaunchPreflightSummary;
+  schedulerRun?: WorkbenchSchedulerRunSummary;
   workflowRun?: WorkflowRunSummary;
   rolePipeline?: WorkbenchRolePipelineSummary;
   resultReview?: WorkbenchResultReview;

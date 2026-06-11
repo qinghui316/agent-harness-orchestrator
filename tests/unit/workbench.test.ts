@@ -12,7 +12,7 @@ import { executeWorkbenchAction } from "../../src/server/workbench-server.js";
 import { appendTopicThreadEntry, createWorkbenchTopic, postTopicMessage } from "../../src/workbench/chat.js";
 import { readTopicThreadLog } from "../../src/workbench/thread-log.js";
 import { answerClarification, reanalyzeIntake, runIntakeScan } from "../../src/workbench/intake.js";
-import { getWorkbenchDecompositionPlanProjection, getWorkbenchDecompositionReadinessProjection, getWorkbenchMaintenanceProjection, getWorkbenchRunGraphProjection, getWorkbenchSchedulerClaimReconcilePlanProjection, getWorkbenchSchedulerContractProjection, getWorkbenchSchedulerDispatchDryRunProjection, getWorkbenchSchedulerLaunchPreflightProjection, getWorkbenchSchedulerWorkerSessionPlanProjection, getWorkbenchSnapshot, getWorkbenchStream, getWorkbenchTaskQueueProposalProjection, getWorkbenchTopic, getWorkbenchWorkflowGraphPlanProjection, listWorkbenchApprovals, listWorkbenchRoles, listWorkbenchTopics } from "../../src/workbench/manager.js";
+import { getWorkbenchDecompositionPlanProjection, getWorkbenchDecompositionReadinessProjection, getWorkbenchMaintenanceProjection, getWorkbenchRunGraphProjection, getWorkbenchSchedulerClaimReconcilePlanProjection, getWorkbenchSchedulerContractProjection, getWorkbenchSchedulerDispatchDryRunProjection, getWorkbenchSchedulerLaunchPreflightProjection, getWorkbenchSchedulerRunProjection, getWorkbenchSchedulerWorkerSessionPlanProjection, getWorkbenchSnapshot, getWorkbenchStream, getWorkbenchTaskQueueProposalProjection, getWorkbenchTopic, getWorkbenchWorkflowGraphPlanProjection, listWorkbenchApprovals, listWorkbenchRoles, listWorkbenchTopics } from "../../src/workbench/manager.js";
 import { WorkbenchStore } from "../../src/workbench/store.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import { collectWorktreeDiff } from "../../src/audit/diff.js";
@@ -2480,13 +2480,88 @@ describe("workbench read model", () => {
       humanGateRequired: true,
     });
     expect(preflightSnapshot.center.workpad.nextAction).toMatchObject({
-      actionType: "planning.scheduler.launch-preflight.check",
-      enabled: false,
+      actionType: "planning.scheduler.run.prepare",
+      enabled: true,
       schedulerLaunchPreflightId: launchPreflight?.id,
-      disabledReason: expect.stringContaining("不启动并行执行"),
     });
     expect(preflightSnapshot.right.confirmationQueue.current.flatMap((item) => item.actions).map((action) => action.actionType))
       .not.toContain("planning.scheduler.launch-preflight.check");
+    expect(preflightSnapshot.right.confirmationQueue.current).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        actions: expect.arrayContaining([
+          expect.objectContaining({
+            actionType: "planning.scheduler.run.prepare",
+            schedulerLaunchPreflightId: launchPreflight?.id,
+          }),
+        ]),
+      }),
+    ]));
+    await expect(executeWorkbenchAction({ project: project(), path: tempDir }, {
+      actionType: "planning.scheduler.run.prepare",
+      changeId: topic.changeId,
+      schedulerContractId: contract?.id,
+      schedulerDispatchDryRunId: dryRun?.id,
+      schedulerWorkerPlanId: workerPlan?.id,
+      schedulerClaimReconcilePlanId: claimReconcilePlan?.id,
+      schedulerLaunchPreflightId: "forged-launch-preflight",
+      confirm: true,
+    })).rejects.toThrow("stale or no longer available");
+    const runResult = await executeWorkbenchAction({ project: project(), path: tempDir }, {
+      actionType: "planning.scheduler.run.prepare",
+      changeId: topic.changeId,
+      schedulerContractId: contract?.id,
+      schedulerDispatchDryRunId: dryRun?.id,
+      schedulerWorkerPlanId: workerPlan?.id,
+      schedulerClaimReconcilePlanId: claimReconcilePlan?.id,
+      schedulerLaunchPreflightId: launchPreflight?.id,
+      confirm: true,
+    });
+    const schedulerRun = (runResult.result as { result?: { schedulerRun?: { id?: string; status?: string; schedulerLaunchPreflightId?: string; claimIntentCount?: number; plannedSlotDemand?: number; humanConfirmed?: boolean } } }).result?.schedulerRun;
+    expect(schedulerRun).toMatchObject({
+      status: "prepared",
+      schedulerLaunchPreflightId: launchPreflight?.id,
+      claimIntentCount: 2,
+      plannedSlotDemand: 2,
+      humanConfirmed: true,
+    });
+    const fullSchedulerRun = await getWorkbenchSchedulerRunProjection({ project: project(), path: tempDir }, topic.changeId, schedulerRun?.id);
+    expect(fullSchedulerRun).toMatchObject({
+      id: schedulerRun?.id,
+      status: "prepared",
+      schedulerContractId: contract?.id,
+      schedulerDispatchDryRunId: dryRun?.id,
+      schedulerWorkerPlanId: workerPlan?.id,
+      schedulerClaimReconcilePlanId: claimReconcilePlan?.id,
+      schedulerLaunchPreflightId: launchPreflight?.id,
+      humanConfirmed: true,
+      futureToolPolicyGateRequired: true,
+      futureHumanGateRequired: true,
+    });
+    const schedulerRunJournalPath = join(changeDir, "planning", "scheduler-runs", `${schedulerRun?.id}.jsonl`);
+    const schedulerRunJournal = (await readFile(schedulerRunJournalPath, "utf8")).trim().split(/\r?\n/).map((line) => JSON.parse(line));
+    expect(schedulerRunJournal).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        schedulerRunId: schedulerRun?.id,
+        changeId: topic.changeId,
+        schedulerLaunchPreflightId: launchPreflight?.id,
+        type: "scheduler-run.prepared",
+      }),
+    ]));
+    const schedulerRunSnapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: topic.changeId });
+    expect(schedulerRunSnapshot.center.workpad.schedulerRun).toMatchObject({
+      id: schedulerRun?.id,
+      schedulerLaunchPreflightId: launchPreflight?.id,
+      journalEventCount: 1,
+      futureHumanGateRequired: true,
+    });
+    expect(schedulerRunSnapshot.center.workpad.nextAction).toMatchObject({
+      actionType: "planning.scheduler.run.prepare",
+      enabled: false,
+      schedulerRunId: schedulerRun?.id,
+      disabledReason: expect.stringContaining("不启动并行执行"),
+    });
+    expect(schedulerRunSnapshot.right.confirmationQueue.current.flatMap((item) => item.actions).map((action) => action.actionType))
+      .not.toContain("planning.scheduler.run.prepare");
     expect(await listTaskQueues(beforeMemory, topic.changeId)).toHaveLength(0);
     expect(await listWorkflowRuns(beforeMemory, topic.changeId)).toHaveLength(0);
     expect(await listTaskRuns(beforeMemory, topic.changeId)).toHaveLength(0);

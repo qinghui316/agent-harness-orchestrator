@@ -211,3 +211,24 @@ export function SchedulerLaunchPreflightCard({ preflight }: { preflight: NonNull
     </section>
   );
 }
+
+export function SchedulerRunCard({ run }: { run: NonNullable<Workpad["schedulerRun"]> }): ReactElement {
+  return (
+    <section className="workpad-section" data-testid="scheduler-run-card">
+      <div className="workpad-section-header">
+        <h3>SchedulerRun</h3>
+        <span>{humanStatus(run.status)}</span>
+      </div>
+      <p className="workpad-goal">调度运行记录壳（不启动并行执行）</p>
+      <div className="workpad-chip-list">
+        <span>{run.claimIntentCount} 个 claim intent</span>
+        <span>计划槽位 {run.plannedSlotDemand}</span>
+        <span>最大计划宽度 {run.maxPlannedWaveWidth}</span>
+        <span>{run.blockedCount} 个阻塞</span>
+        <span>{run.journalEventCount} 条 journal event</span>
+        <span>{run.futureHumanGateRequired ? "未来仍需 human gate" : "human gate 未要求"}</span>
+      </div>
+      {run.artifact ? <small className="artifact-link">查看证据：{artifactName(run.artifact)}</small> : null}
+    </section>
+  );
+}
