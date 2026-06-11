@@ -5,6 +5,14 @@ import { buildRunAgentRecord, resolveAgentRole } from "../../../agent/catalog.js
 import { buildAcMap } from "../../../ecl/anchors.js";
 import { writeJsonFile } from "../../../fs/json.js";
 import { assertWritableMemory } from "../../../memory/resolver.js";
+import {
+  initializeSchedulerRuntime,
+  reconcileSchedulerRuntime,
+  renderSchedulerReconcileSnapshotMarkdown,
+  renderSchedulerRuntimeStateMarkdown,
+  type SchedulerReconcileSnapshot,
+  type SchedulerRuntimeState,
+} from "../../../scheduler-runtime/manager.js";
 import type { ManagedProject } from "../../../types/index.js";
 import {
   createWorkflowRunForValidatedTaskQueue,
@@ -792,6 +800,88 @@ export async function preparePlanningSchedulerRun(
     completedAt: new Date().toISOString(),
   });
   return { schedulerRun, executionStarted: false };
+}
+
+export async function initializePlanningSchedulerRuntime(
+  project: ManagedProject,
+  changeId: string,
+  request: WorkbenchWorkflowActionRequest,
+  live: WorkbenchLiveSink | undefined,
+): Promise<{ runtimeState: SchedulerRuntimeState; executionStarted: false }> {
+  const { memory, changePath } = await resolveTopic(project, changeId);
+  assertWritableMemory(memory, "Scheduler runtime initialize");
+  if (!request.schedulerRunId) throw new Error("planning.scheduler.runtime.initialize requires schedulerRunId.");
+  const runtimeState = await initializeSchedulerRuntime(memory, changePath, request.schedulerRunId);
+  await appendTopicThreadEntry(project, changeId, {
+    type: "assistant.message",
+    status: "scheduler-runtime-initialized",
+    text: renderSchedulerRuntimeStateMarkdown(runtimeState),
+    artifact: runtimeState.artifact,
+  });
+  emitAssistantEvent(live, {
+    runId: runtimeState.schedulerRunId,
+    kind: "file-change",
+    phase: "scheduler-runtime-initialized",
+    title: "Scheduler runtime shell initialized",
+    summary: "A SchedulerRun-scoped runtime shell was initialized; no workers, leases, TaskRuns, worktrees, runs, or scheduler loop were created.",
+    artifactRef: runtimeState.artifact,
+  });
+  await recordWorkbenchDecision(project, {
+    id: `scheduler-runtime:${runtimeState.schedulerRunId}`,
+    changeId,
+    decisionType: "planning.scheduler.runtime.initialize",
+    status: "completed",
+    label: "Scheduler Runtime 壳已初始化",
+    summary: "Initialized SchedulerRun-scoped runtime shell sidecars without starting execution.",
+    targetId: runtimeState.schedulerRunId,
+    runId: null,
+    artifact: runtimeState.artifact,
+    actionId: "planning.scheduler.runtime.initialize",
+    payload: { runtimeState },
+    completedAt: new Date().toISOString(),
+  });
+  return { runtimeState, executionStarted: false };
+}
+
+export async function reconcilePlanningSchedulerRuntime(
+  project: ManagedProject,
+  changeId: string,
+  request: WorkbenchWorkflowActionRequest,
+  live: WorkbenchLiveSink | undefined,
+): Promise<{ reconcileSnapshot: SchedulerReconcileSnapshot; executionStarted: false }> {
+  const { memory, changePath } = await resolveTopic(project, changeId);
+  assertWritableMemory(memory, "Scheduler runtime reconcile");
+  if (!request.schedulerRunId) throw new Error("planning.scheduler.runtime.reconcile requires schedulerRunId.");
+  const reconcileSnapshot = await reconcileSchedulerRuntime(memory, changePath, request.schedulerRunId);
+  await appendTopicThreadEntry(project, changeId, {
+    type: "assistant.message",
+    status: "scheduler-runtime-reconciled",
+    text: renderSchedulerReconcileSnapshotMarkdown(reconcileSnapshot),
+    artifact: reconcileSnapshot.artifact,
+  });
+  emitAssistantEvent(live, {
+    runId: reconcileSnapshot.schedulerRunId,
+    kind: "file-change",
+    phase: "scheduler-runtime-reconciled",
+    title: "Scheduler runtime shell reconciled",
+    summary: "A SchedulerRun-scoped reconcile snapshot was generated; no workers, leases, TaskRuns, worktrees, runs, or scheduler loop were created.",
+    artifactRef: reconcileSnapshot.artifact,
+  });
+  await recordWorkbenchDecision(project, {
+    id: `scheduler-reconcile:${reconcileSnapshot.id}`,
+    changeId,
+    decisionType: "planning.scheduler.runtime.reconcile",
+    status: "completed",
+    label: "Scheduler Reconcile Snapshot 已生成",
+    summary: "Generated a SchedulerRun-scoped reconcile snapshot without starting execution.",
+    targetId: reconcileSnapshot.id,
+    runId: null,
+    artifact: reconcileSnapshot.artifact,
+    actionId: "planning.scheduler.runtime.reconcile",
+    payload: { reconcileSnapshot },
+    completedAt: new Date().toISOString(),
+  });
+  return { reconcileSnapshot, executionStarted: false };
 }
 
 export async function confirmTaskQueueProposalAndStart(

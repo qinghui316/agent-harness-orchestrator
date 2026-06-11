@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-11T09:46:44.1754038Z",
+    "generated_at":  "2026-06-11T10:53:14.9024895Z",
     "active":  [
 
                ],
@@ -649,6 +649,10 @@
                     {
                         "name":  "20260611-phase-9c-schedulerrun-journal-shell-human-gated-launch-record",
                         "path":  "harness/changes/archive/20260611-phase-9c-schedulerrun-journal-shell-human-gated-launch-record"
+                    },
+                    {
+                        "name":  "20260611-phase-9d-scheduler-runtime-reconcile-shell",
+                        "path":  "harness/changes/archive/20260611-phase-9d-scheduler-runtime-reconcile-shell"
                     }
                 ]
 }

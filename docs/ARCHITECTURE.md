@@ -101,6 +101,8 @@ Phase 9B adds a non-executing `SchedulerLaunchPreflight` after `SchedulerClaimRe
 
 Phase 9C adds a non-executing `SchedulerRun` journal shell after a checked `SchedulerLaunchPreflight`. It records the human-confirmed launch intent, scheduler lineage, source hashes, future gate requirements, and a scoped journal anchor for later recovery. It is scheduler coordination evidence only: `prepared` does not mean running or authorized execution, and it must not create WorkflowRun, TaskQueueRun, TaskRun, WorkerLease, WorkerSession, RuntimeWorkspace, EventSource, AgentTask, worktree, run, child Change, slot allocator state, scheduler loop, or parallel executor records. A future executor must re-read the scoped SchedulerRun lineage and re-run ToolPolicyGate plus human confirmation before creating runtime state.
 
+Phase 9D introduces the first scheduler runtime shell under the existing `SchedulerRun` identity. `src/scheduler-runtime/` owns SchedulerRun-scoped runtime state, runtime events, and reconcile snapshots as sidecar artifacts. This moves from launch-intent evidence to recoverable runtime shell state, but still does not create worker sessions, leases, TaskRuns, worktrees, runs, scheduler loops, slot allocators, or parallel execution. ToolPolicyGate and human confirmation remain future execution gates, not pre-authorized by runtime shell initialization.
+
 Workbench relationship:
 
 ```text

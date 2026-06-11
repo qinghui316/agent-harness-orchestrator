@@ -23,7 +23,9 @@ import type {
   WorkbenchSchedulerContractSummary,
   WorkbenchSchedulerDispatchDryRunSummary,
   WorkbenchSchedulerLaunchPreflightSummary,
+  WorkbenchSchedulerReconcileSnapshotSummary,
   WorkbenchSchedulerRunSummary,
+  WorkbenchSchedulerRuntimeSummary,
   WorkbenchSchedulerWorkerSessionPlanSummary,
   WorkbenchTaskQueueProposalSummary,
   WorkbenchWorkflowGraphPlanSummary,
@@ -109,6 +111,7 @@ export interface ThreadStreamAction {
   schedulerClaimReconcilePlanId?: string;
   schedulerLaunchPreflightId?: string;
   schedulerRunId?: string;
+  schedulerReconcileSnapshotId?: string;
   workflowRunId?: string;
   queueRunId?: string;
   taskIds?: string[];
@@ -213,6 +216,7 @@ export interface WorkbenchDecisionAction {
   schedulerClaimReconcilePlanId?: string;
   schedulerLaunchPreflightId?: string;
   schedulerRunId?: string;
+  schedulerReconcileSnapshotId?: string;
   workflowRunId?: string;
   queueRunId?: string;
   taskIds?: string[];
@@ -360,6 +364,7 @@ export interface WorkpadNextAction {
   schedulerClaimReconcilePlanId?: string;
   schedulerLaunchPreflightId?: string;
   schedulerRunId?: string;
+  schedulerReconcileSnapshotId?: string;
   workflowRunId?: string;
   queueRunId?: string;
   taskIds?: string[];
@@ -436,6 +441,7 @@ export interface WorkbenchTaskNextAction {
   schedulerClaimReconcilePlanId?: string;
   schedulerLaunchPreflightId?: string;
   schedulerRunId?: string;
+  schedulerReconcileSnapshotId?: string;
   workflowRunId?: string;
   queueRunId?: string;
   enabled: boolean;
@@ -585,6 +591,8 @@ export interface WorkbenchWorkpad {
   schedulerClaimReconcilePlan?: WorkbenchSchedulerClaimReconcilePlanSummary;
   schedulerLaunchPreflight?: WorkbenchSchedulerLaunchPreflightSummary;
   schedulerRun?: WorkbenchSchedulerRunSummary;
+  schedulerRuntime?: WorkbenchSchedulerRuntimeSummary;
+  schedulerReconcileSnapshot?: WorkbenchSchedulerReconcileSnapshotSummary;
   workflowRun?: WorkflowRunSummary;
   rolePipeline?: WorkbenchRolePipelineSummary;
   resultReview?: WorkbenchResultReview;

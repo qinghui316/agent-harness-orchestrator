@@ -16,6 +16,8 @@ export function artifactForActionResult(result: unknown): string | null {
   if (isRecord(result) && isRecord(result.contract) && typeof result.contract.artifact === "string") return result.contract.artifact;
   if (isRecord(result) && isRecord(result.launchPreflight) && typeof result.launchPreflight.artifact === "string") return result.launchPreflight.artifact;
   if (isRecord(result) && isRecord(result.schedulerRun) && typeof result.schedulerRun.artifact === "string") return result.schedulerRun.artifact;
+  if (isRecord(result) && isRecord(result.runtimeState) && typeof result.runtimeState.artifact === "string") return result.runtimeState.artifact;
+  if (isRecord(result) && isRecord(result.reconcileSnapshot) && typeof result.reconcileSnapshot.artifact === "string") return result.reconcileSnapshot.artifact;
   if (isRecord(result) && isRecord(result.handoff) && Array.isArray(result.handoff.artifactRefs) && typeof result.handoff.artifactRefs[0] === "string") return result.handoff.artifactRefs[0];
   if (isRecord(result) && isRecord(result.revision) && Array.isArray(result.revision.artifactRefs) && typeof result.revision.artifactRefs[0] === "string") return result.revision.artifactRefs[0];
   if (isRecord(result) && isRecord(result.run) && isRecord(result.run.artifacts) && typeof result.run.artifacts.directory === "string") return result.run.artifacts.directory;
@@ -159,6 +161,16 @@ export function summarizeActionResult(actionType: string, result: unknown): stri
       ? `SchedulerRun ${result.schedulerRun.id} prepared. No execution was started.`
       : "SchedulerRun prepared. No execution was started.";
   }
+  if (actionType === "planning.scheduler.runtime.initialize" && isRecord(result) && isRecord(result.runtimeState)) {
+    return typeof result.runtimeState.schedulerRunId === "string"
+      ? `Scheduler runtime shell for ${result.runtimeState.schedulerRunId} initialized. No execution was started.`
+      : "Scheduler runtime shell initialized. No execution was started.";
+  }
+  if (actionType === "planning.scheduler.runtime.reconcile" && isRecord(result) && isRecord(result.reconcileSnapshot)) {
+    return typeof result.reconcileSnapshot.id === "string"
+      ? `Scheduler reconcile snapshot ${result.reconcileSnapshot.id} generated. No execution was started.`
+      : "Scheduler reconcile snapshot generated. No execution was started.";
+  }
   if (actionType === "planning.confirm-execution" && isRecord(result)) {
     return "Planning confirmed and canonical artifacts were written. No execution was started.";
   }
@@ -202,6 +214,8 @@ export function labelForAction(actionType: string): string {
     case "planning.scheduler.claim-reconcile.compile": return "Scheduler claim/reconcile plan compiled";
     case "planning.scheduler.launch-preflight.check": return "Scheduler launch preflight checked";
     case "planning.scheduler.run.prepare": return "SchedulerRun prepared";
+    case "planning.scheduler.runtime.initialize": return "Scheduler runtime shell initialized";
+    case "planning.scheduler.runtime.reconcile": return "Scheduler runtime reconciled";
     case "planning.workflowgraph.compile": return "WorkflowGraphPlan compiled";
     case "planning.taskqueue.confirm-start": return "TaskQueueProposal confirmed and started";
     case "orchestrator.evaluate": return "Main orchestrator evaluated";

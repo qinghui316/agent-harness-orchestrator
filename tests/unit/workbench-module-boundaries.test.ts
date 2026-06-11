@@ -1089,6 +1089,40 @@ describe("Workbench module boundaries", () => {
     expect(events).toContain("stripCanonicalScope");
   });
 
+  it("keeps scheduler-runtime as an owned runtime shell module", () => {
+    const files = listSourceFiles(["src/scheduler-runtime"]);
+    expect(files.map((file) => file.replace(/\\/g, "/"))).toEqual(expect.arrayContaining([
+      "src/scheduler-runtime/types.ts",
+      "src/scheduler-runtime/schemas.ts",
+      "src/scheduler-runtime/paths.ts",
+      "src/scheduler-runtime/repository.ts",
+      "src/scheduler-runtime/guards.ts",
+      "src/scheduler-runtime/initialize.ts",
+      "src/scheduler-runtime/reconcile.ts",
+      "src/scheduler-runtime/rendering.ts",
+      "src/scheduler-runtime/manager.ts",
+    ]));
+    const manager = readFileSync("src/scheduler-runtime/manager.ts", "utf8");
+    expect(manager).toContain('export * from "./initialize.js";');
+    expect(manager).toContain('export * from "./reconcile.js";');
+    expect(manager).toContain('export * from "./repository.js";');
+
+    const initialize = readFileSync("src/scheduler-runtime/initialize.ts", "utf8");
+    expect(initialize).toContain("initializeSchedulerRuntime");
+    expect(initialize).toContain("SchedulerRuntimeState");
+    expect(initialize).not.toMatch(/task-run\/|worker-lease|startTaskRun|claimWorkerLease/);
+
+    const reconcile = readFileSync("src/scheduler-runtime/reconcile.ts", "utf8");
+    expect(reconcile).toContain("reconcileSchedulerRuntime");
+    expect(reconcile).toContain("SchedulerReconcileSnapshot");
+    expect(reconcile).not.toContain("startCodeRun");
+
+    for (const file of files) {
+      const content = readFileSync(file, "utf8");
+      expect(content).not.toMatch(/workbench\/|server\/|web\/src|cli\/commands|workflow-scheduler\/manager/);
+    }
+  });
+
   it("keeps workflow-run manager as a compatibility facade with scoped recovery modules", () => {
     const facade = readFileSync("src/workflow-run/manager.ts", "utf8");
     expect(facade).toContain('export * from "./schemas.js";');

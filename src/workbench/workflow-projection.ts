@@ -1,5 +1,12 @@
 import type { ResolvedMemory, WorkflowRunSummary } from "../types/index.js";
 import {
+  readSchedulerReconcileSnapshotProjection,
+  readSchedulerReconcileSnapshotByIdProjection,
+  readSchedulerRuntimeStateProjection,
+  type SchedulerReconcileSnapshot,
+  type SchedulerRuntimeState,
+} from "../scheduler-runtime/manager.js";
+import {
   readLatestDecompositionPlan,
   readLatestDecompositionReadinessManifest,
   readLatestTaskQueueProposal,
@@ -205,6 +212,40 @@ export interface WorkbenchSchedulerRunSummary {
   updatedAt: string;
 }
 
+export interface WorkbenchSchedulerRuntimeSummary {
+  id: string;
+  changeId: string;
+  schedulerRunId: string;
+  status: SchedulerRuntimeState["status"];
+  schedulerMode: SchedulerRuntimeState["schedulerMode"];
+  claimIntentCount: number;
+  waveCount: number;
+  plannedSlotDemand: number;
+  maxPlannedWaveWidth: number;
+  blockedCount: number;
+  lastReconcileSnapshotId?: string;
+  artifact?: string;
+  eventsArtifact?: string;
+  updatedAt: string;
+}
+
+export interface WorkbenchSchedulerReconcileSnapshotSummary {
+  id: string;
+  changeId: string;
+  schedulerRunId: string;
+  status: SchedulerReconcileSnapshot["status"];
+  schedulerMode: SchedulerReconcileSnapshot["schedulerMode"];
+  claimIntentCount: number;
+  waveCount: number;
+  plannedSlotDemand: number;
+  maxPlannedWaveWidth: number;
+  blockedCount: number;
+  warningCount: number;
+  artifact?: string;
+  markdownArtifact?: string;
+  updatedAt: string;
+}
+
 type WorkflowProjectionActionType =
   | "intake.scan"
   | "intake.reanalyze"
@@ -220,6 +261,8 @@ type WorkflowProjectionActionType =
   | "planning.scheduler.claim-reconcile.compile"
   | "planning.scheduler.launch-preflight.check"
   | "planning.scheduler.run.prepare"
+  | "planning.scheduler.runtime.initialize"
+  | "planning.scheduler.runtime.reconcile"
   | "planning.workflowgraph.compile"
   | "planning.taskqueue.confirm-start"
   | "code.run";
@@ -243,6 +286,7 @@ export interface WorkbenchTypedWorkflowNextAction {
   schedulerClaimReconcilePlanId?: string;
   schedulerLaunchPreflightId?: string;
   schedulerRunId?: string;
+  schedulerReconcileSnapshotId?: string;
   disabledReason?: string;
 }
 
@@ -484,6 +528,50 @@ export async function readLatestSchedulerRunSummary(memory: ResolvedMemory, chan
   };
 }
 
+export async function readSchedulerRuntimeSummary(memory: ResolvedMemory, changePath: string, schedulerRunId?: string): Promise<WorkbenchSchedulerRuntimeSummary | null> {
+  if (!schedulerRunId) return null;
+  const state = await readSchedulerRuntimeStateProjection(memory, changePath, schedulerRunId);
+  if (!state) return null;
+  return {
+    id: state.id,
+    changeId: state.changeId,
+    schedulerRunId: state.schedulerRunId,
+    status: state.status,
+    schedulerMode: state.schedulerMode,
+    claimIntentCount: state.claimIntents.length,
+    waveCount: state.waves.length,
+    plannedSlotDemand: state.plannedSlotDemand,
+    maxPlannedWaveWidth: state.maxPlannedWaveWidth,
+    blockedCount: state.blockedCount,
+    lastReconcileSnapshotId: state.lastReconcileSnapshotId,
+    artifact: state.artifact,
+    eventsArtifact: state.eventsArtifact,
+    updatedAt: state.updatedAt,
+  };
+}
+
+export async function readSchedulerReconcileSnapshotSummary(memory: ResolvedMemory, changePath: string, schedulerRunId?: string, snapshotId?: string): Promise<WorkbenchSchedulerReconcileSnapshotSummary | null> {
+  if (!schedulerRunId || !snapshotId) return null;
+  const snapshot = await readSchedulerReconcileSnapshotProjection(memory, changePath, schedulerRunId, snapshotId);
+  if (!snapshot) return null;
+  return {
+    id: snapshot.id,
+    changeId: snapshot.changeId,
+    schedulerRunId: snapshot.schedulerRunId,
+    status: snapshot.status,
+    schedulerMode: snapshot.schedulerMode,
+    claimIntentCount: snapshot.claimIntents.length,
+    waveCount: snapshot.waves.length,
+    plannedSlotDemand: snapshot.plannedSlotDemand,
+    maxPlannedWaveWidth: snapshot.maxPlannedWaveWidth,
+    blockedCount: snapshot.blockedCount,
+    warningCount: snapshot.warningCount,
+    artifact: snapshot.artifact,
+    markdownArtifact: snapshot.markdownArtifact,
+    updatedAt: snapshot.createdAt,
+  };
+}
+
 export function readDecompositionPlanProjection(memory: ResolvedMemory, changePath: string): Promise<DecompositionPlan | null> {
   return readLatestDecompositionPlan(memory, changePath).catch(() => null);
 }
@@ -538,6 +626,16 @@ export function readSchedulerRunProjection(memory: ResolvedMemory, changePath: s
     : readLatestSchedulerRun(memory, changePath).catch(() => null);
 }
 
+export function readSchedulerRuntimeProjection(memory: ResolvedMemory, changePath: string, schedulerRunId: string): Promise<SchedulerRuntimeState | null> {
+  return readSchedulerRuntimeStateProjection(memory, changePath, schedulerRunId);
+}
+
+export function readSchedulerReconcileProjection(memory: ResolvedMemory, changePath: string, snapshotId: string, schedulerRunId?: string): Promise<SchedulerReconcileSnapshot | null> {
+  return schedulerRunId
+    ? readSchedulerReconcileSnapshotProjection(memory, changePath, schedulerRunId, snapshotId)
+    : readSchedulerReconcileSnapshotByIdProjection(memory, changePath, snapshotId);
+}
+
 export function buildTypedWorkflowNextAction(input: {
   topic: TypedWorkflowProjectionTopic;
   readiness: TypedWorkflowProjectionReadiness;
@@ -553,9 +651,11 @@ export function buildTypedWorkflowNextAction(input: {
   schedulerClaimReconcilePlan?: WorkbenchSchedulerClaimReconcilePlanSummary | null;
   schedulerLaunchPreflight?: WorkbenchSchedulerLaunchPreflightSummary | null;
   schedulerRun?: WorkbenchSchedulerRunSummary | null;
+  schedulerRuntime?: WorkbenchSchedulerRuntimeSummary | null;
+  schedulerReconcileSnapshot?: WorkbenchSchedulerReconcileSnapshotSummary | null;
   workflowRun?: WorkflowRunSummary | null;
 }): WorkbenchTypedWorkflowNextAction {
-  const { topic, readiness, intake, planningBundle, decompositionPlan, decompositionReadiness, taskQueueProposal, workflowGraphPlan, schedulerContract, schedulerDispatchDryRun, schedulerWorkerSessionPlan, schedulerClaimReconcilePlan, schedulerLaunchPreflight, schedulerRun, workflowRun } = input;
+  const { topic, readiness, intake, planningBundle, decompositionPlan, decompositionReadiness, taskQueueProposal, workflowGraphPlan, schedulerContract, schedulerDispatchDryRun, schedulerWorkerSessionPlan, schedulerClaimReconcilePlan, schedulerLaunchPreflight, schedulerRun, schedulerRuntime, schedulerReconcileSnapshot, workflowRun } = input;
   if (!readiness.specReady && !topic.runs.some((run) => run.runtime === "intake-scan")) {
     return workflowNextAction("intake.scan", "分析需求", "先只读扫描项目，整理当前理解、相关文件和待确认问题。", false);
   }
@@ -665,8 +765,30 @@ export function buildTypedWorkflowNextAction(input: {
         schedulerLaunchPreflightId: schedulerLaunchPreflight.id,
       };
     }
+    if (!schedulerRuntime || schedulerRuntime.schedulerRunId !== schedulerRun.id) {
+      return {
+        ...workflowNextAction("planning.scheduler.runtime.initialize", "初始化 Scheduler Runtime 壳", "初始化 SchedulerRun-scoped runtime shell；不会启动 worker、lease、TaskRun、worktree 或 run。"),
+        schedulerContractId: schedulerContract.id,
+        schedulerDispatchDryRunId: schedulerDispatchDryRun.id,
+        schedulerWorkerPlanId: schedulerWorkerSessionPlan.id,
+        schedulerClaimReconcilePlanId: schedulerClaimReconcilePlan.id,
+        schedulerLaunchPreflightId: schedulerLaunchPreflight.id,
+        schedulerRunId: schedulerRun.id,
+      };
+    }
+    if (!schedulerRuntime.lastReconcileSnapshotId || schedulerReconcileSnapshot?.id !== schedulerRuntime.lastReconcileSnapshotId) {
+      return {
+        ...workflowNextAction("planning.scheduler.runtime.reconcile", "生成 Reconcile Snapshot", "基于 Scheduler Runtime 壳生成 reconcile snapshot；不会 claim worker、分配 slot 或启动执行。"),
+        schedulerContractId: schedulerContract.id,
+        schedulerDispatchDryRunId: schedulerDispatchDryRun.id,
+        schedulerWorkerPlanId: schedulerWorkerSessionPlan.id,
+        schedulerClaimReconcilePlanId: schedulerClaimReconcilePlan.id,
+        schedulerLaunchPreflightId: schedulerLaunchPreflight.id,
+        schedulerRunId: schedulerRun.id,
+      };
+    }
     return {
-      ...workflowNextAction("planning.scheduler.run.prepare", "SchedulerRun 已准备", "已生成非执行 SchedulerRun journal shell；当前阶段不提供 parallel start 控件。"),
+      ...workflowNextAction("planning.scheduler.runtime.reconcile", "Scheduler Runtime 壳已就绪", "已初始化 runtime shell 并生成 reconcile snapshot；当前阶段不提供 parallel start 控件。"),
       enabled: false,
       schedulerContractId: schedulerContract.id,
       schedulerDispatchDryRunId: schedulerDispatchDryRun.id,
@@ -674,7 +796,8 @@ export function buildTypedWorkflowNextAction(input: {
       schedulerClaimReconcilePlanId: schedulerClaimReconcilePlan.id,
       schedulerLaunchPreflightId: schedulerLaunchPreflight.id,
       schedulerRunId: schedulerRun.id,
-      disabledReason: "Phase 9C 只准备 SchedulerRun journal shell，不启动并行执行。",
+      schedulerReconcileSnapshotId: schedulerReconcileSnapshot.id,
+      disabledReason: "Phase 9D 只初始化 Scheduler Runtime 壳并生成 reconcile snapshot，不启动并行执行。",
     };
   }
   return {

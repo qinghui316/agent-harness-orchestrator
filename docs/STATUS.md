@@ -5,7 +5,7 @@
 - Current date: 2026-06-11.
 - Active ECL change: none.
 - Pending Harness evolution: none.
-- Latest archived product change: `harness/changes/archive/20260611-phase-9c-schedulerrun-journal-shell-human-gated-launch-record/summary.md`.
+- Latest archived product change: `harness/changes/archive/20260611-phase-9d-scheduler-runtime-reconcile-shell/summary.md`.
 - Latest archived product/Harness docs change: `harness/changes/archive/20260611-phase-8t-agentscope-harness-reference-alignment/summary.md`.
 - Latest archived Harness evolution: `harness/changes/archive/20260611-auto-evolve-harness-phase-8w-9b-scheduler-pre-executor-evidence/summary.md`.
 - Active product phase: none.
@@ -30,6 +30,7 @@ Current baseline:
 - Phase 9A Scheduler Claim Reconcile Plan Foundation completed and is archived at `harness/changes/archive/20260611-phase-9a-scheduler-claim-reconcile-plan-foundation/summary.md`. It adds non-executing Scheduler Claim / Reconcile Plan evidence after worker-session planning and before any scheduler runtime or parallel executor.
 - Phase 9B Scheduler Launch Preflight Contract completed and is archived at `harness/changes/archive/20260611-phase-9b-scheduler-launch-preflight-contract/summary.md`. It adds non-executing Scheduler Launch Preflight evidence after claim/reconcile planning and before any scheduler runtime or parallel executor.
 - Phase 9C SchedulerRun Journal Shell Human Gated Launch Record completed and is archived at `harness/changes/archive/20260611-phase-9c-schedulerrun-journal-shell-human-gated-launch-record/summary.md`. It adds a non-executing SchedulerRun journal shell after checked launch preflight, records human-confirmed launch intent and recovery/journal evidence, and still does not start workers, allocate leases, create runtime sidecars, or authorize parallel execution.
+- Phase 9D Scheduler Runtime Reconcile Shell completed and is archived at `harness/changes/archive/20260611-phase-9d-scheduler-runtime-reconcile-shell/summary.md`. It adds SchedulerRun-scoped runtime sidecar state and reconcile snapshots without changing SchedulerRun JSON shape, starting workers, allocating leases, creating TaskRuns/WorkerSessions/worktrees/runs, or authorizing parallel execution.
 - Harness evolution after Phase 9B completed as `noop/subagent_review` and is archived at `harness/changes/archive/20260611-auto-evolve-harness-phase-8w-9b-scheduler-pre-executor-evidence/summary.md`. Authorized subagent review recommended `noop` with score `93/100`; existing proposal/runtime, Runtime Continuity auxiliary evidence, ToolPolicy authority, human gate, and future feature module-boundary rules are sufficient for the Phase 8W-9B scheduler pre-executor evidence window.
 - The Phase 8S-8W pending Harness evolution window has been marked complete as `noop/subagent_review` with subagent score `94/100`.
 - Phase 6F completed the single-demand local loop through result review and local apply handoff.
@@ -123,6 +124,8 @@ Active implementation track:
 
 ```text
 Active implementation track: none.
+
+Phase 9D is closed and archived at `harness/changes/archive/20260611-phase-9d-scheduler-runtime-reconcile-shell/summary.md`. It introduced SchedulerRun-scoped runtime shell sidecars and reconcile snapshots under a new `src/scheduler-runtime/` owner module. SchedulerRun remains the only scheduler run identity, and this phase does not create WorkflowRun, TaskQueueRun, TaskRun, WorkerLease, AgentTask, WorkerSession, RuntimeWorkspace, EventSource, worktree, run, child Change, scheduler loop, slot allocator, or parallel executor records.
 
 Phase 9C is closed and archived at `harness/changes/archive/20260611-phase-9c-schedulerrun-journal-shell-human-gated-launch-record/summary.md`. It adds non-executing SchedulerRun journal/recovery evidence after checked launch preflight and human confirmation. It does not create WorkflowRun, TaskQueueRun, TaskRun, WorkerLease, AgentTask, WorkerSession, RuntimeWorkspace, EventSource, worktree, run, child Change, scheduler loop, slot allocator, or parallel executor records.
 

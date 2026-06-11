@@ -12,7 +12,7 @@ import { executeWorkbenchAction } from "../../src/server/workbench-server.js";
 import { appendTopicThreadEntry, createWorkbenchTopic, postTopicMessage } from "../../src/workbench/chat.js";
 import { readTopicThreadLog } from "../../src/workbench/thread-log.js";
 import { answerClarification, reanalyzeIntake, runIntakeScan } from "../../src/workbench/intake.js";
-import { getWorkbenchDecompositionPlanProjection, getWorkbenchDecompositionReadinessProjection, getWorkbenchMaintenanceProjection, getWorkbenchRunGraphProjection, getWorkbenchSchedulerClaimReconcilePlanProjection, getWorkbenchSchedulerContractProjection, getWorkbenchSchedulerDispatchDryRunProjection, getWorkbenchSchedulerLaunchPreflightProjection, getWorkbenchSchedulerRunProjection, getWorkbenchSchedulerWorkerSessionPlanProjection, getWorkbenchSnapshot, getWorkbenchStream, getWorkbenchTaskQueueProposalProjection, getWorkbenchTopic, getWorkbenchWorkflowGraphPlanProjection, listWorkbenchApprovals, listWorkbenchRoles, listWorkbenchTopics } from "../../src/workbench/manager.js";
+import { getWorkbenchDecompositionPlanProjection, getWorkbenchDecompositionReadinessProjection, getWorkbenchMaintenanceProjection, getWorkbenchRunGraphProjection, getWorkbenchSchedulerClaimReconcilePlanProjection, getWorkbenchSchedulerContractProjection, getWorkbenchSchedulerDispatchDryRunProjection, getWorkbenchSchedulerLaunchPreflightProjection, getWorkbenchSchedulerReconcileSnapshotProjection, getWorkbenchSchedulerRunProjection, getWorkbenchSchedulerRuntimeProjection, getWorkbenchSchedulerWorkerSessionPlanProjection, getWorkbenchSnapshot, getWorkbenchStream, getWorkbenchTaskQueueProposalProjection, getWorkbenchTopic, getWorkbenchWorkflowGraphPlanProjection, listWorkbenchApprovals, listWorkbenchRoles, listWorkbenchTopics } from "../../src/workbench/manager.js";
 import { WorkbenchStore } from "../../src/workbench/store.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import { collectWorktreeDiff } from "../../src/audit/diff.js";
@@ -2555,13 +2555,132 @@ describe("workbench read model", () => {
       futureHumanGateRequired: true,
     });
     expect(schedulerRunSnapshot.center.workpad.nextAction).toMatchObject({
-      actionType: "planning.scheduler.run.prepare",
-      enabled: false,
+      actionType: "planning.scheduler.runtime.initialize",
+      enabled: true,
       schedulerRunId: schedulerRun?.id,
-      disabledReason: expect.stringContaining("不启动并行执行"),
     });
     expect(schedulerRunSnapshot.right.confirmationQueue.current.flatMap((item) => item.actions).map((action) => action.actionType))
       .not.toContain("planning.scheduler.run.prepare");
+    expect(schedulerRunSnapshot.right.confirmationQueue.current).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        actions: expect.arrayContaining([
+          expect.objectContaining({
+            actionType: "planning.scheduler.runtime.initialize",
+            schedulerRunId: schedulerRun?.id,
+          }),
+        ]),
+      }),
+    ]));
+    await expect(executeWorkbenchAction({ project: project(), path: tempDir }, {
+      actionType: "planning.scheduler.runtime.initialize",
+      changeId: topic.changeId,
+      schedulerRunId: "forged-scheduler-run",
+      confirm: true,
+    })).rejects.toThrow("stale or no longer available");
+
+    const runtimeResult = await executeWorkbenchAction({ project: project(), path: tempDir }, {
+      actionType: "planning.scheduler.runtime.initialize",
+      changeId: topic.changeId,
+      schedulerContractId: contract?.id,
+      schedulerDispatchDryRunId: dryRun?.id,
+      schedulerWorkerPlanId: workerPlan?.id,
+      schedulerClaimReconcilePlanId: claimReconcilePlan?.id,
+      schedulerLaunchPreflightId: launchPreflight?.id,
+      schedulerRunId: schedulerRun?.id,
+      confirm: true,
+    });
+    const runtimeState = (runtimeResult.result as { result?: { runtimeState?: { id?: string; status?: string; schedulerRunId?: string; claimIntents?: unknown[]; blockedCount?: number; lastReconcileSnapshotId?: string } } }).result?.runtimeState;
+    expect(runtimeState).toMatchObject({
+      status: "initialized",
+      schedulerRunId: schedulerRun?.id,
+      blockedCount: 0,
+    });
+    expect(runtimeState?.claimIntents).toHaveLength(2);
+    const fullRuntime = await getWorkbenchSchedulerRuntimeProjection({ project: project(), path: tempDir }, topic.changeId, schedulerRun?.id);
+    expect(fullRuntime).toMatchObject({
+      id: runtimeState?.id,
+      schedulerRunId: schedulerRun?.id,
+      schedulerLaunchPreflightId: launchPreflight?.id,
+      plannedSlotDemand: 2,
+    });
+    const runtimeEventsPath = join(changeDir, "planning", "scheduler-runs", `${schedulerRun?.id}`, "scheduler-runtime-events.jsonl");
+    const runtimeEvents = (await readFile(runtimeEventsPath, "utf8")).trim().split(/\r?\n/).map((line) => JSON.parse(line));
+    expect(runtimeEvents).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        schedulerRunId: schedulerRun?.id,
+        changeId: topic.changeId,
+        type: "scheduler-runtime.initialized",
+      }),
+    ]));
+    const runtimeSnapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: topic.changeId });
+    expect(runtimeSnapshot.center.workpad.schedulerRuntime).toMatchObject({
+      schedulerRunId: schedulerRun?.id,
+      claimIntentCount: 2,
+      blockedCount: 0,
+    });
+    expect(runtimeSnapshot.center.workpad.nextAction).toMatchObject({
+      actionType: "planning.scheduler.runtime.reconcile",
+      enabled: true,
+      schedulerRunId: schedulerRun?.id,
+    });
+    expect(runtimeSnapshot.right.confirmationQueue.current).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        actions: expect.arrayContaining([
+          expect.objectContaining({
+            actionType: "planning.scheduler.runtime.reconcile",
+            schedulerRunId: schedulerRun?.id,
+          }),
+        ]),
+      }),
+    ]));
+    await expect(executeWorkbenchAction({ project: project(), path: tempDir }, {
+      actionType: "planning.scheduler.runtime.initialize",
+      changeId: topic.changeId,
+      schedulerRunId: schedulerRun?.id,
+      confirm: true,
+    })).rejects.toThrow("stale or no longer available");
+
+    const reconcileResult = await executeWorkbenchAction({ project: project(), path: tempDir }, {
+      actionType: "planning.scheduler.runtime.reconcile",
+      changeId: topic.changeId,
+      schedulerContractId: contract?.id,
+      schedulerDispatchDryRunId: dryRun?.id,
+      schedulerWorkerPlanId: workerPlan?.id,
+      schedulerClaimReconcilePlanId: claimReconcilePlan?.id,
+      schedulerLaunchPreflightId: launchPreflight?.id,
+      schedulerRunId: schedulerRun?.id,
+      confirm: true,
+    });
+    const reconcileSnapshot = (reconcileResult.result as { result?: { reconcileSnapshot?: { id?: string; status?: string; schedulerRunId?: string; claimIntents?: unknown[]; warningCount?: number } } }).result?.reconcileSnapshot;
+    expect(reconcileSnapshot).toMatchObject({
+      status: "generated",
+      schedulerRunId: schedulerRun?.id,
+      warningCount: 0,
+    });
+    expect(reconcileSnapshot?.claimIntents).toHaveLength(2);
+    const fullReconcile = await getWorkbenchSchedulerReconcileSnapshotProjection({ project: project(), path: tempDir }, topic.changeId, reconcileSnapshot?.id);
+    expect(fullReconcile).toMatchObject({
+      id: reconcileSnapshot?.id,
+      schedulerRunId: schedulerRun?.id,
+      status: "generated",
+      plannedSlotDemand: 2,
+    });
+    const reconciledSnapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: topic.changeId });
+    expect(reconciledSnapshot.center.workpad.schedulerReconcileSnapshot).toMatchObject({
+      id: reconcileSnapshot?.id,
+      schedulerRunId: schedulerRun?.id,
+      claimIntentCount: 2,
+      warningCount: 0,
+    });
+    expect(reconciledSnapshot.center.workpad.nextAction).toMatchObject({
+      actionType: "planning.scheduler.runtime.reconcile",
+      enabled: false,
+      schedulerRunId: schedulerRun?.id,
+      schedulerReconcileSnapshotId: reconcileSnapshot?.id,
+      disabledReason: expect.stringContaining("不启动并行执行"),
+    });
+    const updatedRuntime = await getWorkbenchSchedulerRuntimeProjection({ project: project(), path: tempDir }, topic.changeId, schedulerRun?.id);
+    expect(updatedRuntime?.lastReconcileSnapshotId).toBe(reconcileSnapshot?.id);
     expect(await listTaskQueues(beforeMemory, topic.changeId)).toHaveLength(0);
     expect(await listWorkflowRuns(beforeMemory, topic.changeId)).toHaveLength(0);
     expect(await listTaskRuns(beforeMemory, topic.changeId)).toHaveLength(0);

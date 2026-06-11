@@ -122,7 +122,74 @@ export function taskQueueProposalToConfirmationItems(
             const launchPreflight = workpad.schedulerLaunchPreflight;
             if (launchPreflight && launchPreflight.schedulerClaimReconcilePlanId === claimReconcilePlan.id) {
               if (launchPreflight.status !== "checked") return [];
-              if (workpad.schedulerRun?.schedulerLaunchPreflightId === launchPreflight.id) return [];
+              const schedulerRun = workpad.schedulerRun;
+              if (schedulerRun?.schedulerLaunchPreflightId === launchPreflight.id && schedulerRun.status === "prepared") {
+                const runtimeState = workpad.schedulerRuntime;
+                if (!runtimeState || runtimeState.schedulerRunId !== schedulerRun.id) {
+                  return [{
+                    id: `confirm:scheduler-runtime:${selectedTopic.id}:${schedulerRun.id}`,
+                    kind: "planning-confirm",
+                    projectId: project?.id ?? null,
+                    conversationId: selectedTopic.id,
+                    changeId: selectedTopic.id,
+                    summary: "SchedulerRun 已准备好，可初始化 Scheduler Runtime 壳。",
+                    whyNeedsConfirmation: "需要你确认初始化 runtime shell。该壳只记录 SchedulerRun-scoped runtime sidecar，不会启动 worker 或并行执行。",
+                    confirmEffect: "写入 scheduler-runtime-state.json 和 scheduler-runtime-events.jsonl；不会创建 WorkerLease、WorkerSession、RuntimeWorkspace、EventSource、WorkflowRun、TaskQueue、TaskRun、AgentTask、worktree 或 run。",
+                    riskSummary: "Runtime 壳不是执行授权；真正 parallel executor 必须重新读取 scoped evidence、重新执行 ToolPolicyGate 并再次经过 human gate。",
+                    evidenceRefs: schedulerRun.artifact ? [schedulerRun.artifact] : [],
+                    actions: [{
+                      id: `workflow:planning.scheduler.runtime.initialize:${selectedTopic.id}:${schedulerRun.id}`,
+                      label: "初始化 Scheduler Runtime 壳",
+                      kind: "workflow-action",
+                      changeId: selectedTopic.id,
+                      actionType: "planning.scheduler.runtime.initialize",
+                      schedulerContractId: contract.id,
+                      schedulerDispatchDryRunId: dryRun.id,
+                      schedulerWorkerPlanId: workerPlan.id,
+                      schedulerClaimReconcilePlanId: claimReconcilePlan.id,
+                      schedulerLaunchPreflightId: launchPreflight.id,
+                      schedulerRunId: schedulerRun.id,
+                      enabled: true,
+                      requiresConfirmation: true,
+                    }],
+                    primary: false,
+                    status: "pending",
+                  }];
+                }
+                const reconcileSnapshot = workpad.schedulerReconcileSnapshot;
+                if (!runtimeState.lastReconcileSnapshotId || reconcileSnapshot?.id !== runtimeState.lastReconcileSnapshotId) {
+                  return [{
+                    id: `confirm:scheduler-reconcile:${selectedTopic.id}:${schedulerRun.id}`,
+                    kind: "planning-confirm",
+                    projectId: project?.id ?? null,
+                    conversationId: selectedTopic.id,
+                    changeId: selectedTopic.id,
+                    summary: "Scheduler Runtime 壳已初始化，可生成 Reconcile Snapshot。",
+                    whyNeedsConfirmation: "需要你确认生成 reconcile snapshot。该 snapshot 只读取 runtime shell 和 lineage，不会 claim worker、占 slot 或启动执行。",
+                    confirmEffect: "写入 scheduler-reconcile-snapshots 下的 JSON/Markdown artifact，并追加 runtime event；不会创建 WorkerLease、WorkerSession、RuntimeWorkspace、EventSource、WorkflowRun、TaskQueue、TaskRun、AgentTask、worktree 或 run。",
+                    riskSummary: "Reconcile Snapshot 是只读协调 evidence，不是 parallel start；后续 executor 仍必须另行确认和重新校验。",
+                    evidenceRefs: runtimeState.artifact ? [runtimeState.artifact] : [],
+                    actions: [{
+                      id: `workflow:planning.scheduler.runtime.reconcile:${selectedTopic.id}:${schedulerRun.id}`,
+                      label: "生成 Reconcile Snapshot",
+                      kind: "workflow-action",
+                      changeId: selectedTopic.id,
+                      actionType: "planning.scheduler.runtime.reconcile",
+                      schedulerContractId: contract.id,
+                      schedulerDispatchDryRunId: dryRun.id,
+                      schedulerWorkerPlanId: workerPlan.id,
+                      schedulerClaimReconcilePlanId: claimReconcilePlan.id,
+                      schedulerLaunchPreflightId: launchPreflight.id,
+                      schedulerRunId: schedulerRun.id,
+                      enabled: true,
+                      requiresConfirmation: true,
+                    }],
+                    primary: false,
+                    status: "pending",
+                  }];
+                }
+                return [];
+              }
               return [{
                 id: `confirm:scheduler-run:${selectedTopic.id}:${launchPreflight.id}`,
                 kind: "planning-confirm",

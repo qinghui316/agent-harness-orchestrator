@@ -5,6 +5,8 @@ import { evaluateToolPolicy, highImpactActions } from "../../agent-task/tool-pol
 import { getChangeStatusForChange } from "../../change/manager.js";
 import { getActiveChanges } from "../../ecl/index.js";
 import { resolveProjectMemory } from "../../memory/resolver.js";
+import { readSchedulerRuntimeLineage } from "../../scheduler-runtime/guards.js";
+import { readSchedulerRuntimeStateProjection } from "../../scheduler-runtime/repository.js";
 import { latestLandingQueueSnapshot } from "../../landing-queue/manager.js";
 import { listTaskQueues } from "../../task-queue/manager.js";
 import { listTaskRuns } from "../../task-run/manager.js";
@@ -22,10 +24,12 @@ import {
   readLatestSchedulerDispatchDryRun,
   readLatestSchedulerLaunchPreflight,
   readLatestSchedulerWorkerSessionPlan,
+  readLatestSchedulerRun,
   readSchedulerClaimReconcilePlan,
   readSchedulerContract,
   readSchedulerDispatchDryRun,
   readSchedulerLaunchPreflight,
+  readSchedulerRun,
   readSchedulerWorkerSessionPlan,
 } from "../../workflow-scheduler/manager.js";
 import {
@@ -281,6 +285,26 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
     }
     const latestContract = await readLatestSchedulerContract(memory, target.path);
     if (latestContract.id !== contract.id) throw new Error("planning.scheduler.run.prepare requires the latest SchedulerContract.");
+  }
+  if (request.actionType === "planning.scheduler.runtime.initialize" || request.actionType === "planning.scheduler.runtime.reconcile") {
+    const active = await getActiveChanges(memory);
+    const target = active.find((item) => item.name === changeId);
+    if (!target) throw new Error(`${request.actionType} target is stale or missing active Change: ${changeId}.`);
+    if (!request.schedulerRunId) throw new Error(`${request.actionType} requires schedulerRunId.`);
+    const run = await readSchedulerRun(memory, target.path, request.schedulerRunId);
+    if (run.id !== request.schedulerRunId || run.changeId !== changeId || run.status !== "prepared") {
+      throw new Error(`${request.actionType} SchedulerRun target is stale or not prepared.`);
+    }
+    const latestRun = await readLatestSchedulerRun(memory, target.path);
+    if (latestRun.id !== run.id) throw new Error(`${request.actionType} requires the latest SchedulerRun.`);
+    await readSchedulerRuntimeLineage(memory, target.path, run.id);
+    const runtimeState = await readSchedulerRuntimeStateProjection(memory, target.path, run.id);
+    if (request.actionType === "planning.scheduler.runtime.initialize" && runtimeState) {
+      throw new Error("planning.scheduler.runtime.initialize SchedulerRuntimeState already exists.");
+    }
+    if (request.actionType === "planning.scheduler.runtime.reconcile" && !runtimeState) {
+      throw new Error("planning.scheduler.runtime.reconcile requires initialized SchedulerRuntimeState.");
+    }
   }
   if (request.actionType === "planning.workflowgraph.compile") {
     const active = await getActiveChanges(memory);

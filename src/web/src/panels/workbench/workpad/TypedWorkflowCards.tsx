@@ -232,3 +232,45 @@ export function SchedulerRunCard({ run }: { run: NonNullable<Workpad["schedulerR
     </section>
   );
 }
+
+export function SchedulerRuntimeCard({ runtime }: { runtime: NonNullable<Workpad["schedulerRuntime"]> }): ReactElement {
+  return (
+    <section className="workpad-section" data-testid="scheduler-runtime-card">
+      <div className="workpad-section-header">
+        <h3>Scheduler Runtime 壳</h3>
+        <span>{humanStatus(runtime.status)}</span>
+      </div>
+      <p className="workpad-goal">runtime sidecar / journal shell（不启动并行执行）</p>
+      <div className="workpad-chip-list">
+        <span>{runtime.waveCount} 个 wave</span>
+        <span>{runtime.claimIntentCount} 个 claim intent</span>
+        <span>计划槽位 {runtime.plannedSlotDemand}</span>
+        <span>最大计划宽度 {runtime.maxPlannedWaveWidth}</span>
+        <span>{runtime.blockedCount} 个阻塞</span>
+        <span>{runtime.lastReconcileSnapshotId ? "已有 reconcile snapshot" : "尚未 reconcile"}</span>
+      </div>
+      {runtime.artifact ? <small className="artifact-link">查看证据：{artifactName(runtime.artifact)}</small> : null}
+    </section>
+  );
+}
+
+export function SchedulerReconcileSnapshotCard({ snapshot }: { snapshot: NonNullable<Workpad["schedulerReconcileSnapshot"]> }): ReactElement {
+  return (
+    <section className="workpad-section" data-testid="scheduler-reconcile-snapshot-card">
+      <div className="workpad-section-header">
+        <h3>Reconcile Snapshot</h3>
+        <span>{humanStatus(snapshot.status)}</span>
+      </div>
+      <p className="workpad-goal">只读 reconcile snapshot（不 claim、不占 slot、不启动 worker）</p>
+      <div className="workpad-chip-list">
+        <span>{snapshot.waveCount} 个 wave</span>
+        <span>{snapshot.claimIntentCount} 个 claim intent</span>
+        <span>计划槽位 {snapshot.plannedSlotDemand}</span>
+        <span>最大计划宽度 {snapshot.maxPlannedWaveWidth}</span>
+        <span>{snapshot.blockedCount} 个阻塞</span>
+        <span>{snapshot.warningCount} 个 warning</span>
+      </div>
+      {snapshot.artifact ? <small className="artifact-link">查看证据：{artifactName(snapshot.artifact)}</small> : null}
+    </section>
+  );
+}
