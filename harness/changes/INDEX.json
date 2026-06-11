@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-11T04:04:38.2910793Z",
+    "generated_at":  "2026-06-11T04:27:18.4434942Z",
     "active":  [
 
                ],
@@ -589,6 +589,10 @@
                     {
                         "name":  "20260611-auto-evolve-harness-phase-8o-8s-boundary-evidence",
                         "path":  "harness/changes/archive/20260611-auto-evolve-harness-phase-8o-8s-boundary-evidence"
+                    },
+                    {
+                        "name":  "20260611-auto-evolve-harness-phase-8s-8w-runtime-continuity-evidence",
+                        "path":  "harness/changes/archive/20260611-auto-evolve-harness-phase-8s-8w-runtime-continuity-evidence"
                     },
                     {
                         "name":  "20260611-phase-8p-scoped-validation-audit-evidence-boundary-split",
