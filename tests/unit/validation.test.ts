@@ -133,11 +133,18 @@ describe("validation", () => {
     expect(runtimeWorkspace.worktreeId).toBeUndefined();
     expect(eventSource).toMatchObject({ adapter: "validation-command", status: "failed", workerSessionId: workerSession.id });
     expect(agentEvents.map((event) => event.eventType)).toEqual(expect.arrayContaining([
+      "permission.profile.attached",
+      "external-execution.requested",
+      "external-execution.completed",
+      "external-execution.failed",
       "validation.started",
       "validation.command.started",
       "validation.command.exited",
       "validation.failed",
     ]));
+    expect(agentEvents.filter((event) => event.eventType === "external-execution.requested")).toHaveLength(2);
+    expect(agentEvents.filter((event) => event.eventType === "external-execution.completed")).toHaveLength(1);
+    expect(agentEvents.filter((event) => event.eventType === "external-execution.failed")).toHaveLength(1);
     expect(agentEvents[0]).toMatchObject({ changeId: "validate-me", runId: result.run.id, roleId: "validator" });
     expect(agentEvents[0].raw.changeId).toBeUndefined();
   });
@@ -160,6 +167,7 @@ describe("validation", () => {
     const runDir = join(tempDir, result.run.artifacts.directory);
     const workerSession = JSON.parse(await readFile(join(runDir, "worker-session.json"), "utf8"));
     const runtimeWorkspace = JSON.parse(await readFile(join(runDir, "runtime-workspace.json"), "utf8"));
+    const agentEvents = (await readFile(join(runDir, "agent-events.jsonl"), "utf8")).trim().split(/\r?\n/).map((line) => JSON.parse(line));
 
     expect(result.validation.status).toBe("passed");
     expect(workerSession).toMatchObject({ adapter: "validation-command", roleId: "validator", status: "completed", worktreeId: result.run.worktree?.worktreeId });
@@ -168,6 +176,11 @@ describe("validation", () => {
       worktreeId: result.run.worktree?.worktreeId,
       checkoutPath: result.run.worktree?.checkoutPath,
     });
+    expect(agentEvents.map((event) => event.eventType)).toEqual(expect.arrayContaining([
+      "permission.profile.attached",
+      "external-execution.requested",
+      "external-execution.completed",
+    ]));
   });
 
   it("runs validation for an explicit Change target when multiple active demands exist", async () => {

@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-10T20:40:28.3460638Z",
+    "generated_at":  "2026-06-11T04:04:38.2910793Z",
     "active":  [
 
                ],
@@ -617,6 +617,10 @@
                     {
                         "name":  "20260611-phase-8v-validation-audit-runtime-continuity-coverage",
                         "path":  "harness/changes/archive/20260611-phase-8v-validation-audit-runtime-continuity-coverage"
+                    },
+                    {
+                        "name":  "20260611-phase-8w-runtime-permission-external-execution-evidence-contract",
+                        "path":  "harness/changes/archive/20260611-phase-8w-runtime-permission-external-execution-evidence-contract"
                     }
                 ]
 }

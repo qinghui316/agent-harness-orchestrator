@@ -172,8 +172,13 @@ describe("audit close gate", () => {
     expect(runtimeWorkspace).toMatchObject({ workspaceKind: "source-root", cwd: tempDir, roleId: "auditor-agent" });
     expect(runtimeWorkspace.worktreeId).toBeUndefined();
     expect(eventSource).toMatchObject({ adapter: "audit-codex-readonly", status: "failed", workerSessionId: workerSession.id });
-    expect(agentEvents.map((event) => event.eventType)).toContain("codex.capabilities.failed");
+    expect(agentEvents.map((event) => event.eventType)).toEqual(expect.arrayContaining([
+      "permission.profile.attached",
+      "codex.capabilities.failed",
+      "external-execution.failed",
+    ]));
     expect(agentEvents[0]).toMatchObject({ changeId: "audit-runtime-continuity", runId: result.run.id, roleId: "auditor-agent" });
+    expect(agentEvents[0].raw.changeId).toBeUndefined();
   });
 });
 

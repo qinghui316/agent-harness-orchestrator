@@ -1032,6 +1032,7 @@ describe("Workbench module boundaries", () => {
       "src/runtime-continuity/paths.ts",
       "src/runtime-continuity/repository.ts",
       "src/runtime-continuity/guards.ts",
+      "src/runtime-continuity/events.ts",
     ]));
     const repository = readFileSync("src/runtime-continuity/repository.ts", "utf8");
     expect(repository).toContain("export async function createRuntimeContinuityArtifacts");
@@ -1041,6 +1042,11 @@ describe("Workbench module boundaries", () => {
     expect(readFileSync("src/runtime-continuity/types.ts", "utf8")).toContain('"validation-command"');
     expect(readFileSync("src/runtime-continuity/types.ts", "utf8")).toContain('"audit-codex-readonly"');
     expect(readFileSync("src/runtime-continuity/types.ts", "utf8")).toContain('"source-root"');
+    const events = readFileSync("src/runtime-continuity/events.ts", "utf8");
+    expect(events).toContain("permission.profile.attached");
+    expect(events).toContain("permission.decision.recorded");
+    expect(events).toContain("external-execution.requested");
+    expect(events).toContain("stripCanonicalScope");
   });
 
   it("keeps workflow-run manager as a compatibility facade with scoped recovery modules", () => {

@@ -8,6 +8,7 @@ import { slugify } from "../fs/path.js";
 import { assertWritableMemory, resolveProjectMemory } from "../memory/resolver.js";
 import { workerPermissionProfileForRole } from "../agent-task/tool-policy.js";
 import { runtimeContinuityPaths, type RuntimeContinuityPaths } from "../runtime-continuity/paths.js";
+import { appendExternalExecutionCompleted, appendExternalExecutionFailed, appendExternalExecutionRequested, appendPermissionProfileAttached } from "../runtime-continuity/events.js";
 import { appendAgentEventEnvelope, createRuntimeContinuityArtifacts, markRuntimeContinuityStatus, type RuntimeContinuityWorkspaceDescriptor } from "../runtime-continuity/repository.js";
 import type { RuntimeContinuityArtifacts } from "../runtime-continuity/types.js";
 import { createWorktree } from "../worktree/creation.js";
@@ -182,6 +183,7 @@ export async function startValidationRun(project: ManagedProject, options: Valid
   run = { ...run, status: "running" };
   await writeJsonFile(paths.run, run);
   continuity = await markRuntimeContinuityStatus(paths, continuity, "running");
+  await appendValidationContinuityWrite(paths, continuity, appendPermissionProfileAttached(paths, continuity, { source: "validation" }));
   await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "validation.started", runId, data: { profile: profileName, commandCount: profile.commands.length } });
   await appendValidationContinuityEvent(paths, continuity, "validation.started", {
     profile: profileName,
@@ -204,6 +206,16 @@ export async function startValidationRun(project: ManagedProject, options: Valid
       command: item.command,
       cwd,
     }, item.name);
+    const commandRequestId = `${runId}:validation-command:${index + 1}`;
+    await appendValidationContinuityWrite(paths, continuity, appendExternalExecutionRequested(paths, continuity, {
+      requestId: commandRequestId,
+      command: item.command[0],
+      args: item.command.slice(1),
+      cwd,
+      adapter: "validation-command",
+      raw: { name: item.name },
+      summary: item.name,
+    }));
     const processResult = await executeProcessStreaming({
       cwd,
       command: item.command[0],
@@ -241,6 +253,24 @@ export async function startValidationRun(project: ManagedProject, options: Valid
       signal: processResult.signal,
       status: commandStatus,
     }, `${item.name}: ${commandStatus}`);
+    await appendValidationContinuityWrite(paths, continuity, (commandStatus === "passed"
+      ? appendExternalExecutionCompleted(paths, continuity, {
+        requestId: commandRequestId,
+        exitCode: processResult.exitCode,
+        signal: processResult.signal,
+        status: commandStatus,
+        raw: { name: item.name },
+        summary: `${item.name}: ${commandStatus}`,
+      })
+      : appendExternalExecutionFailed(paths, continuity, {
+        requestId: commandRequestId,
+        exitCode: processResult.exitCode,
+        signal: processResult.signal,
+        status: commandStatus,
+        error: processResult.terminationReason ?? processResult.stderrSample,
+        raw: { name: item.name },
+        summary: `${item.name}: ${commandStatus}`,
+      })));
   }
 
   const validationStatus: ValidationStatus = commandResults.every((item) => item.status === "passed") ? "passed" : "failed";
@@ -339,11 +369,19 @@ async function appendValidationContinuityEvent(
   raw: Record<string, unknown>,
   summary?: string,
 ): Promise<void> {
-  await appendAgentEventEnvelope(paths, continuity.session, continuity.eventSource, {
+  await appendValidationContinuityWrite(paths, continuity, appendAgentEventEnvelope(paths, continuity.session, continuity.eventSource, {
     eventType,
     raw,
     summary,
-  }).catch((error) => appendRunEvent(paths.events, {
+  }));
+}
+
+async function appendValidationContinuityWrite(
+  paths: RuntimeContinuityPaths & { events: string },
+  continuity: RuntimeContinuityArtifacts,
+  write: Promise<unknown>,
+): Promise<void> {
+  await write.catch((error) => appendRunEvent(paths.events, {
     timestamp: new Date().toISOString(),
     type: "runtime_continuity.append_failed",
     runId: continuity.session.runId,

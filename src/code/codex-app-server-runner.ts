@@ -4,6 +4,7 @@ import { workerPermissionProfileForRole } from "../agent-task/tool-policy.js";
 import { collectWorktreeDiff } from "../audit/diff.js";
 import { runCodexAppServerTurn } from "../codex/app-server.js";
 import { writeJsonFile } from "../fs/json.js";
+import { appendExternalExecutionCompleted, appendExternalExecutionFailed, appendExternalExecutionRequested, appendPermissionProfileAttached } from "../runtime-continuity/events.js";
 import { appendAgentEventEnvelope, createRuntimeContinuityArtifacts, markRuntimeContinuityStatus } from "../runtime-continuity/repository.js";
 import { appendRunEvent } from "../run/manager.js";
 import type { ManagedProject, ResolvedMemory, RunMetadata, RunStatus, RunWorktreeInfo } from "../types/index.js";
@@ -49,6 +50,14 @@ export async function runCodexAppServerCode(input: {
   const recordContinuity = (promise: Promise<unknown>): void => {
     continuityWrites.push(promise.then(() => undefined).catch((error) => appendRuntimeContinuityFailure(input.paths, run.id, error)));
   };
+  recordContinuity(appendPermissionProfileAttached(input.paths, continuity, { source: "code.app-server" }));
+  recordContinuity(appendExternalExecutionRequested(input.paths, continuity, {
+    requestId: `${run.id}:codex-app-server`,
+    command: "codex",
+    args: ["app-server", "--listen", "stdio://"],
+    cwd: input.worktree.checkoutPath,
+    adapter: "codex-app-server",
+  }));
   const appServerResult = await runCodexAppServerTurn({
     projectId: input.project.id,
     changeId: input.changeId,
@@ -99,6 +108,18 @@ export async function runCodexAppServerCode(input: {
     },
     onError: (error) => emitCodeLiveCallbackError(input.live, run.id, error),
   });
+  recordContinuity((appServerResult.status === "completed"
+    ? appendExternalExecutionCompleted(input.paths, continuity, {
+      requestId: `${run.id}:codex-app-server`,
+      status: appServerResult.status,
+      raw: { threadId: appServerResult.threadId, turnId: appServerResult.turnId },
+    })
+    : appendExternalExecutionFailed(input.paths, continuity, {
+      requestId: `${run.id}:codex-app-server`,
+      status: appServerResult.status,
+      error: appServerResult.error,
+      raw: { threadId: appServerResult.threadId, turnId: appServerResult.turnId },
+    })));
   await Promise.all(continuityWrites);
   continuity = await markRuntimeContinuityStatus(input.paths, continuity, appServerResult.status, appServerResult.error);
   await writeFile(input.paths.lastMessage, appServerResult.lastMessage || appServerResult.error || "# Coder App-Server Output Not Captured\n", "utf8");

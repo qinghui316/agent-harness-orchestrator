@@ -14,6 +14,7 @@ import { getWorktreeMetadataPath } from "../worktree/paths.js";
 import { getLatestValidationSummary } from "../validation/repository.js";
 import { workerPermissionProfileForRole } from "../agent-task/tool-policy.js";
 import { runtimeContinuityPaths, type RuntimeContinuityPaths } from "../runtime-continuity/paths.js";
+import { appendExternalExecutionCompleted, appendExternalExecutionFailed, appendExternalExecutionRequested, appendPermissionProfileAttached } from "../runtime-continuity/events.js";
 import { appendAgentEventEnvelope, createRuntimeContinuityArtifacts, markRuntimeContinuityStatus, type RuntimeContinuityWorkspaceDescriptor } from "../runtime-continuity/repository.js";
 import type { RuntimeContinuityArtifacts } from "../runtime-continuity/types.js";
 import type { AuditResult, AuditStatus, AuditSummary, ManagedProject, ResolvedMemory, RunMetadata, RunStatus } from "../types/index.js";
@@ -181,6 +182,7 @@ export async function startAuditRun(project: ManagedProject, options: AuditRunOp
     ],
     sandboxPolicy: "read-only",
   });
+  await appendAuditContinuityWrite(paths, continuity, appendPermissionProfileAttached(paths, continuity, { source: "audit" }));
 
   const capabilities = await detectCodexCapabilities();
   if (capabilities.errors.length > 0) {
@@ -188,6 +190,13 @@ export async function startAuditRun(project: ManagedProject, options: AuditRunOp
     await appendAuditContinuityEvent(paths, continuity, "codex.capabilities.failed", {
       capabilities,
     }, "Codex auditor unavailable.");
+    await appendAuditContinuityWrite(paths, continuity, appendExternalExecutionFailed(paths, continuity, {
+      requestId: `${runId}:audit-codex-readonly`,
+      status: "failed",
+      error: capabilities.errors.join("; "),
+      raw: { capabilities },
+      summary: "Codex auditor unavailable.",
+    }));
     const message = [
       "Status: failed",
       "",
@@ -240,6 +249,13 @@ export async function startAuditRun(project: ManagedProject, options: AuditRunOp
     cwd,
     command: run.command,
   }, "Codex readonly audit started.");
+  await appendAuditContinuityWrite(paths, continuity, appendExternalExecutionRequested(paths, continuity, {
+    requestId: `${runId}:audit-codex-readonly`,
+    command: argv.command,
+    args: argv.args,
+    cwd,
+    adapter: "audit-codex-readonly",
+  }));
 
   const completion = new CodexCompletionTracker({ lastMessagePath: paths.lastMessage });
   const lifecycleTiming = codexLifecycleTiming(8 * 60 * 1000);
@@ -278,10 +294,26 @@ export async function startAuditRun(project: ManagedProject, options: AuditRunOp
     signal: processResult.signal,
     ...processDiagnostics,
   }, "Codex readonly audit exited.");
+  const processSucceeded = processResult.exitCode === 0 || (processResult.terminationReason === "completion-grace-expired" && completion.isComplete());
+  await appendAuditContinuityWrite(paths, continuity, (processSucceeded
+    ? appendExternalExecutionCompleted(paths, continuity, {
+      requestId: `${runId}:audit-codex-readonly`,
+      exitCode: processResult.exitCode,
+      signal: processResult.signal,
+      status: "completed",
+      raw: processDiagnostics,
+    })
+    : appendExternalExecutionFailed(paths, continuity, {
+      requestId: `${runId}:audit-codex-readonly`,
+      exitCode: processResult.exitCode,
+      signal: processResult.signal,
+      status: "failed",
+      error: processResult.terminationReason ?? processResult.stderrSample,
+      raw: processDiagnostics,
+    })));
 
   const lastMessage = await ensureLastMessage(paths.lastMessage, processResult.stdoutSample, processResult.stderrSample);
   await writeFile(paths.auditMarkdown, lastMessage, "utf8");
-  const processSucceeded = processResult.exitCode === 0 || (processResult.terminationReason === "completion-grace-expired" && completion.isComplete());
   const audit = await writeAudit(paths.audit, runId, changeId, processSucceeded ? null : "failed", lastMessage, {
     worktreeId: options.worktreeId,
     validationId: latestValidation?.id,
@@ -387,11 +419,19 @@ async function appendAuditContinuityEvent(
   raw: Record<string, unknown>,
   summary?: string,
 ): Promise<void> {
-  await appendAgentEventEnvelope(paths, continuity.session, continuity.eventSource, {
+  await appendAuditContinuityWrite(paths, continuity, appendAgentEventEnvelope(paths, continuity.session, continuity.eventSource, {
     eventType,
     raw,
     summary,
-  }).catch((error) => appendRunEvent(paths.events, {
+  }));
+}
+
+async function appendAuditContinuityWrite(
+  paths: RuntimeContinuityPaths & { events: string },
+  continuity: RuntimeContinuityArtifacts,
+  write: Promise<unknown>,
+): Promise<void> {
+  await write.catch((error) => appendRunEvent(paths.events, {
     timestamp: new Date().toISOString(),
     type: "runtime_continuity.append_failed",
     runId: continuity.session.runId,

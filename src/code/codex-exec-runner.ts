@@ -7,6 +7,7 @@ import type { CodexJsonlStreamEvent } from "../codex/jsonl.js";
 import { CodexCompletionTracker, codexLifecycleTiming } from "../codex/completion.js";
 import { createCodexJsonlStreamParser } from "../codex/jsonl.js";
 import { writeJsonFile } from "../fs/json.js";
+import { appendExternalExecutionCompleted, appendExternalExecutionFailed, appendExternalExecutionRequested, appendPermissionProfileAttached } from "../runtime-continuity/events.js";
 import { appendAgentEventEnvelope, createRuntimeContinuityArtifacts, markRuntimeContinuityStatus } from "../runtime-continuity/repository.js";
 import { appendRunEvent } from "../run/manager.js";
 import { isRunStopRequested } from "../run/control.js";
@@ -80,13 +81,24 @@ export async function runCodexExecCode(input: {
   });
   continuity = await markRuntimeContinuityStatus(input.paths, continuity, "running");
   const continuityWrites: Promise<void>[] = [];
+  const recordContinuityWrite = (promise: Promise<unknown>): void => {
+    continuityWrites.push(promise.then(() => undefined).catch((error) => appendRuntimeContinuityFailure(input.paths, run.id, error)));
+  };
   const recordContinuity = (event: CodexJsonlStreamEvent): void => {
-    continuityWrites.push(appendAgentEventEnvelope(input.paths, continuity.session, continuity.eventSource, {
+    recordContinuityWrite(appendAgentEventEnvelope(input.paths, continuity.session, continuity.eventSource, {
       eventType: event.type,
       summary: summarizeCodexEvent(event),
       raw: rawRecord(event),
-    }).then(() => undefined).catch((error) => appendRuntimeContinuityFailure(input.paths, run.id, error)));
+    }));
   };
+  recordContinuityWrite(appendPermissionProfileAttached(input.paths, continuity, { source: "code.codex-exec" }));
+  recordContinuityWrite(appendExternalExecutionRequested(input.paths, continuity, {
+    requestId: `${run.id}:codex-exec`,
+    command: argv.command,
+    args: argv.args,
+    cwd: input.worktree.checkoutPath,
+    adapter: "codex-exec",
+  }));
 
   const completion = new CodexCompletionTracker({ lastMessagePath: input.paths.lastMessage });
   const lifecycleTiming = codexLifecycleTiming(15 * 60 * 1000);
@@ -120,9 +132,26 @@ export async function runCodexExecCode(input: {
     timeoutMs: lifecycleTiming.timeoutMs,
   });
   parser.flush();
-  await Promise.all(continuityWrites);
   const codexCompletion = completion.snapshot();
   const processDiagnostics = processDiagnosticsData(processResult, codexCompletion);
+  const processSucceeded = processResult.exitCode === 0 || (processResult.terminationReason === "completion-grace-expired" && completion.isComplete());
+  recordContinuityWrite((processSucceeded
+    ? appendExternalExecutionCompleted(input.paths, continuity, {
+      requestId: `${run.id}:codex-exec`,
+      exitCode: processResult.exitCode,
+      signal: processResult.signal,
+      status: "completed",
+      raw: processDiagnostics,
+    })
+    : appendExternalExecutionFailed(input.paths, continuity, {
+      requestId: `${run.id}:codex-exec`,
+      exitCode: processResult.exitCode,
+      signal: processResult.signal,
+      status: "failed",
+      error: processResult.terminationReason ?? processResult.stderrSample,
+      raw: processDiagnostics,
+    })));
+  await Promise.all(continuityWrites);
   await appendRunEvent(input.paths.events, { timestamp: new Date().toISOString(), type: "codex.exited", runId: run.id, data: { exitCode: processResult.exitCode, signal: processResult.signal, ...processDiagnostics } });
   await appendRunEvent(input.paths.events, { timestamp: new Date().toISOString(), type: "coder.exited", runId: run.id, data: { exitCode: processResult.exitCode, signal: processResult.signal, ...processDiagnostics } });
 
@@ -150,7 +179,6 @@ export async function runCodexExecCode(input: {
     sourceAfter,
   }), "utf8");
 
-  const processSucceeded = processResult.exitCode === 0 || (processResult.terminationReason === "completion-grace-expired" && completion.isComplete());
   const status: RunStatus = processSucceeded && !sourceChanged ? "completed" : "failed";
   run = await finishRun(input.paths.run, run, status, sourceChanged ? 1 : processSucceeded ? 0 : processResult.exitCode, processResult.signal);
   continuity = await markRuntimeContinuityStatus(input.paths, continuity, status === "completed" ? "completed" : "failed");

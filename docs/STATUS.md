@@ -3,12 +3,12 @@
 ## Current Handoff
 
 - Current date: 2026-06-11.
-- Active ECL change: `harness/changes/active/phase-8v-validation-audit-runtime-continuity-coverage/summary.md`.
-- Pending Harness evolution: none.
-- Latest archived product change: `harness/changes/archive/20260611-phase-8u-runtime-continuity-contract-foundation/summary.md`.
+- Active ECL change: none.
+- Pending Harness evolution: `harness/evolution/pending.md`.
+- Latest archived product change: `harness/changes/archive/20260611-phase-8w-runtime-permission-external-execution-evidence-contract/summary.md`.
 - Latest archived product/Harness docs change: `harness/changes/archive/20260611-phase-8t-agentscope-harness-reference-alignment/summary.md`.
 - Latest archived Harness evolution: `harness/changes/archive/20260611-auto-evolve-harness-phase-8o-8s-boundary-evidence/summary.md`.
-- Active product phase: Phase 8V Validation Audit Runtime Continuity Coverage.
+- Active product phase: none.
 
 Current baseline:
 
@@ -23,7 +23,9 @@ Current baseline:
 - Harness evolution after Phase 8S completed as `noop/subagent_review` and is archived at `harness/changes/archive/20260611-auto-evolve-harness-phase-8o-8s-boundary-evidence/summary.md`. Authorized subagent review recommended `noop` with score `92/100`; existing scoped evidence, module-boundary, proposal/runtime, and SchedulerContract no-execution coverage was sufficient.
 - Phase 8T AgentScope Harness Reference Alignment completed and is archived at `harness/changes/archive/20260611-phase-8t-agentscope-harness-reference-alignment/summary.md`. It added AgentScope 2.0 Python as a reference project, refreshed the AgentScope Java Harness mapping, and recorded Runtime Continuity Layer boundaries before future parallel scheduler, true subagent, sandbox, or worker-session implementation. It did not add runtime behavior, Workbench actions, routes, CLI commands, UI features, scheduler execution, child Changes, ODWF JavaScript runtime, or cache/replay.
 - Phase 8U Runtime Continuity Contract Foundation completed and is archived at `harness/changes/archive/20260611-phase-8u-runtime-continuity-contract-foundation/summary.md`. It added AHO-owned WorkerSession, RuntimeWorkspace, EventSource, and AgentEventEnvelope evidence for code runs only; it did not add parallel execution, scheduler runtime, Workbench actions, routes, CLI commands, sandbox backends, child Changes, ODWF JavaScript runtime, or cache/replay.
-- Phase 8V Validation Audit Runtime Continuity Coverage is active at `harness/changes/active/phase-8v-validation-audit-runtime-continuity-coverage/summary.md`. It extends Runtime Continuity sidecar evidence to validation command runs and audit Codex readonly runs while preserving public Run, Validation, Audit, CLI, Workbench, SSE, and workflow truth shapes.
+- Phase 8V Validation Audit Runtime Continuity Coverage completed and is archived at `harness/changes/archive/20260611-phase-8v-validation-audit-runtime-continuity-coverage/summary.md`. It extends Runtime Continuity sidecar evidence to validation command runs and audit Codex readonly runs while preserving public Run, Validation, Audit, CLI, Workbench, SSE, and workflow truth shapes.
+- Phase 8W Runtime Permission External Execution Evidence Contract completed and is archived at `harness/changes/archive/20260611-phase-8w-runtime-permission-external-execution-evidence-contract/summary.md`. It extends Runtime Continuity evidence with typed permission profile, mirrored ToolPolicy decision, and external execution lifecycle events in the existing `agent-events.jsonl` stream without adding a permission engine, Workbench action, route, CLI command, UI/lazy projection, scheduler, parallel executor, or workflow-truth authority.
+- Pending Harness evolution is now `harness/evolution/pending.md`, generated after the Phase 8S-8W archive window reached the evolution threshold.
 - Phase 6F completed the single-demand local loop through result review and local apply handoff.
 - Phase 6G-Prep completed documentation alignment for Harness handoff, AgentTaskRepository, background maintenance, and two-layer self-evolution boundaries.
 - Phase 6G completed foreground AgentTaskRepository integration and advisory background maintenance ledger/candidate/score/review artifacts.
@@ -114,7 +116,11 @@ Phase 7F baseline: project demand conversation -> explicit ChangeTarget binding 
 Active implementation track:
 
 ```text
-Active implementation track: Phase 8V Validation Audit Runtime Continuity Coverage.
+Active implementation track: none.
+
+Phase 8W is closed and archived at `harness/changes/archive/20260611-phase-8w-runtime-permission-external-execution-evidence-contract/summary.md`. It records Runtime Continuity v1.1 permission and external-execution evidence in existing `agent-events.jsonl` sidecars for code, validation, and audit workers while preserving public artifacts, ToolPolicyGate semantics, Workbench projections, CLI output, and workflow truth.
+
+Phase 8V is closed and archived at `harness/changes/archive/20260611-phase-8v-validation-audit-runtime-continuity-coverage/summary.md`. It extended Runtime Continuity sidecars to validation command runs and audit Codex readonly runs without changing public Run, Validation, Audit, CLI, Workbench, SSE, or workflow truth shapes.
 
 Phase 8T AgentScope Harness Reference Alignment is closed and archived at `harness/changes/archive/20260611-phase-8t-agentscope-harness-reference-alignment/summary.md`. It added the Python AgentScope 2.0 reference and refreshed AgentScope Java Harness mapping so future runtime-continuity work can borrow session, workspace, event, permission, sandbox, and plan-mode boundaries without changing AHO workflow truth or adding execution behavior.
 
@@ -126,7 +132,7 @@ Phase 8P is closed and archived at `harness/changes/archive/20260611-phase-8p-sc
 
 Phase 8Q is closed and archived at `harness/changes/archive/20260611-phase-8q-workbench-action-handler-residual-boundary-split/summary.md`. It completed the final broad modularization pass for Workbench action handlers: `chat.ts` remains the conversation/action facade, while residual action handler map and landing/PR/remote/post-merge/control helpers live in owned handler modules. This phase did not add runtime capability, Workbench actions, CLI commands, HTTP routes, scheduler behavior, parallel execution, automatic child Changes, ODWF JavaScript runtime, or cache/replay.
 
-Pending Harness evolution: none. The Phase 8O-8S window was marked complete as `noop/subagent_review` with subagent score `92/100`. The Phase 8K-8O window was marked complete as `noop/dry_run`; no subagent review was used. The Phase 8G-8K window was marked complete as `noop/subagent_review` with subagent score `90/100`.
+Pending Harness evolution: `harness/evolution/pending.md`. The new pending window covers Phase 8S through Phase 8W. The Phase 8O-8S window was marked complete as `noop/subagent_review` with subagent score `92/100`. The Phase 8K-8O window was marked complete as `noop/dry_run`; no subagent review was used. The Phase 8G-8K window was marked complete as `noop/subagent_review` with subagent score `90/100`.
 
 Phase 8N is closed and archived at `harness/changes/archive/20260610-phase-8n-run-evidence-manager-boundary-split/summary.md`. It split Run evidence internals behind `src/run/manager.ts` while keeping Run artifacts, Validation, and Audit as evidence.
 

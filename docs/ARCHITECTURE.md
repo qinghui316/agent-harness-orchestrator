@@ -89,6 +89,8 @@ Phase 8U materializes the first AHO-owned Runtime Continuity Layer for code runs
 
 Phase 8V extends that Runtime Continuity Layer to validation and audit role workers. Validation command runs and audit Codex readonly runs write the same additive sidecar evidence while keeping `run.json`, `validation.json`, `audit.json`, raw event journals, CLI output, Workbench projections, decision/audit scope, and workflow truth unchanged. `RuntimeWorkspace` now distinguishes `local-worktree` from `source-root` so direct source-root evidence cannot forge a worktree scope.
 
+Phase 8W extends Runtime Continuity to v1.1 by recording permission-profile and external-execution evidence in the existing `agent-events.jsonl` stream. New event types such as `permission.profile.attached`, `permission.decision.recorded`, `external-execution.requested`, `external-execution.completed`, and `external-execution.failed` are normalized evidence only. They mirror existing role permission profiles, ToolPolicy decisions, and worker adapter lifecycle facts; they do not introduce a permission engine, HITL permission prompt, route, Workbench action, CLI command, UI projection, scheduler, parallel executor, or new workflow authority. Canonical event scope continues to come from `WorkerSession`.
+
 Workbench relationship:
 
 ```text
