@@ -13,14 +13,17 @@ import {
 } from "../workflow-artifacts/manager.js";
 import {
   readLatestSchedulerClaimReconcilePlan,
+  readLatestSchedulerLaunchPreflight,
   readLatestSchedulerDispatchDryRun,
   readLatestSchedulerContract,
   readLatestSchedulerWorkerSessionPlan,
   readSchedulerClaimReconcilePlan,
+  readSchedulerLaunchPreflight,
   readSchedulerDispatchDryRun,
   readSchedulerContract,
   readSchedulerWorkerSessionPlan,
   type SchedulerClaimReconcilePlan,
+  type SchedulerLaunchPreflight,
   type SchedulerWorkerSessionPlan,
   type SchedulerDispatchDryRun,
   type SchedulerContract,
@@ -154,6 +157,26 @@ export interface WorkbenchSchedulerClaimReconcilePlanSummary {
   updatedAt: string;
 }
 
+export interface WorkbenchSchedulerLaunchPreflightSummary {
+  id: string;
+  changeId: string;
+  status: SchedulerLaunchPreflight["status"];
+  schedulerMode: SchedulerLaunchPreflight["schedulerMode"];
+  schedulerContractId: string;
+  schedulerDispatchDryRunId: string;
+  schedulerWorkerPlanId: string;
+  schedulerClaimReconcilePlanId: string;
+  claimIntentCount: number;
+  plannedSlotDemand: number;
+  maxPlannedWaveWidth: number;
+  blockedCount: number;
+  humanGateRequired: boolean;
+  toolPolicyGateRequired: boolean;
+  artifact?: string;
+  markdownArtifact?: string;
+  updatedAt: string;
+}
+
 type WorkflowProjectionActionType =
   | "intake.scan"
   | "intake.reanalyze"
@@ -167,6 +190,7 @@ type WorkflowProjectionActionType =
   | "planning.scheduler.dispatch.dry-run"
   | "planning.scheduler.worker-plan.compile"
   | "planning.scheduler.claim-reconcile.compile"
+  | "planning.scheduler.launch-preflight.check"
   | "planning.workflowgraph.compile"
   | "planning.taskqueue.confirm-start"
   | "code.run";
@@ -188,6 +212,7 @@ export interface WorkbenchTypedWorkflowNextAction {
   schedulerDispatchDryRunId?: string;
   schedulerWorkerPlanId?: string;
   schedulerClaimReconcilePlanId?: string;
+  schedulerLaunchPreflightId?: string;
   disabledReason?: string;
 }
 
@@ -376,6 +401,30 @@ export async function readLatestSchedulerClaimReconcilePlanSummary(memory: Resol
   };
 }
 
+export async function readLatestSchedulerLaunchPreflightSummary(memory: ResolvedMemory, changePath: string): Promise<WorkbenchSchedulerLaunchPreflightSummary | null> {
+  const preflight = await readLatestSchedulerLaunchPreflight(memory, changePath).catch(() => null);
+  if (!preflight) return null;
+  return {
+    id: preflight.id,
+    changeId: preflight.changeId,
+    status: preflight.status,
+    schedulerMode: preflight.schedulerMode,
+    schedulerContractId: preflight.schedulerContractId,
+    schedulerDispatchDryRunId: preflight.schedulerDispatchDryRunId,
+    schedulerWorkerPlanId: preflight.schedulerWorkerPlanId,
+    schedulerClaimReconcilePlanId: preflight.schedulerClaimReconcilePlanId,
+    claimIntentCount: preflight.claimSummaries.length,
+    plannedSlotDemand: preflight.plannedSlotDemand,
+    maxPlannedWaveWidth: preflight.maxPlannedWaveWidth,
+    blockedCount: preflight.blockedCount,
+    humanGateRequired: preflight.humanGateRequirement.status === "required",
+    toolPolicyGateRequired: preflight.toolPolicyGateRequirement.status === "required",
+    artifact: preflight.artifact,
+    markdownArtifact: preflight.markdownArtifact,
+    updatedAt: preflight.updatedAt,
+  };
+}
+
 export function readDecompositionPlanProjection(memory: ResolvedMemory, changePath: string): Promise<DecompositionPlan | null> {
   return readLatestDecompositionPlan(memory, changePath).catch(() => null);
 }
@@ -418,6 +467,12 @@ export function readSchedulerClaimReconcilePlanProjection(memory: ResolvedMemory
     : readLatestSchedulerClaimReconcilePlan(memory, changePath).catch(() => null);
 }
 
+export function readSchedulerLaunchPreflightProjection(memory: ResolvedMemory, changePath: string, preflightId?: string): Promise<SchedulerLaunchPreflight | null> {
+  return preflightId
+    ? readSchedulerLaunchPreflight(memory, changePath, preflightId).catch(() => null)
+    : readLatestSchedulerLaunchPreflight(memory, changePath).catch(() => null);
+}
+
 export function buildTypedWorkflowNextAction(input: {
   topic: TypedWorkflowProjectionTopic;
   readiness: TypedWorkflowProjectionReadiness;
@@ -431,9 +486,10 @@ export function buildTypedWorkflowNextAction(input: {
   schedulerDispatchDryRun?: WorkbenchSchedulerDispatchDryRunSummary | null;
   schedulerWorkerSessionPlan?: WorkbenchSchedulerWorkerSessionPlanSummary | null;
   schedulerClaimReconcilePlan?: WorkbenchSchedulerClaimReconcilePlanSummary | null;
+  schedulerLaunchPreflight?: WorkbenchSchedulerLaunchPreflightSummary | null;
   workflowRun?: WorkflowRunSummary | null;
 }): WorkbenchTypedWorkflowNextAction {
-  const { topic, readiness, intake, planningBundle, decompositionPlan, decompositionReadiness, taskQueueProposal, workflowGraphPlan, schedulerContract, schedulerDispatchDryRun, schedulerWorkerSessionPlan, schedulerClaimReconcilePlan, workflowRun } = input;
+  const { topic, readiness, intake, planningBundle, decompositionPlan, decompositionReadiness, taskQueueProposal, workflowGraphPlan, schedulerContract, schedulerDispatchDryRun, schedulerWorkerSessionPlan, schedulerClaimReconcilePlan, schedulerLaunchPreflight, workflowRun } = input;
   if (!readiness.specReady && !topic.runs.some((run) => run.runtime === "intake-scan")) {
     return workflowNextAction("intake.scan", "分析需求", "先只读扫描项目，整理当前理解、相关文件和待确认问题。", false);
   }
@@ -512,14 +568,24 @@ export function buildTypedWorkflowNextAction(input: {
         schedulerWorkerPlanId: schedulerWorkerSessionPlan.id,
       };
     }
+    if (!schedulerLaunchPreflight || schedulerLaunchPreflight.schedulerClaimReconcilePlanId !== schedulerClaimReconcilePlan.id || !["checked", "blocked"].includes(schedulerLaunchPreflight.status)) {
+      return {
+        ...workflowNextAction("planning.scheduler.launch-preflight.check", "检查 Launch Preflight", "基于 Claim / Reconcile Plan 生成启动前检查 evidence；不会授权或启动并行执行。"),
+        schedulerContractId: schedulerContract.id,
+        schedulerDispatchDryRunId: schedulerDispatchDryRun.id,
+        schedulerWorkerPlanId: schedulerWorkerSessionPlan.id,
+        schedulerClaimReconcilePlanId: schedulerClaimReconcilePlan.id,
+      };
+    }
     return {
-      ...workflowNextAction("planning.scheduler.claim-reconcile.compile", "Claim / Reconcile Plan 已生成", "已生成非执行 claim/reconcile plan；当前阶段不提供 parallel start 控件。"),
+      ...workflowNextAction("planning.scheduler.launch-preflight.check", "Launch Preflight 已生成", "已生成非执行启动前检查 evidence；当前阶段不提供 parallel start 控件。"),
       enabled: false,
       schedulerContractId: schedulerContract.id,
       schedulerDispatchDryRunId: schedulerDispatchDryRun.id,
       schedulerWorkerPlanId: schedulerWorkerSessionPlan.id,
       schedulerClaimReconcilePlanId: schedulerClaimReconcilePlan.id,
-      disabledReason: "Phase 9A 只生成 SchedulerClaimReconcilePlan，不启动并行执行。",
+      schedulerLaunchPreflightId: schedulerLaunchPreflight.id,
+      disabledReason: "Phase 9B 只生成 SchedulerLaunchPreflight，不启动并行执行。",
     };
   }
   return {

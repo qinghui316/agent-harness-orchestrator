@@ -5,6 +5,7 @@ export type SchedulerContractStatus = "compiled" | "superseded" | "rejected";
 export type SchedulerDispatchDryRunStatus = "generated" | "superseded" | "rejected";
 export type SchedulerWorkerSessionPlanStatus = "planned" | "superseded" | "rejected";
 export type SchedulerClaimReconcilePlanStatus = "planned" | "superseded" | "rejected";
+export type SchedulerLaunchPreflightStatus = "checked" | "blocked" | "rejected";
 export type SchedulerMode = "parallel-readiness-v1";
 export type SchedulerWorkerStageStatus = "planned" | "blocked";
 export type SchedulerClaimIntentStatus = "planned" | "blocked";
@@ -221,6 +222,62 @@ export interface SchedulerClaimReconcilePlan {
   maxPlannedWaveWidth: number;
   blockedCount: number;
   recoveryKeyCoverage: SchedulerWorkerRecoveryKeyCoverage;
+  sourceArtifactHashes: Record<string, string>;
+  artifactRefs: string[];
+  artifact: string;
+  markdownArtifact: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SchedulerLaunchPreflightClaimSummary {
+  claimIntentId: string;
+  plannedWorkerKey: string;
+  nodeId: string;
+  unitId: string;
+  waveIndex: number;
+  status: SchedulerClaimIntentStatus;
+  plannedSlotDemand: number;
+  sourceScopes: string[];
+  blockedReasons: string[];
+}
+
+export interface SchedulerLaunchPreflightSourceLockSummary {
+  scope: string;
+  waveIndexes: number[];
+  claimIntentIds: string[];
+  status: "clear" | "blocked";
+  blockedReasons: string[];
+}
+
+export interface SchedulerLaunchRequirement {
+  id: string;
+  status: "required" | "blocked";
+  description: string;
+}
+
+export interface SchedulerLaunchPreflight {
+  version: "1.0";
+  id: string;
+  changeId: string;
+  status: SchedulerLaunchPreflightStatus;
+  schedulerMode: SchedulerMode;
+  schedulerContractId: string;
+  schedulerDispatchDryRunId: string;
+  schedulerWorkerPlanId: string;
+  schedulerClaimReconcilePlanId: string;
+  decompositionPlanId: string;
+  readinessManifestId: string;
+  claimSummaries: SchedulerLaunchPreflightClaimSummary[];
+  sourceLockSummaries: SchedulerLaunchPreflightSourceLockSummary[];
+  plannedSlotDemand: number;
+  maxPlannedWaveWidth: number;
+  blockedCount: number;
+  runtimeContinuityRequirements: SchedulerLaunchRequirement[];
+  permissionProfileRequirements: SchedulerLaunchRequirement[];
+  toolPolicyGateRequirement: SchedulerLaunchRequirement;
+  humanGateRequirement: SchedulerLaunchRequirement;
+  blockedReasons: string[];
   sourceArtifactHashes: Record<string, string>;
   artifactRefs: string[];
   artifact: string;

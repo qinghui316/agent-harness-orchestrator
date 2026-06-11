@@ -191,3 +191,23 @@ export function SchedulerClaimReconcilePlanCard({ plan }: { plan: NonNullable<Wo
     </section>
   );
 }
+
+export function SchedulerLaunchPreflightCard({ preflight }: { preflight: NonNullable<Workpad["schedulerLaunchPreflight"]> }): ReactElement {
+  return (
+    <section className="workpad-section" data-testid="scheduler-launch-preflight-card">
+      <div className="workpad-section-header">
+        <h3>Launch Preflight</h3>
+        <span>{humanStatus(preflight.status)}</span>
+      </div>
+      <p className="workpad-goal">启动前检查合同（不授权、不启动执行）</p>
+      <div className="workpad-chip-list">
+        <span>{preflight.claimIntentCount} 个 claim intent</span>
+        <span>计划槽位 {preflight.plannedSlotDemand}</span>
+        <span>最大计划宽度 {preflight.maxPlannedWaveWidth}</span>
+        <span>{preflight.blockedCount} 个阻塞</span>
+        <span>{preflight.humanGateRequired ? "需要 human gate" : "human gate 未要求"}</span>
+      </div>
+      {preflight.artifact ? <small className="artifact-link">查看证据：{artifactName(preflight.artifact)}</small> : null}
+    </section>
+  );
+}

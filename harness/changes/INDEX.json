@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-11T07:11:44.9577428Z",
+    "generated_at":  "2026-06-11T08:06:24.9581470Z",
     "active":  [
 
                ],
@@ -637,6 +637,10 @@
                     {
                         "name":  "20260611-phase-9a-scheduler-claim-reconcile-plan-foundation",
                         "path":  "harness/changes/archive/20260611-phase-9a-scheduler-claim-reconcile-plan-foundation"
+                    },
+                    {
+                        "name":  "20260611-phase-9b-scheduler-launch-preflight-contract",
+                        "path":  "harness/changes/archive/20260611-phase-9b-scheduler-launch-preflight-contract"
                     }
                 ]
 }

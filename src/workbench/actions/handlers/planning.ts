@@ -34,17 +34,21 @@ import {
   compileSchedulerDispatchDryRun,
   compileSchedulerContract,
   compileSchedulerClaimReconcilePlan,
+  compileSchedulerLaunchPreflight,
   compileSchedulerWorkerSessionPlan,
+  readSchedulerClaimReconcilePlan,
   readSchedulerContract,
   readSchedulerDispatchDryRun,
   readSchedulerWorkerSessionPlan,
   renderSchedulerClaimReconcilePlanMarkdown,
   renderSchedulerDispatchDryRunMarkdown,
   renderSchedulerContractMarkdown,
+  renderSchedulerLaunchPreflightMarkdown,
   renderSchedulerWorkerSessionPlanMarkdown,
   type SchedulerClaimReconcilePlan,
   type SchedulerContract,
   type SchedulerDispatchDryRun,
+  type SchedulerLaunchPreflight,
   type SchedulerWorkerSessionPlan,
 } from "../../../workflow-scheduler/manager.js";
 import { readLatestPlanningBundle } from "../planning-bundle.js";
@@ -666,6 +670,63 @@ export async function compilePlanningSchedulerClaimReconcilePlan(
     completedAt: new Date().toISOString(),
   });
   return { claimReconcilePlan, executionStarted: false };
+}
+
+export async function checkPlanningSchedulerLaunchPreflight(
+  project: ManagedProject,
+  changeId: string,
+  request: WorkbenchWorkflowActionRequest,
+  live: WorkbenchLiveSink | undefined,
+): Promise<{ launchPreflight: SchedulerLaunchPreflight; executionStarted: false }> {
+  const { memory, changePath } = await resolveTopic(project, changeId);
+  assertWritableMemory(memory, "Scheduler launch preflight");
+  if (!request.schedulerClaimReconcilePlanId) throw new Error("planning.scheduler.launch-preflight.check requires schedulerClaimReconcilePlanId.");
+  const claimReconcilePlan = await readSchedulerClaimReconcilePlan(memory, changePath, request.schedulerClaimReconcilePlanId);
+  if (claimReconcilePlan.id !== request.schedulerClaimReconcilePlanId || claimReconcilePlan.changeId !== changeId || claimReconcilePlan.status !== "planned") {
+    throw new Error("planning.scheduler.launch-preflight.check SchedulerClaimReconcilePlan target is stale.");
+  }
+  const workerPlan = await readSchedulerWorkerSessionPlan(memory, changePath, claimReconcilePlan.schedulerWorkerPlanId);
+  if (workerPlan.id !== claimReconcilePlan.schedulerWorkerPlanId || workerPlan.changeId !== changeId || workerPlan.status !== "planned") {
+    throw new Error("planning.scheduler.launch-preflight.check SchedulerWorkerSessionPlan lineage is stale.");
+  }
+  const dryRun = await readSchedulerDispatchDryRun(memory, changePath, claimReconcilePlan.schedulerDispatchDryRunId);
+  if (dryRun.id !== claimReconcilePlan.schedulerDispatchDryRunId || dryRun.id !== workerPlan.schedulerDispatchDryRunId || dryRun.changeId !== changeId || dryRun.status !== "generated") {
+    throw new Error("planning.scheduler.launch-preflight.check SchedulerDispatchDryRun lineage is stale.");
+  }
+  const contract = await readSchedulerContract(memory, changePath, claimReconcilePlan.schedulerContractId);
+  if (contract.id !== claimReconcilePlan.schedulerContractId || contract.id !== workerPlan.schedulerContractId || contract.id !== dryRun.schedulerContractId || contract.changeId !== changeId || contract.status !== "compiled") {
+    throw new Error("planning.scheduler.launch-preflight.check SchedulerContract lineage is stale.");
+  }
+  const launchPreflight = await compileSchedulerLaunchPreflight(memory, changePath, claimReconcilePlan, workerPlan, dryRun, contract);
+  await appendTopicThreadEntry(project, changeId, {
+    type: "assistant.message",
+    status: "scheduler-launch-preflight-checked",
+    text: renderSchedulerLaunchPreflightMarkdown(launchPreflight),
+    artifact: launchPreflight.artifact,
+  });
+  emitAssistantEvent(live, {
+    runId: launchPreflight.id,
+    kind: "file-change",
+    phase: "scheduler-launch-preflight-checked",
+    title: "Scheduler launch preflight checked",
+    summary: "A non-executing launch preflight was generated; no scheduler loop, lease, worker session, run, worktree, or child Change was created.",
+    artifactRef: launchPreflight.artifact,
+  });
+  await recordWorkbenchDecision(project, {
+    id: `scheduler-launch-preflight:${launchPreflight.id}`,
+    changeId,
+    decisionType: "planning.scheduler.launch-preflight.check",
+    status: "completed",
+    label: "Launch Preflight 已检查",
+    summary: "Generated non-executing SchedulerLaunchPreflight evidence from a claim/reconcile plan.",
+    targetId: launchPreflight.id,
+    runId: null,
+    artifact: launchPreflight.artifact,
+    actionId: "planning.scheduler.launch-preflight.check",
+    payload: { launchPreflight },
+    completedAt: new Date().toISOString(),
+  });
+  return { launchPreflight, executionStarted: false };
 }
 
 export async function confirmTaskQueueProposalAndStart(

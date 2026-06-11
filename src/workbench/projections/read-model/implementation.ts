@@ -121,6 +121,7 @@ export {
   getWorkbenchSchedulerDispatchDryRunProjection,
   getWorkbenchSchedulerWorkerSessionPlanProjection,
   getWorkbenchSchedulerClaimReconcilePlanProjection,
+  getWorkbenchSchedulerLaunchPreflightProjection,
   getWorkbenchWorkflowRunProjection,
 } from "./lazy-projections.js";
 

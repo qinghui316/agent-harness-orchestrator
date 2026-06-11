@@ -11,6 +11,8 @@ import {
   latestSchedulerClaimReconcilePlanPath,
   latestSchedulerDispatchDryRunMarkdownPath,
   latestSchedulerDispatchDryRunPath,
+  latestSchedulerLaunchPreflightMarkdownPath,
+  latestSchedulerLaunchPreflightPath,
   latestSchedulerWorkerSessionPlanMarkdownPath,
   latestSchedulerWorkerSessionPlanPath,
   schedulerContractPath,
@@ -19,12 +21,14 @@ import {
   schedulerClaimReconcilePlansDir,
   schedulerDispatchDryRunPath,
   schedulerDispatchDryRunsDir,
+  schedulerLaunchPreflightPath,
+  schedulerLaunchPreflightsDir,
   schedulerWorkerSessionPlanPath,
   schedulerWorkerSessionPlansDir,
 } from "./paths.js";
-import { renderSchedulerClaimReconcilePlanMarkdown, renderSchedulerContractMarkdown, renderSchedulerDispatchDryRunMarkdown, renderSchedulerWorkerSessionPlanMarkdown } from "./rendering.js";
-import { schedulerClaimReconcilePlanSchema, schedulerContractSchema, schedulerDispatchDryRunSchema, schedulerWorkerSessionPlanSchema } from "./schemas.js";
-import type { SchedulerClaimReconcilePlan, SchedulerContract, SchedulerDispatchDryRun, SchedulerWorkerSessionPlan } from "./types.js";
+import { renderSchedulerClaimReconcilePlanMarkdown, renderSchedulerContractMarkdown, renderSchedulerDispatchDryRunMarkdown, renderSchedulerLaunchPreflightMarkdown, renderSchedulerWorkerSessionPlanMarkdown } from "./rendering.js";
+import { schedulerClaimReconcilePlanSchema, schedulerContractSchema, schedulerDispatchDryRunSchema, schedulerLaunchPreflightSchema, schedulerWorkerSessionPlanSchema } from "./schemas.js";
+import type { SchedulerClaimReconcilePlan, SchedulerContract, SchedulerDispatchDryRun, SchedulerLaunchPreflight, SchedulerWorkerSessionPlan } from "./types.js";
 
 export async function writeSchedulerContract(memory: ResolvedMemory, changePath: string, contract: SchedulerContract): Promise<void> {
   await assertWorkflowArtifactScope(memory, changePath, contract, "SchedulerContract");
@@ -143,5 +147,35 @@ export function schedulerClaimReconcilePlanArtifactRefs(memory: ResolvedMemory, 
   return {
     artifact: displayArtifactPath(memory, join(dir, `${claimReconcilePlanId}.json`)),
     markdownArtifact: displayArtifactPath(memory, join(dir, `${claimReconcilePlanId}.md`)),
+  };
+}
+
+export async function writeSchedulerLaunchPreflight(memory: ResolvedMemory, changePath: string, preflight: SchedulerLaunchPreflight): Promise<void> {
+  await assertWorkflowArtifactScope(memory, changePath, preflight, "SchedulerLaunchPreflight");
+  const dir = schedulerLaunchPreflightsDir(memory, changePath);
+  await mkdir(dir, { recursive: true });
+  await writeJsonFile(join(dir, `${preflight.id}.json`), preflight);
+  await writeFile(join(dir, `${preflight.id}.md`), renderSchedulerLaunchPreflightMarkdown(preflight), "utf8");
+  await writeJsonFile(latestSchedulerLaunchPreflightPath(memory, changePath), preflight);
+  await writeFile(latestSchedulerLaunchPreflightMarkdownPath(memory, changePath), renderSchedulerLaunchPreflightMarkdown(preflight), "utf8");
+}
+
+export async function readLatestSchedulerLaunchPreflight(memory: ResolvedMemory, changePath: string): Promise<SchedulerLaunchPreflight> {
+  const preflight = await readRequiredJsonFile(latestSchedulerLaunchPreflightPath(memory, changePath), schedulerLaunchPreflightSchema);
+  await assertWorkflowArtifactScope(memory, changePath, preflight, "SchedulerLaunchPreflight");
+  return preflight;
+}
+
+export async function readSchedulerLaunchPreflight(memory: ResolvedMemory, changePath: string, preflightId: string): Promise<SchedulerLaunchPreflight> {
+  const preflight = await readRequiredJsonFile(schedulerLaunchPreflightPath(memory, changePath, preflightId), schedulerLaunchPreflightSchema);
+  await assertWorkflowArtifactScope(memory, changePath, preflight, "SchedulerLaunchPreflight");
+  return preflight;
+}
+
+export function schedulerLaunchPreflightArtifactRefs(memory: ResolvedMemory, changePath: string, preflightId: string): { artifact: string; markdownArtifact: string } {
+  const dir = schedulerLaunchPreflightsDir(memory, changePath);
+  return {
+    artifact: displayArtifactPath(memory, join(dir, `${preflightId}.json`)),
+    markdownArtifact: displayArtifactPath(memory, join(dir, `${preflightId}.md`)),
   };
 }

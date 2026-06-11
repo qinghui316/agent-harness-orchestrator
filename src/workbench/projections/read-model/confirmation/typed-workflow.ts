@@ -118,7 +118,37 @@ export function taskQueueProposalToConfirmationItems(
         const workerPlan = workpad.schedulerWorkerSessionPlan;
         if (workerPlan?.status === "planned" && workerPlan.schedulerDispatchDryRunId === dryRun.id) {
           const claimReconcilePlan = workpad.schedulerClaimReconcilePlan;
-          if (claimReconcilePlan?.status === "planned" && claimReconcilePlan.schedulerWorkerPlanId === workerPlan.id) return [];
+          if (claimReconcilePlan?.status === "planned" && claimReconcilePlan.schedulerWorkerPlanId === workerPlan.id) {
+            const launchPreflight = workpad.schedulerLaunchPreflight;
+            if (launchPreflight && launchPreflight.schedulerClaimReconcilePlanId === claimReconcilePlan.id) return [];
+            return [{
+              id: `confirm:scheduler-launch-preflight:${selectedTopic.id}:${claimReconcilePlan.id}`,
+              kind: "planning-confirm",
+              projectId: project?.id ?? null,
+              conversationId: selectedTopic.id,
+              changeId: selectedTopic.id,
+              summary: "Scheduler Claim / Reconcile Plan 已生成，可检查 Launch Preflight。",
+              whyNeedsConfirmation: "需要你确认生成 SchedulerLaunchPreflight。launch preflight 不会执行 ToolPolicyGate，也不会授权或启动 scheduler。",
+              confirmEffect: "写入 scheduler-launch-preflight.json/.md 和 versioned launch preflight artifact；不会创建 WorkerLease、WorkerSession、RuntimeWorkspace、EventSource、WorkflowRun、TaskQueue、TaskRun、AgentTask、worktree 或 run。",
+              riskSummary: "Launch Preflight 只是未来 executor 的启动前检查 evidence；真正 parallel executor 必须重新执行 ToolPolicyGate 和 human gate。",
+              evidenceRefs: claimReconcilePlan.artifact ? [claimReconcilePlan.artifact] : [],
+              actions: [{
+                id: `workflow:planning.scheduler.launch-preflight.check:${selectedTopic.id}:${claimReconcilePlan.id}`,
+                label: "检查 Launch Preflight",
+                kind: "workflow-action",
+                changeId: selectedTopic.id,
+                actionType: "planning.scheduler.launch-preflight.check",
+                schedulerContractId: contract.id,
+                schedulerDispatchDryRunId: dryRun.id,
+                schedulerWorkerPlanId: workerPlan.id,
+                schedulerClaimReconcilePlanId: claimReconcilePlan.id,
+                enabled: true,
+                requiresConfirmation: true,
+              }],
+              primary: false,
+              status: "pending",
+            }];
+          }
           return [{
             id: `confirm:scheduler-claim-reconcile-plan:${selectedTopic.id}:${workerPlan.id}`,
             kind: "planning-confirm",

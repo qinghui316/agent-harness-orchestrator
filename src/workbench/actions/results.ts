@@ -14,6 +14,7 @@ export function artifactForActionResult(result: unknown): string | null {
   if (isRecord(result) && isRecord(result.readiness) && typeof result.readiness.summaryArtifact === "string") return result.readiness.summaryArtifact;
   if (isRecord(result) && isRecord(result.manifest) && typeof result.manifest.artifact === "string") return result.manifest.artifact;
   if (isRecord(result) && isRecord(result.contract) && typeof result.contract.artifact === "string") return result.contract.artifact;
+  if (isRecord(result) && isRecord(result.launchPreflight) && typeof result.launchPreflight.artifact === "string") return result.launchPreflight.artifact;
   if (isRecord(result) && isRecord(result.handoff) && Array.isArray(result.handoff.artifactRefs) && typeof result.handoff.artifactRefs[0] === "string") return result.handoff.artifactRefs[0];
   if (isRecord(result) && isRecord(result.revision) && Array.isArray(result.revision.artifactRefs) && typeof result.revision.artifactRefs[0] === "string") return result.revision.artifactRefs[0];
   if (isRecord(result) && isRecord(result.run) && isRecord(result.run.artifacts) && typeof result.run.artifacts.directory === "string") return result.run.artifacts.directory;
@@ -147,6 +148,11 @@ export function summarizeActionResult(actionType: string, result: unknown): stri
       ? `Scheduler claim/reconcile plan ${result.claimReconcilePlan.id} compiled. No execution was started.`
       : "Scheduler claim/reconcile plan compiled. No execution was started.";
   }
+  if (actionType === "planning.scheduler.launch-preflight.check" && isRecord(result) && isRecord(result.launchPreflight)) {
+    return typeof result.launchPreflight.id === "string"
+      ? `Scheduler launch preflight ${result.launchPreflight.id} checked. No execution was started.`
+      : "Scheduler launch preflight checked. No execution was started.";
+  }
   if (actionType === "planning.confirm-execution" && isRecord(result)) {
     return "Planning confirmed and canonical artifacts were written. No execution was started.";
   }
@@ -188,6 +194,7 @@ export function labelForAction(actionType: string): string {
     case "planning.scheduler.dispatch.dry-run": return "Scheduler dispatch dry-run generated";
     case "planning.scheduler.worker-plan.compile": return "Scheduler worker session plan compiled";
     case "planning.scheduler.claim-reconcile.compile": return "Scheduler claim/reconcile plan compiled";
+    case "planning.scheduler.launch-preflight.check": return "Scheduler launch preflight checked";
     case "planning.workflowgraph.compile": return "WorkflowGraphPlan compiled";
     case "planning.taskqueue.confirm-start": return "TaskQueueProposal confirmed and started";
     case "orchestrator.evaluate": return "Main orchestrator evaluated";

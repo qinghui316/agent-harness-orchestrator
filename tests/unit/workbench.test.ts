@@ -12,7 +12,7 @@ import { executeWorkbenchAction } from "../../src/server/workbench-server.js";
 import { appendTopicThreadEntry, createWorkbenchTopic, postTopicMessage } from "../../src/workbench/chat.js";
 import { readTopicThreadLog } from "../../src/workbench/thread-log.js";
 import { answerClarification, reanalyzeIntake, runIntakeScan } from "../../src/workbench/intake.js";
-import { getWorkbenchDecompositionPlanProjection, getWorkbenchDecompositionReadinessProjection, getWorkbenchMaintenanceProjection, getWorkbenchRunGraphProjection, getWorkbenchSchedulerClaimReconcilePlanProjection, getWorkbenchSchedulerContractProjection, getWorkbenchSchedulerDispatchDryRunProjection, getWorkbenchSchedulerWorkerSessionPlanProjection, getWorkbenchSnapshot, getWorkbenchStream, getWorkbenchTaskQueueProposalProjection, getWorkbenchTopic, getWorkbenchWorkflowGraphPlanProjection, listWorkbenchApprovals, listWorkbenchRoles, listWorkbenchTopics } from "../../src/workbench/manager.js";
+import { getWorkbenchDecompositionPlanProjection, getWorkbenchDecompositionReadinessProjection, getWorkbenchMaintenanceProjection, getWorkbenchRunGraphProjection, getWorkbenchSchedulerClaimReconcilePlanProjection, getWorkbenchSchedulerContractProjection, getWorkbenchSchedulerDispatchDryRunProjection, getWorkbenchSchedulerLaunchPreflightProjection, getWorkbenchSchedulerWorkerSessionPlanProjection, getWorkbenchSnapshot, getWorkbenchStream, getWorkbenchTaskQueueProposalProjection, getWorkbenchTopic, getWorkbenchWorkflowGraphPlanProjection, listWorkbenchApprovals, listWorkbenchRoles, listWorkbenchTopics } from "../../src/workbench/manager.js";
 import { WorkbenchStore } from "../../src/workbench/store.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import { collectWorktreeDiff } from "../../src/audit/diff.js";
@@ -2391,12 +2391,102 @@ describe("workbench read model", () => {
       maxPlannedWaveWidth: 2,
     });
     expect(claimSnapshot.center.workpad.nextAction).toMatchObject({
-      actionType: "planning.scheduler.claim-reconcile.compile",
-      enabled: false,
+      actionType: "planning.scheduler.launch-preflight.check",
+      enabled: true,
       schedulerClaimReconcilePlanId: claimReconcilePlan?.id,
     });
     expect(claimSnapshot.right.confirmationQueue.current.flatMap((item) => item.actions).map((action) => action.actionType))
       .not.toContain("planning.scheduler.claim-reconcile.compile");
+    expect(claimSnapshot.right.confirmationQueue.current).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        actions: expect.arrayContaining([
+          expect.objectContaining({
+            actionType: "planning.scheduler.launch-preflight.check",
+            schedulerClaimReconcilePlanId: claimReconcilePlan?.id,
+          }),
+        ]),
+      }),
+    ]));
+    await expect(executeWorkbenchAction({ project: project(), path: tempDir }, {
+      actionType: "planning.scheduler.launch-preflight.check",
+      changeId: topic.changeId,
+      schedulerContractId: contract?.id,
+      schedulerDispatchDryRunId: dryRun?.id,
+      schedulerWorkerPlanId: workerPlan?.id,
+      schedulerClaimReconcilePlanId: "forged-claim-reconcile-plan",
+      confirm: true,
+    })).rejects.toThrow("stale or no longer available");
+
+    const claimLatestPath = join(changeDir, "planning", "scheduler-claim-reconcile-plan.json");
+    const claimVersionedPath = join(changeDir, "planning", "scheduler-claim-reconcile-plans", `${claimReconcilePlan?.id}.json`);
+    const claimLatestJson = JSON.parse(await readFile(claimLatestPath, "utf8"));
+    const claimVersionedJson = JSON.parse(await readFile(claimVersionedPath, "utf8"));
+    const [claimHashRef] = Object.keys(claimVersionedJson.sourceArtifactHashes ?? {});
+    if (!claimHashRef) throw new Error("Expected claim/reconcile source artifact hashes.");
+    claimLatestJson.sourceArtifactHashes[claimHashRef] = "forged-hash";
+    claimVersionedJson.sourceArtifactHashes[claimHashRef] = "forged-hash";
+    await writeFile(claimLatestPath, JSON.stringify(claimLatestJson, null, 2), "utf8");
+    await writeFile(claimVersionedPath, JSON.stringify(claimVersionedJson, null, 2), "utf8");
+    const preflightHashMismatchResult = await executeWorkbenchAction({ project: project(), path: tempDir }, {
+      actionType: "planning.scheduler.launch-preflight.check",
+      changeId: topic.changeId,
+      schedulerContractId: contract?.id,
+      schedulerDispatchDryRunId: dryRun?.id,
+      schedulerWorkerPlanId: workerPlan?.id,
+      schedulerClaimReconcilePlanId: claimReconcilePlan?.id,
+      confirm: true,
+    });
+    expect(preflightHashMismatchResult.result).toMatchObject({
+      status: "failed",
+      error: expect.stringContaining("source artifact hash mismatch"),
+    });
+    await writeFile(claimLatestPath, JSON.stringify(fullClaimReconcilePlan, null, 2), "utf8");
+    await writeFile(claimVersionedPath, JSON.stringify(fullClaimReconcilePlan, null, 2), "utf8");
+
+    const launchPreflightResult = await executeWorkbenchAction({ project: project(), path: tempDir }, {
+      actionType: "planning.scheduler.launch-preflight.check",
+      changeId: topic.changeId,
+      schedulerContractId: contract?.id,
+      schedulerDispatchDryRunId: dryRun?.id,
+      schedulerWorkerPlanId: workerPlan?.id,
+      schedulerClaimReconcilePlanId: claimReconcilePlan?.id,
+      confirm: true,
+    });
+    const launchPreflight = (launchPreflightResult.result as { result?: { launchPreflight?: { id?: string; status?: string; schedulerClaimReconcilePlanId?: string; claimSummaries?: unknown[]; plannedSlotDemand?: number; humanGateRequirement?: { status?: string } } } }).result?.launchPreflight;
+    expect(launchPreflight).toMatchObject({
+      status: "checked",
+      schedulerClaimReconcilePlanId: claimReconcilePlan?.id,
+      plannedSlotDemand: 2,
+      humanGateRequirement: { status: "required" },
+    });
+    expect(launchPreflight?.claimSummaries).toHaveLength(2);
+    const fullLaunchPreflight = await getWorkbenchSchedulerLaunchPreflightProjection({ project: project(), path: tempDir }, topic.changeId, launchPreflight?.id);
+    expect(fullLaunchPreflight).toMatchObject({
+      id: launchPreflight?.id,
+      status: "checked",
+      schedulerContractId: contract?.id,
+      schedulerDispatchDryRunId: dryRun?.id,
+      schedulerWorkerPlanId: workerPlan?.id,
+      schedulerClaimReconcilePlanId: claimReconcilePlan?.id,
+      toolPolicyGateRequirement: expect.objectContaining({ status: "required" }),
+      humanGateRequirement: expect.objectContaining({ status: "required" }),
+    });
+    const preflightSnapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: topic.changeId });
+    expect(preflightSnapshot.center.workpad.schedulerLaunchPreflight).toMatchObject({
+      id: launchPreflight?.id,
+      schedulerClaimReconcilePlanId: claimReconcilePlan?.id,
+      claimIntentCount: 2,
+      plannedSlotDemand: 2,
+      humanGateRequired: true,
+    });
+    expect(preflightSnapshot.center.workpad.nextAction).toMatchObject({
+      actionType: "planning.scheduler.launch-preflight.check",
+      enabled: false,
+      schedulerLaunchPreflightId: launchPreflight?.id,
+      disabledReason: expect.stringContaining("不启动并行执行"),
+    });
+    expect(preflightSnapshot.right.confirmationQueue.current.flatMap((item) => item.actions).map((action) => action.actionType))
+      .not.toContain("planning.scheduler.launch-preflight.check");
     expect(await listTaskQueues(beforeMemory, topic.changeId)).toHaveLength(0);
     expect(await listWorkflowRuns(beforeMemory, topic.changeId)).toHaveLength(0);
     expect(await listTaskRuns(beforeMemory, topic.changeId)).toHaveLength(0);

@@ -11,6 +11,7 @@ import {
   readLatestSchedulerContractSummary,
   readLatestSchedulerClaimReconcilePlanSummary,
   readLatestSchedulerWorkerSessionPlanSummary,
+  readLatestSchedulerLaunchPreflightSummary,
   readLatestTaskQueueProposalSummary,
   readLatestWorkflowGraphPlanSummary,
   type WorkbenchDecompositionPlanSummary,
@@ -18,6 +19,7 @@ import {
   type WorkbenchSchedulerContractSummary,
   type WorkbenchSchedulerClaimReconcilePlanSummary,
   type WorkbenchSchedulerDispatchDryRunSummary,
+  type WorkbenchSchedulerLaunchPreflightSummary,
   type WorkbenchSchedulerWorkerSessionPlanSummary,
   type WorkbenchTaskQueueProposalSummary,
   type WorkbenchWorkflowGraphPlanSummary,
@@ -200,9 +202,11 @@ export async function buildWorkbenchWorkpad(input: {
   const schedulerDispatchDryRun = await readLatestSchedulerDispatchDryRunSummary(memory, selectedTopic.path);
   const schedulerWorkerSessionPlan = await readLatestSchedulerWorkerSessionPlanSummary(memory, selectedTopic.path);
   const schedulerClaimReconcilePlan = await readLatestSchedulerClaimReconcilePlanSummary(memory, selectedTopic.path);
+  const schedulerLaunchPreflight = await readLatestSchedulerLaunchPreflightSummary(memory, selectedTopic.path);
   const scopedSchedulerDispatchDryRun = schedulerContract && schedulerDispatchDryRun?.schedulerContractId === schedulerContract.id ? schedulerDispatchDryRun : null;
   const scopedSchedulerWorkerSessionPlan = scopedSchedulerDispatchDryRun && schedulerWorkerSessionPlan?.schedulerDispatchDryRunId === scopedSchedulerDispatchDryRun.id ? schedulerWorkerSessionPlan : null;
   const scopedSchedulerClaimReconcilePlan = scopedSchedulerWorkerSessionPlan && schedulerClaimReconcilePlan?.schedulerWorkerPlanId === scopedSchedulerWorkerSessionPlan.id ? schedulerClaimReconcilePlan : null;
+  const scopedSchedulerLaunchPreflight = scopedSchedulerClaimReconcilePlan && schedulerLaunchPreflight?.schedulerClaimReconcilePlanId === scopedSchedulerClaimReconcilePlan.id ? schedulerLaunchPreflight : null;
   const workflowRun = await getLatestWorkflowRun(memory, selectedTopic.id).then((run) => run ? summarizeWorkflowRun(run) : null).catch(() => null);
   const agentTasks = await buildAgentTaskSummaries(memory, selectedTopic.id);
   const rolePipeline = buildRolePipelineSummary(selectedTopic, planningBundle, agentTasks);
@@ -243,6 +247,7 @@ export async function buildWorkbenchWorkpad(input: {
     schedulerDispatchDryRun: scopedSchedulerDispatchDryRun ?? undefined,
     schedulerWorkerSessionPlan: scopedSchedulerWorkerSessionPlan ?? undefined,
     schedulerClaimReconcilePlan: scopedSchedulerClaimReconcilePlan ?? undefined,
+    schedulerLaunchPreflight: scopedSchedulerLaunchPreflight ?? undefined,
     workflowRun: workflowRun ?? undefined,
     rolePipeline,
     resultReview,
@@ -280,7 +285,7 @@ export async function buildWorkbenchWorkpad(input: {
       ...workpadMissingWarnings(specReady, planReady, tasksReady, selectedTopic),
       ...gaps.filter((gap) => gap.status !== "available").map((gap) => gap.summary),
     ],
-    nextAction: buildWorkpadNextAction(selectedTopic, topicApprovals, { specReady, planReady, tasksReady }, intake, taskQueue, taskGraph, planningBundle, decompositionPlan, decompositionReadiness, taskQueueProposal, workflowGraphPlan, schedulerContract, scopedSchedulerDispatchDryRun, scopedSchedulerWorkerSessionPlan, scopedSchedulerClaimReconcilePlan, workflowRun),
+    nextAction: buildWorkpadNextAction(selectedTopic, topicApprovals, { specReady, planReady, tasksReady }, intake, taskQueue, taskGraph, planningBundle, decompositionPlan, decompositionReadiness, taskQueueProposal, workflowGraphPlan, schedulerContract, scopedSchedulerDispatchDryRun, scopedSchedulerWorkerSessionPlan, scopedSchedulerClaimReconcilePlan, scopedSchedulerLaunchPreflight, workflowRun),
     background: buildWorkpadBackground(workpads, selectedTopic.id),
     memoryIsolation: buildWorkpadMemoryIsolation(memory, selectedTopic, workpads),
   };
@@ -556,6 +561,7 @@ function buildWorkpadNextAction(
   schedulerDispatchDryRun?: WorkbenchSchedulerDispatchDryRunSummary | null,
   schedulerWorkerSessionPlan?: WorkbenchSchedulerWorkerSessionPlanSummary | null,
   schedulerClaimReconcilePlan?: WorkbenchSchedulerClaimReconcilePlanSummary | null,
+  schedulerLaunchPreflight?: WorkbenchSchedulerLaunchPreflightSummary | null,
   workflowRun?: WorkflowRunSummary | null,
 ): WorkpadNextAction {
   if (topic.state !== "active") {
@@ -597,6 +603,7 @@ function buildWorkpadNextAction(
       schedulerDispatchDryRun,
       schedulerWorkerSessionPlan,
       schedulerClaimReconcilePlan,
+      schedulerLaunchPreflight,
       workflowRun,
     });
   }
@@ -625,6 +632,7 @@ function buildWorkpadNextAction(
     schedulerDispatchDryRun,
     schedulerWorkerSessionPlan,
     schedulerClaimReconcilePlan,
+    schedulerLaunchPreflight,
     workflowRun,
   });
 }

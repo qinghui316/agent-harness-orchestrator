@@ -162,6 +162,7 @@ export type WorkpadNextAction = {
   schedulerDispatchDryRunId?: string;
   schedulerWorkerPlanId?: string;
   schedulerClaimReconcilePlanId?: string;
+  schedulerLaunchPreflightId?: string;
   workflowRunId?: string;
   queueRunId?: string;
   taskIds?: string[];
@@ -193,6 +194,7 @@ export type WorkbenchTaskNextAction = {
   schedulerDispatchDryRunId?: string;
   schedulerWorkerPlanId?: string;
   schedulerClaimReconcilePlanId?: string;
+  schedulerLaunchPreflightId?: string;
   workflowRunId?: string;
   queueRunId?: string;
   enabled: boolean;
@@ -311,6 +313,7 @@ export type Workpad = {
   schedulerDispatchDryRun?: SchedulerDispatchDryRunSummary;
   schedulerWorkerSessionPlan?: SchedulerWorkerSessionPlanSummary;
   schedulerClaimReconcilePlan?: SchedulerClaimReconcilePlanSummary;
+  schedulerLaunchPreflight?: SchedulerLaunchPreflightSummary;
   rolePipeline?: {
     stage: "planning" | "coding" | "validation" | "audit" | "rework" | "done" | "needs-user-input";
     status: "draft" | "running" | "completed" | "needs-user-input" | "stopped";
@@ -537,6 +540,25 @@ export type SchedulerClaimReconcilePlanSummary = {
   markdownArtifact?: string;
   updatedAt: string;
 };
+export type SchedulerLaunchPreflightSummary = {
+  id: string;
+  changeId: string;
+  schedulerContractId: string;
+  schedulerDispatchDryRunId: string;
+  schedulerWorkerPlanId: string;
+  schedulerClaimReconcilePlanId: string;
+  status: "checked" | "blocked" | "rejected";
+  schedulerMode: "parallel-readiness-v1";
+  claimIntentCount: number;
+  plannedSlotDemand: number;
+  maxPlannedWaveWidth: number;
+  blockedCount: number;
+  humanGateRequired: boolean;
+  toolPolicyGateRequired: boolean;
+  artifact?: string;
+  markdownArtifact?: string;
+  updatedAt: string;
+};
 export type PlanCard = {
   title: string;
   summary: string;
@@ -559,6 +581,7 @@ export type ThreadStreamAction = {
   schedulerDispatchDryRunId?: string;
   schedulerWorkerPlanId?: string;
   schedulerClaimReconcilePlanId?: string;
+  schedulerLaunchPreflightId?: string;
   workflowRunId?: string;
   queueRunId?: string;
   taskIds?: string[];
@@ -640,6 +663,7 @@ export type DecisionAction = {
   schedulerDispatchDryRunId?: string;
   schedulerWorkerPlanId?: string;
   schedulerClaimReconcilePlanId?: string;
+  schedulerLaunchPreflightId?: string;
   workflowRunId?: string;
   queueRunId?: string;
   taskIds?: string[];

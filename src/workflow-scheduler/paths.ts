@@ -64,3 +64,19 @@ export function latestSchedulerClaimReconcilePlanPath(memory: ResolvedMemory, ch
 export function latestSchedulerClaimReconcilePlanMarkdownPath(memory: ResolvedMemory, changePath: string): string {
   return join(memory.memoryRoot, changePath, "planning", "scheduler-claim-reconcile-plan.md");
 }
+
+export function schedulerLaunchPreflightsDir(memory: ResolvedMemory, changePath: string): string {
+  return join(memory.memoryRoot, changePath, "planning", "scheduler-launch-preflights");
+}
+
+export function schedulerLaunchPreflightPath(memory: ResolvedMemory, changePath: string, preflightId: string): string {
+  return join(schedulerLaunchPreflightsDir(memory, changePath), `${preflightId}.json`);
+}
+
+export function latestSchedulerLaunchPreflightPath(memory: ResolvedMemory, changePath: string): string {
+  return join(memory.memoryRoot, changePath, "planning", "scheduler-launch-preflight.json");
+}
+
+export function latestSchedulerLaunchPreflightMarkdownPath(memory: ResolvedMemory, changePath: string): string {
+  return join(memory.memoryRoot, changePath, "planning", "scheduler-launch-preflight.md");
+}

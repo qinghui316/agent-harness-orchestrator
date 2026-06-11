@@ -11,6 +11,7 @@ import {
   getWorkbenchSchedulerContractProjection,
   getWorkbenchSchedulerDispatchDryRunProjection,
   getWorkbenchSchedulerClaimReconcilePlanProjection,
+  getWorkbenchSchedulerLaunchPreflightProjection,
   getWorkbenchSchedulerWorkerSessionPlanProjection,
   getWorkbenchWorkflowRunProjection,
   getWorkbenchWorkpadProjection,
@@ -68,6 +69,10 @@ export async function getWorkbenchProjection(input: WorkbenchProjectInput, rest:
   if (kind === "scheduler-claim-reconcile-plan") {
     if (!changeId) throw badRequest("scheduler-claim-reconcile-plan projection requires changeId.");
     return getWorkbenchSchedulerClaimReconcilePlanProjection(input, changeId, id);
+  }
+  if (kind === "scheduler-launch-preflight") {
+    if (!changeId) throw badRequest("scheduler-launch-preflight projection requires changeId.");
+    return getWorkbenchSchedulerLaunchPreflightProjection(input, changeId, id);
   }
   if (kind === "workflow-run") {
     if (!changeId) throw badRequest("workflow-run projection requires changeId.");

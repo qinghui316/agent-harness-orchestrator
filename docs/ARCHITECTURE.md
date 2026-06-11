@@ -97,6 +97,8 @@ Phase 8Z adds the next non-executing scheduler foundation: a `SchedulerWorkerSes
 
 Phase 9A adds a non-executing `SchedulerClaimReconcilePlan` after `SchedulerWorkerSessionPlan`. It records future claim eligibility, planned worker keys, source lock intent, planned slot demand, wave reconcile checkpoints, blocked reasons, recovery-key coverage, and source artifact hashes. It is scheduler coordination evidence only: it must not create real WorkerLease ids, WorkerSession ids, Runtime Continuity sidecars, TaskRuns, WorkflowRuns, worktrees, runs, child Changes, slot allocator state, or a scheduler loop.
 
+Phase 9B adds a non-executing `SchedulerLaunchPreflight` after `SchedulerClaimReconcilePlan`. It records launch prerequisite checks, lineage/source hash validation, claim intent and source lock summaries, runtime-continuity prerequisites, permission profile requirements, and the requirement that any future executor re-run ToolPolicyGate plus human confirmation. It is launch-readiness evidence only: it must not authorize execution or create WorkflowRun, TaskQueueRun, TaskRun, WorkerLease, WorkerSession, RuntimeWorkspace, EventSource, AgentTask, worktree, run, child Change, slot allocator state, scheduler loop, or parallel executor records.
+
 Workbench relationship:
 
 ```text

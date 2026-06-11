@@ -43,6 +43,7 @@ export async function sendWorkbenchActionLive(input: WorkbenchProjectInput & { p
         schedulerDispatchDryRunId: body.schedulerDispatchDryRunId,
         schedulerWorkerPlanId: body.schedulerWorkerPlanId,
         schedulerClaimReconcilePlanId: body.schedulerClaimReconcilePlanId,
+        schedulerLaunchPreflightId: body.schedulerLaunchPreflightId,
         workflowRunId: body.workflowRunId,
         queueRunId: body.queueRunId,
         worktreeId: body.worktreeId,

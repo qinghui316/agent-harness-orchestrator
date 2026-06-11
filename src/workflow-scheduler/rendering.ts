@@ -1,4 +1,4 @@
-import type { SchedulerClaimReconcilePlan, SchedulerContract, SchedulerDispatchDryRun, SchedulerWorkerSessionPlan } from "./types.js";
+import type { SchedulerClaimReconcilePlan, SchedulerContract, SchedulerDispatchDryRun, SchedulerLaunchPreflight, SchedulerWorkerSessionPlan } from "./types.js";
 
 export function renderSchedulerContractMarkdown(contract: SchedulerContract): string {
   const lines = [
@@ -215,6 +215,72 @@ export function renderSchedulerClaimReconcilePlanMarkdown(plan: SchedulerClaimRe
     "## Boundary",
     "",
     "This claim/reconcile plan is non-executing evidence. It does not create WorkerLeases, WorkerSessions, Runtime Continuity sidecars, TaskRuns, AgentTasks, worktrees, runs, child Changes, scheduler loops, slot allocators, or parallel execution authorization.",
+    "",
+  ];
+  return lines.join("\n");
+}
+
+export function renderSchedulerLaunchPreflightMarkdown(preflight: SchedulerLaunchPreflight): string {
+  const lines = [
+    `# SchedulerLaunchPreflight ${preflight.id}`,
+    "",
+    `Status: ${preflight.status}`,
+    `Mode: ${preflight.schedulerMode}`,
+    `Change: ${preflight.changeId}`,
+    `SchedulerContract: ${preflight.schedulerContractId}`,
+    `SchedulerDispatchDryRun: ${preflight.schedulerDispatchDryRunId}`,
+    `SchedulerWorkerSessionPlan: ${preflight.schedulerWorkerPlanId}`,
+    `SchedulerClaimReconcilePlan: ${preflight.schedulerClaimReconcilePlanId}`,
+    `DecompositionPlan: ${preflight.decompositionPlanId}`,
+    `ReadinessManifest: ${preflight.readinessManifestId}`,
+    "",
+    "## Summary",
+    "",
+    `- Claim intents: ${preflight.claimSummaries.length}`,
+    `- Planned slot demand: ${preflight.plannedSlotDemand}`,
+    `- Max planned wave width: ${preflight.maxPlannedWaveWidth}`,
+    `- Blocked entries: ${preflight.blockedCount}`,
+    `- ToolPolicyGate requirement: ${preflight.toolPolicyGateRequirement.status}`,
+    `- Human gate requirement: ${preflight.humanGateRequirement.status}`,
+    `- Blocked reasons: ${preflight.blockedReasons.length ? preflight.blockedReasons.join("; ") : "none"}`,
+    "",
+    "## Runtime Continuity Requirements",
+    "",
+    ...preflight.runtimeContinuityRequirements.map((item) => `- ${item.id}: ${item.status} - ${item.description}`),
+    "",
+    "## Permission Requirements",
+    "",
+    ...preflight.permissionProfileRequirements.map((item) => `- ${item.id}: ${item.status} - ${item.description}`),
+    "",
+    "## Source Locks",
+    "",
+    ...preflight.sourceLockSummaries.map((lock) => [
+      `### ${lock.scope}`,
+      "",
+      `- Status: ${lock.status}`,
+      `- Waves: ${lock.waveIndexes.map((index) => String(index + 1)).join(", ") || "none"}`,
+      `- Claim intents: ${lock.claimIntentIds.join(", ") || "none"}`,
+      `- Blocked reasons: ${lock.blockedReasons.length ? lock.blockedReasons.join("; ") : "none"}`,
+      "",
+    ].join("\n")),
+    "## Claim Intent Summaries",
+    "",
+    ...preflight.claimSummaries.map((claim) => [
+      `### ${claim.claimIntentId}`,
+      "",
+      `- Planned worker key: ${claim.plannedWorkerKey}`,
+      `- Node: ${claim.nodeId}`,
+      `- Unit: ${claim.unitId}`,
+      `- Wave: ${claim.waveIndex + 1}`,
+      `- Status: ${claim.status}`,
+      `- Planned slot demand: ${claim.plannedSlotDemand}`,
+      `- Source scopes: ${claim.sourceScopes.join(", ") || "none"}`,
+      `- Blocked reasons: ${claim.blockedReasons.length ? claim.blockedReasons.join("; ") : "none"}`,
+      "",
+    ].join("\n")),
+    "## Boundary",
+    "",
+    "This launch preflight is non-executing evidence. Status `checked` is not execution authorization. A future executor must re-run ToolPolicyGate and require a human gate before creating WorkerLeases, WorkerSessions, Runtime Continuity sidecars, TaskRuns, WorkflowRuns, worktrees, runs, child Changes, scheduler loops, slot allocators, or parallel execution.",
     "",
   ];
   return lines.join("\n");

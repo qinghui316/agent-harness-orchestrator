@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { SchedulerClaimReconcilePlan, SchedulerContract, SchedulerDispatchDryRun, SchedulerWorkerSessionPlan } from "./types.js";
+import type { SchedulerClaimReconcilePlan, SchedulerContract, SchedulerDispatchDryRun, SchedulerLaunchPreflight, SchedulerWorkerSessionPlan } from "./types.js";
 
 const workerPermissionProfileSchema = z.object({
   version: z.literal("1.0"),
@@ -193,6 +193,58 @@ export const schedulerClaimReconcilePlanSchema: z.ZodType<SchedulerClaimReconcil
   maxPlannedWaveWidth: z.number(),
   blockedCount: z.number(),
   recoveryKeyCoverage: z.enum(["complete", "partial"]),
+  sourceArtifactHashes: z.record(z.string()),
+  artifactRefs: z.array(z.string()),
+  artifact: z.string(),
+  markdownArtifact: z.string(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+
+const schedulerLaunchRequirementSchema = z.object({
+  id: z.string(),
+  status: z.enum(["required", "blocked"]),
+  description: z.string(),
+});
+
+export const schedulerLaunchPreflightSchema: z.ZodType<SchedulerLaunchPreflight> = z.object({
+  version: z.literal("1.0"),
+  id: z.string(),
+  changeId: z.string(),
+  status: z.enum(["checked", "blocked", "rejected"]),
+  schedulerMode: z.literal("parallel-readiness-v1"),
+  schedulerContractId: z.string(),
+  schedulerDispatchDryRunId: z.string(),
+  schedulerWorkerPlanId: z.string(),
+  schedulerClaimReconcilePlanId: z.string(),
+  decompositionPlanId: z.string(),
+  readinessManifestId: z.string(),
+  claimSummaries: z.array(z.object({
+    claimIntentId: z.string(),
+    plannedWorkerKey: z.string(),
+    nodeId: z.string(),
+    unitId: z.string(),
+    waveIndex: z.number(),
+    status: z.enum(["planned", "blocked"]),
+    plannedSlotDemand: z.number(),
+    sourceScopes: z.array(z.string()),
+    blockedReasons: z.array(z.string()),
+  })),
+  sourceLockSummaries: z.array(z.object({
+    scope: z.string(),
+    waveIndexes: z.array(z.number()),
+    claimIntentIds: z.array(z.string()),
+    status: z.enum(["clear", "blocked"]),
+    blockedReasons: z.array(z.string()),
+  })),
+  plannedSlotDemand: z.number(),
+  maxPlannedWaveWidth: z.number(),
+  blockedCount: z.number(),
+  runtimeContinuityRequirements: z.array(schedulerLaunchRequirementSchema),
+  permissionProfileRequirements: z.array(schedulerLaunchRequirementSchema),
+  toolPolicyGateRequirement: schedulerLaunchRequirementSchema,
+  humanGateRequirement: schedulerLaunchRequirementSchema,
+  blockedReasons: z.array(z.string()),
   sourceArtifactHashes: z.record(z.string()),
   artifactRefs: z.array(z.string()),
   artifact: z.string(),
