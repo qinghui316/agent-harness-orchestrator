@@ -25,6 +25,7 @@ import {
   DecompositionPlanCard,
   DecompositionReadinessCard,
   PlanningArtifactBundleCard,
+  SchedulerClaimReservationCard,
   SchedulerClaimReconcilePlanCard,
   SchedulerContractCard,
   SchedulerDispatchDryRunCard,
@@ -119,6 +120,7 @@ export function WorkpadDiagnosticDetails({
       {workpad.schedulerRun ? <SchedulerRunCard run={workpad.schedulerRun} /> : null}
       {workpad.schedulerRuntime ? <SchedulerRuntimeCard runtime={workpad.schedulerRuntime} /> : null}
       {workpad.schedulerReconcileSnapshot ? <SchedulerReconcileSnapshotCard snapshot={workpad.schedulerReconcileSnapshot} /> : null}
+      {workpad.schedulerClaimReservation ? <SchedulerClaimReservationCard reservation={workpad.schedulerClaimReservation} /> : null}
 
       {workpad.rolePipeline ? (
         <section className="workpad-section" data-testid="role-pipeline-summary">

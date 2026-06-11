@@ -103,6 +103,8 @@ Phase 9C adds a non-executing `SchedulerRun` journal shell after a checked `Sche
 
 Phase 9D introduces the first scheduler runtime shell under the existing `SchedulerRun` identity. `src/scheduler-runtime/` owns SchedulerRun-scoped runtime state, runtime events, and reconcile snapshots as sidecar artifacts. This moves from launch-intent evidence to recoverable runtime shell state, but still does not create worker sessions, leases, TaskRuns, worktrees, runs, scheduler loops, slot allocators, or parallel execution. ToolPolicyGate and human confirmation remain future execution gates, not pre-authorized by runtime shell initialization.
 
+Phase 9E extends `src/scheduler-runtime/` with SchedulerRun-scoped claim reservation evidence for a specific reconcile snapshot. This borrows Symphony's claim/slot/blocked/reconcile shape as audit evidence, but reservation is not a WorkerLease, WorkerSession, TaskRun, slot allocation, or worker start. A newer reconcile snapshot may supersede an older reservation; a duplicate reservation for the same snapshot must fail closed.
+
 Workbench relationship:
 
 ```text

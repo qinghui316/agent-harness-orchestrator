@@ -10,6 +10,7 @@ import {
   readSchedulerClaimReconcilePlanProjection,
   readSchedulerLaunchPreflightProjection,
   readSchedulerReconcileProjection,
+  readSchedulerClaimReservationProjection,
   readSchedulerRuntimeProjection,
   readSchedulerRunProjection,
 } from "../workflow-projection.js";
@@ -21,7 +22,7 @@ import type {
   WorkflowGraphPlan,
 } from "../../workflow-artifacts/manager.js";
 import type { SchedulerClaimReconcilePlan, SchedulerContract, SchedulerDispatchDryRun, SchedulerLaunchPreflight, SchedulerRun, SchedulerWorkerSessionPlan } from "../../workflow-scheduler/manager.js";
-import type { SchedulerReconcileSnapshot, SchedulerRuntimeState } from "../../scheduler-runtime/manager.js";
+import type { SchedulerReconcileSnapshot, SchedulerRuntimeClaimReservation, SchedulerRuntimeState } from "../../scheduler-runtime/manager.js";
 
 export interface WorkbenchTopicPathRef {
   id: string;
@@ -79,6 +80,10 @@ export function getSchedulerRuntimeProjectionForPath(memory: ResolvedMemory, cha
 
 export function getSchedulerReconcileSnapshotProjectionForPath(memory: ResolvedMemory, changePath: string, snapshotId: string, schedulerRunId?: string): Promise<SchedulerReconcileSnapshot | null> {
   return readSchedulerReconcileProjection(memory, changePath, snapshotId, schedulerRunId);
+}
+
+export function getSchedulerClaimReservationProjectionForPath(memory: ResolvedMemory, changePath: string, schedulerRunId: string, reservationId: string): Promise<SchedulerRuntimeClaimReservation | null> {
+  return readSchedulerClaimReservationProjection(memory, changePath, schedulerRunId, reservationId);
 }
 
 export async function getWorkflowRunProjectionForChange(

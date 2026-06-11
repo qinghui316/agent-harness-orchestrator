@@ -8,10 +8,19 @@ import { displayArtifactPath } from "../workflow-artifacts/artifact-refs.js";
 import { assertChangePathScope } from "../workflow-artifacts/guards.js";
 import { schedulerRunsDir } from "../workflow-scheduler/paths.js";
 import type { SchedulerRun } from "../workflow-scheduler/types.js";
-import { schedulerReconcileSnapshotMarkdownPath, schedulerReconcileSnapshotPath, schedulerRuntimeDir, schedulerRuntimeEventsPath, schedulerRuntimeStatePath } from "./paths.js";
-import { renderSchedulerReconcileSnapshotMarkdown, renderSchedulerRuntimeStateMarkdown } from "./rendering.js";
-import { schedulerReconcileSnapshotSchema, schedulerRuntimeEventSchema, schedulerRuntimeStateSchema } from "./schemas.js";
-import type { SchedulerReconcileSnapshot, SchedulerRuntimeEvent, SchedulerRuntimeEventType, SchedulerRuntimeState } from "./types.js";
+import {
+  schedulerClaimReservationMarkdownPath,
+  schedulerClaimReservationPath,
+  schedulerClaimReservationsDir,
+  schedulerReconcileSnapshotMarkdownPath,
+  schedulerReconcileSnapshotPath,
+  schedulerRuntimeDir,
+  schedulerRuntimeEventsPath,
+  schedulerRuntimeStatePath,
+} from "./paths.js";
+import { renderSchedulerReconcileSnapshotMarkdown, renderSchedulerRuntimeClaimReservationMarkdown, renderSchedulerRuntimeStateMarkdown } from "./rendering.js";
+import { schedulerReconcileSnapshotSchema, schedulerRuntimeClaimReservationSchema, schedulerRuntimeEventSchema, schedulerRuntimeStateSchema } from "./schemas.js";
+import type { SchedulerReconcileSnapshot, SchedulerRuntimeClaimReservation, SchedulerRuntimeEvent, SchedulerRuntimeEventType, SchedulerRuntimeState } from "./types.js";
 
 export function schedulerRuntimeArtifactRefs(memory: ResolvedMemory, changePath: string, schedulerRunId: string): { artifact: string; eventsArtifact: string } {
   return {
@@ -24,6 +33,13 @@ export function schedulerReconcileSnapshotArtifactRefs(memory: ResolvedMemory, c
   return {
     artifact: displayArtifactPath(memory, schedulerReconcileSnapshotPath(memory, changePath, schedulerRunId, snapshotId)),
     markdownArtifact: displayArtifactPath(memory, schedulerReconcileSnapshotMarkdownPath(memory, changePath, schedulerRunId, snapshotId)),
+  };
+}
+
+export function schedulerClaimReservationArtifactRefs(memory: ResolvedMemory, changePath: string, schedulerRunId: string, reservationId: string): { artifact: string; markdownArtifact: string } {
+  return {
+    artifact: displayArtifactPath(memory, schedulerClaimReservationPath(memory, changePath, schedulerRunId, reservationId)),
+    markdownArtifact: displayArtifactPath(memory, schedulerClaimReservationMarkdownPath(memory, changePath, schedulerRunId, reservationId)),
   };
 }
 
@@ -120,6 +136,41 @@ export async function readSchedulerReconcileSnapshotByIdProjection(memory: Resol
     if (!entry.isDirectory()) continue;
     const snapshot = await readSchedulerReconcileSnapshotProjection(memory, changePath, entry.name, snapshotId);
     if (snapshot) return snapshot;
+  }
+  return null;
+}
+
+export async function writeSchedulerRuntimeClaimReservation(memory: ResolvedMemory, changePath: string, reservation: SchedulerRuntimeClaimReservation): Promise<void> {
+  await assertChangePathScope(memory, changePath, reservation.changeId, `SchedulerRuntimeClaimReservation ${reservation.id}`);
+  await mkdir(schedulerClaimReservationsDir(memory, changePath, reservation.schedulerRunId), { recursive: true });
+  await writeJsonFile(schedulerClaimReservationPath(memory, changePath, reservation.schedulerRunId, reservation.id), reservation);
+  await writeFile(schedulerClaimReservationMarkdownPath(memory, changePath, reservation.schedulerRunId, reservation.id), renderSchedulerRuntimeClaimReservationMarkdown(reservation), "utf8");
+}
+
+export async function readSchedulerRuntimeClaimReservation(memory: ResolvedMemory, changePath: string, schedulerRunId: string, reservationId: string): Promise<SchedulerRuntimeClaimReservation> {
+  const reservation = await readRequiredJsonFile(schedulerClaimReservationPath(memory, changePath, schedulerRunId, reservationId), schedulerRuntimeClaimReservationSchema);
+  await assertChangePathScope(memory, changePath, reservation.changeId, `SchedulerRuntimeClaimReservation ${reservation.id}`);
+  if (reservation.schedulerRunId !== schedulerRunId || reservation.id !== reservationId) throw new Error("SchedulerRuntimeClaimReservation scope mismatch.");
+  return reservation;
+}
+
+export async function readSchedulerRuntimeClaimReservationProjection(memory: ResolvedMemory, changePath: string, schedulerRunId: string, reservationId: string): Promise<SchedulerRuntimeClaimReservation | null> {
+  try {
+    return await readSchedulerRuntimeClaimReservation(memory, changePath, schedulerRunId, reservationId);
+  } catch {
+    return null;
+  }
+}
+
+export async function findSchedulerClaimReservationForSnapshot(memory: ResolvedMemory, changePath: string, schedulerRunId: string, snapshotId: string): Promise<SchedulerRuntimeClaimReservation | null> {
+  const dir = schedulerClaimReservationsDir(memory, changePath, schedulerRunId);
+  if (!existsSync(dir)) return null;
+  const entries = await readdir(dir, { withFileTypes: true }).catch(() => []);
+  for (const entry of entries) {
+    if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
+    const reservationId = entry.name.replace(/\.json$/, "");
+    const reservation = await readSchedulerRuntimeClaimReservationProjection(memory, changePath, schedulerRunId, reservationId);
+    if (reservation?.schedulerReconcileSnapshotId === snapshotId) return reservation;
   }
   return null;
 }

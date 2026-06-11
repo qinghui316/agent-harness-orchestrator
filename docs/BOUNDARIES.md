@@ -217,6 +217,8 @@ Phase 9C keeps `src/workflow-scheduler/` as owner for SchedulerRun journal shell
 
 Phase 9D introduces `src/scheduler-runtime/` as owner for SchedulerRun-scoped runtime shell sidecars. `SchedulerRuntimeState`, `SchedulerRuntimeEvent`, and `SchedulerReconcileSnapshot` may record initialization, reconcile checkpoints, blocked/warning claim intent state, and runtime-shell summaries under the existing SchedulerRun identity. They must not alter the SchedulerRun JSON shape, create a second scheduler run identity, allocate WorkerLeases, create WorkerSessions/RuntimeWorkspaces/EventSources, create WorkflowRun/TaskQueueRun/TaskRun/AgentTask/worktree/run/child Change records, start scheduler loops, allocate slots, call coder/validator/auditor, or pre-authorize ToolPolicy/human gates. Workbench/server/frontend code may dispatch and display these sidecars, but must not own scheduler runtime logic.
 
+Phase 9E extends `src/scheduler-runtime/` with `SchedulerRuntimeClaimReservation`. It may reserve claim-intent evidence for one reconcile snapshot, record source-lock reservation summaries, and mark a newer snapshot reservation as superseding an older one. It must not create or reuse real WorkerLease ids, WorkerSession ids, TaskRun ids, worktrees, runs, slots, or scheduler loops. Duplicate reservation for the same reconcile snapshot must fail closed; a newer reconcile snapshot may produce a new reservation with explicit supersession evidence.
+
 ## 7. Memory Unavailable Boundary
 
 Memory can be unavailable on a new machine, after a plain repository clone, when AHO home was not synced, when permissions are missing, or when a future remote memory service is offline.

@@ -6,7 +6,7 @@ import { createProgram } from "../../src/cli/program.js";
 import type { MaintenanceLedgerEntry, ManagedProject, RemoteLandingResult, RunMetadata, WorkflowRun } from "../../src/types/index.js";
 import { closeChange, createChange, getChangeStatus, getChangeStatusForChange } from "../../src/change/manager.js";
 import { appendTopicThreadEntry, runWorkbenchWorkflowAction } from "../../src/workbench/chat.js";
-import { getWorkbenchSchedulerClaimReconcilePlanProjection, getWorkbenchSchedulerContractProjection, getWorkbenchSchedulerDispatchDryRunProjection, getWorkbenchSchedulerRunProjection, getWorkbenchSchedulerWorkerSessionPlanProjection, getWorkbenchSnapshot, getWorkbenchWorkflowGraphPlanProjection } from "../../src/workbench/manager.js";
+import { getWorkbenchSchedulerClaimReconcilePlanProjection, getWorkbenchSchedulerClaimReservationProjection, getWorkbenchSchedulerContractProjection, getWorkbenchSchedulerDispatchDryRunProjection, getWorkbenchSchedulerRunProjection, getWorkbenchSchedulerWorkerSessionPlanProjection, getWorkbenchSnapshot, getWorkbenchWorkflowGraphPlanProjection } from "../../src/workbench/manager.js";
 import { getCodeStatus, listCodeRuns, showCodeRun, startCodeRun } from "../../src/code/manager.js";
 import { applyResultToProject, applyWorktree, classifyApplyReadiness, discardWorktree, previewWorktreeApply } from "../../src/apply/manager.js";
 import { applyIntegrationCheck, discardIntegrationCheck, findIntegrationCheckCandidate, listIntegrationChecks, readIntegrationCheck, runIntegrationCheck } from "../../src/integration-check/manager.js";
@@ -135,6 +135,7 @@ describe("Workbench module boundaries", () => {
     expect(typeof getWorkbenchSchedulerDispatchDryRunProjection).toBe("function");
     expect(typeof getWorkbenchSchedulerWorkerSessionPlanProjection).toBe("function");
     expect(typeof getWorkbenchSchedulerClaimReconcilePlanProjection).toBe("function");
+    expect(typeof getWorkbenchSchedulerClaimReservationProjection).toBe("function");
     expect(typeof getWorkbenchSchedulerRunProjection).toBe("function");
     expect(typeof createProgram).toBe("function");
     expect(typeof startCodeRun).toBe("function");
@@ -1099,12 +1100,14 @@ describe("Workbench module boundaries", () => {
       "src/scheduler-runtime/guards.ts",
       "src/scheduler-runtime/initialize.ts",
       "src/scheduler-runtime/reconcile.ts",
+      "src/scheduler-runtime/claim-reservation.ts",
       "src/scheduler-runtime/rendering.ts",
       "src/scheduler-runtime/manager.ts",
     ]));
     const manager = readFileSync("src/scheduler-runtime/manager.ts", "utf8");
     expect(manager).toContain('export * from "./initialize.js";');
     expect(manager).toContain('export * from "./reconcile.js";');
+    expect(manager).toContain('export * from "./claim-reservation.js";');
     expect(manager).toContain('export * from "./repository.js";');
 
     const initialize = readFileSync("src/scheduler-runtime/initialize.ts", "utf8");
@@ -1116,6 +1119,13 @@ describe("Workbench module boundaries", () => {
     expect(reconcile).toContain("reconcileSchedulerRuntime");
     expect(reconcile).toContain("SchedulerReconcileSnapshot");
     expect(reconcile).not.toContain("startCodeRun");
+
+    const claimReservation = readFileSync("src/scheduler-runtime/claim-reservation.ts", "utf8");
+    expect(claimReservation).toContain("reserveSchedulerRuntimeClaims");
+    expect(claimReservation).toContain("findSchedulerClaimReservationForSnapshot");
+    expect(claimReservation).toContain("source lock conflict");
+    expect(claimReservation).not.toContain("createWorkerLease");
+    expect(claimReservation).not.toContain("startTaskRun");
 
     for (const file of files) {
       const content = readFileSync(file, "utf8");

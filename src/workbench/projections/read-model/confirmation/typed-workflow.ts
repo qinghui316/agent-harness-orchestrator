@@ -188,6 +188,39 @@ export function taskQueueProposalToConfirmationItems(
                     status: "pending",
                   }];
                 }
+                const claimReservation = workpad.schedulerClaimReservation;
+                if (!runtimeState.lastClaimReservationId || runtimeState.lastClaimReservationSnapshotId !== reconcileSnapshot.id || claimReservation?.id !== runtimeState.lastClaimReservationId) {
+                  return [{
+                    id: `confirm:scheduler-claim-reservation:${selectedTopic.id}:${schedulerRun.id}:${reconcileSnapshot.id}`,
+                    kind: "planning-confirm",
+                    projectId: project?.id ?? null,
+                    conversationId: selectedTopic.id,
+                    changeId: selectedTopic.id,
+                    summary: "Reconcile Snapshot 已生成，可预占 Runtime Claims。",
+                    whyNeedsConfirmation: "需要你确认记录 claim reservation evidence。该 reservation 不是真实 WorkerLease、slot 或 worker start。",
+                    confirmEffect: "写入 scheduler-runtime-claim-reservations 下的 JSON/Markdown artifact，并追加 runtime event；不会创建 WorkerLease、WorkerSession、RuntimeWorkspace、EventSource、WorkflowRun、TaskQueue、TaskRun、AgentTask、worktree 或 run。",
+                    riskSummary: "Claim reservation 是 runtime coordination evidence，不是 worker 启动授权；后续 worker-start 阶段仍必须重新执行 ToolPolicyGate 和 human gate。",
+                    evidenceRefs: reconcileSnapshot.artifact ? [reconcileSnapshot.artifact] : [],
+                    actions: [{
+                      id: `workflow:planning.scheduler.runtime.reserve-claims:${selectedTopic.id}:${schedulerRun.id}:${reconcileSnapshot.id}`,
+                      label: "预占 Runtime Claims",
+                      kind: "workflow-action",
+                      changeId: selectedTopic.id,
+                      actionType: "planning.scheduler.runtime.reserve-claims",
+                      schedulerContractId: contract.id,
+                      schedulerDispatchDryRunId: dryRun.id,
+                      schedulerWorkerPlanId: workerPlan.id,
+                      schedulerClaimReconcilePlanId: claimReconcilePlan.id,
+                      schedulerLaunchPreflightId: launchPreflight.id,
+                      schedulerRunId: schedulerRun.id,
+                      schedulerReconcileSnapshotId: reconcileSnapshot.id,
+                      enabled: true,
+                      requiresConfirmation: true,
+                    }],
+                    primary: false,
+                    status: "pending",
+                  }];
+                }
                 return [];
               }
               return [{

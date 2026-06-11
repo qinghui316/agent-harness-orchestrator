@@ -2,8 +2,10 @@ import type { ResolvedMemory, WorkflowRunSummary } from "../types/index.js";
 import {
   readSchedulerReconcileSnapshotProjection,
   readSchedulerReconcileSnapshotByIdProjection,
+  readSchedulerRuntimeClaimReservationProjection,
   readSchedulerRuntimeStateProjection,
   type SchedulerReconcileSnapshot,
+  type SchedulerRuntimeClaimReservation,
   type SchedulerRuntimeState,
 } from "../scheduler-runtime/manager.js";
 import {
@@ -224,8 +226,27 @@ export interface WorkbenchSchedulerRuntimeSummary {
   maxPlannedWaveWidth: number;
   blockedCount: number;
   lastReconcileSnapshotId?: string;
+  lastClaimReservationId?: string;
+  lastClaimReservationSnapshotId?: string;
   artifact?: string;
   eventsArtifact?: string;
+  updatedAt: string;
+}
+
+export interface WorkbenchSchedulerClaimReservationSummary {
+  id: string;
+  changeId: string;
+  schedulerRunId: string;
+  schedulerReconcileSnapshotId: string;
+  status: SchedulerRuntimeClaimReservation["status"];
+  schedulerMode: SchedulerRuntimeClaimReservation["schedulerMode"];
+  reservedCount: number;
+  blockedCount: number;
+  sourceLockCount: number;
+  waveIndex: number;
+  supersedesReservationId?: string;
+  artifact?: string;
+  markdownArtifact?: string;
   updatedAt: string;
 }
 
@@ -263,6 +284,7 @@ type WorkflowProjectionActionType =
   | "planning.scheduler.run.prepare"
   | "planning.scheduler.runtime.initialize"
   | "planning.scheduler.runtime.reconcile"
+  | "planning.scheduler.runtime.reserve-claims"
   | "planning.workflowgraph.compile"
   | "planning.taskqueue.confirm-start"
   | "code.run";
@@ -287,6 +309,7 @@ export interface WorkbenchTypedWorkflowNextAction {
   schedulerLaunchPreflightId?: string;
   schedulerRunId?: string;
   schedulerReconcileSnapshotId?: string;
+  schedulerClaimReservationId?: string;
   disabledReason?: string;
 }
 
@@ -544,9 +567,33 @@ export async function readSchedulerRuntimeSummary(memory: ResolvedMemory, change
     maxPlannedWaveWidth: state.maxPlannedWaveWidth,
     blockedCount: state.blockedCount,
     lastReconcileSnapshotId: state.lastReconcileSnapshotId,
+    lastClaimReservationId: state.lastClaimReservationId,
+    lastClaimReservationSnapshotId: state.lastClaimReservationSnapshotId,
     artifact: state.artifact,
     eventsArtifact: state.eventsArtifact,
     updatedAt: state.updatedAt,
+  };
+}
+
+export async function readSchedulerClaimReservationSummary(memory: ResolvedMemory, changePath: string, schedulerRunId?: string, reservationId?: string): Promise<WorkbenchSchedulerClaimReservationSummary | null> {
+  if (!schedulerRunId || !reservationId) return null;
+  const reservation = await readSchedulerRuntimeClaimReservationProjection(memory, changePath, schedulerRunId, reservationId);
+  if (!reservation) return null;
+  return {
+    id: reservation.id,
+    changeId: reservation.changeId,
+    schedulerRunId: reservation.schedulerRunId,
+    schedulerReconcileSnapshotId: reservation.schedulerReconcileSnapshotId,
+    status: reservation.status,
+    schedulerMode: reservation.schedulerMode,
+    reservedCount: reservation.reservedCount,
+    blockedCount: reservation.blockedCount,
+    sourceLockCount: reservation.sourceLockCount,
+    waveIndex: reservation.waves[0]?.waveIndex ?? 0,
+    supersedesReservationId: reservation.supersedesReservationId,
+    artifact: reservation.artifact,
+    markdownArtifact: reservation.markdownArtifact,
+    updatedAt: reservation.createdAt,
   };
 }
 
@@ -636,6 +683,10 @@ export function readSchedulerReconcileProjection(memory: ResolvedMemory, changeP
     : readSchedulerReconcileSnapshotByIdProjection(memory, changePath, snapshotId);
 }
 
+export function readSchedulerClaimReservationProjection(memory: ResolvedMemory, changePath: string, schedulerRunId: string, reservationId: string): Promise<SchedulerRuntimeClaimReservation | null> {
+  return readSchedulerRuntimeClaimReservationProjection(memory, changePath, schedulerRunId, reservationId);
+}
+
 export function buildTypedWorkflowNextAction(input: {
   topic: TypedWorkflowProjectionTopic;
   readiness: TypedWorkflowProjectionReadiness;
@@ -653,9 +704,10 @@ export function buildTypedWorkflowNextAction(input: {
   schedulerRun?: WorkbenchSchedulerRunSummary | null;
   schedulerRuntime?: WorkbenchSchedulerRuntimeSummary | null;
   schedulerReconcileSnapshot?: WorkbenchSchedulerReconcileSnapshotSummary | null;
+  schedulerClaimReservation?: WorkbenchSchedulerClaimReservationSummary | null;
   workflowRun?: WorkflowRunSummary | null;
 }): WorkbenchTypedWorkflowNextAction {
-  const { topic, readiness, intake, planningBundle, decompositionPlan, decompositionReadiness, taskQueueProposal, workflowGraphPlan, schedulerContract, schedulerDispatchDryRun, schedulerWorkerSessionPlan, schedulerClaimReconcilePlan, schedulerLaunchPreflight, schedulerRun, schedulerRuntime, schedulerReconcileSnapshot, workflowRun } = input;
+  const { topic, readiness, intake, planningBundle, decompositionPlan, decompositionReadiness, taskQueueProposal, workflowGraphPlan, schedulerContract, schedulerDispatchDryRun, schedulerWorkerSessionPlan, schedulerClaimReconcilePlan, schedulerLaunchPreflight, schedulerRun, schedulerRuntime, schedulerReconcileSnapshot, schedulerClaimReservation, workflowRun } = input;
   if (!readiness.specReady && !topic.runs.some((run) => run.runtime === "intake-scan")) {
     return workflowNextAction("intake.scan", "分析需求", "先只读扫描项目，整理当前理解、相关文件和待确认问题。", false);
   }
@@ -787,8 +839,20 @@ export function buildTypedWorkflowNextAction(input: {
         schedulerRunId: schedulerRun.id,
       };
     }
+    if (!schedulerRuntime.lastClaimReservationId || schedulerRuntime.lastClaimReservationSnapshotId !== schedulerReconcileSnapshot.id || schedulerClaimReservation?.id !== schedulerRuntime.lastClaimReservationId) {
+      return {
+        ...workflowNextAction("planning.scheduler.runtime.reserve-claims", "预占 Runtime Claims", "基于最新 Reconcile Snapshot 记录 claim reservation evidence；不会创建 WorkerLease、WorkerSession、TaskRun、slot、worktree 或 run。"),
+        schedulerContractId: schedulerContract.id,
+        schedulerDispatchDryRunId: schedulerDispatchDryRun.id,
+        schedulerWorkerPlanId: schedulerWorkerSessionPlan.id,
+        schedulerClaimReconcilePlanId: schedulerClaimReconcilePlan.id,
+        schedulerLaunchPreflightId: schedulerLaunchPreflight.id,
+        schedulerRunId: schedulerRun.id,
+        schedulerReconcileSnapshotId: schedulerReconcileSnapshot.id,
+      };
+    }
     return {
-      ...workflowNextAction("planning.scheduler.runtime.reconcile", "Scheduler Runtime 壳已就绪", "已初始化 runtime shell 并生成 reconcile snapshot；当前阶段不提供 parallel start 控件。"),
+      ...workflowNextAction("planning.scheduler.runtime.reserve-claims", "Runtime Claims 已预占", "已生成 runtime claim reservation；当前阶段不提供 parallel start 或 worker start 控件。"),
       enabled: false,
       schedulerContractId: schedulerContract.id,
       schedulerDispatchDryRunId: schedulerDispatchDryRun.id,
@@ -797,7 +861,8 @@ export function buildTypedWorkflowNextAction(input: {
       schedulerLaunchPreflightId: schedulerLaunchPreflight.id,
       schedulerRunId: schedulerRun.id,
       schedulerReconcileSnapshotId: schedulerReconcileSnapshot.id,
-      disabledReason: "Phase 9D 只初始化 Scheduler Runtime 壳并生成 reconcile snapshot，不启动并行执行。",
+      schedulerClaimReservationId: schedulerClaimReservation.id,
+      disabledReason: "Phase 9E 只记录 SchedulerRun-scoped claim reservation，不启动 worker、lease、slot 或并行执行。",
     };
   }
   return {

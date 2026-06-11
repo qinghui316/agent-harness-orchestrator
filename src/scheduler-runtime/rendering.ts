@@ -1,4 +1,4 @@
-import type { SchedulerReconcileSnapshot, SchedulerRuntimeState } from "./types.js";
+import type { SchedulerReconcileSnapshot, SchedulerRuntimeClaimReservation, SchedulerRuntimeState } from "./types.js";
 
 export function renderSchedulerRuntimeStateMarkdown(state: SchedulerRuntimeState): string {
   const lines = [
@@ -17,6 +17,7 @@ export function renderSchedulerRuntimeStateMarkdown(state: SchedulerRuntimeState
     `- Max planned wave width: ${state.maxPlannedWaveWidth}`,
     `- Blocked entries: ${state.blockedCount}`,
     `- Last reconcile snapshot: ${state.lastReconcileSnapshotId ?? "none"}`,
+    `- Last claim reservation: ${state.lastClaimReservationId ?? "none"}`,
     "",
     "## Waves",
     "",
@@ -34,6 +35,71 @@ export function renderSchedulerRuntimeStateMarkdown(state: SchedulerRuntimeState
     "## Boundary",
     "",
     "This runtime shell is not a parallel executor. It does not allocate WorkerLeases, create WorkerSessions, create TaskRuns, start agents, create worktrees, create runs, or authorize execution.",
+    "",
+  ];
+  return lines.join("\n");
+}
+
+export function renderSchedulerRuntimeClaimReservationMarkdown(reservation: SchedulerRuntimeClaimReservation): string {
+  const lines = [
+    `# SchedulerRuntimeClaimReservation ${reservation.id}`,
+    "",
+    `Status: ${reservation.status}`,
+    `Change: ${reservation.changeId}`,
+    `SchedulerRun: ${reservation.schedulerRunId}`,
+    `RuntimeState: ${reservation.schedulerRuntimeStateId}`,
+    `ReconcileSnapshot: ${reservation.schedulerReconcileSnapshotId}`,
+    "",
+    "## Summary",
+    "",
+    `- Reserved claims: ${reservation.reservedCount}`,
+    `- Blocked claims: ${reservation.blockedCount}`,
+    `- Source locks: ${reservation.sourceLockCount}`,
+    `- Supersedes reservation: ${reservation.supersedesReservationId ?? "none"}`,
+    "",
+    "## Waves",
+    "",
+    ...reservation.waves.map((wave) => [
+      `### Wave ${wave.waveIndex + 1}`,
+      "",
+      `- Status: ${wave.status}`,
+      `- Reservation intents: ${wave.reservationIntentIds.join(", ") || "none"}`,
+      `- Reserved claims: ${wave.reservedCount}`,
+      `- Blocked claims: ${wave.blockedCount}`,
+      `- Planned slot demand: ${wave.plannedSlotDemand}`,
+      `- Blocked reasons: ${wave.blockedReasons.length ? wave.blockedReasons.join("; ") : "none"}`,
+      "",
+    ].join("\n")),
+    "## Reservation Intents",
+    "",
+    ...reservation.reservationIntents.map((intent) => [
+      `### ${intent.reservationIntentId}`,
+      "",
+      `- Claim intent: ${intent.claimIntentId}`,
+      `- Status: ${intent.status}`,
+      `- Planned worker key: ${intent.plannedWorkerKey}`,
+      `- Node: ${intent.nodeId}`,
+      `- Unit: ${intent.unitId}`,
+      `- Wave: ${intent.waveIndex + 1}`,
+      `- Planned slot demand: ${intent.plannedSlotDemand}`,
+      `- Source scopes: ${intent.sourceScopes.join(", ") || "none"}`,
+      `- Blocked reasons: ${intent.blockedReasons.length ? intent.blockedReasons.join("; ") : "none"}`,
+      "",
+    ].join("\n")),
+    "## Source Locks",
+    "",
+    ...(reservation.sourceLocks.length ? reservation.sourceLocks.map((lock) => [
+      `### ${lock.scope}`,
+      "",
+      `- Status: ${lock.status}`,
+      `- Wave: ${lock.waveIndex + 1}`,
+      `- Reservation intents: ${lock.reservationIntentIds.join(", ") || "none"}`,
+      `- Blocked reasons: ${lock.blockedReasons.length ? lock.blockedReasons.join("; ") : "none"}`,
+      "",
+    ].join("\n")) : ["- none", ""]),
+    "## Boundary",
+    "",
+    "This claim reservation is runtime coordination evidence only. It is not a WorkerLease, WorkerSession, TaskRun, worktree, run, slot allocation, worker start, or execution authorization.",
     "",
   ];
   return lines.join("\n");

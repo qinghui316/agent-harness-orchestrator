@@ -16,15 +16,17 @@ import {
   getWorkbenchSchedulerRuntimeProjection,
   getWorkbenchSchedulerRunProjection,
   getWorkbenchSchedulerWorkerSessionPlanProjection,
+  getWorkbenchSchedulerClaimReservationProjection,
   getWorkbenchWorkflowRunProjection,
   getWorkbenchWorkpadProjection,
   type WorkbenchProjectInput,
 } from "../../workbench/manager.js";
 
 export async function getWorkbenchProjection(input: WorkbenchProjectInput, rest: string): Promise<unknown> {
-  const [kind, encodedChangeId, encodedId] = rest.split("/");
+  const [kind, encodedChangeId, encodedId, encodedExtraId] = rest.split("/");
   const changeId = encodedChangeId ? decodeURIComponent(encodedChangeId) : undefined;
   const id = encodedId ? decodeURIComponent(encodedId) : undefined;
+  const extraId = encodedExtraId ? decodeURIComponent(encodedExtraId) : undefined;
   if (kind === "transcript") {
     if (!changeId) throw badRequest("transcript projection requires changeId.");
     return getWorkbenchTranscriptProjection(input, changeId);
@@ -90,6 +92,12 @@ export async function getWorkbenchProjection(input: WorkbenchProjectInput, rest:
     if (!changeId) throw badRequest("scheduler-reconcile-snapshot projection requires changeId.");
     if (!id) throw badRequest("scheduler-reconcile-snapshot projection requires schedulerReconcileSnapshotId.");
     return getWorkbenchSchedulerReconcileSnapshotProjection(input, changeId, id);
+  }
+  if (kind === "scheduler-claim-reservation") {
+    if (!changeId) throw badRequest("scheduler-claim-reservation projection requires changeId.");
+    if (!id) throw badRequest("scheduler-claim-reservation projection requires schedulerRunId.");
+    if (!extraId) throw badRequest("scheduler-claim-reservation projection requires schedulerClaimReservationId.");
+    return getWorkbenchSchedulerClaimReservationProjection(input, changeId, id, extraId);
   }
   if (kind === "workflow-run") {
     if (!changeId) throw badRequest("workflow-run projection requires changeId.");

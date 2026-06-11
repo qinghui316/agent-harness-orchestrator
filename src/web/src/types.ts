@@ -165,6 +165,7 @@ export type WorkpadNextAction = {
   schedulerLaunchPreflightId?: string;
   schedulerRunId?: string;
   schedulerReconcileSnapshotId?: string;
+  schedulerClaimReservationId?: string;
   workflowRunId?: string;
   queueRunId?: string;
   taskIds?: string[];
@@ -199,6 +200,7 @@ export type WorkbenchTaskNextAction = {
   schedulerLaunchPreflightId?: string;
   schedulerRunId?: string;
   schedulerReconcileSnapshotId?: string;
+  schedulerClaimReservationId?: string;
   workflowRunId?: string;
   queueRunId?: string;
   enabled: boolean;
@@ -315,13 +317,14 @@ export type Workpad = {
   workflowGraphPlan?: WorkflowGraphPlanSummary;
   schedulerContract?: SchedulerContractSummary;
   schedulerDispatchDryRun?: SchedulerDispatchDryRunSummary;
-    schedulerWorkerSessionPlan?: SchedulerWorkerSessionPlanSummary;
-    schedulerClaimReconcilePlan?: SchedulerClaimReconcilePlanSummary;
-    schedulerLaunchPreflight?: SchedulerLaunchPreflightSummary;
-    schedulerRun?: SchedulerRunSummary;
-    schedulerRuntime?: SchedulerRuntimeSummary;
-    schedulerReconcileSnapshot?: SchedulerReconcileSnapshotSummary;
-    rolePipeline?: {
+  schedulerWorkerSessionPlan?: SchedulerWorkerSessionPlanSummary;
+  schedulerClaimReconcilePlan?: SchedulerClaimReconcilePlanSummary;
+  schedulerLaunchPreflight?: SchedulerLaunchPreflightSummary;
+  schedulerRun?: SchedulerRunSummary;
+  schedulerRuntime?: SchedulerRuntimeSummary;
+  schedulerReconcileSnapshot?: SchedulerReconcileSnapshotSummary;
+  schedulerClaimReservation?: SchedulerClaimReservationSummary;
+  rolePipeline?: {
     stage: "planning" | "coding" | "validation" | "audit" | "rework" | "done" | "needs-user-input";
     status: "draft" | "running" | "completed" | "needs-user-input" | "stopped";
     runs: Array<{ roleId: string; status: string; runId?: string; summary: string; artifact?: string }>;
@@ -601,8 +604,26 @@ export type SchedulerRuntimeSummary = {
   maxPlannedWaveWidth: number;
   blockedCount: number;
   lastReconcileSnapshotId?: string;
+  lastClaimReservationId?: string;
+  lastClaimReservationSnapshotId?: string;
   artifact?: string;
   eventsArtifact?: string;
+  updatedAt: string;
+};
+export type SchedulerClaimReservationSummary = {
+  id: string;
+  changeId: string;
+  schedulerRunId: string;
+  schedulerReconcileSnapshotId: string;
+  status: "reserved" | "blocked" | "rejected";
+  schedulerMode: "parallel-readiness-v1";
+  reservedCount: number;
+  blockedCount: number;
+  sourceLockCount: number;
+  waveIndex: number;
+  supersedesReservationId?: string;
+  artifact?: string;
+  markdownArtifact?: string;
   updatedAt: string;
 };
 export type SchedulerReconcileSnapshotSummary = {
@@ -646,6 +667,7 @@ export type ThreadStreamAction = {
   schedulerLaunchPreflightId?: string;
   schedulerRunId?: string;
   schedulerReconcileSnapshotId?: string;
+  schedulerClaimReservationId?: string;
   workflowRunId?: string;
   queueRunId?: string;
   taskIds?: string[];
@@ -730,6 +752,7 @@ export type DecisionAction = {
   schedulerLaunchPreflightId?: string;
   schedulerRunId?: string;
   schedulerReconcileSnapshotId?: string;
+  schedulerClaimReservationId?: string;
   workflowRunId?: string;
   queueRunId?: string;
   taskIds?: string[];

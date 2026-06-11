@@ -1,4 +1,5 @@
 export * from "./guards.js";
+export * from "./claim-reservation.js";
 export * from "./initialize.js";
 export * from "./paths.js";
 export * from "./reconcile.js";

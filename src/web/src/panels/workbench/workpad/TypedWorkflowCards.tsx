@@ -274,3 +274,23 @@ export function SchedulerReconcileSnapshotCard({ snapshot }: { snapshot: NonNull
     </section>
   );
 }
+
+export function SchedulerClaimReservationCard({ reservation }: { reservation: NonNullable<Workpad["schedulerClaimReservation"]> }): ReactElement {
+  return (
+    <section className="workpad-section" data-testid="scheduler-claim-reservation-card">
+      <div className="workpad-section-header">
+        <h3>Claim Reservation</h3>
+        <span>{humanStatus(reservation.status)}</span>
+      </div>
+      <p className="workpad-goal">runtime claim reservation evidence（不创建 lease、slot、worker 或 TaskRun）</p>
+      <div className="workpad-chip-list">
+        <span>Wave {reservation.waveIndex + 1}</span>
+        <span>{reservation.reservedCount} 个 reserved</span>
+        <span>{reservation.blockedCount} 个 blocked</span>
+        <span>{reservation.sourceLockCount} 个 source lock</span>
+        <span>{reservation.supersedesReservationId ? "取代旧 reservation" : "首个 reservation"}</span>
+      </div>
+      {reservation.artifact ? <small className="artifact-link">查看证据：{artifactName(reservation.artifact)}</small> : null}
+    </section>
+  );
+}

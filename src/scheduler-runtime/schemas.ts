@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { SchedulerReconcileSnapshot, SchedulerRuntimeEvent, SchedulerRuntimeState } from "./types.js";
+import type { SchedulerReconcileSnapshot, SchedulerRuntimeClaimReservation, SchedulerRuntimeEvent, SchedulerRuntimeState } from "./types.js";
 
 const claimIntentStateSchema = z.object({
   claimIntentId: z.string(),
@@ -43,6 +43,8 @@ export const schedulerRuntimeStateSchema: z.ZodType<SchedulerRuntimeState> = z.o
   maxPlannedWaveWidth: z.number(),
   blockedCount: z.number(),
   lastReconcileSnapshotId: z.string().optional(),
+  lastClaimReservationId: z.string().optional(),
+  lastClaimReservationSnapshotId: z.string().optional(),
   sourceArtifactHashes: z.record(z.string()),
   artifactRefs: z.array(z.string()),
   artifact: z.string(),
@@ -56,7 +58,14 @@ export const schedulerRuntimeEventSchema: z.ZodType<SchedulerRuntimeEvent> = z.o
   id: z.string(),
   schedulerRunId: z.string(),
   changeId: z.string(),
-  type: z.enum(["scheduler-runtime.initialized", "scheduler-runtime.reconciled", "scheduler-runtime.blocked"]),
+  type: z.enum([
+    "scheduler-runtime.initialized",
+    "scheduler-runtime.reconciled",
+    "scheduler-runtime.blocked",
+    "scheduler-runtime.claim-reserved",
+    "scheduler-runtime.claim-blocked",
+    "scheduler-runtime.claim-reservation.superseded",
+  ]),
   timestamp: z.string(),
   status: z.enum(["initialized", "blocked"]).optional(),
   summary: z.string().optional(),
@@ -85,6 +94,65 @@ export const schedulerReconcileSnapshotSchema: z.ZodType<SchedulerReconcileSnaps
   warningCount: z.number(),
   warnings: z.array(z.string()),
   recoveryCheckpoint: z.string(),
+  sourceArtifactHashes: z.record(z.string()),
+  artifactRefs: z.array(z.string()),
+  artifact: z.string(),
+  markdownArtifact: z.string(),
+  createdAt: z.string(),
+});
+
+const claimReservationIntentSchema = z.object({
+  reservationIntentId: z.string(),
+  claimIntentId: z.string(),
+  plannedWorkerKey: z.string(),
+  nodeId: z.string(),
+  unitId: z.string(),
+  waveIndex: z.number(),
+  status: z.enum(["reserved", "blocked"]),
+  plannedSlotDemand: z.number(),
+  sourceScopes: z.array(z.string()),
+  blockedReasons: z.array(z.string()),
+});
+
+const sourceLockReservationSchema = z.object({
+  scope: z.string(),
+  waveIndex: z.number(),
+  reservationIntentIds: z.array(z.string()),
+  status: z.enum(["reserved", "blocked"]),
+  blockedReasons: z.array(z.string()),
+});
+
+const waveReservationSchema = z.object({
+  waveIndex: z.number(),
+  reservationIntentIds: z.array(z.string()),
+  reservedCount: z.number(),
+  blockedCount: z.number(),
+  plannedSlotDemand: z.number(),
+  status: z.enum(["reserved", "blocked"]),
+  blockedReasons: z.array(z.string()),
+});
+
+export const schedulerRuntimeClaimReservationSchema: z.ZodType<SchedulerRuntimeClaimReservation> = z.object({
+  version: z.literal("1.0"),
+  id: z.string(),
+  changeId: z.string(),
+  schedulerRunId: z.string(),
+  schedulerMode: z.literal("parallel-readiness-v1"),
+  status: z.enum(["reserved", "blocked", "rejected"]),
+  schedulerRuntimeStateId: z.string(),
+  schedulerReconcileSnapshotId: z.string(),
+  schedulerContractId: z.string(),
+  schedulerDispatchDryRunId: z.string(),
+  schedulerWorkerPlanId: z.string(),
+  schedulerClaimReconcilePlanId: z.string(),
+  schedulerLaunchPreflightId: z.string(),
+  reservationIntents: z.array(claimReservationIntentSchema),
+  waves: z.array(waveReservationSchema),
+  sourceLocks: z.array(sourceLockReservationSchema),
+  reservedCount: z.number(),
+  blockedCount: z.number(),
+  sourceLockCount: z.number(),
+  supersedesReservationId: z.string().optional(),
   sourceArtifactHashes: z.record(z.string()),
   artifactRefs: z.array(z.string()),
   artifact: z.string(),

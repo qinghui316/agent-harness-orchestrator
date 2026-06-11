@@ -53,6 +53,9 @@ describe("workflow action registry", () => {
     expect(LIVE_WORKFLOW_ACTION_TYPES).toContain("planning.scheduler.runtime.reconcile");
     expect(HIGH_IMPACT_WORKFLOW_ACTION_TYPES).toContain("planning.scheduler.runtime.reconcile");
     expect(REVALIDATED_WORKFLOW_ACTION_TYPES).toContain("planning.scheduler.runtime.reconcile");
+    expect(LIVE_WORKFLOW_ACTION_TYPES).toContain("planning.scheduler.runtime.reserve-claims");
+    expect(HIGH_IMPACT_WORKFLOW_ACTION_TYPES).toContain("planning.scheduler.runtime.reserve-claims");
+    expect(REVALIDATED_WORKFLOW_ACTION_TYPES).toContain("planning.scheduler.runtime.reserve-claims");
   });
 
   it("keeps SchedulerContract ids in target and audit scope matching", () => {
@@ -275,6 +278,43 @@ describe("workflow action registry", () => {
     expect(workflowActionScopesMatchStrict(reconcileRequest, { ...reconcileRequest })).toBe(true);
     expect(workflowActionScopesMatchStrict(reconcileRequest, { ...reconcileRequest, schedulerReconcileSnapshotId: undefined })).toBe(false);
     expect(workflowActionScopesMatchCompatible(reconcileRequest, { ...reconcileRequest, schedulerReconcileSnapshotId: undefined })).toBe(true);
+  });
+
+  it("keeps Scheduler claim reservation scope in target, payload, and required-target validation", () => {
+    const request = {
+      actionType: "planning.scheduler.runtime.reserve-claims",
+      changeId: "change-1",
+      schedulerRunId: "scheduler-run-1",
+      schedulerReconcileSnapshotId: "scheduler-reconcile-1",
+    };
+
+    const result = {
+      claimReservation: {
+        id: "scheduler-claim-reservation-1",
+        schedulerRunId: "scheduler-run-1",
+        schedulerReconcileSnapshotId: "scheduler-reconcile-1",
+      },
+    };
+    expect(validateWorkflowActionRequiredTargets(request)).toEqual([]);
+    expect(validateWorkflowActionRequiredTargets({
+      actionType: "planning.scheduler.runtime.reserve-claims",
+      schedulerRunId: "scheduler-run-1",
+    }).map((item) => item.label)).toEqual(["schedulerReconcileSnapshotId"]);
+    expect(workflowActionTargetId(request, request.changeId, result)).toBe("scheduler-claim-reservation-1");
+    expect(workflowActionScopePayload(request, request.changeId, result)).toMatchObject({
+      changeId: "change-1",
+      schedulerRunId: "scheduler-run-1",
+      schedulerReconcileSnapshotId: "scheduler-reconcile-1",
+      schedulerClaimReservationId: "scheduler-claim-reservation-1",
+    });
+    expect(workflowActionScopesMatchStrict(
+      { ...request, schedulerClaimReservationId: "scheduler-claim-reservation-1" },
+      { ...request, schedulerClaimReservationId: "scheduler-claim-reservation-1" },
+    )).toBe(true);
+    expect(workflowActionScopesMatch(
+      { ...request, schedulerClaimReservationId: "scheduler-claim-reservation-1" },
+      { ...request, schedulerClaimReservationId: "other" },
+    )).toBe(false);
   });
 
   it("keeps graph ids in target and audit scope matching", () => {

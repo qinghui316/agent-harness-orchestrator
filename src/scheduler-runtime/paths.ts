@@ -24,3 +24,15 @@ export function schedulerReconcileSnapshotPath(memory: ResolvedMemory, changePat
 export function schedulerReconcileSnapshotMarkdownPath(memory: ResolvedMemory, changePath: string, schedulerRunId: string, snapshotId: string): string {
   return join(schedulerReconcileSnapshotsDir(memory, changePath, schedulerRunId), `${snapshotId}.md`);
 }
+
+export function schedulerClaimReservationsDir(memory: ResolvedMemory, changePath: string, schedulerRunId: string): string {
+  return join(schedulerRuntimeDir(memory, changePath, schedulerRunId), "scheduler-runtime-claim-reservations");
+}
+
+export function schedulerClaimReservationPath(memory: ResolvedMemory, changePath: string, schedulerRunId: string, reservationId: string): string {
+  return join(schedulerClaimReservationsDir(memory, changePath, schedulerRunId), `${reservationId}.json`);
+}
+
+export function schedulerClaimReservationMarkdownPath(memory: ResolvedMemory, changePath: string, schedulerRunId: string, reservationId: string): string {
+  return join(schedulerClaimReservationsDir(memory, changePath, schedulerRunId), `${reservationId}.md`);
+}

@@ -13,6 +13,7 @@ import {
   readLatestSchedulerWorkerSessionPlanSummary,
   readLatestSchedulerLaunchPreflightSummary,
   readLatestSchedulerRunSummary,
+  readSchedulerClaimReservationSummary,
   readSchedulerReconcileSnapshotSummary,
   readSchedulerRuntimeSummary,
   readLatestTaskQueueProposalSummary,
@@ -23,6 +24,7 @@ import {
   type WorkbenchSchedulerClaimReconcilePlanSummary,
   type WorkbenchSchedulerDispatchDryRunSummary,
   type WorkbenchSchedulerLaunchPreflightSummary,
+  type WorkbenchSchedulerClaimReservationSummary,
   type WorkbenchSchedulerReconcileSnapshotSummary,
   type WorkbenchSchedulerRunSummary,
   type WorkbenchSchedulerRuntimeSummary,
@@ -217,6 +219,7 @@ export async function buildWorkbenchWorkpad(input: {
   const scopedSchedulerRun = scopedSchedulerLaunchPreflight && schedulerRun?.schedulerLaunchPreflightId === scopedSchedulerLaunchPreflight.id ? schedulerRun : null;
   const schedulerRuntime = await readSchedulerRuntimeSummary(memory, selectedTopic.path, scopedSchedulerRun?.id);
   const schedulerReconcileSnapshot = await readSchedulerReconcileSnapshotSummary(memory, selectedTopic.path, scopedSchedulerRun?.id, schedulerRuntime?.lastReconcileSnapshotId);
+  const schedulerClaimReservation = await readSchedulerClaimReservationSummary(memory, selectedTopic.path, scopedSchedulerRun?.id, schedulerRuntime?.lastClaimReservationId);
   const workflowRun = await getLatestWorkflowRun(memory, selectedTopic.id).then((run) => run ? summarizeWorkflowRun(run) : null).catch(() => null);
   const agentTasks = await buildAgentTaskSummaries(memory, selectedTopic.id);
   const rolePipeline = buildRolePipelineSummary(selectedTopic, planningBundle, agentTasks);
@@ -261,6 +264,7 @@ export async function buildWorkbenchWorkpad(input: {
     schedulerRun: scopedSchedulerRun ?? undefined,
     schedulerRuntime: schedulerRuntime ?? undefined,
     schedulerReconcileSnapshot: schedulerReconcileSnapshot ?? undefined,
+    schedulerClaimReservation: schedulerClaimReservation ?? undefined,
     workflowRun: workflowRun ?? undefined,
     rolePipeline,
     resultReview,
@@ -298,7 +302,7 @@ export async function buildWorkbenchWorkpad(input: {
       ...workpadMissingWarnings(specReady, planReady, tasksReady, selectedTopic),
       ...gaps.filter((gap) => gap.status !== "available").map((gap) => gap.summary),
     ],
-    nextAction: buildWorkpadNextAction(selectedTopic, topicApprovals, { specReady, planReady, tasksReady }, intake, taskQueue, taskGraph, planningBundle, decompositionPlan, decompositionReadiness, taskQueueProposal, workflowGraphPlan, schedulerContract, scopedSchedulerDispatchDryRun, scopedSchedulerWorkerSessionPlan, scopedSchedulerClaimReconcilePlan, scopedSchedulerLaunchPreflight, scopedSchedulerRun, schedulerRuntime, schedulerReconcileSnapshot, workflowRun),
+    nextAction: buildWorkpadNextAction(selectedTopic, topicApprovals, { specReady, planReady, tasksReady }, intake, taskQueue, taskGraph, planningBundle, decompositionPlan, decompositionReadiness, taskQueueProposal, workflowGraphPlan, schedulerContract, scopedSchedulerDispatchDryRun, scopedSchedulerWorkerSessionPlan, scopedSchedulerClaimReconcilePlan, scopedSchedulerLaunchPreflight, scopedSchedulerRun, schedulerRuntime, schedulerReconcileSnapshot, schedulerClaimReservation, workflowRun),
     background: buildWorkpadBackground(workpads, selectedTopic.id),
     memoryIsolation: buildWorkpadMemoryIsolation(memory, selectedTopic, workpads),
   };
@@ -578,6 +582,7 @@ function buildWorkpadNextAction(
   schedulerRun?: WorkbenchSchedulerRunSummary | null,
   schedulerRuntime?: WorkbenchSchedulerRuntimeSummary | null,
   schedulerReconcileSnapshot?: WorkbenchSchedulerReconcileSnapshotSummary | null,
+  schedulerClaimReservation?: WorkbenchSchedulerClaimReservationSummary | null,
   workflowRun?: WorkflowRunSummary | null,
 ): WorkpadNextAction {
   if (topic.state !== "active") {
@@ -623,6 +628,7 @@ function buildWorkpadNextAction(
       schedulerRun,
       schedulerRuntime,
       schedulerReconcileSnapshot,
+      schedulerClaimReservation,
       workflowRun,
     });
   }
@@ -655,6 +661,7 @@ function buildWorkpadNextAction(
     schedulerRun,
     schedulerRuntime,
     schedulerReconcileSnapshot,
+    schedulerClaimReservation,
     workflowRun,
   });
 }

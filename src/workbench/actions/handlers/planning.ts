@@ -8,9 +8,12 @@ import { assertWritableMemory } from "../../../memory/resolver.js";
 import {
   initializeSchedulerRuntime,
   reconcileSchedulerRuntime,
+  reserveSchedulerRuntimeClaims,
+  renderSchedulerRuntimeClaimReservationMarkdown,
   renderSchedulerReconcileSnapshotMarkdown,
   renderSchedulerRuntimeStateMarkdown,
   type SchedulerReconcileSnapshot,
+  type SchedulerRuntimeClaimReservation,
   type SchedulerRuntimeState,
 } from "../../../scheduler-runtime/manager.js";
 import type { ManagedProject } from "../../../types/index.js";
@@ -882,6 +885,48 @@ export async function reconcilePlanningSchedulerRuntime(
     completedAt: new Date().toISOString(),
   });
   return { reconcileSnapshot, executionStarted: false };
+}
+
+export async function reservePlanningSchedulerRuntimeClaims(
+  project: ManagedProject,
+  changeId: string,
+  request: WorkbenchWorkflowActionRequest,
+  live: WorkbenchLiveSink | undefined,
+): Promise<{ claimReservation: SchedulerRuntimeClaimReservation; executionStarted: false }> {
+  const { memory, changePath } = await resolveTopic(project, changeId);
+  assertWritableMemory(memory, "Scheduler runtime claim reservation");
+  if (!request.schedulerRunId) throw new Error("planning.scheduler.runtime.reserve-claims requires schedulerRunId.");
+  if (!request.schedulerReconcileSnapshotId) throw new Error("planning.scheduler.runtime.reserve-claims requires schedulerReconcileSnapshotId.");
+  const claimReservation = await reserveSchedulerRuntimeClaims(memory, changePath, request.schedulerRunId, request.schedulerReconcileSnapshotId);
+  await appendTopicThreadEntry(project, changeId, {
+    type: "assistant.message",
+    status: claimReservation.status === "reserved" ? "scheduler-runtime-claim-reserved" : "scheduler-runtime-claim-blocked",
+    text: renderSchedulerRuntimeClaimReservationMarkdown(claimReservation),
+    artifact: claimReservation.artifact,
+  });
+  emitAssistantEvent(live, {
+    runId: claimReservation.schedulerRunId,
+    kind: "file-change",
+    phase: claimReservation.status === "reserved" ? "scheduler-runtime-claim-reserved" : "scheduler-runtime-claim-blocked",
+    title: "Scheduler runtime claims reserved",
+    summary: "SchedulerRun-scoped claim reservation evidence was recorded; no WorkerLeases, WorkerSessions, TaskRuns, slots, worktrees, runs, workers, or scheduler loop were created.",
+    artifactRef: claimReservation.artifact,
+  });
+  await recordWorkbenchDecision(project, {
+    id: `scheduler-claim-reservation:${claimReservation.id}`,
+    changeId,
+    decisionType: "planning.scheduler.runtime.reserve-claims",
+    status: "completed",
+    label: claimReservation.status === "reserved" ? "Runtime Claims 已预占" : "Runtime Claims 阻塞",
+    summary: "Generated SchedulerRun-scoped claim reservation evidence without starting execution.",
+    targetId: claimReservation.id,
+    runId: null,
+    artifact: claimReservation.artifact,
+    actionId: "planning.scheduler.runtime.reserve-claims",
+    payload: { claimReservation },
+    completedAt: new Date().toISOString(),
+  });
+  return { claimReservation, executionStarted: false };
 }
 
 export async function confirmTaskQueueProposalAndStart(

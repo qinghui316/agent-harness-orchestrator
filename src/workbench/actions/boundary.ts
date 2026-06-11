@@ -6,7 +6,7 @@ import { getChangeStatusForChange } from "../../change/manager.js";
 import { getActiveChanges } from "../../ecl/index.js";
 import { resolveProjectMemory } from "../../memory/resolver.js";
 import { readSchedulerRuntimeLineage } from "../../scheduler-runtime/guards.js";
-import { readSchedulerRuntimeStateProjection } from "../../scheduler-runtime/repository.js";
+import { findSchedulerClaimReservationForSnapshot, readSchedulerReconcileSnapshot, readSchedulerRuntimeStateProjection } from "../../scheduler-runtime/repository.js";
 import { latestLandingQueueSnapshot } from "../../landing-queue/manager.js";
 import { listTaskQueues } from "../../task-queue/manager.js";
 import { listTaskRuns } from "../../task-run/manager.js";
@@ -286,7 +286,7 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
     const latestContract = await readLatestSchedulerContract(memory, target.path);
     if (latestContract.id !== contract.id) throw new Error("planning.scheduler.run.prepare requires the latest SchedulerContract.");
   }
-  if (request.actionType === "planning.scheduler.runtime.initialize" || request.actionType === "planning.scheduler.runtime.reconcile") {
+  if (request.actionType === "planning.scheduler.runtime.initialize" || request.actionType === "planning.scheduler.runtime.reconcile" || request.actionType === "planning.scheduler.runtime.reserve-claims") {
     const active = await getActiveChanges(memory);
     const target = active.find((item) => item.name === changeId);
     if (!target) throw new Error(`${request.actionType} target is stale or missing active Change: ${changeId}.`);
@@ -302,8 +302,20 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
     if (request.actionType === "planning.scheduler.runtime.initialize" && runtimeState) {
       throw new Error("planning.scheduler.runtime.initialize SchedulerRuntimeState already exists.");
     }
-    if (request.actionType === "planning.scheduler.runtime.reconcile" && !runtimeState) {
-      throw new Error("planning.scheduler.runtime.reconcile requires initialized SchedulerRuntimeState.");
+    if ((request.actionType === "planning.scheduler.runtime.reconcile" || request.actionType === "planning.scheduler.runtime.reserve-claims") && !runtimeState) {
+      throw new Error(`${request.actionType} requires initialized SchedulerRuntimeState.`);
+    }
+    if (request.actionType === "planning.scheduler.runtime.reserve-claims") {
+      if (!request.schedulerReconcileSnapshotId) throw new Error("planning.scheduler.runtime.reserve-claims requires schedulerReconcileSnapshotId.");
+      if (runtimeState?.lastReconcileSnapshotId !== request.schedulerReconcileSnapshotId) {
+        throw new Error("planning.scheduler.runtime.reserve-claims requires the latest SchedulerReconcileSnapshot.");
+      }
+      const snapshot = await readSchedulerReconcileSnapshot(memory, target.path, run.id, request.schedulerReconcileSnapshotId);
+      if (snapshot.changeId !== changeId || snapshot.schedulerRunId !== run.id || snapshot.schedulerRuntimeStateId !== runtimeState.id) {
+        throw new Error("planning.scheduler.runtime.reserve-claims SchedulerReconcileSnapshot target is stale.");
+      }
+      const existing = await findSchedulerClaimReservationForSnapshot(memory, target.path, run.id, snapshot.id);
+      if (existing) throw new Error("planning.scheduler.runtime.reserve-claims reservation already exists for this snapshot.");
     }
   }
   if (request.actionType === "planning.workflowgraph.compile") {

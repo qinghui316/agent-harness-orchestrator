@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-11T10:53:14.9024895Z",
+    "generated_at":  "2026-06-11T11:57:33.3513066Z",
     "active":  [
 
                ],
@@ -653,6 +653,10 @@
                     {
                         "name":  "20260611-phase-9d-scheduler-runtime-reconcile-shell",
                         "path":  "harness/changes/archive/20260611-phase-9d-scheduler-runtime-reconcile-shell"
+                    },
+                    {
+                        "name":  "20260611-phase-9e-scheduler-runtime-claim-reservation-shell",
+                        "path":  "harness/changes/archive/20260611-phase-9e-scheduler-runtime-claim-reservation-shell"
                     }
                 ]
 }
