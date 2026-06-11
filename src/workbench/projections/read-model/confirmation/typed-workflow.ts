@@ -126,6 +126,41 @@ export function taskQueueProposalToConfirmationItems(
       && claimReservation.schedulerRunId === schedulerRun.id
       && claimReservation.schedulerReconcileSnapshotId === reconcileSnapshot.id
     ) {
+      if (claimReservation.launchConfirmed) {
+        return [{
+          id: `confirm:scheduler-first-worker:${selectedTopic.id}:${claimReservation.id}`,
+          kind: "planning-confirm",
+          projectId: project?.id ?? null,
+          conversationId: selectedTopic.id,
+          changeId: selectedTopic.id,
+          summary: "并行执行计划启动意图已确认。可以先启动第一个 scheduler coder worker。",
+          whyNeedsConfirmation: "这是 Harness 阶段门：只允许从 latest claim reservation 启动一个 coder-stage worker，不启动整 wave。",
+          confirmEffect: "重读 latest SchedulerRun、RuntimeState、ReconcileSnapshot、ClaimReservation，创建 exactly one TaskRun、WorkerLease、worktree、code run 和 Runtime Continuity sidecar；不会启动 validation、audit、rework、scheduler loop、TaskQueueRun、WorkflowRun、AgentTask 或 child Change。",
+          riskSummary: "后续 validation/audit/rework、wave dispatch、slot allocator 和完整 parallel executor 必须另开阶段并重新经过 scoped evidence、ToolPolicyGate 和 human gate。",
+          evidenceRefs: claimReservation.artifact ? [claimReservation.artifact] : [],
+          actions: [{
+            id: `workflow:planning.scheduler.worker.start-first:${selectedTopic.id}:${claimReservation.id}`,
+            label: "启动第一个 worker",
+            kind: "workflow-action",
+            changeId: selectedTopic.id,
+            actionType: "planning.scheduler.worker.start-first",
+            decompositionPlanId: plan.id,
+            readinessManifestId: readiness.id,
+            schedulerContractId: schedulerRun.schedulerContractId,
+            schedulerDispatchDryRunId: schedulerRun.schedulerDispatchDryRunId,
+            schedulerWorkerPlanId: schedulerRun.schedulerWorkerPlanId,
+            schedulerClaimReconcilePlanId: schedulerRun.schedulerClaimReconcilePlanId,
+            schedulerLaunchPreflightId: schedulerRun.schedulerLaunchPreflightId,
+            schedulerRunId: schedulerRun.id,
+            schedulerReconcileSnapshotId: reconcileSnapshot.id,
+            schedulerClaimReservationId: claimReservation.id,
+            enabled: true,
+            requiresConfirmation: true,
+          }],
+          primary: true,
+          status: "pending",
+        }];
+      }
       return [{
         id: `confirm:scheduler-launch-intent:${selectedTopic.id}:${claimReservation.id}`,
         kind: "planning-confirm",

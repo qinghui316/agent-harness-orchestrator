@@ -244,6 +244,7 @@ export interface WorkbenchSchedulerClaimReservationSummary {
   blockedCount: number;
   sourceLockCount: number;
   waveIndex: number;
+  launchConfirmed?: boolean;
   supersedesReservationId?: string;
   artifact?: string;
   markdownArtifact?: string;
@@ -286,6 +287,7 @@ type WorkflowProjectionActionType =
   | "planning.scheduler.runtime.initialize"
   | "planning.scheduler.runtime.reconcile"
   | "planning.scheduler.runtime.reserve-claims"
+  | "planning.scheduler.worker.start-first"
   | "planning.workflowgraph.compile"
   | "planning.taskqueue.confirm-start"
   | "code.run";
@@ -311,6 +313,8 @@ export interface WorkbenchTypedWorkflowNextAction {
   schedulerRunId?: string;
   schedulerReconcileSnapshotId?: string;
   schedulerClaimReservationId?: string;
+  reservationIntentId?: string;
+  claimIntentId?: string;
   disabledReason?: string;
 }
 
@@ -770,6 +774,21 @@ export function buildTypedWorkflowNextAction(input: {
       && schedulerClaimReservation.schedulerRunId === schedulerRun.id
       && schedulerClaimReservation.schedulerReconcileSnapshotId === schedulerReconcileSnapshot.id
     ) {
+      if (schedulerClaimReservation.launchConfirmed) {
+        return {
+          ...workflowNextAction("planning.scheduler.worker.start-first", "启动第一个 worker", "用户已确认并行执行计划启动意图；本操作只启动 latest claim reservation 中第一个 runnable claim 的 coder stage。"),
+          decompositionPlanId: decompositionPlan.id,
+          readinessManifestId: decompositionReadiness.id,
+          schedulerContractId: schedulerRun.schedulerContractId,
+          schedulerDispatchDryRunId: schedulerRun.schedulerDispatchDryRunId,
+          schedulerWorkerPlanId: schedulerRun.schedulerWorkerPlanId,
+          schedulerClaimReconcilePlanId: schedulerRun.schedulerClaimReconcilePlanId,
+          schedulerLaunchPreflightId: schedulerRun.schedulerLaunchPreflightId,
+          schedulerRunId: schedulerRun.id,
+          schedulerReconcileSnapshotId: schedulerReconcileSnapshot.id,
+          schedulerClaimReservationId: schedulerClaimReservation.id,
+        };
+      }
       return {
         ...workflowNextAction("planning.scheduler.plan.prepare", "确认启动这个并行执行计划", "主 Agent 会重读 prepared scheduler evidence，输出可读 launch brief 并记录你的整体启动意图；本阶段不会启动 worker。"),
         decompositionPlanId: decompositionPlan.id,

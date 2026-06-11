@@ -15,6 +15,8 @@ export type WorkflowActionPayloadSource = {
   schedulerRunId?: string;
   schedulerReconcileSnapshotId?: string;
   schedulerClaimReservationId?: string;
+  reservationIntentId?: string;
+  claimIntentId?: string;
   workflowRunId?: string;
   queueRunId?: string;
   taskIds?: string[];

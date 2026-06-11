@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-11T14:23:04.9030526Z",
+    "generated_at":  "2026-06-11T15:41:44.3035304Z",
     "active":  [
 
                ],
@@ -665,6 +665,10 @@
                     {
                         "name":  "20260611-phase-9f-main-agent-parallel-plan-preparation-launch-confirmation-surface",
                         "path":  "harness/changes/archive/20260611-phase-9f-main-agent-parallel-plan-preparation-launch-confirmation-surface"
+                    },
+                    {
+                        "name":  "20260611-phase-9g-scheduler-first-coder-worker-start-gate",
+                        "path":  "harness/changes/archive/20260611-phase-9g-scheduler-first-coder-worker-start-gate"
                     }
                 ]
 }

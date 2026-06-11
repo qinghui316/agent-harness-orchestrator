@@ -1,4 +1,4 @@
-import type { SchedulerReconcileSnapshot, SchedulerRuntimeClaimReservation, SchedulerRuntimeState } from "./types.js";
+import type { SchedulerReconcileSnapshot, SchedulerRuntimeClaimReservation, SchedulerRuntimeState, SchedulerRuntimeWorkerStart } from "./types.js";
 
 export function renderSchedulerRuntimeStateMarkdown(state: SchedulerRuntimeState): string {
   const lines = [
@@ -146,6 +146,41 @@ export function renderSchedulerReconcileSnapshotMarkdown(snapshot: SchedulerReco
     "## Boundary",
     "",
     "This reconcile snapshot is runtime shell evidence only. It does not claim workers, allocate slots, create runtime-continuity sidecars, start agents, create worktrees, create runs, or authorize execution.",
+    "",
+  ];
+  return lines.join("\n");
+}
+
+export function renderSchedulerRuntimeWorkerStartMarkdown(workerStart: SchedulerRuntimeWorkerStart): string {
+  const lines = [
+    `# SchedulerRuntimeWorkerStart ${workerStart.id}`,
+    "",
+    `Status: ${workerStart.status}`,
+    `Change: ${workerStart.changeId}`,
+    `SchedulerRun: ${workerStart.schedulerRunId}`,
+    `ClaimReservation: ${workerStart.schedulerClaimReservationId}`,
+    "",
+    "## Worker",
+    "",
+    `- Reservation intent: ${workerStart.reservationIntentId}`,
+    `- Claim intent: ${workerStart.claimIntentId}`,
+    `- Planned worker key: ${workerStart.plannedWorkerKey}`,
+    `- Node: ${workerStart.nodeId}`,
+    `- Unit: ${workerStart.unitId}`,
+    `- Wave: ${workerStart.waveIndex + 1}`,
+    `- Stage: ${workerStart.stage}`,
+    `- Task: ${workerStart.taskId}`,
+    `- TaskRun: ${workerStart.taskRunId}`,
+    `- WorkerLease: ${workerStart.workerLeaseId}`,
+    `- TaskRun role: ${workerStart.taskRunRoleId}`,
+    `- Agent role: ${workerStart.agentRoleId}`,
+    `- Worktree: ${workerStart.worktreeId ?? "none"}`,
+    `- Code run: ${workerStart.runId ?? "none"}`,
+    ...(workerStart.failureReason ? [`- Failure: ${workerStart.failureReason}`] : []),
+    "",
+    "## Boundary",
+    "",
+    "This worker-start evidence records one scheduler claim's coder-stage start only. It does not start a full wave, validation, audit, bounded rework, scheduler loop, slot allocator, child Change, WorkflowRun, TaskQueueRun, or AgentTask.",
     "",
   ];
   return lines.join("\n");

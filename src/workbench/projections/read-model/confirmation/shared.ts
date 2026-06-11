@@ -19,6 +19,11 @@ export function scopeConfirmationQueueItemActions(item: WorkbenchConfirmationQue
       worktreeId: action.worktreeId ?? item.worktreeId,
       applyCheckId: action.applyCheckId ?? item.applyCheckId,
       landingPackageId: action.landingPackageId ?? item.landingPackageId,
+      schedulerRunId: action.schedulerRunId ?? item.schedulerRunId,
+      schedulerReconcileSnapshotId: action.schedulerReconcileSnapshotId ?? item.schedulerReconcileSnapshotId,
+      schedulerClaimReservationId: action.schedulerClaimReservationId ?? item.schedulerClaimReservationId,
+      reservationIntentId: action.reservationIntentId ?? item.reservationIntentId,
+      claimIntentId: action.claimIntentId ?? item.claimIntentId,
     })),
   };
 }

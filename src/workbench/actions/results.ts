@@ -185,6 +185,11 @@ export function summarizeActionResult(actionType: string, result: unknown): stri
       ? `Scheduler claim reservation ${result.claimReservation.id} recorded. No execution was started.`
       : "Scheduler claim reservation recorded. No execution was started.";
   }
+  if (actionType === "planning.scheduler.worker.start-first" && isRecord(result) && isRecord(result.workerStart)) {
+    return typeof result.workerStart.id === "string"
+      ? `Scheduler first coder worker ${result.workerStart.id} started.`
+      : "Scheduler first coder worker started.";
+  }
   if (actionType === "planning.confirm-execution" && isRecord(result)) {
     return "Planning confirmed and canonical artifacts were written. No execution was started.";
   }
@@ -232,6 +237,7 @@ export function labelForAction(actionType: string): string {
     case "planning.scheduler.runtime.initialize": return "Scheduler runtime shell initialized";
     case "planning.scheduler.runtime.reconcile": return "Scheduler runtime reconciled";
     case "planning.scheduler.runtime.reserve-claims": return "Scheduler runtime claims reserved";
+    case "planning.scheduler.worker.start-first": return "Scheduler first coder worker started";
     case "planning.workflowgraph.compile": return "WorkflowGraphPlan compiled";
     case "planning.taskqueue.confirm-start": return "TaskQueueProposal confirmed and started";
     case "orchestrator.evaluate": return "Main orchestrator evaluated";

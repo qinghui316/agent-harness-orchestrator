@@ -12,8 +12,11 @@ export type SchedulerRuntimeEventType =
   | "scheduler-runtime.blocked"
   | "scheduler-runtime.claim-reserved"
   | "scheduler-runtime.claim-blocked"
-  | "scheduler-runtime.claim-reservation.superseded";
+  | "scheduler-runtime.claim-reservation.superseded"
+  | "scheduler-runtime.worker-started"
+  | "scheduler-runtime.worker-start-failed";
 export type SchedulerReconcileSnapshotStatus = "generated" | "blocked";
+export type SchedulerRuntimeWorkerStartStatus = "started" | "failed";
 
 export interface SchedulerRuntimeClaimIntentState {
   claimIntentId: string;
@@ -165,4 +168,43 @@ export interface SchedulerRuntimeClaimReservation {
   artifact: string;
   markdownArtifact: string;
   createdAt: string;
+}
+
+export interface SchedulerRuntimeWorkerStart {
+  version: "1.0";
+  id: string;
+  changeId: string;
+  schedulerRunId: string;
+  schedulerMode: SchedulerMode;
+  status: SchedulerRuntimeWorkerStartStatus;
+  schedulerRuntimeStateId: string;
+  schedulerReconcileSnapshotId: string;
+  schedulerClaimReservationId: string;
+  schedulerContractId: string;
+  schedulerDispatchDryRunId: string;
+  schedulerWorkerPlanId: string;
+  schedulerClaimReconcilePlanId: string;
+  schedulerLaunchPreflightId: string;
+  reservationIntentId: string;
+  claimIntentId: string;
+  plannedWorkerKey: string;
+  nodeId: string;
+  unitId: string;
+  waveIndex: number;
+  stageId: string;
+  stage: "coder";
+  taskId: string;
+  taskRunId: string;
+  workerLeaseId: string;
+  taskRunRoleId: string;
+  agentRoleId: string;
+  worktreeId?: string;
+  runId?: string;
+  failureReason?: string;
+  sourceArtifactHashes: Record<string, string>;
+  artifactRefs: string[];
+  artifact: string;
+  markdownArtifact: string;
+  createdAt: string;
+  updatedAt: string;
 }

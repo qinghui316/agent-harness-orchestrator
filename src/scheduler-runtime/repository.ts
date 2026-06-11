@@ -17,10 +17,13 @@ import {
   schedulerRuntimeDir,
   schedulerRuntimeEventsPath,
   schedulerRuntimeStatePath,
+  schedulerWorkerStartMarkdownPath,
+  schedulerWorkerStartPath,
+  schedulerWorkerStartsDir,
 } from "./paths.js";
-import { renderSchedulerReconcileSnapshotMarkdown, renderSchedulerRuntimeClaimReservationMarkdown, renderSchedulerRuntimeStateMarkdown } from "./rendering.js";
-import { schedulerReconcileSnapshotSchema, schedulerRuntimeClaimReservationSchema, schedulerRuntimeEventSchema, schedulerRuntimeStateSchema } from "./schemas.js";
-import type { SchedulerReconcileSnapshot, SchedulerRuntimeClaimReservation, SchedulerRuntimeEvent, SchedulerRuntimeEventType, SchedulerRuntimeState } from "./types.js";
+import { renderSchedulerReconcileSnapshotMarkdown, renderSchedulerRuntimeClaimReservationMarkdown, renderSchedulerRuntimeStateMarkdown, renderSchedulerRuntimeWorkerStartMarkdown } from "./rendering.js";
+import { schedulerReconcileSnapshotSchema, schedulerRuntimeClaimReservationSchema, schedulerRuntimeEventSchema, schedulerRuntimeStateSchema, schedulerRuntimeWorkerStartSchema } from "./schemas.js";
+import type { SchedulerReconcileSnapshot, SchedulerRuntimeClaimReservation, SchedulerRuntimeEvent, SchedulerRuntimeEventType, SchedulerRuntimeState, SchedulerRuntimeWorkerStart } from "./types.js";
 
 export function schedulerRuntimeArtifactRefs(memory: ResolvedMemory, changePath: string, schedulerRunId: string): { artifact: string; eventsArtifact: string } {
   return {
@@ -40,6 +43,13 @@ export function schedulerClaimReservationArtifactRefs(memory: ResolvedMemory, ch
   return {
     artifact: displayArtifactPath(memory, schedulerClaimReservationPath(memory, changePath, schedulerRunId, reservationId)),
     markdownArtifact: displayArtifactPath(memory, schedulerClaimReservationMarkdownPath(memory, changePath, schedulerRunId, reservationId)),
+  };
+}
+
+export function schedulerWorkerStartArtifactRefs(memory: ResolvedMemory, changePath: string, schedulerRunId: string, workerStartId: string): { artifact: string; markdownArtifact: string } {
+  return {
+    artifact: displayArtifactPath(memory, schedulerWorkerStartPath(memory, changePath, schedulerRunId, workerStartId)),
+    markdownArtifact: displayArtifactPath(memory, schedulerWorkerStartMarkdownPath(memory, changePath, schedulerRunId, workerStartId)),
   };
 }
 
@@ -171,6 +181,41 @@ export async function findSchedulerClaimReservationForSnapshot(memory: ResolvedM
     const reservationId = entry.name.replace(/\.json$/, "");
     const reservation = await readSchedulerRuntimeClaimReservationProjection(memory, changePath, schedulerRunId, reservationId);
     if (reservation?.schedulerReconcileSnapshotId === snapshotId) return reservation;
+  }
+  return null;
+}
+
+export async function writeSchedulerRuntimeWorkerStart(memory: ResolvedMemory, changePath: string, workerStart: SchedulerRuntimeWorkerStart): Promise<void> {
+  await assertChangePathScope(memory, changePath, workerStart.changeId, `SchedulerRuntimeWorkerStart ${workerStart.id}`);
+  await mkdir(schedulerWorkerStartsDir(memory, changePath, workerStart.schedulerRunId), { recursive: true });
+  await writeJsonFile(schedulerWorkerStartPath(memory, changePath, workerStart.schedulerRunId, workerStart.id), workerStart);
+  await writeFile(schedulerWorkerStartMarkdownPath(memory, changePath, workerStart.schedulerRunId, workerStart.id), renderSchedulerRuntimeWorkerStartMarkdown(workerStart), "utf8");
+}
+
+export async function readSchedulerRuntimeWorkerStart(memory: ResolvedMemory, changePath: string, schedulerRunId: string, workerStartId: string): Promise<SchedulerRuntimeWorkerStart> {
+  const workerStart = await readRequiredJsonFile(schedulerWorkerStartPath(memory, changePath, schedulerRunId, workerStartId), schedulerRuntimeWorkerStartSchema);
+  await assertChangePathScope(memory, changePath, workerStart.changeId, `SchedulerRuntimeWorkerStart ${workerStart.id}`);
+  if (workerStart.schedulerRunId !== schedulerRunId || workerStart.id !== workerStartId) throw new Error("SchedulerRuntimeWorkerStart scope mismatch.");
+  return workerStart;
+}
+
+export async function readSchedulerRuntimeWorkerStartProjection(memory: ResolvedMemory, changePath: string, schedulerRunId: string, workerStartId: string): Promise<SchedulerRuntimeWorkerStart | null> {
+  try {
+    return await readSchedulerRuntimeWorkerStart(memory, changePath, schedulerRunId, workerStartId);
+  } catch {
+    return null;
+  }
+}
+
+export async function findSchedulerRuntimeWorkerStartForReservationIntent(memory: ResolvedMemory, changePath: string, schedulerRunId: string, reservationIntentId: string): Promise<SchedulerRuntimeWorkerStart | null> {
+  const dir = schedulerWorkerStartsDir(memory, changePath, schedulerRunId);
+  if (!existsSync(dir)) return null;
+  const entries = await readdir(dir, { withFileTypes: true }).catch(() => []);
+  for (const entry of entries) {
+    if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
+    const workerStartId = entry.name.replace(/\.json$/, "");
+    const workerStart = await readSchedulerRuntimeWorkerStartProjection(memory, changePath, schedulerRunId, workerStartId);
+    if (workerStart?.reservationIntentId === reservationIntentId) return workerStart;
   }
   return null;
 }

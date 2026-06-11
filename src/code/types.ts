@@ -14,13 +14,19 @@ export interface CodeRunOptions {
   live?: CodeRunLiveCallbacks;
 }
 
-export type CodeExecutionGateMode = "single-change-readiness" | "taskqueue-proposal" | "rework";
+export type CodeExecutionGateMode = "single-change-readiness" | "taskqueue-proposal" | "scheduler-claim-reservation" | "rework";
 
 export interface CodeExecutionGateOptions {
   mode?: CodeExecutionGateMode;
   readinessManifestId?: string;
   taskQueueProposalId?: string;
   workflowGraphPlanId?: string;
+  schedulerRunId?: string;
+  schedulerClaimReservationId?: string;
+  reservationIntentId?: string;
+  claimIntentId?: string;
+  nodeId?: string;
+  unitId?: string;
 }
 
 export interface CodeExecutionGateVerdict {
@@ -31,6 +37,12 @@ export interface CodeExecutionGateVerdict {
   decompositionPlanId?: string;
   taskQueueProposalId?: string;
   workflowGraphPlanId?: string;
+  schedulerRunId?: string;
+  schedulerClaimReservationId?: string;
+  reservationIntentId?: string;
+  claimIntentId?: string;
+  nodeId?: string;
+  unitId?: string;
   taskRunId?: string;
   taskIds?: string[];
   reason: string;

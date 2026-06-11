@@ -166,6 +166,8 @@ export type WorkpadNextAction = {
   schedulerRunId?: string;
   schedulerReconcileSnapshotId?: string;
   schedulerClaimReservationId?: string;
+  reservationIntentId?: string;
+  claimIntentId?: string;
   workflowRunId?: string;
   queueRunId?: string;
   taskIds?: string[];
@@ -201,6 +203,8 @@ export type WorkbenchTaskNextAction = {
   schedulerRunId?: string;
   schedulerReconcileSnapshotId?: string;
   schedulerClaimReservationId?: string;
+  reservationIntentId?: string;
+  claimIntentId?: string;
   workflowRunId?: string;
   queueRunId?: string;
   enabled: boolean;
@@ -621,6 +625,7 @@ export type SchedulerClaimReservationSummary = {
   blockedCount: number;
   sourceLockCount: number;
   waveIndex: number;
+  launchConfirmed?: boolean;
   supersedesReservationId?: string;
   artifact?: string;
   markdownArtifact?: string;
@@ -668,6 +673,8 @@ export type ThreadStreamAction = {
   schedulerRunId?: string;
   schedulerReconcileSnapshotId?: string;
   schedulerClaimReservationId?: string;
+  reservationIntentId?: string;
+  claimIntentId?: string;
   workflowRunId?: string;
   queueRunId?: string;
   taskIds?: string[];
@@ -753,6 +760,8 @@ export type DecisionAction = {
   schedulerRunId?: string;
   schedulerReconcileSnapshotId?: string;
   schedulerClaimReservationId?: string;
+  reservationIntentId?: string;
+  claimIntentId?: string;
   workflowRunId?: string;
   queueRunId?: string;
   taskIds?: string[];

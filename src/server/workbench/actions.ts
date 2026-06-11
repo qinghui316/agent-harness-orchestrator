@@ -126,6 +126,8 @@ async function executeWorkflowAction(input: WorkbenchProjectInput & { project: M
     schedulerRunId: body.schedulerRunId,
     schedulerReconcileSnapshotId: body.schedulerReconcileSnapshotId,
     schedulerClaimReservationId: body.schedulerClaimReservationId,
+    reservationIntentId: body.reservationIntentId,
+    claimIntentId: body.claimIntentId,
     workflowRunId: body.workflowRunId,
     queueRunId: body.queueRunId,
     worktreeId: body.worktreeId,

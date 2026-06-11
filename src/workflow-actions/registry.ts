@@ -21,6 +21,7 @@ export const WORKFLOW_ACTION_TYPES = [
   "planning.scheduler.runtime.initialize",
   "planning.scheduler.runtime.reconcile",
   "planning.scheduler.runtime.reserve-claims",
+  "planning.scheduler.worker.start-first",
   "planning.workflowgraph.compile",
   "planning.taskqueue.confirm-start",
   "orchestrator.evaluate",
@@ -120,6 +121,7 @@ export const LIVE_WORKFLOW_ACTION_TYPES = [
   "planning.scheduler.runtime.initialize",
   "planning.scheduler.runtime.reconcile",
   "planning.scheduler.runtime.reserve-claims",
+  "planning.scheduler.worker.start-first",
   "planning.workflowgraph.compile",
   "planning.taskqueue.confirm-start",
   "orchestrator.evaluate",
@@ -199,6 +201,7 @@ export const HIGH_IMPACT_WORKFLOW_ACTION_TYPES = [
   "planning.scheduler.runtime.initialize",
   "planning.scheduler.runtime.reconcile",
   "planning.scheduler.runtime.reserve-claims",
+  "planning.scheduler.worker.start-first",
   "planning.workflowgraph.compile",
   "planning.taskqueue.confirm-start",
   "code.run",
@@ -239,6 +242,7 @@ export const REVALIDATED_WORKFLOW_ACTION_TYPES = [
   "planning.scheduler.runtime.initialize",
   "planning.scheduler.runtime.reconcile",
   "planning.scheduler.runtime.reserve-claims",
+  "planning.scheduler.worker.start-first",
   "planning.workflowgraph.compile",
   "planning.taskqueue.confirm-start",
   "code.run",
@@ -263,6 +267,8 @@ export const WORKFLOW_ACTION_SCOPE_KEYS = [
   "schedulerRunId",
   "schedulerReconcileSnapshotId",
   "schedulerClaimReservationId",
+  "reservationIntentId",
+  "claimIntentId",
   "workflowRunId",
   "queueRunId",
   "worktreeId",
@@ -358,6 +364,10 @@ export function validateWorkflowActionRequiredTargets(request: WorkflowActionSco
     case "planning.scheduler.runtime.reserve-claims":
       requireOne("schedulerRunId", [request.schedulerRunId]);
       requireOne("schedulerReconcileSnapshotId", [request.schedulerReconcileSnapshotId]);
+      break;
+    case "planning.scheduler.worker.start-first":
+      requireOne("schedulerRunId", [request.schedulerRunId]);
+      requireOne("schedulerClaimReservationId", [request.schedulerClaimReservationId]);
       break;
     case "planning.workflowgraph.compile":
       requireOne("taskQueueProposalId", [request.taskQueueProposalId]);
@@ -457,7 +467,9 @@ export function workflowActionScopePayload(request: WorkflowActionScopeCarrier, 
     schedulerLaunchPreflightId: request.schedulerLaunchPreflightId ?? extractString(result, "launchPreflight", "id") ?? extractString(result, "schedulerRun", "schedulerLaunchPreflightId"),
     schedulerRunId: request.schedulerRunId ?? extractString(result, "schedulerRun", "id") ?? extractString(result, "runtimeState", "schedulerRunId") ?? extractString(result, "reconcileSnapshot", "schedulerRunId") ?? extractString(result, "claimReservation", "schedulerRunId"),
     schedulerReconcileSnapshotId: request.schedulerReconcileSnapshotId ?? extractString(result, "reconcileSnapshot", "id") ?? extractString(result, "claimReservation", "schedulerReconcileSnapshotId"),
-    schedulerClaimReservationId: request.schedulerClaimReservationId ?? extractString(result, "claimReservation", "id"),
+    schedulerClaimReservationId: request.schedulerClaimReservationId ?? extractString(result, "claimReservation", "id") ?? extractString(result, "workerStart", "schedulerClaimReservationId"),
+    reservationIntentId: request.reservationIntentId ?? extractString(result, "workerStart", "reservationIntentId"),
+    claimIntentId: request.claimIntentId ?? extractString(result, "workerStart", "claimIntentId"),
     workflowRunId: request.workflowRunId ?? extractString(result, "workflowRun", "id") ?? extractString(result, "workflow", "id"),
     queueRunId: request.queueRunId,
     worktreeId: request.worktreeId,
@@ -480,7 +492,10 @@ export function workflowActionTargetId(request: WorkflowActionScopeCarrier, chan
     ?? request.workflowGraphPlanId
     ?? extractString(result, "graph", "id")
     ?? request.schedulerClaimReservationId
+    ?? request.reservationIntentId
+    ?? extractString(result, "workerStart", "reservationIntentId")
     ?? extractString(result, "claimReservation", "id")
+    ?? extractString(result, "workerStart", "schedulerClaimReservationId")
     ?? request.schedulerRunId
     ?? extractString(result, "schedulerRun", "id")
     ?? extractString(result, "runtimeState", "schedulerRunId")
@@ -543,6 +558,8 @@ export function workflowActionScopesMatchStrict(left: WorkflowActionScopeCarrier
     && sameStrictOptional(left.schedulerRunId, right.schedulerRunId)
     && sameStrictOptional(left.schedulerReconcileSnapshotId, right.schedulerReconcileSnapshotId)
     && sameStrictOptional(left.schedulerClaimReservationId, right.schedulerClaimReservationId)
+    && sameStrictOptional(left.reservationIntentId, right.reservationIntentId)
+    && sameStrictOptional(left.claimIntentId, right.claimIntentId)
     && sameStrictOptional(left.workflowRunId, right.workflowRunId)
     && sameStrictOptional(left.queueRunId, right.queueRunId)
     && sameStrictOptional(left.worktreeId, right.worktreeId)
@@ -568,6 +585,8 @@ export function workflowActionScopesMatchCompatible(left: WorkflowActionScopeCar
     && sameCompatibleOptional(left.schedulerRunId, right.schedulerRunId)
     && sameCompatibleOptional(left.schedulerReconcileSnapshotId, right.schedulerReconcileSnapshotId)
     && sameCompatibleOptional(left.schedulerClaimReservationId, right.schedulerClaimReservationId)
+    && sameCompatibleOptional(left.reservationIntentId, right.reservationIntentId)
+    && sameCompatibleOptional(left.claimIntentId, right.claimIntentId)
     && sameCompatibleOptional(left.workflowRunId, right.workflowRunId)
     && sameCompatibleOptional(left.queueRunId, right.queueRunId)
     && sameCompatibleOptional(left.worktreeId, right.worktreeId)

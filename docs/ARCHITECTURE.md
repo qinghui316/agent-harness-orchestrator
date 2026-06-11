@@ -107,6 +107,8 @@ Phase 9E extends `src/scheduler-runtime/` with SchedulerRun-scoped claim reserva
 
 Phase 9F does not add another scheduler artifact layer. It changes the product interaction boundary by introducing a high-level main-agent scheduler plan preparation / launch-confirmation surface. The implementation continues to call owned scheduler modules and preserves SchedulerContract, dry-run, worker-plan, claim/reconcile, launch-preflight, SchedulerRun, runtime-shell, reconcile, and claim-reservation evidence for audit and recovery. The ordinary Workbench confirmation surface is reduced to two user-facing Harness gates: prepare the parallel execution plan, then confirm the overall launch intent after the main Agent explains it. This follows the Codex/AgentScope-style main conversation pattern while keeping AHO's workflow truth in Change/ECL, accepted artifacts, Run/Validation/Audit, apply/close, and human gates.
 
+Phase 9G begins the first controlled scheduler execution slice. `src/scheduler-runtime/` remains the owner for runtime scheduler behavior and may start exactly one coder-stage worker from the latest scoped `SchedulerRuntimeClaimReservation`. This creates one TaskRun, one WorkerLease, one worktree, one code run, and Runtime Continuity sidecars for that coder stage only. It is not a full parallel executor: it must not dispatch a whole wave, start validation/audit/bounded-rework stages, run an automatic scheduler loop, allocate real scheduler slots, create child Changes, or bypass ToolPolicyGate and human gates.
+
 Workbench relationship:
 
 ```text

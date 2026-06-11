@@ -56,6 +56,9 @@ describe("workflow action registry", () => {
     expect(LIVE_WORKFLOW_ACTION_TYPES).toContain("planning.scheduler.runtime.reserve-claims");
     expect(HIGH_IMPACT_WORKFLOW_ACTION_TYPES).toContain("planning.scheduler.runtime.reserve-claims");
     expect(REVALIDATED_WORKFLOW_ACTION_TYPES).toContain("planning.scheduler.runtime.reserve-claims");
+    expect(LIVE_WORKFLOW_ACTION_TYPES).toContain("planning.scheduler.worker.start-first");
+    expect(HIGH_IMPACT_WORKFLOW_ACTION_TYPES).toContain("planning.scheduler.worker.start-first");
+    expect(REVALIDATED_WORKFLOW_ACTION_TYPES).toContain("planning.scheduler.worker.start-first");
   });
 
   it("keeps SchedulerContract ids in target and audit scope matching", () => {
@@ -315,6 +318,40 @@ describe("workflow action registry", () => {
       { ...request, schedulerClaimReservationId: "scheduler-claim-reservation-1" },
       { ...request, schedulerClaimReservationId: "other" },
     )).toBe(false);
+
+    const workerStartRequest = {
+      actionType: "planning.scheduler.worker.start-first",
+      changeId: "change-1",
+      schedulerRunId: "scheduler-run-1",
+      schedulerClaimReservationId: "scheduler-claim-reservation-1",
+      reservationIntentId: "reservation-intent-1",
+      claimIntentId: "claim-intent-1",
+    };
+    const workerStartResult = {
+      workerStart: {
+        id: "scheduler-worker-start-1",
+        schedulerRunId: "scheduler-run-1",
+        schedulerClaimReservationId: "scheduler-claim-reservation-1",
+        reservationIntentId: "reservation-intent-1",
+        claimIntentId: "claim-intent-1",
+      },
+    };
+    expect(validateWorkflowActionRequiredTargets(workerStartRequest)).toEqual([]);
+    expect(validateWorkflowActionRequiredTargets({
+      actionType: "planning.scheduler.worker.start-first",
+      schedulerRunId: "scheduler-run-1",
+    }).map((item) => item.label)).toEqual(["schedulerClaimReservationId"]);
+    expect(workflowActionTargetId(workerStartRequest, workerStartRequest.changeId, workerStartResult)).toBe("scheduler-claim-reservation-1");
+    expect(workflowActionScopePayload(workerStartRequest, workerStartRequest.changeId, workerStartResult)).toMatchObject({
+      changeId: "change-1",
+      schedulerRunId: "scheduler-run-1",
+      schedulerClaimReservationId: "scheduler-claim-reservation-1",
+      reservationIntentId: "reservation-intent-1",
+      claimIntentId: "claim-intent-1",
+    });
+    expect(workflowActionScopesMatchStrict(workerStartRequest, { ...workerStartRequest })).toBe(true);
+    expect(workflowActionScopesMatchStrict(workerStartRequest, { ...workerStartRequest, reservationIntentId: undefined })).toBe(false);
+    expect(workflowActionScopesMatchCompatible(workerStartRequest, { ...workerStartRequest, reservationIntentId: undefined })).toBe(true);
   });
 
   it("keeps graph ids in target and audit scope matching", () => {

@@ -6,7 +6,7 @@ import { getChangeStatusForChange } from "../../change/manager.js";
 import { getActiveChanges } from "../../ecl/index.js";
 import { resolveProjectMemory } from "../../memory/resolver.js";
 import { readSchedulerRuntimeLineage } from "../../scheduler-runtime/guards.js";
-import { findSchedulerClaimReservationForSnapshot, readSchedulerReconcileSnapshot, readSchedulerRuntimeClaimReservation, readSchedulerRuntimeStateProjection } from "../../scheduler-runtime/repository.js";
+import { findSchedulerClaimReservationForSnapshot, findSchedulerRuntimeWorkerStartForReservationIntent, readSchedulerReconcileSnapshot, readSchedulerRuntimeClaimReservation, readSchedulerRuntimeStateProjection } from "../../scheduler-runtime/repository.js";
 import { latestLandingQueueSnapshot } from "../../landing-queue/manager.js";
 import { listTaskQueues } from "../../task-queue/manager.js";
 import { listTaskRuns } from "../../task-run/manager.js";
@@ -356,6 +356,40 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
       const existing = await findSchedulerClaimReservationForSnapshot(memory, target.path, run.id, snapshot.id);
       if (existing) throw new Error("planning.scheduler.runtime.reserve-claims reservation already exists for this snapshot.");
     }
+  }
+  if (request.actionType === "planning.scheduler.worker.start-first") {
+    const active = await getActiveChanges(memory);
+    const target = active.find((item) => item.name === changeId);
+    if (!target) throw new Error("planning.scheduler.worker.start-first target is stale or missing active Change.");
+    if (!request.schedulerRunId) throw new Error("planning.scheduler.worker.start-first requires schedulerRunId.");
+    if (!request.schedulerClaimReservationId) throw new Error("planning.scheduler.worker.start-first requires schedulerClaimReservationId.");
+    const run = await readSchedulerRun(memory, target.path, request.schedulerRunId);
+    if (run.id !== request.schedulerRunId || run.changeId !== changeId || run.status !== "prepared") {
+      throw new Error("planning.scheduler.worker.start-first SchedulerRun target is stale or not prepared.");
+    }
+    const latestRun = await readLatestSchedulerRun(memory, target.path);
+    if (latestRun.id !== run.id) throw new Error("planning.scheduler.worker.start-first requires the latest SchedulerRun.");
+    await readSchedulerRuntimeLineage(memory, target.path, run.id);
+    const runtimeState = await readSchedulerRuntimeStateProjection(memory, target.path, run.id);
+    if (!runtimeState?.lastReconcileSnapshotId || !runtimeState.lastClaimReservationId) {
+      throw new Error("planning.scheduler.worker.start-first requires runtime state with latest reconcile snapshot and claim reservation.");
+    }
+    const snapshot = await readSchedulerReconcileSnapshot(memory, target.path, run.id, runtimeState.lastReconcileSnapshotId);
+    const reservation = await readSchedulerRuntimeClaimReservation(memory, target.path, run.id, request.schedulerClaimReservationId);
+    if (reservation.id !== runtimeState.lastClaimReservationId || reservation.schedulerReconcileSnapshotId !== snapshot.id || runtimeState.lastClaimReservationSnapshotId !== snapshot.id || reservation.status !== "reserved") {
+      throw new Error("planning.scheduler.worker.start-first SchedulerRuntimeClaimReservation target is stale or not reserved.");
+    }
+    const selectedIntent = request.reservationIntentId
+      ? reservation.reservationIntents.find((intent) => intent.reservationIntentId === request.reservationIntentId)
+      : reservation.reservationIntents.find((intent) => intent.status === "reserved");
+    if (!selectedIntent || selectedIntent.status !== "reserved") {
+      throw new Error("planning.scheduler.worker.start-first requires a runnable reservation intent.");
+    }
+    if (request.claimIntentId && selectedIntent.claimIntentId !== request.claimIntentId) {
+      throw new Error("planning.scheduler.worker.start-first claimIntentId target is stale.");
+    }
+    const existing = await findSchedulerRuntimeWorkerStartForReservationIntent(memory, target.path, run.id, selectedIntent.reservationIntentId);
+    if (existing) throw new Error("planning.scheduler.worker.start-first reservation intent already started.");
   }
   if (request.actionType === "planning.workflowgraph.compile") {
     const active = await getActiveChanges(memory);

@@ -12,11 +12,14 @@ import {
   reserveSchedulerRuntimeClaims,
   renderSchedulerLaunchBriefMarkdown,
   renderSchedulerRuntimeClaimReservationMarkdown,
+  renderSchedulerRuntimeWorkerStartMarkdown,
   renderSchedulerReconcileSnapshotMarkdown,
   renderSchedulerRuntimeStateMarkdown,
+  startFirstSchedulerCoderWorker,
   type SchedulerReconcileSnapshot,
   type SchedulerRuntimeClaimReservation,
   type SchedulerRuntimeState,
+  type SchedulerRuntimeWorkerStart,
   type SchedulerPlanPreparationResult,
 } from "../../../scheduler-runtime/manager.js";
 import type { ManagedProject } from "../../../types/index.js";
@@ -1001,6 +1004,67 @@ export async function reservePlanningSchedulerRuntimeClaims(
     completedAt: new Date().toISOString(),
   });
   return { claimReservation, executionStarted: false };
+}
+
+export async function startPlanningSchedulerFirstWorker(
+  project: ManagedProject,
+  changeId: string,
+  request: WorkbenchWorkflowActionRequest,
+  live: WorkbenchLiveSink | undefined,
+): Promise<{ workerStart: SchedulerRuntimeWorkerStart; taskRun: unknown; lease: unknown; code: unknown; executionStarted: true }> {
+  const { memory } = await resolveTopic(project, changeId);
+  assertWritableMemory(memory, "Scheduler first worker start");
+  if (!request.schedulerRunId) throw new Error("planning.scheduler.worker.start-first requires schedulerRunId.");
+  if (!request.schedulerClaimReservationId) throw new Error("planning.scheduler.worker.start-first requires schedulerClaimReservationId.");
+  const result = await startFirstSchedulerCoderWorker(project, {
+    changeId,
+    schedulerRunId: request.schedulerRunId,
+    schedulerClaimReservationId: request.schedulerClaimReservationId,
+    reservationIntentId: request.reservationIntentId,
+    claimIntentId: request.claimIntentId,
+    prompt: request.prompt,
+  });
+  await appendTopicThreadEntry(project, changeId, {
+    type: "assistant.message",
+    status: "scheduler-first-worker-started",
+    text: renderSchedulerRuntimeWorkerStartMarkdown(result.workerStart),
+    artifact: result.workerStart.artifact,
+    runId: result.code.run.id,
+  });
+  emitAssistantEvent(live, {
+    runId: result.code.run.id,
+    kind: "file-change",
+    phase: "scheduler-first-worker-started",
+    title: "第一个 scheduler coder worker 已启动",
+    summary: `Started coder stage for ${result.workerStart.reservationIntentId}; no validation, audit, rework, wave dispatch, scheduler loop, TaskQueueRun, WorkflowRun, AgentTask, or child Change was created.`,
+    artifactRef: result.workerStart.artifact,
+  });
+  await recordWorkbenchDecision(project, {
+    id: `scheduler-first-worker-started:${result.workerStart.id}`,
+    changeId,
+    decisionType: "planning.scheduler.worker.start-first",
+    status: "completed",
+    label: "第一个 worker 已启动",
+    summary: "Started exactly one scheduler coder-stage worker from the latest claim reservation.",
+    targetId: result.workerStart.id,
+    runId: result.code.run.id,
+    artifact: result.workerStart.artifact,
+    actionId: "planning.scheduler.worker.start-first",
+    payload: {
+      schedulerRunId: result.workerStart.schedulerRunId,
+      schedulerClaimReservationId: result.workerStart.schedulerClaimReservationId,
+      reservationIntentId: result.workerStart.reservationIntentId,
+      claimIntentId: result.workerStart.claimIntentId,
+      nodeId: result.workerStart.nodeId,
+      unitId: result.workerStart.unitId,
+      taskRunId: result.workerStart.taskRunId,
+      workerLeaseId: result.workerStart.workerLeaseId,
+      worktreeId: result.workerStart.worktreeId,
+      runId: result.workerStart.runId,
+    },
+    completedAt: new Date().toISOString(),
+  });
+  return result;
 }
 
 export async function confirmTaskQueueProposalAndStart(

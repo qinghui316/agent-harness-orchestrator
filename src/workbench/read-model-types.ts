@@ -114,6 +114,8 @@ export interface ThreadStreamAction {
   schedulerRunId?: string;
   schedulerReconcileSnapshotId?: string;
   schedulerClaimReservationId?: string;
+  reservationIntentId?: string;
+  claimIntentId?: string;
   workflowRunId?: string;
   queueRunId?: string;
   taskIds?: string[];
@@ -220,6 +222,8 @@ export interface WorkbenchDecisionAction {
   schedulerRunId?: string;
   schedulerReconcileSnapshotId?: string;
   schedulerClaimReservationId?: string;
+  reservationIntentId?: string;
+  claimIntentId?: string;
   workflowRunId?: string;
   queueRunId?: string;
   taskIds?: string[];
@@ -294,6 +298,11 @@ export interface WorkbenchConfirmationQueueItem {
   worktreeId?: string;
   applyCheckId?: string;
   landingPackageId?: string;
+  schedulerRunId?: string;
+  schedulerReconcileSnapshotId?: string;
+  schedulerClaimReservationId?: string;
+  reservationIntentId?: string;
+  claimIntentId?: string;
   summary: string;
   whyNeedsConfirmation: string;
   confirmEffect: string;
@@ -369,6 +378,8 @@ export interface WorkpadNextAction {
   schedulerRunId?: string;
   schedulerReconcileSnapshotId?: string;
   schedulerClaimReservationId?: string;
+  reservationIntentId?: string;
+  claimIntentId?: string;
   workflowRunId?: string;
   queueRunId?: string;
   taskIds?: string[];
@@ -447,6 +458,8 @@ export interface WorkbenchTaskNextAction {
   schedulerRunId?: string;
   schedulerReconcileSnapshotId?: string;
   schedulerClaimReservationId?: string;
+  reservationIntentId?: string;
+  claimIntentId?: string;
   workflowRunId?: string;
   queueRunId?: string;
   enabled: boolean;

@@ -2,7 +2,7 @@ import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises
 import { existsSync } from "node:fs";
 import { execFile } from "node:child_process";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createChange, createConcurrentChange, closeChange } from "../../src/change/manager.js";
@@ -232,6 +232,57 @@ process.exit(1);
 `, "utf8");
   await chmod(script, 0o755).catch(() => undefined);
   return { command: process.execPath, args: [script], stateFile };
+}
+
+async function createFakeCodex(): Promise<{ binDir: string }> {
+  const binDir = join(tempDir, "fake-codex-bin");
+  await mkdir(binDir, { recursive: true });
+  const script = join(binDir, "fake-codex.cjs");
+  await writeFile(script, `#!/usr/bin/env node
+const fs = require("fs");
+const path = require("path");
+const args = process.argv.slice(2);
+if (args[0] === "--version") {
+  console.log("codex-cli fake");
+  process.exit(0);
+}
+if (args[0] === "app-server" && args[1] === "--help") {
+  console.error("app-server unavailable in fake");
+  process.exit(1);
+}
+if (args[0] === "--help") {
+  console.log("Usage: codex [OPTIONS]\\n--ask-for-approval <APPROVAL_POLICY>");
+  process.exit(0);
+}
+if (args[0] === "exec" && args[1] === "--help") {
+  console.log("Usage: codex exec [OPTIONS]\\n--json\\n--sandbox <SANDBOX_MODE>\\n--cd <DIR>\\n--output-last-message <FILE>\\n--ask-for-approval <APPROVAL_POLICY>");
+  process.exit(0);
+}
+if (args[0] === "exec" && args[1] === "resume" && args[2] === "--help") {
+  console.log("Usage: codex exec resume [OPTIONS]\\n--sandbox <SANDBOX_MODE>\\n--cd <DIR>");
+  process.exit(0);
+}
+if (args[0] === "exec" || args.includes("exec")) {
+  const lastMessageIndex = args.indexOf("--output-last-message");
+  const lastMessagePath = lastMessageIndex >= 0 ? args[lastMessageIndex + 1] : null;
+  const cwdIndex = args.indexOf("--cd");
+  const cwd = cwdIndex >= 0 ? args[cwdIndex + 1] : process.cwd();
+  fs.appendFileSync(path.join(cwd, "README.md"), "\\nScheduler worker fake coder\\n", "utf8");
+  if (lastMessagePath) fs.writeFileSync(lastMessagePath, "fake scheduler coder done", "utf8");
+  console.log(JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: "fake scheduler coder done" } }));
+  process.exit(0);
+}
+console.error("Unsupported fake codex command: " + args.join(" "));
+process.exit(1);
+`, "utf8");
+  await chmod(script, 0o755).catch(() => undefined);
+  const commandShim = process.platform === "win32" ? join(binDir, "codex.cmd") : join(binDir, "codex");
+  const shim = process.platform === "win32"
+    ? `@echo off\r\nnode "${script}" %*\r\n`
+    : `#!/usr/bin/env sh\nnode "${script}" "$@"\n`;
+  await writeFile(commandShim, shim, "utf8");
+  await chmod(commandShim, 0o755).catch(() => undefined);
+  return { binDir };
 }
 
 async function writePlanningBundleFixture(changeId: string, goal = "Implement pricing rule", suffix = changeId): Promise<string> {
@@ -2293,12 +2344,142 @@ describe("workbench read model", () => {
       schedulerClaimReservationId: claimReservation?.id,
       confirm: true,
     })).rejects.toThrow("stale or no longer available");
+
     expect(await listTaskQueues(beforeMemory, topic.changeId)).toHaveLength(0);
     expect(await listWorkflowRuns(beforeMemory, topic.changeId)).toHaveLength(0);
     expect(await listTaskRuns(beforeMemory, topic.changeId)).toHaveLength(0);
     expect(await listAgentTasks(beforeMemory, topic.changeId)).toHaveLength(0);
     expect(await listWorktreeStatuses(beforeMemory)).toHaveLength(0);
     expect((await listRuns(beforeMemory)).filter((run) => run.changeId === topic.changeId)).toHaveLength(0);
+
+    const startSnapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: topic.changeId });
+    expect(startSnapshot.center.workpad.nextAction).toMatchObject({
+      actionType: "planning.scheduler.worker.start-first",
+      label: "启动第一个 worker",
+      schedulerRunId: schedulerRun?.id,
+      schedulerClaimReservationId: claimReservation?.id,
+    });
+    expect(startSnapshot.right.confirmationQueue.primary?.actions).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        actionType: "planning.scheduler.worker.start-first",
+        schedulerRunId: schedulerRun?.id,
+        schedulerClaimReservationId: claimReservation?.id,
+      }),
+    ]));
+    const startAction = startSnapshot.right.confirmationQueue.current
+      .flatMap((item) => item.actions)
+      .find((action) => action.actionType === "planning.scheduler.worker.start-first" && action.schedulerClaimReservationId === claimReservation?.id);
+    if (!startAction) throw new Error("Missing scheduler first worker action.");
+
+    await initGitRepository(tempDir);
+    await mkdir(join(tempDir, "src"), { recursive: true });
+    await writeFile(join(tempDir, ".gitignore"), "harness/\n.agent-harness/\n", "utf8");
+    await writeFile(join(tempDir, "src", "module-a.ts"), "export const moduleA = 1;\n", "utf8");
+    await writeFile(join(tempDir, "src", "module-b.ts"), "export const moduleB = 1;\n", "utf8");
+    await git(tempDir, ["add", "."]);
+    await git(tempDir, ["commit", "-m", "initial"]);
+
+    const oldPath = process.env.PATH;
+    const fakeCodex = await createFakeCodex();
+    process.env.PATH = `${fakeCodex.binDir}${delimiter}${oldPath ?? ""}`;
+    try {
+      const started = await executeWorkbenchAction({ project: project(), path: tempDir }, {
+        ...startAction,
+        confirm: true,
+      });
+      const startedResult = (started.result as {
+        result?: {
+          executionStarted?: boolean;
+          workerStart?: {
+            id?: string;
+            status?: string;
+            stage?: string;
+            schedulerRunId?: string;
+            schedulerClaimReservationId?: string;
+            reservationIntentId?: string;
+            claimIntentId?: string;
+            taskRunId?: string;
+            workerLeaseId?: string;
+            taskRunRoleId?: string;
+            agentRoleId?: string;
+            worktreeId?: string;
+            runId?: string;
+          };
+          taskRun?: { id?: string; roleId?: string };
+          lease?: { id?: string; taskRunId?: string };
+          code?: { run?: { id?: string; changeId?: string; taskRunId?: string; runtime?: string; executionGate?: Record<string, unknown> } };
+        };
+      }).result;
+      expect(startedResult).toMatchObject({
+        executionStarted: true,
+        workerStart: {
+          status: "started",
+          stage: "coder",
+          schedulerRunId: schedulerRun?.id,
+          schedulerClaimReservationId: claimReservation?.id,
+          taskRunRoleId: "coder",
+          agentRoleId: "coder-agent",
+        },
+      });
+      expect(startedResult?.taskRun).toMatchObject({ id: startedResult?.workerStart?.taskRunId, roleId: "coder" });
+      expect(startedResult?.lease).toMatchObject({ id: startedResult?.workerStart?.workerLeaseId, taskRunId: startedResult?.workerStart?.taskRunId });
+      expect(startedResult?.code?.run).toMatchObject({
+        id: startedResult?.workerStart?.runId,
+        changeId: topic.changeId,
+        taskRunId: startedResult?.workerStart?.taskRunId,
+        executionGate: {
+          mode: "scheduler-claim-reservation",
+          schedulerRunId: schedulerRun?.id,
+          schedulerClaimReservationId: claimReservation?.id,
+          reservationIntentId: startedResult?.workerStart?.reservationIntentId,
+          claimIntentId: startedResult?.workerStart?.claimIntentId,
+          taskRunId: startedResult?.workerStart?.taskRunId,
+        },
+      });
+
+      const afterMemory = await resolveProjectMemory(project());
+      expect(await listTaskQueues(afterMemory, topic.changeId)).toHaveLength(0);
+      expect(await listWorkflowRuns(afterMemory, topic.changeId)).toHaveLength(0);
+      expect(await listAgentTasks(afterMemory, topic.changeId)).toHaveLength(0);
+      expect(await listTaskRuns(afterMemory, topic.changeId)).toHaveLength(1);
+      expect(await listWorktreeStatuses(afterMemory)).toHaveLength(1);
+      expect((await listRuns(afterMemory)).filter((run) => run.changeId === topic.changeId)).toHaveLength(1);
+      const workerStartPath = join(changeDir, "planning", "scheduler-runs", `${schedulerRun?.id}`, "scheduler-worker-starts", `${startedResult?.workerStart?.id}.json`);
+      expect(JSON.parse(await readFile(workerStartPath, "utf8"))).toMatchObject({
+        schedulerRunId: schedulerRun?.id,
+        schedulerClaimReservationId: claimReservation?.id,
+        status: "started",
+        stage: "coder",
+        taskRunRoleId: "coder",
+        agentRoleId: "coder-agent",
+      });
+      const workerRuntimeEvents = (await readFile(runtimeEventsPath, "utf8")).trim().split(/\r?\n/).map((line) => JSON.parse(line));
+      expect(workerRuntimeEvents).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          schedulerRunId: schedulerRun?.id,
+          changeId: topic.changeId,
+          type: "scheduler-runtime.worker-started",
+          payload: expect.objectContaining({
+            schedulerClaimReservationId: claimReservation?.id,
+            taskRunId: startedResult?.workerStart?.taskRunId,
+            workerLeaseId: startedResult?.workerStart?.workerLeaseId,
+            worktreeId: startedResult?.workerStart?.worktreeId,
+            runId: startedResult?.workerStart?.runId,
+          }),
+        }),
+      ]));
+      const duplicateStart = await executeWorkbenchAction({ project: project(), path: tempDir }, {
+        ...startAction,
+        confirm: true,
+      });
+      expect(duplicateStart.result).toMatchObject({
+        status: "failed",
+        actionType: "planning.scheduler.worker.start-first",
+        error: "planning.scheduler.worker.start-first reservation intent already started.",
+      });
+    } finally {
+      process.env.PATH = oldPath;
+    }
   });
 
   it("records supplemental input as pending feedback while a demand run is still running", async () => {

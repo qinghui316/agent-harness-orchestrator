@@ -207,6 +207,12 @@ export interface RunMetadata {
     decompositionPlanId?: string;
     taskQueueProposalId?: string;
     workflowGraphPlanId?: string;
+    schedulerRunId?: string;
+    schedulerClaimReservationId?: string;
+    reservationIntentId?: string;
+    claimIntentId?: string;
+    nodeId?: string;
+    unitId?: string;
     taskRunId?: string;
     taskIds?: string[];
     reason: string;

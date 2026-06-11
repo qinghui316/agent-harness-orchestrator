@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { SchedulerReconcileSnapshot, SchedulerRuntimeClaimReservation, SchedulerRuntimeEvent, SchedulerRuntimeState } from "./types.js";
+import type { SchedulerReconcileSnapshot, SchedulerRuntimeClaimReservation, SchedulerRuntimeEvent, SchedulerRuntimeState, SchedulerRuntimeWorkerStart } from "./types.js";
 
 const claimIntentStateSchema = z.object({
   claimIntentId: z.string(),
@@ -65,6 +65,8 @@ export const schedulerRuntimeEventSchema: z.ZodType<SchedulerRuntimeEvent> = z.o
     "scheduler-runtime.claim-reserved",
     "scheduler-runtime.claim-blocked",
     "scheduler-runtime.claim-reservation.superseded",
+    "scheduler-runtime.worker-started",
+    "scheduler-runtime.worker-start-failed",
   ]),
   timestamp: z.string(),
   status: z.enum(["initialized", "blocked"]).optional(),
@@ -158,4 +160,43 @@ export const schedulerRuntimeClaimReservationSchema: z.ZodType<SchedulerRuntimeC
   artifact: z.string(),
   markdownArtifact: z.string(),
   createdAt: z.string(),
+});
+
+export const schedulerRuntimeWorkerStartSchema: z.ZodType<SchedulerRuntimeWorkerStart> = z.object({
+  version: z.literal("1.0"),
+  id: z.string(),
+  changeId: z.string(),
+  schedulerRunId: z.string(),
+  schedulerMode: z.literal("parallel-readiness-v1"),
+  status: z.enum(["started", "failed"]),
+  schedulerRuntimeStateId: z.string(),
+  schedulerReconcileSnapshotId: z.string(),
+  schedulerClaimReservationId: z.string(),
+  schedulerContractId: z.string(),
+  schedulerDispatchDryRunId: z.string(),
+  schedulerWorkerPlanId: z.string(),
+  schedulerClaimReconcilePlanId: z.string(),
+  schedulerLaunchPreflightId: z.string(),
+  reservationIntentId: z.string(),
+  claimIntentId: z.string(),
+  plannedWorkerKey: z.string(),
+  nodeId: z.string(),
+  unitId: z.string(),
+  waveIndex: z.number(),
+  stageId: z.string(),
+  stage: z.literal("coder"),
+  taskId: z.string(),
+  taskRunId: z.string(),
+  workerLeaseId: z.string(),
+  taskRunRoleId: z.string(),
+  agentRoleId: z.string(),
+  worktreeId: z.string().optional(),
+  runId: z.string().optional(),
+  failureReason: z.string().optional(),
+  sourceArtifactHashes: z.record(z.string()),
+  artifactRefs: z.array(z.string()),
+  artifact: z.string(),
+  markdownArtifact: z.string(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
 });

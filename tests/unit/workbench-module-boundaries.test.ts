@@ -1101,6 +1101,7 @@ describe("Workbench module boundaries", () => {
       "src/scheduler-runtime/initialize.ts",
       "src/scheduler-runtime/reconcile.ts",
       "src/scheduler-runtime/claim-reservation.ts",
+      "src/scheduler-runtime/worker-start.ts",
       "src/scheduler-runtime/rendering.ts",
       "src/scheduler-runtime/manager.ts",
     ]));
@@ -1108,6 +1109,7 @@ describe("Workbench module boundaries", () => {
     expect(manager).toContain('export * from "./initialize.js";');
     expect(manager).toContain('export * from "./reconcile.js";');
     expect(manager).toContain('export * from "./claim-reservation.js";');
+    expect(manager).toContain('export * from "./worker-start.js";');
     expect(manager).toContain('export * from "./repository.js";');
 
     const initialize = readFileSync("src/scheduler-runtime/initialize.ts", "utf8");
@@ -1126,6 +1128,15 @@ describe("Workbench module boundaries", () => {
     expect(claimReservation).toContain("source lock conflict");
     expect(claimReservation).not.toContain("createWorkerLease");
     expect(claimReservation).not.toContain("startTaskRun");
+
+    const workerStart = readFileSync("src/scheduler-runtime/worker-start.ts", "utf8");
+    expect(workerStart).toContain("startFirstSchedulerCoderWorker");
+    expect(workerStart).toContain("scheduler-claim-reservation");
+    expect(workerStart).toContain("startCodeRun");
+    expect(workerStart).toContain("startTaskRun");
+    expect(workerStart).not.toContain("startValidationRun");
+    expect(workerStart).not.toContain("startAuditRun");
+    expect(workerStart).not.toContain("runTaskQueueSequence");
 
     for (const file of files) {
       const content = readFileSync(file, "utf8");
