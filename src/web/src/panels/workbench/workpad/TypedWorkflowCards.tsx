@@ -294,3 +294,41 @@ export function SchedulerClaimReservationCard({ reservation }: { reservation: No
     </section>
   );
 }
+
+export function SchedulerWorkerStartCard({ start }: { start: NonNullable<Workpad["schedulerWorkerStart"]> }): ReactElement {
+  return (
+    <section className="workpad-section" data-testid="scheduler-worker-start-card">
+      <div className="workpad-section-header">
+        <h3>第一个 worker</h3>
+        <span>{humanStatus(start.status)}</span>
+      </div>
+      <p className="workpad-goal">{start.nodeId} / {start.unitId} / coder stage</p>
+      <div className="workpad-chip-list">
+        <span>TaskRun {start.taskRunId}</span>
+        <span>WorkerLease {start.workerLeaseId}</span>
+        {start.worktreeId ? <span>worktree {start.worktreeId}</span> : null}
+        {start.runId ? <span>code run {start.runId}</span> : null}
+      </div>
+      {start.artifact ? <small className="artifact-link">查看证据：{artifactName(start.artifact)}</small> : null}
+    </section>
+  );
+}
+
+export function SchedulerWorkerResultCard({ result }: { result: NonNullable<Workpad["schedulerWorkerResult"]> }): ReactElement {
+  return (
+    <section className="workpad-section" data-testid="scheduler-worker-result-card">
+      <div className="workpad-section-header">
+        <h3>第一个 worker 结果</h3>
+        <span>{humanStatus(result.status)}</span>
+      </div>
+      <p className="workpad-goal">{result.nodeId} / {result.unitId} / coder result evidence</p>
+      <div className="workpad-chip-list">
+        <span>TaskRun {result.taskRunStatus}</span>
+        <span>WorkerLease {result.workerLeaseStatus}</span>
+        {result.worktreeId ? <span>worktree {result.worktreeId}</span> : null}
+        {result.runId ? <span>code run {result.runStatus ?? result.runId}</span> : null}
+      </div>
+      {result.artifact ? <small className="artifact-link">查看证据：{artifactName(result.artifact)}</small> : null}
+    </section>
+  );
+}

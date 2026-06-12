@@ -1,4 +1,4 @@
-import type { SchedulerReconcileSnapshot, SchedulerRuntimeClaimReservation, SchedulerRuntimeState, SchedulerRuntimeWorkerStart } from "./types.js";
+import type { SchedulerReconcileSnapshot, SchedulerRuntimeClaimReservation, SchedulerRuntimeState, SchedulerRuntimeWorkerResult, SchedulerRuntimeWorkerStart } from "./types.js";
 
 export function renderSchedulerRuntimeStateMarkdown(state: SchedulerRuntimeState): string {
   const lines = [
@@ -181,6 +181,44 @@ export function renderSchedulerRuntimeWorkerStartMarkdown(workerStart: Scheduler
     "## Boundary",
     "",
     "This worker-start evidence records one scheduler claim's coder-stage start only. It does not start a full wave, validation, audit, bounded rework, scheduler loop, slot allocator, child Change, WorkflowRun, TaskQueueRun, or AgentTask.",
+    "",
+  ];
+  return lines.join("\n");
+}
+
+export function renderSchedulerRuntimeWorkerResultMarkdown(result: SchedulerRuntimeWorkerResult): string {
+  const lines = [
+    `# SchedulerRuntimeWorkerResult ${result.id}`,
+    "",
+    `Status: ${result.status}`,
+    `Change: ${result.changeId}`,
+    `SchedulerRun: ${result.schedulerRunId}`,
+    `WorkerStart: ${result.schedulerWorkerStartId}`,
+    `ClaimReservation: ${result.schedulerClaimReservationId}`,
+    "",
+    "## Worker Result",
+    "",
+    `- Reservation intent: ${result.reservationIntentId}`,
+    `- Claim intent: ${result.claimIntentId}`,
+    `- Planned worker key: ${result.plannedWorkerKey}`,
+    `- Node: ${result.nodeId}`,
+    `- Unit: ${result.unitId}`,
+    `- Wave: ${result.waveIndex + 1}`,
+    `- Stage: ${result.stage}`,
+    `- Task: ${result.taskId}`,
+    `- TaskRun: ${result.taskRunId}`,
+    `- TaskRun status: ${result.taskRunStatus}`,
+    `- WorkerLease: ${result.workerLeaseId}`,
+    `- WorkerLease status: ${result.workerLeaseStatus}`,
+    `- Agent role: ${result.agentRoleId}`,
+    `- Worktree: ${result.worktreeId ?? "none"}`,
+    `- Code run: ${result.runId ?? "none"}`,
+    `- Code run status: ${result.runStatus ?? "none"}`,
+    ...(result.failureReason ? [`- Failure: ${result.failureReason}`] : []),
+    "",
+    "## Boundary",
+    "",
+    "This worker-result evidence reconciles one scheduler coder-stage worker only. Coder success means evidence-ready for later validation/audit; it is not task completion, source apply, whole-wave dispatch, scheduler loop, or parallel executor authorization.",
     "",
   ];
   return lines.join("\n");

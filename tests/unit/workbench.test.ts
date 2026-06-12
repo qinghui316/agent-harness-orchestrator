@@ -48,7 +48,7 @@ import { classifyPrFeedbackSnapshotData } from "../../src/pr-feedback/manager.js
 import { cleanupRemoteBranchAfterMerge, preparePostMergeHandoff, syncLocalAfterMerge } from "../../src/post-merge/manager.js";
 import { mergeNextLandingQueueCandidate, prepareLandingQueue } from "../../src/landing-queue/manager.js";
 import { listTaskQueueItems, listTaskQueues, pauseTaskQueue, reconcileTaskQueues, startOrResumeTaskQueue } from "../../src/task-queue/manager.js";
-import { finishTaskRunFromWorkflowResult, listTaskRuns, markTaskRunStarted } from "../../src/task-run/manager.js";
+import { finishTaskRunFromWorkflowResult, listTaskRuns, listWorkerLeases, markTaskRunStarted } from "../../src/task-run/manager.js";
 import { appendWorkflowTaskEvent, createWorkflowRunForTaskQueue, listWorkflowRuns, readWorkflowRun, readWorkflowRunEvents, syncWorkflowRunFromQueue, validateTaskQueueProposalStart } from "../../src/workflow-run/manager.js";
 import {
   buildTaskQueueProposalFromReadiness,
@@ -2468,15 +2468,109 @@ describe("workbench read model", () => {
           }),
         }),
       ]));
-      const duplicateStart = await executeWorkbenchAction({ project: project(), path: tempDir }, {
+      await expect(executeWorkbenchAction({ project: project(), path: tempDir }, {
         ...startAction,
         confirm: true,
+      })).rejects.toThrow("stale or no longer available");
+
+      const resultSnapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: topic.changeId });
+      expect(resultSnapshot.center.workpad.nextAction).toMatchObject({
+        actionType: "planning.scheduler.worker.reconcile-result",
+        label: "检查第一个 worker 结果",
+        schedulerRunId: schedulerRun?.id,
+        schedulerClaimReservationId: claimReservation?.id,
+        schedulerWorkerStartId: startedResult?.workerStart?.id,
       });
-      expect(duplicateStart.result).toMatchObject({
-        status: "failed",
-        actionType: "planning.scheduler.worker.start-first",
-        error: "planning.scheduler.worker.start-first reservation intent already started.",
+      const resultAction = resultSnapshot.right.confirmationQueue.current
+        .flatMap((item) => item.actions)
+        .find((action) => action.actionType === "planning.scheduler.worker.reconcile-result" && action.schedulerWorkerStartId === startedResult?.workerStart?.id);
+      if (!resultAction) throw new Error("Missing scheduler first worker result reconcile action.");
+      expect(resultAction).toMatchObject({
+        schedulerRunId: schedulerRun?.id,
+        schedulerClaimReservationId: claimReservation?.id,
+        schedulerWorkerStartId: startedResult?.workerStart?.id,
+        taskRunId: startedResult?.workerStart?.taskRunId,
+        workerLeaseId: startedResult?.workerStart?.workerLeaseId,
+        worktreeId: startedResult?.workerStart?.worktreeId,
+        runId: startedResult?.workerStart?.runId,
       });
+
+      const reconciled = await executeWorkbenchAction({ project: project(), path: tempDir }, {
+        ...resultAction,
+        confirm: true,
+      });
+      expect(reconciled.result).toMatchObject({ status: "completed" });
+      const reconciledResult = (reconciled.result as {
+        result?: {
+          status?: "terminal" | "running";
+          result?: {
+            id?: string;
+            status?: string;
+            schedulerWorkerStartId?: string;
+            taskRunId?: string;
+            workerLeaseId?: string;
+            worktreeId?: string;
+            runId?: string;
+          };
+          taskRun?: { id?: string; status?: string };
+          lease?: { id?: string; status?: string };
+          codeRun?: { id?: string; status?: string };
+        };
+      }).result;
+      expect(reconciledResult).toMatchObject({
+        status: "terminal",
+        result: {
+          status: "evidence-ready",
+          schedulerWorkerStartId: startedResult?.workerStart?.id,
+          taskRunId: startedResult?.workerStart?.taskRunId,
+          workerLeaseId: startedResult?.workerStart?.workerLeaseId,
+          worktreeId: startedResult?.workerStart?.worktreeId,
+          runId: startedResult?.workerStart?.runId,
+        },
+        taskRun: { id: startedResult?.workerStart?.taskRunId, status: "evidence-ready" },
+        lease: { id: startedResult?.workerStart?.workerLeaseId, status: "released" },
+        codeRun: { id: startedResult?.workerStart?.runId, status: "completed" },
+      });
+      expect((await listTaskRuns(afterMemory, topic.changeId))[0]).toMatchObject({ id: startedResult?.workerStart?.taskRunId, status: "evidence-ready" });
+      expect((await listWorkerLeases(afterMemory, topic.changeId)).find((lease) => lease.id === startedResult?.workerStart?.workerLeaseId)).toMatchObject({ status: "released" });
+      const workerResultPath = join(changeDir, "planning", "scheduler-runs", `${schedulerRun?.id}`, "scheduler-worker-results", `${reconciledResult?.result?.id}.json`);
+      expect(JSON.parse(await readFile(workerResultPath, "utf8"))).toMatchObject({
+        schedulerRunId: schedulerRun?.id,
+        schedulerClaimReservationId: claimReservation?.id,
+        schedulerWorkerStartId: startedResult?.workerStart?.id,
+        status: "evidence-ready",
+      });
+      const resultRuntimeEvents = (await readFile(runtimeEventsPath, "utf8")).trim().split(/\r?\n/).map((line) => JSON.parse(line));
+      expect(resultRuntimeEvents).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          schedulerRunId: schedulerRun?.id,
+          changeId: topic.changeId,
+          type: "scheduler-runtime.worker-result-ready",
+          payload: expect.objectContaining({
+            schedulerWorkerStartId: startedResult?.workerStart?.id,
+            schedulerWorkerResultId: reconciledResult?.result?.id,
+            taskRunId: startedResult?.workerStart?.taskRunId,
+            workerLeaseId: startedResult?.workerStart?.workerLeaseId,
+            worktreeId: startedResult?.workerStart?.worktreeId,
+            runId: startedResult?.workerStart?.runId,
+          }),
+        }),
+      ]));
+      const postResultSnapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: topic.changeId });
+      expect(postResultSnapshot.center.workpad.schedulerWorkerResult).toMatchObject({
+        id: reconciledResult?.result?.id,
+        status: "evidence-ready",
+        schedulerWorkerStartId: startedResult?.workerStart?.id,
+      });
+      expect(postResultSnapshot.center.workpad.nextAction).toMatchObject({
+        actionType: "planning.scheduler.worker.reconcile-result",
+        enabled: false,
+      });
+      expect(postResultSnapshot.right.confirmationQueue.current.flatMap((item) => item.actions).some((action) => action.actionType === "planning.scheduler.worker.reconcile-result")).toBe(false);
+      await expect(executeWorkbenchAction({ project: project(), path: tempDir }, {
+        ...resultAction,
+        confirm: true,
+      })).rejects.toThrow("stale or no longer available");
     } finally {
       process.env.PATH = oldPath;
     }

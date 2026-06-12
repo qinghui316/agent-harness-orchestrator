@@ -21,6 +21,7 @@ export function workflowActionLabel(actionType: string | undefined): string {
   if (actionType === "planning.scheduler.runtime.reconcile") return "生成 Reconcile Snapshot";
   if (actionType === "planning.scheduler.runtime.reserve-claims") return "预占 Runtime Claims";
   if (actionType === "planning.scheduler.worker.start-first") return "启动第一个 worker";
+  if (actionType === "planning.scheduler.worker.reconcile-result") return "检查第一个 worker 结果";
   if (actionType === "planning.workflowgraph.compile") return "编译执行图";
   if (actionType === "planning.taskqueue.confirm-start") return "确认启动 TaskQueue";
   if (actionType === "none") return "无后续动作";

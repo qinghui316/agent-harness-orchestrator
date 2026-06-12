@@ -2,11 +2,15 @@ import type { ResolvedMemory, WorkflowRunSummary } from "../types/index.js";
 import {
   readSchedulerReconcileSnapshotProjection,
   readSchedulerReconcileSnapshotByIdProjection,
+  findSchedulerRuntimeWorkerResultForStart,
+  listSchedulerRuntimeWorkerStarts,
   readSchedulerRuntimeClaimReservationProjection,
   readSchedulerRuntimeStateProjection,
   type SchedulerReconcileSnapshot,
   type SchedulerRuntimeClaimReservation,
   type SchedulerRuntimeState,
+  type SchedulerRuntimeWorkerResult,
+  type SchedulerRuntimeWorkerStart,
 } from "../scheduler-runtime/manager.js";
 import {
   readLatestDecompositionPlan,
@@ -251,6 +255,53 @@ export interface WorkbenchSchedulerClaimReservationSummary {
   updatedAt: string;
 }
 
+export interface WorkbenchSchedulerWorkerStartSummary {
+  id: string;
+  changeId: string;
+  schedulerRunId: string;
+  schedulerClaimReservationId: string;
+  schedulerReconcileSnapshotId: string;
+  status: SchedulerRuntimeWorkerStart["status"];
+  reservationIntentId: string;
+  claimIntentId: string;
+  nodeId: string;
+  unitId: string;
+  stageId: string;
+  stage: "coder";
+  taskRunId: string;
+  workerLeaseId: string;
+  worktreeId?: string;
+  runId?: string;
+  artifact?: string;
+  markdownArtifact?: string;
+  updatedAt: string;
+}
+
+export interface WorkbenchSchedulerWorkerResultSummary {
+  id: string;
+  changeId: string;
+  schedulerRunId: string;
+  schedulerClaimReservationId: string;
+  schedulerWorkerStartId: string;
+  status: SchedulerRuntimeWorkerResult["status"];
+  reservationIntentId: string;
+  claimIntentId: string;
+  nodeId: string;
+  unitId: string;
+  stageId: string;
+  stage: "coder";
+  taskRunId: string;
+  workerLeaseId: string;
+  taskRunStatus: string;
+  workerLeaseStatus: string;
+  worktreeId?: string;
+  runId?: string;
+  runStatus?: string;
+  artifact?: string;
+  markdownArtifact?: string;
+  updatedAt: string;
+}
+
 export interface WorkbenchSchedulerReconcileSnapshotSummary {
   id: string;
   changeId: string;
@@ -288,6 +339,7 @@ type WorkflowProjectionActionType =
   | "planning.scheduler.runtime.reconcile"
   | "planning.scheduler.runtime.reserve-claims"
   | "planning.scheduler.worker.start-first"
+  | "planning.scheduler.worker.reconcile-result"
   | "planning.workflowgraph.compile"
   | "planning.taskqueue.confirm-start"
   | "code.run";
@@ -313,6 +365,8 @@ export interface WorkbenchTypedWorkflowNextAction {
   schedulerRunId?: string;
   schedulerReconcileSnapshotId?: string;
   schedulerClaimReservationId?: string;
+  schedulerWorkerStartId?: string;
+  schedulerWorkerResultId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   disabledReason?: string;
@@ -602,6 +656,81 @@ export async function readSchedulerClaimReservationSummary(memory: ResolvedMemor
   };
 }
 
+export async function readLatestSchedulerWorkerStartSummary(
+  memory: ResolvedMemory,
+  changePath: string,
+  schedulerRunId?: string,
+  schedulerClaimReservationId?: string,
+): Promise<WorkbenchSchedulerWorkerStartSummary | null> {
+  if (!schedulerRunId) return null;
+  const starts = await listSchedulerRuntimeWorkerStarts(memory, changePath, schedulerRunId).catch(() => []);
+  const scoped = schedulerClaimReservationId ? starts.filter((start) => start.schedulerClaimReservationId === schedulerClaimReservationId) : starts;
+  const start = [...scoped].sort((a, b) => (b.updatedAt ?? "").localeCompare(a.updatedAt ?? ""))[0];
+  return start ? summarizeSchedulerWorkerStart(start) : null;
+}
+
+export async function readSchedulerWorkerResultSummary(
+  memory: ResolvedMemory,
+  changePath: string,
+  schedulerRunId?: string,
+  workerStartId?: string,
+): Promise<WorkbenchSchedulerWorkerResultSummary | null> {
+  if (!schedulerRunId || !workerStartId) return null;
+  const result = await findSchedulerRuntimeWorkerResultForStart(memory, changePath, schedulerRunId, workerStartId).catch(() => null);
+  return result ? summarizeSchedulerWorkerResult(result) : null;
+}
+
+function summarizeSchedulerWorkerStart(start: SchedulerRuntimeWorkerStart): WorkbenchSchedulerWorkerStartSummary {
+  return {
+    id: start.id,
+    changeId: start.changeId,
+    schedulerRunId: start.schedulerRunId,
+    schedulerClaimReservationId: start.schedulerClaimReservationId,
+    schedulerReconcileSnapshotId: start.schedulerReconcileSnapshotId,
+    status: start.status,
+    reservationIntentId: start.reservationIntentId,
+    claimIntentId: start.claimIntentId,
+    nodeId: start.nodeId,
+    unitId: start.unitId,
+    stageId: start.stageId,
+    stage: "coder",
+    taskRunId: start.taskRunId,
+    workerLeaseId: start.workerLeaseId,
+    worktreeId: start.worktreeId,
+    runId: start.runId,
+    artifact: start.artifact,
+    markdownArtifact: start.markdownArtifact,
+    updatedAt: start.updatedAt,
+  };
+}
+
+function summarizeSchedulerWorkerResult(result: SchedulerRuntimeWorkerResult): WorkbenchSchedulerWorkerResultSummary {
+  return {
+    id: result.id,
+    changeId: result.changeId,
+    schedulerRunId: result.schedulerRunId,
+    schedulerClaimReservationId: result.schedulerClaimReservationId,
+    schedulerWorkerStartId: result.schedulerWorkerStartId,
+    status: result.status,
+    reservationIntentId: result.reservationIntentId,
+    claimIntentId: result.claimIntentId,
+    nodeId: result.nodeId,
+    unitId: result.unitId,
+    stageId: result.stageId,
+    stage: "coder",
+    taskRunId: result.taskRunId,
+    workerLeaseId: result.workerLeaseId,
+    taskRunStatus: result.taskRunStatus,
+    workerLeaseStatus: result.workerLeaseStatus,
+    worktreeId: result.worktreeId,
+    runId: result.runId,
+    runStatus: result.runStatus,
+    artifact: result.artifact,
+    markdownArtifact: result.markdownArtifact,
+    updatedAt: result.updatedAt,
+  };
+}
+
 export async function readSchedulerReconcileSnapshotSummary(memory: ResolvedMemory, changePath: string, schedulerRunId?: string, snapshotId?: string): Promise<WorkbenchSchedulerReconcileSnapshotSummary | null> {
   if (!schedulerRunId || !snapshotId) return null;
   const snapshot = await readSchedulerReconcileSnapshotProjection(memory, changePath, schedulerRunId, snapshotId);
@@ -710,9 +839,11 @@ export function buildTypedWorkflowNextAction(input: {
   schedulerRuntime?: WorkbenchSchedulerRuntimeSummary | null;
   schedulerReconcileSnapshot?: WorkbenchSchedulerReconcileSnapshotSummary | null;
   schedulerClaimReservation?: WorkbenchSchedulerClaimReservationSummary | null;
+  schedulerWorkerStart?: WorkbenchSchedulerWorkerStartSummary | null;
+  schedulerWorkerResult?: WorkbenchSchedulerWorkerResultSummary | null;
   workflowRun?: WorkflowRunSummary | null;
 }): WorkbenchTypedWorkflowNextAction {
-  const { topic, readiness, intake, planningBundle, decompositionPlan, decompositionReadiness, taskQueueProposal, workflowGraphPlan, schedulerRun, schedulerRuntime, schedulerReconcileSnapshot, schedulerClaimReservation, workflowRun } = input;
+  const { topic, readiness, intake, planningBundle, decompositionPlan, decompositionReadiness, taskQueueProposal, workflowGraphPlan, schedulerRun, schedulerRuntime, schedulerReconcileSnapshot, schedulerClaimReservation, schedulerWorkerStart, schedulerWorkerResult, workflowRun } = input;
   if (!readiness.specReady && !topic.runs.some((run) => run.runtime === "intake-scan")) {
     return workflowNextAction("intake.scan", "分析需求", "先只读扫描项目，整理当前理解、相关文件和待确认问题。", false);
   }
@@ -775,6 +906,45 @@ export function buildTypedWorkflowNextAction(input: {
       && schedulerClaimReservation.schedulerReconcileSnapshotId === schedulerReconcileSnapshot.id
     ) {
       if (schedulerClaimReservation.launchConfirmed) {
+        if (schedulerWorkerStart?.schedulerClaimReservationId === schedulerClaimReservation.id && schedulerWorkerStart.schedulerRunId === schedulerRun.id) {
+          if (schedulerWorkerResult?.schedulerWorkerStartId === schedulerWorkerStart.id) {
+            return {
+              ...workflowNextAction("planning.scheduler.worker.reconcile-result", "等待验证阶段", "第一个 scheduler coder worker result 已经对账；validation/audit 阶段需要后续单独开启。"),
+              enabled: false,
+              disabledReason: "第一个 worker result 已对账。validation/audit/rework 不是 Phase 9H 范围。",
+              decompositionPlanId: decompositionPlan.id,
+              readinessManifestId: decompositionReadiness.id,
+              schedulerContractId: schedulerRun.schedulerContractId,
+              schedulerDispatchDryRunId: schedulerRun.schedulerDispatchDryRunId,
+              schedulerWorkerPlanId: schedulerRun.schedulerWorkerPlanId,
+              schedulerClaimReconcilePlanId: schedulerRun.schedulerClaimReconcilePlanId,
+              schedulerLaunchPreflightId: schedulerRun.schedulerLaunchPreflightId,
+              schedulerRunId: schedulerRun.id,
+              schedulerReconcileSnapshotId: schedulerReconcileSnapshot.id,
+              schedulerClaimReservationId: schedulerClaimReservation.id,
+              schedulerWorkerStartId: schedulerWorkerStart.id,
+              schedulerWorkerResultId: schedulerWorkerResult.id,
+              reservationIntentId: schedulerWorkerStart.reservationIntentId,
+              claimIntentId: schedulerWorkerStart.claimIntentId,
+            };
+          }
+          return {
+            ...workflowNextAction("planning.scheduler.worker.reconcile-result", "检查第一个 worker 结果", "读取 TaskRun、WorkerLease、worktree 和 code run evidence；只写 scheduler worker result，不启动 validation、audit、rework 或下一个 worker。"),
+            decompositionPlanId: decompositionPlan.id,
+            readinessManifestId: decompositionReadiness.id,
+            schedulerContractId: schedulerRun.schedulerContractId,
+            schedulerDispatchDryRunId: schedulerRun.schedulerDispatchDryRunId,
+            schedulerWorkerPlanId: schedulerRun.schedulerWorkerPlanId,
+            schedulerClaimReconcilePlanId: schedulerRun.schedulerClaimReconcilePlanId,
+            schedulerLaunchPreflightId: schedulerRun.schedulerLaunchPreflightId,
+            schedulerRunId: schedulerRun.id,
+            schedulerReconcileSnapshotId: schedulerReconcileSnapshot.id,
+            schedulerClaimReservationId: schedulerClaimReservation.id,
+            schedulerWorkerStartId: schedulerWorkerStart.id,
+            reservationIntentId: schedulerWorkerStart.reservationIntentId,
+            claimIntentId: schedulerWorkerStart.claimIntentId,
+          };
+        }
         return {
           ...workflowNextAction("planning.scheduler.worker.start-first", "启动第一个 worker", "用户已确认并行执行计划启动意图；本操作只启动 latest claim reservation 中第一个 runnable claim 的 coder stage。"),
           decompositionPlanId: decompositionPlan.id,

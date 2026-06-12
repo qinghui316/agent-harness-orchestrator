@@ -6,7 +6,7 @@ import { getChangeStatusForChange } from "../../change/manager.js";
 import { getActiveChanges } from "../../ecl/index.js";
 import { resolveProjectMemory } from "../../memory/resolver.js";
 import { readSchedulerRuntimeLineage } from "../../scheduler-runtime/guards.js";
-import { findSchedulerClaimReservationForSnapshot, findSchedulerRuntimeWorkerStartForReservationIntent, readSchedulerReconcileSnapshot, readSchedulerRuntimeClaimReservation, readSchedulerRuntimeStateProjection } from "../../scheduler-runtime/repository.js";
+import { findSchedulerClaimReservationForSnapshot, findSchedulerRuntimeWorkerResultForStart, findSchedulerRuntimeWorkerStartForReservationIntent, readSchedulerReconcileSnapshot, readSchedulerRuntimeClaimReservation, readSchedulerRuntimeStateProjection, readSchedulerRuntimeWorkerStart } from "../../scheduler-runtime/repository.js";
 import { latestLandingQueueSnapshot } from "../../landing-queue/manager.js";
 import { listTaskQueues } from "../../task-queue/manager.js";
 import { listTaskRuns } from "../../task-run/manager.js";
@@ -390,6 +390,64 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
     }
     const existing = await findSchedulerRuntimeWorkerStartForReservationIntent(memory, target.path, run.id, selectedIntent.reservationIntentId);
     if (existing) throw new Error("planning.scheduler.worker.start-first reservation intent already started.");
+  }
+  if (request.actionType === "planning.scheduler.worker.reconcile-result") {
+    const active = await getActiveChanges(memory);
+    const target = active.find((item) => item.name === changeId);
+    if (!target) throw new Error("planning.scheduler.worker.reconcile-result target is stale or missing active Change.");
+    if (!request.schedulerRunId) throw new Error("planning.scheduler.worker.reconcile-result requires schedulerRunId.");
+    if (!request.schedulerWorkerStartId) throw new Error("planning.scheduler.worker.reconcile-result requires schedulerWorkerStartId.");
+    const run = await readSchedulerRun(memory, target.path, request.schedulerRunId);
+    if (run.id !== request.schedulerRunId || run.changeId !== changeId || run.status !== "prepared") {
+      throw new Error("planning.scheduler.worker.reconcile-result SchedulerRun target is stale or not prepared.");
+    }
+    const latestRun = await readLatestSchedulerRun(memory, target.path);
+    if (latestRun.id !== run.id) throw new Error("planning.scheduler.worker.reconcile-result requires the latest SchedulerRun.");
+    await readSchedulerRuntimeLineage(memory, target.path, run.id);
+    const runtimeState = await readSchedulerRuntimeStateProjection(memory, target.path, run.id);
+    if (!runtimeState?.lastReconcileSnapshotId || !runtimeState.lastClaimReservationId) {
+      throw new Error("planning.scheduler.worker.reconcile-result requires runtime state with latest reconcile snapshot and claim reservation.");
+    }
+    const snapshot = await readSchedulerReconcileSnapshot(memory, target.path, run.id, runtimeState.lastReconcileSnapshotId);
+    const reservation = await readSchedulerRuntimeClaimReservation(memory, target.path, run.id, runtimeState.lastClaimReservationId);
+    if (reservation.schedulerReconcileSnapshotId !== snapshot.id || runtimeState.lastClaimReservationSnapshotId !== snapshot.id) {
+      throw new Error("planning.scheduler.worker.reconcile-result SchedulerRuntimeClaimReservation target is stale.");
+    }
+    const workerStart = await readSchedulerRuntimeWorkerStart(memory, target.path, run.id, request.schedulerWorkerStartId);
+    if (
+      workerStart.changeId !== changeId
+      || workerStart.schedulerRunId !== run.id
+      || workerStart.schedulerRuntimeStateId !== runtimeState.id
+      || workerStart.schedulerReconcileSnapshotId !== snapshot.id
+      || workerStart.schedulerClaimReservationId !== reservation.id
+    ) {
+      throw new Error("planning.scheduler.worker.reconcile-result WorkerStart target is stale.");
+    }
+    if (request.schedulerClaimReservationId && request.schedulerClaimReservationId !== workerStart.schedulerClaimReservationId) {
+      throw new Error("planning.scheduler.worker.reconcile-result SchedulerRuntimeClaimReservation scope mismatch.");
+    }
+    if (request.reservationIntentId && request.reservationIntentId !== workerStart.reservationIntentId) {
+      throw new Error("planning.scheduler.worker.reconcile-result reservationIntentId scope mismatch.");
+    }
+    if (request.claimIntentId && request.claimIntentId !== workerStart.claimIntentId) {
+      throw new Error("planning.scheduler.worker.reconcile-result claimIntentId scope mismatch.");
+    }
+    if (request.taskRunId && request.taskRunId !== workerStart.taskRunId) {
+      throw new Error("planning.scheduler.worker.reconcile-result TaskRun scope mismatch.");
+    }
+    if (request.workerLeaseId && request.workerLeaseId !== workerStart.workerLeaseId) {
+      throw new Error("planning.scheduler.worker.reconcile-result WorkerLease scope mismatch.");
+    }
+    if (request.worktreeId && request.worktreeId !== workerStart.worktreeId) {
+      throw new Error("planning.scheduler.worker.reconcile-result worktree scope mismatch.");
+    }
+    if (request.runId && request.runId !== workerStart.runId) {
+      throw new Error("planning.scheduler.worker.reconcile-result code run scope mismatch.");
+    }
+    const existingResult = await findSchedulerRuntimeWorkerResultForStart(memory, target.path, run.id, workerStart.id);
+    if (request.schedulerWorkerResultId && existingResult?.id !== request.schedulerWorkerResultId) {
+      throw new Error("planning.scheduler.worker.reconcile-result WorkerResult scope mismatch.");
+    }
   }
   if (request.actionType === "planning.workflowgraph.compile") {
     const active = await getActiveChanges(memory);

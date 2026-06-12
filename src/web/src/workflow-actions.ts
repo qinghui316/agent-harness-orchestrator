@@ -15,12 +15,16 @@ export type WorkflowActionPayloadSource = {
   schedulerRunId?: string;
   schedulerReconcileSnapshotId?: string;
   schedulerClaimReservationId?: string;
+  schedulerWorkerStartId?: string;
+  schedulerWorkerResultId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   workflowRunId?: string;
   queueRunId?: string;
   taskIds?: string[];
   taskRunId?: string;
+  workerLeaseId?: string;
+  runId?: string;
   worktreeId?: string;
   worktreeIds?: string[];
   applyCheckId?: string;

@@ -27,6 +27,8 @@ import type {
   WorkbenchSchedulerReconcileSnapshotSummary,
   WorkbenchSchedulerRunSummary,
   WorkbenchSchedulerRuntimeSummary,
+  WorkbenchSchedulerWorkerResultSummary,
+  WorkbenchSchedulerWorkerStartSummary,
   WorkbenchSchedulerWorkerSessionPlanSummary,
   WorkbenchTaskQueueProposalSummary,
   WorkbenchWorkflowGraphPlanSummary,
@@ -114,12 +116,16 @@ export interface ThreadStreamAction {
   schedulerRunId?: string;
   schedulerReconcileSnapshotId?: string;
   schedulerClaimReservationId?: string;
+  schedulerWorkerStartId?: string;
+  schedulerWorkerResultId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   workflowRunId?: string;
   queueRunId?: string;
   taskIds?: string[];
   taskRunId?: string;
+  workerLeaseId?: string;
+  runId?: string;
 }
 
 export interface ThreadStreamEvidence {
@@ -222,12 +228,16 @@ export interface WorkbenchDecisionAction {
   schedulerRunId?: string;
   schedulerReconcileSnapshotId?: string;
   schedulerClaimReservationId?: string;
+  schedulerWorkerStartId?: string;
+  schedulerWorkerResultId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   workflowRunId?: string;
   queueRunId?: string;
   taskIds?: string[];
   taskRunId?: string;
+  workerLeaseId?: string;
+  runId?: string;
   worktreeId?: string;
   worktreeIds?: string[];
   applyCheckId?: string;
@@ -301,6 +311,8 @@ export interface WorkbenchConfirmationQueueItem {
   schedulerRunId?: string;
   schedulerReconcileSnapshotId?: string;
   schedulerClaimReservationId?: string;
+  schedulerWorkerStartId?: string;
+  schedulerWorkerResultId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   summary: string;
@@ -378,6 +390,8 @@ export interface WorkpadNextAction {
   schedulerRunId?: string;
   schedulerReconcileSnapshotId?: string;
   schedulerClaimReservationId?: string;
+  schedulerWorkerStartId?: string;
+  schedulerWorkerResultId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   workflowRunId?: string;
@@ -612,6 +626,8 @@ export interface WorkbenchWorkpad {
   schedulerRuntime?: WorkbenchSchedulerRuntimeSummary;
   schedulerReconcileSnapshot?: WorkbenchSchedulerReconcileSnapshotSummary;
   schedulerClaimReservation?: WorkbenchSchedulerClaimReservationSummary;
+  schedulerWorkerStart?: WorkbenchSchedulerWorkerStartSummary;
+  schedulerWorkerResult?: WorkbenchSchedulerWorkerResultSummary;
   workflowRun?: WorkflowRunSummary;
   rolePipeline?: WorkbenchRolePipelineSummary;
   resultReview?: WorkbenchResultReview;

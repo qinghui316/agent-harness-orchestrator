@@ -127,6 +127,59 @@ export function taskQueueProposalToConfirmationItems(
       && claimReservation.schedulerReconcileSnapshotId === reconcileSnapshot.id
     ) {
       if (claimReservation.launchConfirmed) {
+        const workerStart = workpad.schedulerWorkerStart;
+        const workerResult = workpad.schedulerWorkerResult;
+        if (workerStart?.schedulerClaimReservationId === claimReservation.id && workerStart.schedulerRunId === schedulerRun.id) {
+          if (workerResult?.schedulerWorkerStartId === workerStart.id) return [];
+          return [{
+            id: `confirm:scheduler-first-worker-result:${selectedTopic.id}:${workerStart.id}`,
+            kind: "planning-confirm",
+            projectId: project?.id ?? null,
+            conversationId: selectedTopic.id,
+            changeId: selectedTopic.id,
+            schedulerRunId: schedulerRun.id,
+            schedulerReconcileSnapshotId: reconcileSnapshot.id,
+            schedulerClaimReservationId: claimReservation.id,
+            schedulerWorkerStartId: workerStart.id,
+            reservationIntentId: workerStart.reservationIntentId,
+            claimIntentId: workerStart.claimIntentId,
+            runId: workerStart.runId,
+            worktreeId: workerStart.worktreeId,
+            summary: "第一个 scheduler coder worker 已启动。可以检查它的 code run / TaskRun / WorkerLease 结果。",
+            whyNeedsConfirmation: "这是 Harness 阶段门：只对 9G 启动的第一个 worker 做结果对账，不启动 validation、audit、rework 或下一个 worker。",
+            confirmEffect: "重读 latest SchedulerRun、RuntimeState、ClaimReservation、WorkerStart、TaskRun、WorkerLease、worktree 和 code run；若 code run terminal，则写 SchedulerRuntimeWorkerResult 并释放 WorkerLease；若仍 running，则只返回 running 摘要。",
+            riskSummary: "对账不会启动任何新的 worker 或验证阶段；后续 validation/audit/rework 仍需另开阶段并重新经过 scoped evidence、ToolPolicyGate 和 human gate。",
+            evidenceRefs: workerStart.artifact ? [workerStart.artifact] : [],
+            actions: [{
+              id: `workflow:planning.scheduler.worker.reconcile-result:${selectedTopic.id}:${workerStart.id}`,
+              label: "检查第一个 worker 结果",
+              kind: "workflow-action",
+              changeId: selectedTopic.id,
+              actionType: "planning.scheduler.worker.reconcile-result",
+              decompositionPlanId: plan.id,
+              readinessManifestId: readiness.id,
+              schedulerContractId: schedulerRun.schedulerContractId,
+              schedulerDispatchDryRunId: schedulerRun.schedulerDispatchDryRunId,
+              schedulerWorkerPlanId: schedulerRun.schedulerWorkerPlanId,
+              schedulerClaimReconcilePlanId: schedulerRun.schedulerClaimReconcilePlanId,
+              schedulerLaunchPreflightId: schedulerRun.schedulerLaunchPreflightId,
+              schedulerRunId: schedulerRun.id,
+              schedulerReconcileSnapshotId: reconcileSnapshot.id,
+              schedulerClaimReservationId: claimReservation.id,
+              schedulerWorkerStartId: workerStart.id,
+              reservationIntentId: workerStart.reservationIntentId,
+              claimIntentId: workerStart.claimIntentId,
+              taskRunId: workerStart.taskRunId,
+              workerLeaseId: workerStart.workerLeaseId,
+              worktreeId: workerStart.worktreeId,
+              runId: workerStart.runId,
+              enabled: true,
+              requiresConfirmation: true,
+            }],
+            primary: true,
+            status: "pending",
+          }];
+        }
         return [{
           id: `confirm:scheduler-first-worker:${selectedTopic.id}:${claimReservation.id}`,
           kind: "planning-confirm",

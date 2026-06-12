@@ -2,10 +2,10 @@
 
 ## Current Handoff
 
-- Current date: 2026-06-11.
+- Current date: 2026-06-12.
 - Active ECL change: none.
 - Pending Harness evolution: none.
-- Latest archived product change: `harness/changes/archive/20260611-phase-9g-scheduler-first-coder-worker-start-gate/summary.md`.
+- Latest archived product change: `harness/changes/archive/20260612-phase-9h-scheduler-first-worker-result-reconcile-gate/summary.md`.
 - Latest archived product/Harness docs change: `harness/changes/archive/20260611-phase-8t-agentscope-harness-reference-alignment/summary.md`.
 - Latest archived Harness evolution: `harness/changes/archive/20260611-auto-evolve-harness-phase-9b-9f-scheduler-runtime-surface-evidence/summary.md`.
 - Active product phase: none.
@@ -35,6 +35,7 @@ Current baseline:
 - Phase 9F Main Agent Parallel Plan Preparation Launch Confirmation Surface completed and is archived at `harness/changes/archive/20260611-phase-9f-main-agent-parallel-plan-preparation-launch-confirmation-surface/summary.md`. It collapses ordinary scheduler confirmation into two Harness phase gates: `准备并行执行计划` and `确认启动这个并行执行计划`, while preserving internal scheduler evidence for audit, stale revalidation, and recovery. It must not start workers, allocate leases, create TaskRuns/WorkerSessions/worktrees/runs/child Changes, or authorize parallel execution.
 - Auto Evolve Harness Phase 9B 9F Scheduler Runtime Surface Evidence completed and is archived at `harness/changes/archive/20260611-auto-evolve-harness-phase-9b-9f-scheduler-runtime-surface-evidence/summary.md`. It handled the generated Phase 9B-9F pending evolution window as `noop/subagent_review` with subagent score `94/100`; no new Harness rule was added. It does not change product runtime behavior.
 - Phase 9G Scheduler First Coder Worker Start Gate completed and is archived at `harness/changes/archive/20260611-phase-9g-scheduler-first-coder-worker-start-gate/summary.md`. It is the first controlled scheduler execution slice: it may start exactly one coder-stage worker from the latest scheduler claim reservation after user confirmation, but it must not start a whole wave, validation, audit, bounded rework, a scheduler loop, a slot allocator, a child Change, or the full parallel executor.
+- Phase 9H Scheduler First Worker Result Reconcile Gate completed and is archived at `harness/changes/archive/20260612-phase-9h-scheduler-first-worker-result-reconcile-gate/summary.md`. It reconciles only the first scheduler coder worker started by Phase 9G: completed code evidence becomes scheduler-owned worker result evidence, TaskRun moves to `evidence-ready`, and WorkerLease is released. It does not start validation, audit, bounded rework, a second worker, a whole wave, a scheduler loop, a slot allocator, apply/landing, child Changes, or the full parallel executor.
 - Harness evolution after Phase 9B completed as `noop/subagent_review` and is archived at `harness/changes/archive/20260611-auto-evolve-harness-phase-8w-9b-scheduler-pre-executor-evidence/summary.md`. Authorized subagent review recommended `noop` with score `93/100`; existing proposal/runtime, Runtime Continuity auxiliary evidence, ToolPolicy authority, human gate, and future feature module-boundary rules are sufficient for the Phase 8W-9B scheduler pre-executor evidence window.
 - The Phase 8S-8W pending Harness evolution window has been marked complete as `noop/subagent_review` with subagent score `94/100`.
 - Phase 6F completed the single-demand local loop through result review and local apply handoff.

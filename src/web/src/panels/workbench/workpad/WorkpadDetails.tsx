@@ -33,7 +33,9 @@ import {
   SchedulerReconcileSnapshotCard,
   SchedulerRuntimeCard,
   SchedulerRunCard,
+  SchedulerWorkerResultCard,
   SchedulerWorkerSessionPlanCard,
+  SchedulerWorkerStartCard,
   TaskQueueProposalCard,
   WorkflowGraphPlanCard,
 } from "./TypedWorkflowCards.js";
@@ -121,6 +123,8 @@ export function WorkpadDiagnosticDetails({
       {workpad.schedulerRuntime ? <SchedulerRuntimeCard runtime={workpad.schedulerRuntime} /> : null}
       {workpad.schedulerReconcileSnapshot ? <SchedulerReconcileSnapshotCard snapshot={workpad.schedulerReconcileSnapshot} /> : null}
       {workpad.schedulerClaimReservation ? <SchedulerClaimReservationCard reservation={workpad.schedulerClaimReservation} /> : null}
+      {workpad.schedulerWorkerStart ? <SchedulerWorkerStartCard start={workpad.schedulerWorkerStart} /> : null}
+      {workpad.schedulerWorkerResult ? <SchedulerWorkerResultCard result={workpad.schedulerWorkerResult} /> : null}
 
       {workpad.rolePipeline ? (
         <section className="workpad-section" data-testid="role-pipeline-summary">

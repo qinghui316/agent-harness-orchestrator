@@ -12,14 +12,17 @@ import {
   reserveSchedulerRuntimeClaims,
   renderSchedulerLaunchBriefMarkdown,
   renderSchedulerRuntimeClaimReservationMarkdown,
+  renderSchedulerRuntimeWorkerResultMarkdown,
   renderSchedulerRuntimeWorkerStartMarkdown,
   renderSchedulerReconcileSnapshotMarkdown,
   renderSchedulerRuntimeStateMarkdown,
+  reconcileSchedulerFirstWorkerResult,
   startFirstSchedulerCoderWorker,
   type SchedulerReconcileSnapshot,
   type SchedulerRuntimeClaimReservation,
   type SchedulerRuntimeState,
   type SchedulerRuntimeWorkerStart,
+  type SchedulerWorkerResultReconcileResult,
   type SchedulerPlanPreparationResult,
 } from "../../../scheduler-runtime/manager.js";
 import type { ManagedProject } from "../../../types/index.js";
@@ -1061,6 +1064,110 @@ export async function startPlanningSchedulerFirstWorker(
       workerLeaseId: result.workerStart.workerLeaseId,
       worktreeId: result.workerStart.worktreeId,
       runId: result.workerStart.runId,
+    },
+    completedAt: new Date().toISOString(),
+  });
+  return result;
+}
+
+export async function reconcilePlanningSchedulerFirstWorkerResult(
+  project: ManagedProject,
+  changeId: string,
+  request: WorkbenchWorkflowActionRequest,
+  live: WorkbenchLiveSink | undefined,
+): Promise<SchedulerWorkerResultReconcileResult> {
+  const { memory } = await resolveTopic(project, changeId);
+  assertWritableMemory(memory, "Scheduler first worker result reconcile");
+  if (!request.schedulerRunId) throw new Error("planning.scheduler.worker.reconcile-result requires schedulerRunId.");
+  if (!request.schedulerWorkerStartId) throw new Error("planning.scheduler.worker.reconcile-result requires schedulerWorkerStartId.");
+  const result = await reconcileSchedulerFirstWorkerResult(project, {
+    changeId,
+    schedulerRunId: request.schedulerRunId,
+    schedulerWorkerStartId: request.schedulerWorkerStartId,
+  });
+  if (result.status === "running") {
+    await appendTopicThreadEntry(project, changeId, {
+      type: "assistant.message",
+      status: "scheduler-first-worker-running",
+      text: `第一个 scheduler coder worker 仍在运行：TaskRun ${result.taskRun.id}，WorkerLease ${result.lease.id}${result.codeRun?.id ? `，code run ${result.codeRun.id}` : ""}。未写入 terminal result，也未释放 lease。`,
+      artifact: result.workerStart.artifact,
+      runId: result.codeRun?.id,
+    });
+    emitAssistantEvent(live, {
+      runId: result.codeRun?.id ?? result.workerStart.id,
+      kind: "status",
+      phase: "scheduler-first-worker-running",
+      title: "第一个 scheduler worker 仍在运行",
+      summary: "Result reconcile observed a non-terminal code run; no terminal SchedulerRuntimeWorkerResult was written and the WorkerLease remains active.",
+      artifactRef: result.workerStart.artifact,
+    });
+    await recordWorkbenchDecision(project, {
+      id: `scheduler-first-worker-running:${result.workerStart.id}`,
+      changeId,
+      decisionType: "planning.scheduler.worker.reconcile-result",
+      status: "completed",
+      label: "第一个 worker 仍在运行",
+      summary: "Scheduler first worker result reconcile observed running evidence and did not release the lease.",
+      targetId: result.workerStart.id,
+      runId: result.codeRun?.id ?? null,
+      artifact: result.workerStart.artifact,
+      actionId: "planning.scheduler.worker.reconcile-result",
+      payload: {
+        schedulerRunId: result.workerStart.schedulerRunId,
+        schedulerClaimReservationId: result.workerStart.schedulerClaimReservationId,
+        schedulerWorkerStartId: result.workerStart.id,
+        reservationIntentId: result.workerStart.reservationIntentId,
+        claimIntentId: result.workerStart.claimIntentId,
+        taskRunId: result.taskRun.id,
+        workerLeaseId: result.lease.id,
+        worktreeId: result.workerStart.worktreeId,
+        runId: result.codeRun?.id,
+        resultStatus: "running",
+      },
+      completedAt: new Date().toISOString(),
+    });
+    return result;
+  }
+  await appendTopicThreadEntry(project, changeId, {
+    type: "assistant.message",
+    status: result.result.status === "evidence-ready" ? "scheduler-first-worker-result-ready" : "scheduler-first-worker-result-failed",
+    text: renderSchedulerRuntimeWorkerResultMarkdown(result.result),
+    artifact: result.result.artifact,
+    runId: result.codeRun?.id ?? undefined,
+  });
+  emitAssistantEvent(live, {
+    runId: result.codeRun?.id ?? result.result.id,
+    kind: "file-change",
+    phase: result.result.status === "evidence-ready" ? "scheduler-first-worker-result-ready" : "scheduler-first-worker-result-failed",
+    title: result.result.status === "evidence-ready" ? "第一个 scheduler worker 结果已就绪" : "第一个 scheduler worker 结果失败",
+    summary: "Scheduler-owned worker result evidence was reconciled from TaskRun, WorkerLease, worktree, and code run evidence. No validation, audit, rework, next worker, or scheduler loop was started.",
+    artifactRef: result.result.artifact,
+  });
+  await recordWorkbenchDecision(project, {
+    id: `scheduler-first-worker-result:${result.result.id}`,
+    changeId,
+    decisionType: "planning.scheduler.worker.reconcile-result",
+    status: "completed",
+    label: result.result.status === "evidence-ready" ? "第一个 worker 结果已就绪" : "第一个 worker 结果失败",
+    summary: "Reconciled exactly one scheduler coder worker result without starting validation, audit, rework, or the next worker.",
+    targetId: result.result.id,
+    runId: result.codeRun?.id ?? null,
+    artifact: result.result.artifact,
+    actionId: "planning.scheduler.worker.reconcile-result",
+    payload: {
+      schedulerRunId: result.result.schedulerRunId,
+      schedulerClaimReservationId: result.result.schedulerClaimReservationId,
+      schedulerWorkerStartId: result.result.schedulerWorkerStartId,
+      schedulerWorkerResultId: result.result.id,
+      reservationIntentId: result.result.reservationIntentId,
+      claimIntentId: result.result.claimIntentId,
+      nodeId: result.result.nodeId,
+      unitId: result.result.unitId,
+      taskRunId: result.result.taskRunId,
+      workerLeaseId: result.result.workerLeaseId,
+      worktreeId: result.result.worktreeId,
+      runId: result.result.runId,
+      resultStatus: result.result.status,
     },
     completedAt: new Date().toISOString(),
   });

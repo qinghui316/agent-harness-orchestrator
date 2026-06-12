@@ -727,6 +727,7 @@ function workflowActionLabel(actionType: string): string {
     case "planning.scheduler.runtime.reconcile": return "Scheduler runtime reconcile";
     case "planning.scheduler.runtime.reserve-claims": return "Scheduler runtime claim reservation";
     case "planning.scheduler.worker.start-first": return "Scheduler first worker start";
+    case "planning.scheduler.worker.reconcile-result": return "Scheduler first worker result reconcile";
     case "planning.workflowgraph.compile": return "WorkflowGraphPlan compile";
     case "planning.taskqueue.confirm-start": return "TaskQueue start confirmation";
     case "code.run": return "Code workflow";

@@ -42,6 +42,8 @@ export interface WorkbenchActionRequest {
   schedulerRunId?: string;
   schedulerReconcileSnapshotId?: string;
   schedulerClaimReservationId?: string;
+  schedulerWorkerStartId?: string;
+  schedulerWorkerResultId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   workflowRunId?: string;
@@ -53,6 +55,8 @@ export interface WorkbenchActionRequest {
   remoteLandingResultId?: string;
   taskIds?: string[];
   taskRunId?: string;
+  workerLeaseId?: string;
+  runId?: string;
   confirm?: boolean;
   feedback?: string;
   feedbackContext?: {

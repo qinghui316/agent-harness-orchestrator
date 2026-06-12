@@ -16,6 +16,8 @@ import {
   readSchedulerClaimReservationSummary,
   readSchedulerReconcileSnapshotSummary,
   readSchedulerRuntimeSummary,
+  readLatestSchedulerWorkerStartSummary,
+  readSchedulerWorkerResultSummary,
   readLatestTaskQueueProposalSummary,
   readLatestWorkflowGraphPlanSummary,
   type WorkbenchDecompositionPlanSummary,
@@ -28,6 +30,8 @@ import {
   type WorkbenchSchedulerReconcileSnapshotSummary,
   type WorkbenchSchedulerRunSummary,
   type WorkbenchSchedulerRuntimeSummary,
+  type WorkbenchSchedulerWorkerResultSummary,
+  type WorkbenchSchedulerWorkerStartSummary,
   type WorkbenchSchedulerWorkerSessionPlanSummary,
   type WorkbenchTaskQueueProposalSummary,
   type WorkbenchWorkflowGraphPlanSummary,
@@ -227,6 +231,8 @@ export async function buildWorkbenchWorkpad(input: {
     && decision.id === `scheduler-plan-launch-confirmed:${schedulerClaimReservationRaw.id}`
   ));
   const schedulerClaimReservation = schedulerClaimReservationRaw ? { ...schedulerClaimReservationRaw, launchConfirmed: schedulerLaunchConfirmed } : null;
+  const schedulerWorkerStart = await readLatestSchedulerWorkerStartSummary(memory, selectedTopic.path, scopedSchedulerRun?.id, schedulerClaimReservation?.id);
+  const schedulerWorkerResult = await readSchedulerWorkerResultSummary(memory, selectedTopic.path, scopedSchedulerRun?.id, schedulerWorkerStart?.id);
   const workflowRun = await getLatestWorkflowRun(memory, selectedTopic.id).then((run) => run ? summarizeWorkflowRun(run) : null).catch(() => null);
   const agentTasks = await buildAgentTaskSummaries(memory, selectedTopic.id);
   const rolePipeline = buildRolePipelineSummary(selectedTopic, planningBundle, agentTasks);
@@ -272,6 +278,8 @@ export async function buildWorkbenchWorkpad(input: {
     schedulerRuntime: schedulerRuntime ?? undefined,
     schedulerReconcileSnapshot: schedulerReconcileSnapshot ?? undefined,
     schedulerClaimReservation: schedulerClaimReservation ?? undefined,
+    schedulerWorkerStart: schedulerWorkerStart ?? undefined,
+    schedulerWorkerResult: schedulerWorkerResult ?? undefined,
     workflowRun: workflowRun ?? undefined,
     rolePipeline,
     resultReview,
@@ -309,7 +317,7 @@ export async function buildWorkbenchWorkpad(input: {
       ...workpadMissingWarnings(specReady, planReady, tasksReady, selectedTopic),
       ...gaps.filter((gap) => gap.status !== "available").map((gap) => gap.summary),
     ],
-    nextAction: buildWorkpadNextAction(selectedTopic, topicApprovals, { specReady, planReady, tasksReady }, intake, taskQueue, taskGraph, planningBundle, decompositionPlan, decompositionReadiness, taskQueueProposal, workflowGraphPlan, schedulerContract, scopedSchedulerDispatchDryRun, scopedSchedulerWorkerSessionPlan, scopedSchedulerClaimReconcilePlan, scopedSchedulerLaunchPreflight, scopedSchedulerRun, schedulerRuntime, schedulerReconcileSnapshot, schedulerClaimReservation, workflowRun),
+    nextAction: buildWorkpadNextAction(selectedTopic, topicApprovals, { specReady, planReady, tasksReady }, intake, taskQueue, taskGraph, planningBundle, decompositionPlan, decompositionReadiness, taskQueueProposal, workflowGraphPlan, schedulerContract, scopedSchedulerDispatchDryRun, scopedSchedulerWorkerSessionPlan, scopedSchedulerClaimReconcilePlan, scopedSchedulerLaunchPreflight, scopedSchedulerRun, schedulerRuntime, schedulerReconcileSnapshot, schedulerClaimReservation, schedulerWorkerStart, schedulerWorkerResult, workflowRun),
     background: buildWorkpadBackground(workpads, selectedTopic.id),
     memoryIsolation: buildWorkpadMemoryIsolation(memory, selectedTopic, workpads),
   };
@@ -590,6 +598,8 @@ function buildWorkpadNextAction(
   schedulerRuntime?: WorkbenchSchedulerRuntimeSummary | null,
   schedulerReconcileSnapshot?: WorkbenchSchedulerReconcileSnapshotSummary | null,
   schedulerClaimReservation?: WorkbenchSchedulerClaimReservationSummary | null,
+  schedulerWorkerStart?: WorkbenchSchedulerWorkerStartSummary | null,
+  schedulerWorkerResult?: WorkbenchSchedulerWorkerResultSummary | null,
   workflowRun?: WorkflowRunSummary | null,
 ): WorkpadNextAction {
   if (topic.state !== "active") {
@@ -636,6 +646,8 @@ function buildWorkpadNextAction(
       schedulerRuntime,
       schedulerReconcileSnapshot,
       schedulerClaimReservation,
+      schedulerWorkerStart,
+      schedulerWorkerResult,
       workflowRun,
     });
   }
@@ -669,6 +681,8 @@ function buildWorkpadNextAction(
     schedulerRuntime,
     schedulerReconcileSnapshot,
     schedulerClaimReservation,
+    schedulerWorkerStart,
+    schedulerWorkerResult,
     workflowRun,
   });
 }

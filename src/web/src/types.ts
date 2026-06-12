@@ -166,12 +166,16 @@ export type WorkpadNextAction = {
   schedulerRunId?: string;
   schedulerReconcileSnapshotId?: string;
   schedulerClaimReservationId?: string;
+  schedulerWorkerStartId?: string;
+  schedulerWorkerResultId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   workflowRunId?: string;
   queueRunId?: string;
   taskIds?: string[];
   taskRunId?: string;
+  workerLeaseId?: string;
+  runId?: string;
   disabledReason?: string;
 };
 export type DecisionActionKind = "approval" | "workflow-action" | "feedback" | "evidence" | "abandon" | "none";
@@ -203,6 +207,8 @@ export type WorkbenchTaskNextAction = {
   schedulerRunId?: string;
   schedulerReconcileSnapshotId?: string;
   schedulerClaimReservationId?: string;
+  schedulerWorkerStartId?: string;
+  schedulerWorkerResultId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   workflowRunId?: string;
@@ -328,6 +334,8 @@ export type Workpad = {
   schedulerRuntime?: SchedulerRuntimeSummary;
   schedulerReconcileSnapshot?: SchedulerReconcileSnapshotSummary;
   schedulerClaimReservation?: SchedulerClaimReservationSummary;
+  schedulerWorkerStart?: SchedulerWorkerStartSummary;
+  schedulerWorkerResult?: SchedulerWorkerResultSummary;
   rolePipeline?: {
     stage: "planning" | "coding" | "validation" | "audit" | "rework" | "done" | "needs-user-input";
     status: "draft" | "running" | "completed" | "needs-user-input" | "stopped";
@@ -631,6 +639,51 @@ export type SchedulerClaimReservationSummary = {
   markdownArtifact?: string;
   updatedAt: string;
 };
+export type SchedulerWorkerStartSummary = {
+  id: string;
+  changeId: string;
+  schedulerRunId: string;
+  schedulerClaimReservationId: string;
+  schedulerReconcileSnapshotId: string;
+  status: "started" | "failed";
+  reservationIntentId: string;
+  claimIntentId: string;
+  nodeId: string;
+  unitId: string;
+  stageId: string;
+  stage: "coder";
+  taskRunId: string;
+  workerLeaseId: string;
+  worktreeId?: string;
+  runId?: string;
+  artifact?: string;
+  markdownArtifact?: string;
+  updatedAt: string;
+};
+export type SchedulerWorkerResultSummary = {
+  id: string;
+  changeId: string;
+  schedulerRunId: string;
+  schedulerClaimReservationId: string;
+  schedulerWorkerStartId: string;
+  status: "evidence-ready" | "failed";
+  reservationIntentId: string;
+  claimIntentId: string;
+  nodeId: string;
+  unitId: string;
+  stageId: string;
+  stage: "coder";
+  taskRunId: string;
+  workerLeaseId: string;
+  taskRunStatus: string;
+  workerLeaseStatus: string;
+  worktreeId?: string;
+  runId?: string;
+  runStatus?: string;
+  artifact?: string;
+  markdownArtifact?: string;
+  updatedAt: string;
+};
 export type SchedulerReconcileSnapshotSummary = {
   id: string;
   changeId: string;
@@ -673,6 +726,8 @@ export type ThreadStreamAction = {
   schedulerRunId?: string;
   schedulerReconcileSnapshotId?: string;
   schedulerClaimReservationId?: string;
+  schedulerWorkerStartId?: string;
+  schedulerWorkerResultId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   workflowRunId?: string;
@@ -760,6 +815,8 @@ export type DecisionAction = {
   schedulerRunId?: string;
   schedulerReconcileSnapshotId?: string;
   schedulerClaimReservationId?: string;
+  schedulerWorkerStartId?: string;
+  schedulerWorkerResultId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   workflowRunId?: string;

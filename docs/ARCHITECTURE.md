@@ -109,6 +109,8 @@ Phase 9F does not add another scheduler artifact layer. It changes the product i
 
 Phase 9G begins the first controlled scheduler execution slice. `src/scheduler-runtime/` remains the owner for runtime scheduler behavior and may start exactly one coder-stage worker from the latest scoped `SchedulerRuntimeClaimReservation`. This creates one TaskRun, one WorkerLease, one worktree, one code run, and Runtime Continuity sidecars for that coder stage only. It is not a full parallel executor: it must not dispatch a whole wave, start validation/audit/bounded-rework stages, run an automatic scheduler loop, allocate real scheduler slots, create child Changes, or bypass ToolPolicyGate and human gates.
 
+Phase 9H adds the matching single-worker result reconcile gate. `src/scheduler-runtime/worker-result.ts` owns the result read/guard/write path for the first scheduler coder worker started by Phase 9G. It reads the scheduler WorkerStart, TaskRun, WorkerLease, worktree metadata, and code Run evidence; verifies the scheduler-specific code execution gate; then writes scheduler-owned `SchedulerRuntimeWorkerResult` evidence. A completed code Run moves the TaskRun to `evidence-ready` and releases the WorkerLease; failed evidence marks the TaskRun failed and releases the WorkerLease; running evidence returns a running summary without terminal writes. It does not start validation, audit, bounded rework, a second worker, whole-wave dispatch, apply/landing, or a scheduler loop.
+
 Workbench relationship:
 
 ```text

@@ -48,3 +48,15 @@ export function schedulerWorkerStartPath(memory: ResolvedMemory, changePath: str
 export function schedulerWorkerStartMarkdownPath(memory: ResolvedMemory, changePath: string, schedulerRunId: string, workerStartId: string): string {
   return join(schedulerWorkerStartsDir(memory, changePath, schedulerRunId), `${workerStartId}.md`);
 }
+
+export function schedulerWorkerResultsDir(memory: ResolvedMemory, changePath: string, schedulerRunId: string): string {
+  return join(schedulerRuntimeDir(memory, changePath, schedulerRunId), "scheduler-worker-results");
+}
+
+export function schedulerWorkerResultPath(memory: ResolvedMemory, changePath: string, schedulerRunId: string, workerResultId: string): string {
+  return join(schedulerWorkerResultsDir(memory, changePath, schedulerRunId), `${workerResultId}.json`);
+}
+
+export function schedulerWorkerResultMarkdownPath(memory: ResolvedMemory, changePath: string, schedulerRunId: string, workerResultId: string): string {
+  return join(schedulerWorkerResultsDir(memory, changePath, schedulerRunId), `${workerResultId}.md`);
+}

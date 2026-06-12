@@ -14,9 +14,12 @@ export type SchedulerRuntimeEventType =
   | "scheduler-runtime.claim-blocked"
   | "scheduler-runtime.claim-reservation.superseded"
   | "scheduler-runtime.worker-started"
-  | "scheduler-runtime.worker-start-failed";
+  | "scheduler-runtime.worker-start-failed"
+  | "scheduler-runtime.worker-result-ready"
+  | "scheduler-runtime.worker-result-failed";
 export type SchedulerReconcileSnapshotStatus = "generated" | "blocked";
 export type SchedulerRuntimeWorkerStartStatus = "started" | "failed";
+export type SchedulerRuntimeWorkerResultStatus = "evidence-ready" | "failed";
 
 export interface SchedulerRuntimeClaimIntentState {
   claimIntentId: string;
@@ -200,6 +203,48 @@ export interface SchedulerRuntimeWorkerStart {
   agentRoleId: string;
   worktreeId?: string;
   runId?: string;
+  failureReason?: string;
+  sourceArtifactHashes: Record<string, string>;
+  artifactRefs: string[];
+  artifact: string;
+  markdownArtifact: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SchedulerRuntimeWorkerResult {
+  version: "1.0";
+  id: string;
+  changeId: string;
+  schedulerRunId: string;
+  schedulerMode: SchedulerMode;
+  status: SchedulerRuntimeWorkerResultStatus;
+  schedulerRuntimeStateId: string;
+  schedulerReconcileSnapshotId: string;
+  schedulerClaimReservationId: string;
+  schedulerWorkerStartId: string;
+  schedulerContractId: string;
+  schedulerDispatchDryRunId: string;
+  schedulerWorkerPlanId: string;
+  schedulerClaimReconcilePlanId: string;
+  schedulerLaunchPreflightId: string;
+  reservationIntentId: string;
+  claimIntentId: string;
+  plannedWorkerKey: string;
+  nodeId: string;
+  unitId: string;
+  waveIndex: number;
+  stageId: string;
+  stage: "coder";
+  taskId: string;
+  taskRunId: string;
+  workerLeaseId: string;
+  taskRunStatus: string;
+  workerLeaseStatus: string;
+  agentRoleId: string;
+  worktreeId?: string;
+  runId?: string;
+  runStatus?: string;
   failureReason?: string;
   sourceArtifactHashes: Record<string, string>;
   artifactRefs: string[];

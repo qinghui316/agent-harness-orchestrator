@@ -17,13 +17,16 @@ import {
   schedulerRuntimeDir,
   schedulerRuntimeEventsPath,
   schedulerRuntimeStatePath,
+  schedulerWorkerResultMarkdownPath,
+  schedulerWorkerResultPath,
+  schedulerWorkerResultsDir,
   schedulerWorkerStartMarkdownPath,
   schedulerWorkerStartPath,
   schedulerWorkerStartsDir,
 } from "./paths.js";
-import { renderSchedulerReconcileSnapshotMarkdown, renderSchedulerRuntimeClaimReservationMarkdown, renderSchedulerRuntimeStateMarkdown, renderSchedulerRuntimeWorkerStartMarkdown } from "./rendering.js";
-import { schedulerReconcileSnapshotSchema, schedulerRuntimeClaimReservationSchema, schedulerRuntimeEventSchema, schedulerRuntimeStateSchema, schedulerRuntimeWorkerStartSchema } from "./schemas.js";
-import type { SchedulerReconcileSnapshot, SchedulerRuntimeClaimReservation, SchedulerRuntimeEvent, SchedulerRuntimeEventType, SchedulerRuntimeState, SchedulerRuntimeWorkerStart } from "./types.js";
+import { renderSchedulerReconcileSnapshotMarkdown, renderSchedulerRuntimeClaimReservationMarkdown, renderSchedulerRuntimeStateMarkdown, renderSchedulerRuntimeWorkerResultMarkdown, renderSchedulerRuntimeWorkerStartMarkdown } from "./rendering.js";
+import { schedulerReconcileSnapshotSchema, schedulerRuntimeClaimReservationSchema, schedulerRuntimeEventSchema, schedulerRuntimeStateSchema, schedulerRuntimeWorkerResultSchema, schedulerRuntimeWorkerStartSchema } from "./schemas.js";
+import type { SchedulerReconcileSnapshot, SchedulerRuntimeClaimReservation, SchedulerRuntimeEvent, SchedulerRuntimeEventType, SchedulerRuntimeState, SchedulerRuntimeWorkerResult, SchedulerRuntimeWorkerStart } from "./types.js";
 
 export function schedulerRuntimeArtifactRefs(memory: ResolvedMemory, changePath: string, schedulerRunId: string): { artifact: string; eventsArtifact: string } {
   return {
@@ -50,6 +53,13 @@ export function schedulerWorkerStartArtifactRefs(memory: ResolvedMemory, changeP
   return {
     artifact: displayArtifactPath(memory, schedulerWorkerStartPath(memory, changePath, schedulerRunId, workerStartId)),
     markdownArtifact: displayArtifactPath(memory, schedulerWorkerStartMarkdownPath(memory, changePath, schedulerRunId, workerStartId)),
+  };
+}
+
+export function schedulerWorkerResultArtifactRefs(memory: ResolvedMemory, changePath: string, schedulerRunId: string, workerResultId: string): { artifact: string; markdownArtifact: string } {
+  return {
+    artifact: displayArtifactPath(memory, schedulerWorkerResultPath(memory, changePath, schedulerRunId, workerResultId)),
+    markdownArtifact: displayArtifactPath(memory, schedulerWorkerResultMarkdownPath(memory, changePath, schedulerRunId, workerResultId)),
   };
 }
 
@@ -216,6 +226,53 @@ export async function findSchedulerRuntimeWorkerStartForReservationIntent(memory
     const workerStartId = entry.name.replace(/\.json$/, "");
     const workerStart = await readSchedulerRuntimeWorkerStartProjection(memory, changePath, schedulerRunId, workerStartId);
     if (workerStart?.reservationIntentId === reservationIntentId) return workerStart;
+  }
+  return null;
+}
+
+export async function listSchedulerRuntimeWorkerStarts(memory: ResolvedMemory, changePath: string, schedulerRunId: string): Promise<SchedulerRuntimeWorkerStart[]> {
+  const dir = schedulerWorkerStartsDir(memory, changePath, schedulerRunId);
+  if (!existsSync(dir)) return [];
+  const entries = await readdir(dir, { withFileTypes: true }).catch(() => []);
+  const starts: SchedulerRuntimeWorkerStart[] = [];
+  for (const entry of entries) {
+    if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
+    const workerStart = await readSchedulerRuntimeWorkerStartProjection(memory, changePath, schedulerRunId, entry.name.replace(/\.json$/, ""));
+    if (workerStart) starts.push(workerStart);
+  }
+  return starts.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
+export async function writeSchedulerRuntimeWorkerResult(memory: ResolvedMemory, changePath: string, result: SchedulerRuntimeWorkerResult): Promise<void> {
+  await assertChangePathScope(memory, changePath, result.changeId, `SchedulerRuntimeWorkerResult ${result.id}`);
+  await mkdir(schedulerWorkerResultsDir(memory, changePath, result.schedulerRunId), { recursive: true });
+  await writeJsonFile(schedulerWorkerResultPath(memory, changePath, result.schedulerRunId, result.id), result);
+  await writeFile(schedulerWorkerResultMarkdownPath(memory, changePath, result.schedulerRunId, result.id), renderSchedulerRuntimeWorkerResultMarkdown(result), "utf8");
+}
+
+export async function readSchedulerRuntimeWorkerResult(memory: ResolvedMemory, changePath: string, schedulerRunId: string, resultId: string): Promise<SchedulerRuntimeWorkerResult> {
+  const result = await readRequiredJsonFile(schedulerWorkerResultPath(memory, changePath, schedulerRunId, resultId), schedulerRuntimeWorkerResultSchema);
+  await assertChangePathScope(memory, changePath, result.changeId, `SchedulerRuntimeWorkerResult ${result.id}`);
+  if (result.schedulerRunId !== schedulerRunId || result.id !== resultId) throw new Error("SchedulerRuntimeWorkerResult scope mismatch.");
+  return result;
+}
+
+export async function readSchedulerRuntimeWorkerResultProjection(memory: ResolvedMemory, changePath: string, schedulerRunId: string, resultId: string): Promise<SchedulerRuntimeWorkerResult | null> {
+  try {
+    return await readSchedulerRuntimeWorkerResult(memory, changePath, schedulerRunId, resultId);
+  } catch {
+    return null;
+  }
+}
+
+export async function findSchedulerRuntimeWorkerResultForStart(memory: ResolvedMemory, changePath: string, schedulerRunId: string, workerStartId: string): Promise<SchedulerRuntimeWorkerResult | null> {
+  const dir = schedulerWorkerResultsDir(memory, changePath, schedulerRunId);
+  if (!existsSync(dir)) return null;
+  const entries = await readdir(dir, { withFileTypes: true }).catch(() => []);
+  for (const entry of entries) {
+    if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
+    const result = await readSchedulerRuntimeWorkerResultProjection(memory, changePath, schedulerRunId, entry.name.replace(/\.json$/, ""));
+    if (result?.schedulerWorkerStartId === workerStartId) return result;
   }
   return null;
 }
