@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-12T12:15:47.3529995Z",
+    "generated_at":  "2026-06-12T12:56:24.2105333Z",
     "active":  [
 
                ],
@@ -673,6 +673,10 @@
                     {
                         "name":  "20260612-auto-evolve-harness-phase-9f-9j-scheduler-worker-gates-evidence",
                         "path":  "harness/changes/archive/20260612-auto-evolve-harness-phase-9f-9j-scheduler-worker-gates-evidence"
+                    },
+                    {
+                        "name":  "20260612-auto-evolve-harness-phase-9j-9n-scheduler-rework-evidence",
+                        "path":  "harness/changes/archive/20260612-auto-evolve-harness-phase-9j-9n-scheduler-rework-evidence"
                     },
                     {
                         "name":  "20260612-phase-9h-scheduler-first-worker-result-reconcile-gate",
