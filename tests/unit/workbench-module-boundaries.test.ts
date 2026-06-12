@@ -1108,6 +1108,9 @@ describe("Workbench module boundaries", () => {
       "src/scheduler-runtime/worker-audit.ts",
       "src/scheduler-runtime/worker-rework-plan.ts",
       "src/scheduler-runtime/worker-rework.ts",
+      "src/scheduler-runtime/worker-rework-result.ts",
+      "src/scheduler-runtime/worker-rework-validation.ts",
+      "src/scheduler-runtime/worker-rework-audit.ts",
       "src/scheduler-runtime/rendering.ts",
       "src/scheduler-runtime/manager.ts",
     ]));
@@ -1119,6 +1122,7 @@ describe("Workbench module boundaries", () => {
     expect(manager).toContain('export * from "./worker-result.js";');
     expect(manager).toContain('export * from "./worker-validation.js";');
     expect(manager).toContain('export * from "./worker-audit.js";');
+    expect(manager).toContain('export * from "./worker-rework-audit.js";');
     expect(manager).toContain('export * from "./repository.js";');
 
     const initialize = readFileSync("src/scheduler-runtime/initialize.ts", "utf8");
@@ -1193,6 +1197,34 @@ describe("Workbench module boundaries", () => {
     expect(workerRework).not.toContain("startValidationRun");
     expect(workerRework).not.toContain("startAuditRun");
     expect(workerRework).not.toContain("runTaskQueueSequence");
+
+    const workerReworkResult = readFileSync("src/scheduler-runtime/worker-rework-result.ts", "utf8");
+    expect(workerReworkResult).toContain("reconcileSchedulerFirstWorkerReworkResult");
+    expect(workerReworkResult).toContain("scheduler-claim-rework");
+    expect(workerReworkResult).toContain("releaseTaskRunLease");
+    expect(workerReworkResult).not.toContain("startCodeRun");
+    expect(workerReworkResult).not.toContain("startValidationRun");
+    expect(workerReworkResult).not.toContain("startAuditRun");
+    expect(workerReworkResult).not.toContain("runTaskQueueSequence");
+
+    const workerReworkValidation = readFileSync("src/scheduler-runtime/worker-rework-validation.ts", "utf8");
+    expect(workerReworkValidation).toContain("validateSchedulerFirstWorkerRework");
+    expect(workerReworkValidation).toContain("SchedulerRuntimeWorkerReworkValidation");
+    expect(workerReworkValidation).toContain("startValidationRun");
+    expect(workerReworkValidation).toContain("scheduler-claim-rework");
+    expect(workerReworkValidation).not.toContain("startCodeRun");
+    expect(workerReworkValidation).not.toContain("startAuditRun");
+    expect(workerReworkValidation).not.toContain("runTaskQueueSequence");
+
+    const workerReworkAudit = readFileSync("src/scheduler-runtime/worker-rework-audit.ts", "utf8");
+    expect(workerReworkAudit).toContain("auditSchedulerFirstWorkerRework");
+    expect(workerReworkAudit).toContain("SchedulerRuntimeWorkerReworkAudit");
+    expect(workerReworkAudit).toContain("startAuditRun");
+    expect(workerReworkAudit).toContain("validationId");
+    expect(workerReworkAudit).toContain("scheduler-claim-rework");
+    expect(workerReworkAudit).not.toContain("startCodeRun");
+    expect(workerReworkAudit).not.toContain("startValidationRun");
+    expect(workerReworkAudit).not.toContain("runTaskQueueSequence");
 
     for (const file of files) {
       const content = readFileSync(file, "utf8");

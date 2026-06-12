@@ -174,6 +174,7 @@ export type WorkpadNextAction = {
   schedulerWorkerReworkStartId?: string;
   schedulerWorkerReworkResultId?: string;
   schedulerWorkerReworkValidationId?: string;
+  schedulerWorkerReworkAuditId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   workflowRunId?: string;
@@ -185,6 +186,7 @@ export type WorkpadNextAction = {
   validationRunId?: string;
   reworkValidationRunId?: string;
   auditRunId?: string;
+  reworkAuditRunId?: string;
   disabledReason?: string;
 };
 export type DecisionActionKind = "approval" | "workflow-action" | "feedback" | "evidence" | "abandon" | "none";
@@ -224,6 +226,7 @@ export type WorkbenchTaskNextAction = {
   schedulerWorkerReworkStartId?: string;
   schedulerWorkerReworkResultId?: string;
   schedulerWorkerReworkValidationId?: string;
+  schedulerWorkerReworkAuditId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   workflowRunId?: string;
@@ -357,6 +360,7 @@ export type Workpad = {
   schedulerWorkerReworkStart?: SchedulerWorkerReworkStartSummary;
   schedulerWorkerReworkResult?: SchedulerWorkerReworkResultSummary;
   schedulerWorkerReworkValidation?: SchedulerWorkerReworkValidationSummary;
+  schedulerWorkerReworkAudit?: SchedulerWorkerReworkAuditSummary;
   rolePipeline?: {
     stage: "planning" | "coding" | "validation" | "audit" | "rework" | "done" | "needs-user-input";
     status: "draft" | "running" | "completed" | "needs-user-input" | "stopped";
@@ -883,6 +887,42 @@ export type SchedulerWorkerReworkValidationSummary = {
   markdownArtifact?: string;
   updatedAt: string;
 };
+export type SchedulerWorkerReworkAuditSummary = {
+  id: string;
+  changeId: string;
+  schedulerRunId: string;
+  schedulerClaimReservationId: string;
+  schedulerWorkerStartId: string;
+  schedulerWorkerResultId: string;
+  schedulerWorkerValidationId: string;
+  schedulerWorkerAuditId?: string;
+  schedulerWorkerReworkPlanId: string;
+  schedulerWorkerReworkStartId: string;
+  schedulerWorkerReworkResultId: string;
+  schedulerWorkerReworkValidationId: string;
+  status: "approved" | "approved-with-notes" | "blocked" | "failed";
+  reservationIntentId: string;
+  claimIntentId: string;
+  nodeId: string;
+  unitId: string;
+  stageId: string;
+  stage: "audit";
+  originalTaskRunId: string;
+  originalWorkerLeaseId: string;
+  originalCodeRunId: string;
+  reworkTaskRunId: string;
+  reworkWorkerLeaseId: string;
+  taskRunStatus: string;
+  worktreeId: string;
+  reworkRunId: string;
+  validationRunId: string;
+  auditRunId: string;
+  auditStatus: "approved" | "approved-with-notes" | "blocked" | "failed";
+  failureReason?: string;
+  artifact?: string;
+  markdownArtifact?: string;
+  updatedAt: string;
+};
 export type SchedulerReconcileSnapshotSummary = {
   id: string;
   changeId: string;
@@ -933,6 +973,7 @@ export type ThreadStreamAction = {
   schedulerWorkerReworkStartId?: string;
   schedulerWorkerReworkResultId?: string;
   schedulerWorkerReworkValidationId?: string;
+  schedulerWorkerReworkAuditId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   workflowRunId?: string;
@@ -947,6 +988,7 @@ export type ThreadStreamAction = {
   validationRunId?: string;
   reworkValidationRunId?: string;
   auditRunId?: string;
+  reworkAuditRunId?: string;
 };
 export type ThreadStreamItem = {
   id: string;

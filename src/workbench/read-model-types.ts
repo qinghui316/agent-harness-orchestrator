@@ -29,6 +29,7 @@ import type {
   WorkbenchSchedulerRuntimeSummary,
   WorkbenchSchedulerWorkerAuditSummary,
   WorkbenchSchedulerWorkerReworkPlanSummary,
+  WorkbenchSchedulerWorkerReworkAuditSummary,
   WorkbenchSchedulerWorkerReworkResultSummary,
   WorkbenchSchedulerWorkerReworkValidationSummary,
   WorkbenchSchedulerWorkerReworkStartSummary,
@@ -130,6 +131,7 @@ export interface ThreadStreamAction {
   schedulerWorkerReworkStartId?: string;
   schedulerWorkerReworkResultId?: string;
   schedulerWorkerReworkValidationId?: string;
+  schedulerWorkerReworkAuditId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   workflowRunId?: string;
@@ -141,6 +143,7 @@ export interface ThreadStreamAction {
   validationRunId?: string;
   reworkValidationRunId?: string;
   auditRunId?: string;
+  reworkAuditRunId?: string;
 }
 
 export interface ThreadStreamEvidence {
@@ -251,6 +254,7 @@ export interface WorkbenchDecisionAction {
   schedulerWorkerReworkStartId?: string;
   schedulerWorkerReworkResultId?: string;
   schedulerWorkerReworkValidationId?: string;
+  schedulerWorkerReworkAuditId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   workflowRunId?: string;
@@ -262,6 +266,7 @@ export interface WorkbenchDecisionAction {
   validationRunId?: string;
   reworkValidationRunId?: string;
   auditRunId?: string;
+  reworkAuditRunId?: string;
   worktreeId?: string;
   worktreeIds?: string[];
   applyCheckId?: string;
@@ -343,6 +348,7 @@ export interface WorkbenchConfirmationQueueItem {
   schedulerWorkerReworkStartId?: string;
   schedulerWorkerReworkResultId?: string;
   schedulerWorkerReworkValidationId?: string;
+  schedulerWorkerReworkAuditId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   taskRunId?: string;
@@ -350,6 +356,7 @@ export interface WorkbenchConfirmationQueueItem {
   validationRunId?: string;
   reworkValidationRunId?: string;
   auditRunId?: string;
+  reworkAuditRunId?: string;
   summary: string;
   whyNeedsConfirmation: string;
   confirmEffect: string;
@@ -433,6 +440,7 @@ export interface WorkpadNextAction {
   schedulerWorkerReworkStartId?: string;
   schedulerWorkerReworkResultId?: string;
   schedulerWorkerReworkValidationId?: string;
+  schedulerWorkerReworkAuditId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   workflowRunId?: string;
@@ -449,6 +457,7 @@ export interface WorkpadNextAction {
   validationRunId?: string;
   reworkValidationRunId?: string;
   auditRunId?: string;
+  reworkAuditRunId?: string;
   disabledReason?: string;
 }
 
@@ -680,6 +689,7 @@ export interface WorkbenchWorkpad {
   schedulerWorkerReworkStart?: WorkbenchSchedulerWorkerReworkStartSummary;
   schedulerWorkerReworkResult?: WorkbenchSchedulerWorkerReworkResultSummary;
   schedulerWorkerReworkValidation?: WorkbenchSchedulerWorkerReworkValidationSummary;
+  schedulerWorkerReworkAudit?: WorkbenchSchedulerWorkerReworkAuditSummary;
   workflowRun?: WorkflowRunSummary;
   rolePipeline?: WorkbenchRolePipelineSummary;
   resultReview?: WorkbenchResultReview;

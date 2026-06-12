@@ -2,6 +2,7 @@ export function extractRunId(result: unknown): string | undefined {
   if (isRecord(result) && isRecord(result.run) && typeof result.run.id === "string") return result.run.id;
   if (isRecord(result) && isRecord(result.code) && isRecord(result.code.run) && typeof result.code.run.id === "string") return result.code.run.id;
   if (isRecord(result) && isRecord(result.codeRun) && typeof result.codeRun.id === "string") return result.codeRun.id;
+  if (isRecord(result) && isRecord(result.auditRun) && typeof result.auditRun.id === "string") return result.auditRun.id;
   if (isRecord(result) && isRecord(result.workflow) && isRecord(result.workflow.code) && isRecord(result.workflow.code.run) && typeof result.workflow.code.run.id === "string") return result.workflow.code.run.id;
   if (isRecord(result) && isRecord(result.result) && isRecord(result.result.run) && typeof result.result.run.id === "string") return result.result.run.id;
   return undefined;
@@ -21,6 +22,7 @@ export function artifactForActionResult(result: unknown): string | null {
   if (isRecord(result) && isRecord(result.reconcileSnapshot) && typeof result.reconcileSnapshot.artifact === "string") return result.reconcileSnapshot.artifact;
   if (isRecord(result) && isRecord(result.result) && typeof result.result.artifact === "string") return result.result.artifact;
   if (isRecord(result) && isRecord(result.schedulerValidation) && typeof result.schedulerValidation.artifact === "string") return result.schedulerValidation.artifact;
+  if (isRecord(result) && isRecord(result.schedulerReworkAudit) && typeof result.schedulerReworkAudit.artifact === "string") return result.schedulerReworkAudit.artifact;
   if (isRecord(result) && isRecord(result.handoff) && Array.isArray(result.handoff.artifactRefs) && typeof result.handoff.artifactRefs[0] === "string") return result.handoff.artifactRefs[0];
   if (isRecord(result) && isRecord(result.revision) && Array.isArray(result.revision.artifactRefs) && typeof result.revision.artifactRefs[0] === "string") return result.revision.artifactRefs[0];
   if (isRecord(result) && isRecord(result.run) && isRecord(result.run.artifacts) && typeof result.run.artifacts.directory === "string") return result.run.artifacts.directory;
@@ -228,6 +230,16 @@ export function summarizeActionResult(actionType: string, result: unknown): stri
         : "Scheduler first worker rework result reconciled.";
     }
   }
+  if (actionType === "planning.scheduler.worker.rework-validate-first" && isRecord(result) && isRecord(result.schedulerReworkValidation)) {
+    return typeof result.schedulerReworkValidation.status === "string"
+      ? `Scheduler first worker rework validation ${result.schedulerReworkValidation.status}.`
+      : "Scheduler first worker rework validation recorded.";
+  }
+  if (actionType === "planning.scheduler.worker.rework-audit-first" && isRecord(result) && isRecord(result.schedulerReworkAudit)) {
+    return typeof result.schedulerReworkAudit.status === "string"
+      ? `Scheduler first worker rework audit ${result.schedulerReworkAudit.status}.`
+      : "Scheduler first worker rework audit recorded.";
+  }
   if (actionType === "planning.confirm-execution" && isRecord(result)) {
     return "Planning confirmed and canonical artifacts were written. No execution was started.";
   }
@@ -282,6 +294,8 @@ export function labelForAction(actionType: string): string {
     case "planning.scheduler.worker.rework-plan.compile": return "Scheduler first worker rework plan compiled";
     case "planning.scheduler.worker.rework-start-first": return "Scheduler first worker rework started";
     case "planning.scheduler.worker.rework-reconcile-result": return "Scheduler first worker rework result reconciled";
+    case "planning.scheduler.worker.rework-validate-first": return "Scheduler first worker rework validated";
+    case "planning.scheduler.worker.rework-audit-first": return "Scheduler first worker rework audited";
     case "planning.workflowgraph.compile": return "WorkflowGraphPlan compiled";
     case "planning.taskqueue.confirm-start": return "TaskQueueProposal confirmed and started";
     case "orchestrator.evaluate": return "Main orchestrator evaluated";

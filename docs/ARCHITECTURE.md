@@ -123,6 +123,8 @@ Phase 9M adds the first scheduler rework result reconcile slice. `src/scheduler-
 
 Phase 9N adds the first scheduler rework validation slice. `src/scheduler-runtime/worker-rework-validation.ts` owns the read/guard/validate/write path for `SchedulerRuntimeWorkerReworkValidation` evidence after Phase 9M. It accepts only an evidence-ready rework result, validates the same reused worktree through the existing validation runner, and requires the rework code run to use `executionGate.mode = "scheduler-claim-rework"` with matching scheduler/rework/task/run/worktree scope. Passed validation keeps the rework TaskRun `evidence-ready`; failed validation blocks the rework TaskRun. It does not start audit, another rework, another worker, a whole wave, IntegrationCheck, apply, merge, new worktrees, new runs, child Changes, or a scheduler loop.
 
+Phase 9O adds the first scheduler rework audit slice. `src/scheduler-runtime/worker-rework-audit.ts` owns the read/guard/audit/write path for `SchedulerRuntimeWorkerReworkAudit` evidence after Phase 9N. It accepts only a passed scheduler-owned rework validation, audits the same reused worktree through the existing audit runner, and binds audit to the exact Phase 9N validation run. Audit `approved` / `approved-with-notes` completes the rework TaskRun; audit `blocked` / `failed` blocks only the current rework path. It does not start another rework, another worker, a whole wave, IntegrationCheck, apply, merge, new worktrees, new coder/rework runs, child Changes, or a scheduler loop.
+
 Workbench relationship:
 
 ```text

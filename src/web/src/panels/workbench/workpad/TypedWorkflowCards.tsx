@@ -448,3 +448,23 @@ export function SchedulerWorkerReworkValidationCard({ validation }: { validation
     </section>
   );
 }
+
+export function SchedulerWorkerReworkAuditCard({ audit }: { audit: NonNullable<Workpad["schedulerWorkerReworkAudit"]> }): ReactElement {
+  return (
+    <section className="workpad-section" data-testid="scheduler-worker-rework-audit-card">
+      <div className="workpad-section-header">
+        <h3>第一个 worker rework 审计</h3>
+        <span>{humanStatus(audit.status)}</span>
+      </div>
+      <p className="workpad-goal">{audit.nodeId} / {audit.unitId} / rework audit evidence</p>
+      <div className="workpad-chip-list">
+        <span>TaskRun {audit.taskRunStatus}</span>
+        <span>worktree {audit.worktreeId}</span>
+        <span>validation run {audit.validationRunId}</span>
+        <span>audit run {audit.auditRunId}</span>
+      </div>
+      {audit.failureReason ? <p className="workpad-note">{audit.failureReason}</p> : null}
+      {audit.artifact ? <small className="artifact-link">查看证据：{artifactName(audit.artifact)}</small> : null}
+    </section>
+  );
+}

@@ -18,6 +18,7 @@ import {
   renderSchedulerRuntimeWorkerReworkPlanMarkdown,
   renderSchedulerRuntimeWorkerReworkResultMarkdown,
   renderSchedulerRuntimeWorkerReworkStartMarkdown,
+  renderSchedulerRuntimeWorkerReworkAuditMarkdown,
   renderSchedulerRuntimeWorkerReworkValidationMarkdown,
   renderSchedulerRuntimeWorkerValidationMarkdown,
   renderSchedulerReconcileSnapshotMarkdown,
@@ -25,6 +26,7 @@ import {
   reconcileSchedulerFirstWorkerResult,
   reconcileSchedulerFirstWorkerReworkResult,
   validateSchedulerFirstWorkerRework,
+  auditSchedulerFirstWorkerRework,
   startFirstSchedulerCoderWorker,
   auditSchedulerFirstWorker,
   compileSchedulerFirstWorkerReworkPlan,
@@ -39,6 +41,7 @@ import {
   type SchedulerWorkerReworkPlanResult,
   type SchedulerWorkerReworkResultReconcileResult,
   type SchedulerWorkerReworkValidationResult,
+  type SchedulerWorkerReworkAuditResult,
   type SchedulerFirstWorkerReworkStartResult,
   type SchedulerWorkerValidationResult,
   type SchedulerPlanPreparationResult,
@@ -1654,6 +1657,84 @@ export async function validatePlanningSchedulerFirstWorkerRework(
       validationRunId: result.schedulerReworkValidation.validationRunId,
       reworkValidationRunId: result.schedulerReworkValidation.validationRunId,
       validationStatus: result.schedulerReworkValidation.validationStatus,
+    },
+    completedAt: new Date().toISOString(),
+  });
+  return result;
+}
+
+export async function auditPlanningSchedulerFirstWorkerRework(
+  project: ManagedProject,
+  changeId: string,
+  request: WorkbenchWorkflowActionRequest,
+  live: WorkbenchLiveSink | undefined,
+): Promise<SchedulerWorkerReworkAuditResult> {
+  const { memory } = await resolveTopic(project, changeId);
+  assertWritableMemory(memory, "Scheduler first worker rework audit");
+  if (!request.schedulerRunId) throw new Error("planning.scheduler.worker.rework-audit-first requires schedulerRunId.");
+  if (!request.schedulerWorkerReworkValidationId) throw new Error("planning.scheduler.worker.rework-audit-first requires schedulerWorkerReworkValidationId.");
+  const result = await auditSchedulerFirstWorkerRework(project, {
+    changeId,
+    schedulerRunId: request.schedulerRunId,
+    schedulerWorkerReworkValidationId: request.schedulerWorkerReworkValidationId,
+  });
+  const approved = result.schedulerReworkAudit.status === "approved" || result.schedulerReworkAudit.status === "approved-with-notes";
+  await appendTopicThreadEntry(project, changeId, {
+    type: "assistant.message",
+    status: approved ? "scheduler-first-worker-rework-audit-approved" : "scheduler-first-worker-rework-audit-blocked",
+    text: renderSchedulerRuntimeWorkerReworkAuditMarkdown(result.schedulerReworkAudit),
+    artifact: result.schedulerReworkAudit.artifact,
+  });
+  emitAssistantEvent(live, {
+    runId: result.schedulerReworkAudit.id,
+    kind: "file-change",
+    phase: approved ? "scheduler-first-worker-rework-audit-approved" : "scheduler-first-worker-rework-audit-blocked",
+    title: approved ? "第一个 scheduler worker rework 审计通过" : "第一个 scheduler worker rework 审计阻塞",
+    summary: "Ran one scoped Audit on the same scheduler rework worktree. No next worker, integration, apply, or merge was started.",
+    artifactRef: result.schedulerReworkAudit.artifact,
+  });
+  await recordWorkbenchDecision(project, {
+    id: `scheduler-first-worker-rework-audit:${result.schedulerReworkAudit.id}`,
+    changeId,
+    decisionType: "planning.scheduler.worker.rework-audit-first",
+    status: "completed",
+    label: approved ? "第一个 worker rework 审计通过" : "第一个 worker rework 审计阻塞",
+    summary: approved
+      ? "Rework audit approved; the rework TaskRun is completed."
+      : "Rework audit blocked or failed; the current rework path is blocked and no follow-up gate was started.",
+    targetId: result.schedulerReworkAudit.id,
+    runId: result.schedulerReworkAudit.auditRunId,
+    artifact: result.schedulerReworkAudit.artifact,
+    actionId: "planning.scheduler.worker.rework-audit-first",
+    payload: {
+      schedulerRunId: result.schedulerReworkAudit.schedulerRunId,
+      schedulerClaimReservationId: result.schedulerReworkAudit.schedulerClaimReservationId,
+      schedulerWorkerStartId: result.schedulerReworkAudit.schedulerWorkerStartId,
+      schedulerWorkerResultId: result.schedulerReworkAudit.schedulerWorkerResultId,
+      schedulerWorkerValidationId: result.schedulerReworkAudit.schedulerWorkerValidationId,
+      schedulerWorkerAuditId: result.schedulerReworkAudit.schedulerWorkerAuditId,
+      schedulerWorkerReworkPlanId: result.schedulerReworkAudit.schedulerWorkerReworkPlanId,
+      schedulerWorkerReworkStartId: result.schedulerReworkAudit.schedulerWorkerReworkStartId,
+      schedulerWorkerReworkResultId: result.schedulerReworkAudit.schedulerWorkerReworkResultId,
+      schedulerWorkerReworkValidationId: result.schedulerReworkAudit.schedulerWorkerReworkValidationId,
+      schedulerWorkerReworkAuditId: result.schedulerReworkAudit.id,
+      reservationIntentId: result.schedulerReworkAudit.reservationIntentId,
+      claimIntentId: result.schedulerReworkAudit.claimIntentId,
+      nodeId: result.schedulerReworkAudit.nodeId,
+      unitId: result.schedulerReworkAudit.unitId,
+      originalTaskRunId: result.schedulerReworkAudit.originalTaskRunId,
+      taskRunId: result.schedulerReworkAudit.reworkTaskRunId,
+      originalWorkerLeaseId: result.schedulerReworkAudit.originalWorkerLeaseId,
+      workerLeaseId: result.schedulerReworkAudit.reworkWorkerLeaseId,
+      worktreeId: result.schedulerReworkAudit.worktreeId,
+      originalRunId: result.schedulerReworkAudit.originalCodeRunId,
+      runId: result.schedulerReworkAudit.reworkRunId,
+      reworkRunId: result.schedulerReworkAudit.reworkRunId,
+      validationRunId: result.schedulerReworkAudit.validationRunId,
+      reworkValidationRunId: result.schedulerReworkAudit.validationRunId,
+      auditRunId: result.schedulerReworkAudit.auditRunId,
+      reworkAuditRunId: result.schedulerReworkAudit.auditRunId,
+      auditStatus: result.schedulerReworkAudit.auditStatus,
     },
     completedAt: new Date().toISOString(),
   });

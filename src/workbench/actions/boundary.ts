@@ -7,7 +7,7 @@ import { getActiveChanges } from "../../ecl/index.js";
 import { resolveProjectMemory } from "../../memory/resolver.js";
 import { readRun } from "../../run/repository.js";
 import { readSchedulerRuntimeLineage } from "../../scheduler-runtime/guards.js";
-import { findSchedulerClaimReservationForSnapshot, findSchedulerRuntimeWorkerAuditForValidation, findSchedulerRuntimeWorkerResultForStart, findSchedulerRuntimeWorkerReworkPlanForBlockingEvidence, findSchedulerRuntimeWorkerReworkResultForStart, findSchedulerRuntimeWorkerReworkStartForPlan, findSchedulerRuntimeWorkerReworkValidationForResult, findSchedulerRuntimeWorkerStartForReservationIntent, findSchedulerRuntimeWorkerValidationForResult, readSchedulerReconcileSnapshot, readSchedulerRuntimeClaimReservation, readSchedulerRuntimeStateProjection, readSchedulerRuntimeWorkerAudit, readSchedulerRuntimeWorkerResult, readSchedulerRuntimeWorkerReworkPlan, readSchedulerRuntimeWorkerReworkResult, readSchedulerRuntimeWorkerReworkStart, readSchedulerRuntimeWorkerStart, readSchedulerRuntimeWorkerValidation } from "../../scheduler-runtime/repository.js";
+import { findSchedulerClaimReservationForSnapshot, findSchedulerRuntimeWorkerAuditForValidation, findSchedulerRuntimeWorkerResultForStart, findSchedulerRuntimeWorkerReworkAuditForValidation, findSchedulerRuntimeWorkerReworkPlanForBlockingEvidence, findSchedulerRuntimeWorkerReworkResultForStart, findSchedulerRuntimeWorkerReworkStartForPlan, findSchedulerRuntimeWorkerReworkValidationForResult, findSchedulerRuntimeWorkerStartForReservationIntent, findSchedulerRuntimeWorkerValidationForResult, readSchedulerReconcileSnapshot, readSchedulerRuntimeClaimReservation, readSchedulerRuntimeStateProjection, readSchedulerRuntimeWorkerAudit, readSchedulerRuntimeWorkerResult, readSchedulerRuntimeWorkerReworkPlan, readSchedulerRuntimeWorkerReworkResult, readSchedulerRuntimeWorkerReworkStart, readSchedulerRuntimeWorkerReworkValidation, readSchedulerRuntimeWorkerStart, readSchedulerRuntimeWorkerValidation } from "../../scheduler-runtime/repository.js";
 import { latestLandingQueueSnapshot } from "../../landing-queue/manager.js";
 import { listTaskQueues } from "../../task-queue/manager.js";
 import { listTaskRuns } from "../../task-run/manager.js";
@@ -888,6 +888,104 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
     }
     if (request.reworkValidationRunId && existingValidation?.validationRunId !== request.reworkValidationRunId) {
       throw new Error("planning.scheduler.worker.rework-validate-first rework validation run scope mismatch.");
+    }
+  }
+  if (request.actionType === "planning.scheduler.worker.rework-audit-first") {
+    const active = await getActiveChanges(memory);
+    const target = active.find((item) => item.name === changeId);
+    if (!target) throw new Error("planning.scheduler.worker.rework-audit-first target is stale or missing active Change.");
+    if (!request.schedulerRunId) throw new Error("planning.scheduler.worker.rework-audit-first requires schedulerRunId.");
+    if (!request.schedulerWorkerReworkValidationId) throw new Error("planning.scheduler.worker.rework-audit-first requires schedulerWorkerReworkValidationId.");
+    const run = await readSchedulerRun(memory, target.path, request.schedulerRunId);
+    if (run.id !== request.schedulerRunId || run.changeId !== changeId || run.status !== "prepared") {
+      throw new Error("planning.scheduler.worker.rework-audit-first SchedulerRun target is stale or not prepared.");
+    }
+    const latestRun = await readLatestSchedulerRun(memory, target.path);
+    if (latestRun.id !== run.id) throw new Error("planning.scheduler.worker.rework-audit-first requires the latest SchedulerRun.");
+    await readSchedulerRuntimeLineage(memory, target.path, run.id);
+    const runtimeState = await readSchedulerRuntimeStateProjection(memory, target.path, run.id);
+    if (!runtimeState?.lastClaimReservationId) {
+      throw new Error("planning.scheduler.worker.rework-audit-first requires runtime state with latest claim reservation.");
+    }
+    const reworkValidation = await readSchedulerRuntimeWorkerReworkValidation(memory, target.path, run.id, request.schedulerWorkerReworkValidationId);
+    if (
+      reworkValidation.changeId !== changeId
+      || reworkValidation.schedulerRunId !== run.id
+      || reworkValidation.schedulerRuntimeStateId !== runtimeState.id
+      || reworkValidation.schedulerClaimReservationId !== runtimeState.lastClaimReservationId
+      || reworkValidation.status !== "passed"
+    ) {
+      throw new Error("planning.scheduler.worker.rework-audit-first ReworkValidation target is stale.");
+    }
+    const reworkResult = await readSchedulerRuntimeWorkerReworkResult(memory, target.path, run.id, reworkValidation.schedulerWorkerReworkResultId);
+    if (reworkResult.id !== reworkValidation.schedulerWorkerReworkResultId || reworkResult.status !== "evidence-ready" || reworkResult.reworkTaskRunId !== reworkValidation.reworkTaskRunId) {
+      throw new Error("planning.scheduler.worker.rework-audit-first ReworkResult target is stale.");
+    }
+    const reworkStart = await readSchedulerRuntimeWorkerReworkStart(memory, target.path, run.id, reworkValidation.schedulerWorkerReworkStartId);
+    if (reworkStart.id !== reworkValidation.schedulerWorkerReworkStartId || reworkStart.schedulerWorkerReworkPlanId !== reworkValidation.schedulerWorkerReworkPlanId || reworkStart.reworkTaskRunId !== reworkValidation.reworkTaskRunId) {
+      throw new Error("planning.scheduler.worker.rework-audit-first ReworkStart target is stale.");
+    }
+    const reworkPlan = await readSchedulerRuntimeWorkerReworkPlan(memory, target.path, run.id, reworkValidation.schedulerWorkerReworkPlanId);
+    if (reworkPlan.id !== reworkValidation.schedulerWorkerReworkPlanId || reworkPlan.futureCodeGateMode !== "scheduler-claim-rework" || reworkPlan.targetWorktreeId !== reworkValidation.worktreeId) {
+      throw new Error("planning.scheduler.worker.rework-audit-first ReworkPlan target is stale.");
+    }
+    if (request.schedulerClaimReservationId && request.schedulerClaimReservationId !== reworkValidation.schedulerClaimReservationId) {
+      throw new Error("planning.scheduler.worker.rework-audit-first SchedulerRuntimeClaimReservation scope mismatch.");
+    }
+    if (request.schedulerWorkerReworkPlanId && request.schedulerWorkerReworkPlanId !== reworkValidation.schedulerWorkerReworkPlanId) {
+      throw new Error("planning.scheduler.worker.rework-audit-first WorkerReworkPlan scope mismatch.");
+    }
+    if (request.schedulerWorkerReworkStartId && request.schedulerWorkerReworkStartId !== reworkValidation.schedulerWorkerReworkStartId) {
+      throw new Error("planning.scheduler.worker.rework-audit-first WorkerReworkStart scope mismatch.");
+    }
+    if (request.schedulerWorkerReworkResultId && request.schedulerWorkerReworkResultId !== reworkValidation.schedulerWorkerReworkResultId) {
+      throw new Error("planning.scheduler.worker.rework-audit-first WorkerReworkResult scope mismatch.");
+    }
+    if (request.schedulerWorkerValidationId && request.schedulerWorkerValidationId !== reworkValidation.schedulerWorkerValidationId) {
+      throw new Error("planning.scheduler.worker.rework-audit-first WorkerValidation scope mismatch.");
+    }
+    if (request.schedulerWorkerAuditId && request.schedulerWorkerAuditId !== reworkValidation.schedulerWorkerAuditId) {
+      throw new Error("planning.scheduler.worker.rework-audit-first WorkerAudit scope mismatch.");
+    }
+    if (request.reservationIntentId && request.reservationIntentId !== reworkValidation.reservationIntentId) {
+      throw new Error("planning.scheduler.worker.rework-audit-first reservationIntentId scope mismatch.");
+    }
+    if (request.claimIntentId && request.claimIntentId !== reworkValidation.claimIntentId) {
+      throw new Error("planning.scheduler.worker.rework-audit-first claimIntentId scope mismatch.");
+    }
+    if (request.taskRunId && request.taskRunId !== reworkValidation.reworkTaskRunId) {
+      throw new Error("planning.scheduler.worker.rework-audit-first rework TaskRun scope mismatch.");
+    }
+    if (request.workerLeaseId && request.workerLeaseId !== reworkValidation.reworkWorkerLeaseId) {
+      throw new Error("planning.scheduler.worker.rework-audit-first rework WorkerLease scope mismatch.");
+    }
+    if (request.worktreeId && request.worktreeId !== reworkValidation.worktreeId) {
+      throw new Error("planning.scheduler.worker.rework-audit-first worktree scope mismatch.");
+    }
+    if (request.runId && request.runId !== reworkValidation.reworkRunId) {
+      throw new Error("planning.scheduler.worker.rework-audit-first rework code run scope mismatch.");
+    }
+    if (request.reworkValidationRunId && request.reworkValidationRunId !== reworkValidation.validationRunId) {
+      throw new Error("planning.scheduler.worker.rework-audit-first rework validation run scope mismatch.");
+    }
+    const codeRun = await readRun(memory, reworkValidation.reworkRunId);
+    const gate = codeRun.executionGate;
+    if (!gate?.allowed || gate.mode !== "scheduler-claim-rework") {
+      throw new Error("planning.scheduler.worker.rework-audit-first rework code run did not use scheduler-claim-rework gate.");
+    }
+    if (gate.schedulerRunId !== run.id || gate.schedulerClaimReservationId !== reworkValidation.schedulerClaimReservationId || gate.schedulerWorkerReworkPlanId !== reworkValidation.schedulerWorkerReworkPlanId || gate.taskRunId !== reworkValidation.reworkTaskRunId) {
+      throw new Error("planning.scheduler.worker.rework-audit-first rework code gate target is stale.");
+    }
+    const validationRun = await readRun(memory, reworkValidation.validationRunId);
+    if (validationRun.changeId !== changeId || validationRun.runtime !== "validator" || validationRun.worktree?.worktreeId !== reworkValidation.worktreeId) {
+      throw new Error("planning.scheduler.worker.rework-audit-first validation run target is stale.");
+    }
+    const existingAudit = await findSchedulerRuntimeWorkerReworkAuditForValidation(memory, target.path, run.id, reworkValidation.id);
+    if (request.schedulerWorkerReworkAuditId && existingAudit?.id !== request.schedulerWorkerReworkAuditId) {
+      throw new Error("planning.scheduler.worker.rework-audit-first WorkerReworkAudit scope mismatch.");
+    }
+    if (request.reworkAuditRunId && existingAudit?.auditRunId !== request.reworkAuditRunId) {
+      throw new Error("planning.scheduler.worker.rework-audit-first rework audit run scope mismatch.");
     }
   }
   if (request.actionType === "planning.workflowgraph.compile") {

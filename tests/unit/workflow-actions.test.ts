@@ -80,6 +80,9 @@ describe("workflow action registry", () => {
     expect(LIVE_WORKFLOW_ACTION_TYPES).toContain("planning.scheduler.worker.rework-validate-first");
     expect(HIGH_IMPACT_WORKFLOW_ACTION_TYPES).toContain("planning.scheduler.worker.rework-validate-first");
     expect(REVALIDATED_WORKFLOW_ACTION_TYPES).toContain("planning.scheduler.worker.rework-validate-first");
+    expect(LIVE_WORKFLOW_ACTION_TYPES).toContain("planning.scheduler.worker.rework-audit-first");
+    expect(HIGH_IMPACT_WORKFLOW_ACTION_TYPES).toContain("planning.scheduler.worker.rework-audit-first");
+    expect(REVALIDATED_WORKFLOW_ACTION_TYPES).toContain("planning.scheduler.worker.rework-audit-first");
   });
 
   it("keeps SchedulerContract ids in target and audit scope matching", () => {
@@ -773,6 +776,68 @@ describe("workflow action registry", () => {
     expect(workflowActionScopesMatchStrict(workerReworkValidationRequest, { ...workerReworkValidationRequest })).toBe(true);
     expect(workflowActionScopesMatchStrict(workerReworkValidationRequest, { ...workerReworkValidationRequest, schedulerWorkerReworkResultId: undefined })).toBe(false);
     expect(workflowActionScopesMatchCompatible(workerReworkValidationRequest, { ...workerReworkValidationRequest, schedulerWorkerReworkResultId: undefined })).toBe(true);
+
+    const workerReworkAuditRequest = {
+      ...workerReworkValidationRequest,
+      actionType: "planning.scheduler.worker.rework-audit-first",
+      schedulerWorkerReworkValidationId: "scheduler-worker-rework-validation-1",
+      reworkValidationRunId: "validation-rework-1",
+    };
+    const workerReworkAuditResult = {
+      schedulerReworkAudit: {
+        id: "scheduler-worker-rework-audit-1",
+        schedulerRunId: "scheduler-run-1",
+        schedulerClaimReservationId: "scheduler-claim-reservation-1",
+        schedulerWorkerStartId: "scheduler-worker-start-1",
+        schedulerWorkerResultId: "scheduler-worker-result-1",
+        schedulerWorkerValidationId: "scheduler-worker-validation-1",
+        schedulerWorkerAuditId: "scheduler-worker-audit-1",
+        schedulerWorkerReworkPlanId: "scheduler-worker-rework-plan-1",
+        schedulerWorkerReworkStartId: "scheduler-worker-rework-start-1",
+        schedulerWorkerReworkResultId: "scheduler-worker-rework-result-1",
+        schedulerWorkerReworkValidationId: "scheduler-worker-rework-validation-1",
+        reservationIntentId: "reservation-intent-1",
+        claimIntentId: "claim-intent-1",
+        reworkTaskRunId: "task-run-rework-1",
+        reworkWorkerLeaseId: "worker-lease-rework-1",
+        worktreeId: "worktree-1",
+        reworkRunId: "run-rework-1",
+        validationRunId: "validation-rework-1",
+        auditRunId: "audit-rework-1",
+      },
+    };
+    expect(validateWorkflowActionRequiredTargets(workerReworkAuditRequest)).toEqual([]);
+    expect(validateWorkflowActionRequiredTargets({
+      actionType: "planning.scheduler.worker.rework-audit-first",
+      schedulerRunId: "scheduler-run-1",
+    }).map((item) => item.label)).toEqual(["schedulerWorkerReworkValidationId"]);
+    expect(workflowActionTargetId(workerReworkAuditRequest, workerReworkAuditRequest.changeId, workerReworkAuditResult)).toBe("scheduler-worker-rework-audit-1");
+    expect(workflowActionScopePayload(workerReworkAuditRequest, workerReworkAuditRequest.changeId, workerReworkAuditResult)).toMatchObject({
+      changeId: "change-1",
+      schedulerRunId: "scheduler-run-1",
+      schedulerClaimReservationId: "scheduler-claim-reservation-1",
+      schedulerWorkerStartId: "scheduler-worker-start-1",
+      schedulerWorkerResultId: "scheduler-worker-result-1",
+      schedulerWorkerValidationId: "scheduler-worker-validation-1",
+      schedulerWorkerAuditId: "scheduler-worker-audit-1",
+      schedulerWorkerReworkPlanId: "scheduler-worker-rework-plan-1",
+      schedulerWorkerReworkStartId: "scheduler-worker-rework-start-1",
+      schedulerWorkerReworkResultId: "scheduler-worker-rework-result-1",
+      schedulerWorkerReworkValidationId: "scheduler-worker-rework-validation-1",
+      schedulerWorkerReworkAuditId: "scheduler-worker-rework-audit-1",
+      reservationIntentId: "reservation-intent-1",
+      claimIntentId: "claim-intent-1",
+      taskRunId: "task-run-rework-1",
+      workerLeaseId: "worker-lease-rework-1",
+      worktreeId: "worktree-1",
+      runId: "run-rework-1",
+      reworkValidationRunId: "validation-rework-1",
+      auditRunId: "audit-rework-1",
+      reworkAuditRunId: "audit-rework-1",
+    });
+    expect(workflowActionScopesMatchStrict(workerReworkAuditRequest, { ...workerReworkAuditRequest })).toBe(true);
+    expect(workflowActionScopesMatchStrict(workerReworkAuditRequest, { ...workerReworkAuditRequest, schedulerWorkerReworkValidationId: undefined })).toBe(false);
+    expect(workflowActionScopesMatchCompatible(workerReworkAuditRequest, { ...workerReworkAuditRequest, schedulerWorkerReworkValidationId: undefined })).toBe(true);
   });
 
   it("keeps graph ids in target and audit scope matching", () => {
