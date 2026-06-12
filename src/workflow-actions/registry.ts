@@ -24,6 +24,7 @@ export const WORKFLOW_ACTION_TYPES = [
   "planning.scheduler.worker.start-first",
   "planning.scheduler.worker.reconcile-result",
   "planning.scheduler.worker.validate-first",
+  "planning.scheduler.worker.audit-first",
   "planning.workflowgraph.compile",
   "planning.taskqueue.confirm-start",
   "orchestrator.evaluate",
@@ -126,6 +127,7 @@ export const LIVE_WORKFLOW_ACTION_TYPES = [
   "planning.scheduler.worker.start-first",
   "planning.scheduler.worker.reconcile-result",
   "planning.scheduler.worker.validate-first",
+  "planning.scheduler.worker.audit-first",
   "planning.workflowgraph.compile",
   "planning.taskqueue.confirm-start",
   "orchestrator.evaluate",
@@ -208,6 +210,7 @@ export const HIGH_IMPACT_WORKFLOW_ACTION_TYPES = [
   "planning.scheduler.worker.start-first",
   "planning.scheduler.worker.reconcile-result",
   "planning.scheduler.worker.validate-first",
+  "planning.scheduler.worker.audit-first",
   "planning.workflowgraph.compile",
   "planning.taskqueue.confirm-start",
   "code.run",
@@ -251,6 +254,7 @@ export const REVALIDATED_WORKFLOW_ACTION_TYPES = [
   "planning.scheduler.worker.start-first",
   "planning.scheduler.worker.reconcile-result",
   "planning.scheduler.worker.validate-first",
+  "planning.scheduler.worker.audit-first",
   "planning.workflowgraph.compile",
   "planning.taskqueue.confirm-start",
   "code.run",
@@ -278,6 +282,7 @@ export const WORKFLOW_ACTION_SCOPE_KEYS = [
   "schedulerWorkerStartId",
   "schedulerWorkerResultId",
   "schedulerWorkerValidationId",
+  "schedulerWorkerAuditId",
   "reservationIntentId",
   "claimIntentId",
   "workflowRunId",
@@ -291,6 +296,7 @@ export const WORKFLOW_ACTION_SCOPE_KEYS = [
   "workerLeaseId",
   "runId",
   "validationRunId",
+  "auditRunId",
   "taskIds",
 ] as const;
 
@@ -391,6 +397,10 @@ export function validateWorkflowActionRequiredTargets(request: WorkflowActionSco
       requireOne("schedulerRunId", [request.schedulerRunId]);
       requireOne("schedulerWorkerResultId", [request.schedulerWorkerResultId]);
       break;
+    case "planning.scheduler.worker.audit-first":
+      requireOne("schedulerRunId", [request.schedulerRunId]);
+      requireOne("schedulerWorkerValidationId", [request.schedulerWorkerValidationId]);
+      break;
     case "planning.workflowgraph.compile":
       requireOne("taskQueueProposalId", [request.taskQueueProposalId]);
       requireOne("readinessManifestId", [request.readinessManifestId]);
@@ -489,12 +499,13 @@ export function workflowActionScopePayload(request: WorkflowActionScopeCarrier, 
     schedulerLaunchPreflightId: request.schedulerLaunchPreflightId ?? extractString(result, "launchPreflight", "id") ?? extractString(result, "schedulerRun", "schedulerLaunchPreflightId"),
     schedulerRunId: request.schedulerRunId ?? extractString(result, "schedulerRun", "id") ?? extractString(result, "runtimeState", "schedulerRunId") ?? extractString(result, "reconcileSnapshot", "schedulerRunId") ?? extractString(result, "claimReservation", "schedulerRunId"),
     schedulerReconcileSnapshotId: request.schedulerReconcileSnapshotId ?? extractString(result, "reconcileSnapshot", "id") ?? extractString(result, "claimReservation", "schedulerReconcileSnapshotId"),
-    schedulerClaimReservationId: request.schedulerClaimReservationId ?? extractString(result, "claimReservation", "id") ?? extractString(result, "workerStart", "schedulerClaimReservationId") ?? extractString(result, "result", "schedulerClaimReservationId") ?? extractString(result, "schedulerValidation", "schedulerClaimReservationId"),
-    schedulerWorkerStartId: request.schedulerWorkerStartId ?? extractString(result, "workerStart", "id") ?? extractString(result, "result", "schedulerWorkerStartId") ?? extractString(result, "schedulerValidation", "schedulerWorkerStartId"),
-    schedulerWorkerResultId: request.schedulerWorkerResultId ?? extractString(result, "result", "id") ?? extractString(result, "schedulerValidation", "schedulerWorkerResultId"),
-    schedulerWorkerValidationId: request.schedulerWorkerValidationId ?? extractString(result, "schedulerValidation", "id"),
-    reservationIntentId: request.reservationIntentId ?? extractString(result, "workerStart", "reservationIntentId") ?? extractString(result, "result", "reservationIntentId") ?? extractString(result, "schedulerValidation", "reservationIntentId"),
-    claimIntentId: request.claimIntentId ?? extractString(result, "workerStart", "claimIntentId") ?? extractString(result, "result", "claimIntentId") ?? extractString(result, "schedulerValidation", "claimIntentId"),
+    schedulerClaimReservationId: request.schedulerClaimReservationId ?? extractString(result, "claimReservation", "id") ?? extractString(result, "workerStart", "schedulerClaimReservationId") ?? extractString(result, "result", "schedulerClaimReservationId") ?? extractString(result, "schedulerValidation", "schedulerClaimReservationId") ?? extractString(result, "schedulerAudit", "schedulerClaimReservationId"),
+    schedulerWorkerStartId: request.schedulerWorkerStartId ?? extractString(result, "workerStart", "id") ?? extractString(result, "result", "schedulerWorkerStartId") ?? extractString(result, "schedulerValidation", "schedulerWorkerStartId") ?? extractString(result, "schedulerAudit", "schedulerWorkerStartId"),
+    schedulerWorkerResultId: request.schedulerWorkerResultId ?? extractString(result, "result", "id") ?? extractString(result, "schedulerValidation", "schedulerWorkerResultId") ?? extractString(result, "schedulerAudit", "schedulerWorkerResultId"),
+    schedulerWorkerValidationId: request.schedulerWorkerValidationId ?? extractString(result, "schedulerValidation", "id") ?? extractString(result, "schedulerAudit", "schedulerWorkerValidationId"),
+    schedulerWorkerAuditId: request.schedulerWorkerAuditId ?? extractString(result, "schedulerAudit", "id"),
+    reservationIntentId: request.reservationIntentId ?? extractString(result, "workerStart", "reservationIntentId") ?? extractString(result, "result", "reservationIntentId") ?? extractString(result, "schedulerValidation", "reservationIntentId") ?? extractString(result, "schedulerAudit", "reservationIntentId"),
+    claimIntentId: request.claimIntentId ?? extractString(result, "workerStart", "claimIntentId") ?? extractString(result, "result", "claimIntentId") ?? extractString(result, "schedulerValidation", "claimIntentId") ?? extractString(result, "schedulerAudit", "claimIntentId"),
     workflowRunId: request.workflowRunId ?? extractString(result, "workflowRun", "id") ?? extractString(result, "workflow", "id"),
     queueRunId: request.queueRunId,
     worktreeId: request.worktreeId,
@@ -502,10 +513,11 @@ export function workflowActionScopePayload(request: WorkflowActionScopeCarrier, 
     applyCheckId: request.applyCheckId,
     landingPackageId: request.landingPackageId,
     remoteLandingResultId: request.remoteLandingResultId,
-    taskRunId: request.taskRunId ?? extractString(result, "taskRun", "id") ?? extractString(result, "result", "taskRunId") ?? extractString(result, "schedulerValidation", "taskRunId"),
-    workerLeaseId: request.workerLeaseId ?? extractString(result, "lease", "id") ?? extractString(result, "result", "workerLeaseId") ?? extractString(result, "schedulerValidation", "workerLeaseId"),
-    runId: request.runId ?? extractString(result, "codeRun", "id") ?? extractString(result, "result", "runId") ?? extractString(result, "schedulerValidation", "codeRunId"),
-    validationRunId: request.validationRunId ?? extractString(result, "validationRun", "id") ?? extractString(result, "schedulerValidation", "validationRunId"),
+    taskRunId: request.taskRunId ?? extractString(result, "taskRun", "id") ?? extractString(result, "result", "taskRunId") ?? extractString(result, "schedulerValidation", "taskRunId") ?? extractString(result, "schedulerAudit", "taskRunId"),
+    workerLeaseId: request.workerLeaseId ?? extractString(result, "lease", "id") ?? extractString(result, "result", "workerLeaseId") ?? extractString(result, "schedulerValidation", "workerLeaseId") ?? extractString(result, "schedulerAudit", "workerLeaseId"),
+    runId: request.runId ?? extractString(result, "codeRun", "id") ?? extractString(result, "result", "runId") ?? extractString(result, "schedulerValidation", "codeRunId") ?? extractString(result, "schedulerAudit", "codeRunId"),
+    validationRunId: request.validationRunId ?? extractString(result, "validationRun", "id") ?? extractString(result, "schedulerValidation", "validationRunId") ?? extractString(result, "schedulerAudit", "validationRunId"),
+    auditRunId: request.auditRunId ?? extractString(result, "auditRun", "id") ?? extractString(result, "schedulerAudit", "auditRunId"),
     taskIds: request.taskIds,
   };
 }
@@ -524,6 +536,13 @@ export function workflowActionTargetId(request: WorkflowActionScopeCarrier, chan
       ?? extractString(result, "schedulerValidation", "id")
       ?? request.schedulerWorkerResultId
       ?? extractString(result, "schedulerValidation", "schedulerWorkerResultId")
+      ?? changeId;
+  }
+  if (request.actionType === "planning.scheduler.worker.audit-first") {
+    return request.schedulerWorkerAuditId
+      ?? extractString(result, "schedulerAudit", "id")
+      ?? request.schedulerWorkerValidationId
+      ?? extractString(result, "schedulerAudit", "schedulerWorkerValidationId")
       ?? changeId;
   }
   return request.remoteLandingResultId
@@ -604,6 +623,7 @@ export function workflowActionScopesMatchStrict(left: WorkflowActionScopeCarrier
     && sameStrictOptional(left.schedulerWorkerStartId, right.schedulerWorkerStartId)
     && sameStrictOptional(left.schedulerWorkerResultId, right.schedulerWorkerResultId)
     && sameStrictOptional(left.schedulerWorkerValidationId, right.schedulerWorkerValidationId)
+    && sameStrictOptional(left.schedulerWorkerAuditId, right.schedulerWorkerAuditId)
     && sameStrictOptional(left.reservationIntentId, right.reservationIntentId)
     && sameStrictOptional(left.claimIntentId, right.claimIntentId)
     && sameStrictOptional(left.workflowRunId, right.workflowRunId)
@@ -617,6 +637,7 @@ export function workflowActionScopesMatchStrict(left: WorkflowActionScopeCarrier
     && sameStrictOptional(left.workerLeaseId, right.workerLeaseId)
     && sameStrictOptional(left.runId, right.runId)
     && sameStrictOptional(left.validationRunId, right.validationRunId)
+    && sameStrictOptional(left.auditRunId, right.auditRunId)
     && sameStrictOptionalArray(left.taskIds, right.taskIds);
 }
 
@@ -637,6 +658,7 @@ export function workflowActionScopesMatchCompatible(left: WorkflowActionScopeCar
     && sameCompatibleOptional(left.schedulerWorkerStartId, right.schedulerWorkerStartId)
     && sameCompatibleOptional(left.schedulerWorkerResultId, right.schedulerWorkerResultId)
     && sameCompatibleOptional(left.schedulerWorkerValidationId, right.schedulerWorkerValidationId)
+    && sameCompatibleOptional(left.schedulerWorkerAuditId, right.schedulerWorkerAuditId)
     && sameCompatibleOptional(left.reservationIntentId, right.reservationIntentId)
     && sameCompatibleOptional(left.claimIntentId, right.claimIntentId)
     && sameCompatibleOptional(left.workflowRunId, right.workflowRunId)
@@ -650,6 +672,7 @@ export function workflowActionScopesMatchCompatible(left: WorkflowActionScopeCar
     && sameCompatibleOptional(left.workerLeaseId, right.workerLeaseId)
     && sameCompatibleOptional(left.runId, right.runId)
     && sameCompatibleOptional(left.validationRunId, right.validationRunId)
+    && sameCompatibleOptional(left.auditRunId, right.auditRunId)
     && sameCompatibleOptionalArray(left.taskIds, right.taskIds);
 }
 

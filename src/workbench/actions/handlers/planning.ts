@@ -14,17 +14,20 @@ import {
   renderSchedulerRuntimeClaimReservationMarkdown,
   renderSchedulerRuntimeWorkerResultMarkdown,
   renderSchedulerRuntimeWorkerStartMarkdown,
+  renderSchedulerRuntimeWorkerAuditMarkdown,
   renderSchedulerRuntimeWorkerValidationMarkdown,
   renderSchedulerReconcileSnapshotMarkdown,
   renderSchedulerRuntimeStateMarkdown,
   reconcileSchedulerFirstWorkerResult,
   startFirstSchedulerCoderWorker,
+  auditSchedulerFirstWorker,
   validateSchedulerFirstWorker,
   type SchedulerReconcileSnapshot,
   type SchedulerRuntimeClaimReservation,
   type SchedulerRuntimeState,
   type SchedulerRuntimeWorkerStart,
   type SchedulerWorkerResultReconcileResult,
+  type SchedulerWorkerAuditResult,
   type SchedulerWorkerValidationResult,
   type SchedulerPlanPreparationResult,
 } from "../../../scheduler-runtime/manager.js";
@@ -1236,6 +1239,74 @@ export async function validatePlanningSchedulerFirstWorker(
       runId: result.schedulerValidation.codeRunId,
       validationRunId: result.schedulerValidation.validationRunId,
       validationStatus: result.schedulerValidation.status,
+    },
+    completedAt: new Date().toISOString(),
+  });
+  return result;
+}
+
+export async function auditPlanningSchedulerFirstWorker(
+  project: ManagedProject,
+  changeId: string,
+  request: WorkbenchWorkflowActionRequest,
+  live: WorkbenchLiveSink | undefined,
+): Promise<SchedulerWorkerAuditResult> {
+  const { memory } = await resolveTopic(project, changeId);
+  assertWritableMemory(memory, "Scheduler first worker audit");
+  if (!request.schedulerRunId) throw new Error("planning.scheduler.worker.audit-first requires schedulerRunId.");
+  if (!request.schedulerWorkerValidationId) throw new Error("planning.scheduler.worker.audit-first requires schedulerWorkerValidationId.");
+  const result = await auditSchedulerFirstWorker(project, {
+    changeId,
+    schedulerRunId: request.schedulerRunId,
+    schedulerWorkerValidationId: request.schedulerWorkerValidationId,
+  });
+  const approved = result.schedulerAudit.status === "approved" || result.schedulerAudit.status === "approved-with-notes";
+  await appendTopicThreadEntry(project, changeId, {
+    type: "assistant.message",
+    status: approved ? "scheduler-first-worker-audit-approved" : "scheduler-first-worker-audit-blocked",
+    text: renderSchedulerRuntimeWorkerAuditMarkdown(result.schedulerAudit),
+    artifact: result.schedulerAudit.artifact,
+    runId: result.auditRun.id,
+  });
+  emitAssistantEvent(live, {
+    runId: result.auditRun.id,
+    kind: "file-change",
+    phase: approved ? "scheduler-first-worker-audit-approved" : "scheduler-first-worker-audit-blocked",
+    title: approved ? "第一个 scheduler worker 审计通过" : "第一个 scheduler worker 审计未通过",
+    summary: approved
+      ? "Audit approved the first scheduler worker worktree. The scheduler TaskRun was completed."
+      : "Audit blocked or failed for the first scheduler worker worktree. The scheduler TaskRun was blocked; rework and next worker were not started.",
+    artifactRef: result.schedulerAudit.artifact,
+  });
+  await recordWorkbenchDecision(project, {
+    id: `scheduler-first-worker-audit:${result.schedulerAudit.id}`,
+    changeId,
+    decisionType: "planning.scheduler.worker.audit-first",
+    status: "completed",
+    label: approved ? "第一个 worker 审计通过" : "第一个 worker 审计未通过",
+    summary: "Audited exactly one scheduler coder worker worktree without starting rework, the next worker, or a scheduler loop.",
+    targetId: result.schedulerAudit.id,
+    runId: result.auditRun.id,
+    artifact: result.schedulerAudit.artifact,
+    actionId: "planning.scheduler.worker.audit-first",
+    payload: {
+      schedulerRunId: result.schedulerAudit.schedulerRunId,
+      schedulerClaimReservationId: result.schedulerAudit.schedulerClaimReservationId,
+      schedulerWorkerStartId: result.schedulerAudit.schedulerWorkerStartId,
+      schedulerWorkerResultId: result.schedulerAudit.schedulerWorkerResultId,
+      schedulerWorkerValidationId: result.schedulerAudit.schedulerWorkerValidationId,
+      schedulerWorkerAuditId: result.schedulerAudit.id,
+      reservationIntentId: result.schedulerAudit.reservationIntentId,
+      claimIntentId: result.schedulerAudit.claimIntentId,
+      nodeId: result.schedulerAudit.nodeId,
+      unitId: result.schedulerAudit.unitId,
+      taskRunId: result.schedulerAudit.taskRunId,
+      workerLeaseId: result.schedulerAudit.workerLeaseId,
+      worktreeId: result.schedulerAudit.worktreeId,
+      runId: result.schedulerAudit.codeRunId,
+      validationRunId: result.schedulerAudit.validationRunId,
+      auditRunId: result.schedulerAudit.auditRunId,
+      auditStatus: result.schedulerAudit.status,
     },
     completedAt: new Date().toISOString(),
   });

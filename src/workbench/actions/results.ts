@@ -205,6 +205,11 @@ export function summarizeActionResult(actionType: string, result: unknown): stri
       ? `Scheduler first worker validation ${result.schedulerValidation.status}.`
       : "Scheduler first worker validation recorded.";
   }
+  if (actionType === "planning.scheduler.worker.audit-first" && isRecord(result) && isRecord(result.schedulerAudit)) {
+    return typeof result.schedulerAudit.status === "string"
+      ? `Scheduler first worker audit ${result.schedulerAudit.status}.`
+      : "Scheduler first worker audit recorded.";
+  }
   if (actionType === "planning.confirm-execution" && isRecord(result)) {
     return "Planning confirmed and canonical artifacts were written. No execution was started.";
   }
@@ -255,6 +260,7 @@ export function labelForAction(actionType: string): string {
     case "planning.scheduler.worker.start-first": return "Scheduler first coder worker started";
     case "planning.scheduler.worker.reconcile-result": return "Scheduler first coder worker result reconciled";
     case "planning.scheduler.worker.validate-first": return "Scheduler first worker validated";
+    case "planning.scheduler.worker.audit-first": return "Scheduler first worker audited";
     case "planning.workflowgraph.compile": return "WorkflowGraphPlan compiled";
     case "planning.taskqueue.confirm-start": return "TaskQueueProposal confirmed and started";
     case "orchestrator.evaluate": return "Main orchestrator evaluated";

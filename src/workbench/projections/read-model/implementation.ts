@@ -126,6 +126,7 @@ export {
   getWorkbenchSchedulerRuntimeProjection,
   getWorkbenchSchedulerReconcileSnapshotProjection,
   getWorkbenchSchedulerClaimReservationProjection,
+  getWorkbenchSchedulerWorkerAuditProjection,
   getWorkbenchSchedulerWorkerValidationProjection,
   getWorkbenchWorkflowRunProjection,
 } from "./lazy-projections.js";

@@ -50,6 +50,7 @@ export async function sendWorkbenchActionLive(input: WorkbenchProjectInput & { p
         schedulerWorkerStartId: body.schedulerWorkerStartId,
         schedulerWorkerResultId: body.schedulerWorkerResultId,
         schedulerWorkerValidationId: body.schedulerWorkerValidationId,
+        schedulerWorkerAuditId: body.schedulerWorkerAuditId,
         reservationIntentId: body.reservationIntentId,
         claimIntentId: body.claimIntentId,
         workflowRunId: body.workflowRunId,
@@ -64,6 +65,7 @@ export async function sendWorkbenchActionLive(input: WorkbenchProjectInput & { p
         workerLeaseId: body.workerLeaseId,
         runId: body.runId,
         validationRunId: body.validationRunId,
+        auditRunId: body.auditRunId,
       }, sink);
       terminalStatus = result.status;
     } else {

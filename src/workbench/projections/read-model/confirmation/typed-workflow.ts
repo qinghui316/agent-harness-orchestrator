@@ -130,8 +130,67 @@ export function taskQueueProposalToConfirmationItems(
         const workerStart = workpad.schedulerWorkerStart;
         const workerResult = workpad.schedulerWorkerResult;
         const workerValidation = workpad.schedulerWorkerValidation;
+        const workerAudit = workpad.schedulerWorkerAudit;
         if (workerStart?.schedulerClaimReservationId === claimReservation.id && workerStart.schedulerRunId === schedulerRun.id) {
           if (workerResult?.schedulerWorkerStartId === workerStart.id) {
+            if (workerValidation?.status === "passed" && workerValidation.schedulerWorkerResultId === workerResult.id && !workerAudit) {
+              return [{
+                id: `confirm:scheduler-first-worker-audit:${selectedTopic.id}:${workerValidation.id}`,
+                kind: "planning-confirm",
+                projectId: project?.id ?? null,
+                conversationId: selectedTopic.id,
+                changeId: selectedTopic.id,
+                schedulerRunId: schedulerRun.id,
+                schedulerReconcileSnapshotId: reconcileSnapshot.id,
+                schedulerClaimReservationId: claimReservation.id,
+                schedulerWorkerStartId: workerStart.id,
+                schedulerWorkerResultId: workerResult.id,
+                schedulerWorkerValidationId: workerValidation.id,
+                reservationIntentId: workerValidation.reservationIntentId,
+                claimIntentId: workerValidation.claimIntentId,
+                runId: workerValidation.codeRunId,
+                validationRunId: workerValidation.validationRunId,
+                worktreeId: workerValidation.worktreeId,
+                taskRunId: workerValidation.taskRunId,
+                workerLeaseId: workerValidation.workerLeaseId,
+                summary: "第一个 scheduler worker validation 已通过。可以审计同一个 worktree。",
+                whyNeedsConfirmation: "这是 Harness 阶段门：只对 Phase 9G 创建且 Phase 9I 验证通过的第一个 worker worktree 运行一次 scoped Audit，不启动 rework、下一个 worker 或 whole wave。",
+                confirmEffect: "重读 latest SchedulerRun、RuntimeState、ClaimReservation、WorkerStart、WorkerResult、WorkerValidation、TaskRun、code run、validation run 和 worktree；对同一个 worktree 运行 Audit，并写 SchedulerRuntimeWorkerAudit evidence。",
+                riskSummary: "audit approved 才能把该 TaskRun 标记 completed；audit blocked/failed 只阻塞当前 worker path，不自动 rework。",
+                evidenceRefs: [workerValidation.artifact, workerResult.artifact].filter((item): item is string => Boolean(item)),
+                actions: [{
+                  id: `workflow:planning.scheduler.worker.audit-first:${selectedTopic.id}:${workerValidation.id}`,
+                  label: "审计第一个 worker 结果",
+                  kind: "workflow-action",
+                  changeId: selectedTopic.id,
+                  actionType: "planning.scheduler.worker.audit-first",
+                  decompositionPlanId: plan.id,
+                  readinessManifestId: readiness.id,
+                  schedulerContractId: schedulerRun.schedulerContractId,
+                  schedulerDispatchDryRunId: schedulerRun.schedulerDispatchDryRunId,
+                  schedulerWorkerPlanId: schedulerRun.schedulerWorkerPlanId,
+                  schedulerClaimReconcilePlanId: schedulerRun.schedulerClaimReconcilePlanId,
+                  schedulerLaunchPreflightId: schedulerRun.schedulerLaunchPreflightId,
+                  schedulerRunId: schedulerRun.id,
+                  schedulerReconcileSnapshotId: reconcileSnapshot.id,
+                  schedulerClaimReservationId: claimReservation.id,
+                  schedulerWorkerStartId: workerStart.id,
+                  schedulerWorkerResultId: workerResult.id,
+                  schedulerWorkerValidationId: workerValidation.id,
+                  reservationIntentId: workerValidation.reservationIntentId,
+                  claimIntentId: workerValidation.claimIntentId,
+                  taskRunId: workerValidation.taskRunId,
+                  workerLeaseId: workerValidation.workerLeaseId,
+                  worktreeId: workerValidation.worktreeId,
+                  runId: workerValidation.codeRunId,
+                  validationRunId: workerValidation.validationRunId,
+                  enabled: true,
+                  requiresConfirmation: true,
+                }],
+                primary: true,
+                status: "pending",
+              }];
+            }
             if (workerResult.status !== "evidence-ready" || workerValidation?.schedulerWorkerResultId === workerResult.id) return [];
             return [{
               id: `confirm:scheduler-first-worker-validation:${selectedTopic.id}:${workerResult.id}`,

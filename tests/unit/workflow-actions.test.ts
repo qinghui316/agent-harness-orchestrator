@@ -65,6 +65,9 @@ describe("workflow action registry", () => {
     expect(LIVE_WORKFLOW_ACTION_TYPES).toContain("planning.scheduler.worker.validate-first");
     expect(HIGH_IMPACT_WORKFLOW_ACTION_TYPES).toContain("planning.scheduler.worker.validate-first");
     expect(REVALIDATED_WORKFLOW_ACTION_TYPES).toContain("planning.scheduler.worker.validate-first");
+    expect(LIVE_WORKFLOW_ACTION_TYPES).toContain("planning.scheduler.worker.audit-first");
+    expect(HIGH_IMPACT_WORKFLOW_ACTION_TYPES).toContain("planning.scheduler.worker.audit-first");
+    expect(REVALIDATED_WORKFLOW_ACTION_TYPES).toContain("planning.scheduler.worker.audit-first");
   });
 
   it("keeps SchedulerContract ids in target and audit scope matching", () => {
@@ -454,6 +457,60 @@ describe("workflow action registry", () => {
     expect(workflowActionScopesMatchStrict(workerValidationRequest, { ...workerValidationRequest })).toBe(true);
     expect(workflowActionScopesMatchStrict(workerValidationRequest, { ...workerValidationRequest, schedulerWorkerResultId: undefined })).toBe(false);
     expect(workflowActionScopesMatchCompatible(workerValidationRequest, { ...workerValidationRequest, schedulerWorkerResultId: undefined })).toBe(true);
+
+    const workerAuditRequest = {
+      actionType: "planning.scheduler.worker.audit-first",
+      changeId: "change-1",
+      schedulerRunId: "scheduler-run-1",
+      schedulerClaimReservationId: "scheduler-claim-reservation-1",
+      schedulerWorkerStartId: "scheduler-worker-start-1",
+      schedulerWorkerResultId: "scheduler-worker-result-1",
+      schedulerWorkerValidationId: "scheduler-worker-validation-1",
+      reservationIntentId: "reservation-intent-1",
+      claimIntentId: "claim-intent-1",
+      taskRunId: "task-run-1",
+      workerLeaseId: "worker-lease-1",
+      worktreeId: "worktree-1",
+      runId: "run-1",
+      validationRunId: "validation-run-1",
+    };
+    const workerAudit = {
+      schedulerAudit: {
+        id: "scheduler-worker-audit-1",
+        schedulerRunId: "scheduler-run-1",
+        schedulerClaimReservationId: "scheduler-claim-reservation-1",
+        schedulerWorkerStartId: "scheduler-worker-start-1",
+        schedulerWorkerResultId: "scheduler-worker-result-1",
+        schedulerWorkerValidationId: "scheduler-worker-validation-1",
+        auditRunId: "audit-run-1",
+      },
+    };
+    expect(validateWorkflowActionRequiredTargets(workerAuditRequest)).toEqual([]);
+    expect(validateWorkflowActionRequiredTargets({
+      actionType: "planning.scheduler.worker.audit-first",
+      schedulerRunId: "scheduler-run-1",
+    }).map((item) => item.label)).toEqual(["schedulerWorkerValidationId"]);
+    expect(workflowActionTargetId(workerAuditRequest, workerAuditRequest.changeId, workerAudit)).toBe("scheduler-worker-audit-1");
+    expect(workflowActionScopePayload(workerAuditRequest, workerAuditRequest.changeId, workerAudit)).toMatchObject({
+      changeId: "change-1",
+      schedulerRunId: "scheduler-run-1",
+      schedulerClaimReservationId: "scheduler-claim-reservation-1",
+      schedulerWorkerStartId: "scheduler-worker-start-1",
+      schedulerWorkerResultId: "scheduler-worker-result-1",
+      schedulerWorkerValidationId: "scheduler-worker-validation-1",
+      schedulerWorkerAuditId: "scheduler-worker-audit-1",
+      reservationIntentId: "reservation-intent-1",
+      claimIntentId: "claim-intent-1",
+      taskRunId: "task-run-1",
+      workerLeaseId: "worker-lease-1",
+      worktreeId: "worktree-1",
+      runId: "run-1",
+      validationRunId: "validation-run-1",
+      auditRunId: "audit-run-1",
+    });
+    expect(workflowActionScopesMatchStrict(workerAuditRequest, { ...workerAuditRequest })).toBe(true);
+    expect(workflowActionScopesMatchStrict(workerAuditRequest, { ...workerAuditRequest, schedulerWorkerValidationId: undefined })).toBe(false);
+    expect(workflowActionScopesMatchCompatible(workerAuditRequest, { ...workerAuditRequest, schedulerWorkerValidationId: undefined })).toBe(true);
   });
 
   it("keeps graph ids in target and audit scope matching", () => {

@@ -18,6 +18,7 @@ import {
   readSchedulerRuntimeSummary,
   readLatestSchedulerWorkerStartSummary,
   readSchedulerWorkerResultSummary,
+  readSchedulerWorkerAuditSummary,
   readSchedulerWorkerValidationSummary,
   readLatestTaskQueueProposalSummary,
   readLatestWorkflowGraphPlanSummary,
@@ -32,6 +33,7 @@ import {
   type WorkbenchSchedulerRunSummary,
   type WorkbenchSchedulerRuntimeSummary,
   type WorkbenchSchedulerWorkerResultSummary,
+  type WorkbenchSchedulerWorkerAuditSummary,
   type WorkbenchSchedulerWorkerStartSummary,
   type WorkbenchSchedulerWorkerValidationSummary,
   type WorkbenchSchedulerWorkerSessionPlanSummary,
@@ -236,6 +238,7 @@ export async function buildWorkbenchWorkpad(input: {
   const schedulerWorkerStart = await readLatestSchedulerWorkerStartSummary(memory, selectedTopic.path, scopedSchedulerRun?.id, schedulerClaimReservation?.id);
   const schedulerWorkerResult = await readSchedulerWorkerResultSummary(memory, selectedTopic.path, scopedSchedulerRun?.id, schedulerWorkerStart?.id);
   const schedulerWorkerValidation = await readSchedulerWorkerValidationSummary(memory, selectedTopic.path, scopedSchedulerRun?.id, schedulerWorkerResult?.id);
+  const schedulerWorkerAudit = await readSchedulerWorkerAuditSummary(memory, selectedTopic.path, scopedSchedulerRun?.id, schedulerWorkerValidation?.id);
   const workflowRun = await getLatestWorkflowRun(memory, selectedTopic.id).then((run) => run ? summarizeWorkflowRun(run) : null).catch(() => null);
   const agentTasks = await buildAgentTaskSummaries(memory, selectedTopic.id);
   const rolePipeline = buildRolePipelineSummary(selectedTopic, planningBundle, agentTasks);
@@ -284,6 +287,7 @@ export async function buildWorkbenchWorkpad(input: {
     schedulerWorkerStart: schedulerWorkerStart ?? undefined,
     schedulerWorkerResult: schedulerWorkerResult ?? undefined,
     schedulerWorkerValidation: schedulerWorkerValidation ?? undefined,
+    schedulerWorkerAudit: schedulerWorkerAudit ?? undefined,
     workflowRun: workflowRun ?? undefined,
     rolePipeline,
     resultReview,
@@ -321,7 +325,7 @@ export async function buildWorkbenchWorkpad(input: {
       ...workpadMissingWarnings(specReady, planReady, tasksReady, selectedTopic),
       ...gaps.filter((gap) => gap.status !== "available").map((gap) => gap.summary),
     ],
-    nextAction: buildWorkpadNextAction(selectedTopic, topicApprovals, { specReady, planReady, tasksReady }, intake, taskQueue, taskGraph, planningBundle, decompositionPlan, decompositionReadiness, taskQueueProposal, workflowGraphPlan, schedulerContract, scopedSchedulerDispatchDryRun, scopedSchedulerWorkerSessionPlan, scopedSchedulerClaimReconcilePlan, scopedSchedulerLaunchPreflight, scopedSchedulerRun, schedulerRuntime, schedulerReconcileSnapshot, schedulerClaimReservation, schedulerWorkerStart, schedulerWorkerResult, schedulerWorkerValidation, workflowRun),
+    nextAction: buildWorkpadNextAction(selectedTopic, topicApprovals, { specReady, planReady, tasksReady }, intake, taskQueue, taskGraph, planningBundle, decompositionPlan, decompositionReadiness, taskQueueProposal, workflowGraphPlan, schedulerContract, scopedSchedulerDispatchDryRun, scopedSchedulerWorkerSessionPlan, scopedSchedulerClaimReconcilePlan, scopedSchedulerLaunchPreflight, scopedSchedulerRun, schedulerRuntime, schedulerReconcileSnapshot, schedulerClaimReservation, schedulerWorkerStart, schedulerWorkerResult, schedulerWorkerValidation, schedulerWorkerAudit, workflowRun),
     background: buildWorkpadBackground(workpads, selectedTopic.id),
     memoryIsolation: buildWorkpadMemoryIsolation(memory, selectedTopic, workpads),
   };
@@ -605,6 +609,7 @@ function buildWorkpadNextAction(
   schedulerWorkerStart?: WorkbenchSchedulerWorkerStartSummary | null,
   schedulerWorkerResult?: WorkbenchSchedulerWorkerResultSummary | null,
   schedulerWorkerValidation?: WorkbenchSchedulerWorkerValidationSummary | null,
+  schedulerWorkerAudit?: WorkbenchSchedulerWorkerAuditSummary | null,
   workflowRun?: WorkflowRunSummary | null,
 ): WorkpadNextAction {
   if (topic.state !== "active") {
@@ -654,6 +659,7 @@ function buildWorkpadNextAction(
       schedulerWorkerStart,
       schedulerWorkerResult,
       schedulerWorkerValidation,
+      schedulerWorkerAudit,
       workflowRun,
     });
   }
@@ -690,6 +696,7 @@ function buildWorkpadNextAction(
     schedulerWorkerStart,
     schedulerWorkerResult,
     schedulerWorkerValidation,
+    schedulerWorkerAudit,
     workflowRun,
   });
 }

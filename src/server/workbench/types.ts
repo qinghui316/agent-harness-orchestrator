@@ -45,6 +45,7 @@ export interface WorkbenchActionRequest {
   schedulerWorkerStartId?: string;
   schedulerWorkerResultId?: string;
   schedulerWorkerValidationId?: string;
+  schedulerWorkerAuditId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   workflowRunId?: string;
@@ -59,6 +60,7 @@ export interface WorkbenchActionRequest {
   workerLeaseId?: string;
   runId?: string;
   validationRunId?: string;
+  auditRunId?: string;
   confirm?: boolean;
   feedback?: string;
   feedbackContext?: {

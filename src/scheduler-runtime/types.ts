@@ -18,11 +18,15 @@ export type SchedulerRuntimeEventType =
   | "scheduler-runtime.worker-result-ready"
   | "scheduler-runtime.worker-result-failed"
   | "scheduler-runtime.worker-validation-passed"
-  | "scheduler-runtime.worker-validation-failed";
+  | "scheduler-runtime.worker-validation-failed"
+  | "scheduler-runtime.worker-audit-approved"
+  | "scheduler-runtime.worker-audit-blocked"
+  | "scheduler-runtime.worker-audit-failed";
 export type SchedulerReconcileSnapshotStatus = "generated" | "blocked";
 export type SchedulerRuntimeWorkerStartStatus = "started" | "failed";
 export type SchedulerRuntimeWorkerResultStatus = "evidence-ready" | "failed";
 export type SchedulerRuntimeWorkerValidationStatus = "passed" | "failed";
+export type SchedulerRuntimeWorkerAuditStatus = "approved" | "approved-with-notes" | "blocked" | "failed";
 
 export interface SchedulerRuntimeClaimIntentState {
   claimIntentId: string;
@@ -290,6 +294,51 @@ export interface SchedulerRuntimeWorkerValidation {
   codeRunId: string;
   validationRunId: string;
   validationStatus: string;
+  failureReason?: string;
+  sourceArtifactHashes: Record<string, string>;
+  artifactRefs: string[];
+  artifact: string;
+  markdownArtifact: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SchedulerRuntimeWorkerAudit {
+  version: "1.0";
+  id: string;
+  changeId: string;
+  schedulerRunId: string;
+  schedulerMode: SchedulerMode;
+  status: SchedulerRuntimeWorkerAuditStatus;
+  schedulerRuntimeStateId: string;
+  schedulerReconcileSnapshotId: string;
+  schedulerClaimReservationId: string;
+  schedulerWorkerStartId: string;
+  schedulerWorkerResultId: string;
+  schedulerWorkerValidationId: string;
+  schedulerContractId: string;
+  schedulerDispatchDryRunId: string;
+  schedulerWorkerPlanId: string;
+  schedulerClaimReconcilePlanId: string;
+  schedulerLaunchPreflightId: string;
+  reservationIntentId: string;
+  claimIntentId: string;
+  plannedWorkerKey: string;
+  nodeId: string;
+  unitId: string;
+  waveIndex: number;
+  stageId: string;
+  stage: "audit";
+  taskId: string;
+  taskRunId: string;
+  workerLeaseId: string;
+  taskRunStatus: string;
+  worktreeId: string;
+  codeRunId: string;
+  validationRunId: string;
+  validationStatus: string;
+  auditRunId: string;
+  auditStatus: SchedulerRuntimeWorkerAuditStatus;
   failureReason?: string;
   sourceArtifactHashes: Record<string, string>;
   artifactRefs: string[];

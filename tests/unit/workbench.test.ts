@@ -63,7 +63,7 @@ import {
   writeTaskQueueProposal,
 } from "../../src/workflow-artifacts/manager.js";
 import { compileSchedulerContract } from "../../src/workflow-scheduler/manager.js";
-import { validateSchedulerFirstWorker } from "../../src/scheduler-runtime/manager.js";
+import { auditSchedulerFirstWorker, validateSchedulerFirstWorker } from "../../src/scheduler-runtime/manager.js";
 import { listIntegrationChecks } from "../../src/integration-check/manager.js";
 import type { ManagedProject, RunMetadata, TaskQueueItem, TaskQueueRun, TaskRun, WorkerLease, WorkflowGraphPlan, WorkflowRun } from "../../src/types/index.js";
 import type { DecompositionPlan, DecompositionReadinessManifest, TaskQueueProposal } from "../../src/workflow-artifacts/manager.js";
@@ -264,10 +264,17 @@ if (args[0] === "exec" && args[1] === "resume" && args[2] === "--help") {
   process.exit(0);
 }
 if (args[0] === "exec" || args.includes("exec")) {
+  const prompt = fs.readFileSync(0, "utf8");
   const lastMessageIndex = args.indexOf("--output-last-message");
   const lastMessagePath = lastMessageIndex >= 0 ? args[lastMessageIndex + 1] : null;
   const cwdIndex = args.indexOf("--cd");
   const cwd = cwdIndex >= 0 ? args[cwdIndex + 1] : process.cwd();
+  if (prompt.includes("Auditor Agent Profile") || prompt.includes("Authoritative Audit Packet")) {
+    const message = "Status: approved\\n\\nFinding: Scheduler worker audit passed.";
+    if (lastMessagePath) fs.writeFileSync(lastMessagePath, message, "utf8");
+    console.log(JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: message } }));
+    process.exit(0);
+  }
   fs.appendFileSync(path.join(cwd, "README.md"), "\\nScheduler worker fake coder\\n", "utf8");
   if (lastMessagePath) fs.writeFileSync(lastMessagePath, "fake scheduler coder done", "utf8");
   console.log(JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: "fake scheduler coder done" } }));
@@ -2662,10 +2669,32 @@ describe("workbench read model", () => {
         schedulerWorkerResultId: reconciledResult?.result?.id,
       });
       expect(postValidationSnapshot.center.workpad.nextAction).toMatchObject({
-        actionType: "planning.scheduler.worker.validate-first",
-        enabled: false,
+        actionType: "planning.scheduler.worker.audit-first",
+        label: "审计第一个 worker 结果",
+        schedulerRunId: schedulerRun?.id,
+        schedulerClaimReservationId: claimReservation?.id,
+        schedulerWorkerStartId: startedResult?.workerStart?.id,
+        schedulerWorkerResultId: reconciledResult?.result?.id,
+        schedulerWorkerValidationId: validatedResult?.schedulerValidation?.id,
+        enabled: true,
       });
       expect(postValidationSnapshot.right.confirmationQueue.current.flatMap((item) => item.actions).some((action) => action.actionType === "planning.scheduler.worker.validate-first")).toBe(false);
+      const auditAction = postValidationSnapshot.right.confirmationQueue.current
+        .flatMap((item) => item.actions)
+        .find((action) => action.actionType === "planning.scheduler.worker.audit-first" && action.schedulerWorkerValidationId === validatedResult?.schedulerValidation?.id);
+      if (!auditAction) throw new Error("Missing scheduler first worker audit action.");
+      expect(auditAction).toMatchObject({
+        schedulerRunId: schedulerRun?.id,
+        schedulerClaimReservationId: claimReservation?.id,
+        schedulerWorkerStartId: startedResult?.workerStart?.id,
+        schedulerWorkerResultId: reconciledResult?.result?.id,
+        schedulerWorkerValidationId: validatedResult?.schedulerValidation?.id,
+        taskRunId: startedResult?.workerStart?.taskRunId,
+        workerLeaseId: startedResult?.workerStart?.workerLeaseId,
+        worktreeId: startedResult?.workerStart?.worktreeId,
+        runId: startedResult?.workerStart?.runId,
+        validationRunId: validatedResult?.schedulerValidation?.validationRunId,
+      });
       const repeatedValidation = await validateSchedulerFirstWorker(project(), {
         changeId: topic.changeId,
         schedulerRunId: `${schedulerRun?.id}`,
@@ -2676,10 +2705,110 @@ describe("workbench read model", () => {
         executionStarted: false,
         schedulerValidation: { id: validatedResult?.schedulerValidation?.id },
       });
-      await expect(executeWorkbenchAction({ project: project(), path: tempDir }, {
-        ...validationAction,
+      const audited = await executeWorkbenchAction({ project: project(), path: tempDir }, {
+        ...auditAction,
         confirm: true,
-      })).rejects.toThrow("stale or no longer available");
+      });
+      const auditedActionResult = (audited.result as {
+        result?: unknown;
+      }).result ?? audited.result;
+      const auditedResult = (auditedActionResult as {
+        existing?: boolean;
+        executionStarted?: boolean;
+        schedulerAudit?: {
+          id?: string;
+          status?: string;
+          schedulerWorkerValidationId?: string;
+          schedulerWorkerResultId?: string;
+          schedulerWorkerStartId?: string;
+          taskRunId?: string;
+          workerLeaseId?: string;
+          worktreeId?: string;
+          codeRunId?: string;
+          validationRunId?: string;
+          auditRunId?: string;
+        };
+        taskRun?: { id?: string; status?: string };
+        auditRun?: { id?: string; runtime?: string; worktree?: { worktreeId?: string } };
+        auditResult?: { id?: string; status?: string; worktreeId?: string; validationId?: string };
+      });
+      expect(auditedResult).toMatchObject({
+        executionStarted: true,
+        schedulerAudit: {
+          status: "approved",
+          schedulerWorkerValidationId: validatedResult?.schedulerValidation?.id,
+          schedulerWorkerResultId: reconciledResult?.result?.id,
+          schedulerWorkerStartId: startedResult?.workerStart?.id,
+          taskRunId: startedResult?.workerStart?.taskRunId,
+          workerLeaseId: startedResult?.workerStart?.workerLeaseId,
+          worktreeId: startedResult?.workerStart?.worktreeId,
+          codeRunId: startedResult?.workerStart?.runId,
+          validationRunId: validatedResult?.schedulerValidation?.validationRunId,
+        },
+        taskRun: { id: startedResult?.workerStart?.taskRunId, status: "completed" },
+        auditRun: { runtime: "auditor" },
+        auditResult: {
+          status: "approved",
+          worktreeId: startedResult?.workerStart?.worktreeId,
+          validationId: validatedResult?.schedulerValidation?.validationRunId,
+        },
+      });
+      const workerAuditPath = join(changeDir, "planning", "scheduler-runs", `${schedulerRun?.id}`, "scheduler-worker-audits", `${auditedResult.schedulerAudit?.id}.json`);
+      expect(JSON.parse(await readFile(workerAuditPath, "utf8"))).toMatchObject({
+        schedulerRunId: schedulerRun?.id,
+        schedulerWorkerValidationId: validatedResult?.schedulerValidation?.id,
+        schedulerWorkerResultId: reconciledResult?.result?.id,
+        status: "approved",
+        worktreeId: startedResult?.workerStart?.worktreeId,
+        codeRunId: startedResult?.workerStart?.runId,
+        validationRunId: validatedResult?.schedulerValidation?.validationRunId,
+        auditRunId: auditedResult.schedulerAudit?.auditRunId,
+      });
+      const auditRuntimeEvents = (await readFile(runtimeEventsPath, "utf8")).trim().split(/\r?\n/).map((line) => JSON.parse(line));
+      expect(auditRuntimeEvents).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          schedulerRunId: schedulerRun?.id,
+          changeId: topic.changeId,
+          type: "scheduler-runtime.worker-audit-approved",
+          payload: expect.objectContaining({
+            schedulerWorkerStartId: startedResult?.workerStart?.id,
+            schedulerWorkerResultId: reconciledResult?.result?.id,
+            schedulerWorkerValidationId: validatedResult?.schedulerValidation?.id,
+            schedulerWorkerAuditId: auditedResult.schedulerAudit?.id,
+            taskRunId: startedResult?.workerStart?.taskRunId,
+            workerLeaseId: startedResult?.workerStart?.workerLeaseId,
+            worktreeId: startedResult?.workerStart?.worktreeId,
+            codeRunId: startedResult?.workerStart?.runId,
+            validationRunId: validatedResult?.schedulerValidation?.validationRunId,
+            auditRunId: auditedResult.schedulerAudit?.auditRunId,
+            auditStatus: "approved",
+          }),
+        }),
+      ]));
+      const postAuditMemory = await resolveProjectMemory(project());
+      expect((await listTaskRuns(postAuditMemory, topic.changeId))[0]).toMatchObject({ id: startedResult?.workerStart?.taskRunId, status: "completed" });
+      expect((await listRuns(postAuditMemory)).filter((run) => run.changeId === topic.changeId)).toHaveLength(3);
+      const postAuditSnapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: topic.changeId });
+      expect(postAuditSnapshot.center.workpad.schedulerWorkerAudit).toMatchObject({
+        id: auditedResult.schedulerAudit?.id,
+        status: "approved",
+        schedulerWorkerValidationId: validatedResult?.schedulerValidation?.id,
+      });
+      expect(postAuditSnapshot.center.workpad.nextAction).toMatchObject({
+        actionType: "planning.scheduler.worker.audit-first",
+        enabled: false,
+      });
+      expect(postAuditSnapshot.right.confirmationQueue.current.flatMap((item) => item.actions).some((action) => action.actionType === "planning.scheduler.worker.audit-first")).toBe(false);
+      const repeatedAudit = await auditSchedulerFirstWorker(project(), {
+        changeId: topic.changeId,
+        schedulerRunId: `${schedulerRun?.id}`,
+        schedulerWorkerValidationId: `${validatedResult?.schedulerValidation?.id}`,
+      });
+      expect(repeatedAudit).toMatchObject({
+        existing: true,
+        executionStarted: false,
+        schedulerAudit: { id: auditedResult.schedulerAudit?.id },
+      });
       await expect(executeWorkbenchAction({ project: project(), path: tempDir }, {
         ...resultAction,
         confirm: true,

@@ -129,6 +129,7 @@ async function executeWorkflowAction(input: WorkbenchProjectInput & { project: M
     schedulerWorkerStartId: body.schedulerWorkerStartId,
     schedulerWorkerResultId: body.schedulerWorkerResultId,
     schedulerWorkerValidationId: body.schedulerWorkerValidationId,
+    schedulerWorkerAuditId: body.schedulerWorkerAuditId,
     reservationIntentId: body.reservationIntentId,
     claimIntentId: body.claimIntentId,
     workflowRunId: body.workflowRunId,
@@ -143,6 +144,7 @@ async function executeWorkflowAction(input: WorkbenchProjectInput & { project: M
     workerLeaseId: body.workerLeaseId,
     runId: body.runId,
     validationRunId: body.validationRunId,
+    auditRunId: body.auditRunId,
   });
   return { result, snapshot: await getWorkbenchSnapshot(input, { topicId: body.changeId }) };
 }

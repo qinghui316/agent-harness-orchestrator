@@ -27,6 +27,7 @@ import type {
   WorkbenchSchedulerReconcileSnapshotSummary,
   WorkbenchSchedulerRunSummary,
   WorkbenchSchedulerRuntimeSummary,
+  WorkbenchSchedulerWorkerAuditSummary,
   WorkbenchSchedulerWorkerResultSummary,
   WorkbenchSchedulerWorkerStartSummary,
   WorkbenchSchedulerWorkerValidationSummary,
@@ -120,6 +121,7 @@ export interface ThreadStreamAction {
   schedulerWorkerStartId?: string;
   schedulerWorkerResultId?: string;
   schedulerWorkerValidationId?: string;
+  schedulerWorkerAuditId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   workflowRunId?: string;
@@ -129,6 +131,7 @@ export interface ThreadStreamAction {
   workerLeaseId?: string;
   runId?: string;
   validationRunId?: string;
+  auditRunId?: string;
 }
 
 export interface ThreadStreamEvidence {
@@ -234,6 +237,7 @@ export interface WorkbenchDecisionAction {
   schedulerWorkerStartId?: string;
   schedulerWorkerResultId?: string;
   schedulerWorkerValidationId?: string;
+  schedulerWorkerAuditId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   workflowRunId?: string;
@@ -243,6 +247,7 @@ export interface WorkbenchDecisionAction {
   workerLeaseId?: string;
   runId?: string;
   validationRunId?: string;
+  auditRunId?: string;
   worktreeId?: string;
   worktreeIds?: string[];
   applyCheckId?: string;
@@ -319,11 +324,13 @@ export interface WorkbenchConfirmationQueueItem {
   schedulerWorkerStartId?: string;
   schedulerWorkerResultId?: string;
   schedulerWorkerValidationId?: string;
+  schedulerWorkerAuditId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   taskRunId?: string;
   workerLeaseId?: string;
   validationRunId?: string;
+  auditRunId?: string;
   summary: string;
   whyNeedsConfirmation: string;
   confirmEffect: string;
@@ -402,6 +409,7 @@ export interface WorkpadNextAction {
   schedulerWorkerStartId?: string;
   schedulerWorkerResultId?: string;
   schedulerWorkerValidationId?: string;
+  schedulerWorkerAuditId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   workflowRunId?: string;
@@ -414,6 +422,7 @@ export interface WorkpadNextAction {
   landingPackageId?: string;
   remoteLandingResultId?: string;
   validationRunId?: string;
+  auditRunId?: string;
   disabledReason?: string;
 }
 
@@ -640,6 +649,7 @@ export interface WorkbenchWorkpad {
   schedulerWorkerStart?: WorkbenchSchedulerWorkerStartSummary;
   schedulerWorkerResult?: WorkbenchSchedulerWorkerResultSummary;
   schedulerWorkerValidation?: WorkbenchSchedulerWorkerValidationSummary;
+  schedulerWorkerAudit?: WorkbenchSchedulerWorkerAuditSummary;
   workflowRun?: WorkflowRunSummary;
   rolePipeline?: WorkbenchRolePipelineSummary;
   resultReview?: WorkbenchResultReview;

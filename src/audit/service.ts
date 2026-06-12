@@ -11,7 +11,7 @@ import { buildAgentSystemPrompt, buildRunAgentRecord, resolveAgentRole } from ".
 import { writeJsonFile } from "../fs/json.js";
 import { assertWritableMemory, resolveProjectMemory } from "../memory/resolver.js";
 import { getWorktreeMetadataPath } from "../worktree/paths.js";
-import { getLatestValidationSummary } from "../validation/repository.js";
+import { getLatestValidationSummary, readValidationResult, summarizeValidation } from "../validation/repository.js";
 import { workerPermissionProfileForRole } from "../agent-task/tool-policy.js";
 import { runtimeContinuityPaths, type RuntimeContinuityPaths } from "../runtime-continuity/paths.js";
 import { appendExternalExecutionCompleted, appendExternalExecutionFailed, appendExternalExecutionRequested, appendPermissionProfileAttached } from "../runtime-continuity/events.js";
@@ -30,6 +30,7 @@ import { composeAuditPrompt } from "./prompt.js";
 export interface AuditRunOptions {
   changeId?: string;
   worktreeId?: string;
+  validationId?: string;
   prompt?: string;
 }
 
@@ -52,7 +53,7 @@ export async function startAuditRun(project: ManagedProject, options: AuditRunOp
   const changeId = target.changeId;
   const role = await resolveAgentRole(memory, "auditor-agent");
 
-  const runId = buildRunId(changeId, ["auditor", options.worktreeId ?? "no-worktree", options.prompt ?? ""]);
+  const runId = buildRunId(changeId, ["auditor", options.worktreeId ?? "no-worktree", options.validationId ?? "latest-validation", options.prompt ?? ""]);
   const directory = join(memory.runsRoot, runId);
   const relativeDir = displayArtifactPath(memory, directory);
   const artifacts = {
@@ -112,9 +113,25 @@ export async function startAuditRun(project: ManagedProject, options: AuditRunOp
   await appendRunEvent(paths.events, { timestamp: now, type: "run.created", runId, data: { changeId, runtime: "auditor", worktreeId: options.worktreeId } });
 
   const diffResult = options.worktreeId ? await collectWorktreeDiff(memory, options.worktreeId, changeId) : null;
-  const latestValidation = await getLatestValidationSummary(memory, changeId, diffResult
-    ? { worktreeId: diffResult.worktree.worktreeId, worktreeDiffHash: diffResult.diffHash }
-    : {});
+  const latestValidation = options.validationId
+    ? summarizeValidation(await readValidationResult(memory, options.validationId, { changeId }))
+    : await getLatestValidationSummary(memory, changeId, diffResult
+      ? { worktreeId: diffResult.worktree.worktreeId, worktreeDiffHash: diffResult.diffHash }
+      : {});
+  if (options.validationId && !latestValidation) {
+    throw new Error(`Validation ${options.validationId} was not found for audit.`);
+  }
+  if (options.validationId && latestValidation?.id !== options.validationId) {
+    throw new Error("Audit validationId scope mismatch.");
+  }
+  if (options.validationId && diffResult && latestValidation) {
+    if (latestValidation.worktreeId !== diffResult.worktree.worktreeId) {
+      throw new Error("Audit validationId worktree scope mismatch.");
+    }
+    if (latestValidation.worktreeDiffHash && latestValidation.worktreeDiffHash !== diffResult.diffHash) {
+      throw new Error("Audit validationId diff hash mismatch.");
+    }
+  }
   await writeFile(paths.diff, diffResult?.diff ?? "", "utf8");
   await writeFile(paths.diffStat, diffResult?.diffStat ?? "", "utf8");
 

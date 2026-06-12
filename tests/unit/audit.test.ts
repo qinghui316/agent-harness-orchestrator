@@ -180,6 +180,23 @@ describe("audit close gate", () => {
     expect(agentEvents[0]).toMatchObject({ changeId: "audit-runtime-continuity", runId: result.run.id, roleId: "auditor-agent" });
     expect(agentEvents[0].raw.changeId).toBeUndefined();
   });
+
+  it("binds scheduler audit to the explicitly requested validation evidence", async () => {
+    await initHarness(project(tempDir));
+    await createChange(project(tempDir), { title: "Audit Exact Validation" });
+    await writeValidation("validation-old", "audit-exact-validation", "passed", "2026-01-01T00:00:00.000Z");
+    await writeValidation("validation-selected", "audit-exact-validation", "passed", "2026-01-02T00:00:00.000Z");
+
+    const result = await startAuditRun(project(tempDir), { validationId: "validation-old" });
+    expect(result.audit).toMatchObject({
+      changeId: "audit-exact-validation",
+      validationId: "validation-old",
+      status: "failed",
+    });
+
+    await writeValidation("validation-cross", "other-change", "passed", "2026-01-03T00:00:00.000Z");
+    await expect(startAuditRun(project(tempDir), { validationId: "validation-cross" })).rejects.toThrow("does not match requested change");
+  });
 });
 
 async function writeAudit(

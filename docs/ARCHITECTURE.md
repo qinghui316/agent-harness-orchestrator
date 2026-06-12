@@ -113,6 +113,8 @@ Phase 9H adds the matching single-worker result reconcile gate. `src/scheduler-r
 
 Phase 9I adds the matching single-worker validation gate. `src/scheduler-runtime/worker-validation.ts` owns the validation read/guard/write path for the first scheduler coder worker result from Phase 9H. It accepts only scheduler-owned `SchedulerRuntimeWorkerResult(status="evidence-ready")`, verifies the scheduler-specific code execution gate and TaskRun/worktree scope, then runs one existing Validation path against that same worktree. Passed validation writes scheduler-owned `SchedulerRuntimeWorkerValidation` evidence while leaving the TaskRun `evidence-ready` for a later audit phase; failed validation writes failed validation evidence and marks the TaskRun `blocked`. It does not start audit, bounded rework, a second worker, whole-wave dispatch, apply/landing, or a scheduler loop.
 
+Phase 9J adds the matching single-worker audit gate. `src/scheduler-runtime/worker-audit.ts` owns the audit read/guard/write path for the first scheduler coder worker whose Phase 9I validation passed. It binds Audit to the exact validation run and the same worktree, writes scheduler-owned `SchedulerRuntimeWorkerAudit` evidence, marks the TaskRun `completed` only for audit `approved` / `approved-with-notes`, and marks the TaskRun `blocked` for audit `blocked` / `failed`. It does not start bounded rework, a second worker, whole-wave dispatch, apply/landing, child Changes, or a scheduler loop.
+
 Workbench relationship:
 
 ```text

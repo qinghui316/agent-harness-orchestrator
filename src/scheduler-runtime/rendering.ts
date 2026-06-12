@@ -1,4 +1,4 @@
-import type { SchedulerReconcileSnapshot, SchedulerRuntimeClaimReservation, SchedulerRuntimeState, SchedulerRuntimeWorkerResult, SchedulerRuntimeWorkerStart, SchedulerRuntimeWorkerValidation } from "./types.js";
+import type { SchedulerReconcileSnapshot, SchedulerRuntimeClaimReservation, SchedulerRuntimeState, SchedulerRuntimeWorkerAudit, SchedulerRuntimeWorkerResult, SchedulerRuntimeWorkerStart, SchedulerRuntimeWorkerValidation } from "./types.js";
 
 export function renderSchedulerRuntimeStateMarkdown(state: SchedulerRuntimeState): string {
   const lines = [
@@ -257,6 +257,47 @@ export function renderSchedulerRuntimeWorkerValidationMarkdown(validation: Sched
     "## Boundary",
     "",
     "This worker-validation evidence validates one scheduler coder-stage worker worktree only. Passed validation is not task completion; audit remains a later gate. It does not start audit, bounded rework, a next worker, whole-wave dispatch, scheduler loop, apply, or merge.",
+    "",
+  ];
+  return lines.join("\n");
+}
+
+export function renderSchedulerRuntimeWorkerAuditMarkdown(audit: SchedulerRuntimeWorkerAudit): string {
+  const lines = [
+    `# SchedulerRuntimeWorkerAudit ${audit.id}`,
+    "",
+    `Status: ${audit.status}`,
+    `Change: ${audit.changeId}`,
+    `SchedulerRun: ${audit.schedulerRunId}`,
+    `WorkerValidation: ${audit.schedulerWorkerValidationId}`,
+    `WorkerResult: ${audit.schedulerWorkerResultId}`,
+    `WorkerStart: ${audit.schedulerWorkerStartId}`,
+    `ClaimReservation: ${audit.schedulerClaimReservationId}`,
+    "",
+    "## Worker Audit",
+    "",
+    `- Reservation intent: ${audit.reservationIntentId}`,
+    `- Claim intent: ${audit.claimIntentId}`,
+    `- Planned worker key: ${audit.plannedWorkerKey}`,
+    `- Node: ${audit.nodeId}`,
+    `- Unit: ${audit.unitId}`,
+    `- Wave: ${audit.waveIndex + 1}`,
+    `- Stage: ${audit.stage}`,
+    `- Task: ${audit.taskId}`,
+    `- TaskRun: ${audit.taskRunId}`,
+    `- TaskRun status: ${audit.taskRunStatus}`,
+    `- WorkerLease: ${audit.workerLeaseId}`,
+    `- Worktree: ${audit.worktreeId}`,
+    `- Code run: ${audit.codeRunId}`,
+    `- Validation run: ${audit.validationRunId}`,
+    `- Validation status: ${audit.validationStatus}`,
+    `- Audit run: ${audit.auditRunId}`,
+    `- Audit status: ${audit.auditStatus}`,
+    ...(audit.failureReason ? [`- Failure: ${audit.failureReason}`] : []),
+    "",
+    "## Boundary",
+    "",
+    "This worker-audit evidence audits one scheduler coder-stage worker worktree only. Approved audit may complete that TaskRun; blocked or failed audit only blocks the current worker path. It does not start rework, a next worker, whole-wave dispatch, scheduler loop, apply, or merge.",
     "",
   ];
   return lines.join("\n");

@@ -169,6 +169,7 @@ export type WorkpadNextAction = {
   schedulerWorkerStartId?: string;
   schedulerWorkerResultId?: string;
   schedulerWorkerValidationId?: string;
+  schedulerWorkerAuditId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   workflowRunId?: string;
@@ -178,6 +179,7 @@ export type WorkpadNextAction = {
   workerLeaseId?: string;
   runId?: string;
   validationRunId?: string;
+  auditRunId?: string;
   disabledReason?: string;
 };
 export type DecisionActionKind = "approval" | "workflow-action" | "feedback" | "evidence" | "abandon" | "none";
@@ -212,6 +214,7 @@ export type WorkbenchTaskNextAction = {
   schedulerWorkerStartId?: string;
   schedulerWorkerResultId?: string;
   schedulerWorkerValidationId?: string;
+  schedulerWorkerAuditId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   workflowRunId?: string;
@@ -340,6 +343,7 @@ export type Workpad = {
   schedulerWorkerStart?: SchedulerWorkerStartSummary;
   schedulerWorkerResult?: SchedulerWorkerResultSummary;
   schedulerWorkerValidation?: SchedulerWorkerValidationSummary;
+  schedulerWorkerAudit?: SchedulerWorkerAuditSummary;
   rolePipeline?: {
     stage: "planning" | "coding" | "validation" | "audit" | "rework" | "done" | "needs-user-input";
     status: "draft" | "running" | "completed" | "needs-user-input" | "stopped";
@@ -713,6 +717,34 @@ export type SchedulerWorkerValidationSummary = {
   markdownArtifact?: string;
   updatedAt: string;
 };
+export type SchedulerWorkerAuditSummary = {
+  id: string;
+  changeId: string;
+  schedulerRunId: string;
+  schedulerClaimReservationId: string;
+  schedulerWorkerStartId: string;
+  schedulerWorkerResultId: string;
+  schedulerWorkerValidationId: string;
+  status: "approved" | "approved-with-notes" | "blocked" | "failed";
+  reservationIntentId: string;
+  claimIntentId: string;
+  nodeId: string;
+  unitId: string;
+  stageId: string;
+  stage: "audit";
+  taskRunId: string;
+  workerLeaseId: string;
+  taskRunStatus: string;
+  worktreeId: string;
+  codeRunId: string;
+  validationRunId: string;
+  validationStatus: string;
+  auditRunId: string;
+  auditStatus: "approved" | "approved-with-notes" | "blocked" | "failed";
+  artifact?: string;
+  markdownArtifact?: string;
+  updatedAt: string;
+};
 export type SchedulerReconcileSnapshotSummary = {
   id: string;
   changeId: string;
@@ -758,6 +790,7 @@ export type ThreadStreamAction = {
   schedulerWorkerStartId?: string;
   schedulerWorkerResultId?: string;
   schedulerWorkerValidationId?: string;
+  schedulerWorkerAuditId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   workflowRunId?: string;
@@ -770,6 +803,7 @@ export type ThreadStreamAction = {
   landingPackageId?: string;
   remoteLandingResultId?: string;
   validationRunId?: string;
+  auditRunId?: string;
 };
 export type ThreadStreamItem = {
   id: string;
@@ -849,6 +883,7 @@ export type DecisionAction = {
   schedulerWorkerStartId?: string;
   schedulerWorkerResultId?: string;
   schedulerWorkerValidationId?: string;
+  schedulerWorkerAuditId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   workflowRunId?: string;
@@ -861,6 +896,7 @@ export type DecisionAction = {
   landingPackageId?: string;
   remoteLandingResultId?: string;
   validationRunId?: string;
+  auditRunId?: string;
   artifact?: string;
   disabledReason?: string;
 };
@@ -908,11 +944,13 @@ export type ConfirmationQueueItem = {
   schedulerWorkerStartId?: string;
   schedulerWorkerResultId?: string;
   schedulerWorkerValidationId?: string;
+  schedulerWorkerAuditId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   taskRunId?: string;
   workerLeaseId?: string;
   validationRunId?: string;
+  auditRunId?: string;
   summary: string;
   whyNeedsConfirmation: string;
   confirmEffect: string;
