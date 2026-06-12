@@ -20,6 +20,7 @@ export function artifactForActionResult(result: unknown): string | null {
   if (isRecord(result) && isRecord(result.runtimeState) && typeof result.runtimeState.artifact === "string") return result.runtimeState.artifact;
   if (isRecord(result) && isRecord(result.reconcileSnapshot) && typeof result.reconcileSnapshot.artifact === "string") return result.reconcileSnapshot.artifact;
   if (isRecord(result) && isRecord(result.result) && typeof result.result.artifact === "string") return result.result.artifact;
+  if (isRecord(result) && isRecord(result.schedulerValidation) && typeof result.schedulerValidation.artifact === "string") return result.schedulerValidation.artifact;
   if (isRecord(result) && isRecord(result.handoff) && Array.isArray(result.handoff.artifactRefs) && typeof result.handoff.artifactRefs[0] === "string") return result.handoff.artifactRefs[0];
   if (isRecord(result) && isRecord(result.revision) && Array.isArray(result.revision.artifactRefs) && typeof result.revision.artifactRefs[0] === "string") return result.revision.artifactRefs[0];
   if (isRecord(result) && isRecord(result.run) && isRecord(result.run.artifacts) && typeof result.run.artifacts.directory === "string") return result.run.artifacts.directory;
@@ -199,6 +200,11 @@ export function summarizeActionResult(actionType: string, result: unknown): stri
     if (result.status === "running") return "Scheduler first coder worker is still running.";
     return "Scheduler first coder worker result reconciled.";
   }
+  if (actionType === "planning.scheduler.worker.validate-first" && isRecord(result) && isRecord(result.schedulerValidation)) {
+    return typeof result.schedulerValidation.status === "string"
+      ? `Scheduler first worker validation ${result.schedulerValidation.status}.`
+      : "Scheduler first worker validation recorded.";
+  }
   if (actionType === "planning.confirm-execution" && isRecord(result)) {
     return "Planning confirmed and canonical artifacts were written. No execution was started.";
   }
@@ -248,6 +254,7 @@ export function labelForAction(actionType: string): string {
     case "planning.scheduler.runtime.reserve-claims": return "Scheduler runtime claims reserved";
     case "planning.scheduler.worker.start-first": return "Scheduler first coder worker started";
     case "planning.scheduler.worker.reconcile-result": return "Scheduler first coder worker result reconciled";
+    case "planning.scheduler.worker.validate-first": return "Scheduler first worker validated";
     case "planning.workflowgraph.compile": return "WorkflowGraphPlan compiled";
     case "planning.taskqueue.confirm-start": return "TaskQueueProposal confirmed and started";
     case "orchestrator.evaluate": return "Main orchestrator evaluated";

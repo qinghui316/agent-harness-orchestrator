@@ -3,7 +3,9 @@ import {
   readSchedulerReconcileSnapshotProjection,
   readSchedulerReconcileSnapshotByIdProjection,
   findSchedulerRuntimeWorkerResultForStart,
+  findSchedulerRuntimeWorkerValidationForResult,
   listSchedulerRuntimeWorkerStarts,
+  readSchedulerRuntimeWorkerValidationProjection,
   readSchedulerRuntimeClaimReservationProjection,
   readSchedulerRuntimeStateProjection,
   type SchedulerReconcileSnapshot,
@@ -11,6 +13,7 @@ import {
   type SchedulerRuntimeState,
   type SchedulerRuntimeWorkerResult,
   type SchedulerRuntimeWorkerStart,
+  type SchedulerRuntimeWorkerValidation,
 } from "../scheduler-runtime/manager.js";
 import {
   readLatestDecompositionPlan,
@@ -302,6 +305,32 @@ export interface WorkbenchSchedulerWorkerResultSummary {
   updatedAt: string;
 }
 
+export interface WorkbenchSchedulerWorkerValidationSummary {
+  id: string;
+  changeId: string;
+  schedulerRunId: string;
+  schedulerClaimReservationId: string;
+  schedulerWorkerStartId: string;
+  schedulerWorkerResultId: string;
+  status: SchedulerRuntimeWorkerValidation["status"];
+  reservationIntentId: string;
+  claimIntentId: string;
+  nodeId: string;
+  unitId: string;
+  stageId: string;
+  stage: "validation";
+  taskRunId: string;
+  workerLeaseId: string;
+  taskRunStatus: string;
+  worktreeId: string;
+  codeRunId: string;
+  validationRunId: string;
+  validationStatus: string;
+  artifact?: string;
+  markdownArtifact?: string;
+  updatedAt: string;
+}
+
 export interface WorkbenchSchedulerReconcileSnapshotSummary {
   id: string;
   changeId: string;
@@ -340,6 +369,7 @@ type WorkflowProjectionActionType =
   | "planning.scheduler.runtime.reserve-claims"
   | "planning.scheduler.worker.start-first"
   | "planning.scheduler.worker.reconcile-result"
+  | "planning.scheduler.worker.validate-first"
   | "planning.workflowgraph.compile"
   | "planning.taskqueue.confirm-start"
   | "code.run";
@@ -367,6 +397,7 @@ export interface WorkbenchTypedWorkflowNextAction {
   schedulerClaimReservationId?: string;
   schedulerWorkerStartId?: string;
   schedulerWorkerResultId?: string;
+  schedulerWorkerValidationId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   disabledReason?: string;
@@ -680,6 +711,17 @@ export async function readSchedulerWorkerResultSummary(
   return result ? summarizeSchedulerWorkerResult(result) : null;
 }
 
+export async function readSchedulerWorkerValidationSummary(
+  memory: ResolvedMemory,
+  changePath: string,
+  schedulerRunId?: string,
+  workerResultId?: string,
+): Promise<WorkbenchSchedulerWorkerValidationSummary | null> {
+  if (!schedulerRunId || !workerResultId) return null;
+  const validation = await findSchedulerRuntimeWorkerValidationForResult(memory, changePath, schedulerRunId, workerResultId).catch(() => null);
+  return validation ? summarizeSchedulerWorkerValidation(validation) : null;
+}
+
 function summarizeSchedulerWorkerStart(start: SchedulerRuntimeWorkerStart): WorkbenchSchedulerWorkerStartSummary {
   return {
     id: start.id,
@@ -728,6 +770,34 @@ function summarizeSchedulerWorkerResult(result: SchedulerRuntimeWorkerResult): W
     artifact: result.artifact,
     markdownArtifact: result.markdownArtifact,
     updatedAt: result.updatedAt,
+  };
+}
+
+function summarizeSchedulerWorkerValidation(validation: SchedulerRuntimeWorkerValidation): WorkbenchSchedulerWorkerValidationSummary {
+  return {
+    id: validation.id,
+    changeId: validation.changeId,
+    schedulerRunId: validation.schedulerRunId,
+    schedulerClaimReservationId: validation.schedulerClaimReservationId,
+    schedulerWorkerStartId: validation.schedulerWorkerStartId,
+    schedulerWorkerResultId: validation.schedulerWorkerResultId,
+    status: validation.status,
+    reservationIntentId: validation.reservationIntentId,
+    claimIntentId: validation.claimIntentId,
+    nodeId: validation.nodeId,
+    unitId: validation.unitId,
+    stageId: validation.stageId,
+    stage: "validation",
+    taskRunId: validation.taskRunId,
+    workerLeaseId: validation.workerLeaseId,
+    taskRunStatus: validation.taskRunStatus,
+    worktreeId: validation.worktreeId,
+    codeRunId: validation.codeRunId,
+    validationRunId: validation.validationRunId,
+    validationStatus: validation.validationStatus,
+    artifact: validation.artifact,
+    markdownArtifact: validation.markdownArtifact,
+    updatedAt: validation.updatedAt,
   };
 }
 
@@ -821,6 +891,10 @@ export function readSchedulerClaimReservationProjection(memory: ResolvedMemory, 
   return readSchedulerRuntimeClaimReservationProjection(memory, changePath, schedulerRunId, reservationId);
 }
 
+export function readSchedulerWorkerValidationProjection(memory: ResolvedMemory, changePath: string, schedulerRunId: string, validationId: string): Promise<SchedulerRuntimeWorkerValidation | null> {
+  return readSchedulerRuntimeWorkerValidationProjection(memory, changePath, schedulerRunId, validationId);
+}
+
 export function buildTypedWorkflowNextAction(input: {
   topic: TypedWorkflowProjectionTopic;
   readiness: TypedWorkflowProjectionReadiness;
@@ -841,9 +915,10 @@ export function buildTypedWorkflowNextAction(input: {
   schedulerClaimReservation?: WorkbenchSchedulerClaimReservationSummary | null;
   schedulerWorkerStart?: WorkbenchSchedulerWorkerStartSummary | null;
   schedulerWorkerResult?: WorkbenchSchedulerWorkerResultSummary | null;
+  schedulerWorkerValidation?: WorkbenchSchedulerWorkerValidationSummary | null;
   workflowRun?: WorkflowRunSummary | null;
 }): WorkbenchTypedWorkflowNextAction {
-  const { topic, readiness, intake, planningBundle, decompositionPlan, decompositionReadiness, taskQueueProposal, workflowGraphPlan, schedulerRun, schedulerRuntime, schedulerReconcileSnapshot, schedulerClaimReservation, schedulerWorkerStart, schedulerWorkerResult, workflowRun } = input;
+  const { topic, readiness, intake, planningBundle, decompositionPlan, decompositionReadiness, taskQueueProposal, workflowGraphPlan, schedulerRun, schedulerRuntime, schedulerReconcileSnapshot, schedulerClaimReservation, schedulerWorkerStart, schedulerWorkerResult, schedulerWorkerValidation, workflowRun } = input;
   if (!readiness.specReady && !topic.runs.some((run) => run.runtime === "intake-scan")) {
     return workflowNextAction("intake.scan", "分析需求", "先只读扫描项目，整理当前理解、相关文件和待确认问题。", false);
   }
@@ -908,10 +983,29 @@ export function buildTypedWorkflowNextAction(input: {
       if (schedulerClaimReservation.launchConfirmed) {
         if (schedulerWorkerStart?.schedulerClaimReservationId === schedulerClaimReservation.id && schedulerWorkerStart.schedulerRunId === schedulerRun.id) {
           if (schedulerWorkerResult?.schedulerWorkerStartId === schedulerWorkerStart.id) {
+            if (schedulerWorkerResult.status === "evidence-ready" && !schedulerWorkerValidation) {
+              return {
+                ...workflowNextAction("planning.scheduler.worker.validate-first", "验证第一个 worker 结果", "对 9G 创建的同一个 worktree 运行一次 scoped Validation；只写 scheduler validation evidence，不启动 audit、rework 或下一个 worker。"),
+                decompositionPlanId: decompositionPlan.id,
+                readinessManifestId: decompositionReadiness.id,
+                schedulerContractId: schedulerRun.schedulerContractId,
+                schedulerDispatchDryRunId: schedulerRun.schedulerDispatchDryRunId,
+                schedulerWorkerPlanId: schedulerRun.schedulerWorkerPlanId,
+                schedulerClaimReconcilePlanId: schedulerRun.schedulerClaimReconcilePlanId,
+                schedulerLaunchPreflightId: schedulerRun.schedulerLaunchPreflightId,
+                schedulerRunId: schedulerRun.id,
+                schedulerReconcileSnapshotId: schedulerReconcileSnapshot.id,
+                schedulerClaimReservationId: schedulerClaimReservation.id,
+                schedulerWorkerStartId: schedulerWorkerStart.id,
+                schedulerWorkerResultId: schedulerWorkerResult.id,
+                reservationIntentId: schedulerWorkerStart.reservationIntentId,
+                claimIntentId: schedulerWorkerStart.claimIntentId,
+              };
+            }
             return {
-              ...workflowNextAction("planning.scheduler.worker.reconcile-result", "等待验证阶段", "第一个 scheduler coder worker result 已经对账；validation/audit 阶段需要后续单独开启。"),
+              ...workflowNextAction("planning.scheduler.worker.validate-first", schedulerWorkerValidation ? "等待 Audit 阶段" : "等待验证阶段", schedulerWorkerValidation ? "第一个 scheduler worker validation 已记录；audit 阶段需要后续单独开启。" : "第一个 scheduler coder worker result 不是 evidence-ready，不能启动 validation。"),
               enabled: false,
-              disabledReason: "第一个 worker result 已对账。validation/audit/rework 不是 Phase 9H 范围。",
+              disabledReason: schedulerWorkerValidation ? "第一个 worker validation 已记录。audit/rework 不是 Phase 9I 范围。" : "第一个 worker result 不是 evidence-ready。",
               decompositionPlanId: decompositionPlan.id,
               readinessManifestId: decompositionReadiness.id,
               schedulerContractId: schedulerRun.schedulerContractId,
@@ -924,6 +1018,7 @@ export function buildTypedWorkflowNextAction(input: {
               schedulerClaimReservationId: schedulerClaimReservation.id,
               schedulerWorkerStartId: schedulerWorkerStart.id,
               schedulerWorkerResultId: schedulerWorkerResult.id,
+              schedulerWorkerValidationId: schedulerWorkerValidation?.id,
               reservationIntentId: schedulerWorkerStart.reservationIntentId,
               claimIntentId: schedulerWorkerStart.claimIntentId,
             };

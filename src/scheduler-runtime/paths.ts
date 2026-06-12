@@ -60,3 +60,15 @@ export function schedulerWorkerResultPath(memory: ResolvedMemory, changePath: st
 export function schedulerWorkerResultMarkdownPath(memory: ResolvedMemory, changePath: string, schedulerRunId: string, workerResultId: string): string {
   return join(schedulerWorkerResultsDir(memory, changePath, schedulerRunId), `${workerResultId}.md`);
 }
+
+export function schedulerWorkerValidationsDir(memory: ResolvedMemory, changePath: string, schedulerRunId: string): string {
+  return join(schedulerRuntimeDir(memory, changePath, schedulerRunId), "scheduler-worker-validations");
+}
+
+export function schedulerWorkerValidationPath(memory: ResolvedMemory, changePath: string, schedulerRunId: string, workerValidationId: string): string {
+  return join(schedulerWorkerValidationsDir(memory, changePath, schedulerRunId), `${workerValidationId}.json`);
+}
+
+export function schedulerWorkerValidationMarkdownPath(memory: ResolvedMemory, changePath: string, schedulerRunId: string, workerValidationId: string): string {
+  return join(schedulerWorkerValidationsDir(memory, changePath, schedulerRunId), `${workerValidationId}.md`);
+}

@@ -36,6 +36,7 @@ import {
   SchedulerWorkerResultCard,
   SchedulerWorkerSessionPlanCard,
   SchedulerWorkerStartCard,
+  SchedulerWorkerValidationCard,
   TaskQueueProposalCard,
   WorkflowGraphPlanCard,
 } from "./TypedWorkflowCards.js";
@@ -125,6 +126,7 @@ export function WorkpadDiagnosticDetails({
       {workpad.schedulerClaimReservation ? <SchedulerClaimReservationCard reservation={workpad.schedulerClaimReservation} /> : null}
       {workpad.schedulerWorkerStart ? <SchedulerWorkerStartCard start={workpad.schedulerWorkerStart} /> : null}
       {workpad.schedulerWorkerResult ? <SchedulerWorkerResultCard result={workpad.schedulerWorkerResult} /> : null}
+      {workpad.schedulerWorkerValidation ? <SchedulerWorkerValidationCard validation={workpad.schedulerWorkerValidation} /> : null}
 
       {workpad.rolePipeline ? (
         <section className="workpad-section" data-testid="role-pipeline-summary">

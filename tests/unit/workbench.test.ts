@@ -63,6 +63,7 @@ import {
   writeTaskQueueProposal,
 } from "../../src/workflow-artifacts/manager.js";
 import { compileSchedulerContract } from "../../src/workflow-scheduler/manager.js";
+import { validateSchedulerFirstWorker } from "../../src/scheduler-runtime/manager.js";
 import { listIntegrationChecks } from "../../src/integration-check/manager.js";
 import type { ManagedProject, RunMetadata, TaskQueueItem, TaskQueueRun, TaskRun, WorkerLease, WorkflowGraphPlan, WorkflowRun } from "../../src/types/index.js";
 import type { DecompositionPlan, DecompositionReadinessManifest, TaskQueueProposal } from "../../src/workflow-artifacts/manager.js";
@@ -2374,6 +2375,7 @@ describe("workbench read model", () => {
     await initGitRepository(tempDir);
     await mkdir(join(tempDir, "src"), { recursive: true });
     await writeFile(join(tempDir, ".gitignore"), "harness/\n.agent-harness/\n", "utf8");
+    await writeFile(join(tempDir, "package.json"), JSON.stringify({ scripts: { test: "node -e \"process.exit(0)\"" } }), "utf8");
     await writeFile(join(tempDir, "src", "module-a.ts"), "export const moduleA = 1;\n", "utf8");
     await writeFile(join(tempDir, "src", "module-b.ts"), "export const moduleB = 1;\n", "utf8");
     await git(tempDir, ["add", "."]);
@@ -2563,10 +2565,121 @@ describe("workbench read model", () => {
         schedulerWorkerStartId: startedResult?.workerStart?.id,
       });
       expect(postResultSnapshot.center.workpad.nextAction).toMatchObject({
-        actionType: "planning.scheduler.worker.reconcile-result",
-        enabled: false,
+        actionType: "planning.scheduler.worker.validate-first",
+        label: "验证第一个 worker 结果",
+        schedulerRunId: schedulerRun?.id,
+        schedulerClaimReservationId: claimReservation?.id,
+        schedulerWorkerStartId: startedResult?.workerStart?.id,
+        schedulerWorkerResultId: reconciledResult?.result?.id,
+        enabled: true,
       });
       expect(postResultSnapshot.right.confirmationQueue.current.flatMap((item) => item.actions).some((action) => action.actionType === "planning.scheduler.worker.reconcile-result")).toBe(false);
+      const validationAction = postResultSnapshot.right.confirmationQueue.current
+        .flatMap((item) => item.actions)
+        .find((action) => action.actionType === "planning.scheduler.worker.validate-first" && action.schedulerWorkerResultId === reconciledResult?.result?.id);
+      if (!validationAction) throw new Error("Missing scheduler first worker validation action.");
+      expect(validationAction).toMatchObject({
+        schedulerRunId: schedulerRun?.id,
+        schedulerClaimReservationId: claimReservation?.id,
+        schedulerWorkerStartId: startedResult?.workerStart?.id,
+        schedulerWorkerResultId: reconciledResult?.result?.id,
+        taskRunId: startedResult?.workerStart?.taskRunId,
+        workerLeaseId: startedResult?.workerStart?.workerLeaseId,
+        worktreeId: startedResult?.workerStart?.worktreeId,
+        runId: startedResult?.workerStart?.runId,
+      });
+      const validated = await executeWorkbenchAction({ project: project(), path: tempDir }, {
+        ...validationAction,
+        confirm: true,
+      });
+      const validatedResult = (validated.result as {
+        result?: {
+          status?: "passed" | "failed";
+          schedulerValidation?: {
+            id?: string;
+            status?: string;
+            schedulerWorkerResultId?: string;
+            taskRunId?: string;
+            workerLeaseId?: string;
+            worktreeId?: string;
+            codeRunId?: string;
+            validationRunId?: string;
+          };
+          taskRun?: { id?: string; status?: string };
+          validationRun?: { id?: string; runtime?: string; worktree?: { worktreeId?: string } };
+          validationResult?: { id?: string; status?: string; worktreeId?: string };
+        };
+      }).result;
+      expect(validatedResult).toMatchObject({
+        status: "passed",
+        schedulerValidation: {
+          status: "passed",
+          schedulerWorkerResultId: reconciledResult?.result?.id,
+          taskRunId: startedResult?.workerStart?.taskRunId,
+          workerLeaseId: startedResult?.workerStart?.workerLeaseId,
+          worktreeId: startedResult?.workerStart?.worktreeId,
+          codeRunId: startedResult?.workerStart?.runId,
+        },
+        taskRun: { id: startedResult?.workerStart?.taskRunId, status: "evidence-ready" },
+        validationRun: { runtime: "validator", worktree: { worktreeId: startedResult?.workerStart?.worktreeId } },
+        validationResult: { status: "passed", worktreeId: startedResult?.workerStart?.worktreeId },
+      });
+      const workerValidationPath = join(changeDir, "planning", "scheduler-runs", `${schedulerRun?.id}`, "scheduler-worker-validations", `${validatedResult?.schedulerValidation?.id}.json`);
+      expect(JSON.parse(await readFile(workerValidationPath, "utf8"))).toMatchObject({
+        schedulerRunId: schedulerRun?.id,
+        schedulerWorkerResultId: reconciledResult?.result?.id,
+        status: "passed",
+        worktreeId: startedResult?.workerStart?.worktreeId,
+        codeRunId: startedResult?.workerStart?.runId,
+        validationRunId: validatedResult?.schedulerValidation?.validationRunId,
+      });
+      const validationRuntimeEvents = (await readFile(runtimeEventsPath, "utf8")).trim().split(/\r?\n/).map((line) => JSON.parse(line));
+      expect(validationRuntimeEvents).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          schedulerRunId: schedulerRun?.id,
+          changeId: topic.changeId,
+          type: "scheduler-runtime.worker-validation-passed",
+          payload: expect.objectContaining({
+            schedulerWorkerStartId: startedResult?.workerStart?.id,
+            schedulerWorkerResultId: reconciledResult?.result?.id,
+            schedulerWorkerValidationId: validatedResult?.schedulerValidation?.id,
+            taskRunId: startedResult?.workerStart?.taskRunId,
+            workerLeaseId: startedResult?.workerStart?.workerLeaseId,
+            worktreeId: startedResult?.workerStart?.worktreeId,
+            codeRunId: startedResult?.workerStart?.runId,
+            validationRunId: validatedResult?.schedulerValidation?.validationRunId,
+            validationStatus: "passed",
+          }),
+        }),
+      ]));
+      const postValidationMemory = await resolveProjectMemory(project());
+      expect((await listTaskRuns(postValidationMemory, topic.changeId))[0]).toMatchObject({ id: startedResult?.workerStart?.taskRunId, status: "evidence-ready" });
+      expect((await listRuns(postValidationMemory)).filter((run) => run.changeId === topic.changeId)).toHaveLength(2);
+      const postValidationSnapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: topic.changeId });
+      expect(postValidationSnapshot.center.workpad.schedulerWorkerValidation).toMatchObject({
+        id: validatedResult?.schedulerValidation?.id,
+        status: "passed",
+        schedulerWorkerResultId: reconciledResult?.result?.id,
+      });
+      expect(postValidationSnapshot.center.workpad.nextAction).toMatchObject({
+        actionType: "planning.scheduler.worker.validate-first",
+        enabled: false,
+      });
+      expect(postValidationSnapshot.right.confirmationQueue.current.flatMap((item) => item.actions).some((action) => action.actionType === "planning.scheduler.worker.validate-first")).toBe(false);
+      const repeatedValidation = await validateSchedulerFirstWorker(project(), {
+        changeId: topic.changeId,
+        schedulerRunId: `${schedulerRun?.id}`,
+        schedulerWorkerResultId: `${reconciledResult?.result?.id}`,
+      });
+      expect(repeatedValidation).toMatchObject({
+        existing: true,
+        executionStarted: false,
+        schedulerValidation: { id: validatedResult?.schedulerValidation?.id },
+      });
+      await expect(executeWorkbenchAction({ project: project(), path: tempDir }, {
+        ...validationAction,
+        confirm: true,
+      })).rejects.toThrow("stale or no longer available");
       await expect(executeWorkbenchAction({ project: project(), path: tempDir }, {
         ...resultAction,
         confirm: true,

@@ -180,6 +180,7 @@ export interface WorkbenchWorkflowActionRequest {
   schedulerClaimReservationId?: string;
   schedulerWorkerStartId?: string;
   schedulerWorkerResultId?: string;
+  schedulerWorkerValidationId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   workflowRunId?: string;
@@ -190,6 +191,7 @@ export interface WorkbenchWorkflowActionRequest {
   taskRunId?: string;
   workerLeaseId?: string;
   runId?: string;
+  validationRunId?: string;
   applyCheckId?: string;
   landingPackageId?: string;
   remoteLandingResultId?: string;

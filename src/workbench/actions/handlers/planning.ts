@@ -14,15 +14,18 @@ import {
   renderSchedulerRuntimeClaimReservationMarkdown,
   renderSchedulerRuntimeWorkerResultMarkdown,
   renderSchedulerRuntimeWorkerStartMarkdown,
+  renderSchedulerRuntimeWorkerValidationMarkdown,
   renderSchedulerReconcileSnapshotMarkdown,
   renderSchedulerRuntimeStateMarkdown,
   reconcileSchedulerFirstWorkerResult,
   startFirstSchedulerCoderWorker,
+  validateSchedulerFirstWorker,
   type SchedulerReconcileSnapshot,
   type SchedulerRuntimeClaimReservation,
   type SchedulerRuntimeState,
   type SchedulerRuntimeWorkerStart,
   type SchedulerWorkerResultReconcileResult,
+  type SchedulerWorkerValidationResult,
   type SchedulerPlanPreparationResult,
 } from "../../../scheduler-runtime/manager.js";
 import type { ManagedProject } from "../../../types/index.js";
@@ -1168,6 +1171,71 @@ export async function reconcilePlanningSchedulerFirstWorkerResult(
       worktreeId: result.result.worktreeId,
       runId: result.result.runId,
       resultStatus: result.result.status,
+    },
+    completedAt: new Date().toISOString(),
+  });
+  return result;
+}
+
+export async function validatePlanningSchedulerFirstWorker(
+  project: ManagedProject,
+  changeId: string,
+  request: WorkbenchWorkflowActionRequest,
+  live: WorkbenchLiveSink | undefined,
+): Promise<SchedulerWorkerValidationResult> {
+  const { memory } = await resolveTopic(project, changeId);
+  assertWritableMemory(memory, "Scheduler first worker validation");
+  if (!request.schedulerRunId) throw new Error("planning.scheduler.worker.validate-first requires schedulerRunId.");
+  if (!request.schedulerWorkerResultId) throw new Error("planning.scheduler.worker.validate-first requires schedulerWorkerResultId.");
+  const result = await validateSchedulerFirstWorker(project, {
+    changeId,
+    schedulerRunId: request.schedulerRunId,
+    schedulerWorkerResultId: request.schedulerWorkerResultId,
+  });
+  await appendTopicThreadEntry(project, changeId, {
+    type: "assistant.message",
+    status: result.schedulerValidation.status === "passed" ? "scheduler-first-worker-validation-passed" : "scheduler-first-worker-validation-failed",
+    text: renderSchedulerRuntimeWorkerValidationMarkdown(result.schedulerValidation),
+    artifact: result.schedulerValidation.artifact,
+    runId: result.validationRun.id,
+  });
+  emitAssistantEvent(live, {
+    runId: result.validationRun.id,
+    kind: "file-change",
+    phase: result.schedulerValidation.status === "passed" ? "scheduler-first-worker-validation-passed" : "scheduler-first-worker-validation-failed",
+    title: result.schedulerValidation.status === "passed" ? "第一个 scheduler worker 验证通过" : "第一个 scheduler worker 验证失败",
+    summary: result.schedulerValidation.status === "passed"
+      ? "Validation passed for the first scheduler worker worktree. TaskRun remains evidence-ready for a later audit gate."
+      : "Validation failed for the first scheduler worker worktree. TaskRun was blocked; audit, rework, and next worker were not started.",
+    artifactRef: result.schedulerValidation.artifact,
+  });
+  await recordWorkbenchDecision(project, {
+    id: `scheduler-first-worker-validation:${result.schedulerValidation.id}`,
+    changeId,
+    decisionType: "planning.scheduler.worker.validate-first",
+    status: "completed",
+    label: result.schedulerValidation.status === "passed" ? "第一个 worker 验证通过" : "第一个 worker 验证失败",
+    summary: "Validated exactly one scheduler coder worker worktree without starting audit, rework, or the next worker.",
+    targetId: result.schedulerValidation.id,
+    runId: result.validationRun.id,
+    artifact: result.schedulerValidation.artifact,
+    actionId: "planning.scheduler.worker.validate-first",
+    payload: {
+      schedulerRunId: result.schedulerValidation.schedulerRunId,
+      schedulerClaimReservationId: result.schedulerValidation.schedulerClaimReservationId,
+      schedulerWorkerStartId: result.schedulerValidation.schedulerWorkerStartId,
+      schedulerWorkerResultId: result.schedulerValidation.schedulerWorkerResultId,
+      schedulerWorkerValidationId: result.schedulerValidation.id,
+      reservationIntentId: result.schedulerValidation.reservationIntentId,
+      claimIntentId: result.schedulerValidation.claimIntentId,
+      nodeId: result.schedulerValidation.nodeId,
+      unitId: result.schedulerValidation.unitId,
+      taskRunId: result.schedulerValidation.taskRunId,
+      workerLeaseId: result.schedulerValidation.workerLeaseId,
+      worktreeId: result.schedulerValidation.worktreeId,
+      runId: result.schedulerValidation.codeRunId,
+      validationRunId: result.schedulerValidation.validationRunId,
+      validationStatus: result.schedulerValidation.status,
     },
     completedAt: new Date().toISOString(),
   });

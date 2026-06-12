@@ -1,4 +1,4 @@
-import type { SchedulerReconcileSnapshot, SchedulerRuntimeClaimReservation, SchedulerRuntimeState, SchedulerRuntimeWorkerResult, SchedulerRuntimeWorkerStart } from "./types.js";
+import type { SchedulerReconcileSnapshot, SchedulerRuntimeClaimReservation, SchedulerRuntimeState, SchedulerRuntimeWorkerResult, SchedulerRuntimeWorkerStart, SchedulerRuntimeWorkerValidation } from "./types.js";
 
 export function renderSchedulerRuntimeStateMarkdown(state: SchedulerRuntimeState): string {
   const lines = [
@@ -219,6 +219,44 @@ export function renderSchedulerRuntimeWorkerResultMarkdown(result: SchedulerRunt
     "## Boundary",
     "",
     "This worker-result evidence reconciles one scheduler coder-stage worker only. Coder success means evidence-ready for later validation/audit; it is not task completion, source apply, whole-wave dispatch, scheduler loop, or parallel executor authorization.",
+    "",
+  ];
+  return lines.join("\n");
+}
+
+export function renderSchedulerRuntimeWorkerValidationMarkdown(validation: SchedulerRuntimeWorkerValidation): string {
+  const lines = [
+    `# SchedulerRuntimeWorkerValidation ${validation.id}`,
+    "",
+    `Status: ${validation.status}`,
+    `Change: ${validation.changeId}`,
+    `SchedulerRun: ${validation.schedulerRunId}`,
+    `WorkerResult: ${validation.schedulerWorkerResultId}`,
+    `WorkerStart: ${validation.schedulerWorkerStartId}`,
+    `ClaimReservation: ${validation.schedulerClaimReservationId}`,
+    "",
+    "## Worker Validation",
+    "",
+    `- Reservation intent: ${validation.reservationIntentId}`,
+    `- Claim intent: ${validation.claimIntentId}`,
+    `- Planned worker key: ${validation.plannedWorkerKey}`,
+    `- Node: ${validation.nodeId}`,
+    `- Unit: ${validation.unitId}`,
+    `- Wave: ${validation.waveIndex + 1}`,
+    `- Stage: ${validation.stage}`,
+    `- Task: ${validation.taskId}`,
+    `- TaskRun: ${validation.taskRunId}`,
+    `- TaskRun status: ${validation.taskRunStatus}`,
+    `- WorkerLease: ${validation.workerLeaseId}`,
+    `- Worktree: ${validation.worktreeId}`,
+    `- Code run: ${validation.codeRunId}`,
+    `- Validation run: ${validation.validationRunId}`,
+    `- Validation status: ${validation.validationStatus}`,
+    ...(validation.failureReason ? [`- Failure: ${validation.failureReason}`] : []),
+    "",
+    "## Boundary",
+    "",
+    "This worker-validation evidence validates one scheduler coder-stage worker worktree only. Passed validation is not task completion; audit remains a later gate. It does not start audit, bounded rework, a next worker, whole-wave dispatch, scheduler loop, apply, or merge.",
     "",
   ];
   return lines.join("\n");

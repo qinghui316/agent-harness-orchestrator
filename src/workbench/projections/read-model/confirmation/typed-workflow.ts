@@ -129,8 +129,63 @@ export function taskQueueProposalToConfirmationItems(
       if (claimReservation.launchConfirmed) {
         const workerStart = workpad.schedulerWorkerStart;
         const workerResult = workpad.schedulerWorkerResult;
+        const workerValidation = workpad.schedulerWorkerValidation;
         if (workerStart?.schedulerClaimReservationId === claimReservation.id && workerStart.schedulerRunId === schedulerRun.id) {
-          if (workerResult?.schedulerWorkerStartId === workerStart.id) return [];
+          if (workerResult?.schedulerWorkerStartId === workerStart.id) {
+            if (workerResult.status !== "evidence-ready" || workerValidation?.schedulerWorkerResultId === workerResult.id) return [];
+            return [{
+              id: `confirm:scheduler-first-worker-validation:${selectedTopic.id}:${workerResult.id}`,
+              kind: "planning-confirm",
+              projectId: project?.id ?? null,
+              conversationId: selectedTopic.id,
+              changeId: selectedTopic.id,
+              schedulerRunId: schedulerRun.id,
+              schedulerReconcileSnapshotId: reconcileSnapshot.id,
+              schedulerClaimReservationId: claimReservation.id,
+              schedulerWorkerStartId: workerStart.id,
+              schedulerWorkerResultId: workerResult.id,
+              reservationIntentId: workerResult.reservationIntentId,
+              claimIntentId: workerResult.claimIntentId,
+              runId: workerResult.runId,
+              worktreeId: workerResult.worktreeId,
+              taskRunId: workerResult.taskRunId,
+              workerLeaseId: workerResult.workerLeaseId,
+              summary: "第一个 scheduler coder worker result 已就绪。可以验证它的 worktree。",
+              whyNeedsConfirmation: "这是 Harness 阶段门：只对 Phase 9G 创建的第一个 worker worktree 运行一次 scoped Validation，不启动 audit、rework 或下一个 worker。",
+              confirmEffect: "重读 latest SchedulerRun、RuntimeState、ClaimReservation、WorkerResult、TaskRun、code run 和 worktree；对同一个 worktree 运行 Validation，并写 SchedulerRuntimeWorkerValidation evidence。",
+              riskSummary: "验证通过仍不是任务完成；audit 才能在后续阶段决定完成。验证失败只阻塞当前 scheduler worker path，不自动 rework。",
+              evidenceRefs: workerResult.artifact ? [workerResult.artifact] : [],
+              actions: [{
+                id: `workflow:planning.scheduler.worker.validate-first:${selectedTopic.id}:${workerResult.id}`,
+                label: "验证第一个 worker 结果",
+                kind: "workflow-action",
+                changeId: selectedTopic.id,
+                actionType: "planning.scheduler.worker.validate-first",
+                decompositionPlanId: plan.id,
+                readinessManifestId: readiness.id,
+                schedulerContractId: schedulerRun.schedulerContractId,
+                schedulerDispatchDryRunId: schedulerRun.schedulerDispatchDryRunId,
+                schedulerWorkerPlanId: schedulerRun.schedulerWorkerPlanId,
+                schedulerClaimReconcilePlanId: schedulerRun.schedulerClaimReconcilePlanId,
+                schedulerLaunchPreflightId: schedulerRun.schedulerLaunchPreflightId,
+                schedulerRunId: schedulerRun.id,
+                schedulerReconcileSnapshotId: reconcileSnapshot.id,
+                schedulerClaimReservationId: claimReservation.id,
+                schedulerWorkerStartId: workerStart.id,
+                schedulerWorkerResultId: workerResult.id,
+                reservationIntentId: workerResult.reservationIntentId,
+                claimIntentId: workerResult.claimIntentId,
+                taskRunId: workerResult.taskRunId,
+                workerLeaseId: workerResult.workerLeaseId,
+                worktreeId: workerResult.worktreeId,
+                runId: workerResult.runId,
+                enabled: true,
+                requiresConfirmation: true,
+              }],
+              primary: true,
+              status: "pending",
+            }];
+          }
           return [{
             id: `confirm:scheduler-first-worker-result:${selectedTopic.id}:${workerStart.id}`,
             kind: "planning-confirm",

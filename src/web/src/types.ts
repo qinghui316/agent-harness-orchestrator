@@ -1,4 +1,4 @@
-import type { WorkbenchThreadActionType } from "./workflow-actions.js";
+﻿import type { WorkbenchThreadActionType } from "./workflow-actions.js";
 
 export type AppStatus = { mode: "app" | "project"; directProjectId: string | null };
 export type ProjectStatus = {
@@ -168,6 +168,7 @@ export type WorkpadNextAction = {
   schedulerClaimReservationId?: string;
   schedulerWorkerStartId?: string;
   schedulerWorkerResultId?: string;
+  schedulerWorkerValidationId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   workflowRunId?: string;
@@ -176,6 +177,7 @@ export type WorkpadNextAction = {
   taskRunId?: string;
   workerLeaseId?: string;
   runId?: string;
+  validationRunId?: string;
   disabledReason?: string;
 };
 export type DecisionActionKind = "approval" | "workflow-action" | "feedback" | "evidence" | "abandon" | "none";
@@ -209,6 +211,7 @@ export type WorkbenchTaskNextAction = {
   schedulerClaimReservationId?: string;
   schedulerWorkerStartId?: string;
   schedulerWorkerResultId?: string;
+  schedulerWorkerValidationId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   workflowRunId?: string;
@@ -336,6 +339,7 @@ export type Workpad = {
   schedulerClaimReservation?: SchedulerClaimReservationSummary;
   schedulerWorkerStart?: SchedulerWorkerStartSummary;
   schedulerWorkerResult?: SchedulerWorkerResultSummary;
+  schedulerWorkerValidation?: SchedulerWorkerValidationSummary;
   rolePipeline?: {
     stage: "planning" | "coding" | "validation" | "audit" | "rework" | "done" | "needs-user-input";
     status: "draft" | "running" | "completed" | "needs-user-input" | "stopped";
@@ -684,6 +688,31 @@ export type SchedulerWorkerResultSummary = {
   markdownArtifact?: string;
   updatedAt: string;
 };
+export type SchedulerWorkerValidationSummary = {
+  id: string;
+  changeId: string;
+  schedulerRunId: string;
+  schedulerClaimReservationId: string;
+  schedulerWorkerStartId: string;
+  schedulerWorkerResultId: string;
+  status: "passed" | "failed";
+  reservationIntentId: string;
+  claimIntentId: string;
+  nodeId: string;
+  unitId: string;
+  stageId: string;
+  stage: "validation";
+  taskRunId: string;
+  workerLeaseId: string;
+  taskRunStatus: string;
+  worktreeId: string;
+  codeRunId: string;
+  validationRunId: string;
+  validationStatus: string;
+  artifact?: string;
+  markdownArtifact?: string;
+  updatedAt: string;
+};
 export type SchedulerReconcileSnapshotSummary = {
   id: string;
   changeId: string;
@@ -728,6 +757,7 @@ export type ThreadStreamAction = {
   schedulerClaimReservationId?: string;
   schedulerWorkerStartId?: string;
   schedulerWorkerResultId?: string;
+  schedulerWorkerValidationId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   workflowRunId?: string;
@@ -739,6 +769,7 @@ export type ThreadStreamAction = {
   applyCheckId?: string;
   landingPackageId?: string;
   remoteLandingResultId?: string;
+  validationRunId?: string;
 };
 export type ThreadStreamItem = {
   id: string;
@@ -817,6 +848,7 @@ export type DecisionAction = {
   schedulerClaimReservationId?: string;
   schedulerWorkerStartId?: string;
   schedulerWorkerResultId?: string;
+  schedulerWorkerValidationId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   workflowRunId?: string;
@@ -828,6 +860,7 @@ export type DecisionAction = {
   applyCheckId?: string;
   landingPackageId?: string;
   remoteLandingResultId?: string;
+  validationRunId?: string;
   artifact?: string;
   disabledReason?: string;
 };
@@ -868,6 +901,18 @@ export type ConfirmationQueueItem = {
   runId?: string;
   worktreeId?: string;
   applyCheckId?: string;
+  landingPackageId?: string;
+  schedulerRunId?: string;
+  schedulerReconcileSnapshotId?: string;
+  schedulerClaimReservationId?: string;
+  schedulerWorkerStartId?: string;
+  schedulerWorkerResultId?: string;
+  schedulerWorkerValidationId?: string;
+  reservationIntentId?: string;
+  claimIntentId?: string;
+  taskRunId?: string;
+  workerLeaseId?: string;
+  validationRunId?: string;
   summary: string;
   whyNeedsConfirmation: string;
   confirmEffect: string;
@@ -1002,3 +1047,4 @@ export type TopicMessageEntry = {
   intake?: ThreadStreamItem["intake"];
   clarification?: ClarificationRequest;
 };
+

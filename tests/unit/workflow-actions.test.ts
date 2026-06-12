@@ -62,6 +62,9 @@ describe("workflow action registry", () => {
     expect(LIVE_WORKFLOW_ACTION_TYPES).toContain("planning.scheduler.worker.reconcile-result");
     expect(HIGH_IMPACT_WORKFLOW_ACTION_TYPES).toContain("planning.scheduler.worker.reconcile-result");
     expect(REVALIDATED_WORKFLOW_ACTION_TYPES).toContain("planning.scheduler.worker.reconcile-result");
+    expect(LIVE_WORKFLOW_ACTION_TYPES).toContain("planning.scheduler.worker.validate-first");
+    expect(HIGH_IMPACT_WORKFLOW_ACTION_TYPES).toContain("planning.scheduler.worker.validate-first");
+    expect(REVALIDATED_WORKFLOW_ACTION_TYPES).toContain("planning.scheduler.worker.validate-first");
   });
 
   it("keeps SchedulerContract ids in target and audit scope matching", () => {
@@ -402,6 +405,55 @@ describe("workflow action registry", () => {
     expect(workflowActionScopesMatchStrict(workerResultRequest, { ...workerResultRequest })).toBe(true);
     expect(workflowActionScopesMatchStrict(workerResultRequest, { ...workerResultRequest, schedulerWorkerStartId: undefined })).toBe(false);
     expect(workflowActionScopesMatchCompatible(workerResultRequest, { ...workerResultRequest, schedulerWorkerStartId: undefined })).toBe(true);
+
+    const workerValidationRequest = {
+      actionType: "planning.scheduler.worker.validate-first",
+      changeId: "change-1",
+      schedulerRunId: "scheduler-run-1",
+      schedulerClaimReservationId: "scheduler-claim-reservation-1",
+      schedulerWorkerStartId: "scheduler-worker-start-1",
+      schedulerWorkerResultId: "scheduler-worker-result-1",
+      reservationIntentId: "reservation-intent-1",
+      claimIntentId: "claim-intent-1",
+      taskRunId: "task-run-1",
+      workerLeaseId: "worker-lease-1",
+      worktreeId: "worktree-1",
+      runId: "run-1",
+    };
+    const workerValidation = {
+      schedulerValidation: {
+        id: "scheduler-worker-validation-1",
+        schedulerRunId: "scheduler-run-1",
+        schedulerClaimReservationId: "scheduler-claim-reservation-1",
+        schedulerWorkerStartId: "scheduler-worker-start-1",
+        schedulerWorkerResultId: "scheduler-worker-result-1",
+        validationRunId: "validation-run-1",
+      },
+    };
+    expect(validateWorkflowActionRequiredTargets(workerValidationRequest)).toEqual([]);
+    expect(validateWorkflowActionRequiredTargets({
+      actionType: "planning.scheduler.worker.validate-first",
+      schedulerRunId: "scheduler-run-1",
+    }).map((item) => item.label)).toEqual(["schedulerWorkerResultId"]);
+    expect(workflowActionTargetId(workerValidationRequest, workerValidationRequest.changeId, workerValidation)).toBe("scheduler-worker-validation-1");
+    expect(workflowActionScopePayload(workerValidationRequest, workerValidationRequest.changeId, workerValidation)).toMatchObject({
+      changeId: "change-1",
+      schedulerRunId: "scheduler-run-1",
+      schedulerClaimReservationId: "scheduler-claim-reservation-1",
+      schedulerWorkerStartId: "scheduler-worker-start-1",
+      schedulerWorkerResultId: "scheduler-worker-result-1",
+      schedulerWorkerValidationId: "scheduler-worker-validation-1",
+      reservationIntentId: "reservation-intent-1",
+      claimIntentId: "claim-intent-1",
+      taskRunId: "task-run-1",
+      workerLeaseId: "worker-lease-1",
+      worktreeId: "worktree-1",
+      runId: "run-1",
+      validationRunId: "validation-run-1",
+    });
+    expect(workflowActionScopesMatchStrict(workerValidationRequest, { ...workerValidationRequest })).toBe(true);
+    expect(workflowActionScopesMatchStrict(workerValidationRequest, { ...workerValidationRequest, schedulerWorkerResultId: undefined })).toBe(false);
+    expect(workflowActionScopesMatchCompatible(workerValidationRequest, { ...workerValidationRequest, schedulerWorkerResultId: undefined })).toBe(true);
   });
 
   it("keeps graph ids in target and audit scope matching", () => {

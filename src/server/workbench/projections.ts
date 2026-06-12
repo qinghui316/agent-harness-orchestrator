@@ -17,6 +17,7 @@ import {
   getWorkbenchSchedulerRunProjection,
   getWorkbenchSchedulerWorkerSessionPlanProjection,
   getWorkbenchSchedulerClaimReservationProjection,
+  getWorkbenchSchedulerWorkerValidationProjection,
   getWorkbenchWorkflowRunProjection,
   getWorkbenchWorkpadProjection,
   type WorkbenchProjectInput,
@@ -98,6 +99,12 @@ export async function getWorkbenchProjection(input: WorkbenchProjectInput, rest:
     if (!id) throw badRequest("scheduler-claim-reservation projection requires schedulerRunId.");
     if (!extraId) throw badRequest("scheduler-claim-reservation projection requires schedulerClaimReservationId.");
     return getWorkbenchSchedulerClaimReservationProjection(input, changeId, id, extraId);
+  }
+  if (kind === "scheduler-worker-validation") {
+    if (!changeId) throw badRequest("scheduler-worker-validation projection requires changeId.");
+    if (!id) throw badRequest("scheduler-worker-validation projection requires schedulerRunId.");
+    if (!extraId) throw badRequest("scheduler-worker-validation projection requires schedulerWorkerValidationId.");
+    return getWorkbenchSchedulerWorkerValidationProjection(input, changeId, id, extraId);
   }
   if (kind === "workflow-run") {
     if (!changeId) throw badRequest("workflow-run projection requires changeId.");

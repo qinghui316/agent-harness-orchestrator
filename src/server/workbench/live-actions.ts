@@ -47,6 +47,9 @@ export async function sendWorkbenchActionLive(input: WorkbenchProjectInput & { p
         schedulerRunId: body.schedulerRunId,
         schedulerReconcileSnapshotId: body.schedulerReconcileSnapshotId,
         schedulerClaimReservationId: body.schedulerClaimReservationId,
+        schedulerWorkerStartId: body.schedulerWorkerStartId,
+        schedulerWorkerResultId: body.schedulerWorkerResultId,
+        schedulerWorkerValidationId: body.schedulerWorkerValidationId,
         reservationIntentId: body.reservationIntentId,
         claimIntentId: body.claimIntentId,
         workflowRunId: body.workflowRunId,
@@ -58,6 +61,9 @@ export async function sendWorkbenchActionLive(input: WorkbenchProjectInput & { p
         remoteLandingResultId: body.remoteLandingResultId,
         taskIds: body.taskIds,
         taskRunId: body.taskRunId,
+        workerLeaseId: body.workerLeaseId,
+        runId: body.runId,
+        validationRunId: body.validationRunId,
       }, sink);
       terminalStatus = result.status;
     } else {

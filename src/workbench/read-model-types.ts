@@ -1,4 +1,4 @@
-import type { AssistantTurnActivity, AssistantTurnBlock, OrchestrationPlanCard } from "./types.js";
+﻿import type { AssistantTurnActivity, AssistantTurnBlock, OrchestrationPlanCard } from "./types.js";
 import type { ClarificationRequest, WorkbenchIntakeIteration, WorkbenchIntakeScan } from "./intake.js";
 import type { ParentAgentTranscript } from "./parent-agent-transcript.js";
 import type { WorkbenchArtifactPreview } from "./artifact-types.js";
@@ -29,6 +29,7 @@ import type {
   WorkbenchSchedulerRuntimeSummary,
   WorkbenchSchedulerWorkerResultSummary,
   WorkbenchSchedulerWorkerStartSummary,
+  WorkbenchSchedulerWorkerValidationSummary,
   WorkbenchSchedulerWorkerSessionPlanSummary,
   WorkbenchTaskQueueProposalSummary,
   WorkbenchWorkflowGraphPlanSummary,
@@ -118,6 +119,7 @@ export interface ThreadStreamAction {
   schedulerClaimReservationId?: string;
   schedulerWorkerStartId?: string;
   schedulerWorkerResultId?: string;
+  schedulerWorkerValidationId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   workflowRunId?: string;
@@ -126,6 +128,7 @@ export interface ThreadStreamAction {
   taskRunId?: string;
   workerLeaseId?: string;
   runId?: string;
+  validationRunId?: string;
 }
 
 export interface ThreadStreamEvidence {
@@ -230,6 +233,7 @@ export interface WorkbenchDecisionAction {
   schedulerClaimReservationId?: string;
   schedulerWorkerStartId?: string;
   schedulerWorkerResultId?: string;
+  schedulerWorkerValidationId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   workflowRunId?: string;
@@ -238,6 +242,7 @@ export interface WorkbenchDecisionAction {
   taskRunId?: string;
   workerLeaseId?: string;
   runId?: string;
+  validationRunId?: string;
   worktreeId?: string;
   worktreeIds?: string[];
   applyCheckId?: string;
@@ -313,8 +318,12 @@ export interface WorkbenchConfirmationQueueItem {
   schedulerClaimReservationId?: string;
   schedulerWorkerStartId?: string;
   schedulerWorkerResultId?: string;
+  schedulerWorkerValidationId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
+  taskRunId?: string;
+  workerLeaseId?: string;
+  validationRunId?: string;
   summary: string;
   whyNeedsConfirmation: string;
   confirmEffect: string;
@@ -392,6 +401,7 @@ export interface WorkpadNextAction {
   schedulerClaimReservationId?: string;
   schedulerWorkerStartId?: string;
   schedulerWorkerResultId?: string;
+  schedulerWorkerValidationId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   workflowRunId?: string;
@@ -403,6 +413,7 @@ export interface WorkpadNextAction {
   applyCheckId?: string;
   landingPackageId?: string;
   remoteLandingResultId?: string;
+  validationRunId?: string;
   disabledReason?: string;
 }
 
@@ -628,6 +639,7 @@ export interface WorkbenchWorkpad {
   schedulerClaimReservation?: WorkbenchSchedulerClaimReservationSummary;
   schedulerWorkerStart?: WorkbenchSchedulerWorkerStartSummary;
   schedulerWorkerResult?: WorkbenchSchedulerWorkerResultSummary;
+  schedulerWorkerValidation?: WorkbenchSchedulerWorkerValidationSummary;
   workflowRun?: WorkflowRunSummary;
   rolePipeline?: WorkbenchRolePipelineSummary;
   resultReview?: WorkbenchResultReview;
@@ -986,5 +998,6 @@ export interface WorkbenchSnapshot {
   harnessGaps: HarnessGap[];
   warnings: string[];
 }
+
 
 

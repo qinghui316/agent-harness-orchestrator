@@ -18,6 +18,7 @@ import {
   readSchedulerRuntimeSummary,
   readLatestSchedulerWorkerStartSummary,
   readSchedulerWorkerResultSummary,
+  readSchedulerWorkerValidationSummary,
   readLatestTaskQueueProposalSummary,
   readLatestWorkflowGraphPlanSummary,
   type WorkbenchDecompositionPlanSummary,
@@ -32,6 +33,7 @@ import {
   type WorkbenchSchedulerRuntimeSummary,
   type WorkbenchSchedulerWorkerResultSummary,
   type WorkbenchSchedulerWorkerStartSummary,
+  type WorkbenchSchedulerWorkerValidationSummary,
   type WorkbenchSchedulerWorkerSessionPlanSummary,
   type WorkbenchTaskQueueProposalSummary,
   type WorkbenchWorkflowGraphPlanSummary,
@@ -233,6 +235,7 @@ export async function buildWorkbenchWorkpad(input: {
   const schedulerClaimReservation = schedulerClaimReservationRaw ? { ...schedulerClaimReservationRaw, launchConfirmed: schedulerLaunchConfirmed } : null;
   const schedulerWorkerStart = await readLatestSchedulerWorkerStartSummary(memory, selectedTopic.path, scopedSchedulerRun?.id, schedulerClaimReservation?.id);
   const schedulerWorkerResult = await readSchedulerWorkerResultSummary(memory, selectedTopic.path, scopedSchedulerRun?.id, schedulerWorkerStart?.id);
+  const schedulerWorkerValidation = await readSchedulerWorkerValidationSummary(memory, selectedTopic.path, scopedSchedulerRun?.id, schedulerWorkerResult?.id);
   const workflowRun = await getLatestWorkflowRun(memory, selectedTopic.id).then((run) => run ? summarizeWorkflowRun(run) : null).catch(() => null);
   const agentTasks = await buildAgentTaskSummaries(memory, selectedTopic.id);
   const rolePipeline = buildRolePipelineSummary(selectedTopic, planningBundle, agentTasks);
@@ -280,6 +283,7 @@ export async function buildWorkbenchWorkpad(input: {
     schedulerClaimReservation: schedulerClaimReservation ?? undefined,
     schedulerWorkerStart: schedulerWorkerStart ?? undefined,
     schedulerWorkerResult: schedulerWorkerResult ?? undefined,
+    schedulerWorkerValidation: schedulerWorkerValidation ?? undefined,
     workflowRun: workflowRun ?? undefined,
     rolePipeline,
     resultReview,
@@ -317,7 +321,7 @@ export async function buildWorkbenchWorkpad(input: {
       ...workpadMissingWarnings(specReady, planReady, tasksReady, selectedTopic),
       ...gaps.filter((gap) => gap.status !== "available").map((gap) => gap.summary),
     ],
-    nextAction: buildWorkpadNextAction(selectedTopic, topicApprovals, { specReady, planReady, tasksReady }, intake, taskQueue, taskGraph, planningBundle, decompositionPlan, decompositionReadiness, taskQueueProposal, workflowGraphPlan, schedulerContract, scopedSchedulerDispatchDryRun, scopedSchedulerWorkerSessionPlan, scopedSchedulerClaimReconcilePlan, scopedSchedulerLaunchPreflight, scopedSchedulerRun, schedulerRuntime, schedulerReconcileSnapshot, schedulerClaimReservation, schedulerWorkerStart, schedulerWorkerResult, workflowRun),
+    nextAction: buildWorkpadNextAction(selectedTopic, topicApprovals, { specReady, planReady, tasksReady }, intake, taskQueue, taskGraph, planningBundle, decompositionPlan, decompositionReadiness, taskQueueProposal, workflowGraphPlan, schedulerContract, scopedSchedulerDispatchDryRun, scopedSchedulerWorkerSessionPlan, scopedSchedulerClaimReconcilePlan, scopedSchedulerLaunchPreflight, scopedSchedulerRun, schedulerRuntime, schedulerReconcileSnapshot, schedulerClaimReservation, schedulerWorkerStart, schedulerWorkerResult, schedulerWorkerValidation, workflowRun),
     background: buildWorkpadBackground(workpads, selectedTopic.id),
     memoryIsolation: buildWorkpadMemoryIsolation(memory, selectedTopic, workpads),
   };
@@ -600,6 +604,7 @@ function buildWorkpadNextAction(
   schedulerClaimReservation?: WorkbenchSchedulerClaimReservationSummary | null,
   schedulerWorkerStart?: WorkbenchSchedulerWorkerStartSummary | null,
   schedulerWorkerResult?: WorkbenchSchedulerWorkerResultSummary | null,
+  schedulerWorkerValidation?: WorkbenchSchedulerWorkerValidationSummary | null,
   workflowRun?: WorkflowRunSummary | null,
 ): WorkpadNextAction {
   if (topic.state !== "active") {
@@ -648,6 +653,7 @@ function buildWorkpadNextAction(
       schedulerClaimReservation,
       schedulerWorkerStart,
       schedulerWorkerResult,
+      schedulerWorkerValidation,
       workflowRun,
     });
   }
@@ -683,6 +689,7 @@ function buildWorkpadNextAction(
     schedulerClaimReservation,
     schedulerWorkerStart,
     schedulerWorkerResult,
+    schedulerWorkerValidation,
     workflowRun,
   });
 }

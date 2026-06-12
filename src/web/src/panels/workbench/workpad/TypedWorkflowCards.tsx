@@ -332,3 +332,22 @@ export function SchedulerWorkerResultCard({ result }: { result: NonNullable<Work
     </section>
   );
 }
+
+export function SchedulerWorkerValidationCard({ validation }: { validation: NonNullable<Workpad["schedulerWorkerValidation"]> }): ReactElement {
+  return (
+    <section className="workpad-section" data-testid="scheduler-worker-validation-card">
+      <div className="workpad-section-header">
+        <h3>第一个 worker 验证</h3>
+        <span>{humanStatus(validation.status)}</span>
+      </div>
+      <p className="workpad-goal">{validation.nodeId} / {validation.unitId} / validation evidence</p>
+      <div className="workpad-chip-list">
+        <span>TaskRun {validation.taskRunStatus}</span>
+        <span>worktree {validation.worktreeId}</span>
+        <span>code run {validation.codeRunId}</span>
+        <span>validation run {validation.validationRunId}</span>
+      </div>
+      {validation.artifact ? <small className="artifact-link">查看证据：{artifactName(validation.artifact)}</small> : null}
+    </section>
+  );
+}

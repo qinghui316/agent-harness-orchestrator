@@ -16,10 +16,13 @@ export type SchedulerRuntimeEventType =
   | "scheduler-runtime.worker-started"
   | "scheduler-runtime.worker-start-failed"
   | "scheduler-runtime.worker-result-ready"
-  | "scheduler-runtime.worker-result-failed";
+  | "scheduler-runtime.worker-result-failed"
+  | "scheduler-runtime.worker-validation-passed"
+  | "scheduler-runtime.worker-validation-failed";
 export type SchedulerReconcileSnapshotStatus = "generated" | "blocked";
 export type SchedulerRuntimeWorkerStartStatus = "started" | "failed";
 export type SchedulerRuntimeWorkerResultStatus = "evidence-ready" | "failed";
+export type SchedulerRuntimeWorkerValidationStatus = "passed" | "failed";
 
 export interface SchedulerRuntimeClaimIntentState {
   claimIntentId: string;
@@ -245,6 +248,48 @@ export interface SchedulerRuntimeWorkerResult {
   worktreeId?: string;
   runId?: string;
   runStatus?: string;
+  failureReason?: string;
+  sourceArtifactHashes: Record<string, string>;
+  artifactRefs: string[];
+  artifact: string;
+  markdownArtifact: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SchedulerRuntimeWorkerValidation {
+  version: "1.0";
+  id: string;
+  changeId: string;
+  schedulerRunId: string;
+  schedulerMode: SchedulerMode;
+  status: SchedulerRuntimeWorkerValidationStatus;
+  schedulerRuntimeStateId: string;
+  schedulerReconcileSnapshotId: string;
+  schedulerClaimReservationId: string;
+  schedulerWorkerStartId: string;
+  schedulerWorkerResultId: string;
+  schedulerContractId: string;
+  schedulerDispatchDryRunId: string;
+  schedulerWorkerPlanId: string;
+  schedulerClaimReconcilePlanId: string;
+  schedulerLaunchPreflightId: string;
+  reservationIntentId: string;
+  claimIntentId: string;
+  plannedWorkerKey: string;
+  nodeId: string;
+  unitId: string;
+  waveIndex: number;
+  stageId: string;
+  stage: "validation";
+  taskId: string;
+  taskRunId: string;
+  workerLeaseId: string;
+  taskRunStatus: string;
+  worktreeId: string;
+  codeRunId: string;
+  validationRunId: string;
+  validationStatus: string;
   failureReason?: string;
   sourceArtifactHashes: Record<string, string>;
   artifactRefs: string[];
