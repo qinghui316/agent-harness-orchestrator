@@ -96,3 +96,15 @@ export function schedulerWorkerReworkPlanPath(memory: ResolvedMemory, changePath
 export function schedulerWorkerReworkPlanMarkdownPath(memory: ResolvedMemory, changePath: string, schedulerRunId: string, reworkPlanId: string): string {
   return join(schedulerWorkerReworkPlansDir(memory, changePath, schedulerRunId), `${reworkPlanId}.md`);
 }
+
+export function schedulerWorkerReworkStartsDir(memory: ResolvedMemory, changePath: string, schedulerRunId: string): string {
+  return join(schedulerRuntimeDir(memory, changePath, schedulerRunId), "scheduler-worker-rework-starts");
+}
+
+export function schedulerWorkerReworkStartPath(memory: ResolvedMemory, changePath: string, schedulerRunId: string, reworkStartId: string): string {
+  return join(schedulerWorkerReworkStartsDir(memory, changePath, schedulerRunId), `${reworkStartId}.json`);
+}
+
+export function schedulerWorkerReworkStartMarkdownPath(memory: ResolvedMemory, changePath: string, schedulerRunId: string, reworkStartId: string): string {
+  return join(schedulerWorkerReworkStartsDir(memory, changePath, schedulerRunId), `${reworkStartId}.md`);
+}

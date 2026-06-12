@@ -116,11 +116,12 @@ Current baseline:
 - Phase 9H Scheduler First Worker Result Reconcile Gate completed and is archived at `harness/changes/archive/20260612-phase-9h-scheduler-first-worker-result-reconcile-gate/summary.md`. It reconciles only the first scheduler coder worker started by Phase 9G: completed code evidence becomes scheduler-owned worker result evidence, TaskRun moves to `evidence-ready`, and WorkerLease is released. It does not start validation, audit, bounded rework, a second worker, a whole wave, a scheduler loop, a slot allocator, apply/landing, child Changes, or the full parallel executor.
 - Phase 9I Scheduler First Worker Validation Gate completed and is archived at `harness/changes/archive/20260612-phase-9i-scheduler-first-worker-validation-gate/summary.md`. It validates only the evidence-ready first scheduler coder worker result from Phase 9H on that worker's scoped worktree. It may write scheduler-owned validation evidence and run one existing validation path, but it must not start audit, bounded rework, a second worker, a whole wave, a scheduler loop, a slot allocator, apply/landing, child Changes, or the full parallel executor.
 - Phase 9J Scheduler First Worker Audit Gate completed and is archived at `harness/changes/archive/20260612-phase-9j-scheduler-first-worker-audit-gate/summary.md`. It audits only the first scheduler worker whose scheduler-owned validation evidence passed in Phase 9I, binds audit to the exact validation run and same worktree, and may mark that TaskRun completed only for audit `approved` / `approved-with-notes`. It does not start bounded rework, a second worker, whole-wave dispatch, scheduler loop, slot allocator, apply/landing, child Changes, or the full parallel executor.
-- Phase 9K Scheduler First Worker Bounded Rework Plan Contract is active at `harness/changes/active/phase-9k-scheduler-first-worker-bounded-rework-plan-contract/summary.md`. It compiles scheduler-owned rework planning evidence after first-worker validation failed or audit blocked/failed. It does not execute rework, does not call `startCodeRun()`, does not add existing-worktree continuation, and must not create TaskRuns, WorkerLeases, WorkerSessions, RuntimeWorkspaces, EventSources, worktrees, runs, AgentTasks, WorkflowRuns, TaskQueueRuns, child Changes, whole-wave dispatch, scheduler loops, apply/landing, or full parallel executor behavior.
+- Phase 9K Scheduler First Worker Bounded Rework Plan Contract completed and is archived at `harness/changes/archive/20260612-phase-9k-scheduler-first-worker-bounded-rework-plan-contract/summary.md`. It compiles scheduler-owned rework planning evidence after first-worker validation failed or audit blocked/failed. It does not execute rework, does not call `startCodeRun()`, does not add existing-worktree continuation, and must not create TaskRuns, WorkerLeases, WorkerSessions, RuntimeWorkspaces, EventSources, worktrees, runs, AgentTasks, WorkflowRuns, TaskQueueRuns, child Changes, whole-wave dispatch, scheduler loops, apply/landing, or full parallel executor behavior.
+- Phase 9L Scheduler First Worker Rework Execution Gate is active at `harness/changes/active/phase-9l-scheduler-first-worker-rework-execution-gate/summary.md`. It starts exactly one scoped `rework-coder` from a scheduler-owned `SchedulerRuntimeWorkerReworkPlan`, reuses the original worker worktree through a scheduler-only `scheduler-claim-rework` code gate, and may create one rework TaskRun, one rework WorkerLease, one rework code run, and Runtime Continuity sidecars. It must not create a new worktree, validate/audit/reconcile the rework result, start a next worker or whole wave, run a scheduler loop or slot allocator, create child Changes, run IntegrationCheck/apply/PR/merge, or become the full parallel executor.
 - Auto Evolve Harness Phase 9F 9J Scheduler Worker Gates Evidence completed and is archived at `harness/changes/archive/20260612-auto-evolve-harness-phase-9f-9j-scheduler-worker-gates-evidence/summary.md`. It handled the Phase 9F-9J scheduler worker gate evolution window as `noop/subagent_review` with subagent score `92/100`; existing user-surface honesty, module-boundary, proposal/runtime, ToolPolicy/human gate, scheduler non-execution, and workflow-truth rules are sufficient. It is Harness evidence only and does not change product code, runtime behavior, Workbench actions, routes, CLI commands, UI, scheduler execution, parallel executor behavior, child Changes, ODWF runtime, or cache/replay.
 - Auto Evolve Harness Phase 9B 9F Scheduler Runtime Surface Evidence completed and is archived at `harness/changes/archive/20260611-auto-evolve-harness-phase-9b-9f-scheduler-runtime-surface-evidence/summary.md`. It handled the generated Phase 9B-9F pending evolution window as `noop/subagent_review` with subagent score `94/100`; no new Harness rule was added.
 - Harness evolution after Phase 9B completed as `noop/subagent_review` and is archived at `harness/changes/archive/20260611-auto-evolve-harness-phase-8w-9b-scheduler-pre-executor-evidence/summary.md`. Authorized subagent review recommended `noop` with score `93/100`; existing proposal/runtime, Runtime Continuity auxiliary evidence, ToolPolicy authority, human gate, and future feature module-boundary rules are sufficient for the Phase 8W-9B scheduler pre-executor evidence window.
-- Active change: `harness/changes/active/phase-9k-scheduler-first-worker-bounded-rework-plan-contract/summary.md`.
+- Active change: `harness/changes/active/phase-9l-scheduler-first-worker-rework-execution-gate/summary.md`.
 - Pending Harness evolution: none.
 - Latest Harness evolution: `harness/changes/archive/20260612-auto-evolve-harness-phase-9f-9j-scheduler-worker-gates-evidence/summary.md`, which completed the Phase 9F-9J pending window as `noop/subagent_review` with subagent score `92/100`.
 
@@ -255,17 +256,17 @@ Do not edit reference submodule source as part of this product repository. If lo
 
 ## 12. Next Phase
 
-Active change: `harness/changes/active/phase-9k-scheduler-first-worker-bounded-rework-plan-contract/summary.md`.
+Active change: `harness/changes/active/phase-9l-scheduler-first-worker-rework-execution-gate/summary.md`.
 
 Pending Harness evolution: none.
 
-Latest completed product phase: Phase 9J Scheduler First Worker Audit Gate, archived at `harness/changes/archive/20260612-phase-9j-scheduler-first-worker-audit-gate/summary.md`.
+Latest completed product phase: Phase 9K Scheduler First Worker Bounded Rework Plan Contract, archived at `harness/changes/archive/20260612-phase-9k-scheduler-first-worker-bounded-rework-plan-contract/summary.md`.
 
 Latest completed product/Harness docs phase: Phase 8T AgentScope Harness Reference Alignment, archived at `harness/changes/archive/20260611-phase-8t-agentscope-harness-reference-alignment/summary.md`.
 
 Latest Harness evolution: `harness/changes/archive/20260612-auto-evolve-harness-phase-9f-9j-scheduler-worker-gates-evidence/summary.md`, which completed the Phase 9F-9J pending window as `noop/subagent_review` with subagent score `92/100`.
 
-Current active phase: Phase 9K Scheduler First Worker Bounded Rework Plan Contract.
+Current active phase: Phase 9L Scheduler First Worker Rework Execution Gate.
 
 Phase 9G completed the first controlled scheduler execution slice. It may start exactly one coder-stage worker from the latest scheduler claim reservation after user confirmation, while keeping whole-wave dispatch, validation, audit, bounded rework, scheduler loops, slot allocators, child Changes, and the full parallel executor out of scope.
 
@@ -275,7 +276,9 @@ Phase 9I completed the first scheduler worker validation gate. It validates only
 
 Phase 9J completed the first scheduler worker audit gate. It audits only the first scheduler worker whose scheduler-owned validation evidence passed in Phase 9I, binds audit to the exact validation run and same worktree, and may mark that TaskRun completed only for audit `approved` / `approved-with-notes`; it does not start rework, a second worker, whole-wave dispatch, apply/landing, child Changes, or the full parallel executor.
 
-Phase 9K is active. It compiles scheduler-owned first-worker bounded rework planning evidence from validation failed or audit blocked/failed states. It does not execute rework, does not call `startCodeRun()`, and does not add same-worktree continuation support.
+Phase 9K completed the first scheduler worker bounded rework planning contract. It compiles scheduler-owned first-worker bounded rework planning evidence from validation failed or audit blocked/failed states, but does not execute rework, call `startCodeRun()`, or add same-worktree continuation support.
+
+Phase 9L is active. It starts exactly one scoped `rework-coder` from the scheduler rework plan, reuses the original worker worktree, and records the new rework TaskRun / WorkerLease / code run lineage. It does not validate or audit the rework result, start a second worker, run a whole wave, run IntegrationCheck/apply/merge, or solve final multi-worktree merging; final merge must still go through a future scheduler integration candidate bridge into the existing IntegrationCheck, aggregate validation/audit, and human apply gate.
 
 
 

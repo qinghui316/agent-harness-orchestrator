@@ -29,6 +29,7 @@ import type {
   WorkbenchSchedulerRuntimeSummary,
   WorkbenchSchedulerWorkerAuditSummary,
   WorkbenchSchedulerWorkerReworkPlanSummary,
+  WorkbenchSchedulerWorkerReworkStartSummary,
   WorkbenchSchedulerWorkerResultSummary,
   WorkbenchSchedulerWorkerStartSummary,
   WorkbenchSchedulerWorkerValidationSummary,
@@ -124,6 +125,7 @@ export interface ThreadStreamAction {
   schedulerWorkerValidationId?: string;
   schedulerWorkerAuditId?: string;
   schedulerWorkerReworkPlanId?: string;
+  schedulerWorkerReworkStartId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   workflowRunId?: string;
@@ -241,6 +243,7 @@ export interface WorkbenchDecisionAction {
   schedulerWorkerValidationId?: string;
   schedulerWorkerAuditId?: string;
   schedulerWorkerReworkPlanId?: string;
+  schedulerWorkerReworkStartId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   workflowRunId?: string;
@@ -329,6 +332,7 @@ export interface WorkbenchConfirmationQueueItem {
   schedulerWorkerValidationId?: string;
   schedulerWorkerAuditId?: string;
   schedulerWorkerReworkPlanId?: string;
+  schedulerWorkerReworkStartId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   taskRunId?: string;
@@ -415,6 +419,7 @@ export interface WorkpadNextAction {
   schedulerWorkerValidationId?: string;
   schedulerWorkerAuditId?: string;
   schedulerWorkerReworkPlanId?: string;
+  schedulerWorkerReworkStartId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   workflowRunId?: string;
@@ -658,6 +663,7 @@ export interface WorkbenchWorkpad {
   schedulerWorkerValidation?: WorkbenchSchedulerWorkerValidationSummary;
   schedulerWorkerAudit?: WorkbenchSchedulerWorkerAuditSummary;
   schedulerWorkerReworkPlan?: WorkbenchSchedulerWorkerReworkPlanSummary;
+  schedulerWorkerReworkStart?: WorkbenchSchedulerWorkerReworkStartSummary;
   workflowRun?: WorkflowRunSummary;
   rolePipeline?: WorkbenchRolePipelineSummary;
   resultReview?: WorkbenchResultReview;
@@ -1016,6 +1022,7 @@ export interface WorkbenchSnapshot {
   harnessGaps: HarnessGap[];
   warnings: string[];
 }
+
 
 
 

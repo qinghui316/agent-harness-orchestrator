@@ -8,6 +8,7 @@ import { assertWritableMemory, resolveProjectMemory } from "../memory/resolver.j
 import { appendRunEvent, buildRunId } from "../run/manager.js";
 import type { ManagedProject, RunMetadata, RunWorktreeInfo } from "../types/index.js";
 import { createWorktree, getWorktreeMetadataPath } from "../worktree/manager.js";
+import { readWorktreeMetadata } from "../worktree/repository.js";
 import { composeCoderPrompt } from "./prompt.js";
 import { getSortedSourceStatus } from "./artifacts.js";
 import { runCodexAppServerCode } from "./codex-app-server-runner.js";
@@ -47,14 +48,23 @@ export async function startCodeRun(project: ManagedProject, options: CodeRunOpti
     : undefined;
   const runId = buildRunId(changeId, ["coder-codex", ...selectedTasks, extraPrompt ?? ""]);
   const sourceBefore = await getSortedSourceStatus(project.path);
-  const created = await createWorktree(project, memory, changeId, { runId });
+  const existingWorktree = options.existingWorktreeId ? await readWorktreeMetadata(memory, options.existingWorktreeId) : null;
+  if (existingWorktree && existingWorktree.changeId !== changeId) {
+    throw new Error("Code run existing worktree is not scoped to the selected Change.");
+  }
+  if (existingWorktree && existingWorktree.status !== "active") {
+    throw new Error(`Code run existing worktree is not active: ${existingWorktree.status}.`);
+  }
+  const created = existingWorktree ? null : await createWorktree(project, memory, changeId, { runId });
+  const worktreeMetadata = existingWorktree ?? created?.metadata;
+  if (!worktreeMetadata) throw new Error("Code run could not resolve worktree metadata.");
   const worktree: RunWorktreeInfo = {
-    worktreeId: created.metadata.worktreeId,
-    branchName: created.metadata.branchName,
-    baseRef: created.metadata.baseRef,
-    baseCommit: created.metadata.baseCommit,
-    checkoutPath: created.metadata.checkoutPath,
-    metadataPath: getWorktreeMetadataPath(memory, created.metadata.worktreeId),
+    worktreeId: worktreeMetadata.worktreeId,
+    branchName: worktreeMetadata.branchName,
+    baseRef: worktreeMetadata.baseRef,
+    baseCommit: worktreeMetadata.baseCommit,
+    checkoutPath: worktreeMetadata.checkoutPath,
+    metadataPath: getWorktreeMetadataPath(memory, worktreeMetadata.worktreeId),
   };
 
   const session = await createCodeRunSession(memory, runId);
@@ -96,7 +106,7 @@ export async function startCodeRun(project: ManagedProject, options: CodeRunOpti
   await writeJsonFile(session.paths.run, run);
   await appendRunEvent(session.paths.events, { timestamp: now, type: "run.created", runId, data: { changeId, runtime: "coder-codex", worktree, taskIds: selectedTasks, taskRunId: options.taskRunId, executionGate: { ...executionGate } } });
   await appendRunEvent(session.paths.events, { timestamp: now, type: "code.execution_gate.allowed", runId, data: { ...executionGate } });
-  await appendRunEvent(session.paths.events, { timestamp: now, type: "worktree.created", runId, data: { worktreeId: worktree.worktreeId, checkoutPath: worktree.checkoutPath } });
+  await appendRunEvent(session.paths.events, { timestamp: now, type: created ? "worktree.created" : "worktree.reused", runId, data: { worktreeId: worktree.worktreeId, checkoutPath: worktree.checkoutPath } });
   emitCodeLiveStatus(options.live, { runId, status: "preparing", label: "Coder" });
 
   const context = contextArtifact.markdown;
@@ -107,7 +117,7 @@ export async function startCodeRun(project: ManagedProject, options: CodeRunOpti
   const prompt = await composeCoderPrompt({
     context,
     changeStatus,
-    worktree: created.metadata,
+    worktree: worktreeMetadata,
     sourceProjectPath: project.path,
     selectedTasks,
     extraPrompt,
@@ -128,7 +138,7 @@ export async function startCodeRun(project: ManagedProject, options: CodeRunOpti
       worktree,
       prompt,
       sourceBefore,
-      createdWarnings: created.warnings,
+      createdWarnings: created?.warnings ?? [],
       live: options.live,
     });
   }
@@ -145,7 +155,7 @@ export async function startCodeRun(project: ManagedProject, options: CodeRunOpti
     worktree,
     prompt,
     sourceBefore,
-    createdWarnings: created.warnings,
+    createdWarnings: created?.warnings ?? [],
     options,
   });
 }

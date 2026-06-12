@@ -49,7 +49,8 @@ export function schedulerNextActionToConfirmationItems(
   if (action.kind !== "workflow-action" || !action.enabled || !action.requiresConfirmation || !action.actionType?.startsWith("planning.scheduler.")) {
     return [];
   }
-  const targetId = action.schedulerWorkerReworkPlanId
+  const targetId = action.schedulerWorkerReworkStartId
+    ?? action.schedulerWorkerReworkPlanId
     ?? action.schedulerWorkerAuditId
     ?? action.schedulerWorkerValidationId
     ?? action.schedulerWorkerResultId
@@ -60,22 +61,27 @@ export function schedulerNextActionToConfirmationItems(
     ?? "next";
   const workerValidation = workpad.schedulerWorkerValidation;
   const workerAudit = workpad.schedulerWorkerAudit;
+  const workerReworkStart = workpad.schedulerWorkerReworkStart;
   const workerResult = workpad.schedulerWorkerResult;
   const workerStart = workpad.schedulerWorkerStart;
   const runId = workerAudit?.auditRunId
+    ?? workerReworkStart?.reworkRunId
     ?? workerValidation?.codeRunId
     ?? workerResult?.runId
     ?? workerStart?.runId;
   const taskRunId = action.taskRunId
+    ?? workerReworkStart?.reworkTaskRunId
     ?? workerAudit?.taskRunId
     ?? workerValidation?.taskRunId
     ?? workerResult?.taskRunId
     ?? workerStart?.taskRunId;
   const workerLeaseId = workerAudit?.workerLeaseId
+    ?? workerReworkStart?.reworkWorkerLeaseId
     ?? workerValidation?.workerLeaseId
     ?? workerResult?.workerLeaseId
     ?? workerStart?.workerLeaseId;
   const worktreeId = action.worktreeId
+    ?? workerReworkStart?.worktreeId
     ?? workerAudit?.worktreeId
     ?? workerValidation?.worktreeId
     ?? workerResult?.worktreeId
@@ -98,6 +104,7 @@ export function schedulerNextActionToConfirmationItems(
     schedulerWorkerValidationId: action.schedulerWorkerValidationId,
     schedulerWorkerAuditId: action.schedulerWorkerAuditId,
     schedulerWorkerReworkPlanId: action.schedulerWorkerReworkPlanId,
+    schedulerWorkerReworkStartId: action.schedulerWorkerReworkStartId,
     reservationIntentId: action.reservationIntentId,
     claimIntentId: action.claimIntentId,
     taskRunId,
@@ -130,6 +137,7 @@ export function schedulerNextActionToConfirmationItems(
       schedulerWorkerValidationId: action.schedulerWorkerValidationId,
       schedulerWorkerAuditId: action.schedulerWorkerAuditId,
       schedulerWorkerReworkPlanId: action.schedulerWorkerReworkPlanId,
+      schedulerWorkerReworkStartId: action.schedulerWorkerReworkStartId,
       reservationIntentId: action.reservationIntentId,
       claimIntentId: action.claimIntentId,
       taskRunId,
@@ -239,6 +247,7 @@ export function taskQueueProposalToConfirmationItems(
         const workerValidation = workpad.schedulerWorkerValidation;
         const workerAudit = workpad.schedulerWorkerAudit;
         const workerReworkPlan = workpad.schedulerWorkerReworkPlan;
+        const workerReworkStart = workpad.schedulerWorkerReworkStart;
         if (workerStart?.schedulerClaimReservationId === claimReservation.id && workerStart.schedulerRunId === schedulerRun.id) {
           if (workerResult?.schedulerWorkerStartId === workerStart.id) {
             const needsReworkPlan = workerValidation?.status === "failed"
@@ -305,7 +314,72 @@ export function taskQueueProposalToConfirmationItems(
                 status: "pending",
               }];
             }
-            if (workerReworkPlan?.schedulerWorkerValidationId === workerValidation?.id) return [];
+            if (workerReworkPlan && workerReworkPlan.schedulerWorkerValidationId === workerValidation?.id) {
+              const reworkPlan = workerReworkPlan;
+              if (workerReworkStart?.schedulerWorkerReworkPlanId === reworkPlan.id) return [];
+              return [{
+                id: `confirm:scheduler-first-worker-rework-start:${selectedTopic.id}:${reworkPlan.id}`,
+                kind: "planning-confirm",
+                projectId: project?.id ?? null,
+                conversationId: selectedTopic.id,
+                changeId: selectedTopic.id,
+                schedulerRunId: schedulerRun.id,
+                schedulerReconcileSnapshotId: reconcileSnapshot.id,
+                schedulerClaimReservationId: claimReservation.id,
+                schedulerWorkerStartId: reworkPlan.schedulerWorkerStartId,
+                schedulerWorkerResultId: reworkPlan.schedulerWorkerResultId,
+                schedulerWorkerValidationId: reworkPlan.schedulerWorkerValidationId,
+                schedulerWorkerAuditId: reworkPlan.schedulerWorkerAuditId,
+                schedulerWorkerReworkPlanId: reworkPlan.id,
+                reservationIntentId: reworkPlan.reservationIntentId,
+                claimIntentId: reworkPlan.claimIntentId,
+                runId: reworkPlan.targetCodeRunId,
+                validationRunId: reworkPlan.validationRunId,
+                auditRunId: reworkPlan.auditRunId,
+                worktreeId: reworkPlan.targetWorktreeId,
+                taskRunId: reworkPlan.taskRunId,
+                workerLeaseId: reworkPlan.workerLeaseId,
+                summary: "第一个 scheduler worker rework 计划已准备好。",
+                whyNeedsConfirmation: "这是 Harness 阶段门：只在原 worker worktree 上启动一次 scoped rework-coder，不启动下一个 worker 或 scheduler loop。",
+                confirmEffect: "重读 latest SchedulerRun、RuntimeState、ClaimReservation、WorkerReworkPlan、TaskRun、worktree 和 code gate；创建一个 rework TaskRun、WorkerLease、code run 与 Runtime Continuity sidecars。",
+                riskSummary: "rework 复用原 worktree，不创建新 worktree；rework 结果对账、validation、audit、integration/apply 都是后续阶段。",
+                evidenceRefs: [reworkPlan.artifact, workerValidation?.artifact, workerAudit?.artifact, workerResult.artifact].filter((item): item is string => Boolean(item)),
+                actions: [{
+                  id: `workflow:planning.scheduler.worker.rework-start-first:${selectedTopic.id}:${reworkPlan.id}`,
+                  label: "启动第一个 worker rework",
+                  kind: "workflow-action",
+                  changeId: selectedTopic.id,
+                  actionType: "planning.scheduler.worker.rework-start-first",
+                  decompositionPlanId: plan.id,
+                  readinessManifestId: readiness.id,
+                  schedulerContractId: schedulerRun.schedulerContractId,
+                  schedulerDispatchDryRunId: schedulerRun.schedulerDispatchDryRunId,
+                  schedulerWorkerPlanId: schedulerRun.schedulerWorkerPlanId,
+                  schedulerClaimReconcilePlanId: schedulerRun.schedulerClaimReconcilePlanId,
+                  schedulerLaunchPreflightId: schedulerRun.schedulerLaunchPreflightId,
+                  schedulerRunId: schedulerRun.id,
+                  schedulerReconcileSnapshotId: reconcileSnapshot.id,
+                  schedulerClaimReservationId: claimReservation.id,
+                  schedulerWorkerStartId: reworkPlan.schedulerWorkerStartId,
+                  schedulerWorkerResultId: reworkPlan.schedulerWorkerResultId,
+                  schedulerWorkerValidationId: reworkPlan.schedulerWorkerValidationId,
+                  schedulerWorkerAuditId: reworkPlan.schedulerWorkerAuditId,
+                  schedulerWorkerReworkPlanId: reworkPlan.id,
+                  reservationIntentId: reworkPlan.reservationIntentId,
+                  claimIntentId: reworkPlan.claimIntentId,
+                  taskRunId: reworkPlan.taskRunId,
+                  workerLeaseId: reworkPlan.workerLeaseId,
+                  worktreeId: reworkPlan.targetWorktreeId,
+                  runId: reworkPlan.targetCodeRunId,
+                  validationRunId: reworkPlan.validationRunId,
+                  auditRunId: reworkPlan.auditRunId,
+                  enabled: true,
+                  requiresConfirmation: true,
+                }],
+                primary: true,
+                status: "pending",
+              }];
+            }
             if (workerValidation?.status === "passed" && workerValidation.schedulerWorkerResultId === workerResult.id && !workerAudit) {
               return [{
                 id: `confirm:scheduler-first-worker-audit:${selectedTopic.id}:${workerValidation.id}`,

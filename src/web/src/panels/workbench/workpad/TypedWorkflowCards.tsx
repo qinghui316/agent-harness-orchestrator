@@ -389,3 +389,22 @@ export function SchedulerWorkerReworkPlanCard({ plan }: { plan: NonNullable<Work
     </section>
   );
 }
+
+export function SchedulerWorkerReworkStartCard({ start }: { start: NonNullable<Workpad["schedulerWorkerReworkStart"]> }): ReactElement {
+  return (
+    <section className="workpad-section" data-testid="scheduler-worker-rework-start-card">
+      <div className="workpad-section-header">
+        <h3>第一个 worker rework</h3>
+        <span>{humanStatus(start.status)}</span>
+      </div>
+      <p className="workpad-goal">{start.nodeId} / {start.unitId} / same-worktree rework</p>
+      <div className="workpad-chip-list">
+        <span>worktree {start.worktreeId}</span>
+        <span>rework TaskRun {start.reworkTaskRunId}</span>
+        <span>rework lease {start.reworkWorkerLeaseId}</span>
+        {start.reworkRunId ? <span>rework run {start.reworkRunId}</span> : null}
+      </div>
+      {start.artifact ? <small className="artifact-link">查看证据：{artifactName(start.artifact)}</small> : null}
+    </section>
+  );
+}

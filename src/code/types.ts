@@ -6,6 +6,7 @@ export interface CodeRunOptions {
   taskIds?: string[];
   taskRunId?: string;
   roleId?: string;
+  existingWorktreeId?: string;
   executionGate?: CodeExecutionGateOptions;
   prompt?: string;
   promptFile?: string;
@@ -14,7 +15,7 @@ export interface CodeRunOptions {
   live?: CodeRunLiveCallbacks;
 }
 
-export type CodeExecutionGateMode = "single-change-readiness" | "taskqueue-proposal" | "scheduler-claim-reservation" | "rework";
+export type CodeExecutionGateMode = "single-change-readiness" | "taskqueue-proposal" | "scheduler-claim-reservation" | "scheduler-claim-rework" | "rework";
 
 export interface CodeExecutionGateOptions {
   mode?: CodeExecutionGateMode;
@@ -23,6 +24,9 @@ export interface CodeExecutionGateOptions {
   workflowGraphPlanId?: string;
   schedulerRunId?: string;
   schedulerClaimReservationId?: string;
+  schedulerWorkerReworkPlanId?: string;
+  schedulerWorkerValidationId?: string;
+  schedulerWorkerAuditId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   nodeId?: string;
@@ -39,6 +43,9 @@ export interface CodeExecutionGateVerdict {
   workflowGraphPlanId?: string;
   schedulerRunId?: string;
   schedulerClaimReservationId?: string;
+  schedulerWorkerReworkPlanId?: string;
+  schedulerWorkerValidationId?: string;
+  schedulerWorkerAuditId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   nodeId?: string;

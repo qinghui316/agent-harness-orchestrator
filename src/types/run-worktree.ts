@@ -209,6 +209,9 @@ export interface RunMetadata {
     workflowGraphPlanId?: string;
     schedulerRunId?: string;
     schedulerClaimReservationId?: string;
+    schedulerWorkerReworkPlanId?: string;
+    schedulerWorkerValidationId?: string;
+    schedulerWorkerAuditId?: string;
     reservationIntentId?: string;
     claimIntentId?: string;
     nodeId?: string;
@@ -263,6 +266,7 @@ export interface RunEvent {
     | "audit.completed"
     | "audit.failed"
     | "worktree.created"
+    | "worktree.reused"
     | "worktree.apply.started"
     | "worktree.apply.completed"
     | "worktree.apply.failed"

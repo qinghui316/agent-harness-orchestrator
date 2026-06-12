@@ -2,7 +2,7 @@ import { join } from "node:path";
 import { z } from "zod";
 import { readRequiredJsonFile } from "../fs/json.js";
 import { readSchedulerRuntimeLineage } from "../scheduler-runtime/guards.js";
-import { findSchedulerRuntimeWorkerStartForReservationIntent, readSchedulerRuntimeClaimReservation, readSchedulerRuntimeStateProjection } from "../scheduler-runtime/repository.js";
+import { findSchedulerRuntimeWorkerReworkStartForPlan, findSchedulerRuntimeWorkerStartForReservationIntent, readSchedulerRuntimeClaimReservation, readSchedulerRuntimeStateProjection, readSchedulerRuntimeWorkerReworkPlan } from "../scheduler-runtime/repository.js";
 import { listTaskQueueItems } from "../task-queue/manager.js";
 import { readTaskRun } from "../task-run/repository.js";
 import type { ChangeStatus, ResolvedMemory } from "../types/index.js";
@@ -25,6 +25,9 @@ export async function assertCodeExecutionGate(
   roleId: string,
 ): Promise<CodeExecutionGateVerdict> {
   const mode = options.executionGate?.mode ?? (roleId === "rework-coder" ? "rework" : "single-change-readiness");
+  if (options.existingWorktreeId && mode !== "scheduler-claim-rework") {
+    throw new Error("existingWorktreeId is only allowed for scheduler-claim-rework code execution.");
+  }
   if (mode === "rework") {
     return { allowed: true, mode, changeId, taskRunId: options.taskRunId, taskIds: options.taskIds, reason: "Rework code execution remains scoped to existing result review evidence." };
   }
@@ -137,6 +140,86 @@ export async function assertCodeExecutionGate(
       taskRunId: options.taskRunId,
       taskIds: options.taskIds,
       reason: "Scoped SchedulerRuntimeClaimReservation authorizes one coder-stage worker start.",
+    };
+  }
+
+  if (mode === "scheduler-claim-rework") {
+    const schedulerRunId = options.executionGate?.schedulerRunId;
+    const schedulerWorkerReworkPlanId = options.executionGate?.schedulerWorkerReworkPlanId;
+    const schedulerClaimReservationId = options.executionGate?.schedulerClaimReservationId;
+    const schedulerWorkerValidationId = options.executionGate?.schedulerWorkerValidationId;
+    const schedulerWorkerAuditId = options.executionGate?.schedulerWorkerAuditId;
+    const reservationIntentId = options.executionGate?.reservationIntentId;
+    const claimIntentId = options.executionGate?.claimIntentId;
+    const nodeId = options.executionGate?.nodeId;
+    const unitId = options.executionGate?.unitId;
+    if (!schedulerRunId) throw new Error("Scheduler rework code execution requires schedulerRunId.");
+    if (!schedulerWorkerReworkPlanId) throw new Error("Scheduler rework code execution requires schedulerWorkerReworkPlanId.");
+    if (!schedulerClaimReservationId) throw new Error("Scheduler rework code execution requires schedulerClaimReservationId.");
+    if (!schedulerWorkerValidationId) throw new Error("Scheduler rework code execution requires schedulerWorkerValidationId.");
+    if (!reservationIntentId) throw new Error("Scheduler rework code execution requires reservationIntentId.");
+    if (!claimIntentId) throw new Error("Scheduler rework code execution requires claimIntentId.");
+    if (!nodeId) throw new Error("Scheduler rework code execution requires nodeId.");
+    if (!unitId) throw new Error("Scheduler rework code execution requires unitId.");
+    if (!options.taskRunId) throw new Error("Scheduler rework code execution requires taskRunId.");
+    if (!options.existingWorktreeId) throw new Error("Scheduler rework code execution requires existingWorktreeId.");
+    if ((options.taskIds?.length ?? 0) !== 1) throw new Error("Scheduler rework code execution requires exactly one task id.");
+    if (roleId !== "rework-coder") throw new Error("Scheduler rework code execution requires rework-coder role.");
+    const { run } = await readSchedulerRuntimeLineage(memory, changePath, schedulerRunId);
+    if (run.changeId !== changeId || run.status !== "prepared") throw new Error("Scheduler rework code execution SchedulerRun target is stale.");
+    const runtimeState = await readSchedulerRuntimeStateProjection(memory, changePath, run.id);
+    if (!runtimeState?.lastClaimReservationId || runtimeState.changeId !== changeId) {
+      throw new Error("Scheduler rework code execution requires initialized runtime state with latest reservation.");
+    }
+    const reworkPlan = await readSchedulerRuntimeWorkerReworkPlan(memory, changePath, run.id, schedulerWorkerReworkPlanId);
+    if (
+      reworkPlan.changeId !== changeId
+      || reworkPlan.schedulerRunId !== run.id
+      || reworkPlan.schedulerRuntimeStateId !== runtimeState.id
+      || reworkPlan.schedulerClaimReservationId !== schedulerClaimReservationId
+      || reworkPlan.schedulerWorkerValidationId !== schedulerWorkerValidationId
+      || (reworkPlan.schedulerWorkerAuditId ?? undefined) !== (schedulerWorkerAuditId ?? undefined)
+      || reworkPlan.reservationIntentId !== reservationIntentId
+      || reworkPlan.claimIntentId !== claimIntentId
+      || reworkPlan.nodeId !== nodeId
+      || reworkPlan.unitId !== unitId
+      || reworkPlan.targetWorktreeId !== options.existingWorktreeId
+      || reworkPlan.futureCodeGateMode !== "scheduler-claim-rework"
+    ) {
+      throw new Error("Scheduler rework code execution rework plan target is stale.");
+    }
+    const reservation = await readSchedulerRuntimeClaimReservation(memory, changePath, run.id, schedulerClaimReservationId);
+    if (reservation.id !== runtimeState.lastClaimReservationId || reservation.changeId !== changeId) {
+      throw new Error("Scheduler rework code execution claim reservation target is stale.");
+    }
+    const existing = await findSchedulerRuntimeWorkerReworkStartForPlan(memory, changePath, run.id, reworkPlan.id);
+    if (existing) throw new Error("Scheduler rework code execution rework plan already started.");
+    if (reworkPlan.taskId.toUpperCase() !== options.taskIds?.[0]?.toUpperCase()) {
+      throw new Error("Scheduler rework code execution task scope does not match rework plan.");
+    }
+    const taskRun = await readTaskRun(memory, changeId, options.taskRunId);
+    if (taskRun.changeId !== changeId || taskRun.taskId.toUpperCase() !== reworkPlan.taskId.toUpperCase() || taskRun.roleId !== "rework-coder") {
+      throw new Error("Scheduler rework code execution TaskRun scope does not match the selected rework plan.");
+    }
+    if (!["claimed", "running"].includes(taskRun.status)) {
+      throw new Error(`Scheduler rework code execution TaskRun is not runnable from status ${taskRun.status}.`);
+    }
+    return {
+      allowed: true,
+      mode,
+      changeId,
+      schedulerRunId,
+      schedulerClaimReservationId,
+      schedulerWorkerReworkPlanId,
+      schedulerWorkerValidationId,
+      schedulerWorkerAuditId,
+      reservationIntentId,
+      claimIntentId,
+      nodeId,
+      unitId,
+      taskRunId: options.taskRunId,
+      taskIds: options.taskIds,
+      reason: "Scoped SchedulerRuntimeWorkerReworkPlan authorizes one same-worktree rework-coder start.",
     };
   }
 

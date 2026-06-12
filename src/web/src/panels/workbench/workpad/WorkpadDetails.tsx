@@ -38,6 +38,7 @@ import {
   SchedulerWorkerStartCard,
   SchedulerWorkerAuditCard,
   SchedulerWorkerReworkPlanCard,
+  SchedulerWorkerReworkStartCard,
   SchedulerWorkerValidationCard,
   TaskQueueProposalCard,
   WorkflowGraphPlanCard,
@@ -131,6 +132,7 @@ export function WorkpadDiagnosticDetails({
       {workpad.schedulerWorkerValidation ? <SchedulerWorkerValidationCard validation={workpad.schedulerWorkerValidation} /> : null}
       {workpad.schedulerWorkerAudit ? <SchedulerWorkerAuditCard audit={workpad.schedulerWorkerAudit} /> : null}
       {workpad.schedulerWorkerReworkPlan ? <SchedulerWorkerReworkPlanCard plan={workpad.schedulerWorkerReworkPlan} /> : null}
+      {workpad.schedulerWorkerReworkStart ? <SchedulerWorkerReworkStartCard start={workpad.schedulerWorkerReworkStart} /> : null}
 
       {workpad.rolePipeline ? (
         <section className="workpad-section" data-testid="role-pipeline-summary">

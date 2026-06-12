@@ -21,6 +21,7 @@ import {
   readSchedulerWorkerAuditSummary,
   readSchedulerWorkerValidationSummary,
   readSchedulerWorkerReworkPlanSummary,
+  readSchedulerWorkerReworkStartSummary,
   readLatestTaskQueueProposalSummary,
   readLatestWorkflowGraphPlanSummary,
   type WorkbenchDecompositionPlanSummary,
@@ -36,6 +37,7 @@ import {
   type WorkbenchSchedulerWorkerResultSummary,
   type WorkbenchSchedulerWorkerAuditSummary,
   type WorkbenchSchedulerWorkerReworkPlanSummary,
+  type WorkbenchSchedulerWorkerReworkStartSummary,
   type WorkbenchSchedulerWorkerStartSummary,
   type WorkbenchSchedulerWorkerValidationSummary,
   type WorkbenchSchedulerWorkerSessionPlanSummary,
@@ -242,6 +244,7 @@ export async function buildWorkbenchWorkpad(input: {
   const schedulerWorkerValidation = await readSchedulerWorkerValidationSummary(memory, selectedTopic.path, scopedSchedulerRun?.id, schedulerWorkerResult?.id);
   const schedulerWorkerAudit = await readSchedulerWorkerAuditSummary(memory, selectedTopic.path, scopedSchedulerRun?.id, schedulerWorkerValidation?.id);
   const schedulerWorkerReworkPlan = await readSchedulerWorkerReworkPlanSummary(memory, selectedTopic.path, scopedSchedulerRun?.id, schedulerWorkerValidation?.id, schedulerWorkerAudit?.id);
+  const schedulerWorkerReworkStart = await readSchedulerWorkerReworkStartSummary(memory, selectedTopic.path, scopedSchedulerRun?.id, schedulerWorkerReworkPlan?.id);
   const workflowRun = await getLatestWorkflowRun(memory, selectedTopic.id).then((run) => run ? summarizeWorkflowRun(run) : null).catch(() => null);
   const agentTasks = await buildAgentTaskSummaries(memory, selectedTopic.id);
   const rolePipeline = buildRolePipelineSummary(selectedTopic, planningBundle, agentTasks);
@@ -292,6 +295,7 @@ export async function buildWorkbenchWorkpad(input: {
     schedulerWorkerValidation: schedulerWorkerValidation ?? undefined,
     schedulerWorkerAudit: schedulerWorkerAudit ?? undefined,
     schedulerWorkerReworkPlan: schedulerWorkerReworkPlan ?? undefined,
+    schedulerWorkerReworkStart: schedulerWorkerReworkStart ?? undefined,
     workflowRun: workflowRun ?? undefined,
     rolePipeline,
     resultReview,
@@ -329,7 +333,7 @@ export async function buildWorkbenchWorkpad(input: {
       ...workpadMissingWarnings(specReady, planReady, tasksReady, selectedTopic),
       ...gaps.filter((gap) => gap.status !== "available").map((gap) => gap.summary),
     ],
-    nextAction: buildWorkpadNextAction(selectedTopic, topicApprovals, { specReady, planReady, tasksReady }, intake, taskQueue, taskGraph, planningBundle, decompositionPlan, decompositionReadiness, taskQueueProposal, workflowGraphPlan, schedulerContract, scopedSchedulerDispatchDryRun, scopedSchedulerWorkerSessionPlan, scopedSchedulerClaimReconcilePlan, scopedSchedulerLaunchPreflight, scopedSchedulerRun, schedulerRuntime, schedulerReconcileSnapshot, schedulerClaimReservation, schedulerWorkerStart, schedulerWorkerResult, schedulerWorkerValidation, schedulerWorkerAudit, schedulerWorkerReworkPlan, workflowRun),
+    nextAction: buildWorkpadNextAction(selectedTopic, topicApprovals, { specReady, planReady, tasksReady }, intake, taskQueue, taskGraph, planningBundle, decompositionPlan, decompositionReadiness, taskQueueProposal, workflowGraphPlan, schedulerContract, scopedSchedulerDispatchDryRun, scopedSchedulerWorkerSessionPlan, scopedSchedulerClaimReconcilePlan, scopedSchedulerLaunchPreflight, scopedSchedulerRun, schedulerRuntime, schedulerReconcileSnapshot, schedulerClaimReservation, schedulerWorkerStart, schedulerWorkerResult, schedulerWorkerValidation, schedulerWorkerAudit, schedulerWorkerReworkPlan, schedulerWorkerReworkStart, workflowRun),
     background: buildWorkpadBackground(workpads, selectedTopic.id),
     memoryIsolation: buildWorkpadMemoryIsolation(memory, selectedTopic, workpads),
   };
@@ -615,6 +619,7 @@ function buildWorkpadNextAction(
   schedulerWorkerValidation?: WorkbenchSchedulerWorkerValidationSummary | null,
   schedulerWorkerAudit?: WorkbenchSchedulerWorkerAuditSummary | null,
   schedulerWorkerReworkPlan?: WorkbenchSchedulerWorkerReworkPlanSummary | null,
+  schedulerWorkerReworkStart?: WorkbenchSchedulerWorkerReworkStartSummary | null,
   workflowRun?: WorkflowRunSummary | null,
 ): WorkpadNextAction {
   if (topic.state !== "active") {
@@ -652,6 +657,7 @@ function buildWorkpadNextAction(
       schedulerWorkerValidation,
       schedulerWorkerAudit,
       schedulerWorkerReworkPlan,
+      schedulerWorkerReworkStart,
       workflowRun,
     });
   }
@@ -704,6 +710,7 @@ function buildWorkpadNextAction(
     schedulerWorkerValidation,
     schedulerWorkerAudit,
     schedulerWorkerReworkPlan,
+    schedulerWorkerReworkStart,
     workflowRun,
   });
 }

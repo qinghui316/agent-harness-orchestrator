@@ -1105,6 +1105,8 @@ describe("Workbench module boundaries", () => {
       "src/scheduler-runtime/worker-result.ts",
       "src/scheduler-runtime/worker-validation.ts",
       "src/scheduler-runtime/worker-audit.ts",
+      "src/scheduler-runtime/worker-rework-plan.ts",
+      "src/scheduler-runtime/worker-rework.ts",
       "src/scheduler-runtime/rendering.ts",
       "src/scheduler-runtime/manager.ts",
     ]));
@@ -1180,6 +1182,16 @@ describe("Workbench module boundaries", () => {
     expect(workerReworkPlan).not.toContain("startValidationRun");
     expect(workerReworkPlan).not.toContain("startAuditRun");
     expect(workerReworkPlan).not.toContain("runTaskQueueSequence");
+
+    const workerRework = readFileSync("src/scheduler-runtime/worker-rework.ts", "utf8");
+    expect(workerRework).toContain("startFirstSchedulerWorkerRework");
+    expect(workerRework).toContain("scheduler-claim-rework");
+    expect(workerRework).toContain("existingWorktreeId");
+    expect(workerRework).toContain("startCodeRun");
+    expect(workerRework).toContain("startTaskRun");
+    expect(workerRework).not.toContain("startValidationRun");
+    expect(workerRework).not.toContain("startAuditRun");
+    expect(workerRework).not.toContain("runTaskQueueSequence");
 
     for (const file of files) {
       const content = readFileSync(file, "utf8");

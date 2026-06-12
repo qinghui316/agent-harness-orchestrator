@@ -1,4 +1,4 @@
-import type { SchedulerReconcileSnapshot, SchedulerRuntimeClaimReservation, SchedulerRuntimeState, SchedulerRuntimeWorkerAudit, SchedulerRuntimeWorkerResult, SchedulerRuntimeWorkerReworkPlan, SchedulerRuntimeWorkerStart, SchedulerRuntimeWorkerValidation } from "./types.js";
+import type { SchedulerReconcileSnapshot, SchedulerRuntimeClaimReservation, SchedulerRuntimeState, SchedulerRuntimeWorkerAudit, SchedulerRuntimeWorkerResult, SchedulerRuntimeWorkerReworkPlan, SchedulerRuntimeWorkerReworkStart, SchedulerRuntimeWorkerStart, SchedulerRuntimeWorkerValidation } from "./types.js";
 
 export function renderSchedulerRuntimeStateMarkdown(state: SchedulerRuntimeState): string {
   const lines = [
@@ -344,6 +344,45 @@ export function renderSchedulerRuntimeWorkerReworkPlanMarkdown(plan: SchedulerRu
     "## Boundary",
     "",
     "This rework plan is non-executing scheduler evidence. It does not start rework, call startCodeRun(), create TaskRuns, WorkerLeases, WorkerSessions, RuntimeWorkspaces, EventSources, worktrees, runs, AgentTasks, WorkflowRuns, TaskQueueRuns, child Changes, next workers, whole-wave dispatch, apply, or merge.",
+    "",
+  ];
+  return lines.join("\n");
+}
+
+export function renderSchedulerRuntimeWorkerReworkStartMarkdown(start: SchedulerRuntimeWorkerReworkStart): string {
+  const lines = [
+    `# SchedulerRuntimeWorkerReworkStart ${start.id}`,
+    "",
+    `Status: ${start.status}`,
+    `Change: ${start.changeId}`,
+    `SchedulerRun: ${start.schedulerRunId}`,
+    `ReworkPlan: ${start.schedulerWorkerReworkPlanId}`,
+    `ClaimReservation: ${start.schedulerClaimReservationId}`,
+    "",
+    "## Rework Start",
+    "",
+    `- Reservation intent: ${start.reservationIntentId}`,
+    `- Claim intent: ${start.claimIntentId}`,
+    `- Planned worker key: ${start.plannedWorkerKey}`,
+    `- Node: ${start.nodeId}`,
+    `- Unit: ${start.unitId}`,
+    `- Wave: ${start.waveIndex + 1}`,
+    `- Stage: ${start.stage}`,
+    `- Task: ${start.taskId}`,
+    `- Original TaskRun: ${start.originalTaskRunId}`,
+    `- Original WorkerLease: ${start.originalWorkerLeaseId}`,
+    `- Rework TaskRun: ${start.reworkTaskRunId}`,
+    `- Rework WorkerLease: ${start.reworkWorkerLeaseId}`,
+    `- TaskRun role: ${start.taskRunRoleId}`,
+    `- Agent role: ${start.agentRoleId}`,
+    `- Worktree: ${start.worktreeId}`,
+    `- Original code run: ${start.originalCodeRunId}`,
+    `- Rework code run: ${start.reworkRunId ?? "none"}`,
+    ...(start.failureReason ? [`- Failure: ${start.failureReason}`] : []),
+    "",
+    "## Boundary",
+    "",
+    "This rework-start evidence records one same-worktree scheduler rework-coder start only. It does not create a new worktree, validate or audit the rework result, reconcile the rework result, start another worker, run a whole wave, run IntegrationCheck, apply, merge, create child Changes, or become a full parallel executor.",
     "",
   ];
   return lines.join("\n");

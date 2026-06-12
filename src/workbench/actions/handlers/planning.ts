@@ -16,6 +16,7 @@ import {
   renderSchedulerRuntimeWorkerStartMarkdown,
   renderSchedulerRuntimeWorkerAuditMarkdown,
   renderSchedulerRuntimeWorkerReworkPlanMarkdown,
+  renderSchedulerRuntimeWorkerReworkStartMarkdown,
   renderSchedulerRuntimeWorkerValidationMarkdown,
   renderSchedulerReconcileSnapshotMarkdown,
   renderSchedulerRuntimeStateMarkdown,
@@ -23,6 +24,7 @@ import {
   startFirstSchedulerCoderWorker,
   auditSchedulerFirstWorker,
   compileSchedulerFirstWorkerReworkPlan,
+  startFirstSchedulerWorkerRework,
   validateSchedulerFirstWorker,
   type SchedulerReconcileSnapshot,
   type SchedulerRuntimeClaimReservation,
@@ -31,6 +33,7 @@ import {
   type SchedulerWorkerResultReconcileResult,
   type SchedulerWorkerAuditResult,
   type SchedulerWorkerReworkPlanResult,
+  type SchedulerFirstWorkerReworkStartResult,
   type SchedulerWorkerValidationResult,
   type SchedulerPlanPreparationResult,
 } from "../../../scheduler-runtime/manager.js";
@@ -1377,6 +1380,89 @@ export async function compilePlanningSchedulerFirstWorkerReworkPlan(
       auditRunId: result.reworkPlan.auditRunId,
       blockingSource: result.reworkPlan.blockingSource,
       futureCodeGateMode: result.reworkPlan.futureCodeGateMode,
+    },
+    completedAt: new Date().toISOString(),
+  });
+  return result;
+}
+
+export async function startPlanningSchedulerFirstWorkerRework(
+  project: ManagedProject,
+  changeId: string,
+  request: WorkbenchWorkflowActionRequest,
+  live: WorkbenchLiveSink | undefined,
+): Promise<SchedulerFirstWorkerReworkStartResult> {
+  const { memory } = await resolveTopic(project, changeId);
+  assertWritableMemory(memory, "Scheduler first worker rework start");
+  if (!request.schedulerRunId) throw new Error("planning.scheduler.worker.rework-start-first requires schedulerRunId.");
+  if (!request.schedulerWorkerReworkPlanId) throw new Error("planning.scheduler.worker.rework-start-first requires schedulerWorkerReworkPlanId.");
+  const result = await startFirstSchedulerWorkerRework(project, {
+    changeId,
+    schedulerRunId: request.schedulerRunId,
+    schedulerWorkerReworkPlanId: request.schedulerWorkerReworkPlanId,
+    prompt: request.prompt,
+    live: live ? {
+      onStatus: (event) => emitAssistantEvent(live, {
+        runId: event.runId,
+        kind: "status",
+        phase: event.status,
+        title: event.label ?? "Scheduler rework-coder",
+      }),
+      onRunStarted: (run) => emitAssistantEvent(live, {
+        runId: run.id,
+        kind: "status",
+        phase: "scheduler-first-worker-rework-started",
+        title: "第一个 scheduler worker rework 已启动",
+        summary: run.worktree ? `Reusing worktree ${run.worktree.worktreeId}.` : undefined,
+      }),
+    } : undefined,
+  });
+  await appendTopicThreadEntry(project, changeId, {
+    type: "assistant.message",
+    status: "scheduler-first-worker-rework-started",
+    text: renderSchedulerRuntimeWorkerReworkStartMarkdown(result.reworkStart),
+    artifact: result.reworkStart.artifact,
+  });
+  emitAssistantEvent(live, {
+    runId: result.reworkStart.id,
+    kind: "file-change",
+    phase: "scheduler-first-worker-rework-started",
+    title: "第一个 scheduler worker rework 已启动",
+    summary: "Started exactly one rework-coder on the original scheduler worker worktree. No validation, audit, result reconcile, next worker, apply, or merge was started.",
+    artifactRef: result.reworkStart.artifact,
+  });
+  await recordWorkbenchDecision(project, {
+    id: `scheduler-first-worker-rework-start:${result.reworkStart.id}`,
+    changeId,
+    decisionType: "planning.scheduler.worker.rework-start-first",
+    status: "completed",
+    label: "第一个 worker rework 已启动",
+    summary: "Started exactly one scoped rework-coder on the original scheduler worker worktree without creating a new worktree or starting follow-up gates.",
+    targetId: result.reworkStart.id,
+    runId: result.code.run.id,
+    artifact: result.reworkStart.artifact,
+    actionId: "planning.scheduler.worker.rework-start-first",
+    payload: {
+      schedulerRunId: result.reworkStart.schedulerRunId,
+      schedulerClaimReservationId: result.reworkStart.schedulerClaimReservationId,
+      schedulerWorkerStartId: result.reworkStart.schedulerWorkerStartId,
+      schedulerWorkerResultId: result.reworkStart.schedulerWorkerResultId,
+      schedulerWorkerValidationId: result.reworkStart.schedulerWorkerValidationId,
+      schedulerWorkerAuditId: result.reworkStart.schedulerWorkerAuditId,
+      schedulerWorkerReworkPlanId: result.reworkStart.schedulerWorkerReworkPlanId,
+      schedulerWorkerReworkStartId: result.reworkStart.id,
+      reservationIntentId: result.reworkStart.reservationIntentId,
+      claimIntentId: result.reworkStart.claimIntentId,
+      nodeId: result.reworkStart.nodeId,
+      unitId: result.reworkStart.unitId,
+      originalTaskRunId: result.reworkStart.originalTaskRunId,
+      taskRunId: result.reworkStart.reworkTaskRunId,
+      originalWorkerLeaseId: result.reworkStart.originalWorkerLeaseId,
+      workerLeaseId: result.reworkStart.reworkWorkerLeaseId,
+      worktreeId: result.reworkStart.worktreeId,
+      originalRunId: result.reworkStart.originalCodeRunId,
+      runId: result.reworkStart.reworkRunId,
+      executionGateMode: "scheduler-claim-rework",
     },
     completedAt: new Date().toISOString(),
   });
