@@ -1172,6 +1172,15 @@ describe("Workbench module boundaries", () => {
     expect(workerAudit).not.toContain("startValidationRun");
     expect(workerAudit).not.toContain("runTaskQueueSequence");
 
+    const workerReworkPlan = readFileSync("src/scheduler-runtime/worker-rework-plan.ts", "utf8");
+    expect(workerReworkPlan).toContain("compileSchedulerFirstWorkerReworkPlan");
+    expect(workerReworkPlan).toContain("SchedulerRuntimeWorkerReworkPlan");
+    expect(workerReworkPlan).toContain("scheduler-claim-reservation");
+    expect(workerReworkPlan).not.toContain("startCodeRun");
+    expect(workerReworkPlan).not.toContain("startValidationRun");
+    expect(workerReworkPlan).not.toContain("startAuditRun");
+    expect(workerReworkPlan).not.toContain("runTaskQueueSequence");
+
     for (const file of files) {
       const content = readFileSync(file, "utf8");
       expect(content).not.toMatch(/workbench\/|server\/|web\/src|cli\/commands|workflow-scheduler\/manager/);

@@ -370,3 +370,22 @@ export function SchedulerWorkerAuditCard({ audit }: { audit: NonNullable<Workpad
     </section>
   );
 }
+
+export function SchedulerWorkerReworkPlanCard({ plan }: { plan: NonNullable<Workpad["schedulerWorkerReworkPlan"]> }): ReactElement {
+  return (
+    <section className="workpad-section" data-testid="scheduler-worker-rework-plan-card">
+      <div className="workpad-section-header">
+        <h3>第一个 worker rework 计划</h3>
+        <span>{humanStatus(plan.blockingSource)}</span>
+      </div>
+      <p className="workpad-goal">{plan.nodeId} / {plan.unitId} / bounded rework plan</p>
+      <div className="workpad-chip-list">
+        <span>TaskRun {plan.taskRunStatus}</span>
+        <span>worktree {plan.targetWorktreeId}</span>
+        <span>future gate {plan.futureCodeGateMode}</span>
+      </div>
+      <p className="workpad-note">{plan.reworkReason}</p>
+      {plan.artifact ? <small className="artifact-link">查看证据：{artifactName(plan.artifact)}</small> : null}
+    </section>
+  );
+}

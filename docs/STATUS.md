@@ -3,12 +3,12 @@
 ## Current Handoff
 
 - Current date: 2026-06-12.
-- Active ECL change: none.
+- Active ECL change: `harness/changes/active/phase-9k-scheduler-first-worker-bounded-rework-plan-contract/summary.md`.
 - Pending Harness evolution: none.
 - Latest archived product change: `harness/changes/archive/20260612-phase-9j-scheduler-first-worker-audit-gate/summary.md`.
 - Latest archived product/Harness docs change: `harness/changes/archive/20260611-phase-8t-agentscope-harness-reference-alignment/summary.md`.
 - Latest archived Harness evolution: `harness/changes/archive/20260612-auto-evolve-harness-phase-9f-9j-scheduler-worker-gates-evidence/summary.md`.
-- Active product phase: none.
+- Active product phase: Phase 9K Scheduler First Worker Bounded Rework Plan Contract.
 
 Current baseline:
 
@@ -38,6 +38,7 @@ Current baseline:
 - Phase 9H Scheduler First Worker Result Reconcile Gate completed and is archived at `harness/changes/archive/20260612-phase-9h-scheduler-first-worker-result-reconcile-gate/summary.md`. It reconciles only the first scheduler coder worker started by Phase 9G: completed code evidence becomes scheduler-owned worker result evidence, TaskRun moves to `evidence-ready`, and WorkerLease is released. It does not start validation, audit, bounded rework, a second worker, a whole wave, a scheduler loop, a slot allocator, apply/landing, child Changes, or the full parallel executor.
 - Phase 9I Scheduler First Worker Validation Gate completed and is archived at `harness/changes/archive/20260612-phase-9i-scheduler-first-worker-validation-gate/summary.md`. It validates only the evidence-ready first scheduler coder worker result from Phase 9H on that worker's scoped worktree. It may write scheduler-owned validation evidence and run one existing validation command path, but it must not start audit, bounded rework, a second worker, a whole wave, scheduler loop, slot allocator, apply/landing, child Changes, or the full parallel executor.
 - Phase 9J Scheduler First Worker Audit Gate completed and is archived at `harness/changes/archive/20260612-phase-9j-scheduler-first-worker-audit-gate/summary.md`. It audits only the first scheduler worker whose scheduler-owned validation evidence passed in Phase 9I, binds audit to the exact validation run and same worktree, and may mark that TaskRun completed only for audit `approved` / `approved-with-notes`. It does not start bounded rework, a second worker, whole-wave dispatch, scheduler loop, slot allocator, apply/landing, child Changes, or the full parallel executor.
+- Phase 9K Scheduler First Worker Bounded Rework Plan Contract is active at `harness/changes/active/phase-9k-scheduler-first-worker-bounded-rework-plan-contract/summary.md`. It compiles scheduler-owned rework planning evidence after first-worker validation failed or audit blocked/failed. It does not execute rework, does not call `startCodeRun()`, does not add existing-worktree continuation, and must not create execution/runtime worker artifacts or authorize full parallel execution.
 - Auto Evolve Harness Phase 9F 9J Scheduler Worker Gates Evidence completed and is archived at `harness/changes/archive/20260612-auto-evolve-harness-phase-9f-9j-scheduler-worker-gates-evidence/summary.md`. It handled the Phase 9F-9J scheduler worker gate evolution window as `noop/subagent_review` with subagent score `92/100`; existing user-surface honesty, module-boundary, proposal/runtime, ToolPolicy/human gate, scheduler non-execution, and workflow-truth rules are sufficient. It is Harness evidence only and does not change product code, runtime behavior, Workbench actions, routes, CLI commands, UI, scheduler execution, parallel executor behavior, child Changes, ODWF runtime, or cache/replay.
 - Harness evolution after Phase 9B completed as `noop/subagent_review` and is archived at `harness/changes/archive/20260611-auto-evolve-harness-phase-8w-9b-scheduler-pre-executor-evidence/summary.md`. Authorized subagent review recommended `noop` with score `93/100`; existing proposal/runtime, Runtime Continuity auxiliary evidence, ToolPolicy authority, human gate, and future feature module-boundary rules are sufficient for the Phase 8W-9B scheduler pre-executor evidence window.
 - The Phase 8S-8W pending Harness evolution window has been marked complete as `noop/subagent_review` with subagent score `94/100`.

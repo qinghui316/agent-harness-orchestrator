@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-12T06:48:40.4119475Z",
+    "generated_at":  "2026-06-12T07:56:16.8915870Z",
     "active":  [
 
                ],
@@ -685,6 +685,10 @@
                     {
                         "name":  "20260612-phase-9j-scheduler-first-worker-audit-gate",
                         "path":  "harness/changes/archive/20260612-phase-9j-scheduler-first-worker-audit-gate"
+                    },
+                    {
+                        "name":  "20260612-phase-9k-scheduler-first-worker-bounded-rework-plan-contract",
+                        "path":  "harness/changes/archive/20260612-phase-9k-scheduler-first-worker-bounded-rework-plan-contract"
                     }
                 ]
 }

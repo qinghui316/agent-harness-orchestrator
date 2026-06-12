@@ -28,6 +28,7 @@ import type {
   WorkbenchSchedulerRunSummary,
   WorkbenchSchedulerRuntimeSummary,
   WorkbenchSchedulerWorkerAuditSummary,
+  WorkbenchSchedulerWorkerReworkPlanSummary,
   WorkbenchSchedulerWorkerResultSummary,
   WorkbenchSchedulerWorkerStartSummary,
   WorkbenchSchedulerWorkerValidationSummary,
@@ -122,6 +123,7 @@ export interface ThreadStreamAction {
   schedulerWorkerResultId?: string;
   schedulerWorkerValidationId?: string;
   schedulerWorkerAuditId?: string;
+  schedulerWorkerReworkPlanId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   workflowRunId?: string;
@@ -238,6 +240,7 @@ export interface WorkbenchDecisionAction {
   schedulerWorkerResultId?: string;
   schedulerWorkerValidationId?: string;
   schedulerWorkerAuditId?: string;
+  schedulerWorkerReworkPlanId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   workflowRunId?: string;
@@ -325,6 +328,7 @@ export interface WorkbenchConfirmationQueueItem {
   schedulerWorkerResultId?: string;
   schedulerWorkerValidationId?: string;
   schedulerWorkerAuditId?: string;
+  schedulerWorkerReworkPlanId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   taskRunId?: string;
@@ -410,12 +414,15 @@ export interface WorkpadNextAction {
   schedulerWorkerResultId?: string;
   schedulerWorkerValidationId?: string;
   schedulerWorkerAuditId?: string;
+  schedulerWorkerReworkPlanId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   workflowRunId?: string;
   queueRunId?: string;
   taskIds?: string[];
   taskRunId?: string;
+  workerLeaseId?: string;
+  runId?: string;
   worktreeId?: string;
   worktreeIds?: string[];
   applyCheckId?: string;
@@ -650,6 +657,7 @@ export interface WorkbenchWorkpad {
   schedulerWorkerResult?: WorkbenchSchedulerWorkerResultSummary;
   schedulerWorkerValidation?: WorkbenchSchedulerWorkerValidationSummary;
   schedulerWorkerAudit?: WorkbenchSchedulerWorkerAuditSummary;
+  schedulerWorkerReworkPlan?: WorkbenchSchedulerWorkerReworkPlanSummary;
   workflowRun?: WorkflowRunSummary;
   rolePipeline?: WorkbenchRolePipelineSummary;
   resultReview?: WorkbenchResultReview;

@@ -7,7 +7,7 @@ import { decisionContextToConfirmationItems } from "./confirmation/decision-cont
 import { integrationCandidateQueueItem, integrationCheckHistoryItem, integrationCheckNeedsActionQueueItem, integrationCheckNeedsUserAction, integrationCheckQueueItem, sameIntegrationTargets } from "./confirmation/integration.js";
 import { landingCandidateQueueItem, landingPackageQueueItem, landingQueuePrepareItem, landingQueueSnapshotItems, prDraftQueueItem } from "./confirmation/landing.js";
 import { dedupeConfirmationItems, emptyConfirmationQueue, scopeConfirmationQueueItemActions } from "./confirmation/shared.js";
-import { decompositionPlanToConfirmationItems, taskQueueProposalToConfirmationItems, workpadNextActionToConfirmationItems } from "./confirmation/typed-workflow.js";
+import { decompositionPlanToConfirmationItems, schedulerNextActionToConfirmationItems, taskQueueProposalToConfirmationItems, workpadNextActionToConfirmationItems } from "./confirmation/typed-workflow.js";
 
 export { emptyConfirmationQueue, scopeConfirmationQueueItemActions } from "./confirmation/shared.js";
 
@@ -26,6 +26,10 @@ export async function buildConfirmationQueue(input: {
     ...decisionContextToConfirmationItems(input.decisionInspector.primary, true),
     ...input.decisionInspector.related.flatMap((context) => decisionContextToConfirmationItems(context, false)),
   ];
+  const nextActionType = input.workpad.nextAction.actionType;
+  if (nextActionType?.startsWith("planning.scheduler.") && !currentItems.some((item) => item.actions.some((action) => action.actionType === nextActionType))) {
+    currentItems.push(...schedulerNextActionToConfirmationItems(input.project, input.selectedTopic, input.workpad));
+  }
   queue.current = currentItems;
 
   if (input.project) {

@@ -115,6 +115,8 @@ Phase 9I adds the matching single-worker validation gate. `src/scheduler-runtime
 
 Phase 9J adds the matching single-worker audit gate. `src/scheduler-runtime/worker-audit.ts` owns the audit read/guard/write path for the first scheduler coder worker whose Phase 9I validation passed. It binds Audit to the exact validation run and the same worktree, writes scheduler-owned `SchedulerRuntimeWorkerAudit` evidence, marks the TaskRun `completed` only for audit `approved` / `approved-with-notes`, and marks the TaskRun `blocked` for audit `blocked` / `failed`. It does not start bounded rework, a second worker, whole-wave dispatch, apply/landing, child Changes, or a scheduler loop.
 
+Phase 9K adds the non-executing first-worker bounded rework plan contract. `src/scheduler-runtime/worker-rework-plan.ts` owns the read/guard/write path for `SchedulerRuntimeWorkerReworkPlan` evidence after validation failed or audit blocked/failed. The plan records the blocking evidence, target worktree intent, future gate requirement, recovery inputs, source hashes, and scheduler lineage. It does not execute rework, call `startCodeRun()`, add existing-worktree continuation support, create new TaskRuns, WorkerLeases, worktrees, runs, runtime-continuity sidecars, child Changes, or start a scheduler loop.
+
 Workbench relationship:
 
 ```text

@@ -21,12 +21,15 @@ export type SchedulerRuntimeEventType =
   | "scheduler-runtime.worker-validation-failed"
   | "scheduler-runtime.worker-audit-approved"
   | "scheduler-runtime.worker-audit-blocked"
-  | "scheduler-runtime.worker-audit-failed";
+  | "scheduler-runtime.worker-audit-failed"
+  | "scheduler-runtime.worker-rework-planned";
 export type SchedulerReconcileSnapshotStatus = "generated" | "blocked";
 export type SchedulerRuntimeWorkerStartStatus = "started" | "failed";
 export type SchedulerRuntimeWorkerResultStatus = "evidence-ready" | "failed";
 export type SchedulerRuntimeWorkerValidationStatus = "passed" | "failed";
 export type SchedulerRuntimeWorkerAuditStatus = "approved" | "approved-with-notes" | "blocked" | "failed";
+export type SchedulerRuntimeWorkerReworkPlanStatus = "planned";
+export type SchedulerRuntimeWorkerReworkBlockingSource = "validation-failed" | "audit-blocked" | "audit-failed";
 
 export interface SchedulerRuntimeClaimIntentState {
   claimIntentId: string;
@@ -340,6 +343,55 @@ export interface SchedulerRuntimeWorkerAudit {
   auditRunId: string;
   auditStatus: SchedulerRuntimeWorkerAuditStatus;
   failureReason?: string;
+  sourceArtifactHashes: Record<string, string>;
+  artifactRefs: string[];
+  artifact: string;
+  markdownArtifact: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SchedulerRuntimeWorkerReworkPlan {
+  version: "1.0";
+  id: string;
+  changeId: string;
+  schedulerRunId: string;
+  schedulerMode: SchedulerMode;
+  status: SchedulerRuntimeWorkerReworkPlanStatus;
+  blockingSource: SchedulerRuntimeWorkerReworkBlockingSource;
+  reworkReason: string;
+  schedulerRuntimeStateId: string;
+  schedulerReconcileSnapshotId: string;
+  schedulerClaimReservationId: string;
+  schedulerWorkerStartId: string;
+  schedulerWorkerResultId: string;
+  schedulerWorkerValidationId: string;
+  schedulerWorkerAuditId?: string;
+  schedulerContractId: string;
+  schedulerDispatchDryRunId: string;
+  schedulerWorkerPlanId: string;
+  schedulerClaimReconcilePlanId: string;
+  schedulerLaunchPreflightId: string;
+  reservationIntentId: string;
+  claimIntentId: string;
+  plannedWorkerKey: string;
+  nodeId: string;
+  unitId: string;
+  waveIndex: number;
+  stageId: string;
+  stage: "bounded-rework";
+  taskId: string;
+  taskRunId: string;
+  workerLeaseId: string;
+  taskRunStatus: string;
+  targetWorktreeId: string;
+  targetCodeRunId: string;
+  validationRunId: string;
+  validationStatus: string;
+  auditRunId?: string;
+  auditStatus?: SchedulerRuntimeWorkerAuditStatus;
+  futureCodeGateMode: "scheduler-claim-rework";
+  recoveryKeyInputs: string[];
   sourceArtifactHashes: Record<string, string>;
   artifactRefs: string[];
   artifact: string;

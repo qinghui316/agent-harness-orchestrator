@@ -15,12 +15,14 @@ import {
   renderSchedulerRuntimeWorkerResultMarkdown,
   renderSchedulerRuntimeWorkerStartMarkdown,
   renderSchedulerRuntimeWorkerAuditMarkdown,
+  renderSchedulerRuntimeWorkerReworkPlanMarkdown,
   renderSchedulerRuntimeWorkerValidationMarkdown,
   renderSchedulerReconcileSnapshotMarkdown,
   renderSchedulerRuntimeStateMarkdown,
   reconcileSchedulerFirstWorkerResult,
   startFirstSchedulerCoderWorker,
   auditSchedulerFirstWorker,
+  compileSchedulerFirstWorkerReworkPlan,
   validateSchedulerFirstWorker,
   type SchedulerReconcileSnapshot,
   type SchedulerRuntimeClaimReservation,
@@ -28,6 +30,7 @@ import {
   type SchedulerRuntimeWorkerStart,
   type SchedulerWorkerResultReconcileResult,
   type SchedulerWorkerAuditResult,
+  type SchedulerWorkerReworkPlanResult,
   type SchedulerWorkerValidationResult,
   type SchedulerPlanPreparationResult,
 } from "../../../scheduler-runtime/manager.js";
@@ -1307,6 +1310,73 @@ export async function auditPlanningSchedulerFirstWorker(
       validationRunId: result.schedulerAudit.validationRunId,
       auditRunId: result.schedulerAudit.auditRunId,
       auditStatus: result.schedulerAudit.status,
+    },
+    completedAt: new Date().toISOString(),
+  });
+  return result;
+}
+
+export async function compilePlanningSchedulerFirstWorkerReworkPlan(
+  project: ManagedProject,
+  changeId: string,
+  request: WorkbenchWorkflowActionRequest,
+  live: WorkbenchLiveSink | undefined,
+): Promise<SchedulerWorkerReworkPlanResult> {
+  const { memory } = await resolveTopic(project, changeId);
+  assertWritableMemory(memory, "Scheduler first worker rework plan");
+  if (!request.schedulerRunId) throw new Error("planning.scheduler.worker.rework-plan.compile requires schedulerRunId.");
+  if (!request.schedulerWorkerValidationId) throw new Error("planning.scheduler.worker.rework-plan.compile requires schedulerWorkerValidationId.");
+  const result = await compileSchedulerFirstWorkerReworkPlan(project, {
+    changeId,
+    schedulerRunId: request.schedulerRunId,
+    schedulerWorkerValidationId: request.schedulerWorkerValidationId,
+    ...(request.schedulerWorkerAuditId ? { schedulerWorkerAuditId: request.schedulerWorkerAuditId } : {}),
+  });
+  await appendTopicThreadEntry(project, changeId, {
+    type: "assistant.message",
+    status: "scheduler-first-worker-rework-plan-compiled",
+    text: renderSchedulerRuntimeWorkerReworkPlanMarkdown(result.reworkPlan),
+    artifact: result.reworkPlan.artifact,
+  });
+  emitAssistantEvent(live, {
+    runId: result.reworkPlan.id,
+    kind: "file-change",
+    phase: "scheduler-first-worker-rework-plan-compiled",
+    title: "第一个 scheduler worker rework 计划已生成",
+    summary: "Rework planning evidence was compiled for the first scheduler worker. No rework execution, next worker, or scheduler loop was started.",
+    artifactRef: result.reworkPlan.artifact,
+  });
+  await recordWorkbenchDecision(project, {
+    id: `scheduler-first-worker-rework-plan:${result.reworkPlan.id}`,
+    changeId,
+    decisionType: "planning.scheduler.worker.rework-plan.compile",
+    status: "completed",
+    label: "第一个 worker rework 计划已生成",
+    summary: "Compiled bounded rework planning evidence for exactly one scheduler worker without starting rework or any additional worker.",
+    targetId: result.reworkPlan.id,
+    runId: result.reworkPlan.targetCodeRunId,
+    artifact: result.reworkPlan.artifact,
+    actionId: "planning.scheduler.worker.rework-plan.compile",
+    payload: {
+      schedulerRunId: result.reworkPlan.schedulerRunId,
+      schedulerClaimReservationId: result.reworkPlan.schedulerClaimReservationId,
+      schedulerWorkerStartId: result.reworkPlan.schedulerWorkerStartId,
+      schedulerWorkerResultId: result.reworkPlan.schedulerWorkerResultId,
+      schedulerWorkerValidationId: result.reworkPlan.schedulerWorkerValidationId,
+      schedulerWorkerAuditId: result.reworkPlan.schedulerWorkerAuditId,
+      schedulerWorkerReworkPlanId: result.reworkPlan.id,
+      reservationIntentId: result.reworkPlan.reservationIntentId,
+      claimIntentId: result.reworkPlan.claimIntentId,
+      nodeId: result.reworkPlan.nodeId,
+      unitId: result.reworkPlan.unitId,
+      taskRunId: result.reworkPlan.taskRunId,
+      workerLeaseId: result.reworkPlan.workerLeaseId,
+      worktreeId: result.reworkPlan.targetWorktreeId,
+      runId: result.reworkPlan.targetCodeRunId,
+      validationRunId: result.reworkPlan.validationRunId,
+      auditRunId: result.reworkPlan.auditRunId,
+      blockingSource: result.reworkPlan.blockingSource,
+      futureCodeGateMode: result.reworkPlan.futureCodeGateMode,
     },
     completedAt: new Date().toISOString(),
   });

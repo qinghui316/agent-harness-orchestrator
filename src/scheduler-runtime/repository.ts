@@ -23,6 +23,9 @@ import {
   schedulerWorkerAuditMarkdownPath,
   schedulerWorkerAuditPath,
   schedulerWorkerAuditsDir,
+  schedulerWorkerReworkPlanMarkdownPath,
+  schedulerWorkerReworkPlanPath,
+  schedulerWorkerReworkPlansDir,
   schedulerWorkerStartMarkdownPath,
   schedulerWorkerStartPath,
   schedulerWorkerStartsDir,
@@ -30,9 +33,9 @@ import {
   schedulerWorkerValidationPath,
   schedulerWorkerValidationsDir,
 } from "./paths.js";
-import { renderSchedulerReconcileSnapshotMarkdown, renderSchedulerRuntimeClaimReservationMarkdown, renderSchedulerRuntimeStateMarkdown, renderSchedulerRuntimeWorkerAuditMarkdown, renderSchedulerRuntimeWorkerResultMarkdown, renderSchedulerRuntimeWorkerStartMarkdown, renderSchedulerRuntimeWorkerValidationMarkdown } from "./rendering.js";
-import { schedulerReconcileSnapshotSchema, schedulerRuntimeClaimReservationSchema, schedulerRuntimeEventSchema, schedulerRuntimeStateSchema, schedulerRuntimeWorkerAuditSchema, schedulerRuntimeWorkerResultSchema, schedulerRuntimeWorkerStartSchema, schedulerRuntimeWorkerValidationSchema } from "./schemas.js";
-import type { SchedulerReconcileSnapshot, SchedulerRuntimeClaimReservation, SchedulerRuntimeEvent, SchedulerRuntimeEventType, SchedulerRuntimeState, SchedulerRuntimeWorkerAudit, SchedulerRuntimeWorkerResult, SchedulerRuntimeWorkerStart, SchedulerRuntimeWorkerValidation } from "./types.js";
+import { renderSchedulerReconcileSnapshotMarkdown, renderSchedulerRuntimeClaimReservationMarkdown, renderSchedulerRuntimeStateMarkdown, renderSchedulerRuntimeWorkerAuditMarkdown, renderSchedulerRuntimeWorkerResultMarkdown, renderSchedulerRuntimeWorkerReworkPlanMarkdown, renderSchedulerRuntimeWorkerStartMarkdown, renderSchedulerRuntimeWorkerValidationMarkdown } from "./rendering.js";
+import { schedulerReconcileSnapshotSchema, schedulerRuntimeClaimReservationSchema, schedulerRuntimeEventSchema, schedulerRuntimeStateSchema, schedulerRuntimeWorkerAuditSchema, schedulerRuntimeWorkerResultSchema, schedulerRuntimeWorkerReworkPlanSchema, schedulerRuntimeWorkerStartSchema, schedulerRuntimeWorkerValidationSchema } from "./schemas.js";
+import type { SchedulerReconcileSnapshot, SchedulerRuntimeClaimReservation, SchedulerRuntimeEvent, SchedulerRuntimeEventType, SchedulerRuntimeState, SchedulerRuntimeWorkerAudit, SchedulerRuntimeWorkerResult, SchedulerRuntimeWorkerReworkPlan, SchedulerRuntimeWorkerStart, SchedulerRuntimeWorkerValidation } from "./types.js";
 
 export function schedulerRuntimeArtifactRefs(memory: ResolvedMemory, changePath: string, schedulerRunId: string): { artifact: string; eventsArtifact: string } {
   return {
@@ -80,6 +83,13 @@ export function schedulerWorkerAuditArtifactRefs(memory: ResolvedMemory, changeP
   return {
     artifact: displayArtifactPath(memory, schedulerWorkerAuditPath(memory, changePath, schedulerRunId, workerAuditId)),
     markdownArtifact: displayArtifactPath(memory, schedulerWorkerAuditMarkdownPath(memory, changePath, schedulerRunId, workerAuditId)),
+  };
+}
+
+export function schedulerWorkerReworkPlanArtifactRefs(memory: ResolvedMemory, changePath: string, schedulerRunId: string, reworkPlanId: string): { artifact: string; markdownArtifact: string } {
+  return {
+    artifact: displayArtifactPath(memory, schedulerWorkerReworkPlanPath(memory, changePath, schedulerRunId, reworkPlanId)),
+    markdownArtifact: displayArtifactPath(memory, schedulerWorkerReworkPlanMarkdownPath(memory, changePath, schedulerRunId, reworkPlanId)),
   };
 }
 
@@ -361,6 +371,48 @@ export async function findSchedulerRuntimeWorkerAuditForValidation(memory: Resol
     if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
     const audit = await readSchedulerRuntimeWorkerAuditProjection(memory, changePath, schedulerRunId, entry.name.replace(/\.json$/, ""));
     if (audit?.schedulerWorkerValidationId === workerValidationId) return audit;
+  }
+  return null;
+}
+
+export async function writeSchedulerRuntimeWorkerReworkPlan(memory: ResolvedMemory, changePath: string, plan: SchedulerRuntimeWorkerReworkPlan): Promise<void> {
+  await assertChangePathScope(memory, changePath, plan.changeId, `SchedulerRuntimeWorkerReworkPlan ${plan.id}`);
+  await mkdir(schedulerWorkerReworkPlansDir(memory, changePath, plan.schedulerRunId), { recursive: true });
+  await writeJsonFile(schedulerWorkerReworkPlanPath(memory, changePath, plan.schedulerRunId, plan.id), plan);
+  await writeFile(schedulerWorkerReworkPlanMarkdownPath(memory, changePath, plan.schedulerRunId, plan.id), renderSchedulerRuntimeWorkerReworkPlanMarkdown(plan), "utf8");
+}
+
+export async function readSchedulerRuntimeWorkerReworkPlan(memory: ResolvedMemory, changePath: string, schedulerRunId: string, reworkPlanId: string): Promise<SchedulerRuntimeWorkerReworkPlan> {
+  const plan = await readRequiredJsonFile(schedulerWorkerReworkPlanPath(memory, changePath, schedulerRunId, reworkPlanId), schedulerRuntimeWorkerReworkPlanSchema);
+  await assertChangePathScope(memory, changePath, plan.changeId, `SchedulerRuntimeWorkerReworkPlan ${plan.id}`);
+  if (plan.schedulerRunId !== schedulerRunId || plan.id !== reworkPlanId) throw new Error("SchedulerRuntimeWorkerReworkPlan scope mismatch.");
+  return plan;
+}
+
+export async function readSchedulerRuntimeWorkerReworkPlanProjection(memory: ResolvedMemory, changePath: string, schedulerRunId: string, reworkPlanId: string): Promise<SchedulerRuntimeWorkerReworkPlan | null> {
+  try {
+    return await readSchedulerRuntimeWorkerReworkPlan(memory, changePath, schedulerRunId, reworkPlanId);
+  } catch {
+    return null;
+  }
+}
+
+export async function findSchedulerRuntimeWorkerReworkPlanForBlockingEvidence(
+  memory: ResolvedMemory,
+  changePath: string,
+  schedulerRunId: string,
+  input: { workerValidationId: string; workerAuditId?: string },
+): Promise<SchedulerRuntimeWorkerReworkPlan | null> {
+  const dir = schedulerWorkerReworkPlansDir(memory, changePath, schedulerRunId);
+  if (!existsSync(dir)) return null;
+  const entries = await readdir(dir, { withFileTypes: true }).catch(() => []);
+  for (const entry of entries) {
+    if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
+    const plan = await readSchedulerRuntimeWorkerReworkPlanProjection(memory, changePath, schedulerRunId, entry.name.replace(/\.json$/, ""));
+    if (!plan) continue;
+    if (plan.schedulerWorkerValidationId !== input.workerValidationId) continue;
+    if ((plan.schedulerWorkerAuditId ?? undefined) !== (input.workerAuditId ?? undefined)) continue;
+    return plan;
   }
   return null;
 }

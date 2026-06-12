@@ -1,4 +1,4 @@
-import type { SchedulerReconcileSnapshot, SchedulerRuntimeClaimReservation, SchedulerRuntimeState, SchedulerRuntimeWorkerAudit, SchedulerRuntimeWorkerResult, SchedulerRuntimeWorkerStart, SchedulerRuntimeWorkerValidation } from "./types.js";
+import type { SchedulerReconcileSnapshot, SchedulerRuntimeClaimReservation, SchedulerRuntimeState, SchedulerRuntimeWorkerAudit, SchedulerRuntimeWorkerResult, SchedulerRuntimeWorkerReworkPlan, SchedulerRuntimeWorkerStart, SchedulerRuntimeWorkerValidation } from "./types.js";
 
 export function renderSchedulerRuntimeStateMarkdown(state: SchedulerRuntimeState): string {
   const lines = [
@@ -298,6 +298,52 @@ export function renderSchedulerRuntimeWorkerAuditMarkdown(audit: SchedulerRuntim
     "## Boundary",
     "",
     "This worker-audit evidence audits one scheduler coder-stage worker worktree only. Approved audit may complete that TaskRun; blocked or failed audit only blocks the current worker path. It does not start rework, a next worker, whole-wave dispatch, scheduler loop, apply, or merge.",
+    "",
+  ];
+  return lines.join("\n");
+}
+
+export function renderSchedulerRuntimeWorkerReworkPlanMarkdown(plan: SchedulerRuntimeWorkerReworkPlan): string {
+  const lines = [
+    `# SchedulerRuntimeWorkerReworkPlan ${plan.id}`,
+    "",
+    `Status: ${plan.status}`,
+    `Change: ${plan.changeId}`,
+    `SchedulerRun: ${plan.schedulerRunId}`,
+    `Blocking source: ${plan.blockingSource}`,
+    `WorkerValidation: ${plan.schedulerWorkerValidationId}`,
+    `WorkerAudit: ${plan.schedulerWorkerAuditId ?? "none"}`,
+    `ClaimReservation: ${plan.schedulerClaimReservationId}`,
+    "",
+    "## Rework Intent",
+    "",
+    `- Reason: ${plan.reworkReason}`,
+    `- Reservation intent: ${plan.reservationIntentId}`,
+    `- Claim intent: ${plan.claimIntentId}`,
+    `- Planned worker key: ${plan.plannedWorkerKey}`,
+    `- Node: ${plan.nodeId}`,
+    `- Unit: ${plan.unitId}`,
+    `- Wave: ${plan.waveIndex + 1}`,
+    `- Stage: ${plan.stage}`,
+    `- Task: ${plan.taskId}`,
+    `- Current TaskRun: ${plan.taskRunId}`,
+    `- Current TaskRun status: ${plan.taskRunStatus}`,
+    `- WorkerLease: ${plan.workerLeaseId}`,
+    `- Target worktree: ${plan.targetWorktreeId}`,
+    `- Target code run: ${plan.targetCodeRunId}`,
+    `- Validation run: ${plan.validationRunId}`,
+    `- Validation status: ${plan.validationStatus}`,
+    `- Audit run: ${plan.auditRunId ?? "none"}`,
+    `- Audit status: ${plan.auditStatus ?? "none"}`,
+    `- Future code gate: ${plan.futureCodeGateMode}`,
+    "",
+    "## Recovery Key Inputs",
+    "",
+    ...(plan.recoveryKeyInputs.length ? plan.recoveryKeyInputs.map((item) => `- ${item}`) : ["- none"]),
+    "",
+    "## Boundary",
+    "",
+    "This rework plan is non-executing scheduler evidence. It does not start rework, call startCodeRun(), create TaskRuns, WorkerLeases, WorkerSessions, RuntimeWorkspaces, EventSources, worktrees, runs, AgentTasks, WorkflowRuns, TaskQueueRuns, child Changes, next workers, whole-wave dispatch, apply, or merge.",
     "",
   ];
   return lines.join("\n");

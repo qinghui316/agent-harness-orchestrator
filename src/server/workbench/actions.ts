@@ -130,6 +130,7 @@ async function executeWorkflowAction(input: WorkbenchProjectInput & { project: M
     schedulerWorkerResultId: body.schedulerWorkerResultId,
     schedulerWorkerValidationId: body.schedulerWorkerValidationId,
     schedulerWorkerAuditId: body.schedulerWorkerAuditId,
+    schedulerWorkerReworkPlanId: body.schedulerWorkerReworkPlanId,
     reservationIntentId: body.reservationIntentId,
     claimIntentId: body.claimIntentId,
     workflowRunId: body.workflowRunId,

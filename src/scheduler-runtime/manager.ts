@@ -13,3 +13,4 @@ export * from "./worker-start.js";
 export * from "./worker-result.js";
 export * from "./worker-validation.js";
 export * from "./worker-audit.js";
+export * from "./worker-rework-plan.js";

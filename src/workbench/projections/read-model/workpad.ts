@@ -20,6 +20,7 @@ import {
   readSchedulerWorkerResultSummary,
   readSchedulerWorkerAuditSummary,
   readSchedulerWorkerValidationSummary,
+  readSchedulerWorkerReworkPlanSummary,
   readLatestTaskQueueProposalSummary,
   readLatestWorkflowGraphPlanSummary,
   type WorkbenchDecompositionPlanSummary,
@@ -34,6 +35,7 @@ import {
   type WorkbenchSchedulerRuntimeSummary,
   type WorkbenchSchedulerWorkerResultSummary,
   type WorkbenchSchedulerWorkerAuditSummary,
+  type WorkbenchSchedulerWorkerReworkPlanSummary,
   type WorkbenchSchedulerWorkerStartSummary,
   type WorkbenchSchedulerWorkerValidationSummary,
   type WorkbenchSchedulerWorkerSessionPlanSummary,
@@ -239,6 +241,7 @@ export async function buildWorkbenchWorkpad(input: {
   const schedulerWorkerResult = await readSchedulerWorkerResultSummary(memory, selectedTopic.path, scopedSchedulerRun?.id, schedulerWorkerStart?.id);
   const schedulerWorkerValidation = await readSchedulerWorkerValidationSummary(memory, selectedTopic.path, scopedSchedulerRun?.id, schedulerWorkerResult?.id);
   const schedulerWorkerAudit = await readSchedulerWorkerAuditSummary(memory, selectedTopic.path, scopedSchedulerRun?.id, schedulerWorkerValidation?.id);
+  const schedulerWorkerReworkPlan = await readSchedulerWorkerReworkPlanSummary(memory, selectedTopic.path, scopedSchedulerRun?.id, schedulerWorkerValidation?.id, schedulerWorkerAudit?.id);
   const workflowRun = await getLatestWorkflowRun(memory, selectedTopic.id).then((run) => run ? summarizeWorkflowRun(run) : null).catch(() => null);
   const agentTasks = await buildAgentTaskSummaries(memory, selectedTopic.id);
   const rolePipeline = buildRolePipelineSummary(selectedTopic, planningBundle, agentTasks);
@@ -288,6 +291,7 @@ export async function buildWorkbenchWorkpad(input: {
     schedulerWorkerResult: schedulerWorkerResult ?? undefined,
     schedulerWorkerValidation: schedulerWorkerValidation ?? undefined,
     schedulerWorkerAudit: schedulerWorkerAudit ?? undefined,
+    schedulerWorkerReworkPlan: schedulerWorkerReworkPlan ?? undefined,
     workflowRun: workflowRun ?? undefined,
     rolePipeline,
     resultReview,
@@ -325,7 +329,7 @@ export async function buildWorkbenchWorkpad(input: {
       ...workpadMissingWarnings(specReady, planReady, tasksReady, selectedTopic),
       ...gaps.filter((gap) => gap.status !== "available").map((gap) => gap.summary),
     ],
-    nextAction: buildWorkpadNextAction(selectedTopic, topicApprovals, { specReady, planReady, tasksReady }, intake, taskQueue, taskGraph, planningBundle, decompositionPlan, decompositionReadiness, taskQueueProposal, workflowGraphPlan, schedulerContract, scopedSchedulerDispatchDryRun, scopedSchedulerWorkerSessionPlan, scopedSchedulerClaimReconcilePlan, scopedSchedulerLaunchPreflight, scopedSchedulerRun, schedulerRuntime, schedulerReconcileSnapshot, schedulerClaimReservation, schedulerWorkerStart, schedulerWorkerResult, schedulerWorkerValidation, schedulerWorkerAudit, workflowRun),
+    nextAction: buildWorkpadNextAction(selectedTopic, topicApprovals, { specReady, planReady, tasksReady }, intake, taskQueue, taskGraph, planningBundle, decompositionPlan, decompositionReadiness, taskQueueProposal, workflowGraphPlan, schedulerContract, scopedSchedulerDispatchDryRun, scopedSchedulerWorkerSessionPlan, scopedSchedulerClaimReconcilePlan, scopedSchedulerLaunchPreflight, scopedSchedulerRun, schedulerRuntime, schedulerReconcileSnapshot, schedulerClaimReservation, schedulerWorkerStart, schedulerWorkerResult, schedulerWorkerValidation, schedulerWorkerAudit, schedulerWorkerReworkPlan, workflowRun),
     background: buildWorkpadBackground(workpads, selectedTopic.id),
     memoryIsolation: buildWorkpadMemoryIsolation(memory, selectedTopic, workpads),
   };
@@ -610,6 +614,7 @@ function buildWorkpadNextAction(
   schedulerWorkerResult?: WorkbenchSchedulerWorkerResultSummary | null,
   schedulerWorkerValidation?: WorkbenchSchedulerWorkerValidationSummary | null,
   schedulerWorkerAudit?: WorkbenchSchedulerWorkerAuditSummary | null,
+  schedulerWorkerReworkPlan?: WorkbenchSchedulerWorkerReworkPlanSummary | null,
   workflowRun?: WorkflowRunSummary | null,
 ): WorkpadNextAction {
   if (topic.state !== "active") {
@@ -623,20 +628,6 @@ function buildWorkpadNextAction(
       disabledReason: "需求对话不是可执行状态。",
     };
   }
-  const autoReworkTask = taskGraph?.nodes.find((node) => node.autoRework?.available);
-  if (autoReworkTask?.autoRework) {
-    return {
-      id: `auto-rework:${autoReworkTask.taskId}:${autoReworkTask.taskRun?.id ?? "latest"}`,
-      label: "正在自动修改",
-      description: autoReworkTask.autoRework.reason,
-      kind: "read-only",
-      enabled: false,
-      requiresConfirmation: false,
-      disabledReason: "系统会在本轮 official failure 后自动交回 coder-agent 修改；无需用户点击重试。",
-    };
-  }
-  const queueBlockedAction = buildQueueBlockedNextAction(queue, taskGraph);
-  if (queueBlockedAction) return queueBlockedAction;
   if (decompositionReadiness?.nextAllowedAction === "scheduler.contract") {
     return buildTypedWorkflowNextAction({
       topic,
@@ -660,9 +651,24 @@ function buildWorkpadNextAction(
       schedulerWorkerResult,
       schedulerWorkerValidation,
       schedulerWorkerAudit,
+      schedulerWorkerReworkPlan,
       workflowRun,
     });
   }
+  const autoReworkTask = taskGraph?.nodes.find((node) => node.autoRework?.available);
+  if (autoReworkTask?.autoRework) {
+    return {
+      id: `auto-rework:${autoReworkTask.taskId}:${autoReworkTask.taskRun?.id ?? "latest"}`,
+      label: "正在自动修改",
+      description: autoReworkTask.autoRework.reason,
+      kind: "read-only",
+      enabled: false,
+      requiresConfirmation: false,
+      disabledReason: "系统会在本轮 official failure 后自动交回 coder-agent 修改；无需用户点击重试。",
+    };
+  }
+  const queueBlockedAction = buildQueueBlockedNextAction(queue, taskGraph);
+  if (queueBlockedAction) return queueBlockedAction;
   const actionableApproval = approvals.find((approval) => approval.action);
   if (actionableApproval) {
     return {
@@ -697,6 +703,7 @@ function buildWorkpadNextAction(
     schedulerWorkerResult,
     schedulerWorkerValidation,
     schedulerWorkerAudit,
+    schedulerWorkerReworkPlan,
     workflowRun,
   });
 }
