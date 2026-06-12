@@ -49,6 +49,7 @@ export interface WorkbenchActionRequest {
   schedulerWorkerReworkPlanId?: string;
   schedulerWorkerReworkStartId?: string;
   schedulerWorkerReworkResultId?: string;
+  schedulerWorkerReworkValidationId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   workflowRunId?: string;
@@ -63,6 +64,7 @@ export interface WorkbenchActionRequest {
   workerLeaseId?: string;
   runId?: string;
   validationRunId?: string;
+  reworkValidationRunId?: string;
   auditRunId?: string;
   confirm?: boolean;
   feedback?: string;

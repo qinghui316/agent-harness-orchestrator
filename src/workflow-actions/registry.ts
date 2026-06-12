@@ -28,6 +28,7 @@ export const WORKFLOW_ACTION_TYPES = [
   "planning.scheduler.worker.rework-plan.compile",
   "planning.scheduler.worker.rework-start-first",
   "planning.scheduler.worker.rework-reconcile-result",
+  "planning.scheduler.worker.rework-validate-first",
   "planning.workflowgraph.compile",
   "planning.taskqueue.confirm-start",
   "orchestrator.evaluate",
@@ -134,6 +135,7 @@ export const LIVE_WORKFLOW_ACTION_TYPES = [
   "planning.scheduler.worker.rework-plan.compile",
   "planning.scheduler.worker.rework-start-first",
   "planning.scheduler.worker.rework-reconcile-result",
+  "planning.scheduler.worker.rework-validate-first",
   "planning.workflowgraph.compile",
   "planning.taskqueue.confirm-start",
   "orchestrator.evaluate",
@@ -220,6 +222,7 @@ export const HIGH_IMPACT_WORKFLOW_ACTION_TYPES = [
   "planning.scheduler.worker.rework-plan.compile",
   "planning.scheduler.worker.rework-start-first",
   "planning.scheduler.worker.rework-reconcile-result",
+  "planning.scheduler.worker.rework-validate-first",
   "planning.workflowgraph.compile",
   "planning.taskqueue.confirm-start",
   "code.run",
@@ -267,6 +270,7 @@ export const REVALIDATED_WORKFLOW_ACTION_TYPES = [
   "planning.scheduler.worker.rework-plan.compile",
   "planning.scheduler.worker.rework-start-first",
   "planning.scheduler.worker.rework-reconcile-result",
+  "planning.scheduler.worker.rework-validate-first",
   "planning.workflowgraph.compile",
   "planning.taskqueue.confirm-start",
   "code.run",
@@ -298,6 +302,7 @@ export const WORKFLOW_ACTION_SCOPE_KEYS = [
   "schedulerWorkerReworkPlanId",
   "schedulerWorkerReworkStartId",
   "schedulerWorkerReworkResultId",
+  "schedulerWorkerReworkValidationId",
   "reservationIntentId",
   "claimIntentId",
   "workflowRunId",
@@ -311,6 +316,7 @@ export const WORKFLOW_ACTION_SCOPE_KEYS = [
   "workerLeaseId",
   "runId",
   "validationRunId",
+  "reworkValidationRunId",
   "auditRunId",
   "taskIds",
 ] as const;
@@ -428,6 +434,10 @@ export function validateWorkflowActionRequiredTargets(request: WorkflowActionSco
       requireOne("schedulerRunId", [request.schedulerRunId]);
       requireOne("schedulerWorkerReworkStartId", [request.schedulerWorkerReworkStartId]);
       break;
+    case "planning.scheduler.worker.rework-validate-first":
+      requireOne("schedulerRunId", [request.schedulerRunId]);
+      requireOne("schedulerWorkerReworkResultId", [request.schedulerWorkerReworkResultId]);
+      break;
     case "planning.workflowgraph.compile":
       requireOne("taskQueueProposalId", [request.taskQueueProposalId]);
       requireOne("readinessManifestId", [request.readinessManifestId]);
@@ -513,6 +523,7 @@ export function assertWorkflowActionRequiredTargets(request: WorkflowActionScope
 export function workflowActionScopePayload(request: WorkflowActionScopeCarrier, changeId: string, result?: unknown): Record<string, unknown> {
   const useReworkStartResult = request.actionType === "planning.scheduler.worker.rework-start-first";
   const useReworkResult = request.actionType === "planning.scheduler.worker.rework-reconcile-result";
+  const useReworkValidation = request.actionType === "planning.scheduler.worker.rework-validate-first";
   return {
     changeId,
     proposalId: request.proposalId,
@@ -521,7 +532,7 @@ export function workflowActionScopePayload(request: WorkflowActionScopeCarrier, 
     readinessManifestId: request.readinessManifestId ?? extractString(result, "manifest", "id"),
     taskQueueProposalId: request.taskQueueProposalId ?? extractString(result, "proposal", "id"),
     workflowGraphPlanId: request.workflowGraphPlanId ?? extractString(result, "graph", "id"),
-    schedulerContractId: request.schedulerContractId ?? extractString(result, "contract", "id") ?? extractString(result, "dryRun", "schedulerContractId") ?? extractString(result, "workerPlan", "schedulerContractId") ?? extractString(result, "claimReconcilePlan", "schedulerContractId") ?? extractString(result, "launchPreflight", "schedulerContractId") ?? extractString(result, "schedulerRun", "schedulerContractId") ?? extractString(result, "runtimeState", "schedulerContractId") ?? extractString(result, "reconcileSnapshot", "schedulerContractId") ?? extractString(result, "claimReservation", "schedulerContractId") ?? extractString(result, "reworkPlan", "schedulerContractId") ?? extractString(result, "result", "schedulerContractId"),
+    schedulerContractId: request.schedulerContractId ?? extractString(result, "contract", "id") ?? extractString(result, "dryRun", "schedulerContractId") ?? extractString(result, "workerPlan", "schedulerContractId") ?? extractString(result, "claimReconcilePlan", "schedulerContractId") ?? extractString(result, "launchPreflight", "schedulerContractId") ?? extractString(result, "schedulerRun", "schedulerContractId") ?? extractString(result, "runtimeState", "schedulerContractId") ?? extractString(result, "reconcileSnapshot", "schedulerContractId") ?? extractString(result, "claimReservation", "schedulerContractId") ?? extractString(result, "reworkPlan", "schedulerContractId") ?? extractString(result, "result", "schedulerContractId") ?? extractString(result, "schedulerReworkValidation", "schedulerContractId"),
     schedulerDispatchDryRunId: request.schedulerDispatchDryRunId ?? extractString(result, "dryRun", "id") ?? extractString(result, "workerPlan", "schedulerDispatchDryRunId") ?? extractString(result, "claimReconcilePlan", "schedulerDispatchDryRunId") ?? extractString(result, "launchPreflight", "schedulerDispatchDryRunId") ?? extractString(result, "schedulerRun", "schedulerDispatchDryRunId") ?? extractString(result, "reworkPlan", "schedulerDispatchDryRunId"),
     schedulerWorkerPlanId: request.schedulerWorkerPlanId ?? extractString(result, "workerPlan", "id") ?? extractString(result, "claimReconcilePlan", "schedulerWorkerPlanId") ?? extractString(result, "launchPreflight", "schedulerWorkerPlanId") ?? extractString(result, "schedulerRun", "schedulerWorkerPlanId") ?? extractString(result, "reworkPlan", "schedulerWorkerPlanId"),
     schedulerClaimReconcilePlanId: request.schedulerClaimReconcilePlanId ?? extractString(result, "claimReconcilePlan", "id") ?? extractString(result, "launchPreflight", "schedulerClaimReconcilePlanId") ?? extractString(result, "schedulerRun", "schedulerClaimReconcilePlanId") ?? extractString(result, "reworkPlan", "schedulerClaimReconcilePlanId"),
@@ -535,20 +546,22 @@ export function workflowActionScopePayload(request: WorkflowActionScopeCarrier, 
     schedulerWorkerAuditId: request.schedulerWorkerAuditId ?? extractString(result, "schedulerAudit", "id") ?? extractString(result, "reworkPlan", "schedulerWorkerAuditId"),
     schedulerWorkerReworkPlanId: request.schedulerWorkerReworkPlanId ?? extractString(result, "reworkPlan", "id") ?? extractString(result, "reworkStart", "schedulerWorkerReworkPlanId") ?? extractString(result, "result", "schedulerWorkerReworkPlanId"),
     schedulerWorkerReworkStartId: request.schedulerWorkerReworkStartId ?? extractString(result, "reworkStart", "id") ?? extractString(result, "result", "schedulerWorkerReworkStartId"),
-    schedulerWorkerReworkResultId: request.schedulerWorkerReworkResultId ?? extractString(result, "result", "id"),
+    schedulerWorkerReworkResultId: request.schedulerWorkerReworkResultId ?? extractString(result, "result", "id") ?? extractString(result, "schedulerReworkValidation", "schedulerWorkerReworkResultId"),
+    schedulerWorkerReworkValidationId: request.schedulerWorkerReworkValidationId ?? extractString(result, "schedulerReworkValidation", "id"),
     reservationIntentId: request.reservationIntentId ?? extractString(result, "workerStart", "reservationIntentId") ?? extractString(result, "result", "reservationIntentId") ?? extractString(result, "schedulerValidation", "reservationIntentId") ?? extractString(result, "schedulerAudit", "reservationIntentId") ?? extractString(result, "reworkPlan", "reservationIntentId"),
     claimIntentId: request.claimIntentId ?? extractString(result, "workerStart", "claimIntentId") ?? extractString(result, "result", "claimIntentId") ?? extractString(result, "schedulerValidation", "claimIntentId") ?? extractString(result, "schedulerAudit", "claimIntentId") ?? extractString(result, "reworkPlan", "claimIntentId"),
     workflowRunId: request.workflowRunId ?? extractString(result, "workflowRun", "id") ?? extractString(result, "workflow", "id"),
     queueRunId: request.queueRunId,
-    worktreeId: useReworkStartResult || useReworkResult ? (extractString(result, "result", "worktreeId") ?? extractString(result, "reworkStart", "worktreeId") ?? request.worktreeId) : (request.worktreeId ?? extractString(result, "reworkPlan", "targetWorktreeId") ?? extractString(result, "reworkStart", "worktreeId")),
+    worktreeId: useReworkStartResult || useReworkResult || useReworkValidation ? (extractString(result, "result", "worktreeId") ?? extractString(result, "schedulerReworkValidation", "worktreeId") ?? extractString(result, "reworkStart", "worktreeId") ?? request.worktreeId) : (request.worktreeId ?? extractString(result, "reworkPlan", "targetWorktreeId") ?? extractString(result, "reworkStart", "worktreeId")),
     worktreeIds: request.worktreeIds,
     applyCheckId: request.applyCheckId,
     landingPackageId: request.landingPackageId,
     remoteLandingResultId: request.remoteLandingResultId,
-    taskRunId: useReworkStartResult || useReworkResult ? (extractString(result, "result", "reworkTaskRunId") ?? extractString(result, "reworkStart", "reworkTaskRunId") ?? request.taskRunId) : (request.taskRunId ?? extractString(result, "taskRun", "id") ?? extractString(result, "result", "taskRunId") ?? extractString(result, "schedulerValidation", "taskRunId") ?? extractString(result, "schedulerAudit", "taskRunId") ?? extractString(result, "reworkPlan", "taskRunId") ?? extractString(result, "reworkStart", "reworkTaskRunId")),
-    workerLeaseId: useReworkStartResult || useReworkResult ? (extractString(result, "result", "reworkWorkerLeaseId") ?? extractString(result, "reworkStart", "reworkWorkerLeaseId") ?? request.workerLeaseId) : (request.workerLeaseId ?? extractString(result, "lease", "id") ?? extractString(result, "result", "workerLeaseId") ?? extractString(result, "schedulerValidation", "workerLeaseId") ?? extractString(result, "schedulerAudit", "workerLeaseId") ?? extractString(result, "reworkPlan", "workerLeaseId") ?? extractString(result, "reworkStart", "reworkWorkerLeaseId")),
-    runId: useReworkStartResult || useReworkResult ? (extractString(result, "result", "reworkRunId") ?? extractString(result, "reworkStart", "reworkRunId") ?? extractString(result, "codeRun", "id") ?? request.runId) : (request.runId ?? extractString(result, "codeRun", "id") ?? extractString(result, "result", "runId") ?? extractString(result, "schedulerValidation", "codeRunId") ?? extractString(result, "schedulerAudit", "codeRunId") ?? extractString(result, "reworkPlan", "targetCodeRunId") ?? extractString(result, "reworkStart", "reworkRunId")),
-    validationRunId: request.validationRunId ?? extractString(result, "validationRun", "id") ?? extractString(result, "schedulerValidation", "validationRunId") ?? extractString(result, "schedulerAudit", "validationRunId") ?? extractString(result, "reworkPlan", "validationRunId"),
+    taskRunId: useReworkStartResult || useReworkResult || useReworkValidation ? (extractString(result, "result", "reworkTaskRunId") ?? extractString(result, "schedulerReworkValidation", "reworkTaskRunId") ?? extractString(result, "reworkStart", "reworkTaskRunId") ?? request.taskRunId) : (request.taskRunId ?? extractString(result, "taskRun", "id") ?? extractString(result, "result", "taskRunId") ?? extractString(result, "schedulerValidation", "taskRunId") ?? extractString(result, "schedulerAudit", "taskRunId") ?? extractString(result, "reworkPlan", "taskRunId") ?? extractString(result, "reworkStart", "reworkTaskRunId")),
+    workerLeaseId: useReworkStartResult || useReworkResult || useReworkValidation ? (extractString(result, "result", "reworkWorkerLeaseId") ?? extractString(result, "schedulerReworkValidation", "reworkWorkerLeaseId") ?? extractString(result, "reworkStart", "reworkWorkerLeaseId") ?? request.workerLeaseId) : (request.workerLeaseId ?? extractString(result, "lease", "id") ?? extractString(result, "result", "workerLeaseId") ?? extractString(result, "schedulerValidation", "workerLeaseId") ?? extractString(result, "schedulerAudit", "workerLeaseId") ?? extractString(result, "reworkPlan", "workerLeaseId") ?? extractString(result, "reworkStart", "reworkWorkerLeaseId")),
+    runId: useReworkStartResult || useReworkResult || useReworkValidation ? (extractString(result, "result", "reworkRunId") ?? extractString(result, "schedulerReworkValidation", "reworkRunId") ?? extractString(result, "reworkStart", "reworkRunId") ?? extractString(result, "codeRun", "id") ?? request.runId) : (request.runId ?? extractString(result, "codeRun", "id") ?? extractString(result, "result", "runId") ?? extractString(result, "schedulerValidation", "codeRunId") ?? extractString(result, "schedulerAudit", "codeRunId") ?? extractString(result, "reworkPlan", "targetCodeRunId") ?? extractString(result, "reworkStart", "reworkRunId")),
+    validationRunId: request.validationRunId ?? extractString(result, "validationRun", "id") ?? extractString(result, "schedulerValidation", "validationRunId") ?? extractString(result, "schedulerAudit", "validationRunId") ?? extractString(result, "reworkPlan", "validationRunId") ?? extractString(result, "schedulerReworkValidation", "validationRunId"),
+    reworkValidationRunId: request.reworkValidationRunId ?? extractString(result, "validationRun", "id") ?? extractString(result, "schedulerReworkValidation", "validationRunId"),
     auditRunId: request.auditRunId ?? extractString(result, "auditRun", "id") ?? extractString(result, "schedulerAudit", "auditRunId") ?? extractString(result, "reworkPlan", "auditRunId"),
     taskIds: request.taskIds,
   };
@@ -599,6 +612,13 @@ export function workflowActionTargetId(request: WorkflowActionScopeCarrier, chan
       ?? request.schedulerWorkerReworkStartId
       ?? extractString(result, "reworkStart", "id")
       ?? extractString(result, "result", "schedulerWorkerReworkStartId")
+      ?? changeId;
+  }
+  if (request.actionType === "planning.scheduler.worker.rework-validate-first") {
+    return request.schedulerWorkerReworkValidationId
+      ?? extractString(result, "schedulerReworkValidation", "id")
+      ?? request.schedulerWorkerReworkResultId
+      ?? extractString(result, "schedulerReworkValidation", "schedulerWorkerReworkResultId")
       ?? changeId;
   }
   return request.remoteLandingResultId

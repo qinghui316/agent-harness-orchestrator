@@ -173,6 +173,7 @@ export type WorkpadNextAction = {
   schedulerWorkerReworkPlanId?: string;
   schedulerWorkerReworkStartId?: string;
   schedulerWorkerReworkResultId?: string;
+  schedulerWorkerReworkValidationId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   workflowRunId?: string;
@@ -182,6 +183,7 @@ export type WorkpadNextAction = {
   workerLeaseId?: string;
   runId?: string;
   validationRunId?: string;
+  reworkValidationRunId?: string;
   auditRunId?: string;
   disabledReason?: string;
 };
@@ -221,6 +223,7 @@ export type WorkbenchTaskNextAction = {
   schedulerWorkerReworkPlanId?: string;
   schedulerWorkerReworkStartId?: string;
   schedulerWorkerReworkResultId?: string;
+  schedulerWorkerReworkValidationId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   workflowRunId?: string;
@@ -353,6 +356,7 @@ export type Workpad = {
   schedulerWorkerReworkPlan?: SchedulerWorkerReworkPlanSummary;
   schedulerWorkerReworkStart?: SchedulerWorkerReworkStartSummary;
   schedulerWorkerReworkResult?: SchedulerWorkerReworkResultSummary;
+  schedulerWorkerReworkValidation?: SchedulerWorkerReworkValidationSummary;
   rolePipeline?: {
     stage: "planning" | "coding" | "validation" | "audit" | "rework" | "done" | "needs-user-input";
     status: "draft" | "running" | "completed" | "needs-user-input" | "stopped";
@@ -845,6 +849,40 @@ export type SchedulerWorkerReworkResultSummary = {
   markdownArtifact?: string;
   updatedAt: string;
 };
+export type SchedulerWorkerReworkValidationSummary = {
+  id: string;
+  changeId: string;
+  schedulerRunId: string;
+  schedulerClaimReservationId: string;
+  schedulerWorkerStartId: string;
+  schedulerWorkerResultId: string;
+  schedulerWorkerValidationId: string;
+  schedulerWorkerAuditId?: string;
+  schedulerWorkerReworkPlanId: string;
+  schedulerWorkerReworkStartId: string;
+  schedulerWorkerReworkResultId: string;
+  status: "passed" | "failed";
+  reservationIntentId: string;
+  claimIntentId: string;
+  nodeId: string;
+  unitId: string;
+  stageId: string;
+  stage: "validation";
+  originalTaskRunId: string;
+  originalWorkerLeaseId: string;
+  originalCodeRunId: string;
+  reworkTaskRunId: string;
+  reworkWorkerLeaseId: string;
+  taskRunStatus: string;
+  worktreeId: string;
+  reworkRunId: string;
+  validationRunId: string;
+  validationStatus: "passed" | "failed";
+  failureReason?: string;
+  artifact?: string;
+  markdownArtifact?: string;
+  updatedAt: string;
+};
 export type SchedulerReconcileSnapshotSummary = {
   id: string;
   changeId: string;
@@ -894,6 +932,7 @@ export type ThreadStreamAction = {
   schedulerWorkerReworkPlanId?: string;
   schedulerWorkerReworkStartId?: string;
   schedulerWorkerReworkResultId?: string;
+  schedulerWorkerReworkValidationId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   workflowRunId?: string;
@@ -906,6 +945,7 @@ export type ThreadStreamAction = {
   landingPackageId?: string;
   remoteLandingResultId?: string;
   validationRunId?: string;
+  reworkValidationRunId?: string;
   auditRunId?: string;
 };
 export type ThreadStreamItem = {

@@ -22,6 +22,7 @@ export type WorkflowActionPayloadSource = {
   schedulerWorkerReworkPlanId?: string;
   schedulerWorkerReworkStartId?: string;
   schedulerWorkerReworkResultId?: string;
+  schedulerWorkerReworkValidationId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   workflowRunId?: string;
@@ -31,6 +32,7 @@ export type WorkflowActionPayloadSource = {
   workerLeaseId?: string;
   runId?: string;
   validationRunId?: string;
+  reworkValidationRunId?: string;
   auditRunId?: string;
   worktreeId?: string;
   worktreeIds?: string[];

@@ -1,4 +1,4 @@
-import type { SchedulerReconcileSnapshot, SchedulerRuntimeClaimReservation, SchedulerRuntimeState, SchedulerRuntimeWorkerAudit, SchedulerRuntimeWorkerResult, SchedulerRuntimeWorkerReworkPlan, SchedulerRuntimeWorkerReworkResult, SchedulerRuntimeWorkerReworkStart, SchedulerRuntimeWorkerStart, SchedulerRuntimeWorkerValidation } from "./types.js";
+import type { SchedulerReconcileSnapshot, SchedulerRuntimeClaimReservation, SchedulerRuntimeState, SchedulerRuntimeWorkerAudit, SchedulerRuntimeWorkerResult, SchedulerRuntimeWorkerReworkPlan, SchedulerRuntimeWorkerReworkResult, SchedulerRuntimeWorkerReworkStart, SchedulerRuntimeWorkerReworkValidation, SchedulerRuntimeWorkerStart, SchedulerRuntimeWorkerValidation } from "./types.js";
 
 export function renderSchedulerRuntimeStateMarkdown(state: SchedulerRuntimeState): string {
   const lines = [
@@ -425,6 +425,48 @@ export function renderSchedulerRuntimeWorkerReworkResultMarkdown(result: Schedul
     "## Boundary",
     "",
     "This rework-result evidence reconciles one same-worktree scheduler rework-coder run only. Rework success means evidence-ready for later rework validation/audit; it is not task completion, source apply, next-worker dispatch, whole-wave dispatch, scheduler loop, or parallel executor authorization.",
+    "",
+  ];
+  return lines.join("\n");
+}
+
+export function renderSchedulerRuntimeWorkerReworkValidationMarkdown(validation: SchedulerRuntimeWorkerReworkValidation): string {
+  const lines = [
+    `# SchedulerRuntimeWorkerReworkValidation ${validation.id}`,
+    "",
+    `Status: ${validation.status}`,
+    `Change: ${validation.changeId}`,
+    `SchedulerRun: ${validation.schedulerRunId}`,
+    `ReworkResult: ${validation.schedulerWorkerReworkResultId}`,
+    `ReworkStart: ${validation.schedulerWorkerReworkStartId}`,
+    `ReworkPlan: ${validation.schedulerWorkerReworkPlanId}`,
+    `ClaimReservation: ${validation.schedulerClaimReservationId}`,
+    "",
+    "## Rework Validation",
+    "",
+    `- Reservation intent: ${validation.reservationIntentId}`,
+    `- Claim intent: ${validation.claimIntentId}`,
+    `- Planned worker key: ${validation.plannedWorkerKey}`,
+    `- Node: ${validation.nodeId}`,
+    `- Unit: ${validation.unitId}`,
+    `- Wave: ${validation.waveIndex + 1}`,
+    `- Stage: ${validation.stage}`,
+    `- Task: ${validation.taskId}`,
+    `- Original TaskRun: ${validation.originalTaskRunId}`,
+    `- Original WorkerLease: ${validation.originalWorkerLeaseId}`,
+    `- Original code run: ${validation.originalCodeRunId}`,
+    `- Rework TaskRun: ${validation.reworkTaskRunId}`,
+    `- Rework TaskRun status: ${validation.taskRunStatus}`,
+    `- Rework WorkerLease: ${validation.reworkWorkerLeaseId}`,
+    `- Worktree: ${validation.worktreeId}`,
+    `- Rework code run: ${validation.reworkRunId}`,
+    `- Validation run: ${validation.validationRunId}`,
+    `- Validation status: ${validation.validationStatus}`,
+    ...(validation.failureReason ? [`- Failure: ${validation.failureReason}`] : []),
+    "",
+    "## Boundary",
+    "",
+    "This rework-validation evidence validates one same-worktree scheduler rework result only. Passing validation is not task completion; rework audit remains required before the scheduler task can complete. It does not start audit, another rework, another worker, a whole wave, IntegrationCheck, apply, merge, child Changes, a scheduler loop, or a parallel executor.",
     "",
   ];
   return lines.join("\n");

@@ -26,7 +26,9 @@ export type SchedulerRuntimeEventType =
   | "scheduler-runtime.worker-rework-started"
   | "scheduler-runtime.worker-rework-start-failed"
   | "scheduler-runtime.worker-rework-result-ready"
-  | "scheduler-runtime.worker-rework-result-failed";
+  | "scheduler-runtime.worker-rework-result-failed"
+  | "scheduler-runtime.worker-rework-validation-passed"
+  | "scheduler-runtime.worker-rework-validation-failed";
 export type SchedulerReconcileSnapshotStatus = "generated" | "blocked";
 export type SchedulerRuntimeWorkerStartStatus = "started" | "failed";
 export type SchedulerRuntimeWorkerResultStatus = "evidence-ready" | "failed";
@@ -35,6 +37,7 @@ export type SchedulerRuntimeWorkerAuditStatus = "approved" | "approved-with-note
 export type SchedulerRuntimeWorkerReworkPlanStatus = "planned";
 export type SchedulerRuntimeWorkerReworkStartStatus = "started" | "failed";
 export type SchedulerRuntimeWorkerReworkResultStatus = "evidence-ready" | "failed";
+export type SchedulerRuntimeWorkerReworkValidationStatus = "passed" | "failed";
 export type SchedulerRuntimeWorkerReworkBlockingSource = "validation-failed" | "audit-blocked" | "audit-failed";
 
 export interface SchedulerRuntimeClaimIntentState {
@@ -494,6 +497,56 @@ export interface SchedulerRuntimeWorkerReworkResult {
   worktreeId: string;
   reworkRunId?: string;
   reworkRunStatus?: string;
+  failureReason?: string;
+  sourceArtifactHashes: Record<string, string>;
+  artifactRefs: string[];
+  artifact: string;
+  markdownArtifact: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SchedulerRuntimeWorkerReworkValidation {
+  version: "1.0";
+  id: string;
+  changeId: string;
+  schedulerRunId: string;
+  schedulerMode: SchedulerMode;
+  status: SchedulerRuntimeWorkerReworkValidationStatus;
+  schedulerRuntimeStateId: string;
+  schedulerReconcileSnapshotId: string;
+  schedulerClaimReservationId: string;
+  schedulerWorkerStartId: string;
+  schedulerWorkerResultId: string;
+  schedulerWorkerValidationId: string;
+  schedulerWorkerAuditId?: string;
+  schedulerWorkerReworkPlanId: string;
+  schedulerWorkerReworkStartId: string;
+  schedulerWorkerReworkResultId: string;
+  schedulerContractId: string;
+  schedulerDispatchDryRunId: string;
+  schedulerWorkerPlanId: string;
+  schedulerClaimReconcilePlanId: string;
+  schedulerLaunchPreflightId: string;
+  reservationIntentId: string;
+  claimIntentId: string;
+  plannedWorkerKey: string;
+  nodeId: string;
+  unitId: string;
+  waveIndex: number;
+  stageId: string;
+  stage: "validation";
+  taskId: string;
+  originalTaskRunId: string;
+  originalWorkerLeaseId: string;
+  originalCodeRunId: string;
+  reworkTaskRunId: string;
+  reworkWorkerLeaseId: string;
+  taskRunStatus: string;
+  worktreeId: string;
+  reworkRunId: string;
+  validationRunId: string;
+  validationStatus: SchedulerRuntimeWorkerReworkValidationStatus;
   failureReason?: string;
   sourceArtifactHashes: Record<string, string>;
   artifactRefs: string[];

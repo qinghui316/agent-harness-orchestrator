@@ -129,6 +129,7 @@ export {
   getWorkbenchSchedulerWorkerAuditProjection,
   getWorkbenchSchedulerWorkerReworkPlanProjection,
   getWorkbenchSchedulerWorkerReworkResultProjection,
+  getWorkbenchSchedulerWorkerReworkValidationProjection,
   getWorkbenchSchedulerWorkerReworkStartProjection,
   getWorkbenchSchedulerWorkerValidationProjection,
   getWorkbenchWorkflowRunProjection,

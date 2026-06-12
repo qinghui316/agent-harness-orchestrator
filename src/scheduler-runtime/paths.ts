@@ -120,3 +120,15 @@ export function schedulerWorkerReworkResultPath(memory: ResolvedMemory, changePa
 export function schedulerWorkerReworkResultMarkdownPath(memory: ResolvedMemory, changePath: string, schedulerRunId: string, reworkResultId: string): string {
   return join(schedulerWorkerReworkResultsDir(memory, changePath, schedulerRunId), `${reworkResultId}.md`);
 }
+
+export function schedulerWorkerReworkValidationsDir(memory: ResolvedMemory, changePath: string, schedulerRunId: string): string {
+  return join(schedulerRuntimeDir(memory, changePath, schedulerRunId), "scheduler-worker-rework-validations");
+}
+
+export function schedulerWorkerReworkValidationPath(memory: ResolvedMemory, changePath: string, schedulerRunId: string, reworkValidationId: string): string {
+  return join(schedulerWorkerReworkValidationsDir(memory, changePath, schedulerRunId), `${reworkValidationId}.json`);
+}
+
+export function schedulerWorkerReworkValidationMarkdownPath(memory: ResolvedMemory, changePath: string, schedulerRunId: string, reworkValidationId: string): string {
+  return join(schedulerWorkerReworkValidationsDir(memory, changePath, schedulerRunId), `${reworkValidationId}.md`);
+}

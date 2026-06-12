@@ -15,6 +15,7 @@ import {
   readSchedulerWorkerAuditProjection,
   readSchedulerWorkerReworkPlanProjection,
   readSchedulerWorkerReworkResultProjection,
+  readSchedulerWorkerReworkValidationProjection,
   readSchedulerWorkerReworkStartProjection,
   readSchedulerRunProjection,
   readSchedulerWorkerValidationProjection,
@@ -27,7 +28,7 @@ import type {
   WorkflowGraphPlan,
 } from "../../workflow-artifacts/manager.js";
 import type { SchedulerClaimReconcilePlan, SchedulerContract, SchedulerDispatchDryRun, SchedulerLaunchPreflight, SchedulerRun, SchedulerWorkerSessionPlan } from "../../workflow-scheduler/manager.js";
-import type { SchedulerReconcileSnapshot, SchedulerRuntimeClaimReservation, SchedulerRuntimeState, SchedulerRuntimeWorkerAudit, SchedulerRuntimeWorkerReworkPlan, SchedulerRuntimeWorkerReworkResult, SchedulerRuntimeWorkerReworkStart, SchedulerRuntimeWorkerValidation } from "../../scheduler-runtime/manager.js";
+import type { SchedulerReconcileSnapshot, SchedulerRuntimeClaimReservation, SchedulerRuntimeState, SchedulerRuntimeWorkerAudit, SchedulerRuntimeWorkerReworkPlan, SchedulerRuntimeWorkerReworkResult, SchedulerRuntimeWorkerReworkValidation, SchedulerRuntimeWorkerReworkStart, SchedulerRuntimeWorkerValidation } from "../../scheduler-runtime/manager.js";
 
 export interface WorkbenchTopicPathRef {
   id: string;
@@ -109,6 +110,10 @@ export function getSchedulerWorkerReworkStartProjectionForPath(memory: ResolvedM
 
 export function getSchedulerWorkerReworkResultProjectionForPath(memory: ResolvedMemory, changePath: string, schedulerRunId: string, reworkResultId: string): Promise<SchedulerRuntimeWorkerReworkResult | null> {
   return readSchedulerWorkerReworkResultProjection(memory, changePath, schedulerRunId, reworkResultId);
+}
+
+export function getSchedulerWorkerReworkValidationProjectionForPath(memory: ResolvedMemory, changePath: string, schedulerRunId: string, reworkValidationId: string): Promise<SchedulerRuntimeWorkerReworkValidation | null> {
+  return readSchedulerWorkerReworkValidationProjection(memory, changePath, schedulerRunId, reworkValidationId);
 }
 
 export async function getWorkflowRunProjectionForChange(

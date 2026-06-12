@@ -49,7 +49,8 @@ export function schedulerNextActionToConfirmationItems(
   if (action.kind !== "workflow-action" || !action.enabled || !action.requiresConfirmation || !action.actionType?.startsWith("planning.scheduler.")) {
     return [];
   }
-  const targetId = action.schedulerWorkerReworkResultId
+  const targetId = action.schedulerWorkerReworkValidationId
+    ?? action.schedulerWorkerReworkResultId
     ?? action.schedulerWorkerReworkStartId
     ?? action.schedulerWorkerReworkPlanId
     ?? action.schedulerWorkerAuditId
@@ -62,17 +63,20 @@ export function schedulerNextActionToConfirmationItems(
     ?? "next";
   const workerValidation = workpad.schedulerWorkerValidation;
   const workerAudit = workpad.schedulerWorkerAudit;
+  const workerReworkValidation = workpad.schedulerWorkerReworkValidation;
   const workerReworkResult = workpad.schedulerWorkerReworkResult;
   const workerReworkStart = workpad.schedulerWorkerReworkStart;
   const workerResult = workpad.schedulerWorkerResult;
   const workerStart = workpad.schedulerWorkerStart;
   const runId = workerAudit?.auditRunId
+    ?? workerReworkValidation?.reworkRunId
     ?? workerReworkResult?.reworkRunId
     ?? workerReworkStart?.reworkRunId
     ?? workerValidation?.codeRunId
     ?? workerResult?.runId
     ?? workerStart?.runId;
   const taskRunId = action.taskRunId
+    ?? workerReworkValidation?.reworkTaskRunId
     ?? workerReworkResult?.reworkTaskRunId
     ?? workerReworkStart?.reworkTaskRunId
     ?? workerAudit?.taskRunId
@@ -80,12 +84,14 @@ export function schedulerNextActionToConfirmationItems(
     ?? workerResult?.taskRunId
     ?? workerStart?.taskRunId;
   const workerLeaseId = workerAudit?.workerLeaseId
+    ?? workerReworkValidation?.reworkWorkerLeaseId
     ?? workerReworkResult?.reworkWorkerLeaseId
     ?? workerReworkStart?.reworkWorkerLeaseId
     ?? workerValidation?.workerLeaseId
     ?? workerResult?.workerLeaseId
     ?? workerStart?.workerLeaseId;
   const worktreeId = action.worktreeId
+    ?? workerReworkValidation?.worktreeId
     ?? workerReworkResult?.worktreeId
     ?? workerReworkStart?.worktreeId
     ?? workerAudit?.worktreeId
@@ -93,6 +99,7 @@ export function schedulerNextActionToConfirmationItems(
     ?? workerResult?.worktreeId
     ?? workerStart?.worktreeId;
   const validationRunId = action.validationRunId ?? workerAudit?.validationRunId ?? workerValidation?.validationRunId;
+  const reworkValidationRunId = action.reworkValidationRunId ?? workerReworkValidation?.validationRunId;
   const auditRunId = action.auditRunId ?? workerAudit?.auditRunId;
   return [{
     id: `confirm:${action.actionType}:${selectedTopic.id}:${targetId}`,
@@ -112,11 +119,13 @@ export function schedulerNextActionToConfirmationItems(
     schedulerWorkerReworkPlanId: action.schedulerWorkerReworkPlanId,
     schedulerWorkerReworkStartId: action.schedulerWorkerReworkStartId,
     schedulerWorkerReworkResultId: action.schedulerWorkerReworkResultId,
+    schedulerWorkerReworkValidationId: action.schedulerWorkerReworkValidationId,
     reservationIntentId: action.reservationIntentId,
     claimIntentId: action.claimIntentId,
     taskRunId,
     workerLeaseId,
     validationRunId,
+    reworkValidationRunId,
     auditRunId,
     summary: action.label,
     whyNeedsConfirmation: "这是 Harness 阶段门：主 Agent 已给出下一步建议，确认后只执行该 scoped scheduler action。",
@@ -146,6 +155,7 @@ export function schedulerNextActionToConfirmationItems(
       schedulerWorkerReworkPlanId: action.schedulerWorkerReworkPlanId,
       schedulerWorkerReworkStartId: action.schedulerWorkerReworkStartId,
       schedulerWorkerReworkResultId: action.schedulerWorkerReworkResultId,
+      schedulerWorkerReworkValidationId: action.schedulerWorkerReworkValidationId,
       reservationIntentId: action.reservationIntentId,
       claimIntentId: action.claimIntentId,
       taskRunId,
@@ -153,6 +163,7 @@ export function schedulerNextActionToConfirmationItems(
       worktreeId,
       runId,
       validationRunId,
+      reworkValidationRunId,
       auditRunId,
       enabled: true,
       requiresConfirmation: true,
@@ -257,6 +268,7 @@ export function taskQueueProposalToConfirmationItems(
         const workerReworkPlan = workpad.schedulerWorkerReworkPlan;
         const workerReworkStart = workpad.schedulerWorkerReworkStart;
         const workerReworkResult = workpad.schedulerWorkerReworkResult;
+        const workerReworkValidation = workpad.schedulerWorkerReworkValidation;
         if (workerStart?.schedulerClaimReservationId === claimReservation.id && workerStart.schedulerRunId === schedulerRun.id) {
           if (workerResult?.schedulerWorkerStartId === workerStart.id) {
             const needsReworkPlan = workerValidation?.status === "failed"
@@ -326,7 +338,71 @@ export function taskQueueProposalToConfirmationItems(
             if (workerReworkPlan && workerReworkPlan.schedulerWorkerValidationId === workerValidation?.id) {
               const reworkPlan = workerReworkPlan;
               if (workerReworkStart?.schedulerWorkerReworkPlanId === reworkPlan.id) {
-                if (workerReworkResult?.schedulerWorkerReworkStartId === workerReworkStart.id) return [];
+                if (workerReworkResult?.schedulerWorkerReworkStartId === workerReworkStart.id) {
+                  if (workerReworkResult.status !== "evidence-ready" || workerReworkValidation?.schedulerWorkerReworkResultId === workerReworkResult.id) return [];
+                  return [{
+                    id: `confirm:scheduler-first-worker-rework-validation:${selectedTopic.id}:${workerReworkResult.id}`,
+                    kind: "planning-confirm",
+                    projectId: project?.id ?? null,
+                    conversationId: selectedTopic.id,
+                    changeId: selectedTopic.id,
+                    schedulerRunId: schedulerRun.id,
+                    schedulerReconcileSnapshotId: reconcileSnapshot.id,
+                    schedulerClaimReservationId: claimReservation.id,
+                    schedulerWorkerStartId: workerReworkResult.schedulerWorkerStartId,
+                    schedulerWorkerResultId: workerReworkResult.schedulerWorkerResultId,
+                    schedulerWorkerValidationId: workerReworkResult.schedulerWorkerValidationId,
+                    schedulerWorkerAuditId: workerReworkResult.schedulerWorkerAuditId,
+                    schedulerWorkerReworkPlanId: workerReworkResult.schedulerWorkerReworkPlanId,
+                    schedulerWorkerReworkStartId: workerReworkResult.schedulerWorkerReworkStartId,
+                    schedulerWorkerReworkResultId: workerReworkResult.id,
+                    reservationIntentId: workerReworkResult.reservationIntentId,
+                    claimIntentId: workerReworkResult.claimIntentId,
+                    runId: workerReworkResult.reworkRunId,
+                    worktreeId: workerReworkResult.worktreeId,
+                    taskRunId: workerReworkResult.reworkTaskRunId,
+                    workerLeaseId: workerReworkResult.reworkWorkerLeaseId,
+                    summary: "第一个 scheduler worker rework 结果已对账，可以验证同一个 worktree。",
+                    whyNeedsConfirmation: "这是 Harness 阶段门：只对 Phase 9L 复用的同一个 worker worktree 运行一次 scoped Validation，不启动 audit、next worker 或 whole wave。",
+                    confirmEffect: "重读 latest SchedulerRun、RuntimeState、ClaimReservation、ReworkPlan、ReworkStart、ReworkResult、TaskRun、WorkerLease、worktree 和 rework code gate；对同一个 worktree 运行 Validation，并写 SchedulerRuntimeWorkerReworkValidation evidence。",
+                    riskSummary: "rework validation passed 仍不是任务完成；rework audit 另开阶段。validation failed 只阻塞当前 rework TaskRun。",
+                    evidenceRefs: [workerReworkResult.artifact, workerReworkStart.artifact, reworkPlan.artifact].filter((item): item is string => Boolean(item)),
+                    actions: [{
+                      id: `workflow:planning.scheduler.worker.rework-validate-first:${selectedTopic.id}:${workerReworkResult.id}`,
+                      label: "验证第一个 worker rework 结果",
+                      kind: "workflow-action",
+                      changeId: selectedTopic.id,
+                      actionType: "planning.scheduler.worker.rework-validate-first",
+                      decompositionPlanId: plan.id,
+                      readinessManifestId: readiness.id,
+                      schedulerContractId: schedulerRun.schedulerContractId,
+                      schedulerDispatchDryRunId: schedulerRun.schedulerDispatchDryRunId,
+                      schedulerWorkerPlanId: schedulerRun.schedulerWorkerPlanId,
+                      schedulerClaimReconcilePlanId: schedulerRun.schedulerClaimReconcilePlanId,
+                      schedulerLaunchPreflightId: schedulerRun.schedulerLaunchPreflightId,
+                      schedulerRunId: schedulerRun.id,
+                      schedulerReconcileSnapshotId: reconcileSnapshot.id,
+                      schedulerClaimReservationId: workerReworkResult.schedulerClaimReservationId,
+                      schedulerWorkerStartId: workerReworkResult.schedulerWorkerStartId,
+                      schedulerWorkerResultId: workerReworkResult.schedulerWorkerResultId,
+                      schedulerWorkerValidationId: workerReworkResult.schedulerWorkerValidationId,
+                      schedulerWorkerAuditId: workerReworkResult.schedulerWorkerAuditId,
+                      schedulerWorkerReworkPlanId: workerReworkResult.schedulerWorkerReworkPlanId,
+                      schedulerWorkerReworkStartId: workerReworkResult.schedulerWorkerReworkStartId,
+                      schedulerWorkerReworkResultId: workerReworkResult.id,
+                      reservationIntentId: workerReworkResult.reservationIntentId,
+                      claimIntentId: workerReworkResult.claimIntentId,
+                      taskRunId: workerReworkResult.reworkTaskRunId,
+                      workerLeaseId: workerReworkResult.reworkWorkerLeaseId,
+                      worktreeId: workerReworkResult.worktreeId,
+                      runId: workerReworkResult.reworkRunId,
+                      enabled: true,
+                      requiresConfirmation: true,
+                    }],
+                    primary: true,
+                    status: "pending",
+                  }];
+                }
                 return [{
                   id: `confirm:scheduler-first-worker-rework-result:${selectedTopic.id}:${workerReworkStart.id}`,
                   kind: "planning-confirm",

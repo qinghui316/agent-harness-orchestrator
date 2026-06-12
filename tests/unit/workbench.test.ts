@@ -12,7 +12,7 @@ import { executeWorkbenchAction } from "../../src/server/workbench-server.js";
 import { appendTopicThreadEntry, createWorkbenchTopic, postTopicMessage } from "../../src/workbench/chat.js";
 import { readTopicThreadLog } from "../../src/workbench/thread-log.js";
 import { answerClarification, reanalyzeIntake, runIntakeScan } from "../../src/workbench/intake.js";
-import { getWorkbenchDecompositionPlanProjection, getWorkbenchDecompositionReadinessProjection, getWorkbenchMaintenanceProjection, getWorkbenchRunGraphProjection, getWorkbenchSchedulerClaimReservationProjection, getWorkbenchSchedulerContractProjection, getWorkbenchSchedulerWorkerReworkPlanProjection, getWorkbenchSchedulerWorkerReworkResultProjection, getWorkbenchSchedulerWorkerReworkStartProjection, getWorkbenchSnapshot, getWorkbenchStream, getWorkbenchTaskQueueProposalProjection, getWorkbenchTopic, getWorkbenchWorkflowGraphPlanProjection, listWorkbenchApprovals, listWorkbenchRoles, listWorkbenchTopics } from "../../src/workbench/manager.js";
+import { getWorkbenchDecompositionPlanProjection, getWorkbenchDecompositionReadinessProjection, getWorkbenchMaintenanceProjection, getWorkbenchRunGraphProjection, getWorkbenchSchedulerClaimReservationProjection, getWorkbenchSchedulerContractProjection, getWorkbenchSchedulerWorkerReworkPlanProjection, getWorkbenchSchedulerWorkerReworkResultProjection, getWorkbenchSchedulerWorkerReworkStartProjection, getWorkbenchSchedulerWorkerReworkValidationProjection, getWorkbenchSnapshot, getWorkbenchStream, getWorkbenchTaskQueueProposalProjection, getWorkbenchTopic, getWorkbenchWorkflowGraphPlanProjection, listWorkbenchApprovals, listWorkbenchRoles, listWorkbenchTopics } from "../../src/workbench/manager.js";
 import { WorkbenchStore } from "../../src/workbench/store.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import { collectWorktreeDiff } from "../../src/audit/diff.js";
@@ -32,6 +32,7 @@ import { buildDelegateTaskManifest, validateDelegateTaskPolicy } from "../../src
 import { findBoundaryViolations } from "../../src/agent-task/boundary-audit.js";
 import { dispatchForegroundRoleTask } from "../../src/agent-task/role-dispatcher.js";
 import { evaluateToolPolicy, workerPermissionProfileForRole } from "../../src/agent-task/tool-policy.js";
+import { validateSchedulerFirstWorkerRework } from "../../src/scheduler-runtime/worker-rework-validation.js";
 import {
   claimAvailableDemandWorkers,
   claimNextDemandWorker,
@@ -3196,6 +3197,120 @@ describe("workbench read model", () => {
       });
       expect(afterReworkResultSnapshot.right.confirmationQueue.current.flatMap((item) => item.actions).some((action) => action.actionType === "planning.scheduler.worker.rework-reconcile-result")).toBe(false);
       expect(afterReworkResultSnapshot.right.confirmationQueue.current.flatMap((item) => item.actions).some((action) => action.actionType === "planning.scheduler.worker.validate-first" || action.actionType === "planning.scheduler.worker.audit-first")).toBe(false);
+      const reworkValidationAction = afterReworkResultSnapshot.right.confirmationQueue.current
+        .flatMap((item) => item.actions)
+        .find((action) => action.actionType === "planning.scheduler.worker.rework-validate-first" && action.schedulerWorkerReworkResultId === reconciledReworkResult.result?.id);
+      if (!reworkValidationAction) throw new Error("Missing scheduler first worker rework validation action.");
+      expect(reworkValidationAction).toMatchObject({
+        schedulerRunId: prepared.schedulerRun.id,
+        schedulerClaimReservationId: prepared.claimReservation.id,
+        schedulerWorkerStartId: prepared.workerStart.id,
+        schedulerWorkerResultId: prepared.workerResult.id,
+        schedulerWorkerValidationId: validatedResult?.schedulerValidation?.id,
+        schedulerWorkerReworkPlanId: reworkResult.reworkPlan?.id,
+        schedulerWorkerReworkStartId: reworkStartResult.reworkStart?.id,
+        schedulerWorkerReworkResultId: reconciledReworkResult.result?.id,
+        taskRunId: reworkStartResult.reworkStart?.reworkTaskRunId,
+        workerLeaseId: reworkStartResult.reworkStart?.reworkWorkerLeaseId,
+        worktreeId: prepared.workerStart.worktreeId,
+        runId: reworkStartResult.reworkStart?.reworkRunId,
+      });
+
+      const validatedRework = await executeWorkbenchAction({ project: project(), path: tempDir }, {
+        ...reworkValidationAction,
+        confirm: true,
+      });
+      const validatedReworkResult = ((validatedRework.result as { result?: unknown }).result ?? validatedRework.result) as {
+        existing?: boolean;
+        status?: "passed" | "failed";
+        schedulerReworkValidation?: {
+          id?: string;
+          status?: string;
+          schedulerWorkerReworkResultId?: string;
+          schedulerWorkerReworkStartId?: string;
+          schedulerWorkerReworkPlanId?: string;
+          reworkTaskRunId?: string;
+          reworkWorkerLeaseId?: string;
+          worktreeId?: string;
+          reworkRunId?: string;
+          validationRunId?: string;
+        };
+        taskRun?: { id?: string; status?: string; blockedReason?: string };
+        validationResult?: { id?: string; status?: string; worktreeId?: string };
+      };
+      expect(validatedReworkResult).toMatchObject({
+        status: "failed",
+        schedulerReworkValidation: {
+          status: "failed",
+          schedulerWorkerReworkResultId: reconciledReworkResult.result?.id,
+          schedulerWorkerReworkStartId: reworkStartResult.reworkStart?.id,
+          schedulerWorkerReworkPlanId: reworkResult.reworkPlan?.id,
+          reworkTaskRunId: reworkStartResult.reworkStart?.reworkTaskRunId,
+          reworkWorkerLeaseId: reworkStartResult.reworkStart?.reworkWorkerLeaseId,
+          worktreeId: prepared.workerStart.worktreeId,
+          reworkRunId: reworkStartResult.reworkStart?.reworkRunId,
+        },
+        taskRun: { id: reworkStartResult.reworkStart?.reworkTaskRunId, status: "blocked", blockedReason: "Rework validation failed." },
+        validationResult: { status: "failed", worktreeId: prepared.workerStart.worktreeId },
+      });
+      const reworkValidationPath = join(prepared.changeDir, "planning", "scheduler-runs", `${prepared.schedulerRun.id}`, "scheduler-worker-rework-validations", `${validatedReworkResult.schedulerReworkValidation?.id}.json`);
+      const reworkValidationJson = JSON.parse(await readFile(reworkValidationPath, "utf8"));
+      expect(reworkValidationJson).toMatchObject({
+        id: validatedReworkResult.schedulerReworkValidation?.id,
+        changeId: prepared.topic.changeId,
+        schedulerRunId: prepared.schedulerRun.id,
+        schedulerWorkerReworkResultId: reconciledReworkResult.result?.id,
+        schedulerWorkerReworkStartId: reworkStartResult.reworkStart?.id,
+        schedulerWorkerReworkPlanId: reworkResult.reworkPlan?.id,
+        worktreeId: prepared.workerStart.worktreeId,
+        reworkRunId: reworkStartResult.reworkStart?.reworkRunId,
+        validationRunId: validatedReworkResult.schedulerReworkValidation?.validationRunId,
+        status: "failed",
+      });
+      const fullReworkValidation = await getWorkbenchSchedulerWorkerReworkValidationProjection(
+        { project: project(), path: tempDir },
+        prepared.topic.changeId,
+        prepared.schedulerRun.id,
+        validatedReworkResult.schedulerReworkValidation?.id,
+      );
+      expect(fullReworkValidation).toMatchObject({
+        id: validatedReworkResult.schedulerReworkValidation?.id,
+        status: "failed",
+        schedulerWorkerReworkResultId: reconciledReworkResult.result?.id,
+      });
+      const afterReworkValidationMemory = await resolveProjectMemory(project());
+      expect((await listRuns(afterReworkValidationMemory)).filter((run) => run.changeId === prepared.topic.changeId)).toHaveLength(afterValidationRunCount + 2);
+      expect(await listWorktreeStatuses(afterReworkValidationMemory)).toHaveLength(afterValidationWorktreeCount);
+      expect(await listTaskRuns(afterReworkValidationMemory, prepared.topic.changeId)).toHaveLength(afterValidationTaskRunCount + 1);
+      expect((await listWorkerLeases(afterReworkValidationMemory, prepared.topic.changeId)).find((lease) => lease.id === reworkStartResult.reworkStart?.reworkWorkerLeaseId)).toMatchObject({ status: "released" });
+      expect(await listTaskQueues(afterReworkValidationMemory, prepared.topic.changeId)).toHaveLength(0);
+      expect(await listWorkflowRuns(afterReworkValidationMemory, prepared.topic.changeId)).toHaveLength(0);
+      expect(await listAgentTasks(afterReworkValidationMemory, prepared.topic.changeId)).toHaveLength(0);
+      const afterReworkValidationSnapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: prepared.topic.changeId });
+      expect(afterReworkValidationSnapshot.center.workpad.schedulerWorkerReworkValidation).toMatchObject({
+        id: validatedReworkResult.schedulerReworkValidation?.id,
+        status: "failed",
+        worktreeId: prepared.workerStart.worktreeId,
+      });
+      expect(afterReworkValidationSnapshot.right.confirmationQueue.current.flatMap((item) => item.actions).some((action) => action.actionType === "planning.scheduler.worker.rework-validate-first")).toBe(false);
+      expect(afterReworkValidationSnapshot.right.confirmationQueue.current.flatMap((item) => item.actions).some((action) => action.actionType === "planning.scheduler.worker.audit-first" || action.actionType === "planning.scheduler.worker.rework-start-first")).toBe(false);
+
+      const repeatedReworkValidation = await validateSchedulerFirstWorkerRework(project(), {
+        changeId: prepared.topic.changeId,
+        schedulerRunId: prepared.schedulerRun.id,
+        schedulerWorkerReworkResultId: reconciledReworkResult.result?.id ?? "",
+      });
+      expect(repeatedReworkValidation).toMatchObject({
+        existing: true,
+        schedulerReworkValidation: { id: validatedReworkResult.schedulerReworkValidation?.id },
+      });
+      const afterRepeatedReworkValidationMemory = await resolveProjectMemory(project());
+      expect((await listRuns(afterRepeatedReworkValidationMemory)).filter((run) => run.changeId === prepared.topic.changeId)).toHaveLength(afterValidationRunCount + 2);
+
+      await expect(executeWorkbenchAction({ project: project(), path: tempDir }, {
+        ...reworkValidationAction,
+        confirm: true,
+      })).rejects.toThrow(/stale|no longer available/i);
     } finally {
       if (oldPath === undefined) delete process.env.PATH;
       else process.env.PATH = oldPath;
@@ -3206,7 +3321,7 @@ describe("workbench read model", () => {
       confirm: true,
     })).rejects.toThrow(/stale|no longer available/i);
     const afterRepeatedMemory = await resolveProjectMemory(project());
-    expect((await listRuns(afterRepeatedMemory)).filter((run) => run.changeId === prepared.topic.changeId)).toHaveLength(afterValidationRunCount + 1);
+    expect((await listRuns(afterRepeatedMemory)).filter((run) => run.changeId === prepared.topic.changeId)).toHaveLength(afterValidationRunCount + 2);
     expect(await listWorktreeStatuses(afterRepeatedMemory)).toHaveLength(afterValidationWorktreeCount);
     expect(await listTaskRuns(afterRepeatedMemory, prepared.topic.changeId)).toHaveLength(afterValidationTaskRunCount + 1);
     expect(await listWorkerLeases(afterRepeatedMemory, prepared.topic.changeId)).toHaveLength(afterValidationLeaseCount + 1);
