@@ -408,3 +408,23 @@ export function SchedulerWorkerReworkStartCard({ start }: { start: NonNullable<W
     </section>
   );
 }
+
+export function SchedulerWorkerReworkResultCard({ result }: { result: NonNullable<Workpad["schedulerWorkerReworkResult"]> }): ReactElement {
+  return (
+    <section className="workpad-section" data-testid="scheduler-worker-rework-result-card">
+      <div className="workpad-section-header">
+        <h3>第一个 worker rework 结果</h3>
+        <span>{humanStatus(result.status)}</span>
+      </div>
+      <p className="workpad-goal">{result.nodeId} / {result.unitId} / rework result evidence</p>
+      <div className="workpad-chip-list">
+        <span>TaskRun {result.taskRunStatus}</span>
+        <span>lease {result.workerLeaseStatus}</span>
+        <span>worktree {result.worktreeId}</span>
+        {result.reworkRunId ? <span>rework run {result.reworkRunId}</span> : null}
+      </div>
+      {result.failureReason ? <p className="workpad-note">{result.failureReason}</p> : null}
+      {result.artifact ? <small className="artifact-link">查看证据：{artifactName(result.artifact)}</small> : null}
+    </section>
+  );
+}

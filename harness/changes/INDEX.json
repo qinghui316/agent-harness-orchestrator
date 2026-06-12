@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-12T09:00:46.2817247Z",
+    "generated_at":  "2026-06-12T10:52:14.1367946Z",
     "active":  [
 
                ],
@@ -693,6 +693,10 @@
                     {
                         "name":  "20260612-phase-9l-scheduler-first-worker-rework-execution-gate",
                         "path":  "harness/changes/archive/20260612-phase-9l-scheduler-first-worker-rework-execution-gate"
+                    },
+                    {
+                        "name":  "20260612-phase-9m-scheduler-first-worker-rework-result-reconcile-gate",
+                        "path":  "harness/changes/archive/20260612-phase-9m-scheduler-first-worker-rework-result-reconcile-gate"
                     }
                 ]
 }

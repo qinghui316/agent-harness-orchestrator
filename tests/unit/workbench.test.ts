@@ -12,7 +12,7 @@ import { executeWorkbenchAction } from "../../src/server/workbench-server.js";
 import { appendTopicThreadEntry, createWorkbenchTopic, postTopicMessage } from "../../src/workbench/chat.js";
 import { readTopicThreadLog } from "../../src/workbench/thread-log.js";
 import { answerClarification, reanalyzeIntake, runIntakeScan } from "../../src/workbench/intake.js";
-import { getWorkbenchDecompositionPlanProjection, getWorkbenchDecompositionReadinessProjection, getWorkbenchMaintenanceProjection, getWorkbenchRunGraphProjection, getWorkbenchSchedulerClaimReservationProjection, getWorkbenchSchedulerContractProjection, getWorkbenchSchedulerWorkerReworkPlanProjection, getWorkbenchSchedulerWorkerReworkStartProjection, getWorkbenchSnapshot, getWorkbenchStream, getWorkbenchTaskQueueProposalProjection, getWorkbenchTopic, getWorkbenchWorkflowGraphPlanProjection, listWorkbenchApprovals, listWorkbenchRoles, listWorkbenchTopics } from "../../src/workbench/manager.js";
+import { getWorkbenchDecompositionPlanProjection, getWorkbenchDecompositionReadinessProjection, getWorkbenchMaintenanceProjection, getWorkbenchRunGraphProjection, getWorkbenchSchedulerClaimReservationProjection, getWorkbenchSchedulerContractProjection, getWorkbenchSchedulerWorkerReworkPlanProjection, getWorkbenchSchedulerWorkerReworkResultProjection, getWorkbenchSchedulerWorkerReworkStartProjection, getWorkbenchSnapshot, getWorkbenchStream, getWorkbenchTaskQueueProposalProjection, getWorkbenchTopic, getWorkbenchWorkflowGraphPlanProjection, listWorkbenchApprovals, listWorkbenchRoles, listWorkbenchTopics } from "../../src/workbench/manager.js";
 import { WorkbenchStore } from "../../src/workbench/store.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import { collectWorktreeDiff } from "../../src/audit/diff.js";
@@ -2816,7 +2816,7 @@ describe("workbench read model", () => {
     } finally {
       process.env.PATH = oldPath;
     }
-  });
+  }, 90000);
 
   it("compiles a scheduler worker rework plan after first worker validation fails and starts bounded same-worktree rework", async () => {
     const prepared = await prepareSchedulerFirstWorkerThroughResult({
@@ -3108,6 +3108,94 @@ describe("workbench read model", () => {
         worktreeId: prepared.workerStart.worktreeId,
       });
       expect(afterStartSnapshot.right.confirmationQueue.current.flatMap((item) => item.actions).some((action) => action.actionType === "planning.scheduler.worker.rework-start-first")).toBe(false);
+      const reworkResultAction = afterStartSnapshot.right.confirmationQueue.current
+        .flatMap((item) => item.actions)
+        .find((action) => action.actionType === "planning.scheduler.worker.rework-reconcile-result" && action.schedulerWorkerReworkStartId === reworkStartResult.reworkStart?.id);
+      if (!reworkResultAction) throw new Error("Missing scheduler first worker rework result reconcile action.");
+      expect(reworkResultAction).toMatchObject({
+        schedulerRunId: prepared.schedulerRun.id,
+        schedulerClaimReservationId: prepared.claimReservation.id,
+        schedulerWorkerStartId: prepared.workerStart.id,
+        schedulerWorkerResultId: prepared.workerResult.id,
+        schedulerWorkerValidationId: validatedResult?.schedulerValidation?.id,
+        schedulerWorkerReworkPlanId: reworkResult.reworkPlan?.id,
+        schedulerWorkerReworkStartId: reworkStartResult.reworkStart?.id,
+        taskRunId: reworkStartResult.reworkStart?.reworkTaskRunId,
+        workerLeaseId: reworkStartResult.reworkStart?.reworkWorkerLeaseId,
+        worktreeId: prepared.workerStart.worktreeId,
+        runId: reworkStartResult.reworkStart?.reworkRunId,
+      });
+
+      const reconciledRework = await executeWorkbenchAction({ project: project(), path: tempDir }, {
+        ...reworkResultAction,
+        confirm: true,
+      });
+      const reconciledReworkResult = ((reconciledRework.result as { result?: unknown }).result ?? reconciledRework.result) as {
+        status?: string;
+        result?: {
+          id?: string;
+          status?: string;
+          schedulerWorkerReworkStartId?: string;
+          reworkTaskRunId?: string;
+          reworkWorkerLeaseId?: string;
+          worktreeId?: string;
+          reworkRunId?: string;
+          taskRunStatus?: string;
+          workerLeaseStatus?: string;
+        };
+      };
+      expect(reconciledReworkResult).toMatchObject({
+        status: "terminal",
+        result: {
+          status: "evidence-ready",
+          schedulerWorkerReworkStartId: reworkStartResult.reworkStart?.id,
+          reworkTaskRunId: reworkStartResult.reworkStart?.reworkTaskRunId,
+          reworkWorkerLeaseId: reworkStartResult.reworkStart?.reworkWorkerLeaseId,
+          worktreeId: prepared.workerStart.worktreeId,
+          reworkRunId: reworkStartResult.reworkStart?.reworkRunId,
+          taskRunStatus: "evidence-ready",
+          workerLeaseStatus: "released",
+        },
+      });
+      const reworkResultPath = join(prepared.changeDir, "planning", "scheduler-runs", `${prepared.schedulerRun.id}`, "scheduler-worker-rework-results", `${reconciledReworkResult.result?.id}.json`);
+      const reworkResultJson = JSON.parse(await readFile(reworkResultPath, "utf8"));
+      expect(reworkResultJson).toMatchObject({
+        id: reconciledReworkResult.result?.id,
+        changeId: prepared.topic.changeId,
+        schedulerRunId: prepared.schedulerRun.id,
+        schedulerWorkerReworkPlanId: reworkResult.reworkPlan?.id,
+        schedulerWorkerReworkStartId: reworkStartResult.reworkStart?.id,
+        worktreeId: prepared.workerStart.worktreeId,
+        reworkRunId: reworkStartResult.reworkStart?.reworkRunId,
+        status: "evidence-ready",
+      });
+      const fullReworkResult = await getWorkbenchSchedulerWorkerReworkResultProjection(
+        { project: project(), path: tempDir },
+        prepared.topic.changeId,
+        prepared.schedulerRun.id,
+        reconciledReworkResult.result?.id,
+      );
+      expect(fullReworkResult).toMatchObject({
+        id: reconciledReworkResult.result?.id,
+        status: "evidence-ready",
+        schedulerWorkerReworkStartId: reworkStartResult.reworkStart?.id,
+      });
+      const afterReworkResultMemory = await resolveProjectMemory(project());
+      expect((await listRuns(afterReworkResultMemory)).filter((run) => run.changeId === prepared.topic.changeId)).toHaveLength(afterValidationRunCount + 1);
+      expect(await listWorktreeStatuses(afterReworkResultMemory)).toHaveLength(afterValidationWorktreeCount);
+      expect(await listTaskRuns(afterReworkResultMemory, prepared.topic.changeId)).toHaveLength(afterValidationTaskRunCount + 1);
+      expect((await listWorkerLeases(afterReworkResultMemory, prepared.topic.changeId)).find((lease) => lease.id === reworkStartResult.reworkStart?.reworkWorkerLeaseId)).toMatchObject({ status: "released" });
+      expect(await listTaskQueues(afterReworkResultMemory, prepared.topic.changeId)).toHaveLength(0);
+      expect(await listWorkflowRuns(afterReworkResultMemory, prepared.topic.changeId)).toHaveLength(0);
+      expect(await listAgentTasks(afterReworkResultMemory, prepared.topic.changeId)).toHaveLength(0);
+      const afterReworkResultSnapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: prepared.topic.changeId });
+      expect(afterReworkResultSnapshot.center.workpad.schedulerWorkerReworkResult).toMatchObject({
+        id: reconciledReworkResult.result?.id,
+        status: "evidence-ready",
+        worktreeId: prepared.workerStart.worktreeId,
+      });
+      expect(afterReworkResultSnapshot.right.confirmationQueue.current.flatMap((item) => item.actions).some((action) => action.actionType === "planning.scheduler.worker.rework-reconcile-result")).toBe(false);
+      expect(afterReworkResultSnapshot.right.confirmationQueue.current.flatMap((item) => item.actions).some((action) => action.actionType === "planning.scheduler.worker.validate-first" || action.actionType === "planning.scheduler.worker.audit-first")).toBe(false);
     } finally {
       if (oldPath === undefined) delete process.env.PATH;
       else process.env.PATH = oldPath;

@@ -5,11 +5,13 @@ import {
   findSchedulerRuntimeWorkerAuditForValidation,
   findSchedulerRuntimeWorkerResultForStart,
   findSchedulerRuntimeWorkerReworkPlanForBlockingEvidence,
+  findSchedulerRuntimeWorkerReworkResultForStart,
   findSchedulerRuntimeWorkerReworkStartForPlan,
   findSchedulerRuntimeWorkerValidationForResult,
   listSchedulerRuntimeWorkerStarts,
   readSchedulerRuntimeWorkerAuditProjection,
   readSchedulerRuntimeWorkerReworkPlanProjection,
+  readSchedulerRuntimeWorkerReworkResultProjection,
   readSchedulerRuntimeWorkerReworkStartProjection,
   readSchedulerRuntimeWorkerValidationProjection,
   readSchedulerRuntimeClaimReservationProjection,
@@ -21,6 +23,7 @@ import {
   type SchedulerRuntimeWorkerStart,
   type SchedulerRuntimeWorkerAudit,
   type SchedulerRuntimeWorkerReworkPlan,
+  type SchedulerRuntimeWorkerReworkResult,
   type SchedulerRuntimeWorkerReworkStart,
   type SchedulerRuntimeWorkerValidation,
 } from "../scheduler-runtime/manager.js";
@@ -429,6 +432,40 @@ export interface WorkbenchSchedulerWorkerReworkStartSummary {
   updatedAt: string;
 }
 
+export interface WorkbenchSchedulerWorkerReworkResultSummary {
+  id: string;
+  changeId: string;
+  schedulerRunId: string;
+  schedulerClaimReservationId: string;
+  schedulerWorkerStartId: string;
+  schedulerWorkerResultId: string;
+  schedulerWorkerValidationId: string;
+  schedulerWorkerAuditId?: string;
+  schedulerWorkerReworkPlanId: string;
+  schedulerWorkerReworkStartId: string;
+  status: SchedulerRuntimeWorkerReworkResult["status"];
+  reservationIntentId: string;
+  claimIntentId: string;
+  nodeId: string;
+  unitId: string;
+  stageId: string;
+  stage: "bounded-rework";
+  originalTaskRunId: string;
+  originalWorkerLeaseId: string;
+  originalCodeRunId: string;
+  reworkTaskRunId: string;
+  reworkWorkerLeaseId: string;
+  taskRunStatus: string;
+  workerLeaseStatus: string;
+  worktreeId: string;
+  reworkRunId?: string;
+  reworkRunStatus?: string;
+  failureReason?: string;
+  artifact?: string;
+  markdownArtifact?: string;
+  updatedAt: string;
+}
+
 export interface WorkbenchSchedulerReconcileSnapshotSummary {
   id: string;
   changeId: string;
@@ -471,6 +508,7 @@ type WorkflowProjectionActionType =
   | "planning.scheduler.worker.audit-first"
   | "planning.scheduler.worker.rework-plan.compile"
   | "planning.scheduler.worker.rework-start-first"
+  | "planning.scheduler.worker.rework-reconcile-result"
   | "planning.workflowgraph.compile"
   | "planning.taskqueue.confirm-start"
   | "code.run";
@@ -502,6 +540,7 @@ export interface WorkbenchTypedWorkflowNextAction {
   schedulerWorkerAuditId?: string;
   schedulerWorkerReworkPlanId?: string;
   schedulerWorkerReworkStartId?: string;
+  schedulerWorkerReworkResultId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   taskRunId?: string;
@@ -869,6 +908,17 @@ export async function readSchedulerWorkerReworkStartSummary(
   return start ? summarizeSchedulerWorkerReworkStart(start) : null;
 }
 
+export async function readSchedulerWorkerReworkResultSummary(
+  memory: ResolvedMemory,
+  changePath: string,
+  schedulerRunId?: string,
+  reworkStartId?: string,
+): Promise<WorkbenchSchedulerWorkerReworkResultSummary | null> {
+  if (!schedulerRunId || !reworkStartId) return null;
+  const result = await findSchedulerRuntimeWorkerReworkResultForStart(memory, changePath, schedulerRunId, reworkStartId).catch(() => null);
+  return result ? summarizeSchedulerWorkerReworkResult(result) : null;
+}
+
 function summarizeSchedulerWorkerStart(start: SchedulerRuntimeWorkerStart): WorkbenchSchedulerWorkerStartSummary {
   return {
     id: start.id,
@@ -1043,6 +1093,42 @@ function summarizeSchedulerWorkerReworkStart(start: SchedulerRuntimeWorkerRework
   };
 }
 
+function summarizeSchedulerWorkerReworkResult(result: SchedulerRuntimeWorkerReworkResult): WorkbenchSchedulerWorkerReworkResultSummary {
+  return {
+    id: result.id,
+    changeId: result.changeId,
+    schedulerRunId: result.schedulerRunId,
+    schedulerClaimReservationId: result.schedulerClaimReservationId,
+    schedulerWorkerStartId: result.schedulerWorkerStartId,
+    schedulerWorkerResultId: result.schedulerWorkerResultId,
+    schedulerWorkerValidationId: result.schedulerWorkerValidationId,
+    schedulerWorkerAuditId: result.schedulerWorkerAuditId,
+    schedulerWorkerReworkPlanId: result.schedulerWorkerReworkPlanId,
+    schedulerWorkerReworkStartId: result.schedulerWorkerReworkStartId,
+    status: result.status,
+    reservationIntentId: result.reservationIntentId,
+    claimIntentId: result.claimIntentId,
+    nodeId: result.nodeId,
+    unitId: result.unitId,
+    stageId: result.stageId,
+    stage: "bounded-rework",
+    originalTaskRunId: result.originalTaskRunId,
+    originalWorkerLeaseId: result.originalWorkerLeaseId,
+    originalCodeRunId: result.originalCodeRunId,
+    reworkTaskRunId: result.reworkTaskRunId,
+    reworkWorkerLeaseId: result.reworkWorkerLeaseId,
+    taskRunStatus: result.taskRunStatus,
+    workerLeaseStatus: result.workerLeaseStatus,
+    worktreeId: result.worktreeId,
+    reworkRunId: result.reworkRunId,
+    reworkRunStatus: result.reworkRunStatus,
+    failureReason: result.failureReason,
+    artifact: result.artifact,
+    markdownArtifact: result.markdownArtifact,
+    updatedAt: result.updatedAt,
+  };
+}
+
 export async function readSchedulerReconcileSnapshotSummary(memory: ResolvedMemory, changePath: string, schedulerRunId?: string, snapshotId?: string): Promise<WorkbenchSchedulerReconcileSnapshotSummary | null> {
   if (!schedulerRunId || !snapshotId) return null;
   const snapshot = await readSchedulerReconcileSnapshotProjection(memory, changePath, schedulerRunId, snapshotId);
@@ -1149,6 +1235,10 @@ export function readSchedulerWorkerReworkStartProjection(memory: ResolvedMemory,
   return readSchedulerRuntimeWorkerReworkStartProjection(memory, changePath, schedulerRunId, reworkStartId);
 }
 
+export function readSchedulerWorkerReworkResultProjection(memory: ResolvedMemory, changePath: string, schedulerRunId: string, reworkResultId: string): Promise<SchedulerRuntimeWorkerReworkResult | null> {
+  return readSchedulerRuntimeWorkerReworkResultProjection(memory, changePath, schedulerRunId, reworkResultId);
+}
+
 export function buildTypedWorkflowNextAction(input: {
   topic: TypedWorkflowProjectionTopic;
   readiness: TypedWorkflowProjectionReadiness;
@@ -1173,9 +1263,10 @@ export function buildTypedWorkflowNextAction(input: {
   schedulerWorkerAudit?: WorkbenchSchedulerWorkerAuditSummary | null;
   schedulerWorkerReworkPlan?: WorkbenchSchedulerWorkerReworkPlanSummary | null;
   schedulerWorkerReworkStart?: WorkbenchSchedulerWorkerReworkStartSummary | null;
+  schedulerWorkerReworkResult?: WorkbenchSchedulerWorkerReworkResultSummary | null;
   workflowRun?: WorkflowRunSummary | null;
 }): WorkbenchTypedWorkflowNextAction {
-  const { topic, readiness, intake, planningBundle, decompositionPlan, decompositionReadiness, taskQueueProposal, workflowGraphPlan, schedulerRun, schedulerRuntime, schedulerReconcileSnapshot, schedulerClaimReservation, schedulerWorkerStart, schedulerWorkerResult, schedulerWorkerValidation, schedulerWorkerAudit, schedulerWorkerReworkPlan, schedulerWorkerReworkStart, workflowRun } = input;
+  const { topic, readiness, intake, planningBundle, decompositionPlan, decompositionReadiness, taskQueueProposal, workflowGraphPlan, schedulerRun, schedulerRuntime, schedulerReconcileSnapshot, schedulerClaimReservation, schedulerWorkerStart, schedulerWorkerResult, schedulerWorkerValidation, schedulerWorkerAudit, schedulerWorkerReworkPlan, schedulerWorkerReworkStart, schedulerWorkerReworkResult, workflowRun } = input;
   if (!readiness.specReady && !topic.runs.some((run) => run.runtime === "intake-scan")) {
     return workflowNextAction("intake.scan", "分析需求", "先只读扫描项目，整理当前理解、相关文件和待确认问题。", false);
   }
@@ -1341,7 +1432,34 @@ export function buildTypedWorkflowNextAction(input: {
                 auditRunId: schedulerWorkerReworkPlan.auditRunId,
               };
             }
-            const waitingActionType = schedulerWorkerReworkStart || schedulerWorkerReworkPlan || needsReworkPlan
+            if (schedulerWorkerReworkStart && !schedulerWorkerReworkResult) {
+              return {
+                ...workflowNextAction("planning.scheduler.worker.rework-reconcile-result", "检查第一个 worker rework 结果", "读取 rework TaskRun、WorkerLease、worktree 和 rework code run evidence；只写 scheduler rework result，不启动 validation、audit、next worker 或 whole wave。"),
+                decompositionPlanId: decompositionPlan.id,
+                readinessManifestId: decompositionReadiness.id,
+                schedulerContractId: schedulerRun.schedulerContractId,
+                schedulerDispatchDryRunId: schedulerRun.schedulerDispatchDryRunId,
+                schedulerWorkerPlanId: schedulerRun.schedulerWorkerPlanId,
+                schedulerClaimReconcilePlanId: schedulerRun.schedulerClaimReconcilePlanId,
+                schedulerLaunchPreflightId: schedulerRun.schedulerLaunchPreflightId,
+                schedulerRunId: schedulerRun.id,
+                schedulerReconcileSnapshotId: schedulerReconcileSnapshot.id,
+                schedulerClaimReservationId: schedulerWorkerReworkStart.schedulerClaimReservationId,
+                schedulerWorkerStartId: schedulerWorkerReworkStart.schedulerWorkerStartId,
+                schedulerWorkerResultId: schedulerWorkerReworkStart.schedulerWorkerResultId,
+                schedulerWorkerValidationId: schedulerWorkerReworkStart.schedulerWorkerValidationId,
+                schedulerWorkerAuditId: schedulerWorkerReworkStart.schedulerWorkerAuditId,
+                schedulerWorkerReworkPlanId: schedulerWorkerReworkStart.schedulerWorkerReworkPlanId,
+                schedulerWorkerReworkStartId: schedulerWorkerReworkStart.id,
+                reservationIntentId: schedulerWorkerReworkStart.reservationIntentId,
+                claimIntentId: schedulerWorkerReworkStart.claimIntentId,
+                taskRunId: schedulerWorkerReworkStart.reworkTaskRunId,
+                workerLeaseId: schedulerWorkerReworkStart.reworkWorkerLeaseId,
+                worktreeId: schedulerWorkerReworkStart.worktreeId,
+                runId: schedulerWorkerReworkStart.reworkRunId,
+              };
+            }
+            const waitingActionType = schedulerWorkerReworkResult || schedulerWorkerReworkStart || schedulerWorkerReworkPlan || needsReworkPlan
               ? "planning.scheduler.worker.rework-plan.compile"
               : schedulerWorkerAudit
                 ? "planning.scheduler.worker.audit-first"
@@ -1349,9 +1467,9 @@ export function buildTypedWorkflowNextAction(input: {
                   ? "planning.scheduler.worker.audit-first"
                   : "planning.scheduler.worker.validate-first";
             return {
-              ...workflowNextAction(waitingActionType, schedulerWorkerReworkStart ? "等待 rework 结果对账阶段" : schedulerWorkerReworkPlan ? "等待启动 rework" : schedulerWorkerAudit ? "等待后续 scheduler 阶段" : schedulerWorkerValidation ? "等待 Audit 阶段" : "等待验证阶段", schedulerWorkerReworkStart ? "第一个 scheduler worker rework 已启动；rework result reconcile 不是 Phase 9L 范围。" : schedulerWorkerReworkPlan ? "第一个 scheduler worker rework plan 已记录；可以启动一次 same-worktree rework。" : schedulerWorkerAudit ? "第一个 scheduler worker audit 已记录；rework/next-worker 不是当前范围。" : schedulerWorkerValidation ? "第一个 scheduler worker validation 未通过或 audit 条件未满足。" : "第一个 scheduler coder worker result 不是 evidence-ready，不能启动 validation。"),
+              ...workflowNextAction(waitingActionType, schedulerWorkerReworkResult ? "等待 rework validation 阶段" : schedulerWorkerReworkStart ? "等待 rework 结果对账阶段" : schedulerWorkerReworkPlan ? "等待启动 rework" : schedulerWorkerAudit ? "等待后续 scheduler 阶段" : schedulerWorkerValidation ? "等待 Audit 阶段" : "等待验证阶段", schedulerWorkerReworkResult ? "第一个 scheduler worker rework result 已记录；rework validation 另开阶段。" : schedulerWorkerReworkStart ? "第一个 scheduler worker rework 已启动；可以检查 rework 结果。" : schedulerWorkerReworkPlan ? "第一个 scheduler worker rework plan 已记录；可以启动一次 same-worktree rework。" : schedulerWorkerAudit ? "第一个 scheduler worker audit 已记录；rework/next-worker 不是当前范围。" : schedulerWorkerValidation ? "第一个 scheduler worker validation 未通过或 audit 条件未满足。" : "第一个 scheduler coder worker result 不是 evidence-ready，不能启动 validation。"),
               enabled: false,
-              disabledReason: schedulerWorkerReworkStart ? "第一个 worker rework 已启动。rework 结果对账另开阶段。" : schedulerWorkerReworkPlan ? "第一个 worker rework plan 已记录，等待用户确认启动 rework。" : schedulerWorkerAudit ? "第一个 worker audit 已记录。rework/next-worker 不是当前范围。" : schedulerWorkerValidation ? "第一个 worker validation 不是 passed。" : "第一个 worker result 不是 evidence-ready。",
+              disabledReason: schedulerWorkerReworkResult ? "第一个 worker rework result 已记录，等待 rework validation 阶段。" : schedulerWorkerReworkStart ? "第一个 worker rework 已启动，等待检查 rework 结果。" : schedulerWorkerReworkPlan ? "第一个 worker rework plan 已记录，等待用户确认启动 rework。" : schedulerWorkerAudit ? "第一个 worker audit 已记录。rework/next-worker 不是当前范围。" : schedulerWorkerValidation ? "第一个 worker validation 不是 passed。" : "第一个 worker result 不是 evidence-ready。",
               decompositionPlanId: decompositionPlan.id,
               readinessManifestId: decompositionReadiness.id,
               schedulerContractId: schedulerRun.schedulerContractId,
@@ -1368,12 +1486,13 @@ export function buildTypedWorkflowNextAction(input: {
               schedulerWorkerAuditId: schedulerWorkerAudit?.id,
               schedulerWorkerReworkPlanId: schedulerWorkerReworkPlan?.id,
               schedulerWorkerReworkStartId: schedulerWorkerReworkStart?.id,
+              schedulerWorkerReworkResultId: schedulerWorkerReworkResult?.id,
               reservationIntentId: schedulerWorkerStart.reservationIntentId,
               claimIntentId: schedulerWorkerStart.claimIntentId,
-              taskRunId: schedulerWorkerReworkStart?.reworkTaskRunId ?? schedulerWorkerValidation?.taskRunId ?? schedulerWorkerResult.taskRunId ?? schedulerWorkerStart.taskRunId,
-              workerLeaseId: schedulerWorkerReworkStart?.reworkWorkerLeaseId ?? schedulerWorkerValidation?.workerLeaseId ?? schedulerWorkerResult.workerLeaseId ?? schedulerWorkerStart.workerLeaseId,
-              worktreeId: schedulerWorkerReworkStart?.worktreeId ?? schedulerWorkerValidation?.worktreeId ?? schedulerWorkerResult.worktreeId ?? schedulerWorkerStart.worktreeId,
-              runId: schedulerWorkerReworkStart?.reworkRunId ?? schedulerWorkerValidation?.codeRunId ?? schedulerWorkerResult.runId ?? schedulerWorkerStart.runId,
+              taskRunId: schedulerWorkerReworkResult?.reworkTaskRunId ?? schedulerWorkerReworkStart?.reworkTaskRunId ?? schedulerWorkerValidation?.taskRunId ?? schedulerWorkerResult.taskRunId ?? schedulerWorkerStart.taskRunId,
+              workerLeaseId: schedulerWorkerReworkResult?.reworkWorkerLeaseId ?? schedulerWorkerReworkStart?.reworkWorkerLeaseId ?? schedulerWorkerValidation?.workerLeaseId ?? schedulerWorkerResult.workerLeaseId ?? schedulerWorkerStart.workerLeaseId,
+              worktreeId: schedulerWorkerReworkResult?.worktreeId ?? schedulerWorkerReworkStart?.worktreeId ?? schedulerWorkerValidation?.worktreeId ?? schedulerWorkerResult.worktreeId ?? schedulerWorkerStart.worktreeId,
+              runId: schedulerWorkerReworkResult?.reworkRunId ?? schedulerWorkerReworkStart?.reworkRunId ?? schedulerWorkerValidation?.codeRunId ?? schedulerWorkerResult.runId ?? schedulerWorkerStart.runId,
               validationRunId: schedulerWorkerValidation?.validationRunId,
               auditRunId: schedulerWorkerAudit?.auditRunId,
             };

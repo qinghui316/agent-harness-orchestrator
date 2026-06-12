@@ -220,6 +220,14 @@ export function summarizeActionResult(actionType: string, result: unknown): stri
       ? `Scheduler first worker rework started on worktree ${result.reworkStart.worktreeId}.`
       : "Scheduler first worker rework started.";
   }
+  if (actionType === "planning.scheduler.worker.rework-reconcile-result" && isRecord(result)) {
+    if (result.status === "running") return "Scheduler first worker rework is still running.";
+    if (isRecord(result.result)) {
+      return typeof result.result.status === "string"
+        ? `Scheduler first worker rework result reconciled: ${result.result.status}.`
+        : "Scheduler first worker rework result reconciled.";
+    }
+  }
   if (actionType === "planning.confirm-execution" && isRecord(result)) {
     return "Planning confirmed and canonical artifacts were written. No execution was started.";
   }
@@ -273,6 +281,7 @@ export function labelForAction(actionType: string): string {
     case "planning.scheduler.worker.audit-first": return "Scheduler first worker audited";
     case "planning.scheduler.worker.rework-plan.compile": return "Scheduler first worker rework plan compiled";
     case "planning.scheduler.worker.rework-start-first": return "Scheduler first worker rework started";
+    case "planning.scheduler.worker.rework-reconcile-result": return "Scheduler first worker rework result reconciled";
     case "planning.workflowgraph.compile": return "WorkflowGraphPlan compiled";
     case "planning.taskqueue.confirm-start": return "TaskQueueProposal confirmed and started";
     case "orchestrator.evaluate": return "Main orchestrator evaluated";

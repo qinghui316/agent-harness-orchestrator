@@ -1,4 +1,4 @@
-import type { SchedulerReconcileSnapshot, SchedulerRuntimeClaimReservation, SchedulerRuntimeState, SchedulerRuntimeWorkerAudit, SchedulerRuntimeWorkerResult, SchedulerRuntimeWorkerReworkPlan, SchedulerRuntimeWorkerReworkStart, SchedulerRuntimeWorkerStart, SchedulerRuntimeWorkerValidation } from "./types.js";
+import type { SchedulerReconcileSnapshot, SchedulerRuntimeClaimReservation, SchedulerRuntimeState, SchedulerRuntimeWorkerAudit, SchedulerRuntimeWorkerResult, SchedulerRuntimeWorkerReworkPlan, SchedulerRuntimeWorkerReworkResult, SchedulerRuntimeWorkerReworkStart, SchedulerRuntimeWorkerStart, SchedulerRuntimeWorkerValidation } from "./types.js";
 
 export function renderSchedulerRuntimeStateMarkdown(state: SchedulerRuntimeState): string {
   const lines = [
@@ -383,6 +383,48 @@ export function renderSchedulerRuntimeWorkerReworkStartMarkdown(start: Scheduler
     "## Boundary",
     "",
     "This rework-start evidence records one same-worktree scheduler rework-coder start only. It does not create a new worktree, validate or audit the rework result, reconcile the rework result, start another worker, run a whole wave, run IntegrationCheck, apply, merge, create child Changes, or become a full parallel executor.",
+    "",
+  ];
+  return lines.join("\n");
+}
+
+export function renderSchedulerRuntimeWorkerReworkResultMarkdown(result: SchedulerRuntimeWorkerReworkResult): string {
+  const lines = [
+    `# SchedulerRuntimeWorkerReworkResult ${result.id}`,
+    "",
+    `Status: ${result.status}`,
+    `Change: ${result.changeId}`,
+    `SchedulerRun: ${result.schedulerRunId}`,
+    `ReworkStart: ${result.schedulerWorkerReworkStartId}`,
+    `ReworkPlan: ${result.schedulerWorkerReworkPlanId}`,
+    `ClaimReservation: ${result.schedulerClaimReservationId}`,
+    "",
+    "## Rework Result",
+    "",
+    `- Reservation intent: ${result.reservationIntentId}`,
+    `- Claim intent: ${result.claimIntentId}`,
+    `- Planned worker key: ${result.plannedWorkerKey}`,
+    `- Node: ${result.nodeId}`,
+    `- Unit: ${result.unitId}`,
+    `- Wave: ${result.waveIndex + 1}`,
+    `- Stage: ${result.stage}`,
+    `- Task: ${result.taskId}`,
+    `- Original TaskRun: ${result.originalTaskRunId}`,
+    `- Original WorkerLease: ${result.originalWorkerLeaseId}`,
+    `- Original code run: ${result.originalCodeRunId}`,
+    `- Rework TaskRun: ${result.reworkTaskRunId}`,
+    `- Rework TaskRun status: ${result.taskRunStatus}`,
+    `- Rework WorkerLease: ${result.reworkWorkerLeaseId}`,
+    `- Rework WorkerLease status: ${result.workerLeaseStatus}`,
+    `- Agent role: ${result.agentRoleId}`,
+    `- Worktree: ${result.worktreeId}`,
+    `- Rework code run: ${result.reworkRunId ?? "none"}`,
+    `- Rework code run status: ${result.reworkRunStatus ?? "none"}`,
+    ...(result.failureReason ? [`- Failure: ${result.failureReason}`] : []),
+    "",
+    "## Boundary",
+    "",
+    "This rework-result evidence reconciles one same-worktree scheduler rework-coder run only. Rework success means evidence-ready for later rework validation/audit; it is not task completion, source apply, next-worker dispatch, whole-wave dispatch, scheduler loop, or parallel executor authorization.",
     "",
   ];
   return lines.join("\n");

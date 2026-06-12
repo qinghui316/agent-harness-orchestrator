@@ -646,6 +646,71 @@ describe("workflow action registry", () => {
     expect(workflowActionScopesMatchStrict(workerReworkStartRequest, { ...workerReworkStartRequest })).toBe(true);
     expect(workflowActionScopesMatchStrict(workerReworkStartRequest, { ...workerReworkStartRequest, schedulerWorkerReworkPlanId: undefined })).toBe(false);
     expect(workflowActionScopesMatchCompatible(workerReworkStartRequest, { ...workerReworkStartRequest, schedulerWorkerReworkPlanId: undefined })).toBe(true);
+
+    const workerReworkResultRequest = {
+      actionType: "planning.scheduler.worker.rework-reconcile-result",
+      changeId: "change-1",
+      schedulerRunId: "scheduler-run-1",
+      schedulerClaimReservationId: "scheduler-claim-reservation-1",
+      schedulerWorkerStartId: "scheduler-worker-start-1",
+      schedulerWorkerResultId: "scheduler-worker-result-1",
+      schedulerWorkerValidationId: "scheduler-worker-validation-1",
+      schedulerWorkerAuditId: "scheduler-worker-audit-1",
+      schedulerWorkerReworkPlanId: "scheduler-worker-rework-plan-1",
+      schedulerWorkerReworkStartId: "scheduler-worker-rework-start-1",
+      reservationIntentId: "reservation-intent-1",
+      claimIntentId: "claim-intent-1",
+      taskRunId: "task-run-rework-1",
+      workerLeaseId: "worker-lease-rework-1",
+      worktreeId: "worktree-1",
+      runId: "run-rework-1",
+    };
+    const workerReworkResult = {
+      result: {
+        id: "scheduler-worker-rework-result-1",
+        schedulerRunId: "scheduler-run-1",
+        schedulerClaimReservationId: "scheduler-claim-reservation-1",
+        schedulerWorkerStartId: "scheduler-worker-start-1",
+        schedulerWorkerResultId: "scheduler-worker-result-1",
+        schedulerWorkerValidationId: "scheduler-worker-validation-1",
+        schedulerWorkerAuditId: "scheduler-worker-audit-1",
+        schedulerWorkerReworkPlanId: "scheduler-worker-rework-plan-1",
+        schedulerWorkerReworkStartId: "scheduler-worker-rework-start-1",
+        reservationIntentId: "reservation-intent-1",
+        claimIntentId: "claim-intent-1",
+        reworkTaskRunId: "task-run-rework-1",
+        reworkWorkerLeaseId: "worker-lease-rework-1",
+        worktreeId: "worktree-1",
+        reworkRunId: "run-rework-1",
+      },
+    };
+    expect(validateWorkflowActionRequiredTargets(workerReworkResultRequest)).toEqual([]);
+    expect(validateWorkflowActionRequiredTargets({
+      actionType: "planning.scheduler.worker.rework-reconcile-result",
+      schedulerRunId: "scheduler-run-1",
+    }).map((item) => item.label)).toEqual(["schedulerWorkerReworkStartId"]);
+    expect(workflowActionTargetId(workerReworkResultRequest, workerReworkResultRequest.changeId, workerReworkResult)).toBe("scheduler-worker-rework-result-1");
+    expect(workflowActionScopePayload(workerReworkResultRequest, workerReworkResultRequest.changeId, workerReworkResult)).toMatchObject({
+      changeId: "change-1",
+      schedulerRunId: "scheduler-run-1",
+      schedulerClaimReservationId: "scheduler-claim-reservation-1",
+      schedulerWorkerStartId: "scheduler-worker-start-1",
+      schedulerWorkerResultId: "scheduler-worker-result-1",
+      schedulerWorkerValidationId: "scheduler-worker-validation-1",
+      schedulerWorkerAuditId: "scheduler-worker-audit-1",
+      schedulerWorkerReworkPlanId: "scheduler-worker-rework-plan-1",
+      schedulerWorkerReworkStartId: "scheduler-worker-rework-start-1",
+      schedulerWorkerReworkResultId: "scheduler-worker-rework-result-1",
+      reservationIntentId: "reservation-intent-1",
+      claimIntentId: "claim-intent-1",
+      taskRunId: "task-run-rework-1",
+      workerLeaseId: "worker-lease-rework-1",
+      worktreeId: "worktree-1",
+      runId: "run-rework-1",
+    });
+    expect(workflowActionScopesMatchStrict(workerReworkResultRequest, { ...workerReworkResultRequest })).toBe(true);
+    expect(workflowActionScopesMatchStrict(workerReworkResultRequest, { ...workerReworkResultRequest, schedulerWorkerReworkStartId: undefined })).toBe(false);
+    expect(workflowActionScopesMatchCompatible(workerReworkResultRequest, { ...workerReworkResultRequest, schedulerWorkerReworkStartId: undefined })).toBe(true);
   });
 
   it("keeps graph ids in target and audit scope matching", () => {

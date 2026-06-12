@@ -184,6 +184,7 @@ export interface WorkbenchWorkflowActionRequest {
   schedulerWorkerAuditId?: string;
   schedulerWorkerReworkPlanId?: string;
   schedulerWorkerReworkStartId?: string;
+  schedulerWorkerReworkResultId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   workflowRunId?: string;

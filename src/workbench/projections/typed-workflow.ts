@@ -14,6 +14,7 @@ import {
   readSchedulerRuntimeProjection,
   readSchedulerWorkerAuditProjection,
   readSchedulerWorkerReworkPlanProjection,
+  readSchedulerWorkerReworkResultProjection,
   readSchedulerWorkerReworkStartProjection,
   readSchedulerRunProjection,
   readSchedulerWorkerValidationProjection,
@@ -26,7 +27,7 @@ import type {
   WorkflowGraphPlan,
 } from "../../workflow-artifacts/manager.js";
 import type { SchedulerClaimReconcilePlan, SchedulerContract, SchedulerDispatchDryRun, SchedulerLaunchPreflight, SchedulerRun, SchedulerWorkerSessionPlan } from "../../workflow-scheduler/manager.js";
-import type { SchedulerReconcileSnapshot, SchedulerRuntimeClaimReservation, SchedulerRuntimeState, SchedulerRuntimeWorkerAudit, SchedulerRuntimeWorkerReworkPlan, SchedulerRuntimeWorkerReworkStart, SchedulerRuntimeWorkerValidation } from "../../scheduler-runtime/manager.js";
+import type { SchedulerReconcileSnapshot, SchedulerRuntimeClaimReservation, SchedulerRuntimeState, SchedulerRuntimeWorkerAudit, SchedulerRuntimeWorkerReworkPlan, SchedulerRuntimeWorkerReworkResult, SchedulerRuntimeWorkerReworkStart, SchedulerRuntimeWorkerValidation } from "../../scheduler-runtime/manager.js";
 
 export interface WorkbenchTopicPathRef {
   id: string;
@@ -104,6 +105,10 @@ export function getSchedulerWorkerReworkPlanProjectionForPath(memory: ResolvedMe
 
 export function getSchedulerWorkerReworkStartProjectionForPath(memory: ResolvedMemory, changePath: string, schedulerRunId: string, reworkStartId: string): Promise<SchedulerRuntimeWorkerReworkStart | null> {
   return readSchedulerWorkerReworkStartProjection(memory, changePath, schedulerRunId, reworkStartId);
+}
+
+export function getSchedulerWorkerReworkResultProjectionForPath(memory: ResolvedMemory, changePath: string, schedulerRunId: string, reworkResultId: string): Promise<SchedulerRuntimeWorkerReworkResult | null> {
+  return readSchedulerWorkerReworkResultProjection(memory, changePath, schedulerRunId, reworkResultId);
 }
 
 export async function getWorkflowRunProjectionForChange(

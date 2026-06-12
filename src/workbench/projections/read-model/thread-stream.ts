@@ -732,6 +732,7 @@ function workflowActionLabel(actionType: string): string {
     case "planning.scheduler.worker.audit-first": return "Scheduler first worker audit";
     case "planning.scheduler.worker.rework-plan.compile": return "Scheduler first worker rework plan";
     case "planning.scheduler.worker.rework-start-first": return "Scheduler first worker rework start";
+    case "planning.scheduler.worker.rework-reconcile-result": return "Scheduler first worker rework result";
     case "planning.workflowgraph.compile": return "WorkflowGraphPlan compile";
     case "planning.taskqueue.confirm-start": return "TaskQueue start confirmation";
     case "code.run": return "Code workflow";
