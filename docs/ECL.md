@@ -315,7 +315,24 @@ File size alone is not a failure condition. It is evidence that a reviewer shoul
 
 Record the module owners, moved responsibilities, retained facade responsibilities, module handoff map when applicable, compatibility result, and tests run in `reviews/review.md` or `summary.md`.
 
-## 14. Controlled Evolution
+## 14. Goal Loop Boundary
+
+Future autonomous, semi-autonomous, or Goal-driven loop changes must record how the loop stays bounded by AHO evidence.
+
+The review must state:
+
+- the persistent Goal/Change or selected demand scope the loop uses;
+- the owner module for loop policy or scheduler policy;
+- which evidence the loop reads before each continuation;
+- how low-conflict parallel slices are distinguished from high-conflict sequential / rework / IntegrationFix slices;
+- how completion is audited against the original objective and current evidence;
+- which high-impact gates remain human confirmed.
+
+A Goal loop must not replace Change/ECL, accepted artifacts, Run, Validation, Audit, IntegrationCheck, ToolPolicyGate, Apply/Close human gates, or Harness evolution. Multi-worktree parallelism is execution isolation only and must not be treated as final merge safety. If a loop cannot prove conflict safety, it must wait, ask the user, or route through a fix loop instead of starting parallel work.
+
+Documentation-only reference updates may record this as architecture guidance without adding tests. Product-code changes that implement loop behavior must include owner-module and gate coverage.
+
+## 15. Controlled Evolution
 
 Harness evolution starts from archived evidence:
 
@@ -351,7 +368,7 @@ archived/apply/failure/user-feedback/doc-drift event
 
 Future background documentation, architecture, evolution, scorer, and reviewer agents may create evidence and recommendations. They must not directly modify canonical docs, ECL rules, product roadmap, Harness templates, project stable memory, or source root without the normal ECL proposal/review/validation/human gate.
 
-## 15. Reference Project Updates
+## 16. Reference Project Updates
 
 Reference projects are submodules under `reference-projects/`. Updating them is a structured change because it changes the source context available to future agents.
 

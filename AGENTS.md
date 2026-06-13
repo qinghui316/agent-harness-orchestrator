@@ -196,7 +196,8 @@ Reference source code is included as git submodules under `reference-projects/`.
 | AgentScope | AgentScope 2.0 event/message, permission, workspace/sandbox, multi-session service, agent team | `reference-projects/agentscope/` |
 | AgentScope Java | Workspace memory, session, subagent specs, task repository | `reference-projects/agentscope-java/` |
 | Open Design | Local daemon, Web UI shell, readable tool/activity cards | `reference-projects/open-design/` |
-| OpenAI Codex | `codex exec`, JSONL, app-server runtime boundary | `reference-projects/openai-codex/` |
+| OpenAI Codex | `codex exec`, JSONL, app-server runtime boundary, goal continuation, completion audit | `reference-projects/openai-codex/` |
+| Loop Engineering | Goal-driven adaptive loop, conflict-aware parallelism, worktree / subagent / memory loop support | Web article: `https://addyosmani.com/blog/loop-engineering/` |
 | Open Dynamic Workflows | Deterministic workflow artifact, pipeline/barrier semantics, run events, recovery journal | `reference-projects/open-dynamic-workflows/` |
 | OpenAI Symphony | Queue orchestration, worker lifecycle, Workpad, app-server sessions | `reference-projects/symphony/` |
 | OpenSpec | Iterative demand clarification and proposal/spec/design/tasks artifact flow | `reference-projects/openspec/` |
@@ -266,9 +267,9 @@ Active change: none.
 
 Pending Harness evolution: none.
 
-Latest completed product phase: Phase 10A Scheduler User Facing Execution Surface Consolidation, archived at `harness/changes/archive/20260613-phase-10a-scheduler-user-facing-execution-surface-consolidation/summary.md`.
+Latest completed product phase: Phase 10B Loop Engineering Codex Goal Reference Alignment, archived at `harness/changes/archive/20260614-phase-10b-loop-engineering-codex-goal-reference-alignment/summary.md`.
 
-Latest completed product/Harness docs phase: Phase 8T AgentScope Harness Reference Alignment, archived at `harness/changes/archive/20260611-phase-8t-agentscope-harness-reference-alignment/summary.md`.
+Latest completed product/Harness docs phase: Phase 10B Loop Engineering Codex Goal Reference Alignment, archived at `harness/changes/archive/20260614-phase-10b-loop-engineering-codex-goal-reference-alignment/summary.md`.
 
 Latest Harness evolution: `harness/changes/archive/20260613-auto-evolve-harness-phase-9v-9z-scheduler-terminal-evidence/summary.md`, which completed the Phase 9V-9Z pending window as `noop/subagent_review` with subagent scores `94/100` and `90/100`.
 
@@ -315,6 +316,8 @@ Phase 9Y is closed and archived at `harness/changes/archive/20260613-phase-9y-sc
 Phase 9Z is closed and archived at `harness/changes/archive/20260613-phase-9z-schedulerrun-blocked-exhausted-closeout-gate/summary.md`. It adds a human-gated SchedulerRun blocked/exhausted terminal closeout before IntegrationCheck when the latest scheduler candidate cannot reach two ready targets and no legal continuation remains. It must only write scheduler-owned closeout evidence, runtime event, Workbench decision/projection, and SchedulerRun journal state; it must not run IntegrationCheck, apply/discard, validation, audit, rework, start workers, dispatch whole waves, allocate slots, create child Changes, create worktrees/runs, landing, PR, merge, or full parallel executor behavior.
 
 Phase 10A is closed and archived at `harness/changes/archive/20260613-phase-10a-scheduler-user-facing-execution-surface-consolidation/summary.md`. It consolidates the Workbench scheduler execution confirmation surface so the main conversation and right-side queue use a small set of user-facing stage labels while existing typed scheduler actions, scoped payloads, ToolPolicyGate checks, stale-target revalidation, IntegrationCheck/apply handoff, and one-confirmation-per-legal-transition semantics remain intact. It is not a scheduler loop, start-all action, whole-wave dispatcher, slot allocator, automatic worker chain, source mutation path, child Change mechanism, or full parallel executor.
+
+Phase 10B is closed and archived at `harness/changes/archive/20260614-phase-10b-loop-engineering-codex-goal-reference-alignment/summary.md`. It aligns AHO's next architecture direction with Loop Engineering and local Codex `goal` source: complex tasks should be managed as persistent Goal/Change loops, with low-conflict independent slices eligible for parallel work and high-conflict slices routed through sequential wait, rework, or integration-fix loops. This is docs/reference alignment only and does not add product runtime, Workbench actions, routes, CLI commands, UI, scheduler execution, child Changes, or artifact shape changes.
 
 Auto Evolve Harness Phase 9R 9V Scheduler Integration Apply Evidence is closed and archived at `harness/changes/archive/20260613-auto-evolve-harness-phase-9r-9v-scheduler-integration-apply-evidence/summary.md`. It reviewed Phase 9R-9V as `noop/subagent_review` with subagent score `88/100`; existing Source Apply Safety, scoped action payload, proposal/runtime, module-boundary, scheduler non-execution, ToolPolicy/human gate, and workflow-truth rules are sufficient. It does not change product code, runtime behavior, Workbench actions, routes, CLI commands, UI, scheduler execution, parallel executor behavior, child Changes, ODWF runtime, or cache/replay.
 

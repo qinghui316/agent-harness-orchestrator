@@ -153,6 +153,8 @@ Phase 9Z adds one more user-facing terminal option for the pre-IntegrationCheck 
 
 Phase 10A consolidates the ordinary scheduler execution surface after the Phase 9G-9Z execution slices. The right confirmation queue should present a small set of user-facing stage labels such as continuing the current scheduler plan, checking current evidence, handling a current blockage, checking combined results, completing the execution record, or marking the run unable to continue. These labels are presentation and decision clarity only: each confirmation still maps to one existing scoped scheduler action, preserves the full action payload and decision/audit target ids, and goes through ToolPolicyGate plus stale-target revalidation. The UI must not turn this consolidation into one-click start-all, automatic validation/audit/rework, start-next loops, whole-wave dispatch, slot allocation, scheduler-owned apply/discard, child Changes, or full parallel execution.
 
+Phase 10B adds the Goal-driven Adaptive Loop interaction rule. The main conversation should explain the long-running goal, the current evidence, the next recommended step, and why a slice is safe to run in parallel or must wait. The right confirmation queue remains a Harness stage gate, not a generic permission popup and not a list of every internal artifact. If the user gives feedback, the main Agent revises the loop decision or plan; it must not silently start workers or merge outputs. The Workbench should keep this readable in the same Codex-style conversation instead of exposing raw loop internals as ordinary user workflow.
+
 The Workbench snapshot, transcript, and run graph are projections, not workflow truth. The snapshot is a UI shell, the transcript must not show mechanical labels such as `AI 回复` or `执行结果`, and derived tool-result summaries must not pretend to be exact historical LLM text. The run graph must not become the source of scheduling truth, must not create fake SubAgent chats, and must not move maintenance candidates into the right confirmation queue. The right side stays limited to human gates such as confirming execution, applying, checking compatibility, creating/updating PRs, submitting review, replying to review, merging, syncing, cleanup, requesting changes, or abandoning work.
 
 Runtime boundary issues are explanation/evidence events, not confirmation queue items. When ToolPolicyGate denies a request or PostRunBoundaryAudit finds a role wrote outside its allowed scope, the main conversation should explain the user-impact in plain language and link evidence. The right queue should only show a user decision if there is a real next action such as requesting changes or abandoning the result.
@@ -252,12 +254,14 @@ Internal terms may appear in developer docs, tests, APIs, storage, and Agent Loo
 - Planning happens in the main conversation; there is no separate user-visible bottom Plan mode.
 - If Codex app-server is active, running input is sent to the current planning/coder turn. If fallback is active, the UI must say the input is recorded for the next turn.
 - A user confirming execution only agrees to implement the current plan; final source apply/merge still needs explicit confirmation.
+- A user confirming a Goal-loop or scheduler stage agrees to one described Harness transition, not to an unbounded autonomous loop.
 - Result review actions must be scoped to the selected demand result. A background demand result must not expose apply/discard decisions in the current conversation.
 - Source drift is explained as `项目已变化，需要重新处理这个结果`, not as a raw git gate error.
 - Coder self-test is allowed inside the assigned worktree, but official validation/audit remain independent evidence.
 - Validation/audit failures should first trigger bounded automatic rework. Interrupt the user only for ambiguity, product tradeoff conflicts, environment problems, exhausted rework budget, or no real repair path.
 - Archived demand conversations are read-only. Implementation follow-up creates a linked follow-up conversation.
 - Agent activity visualization, when added later, remains a derived view over run and role evidence; it is not workflow truth.
+- Parallel worktree slices are useful only when the main Agent can explain low conflict. High-conflict slices wait, run sequentially, or enter a fix loop.
 
 ## 6. Objects The GUI May Surface
 

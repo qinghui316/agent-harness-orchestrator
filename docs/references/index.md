@@ -9,6 +9,7 @@ Reference projects are included as git submodules under `reference-projects/`. R
 | AgentScope Java | `https://github.com/agentscope-ai/agentscope-java` | `reference-projects/agentscope-java/` | `docs/design-docs/ref-agentscope-java.md` |
 | Open Design | `https://github.com/nexu-io/open-design` | `reference-projects/open-design/` | `docs/design-docs/ref-open-design.md` |
 | OpenAI Codex | `https://github.com/openai/codex` | `reference-projects/openai-codex/` | `docs/design-docs/ref-openai-codex.md` |
+| Loop Engineering | `https://addyosmani.com/blog/loop-engineering/` | Web article | `docs/design-docs/ref-loop-engineering.md` |
 | Open Dynamic Workflows | `https://github.com/imsai-sh/open-dynamic-workflows` | `reference-projects/open-dynamic-workflows/` | `docs/design-docs/ref-open-dynamic-workflows.md` |
 | OpenAI Symphony | `https://github.com/openai/symphony` | `reference-projects/symphony/` | `docs/design-docs/ref-symphony.md` |
 | OpenSpec | `https://github.com/Fission-AI/OpenSpec` | `reference-projects/openspec/` | `docs/design-docs/ref-openspec.md` |
@@ -28,7 +29,8 @@ Do not vendor-copy reference code into this repository. Update submodule pointer
 | Main-agent task repository, foreground/background task delegation | `docs/design-docs/ref-agentscope-java.md` and `docs/design-docs/ref-symphony.md` | AgentScope shows task repository/subagent separation; Symphony shows dispatch/reconcile policy. |
 | Background memory maintenance, documentation drift, consolidation candidates | `docs/design-docs/ref-agentscope-java.md` | AgentScope's ledger plus consolidator pattern maps to AHO maintenance ledger and human-gated candidates. |
 | Subagent specs, workspace/session separation, task repository | `docs/design-docs/ref-agentscope-java.md` | AgentScope shows independent subagent context, Markdown-like specs, task state, and workspace boundaries. |
-| Codex exec, JSONL, app-server runtime boundary | `docs/design-docs/ref-openai-codex.md` | Codex defines the external executor and app-server boundary AHO should adapt to. |
+| Codex exec, JSONL, app-server runtime boundary, goal continuation, completion audit, and budgeted long-running objective | `docs/design-docs/ref-openai-codex.md` | Codex defines the external executor/app-server boundary and shows how a persistent goal is continued, audited, budget-limited, and completed only when evidence proves the objective. |
+| Goal-driven loop design, conflict-aware parallelism, worktree/subagent/memory loop support | `docs/design-docs/ref-loop-engineering.md` | Loop Engineering explains the harness layer that lets a main agent iterate over a long-running objective while using automation, worktrees, skills, connectors, subagents, and external state. |
 | Demand clarification, proposal/spec/design/tasks artifact flow | `docs/design-docs/ref-openspec.md` | OpenSpec shows a lightweight, iterative planning layer before implementation. |
 | Deterministic WorkflowPlan shape, pipeline/barrier semantics, run events, and resume journal | `docs/design-docs/ref-open-dynamic-workflows.md` | Open Dynamic Workflows shows how a main model-authored workflow artifact can fan out bounded leaf agents while preserving evented progress and recoverable execution. |
 | Workbench UI, readable tool cards, local daemon pattern | `docs/design-docs/ref-open-design.md` | Open Design shows local web/daemon projection and readable activity UI. |

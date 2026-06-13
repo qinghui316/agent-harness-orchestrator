@@ -149,6 +149,29 @@ Phase 9Z adds that follow-up closeout gate. It lets a SchedulerRun record explic
 
 Phase 10A is a user-facing scheduler execution surface consolidation phase. It keeps scheduler runtime legality and evidence ownership in `src/scheduler-runtime/`, and puts Workbench scheduler handler glue plus confirmation-label mapping in owned Workbench modules instead of broad facades. The goal is to make the main Agent conversation and right-side Harness queue read like a small number of understandable stage decisions while every click still invokes exactly one existing typed scheduler transition with full scoped ids, ToolPolicyGate, stale-target revalidation, and existing IntegrationCheck/apply authority. It does not add a scheduler loop, whole-wave dispatcher, slot allocator, start-all control, automatic validation/audit/rework/start-next, child Change creation, or full parallel executor.
 
+Phase 10B records the Goal-driven Adaptive Loop direction. AHO borrows Loop Engineering's harness-above-agent idea and Codex `goal` continuation behavior, but keeps them under AHO workflow truth. A complex user request should remain a persistent Goal/Change until evidence proves completion, blocking, or conflict. The main Agent observes current repo and Harness evidence, plans the next slice, then chooses between low-conflict parallel worker/worktree slices and high-conflict sequential wait / rework / IntegrationFix loops. This is not a scheduler loop or full parallel executor. Multi-worktree development provides isolation only; final combination still requires SchedulerIntegrationCandidate, existing IntegrationCheck, aggregate validation/audit, and a human apply gate.
+
+Goal-driven loop model:
+
+```mermaid
+flowchart TD
+  A["User complex request"] --> B["Persistent Goal / Change"]
+  B --> C["Main Agent observes current evidence"]
+  C --> D["Conflict-aware task planning"]
+  D --> E{"Low conflict and independent?"}
+  E -- "Yes" --> F["Parallel worker / worktree slice"]
+  E -- "No" --> G["Sequential loop / wait for predecessor"]
+  F --> H["Validation / Audit / Scheduler reconcile"]
+  G --> H
+  H --> I{"Goal complete, blocked, or conflicting?"}
+  I -- "Incomplete" --> C
+  I -- "Conflict" --> J["IntegrationFix / rework loop"]
+  J --> C
+  I -- "Ready to combine" --> K["IntegrationCheck"]
+  K --> L["Aggregate validation / audit"]
+  L --> M["Human apply gate"]
+```
+
 Workbench relationship:
 
 ```text
@@ -199,6 +222,7 @@ AHO should converge on these layers:
 | TaskRun Queue | User-confirmed queued execution over accepted TaskGraph nodes | Queue records plus TaskRun/WorkerLease artifacts |
 | Bounded Demand Worker Slots | Bounded concurrent dispatch over independent demand conversations | Demand worker records reconciled to AgentTasks, Run artifacts, validation/audit, and result review |
 | Parallel Task Scheduler | Future bounded concurrent dispatch inside one demand after dependency/conflict modeling | Scheduler state reconciled to TaskGraph and leases |
+| Goal-driven Adaptive Loop | Main-agent long-running objective loop that chooses parallel, sequential, rework, or integration-fix next steps from evidence | Change/ECL plus artifacts remain truth; the loop is policy, not an executor |
 | Runtime Continuity Layer | Worker sessions, runtime workspaces/sandboxes, event sources, permission snapshots, and recovery-oriented event envelopes | Runtime auxiliary records; never workflow truth |
 | Integration Layer | Future integration worktree, aggregate validation/audit, merge attempts, and integration-fix runs | Integration artifacts and human-gated decisions |
 | Codex App-Server Runtime Bridge | Rich session execution and live events | Runtime adapter, not workflow truth |
