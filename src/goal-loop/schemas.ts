@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { WORKFLOW_ACTION_TYPES } from "../workflow-actions/registry.js";
-import type { GoalLoopDecision, GoalLoopIteration } from "./types.js";
+import type { GoalLoopDecision } from "./types.js";
 
 const sourceEvidenceRefSchema = z.object({
   kind: z.string(),
@@ -45,6 +45,43 @@ const decisionKindSchema = z.enum([
   "completed-ready-for-human-close-gate",
 ]);
 
+const continuationStateSchema = z.enum([
+  "waiting-for-evidence",
+  "ready-for-existing-gate",
+  "blocked",
+  "budget-limited",
+  "ready-for-human-close-gate",
+]);
+
+const controlPolicySchema = z.object({
+  authority: z.literal("evidence-only-control-constraints"),
+  canAutoContinue: z.literal(false),
+  canAutoExecuteRecommendedAction: z.literal(false),
+  requiresHumanGate: z.boolean(),
+  recommendedActionType: z.enum(WORKFLOW_ACTION_TYPES).optional(),
+  reason: z.string(),
+});
+
+const budgetSignalSchema = z.object({
+  status: z.enum(["unknown", "declared", "budget-limited"]),
+  summary: z.string(),
+  tokensUsed: z.number().int().nonnegative().optional(),
+  tokenBudget: z.number().int().positive().optional(),
+  remainingTokens: z.number().int().nonnegative().optional(),
+});
+
+const resumePreconditionSchema = z.object({
+  kind: z.string(),
+  id: z.string().optional(),
+  satisfied: z.boolean(),
+  summary: z.string(),
+});
+
+const suppressionReasonSchema = z.object({
+  reason: z.enum(["waiting-for-evidence", "blocked", "ready-for-human-close-gate", "budget-limited", "specific-gate-required"]),
+  summary: z.string(),
+});
+
 export const goalLoopDecisionSchema: z.ZodType<GoalLoopDecision> = z.object({
   version: z.literal("1.0"),
   id: z.string(),
@@ -65,7 +102,7 @@ export const goalLoopDecisionSchema: z.ZodType<GoalLoopDecision> = z.object({
   updatedAt: z.string(),
 });
 
-export const goalLoopIterationSchema: z.ZodType<GoalLoopIteration> = z.object({
+export const goalLoopIterationSchema = z.object({
   version: z.literal("1.0"),
   id: z.string(),
   changeId: z.string(),
@@ -74,6 +111,20 @@ export const goalLoopIterationSchema: z.ZodType<GoalLoopIteration> = z.object({
   trigger: z.literal("user-confirmed-evaluate"),
   iterationStatus: z.literal("recorded"),
   continuationVerdict: z.enum(["wait", "recommend-existing-gate", "blocked", "ready-for-human-close-gate"]),
+  continuationState: continuationStateSchema.default("waiting-for-evidence"),
+  controlPolicy: controlPolicySchema.default({
+    authority: "evidence-only-control-constraints",
+    canAutoContinue: false,
+    canAutoExecuteRecommendedAction: false,
+    requiresHumanGate: true,
+    reason: "Legacy GoalLoopIteration has no continuation control policy; treat as evidence-only.",
+  }),
+  budgetSignal: budgetSignalSchema.default({
+    status: "unknown",
+    summary: "Legacy GoalLoopIteration has no budget/accounting signal.",
+  }),
+  resumePreconditions: z.array(resumePreconditionSchema).default([]),
+  suppressedBecause: suppressionReasonSchema.optional(),
   previousGoalLoopDecisionId: z.string().optional(),
   previousGoalLoopIterationId: z.string().optional(),
   goalLoopDecisionId: z.string(),

@@ -33,10 +33,15 @@ import type {
   GoalLoopDecision,
   GoalLoopDecisionKind,
   GoalLoopForbiddenAction,
+  GoalLoopBudgetSignal,
+  GoalLoopContinuationState,
   GoalLoopContinuationVerdict,
+  GoalLoopControlPolicy,
   GoalLoopIteration,
   GoalLoopRecommendedAction,
+  GoalLoopResumePrecondition,
   GoalLoopSourceEvidenceRef,
+  GoalLoopSuppressionReason,
 } from "./types.js";
 
 interface EvidenceSnapshot {
@@ -81,6 +86,11 @@ export async function compileGoalLoopEvaluation(memory: ResolvedMemory, changePa
     trigger: "user-confirmed-evaluate",
     iterationStatus: "recorded",
     continuationVerdict: continuationVerdictForDecision(decision),
+    continuationState: continuationStateForDecision(decision),
+    controlPolicy: controlPolicyForDecision(decision),
+    budgetSignal: budgetSignalForDecision(),
+    resumePreconditions: resumePreconditionsForDecision(decision),
+    suppressedBecause: suppressionReasonForDecision(decision),
     previousGoalLoopDecisionId: previousDecision?.id,
     previousGoalLoopIterationId: previousIteration?.id,
     goalLoopDecisionId: decision.id,
@@ -291,6 +301,95 @@ function continuationVerdictForDecision(decision: GoalLoopDecision): GoalLoopCon
   if (decision.decisionKind === "blocked") return "blocked";
   if (decision.recommendedAction) return "recommend-existing-gate";
   return "wait";
+}
+
+function continuationStateForDecision(decision: GoalLoopDecision): GoalLoopContinuationState {
+  if (decision.decisionKind === "completed-ready-for-human-close-gate") return "ready-for-human-close-gate";
+  if (decision.decisionKind === "blocked") return "blocked";
+  if (decision.recommendedAction) return "ready-for-existing-gate";
+  return "waiting-for-evidence";
+}
+
+function controlPolicyForDecision(decision: GoalLoopDecision): GoalLoopControlPolicy {
+  const recommended = decision.recommendedAction;
+  return {
+    authority: "evidence-only-control-constraints",
+    canAutoContinue: false,
+    canAutoExecuteRecommendedAction: false,
+    requiresHumanGate: true,
+    recommendedActionType: recommended?.actionType,
+    reason: recommended
+      ? `The existing ${recommended.actionType} gate may be recommended, but it must be confirmed separately.`
+      : "No executable continuation is authorized by this Goal Loop iteration.",
+  };
+}
+
+function budgetSignalForDecision(): GoalLoopBudgetSignal {
+  return {
+    status: "unknown",
+    summary: "No canonical AHO goal budget/accounting source is attached to this Change; no token or time budget authority is inferred.",
+  };
+}
+
+function resumePreconditionsForDecision(decision: GoalLoopDecision): GoalLoopResumePrecondition[] {
+  const preconditions: GoalLoopResumePrecondition[] = [{
+    kind: "selected-change-scope",
+    id: decision.changeId,
+    satisfied: true,
+    summary: "Selected Change scope was resolved before writing Goal Loop evidence.",
+  }];
+  if (decision.recommendedAction) {
+    preconditions.push({
+      kind: "separate-human-gated-action",
+      id: decision.recommendedAction.actionType,
+      satisfied: false,
+      summary: `${decision.recommendedAction.actionType} must be confirmed through its own scoped Harness gate.`,
+    });
+  } else if (decision.decisionKind === "completed-ready-for-human-close-gate") {
+    preconditions.push({
+      kind: "change-close-human-gate",
+      satisfied: false,
+      summary: "Close readiness must still pass the existing Change close human gate.",
+    });
+  } else if (decision.decisionKind === "blocked") {
+    preconditions.push({
+      kind: "user-direction",
+      satisfied: false,
+      summary: "Blocked Goal Loop state requires explicit user direction or new evidence.",
+    });
+  } else {
+    preconditions.push({
+      kind: "additional-evidence",
+      satisfied: false,
+      summary: "Additional Harness evidence is required before the next concrete gate can be recommended.",
+    });
+  }
+  return preconditions;
+}
+
+function suppressionReasonForDecision(decision: GoalLoopDecision): GoalLoopSuppressionReason | undefined {
+  if (decision.recommendedAction) {
+    return {
+      reason: "specific-gate-required",
+      summary: "The recommended action remains a separate Harness gate and is not executed by Goal Loop evaluation.",
+    };
+  }
+  if (decision.decisionKind === "completed-ready-for-human-close-gate") {
+    return {
+      reason: "ready-for-human-close-gate",
+      summary: "Goal Loop may explain close readiness, but close is suppressed until the existing human gate is confirmed.",
+    };
+  }
+  if (decision.decisionKind === "blocked") {
+    return {
+      reason: "blocked",
+      summary: "Continuation is suppressed because the current evidence is blocked.",
+    };
+  }
+  return {
+    reason: "waiting-for-evidence",
+    summary: "Continuation is suppressed until additional evidence appears or a concrete Harness gate becomes available.",
+  };
 }
 
 function assessConflict(snapshot: EvidenceSnapshot): GoalLoopConflictAssessment {

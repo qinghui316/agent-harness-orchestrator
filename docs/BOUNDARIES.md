@@ -271,6 +271,8 @@ Phase 10D adds the Goal Loop confirmation-surface boundary. `src/workbench/proje
 
 Phase 10E adds the `GoalLoopIteration` boundary. `src/goal-loop/` owns iteration schema, paths, repository, renderer, and compile/write orchestration. Each iteration links the previous and current Goal Loop evidence for the selected Change, but remains `non-executing-continuation-evidence`. Workbench/server/frontend code may record and display iteration ids, but must not infer executable authority from an iteration, generate new confirmations from `recommendedAction`, or use iterations to start workers, scheduler loops, IntegrationCheck, apply/close, source mutation, or child Changes.
 
+Phase 10F adds continuation-state fields to `GoalLoopIteration`. These fields are derived control constraints, not a new truth source. They must not replace Change/ECL state, SchedulerRun state, Workbench confirmation priority, Validation/Audit/IntegrationCheck evidence, ToolPolicyGate, or Apply/Close human gates. Budget/accounting values must remain evidence signals and must not copy Codex token-accounting runtime behavior unless AHO later introduces a scoped owner module for it.
+
 ## 7. Memory Unavailable Boundary
 
 Memory can be unavailable on a new machine, after a plain repository clone, when AHO home was not synced, when permissions are missing, or when a future remote memory service is offline.

@@ -157,6 +157,8 @@ Phase 10D connects that artifact to the user surface as a fallback confirmation 
 
 Phase 10E adds Goal Loop iteration journal evidence. Each user-confirmed `planning.goal-loop.evaluate` records the current `GoalLoopDecision` plus a scoped `GoalLoopIteration` that links the previous iteration/decision to the current observe/reason pass. This makes long-running Goal/Change continuation auditable without adding an autonomous loop controller, scheduler loop, worker start, IntegrationCheck, source mutation, or close authority.
 
+Phase 10F extends that iteration with continuation-state evidence. The state is a derived snapshot of control constraints for the next pass: wait, recommend an existing gate, blocked, budget-limited signal, or ready for the existing human close gate. It is not a canonical lifecycle controller and it must not copy Codex thread-goal runtime semantics such as idle continuation locks or token accounting authority.
+
 Goal-driven loop model:
 
 ```mermaid

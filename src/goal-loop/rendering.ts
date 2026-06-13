@@ -67,6 +67,7 @@ export function renderGoalLoopIterationMarkdown(iteration: GoalLoopIteration): s
     `- Trigger: ${iteration.trigger}`,
     `- Iteration status: ${iteration.iterationStatus}`,
     `- Continuation verdict: ${iteration.continuationVerdict}`,
+    `- Continuation state: ${iteration.continuationState}`,
     `- GoalLoopDecision: ${iteration.goalLoopDecisionId}`,
     `- Previous iteration: ${iteration.previousGoalLoopIterationId ?? "none"}`,
     `- Previous decision: ${iteration.previousGoalLoopDecisionId ?? "none"}`,
@@ -85,6 +86,35 @@ export function renderGoalLoopIterationMarkdown(iteration: GoalLoopIteration): s
     ...(iteration.recommendedAction
       ? ["", "### Scope", "", ...Object.entries(iteration.recommendedAction.scope).map(([key, value]) => `- ${key}: ${Array.isArray(value) ? value.join(", ") : value}`)]
       : []),
+    "",
+    "## Continuation Control Policy",
+    "",
+    `- Authority: ${iteration.controlPolicy.authority}`,
+    `- Can auto-continue: ${iteration.controlPolicy.canAutoContinue ? "yes" : "no"}`,
+    `- Can auto-execute recommended action: ${iteration.controlPolicy.canAutoExecuteRecommendedAction ? "yes" : "no"}`,
+    `- Requires human gate: ${iteration.controlPolicy.requiresHumanGate ? "yes" : "no"}`,
+    `- Recommended action type: ${iteration.controlPolicy.recommendedActionType ?? "none"}`,
+    `- Reason: ${iteration.controlPolicy.reason}`,
+    "",
+    "## Budget / Accounting Signal",
+    "",
+    `- Status: ${iteration.budgetSignal.status}`,
+    `- Summary: ${iteration.budgetSignal.summary}`,
+    ...(iteration.budgetSignal.tokenBudget !== undefined ? [`- Token budget: ${iteration.budgetSignal.tokenBudget}`] : []),
+    ...(iteration.budgetSignal.tokensUsed !== undefined ? [`- Tokens used: ${iteration.budgetSignal.tokensUsed}`] : []),
+    ...(iteration.budgetSignal.remainingTokens !== undefined ? [`- Remaining tokens: ${iteration.budgetSignal.remainingTokens}`] : []),
+    "",
+    "## Resume Preconditions",
+    "",
+    ...(iteration.resumePreconditions.length
+      ? iteration.resumePreconditions.map((item) => `- ${item.kind}${item.id ? ` ${item.id}` : ""}: ${item.satisfied ? "satisfied" : "pending"} - ${item.summary}`)
+      : ["- None."]),
+    "",
+    "## Suppression Reason",
+    "",
+    iteration.suppressedBecause
+      ? `- ${iteration.suppressedBecause.reason}: ${iteration.suppressedBecause.summary}`
+      : "- None.",
     "",
     "## Conflict Assessment",
     "",

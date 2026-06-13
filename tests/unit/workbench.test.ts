@@ -2104,6 +2104,7 @@ describe("workbench read model", () => {
       changeId: topic.changeId,
       requiresConfirmation: true,
     });
+    expect(snapshot.right.confirmationQueue.primary?.whyNeedsConfirmation).toContain("continuation state");
 
     const actionResult = await executeWorkbenchAction({ project: project(), path: tempDir }, {
       actionType: "planning.goal-loop.evaluate",
@@ -2113,7 +2114,7 @@ describe("workbench read model", () => {
     expect(actionResult.result).toMatchObject({ status: "completed" });
     const result = actionResult.result.result as {
       goalLoopDecision?: { changeId: string; executionStarted: boolean; authority: string; id: string };
-      goalLoopIteration?: { changeId: string; executionStarted: boolean; authority: string; goalLoopDecisionId: string; ordinal: number };
+      goalLoopIteration?: { changeId: string; executionStarted: boolean; authority: string; goalLoopDecisionId: string; ordinal: number; continuationState: string };
     };
     expect(result.goalLoopDecision).toMatchObject({
       changeId: topic.changeId,
@@ -2126,6 +2127,7 @@ describe("workbench read model", () => {
       authority: "non-executing-continuation-evidence",
       goalLoopDecisionId: result.goalLoopDecision?.id,
       ordinal: 1,
+      continuationState: "ready-for-existing-gate",
     });
     const memory = await resolveProjectMemory(project());
     await expect(readLatestGoalLoopDecision(memory, join("harness", "changes", "active", topic.changeId))).resolves.toMatchObject({
@@ -2135,6 +2137,7 @@ describe("workbench read model", () => {
     await expect(readLatestGoalLoopIteration(memory, join("harness", "changes", "active", topic.changeId))).resolves.toMatchObject({
       changeId: topic.changeId,
       goalLoopDecisionId: result.goalLoopDecision?.id,
+      continuationState: "ready-for-existing-gate",
       executionStarted: false,
     });
     expect(await listRuns(memory)).toHaveLength(0);

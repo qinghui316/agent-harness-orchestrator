@@ -75,6 +75,47 @@ export type GoalLoopContinuationVerdict =
   | "blocked"
   | "ready-for-human-close-gate";
 
+export type GoalLoopContinuationState =
+  | "waiting-for-evidence"
+  | "ready-for-existing-gate"
+  | "blocked"
+  | "budget-limited"
+  | "ready-for-human-close-gate";
+
+export interface GoalLoopControlPolicy {
+  authority: "evidence-only-control-constraints";
+  canAutoContinue: false;
+  canAutoExecuteRecommendedAction: false;
+  requiresHumanGate: boolean;
+  recommendedActionType?: WorkflowActionType;
+  reason: string;
+}
+
+export interface GoalLoopBudgetSignal {
+  status: "unknown" | "declared" | "budget-limited";
+  summary: string;
+  tokensUsed?: number;
+  tokenBudget?: number;
+  remainingTokens?: number;
+}
+
+export interface GoalLoopResumePrecondition {
+  kind: string;
+  id?: string;
+  satisfied: boolean;
+  summary: string;
+}
+
+export interface GoalLoopSuppressionReason {
+  reason:
+    | "waiting-for-evidence"
+    | "blocked"
+    | "ready-for-human-close-gate"
+    | "budget-limited"
+    | "specific-gate-required";
+  summary: string;
+}
+
 export interface GoalLoopIteration {
   version: "1.0";
   id: string;
@@ -84,6 +125,11 @@ export interface GoalLoopIteration {
   trigger: GoalLoopIterationTrigger;
   iterationStatus: GoalLoopIterationStatus;
   continuationVerdict: GoalLoopContinuationVerdict;
+  continuationState: GoalLoopContinuationState;
+  controlPolicy: GoalLoopControlPolicy;
+  budgetSignal: GoalLoopBudgetSignal;
+  resumePreconditions: GoalLoopResumePrecondition[];
+  suppressedBecause?: GoalLoopSuppressionReason;
   previousGoalLoopDecisionId?: string;
   previousGoalLoopIterationId?: string;
   goalLoopDecisionId: string;

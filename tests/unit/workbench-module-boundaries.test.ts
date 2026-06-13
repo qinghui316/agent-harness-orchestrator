@@ -748,6 +748,10 @@ describe("Workbench module boundaries", () => {
       expect(source).not.toMatch(/from\s+["'].*cli/);
       expect(source).not.toContain("startFirstSchedulerCoderWorker");
       expect(source).not.toContain("startNextSchedulerCoderWorker");
+      expect(source).not.toContain("runIntegrationCheck");
+      expect(source).not.toContain("applyIntegrationCheck");
+      expect(source).not.toContain("closeChange");
+      expect(source).not.toContain("startCodeRun");
     }
 
     const handlerIndex = readFileSync("src/workbench/actions/handlers/index.ts", "utf8");

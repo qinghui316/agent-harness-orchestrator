@@ -276,8 +276,12 @@ export function summarizeActionResult(actionType: string, result: unknown): stri
     return `SchedulerRun closeout ${status} recorded before IntegrationCheck. No apply, landing, PR, merge, or next worker was started.`;
   }
   if (actionType === "planning.goal-loop.evaluate" && isRecord(result) && isRecord(result.goalLoopIteration)) {
-    const verdict = typeof result.goalLoopIteration.continuationVerdict === "string" ? result.goalLoopIteration.continuationVerdict : "recorded";
-    return `Goal loop iteration ${verdict} recorded. No execution was started.`;
+    const state = typeof result.goalLoopIteration.continuationState === "string"
+      ? result.goalLoopIteration.continuationState
+      : typeof result.goalLoopIteration.continuationVerdict === "string"
+        ? result.goalLoopIteration.continuationVerdict
+        : "recorded";
+    return `Goal loop iteration ${state} recorded. No execution was started.`;
   }
   if (actionType === "planning.confirm-execution" && isRecord(result)) {
     return "Planning confirmed and canonical artifacts were written. No execution was started.";

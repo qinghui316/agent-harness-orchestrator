@@ -84,8 +84,25 @@ describe("GoalLoopDecision", () => {
       trigger: "user-confirmed-evaluate",
       iterationStatus: "recorded",
       continuationVerdict: "recommend-existing-gate",
+      continuationState: "ready-for-existing-gate",
+      controlPolicy: {
+        authority: "evidence-only-control-constraints",
+        canAutoContinue: false,
+        canAutoExecuteRecommendedAction: false,
+        recommendedActionType: "planning.scheduler.plan.prepare",
+      },
+      budgetSignal: {
+        status: "unknown",
+      },
       goalLoopDecisionId: first.goalLoopDecision.id,
       executionStarted: false,
+    });
+    expect(first.goalLoopIteration.resumePreconditions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: "selected-change-scope", satisfied: true }),
+      expect.objectContaining({ kind: "separate-human-gated-action", id: "planning.scheduler.plan.prepare", satisfied: false }),
+    ]));
+    expect(first.goalLoopIteration.suppressedBecause).toMatchObject({
+      reason: "specific-gate-required",
     });
     expect(first.goalLoopIteration.previousGoalLoopDecisionId).toBeUndefined();
     expect(first.goalLoopIteration.previousGoalLoopIterationId).toBeUndefined();
@@ -98,6 +115,7 @@ describe("GoalLoopDecision", () => {
       previousGoalLoopDecisionId: first.goalLoopDecision.id,
       previousGoalLoopIterationId: first.goalLoopIteration.id,
       goalLoopDecisionId: second.goalLoopDecision.id,
+      continuationState: "ready-for-existing-gate",
       executionStarted: false,
     });
     expect(second.goalLoopIteration.previousGoalLoopDecisionId).not.toBe(second.goalLoopDecision.id);
@@ -105,6 +123,32 @@ describe("GoalLoopDecision", () => {
       id: second.goalLoopIteration.id,
       ordinal: 2,
     });
+  });
+
+  it("records waiting continuation state when a scheduler worker path already exists", async () => {
+    await writeSchedulerEvidence({ withWorkerStart: true });
+
+    const { goalLoopDecision, goalLoopIteration } = await compileGoalLoopEvaluation(memory, changePath);
+
+    expect(goalLoopDecision.recommendedAction).toBeUndefined();
+    expect(goalLoopIteration).toMatchObject({
+      continuationVerdict: "wait",
+      continuationState: "waiting-for-evidence",
+      controlPolicy: {
+        canAutoContinue: false,
+        canAutoExecuteRecommendedAction: false,
+      },
+      budgetSignal: {
+        status: "unknown",
+      },
+      suppressedBecause: {
+        reason: "waiting-for-evidence",
+      },
+      executionStarted: false,
+    });
+    expect(goalLoopIteration.resumePreconditions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: "additional-evidence", satisfied: false }),
+    ]));
   });
 });
 

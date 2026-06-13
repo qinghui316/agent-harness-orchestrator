@@ -57,6 +57,7 @@ export async function evaluateGoalLoopDecision(
       goalLoopIterationId: iteration.id,
       decisionKind: decision.decisionKind,
       continuationVerdict: iteration.continuationVerdict,
+      continuationState: iteration.continuationState,
       humanGateRequired: decision.humanGateRequired,
       executionStarted: false,
     },

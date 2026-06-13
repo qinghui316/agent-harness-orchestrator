@@ -13,8 +13,8 @@ export function goalLoopEvaluationQueueItem(
     conversationId: selectedTopic.id,
     changeId: selectedTopic.id,
     summary: "主 Agent 可以先基于当前 evidence 评估下一步。",
-    whyNeedsConfirmation: "这是 Harness 阶段门：只记录 GoalLoopDecision 规划证据，不启动执行。",
-    confirmEffect: "确认后只写 GoalLoopDecision JSON/Markdown、对话说明和 Workbench decision；不会执行它建议的下一步。",
+    whyNeedsConfirmation: "这是 Harness 阶段门：只记录 GoalLoopDecision、GoalLoopIteration 和 continuation state 证据，不启动执行。",
+    confirmEffect: "确认后只写 Goal Loop JSON/Markdown、对话说明和 Workbench decision；不会执行它建议的下一步。",
     riskSummary: "建议动作仍需要单独确认；不会创建 worker、TaskRun、WorkerLease、worktree、run、IntegrationCheck、Apply/Close、child Change 或 source mutation。",
     evidenceRefs: [],
     actions: [{
