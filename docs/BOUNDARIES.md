@@ -273,6 +273,8 @@ Phase 10E adds the `GoalLoopIteration` boundary. `src/goal-loop/` owns iteration
 
 Phase 10F adds continuation-state fields to `GoalLoopIteration`. These fields are derived control constraints, not a new truth source. They must not replace Change/ECL state, SchedulerRun state, Workbench confirmation priority, Validation/Audit/IntegrationCheck evidence, ToolPolicyGate, or Apply/Close human gates. Budget/accounting values must remain evidence signals and must not copy Codex token-accounting runtime behavior unless AHO later introduces a scoped owner module for it.
 
+Phase 10G adds the `GoalLoopContinuationBrief` boundary. `src/goal-loop/` owns the brief schema, paths, repository, renderer, and derivation from the latest non-executing iteration. Workbench/server/frontend code may record or display the brief artifact, but must not use it to auto-continue, create a hidden prompt turn, start scheduler workers, run IntegrationCheck, mutate source, close a Change, or generate a new confirmation from `recommendedAction`. A brief is stale unless the next main Agent re-reads the selected Change and current evidence.
+
 ## 7. Memory Unavailable Boundary
 
 Memory can be unavailable on a new machine, after a plain repository clone, when AHO home was not synced, when permissions are missing, or when a future remote memory service is offline.

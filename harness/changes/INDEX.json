@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-13T19:43:07.4109410Z",
+    "generated_at":  "2026-06-13T20:08:09.1540629Z",
     "active":  [
 
                ],
@@ -793,6 +793,10 @@
                     {
                         "name":  "20260614-phase-10f-goal-loop-continuation-state-evidence",
                         "path":  "harness/changes/archive/20260614-phase-10f-goal-loop-continuation-state-evidence"
+                    },
+                    {
+                        "name":  "20260614-phase-10g-goal-loop-continuation-brief-evidence",
+                        "path":  "harness/changes/archive/20260614-phase-10g-goal-loop-continuation-brief-evidence"
                     }
                 ]
 }

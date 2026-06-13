@@ -20,14 +20,18 @@ import {
 } from "../scheduler-runtime/repository.js";
 import type { SchedulerRuntimeClaimReservation, SchedulerRuntimeState, SchedulerRuntimeWorkerStart } from "../scheduler-runtime/types.js";
 import {
+  goalLoopContinuationBriefArtifactRefs,
   goalLoopDecisionArtifactRefs,
   goalLoopIterationArtifactRefs,
+  readLatestGoalLoopContinuationBrief,
   readLatestGoalLoopDecision,
   readLatestGoalLoopIteration,
+  writeGoalLoopContinuationBrief,
   writeGoalLoopDecision,
   writeGoalLoopIteration,
 } from "./repository.js";
 import type {
+  GoalLoopContinuationBrief,
   GoalLoopCompletionAudit,
   GoalLoopConflictAssessment,
   GoalLoopDecision,
@@ -69,7 +73,7 @@ export async function compileGoalLoopDecision(memory: ResolvedMemory, changePath
   return decision;
 }
 
-export async function compileGoalLoopEvaluation(memory: ResolvedMemory, changePath: string): Promise<{ goalLoopDecision: GoalLoopDecision; goalLoopIteration: GoalLoopIteration }> {
+export async function compileGoalLoopEvaluation(memory: ResolvedMemory, changePath: string): Promise<{ goalLoopDecision: GoalLoopDecision; goalLoopIteration: GoalLoopIteration; goalLoopContinuationBrief: GoalLoopContinuationBrief }> {
   const previousDecision = await readOptional(() => readLatestGoalLoopDecision(memory, changePath));
   const previousIteration = await readOptional(() => readLatestGoalLoopIteration(memory, changePath));
   const decision = await compileGoalLoopDecision(memory, changePath);
@@ -108,7 +112,96 @@ export async function compileGoalLoopEvaluation(memory: ResolvedMemory, changePa
     updatedAt: now,
   };
   await writeGoalLoopIteration(memory, changePath, iteration);
-  return { goalLoopDecision: decision, goalLoopIteration: iteration };
+  const latestIteration = await readLatestGoalLoopIteration(memory, changePath);
+  assertLatestIterationForBrief(latestIteration, iteration, decision);
+  const brief = await compileGoalLoopContinuationBrief(memory, changePath, decision, latestIteration);
+  return { goalLoopDecision: decision, goalLoopIteration: latestIteration, goalLoopContinuationBrief: brief };
+}
+
+export async function compileGoalLoopContinuationBrief(
+  memory: ResolvedMemory,
+  changePath: string,
+  decision: GoalLoopDecision,
+  iteration: GoalLoopIteration,
+): Promise<GoalLoopContinuationBrief> {
+  assertLatestIterationForBrief(iteration, iteration, decision);
+  const now = new Date().toISOString();
+  const briefId = `goal-loop-continuation-brief-${now.replace(/[-:.TZ]/g, "").slice(0, 14)}-${shortHash(`${iteration.changeId}:${iteration.id}:${decision.id}`)}`;
+  const refs = goalLoopContinuationBriefArtifactRefs(memory, changePath, briefId);
+  const brief: GoalLoopContinuationBrief = {
+    version: "1.0",
+    id: briefId,
+    changeId: iteration.changeId,
+    authority: "non-executing-continuation-brief-evidence",
+    sourceGoalLoopDecisionId: decision.id,
+    sourceGoalLoopIterationId: iteration.id,
+    iterationOrdinal: iteration.ordinal,
+    decisionKind: iteration.decisionKind,
+    continuationVerdict: iteration.continuationVerdict,
+    continuationState: iteration.continuationState,
+    summary: iteration.summary,
+    recommendedAction: iteration.recommendedAction,
+    humanGateRequired: iteration.humanGateRequired,
+    controlPolicy: iteration.controlPolicy,
+    budgetSignal: iteration.budgetSignal,
+    resumePreconditions: iteration.resumePreconditions,
+    suppressedBecause: iteration.suppressedBecause,
+    conflictAssessment: iteration.conflictAssessment,
+    completionAudit: iteration.completionAudit,
+    sourceEvidenceRefs: iteration.sourceEvidenceRefs,
+    forbiddenActions: decision.forbiddenActions,
+    stalenessInstruction: "Before continuing the Goal/Change, re-read the selected Change, latest Goal Loop evidence, scheduler/runtime evidence, validation/audit evidence, IntegrationCheck/apply state, and current git/worktree state. Treat this brief as stale if any referenced evidence was superseded.",
+    mainAgentInstructions: mainAgentInstructionsForBrief(iteration),
+    forbiddenExecutionStatements: forbiddenExecutionStatementsForBrief(),
+    executionStarted: false,
+    artifact: refs.artifact,
+    markdownArtifact: refs.markdownArtifact,
+    createdAt: now,
+    updatedAt: now,
+  };
+  await writeGoalLoopContinuationBrief(memory, changePath, brief);
+  const latestBrief = await readLatestGoalLoopContinuationBrief(memory, changePath);
+  if (latestBrief.id !== brief.id || latestBrief.sourceGoalLoopIterationId !== iteration.id) {
+    throw new Error("GoalLoopContinuationBrief latest pointer mismatch.");
+  }
+  return latestBrief;
+}
+
+function assertLatestIterationForBrief(latestIteration: GoalLoopIteration, expectedIteration: GoalLoopIteration, decision: GoalLoopDecision): void {
+  if (latestIteration.id !== expectedIteration.id) throw new Error("GoalLoopContinuationBrief requires the just-written latest GoalLoopIteration.");
+  if (latestIteration.changeId !== decision.changeId) throw new Error("GoalLoopContinuationBrief change scope mismatch.");
+  if (latestIteration.goalLoopDecisionId !== decision.id) throw new Error("GoalLoopContinuationBrief decision lineage mismatch.");
+  if (latestIteration.executionStarted !== false) throw new Error("GoalLoopContinuationBrief requires non-executing GoalLoopIteration evidence.");
+  if (latestIteration.controlPolicy.canAutoContinue !== false || latestIteration.controlPolicy.canAutoExecuteRecommendedAction !== false) {
+    throw new Error("GoalLoopContinuationBrief requires non-executing continuation control policy.");
+  }
+}
+
+function mainAgentInstructionsForBrief(iteration: GoalLoopIteration): string[] {
+  const instructions = [
+    "Keep the full user objective and selected Change in scope; do not shrink the long-running goal to only the last turn.",
+    "Observe current repository evidence before acting; this brief is a handoff aid and may be stale.",
+    "Use the recommended action only as an explanation snapshot; the concrete action must be confirmed through its own scoped Harness gate.",
+    "If the completion audit is incomplete, keep looping through evidence, rework, integration, or waiting states instead of marking complete.",
+    "If evidence conflicts or scope is ambiguous, stop and record a blocked/waiting decision rather than starting parallel work.",
+  ];
+  if (iteration.continuationState === "ready-for-human-close-gate") {
+    instructions.push("Explain close readiness only after re-reading current evidence; Change close still requires the existing human close gate.");
+  }
+  if (iteration.continuationState === "blocked") {
+    instructions.push("Ask for user direction or new evidence before continuing from the blocked state.");
+  }
+  return instructions;
+}
+
+function forbiddenExecutionStatementsForBrief(): string[] {
+  return [
+    "Do not auto-schedule a continuation turn from this brief.",
+    "Do not execute the recommended action from this brief.",
+    "Do not start scheduler workers, validation, audit, IntegrationCheck, apply, close, landing, PR, merge, or child Changes from this brief.",
+    "Do not treat this brief as workflow truth; Change/ECL and accepted artifacts remain authoritative.",
+    "Do not infer Codex token budget or continuation-lock behavior from this brief.",
+  ];
 }
 
 async function readEvidenceSnapshot(memory: ResolvedMemory, changePath: string): Promise<EvidenceSnapshot> {

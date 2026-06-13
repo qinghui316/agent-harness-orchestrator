@@ -159,6 +159,8 @@ Phase 10E adds Goal Loop iteration journal evidence. Each user-confirmed `planni
 
 Phase 10F extends that iteration with continuation-state evidence. The state is a derived snapshot of control constraints for the next pass: wait, recommend an existing gate, blocked, budget-limited signal, or ready for the existing human close gate. It is not a canonical lifecycle controller and it must not copy Codex thread-goal runtime semantics such as idle continuation locks or token accounting authority.
 
+Phase 10G adds `GoalLoopContinuationBrief` as a derived handoff artifact. The brief translates the latest `GoalLoopDecision` and `GoalLoopIteration` into a next-turn main-Agent reading checklist: re-read current Change evidence, preserve the full objective, treat recommended action as a separate Harness gate, audit completion from evidence, and stop on conflict or stale scope. It is prompt/brief evidence only. It is not workflow truth, not a scheduler loop, not a hidden continuation turn, and not execution authorization.
+
 Goal-driven loop model:
 
 ```mermaid

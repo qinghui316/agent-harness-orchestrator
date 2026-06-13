@@ -67,7 +67,7 @@ import {
 import { compileSchedulerContract } from "../../src/workflow-scheduler/manager.js";
 import { auditSchedulerFirstWorker, readSchedulerRuntimeEvents, validateSchedulerFirstWorker } from "../../src/scheduler-runtime/manager.js";
 import { listIntegrationChecks } from "../../src/integration-check/manager.js";
-import { readLatestGoalLoopDecision, readLatestGoalLoopIteration } from "../../src/goal-loop/manager.js";
+import { readLatestGoalLoopContinuationBrief, readLatestGoalLoopDecision, readLatestGoalLoopIteration } from "../../src/goal-loop/manager.js";
 import type { ManagedProject, RunMetadata, TaskQueueItem, TaskQueueRun, TaskRun, WorkerLease, WorkflowGraphPlan, WorkflowRun } from "../../src/types/index.js";
 import type { DecompositionPlan, DecompositionReadinessManifest, TaskQueueProposal } from "../../src/workflow-artifacts/manager.js";
 
@@ -2104,7 +2104,7 @@ describe("workbench read model", () => {
       changeId: topic.changeId,
       requiresConfirmation: true,
     });
-    expect(snapshot.right.confirmationQueue.primary?.whyNeedsConfirmation).toContain("continuation state");
+    expect(snapshot.right.confirmationQueue.primary?.whyNeedsConfirmation).toContain("continuation brief");
 
     const actionResult = await executeWorkbenchAction({ project: project(), path: tempDir }, {
       actionType: "planning.goal-loop.evaluate",
@@ -2115,6 +2115,7 @@ describe("workbench read model", () => {
     const result = actionResult.result.result as {
       goalLoopDecision?: { changeId: string; executionStarted: boolean; authority: string; id: string };
       goalLoopIteration?: { changeId: string; executionStarted: boolean; authority: string; goalLoopDecisionId: string; ordinal: number; continuationState: string };
+      goalLoopContinuationBrief?: { changeId: string; executionStarted: boolean; authority: string; sourceGoalLoopDecisionId: string; sourceGoalLoopIterationId: string; id: string };
     };
     expect(result.goalLoopDecision).toMatchObject({
       changeId: topic.changeId,
@@ -2129,6 +2130,13 @@ describe("workbench read model", () => {
       ordinal: 1,
       continuationState: "ready-for-existing-gate",
     });
+    expect(result.goalLoopContinuationBrief).toMatchObject({
+      changeId: topic.changeId,
+      executionStarted: false,
+      authority: "non-executing-continuation-brief-evidence",
+      sourceGoalLoopDecisionId: result.goalLoopDecision?.id,
+      sourceGoalLoopIterationId: result.goalLoopIteration?.id,
+    });
     const memory = await resolveProjectMemory(project());
     await expect(readLatestGoalLoopDecision(memory, join("harness", "changes", "active", topic.changeId))).resolves.toMatchObject({
       changeId: topic.changeId,
@@ -2138,6 +2146,12 @@ describe("workbench read model", () => {
       changeId: topic.changeId,
       goalLoopDecisionId: result.goalLoopDecision?.id,
       continuationState: "ready-for-existing-gate",
+      executionStarted: false,
+    });
+    await expect(readLatestGoalLoopContinuationBrief(memory, join("harness", "changes", "active", topic.changeId))).resolves.toMatchObject({
+      changeId: topic.changeId,
+      sourceGoalLoopDecisionId: result.goalLoopDecision?.id,
+      sourceGoalLoopIterationId: result.goalLoopIteration?.id,
       executionStarted: false,
     });
     expect(await listRuns(memory)).toHaveLength(0);

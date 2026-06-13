@@ -7,17 +7,22 @@ import {
   goalLoopDecisionMarkdownPath,
   goalLoopDecisionPath,
   goalLoopDecisionsDir,
+  goalLoopContinuationBriefMarkdownPath,
+  goalLoopContinuationBriefPath,
+  goalLoopContinuationBriefsDir,
   goalLoopIterationMarkdownPath,
   goalLoopIterationPath,
   goalLoopIterationsDir,
+  latestGoalLoopContinuationBriefMarkdownPath,
+  latestGoalLoopContinuationBriefPath,
   latestGoalLoopIterationMarkdownPath,
   latestGoalLoopIterationPath,
   latestGoalLoopDecisionMarkdownPath,
   latestGoalLoopDecisionPath,
 } from "./paths.js";
-import { renderGoalLoopDecisionMarkdown, renderGoalLoopIterationMarkdown } from "./rendering.js";
-import { goalLoopDecisionSchema, goalLoopIterationSchema } from "./schemas.js";
-import type { GoalLoopDecision, GoalLoopIteration } from "./types.js";
+import { renderGoalLoopContinuationBriefMarkdown, renderGoalLoopDecisionMarkdown, renderGoalLoopIterationMarkdown } from "./rendering.js";
+import { goalLoopContinuationBriefSchema, goalLoopDecisionSchema, goalLoopIterationSchema } from "./schemas.js";
+import type { GoalLoopContinuationBrief, GoalLoopDecision, GoalLoopIteration } from "./types.js";
 
 export function goalLoopDecisionArtifactRefs(memory: ResolvedMemory, changePath: string, decisionId: string): { artifact: string; markdownArtifact: string } {
   return {
@@ -30,6 +35,13 @@ export function goalLoopIterationArtifactRefs(memory: ResolvedMemory, changePath
   return {
     artifact: displayArtifactPath(memory, goalLoopIterationPath(memory, changePath, iterationId)),
     markdownArtifact: displayArtifactPath(memory, goalLoopIterationMarkdownPath(memory, changePath, iterationId)),
+  };
+}
+
+export function goalLoopContinuationBriefArtifactRefs(memory: ResolvedMemory, changePath: string, briefId: string): { artifact: string; markdownArtifact: string } {
+  return {
+    artifact: displayArtifactPath(memory, goalLoopContinuationBriefPath(memory, changePath, briefId)),
+    markdownArtifact: displayArtifactPath(memory, goalLoopContinuationBriefMarkdownPath(memory, changePath, briefId)),
   };
 }
 
@@ -75,4 +87,26 @@ export async function readLatestGoalLoopIteration(memory: ResolvedMemory, change
   const iteration = await readRequiredJsonFile(latestGoalLoopIterationPath(memory, changePath), goalLoopIterationSchema) as GoalLoopIteration;
   await assertChangePathScope(memory, changePath, iteration.changeId, `GoalLoopIteration ${iteration.id}`);
   return iteration;
+}
+
+export async function writeGoalLoopContinuationBrief(memory: ResolvedMemory, changePath: string, brief: GoalLoopContinuationBrief): Promise<void> {
+  await assertChangePathScope(memory, changePath, brief.changeId, `GoalLoopContinuationBrief ${brief.id}`);
+  await mkdir(goalLoopContinuationBriefsDir(memory, changePath), { recursive: true });
+  await writeJsonFile(goalLoopContinuationBriefPath(memory, changePath, brief.id), brief);
+  await writeFile(goalLoopContinuationBriefMarkdownPath(memory, changePath, brief.id), renderGoalLoopContinuationBriefMarkdown(brief), "utf8");
+  await writeJsonFile(latestGoalLoopContinuationBriefPath(memory, changePath), brief);
+  await writeFile(latestGoalLoopContinuationBriefMarkdownPath(memory, changePath), renderGoalLoopContinuationBriefMarkdown(brief), "utf8");
+}
+
+export async function readGoalLoopContinuationBrief(memory: ResolvedMemory, changePath: string, briefId: string): Promise<GoalLoopContinuationBrief> {
+  const brief = await readRequiredJsonFile(goalLoopContinuationBriefPath(memory, changePath, briefId), goalLoopContinuationBriefSchema);
+  await assertChangePathScope(memory, changePath, brief.changeId, `GoalLoopContinuationBrief ${brief.id}`);
+  if (brief.id !== briefId) throw new Error("GoalLoopContinuationBrief id mismatch.");
+  return brief;
+}
+
+export async function readLatestGoalLoopContinuationBrief(memory: ResolvedMemory, changePath: string): Promise<GoalLoopContinuationBrief> {
+  const brief = await readRequiredJsonFile(latestGoalLoopContinuationBriefPath(memory, changePath), goalLoopContinuationBriefSchema);
+  await assertChangePathScope(memory, changePath, brief.changeId, `GoalLoopContinuationBrief ${brief.id}`);
+  return brief;
 }

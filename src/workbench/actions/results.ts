@@ -281,7 +281,10 @@ export function summarizeActionResult(actionType: string, result: unknown): stri
       : typeof result.goalLoopIteration.continuationVerdict === "string"
         ? result.goalLoopIteration.continuationVerdict
         : "recorded";
-    return `Goal loop iteration ${state} recorded. No execution was started.`;
+    const brief = isRecord(result.goalLoopContinuationBrief) && typeof result.goalLoopContinuationBrief.id === "string"
+      ? ` with continuation brief ${result.goalLoopContinuationBrief.id}`
+      : "";
+    return `Goal loop iteration ${state}${brief} recorded. No execution was started.`;
   }
   if (actionType === "planning.confirm-execution" && isRecord(result)) {
     return "Planning confirmed and canonical artifacts were written. No execution was started.";

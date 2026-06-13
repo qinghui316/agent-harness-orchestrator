@@ -131,6 +131,7 @@ Current baseline:
 - Phase 10D Goal Loop Confirmation Surface is closed and archived at `harness/changes/archive/20260614-phase-10d-goal-loop-confirmation-surface/summary.md`. It exposes `planning.goal-loop.evaluate` as a fallback Workbench confirmation only when no more specific current confirmation exists. It does not place Goal Loop evaluation in `workpad.nextAction`, execute `GoalLoopDecision.recommendedAction`, hide concrete human gates, or create scheduler/runtime/source mutation artifacts.
 - Phase 10E Goal Loop Iteration Journal Evidence is closed and archived at `harness/changes/archive/20260614-phase-10e-goal-loop-iteration-journal-evidence/summary.md`. It adds scoped `GoalLoopIteration` continuation evidence for each confirmed Goal Loop evaluation while preserving `planning.goal-loop.evaluate` as non-executing fallback evidence.
 - Phase 10F Goal Loop Continuation State Evidence is closed and archived at `harness/changes/archive/20260614-phase-10f-goal-loop-continuation-state-evidence/summary.md`. It extends `GoalLoopIteration` with evidence-only continuation state, control-policy constraints, budget/accounting signal, and resume preconditions without adding a Goal Loop controller, new action, scheduler loop, worker start, source mutation, or close authority.
+- Phase 10G Goal Loop Continuation Brief Evidence is closed and archived at `harness/changes/archive/20260614-phase-10g-goal-loop-continuation-brief-evidence/summary.md`. It adds non-executing continuation brief evidence derived from `GoalLoopDecision` and `GoalLoopIteration` so a future main Agent turn can re-read current Change evidence and continue the full objective without copying Codex goal runtime behavior.
 - Active change: none.
 - Pending Harness evolution: none.
 - Latest Harness evolution: `harness/changes/archive/20260614-auto-evolve-harness-phase-9y-10d-goal-loop-evidence/summary.md`, which completed the Phase 9Y-10D pending window as `modify/subagent_review` with accepted Goal Loop recommendation-authority and fallback-priority review coverage.
@@ -271,9 +272,9 @@ Active change: none.
 
 Pending Harness evolution: none.
 
-Latest completed product phase: Phase 10F Goal Loop Continuation State Evidence, archived at `harness/changes/archive/20260614-phase-10f-goal-loop-continuation-state-evidence/summary.md`.
+Latest completed product phase: Phase 10G Goal Loop Continuation Brief Evidence, archived at `harness/changes/archive/20260614-phase-10g-goal-loop-continuation-brief-evidence/summary.md`.
 
-Latest completed product/Harness docs phase: Phase 10F Goal Loop Continuation State Evidence, archived at `harness/changes/archive/20260614-phase-10f-goal-loop-continuation-state-evidence/summary.md`.
+Latest completed product/Harness docs phase: Phase 10G Goal Loop Continuation Brief Evidence, archived at `harness/changes/archive/20260614-phase-10g-goal-loop-continuation-brief-evidence/summary.md`.
 
 Latest Harness evolution: `harness/changes/archive/20260614-auto-evolve-harness-phase-9y-10d-goal-loop-evidence/summary.md`, which completed the Phase 9Y-10D pending window as `modify/subagent_review` with accepted Goal Loop recommendation-authority and fallback-priority review coverage.
 
@@ -326,6 +327,12 @@ Phase 10B is closed and archived at `harness/changes/archive/20260614-phase-10b-
 Phase 10C is closed and archived at `harness/changes/archive/20260614-phase-10c-main-agent-goal-loop-decision-evidence-foundation/summary.md`. It adds non-executing main-agent GoalLoopDecision planning evidence for the selected Change, with conflict-aware next-step recommendations and explicit forbidden actions. It must not start scheduler loops, workers, validation, audit, IntegrationCheck, apply/close, child Changes, or any source mutation; actual high-impact transitions remain separate ToolPolicyGate and human-gated actions.
 
 Phase 10D is closed and archived at `harness/changes/archive/20260614-phase-10d-goal-loop-confirmation-surface/summary.md`. It exposes `planning.goal-loop.evaluate` as a fallback Workbench confirmation only when no more specific current confirmation exists. It does not place Goal Loop evaluation in `workpad.nextAction`, execute `GoalLoopDecision.recommendedAction`, hide concrete human gates, or create scheduler/runtime/source mutation artifacts.
+
+Phase 10E is closed and archived at `harness/changes/archive/20260614-phase-10e-goal-loop-iteration-journal-evidence/summary.md`. It records each confirmed Goal Loop evaluation as non-executing iteration evidence.
+
+Phase 10F is closed and archived at `harness/changes/archive/20260614-phase-10f-goal-loop-continuation-state-evidence/summary.md`. It adds continuation-state control constraints to GoalLoopIteration without adding a controller or execution authority.
+
+Phase 10G is closed and archived at `harness/changes/archive/20260614-phase-10g-goal-loop-continuation-brief-evidence/summary.md`. It adds a derived continuation brief artifact for the next main Agent turn; the brief is prompt/handoff evidence only and must not auto-schedule continuation, execute recommended actions, mutate source, close a Change, or start scheduler/worker paths.
 
 Auto Evolve Harness Phase 9R 9V Scheduler Integration Apply Evidence is closed and archived at `harness/changes/archive/20260613-auto-evolve-harness-phase-9r-9v-scheduler-integration-apply-evidence/summary.md`. It reviewed Phase 9R-9V as `noop/subagent_review` with subagent score `88/100`; existing Source Apply Safety, scoped action payload, proposal/runtime, module-boundary, scheduler non-execution, ToolPolicy/human gate, and workflow-truth rules are sufficient. It does not change product code, runtime behavior, Workbench actions, routes, CLI commands, UI, scheduler execution, parallel executor behavior, child Changes, ODWF runtime, or cache/replay.
 

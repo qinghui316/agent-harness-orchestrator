@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { WORKFLOW_ACTION_TYPES } from "../workflow-actions/registry.js";
-import type { GoalLoopDecision } from "./types.js";
+import type { GoalLoopContinuationBrief, GoalLoopDecision } from "./types.js";
 
 const sourceEvidenceRefSchema = z.object({
   kind: z.string(),
@@ -135,6 +135,38 @@ export const goalLoopIterationSchema = z.object({
   conflictAssessment: conflictAssessmentSchema,
   completionAudit: completionAuditSchema,
   sourceEvidenceRefs: z.array(sourceEvidenceRefSchema),
+  executionStarted: z.literal(false),
+  artifact: z.string(),
+  markdownArtifact: z.string(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+
+export const goalLoopContinuationBriefSchema: z.ZodType<GoalLoopContinuationBrief> = z.object({
+  version: z.literal("1.0"),
+  id: z.string(),
+  changeId: z.string(),
+  authority: z.literal("non-executing-continuation-brief-evidence"),
+  sourceGoalLoopDecisionId: z.string(),
+  sourceGoalLoopIterationId: z.string(),
+  iterationOrdinal: z.number().int().positive(),
+  decisionKind: decisionKindSchema,
+  continuationVerdict: z.enum(["wait", "recommend-existing-gate", "blocked", "ready-for-human-close-gate"]),
+  continuationState: continuationStateSchema,
+  summary: z.string(),
+  recommendedAction: recommendedActionSchema.optional(),
+  humanGateRequired: z.boolean(),
+  controlPolicy: controlPolicySchema,
+  budgetSignal: budgetSignalSchema,
+  resumePreconditions: z.array(resumePreconditionSchema),
+  suppressedBecause: suppressionReasonSchema.optional(),
+  conflictAssessment: conflictAssessmentSchema,
+  completionAudit: completionAuditSchema,
+  sourceEvidenceRefs: z.array(sourceEvidenceRefSchema),
+  forbiddenActions: z.array(forbiddenActionSchema),
+  stalenessInstruction: z.string(),
+  mainAgentInstructions: z.array(z.string()),
+  forbiddenExecutionStatements: z.array(z.string()),
   executionStarted: z.literal(false),
   artifact: z.string(),
   markdownArtifact: z.string(),

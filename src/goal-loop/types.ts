@@ -2,6 +2,7 @@ import type { WorkflowActionType } from "../workflow-actions/registry.js";
 
 export type GoalLoopDecisionAuthority = "non-executing-planning-evidence";
 export type GoalLoopIterationAuthority = "non-executing-continuation-evidence";
+export type GoalLoopContinuationBriefAuthority = "non-executing-continuation-brief-evidence";
 
 export type GoalLoopDecisionKind =
   | "planning-needed"
@@ -140,6 +141,38 @@ export interface GoalLoopIteration {
   conflictAssessment: GoalLoopConflictAssessment;
   completionAudit: GoalLoopCompletionAudit;
   sourceEvidenceRefs: GoalLoopSourceEvidenceRef[];
+  executionStarted: false;
+  artifact: string;
+  markdownArtifact: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface GoalLoopContinuationBrief {
+  version: "1.0";
+  id: string;
+  changeId: string;
+  authority: GoalLoopContinuationBriefAuthority;
+  sourceGoalLoopDecisionId: string;
+  sourceGoalLoopIterationId: string;
+  iterationOrdinal: number;
+  decisionKind: GoalLoopDecisionKind;
+  continuationVerdict: GoalLoopContinuationVerdict;
+  continuationState: GoalLoopContinuationState;
+  summary: string;
+  recommendedAction?: GoalLoopRecommendedAction;
+  humanGateRequired: boolean;
+  controlPolicy: GoalLoopControlPolicy;
+  budgetSignal: GoalLoopBudgetSignal;
+  resumePreconditions: GoalLoopResumePrecondition[];
+  suppressedBecause?: GoalLoopSuppressionReason;
+  conflictAssessment: GoalLoopConflictAssessment;
+  completionAudit: GoalLoopCompletionAudit;
+  sourceEvidenceRefs: GoalLoopSourceEvidenceRef[];
+  forbiddenActions: GoalLoopForbiddenAction[];
+  stalenessInstruction: string;
+  mainAgentInstructions: string[];
+  forbiddenExecutionStatements: string[];
   executionStarted: false;
   artifact: string;
   markdownArtifact: string;

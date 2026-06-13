@@ -1,4 +1,4 @@
-import type { GoalLoopDecision, GoalLoopIteration } from "./types.js";
+import type { GoalLoopContinuationBrief, GoalLoopDecision, GoalLoopIteration } from "./types.js";
 
 export function renderGoalLoopDecisionMarkdown(decision: GoalLoopDecision): string {
   const lines = [
@@ -145,6 +145,115 @@ export function renderGoalLoopIterationMarkdown(iteration: GoalLoopIteration): s
     "- This iteration is continuation evidence only.",
     "- It does not execute the recommended action.",
     "- Concrete next steps still require their own scoped Harness confirmation.",
+    "",
+  ];
+  return `${lines.join("\n")}\n`;
+}
+
+export function renderGoalLoopContinuationBriefMarkdown(brief: GoalLoopContinuationBrief): string {
+  const lines = [
+    `# GoalLoopContinuationBrief ${brief.id}`,
+    "",
+    `- Change: ${brief.changeId}`,
+    `- Authority: ${brief.authority}`,
+    `- Source GoalLoopDecision: ${brief.sourceGoalLoopDecisionId}`,
+    `- Source GoalLoopIteration: ${brief.sourceGoalLoopIterationId}`,
+    `- Iteration ordinal: ${brief.iterationOrdinal}`,
+    `- Decision: ${brief.decisionKind}`,
+    `- Continuation verdict: ${brief.continuationVerdict}`,
+    `- Continuation state: ${brief.continuationState}`,
+    `- Human gate required: ${brief.humanGateRequired ? "yes" : "no"}`,
+    `- Execution started: ${brief.executionStarted ? "yes" : "no"}`,
+    "",
+    "## Summary",
+    "",
+    brief.summary,
+    "",
+    "## Main Agent Instructions",
+    "",
+    ...brief.mainAgentInstructions.map((instruction) => `- ${instruction}`),
+    "",
+    "## Staleness / Re-read Instruction",
+    "",
+    brief.stalenessInstruction,
+    "",
+    "## Recommended Action Snapshot",
+    "",
+    brief.recommendedAction
+      ? `- ${brief.recommendedAction.actionType}: ${brief.recommendedAction.reason}`
+      : "- None.",
+    ...(brief.recommendedAction
+      ? ["", "### Scope", "", ...Object.entries(brief.recommendedAction.scope).map(([key, value]) => `- ${key}: ${Array.isArray(value) ? value.join(", ") : value}`)]
+      : []),
+    "",
+    "## Continuation Control Policy",
+    "",
+    `- Authority: ${brief.controlPolicy.authority}`,
+    `- Can auto-continue: ${brief.controlPolicy.canAutoContinue ? "yes" : "no"}`,
+    `- Can auto-execute recommended action: ${brief.controlPolicy.canAutoExecuteRecommendedAction ? "yes" : "no"}`,
+    `- Requires human gate: ${brief.controlPolicy.requiresHumanGate ? "yes" : "no"}`,
+    `- Recommended action type: ${brief.controlPolicy.recommendedActionType ?? "none"}`,
+    `- Reason: ${brief.controlPolicy.reason}`,
+    "",
+    "## Budget / Accounting Signal",
+    "",
+    `- Status: ${brief.budgetSignal.status}`,
+    `- Summary: ${brief.budgetSignal.summary}`,
+    ...(brief.budgetSignal.tokenBudget !== undefined ? [`- Token budget: ${brief.budgetSignal.tokenBudget}`] : []),
+    ...(brief.budgetSignal.tokensUsed !== undefined ? [`- Tokens used: ${brief.budgetSignal.tokensUsed}`] : []),
+    ...(brief.budgetSignal.remainingTokens !== undefined ? [`- Remaining tokens: ${brief.budgetSignal.remainingTokens}`] : []),
+    "",
+    "## Resume Preconditions",
+    "",
+    ...(brief.resumePreconditions.length
+      ? brief.resumePreconditions.map((item) => `- ${item.kind}${item.id ? ` ${item.id}` : ""}: ${item.satisfied ? "satisfied" : "pending"} - ${item.summary}`)
+      : ["- None."]),
+    "",
+    "## Suppression Reason",
+    "",
+    brief.suppressedBecause
+      ? `- ${brief.suppressedBecause.reason}: ${brief.suppressedBecause.summary}`
+      : "- None.",
+    "",
+    "## Conflict Assessment",
+    "",
+    `- Level: ${brief.conflictAssessment.level}`,
+    `- Parallel eligible: ${brief.conflictAssessment.parallelEligible ? "yes" : "no"}`,
+    ...brief.conflictAssessment.reasons.map((reason) => `- ${reason}`),
+    "",
+    "## Completion Audit",
+    "",
+    `- Status: ${brief.completionAudit.status}`,
+    "",
+    "### Evidence",
+    "",
+    ...(brief.completionAudit.evidence.length ? brief.completionAudit.evidence.map((item) => `- ${item}`) : ["- None."]),
+    "",
+    "### Missing",
+    "",
+    ...(brief.completionAudit.missing.length ? brief.completionAudit.missing.map((item) => `- ${item}`) : ["- None."]),
+    "",
+    "## Source Evidence",
+    "",
+    ...(brief.sourceEvidenceRefs.length
+      ? brief.sourceEvidenceRefs.map((ref) => `- ${ref.kind}${ref.id ? ` ${ref.id}` : ""}${ref.status ? ` (${ref.status})` : ""}: ${ref.summary}`)
+      : ["- None."]),
+    "",
+    "## Forbidden Execution Statements",
+    "",
+    ...brief.forbiddenExecutionStatements.map((statement) => `- ${statement}`),
+    "",
+    "## Forbidden Actions",
+    "",
+    ...(brief.forbiddenActions.length
+      ? brief.forbiddenActions.map((action) => `- ${action.actionType}: ${action.reason}`)
+      : ["- None."]),
+    "",
+    "## Boundary",
+    "",
+    "- This brief is continuation handoff evidence only.",
+    "- It is not a hidden next turn, scheduler loop, workflow truth, or execution authorization.",
+    "- The next main Agent turn must re-read current Change evidence before relying on this brief.",
     "",
   ];
   return `${lines.join("\n")}\n`;

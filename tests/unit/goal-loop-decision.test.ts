@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { compileGoalLoopDecision, compileGoalLoopEvaluation, readLatestGoalLoopIteration } from "../../src/goal-loop/manager.js";
+import { compileGoalLoopDecision, compileGoalLoopEvaluation, readLatestGoalLoopContinuationBrief, readLatestGoalLoopIteration } from "../../src/goal-loop/manager.js";
 import type { ResolvedMemory } from "../../src/types/index.js";
 import { schedulerRunArtifactRefs, writeSchedulerRun } from "../../src/workflow-scheduler/repository.js";
 import type { SchedulerRun } from "../../src/workflow-scheduler/types.js";
@@ -97,6 +97,24 @@ describe("GoalLoopDecision", () => {
       goalLoopDecisionId: first.goalLoopDecision.id,
       executionStarted: false,
     });
+    expect(first.goalLoopContinuationBrief).toMatchObject({
+      changeId,
+      authority: "non-executing-continuation-brief-evidence",
+      sourceGoalLoopDecisionId: first.goalLoopDecision.id,
+      sourceGoalLoopIterationId: first.goalLoopIteration.id,
+      iterationOrdinal: 1,
+      continuationState: "ready-for-existing-gate",
+      executionStarted: false,
+    });
+    expect(first.goalLoopContinuationBrief.mainAgentInstructions).toEqual(expect.arrayContaining([
+      expect.stringContaining("full user objective"),
+      expect.stringContaining("Observe current repository evidence"),
+    ]));
+    expect(first.goalLoopContinuationBrief.forbiddenExecutionStatements).toEqual(expect.arrayContaining([
+      expect.stringContaining("Do not execute the recommended action"),
+      expect.stringContaining("Do not start scheduler workers"),
+    ]));
+    expect(first.goalLoopContinuationBrief.stalenessInstruction).toContain("re-read");
     expect(first.goalLoopIteration.resumePreconditions).toEqual(expect.arrayContaining([
       expect.objectContaining({ kind: "selected-change-scope", satisfied: true }),
       expect.objectContaining({ kind: "separate-human-gated-action", id: "planning.scheduler.plan.prepare", satisfied: false }),
@@ -122,6 +140,13 @@ describe("GoalLoopDecision", () => {
     await expect(readLatestGoalLoopIteration(memory, changePath)).resolves.toMatchObject({
       id: second.goalLoopIteration.id,
       ordinal: 2,
+    });
+    await expect(readLatestGoalLoopContinuationBrief(memory, changePath)).resolves.toMatchObject({
+      id: second.goalLoopContinuationBrief.id,
+      sourceGoalLoopIterationId: second.goalLoopIteration.id,
+      sourceGoalLoopDecisionId: second.goalLoopDecision.id,
+      iterationOrdinal: 2,
+      executionStarted: false,
     });
   });
 
@@ -149,6 +174,13 @@ describe("GoalLoopDecision", () => {
     expect(goalLoopIteration.resumePreconditions).toEqual(expect.arrayContaining([
       expect.objectContaining({ kind: "additional-evidence", satisfied: false }),
     ]));
+    const waitingBrief = await readLatestGoalLoopContinuationBrief(memory, changePath);
+    expect(waitingBrief).toMatchObject({
+      sourceGoalLoopIterationId: goalLoopIteration.id,
+      continuationState: "waiting-for-evidence",
+      executionStarted: false,
+    });
+    expect(waitingBrief).not.toHaveProperty("recommendedAction");
   });
 });
 

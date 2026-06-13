@@ -112,11 +112,13 @@ AHO should borrow these rules:
 - Completion requires an evidence audit against the original objective, accepted artifacts, validation/audit, IntegrationCheck, apply/close state, and user requirements.
 - Blocked, paused, resumed, and budget-limited states must be explicit lifecycle states, not hidden model moods.
 - The main Agent may decide that low-conflict work can proceed in parallel and high-conflict work must wait or enter a fix loop.
+- AHO may record a `GoalLoopContinuationBrief` as a next-turn reading aid derived from current evidence, but the next turn still has to re-read the selected Change and current artifacts before acting.
 
 AHO must not copy these parts as authority:
 
 - Codex `Goal` is thread/task state; AHO workflow truth remains Change/ECL plus artifacts.
 - Codex continuation is not a scheduler loop and does not authorize worker start, source mutation, merge, or close in AHO.
+- Codex continuation locks, idle continuation scheduling, active-turn reservation, and token accounting runtime are not copied by AHO's continuation brief evidence.
 - AHO still requires ToolPolicyGate, Validation, Audit, IntegrationCheck, and human apply/close gates.
 
 ## Implications for Phase 3A

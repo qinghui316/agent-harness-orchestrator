@@ -762,6 +762,13 @@ describe("Workbench module boundaries", () => {
     expect(handlerIndex).not.toContain('"planning.goal-loop.evaluate":');
     expect(handler).toContain("buildGoalLoopActionHandlers");
     expect(handler).toContain("compileGoalLoopEvaluation");
+    expect(handler).toContain("goalLoopContinuationBrief");
+    expect(readFileSync("src/goal-loop/types.ts", "utf8")).toContain("GoalLoopContinuationBrief");
+    expect(readFileSync("src/goal-loop/repository.ts", "utf8")).toContain("writeGoalLoopContinuationBrief");
+    expect(readFileSync("src/goal-loop/rendering.ts", "utf8")).toContain("renderGoalLoopContinuationBriefMarkdown");
+    expect(readFileSync("src/goal-loop/compiler.ts", "utf8")).toContain("compileGoalLoopContinuationBrief");
+    expect(readFileSync("src/goal-loop/compiler.ts", "utf8")).not.toContain("start_task");
+    expect(readFileSync("src/goal-loop/compiler.ts", "utf8")).not.toContain("continuation_lock");
     expect(confirmationQueue).toContain('from "./confirmation/goal-loop.js"');
     expect(confirmation).toContain("goalLoopEvaluationQueueItem");
     expect(confirmation).toContain('"planning.goal-loop.evaluate"');
