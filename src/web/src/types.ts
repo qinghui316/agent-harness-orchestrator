@@ -178,6 +178,7 @@ export type WorkpadNextAction = {
   schedulerIntegrationCandidateId?: string;
   schedulerIntegrationCheckHandoffId?: string;
   schedulerIntegrationOutcomeId?: string;
+  schedulerRunCompletionId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   workflowRunId?: string;
@@ -233,6 +234,7 @@ export type WorkbenchTaskNextAction = {
   schedulerIntegrationCandidateId?: string;
   schedulerIntegrationCheckHandoffId?: string;
   schedulerIntegrationOutcomeId?: string;
+  schedulerRunCompletionId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   workflowRunId?: string;
@@ -371,6 +373,7 @@ export type Workpad = {
   schedulerIntegrationCandidate?: SchedulerIntegrationCandidateSummary;
   schedulerIntegrationCheckHandoff?: SchedulerIntegrationCheckHandoffSummary;
   schedulerIntegrationOutcome?: SchedulerIntegrationOutcomeSummary;
+  schedulerRunCompletion?: SchedulerRunCompletionSummary;
   rolePipeline?: {
     stage: "planning" | "coding" | "validation" | "audit" | "rework" | "done" | "needs-user-input";
     status: "draft" | "running" | "completed" | "needs-user-input" | "stopped";
@@ -1028,6 +1031,26 @@ export type SchedulerIntegrationOutcomeSummary = {
   markdownArtifact?: string;
   updatedAt: string;
 };
+export type SchedulerRunCompletionSummary = {
+  id: string;
+  changeId: string;
+  schedulerRunId: string;
+  schedulerClaimReservationId: string;
+  schedulerReconcileSnapshotId: string;
+  schedulerIntegrationCandidateId: string;
+  schedulerIntegrationCheckHandoffId: string;
+  schedulerIntegrationOutcomeId: string;
+  status: "completed-applied" | "completed-discarded" | "completed-blocked";
+  outcomeStatus: "applied" | "discarded" | "blocked";
+  integrationCheckId: string;
+  integrationCheckStatus: string;
+  readyCount: number;
+  resultTargetCount: number;
+  outcomeReason: string;
+  artifact?: string;
+  markdownArtifact?: string;
+  updatedAt: string;
+};
 export type SchedulerReconcileSnapshotSummary = {
   id: string;
   changeId: string;
@@ -1082,6 +1105,7 @@ export type ThreadStreamAction = {
   schedulerIntegrationCandidateId?: string;
   schedulerIntegrationCheckHandoffId?: string;
   schedulerIntegrationOutcomeId?: string;
+  schedulerRunCompletionId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   workflowRunId?: string;

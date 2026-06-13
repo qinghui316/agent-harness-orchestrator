@@ -10,6 +10,7 @@ import {
   compileSchedulerIntegrationCandidate,
   runSchedulerIntegrationCheckHandoff,
   reconcileSchedulerIntegrationOutcome,
+  completeSchedulerRunFromIntegrationOutcome,
   prepareSchedulerPlanEvidence,
   reconcileSchedulerRuntime,
   reserveSchedulerRuntimeClaims,
@@ -17,6 +18,7 @@ import {
   renderSchedulerIntegrationCheckHandoffMarkdown,
   renderSchedulerIntegrationCandidateMarkdown,
   renderSchedulerIntegrationOutcomeMarkdown,
+  renderSchedulerRunCompletionMarkdown,
   renderSchedulerRuntimeClaimReservationMarkdown,
   renderSchedulerRuntimeWorkerResultMarkdown,
   renderSchedulerRuntimeWorkerStartMarkdown,
@@ -45,6 +47,7 @@ import {
   type SchedulerRuntimeWorkerStart,
   type SchedulerIntegrationCheckHandoffResult,
   type SchedulerIntegrationOutcomeResult,
+  type SchedulerRunCompletionResult,
   type SchedulerIntegrationCandidateResult,
   type SchedulerWorkerResultReconcileResult,
   type SchedulerWorkerAuditResult,
@@ -1986,6 +1989,65 @@ export async function reconcilePlanningSchedulerIntegrationOutcome(
     text: event.text,
     actionRunId: event.runId,
     runId: result.integrationCheck.id,
+  });
+  return result;
+}
+
+export async function completePlanningSchedulerRun(
+  project: ManagedProject,
+  changeId: string,
+  request: WorkbenchWorkflowActionRequest,
+  live: WorkbenchLiveSink | undefined,
+): Promise<SchedulerRunCompletionResult> {
+  const { memory } = await resolveTopic(project, changeId);
+  assertWritableMemory(memory, "SchedulerRun completion");
+  if (!request.schedulerRunId) throw new Error("planning.scheduler.run.complete requires schedulerRunId.");
+  if (!request.schedulerIntegrationOutcomeId) throw new Error("planning.scheduler.run.complete requires schedulerIntegrationOutcomeId.");
+  const result = await completeSchedulerRunFromIntegrationOutcome(project, {
+    changeId,
+    schedulerRunId: request.schedulerRunId,
+    schedulerIntegrationOutcomeId: request.schedulerIntegrationOutcomeId,
+  });
+  const text = renderSchedulerRunCompletionMarkdown(result.completion);
+  emitAssistantEvent(live, {
+    runId: result.completion.integrationCheckId,
+    kind: "file-change",
+    phase: "scheduler-run-completed",
+    title: "SchedulerRun completion recorded",
+    summary: `SchedulerRun completion recorded as ${result.completion.status}. No source mutation was performed by this action.`,
+    artifactRef: result.completion.artifact,
+  });
+  await recordWorkbenchDecision(project, {
+    id: `scheduler-run-completion:${result.completion.id}`,
+    changeId,
+    decisionType: "planning.scheduler.run.complete",
+    status: "completed",
+    label: "SchedulerRun completion 已记录",
+    actionId: "planning.scheduler.run.complete",
+    targetId: result.completion.id,
+    runId: result.completion.integrationCheckId,
+    artifact: result.completion.artifact,
+    summary: `SchedulerRun completion ${result.completion.status} recorded from scheduler integration outcome ${result.completion.schedulerIntegrationOutcomeId}. No source mutation was performed by this action.`,
+    payload: {
+      completion: result.completion,
+      schedulerRunCompletionId: result.completion.id,
+      schedulerIntegrationOutcomeId: result.completion.schedulerIntegrationOutcomeId,
+      schedulerIntegrationCheckHandoffId: result.completion.schedulerIntegrationCheckHandoffId,
+      schedulerIntegrationCandidateId: result.completion.schedulerIntegrationCandidateId,
+      schedulerClaimReservationId: result.completion.schedulerClaimReservationId,
+      integrationCheckId: result.completion.integrationCheckId,
+      integrationCheckStatus: result.completion.integrationCheckStatus,
+      completionStatus: result.completion.status,
+      outcomeStatus: result.completion.outcomeStatus,
+      sourceMutated: false,
+    },
+    completedAt: new Date().toISOString(),
+  });
+  await appendTopicThreadEntry(project, changeId, {
+    type: "assistant.message",
+    text,
+    actionRunId: result.completion.integrationCheckId,
+    runId: result.completion.integrationCheckId,
   });
   return result;
 }

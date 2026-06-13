@@ -317,7 +317,7 @@ export function renderSchedulerRunMarkdown(run: SchedulerRun): string {
     "",
     "## Boundary",
     "",
-    "This SchedulerRun is a non-executing journal shell. Status `prepared` is not execution authorization. A future executor must re-read this run, re-run ToolPolicyGate, require a human gate, and then create runtime records in a separate phase.",
+    "This SchedulerRun is a journal shell. Status `prepared` is not execution authorization, and status `completed` only records terminal scheduler recovery/projection evidence after existing integration/apply/discard gates have produced terminal outcome evidence.",
     "",
     "It does not create WorkerLeases, WorkerSessions, Runtime Continuity sidecars, TaskRuns, WorkflowRuns, worktrees, runs, child Changes, scheduler loops, slot allocators, or parallel execution.",
     "",

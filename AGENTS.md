@@ -266,7 +266,7 @@ Active change: none.
 
 Pending Harness evolution: none.
 
-Latest completed product phase: Phase 9U Scheduler Two Worker Acceptance Surface, archived at `harness/changes/archive/20260613-phase-9u-scheduler-two-worker-acceptance-surface/summary.md`.
+Latest completed product phase: Phase 9X SchedulerRun Terminal Completion Projection, archived at `harness/changes/archive/20260613-phase-9x-schedulerrun-terminal-completion-projection/summary.md`.
 
 Latest completed product/Harness docs phase: Phase 8T AgentScope Harness Reference Alignment, archived at `harness/changes/archive/20260611-phase-8t-agentscope-harness-reference-alignment/summary.md`.
 
@@ -307,6 +307,8 @@ Phase 9U is closed and archived at `harness/changes/archive/20260613-phase-9u-sc
 Phase 9V is closed and archived at `harness/changes/archive/20260613-phase-9v-scheduler-integration-apply-discard-outcome-acceptance/summary.md`. It verifies that scheduler IntegrationCheck handoff returns to the existing `apply-check.apply` / `apply-check.discard` human gate, then records scheduler-owned outcome evidence after that existing gate changes IntegrationCheck state. It also tightens the owner-module direct-call guard so outcome reconciliation re-reads latest `SchedulerIntegrationCandidate` and fails closed on stale or mismatched handoff lineage. It did not add scheduler apply/discard, a new IntegrationCheck engine, next-worker dispatch, whole-wave dispatch, scheduler loops, slot allocation, landing, PR, merge, child Changes, or a full parallel executor.
 
 Phase 9W is closed and archived at `harness/changes/archive/20260613-phase-9w-scheduler-integration-evidence-event-projection-hardening/summary.md`. It hardens SchedulerRun runtime event/projection coverage for the scheduler integration bridge by recording integration candidate, IntegrationCheck handoff, and terminal outcome transitions as scheduler-owned evidence. It does not add a new IntegrationCheck engine, scheduler-owned apply/discard, next-worker dispatch, whole-wave dispatch, scheduler loops, slot allocation, landing, PR, merge, child Changes, ODWF runtime, cache/replay, or a full parallel executor.
+
+Phase 9X is closed and archived at `harness/changes/archive/20260613-phase-9x-schedulerrun-terminal-completion-projection/summary.md`. It adds SchedulerRun terminal completion projection after scheduler integration outcome so recovery and Workbench status can distinguish a finished scheduler run from merely recorded integration evidence. It does not add scheduler apply/discard, a new IntegrationCheck engine, next-worker dispatch, whole-wave dispatch, scheduler loops, slot allocation, landing, PR, merge, child Changes, or a full parallel executor.
 
 Auto Evolve Harness Phase 9R 9V Scheduler Integration Apply Evidence is closed and archived at `harness/changes/archive/20260613-auto-evolve-harness-phase-9r-9v-scheduler-integration-apply-evidence/summary.md`. It reviewed Phase 9R-9V as `noop/subagent_review` with subagent score `88/100`; existing Source Apply Safety, scoped action payload, proposal/runtime, module-boundary, scheduler non-execution, ToolPolicy/human gate, and workflow-truth rules are sufficient. It does not change product code, runtime behavior, Workbench actions, routes, CLI commands, UI, scheduler execution, parallel executor behavior, child Changes, ODWF runtime, or cache/replay.
 

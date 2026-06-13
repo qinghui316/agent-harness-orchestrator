@@ -1118,6 +1118,7 @@ describe("Workbench module boundaries", () => {
       "src/scheduler-runtime/integration-candidate.ts",
       "src/scheduler-runtime/integration-check-handoff.ts",
       "src/scheduler-runtime/integration-outcome.ts",
+      "src/scheduler-runtime/run-completion.ts",
       "src/scheduler-runtime/rendering.ts",
       "src/scheduler-runtime/manager.ts",
     ]));
@@ -1134,6 +1135,7 @@ describe("Workbench module boundaries", () => {
     expect(manager).toContain('export * from "./integration-candidate.js";');
     expect(manager).toContain('export * from "./integration-check-handoff.js";');
     expect(manager).toContain('export * from "./integration-outcome.js";');
+    expect(manager).toContain('export * from "./run-completion.js";');
     expect(manager).toContain('export * from "./repository.js";');
 
     const initialize = readFileSync("src/scheduler-runtime/initialize.ts", "utf8");
@@ -1284,6 +1286,20 @@ describe("Workbench module boundaries", () => {
     expect(integrationOutcome).not.toContain("startValidationRun");
     expect(integrationOutcome).not.toContain("startAuditRun");
     expect(integrationOutcome).not.toContain("runTaskQueueSequence");
+
+    const runCompletion = readFileSync("src/scheduler-runtime/run-completion.ts", "utf8");
+    expect(runCompletion).toContain("completeSchedulerRunFromIntegrationOutcome");
+    expect(runCompletion).toContain("SchedulerRunCompletion");
+    expect(runCompletion).toContain("completeSchedulerRun");
+    expect(runCompletion).toContain("readIntegrationCheck");
+    expect(runCompletion).not.toContain("applyIntegrationCheck");
+    expect(runCompletion).not.toContain("discardIntegrationCheck");
+    expect(runCompletion).not.toContain("applyResultToProject");
+    expect(runCompletion).not.toContain("runIntegrationCheck");
+    expect(runCompletion).not.toContain("startCodeRun");
+    expect(runCompletion).not.toContain("startValidationRun");
+    expect(runCompletion).not.toContain("startAuditRun");
+    expect(runCompletion).not.toContain("runTaskQueueSequence");
 
     for (const file of files) {
       const content = readFileSync(file, "utf8");

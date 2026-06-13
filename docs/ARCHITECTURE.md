@@ -141,6 +141,8 @@ Phase 9V closes the scheduler integration acceptance loop after that handoff. Th
 
 Phase 9W adds event/projection hardening for that same integration bridge. `src/scheduler-runtime/` owns SchedulerRun-scoped events for candidate compile, IntegrationCheck handoff, and terminal outcome recording so recovery and run-graph consumers do not infer the bridge only from standalone artifacts. These events are evidence only; they do not start IntegrationCheck, apply/discard source, dispatch more workers, or authorize a scheduler executor.
 
+Phase 9X adds SchedulerRun terminal completion projection after scheduler integration outcome. `src/scheduler-runtime/` owns completion validation/evidence, while `src/workflow-scheduler/` may persist the SchedulerRun terminal status and journal event from canonical scope. Completion is runtime coordination evidence for recovery and Workbench status; it does not add a scheduler apply/discard path, a new IntegrationCheck engine, worker dispatch, scheduler loop, slot allocator, landing, PR, merge, child Changes, or a full parallel executor.
+
 Workbench relationship:
 
 ```text

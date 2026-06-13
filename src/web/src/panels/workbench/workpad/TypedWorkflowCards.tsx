@@ -527,3 +527,23 @@ export function SchedulerIntegrationOutcomeCard({ outcome }: { outcome: NonNulla
     </section>
   );
 }
+
+export function SchedulerRunCompletionCard({ completion }: { completion: NonNullable<Workpad["schedulerRunCompletion"]> }): ReactElement {
+  return (
+    <section className="workpad-section" data-testid="scheduler-run-completion-card">
+      <div className="workpad-section-header">
+        <h3>SchedulerRun 完成状态</h3>
+        <span>{humanStatus(completion.status)}</span>
+      </div>
+      <p className="workpad-goal">SchedulerRun 已记录 terminal completion；source mutation、landing、PR、merge 仍走既有独立 gate</p>
+      <div className="workpad-chip-list">
+        <span>Outcome {completion.outcomeStatus}</span>
+        <span>IntegrationCheck {completion.integrationCheckId}</span>
+        <span>{completion.readyCount} 个 ready target</span>
+        <span>{completion.resultTargetCount} 个 result target</span>
+      </div>
+      <p>{completion.outcomeReason}</p>
+      {completion.artifact ? <small className="artifact-link">查看证据：{artifactName(completion.artifact)}</small> : null}
+    </section>
+  );
+}

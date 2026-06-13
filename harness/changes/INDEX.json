@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-13T09:46:10.5769463Z",
+    "generated_at":  "2026-06-13T10:46:19.1878952Z",
     "active":  [
 
                ],
@@ -749,6 +749,10 @@
                     {
                         "name":  "20260613-phase-9w-scheduler-integration-evidence-event-projection-hardening",
                         "path":  "harness/changes/archive/20260613-phase-9w-scheduler-integration-evidence-event-projection-hardening"
+                    },
+                    {
+                        "name":  "20260613-phase-9x-schedulerrun-terminal-completion-projection",
+                        "path":  "harness/changes/archive/20260613-phase-9x-schedulerrun-terminal-completion-projection"
                     }
                 ]
 }

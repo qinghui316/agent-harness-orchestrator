@@ -1,4 +1,4 @@
-import type { SchedulerIntegrationCandidate, SchedulerIntegrationCheckHandoff, SchedulerIntegrationOutcome, SchedulerReconcileSnapshot, SchedulerRuntimeClaimReservation, SchedulerRuntimeState, SchedulerRuntimeWorkerAudit, SchedulerRuntimeWorkerResult, SchedulerRuntimeWorkerReworkAudit, SchedulerRuntimeWorkerReworkPlan, SchedulerRuntimeWorkerReworkResult, SchedulerRuntimeWorkerReworkStart, SchedulerRuntimeWorkerReworkValidation, SchedulerRuntimeWorkerStart, SchedulerRuntimeWorkerValidation } from "./types.js";
+import type { SchedulerIntegrationCandidate, SchedulerIntegrationCheckHandoff, SchedulerIntegrationOutcome, SchedulerReconcileSnapshot, SchedulerRunCompletion, SchedulerRuntimeClaimReservation, SchedulerRuntimeState, SchedulerRuntimeWorkerAudit, SchedulerRuntimeWorkerResult, SchedulerRuntimeWorkerReworkAudit, SchedulerRuntimeWorkerReworkPlan, SchedulerRuntimeWorkerReworkResult, SchedulerRuntimeWorkerReworkStart, SchedulerRuntimeWorkerReworkValidation, SchedulerRuntimeWorkerStart, SchedulerRuntimeWorkerValidation } from "./types.js";
 
 export function renderSchedulerRuntimeStateMarkdown(state: SchedulerRuntimeState): string {
   const lines = [
@@ -634,6 +634,44 @@ export function renderSchedulerIntegrationOutcomeMarkdown(outcome: SchedulerInte
     "## Boundary",
     "",
     "This scheduler integration outcome is runtime accounting evidence only. It does not run IntegrationCheck, apply source changes, discard worktrees, prepare landing, create PRs, merge, start another worker, or authorize the full parallel executor.",
+    "",
+  ];
+  return lines.join("\n");
+}
+
+export function renderSchedulerRunCompletionMarkdown(completion: SchedulerRunCompletion): string {
+  const lines = [
+    `# SchedulerRunCompletion ${completion.id}`,
+    "",
+    `Status: ${completion.status}`,
+    `Change: ${completion.changeId}`,
+    `SchedulerRun: ${completion.schedulerRunId}`,
+    `SchedulerIntegrationOutcome: ${completion.schedulerIntegrationOutcomeId}`,
+    `IntegrationCheck: ${completion.integrationCheckId} (${completion.integrationCheckStatus})`,
+    "",
+    "## Summary",
+    "",
+    `- Outcome status: ${completion.outcomeStatus}`,
+    `- Outcome reason: ${completion.outcomeReason}`,
+    `- Ready worktrees: ${completion.readyWorktreeIds.join(", ") || "none"}`,
+    `- Result target worktrees: ${completion.resultTargetWorktreeIds.join(", ") || "none"}`,
+    "",
+    "## Lineage",
+    "",
+    `- Runtime state: ${completion.schedulerRuntimeStateId}`,
+    `- Reconcile snapshot: ${completion.schedulerReconcileSnapshotId}`,
+    `- Claim reservation: ${completion.schedulerClaimReservationId}`,
+    `- Integration candidate: ${completion.schedulerIntegrationCandidateId}`,
+    `- IntegrationCheck handoff: ${completion.schedulerIntegrationCheckHandoffId}`,
+    `- SchedulerContract: ${completion.schedulerContractId}`,
+    `- Dispatch dry-run: ${completion.schedulerDispatchDryRunId}`,
+    `- Worker plan: ${completion.schedulerWorkerPlanId}`,
+    `- Claim/reconcile plan: ${completion.schedulerClaimReconcilePlanId}`,
+    `- Launch preflight: ${completion.schedulerLaunchPreflightId}`,
+    "",
+    "## Boundary",
+    "",
+    "This completion evidence only records that the SchedulerRun reached a terminal projection after existing IntegrationCheck/apply/discard outcome evidence. It does not run IntegrationCheck, apply source changes, discard worktrees, start another worker, dispatch waves, allocate slots, create child Changes, prepare landing, create PRs, merge, or authorize the full parallel executor.",
     "",
   ];
   return lines.join("\n");

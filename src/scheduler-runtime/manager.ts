@@ -10,6 +10,7 @@ export * from "./plan-preparation.js";
 export * from "./reconcile.js";
 export * from "./rendering.js";
 export * from "./repository.js";
+export * from "./run-completion.js";
 export * from "./schemas.js";
 export * from "./types.js";
 export * from "./worker-start.js";

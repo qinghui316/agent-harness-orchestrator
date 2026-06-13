@@ -180,3 +180,15 @@ export function schedulerIntegrationOutcomePath(memory: ResolvedMemory, changePa
 export function schedulerIntegrationOutcomeMarkdownPath(memory: ResolvedMemory, changePath: string, schedulerRunId: string, outcomeId: string): string {
   return join(schedulerIntegrationOutcomesDir(memory, changePath, schedulerRunId), `${outcomeId}.md`);
 }
+
+export function schedulerRunCompletionsDir(memory: ResolvedMemory, changePath: string, schedulerRunId: string): string {
+  return join(schedulerRuntimeDir(memory, changePath, schedulerRunId), "scheduler-run-completions");
+}
+
+export function schedulerRunCompletionPath(memory: ResolvedMemory, changePath: string, schedulerRunId: string, completionId: string): string {
+  return join(schedulerRunCompletionsDir(memory, changePath, schedulerRunId), `${completionId}.json`);
+}
+
+export function schedulerRunCompletionMarkdownPath(memory: ResolvedMemory, changePath: string, schedulerRunId: string, completionId: string): string {
+  return join(schedulerRunCompletionsDir(memory, changePath, schedulerRunId), `${completionId}.md`);
+}

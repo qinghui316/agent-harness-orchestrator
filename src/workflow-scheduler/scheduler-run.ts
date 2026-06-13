@@ -24,6 +24,12 @@ import type {
   SchedulerWorkerSessionPlan,
 } from "./types.js";
 
+export interface CompleteSchedulerRunInput {
+  summary: string;
+  artifactRefs: string[];
+  payload?: Record<string, unknown>;
+}
+
 export async function prepareSchedulerRun(
   memory: ResolvedMemory,
   changePath: string,
@@ -85,6 +91,35 @@ export async function prepareSchedulerRun(
     },
   });
   return run;
+}
+
+export async function completeSchedulerRun(
+  memory: ResolvedMemory,
+  changePath: string,
+  run: SchedulerRun,
+  input: CompleteSchedulerRunInput,
+): Promise<SchedulerRun> {
+  await assertWorkflowArtifactScope(memory, changePath, run, "SchedulerRun completion");
+  if (run.status === "completed") return run;
+  if (run.status !== "prepared") {
+    throw new Error(`SchedulerRun completion requires prepared status; found ${run.status}.`);
+  }
+
+  const now = new Date().toISOString();
+  const updated: SchedulerRun = {
+    ...run,
+    status: "completed",
+    artifactRefs: unique([...run.artifactRefs, ...input.artifactRefs]),
+    updatedAt: now,
+  };
+  await writeSchedulerRun(memory, changePath, updated);
+  await appendSchedulerRunJournalEvent(memory, changePath, updated, "scheduler-run.completed", {
+    status: updated.status,
+    summary: input.summary,
+    artifactRefs: input.artifactRefs,
+    payload: input.payload,
+  });
+  return updated;
 }
 
 async function validateSchedulerRunInput(

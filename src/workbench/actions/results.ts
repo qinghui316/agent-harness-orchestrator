@@ -265,6 +265,11 @@ export function summarizeActionResult(actionType: string, result: unknown): stri
       return `Scheduler IntegrationCheck ${result.integrationCheck.id} is still waiting for the existing apply/discard gate.`;
     }
   }
+  if (actionType === "planning.scheduler.run.complete" && isRecord(result) && isRecord(result.completion)) {
+    const status = typeof result.completion.status === "string" ? result.completion.status : "completed";
+    const integrationCheckId = typeof result.completion.integrationCheckId === "string" ? result.completion.integrationCheckId : "IntegrationCheck";
+    return `SchedulerRun completion ${status} recorded for ${integrationCheckId}. No apply, landing, PR, merge, or next worker was started.`;
+  }
   if (actionType === "planning.confirm-execution" && isRecord(result)) {
     return "Planning confirmed and canonical artifacts were written. No execution was started.";
   }
@@ -324,6 +329,7 @@ export function labelForAction(actionType: string): string {
     case "planning.scheduler.integration-candidate.compile": return "Scheduler integration candidate compiled";
     case "planning.scheduler.integration-check.run": return "Scheduler IntegrationCheck handoff completed";
     case "planning.scheduler.integration-outcome.reconcile": return "Scheduler integration outcome reconciled";
+    case "planning.scheduler.run.complete": return "SchedulerRun completion recorded";
     case "planning.workflowgraph.compile": return "WorkflowGraphPlan compiled";
     case "planning.taskqueue.confirm-start": return "TaskQueueProposal confirmed and started";
     case "orchestrator.evaluate": return "Main orchestrator evaluated";

@@ -34,7 +34,8 @@ export type SchedulerRuntimeEventType =
   | "scheduler-runtime.worker-rework-audit-failed"
   | "scheduler-runtime.integration-candidate-compiled"
   | "scheduler-runtime.integration-check-handoff-completed"
-  | "scheduler-runtime.integration-outcome-recorded";
+  | "scheduler-runtime.integration-outcome-recorded"
+  | "scheduler-runtime.run-completed";
 export type SchedulerReconcileSnapshotStatus = "generated" | "blocked";
 export type SchedulerRuntimeWorkerStartStatus = "started" | "failed";
 export type SchedulerRuntimeWorkerResultStatus = "evidence-ready" | "failed";
@@ -51,6 +52,7 @@ export type SchedulerIntegrationCandidateOutputKind = "worker" | "rework" | "inc
 export type SchedulerIntegrationCandidateOutputStatus = "ready" | "blocked";
 export type SchedulerIntegrationCheckHandoffStatus = "completed";
 export type SchedulerIntegrationOutcomeStatus = "applied" | "discarded" | "blocked";
+export type SchedulerRunCompletionStatus = "completed-applied" | "completed-discarded" | "completed-blocked";
 
 export interface SchedulerRuntimeClaimIntentState {
   claimIntentId: string;
@@ -769,6 +771,38 @@ export interface SchedulerIntegrationOutcome {
   sourceHead: string | null;
   latestArtifactHash?: string;
   latestArtifactRef?: string;
+  sourceArtifactHashes: Record<string, string>;
+  artifactRefs: string[];
+  artifact: string;
+  markdownArtifact: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SchedulerRunCompletion {
+  version: "1.0";
+  id: string;
+  changeId: string;
+  schedulerRunId: string;
+  schedulerMode: SchedulerMode;
+  status: SchedulerRunCompletionStatus;
+  schedulerRuntimeStateId: string;
+  schedulerReconcileSnapshotId: string;
+  schedulerClaimReservationId: string;
+  schedulerIntegrationCandidateId: string;
+  schedulerIntegrationCheckHandoffId: string;
+  schedulerIntegrationOutcomeId: string;
+  schedulerContractId: string;
+  schedulerDispatchDryRunId: string;
+  schedulerWorkerPlanId: string;
+  schedulerClaimReconcilePlanId: string;
+  schedulerLaunchPreflightId: string;
+  integrationCheckId: string;
+  integrationCheckStatus: string;
+  outcomeStatus: SchedulerIntegrationOutcomeStatus;
+  outcomeReason: string;
+  readyWorktreeIds: string[];
+  resultTargetWorktreeIds: string[];
   sourceArtifactHashes: Record<string, string>;
   artifactRefs: string[];
   artifact: string;
