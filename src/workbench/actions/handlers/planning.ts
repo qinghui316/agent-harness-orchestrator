@@ -9,12 +9,14 @@ import {
   initializeSchedulerRuntime,
   compileSchedulerIntegrationCandidate,
   runSchedulerIntegrationCheckHandoff,
+  reconcileSchedulerIntegrationOutcome,
   prepareSchedulerPlanEvidence,
   reconcileSchedulerRuntime,
   reserveSchedulerRuntimeClaims,
   renderSchedulerLaunchBriefMarkdown,
   renderSchedulerIntegrationCheckHandoffMarkdown,
   renderSchedulerIntegrationCandidateMarkdown,
+  renderSchedulerIntegrationOutcomeMarkdown,
   renderSchedulerRuntimeClaimReservationMarkdown,
   renderSchedulerRuntimeWorkerResultMarkdown,
   renderSchedulerRuntimeWorkerStartMarkdown,
@@ -41,6 +43,7 @@ import {
   type SchedulerRuntimeState,
   type SchedulerRuntimeWorkerStart,
   type SchedulerIntegrationCheckHandoffResult,
+  type SchedulerIntegrationOutcomeResult,
   type SchedulerIntegrationCandidateResult,
   type SchedulerWorkerResultReconcileResult,
   type SchedulerWorkerAuditResult,
@@ -1856,6 +1859,69 @@ export async function runPlanningSchedulerIntegrationCheckHandoff(
       resultTargetWorktreeIds: result.handoff.resultTargetWorktreeIds,
     },
     completedAt: new Date().toISOString(),
+  });
+  return result;
+}
+
+export async function reconcilePlanningSchedulerIntegrationOutcome(
+  project: ManagedProject,
+  changeId: string,
+  request: WorkbenchWorkflowActionRequest,
+  live: WorkbenchLiveSink | undefined,
+): Promise<SchedulerIntegrationOutcomeResult> {
+  const { memory } = await resolveTopic(project, changeId);
+  assertWritableMemory(memory, "Scheduler integration outcome");
+  if (!request.schedulerRunId) throw new Error("planning.scheduler.integration-outcome.reconcile requires schedulerRunId.");
+  if (!request.schedulerIntegrationCheckHandoffId) throw new Error("planning.scheduler.integration-outcome.reconcile requires schedulerIntegrationCheckHandoffId.");
+  const result = await reconcileSchedulerIntegrationOutcome(project, {
+    changeId,
+    schedulerRunId: request.schedulerRunId,
+    schedulerIntegrationCheckHandoffId: request.schedulerIntegrationCheckHandoffId,
+  });
+  const title = result.outcome ? "Scheduler integration outcome recorded" : "Scheduler IntegrationCheck waiting for apply/discard";
+  const text = result.outcome
+    ? renderSchedulerIntegrationOutcomeMarkdown(result.outcome)
+    : `IntegrationCheck ${result.integrationCheck.id} passed and is waiting for the existing apply/discard confirmation. No scheduler apply/discard action was created.`;
+  const event = {
+    runId: result.outcome?.integrationCheckId ?? result.integrationCheck.id,
+    text,
+  };
+  emitAssistantEvent(live, {
+    runId: event.runId,
+    kind: "file-change",
+    phase: result.outcome ? "scheduler-integration-outcome-recorded" : "scheduler-integration-outcome-waiting",
+    title,
+    summary: result.summary,
+    artifactRef: result.outcome?.artifact ?? result.integrationCheck.artifactRefs[0],
+  });
+  await recordWorkbenchDecision(project, {
+    id: result.outcome ? `scheduler-integration-outcome:${result.outcome.id}` : `scheduler-integration-outcome-waiting:${result.integrationCheck.id}`,
+    changeId,
+    decisionType: "planning.scheduler.integration-outcome.reconcile",
+    status: "completed",
+    label: result.outcome ? "Scheduler integration outcome 已记录" : "Scheduler IntegrationCheck 等待 apply/discard",
+    actionId: "planning.scheduler.integration-outcome.reconcile",
+    targetId: result.outcome?.id ?? request.schedulerIntegrationCheckHandoffId,
+    runId: result.integrationCheck.id,
+    artifact: result.outcome?.artifact ?? null,
+    summary: result.outcome
+      ? `Scheduler integration outcome ${result.outcome.status} recorded for IntegrationCheck ${result.integrationCheck.id}. No source mutation was performed by this action.`
+      : `Scheduler IntegrationCheck ${result.integrationCheck.id} is passed and still waits for existing apply/discard confirmation. No scheduler apply/discard was created.`,
+    payload: {
+      outcome: result.outcome,
+      schedulerIntegrationOutcomeId: result.outcome?.id,
+      schedulerIntegrationCheckHandoffId: request.schedulerIntegrationCheckHandoffId,
+      integrationCheckId: result.integrationCheck.id,
+      integrationCheckStatus: result.integrationCheck.status,
+      sourceMutated: false,
+    },
+    completedAt: new Date().toISOString(),
+  });
+  await appendTopicThreadEntry(project, changeId, {
+    type: "assistant.message",
+    text: event.text,
+    actionRunId: event.runId,
+    runId: result.integrationCheck.id,
   });
   return result;
 }

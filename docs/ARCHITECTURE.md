@@ -127,6 +127,10 @@ Phase 9O adds the first scheduler rework audit slice. `src/scheduler-runtime/wor
 
 Phase 9P adds the scheduler integration candidate bridge. `src/scheduler-runtime/integration-candidate.ts` owns the read/guard/compile path for `SchedulerIntegrationCandidate` evidence after scheduler worker or rework worker audit approval. It re-checks each output worktree through the existing apply preview/readiness gates and records ready or blocked candidate outputs. It does not run IntegrationCheck, aggregate validation, aggregate audit, apply, landing, merge, next-worker dispatch, or a scheduler loop; final multi-worktree integration still routes through existing IntegrationCheck, aggregate validation/audit, and human apply gates.
 
+Phase 9Q adds the scheduler IntegrationCheck handoff. `src/scheduler-runtime/integration-check-handoff.ts` owns the read/guard/run/write path that consumes a latest ready `SchedulerIntegrationCandidate`, revalidates ready worktree targets, and delegates to the existing explicit `runIntegrationCheck(project, worktreeIds)` path. It does not implement a second IntegrationCheck engine and does not apply, discard, land, merge, start another worker, or run a scheduler loop.
+
+Phase 9R adds the scheduler integration outcome bridge. `src/scheduler-runtime/integration-outcome.ts` owns the read/guard/write path that records existing IntegrationCheck terminal, applied, or discarded outcomes back into scheduler-owned evidence. It re-reads the current IntegrationCheck and target worktree metadata; `passed` checks remain waiting for the existing apply/discard confirmation, applied checks require applied target evidence, and discarded checks reject applied target evidence. It does not apply/discard source itself, does not replace aggregate validation/audit semantics, and does not start landing, PR, merge, next-worker dispatch, or the full scheduler executor.
+
 Workbench relationship:
 
 ```text

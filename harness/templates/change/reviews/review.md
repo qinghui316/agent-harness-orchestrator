@@ -42,6 +42,16 @@ Pending.
 - If applicable, duplicate action/evidence affordance check: not applicable.
 - If not applicable, reason: change does not add or change Workbench live/server UI actions that depend on explicit target ids.
 
+## Source Apply Safety Coverage
+
+- Source apply safety coverage applicable: no.
+- If applicable, checked source project / fixture: not applicable.
+- If applicable, checked worktree ids / result ids / integration check ids: not applicable.
+- If applicable, source-root mutation gate checked: not applicable.
+- If applicable, out-of-scope source mutation check: not applicable.
+- If applicable, tested with: not applicable.
+- If not applicable, reason: change does not affect result review, worktrees, apply/discard flows, source refresh rework, integration checks, multi-demand confirmation, or source-root apply handoff.
+
 ## Runtime Bridge Boundary Coverage
 
 - Runtime bridge boundary coverage applicable: no.

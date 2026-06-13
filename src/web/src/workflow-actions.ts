@@ -26,6 +26,7 @@ export type WorkflowActionPayloadSource = {
   schedulerWorkerReworkAuditId?: string;
   schedulerIntegrationCandidateId?: string;
   schedulerIntegrationCheckHandoffId?: string;
+  schedulerIntegrationOutcomeId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   workflowRunId?: string;

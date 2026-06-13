@@ -226,6 +226,8 @@ The acceptance record must show:
 
 Automatic IntegrationFix, remote PR/push, merge queues, and aggregate validation/audit are product capabilities. This rule does not require or imply those capabilities.
 
+Record this in the dedicated `Source Apply Safety Coverage` section of `reviews/review.md`. If source safety is not applicable, the review must say why. Archived or close-ready changes must not retain stale review closeout text such as `Status: pending`, `Status: in progress`, `Verification Pending`, or unresolved implementation findings; Harness lint checks this for archived changes and close-ready active changes.
+
 ### 13.3 Remote Handoff Acceptance
 
 When a structured change affects remote handoff behavior such as Draft PR creation, Draft PR updates, PR feedback refresh, provider capability detection, or remote review/check evidence, validation must include explicit remote handoff acceptance evidence before close.

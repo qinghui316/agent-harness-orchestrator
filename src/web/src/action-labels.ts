@@ -31,6 +31,7 @@ export function workflowActionLabel(actionType: string | undefined): string {
   if (actionType === "planning.scheduler.worker.rework-audit-first") return "审计第一个 worker rework 结果";
   if (actionType === "planning.scheduler.integration-candidate.compile") return "生成 scheduler integration 候选";
   if (actionType === "planning.scheduler.integration-check.run") return "运行 scheduler IntegrationCheck";
+  if (actionType === "planning.scheduler.integration-outcome.reconcile") return "记录 scheduler integration 结果";
   if (actionType === "planning.workflowgraph.compile") return "编译执行图";
   if (actionType === "planning.taskqueue.confirm-start") return "确认启动 TaskQueue";
   if (actionType === "none") return "无后续动作";

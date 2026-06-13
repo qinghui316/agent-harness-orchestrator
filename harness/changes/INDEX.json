@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-13T05:05:18.9741512Z",
+    "generated_at":  "2026-06-13T05:58:27.5948797Z",
     "active":  [
 
                ],
@@ -711,12 +711,20 @@
                         "path":  "harness/changes/archive/20260612-phase-9o-scheduler-first-worker-rework-audit-gate"
                     },
                     {
+                        "name":  "20260613-auto-evolve-harness-phase-9n-9r-scheduler-integration-evidence",
+                        "path":  "harness/changes/archive/20260613-auto-evolve-harness-phase-9n-9r-scheduler-integration-evidence"
+                    },
+                    {
                         "name":  "20260613-phase-9p-scheduler-worker-integration-candidate-bridge",
                         "path":  "harness/changes/archive/20260613-phase-9p-scheduler-worker-integration-candidate-bridge"
                     },
                     {
                         "name":  "20260613-phase-9q-scheduler-integrationcheck-handoff",
                         "path":  "harness/changes/archive/20260613-phase-9q-scheduler-integrationcheck-handoff"
+                    },
+                    {
+                        "name":  "20260613-phase-9r-scheduler-integration-outcome-bridge",
+                        "path":  "harness/changes/archive/20260613-phase-9r-scheduler-integration-outcome-bridge"
                     }
                 ]
 }

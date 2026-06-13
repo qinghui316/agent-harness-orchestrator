@@ -250,6 +250,16 @@ export function summarizeActionResult(actionType: string, result: unknown): stri
     const integrationCheckId = typeof result.handoff.integrationCheckId === "string" ? result.handoff.integrationCheckId : "IntegrationCheck";
     return `Scheduler handoff ran ${integrationCheckId} through the existing IntegrationCheck gate. No apply, landing, PR, merge, or next worker was started.`;
   }
+  if (actionType === "planning.scheduler.integration-outcome.reconcile" && isRecord(result)) {
+    if (isRecord(result.outcome)) {
+      const status = typeof result.outcome.status === "string" ? result.outcome.status : "recorded";
+      const integrationCheckId = typeof result.outcome.integrationCheckId === "string" ? result.outcome.integrationCheckId : "IntegrationCheck";
+      return `Scheduler integration outcome ${status} recorded for ${integrationCheckId}. No apply, landing, PR, merge, or next worker was started.`;
+    }
+    if (isRecord(result.integrationCheck) && typeof result.integrationCheck.id === "string") {
+      return `Scheduler IntegrationCheck ${result.integrationCheck.id} is still waiting for the existing apply/discard gate.`;
+    }
+  }
   if (actionType === "planning.confirm-execution" && isRecord(result)) {
     return "Planning confirmed and canonical artifacts were written. No execution was started.";
   }
@@ -308,6 +318,7 @@ export function labelForAction(actionType: string): string {
     case "planning.scheduler.worker.rework-audit-first": return "Scheduler first worker rework audited";
     case "planning.scheduler.integration-candidate.compile": return "Scheduler integration candidate compiled";
     case "planning.scheduler.integration-check.run": return "Scheduler IntegrationCheck handoff completed";
+    case "planning.scheduler.integration-outcome.reconcile": return "Scheduler integration outcome reconciled";
     case "planning.workflowgraph.compile": return "WorkflowGraphPlan compiled";
     case "planning.taskqueue.confirm-start": return "TaskQueueProposal confirmed and started";
     case "orchestrator.evaluate": return "Main orchestrator evaluated";

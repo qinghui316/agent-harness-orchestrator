@@ -489,19 +489,41 @@ export function SchedulerIntegrationCandidateCard({ candidate }: { candidate: No
 }
 
 export function SchedulerIntegrationCheckHandoffCard({ handoff }: { handoff: NonNullable<Workpad["schedulerIntegrationCheckHandoff"]> }): ReactElement {
+  const currentStatus = handoff.currentIntegrationCheckStatus ?? handoff.integrationCheckStatus;
   return (
     <section className="workpad-section" data-testid="scheduler-integration-check-handoff-card">
       <div className="workpad-section-header">
         <h3>Scheduler IntegrationCheck</h3>
-        <span>{humanStatus(handoff.integrationCheckStatus)}</span>
+        <span>{humanStatus(currentStatus)}</span>
       </div>
       <p className="workpad-goal">scheduler ready targets 已显式交给现有 IntegrationCheck（不 apply、不 merge）</p>
       <div className="workpad-chip-list">
         <span>{handoff.readyCount} 个 ready target</span>
         <span>IntegrationCheck {handoff.integrationCheckId}</span>
+        <span>当前状态 {currentStatus}</span>
         <span>{handoff.readyWorktreeIds.join(", ")}</span>
       </div>
       {handoff.artifact ? <small className="artifact-link">查看证据：{artifactName(handoff.artifact)}</small> : null}
+    </section>
+  );
+}
+
+export function SchedulerIntegrationOutcomeCard({ outcome }: { outcome: NonNullable<Workpad["schedulerIntegrationOutcome"]> }): ReactElement {
+  return (
+    <section className="workpad-section" data-testid="scheduler-integration-outcome-card">
+      <div className="workpad-section-header">
+        <h3>Scheduler Integration 结果</h3>
+        <span>{humanStatus(outcome.status)}</span>
+      </div>
+      <p className="workpad-goal">现有 IntegrationCheck 结果已回写为 scheduler-owned evidence（不执行 apply/discard）</p>
+      <div className="workpad-chip-list">
+        <span>IntegrationCheck {outcome.integrationCheckId}</span>
+        <span>{outcome.readyCount} 个 ready target</span>
+        <span>{outcome.resultTargetCount} 个 result target</span>
+      </div>
+      <p>{outcome.outcomeReason}</p>
+      {outcome.appliedAt ? <small>Applied at {outcome.appliedAt}</small> : null}
+      {outcome.artifact ? <small className="artifact-link">查看证据：{artifactName(outcome.artifact)}</small> : null}
     </section>
   );
 }

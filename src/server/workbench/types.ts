@@ -44,6 +44,7 @@ export interface WorkbenchActionRequest {
   schedulerClaimReservationId?: string;
   schedulerIntegrationCandidateId?: string;
   schedulerIntegrationCheckHandoffId?: string;
+  schedulerIntegrationOutcomeId?: string;
   schedulerWorkerStartId?: string;
   schedulerWorkerResultId?: string;
   schedulerWorkerValidationId?: string;

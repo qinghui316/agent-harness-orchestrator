@@ -103,6 +103,38 @@ function Test-ScopeExpansionRationale {
   return ($summary.ToLowerInvariant() -match 'scope expansion rationale|phase .*added|subphase|follow-up')
 }
 
+function Test-CloseReadySummary {
+  param([System.IO.DirectoryInfo]$Change)
+  $summary = Get-FileText -Path (Join-Path $Change.FullName "summary.md")
+  return ($summary -match '(?im)^## Current Status\s+\r?\n\s*(Completed|Ready to close)\.?')
+}
+
+function Test-ReviewCloseoutText {
+  param(
+    [System.IO.DirectoryInfo]$Change,
+    [string]$Scope
+  )
+
+  $reviewPath = Join-Path $Change.FullName "reviews/review.md"
+  if (-not (Test-Path -LiteralPath $reviewPath -PathType Leaf)) { return }
+
+  $review = Get-Content -LiteralPath $reviewPath -Encoding UTF8 -Raw
+  $relative = $reviewPath.Substring($root.Length).TrimStart([char]92, [char]47) -replace '\\', '/'
+
+  if ($review -match '(?im)^Status:\s*(pending|in progress)\.\s*$') {
+    Add-Err "$Scope review has stale status closeout text: $relative"
+  }
+  if ($review -match '(?im)^Open implementation findings:\s*$') {
+    Add-Err "$Scope review has unresolved implementation findings heading: $relative"
+  }
+  if ($review -match '(?im)^\s*-\s*Pending until\b') {
+    Add-Err "$Scope review has unresolved pending implementation finding: $relative"
+  }
+  if ($review -match '(?ms)^## Verification\s*\r?\n\s*Pending\.\s*(\r?\n|$)') {
+    Add-Err "$Scope review has stale verification pending closeout text: $relative"
+  }
+}
+
 function Test-HandoffActiveReference {
   param(
     [string]$RelativePath,
@@ -213,6 +245,16 @@ if ($activeChanges.Count -eq 1) {
   if ((Test-ScopeExpansion -Change $activeChanges[0]) -and -not (Test-ScopeExpansionRationale -Change $activeChanges[0])) {
     Add-Err "Active phase-scoped change includes later phases without scope expansion rationale: $($activeChanges[0].Name)"
   }
+  if (Test-CloseReadySummary -Change $activeChanges[0]) {
+    Test-ReviewCloseoutText -Change $activeChanges[0] -Scope "Close-ready active change"
+  }
+}
+
+$archiveRoot = Join-Path $root "harness/changes/archive"
+if (Test-Path -LiteralPath $archiveRoot) {
+  foreach ($archivedChange in @(Get-ChildItem -LiteralPath $archiveRoot -Directory -Force)) {
+    Test-ReviewCloseoutText -Change $archivedChange -Scope "Archived change"
+  }
 }
 
 $eclPath = Join-Path $root "docs/ECL.md"
@@ -221,6 +263,16 @@ if (Test-Path -LiteralPath $eclPath) {
   foreach ($term in @("Small Change", "Structured Change", "Plan-First", "pending evolution", "preflight", "Module Boundary Coverage", "module handoff map", "forbidden write-back locations", "Future Feature Module Boundary Rule", "owner module", "compatibility facade", "forbidden write-back")) {
     if ($ecl -notlike "*$term*") {
       Add-Err "docs/ECL.md missing expected term: $term"
+    }
+  }
+}
+
+$reviewTemplatePath = Join-Path $root "harness/templates/change/reviews/review.md"
+if (Test-Path -LiteralPath $reviewTemplatePath) {
+  $reviewTemplate = Get-Content -LiteralPath $reviewTemplatePath -Encoding UTF8 -Raw
+  foreach ($term in @("Source Apply Safety Coverage", "source-root mutation gate", "out-of-scope source mutation")) {
+    if ($reviewTemplate -notlike "*$term*") {
+      Add-Err "review template missing expected source apply safety term: $term"
     }
   }
 }

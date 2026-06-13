@@ -47,6 +47,7 @@ export type SchedulerIntegrationCandidateStatus = "ready" | "waiting" | "blocked
 export type SchedulerIntegrationCandidateOutputKind = "worker" | "rework" | "inconsistency";
 export type SchedulerIntegrationCandidateOutputStatus = "ready" | "blocked";
 export type SchedulerIntegrationCheckHandoffStatus = "completed";
+export type SchedulerIntegrationOutcomeStatus = "applied" | "discarded" | "blocked";
 
 export interface SchedulerRuntimeClaimIntentState {
   claimIntentId: string;
@@ -720,6 +721,51 @@ export interface SchedulerIntegrationCheckHandoff {
   integrationCheckId: string;
   integrationCheckStatus: string;
   resultTargetWorktreeIds: string[];
+  sourceArtifactHashes: Record<string, string>;
+  artifactRefs: string[];
+  artifact: string;
+  markdownArtifact: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SchedulerIntegrationOutcomeTarget {
+  worktreeId: string;
+  changeId: string;
+  diffHash: string;
+  sourceHead: string | null;
+  applied: boolean;
+  appliedAt?: string;
+  appliedCommit?: string;
+}
+
+export interface SchedulerIntegrationOutcome {
+  version: "1.0";
+  id: string;
+  changeId: string;
+  schedulerRunId: string;
+  schedulerMode: SchedulerMode;
+  status: SchedulerIntegrationOutcomeStatus;
+  schedulerRuntimeStateId: string;
+  schedulerReconcileSnapshotId: string;
+  schedulerClaimReservationId: string;
+  schedulerIntegrationCandidateId: string;
+  schedulerIntegrationCheckHandoffId: string;
+  schedulerContractId: string;
+  schedulerDispatchDryRunId: string;
+  schedulerWorkerPlanId: string;
+  schedulerClaimReconcilePlanId: string;
+  schedulerLaunchPreflightId: string;
+  integrationCheckId: string;
+  integrationCheckStatus: string;
+  outcomeReason: string;
+  readyWorktreeIds: string[];
+  resultTargetWorktreeIds: string[];
+  targets: SchedulerIntegrationOutcomeTarget[];
+  appliedAt?: string;
+  sourceHead: string | null;
+  latestArtifactHash?: string;
+  latestArtifactRef?: string;
   sourceArtifactHashes: Record<string, string>;
   artifactRefs: string[];
   artifact: string;

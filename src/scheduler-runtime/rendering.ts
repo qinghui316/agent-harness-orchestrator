@@ -1,4 +1,4 @@
-import type { SchedulerIntegrationCandidate, SchedulerIntegrationCheckHandoff, SchedulerReconcileSnapshot, SchedulerRuntimeClaimReservation, SchedulerRuntimeState, SchedulerRuntimeWorkerAudit, SchedulerRuntimeWorkerResult, SchedulerRuntimeWorkerReworkAudit, SchedulerRuntimeWorkerReworkPlan, SchedulerRuntimeWorkerReworkResult, SchedulerRuntimeWorkerReworkStart, SchedulerRuntimeWorkerReworkValidation, SchedulerRuntimeWorkerStart, SchedulerRuntimeWorkerValidation } from "./types.js";
+import type { SchedulerIntegrationCandidate, SchedulerIntegrationCheckHandoff, SchedulerIntegrationOutcome, SchedulerReconcileSnapshot, SchedulerRuntimeClaimReservation, SchedulerRuntimeState, SchedulerRuntimeWorkerAudit, SchedulerRuntimeWorkerResult, SchedulerRuntimeWorkerReworkAudit, SchedulerRuntimeWorkerReworkPlan, SchedulerRuntimeWorkerReworkResult, SchedulerRuntimeWorkerReworkStart, SchedulerRuntimeWorkerReworkValidation, SchedulerRuntimeWorkerStart, SchedulerRuntimeWorkerValidation } from "./types.js";
 
 export function renderSchedulerRuntimeStateMarkdown(state: SchedulerRuntimeState): string {
   const lines = [
@@ -595,6 +595,45 @@ export function renderSchedulerIntegrationCheckHandoffMarkdown(handoff: Schedule
     "## Boundary",
     "",
     "This handoff records that scheduler-owned ready outputs were explicitly passed to the existing IntegrationCheck gate. It does not apply source changes, discard worktrees, prepare landing, create PRs, merge, start another worker, or authorize the full parallel executor.",
+    "",
+  ];
+  return lines.join("\n");
+}
+
+export function renderSchedulerIntegrationOutcomeMarkdown(outcome: SchedulerIntegrationOutcome): string {
+  const lines = [
+    `# SchedulerIntegrationOutcome ${outcome.id}`,
+    "",
+    `Status: ${outcome.status}`,
+    `Change: ${outcome.changeId}`,
+    `SchedulerRun: ${outcome.schedulerRunId}`,
+    `IntegrationCheckHandoff: ${outcome.schedulerIntegrationCheckHandoffId}`,
+    `IntegrationCheck: ${outcome.integrationCheckId} (${outcome.integrationCheckStatus})`,
+    "",
+    "## Summary",
+    "",
+    `- Outcome reason: ${outcome.outcomeReason}`,
+    `- Ready worktrees: ${outcome.readyWorktreeIds.join(", ") || "none"}`,
+    `- Result target worktrees: ${outcome.resultTargetWorktreeIds.join(", ") || "none"}`,
+    `- Applied at: ${outcome.appliedAt ?? "none"}`,
+    `- Latest artifact hash: ${outcome.latestArtifactHash ?? "none"}`,
+    "",
+    "## Targets",
+    "",
+    ...(outcome.targets.length ? outcome.targets.map((target) => [
+      `### ${target.worktreeId}`,
+      "",
+      `- Change: ${target.changeId}`,
+      `- Diff hash: ${target.diffHash}`,
+      `- Source HEAD: ${target.sourceHead ?? "unknown"}`,
+      `- Applied: ${target.applied ? "yes" : "no"}`,
+      `- Applied at: ${target.appliedAt ?? "none"}`,
+      `- Applied commit: ${target.appliedCommit ?? "none"}`,
+      "",
+    ].join("\n")) : ["- none", ""]),
+    "## Boundary",
+    "",
+    "This scheduler integration outcome is runtime accounting evidence only. It does not run IntegrationCheck, apply source changes, discard worktrees, prepare landing, create PRs, merge, start another worker, or authorize the full parallel executor.",
     "",
   ];
   return lines.join("\n");

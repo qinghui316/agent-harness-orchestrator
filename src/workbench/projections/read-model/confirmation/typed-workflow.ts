@@ -50,6 +50,7 @@ export function schedulerNextActionToConfirmationItems(
     return [];
   }
   const targetId = action.schedulerIntegrationCheckHandoffId
+    ?? action.schedulerIntegrationOutcomeId
     ?? action.schedulerIntegrationCandidateId
     ?? action.schedulerWorkerReworkAuditId
     ?? action.schedulerWorkerReworkValidationId
@@ -132,6 +133,7 @@ export function schedulerNextActionToConfirmationItems(
     schedulerWorkerReworkAuditId: action.schedulerWorkerReworkAuditId,
     schedulerIntegrationCandidateId: action.schedulerIntegrationCandidateId,
     schedulerIntegrationCheckHandoffId: action.schedulerIntegrationCheckHandoffId,
+    schedulerIntegrationOutcomeId: action.schedulerIntegrationOutcomeId,
     reservationIntentId: action.reservationIntentId,
     claimIntentId: action.claimIntentId,
     taskRunId,
@@ -172,6 +174,7 @@ export function schedulerNextActionToConfirmationItems(
       schedulerWorkerReworkAuditId: action.schedulerWorkerReworkAuditId,
       schedulerIntegrationCandidateId: action.schedulerIntegrationCandidateId,
       schedulerIntegrationCheckHandoffId: action.schedulerIntegrationCheckHandoffId,
+      schedulerIntegrationOutcomeId: action.schedulerIntegrationOutcomeId,
       reservationIntentId: action.reservationIntentId,
       claimIntentId: action.claimIntentId,
       taskRunId,

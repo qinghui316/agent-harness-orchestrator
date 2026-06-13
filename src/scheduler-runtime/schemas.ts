@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { SchedulerIntegrationCandidate, SchedulerIntegrationCheckHandoff, SchedulerReconcileSnapshot, SchedulerRuntimeClaimReservation, SchedulerRuntimeEvent, SchedulerRuntimeState, SchedulerRuntimeWorkerAudit, SchedulerRuntimeWorkerResult, SchedulerRuntimeWorkerReworkAudit, SchedulerRuntimeWorkerReworkPlan, SchedulerRuntimeWorkerReworkResult, SchedulerRuntimeWorkerReworkStart, SchedulerRuntimeWorkerReworkValidation, SchedulerRuntimeWorkerStart, SchedulerRuntimeWorkerValidation } from "./types.js";
+import type { SchedulerIntegrationCandidate, SchedulerIntegrationCheckHandoff, SchedulerIntegrationOutcome, SchedulerReconcileSnapshot, SchedulerRuntimeClaimReservation, SchedulerRuntimeEvent, SchedulerRuntimeState, SchedulerRuntimeWorkerAudit, SchedulerRuntimeWorkerResult, SchedulerRuntimeWorkerReworkAudit, SchedulerRuntimeWorkerReworkPlan, SchedulerRuntimeWorkerReworkResult, SchedulerRuntimeWorkerReworkStart, SchedulerRuntimeWorkerReworkValidation, SchedulerRuntimeWorkerStart, SchedulerRuntimeWorkerValidation } from "./types.js";
 
 const claimIntentStateSchema = z.object({
   claimIntentId: z.string(),
@@ -699,6 +699,51 @@ export const schedulerIntegrationCheckHandoffSchema: z.ZodType<SchedulerIntegrat
   integrationCheckId: z.string(),
   integrationCheckStatus: z.string(),
   resultTargetWorktreeIds: z.array(z.string()),
+  sourceArtifactHashes: z.record(z.string()),
+  artifactRefs: z.array(z.string()),
+  artifact: z.string(),
+  markdownArtifact: z.string(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+
+const schedulerIntegrationOutcomeTargetSchema = z.object({
+  worktreeId: z.string(),
+  changeId: z.string(),
+  diffHash: z.string(),
+  sourceHead: z.string().nullable(),
+  applied: z.boolean(),
+  appliedAt: z.string().optional(),
+  appliedCommit: z.string().optional(),
+});
+
+export const schedulerIntegrationOutcomeSchema: z.ZodType<SchedulerIntegrationOutcome> = z.object({
+  version: z.literal("1.0"),
+  id: z.string(),
+  changeId: z.string(),
+  schedulerRunId: z.string(),
+  schedulerMode: z.literal("parallel-readiness-v1"),
+  status: z.enum(["applied", "discarded", "blocked"]),
+  schedulerRuntimeStateId: z.string(),
+  schedulerReconcileSnapshotId: z.string(),
+  schedulerClaimReservationId: z.string(),
+  schedulerIntegrationCandidateId: z.string(),
+  schedulerIntegrationCheckHandoffId: z.string(),
+  schedulerContractId: z.string(),
+  schedulerDispatchDryRunId: z.string(),
+  schedulerWorkerPlanId: z.string(),
+  schedulerClaimReconcilePlanId: z.string(),
+  schedulerLaunchPreflightId: z.string(),
+  integrationCheckId: z.string(),
+  integrationCheckStatus: z.string(),
+  outcomeReason: z.string(),
+  readyWorktreeIds: z.array(z.string()),
+  resultTargetWorktreeIds: z.array(z.string()),
+  targets: z.array(schedulerIntegrationOutcomeTargetSchema),
+  appliedAt: z.string().optional(),
+  sourceHead: z.string().nullable(),
+  latestArtifactHash: z.string().optional(),
+  latestArtifactRef: z.string().optional(),
   sourceArtifactHashes: z.record(z.string()),
   artifactRefs: z.array(z.string()),
   artifact: z.string(),

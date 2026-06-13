@@ -26,6 +26,7 @@ import type {
   WorkbenchSchedulerClaimReservationSummary,
   WorkbenchSchedulerIntegrationCheckHandoffSummary,
   WorkbenchSchedulerIntegrationCandidateSummary,
+  WorkbenchSchedulerIntegrationOutcomeSummary,
   WorkbenchSchedulerReconcileSnapshotSummary,
   WorkbenchSchedulerRunSummary,
   WorkbenchSchedulerRuntimeSummary,
@@ -136,6 +137,7 @@ export interface ThreadStreamAction {
   schedulerWorkerReworkAuditId?: string;
   schedulerIntegrationCandidateId?: string;
   schedulerIntegrationCheckHandoffId?: string;
+  schedulerIntegrationOutcomeId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   workflowRunId?: string;
@@ -261,6 +263,7 @@ export interface WorkbenchDecisionAction {
   schedulerWorkerReworkAuditId?: string;
   schedulerIntegrationCandidateId?: string;
   schedulerIntegrationCheckHandoffId?: string;
+  schedulerIntegrationOutcomeId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   workflowRunId?: string;
@@ -357,6 +360,7 @@ export interface WorkbenchConfirmationQueueItem {
   schedulerWorkerReworkAuditId?: string;
   schedulerIntegrationCandidateId?: string;
   schedulerIntegrationCheckHandoffId?: string;
+  schedulerIntegrationOutcomeId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   taskRunId?: string;
@@ -451,6 +455,7 @@ export interface WorkpadNextAction {
   schedulerWorkerReworkAuditId?: string;
   schedulerIntegrationCandidateId?: string;
   schedulerIntegrationCheckHandoffId?: string;
+  schedulerIntegrationOutcomeId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   workflowRunId?: string;
@@ -702,6 +707,7 @@ export interface WorkbenchWorkpad {
   schedulerWorkerReworkAudit?: WorkbenchSchedulerWorkerReworkAuditSummary;
   schedulerIntegrationCandidate?: WorkbenchSchedulerIntegrationCandidateSummary;
   schedulerIntegrationCheckHandoff?: WorkbenchSchedulerIntegrationCheckHandoffSummary;
+  schedulerIntegrationOutcome?: WorkbenchSchedulerIntegrationOutcomeSummary;
   workflowRun?: WorkflowRunSummary;
   rolePipeline?: WorkbenchRolePipelineSummary;
   resultReview?: WorkbenchResultReview;
