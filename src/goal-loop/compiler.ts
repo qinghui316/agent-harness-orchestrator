@@ -23,12 +23,15 @@ import {
   goalLoopContinuationBriefArtifactRefs,
   goalLoopDecisionArtifactRefs,
   goalLoopIterationArtifactRefs,
+  goalLoopNextStepPacketArtifactRefs,
   readLatestGoalLoopContinuationBrief,
   readLatestGoalLoopDecision,
   readLatestGoalLoopIteration,
+  readLatestGoalLoopNextStepPacket,
   writeGoalLoopContinuationBrief,
   writeGoalLoopDecision,
   writeGoalLoopIteration,
+  writeGoalLoopNextStepPacket,
 } from "./repository.js";
 import type {
   GoalLoopContinuationBrief,
@@ -42,6 +45,8 @@ import type {
   GoalLoopContinuationVerdict,
   GoalLoopControlPolicy,
   GoalLoopIteration,
+  GoalLoopNextStepPacket,
+  GoalLoopNextStepRecommendationState,
   GoalLoopRecommendedAction,
   GoalLoopResumePrecondition,
   GoalLoopSourceEvidenceRef,
@@ -73,7 +78,7 @@ export async function compileGoalLoopDecision(memory: ResolvedMemory, changePath
   return decision;
 }
 
-export async function compileGoalLoopEvaluation(memory: ResolvedMemory, changePath: string): Promise<{ goalLoopDecision: GoalLoopDecision; goalLoopIteration: GoalLoopIteration; goalLoopContinuationBrief: GoalLoopContinuationBrief }> {
+export async function compileGoalLoopEvaluation(memory: ResolvedMemory, changePath: string): Promise<{ goalLoopDecision: GoalLoopDecision; goalLoopIteration: GoalLoopIteration; goalLoopContinuationBrief: GoalLoopContinuationBrief; goalLoopNextStepPacket: GoalLoopNextStepPacket }> {
   const previousDecision = await readOptional(() => readLatestGoalLoopDecision(memory, changePath));
   const previousIteration = await readOptional(() => readLatestGoalLoopIteration(memory, changePath));
   const decision = await compileGoalLoopDecision(memory, changePath);
@@ -115,7 +120,8 @@ export async function compileGoalLoopEvaluation(memory: ResolvedMemory, changePa
   const latestIteration = await readLatestGoalLoopIteration(memory, changePath);
   assertLatestIterationForBrief(latestIteration, iteration, decision);
   const brief = await compileGoalLoopContinuationBrief(memory, changePath, decision, latestIteration);
-  return { goalLoopDecision: decision, goalLoopIteration: latestIteration, goalLoopContinuationBrief: brief };
+  const packet = await compileGoalLoopNextStepPacket(memory, changePath, decision, latestIteration, brief);
+  return { goalLoopDecision: decision, goalLoopIteration: latestIteration, goalLoopContinuationBrief: brief, goalLoopNextStepPacket: packet };
 }
 
 export async function compileGoalLoopContinuationBrief(
@@ -165,6 +171,99 @@ export async function compileGoalLoopContinuationBrief(
     throw new Error("GoalLoopContinuationBrief latest pointer mismatch.");
   }
   return latestBrief;
+}
+
+export async function compileGoalLoopNextStepPacket(
+  memory: ResolvedMemory,
+  changePath: string,
+  decision: GoalLoopDecision,
+  iteration: GoalLoopIteration,
+  brief: GoalLoopContinuationBrief,
+): Promise<GoalLoopNextStepPacket> {
+  assertPacketLineage(decision, iteration, brief);
+  const now = new Date().toISOString();
+  const packetId = `goal-loop-next-step-packet-${now.replace(/[-:.TZ]/g, "").slice(0, 14)}-${shortHash(`${brief.changeId}:${brief.id}:${iteration.id}:${decision.id}`)}`;
+  const refs = goalLoopNextStepPacketArtifactRefs(memory, changePath, packetId);
+  const packet: GoalLoopNextStepPacket = {
+    version: "1.0",
+    id: packetId,
+    changeId: brief.changeId,
+    authority: "non-executing-main-agent-next-step-packet",
+    sourceGoalLoopDecisionId: decision.id,
+    sourceGoalLoopIterationId: iteration.id,
+    sourceGoalLoopContinuationBriefId: brief.id,
+    iterationOrdinal: brief.iterationOrdinal,
+    decisionKind: brief.decisionKind,
+    continuationVerdict: brief.continuationVerdict,
+    continuationState: brief.continuationState,
+    recommendationState: recommendationStateForBrief(brief),
+    summary: brief.summary,
+    recommendedAction: brief.recommendedAction,
+    separateGateRequired: Boolean(brief.recommendedAction) || brief.continuationState === "ready-for-human-close-gate",
+    humanGateRequired: brief.humanGateRequired,
+    revalidationChecklist: revalidationChecklistForPacket(brief),
+    mainAgentInstructions: mainAgentPacketInstructions(brief),
+    forbiddenExecutionStatements: brief.forbiddenExecutionStatements,
+    stalenessInstruction: brief.stalenessInstruction,
+    conflictAssessment: brief.conflictAssessment,
+    completionAudit: brief.completionAudit,
+    sourceEvidenceRefs: brief.sourceEvidenceRefs,
+    executionStarted: false,
+    artifact: refs.artifact,
+    markdownArtifact: refs.markdownArtifact,
+    createdAt: now,
+    updatedAt: now,
+  };
+  await writeGoalLoopNextStepPacket(memory, changePath, packet);
+  const latestPacket = await readLatestGoalLoopNextStepPacket(memory, changePath);
+  if (latestPacket.id !== packet.id || latestPacket.sourceGoalLoopContinuationBriefId !== brief.id) {
+    throw new Error("GoalLoopNextStepPacket latest pointer mismatch.");
+  }
+  return latestPacket;
+}
+
+function assertPacketLineage(decision: GoalLoopDecision, iteration: GoalLoopIteration, brief: GoalLoopContinuationBrief): void {
+  if (iteration.changeId !== decision.changeId || brief.changeId !== decision.changeId) throw new Error("GoalLoopNextStepPacket change scope mismatch.");
+  if (iteration.goalLoopDecisionId !== decision.id) throw new Error("GoalLoopNextStepPacket iteration decision lineage mismatch.");
+  if (brief.sourceGoalLoopDecisionId !== decision.id) throw new Error("GoalLoopNextStepPacket brief decision lineage mismatch.");
+  if (brief.sourceGoalLoopIterationId !== iteration.id) throw new Error("GoalLoopNextStepPacket brief iteration lineage mismatch.");
+  if (decision.executionStarted !== false || iteration.executionStarted !== false || brief.executionStarted !== false) {
+    throw new Error("GoalLoopNextStepPacket requires non-executing source evidence.");
+  }
+  if (iteration.controlPolicy.canAutoContinue !== false || iteration.controlPolicy.canAutoExecuteRecommendedAction !== false) {
+    throw new Error("GoalLoopNextStepPacket requires evidence-only control policy.");
+  }
+}
+
+function recommendationStateForBrief(brief: GoalLoopContinuationBrief): GoalLoopNextStepRecommendationState {
+  if (brief.recommendedAction) return "separate-gate-required";
+  if (brief.continuationState === "ready-for-human-close-gate") return "ready-for-human-close-gate";
+  if (brief.continuationState === "blocked") return "blocked";
+  return "waiting-for-evidence";
+}
+
+function revalidationChecklistForPacket(brief: GoalLoopContinuationBrief): string[] {
+  const checklist = [
+    "Re-read the selected Change metadata and accepted Spec/Plan/Tasks/AC artifacts.",
+    "Re-read latest scheduler/runtime, validation/audit, IntegrationCheck/apply, and Workbench confirmation evidence.",
+    "Treat this packet as stale if any source evidence was superseded after it was written.",
+    "Do not execute a recommended action from this packet; use the corresponding scoped Harness gate.",
+  ];
+  if (brief.recommendedAction) {
+    checklist.push(`Revalidate required targets for ${brief.recommendedAction.actionType}: ${Object.keys(brief.recommendedAction.scope).join(", ")}.`);
+  }
+  if (brief.continuationState === "ready-for-human-close-gate") {
+    checklist.push("Run the existing Change close gate checks before claiming completion.");
+  }
+  return checklist;
+}
+
+function mainAgentPacketInstructions(brief: GoalLoopContinuationBrief): string[] {
+  return [
+    ...brief.mainAgentInstructions,
+    "Use this packet as a compact resume context for the next explanation or planning turn.",
+    "If current evidence no longer matches this packet, record or request a fresh Goal Loop evaluation instead of acting on stale guidance.",
+  ];
 }
 
 function assertLatestIterationForBrief(latestIteration: GoalLoopIteration, expectedIteration: GoalLoopIteration, decision: GoalLoopDecision): void {

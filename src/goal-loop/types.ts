@@ -3,6 +3,7 @@ import type { WorkflowActionType } from "../workflow-actions/registry.js";
 export type GoalLoopDecisionAuthority = "non-executing-planning-evidence";
 export type GoalLoopIterationAuthority = "non-executing-continuation-evidence";
 export type GoalLoopContinuationBriefAuthority = "non-executing-continuation-brief-evidence";
+export type GoalLoopNextStepPacketAuthority = "non-executing-main-agent-next-step-packet";
 
 export type GoalLoopDecisionKind =
   | "planning-needed"
@@ -173,6 +174,43 @@ export interface GoalLoopContinuationBrief {
   stalenessInstruction: string;
   mainAgentInstructions: string[];
   forbiddenExecutionStatements: string[];
+  executionStarted: false;
+  artifact: string;
+  markdownArtifact: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type GoalLoopNextStepRecommendationState =
+  | "separate-gate-required"
+  | "waiting-for-evidence"
+  | "blocked"
+  | "ready-for-human-close-gate";
+
+export interface GoalLoopNextStepPacket {
+  version: "1.0";
+  id: string;
+  changeId: string;
+  authority: GoalLoopNextStepPacketAuthority;
+  sourceGoalLoopDecisionId: string;
+  sourceGoalLoopIterationId: string;
+  sourceGoalLoopContinuationBriefId: string;
+  iterationOrdinal: number;
+  decisionKind: GoalLoopDecisionKind;
+  continuationVerdict: GoalLoopContinuationVerdict;
+  continuationState: GoalLoopContinuationState;
+  recommendationState: GoalLoopNextStepRecommendationState;
+  summary: string;
+  recommendedAction?: GoalLoopRecommendedAction;
+  separateGateRequired: boolean;
+  humanGateRequired: boolean;
+  revalidationChecklist: string[];
+  mainAgentInstructions: string[];
+  forbiddenExecutionStatements: string[];
+  stalenessInstruction: string;
+  conflictAssessment: GoalLoopConflictAssessment;
+  completionAudit: GoalLoopCompletionAudit;
+  sourceEvidenceRefs: GoalLoopSourceEvidenceRef[];
   executionStarted: false;
   artifact: string;
   markdownArtifact: string;

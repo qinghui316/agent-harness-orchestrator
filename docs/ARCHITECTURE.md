@@ -168,6 +168,8 @@ projection is read-only and additive. It must not compile new Goal Loop artifact
 recommended action, become `workpad.nextAction`, start scheduler workers, run IntegrationCheck, mutate
 source, close a Change, or bypass ToolPolicyGate / human gates.
 
+Phase 10I adds `GoalLoopNextStepPacket` as the next non-executing main-Agent resume artifact. The packet is derived from the latest matching `GoalLoopDecision`, `GoalLoopIteration`, and `GoalLoopContinuationBrief`; it gives the next main-Agent turn a compact revalidation checklist and separate-gate reminder. It is not a controller, not a hidden Codex goal continuation turn, and not workflow truth. Any recommended action remains an existing scoped Harness gate with its own required target ids, stale revalidation, ToolPolicyGate audit, and human confirmation.
+
 Goal-driven loop model:
 
 ```mermaid

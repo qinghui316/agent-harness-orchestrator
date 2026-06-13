@@ -1,4 +1,4 @@
-import type { GoalLoopContinuationBrief, GoalLoopDecision, GoalLoopIteration } from "./types.js";
+import type { GoalLoopContinuationBrief, GoalLoopDecision, GoalLoopIteration, GoalLoopNextStepPacket } from "./types.js";
 
 export function renderGoalLoopDecisionMarkdown(decision: GoalLoopDecision): string {
   const lines = [
@@ -254,6 +254,87 @@ export function renderGoalLoopContinuationBriefMarkdown(brief: GoalLoopContinuat
     "- This brief is continuation handoff evidence only.",
     "- It is not a hidden next turn, scheduler loop, workflow truth, or execution authorization.",
     "- The next main Agent turn must re-read current Change evidence before relying on this brief.",
+    "",
+  ];
+  return `${lines.join("\n")}\n`;
+}
+
+export function renderGoalLoopNextStepPacketMarkdown(packet: GoalLoopNextStepPacket): string {
+  const lines = [
+    `# GoalLoopNextStepPacket ${packet.id}`,
+    "",
+    `- Change: ${packet.changeId}`,
+    `- Authority: ${packet.authority}`,
+    `- Source GoalLoopDecision: ${packet.sourceGoalLoopDecisionId}`,
+    `- Source GoalLoopIteration: ${packet.sourceGoalLoopIterationId}`,
+    `- Source GoalLoopContinuationBrief: ${packet.sourceGoalLoopContinuationBriefId}`,
+    `- Iteration ordinal: ${packet.iterationOrdinal}`,
+    `- Decision: ${packet.decisionKind}`,
+    `- Continuation verdict: ${packet.continuationVerdict}`,
+    `- Continuation state: ${packet.continuationState}`,
+    `- Recommendation state: ${packet.recommendationState}`,
+    `- Separate gate required: ${packet.separateGateRequired ? "yes" : "no"}`,
+    `- Human gate required: ${packet.humanGateRequired ? "yes" : "no"}`,
+    `- Execution started: ${packet.executionStarted ? "yes" : "no"}`,
+    "",
+    "## Summary",
+    "",
+    packet.summary,
+    "",
+    "## Recommended Action Snapshot",
+    "",
+    packet.recommendedAction
+      ? `- ${packet.recommendedAction.actionType}: ${packet.recommendedAction.reason}`
+      : "- None.",
+    ...(packet.recommendedAction
+      ? ["", "### Scope", "", ...Object.entries(packet.recommendedAction.scope).map(([key, value]) => `- ${key}: ${Array.isArray(value) ? value.join(", ") : value}`)]
+      : []),
+    "",
+    "## Revalidation Checklist",
+    "",
+    ...packet.revalidationChecklist.map((item) => `- ${item}`),
+    "",
+    "## Main Agent Instructions",
+    "",
+    ...packet.mainAgentInstructions.map((item) => `- ${item}`),
+    "",
+    "## Staleness Instruction",
+    "",
+    packet.stalenessInstruction,
+    "",
+    "## Conflict Assessment",
+    "",
+    `- Level: ${packet.conflictAssessment.level}`,
+    `- Parallel eligible: ${packet.conflictAssessment.parallelEligible ? "yes" : "no"}`,
+    ...packet.conflictAssessment.reasons.map((reason) => `- ${reason}`),
+    "",
+    "## Completion Audit",
+    "",
+    `- Status: ${packet.completionAudit.status}`,
+    "",
+    "### Evidence",
+    "",
+    ...(packet.completionAudit.evidence.length ? packet.completionAudit.evidence.map((item) => `- ${item}`) : ["- None."]),
+    "",
+    "### Missing",
+    "",
+    ...(packet.completionAudit.missing.length ? packet.completionAudit.missing.map((item) => `- ${item}`) : ["- None."]),
+    "",
+    "## Source Evidence",
+    "",
+    ...(packet.sourceEvidenceRefs.length
+      ? packet.sourceEvidenceRefs.map((ref) => `- ${ref.kind}${ref.id ? ` ${ref.id}` : ""}${ref.status ? ` (${ref.status})` : ""}: ${ref.summary}`)
+      : ["- None."]),
+    "",
+    "## Forbidden Execution Statements",
+    "",
+    ...packet.forbiddenExecutionStatements.map((statement) => `- ${statement}`),
+    "",
+    "## Boundary",
+    "",
+    "- This packet is main-Agent resume context only.",
+    "- It is not a hidden continuation turn, workflow truth, scheduler loop, or execution authorization.",
+    "- Any recommended action must be revalidated and confirmed through its own scoped Harness gate.",
     "",
   ];
   return `${lines.join("\n")}\n`;

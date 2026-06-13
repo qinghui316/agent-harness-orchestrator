@@ -676,22 +676,28 @@ export interface WorkbenchGoalLoopSummary {
   changeId: string;
   goalLoopDecisionId: string;
   goalLoopIterationId: string;
+  goalLoopNextStepPacketId?: string;
   iterationOrdinal: number;
   decisionKind: string;
   continuationVerdict: string;
   continuationState: string;
+  recommendationState?: string;
   summary: string;
   recommendedActionType?: WorkbenchThreadActionType;
   recommendedActionReason?: string;
+  separateGateRequired?: boolean;
   humanGateRequired: boolean;
   conflictLevel: string;
   parallelEligible: boolean;
   completionStatus: string;
   resumePreconditionCount: number;
+  revalidationChecklistCount?: number;
   sourceEvidenceCount: number;
   stalenessInstruction: string;
   artifact?: string;
   markdownArtifact?: string;
+  nextStepPacketArtifact?: string;
+  nextStepPacketMarkdownArtifact?: string;
   updatedAt: string;
   executionStarted: false;
 }

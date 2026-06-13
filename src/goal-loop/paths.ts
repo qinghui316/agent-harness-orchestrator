@@ -60,3 +60,23 @@ export function latestGoalLoopContinuationBriefPath(memory: ResolvedMemory, chan
 export function latestGoalLoopContinuationBriefMarkdownPath(memory: ResolvedMemory, changePath: string): string {
   return join(memory.memoryRoot, changePath, "planning", "goal-loop-continuation-brief.md");
 }
+
+export function goalLoopNextStepPacketsDir(memory: ResolvedMemory, changePath: string): string {
+  return join(memory.memoryRoot, changePath, "planning", "goal-loop-next-step-packets");
+}
+
+export function goalLoopNextStepPacketPath(memory: ResolvedMemory, changePath: string, packetId: string): string {
+  return join(goalLoopNextStepPacketsDir(memory, changePath), `${packetId}.json`);
+}
+
+export function goalLoopNextStepPacketMarkdownPath(memory: ResolvedMemory, changePath: string, packetId: string): string {
+  return join(goalLoopNextStepPacketsDir(memory, changePath), `${packetId}.md`);
+}
+
+export function latestGoalLoopNextStepPacketPath(memory: ResolvedMemory, changePath: string): string {
+  return join(memory.memoryRoot, changePath, "planning", "goal-loop-next-step-packet.json");
+}
+
+export function latestGoalLoopNextStepPacketMarkdownPath(memory: ResolvedMemory, changePath: string): string {
+  return join(memory.memoryRoot, changePath, "planning", "goal-loop-next-step-packet.md");
+}

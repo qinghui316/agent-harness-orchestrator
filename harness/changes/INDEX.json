@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-13T20:47:15.1537023Z",
+    "generated_at":  "2026-06-13T21:22:10.1030978Z",
     "active":  [
 
                ],
@@ -805,6 +805,10 @@
                     {
                         "name":  "20260614-phase-10h-goal-loop-evidence-projection-resume-surface",
                         "path":  "harness/changes/archive/20260614-phase-10h-goal-loop-evidence-projection-resume-surface"
+                    },
+                    {
+                        "name":  "20260614-phase-10i-goal-loop-next-step-packet-evidence",
+                        "path":  "harness/changes/archive/20260614-phase-10i-goal-loop-next-step-packet-evidence"
                     }
                 ]
 }

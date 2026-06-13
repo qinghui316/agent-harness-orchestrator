@@ -2116,6 +2116,7 @@ describe("workbench read model", () => {
       goalLoopDecision?: { changeId: string; executionStarted: boolean; authority: string; id: string };
       goalLoopIteration?: { changeId: string; executionStarted: boolean; authority: string; goalLoopDecisionId: string; ordinal: number; continuationState: string };
       goalLoopContinuationBrief?: { changeId: string; executionStarted: boolean; authority: string; sourceGoalLoopDecisionId: string; sourceGoalLoopIterationId: string; id: string };
+      goalLoopNextStepPacket?: { changeId: string; executionStarted: boolean; authority: string; sourceGoalLoopDecisionId: string; sourceGoalLoopIterationId: string; sourceGoalLoopContinuationBriefId: string; id: string };
     };
     expect(result.goalLoopDecision).toMatchObject({
       changeId: topic.changeId,
@@ -2136,6 +2137,14 @@ describe("workbench read model", () => {
       authority: "non-executing-continuation-brief-evidence",
       sourceGoalLoopDecisionId: result.goalLoopDecision?.id,
       sourceGoalLoopIterationId: result.goalLoopIteration?.id,
+    });
+    expect(result.goalLoopNextStepPacket).toMatchObject({
+      changeId: topic.changeId,
+      executionStarted: false,
+      authority: "non-executing-main-agent-next-step-packet",
+      sourceGoalLoopDecisionId: result.goalLoopDecision?.id,
+      sourceGoalLoopIterationId: result.goalLoopIteration?.id,
+      sourceGoalLoopContinuationBriefId: result.goalLoopContinuationBrief?.id,
     });
     const memory = await resolveProjectMemory(project());
     await expect(readLatestGoalLoopDecision(memory, join("harness", "changes", "active", topic.changeId))).resolves.toMatchObject({
@@ -2160,11 +2169,16 @@ describe("workbench read model", () => {
       changeId: topic.changeId,
       goalLoopDecisionId: result.goalLoopDecision?.id,
       goalLoopIterationId: result.goalLoopIteration?.id,
+      goalLoopNextStepPacketId: result.goalLoopNextStepPacket?.id,
       iterationOrdinal: 1,
       continuationState: "ready-for-existing-gate",
+      recommendationState: "separate-gate-required",
+      separateGateRequired: true,
       executionStarted: false,
       artifact: expect.stringContaining("goal-loop-continuation-brief"),
+      nextStepPacketArtifact: expect.stringContaining("goal-loop-next-step-packet"),
     });
+    expect(resumedSnapshot.center.workpad.goalLoop?.revalidationChecklistCount).toBeGreaterThan(0);
     expect(resumedSnapshot.center.workpad.goalLoop?.stalenessInstruction).toContain("re-read");
     expect(resumedSnapshot.center.workpad.nextAction.actionType).not.toBe("planning.goal-loop.evaluate");
     expect(await listRuns(memory)).toHaveLength(0);

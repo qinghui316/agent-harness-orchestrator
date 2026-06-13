@@ -171,6 +171,8 @@ automatic continuation. The right-side confirmation queue still owns human-gated
 Goal Loop recommended action must remain evidence until the corresponding scoped action is separately
 available and confirmed.
 
+Phase 10I lets that same Workpad summary include a `GoalLoopNextStepPacket` pointer and revalidation signal. The packet is for the main Agent's next explanation or planning turn. Workbench must not turn the packet into a new button, `workpad.nextAction`, hidden conversation turn, or scheduler execution path. If the packet recommends an action, the existing concrete confirmation still has to appear and be confirmed separately.
+
 The Workbench snapshot, transcript, and run graph are projections, not workflow truth. The snapshot is a UI shell, the transcript must not show mechanical labels such as `AI 回复` or `执行结果`, and derived tool-result summaries must not pretend to be exact historical LLM text. The run graph must not become the source of scheduling truth, must not create fake SubAgent chats, and must not move maintenance candidates into the right confirmation queue. The right side stays limited to human gates such as confirming execution, applying, checking compatibility, creating/updating PRs, submitting review, replying to review, merging, syncing, cleanup, requesting changes, or abandoning work.
 
 Runtime boundary issues are explanation/evidence events, not confirmation queue items. When ToolPolicyGate denies a request or PostRunBoundaryAudit finds a role wrote outside its allowed scope, the main conversation should explain the user-impact in plain language and link evidence. The right queue should only show a user decision if there is a real next action such as requesting changes or abandoning the result.

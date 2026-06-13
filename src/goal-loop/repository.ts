@@ -10,19 +10,24 @@ import {
   goalLoopContinuationBriefMarkdownPath,
   goalLoopContinuationBriefPath,
   goalLoopContinuationBriefsDir,
+  goalLoopNextStepPacketMarkdownPath,
+  goalLoopNextStepPacketPath,
+  goalLoopNextStepPacketsDir,
   goalLoopIterationMarkdownPath,
   goalLoopIterationPath,
   goalLoopIterationsDir,
   latestGoalLoopContinuationBriefMarkdownPath,
   latestGoalLoopContinuationBriefPath,
+  latestGoalLoopNextStepPacketMarkdownPath,
+  latestGoalLoopNextStepPacketPath,
   latestGoalLoopIterationMarkdownPath,
   latestGoalLoopIterationPath,
   latestGoalLoopDecisionMarkdownPath,
   latestGoalLoopDecisionPath,
 } from "./paths.js";
-import { renderGoalLoopContinuationBriefMarkdown, renderGoalLoopDecisionMarkdown, renderGoalLoopIterationMarkdown } from "./rendering.js";
-import { goalLoopContinuationBriefSchema, goalLoopDecisionSchema, goalLoopIterationSchema } from "./schemas.js";
-import type { GoalLoopContinuationBrief, GoalLoopDecision, GoalLoopIteration } from "./types.js";
+import { renderGoalLoopContinuationBriefMarkdown, renderGoalLoopDecisionMarkdown, renderGoalLoopIterationMarkdown, renderGoalLoopNextStepPacketMarkdown } from "./rendering.js";
+import { goalLoopContinuationBriefSchema, goalLoopDecisionSchema, goalLoopIterationSchema, goalLoopNextStepPacketSchema } from "./schemas.js";
+import type { GoalLoopContinuationBrief, GoalLoopDecision, GoalLoopIteration, GoalLoopNextStepPacket } from "./types.js";
 
 export function goalLoopDecisionArtifactRefs(memory: ResolvedMemory, changePath: string, decisionId: string): { artifact: string; markdownArtifact: string } {
   return {
@@ -42,6 +47,13 @@ export function goalLoopContinuationBriefArtifactRefs(memory: ResolvedMemory, ch
   return {
     artifact: displayArtifactPath(memory, goalLoopContinuationBriefPath(memory, changePath, briefId)),
     markdownArtifact: displayArtifactPath(memory, goalLoopContinuationBriefMarkdownPath(memory, changePath, briefId)),
+  };
+}
+
+export function goalLoopNextStepPacketArtifactRefs(memory: ResolvedMemory, changePath: string, packetId: string): { artifact: string; markdownArtifact: string } {
+  return {
+    artifact: displayArtifactPath(memory, goalLoopNextStepPacketPath(memory, changePath, packetId)),
+    markdownArtifact: displayArtifactPath(memory, goalLoopNextStepPacketMarkdownPath(memory, changePath, packetId)),
   };
 }
 
@@ -109,4 +121,26 @@ export async function readLatestGoalLoopContinuationBrief(memory: ResolvedMemory
   const brief = await readRequiredJsonFile(latestGoalLoopContinuationBriefPath(memory, changePath), goalLoopContinuationBriefSchema);
   await assertChangePathScope(memory, changePath, brief.changeId, `GoalLoopContinuationBrief ${brief.id}`);
   return brief;
+}
+
+export async function writeGoalLoopNextStepPacket(memory: ResolvedMemory, changePath: string, packet: GoalLoopNextStepPacket): Promise<void> {
+  await assertChangePathScope(memory, changePath, packet.changeId, `GoalLoopNextStepPacket ${packet.id}`);
+  await mkdir(goalLoopNextStepPacketsDir(memory, changePath), { recursive: true });
+  await writeJsonFile(goalLoopNextStepPacketPath(memory, changePath, packet.id), packet);
+  await writeFile(goalLoopNextStepPacketMarkdownPath(memory, changePath, packet.id), renderGoalLoopNextStepPacketMarkdown(packet), "utf8");
+  await writeJsonFile(latestGoalLoopNextStepPacketPath(memory, changePath), packet);
+  await writeFile(latestGoalLoopNextStepPacketMarkdownPath(memory, changePath), renderGoalLoopNextStepPacketMarkdown(packet), "utf8");
+}
+
+export async function readGoalLoopNextStepPacket(memory: ResolvedMemory, changePath: string, packetId: string): Promise<GoalLoopNextStepPacket> {
+  const packet = await readRequiredJsonFile(goalLoopNextStepPacketPath(memory, changePath, packetId), goalLoopNextStepPacketSchema);
+  await assertChangePathScope(memory, changePath, packet.changeId, `GoalLoopNextStepPacket ${packet.id}`);
+  if (packet.id !== packetId) throw new Error("GoalLoopNextStepPacket id mismatch.");
+  return packet;
+}
+
+export async function readLatestGoalLoopNextStepPacket(memory: ResolvedMemory, changePath: string): Promise<GoalLoopNextStepPacket> {
+  const packet = await readRequiredJsonFile(latestGoalLoopNextStepPacketPath(memory, changePath), goalLoopNextStepPacketSchema);
+  await assertChangePathScope(memory, changePath, packet.changeId, `GoalLoopNextStepPacket ${packet.id}`);
+  return packet;
 }

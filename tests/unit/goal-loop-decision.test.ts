@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { compileGoalLoopDecision, compileGoalLoopEvaluation, readLatestGoalLoopContinuationBrief, readLatestGoalLoopIteration } from "../../src/goal-loop/manager.js";
+import { compileGoalLoopDecision, compileGoalLoopEvaluation, readLatestGoalLoopContinuationBrief, readLatestGoalLoopIteration, readLatestGoalLoopNextStepPacket } from "../../src/goal-loop/manager.js";
 import type { ResolvedMemory } from "../../src/types/index.js";
 import { schedulerRunArtifactRefs, writeSchedulerRun } from "../../src/workflow-scheduler/repository.js";
 import type { SchedulerRun } from "../../src/workflow-scheduler/types.js";
@@ -106,6 +106,20 @@ describe("GoalLoopDecision", () => {
       continuationState: "ready-for-existing-gate",
       executionStarted: false,
     });
+    expect(first.goalLoopNextStepPacket).toMatchObject({
+      changeId,
+      authority: "non-executing-main-agent-next-step-packet",
+      sourceGoalLoopDecisionId: first.goalLoopDecision.id,
+      sourceGoalLoopIterationId: first.goalLoopIteration.id,
+      sourceGoalLoopContinuationBriefId: first.goalLoopContinuationBrief.id,
+      recommendationState: "separate-gate-required",
+      separateGateRequired: true,
+      executionStarted: false,
+    });
+    expect(first.goalLoopNextStepPacket.revalidationChecklist).toEqual(expect.arrayContaining([
+      expect.stringContaining("Re-read the selected Change"),
+      expect.stringContaining("Do not execute a recommended action"),
+    ]));
     expect(first.goalLoopContinuationBrief.mainAgentInstructions).toEqual(expect.arrayContaining([
       expect.stringContaining("full user objective"),
       expect.stringContaining("Observe current repository evidence"),
@@ -148,6 +162,13 @@ describe("GoalLoopDecision", () => {
       iterationOrdinal: 2,
       executionStarted: false,
     });
+    await expect(readLatestGoalLoopNextStepPacket(memory, changePath)).resolves.toMatchObject({
+      id: second.goalLoopNextStepPacket.id,
+      sourceGoalLoopIterationId: second.goalLoopIteration.id,
+      sourceGoalLoopDecisionId: second.goalLoopDecision.id,
+      sourceGoalLoopContinuationBriefId: second.goalLoopContinuationBrief.id,
+      executionStarted: false,
+    });
   });
 
   it("records waiting continuation state when a scheduler worker path already exists", async () => {
@@ -181,6 +202,14 @@ describe("GoalLoopDecision", () => {
       executionStarted: false,
     });
     expect(waitingBrief).not.toHaveProperty("recommendedAction");
+    const waitingPacket = await readLatestGoalLoopNextStepPacket(memory, changePath);
+    expect(waitingPacket).toMatchObject({
+      sourceGoalLoopIterationId: goalLoopIteration.id,
+      recommendationState: "waiting-for-evidence",
+      separateGateRequired: false,
+      executionStarted: false,
+    });
+    expect(waitingPacket).not.toHaveProperty("recommendedAction");
   });
 });
 

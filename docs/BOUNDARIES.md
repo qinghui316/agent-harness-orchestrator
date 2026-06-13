@@ -281,6 +281,8 @@ latest valid artifacts into a compact Workpad summary. Projection code must not 
 evidence, run actions, derive new confirmations, mutate source, or treat `recommendedAction` as
 execution authority. Corrupt or cross-scope Goal Loop files must be skipped in projection paths.
 
+Phase 10I adds the `GoalLoopNextStepPacket` boundary. `src/goal-loop/` owns packet schema, paths, repository, renderer, and derivation. Workbench projection may display packet metadata and artifact refs, but must not generate confirmations, actions, route calls, hidden turns, scheduler starts, source mutation, close authority, or any execution from the packet. A packet is stale unless the main Agent revalidates current Change evidence and the corresponding concrete Harness gate.
+
 ## 7. Memory Unavailable Boundary
 
 Memory can be unavailable on a new machine, after a plain repository clone, when AHO home was not synced, when permissions are missing, or when a future remote memory service is offline.

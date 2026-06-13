@@ -765,9 +765,13 @@ describe("Workbench module boundaries", () => {
     expect(handler).toContain("compileGoalLoopEvaluation");
     expect(handler).toContain("goalLoopContinuationBrief");
     expect(readFileSync("src/goal-loop/types.ts", "utf8")).toContain("GoalLoopContinuationBrief");
+    expect(readFileSync("src/goal-loop/types.ts", "utf8")).toContain("GoalLoopNextStepPacket");
     expect(readFileSync("src/goal-loop/repository.ts", "utf8")).toContain("writeGoalLoopContinuationBrief");
+    expect(readFileSync("src/goal-loop/repository.ts", "utf8")).toContain("writeGoalLoopNextStepPacket");
     expect(readFileSync("src/goal-loop/rendering.ts", "utf8")).toContain("renderGoalLoopContinuationBriefMarkdown");
+    expect(readFileSync("src/goal-loop/rendering.ts", "utf8")).toContain("renderGoalLoopNextStepPacketMarkdown");
     expect(readFileSync("src/goal-loop/compiler.ts", "utf8")).toContain("compileGoalLoopContinuationBrief");
+    expect(readFileSync("src/goal-loop/compiler.ts", "utf8")).toContain("compileGoalLoopNextStepPacket");
     expect(readFileSync("src/goal-loop/compiler.ts", "utf8")).not.toContain("start_task");
     expect(readFileSync("src/goal-loop/compiler.ts", "utf8")).not.toContain("continuation_lock");
     expect(confirmationQueue).toContain('from "./confirmation/goal-loop.js"');
@@ -776,11 +780,14 @@ describe("Workbench module boundaries", () => {
     expect(confirmation).not.toContain("compileGoalLoopDecision");
     expect(confirmation).not.toContain("compileGoalLoopEvaluation");
     expect(confirmation).not.toContain("recommendedAction");
+    expect(confirmation).not.toContain("GoalLoopNextStepPacket");
     expect(confirmation).not.toContain("planning.scheduler.");
     expect(projection).toContain("readLatestGoalLoopContinuationBrief");
+    expect(projection).toContain("readLatestGoalLoopNextStepPacket");
     expect(projection).toContain("WorkbenchGoalLoopSummary");
     expect(projection).not.toContain("compileGoalLoopDecision");
     expect(projection).not.toContain("compileGoalLoopEvaluation");
+    expect(projection).not.toContain("compileGoalLoopNextStepPacket");
     expect(projection).not.toContain("executeWorkbenchAction");
     expect(projection).not.toContain("startCodeRun");
   });

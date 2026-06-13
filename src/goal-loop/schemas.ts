@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { WORKFLOW_ACTION_TYPES } from "../workflow-actions/registry.js";
-import type { GoalLoopContinuationBrief, GoalLoopDecision } from "./types.js";
+import type { GoalLoopContinuationBrief, GoalLoopDecision, GoalLoopNextStepPacket } from "./types.js";
 
 const sourceEvidenceRefSchema = z.object({
   kind: z.string(),
@@ -167,6 +167,37 @@ export const goalLoopContinuationBriefSchema: z.ZodType<GoalLoopContinuationBrie
   stalenessInstruction: z.string(),
   mainAgentInstructions: z.array(z.string()),
   forbiddenExecutionStatements: z.array(z.string()),
+  executionStarted: z.literal(false),
+  artifact: z.string(),
+  markdownArtifact: z.string(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+
+export const goalLoopNextStepPacketSchema: z.ZodType<GoalLoopNextStepPacket> = z.object({
+  version: z.literal("1.0"),
+  id: z.string(),
+  changeId: z.string(),
+  authority: z.literal("non-executing-main-agent-next-step-packet"),
+  sourceGoalLoopDecisionId: z.string(),
+  sourceGoalLoopIterationId: z.string(),
+  sourceGoalLoopContinuationBriefId: z.string(),
+  iterationOrdinal: z.number().int().positive(),
+  decisionKind: decisionKindSchema,
+  continuationVerdict: z.enum(["wait", "recommend-existing-gate", "blocked", "ready-for-human-close-gate"]),
+  continuationState: continuationStateSchema,
+  recommendationState: z.enum(["separate-gate-required", "waiting-for-evidence", "blocked", "ready-for-human-close-gate"]),
+  summary: z.string(),
+  recommendedAction: recommendedActionSchema.optional(),
+  separateGateRequired: z.boolean(),
+  humanGateRequired: z.boolean(),
+  revalidationChecklist: z.array(z.string()),
+  mainAgentInstructions: z.array(z.string()),
+  forbiddenExecutionStatements: z.array(z.string()),
+  stalenessInstruction: z.string(),
+  conflictAssessment: conflictAssessmentSchema,
+  completionAudit: completionAuditSchema,
+  sourceEvidenceRefs: z.array(sourceEvidenceRefSchema),
   executionStarted: z.literal(false),
   artifact: z.string(),
   markdownArtifact: z.string(),
