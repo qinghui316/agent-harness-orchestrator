@@ -249,6 +249,8 @@ Phase 9S adds `planning.scheduler.worker.start-next` as the scheduler next-worke
 
 Phase 9T requires current-worker quality gates and integration candidate refresh to be decided by scheduler-runtime owned helpers, not broad Workbench facades. Workbench may display and dispatch `validate-first` / `audit-first` / rework compatibility action ids, but user-facing labels must describe the current worker path once start-next exists. If approved worker or rework audit outputs are not covered by the latest scheduler integration candidate, the only primary next action is candidate refresh; stale candidates must not unlock IntegrationCheck or another worker decision.
 
+Phase 9U requires the two-worker acceptance surface to stay inside those same boundaries. A second worker may only be started by the existing start-next gate after prior worker paths are terminal and the latest candidate proves one ready output. Current-worker quality gates must target the selected worker path and preserve scoped ids. Candidate refresh must run before IntegrationCheck handoff when a later approved output is not covered. Phase 9U must not add scheduler loop, whole-wave dispatch, slot allocation, apply/discard, landing, PR, merge, child Change creation, or full parallel executor behavior.
+
 ## 7. Memory Unavailable Boundary
 
 Memory can be unavailable on a new machine, after a plain repository clone, when AHO home was not synced, when permissions are missing, or when a future remote memory service is offline.

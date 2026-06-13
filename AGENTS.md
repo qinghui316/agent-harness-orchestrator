@@ -266,7 +266,7 @@ Active change: none.
 
 Pending Harness evolution: none.
 
-Latest completed product phase: Phase 9T Scheduler Current Worker Quality Gate Candidate Refresh Surface, archived at `harness/changes/archive/20260613-phase-9t-scheduler-current-worker-quality-gate-candidate-refresh-surface/summary.md`.
+Latest completed product phase: Phase 9U Scheduler Two Worker Acceptance Surface, archived at `harness/changes/archive/20260613-phase-9u-scheduler-two-worker-acceptance-surface/summary.md`.
 
 Latest completed product/Harness docs phase: Phase 8T AgentScope Harness Reference Alignment, archived at `harness/changes/archive/20260611-phase-8t-agentscope-harness-reference-alignment/summary.md`.
 
@@ -301,6 +301,8 @@ Phase 9R is closed and archived at `harness/changes/archive/20260613-phase-9r-sc
 Phase 9S is closed and archived at `harness/changes/archive/20260613-phase-9s-scheduler-next-worker-start-gate/summary.md`. It adds a user-confirmed `planning.scheduler.worker.start-next` gate that can start exactly one additional scheduler coder worker from the latest claim reservation after existing scheduler worker paths are terminal. It must not start validation, audit, rework, result reconcile, whole-wave dispatch, scheduler loops, slot allocation, IntegrationCheck, apply, landing, PR, merge, child Changes, or the full parallel executor.
 
 Phase 9T is closed and archived at `harness/changes/archive/20260613-phase-9t-scheduler-current-worker-quality-gate-candidate-refresh-surface/summary.md`. It repairs the current-worker quality gate surface after start-next so Workbench result/validation/audit/rework gates target the selected worker path instead of a first-worker singleton, and it refreshes scheduler integration candidates when later approved worker outputs make the previous candidate stale.
+
+Phase 9U is closed and archived at `harness/changes/archive/20260613-phase-9u-scheduler-two-worker-acceptance-surface/summary.md`. It proves the two-worker scheduler acceptance path: a second scheduler worker can run through the current-worker result/validation/audit gates, refresh `SchedulerIntegrationCandidate` to at least two ready worktree targets, and hand those targets to the existing IntegrationCheck path. It did not add a scheduler loop, whole-wave dispatch, slot allocator, new Workbench action, CLI command, HTTP route, apply/discard path, landing/PR/merge behavior, child Change creation, or full parallel executor.
 
 Auto Evolve Harness Phase 9N 9R Scheduler Integration Evidence is closed and archived at `harness/changes/archive/20260613-auto-evolve-harness-phase-9n-9r-scheduler-integration-evidence/summary.md`. It handled the Phase 9N-9R pending window as `modify/subagent_review` with subagent score `84/100`, added Source Apply Safety review-template coverage, and added stale archived-review closeout lint. It is Harness evidence only and does not change product code, runtime behavior, Workbench actions, routes, CLI commands, UI, scheduler execution, parallel executor behavior, child Changes, ODWF runtime, or cache/replay.
 

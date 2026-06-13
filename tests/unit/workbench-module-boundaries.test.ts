@@ -58,7 +58,7 @@ import { getWorkbenchProjection } from "../../src/server/workbench/projections.j
 import { matchProjectWorkbenchRoute } from "../../src/server/workbench/routes.js";
 import { assertCurrentWorkflowAction } from "../../src/server/workbench/action-revalidation.js";
 import { executeWorkbenchAction as executeWorkbenchServerAction } from "../../src/server/workbench/actions.js";
-import { findNextSchedulerReservationIntentForWorkerPaths, schedulerIntegrationCandidateNeedsRefresh } from "../../src/scheduler-runtime/worker-path.js";
+import { approvedSchedulerWorkerPathClaimIntentIds, findNextSchedulerReservationIntentForWorkerPaths, schedulerIntegrationCandidateNeedsRefresh } from "../../src/scheduler-runtime/worker-path.js";
 import { handleApi } from "../../src/server/workbench/api-router.js";
 import { allowedActionIds } from "../../src/server/workbench/approval-actions.js";
 import { handleDirectWorkbenchApi } from "../../src/server/workbench/direct-routes.js";
@@ -1312,6 +1312,19 @@ describe("Workbench module boundaries", () => {
       schedulerClaimReservationId: "reservation-1",
       outputClaimIntentIds: ["claim-1", "claim-2"],
     }, workerPaths)).toBe(false);
+    expect(schedulerIntegrationCandidateNeedsRefresh({
+      schedulerClaimReservationId: "reservation-1",
+      outputs: [{ claimIntentId: "claim-1" }, { claimIntentId: "claim-2" }],
+    }, workerPaths)).toBe(false);
+    expect(schedulerIntegrationCandidateNeedsRefresh(null, workerPaths)).toBe(true);
+    expect(approvedSchedulerWorkerPathClaimIntentIds([
+      ...workerPaths,
+      {
+        start: { reservationIntentId: "reservation-intent-3", updatedAt: "2026-06-13T00:02:00.000Z" },
+        audit: { status: "blocked", claimIntentId: "claim-3" },
+        terminal: true,
+      },
+    ])).toEqual(["claim-1", "claim-2"]);
     expect(findNextSchedulerReservationIntentForWorkerPaths({
       reservationIntents: [
         { reservationIntentId: "reservation-intent-1", claimIntentId: "claim-1", status: "reserved", waveIndex: 0 },
@@ -1319,6 +1332,18 @@ describe("Workbench module boundaries", () => {
         { reservationIntentId: "reservation-intent-3", claimIntentId: "claim-3", status: "reserved", waveIndex: 1 },
       ],
     }, workerPaths)).toMatchObject({ reservationIntentId: "reservation-intent-3", claimIntentId: "claim-3" });
+    expect(findNextSchedulerReservationIntentForWorkerPaths({
+      reservationIntents: [
+        { reservationIntentId: "reservation-intent-1", claimIntentId: "claim-1", status: "reserved", waveIndex: 0 },
+        { reservationIntentId: "reservation-intent-2", claimIntentId: "claim-2", status: "reserved", waveIndex: 0 },
+      ],
+    }, [{ ...workerPaths[0], terminal: false }])).toBeNull();
+
+    const threadStream = readFileSync("src/workbench/projections/read-model/thread-stream.ts", "utf8");
+    expect(threadStream).toContain("Scheduler current worker result reconcile");
+    expect(threadStream).toContain("Scheduler current worker validation");
+    expect(threadStream).not.toContain("Scheduler first worker result reconcile");
+    expect(threadStream).not.toContain("Scheduler first worker validation");
   });
 
   it("keeps workflow-run manager as a compatibility facade with scoped recovery modules", () => {

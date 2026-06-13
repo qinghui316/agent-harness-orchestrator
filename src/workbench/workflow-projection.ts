@@ -1877,7 +1877,71 @@ export function buildTypedWorkflowNextAction(input: {
       && schedulerClaimReservation.schedulerRunId === schedulerRun.id
       && schedulerClaimReservation.schedulerReconcileSnapshotId === schedulerReconcileSnapshot.id
     ) {
-      if (schedulerClaimReservation.launchConfirmed) {
+      const schedulerLaunchGateSatisfied = schedulerClaimReservation.launchConfirmed
+        || Boolean(schedulerWorkerPaths.length || schedulerIntegrationCandidate || schedulerIntegrationCheckHandoff || schedulerIntegrationOutcome);
+      if (schedulerLaunchGateSatisfied) {
+        if (schedulerIntegrationCandidate && !schedulerIntegrationCandidateNeedsRefresh(schedulerIntegrationCandidate, schedulerWorkerPaths)) {
+          if (schedulerIntegrationCandidate.readyCount >= 2 && !schedulerIntegrationCheckHandoff) {
+            return {
+              ...workflowNextAction("planning.scheduler.integration-check.run", "运行 scheduler IntegrationCheck", "把 scheduler-owned ready worktree targets 显式交给现有 IntegrationCheck；只运行兼容性检查和 aggregate validation/audit，不 apply、landing、PR、merge 或启动 next worker。"),
+              decompositionPlanId: decompositionPlan.id,
+              readinessManifestId: decompositionReadiness.id,
+              schedulerContractId: schedulerRun.schedulerContractId,
+              schedulerDispatchDryRunId: schedulerRun.schedulerDispatchDryRunId,
+              schedulerWorkerPlanId: schedulerRun.schedulerWorkerPlanId,
+              schedulerClaimReconcilePlanId: schedulerRun.schedulerClaimReconcilePlanId,
+              schedulerLaunchPreflightId: schedulerRun.schedulerLaunchPreflightId,
+              schedulerRunId: schedulerRun.id,
+              schedulerReconcileSnapshotId: schedulerReconcileSnapshot.id,
+              schedulerClaimReservationId: schedulerClaimReservation.id,
+              schedulerIntegrationCandidateId: schedulerIntegrationCandidate.id,
+              worktreeIds: schedulerIntegrationCandidate.readyWorktreeIds,
+            };
+          }
+          const currentIntegrationStatus = schedulerIntegrationCheckHandoff?.currentIntegrationCheckStatus ?? schedulerIntegrationCheckHandoff?.integrationCheckStatus;
+          const terminalIntegrationStatus = currentIntegrationStatus && currentIntegrationStatus !== "passed";
+          if (schedulerIntegrationCheckHandoff && terminalIntegrationStatus && !schedulerIntegrationOutcome) {
+            return {
+              ...workflowNextAction("planning.scheduler.integration-outcome.reconcile", "记录 scheduler integration 结果", "把现有 IntegrationCheck 的 terminal/apply/discard 结果写回 scheduler-owned outcome evidence；不执行 apply、discard、landing、PR、merge 或 next worker。"),
+              decompositionPlanId: decompositionPlan.id,
+              readinessManifestId: decompositionReadiness.id,
+              schedulerContractId: schedulerRun.schedulerContractId,
+              schedulerDispatchDryRunId: schedulerRun.schedulerDispatchDryRunId,
+              schedulerWorkerPlanId: schedulerRun.schedulerWorkerPlanId,
+              schedulerClaimReconcilePlanId: schedulerRun.schedulerClaimReconcilePlanId,
+              schedulerLaunchPreflightId: schedulerRun.schedulerLaunchPreflightId,
+              schedulerRunId: schedulerRun.id,
+              schedulerReconcileSnapshotId: schedulerReconcileSnapshot.id,
+              schedulerClaimReservationId: schedulerClaimReservation.id,
+              schedulerIntegrationCandidateId: schedulerIntegrationCandidate.id,
+              schedulerIntegrationCheckHandoffId: schedulerIntegrationCheckHandoff.id,
+              applyCheckId: schedulerIntegrationCheckHandoff.integrationCheckId,
+              worktreeIds: schedulerIntegrationCandidate.readyWorktreeIds,
+            };
+          }
+          if (schedulerIntegrationCheckHandoff || schedulerIntegrationOutcome) {
+            return {
+              ...workflowNextAction("planning.scheduler.integration-check.run", schedulerIntegrationOutcome ? "Scheduler integration 结果已记录" : "Scheduler IntegrationCheck 等待 apply/discard", schedulerIntegrationOutcome ? `Scheduler integration outcome ${schedulerIntegrationOutcome.status} 已记录；后续 apply/landing/merge 仍走既有独立人审门。` : `IntegrationCheck ${schedulerIntegrationCheckHandoff?.integrationCheckId ?? "unknown"} 已由 scheduler handoff 运行；当前状态 ${currentIntegrationStatus ?? "unknown"}，apply/discard 仍走既有后续人审门。`),
+              enabled: false,
+              disabledReason: schedulerIntegrationOutcome ? "Scheduler integration outcome 已记录。" : "IntegrationCheck passed 时必须先使用既有 apply/discard 确认；terminal 后再记录 scheduler outcome。",
+              decompositionPlanId: decompositionPlan.id,
+              readinessManifestId: decompositionReadiness.id,
+              schedulerContractId: schedulerRun.schedulerContractId,
+              schedulerDispatchDryRunId: schedulerRun.schedulerDispatchDryRunId,
+              schedulerWorkerPlanId: schedulerRun.schedulerWorkerPlanId,
+              schedulerClaimReconcilePlanId: schedulerRun.schedulerClaimReconcilePlanId,
+              schedulerLaunchPreflightId: schedulerRun.schedulerLaunchPreflightId,
+              schedulerRunId: schedulerRun.id,
+              schedulerReconcileSnapshotId: schedulerReconcileSnapshot.id,
+              schedulerClaimReservationId: schedulerClaimReservation.id,
+              schedulerIntegrationCandidateId: schedulerIntegrationCandidate.id,
+              schedulerIntegrationCheckHandoffId: schedulerIntegrationCheckHandoff?.id,
+              schedulerIntegrationOutcomeId: schedulerIntegrationOutcome?.id,
+              applyCheckId: schedulerIntegrationCheckHandoff?.integrationCheckId,
+              worktreeIds: schedulerIntegrationCandidate.readyWorktreeIds,
+            };
+          }
+        }
         if (schedulerWorkerStart?.schedulerClaimReservationId === schedulerClaimReservation.id && schedulerWorkerStart.schedulerRunId === schedulerRun.id) {
           if (schedulerWorkerResult?.schedulerWorkerStartId === schedulerWorkerStart.id) {
             if (schedulerWorkerResult.status === "evidence-ready" && !schedulerWorkerValidation) {

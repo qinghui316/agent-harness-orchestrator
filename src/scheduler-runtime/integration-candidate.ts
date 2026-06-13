@@ -228,7 +228,7 @@ async function assertWorkerAuditEvidence(memory: Awaited<ReturnType<typeof resol
   const validationRun = await readRun(memory, audit.validationRunId);
   assertRoleRun(validationRun, audit.changeId, audit.validationRunId, "validator", audit.worktreeId);
   const auditRun = await readRun(memory, audit.auditRunId);
-  assertRoleRun(auditRun, audit.changeId, audit.auditRunId, "auditor", audit.worktreeId);
+  assertRoleRun(auditRun, audit.changeId, audit.auditRunId, "auditor", null);
   const worktree = await readWorktreeMetadata(memory, audit.worktreeId);
   assertWorktree(worktree, audit.changeId, audit.worktreeId);
 }
@@ -243,7 +243,7 @@ async function assertReworkAuditEvidence(memory: Awaited<ReturnType<typeof resol
   const validationRun = await readRun(memory, audit.validationRunId);
   assertRoleRun(validationRun, audit.changeId, audit.validationRunId, "validator", audit.worktreeId);
   const auditRun = await readRun(memory, audit.auditRunId);
-  assertRoleRun(auditRun, audit.changeId, audit.auditRunId, "auditor", audit.worktreeId);
+  assertRoleRun(auditRun, audit.changeId, audit.auditRunId, "auditor", null);
   const worktree = await readWorktreeMetadata(memory, audit.worktreeId);
   assertWorktree(worktree, audit.changeId, audit.worktreeId);
 }
@@ -375,8 +375,11 @@ function assertCodeRun(run: RunMetadata, audit: { changeId: string; schedulerRun
   }
 }
 
-function assertRoleRun(run: RunMetadata, changeId: string, runId: string, runtime: string, worktreeId: string): void {
-  if (run.changeId !== changeId || run.id !== runId || run.runtime !== runtime || run.worktree?.worktreeId !== worktreeId) {
+function assertRoleRun(run: RunMetadata, changeId: string, runId: string, runtime: string, worktreeId: string | null): void {
+  if (run.changeId !== changeId || run.id !== runId || run.runtime !== runtime) {
+    throw new Error("planning.scheduler.integration-candidate.compile role run scope mismatch.");
+  }
+  if (worktreeId !== null && run.worktree?.worktreeId !== worktreeId) {
     throw new Error("planning.scheduler.integration-candidate.compile role run scope mismatch.");
   }
 }

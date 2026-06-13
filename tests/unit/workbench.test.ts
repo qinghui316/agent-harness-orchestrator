@@ -2605,7 +2605,7 @@ describe("workbench read model", () => {
 
     await initGitRepository(tempDir);
     await mkdir(join(tempDir, "src"), { recursive: true });
-    await writeFile(join(tempDir, ".gitignore"), "harness/\n.agent-harness/\n", "utf8");
+    await writeFile(join(tempDir, ".gitignore"), "harness/\n.agent-harness/\nfake-codex-bin/\n", "utf8");
     await writeFile(join(tempDir, "package.json"), JSON.stringify({ scripts: { test: "node -e \"process.exit(0)\"" } }), "utf8");
     await writeFile(join(tempDir, "src", "module-a.ts"), "export const moduleA = 1;\n", "utf8");
     await writeFile(join(tempDir, "src", "module-b.ts"), "export const moduleB = 1;\n", "utf8");
@@ -3049,6 +3049,286 @@ describe("workbench read model", () => {
       process.env.PATH = oldPath;
     }
   }, 90000);
+
+  it("carries a second scheduler worker through current-worker gates and hands refreshed ready targets to IntegrationCheck", async () => {
+    const prepared = await prepareSchedulerFirstWorkerThroughResult({
+      title: "Scheduler Two Worker Acceptance",
+    });
+
+    const oldPath = process.env.PATH;
+    const fakeCodex = await createFakeCodex();
+    try {
+      process.env.PATH = `${fakeCodex.binDir}${delimiter}${oldPath ?? ""}`;
+
+      let snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: prepared.topic.changeId });
+      const firstValidationAction = snapshot.right.confirmationQueue.current
+        .flatMap((item) => item.actions)
+        .find((action) => action.actionType === "planning.scheduler.worker.validate-first" && action.schedulerWorkerResultId === prepared.workerResult.id);
+      if (!firstValidationAction) throw new Error("Missing first worker validation action.");
+      const firstValidation = await executeWorkbenchAction({ project: project(), path: tempDir }, { ...firstValidationAction, confirm: true });
+      const firstValidationResult = (firstValidation.result as {
+        result?: {
+          schedulerValidation?: { id?: string; validationRunId?: string };
+        };
+      }).result;
+
+      snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: prepared.topic.changeId });
+      const firstAuditAction = snapshot.right.confirmationQueue.current
+        .flatMap((item) => item.actions)
+        .find((action) => action.actionType === "planning.scheduler.worker.audit-first" && action.schedulerWorkerValidationId === firstValidationResult?.schedulerValidation?.id);
+      if (!firstAuditAction) throw new Error("Missing first worker audit action.");
+      const firstAudit = await executeWorkbenchAction({ project: project(), path: tempDir }, { ...firstAuditAction, confirm: true });
+      const firstAuditResult = ((firstAudit.result as { result?: unknown }).result ?? firstAudit.result) as {
+        schedulerAudit?: { id?: string; claimIntentId?: string; worktreeId?: string };
+      };
+      expect(firstAuditResult.schedulerAudit).toMatchObject({
+        id: expect.any(String),
+        worktreeId: prepared.workerStart.worktreeId,
+      });
+      await rm(join(tempDir, "README.md"), { force: true });
+      const firstSourceStatus = await execFileAsync("git", ["status", "--short", "--untracked-files=all"], { cwd: tempDir });
+      if (firstSourceStatus.stdout.trim()) throw new Error(`source dirty before first candidate: ${firstSourceStatus.stdout}`);
+
+      snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: prepared.topic.changeId });
+      const firstCandidateAction = snapshot.right.confirmationQueue.current
+        .flatMap((item) => item.actions)
+        .find((action) => action.actionType === "planning.scheduler.integration-candidate.compile" && action.schedulerRunId === prepared.schedulerRun.id);
+      if (!firstCandidateAction) throw new Error("Missing first scheduler integration candidate action.");
+      const firstCandidateResult = await executeWorkbenchAction({ project: project(), path: tempDir }, { ...firstCandidateAction, confirm: true });
+      const firstCandidateWorkflow = firstCandidateResult.result as { status?: string; error?: string; result?: unknown };
+      if (firstCandidateWorkflow.status === "failed") throw new Error(firstCandidateWorkflow.error ?? "first candidate action failed");
+      expect(firstCandidateWorkflow).toMatchObject({ status: "completed" });
+      const firstCandidatePayload = (firstCandidateWorkflow.result ?? firstCandidateResult.result) as {
+        candidate?: {
+          id?: string;
+          status?: string;
+          readyCount?: number;
+          blockedCount?: number;
+          readyWorktreeIds?: string[];
+          outputs?: Array<{ claimIntentId?: string }>;
+        };
+      };
+      const firstCandidate = firstCandidatePayload.candidate;
+      if (firstCandidate?.readyCount !== 1) {
+        throw new Error(`first candidate not ready: ${JSON.stringify(firstCandidate?.outputs ?? firstCandidate)}`);
+      }
+      expect(firstCandidate).toMatchObject({
+        status: "waiting",
+        readyCount: 1,
+        blockedCount: 0,
+        readyWorktreeIds: [prepared.workerStart.worktreeId],
+      });
+      expect(firstCandidate?.outputs?.map((output) => output.claimIntentId)).toEqual([prepared.workerStart.claimIntentId]);
+
+      snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: prepared.topic.changeId });
+      expect(snapshot.center.workpad.nextAction).toMatchObject({
+        actionType: "planning.scheduler.worker.start-next",
+        label: "启动下一个 worker",
+        schedulerRunId: prepared.schedulerRun.id,
+        schedulerClaimReservationId: prepared.claimReservation.id,
+      });
+      const startNextAction = snapshot.right.confirmationQueue.current
+        .flatMap((item) => item.actions)
+        .find((action) => action.actionType === "planning.scheduler.worker.start-next" && action.schedulerRunId === prepared.schedulerRun.id);
+      if (!startNextAction) throw new Error("Missing scheduler start-next action.");
+      expect(startNextAction).toMatchObject({
+        schedulerRunId: prepared.schedulerRun.id,
+        schedulerClaimReservationId: prepared.claimReservation.id,
+        schedulerIntegrationCandidateId: firstCandidate?.id,
+      });
+      expect(startNextAction.reservationIntentId).not.toBe(prepared.workerStart.reservationIntentId);
+      expect(startNextAction.claimIntentId).not.toBe(prepared.workerStart.claimIntentId);
+
+      const secondStartResult = await executeWorkbenchAction({ project: project(), path: tempDir }, { ...startNextAction, confirm: true });
+      const secondStart = (((secondStartResult.result as { result?: unknown }).result ?? secondStartResult.result) as {
+        workerStart?: {
+          id?: string;
+          schedulerClaimReservationId?: string;
+          reservationIntentId?: string;
+          claimIntentId?: string;
+          taskRunId?: string;
+          workerLeaseId?: string;
+          worktreeId?: string;
+          runId?: string;
+        };
+        code?: { run?: { executionGate?: Record<string, unknown> } };
+      });
+      expect(secondStart.workerStart).toMatchObject({
+        schedulerClaimReservationId: prepared.claimReservation.id,
+        reservationIntentId: startNextAction.reservationIntentId,
+        claimIntentId: startNextAction.claimIntentId,
+      });
+      expect(secondStart.workerStart?.id).not.toBe(prepared.workerStart.id);
+      expect(secondStart.workerStart?.worktreeId).not.toBe(prepared.workerStart.worktreeId);
+      expect(secondStart.code?.run?.executionGate).toMatchObject({
+        mode: "scheduler-claim-reservation",
+        schedulerRunId: prepared.schedulerRun.id,
+        schedulerClaimReservationId: prepared.claimReservation.id,
+        reservationIntentId: startNextAction.reservationIntentId,
+        claimIntentId: startNextAction.claimIntentId,
+        taskRunId: secondStart.workerStart?.taskRunId,
+      });
+
+      snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: prepared.topic.changeId });
+      expect(snapshot.center.workpad.nextAction).toMatchObject({
+        actionType: "planning.scheduler.worker.reconcile-result",
+        label: "检查当前 worker 结果",
+        schedulerWorkerStartId: secondStart.workerStart?.id,
+      });
+      const secondResultAction = snapshot.right.confirmationQueue.current
+        .flatMap((item) => item.actions)
+        .find((action) => action.actionType === "planning.scheduler.worker.reconcile-result" && action.schedulerWorkerStartId === secondStart.workerStart?.id);
+      if (!secondResultAction) throw new Error("Missing second worker result reconcile action.");
+      const secondResult = await executeWorkbenchAction({ project: project(), path: tempDir }, { ...secondResultAction, confirm: true });
+      const secondWorkerResult = (secondResult.result as {
+        result?: {
+          result?: { id?: string; status?: string };
+          taskRun?: { id?: string; status?: string };
+          lease?: { id?: string; status?: string };
+        };
+      }).result;
+      expect(secondWorkerResult).toMatchObject({
+        result: { status: "evidence-ready", id: expect.any(String) },
+        taskRun: { id: secondStart.workerStart?.taskRunId, status: "evidence-ready" },
+        lease: { id: secondStart.workerStart?.workerLeaseId, status: "released" },
+      });
+
+      snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: prepared.topic.changeId });
+      const secondValidationAction = snapshot.right.confirmationQueue.current
+        .flatMap((item) => item.actions)
+        .find((action) => action.actionType === "planning.scheduler.worker.validate-first" && action.schedulerWorkerResultId === secondWorkerResult?.result?.id);
+      if (!secondValidationAction) throw new Error("Missing second worker validation action.");
+      expect(secondValidationAction).toMatchObject({
+        schedulerWorkerStartId: secondStart.workerStart?.id,
+        taskRunId: secondStart.workerStart?.taskRunId,
+        worktreeId: secondStart.workerStart?.worktreeId,
+        runId: secondStart.workerStart?.runId,
+      });
+      const secondValidation = await executeWorkbenchAction({ project: project(), path: tempDir }, { ...secondValidationAction, confirm: true });
+      const secondValidationResult = (secondValidation.result as {
+        result?: {
+          schedulerValidation?: { id?: string; status?: string; validationRunId?: string };
+          taskRun?: { id?: string; status?: string };
+        };
+      }).result;
+      expect(secondValidationResult).toMatchObject({
+        schedulerValidation: { status: "passed", id: expect.any(String) },
+        taskRun: { id: secondStart.workerStart?.taskRunId, status: "evidence-ready" },
+      });
+
+      snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: prepared.topic.changeId });
+      const secondAuditAction = snapshot.right.confirmationQueue.current
+        .flatMap((item) => item.actions)
+        .find((action) => action.actionType === "planning.scheduler.worker.audit-first" && action.schedulerWorkerValidationId === secondValidationResult?.schedulerValidation?.id);
+      if (!secondAuditAction) throw new Error("Missing second worker audit action.");
+      expect(secondAuditAction).toMatchObject({
+        schedulerWorkerStartId: secondStart.workerStart?.id,
+        schedulerWorkerResultId: secondWorkerResult?.result?.id,
+        schedulerWorkerValidationId: secondValidationResult?.schedulerValidation?.id,
+        validationRunId: secondValidationResult?.schedulerValidation?.validationRunId,
+        worktreeId: secondStart.workerStart?.worktreeId,
+      });
+      const secondAudit = await executeWorkbenchAction({ project: project(), path: tempDir }, { ...secondAuditAction, confirm: true });
+      const secondAuditResult = ((secondAudit.result as { result?: unknown }).result ?? secondAudit.result) as {
+        schedulerAudit?: { id?: string; status?: string; claimIntentId?: string; worktreeId?: string };
+        taskRun?: { id?: string; status?: string };
+      };
+      expect(secondAuditResult).toMatchObject({
+        schedulerAudit: {
+          status: "approved",
+          id: expect.any(String),
+          worktreeId: secondStart.workerStart?.worktreeId,
+        },
+        taskRun: { id: secondStart.workerStart?.taskRunId, status: "completed" },
+      });
+      await rm(join(tempDir, "README.md"), { force: true });
+
+      snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: prepared.topic.changeId });
+      expect(snapshot.center.workpad.nextAction).toMatchObject({
+        actionType: "planning.scheduler.integration-candidate.compile",
+        label: "生成 scheduler integration 候选",
+        schedulerRunId: prepared.schedulerRun.id,
+      });
+      expect(snapshot.right.confirmationQueue.current.flatMap((item) => item.actions).some((action) => action.actionType === "planning.scheduler.worker.start-next")).toBe(false);
+      const refreshedCandidateAction = snapshot.right.confirmationQueue.current
+        .flatMap((item) => item.actions)
+        .find((action) => action.actionType === "planning.scheduler.integration-candidate.compile" && action.schedulerRunId === prepared.schedulerRun.id);
+      if (!refreshedCandidateAction) throw new Error("Missing refreshed scheduler integration candidate action.");
+      const refreshedCandidateResult = await executeWorkbenchAction({ project: project(), path: tempDir }, { ...refreshedCandidateAction, confirm: true });
+      const refreshedCandidateWorkflow = refreshedCandidateResult.result as { status?: string; error?: string; result?: unknown };
+      if (refreshedCandidateWorkflow.status === "failed") throw new Error(refreshedCandidateWorkflow.error ?? "refreshed candidate action failed");
+      expect(refreshedCandidateWorkflow).toMatchObject({ status: "completed" });
+      const refreshedCandidatePayload = (refreshedCandidateWorkflow.result ?? refreshedCandidateResult.result) as {
+        candidate?: {
+          id?: string;
+          status?: string;
+          readyCount?: number;
+          blockedCount?: number;
+          readyWorktreeIds?: string[];
+          outputs?: Array<{ claimIntentId?: string }>;
+        };
+      };
+      const refreshedCandidate = refreshedCandidatePayload.candidate;
+      expect(refreshedCandidate).toMatchObject({
+        status: "ready",
+        readyCount: 2,
+        blockedCount: 0,
+      });
+      expect(refreshedCandidate?.readyWorktreeIds?.sort()).toEqual([prepared.workerStart.worktreeId, secondStart.workerStart?.worktreeId].sort());
+      expect(refreshedCandidate?.outputs?.map((output) => output.claimIntentId).sort()).toEqual([prepared.workerStart.claimIntentId, secondStart.workerStart?.claimIntentId].sort());
+
+      snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: prepared.topic.changeId });
+      expect(snapshot.center.workpad.nextAction).toMatchObject({
+        actionType: "planning.scheduler.integration-check.run",
+        schedulerIntegrationCandidateId: refreshedCandidate?.id,
+        schedulerRunId: prepared.schedulerRun.id,
+      });
+      const handoffAction = snapshot.right.confirmationQueue.current
+        .flatMap((item) => item.actions)
+        .find((action) => action.actionType === "planning.scheduler.integration-check.run" && action.schedulerIntegrationCandidateId === refreshedCandidate?.id);
+      if (!handoffAction) throw new Error("Missing scheduler IntegrationCheck handoff action.");
+      const handoffResult = await executeWorkbenchAction({ project: project(), path: tempDir }, { ...handoffAction, confirm: true });
+      const handoffWorkflow = handoffResult.result as { status?: string; error?: string; result?: unknown };
+      if (handoffWorkflow.status === "failed") throw new Error(handoffWorkflow.error ?? "handoff action failed");
+      expect(handoffWorkflow).toMatchObject({ status: "completed" });
+      const handoff = (handoffWorkflow.result ?? handoffResult.result) as {
+        handoff?: {
+          id?: string;
+          schedulerIntegrationCandidateId?: string;
+          readyWorktreeIds?: string[];
+          resultTargetWorktreeIds?: string[];
+          integrationCheckId?: string;
+        };
+        integrationCheck?: { id?: string; resultTargets?: Array<{ worktreeId?: string }> };
+      };
+      expect(handoff.handoff).toMatchObject({
+        schedulerIntegrationCandidateId: refreshedCandidate?.id,
+        readyWorktreeIds: expect.arrayContaining(refreshedCandidate?.readyWorktreeIds ?? []),
+        resultTargetWorktreeIds: expect.arrayContaining(refreshedCandidate?.readyWorktreeIds ?? []),
+        integrationCheckId: handoff.integrationCheck?.id,
+      });
+      expect(handoff.integrationCheck?.resultTargets?.map((target) => target.worktreeId).sort()).toEqual(refreshedCandidate?.readyWorktreeIds?.sort());
+
+      const finalMemory = await resolveProjectMemory(project());
+      expect(await listWorkflowRuns(finalMemory, prepared.topic.changeId)).toHaveLength(0);
+      expect(await listTaskQueues(finalMemory, prepared.topic.changeId)).toHaveLength(0);
+      expect(await listAgentTasks(finalMemory, prepared.topic.changeId)).toHaveLength(0);
+      expect(await listTaskRuns(finalMemory, prepared.topic.changeId)).toHaveLength(2);
+      expect(await listWorktreeStatuses(finalMemory)).toHaveLength(2);
+      expect(await listIntegrationChecks(finalMemory)).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          id: handoff.handoff?.integrationCheckId,
+          resultTargets: expect.arrayContaining([
+            expect.objectContaining({ worktreeId: prepared.workerStart.worktreeId }),
+            expect.objectContaining({ worktreeId: secondStart.workerStart?.worktreeId }),
+          ]),
+        }),
+      ]));
+    } finally {
+      if (oldPath === undefined) delete process.env.PATH;
+      else process.env.PATH = oldPath;
+    }
+  }, 120000);
 
   it("compiles a scheduler worker rework plan after first worker validation fails and starts bounded same-worktree rework", async () => {
     const prepared = await prepareSchedulerFirstWorkerThroughResult({
@@ -5366,7 +5646,7 @@ async function prepareSchedulerFirstWorkerThroughResult(options: {
 
   await initGitRepository(tempDir);
   await mkdir(join(tempDir, "src"), { recursive: true });
-  await writeFile(join(tempDir, ".gitignore"), "harness/\n.agent-harness/\n", "utf8");
+  await writeFile(join(tempDir, ".gitignore"), "harness/\n.agent-harness/\nfake-codex-bin/\n", "utf8");
   await writeFile(join(tempDir, "package.json"), JSON.stringify({ scripts: { test: options.packageTestScript ?? "node -e \"process.exit(0)\"" } }), "utf8");
   await writeFile(join(tempDir, "src", "module-a.ts"), "export const moduleA = 1;\n", "utf8");
   await writeFile(join(tempDir, "src", "module-b.ts"), "export const moduleB = 1;\n", "utf8");

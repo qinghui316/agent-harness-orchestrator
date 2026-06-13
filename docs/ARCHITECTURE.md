@@ -135,6 +135,8 @@ Phase 9S adds the scheduler next-worker start gate. `src/scheduler-runtime/worke
 
 Phase 9T adds the scheduler current-worker quality surface. `src/scheduler-runtime/worker-path.ts` owns pure current-path and candidate-freshness decisions so Workbench projection and confirmation modules stay thin UI/action mappers. This keeps later worker quality gates from being tied to first-worker singleton state and prevents stale integration candidates from hiding newly approved worker outputs.
 
+Phase 9U is an acceptance and boundary-hardening phase over that architecture. It verifies that the second scheduler worker can move through the same owner-module-backed current-worker path and that IntegrationCheck handoff only sees a refreshed candidate containing both ready outputs. It should not move scheduler state-machine decisions back into Workbench, server, frontend, or broad facade files.
+
 Workbench relationship:
 
 ```text
