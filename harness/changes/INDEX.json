@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-13T16:48:57.3304508Z",
+    "generated_at":  "2026-06-13T17:49:25.6368510Z",
     "active":  [
 
                ],
@@ -777,6 +777,10 @@
                     {
                         "name":  "20260614-phase-10c-main-agent-goal-loop-decision-evidence-foundation",
                         "path":  "harness/changes/archive/20260614-phase-10c-main-agent-goal-loop-decision-evidence-foundation"
+                    },
+                    {
+                        "name":  "20260614-phase-10d-goal-loop-confirmation-surface",
+                        "path":  "harness/changes/archive/20260614-phase-10d-goal-loop-confirmation-surface"
                     }
                 ]
 }

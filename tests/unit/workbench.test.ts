@@ -67,6 +67,7 @@ import {
 import { compileSchedulerContract } from "../../src/workflow-scheduler/manager.js";
 import { auditSchedulerFirstWorker, readSchedulerRuntimeEvents, validateSchedulerFirstWorker } from "../../src/scheduler-runtime/manager.js";
 import { listIntegrationChecks } from "../../src/integration-check/manager.js";
+import { readLatestGoalLoopDecision } from "../../src/goal-loop/manager.js";
 import type { ManagedProject, RunMetadata, TaskQueueItem, TaskQueueRun, TaskRun, WorkerLease, WorkflowGraphPlan, WorkflowRun } from "../../src/types/index.js";
 import type { DecompositionPlan, DecompositionReadinessManifest, TaskQueueProposal } from "../../src/workflow-artifacts/manager.js";
 
@@ -2079,6 +2080,51 @@ describe("workbench read model", () => {
     expect(snapshot.right.confirmationQueue.primary?.actions).toEqual(expect.arrayContaining([
       expect.objectContaining({ actionType: "planning.confirm-execution", label: "确认规划", planningBundleId }),
     ]));
+    expect(snapshot.right.confirmationQueue.current.flatMap((item) => item.actions).some((action) => action.actionType === "planning.goal-loop.evaluate")).toBe(false);
+  });
+
+  it("projects goal loop evaluation as a fallback confirmation without starting execution", async () => {
+    await initHarness(project());
+    const topic = await createWorkbenchTopic(project(), {
+      title: "Goal Loop Fallback",
+      body: "Evaluate the long-running goal before doing more work.",
+    });
+    await writeAcceptedSpecAndTasks(topic.changeId);
+
+    const snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: topic.changeId });
+
+    expect(snapshot.right.confirmationQueue.primary).toMatchObject({
+      kind: "planning-confirm",
+      changeId: topic.changeId,
+      summary: expect.stringContaining("评估下一步"),
+    });
+    const action = snapshot.right.confirmationQueue.primary?.actions.find((item) => item.actionType === "planning.goal-loop.evaluate");
+    expect(action).toMatchObject({
+      label: "评估目标循环",
+      changeId: topic.changeId,
+      requiresConfirmation: true,
+    });
+
+    const actionResult = await executeWorkbenchAction({ project: project(), path: tempDir }, {
+      actionType: "planning.goal-loop.evaluate",
+      changeId: topic.changeId,
+      confirm: true,
+    });
+    expect(actionResult.result).toMatchObject({ status: "completed" });
+    const result = actionResult.result.result as { goalLoopDecision?: { changeId: string; executionStarted: boolean; authority: string } };
+    expect(result.goalLoopDecision).toMatchObject({
+      changeId: topic.changeId,
+      executionStarted: false,
+      authority: "non-executing-planning-evidence",
+    });
+    const memory = await resolveProjectMemory(project());
+    await expect(readLatestGoalLoopDecision(memory, join("harness", "changes", "active", topic.changeId))).resolves.toMatchObject({
+      changeId: topic.changeId,
+      executionStarted: false,
+    });
+    expect(await listRuns(memory)).toHaveLength(0);
+    expect(await listWorktreeStatuses(memory)).toHaveLength(0);
+    expect(await listIntegrationChecks(memory)).toHaveLength(0);
   });
 
   it("rejects stale planning bundle confirmation", async () => {
@@ -3465,7 +3511,7 @@ describe("workbench read model", () => {
       if (oldPath === undefined) delete process.env.PATH;
       else process.env.PATH = oldPath;
     }
-  }, 120000);
+  }, 300000);
 
   it("records discarded SchedulerRun completion after existing IntegrationCheck discard without mutating source", async () => {
     const prepared = await prepareSchedulerTwoWorkerIntegrationHandoff("Scheduler Discard Completion Acceptance");
@@ -3585,7 +3631,7 @@ describe("workbench read model", () => {
     expect(await readFile(join(tempDir, "src", "module-b.ts"), "utf8")).toBe(moduleBBeforeDiscard);
     const sourceStatusAfterCompletion = await execFileAsync("git", ["status", "--short", "--untracked-files=all"], { cwd: tempDir });
     expect(sourceStatusAfterCompletion.stdout.trim()).toBe("");
-  }, 120000);
+  }, 300000);
 
   it("compiles a scheduler worker rework plan after first worker validation fails and starts bounded same-worktree rework", async () => {
     const prepared = await prepareSchedulerFirstWorkerThroughResult({

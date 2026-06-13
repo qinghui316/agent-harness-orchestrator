@@ -153,6 +153,8 @@ Phase 10B records the Goal-driven Adaptive Loop direction. AHO borrows Loop Engi
 
 Phase 10C adds the first concrete Goal Loop artifact as non-executing planning evidence. `src/goal-loop/` owns `GoalLoopDecision`, which observes selected Change evidence, scheduler/integration evidence, conflict signals, and completion status, then records a conservative recommendation such as preparing scheduler evidence, starting the first gated scheduler worker, waiting for current worker evidence, running the existing IntegrationCheck handoff, or stopping for a human gate. The decision is not an executor, scheduler loop, worker launcher, source mutation path, or workflow truth. Any recommended high-impact action remains a separate Workbench action with its own required target ids, stale revalidation, ToolPolicyGate audit, and human confirmation.
 
+Phase 10D connects that artifact to the user surface as a fallback confirmation only. Workbench may offer `评估目标循环` when the selected active Change has no more specific current confirmation. The fallback records GoalLoopDecision evidence and explanatory thread context; it does not run the recommendation, replace the concrete action's gate, or become a hidden scheduler loop.
+
 Goal-driven loop model:
 
 ```mermaid

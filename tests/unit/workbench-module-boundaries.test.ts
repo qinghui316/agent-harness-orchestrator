@@ -752,10 +752,18 @@ describe("Workbench module boundaries", () => {
 
     const handlerIndex = readFileSync("src/workbench/actions/handlers/index.ts", "utf8");
     const handler = readFileSync("src/workbench/actions/handlers/goal-loop.ts", "utf8");
+    const confirmationQueue = readFileSync("src/workbench/projections/read-model/confirmation-queue.ts", "utf8");
+    const confirmation = readFileSync("src/workbench/projections/read-model/confirmation/goal-loop.ts", "utf8");
     expect(handlerIndex).toContain('from "./goal-loop.js"');
     expect(handlerIndex).not.toContain('"planning.goal-loop.evaluate":');
     expect(handler).toContain("buildGoalLoopActionHandlers");
     expect(handler).toContain("compileGoalLoopDecision");
+    expect(confirmationQueue).toContain('from "./confirmation/goal-loop.js"');
+    expect(confirmation).toContain("goalLoopEvaluationQueueItem");
+    expect(confirmation).toContain('"planning.goal-loop.evaluate"');
+    expect(confirmation).not.toContain("compileGoalLoopDecision");
+    expect(confirmation).not.toContain("recommendedAction");
+    expect(confirmation).not.toContain("planning.scheduler.");
   });
 
   it("keeps run manager as a compatibility facade with owned evidence modules", () => {

@@ -267,6 +267,8 @@ Phase 10B adds the Goal Loop Boundary. Future autonomous or semi-autonomous main
 
 Phase 10C adds the `GoalLoopDecision` boundary. `src/goal-loop/` owns the decision schema, repository, renderer, and compiler. Workbench/server/frontend code may dispatch `planning.goal-loop.evaluate` and display the summary, but must not own the decision policy. `GoalLoopDecision` may recommend an existing action only when that action's required scope ids are present and valid; otherwise it must wait or block. It must not import Workbench, server, web, CLI, broad facades, or worker-start implementations, and it must not start workers, allocate leases, create runtime sidecars, run IntegrationCheck, mutate source, close Changes, or mark the Goal complete without evidence and the existing human gate.
 
+Phase 10D adds the Goal Loop confirmation-surface boundary. `src/workbench/projections/read-model/confirmation/goal-loop.ts` may build a fallback `planning.goal-loop.evaluate` queue item for the selected active Change, but only after existing concrete confirmations are assembled and only when none exist. It must not be implemented as `workpad.nextAction`, must not expose `GoalLoopDecision.recommendedAction` as an executable action, and must not bypass the workflow-action ToolPolicyGate / human gate path.
+
 ## 7. Memory Unavailable Boundary
 
 Memory can be unavailable on a new machine, after a plain repository clone, when AHO home was not synced, when permissions are missing, or when a future remote memory service is offline.
