@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-13T08:33:33.1020991Z",
+    "generated_at":  "2026-06-13T09:09:50.1952551Z",
     "active":  [
 
                ],
@@ -715,6 +715,10 @@
                         "path":  "harness/changes/archive/20260613-auto-evolve-harness-phase-9n-9r-scheduler-integration-evidence"
                     },
                     {
+                        "name":  "20260613-auto-evolve-harness-phase-9r-9v-scheduler-integration-apply-evidence",
+                        "path":  "harness/changes/archive/20260613-auto-evolve-harness-phase-9r-9v-scheduler-integration-apply-evidence"
+                    },
+                    {
                         "name":  "20260613-phase-9p-scheduler-worker-integration-candidate-bridge",
                         "path":  "harness/changes/archive/20260613-phase-9p-scheduler-worker-integration-candidate-bridge"
                     },
@@ -737,6 +741,10 @@
                     {
                         "name":  "20260613-phase-9u-scheduler-two-worker-acceptance-surface",
                         "path":  "harness/changes/archive/20260613-phase-9u-scheduler-two-worker-acceptance-surface"
+                    },
+                    {
+                        "name":  "20260613-phase-9v-scheduler-integration-apply-discard-outcome-acceptance",
+                        "path":  "harness/changes/archive/20260613-phase-9v-scheduler-integration-apply-discard-outcome-acceptance"
                     }
                 ]
 }

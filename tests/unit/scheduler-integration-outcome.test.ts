@@ -31,12 +31,41 @@ const mocks = vi.hoisted(() => {
     readyWorktreeIds: ["wt-a", "wt-b"],
     resultTargetWorktreeIds: ["wt-a", "wt-b"],
     readyTargets: [
-      { worktreeId: "wt-a", worktreeDiffHash: "diff-a", diffStat: "1 file", sourceHead: "head-1", validationId: "val-a", auditId: "aud-a" },
-      { worktreeId: "wt-b", worktreeDiffHash: "diff-b", diffStat: "2 files", sourceHead: "head-1", validationId: "val-b", auditId: "aud-b" },
+      { worktreeId: "wt-a", worktreeDiffHash: "diff-a", diffStat: "1 file", sourceHead: "head-1", validationRunId: "val-a", auditRunId: "aud-a" },
+      { worktreeId: "wt-b", worktreeDiffHash: "diff-b", diffStat: "2 files", sourceHead: "head-1", validationRunId: "val-b", auditRunId: "aud-b" },
     ],
     sourceArtifactHashes: { "spec.md": "hash-spec" },
     artifact: "handoff.json",
     markdownArtifact: "handoff.md",
+    createdAt: "2026-06-13T00:00:00.000Z",
+    updatedAt: "2026-06-13T00:00:00.000Z",
+  };
+  const candidate = {
+    id: "candidate-1",
+    changeId: "change-1",
+    schedulerRunId: "scheduler-run-1",
+    schedulerMode: "parallel-readiness-v1",
+    status: "ready",
+    schedulerRuntimeStateId: "scheduler-runtime-state-1",
+    schedulerReconcileSnapshotId: "snapshot-1",
+    schedulerClaimReservationId: "reservation-1",
+    schedulerContractId: "contract-1",
+    schedulerDispatchDryRunId: "dry-run-1",
+    schedulerWorkerPlanId: "worker-plan-1",
+    schedulerClaimReconcilePlanId: "claim-plan-1",
+    schedulerLaunchPreflightId: "preflight-1",
+    outputs: [],
+    readyTargets: [
+      { worktreeId: "wt-a", worktreeDiffHash: "diff-a", diffStat: "1 file", sourceHead: "head-1", validationRunId: "val-a", auditRunId: "aud-a" },
+      { worktreeId: "wt-b", worktreeDiffHash: "diff-b", diffStat: "2 files", sourceHead: "head-1", validationRunId: "val-b", auditRunId: "aud-b" },
+    ],
+    readyWorktreeIds: ["wt-a", "wt-b"],
+    readyCount: 2,
+    blockedCount: 0,
+    sourceArtifactHashes: { "spec.md": "hash-spec" },
+    artifactRefs: ["candidate.json"],
+    artifact: "candidate.json",
+    markdownArtifact: "candidate.md",
     createdAt: "2026-06-13T00:00:00.000Z",
     updatedAt: "2026-06-13T00:00:00.000Z",
   };
@@ -54,11 +83,13 @@ const mocks = vi.hoisted(() => {
   return {
     runtimeState,
     handoff,
+    candidate,
     check,
     writeSchedulerIntegrationOutcome: vi.fn(),
     findSchedulerIntegrationOutcomeForHandoff: vi.fn(),
     getWorktreeStatus: vi.fn(),
     readIntegrationCheck: vi.fn(),
+    readLatestSchedulerIntegrationCandidateProjection: vi.fn(),
   };
 });
 
@@ -85,6 +116,7 @@ vi.mock("../../src/scheduler-runtime/guards.js", () => ({
 
 vi.mock("../../src/scheduler-runtime/repository.js", () => ({
   findSchedulerIntegrationOutcomeForHandoff: mocks.findSchedulerIntegrationOutcomeForHandoff,
+  readLatestSchedulerIntegrationCandidateProjection: mocks.readLatestSchedulerIntegrationCandidateProjection,
   readLatestSchedulerIntegrationCheckHandoffProjection: vi.fn(async () => mocks.handoff),
   readSchedulerIntegrationCheckHandoff: vi.fn(async () => mocks.handoff),
   readSchedulerRuntimeState: vi.fn(async () => mocks.runtimeState),
@@ -109,7 +141,9 @@ describe("Scheduler integration outcome reconciliation", () => {
     mocks.findSchedulerIntegrationOutcomeForHandoff.mockReset();
     mocks.getWorktreeStatus.mockReset();
     mocks.readIntegrationCheck.mockReset();
+    mocks.readLatestSchedulerIntegrationCandidateProjection.mockReset();
     mocks.readIntegrationCheck.mockResolvedValue({ ...mocks.check });
+    mocks.readLatestSchedulerIntegrationCandidateProjection.mockResolvedValue({ ...mocks.candidate });
     mocks.getWorktreeStatus.mockImplementation(async (_memory, worktreeId: string) => ({
       id: worktreeId,
       worktreeId,
@@ -175,6 +209,53 @@ describe("Scheduler integration outcome reconciliation", () => {
       schedulerRunId: "scheduler-run-1",
       schedulerIntegrationCheckHandoffId: "handoff-1",
     })).rejects.toThrow(/discarded target already has applied evidence/);
+    expect(mocks.writeSchedulerIntegrationOutcome).not.toHaveBeenCalled();
+  });
+
+  it("records discarded outcome when no target has applied worktree evidence", async () => {
+    mocks.readIntegrationCheck.mockResolvedValue({ ...mocks.check, status: "discarded" });
+    const { reconcileSchedulerIntegrationOutcome } = await import("../../src/scheduler-runtime/integration-outcome.js");
+
+    const result = await reconcileSchedulerIntegrationOutcome({ id: "project-1", root: "project-root" } as never, {
+      changeId: "change-1",
+      schedulerRunId: "scheduler-run-1",
+      schedulerIntegrationCheckHandoffId: "handoff-1",
+    });
+
+    expect(result.status).toBe("reconciled");
+    expect(result.outcome?.status).toBe("discarded");
+    expect(result.outcome?.targets.every((target) => target.applied === false)).toBe(true);
+    expect(mocks.writeSchedulerIntegrationOutcome).toHaveBeenCalledTimes(1);
+  });
+
+
+  it("rejects outcome reconciliation when latest SchedulerIntegrationCandidate does not match the handoff", async () => {
+    mocks.readLatestSchedulerIntegrationCandidateProjection.mockResolvedValue({ ...mocks.candidate, id: "candidate-newer" });
+    const { reconcileSchedulerIntegrationOutcome } = await import("../../src/scheduler-runtime/integration-outcome.js");
+
+    await expect(reconcileSchedulerIntegrationOutcome({ id: "project-1", root: "project-root" } as never, {
+      changeId: "change-1",
+      schedulerRunId: "scheduler-run-1",
+      schedulerIntegrationCheckHandoffId: "handoff-1",
+    })).rejects.toThrow(/SchedulerIntegrationCandidate target is stale/);
+    expect(mocks.writeSchedulerIntegrationOutcome).not.toHaveBeenCalled();
+  });
+
+  it("rejects outcome reconciliation when latest SchedulerIntegrationCandidate target evidence drifts", async () => {
+    mocks.readLatestSchedulerIntegrationCandidateProjection.mockResolvedValue({
+      ...mocks.candidate,
+      readyTargets: [
+        { worktreeId: "wt-a", worktreeDiffHash: "diff-drift", diffStat: "1 file", sourceHead: "head-1", validationRunId: "val-a", auditRunId: "aud-a" },
+        { worktreeId: "wt-b", worktreeDiffHash: "diff-b", diffStat: "2 files", sourceHead: "head-1", validationRunId: "val-b", auditRunId: "aud-b" },
+      ],
+    });
+    const { reconcileSchedulerIntegrationOutcome } = await import("../../src/scheduler-runtime/integration-outcome.js");
+
+    await expect(reconcileSchedulerIntegrationOutcome({ id: "project-1", root: "project-root" } as never, {
+      changeId: "change-1",
+      schedulerRunId: "scheduler-run-1",
+      schedulerIntegrationCheckHandoffId: "handoff-1",
+    })).rejects.toThrow(/candidate diff hash mismatch/);
     expect(mocks.writeSchedulerIntegrationOutcome).not.toHaveBeenCalled();
   });
 });

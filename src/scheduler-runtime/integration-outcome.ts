@@ -7,6 +7,7 @@ import { getWorktreeStatus } from "../worktree/manager.js";
 import { readSchedulerRuntimeLineage } from "./guards.js";
 import {
   findSchedulerIntegrationOutcomeForHandoff,
+  readLatestSchedulerIntegrationCandidateProjection,
   readLatestSchedulerIntegrationCheckHandoffProjection,
   readSchedulerIntegrationCheckHandoff,
   readSchedulerRuntimeState,
@@ -14,6 +15,7 @@ import {
   writeSchedulerIntegrationOutcome,
 } from "./repository.js";
 import type {
+  SchedulerIntegrationCandidate,
   SchedulerIntegrationCheckHandoff,
   SchedulerIntegrationOutcome,
   SchedulerIntegrationOutcomeTarget,
@@ -55,6 +57,8 @@ export async function reconcileSchedulerIntegrationOutcome(project: ManagedProje
   }
   const handoff = await readSchedulerIntegrationCheckHandoff(memory, changePath, run.id, input.schedulerIntegrationCheckHandoffId);
   assertHandoffMatchesRuntime(handoff, runtimeState);
+  const latestCandidate = await readLatestSchedulerIntegrationCandidateProjection(memory, changePath, run.id);
+  assertCandidateMatchesHandoff(latestCandidate, handoff, runtimeState);
 
   const check = await readIntegrationCheck(memory, handoff.integrationCheckId);
   assertIntegrationCheckMatchesHandoff(check, handoff);
@@ -123,6 +127,38 @@ function assertHandoffMatchesRuntime(handoff: SchedulerIntegrationCheckHandoff, 
     throw new Error("planning.scheduler.integration-outcome.reconcile SchedulerIntegrationCheckHandoff target is stale.");
   }
   assertHashesMatch(handoff.sourceArtifactHashes, runtimeState.sourceArtifactHashes, "handoff");
+}
+
+function assertCandidateMatchesHandoff(candidate: SchedulerIntegrationCandidate | null, handoff: SchedulerIntegrationCheckHandoff, runtimeState: SchedulerRuntimeState): void {
+  if (!candidate) {
+    throw new Error("planning.scheduler.integration-outcome.reconcile requires the latest SchedulerIntegrationCandidate.");
+  }
+  if (
+    candidate.id !== handoff.schedulerIntegrationCandidateId
+    || candidate.changeId !== handoff.changeId
+    || candidate.schedulerRunId !== handoff.schedulerRunId
+    || candidate.schedulerRuntimeStateId !== runtimeState.id
+    || candidate.schedulerRuntimeStateId !== handoff.schedulerRuntimeStateId
+    || candidate.schedulerClaimReservationId !== handoff.schedulerClaimReservationId
+    || candidate.schedulerReconcileSnapshotId !== handoff.schedulerReconcileSnapshotId
+  ) {
+    throw new Error("planning.scheduler.integration-outcome.reconcile SchedulerIntegrationCandidate target is stale.");
+  }
+  if (candidate.status !== "ready" || candidate.readyCount < 2 || candidate.readyTargets.length < 2) {
+    throw new Error("planning.scheduler.integration-outcome.reconcile requires a ready SchedulerIntegrationCandidate.");
+  }
+  assertHashesMatch(candidate.sourceArtifactHashes, runtimeState.sourceArtifactHashes, "candidate");
+  assertSameWorktreeSet(candidate.readyWorktreeIds, handoff.readyWorktreeIds, "candidate ready");
+  assertSameWorktreeSet(candidate.readyTargets.map((target) => target.worktreeId), handoff.readyTargets.map((target) => target.worktreeId), "candidate ready target");
+  for (const handoffTarget of handoff.readyTargets) {
+    const candidateTarget = candidate.readyTargets.find((target) => target.worktreeId === handoffTarget.worktreeId);
+    if (!candidateTarget) throw new Error(`planning.scheduler.integration-outcome.reconcile missing SchedulerIntegrationCandidate target: ${handoffTarget.worktreeId}.`);
+    if (candidateTarget.worktreeDiffHash !== handoffTarget.worktreeDiffHash) throw new Error(`planning.scheduler.integration-outcome.reconcile candidate diff hash mismatch: ${handoffTarget.worktreeId}.`);
+    if (candidateTarget.diffStat !== handoffTarget.diffStat) throw new Error(`planning.scheduler.integration-outcome.reconcile candidate diff stat mismatch: ${handoffTarget.worktreeId}.`);
+    if ((candidateTarget.sourceHead ?? null) !== (handoffTarget.sourceHead ?? null)) throw new Error(`planning.scheduler.integration-outcome.reconcile candidate source HEAD mismatch: ${handoffTarget.worktreeId}.`);
+    if (candidateTarget.validationRunId !== handoffTarget.validationRunId) throw new Error(`planning.scheduler.integration-outcome.reconcile candidate validation evidence mismatch: ${handoffTarget.worktreeId}.`);
+    if (candidateTarget.auditRunId !== handoffTarget.auditRunId) throw new Error(`planning.scheduler.integration-outcome.reconcile candidate audit evidence mismatch: ${handoffTarget.worktreeId}.`);
+  }
 }
 
 function assertIntegrationCheckMatchesHandoff(check: IntegrationCheckRecord, handoff: SchedulerIntegrationCheckHandoff): void {

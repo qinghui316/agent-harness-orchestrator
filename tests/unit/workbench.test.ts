@@ -3324,6 +3324,47 @@ describe("workbench read model", () => {
           ]),
         }),
       ]));
+
+      snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: prepared.topic.changeId });
+      expect(snapshot.right.confirmationQueue.primary).toMatchObject({
+        kind: "integration-apply",
+        applyCheckId: handoff.handoff?.integrationCheckId,
+      });
+      const applyAction = snapshot.right.confirmationQueue.primary?.actions.find((action) => action.action?.actionId === "apply-check.apply")?.action;
+      const discardAction = snapshot.right.confirmationQueue.primary?.actions.find((action) => action.action?.actionId === "apply-check.discard")?.action;
+      expect(applyAction).toMatchObject({ actionId: "apply-check.apply", command: "apply-check" });
+      expect(discardAction).toMatchObject({ actionId: "apply-check.discard", command: "apply-check" });
+      expect(snapshot.right.confirmationQueue.primary?.actions.some((action) => action.actionType?.includes("scheduler") || action.action?.actionId?.includes("scheduler"))).toBe(false);
+      if (!applyAction) throw new Error("Missing existing IntegrationCheck apply action.");
+
+      await executeWorkbenchAction({ project: project(), path: tempDir }, { action: applyAction, confirm: true });
+      snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: prepared.topic.changeId });
+      const outcomeAction = snapshot.right.confirmationQueue.current
+        .flatMap((item) => item.actions)
+        .find((action) => action.actionType === "planning.scheduler.integration-outcome.reconcile" && action.schedulerIntegrationCheckHandoffId === handoff.handoff?.id);
+      if (!outcomeAction) throw new Error("Missing scheduler integration outcome reconcile action after existing apply.");
+      const outcomeResult = await executeWorkbenchAction({ project: project(), path: tempDir }, { ...outcomeAction, confirm: true });
+      const outcomeWorkflow = outcomeResult.result as { status?: string; error?: string; result?: unknown };
+      if (outcomeWorkflow.status === "failed") throw new Error(outcomeWorkflow.error ?? "outcome action failed");
+      const outcomePayload = (outcomeWorkflow.result ?? outcomeResult.result) as {
+        outcome?: {
+          status?: string;
+          schedulerIntegrationCheckHandoffId?: string;
+          integrationCheckId?: string;
+          readyWorktreeIds?: string[];
+          resultTargetWorktreeIds?: string[];
+        };
+      };
+      expect(outcomePayload.outcome).toMatchObject({
+        status: "applied",
+        schedulerIntegrationCheckHandoffId: handoff.handoff?.id,
+        integrationCheckId: handoff.handoff?.integrationCheckId,
+        readyWorktreeIds: expect.arrayContaining(refreshedCandidate?.readyWorktreeIds ?? []),
+        resultTargetWorktreeIds: expect.arrayContaining(refreshedCandidate?.readyWorktreeIds ?? []),
+      });
+      expect(await listWorkflowRuns(finalMemory, prepared.topic.changeId)).toHaveLength(0);
+      expect(await listTaskQueues(finalMemory, prepared.topic.changeId)).toHaveLength(0);
+      expect(await listAgentTasks(finalMemory, prepared.topic.changeId)).toHaveLength(0);
     } finally {
       if (oldPath === undefined) delete process.env.PATH;
       else process.env.PATH = oldPath;

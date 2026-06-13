@@ -137,6 +137,8 @@ Phase 9T adds the scheduler current-worker quality surface. `src/scheduler-runti
 
 Phase 9U is an acceptance and boundary-hardening phase over that architecture. It verifies that the second scheduler worker can move through the same owner-module-backed current-worker path and that IntegrationCheck handoff only sees a refreshed candidate containing both ready outputs. It should not move scheduler state-machine decisions back into Workbench, server, frontend, or broad facade files.
 
+Phase 9V closes the scheduler integration acceptance loop after that handoff. The scheduler runtime may reconcile the current IntegrationCheck terminal/apply/discard state back into scheduler-owned outcome evidence, but it must re-read the latest `SchedulerIntegrationCandidate` and prove the handoff still matches the latest candidate/runtime lineage before doing so. Source-root mutation remains exclusively under existing `apply-check.apply` / `apply-check.discard` human gates.
+
 Workbench relationship:
 
 ```text
