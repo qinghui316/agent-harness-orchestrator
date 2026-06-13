@@ -17,6 +17,7 @@ export function artifactForActionResult(result: unknown): string | null {
   if (isRecord(result) && isRecord(result.manifest) && typeof result.manifest.artifact === "string") return result.manifest.artifact;
   if (isRecord(result) && isRecord(result.contract) && typeof result.contract.artifact === "string") return result.contract.artifact;
   if (isRecord(result) && isRecord(result.launchPreflight) && typeof result.launchPreflight.artifact === "string") return result.launchPreflight.artifact;
+  if (isRecord(result) && isRecord(result.goalLoopDecision) && typeof result.goalLoopDecision.artifact === "string") return result.goalLoopDecision.artifact;
   if (isRecord(result) && isRecord(result.schedulerRun) && typeof result.schedulerRun.artifact === "string") return result.schedulerRun.artifact;
   if (isRecord(result) && isRecord(result.runtimeState) && typeof result.runtimeState.artifact === "string") return result.runtimeState.artifact;
   if (isRecord(result) && isRecord(result.reconcileSnapshot) && typeof result.reconcileSnapshot.artifact === "string") return result.reconcileSnapshot.artifact;
@@ -274,6 +275,10 @@ export function summarizeActionResult(actionType: string, result: unknown): stri
     const status = typeof result.closeout.status === "string" ? result.closeout.status : "closed";
     return `SchedulerRun closeout ${status} recorded before IntegrationCheck. No apply, landing, PR, merge, or next worker was started.`;
   }
+  if (actionType === "planning.goal-loop.evaluate" && isRecord(result) && isRecord(result.goalLoopDecision)) {
+    const kind = typeof result.goalLoopDecision.decisionKind === "string" ? result.goalLoopDecision.decisionKind : "recorded";
+    return `Goal loop decision ${kind} recorded. No execution was started.`;
+  }
   if (actionType === "planning.confirm-execution" && isRecord(result)) {
     return "Planning confirmed and canonical artifacts were written. No execution was started.";
   }
@@ -311,6 +316,7 @@ export function labelForAction(actionType: string): string {
     case "planning.decomposition.confirm": return "DecompositionPlan confirmed";
     case "planning.decomposition.assess-readiness": return "Decomposition readiness assessed";
     case "planning.taskqueue.propose": return "TaskQueueProposal generated";
+    case "planning.goal-loop.evaluate": return "Goal loop decision evaluated";
     case "planning.scheduler.plan.prepare": return "Parallel execution plan prepared";
     case "planning.scheduler.contract.compile": return "SchedulerContract compiled";
     case "planning.scheduler.dispatch.dry-run": return "Scheduler dispatch dry-run generated";

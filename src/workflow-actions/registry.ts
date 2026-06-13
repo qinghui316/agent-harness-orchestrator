@@ -11,6 +11,7 @@ export const WORKFLOW_ACTION_TYPES = [
   "planning.decomposition.confirm",
   "planning.decomposition.assess-readiness",
   "planning.taskqueue.propose",
+  "planning.goal-loop.evaluate",
   "planning.scheduler.plan.prepare",
   "planning.scheduler.contract.compile",
   "planning.scheduler.dispatch.dry-run",
@@ -125,6 +126,7 @@ export const LIVE_WORKFLOW_ACTION_TYPES = [
   "planning.decomposition.confirm",
   "planning.decomposition.assess-readiness",
   "planning.taskqueue.propose",
+  "planning.goal-loop.evaluate",
   "planning.scheduler.plan.prepare",
   "planning.scheduler.contract.compile",
   "planning.scheduler.dispatch.dry-run",
@@ -219,6 +221,7 @@ export const HIGH_IMPACT_WORKFLOW_ACTION_TYPES = [
   "planning.decomposition.confirm",
   "planning.decomposition.assess-readiness",
   "planning.taskqueue.propose",
+  "planning.goal-loop.evaluate",
   "planning.scheduler.plan.prepare",
   "planning.scheduler.contract.compile",
   "planning.scheduler.dispatch.dry-run",
@@ -274,6 +277,7 @@ export const REVALIDATED_WORKFLOW_ACTION_TYPES = [
   "planning.decomposition.confirm",
   "planning.decomposition.assess-readiness",
   "planning.taskqueue.propose",
+  "planning.goal-loop.evaluate",
   "planning.scheduler.plan.prepare",
   "planning.scheduler.contract.compile",
   "planning.scheduler.dispatch.dry-run",
@@ -337,6 +341,7 @@ export const WORKFLOW_ACTION_SCOPE_KEYS = [
   "schedulerIntegrationOutcomeId",
   "schedulerRunCompletionId",
   "schedulerRunBlockedCloseoutId",
+  "goalLoopDecisionId",
   "reservationIntentId",
   "claimIntentId",
   "workflowRunId",
@@ -410,6 +415,9 @@ export function validateWorkflowActionRequiredTargets(request: WorkflowActionSco
       break;
     case "planning.taskqueue.propose":
       requireOne("readinessManifestId", [request.readinessManifestId]);
+      break;
+    case "planning.goal-loop.evaluate":
+      requireOne("changeId", [request.changeId]);
       break;
     case "planning.scheduler.plan.prepare":
       requireOne("changeId", [request.changeId]);
@@ -620,6 +628,7 @@ export function workflowActionScopePayload(request: WorkflowActionScopeCarrier, 
     schedulerIntegrationOutcomeId: request.schedulerIntegrationOutcomeId ?? extractString(result, "outcome", "id") ?? extractString(result, "completion", "schedulerIntegrationOutcomeId"),
     schedulerRunCompletionId: request.schedulerRunCompletionId ?? extractString(result, "completion", "id"),
     schedulerRunBlockedCloseoutId: request.schedulerRunBlockedCloseoutId ?? extractString(result, "closeout", "id"),
+    goalLoopDecisionId: request.goalLoopDecisionId ?? extractString(result, "goalLoopDecision", "id"),
     reservationIntentId: request.reservationIntentId ?? extractString(result, "workerStart", "reservationIntentId") ?? extractString(result, "result", "reservationIntentId") ?? extractString(result, "schedulerValidation", "reservationIntentId") ?? extractString(result, "schedulerAudit", "reservationIntentId") ?? extractString(result, "reworkPlan", "reservationIntentId"),
     claimIntentId: request.claimIntentId ?? extractString(result, "workerStart", "claimIntentId") ?? extractString(result, "result", "claimIntentId") ?? extractString(result, "schedulerValidation", "claimIntentId") ?? extractString(result, "schedulerAudit", "claimIntentId") ?? extractString(result, "reworkPlan", "claimIntentId"),
     workflowRunId: request.workflowRunId ?? extractString(result, "workflowRun", "id") ?? extractString(result, "workflow", "id"),
@@ -641,6 +650,11 @@ export function workflowActionScopePayload(request: WorkflowActionScopeCarrier, 
 }
 
 export function workflowActionTargetId(request: WorkflowActionScopeCarrier, changeId: string, result?: unknown): string {
+  if (request.actionType === "planning.goal-loop.evaluate") {
+    return request.goalLoopDecisionId
+      ?? extractString(result, "goalLoopDecision", "id")
+      ?? changeId;
+  }
   if (request.actionType === "planning.scheduler.worker.reconcile-result") {
     return request.schedulerWorkerResultId
       ?? extractString(result, "result", "id")
@@ -825,6 +839,7 @@ export function workflowActionScopesMatchStrict(left: WorkflowActionScopeCarrier
     && sameStrictOptional(left.schedulerIntegrationOutcomeId, right.schedulerIntegrationOutcomeId)
     && sameStrictOptional(left.schedulerRunCompletionId, right.schedulerRunCompletionId)
     && sameStrictOptional(left.schedulerRunBlockedCloseoutId, right.schedulerRunBlockedCloseoutId)
+    && sameStrictOptional(left.goalLoopDecisionId, right.goalLoopDecisionId)
     && sameStrictOptional(left.reservationIntentId, right.reservationIntentId)
     && sameStrictOptional(left.claimIntentId, right.claimIntentId)
     && sameStrictOptional(left.workflowRunId, right.workflowRunId)
@@ -879,6 +894,7 @@ export function workflowActionScopesMatchCompatible(left: WorkflowActionScopeCar
     && sameCompatibleOptional(left.schedulerIntegrationOutcomeId, right.schedulerIntegrationOutcomeId)
     && sameCompatibleOptional(left.schedulerRunCompletionId, right.schedulerRunCompletionId)
     && sameCompatibleOptional(left.schedulerRunBlockedCloseoutId, right.schedulerRunBlockedCloseoutId)
+    && sameCompatibleOptional(left.goalLoopDecisionId, right.goalLoopDecisionId)
     && sameCompatibleOptional(left.reservationIntentId, right.reservationIntentId)
     && sameCompatibleOptional(left.claimIntentId, right.claimIntentId)
     && sameCompatibleOptional(left.workflowRunId, right.workflowRunId)

@@ -151,6 +151,8 @@ Phase 10A is a user-facing scheduler execution surface consolidation phase. It k
 
 Phase 10B records the Goal-driven Adaptive Loop direction. AHO borrows Loop Engineering's harness-above-agent idea and Codex `goal` continuation behavior, but keeps them under AHO workflow truth. A complex user request should remain a persistent Goal/Change until evidence proves completion, blocking, or conflict. The main Agent observes current repo and Harness evidence, plans the next slice, then chooses between low-conflict parallel worker/worktree slices and high-conflict sequential wait / rework / IntegrationFix loops. This is not a scheduler loop or full parallel executor. Multi-worktree development provides isolation only; final combination still requires SchedulerIntegrationCandidate, existing IntegrationCheck, aggregate validation/audit, and a human apply gate.
 
+Phase 10C adds the first concrete Goal Loop artifact as non-executing planning evidence. `src/goal-loop/` owns `GoalLoopDecision`, which observes selected Change evidence, scheduler/integration evidence, conflict signals, and completion status, then records a conservative recommendation such as preparing scheduler evidence, starting the first gated scheduler worker, waiting for current worker evidence, running the existing IntegrationCheck handoff, or stopping for a human gate. The decision is not an executor, scheduler loop, worker launcher, source mutation path, or workflow truth. Any recommended high-impact action remains a separate Workbench action with its own required target ids, stale revalidation, ToolPolicyGate audit, and human confirmation.
+
 Goal-driven loop model:
 
 ```mermaid

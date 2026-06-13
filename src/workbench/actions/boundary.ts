@@ -155,6 +155,12 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
       throw new Error("planning.taskqueue.propose target is stale or no longer proposal-ready.");
     }
   }
+  if (request.actionType === "planning.goal-loop.evaluate") {
+    const active = await getActiveChanges(memory);
+    const target = active.find((item) => item.name === changeId);
+    if (!target) throw new Error(`planning.goal-loop.evaluate target is stale or missing active Change: ${changeId}.`);
+    if (request.changeId && request.changeId !== changeId) throw new Error("planning.goal-loop.evaluate changeId scope mismatch.");
+  }
   if (request.actionType === "planning.scheduler.plan.prepare") {
     const active = await getActiveChanges(memory);
     const target = active.find((item) => item.name === changeId);

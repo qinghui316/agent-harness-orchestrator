@@ -101,6 +101,30 @@ describe("workflow action registry", () => {
     expect(LIVE_WORKFLOW_ACTION_TYPES).toContain("planning.scheduler.run.close-blocked");
     expect(HIGH_IMPACT_WORKFLOW_ACTION_TYPES).toContain("planning.scheduler.run.close-blocked");
     expect(REVALIDATED_WORKFLOW_ACTION_TYPES).toContain("planning.scheduler.run.close-blocked");
+    expect(LIVE_WORKFLOW_ACTION_TYPES).toContain("planning.goal-loop.evaluate");
+    expect(HIGH_IMPACT_WORKFLOW_ACTION_TYPES).toContain("planning.goal-loop.evaluate");
+    expect(REVALIDATED_WORKFLOW_ACTION_TYPES).toContain("planning.goal-loop.evaluate");
+  });
+
+  it("keeps GoalLoopDecision ids in target and audit scope matching", () => {
+    const request = {
+      actionType: "planning.goal-loop.evaluate",
+      changeId: "change-1",
+      goalLoopDecisionId: "goal-loop-decision-1",
+    };
+
+    expect(validateWorkflowActionRequiredTargets({ actionType: "planning.goal-loop.evaluate", changeId: "change-1" })).toEqual([]);
+    expect(validateWorkflowActionRequiredTargets({ actionType: "planning.goal-loop.evaluate" }).map((item) => item.label)).toEqual(["changeId"]);
+    expect(workflowActionTargetId(request, request.changeId)).toBe("goal-loop-decision-1");
+    expect(workflowActionScopePayload({ actionType: "planning.goal-loop.evaluate", changeId: "change-1" }, "change-1", {
+      goalLoopDecision: { id: "goal-loop-decision-1" },
+    })).toMatchObject({
+      changeId: "change-1",
+      goalLoopDecisionId: "goal-loop-decision-1",
+    });
+    expect(workflowActionScopesMatchStrict(request, { ...request })).toBe(true);
+    expect(workflowActionScopesMatchStrict(request, { ...request, goalLoopDecisionId: undefined })).toBe(false);
+    expect(workflowActionScopesMatchCompatible(request, { ...request, goalLoopDecisionId: undefined })).toBe(true);
   });
 
   it("keeps SchedulerContract ids in target and audit scope matching", () => {

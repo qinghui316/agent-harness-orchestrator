@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-13T16:02:30.5313284Z",
+    "generated_at":  "2026-06-13T16:48:57.3304508Z",
     "active":  [
 
                ],
@@ -773,6 +773,10 @@
                     {
                         "name":  "20260614-phase-10b-loop-engineering-codex-goal-reference-alignment",
                         "path":  "harness/changes/archive/20260614-phase-10b-loop-engineering-codex-goal-reference-alignment"
+                    },
+                    {
+                        "name":  "20260614-phase-10c-main-agent-goal-loop-decision-evidence-foundation",
+                        "path":  "harness/changes/archive/20260614-phase-10c-main-agent-goal-loop-decision-evidence-foundation"
                     }
                 ]
 }

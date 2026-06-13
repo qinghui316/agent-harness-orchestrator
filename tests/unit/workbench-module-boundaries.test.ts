@@ -735,6 +735,29 @@ describe("Workbench module boundaries", () => {
     expect(workflowActionLabel("planning.scheduler.run.close-blocked")).toBe("标记无法继续");
   });
 
+  it("keeps goal-loop decision logic in an owned non-executing module", () => {
+    const manager = readFileSync("src/goal-loop/manager.ts", "utf8");
+    expect(manager).toContain('export * from "./compiler.js";');
+    expect(manager).toContain('export * from "./repository.js";');
+
+    for (const file of ["compiler.ts", "repository.ts", "rendering.ts", "schemas.ts", "types.ts"]) {
+      const source = readFileSync(`src/goal-loop/${file}`, "utf8");
+      expect(source).not.toMatch(/from\s+["'].*workbench/);
+      expect(source).not.toMatch(/from\s+["'].*server/);
+      expect(source).not.toMatch(/from\s+["'].*web/);
+      expect(source).not.toMatch(/from\s+["'].*cli/);
+      expect(source).not.toContain("startFirstSchedulerCoderWorker");
+      expect(source).not.toContain("startNextSchedulerCoderWorker");
+    }
+
+    const handlerIndex = readFileSync("src/workbench/actions/handlers/index.ts", "utf8");
+    const handler = readFileSync("src/workbench/actions/handlers/goal-loop.ts", "utf8");
+    expect(handlerIndex).toContain('from "./goal-loop.js"');
+    expect(handlerIndex).not.toContain('"planning.goal-loop.evaluate":');
+    expect(handler).toContain("buildGoalLoopActionHandlers");
+    expect(handler).toContain("compileGoalLoopDecision");
+  });
+
   it("keeps run manager as a compatibility facade with owned evidence modules", () => {
     const facade = readFileSync("src/run/manager.ts", "utf8");
     expect(facade).toContain('export { startLocalCommandRun } from "./local-command-runner.js";');

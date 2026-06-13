@@ -11,6 +11,7 @@ import { enqueueDemandWorkerForAction, evaluateDemandOrchestrator, pumpDemandWor
 import { assessDecompositionReadiness, compileTaskQueueWorkflowGraph, confirmDecompositionPlan, confirmPlanningAndStartPipeline, confirmTaskQueueProposalAndStart, generateDecompositionPlan, generatePlanningDraft, proposeTaskQueue } from "./planning.js";
 import { cleanupRemoteBranchForAction, createPrDraftForAction, mergeNextLandingQueueForAction, mergeRemoteLandingForAction, prepareLandingForAction, prepareLandingQueueForAction, prepareLocalSyncForAction, preparePostMergeForAction, preparePrDraftForAction, preparePrReviewForAction, preparePrReviewReplyForAction, prepareRemoteBranchCleanupForAction, prepareRemoteLandingForAction, refreshLandingQueueForAction, refreshPrDraftForAction, refreshPrFeedbackForAction, refreshPrReviewForAction, refreshRemoteLandingForAction, reworkPrFeedbackForAction, resolvePrReviewThreadForAction, reviewLandingForAction, submitPrReviewForAction, submitPrReviewReplyForAction, syncLocalForAction, updatePrDraftForAction } from "./remote-handoff.js";
 import { interruptConversation, steerConversation, stopRunningPipeline } from "./control.js";
+import { buildGoalLoopActionHandlers } from "./goal-loop.js";
 import { buildSchedulerActionHandlers } from "./scheduler.js";
 import type { WorkbenchActionHandlerMap } from "../dispatcher.js";
 import type { TopicMessageResult, WorkbenchLiveSink } from "../../types.js";
@@ -43,6 +44,7 @@ export function buildWorkbenchActionHandlers(deps: WorkbenchActionHandlerDeps): 
   "planning.decomposition.confirm": async (project, changeId, request, live) => confirmDecompositionPlan(project, changeId, request, live),
   "planning.decomposition.assess-readiness": async (project, changeId, request, live) => assessDecompositionReadiness(project, changeId, request, live),
   "planning.taskqueue.propose": async (project, changeId, request, live) => proposeTaskQueue(project, changeId, request, live),
+  ...buildGoalLoopActionHandlers(),
   ...buildSchedulerActionHandlers(),
   "planning.workflowgraph.compile": async (project, changeId, request, live) => compileTaskQueueWorkflowGraph(project, changeId, request, live),
   "planning.taskqueue.confirm-start": async (project, changeId, request, live) => confirmTaskQueueProposalAndStart(project, changeId, request, live),
