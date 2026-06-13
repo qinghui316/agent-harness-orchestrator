@@ -172,6 +172,8 @@ Phase 10I adds `GoalLoopNextStepPacket` as the next non-executing main-Agent res
 
 Phase 10J consumes that packet at the main-Agent context boundary. `src/goal-loop/` owns the latest-packet lineage check and prompt-section rendering; Workbench chat/orchestrator code only asks for the optional section. This mirrors the useful part of Codex goal context, but keeps AHO different in the important way: the section is explicit evidence, not a hidden continuation runtime, and it cannot execute the recommended action or become workflow truth.
 
+Phase 10K keeps that architecture and broadens only the recommendation policy. `GoalLoopDecision` may now observe scheduler current-worker evidence and recommend an existing scoped gate such as worker result reconcile, validation, audit, rework, start-next, integration candidate, IntegrationCheck handoff, or integration outcome reconcile. The recommendation is still a pointer to a separate Harness transition; it is not a controller, scheduler loop, action dispatcher, source mutation path, or close authority.
+
 Goal-driven loop model:
 
 ```mermaid

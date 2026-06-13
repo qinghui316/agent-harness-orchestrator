@@ -135,6 +135,7 @@ Current baseline:
 - Phase 10H Goal Loop Evidence Projection Resume Surface is closed and archived at `harness/changes/archive/20260614-phase-10h-goal-loop-evidence-projection-resume-surface/summary.md`. It projects latest Goal Loop decision, iteration, and continuation brief evidence into the selected Workpad as read-only resume context without adding a controller, new action, scheduler loop, worker start, source mutation, or automatic recommended-action execution.
 - Phase 10I Goal Loop Next Step Packet Evidence is closed and archived at `harness/changes/archive/20260614-phase-10i-goal-loop-next-step-packet-evidence/summary.md`. It adds non-executing `GoalLoopNextStepPacket` evidence for main-Agent resume context while keeping any recommended action as a separate Harness gate.
 - Phase 10J GoalLoopNextStepPacket Main Agent Context Boundary is closed and archived at `harness/changes/archive/20260614-phase-10j-goalloopnextsteppacket-main-agent-context-boundary/summary.md`. It consumes latest valid `GoalLoopNextStepPacket` evidence in main-Agent chat/orchestrator prompt context without adding actions, routes, UI controls, hidden continuation, worker prompts, or execution authority.
+- Phase 10K Goal Loop Existing Gate Recommendation Coverage is closed and archived at `harness/changes/archive/20260614-phase-10k-goal-loop-existing-gate-recommendation-coverage/summary.md`. It expands Goal Loop's non-executing recommendations across existing scheduler worker result, validation, audit, rework, start-next, integration, and close gates without adding a controller, action, route, UI control, scheduler loop, worker start, source mutation, or workflow-truth authority.
 - Active change: none.
 - Pending Harness evolution: none.
 - Latest Harness evolution: `harness/changes/archive/20260614-auto-evolve-harness-phase-10d-10h-goal-loop-evidence-projection/summary.md`, which completed the Phase 10D-10H pending window as `noop/subagent_review` with subagent scores `93/100` and `92/100`.
@@ -275,9 +276,9 @@ Active change: none.
 
 Pending Harness evolution: none.
 
-Latest completed product phase: Phase 10J GoalLoopNextStepPacket Main Agent Context Boundary, archived at `harness/changes/archive/20260614-phase-10j-goalloopnextsteppacket-main-agent-context-boundary/summary.md`.
+Latest completed product phase: Phase 10K Goal Loop Existing Gate Recommendation Coverage, archived at `harness/changes/archive/20260614-phase-10k-goal-loop-existing-gate-recommendation-coverage/summary.md`.
 
-Latest completed product/Harness docs phase: Phase 10J GoalLoopNextStepPacket Main Agent Context Boundary, archived at `harness/changes/archive/20260614-phase-10j-goalloopnextsteppacket-main-agent-context-boundary/summary.md`.
+Latest completed product/Harness docs phase: Phase 10K Goal Loop Existing Gate Recommendation Coverage, archived at `harness/changes/archive/20260614-phase-10k-goal-loop-existing-gate-recommendation-coverage/summary.md`.
 
 Latest Harness evolution: `harness/changes/archive/20260614-auto-evolve-harness-phase-10d-10h-goal-loop-evidence-projection/summary.md`, which completed the Phase 10D-10H pending window as `noop/subagent_review` with subagent scores `93/100` and `92/100`.
 
@@ -342,6 +343,8 @@ Phase 10H is closed and archived at `harness/changes/archive/20260614-phase-10h-
 Phase 10I is closed and archived at `harness/changes/archive/20260614-phase-10i-goal-loop-next-step-packet-evidence/summary.md`. It adds non-executing `GoalLoopNextStepPacket` evidence derived from latest Goal Loop artifacts so the main Agent can resume from a compact, revalidation-aware packet. It does not add a new action, queue item, route, CLI command, UI execution surface, scheduler loop, worker start, IntegrationCheck, apply/close, source mutation, child Change, or Codex hidden continuation runtime.
 
 Phase 10J is closed and archived at `harness/changes/archive/20260614-phase-10j-goalloopnextsteppacket-main-agent-context-boundary/summary.md`. It renders latest valid Goal Loop next-step packet evidence into main-Agent `chat.ask` and `orchestrator.plan` prompt context only. It does not add a Workbench action, route, CLI command, frontend control, hidden continuation runtime, scheduler loop, worker start, worker prompt injection, IntegrationCheck, apply/close, source mutation, child Change, or treat the packet as workflow truth.
+
+Phase 10K is closed and archived at `harness/changes/archive/20260614-phase-10k-goal-loop-existing-gate-recommendation-coverage/summary.md`. It extends Goal Loop recommendation coverage so packet context can name the next existing scheduler or integration gate after worker evidence appears. It remains non-executing planning evidence and must not call action handlers, create runtime artifacts, mutate source, or bypass separate scoped confirmations.
 
 Auto Evolve Harness Phase 9R 9V Scheduler Integration Apply Evidence is closed and archived at `harness/changes/archive/20260613-auto-evolve-harness-phase-9r-9v-scheduler-integration-apply-evidence/summary.md`. It reviewed Phase 9R-9V as `noop/subagent_review` with subagent score `88/100`; existing Source Apply Safety, scoped action payload, proposal/runtime, module-boundary, scheduler non-execution, ToolPolicy/human gate, and workflow-truth rules are sufficient. It does not change product code, runtime behavior, Workbench actions, routes, CLI commands, UI, scheduler execution, parallel executor behavior, child Changes, ODWF runtime, or cache/replay.
 

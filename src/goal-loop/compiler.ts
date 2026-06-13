@@ -9,6 +9,14 @@ import { validateWorkflowActionRequiredTargets, type WorkflowActionType } from "
 import { readLatestSchedulerRun } from "../workflow-scheduler/repository.js";
 import type { SchedulerRun } from "../workflow-scheduler/types.js";
 import {
+  findSchedulerRuntimeWorkerAuditForValidation,
+  findSchedulerRuntimeWorkerResultForStart,
+  findSchedulerRuntimeWorkerReworkAuditForValidation,
+  findSchedulerRuntimeWorkerReworkPlanForBlockingEvidence,
+  findSchedulerRuntimeWorkerReworkResultForStart,
+  findSchedulerRuntimeWorkerReworkStartForPlan,
+  findSchedulerRuntimeWorkerReworkValidationForResult,
+  findSchedulerRuntimeWorkerValidationForResult,
   listSchedulerRuntimeWorkerStarts,
   readLatestSchedulerIntegrationCandidateProjection,
   readLatestSchedulerIntegrationCheckHandoffProjection,
@@ -18,7 +26,30 @@ import {
   readSchedulerRuntimeClaimReservationProjection,
   readSchedulerRuntimeStateProjection,
 } from "../scheduler-runtime/repository.js";
-import type { SchedulerRuntimeClaimReservation, SchedulerRuntimeState, SchedulerRuntimeWorkerStart } from "../scheduler-runtime/types.js";
+import {
+  findNextSchedulerReservationIntentForWorkerPaths,
+  schedulerIntegrationCandidateNeedsRefresh,
+  type SchedulerReservationIntentLike,
+  type SchedulerWorkerPathLike,
+} from "../scheduler-runtime/worker-path.js";
+import type {
+  SchedulerIntegrationCandidate,
+  SchedulerIntegrationCheckHandoff,
+  SchedulerIntegrationOutcome,
+  SchedulerRunBlockedCloseout,
+  SchedulerRunCompletion,
+  SchedulerRuntimeClaimReservation,
+  SchedulerRuntimeState,
+  SchedulerRuntimeWorkerAudit,
+  SchedulerRuntimeWorkerResult,
+  SchedulerRuntimeWorkerReworkAudit,
+  SchedulerRuntimeWorkerReworkPlan,
+  SchedulerRuntimeWorkerReworkResult,
+  SchedulerRuntimeWorkerReworkStart,
+  SchedulerRuntimeWorkerReworkValidation,
+  SchedulerRuntimeWorkerStart,
+  SchedulerRuntimeWorkerValidation,
+} from "../scheduler-runtime/types.js";
 import {
   goalLoopContinuationBriefArtifactRefs,
   goalLoopDecisionArtifactRefs,
@@ -61,11 +92,28 @@ interface EvidenceSnapshot {
   runtimeState?: SchedulerRuntimeState | null;
   claimReservation?: SchedulerRuntimeClaimReservation | null;
   workerStarts?: SchedulerRuntimeWorkerStart[];
-  integrationCandidate?: { id: string; status: string; readyTargetCount?: number; artifact?: string } | null;
-  integrationHandoff?: { id: string; status: string; artifact?: string } | null;
-  integrationOutcome?: { id: string; status: string; artifact?: string } | null;
-  runCompletion?: { id: string; status: string; artifact?: string } | null;
-  runCloseout?: { id: string; status: string; artifact?: string } | null;
+  workerPaths?: GoalLoopSchedulerWorkerPath[];
+  currentWorkerPath?: GoalLoopSchedulerWorkerPath | null;
+  nextReservationIntent?: SchedulerReservationIntentLike | null;
+  integrationCandidateNeedsRefresh?: boolean;
+  integrationCandidate?: SchedulerIntegrationCandidate | null;
+  integrationHandoff?: SchedulerIntegrationCheckHandoff | null;
+  integrationOutcome?: SchedulerIntegrationOutcome | null;
+  runCompletion?: SchedulerRunCompletion | null;
+  runCloseout?: SchedulerRunBlockedCloseout | null;
+}
+
+interface GoalLoopSchedulerWorkerPath {
+  start: SchedulerRuntimeWorkerStart;
+  result: SchedulerRuntimeWorkerResult | null;
+  validation: SchedulerRuntimeWorkerValidation | null;
+  audit: SchedulerRuntimeWorkerAudit | null;
+  reworkPlan: SchedulerRuntimeWorkerReworkPlan | null;
+  reworkStart: SchedulerRuntimeWorkerReworkStart | null;
+  reworkResult: SchedulerRuntimeWorkerReworkResult | null;
+  reworkValidation: SchedulerRuntimeWorkerReworkValidation | null;
+  reworkAudit: SchedulerRuntimeWorkerReworkAudit | null;
+  terminal: boolean;
 }
 
 export async function compileGoalLoopDecision(memory: ResolvedMemory, changePath: string): Promise<GoalLoopDecision> {
@@ -349,6 +397,7 @@ async function readEvidenceSnapshot(memory: ResolvedMemory, changePath: string):
     ? await readSchedulerRuntimeClaimReservationProjection(memory, changePath, schedulerRun.id, runtimeState.lastClaimReservationId)
     : null;
   const workerStarts = await listSchedulerRuntimeWorkerStarts(memory, changePath, schedulerRun.id).catch(() => []);
+  const workerPaths = await readWorkerPaths(memory, changePath, schedulerRun.id, workerStarts, claimReservation?.id);
   if (runtimeState) {
     sourceEvidenceRefs.push({
       kind: "SchedulerRuntimeState",
@@ -367,11 +416,17 @@ async function readEvidenceSnapshot(memory: ResolvedMemory, changePath: string):
       summary: `${claimReservation.reservedCount} reserved, ${claimReservation.blockedCount} blocked.`,
     });
   }
+  for (const path of workerPaths) {
+    pushWorkerPathEvidence(sourceEvidenceRefs, path);
+  }
   const integrationCandidate = await readLatestSchedulerIntegrationCandidateProjection(memory, changePath, schedulerRun.id);
   const integrationHandoff = await readLatestSchedulerIntegrationCheckHandoffProjection(memory, changePath, schedulerRun.id);
   const integrationOutcome = await readLatestSchedulerIntegrationOutcomeProjection(memory, changePath, schedulerRun.id);
   const runCompletion = await readLatestSchedulerRunCompletionProjection(memory, changePath, schedulerRun.id);
   const runCloseout = await readLatestSchedulerRunBlockedCloseoutProjection(memory, changePath, schedulerRun.id);
+  const workerPathLikes = workerPaths.map(workerPathLike);
+  const nextReservationIntent = claimReservation ? findNextSchedulerReservationIntentForWorkerPaths(claimReservation, workerPathLikes) : null;
+  const integrationCandidateNeedsRefresh = schedulerIntegrationCandidateNeedsRefresh(integrationCandidate, workerPathLikes);
   for (const evidence of [
     ["SchedulerIntegrationCandidate", integrationCandidate],
     ["SchedulerIntegrationCheckHandoff", integrationHandoff],
@@ -401,6 +456,10 @@ async function readEvidenceSnapshot(memory: ResolvedMemory, changePath: string):
     runCompletion,
     runCloseout,
     workerStarts,
+    workerPaths,
+    currentWorkerPath: workerPaths.find((path) => !path.terminal) ?? null,
+    nextReservationIntent,
+    integrationCandidateNeedsRefresh,
   };
 }
 
@@ -422,10 +481,28 @@ function buildDecision(snapshot: EvidenceSnapshot, id: string, artifact: string,
   } else if (snapshot.runCloseout) {
     decisionKind = "blocked";
     summary = "SchedulerRun blocked/exhausted closeout evidence exists; do not continue execution without user direction.";
-  } else if (snapshot.integrationOutcome) {
+  } else if (snapshot.integrationOutcome && snapshot.schedulerRun) {
     decisionKind = "human-gate";
-    summary = "Scheduler integration outcome exists; source mutation or close remains controlled by existing human gates.";
-  } else if (snapshot.integrationCandidate && (snapshot.integrationCandidate.readyTargetCount ?? 0) >= 2 && snapshot.schedulerRun) {
+    summary = "Scheduler integration outcome exists; the next legal step is to record SchedulerRun completion through its existing gate.";
+    recommendedAction = buildRecommendedAction("planning.scheduler.run.complete", {
+      changeId: snapshot.changeId,
+      schedulerRunId: snapshot.schedulerRun.id,
+      schedulerIntegrationOutcomeId: snapshot.integrationOutcome.id,
+    }, "Record SchedulerRun completion from the terminal scheduler integration outcome.");
+  } else if (snapshot.integrationHandoff && snapshot.schedulerRun) {
+    decisionKind = "integration-needed";
+    const terminalIntegrationStatus = snapshot.integrationHandoff.integrationCheckStatus && snapshot.integrationHandoff.integrationCheckStatus !== "passed";
+    if (terminalIntegrationStatus) {
+      summary = "Scheduler IntegrationCheck handoff has a terminal result; the next legal step is outcome reconciliation.";
+      recommendedAction = buildRecommendedAction("planning.scheduler.integration-outcome.reconcile", {
+        changeId: snapshot.changeId,
+        schedulerRunId: snapshot.schedulerRun.id,
+        schedulerIntegrationCheckHandoffId: snapshot.integrationHandoff.id,
+      }, "Record scheduler-owned integration outcome evidence from the existing IntegrationCheck result.");
+    } else {
+      summary = "Scheduler IntegrationCheck handoff exists and is waiting on the existing apply/discard path before scheduler outcome reconciliation.";
+    }
+  } else if (snapshot.integrationCandidate && snapshot.integrationCandidate.readyCount >= 2 && snapshot.schedulerRun) {
     decisionKind = "integration-needed";
     summary = "At least two scheduler outputs are ready; the next legal step is the existing IntegrationCheck handoff.";
     recommendedAction = buildRecommendedAction("planning.scheduler.integration-check.run", {
@@ -434,8 +511,40 @@ function buildDecision(snapshot: EvidenceSnapshot, id: string, artifact: string,
       schedulerIntegrationCandidateId: snapshot.integrationCandidate.id,
     }, "Run the existing IntegrationCheck handoff for ready scheduler outputs.");
   } else if (snapshot.schedulerRun && snapshot.claimReservation) {
-    const workerStartCount = snapshot.workerStarts?.length ?? 0;
-    if (workerStartCount === 0 && snapshot.claimReservation.reservedCount > 0) {
+    const workerPathRecommendation = recommendCurrentWorkerPath(snapshot);
+    if (workerPathRecommendation) {
+      decisionKind = "scheduler-next-step";
+      summary = workerPathRecommendation.summary;
+      recommendedAction = workerPathRecommendation.recommendedAction;
+    } else if (snapshot.integrationCandidateNeedsRefresh && snapshot.workerPaths?.some((path) => hasApprovedWorkerOutput(path))) {
+      decisionKind = "integration-needed";
+      summary = "Scheduler worker output has passed audit and the SchedulerIntegrationCandidate is missing or stale; refresh the existing integration candidate evidence.";
+      recommendedAction = buildRecommendedAction("planning.scheduler.integration-candidate.compile", {
+        changeId: snapshot.changeId,
+        schedulerRunId: snapshot.schedulerRun.id,
+      }, "Compile or refresh scheduler-owned integration candidate evidence from approved worker outputs.");
+    } else if (snapshot.integrationCandidate && snapshot.integrationCandidate.readyCount < 2 && snapshot.nextReservationIntent) {
+      decisionKind = "scheduler-next-step";
+      summary = "Scheduler integration candidate is waiting for more ready targets and another reserved claim is available; the next legal step is the existing start-next gate.";
+      recommendedAction = buildRecommendedAction("planning.scheduler.worker.start-next", {
+        changeId: snapshot.changeId,
+        schedulerRunId: snapshot.schedulerRun.id,
+        schedulerClaimReservationId: snapshot.claimReservation.id,
+        reservationIntentId: snapshot.nextReservationIntent.reservationIntentId,
+        claimIntentId: snapshot.nextReservationIntent.claimIntentId,
+      }, "Start exactly one additional scheduler worker through the existing scoped gate.");
+    } else if (snapshot.integrationCandidate && snapshot.integrationCandidate.readyCount < 2 && !snapshot.nextReservationIntent && (snapshot.workerPaths ?? []).every((path) => path.terminal)) {
+      decisionKind = "blocked";
+      summary = "Scheduler candidate cannot reach IntegrationCheck readiness and no further reserved claim is available; the next legal step is blocked/exhausted closeout.";
+      recommendedAction = buildRecommendedAction("planning.scheduler.run.close-blocked", {
+        changeId: snapshot.changeId,
+        schedulerRunId: snapshot.schedulerRun.id,
+        schedulerClaimReservationId: snapshot.claimReservation.id,
+        schedulerIntegrationCandidateId: snapshot.integrationCandidate.id,
+      }, "Record scheduler blocked/exhausted closeout through the existing human-gated path.");
+    } else {
+      const workerStartCount = snapshot.workerStarts?.length ?? 0;
+      if (workerStartCount === 0 && snapshot.claimReservation.reservedCount > 0) {
       decisionKind = "scheduler-next-step";
       summary = "A reserved scheduler claim is available and no scheduler worker has started yet; the first worker start remains a separate human-gated action.";
       recommendedAction = buildRecommendedAction("planning.scheduler.worker.start-first", {
@@ -443,11 +552,12 @@ function buildDecision(snapshot: EvidenceSnapshot, id: string, artifact: string,
         schedulerRunId: snapshot.schedulerRun.id,
         schedulerClaimReservationId: snapshot.claimReservation.id,
       }, "Start exactly one first scheduler worker through the existing scoped worker gate.");
-    } else {
-      decisionKind = "wait-for-evidence";
-      summary = workerStartCount > 0
-        ? "Scheduler worker evidence already exists; observe and reconcile the current worker path before recommending another start."
-        : "Scheduler claim reservation exists, but no reserved claim is currently recommendable.";
+      } else {
+        decisionKind = "wait-for-evidence";
+        summary = workerStartCount > 0
+          ? "Scheduler worker evidence already exists, but no current worker path has a legal next gate yet."
+          : "Scheduler claim reservation exists, but no reserved claim is currently recommendable.";
+      }
     }
   } else {
     decisionKind = "parallel-plan-needed";
@@ -482,10 +592,231 @@ function buildDecision(snapshot: EvidenceSnapshot, id: string, artifact: string,
   };
 }
 
+async function readWorkerPaths(
+  memory: ResolvedMemory,
+  changePath: string,
+  schedulerRunId: string,
+  workerStarts: SchedulerRuntimeWorkerStart[],
+  schedulerClaimReservationId?: string,
+): Promise<GoalLoopSchedulerWorkerPath[]> {
+  const scoped = schedulerClaimReservationId
+    ? workerStarts.filter((start) => start.schedulerClaimReservationId === schedulerClaimReservationId)
+    : workerStarts;
+  const paths: GoalLoopSchedulerWorkerPath[] = [];
+  for (const start of scoped) {
+    const result = await findSchedulerRuntimeWorkerResultForStart(memory, changePath, schedulerRunId, start.id).catch(() => null);
+    const validation = result ? await findSchedulerRuntimeWorkerValidationForResult(memory, changePath, schedulerRunId, result.id).catch(() => null) : null;
+    const audit = validation ? await findSchedulerRuntimeWorkerAuditForValidation(memory, changePath, schedulerRunId, validation.id).catch(() => null) : null;
+    const reworkPlan = validation ? await findSchedulerRuntimeWorkerReworkPlanForBlockingEvidence(memory, changePath, schedulerRunId, {
+      workerValidationId: validation.id,
+      ...(audit ? { workerAuditId: audit.id } : {}),
+    }).catch(() => null) : null;
+    const reworkStart = reworkPlan ? await findSchedulerRuntimeWorkerReworkStartForPlan(memory, changePath, schedulerRunId, reworkPlan.id).catch(() => null) : null;
+    const reworkResult = reworkStart ? await findSchedulerRuntimeWorkerReworkResultForStart(memory, changePath, schedulerRunId, reworkStart.id).catch(() => null) : null;
+    const reworkValidation = reworkResult ? await findSchedulerRuntimeWorkerReworkValidationForResult(memory, changePath, schedulerRunId, reworkResult.id).catch(() => null) : null;
+    const reworkAudit = reworkValidation ? await findSchedulerRuntimeWorkerReworkAuditForValidation(memory, changePath, schedulerRunId, reworkValidation.id).catch(() => null) : null;
+    paths.push({
+      start,
+      result,
+      validation,
+      audit,
+      reworkPlan,
+      reworkStart,
+      reworkResult,
+      reworkValidation,
+      reworkAudit,
+      terminal: isTerminalWorkerPath({
+        start,
+        result,
+        validation,
+        audit,
+        reworkPlan,
+        reworkStart,
+        reworkResult,
+        reworkValidation,
+        reworkAudit,
+      }),
+    });
+  }
+  return paths.sort((a, b) => (a.start.updatedAt ?? "").localeCompare(b.start.updatedAt ?? ""));
+}
+
+function pushWorkerPathEvidence(refs: GoalLoopSourceEvidenceRef[], path: GoalLoopSchedulerWorkerPath): void {
+  refs.push({
+    kind: "SchedulerRuntimeWorkerStart",
+    id: path.start.id,
+    status: path.start.status,
+    artifact: path.start.artifact,
+    summary: `Worker ${path.start.claimIntentId} start evidence exists.`,
+  });
+  for (const evidence of [
+    ["SchedulerRuntimeWorkerResult", path.result],
+    ["SchedulerRuntimeWorkerValidation", path.validation],
+    ["SchedulerRuntimeWorkerAudit", path.audit],
+    ["SchedulerRuntimeWorkerReworkPlan", path.reworkPlan],
+    ["SchedulerRuntimeWorkerReworkStart", path.reworkStart],
+    ["SchedulerRuntimeWorkerReworkResult", path.reworkResult],
+    ["SchedulerRuntimeWorkerReworkValidation", path.reworkValidation],
+    ["SchedulerRuntimeWorkerReworkAudit", path.reworkAudit],
+  ] as const) {
+    if (!evidence[1]) continue;
+    refs.push({
+      kind: evidence[0],
+      id: evidence[1].id,
+      status: evidence[1].status,
+      artifact: evidence[1].artifact,
+      summary: `${evidence[0]} is present for claim ${path.start.claimIntentId}.`,
+    });
+  }
+}
+
+function workerPathLike(path: GoalLoopSchedulerWorkerPath): SchedulerWorkerPathLike {
+  return {
+    start: {
+      reservationIntentId: path.start.reservationIntentId,
+      updatedAt: path.start.updatedAt,
+    },
+    terminal: path.terminal,
+    ...(path.audit ? { audit: { status: path.audit.status, claimIntentId: path.audit.claimIntentId } } : {}),
+    ...(path.reworkAudit ? { reworkAudit: { status: path.reworkAudit.status, claimIntentId: path.reworkAudit.claimIntentId } } : {}),
+  };
+}
+
+function isTerminalWorkerPath(path: Omit<GoalLoopSchedulerWorkerPath, "terminal">): boolean {
+  if (path.start.status === "failed") return true;
+  if (path.result?.status === "failed") return true;
+  if (path.audit?.status === "approved" || path.audit?.status === "approved-with-notes") return true;
+  if (path.reworkStart?.status === "failed") return true;
+  if (path.reworkResult?.status === "failed") return true;
+  if (path.reworkValidation?.status === "failed") return true;
+  if (path.reworkAudit?.status === "approved" || path.reworkAudit?.status === "approved-with-notes") return true;
+  if (path.reworkAudit?.status === "blocked" || path.reworkAudit?.status === "failed") return true;
+  return false;
+}
+
+function hasApprovedWorkerOutput(path: GoalLoopSchedulerWorkerPath): boolean {
+  return path.audit?.status === "approved"
+    || path.audit?.status === "approved-with-notes"
+    || path.reworkAudit?.status === "approved"
+    || path.reworkAudit?.status === "approved-with-notes";
+}
+
 function buildRecommendedAction(actionType: WorkflowActionType, scope: Record<string, string | string[]>, reason: string): GoalLoopRecommendedAction | undefined {
   const issues = validateWorkflowActionRequiredTargets({ actionType, ...scope });
   if (issues.length > 0) return undefined;
   return { actionType, scope, reason };
+}
+
+function recommendCurrentWorkerPath(snapshot: EvidenceSnapshot): { summary: string; recommendedAction?: GoalLoopRecommendedAction } | null {
+  if (!snapshot.schedulerRun) return null;
+  const path = snapshot.currentWorkerPath;
+  if (!path) return null;
+  const baseScope = {
+    changeId: snapshot.changeId,
+    schedulerRunId: snapshot.schedulerRun.id,
+  };
+  if (!path.result) {
+    return {
+      summary: "A scheduler worker has started; the next legal step is to reconcile its code run / TaskRun / WorkerLease result.",
+      recommendedAction: buildRecommendedAction("planning.scheduler.worker.reconcile-result", {
+        ...baseScope,
+        schedulerWorkerStartId: path.start.id,
+      }, "Check the current scheduler worker result through the existing result reconcile gate."),
+    };
+  }
+  if (path.result.status !== "evidence-ready") {
+    return {
+      summary: `Scheduler worker result is ${path.result.status}; wait for terminal evidence before validation.`,
+    };
+  }
+  if (!path.validation) {
+    return {
+      summary: "Scheduler worker result is evidence-ready; the next legal step is scoped validation on the same worktree.",
+      recommendedAction: buildRecommendedAction("planning.scheduler.worker.validate-first", {
+        ...baseScope,
+        schedulerWorkerResultId: path.result.id,
+      }, "Validate the current scheduler worker output through the existing scoped validation gate."),
+    };
+  }
+  const needsReworkPlan = path.validation.status === "failed"
+    || (path.validation.status === "passed" && (path.audit?.status === "blocked" || path.audit?.status === "failed"));
+  if (needsReworkPlan) {
+    if (!path.reworkPlan) {
+      return {
+        summary: "Scheduler worker quality evidence is blocked or failed; the next legal step is a bounded rework plan.",
+        recommendedAction: buildRecommendedAction("planning.scheduler.worker.rework-plan.compile", {
+          ...baseScope,
+          schedulerWorkerValidationId: path.validation.id,
+          ...(path.audit ? { schedulerWorkerAuditId: path.audit.id } : {}),
+        }, "Compile bounded rework planning evidence for the current scheduler worker path."),
+      };
+    }
+    if (!path.reworkStart) {
+      return {
+        summary: "Scheduler worker rework plan exists; the next legal step is the existing same-worktree rework start gate.",
+        recommendedAction: buildRecommendedAction("planning.scheduler.worker.rework-start-first", {
+          ...baseScope,
+          schedulerWorkerReworkPlanId: path.reworkPlan.id,
+        }, "Start one scoped rework worker through the existing scheduler rework gate."),
+      };
+    }
+    if (!path.reworkResult) {
+      return {
+        summary: "Scheduler worker rework has started; the next legal step is to reconcile its rework result.",
+        recommendedAction: buildRecommendedAction("planning.scheduler.worker.rework-reconcile-result", {
+          ...baseScope,
+          schedulerWorkerReworkStartId: path.reworkStart.id,
+        }, "Check the current scheduler rework result through the existing result reconcile gate."),
+      };
+    }
+    if (path.reworkResult.status !== "evidence-ready") {
+      return {
+        summary: `Scheduler worker rework result is ${path.reworkResult.status}; wait for terminal rework evidence before validation.`,
+      };
+    }
+    if (!path.reworkValidation) {
+      return {
+        summary: "Scheduler worker rework result is evidence-ready; the next legal step is scoped rework validation on the same worktree.",
+        recommendedAction: buildRecommendedAction("planning.scheduler.worker.rework-validate-first", {
+          ...baseScope,
+          schedulerWorkerReworkResultId: path.reworkResult.id,
+        }, "Validate the current scheduler rework output through the existing scoped validation gate."),
+      };
+    }
+    if (path.reworkValidation.status !== "passed") {
+      return {
+        summary: `Scheduler worker rework validation is ${path.reworkValidation.status}; this path needs user direction or another future rework gate.`,
+      };
+    }
+    if (!path.reworkAudit) {
+      return {
+        summary: "Scheduler worker rework validation passed; the next legal step is scoped rework audit on the same worktree.",
+        recommendedAction: buildRecommendedAction("planning.scheduler.worker.rework-audit-first", {
+          ...baseScope,
+          schedulerWorkerReworkValidationId: path.reworkValidation.id,
+        }, "Audit the current scheduler rework output through the existing scoped audit gate."),
+      };
+    }
+    return null;
+  }
+  if (path.validation.status !== "passed") {
+    return {
+      summary: `Scheduler worker validation is ${path.validation.status}; wait for valid blocking evidence before continuing.`,
+    };
+  }
+  if (!path.audit) {
+    return {
+      summary: "Scheduler worker validation passed; the next legal step is scoped audit on the same worktree.",
+      recommendedAction: buildRecommendedAction("planning.scheduler.worker.audit-first", {
+        ...baseScope,
+        schedulerWorkerValidationId: path.validation.id,
+      }, "Audit the current scheduler worker output through the existing scoped audit gate."),
+    };
+  }
+  if (path.audit.status === "approved" || path.audit.status === "approved-with-notes") return null;
+  return {
+    summary: `Scheduler worker audit is ${path.audit.status}; wait for bounded rework planning or user direction.`,
+  };
 }
 
 function continuationVerdictForDecision(decision: GoalLoopDecision): GoalLoopContinuationVerdict {

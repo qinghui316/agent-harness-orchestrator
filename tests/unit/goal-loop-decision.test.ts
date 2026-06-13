@@ -8,13 +8,29 @@ import { schedulerRunArtifactRefs, writeSchedulerRun } from "../../src/workflow-
 import type { SchedulerRun } from "../../src/workflow-scheduler/types.js";
 import {
   schedulerClaimReservationArtifactRefs,
+  schedulerIntegrationCandidateArtifactRefs,
+  schedulerIntegrationOutcomeArtifactRefs,
   schedulerRuntimeArtifactRefs,
+  schedulerWorkerAuditArtifactRefs,
+  schedulerWorkerResultArtifactRefs,
+  schedulerWorkerReworkPlanArtifactRefs,
+  schedulerWorkerReworkResultArtifactRefs,
+  schedulerWorkerReworkStartArtifactRefs,
   schedulerWorkerStartArtifactRefs,
+  schedulerWorkerValidationArtifactRefs,
+  writeSchedulerIntegrationCandidate,
+  writeSchedulerIntegrationOutcome,
   writeSchedulerRuntimeClaimReservation,
   writeSchedulerRuntimeState,
+  writeSchedulerRuntimeWorkerAudit,
+  writeSchedulerRuntimeWorkerResult,
+  writeSchedulerRuntimeWorkerReworkPlan,
+  writeSchedulerRuntimeWorkerReworkResult,
+  writeSchedulerRuntimeWorkerReworkStart,
   writeSchedulerRuntimeWorkerStart,
+  writeSchedulerRuntimeWorkerValidation,
 } from "../../src/scheduler-runtime/repository.js";
-import type { SchedulerRuntimeClaimReservation, SchedulerRuntimeState, SchedulerRuntimeWorkerStart } from "../../src/scheduler-runtime/types.js";
+import type { SchedulerIntegrationCandidate, SchedulerIntegrationOutcome, SchedulerRuntimeClaimReservation, SchedulerRuntimeState, SchedulerRuntimeWorkerAudit, SchedulerRuntimeWorkerResult, SchedulerRuntimeWorkerReworkPlan, SchedulerRuntimeWorkerReworkResult, SchedulerRuntimeWorkerReworkStart, SchedulerRuntimeWorkerStart, SchedulerRuntimeWorkerValidation } from "../../src/scheduler-runtime/types.js";
 
 let tempDir: string;
 let memory: ResolvedMemory;
@@ -46,14 +62,20 @@ describe("GoalLoopDecision", () => {
     expect(decision.executionStarted).toBe(false);
   });
 
-  it("does not recommend another scheduler worker start after a worker start already exists", async () => {
-    await writeSchedulerEvidence({ withWorkerStart: true });
+  it("recommends current worker result reconcile after a worker start exists", async () => {
+    const { schedulerRun, workerStart } = await writeSchedulerEvidence({ withWorkerStart: true });
 
     const decision = await compileGoalLoopDecision(memory, changePath);
 
-    expect(decision.decisionKind).toBe("wait-for-evidence");
-    expect(decision.recommendedAction).toBeUndefined();
-    expect(decision.summary).toContain("Scheduler worker evidence already exists");
+    expect(decision.decisionKind).toBe("scheduler-next-step");
+    expect(decision.recommendedAction).toMatchObject({
+      actionType: "planning.scheduler.worker.reconcile-result",
+      scope: {
+        changeId,
+        schedulerRunId: schedulerRun.id,
+        schedulerWorkerStartId: workerStart?.id,
+      },
+    });
     expect(decision.executionStarted).toBe(false);
   });
 
@@ -171,45 +193,208 @@ describe("GoalLoopDecision", () => {
     });
   });
 
-  it("records waiting continuation state when a scheduler worker path already exists", async () => {
+  it("records existing-gate continuation state when a scheduler worker result needs reconcile", async () => {
     await writeSchedulerEvidence({ withWorkerStart: true });
 
     const { goalLoopDecision, goalLoopIteration } = await compileGoalLoopEvaluation(memory, changePath);
 
-    expect(goalLoopDecision.recommendedAction).toBeUndefined();
+    expect(goalLoopDecision.recommendedAction?.actionType).toBe("planning.scheduler.worker.reconcile-result");
     expect(goalLoopIteration).toMatchObject({
-      continuationVerdict: "wait",
-      continuationState: "waiting-for-evidence",
+      continuationVerdict: "recommend-existing-gate",
+      continuationState: "ready-for-existing-gate",
       controlPolicy: {
         canAutoContinue: false,
         canAutoExecuteRecommendedAction: false,
+        recommendedActionType: "planning.scheduler.worker.reconcile-result",
       },
       budgetSignal: {
         status: "unknown",
       },
       suppressedBecause: {
-        reason: "waiting-for-evidence",
+        reason: "specific-gate-required",
       },
       executionStarted: false,
     });
     expect(goalLoopIteration.resumePreconditions).toEqual(expect.arrayContaining([
-      expect.objectContaining({ kind: "additional-evidence", satisfied: false }),
+      expect.objectContaining({ kind: "separate-human-gated-action", id: "planning.scheduler.worker.reconcile-result", satisfied: false }),
     ]));
     const waitingBrief = await readLatestGoalLoopContinuationBrief(memory, changePath);
     expect(waitingBrief).toMatchObject({
       sourceGoalLoopIterationId: goalLoopIteration.id,
-      continuationState: "waiting-for-evidence",
+      continuationState: "ready-for-existing-gate",
       executionStarted: false,
     });
-    expect(waitingBrief).not.toHaveProperty("recommendedAction");
+    expect(waitingBrief.recommendedAction?.actionType).toBe("planning.scheduler.worker.reconcile-result");
     const waitingPacket = await readLatestGoalLoopNextStepPacket(memory, changePath);
     expect(waitingPacket).toMatchObject({
       sourceGoalLoopIterationId: goalLoopIteration.id,
-      recommendationState: "waiting-for-evidence",
-      separateGateRequired: false,
+      recommendationState: "separate-gate-required",
+      separateGateRequired: true,
       executionStarted: false,
     });
-    expect(waitingPacket).not.toHaveProperty("recommendedAction");
+    expect(waitingPacket.recommendedAction?.actionType).toBe("planning.scheduler.worker.reconcile-result");
+  });
+
+  it("recommends current worker validation after evidence-ready result", async () => {
+    const { schedulerRun, workerStart } = await writeSchedulerEvidence({ withWorkerStart: true });
+    const result = await writeWorkerResult(workerStart!, "evidence-ready");
+
+    const decision = await compileGoalLoopDecision(memory, changePath);
+
+    expect(decision.recommendedAction).toMatchObject({
+      actionType: "planning.scheduler.worker.validate-first",
+      scope: {
+        changeId,
+        schedulerRunId: schedulerRun.id,
+        schedulerWorkerResultId: result.id,
+      },
+    });
+  });
+
+  it("recommends current worker audit after passed validation", async () => {
+    const { schedulerRun, workerStart } = await writeSchedulerEvidence({ withWorkerStart: true });
+    const result = await writeWorkerResult(workerStart!, "evidence-ready");
+    const validation = await writeWorkerValidation(result, "passed");
+
+    const decision = await compileGoalLoopDecision(memory, changePath);
+
+    expect(decision.recommendedAction).toMatchObject({
+      actionType: "planning.scheduler.worker.audit-first",
+      scope: {
+        changeId,
+        schedulerRunId: schedulerRun.id,
+        schedulerWorkerValidationId: validation.id,
+      },
+    });
+  });
+
+  it("recommends bounded rework planning after failed validation", async () => {
+    const { schedulerRun, workerStart } = await writeSchedulerEvidence({ withWorkerStart: true });
+    const result = await writeWorkerResult(workerStart!, "evidence-ready");
+    const validation = await writeWorkerValidation(result, "failed");
+
+    const decision = await compileGoalLoopDecision(memory, changePath);
+
+    expect(decision.recommendedAction).toMatchObject({
+      actionType: "planning.scheduler.worker.rework-plan.compile",
+      scope: {
+        changeId,
+        schedulerRunId: schedulerRun.id,
+        schedulerWorkerValidationId: validation.id,
+      },
+    });
+  });
+
+  it("recommends rework validation after evidence-ready rework result", async () => {
+    const { schedulerRun, workerStart } = await writeSchedulerEvidence({ withWorkerStart: true });
+    const result = await writeWorkerResult(workerStart!, "evidence-ready");
+    const validation = await writeWorkerValidation(result, "failed");
+    const plan = await writeReworkPlan(validation);
+    const start = await writeReworkStart(plan);
+    const reworkResult = await writeReworkResult(start, "evidence-ready");
+
+    const decision = await compileGoalLoopDecision(memory, changePath);
+
+    expect(decision.recommendedAction).toMatchObject({
+      actionType: "planning.scheduler.worker.rework-validate-first",
+      scope: {
+        changeId,
+        schedulerRunId: schedulerRun.id,
+        schedulerWorkerReworkResultId: reworkResult.id,
+      },
+    });
+  });
+
+  it("recommends integration candidate refresh after an approved worker audit", async () => {
+    const { schedulerRun, workerStart } = await writeSchedulerEvidence({ withWorkerStart: true });
+    const result = await writeWorkerResult(workerStart!, "evidence-ready");
+    const validation = await writeWorkerValidation(result, "passed");
+    await writeWorkerAudit(validation, "approved");
+
+    const decision = await compileGoalLoopDecision(memory, changePath);
+
+    expect(decision.recommendedAction).toMatchObject({
+      actionType: "planning.scheduler.integration-candidate.compile",
+      scope: {
+        changeId,
+        schedulerRunId: schedulerRun.id,
+      },
+    });
+  });
+
+  it("recommends start-next when one ready candidate target exists and another reserved intent remains", async () => {
+    const { schedulerRun, workerStart, reservation } = await writeSchedulerEvidence({ withWorkerStart: true, extraReservationIntent: true });
+    const result = await writeWorkerResult(workerStart!, "evidence-ready");
+    const validation = await writeWorkerValidation(result, "passed");
+    await writeWorkerAudit(validation, "approved");
+    await writeIntegrationCandidate(schedulerRun, reservation, { readyCount: 1, outputClaimIntentIds: ["claim-1"] });
+
+    const decision = await compileGoalLoopDecision(memory, changePath);
+
+    expect(decision.recommendedAction).toMatchObject({
+      actionType: "planning.scheduler.worker.start-next",
+      scope: {
+        changeId,
+        schedulerRunId: schedulerRun.id,
+        schedulerClaimReservationId: reservation.id,
+        reservationIntentId: "reservation-intent-2",
+        claimIntentId: "claim-2",
+      },
+    });
+  });
+
+  it("recommends IntegrationCheck when at least two candidate targets are ready", async () => {
+    const { schedulerRun, reservation } = await writeSchedulerEvidence({ withWorkerStart: false });
+    const candidate = await writeIntegrationCandidate(schedulerRun, reservation, { readyCount: 2, outputClaimIntentIds: ["claim-1", "claim-2"] });
+
+    const decision = await compileGoalLoopDecision(memory, changePath);
+
+    expect(decision.recommendedAction).toMatchObject({
+      actionType: "planning.scheduler.integration-check.run",
+      scope: {
+        changeId,
+        schedulerRunId: schedulerRun.id,
+        schedulerIntegrationCandidateId: candidate.id,
+      },
+    });
+  });
+
+  it("recommends blocked closeout when a candidate cannot reach two ready targets and no reserved intent remains", async () => {
+    const { schedulerRun, workerStart, reservation } = await writeSchedulerEvidence({ withWorkerStart: true });
+    const result = await writeWorkerResult(workerStart!, "evidence-ready");
+    const validation = await writeWorkerValidation(result, "passed");
+    await writeWorkerAudit(validation, "approved");
+    const candidate = await writeIntegrationCandidate(schedulerRun, reservation, { readyCount: 1, outputClaimIntentIds: ["claim-1"] });
+
+    const decision = await compileGoalLoopDecision(memory, changePath);
+
+    expect(decision.decisionKind).toBe("blocked");
+    expect(decision.recommendedAction).toMatchObject({
+      actionType: "planning.scheduler.run.close-blocked",
+      scope: {
+        changeId,
+        schedulerRunId: schedulerRun.id,
+        schedulerClaimReservationId: reservation.id,
+        schedulerIntegrationCandidateId: candidate.id,
+      },
+    });
+  });
+
+  it("recommends scheduler run completion after integration outcome evidence exists", async () => {
+    const { schedulerRun, reservation } = await writeSchedulerEvidence({ withWorkerStart: false });
+    const candidate = await writeIntegrationCandidate(schedulerRun, reservation, { readyCount: 2, outputClaimIntentIds: ["claim-1", "claim-2"] });
+    const outcome = await writeIntegrationOutcome(schedulerRun, reservation, candidate);
+
+    const decision = await compileGoalLoopDecision(memory, changePath);
+
+    expect(decision.recommendedAction).toMatchObject({
+      actionType: "planning.scheduler.run.complete",
+      scope: {
+        changeId,
+        schedulerRunId: schedulerRun.id,
+        schedulerIntegrationOutcomeId: outcome.id,
+      },
+    });
   });
 
   it("renders latest next-step packet as main-Agent context and skips invalid lineage", async () => {
@@ -242,7 +427,7 @@ describe("GoalLoopDecision", () => {
   });
 });
 
-async function writeSchedulerEvidence(options: { withWorkerStart: boolean }): Promise<{ schedulerRun: SchedulerRun; reservation: SchedulerRuntimeClaimReservation }> {
+async function writeSchedulerEvidence(options: { withWorkerStart: boolean; extraReservationIntent?: boolean }): Promise<{ schedulerRun: SchedulerRun; reservation: SchedulerRuntimeClaimReservation; workerStart?: SchedulerRuntimeWorkerStart }> {
   const now = "2026-06-14T00:00:00.000Z";
   const schedulerRunId = "scheduler-run-1";
   const schedulerRunRefs = schedulerRunArtifactRefs(memory, changePath, schedulerRunId);
@@ -334,7 +519,18 @@ async function writeSchedulerEvidence(options: { withWorkerStart: boolean }): Pr
       plannedSlotDemand: 1,
       sourceScopes: ["src/a.ts"],
       blockedReasons: [],
-    }],
+    }, ...(options.extraReservationIntent ? [{
+      reservationIntentId: "reservation-intent-2",
+      claimIntentId: "claim-2",
+      plannedWorkerKey: "worker-2",
+      nodeId: "node-2",
+      unitId: "unit-2",
+      waveIndex: 1,
+      status: "reserved" as const,
+      plannedSlotDemand: 1,
+      sourceScopes: ["src/b.ts"],
+      blockedReasons: [],
+    }] : [])],
     waves: [{
       waveIndex: 0,
       reservationIntentIds: ["reservation-intent-1"],
@@ -351,7 +547,7 @@ async function writeSchedulerEvidence(options: { withWorkerStart: boolean }): Pr
       status: "reserved",
       blockedReasons: [],
     }],
-    reservedCount: 1,
+    reservedCount: options.extraReservationIntent ? 2 : 1,
     blockedCount: 0,
     sourceLockCount: 1,
     sourceArtifactHashes: { spec: "hash-1" },
@@ -362,9 +558,10 @@ async function writeSchedulerEvidence(options: { withWorkerStart: boolean }): Pr
   };
   await writeSchedulerRuntimeClaimReservation(memory, changePath, reservation);
 
+  let workerStart: SchedulerRuntimeWorkerStart | undefined;
   if (options.withWorkerStart) {
     const startRefs = schedulerWorkerStartArtifactRefs(memory, changePath, schedulerRunId, "worker-start-1");
-    const workerStart: SchedulerRuntimeWorkerStart = {
+    workerStart = {
       version: "1.0",
       id: "worker-start-1",
       changeId,
@@ -404,7 +601,401 @@ async function writeSchedulerEvidence(options: { withWorkerStart: boolean }): Pr
     await writeSchedulerRuntimeWorkerStart(memory, changePath, workerStart);
   }
 
-  return { schedulerRun, reservation };
+  return { schedulerRun, reservation, workerStart };
+}
+
+async function writeWorkerResult(start: SchedulerRuntimeWorkerStart, status: SchedulerRuntimeWorkerResult["status"]): Promise<SchedulerRuntimeWorkerResult> {
+  const refs = schedulerWorkerResultArtifactRefs(memory, changePath, start.schedulerRunId, "worker-result-1");
+  const result: SchedulerRuntimeWorkerResult = {
+    version: "1.0",
+    id: "worker-result-1",
+    changeId,
+    schedulerRunId: start.schedulerRunId,
+    schedulerMode: "parallel-readiness-v1",
+    status,
+    schedulerRuntimeStateId: start.schedulerRuntimeStateId,
+    schedulerReconcileSnapshotId: start.schedulerReconcileSnapshotId,
+    schedulerClaimReservationId: start.schedulerClaimReservationId,
+    schedulerWorkerStartId: start.id,
+    schedulerContractId: start.schedulerContractId,
+    schedulerDispatchDryRunId: start.schedulerDispatchDryRunId,
+    schedulerWorkerPlanId: start.schedulerWorkerPlanId,
+    schedulerClaimReconcilePlanId: start.schedulerClaimReconcilePlanId,
+    schedulerLaunchPreflightId: start.schedulerLaunchPreflightId,
+    reservationIntentId: start.reservationIntentId,
+    claimIntentId: start.claimIntentId,
+    plannedWorkerKey: start.plannedWorkerKey,
+    nodeId: start.nodeId,
+    unitId: start.unitId,
+    waveIndex: start.waveIndex,
+    stageId: start.stageId,
+    stage: "coder",
+    taskId: start.taskId,
+    taskRunId: start.taskRunId,
+    workerLeaseId: start.workerLeaseId,
+    taskRunStatus: status === "evidence-ready" ? "evidence-ready" : "failed",
+    workerLeaseStatus: "released",
+    agentRoleId: start.agentRoleId,
+    worktreeId: start.worktreeId,
+    runId: start.runId,
+    runStatus: status === "evidence-ready" ? "completed" : "failed",
+    sourceArtifactHashes: start.sourceArtifactHashes,
+    artifactRefs: [refs.artifact],
+    artifact: refs.artifact,
+    markdownArtifact: refs.markdownArtifact,
+    createdAt: start.createdAt,
+    updatedAt: start.updatedAt,
+  };
+  await writeSchedulerRuntimeWorkerResult(memory, changePath, result);
+  return result;
+}
+
+async function writeWorkerValidation(result: SchedulerRuntimeWorkerResult, status: SchedulerRuntimeWorkerValidation["status"]): Promise<SchedulerRuntimeWorkerValidation> {
+  const refs = schedulerWorkerValidationArtifactRefs(memory, changePath, result.schedulerRunId, "worker-validation-1");
+  const validation: SchedulerRuntimeWorkerValidation = {
+    version: "1.0",
+    id: "worker-validation-1",
+    changeId,
+    schedulerRunId: result.schedulerRunId,
+    schedulerMode: "parallel-readiness-v1",
+    status,
+    schedulerRuntimeStateId: result.schedulerRuntimeStateId,
+    schedulerReconcileSnapshotId: result.schedulerReconcileSnapshotId,
+    schedulerClaimReservationId: result.schedulerClaimReservationId,
+    schedulerWorkerStartId: result.schedulerWorkerStartId,
+    schedulerWorkerResultId: result.id,
+    schedulerContractId: result.schedulerContractId,
+    schedulerDispatchDryRunId: result.schedulerDispatchDryRunId,
+    schedulerWorkerPlanId: result.schedulerWorkerPlanId,
+    schedulerClaimReconcilePlanId: result.schedulerClaimReconcilePlanId,
+    schedulerLaunchPreflightId: result.schedulerLaunchPreflightId,
+    reservationIntentId: result.reservationIntentId,
+    claimIntentId: result.claimIntentId,
+    plannedWorkerKey: result.plannedWorkerKey,
+    nodeId: result.nodeId,
+    unitId: result.unitId,
+    waveIndex: result.waveIndex,
+    stageId: "validation",
+    stage: "validation",
+    taskId: result.taskId,
+    taskRunId: result.taskRunId,
+    workerLeaseId: result.workerLeaseId,
+    taskRunStatus: status === "passed" ? "evidence-ready" : "blocked",
+    worktreeId: result.worktreeId ?? "worktree-1",
+    codeRunId: result.runId ?? "run-1",
+    validationRunId: "validation-run-1",
+    validationStatus: status,
+    sourceArtifactHashes: result.sourceArtifactHashes,
+    artifactRefs: [refs.artifact],
+    artifact: refs.artifact,
+    markdownArtifact: refs.markdownArtifact,
+    createdAt: result.createdAt,
+    updatedAt: result.updatedAt,
+  };
+  await writeSchedulerRuntimeWorkerValidation(memory, changePath, validation);
+  return validation;
+}
+
+async function writeWorkerAudit(validation: SchedulerRuntimeWorkerValidation, status: SchedulerRuntimeWorkerAudit["status"]): Promise<SchedulerRuntimeWorkerAudit> {
+  const refs = schedulerWorkerAuditArtifactRefs(memory, changePath, validation.schedulerRunId, "worker-audit-1");
+  const audit: SchedulerRuntimeWorkerAudit = {
+    version: "1.0",
+    id: "worker-audit-1",
+    changeId,
+    schedulerRunId: validation.schedulerRunId,
+    schedulerMode: "parallel-readiness-v1",
+    status,
+    schedulerRuntimeStateId: validation.schedulerRuntimeStateId,
+    schedulerReconcileSnapshotId: validation.schedulerReconcileSnapshotId,
+    schedulerClaimReservationId: validation.schedulerClaimReservationId,
+    schedulerWorkerStartId: validation.schedulerWorkerStartId,
+    schedulerWorkerResultId: validation.schedulerWorkerResultId,
+    schedulerWorkerValidationId: validation.id,
+    schedulerContractId: validation.schedulerContractId,
+    schedulerDispatchDryRunId: validation.schedulerDispatchDryRunId,
+    schedulerWorkerPlanId: validation.schedulerWorkerPlanId,
+    schedulerClaimReconcilePlanId: validation.schedulerClaimReconcilePlanId,
+    schedulerLaunchPreflightId: validation.schedulerLaunchPreflightId,
+    reservationIntentId: validation.reservationIntentId,
+    claimIntentId: validation.claimIntentId,
+    plannedWorkerKey: validation.plannedWorkerKey,
+    nodeId: validation.nodeId,
+    unitId: validation.unitId,
+    waveIndex: validation.waveIndex,
+    stageId: "audit",
+    stage: "audit",
+    taskId: validation.taskId,
+    taskRunId: validation.taskRunId,
+    workerLeaseId: validation.workerLeaseId,
+    taskRunStatus: status === "approved" || status === "approved-with-notes" ? "completed" : "blocked",
+    worktreeId: validation.worktreeId,
+    codeRunId: validation.codeRunId,
+    validationRunId: validation.validationRunId,
+    validationStatus: validation.validationStatus,
+    auditRunId: "audit-run-1",
+    auditStatus: status,
+    sourceArtifactHashes: validation.sourceArtifactHashes,
+    artifactRefs: [refs.artifact],
+    artifact: refs.artifact,
+    markdownArtifact: refs.markdownArtifact,
+    createdAt: validation.createdAt,
+    updatedAt: validation.updatedAt,
+  };
+  await writeSchedulerRuntimeWorkerAudit(memory, changePath, audit);
+  return audit;
+}
+
+async function writeReworkPlan(validation: SchedulerRuntimeWorkerValidation): Promise<SchedulerRuntimeWorkerReworkPlan> {
+  const refs = schedulerWorkerReworkPlanArtifactRefs(memory, changePath, validation.schedulerRunId, "rework-plan-1");
+  const plan: SchedulerRuntimeWorkerReworkPlan = {
+    version: "1.0",
+    id: "rework-plan-1",
+    changeId,
+    schedulerRunId: validation.schedulerRunId,
+    schedulerMode: "parallel-readiness-v1",
+    status: "planned",
+    blockingSource: "validation-failed",
+    reworkReason: "Validation failed.",
+    schedulerRuntimeStateId: validation.schedulerRuntimeStateId,
+    schedulerReconcileSnapshotId: validation.schedulerReconcileSnapshotId,
+    schedulerClaimReservationId: validation.schedulerClaimReservationId,
+    schedulerWorkerStartId: validation.schedulerWorkerStartId,
+    schedulerWorkerResultId: validation.schedulerWorkerResultId,
+    schedulerWorkerValidationId: validation.id,
+    schedulerContractId: validation.schedulerContractId,
+    schedulerDispatchDryRunId: validation.schedulerDispatchDryRunId,
+    schedulerWorkerPlanId: validation.schedulerWorkerPlanId,
+    schedulerClaimReconcilePlanId: validation.schedulerClaimReconcilePlanId,
+    schedulerLaunchPreflightId: validation.schedulerLaunchPreflightId,
+    reservationIntentId: validation.reservationIntentId,
+    claimIntentId: validation.claimIntentId,
+    plannedWorkerKey: validation.plannedWorkerKey,
+    nodeId: validation.nodeId,
+    unitId: validation.unitId,
+    waveIndex: validation.waveIndex,
+    stageId: "bounded-rework",
+    stage: "bounded-rework",
+    taskId: validation.taskId,
+    taskRunId: validation.taskRunId,
+    workerLeaseId: validation.workerLeaseId,
+    taskRunStatus: validation.taskRunStatus,
+    targetWorktreeId: validation.worktreeId,
+    targetCodeRunId: validation.codeRunId,
+    validationRunId: validation.validationRunId,
+    validationStatus: validation.validationStatus,
+    futureCodeGateMode: "scheduler-claim-rework",
+    recoveryKeyInputs: [validation.id],
+    sourceArtifactHashes: validation.sourceArtifactHashes,
+    artifactRefs: [refs.artifact],
+    artifact: refs.artifact,
+    markdownArtifact: refs.markdownArtifact,
+    createdAt: validation.createdAt,
+    updatedAt: validation.updatedAt,
+  };
+  await writeSchedulerRuntimeWorkerReworkPlan(memory, changePath, plan);
+  return plan;
+}
+
+async function writeReworkStart(plan: SchedulerRuntimeWorkerReworkPlan): Promise<SchedulerRuntimeWorkerReworkStart> {
+  const refs = schedulerWorkerReworkStartArtifactRefs(memory, changePath, plan.schedulerRunId, "rework-start-1");
+  const start: SchedulerRuntimeWorkerReworkStart = {
+    version: "1.0",
+    id: "rework-start-1",
+    changeId,
+    schedulerRunId: plan.schedulerRunId,
+    schedulerMode: "parallel-readiness-v1",
+    status: "started",
+    schedulerRuntimeStateId: plan.schedulerRuntimeStateId,
+    schedulerReconcileSnapshotId: plan.schedulerReconcileSnapshotId,
+    schedulerClaimReservationId: plan.schedulerClaimReservationId,
+    schedulerWorkerStartId: plan.schedulerWorkerStartId,
+    schedulerWorkerResultId: plan.schedulerWorkerResultId,
+    schedulerWorkerValidationId: plan.schedulerWorkerValidationId,
+    schedulerWorkerReworkPlanId: plan.id,
+    schedulerContractId: plan.schedulerContractId,
+    schedulerDispatchDryRunId: plan.schedulerDispatchDryRunId,
+    schedulerWorkerPlanId: plan.schedulerWorkerPlanId,
+    schedulerClaimReconcilePlanId: plan.schedulerClaimReconcilePlanId,
+    schedulerLaunchPreflightId: plan.schedulerLaunchPreflightId,
+    reservationIntentId: plan.reservationIntentId,
+    claimIntentId: plan.claimIntentId,
+    plannedWorkerKey: plan.plannedWorkerKey,
+    nodeId: plan.nodeId,
+    unitId: plan.unitId,
+    waveIndex: plan.waveIndex,
+    stageId: "bounded-rework",
+    stage: "bounded-rework",
+    taskId: plan.taskId,
+    originalTaskRunId: plan.taskRunId,
+    originalWorkerLeaseId: plan.workerLeaseId,
+    reworkTaskRunId: "rework-task-run-1",
+    reworkWorkerLeaseId: "rework-lease-1",
+    taskRunRoleId: "scheduler-rework-coder",
+    agentRoleId: "rework-coder-agent",
+    worktreeId: plan.targetWorktreeId,
+    originalCodeRunId: plan.targetCodeRunId,
+    reworkRunId: "rework-run-1",
+    sourceArtifactHashes: plan.sourceArtifactHashes,
+    artifactRefs: [refs.artifact],
+    artifact: refs.artifact,
+    markdownArtifact: refs.markdownArtifact,
+    createdAt: plan.createdAt,
+    updatedAt: plan.updatedAt,
+  };
+  await writeSchedulerRuntimeWorkerReworkStart(memory, changePath, start);
+  return start;
+}
+
+async function writeReworkResult(start: SchedulerRuntimeWorkerReworkStart, status: SchedulerRuntimeWorkerReworkResult["status"]): Promise<SchedulerRuntimeWorkerReworkResult> {
+  const refs = schedulerWorkerReworkResultArtifactRefs(memory, changePath, start.schedulerRunId, "rework-result-1");
+  const result: SchedulerRuntimeWorkerReworkResult = {
+    version: "1.0",
+    id: "rework-result-1",
+    changeId,
+    schedulerRunId: start.schedulerRunId,
+    schedulerMode: "parallel-readiness-v1",
+    status,
+    schedulerRuntimeStateId: start.schedulerRuntimeStateId,
+    schedulerReconcileSnapshotId: start.schedulerReconcileSnapshotId,
+    schedulerClaimReservationId: start.schedulerClaimReservationId,
+    schedulerWorkerStartId: start.schedulerWorkerStartId,
+    schedulerWorkerResultId: start.schedulerWorkerResultId,
+    schedulerWorkerValidationId: start.schedulerWorkerValidationId,
+    schedulerWorkerAuditId: start.schedulerWorkerAuditId,
+    schedulerWorkerReworkPlanId: start.schedulerWorkerReworkPlanId,
+    schedulerWorkerReworkStartId: start.id,
+    schedulerContractId: start.schedulerContractId,
+    schedulerDispatchDryRunId: start.schedulerDispatchDryRunId,
+    schedulerWorkerPlanId: start.schedulerWorkerPlanId,
+    schedulerClaimReconcilePlanId: start.schedulerClaimReconcilePlanId,
+    schedulerLaunchPreflightId: start.schedulerLaunchPreflightId,
+    reservationIntentId: start.reservationIntentId,
+    claimIntentId: start.claimIntentId,
+    plannedWorkerKey: start.plannedWorkerKey,
+    nodeId: start.nodeId,
+    unitId: start.unitId,
+    waveIndex: start.waveIndex,
+    stageId: start.stageId,
+    stage: "bounded-rework",
+    taskId: start.taskId,
+    originalTaskRunId: start.originalTaskRunId,
+    originalWorkerLeaseId: start.originalWorkerLeaseId,
+    originalCodeRunId: start.originalCodeRunId,
+    reworkTaskRunId: start.reworkTaskRunId,
+    reworkWorkerLeaseId: start.reworkWorkerLeaseId,
+    taskRunStatus: status === "evidence-ready" ? "evidence-ready" : "failed",
+    workerLeaseStatus: "released",
+    agentRoleId: start.agentRoleId,
+    worktreeId: start.worktreeId,
+    reworkRunId: start.reworkRunId,
+    reworkRunStatus: status === "evidence-ready" ? "completed" : "failed",
+    sourceArtifactHashes: start.sourceArtifactHashes,
+    artifactRefs: [refs.artifact],
+    artifact: refs.artifact,
+    markdownArtifact: refs.markdownArtifact,
+    createdAt: start.createdAt,
+    updatedAt: start.updatedAt,
+  };
+  await writeSchedulerRuntimeWorkerReworkResult(memory, changePath, result);
+  return result;
+}
+
+async function writeIntegrationCandidate(schedulerRun: SchedulerRun, reservation: SchedulerRuntimeClaimReservation, options: { readyCount: number; outputClaimIntentIds: string[] }): Promise<SchedulerIntegrationCandidate> {
+  const refs = schedulerIntegrationCandidateArtifactRefs(memory, changePath, schedulerRun.id, "candidate-1");
+  const outputs = options.outputClaimIntentIds.map((claimIntentId, index) => ({
+    outputId: `output-${index + 1}`,
+    kind: "worker" as const,
+    status: "ready" as const,
+    blockingReasons: [],
+    claimIntentId,
+    reservationIntentId: `reservation-intent-${index + 1}`,
+    worktreeId: `worktree-${index + 1}`,
+    validationRunId: `validation-run-${index + 1}`,
+    auditRunId: `audit-run-${index + 1}`,
+    artifactRefs: [],
+  }));
+  const readyTargets = Array.from({ length: options.readyCount }, (_, index) => ({
+    worktreeId: `worktree-${index + 1}`,
+    worktreeDiffHash: `diff-${index + 1}`,
+    diffStat: "1 file changed",
+    sourceHead: null,
+    validationRunId: `validation-run-${index + 1}`,
+    auditRunId: `audit-run-${index + 1}`,
+  }));
+  const candidate: SchedulerIntegrationCandidate = {
+    version: "1.0",
+    id: "candidate-1",
+    changeId,
+    schedulerRunId: schedulerRun.id,
+    schedulerMode: "parallel-readiness-v1",
+    status: options.readyCount >= 2 ? "ready" : "waiting",
+    schedulerRuntimeStateId: "runtime-state-1",
+    schedulerReconcileSnapshotId: "snapshot-1",
+    schedulerClaimReservationId: reservation.id,
+    schedulerContractId: schedulerRun.schedulerContractId,
+    schedulerDispatchDryRunId: schedulerRun.schedulerDispatchDryRunId,
+    schedulerWorkerPlanId: schedulerRun.schedulerWorkerPlanId,
+    schedulerClaimReconcilePlanId: schedulerRun.schedulerClaimReconcilePlanId,
+    schedulerLaunchPreflightId: schedulerRun.schedulerLaunchPreflightId,
+    outputs,
+    readyTargets,
+    readyWorktreeIds: readyTargets.map((target) => target.worktreeId),
+    readyCount: options.readyCount,
+    blockedCount: 0,
+    sourceArtifactHashes: schedulerRun.sourceArtifactHashes,
+    artifactRefs: [refs.artifact],
+    artifact: refs.artifact,
+    markdownArtifact: refs.markdownArtifact,
+    createdAt: "2026-06-14T00:00:00.000Z",
+    updatedAt: "2026-06-14T00:00:00.000Z",
+  };
+  await writeSchedulerIntegrationCandidate(memory, changePath, candidate);
+  return candidate;
+}
+
+async function writeIntegrationOutcome(schedulerRun: SchedulerRun, reservation: SchedulerRuntimeClaimReservation, candidate: SchedulerIntegrationCandidate): Promise<SchedulerIntegrationOutcome> {
+  const refs = schedulerIntegrationOutcomeArtifactRefs(memory, changePath, schedulerRun.id, "outcome-1");
+  const outcome: SchedulerIntegrationOutcome = {
+    version: "1.0",
+    id: "outcome-1",
+    changeId,
+    schedulerRunId: schedulerRun.id,
+    schedulerMode: "parallel-readiness-v1",
+    status: "applied",
+    schedulerRuntimeStateId: "runtime-state-1",
+    schedulerReconcileSnapshotId: "snapshot-1",
+    schedulerClaimReservationId: reservation.id,
+    schedulerIntegrationCandidateId: candidate.id,
+    schedulerIntegrationCheckHandoffId: "handoff-1",
+    schedulerContractId: schedulerRun.schedulerContractId,
+    schedulerDispatchDryRunId: schedulerRun.schedulerDispatchDryRunId,
+    schedulerWorkerPlanId: schedulerRun.schedulerWorkerPlanId,
+    schedulerClaimReconcilePlanId: schedulerRun.schedulerClaimReconcilePlanId,
+    schedulerLaunchPreflightId: schedulerRun.schedulerLaunchPreflightId,
+    integrationCheckId: "integration-check-1",
+    integrationCheckStatus: "applied",
+    outcomeReason: "Applied.",
+    readyWorktreeIds: candidate.readyWorktreeIds,
+    resultTargetWorktreeIds: candidate.readyWorktreeIds,
+    targets: candidate.readyTargets.map((target) => ({
+      worktreeId: target.worktreeId,
+      changeId,
+      diffHash: target.worktreeDiffHash,
+      sourceHead: target.sourceHead,
+      applied: true,
+      appliedAt: "2026-06-14T00:00:00.000Z",
+    })),
+    appliedAt: "2026-06-14T00:00:00.000Z",
+    sourceHead: null,
+    sourceArtifactHashes: schedulerRun.sourceArtifactHashes,
+    artifactRefs: [refs.artifact],
+    artifact: refs.artifact,
+    markdownArtifact: refs.markdownArtifact,
+    createdAt: "2026-06-14T00:00:00.000Z",
+    updatedAt: "2026-06-14T00:00:00.000Z",
+  };
+  await writeSchedulerIntegrationOutcome(memory, changePath, outcome);
+  return outcome;
 }
 
 async function writeJson(path: string, value: unknown): Promise<void> {

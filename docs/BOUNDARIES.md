@@ -285,6 +285,8 @@ Phase 10I adds the `GoalLoopNextStepPacket` boundary. `src/goal-loop/` owns pack
 
 Phase 10J adds the main-Agent context-consumption boundary for that packet. `src/goal-loop/` owns packet lineage validation and prompt-section rendering. Workbench chat/orchestrator code may include the rendered section, but must not parse packet authority itself or inject the section into worker prompts. Packet context can explain the next safe step; it cannot dispatch a workflow action, bypass ToolPolicyGate/human gates, start scheduler/runtime work, close a Change, or mutate source.
 
+Phase 10K adds the existing-gate recommendation boundary. `src/goal-loop/` may map current scheduler worker, rework, integration, completion, and closeout evidence to an existing `WorkflowActionType` plus required target ids, but only as non-executing recommendation evidence. It must validate required targets, keep `executionStarted=false`, preserve `canAutoContinue=false`, and avoid importing Workbench/server/web/CLI/action-handler modules. Concrete Workbench confirmations remain the execution surface and retain ToolPolicyGate, stale-target, decision/audit, and human-gate authority.
+
 ## 7. Memory Unavailable Boundary
 
 Memory can be unavailable on a new machine, after a plain repository clone, when AHO home was not synced, when permissions are missing, or when a future remote memory service is offline.
