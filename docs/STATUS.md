@@ -4,11 +4,11 @@
 
 - Current date: 2026-06-13.
 - Active ECL change: none.
-- Pending Harness evolution: `harness/evolution/pending.md`.
+- Pending Harness evolution: none.
 - Latest archived product change: `harness/changes/archive/20260613-phase-9z-schedulerrun-blocked-exhausted-closeout-gate/summary.md`.
 - Latest archived product/Harness docs change: `harness/changes/archive/20260611-phase-8t-agentscope-harness-reference-alignment/summary.md`.
-- Latest archived Harness evolution: `harness/changes/archive/20260613-auto-evolve-harness-phase-9r-9v-scheduler-integration-apply-evidence/summary.md`.
-- Active product phase: none. Active Harness evolution phase: pending handoff at `harness/evolution/pending.md`.
+- Latest archived Harness evolution: `harness/changes/archive/20260613-auto-evolve-harness-phase-9v-9z-scheduler-terminal-evidence/summary.md`.
+- Active product phase: none. Active Harness evolution phase: none.
 
 Current baseline:
 
@@ -176,7 +176,7 @@ Phase 8P is closed and archived at `harness/changes/archive/20260611-phase-8p-sc
 
 Phase 8Q is closed and archived at `harness/changes/archive/20260611-phase-8q-workbench-action-handler-residual-boundary-split/summary.md`. It completed the final broad modularization pass for Workbench action handlers: `chat.ts` remains the conversation/action facade, while residual action handler map and landing/PR/remote/post-merge/control helpers live in owned handler modules. This phase did not add runtime capability, Workbench actions, CLI commands, HTTP routes, scheduler behavior, parallel execution, automatic child Changes, ODWF JavaScript runtime, or cache/replay.
 
-Pending Harness evolution: `harness/evolution/pending.md`. The Phase 9N-9R pending window was marked complete as `modify/subagent_review` with subagent score `84/100`; it added Source Apply Safety review-template coverage and stale archived-review closeout lint. The Phase 9J-9N pending window was marked complete as `noop/subagent_review` with subagent score `92/100`; existing scheduler worker/rework gate, same-worktree rework, module-boundary, ToolPolicy/human gate, workflow-truth, and integration-bridge boundary coverage is sufficient. The Phase 9F-9J pending window was marked complete as `noop/subagent_review` with subagent score `92/100`. The Phase 9B-9F pending window was marked complete as `noop/subagent_review` with subagent score `94/100`. The Phase 8W-9B pending window was marked complete as `noop/subagent_review` with subagent score `93/100`. The Phase 8S-8W pending window was marked complete as `noop/subagent_review` with subagent score `94/100`. The Phase 8O-8S window was marked complete as `noop/subagent_review` with subagent score `92/100`. The Phase 8K-8O window was marked complete as `noop/dry_run`; no subagent review was used. The Phase 8G-8K window was marked complete as `noop/subagent_review` with subagent score `90/100`.
+Pending Harness evolution: none. The Phase 9V-9Z pending window was marked complete as `noop/subagent_review` with subagent scores `94/100` and `90/100`; existing Source Apply Safety, scoped action payload, projection/runtime, module-boundary, scheduler non-execution, reference-boundary, and workflow-truth rules are sufficient. The Phase 9N-9R pending window was marked complete as `modify/subagent_review` with subagent score `84/100`; it added Source Apply Safety review-template coverage and stale archived-review closeout lint. The Phase 9J-9N pending window was marked complete as `noop/subagent_review` with subagent score `92/100`; existing scheduler worker/rework gate, same-worktree rework, module-boundary, ToolPolicy/human gate, workflow-truth, and integration-bridge boundary coverage is sufficient. The Phase 9F-9J pending window was marked complete as `noop/subagent_review` with subagent score `92/100`. The Phase 9B-9F pending window was marked complete as `noop/subagent_review` with subagent score `94/100`. The Phase 8W-9B pending window was marked complete as `noop/subagent_review` with subagent score `93/100`. The Phase 8S-8W pending window was marked complete as `noop/subagent_review` with subagent score `94/100`. The Phase 8O-8S window was marked complete as `noop/subagent_review` with subagent score `92/100`. The Phase 8K-8O window was marked complete as `noop/dry_run`; no subagent review was used. The Phase 8G-8K window was marked complete as `noop/subagent_review` with subagent score `90/100`.
 
 Phase 8N is closed and archived at `harness/changes/archive/20260610-phase-8n-run-evidence-manager-boundary-split/summary.md`. It split Run evidence internals behind `src/run/manager.ts` while keeping Run artifacts, Validation, and Audit as evidence.
 
