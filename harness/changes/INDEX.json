@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-13T17:49:25.6368510Z",
+    "generated_at":  "2026-06-13T18:10:28.8362277Z",
     "active":  [
 
                ],
@@ -769,6 +769,10 @@
                     {
                         "name":  "20260613-phase-9z-schedulerrun-blocked-exhausted-closeout-gate",
                         "path":  "harness/changes/archive/20260613-phase-9z-schedulerrun-blocked-exhausted-closeout-gate"
+                    },
+                    {
+                        "name":  "20260614-auto-evolve-harness-phase-9y-10d-goal-loop-evidence",
+                        "path":  "harness/changes/archive/20260614-auto-evolve-harness-phase-9y-10d-goal-loop-evidence"
                     },
                     {
                         "name":  "20260614-phase-10b-loop-engineering-codex-goal-reference-alignment",

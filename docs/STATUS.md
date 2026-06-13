@@ -4,10 +4,10 @@
 
 - Current date: 2026-06-14.
 - Active ECL change: none.
-- Pending Harness evolution: `harness/evolution/pending.md`.
+- Pending Harness evolution: none.
 - Latest archived product change: `harness/changes/archive/20260614-phase-10d-goal-loop-confirmation-surface/summary.md`.
 - Latest archived product/Harness docs change: `harness/changes/archive/20260614-phase-10d-goal-loop-confirmation-surface/summary.md`.
-- Latest archived Harness evolution: `harness/changes/archive/20260613-auto-evolve-harness-phase-9v-9z-scheduler-terminal-evidence/summary.md`.
+- Latest archived Harness evolution: `harness/changes/archive/20260614-auto-evolve-harness-phase-9y-10d-goal-loop-evidence/summary.md`.
 - Active product phase: none. Active Harness evolution phase: none.
 
 Current baseline:
@@ -132,8 +132,8 @@ Last completed phase:
 
 Latest Harness evolution:
 
-- `harness/changes/archive/20260613-auto-evolve-harness-phase-9r-9v-scheduler-integration-apply-evidence/summary.md`
-- Purpose: handled the Phase 9R through Phase 9V pending evolution window as `noop/subagent_review`; authorized subagent review scored `88/100`, and existing Source Apply Safety, scoped action payload, proposal/runtime, module-boundary, scheduler non-execution, ToolPolicy/human gate, and workflow-truth rules were sufficient.
+- `harness/changes/archive/20260614-auto-evolve-harness-phase-9y-10d-goal-loop-evidence/summary.md`
+- Purpose: handled the Phase 9Y through Phase 10D pending evolution window as `modify/subagent_review`; authorized subagent reviews scored `92/100` and `84/100`, and the accepted Harness delta added Goal Loop recommendation-authority and fallback-priority review coverage.
 
 Previous documentation phase:
 
@@ -180,7 +180,7 @@ Phase 8P is closed and archived at `harness/changes/archive/20260611-phase-8p-sc
 
 Phase 8Q is closed and archived at `harness/changes/archive/20260611-phase-8q-workbench-action-handler-residual-boundary-split/summary.md`. It completed the final broad modularization pass for Workbench action handlers: `chat.ts` remains the conversation/action facade, while residual action handler map and landing/PR/remote/post-merge/control helpers live in owned handler modules. This phase did not add runtime capability, Workbench actions, CLI commands, HTTP routes, scheduler behavior, parallel execution, automatic child Changes, ODWF JavaScript runtime, or cache/replay.
 
-Pending Harness evolution: `harness/evolution/pending.md`. It was generated after Phase 10D because five archived changes are available since the last completed evolution check. The pending window covers Phase 9Y, Phase 9Z, Phase 10B, Phase 10C, and Phase 10D. The Phase 9V-9Z pending window was marked complete as `noop/subagent_review` with subagent scores `94/100` and `90/100`; existing Source Apply Safety, scoped action payload, projection/runtime, module-boundary, scheduler non-execution, reference-boundary, and workflow-truth rules are sufficient. The Phase 9N-9R pending window was marked complete as `modify/subagent_review` with subagent score `84/100`; it added Source Apply Safety review-template coverage and stale archived-review closeout lint. The Phase 9J-9N pending window was marked complete as `noop/subagent_review` with subagent score `92/100`; existing scheduler worker/rework gate, same-worktree rework, module-boundary, ToolPolicy/human gate, workflow-truth, and integration-bridge boundary coverage is sufficient. The Phase 9F-9J pending window was marked complete as `noop/subagent_review` with subagent score `92/100`. The Phase 9B-9F pending window was marked complete as `noop/subagent_review` with subagent score `94/100`. The Phase 8W-9B pending window was marked complete as `noop/subagent_review` with subagent score `93/100`. The Phase 8S-8W pending window was marked complete as `noop/subagent_review` with subagent score `94/100`. The Phase 8O-8S window was marked complete as `noop/subagent_review` with subagent score `92/100`. The Phase 8K-8O window was marked complete as `noop/dry_run`; no subagent review was used. The Phase 8G-8K window was marked complete as `noop/subagent_review` with subagent score `90/100`.
+Pending Harness evolution: none. The Phase 9Y-10D pending window was marked complete as `modify/subagent_review` with subagent scores `92/100` and `84/100`; it added Goal Loop recommendation-authority and fallback-priority review coverage. The Phase 9V-9Z pending window was marked complete as `noop/subagent_review` with subagent scores `94/100` and `90/100`; existing Source Apply Safety, scoped action payload, projection/runtime, module-boundary, scheduler non-execution, reference-boundary, and workflow-truth rules are sufficient. The Phase 9N-9R pending window was marked complete as `modify/subagent_review` with subagent score `84/100`; it added Source Apply Safety review-template coverage and stale archived-review closeout lint. The Phase 9J-9N pending window was marked complete as `noop/subagent_review` with subagent score `92/100`; existing scheduler worker/rework gate, same-worktree rework, module-boundary, ToolPolicy/human gate, workflow-truth, and integration-bridge boundary coverage is sufficient. The Phase 9F-9J pending window was marked complete as `noop/subagent_review` with subagent score `92/100`. The Phase 9B-9F pending window was marked complete as `noop/subagent_review` with subagent score `94/100`. The Phase 8W-9B pending window was marked complete as `noop/subagent_review` with subagent score `93/100`. The Phase 8S-8W pending window was marked complete as `noop/subagent_review` with subagent score `94/100`. The Phase 8O-8S window was marked complete as `noop/subagent_review` with subagent score `92/100`. The Phase 8K-8O window was marked complete as `noop/dry_run`; no subagent review was used. The Phase 8G-8K window was marked complete as `noop/subagent_review` with subagent score `90/100`.
 
 Phase 8N is closed and archived at `harness/changes/archive/20260610-phase-8n-run-evidence-manager-boundary-split/summary.md`. It split Run evidence internals behind `src/run/manager.ts` while keeping Run artifacts, Validation, and Audit as evidence.
 

@@ -330,6 +330,8 @@ The review must state:
 
 A Goal loop must not replace Change/ECL, accepted artifacts, Run, Validation, Audit, IntegrationCheck, ToolPolicyGate, Apply/Close human gates, or Harness evolution. Multi-worktree parallelism is execution isolation only and must not be treated as final merge safety. If a loop cannot prove conflict safety, it must wait, ask the user, or route through a fix loop instead of starting parallel work.
 
+GoalLoopDecision or Goal Loop confirmation-surface changes must include review coverage for recommendation authority and fallback priority. The review must prove that `GoalLoopDecision.recommendedAction` remains explanatory planning evidence only, references only existing scoped actions with required target ids and stale revalidation, and is not copied into fallback confirmation executable actions. Goal Loop evaluation must remain fallback-only: it is hidden whenever concrete planning, scheduler, IntegrationCheck, apply, close, landing, PR, or remote confirmations exist; it must not be placed in `workpad.nextAction`, bypass ToolPolicyGate / human gates, or start runtime/source mutations.
+
 Documentation-only reference updates may record this as architecture guidance without adding tests. Product-code changes that implement loop behavior must include owner-module and gate coverage.
 
 ## 15. Controlled Evolution

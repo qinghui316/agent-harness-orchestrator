@@ -69,6 +69,17 @@ Pending.
 - If applicable, tested with: not applicable.
 - If not applicable, reason: change does not introduce or change planning proposals, decomposition plans, readiness manifests, workflow plans, recovery material, scheduler-readiness artifacts, or similar proposal/runtime boundary artifacts.
 
+## Goal Loop Boundary Coverage
+
+- Goal Loop boundary coverage applicable: no.
+- If applicable, persistent Goal/Change scope checked: not applicable.
+- If applicable, recommendation authority checked: not applicable.
+- If applicable, fallback priority checked: not applicable.
+- If applicable, hidden execution / source mutation check: not applicable.
+- If applicable, ToolPolicyGate / human gate preservation checked: not applicable.
+- If applicable, tested with: not applicable.
+- If not applicable, reason: change does not add or change GoalLoopDecision policy, goal-loop confirmation surfaces, autonomous loop behavior, or conflict-aware continuation behavior.
+
 ## Module Boundary Coverage
 
 - Module boundary coverage applicable: no.
