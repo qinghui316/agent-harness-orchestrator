@@ -1,6 +1,7 @@
 export * from "./guards.js";
 export * from "./claim-reservation.js";
 export * from "./initialize.js";
+export * from "./integration-candidate.js";
 export * from "./launch-brief.js";
 export * from "./paths.js";
 export * from "./plan-preparation.js";

@@ -175,6 +175,7 @@ export type WorkpadNextAction = {
   schedulerWorkerReworkResultId?: string;
   schedulerWorkerReworkValidationId?: string;
   schedulerWorkerReworkAuditId?: string;
+  schedulerIntegrationCandidateId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   workflowRunId?: string;
@@ -227,6 +228,7 @@ export type WorkbenchTaskNextAction = {
   schedulerWorkerReworkResultId?: string;
   schedulerWorkerReworkValidationId?: string;
   schedulerWorkerReworkAuditId?: string;
+  schedulerIntegrationCandidateId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   workflowRunId?: string;
@@ -361,6 +363,7 @@ export type Workpad = {
   schedulerWorkerReworkResult?: SchedulerWorkerReworkResultSummary;
   schedulerWorkerReworkValidation?: SchedulerWorkerReworkValidationSummary;
   schedulerWorkerReworkAudit?: SchedulerWorkerReworkAuditSummary;
+  schedulerIntegrationCandidate?: SchedulerIntegrationCandidateSummary;
   rolePipeline?: {
     stage: "planning" | "coding" | "validation" | "audit" | "rework" | "done" | "needs-user-input";
     status: "draft" | "running" | "completed" | "needs-user-input" | "stopped";
@@ -923,6 +926,21 @@ export type SchedulerWorkerReworkAuditSummary = {
   markdownArtifact?: string;
   updatedAt: string;
 };
+export type SchedulerIntegrationCandidateSummary = {
+  id: string;
+  changeId: string;
+  schedulerRunId: string;
+  schedulerClaimReservationId: string;
+  schedulerReconcileSnapshotId: string;
+  status: "ready" | "waiting" | "blocked";
+  readyCount: number;
+  blockedCount: number;
+  readyWorktreeIds: string[];
+  waitingReason?: string;
+  artifact?: string;
+  markdownArtifact?: string;
+  updatedAt: string;
+};
 export type SchedulerReconcileSnapshotSummary = {
   id: string;
   changeId: string;
@@ -974,6 +992,7 @@ export type ThreadStreamAction = {
   schedulerWorkerReworkResultId?: string;
   schedulerWorkerReworkValidationId?: string;
   schedulerWorkerReworkAuditId?: string;
+  schedulerIntegrationCandidateId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   workflowRunId?: string;

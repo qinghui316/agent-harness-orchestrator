@@ -32,6 +32,7 @@ import {
   SchedulerLaunchPreflightCard,
   SchedulerReconcileSnapshotCard,
   SchedulerRuntimeCard,
+  SchedulerIntegrationCandidateCard,
   SchedulerRunCard,
   SchedulerWorkerResultCard,
   SchedulerWorkerSessionPlanCard,
@@ -139,6 +140,7 @@ export function WorkpadDiagnosticDetails({
       {workpad.schedulerWorkerReworkResult ? <SchedulerWorkerReworkResultCard result={workpad.schedulerWorkerReworkResult} /> : null}
       {workpad.schedulerWorkerReworkValidation ? <SchedulerWorkerReworkValidationCard validation={workpad.schedulerWorkerReworkValidation} /> : null}
       {workpad.schedulerWorkerReworkAudit ? <SchedulerWorkerReworkAuditCard audit={workpad.schedulerWorkerReworkAudit} /> : null}
+      {workpad.schedulerIntegrationCandidate ? <SchedulerIntegrationCandidateCard candidate={workpad.schedulerIntegrationCandidate} /> : null}
 
       {workpad.rolePipeline ? (
         <section className="workpad-section" data-testid="role-pipeline-summary">

@@ -102,6 +102,7 @@ import { getDemandWorkerSlot } from "../../src/demand-worker/slot-policy.js";
 import { recordMainOrchestratorDecision } from "../../src/demand-worker/decisions.js";
 import { compileWorkflowGraphPlan, hashArtifactRefs, readLatestTaskQueueProposal, renderWorkflowGraphPlanMarkdown } from "../../src/workflow-artifacts/manager.js";
 import { compileSchedulerClaimReconcilePlan, compileSchedulerContract, compileSchedulerDispatchDryRun, compileSchedulerWorkerSessionPlan, prepareSchedulerRun, renderSchedulerClaimReconcilePlanMarkdown, renderSchedulerContractMarkdown, renderSchedulerDispatchDryRunMarkdown, renderSchedulerRunMarkdown, renderSchedulerWorkerSessionPlanMarkdown } from "../../src/workflow-scheduler/manager.js";
+import { compileSchedulerIntegrationCandidate } from "../../src/scheduler-runtime/manager.js";
 import { shouldAutoReworkTaskRun } from "../../src/workflow-runtime/kernel/bounded-rework.js";
 import { emitValidationAssistantEvents } from "../../src/workflow-runtime/kernel/live-events.js";
 import { findTaskQueueStageResumeCandidate } from "../../src/workflow-runtime/kernel/stage-resume-runner.js";
@@ -320,6 +321,7 @@ describe("Workbench module boundaries", () => {
     expect(typeof renderSchedulerClaimReconcilePlanMarkdown).toBe("function");
     expect(typeof prepareSchedulerRun).toBe("function");
     expect(typeof renderSchedulerRunMarkdown).toBe("function");
+    expect(typeof compileSchedulerIntegrationCandidate).toBe("function");
     expect(typeof startOrResumeWorkflowTaskQueue).toBe("function");
     expect(typeof validateWorkflowTaskQueueProposalStart).toBe("function");
     expect(typeof runTaskQueueSequence).toBe("function");
@@ -1111,6 +1113,7 @@ describe("Workbench module boundaries", () => {
       "src/scheduler-runtime/worker-rework-result.ts",
       "src/scheduler-runtime/worker-rework-validation.ts",
       "src/scheduler-runtime/worker-rework-audit.ts",
+      "src/scheduler-runtime/integration-candidate.ts",
       "src/scheduler-runtime/rendering.ts",
       "src/scheduler-runtime/manager.ts",
     ]));
@@ -1123,6 +1126,7 @@ describe("Workbench module boundaries", () => {
     expect(manager).toContain('export * from "./worker-validation.js";');
     expect(manager).toContain('export * from "./worker-audit.js";');
     expect(manager).toContain('export * from "./worker-rework-audit.js";');
+    expect(manager).toContain('export * from "./integration-candidate.js";');
     expect(manager).toContain('export * from "./repository.js";');
 
     const initialize = readFileSync("src/scheduler-runtime/initialize.ts", "utf8");
@@ -1225,6 +1229,19 @@ describe("Workbench module boundaries", () => {
     expect(workerReworkAudit).not.toContain("startCodeRun");
     expect(workerReworkAudit).not.toContain("startValidationRun");
     expect(workerReworkAudit).not.toContain("runTaskQueueSequence");
+
+    const integrationCandidate = readFileSync("src/scheduler-runtime/integration-candidate.ts", "utf8");
+    expect(integrationCandidate).toContain("compileSchedulerIntegrationCandidate");
+    expect(integrationCandidate).toContain("SchedulerIntegrationCandidate");
+    expect(integrationCandidate).toContain("previewWorktreeApply");
+    expect(integrationCandidate).toContain("classifyApplyReadiness");
+    expect(integrationCandidate).not.toContain("runIntegrationCheck");
+    expect(integrationCandidate).not.toContain("applyIntegrationCheck");
+    expect(integrationCandidate).not.toContain("applyResultToProject");
+    expect(integrationCandidate).not.toContain("startCodeRun");
+    expect(integrationCandidate).not.toContain("startValidationRun");
+    expect(integrationCandidate).not.toContain("startAuditRun");
+    expect(integrationCandidate).not.toContain("runTaskQueueSequence");
 
     for (const file of files) {
       const content = readFileSync(file, "utf8");

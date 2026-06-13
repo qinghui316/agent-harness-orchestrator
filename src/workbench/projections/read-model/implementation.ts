@@ -133,6 +133,7 @@ export {
   getWorkbenchSchedulerWorkerReworkValidationProjection,
   getWorkbenchSchedulerWorkerReworkStartProjection,
   getWorkbenchSchedulerWorkerValidationProjection,
+  getWorkbenchSchedulerIntegrationCandidateProjection,
   getWorkbenchWorkflowRunProjection,
 } from "./lazy-projections.js";
 

@@ -23,6 +23,7 @@ export function artifactForActionResult(result: unknown): string | null {
   if (isRecord(result) && isRecord(result.result) && typeof result.result.artifact === "string") return result.result.artifact;
   if (isRecord(result) && isRecord(result.schedulerValidation) && typeof result.schedulerValidation.artifact === "string") return result.schedulerValidation.artifact;
   if (isRecord(result) && isRecord(result.schedulerReworkAudit) && typeof result.schedulerReworkAudit.artifact === "string") return result.schedulerReworkAudit.artifact;
+  if (isRecord(result) && isRecord(result.candidate) && typeof result.candidate.artifact === "string") return result.candidate.artifact;
   if (isRecord(result) && isRecord(result.handoff) && Array.isArray(result.handoff.artifactRefs) && typeof result.handoff.artifactRefs[0] === "string") return result.handoff.artifactRefs[0];
   if (isRecord(result) && isRecord(result.revision) && Array.isArray(result.revision.artifactRefs) && typeof result.revision.artifactRefs[0] === "string") return result.revision.artifactRefs[0];
   if (isRecord(result) && isRecord(result.run) && isRecord(result.run.artifacts) && typeof result.run.artifacts.directory === "string") return result.run.artifacts.directory;
@@ -240,6 +241,11 @@ export function summarizeActionResult(actionType: string, result: unknown): stri
       ? `Scheduler first worker rework audit ${result.schedulerReworkAudit.status}.`
       : "Scheduler first worker rework audit recorded.";
   }
+  if (actionType === "planning.scheduler.integration-candidate.compile" && isRecord(result) && isRecord(result.candidate)) {
+    const readyCount = typeof result.candidate.readyCount === "number" ? result.candidate.readyCount : 0;
+    const blockedCount = typeof result.candidate.blockedCount === "number" ? result.candidate.blockedCount : 0;
+    return `Scheduler integration candidate compiled. Ready targets: ${readyCount}; blocked outputs: ${blockedCount}. No IntegrationCheck was started.`;
+  }
   if (actionType === "planning.confirm-execution" && isRecord(result)) {
     return "Planning confirmed and canonical artifacts were written. No execution was started.";
   }
@@ -296,6 +302,7 @@ export function labelForAction(actionType: string): string {
     case "planning.scheduler.worker.rework-reconcile-result": return "Scheduler first worker rework result reconciled";
     case "planning.scheduler.worker.rework-validate-first": return "Scheduler first worker rework validated";
     case "planning.scheduler.worker.rework-audit-first": return "Scheduler first worker rework audited";
+    case "planning.scheduler.integration-candidate.compile": return "Scheduler integration candidate compiled";
     case "planning.workflowgraph.compile": return "WorkflowGraphPlan compiled";
     case "planning.taskqueue.confirm-start": return "TaskQueueProposal confirmed and started";
     case "orchestrator.evaluate": return "Main orchestrator evaluated";

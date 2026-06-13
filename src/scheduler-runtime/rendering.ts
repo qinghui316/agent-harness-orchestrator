@@ -1,4 +1,4 @@
-import type { SchedulerReconcileSnapshot, SchedulerRuntimeClaimReservation, SchedulerRuntimeState, SchedulerRuntimeWorkerAudit, SchedulerRuntimeWorkerResult, SchedulerRuntimeWorkerReworkAudit, SchedulerRuntimeWorkerReworkPlan, SchedulerRuntimeWorkerReworkResult, SchedulerRuntimeWorkerReworkStart, SchedulerRuntimeWorkerReworkValidation, SchedulerRuntimeWorkerStart, SchedulerRuntimeWorkerValidation } from "./types.js";
+import type { SchedulerIntegrationCandidate, SchedulerReconcileSnapshot, SchedulerRuntimeClaimReservation, SchedulerRuntimeState, SchedulerRuntimeWorkerAudit, SchedulerRuntimeWorkerResult, SchedulerRuntimeWorkerReworkAudit, SchedulerRuntimeWorkerReworkPlan, SchedulerRuntimeWorkerReworkResult, SchedulerRuntimeWorkerReworkStart, SchedulerRuntimeWorkerReworkValidation, SchedulerRuntimeWorkerStart, SchedulerRuntimeWorkerValidation } from "./types.js";
 
 export function renderSchedulerRuntimeStateMarkdown(state: SchedulerRuntimeState): string {
   const lines = [
@@ -512,6 +512,54 @@ export function renderSchedulerRuntimeWorkerReworkAuditMarkdown(audit: Scheduler
     "## Boundary",
     "",
     "This rework-audit evidence audits one same-worktree scheduler rework result only. Approved audit can complete the rework TaskRun; blocked or failed audit blocks only the current rework path. It does not start another rework, another worker, a whole wave, IntegrationCheck, apply, merge, child Changes, a scheduler loop, or a parallel executor.",
+    "",
+  ];
+  return lines.join("\n");
+}
+
+export function renderSchedulerIntegrationCandidateMarkdown(candidate: SchedulerIntegrationCandidate): string {
+  const lines = [
+    `# SchedulerIntegrationCandidate ${candidate.id}`,
+    "",
+    `Status: ${candidate.status}`,
+    `Change: ${candidate.changeId}`,
+    `SchedulerRun: ${candidate.schedulerRunId}`,
+    `ClaimReservation: ${candidate.schedulerClaimReservationId}`,
+    "",
+    "## Summary",
+    "",
+    `- Ready targets: ${candidate.readyCount}`,
+    `- Blocked outputs: ${candidate.blockedCount}`,
+    `- Ready worktrees: ${candidate.readyWorktreeIds.join(", ") || "none"}`,
+    `- Waiting reason: ${candidate.waitingReason ?? "none"}`,
+    "",
+    "## Ready Targets",
+    "",
+    ...(candidate.readyTargets.length ? candidate.readyTargets.map((target) => [
+      `### ${target.worktreeId}`,
+      "",
+      `- Diff hash: ${target.worktreeDiffHash}`,
+      `- Validation run: ${target.validationRunId}`,
+      `- Audit run: ${target.auditRunId}`,
+      `- Source HEAD: ${target.sourceHead ?? "unknown"}`,
+      "",
+    ].join("\n")) : ["- none", ""]),
+    "## Outputs",
+    "",
+    ...candidate.outputs.map((output) => [
+      `### ${output.outputId}`,
+      "",
+      `- Kind: ${output.kind}`,
+      `- Status: ${output.status}`,
+      `- Claim intent: ${output.claimIntentId ?? "none"}`,
+      `- Worktree: ${output.worktreeId ?? "none"}`,
+      `- Readiness: ${output.readinessKind ?? "none"}${output.readinessMessage ? ` (${output.readinessMessage})` : ""}`,
+      `- Blocking reasons: ${output.blockingReasons.length ? output.blockingReasons.join("; ") : "none"}`,
+      "",
+    ].join("\n")),
+    "## Boundary",
+    "",
+    "This scheduler integration candidate bridges audited scheduler worker output into the existing IntegrationCheck/apply readiness chain. It is not IntegrationCheck, apply authorization, merge authorization, next-worker dispatch, whole-wave dispatch, or a parallel executor.",
     "",
   ];
   return lines.join("\n");

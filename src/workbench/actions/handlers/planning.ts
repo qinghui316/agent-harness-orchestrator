@@ -7,10 +7,12 @@ import { writeJsonFile } from "../../../fs/json.js";
 import { assertWritableMemory } from "../../../memory/resolver.js";
 import {
   initializeSchedulerRuntime,
+  compileSchedulerIntegrationCandidate,
   prepareSchedulerPlanEvidence,
   reconcileSchedulerRuntime,
   reserveSchedulerRuntimeClaims,
   renderSchedulerLaunchBriefMarkdown,
+  renderSchedulerIntegrationCandidateMarkdown,
   renderSchedulerRuntimeClaimReservationMarkdown,
   renderSchedulerRuntimeWorkerResultMarkdown,
   renderSchedulerRuntimeWorkerStartMarkdown,
@@ -36,6 +38,7 @@ import {
   type SchedulerRuntimeClaimReservation,
   type SchedulerRuntimeState,
   type SchedulerRuntimeWorkerStart,
+  type SchedulerIntegrationCandidateResult,
   type SchedulerWorkerResultReconcileResult,
   type SchedulerWorkerAuditResult,
   type SchedulerWorkerReworkPlanResult,
@@ -1735,6 +1738,61 @@ export async function auditPlanningSchedulerFirstWorkerRework(
       auditRunId: result.schedulerReworkAudit.auditRunId,
       reworkAuditRunId: result.schedulerReworkAudit.auditRunId,
       auditStatus: result.schedulerReworkAudit.auditStatus,
+    },
+    completedAt: new Date().toISOString(),
+  });
+  return result;
+}
+
+export async function compilePlanningSchedulerIntegrationCandidate(
+  project: ManagedProject,
+  changeId: string,
+  request: WorkbenchWorkflowActionRequest,
+  live: WorkbenchLiveSink | undefined,
+): Promise<SchedulerIntegrationCandidateResult> {
+  const { memory } = await resolveTopic(project, changeId);
+  assertWritableMemory(memory, "Scheduler integration candidate");
+  if (!request.schedulerRunId) throw new Error("planning.scheduler.integration-candidate.compile requires schedulerRunId.");
+  const result = await compileSchedulerIntegrationCandidate(project, {
+    changeId,
+    schedulerRunId: request.schedulerRunId,
+  });
+  await appendTopicThreadEntry(project, changeId, {
+    type: "assistant.message",
+    status: "scheduler-integration-candidate-compiled",
+    text: renderSchedulerIntegrationCandidateMarkdown(result.candidate),
+    artifact: result.candidate.artifact,
+  });
+  emitAssistantEvent(live, {
+    runId: result.candidate.schedulerRunId,
+    kind: "file-change",
+    phase: "scheduler-integration-candidate-compiled",
+    title: "Scheduler integration candidate compiled",
+    summary: result.candidate.readyCount >= 2
+      ? `Scheduler integration candidate has ${result.candidate.readyCount} ready target(s). No IntegrationCheck or apply was started.`
+      : `Scheduler integration candidate is waiting for more ready worker outputs (${result.candidate.readyCount}/2). No IntegrationCheck or apply was started.`,
+    artifactRef: result.candidate.artifact,
+  });
+  await recordWorkbenchDecision(project, {
+    id: `scheduler-integration-candidate:${result.candidate.id}`,
+    changeId,
+    decisionType: "planning.scheduler.integration-candidate.compile",
+    status: "completed",
+    label: "Scheduler Integration Candidate 已生成",
+    summary: "Compiled scheduler worker outputs into integration candidate evidence without running IntegrationCheck, apply, merge, or another worker.",
+    targetId: result.candidate.id,
+    runId: null,
+    artifact: result.candidate.artifact,
+    actionId: "planning.scheduler.integration-candidate.compile",
+    payload: {
+      candidate: result.candidate,
+      schedulerIntegrationCandidateId: result.candidate.id,
+      schedulerRunId: result.candidate.schedulerRunId,
+      schedulerClaimReservationId: result.candidate.schedulerClaimReservationId,
+      schedulerReconcileSnapshotId: result.candidate.schedulerReconcileSnapshotId,
+      readyWorktreeIds: result.candidate.readyWorktreeIds,
+      readyCount: result.candidate.readyCount,
+      blockedCount: result.candidate.blockedCount,
     },
     completedAt: new Date().toISOString(),
   });

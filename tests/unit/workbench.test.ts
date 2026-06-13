@@ -2908,10 +2908,17 @@ describe("workbench read model", () => {
         schedulerWorkerValidationId: validatedResult?.schedulerValidation?.id,
       });
       expect(postAuditSnapshot.center.workpad.nextAction).toMatchObject({
-        actionType: "planning.scheduler.worker.audit-first",
-        enabled: false,
+        actionType: "planning.scheduler.integration-candidate.compile",
+        enabled: true,
+        schedulerRunId: schedulerRun?.id,
+        schedulerWorkerAuditId: auditedResult.schedulerAudit?.id,
       });
       expect(postAuditSnapshot.right.confirmationQueue.current.flatMap((item) => item.actions).some((action) => action.actionType === "planning.scheduler.worker.audit-first")).toBe(false);
+      expect(postAuditSnapshot.right.confirmationQueue.current.flatMap((item) => item.actions).some((action) => action.actionType === "planning.scheduler.integration-candidate.compile")).toBe(true);
+      expect(postAuditSnapshot.right.confirmationQueue.current.flatMap((item) => item.actions).some((action) => {
+        const actionType = action.actionType ?? "";
+        return actionType === "apply-check.run" || actionType.startsWith("landing.") || actionType.startsWith("remote-landing.");
+      })).toBe(false);
       const repeatedAudit = await auditSchedulerFirstWorker(project(), {
         changeId: topic.changeId,
         schedulerRunId: `${schedulerRun?.id}`,

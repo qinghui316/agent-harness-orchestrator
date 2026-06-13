@@ -125,6 +125,8 @@ Phase 9N adds the first scheduler rework validation slice. `src/scheduler-runtim
 
 Phase 9O adds the first scheduler rework audit slice. `src/scheduler-runtime/worker-rework-audit.ts` owns the read/guard/audit/write path for `SchedulerRuntimeWorkerReworkAudit` evidence after Phase 9N. It accepts only a passed scheduler-owned rework validation, audits the same reused worktree through the existing audit runner, and binds audit to the exact Phase 9N validation run. Audit `approved` / `approved-with-notes` completes the rework TaskRun; audit `blocked` / `failed` blocks only the current rework path. It does not start another rework, another worker, a whole wave, IntegrationCheck, apply, merge, new worktrees, new coder/rework runs, child Changes, or a scheduler loop.
 
+Phase 9P adds the scheduler integration candidate bridge. `src/scheduler-runtime/integration-candidate.ts` owns the read/guard/compile path for `SchedulerIntegrationCandidate` evidence after scheduler worker or rework worker audit approval. It re-checks each output worktree through the existing apply preview/readiness gates and records ready or blocked candidate outputs. It does not run IntegrationCheck, aggregate validation, aggregate audit, apply, landing, merge, next-worker dispatch, or a scheduler loop; final multi-worktree integration still routes through existing IntegrationCheck, aggregate validation/audit, and human apply gates.
+
 Workbench relationship:
 
 ```text

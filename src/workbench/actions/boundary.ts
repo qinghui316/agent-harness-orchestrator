@@ -7,7 +7,7 @@ import { getActiveChanges } from "../../ecl/index.js";
 import { resolveProjectMemory } from "../../memory/resolver.js";
 import { readRun } from "../../run/repository.js";
 import { readSchedulerRuntimeLineage } from "../../scheduler-runtime/guards.js";
-import { findSchedulerClaimReservationForSnapshot, findSchedulerRuntimeWorkerAuditForValidation, findSchedulerRuntimeWorkerResultForStart, findSchedulerRuntimeWorkerReworkAuditForValidation, findSchedulerRuntimeWorkerReworkPlanForBlockingEvidence, findSchedulerRuntimeWorkerReworkResultForStart, findSchedulerRuntimeWorkerReworkStartForPlan, findSchedulerRuntimeWorkerReworkValidationForResult, findSchedulerRuntimeWorkerStartForReservationIntent, findSchedulerRuntimeWorkerValidationForResult, readSchedulerReconcileSnapshot, readSchedulerRuntimeClaimReservation, readSchedulerRuntimeStateProjection, readSchedulerRuntimeWorkerAudit, readSchedulerRuntimeWorkerResult, readSchedulerRuntimeWorkerReworkPlan, readSchedulerRuntimeWorkerReworkResult, readSchedulerRuntimeWorkerReworkStart, readSchedulerRuntimeWorkerReworkValidation, readSchedulerRuntimeWorkerStart, readSchedulerRuntimeWorkerValidation } from "../../scheduler-runtime/repository.js";
+import { findSchedulerClaimReservationForSnapshot, findSchedulerRuntimeWorkerAuditForValidation, findSchedulerRuntimeWorkerResultForStart, findSchedulerRuntimeWorkerReworkAuditForValidation, findSchedulerRuntimeWorkerReworkPlanForBlockingEvidence, findSchedulerRuntimeWorkerReworkResultForStart, findSchedulerRuntimeWorkerReworkStartForPlan, findSchedulerRuntimeWorkerReworkValidationForResult, findSchedulerRuntimeWorkerStartForReservationIntent, findSchedulerRuntimeWorkerValidationForResult, readLatestSchedulerIntegrationCandidateProjection, readSchedulerReconcileSnapshot, readSchedulerRuntimeClaimReservation, readSchedulerRuntimeStateProjection, readSchedulerRuntimeWorkerAudit, readSchedulerRuntimeWorkerResult, readSchedulerRuntimeWorkerReworkPlan, readSchedulerRuntimeWorkerReworkResult, readSchedulerRuntimeWorkerReworkStart, readSchedulerRuntimeWorkerReworkValidation, readSchedulerRuntimeWorkerStart, readSchedulerRuntimeWorkerValidation } from "../../scheduler-runtime/repository.js";
 import { latestLandingQueueSnapshot } from "../../landing-queue/manager.js";
 import { listTaskQueues } from "../../task-queue/manager.js";
 import { listTaskRuns } from "../../task-run/manager.js";
@@ -986,6 +986,38 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
     }
     if (request.reworkAuditRunId && existingAudit?.auditRunId !== request.reworkAuditRunId) {
       throw new Error("planning.scheduler.worker.rework-audit-first rework audit run scope mismatch.");
+    }
+  }
+  if (request.actionType === "planning.scheduler.integration-candidate.compile") {
+    const active = await getActiveChanges(memory);
+    const target = active.find((item) => item.name === changeId);
+    if (!target) throw new Error("planning.scheduler.integration-candidate.compile target is stale or missing active Change.");
+    if (!request.schedulerRunId) throw new Error("planning.scheduler.integration-candidate.compile requires schedulerRunId.");
+    const run = await readSchedulerRun(memory, target.path, request.schedulerRunId);
+    if (run.id !== request.schedulerRunId || run.changeId !== changeId || run.status !== "prepared") {
+      throw new Error("planning.scheduler.integration-candidate.compile SchedulerRun target is stale or not prepared.");
+    }
+    const latestRun = await readLatestSchedulerRun(memory, target.path);
+    if (latestRun.id !== run.id) throw new Error("planning.scheduler.integration-candidate.compile requires the latest SchedulerRun.");
+    await readSchedulerRuntimeLineage(memory, target.path, run.id);
+    const runtimeState = await readSchedulerRuntimeStateProjection(memory, target.path, run.id);
+    if (!runtimeState?.lastReconcileSnapshotId || !runtimeState.lastClaimReservationId) {
+      throw new Error("planning.scheduler.integration-candidate.compile requires runtime state with latest reconcile snapshot and claim reservation.");
+    }
+    const snapshot = await readSchedulerReconcileSnapshot(memory, target.path, run.id, runtimeState.lastReconcileSnapshotId);
+    const reservation = await readSchedulerRuntimeClaimReservation(memory, target.path, run.id, runtimeState.lastClaimReservationId);
+    if (reservation.schedulerReconcileSnapshotId !== snapshot.id || runtimeState.lastClaimReservationSnapshotId !== snapshot.id) {
+      throw new Error("planning.scheduler.integration-candidate.compile SchedulerRuntimeClaimReservation target is stale.");
+    }
+    if (request.schedulerClaimReservationId && request.schedulerClaimReservationId !== reservation.id) {
+      throw new Error("planning.scheduler.integration-candidate.compile SchedulerRuntimeClaimReservation scope mismatch.");
+    }
+    if (request.schedulerReconcileSnapshotId && request.schedulerReconcileSnapshotId !== snapshot.id) {
+      throw new Error("planning.scheduler.integration-candidate.compile SchedulerReconcileSnapshot scope mismatch.");
+    }
+    const latestCandidate = await readLatestSchedulerIntegrationCandidateProjection(memory, target.path, run.id);
+    if (request.schedulerIntegrationCandidateId && latestCandidate?.id !== request.schedulerIntegrationCandidateId) {
+      throw new Error("planning.scheduler.integration-candidate.compile SchedulerIntegrationCandidate scope mismatch.");
     }
   }
   if (request.actionType === "planning.workflowgraph.compile") {

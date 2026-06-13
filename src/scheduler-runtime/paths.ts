@@ -144,3 +144,15 @@ export function schedulerWorkerReworkAuditPath(memory: ResolvedMemory, changePat
 export function schedulerWorkerReworkAuditMarkdownPath(memory: ResolvedMemory, changePath: string, schedulerRunId: string, reworkAuditId: string): string {
   return join(schedulerWorkerReworkAuditsDir(memory, changePath, schedulerRunId), `${reworkAuditId}.md`);
 }
+
+export function schedulerIntegrationCandidatesDir(memory: ResolvedMemory, changePath: string, schedulerRunId: string): string {
+  return join(schedulerRuntimeDir(memory, changePath, schedulerRunId), "scheduler-integration-candidates");
+}
+
+export function schedulerIntegrationCandidatePath(memory: ResolvedMemory, changePath: string, schedulerRunId: string, candidateId: string): string {
+  return join(schedulerIntegrationCandidatesDir(memory, changePath, schedulerRunId), `${candidateId}.json`);
+}
+
+export function schedulerIntegrationCandidateMarkdownPath(memory: ResolvedMemory, changePath: string, schedulerRunId: string, candidateId: string): string {
+  return join(schedulerIntegrationCandidatesDir(memory, changePath, schedulerRunId), `${candidateId}.md`);
+}

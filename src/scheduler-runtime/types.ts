@@ -43,6 +43,9 @@ export type SchedulerRuntimeWorkerReworkResultStatus = "evidence-ready" | "faile
 export type SchedulerRuntimeWorkerReworkValidationStatus = "passed" | "failed";
 export type SchedulerRuntimeWorkerReworkAuditStatus = "approved" | "approved-with-notes" | "blocked" | "failed";
 export type SchedulerRuntimeWorkerReworkBlockingSource = "validation-failed" | "audit-blocked" | "audit-failed";
+export type SchedulerIntegrationCandidateStatus = "ready" | "waiting" | "blocked";
+export type SchedulerIntegrationCandidateOutputKind = "worker" | "rework" | "inconsistency";
+export type SchedulerIntegrationCandidateOutputStatus = "ready" | "blocked";
 
 export interface SchedulerRuntimeClaimIntentState {
   claimIntentId: string;
@@ -605,6 +608,79 @@ export interface SchedulerRuntimeWorkerReworkAudit {
   auditRunId: string;
   auditStatus: SchedulerRuntimeWorkerReworkAuditStatus;
   failureReason?: string;
+  sourceArtifactHashes: Record<string, string>;
+  artifactRefs: string[];
+  artifact: string;
+  markdownArtifact: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SchedulerIntegrationCandidateReadyTarget {
+  worktreeId: string;
+  worktreeDiffHash: string;
+  diffStat: string;
+  sourceHead: string | null;
+  validationRunId: string;
+  auditRunId: string;
+}
+
+export interface SchedulerIntegrationCandidateOutput {
+  outputId: string;
+  kind: SchedulerIntegrationCandidateOutputKind;
+  status: SchedulerIntegrationCandidateOutputStatus;
+  blockingReasons: string[];
+  readinessKind?: string;
+  readinessMessage?: string;
+  schedulerWorkerAuditId?: string;
+  schedulerWorkerReworkAuditId?: string;
+  schedulerWorkerStartId?: string;
+  schedulerWorkerResultId?: string;
+  schedulerWorkerValidationId?: string;
+  schedulerWorkerReworkPlanId?: string;
+  schedulerWorkerReworkStartId?: string;
+  schedulerWorkerReworkResultId?: string;
+  schedulerWorkerReworkValidationId?: string;
+  reservationIntentId?: string;
+  claimIntentId?: string;
+  plannedWorkerKey?: string;
+  nodeId?: string;
+  unitId?: string;
+  waveIndex?: number;
+  taskId?: string;
+  taskRunId?: string;
+  workerLeaseId?: string;
+  worktreeId?: string;
+  codeRunId?: string;
+  validationRunId?: string;
+  auditRunId?: string;
+  worktreeDiffHash?: string;
+  diffStat?: string;
+  sourceHead?: string | null;
+  artifactRefs: string[];
+}
+
+export interface SchedulerIntegrationCandidate {
+  version: "1.0";
+  id: string;
+  changeId: string;
+  schedulerRunId: string;
+  schedulerMode: SchedulerMode;
+  status: SchedulerIntegrationCandidateStatus;
+  schedulerRuntimeStateId: string;
+  schedulerReconcileSnapshotId: string;
+  schedulerClaimReservationId: string;
+  schedulerContractId: string;
+  schedulerDispatchDryRunId: string;
+  schedulerWorkerPlanId: string;
+  schedulerClaimReconcilePlanId: string;
+  schedulerLaunchPreflightId: string;
+  outputs: SchedulerIntegrationCandidateOutput[];
+  readyTargets: SchedulerIntegrationCandidateReadyTarget[];
+  readyWorktreeIds: string[];
+  readyCount: number;
+  blockedCount: number;
+  waitingReason?: string;
   sourceArtifactHashes: Record<string, string>;
   artifactRefs: string[];
   artifact: string;

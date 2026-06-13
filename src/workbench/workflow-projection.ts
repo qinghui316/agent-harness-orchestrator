@@ -11,6 +11,8 @@ import {
   findSchedulerRuntimeWorkerReworkStartForPlan,
   findSchedulerRuntimeWorkerValidationForResult,
   listSchedulerRuntimeWorkerStarts,
+  readLatestSchedulerIntegrationCandidateProjection,
+  readSchedulerIntegrationCandidateProjection as readSchedulerIntegrationCandidateArtifactProjection,
   readSchedulerRuntimeWorkerAuditProjection,
   readSchedulerRuntimeWorkerReworkPlanProjection,
   readSchedulerRuntimeWorkerReworkAuditProjection,
@@ -22,6 +24,7 @@ import {
   readSchedulerRuntimeStateProjection,
   type SchedulerReconcileSnapshot,
   type SchedulerRuntimeClaimReservation,
+  type SchedulerIntegrationCandidate,
   type SchedulerRuntimeState,
   type SchedulerRuntimeWorkerResult,
   type SchedulerRuntimeWorkerStart,
@@ -544,6 +547,22 @@ export interface WorkbenchSchedulerWorkerReworkAuditSummary {
   updatedAt: string;
 }
 
+export interface WorkbenchSchedulerIntegrationCandidateSummary {
+  id: string;
+  changeId: string;
+  schedulerRunId: string;
+  schedulerClaimReservationId: string;
+  schedulerReconcileSnapshotId: string;
+  status: SchedulerIntegrationCandidate["status"];
+  readyCount: number;
+  blockedCount: number;
+  readyWorktreeIds: string[];
+  waitingReason?: string;
+  artifact?: string;
+  markdownArtifact?: string;
+  updatedAt: string;
+}
+
 export interface WorkbenchSchedulerReconcileSnapshotSummary {
   id: string;
   changeId: string;
@@ -589,6 +608,7 @@ type WorkflowProjectionActionType =
   | "planning.scheduler.worker.rework-reconcile-result"
   | "planning.scheduler.worker.rework-validate-first"
   | "planning.scheduler.worker.rework-audit-first"
+  | "planning.scheduler.integration-candidate.compile"
   | "planning.workflowgraph.compile"
   | "planning.taskqueue.confirm-start"
   | "code.run";
@@ -623,6 +643,7 @@ export interface WorkbenchTypedWorkflowNextAction {
   schedulerWorkerReworkResultId?: string;
   schedulerWorkerReworkValidationId?: string;
   schedulerWorkerReworkAuditId?: string;
+  schedulerIntegrationCandidateId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   taskRunId?: string;
@@ -1025,6 +1046,19 @@ export async function readSchedulerWorkerReworkAuditSummary(
   return audit ? summarizeSchedulerWorkerReworkAudit(audit) : null;
 }
 
+export async function readLatestSchedulerIntegrationCandidateSummary(
+  memory: ResolvedMemory,
+  changePath: string,
+  schedulerRunId?: string,
+  schedulerClaimReservationId?: string,
+): Promise<WorkbenchSchedulerIntegrationCandidateSummary | null> {
+  if (!schedulerRunId) return null;
+  const candidate = await readLatestSchedulerIntegrationCandidateProjection(memory, changePath, schedulerRunId).catch(() => null);
+  if (!candidate) return null;
+  if (schedulerClaimReservationId && candidate.schedulerClaimReservationId !== schedulerClaimReservationId) return null;
+  return summarizeSchedulerIntegrationCandidate(candidate);
+}
+
 function summarizeSchedulerWorkerStart(start: SchedulerRuntimeWorkerStart): WorkbenchSchedulerWorkerStartSummary {
   return {
     id: start.id,
@@ -1311,6 +1345,24 @@ function summarizeSchedulerWorkerReworkAudit(audit: SchedulerRuntimeWorkerRework
   };
 }
 
+function summarizeSchedulerIntegrationCandidate(candidate: SchedulerIntegrationCandidate): WorkbenchSchedulerIntegrationCandidateSummary {
+  return {
+    id: candidate.id,
+    changeId: candidate.changeId,
+    schedulerRunId: candidate.schedulerRunId,
+    schedulerClaimReservationId: candidate.schedulerClaimReservationId,
+    schedulerReconcileSnapshotId: candidate.schedulerReconcileSnapshotId,
+    status: candidate.status,
+    readyCount: candidate.readyCount,
+    blockedCount: candidate.blockedCount,
+    readyWorktreeIds: candidate.readyWorktreeIds,
+    waitingReason: candidate.waitingReason,
+    artifact: candidate.artifact,
+    markdownArtifact: candidate.markdownArtifact,
+    updatedAt: candidate.updatedAt,
+  };
+}
+
 export async function readSchedulerReconcileSnapshotSummary(memory: ResolvedMemory, changePath: string, schedulerRunId?: string, snapshotId?: string): Promise<WorkbenchSchedulerReconcileSnapshotSummary | null> {
   if (!schedulerRunId || !snapshotId) return null;
   const snapshot = await readSchedulerReconcileSnapshotProjection(memory, changePath, schedulerRunId, snapshotId);
@@ -1429,6 +1481,10 @@ export function readSchedulerWorkerReworkAuditProjection(memory: ResolvedMemory,
   return readSchedulerRuntimeWorkerReworkAuditProjection(memory, changePath, schedulerRunId, reworkAuditId);
 }
 
+export function readSchedulerIntegrationCandidateProjection(memory: ResolvedMemory, changePath: string, schedulerRunId: string, candidateId: string): Promise<SchedulerIntegrationCandidate | null> {
+  return readSchedulerIntegrationCandidateArtifactProjection(memory, changePath, schedulerRunId, candidateId);
+}
+
 export function buildTypedWorkflowNextAction(input: {
   topic: TypedWorkflowProjectionTopic;
   readiness: TypedWorkflowProjectionReadiness;
@@ -1456,9 +1512,10 @@ export function buildTypedWorkflowNextAction(input: {
   schedulerWorkerReworkResult?: WorkbenchSchedulerWorkerReworkResultSummary | null;
   schedulerWorkerReworkValidation?: WorkbenchSchedulerWorkerReworkValidationSummary | null;
   schedulerWorkerReworkAudit?: WorkbenchSchedulerWorkerReworkAuditSummary | null;
+  schedulerIntegrationCandidate?: WorkbenchSchedulerIntegrationCandidateSummary | null;
   workflowRun?: WorkflowRunSummary | null;
 }): WorkbenchTypedWorkflowNextAction {
-  const { topic, readiness, intake, planningBundle, decompositionPlan, decompositionReadiness, taskQueueProposal, workflowGraphPlan, schedulerRun, schedulerRuntime, schedulerReconcileSnapshot, schedulerClaimReservation, schedulerWorkerStart, schedulerWorkerResult, schedulerWorkerValidation, schedulerWorkerAudit, schedulerWorkerReworkPlan, schedulerWorkerReworkStart, schedulerWorkerReworkResult, schedulerWorkerReworkValidation, schedulerWorkerReworkAudit, workflowRun } = input;
+  const { topic, readiness, intake, planningBundle, decompositionPlan, decompositionReadiness, taskQueueProposal, workflowGraphPlan, schedulerRun, schedulerRuntime, schedulerReconcileSnapshot, schedulerClaimReservation, schedulerWorkerStart, schedulerWorkerResult, schedulerWorkerValidation, schedulerWorkerAudit, schedulerWorkerReworkPlan, schedulerWorkerReworkStart, schedulerWorkerReworkResult, schedulerWorkerReworkValidation, schedulerWorkerReworkAudit, schedulerIntegrationCandidate, workflowRun } = input;
   if (!readiness.specReady && !topic.runs.some((run) => run.runtime === "intake-scan")) {
     return workflowNextAction("intake.scan", "分析需求", "先只读扫描项目，整理当前理解、相关文件和待确认问题。", false);
   }
@@ -1709,6 +1766,45 @@ export function buildTypedWorkflowNextAction(input: {
                 runId: schedulerWorkerReworkValidation.reworkRunId,
                 validationRunId: schedulerWorkerReworkValidation.validationRunId,
                 reworkValidationRunId: schedulerWorkerReworkValidation.validationRunId,
+              };
+            }
+            const workerAuditApproved = schedulerWorkerAudit?.status === "approved" || schedulerWorkerAudit?.status === "approved-with-notes";
+            const reworkAuditApproved = schedulerWorkerReworkAudit?.status === "approved" || schedulerWorkerReworkAudit?.status === "approved-with-notes";
+            if (workerAuditApproved || reworkAuditApproved) {
+              if (!schedulerIntegrationCandidate) {
+                return {
+                  ...workflowNextAction("planning.scheduler.integration-candidate.compile", "生成 scheduler integration 候选", "把已通过 audit 的 scheduler worker 输出接回现有 apply readiness gate；只写 SchedulerIntegrationCandidate，不运行 IntegrationCheck、apply、merge 或 next worker。"),
+                  decompositionPlanId: decompositionPlan.id,
+                  readinessManifestId: decompositionReadiness.id,
+                  schedulerContractId: schedulerRun.schedulerContractId,
+                  schedulerDispatchDryRunId: schedulerRun.schedulerDispatchDryRunId,
+                  schedulerWorkerPlanId: schedulerRun.schedulerWorkerPlanId,
+                  schedulerClaimReconcilePlanId: schedulerRun.schedulerClaimReconcilePlanId,
+                  schedulerLaunchPreflightId: schedulerRun.schedulerLaunchPreflightId,
+                  schedulerRunId: schedulerRun.id,
+                  schedulerReconcileSnapshotId: schedulerReconcileSnapshot.id,
+                  schedulerClaimReservationId: schedulerClaimReservation.id,
+                  schedulerWorkerAuditId: schedulerWorkerAudit?.id,
+                  schedulerWorkerReworkAuditId: schedulerWorkerReworkAudit?.id,
+                  reservationIntentId: schedulerWorkerReworkAudit?.reservationIntentId ?? schedulerWorkerAudit?.reservationIntentId,
+                  claimIntentId: schedulerWorkerReworkAudit?.claimIntentId ?? schedulerWorkerAudit?.claimIntentId,
+                };
+              }
+              return {
+                ...workflowNextAction("planning.scheduler.integration-candidate.compile", schedulerIntegrationCandidate.readyCount >= 2 ? "Scheduler integration 候选已准备" : "等待更多 worker 输出", schedulerIntegrationCandidate.readyCount >= 2 ? "SchedulerIntegrationCandidate 已有至少两个 ready target；运行 IntegrationCheck 属于后续阶段，不在 9P 执行。" : "当前 ready target 少于 2；继续等待更多 scheduler worker 输出后再进入 IntegrationCheck handoff。"),
+                enabled: false,
+                disabledReason: schedulerIntegrationCandidate.readyCount >= 2 ? "IntegrationCheck handoff 不是 Phase 9P 范围。" : "ready scheduler worker output 少于 2。",
+                decompositionPlanId: decompositionPlan.id,
+                readinessManifestId: decompositionReadiness.id,
+                schedulerContractId: schedulerRun.schedulerContractId,
+                schedulerDispatchDryRunId: schedulerRun.schedulerDispatchDryRunId,
+                schedulerWorkerPlanId: schedulerRun.schedulerWorkerPlanId,
+                schedulerClaimReconcilePlanId: schedulerRun.schedulerClaimReconcilePlanId,
+                schedulerLaunchPreflightId: schedulerRun.schedulerLaunchPreflightId,
+                schedulerRunId: schedulerRun.id,
+                schedulerReconcileSnapshotId: schedulerReconcileSnapshot.id,
+                schedulerClaimReservationId: schedulerClaimReservation.id,
+                schedulerIntegrationCandidateId: schedulerIntegrationCandidate.id,
               };
             }
             const waitingActionType = schedulerWorkerReworkAudit || schedulerWorkerReworkValidation || schedulerWorkerReworkResult || schedulerWorkerReworkStart || schedulerWorkerReworkPlan || needsReworkPlan

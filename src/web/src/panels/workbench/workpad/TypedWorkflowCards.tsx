@@ -468,3 +468,22 @@ export function SchedulerWorkerReworkAuditCard({ audit }: { audit: NonNullable<W
     </section>
   );
 }
+
+export function SchedulerIntegrationCandidateCard({ candidate }: { candidate: NonNullable<Workpad["schedulerIntegrationCandidate"]> }): ReactElement {
+  return (
+    <section className="workpad-section" data-testid="scheduler-integration-candidate-card">
+      <div className="workpad-section-header">
+        <h3>Integration 候选</h3>
+        <span>{humanStatus(candidate.status)}</span>
+      </div>
+      <p className="workpad-goal">scheduler worker 输出已接回 apply readiness gate（不运行 IntegrationCheck）</p>
+      <div className="workpad-chip-list">
+        <span>{candidate.readyCount} 个 ready target</span>
+        <span>{candidate.blockedCount} 个 blocked output</span>
+        <span>{candidate.readyWorktreeIds.length ? `ready: ${candidate.readyWorktreeIds.join(", ")}` : "ready: none"}</span>
+      </div>
+      {candidate.waitingReason ? <p>{candidate.waitingReason}</p> : null}
+      {candidate.artifact ? <small className="artifact-link">查看证据：{artifactName(candidate.artifact)}</small> : null}
+    </section>
+  );
+}

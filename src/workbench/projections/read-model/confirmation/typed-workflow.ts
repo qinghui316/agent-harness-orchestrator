@@ -49,7 +49,8 @@ export function schedulerNextActionToConfirmationItems(
   if (action.kind !== "workflow-action" || !action.enabled || !action.requiresConfirmation || !action.actionType?.startsWith("planning.scheduler.")) {
     return [];
   }
-  const targetId = action.schedulerWorkerReworkAuditId
+  const targetId = action.schedulerIntegrationCandidateId
+    ?? action.schedulerWorkerReworkAuditId
     ?? action.schedulerWorkerReworkValidationId
     ?? action.schedulerWorkerReworkResultId
     ?? action.schedulerWorkerReworkStartId
@@ -128,6 +129,7 @@ export function schedulerNextActionToConfirmationItems(
     schedulerWorkerReworkResultId: action.schedulerWorkerReworkResultId,
     schedulerWorkerReworkValidationId: action.schedulerWorkerReworkValidationId,
     schedulerWorkerReworkAuditId: action.schedulerWorkerReworkAuditId,
+    schedulerIntegrationCandidateId: action.schedulerIntegrationCandidateId,
     reservationIntentId: action.reservationIntentId,
     claimIntentId: action.claimIntentId,
     taskRunId,
@@ -166,6 +168,7 @@ export function schedulerNextActionToConfirmationItems(
       schedulerWorkerReworkResultId: action.schedulerWorkerReworkResultId,
       schedulerWorkerReworkValidationId: action.schedulerWorkerReworkValidationId,
       schedulerWorkerReworkAuditId: action.schedulerWorkerReworkAuditId,
+      schedulerIntegrationCandidateId: action.schedulerIntegrationCandidateId,
       reservationIntentId: action.reservationIntentId,
       claimIntentId: action.claimIntentId,
       taskRunId,
