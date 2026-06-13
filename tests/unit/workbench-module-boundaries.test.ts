@@ -740,7 +740,7 @@ describe("Workbench module boundaries", () => {
     expect(manager).toContain('export * from "./compiler.js";');
     expect(manager).toContain('export * from "./repository.js";');
 
-    for (const file of ["compiler.ts", "repository.ts", "rendering.ts", "schemas.ts", "types.ts"]) {
+    for (const file of ["compiler.ts", "repository.ts", "rendering.ts", "schemas.ts", "types.ts", "paths.ts"]) {
       const source = readFileSync(`src/goal-loop/${file}`, "utf8");
       expect(source).not.toMatch(/from\s+["'].*workbench/);
       expect(source).not.toMatch(/from\s+["'].*server/);
@@ -757,11 +757,12 @@ describe("Workbench module boundaries", () => {
     expect(handlerIndex).toContain('from "./goal-loop.js"');
     expect(handlerIndex).not.toContain('"planning.goal-loop.evaluate":');
     expect(handler).toContain("buildGoalLoopActionHandlers");
-    expect(handler).toContain("compileGoalLoopDecision");
+    expect(handler).toContain("compileGoalLoopEvaluation");
     expect(confirmationQueue).toContain('from "./confirmation/goal-loop.js"');
     expect(confirmation).toContain("goalLoopEvaluationQueueItem");
     expect(confirmation).toContain('"planning.goal-loop.evaluate"');
     expect(confirmation).not.toContain("compileGoalLoopDecision");
+    expect(confirmation).not.toContain("compileGoalLoopEvaluation");
     expect(confirmation).not.toContain("recommendedAction");
     expect(confirmation).not.toContain("planning.scheduler.");
   });

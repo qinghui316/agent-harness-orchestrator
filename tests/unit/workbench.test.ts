@@ -67,7 +67,7 @@ import {
 import { compileSchedulerContract } from "../../src/workflow-scheduler/manager.js";
 import { auditSchedulerFirstWorker, readSchedulerRuntimeEvents, validateSchedulerFirstWorker } from "../../src/scheduler-runtime/manager.js";
 import { listIntegrationChecks } from "../../src/integration-check/manager.js";
-import { readLatestGoalLoopDecision } from "../../src/goal-loop/manager.js";
+import { readLatestGoalLoopDecision, readLatestGoalLoopIteration } from "../../src/goal-loop/manager.js";
 import type { ManagedProject, RunMetadata, TaskQueueItem, TaskQueueRun, TaskRun, WorkerLease, WorkflowGraphPlan, WorkflowRun } from "../../src/types/index.js";
 import type { DecompositionPlan, DecompositionReadinessManifest, TaskQueueProposal } from "../../src/workflow-artifacts/manager.js";
 
@@ -2111,15 +2111,30 @@ describe("workbench read model", () => {
       confirm: true,
     });
     expect(actionResult.result).toMatchObject({ status: "completed" });
-    const result = actionResult.result.result as { goalLoopDecision?: { changeId: string; executionStarted: boolean; authority: string } };
+    const result = actionResult.result.result as {
+      goalLoopDecision?: { changeId: string; executionStarted: boolean; authority: string; id: string };
+      goalLoopIteration?: { changeId: string; executionStarted: boolean; authority: string; goalLoopDecisionId: string; ordinal: number };
+    };
     expect(result.goalLoopDecision).toMatchObject({
       changeId: topic.changeId,
       executionStarted: false,
       authority: "non-executing-planning-evidence",
     });
+    expect(result.goalLoopIteration).toMatchObject({
+      changeId: topic.changeId,
+      executionStarted: false,
+      authority: "non-executing-continuation-evidence",
+      goalLoopDecisionId: result.goalLoopDecision?.id,
+      ordinal: 1,
+    });
     const memory = await resolveProjectMemory(project());
     await expect(readLatestGoalLoopDecision(memory, join("harness", "changes", "active", topic.changeId))).resolves.toMatchObject({
       changeId: topic.changeId,
+      executionStarted: false,
+    });
+    await expect(readLatestGoalLoopIteration(memory, join("harness", "changes", "active", topic.changeId))).resolves.toMatchObject({
+      changeId: topic.changeId,
+      goalLoopDecisionId: result.goalLoopDecision?.id,
       executionStarted: false,
     });
     expect(await listRuns(memory)).toHaveLength(0);

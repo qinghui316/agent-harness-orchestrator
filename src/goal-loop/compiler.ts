@@ -19,13 +19,22 @@ import {
   readSchedulerRuntimeStateProjection,
 } from "../scheduler-runtime/repository.js";
 import type { SchedulerRuntimeClaimReservation, SchedulerRuntimeState, SchedulerRuntimeWorkerStart } from "../scheduler-runtime/types.js";
-import { goalLoopDecisionArtifactRefs, writeGoalLoopDecision } from "./repository.js";
+import {
+  goalLoopDecisionArtifactRefs,
+  goalLoopIterationArtifactRefs,
+  readLatestGoalLoopDecision,
+  readLatestGoalLoopIteration,
+  writeGoalLoopDecision,
+  writeGoalLoopIteration,
+} from "./repository.js";
 import type {
   GoalLoopCompletionAudit,
   GoalLoopConflictAssessment,
   GoalLoopDecision,
   GoalLoopDecisionKind,
   GoalLoopForbiddenAction,
+  GoalLoopContinuationVerdict,
+  GoalLoopIteration,
   GoalLoopRecommendedAction,
   GoalLoopSourceEvidenceRef,
 } from "./types.js";
@@ -53,6 +62,43 @@ export async function compileGoalLoopDecision(memory: ResolvedMemory, changePath
   const decision = buildDecision(snapshot, decisionId, refs.artifact, refs.markdownArtifact, now);
   await writeGoalLoopDecision(memory, changePath, decision);
   return decision;
+}
+
+export async function compileGoalLoopEvaluation(memory: ResolvedMemory, changePath: string): Promise<{ goalLoopDecision: GoalLoopDecision; goalLoopIteration: GoalLoopIteration }> {
+  const previousDecision = await readOptional(() => readLatestGoalLoopDecision(memory, changePath));
+  const previousIteration = await readOptional(() => readLatestGoalLoopIteration(memory, changePath));
+  const decision = await compileGoalLoopDecision(memory, changePath);
+  const now = new Date().toISOString();
+  const ordinal = (previousIteration?.ordinal ?? 0) + 1;
+  const iterationId = `goal-loop-iteration-${now.replace(/[-:.TZ]/g, "").slice(0, 14)}-${shortHash(`${decision.changeId}:${ordinal}:${decision.id}`)}`;
+  const refs = goalLoopIterationArtifactRefs(memory, changePath, iterationId);
+  const iteration: GoalLoopIteration = {
+    version: "1.0",
+    id: iterationId,
+    changeId: decision.changeId,
+    ordinal,
+    authority: "non-executing-continuation-evidence",
+    trigger: "user-confirmed-evaluate",
+    iterationStatus: "recorded",
+    continuationVerdict: continuationVerdictForDecision(decision),
+    previousGoalLoopDecisionId: previousDecision?.id,
+    previousGoalLoopIterationId: previousIteration?.id,
+    goalLoopDecisionId: decision.id,
+    decisionKind: decision.decisionKind,
+    summary: decision.summary,
+    recommendedAction: decision.recommendedAction,
+    humanGateRequired: decision.humanGateRequired,
+    conflictAssessment: decision.conflictAssessment,
+    completionAudit: decision.completionAudit,
+    sourceEvidenceRefs: decision.sourceEvidenceRefs,
+    executionStarted: false,
+    artifact: refs.artifact,
+    markdownArtifact: refs.markdownArtifact,
+    createdAt: now,
+    updatedAt: now,
+  };
+  await writeGoalLoopIteration(memory, changePath, iteration);
+  return { goalLoopDecision: decision, goalLoopIteration: iteration };
 }
 
 async function readEvidenceSnapshot(memory: ResolvedMemory, changePath: string): Promise<EvidenceSnapshot> {
@@ -238,6 +284,13 @@ function buildRecommendedAction(actionType: WorkflowActionType, scope: Record<st
   const issues = validateWorkflowActionRequiredTargets({ actionType, ...scope });
   if (issues.length > 0) return undefined;
   return { actionType, scope, reason };
+}
+
+function continuationVerdictForDecision(decision: GoalLoopDecision): GoalLoopContinuationVerdict {
+  if (decision.decisionKind === "completed-ready-for-human-close-gate") return "ready-for-human-close-gate";
+  if (decision.decisionKind === "blocked") return "blocked";
+  if (decision.recommendedAction) return "recommend-existing-gate";
+  return "wait";
 }
 
 function assessConflict(snapshot: EvidenceSnapshot): GoalLoopConflictAssessment {

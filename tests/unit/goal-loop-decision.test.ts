@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { compileGoalLoopDecision } from "../../src/goal-loop/manager.js";
+import { compileGoalLoopDecision, compileGoalLoopEvaluation, readLatestGoalLoopIteration } from "../../src/goal-loop/manager.js";
 import type { ResolvedMemory } from "../../src/types/index.js";
 import { schedulerRunArtifactRefs, writeSchedulerRun } from "../../src/workflow-scheduler/repository.js";
 import type { SchedulerRun } from "../../src/workflow-scheduler/types.js";
@@ -72,6 +72,39 @@ describe("GoalLoopDecision", () => {
       },
     });
     expect(decision.executionStarted).toBe(false);
+  });
+
+  it("records first and second goal loop iterations with previous lineage", async () => {
+    const first = await compileGoalLoopEvaluation(memory, changePath);
+
+    expect(first.goalLoopIteration).toMatchObject({
+      changeId,
+      ordinal: 1,
+      authority: "non-executing-continuation-evidence",
+      trigger: "user-confirmed-evaluate",
+      iterationStatus: "recorded",
+      continuationVerdict: "recommend-existing-gate",
+      goalLoopDecisionId: first.goalLoopDecision.id,
+      executionStarted: false,
+    });
+    expect(first.goalLoopIteration.previousGoalLoopDecisionId).toBeUndefined();
+    expect(first.goalLoopIteration.previousGoalLoopIterationId).toBeUndefined();
+
+    const second = await compileGoalLoopEvaluation(memory, changePath);
+
+    expect(second.goalLoopIteration).toMatchObject({
+      changeId,
+      ordinal: 2,
+      previousGoalLoopDecisionId: first.goalLoopDecision.id,
+      previousGoalLoopIterationId: first.goalLoopIteration.id,
+      goalLoopDecisionId: second.goalLoopDecision.id,
+      executionStarted: false,
+    });
+    expect(second.goalLoopIteration.previousGoalLoopDecisionId).not.toBe(second.goalLoopDecision.id);
+    await expect(readLatestGoalLoopIteration(memory, changePath)).resolves.toMatchObject({
+      id: second.goalLoopIteration.id,
+      ordinal: 2,
+    });
   });
 });
 

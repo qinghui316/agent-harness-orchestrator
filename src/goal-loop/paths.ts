@@ -20,3 +20,23 @@ export function latestGoalLoopDecisionPath(memory: ResolvedMemory, changePath: s
 export function latestGoalLoopDecisionMarkdownPath(memory: ResolvedMemory, changePath: string): string {
   return join(memory.memoryRoot, changePath, "planning", "goal-loop-decision.md");
 }
+
+export function goalLoopIterationsDir(memory: ResolvedMemory, changePath: string): string {
+  return join(memory.memoryRoot, changePath, "planning", "goal-loop-iterations");
+}
+
+export function goalLoopIterationPath(memory: ResolvedMemory, changePath: string, iterationId: string): string {
+  return join(goalLoopIterationsDir(memory, changePath), `${iterationId}.json`);
+}
+
+export function goalLoopIterationMarkdownPath(memory: ResolvedMemory, changePath: string, iterationId: string): string {
+  return join(goalLoopIterationsDir(memory, changePath), `${iterationId}.md`);
+}
+
+export function latestGoalLoopIterationPath(memory: ResolvedMemory, changePath: string): string {
+  return join(memory.memoryRoot, changePath, "planning", "goal-loop-iteration.json");
+}
+
+export function latestGoalLoopIterationMarkdownPath(memory: ResolvedMemory, changePath: string): string {
+  return join(memory.memoryRoot, changePath, "planning", "goal-loop-iteration.md");
+}

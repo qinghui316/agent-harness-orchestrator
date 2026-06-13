@@ -1,6 +1,7 @@
 import type { WorkflowActionType } from "../workflow-actions/registry.js";
 
 export type GoalLoopDecisionAuthority = "non-executing-planning-evidence";
+export type GoalLoopIterationAuthority = "non-executing-continuation-evidence";
 
 export type GoalLoopDecisionKind =
   | "planning-needed"
@@ -56,6 +57,40 @@ export interface GoalLoopDecision {
   recommendedAction?: GoalLoopRecommendedAction;
   humanGateRequired: boolean;
   forbiddenActions: GoalLoopForbiddenAction[];
+  conflictAssessment: GoalLoopConflictAssessment;
+  completionAudit: GoalLoopCompletionAudit;
+  sourceEvidenceRefs: GoalLoopSourceEvidenceRef[];
+  executionStarted: false;
+  artifact: string;
+  markdownArtifact: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type GoalLoopIterationTrigger = "user-confirmed-evaluate";
+export type GoalLoopIterationStatus = "recorded";
+export type GoalLoopContinuationVerdict =
+  | "wait"
+  | "recommend-existing-gate"
+  | "blocked"
+  | "ready-for-human-close-gate";
+
+export interface GoalLoopIteration {
+  version: "1.0";
+  id: string;
+  changeId: string;
+  ordinal: number;
+  authority: GoalLoopIterationAuthority;
+  trigger: GoalLoopIterationTrigger;
+  iterationStatus: GoalLoopIterationStatus;
+  continuationVerdict: GoalLoopContinuationVerdict;
+  previousGoalLoopDecisionId?: string;
+  previousGoalLoopIterationId?: string;
+  goalLoopDecisionId: string;
+  decisionKind: GoalLoopDecisionKind;
+  summary: string;
+  recommendedAction?: GoalLoopRecommendedAction;
+  humanGateRequired: boolean;
   conflictAssessment: GoalLoopConflictAssessment;
   completionAudit: GoalLoopCompletionAudit;
   sourceEvidenceRefs: GoalLoopSourceEvidenceRef[];

@@ -155,6 +155,8 @@ Phase 10C adds the first concrete Goal Loop artifact as non-executing planning e
 
 Phase 10D connects that artifact to the user surface as a fallback confirmation only. Workbench may offer `评估目标循环` when the selected active Change has no more specific current confirmation. The fallback records GoalLoopDecision evidence and explanatory thread context; it does not run the recommendation, replace the concrete action's gate, or become a hidden scheduler loop.
 
+Phase 10E adds Goal Loop iteration journal evidence. Each user-confirmed `planning.goal-loop.evaluate` records the current `GoalLoopDecision` plus a scoped `GoalLoopIteration` that links the previous iteration/decision to the current observe/reason pass. This makes long-running Goal/Change continuation auditable without adding an autonomous loop controller, scheduler loop, worker start, IntegrationCheck, source mutation, or close authority.
+
 Goal-driven loop model:
 
 ```mermaid

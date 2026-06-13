@@ -7,17 +7,29 @@ import {
   goalLoopDecisionMarkdownPath,
   goalLoopDecisionPath,
   goalLoopDecisionsDir,
+  goalLoopIterationMarkdownPath,
+  goalLoopIterationPath,
+  goalLoopIterationsDir,
+  latestGoalLoopIterationMarkdownPath,
+  latestGoalLoopIterationPath,
   latestGoalLoopDecisionMarkdownPath,
   latestGoalLoopDecisionPath,
 } from "./paths.js";
-import { renderGoalLoopDecisionMarkdown } from "./rendering.js";
-import { goalLoopDecisionSchema } from "./schemas.js";
-import type { GoalLoopDecision } from "./types.js";
+import { renderGoalLoopDecisionMarkdown, renderGoalLoopIterationMarkdown } from "./rendering.js";
+import { goalLoopDecisionSchema, goalLoopIterationSchema } from "./schemas.js";
+import type { GoalLoopDecision, GoalLoopIteration } from "./types.js";
 
 export function goalLoopDecisionArtifactRefs(memory: ResolvedMemory, changePath: string, decisionId: string): { artifact: string; markdownArtifact: string } {
   return {
     artifact: displayArtifactPath(memory, goalLoopDecisionPath(memory, changePath, decisionId)),
     markdownArtifact: displayArtifactPath(memory, goalLoopDecisionMarkdownPath(memory, changePath, decisionId)),
+  };
+}
+
+export function goalLoopIterationArtifactRefs(memory: ResolvedMemory, changePath: string, iterationId: string): { artifact: string; markdownArtifact: string } {
+  return {
+    artifact: displayArtifactPath(memory, goalLoopIterationPath(memory, changePath, iterationId)),
+    markdownArtifact: displayArtifactPath(memory, goalLoopIterationMarkdownPath(memory, changePath, iterationId)),
   };
 }
 
@@ -41,4 +53,26 @@ export async function readLatestGoalLoopDecision(memory: ResolvedMemory, changeP
   const decision = await readRequiredJsonFile(latestGoalLoopDecisionPath(memory, changePath), goalLoopDecisionSchema);
   await assertChangePathScope(memory, changePath, decision.changeId, `GoalLoopDecision ${decision.id}`);
   return decision;
+}
+
+export async function writeGoalLoopIteration(memory: ResolvedMemory, changePath: string, iteration: GoalLoopIteration): Promise<void> {
+  await assertChangePathScope(memory, changePath, iteration.changeId, `GoalLoopIteration ${iteration.id}`);
+  await mkdir(goalLoopIterationsDir(memory, changePath), { recursive: true });
+  await writeJsonFile(goalLoopIterationPath(memory, changePath, iteration.id), iteration);
+  await writeFile(goalLoopIterationMarkdownPath(memory, changePath, iteration.id), renderGoalLoopIterationMarkdown(iteration), "utf8");
+  await writeJsonFile(latestGoalLoopIterationPath(memory, changePath), iteration);
+  await writeFile(latestGoalLoopIterationMarkdownPath(memory, changePath), renderGoalLoopIterationMarkdown(iteration), "utf8");
+}
+
+export async function readGoalLoopIteration(memory: ResolvedMemory, changePath: string, iterationId: string): Promise<GoalLoopIteration> {
+  const iteration = await readRequiredJsonFile(goalLoopIterationPath(memory, changePath, iterationId), goalLoopIterationSchema);
+  await assertChangePathScope(memory, changePath, iteration.changeId, `GoalLoopIteration ${iteration.id}`);
+  if (iteration.id !== iterationId) throw new Error("GoalLoopIteration id mismatch.");
+  return iteration;
+}
+
+export async function readLatestGoalLoopIteration(memory: ResolvedMemory, changePath: string): Promise<GoalLoopIteration> {
+  const iteration = await readRequiredJsonFile(latestGoalLoopIterationPath(memory, changePath), goalLoopIterationSchema);
+  await assertChangePathScope(memory, changePath, iteration.changeId, `GoalLoopIteration ${iteration.id}`);
+  return iteration;
 }

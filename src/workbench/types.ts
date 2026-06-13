@@ -193,6 +193,7 @@ export interface WorkbenchWorkflowActionRequest {
   schedulerRunCompletionId?: string;
   schedulerRunBlockedCloseoutId?: string;
   goalLoopDecisionId?: string;
+  goalLoopIterationId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   workflowRunId?: string;

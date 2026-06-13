@@ -1,4 +1,4 @@
-import type { GoalLoopDecision } from "./types.js";
+import type { GoalLoopDecision, GoalLoopIteration } from "./types.js";
 
 export function renderGoalLoopDecisionMarkdown(decision: GoalLoopDecision): string {
   const lines = [
@@ -52,6 +52,69 @@ export function renderGoalLoopDecisionMarkdown(decision: GoalLoopDecision): stri
     ...(decision.forbiddenActions.length
       ? decision.forbiddenActions.map((action) => `- ${action.actionType}: ${action.reason}`)
       : ["- None."]),
+    "",
+  ];
+  return `${lines.join("\n")}\n`;
+}
+
+export function renderGoalLoopIterationMarkdown(iteration: GoalLoopIteration): string {
+  const lines = [
+    `# GoalLoopIteration ${iteration.id}`,
+    "",
+    `- Change: ${iteration.changeId}`,
+    `- Ordinal: ${iteration.ordinal}`,
+    `- Authority: ${iteration.authority}`,
+    `- Trigger: ${iteration.trigger}`,
+    `- Iteration status: ${iteration.iterationStatus}`,
+    `- Continuation verdict: ${iteration.continuationVerdict}`,
+    `- GoalLoopDecision: ${iteration.goalLoopDecisionId}`,
+    `- Previous iteration: ${iteration.previousGoalLoopIterationId ?? "none"}`,
+    `- Previous decision: ${iteration.previousGoalLoopDecisionId ?? "none"}`,
+    `- Human gate required: ${iteration.humanGateRequired ? "yes" : "no"}`,
+    `- Execution started: ${iteration.executionStarted ? "yes" : "no"}`,
+    "",
+    "## Summary",
+    "",
+    iteration.summary,
+    "",
+    "## Recommended Action Snapshot",
+    "",
+    iteration.recommendedAction
+      ? `- ${iteration.recommendedAction.actionType}: ${iteration.recommendedAction.reason}`
+      : "- None.",
+    ...(iteration.recommendedAction
+      ? ["", "### Scope", "", ...Object.entries(iteration.recommendedAction.scope).map(([key, value]) => `- ${key}: ${Array.isArray(value) ? value.join(", ") : value}`)]
+      : []),
+    "",
+    "## Conflict Assessment",
+    "",
+    `- Level: ${iteration.conflictAssessment.level}`,
+    `- Parallel eligible: ${iteration.conflictAssessment.parallelEligible ? "yes" : "no"}`,
+    ...iteration.conflictAssessment.reasons.map((reason) => `- ${reason}`),
+    "",
+    "## Completion Audit",
+    "",
+    `- Status: ${iteration.completionAudit.status}`,
+    "",
+    "### Evidence",
+    "",
+    ...(iteration.completionAudit.evidence.length ? iteration.completionAudit.evidence.map((item) => `- ${item}`) : ["- None."]),
+    "",
+    "### Missing",
+    "",
+    ...(iteration.completionAudit.missing.length ? iteration.completionAudit.missing.map((item) => `- ${item}`) : ["- None."]),
+    "",
+    "## Source Evidence",
+    "",
+    ...(iteration.sourceEvidenceRefs.length
+      ? iteration.sourceEvidenceRefs.map((ref) => `- ${ref.kind}${ref.id ? ` ${ref.id}` : ""}${ref.status ? ` (${ref.status})` : ""}: ${ref.summary}`)
+      : ["- None."]),
+    "",
+    "## Boundary",
+    "",
+    "- This iteration is continuation evidence only.",
+    "- It does not execute the recommended action.",
+    "- Concrete next steps still require their own scoped Harness confirmation.",
     "",
   ];
   return `${lines.join("\n")}\n`;

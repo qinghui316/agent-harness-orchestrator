@@ -1,4 +1,4 @@
-import { compileGoalLoopDecision, renderGoalLoopDecisionMarkdown, type GoalLoopDecision } from "../../../goal-loop/manager.js";
+import { compileGoalLoopEvaluation, renderGoalLoopIterationMarkdown, type GoalLoopDecision, type GoalLoopIteration } from "../../../goal-loop/manager.js";
 import { assertWritableMemory } from "../../../memory/resolver.js";
 import type { ManagedProject } from "../../../types/index.js";
 import { recordWorkbenchDecision } from "../../decisions.js";
@@ -21,45 +21,46 @@ export async function evaluateGoalLoopDecision(
   changeId: string,
   request: WorkbenchWorkflowActionRequest,
   live: WorkbenchLiveSink | undefined,
-): Promise<{ goalLoopDecision: GoalLoopDecision; executionStarted: false }> {
+): Promise<{ goalLoopDecision: GoalLoopDecision; goalLoopIteration: GoalLoopIteration; executionStarted: false }> {
   if (!request.changeId) throw new Error("planning.goal-loop.evaluate requires changeId.");
   if (request.changeId !== changeId) throw new Error("planning.goal-loop.evaluate changeId scope mismatch.");
   const { memory, changePath } = await resolveTopic(project, changeId);
   assertWritableMemory(memory, "Goal loop decision");
-  const decision = await compileGoalLoopDecision(memory, changePath);
+  const { goalLoopDecision: decision, goalLoopIteration: iteration } = await compileGoalLoopEvaluation(memory, changePath);
   await appendTopicThreadEntry(project, changeId, {
     type: "assistant.message",
     status: "goal-loop-evaluated",
-    text: renderGoalLoopDecisionMarkdown(decision),
-    artifact: decision.artifact,
+    text: renderGoalLoopIterationMarkdown(iteration),
+    artifact: iteration.artifact,
   });
   emitAssistantEvent(live, {
-    runId: decision.id,
+    runId: iteration.id,
     kind: "file-change",
     phase: "goal-loop-evaluated",
-    title: "Goal loop decision recorded",
-    summary: `${decision.decisionKind}: ${decision.summary}`,
-    artifactRef: decision.artifact,
+    title: "Goal loop iteration recorded",
+    summary: `${iteration.continuationVerdict}: ${decision.summary}`,
+    artifactRef: iteration.artifact,
   });
   await recordWorkbenchDecision(project, {
-    id: `goal-loop-decision:${decision.id}`,
+    id: `goal-loop-iteration:${iteration.id}`,
     changeId,
     decisionType: "planning.goal-loop.evaluate",
     status: "completed",
-    label: "Goal loop decision evaluated",
+    label: "Goal loop iteration evaluated",
     summary: decision.summary,
-    targetId: decision.id,
+    targetId: iteration.id,
     runId: null,
-    artifact: decision.artifact,
+    artifact: iteration.artifact,
     actionId: "planning.goal-loop.evaluate",
     payload: {
       goalLoopDecisionId: decision.id,
+      goalLoopIterationId: iteration.id,
       decisionKind: decision.decisionKind,
-      recommendedAction: decision.recommendedAction,
+      continuationVerdict: iteration.continuationVerdict,
       humanGateRequired: decision.humanGateRequired,
       executionStarted: false,
     },
     completedAt: new Date().toISOString(),
   });
-  return { goalLoopDecision: decision, executionStarted: false };
+  return { goalLoopDecision: decision, goalLoopIteration: iteration, executionStarted: false };
 }

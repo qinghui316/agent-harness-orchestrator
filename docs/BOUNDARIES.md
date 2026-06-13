@@ -269,6 +269,8 @@ Phase 10C adds the `GoalLoopDecision` boundary. `src/goal-loop/` owns the decisi
 
 Phase 10D adds the Goal Loop confirmation-surface boundary. `src/workbench/projections/read-model/confirmation/goal-loop.ts` may build a fallback `planning.goal-loop.evaluate` queue item for the selected active Change, but only after existing concrete confirmations are assembled and only when none exist. It must not be implemented as `workpad.nextAction`, must not expose `GoalLoopDecision.recommendedAction` as an executable action, and must not bypass the workflow-action ToolPolicyGate / human gate path.
 
+Phase 10E adds the `GoalLoopIteration` boundary. `src/goal-loop/` owns iteration schema, paths, repository, renderer, and compile/write orchestration. Each iteration links the previous and current Goal Loop evidence for the selected Change, but remains `non-executing-continuation-evidence`. Workbench/server/frontend code may record and display iteration ids, but must not infer executable authority from an iteration, generate new confirmations from `recommendedAction`, or use iterations to start workers, scheduler loops, IntegrationCheck, apply/close, source mutation, or child Changes.
+
 ## 7. Memory Unavailable Boundary
 
 Memory can be unavailable on a new machine, after a plain repository clone, when AHO home was not synced, when permissions are missing, or when a future remote memory service is offline.
