@@ -266,7 +266,7 @@ Active change: none.
 
 Pending Harness evolution: none.
 
-Latest completed product phase: Phase 9Z SchedulerRun Blocked Exhausted Closeout Gate, archived at `harness/changes/archive/20260613-phase-9z-schedulerrun-blocked-exhausted-closeout-gate/summary.md`.
+Latest completed product phase: Phase 10A Scheduler User Facing Execution Surface Consolidation, archived at `harness/changes/archive/20260613-phase-10a-scheduler-user-facing-execution-surface-consolidation/summary.md`.
 
 Latest completed product/Harness docs phase: Phase 8T AgentScope Harness Reference Alignment, archived at `harness/changes/archive/20260611-phase-8t-agentscope-harness-reference-alignment/summary.md`.
 
@@ -313,6 +313,8 @@ Phase 9X is closed and archived at `harness/changes/archive/20260613-phase-9x-sc
 Phase 9Y is closed and archived at `harness/changes/archive/20260613-phase-9y-scheduler-end-to-end-workbench-acceptance/summary.md`. It verifies the Workbench scheduler path through two worker outputs, existing IntegrationCheck apply/discard, SchedulerIntegrationOutcome, and SchedulerRunCompletion with cold-read projection recovery and confirmation queue honesty. It does not add scheduler runtime, a new IntegrationCheck engine, scheduler-owned apply/discard, next-worker dispatch, whole-wave dispatch, scheduler loops, slot allocation, landing, PR, merge, child Changes, or a full parallel executor.
 
 Phase 9Z is closed and archived at `harness/changes/archive/20260613-phase-9z-schedulerrun-blocked-exhausted-closeout-gate/summary.md`. It adds a human-gated SchedulerRun blocked/exhausted terminal closeout before IntegrationCheck when the latest scheduler candidate cannot reach two ready targets and no legal continuation remains. It must only write scheduler-owned closeout evidence, runtime event, Workbench decision/projection, and SchedulerRun journal state; it must not run IntegrationCheck, apply/discard, validation, audit, rework, start workers, dispatch whole waves, allocate slots, create child Changes, create worktrees/runs, landing, PR, merge, or full parallel executor behavior.
+
+Phase 10A is closed and archived at `harness/changes/archive/20260613-phase-10a-scheduler-user-facing-execution-surface-consolidation/summary.md`. It consolidates the Workbench scheduler execution confirmation surface so the main conversation and right-side queue use a small set of user-facing stage labels while existing typed scheduler actions, scoped payloads, ToolPolicyGate checks, stale-target revalidation, IntegrationCheck/apply handoff, and one-confirmation-per-legal-transition semantics remain intact. It is not a scheduler loop, start-all action, whole-wave dispatcher, slot allocator, automatic worker chain, source mutation path, child Change mechanism, or full parallel executor.
 
 Auto Evolve Harness Phase 9R 9V Scheduler Integration Apply Evidence is closed and archived at `harness/changes/archive/20260613-auto-evolve-harness-phase-9r-9v-scheduler-integration-apply-evidence/summary.md`. It reviewed Phase 9R-9V as `noop/subagent_review` with subagent score `88/100`; existing Source Apply Safety, scoped action payload, proposal/runtime, module-boundary, scheduler non-execution, ToolPolicy/human gate, and workflow-truth rules are sufficient. It does not change product code, runtime behavior, Workbench actions, routes, CLI commands, UI, scheduler execution, parallel executor behavior, child Changes, ODWF runtime, or cache/replay.
 

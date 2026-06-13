@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-13T14:24:04.9786909Z",
+    "generated_at":  "2026-06-13T15:09:58.2881975Z",
     "active":  [
 
                ],
@@ -721,6 +721,10 @@
                     {
                         "name":  "20260613-auto-evolve-harness-phase-9v-9z-scheduler-terminal-evidence",
                         "path":  "harness/changes/archive/20260613-auto-evolve-harness-phase-9v-9z-scheduler-terminal-evidence"
+                    },
+                    {
+                        "name":  "20260613-phase-10a-scheduler-user-facing-execution-surface-consolidation",
+                        "path":  "harness/changes/archive/20260613-phase-10a-scheduler-user-facing-execution-surface-consolidation"
                     },
                     {
                         "name":  "20260613-phase-9p-scheduler-worker-integration-candidate-bridge",

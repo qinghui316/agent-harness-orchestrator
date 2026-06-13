@@ -578,3 +578,7 @@ A future Workbench Snapshot should be able to derive, without adding a new autho
 - validation, audit, drift, and evolution summaries.
 
 If a GUI field cannot be derived from existing facts, that is a signal to add or revise a canonical object deliberately, not to hide state inside the frontend.
+
+## 8. Scheduler User Surface
+
+Phase 10A keeps the scheduler runtime model evidence-driven while simplifying the ordinary user surface. Workbench may present user-facing scheduler stage labels, but those labels are projections over existing scoped scheduler actions. They do not become a scheduler loop, a slot allocator, source mutation authority, or execution authorization. Every high-impact scheduler transition must continue to re-read scoped evidence, pass stale-target checks, preserve decision/audit ids, and rely on ToolPolicyGate plus human confirmation before moving one legal step.

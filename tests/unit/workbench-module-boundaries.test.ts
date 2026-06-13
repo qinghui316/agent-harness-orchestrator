@@ -74,6 +74,7 @@ import { buildApprovalInbox } from "../../src/workbench/projections/read-model/a
 import { buildMaintenanceSummary } from "../../src/workbench/projections/read-model/maintenance-summary.js";
 import { listWorkbenchTopicsFromMemory } from "../../src/workbench/projections/read-model/topics.js";
 import { workpadNextActionToConfirmationItems } from "../../src/workbench/projections/read-model/confirmation/typed-workflow.js";
+import { schedulerUserFacingActionLabel } from "../../src/workbench/projections/read-model/confirmation/scheduler-user-surface.js";
 import { buildDemandAgentRunGraph, emptyAgentRunGraph } from "../../src/workbench/projections/read-model/run-graph.js";
 import { buildThreadStream, isConcreteChangeFile } from "../../src/workbench/projections/read-model/thread-stream.js";
 import { buildDecisionInspector } from "../../src/workbench/projections/read-model/decision-inspector.js";
@@ -707,6 +708,31 @@ describe("Workbench module boundaries", () => {
     expect(control).toContain("export async function stopRunningPipeline");
     expect(control).toContain("export async function steerConversation");
     expect(control).toContain("export async function interruptConversation");
+  });
+
+  it("keeps scheduler user surface and handler glue in owned modules", () => {
+    const handlerIndex = readFileSync("src/workbench/actions/handlers/index.ts", "utf8");
+    const schedulerHandler = readFileSync("src/workbench/actions/handlers/scheduler.ts", "utf8");
+    const schedulerSurface = readFileSync("src/workbench/projections/read-model/confirmation/scheduler-user-surface.ts", "utf8");
+    const webSchedulerLabels = readFileSync("src/web/src/scheduler-action-labels.ts", "utf8");
+
+    expect(handlerIndex).toContain('from "./scheduler.js"');
+    expect(handlerIndex).not.toContain('"planning.scheduler.worker.start-first":');
+    expect(handlerIndex).not.toContain('"planning.scheduler.worker.start-next":');
+    expect(schedulerHandler).toContain("buildSchedulerActionHandlers");
+    for (const source of [schedulerHandler, schedulerSurface, webSchedulerLabels]) {
+      expect(source).not.toMatch(/from\s+["'].*chat\.js["']/);
+      expect(source).not.toMatch(/from\s+["'].*workbench-server\.js["']/);
+      expect(source).not.toMatch(/from\s+["'].*server\/workbench/);
+      expect(source).not.toMatch(/from\s+["'].*cli\/program\.js["']/);
+    }
+
+    expect(schedulerUserFacingActionLabel("planning.scheduler.worker.start-first")).toBe("继续执行下一个任务");
+    expect(schedulerUserFacingActionLabel("planning.scheduler.worker.validate-first")).toBe("检查当前结果");
+    expect(schedulerUserFacingActionLabel("planning.scheduler.worker.rework-plan.compile")).toBe("处理当前阻塞");
+    expect(schedulerUserFacingActionLabel("planning.scheduler.integration-check.run")).toBe("检查组合结果");
+    expect(workflowActionLabel("planning.scheduler.worker.start-next")).toBe("继续执行下一个任务");
+    expect(workflowActionLabel("planning.scheduler.run.close-blocked")).toBe("标记无法继续");
   });
 
   it("keeps run manager as a compatibility facade with owned evidence modules", () => {

@@ -1,3 +1,5 @@
+import { schedulerUserFacingActionLabel } from "./scheduler-action-labels.js";
+
 export function workflowActionLabel(actionType: string | undefined): string {
   if (actionType === "change.spec.propose") return "Spec proposal";
   if (actionType === "change.plan.propose") return "Plan/Tasks proposal";
@@ -10,6 +12,8 @@ export function workflowActionLabel(actionType: string | undefined): string {
   if (actionType === "taskqueue.proposal") return "TaskQueue proposal";
   if (actionType === "scheduler.contract") return "Scheduler Contract";
   if (actionType === "planning.taskqueue.propose") return "生成 TaskQueue 提案";
+  const schedulerLabel = schedulerUserFacingActionLabel(actionType);
+  if (schedulerLabel) return schedulerLabel;
   if (actionType === "planning.scheduler.plan.prepare") return "准备并行执行计划";
   if (actionType === "planning.scheduler.contract.compile") return "编译 Scheduler Contract";
   if (actionType === "planning.scheduler.dispatch.dry-run") return "生成调度预演";

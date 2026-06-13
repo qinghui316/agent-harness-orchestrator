@@ -147,6 +147,8 @@ Phase 9Y is an end-to-end Workbench acceptance phase over that scheduler integra
 
 Phase 9Z adds that follow-up closeout gate. It lets a SchedulerRun record explicit scheduler-owned blocked/exhausted terminal closeout evidence before IntegrationCheck only when the latest SchedulerIntegrationCandidate cannot reach two ready targets and there is no legal next-worker or handoff path left. The owner module is `src/scheduler-runtime/`; Workbench/server/frontend surfaces remain thin dispatch and projection layers. The closeout writes evidence, a runtime event, and SchedulerRun journal state only; it must not run IntegrationCheck, apply/discard source changes, start workers, dispatch waves, allocate slots, create child Changes, create worktrees/runs, or become the parallel executor.
 
+Phase 10A is a user-facing scheduler execution surface consolidation phase. It keeps scheduler runtime legality and evidence ownership in `src/scheduler-runtime/`, and puts Workbench scheduler handler glue plus confirmation-label mapping in owned Workbench modules instead of broad facades. The goal is to make the main Agent conversation and right-side Harness queue read like a small number of understandable stage decisions while every click still invokes exactly one existing typed scheduler transition with full scoped ids, ToolPolicyGate, stale-target revalidation, and existing IntegrationCheck/apply authority. It does not add a scheduler loop, whole-wave dispatcher, slot allocator, start-all control, automatic validation/audit/rework/start-next, child Change creation, or full parallel executor.
+
 Workbench relationship:
 
 ```text

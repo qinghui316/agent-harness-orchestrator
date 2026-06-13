@@ -1,6 +1,7 @@
 import type { ManagedProject } from "../../../../types/index.js";
 import type { DecompositionRecommendation } from "../../../../workflow-artifacts/manager.js";
 import type { WorkbenchConfirmationQueueItem, WorkbenchTopicDetail, WorkbenchWorkpad } from "../../../read-model-types.js";
+import { schedulerUserFacingActionCopy } from "./scheduler-user-surface.js";
 
 export function workpadNextActionToConfirmationItems(
   project: ManagedProject | null,
@@ -112,6 +113,7 @@ export function schedulerNextActionToConfirmationItems(
   const reworkValidationRunId = action.reworkValidationRunId ?? workerReworkValidation?.validationRunId;
   const auditRunId = action.auditRunId ?? workerAudit?.auditRunId;
   const reworkAuditRunId = action.reworkAuditRunId ?? workerReworkAudit?.auditRunId;
+  const userCopy = schedulerUserFacingActionCopy(action.actionType);
   return [{
     id: `confirm:${action.actionType}:${selectedTopic.id}:${targetId}`,
     kind: "planning-confirm",
@@ -144,14 +146,14 @@ export function schedulerNextActionToConfirmationItems(
     reworkValidationRunId,
     auditRunId,
     reworkAuditRunId,
-    summary: action.label,
-    whyNeedsConfirmation: "这是 Harness 阶段门：主 Agent 已给出下一步建议，确认后只执行该 scoped scheduler action。",
-    confirmEffect: action.description,
-    riskSummary: "服务端会重读 scoped evidence、执行 stale-target revalidation，并保留完整 decision/audit scope。",
+    summary: userCopy.summary,
+    whyNeedsConfirmation: userCopy.whyNeedsConfirmation,
+    confirmEffect: userCopy.confirmEffect,
+    riskSummary: userCopy.riskSummary,
     evidenceRefs: [],
     actions: [{
       id: `workflow:${action.actionType}:${selectedTopic.id}:${targetId}`,
-      label: action.label,
+      label: userCopy.label,
       kind: "workflow-action",
       changeId: selectedTopic.id,
       actionType: action.actionType,
