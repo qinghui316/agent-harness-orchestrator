@@ -27,6 +27,7 @@ import {
   getWorkbenchSchedulerIntegrationCandidateProjection,
   getWorkbenchSchedulerIntegrationCheckHandoffProjection,
   getWorkbenchSchedulerIntegrationOutcomeProjection,
+  getWorkbenchSchedulerRunBlockedCloseoutProjection,
   getWorkbenchSchedulerRunCompletionProjection,
   getWorkbenchWorkflowRunProjection,
   getWorkbenchWorkpadProjection,
@@ -175,6 +176,12 @@ export async function getWorkbenchProjection(input: WorkbenchProjectInput, rest:
     if (!id) throw badRequest("scheduler-run-completion projection requires schedulerRunId.");
     if (!extraId) throw badRequest("scheduler-run-completion projection requires schedulerRunCompletionId.");
     return getWorkbenchSchedulerRunCompletionProjection(input, changeId, id, extraId);
+  }
+  if (kind === "scheduler-run-closeout") {
+    if (!changeId) throw badRequest("scheduler-run-closeout projection requires changeId.");
+    if (!id) throw badRequest("scheduler-run-closeout projection requires schedulerRunId.");
+    if (!extraId) throw badRequest("scheduler-run-closeout projection requires schedulerRunCloseoutId.");
+    return getWorkbenchSchedulerRunBlockedCloseoutProjection(input, changeId, id, extraId);
   }
   if (kind === "workflow-run") {
     if (!changeId) throw badRequest("workflow-run projection requires changeId.");

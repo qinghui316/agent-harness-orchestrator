@@ -34,6 +34,7 @@ export function workflowActionLabel(actionType: string | undefined): string {
   if (actionType === "planning.scheduler.integration-check.run") return "运行 scheduler IntegrationCheck";
   if (actionType === "planning.scheduler.integration-outcome.reconcile") return "记录 scheduler integration 结果";
   if (actionType === "planning.scheduler.run.complete") return "记录 SchedulerRun 完成状态";
+  if (actionType === "planning.scheduler.run.close-blocked") return "结束本次 scheduler run";
   if (actionType === "planning.workflowgraph.compile") return "编译执行图";
   if (actionType === "planning.taskqueue.confirm-start") return "确认启动 TaskQueue";
   if (actionType === "none") return "无后续动作";

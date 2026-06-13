@@ -14,10 +14,12 @@ import {
   readLatestSchedulerIntegrationCandidateProjection,
   readLatestSchedulerIntegrationCheckHandoffProjection,
   readLatestSchedulerIntegrationOutcomeProjection,
+  readLatestSchedulerRunBlockedCloseoutProjection,
   readLatestSchedulerRunCompletionProjection,
   readSchedulerIntegrationCandidateProjection as readSchedulerIntegrationCandidateArtifactProjection,
   readSchedulerIntegrationCheckHandoffProjection as readSchedulerIntegrationCheckHandoffArtifactProjection,
   readSchedulerIntegrationOutcomeProjection as readSchedulerIntegrationOutcomeArtifactProjection,
+  readSchedulerRunBlockedCloseoutProjection as readSchedulerRunBlockedCloseoutArtifactProjection,
   readSchedulerRunCompletionProjection as readSchedulerRunCompletionArtifactProjection,
   readSchedulerRuntimeWorkerAuditProjection,
   readSchedulerRuntimeWorkerReworkPlanProjection,
@@ -35,6 +37,7 @@ import {
   type SchedulerIntegrationCandidate,
   type SchedulerIntegrationCheckHandoff,
   type SchedulerIntegrationOutcome,
+  type SchedulerRunBlockedCloseout,
   type SchedulerRunCompletion,
   type SchedulerRuntimeState,
   type SchedulerRuntimeWorkerResult,
@@ -682,6 +685,33 @@ export interface WorkbenchSchedulerRunCompletionSummary {
   updatedAt: string;
 }
 
+export interface WorkbenchSchedulerRunBlockedCloseoutSummary {
+  id: string;
+  changeId: string;
+  schedulerRunId: string;
+  schedulerClaimReservationId: string;
+  schedulerReconcileSnapshotId: string;
+  schedulerIntegrationCandidateId: string;
+  schedulerContractId: string;
+  schedulerDispatchDryRunId: string;
+  schedulerWorkerPlanId: string;
+  schedulerClaimReconcilePlanId: string;
+  schedulerLaunchPreflightId: string;
+  status: SchedulerRunBlockedCloseout["status"];
+  reason: SchedulerRunBlockedCloseout["reason"];
+  readyCount: number;
+  blockedCount: number;
+  readyWorktreeIds: string[];
+  closeoutReason: string;
+  blockedReasons: string[];
+  unstartedReservedIntentIds: string[];
+  sourceMutated: false;
+  executionStarted: false;
+  artifact?: string;
+  markdownArtifact?: string;
+  updatedAt: string;
+}
+
 export interface WorkbenchSchedulerReconcileSnapshotSummary {
   id: string;
   changeId: string;
@@ -732,6 +762,7 @@ type WorkflowProjectionActionType =
   | "planning.scheduler.integration-check.run"
   | "planning.scheduler.integration-outcome.reconcile"
   | "planning.scheduler.run.complete"
+  | "planning.scheduler.run.close-blocked"
   | "planning.workflowgraph.compile"
   | "planning.taskqueue.confirm-start"
   | "code.run";
@@ -770,6 +801,7 @@ export interface WorkbenchTypedWorkflowNextAction {
   schedulerIntegrationCheckHandoffId?: string;
   schedulerIntegrationOutcomeId?: string;
   schedulerRunCompletionId?: string;
+  schedulerRunBlockedCloseoutId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   taskRunId?: string;
@@ -1283,6 +1315,19 @@ export async function readLatestSchedulerRunCompletionSummary(
   return summarizeSchedulerRunCompletion(completion);
 }
 
+export async function readLatestSchedulerRunBlockedCloseoutSummary(
+  memory: ResolvedMemory,
+  changePath: string,
+  schedulerRunId?: string,
+  schedulerIntegrationCandidateId?: string,
+): Promise<WorkbenchSchedulerRunBlockedCloseoutSummary | null> {
+  if (!schedulerRunId || !schedulerIntegrationCandidateId) return null;
+  const closeout = await readLatestSchedulerRunBlockedCloseoutProjection(memory, changePath, schedulerRunId).catch(() => null);
+  if (!closeout) return null;
+  if (closeout.schedulerIntegrationCandidateId !== schedulerIntegrationCandidateId) return null;
+  return summarizeSchedulerRunBlockedCloseout(closeout);
+}
+
 function classifySchedulerWorkerPathStatus(path: {
   start: WorkbenchSchedulerWorkerStartSummary;
   result?: WorkbenchSchedulerWorkerResultSummary | null;
@@ -1714,6 +1759,35 @@ function summarizeSchedulerRunCompletion(completion: SchedulerRunCompletion): Wo
   };
 }
 
+function summarizeSchedulerRunBlockedCloseout(closeout: SchedulerRunBlockedCloseout): WorkbenchSchedulerRunBlockedCloseoutSummary {
+  return {
+    id: closeout.id,
+    changeId: closeout.changeId,
+    schedulerRunId: closeout.schedulerRunId,
+    schedulerClaimReservationId: closeout.schedulerClaimReservationId,
+    schedulerReconcileSnapshotId: closeout.schedulerReconcileSnapshotId,
+    schedulerIntegrationCandidateId: closeout.schedulerIntegrationCandidateId,
+    schedulerContractId: closeout.schedulerContractId,
+    schedulerDispatchDryRunId: closeout.schedulerDispatchDryRunId,
+    schedulerWorkerPlanId: closeout.schedulerWorkerPlanId,
+    schedulerClaimReconcilePlanId: closeout.schedulerClaimReconcilePlanId,
+    schedulerLaunchPreflightId: closeout.schedulerLaunchPreflightId,
+    status: closeout.status,
+    reason: closeout.reason,
+    readyCount: closeout.readyCount,
+    blockedCount: closeout.blockedCount,
+    readyWorktreeIds: closeout.readyWorktreeIds,
+    closeoutReason: closeout.closeoutReason,
+    blockedReasons: closeout.blockedReasons,
+    unstartedReservedIntentIds: closeout.unstartedReservedIntentIds,
+    sourceMutated: false,
+    executionStarted: false,
+    artifact: closeout.artifact,
+    markdownArtifact: closeout.markdownArtifact,
+    updatedAt: closeout.updatedAt,
+  };
+}
+
 export async function readSchedulerReconcileSnapshotSummary(memory: ResolvedMemory, changePath: string, schedulerRunId?: string, snapshotId?: string): Promise<WorkbenchSchedulerReconcileSnapshotSummary | null> {
   if (!schedulerRunId || !snapshotId) return null;
   const snapshot = await readSchedulerReconcileSnapshotProjection(memory, changePath, schedulerRunId, snapshotId);
@@ -1848,6 +1922,10 @@ export function readSchedulerRunCompletionProjection(memory: ResolvedMemory, cha
   return readSchedulerRunCompletionArtifactProjection(memory, changePath, schedulerRunId, completionId);
 }
 
+export function readSchedulerRunBlockedCloseoutProjection(memory: ResolvedMemory, changePath: string, schedulerRunId: string, closeoutId: string): Promise<SchedulerRunBlockedCloseout | null> {
+  return readSchedulerRunBlockedCloseoutArtifactProjection(memory, changePath, schedulerRunId, closeoutId);
+}
+
 export function buildTypedWorkflowNextAction(input: {
   topic: TypedWorkflowProjectionTopic;
   readiness: TypedWorkflowProjectionReadiness;
@@ -1880,9 +1958,10 @@ export function buildTypedWorkflowNextAction(input: {
   schedulerIntegrationCheckHandoff?: WorkbenchSchedulerIntegrationCheckHandoffSummary | null;
   schedulerIntegrationOutcome?: WorkbenchSchedulerIntegrationOutcomeSummary | null;
   schedulerRunCompletion?: WorkbenchSchedulerRunCompletionSummary | null;
+  schedulerRunBlockedCloseout?: WorkbenchSchedulerRunBlockedCloseoutSummary | null;
   workflowRun?: WorkflowRunSummary | null;
 }): WorkbenchTypedWorkflowNextAction {
-  const { topic, readiness, intake, planningBundle, decompositionPlan, decompositionReadiness, taskQueueProposal, workflowGraphPlan, schedulerRun, schedulerRuntime, schedulerReconcileSnapshot, schedulerClaimReservation, schedulerWorkerStart, schedulerWorkerResult, schedulerWorkerValidation, schedulerWorkerAudit, schedulerWorkerReworkPlan, schedulerWorkerReworkStart, schedulerWorkerReworkResult, schedulerWorkerReworkValidation, schedulerWorkerReworkAudit, schedulerWorkerPaths = [], schedulerIntegrationCandidate, schedulerIntegrationCheckHandoff, schedulerIntegrationOutcome, schedulerRunCompletion, workflowRun } = input;
+  const { topic, readiness, intake, planningBundle, decompositionPlan, decompositionReadiness, taskQueueProposal, workflowGraphPlan, schedulerRun, schedulerRuntime, schedulerReconcileSnapshot, schedulerClaimReservation, schedulerWorkerStart, schedulerWorkerResult, schedulerWorkerValidation, schedulerWorkerAudit, schedulerWorkerReworkPlan, schedulerWorkerReworkStart, schedulerWorkerReworkResult, schedulerWorkerReworkValidation, schedulerWorkerReworkAudit, schedulerWorkerPaths = [], schedulerIntegrationCandidate, schedulerIntegrationCheckHandoff, schedulerIntegrationOutcome, schedulerRunCompletion, schedulerRunBlockedCloseout, workflowRun } = input;
   if (!readiness.specReady && !topic.runs.some((run) => run.runtime === "intake-scan")) {
     return workflowNextAction("intake.scan", "分析需求", "先只读扫描项目，整理当前理解、相关文件和待确认问题。", false);
   }
@@ -1955,6 +2034,26 @@ export function buildTypedWorkflowNextAction(input: {
         applyCheckId: schedulerRunCompletion.integrationCheckId,
       };
     }
+    if (schedulerRun?.status === "completed" && schedulerRunBlockedCloseout?.schedulerRunId === schedulerRun.id) {
+      return {
+        ...workflowNextAction("planning.scheduler.run.close-blocked", "SchedulerRun 已结束", `SchedulerRun 已记录 ${schedulerRunBlockedCloseout.status} closeout：${schedulerRunBlockedCloseout.closeoutReason}`),
+        enabled: false,
+        disabledReason: "SchedulerRun blocked/exhausted closeout 已记录。",
+        decompositionPlanId: decompositionPlan.id,
+        readinessManifestId: decompositionReadiness.id,
+        schedulerContractId: schedulerRunBlockedCloseout.schedulerContractId,
+        schedulerDispatchDryRunId: schedulerRunBlockedCloseout.schedulerDispatchDryRunId,
+        schedulerWorkerPlanId: schedulerRunBlockedCloseout.schedulerWorkerPlanId,
+        schedulerClaimReconcilePlanId: schedulerRunBlockedCloseout.schedulerClaimReconcilePlanId,
+        schedulerLaunchPreflightId: schedulerRunBlockedCloseout.schedulerLaunchPreflightId,
+        schedulerRunId: schedulerRun.id,
+        schedulerReconcileSnapshotId: schedulerRunBlockedCloseout.schedulerReconcileSnapshotId,
+        schedulerClaimReservationId: schedulerRunBlockedCloseout.schedulerClaimReservationId,
+        schedulerIntegrationCandidateId: schedulerRunBlockedCloseout.schedulerIntegrationCandidateId,
+        schedulerRunBlockedCloseoutId: schedulerRunBlockedCloseout.id,
+        worktreeIds: schedulerRunBlockedCloseout.readyWorktreeIds,
+      };
+    }
     if (
       schedulerRun?.status === "prepared"
       && schedulerRuntime?.schedulerRunId === schedulerRun.id
@@ -1989,6 +2088,26 @@ export function buildTypedWorkflowNextAction(input: {
             schedulerIntegrationOutcomeId: schedulerRunCompletion.schedulerIntegrationOutcomeId,
             schedulerRunCompletionId: schedulerRunCompletion.id,
             applyCheckId: schedulerRunCompletion.integrationCheckId,
+          };
+        }
+        if (schedulerRunBlockedCloseout) {
+          return {
+            ...workflowNextAction("planning.scheduler.run.close-blocked", "SchedulerRun 已结束", `SchedulerRun 已记录 ${schedulerRunBlockedCloseout.status} closeout：${schedulerRunBlockedCloseout.closeoutReason}`),
+            enabled: false,
+            disabledReason: "SchedulerRun blocked/exhausted closeout 已记录。",
+            decompositionPlanId: decompositionPlan.id,
+            readinessManifestId: decompositionReadiness.id,
+            schedulerContractId: schedulerRunBlockedCloseout.schedulerContractId,
+            schedulerDispatchDryRunId: schedulerRunBlockedCloseout.schedulerDispatchDryRunId,
+            schedulerWorkerPlanId: schedulerRunBlockedCloseout.schedulerWorkerPlanId,
+            schedulerClaimReconcilePlanId: schedulerRunBlockedCloseout.schedulerClaimReconcilePlanId,
+            schedulerLaunchPreflightId: schedulerRunBlockedCloseout.schedulerLaunchPreflightId,
+            schedulerRunId: schedulerRun.id,
+            schedulerReconcileSnapshotId: schedulerRunBlockedCloseout.schedulerReconcileSnapshotId,
+            schedulerClaimReservationId: schedulerRunBlockedCloseout.schedulerClaimReservationId,
+            schedulerIntegrationCandidateId: schedulerRunBlockedCloseout.schedulerIntegrationCandidateId,
+            schedulerRunBlockedCloseoutId: schedulerRunBlockedCloseout.id,
+            worktreeIds: schedulerRunBlockedCloseout.readyWorktreeIds,
           };
         }
         if (schedulerIntegrationCandidate && !schedulerIntegrationCandidateNeedsRefresh(schedulerIntegrationCandidate, schedulerWorkerPaths)) {
@@ -2068,6 +2187,24 @@ export function buildTypedWorkflowNextAction(input: {
               schedulerIntegrationCandidateId: schedulerIntegrationCandidate.id,
               schedulerIntegrationCheckHandoffId: schedulerIntegrationCheckHandoff.id,
               applyCheckId: schedulerIntegrationCheckHandoff?.integrationCheckId,
+              worktreeIds: schedulerIntegrationCandidate.readyWorktreeIds,
+            };
+          }
+          const nextIntent = findNextSchedulerReservationIntentForWorkerPaths(schedulerClaimReservation, schedulerWorkerPaths);
+          if (schedulerIntegrationCandidate.readyCount < 2 && !nextIntent && schedulerWorkerPaths.every((path) => path.terminal)) {
+            return {
+              ...workflowNextAction("planning.scheduler.run.close-blocked", "结束本次 scheduler run", "当前 scheduler candidate 不能进入 IntegrationCheck，且没有可继续启动的 worker；本操作只记录 blocked/exhausted closeout，不启动执行或修改 source。"),
+              decompositionPlanId: decompositionPlan.id,
+              readinessManifestId: decompositionReadiness.id,
+              schedulerContractId: schedulerRun.schedulerContractId,
+              schedulerDispatchDryRunId: schedulerRun.schedulerDispatchDryRunId,
+              schedulerWorkerPlanId: schedulerRun.schedulerWorkerPlanId,
+              schedulerClaimReconcilePlanId: schedulerRun.schedulerClaimReconcilePlanId,
+              schedulerLaunchPreflightId: schedulerRun.schedulerLaunchPreflightId,
+              schedulerRunId: schedulerRun.id,
+              schedulerReconcileSnapshotId: schedulerReconcileSnapshot.id,
+              schedulerClaimReservationId: schedulerClaimReservation.id,
+              schedulerIntegrationCandidateId: schedulerIntegrationCandidate.id,
               worktreeIds: schedulerIntegrationCandidate.readyWorktreeIds,
             };
           }
@@ -2314,6 +2451,29 @@ export function buildTypedWorkflowNextAction(input: {
               if (schedulerIntegrationCandidate.readyCount >= 2 && !schedulerIntegrationCheckHandoff) {
                 return {
                   ...workflowNextAction("planning.scheduler.integration-check.run", "运行 scheduler IntegrationCheck", "把 scheduler-owned ready worktree targets 显式交给现有 IntegrationCheck；只运行兼容性检查和 aggregate validation/audit，不 apply、landing、PR、merge 或启动 next worker。"),
+                  decompositionPlanId: decompositionPlan.id,
+                  readinessManifestId: decompositionReadiness.id,
+                  schedulerContractId: schedulerRun.schedulerContractId,
+                  schedulerDispatchDryRunId: schedulerRun.schedulerDispatchDryRunId,
+                  schedulerWorkerPlanId: schedulerRun.schedulerWorkerPlanId,
+                  schedulerClaimReconcilePlanId: schedulerRun.schedulerClaimReconcilePlanId,
+                  schedulerLaunchPreflightId: schedulerRun.schedulerLaunchPreflightId,
+                  schedulerRunId: schedulerRun.id,
+                  schedulerReconcileSnapshotId: schedulerReconcileSnapshot.id,
+                  schedulerClaimReservationId: schedulerClaimReservation.id,
+                  schedulerIntegrationCandidateId: schedulerIntegrationCandidate.id,
+                  worktreeIds: schedulerIntegrationCandidate.readyWorktreeIds,
+                };
+              }
+              if (
+                schedulerIntegrationCandidate.readyCount < 2
+                && !schedulerIntegrationCheckHandoff
+                && !schedulerIntegrationOutcome
+                && !schedulerRunCompletion
+                && !findNextSchedulerReservationIntentForWorkerPaths(schedulerClaimReservation, schedulerWorkerPaths)
+              ) {
+                return {
+                  ...workflowNextAction("planning.scheduler.run.close-blocked", "结束本次 scheduler run", "当前 scheduler candidate 不能进入 IntegrationCheck，且没有可继续启动的 worker；本操作只记录 blocked/exhausted closeout，不启动执行或修改 source。"),
                   decompositionPlanId: decompositionPlan.id,
                   readinessManifestId: decompositionReadiness.id,
                   schedulerContractId: schedulerRun.schedulerContractId,

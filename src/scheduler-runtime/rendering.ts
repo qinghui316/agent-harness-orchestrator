@@ -1,4 +1,4 @@
-import type { SchedulerIntegrationCandidate, SchedulerIntegrationCheckHandoff, SchedulerIntegrationOutcome, SchedulerReconcileSnapshot, SchedulerRunCompletion, SchedulerRuntimeClaimReservation, SchedulerRuntimeState, SchedulerRuntimeWorkerAudit, SchedulerRuntimeWorkerResult, SchedulerRuntimeWorkerReworkAudit, SchedulerRuntimeWorkerReworkPlan, SchedulerRuntimeWorkerReworkResult, SchedulerRuntimeWorkerReworkStart, SchedulerRuntimeWorkerReworkValidation, SchedulerRuntimeWorkerStart, SchedulerRuntimeWorkerValidation } from "./types.js";
+import type { SchedulerIntegrationCandidate, SchedulerIntegrationCheckHandoff, SchedulerIntegrationOutcome, SchedulerReconcileSnapshot, SchedulerRunBlockedCloseout, SchedulerRunCompletion, SchedulerRuntimeClaimReservation, SchedulerRuntimeState, SchedulerRuntimeWorkerAudit, SchedulerRuntimeWorkerResult, SchedulerRuntimeWorkerReworkAudit, SchedulerRuntimeWorkerReworkPlan, SchedulerRuntimeWorkerReworkResult, SchedulerRuntimeWorkerReworkStart, SchedulerRuntimeWorkerReworkValidation, SchedulerRuntimeWorkerStart, SchedulerRuntimeWorkerValidation } from "./types.js";
 
 export function renderSchedulerRuntimeStateMarkdown(state: SchedulerRuntimeState): string {
   const lines = [
@@ -672,6 +672,47 @@ export function renderSchedulerRunCompletionMarkdown(completion: SchedulerRunCom
     "## Boundary",
     "",
     "This completion evidence only records that the SchedulerRun reached a terminal projection after existing IntegrationCheck/apply/discard outcome evidence. It does not run IntegrationCheck, apply source changes, discard worktrees, start another worker, dispatch waves, allocate slots, create child Changes, prepare landing, create PRs, merge, or authorize the full parallel executor.",
+    "",
+  ];
+  return lines.join("\n");
+}
+
+export function renderSchedulerRunBlockedCloseoutMarkdown(closeout: SchedulerRunBlockedCloseout): string {
+  const lines = [
+    `# SchedulerRunBlockedCloseout ${closeout.id}`,
+    "",
+    `Status: ${closeout.status}`,
+    `Reason: ${closeout.reason}`,
+    `Change: ${closeout.changeId}`,
+    `SchedulerRun: ${closeout.schedulerRunId}`,
+    `IntegrationCandidate: ${closeout.schedulerIntegrationCandidateId}`,
+    "",
+    "## Summary",
+    "",
+    `- Closeout reason: ${closeout.closeoutReason}`,
+    `- Ready targets: ${closeout.readyCount}`,
+    `- Ready worktrees: ${closeout.readyWorktreeIds.join(", ") || "none"}`,
+    `- Blocked outputs: ${closeout.blockedCount}`,
+    `- Unstarted reserved intents: ${closeout.unstartedReservedIntentIds.join(", ") || "none"}`,
+    "",
+    "## Blocked Reasons",
+    "",
+    ...(closeout.blockedReasons.length ? closeout.blockedReasons.map((reason) => `- ${reason}`) : ["- none"]),
+    "",
+    "## Lineage",
+    "",
+    `- Runtime state: ${closeout.schedulerRuntimeStateId}`,
+    `- Reconcile snapshot: ${closeout.schedulerReconcileSnapshotId}`,
+    `- Claim reservation: ${closeout.schedulerClaimReservationId}`,
+    `- SchedulerContract: ${closeout.schedulerContractId}`,
+    `- Dispatch dry-run: ${closeout.schedulerDispatchDryRunId}`,
+    `- Worker plan: ${closeout.schedulerWorkerPlanId}`,
+    `- Claim/reconcile plan: ${closeout.schedulerClaimReconcilePlanId}`,
+    `- Launch preflight: ${closeout.schedulerLaunchPreflightId}`,
+    "",
+    "## Boundary",
+    "",
+    "This closeout evidence records that the SchedulerRun cannot proceed to IntegrationCheck and has no legal next-worker continuation. It does not run IntegrationCheck, apply or discard source changes, start workers, dispatch waves, allocate slots, create child Changes, create worktrees or runs, prepare landing, create PRs, merge, or authorize the full parallel executor.",
     "",
   ];
   return lines.join("\n");

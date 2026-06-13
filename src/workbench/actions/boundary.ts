@@ -8,7 +8,7 @@ import { readIntegrationCheck } from "../../integration-check/manager.js";
 import { resolveProjectMemory } from "../../memory/resolver.js";
 import { readRun } from "../../run/repository.js";
 import { readSchedulerRuntimeLineage } from "../../scheduler-runtime/guards.js";
-import { findSchedulerClaimReservationForSnapshot, findSchedulerRuntimeWorkerAuditForValidation, findSchedulerRuntimeWorkerResultForStart, findSchedulerRuntimeWorkerReworkAuditForValidation, findSchedulerRuntimeWorkerReworkPlanForBlockingEvidence, findSchedulerRuntimeWorkerReworkResultForStart, findSchedulerRuntimeWorkerReworkStartForPlan, findSchedulerRuntimeWorkerReworkValidationForResult, findSchedulerRuntimeWorkerStartForReservationIntent, findSchedulerRuntimeWorkerValidationForResult, listSchedulerRuntimeWorkerStarts, readLatestSchedulerIntegrationCandidateProjection, readLatestSchedulerIntegrationCheckHandoffProjection, readLatestSchedulerIntegrationOutcomeProjection, readLatestSchedulerRunCompletionProjection, readSchedulerIntegrationOutcome, readSchedulerReconcileSnapshot, readSchedulerRuntimeClaimReservation, readSchedulerRuntimeStateProjection, readSchedulerRuntimeWorkerAudit, readSchedulerRuntimeWorkerResult, readSchedulerRuntimeWorkerReworkPlan, readSchedulerRuntimeWorkerReworkResult, readSchedulerRuntimeWorkerReworkStart, readSchedulerRuntimeWorkerReworkValidation, readSchedulerRuntimeWorkerStart, readSchedulerRuntimeWorkerValidation } from "../../scheduler-runtime/repository.js";
+import { findSchedulerClaimReservationForSnapshot, findSchedulerRuntimeWorkerAuditForValidation, findSchedulerRuntimeWorkerResultForStart, findSchedulerRuntimeWorkerReworkAuditForValidation, findSchedulerRuntimeWorkerReworkPlanForBlockingEvidence, findSchedulerRuntimeWorkerReworkResultForStart, findSchedulerRuntimeWorkerReworkStartForPlan, findSchedulerRuntimeWorkerReworkValidationForResult, findSchedulerRuntimeWorkerStartForReservationIntent, findSchedulerRuntimeWorkerValidationForResult, listSchedulerRuntimeWorkerStarts, readLatestSchedulerIntegrationCandidateProjection, readLatestSchedulerIntegrationCheckHandoffProjection, readLatestSchedulerIntegrationOutcomeProjection, readLatestSchedulerRunBlockedCloseoutProjection, readLatestSchedulerRunCompletionProjection, readSchedulerIntegrationOutcome, readSchedulerReconcileSnapshot, readSchedulerRuntimeClaimReservation, readSchedulerRuntimeStateProjection, readSchedulerRuntimeWorkerAudit, readSchedulerRuntimeWorkerResult, readSchedulerRuntimeWorkerReworkPlan, readSchedulerRuntimeWorkerReworkResult, readSchedulerRuntimeWorkerReworkStart, readSchedulerRuntimeWorkerReworkValidation, readSchedulerRuntimeWorkerStart, readSchedulerRuntimeWorkerValidation } from "../../scheduler-runtime/repository.js";
 import { latestLandingQueueSnapshot } from "../../landing-queue/manager.js";
 import { listTaskQueues } from "../../task-queue/manager.js";
 import { listTaskRuns } from "../../task-run/manager.js";
@@ -1172,6 +1172,49 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
     }
     if (request.worktreeIds?.length && !sameStringArray(request.worktreeIds, outcome.readyWorktreeIds)) {
       throw new Error("planning.scheduler.run.complete worktreeIds target scope mismatch.");
+    }
+  }
+  if (request.actionType === "planning.scheduler.run.close-blocked") {
+    const active = await getActiveChanges(memory);
+    const target = active.find((item) => item.name === changeId);
+    if (!target) throw new Error("planning.scheduler.run.close-blocked target is stale or missing active Change.");
+    if (!request.schedulerRunId) throw new Error("planning.scheduler.run.close-blocked requires schedulerRunId.");
+    if (!request.schedulerClaimReservationId) throw new Error("planning.scheduler.run.close-blocked requires schedulerClaimReservationId.");
+    if (!request.schedulerIntegrationCandidateId) throw new Error("planning.scheduler.run.close-blocked requires schedulerIntegrationCandidateId.");
+    const run = await readSchedulerRun(memory, target.path, request.schedulerRunId);
+    if (run.id !== request.schedulerRunId || run.changeId !== changeId || run.status !== "prepared") {
+      throw new Error("planning.scheduler.run.close-blocked SchedulerRun target is stale or not prepared.");
+    }
+    const latestRun = await readLatestSchedulerRun(memory, target.path);
+    if (latestRun.id !== run.id) throw new Error("planning.scheduler.run.close-blocked requires the latest SchedulerRun.");
+    const runtimeState = await readSchedulerRuntimeStateProjection(memory, target.path, run.id);
+    if (!runtimeState?.lastReconcileSnapshotId || !runtimeState.lastClaimReservationId) {
+      throw new Error("planning.scheduler.run.close-blocked requires runtime state with latest reconcile snapshot and claim reservation.");
+    }
+    if (runtimeState.lastClaimReservationId !== request.schedulerClaimReservationId) {
+      throw new Error("planning.scheduler.run.close-blocked requires the latest SchedulerRuntimeClaimReservation.");
+    }
+    const latestCandidate = await readLatestSchedulerIntegrationCandidateProjection(memory, target.path, run.id);
+    if (!latestCandidate || latestCandidate.id !== request.schedulerIntegrationCandidateId) {
+      throw new Error("planning.scheduler.run.close-blocked requires the latest SchedulerIntegrationCandidate.");
+    }
+    if (latestCandidate.schedulerRuntimeStateId !== runtimeState.id || latestCandidate.schedulerClaimReservationId !== runtimeState.lastClaimReservationId || latestCandidate.schedulerReconcileSnapshotId !== runtimeState.lastClaimReservationSnapshotId) {
+      throw new Error("planning.scheduler.run.close-blocked SchedulerIntegrationCandidate target is stale.");
+    }
+    if (latestCandidate.readyCount >= 2) {
+      throw new Error("planning.scheduler.run.close-blocked is not allowed when IntegrationCheck can run.");
+    }
+    if (await readLatestSchedulerIntegrationCheckHandoffProjection(memory, target.path, run.id)) {
+      throw new Error("planning.scheduler.run.close-blocked is blocked after SchedulerIntegrationCheck handoff exists.");
+    }
+    if (await readLatestSchedulerIntegrationOutcomeProjection(memory, target.path, run.id)) {
+      throw new Error("planning.scheduler.run.close-blocked is blocked after SchedulerIntegrationOutcome exists.");
+    }
+    if (await readLatestSchedulerRunCompletionProjection(memory, target.path, run.id)) {
+      throw new Error("planning.scheduler.run.close-blocked is blocked after SchedulerRunCompletion exists.");
+    }
+    if (await readLatestSchedulerRunBlockedCloseoutProjection(memory, target.path, run.id)) {
+      throw new Error("planning.scheduler.run.close-blocked latest SchedulerRunBlockedCloseout target is stale.");
     }
   }
   if (request.actionType === "planning.workflowgraph.compile") {

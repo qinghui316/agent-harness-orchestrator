@@ -192,3 +192,15 @@ export function schedulerRunCompletionPath(memory: ResolvedMemory, changePath: s
 export function schedulerRunCompletionMarkdownPath(memory: ResolvedMemory, changePath: string, schedulerRunId: string, completionId: string): string {
   return join(schedulerRunCompletionsDir(memory, changePath, schedulerRunId), `${completionId}.md`);
 }
+
+export function schedulerRunBlockedCloseoutsDir(memory: ResolvedMemory, changePath: string, schedulerRunId: string): string {
+  return join(schedulerRuntimeDir(memory, changePath, schedulerRunId), "scheduler-run-closeouts");
+}
+
+export function schedulerRunBlockedCloseoutPath(memory: ResolvedMemory, changePath: string, schedulerRunId: string, closeoutId: string): string {
+  return join(schedulerRunBlockedCloseoutsDir(memory, changePath, schedulerRunId), `${closeoutId}.json`);
+}
+
+export function schedulerRunBlockedCloseoutMarkdownPath(memory: ResolvedMemory, changePath: string, schedulerRunId: string, closeoutId: string): string {
+  return join(schedulerRunBlockedCloseoutsDir(memory, changePath, schedulerRunId), `${closeoutId}.md`);
+}

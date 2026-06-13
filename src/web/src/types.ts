@@ -179,6 +179,7 @@ export type WorkpadNextAction = {
   schedulerIntegrationCheckHandoffId?: string;
   schedulerIntegrationOutcomeId?: string;
   schedulerRunCompletionId?: string;
+  schedulerRunBlockedCloseoutId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   workflowRunId?: string;
@@ -235,6 +236,7 @@ export type WorkbenchTaskNextAction = {
   schedulerIntegrationCheckHandoffId?: string;
   schedulerIntegrationOutcomeId?: string;
   schedulerRunCompletionId?: string;
+  schedulerRunBlockedCloseoutId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   workflowRunId?: string;
@@ -374,6 +376,7 @@ export type Workpad = {
   schedulerIntegrationCheckHandoff?: SchedulerIntegrationCheckHandoffSummary;
   schedulerIntegrationOutcome?: SchedulerIntegrationOutcomeSummary;
   schedulerRunCompletion?: SchedulerRunCompletionSummary;
+  schedulerRunBlockedCloseout?: SchedulerRunBlockedCloseoutSummary;
   rolePipeline?: {
     stage: "planning" | "coding" | "validation" | "audit" | "rework" | "done" | "needs-user-input";
     status: "draft" | "running" | "completed" | "needs-user-input" | "stopped";
@@ -1051,6 +1054,32 @@ export type SchedulerRunCompletionSummary = {
   markdownArtifact?: string;
   updatedAt: string;
 };
+export type SchedulerRunBlockedCloseoutSummary = {
+  id: string;
+  changeId: string;
+  schedulerRunId: string;
+  schedulerClaimReservationId: string;
+  schedulerReconcileSnapshotId: string;
+  schedulerIntegrationCandidateId: string;
+  schedulerContractId: string;
+  schedulerDispatchDryRunId: string;
+  schedulerWorkerPlanId: string;
+  schedulerClaimReconcilePlanId: string;
+  schedulerLaunchPreflightId: string;
+  status: "blocked" | "exhausted" | "stopped";
+  reason: "candidate-waiting-exhausted" | "candidate-blocked" | "candidate-inconsistent" | "user-stopped";
+  closeoutReason: string;
+  readyCount: number;
+  blockedCount: number;
+  readyWorktreeIds: string[];
+  blockedReasons: string[];
+  unstartedReservedIntentIds: string[];
+  sourceMutated: boolean;
+  executionStarted: boolean;
+  artifact?: string;
+  markdownArtifact?: string;
+  updatedAt: string;
+};
 export type SchedulerReconcileSnapshotSummary = {
   id: string;
   changeId: string;
@@ -1106,6 +1135,7 @@ export type ThreadStreamAction = {
   schedulerIntegrationCheckHandoffId?: string;
   schedulerIntegrationOutcomeId?: string;
   schedulerRunCompletionId?: string;
+  schedulerRunBlockedCloseoutId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   workflowRunId?: string;

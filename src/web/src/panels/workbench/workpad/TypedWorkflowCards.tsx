@@ -547,3 +547,25 @@ export function SchedulerRunCompletionCard({ completion }: { completion: NonNull
     </section>
   );
 }
+
+export function SchedulerRunBlockedCloseoutCard({ closeout }: { closeout: NonNullable<Workpad["schedulerRunBlockedCloseout"]> }): ReactElement {
+  return (
+    <section className="workpad-section" data-testid="scheduler-run-closeout-card">
+      <div className="workpad-section-header">
+        <h3>SchedulerRun 结束记录</h3>
+        <span>{humanStatus(closeout.status)}</span>
+      </div>
+      <p className="workpad-goal">SchedulerRun 已记录 blocked/exhausted closeout；不会启动执行或修改 source</p>
+      <div className="workpad-chip-list">
+        <span>{closeout.readyCount} 个 ready target</span>
+        <span>{closeout.blockedCount} 个 blocked output</span>
+        <span>{closeout.blockedReasons.length} 个阻塞原因</span>
+        <span>{closeout.unstartedReservedIntentIds.length} 个未启动 intent</span>
+        <span>{closeout.sourceMutated ? "source mutated" : "source 未修改"}</span>
+      </div>
+      <p>{closeout.closeoutReason}</p>
+      {closeout.readyWorktreeIds.length ? <p className="workpad-note">ready: {closeout.readyWorktreeIds.join(", ")}</p> : null}
+      {closeout.artifact ? <small className="artifact-link">查看证据：{artifactName(closeout.artifact)}</small> : null}
+    </section>
+  );
+}

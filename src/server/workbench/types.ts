@@ -46,6 +46,7 @@ export interface WorkbenchActionRequest {
   schedulerIntegrationCheckHandoffId?: string;
   schedulerIntegrationOutcomeId?: string;
   schedulerRunCompletionId?: string;
+  schedulerRunBlockedCloseoutId?: string;
   schedulerWorkerStartId?: string;
   schedulerWorkerResultId?: string;
   schedulerWorkerValidationId?: string;

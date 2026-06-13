@@ -11,6 +11,7 @@ import {
   runSchedulerIntegrationCheckHandoff,
   reconcileSchedulerIntegrationOutcome,
   completeSchedulerRunFromIntegrationOutcome,
+  closeSchedulerRunBlockedOrExhausted,
   prepareSchedulerPlanEvidence,
   reconcileSchedulerRuntime,
   reserveSchedulerRuntimeClaims,
@@ -18,6 +19,7 @@ import {
   renderSchedulerIntegrationCheckHandoffMarkdown,
   renderSchedulerIntegrationCandidateMarkdown,
   renderSchedulerIntegrationOutcomeMarkdown,
+  renderSchedulerRunBlockedCloseoutMarkdown,
   renderSchedulerRunCompletionMarkdown,
   renderSchedulerRuntimeClaimReservationMarkdown,
   renderSchedulerRuntimeWorkerResultMarkdown,
@@ -47,6 +49,7 @@ import {
   type SchedulerRuntimeWorkerStart,
   type SchedulerIntegrationCheckHandoffResult,
   type SchedulerIntegrationOutcomeResult,
+  type SchedulerRunBlockedCloseoutResult,
   type SchedulerRunCompletionResult,
   type SchedulerIntegrationCandidateResult,
   type SchedulerWorkerResultReconcileResult,
@@ -2048,6 +2051,68 @@ export async function completePlanningSchedulerRun(
     text,
     actionRunId: result.completion.integrationCheckId,
     runId: result.completion.integrationCheckId,
+  });
+  return result;
+}
+
+export async function closeBlockedPlanningSchedulerRun(
+  project: ManagedProject,
+  changeId: string,
+  request: WorkbenchWorkflowActionRequest,
+  live: WorkbenchLiveSink | undefined,
+): Promise<SchedulerRunBlockedCloseoutResult> {
+  const { memory } = await resolveTopic(project, changeId);
+  assertWritableMemory(memory, "SchedulerRun blocked closeout");
+  if (!request.schedulerRunId) throw new Error("planning.scheduler.run.close-blocked requires schedulerRunId.");
+  if (!request.schedulerClaimReservationId) throw new Error("planning.scheduler.run.close-blocked requires schedulerClaimReservationId.");
+  if (!request.schedulerIntegrationCandidateId) throw new Error("planning.scheduler.run.close-blocked requires schedulerIntegrationCandidateId.");
+  const result = await closeSchedulerRunBlockedOrExhausted(project, {
+    changeId,
+    schedulerRunId: request.schedulerRunId,
+    schedulerClaimReservationId: request.schedulerClaimReservationId,
+    schedulerIntegrationCandidateId: request.schedulerIntegrationCandidateId,
+  });
+  const text = renderSchedulerRunBlockedCloseoutMarkdown(result.closeout);
+  emitAssistantEvent(live, {
+    runId: result.closeout.schedulerRunId,
+    kind: "file-change",
+    phase: "scheduler-run-closeout-recorded",
+    title: "SchedulerRun closeout recorded",
+    summary: `SchedulerRun closeout recorded as ${result.closeout.status}. No IntegrationCheck, source mutation, worker, or merge was started.`,
+    artifactRef: result.closeout.artifact,
+  });
+  await recordWorkbenchDecision(project, {
+    id: `scheduler-run-closeout:${result.closeout.id}`,
+    changeId,
+    decisionType: "planning.scheduler.run.close-blocked",
+    status: "completed",
+    label: "SchedulerRun closeout 已记录",
+    actionId: "planning.scheduler.run.close-blocked",
+    targetId: result.closeout.id,
+    runId: result.closeout.schedulerRunId,
+    artifact: result.closeout.artifact,
+    summary: `SchedulerRun closeout ${result.closeout.status} recorded before IntegrationCheck. No source mutation was performed by this action.`,
+    payload: {
+      closeout: result.closeout,
+      schedulerRunBlockedCloseoutId: result.closeout.id,
+      schedulerIntegrationCandidateId: result.closeout.schedulerIntegrationCandidateId,
+      schedulerClaimReservationId: result.closeout.schedulerClaimReservationId,
+      schedulerReconcileSnapshotId: result.closeout.schedulerReconcileSnapshotId,
+      closeoutStatus: result.closeout.status,
+      closeoutReason: result.closeout.reason,
+      readyCount: result.closeout.readyCount,
+      blockedCount: result.closeout.blockedCount,
+      readyWorktreeIds: result.closeout.readyWorktreeIds,
+      sourceMutated: false,
+      executionStarted: false,
+    },
+    completedAt: new Date().toISOString(),
+  });
+  await appendTopicThreadEntry(project, changeId, {
+    type: "assistant.message",
+    text,
+    actionRunId: result.closeout.schedulerRunId,
+    runId: result.closeout.schedulerRunId,
   });
   return result;
 }

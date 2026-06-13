@@ -145,6 +145,8 @@ Phase 9X adds SchedulerRun terminal completion projection after scheduler integr
 
 Phase 9Y is an end-to-end Workbench acceptance phase over that scheduler integration chain. It verifies artifact-backed projection recovery, confirmation queue honesty, existing IntegrationCheck apply/discard ownership, SchedulerIntegrationOutcome, and SchedulerRunCompletion without adding scheduler runtime capability. Any discovered blocked/exhausted closeout gap must become a follow-up change instead of expanding this acceptance phase into a new runtime gate.
 
+Phase 9Z adds that follow-up closeout gate. It lets a SchedulerRun record explicit scheduler-owned blocked/exhausted terminal closeout evidence before IntegrationCheck only when the latest SchedulerIntegrationCandidate cannot reach two ready targets and there is no legal next-worker or handoff path left. The owner module is `src/scheduler-runtime/`; Workbench/server/frontend surfaces remain thin dispatch and projection layers. The closeout writes evidence, a runtime event, and SchedulerRun journal state only; it must not run IntegrationCheck, apply/discard source changes, start workers, dispatch waves, allocate slots, create child Changes, create worktrees/runs, or become the parallel executor.
+
 Workbench relationship:
 
 ```text

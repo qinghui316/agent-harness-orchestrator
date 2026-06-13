@@ -24,6 +24,9 @@ import {
   schedulerRunCompletionMarkdownPath,
   schedulerRunCompletionPath,
   schedulerRunCompletionsDir,
+  schedulerRunBlockedCloseoutMarkdownPath,
+  schedulerRunBlockedCloseoutPath,
+  schedulerRunBlockedCloseoutsDir,
   schedulerReconcileSnapshotMarkdownPath,
   schedulerReconcileSnapshotPath,
   schedulerRuntimeDir,
@@ -57,9 +60,9 @@ import {
   schedulerWorkerValidationPath,
   schedulerWorkerValidationsDir,
 } from "./paths.js";
-import { renderSchedulerIntegrationCandidateMarkdown, renderSchedulerIntegrationCheckHandoffMarkdown, renderSchedulerIntegrationOutcomeMarkdown, renderSchedulerReconcileSnapshotMarkdown, renderSchedulerRunCompletionMarkdown, renderSchedulerRuntimeClaimReservationMarkdown, renderSchedulerRuntimeStateMarkdown, renderSchedulerRuntimeWorkerAuditMarkdown, renderSchedulerRuntimeWorkerResultMarkdown, renderSchedulerRuntimeWorkerReworkAuditMarkdown, renderSchedulerRuntimeWorkerReworkPlanMarkdown, renderSchedulerRuntimeWorkerReworkResultMarkdown, renderSchedulerRuntimeWorkerReworkStartMarkdown, renderSchedulerRuntimeWorkerReworkValidationMarkdown, renderSchedulerRuntimeWorkerStartMarkdown, renderSchedulerRuntimeWorkerValidationMarkdown } from "./rendering.js";
-import { schedulerIntegrationCandidateSchema, schedulerIntegrationCheckHandoffSchema, schedulerIntegrationOutcomeSchema, schedulerReconcileSnapshotSchema, schedulerRunCompletionSchema, schedulerRuntimeClaimReservationSchema, schedulerRuntimeEventSchema, schedulerRuntimeStateSchema, schedulerRuntimeWorkerAuditSchema, schedulerRuntimeWorkerResultSchema, schedulerRuntimeWorkerReworkAuditSchema, schedulerRuntimeWorkerReworkPlanSchema, schedulerRuntimeWorkerReworkResultSchema, schedulerRuntimeWorkerReworkStartSchema, schedulerRuntimeWorkerReworkValidationSchema, schedulerRuntimeWorkerStartSchema, schedulerRuntimeWorkerValidationSchema } from "./schemas.js";
-import type { SchedulerIntegrationCandidate, SchedulerIntegrationCheckHandoff, SchedulerIntegrationOutcome, SchedulerReconcileSnapshot, SchedulerRunCompletion, SchedulerRuntimeClaimReservation, SchedulerRuntimeEvent, SchedulerRuntimeEventType, SchedulerRuntimeState, SchedulerRuntimeWorkerAudit, SchedulerRuntimeWorkerResult, SchedulerRuntimeWorkerReworkAudit, SchedulerRuntimeWorkerReworkPlan, SchedulerRuntimeWorkerReworkResult, SchedulerRuntimeWorkerReworkStart, SchedulerRuntimeWorkerReworkValidation, SchedulerRuntimeWorkerStart, SchedulerRuntimeWorkerValidation } from "./types.js";
+import { renderSchedulerIntegrationCandidateMarkdown, renderSchedulerIntegrationCheckHandoffMarkdown, renderSchedulerIntegrationOutcomeMarkdown, renderSchedulerReconcileSnapshotMarkdown, renderSchedulerRunBlockedCloseoutMarkdown, renderSchedulerRunCompletionMarkdown, renderSchedulerRuntimeClaimReservationMarkdown, renderSchedulerRuntimeStateMarkdown, renderSchedulerRuntimeWorkerAuditMarkdown, renderSchedulerRuntimeWorkerResultMarkdown, renderSchedulerRuntimeWorkerReworkAuditMarkdown, renderSchedulerRuntimeWorkerReworkPlanMarkdown, renderSchedulerRuntimeWorkerReworkResultMarkdown, renderSchedulerRuntimeWorkerReworkStartMarkdown, renderSchedulerRuntimeWorkerReworkValidationMarkdown, renderSchedulerRuntimeWorkerStartMarkdown, renderSchedulerRuntimeWorkerValidationMarkdown } from "./rendering.js";
+import { schedulerIntegrationCandidateSchema, schedulerIntegrationCheckHandoffSchema, schedulerIntegrationOutcomeSchema, schedulerReconcileSnapshotSchema, schedulerRunBlockedCloseoutSchema, schedulerRunCompletionSchema, schedulerRuntimeClaimReservationSchema, schedulerRuntimeEventSchema, schedulerRuntimeStateSchema, schedulerRuntimeWorkerAuditSchema, schedulerRuntimeWorkerResultSchema, schedulerRuntimeWorkerReworkAuditSchema, schedulerRuntimeWorkerReworkPlanSchema, schedulerRuntimeWorkerReworkResultSchema, schedulerRuntimeWorkerReworkStartSchema, schedulerRuntimeWorkerReworkValidationSchema, schedulerRuntimeWorkerStartSchema, schedulerRuntimeWorkerValidationSchema } from "./schemas.js";
+import type { SchedulerIntegrationCandidate, SchedulerIntegrationCheckHandoff, SchedulerIntegrationOutcome, SchedulerReconcileSnapshot, SchedulerRunBlockedCloseout, SchedulerRunCompletion, SchedulerRuntimeClaimReservation, SchedulerRuntimeEvent, SchedulerRuntimeEventType, SchedulerRuntimeState, SchedulerRuntimeWorkerAudit, SchedulerRuntimeWorkerResult, SchedulerRuntimeWorkerReworkAudit, SchedulerRuntimeWorkerReworkPlan, SchedulerRuntimeWorkerReworkResult, SchedulerRuntimeWorkerReworkStart, SchedulerRuntimeWorkerReworkValidation, SchedulerRuntimeWorkerStart, SchedulerRuntimeWorkerValidation } from "./types.js";
 
 export function schedulerRuntimeArtifactRefs(memory: ResolvedMemory, changePath: string, schedulerRunId: string): { artifact: string; eventsArtifact: string } {
   return {
@@ -170,6 +173,13 @@ export function schedulerRunCompletionArtifactRefs(memory: ResolvedMemory, chang
   return {
     artifact: displayArtifactPath(memory, schedulerRunCompletionPath(memory, changePath, schedulerRunId, completionId)),
     markdownArtifact: displayArtifactPath(memory, schedulerRunCompletionMarkdownPath(memory, changePath, schedulerRunId, completionId)),
+  };
+}
+
+export function schedulerRunBlockedCloseoutArtifactRefs(memory: ResolvedMemory, changePath: string, schedulerRunId: string, closeoutId: string): { artifact: string; markdownArtifact: string } {
+  return {
+    artifact: displayArtifactPath(memory, schedulerRunBlockedCloseoutPath(memory, changePath, schedulerRunId, closeoutId)),
+    markdownArtifact: displayArtifactPath(memory, schedulerRunBlockedCloseoutMarkdownPath(memory, changePath, schedulerRunId, closeoutId)),
   };
 }
 
@@ -707,8 +717,24 @@ export async function listSchedulerIntegrationCandidates(memory: ResolvedMemory,
   return candidates.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
+export async function listSchedulerIntegrationCandidatesStrict(memory: ResolvedMemory, changePath: string, schedulerRunId: string): Promise<SchedulerIntegrationCandidate[]> {
+  const dir = schedulerIntegrationCandidatesDir(memory, changePath, schedulerRunId);
+  if (!existsSync(dir)) return [];
+  const entries = await readdir(dir, { withFileTypes: true });
+  const candidates: SchedulerIntegrationCandidate[] = [];
+  for (const entry of entries) {
+    if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
+    candidates.push(await readSchedulerIntegrationCandidate(memory, changePath, schedulerRunId, entry.name.replace(/\.json$/, "")));
+  }
+  return candidates.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
 export async function readLatestSchedulerIntegrationCandidateProjection(memory: ResolvedMemory, changePath: string, schedulerRunId: string): Promise<SchedulerIntegrationCandidate | null> {
   return (await listSchedulerIntegrationCandidates(memory, changePath, schedulerRunId))[0] ?? null;
+}
+
+export async function readLatestSchedulerIntegrationCandidateStrict(memory: ResolvedMemory, changePath: string, schedulerRunId: string): Promise<SchedulerIntegrationCandidate | null> {
+  return (await listSchedulerIntegrationCandidatesStrict(memory, changePath, schedulerRunId))[0] ?? null;
 }
 
 export async function writeSchedulerIntegrationCheckHandoff(memory: ResolvedMemory, changePath: string, handoff: SchedulerIntegrationCheckHandoff): Promise<void> {
@@ -746,8 +772,24 @@ export async function listSchedulerIntegrationCheckHandoffs(memory: ResolvedMemo
   return handoffs.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
+export async function listSchedulerIntegrationCheckHandoffsStrict(memory: ResolvedMemory, changePath: string, schedulerRunId: string): Promise<SchedulerIntegrationCheckHandoff[]> {
+  const dir = schedulerIntegrationCheckHandoffsDir(memory, changePath, schedulerRunId);
+  if (!existsSync(dir)) return [];
+  const entries = await readdir(dir, { withFileTypes: true });
+  const handoffs: SchedulerIntegrationCheckHandoff[] = [];
+  for (const entry of entries) {
+    if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
+    handoffs.push(await readSchedulerIntegrationCheckHandoff(memory, changePath, schedulerRunId, entry.name.replace(/\.json$/, "")));
+  }
+  return handoffs.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
 export async function readLatestSchedulerIntegrationCheckHandoffProjection(memory: ResolvedMemory, changePath: string, schedulerRunId: string): Promise<SchedulerIntegrationCheckHandoff | null> {
   return (await listSchedulerIntegrationCheckHandoffs(memory, changePath, schedulerRunId))[0] ?? null;
+}
+
+export async function readLatestSchedulerIntegrationCheckHandoffStrict(memory: ResolvedMemory, changePath: string, schedulerRunId: string): Promise<SchedulerIntegrationCheckHandoff | null> {
+  return (await listSchedulerIntegrationCheckHandoffsStrict(memory, changePath, schedulerRunId))[0] ?? null;
 }
 
 export async function findSchedulerIntegrationCheckHandoffForCandidate(
@@ -800,8 +842,24 @@ export async function listSchedulerIntegrationOutcomes(memory: ResolvedMemory, c
   return outcomes.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
+export async function listSchedulerIntegrationOutcomesStrict(memory: ResolvedMemory, changePath: string, schedulerRunId: string): Promise<SchedulerIntegrationOutcome[]> {
+  const dir = schedulerIntegrationOutcomesDir(memory, changePath, schedulerRunId);
+  if (!existsSync(dir)) return [];
+  const entries = await readdir(dir, { withFileTypes: true });
+  const outcomes: SchedulerIntegrationOutcome[] = [];
+  for (const entry of entries) {
+    if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
+    outcomes.push(await readSchedulerIntegrationOutcome(memory, changePath, schedulerRunId, entry.name.replace(/\.json$/, "")));
+  }
+  return outcomes.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
 export async function readLatestSchedulerIntegrationOutcomeProjection(memory: ResolvedMemory, changePath: string, schedulerRunId: string): Promise<SchedulerIntegrationOutcome | null> {
   return (await listSchedulerIntegrationOutcomes(memory, changePath, schedulerRunId))[0] ?? null;
+}
+
+export async function readLatestSchedulerIntegrationOutcomeStrict(memory: ResolvedMemory, changePath: string, schedulerRunId: string): Promise<SchedulerIntegrationOutcome | null> {
+  return (await listSchedulerIntegrationOutcomesStrict(memory, changePath, schedulerRunId))[0] ?? null;
 }
 
 export async function findSchedulerIntegrationOutcomeForHandoff(memory: ResolvedMemory, changePath: string, schedulerRunId: string, handoffId: string): Promise<SchedulerIntegrationOutcome | null> {
@@ -846,13 +904,98 @@ export async function listSchedulerRunCompletions(memory: ResolvedMemory, change
   return completions.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
+export async function listSchedulerRunCompletionsStrict(memory: ResolvedMemory, changePath: string, schedulerRunId: string): Promise<SchedulerRunCompletion[]> {
+  const dir = schedulerRunCompletionsDir(memory, changePath, schedulerRunId);
+  if (!existsSync(dir)) return [];
+  const entries = await readdir(dir, { withFileTypes: true });
+  const completions: SchedulerRunCompletion[] = [];
+  for (const entry of entries) {
+    if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
+    completions.push(await readSchedulerRunCompletion(memory, changePath, schedulerRunId, entry.name.replace(/\.json$/, "")));
+  }
+  return completions.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
 export async function readLatestSchedulerRunCompletionProjection(memory: ResolvedMemory, changePath: string, schedulerRunId: string): Promise<SchedulerRunCompletion | null> {
   return (await listSchedulerRunCompletions(memory, changePath, schedulerRunId))[0] ?? null;
+}
+
+export async function readLatestSchedulerRunCompletionStrict(memory: ResolvedMemory, changePath: string, schedulerRunId: string): Promise<SchedulerRunCompletion | null> {
+  return (await listSchedulerRunCompletionsStrict(memory, changePath, schedulerRunId))[0] ?? null;
 }
 
 export async function findSchedulerRunCompletionForOutcome(memory: ResolvedMemory, changePath: string, schedulerRunId: string, outcomeId: string): Promise<SchedulerRunCompletion | null> {
   for (const completion of await listSchedulerRunCompletions(memory, changePath, schedulerRunId)) {
     if (completion.schedulerIntegrationOutcomeId === outcomeId) return completion;
+  }
+  return null;
+}
+
+export async function writeSchedulerRunBlockedCloseout(memory: ResolvedMemory, changePath: string, closeout: SchedulerRunBlockedCloseout): Promise<void> {
+  await assertChangePathScope(memory, changePath, closeout.changeId, `SchedulerRunBlockedCloseout ${closeout.id}`);
+  await mkdir(schedulerRunBlockedCloseoutsDir(memory, changePath, closeout.schedulerRunId), { recursive: true });
+  await writeJsonFile(schedulerRunBlockedCloseoutPath(memory, changePath, closeout.schedulerRunId, closeout.id), closeout);
+  await writeFile(schedulerRunBlockedCloseoutMarkdownPath(memory, changePath, closeout.schedulerRunId, closeout.id), renderSchedulerRunBlockedCloseoutMarkdown(closeout), "utf8");
+}
+
+export async function readSchedulerRunBlockedCloseout(memory: ResolvedMemory, changePath: string, schedulerRunId: string, closeoutId: string): Promise<SchedulerRunBlockedCloseout> {
+  const closeout = await readRequiredJsonFile(schedulerRunBlockedCloseoutPath(memory, changePath, schedulerRunId, closeoutId), schedulerRunBlockedCloseoutSchema);
+  await assertChangePathScope(memory, changePath, closeout.changeId, `SchedulerRunBlockedCloseout ${closeout.id}`);
+  if (closeout.schedulerRunId !== schedulerRunId || closeout.id !== closeoutId) throw new Error("SchedulerRunBlockedCloseout scope mismatch.");
+  return closeout;
+}
+
+export async function readSchedulerRunBlockedCloseoutProjection(memory: ResolvedMemory, changePath: string, schedulerRunId: string, closeoutId: string): Promise<SchedulerRunBlockedCloseout | null> {
+  try {
+    return await readSchedulerRunBlockedCloseout(memory, changePath, schedulerRunId, closeoutId);
+  } catch {
+    return null;
+  }
+}
+
+export async function listSchedulerRunBlockedCloseouts(memory: ResolvedMemory, changePath: string, schedulerRunId: string): Promise<SchedulerRunBlockedCloseout[]> {
+  const dir = schedulerRunBlockedCloseoutsDir(memory, changePath, schedulerRunId);
+  if (!existsSync(dir)) return [];
+  const entries = await readdir(dir, { withFileTypes: true }).catch(() => []);
+  const closeouts: SchedulerRunBlockedCloseout[] = [];
+  for (const entry of entries) {
+    if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
+    const closeout = await readSchedulerRunBlockedCloseoutProjection(memory, changePath, schedulerRunId, entry.name.replace(/\.json$/, ""));
+    if (closeout) closeouts.push(closeout);
+  }
+  return closeouts.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
+export async function listSchedulerRunBlockedCloseoutsStrict(memory: ResolvedMemory, changePath: string, schedulerRunId: string): Promise<SchedulerRunBlockedCloseout[]> {
+  const dir = schedulerRunBlockedCloseoutsDir(memory, changePath, schedulerRunId);
+  if (!existsSync(dir)) return [];
+  const entries = await readdir(dir, { withFileTypes: true });
+  const closeouts: SchedulerRunBlockedCloseout[] = [];
+  for (const entry of entries) {
+    if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
+    closeouts.push(await readSchedulerRunBlockedCloseout(memory, changePath, schedulerRunId, entry.name.replace(/\.json$/, "")));
+  }
+  return closeouts.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
+export async function readLatestSchedulerRunBlockedCloseoutProjection(memory: ResolvedMemory, changePath: string, schedulerRunId: string): Promise<SchedulerRunBlockedCloseout | null> {
+  return (await listSchedulerRunBlockedCloseouts(memory, changePath, schedulerRunId))[0] ?? null;
+}
+
+export async function readLatestSchedulerRunBlockedCloseoutStrict(memory: ResolvedMemory, changePath: string, schedulerRunId: string): Promise<SchedulerRunBlockedCloseout | null> {
+  return (await listSchedulerRunBlockedCloseoutsStrict(memory, changePath, schedulerRunId))[0] ?? null;
+}
+
+export async function findSchedulerRunBlockedCloseoutForCandidate(memory: ResolvedMemory, changePath: string, schedulerRunId: string, candidateId: string): Promise<SchedulerRunBlockedCloseout | null> {
+  for (const closeout of await listSchedulerRunBlockedCloseouts(memory, changePath, schedulerRunId)) {
+    if (closeout.schedulerIntegrationCandidateId === candidateId) return closeout;
+  }
+  return null;
+}
+
+export async function findSchedulerRunBlockedCloseoutForCandidateStrict(memory: ResolvedMemory, changePath: string, schedulerRunId: string, candidateId: string): Promise<SchedulerRunBlockedCloseout | null> {
+  for (const closeout of await listSchedulerRunBlockedCloseoutsStrict(memory, changePath, schedulerRunId)) {
+    if (closeout.schedulerIntegrationCandidateId === candidateId) return closeout;
   }
   return null;
 }

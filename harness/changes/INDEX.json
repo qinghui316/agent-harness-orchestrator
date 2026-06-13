@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-13T11:40:34.9985745Z",
+    "generated_at":  "2026-06-13T12:47:17.4123694Z",
     "active":  [
 
                ],
@@ -757,6 +757,10 @@
                     {
                         "name":  "20260613-phase-9y-scheduler-end-to-end-workbench-acceptance",
                         "path":  "harness/changes/archive/20260613-phase-9y-scheduler-end-to-end-workbench-acceptance"
+                    },
+                    {
+                        "name":  "20260613-phase-9z-schedulerrun-blocked-exhausted-closeout-gate",
+                        "path":  "harness/changes/archive/20260613-phase-9z-schedulerrun-blocked-exhausted-closeout-gate"
                     }
                 ]
 }

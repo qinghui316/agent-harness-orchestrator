@@ -259,6 +259,8 @@ Phase 9X keeps SchedulerRun terminal completion inside `src/scheduler-runtime` w
 
 Phase 9Y keeps the next step at the acceptance boundary. It may add tests, fixtures, and documentation proving the scheduler Workbench path is recoverable and honest, but it must not add new runtime authority. Any product fix must stay in the responsible owner module; no main implementation may be written back into Workbench chat/server/read-model shells, frontend shell, action registry facade, or manager facades.
 
+Phase 9Z keeps the blocked/exhausted closeout boundary in `src/scheduler-runtime/`. `SchedulerRunBlockedCloseout` is terminal scheduler evidence for a run that cannot reach IntegrationCheck and has no legal next-worker path; it is not `SchedulerRunCompletion`, because completion remains tied to IntegrationCheck outcome/apply-discard evidence. Closeout is forbidden after IntegrationCheck handoff, SchedulerIntegrationOutcome, SchedulerRunCompletion, ready target count `>= 2`, stale candidate evidence, source hash drift, or a legal next-worker continuation. It must not run workers, validation, audit, rework, IntegrationCheck, apply/discard, landing, PR, merge, slot allocation, scheduler loop, child Change creation, new worktrees, or new runs.
+
 ## 7. Memory Unavailable Boundary
 
 Memory can be unavailable on a new machine, after a plain repository clone, when AHO home was not synced, when permissions are missing, or when a future remote memory service is offline.

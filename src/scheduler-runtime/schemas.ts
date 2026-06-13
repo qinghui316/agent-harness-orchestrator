@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { SchedulerIntegrationCandidate, SchedulerIntegrationCheckHandoff, SchedulerIntegrationOutcome, SchedulerReconcileSnapshot, SchedulerRunCompletion, SchedulerRuntimeClaimReservation, SchedulerRuntimeEvent, SchedulerRuntimeState, SchedulerRuntimeWorkerAudit, SchedulerRuntimeWorkerResult, SchedulerRuntimeWorkerReworkAudit, SchedulerRuntimeWorkerReworkPlan, SchedulerRuntimeWorkerReworkResult, SchedulerRuntimeWorkerReworkStart, SchedulerRuntimeWorkerReworkValidation, SchedulerRuntimeWorkerStart, SchedulerRuntimeWorkerValidation } from "./types.js";
+import type { SchedulerIntegrationCandidate, SchedulerIntegrationCheckHandoff, SchedulerIntegrationOutcome, SchedulerReconcileSnapshot, SchedulerRunBlockedCloseout, SchedulerRunCompletion, SchedulerRuntimeClaimReservation, SchedulerRuntimeEvent, SchedulerRuntimeState, SchedulerRuntimeWorkerAudit, SchedulerRuntimeWorkerResult, SchedulerRuntimeWorkerReworkAudit, SchedulerRuntimeWorkerReworkPlan, SchedulerRuntimeWorkerReworkResult, SchedulerRuntimeWorkerReworkStart, SchedulerRuntimeWorkerReworkValidation, SchedulerRuntimeWorkerStart, SchedulerRuntimeWorkerValidation } from "./types.js";
 
 const claimIntentStateSchema = z.object({
   claimIntentId: z.string(),
@@ -88,6 +88,7 @@ export const schedulerRuntimeEventSchema: z.ZodType<SchedulerRuntimeEvent> = z.o
     "scheduler-runtime.integration-check-handoff-completed",
     "scheduler-runtime.integration-outcome-recorded",
     "scheduler-runtime.run-completed",
+    "scheduler-runtime.run-closeout-recorded",
   ]),
   timestamp: z.string(),
   status: z.enum(["initialized", "blocked"]).optional(),
@@ -780,6 +781,37 @@ export const schedulerRunCompletionSchema: z.ZodType<SchedulerRunCompletion> = z
   outcomeReason: z.string(),
   readyWorktreeIds: z.array(z.string()),
   resultTargetWorktreeIds: z.array(z.string()),
+  sourceArtifactHashes: z.record(z.string()),
+  artifactRefs: z.array(z.string()),
+  artifact: z.string(),
+  markdownArtifact: z.string(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+
+export const schedulerRunBlockedCloseoutSchema: z.ZodType<SchedulerRunBlockedCloseout> = z.object({
+  version: z.literal("1.0"),
+  id: z.string(),
+  changeId: z.string(),
+  schedulerRunId: z.string(),
+  schedulerMode: z.literal("parallel-readiness-v1"),
+  status: z.enum(["blocked", "exhausted", "stopped"]),
+  reason: z.enum(["candidate-waiting-exhausted", "candidate-blocked", "candidate-inconsistent", "user-stopped"]),
+  closeoutReason: z.string(),
+  schedulerRuntimeStateId: z.string(),
+  schedulerReconcileSnapshotId: z.string(),
+  schedulerClaimReservationId: z.string(),
+  schedulerIntegrationCandidateId: z.string(),
+  schedulerContractId: z.string(),
+  schedulerDispatchDryRunId: z.string(),
+  schedulerWorkerPlanId: z.string(),
+  schedulerClaimReconcilePlanId: z.string(),
+  schedulerLaunchPreflightId: z.string(),
+  readyWorktreeIds: z.array(z.string()),
+  readyCount: z.number(),
+  blockedCount: z.number(),
+  blockedReasons: z.array(z.string()),
+  unstartedReservedIntentIds: z.array(z.string()),
   sourceArtifactHashes: z.record(z.string()),
   artifactRefs: z.array(z.string()),
   artifact: z.string(),

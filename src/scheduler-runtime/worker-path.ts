@@ -63,7 +63,7 @@ export function findNextSchedulerReservationIntentForWorkerPaths(
   reservation: SchedulerClaimReservationLike,
   workerPaths: SchedulerWorkerPathLike[],
 ): SchedulerReservationIntentLike | null {
-  if (!workerPaths.length || workerPaths.some((path) => !path.terminal)) return null;
+  if (workerPaths.some((path) => !path.terminal)) return null;
   const started = new Set(workerPaths.map((path) => path.start.reservationIntentId));
   return reservation.reservationIntents
     .filter((intent) => intent.status === "reserved" && !started.has(intent.reservationIntentId))

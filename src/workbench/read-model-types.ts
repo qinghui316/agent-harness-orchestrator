@@ -28,6 +28,7 @@ import type {
   WorkbenchSchedulerIntegrationCandidateSummary,
   WorkbenchSchedulerIntegrationOutcomeSummary,
   WorkbenchSchedulerRunCompletionSummary,
+  WorkbenchSchedulerRunBlockedCloseoutSummary,
   WorkbenchSchedulerReconcileSnapshotSummary,
   WorkbenchSchedulerRunSummary,
   WorkbenchSchedulerRuntimeSummary,
@@ -141,6 +142,7 @@ export interface ThreadStreamAction {
   schedulerIntegrationCheckHandoffId?: string;
   schedulerIntegrationOutcomeId?: string;
   schedulerRunCompletionId?: string;
+  schedulerRunBlockedCloseoutId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   workflowRunId?: string;
@@ -268,6 +270,7 @@ export interface WorkbenchDecisionAction {
   schedulerIntegrationCheckHandoffId?: string;
   schedulerIntegrationOutcomeId?: string;
   schedulerRunCompletionId?: string;
+  schedulerRunBlockedCloseoutId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   workflowRunId?: string;
@@ -366,6 +369,7 @@ export interface WorkbenchConfirmationQueueItem {
   schedulerIntegrationCheckHandoffId?: string;
   schedulerIntegrationOutcomeId?: string;
   schedulerRunCompletionId?: string;
+  schedulerRunBlockedCloseoutId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   taskRunId?: string;
@@ -462,6 +466,7 @@ export interface WorkpadNextAction {
   schedulerIntegrationCheckHandoffId?: string;
   schedulerIntegrationOutcomeId?: string;
   schedulerRunCompletionId?: string;
+  schedulerRunBlockedCloseoutId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   workflowRunId?: string;
@@ -716,6 +721,7 @@ export interface WorkbenchWorkpad {
   schedulerIntegrationCheckHandoff?: WorkbenchSchedulerIntegrationCheckHandoffSummary;
   schedulerIntegrationOutcome?: WorkbenchSchedulerIntegrationOutcomeSummary;
   schedulerRunCompletion?: WorkbenchSchedulerRunCompletionSummary;
+  schedulerRunBlockedCloseout?: WorkbenchSchedulerRunBlockedCloseoutSummary;
   workflowRun?: WorkflowRunSummary;
   rolePipeline?: WorkbenchRolePipelineSummary;
   resultReview?: WorkbenchResultReview;

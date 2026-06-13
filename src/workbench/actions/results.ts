@@ -270,6 +270,10 @@ export function summarizeActionResult(actionType: string, result: unknown): stri
     const integrationCheckId = typeof result.completion.integrationCheckId === "string" ? result.completion.integrationCheckId : "IntegrationCheck";
     return `SchedulerRun completion ${status} recorded for ${integrationCheckId}. No apply, landing, PR, merge, or next worker was started.`;
   }
+  if (actionType === "planning.scheduler.run.close-blocked" && isRecord(result) && isRecord(result.closeout)) {
+    const status = typeof result.closeout.status === "string" ? result.closeout.status : "closed";
+    return `SchedulerRun closeout ${status} recorded before IntegrationCheck. No apply, landing, PR, merge, or next worker was started.`;
+  }
   if (actionType === "planning.confirm-execution" && isRecord(result)) {
     return "Planning confirmed and canonical artifacts were written. No execution was started.";
   }
@@ -330,6 +334,7 @@ export function labelForAction(actionType: string): string {
     case "planning.scheduler.integration-check.run": return "Scheduler IntegrationCheck handoff completed";
     case "planning.scheduler.integration-outcome.reconcile": return "Scheduler integration outcome reconciled";
     case "planning.scheduler.run.complete": return "SchedulerRun completion recorded";
+    case "planning.scheduler.run.close-blocked": return "SchedulerRun closeout recorded";
     case "planning.workflowgraph.compile": return "WorkflowGraphPlan compiled";
     case "planning.taskqueue.confirm-start": return "TaskQueueProposal confirmed and started";
     case "orchestrator.evaluate": return "Main orchestrator evaluated";

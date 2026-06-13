@@ -98,6 +98,9 @@ describe("workflow action registry", () => {
     expect(LIVE_WORKFLOW_ACTION_TYPES).toContain("planning.scheduler.run.complete");
     expect(HIGH_IMPACT_WORKFLOW_ACTION_TYPES).toContain("planning.scheduler.run.complete");
     expect(REVALIDATED_WORKFLOW_ACTION_TYPES).toContain("planning.scheduler.run.complete");
+    expect(LIVE_WORKFLOW_ACTION_TYPES).toContain("planning.scheduler.run.close-blocked");
+    expect(HIGH_IMPACT_WORKFLOW_ACTION_TYPES).toContain("planning.scheduler.run.close-blocked");
+    expect(REVALIDATED_WORKFLOW_ACTION_TYPES).toContain("planning.scheduler.run.close-blocked");
   });
 
   it("keeps SchedulerContract ids in target and audit scope matching", () => {
@@ -1045,6 +1048,42 @@ describe("workflow action registry", () => {
     expect(workflowActionScopesMatchStrict(runCompletionRequest, { ...runCompletionRequest })).toBe(true);
     expect(workflowActionScopesMatchStrict(runCompletionRequest, { ...runCompletionRequest, schedulerIntegrationOutcomeId: undefined })).toBe(false);
     expect(workflowActionScopesMatchCompatible(runCompletionRequest, { ...runCompletionRequest, schedulerIntegrationOutcomeId: undefined })).toBe(true);
+
+    const runCloseoutRequest = {
+      changeId: "change-1",
+      actionType: "planning.scheduler.run.close-blocked",
+      schedulerRunId: "scheduler-run-1",
+      schedulerClaimReservationId: "scheduler-claim-reservation-1",
+      schedulerReconcileSnapshotId: "scheduler-reconcile-1",
+      schedulerIntegrationCandidateId: "scheduler-integration-candidate-1",
+      worktreeIds: ["wt-a"],
+    };
+    const runCloseoutResult = {
+      closeout: {
+        id: "scheduler-run-closeout-1",
+        schedulerRunId: "scheduler-run-1",
+        schedulerClaimReservationId: "scheduler-claim-reservation-1",
+        schedulerReconcileSnapshotId: "scheduler-reconcile-1",
+        schedulerIntegrationCandidateId: "scheduler-integration-candidate-1",
+      },
+    };
+    expect(validateWorkflowActionRequiredTargets(runCloseoutRequest)).toEqual([]);
+    expect(validateWorkflowActionRequiredTargets({
+      actionType: "planning.scheduler.run.close-blocked",
+      schedulerRunId: "scheduler-run-1",
+    }).map((item) => item.label)).toEqual(["schedulerClaimReservationId", "schedulerIntegrationCandidateId"]);
+    expect(workflowActionTargetId(runCloseoutRequest, runCloseoutRequest.changeId, runCloseoutResult)).toBe("scheduler-run-closeout-1");
+    expect(workflowActionScopePayload(runCloseoutRequest, runCloseoutRequest.changeId, runCloseoutResult)).toMatchObject({
+      changeId: "change-1",
+      schedulerRunId: "scheduler-run-1",
+      schedulerClaimReservationId: "scheduler-claim-reservation-1",
+      schedulerReconcileSnapshotId: "scheduler-reconcile-1",
+      schedulerIntegrationCandidateId: "scheduler-integration-candidate-1",
+      schedulerRunBlockedCloseoutId: "scheduler-run-closeout-1",
+    });
+    expect(workflowActionScopesMatchStrict(runCloseoutRequest, { ...runCloseoutRequest })).toBe(true);
+    expect(workflowActionScopesMatchStrict(runCloseoutRequest, { ...runCloseoutRequest, schedulerIntegrationCandidateId: undefined })).toBe(false);
+    expect(workflowActionScopesMatchCompatible(runCloseoutRequest, { ...runCloseoutRequest, schedulerIntegrationCandidateId: undefined })).toBe(true);
   });
 
   it("keeps graph ids in target and audit scope matching", () => {

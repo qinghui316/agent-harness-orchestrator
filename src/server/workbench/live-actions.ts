@@ -51,6 +51,7 @@ export async function sendWorkbenchActionLive(input: WorkbenchProjectInput & { p
         schedulerIntegrationCheckHandoffId: body.schedulerIntegrationCheckHandoffId,
         schedulerIntegrationOutcomeId: body.schedulerIntegrationOutcomeId,
         schedulerRunCompletionId: body.schedulerRunCompletionId,
+        schedulerRunBlockedCloseoutId: body.schedulerRunBlockedCloseoutId,
         schedulerWorkerStartId: body.schedulerWorkerStartId,
         schedulerWorkerResultId: body.schedulerWorkerResultId,
         schedulerWorkerValidationId: body.schedulerWorkerValidationId,

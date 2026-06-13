@@ -21,6 +21,7 @@ import {
   readSchedulerIntegrationCandidateProjection,
   readSchedulerIntegrationCheckHandoffProjection,
   readSchedulerIntegrationOutcomeProjection,
+  readSchedulerRunBlockedCloseoutProjection,
   readSchedulerRunCompletionProjection,
   readSchedulerRunProjection,
   readSchedulerWorkerValidationProjection,
@@ -33,7 +34,7 @@ import type {
   WorkflowGraphPlan,
 } from "../../workflow-artifacts/manager.js";
 import type { SchedulerClaimReconcilePlan, SchedulerContract, SchedulerDispatchDryRun, SchedulerLaunchPreflight, SchedulerRun, SchedulerWorkerSessionPlan } from "../../workflow-scheduler/manager.js";
-import type { SchedulerIntegrationCandidate, SchedulerIntegrationCheckHandoff, SchedulerIntegrationOutcome, SchedulerRunCompletion, SchedulerReconcileSnapshot, SchedulerRuntimeClaimReservation, SchedulerRuntimeState, SchedulerRuntimeWorkerAudit, SchedulerRuntimeWorkerReworkPlan, SchedulerRuntimeWorkerReworkAudit, SchedulerRuntimeWorkerReworkResult, SchedulerRuntimeWorkerReworkValidation, SchedulerRuntimeWorkerReworkStart, SchedulerRuntimeWorkerValidation } from "../../scheduler-runtime/manager.js";
+import type { SchedulerIntegrationCandidate, SchedulerIntegrationCheckHandoff, SchedulerIntegrationOutcome, SchedulerRunBlockedCloseout, SchedulerRunCompletion, SchedulerReconcileSnapshot, SchedulerRuntimeClaimReservation, SchedulerRuntimeState, SchedulerRuntimeWorkerAudit, SchedulerRuntimeWorkerReworkPlan, SchedulerRuntimeWorkerReworkAudit, SchedulerRuntimeWorkerReworkResult, SchedulerRuntimeWorkerReworkValidation, SchedulerRuntimeWorkerReworkStart, SchedulerRuntimeWorkerValidation } from "../../scheduler-runtime/manager.js";
 
 export interface WorkbenchTopicPathRef {
   id: string;
@@ -139,6 +140,10 @@ export function getSchedulerIntegrationOutcomeProjectionForPath(memory: Resolved
 
 export function getSchedulerRunCompletionProjectionForPath(memory: ResolvedMemory, changePath: string, schedulerRunId: string, completionId: string): Promise<SchedulerRunCompletion | null> {
   return readSchedulerRunCompletionProjection(memory, changePath, schedulerRunId, completionId);
+}
+
+export function getSchedulerRunBlockedCloseoutProjectionForPath(memory: ResolvedMemory, changePath: string, schedulerRunId: string, closeoutId: string): Promise<SchedulerRunBlockedCloseout | null> {
+  return readSchedulerRunBlockedCloseoutProjection(memory, changePath, schedulerRunId, closeoutId);
 }
 
 export async function getWorkflowRunProjectionForChange(

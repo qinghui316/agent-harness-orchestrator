@@ -35,7 +35,8 @@ export type SchedulerRuntimeEventType =
   | "scheduler-runtime.integration-candidate-compiled"
   | "scheduler-runtime.integration-check-handoff-completed"
   | "scheduler-runtime.integration-outcome-recorded"
-  | "scheduler-runtime.run-completed";
+  | "scheduler-runtime.run-completed"
+  | "scheduler-runtime.run-closeout-recorded";
 export type SchedulerReconcileSnapshotStatus = "generated" | "blocked";
 export type SchedulerRuntimeWorkerStartStatus = "started" | "failed";
 export type SchedulerRuntimeWorkerResultStatus = "evidence-ready" | "failed";
@@ -53,6 +54,8 @@ export type SchedulerIntegrationCandidateOutputStatus = "ready" | "blocked";
 export type SchedulerIntegrationCheckHandoffStatus = "completed";
 export type SchedulerIntegrationOutcomeStatus = "applied" | "discarded" | "blocked";
 export type SchedulerRunCompletionStatus = "completed-applied" | "completed-discarded" | "completed-blocked";
+export type SchedulerRunBlockedCloseoutStatus = "blocked" | "exhausted" | "stopped";
+export type SchedulerRunBlockedCloseoutReason = "candidate-waiting-exhausted" | "candidate-blocked" | "candidate-inconsistent" | "user-stopped";
 
 export interface SchedulerRuntimeClaimIntentState {
   claimIntentId: string;
@@ -803,6 +806,37 @@ export interface SchedulerRunCompletion {
   outcomeReason: string;
   readyWorktreeIds: string[];
   resultTargetWorktreeIds: string[];
+  sourceArtifactHashes: Record<string, string>;
+  artifactRefs: string[];
+  artifact: string;
+  markdownArtifact: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SchedulerRunBlockedCloseout {
+  version: "1.0";
+  id: string;
+  changeId: string;
+  schedulerRunId: string;
+  schedulerMode: SchedulerMode;
+  status: SchedulerRunBlockedCloseoutStatus;
+  reason: SchedulerRunBlockedCloseoutReason;
+  closeoutReason: string;
+  schedulerRuntimeStateId: string;
+  schedulerReconcileSnapshotId: string;
+  schedulerClaimReservationId: string;
+  schedulerIntegrationCandidateId: string;
+  schedulerContractId: string;
+  schedulerDispatchDryRunId: string;
+  schedulerWorkerPlanId: string;
+  schedulerClaimReconcilePlanId: string;
+  schedulerLaunchPreflightId: string;
+  readyWorktreeIds: string[];
+  readyCount: number;
+  blockedCount: number;
+  blockedReasons: string[];
+  unstartedReservedIntentIds: string[];
   sourceArtifactHashes: Record<string, string>;
   artifactRefs: string[];
   artifact: string;

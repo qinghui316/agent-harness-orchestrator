@@ -36,6 +36,7 @@ import {
   SchedulerIntegrationCheckHandoffCard,
   SchedulerIntegrationOutcomeCard,
   SchedulerRunCompletionCard,
+  SchedulerRunBlockedCloseoutCard,
   SchedulerRunCard,
   SchedulerWorkerResultCard,
   SchedulerWorkerSessionPlanCard,
@@ -164,6 +165,7 @@ export function WorkpadDiagnosticDetails({
       {workpad.schedulerIntegrationCheckHandoff ? <SchedulerIntegrationCheckHandoffCard handoff={workpad.schedulerIntegrationCheckHandoff} /> : null}
       {workpad.schedulerIntegrationOutcome ? <SchedulerIntegrationOutcomeCard outcome={workpad.schedulerIntegrationOutcome} /> : null}
       {workpad.schedulerRunCompletion ? <SchedulerRunCompletionCard completion={workpad.schedulerRunCompletion} /> : null}
+      {workpad.schedulerRunBlockedCloseout ? <SchedulerRunBlockedCloseoutCard closeout={workpad.schedulerRunBlockedCloseout} /> : null}
 
       {workpad.rolePipeline ? (
         <section className="workpad-section" data-testid="role-pipeline-summary">

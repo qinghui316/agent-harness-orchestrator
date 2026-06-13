@@ -9,7 +9,7 @@ import type {
   WorkflowGraphPlan,
 } from "../../../workflow-artifacts/manager.js";
 import type { SchedulerClaimReconcilePlan, SchedulerContract, SchedulerDispatchDryRun, SchedulerLaunchPreflight, SchedulerRun, SchedulerWorkerSessionPlan } from "../../../workflow-scheduler/manager.js";
-import type { SchedulerIntegrationCandidate, SchedulerIntegrationCheckHandoff, SchedulerIntegrationOutcome, SchedulerRunCompletion, SchedulerReconcileSnapshot, SchedulerRuntimeClaimReservation, SchedulerRuntimeState, SchedulerRuntimeWorkerAudit, SchedulerRuntimeWorkerReworkPlan, SchedulerRuntimeWorkerReworkAudit, SchedulerRuntimeWorkerReworkResult, SchedulerRuntimeWorkerReworkValidation, SchedulerRuntimeWorkerReworkStart, SchedulerRuntimeWorkerValidation } from "../../../scheduler-runtime/manager.js";
+import type { SchedulerIntegrationCandidate, SchedulerIntegrationCheckHandoff, SchedulerIntegrationOutcome, SchedulerRunBlockedCloseout, SchedulerRunCompletion, SchedulerReconcileSnapshot, SchedulerRuntimeClaimReservation, SchedulerRuntimeState, SchedulerRuntimeWorkerAudit, SchedulerRuntimeWorkerReworkPlan, SchedulerRuntimeWorkerReworkAudit, SchedulerRuntimeWorkerReworkResult, SchedulerRuntimeWorkerReworkValidation, SchedulerRuntimeWorkerReworkStart, SchedulerRuntimeWorkerValidation } from "../../../scheduler-runtime/manager.js";
 import type { ResolvedMemory } from "../../../types/index.js";
 import type { WorkbenchPlanningArtifactBundle, WorkbenchProjectInput } from "../../read-model-types.js";
 import { resolveWorkbenchMemory } from "./support.js";
@@ -33,6 +33,7 @@ import {
   getSchedulerWorkerValidationProjectionForPath,
   getSchedulerIntegrationCheckHandoffProjectionForPath,
   getSchedulerIntegrationOutcomeProjectionForPath,
+  getSchedulerRunBlockedCloseoutProjectionForPath,
   getSchedulerRunCompletionProjectionForPath,
   getSchedulerIntegrationCandidateProjectionForPath,
   getSchedulerLaunchPreflightProjectionForPath,
@@ -295,6 +296,16 @@ export async function getWorkbenchSchedulerRunCompletionProjection(input: Workbe
   const changePath = findWorkbenchTopicPath(topics, changeId);
   if (!changePath) return null;
   return getSchedulerRunCompletionProjectionForPath(memory, changePath, schedulerRunId, completionId);
+}
+
+export async function getWorkbenchSchedulerRunBlockedCloseoutProjection(input: WorkbenchProjectInput, changeId: string, schedulerRunId?: string, closeoutId?: string): Promise<SchedulerRunBlockedCloseout | null> {
+  if (!schedulerRunId || !closeoutId) return null;
+  const memory = await resolveWorkbenchMemory(input);
+  if (!memory.supported) return null;
+  const topics = await listWorkbenchTopicsFromMemory(memory);
+  const changePath = findWorkbenchTopicPath(topics, changeId);
+  if (!changePath) return null;
+  return getSchedulerRunBlockedCloseoutProjectionForPath(memory, changePath, schedulerRunId, closeoutId);
 }
 
 export async function getWorkbenchWorkflowRunProjection(input: WorkbenchProjectInput, changeId: string, workflowRunId: string): Promise<Awaited<ReturnType<typeof getWorkflowRunProjectionForChange>> | null> {

@@ -30,6 +30,7 @@ import {
   readLatestSchedulerIntegrationCheckHandoffSummary,
   readLatestSchedulerIntegrationOutcomeSummary,
   readLatestSchedulerRunCompletionSummary,
+  readLatestSchedulerRunBlockedCloseoutSummary,
   readLatestTaskQueueProposalSummary,
   readLatestWorkflowGraphPlanSummary,
   type WorkbenchDecompositionPlanSummary,
@@ -53,6 +54,7 @@ import {
   type WorkbenchSchedulerIntegrationCheckHandoffSummary,
   type WorkbenchSchedulerIntegrationOutcomeSummary,
   type WorkbenchSchedulerRunCompletionSummary,
+  type WorkbenchSchedulerRunBlockedCloseoutSummary,
   type WorkbenchSchedulerWorkerStartSummary,
   type WorkbenchSchedulerWorkerValidationSummary,
   type WorkbenchSchedulerWorkerSessionPlanSummary,
@@ -270,6 +272,7 @@ export async function buildWorkbenchWorkpad(input: {
   const schedulerIntegrationCheckHandoff = await readLatestSchedulerIntegrationCheckHandoffSummary(memory, selectedTopic.path, scopedSchedulerRun?.id, schedulerIntegrationCandidate?.id);
   const schedulerIntegrationOutcome = await readLatestSchedulerIntegrationOutcomeSummary(memory, selectedTopic.path, scopedSchedulerRun?.id, schedulerIntegrationCheckHandoff?.id);
   const schedulerRunCompletion = await readLatestSchedulerRunCompletionSummary(memory, selectedTopic.path, scopedSchedulerRun?.id, schedulerIntegrationOutcome?.id);
+  const schedulerRunBlockedCloseout = await readLatestSchedulerRunBlockedCloseoutSummary(memory, selectedTopic.path, scopedSchedulerRun?.id, schedulerIntegrationCandidate?.id);
   const workflowRun = await getLatestWorkflowRun(memory, selectedTopic.id).then((run) => run ? summarizeWorkflowRun(run) : null).catch(() => null);
   const agentTasks = await buildAgentTaskSummaries(memory, selectedTopic.id);
   const rolePipeline = buildRolePipelineSummary(selectedTopic, planningBundle, agentTasks);
@@ -329,6 +332,7 @@ export async function buildWorkbenchWorkpad(input: {
     schedulerIntegrationCheckHandoff: schedulerIntegrationCheckHandoff ?? undefined,
     schedulerIntegrationOutcome: schedulerIntegrationOutcome ?? undefined,
     schedulerRunCompletion: schedulerRunCompletion ?? undefined,
+    schedulerRunBlockedCloseout: schedulerRunBlockedCloseout ?? undefined,
     workflowRun: workflowRun ?? undefined,
     rolePipeline,
     resultReview,
@@ -366,7 +370,7 @@ export async function buildWorkbenchWorkpad(input: {
       ...workpadMissingWarnings(specReady, planReady, tasksReady, selectedTopic),
       ...gaps.filter((gap) => gap.status !== "available").map((gap) => gap.summary),
     ],
-    nextAction: buildWorkpadNextAction(selectedTopic, topicApprovals, { specReady, planReady, tasksReady }, intake, taskQueue, taskGraph, planningBundle, decompositionPlan, decompositionReadiness, taskQueueProposal, workflowGraphPlan, schedulerContract, scopedSchedulerDispatchDryRun, scopedSchedulerWorkerSessionPlan, scopedSchedulerClaimReconcilePlan, scopedSchedulerLaunchPreflight, scopedSchedulerRun, schedulerRuntime, schedulerReconcileSnapshot, schedulerClaimReservation, schedulerWorkerStart, schedulerWorkerResult, schedulerWorkerValidation, schedulerWorkerAudit, schedulerWorkerReworkPlan, schedulerWorkerReworkStart, schedulerWorkerReworkResult, schedulerWorkerReworkValidation, schedulerWorkerReworkAudit, schedulerWorkerPaths, schedulerIntegrationCandidate, schedulerIntegrationCheckHandoff, schedulerIntegrationOutcome, schedulerRunCompletion, workflowRun),
+    nextAction: buildWorkpadNextAction(selectedTopic, topicApprovals, { specReady, planReady, tasksReady }, intake, taskQueue, taskGraph, planningBundle, decompositionPlan, decompositionReadiness, taskQueueProposal, workflowGraphPlan, schedulerContract, scopedSchedulerDispatchDryRun, scopedSchedulerWorkerSessionPlan, scopedSchedulerClaimReconcilePlan, scopedSchedulerLaunchPreflight, scopedSchedulerRun, schedulerRuntime, schedulerReconcileSnapshot, schedulerClaimReservation, schedulerWorkerStart, schedulerWorkerResult, schedulerWorkerValidation, schedulerWorkerAudit, schedulerWorkerReworkPlan, schedulerWorkerReworkStart, schedulerWorkerReworkResult, schedulerWorkerReworkValidation, schedulerWorkerReworkAudit, schedulerWorkerPaths, schedulerIntegrationCandidate, schedulerIntegrationCheckHandoff, schedulerIntegrationOutcome, schedulerRunCompletion, schedulerRunBlockedCloseout, workflowRun),
     background: buildWorkpadBackground(workpads, selectedTopic.id),
     memoryIsolation: buildWorkpadMemoryIsolation(memory, selectedTopic, workpads),
   };
@@ -661,6 +665,7 @@ function buildWorkpadNextAction(
   schedulerIntegrationCheckHandoff?: WorkbenchSchedulerIntegrationCheckHandoffSummary | null,
   schedulerIntegrationOutcome?: WorkbenchSchedulerIntegrationOutcomeSummary | null,
   schedulerRunCompletion?: WorkbenchSchedulerRunCompletionSummary | null,
+  schedulerRunBlockedCloseout?: WorkbenchSchedulerRunBlockedCloseoutSummary | null,
   workflowRun?: WorkflowRunSummary | null,
 ): WorkpadNextAction {
   if (topic.state !== "active") {
@@ -707,6 +712,7 @@ function buildWorkpadNextAction(
       schedulerIntegrationCheckHandoff,
       schedulerIntegrationOutcome,
       schedulerRunCompletion,
+      schedulerRunBlockedCloseout,
       workflowRun,
     });
   }
@@ -767,6 +773,8 @@ function buildWorkpadNextAction(
     schedulerIntegrationCandidate,
     schedulerIntegrationCheckHandoff,
     schedulerIntegrationOutcome,
+    schedulerRunCompletion,
+    schedulerRunBlockedCloseout,
     workflowRun,
   });
 }
