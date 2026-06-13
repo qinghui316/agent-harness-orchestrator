@@ -1171,7 +1171,7 @@ export async function reconcilePlanningSchedulerFirstWorkerResult(
   live: WorkbenchLiveSink | undefined,
 ): Promise<SchedulerWorkerResultReconcileResult> {
   const { memory } = await resolveTopic(project, changeId);
-  assertWritableMemory(memory, "Scheduler first worker result reconcile");
+  assertWritableMemory(memory, "Scheduler current worker result reconcile");
   if (!request.schedulerRunId) throw new Error("planning.scheduler.worker.reconcile-result requires schedulerRunId.");
   if (!request.schedulerWorkerStartId) throw new Error("planning.scheduler.worker.reconcile-result requires schedulerWorkerStartId.");
   const result = await reconcileSchedulerFirstWorkerResult(project, {
@@ -1191,7 +1191,7 @@ export async function reconcilePlanningSchedulerFirstWorkerResult(
       runId: result.codeRun?.id ?? result.workerStart.id,
       kind: "status",
       phase: "scheduler-first-worker-running",
-      title: "第一个 scheduler worker 仍在运行",
+      title: "当前 scheduler worker 仍在运行",
       summary: "Result reconcile observed a non-terminal code run; no terminal SchedulerRuntimeWorkerResult was written and the WorkerLease remains active.",
       artifactRef: result.workerStart.artifact,
     });
@@ -1200,8 +1200,8 @@ export async function reconcilePlanningSchedulerFirstWorkerResult(
       changeId,
       decisionType: "planning.scheduler.worker.reconcile-result",
       status: "completed",
-      label: "第一个 worker 仍在运行",
-      summary: "Scheduler first worker result reconcile observed running evidence and did not release the lease.",
+      label: "当前 worker 仍在运行",
+      summary: "Scheduler current worker result reconcile observed running evidence and did not release the lease.",
       targetId: result.workerStart.id,
       runId: result.codeRun?.id ?? null,
       artifact: result.workerStart.artifact,
@@ -1233,7 +1233,7 @@ export async function reconcilePlanningSchedulerFirstWorkerResult(
     runId: result.codeRun?.id ?? result.result.id,
     kind: "file-change",
     phase: result.result.status === "evidence-ready" ? "scheduler-first-worker-result-ready" : "scheduler-first-worker-result-failed",
-    title: result.result.status === "evidence-ready" ? "第一个 scheduler worker 结果已就绪" : "第一个 scheduler worker 结果失败",
+    title: result.result.status === "evidence-ready" ? "当前 scheduler worker 结果已就绪" : "当前 scheduler worker 结果失败",
     summary: "Scheduler-owned worker result evidence was reconciled from TaskRun, WorkerLease, worktree, and code run evidence. No validation, audit, rework, next worker, or scheduler loop was started.",
     artifactRef: result.result.artifact,
   });
@@ -1242,7 +1242,7 @@ export async function reconcilePlanningSchedulerFirstWorkerResult(
     changeId,
     decisionType: "planning.scheduler.worker.reconcile-result",
     status: "completed",
-    label: result.result.status === "evidence-ready" ? "第一个 worker 结果已就绪" : "第一个 worker 结果失败",
+    label: result.result.status === "evidence-ready" ? "当前 worker 结果已就绪" : "当前 worker 结果失败",
     summary: "Reconciled exactly one scheduler coder worker result without starting validation, audit, rework, or the next worker.",
     targetId: result.result.id,
     runId: result.codeRun?.id ?? null,
@@ -1275,7 +1275,7 @@ export async function validatePlanningSchedulerFirstWorker(
   live: WorkbenchLiveSink | undefined,
 ): Promise<SchedulerWorkerValidationResult> {
   const { memory } = await resolveTopic(project, changeId);
-  assertWritableMemory(memory, "Scheduler first worker validation");
+  assertWritableMemory(memory, "Scheduler current worker validation");
   if (!request.schedulerRunId) throw new Error("planning.scheduler.worker.validate-first requires schedulerRunId.");
   if (!request.schedulerWorkerResultId) throw new Error("planning.scheduler.worker.validate-first requires schedulerWorkerResultId.");
   const result = await validateSchedulerFirstWorker(project, {
@@ -1294,7 +1294,7 @@ export async function validatePlanningSchedulerFirstWorker(
     runId: result.validationRun.id,
     kind: "file-change",
     phase: result.schedulerValidation.status === "passed" ? "scheduler-first-worker-validation-passed" : "scheduler-first-worker-validation-failed",
-    title: result.schedulerValidation.status === "passed" ? "第一个 scheduler worker 验证通过" : "第一个 scheduler worker 验证失败",
+    title: result.schedulerValidation.status === "passed" ? "当前 scheduler worker 验证通过" : "当前 scheduler worker 验证失败",
     summary: result.schedulerValidation.status === "passed"
       ? "Validation passed for the first scheduler worker worktree. TaskRun remains evidence-ready for a later audit gate."
       : "Validation failed for the first scheduler worker worktree. TaskRun was blocked; audit, rework, and next worker were not started.",
@@ -1305,7 +1305,7 @@ export async function validatePlanningSchedulerFirstWorker(
     changeId,
     decisionType: "planning.scheduler.worker.validate-first",
     status: "completed",
-    label: result.schedulerValidation.status === "passed" ? "第一个 worker 验证通过" : "第一个 worker 验证失败",
+    label: result.schedulerValidation.status === "passed" ? "当前 worker 验证通过" : "当前 worker 验证失败",
     summary: "Validated exactly one scheduler coder worker worktree without starting audit, rework, or the next worker.",
     targetId: result.schedulerValidation.id,
     runId: result.validationRun.id,
@@ -1340,7 +1340,7 @@ export async function auditPlanningSchedulerFirstWorker(
   live: WorkbenchLiveSink | undefined,
 ): Promise<SchedulerWorkerAuditResult> {
   const { memory } = await resolveTopic(project, changeId);
-  assertWritableMemory(memory, "Scheduler first worker audit");
+  assertWritableMemory(memory, "Scheduler current worker audit");
   if (!request.schedulerRunId) throw new Error("planning.scheduler.worker.audit-first requires schedulerRunId.");
   if (!request.schedulerWorkerValidationId) throw new Error("planning.scheduler.worker.audit-first requires schedulerWorkerValidationId.");
   const result = await auditSchedulerFirstWorker(project, {
@@ -1360,7 +1360,7 @@ export async function auditPlanningSchedulerFirstWorker(
     runId: result.auditRun.id,
     kind: "file-change",
     phase: approved ? "scheduler-first-worker-audit-approved" : "scheduler-first-worker-audit-blocked",
-    title: approved ? "第一个 scheduler worker 审计通过" : "第一个 scheduler worker 审计未通过",
+    title: approved ? "当前 scheduler worker 审计通过" : "当前 scheduler worker 审计未通过",
     summary: approved
       ? "Audit approved the first scheduler worker worktree. The scheduler TaskRun was completed."
       : "Audit blocked or failed for the first scheduler worker worktree. The scheduler TaskRun was blocked; rework and next worker were not started.",
@@ -1371,7 +1371,7 @@ export async function auditPlanningSchedulerFirstWorker(
     changeId,
     decisionType: "planning.scheduler.worker.audit-first",
     status: "completed",
-    label: approved ? "第一个 worker 审计通过" : "第一个 worker 审计未通过",
+    label: approved ? "当前 worker 审计通过" : "当前 worker 审计未通过",
     summary: "Audited exactly one scheduler coder worker worktree without starting rework, the next worker, or a scheduler loop.",
     targetId: result.schedulerAudit.id,
     runId: result.auditRun.id,
@@ -1408,7 +1408,7 @@ export async function compilePlanningSchedulerFirstWorkerReworkPlan(
   live: WorkbenchLiveSink | undefined,
 ): Promise<SchedulerWorkerReworkPlanResult> {
   const { memory } = await resolveTopic(project, changeId);
-  assertWritableMemory(memory, "Scheduler first worker rework plan");
+  assertWritableMemory(memory, "Scheduler current worker rework plan");
   if (!request.schedulerRunId) throw new Error("planning.scheduler.worker.rework-plan.compile requires schedulerRunId.");
   if (!request.schedulerWorkerValidationId) throw new Error("planning.scheduler.worker.rework-plan.compile requires schedulerWorkerValidationId.");
   const result = await compileSchedulerFirstWorkerReworkPlan(project, {
@@ -1427,7 +1427,7 @@ export async function compilePlanningSchedulerFirstWorkerReworkPlan(
     runId: result.reworkPlan.id,
     kind: "file-change",
     phase: "scheduler-first-worker-rework-plan-compiled",
-    title: "第一个 scheduler worker rework 计划已生成",
+    title: "当前 scheduler worker rework 计划已生成",
     summary: "Rework planning evidence was compiled for the first scheduler worker. No rework execution, next worker, or scheduler loop was started.",
     artifactRef: result.reworkPlan.artifact,
   });
@@ -1436,7 +1436,7 @@ export async function compilePlanningSchedulerFirstWorkerReworkPlan(
     changeId,
     decisionType: "planning.scheduler.worker.rework-plan.compile",
     status: "completed",
-    label: "第一个 worker rework 计划已生成",
+    label: "当前 worker rework 计划已生成",
     summary: "Compiled bounded rework planning evidence for exactly one scheduler worker without starting rework or any additional worker.",
     targetId: result.reworkPlan.id,
     runId: result.reworkPlan.targetCodeRunId,
@@ -1475,7 +1475,7 @@ export async function startPlanningSchedulerFirstWorkerRework(
   live: WorkbenchLiveSink | undefined,
 ): Promise<SchedulerFirstWorkerReworkStartResult> {
   const { memory } = await resolveTopic(project, changeId);
-  assertWritableMemory(memory, "Scheduler first worker rework start");
+  assertWritableMemory(memory, "Scheduler current worker rework start");
   if (!request.schedulerRunId) throw new Error("planning.scheduler.worker.rework-start-first requires schedulerRunId.");
   if (!request.schedulerWorkerReworkPlanId) throw new Error("planning.scheduler.worker.rework-start-first requires schedulerWorkerReworkPlanId.");
   const result = await startFirstSchedulerWorkerRework(project, {
@@ -1494,7 +1494,7 @@ export async function startPlanningSchedulerFirstWorkerRework(
         runId: run.id,
         kind: "status",
         phase: "scheduler-first-worker-rework-started",
-        title: "第一个 scheduler worker rework 已启动",
+        title: "当前 scheduler worker rework 已启动",
         summary: run.worktree ? `Reusing worktree ${run.worktree.worktreeId}.` : undefined,
       }),
     } : undefined,
@@ -1509,7 +1509,7 @@ export async function startPlanningSchedulerFirstWorkerRework(
     runId: result.reworkStart.id,
     kind: "file-change",
     phase: "scheduler-first-worker-rework-started",
-    title: "第一个 scheduler worker rework 已启动",
+    title: "当前 scheduler worker rework 已启动",
     summary: "Started exactly one rework-coder on the original scheduler worker worktree. No validation, audit, result reconcile, next worker, apply, or merge was started.",
     artifactRef: result.reworkStart.artifact,
   });
@@ -1518,7 +1518,7 @@ export async function startPlanningSchedulerFirstWorkerRework(
     changeId,
     decisionType: "planning.scheduler.worker.rework-start-first",
     status: "completed",
-    label: "第一个 worker rework 已启动",
+    label: "当前 worker rework 已启动",
     summary: "Started exactly one scoped rework-coder on the original scheduler worker worktree without creating a new worktree or starting follow-up gates.",
     targetId: result.reworkStart.id,
     runId: result.code.run.id,
@@ -1558,7 +1558,7 @@ export async function reconcilePlanningSchedulerFirstWorkerReworkResult(
   live: WorkbenchLiveSink | undefined,
 ): Promise<SchedulerWorkerReworkResultReconcileResult> {
   const { memory } = await resolveTopic(project, changeId);
-  assertWritableMemory(memory, "Scheduler first worker rework result reconcile");
+  assertWritableMemory(memory, "Scheduler current worker rework result reconcile");
   if (!request.schedulerRunId) throw new Error("planning.scheduler.worker.rework-reconcile-result requires schedulerRunId.");
   if (!request.schedulerWorkerReworkStartId) throw new Error("planning.scheduler.worker.rework-reconcile-result requires schedulerWorkerReworkStartId.");
   const result = await reconcileSchedulerFirstWorkerReworkResult(project, {
@@ -1571,7 +1571,7 @@ export async function reconcilePlanningSchedulerFirstWorkerReworkResult(
       runId: result.reworkStart.id,
       kind: "status",
       phase: "scheduler-first-worker-rework-result-running",
-      title: "第一个 scheduler worker rework 仍在运行",
+      title: "当前 scheduler worker rework 仍在运行",
       summary: result.codeRun ? `Rework code run ${result.codeRun.id} is ${result.codeRun.status}.` : "Rework code run has not produced terminal evidence yet.",
     });
     await recordWorkbenchDecision(project, {
@@ -1579,7 +1579,7 @@ export async function reconcilePlanningSchedulerFirstWorkerReworkResult(
       changeId,
       decisionType: "planning.scheduler.worker.rework-reconcile-result",
       status: "completed",
-      label: "第一个 worker rework 仍在运行",
+      label: "当前 worker rework 仍在运行",
       summary: "Rework result reconcile found non-terminal code evidence; no terminal SchedulerRuntimeWorkerReworkResult was written.",
       targetId: result.reworkStart.id,
       runId: result.reworkStart.reworkRunId ?? null,
@@ -1616,7 +1616,7 @@ export async function reconcilePlanningSchedulerFirstWorkerReworkResult(
     runId: result.result.id,
     kind: "file-change",
     phase: result.result.status === "evidence-ready" ? "scheduler-first-worker-rework-result-ready" : "scheduler-first-worker-rework-result-failed",
-    title: result.result.status === "evidence-ready" ? "第一个 scheduler worker rework 结果已对账" : "第一个 scheduler worker rework 结果失败",
+    title: result.result.status === "evidence-ready" ? "当前 scheduler worker rework 结果已对账" : "当前 scheduler worker rework 结果失败",
     summary: "Reconciled one same-worktree rework-coder result. No validation, audit, next worker, apply, or merge was started.",
     artifactRef: result.result.artifact,
   });
@@ -1625,7 +1625,7 @@ export async function reconcilePlanningSchedulerFirstWorkerReworkResult(
     changeId,
     decisionType: "planning.scheduler.worker.rework-reconcile-result",
     status: "completed",
-    label: result.result.status === "evidence-ready" ? "第一个 worker rework 结果已对账" : "第一个 worker rework 结果失败",
+    label: result.result.status === "evidence-ready" ? "当前 worker rework 结果已对账" : "当前 worker rework 结果失败",
     summary: result.result.status === "evidence-ready"
       ? "Rework code evidence is evidence-ready for later rework validation/audit."
       : "Rework code evidence failed; no follow-up gate was started.",
@@ -1669,7 +1669,7 @@ export async function validatePlanningSchedulerFirstWorkerRework(
   live: WorkbenchLiveSink | undefined,
 ): Promise<SchedulerWorkerReworkValidationResult> {
   const { memory } = await resolveTopic(project, changeId);
-  assertWritableMemory(memory, "Scheduler first worker rework validation");
+  assertWritableMemory(memory, "Scheduler current worker rework validation");
   if (!request.schedulerRunId) throw new Error("planning.scheduler.worker.rework-validate-first requires schedulerRunId.");
   if (!request.schedulerWorkerReworkResultId) throw new Error("planning.scheduler.worker.rework-validate-first requires schedulerWorkerReworkResultId.");
   const result = await validateSchedulerFirstWorkerRework(project, {
@@ -1687,7 +1687,7 @@ export async function validatePlanningSchedulerFirstWorkerRework(
     runId: result.schedulerReworkValidation.id,
     kind: "file-change",
     phase: result.schedulerReworkValidation.status === "passed" ? "scheduler-first-worker-rework-validation-passed" : "scheduler-first-worker-rework-validation-failed",
-    title: result.schedulerReworkValidation.status === "passed" ? "第一个 scheduler worker rework 验证通过" : "第一个 scheduler worker rework 验证失败",
+    title: result.schedulerReworkValidation.status === "passed" ? "当前 scheduler worker rework 验证通过" : "当前 scheduler worker rework 验证失败",
     summary: "Ran one scoped Validation on the same scheduler rework worktree. No audit, next worker, apply, or merge was started.",
     artifactRef: result.schedulerReworkValidation.artifact,
   });
@@ -1696,7 +1696,7 @@ export async function validatePlanningSchedulerFirstWorkerRework(
     changeId,
     decisionType: "planning.scheduler.worker.rework-validate-first",
     status: "completed",
-    label: result.schedulerReworkValidation.status === "passed" ? "第一个 worker rework 验证通过" : "第一个 worker rework 验证失败",
+    label: result.schedulerReworkValidation.status === "passed" ? "当前 worker rework 验证通过" : "当前 worker rework 验证失败",
     summary: result.schedulerReworkValidation.status === "passed"
       ? "Rework validation passed; rework audit remains required before task completion."
       : "Rework validation failed; the rework TaskRun is blocked and no follow-up gate was started.",
@@ -1743,7 +1743,7 @@ export async function auditPlanningSchedulerFirstWorkerRework(
   live: WorkbenchLiveSink | undefined,
 ): Promise<SchedulerWorkerReworkAuditResult> {
   const { memory } = await resolveTopic(project, changeId);
-  assertWritableMemory(memory, "Scheduler first worker rework audit");
+  assertWritableMemory(memory, "Scheduler current worker rework audit");
   if (!request.schedulerRunId) throw new Error("planning.scheduler.worker.rework-audit-first requires schedulerRunId.");
   if (!request.schedulerWorkerReworkValidationId) throw new Error("planning.scheduler.worker.rework-audit-first requires schedulerWorkerReworkValidationId.");
   const result = await auditSchedulerFirstWorkerRework(project, {
@@ -1762,7 +1762,7 @@ export async function auditPlanningSchedulerFirstWorkerRework(
     runId: result.schedulerReworkAudit.id,
     kind: "file-change",
     phase: approved ? "scheduler-first-worker-rework-audit-approved" : "scheduler-first-worker-rework-audit-blocked",
-    title: approved ? "第一个 scheduler worker rework 审计通过" : "第一个 scheduler worker rework 审计阻塞",
+    title: approved ? "当前 scheduler worker rework 审计通过" : "当前 scheduler worker rework 审计阻塞",
     summary: "Ran one scoped Audit on the same scheduler rework worktree. No next worker, integration, apply, or merge was started.",
     artifactRef: result.schedulerReworkAudit.artifact,
   });
@@ -1771,7 +1771,7 @@ export async function auditPlanningSchedulerFirstWorkerRework(
     changeId,
     decisionType: "planning.scheduler.worker.rework-audit-first",
     status: "completed",
-    label: approved ? "第一个 worker rework 审计通过" : "第一个 worker rework 审计阻塞",
+    label: approved ? "当前 worker rework 审计通过" : "当前 worker rework 审计阻塞",
     summary: approved
       ? "Rework audit approved; the rework TaskRun is completed."
       : "Rework audit blocked or failed; the current rework path is blocked and no follow-up gate was started.",

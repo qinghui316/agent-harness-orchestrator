@@ -210,41 +210,41 @@ export function summarizeActionResult(actionType: string, result: unknown): stri
   }
   if (actionType === "planning.scheduler.worker.validate-first" && isRecord(result) && isRecord(result.schedulerValidation)) {
     return typeof result.schedulerValidation.status === "string"
-      ? `Scheduler first worker validation ${result.schedulerValidation.status}.`
-      : "Scheduler first worker validation recorded.";
+      ? `Scheduler current worker validation ${result.schedulerValidation.status}.`
+      : "Scheduler current worker validation recorded.";
   }
   if (actionType === "planning.scheduler.worker.audit-first" && isRecord(result) && isRecord(result.schedulerAudit)) {
     return typeof result.schedulerAudit.status === "string"
-      ? `Scheduler first worker audit ${result.schedulerAudit.status}.`
-      : "Scheduler first worker audit recorded.";
+      ? `Scheduler current worker audit ${result.schedulerAudit.status}.`
+      : "Scheduler current worker audit recorded.";
   }
   if (actionType === "planning.scheduler.worker.rework-plan.compile" && isRecord(result) && isRecord(result.reworkPlan)) {
     return typeof result.reworkPlan.blockingSource === "string"
-      ? `Scheduler first worker rework plan compiled from ${result.reworkPlan.blockingSource}.`
-      : "Scheduler first worker rework plan compiled.";
+      ? `Scheduler current worker rework plan compiled from ${result.reworkPlan.blockingSource}.`
+      : "Scheduler current worker rework plan compiled.";
   }
   if (actionType === "planning.scheduler.worker.rework-start-first" && isRecord(result) && isRecord(result.reworkStart)) {
     return typeof result.reworkStart.worktreeId === "string"
-      ? `Scheduler first worker rework started on worktree ${result.reworkStart.worktreeId}.`
-      : "Scheduler first worker rework started.";
+      ? `Scheduler current worker rework started on worktree ${result.reworkStart.worktreeId}.`
+      : "Scheduler current worker rework started.";
   }
   if (actionType === "planning.scheduler.worker.rework-reconcile-result" && isRecord(result)) {
-    if (result.status === "running") return "Scheduler first worker rework is still running.";
+    if (result.status === "running") return "Scheduler current worker rework is still running.";
     if (isRecord(result.result)) {
       return typeof result.result.status === "string"
-        ? `Scheduler first worker rework result reconciled: ${result.result.status}.`
-        : "Scheduler first worker rework result reconciled.";
+        ? `Scheduler current worker rework result reconciled: ${result.result.status}.`
+        : "Scheduler current worker rework result reconciled.";
     }
   }
   if (actionType === "planning.scheduler.worker.rework-validate-first" && isRecord(result) && isRecord(result.schedulerReworkValidation)) {
     return typeof result.schedulerReworkValidation.status === "string"
-      ? `Scheduler first worker rework validation ${result.schedulerReworkValidation.status}.`
-      : "Scheduler first worker rework validation recorded.";
+      ? `Scheduler current worker rework validation ${result.schedulerReworkValidation.status}.`
+      : "Scheduler current worker rework validation recorded.";
   }
   if (actionType === "planning.scheduler.worker.rework-audit-first" && isRecord(result) && isRecord(result.schedulerReworkAudit)) {
     return typeof result.schedulerReworkAudit.status === "string"
-      ? `Scheduler first worker rework audit ${result.schedulerReworkAudit.status}.`
-      : "Scheduler first worker rework audit recorded.";
+      ? `Scheduler current worker rework audit ${result.schedulerReworkAudit.status}.`
+      : "Scheduler current worker rework audit recorded.";
   }
   if (actionType === "planning.scheduler.integration-candidate.compile" && isRecord(result) && isRecord(result.candidate)) {
     const readyCount = typeof result.candidate.readyCount === "number" ? result.candidate.readyCount : 0;
@@ -314,13 +314,13 @@ export function labelForAction(actionType: string): string {
     case "planning.scheduler.runtime.reserve-claims": return "Scheduler runtime claims reserved";
     case "planning.scheduler.worker.start-first": return "Scheduler first coder worker started";
     case "planning.scheduler.worker.reconcile-result": return "Scheduler first coder worker result reconciled";
-    case "planning.scheduler.worker.validate-first": return "Scheduler first worker validated";
-    case "planning.scheduler.worker.audit-first": return "Scheduler first worker audited";
-    case "planning.scheduler.worker.rework-plan.compile": return "Scheduler first worker rework plan compiled";
-    case "planning.scheduler.worker.rework-start-first": return "Scheduler first worker rework started";
-    case "planning.scheduler.worker.rework-reconcile-result": return "Scheduler first worker rework result reconciled";
-    case "planning.scheduler.worker.rework-validate-first": return "Scheduler first worker rework validated";
-    case "planning.scheduler.worker.rework-audit-first": return "Scheduler first worker rework audited";
+    case "planning.scheduler.worker.validate-first": return "Scheduler current worker validated";
+    case "planning.scheduler.worker.audit-first": return "Scheduler current worker audited";
+    case "planning.scheduler.worker.rework-plan.compile": return "Scheduler current worker rework plan compiled";
+    case "planning.scheduler.worker.rework-start-first": return "Scheduler current worker rework started";
+    case "planning.scheduler.worker.rework-reconcile-result": return "Scheduler current worker rework result reconciled";
+    case "planning.scheduler.worker.rework-validate-first": return "Scheduler current worker rework validated";
+    case "planning.scheduler.worker.rework-audit-first": return "Scheduler current worker rework audited";
     case "planning.scheduler.integration-candidate.compile": return "Scheduler integration candidate compiled";
     case "planning.scheduler.integration-check.run": return "Scheduler IntegrationCheck handoff completed";
     case "planning.scheduler.integration-outcome.reconcile": return "Scheduler integration outcome reconciled";

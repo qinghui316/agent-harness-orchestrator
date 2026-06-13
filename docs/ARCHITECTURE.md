@@ -133,6 +133,8 @@ Phase 9R adds the scheduler integration outcome bridge. `src/scheduler-runtime/i
 
 Phase 9S adds the scheduler next-worker start gate. `src/scheduler-runtime/worker-start.ts` remains the owner of scheduler worker-start logic and must support a shared single-reserved-worker start primitive for both the existing first-worker gate and the new start-next gate. Start-next can start exactly one additional coder-stage worker only after prior scheduler worker paths are terminal and no IntegrationCheck handoff/outcome is active. It is not a scheduler loop, slot allocator, whole-wave dispatch, or full parallel executor, and it must not mutate source root or bypass IntegrationCheck/apply gates.
 
+Phase 9T adds the scheduler current-worker quality surface. `src/scheduler-runtime/worker-path.ts` owns pure current-path and candidate-freshness decisions so Workbench projection and confirmation modules stay thin UI/action mappers. This keeps later worker quality gates from being tied to first-worker singleton state and prevents stale integration candidates from hiding newly approved worker outputs.
+
 Workbench relationship:
 
 ```text

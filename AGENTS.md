@@ -262,17 +262,17 @@ Do not edit reference submodule source as part of this product repository. If lo
 
 ## 12. Next Phase
 
-Active change: `harness/changes/active/phase-9s-scheduler-next-worker-start-gate/summary.md`.
+Active change: none.
 
 Pending Harness evolution: none.
 
-Latest completed product phase: Phase 9R Scheduler Integration Outcome Bridge, archived at `harness/changes/archive/20260613-phase-9r-scheduler-integration-outcome-bridge/summary.md`.
+Latest completed product phase: Phase 9T Scheduler Current Worker Quality Gate Candidate Refresh Surface, archived at `harness/changes/archive/20260613-phase-9t-scheduler-current-worker-quality-gate-candidate-refresh-surface/summary.md`.
 
 Latest completed product/Harness docs phase: Phase 8T AgentScope Harness Reference Alignment, archived at `harness/changes/archive/20260611-phase-8t-agentscope-harness-reference-alignment/summary.md`.
 
 Latest Harness evolution: `harness/changes/archive/20260613-auto-evolve-harness-phase-9n-9r-scheduler-integration-evidence/summary.md`, which completed the Phase 9N-9R pending window as `modify/subagent_review` with subagent score `84/100`.
 
-Current active phase: Phase 9S Scheduler Next Worker Start Gate.
+Current active phase: none.
 
 Phase 9G completed the first controlled scheduler execution slice. It may start exactly one coder-stage worker from the latest scheduler claim reservation after user confirmation, while keeping whole-wave dispatch, validation, audit, bounded rework, scheduler loops, slot allocators, child Changes, and the full parallel executor out of scope.
 
@@ -298,7 +298,9 @@ Phase 9Q is archived. It consumes `SchedulerIntegrationCandidate` ready targets,
 
 Phase 9R is closed and archived at `harness/changes/archive/20260613-phase-9r-scheduler-integration-outcome-bridge/summary.md`. It bridges existing IntegrationCheck terminal/applied/discarded outcomes back into scheduler-owned runtime evidence without adding a new IntegrationCheck engine, source-root apply/discard path, landing/PR/merge behavior, next-worker dispatch, scheduler loop, slot allocator, child Changes, or full parallel executor behavior. Existing IntegrationCheck apply/discard confirmation remains the only source-root mutation gate.
 
-Phase 9S is active at `harness/changes/active/phase-9s-scheduler-next-worker-start-gate/summary.md`. It adds a user-confirmed `planning.scheduler.worker.start-next` gate that can start exactly one additional scheduler coder worker from the latest claim reservation after existing scheduler worker paths are terminal. It must not start validation, audit, rework, result reconcile, whole-wave dispatch, scheduler loops, slot allocation, IntegrationCheck, apply, landing, PR, merge, child Changes, or the full parallel executor.
+Phase 9S is closed and archived at `harness/changes/archive/20260613-phase-9s-scheduler-next-worker-start-gate/summary.md`. It adds a user-confirmed `planning.scheduler.worker.start-next` gate that can start exactly one additional scheduler coder worker from the latest claim reservation after existing scheduler worker paths are terminal. It must not start validation, audit, rework, result reconcile, whole-wave dispatch, scheduler loops, slot allocation, IntegrationCheck, apply, landing, PR, merge, child Changes, or the full parallel executor.
+
+Phase 9T is closed and archived at `harness/changes/archive/20260613-phase-9t-scheduler-current-worker-quality-gate-candidate-refresh-surface/summary.md`. It repairs the current-worker quality gate surface after start-next so Workbench result/validation/audit/rework gates target the selected worker path instead of a first-worker singleton, and it refreshes scheduler integration candidates when later approved worker outputs make the previous candidate stale.
 
 Auto Evolve Harness Phase 9N 9R Scheduler Integration Evidence is closed and archived at `harness/changes/archive/20260613-auto-evolve-harness-phase-9n-9r-scheduler-integration-evidence/summary.md`. It handled the Phase 9N-9R pending window as `modify/subagent_review` with subagent score `84/100`, added Source Apply Safety review-template coverage, and added stale archived-review closeout lint. It is Harness evidence only and does not change product code, runtime behavior, Workbench actions, routes, CLI commands, UI, scheduler execution, parallel executor behavior, child Changes, ODWF runtime, or cache/replay.
 

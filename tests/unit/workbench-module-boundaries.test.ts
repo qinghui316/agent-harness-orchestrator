@@ -58,6 +58,7 @@ import { getWorkbenchProjection } from "../../src/server/workbench/projections.j
 import { matchProjectWorkbenchRoute } from "../../src/server/workbench/routes.js";
 import { assertCurrentWorkflowAction } from "../../src/server/workbench/action-revalidation.js";
 import { executeWorkbenchAction as executeWorkbenchServerAction } from "../../src/server/workbench/actions.js";
+import { findNextSchedulerReservationIntentForWorkerPaths, schedulerIntegrationCandidateNeedsRefresh } from "../../src/scheduler-runtime/worker-path.js";
 import { handleApi } from "../../src/server/workbench/api-router.js";
 import { allowedActionIds } from "../../src/server/workbench/approval-actions.js";
 import { handleDirectWorkbenchApi } from "../../src/server/workbench/direct-routes.js";
@@ -1104,6 +1105,7 @@ describe("Workbench module boundaries", () => {
       "src/scheduler-runtime/initialize.ts",
       "src/scheduler-runtime/reconcile.ts",
       "src/scheduler-runtime/claim-reservation.ts",
+      "src/scheduler-runtime/worker-path.ts",
       "src/scheduler-runtime/worker-start.ts",
       "src/scheduler-runtime/worker-result.ts",
       "src/scheduler-runtime/worker-validation.ts",
@@ -1123,6 +1125,7 @@ describe("Workbench module boundaries", () => {
     expect(manager).toContain('export * from "./initialize.js";');
     expect(manager).toContain('export * from "./reconcile.js";');
     expect(manager).toContain('export * from "./claim-reservation.js";');
+    expect(manager).toContain('export * from "./worker-path.js";');
     expect(manager).toContain('export * from "./worker-start.js";');
     expect(manager).toContain('export * from "./worker-result.js";');
     expect(manager).toContain('export * from "./worker-validation.js";');
@@ -1149,6 +1152,14 @@ describe("Workbench module boundaries", () => {
     expect(claimReservation).toContain("source lock conflict");
     expect(claimReservation).not.toContain("createWorkerLease");
     expect(claimReservation).not.toContain("startTaskRun");
+
+    const workerPath = readFileSync("src/scheduler-runtime/worker-path.ts", "utf8");
+    expect(workerPath).toContain("schedulerIntegrationCandidateNeedsRefresh");
+    expect(workerPath).toContain("findNextSchedulerReservationIntentForWorkerPaths");
+    expect(workerPath).not.toContain("workbench/");
+    expect(workerPath).not.toContain("server/");
+    expect(workerPath).not.toContain("src/web");
+    expect(workerPath).not.toContain("cli/");
 
     const workerStart = readFileSync("src/scheduler-runtime/worker-start.ts", "utf8");
     expect(workerStart).toContain("startFirstSchedulerCoderWorker");
@@ -1278,6 +1289,36 @@ describe("Workbench module boundaries", () => {
       const content = readFileSync(file, "utf8");
       expect(content).not.toMatch(/workbench\/|server\/|web\/src|cli\/commands|workflow-scheduler\/manager/);
     }
+  });
+
+  it("keeps scheduler worker-path decisions in the scheduler runtime owner module", () => {
+    const workerPaths = [
+      {
+        start: { reservationIntentId: "reservation-intent-1", updatedAt: "2026-06-13T00:00:00.000Z" },
+        audit: { status: "approved", claimIntentId: "claim-1" },
+        terminal: true,
+      },
+      {
+        start: { reservationIntentId: "reservation-intent-2", updatedAt: "2026-06-13T00:01:00.000Z" },
+        reworkAudit: { status: "approved-with-notes", claimIntentId: "claim-2" },
+        terminal: true,
+      },
+    ];
+    expect(schedulerIntegrationCandidateNeedsRefresh({
+      schedulerClaimReservationId: "reservation-1",
+      outputClaimIntentIds: ["claim-1"],
+    }, workerPaths)).toBe(true);
+    expect(schedulerIntegrationCandidateNeedsRefresh({
+      schedulerClaimReservationId: "reservation-1",
+      outputClaimIntentIds: ["claim-1", "claim-2"],
+    }, workerPaths)).toBe(false);
+    expect(findNextSchedulerReservationIntentForWorkerPaths({
+      reservationIntents: [
+        { reservationIntentId: "reservation-intent-1", claimIntentId: "claim-1", status: "reserved", waveIndex: 0 },
+        { reservationIntentId: "reservation-intent-2", claimIntentId: "claim-2", status: "reserved", waveIndex: 0 },
+        { reservationIntentId: "reservation-intent-3", claimIntentId: "claim-3", status: "reserved", waveIndex: 1 },
+      ],
+    }, workerPaths)).toMatchObject({ reservationIntentId: "reservation-intent-3", claimIntentId: "claim-3" });
   });
 
   it("keeps workflow-run manager as a compatibility facade with scoped recovery modules", () => {

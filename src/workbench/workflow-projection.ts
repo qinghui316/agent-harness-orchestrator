@@ -24,6 +24,8 @@ import {
   readSchedulerRuntimeWorkerReworkValidationProjection,
   readSchedulerRuntimeWorkerReworkStartProjection,
   readSchedulerRuntimeWorkerValidationProjection,
+  findNextSchedulerReservationIntentForWorkerPaths,
+  schedulerIntegrationCandidateNeedsRefresh,
   readSchedulerRuntimeClaimReservationProjection,
   readSchedulerRuntimeStateProjection,
   type SchedulerReconcileSnapshot,
@@ -611,6 +613,7 @@ export interface WorkbenchSchedulerIntegrationCandidateSummary {
   readyCount: number;
   blockedCount: number;
   readyWorktreeIds: string[];
+  outputClaimIntentIds: string[];
   waitingReason?: string;
   artifact?: string;
   markdownArtifact?: string;
@@ -1599,6 +1602,7 @@ function summarizeSchedulerIntegrationCandidate(candidate: SchedulerIntegrationC
     readyCount: candidate.readyCount,
     blockedCount: candidate.blockedCount,
     readyWorktreeIds: candidate.readyWorktreeIds,
+    outputClaimIntentIds: candidate.outputs.map((output) => output.claimIntentId).filter((id): id is string => Boolean(id)),
     waitingReason: candidate.waitingReason,
     artifact: candidate.artifact,
     markdownArtifact: candidate.markdownArtifact,
@@ -1878,7 +1882,7 @@ export function buildTypedWorkflowNextAction(input: {
           if (schedulerWorkerResult?.schedulerWorkerStartId === schedulerWorkerStart.id) {
             if (schedulerWorkerResult.status === "evidence-ready" && !schedulerWorkerValidation) {
               return {
-                ...workflowNextAction("planning.scheduler.worker.validate-first", "验证第一个 worker 结果", "对 9G 创建的同一个 worktree 运行一次 scoped Validation；只写 scheduler validation evidence，不启动 audit、rework 或下一个 worker。"),
+                ...workflowNextAction("planning.scheduler.worker.validate-first", "验证当前 worker 结果", "对当前 scheduler worker 的同一个 worktree 运行一次 scoped Validation；只写 scheduler validation evidence，不启动 audit、rework 或下一个 worker。"),
                 decompositionPlanId: decompositionPlan.id,
                 readinessManifestId: decompositionReadiness.id,
                 schedulerContractId: schedulerRun.schedulerContractId,
@@ -1901,7 +1905,7 @@ export function buildTypedWorkflowNextAction(input: {
             }
             if (schedulerWorkerValidation?.status === "passed" && !schedulerWorkerAudit) {
               return {
-                ...workflowNextAction("planning.scheduler.worker.audit-first", "审计第一个 worker 结果", "对 9G 创建的同一个 worktree 运行一次 scoped Audit；只写 scheduler audit evidence，不启动 rework、下一个 worker 或 whole wave。"),
+                ...workflowNextAction("planning.scheduler.worker.audit-first", "审计当前 worker 结果", "对当前 scheduler worker 的同一个 worktree 运行一次 scoped Audit；只写 scheduler audit evidence，不启动 rework、下一个 worker 或 whole wave。"),
                 decompositionPlanId: decompositionPlan.id,
                 readinessManifestId: decompositionReadiness.id,
                 schedulerContractId: schedulerRun.schedulerContractId,
@@ -1924,7 +1928,7 @@ export function buildTypedWorkflowNextAction(input: {
               || (schedulerWorkerValidation?.status === "passed" && (schedulerWorkerAudit?.status === "blocked" || schedulerWorkerAudit?.status === "failed"));
             if (needsReworkPlan && !schedulerWorkerReworkPlan && schedulerWorkerValidation) {
               return {
-                ...workflowNextAction("planning.scheduler.worker.rework-plan.compile", "生成第一个 worker rework 计划", "根据 validation failed 或 audit blocked/failed evidence 生成 bounded rework 计划；不会启动 rework、下一个 worker 或 scheduler loop。"),
+                ...workflowNextAction("planning.scheduler.worker.rework-plan.compile", "生成当前 worker rework 计划", "根据当前 worker validation failed 或 audit blocked/failed evidence 生成 bounded rework 计划；不会启动 rework、下一个 worker 或 scheduler loop。"),
                 decompositionPlanId: decompositionPlan.id,
                 readinessManifestId: decompositionReadiness.id,
                 schedulerContractId: schedulerRun.schedulerContractId,
@@ -1951,7 +1955,7 @@ export function buildTypedWorkflowNextAction(input: {
             }
             if (schedulerWorkerReworkPlan && !schedulerWorkerReworkStart) {
               return {
-                ...workflowNextAction("planning.scheduler.worker.rework-start-first", "启动第一个 worker rework", "在原 worker worktree 上启动一次 scoped rework-coder；只创建 rework TaskRun、WorkerLease、code run 和 Runtime Continuity sidecars。"),
+                ...workflowNextAction("planning.scheduler.worker.rework-start-first", "启动当前 worker rework", "在当前 worker 的原 worktree 上启动一次 scoped rework-coder；只创建 rework TaskRun、WorkerLease、code run 和 Runtime Continuity sidecars。"),
                 decompositionPlanId: decompositionPlan.id,
                 readinessManifestId: decompositionReadiness.id,
                 schedulerContractId: schedulerRun.schedulerContractId,
@@ -1979,7 +1983,7 @@ export function buildTypedWorkflowNextAction(input: {
             }
             if (schedulerWorkerReworkStart && !schedulerWorkerReworkResult) {
               return {
-                ...workflowNextAction("planning.scheduler.worker.rework-reconcile-result", "检查第一个 worker rework 结果", "读取 rework TaskRun、WorkerLease、worktree 和 rework code run evidence；只写 scheduler rework result，不启动 validation、audit、next worker 或 whole wave。"),
+                ...workflowNextAction("planning.scheduler.worker.rework-reconcile-result", "检查当前 worker rework 结果", "读取 rework TaskRun、WorkerLease、worktree 和 rework code run evidence；只写 scheduler rework result，不启动 validation、audit、next worker 或 whole wave。"),
                 decompositionPlanId: decompositionPlan.id,
                 readinessManifestId: decompositionReadiness.id,
                 schedulerContractId: schedulerRun.schedulerContractId,
@@ -2006,7 +2010,7 @@ export function buildTypedWorkflowNextAction(input: {
             }
             if (schedulerWorkerReworkResult?.status === "evidence-ready" && !schedulerWorkerReworkValidation) {
               return {
-                ...workflowNextAction("planning.scheduler.worker.rework-validate-first", "验证第一个 worker rework 结果", "对 9L 复用的同一个 worktree 运行一次 scoped Validation；只写 scheduler rework validation evidence，不启动 audit、next worker 或 whole wave。"),
+                ...workflowNextAction("planning.scheduler.worker.rework-validate-first", "验证当前 worker rework 结果", "对当前 worker rework 复用的同一个 worktree 运行一次 scoped Validation；只写 scheduler rework validation evidence，不启动 audit、next worker 或 whole wave。"),
                 decompositionPlanId: decompositionPlan.id,
                 readinessManifestId: decompositionReadiness.id,
                 schedulerContractId: schedulerRun.schedulerContractId,
@@ -2035,7 +2039,7 @@ export function buildTypedWorkflowNextAction(input: {
             }
             if (schedulerWorkerReworkValidation?.status === "passed" && !schedulerWorkerReworkAudit) {
               return {
-                ...workflowNextAction("planning.scheduler.worker.rework-audit-first", "审计第一个 worker rework 结果", "对 9L 复用的同一个 worktree 运行一次 scoped Audit；只写 scheduler rework audit evidence，不启动 next worker、integration 或 apply。"),
+                ...workflowNextAction("planning.scheduler.worker.rework-audit-first", "审计当前 worker rework 结果", "对当前 worker rework 复用的同一个 worktree 运行一次 scoped Audit；只写 scheduler rework audit evidence，不启动 next worker、integration 或 apply。"),
                 decompositionPlanId: decompositionPlan.id,
                 readinessManifestId: decompositionReadiness.id,
                 schedulerContractId: schedulerRun.schedulerContractId,
@@ -2067,7 +2071,7 @@ export function buildTypedWorkflowNextAction(input: {
             const workerAuditApproved = schedulerWorkerAudit?.status === "approved" || schedulerWorkerAudit?.status === "approved-with-notes";
             const reworkAuditApproved = schedulerWorkerReworkAudit?.status === "approved" || schedulerWorkerReworkAudit?.status === "approved-with-notes";
             if (workerAuditApproved || reworkAuditApproved) {
-              if (!schedulerIntegrationCandidate) {
+              if (!schedulerIntegrationCandidate || schedulerIntegrationCandidateNeedsRefresh(schedulerIntegrationCandidate, schedulerWorkerPaths)) {
                 return {
                   ...workflowNextAction("planning.scheduler.integration-candidate.compile", "生成 scheduler integration 候选", "把已通过 audit 的 scheduler worker 输出接回现有 apply readiness gate；只写 SchedulerIntegrationCandidate，不运行 IntegrationCheck、apply、merge 或 next worker。"),
                   decompositionPlanId: decompositionPlan.id,
@@ -2086,7 +2090,7 @@ export function buildTypedWorkflowNextAction(input: {
                   claimIntentId: schedulerWorkerReworkAudit?.claimIntentId ?? schedulerWorkerAudit?.claimIntentId,
                 };
               }
-              const nextIntent = findNextSchedulerReservationIntent(schedulerClaimReservation, schedulerWorkerPaths);
+              const nextIntent = findNextSchedulerReservationIntentForWorkerPaths(schedulerClaimReservation, schedulerWorkerPaths);
               if (
                 schedulerIntegrationCandidate.status === "waiting"
                 && schedulerIntegrationCandidate.readyCount === 1
@@ -2179,9 +2183,9 @@ export function buildTypedWorkflowNextAction(input: {
                   ? "planning.scheduler.worker.audit-first"
                   : "planning.scheduler.worker.validate-first";
             return {
-              ...workflowNextAction(waitingActionType, schedulerWorkerReworkAudit ? "等待后续 scheduler 阶段" : schedulerWorkerReworkValidation ? "等待 rework audit 阶段" : schedulerWorkerReworkResult ? "等待 rework validation 阶段" : schedulerWorkerReworkStart ? "等待 rework 结果对账阶段" : schedulerWorkerReworkPlan ? "等待启动 rework" : schedulerWorkerAudit ? "等待后续 scheduler 阶段" : schedulerWorkerValidation ? "等待 Audit 阶段" : "等待验证阶段", schedulerWorkerReworkAudit ? "第一个 scheduler worker rework audit 已记录；next-worker/integration 不是当前范围。" : schedulerWorkerReworkValidation ? "第一个 scheduler worker rework validation 未通过或等待 rework audit 条件。" : schedulerWorkerReworkResult ? "第一个 scheduler worker rework result 不是 evidence-ready 或等待 rework validation 阶段。" : schedulerWorkerReworkStart ? "第一个 scheduler worker rework 已启动；可以检查 rework 结果。" : schedulerWorkerReworkPlan ? "第一个 scheduler worker rework plan 已记录；可以启动一次 same-worktree rework。" : schedulerWorkerAudit ? "第一个 scheduler worker audit 已记录；rework/next-worker 不是当前范围。" : schedulerWorkerValidation ? "第一个 scheduler worker validation 未通过或 audit 条件未满足。" : "第一个 scheduler coder worker result 不是 evidence-ready，不能启动 validation。"),
+              ...workflowNextAction(waitingActionType, schedulerWorkerReworkAudit ? "等待后续 scheduler 阶段" : schedulerWorkerReworkValidation ? "等待 rework audit 阶段" : schedulerWorkerReworkResult ? "等待 rework validation 阶段" : schedulerWorkerReworkStart ? "等待 rework 结果对账阶段" : schedulerWorkerReworkPlan ? "等待启动 rework" : schedulerWorkerAudit ? "等待后续 scheduler 阶段" : schedulerWorkerValidation ? "等待 Audit 阶段" : "等待验证阶段", schedulerWorkerReworkAudit ? "当前 scheduler worker rework audit 已记录；next-worker/integration 不是当前范围。" : schedulerWorkerReworkValidation ? "当前 scheduler worker rework validation 未通过或等待 rework audit 条件。" : schedulerWorkerReworkResult ? "当前 scheduler worker rework result 不是 evidence-ready 或等待 rework validation 阶段。" : schedulerWorkerReworkStart ? "当前 scheduler worker rework 已启动；可以检查 rework 结果。" : schedulerWorkerReworkPlan ? "当前 scheduler worker rework plan 已记录；可以启动一次 same-worktree rework。" : schedulerWorkerAudit ? "当前 scheduler worker audit 已记录；rework/next-worker 不是当前范围。" : schedulerWorkerValidation ? "当前 scheduler worker validation 未通过或 audit 条件未满足。" : "当前 scheduler coder worker result 不是 evidence-ready，不能启动 validation。"),
               enabled: false,
-              disabledReason: schedulerWorkerReworkAudit ? "第一个 worker rework audit 已记录，后续阶段另开。" : schedulerWorkerReworkValidation ? "第一个 worker rework validation 不是 passed。" : schedulerWorkerReworkResult ? "第一个 worker rework result 不是 evidence-ready 或等待 rework validation 阶段。" : schedulerWorkerReworkStart ? "第一个 worker rework 已启动，等待检查 rework 结果。" : schedulerWorkerReworkPlan ? "第一个 worker rework plan 已记录，等待用户确认启动 rework。" : schedulerWorkerAudit ? "第一个 worker audit 已记录。rework/next-worker 不是当前范围。" : schedulerWorkerValidation ? "第一个 worker validation 不是 passed。" : "第一个 worker result 不是 evidence-ready。",
+              disabledReason: schedulerWorkerReworkAudit ? "当前 worker rework audit 已记录，后续阶段另开。" : schedulerWorkerReworkValidation ? "当前 worker rework validation 不是 passed。" : schedulerWorkerReworkResult ? "当前 worker rework result 不是 evidence-ready 或等待 rework validation 阶段。" : schedulerWorkerReworkStart ? "当前 worker rework 已启动，等待检查 rework 结果。" : schedulerWorkerReworkPlan ? "当前 worker rework plan 已记录，等待用户确认启动 rework。" : schedulerWorkerAudit ? "当前 worker audit 已记录。rework/next-worker 不是当前范围。" : schedulerWorkerValidation ? "当前 worker validation 不是 passed。" : "当前 worker result 不是 evidence-ready。",
               decompositionPlanId: decompositionPlan.id,
               readinessManifestId: decompositionReadiness.id,
               schedulerContractId: schedulerRun.schedulerContractId,
@@ -2214,7 +2218,7 @@ export function buildTypedWorkflowNextAction(input: {
             };
           }
           return {
-            ...workflowNextAction("planning.scheduler.worker.reconcile-result", "检查第一个 worker 结果", "读取 TaskRun、WorkerLease、worktree 和 code run evidence；只写 scheduler worker result，不启动 validation、audit、rework 或下一个 worker。"),
+            ...workflowNextAction("planning.scheduler.worker.reconcile-result", "检查当前 worker 结果", "读取 TaskRun、WorkerLease、worktree 和 code run evidence；只写 scheduler worker result，不启动 validation、audit、rework 或下一个 worker。"),
             decompositionPlanId: decompositionPlan.id,
             readinessManifestId: decompositionReadiness.id,
             schedulerContractId: schedulerRun.schedulerContractId,
@@ -2281,15 +2285,4 @@ function workflowNextAction(actionType: WorkflowProjectionActionType, label: str
     enabled: true,
     requiresConfirmation,
   };
-}
-
-function findNextSchedulerReservationIntent(
-  reservation: WorkbenchSchedulerClaimReservationSummary,
-  workerPaths: WorkbenchSchedulerWorkerPathSummary[],
-): WorkbenchSchedulerClaimReservationIntentSummary | null {
-  if (!workerPaths.length || workerPaths.some((path) => !path.terminal)) return null;
-  const started = new Set(workerPaths.map((path) => path.start.reservationIntentId));
-  return reservation.reservationIntents
-    .filter((intent) => intent.status === "reserved" && !started.has(intent.reservationIntentId))
-    .sort((a, b) => a.waveIndex - b.waveIndex || reservation.reservationIntents.indexOf(a) - reservation.reservationIntents.indexOf(b))[0] ?? null;
 }

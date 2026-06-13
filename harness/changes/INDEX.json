@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-13T06:35:11.2651482Z",
+    "generated_at":  "2026-06-13T07:46:55.6678779Z",
     "active":  [
 
                ],
@@ -729,6 +729,10 @@
                     {
                         "name":  "20260613-phase-9s-scheduler-next-worker-start-gate",
                         "path":  "harness/changes/archive/20260613-phase-9s-scheduler-next-worker-start-gate"
+                    },
+                    {
+                        "name":  "20260613-phase-9t-scheduler-current-worker-quality-gate-candidate-refresh-surface",
+                        "path":  "harness/changes/archive/20260613-phase-9t-scheduler-current-worker-quality-gate-candidate-refresh-surface"
                     }
                 ]
 }
