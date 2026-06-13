@@ -228,6 +228,43 @@ describe("SchedulerRun completion", () => {
     expect(mocks.completeSchedulerRun).not.toHaveBeenCalled();
   });
 
+  it("records completed-discarded for a discarded scheduler integration outcome without source mutation", async () => {
+    mocks.readIntegrationCheck.mockResolvedValue({ ...mocks.check, status: "discarded" });
+    mocks.readSchedulerIntegrationOutcome.mockResolvedValue({ ...mocks.outcome, integrationCheckStatus: "discarded", status: "discarded" });
+    mocks.readLatestSchedulerIntegrationOutcomeProjection.mockResolvedValue({ ...mocks.outcome, integrationCheckStatus: "discarded", status: "discarded" });
+    const { completeSchedulerRunFromIntegrationOutcome } = await import("../../src/scheduler-runtime/run-completion.js");
+
+    const result = await completeSchedulerRunFromIntegrationOutcome({ id: "project-1", root: "project-root" } as never, {
+      changeId: "change-1",
+      schedulerRunId: "scheduler-run-1",
+      schedulerIntegrationOutcomeId: "outcome-1",
+    });
+
+    expect(result.schedulerRunStatus).toBe("completed");
+    expect(result.sourceMutated).toBe(false);
+    expect(result.completion.status).toBe("completed-discarded");
+    expect(result.completion.integrationCheckStatus).toBe("discarded");
+    expect(result.completion.outcomeStatus).toBe("discarded");
+    expect(mocks.writeSchedulerRunCompletion).toHaveBeenCalledTimes(1);
+    expect(mocks.completeSchedulerRun).toHaveBeenCalledWith(
+      { projectId: "project-1", root: "memory-root", supported: true },
+      "change-path",
+      mocks.run,
+      expect.objectContaining({
+        summary: "SchedulerRun completed from scheduler integration outcome discarded.",
+      }),
+    );
+    expect(mocks.appendSchedulerRuntimeEvent).toHaveBeenCalledWith(
+      { projectId: "project-1", root: "memory-root", supported: true },
+      "change-path",
+      expect.objectContaining({ id: "scheduler-run-1", status: "completed" }),
+      "scheduler-runtime.run-completed",
+      expect.objectContaining({
+        summary: "SchedulerRun completed as completed-discarded.",
+      }),
+    );
+  });
+
   it("returns existing completion idempotently without writing another artifact", async () => {
     const existingCompletion = {
       id: "completion-existing",

@@ -257,6 +257,8 @@ Phase 9W keeps scheduler integration event/projection hardening inside `src/sche
 
 Phase 9X keeps SchedulerRun terminal completion inside `src/scheduler-runtime` with only thin SchedulerRun status/journal persistence in `src/workflow-scheduler`. Completion may summarize applied, discarded, or blocked scheduler integration outcomes for recovery/projection, but it must not create a scheduler-owned apply/discard action, mutate source root, run IntegrationCheck, start workers, dispatch whole waves, allocate slots, create child Changes, or bypass existing IntegrationCheck/apply/human gates.
 
+Phase 9Y keeps the next step at the acceptance boundary. It may add tests, fixtures, and documentation proving the scheduler Workbench path is recoverable and honest, but it must not add new runtime authority. Any product fix must stay in the responsible owner module; no main implementation may be written back into Workbench chat/server/read-model shells, frontend shell, action registry facade, or manager facades.
+
 ## 7. Memory Unavailable Boundary
 
 Memory can be unavailable on a new machine, after a plain repository clone, when AHO home was not synced, when permissions are missing, or when a future remote memory service is offline.

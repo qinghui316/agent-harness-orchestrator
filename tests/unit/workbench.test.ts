@@ -13,7 +13,7 @@ import { appendTopicThreadEntry, createWorkbenchTopic, postTopicMessage } from "
 import { buildTypedWorkflowNextAction } from "../../src/workbench/workflow-projection.js";
 import { readTopicThreadLog } from "../../src/workbench/thread-log.js";
 import { answerClarification, reanalyzeIntake, runIntakeScan } from "../../src/workbench/intake.js";
-import { getWorkbenchDecompositionPlanProjection, getWorkbenchDecompositionReadinessProjection, getWorkbenchMaintenanceProjection, getWorkbenchRunGraphProjection, getWorkbenchSchedulerClaimReservationProjection, getWorkbenchSchedulerContractProjection, getWorkbenchSchedulerWorkerReworkPlanProjection, getWorkbenchSchedulerWorkerReworkResultProjection, getWorkbenchSchedulerWorkerReworkStartProjection, getWorkbenchSchedulerWorkerReworkValidationProjection, getWorkbenchSnapshot, getWorkbenchStream, getWorkbenchTaskQueueProposalProjection, getWorkbenchTopic, getWorkbenchWorkflowGraphPlanProjection, listWorkbenchApprovals, listWorkbenchRoles, listWorkbenchTopics } from "../../src/workbench/manager.js";
+import { getWorkbenchDecompositionPlanProjection, getWorkbenchDecompositionReadinessProjection, getWorkbenchMaintenanceProjection, getWorkbenchRunGraphProjection, getWorkbenchSchedulerClaimReservationProjection, getWorkbenchSchedulerContractProjection, getWorkbenchSchedulerRunCompletionProjection, getWorkbenchSchedulerWorkerReworkPlanProjection, getWorkbenchSchedulerWorkerReworkResultProjection, getWorkbenchSchedulerWorkerReworkStartProjection, getWorkbenchSchedulerWorkerReworkValidationProjection, getWorkbenchSnapshot, getWorkbenchStream, getWorkbenchTaskQueueProposalProjection, getWorkbenchTopic, getWorkbenchWorkflowGraphPlanProjection, listWorkbenchApprovals, listWorkbenchRoles, listWorkbenchTopics } from "../../src/workbench/manager.js";
 import { WorkbenchStore } from "../../src/workbench/store.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import { collectWorktreeDiff } from "../../src/audit/diff.js";
@@ -3348,6 +3348,7 @@ describe("workbench read model", () => {
       if (outcomeWorkflow.status === "failed") throw new Error(outcomeWorkflow.error ?? "outcome action failed");
       const outcomePayload = (outcomeWorkflow.result ?? outcomeResult.result) as {
         outcome?: {
+          id?: string;
           status?: string;
           schedulerIntegrationCheckHandoffId?: string;
           integrationCheckId?: string;
@@ -3362,6 +3363,80 @@ describe("workbench read model", () => {
         readyWorktreeIds: expect.arrayContaining(refreshedCandidate?.readyWorktreeIds ?? []),
         resultTargetWorktreeIds: expect.arrayContaining(refreshedCandidate?.readyWorktreeIds ?? []),
       });
+      snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: prepared.topic.changeId });
+      expect(snapshot.center.workpad.nextAction).toMatchObject({
+        actionType: "planning.scheduler.run.complete",
+        schedulerRunId: prepared.schedulerRun.id,
+        schedulerIntegrationOutcomeId: outcomePayload.outcome?.id,
+      });
+      const completeAction = snapshot.right.confirmationQueue.current
+        .flatMap((item) => item.actions)
+        .find((action) => action.actionType === "planning.scheduler.run.complete" && action.schedulerIntegrationOutcomeId === outcomePayload.outcome?.id);
+      if (!completeAction) throw new Error("Missing scheduler run completion action after scheduler outcome.");
+      const completionResult = await executeWorkbenchAction({ project: project(), path: tempDir }, { ...completeAction, confirm: true });
+      const completionWorkflow = completionResult.result as { status?: string; error?: string; result?: unknown };
+      if (completionWorkflow.status === "failed") throw new Error(completionWorkflow.error ?? "completion action failed");
+      const completionPayload = (completionWorkflow.result ?? completionResult.result) as {
+        completion?: {
+          id?: string;
+          status?: string;
+          schedulerIntegrationOutcomeId?: string;
+          integrationCheckId?: string;
+          readyWorktreeIds?: string[];
+          resultTargetWorktreeIds?: string[];
+        };
+        schedulerRunStatus?: string;
+        sourceMutated?: boolean;
+      };
+      expect(completionPayload).toMatchObject({
+        schedulerRunStatus: "completed",
+        sourceMutated: false,
+        completion: {
+          status: "completed-applied",
+          schedulerIntegrationOutcomeId: outcomePayload.outcome?.id,
+          integrationCheckId: handoff.handoff?.integrationCheckId,
+          readyWorktreeIds: expect.arrayContaining(refreshedCandidate?.readyWorktreeIds ?? []),
+          resultTargetWorktreeIds: expect.arrayContaining(refreshedCandidate?.readyWorktreeIds ?? []),
+        },
+      });
+      const completionProjection = await getWorkbenchSchedulerRunCompletionProjection(
+        { project: project(), path: tempDir },
+        prepared.topic.changeId,
+        prepared.schedulerRun.id,
+        completionPayload.completion?.id,
+      );
+      expect(completionProjection).toMatchObject({
+        id: completionPayload.completion?.id,
+        schedulerRunId: prepared.schedulerRun.id,
+        status: "completed-applied",
+        schedulerIntegrationOutcomeId: outcomePayload.outcome?.id,
+      });
+      snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: prepared.topic.changeId });
+      expect(snapshot.center.workpad.schedulerRunCompletion).toMatchObject({
+        id: completionPayload.completion?.id,
+        status: "completed-applied",
+        schedulerIntegrationOutcomeId: outcomePayload.outcome?.id,
+      });
+      expect(snapshot.center.workpad.nextAction).toMatchObject({
+        actionType: "planning.scheduler.run.complete",
+        enabled: false,
+        schedulerRunCompletionId: completionPayload.completion?.id,
+      });
+      const forbiddenSchedulerFollowUpsAfterCompletion = new Set([
+        "planning.scheduler.worker.start-first",
+        "planning.scheduler.worker.start-next",
+        "planning.scheduler.worker.reconcile-result",
+        "planning.scheduler.worker.validate-first",
+        "planning.scheduler.worker.audit-first",
+        "planning.scheduler.worker.rework-plan.compile",
+        "planning.scheduler.integration-candidate.compile",
+        "planning.scheduler.integration-check.run",
+        "planning.scheduler.integration-outcome.reconcile",
+      ]);
+      const executableSchedulerFollowUpsAfterCompletion = snapshot.right.confirmationQueue.current
+        .flatMap((item) => item.actions)
+        .filter((action) => action.actionType && forbiddenSchedulerFollowUpsAfterCompletion.has(action.actionType));
+      expect(executableSchedulerFollowUpsAfterCompletion).toHaveLength(0);
       expect(await listWorkflowRuns(finalMemory, prepared.topic.changeId)).toHaveLength(0);
       expect(await listTaskQueues(finalMemory, prepared.topic.changeId)).toHaveLength(0);
       expect(await listAgentTasks(finalMemory, prepared.topic.changeId)).toHaveLength(0);
@@ -3381,10 +3456,135 @@ describe("workbench read model", () => {
         && event.payload?.schedulerIntegrationCheckHandoffId === handoff.handoff?.id
         && event.payload?.outcomeStatus === "applied"
       ))).toBe(true);
+      expect(schedulerRuntimeEvents.some((event) => (
+        event.type === "scheduler-runtime.run-completed"
+        && event.payload?.schedulerIntegrationOutcomeId === outcomePayload.outcome?.id
+        && event.payload?.completionStatus === "completed-applied"
+      ))).toBe(true);
     } finally {
       if (oldPath === undefined) delete process.env.PATH;
       else process.env.PATH = oldPath;
     }
+  }, 120000);
+
+  it("records discarded SchedulerRun completion after existing IntegrationCheck discard without mutating source", async () => {
+    const prepared = await prepareSchedulerTwoWorkerIntegrationHandoff("Scheduler Discard Completion Acceptance");
+    const moduleABeforeDiscard = await readFile(join(tempDir, "src", "module-a.ts"), "utf8");
+    const moduleBBeforeDiscard = await readFile(join(tempDir, "src", "module-b.ts"), "utf8");
+    const sourceStatusBeforeDiscard = await execFileAsync("git", ["status", "--short", "--untracked-files=all"], { cwd: tempDir });
+    expect(sourceStatusBeforeDiscard.stdout.trim()).toBe("");
+
+    let snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: prepared.topic.changeId });
+    expect(snapshot.right.confirmationQueue.primary).toMatchObject({
+      kind: "integration-apply",
+      applyCheckId: prepared.handoff.handoff?.integrationCheckId,
+    });
+    const discardAction = snapshot.right.confirmationQueue.primary?.actions.find((action) => action.action?.actionId === "apply-check.discard")?.action;
+    expect(discardAction).toMatchObject({ actionId: "apply-check.discard", command: "apply-check" });
+    expect(snapshot.right.confirmationQueue.primary?.actions.some((action) => action.actionType?.includes("scheduler") || action.action?.actionId?.includes("scheduler"))).toBe(false);
+    if (!discardAction) throw new Error("Missing existing IntegrationCheck discard action.");
+
+    await executeWorkbenchAction({ project: project(), path: tempDir }, { action: discardAction, confirm: true });
+    expect(await readFile(join(tempDir, "src", "module-a.ts"), "utf8")).toBe(moduleABeforeDiscard);
+    expect(await readFile(join(tempDir, "src", "module-b.ts"), "utf8")).toBe(moduleBBeforeDiscard);
+    const sourceStatusAfterDiscard = await execFileAsync("git", ["status", "--short", "--untracked-files=all"], { cwd: tempDir });
+    expect(sourceStatusAfterDiscard.stdout.trim()).toBe("");
+
+    snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: prepared.topic.changeId });
+    const outcomeAction = snapshot.right.confirmationQueue.current
+      .flatMap((item) => item.actions)
+      .find((action) => action.actionType === "planning.scheduler.integration-outcome.reconcile" && action.schedulerIntegrationCheckHandoffId === prepared.handoff.handoff?.id);
+    if (!outcomeAction) throw new Error("Missing scheduler integration outcome reconcile action after existing discard.");
+    const outcomeResult = await executeWorkbenchAction({ project: project(), path: tempDir }, { ...outcomeAction, confirm: true });
+    const outcomeWorkflow = outcomeResult.result as { status?: string; error?: string; result?: unknown };
+    if (outcomeWorkflow.status === "failed") throw new Error(outcomeWorkflow.error ?? "discard outcome action failed");
+    const outcomePayload = (outcomeWorkflow.result ?? outcomeResult.result) as {
+      outcome?: {
+        id?: string;
+        status?: string;
+        schedulerIntegrationCheckHandoffId?: string;
+        integrationCheckId?: string;
+        readyWorktreeIds?: string[];
+        resultTargetWorktreeIds?: string[];
+      };
+    };
+    expect(outcomePayload.outcome).toMatchObject({
+      status: "discarded",
+      schedulerIntegrationCheckHandoffId: prepared.handoff.handoff?.id,
+      integrationCheckId: prepared.handoff.handoff?.integrationCheckId,
+      readyWorktreeIds: expect.arrayContaining(prepared.refreshedCandidate.readyWorktreeIds ?? []),
+      resultTargetWorktreeIds: expect.arrayContaining(prepared.refreshedCandidate.readyWorktreeIds ?? []),
+    });
+    expect(await readFile(join(tempDir, "src", "module-a.ts"), "utf8")).toBe(moduleABeforeDiscard);
+    expect(await readFile(join(tempDir, "src", "module-b.ts"), "utf8")).toBe(moduleBBeforeDiscard);
+
+    snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: prepared.topic.changeId });
+    const completeAction = snapshot.right.confirmationQueue.current
+      .flatMap((item) => item.actions)
+      .find((action) => action.actionType === "planning.scheduler.run.complete" && action.schedulerIntegrationOutcomeId === outcomePayload.outcome?.id);
+    if (!completeAction) throw new Error("Missing scheduler run completion action after discarded scheduler outcome.");
+    const completionResult = await executeWorkbenchAction({ project: project(), path: tempDir }, { ...completeAction, confirm: true });
+    const completionWorkflow = completionResult.result as { status?: string; error?: string; result?: unknown };
+    if (completionWorkflow.status === "failed") throw new Error(completionWorkflow.error ?? "discard completion action failed");
+    const completionPayload = (completionWorkflow.result ?? completionResult.result) as {
+      completion?: {
+        id?: string;
+        status?: string;
+        schedulerIntegrationOutcomeId?: string;
+        integrationCheckId?: string;
+      };
+      schedulerRunStatus?: string;
+      sourceMutated?: boolean;
+    };
+    expect(completionPayload).toMatchObject({
+      schedulerRunStatus: "completed",
+      sourceMutated: false,
+      completion: {
+        status: "completed-discarded",
+        schedulerIntegrationOutcomeId: outcomePayload.outcome?.id,
+        integrationCheckId: prepared.handoff.handoff?.integrationCheckId,
+      },
+    });
+    const completionProjection = await getWorkbenchSchedulerRunCompletionProjection(
+      { project: project(), path: tempDir },
+      prepared.topic.changeId,
+      prepared.schedulerRun.id,
+      completionPayload.completion?.id,
+    );
+    expect(completionProjection).toMatchObject({
+      id: completionPayload.completion?.id,
+      status: "completed-discarded",
+      schedulerIntegrationOutcomeId: outcomePayload.outcome?.id,
+    });
+    snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: prepared.topic.changeId });
+    expect(snapshot.center.workpad.schedulerRunCompletion).toMatchObject({
+      id: completionPayload.completion?.id,
+      status: "completed-discarded",
+      schedulerIntegrationOutcomeId: outcomePayload.outcome?.id,
+    });
+    expect(snapshot.center.workpad.nextAction).toMatchObject({
+      actionType: "planning.scheduler.run.complete",
+      enabled: false,
+      schedulerRunCompletionId: completionPayload.completion?.id,
+    });
+    const forbiddenSchedulerFollowUpsAfterDiscardCompletion = new Set([
+      "planning.scheduler.worker.start-first",
+      "planning.scheduler.worker.start-next",
+      "planning.scheduler.worker.reconcile-result",
+      "planning.scheduler.worker.validate-first",
+      "planning.scheduler.worker.audit-first",
+      "planning.scheduler.worker.rework-plan.compile",
+      "planning.scheduler.integration-candidate.compile",
+      "planning.scheduler.integration-check.run",
+      "planning.scheduler.integration-outcome.reconcile",
+    ]);
+    expect(snapshot.right.confirmationQueue.current
+      .flatMap((item) => item.actions)
+      .filter((action) => action.actionType && forbiddenSchedulerFollowUpsAfterDiscardCompletion.has(action.actionType))).toHaveLength(0);
+    expect(await readFile(join(tempDir, "src", "module-a.ts"), "utf8")).toBe(moduleABeforeDiscard);
+    expect(await readFile(join(tempDir, "src", "module-b.ts"), "utf8")).toBe(moduleBBeforeDiscard);
+    const sourceStatusAfterCompletion = await execFileAsync("git", ["status", "--short", "--untracked-files=all"], { cwd: tempDir });
+    expect(sourceStatusAfterCompletion.stdout.trim()).toBe("");
   }, 120000);
 
   it("compiles a scheduler worker rework plan after first worker validation fails and starts bounded same-worktree rework", async () => {
@@ -5596,6 +5796,158 @@ async function writeAcceptedSpecAndTasks(changeId: string): Promise<void> {
     "  - Covers: AC-001",
     "",
   ].join("\n"), "utf8");
+}
+
+async function prepareSchedulerTwoWorkerIntegrationHandoff(title: string): Promise<{
+  topic: { changeId: string };
+  schedulerRun: { id?: string };
+  claimReservation: { id?: string };
+  refreshedCandidate: { id?: string; readyWorktreeIds?: string[] };
+  handoff: {
+    handoff?: {
+      id?: string;
+      integrationCheckId?: string;
+      schedulerIntegrationCandidateId?: string;
+      readyWorktreeIds?: string[];
+      resultTargetWorktreeIds?: string[];
+    };
+    integrationCheck?: { id?: string };
+  };
+}> {
+  const prepared = await prepareSchedulerFirstWorkerThroughResult({ title });
+  const oldPath = process.env.PATH;
+  const fakeCodex = await createFakeCodex();
+  try {
+    process.env.PATH = `${fakeCodex.binDir}${delimiter}${oldPath ?? ""}`;
+
+    let snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: prepared.topic.changeId });
+    const firstValidationAction = snapshot.right.confirmationQueue.current
+      .flatMap((item) => item.actions)
+      .find((action) => action.actionType === "planning.scheduler.worker.validate-first" && action.schedulerWorkerResultId === prepared.workerResult.id);
+    if (!firstValidationAction) throw new Error("Missing first worker validation action.");
+    const firstValidation = await executeWorkbenchAction({ project: project(), path: tempDir }, { ...firstValidationAction, confirm: true });
+    const firstValidationResult = (firstValidation.result as {
+      result?: { schedulerValidation?: { id?: string } };
+    }).result;
+
+    snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: prepared.topic.changeId });
+    const firstAuditAction = snapshot.right.confirmationQueue.current
+      .flatMap((item) => item.actions)
+      .find((action) => action.actionType === "planning.scheduler.worker.audit-first" && action.schedulerWorkerValidationId === firstValidationResult?.schedulerValidation?.id);
+    if (!firstAuditAction) throw new Error("Missing first worker audit action.");
+    await executeWorkbenchAction({ project: project(), path: tempDir }, { ...firstAuditAction, confirm: true });
+    await rm(join(tempDir, "README.md"), { force: true });
+
+    snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: prepared.topic.changeId });
+    const firstCandidateAction = snapshot.right.confirmationQueue.current
+      .flatMap((item) => item.actions)
+      .find((action) => action.actionType === "planning.scheduler.integration-candidate.compile" && action.schedulerRunId === prepared.schedulerRun.id);
+    if (!firstCandidateAction) throw new Error("Missing first scheduler integration candidate action.");
+    const firstCandidateResult = await executeWorkbenchAction({ project: project(), path: tempDir }, { ...firstCandidateAction, confirm: true });
+    const firstCandidateWorkflow = firstCandidateResult.result as { status?: string; error?: string; result?: unknown };
+    if (firstCandidateWorkflow.status === "failed") throw new Error(firstCandidateWorkflow.error ?? "first candidate action failed");
+    const firstCandidate = ((firstCandidateWorkflow.result ?? firstCandidateResult.result) as {
+      candidate?: { id?: string; readyCount?: number };
+    }).candidate;
+    expect(firstCandidate).toMatchObject({ readyCount: 1 });
+
+    snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: prepared.topic.changeId });
+    const startNextAction = snapshot.right.confirmationQueue.current
+      .flatMap((item) => item.actions)
+      .find((action) => action.actionType === "planning.scheduler.worker.start-next" && action.schedulerRunId === prepared.schedulerRun.id);
+    if (!startNextAction) throw new Error("Missing scheduler start-next action.");
+    const secondStartResult = await executeWorkbenchAction({ project: project(), path: tempDir }, { ...startNextAction, confirm: true });
+    const secondStart = (((secondStartResult.result as { result?: unknown }).result ?? secondStartResult.result) as {
+      workerStart?: {
+        id?: string;
+        taskRunId?: string;
+        workerLeaseId?: string;
+        worktreeId?: string;
+        runId?: string;
+      };
+    });
+
+    snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: prepared.topic.changeId });
+    const secondResultAction = snapshot.right.confirmationQueue.current
+      .flatMap((item) => item.actions)
+      .find((action) => action.actionType === "planning.scheduler.worker.reconcile-result" && action.schedulerWorkerStartId === secondStart.workerStart?.id);
+    if (!secondResultAction) throw new Error("Missing second worker result reconcile action.");
+    const secondResult = await executeWorkbenchAction({ project: project(), path: tempDir }, { ...secondResultAction, confirm: true });
+    const secondWorkerResult = (secondResult.result as {
+      result?: { result?: { id?: string; status?: string } };
+    }).result;
+    expect(secondWorkerResult).toMatchObject({ result: { status: "evidence-ready" } });
+
+    snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: prepared.topic.changeId });
+    const secondValidationAction = snapshot.right.confirmationQueue.current
+      .flatMap((item) => item.actions)
+      .find((action) => action.actionType === "planning.scheduler.worker.validate-first" && action.schedulerWorkerResultId === secondWorkerResult?.result?.id);
+    if (!secondValidationAction) throw new Error("Missing second worker validation action.");
+    const secondValidation = await executeWorkbenchAction({ project: project(), path: tempDir }, { ...secondValidationAction, confirm: true });
+    const secondValidationResult = (secondValidation.result as {
+      result?: { schedulerValidation?: { id?: string; status?: string } };
+    }).result;
+    expect(secondValidationResult).toMatchObject({ schedulerValidation: { status: "passed" } });
+
+    snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: prepared.topic.changeId });
+    const secondAuditAction = snapshot.right.confirmationQueue.current
+      .flatMap((item) => item.actions)
+      .find((action) => action.actionType === "planning.scheduler.worker.audit-first" && action.schedulerWorkerValidationId === secondValidationResult?.schedulerValidation?.id);
+    if (!secondAuditAction) throw new Error("Missing second worker audit action.");
+    const secondAudit = await executeWorkbenchAction({ project: project(), path: tempDir }, { ...secondAuditAction, confirm: true });
+    const secondAuditResult = ((secondAudit.result as { result?: unknown }).result ?? secondAudit.result) as {
+      schedulerAudit?: { status?: string };
+    };
+    expect(secondAuditResult).toMatchObject({ schedulerAudit: { status: "approved" } });
+    await rm(join(tempDir, "README.md"), { force: true });
+
+    snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: prepared.topic.changeId });
+    const refreshedCandidateAction = snapshot.right.confirmationQueue.current
+      .flatMap((item) => item.actions)
+      .find((action) => action.actionType === "planning.scheduler.integration-candidate.compile" && action.schedulerRunId === prepared.schedulerRun.id);
+    if (!refreshedCandidateAction) throw new Error("Missing refreshed scheduler integration candidate action.");
+    const refreshedCandidateResult = await executeWorkbenchAction({ project: project(), path: tempDir }, { ...refreshedCandidateAction, confirm: true });
+    const refreshedCandidateWorkflow = refreshedCandidateResult.result as { status?: string; error?: string; result?: unknown };
+    if (refreshedCandidateWorkflow.status === "failed") throw new Error(refreshedCandidateWorkflow.error ?? "refreshed candidate action failed");
+    const refreshedCandidate = ((refreshedCandidateWorkflow.result ?? refreshedCandidateResult.result) as {
+      candidate?: { id?: string; status?: string; readyCount?: number; readyWorktreeIds?: string[] };
+    }).candidate ?? {};
+    expect(refreshedCandidate).toMatchObject({ status: "ready", readyCount: 2 });
+
+    snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: prepared.topic.changeId });
+    const handoffAction = snapshot.right.confirmationQueue.current
+      .flatMap((item) => item.actions)
+      .find((action) => action.actionType === "planning.scheduler.integration-check.run" && action.schedulerIntegrationCandidateId === refreshedCandidate.id);
+    if (!handoffAction) throw new Error("Missing scheduler IntegrationCheck handoff action.");
+    const handoffResult = await executeWorkbenchAction({ project: project(), path: tempDir }, { ...handoffAction, confirm: true });
+    const handoffWorkflow = handoffResult.result as { status?: string; error?: string; result?: unknown };
+    if (handoffWorkflow.status === "failed") throw new Error(handoffWorkflow.error ?? "handoff action failed");
+    const handoff = (handoffWorkflow.result ?? handoffResult.result) as {
+      handoff?: {
+        id?: string;
+        integrationCheckId?: string;
+        schedulerIntegrationCandidateId?: string;
+        readyWorktreeIds?: string[];
+        resultTargetWorktreeIds?: string[];
+      };
+      integrationCheck?: { id?: string };
+    };
+    expect(handoff.handoff).toMatchObject({
+      schedulerIntegrationCandidateId: refreshedCandidate.id,
+      integrationCheckId: handoff.integrationCheck?.id,
+    });
+
+    return {
+      topic: prepared.topic,
+      schedulerRun: prepared.schedulerRun,
+      claimReservation: prepared.claimReservation,
+      refreshedCandidate,
+      handoff,
+    };
+  } finally {
+    if (oldPath === undefined) delete process.env.PATH;
+    else process.env.PATH = oldPath;
+  }
 }
 
 async function prepareSchedulerFirstWorkerThroughResult(options: {

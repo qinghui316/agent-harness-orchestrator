@@ -127,7 +127,7 @@ Current baseline:
 - Auto Evolve Harness Phase 9J 9N Scheduler Rework Evidence completed and is archived at `harness/changes/archive/20260612-auto-evolve-harness-phase-9j-9n-scheduler-rework-evidence/summary.md`. It handled the Phase 9J-9N scheduler rework evidence window as `noop/subagent_review` with subagent score `92/100`; existing scheduler worker/rework gate, same-worktree rework, module-boundary, ToolPolicy/human gate, workflow-truth, and integration-bridge boundary coverage is sufficient. It is Harness evidence only and does not change product code, runtime behavior, Workbench actions, routes, CLI commands, UI, scheduler execution, parallel executor behavior, child Changes, ODWF runtime, or cache/replay.
 - Auto Evolve Harness Phase 9B 9F Scheduler Runtime Surface Evidence completed and is archived at `harness/changes/archive/20260611-auto-evolve-harness-phase-9b-9f-scheduler-runtime-surface-evidence/summary.md`. It handled the generated Phase 9B-9F pending evolution window as `noop/subagent_review` with subagent score `94/100`; no new Harness rule was added.
 - Harness evolution after Phase 9B completed as `noop/subagent_review` and is archived at `harness/changes/archive/20260611-auto-evolve-harness-phase-8w-9b-scheduler-pre-executor-evidence/summary.md`. Authorized subagent review recommended `noop` with score `93/100`; existing proposal/runtime, Runtime Continuity auxiliary evidence, ToolPolicy authority, human gate, and future feature module-boundary rules are sufficient for the Phase 8W-9B scheduler pre-executor evidence window.
-- Active change: none.
+- Active change: `harness/changes/active/phase-9y-scheduler-end-to-end-workbench-acceptance/summary.md`.
 - Pending Harness evolution: none.
 - Latest Harness evolution: `harness/changes/archive/20260613-auto-evolve-harness-phase-9r-9v-scheduler-integration-apply-evidence/summary.md`, which completed the Phase 9R-9V pending window as `noop/subagent_review` with subagent score `88/100`.
 
@@ -262,7 +262,7 @@ Do not edit reference submodule source as part of this product repository. If lo
 
 ## 12. Next Phase
 
-Active change: none.
+Active change: `harness/changes/active/phase-9y-scheduler-end-to-end-workbench-acceptance/summary.md`.
 
 Pending Harness evolution: none.
 
@@ -272,7 +272,7 @@ Latest completed product/Harness docs phase: Phase 8T AgentScope Harness Referen
 
 Latest Harness evolution: `harness/changes/archive/20260613-auto-evolve-harness-phase-9r-9v-scheduler-integration-apply-evidence/summary.md`, which completed the Phase 9R-9V pending window as `noop/subagent_review` with subagent score `88/100`.
 
-Current active phase: none.
+Current active phase: Phase 9Y Scheduler End to End Workbench Acceptance, active at `harness/changes/active/phase-9y-scheduler-end-to-end-workbench-acceptance/summary.md`.
 
 Phase 9G completed the first controlled scheduler execution slice. It may start exactly one coder-stage worker from the latest scheduler claim reservation after user confirmation, while keeping whole-wave dispatch, validation, audit, bounded rework, scheduler loops, slot allocators, child Changes, and the full parallel executor out of scope.
 
@@ -309,6 +309,8 @@ Phase 9V is closed and archived at `harness/changes/archive/20260613-phase-9v-sc
 Phase 9W is closed and archived at `harness/changes/archive/20260613-phase-9w-scheduler-integration-evidence-event-projection-hardening/summary.md`. It hardens SchedulerRun runtime event/projection coverage for the scheduler integration bridge by recording integration candidate, IntegrationCheck handoff, and terminal outcome transitions as scheduler-owned evidence. It does not add a new IntegrationCheck engine, scheduler-owned apply/discard, next-worker dispatch, whole-wave dispatch, scheduler loops, slot allocation, landing, PR, merge, child Changes, ODWF runtime, cache/replay, or a full parallel executor.
 
 Phase 9X is closed and archived at `harness/changes/archive/20260613-phase-9x-schedulerrun-terminal-completion-projection/summary.md`. It adds SchedulerRun terminal completion projection after scheduler integration outcome so recovery and Workbench status can distinguish a finished scheduler run from merely recorded integration evidence. It does not add scheduler apply/discard, a new IntegrationCheck engine, next-worker dispatch, whole-wave dispatch, scheduler loops, slot allocation, landing, PR, merge, child Changes, or a full parallel executor.
+
+Phase 9Y is active at `harness/changes/active/phase-9y-scheduler-end-to-end-workbench-acceptance/summary.md`. It verifies the Workbench scheduler path through two worker outputs, existing IntegrationCheck apply/discard, SchedulerIntegrationOutcome, and SchedulerRunCompletion with cold-read projection recovery and confirmation queue honesty. It does not add scheduler runtime, a new IntegrationCheck engine, scheduler-owned apply/discard, next-worker dispatch, whole-wave dispatch, scheduler loops, slot allocation, landing, PR, merge, child Changes, or a full parallel executor.
 
 Auto Evolve Harness Phase 9R 9V Scheduler Integration Apply Evidence is closed and archived at `harness/changes/archive/20260613-auto-evolve-harness-phase-9r-9v-scheduler-integration-apply-evidence/summary.md`. It reviewed Phase 9R-9V as `noop/subagent_review` with subagent score `88/100`; existing Source Apply Safety, scoped action payload, proposal/runtime, module-boundary, scheduler non-execution, ToolPolicy/human gate, and workflow-truth rules are sufficient. It does not change product code, runtime behavior, Workbench actions, routes, CLI commands, UI, scheduler execution, parallel executor behavior, child Changes, ODWF runtime, or cache/replay.
 

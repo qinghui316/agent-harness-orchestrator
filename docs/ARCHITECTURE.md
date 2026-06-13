@@ -143,6 +143,8 @@ Phase 9W adds event/projection hardening for that same integration bridge. `src/
 
 Phase 9X adds SchedulerRun terminal completion projection after scheduler integration outcome. `src/scheduler-runtime/` owns completion validation/evidence, while `src/workflow-scheduler/` may persist the SchedulerRun terminal status and journal event from canonical scope. Completion is runtime coordination evidence for recovery and Workbench status; it does not add a scheduler apply/discard path, a new IntegrationCheck engine, worker dispatch, scheduler loop, slot allocator, landing, PR, merge, child Changes, or a full parallel executor.
 
+Phase 9Y is an end-to-end Workbench acceptance phase over that scheduler integration chain. It verifies artifact-backed projection recovery, confirmation queue honesty, existing IntegrationCheck apply/discard ownership, SchedulerIntegrationOutcome, and SchedulerRunCompletion without adding scheduler runtime capability. Any discovered blocked/exhausted closeout gap must become a follow-up change instead of expanding this acceptance phase into a new runtime gate.
+
 Workbench relationship:
 
 ```text

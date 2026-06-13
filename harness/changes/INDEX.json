@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-13T10:46:19.1878952Z",
+    "generated_at":  "2026-06-13T11:40:34.9985745Z",
     "active":  [
 
                ],
@@ -753,6 +753,10 @@
                     {
                         "name":  "20260613-phase-9x-schedulerrun-terminal-completion-projection",
                         "path":  "harness/changes/archive/20260613-phase-9x-schedulerrun-terminal-completion-projection"
+                    },
+                    {
+                        "name":  "20260613-phase-9y-scheduler-end-to-end-workbench-acceptance",
+                        "path":  "harness/changes/archive/20260613-phase-9y-scheduler-end-to-end-workbench-acceptance"
                     }
                 ]
 }
