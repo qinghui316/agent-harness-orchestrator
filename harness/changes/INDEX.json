@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-13T22:53:49.9965843Z",
+    "generated_at":  "2026-06-13T23:06:01.5608900Z",
     "active":  [
 
                ],
@@ -817,6 +817,10 @@
                     {
                         "name":  "20260614-phase-10k-goal-loop-existing-gate-recommendation-coverage",
                         "path":  "harness/changes/archive/20260614-phase-10k-goal-loop-existing-gate-recommendation-coverage"
+                    },
+                    {
+                        "name":  "20260614-phase-10l-goal-loop-packet-freshness-confirmation-alignment",
+                        "path":  "harness/changes/archive/20260614-phase-10l-goal-loop-packet-freshness-confirmation-alignment"
                     }
                 ]
 }

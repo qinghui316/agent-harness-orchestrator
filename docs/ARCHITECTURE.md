@@ -174,6 +174,8 @@ Phase 10J consumes that packet at the main-Agent context boundary. `src/goal-loo
 
 Phase 10K keeps that architecture and broadens only the recommendation policy. `GoalLoopDecision` may now observe scheduler current-worker evidence and recommend an existing scoped gate such as worker result reconcile, validation, audit, rework, start-next, integration candidate, IntegrationCheck handoff, or integration outcome reconcile. The recommendation is still a pointer to a separate Harness transition; it is not a controller, scheduler loop, action dispatcher, source mutation path, or close authority.
 
+Phase 10L adds the freshness layer required before any controller-like loop can be considered. A `GoalLoopNextStepPacket` may be injected into main-Agent context or Workpad summaries only while a read-only preview of current Goal Loop evidence still matches its recommendation and source evidence. If scheduler/runtime evidence supersedes the packet, the packet is hidden until the user records a fresh `planning.goal-loop.evaluate`. This prevents stale context from becoming de facto planning authority while preserving separate concrete Workbench gates.
+
 Goal-driven loop model:
 
 ```mermaid

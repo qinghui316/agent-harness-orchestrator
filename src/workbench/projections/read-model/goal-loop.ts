@@ -1,4 +1,5 @@
 import {
+  isGoalLoopNextStepPacketFresh,
   readLatestGoalLoopContinuationBrief,
   readLatestGoalLoopDecision,
   readLatestGoalLoopIteration,
@@ -27,6 +28,7 @@ export async function readLatestGoalLoopSummary(
     if (packet.sourceGoalLoopContinuationBriefId !== brief.id) return null;
     if (packet.changeId !== decision.changeId) return null;
     if (brief.executionStarted !== false || iteration.executionStarted !== false || decision.executionStarted !== false || packet.executionStarted !== false) return null;
+    if (!(await isGoalLoopNextStepPacketFresh(memory, changePath, packet))) return null;
     return {
       id: brief.id,
       changeId: brief.changeId,

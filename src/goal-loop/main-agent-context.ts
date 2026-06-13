@@ -9,6 +9,7 @@ import {
   readLatestGoalLoopIteration,
   readLatestGoalLoopNextStepPacket,
 } from "./repository.js";
+import { isGoalLoopNextStepPacketFresh } from "./freshness.js";
 import type { GoalLoopNextStepPacket } from "./types.js";
 
 export interface GoalLoopMainAgentContextSection {
@@ -35,6 +36,7 @@ export async function buildGoalLoopMainAgentContextSection(
     if (brief.sourceGoalLoopDecisionId !== decision.id || brief.sourceGoalLoopIterationId !== iteration.id) return null;
     if (packet.sourceGoalLoopDecisionId !== decision.id || packet.sourceGoalLoopIterationId !== iteration.id || packet.sourceGoalLoopContinuationBriefId !== brief.id) return null;
     if (decision.executionStarted !== false || iteration.executionStarted !== false || brief.executionStarted !== false || packet.executionStarted !== false) return null;
+    if (!(await isGoalLoopNextStepPacketFresh(memory, changePath, packet))) return null;
 
     const packetRefs = goalLoopNextStepPacketArtifactRefs(memory, changePath, packet.id);
     const decisionRefs = goalLoopDecisionArtifactRefs(memory, changePath, decision.id);

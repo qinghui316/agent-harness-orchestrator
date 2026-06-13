@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { buildGoalLoopMainAgentContextSection, compileGoalLoopDecision, compileGoalLoopEvaluation, readLatestGoalLoopContinuationBrief, readLatestGoalLoopIteration, readLatestGoalLoopNextStepPacket, writeGoalLoopNextStepPacket } from "../../src/goal-loop/manager.js";
+import { readLatestGoalLoopSummary } from "../../src/workbench/projections/read-model/goal-loop.js";
 import type { ResolvedMemory } from "../../src/types/index.js";
 import { schedulerRunArtifactRefs, writeSchedulerRun } from "../../src/workflow-scheduler/repository.js";
 import type { SchedulerRun } from "../../src/workflow-scheduler/types.js";
@@ -414,6 +415,10 @@ describe("GoalLoopDecision", () => {
     expect(section?.markdown).toContain("Revalidation Checklist");
     expect(section?.markdown).toContain("Forbidden Execution Statements");
     expect(section?.markdown).toContain("not workflow truth");
+    await expect(readLatestGoalLoopSummary(memory, changePath)).resolves.toMatchObject({
+      goalLoopNextStepPacketId: result.goalLoopNextStepPacket.id,
+      recommendedActionType: "planning.scheduler.plan.prepare",
+    });
 
     await writeGoalLoopNextStepPacket(memory, changePath, {
       ...result.goalLoopNextStepPacket,
@@ -424,6 +429,24 @@ describe("GoalLoopDecision", () => {
     });
 
     await expect(buildGoalLoopMainAgentContextSection(memory, changePath, changeId)).resolves.toBeNull();
+  });
+
+  it("hides stale next-step packets from main-Agent context and Workpad summary after evidence advances", async () => {
+    const { workerStart } = await writeSchedulerEvidence({ withWorkerStart: true });
+    const result = await compileGoalLoopEvaluation(memory, changePath);
+
+    expect(result.goalLoopNextStepPacket.recommendedAction?.actionType).toBe("planning.scheduler.worker.reconcile-result");
+    await expect(buildGoalLoopMainAgentContextSection(memory, changePath, changeId)).resolves.toMatchObject({
+      goalLoopNextStepPacketId: result.goalLoopNextStepPacket.id,
+    });
+    await expect(readLatestGoalLoopSummary(memory, changePath)).resolves.toMatchObject({
+      recommendedActionType: "planning.scheduler.worker.reconcile-result",
+    });
+
+    await writeWorkerResult(workerStart!, "evidence-ready");
+
+    await expect(buildGoalLoopMainAgentContextSection(memory, changePath, changeId)).resolves.toBeNull();
+    await expect(readLatestGoalLoopSummary(memory, changePath)).resolves.toBeNull();
   });
 });
 

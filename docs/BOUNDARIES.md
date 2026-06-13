@@ -287,6 +287,8 @@ Phase 10J adds the main-Agent context-consumption boundary for that packet. `src
 
 Phase 10K adds the existing-gate recommendation boundary. `src/goal-loop/` may map current scheduler worker, rework, integration, completion, and closeout evidence to an existing `WorkflowActionType` plus required target ids, but only as non-executing recommendation evidence. It must validate required targets, keep `executionStarted=false`, preserve `canAutoContinue=false`, and avoid importing Workbench/server/web/CLI/action-handler modules. Concrete Workbench confirmations remain the execution surface and retain ToolPolicyGate, stale-target, decision/audit, and human-gate authority.
 
+Phase 10L adds the Goal Loop packet freshness boundary. `src/goal-loop/` owns the read-only comparison between the latest packet and current Goal Loop evidence. Workbench prompt/projection code may call that helper, but must not implement freshness policy itself. A stale or superseded packet must not be injected as main-Agent context or shown as current Workpad recommendation. Freshness checks must not write new artifacts, generate confirmations, call action handlers, start scheduler/runtime work, mutate source, close a Change, or weaken concrete gate stale-target revalidation.
+
 ## 7. Memory Unavailable Boundary
 
 Memory can be unavailable on a new machine, after a plain repository clone, when AHO home was not synced, when permissions are missing, or when a future remote memory service is offline.

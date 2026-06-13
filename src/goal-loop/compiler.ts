@@ -117,13 +117,17 @@ interface GoalLoopSchedulerWorkerPath {
 }
 
 export async function compileGoalLoopDecision(memory: ResolvedMemory, changePath: string): Promise<GoalLoopDecision> {
+  const decision = await previewGoalLoopDecision(memory, changePath);
+  await writeGoalLoopDecision(memory, changePath, decision);
+  return decision;
+}
+
+export async function previewGoalLoopDecision(memory: ResolvedMemory, changePath: string): Promise<GoalLoopDecision> {
   const snapshot = await readEvidenceSnapshot(memory, changePath);
   const now = new Date().toISOString();
   const decisionId = `goal-loop-decision-${now.replace(/[-:.TZ]/g, "").slice(0, 14)}-${shortHash(`${snapshot.changeId}:${now}:${JSON.stringify(snapshot.sourceEvidenceRefs)}`)}`;
   const refs = goalLoopDecisionArtifactRefs(memory, changePath, decisionId);
-  const decision = buildDecision(snapshot, decisionId, refs.artifact, refs.markdownArtifact, now);
-  await writeGoalLoopDecision(memory, changePath, decision);
-  return decision;
+  return buildDecision(snapshot, decisionId, refs.artifact, refs.markdownArtifact, now);
 }
 
 export async function compileGoalLoopEvaluation(memory: ResolvedMemory, changePath: string): Promise<{ goalLoopDecision: GoalLoopDecision; goalLoopIteration: GoalLoopIteration; goalLoopContinuationBrief: GoalLoopContinuationBrief; goalLoopNextStepPacket: GoalLoopNextStepPacket }> {
