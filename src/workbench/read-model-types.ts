@@ -671,6 +671,31 @@ export interface WorkbenchTaskQueueSummary {
   items: WorkbenchTaskQueueItemSummary[];
 }
 
+export interface WorkbenchGoalLoopSummary {
+  id: string;
+  changeId: string;
+  goalLoopDecisionId: string;
+  goalLoopIterationId: string;
+  iterationOrdinal: number;
+  decisionKind: string;
+  continuationVerdict: string;
+  continuationState: string;
+  summary: string;
+  recommendedActionType?: WorkbenchThreadActionType;
+  recommendedActionReason?: string;
+  humanGateRequired: boolean;
+  conflictLevel: string;
+  parallelEligible: boolean;
+  completionStatus: string;
+  resumePreconditionCount: number;
+  sourceEvidenceCount: number;
+  stalenessInstruction: string;
+  artifact?: string;
+  markdownArtifact?: string;
+  updatedAt: string;
+  executionStarted: false;
+}
+
 export interface WorkbenchWorkpad {
   title: string;
   subtitle: string;
@@ -733,6 +758,7 @@ export interface WorkbenchWorkpad {
   codingPackages: WorkbenchCodingPackage[];
   taskGraph: WorkbenchTaskGraph;
   taskQueue?: WorkbenchTaskQueueSummary;
+  goalLoop?: WorkbenchGoalLoopSummary;
   evidence: WorkpadEvidenceSummary[];
   blockers: string[];
   warnings: string[];

@@ -5,9 +5,9 @@
 - Current date: 2026-06-14.
 - Active ECL change: none.
 - Pending Harness evolution: none.
-- Latest archived product change: `harness/changes/archive/20260614-phase-10g-goal-loop-continuation-brief-evidence/summary.md`.
-- Latest archived product/Harness docs change: `harness/changes/archive/20260614-phase-10g-goal-loop-continuation-brief-evidence/summary.md`.
-- Latest archived Harness evolution: `harness/changes/archive/20260614-auto-evolve-harness-phase-9y-10d-goal-loop-evidence/summary.md`.
+- Latest archived product change: `harness/changes/archive/20260614-phase-10h-goal-loop-evidence-projection-resume-surface/summary.md`.
+- Latest archived product/Harness docs change: `harness/changes/archive/20260614-phase-10h-goal-loop-evidence-projection-resume-surface/summary.md`.
+- Latest archived Harness evolution: `harness/changes/archive/20260614-auto-evolve-harness-phase-10d-10h-goal-loop-evidence-projection/summary.md`.
 - Active product phase: none. Active Harness evolution phase: none.
 
 Current baseline:

@@ -165,6 +165,12 @@ Phase 10F makes the fallback wording more precise: confirming `评估目标循�
 
 Phase 10G adds a continuation brief to the same fallback evaluation. The main conversation may show the brief as a readable explanation of what the next main Agent turn should re-read and why the current recommendation is only a separate Harness gate. The right-side queue must still show only the single `评估目标循环` fallback when no concrete action is available; it must not expose continuation briefs as separate buttons or silently continue the conversation.
 
+Phase 10H exposes the latest Goal Loop decision/iteration/brief as a Workpad resume summary after a
+snapshot reload. This is structured context for the main Agent and the user, not a new button or an
+automatic continuation. The right-side confirmation queue still owns human-gated transitions, and a
+Goal Loop recommended action must remain evidence until the corresponding scoped action is separately
+available and confirmed.
+
 The Workbench snapshot, transcript, and run graph are projections, not workflow truth. The snapshot is a UI shell, the transcript must not show mechanical labels such as `AI 回复` or `执行结果`, and derived tool-result summaries must not pretend to be exact historical LLM text. The run graph must not become the source of scheduling truth, must not create fake SubAgent chats, and must not move maintenance candidates into the right confirmation queue. The right side stays limited to human gates such as confirming execution, applying, checking compatibility, creating/updating PRs, submitting review, replying to review, merging, syncing, cleanup, requesting changes, or abandoning work.
 
 Runtime boundary issues are explanation/evidence events, not confirmation queue items. When ToolPolicyGate denies a request or PostRunBoundaryAudit finds a role wrote outside its allowed scope, the main conversation should explain the user-impact in plain language and link evidence. The right queue should only show a user decision if there is a real next action such as requesting changes or abandoning the result.

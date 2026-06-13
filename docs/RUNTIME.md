@@ -596,3 +596,8 @@ Phase 10E keeps that runtime boundary unchanged while adding iteration evidence.
 Phase 10F keeps the same non-execution boundary. The continuation-state fields inside `GoalLoopIteration` are evidence-only runtime constraints, not a runtime controller. They may record conservative budget/accounting signals as `unknown` or declared evidence, but they must not start continuation turns, reserve worker slots, run scheduler actions, mutate source, or authorize close.
 
 Phase 10G keeps the boundary unchanged while adding continuation brief evidence. `GoalLoopContinuationBrief` may describe how the next main Agent turn should re-read evidence and continue the long-running Goal/Change, but it must not enqueue a turn, call a scheduler/runtime action, execute the recommended action, mutate source, close a Change, or infer Codex-style continuation locks or token accounting. Any concrete transition named by the brief still has to be revalidated and confirmed through its own scoped Harness action.
+
+Phase 10H adds no runtime behavior. It only lets Workbench cold-start projection read the latest
+Goal Loop artifacts and show a resume summary. Missing, stale, malformed, or forged Goal Loop evidence
+must be projection-safe and cannot crash the snapshot or trigger execution. Runtime workers,
+SchedulerRun state, IntegrationCheck, source apply, and close gates remain separate Harness paths.

@@ -80,6 +80,7 @@ import {
   latestOfficialReworkAttempt,
   taskNodeToPreview,
 } from "./task-graph.js";
+import { readLatestGoalLoopSummary } from "./goal-loop.js";
 import type {
   AuditSummary,
   ManagedProject,
@@ -236,6 +237,7 @@ export async function buildWorkbenchWorkpad(input: {
   const decompositionReadiness = await readLatestDecompositionReadinessSummary(memory, selectedTopic.path);
   const taskQueueProposal = await readLatestTaskQueueProposalSummary(memory, selectedTopic.path);
   const workflowGraphPlan = await readLatestWorkflowGraphPlanSummary(memory, selectedTopic.path);
+  const goalLoop = await readLatestGoalLoopSummary(memory, selectedTopic.path);
   const schedulerContract = await readLatestSchedulerContractSummary(memory, selectedTopic.path);
   const schedulerDispatchDryRun = await readLatestSchedulerDispatchDryRunSummary(memory, selectedTopic.path);
   const schedulerWorkerSessionPlan = await readLatestSchedulerWorkerSessionPlanSummary(memory, selectedTopic.path);
@@ -360,6 +362,7 @@ export async function buildWorkbenchWorkpad(input: {
     codingPackages,
     taskGraph,
     taskQueue,
+    goalLoop: goalLoop ?? undefined,
     evidence: buildWorkpadEvidence(selectedTopic, topicApprovals, topicDecisions),
     blockers: [
       ...(selectedTopic.closeGate?.blockingIssues ?? []),

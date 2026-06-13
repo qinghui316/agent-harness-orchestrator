@@ -2154,6 +2154,19 @@ describe("workbench read model", () => {
       sourceGoalLoopIterationId: result.goalLoopIteration?.id,
       executionStarted: false,
     });
+    const resumedSnapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: topic.changeId });
+    expect(resumedSnapshot.center.workpad.goalLoop).toMatchObject({
+      id: result.goalLoopContinuationBrief?.id,
+      changeId: topic.changeId,
+      goalLoopDecisionId: result.goalLoopDecision?.id,
+      goalLoopIterationId: result.goalLoopIteration?.id,
+      iterationOrdinal: 1,
+      continuationState: "ready-for-existing-gate",
+      executionStarted: false,
+      artifact: expect.stringContaining("goal-loop-continuation-brief"),
+    });
+    expect(resumedSnapshot.center.workpad.goalLoop?.stalenessInstruction).toContain("re-read");
+    expect(resumedSnapshot.center.workpad.nextAction.actionType).not.toBe("planning.goal-loop.evaluate");
     expect(await listRuns(memory)).toHaveLength(0);
     expect(await listWorktreeStatuses(memory)).toHaveLength(0);
     expect(await listIntegrationChecks(memory)).toHaveLength(0);

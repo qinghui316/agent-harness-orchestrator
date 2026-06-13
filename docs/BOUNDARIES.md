@@ -275,6 +275,12 @@ Phase 10F adds continuation-state fields to `GoalLoopIteration`. These fields ar
 
 Phase 10G adds the `GoalLoopContinuationBrief` boundary. `src/goal-loop/` owns the brief schema, paths, repository, renderer, and derivation from the latest non-executing iteration. Workbench/server/frontend code may record or display the brief artifact, but must not use it to auto-continue, create a hidden prompt turn, start scheduler workers, run IntegrationCheck, mutate source, close a Change, or generate a new confirmation from `recommendedAction`. A brief is stale unless the next main Agent re-reads the selected Change and current evidence.
 
+Phase 10H adds the Workbench projection boundary for Goal Loop resume evidence. `src/goal-loop/`
+continues to own durable artifacts; `src/workbench/projections/read-model/goal-loop.ts` may only map
+latest valid artifacts into a compact Workpad summary. Projection code must not compile Goal Loop
+evidence, run actions, derive new confirmations, mutate source, or treat `recommendedAction` as
+execution authority. Corrupt or cross-scope Goal Loop files must be skipped in projection paths.
+
 ## 7. Memory Unavailable Boundary
 
 Memory can be unavailable on a new machine, after a plain repository clone, when AHO home was not synced, when permissions are missing, or when a future remote memory service is offline.

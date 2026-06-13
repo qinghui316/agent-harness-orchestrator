@@ -161,6 +161,13 @@ Phase 10F extends that iteration with continuation-state evidence. The state is 
 
 Phase 10G adds `GoalLoopContinuationBrief` as a derived handoff artifact. The brief translates the latest `GoalLoopDecision` and `GoalLoopIteration` into a next-turn main-Agent reading checklist: re-read current Change evidence, preserve the full objective, treat recommended action as a separate Harness gate, audit completion from evidence, and stop on conflict or stale scope. It is prompt/brief evidence only. It is not workflow truth, not a scheduler loop, not a hidden continuation turn, and not execution authorization.
 
+Phase 10H projects the latest Goal Loop evidence back into the selected Workpad as a resume summary.
+This fixes cold-start recovery for the main Agent: after a refresh, the latest decision, iteration, and
+continuation brief are visible as structured evidence instead of only as prior thread text. The
+projection is read-only and additive. It must not compile new Goal Loop artifacts, execute the
+recommended action, become `workpad.nextAction`, start scheduler workers, run IntegrationCheck, mutate
+source, close a Change, or bypass ToolPolicyGate / human gates.
+
 Goal-driven loop model:
 
 ```mermaid

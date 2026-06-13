@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-13T20:08:09.1540629Z",
+    "generated_at":  "2026-06-13T20:47:15.1537023Z",
     "active":  [
 
                ],
@@ -771,6 +771,10 @@
                         "path":  "harness/changes/archive/20260613-phase-9z-schedulerrun-blocked-exhausted-closeout-gate"
                     },
                     {
+                        "name":  "20260614-auto-evolve-harness-phase-10d-10h-goal-loop-evidence-projection",
+                        "path":  "harness/changes/archive/20260614-auto-evolve-harness-phase-10d-10h-goal-loop-evidence-projection"
+                    },
+                    {
                         "name":  "20260614-auto-evolve-harness-phase-9y-10d-goal-loop-evidence",
                         "path":  "harness/changes/archive/20260614-auto-evolve-harness-phase-9y-10d-goal-loop-evidence"
                     },
@@ -797,6 +801,10 @@
                     {
                         "name":  "20260614-phase-10g-goal-loop-continuation-brief-evidence",
                         "path":  "harness/changes/archive/20260614-phase-10g-goal-loop-continuation-brief-evidence"
+                    },
+                    {
+                        "name":  "20260614-phase-10h-goal-loop-evidence-projection-resume-surface",
+                        "path":  "harness/changes/archive/20260614-phase-10h-goal-loop-evidence-projection-resume-surface"
                     }
                 ]
 }
