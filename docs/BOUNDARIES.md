@@ -253,6 +253,8 @@ Phase 9U requires the two-worker acceptance surface to stay inside those same bo
 
 Phase 9V keeps scheduler integration outcome reconciliation inside `src/scheduler-runtime/integration-outcome.ts`. The owner module must re-read latest `SchedulerIntegrationCandidate`, latest `SchedulerIntegrationCheckHandoff`, runtime state, IntegrationCheck state, and target worktree metadata before recording an outcome. Existing `apply-check.apply` and `apply-check.discard` remain the only source-root mutation/terminal confirmation path; scheduler code must not add its own apply/discard action or mutate source root during outcome reconciliation.
 
+Phase 9W keeps scheduler integration event/projection hardening inside `src/scheduler-runtime`. Scheduler integration events may summarize candidate compile, IntegrationCheck handoff, and terminal outcome recording, but they must derive canonical scope from SchedulerRun/Change state and must not become execution authorization. Workbench, server, frontend, IntegrationCheck, and apply/discard modules may consume or display this evidence, but must not own the integration event implementation or use it to bypass existing gates.
+
 ## 7. Memory Unavailable Boundary
 
 Memory can be unavailable on a new machine, after a plain repository clone, when AHO home was not synced, when permissions are missing, or when a future remote memory service is offline.

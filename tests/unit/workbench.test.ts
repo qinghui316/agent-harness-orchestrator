@@ -65,7 +65,7 @@ import {
   writeTaskQueueProposal,
 } from "../../src/workflow-artifacts/manager.js";
 import { compileSchedulerContract } from "../../src/workflow-scheduler/manager.js";
-import { auditSchedulerFirstWorker, validateSchedulerFirstWorker } from "../../src/scheduler-runtime/manager.js";
+import { auditSchedulerFirstWorker, readSchedulerRuntimeEvents, validateSchedulerFirstWorker } from "../../src/scheduler-runtime/manager.js";
 import { listIntegrationChecks } from "../../src/integration-check/manager.js";
 import type { ManagedProject, RunMetadata, TaskQueueItem, TaskQueueRun, TaskRun, WorkerLease, WorkflowGraphPlan, WorkflowRun } from "../../src/types/index.js";
 import type { DecompositionPlan, DecompositionReadinessManifest, TaskQueueProposal } from "../../src/workflow-artifacts/manager.js";
@@ -3365,6 +3365,22 @@ describe("workbench read model", () => {
       expect(await listWorkflowRuns(finalMemory, prepared.topic.changeId)).toHaveLength(0);
       expect(await listTaskQueues(finalMemory, prepared.topic.changeId)).toHaveLength(0);
       expect(await listAgentTasks(finalMemory, prepared.topic.changeId)).toHaveLength(0);
+      const schedulerRuntimeEvents = await readSchedulerRuntimeEvents(
+        finalMemory,
+        join("harness", "changes", "active", prepared.topic.changeId),
+        prepared.schedulerRun.id,
+      );
+      expect(schedulerRuntimeEvents.filter((event) => event.type === "scheduler-runtime.integration-candidate-compiled")).toHaveLength(2);
+      expect(schedulerRuntimeEvents.some((event) => (
+        event.type === "scheduler-runtime.integration-check-handoff-completed"
+        && event.payload?.schedulerIntegrationCheckHandoffId === handoff.handoff?.id
+        && event.payload?.integrationCheckId === handoff.handoff?.integrationCheckId
+      ))).toBe(true);
+      expect(schedulerRuntimeEvents.some((event) => (
+        event.type === "scheduler-runtime.integration-outcome-recorded"
+        && event.payload?.schedulerIntegrationCheckHandoffId === handoff.handoff?.id
+        && event.payload?.outcomeStatus === "applied"
+      ))).toBe(true);
     } finally {
       if (oldPath === undefined) delete process.env.PATH;
       else process.env.PATH = oldPath;

@@ -9,6 +9,7 @@ import type { ManagedProject, RunMetadata, TaskRun, WorkerLease, WorktreeMetadat
 import { readWorktreeMetadata } from "../worktree/repository.js";
 import { readSchedulerRuntimeLineage } from "./guards.js";
 import {
+  appendSchedulerRuntimeEvent,
   listSchedulerRuntimeWorkerAudits,
   listSchedulerRuntimeWorkerReworkAudits,
   readLatestSchedulerIntegrationCandidateProjection,
@@ -162,6 +163,20 @@ export async function compileSchedulerIntegrationCandidate(project: ManagedProje
     updatedAt: now,
   };
   await writeSchedulerIntegrationCandidate(memory, changePath, candidate);
+  await appendSchedulerRuntimeEvent(memory, changePath, run, "scheduler-runtime.integration-candidate-compiled", {
+    status: runtimeState.status,
+    summary: `Scheduler integration candidate ${candidate.status} with ${candidate.readyCount} ready target(s) and ${candidate.blockedCount} blocked output(s).`,
+    artifactRefs: candidate.artifactRefs,
+    payload: {
+      schedulerIntegrationCandidateId: candidate.id,
+      schedulerClaimReservationId: candidate.schedulerClaimReservationId,
+      schedulerReconcileSnapshotId: candidate.schedulerReconcileSnapshotId,
+      status: candidate.status,
+      readyCount: candidate.readyCount,
+      blockedCount: candidate.blockedCount,
+      readyWorktreeIds: candidate.readyWorktreeIds,
+    },
+  });
   return {
     status: candidate.status,
     candidate,

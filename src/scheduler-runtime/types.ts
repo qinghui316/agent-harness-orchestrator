@@ -31,7 +31,10 @@ export type SchedulerRuntimeEventType =
   | "scheduler-runtime.worker-rework-validation-failed"
   | "scheduler-runtime.worker-rework-audit-approved"
   | "scheduler-runtime.worker-rework-audit-blocked"
-  | "scheduler-runtime.worker-rework-audit-failed";
+  | "scheduler-runtime.worker-rework-audit-failed"
+  | "scheduler-runtime.integration-candidate-compiled"
+  | "scheduler-runtime.integration-check-handoff-completed"
+  | "scheduler-runtime.integration-outcome-recorded";
 export type SchedulerReconcileSnapshotStatus = "generated" | "blocked";
 export type SchedulerRuntimeWorkerStartStatus = "started" | "failed";
 export type SchedulerRuntimeWorkerResultStatus = "evidence-ready" | "failed";

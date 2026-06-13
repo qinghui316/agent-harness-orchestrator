@@ -6,6 +6,7 @@ import type { ManagedProject } from "../types/index.js";
 import { getWorktreeStatus } from "../worktree/manager.js";
 import { readSchedulerRuntimeLineage } from "./guards.js";
 import {
+  appendSchedulerRuntimeEvent,
   findSchedulerIntegrationOutcomeForHandoff,
   readLatestSchedulerIntegrationCandidateProjection,
   readLatestSchedulerIntegrationCheckHandoffProjection,
@@ -90,6 +91,22 @@ export async function reconcileSchedulerIntegrationOutcome(project: ManagedProje
 
   const outcome = buildOutcome(memory, changePath, runtimeState, handoff, check, targets);
   await writeSchedulerIntegrationOutcome(memory, changePath, outcome);
+  await appendSchedulerRuntimeEvent(memory, changePath, run, "scheduler-runtime.integration-outcome-recorded", {
+    status: runtimeState.status,
+    summary: `Scheduler integration outcome recorded as ${outcome.status}.`,
+    artifactRefs: outcome.artifactRefs,
+    payload: {
+      schedulerIntegrationOutcomeId: outcome.id,
+      schedulerIntegrationCheckHandoffId: outcome.schedulerIntegrationCheckHandoffId,
+      schedulerIntegrationCandidateId: outcome.schedulerIntegrationCandidateId,
+      schedulerClaimReservationId: outcome.schedulerClaimReservationId,
+      integrationCheckId: outcome.integrationCheckId,
+      integrationCheckStatus: outcome.integrationCheckStatus,
+      outcomeStatus: outcome.status,
+      readyWorktreeIds: outcome.readyWorktreeIds,
+      resultTargetWorktreeIds: outcome.resultTargetWorktreeIds,
+    },
+  });
   return {
     status: "reconciled",
     outcome,

@@ -9,6 +9,7 @@ import { resolveProjectMemory } from "../memory/resolver.js";
 import type { ManagedProject } from "../types/index.js";
 import { readSchedulerRuntimeLineage } from "./guards.js";
 import {
+  appendSchedulerRuntimeEvent,
   findSchedulerIntegrationCheckHandoffForCandidate,
   readLatestSchedulerIntegrationCandidateProjection,
   readSchedulerIntegrationCandidate,
@@ -102,6 +103,20 @@ export async function runSchedulerIntegrationCheckHandoff(project: ManagedProjec
     updatedAt: now,
   };
   await writeSchedulerIntegrationCheckHandoff(memory, changePath, handoff);
+  await appendSchedulerRuntimeEvent(memory, changePath, run, "scheduler-runtime.integration-check-handoff-completed", {
+    status: runtimeState.status,
+    summary: `Scheduler IntegrationCheck handoff completed for ${readyWorktreeIds.length} ready target(s).`,
+    artifactRefs: handoff.artifactRefs,
+    payload: {
+      schedulerIntegrationCheckHandoffId: handoff.id,
+      schedulerIntegrationCandidateId: handoff.schedulerIntegrationCandidateId,
+      schedulerClaimReservationId: handoff.schedulerClaimReservationId,
+      integrationCheckId: handoff.integrationCheckId,
+      integrationCheckStatus: handoff.integrationCheckStatus,
+      readyWorktreeIds: handoff.readyWorktreeIds,
+      resultTargetWorktreeIds: handoff.resultTargetWorktreeIds,
+    },
+  });
   return { handoff, integrationCheck: integrationResult.check, executionStarted: false };
 }
 

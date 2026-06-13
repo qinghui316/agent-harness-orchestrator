@@ -139,6 +139,8 @@ Phase 9U is an acceptance and boundary-hardening phase over that architecture. I
 
 Phase 9V closes the scheduler integration acceptance loop after that handoff. The scheduler runtime may reconcile the current IntegrationCheck terminal/apply/discard state back into scheduler-owned outcome evidence, but it must re-read the latest `SchedulerIntegrationCandidate` and prove the handoff still matches the latest candidate/runtime lineage before doing so. Source-root mutation remains exclusively under existing `apply-check.apply` / `apply-check.discard` human gates.
 
+Phase 9W adds event/projection hardening for that same integration bridge. `src/scheduler-runtime/` owns SchedulerRun-scoped events for candidate compile, IntegrationCheck handoff, and terminal outcome recording so recovery and run-graph consumers do not infer the bridge only from standalone artifacts. These events are evidence only; they do not start IntegrationCheck, apply/discard source, dispatch more workers, or authorize a scheduler executor.
+
 Workbench relationship:
 
 ```text

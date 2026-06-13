@@ -90,6 +90,7 @@ const mocks = vi.hoisted(() => {
     getWorktreeStatus: vi.fn(),
     readIntegrationCheck: vi.fn(),
     readLatestSchedulerIntegrationCandidateProjection: vi.fn(),
+    appendSchedulerRuntimeEvent: vi.fn(),
   };
 });
 
@@ -125,6 +126,7 @@ vi.mock("../../src/scheduler-runtime/repository.js", () => ({
     markdownArtifact: "outcome.md",
   })),
   writeSchedulerIntegrationOutcome: mocks.writeSchedulerIntegrationOutcome,
+  appendSchedulerRuntimeEvent: mocks.appendSchedulerRuntimeEvent,
 }));
 
 vi.mock("../../src/integration-check/repository.js", () => ({
@@ -142,6 +144,7 @@ describe("Scheduler integration outcome reconciliation", () => {
     mocks.getWorktreeStatus.mockReset();
     mocks.readIntegrationCheck.mockReset();
     mocks.readLatestSchedulerIntegrationCandidateProjection.mockReset();
+    mocks.appendSchedulerRuntimeEvent.mockReset();
     mocks.readIntegrationCheck.mockResolvedValue({ ...mocks.check });
     mocks.readLatestSchedulerIntegrationCandidateProjection.mockResolvedValue({ ...mocks.candidate });
     mocks.getWorktreeStatus.mockImplementation(async (_memory, worktreeId: string) => ({
@@ -166,6 +169,7 @@ describe("Scheduler integration outcome reconciliation", () => {
     expect(result.outcome).toBeNull();
     expect(result.sourceMutated).toBe(false);
     expect(mocks.writeSchedulerIntegrationOutcome).not.toHaveBeenCalled();
+    expect(mocks.appendSchedulerRuntimeEvent).not.toHaveBeenCalled();
   });
 
   it("records applied outcome only when each target has applied worktree evidence", async () => {
@@ -190,6 +194,22 @@ describe("Scheduler integration outcome reconciliation", () => {
     expect(result.status).toBe("reconciled");
     expect(result.outcome?.status).toBe("applied");
     expect(mocks.writeSchedulerIntegrationOutcome).toHaveBeenCalledTimes(1);
+    expect(mocks.appendSchedulerRuntimeEvent).toHaveBeenCalledWith(
+      { projectId: "project-1", root: "memory-root", supported: true },
+      "change-path",
+      { id: "scheduler-run-1", changeId: "change-1" },
+      "scheduler-runtime.integration-outcome-recorded",
+      expect.objectContaining({
+        summary: "Scheduler integration outcome recorded as applied.",
+        payload: expect.objectContaining({
+          schedulerIntegrationCheckHandoffId: "handoff-1",
+          schedulerIntegrationCandidateId: "candidate-1",
+          integrationCheckId: "check-1",
+          integrationCheckStatus: "applied",
+          outcomeStatus: "applied",
+        }),
+      }),
+    );
   });
 
   it("rejects discarded IntegrationCheck when target worktree has applied evidence", async () => {
