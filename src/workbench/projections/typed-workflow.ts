@@ -19,6 +19,7 @@ import {
   readSchedulerWorkerReworkValidationProjection,
   readSchedulerWorkerReworkStartProjection,
   readSchedulerIntegrationCandidateProjection,
+  readSchedulerIntegrationCheckHandoffProjection,
   readSchedulerRunProjection,
   readSchedulerWorkerValidationProjection,
 } from "../workflow-projection.js";
@@ -30,7 +31,7 @@ import type {
   WorkflowGraphPlan,
 } from "../../workflow-artifacts/manager.js";
 import type { SchedulerClaimReconcilePlan, SchedulerContract, SchedulerDispatchDryRun, SchedulerLaunchPreflight, SchedulerRun, SchedulerWorkerSessionPlan } from "../../workflow-scheduler/manager.js";
-import type { SchedulerIntegrationCandidate, SchedulerReconcileSnapshot, SchedulerRuntimeClaimReservation, SchedulerRuntimeState, SchedulerRuntimeWorkerAudit, SchedulerRuntimeWorkerReworkPlan, SchedulerRuntimeWorkerReworkAudit, SchedulerRuntimeWorkerReworkResult, SchedulerRuntimeWorkerReworkValidation, SchedulerRuntimeWorkerReworkStart, SchedulerRuntimeWorkerValidation } from "../../scheduler-runtime/manager.js";
+import type { SchedulerIntegrationCandidate, SchedulerIntegrationCheckHandoff, SchedulerReconcileSnapshot, SchedulerRuntimeClaimReservation, SchedulerRuntimeState, SchedulerRuntimeWorkerAudit, SchedulerRuntimeWorkerReworkPlan, SchedulerRuntimeWorkerReworkAudit, SchedulerRuntimeWorkerReworkResult, SchedulerRuntimeWorkerReworkValidation, SchedulerRuntimeWorkerReworkStart, SchedulerRuntimeWorkerValidation } from "../../scheduler-runtime/manager.js";
 
 export interface WorkbenchTopicPathRef {
   id: string;
@@ -124,6 +125,10 @@ export function getSchedulerWorkerReworkAuditProjectionForPath(memory: ResolvedM
 
 export function getSchedulerIntegrationCandidateProjectionForPath(memory: ResolvedMemory, changePath: string, schedulerRunId: string, candidateId: string): Promise<SchedulerIntegrationCandidate | null> {
   return readSchedulerIntegrationCandidateProjection(memory, changePath, schedulerRunId, candidateId);
+}
+
+export function getSchedulerIntegrationCheckHandoffProjectionForPath(memory: ResolvedMemory, changePath: string, schedulerRunId: string, handoffId: string): Promise<SchedulerIntegrationCheckHandoff | null> {
+  return readSchedulerIntegrationCheckHandoffProjection(memory, changePath, schedulerRunId, handoffId);
 }
 
 export async function getWorkflowRunProjectionForChange(

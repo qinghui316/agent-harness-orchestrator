@@ -46,6 +46,7 @@ export type SchedulerRuntimeWorkerReworkBlockingSource = "validation-failed" | "
 export type SchedulerIntegrationCandidateStatus = "ready" | "waiting" | "blocked";
 export type SchedulerIntegrationCandidateOutputKind = "worker" | "rework" | "inconsistency";
 export type SchedulerIntegrationCandidateOutputStatus = "ready" | "blocked";
+export type SchedulerIntegrationCheckHandoffStatus = "completed";
 
 export interface SchedulerRuntimeClaimIntentState {
   claimIntentId: string;
@@ -681,6 +682,44 @@ export interface SchedulerIntegrationCandidate {
   readyCount: number;
   blockedCount: number;
   waitingReason?: string;
+  sourceArtifactHashes: Record<string, string>;
+  artifactRefs: string[];
+  artifact: string;
+  markdownArtifact: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SchedulerIntegrationCheckHandoffTarget {
+  worktreeId: string;
+  worktreeDiffHash: string;
+  diffStat: string;
+  sourceHead: string | null;
+  validationRunId: string;
+  auditRunId: string;
+}
+
+export interface SchedulerIntegrationCheckHandoff {
+  version: "1.0";
+  id: string;
+  changeId: string;
+  schedulerRunId: string;
+  schedulerMode: SchedulerMode;
+  status: SchedulerIntegrationCheckHandoffStatus;
+  schedulerRuntimeStateId: string;
+  schedulerReconcileSnapshotId: string;
+  schedulerClaimReservationId: string;
+  schedulerIntegrationCandidateId: string;
+  schedulerContractId: string;
+  schedulerDispatchDryRunId: string;
+  schedulerWorkerPlanId: string;
+  schedulerClaimReconcilePlanId: string;
+  schedulerLaunchPreflightId: string;
+  readyTargets: SchedulerIntegrationCheckHandoffTarget[];
+  readyWorktreeIds: string[];
+  integrationCheckId: string;
+  integrationCheckStatus: string;
+  resultTargetWorktreeIds: string[];
   sourceArtifactHashes: Record<string, string>;
   artifactRefs: string[];
   artifact: string;

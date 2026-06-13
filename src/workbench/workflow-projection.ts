@@ -12,7 +12,9 @@ import {
   findSchedulerRuntimeWorkerValidationForResult,
   listSchedulerRuntimeWorkerStarts,
   readLatestSchedulerIntegrationCandidateProjection,
+  readLatestSchedulerIntegrationCheckHandoffProjection,
   readSchedulerIntegrationCandidateProjection as readSchedulerIntegrationCandidateArtifactProjection,
+  readSchedulerIntegrationCheckHandoffProjection as readSchedulerIntegrationCheckHandoffArtifactProjection,
   readSchedulerRuntimeWorkerAuditProjection,
   readSchedulerRuntimeWorkerReworkPlanProjection,
   readSchedulerRuntimeWorkerReworkAuditProjection,
@@ -25,6 +27,7 @@ import {
   type SchedulerReconcileSnapshot,
   type SchedulerRuntimeClaimReservation,
   type SchedulerIntegrationCandidate,
+  type SchedulerIntegrationCheckHandoff,
   type SchedulerRuntimeState,
   type SchedulerRuntimeWorkerResult,
   type SchedulerRuntimeWorkerStart,
@@ -563,6 +566,23 @@ export interface WorkbenchSchedulerIntegrationCandidateSummary {
   updatedAt: string;
 }
 
+export interface WorkbenchSchedulerIntegrationCheckHandoffSummary {
+  id: string;
+  changeId: string;
+  schedulerRunId: string;
+  schedulerClaimReservationId: string;
+  schedulerReconcileSnapshotId: string;
+  schedulerIntegrationCandidateId: string;
+  status: SchedulerIntegrationCheckHandoff["status"];
+  integrationCheckId: string;
+  integrationCheckStatus: string;
+  readyCount: number;
+  readyWorktreeIds: string[];
+  artifact?: string;
+  markdownArtifact?: string;
+  updatedAt: string;
+}
+
 export interface WorkbenchSchedulerReconcileSnapshotSummary {
   id: string;
   changeId: string;
@@ -609,6 +629,7 @@ type WorkflowProjectionActionType =
   | "planning.scheduler.worker.rework-validate-first"
   | "planning.scheduler.worker.rework-audit-first"
   | "planning.scheduler.integration-candidate.compile"
+  | "planning.scheduler.integration-check.run"
   | "planning.workflowgraph.compile"
   | "planning.taskqueue.confirm-start"
   | "code.run";
@@ -644,11 +665,14 @@ export interface WorkbenchTypedWorkflowNextAction {
   schedulerWorkerReworkValidationId?: string;
   schedulerWorkerReworkAuditId?: string;
   schedulerIntegrationCandidateId?: string;
+  schedulerIntegrationCheckHandoffId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   taskRunId?: string;
   workerLeaseId?: string;
   worktreeId?: string;
+  worktreeIds?: string[];
+  applyCheckId?: string;
   runId?: string;
   validationRunId?: string;
   reworkValidationRunId?: string;
@@ -1059,6 +1083,19 @@ export async function readLatestSchedulerIntegrationCandidateSummary(
   return summarizeSchedulerIntegrationCandidate(candidate);
 }
 
+export async function readLatestSchedulerIntegrationCheckHandoffSummary(
+  memory: ResolvedMemory,
+  changePath: string,
+  schedulerRunId?: string,
+  schedulerIntegrationCandidateId?: string,
+): Promise<WorkbenchSchedulerIntegrationCheckHandoffSummary | null> {
+  if (!schedulerRunId || !schedulerIntegrationCandidateId) return null;
+  const handoff = await readLatestSchedulerIntegrationCheckHandoffProjection(memory, changePath, schedulerRunId).catch(() => null);
+  if (!handoff) return null;
+  if (handoff.schedulerIntegrationCandidateId !== schedulerIntegrationCandidateId) return null;
+  return summarizeSchedulerIntegrationCheckHandoff(handoff);
+}
+
 function summarizeSchedulerWorkerStart(start: SchedulerRuntimeWorkerStart): WorkbenchSchedulerWorkerStartSummary {
   return {
     id: start.id,
@@ -1363,6 +1400,25 @@ function summarizeSchedulerIntegrationCandidate(candidate: SchedulerIntegrationC
   };
 }
 
+function summarizeSchedulerIntegrationCheckHandoff(handoff: SchedulerIntegrationCheckHandoff): WorkbenchSchedulerIntegrationCheckHandoffSummary {
+  return {
+    id: handoff.id,
+    changeId: handoff.changeId,
+    schedulerRunId: handoff.schedulerRunId,
+    schedulerClaimReservationId: handoff.schedulerClaimReservationId,
+    schedulerReconcileSnapshotId: handoff.schedulerReconcileSnapshotId,
+    schedulerIntegrationCandidateId: handoff.schedulerIntegrationCandidateId,
+    status: handoff.status,
+    integrationCheckId: handoff.integrationCheckId,
+    integrationCheckStatus: handoff.integrationCheckStatus,
+    readyCount: handoff.readyTargets.length,
+    readyWorktreeIds: handoff.readyWorktreeIds,
+    artifact: handoff.artifact,
+    markdownArtifact: handoff.markdownArtifact,
+    updatedAt: handoff.updatedAt,
+  };
+}
+
 export async function readSchedulerReconcileSnapshotSummary(memory: ResolvedMemory, changePath: string, schedulerRunId?: string, snapshotId?: string): Promise<WorkbenchSchedulerReconcileSnapshotSummary | null> {
   if (!schedulerRunId || !snapshotId) return null;
   const snapshot = await readSchedulerReconcileSnapshotProjection(memory, changePath, schedulerRunId, snapshotId);
@@ -1485,6 +1541,10 @@ export function readSchedulerIntegrationCandidateProjection(memory: ResolvedMemo
   return readSchedulerIntegrationCandidateArtifactProjection(memory, changePath, schedulerRunId, candidateId);
 }
 
+export function readSchedulerIntegrationCheckHandoffProjection(memory: ResolvedMemory, changePath: string, schedulerRunId: string, handoffId: string): Promise<SchedulerIntegrationCheckHandoff | null> {
+  return readSchedulerIntegrationCheckHandoffArtifactProjection(memory, changePath, schedulerRunId, handoffId);
+}
+
 export function buildTypedWorkflowNextAction(input: {
   topic: TypedWorkflowProjectionTopic;
   readiness: TypedWorkflowProjectionReadiness;
@@ -1513,9 +1573,10 @@ export function buildTypedWorkflowNextAction(input: {
   schedulerWorkerReworkValidation?: WorkbenchSchedulerWorkerReworkValidationSummary | null;
   schedulerWorkerReworkAudit?: WorkbenchSchedulerWorkerReworkAuditSummary | null;
   schedulerIntegrationCandidate?: WorkbenchSchedulerIntegrationCandidateSummary | null;
+  schedulerIntegrationCheckHandoff?: WorkbenchSchedulerIntegrationCheckHandoffSummary | null;
   workflowRun?: WorkflowRunSummary | null;
 }): WorkbenchTypedWorkflowNextAction {
-  const { topic, readiness, intake, planningBundle, decompositionPlan, decompositionReadiness, taskQueueProposal, workflowGraphPlan, schedulerRun, schedulerRuntime, schedulerReconcileSnapshot, schedulerClaimReservation, schedulerWorkerStart, schedulerWorkerResult, schedulerWorkerValidation, schedulerWorkerAudit, schedulerWorkerReworkPlan, schedulerWorkerReworkStart, schedulerWorkerReworkResult, schedulerWorkerReworkValidation, schedulerWorkerReworkAudit, schedulerIntegrationCandidate, workflowRun } = input;
+  const { topic, readiness, intake, planningBundle, decompositionPlan, decompositionReadiness, taskQueueProposal, workflowGraphPlan, schedulerRun, schedulerRuntime, schedulerReconcileSnapshot, schedulerClaimReservation, schedulerWorkerStart, schedulerWorkerResult, schedulerWorkerValidation, schedulerWorkerAudit, schedulerWorkerReworkPlan, schedulerWorkerReworkStart, schedulerWorkerReworkResult, schedulerWorkerReworkValidation, schedulerWorkerReworkAudit, schedulerIntegrationCandidate, schedulerIntegrationCheckHandoff, workflowRun } = input;
   if (!readiness.specReady && !topic.runs.some((run) => run.runtime === "intake-scan")) {
     return workflowNextAction("intake.scan", "分析需求", "先只读扫描项目，整理当前理解、相关文件和待确认问题。", false);
   }
@@ -1790,10 +1851,27 @@ export function buildTypedWorkflowNextAction(input: {
                   claimIntentId: schedulerWorkerReworkAudit?.claimIntentId ?? schedulerWorkerAudit?.claimIntentId,
                 };
               }
+              if (schedulerIntegrationCandidate.readyCount >= 2 && !schedulerIntegrationCheckHandoff) {
+                return {
+                  ...workflowNextAction("planning.scheduler.integration-check.run", "运行 scheduler IntegrationCheck", "把 scheduler-owned ready worktree targets 显式交给现有 IntegrationCheck；只运行兼容性检查和 aggregate validation/audit，不 apply、landing、PR、merge 或启动 next worker。"),
+                  decompositionPlanId: decompositionPlan.id,
+                  readinessManifestId: decompositionReadiness.id,
+                  schedulerContractId: schedulerRun.schedulerContractId,
+                  schedulerDispatchDryRunId: schedulerRun.schedulerDispatchDryRunId,
+                  schedulerWorkerPlanId: schedulerRun.schedulerWorkerPlanId,
+                  schedulerClaimReconcilePlanId: schedulerRun.schedulerClaimReconcilePlanId,
+                  schedulerLaunchPreflightId: schedulerRun.schedulerLaunchPreflightId,
+                  schedulerRunId: schedulerRun.id,
+                  schedulerReconcileSnapshotId: schedulerReconcileSnapshot.id,
+                  schedulerClaimReservationId: schedulerClaimReservation.id,
+                  schedulerIntegrationCandidateId: schedulerIntegrationCandidate.id,
+                  worktreeIds: schedulerIntegrationCandidate.readyWorktreeIds,
+                };
+              }
               return {
-                ...workflowNextAction("planning.scheduler.integration-candidate.compile", schedulerIntegrationCandidate.readyCount >= 2 ? "Scheduler integration 候选已准备" : "等待更多 worker 输出", schedulerIntegrationCandidate.readyCount >= 2 ? "SchedulerIntegrationCandidate 已有至少两个 ready target；运行 IntegrationCheck 属于后续阶段，不在 9P 执行。" : "当前 ready target 少于 2；继续等待更多 scheduler worker 输出后再进入 IntegrationCheck handoff。"),
+                ...workflowNextAction("planning.scheduler.integration-check.run", schedulerIntegrationCheckHandoff ? "Scheduler IntegrationCheck 已完成" : "等待更多 worker 输出", schedulerIntegrationCheckHandoff ? `IntegrationCheck ${schedulerIntegrationCheckHandoff.integrationCheckId} 已由 scheduler handoff 运行；apply/landing/merge 仍走既有后续人审门。` : "当前 ready target 少于 2；继续等待更多 scheduler worker 输出后再进入 IntegrationCheck handoff。"),
                 enabled: false,
-                disabledReason: schedulerIntegrationCandidate.readyCount >= 2 ? "IntegrationCheck handoff 不是 Phase 9P 范围。" : "ready scheduler worker output 少于 2。",
+                disabledReason: schedulerIntegrationCheckHandoff ? "Scheduler IntegrationCheck handoff 已完成。" : "ready scheduler worker output 少于 2。",
                 decompositionPlanId: decompositionPlan.id,
                 readinessManifestId: decompositionReadiness.id,
                 schedulerContractId: schedulerRun.schedulerContractId,
@@ -1805,6 +1883,9 @@ export function buildTypedWorkflowNextAction(input: {
                 schedulerReconcileSnapshotId: schedulerReconcileSnapshot.id,
                 schedulerClaimReservationId: schedulerClaimReservation.id,
                 schedulerIntegrationCandidateId: schedulerIntegrationCandidate.id,
+                schedulerIntegrationCheckHandoffId: schedulerIntegrationCheckHandoff?.id,
+                applyCheckId: schedulerIntegrationCheckHandoff?.integrationCheckId,
+                worktreeIds: schedulerIntegrationCandidate.readyWorktreeIds,
               };
             }
             const waitingActionType = schedulerWorkerReworkAudit || schedulerWorkerReworkValidation || schedulerWorkerReworkResult || schedulerWorkerReworkStart || schedulerWorkerReworkPlan || needsReworkPlan

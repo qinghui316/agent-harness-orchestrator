@@ -1020,6 +1020,50 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
       throw new Error("planning.scheduler.integration-candidate.compile SchedulerIntegrationCandidate scope mismatch.");
     }
   }
+  if (request.actionType === "planning.scheduler.integration-check.run") {
+    const active = await getActiveChanges(memory);
+    const target = active.find((item) => item.name === changeId);
+    if (!target) throw new Error("planning.scheduler.integration-check.run target is stale or missing active Change.");
+    if (!request.schedulerRunId) throw new Error("planning.scheduler.integration-check.run requires schedulerRunId.");
+    if (!request.schedulerIntegrationCandidateId) throw new Error("planning.scheduler.integration-check.run requires schedulerIntegrationCandidateId.");
+    const run = await readSchedulerRun(memory, target.path, request.schedulerRunId);
+    if (run.id !== request.schedulerRunId || run.changeId !== changeId || run.status !== "prepared") {
+      throw new Error("planning.scheduler.integration-check.run SchedulerRun target is stale or not prepared.");
+    }
+    const latestRun = await readLatestSchedulerRun(memory, target.path);
+    if (latestRun.id !== run.id) throw new Error("planning.scheduler.integration-check.run requires the latest SchedulerRun.");
+    await readSchedulerRuntimeLineage(memory, target.path, run.id);
+    const runtimeState = await readSchedulerRuntimeStateProjection(memory, target.path, run.id);
+    if (!runtimeState?.lastReconcileSnapshotId || !runtimeState.lastClaimReservationId) {
+      throw new Error("planning.scheduler.integration-check.run requires runtime state with latest reconcile snapshot and claim reservation.");
+    }
+    const snapshot = await readSchedulerReconcileSnapshot(memory, target.path, run.id, runtimeState.lastReconcileSnapshotId);
+    const reservation = await readSchedulerRuntimeClaimReservation(memory, target.path, run.id, runtimeState.lastClaimReservationId);
+    if (reservation.schedulerReconcileSnapshotId !== snapshot.id || runtimeState.lastClaimReservationSnapshotId !== snapshot.id) {
+      throw new Error("planning.scheduler.integration-check.run SchedulerRuntimeClaimReservation target is stale.");
+    }
+    if (request.schedulerClaimReservationId && request.schedulerClaimReservationId !== reservation.id) {
+      throw new Error("planning.scheduler.integration-check.run SchedulerRuntimeClaimReservation scope mismatch.");
+    }
+    if (request.schedulerReconcileSnapshotId && request.schedulerReconcileSnapshotId !== snapshot.id) {
+      throw new Error("planning.scheduler.integration-check.run SchedulerReconcileSnapshot scope mismatch.");
+    }
+    const latestCandidate = await readLatestSchedulerIntegrationCandidateProjection(memory, target.path, run.id);
+    if (!latestCandidate || latestCandidate.id !== request.schedulerIntegrationCandidateId) {
+      throw new Error("planning.scheduler.integration-check.run requires the latest SchedulerIntegrationCandidate.");
+    }
+    if (
+      latestCandidate.status !== "ready"
+      || latestCandidate.readyCount < 2
+      || latestCandidate.schedulerClaimReservationId !== reservation.id
+      || latestCandidate.schedulerRuntimeStateId !== runtimeState.id
+    ) {
+      throw new Error("planning.scheduler.integration-check.run SchedulerIntegrationCandidate is not ready for IntegrationCheck handoff.");
+    }
+    if (request.worktreeIds?.length && !sameStringArray(request.worktreeIds, latestCandidate.readyWorktreeIds)) {
+      throw new Error("planning.scheduler.integration-check.run worktreeIds target scope mismatch.");
+    }
+  }
   if (request.actionType === "planning.workflowgraph.compile") {
     const active = await getActiveChanges(memory);
     const target = active.find((item) => item.name === changeId);
@@ -1098,4 +1142,8 @@ export function workflowActionTargetId(request: WorkbenchWorkflowActionRequest, 
 
 export function workflowActionScopePayload(request: WorkbenchWorkflowActionRequest, changeId: string, result?: unknown): Record<string, unknown> {
   return buildWorkflowActionScopePayload(request, changeId, result);
+}
+
+function sameStringArray(left: string[], right: string[]): boolean {
+  return left.length === right.length && left.every((item, index) => item === right[index]);
 }

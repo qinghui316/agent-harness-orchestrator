@@ -42,6 +42,8 @@ export interface WorkbenchActionRequest {
   schedulerRunId?: string;
   schedulerReconcileSnapshotId?: string;
   schedulerClaimReservationId?: string;
+  schedulerIntegrationCandidateId?: string;
+  schedulerIntegrationCheckHandoffId?: string;
   schedulerWorkerStartId?: string;
   schedulerWorkerResultId?: string;
   schedulerWorkerValidationId?: string;
@@ -50,6 +52,7 @@ export interface WorkbenchActionRequest {
   schedulerWorkerReworkStartId?: string;
   schedulerWorkerReworkResultId?: string;
   schedulerWorkerReworkValidationId?: string;
+  schedulerWorkerReworkAuditId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   workflowRunId?: string;

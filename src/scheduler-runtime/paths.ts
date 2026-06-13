@@ -156,3 +156,15 @@ export function schedulerIntegrationCandidatePath(memory: ResolvedMemory, change
 export function schedulerIntegrationCandidateMarkdownPath(memory: ResolvedMemory, changePath: string, schedulerRunId: string, candidateId: string): string {
   return join(schedulerIntegrationCandidatesDir(memory, changePath, schedulerRunId), `${candidateId}.md`);
 }
+
+export function schedulerIntegrationCheckHandoffsDir(memory: ResolvedMemory, changePath: string, schedulerRunId: string): string {
+  return join(schedulerRuntimeDir(memory, changePath, schedulerRunId), "scheduler-integration-check-handoffs");
+}
+
+export function schedulerIntegrationCheckHandoffPath(memory: ResolvedMemory, changePath: string, schedulerRunId: string, handoffId: string): string {
+  return join(schedulerIntegrationCheckHandoffsDir(memory, changePath, schedulerRunId), `${handoffId}.json`);
+}
+
+export function schedulerIntegrationCheckHandoffMarkdownPath(memory: ResolvedMemory, changePath: string, schedulerRunId: string, handoffId: string): string {
+  return join(schedulerIntegrationCheckHandoffsDir(memory, changePath, schedulerRunId), `${handoffId}.md`);
+}

@@ -45,7 +45,10 @@ export async function buildConfirmationQueue(input: {
     const candidateAlreadyChecked = candidate && latestActionableCheck
       ? sameIntegrationTargets(candidate.targets, latestActionableCheck.resultTargets)
       : false;
-    if (candidate && !candidateAlreadyChecked) {
+    const candidateHandledByScheduler = candidate
+      ? schedulerIntegrationCandidateCoversApplyCandidate(input.workpad, candidate.targets.map((target) => target.worktreeId))
+      : false;
+    if (candidate && !candidateAlreadyChecked && !candidateHandledByScheduler) {
       const item = integrationCandidateQueueItem(project, candidate, input.selectedTopic?.id);
       if (item.primary) queue.current.unshift(item);
       else queue.otherDemands.push(item);
@@ -99,4 +102,13 @@ export async function buildConfirmationQueue(input: {
   queue.history = dedupeConfirmationItems(queue.history.map(scopeConfirmationQueueItemActions));
   queue.primary = queue.current.find((item) => item.primary) ?? queue.current[0] ?? null;
   return queue;
+}
+
+function schedulerIntegrationCandidateCoversApplyCandidate(workpad: WorkbenchWorkpad, worktreeIds: string[]): boolean {
+  const schedulerCandidate = workpad.schedulerIntegrationCandidate;
+  if (!schedulerCandidate || schedulerCandidate.status !== "ready" || schedulerCandidate.readyCount < 2) return false;
+  const readyIds = schedulerCandidate.readyWorktreeIds;
+  if (readyIds.length !== worktreeIds.length) return false;
+  const expected = new Set(readyIds);
+  return worktreeIds.every((worktreeId) => expected.has(worktreeId));
 }

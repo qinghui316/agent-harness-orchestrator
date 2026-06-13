@@ -15,6 +15,9 @@ import {
   schedulerIntegrationCandidateMarkdownPath,
   schedulerIntegrationCandidatePath,
   schedulerIntegrationCandidatesDir,
+  schedulerIntegrationCheckHandoffMarkdownPath,
+  schedulerIntegrationCheckHandoffPath,
+  schedulerIntegrationCheckHandoffsDir,
   schedulerReconcileSnapshotMarkdownPath,
   schedulerReconcileSnapshotPath,
   schedulerRuntimeDir,
@@ -48,9 +51,9 @@ import {
   schedulerWorkerValidationPath,
   schedulerWorkerValidationsDir,
 } from "./paths.js";
-import { renderSchedulerIntegrationCandidateMarkdown, renderSchedulerReconcileSnapshotMarkdown, renderSchedulerRuntimeClaimReservationMarkdown, renderSchedulerRuntimeStateMarkdown, renderSchedulerRuntimeWorkerAuditMarkdown, renderSchedulerRuntimeWorkerResultMarkdown, renderSchedulerRuntimeWorkerReworkAuditMarkdown, renderSchedulerRuntimeWorkerReworkPlanMarkdown, renderSchedulerRuntimeWorkerReworkResultMarkdown, renderSchedulerRuntimeWorkerReworkStartMarkdown, renderSchedulerRuntimeWorkerReworkValidationMarkdown, renderSchedulerRuntimeWorkerStartMarkdown, renderSchedulerRuntimeWorkerValidationMarkdown } from "./rendering.js";
-import { schedulerIntegrationCandidateSchema, schedulerReconcileSnapshotSchema, schedulerRuntimeClaimReservationSchema, schedulerRuntimeEventSchema, schedulerRuntimeStateSchema, schedulerRuntimeWorkerAuditSchema, schedulerRuntimeWorkerResultSchema, schedulerRuntimeWorkerReworkAuditSchema, schedulerRuntimeWorkerReworkPlanSchema, schedulerRuntimeWorkerReworkResultSchema, schedulerRuntimeWorkerReworkStartSchema, schedulerRuntimeWorkerReworkValidationSchema, schedulerRuntimeWorkerStartSchema, schedulerRuntimeWorkerValidationSchema } from "./schemas.js";
-import type { SchedulerIntegrationCandidate, SchedulerReconcileSnapshot, SchedulerRuntimeClaimReservation, SchedulerRuntimeEvent, SchedulerRuntimeEventType, SchedulerRuntimeState, SchedulerRuntimeWorkerAudit, SchedulerRuntimeWorkerResult, SchedulerRuntimeWorkerReworkAudit, SchedulerRuntimeWorkerReworkPlan, SchedulerRuntimeWorkerReworkResult, SchedulerRuntimeWorkerReworkStart, SchedulerRuntimeWorkerReworkValidation, SchedulerRuntimeWorkerStart, SchedulerRuntimeWorkerValidation } from "./types.js";
+import { renderSchedulerIntegrationCandidateMarkdown, renderSchedulerIntegrationCheckHandoffMarkdown, renderSchedulerReconcileSnapshotMarkdown, renderSchedulerRuntimeClaimReservationMarkdown, renderSchedulerRuntimeStateMarkdown, renderSchedulerRuntimeWorkerAuditMarkdown, renderSchedulerRuntimeWorkerResultMarkdown, renderSchedulerRuntimeWorkerReworkAuditMarkdown, renderSchedulerRuntimeWorkerReworkPlanMarkdown, renderSchedulerRuntimeWorkerReworkResultMarkdown, renderSchedulerRuntimeWorkerReworkStartMarkdown, renderSchedulerRuntimeWorkerReworkValidationMarkdown, renderSchedulerRuntimeWorkerStartMarkdown, renderSchedulerRuntimeWorkerValidationMarkdown } from "./rendering.js";
+import { schedulerIntegrationCandidateSchema, schedulerIntegrationCheckHandoffSchema, schedulerReconcileSnapshotSchema, schedulerRuntimeClaimReservationSchema, schedulerRuntimeEventSchema, schedulerRuntimeStateSchema, schedulerRuntimeWorkerAuditSchema, schedulerRuntimeWorkerResultSchema, schedulerRuntimeWorkerReworkAuditSchema, schedulerRuntimeWorkerReworkPlanSchema, schedulerRuntimeWorkerReworkResultSchema, schedulerRuntimeWorkerReworkStartSchema, schedulerRuntimeWorkerReworkValidationSchema, schedulerRuntimeWorkerStartSchema, schedulerRuntimeWorkerValidationSchema } from "./schemas.js";
+import type { SchedulerIntegrationCandidate, SchedulerIntegrationCheckHandoff, SchedulerReconcileSnapshot, SchedulerRuntimeClaimReservation, SchedulerRuntimeEvent, SchedulerRuntimeEventType, SchedulerRuntimeState, SchedulerRuntimeWorkerAudit, SchedulerRuntimeWorkerResult, SchedulerRuntimeWorkerReworkAudit, SchedulerRuntimeWorkerReworkPlan, SchedulerRuntimeWorkerReworkResult, SchedulerRuntimeWorkerReworkStart, SchedulerRuntimeWorkerReworkValidation, SchedulerRuntimeWorkerStart, SchedulerRuntimeWorkerValidation } from "./types.js";
 
 export function schedulerRuntimeArtifactRefs(memory: ResolvedMemory, changePath: string, schedulerRunId: string): { artifact: string; eventsArtifact: string } {
   return {
@@ -140,6 +143,13 @@ export function schedulerIntegrationCandidateArtifactRefs(memory: ResolvedMemory
   return {
     artifact: displayArtifactPath(memory, schedulerIntegrationCandidatePath(memory, changePath, schedulerRunId, candidateId)),
     markdownArtifact: displayArtifactPath(memory, schedulerIntegrationCandidateMarkdownPath(memory, changePath, schedulerRunId, candidateId)),
+  };
+}
+
+export function schedulerIntegrationCheckHandoffArtifactRefs(memory: ResolvedMemory, changePath: string, schedulerRunId: string, handoffId: string): { artifact: string; markdownArtifact: string } {
+  return {
+    artifact: displayArtifactPath(memory, schedulerIntegrationCheckHandoffPath(memory, changePath, schedulerRunId, handoffId)),
+    markdownArtifact: displayArtifactPath(memory, schedulerIntegrationCheckHandoffMarkdownPath(memory, changePath, schedulerRunId, handoffId)),
   };
 }
 
@@ -679,4 +689,68 @@ export async function listSchedulerIntegrationCandidates(memory: ResolvedMemory,
 
 export async function readLatestSchedulerIntegrationCandidateProjection(memory: ResolvedMemory, changePath: string, schedulerRunId: string): Promise<SchedulerIntegrationCandidate | null> {
   return (await listSchedulerIntegrationCandidates(memory, changePath, schedulerRunId))[0] ?? null;
+}
+
+export async function writeSchedulerIntegrationCheckHandoff(memory: ResolvedMemory, changePath: string, handoff: SchedulerIntegrationCheckHandoff): Promise<void> {
+  await assertChangePathScope(memory, changePath, handoff.changeId, `SchedulerIntegrationCheckHandoff ${handoff.id}`);
+  await mkdir(schedulerIntegrationCheckHandoffsDir(memory, changePath, handoff.schedulerRunId), { recursive: true });
+  await writeJsonFile(schedulerIntegrationCheckHandoffPath(memory, changePath, handoff.schedulerRunId, handoff.id), handoff);
+  await writeFile(schedulerIntegrationCheckHandoffMarkdownPath(memory, changePath, handoff.schedulerRunId, handoff.id), renderSchedulerIntegrationCheckHandoffMarkdown(handoff), "utf8");
+}
+
+export async function readSchedulerIntegrationCheckHandoff(memory: ResolvedMemory, changePath: string, schedulerRunId: string, handoffId: string): Promise<SchedulerIntegrationCheckHandoff> {
+  const handoff = await readRequiredJsonFile(schedulerIntegrationCheckHandoffPath(memory, changePath, schedulerRunId, handoffId), schedulerIntegrationCheckHandoffSchema);
+  await assertChangePathScope(memory, changePath, handoff.changeId, `SchedulerIntegrationCheckHandoff ${handoff.id}`);
+  if (handoff.schedulerRunId !== schedulerRunId || handoff.id !== handoffId) throw new Error("SchedulerIntegrationCheckHandoff scope mismatch.");
+  return handoff;
+}
+
+export async function readSchedulerIntegrationCheckHandoffProjection(memory: ResolvedMemory, changePath: string, schedulerRunId: string, handoffId: string): Promise<SchedulerIntegrationCheckHandoff | null> {
+  try {
+    return await readSchedulerIntegrationCheckHandoff(memory, changePath, schedulerRunId, handoffId);
+  } catch {
+    return null;
+  }
+}
+
+export async function listSchedulerIntegrationCheckHandoffs(memory: ResolvedMemory, changePath: string, schedulerRunId: string): Promise<SchedulerIntegrationCheckHandoff[]> {
+  const dir = schedulerIntegrationCheckHandoffsDir(memory, changePath, schedulerRunId);
+  if (!existsSync(dir)) return [];
+  const entries = await readdir(dir, { withFileTypes: true }).catch(() => []);
+  const handoffs: SchedulerIntegrationCheckHandoff[] = [];
+  for (const entry of entries) {
+    if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
+    const handoff = await readSchedulerIntegrationCheckHandoffProjection(memory, changePath, schedulerRunId, entry.name.replace(/\.json$/, ""));
+    if (handoff) handoffs.push(handoff);
+  }
+  return handoffs.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
+export async function readLatestSchedulerIntegrationCheckHandoffProjection(memory: ResolvedMemory, changePath: string, schedulerRunId: string): Promise<SchedulerIntegrationCheckHandoff | null> {
+  return (await listSchedulerIntegrationCheckHandoffs(memory, changePath, schedulerRunId))[0] ?? null;
+}
+
+export async function findSchedulerIntegrationCheckHandoffForCandidate(
+  memory: ResolvedMemory,
+  changePath: string,
+  schedulerRunId: string,
+  candidateId: string,
+  readyWorktreeIds: string[],
+): Promise<SchedulerIntegrationCheckHandoff | null> {
+  const expected = normalizeWorktreeIds(readyWorktreeIds);
+  for (const handoff of await listSchedulerIntegrationCheckHandoffs(memory, changePath, schedulerRunId)) {
+    if (handoff.schedulerIntegrationCandidateId !== candidateId) continue;
+    if (sameWorktreeSet(handoff.readyWorktreeIds, expected)) return handoff;
+  }
+  return null;
+}
+
+function normalizeWorktreeIds(worktreeIds: string[]): string[] {
+  return [...worktreeIds].sort((a, b) => a.localeCompare(b));
+}
+
+function sameWorktreeSet(left: string[], right: string[]): boolean {
+  const normalizedLeft = normalizeWorktreeIds(left);
+  const normalizedRight = normalizeWorktreeIds(right);
+  return normalizedLeft.length === normalizedRight.length && normalizedLeft.every((item, index) => item === normalizedRight[index]);
 }

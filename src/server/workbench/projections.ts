@@ -25,6 +25,7 @@ import {
   getWorkbenchSchedulerWorkerReworkStartProjection,
   getWorkbenchSchedulerWorkerValidationProjection,
   getWorkbenchSchedulerIntegrationCandidateProjection,
+  getWorkbenchSchedulerIntegrationCheckHandoffProjection,
   getWorkbenchWorkflowRunProjection,
   getWorkbenchWorkpadProjection,
   type WorkbenchProjectInput,
@@ -154,6 +155,12 @@ export async function getWorkbenchProjection(input: WorkbenchProjectInput, rest:
     if (!id) throw badRequest("scheduler-integration-candidate projection requires schedulerRunId.");
     if (!extraId) throw badRequest("scheduler-integration-candidate projection requires schedulerIntegrationCandidateId.");
     return getWorkbenchSchedulerIntegrationCandidateProjection(input, changeId, id, extraId);
+  }
+  if (kind === "scheduler-integration-check-handoff") {
+    if (!changeId) throw badRequest("scheduler-integration-check-handoff projection requires changeId.");
+    if (!id) throw badRequest("scheduler-integration-check-handoff projection requires schedulerRunId.");
+    if (!extraId) throw badRequest("scheduler-integration-check-handoff projection requires schedulerIntegrationCheckHandoffId.");
+    return getWorkbenchSchedulerIntegrationCheckHandoffProjection(input, changeId, id, extraId);
   }
   if (kind === "workflow-run") {
     if (!changeId) throw badRequest("workflow-run projection requires changeId.");

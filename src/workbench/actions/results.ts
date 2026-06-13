@@ -246,6 +246,10 @@ export function summarizeActionResult(actionType: string, result: unknown): stri
     const blockedCount = typeof result.candidate.blockedCount === "number" ? result.candidate.blockedCount : 0;
     return `Scheduler integration candidate compiled. Ready targets: ${readyCount}; blocked outputs: ${blockedCount}. No IntegrationCheck was started.`;
   }
+  if (actionType === "planning.scheduler.integration-check.run" && isRecord(result) && isRecord(result.handoff)) {
+    const integrationCheckId = typeof result.handoff.integrationCheckId === "string" ? result.handoff.integrationCheckId : "IntegrationCheck";
+    return `Scheduler handoff ran ${integrationCheckId} through the existing IntegrationCheck gate. No apply, landing, PR, merge, or next worker was started.`;
+  }
   if (actionType === "planning.confirm-execution" && isRecord(result)) {
     return "Planning confirmed and canonical artifacts were written. No execution was started.";
   }
@@ -303,6 +307,7 @@ export function labelForAction(actionType: string): string {
     case "planning.scheduler.worker.rework-validate-first": return "Scheduler first worker rework validated";
     case "planning.scheduler.worker.rework-audit-first": return "Scheduler first worker rework audited";
     case "planning.scheduler.integration-candidate.compile": return "Scheduler integration candidate compiled";
+    case "planning.scheduler.integration-check.run": return "Scheduler IntegrationCheck handoff completed";
     case "planning.workflowgraph.compile": return "WorkflowGraphPlan compiled";
     case "planning.taskqueue.confirm-start": return "TaskQueueProposal confirmed and started";
     case "orchestrator.evaluate": return "Main orchestrator evaluated";

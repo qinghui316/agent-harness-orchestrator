@@ -49,7 +49,8 @@ export function schedulerNextActionToConfirmationItems(
   if (action.kind !== "workflow-action" || !action.enabled || !action.requiresConfirmation || !action.actionType?.startsWith("planning.scheduler.")) {
     return [];
   }
-  const targetId = action.schedulerIntegrationCandidateId
+  const targetId = action.schedulerIntegrationCheckHandoffId
+    ?? action.schedulerIntegrationCandidateId
     ?? action.schedulerWorkerReworkAuditId
     ?? action.schedulerWorkerReworkValidationId
     ?? action.schedulerWorkerReworkResultId
@@ -130,6 +131,7 @@ export function schedulerNextActionToConfirmationItems(
     schedulerWorkerReworkValidationId: action.schedulerWorkerReworkValidationId,
     schedulerWorkerReworkAuditId: action.schedulerWorkerReworkAuditId,
     schedulerIntegrationCandidateId: action.schedulerIntegrationCandidateId,
+    schedulerIntegrationCheckHandoffId: action.schedulerIntegrationCheckHandoffId,
     reservationIntentId: action.reservationIntentId,
     claimIntentId: action.claimIntentId,
     taskRunId,
@@ -169,12 +171,15 @@ export function schedulerNextActionToConfirmationItems(
       schedulerWorkerReworkValidationId: action.schedulerWorkerReworkValidationId,
       schedulerWorkerReworkAuditId: action.schedulerWorkerReworkAuditId,
       schedulerIntegrationCandidateId: action.schedulerIntegrationCandidateId,
+      schedulerIntegrationCheckHandoffId: action.schedulerIntegrationCheckHandoffId,
       reservationIntentId: action.reservationIntentId,
       claimIntentId: action.claimIntentId,
       taskRunId,
       workerLeaseId,
       worktreeId,
       runId,
+      worktreeIds: action.worktreeIds,
+      applyCheckId: action.applyCheckId,
       validationRunId,
       reworkValidationRunId,
       auditRunId,

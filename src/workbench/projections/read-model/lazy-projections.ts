@@ -9,7 +9,7 @@ import type {
   WorkflowGraphPlan,
 } from "../../../workflow-artifacts/manager.js";
 import type { SchedulerClaimReconcilePlan, SchedulerContract, SchedulerDispatchDryRun, SchedulerLaunchPreflight, SchedulerRun, SchedulerWorkerSessionPlan } from "../../../workflow-scheduler/manager.js";
-import type { SchedulerIntegrationCandidate, SchedulerReconcileSnapshot, SchedulerRuntimeClaimReservation, SchedulerRuntimeState, SchedulerRuntimeWorkerAudit, SchedulerRuntimeWorkerReworkPlan, SchedulerRuntimeWorkerReworkAudit, SchedulerRuntimeWorkerReworkResult, SchedulerRuntimeWorkerReworkValidation, SchedulerRuntimeWorkerReworkStart, SchedulerRuntimeWorkerValidation } from "../../../scheduler-runtime/manager.js";
+import type { SchedulerIntegrationCandidate, SchedulerIntegrationCheckHandoff, SchedulerReconcileSnapshot, SchedulerRuntimeClaimReservation, SchedulerRuntimeState, SchedulerRuntimeWorkerAudit, SchedulerRuntimeWorkerReworkPlan, SchedulerRuntimeWorkerReworkAudit, SchedulerRuntimeWorkerReworkResult, SchedulerRuntimeWorkerReworkValidation, SchedulerRuntimeWorkerReworkStart, SchedulerRuntimeWorkerValidation } from "../../../scheduler-runtime/manager.js";
 import type { ResolvedMemory } from "../../../types/index.js";
 import type { WorkbenchPlanningArtifactBundle, WorkbenchProjectInput } from "../../read-model-types.js";
 import { resolveWorkbenchMemory } from "./support.js";
@@ -31,6 +31,7 @@ import {
   getSchedulerWorkerReworkValidationProjectionForPath,
   getSchedulerWorkerReworkStartProjectionForPath,
   getSchedulerWorkerValidationProjectionForPath,
+  getSchedulerIntegrationCheckHandoffProjectionForPath,
   getSchedulerIntegrationCandidateProjectionForPath,
   getSchedulerLaunchPreflightProjectionForPath,
   getSchedulerReconcileSnapshotProjectionForPath,
@@ -262,6 +263,16 @@ export async function getWorkbenchSchedulerIntegrationCandidateProjection(input:
   const changePath = findWorkbenchTopicPath(topics, changeId);
   if (!changePath) return null;
   return getSchedulerIntegrationCandidateProjectionForPath(memory, changePath, schedulerRunId, candidateId);
+}
+
+export async function getWorkbenchSchedulerIntegrationCheckHandoffProjection(input: WorkbenchProjectInput, changeId: string, schedulerRunId?: string, handoffId?: string): Promise<SchedulerIntegrationCheckHandoff | null> {
+  if (!schedulerRunId || !handoffId) return null;
+  const memory = await resolveWorkbenchMemory(input);
+  if (!memory.supported) return null;
+  const topics = await listWorkbenchTopicsFromMemory(memory);
+  const changePath = findWorkbenchTopicPath(topics, changeId);
+  if (!changePath) return null;
+  return getSchedulerIntegrationCheckHandoffProjectionForPath(memory, changePath, schedulerRunId, handoffId);
 }
 
 export async function getWorkbenchWorkflowRunProjection(input: WorkbenchProjectInput, changeId: string, workflowRunId: string): Promise<Awaited<ReturnType<typeof getWorkflowRunProjectionForChange>> | null> {

@@ -8,10 +8,12 @@ import { assertWritableMemory } from "../../../memory/resolver.js";
 import {
   initializeSchedulerRuntime,
   compileSchedulerIntegrationCandidate,
+  runSchedulerIntegrationCheckHandoff,
   prepareSchedulerPlanEvidence,
   reconcileSchedulerRuntime,
   reserveSchedulerRuntimeClaims,
   renderSchedulerLaunchBriefMarkdown,
+  renderSchedulerIntegrationCheckHandoffMarkdown,
   renderSchedulerIntegrationCandidateMarkdown,
   renderSchedulerRuntimeClaimReservationMarkdown,
   renderSchedulerRuntimeWorkerResultMarkdown,
@@ -38,6 +40,7 @@ import {
   type SchedulerRuntimeClaimReservation,
   type SchedulerRuntimeState,
   type SchedulerRuntimeWorkerStart,
+  type SchedulerIntegrationCheckHandoffResult,
   type SchedulerIntegrationCandidateResult,
   type SchedulerWorkerResultReconcileResult,
   type SchedulerWorkerAuditResult,
@@ -1793,6 +1796,64 @@ export async function compilePlanningSchedulerIntegrationCandidate(
       readyWorktreeIds: result.candidate.readyWorktreeIds,
       readyCount: result.candidate.readyCount,
       blockedCount: result.candidate.blockedCount,
+    },
+    completedAt: new Date().toISOString(),
+  });
+  return result;
+}
+
+export async function runPlanningSchedulerIntegrationCheckHandoff(
+  project: ManagedProject,
+  changeId: string,
+  request: WorkbenchWorkflowActionRequest,
+  live: WorkbenchLiveSink | undefined,
+): Promise<SchedulerIntegrationCheckHandoffResult> {
+  const { memory } = await resolveTopic(project, changeId);
+  assertWritableMemory(memory, "Scheduler IntegrationCheck handoff");
+  if (!request.schedulerRunId) throw new Error("planning.scheduler.integration-check.run requires schedulerRunId.");
+  if (!request.schedulerIntegrationCandidateId) throw new Error("planning.scheduler.integration-check.run requires schedulerIntegrationCandidateId.");
+  const result = await runSchedulerIntegrationCheckHandoff(project, {
+    changeId,
+    schedulerRunId: request.schedulerRunId,
+    schedulerIntegrationCandidateId: request.schedulerIntegrationCandidateId,
+  });
+  await appendTopicThreadEntry(project, changeId, {
+    type: "assistant.message",
+    status: "scheduler-integration-check-handoff-completed",
+    text: renderSchedulerIntegrationCheckHandoffMarkdown(result.handoff),
+    artifact: result.handoff.artifact,
+  });
+  emitAssistantEvent(live, {
+    runId: result.handoff.integrationCheckId,
+    kind: "file-change",
+    phase: "scheduler-integration-check-handoff-completed",
+    title: "Scheduler IntegrationCheck completed",
+    summary: `Scheduler ready targets were handed to IntegrationCheck ${result.handoff.integrationCheckId} (${result.handoff.integrationCheckStatus}). No apply, landing, PR, merge, or next worker was started.`,
+    artifactRef: result.handoff.artifact,
+  });
+  await recordWorkbenchDecision(project, {
+    id: `scheduler-integration-check-handoff:${result.handoff.id}`,
+    changeId,
+    decisionType: "planning.scheduler.integration-check.run",
+    status: "completed",
+    label: "Scheduler IntegrationCheck 已运行",
+    summary: "Ran existing IntegrationCheck with explicit scheduler ready worktree targets. Apply/landing/merge remains a separate human gate.",
+    targetId: result.handoff.id,
+    runId: null,
+    artifact: result.handoff.artifact,
+    actionId: "planning.scheduler.integration-check.run",
+    payload: {
+      handoff: result.handoff,
+      schedulerIntegrationCheckHandoffId: result.handoff.id,
+      schedulerIntegrationCandidateId: result.handoff.schedulerIntegrationCandidateId,
+      schedulerRunId: result.handoff.schedulerRunId,
+      schedulerClaimReservationId: result.handoff.schedulerClaimReservationId,
+      schedulerReconcileSnapshotId: result.handoff.schedulerReconcileSnapshotId,
+      worktreeIds: result.handoff.readyWorktreeIds,
+      applyCheckId: result.handoff.integrationCheckId,
+      integrationCheckId: result.handoff.integrationCheckId,
+      integrationCheckStatus: result.handoff.integrationCheckStatus,
+      resultTargetWorktreeIds: result.handoff.resultTargetWorktreeIds,
     },
     completedAt: new Date().toISOString(),
   });

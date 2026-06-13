@@ -176,6 +176,7 @@ export type WorkpadNextAction = {
   schedulerWorkerReworkValidationId?: string;
   schedulerWorkerReworkAuditId?: string;
   schedulerIntegrationCandidateId?: string;
+  schedulerIntegrationCheckHandoffId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   workflowRunId?: string;
@@ -229,6 +230,7 @@ export type WorkbenchTaskNextAction = {
   schedulerWorkerReworkValidationId?: string;
   schedulerWorkerReworkAuditId?: string;
   schedulerIntegrationCandidateId?: string;
+  schedulerIntegrationCheckHandoffId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   workflowRunId?: string;
@@ -364,6 +366,7 @@ export type Workpad = {
   schedulerWorkerReworkValidation?: SchedulerWorkerReworkValidationSummary;
   schedulerWorkerReworkAudit?: SchedulerWorkerReworkAuditSummary;
   schedulerIntegrationCandidate?: SchedulerIntegrationCandidateSummary;
+  schedulerIntegrationCheckHandoff?: SchedulerIntegrationCheckHandoffSummary;
   rolePipeline?: {
     stage: "planning" | "coding" | "validation" | "audit" | "rework" | "done" | "needs-user-input";
     status: "draft" | "running" | "completed" | "needs-user-input" | "stopped";
@@ -941,6 +944,22 @@ export type SchedulerIntegrationCandidateSummary = {
   markdownArtifact?: string;
   updatedAt: string;
 };
+export type SchedulerIntegrationCheckHandoffSummary = {
+  id: string;
+  changeId: string;
+  schedulerRunId: string;
+  schedulerClaimReservationId: string;
+  schedulerReconcileSnapshotId: string;
+  schedulerIntegrationCandidateId: string;
+  status: "completed";
+  integrationCheckId: string;
+  integrationCheckStatus: string;
+  readyCount: number;
+  readyWorktreeIds: string[];
+  artifact?: string;
+  markdownArtifact?: string;
+  updatedAt: string;
+};
 export type SchedulerReconcileSnapshotSummary = {
   id: string;
   changeId: string;
@@ -993,6 +1012,7 @@ export type ThreadStreamAction = {
   schedulerWorkerReworkValidationId?: string;
   schedulerWorkerReworkAuditId?: string;
   schedulerIntegrationCandidateId?: string;
+  schedulerIntegrationCheckHandoffId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   workflowRunId?: string;

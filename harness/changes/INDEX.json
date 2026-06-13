@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-13T04:11:40.2949160Z",
+    "generated_at":  "2026-06-13T05:05:18.9741512Z",
     "active":  [
 
                ],
@@ -713,6 +713,10 @@
                     {
                         "name":  "20260613-phase-9p-scheduler-worker-integration-candidate-bridge",
                         "path":  "harness/changes/archive/20260613-phase-9p-scheduler-worker-integration-candidate-bridge"
+                    },
+                    {
+                        "name":  "20260613-phase-9q-scheduler-integrationcheck-handoff",
+                        "path":  "harness/changes/archive/20260613-phase-9q-scheduler-integrationcheck-handoff"
                     }
                 ]
 }

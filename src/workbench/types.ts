@@ -188,6 +188,7 @@ export interface WorkbenchWorkflowActionRequest {
   schedulerWorkerReworkValidationId?: string;
   schedulerWorkerReworkAuditId?: string;
   schedulerIntegrationCandidateId?: string;
+  schedulerIntegrationCheckHandoffId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   workflowRunId?: string;

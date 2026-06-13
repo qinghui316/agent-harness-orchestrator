@@ -1,4 +1,4 @@
-import type { SchedulerIntegrationCandidate, SchedulerReconcileSnapshot, SchedulerRuntimeClaimReservation, SchedulerRuntimeState, SchedulerRuntimeWorkerAudit, SchedulerRuntimeWorkerResult, SchedulerRuntimeWorkerReworkAudit, SchedulerRuntimeWorkerReworkPlan, SchedulerRuntimeWorkerReworkResult, SchedulerRuntimeWorkerReworkStart, SchedulerRuntimeWorkerReworkValidation, SchedulerRuntimeWorkerStart, SchedulerRuntimeWorkerValidation } from "./types.js";
+import type { SchedulerIntegrationCandidate, SchedulerIntegrationCheckHandoff, SchedulerReconcileSnapshot, SchedulerRuntimeClaimReservation, SchedulerRuntimeState, SchedulerRuntimeWorkerAudit, SchedulerRuntimeWorkerResult, SchedulerRuntimeWorkerReworkAudit, SchedulerRuntimeWorkerReworkPlan, SchedulerRuntimeWorkerReworkResult, SchedulerRuntimeWorkerReworkStart, SchedulerRuntimeWorkerReworkValidation, SchedulerRuntimeWorkerStart, SchedulerRuntimeWorkerValidation } from "./types.js";
 
 export function renderSchedulerRuntimeStateMarkdown(state: SchedulerRuntimeState): string {
   const lines = [
@@ -560,6 +560,41 @@ export function renderSchedulerIntegrationCandidateMarkdown(candidate: Scheduler
     "## Boundary",
     "",
     "This scheduler integration candidate bridges audited scheduler worker output into the existing IntegrationCheck/apply readiness chain. It is not IntegrationCheck, apply authorization, merge authorization, next-worker dispatch, whole-wave dispatch, or a parallel executor.",
+    "",
+  ];
+  return lines.join("\n");
+}
+
+export function renderSchedulerIntegrationCheckHandoffMarkdown(handoff: SchedulerIntegrationCheckHandoff): string {
+  const lines = [
+    `# SchedulerIntegrationCheckHandoff ${handoff.id}`,
+    "",
+    `Status: ${handoff.status}`,
+    `Change: ${handoff.changeId}`,
+    `SchedulerRun: ${handoff.schedulerRunId}`,
+    `IntegrationCandidate: ${handoff.schedulerIntegrationCandidateId}`,
+    `IntegrationCheck: ${handoff.integrationCheckId} (${handoff.integrationCheckStatus})`,
+    "",
+    "## Summary",
+    "",
+    `- Ready targets: ${handoff.readyTargets.length}`,
+    `- Ready worktrees: ${handoff.readyWorktreeIds.join(", ") || "none"}`,
+    `- Result target worktrees: ${handoff.resultTargetWorktreeIds.join(", ") || "none"}`,
+    "",
+    "## Ready Targets",
+    "",
+    ...(handoff.readyTargets.length ? handoff.readyTargets.map((target) => [
+      `### ${target.worktreeId}`,
+      "",
+      `- Diff hash: ${target.worktreeDiffHash}`,
+      `- Validation run: ${target.validationRunId}`,
+      `- Audit run: ${target.auditRunId}`,
+      `- Source HEAD: ${target.sourceHead ?? "unknown"}`,
+      "",
+    ].join("\n")) : ["- none", ""]),
+    "## Boundary",
+    "",
+    "This handoff records that scheduler-owned ready outputs were explicitly passed to the existing IntegrationCheck gate. It does not apply source changes, discard worktrees, prepare landing, create PRs, merge, start another worker, or authorize the full parallel executor.",
     "",
   ];
   return lines.join("\n");

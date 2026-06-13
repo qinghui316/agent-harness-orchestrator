@@ -1114,6 +1114,7 @@ describe("Workbench module boundaries", () => {
       "src/scheduler-runtime/worker-rework-validation.ts",
       "src/scheduler-runtime/worker-rework-audit.ts",
       "src/scheduler-runtime/integration-candidate.ts",
+      "src/scheduler-runtime/integration-check-handoff.ts",
       "src/scheduler-runtime/rendering.ts",
       "src/scheduler-runtime/manager.ts",
     ]));
@@ -1127,6 +1128,7 @@ describe("Workbench module boundaries", () => {
     expect(manager).toContain('export * from "./worker-audit.js";');
     expect(manager).toContain('export * from "./worker-rework-audit.js";');
     expect(manager).toContain('export * from "./integration-candidate.js";');
+    expect(manager).toContain('export * from "./integration-check-handoff.js";');
     expect(manager).toContain('export * from "./repository.js";');
 
     const initialize = readFileSync("src/scheduler-runtime/initialize.ts", "utf8");
@@ -1242,6 +1244,19 @@ describe("Workbench module boundaries", () => {
     expect(integrationCandidate).not.toContain("startValidationRun");
     expect(integrationCandidate).not.toContain("startAuditRun");
     expect(integrationCandidate).not.toContain("runTaskQueueSequence");
+
+    const integrationCheckHandoff = readFileSync("src/scheduler-runtime/integration-check-handoff.ts", "utf8");
+    expect(integrationCheckHandoff).toContain("runSchedulerIntegrationCheckHandoff");
+    expect(integrationCheckHandoff).toContain("SchedulerIntegrationCheckHandoff");
+    expect(integrationCheckHandoff).toContain("runIntegrationCheck");
+    expect(integrationCheckHandoff).toContain("previewWorktreeApply");
+    expect(integrationCheckHandoff).toContain("classifyApplyReadiness");
+    expect(integrationCheckHandoff).not.toContain("applyIntegrationCheck");
+    expect(integrationCheckHandoff).not.toContain("applyResultToProject");
+    expect(integrationCheckHandoff).not.toContain("startCodeRun");
+    expect(integrationCheckHandoff).not.toContain("startValidationRun");
+    expect(integrationCheckHandoff).not.toContain("startAuditRun");
+    expect(integrationCheckHandoff).not.toContain("runTaskQueueSequence");
 
     for (const file of files) {
       const content = readFileSync(file, "utf8");

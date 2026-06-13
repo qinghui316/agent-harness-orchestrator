@@ -487,3 +487,21 @@ export function SchedulerIntegrationCandidateCard({ candidate }: { candidate: No
     </section>
   );
 }
+
+export function SchedulerIntegrationCheckHandoffCard({ handoff }: { handoff: NonNullable<Workpad["schedulerIntegrationCheckHandoff"]> }): ReactElement {
+  return (
+    <section className="workpad-section" data-testid="scheduler-integration-check-handoff-card">
+      <div className="workpad-section-header">
+        <h3>Scheduler IntegrationCheck</h3>
+        <span>{humanStatus(handoff.integrationCheckStatus)}</span>
+      </div>
+      <p className="workpad-goal">scheduler ready targets 已显式交给现有 IntegrationCheck（不 apply、不 merge）</p>
+      <div className="workpad-chip-list">
+        <span>{handoff.readyCount} 个 ready target</span>
+        <span>IntegrationCheck {handoff.integrationCheckId}</span>
+        <span>{handoff.readyWorktreeIds.join(", ")}</span>
+      </div>
+      {handoff.artifact ? <small className="artifact-link">查看证据：{artifactName(handoff.artifact)}</small> : null}
+    </section>
+  );
+}
