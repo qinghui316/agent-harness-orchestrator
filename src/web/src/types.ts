@@ -180,6 +180,10 @@ export type WorkpadNextAction = {
   schedulerIntegrationOutcomeId?: string;
   schedulerRunCompletionId?: string;
   schedulerRunBlockedCloseoutId?: string;
+  goalLoopDecisionId?: string;
+  goalLoopIterationId?: string;
+  goalLoopContinuationBriefId?: string;
+  goalLoopNextStepPacketId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   workflowRunId?: string;
@@ -237,6 +241,10 @@ export type WorkbenchTaskNextAction = {
   schedulerIntegrationOutcomeId?: string;
   schedulerRunCompletionId?: string;
   schedulerRunBlockedCloseoutId?: string;
+  goalLoopDecisionId?: string;
+  goalLoopIterationId?: string;
+  goalLoopContinuationBriefId?: string;
+  goalLoopNextStepPacketId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   workflowRunId?: string;
@@ -1136,6 +1144,10 @@ export type ThreadStreamAction = {
   schedulerIntegrationOutcomeId?: string;
   schedulerRunCompletionId?: string;
   schedulerRunBlockedCloseoutId?: string;
+  goalLoopDecisionId?: string;
+  goalLoopIterationId?: string;
+  goalLoopContinuationBriefId?: string;
+  goalLoopNextStepPacketId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   workflowRunId?: string;

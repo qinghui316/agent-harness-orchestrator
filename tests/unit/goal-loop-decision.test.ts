@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { compileGoalLoopDecision, compileGoalLoopEvaluation, readLatestGoalLoopContinuationBrief, readLatestGoalLoopIteration, readLatestGoalLoopNextStepPacket } from "../../src/goal-loop/manager.js";
+import { buildGoalLoopMainAgentContextSection, compileGoalLoopDecision, compileGoalLoopEvaluation, readLatestGoalLoopContinuationBrief, readLatestGoalLoopIteration, readLatestGoalLoopNextStepPacket, writeGoalLoopNextStepPacket } from "../../src/goal-loop/manager.js";
 import type { ResolvedMemory } from "../../src/types/index.js";
 import { schedulerRunArtifactRefs, writeSchedulerRun } from "../../src/workflow-scheduler/repository.js";
 import type { SchedulerRun } from "../../src/workflow-scheduler/types.js";
@@ -210,6 +210,35 @@ describe("GoalLoopDecision", () => {
       executionStarted: false,
     });
     expect(waitingPacket).not.toHaveProperty("recommendedAction");
+  });
+
+  it("renders latest next-step packet as main-Agent context and skips invalid lineage", async () => {
+    const result = await compileGoalLoopEvaluation(memory, changePath);
+
+    const section = await buildGoalLoopMainAgentContextSection(memory, changePath, changeId);
+
+    expect(section).toMatchObject({
+      goalLoopNextStepPacketId: result.goalLoopNextStepPacket.id,
+      artifact: expect.stringContaining("goal-loop-next-step-packets"),
+      markdownArtifact: expect.stringContaining("goal-loop-next-step-packets"),
+    });
+    expect(section?.markdown).toContain("Goal Loop Next-Step Packet");
+    expect(section?.markdown).toContain("main-Agent prompt context only");
+    expect(section?.markdown).toContain(result.goalLoopNextStepPacket.id);
+    expect(section?.markdown).toContain("planning.scheduler.plan.prepare");
+    expect(section?.markdown).toContain("Revalidation Checklist");
+    expect(section?.markdown).toContain("Forbidden Execution Statements");
+    expect(section?.markdown).toContain("not workflow truth");
+
+    await writeGoalLoopNextStepPacket(memory, changePath, {
+      ...result.goalLoopNextStepPacket,
+      id: "forged-packet",
+      sourceGoalLoopContinuationBriefId: "wrong-brief",
+      artifact: "memory-root/harness/changes/active/phase-goal-loop/planning/goal-loop-next-step-packets/forged-packet.json",
+      markdownArtifact: "memory-root/harness/changes/active/phase-goal-loop/planning/goal-loop-next-step-packets/forged-packet.md",
+    });
+
+    await expect(buildGoalLoopMainAgentContextSection(memory, changePath, changeId)).resolves.toBeNull();
   });
 });
 

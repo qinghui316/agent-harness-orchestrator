@@ -603,3 +603,5 @@ must be projection-safe and cannot crash the snapshot or trigger execution. Runt
 SchedulerRun state, IntegrationCheck, source apply, and close gates remain separate Harness paths.
 
 Phase 10I keeps the runtime boundary unchanged. `GoalLoopNextStepPacket` is written as derived evidence for the next main-Agent reasoning pass. It may carry a recommended action snapshot, but that snapshot is not executable from the packet. The packet must not enqueue a turn, call scheduler/runtime handlers, create TaskRuns, WorkerLeases, worktrees, runs, Validation, Audit, IntegrationCheck, Apply/Close records, child Changes, or infer Codex goal continuation locks or token accounting authority.
+
+Phase 10J lets `chat.ask` and `orchestrator.plan` include a validated Goal Loop packet section in their read-only prompt context. This is prompt context only. It must not start a continuation turn, execute a workflow action, change Codex session accounting, inject packet context into coder/validator/auditor workers, or mutate source. Missing or invalid packet evidence is skipped instead of becoming runtime authority.

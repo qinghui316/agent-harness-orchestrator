@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-13T21:22:10.1030978Z",
+    "generated_at":  "2026-06-13T22:00:42.9538226Z",
     "active":  [
 
                ],
@@ -809,6 +809,10 @@
                     {
                         "name":  "20260614-phase-10i-goal-loop-next-step-packet-evidence",
                         "path":  "harness/changes/archive/20260614-phase-10i-goal-loop-next-step-packet-evidence"
+                    },
+                    {
+                        "name":  "20260614-phase-10j-goalloopnextsteppacket-main-agent-context-boundary",
+                        "path":  "harness/changes/archive/20260614-phase-10j-goalloopnextsteppacket-main-agent-context-boundary"
                     }
                 ]
 }

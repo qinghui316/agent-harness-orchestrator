@@ -170,6 +170,8 @@ source, close a Change, or bypass ToolPolicyGate / human gates.
 
 Phase 10I adds `GoalLoopNextStepPacket` as the next non-executing main-Agent resume artifact. The packet is derived from the latest matching `GoalLoopDecision`, `GoalLoopIteration`, and `GoalLoopContinuationBrief`; it gives the next main-Agent turn a compact revalidation checklist and separate-gate reminder. It is not a controller, not a hidden Codex goal continuation turn, and not workflow truth. Any recommended action remains an existing scoped Harness gate with its own required target ids, stale revalidation, ToolPolicyGate audit, and human confirmation.
 
+Phase 10J consumes that packet at the main-Agent context boundary. `src/goal-loop/` owns the latest-packet lineage check and prompt-section rendering; Workbench chat/orchestrator code only asks for the optional section. This mirrors the useful part of Codex goal context, but keeps AHO different in the important way: the section is explicit evidence, not a hidden continuation runtime, and it cannot execute the recommended action or become workflow truth.
+
 Goal-driven loop model:
 
 ```mermaid

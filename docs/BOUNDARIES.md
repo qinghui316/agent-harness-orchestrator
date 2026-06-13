@@ -283,6 +283,8 @@ execution authority. Corrupt or cross-scope Goal Loop files must be skipped in p
 
 Phase 10I adds the `GoalLoopNextStepPacket` boundary. `src/goal-loop/` owns packet schema, paths, repository, renderer, and derivation. Workbench projection may display packet metadata and artifact refs, but must not generate confirmations, actions, route calls, hidden turns, scheduler starts, source mutation, close authority, or any execution from the packet. A packet is stale unless the main Agent revalidates current Change evidence and the corresponding concrete Harness gate.
 
+Phase 10J adds the main-Agent context-consumption boundary for that packet. `src/goal-loop/` owns packet lineage validation and prompt-section rendering. Workbench chat/orchestrator code may include the rendered section, but must not parse packet authority itself or inject the section into worker prompts. Packet context can explain the next safe step; it cannot dispatch a workflow action, bypass ToolPolicyGate/human gates, start scheduler/runtime work, close a Change, or mutate source.
+
 ## 7. Memory Unavailable Boundary
 
 Memory can be unavailable on a new machine, after a plain repository clone, when AHO home was not synced, when permissions are missing, or when a future remote memory service is offline.

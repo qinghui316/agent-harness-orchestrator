@@ -47,6 +47,10 @@ export interface WorkbenchActionRequest {
   schedulerIntegrationOutcomeId?: string;
   schedulerRunCompletionId?: string;
   schedulerRunBlockedCloseoutId?: string;
+  goalLoopDecisionId?: string;
+  goalLoopIterationId?: string;
+  goalLoopContinuationBriefId?: string;
+  goalLoopNextStepPacketId?: string;
   schedulerWorkerStartId?: string;
   schedulerWorkerResultId?: string;
   schedulerWorkerValidationId?: string;

@@ -106,35 +106,45 @@ describe("workflow action registry", () => {
     expect(REVALIDATED_WORKFLOW_ACTION_TYPES).toContain("planning.goal-loop.evaluate");
   });
 
-  it("keeps GoalLoopDecision and GoalLoopIteration ids in target and audit scope matching", () => {
+  it("keeps GoalLoopDecision, iteration, brief, and packet ids in target and audit scope matching", () => {
     const request = {
       actionType: "planning.goal-loop.evaluate",
       changeId: "change-1",
       goalLoopDecisionId: "goal-loop-decision-1",
       goalLoopIterationId: "goal-loop-iteration-1",
       goalLoopContinuationBriefId: "goal-loop-continuation-brief-1",
+      goalLoopNextStepPacketId: "goal-loop-next-step-packet-1",
     };
 
     expect(validateWorkflowActionRequiredTargets({ actionType: "planning.goal-loop.evaluate", changeId: "change-1" })).toEqual([]);
     expect(validateWorkflowActionRequiredTargets({ actionType: "planning.goal-loop.evaluate" }).map((item) => item.label)).toEqual(["changeId"]);
-    expect(workflowActionTargetId(request, request.changeId)).toBe("goal-loop-continuation-brief-1");
+    expect(workflowActionTargetId(request, request.changeId)).toBe("goal-loop-next-step-packet-1");
     expect(workflowActionScopePayload({ actionType: "planning.goal-loop.evaluate", changeId: "change-1" }, "change-1", {
       goalLoopDecision: { id: "goal-loop-decision-1" },
       goalLoopIteration: { id: "goal-loop-iteration-1", goalLoopDecisionId: "goal-loop-decision-1" },
       goalLoopContinuationBrief: { id: "goal-loop-continuation-brief-1", sourceGoalLoopDecisionId: "goal-loop-decision-1" },
+      goalLoopNextStepPacket: {
+        id: "goal-loop-next-step-packet-1",
+        sourceGoalLoopDecisionId: "goal-loop-decision-1",
+        sourceGoalLoopIterationId: "goal-loop-iteration-1",
+        sourceGoalLoopContinuationBriefId: "goal-loop-continuation-brief-1",
+      },
     })).toMatchObject({
       changeId: "change-1",
       goalLoopDecisionId: "goal-loop-decision-1",
       goalLoopIterationId: "goal-loop-iteration-1",
       goalLoopContinuationBriefId: "goal-loop-continuation-brief-1",
+      goalLoopNextStepPacketId: "goal-loop-next-step-packet-1",
     });
     expect(workflowActionScopesMatchStrict(request, { ...request })).toBe(true);
     expect(workflowActionScopesMatchStrict(request, { ...request, goalLoopDecisionId: undefined })).toBe(false);
     expect(workflowActionScopesMatchStrict(request, { ...request, goalLoopIterationId: undefined })).toBe(false);
     expect(workflowActionScopesMatchStrict(request, { ...request, goalLoopContinuationBriefId: undefined })).toBe(false);
+    expect(workflowActionScopesMatchStrict(request, { ...request, goalLoopNextStepPacketId: undefined })).toBe(false);
     expect(workflowActionScopesMatchCompatible(request, { ...request, goalLoopDecisionId: undefined })).toBe(true);
     expect(workflowActionScopesMatchCompatible(request, { ...request, goalLoopIterationId: undefined })).toBe(true);
     expect(workflowActionScopesMatchCompatible(request, { ...request, goalLoopContinuationBriefId: undefined })).toBe(true);
+    expect(workflowActionScopesMatchCompatible(request, { ...request, goalLoopNextStepPacketId: undefined })).toBe(true);
   });
 
   it("keeps SchedulerContract ids in target and audit scope matching", () => {

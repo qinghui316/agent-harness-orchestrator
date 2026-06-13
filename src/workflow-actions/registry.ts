@@ -344,6 +344,7 @@ export const WORKFLOW_ACTION_SCOPE_KEYS = [
   "goalLoopDecisionId",
   "goalLoopIterationId",
   "goalLoopContinuationBriefId",
+  "goalLoopNextStepPacketId",
   "reservationIntentId",
   "claimIntentId",
   "workflowRunId",
@@ -630,9 +631,10 @@ export function workflowActionScopePayload(request: WorkflowActionScopeCarrier, 
     schedulerIntegrationOutcomeId: request.schedulerIntegrationOutcomeId ?? extractString(result, "outcome", "id") ?? extractString(result, "completion", "schedulerIntegrationOutcomeId"),
     schedulerRunCompletionId: request.schedulerRunCompletionId ?? extractString(result, "completion", "id"),
     schedulerRunBlockedCloseoutId: request.schedulerRunBlockedCloseoutId ?? extractString(result, "closeout", "id"),
-    goalLoopDecisionId: request.goalLoopDecisionId ?? extractString(result, "goalLoopDecision", "id") ?? extractString(result, "goalLoopIteration", "goalLoopDecisionId") ?? extractString(result, "goalLoopContinuationBrief", "sourceGoalLoopDecisionId"),
-    goalLoopIterationId: request.goalLoopIterationId ?? extractString(result, "goalLoopIteration", "id"),
-    goalLoopContinuationBriefId: request.goalLoopContinuationBriefId ?? extractString(result, "goalLoopContinuationBrief", "id"),
+    goalLoopDecisionId: request.goalLoopDecisionId ?? extractString(result, "goalLoopDecision", "id") ?? extractString(result, "goalLoopIteration", "goalLoopDecisionId") ?? extractString(result, "goalLoopContinuationBrief", "sourceGoalLoopDecisionId") ?? extractString(result, "goalLoopNextStepPacket", "sourceGoalLoopDecisionId"),
+    goalLoopIterationId: request.goalLoopIterationId ?? extractString(result, "goalLoopIteration", "id") ?? extractString(result, "goalLoopNextStepPacket", "sourceGoalLoopIterationId"),
+    goalLoopContinuationBriefId: request.goalLoopContinuationBriefId ?? extractString(result, "goalLoopContinuationBrief", "id") ?? extractString(result, "goalLoopNextStepPacket", "sourceGoalLoopContinuationBriefId"),
+    goalLoopNextStepPacketId: request.goalLoopNextStepPacketId ?? extractString(result, "goalLoopNextStepPacket", "id"),
     reservationIntentId: request.reservationIntentId ?? extractString(result, "workerStart", "reservationIntentId") ?? extractString(result, "result", "reservationIntentId") ?? extractString(result, "schedulerValidation", "reservationIntentId") ?? extractString(result, "schedulerAudit", "reservationIntentId") ?? extractString(result, "reworkPlan", "reservationIntentId"),
     claimIntentId: request.claimIntentId ?? extractString(result, "workerStart", "claimIntentId") ?? extractString(result, "result", "claimIntentId") ?? extractString(result, "schedulerValidation", "claimIntentId") ?? extractString(result, "schedulerAudit", "claimIntentId") ?? extractString(result, "reworkPlan", "claimIntentId"),
     workflowRunId: request.workflowRunId ?? extractString(result, "workflowRun", "id") ?? extractString(result, "workflow", "id"),
@@ -655,7 +657,9 @@ export function workflowActionScopePayload(request: WorkflowActionScopeCarrier, 
 
 export function workflowActionTargetId(request: WorkflowActionScopeCarrier, changeId: string, result?: unknown): string {
   if (request.actionType === "planning.goal-loop.evaluate") {
-    return request.goalLoopContinuationBriefId
+    return request.goalLoopNextStepPacketId
+      ?? extractString(result, "goalLoopNextStepPacket", "id")
+      ?? request.goalLoopContinuationBriefId
       ?? extractString(result, "goalLoopContinuationBrief", "id")
       ?? request.goalLoopIterationId
       ?? extractString(result, "goalLoopIteration", "id")
@@ -850,6 +854,7 @@ export function workflowActionScopesMatchStrict(left: WorkflowActionScopeCarrier
     && sameStrictOptional(left.goalLoopDecisionId, right.goalLoopDecisionId)
     && sameStrictOptional(left.goalLoopIterationId, right.goalLoopIterationId)
     && sameStrictOptional(left.goalLoopContinuationBriefId, right.goalLoopContinuationBriefId)
+    && sameStrictOptional(left.goalLoopNextStepPacketId, right.goalLoopNextStepPacketId)
     && sameStrictOptional(left.reservationIntentId, right.reservationIntentId)
     && sameStrictOptional(left.claimIntentId, right.claimIntentId)
     && sameStrictOptional(left.workflowRunId, right.workflowRunId)
@@ -907,6 +912,7 @@ export function workflowActionScopesMatchCompatible(left: WorkflowActionScopeCar
     && sameCompatibleOptional(left.goalLoopDecisionId, right.goalLoopDecisionId)
     && sameCompatibleOptional(left.goalLoopIterationId, right.goalLoopIterationId)
     && sameCompatibleOptional(left.goalLoopContinuationBriefId, right.goalLoopContinuationBriefId)
+    && sameCompatibleOptional(left.goalLoopNextStepPacketId, right.goalLoopNextStepPacketId)
     && sameCompatibleOptional(left.reservationIntentId, right.reservationIntentId)
     && sameCompatibleOptional(left.claimIntentId, right.claimIntentId)
     && sameCompatibleOptional(left.workflowRunId, right.workflowRunId)

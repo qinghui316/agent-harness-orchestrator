@@ -6,14 +6,13 @@ import { buildAgentSystemPrompt, buildRunAgentRecord, resolveAgentRole } from ".
 import { detectCodexAppServerCapability, runCodexAppServerTurn, type CodexAppServerNotification } from "../../codex/app-server.js";
 import { buildCodexReadonlyArgv, buildCodexReadonlyResumeArgv, detectCodexCapabilities } from "../../codex/capabilities.js";
 import { createCodexJsonlStreamParser, extractCodexSessionIdFromJsonl, extractFinalMessageFromCodexJsonl, truncateReadablePreview, type CodexJsonlStreamEvent } from "../../codex/jsonl.js";
-import { getChangeStatusForChange } from "../../change/manager.js";
 import { writeJsonFile } from "../../fs/json.js";
 import { assertWritableMemory, resolveProjectMemory } from "../../memory/resolver.js";
-import { appendRunEvent, buildContextProjection, buildRunId } from "../../run/manager.js";
+import { appendRunEvent, buildRunId } from "../../run/manager.js";
 import { isRunStopRequested } from "../../run/control.js";
 import { executeProcessStreaming } from "../../run/process.js";
 import { getEnabledSkillContext } from "../../skill/catalog.js";
-import type { ManagedProject, ResolvedMemory, RunMetadata, RunStatus } from "../../types/index.js";
+import type { ManagedProject, RunMetadata, RunStatus } from "../../types/index.js";
 import { displayArtifactPath } from "../../workflow-artifacts/manager.js";
 import { emitAssistantEvent, emitLive } from "../live-events.js";
 import { appendTopicThreadEntry } from "../topic-thread.js";
@@ -29,6 +28,7 @@ import type {
   WorkbenchLiveSink,
 } from "../types.js";
 import { createAssistantTranscriptCapture } from "../live-transcript.js";
+import { buildChatContext, buildOrchestratorContext } from "./context.js";
 export async function runOrchestratorPlan(project: ManagedProject, changeId: string, userMessage: string, live?: WorkbenchLiveSink): Promise<{
   run: RunMetadata;
   routingDecision: TopicRoutingDecision;
@@ -92,7 +92,12 @@ export async function runOrchestratorPlan(project: ManagedProject, changeId: str
   await appendRunEvent(paths.events, { timestamp: now, type: "run.created", runId, data: { changeId, runtime: "orchestrator" } });
   await appendRunEvent(paths.events, { timestamp: now, type: "orchestrator.plan.started", runId, data: { changeId } });
 
-  const context = await buildOrchestratorContext(project, memory, changePath, changeId, userMessage);
+  const contextResult = await buildOrchestratorContext(project, memory, changePath, changeId, userMessage);
+  if (contextResult.goalLoopNextStepPacketId) {
+    run = { ...run, promptStack: [...(run.promptStack ?? []), "goal-loop-next-step-packet"] };
+    await writeJsonFile(paths.run, run);
+  }
+  const context = contextResult.context;
   await writeFile(paths.context, context, "utf8");
   await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "context.prepared", runId, data: { path: run.artifacts.context } });
   const prompt = `${buildAgentSystemPrompt(role)}\n\n${context}\n\n## User Message\n\n${userMessage}\n`;
@@ -261,7 +266,12 @@ export async function runCodexChat(project: ManagedProject, changeId: string, us
   await writeJsonFile(paths.run, run);
   live?.emit({ event: "run.started", data: { runId, changeId, runtime: "codex-readonly", actionType: "chat.ask" } });
   await appendRunEvent(paths.events, { timestamp: now, type: "run.created", runId, data: { changeId, runtime: "codex-chat", requestedResume: Boolean(runtime.codexSessionId), skills: skillContext.records.map((item) => item.id) } });
-  const context = await buildChatContext(project, memory, changeId, userMessage);
+  const contextResult = await buildChatContext(project, memory, changeId, userMessage);
+  if (contextResult.goalLoopNextStepPacketId) {
+    run = { ...run, promptStack: [...(run.promptStack ?? []), "goal-loop-next-step-packet"] };
+    await writeJsonFile(paths.run, run);
+  }
+  const context = contextResult.context;
   await writeFile(paths.context, context, "utf8");
   const prompt = `${context}${skillContext.promptSection ? `\n\n${skillContext.promptSection}` : ""}\n\n## User Message\n\n${userMessage}\n`;
   await writeFile(paths.prompt, prompt, "utf8");
@@ -482,61 +492,6 @@ function previewFromAppServerParams(params: Record<string, unknown>): string | u
   if (isRecord(params.item) && typeof params.item.output === "string") return truncateReadablePreview(params.item.output).preview;
   return undefined;
 }
-
-async function buildChatContext(project: ManagedProject, memory: ResolvedMemory, changeId: string, userMessage: string): Promise<string> {
-  const status = await getChangeStatusForChange(project, changeId);
-  const { changePath } = await resolveTopic(project, changeId);
-  const recentMessages = (await readThreadLog(memory, changePath)).slice(-12);
-  return [
-    "# AHO Topic Chat",
-    "",
-    "You are answering inside the AHO Workbench Topic chat.",
-    "This is ordinary read-only conversation. Do not edit files, create worktrees, apply changes, close changes, or claim approval.",
-    "Use AHO artifacts as source of truth. Codex session memory is only runtime continuity.",
-    "",
-    buildContextProjection(status),
-    "## Recent Topic Messages",
-    "",
-    ...recentMessages.map((entry) => `- ${entry.type}: ${entry.text ?? entry.actionType ?? entry.status ?? ""}`),
-    "",
-    "## Current User Message",
-    "",
-    userMessage,
-  ].join("\n");
-}
-
-async function buildOrchestratorContext(project: ManagedProject, memory: ResolvedMemory, changePath: string, changeId: string, userMessage: string): Promise<string> {
-  const status = await getChangeStatusForChange(project, changeId);
-  const recentMessages = (await readThreadLog(memory, changePath)).slice(-16);
-  return [
-    "# AHO Workbench Orchestrator Context",
-    "",
-    "You are planning inside a single AHO Topic.",
-    "The Orchestrator plan card is an interaction projection. It is not canonical workflow truth.",
-    "Do not mutate files or claim acceptance.",
-    "",
-    buildContextProjection(status),
-    "## Current Topic",
-    "",
-    `- Change ID: ${changeId}`,
-    `- Active Changes: ${status.activeChanges.map((item) => item.name).join(", ") || "none"}`,
-    "",
-    "## Recent Topic Messages",
-    "",
-    ...recentMessages.map((entry) => `- ${entry.type}: ${entry.text ?? entry.actionType ?? entry.status ?? ""}`),
-    "",
-    "## Routing Policy",
-    "",
-    "- If the request is unrelated to this Topic, return routingDecision new-topic-required.",
-    "- If routing is uncertain, return routingDecision clarify.",
-    "- Otherwise return same-topic and suggest the next safe workflow action.",
-    "",
-    "## Current User Message",
-    "",
-    userMessage,
-  ].join("\n");
-}
-
 
 function parseOrchestrationOutput(message: string, userMessage: string, fallbackDecision: TopicRoutingDecision): {
   routingDecision: TopicRoutingDecision;

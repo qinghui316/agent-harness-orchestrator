@@ -195,6 +195,7 @@ export interface WorkbenchWorkflowActionRequest {
   goalLoopDecisionId?: string;
   goalLoopIterationId?: string;
   goalLoopContinuationBriefId?: string;
+  goalLoopNextStepPacketId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   workflowRunId?: string;

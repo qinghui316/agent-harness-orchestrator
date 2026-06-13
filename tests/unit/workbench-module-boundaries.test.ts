@@ -739,8 +739,9 @@ describe("Workbench module boundaries", () => {
     const manager = readFileSync("src/goal-loop/manager.ts", "utf8");
     expect(manager).toContain('export * from "./compiler.js";');
     expect(manager).toContain('export * from "./repository.js";');
+    expect(manager).toContain('export * from "./main-agent-context.js";');
 
-    for (const file of ["compiler.ts", "repository.ts", "rendering.ts", "schemas.ts", "types.ts", "paths.ts"]) {
+    for (const file of ["compiler.ts", "repository.ts", "rendering.ts", "schemas.ts", "types.ts", "paths.ts", "main-agent-context.ts"]) {
       const source = readFileSync(`src/goal-loop/${file}`, "utf8");
       expect(source).not.toMatch(/from\s+["'].*workbench/);
       expect(source).not.toMatch(/from\s+["'].*server/);
@@ -754,6 +755,8 @@ describe("Workbench module boundaries", () => {
       expect(source).not.toContain("startCodeRun");
     }
 
+    const chatBridge = readFileSync("src/workbench/codex-chat/bridge.ts", "utf8");
+    const chatContext = readFileSync("src/workbench/codex-chat/context.ts", "utf8");
     const handlerIndex = readFileSync("src/workbench/actions/handlers/index.ts", "utf8");
     const handler = readFileSync("src/workbench/actions/handlers/goal-loop.ts", "utf8");
     const confirmationQueue = readFileSync("src/workbench/projections/read-model/confirmation-queue.ts", "utf8");
@@ -774,6 +777,14 @@ describe("Workbench module boundaries", () => {
     expect(readFileSync("src/goal-loop/compiler.ts", "utf8")).toContain("compileGoalLoopNextStepPacket");
     expect(readFileSync("src/goal-loop/compiler.ts", "utf8")).not.toContain("start_task");
     expect(readFileSync("src/goal-loop/compiler.ts", "utf8")).not.toContain("continuation_lock");
+    expect(readFileSync("src/goal-loop/main-agent-context.ts", "utf8")).toContain("buildGoalLoopMainAgentContextSection");
+    expect(readFileSync("src/goal-loop/main-agent-context.ts", "utf8")).toContain("Goal Loop Next-Step Packet");
+    expect(chatContext).toContain("buildGoalLoopMainAgentContextSection");
+    expect(chatContext).toContain("buildChatContext");
+    expect(chatContext).toContain("buildOrchestratorContext");
+    expect(chatBridge).toContain("buildChatContext");
+    expect(chatBridge).not.toContain("readLatestGoalLoopNextStepPacket");
+    expect(chatBridge).not.toContain("compileGoalLoopNextStepPacket");
     expect(confirmationQueue).toContain('from "./confirmation/goal-loop.js"');
     expect(confirmation).toContain("goalLoopEvaluationQueueItem");
     expect(confirmation).toContain('"planning.goal-loop.evaluate"');
