@@ -279,11 +279,22 @@ export interface WorkbenchSchedulerClaimReservationSummary {
   blockedCount: number;
   sourceLockCount: number;
   waveIndex: number;
+  reservationIntents: WorkbenchSchedulerClaimReservationIntentSummary[];
   launchConfirmed?: boolean;
   supersedesReservationId?: string;
   artifact?: string;
   markdownArtifact?: string;
   updatedAt: string;
+}
+
+export interface WorkbenchSchedulerClaimReservationIntentSummary {
+  reservationIntentId: string;
+  claimIntentId: string;
+  plannedWorkerKey: string;
+  nodeId: string;
+  unitId: string;
+  waveIndex: number;
+  status: SchedulerRuntimeClaimReservation["reservationIntents"][number]["status"];
 }
 
 export interface WorkbenchSchedulerWorkerStartSummary {
@@ -306,6 +317,42 @@ export interface WorkbenchSchedulerWorkerStartSummary {
   artifact?: string;
   markdownArtifact?: string;
   updatedAt: string;
+}
+
+export type WorkbenchSchedulerWorkerPathStatus =
+  | "start-failed"
+  | "result-pending"
+  | "result-failed"
+  | "validation-pending"
+  | "validation-failed"
+  | "audit-pending"
+  | "audit-approved"
+  | "audit-blocked"
+  | "audit-failed"
+  | "rework-plan-pending"
+  | "rework-start-pending"
+  | "rework-start-failed"
+  | "rework-result-pending"
+  | "rework-result-failed"
+  | "rework-validation-pending"
+  | "rework-validation-failed"
+  | "rework-audit-pending"
+  | "rework-audit-approved"
+  | "rework-audit-blocked"
+  | "rework-audit-failed";
+
+export interface WorkbenchSchedulerWorkerPathSummary {
+  start: WorkbenchSchedulerWorkerStartSummary;
+  result?: WorkbenchSchedulerWorkerResultSummary;
+  validation?: WorkbenchSchedulerWorkerValidationSummary;
+  audit?: WorkbenchSchedulerWorkerAuditSummary;
+  reworkPlan?: WorkbenchSchedulerWorkerReworkPlanSummary;
+  reworkStart?: WorkbenchSchedulerWorkerReworkStartSummary;
+  reworkResult?: WorkbenchSchedulerWorkerReworkResultSummary;
+  reworkValidation?: WorkbenchSchedulerWorkerReworkValidationSummary;
+  reworkAudit?: WorkbenchSchedulerWorkerReworkAuditSummary;
+  status: WorkbenchSchedulerWorkerPathStatus;
+  terminal: boolean;
 }
 
 export interface WorkbenchSchedulerWorkerResultSummary {
@@ -645,6 +692,7 @@ type WorkflowProjectionActionType =
   | "planning.scheduler.runtime.reconcile"
   | "planning.scheduler.runtime.reserve-claims"
   | "planning.scheduler.worker.start-first"
+  | "planning.scheduler.worker.start-next"
   | "planning.scheduler.worker.reconcile-result"
   | "planning.scheduler.worker.validate-first"
   | "planning.scheduler.worker.audit-first"
@@ -985,6 +1033,15 @@ export async function readSchedulerClaimReservationSummary(memory: ResolvedMemor
     blockedCount: reservation.blockedCount,
     sourceLockCount: reservation.sourceLockCount,
     waveIndex: reservation.waves[0]?.waveIndex ?? 0,
+    reservationIntents: reservation.reservationIntents.map((intent) => ({
+      reservationIntentId: intent.reservationIntentId,
+      claimIntentId: intent.claimIntentId,
+      plannedWorkerKey: intent.plannedWorkerKey,
+      nodeId: intent.nodeId,
+      unitId: intent.unitId,
+      waveIndex: intent.waveIndex,
+      status: intent.status,
+    })),
     supersedesReservationId: reservation.supersedesReservationId,
     artifact: reservation.artifact,
     markdownArtifact: reservation.markdownArtifact,
@@ -1003,6 +1060,53 @@ export async function readLatestSchedulerWorkerStartSummary(
   const scoped = schedulerClaimReservationId ? starts.filter((start) => start.schedulerClaimReservationId === schedulerClaimReservationId) : starts;
   const start = [...scoped].sort((a, b) => (b.updatedAt ?? "").localeCompare(a.updatedAt ?? ""))[0];
   return start ? summarizeSchedulerWorkerStart(start) : null;
+}
+
+export async function readSchedulerWorkerPathSummaries(
+  memory: ResolvedMemory,
+  changePath: string,
+  schedulerRunId?: string,
+  schedulerClaimReservationId?: string,
+): Promise<WorkbenchSchedulerWorkerPathSummary[]> {
+  if (!schedulerRunId) return [];
+  const starts = await listSchedulerRuntimeWorkerStarts(memory, changePath, schedulerRunId).catch(() => []);
+  const scoped = schedulerClaimReservationId ? starts.filter((start) => start.schedulerClaimReservationId === schedulerClaimReservationId) : starts;
+  const summaries = await Promise.all(scoped.map(async (start) => {
+    const startSummary = summarizeSchedulerWorkerStart(start);
+    const result = await readSchedulerWorkerResultSummary(memory, changePath, schedulerRunId, start.id);
+    const validation = await readSchedulerWorkerValidationSummary(memory, changePath, schedulerRunId, result?.id);
+    const audit = await readSchedulerWorkerAuditSummary(memory, changePath, schedulerRunId, validation?.id);
+    const reworkPlan = await readSchedulerWorkerReworkPlanSummary(memory, changePath, schedulerRunId, validation?.id, audit?.id);
+    const reworkStart = await readSchedulerWorkerReworkStartSummary(memory, changePath, schedulerRunId, reworkPlan?.id);
+    const reworkResult = await readSchedulerWorkerReworkResultSummary(memory, changePath, schedulerRunId, reworkStart?.id);
+    const reworkValidation = await readSchedulerWorkerReworkValidationSummary(memory, changePath, schedulerRunId, reworkResult?.id);
+    const reworkAudit = await readSchedulerWorkerReworkAuditSummary(memory, changePath, schedulerRunId, reworkValidation?.id);
+    const status = classifySchedulerWorkerPathStatus({
+      start: startSummary,
+      result,
+      validation,
+      audit,
+      reworkPlan,
+      reworkStart,
+      reworkResult,
+      reworkValidation,
+      reworkAudit,
+    });
+    return {
+      start: startSummary,
+      ...(result ? { result } : {}),
+      ...(validation ? { validation } : {}),
+      ...(audit ? { audit } : {}),
+      ...(reworkPlan ? { reworkPlan } : {}),
+      ...(reworkStart ? { reworkStart } : {}),
+      ...(reworkResult ? { reworkResult } : {}),
+      ...(reworkValidation ? { reworkValidation } : {}),
+      ...(reworkAudit ? { reworkAudit } : {}),
+      status,
+      terminal: isTerminalSchedulerWorkerPathStatus(status),
+    };
+  }));
+  return summaries.sort((a, b) => (a.start.updatedAt ?? "").localeCompare(b.start.updatedAt ?? ""));
 }
 
 export async function readSchedulerWorkerResultSummary(
@@ -1135,6 +1239,67 @@ export async function readLatestSchedulerIntegrationOutcomeSummary(
   if (!outcome) return null;
   if (outcome.schedulerIntegrationCheckHandoffId !== schedulerIntegrationCheckHandoffId) return null;
   return summarizeSchedulerIntegrationOutcome(outcome);
+}
+
+function classifySchedulerWorkerPathStatus(path: {
+  start: WorkbenchSchedulerWorkerStartSummary;
+  result?: WorkbenchSchedulerWorkerResultSummary | null;
+  validation?: WorkbenchSchedulerWorkerValidationSummary | null;
+  audit?: WorkbenchSchedulerWorkerAuditSummary | null;
+  reworkPlan?: WorkbenchSchedulerWorkerReworkPlanSummary | null;
+  reworkStart?: WorkbenchSchedulerWorkerReworkStartSummary | null;
+  reworkResult?: WorkbenchSchedulerWorkerReworkResultSummary | null;
+  reworkValidation?: WorkbenchSchedulerWorkerReworkValidationSummary | null;
+  reworkAudit?: WorkbenchSchedulerWorkerReworkAuditSummary | null;
+}): WorkbenchSchedulerWorkerPathStatus {
+  if (path.start.status === "failed") return "start-failed";
+  if (!path.result) return "result-pending";
+  if (path.result.status === "failed") return "result-failed";
+  if (!path.validation) return "validation-pending";
+  if (path.validation.status === "failed") {
+    if (!path.reworkPlan) return "rework-plan-pending";
+    return classifySchedulerWorkerReworkPathStatus(path);
+  }
+  if (!path.audit) return "audit-pending";
+  if (path.audit.status === "approved" || path.audit.status === "approved-with-notes") return "audit-approved";
+  if (path.audit.status === "blocked" || path.audit.status === "failed") {
+    if (!path.reworkPlan) return path.audit.status === "blocked" ? "audit-blocked" : "audit-failed";
+    return classifySchedulerWorkerReworkPathStatus(path);
+  }
+  return "audit-failed";
+}
+
+function classifySchedulerWorkerReworkPathStatus(path: {
+  reworkPlan?: WorkbenchSchedulerWorkerReworkPlanSummary | null;
+  reworkStart?: WorkbenchSchedulerWorkerReworkStartSummary | null;
+  reworkResult?: WorkbenchSchedulerWorkerReworkResultSummary | null;
+  reworkValidation?: WorkbenchSchedulerWorkerReworkValidationSummary | null;
+  reworkAudit?: WorkbenchSchedulerWorkerReworkAuditSummary | null;
+}): WorkbenchSchedulerWorkerPathStatus {
+  if (!path.reworkPlan) return "rework-plan-pending";
+  if (!path.reworkStart) return "rework-start-pending";
+  if (path.reworkStart.status === "failed") return "rework-start-failed";
+  if (!path.reworkResult) return "rework-result-pending";
+  if (path.reworkResult.status === "failed") return "rework-result-failed";
+  if (!path.reworkValidation) return "rework-validation-pending";
+  if (path.reworkValidation.status === "failed") return "rework-validation-failed";
+  if (!path.reworkAudit) return "rework-audit-pending";
+  if (path.reworkAudit.status === "approved" || path.reworkAudit.status === "approved-with-notes") return "rework-audit-approved";
+  return path.reworkAudit.status === "blocked" ? "rework-audit-blocked" : "rework-audit-failed";
+}
+
+function isTerminalSchedulerWorkerPathStatus(status: WorkbenchSchedulerWorkerPathStatus): boolean {
+  return [
+    "start-failed",
+    "result-failed",
+    "audit-approved",
+    "rework-start-failed",
+    "rework-result-failed",
+    "rework-validation-failed",
+    "rework-audit-approved",
+    "rework-audit-blocked",
+    "rework-audit-failed",
+  ].includes(status);
 }
 
 function summarizeSchedulerWorkerStart(start: SchedulerRuntimeWorkerStart): WorkbenchSchedulerWorkerStartSummary {
@@ -1640,12 +1805,13 @@ export function buildTypedWorkflowNextAction(input: {
   schedulerWorkerReworkResult?: WorkbenchSchedulerWorkerReworkResultSummary | null;
   schedulerWorkerReworkValidation?: WorkbenchSchedulerWorkerReworkValidationSummary | null;
   schedulerWorkerReworkAudit?: WorkbenchSchedulerWorkerReworkAuditSummary | null;
+  schedulerWorkerPaths?: WorkbenchSchedulerWorkerPathSummary[];
   schedulerIntegrationCandidate?: WorkbenchSchedulerIntegrationCandidateSummary | null;
   schedulerIntegrationCheckHandoff?: WorkbenchSchedulerIntegrationCheckHandoffSummary | null;
   schedulerIntegrationOutcome?: WorkbenchSchedulerIntegrationOutcomeSummary | null;
   workflowRun?: WorkflowRunSummary | null;
 }): WorkbenchTypedWorkflowNextAction {
-  const { topic, readiness, intake, planningBundle, decompositionPlan, decompositionReadiness, taskQueueProposal, workflowGraphPlan, schedulerRun, schedulerRuntime, schedulerReconcileSnapshot, schedulerClaimReservation, schedulerWorkerStart, schedulerWorkerResult, schedulerWorkerValidation, schedulerWorkerAudit, schedulerWorkerReworkPlan, schedulerWorkerReworkStart, schedulerWorkerReworkResult, schedulerWorkerReworkValidation, schedulerWorkerReworkAudit, schedulerIntegrationCandidate, schedulerIntegrationCheckHandoff, schedulerIntegrationOutcome, workflowRun } = input;
+  const { topic, readiness, intake, planningBundle, decompositionPlan, decompositionReadiness, taskQueueProposal, workflowGraphPlan, schedulerRun, schedulerRuntime, schedulerReconcileSnapshot, schedulerClaimReservation, schedulerWorkerStart, schedulerWorkerResult, schedulerWorkerValidation, schedulerWorkerAudit, schedulerWorkerReworkPlan, schedulerWorkerReworkStart, schedulerWorkerReworkResult, schedulerWorkerReworkValidation, schedulerWorkerReworkAudit, schedulerWorkerPaths = [], schedulerIntegrationCandidate, schedulerIntegrationCheckHandoff, schedulerIntegrationOutcome, workflowRun } = input;
   if (!readiness.specReady && !topic.runs.some((run) => run.runtime === "intake-scan")) {
     return workflowNextAction("intake.scan", "分析需求", "先只读扫描项目，整理当前理解、相关文件和待确认问题。", false);
   }
@@ -1920,6 +2086,32 @@ export function buildTypedWorkflowNextAction(input: {
                   claimIntentId: schedulerWorkerReworkAudit?.claimIntentId ?? schedulerWorkerAudit?.claimIntentId,
                 };
               }
+              const nextIntent = findNextSchedulerReservationIntent(schedulerClaimReservation, schedulerWorkerPaths);
+              if (
+                schedulerIntegrationCandidate.status === "waiting"
+                && schedulerIntegrationCandidate.readyCount === 1
+                && schedulerIntegrationCandidate.blockedCount === 0
+                && !schedulerIntegrationCheckHandoff
+                && !schedulerIntegrationOutcome
+                && nextIntent
+              ) {
+                return {
+                  ...workflowNextAction("planning.scheduler.worker.start-next", "启动下一个 worker", "当前 scheduler 只有一个 ready worker output，且所有已启动 worker path 已 terminal；本操作只启动下一个明确 reservation intent 的 coder stage。"),
+                  decompositionPlanId: decompositionPlan.id,
+                  readinessManifestId: decompositionReadiness.id,
+                  schedulerContractId: schedulerRun.schedulerContractId,
+                  schedulerDispatchDryRunId: schedulerRun.schedulerDispatchDryRunId,
+                  schedulerWorkerPlanId: schedulerRun.schedulerWorkerPlanId,
+                  schedulerClaimReconcilePlanId: schedulerRun.schedulerClaimReconcilePlanId,
+                  schedulerLaunchPreflightId: schedulerRun.schedulerLaunchPreflightId,
+                  schedulerRunId: schedulerRun.id,
+                  schedulerReconcileSnapshotId: schedulerReconcileSnapshot.id,
+                  schedulerClaimReservationId: schedulerClaimReservation.id,
+                  schedulerIntegrationCandidateId: schedulerIntegrationCandidate.id,
+                  reservationIntentId: nextIntent.reservationIntentId,
+                  claimIntentId: nextIntent.claimIntentId,
+                };
+              }
               if (schedulerIntegrationCandidate.readyCount >= 2 && !schedulerIntegrationCheckHandoff) {
                 return {
                   ...workflowNextAction("planning.scheduler.integration-check.run", "运行 scheduler IntegrationCheck", "把 scheduler-owned ready worktree targets 显式交给现有 IntegrationCheck；只运行兼容性检查和 aggregate validation/audit，不 apply、landing、PR、merge 或启动 next worker。"),
@@ -2089,4 +2281,15 @@ function workflowNextAction(actionType: WorkflowProjectionActionType, label: str
     enabled: true,
     requiresConfirmation,
   };
+}
+
+function findNextSchedulerReservationIntent(
+  reservation: WorkbenchSchedulerClaimReservationSummary,
+  workerPaths: WorkbenchSchedulerWorkerPathSummary[],
+): WorkbenchSchedulerClaimReservationIntentSummary | null {
+  if (!workerPaths.length || workerPaths.some((path) => !path.terminal)) return null;
+  const started = new Set(workerPaths.map((path) => path.start.reservationIntentId));
+  return reservation.reservationIntents
+    .filter((intent) => intent.status === "reserved" && !started.has(intent.reservationIntentId))
+    .sort((a, b) => a.waveIndex - b.waveIndex || reservation.reservationIntents.indexOf(a) - reservation.reservationIntents.indexOf(b))[0] ?? null;
 }

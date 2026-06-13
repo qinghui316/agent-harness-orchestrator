@@ -142,6 +142,23 @@ export function WorkpadDiagnosticDetails({
       {workpad.schedulerWorkerReworkResult ? <SchedulerWorkerReworkResultCard result={workpad.schedulerWorkerReworkResult} /> : null}
       {workpad.schedulerWorkerReworkValidation ? <SchedulerWorkerReworkValidationCard validation={workpad.schedulerWorkerReworkValidation} /> : null}
       {workpad.schedulerWorkerReworkAudit ? <SchedulerWorkerReworkAuditCard audit={workpad.schedulerWorkerReworkAudit} /> : null}
+      {workpad.schedulerWorkerPaths?.length ? (
+        <section className="workpad-section compact-section" data-testid="scheduler-worker-paths">
+          <div className="workpad-section-header">
+            <h3>Scheduler worker paths</h3>
+            <span>{workpad.schedulerWorkerPaths.length} paths</span>
+          </div>
+          <div className="workpad-evidence-list">
+            {workpad.schedulerWorkerPaths.map((path) => (
+              <div className="workpad-evidence" key={path.start.id}>
+                <strong>{path.start.nodeId} · {path.start.unitId}</strong>
+                <span>{path.status}{path.terminal ? " · terminal" : " · active"}</span>
+                <small>intent {path.start.reservationIntentId}</small>
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
       {workpad.schedulerIntegrationCandidate ? <SchedulerIntegrationCandidateCard candidate={workpad.schedulerIntegrationCandidate} /> : null}
       {workpad.schedulerIntegrationCheckHandoff ? <SchedulerIntegrationCheckHandoffCard handoff={workpad.schedulerIntegrationCheckHandoff} /> : null}
       {workpad.schedulerIntegrationOutcome ? <SchedulerIntegrationOutcomeCard outcome={workpad.schedulerIntegrationOutcome} /> : null}

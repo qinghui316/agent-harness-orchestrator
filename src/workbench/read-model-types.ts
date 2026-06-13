@@ -38,6 +38,7 @@ import type {
   WorkbenchSchedulerWorkerReworkStartSummary,
   WorkbenchSchedulerWorkerResultSummary,
   WorkbenchSchedulerWorkerStartSummary,
+  WorkbenchSchedulerWorkerPathSummary,
   WorkbenchSchedulerWorkerValidationSummary,
   WorkbenchSchedulerWorkerSessionPlanSummary,
   WorkbenchTaskQueueProposalSummary,
@@ -705,6 +706,7 @@ export interface WorkbenchWorkpad {
   schedulerWorkerReworkResult?: WorkbenchSchedulerWorkerReworkResultSummary;
   schedulerWorkerReworkValidation?: WorkbenchSchedulerWorkerReworkValidationSummary;
   schedulerWorkerReworkAudit?: WorkbenchSchedulerWorkerReworkAuditSummary;
+  schedulerWorkerPaths?: WorkbenchSchedulerWorkerPathSummary[];
   schedulerIntegrationCandidate?: WorkbenchSchedulerIntegrationCandidateSummary;
   schedulerIntegrationCheckHandoff?: WorkbenchSchedulerIntegrationCheckHandoffSummary;
   schedulerIntegrationOutcome?: WorkbenchSchedulerIntegrationOutcomeSummary;

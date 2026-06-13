@@ -34,6 +34,7 @@ import {
   validateSchedulerFirstWorkerRework,
   auditSchedulerFirstWorkerRework,
   startFirstSchedulerCoderWorker,
+  startNextSchedulerCoderWorker,
   auditSchedulerFirstWorker,
   compileSchedulerFirstWorkerReworkPlan,
   startFirstSchedulerWorkerRework,
@@ -1083,6 +1084,69 @@ export async function startPlanningSchedulerFirstWorker(
     runId: result.code.run.id,
     artifact: result.workerStart.artifact,
     actionId: "planning.scheduler.worker.start-first",
+    payload: {
+      schedulerRunId: result.workerStart.schedulerRunId,
+      schedulerClaimReservationId: result.workerStart.schedulerClaimReservationId,
+      reservationIntentId: result.workerStart.reservationIntentId,
+      claimIntentId: result.workerStart.claimIntentId,
+      nodeId: result.workerStart.nodeId,
+      unitId: result.workerStart.unitId,
+      taskRunId: result.workerStart.taskRunId,
+      workerLeaseId: result.workerStart.workerLeaseId,
+      worktreeId: result.workerStart.worktreeId,
+      runId: result.workerStart.runId,
+    },
+    completedAt: new Date().toISOString(),
+  });
+  return result;
+}
+
+export async function startPlanningSchedulerNextWorker(
+  project: ManagedProject,
+  changeId: string,
+  request: WorkbenchWorkflowActionRequest,
+  live: WorkbenchLiveSink | undefined,
+): Promise<{ workerStart: SchedulerRuntimeWorkerStart; taskRun: unknown; lease: unknown; code: unknown; executionStarted: true }> {
+  const { memory } = await resolveTopic(project, changeId);
+  assertWritableMemory(memory, "Scheduler next worker start");
+  if (!request.schedulerRunId) throw new Error("planning.scheduler.worker.start-next requires schedulerRunId.");
+  if (!request.schedulerClaimReservationId) throw new Error("planning.scheduler.worker.start-next requires schedulerClaimReservationId.");
+  if (!request.reservationIntentId) throw new Error("planning.scheduler.worker.start-next requires reservationIntentId.");
+  if (!request.claimIntentId) throw new Error("planning.scheduler.worker.start-next requires claimIntentId.");
+  const result = await startNextSchedulerCoderWorker(project, {
+    changeId,
+    schedulerRunId: request.schedulerRunId,
+    schedulerClaimReservationId: request.schedulerClaimReservationId,
+    reservationIntentId: request.reservationIntentId,
+    claimIntentId: request.claimIntentId,
+    prompt: request.prompt,
+  });
+  await appendTopicThreadEntry(project, changeId, {
+    type: "assistant.message",
+    status: "scheduler-next-worker-started",
+    text: renderSchedulerRuntimeWorkerStartMarkdown(result.workerStart),
+    artifact: result.workerStart.artifact,
+    runId: result.code.run.id,
+  });
+  emitAssistantEvent(live, {
+    runId: result.code.run.id,
+    kind: "file-change",
+    phase: "scheduler-next-worker-started",
+    title: "下一个 scheduler coder worker 已启动",
+    summary: `Started one additional coder stage for ${result.workerStart.reservationIntentId}; no validation, audit, rework, wave dispatch, scheduler loop, IntegrationCheck, apply, or child Change was created.`,
+    artifactRef: result.workerStart.artifact,
+  });
+  await recordWorkbenchDecision(project, {
+    id: `scheduler-next-worker-started:${result.workerStart.id}`,
+    changeId,
+    decisionType: "planning.scheduler.worker.start-next",
+    status: "completed",
+    label: "下一个 worker 已启动",
+    summary: "Started exactly one additional scheduler coder-stage worker from the latest claim reservation.",
+    targetId: result.workerStart.id,
+    runId: result.code.run.id,
+    artifact: result.workerStart.artifact,
+    actionId: "planning.scheduler.worker.start-next",
     payload: {
       schedulerRunId: result.workerStart.schedulerRunId,
       schedulerClaimReservationId: result.workerStart.schedulerClaimReservationId,

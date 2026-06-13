@@ -131,6 +131,8 @@ Phase 9Q adds the scheduler IntegrationCheck handoff. `src/scheduler-runtime/int
 
 Phase 9R adds the scheduler integration outcome bridge. `src/scheduler-runtime/integration-outcome.ts` owns the read/guard/write path that records existing IntegrationCheck terminal, applied, or discarded outcomes back into scheduler-owned evidence. It re-reads the current IntegrationCheck and target worktree metadata; `passed` checks remain waiting for the existing apply/discard confirmation, applied checks require applied target evidence, and discarded checks reject applied target evidence. It does not apply/discard source itself, does not replace aggregate validation/audit semantics, and does not start landing, PR, merge, next-worker dispatch, or the full scheduler executor.
 
+Phase 9S adds the scheduler next-worker start gate. `src/scheduler-runtime/worker-start.ts` remains the owner of scheduler worker-start logic and must support a shared single-reserved-worker start primitive for both the existing first-worker gate and the new start-next gate. Start-next can start exactly one additional coder-stage worker only after prior scheduler worker paths are terminal and no IntegrationCheck handoff/outcome is active. It is not a scheduler loop, slot allocator, whole-wave dispatch, or full parallel executor, and it must not mutate source root or bypass IntegrationCheck/apply gates.
+
 Workbench relationship:
 
 ```text

@@ -8,6 +8,18 @@ import { readSchedulerRuntimeLineage } from "./guards.js";
 import {
   appendSchedulerRuntimeEvent,
   findSchedulerRuntimeWorkerStartForReservationIntent,
+  findSchedulerRuntimeWorkerAuditForValidation,
+  findSchedulerRuntimeWorkerResultForStart,
+  findSchedulerRuntimeWorkerReworkAuditForValidation,
+  findSchedulerRuntimeWorkerReworkPlanForBlockingEvidence,
+  findSchedulerRuntimeWorkerReworkResultForStart,
+  findSchedulerRuntimeWorkerReworkStartForPlan,
+  findSchedulerRuntimeWorkerReworkValidationForResult,
+  findSchedulerRuntimeWorkerValidationForResult,
+  listSchedulerRuntimeWorkerStarts,
+  readLatestSchedulerIntegrationCandidateProjection,
+  readLatestSchedulerIntegrationCheckHandoffProjection,
+  readLatestSchedulerIntegrationOutcomeProjection,
   readSchedulerReconcileSnapshot,
   readSchedulerRuntimeClaimReservation,
   readSchedulerRuntimeState,
@@ -35,42 +47,67 @@ export interface SchedulerFirstWorkerStartResult {
 }
 
 export async function startFirstSchedulerCoderWorker(project: ManagedProject, input: SchedulerFirstWorkerStartInput): Promise<SchedulerFirstWorkerStartResult> {
+  return startOneSchedulerCoderWorker(project, input, "planning.scheduler.worker.start-first");
+}
+
+export interface SchedulerNextWorkerStartInput extends SchedulerFirstWorkerStartInput {
+  reservationIntentId: string;
+  claimIntentId: string;
+}
+
+export async function startNextSchedulerCoderWorker(project: ManagedProject, input: SchedulerNextWorkerStartInput): Promise<SchedulerFirstWorkerStartResult> {
+  if (!input.reservationIntentId) throw new Error("planning.scheduler.worker.start-next requires reservationIntentId.");
+  if (!input.claimIntentId) throw new Error("planning.scheduler.worker.start-next requires claimIntentId.");
+  return startOneSchedulerCoderWorker(project, input, "planning.scheduler.worker.start-next");
+}
+
+async function startOneSchedulerCoderWorker(
+  project: ManagedProject,
+  input: SchedulerFirstWorkerStartInput,
+  actionType: "planning.scheduler.worker.start-first" | "planning.scheduler.worker.start-next",
+): Promise<SchedulerFirstWorkerStartResult> {
   const memory = await resolveProjectMemory(project);
-  assertWritableMemory(memory, "Scheduler first worker start");
+  assertWritableMemory(memory, actionType === "planning.scheduler.worker.start-next" ? "Scheduler next worker start" : "Scheduler first worker start");
   const target = await resolveRunnableChangeTarget(project, { changeId: input.changeId, allowLegacyActiveFallback: false });
   const changePath = target.status.activeChanges.find((item) => item.name === input.changeId)?.path;
-  if (!changePath) throw new Error(`Scheduler first worker start cannot resolve active Change path for ${input.changeId}.`);
+  if (!changePath) throw new Error(`${actionType} cannot resolve active Change path for ${input.changeId}.`);
   const { run, workerPlan, contract } = await readSchedulerRuntimeLineage(memory, changePath, input.schedulerRunId);
-  if (run.changeId !== input.changeId) throw new Error("planning.scheduler.worker.start-first SchedulerRun change scope mismatch.");
+  if (run.changeId !== input.changeId) throw new Error(`${actionType} SchedulerRun change scope mismatch.`);
   const runtimeState = await readSchedulerRuntimeState(memory, changePath, run.id);
   if (runtimeState.schedulerRunId !== run.id || runtimeState.changeId !== input.changeId) {
-    throw new Error("planning.scheduler.worker.start-first SchedulerRuntimeState scope mismatch.");
+    throw new Error(`${actionType} SchedulerRuntimeState scope mismatch.`);
   }
   if (!runtimeState.lastReconcileSnapshotId || !runtimeState.lastClaimReservationId) {
-    throw new Error("planning.scheduler.worker.start-first requires latest reconcile snapshot and claim reservation.");
+    throw new Error(`${actionType} requires latest reconcile snapshot and claim reservation.`);
   }
   const reconcileSnapshot = await readSchedulerReconcileSnapshot(memory, changePath, run.id, runtimeState.lastReconcileSnapshotId);
   const reservation = await readSchedulerRuntimeClaimReservation(memory, changePath, run.id, input.schedulerClaimReservationId);
   if (reservation.id !== runtimeState.lastClaimReservationId || reservation.schedulerReconcileSnapshotId !== reconcileSnapshot.id || runtimeState.lastClaimReservationSnapshotId !== reconcileSnapshot.id) {
-    throw new Error("planning.scheduler.worker.start-first requires the latest SchedulerRuntimeClaimReservation.");
+    throw new Error(`${actionType} requires the latest SchedulerRuntimeClaimReservation.`);
   }
   if (reservation.status !== "reserved" || reservation.reservedCount < 1) {
-    throw new Error("planning.scheduler.worker.start-first requires a reserved claim reservation.");
+    throw new Error(`${actionType} requires a reserved claim reservation.`);
   }
-  const intent = selectReservationIntent(reservation.reservationIntents, input);
+  assertHashesMatch(runtimeState.sourceArtifactHashes, run.sourceArtifactHashes, actionType, "runtime state");
+  assertHashesMatch(reservation.sourceArtifactHashes, runtimeState.sourceArtifactHashes, actionType, "claim reservation");
+  assertHashesMatch(reconcileSnapshot.sourceArtifactHashes, runtimeState.sourceArtifactHashes, actionType, "reconcile snapshot");
+  if (actionType === "planning.scheduler.worker.start-next") {
+    await assertStartNextAllowed(memory, changePath, run.id, reservation, input.reservationIntentId, runtimeState.sourceArtifactHashes);
+  }
+  const intent = selectReservationIntent(reservation.reservationIntents, input, actionType);
   const existing = await findSchedulerRuntimeWorkerStartForReservationIntent(memory, changePath, run.id, intent.reservationIntentId);
-  if (existing) throw new Error("planning.scheduler.worker.start-first reservation intent already started.");
+  if (existing) throw new Error(`${actionType} reservation intent already started.`);
   const stage = workerPlan.plannedStages.find((item) =>
     item.nodeId === intent.nodeId
     && item.unitId === intent.unitId
     && item.stage === "coder"
     && item.status === "planned"
   );
-  if (!stage) throw new Error("planning.scheduler.worker.start-first could not resolve a planned coder stage.");
+  if (!stage) throw new Error(`${actionType} could not resolve a planned coder stage.`);
   const node = contract.nodes.find((item) => item.id === intent.nodeId && item.unitId === intent.unitId);
-  if (!node) throw new Error("planning.scheduler.worker.start-first could not resolve SchedulerContract node.");
+  if (!node) throw new Error(`${actionType} could not resolve SchedulerContract node.`);
   if (node.taskIds.length !== 1) {
-    throw new Error("planning.scheduler.worker.start-first currently requires a scheduler node with exactly one task id.");
+    throw new Error(`${actionType} currently requires a scheduler node with exactly one task id.`);
   }
   const taskId = node.taskIds[0];
   const started = await startTaskRun(project, { changeId: input.changeId, taskId, roleId: "coder" });
@@ -200,18 +237,117 @@ export async function startFirstSchedulerCoderWorker(project: ManagedProject, in
   }
 }
 
-function selectReservationIntent(intents: SchedulerRuntimeClaimReservationIntent[], input: SchedulerFirstWorkerStartInput): SchedulerRuntimeClaimReservationIntent {
+async function assertStartNextAllowed(
+  memory: Awaited<ReturnType<typeof resolveProjectMemory>>,
+  changePath: string,
+  schedulerRunId: string,
+  reservation: { id: string; reservationIntents: SchedulerRuntimeClaimReservationIntent[] },
+  selectedReservationIntentId: string | undefined,
+  sourceArtifactHashes: Record<string, string>,
+): Promise<void> {
+  const starts = await listSchedulerRuntimeWorkerStarts(memory, changePath, schedulerRunId);
+  const scopedStarts = starts.filter((start) => start.schedulerClaimReservationId === reservation.id);
+  if (scopedStarts.length < 1) throw new Error("planning.scheduler.worker.start-next requires at least one existing scheduler worker start.");
+  for (const start of scopedStarts) {
+    await assertWorkerPathTerminal(memory, changePath, schedulerRunId, start);
+  }
+  const startedReservationIntentIds = new Set(scopedStarts.map((start) => start.reservationIntentId));
+  const nextIntent = reservation.reservationIntents
+    .filter((intent) => intent.status === "reserved" && !startedReservationIntentIds.has(intent.reservationIntentId))
+    .sort((a, b) => a.waveIndex - b.waveIndex || reservation.reservationIntents.indexOf(a) - reservation.reservationIntents.indexOf(b))[0];
+  if (!nextIntent) throw new Error("planning.scheduler.worker.start-next requires an unstarted reserved reservation intent.");
+  if (selectedReservationIntentId !== nextIntent.reservationIntentId) {
+    throw new Error("planning.scheduler.worker.start-next must select the first unstarted reserved reservation intent.");
+  }
+  const candidate = await readLatestSchedulerIntegrationCandidateProjection(memory, changePath, schedulerRunId);
+  if (!candidate || candidate.schedulerClaimReservationId !== reservation.id) {
+    throw new Error("planning.scheduler.worker.start-next requires a latest SchedulerIntegrationCandidate for the current reservation.");
+  }
+  if (candidate.readyCount !== 1 || candidate.blockedCount !== 0 || candidate.status !== "waiting") {
+    throw new Error("planning.scheduler.worker.start-next requires exactly one ready scheduler output and no blocked candidate outputs.");
+  }
+  assertHashesMatch(candidate.sourceArtifactHashes, sourceArtifactHashes, "planning.scheduler.worker.start-next", "integration candidate");
+  const handoff = await readLatestSchedulerIntegrationCheckHandoffProjection(memory, changePath, schedulerRunId);
+  if (handoff) throw new Error("planning.scheduler.worker.start-next is blocked after SchedulerIntegrationCheck handoff exists.");
+  const outcome = await readLatestSchedulerIntegrationOutcomeProjection(memory, changePath, schedulerRunId);
+  if (outcome) throw new Error("planning.scheduler.worker.start-next is blocked after SchedulerIntegrationOutcome exists.");
+}
+
+async function assertWorkerPathTerminal(
+  memory: Awaited<ReturnType<typeof resolveProjectMemory>>,
+  changePath: string,
+  schedulerRunId: string,
+  start: SchedulerRuntimeWorkerStart,
+): Promise<void> {
+  if (start.status === "failed") return;
+  const result = await findSchedulerRuntimeWorkerResultForStart(memory, changePath, schedulerRunId, start.id);
+  if (!result) throw new Error(`planning.scheduler.worker.start-next prior worker is not reconciled: ${start.id}.`);
+  if (result.status === "failed") return;
+  const validation = await findSchedulerRuntimeWorkerValidationForResult(memory, changePath, schedulerRunId, result.id);
+  if (!validation) throw new Error(`planning.scheduler.worker.start-next prior worker validation is pending: ${start.id}.`);
+  if (validation.status === "passed") {
+    const audit = await findSchedulerRuntimeWorkerAuditForValidation(memory, changePath, schedulerRunId, validation.id);
+    if (!audit) throw new Error(`planning.scheduler.worker.start-next prior worker audit is pending: ${start.id}.`);
+    if (audit.status === "approved" || audit.status === "approved-with-notes") return;
+    const reworkPlan = await findSchedulerRuntimeWorkerReworkPlanForBlockingEvidence(memory, changePath, schedulerRunId, {
+      workerValidationId: validation.id,
+      workerAuditId: audit.id,
+    });
+    if (!reworkPlan) throw new Error(`planning.scheduler.worker.start-next prior worker audit is blocked without rework plan: ${start.id}.`);
+    await assertReworkPathTerminal(memory, changePath, schedulerRunId, start.id, reworkPlan.id);
+    return;
+  }
+  const reworkPlan = await findSchedulerRuntimeWorkerReworkPlanForBlockingEvidence(memory, changePath, schedulerRunId, {
+    workerValidationId: validation.id,
+  });
+  if (!reworkPlan) throw new Error(`planning.scheduler.worker.start-next prior worker validation failed without rework plan: ${start.id}.`);
+  await assertReworkPathTerminal(memory, changePath, schedulerRunId, start.id, reworkPlan.id);
+}
+
+async function assertReworkPathTerminal(
+  memory: Awaited<ReturnType<typeof resolveProjectMemory>>,
+  changePath: string,
+  schedulerRunId: string,
+  workerStartId: string,
+  reworkPlanId: string,
+): Promise<void> {
+  const reworkStart = await findSchedulerRuntimeWorkerReworkStartForPlan(memory, changePath, schedulerRunId, reworkPlanId);
+  if (!reworkStart) throw new Error(`planning.scheduler.worker.start-next prior worker rework is not started: ${workerStartId}.`);
+  if (reworkStart.status === "failed") return;
+  const reworkResult = await findSchedulerRuntimeWorkerReworkResultForStart(memory, changePath, schedulerRunId, reworkStart.id);
+  if (!reworkResult) throw new Error(`planning.scheduler.worker.start-next prior worker rework result is pending: ${workerStartId}.`);
+  if (reworkResult.status === "failed") return;
+  const reworkValidation = await findSchedulerRuntimeWorkerReworkValidationForResult(memory, changePath, schedulerRunId, reworkResult.id);
+  if (!reworkValidation) throw new Error(`planning.scheduler.worker.start-next prior worker rework validation is pending: ${workerStartId}.`);
+  if (reworkValidation.status !== "passed") return;
+  const reworkAudit = await findSchedulerRuntimeWorkerReworkAuditForValidation(memory, changePath, schedulerRunId, reworkValidation.id);
+  if (!reworkAudit) throw new Error(`planning.scheduler.worker.start-next prior worker rework audit is pending: ${workerStartId}.`);
+}
+
+function selectReservationIntent(
+  intents: SchedulerRuntimeClaimReservationIntent[],
+  input: SchedulerFirstWorkerStartInput,
+  actionType: "planning.scheduler.worker.start-first" | "planning.scheduler.worker.start-next",
+): SchedulerRuntimeClaimReservationIntent {
   const candidates = intents
     .filter((intent) => intent.status === "reserved")
     .sort((a, b) => a.waveIndex - b.waveIndex || intents.indexOf(a) - intents.indexOf(b));
   const selected = input.reservationIntentId
     ? candidates.find((intent) => intent.reservationIntentId === input.reservationIntentId)
     : candidates[0];
-  if (!selected) throw new Error("planning.scheduler.worker.start-first could not find a runnable reservation intent.");
+  if (!selected) throw new Error(`${actionType} could not find a runnable reservation intent.`);
   if (input.claimIntentId && selected.claimIntentId !== input.claimIntentId) {
-    throw new Error("planning.scheduler.worker.start-first claimIntentId scope mismatch.");
+    throw new Error(`${actionType} claimIntentId scope mismatch.`);
   }
   return selected;
+}
+
+function assertHashesMatch(left: Record<string, string>, right: Record<string, string>, actionType: string, label: string): void {
+  const leftEntries = Object.entries(left).sort(([a], [b]) => a.localeCompare(b));
+  const rightEntries = Object.entries(right).sort(([a], [b]) => a.localeCompare(b));
+  if (leftEntries.length !== rightEntries.length || leftEntries.some(([key, value], index) => rightEntries[index]?.[0] !== key || rightEntries[index]?.[1] !== value)) {
+    throw new Error(`${actionType} ${label} source artifact hash mismatch.`);
+  }
 }
 
 function buildWorkerStartId(schedulerRunId: string, reservationIntentId: string, taskRunId: string): string {

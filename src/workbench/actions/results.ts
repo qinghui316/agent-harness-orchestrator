@@ -196,6 +196,11 @@ export function summarizeActionResult(actionType: string, result: unknown): stri
       ? `Scheduler first coder worker ${result.workerStart.id} started.`
       : "Scheduler first coder worker started.";
   }
+  if (actionType === "planning.scheduler.worker.start-next" && isRecord(result) && isRecord(result.workerStart)) {
+    return typeof result.workerStart.id === "string"
+      ? `Scheduler next coder worker ${result.workerStart.id} started.`
+      : "Scheduler next coder worker started.";
+  }
   if (actionType === "planning.scheduler.worker.reconcile-result" && isRecord(result)) {
     if (isRecord(result.result) && typeof result.result.status === "string") {
       return `Scheduler first coder worker result reconciled: ${result.result.status}.`;

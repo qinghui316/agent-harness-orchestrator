@@ -22,6 +22,7 @@ export const WORKFLOW_ACTION_TYPES = [
   "planning.scheduler.runtime.reconcile",
   "planning.scheduler.runtime.reserve-claims",
   "planning.scheduler.worker.start-first",
+  "planning.scheduler.worker.start-next",
   "planning.scheduler.worker.reconcile-result",
   "planning.scheduler.worker.validate-first",
   "planning.scheduler.worker.audit-first",
@@ -133,6 +134,7 @@ export const LIVE_WORKFLOW_ACTION_TYPES = [
   "planning.scheduler.runtime.reconcile",
   "planning.scheduler.runtime.reserve-claims",
   "planning.scheduler.worker.start-first",
+  "planning.scheduler.worker.start-next",
   "planning.scheduler.worker.reconcile-result",
   "planning.scheduler.worker.validate-first",
   "planning.scheduler.worker.audit-first",
@@ -224,6 +226,7 @@ export const HIGH_IMPACT_WORKFLOW_ACTION_TYPES = [
   "planning.scheduler.runtime.reconcile",
   "planning.scheduler.runtime.reserve-claims",
   "planning.scheduler.worker.start-first",
+  "planning.scheduler.worker.start-next",
   "planning.scheduler.worker.reconcile-result",
   "planning.scheduler.worker.validate-first",
   "planning.scheduler.worker.audit-first",
@@ -276,6 +279,7 @@ export const REVALIDATED_WORKFLOW_ACTION_TYPES = [
   "planning.scheduler.runtime.reconcile",
   "planning.scheduler.runtime.reserve-claims",
   "planning.scheduler.worker.start-first",
+  "planning.scheduler.worker.start-next",
   "planning.scheduler.worker.reconcile-result",
   "planning.scheduler.worker.validate-first",
   "planning.scheduler.worker.audit-first",
@@ -430,6 +434,12 @@ export function validateWorkflowActionRequiredTargets(request: WorkflowActionSco
     case "planning.scheduler.worker.start-first":
       requireOne("schedulerRunId", [request.schedulerRunId]);
       requireOne("schedulerClaimReservationId", [request.schedulerClaimReservationId]);
+      break;
+    case "planning.scheduler.worker.start-next":
+      requireOne("schedulerRunId", [request.schedulerRunId]);
+      requireOne("schedulerClaimReservationId", [request.schedulerClaimReservationId]);
+      requireOne("reservationIntentId", [request.reservationIntentId]);
+      requireOne("claimIntentId", [request.claimIntentId]);
       break;
     case "planning.scheduler.worker.reconcile-result":
       requireOne("schedulerRunId", [request.schedulerRunId]);

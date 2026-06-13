@@ -367,6 +367,7 @@ export type Workpad = {
   schedulerWorkerReworkResult?: SchedulerWorkerReworkResultSummary;
   schedulerWorkerReworkValidation?: SchedulerWorkerReworkValidationSummary;
   schedulerWorkerReworkAudit?: SchedulerWorkerReworkAuditSummary;
+  schedulerWorkerPaths?: SchedulerWorkerPathSummary[];
   schedulerIntegrationCandidate?: SchedulerIntegrationCandidateSummary;
   schedulerIntegrationCheckHandoff?: SchedulerIntegrationCheckHandoffSummary;
   schedulerIntegrationOutcome?: SchedulerIntegrationOutcomeSummary;
@@ -667,11 +668,21 @@ export type SchedulerClaimReservationSummary = {
   blockedCount: number;
   sourceLockCount: number;
   waveIndex: number;
+  reservationIntents: SchedulerClaimReservationIntentSummary[];
   launchConfirmed?: boolean;
   supersedesReservationId?: string;
   artifact?: string;
   markdownArtifact?: string;
   updatedAt: string;
+};
+export type SchedulerClaimReservationIntentSummary = {
+  reservationIntentId: string;
+  claimIntentId: string;
+  plannedWorkerKey: string;
+  nodeId: string;
+  unitId: string;
+  waveIndex: number;
+  status: "reserved" | "blocked";
 };
 export type SchedulerWorkerStartSummary = {
   id: string;
@@ -693,6 +704,40 @@ export type SchedulerWorkerStartSummary = {
   artifact?: string;
   markdownArtifact?: string;
   updatedAt: string;
+};
+export type SchedulerWorkerPathStatus =
+  | "start-failed"
+  | "result-pending"
+  | "result-failed"
+  | "validation-pending"
+  | "validation-failed"
+  | "audit-pending"
+  | "audit-approved"
+  | "audit-blocked"
+  | "audit-failed"
+  | "rework-plan-pending"
+  | "rework-start-pending"
+  | "rework-start-failed"
+  | "rework-result-pending"
+  | "rework-result-failed"
+  | "rework-validation-pending"
+  | "rework-validation-failed"
+  | "rework-audit-pending"
+  | "rework-audit-approved"
+  | "rework-audit-blocked"
+  | "rework-audit-failed";
+export type SchedulerWorkerPathSummary = {
+  start: SchedulerWorkerStartSummary;
+  result?: SchedulerWorkerResultSummary;
+  validation?: SchedulerWorkerValidationSummary;
+  audit?: SchedulerWorkerAuditSummary;
+  reworkPlan?: SchedulerWorkerReworkPlanSummary;
+  reworkStart?: SchedulerWorkerReworkStartSummary;
+  reworkResult?: SchedulerWorkerReworkResultSummary;
+  reworkValidation?: SchedulerWorkerReworkValidationSummary;
+  reworkAudit?: SchedulerWorkerReworkAuditSummary;
+  status: SchedulerWorkerPathStatus;
+  terminal: boolean;
 };
 export type SchedulerWorkerResultSummary = {
   id: string;
