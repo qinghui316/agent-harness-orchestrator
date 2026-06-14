@@ -16,9 +16,14 @@ import {
   goalLoopFeedbackDir,
   goalLoopFeedbackMarkdownPath,
   goalLoopFeedbackPath,
+  goalLoopControllerPoliciesDir,
+  goalLoopControllerPolicyMarkdownPath,
+  goalLoopControllerPolicyPath,
   goalLoopIterationMarkdownPath,
   goalLoopIterationPath,
   goalLoopIterationsDir,
+  latestGoalLoopControllerPolicyMarkdownPath,
+  latestGoalLoopControllerPolicyPath,
   latestGoalLoopFeedbackMarkdownPath,
   latestGoalLoopFeedbackPath,
   latestGoalLoopContinuationBriefMarkdownPath,
@@ -30,9 +35,9 @@ import {
   latestGoalLoopDecisionMarkdownPath,
   latestGoalLoopDecisionPath,
 } from "./paths.js";
-import { renderGoalLoopContinuationBriefMarkdown, renderGoalLoopDecisionMarkdown, renderGoalLoopFeedbackMarkdown, renderGoalLoopIterationMarkdown, renderGoalLoopNextStepPacketMarkdown } from "./rendering.js";
-import { goalLoopContinuationBriefSchema, goalLoopDecisionSchema, goalLoopFeedbackSchema, goalLoopIterationSchema, goalLoopNextStepPacketSchema } from "./schemas.js";
-import type { GoalLoopContinuationBrief, GoalLoopDecision, GoalLoopFeedback, GoalLoopIteration, GoalLoopNextStepPacket } from "./types.js";
+import { renderGoalLoopContinuationBriefMarkdown, renderGoalLoopControllerPolicyMarkdown, renderGoalLoopDecisionMarkdown, renderGoalLoopFeedbackMarkdown, renderGoalLoopIterationMarkdown, renderGoalLoopNextStepPacketMarkdown } from "./rendering.js";
+import { goalLoopContinuationBriefSchema, goalLoopControllerPolicySchema, goalLoopDecisionSchema, goalLoopFeedbackSchema, goalLoopIterationSchema, goalLoopNextStepPacketSchema } from "./schemas.js";
+import type { GoalLoopContinuationBrief, GoalLoopControllerPolicy, GoalLoopDecision, GoalLoopFeedback, GoalLoopIteration, GoalLoopNextStepPacket } from "./types.js";
 
 export function goalLoopDecisionArtifactRefs(memory: ResolvedMemory, changePath: string, decisionId: string): { artifact: string; markdownArtifact: string } {
   return {
@@ -66,6 +71,13 @@ export function goalLoopFeedbackArtifactRefs(memory: ResolvedMemory, changePath:
   return {
     artifact: displayArtifactPath(memory, goalLoopFeedbackPath(memory, changePath, feedbackId)),
     markdownArtifact: displayArtifactPath(memory, goalLoopFeedbackMarkdownPath(memory, changePath, feedbackId)),
+  };
+}
+
+export function goalLoopControllerPolicyArtifactRefs(memory: ResolvedMemory, changePath: string, policyId: string): { artifact: string; markdownArtifact: string } {
+  return {
+    artifact: displayArtifactPath(memory, goalLoopControllerPolicyPath(memory, changePath, policyId)),
+    markdownArtifact: displayArtifactPath(memory, goalLoopControllerPolicyMarkdownPath(memory, changePath, policyId)),
   };
 }
 
@@ -177,4 +189,26 @@ export async function readLatestGoalLoopFeedback(memory: ResolvedMemory, changeP
   const feedback = await readRequiredJsonFile(latestGoalLoopFeedbackPath(memory, changePath), goalLoopFeedbackSchema);
   await assertChangePathScope(memory, changePath, feedback.changeId, `GoalLoopFeedback ${feedback.id}`);
   return feedback;
+}
+
+export async function writeGoalLoopControllerPolicy(memory: ResolvedMemory, changePath: string, policy: GoalLoopControllerPolicy): Promise<void> {
+  await assertChangePathScope(memory, changePath, policy.changeId, `GoalLoopControllerPolicy ${policy.id}`);
+  await mkdir(goalLoopControllerPoliciesDir(memory, changePath), { recursive: true });
+  await writeJsonFile(goalLoopControllerPolicyPath(memory, changePath, policy.id), policy);
+  await writeFile(goalLoopControllerPolicyMarkdownPath(memory, changePath, policy.id), renderGoalLoopControllerPolicyMarkdown(policy), "utf8");
+  await writeJsonFile(latestGoalLoopControllerPolicyPath(memory, changePath), policy);
+  await writeFile(latestGoalLoopControllerPolicyMarkdownPath(memory, changePath), renderGoalLoopControllerPolicyMarkdown(policy), "utf8");
+}
+
+export async function readGoalLoopControllerPolicy(memory: ResolvedMemory, changePath: string, policyId: string): Promise<GoalLoopControllerPolicy> {
+  const policy = await readRequiredJsonFile(goalLoopControllerPolicyPath(memory, changePath, policyId), goalLoopControllerPolicySchema);
+  await assertChangePathScope(memory, changePath, policy.changeId, `GoalLoopControllerPolicy ${policy.id}`);
+  if (policy.id !== policyId) throw new Error("GoalLoopControllerPolicy id mismatch.");
+  return policy;
+}
+
+export async function readLatestGoalLoopControllerPolicy(memory: ResolvedMemory, changePath: string): Promise<GoalLoopControllerPolicy> {
+  const policy = await readRequiredJsonFile(latestGoalLoopControllerPolicyPath(memory, changePath), goalLoopControllerPolicySchema);
+  await assertChangePathScope(memory, changePath, policy.changeId, `GoalLoopControllerPolicy ${policy.id}`);
+  return policy;
 }

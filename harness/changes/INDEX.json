@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-14T07:52:25.7853429Z",
+    "generated_at":  "2026-06-14T09:52:25.8560784Z",
     "active":  [
 
                ],
@@ -845,6 +845,10 @@
                     {
                         "name":  "20260614-phase-10p-goal-loop-feedback-result-refresh-acceptance",
                         "path":  "harness/changes/archive/20260614-phase-10p-goal-loop-feedback-result-refresh-acceptance"
+                    },
+                    {
+                        "name":  "20260614-phase-10q-main-agent-goal-loop-controller-policy-contract",
+                        "path":  "harness/changes/archive/20260614-phase-10q-main-agent-goal-loop-controller-policy-contract"
                     }
                 ]
 }

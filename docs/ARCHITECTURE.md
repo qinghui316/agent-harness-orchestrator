@@ -184,6 +184,8 @@ Phase 10O connects that evidence to the user-facing Workbench surface. When a fr
 
 Phase 10P keeps the same architecture and tightens the visible acceptance loop after feedback. A feedback re-evaluation should return a refreshed Workbench snapshot with the latest Goal Loop brief/packet guidance and the still-separate concrete Harness gate. The action result may explain the new recommendation, but it must not become a controller, hidden continuation turn, ToolPolicy authorization, scheduler start, source mutation, or close/apply authority.
 
+Phase 10Q adds the first Goal Loop controller policy contract, still as non-executing evidence. `src/goal-loop/` owns the policy artifact that compares the latest packet with the current concrete Harness gate and records whether the main Agent should recommend that existing gate, wait for evidence, suppress stale guidance, or report blocked state. It is a policy explanation layer, not an executor: it must not call Workbench action handlers, start scheduler/runtime work, run validation/audit/IntegrationCheck, mutate source, close/apply, or replace workflow truth.
+
 Goal-driven loop model:
 
 ```mermaid

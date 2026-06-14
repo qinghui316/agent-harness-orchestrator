@@ -1,6 +1,7 @@
 import {
   isGoalLoopNextStepPacketFresh,
   readLatestGoalLoopContinuationBrief,
+  readLatestGoalLoopControllerPolicy,
   readLatestGoalLoopDecision,
   readLatestGoalLoopIteration,
   readLatestGoalLoopNextStepPacket,
@@ -29,6 +30,16 @@ export async function readLatestGoalLoopSummary(
     if (packet.changeId !== decision.changeId) return null;
     if (brief.executionStarted !== false || iteration.executionStarted !== false || decision.executionStarted !== false || packet.executionStarted !== false) return null;
     if (!(await isGoalLoopNextStepPacketFresh(memory, changePath, packet))) return null;
+    const controllerPolicy = await readLatestGoalLoopControllerPolicy(memory, changePath).catch(() => null);
+    const validControllerPolicy = controllerPolicy
+      && controllerPolicy.changeId === decision.changeId
+      && controllerPolicy.sourceGoalLoopDecisionId === decision.id
+      && controllerPolicy.sourceGoalLoopIterationId === iteration.id
+      && controllerPolicy.sourceGoalLoopContinuationBriefId === brief.id
+      && controllerPolicy.sourceGoalLoopNextStepPacketId === packet.id
+      && controllerPolicy.executionStarted === false
+      ? controllerPolicy
+      : null;
     return {
       id: brief.id,
       changeId: brief.changeId,
@@ -57,6 +68,12 @@ export async function readLatestGoalLoopSummary(
       markdownArtifact: brief.markdownArtifact,
       nextStepPacketArtifact: packet.artifact,
       nextStepPacketMarkdownArtifact: packet.markdownArtifact,
+      controllerPolicyId: validControllerPolicy?.id,
+      controllerVerdict: validControllerPolicy?.verdict,
+      controllerGateStatus: validControllerPolicy?.gateStatus,
+      controllerSummary: validControllerPolicy?.summary,
+      controllerArtifact: validControllerPolicy?.artifact,
+      controllerMarkdownArtifact: validControllerPolicy?.markdownArtifact,
       updatedAt: brief.updatedAt,
       executionStarted: false,
     };

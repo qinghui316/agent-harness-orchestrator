@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { buildGoalLoopMainAgentContextSection, compileGoalLoopDecision, compileGoalLoopEvaluation, isGoalLoopNextStepPacketFresh, readLatestGoalLoopContinuationBrief, readLatestGoalLoopFeedback, readLatestGoalLoopIteration, readLatestGoalLoopNextStepPacket, recordGoalLoopFeedback, writeGoalLoopNextStepPacket } from "../../src/goal-loop/manager.js";
+import { buildGoalLoopMainAgentContextSection, compileGoalLoopControllerPolicy, compileGoalLoopDecision, compileGoalLoopEvaluation, isGoalLoopNextStepPacketFresh, readLatestGoalLoopContinuationBrief, readLatestGoalLoopControllerPolicy, readLatestGoalLoopFeedback, readLatestGoalLoopIteration, readLatestGoalLoopNextStepPacket, recordGoalLoopFeedback, writeGoalLoopNextStepPacket } from "../../src/goal-loop/manager.js";
 import { assessGoalLoopSummaryCurrentGateParity } from "../../src/workbench/projections/read-model/goal-loop-parity.js";
 import { readLatestGoalLoopSummary } from "../../src/workbench/projections/read-model/goal-loop.js";
 import type { ResolvedMemory } from "../../src/types/index.js";
@@ -227,6 +227,103 @@ describe("GoalLoopDecision", () => {
     await expect(readLatestGoalLoopSummary(memory, changePath)).resolves.toMatchObject({
       goalLoopNextStepPacketId: second.goalLoopNextStepPacket.id,
       sourceEvidenceCount: second.goalLoopContinuationBrief.sourceEvidenceRefs.length,
+    });
+  });
+
+  it("records non-executing controller policy for the current visible Harness gate", async () => {
+    const result = await compileGoalLoopEvaluation(memory, changePath);
+
+    const policy = await compileGoalLoopControllerPolicy(memory, changePath, {
+      currentGate: {
+        actionType: "planning.scheduler.plan.prepare",
+        scope: { changeId },
+      },
+    });
+
+    expect(policy).toMatchObject({
+      changeId,
+      authority: "non-executing-controller-policy-evidence",
+      sourceGoalLoopNextStepPacketId: result.goalLoopNextStepPacket.id,
+      verdict: "recommend-existing-gate",
+      gateStatus: "matches-current-gate",
+      recommendedAction: {
+        actionType: "planning.scheduler.plan.prepare",
+        scope: { changeId },
+      },
+      suppressesRecommendedAction: false,
+      executionStarted: false,
+    });
+    expect(policy.forbiddenExecutionStatements).toEqual(expect.arrayContaining([
+      expect.stringContaining("Do not call Workbench action handlers"),
+      expect.stringContaining("Do not start scheduler workers"),
+    ]));
+    await expect(readLatestGoalLoopControllerPolicy(memory, changePath)).resolves.toMatchObject({ id: policy.id });
+    await expect(readLatestGoalLoopSummary(memory, changePath)).resolves.toMatchObject({
+      controllerPolicyId: policy.id,
+      controllerVerdict: "recommend-existing-gate",
+      controllerGateStatus: "matches-current-gate",
+      controllerSummary: expect.stringContaining("existing planning.scheduler.plan.prepare Harness gate"),
+    });
+  });
+
+  it("suppresses controller guidance when the current visible gate target does not match the packet", async () => {
+    await compileGoalLoopEvaluation(memory, changePath);
+
+    const policy = await compileGoalLoopControllerPolicy(memory, changePath, {
+      currentGate: {
+        actionType: "planning.scheduler.plan.prepare",
+        scope: { changeId: "other-change" },
+      },
+    });
+
+    expect(policy).toMatchObject({
+      verdict: "suppress-stale-guidance",
+      gateStatus: "change-id-mismatch",
+      recommendedAction: undefined,
+      suppressesRecommendedAction: true,
+      executionStarted: false,
+    });
+  });
+
+  it("suppresses controller guidance when the latest packet is stale", async () => {
+    const { workerStart } = await writeSchedulerEvidence({ withWorkerStart: true });
+    const result = await compileGoalLoopEvaluation(memory, changePath);
+    expect(result.goalLoopNextStepPacket.recommendedAction?.actionType).toBe("planning.scheduler.worker.reconcile-result");
+    await writeWorkerResult(workerStart!, "evidence-ready");
+
+    const policy = await compileGoalLoopControllerPolicy(memory, changePath, {
+      currentGate: {
+        actionType: "planning.scheduler.worker.reconcile-result",
+        scope: {
+          changeId,
+          schedulerRunId: workerStart!.schedulerRunId,
+          schedulerWorkerStartId: workerStart!.id,
+        },
+      },
+    });
+
+    expect(policy).toMatchObject({
+      sourceGoalLoopNextStepPacketId: result.goalLoopNextStepPacket.id,
+      verdict: "suppress-stale-guidance",
+      gateStatus: "packet-stale",
+      suppressesRecommendedAction: true,
+      executionStarted: false,
+    });
+  });
+
+  it("records wait-for-evidence controller policy when no recommended action exists", async () => {
+    const { workerStart } = await writeSchedulerEvidence({ withWorkerStart: true });
+    await writeWorkerResult(workerStart!, "failed");
+    await compileGoalLoopEvaluation(memory, changePath);
+
+    const policy = await compileGoalLoopControllerPolicy(memory, changePath);
+
+    expect(policy).toMatchObject({
+      verdict: "wait-for-evidence",
+      gateStatus: "no-recommended-action",
+      recommendedAction: undefined,
+      suppressesRecommendedAction: false,
+      executionStarted: false,
     });
   });
 

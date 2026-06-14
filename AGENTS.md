@@ -141,6 +141,7 @@ Current baseline:
 - Phase 10N Goal Loop Feedback Re-evaluation Evidence is closed and archived at `harness/changes/archive/20260614-phase-10n-goal-loop-feedback-re-evaluation-evidence/summary.md`. It records scoped user feedback against visible Goal Loop packet guidance and consumes it in a fresh non-executing evaluation; it must not execute the recommendation, start workers, mutate source, or bypass concrete Harness gates.
 - Phase 10O Goal Loop Feedback Surface is closed and archived at `harness/changes/archive/20260614-phase-10o-goal-loop-feedback-surface/summary.md`. It connects scoped Goal Loop feedback evidence to an explicit Workbench user feedback surface while keeping feedback non-executing and subordinate to concrete Harness gates.
 - Phase 10P Goal Loop Feedback Result Refresh Acceptance is closed and archived at `harness/changes/archive/20260614-phase-10p-goal-loop-feedback-result-refresh-acceptance/summary.md`. It tightens the post-feedback user-facing refresh/acceptance path so fresh Goal Loop guidance is visible after feedback while the concrete Harness gate remains separate and non-bypassed.
+- Phase 10Q Main Agent Goal Loop Controller Policy Contract is closed and archived at `harness/changes/archive/20260614-phase-10q-main-agent-goal-loop-controller-policy-contract/summary.md`. It adds non-executing controller policy evidence so the main Agent can recommend an existing Harness gate, wait, suppress stale guidance, or report blocked state without executing actions.
 - Active change: none.
 - Pending Harness evolution: none.
 - Latest Harness evolution: `harness/changes/archive/20260614-auto-evolve-harness-phase-10l-10p-goal-loop-feedback-evidence/summary.md`, which completed the Phase 10L-10P pending window as `modify/subagent_review` with subagent score `86/100`.
@@ -281,11 +282,11 @@ Active change: none.
 
 Pending Harness evolution: none.
 
-Latest completed product phase: Phase 10O Goal Loop Feedback Surface, archived at `harness/changes/archive/20260614-phase-10o-goal-loop-feedback-surface/summary.md`.
+Latest completed product phase: Phase 10Q Main Agent Goal Loop Controller Policy Contract, archived at `harness/changes/archive/20260614-phase-10q-main-agent-goal-loop-controller-policy-contract/summary.md`.
 
-Latest completed product/Harness docs phase: Phase 10M Goal Loop Packet Confirmation Parity, archived at `harness/changes/archive/20260614-phase-10m-goal-loop-packet-confirmation-parity/summary.md`.
+Latest completed product/Harness docs phase: Phase 10Q Main Agent Goal Loop Controller Policy Contract, archived at `harness/changes/archive/20260614-phase-10q-main-agent-goal-loop-controller-policy-contract/summary.md`.
 
-Latest Harness evolution: `harness/changes/archive/20260614-auto-evolve-harness-phase-10h-10l-goal-loop-packet-freshness-evidence/summary.md`, which completed the Phase 10H-10L pending window as `modify/subagent_review` with subagent score `88/100`.
+Latest Harness evolution: `harness/changes/archive/20260614-auto-evolve-harness-phase-10l-10p-goal-loop-feedback-evidence/summary.md`, which completed the Phase 10L-10P pending window as `modify/subagent_review` with subagent score `86/100`.
 
 Current active phase: none.
 
@@ -360,6 +361,8 @@ Phase 10N is closed and archived at `harness/changes/archive/20260614-phase-10n-
 Phase 10O is closed and archived at `harness/changes/archive/20260614-phase-10o-goal-loop-feedback-surface/summary.md`. It adds the missing explicit Workbench feedback surface for visible Goal Loop packet guidance; it must not scrape ordinary chat, execute recommendations, create runtime artifacts, or bypass concrete Harness gates.
 
 Phase 10P is closed and archived at `harness/changes/archive/20260614-phase-10p-goal-loop-feedback-result-refresh-acceptance/summary.md`. It clarifies and tests the feedback result refresh path after `planning.goal-loop.feedback.evaluate`; it does not add actions, routes, scheduler/runtime work, source mutation, or a Goal Loop controller.
+
+Phase 10Q is closed and archived at `harness/changes/archive/20260614-phase-10q-main-agent-goal-loop-controller-policy-contract/summary.md`. It adds a non-executing Goal Loop controller policy contract owned by `src/goal-loop`; the policy may recommend the existing visible Harness gate, suppress stale guidance, wait for evidence, or report blocked state, but it must not execute actions or become workflow truth.
 
 Auto Evolve Harness Phase 10L 10P Goal Loop Feedback Evidence is closed and archived at `harness/changes/archive/20260614-auto-evolve-harness-phase-10l-10p-goal-loop-feedback-evidence/summary.md`. It handled the Phase 10L-10P Goal Loop packet/feedback evolution window as `modify/subagent_review` with subagent score `86/100` and added minimal Goal Loop feedback authority/lineage review coverage without product runtime behavior changes.
 

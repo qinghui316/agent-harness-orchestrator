@@ -740,8 +740,9 @@ describe("Workbench module boundaries", () => {
     expect(manager).toContain('export * from "./compiler.js";');
     expect(manager).toContain('export * from "./repository.js";');
     expect(manager).toContain('export * from "./main-agent-context.js";');
+    expect(manager).toContain('export * from "./controller.js";');
 
-    for (const file of ["compiler.ts", "repository.ts", "rendering.ts", "schemas.ts", "types.ts", "paths.ts", "main-agent-context.ts"]) {
+    for (const file of ["compiler.ts", "controller.ts", "repository.ts", "rendering.ts", "schemas.ts", "types.ts", "paths.ts", "main-agent-context.ts"]) {
       const source = readFileSync(`src/goal-loop/${file}`, "utf8");
       expect(source).not.toMatch(/from\s+["'].*workbench/);
       expect(source).not.toMatch(/from\s+["'].*server/);
@@ -773,13 +774,19 @@ describe("Workbench module boundaries", () => {
     expect(readFileSync("src/goal-loop/types.ts", "utf8")).toContain("GoalLoopContinuationBrief");
     expect(readFileSync("src/goal-loop/types.ts", "utf8")).toContain("GoalLoopNextStepPacket");
     expect(readFileSync("src/goal-loop/types.ts", "utf8")).toContain("GoalLoopFeedback");
+    expect(readFileSync("src/goal-loop/types.ts", "utf8")).toContain("GoalLoopControllerPolicy");
     expect(readFileSync("src/goal-loop/repository.ts", "utf8")).toContain("writeGoalLoopContinuationBrief");
     expect(readFileSync("src/goal-loop/repository.ts", "utf8")).toContain("writeGoalLoopNextStepPacket");
     expect(readFileSync("src/goal-loop/repository.ts", "utf8")).toContain("writeGoalLoopFeedback");
+    expect(readFileSync("src/goal-loop/repository.ts", "utf8")).toContain("writeGoalLoopControllerPolicy");
     expect(readFileSync("src/goal-loop/rendering.ts", "utf8")).toContain("renderGoalLoopContinuationBriefMarkdown");
     expect(readFileSync("src/goal-loop/rendering.ts", "utf8")).toContain("renderGoalLoopNextStepPacketMarkdown");
     expect(readFileSync("src/goal-loop/rendering.ts", "utf8")).toContain("renderGoalLoopFeedbackMarkdown");
+    expect(readFileSync("src/goal-loop/rendering.ts", "utf8")).toContain("renderGoalLoopControllerPolicyMarkdown");
     expect(readFileSync("src/goal-loop/feedback.ts", "utf8")).toContain("recordGoalLoopFeedback");
+    expect(readFileSync("src/goal-loop/controller.ts", "utf8")).toContain("compileGoalLoopControllerPolicy");
+    expect(readFileSync("src/goal-loop/controller.ts", "utf8")).toContain("non-executing-controller-policy-evidence");
+    expect(readFileSync("src/goal-loop/controller.ts", "utf8")).not.toContain("executeWorkbenchAction");
     expect(readFileSync("src/goal-loop/compiler.ts", "utf8")).toContain("compileGoalLoopContinuationBrief");
     expect(readFileSync("src/goal-loop/compiler.ts", "utf8")).toContain("compileGoalLoopNextStepPacket");
     expect(readFileSync("src/goal-loop/compiler.ts", "utf8")).toContain("readLatestGoalLoopFeedback");

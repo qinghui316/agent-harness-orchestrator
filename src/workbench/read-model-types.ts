@@ -714,6 +714,12 @@ export interface WorkbenchGoalLoopSummary {
   markdownArtifact?: string;
   nextStepPacketArtifact?: string;
   nextStepPacketMarkdownArtifact?: string;
+  controllerPolicyId?: string;
+  controllerVerdict?: string;
+  controllerGateStatus?: string;
+  controllerSummary?: string;
+  controllerArtifact?: string;
+  controllerMarkdownArtifact?: string;
   updatedAt: string;
   executionStarted: false;
 }

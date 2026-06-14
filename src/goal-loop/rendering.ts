@@ -1,4 +1,4 @@
-import type { GoalLoopContinuationBrief, GoalLoopDecision, GoalLoopFeedback, GoalLoopIteration, GoalLoopNextStepPacket } from "./types.js";
+import type { GoalLoopContinuationBrief, GoalLoopControllerPolicy, GoalLoopDecision, GoalLoopFeedback, GoalLoopIteration, GoalLoopNextStepPacket } from "./types.js";
 
 export function renderGoalLoopDecisionMarkdown(decision: GoalLoopDecision): string {
   const lines = [
@@ -394,6 +394,63 @@ export function renderGoalLoopFeedbackAcknowledgementMarkdown(feedback: GoalLoop
     `- Current gate: ${feedback.currentGate.actionType}`,
     "- A fresh Goal Loop evaluation was recorded after this feedback.",
     "- No recommendation was executed; the concrete Harness gate still requires its own confirmation.",
+    "",
+  ];
+  return `${lines.join("\n")}\n`;
+}
+
+export function renderGoalLoopControllerPolicyMarkdown(policy: GoalLoopControllerPolicy): string {
+  const lines = [
+    `# GoalLoopControllerPolicy ${policy.id}`,
+    "",
+    `- Change: ${policy.changeId}`,
+    `- Authority: ${policy.authority}`,
+    `- Source GoalLoopDecision: ${policy.sourceGoalLoopDecisionId}`,
+    `- Source GoalLoopIteration: ${policy.sourceGoalLoopIterationId}`,
+    `- Source GoalLoopContinuationBrief: ${policy.sourceGoalLoopContinuationBriefId}`,
+    `- Source GoalLoopNextStepPacket: ${policy.sourceGoalLoopNextStepPacketId}`,
+    `- Iteration ordinal: ${policy.iterationOrdinal}`,
+    `- Verdict: ${policy.verdict}`,
+    `- Gate status: ${policy.gateStatus}`,
+    `- Human gate required: ${policy.humanGateRequired ? "yes" : "no"}`,
+    `- Suppresses recommended action: ${policy.suppressesRecommendedAction ? "yes" : "no"}`,
+    `- Execution started: ${policy.executionStarted ? "yes" : "no"}`,
+    "",
+    "## Summary",
+    "",
+    policy.summary,
+    "",
+    "## Recommended Action Snapshot",
+    "",
+    policy.recommendedAction
+      ? `- ${policy.recommendedAction.actionType}: ${policy.recommendedAction.reason}`
+      : "- None.",
+    ...(policy.recommendedAction
+      ? ["", "### Scope", "", ...Object.entries(policy.recommendedAction.scope).map(([key, value]) => `- ${key}: ${Array.isArray(value) ? value.join(", ") : value}`)]
+      : []),
+    "",
+    "## Current Gate Snapshot",
+    "",
+    policy.currentGate
+      ? `- ${policy.currentGate.actionType}`
+      : "- None.",
+    ...(policy.currentGate
+      ? ["", "### Scope", "", ...Object.entries(policy.currentGate.scope).map(([key, value]) => `- ${key}: ${Array.isArray(value) ? value.join(", ") : value}`)]
+      : []),
+    "",
+    "## Revalidation Checklist",
+    "",
+    ...policy.revalidationChecklist.map((item) => `- ${item}`),
+    "",
+    "## Forbidden Execution Statements",
+    "",
+    ...policy.forbiddenExecutionStatements.map((statement) => `- ${statement}`),
+    "",
+    "## Boundary",
+    "",
+    "- This controller policy is non-executing evidence only.",
+    "- It may explain whether the main Agent should recommend the existing gate, wait, suppress stale guidance, or report blocked state.",
+    "- It must not call action handlers, start workers, run validation/audit/IntegrationCheck, mutate source, close/apply, or bypass ToolPolicyGate/human gates.",
     "",
   ];
   return `${lines.join("\n")}\n`;

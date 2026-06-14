@@ -100,3 +100,23 @@ export function latestGoalLoopFeedbackPath(memory: ResolvedMemory, changePath: s
 export function latestGoalLoopFeedbackMarkdownPath(memory: ResolvedMemory, changePath: string): string {
   return join(memory.memoryRoot, changePath, "planning", "goal-loop-feedback.md");
 }
+
+export function goalLoopControllerPoliciesDir(memory: ResolvedMemory, changePath: string): string {
+  return join(memory.memoryRoot, changePath, "planning", "goal-loop-controller-policies");
+}
+
+export function goalLoopControllerPolicyPath(memory: ResolvedMemory, changePath: string, policyId: string): string {
+  return join(goalLoopControllerPoliciesDir(memory, changePath), `${policyId}.json`);
+}
+
+export function goalLoopControllerPolicyMarkdownPath(memory: ResolvedMemory, changePath: string, policyId: string): string {
+  return join(goalLoopControllerPoliciesDir(memory, changePath), `${policyId}.md`);
+}
+
+export function latestGoalLoopControllerPolicyPath(memory: ResolvedMemory, changePath: string): string {
+  return join(memory.memoryRoot, changePath, "planning", "goal-loop-controller-policy.json");
+}
+
+export function latestGoalLoopControllerPolicyMarkdownPath(memory: ResolvedMemory, changePath: string): string {
+  return join(memory.memoryRoot, changePath, "planning", "goal-loop-controller-policy.md");
+}

@@ -5,6 +5,7 @@ export type GoalLoopIterationAuthority = "non-executing-continuation-evidence";
 export type GoalLoopContinuationBriefAuthority = "non-executing-continuation-brief-evidence";
 export type GoalLoopNextStepPacketAuthority = "non-executing-main-agent-next-step-packet";
 export type GoalLoopFeedbackAuthority = "non-executing-user-feedback-evidence";
+export type GoalLoopControllerPolicyAuthority = "non-executing-controller-policy-evidence";
 
 export type GoalLoopDecisionKind =
   | "planning-needed"
@@ -223,6 +224,49 @@ export interface GoalLoopNextStepPacket {
 export interface GoalLoopCurrentGateSnapshot {
   actionType: WorkflowActionType;
   scope: Record<string, string | string[]>;
+}
+
+export type GoalLoopControllerVerdict =
+  | "recommend-existing-gate"
+  | "suppress-stale-guidance"
+  | "wait-for-evidence"
+  | "blocked"
+  | "ready-for-human-close-gate";
+
+export type GoalLoopControllerGateStatus =
+  | "matches-current-gate"
+  | "no-current-gate"
+  | "no-recommended-action"
+  | "packet-stale"
+  | "not-a-human-gate"
+  | "action-type-mismatch"
+  | "change-id-mismatch"
+  | "target-mismatch";
+
+export interface GoalLoopControllerPolicy {
+  version: "1.0";
+  id: string;
+  changeId: string;
+  authority: GoalLoopControllerPolicyAuthority;
+  sourceGoalLoopDecisionId: string;
+  sourceGoalLoopIterationId: string;
+  sourceGoalLoopContinuationBriefId: string;
+  sourceGoalLoopNextStepPacketId: string;
+  iterationOrdinal: number;
+  verdict: GoalLoopControllerVerdict;
+  gateStatus: GoalLoopControllerGateStatus;
+  summary: string;
+  recommendedAction?: GoalLoopRecommendedAction;
+  currentGate?: GoalLoopCurrentGateSnapshot;
+  suppressesRecommendedAction: boolean;
+  humanGateRequired: boolean;
+  revalidationChecklist: string[];
+  forbiddenExecutionStatements: string[];
+  executionStarted: false;
+  artifact: string;
+  markdownArtifact: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface GoalLoopFeedback {
