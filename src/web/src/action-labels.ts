@@ -13,6 +13,7 @@ export function workflowActionLabel(actionType: string | undefined): string {
   if (actionType === "scheduler.contract") return "Scheduler Contract";
   if (actionType === "planning.taskqueue.propose") return "生成 TaskQueue 提案";
   if (actionType === "planning.goal-loop.evaluate") return "评估目标循环";
+  if (actionType === "planning.goal-loop.feedback.evaluate") return "重新评估目标循环";
   const schedulerLabel = schedulerUserFacingActionLabel(actionType);
   if (schedulerLabel) return schedulerLabel;
   if (actionType === "planning.scheduler.plan.prepare") return "准备并行执行计划";

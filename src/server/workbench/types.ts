@@ -51,6 +51,7 @@ export interface WorkbenchActionRequest {
   goalLoopIterationId?: string;
   goalLoopContinuationBriefId?: string;
   goalLoopNextStepPacketId?: string;
+  goalLoopFeedbackId?: string;
   schedulerWorkerStartId?: string;
   schedulerWorkerResultId?: string;
   schedulerWorkerValidationId?: string;

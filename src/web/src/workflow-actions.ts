@@ -33,6 +33,7 @@ export type WorkflowActionPayloadSource = {
   goalLoopIterationId?: string;
   goalLoopContinuationBriefId?: string;
   goalLoopNextStepPacketId?: string;
+  goalLoopFeedbackId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   workflowRunId?: string;

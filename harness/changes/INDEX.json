@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-14T04:35:11.8980417Z",
+    "generated_at":  "2026-06-14T05:30:11.7378478Z",
     "active":  [
 
                ],
@@ -829,6 +829,10 @@
                     {
                         "name":  "20260614-phase-10m-goal-loop-packet-confirmation-parity",
                         "path":  "harness/changes/archive/20260614-phase-10m-goal-loop-packet-confirmation-parity"
+                    },
+                    {
+                        "name":  "20260614-phase-10n-goal-loop-feedback-re-evaluation-evidence",
+                        "path":  "harness/changes/archive/20260614-phase-10n-goal-loop-feedback-re-evaluation-evidence"
                     }
                 ]
 }

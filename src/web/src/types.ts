@@ -184,6 +184,7 @@ export type WorkpadNextAction = {
   goalLoopIterationId?: string;
   goalLoopContinuationBriefId?: string;
   goalLoopNextStepPacketId?: string;
+  goalLoopFeedbackId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   workflowRunId?: string;
@@ -245,6 +246,7 @@ export type WorkbenchTaskNextAction = {
   goalLoopIterationId?: string;
   goalLoopContinuationBriefId?: string;
   goalLoopNextStepPacketId?: string;
+  goalLoopFeedbackId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   workflowRunId?: string;
@@ -1148,6 +1150,7 @@ export type ThreadStreamAction = {
   goalLoopIterationId?: string;
   goalLoopContinuationBriefId?: string;
   goalLoopNextStepPacketId?: string;
+  goalLoopFeedbackId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   workflowRunId?: string;

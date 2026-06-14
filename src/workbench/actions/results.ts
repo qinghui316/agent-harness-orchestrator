@@ -275,7 +275,7 @@ export function summarizeActionResult(actionType: string, result: unknown): stri
     const status = typeof result.closeout.status === "string" ? result.closeout.status : "closed";
     return `SchedulerRun closeout ${status} recorded before IntegrationCheck. No apply, landing, PR, merge, or next worker was started.`;
   }
-  if (actionType === "planning.goal-loop.evaluate" && isRecord(result) && isRecord(result.goalLoopIteration)) {
+  if ((actionType === "planning.goal-loop.evaluate" || actionType === "planning.goal-loop.feedback.evaluate") && isRecord(result) && isRecord(result.goalLoopIteration)) {
     const state = typeof result.goalLoopIteration.continuationState === "string"
       ? result.goalLoopIteration.continuationState
       : typeof result.goalLoopIteration.continuationVerdict === "string"
@@ -284,7 +284,8 @@ export function summarizeActionResult(actionType: string, result: unknown): stri
     const brief = isRecord(result.goalLoopContinuationBrief) && typeof result.goalLoopContinuationBrief.id === "string"
       ? ` with continuation brief ${result.goalLoopContinuationBrief.id}`
       : "";
-    return `Goal loop iteration ${state}${brief} recorded. No execution was started.`;
+    const prefix = actionType === "planning.goal-loop.feedback.evaluate" ? "Goal loop feedback and iteration" : "Goal loop iteration";
+    return `${prefix} ${state}${brief} recorded. No execution was started.`;
   }
   if (actionType === "planning.confirm-execution" && isRecord(result)) {
     return "Planning confirmed and canonical artifacts were written. No execution was started.";
@@ -324,6 +325,7 @@ export function labelForAction(actionType: string): string {
     case "planning.decomposition.assess-readiness": return "Decomposition readiness assessed";
     case "planning.taskqueue.propose": return "TaskQueueProposal generated";
     case "planning.goal-loop.evaluate": return "Goal loop decision evaluated";
+    case "planning.goal-loop.feedback.evaluate": return "Goal loop feedback re-evaluated";
     case "planning.scheduler.plan.prepare": return "Parallel execution plan prepared";
     case "planning.scheduler.contract.compile": return "SchedulerContract compiled";
     case "planning.scheduler.dispatch.dry-run": return "Scheduler dispatch dry-run generated";

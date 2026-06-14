@@ -57,6 +57,7 @@ import {
   goalLoopNextStepPacketArtifactRefs,
   readLatestGoalLoopContinuationBrief,
   readLatestGoalLoopDecision,
+  readLatestGoalLoopFeedback,
   readLatestGoalLoopIteration,
   readLatestGoalLoopNextStepPacket,
   writeGoalLoopContinuationBrief,
@@ -70,6 +71,8 @@ import type {
   GoalLoopConflictAssessment,
   GoalLoopDecision,
   GoalLoopDecisionKind,
+  GoalLoopEvaluationTrigger,
+  GoalLoopFeedback,
   GoalLoopForbiddenAction,
   GoalLoopBudgetSignal,
   GoalLoopContinuationState,
@@ -88,6 +91,7 @@ interface EvidenceSnapshot {
   changeId: string;
   planningComplete: boolean;
   sourceEvidenceRefs: GoalLoopSourceEvidenceRef[];
+  latestFeedback?: GoalLoopFeedback | null;
   schedulerRun?: SchedulerRun;
   runtimeState?: SchedulerRuntimeState | null;
   claimReservation?: SchedulerRuntimeClaimReservation | null;
@@ -130,7 +134,11 @@ export async function previewGoalLoopDecision(memory: ResolvedMemory, changePath
   return buildDecision(snapshot, decisionId, refs.artifact, refs.markdownArtifact, now);
 }
 
-export async function compileGoalLoopEvaluation(memory: ResolvedMemory, changePath: string): Promise<{ goalLoopDecision: GoalLoopDecision; goalLoopIteration: GoalLoopIteration; goalLoopContinuationBrief: GoalLoopContinuationBrief; goalLoopNextStepPacket: GoalLoopNextStepPacket }> {
+export async function compileGoalLoopEvaluation(
+  memory: ResolvedMemory,
+  changePath: string,
+  options: { trigger?: GoalLoopEvaluationTrigger } = {},
+): Promise<{ goalLoopDecision: GoalLoopDecision; goalLoopIteration: GoalLoopIteration; goalLoopContinuationBrief: GoalLoopContinuationBrief; goalLoopNextStepPacket: GoalLoopNextStepPacket }> {
   const previousDecision = await readOptional(() => readLatestGoalLoopDecision(memory, changePath));
   const previousIteration = await readOptional(() => readLatestGoalLoopIteration(memory, changePath));
   const decision = await compileGoalLoopDecision(memory, changePath);
@@ -144,7 +152,7 @@ export async function compileGoalLoopEvaluation(memory: ResolvedMemory, changePa
     changeId: decision.changeId,
     ordinal,
     authority: "non-executing-continuation-evidence",
-    trigger: "user-confirmed-evaluate",
+    trigger: options.trigger ?? "user-confirmed-evaluate",
     iterationStatus: "recorded",
     continuationVerdict: continuationVerdictForDecision(decision),
     continuationState: continuationStateForDecision(decision),
@@ -364,6 +372,16 @@ async function readEvidenceSnapshot(memory: ResolvedMemory, changePath: string):
     summary: "Selected Change metadata defines the canonical Goal/Change scope.",
   }];
   const planningComplete = hasPlanningArtifacts(memory, changePath);
+  const latestFeedback = await readOptional(() => readLatestGoalLoopFeedback(memory, changePath));
+  if (latestFeedback) {
+    sourceEvidenceRefs.push({
+      kind: "GoalLoopFeedback",
+      id: latestFeedback.id,
+      status: "recorded",
+      artifact: latestFeedback.artifact,
+      summary: `User feedback on ${latestFeedback.sourceGoalLoopNextStepPacketId} is recorded as quoted evidence, not executable instruction.`,
+    });
+  }
 
   const decompositionPlan = await readOptional(() => readLatestDecompositionPlan(memory, changePath));
   if (decompositionPlan) {
@@ -387,7 +405,7 @@ async function readEvidenceSnapshot(memory: ResolvedMemory, changePath: string):
   }
   const schedulerRun = await readOptional(() => readLatestSchedulerRun(memory, changePath));
   if (!schedulerRun) {
-    return { changeId, planningComplete, sourceEvidenceRefs };
+    return { changeId, planningComplete, sourceEvidenceRefs, latestFeedback };
   }
   sourceEvidenceRefs.push({
     kind: "SchedulerRun",
@@ -451,6 +469,7 @@ async function readEvidenceSnapshot(memory: ResolvedMemory, changePath: string):
     changeId,
     planningComplete,
     sourceEvidenceRefs,
+    latestFeedback,
     schedulerRun,
     runtimeState,
     claimReservation,

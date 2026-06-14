@@ -178,6 +178,8 @@ Phase 10L adds the freshness layer required before any controller-like loop can 
 
 Phase 10M adds the confirmation-parity layer on top of freshness. A fresh `GoalLoopNextStepPacket` recommendation is still hidden from Workpad current guidance and main-Agent prompt context unless the selected demand's current Workbench Harness gate is enabled and target-compatible with the packet scope. This keeps Goal Loop guidance subordinate to the visible human-gated transition: the packet may explain, but it must not create, prioritize, mutate, or execute the confirmation queue.
 
+Phase 10N adds scoped Goal Loop feedback evidence. When the user disagrees with visible packet guidance, AHO records that feedback against the selected Change, packet lineage, and current gate scope, then writes a fresh non-executing Goal Loop evaluation that treats the feedback as user evidence. Feedback does not become an instruction channel, a controller, or execution authority; concrete transitions still require their own Harness gates.
+
 Goal-driven loop model:
 
 ```mermaid

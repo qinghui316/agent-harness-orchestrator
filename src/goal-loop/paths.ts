@@ -80,3 +80,23 @@ export function latestGoalLoopNextStepPacketPath(memory: ResolvedMemory, changeP
 export function latestGoalLoopNextStepPacketMarkdownPath(memory: ResolvedMemory, changePath: string): string {
   return join(memory.memoryRoot, changePath, "planning", "goal-loop-next-step-packet.md");
 }
+
+export function goalLoopFeedbackDir(memory: ResolvedMemory, changePath: string): string {
+  return join(memory.memoryRoot, changePath, "planning", "goal-loop-feedback");
+}
+
+export function goalLoopFeedbackPath(memory: ResolvedMemory, changePath: string, feedbackId: string): string {
+  return join(goalLoopFeedbackDir(memory, changePath), `${feedbackId}.json`);
+}
+
+export function goalLoopFeedbackMarkdownPath(memory: ResolvedMemory, changePath: string, feedbackId: string): string {
+  return join(goalLoopFeedbackDir(memory, changePath), `${feedbackId}.md`);
+}
+
+export function latestGoalLoopFeedbackPath(memory: ResolvedMemory, changePath: string): string {
+  return join(memory.memoryRoot, changePath, "planning", "goal-loop-feedback.json");
+}
+
+export function latestGoalLoopFeedbackMarkdownPath(memory: ResolvedMemory, changePath: string): string {
+  return join(memory.memoryRoot, changePath, "planning", "goal-loop-feedback.md");
+}

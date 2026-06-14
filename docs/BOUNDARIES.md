@@ -291,6 +291,8 @@ Phase 10L adds the Goal Loop packet freshness boundary. `src/goal-loop/` owns th
 
 Phase 10M adds the Goal Loop packet confirmation-parity boundary. `src/goal-loop/` continues to own packet evidence and freshness; Workbench read-model/context code owns the comparison to the current visible Harness gate. A packet recommendation must not appear as current guidance unless its action type and declared target ids match the selected demand's enabled confirmation gate. Workbench must not use packets to create, prioritize, mutate, or execute confirmation queue items, and the concrete gate's stale-target revalidation, ToolPolicyGate, decision/audit scope, and human confirmation remain unchanged.
 
+Phase 10N adds the Goal Loop feedback boundary. `src/goal-loop/` owns `GoalLoopFeedback` schema, paths, repository, rendering, and compiler consumption. Workbench/server/frontend code may collect scoped feedback and dispatch a feedback re-evaluation action, but must not own feedback policy or treat raw feedback as executable instructions. Feedback must bind the selected Change, current packet lineage, recommended action scope, and current visible gate; stale, cross-Change, or mismatched feedback must fail closed. A feedback re-evaluation must not execute recommendations, generate confirmations from text, start scheduler/runtime work, mutate source, close a Change, or bypass ToolPolicyGate/human gates.
+
 ## 7. Memory Unavailable Boundary
 
 Memory can be unavailable on a new machine, after a plain repository clone, when AHO home was not synced, when permissions are missing, or when a future remote memory service is offline.

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { WORKFLOW_ACTION_TYPES } from "../workflow-actions/registry.js";
-import type { GoalLoopContinuationBrief, GoalLoopDecision, GoalLoopNextStepPacket } from "./types.js";
+import type { GoalLoopContinuationBrief, GoalLoopDecision, GoalLoopFeedback, GoalLoopNextStepPacket } from "./types.js";
 
 const sourceEvidenceRefSchema = z.object({
   kind: z.string(),
@@ -108,7 +108,7 @@ export const goalLoopIterationSchema = z.object({
   changeId: z.string(),
   ordinal: z.number().int().positive(),
   authority: z.literal("non-executing-continuation-evidence"),
-  trigger: z.literal("user-confirmed-evaluate"),
+  trigger: z.enum(["user-confirmed-evaluate", "user-feedback-evaluate"]),
   iterationStatus: z.literal("recorded"),
   continuationVerdict: z.enum(["wait", "recommend-existing-gate", "blocked", "ready-for-human-close-gate"]),
   continuationState: continuationStateSchema.default("waiting-for-evidence"),
@@ -198,6 +198,29 @@ export const goalLoopNextStepPacketSchema: z.ZodType<GoalLoopNextStepPacket> = z
   conflictAssessment: conflictAssessmentSchema,
   completionAudit: completionAuditSchema,
   sourceEvidenceRefs: z.array(sourceEvidenceRefSchema),
+  executionStarted: z.literal(false),
+  artifact: z.string(),
+  markdownArtifact: z.string(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+
+export const goalLoopFeedbackSchema: z.ZodType<GoalLoopFeedback> = z.object({
+  version: z.literal("1.0"),
+  id: z.string(),
+  changeId: z.string(),
+  authority: z.literal("non-executing-user-feedback-evidence"),
+  sourceGoalLoopDecisionId: z.string(),
+  sourceGoalLoopIterationId: z.string(),
+  sourceGoalLoopContinuationBriefId: z.string(),
+  sourceGoalLoopNextStepPacketId: z.string(),
+  recommendedAction: recommendedActionSchema.optional(),
+  currentGate: z.object({
+    actionType: z.enum(WORKFLOW_ACTION_TYPES),
+    scope: z.record(z.union([z.string(), z.array(z.string())])),
+  }),
+  feedbackText: z.string(),
+  feedbackTextHash: z.string(),
   executionStarted: z.literal(false),
   artifact: z.string(),
   markdownArtifact: z.string(),

@@ -1,4 +1,4 @@
-import type { GoalLoopContinuationBrief, GoalLoopDecision, GoalLoopIteration, GoalLoopNextStepPacket } from "./types.js";
+import type { GoalLoopContinuationBrief, GoalLoopDecision, GoalLoopFeedback, GoalLoopIteration, GoalLoopNextStepPacket } from "./types.js";
 
 export function renderGoalLoopDecisionMarkdown(decision: GoalLoopDecision): string {
   const lines = [
@@ -335,6 +335,47 @@ export function renderGoalLoopNextStepPacketMarkdown(packet: GoalLoopNextStepPac
     "- This packet is main-Agent resume context only.",
     "- It is not a hidden continuation turn, workflow truth, scheduler loop, or execution authorization.",
     "- Any recommended action must be revalidated and confirmed through its own scoped Harness gate.",
+    "",
+  ];
+  return `${lines.join("\n")}\n`;
+}
+
+export function renderGoalLoopFeedbackMarkdown(feedback: GoalLoopFeedback): string {
+  const quotedFeedback = feedback.feedbackText
+    .split(/\r?\n/)
+    .map((line) => `> ${line}`)
+    .join("\n");
+  const lines = [
+    `# GoalLoopFeedback ${feedback.id}`,
+    "",
+    `- Change: ${feedback.changeId}`,
+    `- Authority: ${feedback.authority}`,
+    `- Source GoalLoopDecision: ${feedback.sourceGoalLoopDecisionId}`,
+    `- Source GoalLoopIteration: ${feedback.sourceGoalLoopIterationId}`,
+    `- Source GoalLoopContinuationBrief: ${feedback.sourceGoalLoopContinuationBriefId}`,
+    `- Source GoalLoopNextStepPacket: ${feedback.sourceGoalLoopNextStepPacketId}`,
+    `- Current gate action: ${feedback.currentGate.actionType}`,
+    `- Execution started: ${feedback.executionStarted ? "yes" : "no"}`,
+    "",
+    "## Current Gate Scope",
+    "",
+    ...Object.entries(feedback.currentGate.scope).map(([key, value]) => `- ${key}: ${Array.isArray(value) ? value.join(", ") : value}`),
+    "",
+    "## Recommended Action Snapshot",
+    "",
+    feedback.recommendedAction
+      ? `- ${feedback.recommendedAction.actionType}: ${feedback.recommendedAction.reason}`
+      : "- None.",
+    "",
+    "## User Feedback Evidence",
+    "",
+    quotedFeedback,
+    "",
+    "## Boundary",
+    "",
+    "- This feedback is quoted user evidence for the next Goal Loop evaluation.",
+    "- It is not a hidden instruction, execution authorization, scheduler loop, or workflow truth.",
+    "- The next evaluation must re-read current Change evidence and may only recommend existing scoped Harness gates.",
     "",
   ];
   return `${lines.join("\n")}\n`;

@@ -164,6 +164,7 @@ export interface WorkbenchWorkflowActionRequest {
   actionType: WorkbenchWorkflowActionType;
   changeId?: string;
   prompt?: string;
+  feedback?: string;
   proposalId?: string;
   planningBundleId?: string;
   decompositionPlanId?: string;
@@ -196,6 +197,7 @@ export interface WorkbenchWorkflowActionRequest {
   goalLoopIterationId?: string;
   goalLoopContinuationBriefId?: string;
   goalLoopNextStepPacketId?: string;
+  goalLoopFeedbackId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   workflowRunId?: string;

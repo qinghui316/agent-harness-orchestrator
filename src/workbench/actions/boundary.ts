@@ -10,6 +10,7 @@ import { readRun } from "../../run/repository.js";
 import { readSchedulerRuntimeLineage } from "../../scheduler-runtime/guards.js";
 import { findSchedulerClaimReservationForSnapshot, findSchedulerRuntimeWorkerAuditForValidation, findSchedulerRuntimeWorkerResultForStart, findSchedulerRuntimeWorkerReworkAuditForValidation, findSchedulerRuntimeWorkerReworkPlanForBlockingEvidence, findSchedulerRuntimeWorkerReworkResultForStart, findSchedulerRuntimeWorkerReworkStartForPlan, findSchedulerRuntimeWorkerReworkValidationForResult, findSchedulerRuntimeWorkerStartForReservationIntent, findSchedulerRuntimeWorkerValidationForResult, listSchedulerRuntimeWorkerStarts, readLatestSchedulerIntegrationCandidateProjection, readLatestSchedulerIntegrationCheckHandoffProjection, readLatestSchedulerIntegrationOutcomeProjection, readLatestSchedulerRunBlockedCloseoutProjection, readLatestSchedulerRunCompletionProjection, readSchedulerIntegrationOutcome, readSchedulerReconcileSnapshot, readSchedulerRuntimeClaimReservation, readSchedulerRuntimeStateProjection, readSchedulerRuntimeWorkerAudit, readSchedulerRuntimeWorkerResult, readSchedulerRuntimeWorkerReworkPlan, readSchedulerRuntimeWorkerReworkResult, readSchedulerRuntimeWorkerReworkStart, readSchedulerRuntimeWorkerReworkValidation, readSchedulerRuntimeWorkerStart, readSchedulerRuntimeWorkerValidation } from "../../scheduler-runtime/repository.js";
 import { latestLandingQueueSnapshot } from "../../landing-queue/manager.js";
+import { readLatestGoalLoopNextStepPacket } from "../../goal-loop/manager.js";
 import { listTaskQueues } from "../../task-queue/manager.js";
 import { listTaskRuns } from "../../task-run/manager.js";
 import type { ManagedProject, ResolvedMemory } from "../../types/index.js";
@@ -160,6 +161,17 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
     const target = active.find((item) => item.name === changeId);
     if (!target) throw new Error(`planning.goal-loop.evaluate target is stale or missing active Change: ${changeId}.`);
     if (request.changeId && request.changeId !== changeId) throw new Error("planning.goal-loop.evaluate changeId scope mismatch.");
+  }
+  if (request.actionType === "planning.goal-loop.feedback.evaluate") {
+    const active = await getActiveChanges(memory);
+    const target = active.find((item) => item.name === changeId);
+    if (!target) throw new Error(`planning.goal-loop.feedback.evaluate target is stale or missing active Change: ${changeId}.`);
+    if (request.changeId && request.changeId !== changeId) throw new Error("planning.goal-loop.feedback.evaluate changeId scope mismatch.");
+    if (!request.goalLoopNextStepPacketId) throw new Error("planning.goal-loop.feedback.evaluate requires goalLoopNextStepPacketId.");
+    const packet = await readLatestGoalLoopNextStepPacket(memory, target.path);
+    if (packet.id !== request.goalLoopNextStepPacketId || packet.changeId !== changeId || packet.executionStarted !== false) {
+      throw new Error("planning.goal-loop.feedback.evaluate target is stale or no longer feedback-ready.");
+    }
   }
   if (request.actionType === "planning.scheduler.plan.prepare") {
     const active = await getActiveChanges(memory);
