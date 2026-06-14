@@ -180,6 +180,8 @@ Phase 10M adds the confirmation-parity layer on top of freshness. A fresh `GoalL
 
 Phase 10N adds scoped Goal Loop feedback evidence. When the user disagrees with visible packet guidance, AHO records that feedback against the selected Change, packet lineage, and current gate scope, then writes a fresh non-executing Goal Loop evaluation that treats the feedback as user evidence. Feedback does not become an instruction channel, a controller, or execution authority; concrete transitions still require their own Harness gates.
 
+Phase 10O connects that evidence to the user-facing Workbench surface. When a fresh Goal Loop packet is already visible because it matches the current concrete Harness gate, the confirmation item may include a secondary `修正 Goal Loop 建议` feedback action. Submitting feedback calls the existing scoped `planning.goal-loop.feedback.evaluate` path with the selected Change and packet id; it does not confirm or execute the concrete gate, scrape arbitrary chat text, start workers, run IntegrationCheck, mutate source, close a Change, or bypass stale-target revalidation.
+
 Goal-driven loop model:
 
 ```mermaid

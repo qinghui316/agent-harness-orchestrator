@@ -143,6 +143,11 @@ export interface ThreadStreamAction {
   schedulerIntegrationOutcomeId?: string;
   schedulerRunCompletionId?: string;
   schedulerRunBlockedCloseoutId?: string;
+  goalLoopDecisionId?: string;
+  goalLoopIterationId?: string;
+  goalLoopContinuationBriefId?: string;
+  goalLoopNextStepPacketId?: string;
+  goalLoopFeedbackId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   workflowRunId?: string;
@@ -271,6 +276,11 @@ export interface WorkbenchDecisionAction {
   schedulerIntegrationOutcomeId?: string;
   schedulerRunCompletionId?: string;
   schedulerRunBlockedCloseoutId?: string;
+  goalLoopDecisionId?: string;
+  goalLoopIterationId?: string;
+  goalLoopContinuationBriefId?: string;
+  goalLoopNextStepPacketId?: string;
+  goalLoopFeedbackId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   workflowRunId?: string;
@@ -370,6 +380,11 @@ export interface WorkbenchConfirmationQueueItem {
   schedulerIntegrationOutcomeId?: string;
   schedulerRunCompletionId?: string;
   schedulerRunBlockedCloseoutId?: string;
+  goalLoopDecisionId?: string;
+  goalLoopIterationId?: string;
+  goalLoopContinuationBriefId?: string;
+  goalLoopNextStepPacketId?: string;
+  goalLoopFeedbackId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   taskRunId?: string;

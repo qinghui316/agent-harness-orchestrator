@@ -283,6 +283,13 @@ export function App(): ReactElement {
 
   async function requestDecisionFeedback(context: DecisionContext, action: DecisionAction, feedback: string): Promise<void> {
     if (!selectedProjectId || !feedback.trim()) return;
+    if (action.actionType) {
+      await runWorkflowAction(action.actionType, {
+        ...workflowActionPayloadFromScope(action, { changeId: action.changeId ?? context.changeId, worktreeId: action.worktreeId ?? context.targetId }),
+        feedback: feedback.trim(),
+      });
+      return;
+    }
     const result = await fetch(`/api/projects/${encodeURIComponent(selectedProjectId)}/workbench/actions`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },

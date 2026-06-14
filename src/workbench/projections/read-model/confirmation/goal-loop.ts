@@ -1,5 +1,5 @@
 import type { ManagedProject } from "../../../../types/index.js";
-import type { WorkbenchConfirmationQueueItem, WorkbenchTopicDetail } from "../../../read-model-types.js";
+import type { WorkbenchConfirmationQueueItem, WorkbenchDecisionAction, WorkbenchTopicDetail, WorkbenchWorkpad } from "../../../read-model-types.js";
 
 export function goalLoopEvaluationQueueItem(
   project: ManagedProject | null,
@@ -28,5 +28,44 @@ export function goalLoopEvaluationQueueItem(
     }],
     primary: true,
     status: "pending",
+  };
+}
+
+export function attachGoalLoopFeedbackActions(
+  items: WorkbenchConfirmationQueueItem[],
+  workpad: WorkbenchWorkpad,
+): WorkbenchConfirmationQueueItem[] {
+  const goalLoop = workpad.goalLoop;
+  const nextAction = workpad.nextAction;
+  if (!goalLoop?.goalLoopNextStepPacketId || nextAction.kind !== "workflow-action" || !nextAction.actionType) {
+    return items;
+  }
+  if (nextAction.changeId !== goalLoop.changeId) return items;
+  const feedbackAction = goalLoopFeedbackAction(workpad);
+  if (!feedbackAction) return items;
+  return items.map((item) => {
+    const hasMatchingGate = item.actions.some((action) => action.kind === "workflow-action" && action.actionType === nextAction.actionType && action.changeId === nextAction.changeId);
+    if (!hasMatchingGate || item.actions.some((action) => action.id === feedbackAction.id)) return item;
+    return { ...item, actions: [...item.actions, feedbackAction] };
+  });
+}
+
+function goalLoopFeedbackAction(workpad: WorkbenchWorkpad): WorkbenchDecisionAction | null {
+  const goalLoop = workpad.goalLoop;
+  const nextAction = workpad.nextAction;
+  if (!goalLoop?.goalLoopNextStepPacketId || !nextAction.actionType) return null;
+  return {
+    id: `workflow:planning.goal-loop.feedback.evaluate:${goalLoop.goalLoopNextStepPacketId}`,
+    label: "修正 Goal Loop 建议",
+    kind: "feedback",
+    enabled: true,
+    requiresConfirmation: false,
+    changeId: goalLoop.changeId,
+    actionType: "planning.goal-loop.feedback.evaluate",
+    goalLoopDecisionId: goalLoop.goalLoopDecisionId,
+    goalLoopIterationId: goalLoop.goalLoopIterationId,
+    goalLoopContinuationBriefId: goalLoop.id,
+    goalLoopNextStepPacketId: goalLoop.goalLoopNextStepPacketId,
+    artifact: goalLoop.nextStepPacketArtifact ?? goalLoop.artifact,
   };
 }

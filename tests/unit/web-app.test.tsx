@@ -1182,6 +1182,100 @@ describe("Workbench web app", () => {
     });
   });
 
+  it("submits Goal Loop feedback through the workflow action surface", async () => {
+    const goalLoopSnapshot = {
+      ...snapshot,
+      center: {
+        ...snapshot.center,
+        workpad: {
+          ...snapshot.center.workpad,
+          goalLoop: {
+            id: "goal-loop-continuation-brief-1",
+            goalLoopDecisionId: "goal-loop-decision-1",
+            goalLoopIterationId: "goal-loop-iteration-1",
+            goalLoopNextStepPacketId: "goal-loop-next-step-packet-1",
+            changeId: "member-discount",
+            status: "ready",
+            recommendedActionType: "planning.confirm-execution",
+            summary: "主 Agent 建议确认执行。",
+            artifact: "harness/changes/active/member-discount/goal-loop/continuation.md",
+            nextStepPacketArtifact: "harness/changes/active/member-discount/goal-loop/next-step.json",
+          },
+        },
+      },
+      right: {
+        ...snapshot.right,
+        confirmationQueue: {
+          primary: {
+            id: "confirm:planning:member-discount",
+            kind: "planning-confirm",
+            conversationId: "member-discount",
+            changeId: "member-discount",
+            summary: "准备确认执行。",
+            whyNeedsConfirmation: "确认后进入现有 Harness gate。",
+            confirmEffect: "确认后只执行当前 gate。",
+            riskSummary: "可先修正 Goal Loop 建议。",
+            evidenceRefs: [],
+            actions: [
+              {
+                id: "workflow:planning.confirm-execution:member-discount",
+                label: "确认执行计划",
+                kind: "workflow-action",
+                actionType: "planning.confirm-execution",
+                changeId: "member-discount",
+                enabled: true,
+                requiresConfirmation: true,
+              },
+              {
+                id: "workflow:planning.goal-loop.feedback.evaluate:goal-loop-next-step-packet-1",
+                label: "修正 Goal Loop 建议",
+                kind: "feedback",
+                actionType: "planning.goal-loop.feedback.evaluate",
+                changeId: "member-discount",
+                goalLoopNextStepPacketId: "goal-loop-next-step-packet-1",
+                goalLoopDecisionId: "goal-loop-decision-1",
+                goalLoopIterationId: "goal-loop-iteration-1",
+                goalLoopContinuationBriefId: "goal-loop-continuation-brief-1",
+                enabled: true,
+                requiresConfirmation: false,
+              },
+            ],
+            primary: true,
+            status: "pending",
+          },
+          current: [],
+          otherDemands: [],
+          maintenance: [],
+          history: [],
+        },
+      },
+    };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
+      if (url === "/api/projects") return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
+      if (url.endsWith("/workbench/actions/live")) {
+        expect(init?.body).toContain("\"actionType\":\"planning.goal-loop.feedback.evaluate\"");
+        expect(init?.body).toContain("\"goalLoopNextStepPacketId\":\"goal-loop-next-step-packet-1\"");
+        expect(init?.body).toContain("\"feedback\":\"先解释为什么现在可以关闭。\"");
+        return sseResponse([["snapshot", goalLoopSnapshot], ["done", { status: "completed" }]]);
+      }
+      if (url.endsWith("/workbench/actions")) throw new Error("Goal Loop feedback must use the live workflow action surface.");
+      return jsonResponse(url.includes("/stream/") ? stream : goalLoopSnapshot);
+    }));
+
+    render(<App />);
+
+    await waitFor(() => expect(screen.getByText("修正 Goal Loop 建议")).toBeTruthy());
+    fireEvent.click(screen.getByText("修正 Goal Loop 建议"));
+    fireEvent.change(screen.getByPlaceholderText("写下需要修改的地方"), { target: { value: "先解释为什么现在可以关闭。" } });
+    fireEvent.click(screen.getByText("提交反馈"));
+
+    await waitFor(() => {
+      expect(fetch).toHaveBeenCalledWith("/api/projects/repo/workbench/actions/live", expect.objectContaining({ method: "POST" }));
+    });
+  });
+
   it("runs a single TaskGraph task with taskIds in the Workbench action payload", async () => {
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);

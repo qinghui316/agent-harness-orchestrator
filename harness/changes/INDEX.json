@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-14T05:30:11.7378478Z",
+    "generated_at":  "2026-06-14T07:06:37.4573698Z",
     "active":  [
 
                ],
@@ -833,6 +833,10 @@
                     {
                         "name":  "20260614-phase-10n-goal-loop-feedback-re-evaluation-evidence",
                         "path":  "harness/changes/archive/20260614-phase-10n-goal-loop-feedback-re-evaluation-evidence"
+                    },
+                    {
+                        "name":  "20260614-phase-10o-goal-loop-feedback-surface",
+                        "path":  "harness/changes/archive/20260614-phase-10o-goal-loop-feedback-surface"
                     }
                 ]
 }

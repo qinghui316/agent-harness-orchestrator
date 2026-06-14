@@ -293,6 +293,8 @@ Phase 10M adds the Goal Loop packet confirmation-parity boundary. `src/goal-loop
 
 Phase 10N adds the Goal Loop feedback boundary. `src/goal-loop/` owns `GoalLoopFeedback` schema, paths, repository, rendering, and compiler consumption. Workbench/server/frontend code may collect scoped feedback and dispatch a feedback re-evaluation action, but must not own feedback policy or treat raw feedback as executable instructions. Feedback must bind the selected Change, current packet lineage, recommended action scope, and current visible gate; stale, cross-Change, or mismatched feedback must fail closed. A feedback re-evaluation must not execute recommendations, generate confirmations from text, start scheduler/runtime work, mutate source, close a Change, or bypass ToolPolicyGate/human gates.
 
+Phase 10O adds the Goal Loop feedback surface boundary. `src/workbench/projections/read-model/confirmation/goal-loop.ts` may attach a secondary feedback action to an already-visible concrete confirmation item, and `src/web/src/App.tsx` may route that inline feedback through the existing workflow action live endpoint. These layers must remain thin surface bridges: they must not compile Goal Loop artifacts directly, parse arbitrary conversation text as feedback, create new primary confirmation items, execute the recommended action, or weaken the server-side packet/gate stale revalidation owned by the existing `planning.goal-loop.feedback.evaluate` handler.
+
 ## 7. Memory Unavailable Boundary
 
 Memory can be unavailable on a new machine, after a plain repository clone, when AHO home was not synced, when permissions are missing, or when a future remote memory service is offline.

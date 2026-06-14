@@ -139,6 +139,7 @@ Current baseline:
 - Phase 10L Goal Loop Packet Freshness Confirmation Alignment is closed and archived at `harness/changes/archive/20260614-phase-10l-goal-loop-packet-freshness-confirmation-alignment/summary.md`. It prevents stale Goal Loop next-step packet recommendations from entering main-Agent prompt context or Workpad summaries after newer scheduler/runtime evidence supersedes them, without adding actions, controllers, scheduler loops, source mutation, or execution authority.
 - Phase 10M Goal Loop Packet Confirmation Parity is closed and archived at `harness/changes/archive/20260614-phase-10m-goal-loop-packet-confirmation-parity/summary.md`. It keeps Goal Loop packet recommendations visible only when the selected demand has a matching enabled Workbench Harness gate with target-compatible ids; it does not create, prioritize, mutate, or execute confirmation items.
 - Phase 10N Goal Loop Feedback Re-evaluation Evidence is closed and archived at `harness/changes/archive/20260614-phase-10n-goal-loop-feedback-re-evaluation-evidence/summary.md`. It records scoped user feedback against visible Goal Loop packet guidance and consumes it in a fresh non-executing evaluation; it must not execute the recommendation, start workers, mutate source, or bypass concrete Harness gates.
+- Phase 10O Goal Loop Feedback Surface is closed and archived at `harness/changes/archive/20260614-phase-10o-goal-loop-feedback-surface/summary.md`. It connects scoped Goal Loop feedback evidence to an explicit Workbench user feedback surface while keeping feedback non-executing and subordinate to concrete Harness gates.
 - Active change: none.
 - Pending Harness evolution: none.
 - Latest Harness evolution: `harness/changes/archive/20260614-auto-evolve-harness-phase-10h-10l-goal-loop-packet-freshness-evidence/summary.md`, which completed the Phase 10H-10L pending window as `modify/subagent_review` with subagent score `88/100`.
@@ -279,7 +280,7 @@ Active change: none.
 
 Pending Harness evolution: none.
 
-Latest completed product phase: Phase 10M Goal Loop Packet Confirmation Parity, archived at `harness/changes/archive/20260614-phase-10m-goal-loop-packet-confirmation-parity/summary.md`.
+Latest completed product phase: Phase 10O Goal Loop Feedback Surface, archived at `harness/changes/archive/20260614-phase-10o-goal-loop-feedback-surface/summary.md`.
 
 Latest completed product/Harness docs phase: Phase 10M Goal Loop Packet Confirmation Parity, archived at `harness/changes/archive/20260614-phase-10m-goal-loop-packet-confirmation-parity/summary.md`.
 
@@ -354,6 +355,8 @@ Phase 10L is closed and archived at `harness/changes/archive/20260614-phase-10l-
 Phase 10M is closed and archived at `harness/changes/archive/20260614-phase-10m-goal-loop-packet-confirmation-parity/summary.md`. It adds Workbench-owned confirmation parity for Goal Loop packet visibility: a fresh packet may be shown as current guidance only when the current selected-demand Harness gate has the same action type and matching packet target ids.
 
 Phase 10N is closed and archived at `harness/changes/archive/20260614-phase-10n-goal-loop-feedback-re-evaluation-evidence/summary.md`. It adds Goal Loop feedback evidence for user disagreement or correction of visible packet guidance, then runs a fresh non-executing Goal Loop evaluation that treats the feedback as evidence rather than execution authority.
+
+Phase 10O is closed and archived at `harness/changes/archive/20260614-phase-10o-goal-loop-feedback-surface/summary.md`. It adds the missing explicit Workbench feedback surface for visible Goal Loop packet guidance; it must not scrape ordinary chat, execute recommendations, create runtime artifacts, or bypass concrete Harness gates.
 
 Auto Evolve Harness Phase 10H 10L Goal Loop Packet Freshness Evidence is closed and archived at `harness/changes/archive/20260614-auto-evolve-harness-phase-10h-10l-goal-loop-packet-freshness-evidence/summary.md`. It reviewed the Phase 10H-10L Goal Loop packet/context window as `modify/subagent_review` with subagent score `88/100` and added the minimal Harness rule/template delta for packet freshness review coverage without changing product runtime behavior.
 
