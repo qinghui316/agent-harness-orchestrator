@@ -75,6 +75,8 @@ Pending.
 - If applicable, persistent Goal/Change scope checked: not applicable.
 - If applicable, recommendation authority checked: not applicable.
 - If applicable, fallback priority checked: not applicable.
+- If applicable, packet / main-Agent context freshness checked: not applicable.
+- If applicable, stale or superseded packet suppression checked: not applicable.
 - If applicable, hidden execution / source mutation check: not applicable.
 - If applicable, ToolPolicyGate / human gate preservation checked: not applicable.
 - If applicable, tested with: not applicable.

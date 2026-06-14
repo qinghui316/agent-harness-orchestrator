@@ -332,6 +332,8 @@ A Goal loop must not replace Change/ECL, accepted artifacts, Run, Validation, Au
 
 GoalLoopDecision or Goal Loop confirmation-surface changes must include review coverage for recommendation authority and fallback priority. The review must prove that `GoalLoopDecision.recommendedAction` remains explanatory planning evidence only, references only existing scoped actions with required target ids and stale revalidation, and is not copied into fallback confirmation executable actions. Goal Loop evaluation must remain fallback-only: it is hidden whenever concrete planning, scheduler, IntegrationCheck, apply, close, landing, PR, or remote confirmations exist; it must not be placed in `workpad.nextAction`, bypass ToolPolicyGate / human gates, or start runtime/source mutations.
 
+Goal Loop packet, prompt-context, or Workpad current-recommendation changes must include review coverage for packet freshness. The review must prove that latest current Change evidence is re-read before injecting packet context or showing a current recommendation, and that stale or superseded packets are hidden from main-Agent context and Workpad current recommendation surfaces rather than treated as executable or current guidance.
+
 Documentation-only reference updates may record this as architecture guidance without adding tests. Product-code changes that implement loop behavior must include owner-module and gate coverage.
 
 ## 15. Controlled Evolution

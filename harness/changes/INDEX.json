@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-13T23:06:01.5608900Z",
+    "generated_at":  "2026-06-14T03:48:43.8748494Z",
     "active":  [
 
                ],
@@ -773,6 +773,10 @@
                     {
                         "name":  "20260614-auto-evolve-harness-phase-10d-10h-goal-loop-evidence-projection",
                         "path":  "harness/changes/archive/20260614-auto-evolve-harness-phase-10d-10h-goal-loop-evidence-projection"
+                    },
+                    {
+                        "name":  "20260614-auto-evolve-harness-phase-10h-10l-goal-loop-packet-freshness-evidence",
+                        "path":  "harness/changes/archive/20260614-auto-evolve-harness-phase-10h-10l-goal-loop-packet-freshness-evidence"
                     },
                     {
                         "name":  "20260614-auto-evolve-harness-phase-9y-10d-goal-loop-evidence",
