@@ -176,6 +176,8 @@ Phase 10K keeps that architecture and broadens only the recommendation policy. `
 
 Phase 10L adds the freshness layer required before any controller-like loop can be considered. A `GoalLoopNextStepPacket` may be injected into main-Agent context or Workpad summaries only while a read-only preview of current Goal Loop evidence still matches its recommendation and source evidence. If scheduler/runtime evidence supersedes the packet, the packet is hidden until the user records a fresh `planning.goal-loop.evaluate`. This prevents stale context from becoming de facto planning authority while preserving separate concrete Workbench gates.
 
+Phase 10M adds the confirmation-parity layer on top of freshness. A fresh `GoalLoopNextStepPacket` recommendation is still hidden from Workpad current guidance and main-Agent prompt context unless the selected demand's current Workbench Harness gate is enabled and target-compatible with the packet scope. This keeps Goal Loop guidance subordinate to the visible human-gated transition: the packet may explain, but it must not create, prioritize, mutate, or execute the confirmation queue.
+
 Goal-driven loop model:
 
 ```mermaid

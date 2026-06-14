@@ -67,6 +67,7 @@ import { isConcreteChangeFile } from "./thread-stream.js";
 import { buildAgentTaskSummaries } from "./agent-task-summary.js";
 import { buildMaintenanceSummary } from "./maintenance-summary.js";
 import { readLatestPlanningBundleProjection } from "./lazy-projections.js";
+import { filterGoalLoopSummaryForCurrentGate } from "./goal-loop-parity.js";
 import {
   buildResultReview,
   classifySelectedTopicFailure,
@@ -237,7 +238,7 @@ export async function buildWorkbenchWorkpad(input: {
   const decompositionReadiness = await readLatestDecompositionReadinessSummary(memory, selectedTopic.path);
   const taskQueueProposal = await readLatestTaskQueueProposalSummary(memory, selectedTopic.path);
   const workflowGraphPlan = await readLatestWorkflowGraphPlanSummary(memory, selectedTopic.path);
-  const goalLoop = await readLatestGoalLoopSummary(memory, selectedTopic.path);
+  const rawGoalLoop = await readLatestGoalLoopSummary(memory, selectedTopic.path);
   const schedulerContract = await readLatestSchedulerContractSummary(memory, selectedTopic.path);
   const schedulerDispatchDryRun = await readLatestSchedulerDispatchDryRunSummary(memory, selectedTopic.path);
   const schedulerWorkerSessionPlan = await readLatestSchedulerWorkerSessionPlanSummary(memory, selectedTopic.path);
@@ -284,6 +285,8 @@ export async function buildWorkbenchWorkpad(input: {
   const selectedWorkpadSummary = workpads.find((item) => item.id === selectedTopic.id || item.id === selectedTopic.name);
   const selectedUserState = selectedWorkpadSummary?.userStatus ?? userDecisionStateForSelectedTopic(selectedTopic, topicApprovals, taskQueue, taskGraph);
   const selectedLifecycle = selectedWorkpadSummary?.conversationLifecycle ?? conversationLifecycleForTopic(selectedTopic, taskQueue);
+  const nextAction = buildWorkpadNextAction(selectedTopic, topicApprovals, { specReady, planReady, tasksReady }, intake, taskQueue, taskGraph, planningBundle, decompositionPlan, decompositionReadiness, taskQueueProposal, workflowGraphPlan, schedulerContract, scopedSchedulerDispatchDryRun, scopedSchedulerWorkerSessionPlan, scopedSchedulerClaimReconcilePlan, scopedSchedulerLaunchPreflight, scopedSchedulerRun, schedulerRuntime, schedulerReconcileSnapshot, schedulerClaimReservation, schedulerWorkerStart, schedulerWorkerResult, schedulerWorkerValidation, schedulerWorkerAudit, schedulerWorkerReworkPlan, schedulerWorkerReworkStart, schedulerWorkerReworkResult, schedulerWorkerReworkValidation, schedulerWorkerReworkAudit, schedulerWorkerPaths, schedulerIntegrationCandidate, schedulerIntegrationCheckHandoff, schedulerIntegrationOutcome, schedulerRunCompletion, schedulerRunBlockedCloseout, workflowRun);
+  const goalLoop = filterGoalLoopSummaryForCurrentGate(rawGoalLoop, nextAction);
 
   return {
     title: selectedTopic.title,
@@ -373,7 +376,7 @@ export async function buildWorkbenchWorkpad(input: {
       ...workpadMissingWarnings(specReady, planReady, tasksReady, selectedTopic),
       ...gaps.filter((gap) => gap.status !== "available").map((gap) => gap.summary),
     ],
-    nextAction: buildWorkpadNextAction(selectedTopic, topicApprovals, { specReady, planReady, tasksReady }, intake, taskQueue, taskGraph, planningBundle, decompositionPlan, decompositionReadiness, taskQueueProposal, workflowGraphPlan, schedulerContract, scopedSchedulerDispatchDryRun, scopedSchedulerWorkerSessionPlan, scopedSchedulerClaimReconcilePlan, scopedSchedulerLaunchPreflight, scopedSchedulerRun, schedulerRuntime, schedulerReconcileSnapshot, schedulerClaimReservation, schedulerWorkerStart, schedulerWorkerResult, schedulerWorkerValidation, schedulerWorkerAudit, schedulerWorkerReworkPlan, schedulerWorkerReworkStart, schedulerWorkerReworkResult, schedulerWorkerReworkValidation, schedulerWorkerReworkAudit, schedulerWorkerPaths, schedulerIntegrationCandidate, schedulerIntegrationCheckHandoff, schedulerIntegrationOutcome, schedulerRunCompletion, schedulerRunBlockedCloseout, workflowRun),
+    nextAction,
     background: buildWorkpadBackground(workpads, selectedTopic.id),
     memoryIsolation: buildWorkpadMemoryIsolation(memory, selectedTopic, workpads),
   };

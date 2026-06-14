@@ -137,6 +137,7 @@ Current baseline:
 - Phase 10J GoalLoopNextStepPacket Main Agent Context Boundary is closed and archived at `harness/changes/archive/20260614-phase-10j-goalloopnextsteppacket-main-agent-context-boundary/summary.md`. It consumes latest valid `GoalLoopNextStepPacket` evidence in main-Agent chat/orchestrator prompt context without adding actions, routes, UI controls, hidden continuation, worker prompts, or execution authority.
 - Phase 10K Goal Loop Existing Gate Recommendation Coverage is closed and archived at `harness/changes/archive/20260614-phase-10k-goal-loop-existing-gate-recommendation-coverage/summary.md`. It expands Goal Loop's non-executing recommendations across existing scheduler worker result, validation, audit, rework, start-next, integration, and close gates without adding a controller, action, route, UI control, scheduler loop, worker start, source mutation, or workflow-truth authority.
 - Phase 10L Goal Loop Packet Freshness Confirmation Alignment is closed and archived at `harness/changes/archive/20260614-phase-10l-goal-loop-packet-freshness-confirmation-alignment/summary.md`. It prevents stale Goal Loop next-step packet recommendations from entering main-Agent prompt context or Workpad summaries after newer scheduler/runtime evidence supersedes them, without adding actions, controllers, scheduler loops, source mutation, or execution authority.
+- Phase 10M Goal Loop Packet Confirmation Parity is closed and archived at `harness/changes/archive/20260614-phase-10m-goal-loop-packet-confirmation-parity/summary.md`. It keeps Goal Loop packet recommendations visible only when the selected demand has a matching enabled Workbench Harness gate with target-compatible ids; it does not create, prioritize, mutate, or execute confirmation items.
 - Active change: none.
 - Pending Harness evolution: none.
 - Latest Harness evolution: `harness/changes/archive/20260614-auto-evolve-harness-phase-10h-10l-goal-loop-packet-freshness-evidence/summary.md`, which completed the Phase 10H-10L pending window as `modify/subagent_review` with subagent score `88/100`.
@@ -277,9 +278,9 @@ Active change: none.
 
 Pending Harness evolution: none.
 
-Latest completed product phase: Phase 10L Goal Loop Packet Freshness Confirmation Alignment, archived at `harness/changes/archive/20260614-phase-10l-goal-loop-packet-freshness-confirmation-alignment/summary.md`.
+Latest completed product phase: Phase 10M Goal Loop Packet Confirmation Parity, archived at `harness/changes/archive/20260614-phase-10m-goal-loop-packet-confirmation-parity/summary.md`.
 
-Latest completed product/Harness docs phase: Phase 10L Goal Loop Packet Freshness Confirmation Alignment, archived at `harness/changes/archive/20260614-phase-10l-goal-loop-packet-freshness-confirmation-alignment/summary.md`.
+Latest completed product/Harness docs phase: Phase 10M Goal Loop Packet Confirmation Parity, archived at `harness/changes/archive/20260614-phase-10m-goal-loop-packet-confirmation-parity/summary.md`.
 
 Latest Harness evolution: `harness/changes/archive/20260614-auto-evolve-harness-phase-10h-10l-goal-loop-packet-freshness-evidence/summary.md`, which completed the Phase 10H-10L pending window as `modify/subagent_review` with subagent score `88/100`.
 
@@ -348,6 +349,8 @@ Phase 10J is closed and archived at `harness/changes/archive/20260614-phase-10j-
 Phase 10K is closed and archived at `harness/changes/archive/20260614-phase-10k-goal-loop-existing-gate-recommendation-coverage/summary.md`. It extends Goal Loop recommendation coverage so packet context can name the next existing scheduler or integration gate after worker evidence appears. It remains non-executing planning evidence and must not call action handlers, create runtime artifacts, mutate source, or bypass separate scoped confirmations.
 
 Phase 10L is closed and archived at `harness/changes/archive/20260614-phase-10l-goal-loop-packet-freshness-confirmation-alignment/summary.md`. It adds read-only packet freshness and confirmation-alignment checks so stale Goal Loop packet recommendations are hidden from main-Agent prompt context and Workpad summaries until a fresh explicit Goal Loop evaluation is recorded.
+
+Phase 10M is closed and archived at `harness/changes/archive/20260614-phase-10m-goal-loop-packet-confirmation-parity/summary.md`. It adds Workbench-owned confirmation parity for Goal Loop packet visibility: a fresh packet may be shown as current guidance only when the current selected-demand Harness gate has the same action type and matching packet target ids.
 
 Auto Evolve Harness Phase 10H 10L Goal Loop Packet Freshness Evidence is closed and archived at `harness/changes/archive/20260614-auto-evolve-harness-phase-10h-10l-goal-loop-packet-freshness-evidence/summary.md`. It reviewed the Phase 10H-10L Goal Loop packet/context window as `modify/subagent_review` with subagent score `88/100` and added the minimal Harness rule/template delta for packet freshness review coverage without changing product runtime behavior.
 

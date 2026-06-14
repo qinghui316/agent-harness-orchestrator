@@ -289,6 +289,8 @@ Phase 10K adds the existing-gate recommendation boundary. `src/goal-loop/` may m
 
 Phase 10L adds the Goal Loop packet freshness boundary. `src/goal-loop/` owns the read-only comparison between the latest packet and current Goal Loop evidence. Workbench prompt/projection code may call that helper, but must not implement freshness policy itself. A stale or superseded packet must not be injected as main-Agent context or shown as current Workpad recommendation. Freshness checks must not write new artifacts, generate confirmations, call action handlers, start scheduler/runtime work, mutate source, close a Change, or weaken concrete gate stale-target revalidation.
 
+Phase 10M adds the Goal Loop packet confirmation-parity boundary. `src/goal-loop/` continues to own packet evidence and freshness; Workbench read-model/context code owns the comparison to the current visible Harness gate. A packet recommendation must not appear as current guidance unless its action type and declared target ids match the selected demand's enabled confirmation gate. Workbench must not use packets to create, prioritize, mutate, or execute confirmation queue items, and the concrete gate's stale-target revalidation, ToolPolicyGate, decision/audit scope, and human confirmation remain unchanged.
+
 ## 7. Memory Unavailable Boundary
 
 Memory can be unavailable on a new machine, after a plain repository clone, when AHO home was not synced, when permissions are missing, or when a future remote memory service is offline.

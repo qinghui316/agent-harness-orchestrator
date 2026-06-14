@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { buildGoalLoopMainAgentContextSection, compileGoalLoopDecision, compileGoalLoopEvaluation, readLatestGoalLoopContinuationBrief, readLatestGoalLoopIteration, readLatestGoalLoopNextStepPacket, writeGoalLoopNextStepPacket } from "../../src/goal-loop/manager.js";
+import { assessGoalLoopSummaryCurrentGateParity } from "../../src/workbench/projections/read-model/goal-loop-parity.js";
 import { readLatestGoalLoopSummary } from "../../src/workbench/projections/read-model/goal-loop.js";
 import type { ResolvedMemory } from "../../src/types/index.js";
 import { schedulerRunArtifactRefs, writeSchedulerRun } from "../../src/workflow-scheduler/repository.js";
@@ -418,6 +419,7 @@ describe("GoalLoopDecision", () => {
     await expect(readLatestGoalLoopSummary(memory, changePath)).resolves.toMatchObject({
       goalLoopNextStepPacketId: result.goalLoopNextStepPacket.id,
       recommendedActionType: "planning.scheduler.plan.prepare",
+      recommendedActionScope: { changeId },
     });
 
     await writeGoalLoopNextStepPacket(memory, changePath, {
@@ -429,6 +431,57 @@ describe("GoalLoopDecision", () => {
     });
 
     await expect(buildGoalLoopMainAgentContextSection(memory, changePath, changeId)).resolves.toBeNull();
+  });
+
+  it("matches goal loop packet recommendations only against enabled current gate target ids", async () => {
+    const { workerStart } = await writeSchedulerEvidence({ withWorkerStart: true });
+    await compileGoalLoopEvaluation(memory, changePath);
+    const summary = await readLatestGoalLoopSummary(memory, changePath);
+
+    expect(summary).toMatchObject({
+      recommendedActionType: "planning.scheduler.worker.reconcile-result",
+      recommendedActionScope: {
+        changeId,
+        schedulerRunId: "scheduler-run-1",
+        schedulerWorkerStartId: workerStart?.id,
+      },
+    });
+    expect(assessGoalLoopSummaryCurrentGateParity(summary!, {
+      id: "current-gate",
+      label: "Check worker result",
+      description: "Current visible gate.",
+      kind: "workflow-action",
+      enabled: true,
+      requiresConfirmation: true,
+      actionType: "planning.scheduler.worker.reconcile-result",
+      changeId,
+      schedulerRunId: "scheduler-run-1",
+      schedulerWorkerStartId: workerStart?.id,
+    }).status).toBe("matches-current-gate");
+    expect(assessGoalLoopSummaryCurrentGateParity(summary!, {
+      id: "wrong-target",
+      label: "Check worker result",
+      description: "Wrong worker target.",
+      kind: "workflow-action",
+      enabled: true,
+      requiresConfirmation: true,
+      actionType: "planning.scheduler.worker.reconcile-result",
+      changeId,
+      schedulerRunId: "scheduler-run-1",
+      schedulerWorkerStartId: "other-worker-start",
+    })).toMatchObject({ visible: false, status: "target-mismatch", mismatchedKey: "schedulerWorkerStartId" });
+    expect(assessGoalLoopSummaryCurrentGateParity(summary!, {
+      id: "disabled",
+      label: "Check worker result",
+      description: "Disabled gate.",
+      kind: "workflow-action",
+      enabled: false,
+      requiresConfirmation: true,
+      actionType: "planning.scheduler.worker.reconcile-result",
+      changeId,
+      schedulerRunId: "scheduler-run-1",
+      schedulerWorkerStartId: workerStart?.id,
+    })).toMatchObject({ visible: false, status: "wrong-gate-kind" });
   });
 
   it("hides stale next-step packets from main-Agent context and Workpad summary after evidence advances", async () => {

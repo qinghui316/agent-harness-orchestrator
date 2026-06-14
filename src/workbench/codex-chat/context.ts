@@ -1,9 +1,9 @@
 import { getChangeStatusForChange } from "../../change/manager.js";
-import { buildGoalLoopMainAgentContextSection } from "../../goal-loop/manager.js";
 import { buildContextProjection } from "../../run/manager.js";
 import type { ManagedProject, ResolvedMemory } from "../../types/index.js";
 import { resolveTopic } from "../topic-resolver.js";
 import { readTopicThreadLog as readThreadLog } from "../thread-log.js";
+import { buildVisibleGoalLoopMainAgentContextSection } from "./goal-loop-context.js";
 
 export interface MainAgentContextResult {
   context: string;
@@ -19,7 +19,7 @@ export async function buildChatContext(
   const status = await getChangeStatusForChange(project, changeId);
   const { changePath } = await resolveTopic(project, changeId);
   const recentMessages = (await readThreadLog(memory, changePath)).slice(-12);
-  const goalLoopSection = await buildGoalLoopMainAgentContextSection(memory, changePath, changeId);
+  const goalLoopSection = await buildVisibleGoalLoopMainAgentContextSection(project, memory, changePath, changeId);
   return {
     goalLoopNextStepPacketId: goalLoopSection?.goalLoopNextStepPacketId,
     context: [
@@ -51,7 +51,7 @@ export async function buildOrchestratorContext(
 ): Promise<MainAgentContextResult> {
   const status = await getChangeStatusForChange(project, changeId);
   const recentMessages = (await readThreadLog(memory, changePath)).slice(-16);
-  const goalLoopSection = await buildGoalLoopMainAgentContextSection(memory, changePath, changeId);
+  const goalLoopSection = await buildVisibleGoalLoopMainAgentContextSection(project, memory, changePath, changeId);
   return {
     goalLoopNextStepPacketId: goalLoopSection?.goalLoopNextStepPacketId,
     context: [

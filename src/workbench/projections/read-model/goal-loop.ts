@@ -42,6 +42,7 @@ export async function readLatestGoalLoopSummary(
       recommendationState: packet.recommendationState,
       summary: brief.summary,
       recommendedActionType: brief.recommendedAction?.actionType,
+      recommendedActionScope: packet.recommendedAction?.scope,
       recommendedActionReason: brief.recommendedAction?.reason,
       separateGateRequired: packet.separateGateRequired,
       humanGateRequired: brief.humanGateRequired,

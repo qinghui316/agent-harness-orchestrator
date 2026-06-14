@@ -757,10 +757,12 @@ describe("Workbench module boundaries", () => {
 
     const chatBridge = readFileSync("src/workbench/codex-chat/bridge.ts", "utf8");
     const chatContext = readFileSync("src/workbench/codex-chat/context.ts", "utf8");
+    const chatGoalLoopContext = readFileSync("src/workbench/codex-chat/goal-loop-context.ts", "utf8");
     const handlerIndex = readFileSync("src/workbench/actions/handlers/index.ts", "utf8");
     const handler = readFileSync("src/workbench/actions/handlers/goal-loop.ts", "utf8");
     const confirmationQueue = readFileSync("src/workbench/projections/read-model/confirmation-queue.ts", "utf8");
     const confirmation = readFileSync("src/workbench/projections/read-model/confirmation/goal-loop.ts", "utf8");
+    const parity = readFileSync("src/workbench/projections/read-model/goal-loop-parity.ts", "utf8");
     const projection = readFileSync("src/workbench/projections/read-model/goal-loop.ts", "utf8");
     expect(handlerIndex).toContain('from "./goal-loop.js"');
     expect(handlerIndex).not.toContain('"planning.goal-loop.evaluate":');
@@ -779,9 +781,14 @@ describe("Workbench module boundaries", () => {
     expect(readFileSync("src/goal-loop/compiler.ts", "utf8")).not.toContain("continuation_lock");
     expect(readFileSync("src/goal-loop/main-agent-context.ts", "utf8")).toContain("buildGoalLoopMainAgentContextSection");
     expect(readFileSync("src/goal-loop/main-agent-context.ts", "utf8")).toContain("Goal Loop Next-Step Packet");
-    expect(chatContext).toContain("buildGoalLoopMainAgentContextSection");
+    expect(chatContext).toContain("buildVisibleGoalLoopMainAgentContextSection");
     expect(chatContext).toContain("buildChatContext");
     expect(chatContext).toContain("buildOrchestratorContext");
+    expect(chatGoalLoopContext).toContain("buildGoalLoopMainAgentContextSection");
+    expect(chatGoalLoopContext).toContain("getWorkbenchWorkpadProjection");
+    expect(chatGoalLoopContext).not.toContain("executeWorkbenchAction");
+    expect(chatGoalLoopContext).not.toContain("compileGoalLoopDecision");
+    expect(chatGoalLoopContext).not.toContain("compileGoalLoopEvaluation");
     expect(chatBridge).toContain("buildChatContext");
     expect(chatBridge).not.toContain("readLatestGoalLoopNextStepPacket");
     expect(chatBridge).not.toContain("compileGoalLoopNextStepPacket");
@@ -793,6 +800,11 @@ describe("Workbench module boundaries", () => {
     expect(confirmation).not.toContain("recommendedAction");
     expect(confirmation).not.toContain("GoalLoopNextStepPacket");
     expect(confirmation).not.toContain("planning.scheduler.");
+    expect(parity).toContain("assessGoalLoopSummaryCurrentGateParity");
+    expect(parity).not.toContain("compileGoalLoopDecision");
+    expect(parity).not.toContain("compileGoalLoopEvaluation");
+    expect(parity).not.toContain("executeWorkbenchAction");
+    expect(parity).not.toContain("startCodeRun");
     expect(projection).toContain("readLatestGoalLoopContinuationBrief");
     expect(projection).toContain("readLatestGoalLoopNextStepPacket");
     expect(projection).toContain("WorkbenchGoalLoopSummary");

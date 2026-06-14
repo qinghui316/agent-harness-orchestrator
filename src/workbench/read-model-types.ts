@@ -684,6 +684,7 @@ export interface WorkbenchGoalLoopSummary {
   recommendationState?: string;
   summary: string;
   recommendedActionType?: WorkbenchThreadActionType;
+  recommendedActionScope?: Record<string, string | string[]>;
   recommendedActionReason?: string;
   separateGateRequired?: boolean;
   humanGateRequired: boolean;

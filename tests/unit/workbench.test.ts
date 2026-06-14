@@ -2165,32 +2165,14 @@ describe("workbench read model", () => {
       executionStarted: false,
     });
     const resumedSnapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: topic.changeId });
-    expect(resumedSnapshot.center.workpad.goalLoop).toMatchObject({
-      id: result.goalLoopContinuationBrief?.id,
-      changeId: topic.changeId,
-      goalLoopDecisionId: result.goalLoopDecision?.id,
-      goalLoopIterationId: result.goalLoopIteration?.id,
-      goalLoopNextStepPacketId: result.goalLoopNextStepPacket?.id,
-      iterationOrdinal: 1,
-      continuationState: "ready-for-existing-gate",
-      recommendationState: "separate-gate-required",
-      separateGateRequired: true,
-      executionStarted: false,
-      artifact: expect.stringContaining("goal-loop-continuation-brief"),
-      nextStepPacketArtifact: expect.stringContaining("goal-loop-next-step-packet"),
-    });
-    expect(resumedSnapshot.center.workpad.goalLoop?.revalidationChecklistCount).toBeGreaterThan(0);
-    expect(resumedSnapshot.center.workpad.goalLoop?.stalenessInstruction).toContain("re-read");
+    expect(resumedSnapshot.center.workpad.goalLoop).toBeUndefined();
     expect(resumedSnapshot.center.workpad.nextAction.actionType).not.toBe("planning.goal-loop.evaluate");
     const chatContext = await buildChatContext(project(), memory, topic.changeId, "continue the goal");
-    expect(chatContext.goalLoopNextStepPacketId).toBe(result.goalLoopNextStepPacket?.id);
-    expect(chatContext.context).toContain("Goal Loop Next-Step Packet");
-    expect(chatContext.context).toContain("main-Agent prompt context only");
-    expect(chatContext.context).toContain("planning.scheduler.plan.prepare");
+    expect(chatContext.goalLoopNextStepPacketId).toBeUndefined();
+    expect(chatContext.context).not.toContain("Goal Loop Next-Step Packet");
     const orchestratorContext = await buildOrchestratorContext(project(), memory, join("harness", "changes", "active", topic.changeId), topic.changeId, "plan the next step");
-    expect(orchestratorContext.goalLoopNextStepPacketId).toBe(result.goalLoopNextStepPacket?.id);
-    expect(orchestratorContext.context).toContain("Goal Loop Next-Step Packet");
-    expect(orchestratorContext.context).toContain("Any recommended action must be revalidated");
+    expect(orchestratorContext.goalLoopNextStepPacketId).toBeUndefined();
+    expect(orchestratorContext.context).not.toContain("Goal Loop Next-Step Packet");
     expect(await listRuns(memory)).toHaveLength(0);
     expect(await listWorktreeStatuses(memory)).toHaveLength(0);
     expect(await listIntegrationChecks(memory)).toHaveLength(0);
