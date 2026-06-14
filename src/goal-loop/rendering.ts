@@ -380,3 +380,21 @@ export function renderGoalLoopFeedbackMarkdown(feedback: GoalLoopFeedback): stri
   ];
   return `${lines.join("\n")}\n`;
 }
+
+export function renderGoalLoopFeedbackAcknowledgementMarkdown(feedback: GoalLoopFeedback): string {
+  const excerpt = feedback.feedbackText.replace(/\s+/g, " ").trim();
+  const clipped = excerpt.length > 240 ? `${excerpt.slice(0, 237)}...` : excerpt;
+  const lines = [
+    "## Goal Loop feedback recorded",
+    "",
+    `Feedback: "${clipped}"`,
+    "",
+    `- Feedback evidence: ${feedback.id}`,
+    `- Source packet: ${feedback.sourceGoalLoopNextStepPacketId}`,
+    `- Current gate: ${feedback.currentGate.actionType}`,
+    "- A fresh Goal Loop evaluation was recorded after this feedback.",
+    "- No recommendation was executed; the concrete Harness gate still requires its own confirmation.",
+    "",
+  ];
+  return `${lines.join("\n")}\n`;
+}

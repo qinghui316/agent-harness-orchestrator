@@ -2217,6 +2217,7 @@ describe("workbench read model", () => {
         goalLoopIterationId: "goal-loop-iteration-1",
         goalLoopNextStepPacketId: "goal-loop-next-step-packet-1",
         recommendedActionType: "planning.scheduler.plan.prepare",
+        recommendedActionScope: { changeId: "member-discount" },
         artifact: "harness/changes/active/member-discount/goal-loop/continuation.md",
         nextStepPacketArtifact: "harness/changes/active/member-discount/goal-loop/next-step.json",
       },
@@ -2236,6 +2237,65 @@ describe("workbench read model", () => {
         goalLoopNextStepPacketId: "goal-loop-next-step-packet-1",
       }),
     ]));
+  });
+
+  it("does not project goal loop feedback on a same-action gate with mismatched target scope", async () => {
+    const currentGate = {
+      id: "confirm:scheduler-worker:member-discount:other",
+      kind: "planning-confirm",
+      conversationId: "member-discount",
+      changeId: "member-discount",
+      schedulerRunId: "scheduler-run-1",
+      schedulerClaimReservationId: "claim-reservation-other",
+      summary: "启动其他 worker。",
+      whyNeedsConfirmation: "这是另一个 Harness gate。",
+      confirmEffect: "只启动指定 worker。",
+      riskSummary: "目标必须匹配。",
+      evidenceRefs: [],
+      actions: [{
+        id: "workflow:planning.scheduler.worker.start-first:member-discount:other",
+        label: "启动第一个 worker",
+        kind: "workflow-action",
+        actionType: "planning.scheduler.worker.start-first",
+        changeId: "member-discount",
+        schedulerRunId: "scheduler-run-1",
+        schedulerClaimReservationId: "claim-reservation-other",
+        enabled: true,
+        requiresConfirmation: true,
+      }],
+      primary: true,
+      status: "pending",
+    } as const;
+    const workpad = {
+      nextAction: {
+        kind: "workflow-action",
+        actionType: "planning.scheduler.worker.start-first",
+        changeId: "member-discount",
+        schedulerRunId: "scheduler-run-1",
+        schedulerClaimReservationId: "claim-reservation-expected",
+        enabled: true,
+        requiresConfirmation: true,
+      },
+      goalLoop: {
+        id: "goal-loop-continuation-brief-1",
+        changeId: "member-discount",
+        goalLoopDecisionId: "goal-loop-decision-1",
+        goalLoopIterationId: "goal-loop-iteration-1",
+        goalLoopNextStepPacketId: "goal-loop-next-step-packet-1",
+        recommendedActionType: "planning.scheduler.worker.start-first",
+        recommendedActionScope: {
+          changeId: "member-discount",
+          schedulerRunId: "scheduler-run-1",
+          schedulerClaimReservationId: "claim-reservation-expected",
+        },
+        artifact: "harness/changes/active/member-discount/goal-loop/continuation.md",
+        nextStepPacketArtifact: "harness/changes/active/member-discount/goal-loop/next-step.json",
+      },
+    } as const;
+
+    const [item] = attachGoalLoopFeedbackActions([currentGate], workpad as never);
+
+    expect(item.actions.some((action) => action.actionType === "planning.goal-loop.feedback.evaluate")).toBe(false);
   });
 
   it("rejects stale planning bundle confirmation", async () => {

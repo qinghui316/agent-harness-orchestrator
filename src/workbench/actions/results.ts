@@ -284,8 +284,10 @@ export function summarizeActionResult(actionType: string, result: unknown): stri
     const brief = isRecord(result.goalLoopContinuationBrief) && typeof result.goalLoopContinuationBrief.id === "string"
       ? ` with continuation brief ${result.goalLoopContinuationBrief.id}`
       : "";
-    const prefix = actionType === "planning.goal-loop.feedback.evaluate" ? "Goal loop feedback and iteration" : "Goal loop iteration";
-    return `${prefix} ${state}${brief} recorded. No execution was started.`;
+    if (actionType === "planning.goal-loop.feedback.evaluate") {
+      return `Goal Loop feedback recorded and re-evaluated as ${state}${brief}. The concrete Harness gate still requires separate confirmation; no execution was started.`;
+    }
+    return `Goal loop iteration ${state}${brief} recorded. No execution was started.`;
   }
   if (actionType === "planning.confirm-execution" && isRecord(result)) {
     return "Planning confirmed and canonical artifacts were written. No execution was started.";

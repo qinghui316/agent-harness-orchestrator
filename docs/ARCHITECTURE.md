@@ -182,6 +182,8 @@ Phase 10N adds scoped Goal Loop feedback evidence. When the user disagrees with 
 
 Phase 10O connects that evidence to the user-facing Workbench surface. When a fresh Goal Loop packet is already visible because it matches the current concrete Harness gate, the confirmation item may include a secondary `修正 Goal Loop 建议` feedback action. Submitting feedback calls the existing scoped `planning.goal-loop.feedback.evaluate` path with the selected Change and packet id; it does not confirm or execute the concrete gate, scrape arbitrary chat text, start workers, run IntegrationCheck, mutate source, close a Change, or bypass stale-target revalidation.
 
+Phase 10P keeps the same architecture and tightens the visible acceptance loop after feedback. A feedback re-evaluation should return a refreshed Workbench snapshot with the latest Goal Loop brief/packet guidance and the still-separate concrete Harness gate. The action result may explain the new recommendation, but it must not become a controller, hidden continuation turn, ToolPolicy authorization, scheduler start, source mutation, or close/apply authority.
+
 Goal-driven loop model:
 
 ```mermaid

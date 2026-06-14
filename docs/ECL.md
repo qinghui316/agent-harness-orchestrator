@@ -334,6 +334,8 @@ GoalLoopDecision or Goal Loop confirmation-surface changes must include review c
 
 Goal Loop packet, prompt-context, or Workpad current-recommendation changes must include review coverage for packet freshness. The review must prove that latest current Change evidence is re-read before injecting packet context or showing a current recommendation, and that stale or superseded packets are hidden from main-Agent context and Workpad current recommendation surfaces rather than treated as executable or current guidance.
 
+Goal Loop feedback, feedback-surface, or feedback-refresh changes must include review coverage for feedback authority and lineage. The review must prove that feedback is scoped to the selected Change, the current `GoalLoopNextStepPacket` lineage, and a matching visible Harness gate; that feedback is treated only as user evidence rather than a hidden instruction, arbitrary chat scrape, execution approval, or replacement for ToolPolicyGate / human gates; and that any re-evaluation remains non-executing while the concrete primary Harness gate stays separate.
+
 Documentation-only reference updates may record this as architecture guidance without adding tests. Product-code changes that implement loop behavior must include owner-module and gate coverage.
 
 ## 15. Controlled Evolution

@@ -1,6 +1,8 @@
 import type { ManagedProject } from "../../../../types/index.js";
 import type { WorkbenchConfirmationQueueItem, WorkbenchDecisionAction, WorkbenchTopicDetail, WorkbenchWorkpad } from "../../../read-model-types.js";
 
+type ScopeValue = string | string[] | undefined;
+
 export function goalLoopEvaluationQueueItem(
   project: ManagedProject | null,
   selectedTopic: WorkbenchTopicDetail | null,
@@ -44,7 +46,7 @@ export function attachGoalLoopFeedbackActions(
   const feedbackAction = goalLoopFeedbackAction(workpad);
   if (!feedbackAction) return items;
   return items.map((item) => {
-    const hasMatchingGate = item.actions.some((action) => action.kind === "workflow-action" && action.actionType === nextAction.actionType && action.changeId === nextAction.changeId);
+    const hasMatchingGate = item.actions.some((action) => action.kind === "workflow-action" && actionMatchesGoalLoopScope(item, action, workpad));
     if (!hasMatchingGate || item.actions.some((action) => action.id === feedbackAction.id)) return item;
     return { ...item, actions: [...item.actions, feedbackAction] };
   });
@@ -53,7 +55,7 @@ export function attachGoalLoopFeedbackActions(
 function goalLoopFeedbackAction(workpad: WorkbenchWorkpad): WorkbenchDecisionAction | null {
   const goalLoop = workpad.goalLoop;
   const nextAction = workpad.nextAction;
-  if (!goalLoop?.goalLoopNextStepPacketId || !nextAction.actionType) return null;
+  if (!goalLoop?.goalLoopNextStepPacketId || !nextAction.actionType || !readGoalLoopScope(goalLoop)) return null;
   return {
     id: `workflow:planning.goal-loop.feedback.evaluate:${goalLoop.goalLoopNextStepPacketId}`,
     label: "修正 Goal Loop 建议",
@@ -68,4 +70,72 @@ function goalLoopFeedbackAction(workpad: WorkbenchWorkpad): WorkbenchDecisionAct
     goalLoopNextStepPacketId: goalLoop.goalLoopNextStepPacketId,
     artifact: goalLoop.nextStepPacketArtifact ?? goalLoop.artifact,
   };
+}
+
+function actionMatchesGoalLoopScope(
+  item: WorkbenchConfirmationQueueItem,
+  action: WorkbenchDecisionAction,
+  workpad: WorkbenchWorkpad,
+): boolean {
+  const goalLoop = workpad.goalLoop;
+  const nextAction = workpad.nextAction;
+  const expectedScope = goalLoop ? readGoalLoopScope(goalLoop) : undefined;
+  const expectedType = goalLoop ? readGoalLoopActionType(goalLoop) : undefined;
+  if (!goalLoop || !expectedScope || !expectedType) return false;
+  if (action.actionType !== nextAction.actionType || action.actionType !== expectedType) return false;
+  if (nextAction.changeId !== goalLoop.changeId) return false;
+  for (const [key, expectedValue] of Object.entries(expectedScope)) {
+    const expected = normalizeScopeValues(expectedValue);
+    const actual = key === "changeId"
+      ? normalizeScopeValues(action.changeId ?? item.changeId)
+      : normalizeScopeValues(readQueueActionScopeValue(item, action, key));
+    if (!scopeValuesEqual(expected, actual)) return false;
+  }
+  return true;
+}
+
+function readQueueActionScopeValue(
+  item: WorkbenchConfirmationQueueItem,
+  action: WorkbenchDecisionAction,
+  key: string,
+): ScopeValue {
+  const actionValue = (action as unknown as Record<string, unknown>)[key];
+  const itemValue = (item as unknown as Record<string, unknown>)[key];
+  if (typeof actionValue === "string" || isStringArray(actionValue)) return actionValue;
+  if (typeof itemValue === "string" || isStringArray(itemValue)) return itemValue;
+  return undefined;
+}
+
+function normalizeScopeValues(value: ScopeValue): string[] {
+  if (typeof value === "string") return [value];
+  if (Array.isArray(value)) return [...value].sort();
+  return [];
+}
+
+function scopeValuesEqual(left: string[], right: string[]): boolean {
+  if (left.length !== right.length) return false;
+  return left.every((value, index) => value === right[index]);
+}
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === "string");
+}
+
+function readGoalLoopScope(goalLoop: WorkbenchWorkpad["goalLoop"]): Record<string, string | string[]> | undefined {
+  const value = readGoalLoopField(goalLoop, "recommended" + "ActionScope");
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const result: Record<string, string | string[]> = {};
+  for (const [key, item] of Object.entries(value)) {
+    if (typeof item === "string" || isStringArray(item)) result[key] = item;
+  }
+  return Object.keys(result).length > 0 ? result : undefined;
+}
+
+function readGoalLoopActionType(goalLoop: WorkbenchWorkpad["goalLoop"]): string | undefined {
+  const value = readGoalLoopField(goalLoop, "recommended" + "ActionType");
+  return typeof value === "string" ? value : undefined;
+}
+
+function readGoalLoopField(goalLoop: WorkbenchWorkpad["goalLoop"], key: string): unknown {
+  return goalLoop ? (goalLoop as unknown as Record<string, unknown>)[key] : undefined;
 }

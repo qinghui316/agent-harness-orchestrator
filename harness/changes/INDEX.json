@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-14T07:06:37.4573698Z",
+    "generated_at":  "2026-06-14T07:52:25.7853429Z",
     "active":  [
 
                ],
@@ -779,6 +779,10 @@
                         "path":  "harness/changes/archive/20260614-auto-evolve-harness-phase-10h-10l-goal-loop-packet-freshness-evidence"
                     },
                     {
+                        "name":  "20260614-auto-evolve-harness-phase-10l-10p-goal-loop-feedback-evidence",
+                        "path":  "harness/changes/archive/20260614-auto-evolve-harness-phase-10l-10p-goal-loop-feedback-evidence"
+                    },
+                    {
                         "name":  "20260614-auto-evolve-harness-phase-9y-10d-goal-loop-evidence",
                         "path":  "harness/changes/archive/20260614-auto-evolve-harness-phase-9y-10d-goal-loop-evidence"
                     },
@@ -837,6 +841,10 @@
                     {
                         "name":  "20260614-phase-10o-goal-loop-feedback-surface",
                         "path":  "harness/changes/archive/20260614-phase-10o-goal-loop-feedback-surface"
+                    },
+                    {
+                        "name":  "20260614-phase-10p-goal-loop-feedback-result-refresh-acceptance",
+                        "path":  "harness/changes/archive/20260614-phase-10p-goal-loop-feedback-result-refresh-acceptance"
                     }
                 ]
 }

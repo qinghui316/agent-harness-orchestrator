@@ -77,6 +77,9 @@ Pending.
 - If applicable, fallback priority checked: not applicable.
 - If applicable, packet / main-Agent context freshness checked: not applicable.
 - If applicable, stale or superseded packet suppression checked: not applicable.
+- If applicable, feedback selected Change / packet lineage / visible gate scope checked: not applicable.
+- If applicable, feedback remains user evidence, not hidden instruction / arbitrary chat scrape / execution approval: not applicable.
+- If applicable, feedback-triggered re-evaluation remains non-executing and primary Harness gate stays separate: not applicable.
 - If applicable, hidden execution / source mutation check: not applicable.
 - If applicable, ToolPolicyGate / human gate preservation checked: not applicable.
 - If applicable, tested with: not applicable.

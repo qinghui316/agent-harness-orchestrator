@@ -1,4 +1,4 @@
-import { compileGoalLoopEvaluation, readLatestGoalLoopNextStepPacket, recordGoalLoopFeedback, renderGoalLoopContinuationBriefMarkdown, type GoalLoopContinuationBrief, type GoalLoopDecision, type GoalLoopFeedback, type GoalLoopIteration, type GoalLoopNextStepPacket } from "../../../goal-loop/manager.js";
+import { compileGoalLoopEvaluation, readLatestGoalLoopNextStepPacket, recordGoalLoopFeedback, renderGoalLoopContinuationBriefMarkdown, renderGoalLoopFeedbackAcknowledgementMarkdown, type GoalLoopContinuationBrief, type GoalLoopDecision, type GoalLoopFeedback, type GoalLoopIteration, type GoalLoopNextStepPacket } from "../../../goal-loop/manager.js";
 import { assertWritableMemory } from "../../../memory/resolver.js";
 import type { ManagedProject } from "../../../types/index.js";
 import { recordWorkbenchDecision } from "../../decisions.js";
@@ -107,6 +107,12 @@ export async function evaluateGoalLoopFeedback(
   });
   const { goalLoopDecision: decision, goalLoopIteration: iteration, goalLoopContinuationBrief: brief, goalLoopNextStepPacket: packet } = await compileGoalLoopEvaluation(memory, changePath, {
     trigger: "user-feedback-evaluate",
+  });
+  await appendTopicThreadEntry(project, changeId, {
+    type: "assistant.message",
+    status: "goal-loop-feedback-recorded",
+    text: renderGoalLoopFeedbackAcknowledgementMarkdown(feedback),
+    artifact: feedback.artifact,
   });
   await appendTopicThreadEntry(project, changeId, {
     type: "assistant.message",
