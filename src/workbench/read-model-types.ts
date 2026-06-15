@@ -148,6 +148,8 @@ export interface ThreadStreamAction {
   goalLoopContinuationBriefId?: string;
   goalLoopNextStepPacketId?: string;
   goalLoopFeedbackId?: string;
+  goalLoopControllerPolicyId?: string;
+  goalLoopCurrentGateActionType?: ThreadStreamAction["actionType"];
   reservationIntentId?: string;
   claimIntentId?: string;
   workflowRunId?: string;
@@ -281,6 +283,8 @@ export interface WorkbenchDecisionAction {
   goalLoopContinuationBriefId?: string;
   goalLoopNextStepPacketId?: string;
   goalLoopFeedbackId?: string;
+  goalLoopControllerPolicyId?: string;
+  goalLoopCurrentGateActionType?: ThreadStreamAction["actionType"];
   reservationIntentId?: string;
   claimIntentId?: string;
   workflowRunId?: string;
@@ -385,6 +389,8 @@ export interface WorkbenchConfirmationQueueItem {
   goalLoopContinuationBriefId?: string;
   goalLoopNextStepPacketId?: string;
   goalLoopFeedbackId?: string;
+  goalLoopControllerPolicyId?: string;
+  goalLoopCurrentGateActionType?: ThreadStreamAction["actionType"];
   reservationIntentId?: string;
   claimIntentId?: string;
   taskRunId?: string;

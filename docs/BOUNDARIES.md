@@ -299,6 +299,8 @@ Phase 10P adds the Goal Loop feedback refresh acceptance boundary. Workbench/fro
 
 Phase 10Q adds the Goal Loop controller policy boundary. `src/goal-loop/` owns controller policy schema, paths, repository, rendering, and compilation. Workbench projection code may display the latest valid verdict, but must not own the policy, generate actions from it, call handlers, or mutate confirmation queue state. A controller verdict is derived evidence only; it may recommend the existing visible gate, wait, suppress stale/stale-mismatched guidance, or report blocked state, but it must not execute the recommendation, start scheduler/runtime work, run validation/audit/IntegrationCheck, mutate source, close/apply, or bypass ToolPolicyGate/human gates.
 
+Phase 10R adds the Goal Loop controller policy refresh boundary. Workbench confirmation code may attach a secondary refresh action to an already-visible concrete Harness gate only when the latest Goal Loop packet matches that gate's action type and target ids. The refresh action may pass the current gate snapshot into `src/goal-loop` and record controller policy evidence, but it must not become a primary gate, generate queue items from policy, execute recommendations, call concrete action handlers, mutate source, or weaken the concrete gate's stale-target revalidation, ToolPolicyGate, decision/audit scope, or human confirmation.
+
 ## 7. Memory Unavailable Boundary
 
 Memory can be unavailable on a new machine, after a plain repository clone, when AHO home was not synced, when permissions are missing, or when a future remote memory service is offline.

@@ -285,6 +285,28 @@ describe("GoalLoopDecision", () => {
     });
   });
 
+  it("rejects controller refresh when the requested packet or current gate is stale", async () => {
+    const result = await compileGoalLoopEvaluation(memory, changePath);
+
+    await expect(compileGoalLoopControllerPolicy(memory, changePath, {
+      goalLoopNextStepPacketId: "stale-packet",
+      requireCurrentGateMatch: true,
+      currentGate: {
+        actionType: "planning.scheduler.plan.prepare",
+        scope: { changeId },
+      },
+    })).rejects.toThrow("refresh target is stale");
+
+    await expect(compileGoalLoopControllerPolicy(memory, changePath, {
+      goalLoopNextStepPacketId: result.goalLoopNextStepPacket.id,
+      requireCurrentGateMatch: true,
+      currentGate: {
+        actionType: "planning.scheduler.plan.prepare",
+        scope: { changeId: "other-change" },
+      },
+    })).rejects.toThrow("not the current matching gate");
+  });
+
   it("suppresses controller guidance when the latest packet is stale", async () => {
     const { workerStart } = await writeSchedulerEvidence({ withWorkerStart: true });
     const result = await compileGoalLoopEvaluation(memory, changePath);

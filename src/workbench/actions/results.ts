@@ -18,6 +18,7 @@ export function artifactForActionResult(result: unknown): string | null {
   if (isRecord(result) && isRecord(result.contract) && typeof result.contract.artifact === "string") return result.contract.artifact;
   if (isRecord(result) && isRecord(result.launchPreflight) && typeof result.launchPreflight.artifact === "string") return result.launchPreflight.artifact;
   if (isRecord(result) && isRecord(result.goalLoopDecision) && typeof result.goalLoopDecision.artifact === "string") return result.goalLoopDecision.artifact;
+  if (isRecord(result) && isRecord(result.goalLoopControllerPolicy) && typeof result.goalLoopControllerPolicy.artifact === "string") return result.goalLoopControllerPolicy.artifact;
   if (isRecord(result) && isRecord(result.schedulerRun) && typeof result.schedulerRun.artifact === "string") return result.schedulerRun.artifact;
   if (isRecord(result) && isRecord(result.runtimeState) && typeof result.runtimeState.artifact === "string") return result.runtimeState.artifact;
   if (isRecord(result) && isRecord(result.reconcileSnapshot) && typeof result.reconcileSnapshot.artifact === "string") return result.reconcileSnapshot.artifact;
@@ -289,6 +290,10 @@ export function summarizeActionResult(actionType: string, result: unknown): stri
     }
     return `Goal loop iteration ${state}${brief} recorded. No execution was started.`;
   }
+  if (actionType === "planning.goal-loop.controller.refresh" && isRecord(result) && isRecord(result.goalLoopControllerPolicy)) {
+    const verdict = typeof result.goalLoopControllerPolicy.verdict === "string" ? result.goalLoopControllerPolicy.verdict : "recorded";
+    return `Goal Loop controller policy refreshed as ${verdict}. No execution was started.`;
+  }
   if (actionType === "planning.confirm-execution" && isRecord(result)) {
     return "Planning confirmed and canonical artifacts were written. No execution was started.";
   }
@@ -328,6 +333,7 @@ export function labelForAction(actionType: string): string {
     case "planning.taskqueue.propose": return "TaskQueueProposal generated";
     case "planning.goal-loop.evaluate": return "Goal loop decision evaluated";
     case "planning.goal-loop.feedback.evaluate": return "Goal loop feedback re-evaluated";
+    case "planning.goal-loop.controller.refresh": return "Goal Loop controller policy refreshed";
     case "planning.scheduler.plan.prepare": return "Parallel execution plan prepared";
     case "planning.scheduler.contract.compile": return "SchedulerContract compiled";
     case "planning.scheduler.dispatch.dry-run": return "Scheduler dispatch dry-run generated";

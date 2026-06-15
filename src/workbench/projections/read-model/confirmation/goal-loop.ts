@@ -52,6 +52,25 @@ export function attachGoalLoopFeedbackActions(
   });
 }
 
+export function attachGoalLoopControllerRefreshActions(
+  items: WorkbenchConfirmationQueueItem[],
+  workpad: WorkbenchWorkpad,
+): WorkbenchConfirmationQueueItem[] {
+  const goalLoop = workpad.goalLoop;
+  const nextAction = workpad.nextAction;
+  if (!goalLoop?.goalLoopNextStepPacketId || nextAction.kind !== "workflow-action" || !nextAction.actionType) {
+    return items;
+  }
+  if (nextAction.changeId !== goalLoop.changeId) return items;
+  const refreshAction = goalLoopControllerRefreshAction(workpad);
+  if (!refreshAction) return items;
+  return items.map((item) => {
+    const hasMatchingGate = item.actions.some((action) => action.kind === "workflow-action" && actionMatchesGoalLoopScope(item, action, workpad));
+    if (!hasMatchingGate || item.actions.some((action) => action.id === refreshAction.id)) return item;
+    return { ...item, actions: [...item.actions, refreshAction] };
+  });
+}
+
 function goalLoopFeedbackAction(workpad: WorkbenchWorkpad): WorkbenchDecisionAction | null {
   const goalLoop = workpad.goalLoop;
   const nextAction = workpad.nextAction;
@@ -68,6 +87,31 @@ function goalLoopFeedbackAction(workpad: WorkbenchWorkpad): WorkbenchDecisionAct
     goalLoopIterationId: goalLoop.goalLoopIterationId,
     goalLoopContinuationBriefId: goalLoop.id,
     goalLoopNextStepPacketId: goalLoop.goalLoopNextStepPacketId,
+    artifact: goalLoop.nextStepPacketArtifact ?? goalLoop.artifact,
+  };
+}
+
+function goalLoopControllerRefreshAction(workpad: WorkbenchWorkpad): WorkbenchDecisionAction | null {
+  const goalLoop = workpad.goalLoop;
+  const nextAction = workpad.nextAction;
+  const scope = readGoalLoopScope(goalLoop);
+  const expectedType = readGoalLoopActionType(goalLoop);
+  if (!goalLoop?.goalLoopNextStepPacketId || !nextAction.actionType || !expectedType || !scope) return null;
+  if (nextAction.actionType !== expectedType) return null;
+  return {
+    ...scope,
+    id: `workflow:planning.goal-loop.controller.refresh:${goalLoop.goalLoopNextStepPacketId}`,
+    label: "刷新 Goal Loop 控制策略",
+    kind: "workflow-action",
+    enabled: true,
+    requiresConfirmation: true,
+    changeId: goalLoop.changeId,
+    actionType: "planning.goal-loop.controller.refresh",
+    goalLoopDecisionId: goalLoop.goalLoopDecisionId,
+    goalLoopIterationId: goalLoop.goalLoopIterationId,
+    goalLoopContinuationBriefId: goalLoop.id,
+    goalLoopNextStepPacketId: goalLoop.goalLoopNextStepPacketId,
+    goalLoopCurrentGateActionType: expectedType,
     artifact: goalLoop.nextStepPacketArtifact ?? goalLoop.artifact,
   };
 }

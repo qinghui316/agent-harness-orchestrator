@@ -34,6 +34,8 @@ export type WorkflowActionPayloadSource = {
   goalLoopContinuationBriefId?: string;
   goalLoopNextStepPacketId?: string;
   goalLoopFeedbackId?: string;
+  goalLoopControllerPolicyId?: string;
+  goalLoopCurrentGateActionType?: WorkbenchThreadActionType;
   reservationIntentId?: string;
   claimIntentId?: string;
   workflowRunId?: string;

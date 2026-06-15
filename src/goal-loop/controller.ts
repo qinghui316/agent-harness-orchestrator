@@ -19,6 +19,8 @@ import type {
 
 export interface CompileGoalLoopControllerPolicyOptions {
   currentGate?: GoalLoopCurrentGateSnapshot;
+  goalLoopNextStepPacketId?: string;
+  requireCurrentGateMatch?: boolean;
 }
 
 export async function compileGoalLoopControllerPolicy(
@@ -33,6 +35,9 @@ export async function compileGoalLoopControllerPolicy(
     readLatestGoalLoopNextStepPacket(memory, changePath),
   ]);
   assertControllerPolicyLineage(decision.changeId, iteration.id, iteration.goalLoopDecisionId, brief.sourceGoalLoopDecisionId, brief.sourceGoalLoopIterationId, packet);
+  if (options.goalLoopNextStepPacketId && packet.id !== options.goalLoopNextStepPacketId) {
+    throw new Error("GoalLoopControllerPolicy refresh target is stale.");
+  }
 
   const freshness = await assessGoalLoopNextStepPacketFreshness(memory, changePath, packet);
   const gateAssessment = freshness.verdict === "fresh"
@@ -43,6 +48,9 @@ export async function compileGoalLoopControllerPolicy(
       summary: `Goal Loop packet is stale: ${freshness.reason}. Record a fresh evaluation before recommending a gate.`,
       suppressesRecommendedAction: true,
     };
+  if (options.requireCurrentGateMatch && gateAssessment.verdict !== "recommend-existing-gate") {
+    throw new Error(`GoalLoopControllerPolicy refresh target is not the current matching gate: ${gateAssessment.gateStatus}.`);
+  }
   const now = new Date().toISOString();
   const policyId = `goal-loop-controller-policy-${now.replace(/[-:.TZ]/g, "").slice(0, 14)}-${shortHash(`${packet.changeId}:${packet.id}:${gateAssessment.verdict}:${now}`)}`;
   const refs = goalLoopControllerPolicyArtifactRefs(memory, changePath, policyId);

@@ -173,6 +173,21 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
       throw new Error("planning.goal-loop.feedback.evaluate target is stale or no longer feedback-ready.");
     }
   }
+  if (request.actionType === "planning.goal-loop.controller.refresh") {
+    const active = await getActiveChanges(memory);
+    const target = active.find((item) => item.name === changeId);
+    if (!target) throw new Error(`planning.goal-loop.controller.refresh target is stale or missing active Change: ${changeId}.`);
+    if (request.changeId && request.changeId !== changeId) throw new Error("planning.goal-loop.controller.refresh changeId scope mismatch.");
+    if (!request.goalLoopNextStepPacketId) throw new Error("planning.goal-loop.controller.refresh requires goalLoopNextStepPacketId.");
+    if (!request.goalLoopCurrentGateActionType) throw new Error("planning.goal-loop.controller.refresh requires goalLoopCurrentGateActionType.");
+    const packet = await readLatestGoalLoopNextStepPacket(memory, target.path);
+    if (packet.id !== request.goalLoopNextStepPacketId || packet.changeId !== changeId || packet.executionStarted !== false) {
+      throw new Error("planning.goal-loop.controller.refresh target is stale or no longer refreshable.");
+    }
+    if (!packet.recommendedAction || packet.recommendedAction.actionType !== request.goalLoopCurrentGateActionType) {
+      throw new Error("planning.goal-loop.controller.refresh target no longer matches the current gate.");
+    }
+  }
   if (request.actionType === "planning.scheduler.plan.prepare") {
     const active = await getActiveChanges(memory);
     const target = active.find((item) => item.name === changeId);

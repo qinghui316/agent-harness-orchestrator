@@ -186,6 +186,8 @@ Phase 10P keeps the same architecture and tightens the visible acceptance loop a
 
 Phase 10Q adds the first Goal Loop controller policy contract, still as non-executing evidence. `src/goal-loop/` owns the policy artifact that compares the latest packet with the current concrete Harness gate and records whether the main Agent should recommend that existing gate, wait for evidence, suppress stale guidance, or report blocked state. It is a policy explanation layer, not an executor: it must not call Workbench action handlers, start scheduler/runtime work, run validation/audit/IntegrationCheck, mutate source, close/apply, or replace workflow truth.
 
+Phase 10R connects that contract to an explicit Workbench refresh surface. The controller policy remains owned by `src/goal-loop`; Workbench may provide the current visible Harness gate snapshot and request a refresh as a secondary action on that same gate. The read model remains read-only and only displays latest valid controller policy verdicts. This makes the Goal Loop controller evidence usable in normal flows without creating an autonomous controller, duplicate primary confirmation, hidden execution path, or source mutation authority.
+
 Goal-driven loop model:
 
 ```mermaid

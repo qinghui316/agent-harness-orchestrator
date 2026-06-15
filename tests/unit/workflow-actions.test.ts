@@ -107,6 +107,9 @@ describe("workflow action registry", () => {
     expect(LIVE_WORKFLOW_ACTION_TYPES).toContain("planning.goal-loop.feedback.evaluate");
     expect(HIGH_IMPACT_WORKFLOW_ACTION_TYPES).toContain("planning.goal-loop.feedback.evaluate");
     expect(REVALIDATED_WORKFLOW_ACTION_TYPES).toContain("planning.goal-loop.feedback.evaluate");
+    expect(LIVE_WORKFLOW_ACTION_TYPES).toContain("planning.goal-loop.controller.refresh");
+    expect(HIGH_IMPACT_WORKFLOW_ACTION_TYPES).toContain("planning.goal-loop.controller.refresh");
+    expect(REVALIDATED_WORKFLOW_ACTION_TYPES).toContain("planning.goal-loop.controller.refresh");
   });
 
   it("keeps GoalLoopDecision, iteration, brief, and packet ids in target and audit scope matching", () => {
@@ -178,6 +181,56 @@ describe("workflow action registry", () => {
     expect(workflowActionScopesMatchStrict(request, { ...request })).toBe(true);
     expect(workflowActionScopesMatchStrict(request, { ...request, goalLoopFeedbackId: undefined })).toBe(false);
     expect(workflowActionScopesMatchCompatible(request, { ...request, goalLoopFeedbackId: undefined })).toBe(true);
+  });
+
+  it("keeps GoalLoopControllerPolicy id and current gate scope in target and audit scope matching", () => {
+    const request = {
+      actionType: "planning.goal-loop.controller.refresh",
+      changeId: "change-1",
+      goalLoopNextStepPacketId: "goal-loop-next-step-packet-1",
+      goalLoopControllerPolicyId: "goal-loop-controller-policy-1",
+      goalLoopCurrentGateActionType: "planning.scheduler.worker.start-first",
+      schedulerRunId: "scheduler-run-1",
+      schedulerClaimReservationId: "claim-reservation-1",
+    };
+
+    expect(validateWorkflowActionRequiredTargets({
+      actionType: "planning.goal-loop.controller.refresh",
+      changeId: "change-1",
+      goalLoopNextStepPacketId: "goal-loop-next-step-packet-1",
+      goalLoopCurrentGateActionType: "planning.scheduler.worker.start-first",
+    })).toEqual([]);
+    expect(validateWorkflowActionRequiredTargets({
+      actionType: "planning.goal-loop.controller.refresh",
+      changeId: "change-1",
+      goalLoopNextStepPacketId: "goal-loop-next-step-packet-1",
+    }).map((item) => item.label)).toEqual(["goalLoopCurrentGateActionType"]);
+    expect(workflowActionTargetId(request, request.changeId)).toBe("goal-loop-controller-policy-1");
+    expect(workflowActionScopePayload({
+      actionType: "planning.goal-loop.controller.refresh",
+      changeId: "change-1",
+      goalLoopNextStepPacketId: "goal-loop-next-step-packet-1",
+      goalLoopCurrentGateActionType: "planning.scheduler.worker.start-first",
+      schedulerRunId: "scheduler-run-1",
+      schedulerClaimReservationId: "claim-reservation-1",
+    }, "change-1", {
+      goalLoopControllerPolicy: {
+        id: "goal-loop-controller-policy-1",
+        sourceGoalLoopNextStepPacketId: "goal-loop-next-step-packet-1",
+      },
+    })).toMatchObject({
+      changeId: "change-1",
+      goalLoopNextStepPacketId: "goal-loop-next-step-packet-1",
+      goalLoopControllerPolicyId: "goal-loop-controller-policy-1",
+      goalLoopCurrentGateActionType: "planning.scheduler.worker.start-first",
+      schedulerRunId: "scheduler-run-1",
+      schedulerClaimReservationId: "claim-reservation-1",
+    });
+    expect(workflowActionScopesMatchStrict(request, { ...request })).toBe(true);
+    expect(workflowActionScopesMatchStrict(request, { ...request, goalLoopControllerPolicyId: undefined })).toBe(false);
+    expect(workflowActionScopesMatchStrict(request, { ...request, goalLoopCurrentGateActionType: "planning.scheduler.worker.start-next" })).toBe(false);
+    expect(workflowActionScopesMatchStrict(request, { ...request, schedulerClaimReservationId: "other-reservation" })).toBe(false);
+    expect(workflowActionScopesMatchCompatible(request, { ...request, goalLoopControllerPolicyId: undefined })).toBe(true);
   });
 
   it("keeps SchedulerContract ids in target and audit scope matching", () => {

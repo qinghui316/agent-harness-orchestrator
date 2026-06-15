@@ -282,13 +282,15 @@ Active change: none.
 
 Pending Harness evolution: none.
 
-Latest completed product phase: Phase 10Q Main Agent Goal Loop Controller Policy Contract, archived at `harness/changes/archive/20260614-phase-10q-main-agent-goal-loop-controller-policy-contract/summary.md`.
+Latest completed product phase: Phase 10R Goal Loop Controller Policy Refresh Surface, archived at `harness/changes/archive/20260615-phase-10r-goal-loop-controller-policy-refresh-surface/summary.md`.
 
-Latest completed product/Harness docs phase: Phase 10Q Main Agent Goal Loop Controller Policy Contract, archived at `harness/changes/archive/20260614-phase-10q-main-agent-goal-loop-controller-policy-contract/summary.md`.
+Latest completed product/Harness docs phase: Phase 10R Goal Loop Controller Policy Refresh Surface, archived at `harness/changes/archive/20260615-phase-10r-goal-loop-controller-policy-refresh-surface/summary.md`.
 
 Latest Harness evolution: `harness/changes/archive/20260614-auto-evolve-harness-phase-10l-10p-goal-loop-feedback-evidence/summary.md`, which completed the Phase 10L-10P pending window as `modify/subagent_review` with subagent score `86/100`.
 
 Current active phase: none.
+
+Phase 10R Goal Loop Controller Policy Refresh Surface is closed and archived at `harness/changes/archive/20260615-phase-10r-goal-loop-controller-policy-refresh-surface/summary.md`. It connects the Phase 10Q controller policy contract to an explicit, secondary Workbench refresh surface so normal Goal Loop flows can write `GoalLoopControllerPolicy` evidence for the current visible Harness gate. It must not become a primary confirmation, execute recommended actions, mutate source, or replace concrete ToolPolicy/human gates.
 
 Phase 9G completed the first controlled scheduler execution slice. It may start exactly one coder-stage worker from the latest scheduler claim reservation after user confirmation, while keeping whole-wave dispatch, validation, audit, bounded rework, scheduler loops, slot allocators, child Changes, and the full parallel executor out of scope.
 

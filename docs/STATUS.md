@@ -2,11 +2,11 @@
 
 ## Current Handoff
 
-- Current date: 2026-06-14.
+- Current date: 2026-06-15.
 - Active ECL change: none.
 - Pending Harness evolution: none.
-- Latest archived product change: `harness/changes/archive/20260614-phase-10q-main-agent-goal-loop-controller-policy-contract/summary.md`.
-- Latest archived product/Harness docs change: `harness/changes/archive/20260614-phase-10q-main-agent-goal-loop-controller-policy-contract/summary.md`.
+- Latest archived product change: `harness/changes/archive/20260615-phase-10r-goal-loop-controller-policy-refresh-surface/summary.md`.
+- Latest archived product/Harness docs change: `harness/changes/archive/20260615-phase-10r-goal-loop-controller-policy-refresh-surface/summary.md`.
 - Latest archived Harness evolution: `harness/changes/archive/20260614-auto-evolve-harness-phase-10l-10p-goal-loop-feedback-evidence/summary.md`.
 - Active product phase: none. Active Harness evolution phase: none.
 
@@ -72,6 +72,7 @@ Current baseline:
 - Phase 10O Goal Loop Feedback Surface is closed and archived at `harness/changes/archive/20260614-phase-10o-goal-loop-feedback-surface/summary.md`. It connects visible Goal Loop packet guidance to an explicit Workbench feedback surface so users can submit scoped feedback for fresh non-executing re-evaluation without executing recommendations or bypassing concrete Harness gates.
 - Phase 10P Goal Loop Feedback Result Refresh Acceptance is closed and archived at `harness/changes/archive/20260614-phase-10p-goal-loop-feedback-result-refresh-acceptance/summary.md`. It verifies and clarifies the post-feedback refresh path so the Workbench shows the newly evaluated Goal Loop guidance and still keeps the concrete Harness gate separate; it must not add a controller, hidden execution, new action/route/CLI/UI surface, scheduler loop, source mutation, or workflow-truth authority.
 - Phase 10Q Main Agent Goal Loop Controller Policy Contract is closed and archived at `harness/changes/archive/20260614-phase-10q-main-agent-goal-loop-controller-policy-contract/summary.md`. It adds non-executing controller policy evidence so the main Agent can classify the safe continuation posture as recommend existing gate, wait, suppress stale guidance, or blocked without executing the recommendation, mutating source, or replacing Harness gates.
+- Phase 10R Goal Loop Controller Policy Refresh Surface is closed and archived at `harness/changes/archive/20260615-phase-10r-goal-loop-controller-policy-refresh-surface/summary.md`. It adds a scoped secondary Workbench refresh action that writes `GoalLoopControllerPolicy` evidence for the current visible Harness gate while keeping the read model read-only and preserving the separate concrete ToolPolicy/human gate.
 - Auto Evolve Harness Phase 10L 10P Goal Loop Feedback Evidence is closed and archived at `harness/changes/archive/20260614-auto-evolve-harness-phase-10l-10p-goal-loop-feedback-evidence/summary.md`. It handled the Phase 10L-10P Goal Loop packet/feedback evolution window as `modify/subagent_review` with subagent score `86/100` and added minimal Goal Loop feedback authority/lineage review coverage without product runtime behavior changes.
 - Auto Evolve Harness Phase 10H 10L Goal Loop Packet Freshness Evidence is closed and archived at `harness/changes/archive/20260614-auto-evolve-harness-phase-10h-10l-goal-loop-packet-freshness-evidence/summary.md`. It reviewed the Phase 10H-10L Goal Loop packet/context window as `modify/subagent_review` with subagent score `88/100` and added minimal ECL/review-template freshness coverage without product runtime behavior changes.
 - Auto Evolve Harness Phase 9N 9R Scheduler Integration Evidence completed as `modify/subagent_review` and is archived at `harness/changes/archive/20260613-auto-evolve-harness-phase-9n-9r-scheduler-integration-evidence/summary.md`. Authorized subagent review scored `84/100`; the change added Source Apply Safety review-template coverage and stale archived-review closeout lint. It is Harness evidence only and does not change product code, runtime behavior, Workbench actions, routes, CLI commands, UI, scheduler execution, parallel executor behavior, child Changes, ODWF runtime, or cache/replay.

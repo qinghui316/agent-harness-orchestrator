@@ -29,6 +29,8 @@ export function scopeConfirmationQueueItemActions(item: WorkbenchConfirmationQue
       goalLoopContinuationBriefId: action.goalLoopContinuationBriefId ?? item.goalLoopContinuationBriefId,
       goalLoopNextStepPacketId: action.goalLoopNextStepPacketId ?? item.goalLoopNextStepPacketId,
       goalLoopFeedbackId: action.goalLoopFeedbackId ?? item.goalLoopFeedbackId,
+      goalLoopControllerPolicyId: action.goalLoopControllerPolicyId ?? item.goalLoopControllerPolicyId,
+      goalLoopCurrentGateActionType: action.goalLoopCurrentGateActionType ?? item.goalLoopCurrentGateActionType,
     })),
   };
 }
