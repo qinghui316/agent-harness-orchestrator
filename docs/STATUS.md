@@ -5,10 +5,12 @@
 - Current date: 2026-06-15.
 - Active ECL change: none.
 - Pending Harness evolution: none.
-- Latest archived product change: `harness/changes/archive/20260615-phase-10r-goal-loop-controller-policy-refresh-surface/summary.md`.
-- Latest archived product/Harness docs change: `harness/changes/archive/20260615-phase-10r-goal-loop-controller-policy-refresh-surface/summary.md`.
+- Latest archived product change: `harness/changes/archive/20260615-phase-10s-goal-loop-controller-policy-main-agent-context-boundary/summary.md`.
+- Latest archived product/Harness docs change: `harness/changes/archive/20260615-phase-10s-goal-loop-controller-policy-main-agent-context-boundary/summary.md`.
 - Latest archived Harness evolution: `harness/changes/archive/20260614-auto-evolve-harness-phase-10l-10p-goal-loop-feedback-evidence/summary.md`.
 - Active product phase: none. Active Harness evolution phase: none.
+
+Phase 10S Goal Loop Controller Policy Main Agent Context Boundary is closed and archived at `harness/changes/archive/20260615-phase-10s-goal-loop-controller-policy-main-agent-context-boundary/summary.md`. It connects latest valid `GoalLoopControllerPolicy` evidence into main-Agent prompt context so the main Agent can see controller verdict, gate status, and summary while still requiring the concrete scoped Harness gate, ToolPolicyGate, and human confirmation for any transition. It does not add actions, routes, CLI commands, UI controls, worker prompts, scheduler/runtime execution, source mutation, child Changes, or workflow-truth authority.
 
 Current baseline:
 

@@ -8,6 +8,7 @@ import { buildVisibleGoalLoopMainAgentContextSection } from "./goal-loop-context
 export interface MainAgentContextResult {
   context: string;
   goalLoopNextStepPacketId?: string;
+  goalLoopControllerPolicyId?: string;
 }
 
 export async function buildChatContext(
@@ -22,6 +23,7 @@ export async function buildChatContext(
   const goalLoopSection = await buildVisibleGoalLoopMainAgentContextSection(project, memory, changePath, changeId);
   return {
     goalLoopNextStepPacketId: goalLoopSection?.goalLoopNextStepPacketId,
+    goalLoopControllerPolicyId: goalLoopSection?.goalLoopControllerPolicyId,
     context: [
       "# AHO Topic Chat",
       "",
@@ -54,6 +56,7 @@ export async function buildOrchestratorContext(
   const goalLoopSection = await buildVisibleGoalLoopMainAgentContextSection(project, memory, changePath, changeId);
   return {
     goalLoopNextStepPacketId: goalLoopSection?.goalLoopNextStepPacketId,
+    goalLoopControllerPolicyId: goalLoopSection?.goalLoopControllerPolicyId,
     context: [
       "# AHO Workbench Orchestrator Context",
       "",

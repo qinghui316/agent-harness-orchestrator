@@ -97,6 +97,10 @@ export async function runOrchestratorPlan(project: ManagedProject, changeId: str
     run = { ...run, promptStack: [...(run.promptStack ?? []), "goal-loop-next-step-packet"] };
     await writeJsonFile(paths.run, run);
   }
+  if (contextResult.goalLoopControllerPolicyId) {
+    run = { ...run, promptStack: [...(run.promptStack ?? []), "goal-loop-controller-policy"] };
+    await writeJsonFile(paths.run, run);
+  }
   const context = contextResult.context;
   await writeFile(paths.context, context, "utf8");
   await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "context.prepared", runId, data: { path: run.artifacts.context } });
@@ -269,6 +273,10 @@ export async function runCodexChat(project: ManagedProject, changeId: string, us
   const contextResult = await buildChatContext(project, memory, changeId, userMessage);
   if (contextResult.goalLoopNextStepPacketId) {
     run = { ...run, promptStack: [...(run.promptStack ?? []), "goal-loop-next-step-packet"] };
+    await writeJsonFile(paths.run, run);
+  }
+  if (contextResult.goalLoopControllerPolicyId) {
+    run = { ...run, promptStack: [...(run.promptStack ?? []), "goal-loop-controller-policy"] };
     await writeJsonFile(paths.run, run);
   }
   const context = contextResult.context;

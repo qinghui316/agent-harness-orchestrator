@@ -1,22 +1,29 @@
 import type { ResolvedMemory } from "../types/index.js";
 import {
   goalLoopContinuationBriefArtifactRefs,
+  goalLoopControllerPolicyArtifactRefs,
   goalLoopDecisionArtifactRefs,
   goalLoopIterationArtifactRefs,
   goalLoopNextStepPacketArtifactRefs,
   readLatestGoalLoopContinuationBrief,
+  readLatestGoalLoopControllerPolicy,
   readLatestGoalLoopDecision,
   readLatestGoalLoopIteration,
   readLatestGoalLoopNextStepPacket,
 } from "./repository.js";
 import { isGoalLoopNextStepPacketFresh } from "./freshness.js";
-import type { GoalLoopNextStepPacket } from "./types.js";
+import type { GoalLoopContinuationBrief, GoalLoopControllerPolicy, GoalLoopDecision, GoalLoopIteration, GoalLoopNextStepPacket } from "./types.js";
 
 export interface GoalLoopMainAgentContextSection {
   goalLoopNextStepPacketId: string;
+  goalLoopControllerPolicyId?: string;
+  controllerVerdict?: string;
+  controllerGateStatus?: string;
   markdown: string;
   artifact: string;
   markdownArtifact: string;
+  controllerArtifact?: string;
+  controllerMarkdownArtifact?: string;
 }
 
 export async function buildGoalLoopMainAgentContextSection(
@@ -38,18 +45,30 @@ export async function buildGoalLoopMainAgentContextSection(
     if (decision.executionStarted !== false || iteration.executionStarted !== false || brief.executionStarted !== false || packet.executionStarted !== false) return null;
     if (!(await isGoalLoopNextStepPacketFresh(memory, changePath, packet))) return null;
 
+    const controllerPolicy = await readLatestGoalLoopControllerPolicy(memory, changePath)
+      .then((policy) => isGoalLoopControllerPolicyValidForContext(policy, decision, iteration, brief, packet) ? policy : null)
+      .catch(() => null);
+
     const packetRefs = goalLoopNextStepPacketArtifactRefs(memory, changePath, packet.id);
     const decisionRefs = goalLoopDecisionArtifactRefs(memory, changePath, decision.id);
     const iterationRefs = goalLoopIterationArtifactRefs(memory, changePath, iteration.id);
     const briefRefs = goalLoopContinuationBriefArtifactRefs(memory, changePath, brief.id);
+    const controllerRefs = controllerPolicy ? goalLoopControllerPolicyArtifactRefs(memory, changePath, controllerPolicy.id) : undefined;
     return {
       goalLoopNextStepPacketId: packet.id,
+      goalLoopControllerPolicyId: controllerPolicy?.id,
+      controllerVerdict: controllerPolicy?.verdict,
+      controllerGateStatus: controllerPolicy?.gateStatus,
       artifact: packetRefs.artifact,
       markdownArtifact: packetRefs.markdownArtifact,
+      controllerArtifact: controllerRefs?.artifact,
+      controllerMarkdownArtifact: controllerRefs?.markdownArtifact,
       markdown: renderGoalLoopMainAgentContextSection(packet, {
         decisionArtifact: decisionRefs.markdownArtifact,
         iterationArtifact: iterationRefs.markdownArtifact,
         briefArtifact: briefRefs.markdownArtifact,
+        controllerPolicy,
+        controllerPolicyArtifact: controllerRefs?.markdownArtifact,
       }),
     };
   } catch {
@@ -57,9 +76,53 @@ export async function buildGoalLoopMainAgentContextSection(
   }
 }
 
+export function stripGoalLoopControllerPolicyContext(section: GoalLoopMainAgentContextSection): GoalLoopMainAgentContextSection {
+  if (!section.goalLoopControllerPolicyId) return section;
+  return {
+    goalLoopNextStepPacketId: section.goalLoopNextStepPacketId,
+    markdown: stripControllerPolicyMarkdown(section.markdown),
+    artifact: section.artifact,
+    markdownArtifact: section.markdownArtifact,
+  };
+}
+
+function isGoalLoopControllerPolicyValidForContext(
+  policy: GoalLoopControllerPolicy,
+  decision: GoalLoopDecision,
+  iteration: GoalLoopIteration,
+  brief: GoalLoopContinuationBrief,
+  packet: GoalLoopNextStepPacket,
+): boolean {
+  return policy.changeId === decision.changeId
+    && policy.changeId === iteration.changeId
+    && policy.changeId === brief.changeId
+    && policy.changeId === packet.changeId
+    && policy.sourceGoalLoopDecisionId === decision.id
+    && policy.sourceGoalLoopIterationId === iteration.id
+    && policy.sourceGoalLoopContinuationBriefId === brief.id
+    && policy.sourceGoalLoopNextStepPacketId === packet.id
+    && policy.executionStarted === false
+    && decision.executionStarted === false
+    && iteration.executionStarted === false
+    && brief.executionStarted === false
+    && packet.executionStarted === false;
+}
+
+function stripControllerPolicyMarkdown(markdown: string): string {
+  const marker = "\n### Controller Policy";
+  const index = markdown.indexOf(marker);
+  return index >= 0 ? markdown.slice(0, index).trimEnd() + "\n" : markdown;
+}
+
 function renderGoalLoopMainAgentContextSection(
   packet: GoalLoopNextStepPacket,
-  refs: { decisionArtifact: string; iterationArtifact: string; briefArtifact: string },
+  refs: {
+    decisionArtifact: string;
+    iterationArtifact: string;
+    briefArtifact: string;
+    controllerPolicy?: GoalLoopControllerPolicy | null;
+    controllerPolicyArtifact?: string;
+  },
 ): string {
   return [
     "## Goal Loop Next-Step Packet",
@@ -130,5 +193,44 @@ function renderGoalLoopMainAgentContextSection(
     "",
     ...packet.forbiddenExecutionStatements.map((statement) => `- ${statement}`),
     "",
+    ...renderControllerPolicyContextLines(refs.controllerPolicy, refs.controllerPolicyArtifact),
   ].join("\n");
+}
+
+function renderControllerPolicyContextLines(policy: GoalLoopControllerPolicy | null | undefined, policyArtifact: string | undefined): string[] {
+  if (!policy) return [];
+  return [
+    "### Controller Policy",
+    "",
+    "This controller policy is prompt context and evidence only. It is not workflow truth, ToolPolicy authorization, human confirmation, or execution permission.",
+    "Use it to explain the current safe posture in plain language, then require the concrete scoped Harness gate for any transition.",
+    "",
+    `- Controller policy: ${policy.id}`,
+    `- Verdict: ${policy.verdict}`,
+    `- Gate status: ${policy.gateStatus}`,
+    `- Suppresses recommended action: ${policy.suppressesRecommendedAction ? "yes" : "no"}`,
+    `- Human gate required: ${policy.humanGateRequired ? "yes" : "no"}`,
+    `- Execution started: ${policy.executionStarted ? "yes" : "no"}`,
+    `- Controller policy artifact: ${policy.markdownArtifact || policyArtifact || policy.artifact}`,
+    `- Source packet: ${policy.sourceGoalLoopNextStepPacketId}`,
+    "",
+    "#### Summary",
+    "",
+    policy.summary,
+    "",
+    "#### Current Gate Snapshot",
+    "",
+    policy.currentGate
+      ? `- ${policy.currentGate.actionType}: ${Object.entries(policy.currentGate.scope).map(([key, value]) => `${key}=${Array.isArray(value) ? value.join(",") : value}`).join("; ")}`
+      : "- None.",
+    "",
+    "#### Controller Revalidation Checklist",
+    "",
+    ...policy.revalidationChecklist.map((item) => `- ${item}`),
+    "",
+    "#### Controller Forbidden Execution Statements",
+    "",
+    ...policy.forbiddenExecutionStatements.map((statement) => `- ${statement}`),
+    "",
+  ];
 }

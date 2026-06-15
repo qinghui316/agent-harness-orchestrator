@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { buildGoalLoopMainAgentContextSection, compileGoalLoopControllerPolicy, compileGoalLoopDecision, compileGoalLoopEvaluation, isGoalLoopNextStepPacketFresh, readLatestGoalLoopContinuationBrief, readLatestGoalLoopControllerPolicy, readLatestGoalLoopFeedback, readLatestGoalLoopIteration, readLatestGoalLoopNextStepPacket, recordGoalLoopFeedback, writeGoalLoopNextStepPacket } from "../../src/goal-loop/manager.js";
+import { buildGoalLoopMainAgentContextSection, compileGoalLoopControllerPolicy, compileGoalLoopDecision, compileGoalLoopEvaluation, isGoalLoopNextStepPacketFresh, readLatestGoalLoopContinuationBrief, readLatestGoalLoopControllerPolicy, readLatestGoalLoopFeedback, readLatestGoalLoopIteration, readLatestGoalLoopNextStepPacket, recordGoalLoopFeedback, stripGoalLoopControllerPolicyContext, writeGoalLoopNextStepPacket } from "../../src/goal-loop/manager.js";
 import { assessGoalLoopSummaryCurrentGateParity } from "../../src/workbench/projections/read-model/goal-loop-parity.js";
 import { readLatestGoalLoopSummary } from "../../src/workbench/projections/read-model/goal-loop.js";
 import type { ResolvedMemory } from "../../src/types/index.js";
@@ -585,6 +585,55 @@ describe("GoalLoopDecision", () => {
     });
 
     await expect(buildGoalLoopMainAgentContextSection(memory, changePath, changeId)).resolves.toBeNull();
+  });
+
+  it("adds valid controller policy evidence to main-Agent context and omits stale policy without hiding the packet", async () => {
+    const first = await compileGoalLoopEvaluation(memory, changePath);
+    const policy = await compileGoalLoopControllerPolicy(memory, changePath, {
+      currentGate: {
+        actionType: "planning.scheduler.plan.prepare",
+        scope: { changeId },
+      },
+    });
+
+    const firstSection = await buildGoalLoopMainAgentContextSection(memory, changePath, changeId);
+
+    expect(firstSection).toMatchObject({
+      goalLoopNextStepPacketId: first.goalLoopNextStepPacket.id,
+      goalLoopControllerPolicyId: policy.id,
+      controllerVerdict: "recommend-existing-gate",
+      controllerGateStatus: "matches-current-gate",
+      controllerArtifact: expect.stringContaining("goal-loop-controller-policies"),
+      controllerMarkdownArtifact: expect.stringContaining("goal-loop-controller-policies"),
+    });
+    expect(firstSection?.markdown).toContain("### Controller Policy");
+    expect(firstSection?.markdown).toContain("prompt context and evidence only");
+    expect(firstSection?.markdown).toContain("not workflow truth");
+    expect(firstSection?.markdown).toContain("Do not call Workbench action handlers");
+    const stripped = stripGoalLoopControllerPolicyContext(firstSection!);
+    expect(stripped.goalLoopNextStepPacketId).toBe(first.goalLoopNextStepPacket.id);
+    expect(stripped.goalLoopControllerPolicyId).toBeUndefined();
+    expect(stripped.markdown).toContain("Goal Loop Next-Step Packet");
+    expect(stripped.markdown).not.toContain("### Controller Policy");
+
+    await recordGoalLoopFeedback(memory, changePath, {
+      goalLoopNextStepPacketId: first.goalLoopNextStepPacket.id,
+      feedbackText: "重新判断下一步，不要沿用旧控制策略。",
+      currentGate: {
+        actionType: "planning.scheduler.plan.prepare",
+        scope: { changeId },
+      },
+    });
+    const second = await compileGoalLoopEvaluation(memory, changePath, { trigger: "user-feedback-evaluate" });
+
+    const secondSection = await buildGoalLoopMainAgentContextSection(memory, changePath, changeId);
+
+    expect(secondSection).toMatchObject({
+      goalLoopNextStepPacketId: second.goalLoopNextStepPacket.id,
+    });
+    expect(secondSection?.goalLoopControllerPolicyId).toBeUndefined();
+    expect(secondSection?.markdown).toContain("Goal Loop Next-Step Packet");
+    expect(secondSection?.markdown).not.toContain("### Controller Policy");
   });
 
   it("matches goal loop packet recommendations only against enabled current gate target ids", async () => {

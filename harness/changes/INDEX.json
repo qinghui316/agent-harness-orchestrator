@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-15T05:22:59.5664738Z",
+    "generated_at":  "2026-06-15T05:55:53.1448998Z",
     "active":  [
 
                ],
@@ -853,6 +853,10 @@
                     {
                         "name":  "20260615-phase-10r-goal-loop-controller-policy-refresh-surface",
                         "path":  "harness/changes/archive/20260615-phase-10r-goal-loop-controller-policy-refresh-surface"
+                    },
+                    {
+                        "name":  "20260615-phase-10s-goal-loop-controller-policy-main-agent-context-boundary",
+                        "path":  "harness/changes/archive/20260615-phase-10s-goal-loop-controller-policy-main-agent-context-boundary"
                     }
                 ]
 }

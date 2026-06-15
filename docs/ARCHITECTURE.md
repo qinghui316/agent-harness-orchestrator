@@ -188,6 +188,8 @@ Phase 10Q adds the first Goal Loop controller policy contract, still as non-exec
 
 Phase 10R connects that contract to an explicit Workbench refresh surface. The controller policy remains owned by `src/goal-loop`; Workbench may provide the current visible Harness gate snapshot and request a refresh as a secondary action on that same gate. The read model remains read-only and only displays latest valid controller policy verdicts. This makes the Goal Loop controller evidence usable in normal flows without creating an autonomous controller, duplicate primary confirmation, hidden execution path, or source mutation authority.
 
+Phase 10S extends the same non-executing contract into main-Agent prompt context. The main Agent may see the latest valid controller policy id, verdict, gate status, summary, artifacts, and warnings when it is strictly tied to the current next-step packet and selected Change. That context is explanatory only: it must not become workflow truth, call action handlers, start scheduler/runtime work, mutate source, or replace the concrete scoped Harness gate, ToolPolicyGate, and human confirmation.
+
 Goal-driven loop model:
 
 ```mermaid

@@ -301,6 +301,8 @@ Phase 10Q adds the Goal Loop controller policy boundary. `src/goal-loop/` owns c
 
 Phase 10R adds the Goal Loop controller policy refresh boundary. Workbench confirmation code may attach a secondary refresh action to an already-visible concrete Harness gate only when the latest Goal Loop packet matches that gate's action type and target ids. The refresh action may pass the current gate snapshot into `src/goal-loop` and record controller policy evidence, but it must not become a primary gate, generate queue items from policy, execute recommendations, call concrete action handlers, mutate source, or weaken the concrete gate's stale-target revalidation, ToolPolicyGate, decision/audit scope, or human confirmation.
 
+Phase 10S adds the Goal Loop controller policy main-Agent context boundary. `src/goal-loop/` owns strict lineage checks and prompt-context rendering for controller policy evidence. Workbench codex-chat code may expose that rendered section only when the selected Workpad projection exposes the same current packet and policy. It must not inject policy into worker prompts, generate actions from policy, call handlers, mutate confirmation queues, start scheduler/runtime work, run validation/audit/IntegrationCheck, mutate source, or bypass ToolPolicyGate/human gates.
+
 ## 7. Memory Unavailable Boundary
 
 Memory can be unavailable on a new machine, after a plain repository clone, when AHO home was not synced, when permissions are missing, or when a future remote memory service is offline.
