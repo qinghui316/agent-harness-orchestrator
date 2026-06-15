@@ -305,6 +305,8 @@ Phase 10S adds the Goal Loop controller policy main-Agent context boundary. `src
 
 Phase 10T hardens that boundary at the run artifact layer. `src/workbench/codex-chat/bridge.ts` may label `chat.ask` / `orchestrator.plan` prompt stacks and `context.prepared` events with the packet/policy ids that were already accepted by `src/goal-loop/` and `src/workbench/codex-chat/goal-loop-context.ts`. It must not make freshness decisions, execute recommendations, alter confirmation queues, add worker prompt context, or turn prompt evidence into authority.
 
+Phase 10U adds the guided gate handoff boundary. `src/goal-loop/main-agent-context.ts` owns the text and metadata that describe the matching concrete Harness gate to the main Agent. Workbench chat/orchestrator code may record those refs in prompt artifacts, but must not generate actions from them, change queue priority, confirm gates, call action handlers, start scheduler workers, run validation/audit/IntegrationCheck, mutate source, or weaken ToolPolicyGate/human confirmation.
+
 ## 7. Memory Unavailable Boundary
 
 Memory can be unavailable on a new machine, after a plain repository clone, when AHO home was not synced, when permissions are missing, or when a future remote memory service is offline.

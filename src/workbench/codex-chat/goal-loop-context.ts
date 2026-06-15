@@ -5,6 +5,8 @@ import { getWorkbenchWorkpadProjection } from "../projections/read-model/impleme
 export interface VisibleGoalLoopMainAgentContextSection {
   goalLoopNextStepPacketId: string;
   goalLoopControllerPolicyId?: string;
+  guidedGateActionType?: string;
+  guidedGateScope?: Record<string, string | string[]>;
   markdown: string;
 }
 

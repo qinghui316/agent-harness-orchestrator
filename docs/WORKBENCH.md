@@ -195,6 +195,8 @@ Phase 10S lets the same controller policy appear in main-Agent prompt context wh
 
 Phase 10T verifies that actual main-Agent chat and orchestrator run artifacts match that surface. If the selected Workpad no longer exposes the same packet/policy, the Controller Policy section must not enter `context.md`, `prompt.md`, or `run.json.promptStack`. If it is current, those run artifacts may record the policy as prompt evidence so replay can explain why the main Agent saw it. This still does not create a new right-side action or let the main conversation execute the recommended gate directly.
 
+Phase 10U lets that same prompt context include a concrete Harness gate handoff when the controller policy and the current right-side gate match. The main conversation may explain the gate action type and target ids as the next safe decision, but the right confirmation queue remains the only executable surface. The handoff must disappear when the policy is stale or mismatched, and it must not create duplicate buttons, auto-confirm the gate, or start scheduler/runtime work.
+
 The Workbench snapshot, transcript, and run graph are projections, not workflow truth. The snapshot is a UI shell, the transcript must not show mechanical labels such as `AI 回复` or `执行结果`, and derived tool-result summaries must not pretend to be exact historical LLM text. The run graph must not become the source of scheduling truth, must not create fake SubAgent chats, and must not move maintenance candidates into the right confirmation queue. The right side stays limited to human gates such as confirming execution, applying, checking compatibility, creating/updating PRs, submitting review, replying to review, merging, syncing, cleanup, requesting changes, or abandoning work.
 
 Runtime boundary issues are explanation/evidence events, not confirmation queue items. When ToolPolicyGate denies a request or PostRunBoundaryAudit finds a role wrote outside its allowed scope, the main conversation should explain the user-impact in plain language and link evidence. The right queue should only show a user decision if there is a real next action such as requesting changes or abandoning the result.
@@ -326,7 +328,7 @@ The current Workbench does not implement:
 - parallel worker pool;
 - executable WorkflowPlan runtime;
 - dependency/conflict scheduler;
-- integration worktree;
+- always-on integration workspace beyond the existing scoped IntegrationCheck path;
 - merge queue;
 - agent animation.
 

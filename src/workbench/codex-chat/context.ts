@@ -9,6 +9,8 @@ export interface MainAgentContextResult {
   context: string;
   goalLoopNextStepPacketId?: string;
   goalLoopControllerPolicyId?: string;
+  goalLoopGuidedGateActionType?: string;
+  goalLoopGuidedGateScope?: Record<string, string | string[]>;
 }
 
 export async function buildChatContext(
@@ -24,6 +26,8 @@ export async function buildChatContext(
   return {
     goalLoopNextStepPacketId: goalLoopSection?.goalLoopNextStepPacketId,
     goalLoopControllerPolicyId: goalLoopSection?.goalLoopControllerPolicyId,
+    goalLoopGuidedGateActionType: goalLoopSection?.guidedGateActionType,
+    goalLoopGuidedGateScope: goalLoopSection?.guidedGateScope,
     context: [
       "# AHO Topic Chat",
       "",
@@ -57,6 +61,8 @@ export async function buildOrchestratorContext(
   return {
     goalLoopNextStepPacketId: goalLoopSection?.goalLoopNextStepPacketId,
     goalLoopControllerPolicyId: goalLoopSection?.goalLoopControllerPolicyId,
+    goalLoopGuidedGateActionType: goalLoopSection?.guidedGateActionType,
+    goalLoopGuidedGateScope: goalLoopSection?.guidedGateScope,
     context: [
       "# AHO Workbench Orchestrator Context",
       "",

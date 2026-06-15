@@ -2410,6 +2410,10 @@ describe("workbench read model", () => {
       changeId: prepared.topic.changeId,
       controllerPolicyId: expect.stringContaining("goal-loop-controller-policy"),
     });
+    const actionsBeforeChat = snapshot.right.confirmationQueue.current
+      .flatMap((item) => item.actions)
+      .map((action) => action.actionType)
+      .sort();
 
     const oldPath = process.env.PATH;
     const fakeCodex = await createFakeCodex();
@@ -2422,13 +2426,26 @@ describe("workbench read model", () => {
       const chatEvents = await readJsonl(join(memory.runsRoot, chat.run.id, "events.jsonl"));
       expect(chatRun.promptStack).toEqual(expect.arrayContaining(["goal-loop-next-step-packet", "goal-loop-controller-policy"]));
       expect(chatContext).toContain("### Controller Policy");
+      expect(chatContext).toContain("#### Concrete Harness Gate Handoff");
+      expect(chatContext).toContain("- Gate action type: planning.scheduler.worker.validate-first");
+      expect(chatContext).toContain(`- schedulerRunId: ${prepared.schedulerRun.id}`);
+      expect(chatContext).toContain(`- schedulerWorkerResultId: ${prepared.workerResult.id}`);
+      expect(chatContext).toContain("this explanation is not confirmation");
+      expect(chatContext).toContain("ToolPolicyGate");
       expect(chatPrompt).toContain("### Controller Policy");
+      expect(chatPrompt).toContain("#### Concrete Harness Gate Handoff");
       expect(chatEvents).toEqual(expect.arrayContaining([
         expect.objectContaining({
           type: "context.prepared",
           data: expect.objectContaining({
             goalLoopNextStepPacketId: visibleGoalLoop?.goalLoopNextStepPacketId,
             goalLoopControllerPolicyId: visibleGoalLoop?.controllerPolicyId,
+            goalLoopGuidedGateActionType: "planning.scheduler.worker.validate-first",
+            goalLoopGuidedGateScope: expect.objectContaining({
+              changeId: prepared.topic.changeId,
+              schedulerRunId: prepared.schedulerRun.id,
+              schedulerWorkerResultId: prepared.workerResult.id,
+            }),
           }),
         }),
       ]));
@@ -2440,16 +2457,33 @@ describe("workbench read model", () => {
       const orchestratorEvents = await readJsonl(join(memory.runsRoot, orchestrator.run.id, "events.jsonl"));
       expect(orchestratorRun.promptStack).toEqual(expect.arrayContaining(["goal-loop-next-step-packet", "goal-loop-controller-policy"]));
       expect(orchestratorContext).toContain("### Controller Policy");
+      expect(orchestratorContext).toContain("#### Concrete Harness Gate Handoff");
+      expect(orchestratorContext).toContain("- Gate action type: planning.scheduler.worker.validate-first");
       expect(orchestratorPrompt).toContain("### Controller Policy");
+      expect(orchestratorPrompt).toContain("#### Concrete Harness Gate Handoff");
       expect(orchestratorEvents).toEqual(expect.arrayContaining([
         expect.objectContaining({
           type: "context.prepared",
           data: expect.objectContaining({
             goalLoopNextStepPacketId: visibleGoalLoop?.goalLoopNextStepPacketId,
             goalLoopControllerPolicyId: visibleGoalLoop?.controllerPolicyId,
+            goalLoopGuidedGateActionType: "planning.scheduler.worker.validate-first",
+            goalLoopGuidedGateScope: expect.objectContaining({
+              changeId: prepared.topic.changeId,
+              schedulerRunId: prepared.schedulerRun.id,
+              schedulerWorkerResultId: prepared.workerResult.id,
+            }),
           }),
         }),
       ]));
+      const actionsAfterPromptRuns = (await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: prepared.topic.changeId }))
+        .right.confirmationQueue.current
+        .flatMap((item) => item.actions)
+        .map((action) => action.actionType)
+        .sort();
+      expect(actionsBeforeChat).toContain("planning.scheduler.worker.validate-first");
+      expect(actionsAfterPromptRuns).toContain("planning.scheduler.worker.validate-first");
+      expect(actionsAfterPromptRuns.some((action) => action?.startsWith("planning.goal-loop"))).toBe(false);
 
       await compileGoalLoopEvaluation(memory, changePath);
       const stalePolicyChat = await runCodexChat(project(), prepared.topic.changeId, "Re-check after a packet refresh.");
@@ -2460,11 +2494,31 @@ describe("workbench read model", () => {
       expect(staleRun.promptStack).not.toContain("goal-loop-controller-policy");
       expect(staleContext).toContain("Goal Loop Next-Step Packet");
       expect(staleContext).not.toContain("### Controller Policy");
+      expect(staleContext).not.toContain("#### Concrete Harness Gate Handoff");
       expect(staleEvents).toEqual(expect.arrayContaining([
         expect.objectContaining({
           type: "context.prepared",
           data: expect.not.objectContaining({
             goalLoopControllerPolicyId: expect.any(String),
+            goalLoopGuidedGateActionType: expect.any(String),
+          }),
+        }),
+      ]));
+      const stalePolicyOrchestrator = await runOrchestratorPlan(project(), prepared.topic.changeId, "Re-check orchestrator after a packet refresh.");
+      const staleOrchestratorRun = JSON.parse(await readFile(join(memory.runsRoot, stalePolicyOrchestrator.run.id, "run.json"), "utf8")) as RunMetadata;
+      const staleOrchestratorContext = await readFile(join(memory.runsRoot, stalePolicyOrchestrator.run.id, "context.md"), "utf8");
+      const staleOrchestratorEvents = await readJsonl(join(memory.runsRoot, stalePolicyOrchestrator.run.id, "events.jsonl"));
+      expect(staleOrchestratorRun.promptStack).toContain("goal-loop-next-step-packet");
+      expect(staleOrchestratorRun.promptStack).not.toContain("goal-loop-controller-policy");
+      expect(staleOrchestratorContext).toContain("Goal Loop Next-Step Packet");
+      expect(staleOrchestratorContext).not.toContain("### Controller Policy");
+      expect(staleOrchestratorContext).not.toContain("#### Concrete Harness Gate Handoff");
+      expect(staleOrchestratorEvents).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          type: "context.prepared",
+          data: expect.not.objectContaining({
+            goalLoopControllerPolicyId: expect.any(String),
+            goalLoopGuidedGateActionType: expect.any(String),
           }),
         }),
       ]));

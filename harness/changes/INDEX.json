@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-15T19:13:53.1416464Z",
+    "generated_at":  "2026-06-15T20:11:31.2199955Z",
     "active":  [
 
                ],
@@ -873,6 +873,10 @@
                     {
                         "name":  "20260615-phase-10t-goal-loop-controller-policy-runtime-prompt-evidence-acceptance",
                         "path":  "harness/changes/archive/20260615-phase-10t-goal-loop-controller-policy-runtime-prompt-evidence-acceptance"
+                    },
+                    {
+                        "name":  "20260616-phase-10u-goal-loop-guided-gate-handoff-acceptance",
+                        "path":  "harness/changes/archive/20260616-phase-10u-goal-loop-guided-gate-handoff-acceptance"
                     }
                 ]
 }

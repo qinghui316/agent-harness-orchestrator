@@ -17,6 +17,8 @@ import type { GoalLoopContinuationBrief, GoalLoopControllerPolicy, GoalLoopDecis
 export interface GoalLoopMainAgentContextSection {
   goalLoopNextStepPacketId: string;
   goalLoopControllerPolicyId?: string;
+  guidedGateActionType?: string;
+  guidedGateScope?: Record<string, string | string[]>;
   controllerVerdict?: string;
   controllerGateStatus?: string;
   markdown: string;
@@ -57,6 +59,8 @@ export async function buildGoalLoopMainAgentContextSection(
     return {
       goalLoopNextStepPacketId: packet.id,
       goalLoopControllerPolicyId: controllerPolicy?.id,
+      guidedGateActionType: controllerPolicy?.verdict === "recommend-existing-gate" ? controllerPolicy.currentGate?.actionType : undefined,
+      guidedGateScope: controllerPolicy?.verdict === "recommend-existing-gate" ? controllerPolicy.currentGate?.scope : undefined,
       controllerVerdict: controllerPolicy?.verdict,
       controllerGateStatus: controllerPolicy?.gateStatus,
       artifact: packetRefs.artifact,
@@ -199,6 +203,9 @@ function renderGoalLoopMainAgentContextSection(
 
 function renderControllerPolicyContextLines(policy: GoalLoopControllerPolicy | null | undefined, policyArtifact: string | undefined): string[] {
   if (!policy) return [];
+  const guidedGateLines = policy.verdict === "recommend-existing-gate" && policy.currentGate
+    ? renderGuidedGateHandoffLines(policy.currentGate)
+    : [];
   return [
     "### Controller Policy",
     "",
@@ -224,6 +231,7 @@ function renderControllerPolicyContextLines(policy: GoalLoopControllerPolicy | n
       ? `- ${policy.currentGate.actionType}: ${Object.entries(policy.currentGate.scope).map(([key, value]) => `${key}=${Array.isArray(value) ? value.join(",") : value}`).join("; ")}`
       : "- None.",
     "",
+    ...guidedGateLines,
     "#### Controller Revalidation Checklist",
     "",
     ...policy.revalidationChecklist.map((item) => `- ${item}`),
@@ -231,6 +239,22 @@ function renderControllerPolicyContextLines(policy: GoalLoopControllerPolicy | n
     "#### Controller Forbidden Execution Statements",
     "",
     ...policy.forbiddenExecutionStatements.map((statement) => `- ${statement}`),
+    "",
+  ];
+}
+
+function renderGuidedGateHandoffLines(currentGate: GoalLoopControllerPolicy["currentGate"]): string[] {
+  if (!currentGate) return [];
+  return [
+    "#### Concrete Harness Gate Handoff",
+    "",
+    "The main Agent may explain this gate as the current safe next step, but this explanation is not confirmation and must not execute the action.",
+    "The user must still confirm the concrete Workbench Harness gate, and the action must still pass required-target validation, stale-target revalidation, ToolPolicyGate, and human gate checks.",
+    "",
+    `- Gate action type: ${currentGate.actionType}`,
+    "##### Gate Scope",
+    "",
+    ...Object.entries(currentGate.scope).map(([key, value]) => `- ${key}: ${Array.isArray(value) ? value.join(", ") : value}`),
     "",
   ];
 }

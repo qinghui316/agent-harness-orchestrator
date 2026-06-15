@@ -2,19 +2,25 @@
 
 ## Current Handoff
 
-- Current date: 2026-06-15.
+- Current date: 2026-06-16.
 - Active ECL change: none.
 - Pending Harness evolution: none.
-- Latest archived product change: `harness/changes/archive/20260615-phase-10t-goal-loop-controller-policy-runtime-prompt-evidence-acceptance/summary.md`.
+- Latest archived product change: `harness/changes/archive/20260616-phase-10u-goal-loop-guided-gate-handoff-acceptance/summary.md`.
 - Latest archived product/Harness docs change: `harness/changes/archive/20260615-harness-self-evolution-slimming-rule-tuning/summary.md`.
 - Latest archived Harness evolution: `harness/changes/archive/20260615-auto-evolve-harness-phase-10p-10t-goal-loop-controller-evidence/summary.md`.
 - Active product phase: none. Active Harness evolution phase: none.
 
-This file is the short resume point. It is not the product history database. For full history, use `harness/changes/INDEX.json` and archived `summary.md` files.
+This file is the short resume point. There is no active change. For full history, use `harness/changes/INDEX.json` and archived `summary.md` files.
 
 Current plan-level roadmap context is preserved in `docs/CURRENT-DEVELOPMENT-PLAN.md`.
 
 ## Recent Completed Work
+
+### Phase 10U Goal Loop Guided Gate Handoff Acceptance
+
+Archived at `harness/changes/archive/20260616-phase-10u-goal-loop-guided-gate-handoff-acceptance/summary.md`.
+
+Phase 10U hardens the main-Agent prompt handoff from fresh Goal Loop controller policy to the current concrete Harness gate. Fresh `chat.ask` and `orchestrator.plan` prompt artifacts now include a guided concrete gate handoff with action type and scoped target ids only while Workpad-visible controller policy evidence is current. The handoff is non-executing prompt/audit evidence only; it does not add actions, routes, UI controls, scheduler execution, source mutation, child Changes, or workflow-truth authority.
 
 ### Harness Self Evolution Slimming Rule Tuning
 
@@ -57,9 +63,9 @@ The pending Phase 10P-10T Goal Loop controller/feedback/context/prompt evidence 
 - Scheduler runtime remains staged and bounded. Existing scheduler worker/result/validation/audit/rework/integration/completion gates do not authorize scheduler loops, whole-wave dispatch, slot allocation, automatic child Changes, automatic apply/merge, or a full parallel executor.
 - Documentation entropy is now an explicit Harness concern: `AGENTS.md` is the routing map, `docs/STATUS.md` is the short handoff, `docs/ECL.md` owns reusable process rules, and archived summaries / `harness/changes/INDEX.json` own history.
 
-## Next Recommended Work
+## Active Work
 
-No active change is open and no Harness evolution is pending. Start the next structured product or Harness task from the user's next demand. If the task continues Goal Loop or scheduler execution, first read `docs/CURRENT-DEVELOPMENT-PLAN.md`, the latest relevant archived `summary.md`, and the matching source docs (`docs/ARCHITECTURE.md`, `docs/RUNTIME.md`, `docs/WORKBENCH.md`, `docs/BOUNDARIES.md`) before planning.
+None. The next structured product change should be selected from the current user demand and `docs/CURRENT-DEVELOPMENT-PLAN.md`.
 
 ## Verification Commands
 

@@ -111,6 +111,8 @@ export async function runOrchestratorPlan(project: ManagedProject, changeId: str
       path: run.artifacts.context,
       goalLoopNextStepPacketId: contextResult.goalLoopNextStepPacketId,
       goalLoopControllerPolicyId: contextResult.goalLoopControllerPolicyId,
+      goalLoopGuidedGateActionType: contextResult.goalLoopGuidedGateActionType,
+      goalLoopGuidedGateScope: contextResult.goalLoopGuidedGateScope,
     },
   });
   const prompt = `${buildAgentSystemPrompt(role)}\n\n${context}\n\n## User Message\n\n${userMessage}\n`;
@@ -300,6 +302,8 @@ export async function runCodexChat(project: ManagedProject, changeId: string, us
       path: run.artifacts.context,
       goalLoopNextStepPacketId: contextResult.goalLoopNextStepPacketId,
       goalLoopControllerPolicyId: contextResult.goalLoopControllerPolicyId,
+      goalLoopGuidedGateActionType: contextResult.goalLoopGuidedGateActionType,
+      goalLoopGuidedGateScope: contextResult.goalLoopGuidedGateScope,
     },
   });
 
