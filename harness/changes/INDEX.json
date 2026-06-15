@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-15T05:55:53.1448998Z",
+    "generated_at":  "2026-06-15T06:28:40.8589332Z",
     "active":  [
 
                ],
@@ -851,12 +851,20 @@
                         "path":  "harness/changes/archive/20260614-phase-10q-main-agent-goal-loop-controller-policy-contract"
                     },
                     {
+                        "name":  "20260615-auto-evolve-harness-phase-10p-10t-goal-loop-controller-evidence",
+                        "path":  "harness/changes/archive/20260615-auto-evolve-harness-phase-10p-10t-goal-loop-controller-evidence"
+                    },
+                    {
                         "name":  "20260615-phase-10r-goal-loop-controller-policy-refresh-surface",
                         "path":  "harness/changes/archive/20260615-phase-10r-goal-loop-controller-policy-refresh-surface"
                     },
                     {
                         "name":  "20260615-phase-10s-goal-loop-controller-policy-main-agent-context-boundary",
                         "path":  "harness/changes/archive/20260615-phase-10s-goal-loop-controller-policy-main-agent-context-boundary"
+                    },
+                    {
+                        "name":  "20260615-phase-10t-goal-loop-controller-policy-runtime-prompt-evidence-acceptance",
+                        "path":  "harness/changes/archive/20260615-phase-10t-goal-loop-controller-policy-runtime-prompt-evidence-acceptance"
                     }
                 ]
 }

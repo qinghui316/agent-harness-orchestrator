@@ -303,6 +303,8 @@ Phase 10R adds the Goal Loop controller policy refresh boundary. Workbench confi
 
 Phase 10S adds the Goal Loop controller policy main-Agent context boundary. `src/goal-loop/` owns strict lineage checks and prompt-context rendering for controller policy evidence. Workbench codex-chat code may expose that rendered section only when the selected Workpad projection exposes the same current packet and policy. It must not inject policy into worker prompts, generate actions from policy, call handlers, mutate confirmation queues, start scheduler/runtime work, run validation/audit/IntegrationCheck, mutate source, or bypass ToolPolicyGate/human gates.
 
+Phase 10T hardens that boundary at the run artifact layer. `src/workbench/codex-chat/bridge.ts` may label `chat.ask` / `orchestrator.plan` prompt stacks and `context.prepared` events with the packet/policy ids that were already accepted by `src/goal-loop/` and `src/workbench/codex-chat/goal-loop-context.ts`. It must not make freshness decisions, execute recommendations, alter confirmation queues, add worker prompt context, or turn prompt evidence into authority.
+
 ## 7. Memory Unavailable Boundary
 
 Memory can be unavailable on a new machine, after a plain repository clone, when AHO home was not synced, when permissions are missing, or when a future remote memory service is offline.

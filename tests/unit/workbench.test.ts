@@ -11,6 +11,7 @@ import { listRuns, startLocalCommandRun } from "../../src/run/manager.js";
 import { executeWorkbenchAction } from "../../src/server/workbench-server.js";
 import { appendTopicThreadEntry, createWorkbenchTopic, postTopicMessage } from "../../src/workbench/chat.js";
 import { buildChatContext, buildOrchestratorContext } from "../../src/workbench/codex-chat/context.js";
+import { runCodexChat, runOrchestratorPlan } from "../../src/workbench/codex-chat/bridge.js";
 import { buildTypedWorkflowNextAction } from "../../src/workbench/workflow-projection.js";
 import { readTopicThreadLog } from "../../src/workbench/thread-log.js";
 import { answerClarification, reanalyzeIntake, runIntakeScan } from "../../src/workbench/intake.js";
@@ -69,7 +70,7 @@ import {
 import { compileSchedulerContract } from "../../src/workflow-scheduler/manager.js";
 import { auditSchedulerFirstWorker, readSchedulerRuntimeEvents, validateSchedulerFirstWorker } from "../../src/scheduler-runtime/manager.js";
 import { listIntegrationChecks } from "../../src/integration-check/manager.js";
-import { readLatestGoalLoopContinuationBrief, readLatestGoalLoopDecision, readLatestGoalLoopIteration } from "../../src/goal-loop/manager.js";
+import { compileGoalLoopControllerPolicy, compileGoalLoopEvaluation, readLatestGoalLoopContinuationBrief, readLatestGoalLoopDecision, readLatestGoalLoopIteration } from "../../src/goal-loop/manager.js";
 import type { ManagedProject, RunMetadata, TaskQueueItem, TaskQueueRun, TaskRun, WorkerLease, WorkflowGraphPlan, WorkflowRun } from "../../src/types/index.js";
 import type { DecompositionPlan, DecompositionReadinessManifest, TaskQueueProposal } from "../../src/workflow-artifacts/manager.js";
 
@@ -106,6 +107,11 @@ async function rewriteActiveChangeMetadata(changeId: string, update: Record<stri
   const path = join(tempDir, "harness", "changes", "active", changeId, "change.json");
   const metadata = JSON.parse(await readFile(path, "utf8")) as Record<string, unknown>;
   await writeFile(path, `${JSON.stringify({ ...metadata, ...update }, null, 2)}\n`, "utf8");
+}
+
+async function readJsonl(path: string): Promise<Array<Record<string, unknown>>> {
+  const text = await readFile(path, "utf8");
+  return text.trim().split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line) as Record<string, unknown>);
 }
 
 async function createFakeGh(initial: { isDraft?: boolean; comments?: unknown[]; inlineComments?: unknown[]; failedChecks?: number; canResolveThreads?: boolean; mergeFails?: boolean } = {}): Promise<{ command: string; args: string[]; stateFile: string }> {
@@ -2372,6 +2378,100 @@ describe("workbench read model", () => {
     expect(item.actions.some((action) => action.actionType === "planning.goal-loop.feedback.evaluate")).toBe(false);
     const [controllerItem] = attachGoalLoopControllerRefreshActions([currentGate], workpad as never);
     expect(controllerItem.actions.some((action) => action.actionType === "planning.goal-loop.controller.refresh")).toBe(false);
+  });
+
+  it("records visible goal loop controller policy in actual main-agent chat and orchestrator prompt artifacts only while fresh", async () => {
+    const prepared = await prepareSchedulerFirstWorkerThroughResult({
+      title: "Goal Loop Runtime Prompt Evidence",
+    });
+    const memory = await resolveProjectMemory(project());
+    const changePath = join("harness", "changes", "active", prepared.topic.changeId);
+
+    let snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: prepared.topic.changeId });
+    expect(snapshot.center.workpad.nextAction).toMatchObject({
+      actionType: "planning.scheduler.worker.validate-first",
+      schedulerRunId: prepared.schedulerRun.id,
+      schedulerWorkerResultId: prepared.workerResult.id,
+    });
+    await compileGoalLoopEvaluation(memory, changePath);
+    await compileGoalLoopControllerPolicy(memory, changePath, {
+      currentGate: {
+        actionType: "planning.scheduler.worker.validate-first",
+        scope: {
+          changeId: prepared.topic.changeId,
+          schedulerRunId: prepared.schedulerRun.id,
+          schedulerWorkerResultId: prepared.workerResult.id,
+        },
+      },
+    });
+    snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: prepared.topic.changeId });
+    const visibleGoalLoop = snapshot.center.workpad.goalLoop;
+    expect(visibleGoalLoop).toMatchObject({
+      changeId: prepared.topic.changeId,
+      controllerPolicyId: expect.stringContaining("goal-loop-controller-policy"),
+    });
+
+    const oldPath = process.env.PATH;
+    const fakeCodex = await createFakeCodex();
+    process.env.PATH = `${fakeCodex.binDir}${delimiter}${oldPath ?? ""}`;
+    try {
+      const chat = await runCodexChat(project(), prepared.topic.changeId, "Explain the current goal-loop policy.");
+      const chatRun = JSON.parse(await readFile(join(memory.runsRoot, chat.run.id, "run.json"), "utf8")) as RunMetadata;
+      const chatContext = await readFile(join(memory.runsRoot, chat.run.id, "context.md"), "utf8");
+      const chatPrompt = await readFile(join(memory.runsRoot, chat.run.id, "prompt.md"), "utf8");
+      const chatEvents = await readJsonl(join(memory.runsRoot, chat.run.id, "events.jsonl"));
+      expect(chatRun.promptStack).toEqual(expect.arrayContaining(["goal-loop-next-step-packet", "goal-loop-controller-policy"]));
+      expect(chatContext).toContain("### Controller Policy");
+      expect(chatPrompt).toContain("### Controller Policy");
+      expect(chatEvents).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          type: "context.prepared",
+          data: expect.objectContaining({
+            goalLoopNextStepPacketId: visibleGoalLoop?.goalLoopNextStepPacketId,
+            goalLoopControllerPolicyId: visibleGoalLoop?.controllerPolicyId,
+          }),
+        }),
+      ]));
+
+      const orchestrator = await runOrchestratorPlan(project(), prepared.topic.changeId, "Plan from the current goal-loop policy.");
+      const orchestratorRun = JSON.parse(await readFile(join(memory.runsRoot, orchestrator.run.id, "run.json"), "utf8")) as RunMetadata;
+      const orchestratorContext = await readFile(join(memory.runsRoot, orchestrator.run.id, "context.md"), "utf8");
+      const orchestratorPrompt = await readFile(join(memory.runsRoot, orchestrator.run.id, "prompt.md"), "utf8");
+      const orchestratorEvents = await readJsonl(join(memory.runsRoot, orchestrator.run.id, "events.jsonl"));
+      expect(orchestratorRun.promptStack).toEqual(expect.arrayContaining(["goal-loop-next-step-packet", "goal-loop-controller-policy"]));
+      expect(orchestratorContext).toContain("### Controller Policy");
+      expect(orchestratorPrompt).toContain("### Controller Policy");
+      expect(orchestratorEvents).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          type: "context.prepared",
+          data: expect.objectContaining({
+            goalLoopNextStepPacketId: visibleGoalLoop?.goalLoopNextStepPacketId,
+            goalLoopControllerPolicyId: visibleGoalLoop?.controllerPolicyId,
+          }),
+        }),
+      ]));
+
+      await compileGoalLoopEvaluation(memory, changePath);
+      const stalePolicyChat = await runCodexChat(project(), prepared.topic.changeId, "Re-check after a packet refresh.");
+      const staleRun = JSON.parse(await readFile(join(memory.runsRoot, stalePolicyChat.run.id, "run.json"), "utf8")) as RunMetadata;
+      const staleContext = await readFile(join(memory.runsRoot, stalePolicyChat.run.id, "context.md"), "utf8");
+      const staleEvents = await readJsonl(join(memory.runsRoot, stalePolicyChat.run.id, "events.jsonl"));
+      expect(staleRun.promptStack).toContain("goal-loop-next-step-packet");
+      expect(staleRun.promptStack).not.toContain("goal-loop-controller-policy");
+      expect(staleContext).toContain("Goal Loop Next-Step Packet");
+      expect(staleContext).not.toContain("### Controller Policy");
+      expect(staleEvents).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          type: "context.prepared",
+          data: expect.not.objectContaining({
+            goalLoopControllerPolicyId: expect.any(String),
+          }),
+        }),
+      ]));
+    } finally {
+      if (oldPath === undefined) delete process.env.PATH;
+      else process.env.PATH = oldPath;
+    }
   });
 
   it("rejects stale planning bundle confirmation", async () => {

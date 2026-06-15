@@ -282,15 +282,19 @@ Active change: none.
 
 Pending Harness evolution: none.
 
-Latest completed product phase: Phase 10S Goal Loop Controller Policy Main Agent Context Boundary, archived at `harness/changes/archive/20260615-phase-10s-goal-loop-controller-policy-main-agent-context-boundary/summary.md`.
+Latest completed product phase: Phase 10T Goal Loop Controller Policy Runtime Prompt Evidence Acceptance, archived at `harness/changes/archive/20260615-phase-10t-goal-loop-controller-policy-runtime-prompt-evidence-acceptance/summary.md`.
 
-Latest completed product/Harness docs phase: Phase 10S Goal Loop Controller Policy Main Agent Context Boundary, archived at `harness/changes/archive/20260615-phase-10s-goal-loop-controller-policy-main-agent-context-boundary/summary.md`.
+Latest completed product/Harness docs phase: Phase 10T Goal Loop Controller Policy Runtime Prompt Evidence Acceptance, archived at `harness/changes/archive/20260615-phase-10t-goal-loop-controller-policy-runtime-prompt-evidence-acceptance/summary.md`.
 
-Latest Harness evolution: `harness/changes/archive/20260614-auto-evolve-harness-phase-10l-10p-goal-loop-feedback-evidence/summary.md`, which completed the Phase 10L-10P pending window as `modify/subagent_review` with subagent score `86/100`.
+Latest Harness evolution: `harness/changes/archive/20260615-auto-evolve-harness-phase-10p-10t-goal-loop-controller-evidence/summary.md`.
 
 Current active phase: none.
 
 Phase 10S Goal Loop Controller Policy Main Agent Context Boundary is closed and archived at `harness/changes/archive/20260615-phase-10s-goal-loop-controller-policy-main-agent-context-boundary/summary.md`. It connects latest valid `GoalLoopControllerPolicy` evidence into main-Agent prompt context so the main Agent can see controller verdict, gate status, and summary while still requiring the concrete scoped Harness gate, ToolPolicyGate, and human confirmation for any transition. It does not add actions, routes, CLI commands, UI controls, worker prompts, scheduler/runtime execution, source mutation, child Changes, or workflow-truth authority.
+
+Phase 10T Goal Loop Controller Policy Runtime Prompt Evidence Acceptance is closed and archived at `harness/changes/archive/20260615-phase-10t-goal-loop-controller-policy-runtime-prompt-evidence-acceptance/summary.md`. It verifies that actual `chat.ask` and `orchestrator.plan` run artifacts include controller policy prompt context only when the Workpad-visible packet/policy match the selected Change, and that stale or mismatched policy evidence stays out of prompt stack and context. It is acceptance hardening only; it does not add actions, routes, CLI commands, UI controls, worker prompts, scheduler/runtime execution, source mutation, child Changes, or workflow-truth authority.
+
+Auto Evolve Harness Phase 10P 10T Goal Loop Controller Evidence is closed and archived at `harness/changes/archive/20260615-auto-evolve-harness-phase-10p-10t-goal-loop-controller-evidence/summary.md`. It handled the pending Phase 10P-10T Goal Loop controller/feedback/context/prompt evidence window as `noop/subagent_review` with subagent score `92/100`; existing Goal Loop Boundary, Runtime Bridge Boundary, Module Boundary, ToolPolicy/human gate, and workflow-truth rules are sufficient. It is Harness evolution evidence only and does not change product runtime behavior.
 
 Phase 10R Goal Loop Controller Policy Refresh Surface is closed and archived at `harness/changes/archive/20260615-phase-10r-goal-loop-controller-policy-refresh-surface/summary.md`. It connects the Phase 10Q controller policy contract to an explicit, secondary Workbench refresh surface so normal Goal Loop flows can write `GoalLoopControllerPolicy` evidence for the current visible Harness gate. It must not become a primary confirmation, execute recommended actions, mutate source, or replace concrete ToolPolicy/human gates.
 

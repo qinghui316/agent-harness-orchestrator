@@ -103,7 +103,16 @@ export async function runOrchestratorPlan(project: ManagedProject, changeId: str
   }
   const context = contextResult.context;
   await writeFile(paths.context, context, "utf8");
-  await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "context.prepared", runId, data: { path: run.artifacts.context } });
+  await appendRunEvent(paths.events, {
+    timestamp: new Date().toISOString(),
+    type: "context.prepared",
+    runId,
+    data: {
+      path: run.artifacts.context,
+      goalLoopNextStepPacketId: contextResult.goalLoopNextStepPacketId,
+      goalLoopControllerPolicyId: contextResult.goalLoopControllerPolicyId,
+    },
+  });
   const prompt = `${buildAgentSystemPrompt(role)}\n\n${context}\n\n## User Message\n\n${userMessage}\n`;
   await writeFile(paths.prompt, prompt, "utf8");
 
@@ -283,7 +292,16 @@ export async function runCodexChat(project: ManagedProject, changeId: string, us
   await writeFile(paths.context, context, "utf8");
   const prompt = `${context}${skillContext.promptSection ? `\n\n${skillContext.promptSection}` : ""}\n\n## User Message\n\n${userMessage}\n`;
   await writeFile(paths.prompt, prompt, "utf8");
-  await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "context.prepared", runId, data: { path: run.artifacts.context } });
+  await appendRunEvent(paths.events, {
+    timestamp: new Date().toISOString(),
+    type: "context.prepared",
+    runId,
+    data: {
+      path: run.artifacts.context,
+      goalLoopNextStepPacketId: contextResult.goalLoopNextStepPacketId,
+      goalLoopControllerPolicyId: contextResult.goalLoopControllerPolicyId,
+    },
+  });
 
   const appServerCapabilities = await detectCodexAppServerCapability();
   if (appServerCapabilities.available) {

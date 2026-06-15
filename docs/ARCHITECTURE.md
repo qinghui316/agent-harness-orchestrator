@@ -190,6 +190,8 @@ Phase 10R connects that contract to an explicit Workbench refresh surface. The c
 
 Phase 10S extends the same non-executing contract into main-Agent prompt context. The main Agent may see the latest valid controller policy id, verdict, gate status, summary, artifacts, and warnings when it is strictly tied to the current next-step packet and selected Change. That context is explanatory only: it must not become workflow truth, call action handlers, start scheduler/runtime work, mutate source, or replace the concrete scoped Harness gate, ToolPolicyGate, and human confirmation.
 
+Phase 10T verifies that boundary at the actual main-Agent runtime artifact layer. `chat.ask` and `orchestrator.plan` runs may record `goal-loop-controller-policy` in `promptStack`, include the Controller Policy section in `context.md` / `prompt.md`, and write matching `context.prepared` refs only when Workpad-visible Goal Loop packet and policy evidence match the selected Change. Stale or mismatched controller policy must be stripped before runtime prompt artifacts are written. This is acceptance evidence only and still must not add actions, routes, UI, worker prompts, scheduler execution, source mutation, or workflow-truth authority.
+
 Goal-driven loop model:
 
 ```mermaid
