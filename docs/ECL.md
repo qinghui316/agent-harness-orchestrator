@@ -374,7 +374,46 @@ archived/apply/failure/user-feedback/doc-drift event
 
 Future background documentation, architecture, evolution, scorer, and reviewer agents may create evidence and recommendations. They must not directly modify canonical docs, ECL rules, product roadmap, Harness templates, project stable memory, or source root without the normal ECL proposal/review/validation/human gate.
 
-## 16. Reference Project Updates
+## 16. Documentation Entropy Control
+
+Current Harness documents have distinct roles:
+
+- `AGENTS.md` is the entry map. It identifies the project, current handoff pointers, context loading order, work classification, key verification commands, and durable boundaries. It must not carry the full phase archive ledger.
+- `docs/STATUS.md` is the short handoff. It records current active/pending state, recent relevant context, current baseline, next resume point, and links to archived summaries. It must not become the full product chronology.
+- `docs/CURRENT-DEVELOPMENT-PLAN.md` preserves current roadmap and development-plan context that should not live in entry/handoff documents.
+- `docs/AGENT-DEVELOPMENT-OS.md` is a product-loop and staged-roadmap reference. It may preserve historical architecture direction, but it must not present stale `Current Baseline` or `Next Direction` text as current truth when `docs/CURRENT-DEVELOPMENT-PLAN.md` has superseded it.
+- `docs/ECL.md` owns reusable process rules. It should describe durable constraints, not every phase that produced them.
+- `harness/changes/INDEX.json` and archived `summary.md` files own historical evidence.
+
+Line counts are an alarm, not the only quality metric. The target budget for `AGENTS.md` is 120-180 lines. `docs/STATUS.md` may exceed that when a handoff genuinely needs more context, but it must still stay a short handoff rather than an archive ledger. Any docs, handoff, Harness-rule, template, or auto-evolve change that updates these documents must record Documentation Entropy Coverage in `reviews/review.md`.
+
+Documentation Entropy Coverage must check:
+
+- before/after line counts for `AGENTS.md`, `docs/STATUS.md`, and any changed Harness rule/template documents;
+- whether current-state facts such as active change, pending evolution, latest product archive, latest Harness evolution, or current phase are duplicated or contradictory;
+- whether roadmap or product-loop documents contain stale current-state language, especially `Current Baseline`, `Next Direction`, active phase, or latest-phase claims that conflict with `docs/STATUS.md` or `docs/CURRENT-DEVELOPMENT-PLAN.md`;
+- whether historical phase details were promoted into current docs, kept because they still change agent behavior, merged into a shorter rule, retired, or left archive-only;
+- whether any over-budget document has an explicit current-behavior rationale.
+
+Close/handoff updates should add the smallest current-state delta and link to archived summaries. Do not copy full phase narratives into both `AGENTS.md` and `docs/STATUS.md`.
+
+## 17. Experience Lifecycle
+
+Harness evolution must be able to remember and forget. Raw historical evidence stays durable in archived summaries and generated indexes; current docs and templates are derived, behavior-changing memory and must stay small enough to route future agents.
+
+Every auto-evolve proposal must include an Experience Retention Scan that classifies relevant experience into:
+
+- `Promote`: new evidence should become an ECL rule, review template field, lint check, test, or development command.
+- `Retain`: existing experience still represents a current risk and should remain in current docs or templates.
+- `Merge`: multiple similar experiences should become one shorter, more general rule.
+- `Retire`: old experience is superseded by code structure, lint, tests, templates, or newer rules and should leave current entry/rule documents.
+- `Archive-only`: the experience remains historically true but should live only in archived summaries or generated indexes.
+
+The scan must name concrete retained, merged, retired, and archive-only items when applicable. A `noop` evolution result is valid only after checking both new-rule gaps and old-experience retention across entry, handoff, ECL, template, current-plan, and roadmap/product-loop docs. "Existing rules are sufficient" is incomplete if current docs keep accumulating stale or duplicate experience.
+
+Current documents should contain only experience that changes present agent behavior. Historical facts remain available through archived `summary.md` files. ECL rules should be merged or retired when narrower older rules are fully covered by broader current rules, mechanical checks, or accepted runtime/module boundaries. Stale roadmap language should be rewritten as historical context or replaced with a pointer to `docs/CURRENT-DEVELOPMENT-PLAN.md`; do not leave old `Next Direction` prose in a form that future agents can mistake for the current plan.
+
+## 18. Reference Project Updates
 
 Reference projects are submodules under `reference-projects/`. Updating them is a structured change because it changes the source context available to future agents.
 

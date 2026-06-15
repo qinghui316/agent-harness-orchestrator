@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-15T06:28:40.8589332Z",
+    "generated_at":  "2026-06-15T19:13:53.1416464Z",
     "active":  [
 
                ],
@@ -853,6 +853,14 @@
                     {
                         "name":  "20260615-auto-evolve-harness-phase-10p-10t-goal-loop-controller-evidence",
                         "path":  "harness/changes/archive/20260615-auto-evolve-harness-phase-10p-10t-goal-loop-controller-evidence"
+                    },
+                    {
+                        "name":  "20260615-harness-doc-entropy-and-experience-lifecycle",
+                        "path":  "harness/changes/archive/20260615-harness-doc-entropy-and-experience-lifecycle"
+                    },
+                    {
+                        "name":  "20260615-harness-self-evolution-slimming-rule-tuning",
+                        "path":  "harness/changes/archive/20260615-harness-self-evolution-slimming-rule-tuning"
                     },
                     {
                         "name":  "20260615-phase-10r-goal-loop-controller-policy-refresh-surface",
