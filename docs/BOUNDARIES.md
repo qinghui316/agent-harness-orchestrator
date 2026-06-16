@@ -309,6 +309,8 @@ Phase 10U adds the guided gate handoff boundary. `src/goal-loop/main-agent-conte
 
 Phase 10V adds the Goal Loop gate-readiness preflight boundary. `src/goal-loop/` owns `GoalLoopGateReadinessPreflight` schema, paths, repository, rendering, and compilation. Workbench confirmation code may attach a secondary readiness action to an already-visible concrete gate, and server/action glue may pass the current gate snapshot for validation. Those layers must not own preflight policy, execute the concrete gate, pre-authorize ToolPolicyGate, generate duplicate primary confirmations, start scheduler/runtime work, mutate source, or weaken the concrete gate's stale-target revalidation and human confirmation.
 
+Phase 10W adds the Goal Loop-assisted concrete gate confirmation boundary. A preflight id may be attached only to the matching concrete Workbench action. The concrete action type remains the executable transition, ToolPolicy target, stale revalidation target, and handler path. `src/workbench/actions/goal-loop-gate-confirmation.ts` owns assisted confirmation guard logic; server/action/projection modules may only call it or pass payload fields. Goal Loop modules and handlers must not dispatch concrete actions, and no `planning.goal-loop.*` wrapper action may invoke a concrete Harness gate.
+
 ## 7. Memory Unavailable Boundary
 
 Memory can be unavailable on a new machine, after a plain repository clone, when AHO home was not synced, when permissions are missing, or when a future remote memory service is offline.

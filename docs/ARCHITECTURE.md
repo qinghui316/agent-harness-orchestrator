@@ -196,6 +196,8 @@ Phase 10U tightens the same runtime prompt boundary by adding a guided concrete 
 
 Phase 10V adds a non-executing readiness preflight between Goal Loop policy and the concrete Harness gate. `src/goal-loop/` owns `GoalLoopGateReadinessPreflight`, which rechecks the latest packet, controller policy, current gate action, concrete target ids, packet freshness, and dynamic required-target rules before writing evidence. The preflight can explain that a gate is ready to present, but it cannot invoke the concrete action, pre-authorize ToolPolicyGate, mutate source, start scheduler/runtime work, or replace the separate human confirmation.
 
+Phase 10W keeps that same authority boundary while letting the concrete confirmation carry the preflight id as additional evidence. There is no `planning.goal-loop.*` wrapper executor: the submitted `actionType`, stale-target revalidation, ToolPolicyGate audit, handler, and decision record remain the original concrete Harness action. The preflight id is accepted only when current Change, latest packet, latest controller policy, latest preflight, visible gate action, and concrete target scope all still match.
+
 Goal-driven loop model:
 
 ```mermaid

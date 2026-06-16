@@ -287,6 +287,33 @@ describe("workflow action registry", () => {
     expect(workflowActionScopesMatchCompatible(request, { ...request, goalLoopGateReadinessPreflightId: undefined })).toBe(true);
   });
 
+  it("keeps assisted Goal Loop preflight evidence from replacing the concrete action target", () => {
+    const request = {
+      actionType: "planning.scheduler.worker.start-first",
+      changeId: "change-1",
+      schedulerRunId: "scheduler-run-1",
+      schedulerClaimReservationId: "claim-reservation-1",
+      goalLoopDecisionId: "goal-loop-decision-1",
+      goalLoopIterationId: "goal-loop-iteration-1",
+      goalLoopContinuationBriefId: "goal-loop-continuation-brief-1",
+      goalLoopNextStepPacketId: "goal-loop-next-step-packet-1",
+      goalLoopControllerPolicyId: "goal-loop-controller-policy-1",
+      goalLoopGateReadinessPreflightId: "goal-loop-gate-readiness-preflight-1",
+    };
+
+    expect(workflowActionTargetId(request, request.changeId)).toBe("claim-reservation-1");
+    expect(workflowActionScopePayload(request, request.changeId)).toMatchObject({
+      changeId: "change-1",
+      schedulerRunId: "scheduler-run-1",
+      schedulerClaimReservationId: "claim-reservation-1",
+      goalLoopNextStepPacketId: "goal-loop-next-step-packet-1",
+      goalLoopControllerPolicyId: "goal-loop-controller-policy-1",
+      goalLoopGateReadinessPreflightId: "goal-loop-gate-readiness-preflight-1",
+    });
+    expect(workflowActionScopesMatchStrict(request, { ...request })).toBe(true);
+    expect(workflowActionScopesMatchStrict(request, { ...request, goalLoopGateReadinessPreflightId: undefined })).toBe(false);
+  });
+
   it("keeps SchedulerContract ids in target and audit scope matching", () => {
     const request = {
       changeId: "change-1",

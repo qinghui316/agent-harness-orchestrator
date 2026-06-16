@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-16T03:43:36.9430711Z",
+    "generated_at":  "2026-06-16T04:26:15.0635551Z",
     "active":  [
 
                ],
@@ -885,6 +885,10 @@
                     {
                         "name":  "20260616-phase-10v-goal-loop-concrete-gate-readiness-preflight",
                         "path":  "harness/changes/archive/20260616-phase-10v-goal-loop-concrete-gate-readiness-preflight"
+                    },
+                    {
+                        "name":  "20260616-phase-10w-goal-loop-assisted-concrete-gate-confirmation",
+                        "path":  "harness/changes/archive/20260616-phase-10w-goal-loop-assisted-concrete-gate-confirmation"
                     }
                 ]
 }

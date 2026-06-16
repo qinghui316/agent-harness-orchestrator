@@ -1,3 +1,6 @@
+import { getActiveChanges } from "../../ecl/index.js";
+import { resolveProjectMemory } from "../../memory/resolver.js";
+import { assertGoalLoopAssistedConcreteGateConfirmation } from "../../workbench/actions/goal-loop-gate-confirmation.js";
 import { getWorkbenchSnapshot, type WorkbenchProjectInput } from "../../workbench/manager.js";
 import { revalidatedWorkflowActionSet, workflowActionScopesMatchStrict } from "../../workflow-actions/registry.js";
 import type { WorkbenchActionRequest } from "./types.js";
@@ -114,14 +117,36 @@ export async function assertCurrentWorkflowAction(input: WorkbenchProjectInput, 
     ...(nextAction.kind === "workflow-action" && nextAction.actionType ? [nextAction] : []),
     ...(taskQueueNextAction?.actionType ? [{ ...taskQueueNextAction, kind: "workflow-action" as const, changeId: body.changeId }] : []),
   ];
-  const matches = actions.some((action) => action.kind === "workflow-action"
+  const match = actions.find((action) => action.kind === "workflow-action"
     && action.actionType === body.actionType
     && (!action.changeId || action.changeId === body.changeId)
     && workflowActionScopesMatchStrict(action, body));
-  if (!matches) {
+  if (!match) {
     const error = new Error("Workflow action target is stale or no longer available.");
     error.name = "Conflict";
     throw error;
+  }
+  if (body.goalLoopGateReadinessPreflightId) {
+    if (!body.changeId || !input.project) {
+      const error = new Error("Workflow action target is stale or no longer available.");
+      error.name = "Conflict";
+      throw error;
+    }
+    const memory = await resolveProjectMemory(input.project);
+    const active = await getActiveChanges(memory);
+    const target = active.find((item) => item.name === body.changeId);
+    if (!target) {
+      const error = new Error("Workflow action target is stale or no longer available.");
+      error.name = "Conflict";
+      throw error;
+    }
+    try {
+      await assertGoalLoopAssistedConcreteGateConfirmation(memory, target.path, body.changeId, body, { visibleGate: match });
+    } catch (cause) {
+      const error = new Error(cause instanceof Error ? cause.message : "Workflow action target is stale or no longer available.");
+      error.name = "Conflict";
+      throw error;
+    }
   }
 }
 

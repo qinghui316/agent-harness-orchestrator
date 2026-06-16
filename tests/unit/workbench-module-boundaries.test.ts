@@ -763,6 +763,7 @@ describe("Workbench module boundaries", () => {
     const handler = readFileSync("src/workbench/actions/handlers/goal-loop.ts", "utf8");
     const confirmationQueue = readFileSync("src/workbench/projections/read-model/confirmation-queue.ts", "utf8");
     const confirmation = readFileSync("src/workbench/projections/read-model/confirmation/goal-loop.ts", "utf8");
+    const assistedConfirmation = readFileSync("src/workbench/actions/goal-loop-gate-confirmation.ts", "utf8");
     const parity = readFileSync("src/workbench/projections/read-model/goal-loop-parity.ts", "utf8");
     const projection = readFileSync("src/workbench/projections/read-model/goal-loop.ts", "utf8");
     expect(handlerIndex).toContain('from "./goal-loop.js"');
@@ -824,6 +825,13 @@ describe("Workbench module boundaries", () => {
     expect(confirmation).not.toContain("recommendedAction");
     expect(confirmation).not.toContain("GoalLoopNextStepPacket");
     expect(confirmation).not.toContain("planning.scheduler.");
+    expect(assistedConfirmation).toContain("assertGoalLoopAssistedConcreteGateConfirmation");
+    expect(assistedConfirmation).toContain("readLatestGoalLoopGateReadinessPreflight");
+    expect(assistedConfirmation).not.toContain("dispatchWorkbenchWorkflowAction");
+    expect(assistedConfirmation).not.toContain("executeWorkbenchAction");
+    expect(assistedConfirmation).not.toContain("src/server");
+    expect(assistedConfirmation).not.toContain("src/web");
+    expect(assistedConfirmation).not.toContain("src/cli");
     expect(parity).toContain("assessGoalLoopSummaryCurrentGateParity");
     expect(parity).not.toContain("compileGoalLoopDecision");
     expect(parity).not.toContain("compileGoalLoopEvaluation");

@@ -43,6 +43,7 @@ import {
 } from "../../workflow-actions/registry.js";
 import { readWorkflowRun } from "../../workflow-run/manager.js";
 import type { WorkbenchLiveSink, WorkbenchWorkflowActionRequest } from "../types.js";
+import { assertGoalLoopAssistedConcreteGateConfirmation } from "./goal-loop-gate-confirmation.js";
 import { readLatestPlanningBundle } from "./planning-bundle.js";
 
 const HIGH_IMPACT_WORKBENCH_ACTIONS = new Set(highImpactActions());
@@ -116,6 +117,12 @@ export async function auditHighImpactWorkflowAction(project: ManagedProject, cha
 }
 
 async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, changeId: string, request: WorkbenchWorkflowActionRequest): Promise<void> {
+  if (request.goalLoopGateReadinessPreflightId) {
+    const active = await getActiveChanges(memory);
+    const target = active.find((item) => item.name === changeId);
+    if (!target) throw new Error(`Goal Loop-assisted concrete gate target is stale or missing active Change: ${changeId}.`);
+    await assertGoalLoopAssistedConcreteGateConfirmation(memory, target.path, changeId, request);
+  }
   if (request.actionType === "planning.confirm-execution") {
     const active = await getActiveChanges(memory);
     const target = active.find((item) => item.name === changeId);

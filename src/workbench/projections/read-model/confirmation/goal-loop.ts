@@ -91,6 +91,26 @@ export function attachGoalLoopGateReadinessActions(
   });
 }
 
+export function attachGoalLoopAssistedConcreteGateActions(
+  items: WorkbenchConfirmationQueueItem[],
+  workpad: WorkbenchWorkpad,
+): WorkbenchConfirmationQueueItem[] {
+  const goalLoop = workpad.goalLoop;
+  const nextAction = workpad.nextAction;
+  if (!goalLoop?.gateReadinessPreflightId || nextAction.kind !== "workflow-action" || !nextAction.actionType) {
+    return items;
+  }
+  if (goalLoop.controllerVerdict !== "recommend-existing-gate" || goalLoop.controllerGateStatus !== "matches-current-gate") return items;
+  if (nextAction.changeId !== goalLoop.changeId) return items;
+  const assistedAction = goalLoopAssistedConcreteGateAction(workpad);
+  if (!assistedAction) return items;
+  return items.map((item) => {
+    const hasMatchingGate = item.actions.some((action) => action.kind === "workflow-action" && actionMatchesGoalLoopScope(item, action, workpad));
+    if (!hasMatchingGate || item.actions.some((action) => action.id === assistedAction.id)) return item;
+    return { ...item, actions: [...item.actions, assistedAction] };
+  });
+}
+
 function goalLoopFeedbackAction(workpad: WorkbenchWorkpad): WorkbenchDecisionAction | null {
   const goalLoop = workpad.goalLoop;
   const nextAction = workpad.nextAction;
@@ -108,6 +128,33 @@ function goalLoopFeedbackAction(workpad: WorkbenchWorkpad): WorkbenchDecisionAct
     goalLoopContinuationBriefId: goalLoop.id,
     goalLoopNextStepPacketId: goalLoop.goalLoopNextStepPacketId,
     artifact: goalLoop.nextStepPacketArtifact ?? goalLoop.artifact,
+  };
+}
+
+function goalLoopAssistedConcreteGateAction(workpad: WorkbenchWorkpad): WorkbenchDecisionAction | null {
+  const goalLoop = workpad.goalLoop;
+  const nextAction = workpad.nextAction;
+  const scope = readGoalLoopScope(goalLoop);
+  const expectedType = readGoalLoopActionType(goalLoop);
+  if (!goalLoop?.gateReadinessPreflightId || !nextAction.actionType || !expectedType || !scope) return null;
+  if (expectedType.startsWith("planning.goal-loop.")) return null;
+  if (nextAction.actionType !== expectedType) return null;
+  return {
+    ...scope,
+    id: `workflow:${expectedType}:goal-loop-assisted:${goalLoop.gateReadinessPreflightId}`,
+    label: "确认当前 gate（Goal Loop 已预检）",
+    kind: "workflow-action",
+    enabled: true,
+    requiresConfirmation: true,
+    changeId: goalLoop.changeId,
+    actionType: expectedType as WorkbenchDecisionAction["actionType"],
+    goalLoopDecisionId: goalLoop.goalLoopDecisionId,
+    goalLoopIterationId: goalLoop.goalLoopIterationId,
+    goalLoopContinuationBriefId: goalLoop.id,
+    goalLoopNextStepPacketId: goalLoop.goalLoopNextStepPacketId,
+    goalLoopControllerPolicyId: goalLoop.controllerPolicyId,
+    goalLoopGateReadinessPreflightId: goalLoop.gateReadinessPreflightId,
+    artifact: goalLoop.gateReadinessPreflightArtifact ?? goalLoop.controllerArtifact ?? goalLoop.nextStepPacketArtifact ?? goalLoop.artifact,
   };
 }
 

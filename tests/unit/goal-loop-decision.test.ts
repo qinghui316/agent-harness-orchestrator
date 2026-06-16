@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { buildGoalLoopMainAgentContextSection, compileGoalLoopControllerPolicy, compileGoalLoopDecision, compileGoalLoopEvaluation, compileGoalLoopGateReadinessPreflight, isGoalLoopNextStepPacketFresh, readLatestGoalLoopContinuationBrief, readLatestGoalLoopControllerPolicy, readLatestGoalLoopFeedback, readLatestGoalLoopGateReadinessPreflight, readLatestGoalLoopIteration, readLatestGoalLoopNextStepPacket, recordGoalLoopFeedback, stripGoalLoopControllerPolicyContext, writeGoalLoopNextStepPacket } from "../../src/goal-loop/manager.js";
+import { assertGoalLoopAssistedConcreteGateConfirmation } from "../../src/workbench/actions/goal-loop-gate-confirmation.js";
 import { assessGoalLoopSummaryCurrentGateParity } from "../../src/workbench/projections/read-model/goal-loop-parity.js";
 import { readLatestGoalLoopSummary } from "../../src/workbench/projections/read-model/goal-loop.js";
 import type { ResolvedMemory } from "../../src/types/index.js";
@@ -303,6 +304,50 @@ describe("GoalLoopDecision", () => {
       gateReadinessPreflightId: preflight.id,
       gateReadinessPreflightArtifact: expect.stringContaining("goal-loop-gate-readiness-preflights"),
     });
+  });
+
+  it("validates Goal Loop-assisted concrete gate confirmation without changing the concrete action path", async () => {
+    const { schedulerRun, workerStart } = await writeSchedulerEvidence({ withWorkerStart: true });
+    const result = await compileGoalLoopEvaluation(memory, changePath);
+    const currentGate = {
+      actionType: "planning.scheduler.worker.reconcile-result" as const,
+      scope: {
+        changeId,
+        schedulerRunId: schedulerRun.id,
+        schedulerWorkerStartId: workerStart!.id,
+      },
+    };
+    const policy = await compileGoalLoopControllerPolicy(memory, changePath, {
+      currentGate,
+      requireCurrentGateMatch: true,
+    });
+    const preflight = await compileGoalLoopGateReadinessPreflight(memory, changePath, {
+      goalLoopNextStepPacketId: result.goalLoopNextStepPacket.id,
+      goalLoopControllerPolicyId: policy.id,
+      currentGate,
+    });
+
+    await expect(assertGoalLoopAssistedConcreteGateConfirmation(memory, changePath, changeId, {
+      actionType: "planning.scheduler.worker.reconcile-result",
+      changeId,
+      schedulerRunId: schedulerRun.id,
+      schedulerWorkerStartId: workerStart!.id,
+      goalLoopGateReadinessPreflightId: preflight.id,
+    })).resolves.toBeUndefined();
+
+    await expect(assertGoalLoopAssistedConcreteGateConfirmation(memory, changePath, changeId, {
+      actionType: "planning.scheduler.worker.reconcile-result",
+      changeId,
+      schedulerRunId: schedulerRun.id,
+      schedulerWorkerStartId: "forged-worker-start",
+      goalLoopGateReadinessPreflightId: preflight.id,
+    })).rejects.toThrow("request scope mismatch");
+
+    await expect(assertGoalLoopAssistedConcreteGateConfirmation(memory, changePath, changeId, {
+      actionType: "planning.goal-loop.gate-readiness.prepare",
+      changeId,
+      goalLoopGateReadinessPreflightId: preflight.id,
+    })).rejects.toThrow("recursive Goal Loop actions");
   });
 
   it("rejects gate readiness preflight for stale or mismatched controller policy targets", async () => {
