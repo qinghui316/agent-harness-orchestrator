@@ -7,7 +7,7 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 - Current date: 2026-06-16.
 - Active change: none.
 - Pending Harness evolution: none.
-- Latest archived product change: Phase 10W Goal Loop Assisted Concrete Gate Confirmation, archived at `harness/changes/archive/20260616-phase-10w-goal-loop-assisted-concrete-gate-confirmation/summary.md`.
+- Latest archived product change: Phase 10X Goal Loop Accepted Artifact Freshness Boundary, archived at `harness/changes/archive/20260616-phase-10x-goal-loop-accepted-artifact-freshness-boundary/summary.md`.
 - Latest product/Harness docs change: Harness Self Evolution Slimming Rule Tuning, archived at `harness/changes/archive/20260615-harness-self-evolution-slimming-rule-tuning/summary.md`.
 - Latest Harness evolution: `harness/changes/archive/20260616-auto-evolve-harness-phase-10r-10v-goal-loop-gate-evidence/summary.md`.
 
@@ -114,7 +114,7 @@ Demand conversations are the primary user-facing work surface. Workpad, Topic, T
 
 Human confirmation remains required before high-impact canonical transitions such as source apply/merge, close/archive, remote landing, and Harness evolution apply. Agent audit, merge review, and Goal Loop recommendations are evidence, not final authority.
 
-Current Goal Loop evidence is non-executing. Controller policy, next-step packets, prompt context, feedback evidence, and gate-readiness preflight may explain, check, or recommend existing Harness gates, but they must not execute actions, mutate source, bypass ToolPolicyGate/human gates, or become workflow truth. A preflight id may attach to the matching concrete action as evidence only; the concrete action type and handler path remain the executable gate.
+Current Goal Loop evidence is non-executing. Controller policy, next-step packets, prompt context, feedback evidence, and gate-readiness preflight may explain, check, or recommend existing Harness gates, but they must not execute actions, mutate source, bypass ToolPolicyGate/human gates, or become workflow truth. A preflight id may attach to the matching concrete action as evidence only; the concrete action type and handler path remain the executable gate. Accepted Spec/Plan/Tasks/AC artifact hash drift makes Goal Loop guidance stale until fresh evidence is recorded.
 
 Scheduler and parallel-work artifacts remain bounded. First/next worker gates, validation/audit/rework, integration handoff/outcome, and SchedulerRun completion evidence do not authorize whole-wave dispatch, scheduler loops, slot allocators, child Changes, automatic apply/merge, or a full parallel executor unless a later phase explicitly implements those paths.
 

@@ -65,6 +65,100 @@ describe("GoalLoopDecision", () => {
     expect(decision.executionStarted).toBe(false);
   });
 
+  it("anchors Goal Loop freshness to accepted artifact content hashes", async () => {
+    const result = await compileGoalLoopEvaluation(memory, changePath);
+
+    expect(result.goalLoopDecision.sourceEvidenceRefs).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: "AcceptedChangeArtifact",
+        id: "spec.md",
+        artifact: `${changePath}/spec.md`,
+        hash: expect.any(String),
+      }),
+      expect.objectContaining({
+        kind: "AcceptedChangeArtifact",
+        id: "plan.md",
+        artifact: `${changePath}/plan.md`,
+        hash: expect.any(String),
+      }),
+      expect.objectContaining({
+        kind: "AcceptedChangeArtifact",
+        id: "tasks.md",
+        artifact: `${changePath}/tasks.md`,
+        hash: expect.any(String),
+      }),
+      expect.objectContaining({
+        kind: "AcceptedChangeArtifact",
+        id: "ac-map.json",
+        artifact: `${changePath}/ac-map.json`,
+        hash: expect.any(String),
+      }),
+    ]));
+    await expect(isGoalLoopNextStepPacketFresh(memory, changePath, result.goalLoopNextStepPacket)).resolves.toBe(true);
+  });
+
+  it("stales Goal Loop guidance and assisted concrete gate when accepted artifacts drift", async () => {
+    const result = await compileGoalLoopEvaluation(memory, changePath);
+    const currentGate = {
+      actionType: "planning.scheduler.plan.prepare" as const,
+      scope: { changeId },
+    };
+    const policy = await compileGoalLoopControllerPolicy(memory, changePath, {
+      currentGate,
+      requireCurrentGateMatch: true,
+    });
+    const preflight = await compileGoalLoopGateReadinessPreflight(memory, changePath, {
+      goalLoopNextStepPacketId: result.goalLoopNextStepPacket.id,
+      goalLoopControllerPolicyId: policy.id,
+      currentGate,
+    });
+
+    await writeFile(join(memory.memoryRoot, changePath, "spec.md"), "# Spec\n\nChanged accepted scope.\n", "utf8");
+
+    await expect(isGoalLoopNextStepPacketFresh(memory, changePath, result.goalLoopNextStepPacket)).resolves.toBe(false);
+    await expect(readLatestGoalLoopSummary(memory, changePath)).resolves.toBeNull();
+    await expect(buildGoalLoopMainAgentContextSection(memory, changePath, changeId)).resolves.toBeNull();
+    await expect(assertGoalLoopAssistedConcreteGateConfirmation(memory, changePath, changeId, {
+      actionType: "planning.scheduler.plan.prepare",
+      changeId,
+      goalLoopGateReadinessPreflightId: preflight.id,
+    })).rejects.toThrow("packet is stale");
+  });
+
+  it("rejects gate readiness preflight after accepted artifact drift", async () => {
+    const result = await compileGoalLoopEvaluation(memory, changePath);
+    const currentGate = {
+      actionType: "planning.scheduler.plan.prepare" as const,
+      scope: { changeId },
+    };
+    const policy = await compileGoalLoopControllerPolicy(memory, changePath, {
+      currentGate,
+      requireCurrentGateMatch: true,
+    });
+
+    await writeFile(join(memory.memoryRoot, changePath, "plan.md"), "# Plan\n\nChanged accepted plan.\n", "utf8");
+
+    await expect(compileGoalLoopGateReadinessPreflight(memory, changePath, {
+      goalLoopNextStepPacketId: result.goalLoopNextStepPacket.id,
+      goalLoopControllerPolicyId: policy.id,
+      currentGate,
+    })).rejects.toThrow("packet is stale");
+  });
+
+  it("does not stale Goal Loop packets when only ac-map generatedAt changes", async () => {
+    const result = await compileGoalLoopEvaluation(memory, changePath);
+
+    await writeJson(join(memory.memoryRoot, changePath, "ac-map.json"), {
+      generatedAt: "2026-06-16T00:00:00.000Z",
+      items: [],
+    });
+
+    await expect(isGoalLoopNextStepPacketFresh(memory, changePath, result.goalLoopNextStepPacket)).resolves.toBe(true);
+    await expect(readLatestGoalLoopSummary(memory, changePath)).resolves.toMatchObject({
+      goalLoopNextStepPacketId: result.goalLoopNextStepPacket.id,
+    });
+  });
+
   it("recommends current worker result reconcile after a worker start exists", async () => {
     const { schedulerRun, workerStart } = await writeSchedulerEvidence({ withWorkerStart: true });
 

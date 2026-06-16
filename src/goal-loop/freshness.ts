@@ -66,6 +66,7 @@ function normalizedSourceEvidenceRefs(refs: GoalLoopSourceEvidenceRef[]): string
     id: ref.id ?? "",
     status: ref.status ?? "",
     artifact: ref.artifact ?? "",
+    hash: ref.hash ?? "",
     summary: ref.summary,
   })));
 }

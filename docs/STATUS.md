@@ -5,7 +5,7 @@
 - Current date: 2026-06-16.
 - Active ECL change: none.
 - Pending Harness evolution: none.
-- Latest archived product change: `harness/changes/archive/20260616-phase-10w-goal-loop-assisted-concrete-gate-confirmation/summary.md`.
+- Latest archived product change: `harness/changes/archive/20260616-phase-10x-goal-loop-accepted-artifact-freshness-boundary/summary.md`.
 - Latest archived product/Harness docs change: `harness/changes/archive/20260615-harness-self-evolution-slimming-rule-tuning/summary.md`.
 - Latest archived Harness evolution: `harness/changes/archive/20260616-auto-evolve-harness-phase-10r-10v-goal-loop-gate-evidence/summary.md`.
 - Active product phase: none. Active Harness evolution phase: none.
@@ -21,6 +21,12 @@ Current plan-level roadmap context is preserved in `docs/CURRENT-DEVELOPMENT-PLA
 Archived at `harness/changes/archive/20260616-phase-10w-goal-loop-assisted-concrete-gate-confirmation/summary.md`.
 
 Phase 10W connects `GoalLoopGateReadinessPreflight` to the concrete Workbench confirmation path without adding a Goal Loop wrapper executor. Matching concrete actions can carry `goalLoopGateReadinessPreflightId` as additional evidence, while the concrete action type remains the stale-target, ToolPolicyGate, handler, decision/audit, and human-gated transition path.
+
+### Phase 10X Goal Loop Accepted Artifact Freshness Boundary
+
+Archived at `harness/changes/archive/20260616-phase-10x-goal-loop-accepted-artifact-freshness-boundary/summary.md`.
+
+Phase 10X makes accepted `spec.md`, `plan.md`, `tasks.md`, and `ac-map.json` content hashes part of Goal Loop source evidence. If those accepted artifacts drift, stale Goal Loop packet, Workpad summary, main-Agent context, controller/preflight lineage, and assisted concrete gate confirmation must fail closed until fresh Goal Loop evidence is recorded. The phase adds no runtime action, source mutation, scheduler execution, apply, close, merge, or child Change behavior.
 
 ### Auto Evolve Harness Phase 10R-10V Goal Loop Gate Evidence
 
@@ -80,6 +86,7 @@ The pending Phase 10P-10T Goal Loop controller/feedback/context/prompt evidence 
 - Goal Loop evidence is non-executing. GoalLoopDecision, GoalLoopIteration, continuation brief, next-step packet, feedback evidence, controller policy, and gate-readiness preflight can explain continuation posture or recommend existing Harness gates, but cannot execute, mutate source, bypass ToolPolicyGate/human gates, or become workflow truth.
 - Phase 10V adds non-executing Goal Loop gate-readiness preflight evidence for a fresh packet / controller policy / current concrete gate match. It can record that the concrete gate is ready to present, but it cannot invoke the gate, authorize ToolPolicy, start workers, mutate source, or replace the separate human-gated confirmation.
 - Phase 10W allows a matching concrete confirmation to carry the preflight id as evidence. The executable path remains the concrete action and its existing stale revalidation, ToolPolicyGate, handler, decision/audit, and human gate.
+- Phase 10X anchors Goal Loop freshness to accepted Spec/Plan/Tasks/AC artifact hashes. Accepted artifact drift suppresses stale Goal Loop guidance and assisted gate evidence until refreshed, but does not create a new executable path.
 - Scheduler runtime remains staged and bounded. Existing scheduler worker/result/validation/audit/rework/integration/completion gates do not authorize scheduler loops, whole-wave dispatch, slot allocation, automatic child Changes, automatic apply/merge, or a full parallel executor.
 - Documentation entropy is now an explicit Harness concern: `AGENTS.md` is the routing map, `docs/STATUS.md` is the short handoff, `docs/ECL.md` owns reusable process rules, and archived summaries / `harness/changes/INDEX.json` own history.
 

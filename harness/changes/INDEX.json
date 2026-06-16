@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-16T04:26:15.0635551Z",
+    "generated_at":  "2026-06-16T09:18:24.7958773Z",
     "active":  [
 
                ],
@@ -889,6 +889,10 @@
                     {
                         "name":  "20260616-phase-10w-goal-loop-assisted-concrete-gate-confirmation",
                         "path":  "harness/changes/archive/20260616-phase-10w-goal-loop-assisted-concrete-gate-confirmation"
+                    },
+                    {
+                        "name":  "20260616-phase-10x-goal-loop-accepted-artifact-freshness-boundary",
+                        "path":  "harness/changes/archive/20260616-phase-10x-goal-loop-accepted-artifact-freshness-boundary"
                     }
                 ]
 }

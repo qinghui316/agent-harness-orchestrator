@@ -26,6 +26,7 @@ export interface GoalLoopSourceEvidenceRef {
   id?: string;
   status?: string;
   artifact?: string;
+  hash?: string;
   summary: string;
 }
 

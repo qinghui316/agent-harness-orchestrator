@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { shortHash } from "../fs/path.js";
 import type { ResolvedMemory } from "../types/index.js";
 import { readChangePathChangeId } from "../workflow-artifacts/guards.js";
+import { hashArtifactRefs } from "../workflow-artifacts/hashes.js";
 import { readLatestDecompositionPlan } from "../workflow-artifacts/decomposition-plan.js";
 import { readLatestDecompositionReadinessManifest } from "../workflow-artifacts/readiness-manifest.js";
 import { validateWorkflowActionRequiredTargets, type WorkflowActionType } from "../workflow-actions/registry.js";
@@ -106,6 +107,8 @@ interface EvidenceSnapshot {
   runCompletion?: SchedulerRunCompletion | null;
   runCloseout?: SchedulerRunBlockedCloseout | null;
 }
+
+const ACCEPTED_ARTIFACT_FILES = ["spec.md", "plan.md", "tasks.md", "ac-map.json"] as const;
 
 interface GoalLoopSchedulerWorkerPath {
   start: SchedulerRuntimeWorkerStart;
@@ -371,7 +374,21 @@ async function readEvidenceSnapshot(memory: ResolvedMemory, changePath: string):
     status: "active",
     summary: "Selected Change metadata defines the canonical Goal/Change scope.",
   }];
+  const acceptedArtifactRefs = acceptedChangeArtifactRefs(changePath);
   const planningComplete = hasPlanningArtifacts(memory, changePath);
+  if (planningComplete) {
+    const acceptedArtifactHashes = await hashArtifactRefs(memory, acceptedArtifactRefs);
+    for (const ref of acceptedArtifactRefs) {
+      sourceEvidenceRefs.push({
+        kind: "AcceptedChangeArtifact",
+        id: ref.slice(ref.lastIndexOf("/") + 1),
+        status: "accepted",
+        artifact: ref,
+        hash: acceptedArtifactHashes[ref],
+        summary: `${ref.slice(ref.lastIndexOf("/") + 1)} content hash anchors Goal Loop freshness.`,
+      });
+    }
+  }
   const latestFeedback = await readOptional(() => readLatestGoalLoopFeedback(memory, changePath));
   if (latestFeedback) {
     sourceEvidenceRefs.push({
@@ -984,7 +1001,12 @@ function defaultForbiddenActions(): GoalLoopForbiddenAction[] {
 
 function hasPlanningArtifacts(memory: ResolvedMemory, changePath: string): boolean {
   const root = join(memory.memoryRoot, changePath);
-  return ["spec.md", "plan.md", "tasks.md", "ac-map.json"].every((file) => existsSync(join(root, file)));
+  return ACCEPTED_ARTIFACT_FILES.every((file) => existsSync(join(root, file)));
+}
+
+function acceptedChangeArtifactRefs(changePath: string): string[] {
+  const normalizedChangePath = changePath.replace(/\\/g, "/");
+  return ACCEPTED_ARTIFACT_FILES.map((file) => `${normalizedChangePath}/${file}`);
 }
 
 async function readOptional<T>(reader: () => Promise<T>): Promise<T | null> {

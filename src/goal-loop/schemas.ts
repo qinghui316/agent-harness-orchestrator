@@ -7,6 +7,7 @@ const sourceEvidenceRefSchema = z.object({
   id: z.string().optional(),
   status: z.string().optional(),
   artifact: z.string().optional(),
+  hash: z.string().optional(),
   summary: z.string(),
 });
 

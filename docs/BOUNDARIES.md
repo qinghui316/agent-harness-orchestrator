@@ -311,6 +311,8 @@ Phase 10V adds the Goal Loop gate-readiness preflight boundary. `src/goal-loop/`
 
 Phase 10W adds the Goal Loop-assisted concrete gate confirmation boundary. A preflight id may be attached only to the matching concrete Workbench action. The concrete action type remains the executable transition, ToolPolicy target, stale revalidation target, and handler path. `src/workbench/actions/goal-loop-gate-confirmation.ts` owns assisted confirmation guard logic; server/action/projection modules may only call it or pass payload fields. Goal Loop modules and handlers must not dispatch concrete actions, and no `planning.goal-loop.*` wrapper action may invoke a concrete Harness gate.
 
+Phase 10X adds the Goal Loop accepted-artifact freshness boundary. `src/goal-loop/` owns accepted artifact hash evidence for `spec.md`, `plan.md`, `tasks.md`, and `ac-map.json`, and owns packet freshness comparison against those hashes. Workbench, prompt-context, controller, preflight, and assisted gate modules may call the freshness helper, but must not reimplement hash policy, treat stale packets as current guidance, or use accepted artifact hashes as execution authority. The boundary remains evidence-only and does not add source mutation, scheduler execution, apply/close/merge, or child Change behavior.
+
 ## 7. Memory Unavailable Boundary
 
 Memory can be unavailable on a new machine, after a plain repository clone, when AHO home was not synced, when permissions are missing, or when a future remote memory service is offline.
