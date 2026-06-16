@@ -715,6 +715,7 @@ export interface WorkbenchGoalLoopSummary {
   humanGateRequired: boolean;
   conflictLevel: string;
   parallelEligible: boolean;
+  conflictReasons: string[];
   completionStatus: string;
   resumePreconditionCount: number;
   revalidationChecklistCount?: number;

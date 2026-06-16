@@ -248,7 +248,9 @@ describe("GoalLoopDecision", () => {
       goalLoopNextStepPacketId: result.goalLoopNextStepPacket.id,
       conflictLevel: "low",
       parallelEligible: true,
+      conflictReasons: result.goalLoopContinuationBrief.conflictAssessment.reasons,
     });
+    expect(summary?.conflictReasons.join("\n")).toContain("planning.scheduler.worker.start-first");
   });
 
   it("records first and second goal loop iterations with previous lineage", async () => {
