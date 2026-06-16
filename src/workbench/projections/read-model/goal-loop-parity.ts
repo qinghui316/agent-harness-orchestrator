@@ -1,10 +1,13 @@
+import { buildGoalLoopCloseGateHandoffFromState, isGoalLoopCloseGateHandoffReadyState } from "../../../goal-loop/manager.js";
 import type { WorkbenchGoalLoopSummary, WorkpadNextAction } from "../../read-model-types.js";
 
 type ScopeValue = string | string[] | undefined;
 
 export type GoalLoopGateParityStatus =
   | "matches-current-gate"
+  | "matches-close-gate"
   | "no-recommended-action"
+  | "missing-close-gate"
   | "missing-scope"
   | "wrong-gate-kind"
   | "action-type-mismatch"
@@ -21,6 +24,9 @@ export function assessGoalLoopSummaryCurrentGateParity(
   summary: WorkbenchGoalLoopSummary,
   nextAction: WorkpadNextAction,
 ): GoalLoopGateParityResult {
+  if (isCloseReadySummary(summary)) {
+    return assessCloseGateParity(summary, nextAction);
+  }
   if (!summary.recommendedActionType) return { visible: true, status: "no-recommended-action" };
   if (!summary.recommendedActionScope) return { visible: false, status: "missing-scope" };
   if (nextAction.kind !== "workflow-action" || !nextAction.enabled || !nextAction.requiresConfirmation) {
@@ -54,7 +60,50 @@ export function filterGoalLoopSummaryForCurrentGate(
   nextAction: WorkpadNextAction,
 ): WorkbenchGoalLoopSummary | null {
   if (!summary) return null;
-  return assessGoalLoopSummaryCurrentGateParity(summary, nextAction).visible ? summary : null;
+  const parity = assessGoalLoopSummaryCurrentGateParity(summary, nextAction);
+  if (!parity.visible) return null;
+  if (parity.status !== "matches-close-gate") return summary;
+  const closeGateHandoff = buildGoalLoopCloseGateHandoffFromState(closeHandoffStateFromSummary(summary), {
+    changeId: summary.changeId,
+    closeApprovalId: nextAction.approvalId ?? "",
+  });
+  if (!closeGateHandoff) return null;
+  return { ...summary, closeGateHandoff };
+}
+
+function isCloseReadySummary(summary: WorkbenchGoalLoopSummary): boolean {
+  return isGoalLoopCloseGateHandoffReadyState(closeHandoffStateFromSummary(summary));
+}
+
+function assessCloseGateParity(
+  summary: WorkbenchGoalLoopSummary,
+  nextAction: WorkpadNextAction,
+): GoalLoopGateParityResult {
+  if (nextAction.kind !== "approval" || !nextAction.enabled || !nextAction.requiresConfirmation) {
+    return { visible: false, status: "missing-close-gate" };
+  }
+  if (nextAction.changeId && nextAction.changeId !== summary.changeId) {
+    return { visible: false, status: "change-id-mismatch", mismatchedKey: "changeId" };
+  }
+  const handoff = buildGoalLoopCloseGateHandoffFromState(closeHandoffStateFromSummary(summary), {
+    changeId: summary.changeId,
+    closeApprovalId: nextAction.approvalId ?? "",
+  });
+  if (!handoff) {
+    return { visible: false, status: "missing-close-gate", mismatchedKey: "approvalId" };
+  }
+  return { visible: true, status: "matches-close-gate" };
+}
+
+function closeHandoffStateFromSummary(summary: WorkbenchGoalLoopSummary) {
+  return {
+    changeId: summary.changeId,
+    goalLoopNextStepPacketId: summary.goalLoopNextStepPacketId ?? "",
+    recommendationState: summary.recommendationState,
+    continuationState: summary.continuationState,
+    hasRecommendedAction: Boolean(summary.recommendedActionType),
+    executionStarted: summary.executionStarted,
+  };
 }
 
 function readNextActionScopeValue(nextAction: WorkpadNextAction, key: string): ScopeValue {

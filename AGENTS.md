@@ -7,7 +7,7 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 - Current date: 2026-06-16.
 - Active change: none.
 - Pending Harness evolution: none.
-- Latest archived product change: Phase 10X Goal Loop Accepted Artifact Freshness Boundary, archived at `harness/changes/archive/20260616-phase-10x-goal-loop-accepted-artifact-freshness-boundary/summary.md`.
+- Latest archived product change: Phase 10Y Goal Loop Human Close Gate Handoff Boundary, archived at `harness/changes/archive/20260616-phase-10y-goal-loop-human-close-gate-handoff-boundary/summary.md`.
 - Latest product/Harness docs change: Harness Self Evolution Slimming Rule Tuning, archived at `harness/changes/archive/20260615-harness-self-evolution-slimming-rule-tuning/summary.md`.
 - Latest Harness evolution: `harness/changes/archive/20260616-auto-evolve-harness-phase-10r-10v-goal-loop-gate-evidence/summary.md`.
 
@@ -30,7 +30,7 @@ Archive history is loaded selectively through `docs/STATUS.md` paths or `harness
 | --- | --- |
 | `docs/PRODUCT.md` | Product requirements, MVP boundaries, and final product shape |
 | `docs/AGENT-DEVELOPMENT-OS.md` | End-to-end product loop and staged roadmap |
-| `docs/CURRENT-DEVELOPMENT-PLAN.md` | Current development plan and post-Phase-10T roadmap context |
+| `docs/CURRENT-DEVELOPMENT-PLAN.md` | Current development plan and post-Phase-10Y roadmap context |
 | `docs/ARCHITECTURE.md` | Architecture layers and major decisions |
 | `docs/RUNTIME.md` | Runtime objects, facts, projections, and derived views |
 | `docs/WORKBENCH.md` | Workbench information architecture and user interaction model |
@@ -114,7 +114,7 @@ Demand conversations are the primary user-facing work surface. Workpad, Topic, T
 
 Human confirmation remains required before high-impact canonical transitions such as source apply/merge, close/archive, remote landing, and Harness evolution apply. Agent audit, merge review, and Goal Loop recommendations are evidence, not final authority.
 
-Current Goal Loop evidence is non-executing. Controller policy, next-step packets, prompt context, feedback evidence, and gate-readiness preflight may explain, check, or recommend existing Harness gates, but they must not execute actions, mutate source, bypass ToolPolicyGate/human gates, or become workflow truth. A preflight id may attach to the matching concrete action as evidence only; the concrete action type and handler path remain the executable gate. Accepted Spec/Plan/Tasks/AC artifact hash drift makes Goal Loop guidance stale until fresh evidence is recorded.
+Current Goal Loop evidence is non-executing. Controller policy, next-step packets, prompt context, feedback evidence, gate-readiness preflight, and close-gate handoff metadata may explain, check, or recommend existing Harness gates, but they must not execute actions, mutate source, bypass ToolPolicyGate/human gates, or become workflow truth. A preflight id may attach to the matching concrete action as evidence only; close-gate handoff may attach to the existing `change.close` approval as derived context only. Accepted Spec/Plan/Tasks/AC artifact hash drift makes Goal Loop guidance stale until fresh evidence is recorded.
 
 Scheduler and parallel-work artifacts remain bounded. First/next worker gates, validation/audit/rework, integration handoff/outcome, and SchedulerRun completion evidence do not authorize whole-wave dispatch, scheduler loops, slot allocators, child Changes, automatic apply/merge, or a full parallel executor unless a later phase explicitly implements those paths.
 

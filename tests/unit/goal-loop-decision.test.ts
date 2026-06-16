@@ -2,17 +2,21 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { getChangeStatusForChange } from "../../src/change/manager.js";
 import { buildGoalLoopMainAgentContextSection, compileGoalLoopControllerPolicy, compileGoalLoopDecision, compileGoalLoopEvaluation, compileGoalLoopGateReadinessPreflight, isGoalLoopNextStepPacketFresh, readLatestGoalLoopContinuationBrief, readLatestGoalLoopControllerPolicy, readLatestGoalLoopFeedback, readLatestGoalLoopGateReadinessPreflight, readLatestGoalLoopIteration, readLatestGoalLoopNextStepPacket, recordGoalLoopFeedback, stripGoalLoopControllerPolicyContext, writeGoalLoopNextStepPacket } from "../../src/goal-loop/manager.js";
 import { assertGoalLoopAssistedConcreteGateConfirmation } from "../../src/workbench/actions/goal-loop-gate-confirmation.js";
-import { assessGoalLoopSummaryCurrentGateParity } from "../../src/workbench/projections/read-model/goal-loop-parity.js";
+import { buildVisibleGoalLoopMainAgentContextSection } from "../../src/workbench/codex-chat/goal-loop-context.js";
+import { getWorkbenchWorkpadProjection } from "../../src/workbench/projections/read-model/implementation.js";
+import { assessGoalLoopSummaryCurrentGateParity, filterGoalLoopSummaryForCurrentGate } from "../../src/workbench/projections/read-model/goal-loop-parity.js";
 import { readLatestGoalLoopSummary } from "../../src/workbench/projections/read-model/goal-loop.js";
-import type { ResolvedMemory } from "../../src/types/index.js";
+import type { ManagedProject, ResolvedMemory } from "../../src/types/index.js";
 import { schedulerRunArtifactRefs, writeSchedulerRun } from "../../src/workflow-scheduler/repository.js";
 import type { SchedulerRun } from "../../src/workflow-scheduler/types.js";
 import {
   schedulerClaimReservationArtifactRefs,
   schedulerIntegrationCandidateArtifactRefs,
   schedulerIntegrationOutcomeArtifactRefs,
+  schedulerRunCompletionArtifactRefs,
   schedulerRuntimeArtifactRefs,
   schedulerWorkerAuditArtifactRefs,
   schedulerWorkerResultArtifactRefs,
@@ -23,6 +27,7 @@ import {
   schedulerWorkerValidationArtifactRefs,
   writeSchedulerIntegrationCandidate,
   writeSchedulerIntegrationOutcome,
+  writeSchedulerRunCompletion,
   writeSchedulerRuntimeClaimReservation,
   writeSchedulerRuntimeState,
   writeSchedulerRuntimeWorkerAudit,
@@ -33,19 +38,39 @@ import {
   writeSchedulerRuntimeWorkerStart,
   writeSchedulerRuntimeWorkerValidation,
 } from "../../src/scheduler-runtime/repository.js";
-import type { SchedulerIntegrationCandidate, SchedulerIntegrationOutcome, SchedulerRuntimeClaimReservation, SchedulerRuntimeState, SchedulerRuntimeWorkerAudit, SchedulerRuntimeWorkerResult, SchedulerRuntimeWorkerReworkPlan, SchedulerRuntimeWorkerReworkResult, SchedulerRuntimeWorkerReworkStart, SchedulerRuntimeWorkerStart, SchedulerRuntimeWorkerValidation } from "../../src/scheduler-runtime/types.js";
+import type { SchedulerIntegrationCandidate, SchedulerIntegrationOutcome, SchedulerRunCompletion, SchedulerRuntimeClaimReservation, SchedulerRuntimeState, SchedulerRuntimeWorkerAudit, SchedulerRuntimeWorkerResult, SchedulerRuntimeWorkerReworkPlan, SchedulerRuntimeWorkerReworkResult, SchedulerRuntimeWorkerReworkStart, SchedulerRuntimeWorkerStart, SchedulerRuntimeWorkerValidation } from "../../src/scheduler-runtime/types.js";
 
 let tempDir: string;
 let memory: ResolvedMemory;
 const changeId = "phase-goal-loop";
 const changePath = `harness/changes/active/${changeId}`;
 
+function project(): ManagedProject {
+  return {
+    id: "repo",
+    name: "Repo",
+    path: tempDir,
+    addedAt: "2026-06-14T00:00:00.000Z",
+    lastSeenAt: "2026-06-14T00:00:00.000Z",
+  };
+}
+
 beforeEach(async () => {
   tempDir = await mkdtemp(join(tmpdir(), "aho-goal-loop-"));
   memory = buildMemory(tempDir);
   await mkdir(join(memory.memoryRoot, changePath), { recursive: true });
-  await writeJson(join(memory.memoryRoot, changePath, "change.json"), { id: changeId, state: "active", title: "Goal loop" });
-  await writeFile(join(memory.memoryRoot, changePath, "spec.md"), "# Spec\n", "utf8");
+  await writeJson(join(memory.memoryRoot, changePath, "change.json"), {
+    version: "1.0",
+    id: changeId,
+    state: "active",
+    title: "Goal loop",
+    createdAt: "2026-06-14T00:00:00.000Z",
+    updatedAt: "2026-06-14T00:00:00.000Z",
+    closedAt: null,
+    archivePath: null,
+  });
+  await writeFile(join(memory.memoryRoot, changePath, "summary.md"), "# Summary\n\nReady.\n", "utf8");
+  await writeFile(join(memory.memoryRoot, changePath, "spec.md"), "# Spec\n\n- AC-001: Goal loop close handoff works.\n", "utf8");
   await writeFile(join(memory.memoryRoot, changePath, "plan.md"), "# Plan\n", "utf8");
   await writeFile(join(memory.memoryRoot, changePath, "tasks.md"), "# Tasks\n", "utf8");
   await writeJson(join(memory.memoryRoot, changePath, "ac-map.json"), { generatedAt: "2026-06-14T00:00:00.000Z", items: [] });
@@ -756,6 +781,142 @@ describe("GoalLoopDecision", () => {
         schedulerIntegrationOutcomeId: outcome.id,
       },
     });
+  });
+
+  it("attaches close-ready Goal Loop evidence only to the existing matching close approval", async () => {
+    const { schedulerRun, reservation } = await writeSchedulerEvidence({ withWorkerStart: false });
+    const candidate = await writeIntegrationCandidate(schedulerRun, reservation, { readyCount: 2, outputClaimIntentIds: ["claim-1", "claim-2"] });
+    const outcome = await writeIntegrationOutcome(schedulerRun, reservation, candidate);
+    await writeRunCompletion(schedulerRun, reservation, candidate, outcome);
+    const result = await compileGoalLoopEvaluation(memory, changePath);
+    const summary = await readLatestGoalLoopSummary(memory, changePath);
+
+    expect(result.goalLoopDecision).toMatchObject({
+      decisionKind: "completed-ready-for-human-close-gate",
+      recommendedAction: undefined,
+      executionStarted: false,
+    });
+    expect(result.goalLoopNextStepPacket).toMatchObject({
+      recommendationState: "ready-for-human-close-gate",
+      continuationState: "ready-for-human-close-gate",
+      separateGateRequired: true,
+      humanGateRequired: true,
+      executionStarted: false,
+    });
+    expect(result.goalLoopNextStepPacket.recommendedAction).toBeUndefined();
+    expect(assessGoalLoopSummaryCurrentGateParity(summary!, {
+      id: `approval:close:${changeId}`,
+      label: "Close change",
+      description: "Existing close approval.",
+      kind: "approval",
+      enabled: true,
+      requiresConfirmation: true,
+      approvalId: `close:${changeId}`,
+    })).toMatchObject({ visible: true, status: "matches-close-gate" });
+    expect(filterGoalLoopSummaryForCurrentGate(summary, {
+      id: `approval:close:${changeId}`,
+      label: "Close change",
+      description: "Existing close approval.",
+      kind: "approval",
+      enabled: true,
+      requiresConfirmation: true,
+      approvalId: `close:${changeId}`,
+    })).toMatchObject({
+      closeGateHandoff: {
+        changeId,
+        closeActionId: "change.close",
+        closeApprovalId: `close:${changeId}`,
+        goalLoopNextStepPacketId: result.goalLoopNextStepPacket.id,
+        humanGateRequired: true,
+        executionStarted: false,
+      },
+    });
+    expect(filterGoalLoopSummaryForCurrentGate(summary, {
+      id: "wrong-gate",
+      label: "Prepare scheduler",
+      description: "Not the close approval.",
+      kind: "workflow-action",
+      enabled: true,
+      requiresConfirmation: true,
+      actionType: "planning.scheduler.plan.prepare",
+      changeId,
+    })).toBeNull();
+    expect(filterGoalLoopSummaryForCurrentGate(summary, {
+      id: "wrong-close",
+      label: "Close other change",
+      description: "Wrong close approval.",
+      kind: "approval",
+      enabled: true,
+      requiresConfirmation: true,
+      approvalId: "close:other-change",
+    })).toBeNull();
+  });
+
+  it("adds close-ready handoff to visible main-Agent context only through the existing close approval", async () => {
+    const { schedulerRun, reservation } = await writeSchedulerEvidence({ withWorkerStart: false });
+    const candidate = await writeIntegrationCandidate(schedulerRun, reservation, { readyCount: 2, outputClaimIntentIds: ["claim-1", "claim-2"] });
+    const outcome = await writeIntegrationOutcome(schedulerRun, reservation, candidate);
+    await writeRunCompletion(schedulerRun, reservation, candidate, outcome);
+
+    await mkdir(join(memory.memoryRoot, changePath, "reviews"), { recursive: true });
+    await writeFile(join(memory.memoryRoot, changePath, "reviews", "review.md"), "Status: approved\n", "utf8");
+    const status = await getChangeStatusForChange(project(), changeId);
+    expect(status.closeGate.ready).toBe(true);
+    const result = await compileGoalLoopEvaluation(memory, changePath);
+    const workpad = await getWorkbenchWorkpadProjection({ project: project(), path: tempDir }, changeId);
+    expect(workpad.nextAction).toMatchObject({
+      kind: "approval",
+      approvalId: `close:${changeId}`,
+    });
+    expect(workpad.goalLoop).toMatchObject({
+      goalLoopNextStepPacketId: result.goalLoopNextStepPacket.id,
+      closeGateHandoff: {
+        closeApprovalId: `close:${changeId}`,
+      },
+    });
+    const visible = await buildVisibleGoalLoopMainAgentContextSection(project(), memory, changePath, changeId);
+
+    expect(visible).toMatchObject({
+      goalLoopNextStepPacketId: result.goalLoopNextStepPacket.id,
+      closeGateHandoff: {
+        closeActionId: "change.close",
+        closeApprovalId: `close:${changeId}`,
+        humanGateRequired: true,
+        executionStarted: false,
+      },
+    });
+    expect(visible?.markdown).toContain("### Human Close Gate Handoff");
+    expect(visible?.markdown).toContain(`- Existing approval: close:${changeId}`);
+    expect(visible?.markdown).toContain("- Close action: change.close");
+    expect(visible?.markdown).toContain("existing human close gate");
+  });
+
+  it("suppresses close-ready handoff and main-Agent context after accepted artifact drift", async () => {
+    const { schedulerRun, reservation } = await writeSchedulerEvidence({ withWorkerStart: false });
+    const candidate = await writeIntegrationCandidate(schedulerRun, reservation, { readyCount: 2, outputClaimIntentIds: ["claim-1", "claim-2"] });
+    const outcome = await writeIntegrationOutcome(schedulerRun, reservation, candidate);
+    await writeRunCompletion(schedulerRun, reservation, candidate, outcome);
+
+    await mkdir(join(memory.memoryRoot, changePath, "reviews"), { recursive: true });
+    await writeFile(join(memory.memoryRoot, changePath, "reviews", "review.md"), "Status: approved\n", "utf8");
+    const status = await getChangeStatusForChange(project(), changeId);
+    expect(status.closeGate.ready).toBe(true);
+    const result = await compileGoalLoopEvaluation(memory, changePath);
+    const before = await getWorkbenchWorkpadProjection({ project: project(), path: tempDir }, changeId);
+    expect(before.goalLoop).toMatchObject({
+      goalLoopNextStepPacketId: result.goalLoopNextStepPacket.id,
+      closeGateHandoff: {
+        closeApprovalId: `close:${changeId}`,
+      },
+    });
+
+    await writeFile(join(memory.memoryRoot, changePath, "spec.md"), "# Spec\n\nAccepted scope changed.\n", "utf8");
+
+    await expect(isGoalLoopNextStepPacketFresh(memory, changePath, result.goalLoopNextStepPacket)).resolves.toBe(false);
+    await expect(readLatestGoalLoopSummary(memory, changePath)).resolves.toBeNull();
+    const after = await getWorkbenchWorkpadProjection({ project: project(), path: tempDir }, changeId);
+    expect(after.goalLoop).toBeUndefined();
+    await expect(buildVisibleGoalLoopMainAgentContextSection(project(), memory, changePath, changeId)).resolves.toBeNull();
   });
 
   it("renders latest next-step packet as main-Agent context and skips invalid lineage", async () => {
@@ -1480,6 +1641,53 @@ async function writeIntegrationOutcome(schedulerRun: SchedulerRun, reservation: 
   };
   await writeSchedulerIntegrationOutcome(memory, changePath, outcome);
   return outcome;
+}
+
+async function writeRunCompletion(
+  schedulerRun: SchedulerRun,
+  reservation: SchedulerRuntimeClaimReservation,
+  candidate: SchedulerIntegrationCandidate,
+  outcome: SchedulerIntegrationOutcome,
+): Promise<SchedulerRunCompletion> {
+  const refs = schedulerRunCompletionArtifactRefs(memory, changePath, schedulerRun.id, "completion-1");
+  const completion: SchedulerRunCompletion = {
+    version: "1.0",
+    id: "completion-1",
+    changeId,
+    schedulerRunId: schedulerRun.id,
+    schedulerMode: "parallel-readiness-v1",
+    status: "completed-applied",
+    schedulerRuntimeStateId: "runtime-state-1",
+    schedulerReconcileSnapshotId: "snapshot-1",
+    schedulerClaimReservationId: reservation.id,
+    schedulerIntegrationCandidateId: candidate.id,
+    schedulerIntegrationCheckHandoffId: outcome.schedulerIntegrationCheckHandoffId,
+    schedulerIntegrationOutcomeId: outcome.id,
+    schedulerContractId: schedulerRun.schedulerContractId,
+    schedulerDispatchDryRunId: schedulerRun.schedulerDispatchDryRunId,
+    schedulerWorkerPlanId: schedulerRun.schedulerWorkerPlanId,
+    schedulerClaimReconcilePlanId: schedulerRun.schedulerClaimReconcilePlanId,
+    schedulerLaunchPreflightId: schedulerRun.schedulerLaunchPreflightId,
+    integrationCheckId: outcome.integrationCheckId,
+    integrationCheckStatus: outcome.integrationCheckStatus,
+    outcomeStatus: outcome.status,
+    outcomeReason: outcome.outcomeReason,
+    readyWorktreeIds: outcome.readyWorktreeIds,
+    resultTargetWorktreeIds: outcome.resultTargetWorktreeIds,
+    sourceArtifactHashes: schedulerRun.sourceArtifactHashes,
+    artifactRefs: [refs.artifact],
+    artifact: refs.artifact,
+    markdownArtifact: refs.markdownArtifact,
+    createdAt: "2026-06-14T00:00:00.000Z",
+    updatedAt: "2026-06-14T00:00:00.000Z",
+  };
+  await writeSchedulerRunCompletion(memory, changePath, completion);
+  await writeSchedulerRun(memory, changePath, {
+    ...schedulerRun,
+    status: "completed",
+    updatedAt: completion.updatedAt,
+  });
+  return completion;
 }
 
 async function writeJson(path: string, value: unknown): Promise<void> {

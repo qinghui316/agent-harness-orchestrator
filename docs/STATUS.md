@@ -5,7 +5,7 @@
 - Current date: 2026-06-16.
 - Active ECL change: none.
 - Pending Harness evolution: none.
-- Latest archived product change: `harness/changes/archive/20260616-phase-10x-goal-loop-accepted-artifact-freshness-boundary/summary.md`.
+- Latest archived product change: `harness/changes/archive/20260616-phase-10y-goal-loop-human-close-gate-handoff-boundary/summary.md`.
 - Latest archived product/Harness docs change: `harness/changes/archive/20260615-harness-self-evolution-slimming-rule-tuning/summary.md`.
 - Latest archived Harness evolution: `harness/changes/archive/20260616-auto-evolve-harness-phase-10r-10v-goal-loop-gate-evidence/summary.md`.
 - Active product phase: none. Active Harness evolution phase: none.
@@ -15,6 +15,12 @@ This file is the short resume point. No active change is open. For full history,
 Current plan-level roadmap context is preserved in `docs/CURRENT-DEVELOPMENT-PLAN.md`.
 
 ## Recent Completed Work
+
+### Phase 10Y Goal Loop Human Close Gate Handoff Boundary
+
+Archived at `harness/changes/archive/20260616-phase-10y-goal-loop-human-close-gate-handoff-boundary/summary.md`.
+
+Phase 10Y adds derived Goal Loop close-gate handoff metadata for the existing `change.close` approval. It lets Workpad and main-Agent context explain that close is ready only when the fresh Goal Loop packet, accepted artifact hashes, selected Change, scheduler completion, and existing close approval match. It adds no Goal Loop close executor, `WorkflowActionType` close action, duplicate close approval, source mutation, scheduler loop, apply, merge, child Change, or archive bypass.
 
 ### Phase 10W Goal Loop Assisted Concrete Gate Confirmation
 
@@ -87,6 +93,7 @@ The pending Phase 10P-10T Goal Loop controller/feedback/context/prompt evidence 
 - Phase 10V adds non-executing Goal Loop gate-readiness preflight evidence for a fresh packet / controller policy / current concrete gate match. It can record that the concrete gate is ready to present, but it cannot invoke the gate, authorize ToolPolicy, start workers, mutate source, or replace the separate human-gated confirmation.
 - Phase 10W allows a matching concrete confirmation to carry the preflight id as evidence. The executable path remains the concrete action and its existing stale revalidation, ToolPolicyGate, handler, decision/audit, and human gate.
 - Phase 10X anchors Goal Loop freshness to accepted Spec/Plan/Tasks/AC artifact hashes. Accepted artifact drift suppresses stale Goal Loop guidance and assisted gate evidence until refreshed, but does not create a new executable path.
+- Phase 10Y allows close-ready Goal Loop evidence to attach derived handoff context to the existing `change.close` approval only while fresh and scoped. The close/archive transition remains the existing human gate.
 - Scheduler runtime remains staged and bounded. Existing scheduler worker/result/validation/audit/rework/integration/completion gates do not authorize scheduler loops, whole-wave dispatch, slot allocation, automatic child Changes, automatic apply/merge, or a full parallel executor.
 - Documentation entropy is now an explicit Harness concern: `AGENTS.md` is the routing map, `docs/STATUS.md` is the short handoff, `docs/ECL.md` owns reusable process rules, and archived summaries / `harness/changes/INDEX.json` own history.
 

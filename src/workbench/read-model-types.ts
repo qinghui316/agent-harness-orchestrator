@@ -3,6 +3,7 @@ import type { ClarificationRequest, WorkbenchIntakeIteration, WorkbenchIntakeSca
 import type { ParentAgentTranscript } from "./parent-agent-transcript.js";
 import type { WorkbenchArtifactPreview } from "./artifact-types.js";
 import type { WorkbenchThreadActionType } from "../workflow-actions/registry.js";
+import type { GoalLoopCloseGateHandoff } from "../goal-loop/close-handoff.js";
 import type {
   AcMap,
   ChangeMetadata,
@@ -732,6 +733,7 @@ export interface WorkbenchGoalLoopSummary {
   gateReadinessPreflightId?: string;
   gateReadinessPreflightArtifact?: string;
   gateReadinessPreflightMarkdownArtifact?: string;
+  closeGateHandoff?: GoalLoopCloseGateHandoff;
   updatedAt: string;
   executionStarted: false;
 }

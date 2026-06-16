@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-16T09:18:24.7958773Z",
+    "generated_at":  "2026-06-16T10:33:17.2118870Z",
     "active":  [
 
                ],
@@ -893,6 +893,10 @@
                     {
                         "name":  "20260616-phase-10x-goal-loop-accepted-artifact-freshness-boundary",
                         "path":  "harness/changes/archive/20260616-phase-10x-goal-loop-accepted-artifact-freshness-boundary"
+                    },
+                    {
+                        "name":  "20260616-phase-10y-goal-loop-human-close-gate-handoff-boundary",
+                        "path":  "harness/changes/archive/20260616-phase-10y-goal-loop-human-close-gate-handoff-boundary"
                     }
                 ]
 }

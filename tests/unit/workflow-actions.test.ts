@@ -110,6 +110,12 @@ describe("workflow action registry", () => {
     expect(LIVE_WORKFLOW_ACTION_TYPES).toContain("planning.goal-loop.controller.refresh");
     expect(HIGH_IMPACT_WORKFLOW_ACTION_TYPES).toContain("planning.goal-loop.controller.refresh");
     expect(REVALIDATED_WORKFLOW_ACTION_TYPES).toContain("planning.goal-loop.controller.refresh");
+    expect(WORKFLOW_ACTION_TYPES).not.toContain("change.close");
+    expect(WORKFLOW_ACTION_TYPES).not.toContain("planning.goal-loop.close");
+    expect(WORKFLOW_ACTION_TYPES).not.toContain("planning.goal-loop.archive");
+    expect(LIVE_WORKFLOW_ACTION_TYPES).not.toContain("change.close");
+    expect(HIGH_IMPACT_WORKFLOW_ACTION_TYPES).not.toContain("change.close");
+    expect(REVALIDATED_WORKFLOW_ACTION_TYPES).not.toContain("change.close");
   });
 
   it("keeps GoalLoopDecision, iteration, brief, and packet ids in target and audit scope matching", () => {

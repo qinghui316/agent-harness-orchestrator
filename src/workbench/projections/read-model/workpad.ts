@@ -685,6 +685,11 @@ function buildWorkpadNextAction(
       disabledReason: "需求对话不是可执行状态。",
     };
   }
+  const actionableApproval = approvals.find((approval) => approval.action);
+  const actionableCloseApproval = approvals.find((approval) => approval.kind === "change-close" && approval.action);
+  if (schedulerRunCompletion && actionableCloseApproval) {
+    return approvalToNextAction(actionableCloseApproval);
+  }
   if (decompositionReadiness?.nextAllowedAction === "scheduler.contract") {
     return buildTypedWorkflowNextAction({
       topic,
@@ -736,17 +741,8 @@ function buildWorkpadNextAction(
   }
   const queueBlockedAction = buildQueueBlockedNextAction(queue, taskGraph);
   if (queueBlockedAction) return queueBlockedAction;
-  const actionableApproval = approvals.find((approval) => approval.action);
   if (actionableApproval) {
-    return {
-      id: `approval:${actionableApproval.id}`,
-      label: actionableApproval.action?.label ?? actionableApproval.label,
-      description: actionableApproval.reason ?? actionableApproval.label,
-      kind: "approval",
-      enabled: true,
-      requiresConfirmation: actionableApproval.action?.requiresConfirmation ?? true,
-      approvalId: actionableApproval.id,
-    };
+    return approvalToNextAction(actionableApproval);
   }
   return buildTypedWorkflowNextAction({
     topic,
@@ -783,6 +779,19 @@ function buildWorkpadNextAction(
     schedulerRunBlockedCloseout,
     workflowRun,
   });
+}
+
+function approvalToNextAction(approval: WorkbenchApprovalItem): WorkpadNextAction {
+  return {
+    id: `approval:${approval.id}`,
+    label: approval.action?.label ?? approval.label,
+    description: approval.reason ?? approval.label,
+    kind: "approval",
+    enabled: true,
+    requiresConfirmation: approval.action?.requiresConfirmation ?? true,
+    changeId: approval.changeId,
+    approvalId: approval.id,
+  };
 }
 
 function selectActiveSchedulerWorkerPath(paths: WorkbenchSchedulerWorkerPathSummary[]): WorkbenchSchedulerWorkerPathSummary | null {

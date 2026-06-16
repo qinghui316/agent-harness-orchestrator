@@ -14,7 +14,7 @@ The user should not need to know internal terms before asking for work. The main
 - Role execution: planning/coder turns may use Codex app-server when available; `codex exec` fallback remains valid and must be labeled honestly. Validator and auditor remain independent evidence runners.
 - Result safety: result review, apply readiness, source refresh rework, integration checks, aggregate validation/audit, IntegrationFix, local landing readiness, Draft PR handoff, PR feedback, ready-for-review, remote landing, and post-merge reconcile are staged and human-gated.
 - Scheduler path: scheduler artifacts now cover readiness contracts, launch preflight, SchedulerRun shell, runtime reconcile/claim reservation, first/next worker start, worker result/validation/audit, bounded rework, integration candidate/handoff/outcome, terminal completion, and blocked/exhausted closeout.
-- Goal Loop path: GoalLoopDecision, iteration, continuation brief, next-step packet, packet freshness/parity, feedback, controller policy, controller refresh, main-Agent context, and runtime prompt evidence are implemented as non-executing evidence/context layers.
+- Goal Loop path: GoalLoopDecision, iteration, continuation brief, next-step packet, packet freshness/parity, feedback, controller policy, controller refresh, main-Agent context, runtime prompt evidence, assisted concrete gate evidence, accepted artifact freshness, and human close-gate handoff metadata are implemented as non-executing evidence/context layers.
 - Harness self-evolution: archive-triggered evolution can produce proposals, independent/subagent review evidence, results.tsv entries, and ECL/template deltas. Documentation entropy and experience lifecycle are now explicit review concerns.
 
 ## Current Hard Boundaries
@@ -27,7 +27,7 @@ The user should not need to know internal terms before asking for work. The main
 
 ## Next Product Direction
 
-No active product phase is open. The next structured product change should be chosen from the user's next demand, but it should respect the current post-Phase-10T baseline:
+No active product phase is open. The current product baseline is post-Phase-10Y: Goal Loop evidence is non-executing, assisted concrete gate guidance and close-gate handoff metadata are freshness-bound to accepted artifacts, and the close/archive transition still uses the existing `change.close` human gate.
 
 - If continuing Goal Loop work, build on controller policy evidence without making it execution authority.
 - If continuing scheduler work, decide explicitly whether the next slice is still a single-gate staged capability or the beginning of a real scheduler loop/full parallel executor; do not imply full parallelism before implementing it.
