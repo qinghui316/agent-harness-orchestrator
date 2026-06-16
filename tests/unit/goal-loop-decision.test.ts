@@ -55,6 +55,19 @@ function project(): ManagedProject {
   };
 }
 
+function expectConflict(
+  decision: Awaited<ReturnType<typeof compileGoalLoopDecision>>,
+  level: "low" | "medium" | "high" | "unknown",
+  parallelEligible: boolean,
+  reasonIncludes?: string,
+): void {
+  expect(decision.conflictAssessment.level).toBe(level);
+  expect(decision.conflictAssessment.parallelEligible).toBe(parallelEligible);
+  if (reasonIncludes) {
+    expect(decision.conflictAssessment.reasons.join("\n")).toContain(reasonIncludes);
+  }
+}
+
 beforeEach(async () => {
   tempDir = await mkdtemp(join(tmpdir(), "aho-goal-loop-"));
   memory = buildMemory(tempDir);
@@ -87,6 +100,7 @@ describe("GoalLoopDecision", () => {
     expect(decision.decisionKind).toBe("parallel-plan-needed");
     expect(decision.recommendedAction?.actionType).toBe("planning.scheduler.plan.prepare");
     expect(decision.recommendedAction?.scope).toMatchObject({ changeId });
+    expectConflict(decision, "unknown", false, "Scheduler plan preparation");
     expect(decision.executionStarted).toBe(false);
   });
 
@@ -198,6 +212,7 @@ describe("GoalLoopDecision", () => {
         schedulerWorkerStartId: workerStart?.id,
       },
     });
+    expectConflict(decision, "medium", false, "scheduler worker is active");
     expect(decision.executionStarted).toBe(false);
   });
 
@@ -215,7 +230,25 @@ describe("GoalLoopDecision", () => {
         schedulerClaimReservationId: reservation.id,
       },
     });
+    expectConflict(decision, "low", true, "planning.scheduler.worker.start-first");
     expect(decision.executionStarted).toBe(false);
+  });
+
+  it("exposes low-conflict worker-start posture through the Workbench Goal Loop summary", async () => {
+    await writeSchedulerEvidence({ withWorkerStart: false });
+    const result = await compileGoalLoopEvaluation(memory, changePath);
+
+    const summary = await readLatestGoalLoopSummary(memory, changePath);
+
+    expect(result.goalLoopDecision.conflictAssessment).toMatchObject({
+      level: "low",
+      parallelEligible: true,
+    });
+    expect(summary).toMatchObject({
+      goalLoopNextStepPacketId: result.goalLoopNextStepPacket.id,
+      conflictLevel: "low",
+      parallelEligible: true,
+    });
   });
 
   it("records first and second goal loop iterations with previous lineage", async () => {
@@ -635,6 +668,7 @@ describe("GoalLoopDecision", () => {
         schedulerWorkerResultId: result.id,
       },
     });
+    expectConflict(decision, "medium", false, "validate it");
   });
 
   it("recommends current worker audit after passed validation", async () => {
@@ -652,6 +686,7 @@ describe("GoalLoopDecision", () => {
         schedulerWorkerValidationId: validation.id,
       },
     });
+    expectConflict(decision, "medium", false, "audit it");
   });
 
   it("recommends bounded rework planning after failed validation", async () => {
@@ -669,6 +704,7 @@ describe("GoalLoopDecision", () => {
         schedulerWorkerValidationId: validation.id,
       },
     });
+    expectConflict(decision, "high", false, "validation failed");
   });
 
   it("recommends rework validation after evidence-ready rework result", async () => {
@@ -689,6 +725,7 @@ describe("GoalLoopDecision", () => {
         schedulerWorkerReworkResultId: reworkResult.id,
       },
     });
+    expectConflict(decision, "high", false, "bounded rework");
   });
 
   it("recommends integration candidate refresh after an approved worker audit", async () => {
@@ -706,6 +743,7 @@ describe("GoalLoopDecision", () => {
         schedulerRunId: schedulerRun.id,
       },
     });
+    expectConflict(decision, "high", false, "SchedulerIntegrationCandidate refresh");
   });
 
   it("recommends start-next when one ready candidate target exists and another reserved intent remains", async () => {
@@ -727,6 +765,7 @@ describe("GoalLoopDecision", () => {
         claimIntentId: "claim-2",
       },
     });
+    expectConflict(decision, "low", true, "planning.scheduler.worker.start-next");
   });
 
   it("recommends IntegrationCheck when at least two candidate targets are ready", async () => {
@@ -743,6 +782,7 @@ describe("GoalLoopDecision", () => {
         schedulerIntegrationCandidateId: candidate.id,
       },
     });
+    expectConflict(decision, "high", false, "IntegrationCheck gate");
   });
 
   it("recommends blocked closeout when a candidate cannot reach two ready targets and no reserved intent remains", async () => {
@@ -764,6 +804,7 @@ describe("GoalLoopDecision", () => {
         schedulerIntegrationCandidateId: candidate.id,
       },
     });
+    expectConflict(decision, "high", false, "not a worker-start gate");
   });
 
   it("recommends scheduler run completion after integration outcome evidence exists", async () => {
@@ -781,6 +822,7 @@ describe("GoalLoopDecision", () => {
         schedulerIntegrationOutcomeId: outcome.id,
       },
     });
+    expectConflict(decision, "high", false, "SchedulerIntegrationOutcome");
   });
 
   it("attaches close-ready Goal Loop evidence only to the existing matching close approval", async () => {
@@ -794,6 +836,10 @@ describe("GoalLoopDecision", () => {
     expect(result.goalLoopDecision).toMatchObject({
       decisionKind: "completed-ready-for-human-close-gate",
       recommendedAction: undefined,
+      conflictAssessment: {
+        level: "high",
+        parallelEligible: false,
+      },
       executionStarted: false,
     });
     expect(result.goalLoopNextStepPacket).toMatchObject({

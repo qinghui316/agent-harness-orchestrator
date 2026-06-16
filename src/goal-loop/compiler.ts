@@ -66,10 +66,10 @@ import {
   writeGoalLoopIteration,
   writeGoalLoopNextStepPacket,
 } from "./repository.js";
+import { assessGoalLoopConflictRouting } from "./conflict-routing.js";
 import type {
   GoalLoopContinuationBrief,
   GoalLoopCompletionAudit,
-  GoalLoopConflictAssessment,
   GoalLoopDecision,
   GoalLoopDecisionKind,
   GoalLoopEvaluationTrigger,
@@ -505,7 +505,6 @@ async function readEvidenceSnapshot(memory: ResolvedMemory, changePath: string):
 
 function buildDecision(snapshot: EvidenceSnapshot, id: string, artifact: string, markdownArtifact: string, now: string): GoalLoopDecision {
   const forbiddenActions = defaultForbiddenActions();
-  const conflictAssessment = assessConflict(snapshot);
   const completionAudit = auditCompletion(snapshot);
   let decisionKind: GoalLoopDecisionKind = "wait-for-evidence";
   let summary = "Current evidence is not sufficient to recommend an execution transition.";
@@ -610,6 +609,20 @@ function buildDecision(snapshot: EvidenceSnapshot, id: string, artifact: string,
   if (recommendedAction) {
     humanGateRequired = true;
   }
+
+  const conflictAssessment = assessGoalLoopConflictRouting({
+    planningComplete: snapshot.planningComplete,
+    decisionKind,
+    recommendedAction,
+    claimReservation: snapshot.claimReservation,
+    currentWorkerPath: snapshot.currentWorkerPath,
+    integrationCandidate: snapshot.integrationCandidate,
+    integrationHandoff: snapshot.integrationHandoff,
+    integrationOutcome: snapshot.integrationOutcome,
+    runCompletion: snapshot.runCompletion,
+    runCloseout: snapshot.runCloseout,
+    integrationCandidateNeedsRefresh: snapshot.integrationCandidateNeedsRefresh,
+  });
 
   return {
     version: "1.0",
@@ -953,19 +966,6 @@ function suppressionReasonForDecision(decision: GoalLoopDecision): GoalLoopSuppr
     reason: "waiting-for-evidence",
     summary: "Continuation is suppressed until additional evidence appears or a concrete Harness gate becomes available.",
   };
-}
-
-function assessConflict(snapshot: EvidenceSnapshot): GoalLoopConflictAssessment {
-  if (!snapshot.planningComplete) {
-    return { level: "unknown", parallelEligible: false, reasons: ["Planning artifacts are incomplete."] };
-  }
-  if (snapshot.claimReservation?.blockedCount) {
-    return { level: "high", parallelEligible: false, reasons: ["Latest scheduler claim reservation contains blocked claims."] };
-  }
-  if (snapshot.claimReservation?.reservedCount) {
-    return { level: "low", parallelEligible: true, reasons: ["Latest scheduler claim reservation has reserved claims; actual worker start remains human-gated."] };
-  }
-  return { level: "unknown", parallelEligible: false, reasons: ["No current claim reservation proves low-conflict parallel work."] };
 }
 
 function auditCompletion(snapshot: EvidenceSnapshot): GoalLoopCompletionAudit {
