@@ -14,6 +14,16 @@ const sourceEvidenceRefSchema = z.object({
 const conflictAssessmentSchema = z.object({
   level: z.enum(["low", "medium", "high", "unknown"]),
   parallelEligible: z.boolean(),
+  routingPosture: z.enum([
+    "single-worker-gate",
+    "sequential-current-worker",
+    "candidate-refresh-required",
+    "integration-check-required",
+    "blocked-or-rework",
+    "close-gate-required",
+    "wait-for-evidence",
+  ]).default("wait-for-evidence"),
+  routingLabel: z.string().default("Wait for evidence"),
   reasons: z.array(z.string()),
 });
 
@@ -83,7 +93,7 @@ const suppressionReasonSchema = z.object({
   summary: z.string(),
 });
 
-export const goalLoopDecisionSchema: z.ZodType<GoalLoopDecision> = z.object({
+export const goalLoopDecisionSchema = z.object({
   version: z.literal("1.0"),
   id: z.string(),
   changeId: z.string(),
@@ -101,7 +111,7 @@ export const goalLoopDecisionSchema: z.ZodType<GoalLoopDecision> = z.object({
   markdownArtifact: z.string(),
   createdAt: z.string(),
   updatedAt: z.string(),
-});
+}) as z.ZodType<GoalLoopDecision>;
 
 export const goalLoopIterationSchema = z.object({
   version: z.literal("1.0"),
@@ -143,7 +153,7 @@ export const goalLoopIterationSchema = z.object({
   updatedAt: z.string(),
 });
 
-export const goalLoopContinuationBriefSchema: z.ZodType<GoalLoopContinuationBrief> = z.object({
+export const goalLoopContinuationBriefSchema = z.object({
   version: z.literal("1.0"),
   id: z.string(),
   changeId: z.string(),
@@ -173,9 +183,9 @@ export const goalLoopContinuationBriefSchema: z.ZodType<GoalLoopContinuationBrie
   markdownArtifact: z.string(),
   createdAt: z.string(),
   updatedAt: z.string(),
-});
+}) as z.ZodType<GoalLoopContinuationBrief>;
 
-export const goalLoopNextStepPacketSchema: z.ZodType<GoalLoopNextStepPacket> = z.object({
+export const goalLoopNextStepPacketSchema = z.object({
   version: z.literal("1.0"),
   id: z.string(),
   changeId: z.string(),
@@ -204,7 +214,7 @@ export const goalLoopNextStepPacketSchema: z.ZodType<GoalLoopNextStepPacket> = z
   markdownArtifact: z.string(),
   createdAt: z.string(),
   updatedAt: z.string(),
-});
+}) as z.ZodType<GoalLoopNextStepPacket>;
 
 export const goalLoopFeedbackSchema: z.ZodType<GoalLoopFeedback> = z.object({
   version: z.literal("1.0"),

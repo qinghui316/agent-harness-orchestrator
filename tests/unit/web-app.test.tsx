@@ -499,6 +499,8 @@ describe("Workbench web app", () => {
             humanGateRequired: true,
             conflictLevel: "low",
             parallelEligible: true,
+            routingPosture: "single-worker-gate",
+            routingLabel: "Single scoped worker gate",
             conflictReasons: [
               "Recommended action planning.scheduler.worker.start-first is limited to the existing scoped first worker-start gate.",
             ],
@@ -523,6 +525,7 @@ describe("Workbench web app", () => {
     const card = await screen.findByTestId("goal-loop-evidence-card");
     expect(within(card).getByText("Goal Loop guidance")).toBeTruthy();
     expect(within(card).getByText("Conflict low")).toBeTruthy();
+    expect(within(card).getByText("Single scoped worker gate")).toBeTruthy();
     expect(within(card).getByText("Parallel eligible")).toBeTruthy();
     expect(within(card).getByText("planning.scheduler.worker.start-first")).toBeTruthy();
     expect(within(card).getByText("Recommended action planning.scheduler.worker.start-first is limited to the existing scoped first worker-start gate.")).toBeTruthy();

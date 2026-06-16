@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { getChangeStatusForChange } from "../../src/change/manager.js";
 import { buildGoalLoopMainAgentContextSection, compileGoalLoopControllerPolicy, compileGoalLoopDecision, compileGoalLoopEvaluation, compileGoalLoopGateReadinessPreflight, isGoalLoopNextStepPacketFresh, readLatestGoalLoopContinuationBrief, readLatestGoalLoopControllerPolicy, readLatestGoalLoopFeedback, readLatestGoalLoopGateReadinessPreflight, readLatestGoalLoopIteration, readLatestGoalLoopNextStepPacket, recordGoalLoopFeedback, stripGoalLoopControllerPolicyContext, writeGoalLoopNextStepPacket } from "../../src/goal-loop/manager.js";
+import { goalLoopDecisionSchema } from "../../src/goal-loop/schemas.js";
 import { assertGoalLoopAssistedConcreteGateConfirmation } from "../../src/workbench/actions/goal-loop-gate-confirmation.js";
 import { buildVisibleGoalLoopMainAgentContextSection } from "../../src/workbench/codex-chat/goal-loop-context.js";
 import { getWorkbenchWorkpadProjection } from "../../src/workbench/projections/read-model/implementation.js";
@@ -231,6 +232,10 @@ describe("GoalLoopDecision", () => {
       },
     });
     expectConflict(decision, "low", true, "planning.scheduler.worker.start-first");
+    expect(decision.conflictAssessment).toMatchObject({
+      routingPosture: "single-worker-gate",
+      routingLabel: "Single scoped worker gate",
+    });
     expect(decision.executionStarted).toBe(false);
   });
 
@@ -248,6 +253,8 @@ describe("GoalLoopDecision", () => {
       goalLoopNextStepPacketId: result.goalLoopNextStepPacket.id,
       conflictLevel: "low",
       parallelEligible: true,
+      routingPosture: "single-worker-gate",
+      routingLabel: "Single scoped worker gate",
       conflictReasons: result.goalLoopContinuationBrief.conflictAssessment.reasons,
     });
     expect(summary?.conflictReasons.join("\n")).toContain("planning.scheduler.worker.start-first");
@@ -728,6 +735,10 @@ describe("GoalLoopDecision", () => {
       },
     });
     expectConflict(decision, "high", false, "bounded rework");
+    expect(decision.conflictAssessment).toMatchObject({
+      routingPosture: "blocked-or-rework",
+      routingLabel: "Blocked or bounded rework",
+    });
   });
 
   it("recommends integration candidate refresh after an approved worker audit", async () => {
@@ -746,6 +757,10 @@ describe("GoalLoopDecision", () => {
       },
     });
     expectConflict(decision, "high", false, "SchedulerIntegrationCandidate refresh");
+    expect(decision.conflictAssessment).toMatchObject({
+      routingPosture: "candidate-refresh-required",
+      routingLabel: "Scheduler candidate refresh required",
+    });
   });
 
   it("recommends start-next when one ready candidate target exists and another reserved intent remains", async () => {
@@ -785,6 +800,10 @@ describe("GoalLoopDecision", () => {
       },
     });
     expectConflict(decision, "high", false, "IntegrationCheck gate");
+    expect(decision.conflictAssessment).toMatchObject({
+      routingPosture: "integration-check-required",
+      routingLabel: "IntegrationCheck path required",
+    });
   });
 
   it("recommends blocked closeout when a candidate cannot reach two ready targets and no reserved intent remains", async () => {
@@ -843,6 +862,10 @@ describe("GoalLoopDecision", () => {
         parallelEligible: false,
       },
       executionStarted: false,
+    });
+    expect(result.goalLoopDecision.conflictAssessment).toMatchObject({
+      routingPosture: "close-gate-required",
+      routingLabel: "Human close gate required",
     });
     expect(result.goalLoopNextStepPacket).toMatchObject({
       recommendationState: "ready-for-human-close-gate",
@@ -1117,6 +1140,22 @@ describe("GoalLoopDecision", () => {
 
     await expect(buildGoalLoopMainAgentContextSection(memory, changePath, changeId)).resolves.toBeNull();
     await expect(readLatestGoalLoopSummary(memory, changePath)).resolves.toBeNull();
+  });
+
+  it("defaults legacy conflict assessments to non-executing wait posture", async () => {
+    const decision = await compileGoalLoopDecision(memory, changePath);
+    const legacyDecision = JSON.parse(JSON.stringify(decision)) as Record<string, unknown>;
+    const conflictAssessment = legacyDecision.conflictAssessment as Record<string, unknown>;
+    delete conflictAssessment.routingPosture;
+    delete conflictAssessment.routingLabel;
+
+    const parsed = goalLoopDecisionSchema.parse(legacyDecision);
+
+    expect(parsed.conflictAssessment).toMatchObject({
+      routingPosture: "wait-for-evidence",
+      routingLabel: "Wait for evidence",
+      parallelEligible: false,
+    });
   });
 });
 

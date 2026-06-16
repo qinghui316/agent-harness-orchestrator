@@ -73,6 +73,8 @@ export async function readLatestGoalLoopSummary(
       humanGateRequired: brief.humanGateRequired,
       conflictLevel: brief.conflictAssessment.level,
       parallelEligible: brief.conflictAssessment.parallelEligible,
+      routingPosture: brief.conflictAssessment.routingPosture,
+      routingLabel: brief.conflictAssessment.routingLabel,
       conflictReasons: [...brief.conflictAssessment.reasons],
       completionStatus: brief.completionAudit.status,
       resumePreconditionCount: brief.resumePreconditions.length,

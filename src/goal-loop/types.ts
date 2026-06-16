@@ -20,6 +20,14 @@ export type GoalLoopDecisionKind =
   | "completed-ready-for-human-close-gate";
 
 export type GoalLoopConflictLevel = "low" | "medium" | "high" | "unknown";
+export type GoalLoopRoutingPosture =
+  | "single-worker-gate"
+  | "sequential-current-worker"
+  | "candidate-refresh-required"
+  | "integration-check-required"
+  | "blocked-or-rework"
+  | "close-gate-required"
+  | "wait-for-evidence";
 
 export interface GoalLoopSourceEvidenceRef {
   kind: string;
@@ -33,6 +41,8 @@ export interface GoalLoopSourceEvidenceRef {
 export interface GoalLoopConflictAssessment {
   level: GoalLoopConflictLevel;
   parallelEligible: boolean;
+  routingPosture: GoalLoopRoutingPosture;
+  routingLabel: string;
   reasons: string[];
 }
 

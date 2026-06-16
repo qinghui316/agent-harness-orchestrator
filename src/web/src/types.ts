@@ -359,6 +359,8 @@ export type GoalLoopSummary = {
   humanGateRequired?: boolean;
   conflictLevel: string;
   parallelEligible: boolean;
+  routingPosture?: string;
+  routingLabel?: string;
   conflictReasons: string[];
   completionStatus?: string;
   artifact?: string;

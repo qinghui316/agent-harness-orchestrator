@@ -21,6 +21,7 @@ export function GoalLoopEvidenceCard({ goalLoop }: { goalLoop: NonNullable<Workp
       <p className="workpad-note">Read-only evidence; the concrete Harness gate still requires its own confirmation.</p>
       <div className="workpad-chip-list">
         <span>Conflict {goalLoop.conflictLevel}</span>
+        <span>{goalLoop.routingLabel ?? goalLoop.routingPosture ?? "Routing evidence"}</span>
         <span>{goalLoop.parallelEligible ? "Parallel eligible" : "Sequential or gated"}</span>
         <span>{goalLoop.humanGateRequired ? "Human gate required" : "No human gate flag"}</span>
         {goalLoop.recommendedActionType ? <span>{goalLoop.recommendedActionType}</span> : null}
