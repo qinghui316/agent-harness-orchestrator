@@ -9,6 +9,8 @@ export interface MainAgentContextResult {
   context: string;
   goalLoopNextStepPacketId?: string;
   goalLoopControllerPolicyId?: string;
+  goalLoopRoutingPosture?: string;
+  goalLoopRoutingLabel?: string;
   goalLoopGuidedGateActionType?: string;
   goalLoopGuidedGateScope?: Record<string, string | string[]>;
 }
@@ -26,6 +28,8 @@ export async function buildChatContext(
   return {
     goalLoopNextStepPacketId: goalLoopSection?.goalLoopNextStepPacketId,
     goalLoopControllerPolicyId: goalLoopSection?.goalLoopControllerPolicyId,
+    goalLoopRoutingPosture: goalLoopSection?.routingPosture,
+    goalLoopRoutingLabel: goalLoopSection?.routingLabel,
     goalLoopGuidedGateActionType: goalLoopSection?.guidedGateActionType,
     goalLoopGuidedGateScope: goalLoopSection?.guidedGateScope,
     context: [
@@ -61,6 +65,8 @@ export async function buildOrchestratorContext(
   return {
     goalLoopNextStepPacketId: goalLoopSection?.goalLoopNextStepPacketId,
     goalLoopControllerPolicyId: goalLoopSection?.goalLoopControllerPolicyId,
+    goalLoopRoutingPosture: goalLoopSection?.routingPosture,
+    goalLoopRoutingLabel: goalLoopSection?.routingLabel,
     goalLoopGuidedGateActionType: goalLoopSection?.guidedGateActionType,
     goalLoopGuidedGateScope: goalLoopSection?.guidedGateScope,
     context: [

@@ -997,6 +997,8 @@ describe("GoalLoopDecision", () => {
 
     expect(section).toMatchObject({
       goalLoopNextStepPacketId: result.goalLoopNextStepPacket.id,
+      routingPosture: result.goalLoopNextStepPacket.conflictAssessment.routingPosture,
+      routingLabel: result.goalLoopNextStepPacket.conflictAssessment.routingLabel,
       artifact: expect.stringContaining("goal-loop-next-step-packets"),
       markdownArtifact: expect.stringContaining("goal-loop-next-step-packets"),
     });
@@ -1005,6 +1007,10 @@ describe("GoalLoopDecision", () => {
     expect(section?.markdown).toContain(result.goalLoopNextStepPacket.id);
     expect(section?.markdown).toContain("planning.scheduler.plan.prepare");
     expect(section?.markdown).toContain("Revalidation Checklist");
+    expect(section?.markdown).toContain("Routing Posture");
+    expect(section?.markdown).toContain(`routingPosture: ${result.goalLoopNextStepPacket.conflictAssessment.routingPosture}`);
+    expect(section?.markdown).toContain(`routingLabel: ${result.goalLoopNextStepPacket.conflictAssessment.routingLabel}`);
+    expect(section?.markdown).toContain("prompt-context evidence only");
     expect(section?.markdown).toContain("Forbidden Execution Statements");
     expect(section?.markdown).toContain("not workflow truth");
     await expect(readLatestGoalLoopSummary(memory, changePath)).resolves.toMatchObject({
@@ -1050,7 +1056,10 @@ describe("GoalLoopDecision", () => {
     const stripped = stripGoalLoopControllerPolicyContext(firstSection!);
     expect(stripped.goalLoopNextStepPacketId).toBe(first.goalLoopNextStepPacket.id);
     expect(stripped.goalLoopControllerPolicyId).toBeUndefined();
+    expect(stripped.routingPosture).toBe(first.goalLoopNextStepPacket.conflictAssessment.routingPosture);
+    expect(stripped.routingLabel).toBe(first.goalLoopNextStepPacket.conflictAssessment.routingLabel);
     expect(stripped.markdown).toContain("Goal Loop Next-Step Packet");
+    expect(stripped.markdown).toContain(`routingPosture: ${first.goalLoopNextStepPacket.conflictAssessment.routingPosture}`);
     expect(stripped.markdown).not.toContain("### Controller Policy");
 
     await recordGoalLoopFeedback(memory, changePath, {

@@ -17,6 +17,8 @@ import type { GoalLoopContinuationBrief, GoalLoopControllerPolicy, GoalLoopDecis
 export interface GoalLoopMainAgentContextSection {
   goalLoopNextStepPacketId: string;
   goalLoopControllerPolicyId?: string;
+  routingPosture: string;
+  routingLabel: string;
   guidedGateActionType?: string;
   guidedGateScope?: Record<string, string | string[]>;
   controllerVerdict?: string;
@@ -59,6 +61,8 @@ export async function buildGoalLoopMainAgentContextSection(
     return {
       goalLoopNextStepPacketId: packet.id,
       goalLoopControllerPolicyId: controllerPolicy?.id,
+      routingPosture: packet.conflictAssessment.routingPosture,
+      routingLabel: packet.conflictAssessment.routingLabel,
       guidedGateActionType: controllerPolicy?.verdict === "recommend-existing-gate" ? controllerPolicy.currentGate?.actionType : undefined,
       guidedGateScope: controllerPolicy?.verdict === "recommend-existing-gate" ? controllerPolicy.currentGate?.scope : undefined,
       controllerVerdict: controllerPolicy?.verdict,
@@ -84,6 +88,8 @@ export function stripGoalLoopControllerPolicyContext(section: GoalLoopMainAgentC
   if (!section.goalLoopControllerPolicyId) return section;
   return {
     goalLoopNextStepPacketId: section.goalLoopNextStepPacketId,
+    routingPosture: section.routingPosture,
+    routingLabel: section.routingLabel,
     markdown: stripControllerPolicyMarkdown(section.markdown),
     artifact: section.artifact,
     markdownArtifact: section.markdownArtifact,
@@ -174,6 +180,12 @@ function renderGoalLoopMainAgentContextSection(
     "### Staleness Instruction",
     "",
     packet.stalenessInstruction,
+    "",
+    "### Routing Posture",
+    "",
+    `- routingPosture: ${packet.conflictAssessment.routingPosture}`,
+    `- routingLabel: ${packet.conflictAssessment.routingLabel}`,
+    "- Authority: routing posture is prompt-context evidence only; it must not execute, prioritize, or confirm any workflow action.",
     "",
     "### Conflict Assessment",
     "",

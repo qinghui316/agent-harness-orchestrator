@@ -2580,6 +2580,9 @@ describe("workbench read model", () => {
       const chatEvents = await readJsonl(join(memory.runsRoot, chat.run.id, "events.jsonl"));
       expect(chatRun.promptStack).toEqual(expect.arrayContaining(["goal-loop-next-step-packet", "goal-loop-controller-policy"]));
       expect(chatContext).toContain("### Controller Policy");
+      expect(chatContext).toContain("### Routing Posture");
+      expect(chatContext).toContain(`routingPosture: ${visibleGoalLoop?.routingPosture}`);
+      expect(chatContext).toContain(`routingLabel: ${visibleGoalLoop?.routingLabel}`);
       expect(chatContext).toContain("#### Concrete Harness Gate Handoff");
       expect(chatContext).toContain("- Gate action type: planning.scheduler.worker.validate-first");
       expect(chatContext).toContain(`- schedulerRunId: ${prepared.schedulerRun.id}`);
@@ -2587,6 +2590,8 @@ describe("workbench read model", () => {
       expect(chatContext).toContain("this explanation is not confirmation");
       expect(chatContext).toContain("ToolPolicyGate");
       expect(chatPrompt).toContain("### Controller Policy");
+      expect(chatPrompt).toContain("### Routing Posture");
+      expect(chatPrompt).toContain(`routingPosture: ${visibleGoalLoop?.routingPosture}`);
       expect(chatPrompt).toContain("#### Concrete Harness Gate Handoff");
       expect(chatEvents).toEqual(expect.arrayContaining([
         expect.objectContaining({
@@ -2594,6 +2599,8 @@ describe("workbench read model", () => {
           data: expect.objectContaining({
             goalLoopNextStepPacketId: visibleGoalLoop?.goalLoopNextStepPacketId,
             goalLoopControllerPolicyId: visibleGoalLoop?.controllerPolicyId,
+            goalLoopRoutingPosture: visibleGoalLoop?.routingPosture,
+            goalLoopRoutingLabel: visibleGoalLoop?.routingLabel,
             goalLoopGuidedGateActionType: "planning.scheduler.worker.validate-first",
             goalLoopGuidedGateScope: expect.objectContaining({
               changeId: prepared.topic.changeId,
@@ -2611,9 +2618,14 @@ describe("workbench read model", () => {
       const orchestratorEvents = await readJsonl(join(memory.runsRoot, orchestrator.run.id, "events.jsonl"));
       expect(orchestratorRun.promptStack).toEqual(expect.arrayContaining(["goal-loop-next-step-packet", "goal-loop-controller-policy"]));
       expect(orchestratorContext).toContain("### Controller Policy");
+      expect(orchestratorContext).toContain("### Routing Posture");
+      expect(orchestratorContext).toContain(`routingPosture: ${visibleGoalLoop?.routingPosture}`);
+      expect(orchestratorContext).toContain(`routingLabel: ${visibleGoalLoop?.routingLabel}`);
       expect(orchestratorContext).toContain("#### Concrete Harness Gate Handoff");
       expect(orchestratorContext).toContain("- Gate action type: planning.scheduler.worker.validate-first");
       expect(orchestratorPrompt).toContain("### Controller Policy");
+      expect(orchestratorPrompt).toContain("### Routing Posture");
+      expect(orchestratorPrompt).toContain(`routingPosture: ${visibleGoalLoop?.routingPosture}`);
       expect(orchestratorPrompt).toContain("#### Concrete Harness Gate Handoff");
       expect(orchestratorEvents).toEqual(expect.arrayContaining([
         expect.objectContaining({
@@ -2621,6 +2633,8 @@ describe("workbench read model", () => {
           data: expect.objectContaining({
             goalLoopNextStepPacketId: visibleGoalLoop?.goalLoopNextStepPacketId,
             goalLoopControllerPolicyId: visibleGoalLoop?.controllerPolicyId,
+            goalLoopRoutingPosture: visibleGoalLoop?.routingPosture,
+            goalLoopRoutingLabel: visibleGoalLoop?.routingLabel,
             goalLoopGuidedGateActionType: "planning.scheduler.worker.validate-first",
             goalLoopGuidedGateScope: expect.objectContaining({
               changeId: prepared.topic.changeId,
@@ -2647,9 +2661,17 @@ describe("workbench read model", () => {
       expect(staleRun.promptStack).toContain("goal-loop-next-step-packet");
       expect(staleRun.promptStack).not.toContain("goal-loop-controller-policy");
       expect(staleContext).toContain("Goal Loop Next-Step Packet");
+      expect(staleContext).toContain("### Routing Posture");
       expect(staleContext).not.toContain("### Controller Policy");
       expect(staleContext).not.toContain("#### Concrete Harness Gate Handoff");
       expect(staleEvents).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          type: "context.prepared",
+          data: expect.objectContaining({
+            goalLoopRoutingPosture: expect.any(String),
+            goalLoopRoutingLabel: expect.any(String),
+          }),
+        }),
         expect.objectContaining({
           type: "context.prepared",
           data: expect.not.objectContaining({
@@ -2665,9 +2687,17 @@ describe("workbench read model", () => {
       expect(staleOrchestratorRun.promptStack).toContain("goal-loop-next-step-packet");
       expect(staleOrchestratorRun.promptStack).not.toContain("goal-loop-controller-policy");
       expect(staleOrchestratorContext).toContain("Goal Loop Next-Step Packet");
+      expect(staleOrchestratorContext).toContain("### Routing Posture");
       expect(staleOrchestratorContext).not.toContain("### Controller Policy");
       expect(staleOrchestratorContext).not.toContain("#### Concrete Harness Gate Handoff");
       expect(staleOrchestratorEvents).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          type: "context.prepared",
+          data: expect.objectContaining({
+            goalLoopRoutingPosture: expect.any(String),
+            goalLoopRoutingLabel: expect.any(String),
+          }),
+        }),
         expect.objectContaining({
           type: "context.prepared",
           data: expect.not.objectContaining({
