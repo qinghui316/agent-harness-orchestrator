@@ -16,7 +16,7 @@ import { buildTypedWorkflowNextAction } from "../../src/workbench/workflow-proje
 import { readTopicThreadLog } from "../../src/workbench/thread-log.js";
 import { answerClarification, reanalyzeIntake, runIntakeScan } from "../../src/workbench/intake.js";
 import { getWorkbenchDecompositionPlanProjection, getWorkbenchDecompositionReadinessProjection, getWorkbenchMaintenanceProjection, getWorkbenchRunGraphProjection, getWorkbenchSchedulerClaimReservationProjection, getWorkbenchSchedulerContractProjection, getWorkbenchSchedulerRunCompletionProjection, getWorkbenchSchedulerWorkerReworkPlanProjection, getWorkbenchSchedulerWorkerReworkResultProjection, getWorkbenchSchedulerWorkerReworkStartProjection, getWorkbenchSchedulerWorkerReworkValidationProjection, getWorkbenchSnapshot, getWorkbenchStream, getWorkbenchTaskQueueProposalProjection, getWorkbenchTopic, getWorkbenchWorkflowGraphPlanProjection, listWorkbenchApprovals, listWorkbenchRoles, listWorkbenchTopics } from "../../src/workbench/manager.js";
-import { attachGoalLoopControllerRefreshActions, attachGoalLoopFeedbackActions } from "../../src/workbench/projections/read-model/confirmation/goal-loop.js";
+import { attachGoalLoopControllerRefreshActions, attachGoalLoopFeedbackActions, attachGoalLoopGateReadinessActions } from "../../src/workbench/projections/read-model/confirmation/goal-loop.js";
 import { WorkbenchStore } from "../../src/workbench/store.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import { collectWorktreeDiff } from "../../src/audit/diff.js";
@@ -2311,6 +2311,83 @@ describe("workbench read model", () => {
         goalLoopIterationId: "goal-loop-iteration-1",
         goalLoopContinuationBriefId: "goal-loop-continuation-brief-1",
         goalLoopNextStepPacketId: "goal-loop-next-step-packet-1",
+        goalLoopCurrentGateActionType: "planning.scheduler.worker.start-first",
+        schedulerRunId: "scheduler-run-1",
+        schedulerClaimReservationId: "claim-reservation-expected",
+        requiresConfirmation: true,
+      }),
+    ]));
+  });
+
+  it("projects goal loop gate readiness preflight as a secondary action on the matching current gate", async () => {
+    const currentGate = {
+      id: "confirm:scheduler-worker:member-discount",
+      kind: "planning-confirm",
+      conversationId: "member-discount",
+      changeId: "member-discount",
+      schedulerRunId: "scheduler-run-1",
+      schedulerClaimReservationId: "claim-reservation-expected",
+      summary: "启动第一个 worker。",
+      whyNeedsConfirmation: "这是当前可见 Harness gate。",
+      confirmEffect: "只启动指定 worker。",
+      riskSummary: "用户仍可要求主 Agent 修正建议。",
+      evidenceRefs: [],
+      actions: [{
+        id: "workflow:planning.scheduler.worker.start-first:member-discount",
+        label: "启动第一个 worker",
+        kind: "workflow-action",
+        actionType: "planning.scheduler.worker.start-first",
+        changeId: "member-discount",
+        schedulerRunId: "scheduler-run-1",
+        schedulerClaimReservationId: "claim-reservation-expected",
+        enabled: true,
+        requiresConfirmation: true,
+      }],
+      primary: true,
+      status: "pending",
+    } as const;
+    const workpad = {
+      nextAction: {
+        kind: "workflow-action",
+        actionType: "planning.scheduler.worker.start-first",
+        changeId: "member-discount",
+        schedulerRunId: "scheduler-run-1",
+        schedulerClaimReservationId: "claim-reservation-expected",
+        enabled: true,
+        requiresConfirmation: true,
+      },
+      goalLoop: {
+        id: "goal-loop-continuation-brief-1",
+        changeId: "member-discount",
+        goalLoopDecisionId: "goal-loop-decision-1",
+        goalLoopIterationId: "goal-loop-iteration-1",
+        goalLoopNextStepPacketId: "goal-loop-next-step-packet-1",
+        controllerPolicyId: "goal-loop-controller-policy-1",
+        controllerVerdict: "recommend-existing-gate",
+        controllerGateStatus: "matches-current-gate",
+        recommendedActionType: "planning.scheduler.worker.start-first",
+        recommendedActionScope: {
+          changeId: "member-discount",
+          schedulerRunId: "scheduler-run-1",
+          schedulerClaimReservationId: "claim-reservation-expected",
+        },
+        artifact: "harness/changes/active/member-discount/goal-loop/continuation.md",
+        nextStepPacketArtifact: "harness/changes/active/member-discount/goal-loop/next-step.json",
+        controllerArtifact: "harness/changes/active/member-discount/goal-loop/controller.json",
+      },
+    } as const;
+
+    const [item] = attachGoalLoopGateReadinessActions([currentGate], workpad as never);
+
+    expect(item.primary).toBe(true);
+    expect(item.actions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ actionType: "planning.scheduler.worker.start-first" }),
+      expect.objectContaining({
+        kind: "workflow-action",
+        actionType: "planning.goal-loop.gate-readiness.prepare",
+        changeId: "member-discount",
+        goalLoopNextStepPacketId: "goal-loop-next-step-packet-1",
+        goalLoopControllerPolicyId: "goal-loop-controller-policy-1",
         goalLoopCurrentGateActionType: "planning.scheduler.worker.start-first",
         schedulerRunId: "scheduler-run-1",
         schedulerClaimReservationId: "claim-reservation-expected",

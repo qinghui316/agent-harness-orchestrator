@@ -307,6 +307,8 @@ Phase 10T hardens that boundary at the run artifact layer. `src/workbench/codex-
 
 Phase 10U adds the guided gate handoff boundary. `src/goal-loop/main-agent-context.ts` owns the text and metadata that describe the matching concrete Harness gate to the main Agent. Workbench chat/orchestrator code may record those refs in prompt artifacts, but must not generate actions from them, change queue priority, confirm gates, call action handlers, start scheduler workers, run validation/audit/IntegrationCheck, mutate source, or weaken ToolPolicyGate/human confirmation.
 
+Phase 10V adds the Goal Loop gate-readiness preflight boundary. `src/goal-loop/` owns `GoalLoopGateReadinessPreflight` schema, paths, repository, rendering, and compilation. Workbench confirmation code may attach a secondary readiness action to an already-visible concrete gate, and server/action glue may pass the current gate snapshot for validation. Those layers must not own preflight policy, execute the concrete gate, pre-authorize ToolPolicyGate, generate duplicate primary confirmations, start scheduler/runtime work, mutate source, or weaken the concrete gate's stale-target revalidation and human confirmation.
+
 ## 7. Memory Unavailable Boundary
 
 Memory can be unavailable on a new machine, after a plain repository clone, when AHO home was not synced, when permissions are missing, or when a future remote memory service is offline.

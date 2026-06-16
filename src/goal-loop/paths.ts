@@ -120,3 +120,23 @@ export function latestGoalLoopControllerPolicyPath(memory: ResolvedMemory, chang
 export function latestGoalLoopControllerPolicyMarkdownPath(memory: ResolvedMemory, changePath: string): string {
   return join(memory.memoryRoot, changePath, "planning", "goal-loop-controller-policy.md");
 }
+
+export function goalLoopGateReadinessPreflightsDir(memory: ResolvedMemory, changePath: string): string {
+  return join(memory.memoryRoot, changePath, "planning", "goal-loop-gate-readiness-preflights");
+}
+
+export function goalLoopGateReadinessPreflightPath(memory: ResolvedMemory, changePath: string, preflightId: string): string {
+  return join(goalLoopGateReadinessPreflightsDir(memory, changePath), `${preflightId}.json`);
+}
+
+export function goalLoopGateReadinessPreflightMarkdownPath(memory: ResolvedMemory, changePath: string, preflightId: string): string {
+  return join(goalLoopGateReadinessPreflightsDir(memory, changePath), `${preflightId}.md`);
+}
+
+export function latestGoalLoopGateReadinessPreflightPath(memory: ResolvedMemory, changePath: string): string {
+  return join(memory.memoryRoot, changePath, "planning", "goal-loop-gate-readiness-preflight.json");
+}
+
+export function latestGoalLoopGateReadinessPreflightMarkdownPath(memory: ResolvedMemory, changePath: string): string {
+  return join(memory.memoryRoot, changePath, "planning", "goal-loop-gate-readiness-preflight.md");
+}

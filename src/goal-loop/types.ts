@@ -6,6 +6,7 @@ export type GoalLoopContinuationBriefAuthority = "non-executing-continuation-bri
 export type GoalLoopNextStepPacketAuthority = "non-executing-main-agent-next-step-packet";
 export type GoalLoopFeedbackAuthority = "non-executing-user-feedback-evidence";
 export type GoalLoopControllerPolicyAuthority = "non-executing-controller-policy-evidence";
+export type GoalLoopGateReadinessPreflightAuthority = "non-executing-concrete-gate-readiness-preflight-evidence";
 
 export type GoalLoopDecisionKind =
   | "planning-needed"
@@ -262,6 +263,36 @@ export interface GoalLoopControllerPolicy {
   humanGateRequired: boolean;
   revalidationChecklist: string[];
   forbiddenExecutionStatements: string[];
+  executionStarted: false;
+  artifact: string;
+  markdownArtifact: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface GoalLoopGateReadinessPreflight {
+  version: "1.0";
+  id: string;
+  changeId: string;
+  authority: GoalLoopGateReadinessPreflightAuthority;
+  status: "ready";
+  sourceGoalLoopDecisionId: string;
+  sourceGoalLoopIterationId: string;
+  sourceGoalLoopContinuationBriefId: string;
+  sourceGoalLoopNextStepPacketId: string;
+  sourceGoalLoopControllerPolicyId: string;
+  iterationOrdinal: number;
+  recommendedAction: GoalLoopRecommendedAction;
+  currentGate: GoalLoopCurrentGateSnapshot;
+  summary: string;
+  requiredTargetLabels: string[];
+  revalidationChecklist: string[];
+  forbiddenExecutionStatements: string[];
+  humanGateRequired: true;
+  toolPolicyGateRequiredForConcreteGate: true;
+  concreteGateRequiresSeparateConfirmation: true;
+  concreteGateInvoked: false;
+  toolPolicyAuthorizedConcreteGate: false;
   executionStarted: false;
   artifact: string;
   markdownArtifact: string;

@@ -1,4 +1,4 @@
-import { compileGoalLoopControllerPolicy, compileGoalLoopEvaluation, readLatestGoalLoopNextStepPacket, recordGoalLoopFeedback, renderGoalLoopContinuationBriefMarkdown, renderGoalLoopControllerPolicyMarkdown, renderGoalLoopFeedbackAcknowledgementMarkdown, type GoalLoopContinuationBrief, type GoalLoopControllerPolicy, type GoalLoopCurrentGateSnapshot, type GoalLoopDecision, type GoalLoopFeedback, type GoalLoopIteration, type GoalLoopNextStepPacket } from "../../../goal-loop/manager.js";
+import { compileGoalLoopControllerPolicy, compileGoalLoopEvaluation, compileGoalLoopGateReadinessPreflight, readLatestGoalLoopNextStepPacket, recordGoalLoopFeedback, renderGoalLoopContinuationBriefMarkdown, renderGoalLoopControllerPolicyMarkdown, renderGoalLoopFeedbackAcknowledgementMarkdown, renderGoalLoopGateReadinessPreflightMarkdown, type GoalLoopContinuationBrief, type GoalLoopControllerPolicy, type GoalLoopCurrentGateSnapshot, type GoalLoopDecision, type GoalLoopFeedback, type GoalLoopGateReadinessPreflight, type GoalLoopIteration, type GoalLoopNextStepPacket } from "../../../goal-loop/manager.js";
 import { assertWritableMemory } from "../../../memory/resolver.js";
 import type { ManagedProject } from "../../../types/index.js";
 import { WORKFLOW_ACTION_SCOPE_KEYS, isWorkflowActionType } from "../../../workflow-actions/registry.js";
@@ -9,13 +9,14 @@ import { appendTopicThreadEntry } from "../../topic-thread.js";
 import type { WorkbenchWorkflowActionRequest, WorkbenchLiveSink } from "../../types.js";
 import type { WorkbenchActionHandlerMap } from "../dispatcher.js";
 
-type GoalLoopWorkbenchActionType = "planning.goal-loop.evaluate" | "planning.goal-loop.feedback.evaluate" | "planning.goal-loop.controller.refresh";
+type GoalLoopWorkbenchActionType = "planning.goal-loop.evaluate" | "planning.goal-loop.feedback.evaluate" | "planning.goal-loop.controller.refresh" | "planning.goal-loop.gate-readiness.prepare";
 
 export function buildGoalLoopActionHandlers(): Pick<WorkbenchActionHandlerMap, GoalLoopWorkbenchActionType> {
   return {
     "planning.goal-loop.evaluate": async (project, changeId, request, live) => evaluateGoalLoopDecision(project, changeId, request, live),
     "planning.goal-loop.feedback.evaluate": async (project, changeId, request, live) => evaluateGoalLoopFeedback(project, changeId, request, live),
     "planning.goal-loop.controller.refresh": async (project, changeId, request, live) => refreshGoalLoopControllerPolicy(project, changeId, request, live),
+    "planning.goal-loop.gate-readiness.prepare": async (project, changeId, request, live) => prepareGoalLoopGateReadinessPreflight(project, changeId, request, live),
   };
 }
 
@@ -221,12 +222,74 @@ export async function refreshGoalLoopControllerPolicy(
   return { goalLoopControllerPolicy: policy, executionStarted: false };
 }
 
+export async function prepareGoalLoopGateReadinessPreflight(
+  project: ManagedProject,
+  changeId: string,
+  request: WorkbenchWorkflowActionRequest,
+  live: WorkbenchLiveSink | undefined,
+): Promise<{ goalLoopGateReadinessPreflight: GoalLoopGateReadinessPreflight; executionStarted: false }> {
+  if (!request.changeId) throw new Error("planning.goal-loop.gate-readiness.prepare requires changeId.");
+  if (request.changeId !== changeId) throw new Error("planning.goal-loop.gate-readiness.prepare changeId scope mismatch.");
+  if (!request.goalLoopNextStepPacketId) throw new Error("planning.goal-loop.gate-readiness.prepare requires goalLoopNextStepPacketId.");
+  if (!request.goalLoopControllerPolicyId) throw new Error("planning.goal-loop.gate-readiness.prepare requires goalLoopControllerPolicyId.");
+  const currentGate = currentGateSnapshotFromRequest(request, "planning.goal-loop.gate-readiness.prepare");
+  const { memory, changePath } = await resolveTopic(project, changeId);
+  assertWritableMemory(memory, "Goal loop gate readiness preflight");
+  const preflight = await compileGoalLoopGateReadinessPreflight(memory, changePath, {
+    goalLoopNextStepPacketId: request.goalLoopNextStepPacketId,
+    goalLoopControllerPolicyId: request.goalLoopControllerPolicyId,
+    currentGate,
+  });
+  await appendTopicThreadEntry(project, changeId, {
+    type: "assistant.message",
+    status: "goal-loop-gate-readiness-preflight-recorded",
+    text: renderGoalLoopGateReadinessPreflightMarkdown(preflight),
+    artifact: preflight.artifact,
+  });
+  emitAssistantEvent(live, {
+    runId: preflight.id,
+    kind: "file-change",
+    phase: "goal-loop-gate-readiness-preflight-recorded",
+    title: "Goal Loop gate readiness preflight recorded",
+    summary: preflight.summary,
+    artifactRef: preflight.artifact,
+  });
+  await recordWorkbenchDecision(project, {
+    id: `goal-loop-gate-readiness-preflight:${preflight.id}`,
+    changeId,
+    decisionType: "planning.goal-loop.gate-readiness.prepare",
+    status: "completed",
+    label: "Goal Loop gate readiness preflight recorded",
+    summary: preflight.summary,
+    targetId: preflight.id,
+    runId: null,
+    artifact: preflight.artifact,
+    actionId: "planning.goal-loop.gate-readiness.prepare",
+    payload: {
+      goalLoopGateReadinessPreflightId: preflight.id,
+      goalLoopControllerPolicyId: preflight.sourceGoalLoopControllerPolicyId,
+      goalLoopDecisionId: preflight.sourceGoalLoopDecisionId,
+      goalLoopIterationId: preflight.sourceGoalLoopIterationId,
+      goalLoopContinuationBriefId: preflight.sourceGoalLoopContinuationBriefId,
+      goalLoopNextStepPacketId: preflight.sourceGoalLoopNextStepPacketId,
+      goalLoopCurrentGateActionType: preflight.currentGate.actionType,
+      currentGateScope: preflight.currentGate.scope,
+      concreteGateInvoked: preflight.concreteGateInvoked,
+      toolPolicyAuthorizedConcreteGate: preflight.toolPolicyAuthorizedConcreteGate,
+      humanGateRequired: preflight.humanGateRequired,
+      executionStarted: false,
+    },
+    completedAt: new Date().toISOString(),
+  });
+  return { goalLoopGateReadinessPreflight: preflight, executionStarted: false };
+}
+
 const CURRENT_GATE_SCOPE_KEYS = WORKFLOW_ACTION_SCOPE_KEYS.filter((key) => !key.startsWith("goalLoop"));
 
-function currentGateSnapshotFromRequest(request: WorkbenchWorkflowActionRequest): GoalLoopCurrentGateSnapshot {
+function currentGateSnapshotFromRequest(request: WorkbenchWorkflowActionRequest, actionLabel = "planning.goal-loop.controller.refresh"): GoalLoopCurrentGateSnapshot {
   const actionType = request.goalLoopCurrentGateActionType;
   if (!actionType || !isWorkflowActionType(actionType)) {
-    throw new Error("planning.goal-loop.controller.refresh requires goalLoopCurrentGateActionType.");
+    throw new Error(`${actionLabel} requires goalLoopCurrentGateActionType.`);
   }
   const scope: Record<string, string | string[]> = {};
   if (request.changeId) scope.changeId = request.changeId;

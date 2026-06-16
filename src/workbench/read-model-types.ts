@@ -149,6 +149,7 @@ export interface ThreadStreamAction {
   goalLoopNextStepPacketId?: string;
   goalLoopFeedbackId?: string;
   goalLoopControllerPolicyId?: string;
+  goalLoopGateReadinessPreflightId?: string;
   goalLoopCurrentGateActionType?: ThreadStreamAction["actionType"];
   reservationIntentId?: string;
   claimIntentId?: string;
@@ -284,6 +285,7 @@ export interface WorkbenchDecisionAction {
   goalLoopNextStepPacketId?: string;
   goalLoopFeedbackId?: string;
   goalLoopControllerPolicyId?: string;
+  goalLoopGateReadinessPreflightId?: string;
   goalLoopCurrentGateActionType?: ThreadStreamAction["actionType"];
   reservationIntentId?: string;
   claimIntentId?: string;
@@ -390,6 +392,7 @@ export interface WorkbenchConfirmationQueueItem {
   goalLoopNextStepPacketId?: string;
   goalLoopFeedbackId?: string;
   goalLoopControllerPolicyId?: string;
+  goalLoopGateReadinessPreflightId?: string;
   goalLoopCurrentGateActionType?: ThreadStreamAction["actionType"];
   reservationIntentId?: string;
   claimIntentId?: string;
@@ -726,6 +729,9 @@ export interface WorkbenchGoalLoopSummary {
   controllerSummary?: string;
   controllerArtifact?: string;
   controllerMarkdownArtifact?: string;
+  gateReadinessPreflightId?: string;
+  gateReadinessPreflightArtifact?: string;
+  gateReadinessPreflightMarkdownArtifact?: string;
   updatedAt: string;
   executionStarted: false;
 }

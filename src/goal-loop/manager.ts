@@ -8,3 +8,4 @@ export * from "./compiler.js";
 export * from "./freshness.js";
 export * from "./main-agent-context.js";
 export * from "./controller.js";
+export * from "./gate-readiness.js";

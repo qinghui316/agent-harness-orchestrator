@@ -294,6 +294,12 @@ export function summarizeActionResult(actionType: string, result: unknown): stri
     const verdict = typeof result.goalLoopControllerPolicy.verdict === "string" ? result.goalLoopControllerPolicy.verdict : "recorded";
     return `Goal Loop controller policy refreshed as ${verdict}. No execution was started.`;
   }
+  if (actionType === "planning.goal-loop.gate-readiness.prepare" && isRecord(result) && isRecord(result.goalLoopGateReadinessPreflight)) {
+    const gate = isRecord(result.goalLoopGateReadinessPreflight.currentGate) && typeof result.goalLoopGateReadinessPreflight.currentGate.actionType === "string"
+      ? result.goalLoopGateReadinessPreflight.currentGate.actionType
+      : "current Harness gate";
+    return `Goal Loop gate readiness preflight recorded for ${gate}. The concrete gate still requires separate confirmation; no execution was started.`;
+  }
   if (actionType === "planning.confirm-execution" && isRecord(result)) {
     return "Planning confirmed and canonical artifacts were written. No execution was started.";
   }
@@ -334,6 +340,7 @@ export function labelForAction(actionType: string): string {
     case "planning.goal-loop.evaluate": return "Goal loop decision evaluated";
     case "planning.goal-loop.feedback.evaluate": return "Goal loop feedback re-evaluated";
     case "planning.goal-loop.controller.refresh": return "Goal Loop controller policy refreshed";
+    case "planning.goal-loop.gate-readiness.prepare": return "Goal Loop gate readiness preflight recorded";
     case "planning.scheduler.plan.prepare": return "Parallel execution plan prepared";
     case "planning.scheduler.contract.compile": return "SchedulerContract compiled";
     case "planning.scheduler.dispatch.dry-run": return "Scheduler dispatch dry-run generated";

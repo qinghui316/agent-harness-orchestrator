@@ -186,6 +186,7 @@ export type WorkpadNextAction = {
   goalLoopNextStepPacketId?: string;
   goalLoopFeedbackId?: string;
   goalLoopControllerPolicyId?: string;
+  goalLoopGateReadinessPreflightId?: string;
   goalLoopCurrentGateActionType?: ThreadStreamAction["actionType"];
   reservationIntentId?: string;
   claimIntentId?: string;
@@ -250,6 +251,7 @@ export type WorkbenchTaskNextAction = {
   goalLoopNextStepPacketId?: string;
   goalLoopFeedbackId?: string;
   goalLoopControllerPolicyId?: string;
+  goalLoopGateReadinessPreflightId?: string;
   goalLoopCurrentGateActionType?: ThreadStreamAction["actionType"];
   reservationIntentId?: string;
   claimIntentId?: string;
@@ -1156,6 +1158,7 @@ export type ThreadStreamAction = {
   goalLoopNextStepPacketId?: string;
   goalLoopFeedbackId?: string;
   goalLoopControllerPolicyId?: string;
+  goalLoopGateReadinessPreflightId?: string;
   goalLoopCurrentGateActionType?: ThreadStreamAction["actionType"];
   reservationIntentId?: string;
   claimIntentId?: string;

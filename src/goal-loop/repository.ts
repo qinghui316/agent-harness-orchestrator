@@ -19,11 +19,16 @@ import {
   goalLoopControllerPoliciesDir,
   goalLoopControllerPolicyMarkdownPath,
   goalLoopControllerPolicyPath,
+  goalLoopGateReadinessPreflightMarkdownPath,
+  goalLoopGateReadinessPreflightPath,
+  goalLoopGateReadinessPreflightsDir,
   goalLoopIterationMarkdownPath,
   goalLoopIterationPath,
   goalLoopIterationsDir,
   latestGoalLoopControllerPolicyMarkdownPath,
   latestGoalLoopControllerPolicyPath,
+  latestGoalLoopGateReadinessPreflightMarkdownPath,
+  latestGoalLoopGateReadinessPreflightPath,
   latestGoalLoopFeedbackMarkdownPath,
   latestGoalLoopFeedbackPath,
   latestGoalLoopContinuationBriefMarkdownPath,
@@ -35,9 +40,9 @@ import {
   latestGoalLoopDecisionMarkdownPath,
   latestGoalLoopDecisionPath,
 } from "./paths.js";
-import { renderGoalLoopContinuationBriefMarkdown, renderGoalLoopControllerPolicyMarkdown, renderGoalLoopDecisionMarkdown, renderGoalLoopFeedbackMarkdown, renderGoalLoopIterationMarkdown, renderGoalLoopNextStepPacketMarkdown } from "./rendering.js";
-import { goalLoopContinuationBriefSchema, goalLoopControllerPolicySchema, goalLoopDecisionSchema, goalLoopFeedbackSchema, goalLoopIterationSchema, goalLoopNextStepPacketSchema } from "./schemas.js";
-import type { GoalLoopContinuationBrief, GoalLoopControllerPolicy, GoalLoopDecision, GoalLoopFeedback, GoalLoopIteration, GoalLoopNextStepPacket } from "./types.js";
+import { renderGoalLoopContinuationBriefMarkdown, renderGoalLoopControllerPolicyMarkdown, renderGoalLoopDecisionMarkdown, renderGoalLoopFeedbackMarkdown, renderGoalLoopGateReadinessPreflightMarkdown, renderGoalLoopIterationMarkdown, renderGoalLoopNextStepPacketMarkdown } from "./rendering.js";
+import { goalLoopContinuationBriefSchema, goalLoopControllerPolicySchema, goalLoopDecisionSchema, goalLoopFeedbackSchema, goalLoopGateReadinessPreflightSchema, goalLoopIterationSchema, goalLoopNextStepPacketSchema } from "./schemas.js";
+import type { GoalLoopContinuationBrief, GoalLoopControllerPolicy, GoalLoopDecision, GoalLoopFeedback, GoalLoopGateReadinessPreflight, GoalLoopIteration, GoalLoopNextStepPacket } from "./types.js";
 
 export function goalLoopDecisionArtifactRefs(memory: ResolvedMemory, changePath: string, decisionId: string): { artifact: string; markdownArtifact: string } {
   return {
@@ -78,6 +83,13 @@ export function goalLoopControllerPolicyArtifactRefs(memory: ResolvedMemory, cha
   return {
     artifact: displayArtifactPath(memory, goalLoopControllerPolicyPath(memory, changePath, policyId)),
     markdownArtifact: displayArtifactPath(memory, goalLoopControllerPolicyMarkdownPath(memory, changePath, policyId)),
+  };
+}
+
+export function goalLoopGateReadinessPreflightArtifactRefs(memory: ResolvedMemory, changePath: string, preflightId: string): { artifact: string; markdownArtifact: string } {
+  return {
+    artifact: displayArtifactPath(memory, goalLoopGateReadinessPreflightPath(memory, changePath, preflightId)),
+    markdownArtifact: displayArtifactPath(memory, goalLoopGateReadinessPreflightMarkdownPath(memory, changePath, preflightId)),
   };
 }
 
@@ -211,4 +223,26 @@ export async function readLatestGoalLoopControllerPolicy(memory: ResolvedMemory,
   const policy = await readRequiredJsonFile(latestGoalLoopControllerPolicyPath(memory, changePath), goalLoopControllerPolicySchema);
   await assertChangePathScope(memory, changePath, policy.changeId, `GoalLoopControllerPolicy ${policy.id}`);
   return policy;
+}
+
+export async function writeGoalLoopGateReadinessPreflight(memory: ResolvedMemory, changePath: string, preflight: GoalLoopGateReadinessPreflight): Promise<void> {
+  await assertChangePathScope(memory, changePath, preflight.changeId, `GoalLoopGateReadinessPreflight ${preflight.id}`);
+  await mkdir(goalLoopGateReadinessPreflightsDir(memory, changePath), { recursive: true });
+  await writeJsonFile(goalLoopGateReadinessPreflightPath(memory, changePath, preflight.id), preflight);
+  await writeFile(goalLoopGateReadinessPreflightMarkdownPath(memory, changePath, preflight.id), renderGoalLoopGateReadinessPreflightMarkdown(preflight), "utf8");
+  await writeJsonFile(latestGoalLoopGateReadinessPreflightPath(memory, changePath), preflight);
+  await writeFile(latestGoalLoopGateReadinessPreflightMarkdownPath(memory, changePath), renderGoalLoopGateReadinessPreflightMarkdown(preflight), "utf8");
+}
+
+export async function readGoalLoopGateReadinessPreflight(memory: ResolvedMemory, changePath: string, preflightId: string): Promise<GoalLoopGateReadinessPreflight> {
+  const preflight = await readRequiredJsonFile(goalLoopGateReadinessPreflightPath(memory, changePath, preflightId), goalLoopGateReadinessPreflightSchema);
+  await assertChangePathScope(memory, changePath, preflight.changeId, `GoalLoopGateReadinessPreflight ${preflight.id}`);
+  if (preflight.id !== preflightId) throw new Error("GoalLoopGateReadinessPreflight id mismatch.");
+  return preflight;
+}
+
+export async function readLatestGoalLoopGateReadinessPreflight(memory: ResolvedMemory, changePath: string): Promise<GoalLoopGateReadinessPreflight> {
+  const preflight = await readRequiredJsonFile(latestGoalLoopGateReadinessPreflightPath(memory, changePath), goalLoopGateReadinessPreflightSchema);
+  await assertChangePathScope(memory, changePath, preflight.changeId, `GoalLoopGateReadinessPreflight ${preflight.id}`);
+  return preflight;
 }

@@ -59,6 +59,7 @@ export async function sendWorkbenchActionLive(input: WorkbenchProjectInput & { p
         goalLoopNextStepPacketId: body.goalLoopNextStepPacketId,
         goalLoopFeedbackId: body.goalLoopFeedbackId,
         goalLoopControllerPolicyId: body.goalLoopControllerPolicyId,
+        goalLoopGateReadinessPreflightId: body.goalLoopGateReadinessPreflightId,
         goalLoopCurrentGateActionType: body.goalLoopCurrentGateActionType,
         schedulerWorkerStartId: body.schedulerWorkerStartId,
         schedulerWorkerResultId: body.schedulerWorkerResultId,

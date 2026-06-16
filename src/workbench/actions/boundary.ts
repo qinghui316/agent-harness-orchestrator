@@ -10,7 +10,7 @@ import { readRun } from "../../run/repository.js";
 import { readSchedulerRuntimeLineage } from "../../scheduler-runtime/guards.js";
 import { findSchedulerClaimReservationForSnapshot, findSchedulerRuntimeWorkerAuditForValidation, findSchedulerRuntimeWorkerResultForStart, findSchedulerRuntimeWorkerReworkAuditForValidation, findSchedulerRuntimeWorkerReworkPlanForBlockingEvidence, findSchedulerRuntimeWorkerReworkResultForStart, findSchedulerRuntimeWorkerReworkStartForPlan, findSchedulerRuntimeWorkerReworkValidationForResult, findSchedulerRuntimeWorkerStartForReservationIntent, findSchedulerRuntimeWorkerValidationForResult, listSchedulerRuntimeWorkerStarts, readLatestSchedulerIntegrationCandidateProjection, readLatestSchedulerIntegrationCheckHandoffProjection, readLatestSchedulerIntegrationOutcomeProjection, readLatestSchedulerRunBlockedCloseoutProjection, readLatestSchedulerRunCompletionProjection, readSchedulerIntegrationOutcome, readSchedulerReconcileSnapshot, readSchedulerRuntimeClaimReservation, readSchedulerRuntimeStateProjection, readSchedulerRuntimeWorkerAudit, readSchedulerRuntimeWorkerResult, readSchedulerRuntimeWorkerReworkPlan, readSchedulerRuntimeWorkerReworkResult, readSchedulerRuntimeWorkerReworkStart, readSchedulerRuntimeWorkerReworkValidation, readSchedulerRuntimeWorkerStart, readSchedulerRuntimeWorkerValidation } from "../../scheduler-runtime/repository.js";
 import { latestLandingQueueSnapshot } from "../../landing-queue/manager.js";
-import { readLatestGoalLoopNextStepPacket } from "../../goal-loop/manager.js";
+import { readLatestGoalLoopControllerPolicy, readLatestGoalLoopNextStepPacket } from "../../goal-loop/manager.js";
 import { listTaskQueues } from "../../task-queue/manager.js";
 import { listTaskRuns } from "../../task-run/manager.js";
 import type { ManagedProject, ResolvedMemory } from "../../types/index.js";
@@ -186,6 +186,42 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
     }
     if (!packet.recommendedAction || packet.recommendedAction.actionType !== request.goalLoopCurrentGateActionType) {
       throw new Error("planning.goal-loop.controller.refresh target no longer matches the current gate.");
+    }
+  }
+  if (request.actionType === "planning.goal-loop.gate-readiness.prepare") {
+    const active = await getActiveChanges(memory);
+    const target = active.find((item) => item.name === changeId);
+    if (!target) throw new Error(`planning.goal-loop.gate-readiness.prepare target is stale or missing active Change: ${changeId}.`);
+    if (request.changeId && request.changeId !== changeId) throw new Error("planning.goal-loop.gate-readiness.prepare changeId scope mismatch.");
+    if (!request.goalLoopNextStepPacketId) throw new Error("planning.goal-loop.gate-readiness.prepare requires goalLoopNextStepPacketId.");
+    if (!request.goalLoopControllerPolicyId) throw new Error("planning.goal-loop.gate-readiness.prepare requires goalLoopControllerPolicyId.");
+    if (!request.goalLoopCurrentGateActionType) throw new Error("planning.goal-loop.gate-readiness.prepare requires goalLoopCurrentGateActionType.");
+    if (request.goalLoopCurrentGateActionType.startsWith("planning.goal-loop.")) throw new Error("planning.goal-loop.gate-readiness.prepare cannot target recursive Goal Loop actions.");
+    const [packet, policy] = await Promise.all([
+      readLatestGoalLoopNextStepPacket(memory, target.path),
+      readLatestGoalLoopControllerPolicy(memory, target.path),
+    ]);
+    if (packet.id !== request.goalLoopNextStepPacketId || packet.changeId !== changeId || packet.executionStarted !== false) {
+      throw new Error("planning.goal-loop.gate-readiness.prepare packet target is stale.");
+    }
+    if (
+      policy.id !== request.goalLoopControllerPolicyId
+      || policy.changeId !== changeId
+      || policy.sourceGoalLoopNextStepPacketId !== packet.id
+      || policy.verdict !== "recommend-existing-gate"
+      || policy.gateStatus !== "matches-current-gate"
+      || policy.executionStarted !== false
+      || !policy.currentGate
+    ) {
+      throw new Error("planning.goal-loop.gate-readiness.prepare controller policy target is stale.");
+    }
+    if (!packet.recommendedAction || packet.recommendedAction.actionType !== request.goalLoopCurrentGateActionType || policy.currentGate.actionType !== request.goalLoopCurrentGateActionType) {
+      throw new Error("planning.goal-loop.gate-readiness.prepare target no longer matches the current gate.");
+    }
+    const expectedGate = { actionType: request.goalLoopCurrentGateActionType, changeId, ...packet.recommendedAction.scope };
+    const requestedGate = { actionType: request.goalLoopCurrentGateActionType, changeId, ...readConcreteGateRequestScope(request, packet.recommendedAction.scope) };
+    if (!workflowActionScopesMatchStrict(expectedGate, requestedGate)) {
+      throw new Error("planning.goal-loop.gate-readiness.prepare concrete gate scope mismatch.");
     }
   }
   if (request.actionType === "planning.scheduler.plan.prepare") {
@@ -1332,4 +1368,16 @@ export function workflowActionScopePayload(request: WorkbenchWorkflowActionReque
 
 function sameStringArray(left: string[], right: string[]): boolean {
   return left.length === right.length && left.every((item, index) => item === right[index]);
+}
+
+function readConcreteGateRequestScope(request: WorkbenchWorkflowActionRequest, expectedScope: Record<string, string | string[]>): Record<string, string | string[]> {
+  const result: Record<string, string | string[]> = {};
+  const values = request as unknown as Record<string, unknown>;
+  for (const key of Object.keys(expectedScope)) {
+    if (key === "changeId") continue;
+    const value = values[key];
+    if (typeof value === "string") result[key] = value;
+    if (Array.isArray(value) && value.every((item) => typeof item === "string")) result[key] = value;
+  }
+  return result;
 }

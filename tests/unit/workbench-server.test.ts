@@ -180,6 +180,15 @@ describe("workbench server", () => {
       goalLoopCurrentGateActionType: "planning.scheduler.plan.prepare",
       confirm: true,
     })).rejects.toThrow("stale or no longer available");
+
+    await expect(executeWorkbenchAction({ project: project(), path: tempDir }, {
+      actionType: "planning.goal-loop.gate-readiness.prepare",
+      changeId: "server-topic",
+      goalLoopNextStepPacketId: "forged-packet",
+      goalLoopControllerPolicyId: "forged-policy",
+      goalLoopCurrentGateActionType: "planning.scheduler.plan.prepare",
+      confirm: true,
+    })).rejects.toThrow("stale or no longer available");
   });
 
   it("serves lazy Workbench projections separately from the snapshot shell", async () => {

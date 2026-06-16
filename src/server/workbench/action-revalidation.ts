@@ -58,6 +58,51 @@ export async function assertCurrentWorkflowAction(input: WorkbenchProjectInput, 
     }
     return;
   }
+  if (body.actionType === "planning.goal-loop.gate-readiness.prepare") {
+    const goalLoop = snapshot.center.workpad.goalLoop;
+    const nextAction = snapshot.center.workpad.nextAction;
+    if (
+      !body.goalLoopNextStepPacketId
+      || !body.goalLoopControllerPolicyId
+      || !body.goalLoopCurrentGateActionType
+      || !goalLoop
+      || goalLoop.goalLoopNextStepPacketId !== body.goalLoopNextStepPacketId
+      || goalLoop.controllerPolicyId !== body.goalLoopControllerPolicyId
+    ) {
+      const error = new Error("Workflow action target is stale or no longer available.");
+      error.name = "Conflict";
+      throw error;
+    }
+    if (
+      goalLoop.controllerVerdict !== "recommend-existing-gate"
+      || goalLoop.controllerGateStatus !== "matches-current-gate"
+      || !goalLoop.recommendedActionType
+      || !goalLoop.recommendedActionScope
+      || nextAction.kind !== "workflow-action"
+      || nextAction.actionType !== goalLoop.recommendedActionType
+    ) {
+      const error = new Error("Workflow action target is stale or no longer available.");
+      error.name = "Conflict";
+      throw error;
+    }
+    if (body.goalLoopCurrentGateActionType !== goalLoop.recommendedActionType || body.goalLoopCurrentGateActionType !== nextAction.actionType || body.goalLoopCurrentGateActionType.startsWith("planning.goal-loop.")) {
+      const error = new Error("Workflow action target is stale or no longer available.");
+      error.name = "Conflict";
+      throw error;
+    }
+    const expectedGate = { actionType: goalLoop.recommendedActionType, changeId: body.changeId, ...goalLoop.recommendedActionScope };
+    const requestedGate = {
+      actionType: body.goalLoopCurrentGateActionType,
+      changeId: body.changeId,
+      ...readGoalLoopCurrentGateRequestScope(body, goalLoop.recommendedActionScope),
+    };
+    if (!workflowActionScopesMatchStrict(expectedGate, nextAction) || !workflowActionScopesMatchStrict(expectedGate, requestedGate)) {
+      const error = new Error("Workflow action target is stale or no longer available.");
+      error.name = "Conflict";
+      throw error;
+    }
+    return;
+  }
   const queue = snapshot.right.confirmationQueue;
   const queueActions = [queue.primary, ...queue.current, ...queue.otherDemands]
     .filter((item): item is NonNullable<typeof item> => Boolean(item))

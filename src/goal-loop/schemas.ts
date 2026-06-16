@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { WORKFLOW_ACTION_TYPES } from "../workflow-actions/registry.js";
-import type { GoalLoopContinuationBrief, GoalLoopControllerPolicy, GoalLoopDecision, GoalLoopFeedback, GoalLoopNextStepPacket } from "./types.js";
+import type { GoalLoopContinuationBrief, GoalLoopControllerPolicy, GoalLoopDecision, GoalLoopFeedback, GoalLoopGateReadinessPreflight, GoalLoopNextStepPacket } from "./types.js";
 
 const sourceEvidenceRefSchema = z.object({
   kind: z.string(),
@@ -250,6 +250,39 @@ export const goalLoopControllerPolicySchema: z.ZodType<GoalLoopControllerPolicy>
   humanGateRequired: z.boolean(),
   revalidationChecklist: z.array(z.string()),
   forbiddenExecutionStatements: z.array(z.string()),
+  executionStarted: z.literal(false),
+  artifact: z.string(),
+  markdownArtifact: z.string(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+
+export const goalLoopGateReadinessPreflightSchema: z.ZodType<GoalLoopGateReadinessPreflight> = z.object({
+  version: z.literal("1.0"),
+  id: z.string(),
+  changeId: z.string(),
+  authority: z.literal("non-executing-concrete-gate-readiness-preflight-evidence"),
+  status: z.literal("ready"),
+  sourceGoalLoopDecisionId: z.string(),
+  sourceGoalLoopIterationId: z.string(),
+  sourceGoalLoopContinuationBriefId: z.string(),
+  sourceGoalLoopNextStepPacketId: z.string(),
+  sourceGoalLoopControllerPolicyId: z.string(),
+  iterationOrdinal: z.number().int().positive(),
+  recommendedAction: recommendedActionSchema,
+  currentGate: z.object({
+    actionType: z.enum(WORKFLOW_ACTION_TYPES),
+    scope: z.record(z.union([z.string(), z.array(z.string())])),
+  }),
+  summary: z.string(),
+  requiredTargetLabels: z.array(z.string()),
+  revalidationChecklist: z.array(z.string()),
+  forbiddenExecutionStatements: z.array(z.string()),
+  humanGateRequired: z.literal(true),
+  toolPolicyGateRequiredForConcreteGate: z.literal(true),
+  concreteGateRequiresSeparateConfirmation: z.literal(true),
+  concreteGateInvoked: z.literal(false),
+  toolPolicyAuthorizedConcreteGate: z.literal(false),
   executionStarted: z.literal(false),
   artifact: z.string(),
   markdownArtifact: z.string(),

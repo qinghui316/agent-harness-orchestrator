@@ -1,4 +1,4 @@
-import type { GoalLoopContinuationBrief, GoalLoopControllerPolicy, GoalLoopDecision, GoalLoopFeedback, GoalLoopIteration, GoalLoopNextStepPacket } from "./types.js";
+import type { GoalLoopContinuationBrief, GoalLoopControllerPolicy, GoalLoopDecision, GoalLoopFeedback, GoalLoopGateReadinessPreflight, GoalLoopIteration, GoalLoopNextStepPacket } from "./types.js";
 
 export function renderGoalLoopDecisionMarkdown(decision: GoalLoopDecision): string {
   const lines = [
@@ -451,6 +451,55 @@ export function renderGoalLoopControllerPolicyMarkdown(policy: GoalLoopControlle
     "- This controller policy is non-executing evidence only.",
     "- It may explain whether the main Agent should recommend the existing gate, wait, suppress stale guidance, or report blocked state.",
     "- It must not call action handlers, start workers, run validation/audit/IntegrationCheck, mutate source, close/apply, or bypass ToolPolicyGate/human gates.",
+    "",
+  ];
+  return `${lines.join("\n")}\n`;
+}
+
+export function renderGoalLoopGateReadinessPreflightMarkdown(preflight: GoalLoopGateReadinessPreflight): string {
+  const lines = [
+    `# GoalLoopGateReadinessPreflight ${preflight.id}`,
+    "",
+    `- Change: ${preflight.changeId}`,
+    `- Authority: ${preflight.authority}`,
+    `- Status: ${preflight.status}`,
+    `- Source GoalLoopDecision: ${preflight.sourceGoalLoopDecisionId}`,
+    `- Source GoalLoopIteration: ${preflight.sourceGoalLoopIterationId}`,
+    `- Source GoalLoopContinuationBrief: ${preflight.sourceGoalLoopContinuationBriefId}`,
+    `- Source GoalLoopNextStepPacket: ${preflight.sourceGoalLoopNextStepPacketId}`,
+    `- Source GoalLoopControllerPolicy: ${preflight.sourceGoalLoopControllerPolicyId}`,
+    `- Current gate: ${preflight.currentGate.actionType}`,
+    `- Human gate required: ${preflight.humanGateRequired ? "yes" : "no"}`,
+    `- Concrete gate invoked: ${preflight.concreteGateInvoked ? "yes" : "no"}`,
+    `- ToolPolicy authorized concrete gate: ${preflight.toolPolicyAuthorizedConcreteGate ? "yes" : "no"}`,
+    `- Execution started: ${preflight.executionStarted ? "yes" : "no"}`,
+    "",
+    "## Summary",
+    "",
+    preflight.summary,
+    "",
+    "## Concrete Gate Scope",
+    "",
+    ...Object.entries(preflight.currentGate.scope).map(([key, value]) => `- ${key}: ${Array.isArray(value) ? value.join(", ") : value}`),
+    "",
+    "## Required Targets Checked",
+    "",
+    ...(preflight.requiredTargetLabels.length ? preflight.requiredTargetLabels.map((label) => `- ${label}`) : ["- None."]),
+    "",
+    "## Revalidation Checklist",
+    "",
+    ...preflight.revalidationChecklist.map((item) => `- ${item}`),
+    "",
+    "## Forbidden Execution Statements",
+    "",
+    ...preflight.forbiddenExecutionStatements.map((statement) => `- ${statement}`),
+    "",
+    "## Boundary",
+    "",
+    "- This preflight is readiness evidence only.",
+    "- It does not call the concrete Workbench action handler.",
+    "- The concrete gate still requires its own stale-target revalidation, ToolPolicyGate, and human confirmation.",
+    "- It must not mutate source, start workers, create runs/worktrees/TaskRuns/IntegrationChecks, apply, close, merge, or create child Changes.",
     "",
   ];
   return `${lines.join("\n")}\n`;

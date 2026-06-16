@@ -53,6 +53,7 @@ export interface WorkbenchActionRequest {
   goalLoopNextStepPacketId?: string;
   goalLoopFeedbackId?: string;
   goalLoopControllerPolicyId?: string;
+  goalLoopGateReadinessPreflightId?: string;
   goalLoopCurrentGateActionType?: WorkbenchWorkflowActionRequest["actionType"];
   schedulerWorkerStartId?: string;
   schedulerWorkerResultId?: string;

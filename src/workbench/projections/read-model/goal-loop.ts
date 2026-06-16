@@ -3,6 +3,7 @@ import {
   readLatestGoalLoopContinuationBrief,
   readLatestGoalLoopControllerPolicy,
   readLatestGoalLoopDecision,
+  readLatestGoalLoopGateReadinessPreflight,
   readLatestGoalLoopIteration,
   readLatestGoalLoopNextStepPacket,
 } from "../../../goal-loop/manager.js";
@@ -40,6 +41,19 @@ export async function readLatestGoalLoopSummary(
       && controllerPolicy.executionStarted === false
       ? controllerPolicy
       : null;
+    const preflight = await readLatestGoalLoopGateReadinessPreflight(memory, changePath).catch(() => null);
+    const validPreflight = preflight
+      && validControllerPolicy
+      && preflight.changeId === decision.changeId
+      && preflight.sourceGoalLoopDecisionId === decision.id
+      && preflight.sourceGoalLoopIterationId === iteration.id
+      && preflight.sourceGoalLoopContinuationBriefId === brief.id
+      && preflight.sourceGoalLoopNextStepPacketId === packet.id
+      && preflight.sourceGoalLoopControllerPolicyId === validControllerPolicy.id
+      && preflight.executionStarted === false
+      && preflight.concreteGateInvoked === false
+      ? preflight
+      : null;
     return {
       id: brief.id,
       changeId: brief.changeId,
@@ -74,6 +88,9 @@ export async function readLatestGoalLoopSummary(
       controllerSummary: validControllerPolicy?.summary,
       controllerArtifact: validControllerPolicy?.artifact,
       controllerMarkdownArtifact: validControllerPolicy?.markdownArtifact,
+      gateReadinessPreflightId: validPreflight?.id,
+      gateReadinessPreflightArtifact: validPreflight?.artifact,
+      gateReadinessPreflightMarkdownArtifact: validPreflight?.markdownArtifact,
       updatedAt: brief.updatedAt,
       executionStarted: false,
     };

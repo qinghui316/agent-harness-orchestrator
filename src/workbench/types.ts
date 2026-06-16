@@ -199,6 +199,7 @@ export interface WorkbenchWorkflowActionRequest {
   goalLoopNextStepPacketId?: string;
   goalLoopFeedbackId?: string;
   goalLoopControllerPolicyId?: string;
+  goalLoopGateReadinessPreflightId?: string;
   goalLoopCurrentGateActionType?: WorkbenchWorkflowActionType;
   reservationIntentId?: string;
   claimIntentId?: string;

@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-15T20:11:31.2199955Z",
+    "generated_at":  "2026-06-16T03:43:36.9430711Z",
     "active":  [
 
                ],
@@ -875,8 +875,16 @@
                         "path":  "harness/changes/archive/20260615-phase-10t-goal-loop-controller-policy-runtime-prompt-evidence-acceptance"
                     },
                     {
+                        "name":  "20260616-auto-evolve-harness-phase-10r-10v-goal-loop-gate-evidence",
+                        "path":  "harness/changes/archive/20260616-auto-evolve-harness-phase-10r-10v-goal-loop-gate-evidence"
+                    },
+                    {
                         "name":  "20260616-phase-10u-goal-loop-guided-gate-handoff-acceptance",
                         "path":  "harness/changes/archive/20260616-phase-10u-goal-loop-guided-gate-handoff-acceptance"
+                    },
+                    {
+                        "name":  "20260616-phase-10v-goal-loop-concrete-gate-readiness-preflight",
+                        "path":  "harness/changes/archive/20260616-phase-10v-goal-loop-concrete-gate-readiness-preflight"
                     }
                 ]
 }

@@ -5,9 +5,9 @@
 - Current date: 2026-06-16.
 - Active ECL change: none.
 - Pending Harness evolution: none.
-- Latest archived product change: `harness/changes/archive/20260616-phase-10u-goal-loop-guided-gate-handoff-acceptance/summary.md`.
+- Latest archived product change: `harness/changes/archive/20260616-phase-10v-goal-loop-concrete-gate-readiness-preflight/summary.md`.
 - Latest archived product/Harness docs change: `harness/changes/archive/20260615-harness-self-evolution-slimming-rule-tuning/summary.md`.
-- Latest archived Harness evolution: `harness/changes/archive/20260615-auto-evolve-harness-phase-10p-10t-goal-loop-controller-evidence/summary.md`.
+- Latest archived Harness evolution: `harness/changes/archive/20260616-auto-evolve-harness-phase-10r-10v-goal-loop-gate-evidence/summary.md`.
 - Active product phase: none. Active Harness evolution phase: none.
 
 This file is the short resume point. There is no active change. For full history, use `harness/changes/INDEX.json` and archived `summary.md` files.
@@ -15,6 +15,18 @@ This file is the short resume point. There is no active change. For full history
 Current plan-level roadmap context is preserved in `docs/CURRENT-DEVELOPMENT-PLAN.md`.
 
 ## Recent Completed Work
+
+### Auto Evolve Harness Phase 10R-10V Goal Loop Gate Evidence
+
+Archived at `harness/changes/archive/20260616-auto-evolve-harness-phase-10r-10v-goal-loop-gate-evidence/summary.md`.
+
+The pending Phase 10R-10V Goal Loop controller/gate evidence window was handled as `noop/subagent_review` with subagent scores 88/100 and 90/100. Existing Goal Loop Boundary, Module Boundary, Runtime/Proposal Boundary, ToolPolicy/human gate, workflow-truth, and documentation entropy rules were sufficient; no new Harness rule was added.
+
+### Phase 10V Goal Loop Concrete Gate Readiness Preflight
+
+Archived at `harness/changes/archive/20260616-phase-10v-goal-loop-concrete-gate-readiness-preflight/summary.md`.
+
+Phase 10V adds `GoalLoopGateReadinessPreflight` as non-executing evidence that the latest Goal Loop packet, controller policy, and current concrete Workbench gate still match before a future concrete gate invocation phase. It adds a secondary readiness action only; it does not invoke the concrete gate, authorize ToolPolicy, mutate source, create workers/runs/worktrees, or replace the separate human-gated confirmation.
 
 ### Phase 10U Goal Loop Guided Gate Handoff Acceptance
 
@@ -60,6 +72,7 @@ The pending Phase 10P-10T Goal Loop controller/feedback/context/prompt evidence 
 - Validator and auditor remain independent evidence runners.
 - Workbench conversation rendering centers on user-visible parent-agent/Codex runtime transcript cells; AHO orchestration, evidence, maintenance, policy, and boundary records stay in graph/detail/confirmation/evidence surfaces unless literally surfaced in the main transcript.
 - Goal Loop evidence is non-executing. GoalLoopDecision, GoalLoopIteration, continuation brief, next-step packet, feedback evidence, and controller policy can explain continuation posture or recommend existing Harness gates, but cannot execute, mutate source, bypass ToolPolicyGate/human gates, or become workflow truth.
+- Phase 10V adds non-executing Goal Loop gate-readiness preflight evidence for a fresh packet / controller policy / current concrete gate match. It can record that the concrete gate is ready to present, but it cannot invoke the gate, authorize ToolPolicy, start workers, mutate source, or replace the separate human-gated confirmation.
 - Scheduler runtime remains staged and bounded. Existing scheduler worker/result/validation/audit/rework/integration/completion gates do not authorize scheduler loops, whole-wave dispatch, slot allocation, automatic child Changes, automatic apply/merge, or a full parallel executor.
 - Documentation entropy is now an explicit Harness concern: `AGENTS.md` is the routing map, `docs/STATUS.md` is the short handoff, `docs/ECL.md` owns reusable process rules, and archived summaries / `harness/changes/INDEX.json` own history.
 

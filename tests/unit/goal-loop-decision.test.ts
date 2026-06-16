@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { buildGoalLoopMainAgentContextSection, compileGoalLoopControllerPolicy, compileGoalLoopDecision, compileGoalLoopEvaluation, isGoalLoopNextStepPacketFresh, readLatestGoalLoopContinuationBrief, readLatestGoalLoopControllerPolicy, readLatestGoalLoopFeedback, readLatestGoalLoopIteration, readLatestGoalLoopNextStepPacket, recordGoalLoopFeedback, stripGoalLoopControllerPolicyContext, writeGoalLoopNextStepPacket } from "../../src/goal-loop/manager.js";
+import { buildGoalLoopMainAgentContextSection, compileGoalLoopControllerPolicy, compileGoalLoopDecision, compileGoalLoopEvaluation, compileGoalLoopGateReadinessPreflight, isGoalLoopNextStepPacketFresh, readLatestGoalLoopContinuationBrief, readLatestGoalLoopControllerPolicy, readLatestGoalLoopFeedback, readLatestGoalLoopGateReadinessPreflight, readLatestGoalLoopIteration, readLatestGoalLoopNextStepPacket, recordGoalLoopFeedback, stripGoalLoopControllerPolicyContext, writeGoalLoopNextStepPacket } from "../../src/goal-loop/manager.js";
 import { assessGoalLoopSummaryCurrentGateParity } from "../../src/workbench/projections/read-model/goal-loop-parity.js";
 import { readLatestGoalLoopSummary } from "../../src/workbench/projections/read-model/goal-loop.js";
 import type { ResolvedMemory } from "../../src/types/index.js";
@@ -264,6 +264,72 @@ describe("GoalLoopDecision", () => {
       controllerGateStatus: "matches-current-gate",
       controllerSummary: expect.stringContaining("existing planning.scheduler.plan.prepare Harness gate"),
     });
+  });
+
+  it("records non-executing gate readiness preflight for a matching controller policy", async () => {
+    const result = await compileGoalLoopEvaluation(memory, changePath);
+    const currentGate = {
+      actionType: "planning.scheduler.plan.prepare" as const,
+      scope: { changeId },
+    };
+    const policy = await compileGoalLoopControllerPolicy(memory, changePath, {
+      currentGate,
+      requireCurrentGateMatch: true,
+    });
+
+    const preflight = await compileGoalLoopGateReadinessPreflight(memory, changePath, {
+      goalLoopNextStepPacketId: result.goalLoopNextStepPacket.id,
+      goalLoopControllerPolicyId: policy.id,
+      currentGate,
+    });
+
+    expect(preflight).toMatchObject({
+      changeId,
+      authority: "non-executing-concrete-gate-readiness-preflight-evidence",
+      status: "ready",
+      sourceGoalLoopNextStepPacketId: result.goalLoopNextStepPacket.id,
+      sourceGoalLoopControllerPolicyId: policy.id,
+      currentGate,
+      concreteGateInvoked: false,
+      toolPolicyAuthorizedConcreteGate: false,
+      executionStarted: false,
+    });
+    expect(preflight.forbiddenExecutionStatements).toEqual(expect.arrayContaining([
+      expect.stringContaining("Do not call the concrete Workbench action handler"),
+      expect.stringContaining("Do not treat this preflight as ToolPolicy authorization"),
+    ]));
+    await expect(readLatestGoalLoopGateReadinessPreflight(memory, changePath)).resolves.toMatchObject({ id: preflight.id });
+    await expect(readLatestGoalLoopSummary(memory, changePath)).resolves.toMatchObject({
+      gateReadinessPreflightId: preflight.id,
+      gateReadinessPreflightArtifact: expect.stringContaining("goal-loop-gate-readiness-preflights"),
+    });
+  });
+
+  it("rejects gate readiness preflight for stale or mismatched controller policy targets", async () => {
+    const result = await compileGoalLoopEvaluation(memory, changePath);
+    const currentGate = {
+      actionType: "planning.scheduler.plan.prepare" as const,
+      scope: { changeId },
+    };
+    const policy = await compileGoalLoopControllerPolicy(memory, changePath, {
+      currentGate,
+      requireCurrentGateMatch: true,
+    });
+
+    await expect(compileGoalLoopGateReadinessPreflight(memory, changePath, {
+      goalLoopNextStepPacketId: result.goalLoopNextStepPacket.id,
+      goalLoopControllerPolicyId: "stale-policy",
+      currentGate,
+    })).rejects.toThrow("controller policy target is stale");
+
+    await expect(compileGoalLoopGateReadinessPreflight(memory, changePath, {
+      goalLoopNextStepPacketId: result.goalLoopNextStepPacket.id,
+      goalLoopControllerPolicyId: policy.id,
+      currentGate: {
+        actionType: "planning.scheduler.plan.prepare",
+        scope: { changeId: "other-change" },
+      },
+    })).rejects.toThrow("scope does not match current gate");
   });
 
   it("suppresses controller guidance when the current visible gate target does not match the packet", async () => {
