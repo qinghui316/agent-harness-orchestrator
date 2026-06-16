@@ -3,6 +3,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "../../src/web/src/App.js";
+import { WorkpadDiagnosticDetails } from "../../src/web/src/panels/workbench/workpad/WorkpadDetails.js";
 
 const snapshot = {
   project: { id: "repo", name: "Repo", path: "E:/repo" },
@@ -461,6 +462,72 @@ describe("Workbench web app", () => {
     await waitFor(() => {
       expect(fetch).toHaveBeenCalledWith("/api/projects/repo/workbench/actions", expect.objectContaining({ method: "POST" }));
     });
+  });
+
+  it("shows Goal Loop conflict reasons only when Workpad projection provides them", async () => {
+    render(<WorkpadDiagnosticDetails
+      workpad={snapshot.center.workpad}
+      approvals={snapshot.right.approvals}
+      busy={false}
+      onWorkflowAction={async () => undefined}
+      onConfirmApproval={() => undefined}
+      onAnswerClarification={async () => undefined}
+      onSelectDecisionContext={() => undefined}
+    />);
+    expect(screen.queryByTestId("goal-loop-evidence-card")).toBeNull();
+  });
+
+  it("renders Goal Loop guidance as a read-only Workpad evidence card", async () => {
+    const goalLoopSnapshot = {
+      ...snapshot,
+      center: {
+        ...snapshot.center,
+        workpad: {
+          ...snapshot.center.workpad,
+          goalLoop: {
+            id: "goal-loop-continuation-brief-1",
+            changeId: "member-discount",
+            goalLoopDecisionId: "goal-loop-decision-1",
+            goalLoopIterationId: "goal-loop-iteration-1",
+            goalLoopNextStepPacketId: "goal-loop-next-step-packet-1",
+            continuationState: "ready-for-existing-gate",
+            recommendationState: "recommend-existing-gate",
+            summary: "Goal Loop recommends the current scoped worker gate.",
+            recommendedActionType: "planning.scheduler.worker.start-first",
+            recommendedActionReason: "The first worker-start gate is scoped and current.",
+            separateGateRequired: true,
+            humanGateRequired: true,
+            conflictLevel: "low",
+            parallelEligible: true,
+            conflictReasons: [
+              "Recommended action planning.scheduler.worker.start-first is limited to the existing scoped first worker-start gate.",
+            ],
+            completionStatus: "incomplete",
+            artifact: "harness/changes/active/member-discount/planning/goal-loop-continuation-briefs/brief.json",
+            nextStepPacketArtifact: "harness/changes/active/member-discount/planning/goal-loop-next-step-packets/packet.json",
+            executionStarted: false,
+          },
+        },
+      },
+    };
+    render(<WorkpadDiagnosticDetails
+      workpad={goalLoopSnapshot.center.workpad}
+      approvals={goalLoopSnapshot.right.approvals}
+      busy={false}
+      onWorkflowAction={async () => undefined}
+      onConfirmApproval={() => undefined}
+      onAnswerClarification={async () => undefined}
+      onSelectDecisionContext={() => undefined}
+    />);
+
+    const card = await screen.findByTestId("goal-loop-evidence-card");
+    expect(within(card).getByText("Goal Loop guidance")).toBeTruthy();
+    expect(within(card).getByText("Conflict low")).toBeTruthy();
+    expect(within(card).getByText("Parallel eligible")).toBeTruthy();
+    expect(within(card).getByText("planning.scheduler.worker.start-first")).toBeTruthy();
+    expect(within(card).getByText("Recommended action planning.scheduler.worker.start-first is limited to the existing scoped first worker-start gate.")).toBeTruthy();
+    expect(within(card).getByText("Read-only evidence; the concrete Harness gate still requires its own confirmation.")).toBeTruthy();
+    expect(within(card).queryByRole("button")).toBeNull();
   });
 
   it("deduplicates persisted assistant command and usage blocks", async () => {

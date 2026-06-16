@@ -342,6 +342,41 @@ export type WorkbenchTaskQueueSummary = {
     failureReason?: string;
   }>;
 };
+export type GoalLoopSummary = {
+  id: string;
+  changeId: string;
+  goalLoopDecisionId: string;
+  goalLoopIterationId: string;
+  goalLoopNextStepPacketId?: string;
+  decisionKind?: string;
+  continuationVerdict?: string;
+  continuationState?: string;
+  recommendationState?: string;
+  summary: string;
+  recommendedActionType?: ThreadStreamAction["actionType"];
+  recommendedActionReason?: string;
+  separateGateRequired?: boolean;
+  humanGateRequired?: boolean;
+  conflictLevel: string;
+  parallelEligible: boolean;
+  conflictReasons: string[];
+  completionStatus?: string;
+  artifact?: string;
+  markdownArtifact?: string;
+  nextStepPacketArtifact?: string;
+  nextStepPacketMarkdownArtifact?: string;
+  controllerPolicyId?: string;
+  controllerVerdict?: string;
+  controllerGateStatus?: string;
+  controllerSummary?: string;
+  controllerArtifact?: string;
+  controllerMarkdownArtifact?: string;
+  gateReadinessPreflightId?: string;
+  gateReadinessPreflightArtifact?: string;
+  gateReadinessPreflightMarkdownArtifact?: string;
+  updatedAt?: string;
+  executionStarted: false;
+};
 export type Workpad = {
   title: string;
   subtitle: string;
@@ -393,6 +428,7 @@ export type Workpad = {
   schedulerIntegrationOutcome?: SchedulerIntegrationOutcomeSummary;
   schedulerRunCompletion?: SchedulerRunCompletionSummary;
   schedulerRunBlockedCloseout?: SchedulerRunBlockedCloseoutSummary;
+  goalLoop?: GoalLoopSummary;
   rolePipeline?: {
     stage: "planning" | "coding" | "validation" | "audit" | "rework" | "done" | "needs-user-input";
     status: "draft" | "running" | "completed" | "needs-user-input" | "stopped";

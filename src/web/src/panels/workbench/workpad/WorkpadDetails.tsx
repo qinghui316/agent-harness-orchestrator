@@ -15,6 +15,7 @@ import {
 } from "../../../formatters.js";
 import type { Approval, Workpad } from "../../../types.js";
 import { artifactName } from "../RunReplayPanel.js";
+import { GoalLoopEvidenceCard } from "./GoalLoopCards.js";
 import {
   ClarificationCard,
   CodingPackageCard,
@@ -166,6 +167,7 @@ export function WorkpadDiagnosticDetails({
       {workpad.schedulerIntegrationOutcome ? <SchedulerIntegrationOutcomeCard outcome={workpad.schedulerIntegrationOutcome} /> : null}
       {workpad.schedulerRunCompletion ? <SchedulerRunCompletionCard completion={workpad.schedulerRunCompletion} /> : null}
       {workpad.schedulerRunBlockedCloseout ? <SchedulerRunBlockedCloseoutCard closeout={workpad.schedulerRunBlockedCloseout} /> : null}
+      {workpad.goalLoop ? <GoalLoopEvidenceCard goalLoop={workpad.goalLoop} /> : null}
 
       {workpad.rolePipeline ? (
         <section className="workpad-section" data-testid="role-pipeline-summary">
