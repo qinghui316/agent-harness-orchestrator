@@ -5,17 +5,25 @@
 - Current date: 2026-06-18.
 - Active ECL change: none.
 - Pending Harness evolution: none.
-- Latest archived product change: `harness/changes/archive/20260618-phase-11n-goal-loop-enabled-gate-revalidation-guard/summary.md`.
-- Latest archived product/Harness docs change: `harness/changes/archive/20260618-phase-11n-goal-loop-enabled-gate-revalidation-guard/summary.md`.
+- Latest archived product change: `harness/changes/archive/20260618-phase-11o-goal-loop-blocked-closeout-handoff/summary.md`.
+- Latest archived product/Harness docs change: `harness/changes/archive/20260618-phase-11o-goal-loop-blocked-closeout-handoff/summary.md`.
 - Latest archived Harness evolution: `harness/changes/archive/20260617-auto-evolve-harness-phase-11h-11l-goal-loop-scheduler-mode-guard/summary.md`.
 - Active product phase: none. Active Harness evolution phase: none.
-- Active close status: no active change.
+- Active close status: none.
 
-This file is the short resume point. No active product change exists and no pending Harness evolution exists. For full history, use `harness/changes/INDEX.json` and archived `summary.md` files.
+This file is the short resume point. No active change is open and no pending Harness evolution exists. For full history, use `harness/changes/INDEX.json` and archived `summary.md` files.
 
 Current plan-level roadmap context is preserved in `docs/CURRENT-DEVELOPMENT-PLAN.md`.
 
 ## Recent Completed Work
+
+### Phase 11O Goal Loop Blocked Closeout Handoff
+
+Archived at `harness/changes/archive/20260618-phase-11o-goal-loop-blocked-closeout-handoff/summary.md`.
+
+Phase 11O locks down the existing Goal Loop handoff path for `planning.scheduler.run.close-blocked`. A blocked scheduler decision that already carries the close-blocked recommended action is classified as `separate-gate-required`, then passes through the existing controller policy, gate-readiness preflight, and assisted concrete confirmation chain only when `changeId`, `schedulerRunId`, `schedulerClaimReservationId`, and `schedulerIntegrationCandidateId` match the enabled visible concrete gate. Generic blocked/no-action Goal Loop states remain suppressed and cannot compile preflight authority. The change adds regression coverage only; no production controller, scheduler runtime, Workbench projection, handler, ToolPolicy, apply/merge/close, or source mutation behavior changed.
+
+Verification passed for focused/full Goal Loop decision tests, `npm run typecheck`, `npm run lint`, `npm run test:fast`, `npm run build`, `npm run test:integration`, `scripts/lint-ecl.ps1`, `scripts/lint-encoding.ps1`, `scripts/harness-change.ps1 reindex`, and `scripts/harness-evolve.ps1 check`. Full `npm run test` exceeded the local 180 second command timeout without returning a failed assertion.
 
 ### Phase 11N Goal Loop Enabled Gate Revalidation Guard
 

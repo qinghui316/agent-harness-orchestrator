@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-17T16:31:42.5376171Z",
+    "generated_at":  "2026-06-17T16:54:47.4059060Z",
     "active":  [
 
                ],
@@ -973,6 +973,10 @@
                     {
                         "name":  "20260618-phase-11n-goal-loop-enabled-gate-revalidation-guard",
                         "path":  "harness/changes/archive/20260618-phase-11n-goal-loop-enabled-gate-revalidation-guard"
+                    },
+                    {
+                        "name":  "20260618-phase-11o-goal-loop-blocked-closeout-handoff",
+                        "path":  "harness/changes/archive/20260618-phase-11o-goal-loop-blocked-closeout-handoff"
                     }
                 ]
 }

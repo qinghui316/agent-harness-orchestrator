@@ -18,6 +18,7 @@ import {
   schedulerIntegrationCandidateArtifactRefs,
   schedulerIntegrationCheckHandoffArtifactRefs,
   schedulerIntegrationOutcomeArtifactRefs,
+  schedulerRunBlockedCloseoutArtifactRefs,
   schedulerRunCompletionArtifactRefs,
   schedulerRuntimeArtifactRefs,
   schedulerWorkerAuditArtifactRefs,
@@ -30,6 +31,7 @@ import {
   writeSchedulerIntegrationCandidate,
   writeSchedulerIntegrationCheckHandoff,
   writeSchedulerIntegrationOutcome,
+  writeSchedulerRunBlockedCloseout,
   writeSchedulerRunCompletion,
   writeSchedulerRuntimeClaimReservation,
   writeSchedulerRuntimeState,
@@ -41,7 +43,7 @@ import {
   writeSchedulerRuntimeWorkerStart,
   writeSchedulerRuntimeWorkerValidation,
 } from "../../src/scheduler-runtime/repository.js";
-import type { SchedulerIntegrationCandidate, SchedulerIntegrationCheckHandoff, SchedulerIntegrationOutcome, SchedulerRunCompletion, SchedulerRuntimeClaimReservation, SchedulerRuntimeState, SchedulerRuntimeWorkerAudit, SchedulerRuntimeWorkerResult, SchedulerRuntimeWorkerReworkPlan, SchedulerRuntimeWorkerReworkResult, SchedulerRuntimeWorkerReworkStart, SchedulerRuntimeWorkerStart, SchedulerRuntimeWorkerValidation } from "../../src/scheduler-runtime/types.js";
+import type { SchedulerIntegrationCandidate, SchedulerIntegrationCheckHandoff, SchedulerIntegrationOutcome, SchedulerRunBlockedCloseout, SchedulerRunCompletion, SchedulerRuntimeClaimReservation, SchedulerRuntimeState, SchedulerRuntimeWorkerAudit, SchedulerRuntimeWorkerResult, SchedulerRuntimeWorkerReworkPlan, SchedulerRuntimeWorkerReworkResult, SchedulerRuntimeWorkerReworkStart, SchedulerRuntimeWorkerStart, SchedulerRuntimeWorkerValidation } from "../../src/scheduler-runtime/types.js";
 
 let tempDir: string;
 let memory: ResolvedMemory;
@@ -1030,17 +1032,22 @@ describe("GoalLoopDecision", () => {
     expect(decision.executionStarted).toBe(false);
   });
 
-  it("recommends blocked closeout when a candidate cannot reach two ready targets and no reserved intent remains", async () => {
-    const { schedulerRun, workerStart, reservation } = await writeSchedulerEvidence({ withWorkerStart: true });
-    const result = await writeWorkerResult(workerStart!, "evidence-ready");
-    const validation = await writeWorkerValidation(result, "passed");
-    await writeWorkerAudit(validation, "approved");
-    const candidate = await writeIntegrationCandidate(schedulerRun, reservation, { readyCount: 1, outputClaimIntentIds: ["claim-1"] });
+  it("supports blocked closeout handoff through packet, controller, preflight, and assisted confirmation", async () => {
+    const { schedulerRun, reservation, candidate } = await writeBlockedCloseoutEvidence();
+    const currentGate = {
+      actionType: "planning.scheduler.run.close-blocked" as const,
+      scope: {
+        changeId,
+        schedulerRunId: schedulerRun.id,
+        schedulerClaimReservationId: reservation.id,
+        schedulerIntegrationCandidateId: candidate.id,
+      },
+    };
 
-    const decision = await compileGoalLoopDecision(memory, changePath);
+    const result = await compileGoalLoopEvaluation(memory, changePath);
 
-    expect(decision.decisionKind).toBe("blocked");
-    expect(decision.recommendedAction).toMatchObject({
+    expect(result.goalLoopDecision.decisionKind).toBe("blocked");
+    expect(result.goalLoopDecision.recommendedAction).toMatchObject({
       actionType: "planning.scheduler.run.close-blocked",
       scope: {
         changeId,
@@ -1049,7 +1056,191 @@ describe("GoalLoopDecision", () => {
         schedulerIntegrationCandidateId: candidate.id,
       },
     });
-    expectConflict(decision, "high", false, "not a worker-start gate");
+    expectConflict(result.goalLoopDecision, "high", false, "not a worker-start gate");
+    expect(result.goalLoopNextStepPacket).toMatchObject({
+      recommendationState: "separate-gate-required",
+      separateGateRequired: true,
+      recommendedAction: {
+        actionType: "planning.scheduler.run.close-blocked",
+        scope: currentGate.scope,
+      },
+      executionStarted: false,
+    });
+
+    const policy = await compileGoalLoopControllerPolicy(memory, changePath, {
+      currentGate,
+      requireCurrentGateMatch: true,
+    });
+    expect(policy).toMatchObject({
+      verdict: "recommend-existing-gate",
+      gateStatus: "matches-current-gate",
+      currentGate,
+      recommendedAction: {
+        actionType: "planning.scheduler.run.close-blocked",
+        scope: currentGate.scope,
+      },
+      executionStarted: false,
+      suppressesRecommendedAction: false,
+    });
+
+    const preflight = await compileGoalLoopGateReadinessPreflight(memory, changePath, {
+      goalLoopNextStepPacketId: result.goalLoopNextStepPacket.id,
+      goalLoopControllerPolicyId: policy.id,
+      currentGate,
+    });
+    expect(preflight).toMatchObject({
+      status: "ready",
+      currentGate,
+      concreteGateInvoked: false,
+      toolPolicyAuthorizedConcreteGate: false,
+      humanGateRequired: true,
+      executionStarted: false,
+    });
+
+    const request = {
+      actionType: "planning.scheduler.run.close-blocked" as const,
+      changeId,
+      schedulerRunId: schedulerRun.id,
+      schedulerClaimReservationId: reservation.id,
+      schedulerIntegrationCandidateId: candidate.id,
+      goalLoopGateReadinessPreflightId: preflight.id,
+    };
+    const visibleGate = {
+      actionType: "planning.scheduler.run.close-blocked" as const,
+      changeId,
+      schedulerRunId: schedulerRun.id,
+      schedulerClaimReservationId: reservation.id,
+      schedulerIntegrationCandidateId: candidate.id,
+      enabled: true,
+    };
+
+    await expect(assertGoalLoopAssistedConcreteGateConfirmation(memory, changePath, changeId, request, { visibleGate }))
+      .resolves.toBeUndefined();
+    await expect(assertGoalLoopAssistedConcreteGateConfirmation(memory, changePath, changeId, request, {
+      visibleGate: { ...visibleGate, enabled: false },
+    })).rejects.toThrow("visible target is disabled");
+
+    await writeFile(join(memory.memoryRoot, changePath, "spec.md"), "# Spec\n\nChanged blocked closeout scope.\n", "utf8");
+
+    await expect(assertGoalLoopAssistedConcreteGateConfirmation(memory, changePath, changeId, request, { visibleGate }))
+      .rejects.toThrow("packet is stale");
+  });
+
+  it("rejects blocked closeout controller refresh when the visible gate target drifts", async () => {
+    const { schedulerRun, reservation, candidate } = await writeBlockedCloseoutEvidence();
+    const result = await compileGoalLoopEvaluation(memory, changePath);
+
+    await expect(compileGoalLoopControllerPolicy(memory, changePath, {
+      goalLoopNextStepPacketId: result.goalLoopNextStepPacket.id,
+      requireCurrentGateMatch: true,
+    })).rejects.toThrow("not the current matching gate");
+
+    await expect(compileGoalLoopControllerPolicy(memory, changePath, {
+      goalLoopNextStepPacketId: result.goalLoopNextStepPacket.id,
+      requireCurrentGateMatch: true,
+      currentGate: {
+        actionType: "planning.scheduler.plan.prepare",
+        scope: { changeId },
+      },
+    })).rejects.toThrow("not the current matching gate");
+
+    await expect(compileGoalLoopControllerPolicy(memory, changePath, {
+      goalLoopNextStepPacketId: result.goalLoopNextStepPacket.id,
+      requireCurrentGateMatch: true,
+      currentGate: {
+        actionType: "planning.scheduler.run.close-blocked",
+        scope: {
+          changeId,
+          schedulerRunId: schedulerRun.id,
+          schedulerClaimReservationId: "forged-reservation",
+          schedulerIntegrationCandidateId: candidate.id,
+        },
+      },
+    })).rejects.toThrow("not the current matching gate");
+
+    await expect(compileGoalLoopControllerPolicy(memory, changePath, {
+      goalLoopNextStepPacketId: result.goalLoopNextStepPacket.id,
+      requireCurrentGateMatch: true,
+      currentGate: {
+        actionType: "planning.scheduler.run.close-blocked",
+        scope: {
+          changeId,
+          schedulerRunId: schedulerRun.id,
+          schedulerClaimReservationId: reservation.id,
+          schedulerIntegrationCandidateId: "forged-candidate",
+        },
+      },
+    })).rejects.toThrow("not the current matching gate");
+
+    const suppressingPolicy = await compileGoalLoopControllerPolicy(memory, changePath, {
+      goalLoopNextStepPacketId: result.goalLoopNextStepPacket.id,
+      currentGate: {
+        actionType: "planning.scheduler.run.close-blocked",
+        scope: {
+          changeId,
+          schedulerRunId: schedulerRun.id,
+          schedulerClaimReservationId: reservation.id,
+          schedulerIntegrationCandidateId: "forged-candidate",
+        },
+      },
+    });
+    expect(suppressingPolicy).toMatchObject({
+      verdict: "suppress-stale-guidance",
+      gateStatus: "target-mismatch",
+      recommendedAction: undefined,
+      suppressesRecommendedAction: true,
+    });
+  });
+
+  it("keeps generic blocked Goal Loop state suppressed when no closeout gate is recommended", async () => {
+    const { schedulerRun, reservation, candidate } = await writeBlockedCloseoutEvidence();
+    await writeRunBlockedCloseout(schedulerRun, reservation, candidate);
+
+    const result = await compileGoalLoopEvaluation(memory, changePath);
+    expect(result.goalLoopDecision).toMatchObject({
+      decisionKind: "blocked",
+      recommendedAction: undefined,
+      executionStarted: false,
+    });
+    expect(result.goalLoopNextStepPacket).toMatchObject({
+      recommendationState: "blocked",
+      separateGateRequired: false,
+      executionStarted: false,
+    });
+    expect(result.goalLoopNextStepPacket.recommendedAction).toBeUndefined();
+
+    const policy = await compileGoalLoopControllerPolicy(memory, changePath, {
+      currentGate: {
+        actionType: "planning.scheduler.run.close-blocked",
+        scope: {
+          changeId,
+          schedulerRunId: schedulerRun.id,
+          schedulerClaimReservationId: reservation.id,
+          schedulerIntegrationCandidateId: candidate.id,
+        },
+      },
+    });
+    expect(policy).toMatchObject({
+      verdict: "blocked",
+      gateStatus: "no-recommended-action",
+      recommendedAction: undefined,
+      suppressesRecommendedAction: true,
+      executionStarted: false,
+    });
+
+    await expect(compileGoalLoopGateReadinessPreflight(memory, changePath, {
+      goalLoopNextStepPacketId: result.goalLoopNextStepPacket.id,
+      goalLoopControllerPolicyId: policy.id,
+      currentGate: {
+        actionType: "planning.scheduler.run.close-blocked",
+        scope: {
+          changeId,
+          schedulerRunId: schedulerRun.id,
+          schedulerClaimReservationId: reservation.id,
+          schedulerIntegrationCandidateId: candidate.id,
+        },
+      },
+    })).rejects.toThrow("requires a matching controller policy");
   });
 
   it("recommends scheduler run completion after integration outcome evidence exists", async () => {
@@ -1677,6 +1868,60 @@ async function writeSchedulerEvidence(options: { withWorkerStart: boolean; extra
   }
 
   return { schedulerRun, reservation, workerStart };
+}
+
+async function writeBlockedCloseoutEvidence(): Promise<{
+  schedulerRun: SchedulerRun;
+  reservation: SchedulerRuntimeClaimReservation;
+  workerStart: SchedulerRuntimeWorkerStart;
+  candidate: SchedulerIntegrationCandidate;
+}> {
+  const { schedulerRun, workerStart, reservation } = await writeSchedulerEvidence({ withWorkerStart: true });
+  const result = await writeWorkerResult(workerStart!, "evidence-ready");
+  const validation = await writeWorkerValidation(result, "passed");
+  await writeWorkerAudit(validation, "approved");
+  const candidate = await writeIntegrationCandidate(schedulerRun, reservation, { readyCount: 1, outputClaimIntentIds: ["claim-1"] });
+  return { schedulerRun, reservation, workerStart: workerStart!, candidate };
+}
+
+async function writeRunBlockedCloseout(
+  schedulerRun: SchedulerRun,
+  reservation: SchedulerRuntimeClaimReservation,
+  candidate: SchedulerIntegrationCandidate,
+): Promise<SchedulerRunBlockedCloseout> {
+  const refs = schedulerRunBlockedCloseoutArtifactRefs(memory, changePath, schedulerRun.id, "blocked-closeout-1");
+  const closeout: SchedulerRunBlockedCloseout = {
+    version: "1.0",
+    id: "blocked-closeout-1",
+    changeId,
+    schedulerRunId: schedulerRun.id,
+    schedulerMode: "parallel-readiness-v1",
+    status: "exhausted",
+    reason: "candidate-waiting-exhausted",
+    closeoutReason: "Scheduler candidate cannot reach IntegrationCheck readiness.",
+    schedulerRuntimeStateId: reservation.schedulerRuntimeStateId,
+    schedulerReconcileSnapshotId: reservation.schedulerReconcileSnapshotId,
+    schedulerClaimReservationId: reservation.id,
+    schedulerIntegrationCandidateId: candidate.id,
+    schedulerContractId: schedulerRun.schedulerContractId,
+    schedulerDispatchDryRunId: schedulerRun.schedulerDispatchDryRunId,
+    schedulerWorkerPlanId: schedulerRun.schedulerWorkerPlanId,
+    schedulerClaimReconcilePlanId: schedulerRun.schedulerClaimReconcilePlanId,
+    schedulerLaunchPreflightId: schedulerRun.schedulerLaunchPreflightId,
+    readyWorktreeIds: candidate.readyWorktreeIds,
+    readyCount: candidate.readyCount,
+    blockedCount: 1,
+    blockedReasons: ["Insufficient ready scheduler outputs."],
+    unstartedReservedIntentIds: [],
+    sourceArtifactHashes: schedulerRun.sourceArtifactHashes,
+    artifactRefs: [refs.artifact],
+    artifact: refs.artifact,
+    markdownArtifact: refs.markdownArtifact,
+    createdAt: "2026-06-14T00:00:00.000Z",
+    updatedAt: "2026-06-14T00:00:00.000Z",
+  };
+  await writeSchedulerRunBlockedCloseout(memory, changePath, closeout);
+  return closeout;
 }
 
 async function writeWorkerResult(start: SchedulerRuntimeWorkerStart, status: SchedulerRuntimeWorkerResult["status"]): Promise<SchedulerRuntimeWorkerResult> {
