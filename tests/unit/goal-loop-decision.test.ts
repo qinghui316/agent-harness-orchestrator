@@ -889,7 +889,13 @@ describe("GoalLoopDecision", () => {
       scope: {
         changeId,
         schedulerRunId: schedulerRun.id,
+        schedulerReconcileSnapshotId: outcome.schedulerReconcileSnapshotId,
+        schedulerClaimReservationId: outcome.schedulerClaimReservationId,
+        schedulerIntegrationCandidateId: outcome.schedulerIntegrationCandidateId,
+        schedulerIntegrationCheckHandoffId: outcome.schedulerIntegrationCheckHandoffId,
         schedulerIntegrationOutcomeId: outcome.id,
+        applyCheckId: outcome.integrationCheckId,
+        worktreeIds: outcome.readyWorktreeIds,
       },
     });
     expectConflict(decision, "high", false, "SchedulerIntegrationOutcome");

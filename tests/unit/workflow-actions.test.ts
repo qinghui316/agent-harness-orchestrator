@@ -1237,6 +1237,7 @@ describe("workflow action registry", () => {
       schedulerIntegrationCandidateId: "scheduler-integration-candidate-1",
       schedulerIntegrationCheckHandoffId: "scheduler-integration-check-handoff-1",
       schedulerIntegrationOutcomeId: "scheduler-integration-outcome-1",
+      applyCheckId: "apply-check-1",
       worktreeIds: ["wt-a", "wt-b"],
     };
     const runCompletionResult = {
@@ -1267,8 +1268,14 @@ describe("workflow action registry", () => {
       schedulerIntegrationOutcomeId: "scheduler-integration-outcome-1",
       schedulerRunCompletionId: "scheduler-run-completion-1",
       applyCheckId: "apply-check-1",
+      worktreeIds: ["wt-a", "wt-b"],
     });
     expect(workflowActionScopesMatchStrict(runCompletionRequest, { ...runCompletionRequest })).toBe(true);
+    expect(workflowActionScopesMatchStrict(runCompletionRequest, { ...runCompletionRequest, schedulerReconcileSnapshotId: "scheduler-reconcile-2" })).toBe(false);
+    expect(workflowActionScopesMatchStrict(runCompletionRequest, { ...runCompletionRequest, schedulerClaimReservationId: "scheduler-claim-reservation-2" })).toBe(false);
+    expect(workflowActionScopesMatchStrict(runCompletionRequest, { ...runCompletionRequest, schedulerIntegrationCandidateId: "scheduler-integration-candidate-2" })).toBe(false);
+    expect(workflowActionScopesMatchStrict(runCompletionRequest, { ...runCompletionRequest, schedulerIntegrationCheckHandoffId: "scheduler-integration-check-handoff-2" })).toBe(false);
+    expect(workflowActionScopesMatchStrict(runCompletionRequest, { ...runCompletionRequest, applyCheckId: "apply-check-2" })).toBe(false);
     expect(workflowActionScopesMatchStrict(runCompletionRequest, { ...runCompletionRequest, schedulerIntegrationOutcomeId: undefined })).toBe(false);
     expect(workflowActionScopesMatchCompatible(runCompletionRequest, { ...runCompletionRequest, schedulerIntegrationOutcomeId: undefined })).toBe(true);
 

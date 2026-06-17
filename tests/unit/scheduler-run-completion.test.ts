@@ -228,6 +228,19 @@ describe("SchedulerRun completion", () => {
     expect(mocks.completeSchedulerRun).not.toHaveBeenCalled();
   });
 
+  it("rejects an outcome when runtime reconcile advanced after the claim reservation", async () => {
+    mocks.readSchedulerRuntimeState.mockResolvedValue({ ...mocks.runtimeState, lastReconcileSnapshotId: "snapshot-2" });
+    const { completeSchedulerRunFromIntegrationOutcome } = await import("../../src/scheduler-runtime/run-completion.js");
+
+    await expect(completeSchedulerRunFromIntegrationOutcome({ id: "project-1", root: "project-root" } as never, {
+      changeId: "change-1",
+      schedulerRunId: "scheduler-run-1",
+      schedulerIntegrationOutcomeId: "outcome-1",
+    })).rejects.toThrow(/SchedulerIntegrationOutcome target is stale/);
+    expect(mocks.writeSchedulerRunCompletion).not.toHaveBeenCalled();
+    expect(mocks.completeSchedulerRun).not.toHaveBeenCalled();
+  });
+
   it("records completed-discarded for a discarded scheduler integration outcome without source mutation", async () => {
     mocks.readIntegrationCheck.mockResolvedValue({ ...mocks.check, status: "discarded" });
     mocks.readSchedulerIntegrationOutcome.mockResolvedValue({ ...mocks.outcome, integrationCheckStatus: "discarded", status: "discarded" });

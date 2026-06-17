@@ -146,6 +146,7 @@ function assertOutcomeMatchesRuntime(outcome: SchedulerIntegrationOutcome, runti
     || outcome.schedulerRunId !== runtimeState.schedulerRunId
     || outcome.schedulerRuntimeStateId !== runtimeState.id
     || outcome.schedulerReconcileSnapshotId !== runtimeState.lastClaimReservationSnapshotId
+    || outcome.schedulerReconcileSnapshotId !== runtimeState.lastReconcileSnapshotId
     || outcome.schedulerClaimReservationId !== runtimeState.lastClaimReservationId
   ) {
     throw new Error("planning.scheduler.run.complete SchedulerIntegrationOutcome target is stale.");

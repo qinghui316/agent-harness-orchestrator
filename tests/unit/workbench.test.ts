@@ -4524,15 +4524,180 @@ describe("workbench read model", () => {
         resultTargetWorktreeIds: expect.arrayContaining(refreshedCandidate?.readyWorktreeIds ?? []),
       });
       snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: prepared.topic.changeId });
+      const completionGoalLoopEvaluation = await compileGoalLoopEvaluation(memory, changePath);
+      expect(completionGoalLoopEvaluation.goalLoopNextStepPacket).toMatchObject({
+        recommendedAction: {
+          actionType: "planning.scheduler.run.complete",
+          scope: {
+            changeId: prepared.topic.changeId,
+            schedulerRunId: prepared.schedulerRun.id,
+            schedulerReconcileSnapshotId: outcomePayload.outcome?.schedulerReconcileSnapshotId,
+            schedulerClaimReservationId: outcomePayload.outcome?.schedulerClaimReservationId,
+            schedulerIntegrationCandidateId: outcomePayload.outcome?.schedulerIntegrationCandidateId,
+            schedulerIntegrationCheckHandoffId: handoff.handoff?.id,
+            schedulerIntegrationOutcomeId: outcomePayload.outcome?.id,
+            applyCheckId: handoff.handoff?.integrationCheckId,
+            worktreeIds: expect.arrayContaining(refreshedCandidate?.readyWorktreeIds ?? []),
+          },
+        },
+        executionStarted: false,
+      });
+
+      snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: prepared.topic.changeId });
       expect(snapshot.center.workpad.nextAction).toMatchObject({
         actionType: "planning.scheduler.run.complete",
         schedulerRunId: prepared.schedulerRun.id,
+        schedulerReconcileSnapshotId: outcomePayload.outcome?.schedulerReconcileSnapshotId,
+        schedulerClaimReservationId: outcomePayload.outcome?.schedulerClaimReservationId,
+        schedulerIntegrationCandidateId: outcomePayload.outcome?.schedulerIntegrationCandidateId,
+        schedulerIntegrationCheckHandoffId: handoff.handoff?.id,
         schedulerIntegrationOutcomeId: outcomePayload.outcome?.id,
+        applyCheckId: handoff.handoff?.integrationCheckId,
+        worktreeIds: expect.arrayContaining(refreshedCandidate?.readyWorktreeIds ?? []),
       });
+      expect(snapshot.center.workpad.goalLoop).toMatchObject({
+        goalLoopNextStepPacketId: completionGoalLoopEvaluation.goalLoopNextStepPacket.id,
+        recommendedActionType: "planning.scheduler.run.complete",
+        recommendedActionScope: expect.objectContaining({
+          changeId: prepared.topic.changeId,
+          schedulerRunId: prepared.schedulerRun.id,
+          schedulerReconcileSnapshotId: outcomePayload.outcome?.schedulerReconcileSnapshotId,
+          schedulerClaimReservationId: outcomePayload.outcome?.schedulerClaimReservationId,
+          schedulerIntegrationCandidateId: outcomePayload.outcome?.schedulerIntegrationCandidateId,
+          schedulerIntegrationCheckHandoffId: handoff.handoff?.id,
+          schedulerIntegrationOutcomeId: outcomePayload.outcome?.id,
+          applyCheckId: handoff.handoff?.integrationCheckId,
+          worktreeIds: expect.arrayContaining(refreshedCandidate?.readyWorktreeIds ?? []),
+        }),
+        routingPosture: "integration-check-required",
+        routingLabel: "IntegrationCheck path required",
+      });
+      const completionControllerRefreshAction = snapshot.right.confirmationQueue.current
+        .flatMap((item) => item.actions)
+        .find((action) => action.actionType === "planning.goal-loop.controller.refresh" && action.goalLoopCurrentGateActionType === "planning.scheduler.run.complete");
+      if (!completionControllerRefreshAction) throw new Error("Missing Goal Loop controller refresh action for SchedulerRun completion.");
+      expect(completionControllerRefreshAction).toMatchObject({
+        schedulerRunId: prepared.schedulerRun.id,
+        schedulerReconcileSnapshotId: outcomePayload.outcome?.schedulerReconcileSnapshotId,
+        schedulerClaimReservationId: outcomePayload.outcome?.schedulerClaimReservationId,
+        schedulerIntegrationCandidateId: outcomePayload.outcome?.schedulerIntegrationCandidateId,
+        schedulerIntegrationCheckHandoffId: handoff.handoff?.id,
+        schedulerIntegrationOutcomeId: outcomePayload.outcome?.id,
+        applyCheckId: handoff.handoff?.integrationCheckId,
+        worktreeIds: expect.arrayContaining(refreshedCandidate?.readyWorktreeIds ?? []),
+      });
+      const completionControllerRefresh = await executeWorkbenchAction({ project: project(), path: tempDir }, { ...completionControllerRefreshAction, confirm: true });
+      const completionControllerPolicy = (((completionControllerRefresh.result as { result?: unknown }).result ?? completionControllerRefresh.result) as {
+        goalLoopControllerPolicy?: { id?: string; verdict?: string; gateStatus?: string; executionStarted?: boolean };
+      }).goalLoopControllerPolicy;
+      expect(completionControllerPolicy).toMatchObject({
+        verdict: "recommend-existing-gate",
+        gateStatus: "matches-current-gate",
+        executionStarted: false,
+      });
+
+      snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: prepared.topic.changeId });
+      const completionGateReadinessAction = snapshot.right.confirmationQueue.current
+        .flatMap((item) => item.actions)
+        .find((action) => action.actionType === "planning.goal-loop.gate-readiness.prepare" && action.goalLoopCurrentGateActionType === "planning.scheduler.run.complete");
+      if (!completionGateReadinessAction) throw new Error("Missing Goal Loop gate readiness action for SchedulerRun completion.");
+      expect(completionGateReadinessAction).toMatchObject({
+        schedulerRunId: prepared.schedulerRun.id,
+        schedulerReconcileSnapshotId: outcomePayload.outcome?.schedulerReconcileSnapshotId,
+        schedulerClaimReservationId: outcomePayload.outcome?.schedulerClaimReservationId,
+        schedulerIntegrationCandidateId: outcomePayload.outcome?.schedulerIntegrationCandidateId,
+        schedulerIntegrationCheckHandoffId: handoff.handoff?.id,
+        schedulerIntegrationOutcomeId: outcomePayload.outcome?.id,
+        applyCheckId: handoff.handoff?.integrationCheckId,
+        worktreeIds: expect.arrayContaining(refreshedCandidate?.readyWorktreeIds ?? []),
+        goalLoopControllerPolicyId: completionControllerPolicy?.id,
+      });
+      const completionGateReadiness = await executeWorkbenchAction({ project: project(), path: tempDir }, { ...completionGateReadinessAction, confirm: true });
+      if ((completionGateReadiness.result as { status?: string; error?: string }).status !== "completed") {
+        throw new Error((completionGateReadiness.result as { error?: string }).error ?? "Goal Loop completion gate readiness action failed.");
+      }
+      const completionPreflight = ((completionGateReadiness.result as {
+        result?: {
+          goalLoopGateReadinessPreflight?: {
+            id?: string;
+            currentGate?: { actionType?: string; scope?: Record<string, unknown> };
+            concreteGateInvoked?: boolean;
+            toolPolicyAuthorizedConcreteGate?: boolean;
+            executionStarted?: boolean;
+          };
+        };
+      }).result)?.goalLoopGateReadinessPreflight;
+      expect(completionPreflight).toMatchObject({
+        currentGate: {
+          actionType: "planning.scheduler.run.complete",
+          scope: expect.objectContaining({
+            changeId: prepared.topic.changeId,
+            schedulerRunId: prepared.schedulerRun.id,
+            schedulerReconcileSnapshotId: outcomePayload.outcome?.schedulerReconcileSnapshotId,
+            schedulerClaimReservationId: outcomePayload.outcome?.schedulerClaimReservationId,
+            schedulerIntegrationCandidateId: outcomePayload.outcome?.schedulerIntegrationCandidateId,
+            schedulerIntegrationCheckHandoffId: handoff.handoff?.id,
+            schedulerIntegrationOutcomeId: outcomePayload.outcome?.id,
+            applyCheckId: handoff.handoff?.integrationCheckId,
+            worktreeIds: expect.arrayContaining(refreshedCandidate?.readyWorktreeIds ?? []),
+          }),
+        },
+        concreteGateInvoked: false,
+        toolPolicyAuthorizedConcreteGate: false,
+        executionStarted: false,
+      });
+
+      snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: prepared.topic.changeId });
       const completeAction = snapshot.right.confirmationQueue.current
         .flatMap((item) => item.actions)
-        .find((action) => action.actionType === "planning.scheduler.run.complete" && action.schedulerIntegrationOutcomeId === outcomePayload.outcome?.id);
-      if (!completeAction) throw new Error("Missing scheduler run completion action after scheduler outcome.");
+        .find((action) => action.actionType === "planning.scheduler.run.complete" && action.goalLoopGateReadinessPreflightId === completionPreflight?.id);
+      if (!completeAction) throw new Error("Missing assisted scheduler run completion action after scheduler outcome.");
+      expect(completeAction).toMatchObject({
+        schedulerRunId: prepared.schedulerRun.id,
+        schedulerReconcileSnapshotId: outcomePayload.outcome?.schedulerReconcileSnapshotId,
+        schedulerClaimReservationId: outcomePayload.outcome?.schedulerClaimReservationId,
+        schedulerIntegrationCandidateId: outcomePayload.outcome?.schedulerIntegrationCandidateId,
+        schedulerIntegrationCheckHandoffId: handoff.handoff?.id,
+        schedulerIntegrationOutcomeId: outcomePayload.outcome?.id,
+        applyCheckId: handoff.handoff?.integrationCheckId,
+        worktreeIds: expect.arrayContaining(refreshedCandidate?.readyWorktreeIds ?? []),
+        goalLoopNextStepPacketId: completionGoalLoopEvaluation.goalLoopNextStepPacket.id,
+        goalLoopControllerPolicyId: completionControllerPolicy?.id,
+        goalLoopGateReadinessPreflightId: completionPreflight?.id,
+      });
+      expect(snapshot.right.confirmationQueue.current.flatMap((item) => item.actions).some((action) => action.actionType === "planning.goal-loop.gate.invoke")).toBe(false);
+
+      await expect(executeWorkbenchAction({ project: project(), path: tempDir }, {
+        ...completeAction,
+        schedulerReconcileSnapshotId: "forged-reconcile-snapshot",
+        confirm: true,
+      })).rejects.toThrow(/stale|scope mismatch|schedulerReconcileSnapshotId target scope mismatch|forged-reconcile-snapshot/i);
+      await expect(executeWorkbenchAction({ project: project(), path: tempDir }, {
+        ...completeAction,
+        schedulerClaimReservationId: "forged-claim-reservation",
+        confirm: true,
+      })).rejects.toThrow(/stale|scope mismatch|schedulerClaimReservationId target scope mismatch|forged-claim-reservation/i);
+      await expect(executeWorkbenchAction({ project: project(), path: tempDir }, {
+        ...completeAction,
+        schedulerIntegrationCandidateId: "forged-candidate",
+        confirm: true,
+      })).rejects.toThrow(/stale|scope mismatch|SchedulerIntegrationCandidate target scope mismatch|forged-candidate/i);
+      await expect(executeWorkbenchAction({ project: project(), path: tempDir }, {
+        ...completeAction,
+        schedulerIntegrationCheckHandoffId: "forged-handoff",
+        confirm: true,
+      })).rejects.toThrow(/stale|scope mismatch|SchedulerIntegrationCheckHandoff target scope mismatch|forged-handoff/i);
+      await expect(executeWorkbenchAction({ project: project(), path: tempDir }, {
+        ...completeAction,
+        applyCheckId: "forged-apply-check",
+        confirm: true,
+      })).rejects.toThrow(/stale|scope mismatch|applyCheckId target scope mismatch|forged-apply-check/i);
+      await expect(executeWorkbenchAction({ project: project(), path: tempDir }, {
+        ...completeAction,
+        worktreeIds: [...(completeAction.worktreeIds ?? []), "forged-worktree"],
+        confirm: true,
+      })).rejects.toThrow(/stale|scope mismatch|worktreeIds target scope mismatch|forged-worktree/i);
+
       const completionResult = await executeWorkbenchAction({ project: project(), path: tempDir }, { ...completeAction, confirm: true });
       const completionWorkflow = completionResult.result as { status?: string; error?: string; result?: unknown };
       if (completionWorkflow.status === "failed") throw new Error(completionWorkflow.error ?? "completion action failed");
@@ -4582,6 +4747,21 @@ describe("workbench read model", () => {
         enabled: false,
         schedulerRunCompletionId: completionPayload.completion?.id,
       });
+      const closeReadyGoalLoopEvaluation = await compileGoalLoopEvaluation(memory, changePath);
+      expect(closeReadyGoalLoopEvaluation.goalLoopDecision).toMatchObject({
+        decisionKind: "completed-ready-for-human-close-gate",
+        recommendedAction: undefined,
+        executionStarted: false,
+      });
+      expect(closeReadyGoalLoopEvaluation.goalLoopNextStepPacket).toMatchObject({
+        recommendationState: "ready-for-human-close-gate",
+        separateGateRequired: true,
+        humanGateRequired: true,
+        executionStarted: false,
+      });
+      expect(closeReadyGoalLoopEvaluation.goalLoopNextStepPacket.recommendedAction).toBeUndefined();
+      snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: prepared.topic.changeId });
+      expect(snapshot.right.confirmationQueue.current.flatMap((item) => item.actions).some((action) => action.actionType === "planning.scheduler.run.complete")).toBe(false);
       const forbiddenSchedulerFollowUpsAfterCompletion = new Set([
         "planning.scheduler.worker.start-first",
         "planning.scheduler.worker.start-next",

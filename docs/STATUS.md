@@ -5,17 +5,29 @@
 - Current date: 2026-06-17.
 - Active ECL change: none.
 - Pending Harness evolution: none.
-- Latest archived product change: `harness/changes/archive/20260617-phase-11g-goal-loop-scheduler-integration-outcome-handoff-hardening/summary.md`.
+- Latest archived product change: `harness/changes/archive/20260617-phase-11h-goal-loop-scheduler-run-completion-handoff-hardening/summary.md`.
 - Latest archived product/Harness docs change: `harness/changes/archive/20260615-harness-self-evolution-slimming-rule-tuning/summary.md`.
-- Latest archived Harness evolution: `harness/changes/archive/20260617-auto-evolve-harness-phase-10z-11d-goal-loop-context-evidence/summary.md`.
+- Latest archived Harness evolution: `harness/changes/archive/20260617-auto-evolve-harness-phase-11d-11h-goal-loop-scheduler-handoff-evidence/summary.md`.
 - Active product phase: none. Active Harness evolution phase: none.
 - Active close status: no active change.
 
-This file is the short resume point. There is no active change. For full history, use `harness/changes/INDEX.json` and archived `summary.md` files.
+This file is the short resume point. No active change or pending Harness evolution exists. For full history, use `harness/changes/INDEX.json` and archived `summary.md` files.
 
 Current plan-level roadmap context is preserved in `docs/CURRENT-DEVELOPMENT-PLAN.md`.
 
 ## Recent Completed Work
+
+### Auto Evolve Harness Phase 11D-11H Goal Loop Scheduler Handoff Evidence
+
+Archived at `harness/changes/archive/20260617-auto-evolve-harness-phase-11d-11h-goal-loop-scheduler-handoff-evidence/summary.md`.
+
+The pending Phase 11D-11H Goal Loop scheduler handoff evidence window was handled as `noop/independent_review` with independent review score 84/100. Existing Goal Loop Boundary, Scoped Workbench Action Payload, Source Apply Safety, Module Boundary, Close/Handoff Drift, Documentation Entropy, Experience Lifecycle, and ToolPolicy/human-gate rules are sufficient; no new Harness rule, template, lint, product runtime, Workbench, scheduler, or Goal Loop change was added.
+
+### Phase 11H Goal Loop SchedulerRun Completion Handoff Hardening
+
+Archived at `harness/changes/archive/20260617-phase-11h-goal-loop-scheduler-run-completion-handoff-hardening/summary.md`.
+
+Phase 11H hardens the Goal Loop-guided handoff for the existing `planning.scheduler.run.complete` gate. It carries current scheduler run, reconcile snapshot, claim reservation, scheduler integration candidate, IntegrationCheck handoff, scheduler integration outcome, apply check, and ready `worktreeIds` scope through the Goal Loop packet, Workpad summary, controller refresh, gate-readiness preflight, and assisted concrete confirmation. Boundary validation rejects stale or forged reconcile, claim, candidate, handoff, apply, outcome, worktree, and latest-reconcile lineage targets; completion records scheduler-owned terminal evidence with `sourceMutated: false` and leaves close/archive to the existing human close gate.
 
 ### Phase 11G Goal Loop Scheduler Integration Outcome Handoff Hardening
 
@@ -159,12 +171,13 @@ The pending Phase 10P-10T Goal Loop controller/feedback/context/prompt evidence 
 - Phase 11E proves the existing `planning.scheduler.worker.start-next` gate can be guided by fresh Goal Loop packet/controller/preflight evidence while the executable transition remains the concrete scheduler gate.
 - Phase 11F proves the existing `planning.scheduler.integration-check.run` gate can be guided by fresh Goal Loop packet/controller/preflight evidence with ready `worktreeIds` scope while the executable transition remains the concrete scheduler IntegrationCheck gate.
 - Phase 11G proves the existing `planning.scheduler.integration-outcome.reconcile` gate can be guided by fresh Goal Loop packet/controller/preflight evidence with candidate, handoff, apply check, and ready `worktreeIds` scope while the executable transition remains the concrete scheduler outcome gate.
+- Phase 11H proves the existing `planning.scheduler.run.complete` gate can be guided by fresh Goal Loop packet/controller/preflight evidence with reconcile snapshot, claim reservation, candidate, handoff, outcome, apply check, and ready `worktreeIds` scope while the executable transition remains the concrete scheduler completion gate and close remains a separate human gate.
 - Scheduler runtime remains staged and bounded. Existing scheduler worker/result/validation/audit/rework/integration/completion gates do not authorize scheduler loops, whole-wave dispatch, slot allocation, automatic child Changes, automatic apply/merge, or a full parallel executor.
 - Documentation entropy is now an explicit Harness concern: `AGENTS.md` is the routing map, `docs/STATUS.md` is the short handoff, `docs/ECL.md` owns reusable process rules, and archived summaries / `harness/changes/INDEX.json` own history.
 
 ## Next Resume Point
 
-No active change. Next work should choose the next bounded slice from `docs/CURRENT-DEVELOPMENT-PLAN.md`: either continue non-executing Goal Loop evidence around the existing scheduler gate chain, or explicitly plan a separate controlled scheduler/parallel capability without implying loops, whole-wave dispatch, source apply/discard, merge, or new execution authority.
+No active change or pending Harness evolution exists. The next recommended structured product work is to choose whether the Scheduler path remains single-gate staged hardening or begins a real scheduler loop/full parallel executor design. Do not imply full parallelism before implementing SchedulerIntegrationCandidate -> IntegrationCheck -> aggregate validation/audit -> human apply gate.
 
 ## Verification Commands
 

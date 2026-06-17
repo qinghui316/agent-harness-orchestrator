@@ -532,7 +532,13 @@ function buildDecision(snapshot: EvidenceSnapshot, id: string, artifact: string,
     recommendedAction = buildRecommendedAction("planning.scheduler.run.complete", {
       changeId: snapshot.changeId,
       schedulerRunId: snapshot.schedulerRun.id,
+      schedulerReconcileSnapshotId: snapshot.integrationOutcome.schedulerReconcileSnapshotId,
+      schedulerClaimReservationId: snapshot.integrationOutcome.schedulerClaimReservationId,
+      schedulerIntegrationCandidateId: snapshot.integrationOutcome.schedulerIntegrationCandidateId,
+      schedulerIntegrationCheckHandoffId: snapshot.integrationOutcome.schedulerIntegrationCheckHandoffId,
       schedulerIntegrationOutcomeId: snapshot.integrationOutcome.id,
+      applyCheckId: snapshot.integrationOutcome.integrationCheckId,
+      worktreeIds: snapshot.integrationOutcome.readyWorktreeIds,
     }, "Record SchedulerRun completion from the terminal scheduler integration outcome.");
   } else if (snapshot.integrationHandoff && snapshot.schedulerRun) {
     decisionKind = "integration-needed";
