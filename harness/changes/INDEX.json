@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-17T08:19:00.1173569Z",
+    "generated_at":  "2026-06-17T08:55:24.4653237Z",
     "active":  [
 
                ],
@@ -929,6 +929,10 @@
                     {
                         "name":  "20260617-phase-11e-goal-loop-start-next-handoff-hardening",
                         "path":  "harness/changes/archive/20260617-phase-11e-goal-loop-start-next-handoff-hardening"
+                    },
+                    {
+                        "name":  "20260617-phase-11f-goal-loop-scheduler-integration-check-handoff-hardening",
+                        "path":  "harness/changes/archive/20260617-phase-11f-goal-loop-scheduler-integration-check-handoff-hardening"
                     }
                 ]
 }

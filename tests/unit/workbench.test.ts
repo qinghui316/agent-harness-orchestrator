@@ -4194,7 +4194,122 @@ describe("workbench read model", () => {
         .flatMap((item) => item.actions)
         .find((action) => action.actionType === "planning.scheduler.integration-check.run" && action.schedulerIntegrationCandidateId === refreshedCandidate?.id);
       if (!handoffAction) throw new Error("Missing scheduler IntegrationCheck handoff action.");
-      const handoffResult = await executeWorkbenchAction({ project: project(), path: tempDir }, { ...handoffAction, confirm: true });
+      expect(handoffAction).toMatchObject({
+        schedulerRunId: prepared.schedulerRun.id,
+        schedulerIntegrationCandidateId: refreshedCandidate?.id,
+        worktreeIds: expect.arrayContaining(refreshedCandidate?.readyWorktreeIds ?? []),
+      });
+
+      const integrationGoalLoopEvaluation = await compileGoalLoopEvaluation(memory, changePath);
+      expect(integrationGoalLoopEvaluation.goalLoopNextStepPacket).toMatchObject({
+        recommendedAction: {
+          actionType: "planning.scheduler.integration-check.run",
+          scope: {
+            changeId: prepared.topic.changeId,
+            schedulerRunId: prepared.schedulerRun.id,
+            schedulerIntegrationCandidateId: refreshedCandidate?.id,
+            worktreeIds: expect.arrayContaining(refreshedCandidate?.readyWorktreeIds ?? []),
+          },
+        },
+        executionStarted: false,
+      });
+
+      snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: prepared.topic.changeId });
+      expect(snapshot.center.workpad.goalLoop).toMatchObject({
+        goalLoopNextStepPacketId: integrationGoalLoopEvaluation.goalLoopNextStepPacket.id,
+        recommendedActionType: "planning.scheduler.integration-check.run",
+        recommendedActionScope: expect.objectContaining({
+          changeId: prepared.topic.changeId,
+          schedulerRunId: prepared.schedulerRun.id,
+          schedulerIntegrationCandidateId: refreshedCandidate?.id,
+          worktreeIds: expect.arrayContaining(refreshedCandidate?.readyWorktreeIds ?? []),
+        }),
+        routingPosture: "integration-check-required",
+        routingLabel: "IntegrationCheck path required",
+      });
+      const integrationControllerRefreshAction = snapshot.right.confirmationQueue.current
+        .flatMap((item) => item.actions)
+        .find((action) => action.actionType === "planning.goal-loop.controller.refresh" && action.goalLoopCurrentGateActionType === "planning.scheduler.integration-check.run");
+      if (!integrationControllerRefreshAction) throw new Error("Missing Goal Loop controller refresh action for scheduler IntegrationCheck.");
+      expect(integrationControllerRefreshAction).toMatchObject({
+        schedulerRunId: prepared.schedulerRun.id,
+        schedulerIntegrationCandidateId: refreshedCandidate?.id,
+        worktreeIds: expect.arrayContaining(refreshedCandidate?.readyWorktreeIds ?? []),
+      });
+      const integrationControllerRefresh = await executeWorkbenchAction({ project: project(), path: tempDir }, { ...integrationControllerRefreshAction, confirm: true });
+      const integrationControllerPolicy = (((integrationControllerRefresh.result as { result?: unknown }).result ?? integrationControllerRefresh.result) as {
+        goalLoopControllerPolicy?: { id?: string; verdict?: string; gateStatus?: string; executionStarted?: boolean };
+      }).goalLoopControllerPolicy;
+      expect(integrationControllerPolicy).toMatchObject({
+        verdict: "recommend-existing-gate",
+        gateStatus: "matches-current-gate",
+        executionStarted: false,
+      });
+
+      snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: prepared.topic.changeId });
+      const integrationGateReadinessAction = snapshot.right.confirmationQueue.current
+        .flatMap((item) => item.actions)
+        .find((action) => action.actionType === "planning.goal-loop.gate-readiness.prepare" && action.goalLoopCurrentGateActionType === "planning.scheduler.integration-check.run");
+      if (!integrationGateReadinessAction) throw new Error("Missing Goal Loop gate readiness action for scheduler IntegrationCheck.");
+      expect(integrationGateReadinessAction).toMatchObject({
+        schedulerRunId: prepared.schedulerRun.id,
+        schedulerIntegrationCandidateId: refreshedCandidate?.id,
+        worktreeIds: expect.arrayContaining(refreshedCandidate?.readyWorktreeIds ?? []),
+        goalLoopControllerPolicyId: integrationControllerPolicy?.id,
+      });
+      const integrationGateReadiness = await executeWorkbenchAction({ project: project(), path: tempDir }, { ...integrationGateReadinessAction, confirm: true });
+      if ((integrationGateReadiness.result as { status?: string; error?: string }).status !== "completed") {
+        throw new Error((integrationGateReadiness.result as { error?: string }).error ?? "Goal Loop IntegrationCheck gate readiness action failed.");
+      }
+      const integrationPreflight = ((integrationGateReadiness.result as {
+        result?: {
+          goalLoopGateReadinessPreflight?: {
+            id?: string;
+            currentGate?: { actionType?: string; scope?: Record<string, unknown> };
+            concreteGateInvoked?: boolean;
+            toolPolicyAuthorizedConcreteGate?: boolean;
+            executionStarted?: boolean;
+          };
+        };
+      }).result)?.goalLoopGateReadinessPreflight;
+      expect(integrationPreflight).toMatchObject({
+        currentGate: {
+          actionType: "planning.scheduler.integration-check.run",
+          scope: expect.objectContaining({
+            changeId: prepared.topic.changeId,
+            schedulerRunId: prepared.schedulerRun.id,
+            schedulerIntegrationCandidateId: refreshedCandidate?.id,
+            worktreeIds: expect.arrayContaining(refreshedCandidate?.readyWorktreeIds ?? []),
+          }),
+        },
+        concreteGateInvoked: false,
+        toolPolicyAuthorizedConcreteGate: false,
+        executionStarted: false,
+      });
+
+      snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: prepared.topic.changeId });
+      const assistedHandoffAction = snapshot.right.confirmationQueue.current
+        .flatMap((item) => item.actions)
+        .find((action) => action.actionType === "planning.scheduler.integration-check.run" && action.goalLoopGateReadinessPreflightId === integrationPreflight?.id);
+      if (!assistedHandoffAction) throw new Error("Missing assisted scheduler IntegrationCheck action.");
+      expect(assistedHandoffAction).toMatchObject({
+        schedulerRunId: prepared.schedulerRun.id,
+        schedulerIntegrationCandidateId: refreshedCandidate?.id,
+        worktreeIds: expect.arrayContaining(refreshedCandidate?.readyWorktreeIds ?? []),
+        goalLoopNextStepPacketId: integrationGoalLoopEvaluation.goalLoopNextStepPacket.id,
+        goalLoopControllerPolicyId: integrationControllerPolicy?.id,
+        goalLoopGateReadinessPreflightId: integrationPreflight?.id,
+      });
+      expect(snapshot.right.confirmationQueue.current.flatMap((item) => item.actions).some((action) => action.actionType === "planning.goal-loop.gate.invoke")).toBe(false);
+
+      await expect(executeWorkbenchAction({ project: project(), path: tempDir }, {
+        ...assistedHandoffAction,
+        worktreeIds: [...(assistedHandoffAction.worktreeIds ?? []), "forged-worktree"],
+        confirm: true,
+      })).rejects.toThrow(/stale|scope mismatch|worktreeIds target scope mismatch|forged-worktree/i);
+      await expect(listIntegrationChecks(memory)).resolves.toHaveLength(0);
+
+      const handoffResult = await executeWorkbenchAction({ project: project(), path: tempDir }, { ...assistedHandoffAction, confirm: true });
       const handoffWorkflow = handoffResult.result as { status?: string; error?: string; result?: unknown };
       if (handoffWorkflow.status === "failed") throw new Error(handoffWorkflow.error ?? "handoff action failed");
       expect(handoffWorkflow).toMatchObject({ status: "completed" });
@@ -4215,6 +4330,8 @@ describe("workbench read model", () => {
         integrationCheckId: handoff.integrationCheck?.id,
       });
       expect(handoff.integrationCheck?.resultTargets?.map((target) => target.worktreeId).sort()).toEqual(refreshedCandidate?.readyWorktreeIds?.sort());
+      const sourceStatusAfterAssistedHandoff = await execFileAsync("git", ["status", "--short", "--untracked-files=all"], { cwd: tempDir });
+      expect(sourceStatusAfterAssistedHandoff.stdout.trim()).toBe("");
 
       const finalMemory = await resolveProjectMemory(project());
       expect(await listWorkflowRuns(finalMemory, prepared.topic.changeId)).toHaveLength(0);

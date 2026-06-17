@@ -5,17 +5,23 @@
 - Current date: 2026-06-17.
 - Active ECL change: none.
 - Pending Harness evolution: none.
-- Latest archived product change: `harness/changes/archive/20260617-phase-11e-goal-loop-start-next-handoff-hardening/summary.md`.
+- Latest archived product change: `harness/changes/archive/20260617-phase-11f-goal-loop-scheduler-integration-check-handoff-hardening/summary.md`.
 - Latest archived product/Harness docs change: `harness/changes/archive/20260615-harness-self-evolution-slimming-rule-tuning/summary.md`.
 - Latest archived Harness evolution: `harness/changes/archive/20260617-auto-evolve-harness-phase-10z-11d-goal-loop-context-evidence/summary.md`.
 - Active product phase: none. Active Harness evolution phase: none.
-- Active close status: none.
+- Active close status: no active change.
 
-This file is the short resume point. No active change is open. For full history, use `harness/changes/INDEX.json` and archived `summary.md` files.
+This file is the short resume point. There is no active change. For full history, use `harness/changes/INDEX.json` and archived `summary.md` files.
 
 Current plan-level roadmap context is preserved in `docs/CURRENT-DEVELOPMENT-PLAN.md`.
 
 ## Recent Completed Work
+
+### Phase 11F Goal Loop Scheduler IntegrationCheck Handoff Hardening
+
+Archived at `harness/changes/archive/20260617-phase-11f-goal-loop-scheduler-integration-check-handoff-hardening/summary.md`.
+
+Phase 11F hardens the Goal Loop-guided handoff for the existing `planning.scheduler.integration-check.run` gate. It carries ready `worktreeIds` in the Goal Loop recommendation scope, proves visible Workpad guidance, controller refresh, gate-readiness preflight, and assisted concrete confirmation stay aligned, rejects forged IntegrationCheck target ids through the Workbench execution path, and records source-safety evidence that assisted IntegrationCheck creates check evidence only before existing apply/discard confirmation.
 
 ### Phase 11E Goal Loop Start-Next Handoff Hardening
 
@@ -145,12 +151,13 @@ The pending Phase 10P-10T Goal Loop controller/feedback/context/prompt evidence 
 - Phase 10Y allows close-ready Goal Loop evidence to attach derived handoff context to the existing `change.close` approval only while fresh and scoped. The close/archive transition remains the existing human gate.
 - Phase 11C makes Goal Loop routing posture machine-readable for Workbench and main-Agent inspection while staying evidence-only and non-executing.
 - Phase 11E proves the existing `planning.scheduler.worker.start-next` gate can be guided by fresh Goal Loop packet/controller/preflight evidence while the executable transition remains the concrete scheduler gate.
+- Phase 11F proves the existing `planning.scheduler.integration-check.run` gate can be guided by fresh Goal Loop packet/controller/preflight evidence with ready `worktreeIds` scope while the executable transition remains the concrete scheduler IntegrationCheck gate.
 - Scheduler runtime remains staged and bounded. Existing scheduler worker/result/validation/audit/rework/integration/completion gates do not authorize scheduler loops, whole-wave dispatch, slot allocation, automatic child Changes, automatic apply/merge, or a full parallel executor.
 - Documentation entropy is now an explicit Harness concern: `AGENTS.md` is the routing map, `docs/STATUS.md` is the short handoff, `docs/ECL.md` owns reusable process rules, and archived summaries / `harness/changes/INDEX.json` own history.
 
 ## Next Resume Point
 
-No active change is open. The next structured product change should continue from `docs/CURRENT-DEVELOPMENT-PLAN.md`: either keep Goal Loop work non-executing and concrete-gate-bound, or explicitly choose a bounded scheduler/parallel slice without implying a full scheduler loop.
+No active change. Next work should choose the next bounded slice from `docs/CURRENT-DEVELOPMENT-PLAN.md`: either continue non-executing Goal Loop evidence around the existing scheduler gate chain, or explicitly plan a separate controlled scheduler/parallel capability without implying loops, whole-wave dispatch, source apply/discard, merge, or new execution authority.
 
 ## Verification Commands
 

@@ -7,7 +7,7 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 - Current date: 2026-06-17.
 - Active change: none.
 - Pending Harness evolution: none.
-- Latest archived product change: Phase 11E Goal Loop Start-Next Handoff Hardening, archived at `harness/changes/archive/20260617-phase-11e-goal-loop-start-next-handoff-hardening/summary.md`.
+- Latest archived product change: Phase 11F Goal Loop Scheduler IntegrationCheck Handoff Hardening, archived at `harness/changes/archive/20260617-phase-11f-goal-loop-scheduler-integration-check-handoff-hardening/summary.md`.
 - Latest product/Harness docs change: Harness Self Evolution Slimming Rule Tuning, archived at `harness/changes/archive/20260615-harness-self-evolution-slimming-rule-tuning/summary.md`.
 - Latest Harness evolution: `harness/changes/archive/20260617-auto-evolve-harness-phase-10z-11d-goal-loop-context-evidence/summary.md`.
 

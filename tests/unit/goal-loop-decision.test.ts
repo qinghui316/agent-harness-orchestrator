@@ -802,6 +802,7 @@ describe("GoalLoopDecision", () => {
         changeId,
         schedulerRunId: schedulerRun.id,
         schedulerIntegrationCandidateId: candidate.id,
+        worktreeIds: candidate.readyWorktreeIds,
       },
     });
     expectConflict(decision, "high", false, "IntegrationCheck gate");
@@ -809,6 +810,7 @@ describe("GoalLoopDecision", () => {
       routingPosture: "integration-check-required",
       routingLabel: "IntegrationCheck path required",
     });
+    expect(decision.executionStarted).toBe(false);
   });
 
   it("recommends blocked closeout when a candidate cannot reach two ready targets and no reserved intent remains", async () => {

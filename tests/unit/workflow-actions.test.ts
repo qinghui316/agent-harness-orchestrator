@@ -1176,8 +1176,10 @@ describe("workflow action registry", () => {
       schedulerIntegrationCandidateId: "scheduler-integration-candidate-1",
       schedulerIntegrationCheckHandoffId: "scheduler-integration-check-handoff-1",
       applyCheckId: "apply-check-1",
+      worktreeIds: ["wt-a", "wt-b"],
     });
     expect(workflowActionScopesMatchStrict(integrationCheckRequest, { ...integrationCheckRequest })).toBe(true);
+    expect(workflowActionScopesMatchStrict(integrationCheckRequest, { ...integrationCheckRequest, worktreeIds: ["wt-a", "wt-c"] })).toBe(false);
     expect(workflowActionScopesMatchStrict(integrationCheckRequest, { ...integrationCheckRequest, schedulerIntegrationCandidateId: undefined })).toBe(false);
     expect(workflowActionScopesMatchCompatible(integrationCheckRequest, { ...integrationCheckRequest, schedulerIntegrationCandidateId: undefined })).toBe(true);
 

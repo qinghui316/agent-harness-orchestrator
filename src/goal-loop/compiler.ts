@@ -548,6 +548,7 @@ function buildDecision(snapshot: EvidenceSnapshot, id: string, artifact: string,
       changeId: snapshot.changeId,
       schedulerRunId: snapshot.schedulerRun.id,
       schedulerIntegrationCandidateId: snapshot.integrationCandidate.id,
+      worktreeIds: snapshot.integrationCandidate.readyWorktreeIds,
     }, "Run the existing IntegrationCheck handoff for ready scheduler outputs.");
   } else if (snapshot.schedulerRun && snapshot.claimReservation) {
     const workerPathRecommendation = recommendCurrentWorkerPath(snapshot);
