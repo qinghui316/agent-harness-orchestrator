@@ -2,6 +2,7 @@ import { z } from "zod";
 import { WORKFLOW_ACTION_TYPES } from "../workflow-actions/registry.js";
 import { legacySchedulerExecutionModeAssessment } from "../workflow-scheduler/execution-mode.js";
 import { schedulerExecutionModeAssessmentSchema } from "../workflow-scheduler/schemas.js";
+import { legacySchedulerLoopEvidenceSnapshot } from "./scheduler-loop-snapshot.js";
 import type { GoalLoopContinuationBrief, GoalLoopControllerPolicy, GoalLoopDecision, GoalLoopFeedback, GoalLoopGateReadinessPreflight, GoalLoopNextStepPacket } from "./types.js";
 
 const sourceEvidenceRefSchema = z.object({
@@ -43,11 +44,6 @@ const recommendedActionSchema = z.object({
   reason: z.string(),
 });
 
-const forbiddenActionSchema = z.object({
-  actionType: z.string(),
-  reason: z.string(),
-});
-
 const decisionKindSchema = z.enum([
   "planning-needed",
   "sequential-loop",
@@ -59,6 +55,54 @@ const decisionKindSchema = z.enum([
   "blocked",
   "completed-ready-for-human-close-gate",
 ]);
+
+const schedulerLoopUnsafeEvidenceSchema = z.object({
+  kind: z.enum(["malformed", "stale", "superseded", "cross-change", "ambiguous", "missing"]),
+  summary: z.string(),
+  artifactId: z.string().optional(),
+});
+
+const schedulerLoopForbiddenAuthoritySchema = z.object({
+  loopAuthorized: z.literal(false),
+  fullParallelExecutorAuthorized: z.literal(false),
+  wholeWaveDispatchAuthorized: z.literal(false),
+  slotAllocatorAuthorized: z.literal(false),
+  executionStarted: z.literal(false),
+  sourceMutationAuthorized: z.literal(false),
+  applyAuthorized: z.literal(false),
+  closeAuthorized: z.literal(false),
+  harnessEvolutionAuthorized: z.literal(false),
+});
+
+const schedulerLoopCurrentLegalActionSchema = z.object({
+  actionType: z.enum(WORKFLOW_ACTION_TYPES),
+  scope: z.record(z.union([z.string(), z.array(z.string())])),
+  separateHumanGateRequired: z.literal(true),
+  reason: z.string(),
+});
+
+const schedulerLoopEvidenceSnapshotSchema = z.object({
+  version: z.literal("1.0"),
+  authority: z.literal("non-executing-scheduler-loop-evidence-snapshot"),
+  changeId: z.string(),
+  planningComplete: z.boolean(),
+  decisionKind: decisionKindSchema,
+  posture: z.enum(["waiting", "recommending-gate", "awaiting-human-gate", "quality-routing", "integration-barrier", "terminal-handoff"]),
+  reasons: z.array(z.string()),
+  currentLegalAction: schedulerLoopCurrentLegalActionSchema.optional(),
+  separateHumanGateRequired: z.boolean(),
+  humanGateRequired: z.boolean(),
+  unsafeEvidence: z.array(schedulerLoopUnsafeEvidenceSchema),
+  conflictAssessment: conflictAssessmentSchema,
+  completionAudit: completionAuditSchema,
+  schedulerExecutionMode: schedulerExecutionModeSchema,
+  forbiddenAuthority: schedulerLoopForbiddenAuthoritySchema,
+});
+
+const forbiddenActionSchema = z.object({
+  actionType: z.string(),
+  reason: z.string(),
+});
 
 const continuationStateSchema = z.enum([
   "waiting-for-evidence",
@@ -97,7 +141,7 @@ const suppressionReasonSchema = z.object({
   summary: z.string(),
 });
 
-export const goalLoopDecisionSchema = z.object({
+const goalLoopDecisionObjectSchema = z.object({
   version: z.literal("1.0"),
   id: z.string(),
   changeId: z.string(),
@@ -109,6 +153,7 @@ export const goalLoopDecisionSchema = z.object({
   forbiddenActions: z.array(forbiddenActionSchema),
   conflictAssessment: conflictAssessmentSchema,
   schedulerExecutionMode: schedulerExecutionModeSchema,
+  schedulerLoopEvidenceSnapshot: schedulerLoopEvidenceSnapshotSchema.optional(),
   completionAudit: completionAuditSchema,
   sourceEvidenceRefs: z.array(sourceEvidenceRefSchema),
   executionStarted: z.literal(false),
@@ -116,7 +161,13 @@ export const goalLoopDecisionSchema = z.object({
   markdownArtifact: z.string(),
   createdAt: z.string(),
   updatedAt: z.string(),
-}) as z.ZodType<GoalLoopDecision>;
+});
+
+export const goalLoopDecisionSchema = goalLoopDecisionObjectSchema
+  .transform((decision) => ({
+    ...decision,
+    schedulerLoopEvidenceSnapshot: decision.schedulerLoopEvidenceSnapshot ?? legacySchedulerLoopEvidenceSnapshot(decision.changeId),
+  })) as unknown as z.ZodType<GoalLoopDecision>;
 
 export const goalLoopIterationSchema = z.object({
   version: z.literal("1.0"),

@@ -90,6 +90,53 @@ const FORBIDDEN_AUTHORITY: SchedulerLoopForbiddenAuthority = {
   harnessEvolutionAuthorized: false,
 };
 
+export function legacySchedulerLoopEvidenceSnapshot(changeId: string): SchedulerLoopEvidenceSnapshot {
+  return {
+    version: "1.0",
+    authority: "non-executing-scheduler-loop-evidence-snapshot",
+    changeId,
+    planningComplete: false,
+    decisionKind: "wait-for-evidence",
+    posture: "waiting",
+    reasons: ["Legacy GoalLoopDecision artifact has no scheduler-loop evidence snapshot; treat as waiting for fresh evidence."],
+    separateHumanGateRequired: false,
+    humanGateRequired: false,
+    unsafeEvidence: [{
+      kind: "missing",
+      summary: "Legacy GoalLoopDecision artifact did not include scheduler-loop evidence snapshot.",
+    }],
+    conflictAssessment: {
+      level: "unknown",
+      parallelEligible: false,
+      routingPosture: "wait-for-evidence",
+      routingLabel: "Wait for evidence",
+      reasons: ["Legacy GoalLoopDecision artifact has no scheduler-loop conflict posture evidence."],
+    },
+    completionAudit: {
+      status: "incomplete",
+      evidence: [],
+      missing: ["Fresh scheduler-loop evidence snapshot"],
+    },
+    schedulerExecutionMode: {
+      authority: "non-executing-scheduler-execution-mode-evidence",
+      mode: "waiting-for-evidence",
+      loopAuthorized: false,
+      fullParallelExecutorAuthorized: false,
+      wholeWaveDispatchAuthorized: false,
+      slotAllocatorAuthorized: false,
+      humanGateRequired: false,
+      summary: "Legacy GoalLoopDecision artifact has no scheduler-loop evidence snapshot; treat as waiting for fresh evidence.",
+      reasons: ["Legacy scheduler-loop snapshot default is conservative and does not authorize scheduler execution."],
+      futureLoopRequirements: [
+        "fresh GoalLoopDecision with scheduler-loop evidence snapshot",
+        "accepted architecture decision for a real scheduler loop or full parallel executor",
+        "ToolPolicyGate and human gate for every concrete action",
+      ],
+    },
+    forbiddenAuthority: { ...FORBIDDEN_AUTHORITY },
+  };
+}
+
 export function classifySchedulerLoopEvidenceSnapshot(input: SchedulerLoopEvidenceSnapshotInput): SchedulerLoopEvidenceSnapshot {
   const unsafeEvidence = input.unsafeEvidence ?? [];
   const unsafeReasons = unsafeEvidence.map((evidence) => `${evidence.kind}: ${evidence.summary}`);

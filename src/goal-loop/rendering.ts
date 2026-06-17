@@ -33,6 +33,8 @@ export function renderGoalLoopDecisionMarkdown(decision: GoalLoopDecision): stri
     "",
     ...renderSchedulerExecutionModeMarkdown(decision.schedulerExecutionMode),
     "",
+    ...renderSchedulerLoopEvidenceSnapshotMarkdown(decision.schedulerLoopEvidenceSnapshot),
+    "",
     "## Completion Audit",
     "",
     `- Status: ${decision.completionAudit.status}`,
@@ -427,6 +429,41 @@ function renderSchedulerExecutionModeMarkdown(mode: GoalLoopDecision["schedulerE
     "- Scheduler execution mode is evidence only.",
     "- It does not execute, prioritize, or confirm scheduler actions.",
     "- A real scheduler loop or full parallel executor requires a later accepted design and implementation phase.",
+  ];
+}
+
+function renderSchedulerLoopEvidenceSnapshotMarkdown(snapshot: GoalLoopDecision["schedulerLoopEvidenceSnapshot"]): string[] {
+  return [
+    "## Scheduler Loop Evidence Snapshot",
+    "",
+    "- This snapshot is non-executing evidence only; it does not authorize a scheduler loop or invoke a concrete gate.",
+    `- Authority: ${snapshot.authority}`,
+    `- Posture: ${snapshot.posture}`,
+    `- Planning complete: ${snapshot.planningComplete ? "yes" : "no"}`,
+    `- Decision kind: ${snapshot.decisionKind}`,
+    `- Human gate required: ${snapshot.humanGateRequired ? "yes" : "no"}`,
+    `- Separate human gate required: ${snapshot.separateHumanGateRequired ? "yes" : "no"}`,
+    snapshot.currentLegalAction
+      ? `- Current legal action: ${snapshot.currentLegalAction.actionType}`
+      : "- Current legal action: none",
+    `- loopAuthorized: ${snapshot.forbiddenAuthority.loopAuthorized ? "true" : "false"}`,
+    `- fullParallelExecutorAuthorized: ${snapshot.forbiddenAuthority.fullParallelExecutorAuthorized ? "true" : "false"}`,
+    `- wholeWaveDispatchAuthorized: ${snapshot.forbiddenAuthority.wholeWaveDispatchAuthorized ? "true" : "false"}`,
+    `- slotAllocatorAuthorized: ${snapshot.forbiddenAuthority.slotAllocatorAuthorized ? "true" : "false"}`,
+    `- sourceMutationAuthorized: ${snapshot.forbiddenAuthority.sourceMutationAuthorized ? "true" : "false"}`,
+    `- applyAuthorized: ${snapshot.forbiddenAuthority.applyAuthorized ? "true" : "false"}`,
+    `- closeAuthorized: ${snapshot.forbiddenAuthority.closeAuthorized ? "true" : "false"}`,
+    `- harnessEvolutionAuthorized: ${snapshot.forbiddenAuthority.harnessEvolutionAuthorized ? "true" : "false"}`,
+    "",
+    "### Snapshot Reasons",
+    "",
+    ...(snapshot.reasons.length ? snapshot.reasons.map((reason) => `- ${reason}`) : ["- None."]),
+    "",
+    "### Unsafe Evidence",
+    "",
+    ...(snapshot.unsafeEvidence.length
+      ? snapshot.unsafeEvidence.map((evidence) => `- ${evidence.kind}${evidence.artifactId ? ` ${evidence.artifactId}` : ""}: ${evidence.summary}`)
+      : ["- None."]),
   ];
 }
 

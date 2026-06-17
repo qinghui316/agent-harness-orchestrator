@@ -1,5 +1,6 @@
 import type { WorkflowActionType } from "../workflow-actions/registry.js";
 import type { SchedulerExecutionModeAssessment } from "../workflow-scheduler/types.js";
+import type { SchedulerLoopEvidenceSnapshot } from "./scheduler-loop-snapshot.js";
 
 export type GoalLoopDecisionAuthority = "non-executing-planning-evidence";
 export type GoalLoopIterationAuthority = "non-executing-continuation-evidence";
@@ -76,6 +77,7 @@ export interface GoalLoopDecision {
   forbiddenActions: GoalLoopForbiddenAction[];
   conflictAssessment: GoalLoopConflictAssessment;
   schedulerExecutionMode: SchedulerExecutionModeAssessment;
+  schedulerLoopEvidenceSnapshot: SchedulerLoopEvidenceSnapshot;
   completionAudit: GoalLoopCompletionAudit;
   sourceEvidenceRefs: GoalLoopSourceEvidenceRef[];
   executionStarted: false;
