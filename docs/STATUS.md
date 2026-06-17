@@ -5,17 +5,23 @@
 - Current date: 2026-06-18.
 - Active ECL change: none.
 - Pending Harness evolution: none.
-- Latest archived product change: `harness/changes/archive/20260618-phase-11y-goal-loop-plan-prepare-handoff-regression/summary.md`.
-- Latest archived product/Harness docs change: `harness/changes/archive/20260618-phase-11y-goal-loop-plan-prepare-handoff-regression/summary.md`.
+- Latest archived product change: `harness/changes/archive/20260618-phase-12a-controlled-scheduler-loop-design-boundary/summary.md`.
+- Latest archived product/Harness docs change: `harness/changes/archive/20260618-phase-12a-controlled-scheduler-loop-design-boundary/summary.md`.
 - Latest archived Harness evolution: `harness/changes/archive/20260618-auto-evolve-harness-phase-11t-11x-goal-loop-handoff-evidence/summary.md`.
 - Active product phase: none. Active Harness evolution phase: none.
-- Active close status: no active change is open.
+- Active close status: no active change.
 
-This file is the short resume point. Phase 11Y is archived after hardening the existing `planning.scheduler.plan.prepare` Goal Loop handoff as non-executing evidence for the first scheduler plan gate. It added focused packet/controller/preflight/assisted-confirmation coverage, launch-confirmation concrete boundary coverage, and a narrow fail-closed guard for forged visible gate `changeId`. The latest Harness evolution reviewed Phase 11T-11X as `noop/independent_review` with Hooke score 92/100. For full history, use `harness/changes/INDEX.json` and archived `summary.md` files.
+This file is the short resume point. Phase 12A is archived after defining a design-only boundary for a future controlled Scheduler/parallel loop before any runtime executor work. Phase 11Y remains the latest runtime/test hardening phase for the existing `planning.scheduler.plan.prepare` Goal Loop handoff as non-executing evidence for the first scheduler plan gate. The latest Harness evolution reviewed Phase 11T-11X as `noop/independent_review` with Hooke score 92/100. For full history, use `harness/changes/INDEX.json` and archived `summary.md` files.
 
 Current plan-level roadmap context is preserved in `docs/CURRENT-DEVELOPMENT-PLAN.md`.
 
 ## Recent Completed Work
+
+### Phase 12A Controlled Scheduler Loop Design Boundary
+
+Archived at `harness/changes/archive/20260618-phase-12a-controlled-scheduler-loop-design-boundary/summary.md`.
+
+Phase 12A adds the accepted design boundary for a future controlled Scheduler/parallel loop in `docs/design-docs/controlled-scheduler-loop.md`. It defines the evidence-driven loop state machine, owner modules, conflict routing, fail-closed stale/forged/cross-Change rules, and final integration barrier: `SchedulerIntegrationCandidate` -> `IntegrationCheck` -> aggregate validation/audit -> human apply gate. The change is documentation/design only; it adds no scheduler loop runtime, worker auto-start, whole-wave dispatch, slot allocator, Workbench action, ToolPolicy change, child Change creation, source mutation, automatic apply/merge/close, or Harness evolution automation.
 
 ### Phase 11Y Goal Loop Plan Prepare Handoff Regression
 
@@ -301,12 +307,13 @@ The pending Phase 10P-10T Goal Loop controller/feedback/context/prompt evidence 
 - Phase 11K makes controller policy and gate-readiness preflight handoff artifacts carry the same scheduler execution-mode false-authority evidence from the fresh packet, and rejects preflight/context handoff when controller scheduler mode evidence is forged or stale.
 - Phase 11M requires Goal Loop feedback, controller refresh, gate-readiness, and assisted concrete projection affordances to attach only beside an enabled matching concrete Workbench gate; disabled same-scope gates cannot gain Goal Loop-derived enabled actions.
 - Phase 11N extends that enabled-gate requirement into server-side current action revalidation and assisted concrete gate confirmation, so forged assisted payloads cannot make disabled visible gates executable.
+- Phase 12A defines the future controlled Scheduler loop boundary in `docs/design-docs/controlled-scheduler-loop.md`. It is an accepted design contract only; current runtime still has no scheduler loop, whole-wave dispatch, slot allocator, worker auto-start, automatic apply/merge/close, child Change creation, ToolPolicy change, or Harness evolution automation.
 - Scheduler runtime remains staged and bounded. Existing scheduler worker/result/validation/audit/rework/integration/completion gates do not authorize scheduler loops, whole-wave dispatch, slot allocation, automatic child Changes, automatic apply/merge, or a full parallel executor.
 - Documentation entropy is now an explicit Harness concern: `AGENTS.md` is the routing map, `docs/STATUS.md` is the short handoff, `docs/ECL.md` owns reusable process rules, and archived summaries / `harness/changes/INDEX.json` own history.
 
 ## Next Resume Point
 
-No active change or pending Harness evolution exists. Continue by inspecting remaining Goal Loop/Scheduler single-gate handoff coverage and create the next structured change for the smallest missing end-to-end packet/controller/preflight/assisted-confirmation regression target, without implying scheduler loop/full executor authority. `README.md` remains unrelated and must stay untracked unless the user explicitly asks to include it.
+No active change or pending Harness evolution exists. Next structured work may start from `docs/design-docs/controlled-scheduler-loop.md` for a narrow implementation slice, or continue Goal Loop/Scheduler hardening, but any runtime loop/full executor/whole-wave/slot authority still requires a separate ECL implementation change. `README.md` remains unrelated and must stay untracked unless the user explicitly asks to include it.
 
 ## Verification Commands
 

@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-17T21:07:10.5523546Z",
+    "generated_at":  "2026-06-17T21:32:47.2547579Z",
     "active":  [
 
                ],
@@ -1029,6 +1029,10 @@
                     {
                         "name":  "20260618-phase-11y-goal-loop-plan-prepare-handoff-regression",
                         "path":  "harness/changes/archive/20260618-phase-11y-goal-loop-plan-prepare-handoff-regression"
+                    },
+                    {
+                        "name":  "20260618-phase-12a-controlled-scheduler-loop-design-boundary",
+                        "path":  "harness/changes/archive/20260618-phase-12a-controlled-scheduler-loop-design-boundary"
                     }
                 ]
 }
