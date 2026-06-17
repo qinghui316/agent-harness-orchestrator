@@ -13,6 +13,8 @@ import {
   validateWorkflowActionRequiredTargets,
   type WorkflowActionScopeCarrier,
 } from "../../workflow-actions/registry.js";
+import { schedulerExecutionModeAssessmentsEqual } from "../../workflow-scheduler/execution-mode.js";
+import type { SchedulerExecutionModeAssessment } from "../../workflow-scheduler/types.js";
 
 export interface GoalLoopAssistedConcreteGateConfirmationOptions {
   visibleGate?: WorkflowActionScopeCarrier;
@@ -84,6 +86,13 @@ export async function assertGoalLoopAssistedConcreteGateConfirmation(
   if (!packet.recommendedAction) {
     throw new Error("Goal Loop-assisted concrete gate requires a recommended concrete gate.");
   }
+  assertSchedulerExecutionModeChainMatches([
+    ["iteration", iteration.schedulerExecutionMode],
+    ["continuation brief", brief.schedulerExecutionMode],
+    ["next-step packet", packet.schedulerExecutionMode],
+    ["controller policy", policy.schedulerExecutionMode],
+    ["gate-readiness preflight", preflight.schedulerExecutionMode],
+  ], decision.schedulerExecutionMode);
   const freshness = await assessGoalLoopNextStepPacketFreshness(memory, changePath, packet);
   if (freshness.verdict !== "fresh") {
     throw new Error(`Goal Loop-assisted concrete gate packet is stale: ${freshness.reason}.`);
@@ -111,6 +120,17 @@ export async function assertGoalLoopAssistedConcreteGateConfirmation(
   const requiredTargetIssues = validateWorkflowActionRequiredTargets(expectedConcreteGate);
   if (requiredTargetIssues.length) {
     throw new Error(`Goal Loop-assisted concrete gate target is incomplete: ${requiredTargetIssues.map((issue) => issue.label).join(", ")}.`);
+  }
+}
+
+function assertSchedulerExecutionModeChainMatches(
+  candidates: Array<[string, SchedulerExecutionModeAssessment]>,
+  expected: SchedulerExecutionModeAssessment,
+): void {
+  for (const [label, candidate] of candidates) {
+    if (!schedulerExecutionModeAssessmentsEqual(expected, candidate)) {
+      throw new Error(`Goal Loop-assisted concrete gate scheduler execution mode mismatch: ${label}.`);
+    }
   }
 }
 

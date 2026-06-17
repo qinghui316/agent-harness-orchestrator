@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { getChangeStatusForChange } from "../../src/change/manager.js";
-import { buildGoalLoopMainAgentContextSection, compileGoalLoopControllerPolicy, compileGoalLoopDecision, compileGoalLoopEvaluation, compileGoalLoopGateReadinessPreflight, isGoalLoopNextStepPacketFresh, readLatestGoalLoopContinuationBrief, readLatestGoalLoopControllerPolicy, readLatestGoalLoopFeedback, readLatestGoalLoopGateReadinessPreflight, readLatestGoalLoopIteration, readLatestGoalLoopNextStepPacket, recordGoalLoopFeedback, renderGoalLoopControllerPolicyMarkdown, renderGoalLoopGateReadinessPreflightMarkdown, stripGoalLoopControllerPolicyContext, writeGoalLoopControllerPolicy, writeGoalLoopNextStepPacket } from "../../src/goal-loop/manager.js";
+import { buildGoalLoopMainAgentContextSection, compileGoalLoopControllerPolicy, compileGoalLoopDecision, compileGoalLoopEvaluation, compileGoalLoopGateReadinessPreflight, isGoalLoopNextStepPacketFresh, readLatestGoalLoopContinuationBrief, readLatestGoalLoopControllerPolicy, readLatestGoalLoopFeedback, readLatestGoalLoopGateReadinessPreflight, readLatestGoalLoopIteration, readLatestGoalLoopNextStepPacket, recordGoalLoopFeedback, renderGoalLoopControllerPolicyMarkdown, renderGoalLoopGateReadinessPreflightMarkdown, stripGoalLoopControllerPolicyContext, writeGoalLoopContinuationBrief, writeGoalLoopControllerPolicy, writeGoalLoopGateReadinessPreflight, writeGoalLoopNextStepPacket } from "../../src/goal-loop/manager.js";
 import { goalLoopControllerPolicySchema, goalLoopDecisionSchema, goalLoopGateReadinessPreflightSchema } from "../../src/goal-loop/schemas.js";
 import { assertGoalLoopAssistedConcreteGateConfirmation } from "../../src/workbench/actions/goal-loop-gate-confirmation.js";
 import { buildVisibleGoalLoopMainAgentContextSection } from "../../src/workbench/codex-chat/goal-loop-context.js";
@@ -537,6 +537,92 @@ describe("GoalLoopDecision", () => {
       changeId,
       goalLoopGateReadinessPreflightId: preflight.id,
     })).rejects.toThrow("recursive Goal Loop actions");
+  });
+
+  it("rejects assisted concrete gate confirmation when scheduler execution mode evidence is forged", async () => {
+    const { schedulerRun, workerStart } = await writeSchedulerEvidence({ withWorkerStart: true });
+    const result = await compileGoalLoopEvaluation(memory, changePath);
+    const currentGate = {
+      actionType: "planning.scheduler.worker.reconcile-result" as const,
+      scope: {
+        changeId,
+        schedulerRunId: schedulerRun.id,
+        schedulerWorkerStartId: workerStart!.id,
+      },
+    };
+    const policy = await compileGoalLoopControllerPolicy(memory, changePath, {
+      currentGate,
+      requireCurrentGateMatch: true,
+    });
+    const preflight = await compileGoalLoopGateReadinessPreflight(memory, changePath, {
+      goalLoopNextStepPacketId: result.goalLoopNextStepPacket.id,
+      goalLoopControllerPolicyId: policy.id,
+      currentGate,
+    });
+    const request = {
+      actionType: "planning.scheduler.worker.reconcile-result" as const,
+      changeId,
+      schedulerRunId: schedulerRun.id,
+      schedulerWorkerStartId: workerStart!.id,
+      goalLoopGateReadinessPreflightId: preflight.id,
+    };
+
+    await writeGoalLoopGateReadinessPreflight(memory, changePath, {
+      ...preflight,
+      schedulerExecutionMode: {
+        ...preflight.schedulerExecutionMode,
+        mode: "waiting-for-evidence",
+        currentGate: undefined,
+        humanGateRequired: false,
+        summary: "forged scheduler execution mode summary",
+        reasons: ["forged scheduler execution mode reason"],
+      },
+    });
+
+    await expect(assertGoalLoopAssistedConcreteGateConfirmation(memory, changePath, changeId, request))
+      .rejects.toThrow("scheduler execution mode mismatch: gate-readiness preflight");
+  });
+
+  it("rejects assisted concrete gate confirmation when upstream scheduler execution mode evidence is forged", async () => {
+    const { schedulerRun, workerStart } = await writeSchedulerEvidence({ withWorkerStart: true });
+    const result = await compileGoalLoopEvaluation(memory, changePath);
+    const currentGate = {
+      actionType: "planning.scheduler.worker.reconcile-result" as const,
+      scope: {
+        changeId,
+        schedulerRunId: schedulerRun.id,
+        schedulerWorkerStartId: workerStart!.id,
+      },
+    };
+    const policy = await compileGoalLoopControllerPolicy(memory, changePath, {
+      currentGate,
+      requireCurrentGateMatch: true,
+    });
+    const preflight = await compileGoalLoopGateReadinessPreflight(memory, changePath, {
+      goalLoopNextStepPacketId: result.goalLoopNextStepPacket.id,
+      goalLoopControllerPolicyId: policy.id,
+      currentGate,
+    });
+    const brief = await readLatestGoalLoopContinuationBrief(memory, changePath);
+    await writeGoalLoopContinuationBrief(memory, changePath, {
+      ...brief,
+      schedulerExecutionMode: {
+        ...brief.schedulerExecutionMode,
+        mode: "waiting-for-evidence",
+        currentGate: undefined,
+        humanGateRequired: false,
+        summary: "forged upstream scheduler execution mode summary",
+        reasons: ["forged upstream scheduler execution mode reason"],
+      },
+    });
+
+    await expect(assertGoalLoopAssistedConcreteGateConfirmation(memory, changePath, changeId, {
+      actionType: "planning.scheduler.worker.reconcile-result",
+      changeId,
+      schedulerRunId: schedulerRun.id,
+      schedulerWorkerStartId: workerStart!.id,
+      goalLoopGateReadinessPreflightId: preflight.id,
+    })).rejects.toThrow("scheduler execution mode mismatch: continuation brief");
   });
 
   it("rejects gate readiness preflight for stale or mismatched controller policy targets", async () => {

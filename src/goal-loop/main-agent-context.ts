@@ -1,4 +1,5 @@
 import type { ResolvedMemory } from "../types/index.js";
+import { schedulerExecutionModeAssessmentsEqual } from "../workflow-scheduler/execution-mode.js";
 import {
   goalLoopContinuationBriefArtifactRefs,
   goalLoopControllerPolicyArtifactRefs,
@@ -308,26 +309,7 @@ function schedulerExecutionModesEqual(
   left: GoalLoopNextStepPacket["schedulerExecutionMode"],
   right: GoalLoopNextStepPacket["schedulerExecutionMode"],
 ): boolean {
-  const currentGateMatches = left.currentGate || right.currentGate
-    ? left.currentGate?.actionType === right.currentGate?.actionType
-      && left.currentGate?.separateHumanGateRequired === right.currentGate?.separateHumanGateRequired
-    : true;
-  return left.authority === right.authority
-    && left.mode === right.mode
-    && left.loopAuthorized === right.loopAuthorized
-    && left.fullParallelExecutorAuthorized === right.fullParallelExecutorAuthorized
-    && left.wholeWaveDispatchAuthorized === right.wholeWaveDispatchAuthorized
-    && left.slotAllocatorAuthorized === right.slotAllocatorAuthorized
-    && left.humanGateRequired === right.humanGateRequired
-    && left.summary === right.summary
-    && currentGateMatches
-    && stringArraysEqual(left.reasons, right.reasons)
-    && stringArraysEqual(left.futureLoopRequirements, right.futureLoopRequirements);
-}
-
-function stringArraysEqual(left: string[], right: string[]): boolean {
-  if (left.length !== right.length) return false;
-  return left.every((value, index) => value === right[index]);
+  return schedulerExecutionModeAssessmentsEqual(left, right);
 }
 
 function renderGuidedGateHandoffLines(currentGate: GoalLoopControllerPolicy["currentGate"]): string[] {

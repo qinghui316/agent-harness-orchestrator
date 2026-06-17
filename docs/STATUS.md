@@ -5,9 +5,9 @@
 - Current date: 2026-06-17.
 - Active ECL change: none.
 - Pending Harness evolution: none.
-- Latest archived product change: `harness/changes/archive/20260617-phase-11k-goal-loop-scheduler-mode-preflight-handoff/summary.md`.
-- Latest archived product/Harness docs change: `harness/changes/archive/20260617-phase-11k-goal-loop-scheduler-mode-preflight-handoff/summary.md`.
-- Latest archived Harness evolution: `harness/changes/archive/20260617-auto-evolve-harness-phase-11d-11h-goal-loop-scheduler-handoff-evidence/summary.md`.
+- Latest archived product change: `harness/changes/archive/20260617-phase-11l-goal-loop-assisted-gate-scheduler-mode-guard/summary.md`.
+- Latest archived product/Harness docs change: `harness/changes/archive/20260617-phase-11l-goal-loop-assisted-gate-scheduler-mode-guard/summary.md`.
+- Latest archived Harness evolution: `harness/changes/archive/20260617-auto-evolve-harness-phase-11h-11l-goal-loop-scheduler-mode-guard/summary.md`.
 - Active product phase: none. Active Harness evolution phase: none.
 - Active close status: no active change.
 
@@ -16,6 +16,18 @@ This file is the short resume point. No active product change exists and no pend
 Current plan-level roadmap context is preserved in `docs/CURRENT-DEVELOPMENT-PLAN.md`.
 
 ## Recent Completed Work
+
+### Auto Evolve Harness Phase 11H-11L Goal Loop Scheduler Mode Guard
+
+Archived at `harness/changes/archive/20260617-auto-evolve-harness-phase-11h-11l-goal-loop-scheduler-mode-guard/summary.md`.
+
+The pending Phase 11H-11L Goal Loop scheduler mode guard evidence window was handled as `noop/independent_review` with independent review score 82/100. Existing Goal Loop Boundary, Proposal/Runtime Boundary, Scoped Workbench Action Payload, Source Apply Safety, Module Boundary, Close/Handoff Drift, Documentation Entropy, and Experience Lifecycle rules are sufficient. Current-plan drift found by review was fixed; no new Harness rule, template, lint, product runtime, Workbench, scheduler, or Goal Loop change was added.
+
+### Phase 11L Goal Loop Assisted Gate Scheduler Mode Guard
+
+Archived at `harness/changes/archive/20260617-phase-11l-goal-loop-assisted-gate-scheduler-mode-guard/summary.md`.
+
+Phase 11L hardens the Goal Loop-assisted concrete gate confirmation guard so scheduler execution-mode evidence must match across latest decision, iteration, continuation brief, next-step packet, controller policy, and gate-readiness preflight before a concrete Workbench gate can carry `goalLoopGateReadinessPreflightId` as evidence. It adds a scheduler-owned equality helper reused by preflight/main-agent checks, adds deterministic forged latest preflight and upstream artifact rejection tests, and adds no Workbench action, route, scheduler runtime behavior, source mutation, ToolPolicy bypass, or human-gate bypass.
 
 ### Phase 11K Goal Loop Scheduler Mode Preflight Handoff
 

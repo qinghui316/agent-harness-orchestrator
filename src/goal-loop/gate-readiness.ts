@@ -4,6 +4,7 @@ import {
   validateWorkflowActionRequiredTargets,
   type WorkflowActionScopeCarrier,
 } from "../workflow-actions/registry.js";
+import { schedulerExecutionModeAssessmentsEqual } from "../workflow-scheduler/execution-mode.js";
 import { assessGoalLoopNextStepPacketFreshness } from "./freshness.js";
 import {
   goalLoopGateReadinessPreflightArtifactRefs,
@@ -124,24 +125,7 @@ export async function compileGoalLoopGateReadinessPreflight(
 }
 
 function assertSchedulerExecutionModeMatches(packet: GoalLoopNextStepPacket, policy: GoalLoopControllerPolicy): void {
-  const packetMode = packet.schedulerExecutionMode;
-  const policyMode = policy.schedulerExecutionMode;
-  const currentGateMatches = packetMode.currentGate || policyMode.currentGate
-    ? packetMode.currentGate?.actionType === policyMode.currentGate?.actionType
-      && packetMode.currentGate?.separateHumanGateRequired === policyMode.currentGate?.separateHumanGateRequired
-    : true;
-  const matches = packetMode.authority === policyMode.authority
-    && packetMode.mode === policyMode.mode
-    && packetMode.loopAuthorized === policyMode.loopAuthorized
-    && packetMode.fullParallelExecutorAuthorized === policyMode.fullParallelExecutorAuthorized
-    && packetMode.wholeWaveDispatchAuthorized === policyMode.wholeWaveDispatchAuthorized
-    && packetMode.slotAllocatorAuthorized === policyMode.slotAllocatorAuthorized
-    && packetMode.humanGateRequired === policyMode.humanGateRequired
-    && packetMode.summary === policyMode.summary
-    && currentGateMatches
-    && stringArraysEqual(packetMode.reasons, policyMode.reasons)
-    && stringArraysEqual(packetMode.futureLoopRequirements, policyMode.futureLoopRequirements);
-  if (!matches) {
+  if (!schedulerExecutionModeAssessmentsEqual(packet.schedulerExecutionMode, policy.schedulerExecutionMode)) {
     throw new Error("GoalLoopGateReadinessPreflight scheduler execution mode mismatch.");
   }
 }
@@ -205,11 +189,6 @@ function normalizeScopeValue(value: string | string[] | undefined): string[] {
 }
 
 function scopeValuesEqual(left: string[], right: string[]): boolean {
-  if (left.length !== right.length) return false;
-  return left.every((value, index) => value === right[index]);
-}
-
-function stringArraysEqual(left: string[], right: string[]): boolean {
   if (left.length !== right.length) return false;
   return left.every((value, index) => value === right[index]);
 }

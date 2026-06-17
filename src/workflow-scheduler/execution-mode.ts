@@ -72,6 +72,27 @@ export function legacySchedulerExecutionModeAssessment(): SchedulerExecutionMode
   });
 }
 
+export function schedulerExecutionModeAssessmentsEqual(
+  left: SchedulerExecutionModeAssessment,
+  right: SchedulerExecutionModeAssessment,
+): boolean {
+  const currentGateMatches = left.currentGate || right.currentGate
+    ? left.currentGate?.actionType === right.currentGate?.actionType
+      && left.currentGate?.separateHumanGateRequired === right.currentGate?.separateHumanGateRequired
+    : true;
+  return left.authority === right.authority
+    && left.mode === right.mode
+    && left.loopAuthorized === right.loopAuthorized
+    && left.fullParallelExecutorAuthorized === right.fullParallelExecutorAuthorized
+    && left.wholeWaveDispatchAuthorized === right.wholeWaveDispatchAuthorized
+    && left.slotAllocatorAuthorized === right.slotAllocatorAuthorized
+    && left.humanGateRequired === right.humanGateRequired
+    && left.summary === right.summary
+    && currentGateMatches
+    && stringArraysEqual(left.reasons, right.reasons)
+    && stringArraysEqual(left.futureLoopRequirements, right.futureLoopRequirements);
+}
+
 function isTerminalCloseGate(input: SchedulerExecutionModeAssessmentInput): boolean {
   return input.decisionKind === "completed-ready-for-human-close-gate"
     || input.continuationState === "ready-for-human-close-gate"
@@ -97,4 +118,9 @@ function assessment(input: Omit<SchedulerExecutionModeAssessment, "authority" | 
     futureLoopRequirements: [...FUTURE_LOOP_REQUIREMENTS],
     ...input,
   };
+}
+
+function stringArraysEqual(left: string[], right: string[]): boolean {
+  if (left.length !== right.length) return false;
+  return left.every((value, index) => value === right[index]);
 }
