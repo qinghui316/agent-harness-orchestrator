@@ -1,4 +1,5 @@
 import type { WorkflowActionType } from "../workflow-actions/registry.js";
+import type { SchedulerExecutionModeAssessment } from "../workflow-scheduler/types.js";
 
 export type GoalLoopDecisionAuthority = "non-executing-planning-evidence";
 export type GoalLoopIterationAuthority = "non-executing-continuation-evidence";
@@ -74,6 +75,7 @@ export interface GoalLoopDecision {
   humanGateRequired: boolean;
   forbiddenActions: GoalLoopForbiddenAction[];
   conflictAssessment: GoalLoopConflictAssessment;
+  schedulerExecutionMode: SchedulerExecutionModeAssessment;
   completionAudit: GoalLoopCompletionAudit;
   sourceEvidenceRefs: GoalLoopSourceEvidenceRef[];
   executionStarted: false;
@@ -155,6 +157,7 @@ export interface GoalLoopIteration {
   recommendedAction?: GoalLoopRecommendedAction;
   humanGateRequired: boolean;
   conflictAssessment: GoalLoopConflictAssessment;
+  schedulerExecutionMode: SchedulerExecutionModeAssessment;
   completionAudit: GoalLoopCompletionAudit;
   sourceEvidenceRefs: GoalLoopSourceEvidenceRef[];
   executionStarted: false;
@@ -183,6 +186,7 @@ export interface GoalLoopContinuationBrief {
   resumePreconditions: GoalLoopResumePrecondition[];
   suppressedBecause?: GoalLoopSuppressionReason;
   conflictAssessment: GoalLoopConflictAssessment;
+  schedulerExecutionMode: SchedulerExecutionModeAssessment;
   completionAudit: GoalLoopCompletionAudit;
   sourceEvidenceRefs: GoalLoopSourceEvidenceRef[];
   forbiddenActions: GoalLoopForbiddenAction[];
@@ -224,6 +228,7 @@ export interface GoalLoopNextStepPacket {
   forbiddenExecutionStatements: string[];
   stalenessInstruction: string;
   conflictAssessment: GoalLoopConflictAssessment;
+  schedulerExecutionMode: SchedulerExecutionModeAssessment;
   completionAudit: GoalLoopCompletionAudit;
   sourceEvidenceRefs: GoalLoopSourceEvidenceRef[];
   executionStarted: false;

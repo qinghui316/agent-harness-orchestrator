@@ -9,6 +9,12 @@ export type SchedulerLaunchPreflightStatus = "checked" | "blocked" | "rejected";
 export type SchedulerRunStatus = "prepared" | "blocked" | "abandoned" | "completed";
 export type SchedulerRunJournalEventType = "scheduler-run.prepared" | "scheduler-run.blocked" | "scheduler-run.abandoned" | "scheduler-run.completed";
 export type SchedulerMode = "parallel-readiness-v1";
+export type SchedulerExecutionModeAuthority = "non-executing-scheduler-execution-mode-evidence";
+export type SchedulerExecutionMode =
+  | "single-gate-staged"
+  | "terminal-human-close-gate"
+  | "blocked-or-waiting"
+  | "waiting-for-evidence";
 export type SchedulerWorkerStageStatus = "planned" | "blocked";
 export type SchedulerClaimIntentStatus = "planned" | "blocked";
 export type SchedulerWorkerWorkspaceKind = "future-local-worktree";
@@ -329,4 +335,23 @@ export interface SchedulerRunJournalEvent {
   summary?: string;
   artifactRefs?: string[];
   payload?: Record<string, unknown>;
+}
+
+export interface SchedulerExecutionModeCurrentGate {
+  actionType: string;
+  separateHumanGateRequired: true;
+}
+
+export interface SchedulerExecutionModeAssessment {
+  authority: SchedulerExecutionModeAuthority;
+  mode: SchedulerExecutionMode;
+  loopAuthorized: false;
+  fullParallelExecutorAuthorized: false;
+  wholeWaveDispatchAuthorized: false;
+  slotAllocatorAuthorized: false;
+  currentGate?: SchedulerExecutionModeCurrentGate;
+  humanGateRequired: boolean;
+  summary: string;
+  reasons: string[];
+  futureLoopRequirements: string[];
 }

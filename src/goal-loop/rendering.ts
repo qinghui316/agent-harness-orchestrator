@@ -31,6 +31,8 @@ export function renderGoalLoopDecisionMarkdown(decision: GoalLoopDecision): stri
     `- Routing label: ${decision.conflictAssessment.routingLabel}`,
     ...decision.conflictAssessment.reasons.map((reason) => `- ${reason}`),
     "",
+    ...renderSchedulerExecutionModeMarkdown(decision.schedulerExecutionMode),
+    "",
     "## Completion Audit",
     "",
     `- Status: ${decision.completionAudit.status}`,
@@ -125,6 +127,8 @@ export function renderGoalLoopIterationMarkdown(iteration: GoalLoopIteration): s
     `- Routing posture: ${iteration.conflictAssessment.routingPosture}`,
     `- Routing label: ${iteration.conflictAssessment.routingLabel}`,
     ...iteration.conflictAssessment.reasons.map((reason) => `- ${reason}`),
+    "",
+    ...renderSchedulerExecutionModeMarkdown(iteration.schedulerExecutionMode),
     "",
     "## Completion Audit",
     "",
@@ -227,6 +231,8 @@ export function renderGoalLoopContinuationBriefMarkdown(brief: GoalLoopContinuat
     `- Routing label: ${brief.conflictAssessment.routingLabel}`,
     ...brief.conflictAssessment.reasons.map((reason) => `- ${reason}`),
     "",
+    ...renderSchedulerExecutionModeMarkdown(brief.schedulerExecutionMode),
+    "",
     "## Completion Audit",
     "",
     `- Status: ${brief.completionAudit.status}`,
@@ -316,6 +322,8 @@ export function renderGoalLoopNextStepPacketMarkdown(packet: GoalLoopNextStepPac
     `- Routing label: ${packet.conflictAssessment.routingLabel}`,
     ...packet.conflictAssessment.reasons.map((reason) => `- ${reason}`),
     "",
+    ...renderSchedulerExecutionModeMarkdown(packet.schedulerExecutionMode),
+    "",
     "## Completion Audit",
     "",
     `- Status: ${packet.completionAudit.status}`,
@@ -387,6 +395,39 @@ export function renderGoalLoopFeedbackMarkdown(feedback: GoalLoopFeedback): stri
     "",
   ];
   return `${lines.join("\n")}\n`;
+}
+
+function renderSchedulerExecutionModeMarkdown(mode: GoalLoopDecision["schedulerExecutionMode"]): string[] {
+  return [
+    "## Scheduler Execution Mode",
+    "",
+    `- Authority: ${mode.authority}`,
+    `- Mode: ${mode.mode}`,
+    `- loopAuthorized: ${mode.loopAuthorized ? "true" : "false"}`,
+    `- fullParallelExecutorAuthorized: ${mode.fullParallelExecutorAuthorized ? "true" : "false"}`,
+    `- wholeWaveDispatchAuthorized: ${mode.wholeWaveDispatchAuthorized ? "true" : "false"}`,
+    `- slotAllocatorAuthorized: ${mode.slotAllocatorAuthorized ? "true" : "false"}`,
+    `- Human gate required: ${mode.humanGateRequired ? "yes" : "no"}`,
+    ...(mode.currentGate ? [`- Current separate gate: ${mode.currentGate.actionType}`] : ["- Current separate gate: none"]),
+    "",
+    "### Summary",
+    "",
+    mode.summary,
+    "",
+    "### Reasons",
+    "",
+    ...mode.reasons.map((reason) => `- ${reason}`),
+    "",
+    "### Future Loop Requirements",
+    "",
+    ...mode.futureLoopRequirements.map((requirement) => `- ${requirement}`),
+    "",
+    "### Boundary",
+    "",
+    "- Scheduler execution mode is evidence only.",
+    "- It does not execute, prioritize, or confirm scheduler actions.",
+    "- A real scheduler loop or full parallel executor requires a later accepted design and implementation phase.",
+  ];
 }
 
 export function renderGoalLoopFeedbackAcknowledgementMarkdown(feedback: GoalLoopFeedback): string {

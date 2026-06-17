@@ -5,17 +5,23 @@
 - Current date: 2026-06-17.
 - Active ECL change: none.
 - Pending Harness evolution: none.
-- Latest archived product change: `harness/changes/archive/20260617-phase-11h-goal-loop-scheduler-run-completion-handoff-hardening/summary.md`.
-- Latest archived product/Harness docs change: `harness/changes/archive/20260615-harness-self-evolution-slimming-rule-tuning/summary.md`.
+- Latest archived product change: `harness/changes/archive/20260617-phase-11i-scheduler-execution-mode-evidence/summary.md`.
+- Latest archived product/Harness docs change: `harness/changes/archive/20260617-phase-11i-scheduler-execution-mode-evidence/summary.md`.
 - Latest archived Harness evolution: `harness/changes/archive/20260617-auto-evolve-harness-phase-11d-11h-goal-loop-scheduler-handoff-evidence/summary.md`.
 - Active product phase: none. Active Harness evolution phase: none.
-- Active close status: no active change.
+- Active close status: no active change; Phase 11I is archived.
 
-This file is the short resume point. No active change or pending Harness evolution exists. For full history, use `harness/changes/INDEX.json` and archived `summary.md` files.
+This file is the short resume point. No active product change exists and no pending Harness evolution exists. For full history, use `harness/changes/INDEX.json` and archived `summary.md` files.
 
 Current plan-level roadmap context is preserved in `docs/CURRENT-DEVELOPMENT-PLAN.md`.
 
 ## Recent Completed Work
+
+### Phase 11I Scheduler Execution Mode Evidence
+
+Archived at `harness/changes/archive/20260617-phase-11i-scheduler-execution-mode-evidence/summary.md`.
+
+Phase 11I adds scheduler-owned, typed execution-mode assessment to GoalLoopDecision, GoalLoopIteration, GoalLoopContinuationBrief, GoalLoopNextStepPacket, Goal Loop markdown, and main-Agent context. The assessment explicitly classifies current continuation as single-gate staged, terminal, blocked, or waiting evidence with scheduler loop/full executor authorization set to false. It adds no Workbench action, scheduler loop, whole-wave dispatch, slot allocator, worker auto-start, IntegrationCheck/apply/close/merge behavior, source mutation, or ToolPolicy/human-gate bypass.
 
 ### Auto Evolve Harness Phase 11D-11H Goal Loop Scheduler Handoff Evidence
 
@@ -172,12 +178,13 @@ The pending Phase 10P-10T Goal Loop controller/feedback/context/prompt evidence 
 - Phase 11F proves the existing `planning.scheduler.integration-check.run` gate can be guided by fresh Goal Loop packet/controller/preflight evidence with ready `worktreeIds` scope while the executable transition remains the concrete scheduler IntegrationCheck gate.
 - Phase 11G proves the existing `planning.scheduler.integration-outcome.reconcile` gate can be guided by fresh Goal Loop packet/controller/preflight evidence with candidate, handoff, apply check, and ready `worktreeIds` scope while the executable transition remains the concrete scheduler outcome gate.
 - Phase 11H proves the existing `planning.scheduler.run.complete` gate can be guided by fresh Goal Loop packet/controller/preflight evidence with reconcile snapshot, claim reservation, candidate, handoff, outcome, apply check, and ready `worktreeIds` scope while the executable transition remains the concrete scheduler completion gate and close remains a separate human gate.
+- Phase 11I makes scheduler execution mode explicit in Goal Loop artifacts and main-Agent context. The current scheduler path is still evidence-guided single-gate staged or terminal/waiting/blocked; scheduler loop, full parallel executor, whole-wave dispatch, slot allocation, and worker auto-start authorization remain false.
 - Scheduler runtime remains staged and bounded. Existing scheduler worker/result/validation/audit/rework/integration/completion gates do not authorize scheduler loops, whole-wave dispatch, slot allocation, automatic child Changes, automatic apply/merge, or a full parallel executor.
 - Documentation entropy is now an explicit Harness concern: `AGENTS.md` is the routing map, `docs/STATUS.md` is the short handoff, `docs/ECL.md` owns reusable process rules, and archived summaries / `harness/changes/INDEX.json` own history.
 
 ## Next Resume Point
 
-No active change or pending Harness evolution exists. The next recommended structured product work is to choose whether the Scheduler path remains single-gate staged hardening or begins a real scheduler loop/full parallel executor design. Do not imply full parallelism before implementing SchedulerIntegrationCandidate -> IntegrationCheck -> aggregate validation/audit -> human apply gate.
+No active change or pending Harness evolution exists. The next recommended structured product work is either continued single-gate scheduler/Goal Loop hardening or a separate accepted design for a real scheduler loop/full parallel executor. Do not imply full parallelism before implementing SchedulerIntegrationCandidate -> IntegrationCheck -> aggregate validation/audit -> human apply gate.
 
 ## Verification Commands
 

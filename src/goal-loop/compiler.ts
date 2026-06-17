@@ -8,6 +8,7 @@ import { readLatestDecompositionPlan } from "../workflow-artifacts/decomposition
 import { readLatestDecompositionReadinessManifest } from "../workflow-artifacts/readiness-manifest.js";
 import { validateWorkflowActionRequiredTargets, type WorkflowActionType } from "../workflow-actions/registry.js";
 import { readIntegrationCheck } from "../integration-check/repository.js";
+import { assessSchedulerExecutionMode } from "../workflow-scheduler/execution-mode.js";
 import { readLatestSchedulerRun } from "../workflow-scheduler/repository.js";
 import type { SchedulerRun } from "../workflow-scheduler/types.js";
 import {
@@ -173,6 +174,7 @@ export async function compileGoalLoopEvaluation(
     recommendedAction: decision.recommendedAction,
     humanGateRequired: decision.humanGateRequired,
     conflictAssessment: decision.conflictAssessment,
+    schedulerExecutionMode: decision.schedulerExecutionMode,
     completionAudit: decision.completionAudit,
     sourceEvidenceRefs: decision.sourceEvidenceRefs,
     executionStarted: false,
@@ -218,6 +220,7 @@ export async function compileGoalLoopContinuationBrief(
     resumePreconditions: iteration.resumePreconditions,
     suppressedBecause: iteration.suppressedBecause,
     conflictAssessment: iteration.conflictAssessment,
+    schedulerExecutionMode: iteration.schedulerExecutionMode,
     completionAudit: iteration.completionAudit,
     sourceEvidenceRefs: iteration.sourceEvidenceRefs,
     forbiddenActions: decision.forbiddenActions,
@@ -271,6 +274,7 @@ export async function compileGoalLoopNextStepPacket(
     forbiddenExecutionStatements: brief.forbiddenExecutionStatements,
     stalenessInstruction: brief.stalenessInstruction,
     conflictAssessment: brief.conflictAssessment,
+    schedulerExecutionMode: brief.schedulerExecutionMode,
     completionAudit: brief.completionAudit,
     sourceEvidenceRefs: brief.sourceEvidenceRefs,
     executionStarted: false,
@@ -640,6 +644,13 @@ function buildDecision(snapshot: EvidenceSnapshot, id: string, artifact: string,
     runCloseout: snapshot.runCloseout,
     integrationCandidateNeedsRefresh: snapshot.integrationCandidateNeedsRefresh,
   });
+  const schedulerExecutionMode = assessSchedulerExecutionMode({
+    planningComplete: snapshot.planningComplete,
+    decisionKind,
+    recommendedActionType: recommendedAction?.actionType,
+    completionStatus: completionAudit.status,
+    routingPosture: conflictAssessment.routingPosture,
+  });
 
   return {
     version: "1.0",
@@ -652,6 +663,7 @@ function buildDecision(snapshot: EvidenceSnapshot, id: string, artifact: string,
     humanGateRequired,
     forbiddenActions,
     conflictAssessment,
+    schedulerExecutionMode,
     completionAudit,
     sourceEvidenceRefs: snapshot.sourceEvidenceRefs,
     executionStarted: false,

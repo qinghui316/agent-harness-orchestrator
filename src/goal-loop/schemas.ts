@@ -1,5 +1,7 @@
 import { z } from "zod";
 import { WORKFLOW_ACTION_TYPES } from "../workflow-actions/registry.js";
+import { legacySchedulerExecutionModeAssessment } from "../workflow-scheduler/execution-mode.js";
+import { schedulerExecutionModeAssessmentSchema } from "../workflow-scheduler/schemas.js";
 import type { GoalLoopContinuationBrief, GoalLoopControllerPolicy, GoalLoopDecision, GoalLoopFeedback, GoalLoopGateReadinessPreflight, GoalLoopNextStepPacket } from "./types.js";
 
 const sourceEvidenceRefSchema = z.object({
@@ -32,6 +34,8 @@ const completionAuditSchema = z.object({
   evidence: z.array(z.string()),
   missing: z.array(z.string()),
 });
+
+const schedulerExecutionModeSchema = schedulerExecutionModeAssessmentSchema.default(legacySchedulerExecutionModeAssessment());
 
 const recommendedActionSchema = z.object({
   actionType: z.enum(WORKFLOW_ACTION_TYPES),
@@ -104,6 +108,7 @@ export const goalLoopDecisionSchema = z.object({
   humanGateRequired: z.boolean(),
   forbiddenActions: z.array(forbiddenActionSchema),
   conflictAssessment: conflictAssessmentSchema,
+  schedulerExecutionMode: schedulerExecutionModeSchema,
   completionAudit: completionAuditSchema,
   sourceEvidenceRefs: z.array(sourceEvidenceRefSchema),
   executionStarted: z.literal(false),
@@ -144,6 +149,7 @@ export const goalLoopIterationSchema = z.object({
   recommendedAction: recommendedActionSchema.optional(),
   humanGateRequired: z.boolean(),
   conflictAssessment: conflictAssessmentSchema,
+  schedulerExecutionMode: schedulerExecutionModeSchema,
   completionAudit: completionAuditSchema,
   sourceEvidenceRefs: z.array(sourceEvidenceRefSchema),
   executionStarted: z.literal(false),
@@ -172,6 +178,7 @@ export const goalLoopContinuationBriefSchema = z.object({
   resumePreconditions: z.array(resumePreconditionSchema),
   suppressedBecause: suppressionReasonSchema.optional(),
   conflictAssessment: conflictAssessmentSchema,
+  schedulerExecutionMode: schedulerExecutionModeSchema,
   completionAudit: completionAuditSchema,
   sourceEvidenceRefs: z.array(sourceEvidenceRefSchema),
   forbiddenActions: z.array(forbiddenActionSchema),
@@ -207,6 +214,7 @@ export const goalLoopNextStepPacketSchema = z.object({
   forbiddenExecutionStatements: z.array(z.string()),
   stalenessInstruction: z.string(),
   conflictAssessment: conflictAssessmentSchema,
+  schedulerExecutionMode: schedulerExecutionModeSchema,
   completionAudit: completionAuditSchema,
   sourceEvidenceRefs: z.array(sourceEvidenceRefSchema),
   executionStarted: z.literal(false),

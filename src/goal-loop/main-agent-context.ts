@@ -19,6 +19,8 @@ export interface GoalLoopMainAgentContextSection {
   goalLoopControllerPolicyId?: string;
   routingPosture: string;
   routingLabel: string;
+  schedulerExecutionMode: string;
+  schedulerLoopAuthorized: false;
   guidedGateActionType?: string;
   guidedGateScope?: Record<string, string | string[]>;
   controllerVerdict?: string;
@@ -63,6 +65,8 @@ export async function buildGoalLoopMainAgentContextSection(
       goalLoopControllerPolicyId: controllerPolicy?.id,
       routingPosture: packet.conflictAssessment.routingPosture,
       routingLabel: packet.conflictAssessment.routingLabel,
+      schedulerExecutionMode: packet.schedulerExecutionMode.mode,
+      schedulerLoopAuthorized: packet.schedulerExecutionMode.loopAuthorized,
       guidedGateActionType: controllerPolicy?.verdict === "recommend-existing-gate" ? controllerPolicy.currentGate?.actionType : undefined,
       guidedGateScope: controllerPolicy?.verdict === "recommend-existing-gate" ? controllerPolicy.currentGate?.scope : undefined,
       controllerVerdict: controllerPolicy?.verdict,
@@ -90,6 +94,8 @@ export function stripGoalLoopControllerPolicyContext(section: GoalLoopMainAgentC
     goalLoopNextStepPacketId: section.goalLoopNextStepPacketId,
     routingPosture: section.routingPosture,
     routingLabel: section.routingLabel,
+    schedulerExecutionMode: section.schedulerExecutionMode,
+    schedulerLoopAuthorized: section.schedulerLoopAuthorized,
     markdown: stripControllerPolicyMarkdown(section.markdown),
     artifact: section.artifact,
     markdownArtifact: section.markdownArtifact,
@@ -186,6 +192,27 @@ function renderGoalLoopMainAgentContextSection(
     `- routingPosture: ${packet.conflictAssessment.routingPosture}`,
     `- routingLabel: ${packet.conflictAssessment.routingLabel}`,
     "- Authority: routing posture is prompt-context evidence only; it must not execute, prioritize, or confirm any workflow action.",
+    "",
+    "### Scheduler Execution Mode",
+    "",
+    `- Mode: ${packet.schedulerExecutionMode.mode}`,
+    `- Authority: ${packet.schedulerExecutionMode.authority}`,
+    `- loopAuthorized: ${packet.schedulerExecutionMode.loopAuthorized ? "true" : "false"}`,
+    `- fullParallelExecutorAuthorized: ${packet.schedulerExecutionMode.fullParallelExecutorAuthorized ? "true" : "false"}`,
+    `- wholeWaveDispatchAuthorized: ${packet.schedulerExecutionMode.wholeWaveDispatchAuthorized ? "true" : "false"}`,
+    `- slotAllocatorAuthorized: ${packet.schedulerExecutionMode.slotAllocatorAuthorized ? "true" : "false"}`,
+    `- Human gate required: ${packet.schedulerExecutionMode.humanGateRequired ? "yes" : "no"}`,
+    ...(packet.schedulerExecutionMode.currentGate ? [`- Current separate gate: ${packet.schedulerExecutionMode.currentGate.actionType}`] : ["- Current separate gate: none"]),
+    "",
+    "#### Scheduler Execution Mode Reasons",
+    "",
+    ...packet.schedulerExecutionMode.reasons.map((reason) => `- ${reason}`),
+    "",
+    "#### Future Loop Requirements",
+    "",
+    ...packet.schedulerExecutionMode.futureLoopRequirements.map((requirement) => `- ${requirement}`),
+    "",
+    "- Authority: scheduler execution mode is prompt-context evidence only; it must not start workers, dispatch waves, allocate slots, or authorize a scheduler loop/full executor.",
     "",
     "### Conflict Assessment",
     "",

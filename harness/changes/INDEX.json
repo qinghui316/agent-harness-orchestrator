@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-17T13:00:29.6058537Z",
+    "generated_at":  "2026-06-17T13:50:07.0436654Z",
     "active":  [
 
                ],
@@ -945,6 +945,10 @@
                     {
                         "name":  "20260617-phase-11h-goal-loop-scheduler-run-completion-handoff-hardening",
                         "path":  "harness/changes/archive/20260617-phase-11h-goal-loop-scheduler-run-completion-handoff-hardening"
+                    },
+                    {
+                        "name":  "20260617-phase-11i-scheduler-execution-mode-evidence",
+                        "path":  "harness/changes/archive/20260617-phase-11i-scheduler-execution-mode-evidence"
                     }
                 ]
 }

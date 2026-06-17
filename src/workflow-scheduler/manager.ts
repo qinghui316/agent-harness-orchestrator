@@ -1,6 +1,7 @@
 export * from "./claim-reconcile.js";
 export * from "./compiler.js";
 export * from "./dry-run.js";
+export * from "./execution-mode.js";
 export * from "./launch-preflight.js";
 export * from "./paths.js";
 export * from "./rendering.js";

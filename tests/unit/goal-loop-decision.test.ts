@@ -922,6 +922,12 @@ describe("GoalLoopDecision", () => {
       routingPosture: "close-gate-required",
       routingLabel: "Human close gate required",
     });
+    expect(result.goalLoopDecision.schedulerExecutionMode).toMatchObject({
+      mode: "terminal-human-close-gate",
+      loopAuthorized: false,
+      humanGateRequired: true,
+    });
+    expect(result.goalLoopDecision.schedulerExecutionMode).not.toHaveProperty("currentGate");
     expect(result.goalLoopNextStepPacket).toMatchObject({
       recommendationState: "ready-for-human-close-gate",
       continuationState: "ready-for-human-close-gate",
@@ -1066,6 +1072,26 @@ describe("GoalLoopDecision", () => {
     expect(section?.markdown).toContain(`routingPosture: ${result.goalLoopNextStepPacket.conflictAssessment.routingPosture}`);
     expect(section?.markdown).toContain(`routingLabel: ${result.goalLoopNextStepPacket.conflictAssessment.routingLabel}`);
     expect(section?.markdown).toContain("prompt-context evidence only");
+    expect(section).toMatchObject({
+      schedulerExecutionMode: "single-gate-staged",
+      schedulerLoopAuthorized: false,
+    });
+    expect(result.goalLoopDecision.schedulerExecutionMode).toMatchObject({
+      mode: "single-gate-staged",
+      loopAuthorized: false,
+      currentGate: {
+        actionType: "planning.scheduler.plan.prepare",
+        separateHumanGateRequired: true,
+      },
+    });
+    expect(result.goalLoopIteration.schedulerExecutionMode).toEqual(result.goalLoopDecision.schedulerExecutionMode);
+    expect(result.goalLoopContinuationBrief.schedulerExecutionMode).toEqual(result.goalLoopDecision.schedulerExecutionMode);
+    expect(result.goalLoopNextStepPacket.schedulerExecutionMode).toEqual(result.goalLoopDecision.schedulerExecutionMode);
+    expect(section?.markdown).toContain("Scheduler Execution Mode");
+    expect(section?.markdown).toContain("- Mode: single-gate-staged");
+    expect(section?.markdown).toContain("- loopAuthorized: false");
+    expect(section?.markdown).toContain("Future Loop Requirements");
+    expect(section?.markdown).toContain("must not start workers, dispatch waves, allocate slots, or authorize a scheduler loop/full executor");
     expect(section?.markdown).toContain("Forbidden Execution Statements");
     expect(section?.markdown).toContain("not workflow truth");
     await expect(readLatestGoalLoopSummary(memory, changePath)).resolves.toMatchObject({
@@ -1212,6 +1238,7 @@ describe("GoalLoopDecision", () => {
     const conflictAssessment = legacyDecision.conflictAssessment as Record<string, unknown>;
     delete conflictAssessment.routingPosture;
     delete conflictAssessment.routingLabel;
+    delete legacyDecision.schedulerExecutionMode;
 
     const parsed = goalLoopDecisionSchema.parse(legacyDecision);
 
@@ -1219,6 +1246,11 @@ describe("GoalLoopDecision", () => {
       routingPosture: "wait-for-evidence",
       routingLabel: "Wait for evidence",
       parallelEligible: false,
+    });
+    expect(parsed.schedulerExecutionMode).toMatchObject({
+      mode: "waiting-for-evidence",
+      loopAuthorized: false,
+      summary: expect.stringContaining("Legacy Goal Loop artifact"),
     });
   });
 });
