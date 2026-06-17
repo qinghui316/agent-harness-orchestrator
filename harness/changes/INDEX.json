@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-17T22:39:43.3178037Z",
+    "generated_at":  "2026-06-17T22:50:56.5258453Z",
     "active":  [
 
                ],
@@ -977,6 +977,10 @@
                     {
                         "name":  "20260618-auto-evolve-harness-phase-11t-11x-goal-loop-handoff-evidence",
                         "path":  "harness/changes/archive/20260618-auto-evolve-harness-phase-11t-11x-goal-loop-handoff-evidence"
+                    },
+                    {
+                        "name":  "20260618-auto-evolve-harness-phase-11x-12c-scheduler-loop-evidence",
+                        "path":  "harness/changes/archive/20260618-auto-evolve-harness-phase-11x-12c-scheduler-loop-evidence"
                     },
                     {
                         "name":  "20260618-phase-11m-goal-loop-enabled-gate-projection-guard",
