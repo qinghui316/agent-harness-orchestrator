@@ -220,6 +220,7 @@ function actionMatchesGoalLoopScope(
   const expectedScope = goalLoop ? readGoalLoopScope(goalLoop) : undefined;
   const expectedType = goalLoop ? readGoalLoopActionType(goalLoop) : undefined;
   if (!goalLoop || !expectedScope || !expectedType) return false;
+  if (!action.enabled) return false;
   if (action.actionType !== nextAction.actionType || action.actionType !== expectedType) return false;
   if (nextAction.changeId !== goalLoop.changeId) return false;
   for (const [key, expectedValue] of Object.entries(expectedScope)) {

@@ -2632,6 +2632,82 @@ describe("workbench read model", () => {
     expect(item.actions).toHaveLength(1);
   });
 
+  it("does not project Goal Loop secondary or assisted actions beside a disabled matching concrete gate", async () => {
+    const disabledGate = {
+      id: "confirm:scheduler-worker:member-discount:disabled",
+      kind: "planning-confirm",
+      conversationId: "member-discount",
+      changeId: "member-discount",
+      schedulerRunId: "scheduler-run-1",
+      schedulerClaimReservationId: "claim-reservation-expected",
+      summary: "启动第一个 worker。",
+      whyNeedsConfirmation: "这是当前可见但不可用的 Harness gate。",
+      confirmEffect: "禁用时不能执行。",
+      riskSummary: "Goal Loop 不能为 disabled gate 补出 enabled affordance。",
+      evidenceRefs: [],
+      actions: [{
+        id: "workflow:planning.scheduler.worker.start-first:member-discount:disabled",
+        label: "启动第一个 worker",
+        kind: "workflow-action",
+        actionType: "planning.scheduler.worker.start-first",
+        changeId: "member-discount",
+        schedulerRunId: "scheduler-run-1",
+        schedulerClaimReservationId: "claim-reservation-expected",
+        enabled: false,
+        requiresConfirmation: true,
+        disabledReason: "Stale target.",
+      }],
+      primary: true,
+      status: "pending",
+    } as const;
+    const workpad = {
+      nextAction: {
+        kind: "workflow-action",
+        actionType: "planning.scheduler.worker.start-first",
+        changeId: "member-discount",
+        schedulerRunId: "scheduler-run-1",
+        schedulerClaimReservationId: "claim-reservation-expected",
+        enabled: true,
+        requiresConfirmation: true,
+      },
+      goalLoop: {
+        id: "goal-loop-continuation-brief-1",
+        changeId: "member-discount",
+        goalLoopDecisionId: "goal-loop-decision-1",
+        goalLoopIterationId: "goal-loop-iteration-1",
+        goalLoopNextStepPacketId: "goal-loop-next-step-packet-1",
+        controllerPolicyId: "goal-loop-controller-policy-1",
+        gateReadinessPreflightId: "goal-loop-gate-readiness-preflight-1",
+        controllerVerdict: "recommend-existing-gate",
+        controllerGateStatus: "matches-current-gate",
+        recommendedActionType: "planning.scheduler.worker.start-first",
+        recommendedActionScope: {
+          changeId: "member-discount",
+          schedulerRunId: "scheduler-run-1",
+          schedulerClaimReservationId: "claim-reservation-expected",
+        },
+        artifact: "harness/changes/active/member-discount/goal-loop/continuation.md",
+        nextStepPacketArtifact: "harness/changes/active/member-discount/goal-loop/next-step.json",
+        controllerArtifact: "harness/changes/active/member-discount/goal-loop/controller.json",
+        gateReadinessPreflightArtifact: "harness/changes/active/member-discount/goal-loop/preflight.json",
+      },
+    } as const;
+
+    const [feedbackItem] = attachGoalLoopFeedbackActions([disabledGate], workpad as never);
+    const [controllerItem] = attachGoalLoopControllerRefreshActions([disabledGate], workpad as never);
+    const [readinessItem] = attachGoalLoopGateReadinessActions([disabledGate], workpad as never);
+    const [assistedItem] = attachGoalLoopAssistedConcreteGateActions([disabledGate], workpad as never);
+
+    expect(feedbackItem.actions.some((action) => action.actionType === "planning.goal-loop.feedback.evaluate")).toBe(false);
+    expect(controllerItem.actions.some((action) => action.actionType === "planning.goal-loop.controller.refresh")).toBe(false);
+    expect(readinessItem.actions.some((action) => action.actionType === "planning.goal-loop.gate-readiness.prepare")).toBe(false);
+    expect(assistedItem.actions.some((action) => action.goalLoopGateReadinessPreflightId === "goal-loop-gate-readiness-preflight-1")).toBe(false);
+    expect(feedbackItem.actions).toHaveLength(1);
+    expect(controllerItem.actions).toHaveLength(1);
+    expect(readinessItem.actions).toHaveLength(1);
+    expect(assistedItem.actions).toHaveLength(1);
+  });
+
   it("does not project goal loop feedback on a same-action gate with mismatched target scope", async () => {
     const currentGate = {
       id: "confirm:scheduler-worker:member-discount:other",

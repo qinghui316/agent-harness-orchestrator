@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-17T15:42:52.1893327Z",
+    "generated_at":  "2026-06-17T16:10:23.6811912Z",
     "active":  [
 
                ],
@@ -965,6 +965,10 @@
                     {
                         "name":  "20260617-phase-11l-goal-loop-assisted-gate-scheduler-mode-guard",
                         "path":  "harness/changes/archive/20260617-phase-11l-goal-loop-assisted-gate-scheduler-mode-guard"
+                    },
+                    {
+                        "name":  "20260618-phase-11m-goal-loop-enabled-gate-projection-guard",
+                        "path":  "harness/changes/archive/20260618-phase-11m-goal-loop-enabled-gate-projection-guard"
                     }
                 ]
 }

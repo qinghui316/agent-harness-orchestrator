@@ -5,8 +5,8 @@
 - Current date: 2026-06-17.
 - Active ECL change: none.
 - Pending Harness evolution: none.
-- Latest archived product change: `harness/changes/archive/20260617-phase-11l-goal-loop-assisted-gate-scheduler-mode-guard/summary.md`.
-- Latest archived product/Harness docs change: `harness/changes/archive/20260617-phase-11l-goal-loop-assisted-gate-scheduler-mode-guard/summary.md`.
+- Latest archived product change: `harness/changes/archive/20260618-phase-11m-goal-loop-enabled-gate-projection-guard/summary.md`.
+- Latest archived product/Harness docs change: `harness/changes/archive/20260618-phase-11m-goal-loop-enabled-gate-projection-guard/summary.md`.
 - Latest archived Harness evolution: `harness/changes/archive/20260617-auto-evolve-harness-phase-11h-11l-goal-loop-scheduler-mode-guard/summary.md`.
 - Active product phase: none. Active Harness evolution phase: none.
 - Active close status: no active change.
@@ -16,6 +16,12 @@ This file is the short resume point. No active product change exists and no pend
 Current plan-level roadmap context is preserved in `docs/CURRENT-DEVELOPMENT-PLAN.md`.
 
 ## Recent Completed Work
+
+### Phase 11M Goal Loop Enabled Gate Projection Guard
+
+Archived at `harness/changes/archive/20260618-phase-11m-goal-loop-enabled-gate-projection-guard/summary.md`.
+
+Phase 11M tightens the Workbench Goal Loop confirmation projection so Goal Loop feedback, controller refresh, gate-readiness preflight, and assisted concrete gate actions attach only beside an enabled matching concrete Harness gate. A disabled same-type/same-scope concrete gate now remains disabled without receiving Goal Loop-derived enabled affordances. The change is projection-only: it adds no Goal Loop policy change, scheduler runtime behavior, handler/route path, source mutation, ToolPolicy bypass, human-gate bypass, scheduler loop, whole-wave dispatch, slot allocator, apply/merge/close behavior, or child Change behavior.
 
 ### Auto Evolve Harness Phase 11H-11L Goal Loop Scheduler Mode Guard
 
@@ -205,6 +211,7 @@ The pending Phase 10P-10T Goal Loop controller/feedback/context/prompt evidence 
 - Phase 11I makes scheduler execution mode explicit in Goal Loop artifacts and main-Agent context. The current scheduler path is still evidence-guided single-gate staged or terminal/waiting/blocked; scheduler loop, full parallel executor, whole-wave dispatch, slot allocation, and worker auto-start authorization remain false.
 - Phase 11J makes the same scheduler execution-mode evidence visible in the Workpad Goal Loop card as read-only evidence, including false authorization chips for scheduler loop, full executor, whole-wave dispatch, and slot allocation.
 - Phase 11K makes controller policy and gate-readiness preflight handoff artifacts carry the same scheduler execution-mode false-authority evidence from the fresh packet, and rejects preflight/context handoff when controller scheduler mode evidence is forged or stale.
+- Phase 11M requires Goal Loop feedback, controller refresh, gate-readiness, and assisted concrete projection affordances to attach only beside an enabled matching concrete Workbench gate; disabled same-scope gates cannot gain Goal Loop-derived enabled actions.
 - Scheduler runtime remains staged and bounded. Existing scheduler worker/result/validation/audit/rework/integration/completion gates do not authorize scheduler loops, whole-wave dispatch, slot allocation, automatic child Changes, automatic apply/merge, or a full parallel executor.
 - Documentation entropy is now an explicit Harness concern: `AGENTS.md` is the routing map, `docs/STATUS.md` is the short handoff, `docs/ECL.md` owns reusable process rules, and archived summaries / `harness/changes/INDEX.json` own history.
 
