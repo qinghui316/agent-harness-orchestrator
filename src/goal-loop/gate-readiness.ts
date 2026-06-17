@@ -15,6 +15,7 @@ import {
   writeGoalLoopGateReadinessPreflight,
 } from "./repository.js";
 import type {
+  GoalLoopControllerPolicy,
   GoalLoopCurrentGateSnapshot,
   GoalLoopGateReadinessPreflight,
   GoalLoopNextStepPacket,
@@ -53,6 +54,7 @@ export async function compileGoalLoopGateReadinessPreflight(
   if (policy.sourceGoalLoopContinuationBriefId !== packet.sourceGoalLoopContinuationBriefId) throw new Error("GoalLoopGateReadinessPreflight policy brief lineage mismatch.");
   if (policy.sourceGoalLoopNextStepPacketId !== packet.id) throw new Error("GoalLoopGateReadinessPreflight policy packet lineage mismatch.");
   if (policy.executionStarted !== false) throw new Error("GoalLoopGateReadinessPreflight requires non-executing controller policy evidence.");
+  assertSchedulerExecutionModeMatches(packet, policy);
   if (policy.verdict !== "recommend-existing-gate" || policy.gateStatus !== "matches-current-gate") {
     throw new Error("GoalLoopGateReadinessPreflight requires a matching controller policy.");
   }
@@ -93,6 +95,7 @@ export async function compileGoalLoopGateReadinessPreflight(
     iterationOrdinal: packet.iterationOrdinal,
     recommendedAction: packet.recommendedAction,
     currentGate: options.currentGate,
+    schedulerExecutionMode: packet.schedulerExecutionMode,
     summary: `Goal Loop packet and controller policy still match the current ${options.currentGate.actionType} Harness gate. The concrete gate remains separate and unexecuted.`,
     requiredTargetLabels: Object.keys(options.currentGate.scope).sort(),
     revalidationChecklist: [
@@ -118,6 +121,29 @@ export async function compileGoalLoopGateReadinessPreflight(
   };
   await writeGoalLoopGateReadinessPreflight(memory, changePath, preflight);
   return preflight;
+}
+
+function assertSchedulerExecutionModeMatches(packet: GoalLoopNextStepPacket, policy: GoalLoopControllerPolicy): void {
+  const packetMode = packet.schedulerExecutionMode;
+  const policyMode = policy.schedulerExecutionMode;
+  const currentGateMatches = packetMode.currentGate || policyMode.currentGate
+    ? packetMode.currentGate?.actionType === policyMode.currentGate?.actionType
+      && packetMode.currentGate?.separateHumanGateRequired === policyMode.currentGate?.separateHumanGateRequired
+    : true;
+  const matches = packetMode.authority === policyMode.authority
+    && packetMode.mode === policyMode.mode
+    && packetMode.loopAuthorized === policyMode.loopAuthorized
+    && packetMode.fullParallelExecutorAuthorized === policyMode.fullParallelExecutorAuthorized
+    && packetMode.wholeWaveDispatchAuthorized === policyMode.wholeWaveDispatchAuthorized
+    && packetMode.slotAllocatorAuthorized === policyMode.slotAllocatorAuthorized
+    && packetMode.humanGateRequired === policyMode.humanGateRequired
+    && packetMode.summary === policyMode.summary
+    && currentGateMatches
+    && stringArraysEqual(packetMode.reasons, policyMode.reasons)
+    && stringArraysEqual(packetMode.futureLoopRequirements, policyMode.futureLoopRequirements);
+  if (!matches) {
+    throw new Error("GoalLoopGateReadinessPreflight scheduler execution mode mismatch.");
+  }
 }
 
 function assertPacketLineage(
@@ -179,6 +205,11 @@ function normalizeScopeValue(value: string | string[] | undefined): string[] {
 }
 
 function scopeValuesEqual(left: string[], right: string[]): boolean {
+  if (left.length !== right.length) return false;
+  return left.every((value, index) => value === right[index]);
+}
+
+function stringArraysEqual(left: string[], right: string[]): boolean {
   if (left.length !== right.length) return false;
   return left.every((value, index) => value === right[index]);
 }

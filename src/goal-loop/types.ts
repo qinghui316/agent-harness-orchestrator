@@ -275,6 +275,7 @@ export interface GoalLoopControllerPolicy {
   summary: string;
   recommendedAction?: GoalLoopRecommendedAction;
   currentGate?: GoalLoopCurrentGateSnapshot;
+  schedulerExecutionMode: SchedulerExecutionModeAssessment;
   suppressesRecommendedAction: boolean;
   humanGateRequired: boolean;
   revalidationChecklist: string[];
@@ -300,6 +301,7 @@ export interface GoalLoopGateReadinessPreflight {
   iterationOrdinal: number;
   recommendedAction: GoalLoopRecommendedAction;
   currentGate: GoalLoopCurrentGateSnapshot;
+  schedulerExecutionMode: SchedulerExecutionModeAssessment;
   summary: string;
   requiredTargetLabels: string[];
   revalidationChecklist: string[];

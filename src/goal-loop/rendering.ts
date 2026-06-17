@@ -487,6 +487,8 @@ export function renderGoalLoopControllerPolicyMarkdown(policy: GoalLoopControlle
       ? ["", "### Scope", "", ...Object.entries(policy.currentGate.scope).map(([key, value]) => `- ${key}: ${Array.isArray(value) ? value.join(", ") : value}`)]
       : []),
     "",
+    ...renderSchedulerExecutionModeMarkdown(policy.schedulerExecutionMode),
+    "",
     "## Revalidation Checklist",
     "",
     ...policy.revalidationChecklist.map((item) => `- ${item}`),
@@ -526,6 +528,8 @@ export function renderGoalLoopGateReadinessPreflightMarkdown(preflight: GoalLoop
     "## Summary",
     "",
     preflight.summary,
+    "",
+    ...renderSchedulerExecutionModeMarkdown(preflight.schedulerExecutionMode),
     "",
     "## Concrete Gate Scope",
     "",

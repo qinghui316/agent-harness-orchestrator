@@ -69,6 +69,7 @@ export async function compileGoalLoopControllerPolicy(
     summary: gateAssessment.summary,
     recommendedAction: gateAssessment.verdict === "recommend-existing-gate" ? packet.recommendedAction : undefined,
     currentGate: options.currentGate,
+    schedulerExecutionMode: packet.schedulerExecutionMode,
     suppressesRecommendedAction: gateAssessment.suppressesRecommendedAction,
     humanGateRequired: true,
     revalidationChecklist: [

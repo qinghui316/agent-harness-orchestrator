@@ -118,6 +118,7 @@ function isGoalLoopControllerPolicyValidForContext(
     && policy.sourceGoalLoopContinuationBriefId === brief.id
     && policy.sourceGoalLoopNextStepPacketId === packet.id
     && policy.executionStarted === false
+    && schedulerExecutionModesEqual(policy.schedulerExecutionMode, packet.schedulerExecutionMode)
     && decision.executionStarted === false
     && iteration.executionStarted === false
     && brief.executionStarted === false
@@ -270,6 +271,27 @@ function renderControllerPolicyContextLines(policy: GoalLoopControllerPolicy | n
       ? `- ${policy.currentGate.actionType}: ${Object.entries(policy.currentGate.scope).map(([key, value]) => `${key}=${Array.isArray(value) ? value.join(",") : value}`).join("; ")}`
       : "- None.",
     "",
+    "#### Controller Scheduler Execution Mode",
+    "",
+    `- Mode: ${policy.schedulerExecutionMode.mode}`,
+    `- Authority: ${policy.schedulerExecutionMode.authority}`,
+    `- loopAuthorized: ${policy.schedulerExecutionMode.loopAuthorized ? "true" : "false"}`,
+    `- fullParallelExecutorAuthorized: ${policy.schedulerExecutionMode.fullParallelExecutorAuthorized ? "true" : "false"}`,
+    `- wholeWaveDispatchAuthorized: ${policy.schedulerExecutionMode.wholeWaveDispatchAuthorized ? "true" : "false"}`,
+    `- slotAllocatorAuthorized: ${policy.schedulerExecutionMode.slotAllocatorAuthorized ? "true" : "false"}`,
+    `- Human gate required: ${policy.schedulerExecutionMode.humanGateRequired ? "yes" : "no"}`,
+    ...(policy.schedulerExecutionMode.currentGate ? [`- Current separate gate: ${policy.schedulerExecutionMode.currentGate.actionType}`] : ["- Current separate gate: none"]),
+    "",
+    "##### Controller Scheduler Reasons",
+    "",
+    ...policy.schedulerExecutionMode.reasons.map((reason) => `- ${reason}`),
+    "",
+    "##### Controller Future Loop Requirements",
+    "",
+    ...policy.schedulerExecutionMode.futureLoopRequirements.map((requirement) => `- ${requirement}`),
+    "",
+    "- Authority: controller scheduler execution mode is copied read-only evidence; it must not start workers, dispatch waves, allocate slots, or authorize a scheduler loop/full executor.",
+    "",
     ...guidedGateLines,
     "#### Controller Revalidation Checklist",
     "",
@@ -280,6 +302,32 @@ function renderControllerPolicyContextLines(policy: GoalLoopControllerPolicy | n
     ...policy.forbiddenExecutionStatements.map((statement) => `- ${statement}`),
     "",
   ];
+}
+
+function schedulerExecutionModesEqual(
+  left: GoalLoopNextStepPacket["schedulerExecutionMode"],
+  right: GoalLoopNextStepPacket["schedulerExecutionMode"],
+): boolean {
+  const currentGateMatches = left.currentGate || right.currentGate
+    ? left.currentGate?.actionType === right.currentGate?.actionType
+      && left.currentGate?.separateHumanGateRequired === right.currentGate?.separateHumanGateRequired
+    : true;
+  return left.authority === right.authority
+    && left.mode === right.mode
+    && left.loopAuthorized === right.loopAuthorized
+    && left.fullParallelExecutorAuthorized === right.fullParallelExecutorAuthorized
+    && left.wholeWaveDispatchAuthorized === right.wholeWaveDispatchAuthorized
+    && left.slotAllocatorAuthorized === right.slotAllocatorAuthorized
+    && left.humanGateRequired === right.humanGateRequired
+    && left.summary === right.summary
+    && currentGateMatches
+    && stringArraysEqual(left.reasons, right.reasons)
+    && stringArraysEqual(left.futureLoopRequirements, right.futureLoopRequirements);
+}
+
+function stringArraysEqual(left: string[], right: string[]): boolean {
+  if (left.length !== right.length) return false;
+  return left.every((value, index) => value === right[index]);
 }
 
 function renderGuidedGateHandoffLines(currentGate: GoalLoopControllerPolicy["currentGate"]): string[] {

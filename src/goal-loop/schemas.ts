@@ -247,7 +247,7 @@ export const goalLoopFeedbackSchema: z.ZodType<GoalLoopFeedback> = z.object({
   updatedAt: z.string(),
 });
 
-export const goalLoopControllerPolicySchema: z.ZodType<GoalLoopControllerPolicy> = z.object({
+export const goalLoopControllerPolicySchema = z.object({
   version: z.literal("1.0"),
   id: z.string(),
   changeId: z.string(),
@@ -265,6 +265,7 @@ export const goalLoopControllerPolicySchema: z.ZodType<GoalLoopControllerPolicy>
     actionType: z.enum(WORKFLOW_ACTION_TYPES),
     scope: z.record(z.union([z.string(), z.array(z.string())])),
   }).optional(),
+  schedulerExecutionMode: schedulerExecutionModeSchema,
   suppressesRecommendedAction: z.boolean(),
   humanGateRequired: z.boolean(),
   revalidationChecklist: z.array(z.string()),
@@ -274,9 +275,9 @@ export const goalLoopControllerPolicySchema: z.ZodType<GoalLoopControllerPolicy>
   markdownArtifact: z.string(),
   createdAt: z.string(),
   updatedAt: z.string(),
-});
+}) as z.ZodType<GoalLoopControllerPolicy>;
 
-export const goalLoopGateReadinessPreflightSchema: z.ZodType<GoalLoopGateReadinessPreflight> = z.object({
+export const goalLoopGateReadinessPreflightSchema = z.object({
   version: z.literal("1.0"),
   id: z.string(),
   changeId: z.string(),
@@ -293,6 +294,7 @@ export const goalLoopGateReadinessPreflightSchema: z.ZodType<GoalLoopGateReadine
     actionType: z.enum(WORKFLOW_ACTION_TYPES),
     scope: z.record(z.union([z.string(), z.array(z.string())])),
   }),
+  schedulerExecutionMode: schedulerExecutionModeSchema,
   summary: z.string(),
   requiredTargetLabels: z.array(z.string()),
   revalidationChecklist: z.array(z.string()),
@@ -307,4 +309,4 @@ export const goalLoopGateReadinessPreflightSchema: z.ZodType<GoalLoopGateReadine
   markdownArtifact: z.string(),
   createdAt: z.string(),
   updatedAt: z.string(),
-});
+}) as z.ZodType<GoalLoopGateReadinessPreflight>;
