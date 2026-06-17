@@ -5,17 +5,31 @@
 - Current date: 2026-06-18.
 - Active ECL change: none.
 - Pending Harness evolution: none.
-- Latest archived product change: `harness/changes/archive/20260618-phase-11s-goal-loop-rework-validation-handoff-regression/summary.md`.
-- Latest archived product/Harness docs change: `harness/changes/archive/20260618-phase-11s-goal-loop-rework-validation-handoff-regression/summary.md`.
-- Latest archived Harness evolution: `harness/changes/archive/20260618-auto-evolve-harness-phase-11l-11p-goal-loop-gate-evidence/summary.md`.
+- Latest archived product change: `harness/changes/archive/20260618-phase-11t-goal-loop-rework-audit-handoff-regression/summary.md`.
+- Latest archived product/Harness docs change: `harness/changes/archive/20260618-auto-evolve-harness-phase-11p-11t-goal-loop-gate-evidence/summary.md`.
+- Latest archived Harness evolution: `harness/changes/archive/20260618-auto-evolve-harness-phase-11p-11t-goal-loop-gate-evidence/summary.md`.
 - Active product phase: none. Active Harness evolution phase: none.
 - Active close status: no active change.
 
-This file is the short resume point. No active ECL change or pending Harness evolution exists. Phase 11S is archived after hardening the existing `planning.scheduler.worker.rework-validate-first` Goal Loop handoff as non-executing evidence for the concrete scheduler rework validation gate. For full history, use `harness/changes/INDEX.json` and archived `summary.md` files.
+This file is the short resume point. No active ECL change or pending Harness evolution exists. Phase 11T is archived after hardening the existing `planning.scheduler.worker.rework-audit-first` Goal Loop handoff as non-executing evidence for the concrete scheduler rework audit gate. The Phase 11P-11T Harness evolution window is archived as `noop/independent_review`. For full history, use `harness/changes/INDEX.json` and archived `summary.md` files.
 
 Current plan-level roadmap context is preserved in `docs/CURRENT-DEVELOPMENT-PLAN.md`.
 
 ## Recent Completed Work
+
+### Auto Evolve Harness Phase 11P-11T Goal Loop Gate Evidence
+
+Archived at `harness/changes/archive/20260618-auto-evolve-harness-phase-11p-11t-goal-loop-gate-evidence/summary.md`.
+
+The pending Phase 11P-11T Goal Loop gate evidence window was handled as `noop/independent_review` with independent review score 86/100. Existing Goal Loop Boundary, Proposal/Runtime Boundary, Scoped Workbench Action Payload, Module Boundary, Documentation Entropy, Experience Lifecycle, and ToolPolicy/human gate rules are sufficient; no Harness rule, template, lint, product runtime, Workbench, Scheduler, ToolPolicy, source apply, or human gate change was added.
+
+### Phase 11T Goal Loop Rework Audit Handoff Regression
+
+Archived at `harness/changes/archive/20260618-phase-11t-goal-loop-rework-audit-handoff-regression/summary.md`.
+
+Phase 11T adds focused regression coverage for the existing `planning.scheduler.worker.rework-audit-first` Goal Loop handoff. It proves the exact `changeId`, `schedulerRunId`, and `schedulerWorkerReworkValidationId` scope flows through decision, next-step packet, controller policy, gate-readiness preflight, and assisted concrete confirmation; forged run/rework-validation ids, missing or wrong current gates, disabled or forged visible gates, superseding rework audit evidence, and accepted-artifact drift fail closed. The change adds no production runtime, Workbench action/projection, server route, ToolPolicy path, source mutation, scheduler loop, whole-wave dispatch, slot allocator, automatic apply/merge/close, or child Change behavior.
+
+Verification passed for focused/full Goal Loop decision tests, `npm run typecheck`, `npm run lint`, `npm run test:fast`, `npm run build`, `npm run test:integration`, `scripts/lint-ecl.ps1`, `scripts/lint-encoding.ps1`, and `scripts/harness-evolve.ps1 check`.
 
 ### Phase 11S Goal Loop Rework Validation Handoff Regression
 
@@ -272,7 +286,7 @@ The pending Phase 10P-10T Goal Loop controller/feedback/context/prompt evidence 
 
 ## Next Resume Point
 
-No active ECL change or pending Harness evolution exists. Continue by selecting the next bounded Goal Loop/Scheduler handoff hardening target, such as `planning.scheduler.worker.rework-audit-first`, or open a separate accepted design change for a real scheduler loop/full parallel executor. `README.md` remains unrelated and must stay untracked unless the user explicitly asks to include it.
+No active ECL change or pending Harness evolution exists. Continue by selecting the next bounded Goal Loop/Scheduler handoff hardening target still missing end-to-end regression coverage, or open a separate accepted design change for a real scheduler loop/full parallel executor. `README.md` remains unrelated and must stay untracked unless the user explicitly asks to include it.
 
 ## Verification Commands
 
