@@ -11,7 +11,6 @@ import {
 import type { ResolvedMemory } from "../../types/index.js";
 import {
   validateWorkflowActionRequiredTargets,
-  workflowActionScopesMatchStrict,
   type WorkflowActionScopeCarrier,
 } from "../../workflow-actions/registry.js";
 
@@ -97,12 +96,12 @@ export async function assertGoalLoopAssistedConcreteGateConfirmation(
 
   const expectedConcreteGate = concreteGateCarrier(changeId, request.actionType, preflight.currentGate.scope);
   const requestedConcreteGate = concreteGateCarrierFromRequest(changeId, request.actionType, preflight.currentGate.scope, request);
-  if (!workflowActionScopesMatchStrict(expectedConcreteGate, requestedConcreteGate)) {
+  if (!concreteGateScopeMatches(changeId, request.actionType, preflight.currentGate.scope, requestedConcreteGate)) {
     throw new Error("Goal Loop-assisted concrete gate request scope mismatch.");
   }
   if (options.visibleGate) {
     const visibleConcreteGate = concreteGateCarrierFromRequest(changeId, request.actionType, preflight.currentGate.scope, options.visibleGate);
-    if (!workflowActionScopesMatchStrict(expectedConcreteGate, visibleConcreteGate)) {
+    if (!concreteGateScopeMatches(changeId, request.actionType, preflight.currentGate.scope, visibleConcreteGate)) {
       throw new Error("Goal Loop-assisted concrete gate visible target is stale.");
     }
     if (options.visibleGate.goalLoopGateReadinessPreflightId && options.visibleGate.goalLoopGateReadinessPreflightId !== preflight.id) {
@@ -125,11 +124,26 @@ function assertGateMatches(
   if (expected.actionType !== actionType || actual.actionType !== actionType) {
     throw new Error(`Goal Loop-assisted concrete gate ${label} action mismatch.`);
   }
-  const expectedGate = concreteGateCarrier(changeId, actionType, expected.scope);
-  const actualGate = concreteGateCarrier(changeId, actionType, actual.scope);
-  if (!workflowActionScopesMatchStrict(expectedGate, actualGate)) {
+  if (!concreteGateScopeMatches(changeId, actionType, expected.scope, actual)) {
     throw new Error(`Goal Loop-assisted concrete gate ${label} scope mismatch.`);
   }
+}
+
+function concreteGateScopeMatches(
+  changeId: string,
+  actionType: string,
+  expectedScope: Record<string, string | string[]>,
+  actual: GoalLoopCurrentGateSnapshot | WorkflowActionScopeCarrier,
+): boolean {
+  if (actual.actionType !== actionType) return false;
+  for (const [key, expected] of Object.entries(expectedScope)) {
+    const expectedValue = key === "changeId" ? changeId : expected;
+    const actualRecord = actual as unknown as Record<string, unknown>;
+    const nestedScope = actualRecord.scope as Record<string, unknown> | undefined;
+    const actualValue = key === "changeId" ? actualRecord.changeId ?? nestedScope?.changeId ?? changeId : nestedScope?.[key] ?? actualRecord[key];
+    if (!scopeValuesEqual(normalizeScopeValue(expectedValue), normalizeScopeValue(actualValue))) return false;
+  }
+  return true;
 }
 
 function concreteGateCarrier(
@@ -170,6 +184,17 @@ function readConcreteGateRequestScope(
     if (Array.isArray(value) && value.every((item) => typeof item === "string")) (result as Record<string, string | string[]>)[key] = value;
   }
   return result;
+}
+
+function normalizeScopeValue(value: unknown): string[] {
+  if (typeof value === "string") return [value];
+  if (Array.isArray(value) && value.every((item) => typeof item === "string")) return [...value].sort();
+  return [];
+}
+
+function scopeValuesEqual(left: string[], right: string[]): boolean {
+  if (left.length !== right.length) return false;
+  return left.every((value, index) => value === right[index]);
 }
 
 function scopeToCarrier(scope: Record<string, string | string[]>): WorkflowActionScopeCarrier {

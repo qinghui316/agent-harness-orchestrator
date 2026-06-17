@@ -2,19 +2,68 @@
 
 ## Current Handoff
 
-- Current date: 2026-06-16.
+- Current date: 2026-06-17.
 - Active ECL change: none.
 - Pending Harness evolution: none.
-- Latest archived product change: `harness/changes/archive/20260616-phase-10y-goal-loop-human-close-gate-handoff-boundary/summary.md`.
+- Latest archived product change: `harness/changes/archive/20260617-phase-11e-goal-loop-start-next-handoff-hardening/summary.md`.
 - Latest archived product/Harness docs change: `harness/changes/archive/20260615-harness-self-evolution-slimming-rule-tuning/summary.md`.
-- Latest archived Harness evolution: `harness/changes/archive/20260616-auto-evolve-harness-phase-10r-10v-goal-loop-gate-evidence/summary.md`.
+- Latest archived Harness evolution: `harness/changes/archive/20260617-auto-evolve-harness-phase-10z-11d-goal-loop-context-evidence/summary.md`.
 - Active product phase: none. Active Harness evolution phase: none.
+- Active close status: none.
 
 This file is the short resume point. No active change is open. For full history, use `harness/changes/INDEX.json` and archived `summary.md` files.
 
 Current plan-level roadmap context is preserved in `docs/CURRENT-DEVELOPMENT-PLAN.md`.
 
 ## Recent Completed Work
+
+### Phase 11E Goal Loop Start-Next Handoff Hardening
+
+Archived at `harness/changes/archive/20260617-phase-11e-goal-loop-start-next-handoff-hardening/summary.md`.
+
+Phase 11E hardens the Goal Loop-guided handoff for the existing `planning.scheduler.worker.start-next` gate. It proves packet scope, Workpad visibility, controller refresh, gate-readiness preflight, and assisted concrete confirmation stay aligned on `changeId`, `schedulerRunId`, `schedulerClaimReservationId`, `reservationIntentId`, and `claimIntentId`. The path remains evidence-only until the user confirms the concrete scheduler gate; it adds no scheduler loop, whole-wave dispatch, source mutation, ToolPolicy bypass, human-gate bypass, or Goal Loop executor.
+
+### Auto Evolve Harness Phase 10Z-11D Goal Loop Context Evidence
+
+Archived at `harness/changes/archive/20260617-auto-evolve-harness-phase-10z-11d-goal-loop-context-evidence/summary.md`.
+
+The pending Phase 10Z-11D Goal Loop context evidence window was handled as `noop/independent_review` with independent review score 86/100. Existing Goal Loop Boundary, Runtime Bridge Boundary, Module Boundary, Workbench honesty, scoped action, documentation entropy, Experience Lifecycle, and ToolPolicy/human-gate rules are sufficient; no new Harness rule, template, lint, or product runtime change was added.
+
+### Phase 11D Goal Loop Routing Posture Main-Agent Context
+
+Archived at `harness/changes/archive/20260617-phase-11d-goal-loop-routing-posture-main-agent-context/summary.md`.
+
+Phase 11D exposes the fresh Goal Loop routing posture and label to main-Agent prompt/context markdown and `context.prepared` runtime evidence for `chat.ask` and `orchestrator.plan`. It preserves Workpad-visible gating, packet freshness, stale-controller stripping, ToolPolicy/human gates, and adds no scheduler/runtime/action/source mutation authority.
+
+### Phase 11C Goal Loop Routing Posture Evidence
+
+Archived at `harness/changes/archive/20260617-phase-11c-goal-loop-routing-posture-evidence/summary.md`.
+
+Phase 11C adds a non-executing typed routing posture and short label to Goal Loop conflict assessments, carries them through schemas, markdown, Workbench read-model summaries, and the Workpad read-only card, and keeps legacy artifacts safe with a `wait-for-evidence` default. It adds no scheduler execution, Workbench action, ToolPolicy path, source mutation, apply, close, merge, or child Change behavior.
+
+### Phase 11B Goal Loop Workpad Explanation Card
+
+Archived at `harness/changes/archive/20260617-phase-11b-goal-loop-workpad-explanation-card/summary.md`.
+
+Phase 11B renders the current Workpad `goalLoop` projection as a read-only details card. It exposes recommendation state, conflict level, parallel eligibility, conflict reasons, and evidence links without adding any Workbench action, confirmation item, server route, CLI path, source mutation, or ToolPolicy/human-gate change.
+
+### Phase 11A Goal Loop Conflict Reasons Read Model
+
+Archived at `harness/changes/archive/20260617-phase-11a-goal-loop-conflict-reasons-read-model/summary.md`.
+
+Phase 11A exposes existing Goal Loop conflict-assessment reasons through the Workbench Goal Loop read-model summary. The change is projection-only: `src/goal-loop/` continues to own conflict policy, and Workbench displays derived reasons without adding actions, execution, source mutation, or ToolPolicy/human-gate changes.
+
+### Auto Evolve Harness Phase 10V-10Z Goal Loop Routing Evidence
+
+Archived at `harness/changes/archive/20260616-auto-evolve-harness-phase-10v-10z-goal-loop-routing-evidence/summary.md`.
+
+The pending Phase 10V-10Z Goal Loop routing evidence window was handled as `noop/subagent_review`. Two independent explorer reviews found no missing Harness rule/template/check. Existing Goal Loop Boundary, Proposal/Runtime Boundary, Scoped Workbench Action Payload, Source Apply Safety, Module Boundary, Close/Handoff Drift, Documentation Entropy, Experience Lifecycle, and ToolPolicy/human-gate rules are sufficient.
+
+### Phase 10Z Goal Loop Conflict-Aware Routing
+
+Archived at `harness/changes/archive/20260616-phase-10z-goal-loop-conflict-aware-routing/summary.md`.
+
+Phase 10Z tightens Goal Loop conflict assessment so low conflict is limited to the existing scoped first/next worker-start gates, while active worker sequencing, rework, IntegrationCheck, blocked closeout, scheduler completion, and close-ready states remain non-parallel and human-gated. It adds `test:fast`, `test:workbench`, and `test:integration` scripts so local iteration can avoid the heavy Workbench/CLI suites without weakening the full close gate.
 
 ### Phase 10Y Goal Loop Human Close Gate Handoff Boundary
 
@@ -94,12 +143,14 @@ The pending Phase 10P-10T Goal Loop controller/feedback/context/prompt evidence 
 - Phase 10W allows a matching concrete confirmation to carry the preflight id as evidence. The executable path remains the concrete action and its existing stale revalidation, ToolPolicyGate, handler, decision/audit, and human gate.
 - Phase 10X anchors Goal Loop freshness to accepted Spec/Plan/Tasks/AC artifact hashes. Accepted artifact drift suppresses stale Goal Loop guidance and assisted gate evidence until refreshed, but does not create a new executable path.
 - Phase 10Y allows close-ready Goal Loop evidence to attach derived handoff context to the existing `change.close` approval only while fresh and scoped. The close/archive transition remains the existing human gate.
+- Phase 11C makes Goal Loop routing posture machine-readable for Workbench and main-Agent inspection while staying evidence-only and non-executing.
+- Phase 11E proves the existing `planning.scheduler.worker.start-next` gate can be guided by fresh Goal Loop packet/controller/preflight evidence while the executable transition remains the concrete scheduler gate.
 - Scheduler runtime remains staged and bounded. Existing scheduler worker/result/validation/audit/rework/integration/completion gates do not authorize scheduler loops, whole-wave dispatch, slot allocation, automatic child Changes, automatic apply/merge, or a full parallel executor.
 - Documentation entropy is now an explicit Harness concern: `AGENTS.md` is the routing map, `docs/STATUS.md` is the short handoff, `docs/ECL.md` owns reusable process rules, and archived summaries / `harness/changes/INDEX.json` own history.
 
 ## Next Resume Point
 
-No active change is open. The next structured product change should continue from `docs/CURRENT-DEVELOPMENT-PLAN.md`: either keep Goal Loop work non-executing and concrete-gate-bound, or choose the next scheduler/parallel slice explicitly without implying a full scheduler loop.
+No active change is open. The next structured product change should continue from `docs/CURRENT-DEVELOPMENT-PLAN.md`: either keep Goal Loop work non-executing and concrete-gate-bound, or explicitly choose a bounded scheduler/parallel slice without implying a full scheduler loop.
 
 ## Verification Commands
 

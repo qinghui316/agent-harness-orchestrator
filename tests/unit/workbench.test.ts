@@ -2473,6 +2473,164 @@ describe("workbench read model", () => {
     expect(item.actions.some((action) => action.actionType === "planning.goal-loop.gate.invoke")).toBe(false);
   });
 
+  it("projects Goal Loop-assisted start-next as the same concrete scheduler gate with all scoped ids", async () => {
+    const currentGate = {
+      id: "confirm:scheduler-worker-next:member-discount",
+      kind: "planning-confirm",
+      conversationId: "member-discount",
+      changeId: "member-discount",
+      schedulerRunId: "scheduler-run-1",
+      schedulerClaimReservationId: "claim-reservation-expected",
+      reservationIntentId: "reservation-intent-2",
+      claimIntentId: "claim-2",
+      summary: "启动下一个 worker。",
+      whyNeedsConfirmation: "这是当前可见 Harness gate。",
+      confirmEffect: "只启动指定 next worker。",
+      riskSummary: "不会自动启动后续 validation/audit。",
+      evidenceRefs: [],
+      actions: [{
+        id: "workflow:planning.scheduler.worker.start-next:member-discount",
+        label: "启动下一个 worker",
+        kind: "workflow-action",
+        actionType: "planning.scheduler.worker.start-next",
+        changeId: "member-discount",
+        schedulerRunId: "scheduler-run-1",
+        schedulerClaimReservationId: "claim-reservation-expected",
+        reservationIntentId: "reservation-intent-2",
+        claimIntentId: "claim-2",
+        enabled: true,
+        requiresConfirmation: true,
+      }],
+      primary: true,
+      status: "pending",
+    } as const;
+    const workpad = {
+      nextAction: {
+        kind: "workflow-action",
+        actionType: "planning.scheduler.worker.start-next",
+        changeId: "member-discount",
+        schedulerRunId: "scheduler-run-1",
+        schedulerClaimReservationId: "claim-reservation-expected",
+        reservationIntentId: "reservation-intent-2",
+        claimIntentId: "claim-2",
+        enabled: true,
+        requiresConfirmation: true,
+      },
+      goalLoop: {
+        id: "goal-loop-continuation-brief-1",
+        changeId: "member-discount",
+        goalLoopDecisionId: "goal-loop-decision-1",
+        goalLoopIterationId: "goal-loop-iteration-1",
+        goalLoopNextStepPacketId: "goal-loop-next-step-packet-1",
+        controllerPolicyId: "goal-loop-controller-policy-1",
+        gateReadinessPreflightId: "goal-loop-gate-readiness-preflight-1",
+        controllerVerdict: "recommend-existing-gate",
+        controllerGateStatus: "matches-current-gate",
+        recommendedActionType: "planning.scheduler.worker.start-next",
+        recommendedActionScope: {
+          changeId: "member-discount",
+          schedulerRunId: "scheduler-run-1",
+          schedulerClaimReservationId: "claim-reservation-expected",
+          reservationIntentId: "reservation-intent-2",
+          claimIntentId: "claim-2",
+        },
+        artifact: "harness/changes/active/member-discount/goal-loop/continuation.md",
+        nextStepPacketArtifact: "harness/changes/active/member-discount/goal-loop/next-step.json",
+        controllerArtifact: "harness/changes/active/member-discount/goal-loop/controller.json",
+        gateReadinessPreflightArtifact: "harness/changes/active/member-discount/goal-loop/preflight.json",
+      },
+    } as const;
+
+    const [item] = attachGoalLoopAssistedConcreteGateActions([currentGate], workpad as never);
+    const assistedAction = item.actions.find((action) => action.goalLoopGateReadinessPreflightId === "goal-loop-gate-readiness-preflight-1");
+
+    expect(assistedAction).toMatchObject({
+      kind: "workflow-action",
+      actionType: "planning.scheduler.worker.start-next",
+      changeId: "member-discount",
+      schedulerRunId: "scheduler-run-1",
+      schedulerClaimReservationId: "claim-reservation-expected",
+      reservationIntentId: "reservation-intent-2",
+      claimIntentId: "claim-2",
+      goalLoopNextStepPacketId: "goal-loop-next-step-packet-1",
+      goalLoopControllerPolicyId: "goal-loop-controller-policy-1",
+      goalLoopGateReadinessPreflightId: "goal-loop-gate-readiness-preflight-1",
+      requiresConfirmation: true,
+    });
+    expect(item.actions.filter((action) => action.actionType === "planning.scheduler.worker.start-next")).toHaveLength(2);
+    expect(item.actions.some((action) => action.actionType === "planning.goal-loop.gate.invoke")).toBe(false);
+  });
+
+  it("does not project Goal Loop-assisted start-next when reservation intent scope mismatches", async () => {
+    const currentGate = {
+      id: "confirm:scheduler-worker-next:member-discount:other",
+      kind: "planning-confirm",
+      conversationId: "member-discount",
+      changeId: "member-discount",
+      schedulerRunId: "scheduler-run-1",
+      schedulerClaimReservationId: "claim-reservation-expected",
+      reservationIntentId: "reservation-intent-other",
+      claimIntentId: "claim-2",
+      summary: "启动另一个 next worker。",
+      whyNeedsConfirmation: "目标必须匹配。",
+      confirmEffect: "只启动指定 next worker。",
+      riskSummary: "不匹配时不能使用 Goal Loop assistance。",
+      evidenceRefs: [],
+      actions: [{
+        id: "workflow:planning.scheduler.worker.start-next:member-discount:other",
+        label: "启动下一个 worker",
+        kind: "workflow-action",
+        actionType: "planning.scheduler.worker.start-next",
+        changeId: "member-discount",
+        schedulerRunId: "scheduler-run-1",
+        schedulerClaimReservationId: "claim-reservation-expected",
+        reservationIntentId: "reservation-intent-other",
+        claimIntentId: "claim-2",
+        enabled: true,
+        requiresConfirmation: true,
+      }],
+      primary: true,
+      status: "pending",
+    } as const;
+    const workpad = {
+      nextAction: {
+        kind: "workflow-action",
+        actionType: "planning.scheduler.worker.start-next",
+        changeId: "member-discount",
+        schedulerRunId: "scheduler-run-1",
+        schedulerClaimReservationId: "claim-reservation-expected",
+        reservationIntentId: "reservation-intent-2",
+        claimIntentId: "claim-2",
+        enabled: true,
+        requiresConfirmation: true,
+      },
+      goalLoop: {
+        id: "goal-loop-continuation-brief-1",
+        changeId: "member-discount",
+        goalLoopDecisionId: "goal-loop-decision-1",
+        goalLoopIterationId: "goal-loop-iteration-1",
+        goalLoopNextStepPacketId: "goal-loop-next-step-packet-1",
+        controllerPolicyId: "goal-loop-controller-policy-1",
+        gateReadinessPreflightId: "goal-loop-gate-readiness-preflight-1",
+        controllerVerdict: "recommend-existing-gate",
+        controllerGateStatus: "matches-current-gate",
+        recommendedActionType: "planning.scheduler.worker.start-next",
+        recommendedActionScope: {
+          changeId: "member-discount",
+          schedulerRunId: "scheduler-run-1",
+          schedulerClaimReservationId: "claim-reservation-expected",
+          reservationIntentId: "reservation-intent-2",
+          claimIntentId: "claim-2",
+        },
+      },
+    } as const;
+
+    const [item] = attachGoalLoopAssistedConcreteGateActions([currentGate], workpad as never);
+
+    expect(item.actions.some((action) => action.goalLoopGateReadinessPreflightId === "goal-loop-gate-readiness-preflight-1")).toBe(false);
+    expect(item.actions).toHaveLength(1);
+  });
+
   it("does not project goal loop feedback on a same-action gate with mismatched target scope", async () => {
     const currentGate = {
       id: "confirm:scheduler-worker:member-discount:other",
@@ -2651,7 +2809,14 @@ describe("workbench read model", () => {
         .sort();
       expect(actionsBeforeChat).toContain("planning.scheduler.worker.validate-first");
       expect(actionsAfterPromptRuns).toContain("planning.scheduler.worker.validate-first");
-      expect(actionsAfterPromptRuns.some((action) => action?.startsWith("planning.goal-loop"))).toBe(false);
+      const allowedGoalLoopEvidenceActions = new Set([
+        "planning.goal-loop.feedback.evaluate",
+        "planning.goal-loop.controller.refresh",
+        "planning.goal-loop.gate-readiness.prepare",
+      ]);
+      expect(actionsAfterPromptRuns.filter((action) => action?.startsWith("planning.goal-loop")).every((action) => allowedGoalLoopEvidenceActions.has(action))).toBe(true);
+      expect(actionsAfterPromptRuns).not.toContain("planning.goal-loop.evaluate");
+      expect(actionsAfterPromptRuns).not.toContain("planning.goal-loop.gate.invoke");
 
       await compileGoalLoopEvaluation(memory, changePath);
       const stalePolicyChat = await runCodexChat(project(), prepared.topic.changeId, "Re-check after a packet refresh.");
@@ -3770,7 +3935,118 @@ describe("workbench read model", () => {
       expect(startNextAction.reservationIntentId).not.toBe(prepared.workerStart.reservationIntentId);
       expect(startNextAction.claimIntentId).not.toBe(prepared.workerStart.claimIntentId);
 
-      const secondStartResult = await executeWorkbenchAction({ project: project(), path: tempDir }, { ...startNextAction, confirm: true });
+      const memory = await resolveProjectMemory(project());
+      const changePath = join("harness", "changes", "active", prepared.topic.changeId);
+      const goalLoopEvaluation = await compileGoalLoopEvaluation(memory, changePath);
+      expect(goalLoopEvaluation.goalLoopNextStepPacket).toMatchObject({
+        recommendedAction: {
+          actionType: "planning.scheduler.worker.start-next",
+          scope: {
+            changeId: prepared.topic.changeId,
+            schedulerRunId: prepared.schedulerRun.id,
+            schedulerClaimReservationId: prepared.claimReservation.id,
+            reservationIntentId: startNextAction.reservationIntentId,
+            claimIntentId: startNextAction.claimIntentId,
+          },
+        },
+        executionStarted: false,
+      });
+
+      snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: prepared.topic.changeId });
+      expect(snapshot.center.workpad.goalLoop).toMatchObject({
+        goalLoopNextStepPacketId: goalLoopEvaluation.goalLoopNextStepPacket.id,
+        recommendedActionType: "planning.scheduler.worker.start-next",
+        recommendedActionScope: expect.objectContaining({
+          changeId: prepared.topic.changeId,
+          schedulerRunId: prepared.schedulerRun.id,
+          schedulerClaimReservationId: prepared.claimReservation.id,
+          reservationIntentId: startNextAction.reservationIntentId,
+          claimIntentId: startNextAction.claimIntentId,
+        }),
+        routingPosture: "single-worker-gate",
+        routingLabel: "Single scoped worker gate",
+      });
+      const controllerRefreshAction = snapshot.right.confirmationQueue.current
+        .flatMap((item) => item.actions)
+        .find((action) => action.actionType === "planning.goal-loop.controller.refresh" && action.goalLoopCurrentGateActionType === "planning.scheduler.worker.start-next");
+      if (!controllerRefreshAction) throw new Error("Missing Goal Loop controller refresh action for scheduler start-next.");
+      expect(controllerRefreshAction).toMatchObject({
+        schedulerRunId: prepared.schedulerRun.id,
+        schedulerClaimReservationId: prepared.claimReservation.id,
+        reservationIntentId: startNextAction.reservationIntentId,
+        claimIntentId: startNextAction.claimIntentId,
+      });
+      const controllerRefresh = await executeWorkbenchAction({ project: project(), path: tempDir }, { ...controllerRefreshAction, confirm: true });
+      const controllerPolicy = (((controllerRefresh.result as { result?: unknown }).result ?? controllerRefresh.result) as {
+        goalLoopControllerPolicy?: { id?: string; verdict?: string; gateStatus?: string; executionStarted?: boolean };
+      }).goalLoopControllerPolicy;
+      expect(controllerPolicy).toMatchObject({
+        verdict: "recommend-existing-gate",
+        gateStatus: "matches-current-gate",
+        executionStarted: false,
+      });
+
+      snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: prepared.topic.changeId });
+      const gateReadinessAction = snapshot.right.confirmationQueue.current
+        .flatMap((item) => item.actions)
+        .find((action) => action.actionType === "planning.goal-loop.gate-readiness.prepare" && action.goalLoopCurrentGateActionType === "planning.scheduler.worker.start-next");
+      if (!gateReadinessAction) throw new Error("Missing Goal Loop gate readiness action for scheduler start-next.");
+      expect(gateReadinessAction).toMatchObject({
+        schedulerRunId: prepared.schedulerRun.id,
+        schedulerClaimReservationId: prepared.claimReservation.id,
+        reservationIntentId: startNextAction.reservationIntentId,
+        claimIntentId: startNextAction.claimIntentId,
+        goalLoopControllerPolicyId: controllerPolicy?.id,
+      });
+      const gateReadiness = await executeWorkbenchAction({ project: project(), path: tempDir }, { ...gateReadinessAction, confirm: true });
+      if ((gateReadiness.result as { status?: string; error?: string }).status !== "completed") {
+        throw new Error((gateReadiness.result as { error?: string }).error ?? "Goal Loop gate readiness action failed.");
+      }
+      expect(gateReadiness.result).toMatchObject({ status: "completed" });
+      const preflight = ((gateReadiness.result as {
+        result?: {
+          goalLoopGateReadinessPreflight?: {
+            id?: string;
+            currentGate?: { actionType?: string; scope?: Record<string, unknown> };
+            concreteGateInvoked?: boolean;
+            toolPolicyAuthorizedConcreteGate?: boolean;
+            executionStarted?: boolean;
+          };
+        };
+      }).result)?.goalLoopGateReadinessPreflight;
+      expect(preflight).toMatchObject({
+        currentGate: {
+          actionType: "planning.scheduler.worker.start-next",
+          scope: expect.objectContaining({
+            changeId: prepared.topic.changeId,
+            schedulerRunId: prepared.schedulerRun.id,
+            schedulerClaimReservationId: prepared.claimReservation.id,
+            reservationIntentId: startNextAction.reservationIntentId,
+            claimIntentId: startNextAction.claimIntentId,
+          }),
+        },
+        concreteGateInvoked: false,
+        toolPolicyAuthorizedConcreteGate: false,
+        executionStarted: false,
+      });
+
+      snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: prepared.topic.changeId });
+      const assistedStartNextAction = snapshot.right.confirmationQueue.current
+        .flatMap((item) => item.actions)
+        .find((action) => action.actionType === "planning.scheduler.worker.start-next" && action.goalLoopGateReadinessPreflightId === preflight?.id);
+      if (!assistedStartNextAction) throw new Error("Missing assisted scheduler start-next action.");
+      expect(assistedStartNextAction).toMatchObject({
+        schedulerRunId: prepared.schedulerRun.id,
+        schedulerClaimReservationId: prepared.claimReservation.id,
+        reservationIntentId: startNextAction.reservationIntentId,
+        claimIntentId: startNextAction.claimIntentId,
+        goalLoopNextStepPacketId: goalLoopEvaluation.goalLoopNextStepPacket.id,
+        goalLoopControllerPolicyId: controllerPolicy?.id,
+        goalLoopGateReadinessPreflightId: preflight?.id,
+      });
+      expect(snapshot.right.confirmationQueue.current.flatMap((item) => item.actions).some((action) => action.actionType === "planning.goal-loop.gate.invoke")).toBe(false);
+
+      const secondStartResult = await executeWorkbenchAction({ project: project(), path: tempDir }, { ...assistedStartNextAction, confirm: true });
       const secondStart = (((secondStartResult.result as { result?: unknown }).result ?? secondStartResult.result) as {
         workerStart?: {
           id?: string;
@@ -3786,8 +4062,8 @@ describe("workbench read model", () => {
       });
       expect(secondStart.workerStart).toMatchObject({
         schedulerClaimReservationId: prepared.claimReservation.id,
-        reservationIntentId: startNextAction.reservationIntentId,
-        claimIntentId: startNextAction.claimIntentId,
+        reservationIntentId: assistedStartNextAction.reservationIntentId,
+        claimIntentId: assistedStartNextAction.claimIntentId,
       });
       expect(secondStart.workerStart?.id).not.toBe(prepared.workerStart.id);
       expect(secondStart.workerStart?.worktreeId).not.toBe(prepared.workerStart.worktreeId);

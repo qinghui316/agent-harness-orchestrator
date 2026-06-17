@@ -783,6 +783,11 @@ describe("GoalLoopDecision", () => {
       },
     });
     expectConflict(decision, "low", true, "planning.scheduler.worker.start-next");
+    expect(decision.conflictAssessment).toMatchObject({
+      routingPosture: "single-worker-gate",
+      routingLabel: "Single scoped worker gate",
+    });
+    expect(decision.executionStarted).toBe(false);
   });
 
   it("recommends IntegrationCheck when at least two candidate targets are ready", async () => {

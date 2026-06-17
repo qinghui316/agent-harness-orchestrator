@@ -691,7 +691,7 @@ function buildWorkpadNextAction(
     return approvalToNextAction(actionableCloseApproval);
   }
   if (decompositionReadiness?.nextAllowedAction === "scheduler.contract") {
-    return buildTypedWorkflowNextAction({
+    return scopeTypedWorkflowNextAction(topic, buildTypedWorkflowNextAction({
       topic,
       readiness,
       intake,
@@ -725,7 +725,7 @@ function buildWorkpadNextAction(
       schedulerRunCompletion,
       schedulerRunBlockedCloseout,
       workflowRun,
-    });
+    }));
   }
   const autoReworkTask = taskGraph?.nodes.find((node) => node.autoRework?.available);
   if (autoReworkTask?.autoRework) {
@@ -744,7 +744,7 @@ function buildWorkpadNextAction(
   if (actionableApproval) {
     return approvalToNextAction(actionableApproval);
   }
-  return buildTypedWorkflowNextAction({
+  return scopeTypedWorkflowNextAction(topic, buildTypedWorkflowNextAction({
     topic,
     readiness,
     intake,
@@ -778,7 +778,12 @@ function buildWorkpadNextAction(
     schedulerRunCompletion,
     schedulerRunBlockedCloseout,
     workflowRun,
-  });
+  }));
+}
+
+function scopeTypedWorkflowNextAction(topic: WorkbenchTopicDetail, action: WorkpadNextAction): WorkpadNextAction {
+  if (action.kind !== "workflow-action") return action;
+  return { ...action, changeId: action.changeId ?? topic.id };
 }
 
 function approvalToNextAction(approval: WorkbenchApprovalItem): WorkpadNextAction {

@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-16T10:33:17.2118870Z",
+    "generated_at":  "2026-06-17T08:19:00.1173569Z",
     "active":  [
 
                ],
@@ -879,6 +879,10 @@
                         "path":  "harness/changes/archive/20260616-auto-evolve-harness-phase-10r-10v-goal-loop-gate-evidence"
                     },
                     {
+                        "name":  "20260616-auto-evolve-harness-phase-10v-10z-goal-loop-routing-evidence",
+                        "path":  "harness/changes/archive/20260616-auto-evolve-harness-phase-10v-10z-goal-loop-routing-evidence"
+                    },
+                    {
                         "name":  "20260616-phase-10u-goal-loop-guided-gate-handoff-acceptance",
                         "path":  "harness/changes/archive/20260616-phase-10u-goal-loop-guided-gate-handoff-acceptance"
                     },
@@ -897,6 +901,34 @@
                     {
                         "name":  "20260616-phase-10y-goal-loop-human-close-gate-handoff-boundary",
                         "path":  "harness/changes/archive/20260616-phase-10y-goal-loop-human-close-gate-handoff-boundary"
+                    },
+                    {
+                        "name":  "20260616-phase-10z-goal-loop-conflict-aware-routing",
+                        "path":  "harness/changes/archive/20260616-phase-10z-goal-loop-conflict-aware-routing"
+                    },
+                    {
+                        "name":  "20260617-auto-evolve-harness-phase-10z-11d-goal-loop-context-evidence",
+                        "path":  "harness/changes/archive/20260617-auto-evolve-harness-phase-10z-11d-goal-loop-context-evidence"
+                    },
+                    {
+                        "name":  "20260617-phase-11a-goal-loop-conflict-reasons-read-model",
+                        "path":  "harness/changes/archive/20260617-phase-11a-goal-loop-conflict-reasons-read-model"
+                    },
+                    {
+                        "name":  "20260617-phase-11b-goal-loop-workpad-explanation-card",
+                        "path":  "harness/changes/archive/20260617-phase-11b-goal-loop-workpad-explanation-card"
+                    },
+                    {
+                        "name":  "20260617-phase-11c-goal-loop-routing-posture-evidence",
+                        "path":  "harness/changes/archive/20260617-phase-11c-goal-loop-routing-posture-evidence"
+                    },
+                    {
+                        "name":  "20260617-phase-11d-goal-loop-routing-posture-main-agent-context",
+                        "path":  "harness/changes/archive/20260617-phase-11d-goal-loop-routing-posture-main-agent-context"
+                    },
+                    {
+                        "name":  "20260617-phase-11e-goal-loop-start-next-handoff-hardening",
+                        "path":  "harness/changes/archive/20260617-phase-11e-goal-loop-start-next-handoff-hardening"
                     }
                 ]
 }
