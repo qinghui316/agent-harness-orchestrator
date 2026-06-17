@@ -2,11 +2,11 @@
 
 ## Current Handoff
 
-- Current date: 2026-06-17.
+- Current date: 2026-06-18.
 - Active ECL change: none.
 - Pending Harness evolution: none.
-- Latest archived product change: `harness/changes/archive/20260618-phase-11m-goal-loop-enabled-gate-projection-guard/summary.md`.
-- Latest archived product/Harness docs change: `harness/changes/archive/20260618-phase-11m-goal-loop-enabled-gate-projection-guard/summary.md`.
+- Latest archived product change: `harness/changes/archive/20260618-phase-11n-goal-loop-enabled-gate-revalidation-guard/summary.md`.
+- Latest archived product/Harness docs change: `harness/changes/archive/20260618-phase-11n-goal-loop-enabled-gate-revalidation-guard/summary.md`.
 - Latest archived Harness evolution: `harness/changes/archive/20260617-auto-evolve-harness-phase-11h-11l-goal-loop-scheduler-mode-guard/summary.md`.
 - Active product phase: none. Active Harness evolution phase: none.
 - Active close status: no active change.
@@ -16,6 +16,14 @@ This file is the short resume point. No active product change exists and no pend
 Current plan-level roadmap context is preserved in `docs/CURRENT-DEVELOPMENT-PLAN.md`.
 
 ## Recent Completed Work
+
+### Phase 11N Goal Loop Enabled Gate Revalidation Guard
+
+Archived at `harness/changes/archive/20260618-phase-11n-goal-loop-enabled-gate-revalidation-guard/summary.md`.
+
+Phase 11N extends the Phase 11M enabled-gate rule into server-side current workflow action revalidation and the assisted concrete gate guard. Goal Loop-assisted concrete requests carrying `goalLoopGateReadinessPreflightId` now fail closed when the matched visible concrete gate is disabled, and a supplied disabled `visibleGate` is rejected before assisted confirmation can proceed. Enabled matching gates continue through the existing concrete action path.
+
+Verification passed for focused action revalidation and Goal Loop tests, `npm run typecheck`, `npm run lint`, `npm run test:fast`, `npm run build`, `npm run test:integration`, `scripts/lint-ecl.ps1`, and `scripts/lint-encoding.ps1`. Full `npm run test` exceeded the local 184 second command timeout without returning a failed assertion.
 
 ### Phase 11M Goal Loop Enabled Gate Projection Guard
 
@@ -212,6 +220,7 @@ The pending Phase 10P-10T Goal Loop controller/feedback/context/prompt evidence 
 - Phase 11J makes the same scheduler execution-mode evidence visible in the Workpad Goal Loop card as read-only evidence, including false authorization chips for scheduler loop, full executor, whole-wave dispatch, and slot allocation.
 - Phase 11K makes controller policy and gate-readiness preflight handoff artifacts carry the same scheduler execution-mode false-authority evidence from the fresh packet, and rejects preflight/context handoff when controller scheduler mode evidence is forged or stale.
 - Phase 11M requires Goal Loop feedback, controller refresh, gate-readiness, and assisted concrete projection affordances to attach only beside an enabled matching concrete Workbench gate; disabled same-scope gates cannot gain Goal Loop-derived enabled actions.
+- Phase 11N extends that enabled-gate requirement into server-side current action revalidation and assisted concrete gate confirmation, so forged assisted payloads cannot make disabled visible gates executable.
 - Scheduler runtime remains staged and bounded. Existing scheduler worker/result/validation/audit/rework/integration/completion gates do not authorize scheduler loops, whole-wave dispatch, slot allocation, automatic child Changes, automatic apply/merge, or a full parallel executor.
 - Documentation entropy is now an explicit Harness concern: `AGENTS.md` is the routing map, `docs/STATUS.md` is the short handoff, `docs/ECL.md` owns reusable process rules, and archived summaries / `harness/changes/INDEX.json` own history.
 

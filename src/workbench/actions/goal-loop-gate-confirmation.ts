@@ -17,7 +17,7 @@ import { schedulerExecutionModeAssessmentsEqual } from "../../workflow-scheduler
 import type { SchedulerExecutionModeAssessment } from "../../workflow-scheduler/types.js";
 
 export interface GoalLoopAssistedConcreteGateConfirmationOptions {
-  visibleGate?: WorkflowActionScopeCarrier;
+  visibleGate?: WorkflowActionScopeCarrier & { enabled?: boolean };
 }
 
 export async function assertGoalLoopAssistedConcreteGateConfirmation(
@@ -109,6 +109,9 @@ export async function assertGoalLoopAssistedConcreteGateConfirmation(
     throw new Error("Goal Loop-assisted concrete gate request scope mismatch.");
   }
   if (options.visibleGate) {
+    if (options.visibleGate.enabled !== true) {
+      throw new Error("Goal Loop-assisted concrete gate visible target is disabled.");
+    }
     const visibleConcreteGate = concreteGateCarrierFromRequest(changeId, request.actionType, preflight.currentGate.scope, options.visibleGate);
     if (!concreteGateScopeMatches(changeId, request.actionType, preflight.currentGate.scope, visibleConcreteGate)) {
       throw new Error("Goal Loop-assisted concrete gate visible target is stale.");

@@ -528,6 +528,38 @@ describe("GoalLoopDecision", () => {
       actionType: "planning.scheduler.worker.reconcile-result",
       changeId,
       schedulerRunId: schedulerRun.id,
+      schedulerWorkerStartId: workerStart!.id,
+      goalLoopGateReadinessPreflightId: preflight.id,
+    }, {
+      visibleGate: {
+        actionType: "planning.scheduler.worker.reconcile-result",
+        changeId,
+        schedulerRunId: schedulerRun.id,
+        schedulerWorkerStartId: workerStart!.id,
+        enabled: true,
+      },
+    })).resolves.toBeUndefined();
+
+    await expect(assertGoalLoopAssistedConcreteGateConfirmation(memory, changePath, changeId, {
+      actionType: "planning.scheduler.worker.reconcile-result",
+      changeId,
+      schedulerRunId: schedulerRun.id,
+      schedulerWorkerStartId: workerStart!.id,
+      goalLoopGateReadinessPreflightId: preflight.id,
+    }, {
+      visibleGate: {
+        actionType: "planning.scheduler.worker.reconcile-result",
+        changeId,
+        schedulerRunId: schedulerRun.id,
+        schedulerWorkerStartId: workerStart!.id,
+        enabled: false,
+      },
+    })).rejects.toThrow("visible target is disabled");
+
+    await expect(assertGoalLoopAssistedConcreteGateConfirmation(memory, changePath, changeId, {
+      actionType: "planning.scheduler.worker.reconcile-result",
+      changeId,
+      schedulerRunId: schedulerRun.id,
       schedulerWorkerStartId: "forged-worker-start",
       goalLoopGateReadinessPreflightId: preflight.id,
     })).rejects.toThrow("request scope mismatch");

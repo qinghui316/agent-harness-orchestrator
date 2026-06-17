@@ -127,6 +127,11 @@ export async function assertCurrentWorkflowAction(input: WorkbenchProjectInput, 
     throw error;
   }
   if (body.goalLoopGateReadinessPreflightId) {
+    if (match.enabled !== true) {
+      const error = new Error("Workflow action target is stale or no longer available.");
+      error.name = "Conflict";
+      throw error;
+    }
     if (!body.changeId || !input.project) {
       const error = new Error("Workflow action target is stale or no longer available.");
       error.name = "Conflict";
