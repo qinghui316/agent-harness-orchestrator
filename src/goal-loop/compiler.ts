@@ -69,6 +69,10 @@ import {
   writeGoalLoopNextStepPacket,
 } from "./repository.js";
 import { assessGoalLoopConflictRouting } from "./conflict-routing.js";
+import {
+  assertSchedulerLoopEvidenceSnapshotNonExecuting,
+  classifySchedulerLoopEvidenceSnapshot,
+} from "./scheduler-loop-snapshot.js";
 import type {
   GoalLoopContinuationBrief,
   GoalLoopCompletionAudit,
@@ -651,6 +655,16 @@ function buildDecision(snapshot: EvidenceSnapshot, id: string, artifact: string,
     completionStatus: completionAudit.status,
     routingPosture: conflictAssessment.routingPosture,
   });
+  const schedulerLoopSnapshot = classifySchedulerLoopEvidenceSnapshot({
+    changeId: snapshot.changeId,
+    planningComplete: snapshot.planningComplete,
+    decisionKind,
+    recommendedAction,
+    conflictAssessment,
+    completionAudit,
+    schedulerExecutionMode,
+  });
+  assertSchedulerLoopEvidenceSnapshotNonExecuting(schedulerLoopSnapshot);
 
   return {
     version: "1.0",

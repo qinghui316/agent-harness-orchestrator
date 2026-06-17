@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-17T21:32:47.2547579Z",
+    "generated_at":  "2026-06-17T22:01:29.6672840Z",
     "active":  [
 
                ],
@@ -1033,6 +1033,10 @@
                     {
                         "name":  "20260618-phase-12a-controlled-scheduler-loop-design-boundary",
                         "path":  "harness/changes/archive/20260618-phase-12a-controlled-scheduler-loop-design-boundary"
+                    },
+                    {
+                        "name":  "20260618-phase-12b-scheduler-loop-evidence-snapshot",
+                        "path":  "harness/changes/archive/20260618-phase-12b-scheduler-loop-evidence-snapshot"
                     }
                 ]
 }

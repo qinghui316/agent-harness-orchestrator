@@ -5,17 +5,23 @@
 - Current date: 2026-06-18.
 - Active ECL change: none.
 - Pending Harness evolution: none.
-- Latest archived product change: `harness/changes/archive/20260618-phase-12a-controlled-scheduler-loop-design-boundary/summary.md`.
+- Latest archived product change: `harness/changes/archive/20260618-phase-12b-scheduler-loop-evidence-snapshot/summary.md`.
 - Latest archived product/Harness docs change: `harness/changes/archive/20260618-phase-12a-controlled-scheduler-loop-design-boundary/summary.md`.
 - Latest archived Harness evolution: `harness/changes/archive/20260618-auto-evolve-harness-phase-11t-11x-goal-loop-handoff-evidence/summary.md`.
 - Active product phase: none. Active Harness evolution phase: none.
-- Active close status: no active change.
+- Active close status: not applicable.
 
-This file is the short resume point. Phase 12A is archived after defining a design-only boundary for a future controlled Scheduler/parallel loop before any runtime executor work. Phase 11Y remains the latest runtime/test hardening phase for the existing `planning.scheduler.plan.prepare` Goal Loop handoff as non-executing evidence for the first scheduler plan gate. The latest Harness evolution reviewed Phase 11T-11X as `noop/independent_review` with Hooke score 92/100. For full history, use `harness/changes/INDEX.json` and archived `summary.md` files.
+This file is the short resume point. Phase 12B is archived after adding a non-executing scheduler-loop evidence snapshot/classifier as the first product-code slice after the Phase 12A design boundary. It adds `src/goal-loop/scheduler-loop-snapshot.ts` and consumes it from `src/goal-loop/compiler.ts` after existing conflict routing and scheduler execution-mode assessment, without changing the public Goal Loop decision output. It does not add scheduler loop runtime, worker auto-start, whole-wave dispatch, slot allocation, Workbench actions, ToolPolicy changes, source mutation, automatic apply/merge/close, child Changes, or Harness evolution automation. Phase 12A remains the future controlled Scheduler/parallel loop design boundary. The latest Harness evolution reviewed Phase 11T-11X as `noop/independent_review` with Hooke score 92/100. For full history, use `harness/changes/INDEX.json` and archived `summary.md` files.
 
 Current plan-level roadmap context is preserved in `docs/CURRENT-DEVELOPMENT-PLAN.md`.
 
 ## Recent Completed Work
+
+### Phase 12B Scheduler Loop Evidence Snapshot
+
+Archived at `harness/changes/archive/20260618-phase-12b-scheduler-loop-evidence-snapshot/summary.md`.
+
+Phase 12B adds `src/goal-loop/scheduler-loop-snapshot.ts`, a typed non-executing scheduler-loop evidence snapshot and posture classifier. `src/goal-loop/compiler.ts` consumes it after the existing conflict-routing and scheduler execution-mode assessments, preserving public Goal Loop recommendation behavior while asserting false scheduler-loop, full-executor, whole-wave, slot, source mutation, apply, close, and Harness evolution authority. Focused scheduler-loop snapshot tests and the existing Goal Loop decision suite passed, along with typecheck, lint, build, full test, ECL lint, encoding lint, and harness-evolve check.
 
 ### Phase 12A Controlled Scheduler Loop Design Boundary
 
@@ -313,7 +319,7 @@ The pending Phase 10P-10T Goal Loop controller/feedback/context/prompt evidence 
 
 ## Next Resume Point
 
-No active change or pending Harness evolution exists. Next structured work may start from `docs/design-docs/controlled-scheduler-loop.md` for a narrow implementation slice, or continue Goal Loop/Scheduler hardening, but any runtime loop/full executor/whole-wave/slot authority still requires a separate ECL implementation change. `README.md` remains unrelated and must stay untracked unless the user explicitly asks to include it.
+No active change is open. Continue from the post-Phase-12B baseline: future controlled Scheduler-loop work may build on `docs/design-docs/controlled-scheduler-loop.md` and `src/goal-loop/scheduler-loop-snapshot.ts`, but must still create a new ECL change and must not add scheduler loop/full executor/whole-wave/slot authority without accepted spec/plan/tasks, validation, audit, IntegrationCheck/apply/close human-gate preservation, and review. `README.md` remains unrelated and must stay untracked unless the user explicitly asks to include it.
 
 ## Verification Commands
 
