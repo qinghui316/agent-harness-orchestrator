@@ -112,6 +112,9 @@ export async function assertGoalLoopAssistedConcreteGateConfirmation(
     if (options.visibleGate.enabled !== true) {
       throw new Error("Goal Loop-assisted concrete gate visible target is disabled.");
     }
+    if (options.visibleGate.changeId && options.visibleGate.changeId !== changeId) {
+      throw new Error("Goal Loop-assisted concrete gate visible target is stale.");
+    }
     const visibleConcreteGate = concreteGateCarrierFromRequest(changeId, request.actionType, preflight.currentGate.scope, options.visibleGate);
     if (!concreteGateScopeMatches(changeId, request.actionType, preflight.currentGate.scope, visibleConcreteGate)) {
       throw new Error("Goal Loop-assisted concrete gate visible target is stale.");

@@ -5,17 +5,23 @@
 - Current date: 2026-06-18.
 - Active ECL change: none.
 - Pending Harness evolution: none.
-- Latest archived product change: `harness/changes/archive/20260618-phase-11x-goal-loop-integration-candidate-handoff-regression/summary.md`.
-- Latest archived product/Harness docs change: `harness/changes/archive/20260618-phase-11x-goal-loop-integration-candidate-handoff-regression/summary.md`.
+- Latest archived product change: `harness/changes/archive/20260618-phase-11y-goal-loop-plan-prepare-handoff-regression/summary.md`.
+- Latest archived product/Harness docs change: `harness/changes/archive/20260618-phase-11y-goal-loop-plan-prepare-handoff-regression/summary.md`.
 - Latest archived Harness evolution: `harness/changes/archive/20260618-auto-evolve-harness-phase-11t-11x-goal-loop-handoff-evidence/summary.md`.
 - Active product phase: none. Active Harness evolution phase: none.
 - Active close status: no active change is open.
 
-This file is the short resume point. Phase 11X is archived after hardening the existing `planning.scheduler.integration-candidate.compile` Goal Loop handoff as non-executing evidence for the concrete scheduler integration-candidate compile gate. The latest Harness evolution reviewed Phase 11T-11X as `noop/independent_review` with Hooke score 92/100; existing Goal Loop Boundary, Proposal / Runtime Boundary, Scoped Workbench Action Payload by analogy, Module Boundary, Documentation Entropy, Experience Lifecycle, and ToolPolicy/human gate rules are sufficient, with phase-specific gate ids left archive-only. For full history, use `harness/changes/INDEX.json` and archived `summary.md` files.
+This file is the short resume point. Phase 11Y is archived after hardening the existing `planning.scheduler.plan.prepare` Goal Loop handoff as non-executing evidence for the first scheduler plan gate. It added focused packet/controller/preflight/assisted-confirmation coverage, launch-confirmation concrete boundary coverage, and a narrow fail-closed guard for forged visible gate `changeId`. The latest Harness evolution reviewed Phase 11T-11X as `noop/independent_review` with Hooke score 92/100. For full history, use `harness/changes/INDEX.json` and archived `summary.md` files.
 
 Current plan-level roadmap context is preserved in `docs/CURRENT-DEVELOPMENT-PLAN.md`.
 
 ## Recent Completed Work
+
+### Phase 11Y Goal Loop Plan Prepare Handoff Regression
+
+Archived at `harness/changes/archive/20260618-phase-11y-goal-loop-plan-prepare-handoff-regression/summary.md`.
+
+Phase 11Y locks down the existing `planning.scheduler.plan.prepare` Goal Loop handoff. The regression proves the initial scheduler plan gate keeps public recommendation scope to exactly `changeId`, carries false execution/scheduler-loop/full-executor/whole-wave/slot authority through decision, next-step packet, controller policy, preflight, and assisted concrete confirmation, and rejects forged request action/change, forged visible target/preflight, disabled visible gate, recursive Goal Loop action, accepted-artifact drift, and incomplete/forged launch-confirmation ids. The only production change is a narrow assisted-confirmation guard that rejects forged visible gate `changeId`; no scheduler runtime, worker start, Workbench projection/server action, ToolPolicy, source mutation, IntegrationCheck, apply/merge/close, or child Change behavior was added.
 
 ### Auto Evolve Harness Phase 11T-11X Goal Loop Handoff Evidence
 
@@ -300,7 +306,7 @@ The pending Phase 10P-10T Goal Loop controller/feedback/context/prompt evidence 
 
 ## Next Resume Point
 
-No active change or pending Harness evolution exists. Continue by inspecting the existing Goal Loop handoff coverage for `planning.scheduler.plan.prepare` and `planning.scheduler.worker.reconcile-result`, then create the next structured change for the smallest missing end-to-end packet/controller/preflight/assisted-confirmation regression target. `README.md` remains unrelated and must stay untracked unless the user explicitly asks to include it.
+No active change or pending Harness evolution exists. Continue by inspecting remaining Goal Loop/Scheduler single-gate handoff coverage and create the next structured change for the smallest missing end-to-end packet/controller/preflight/assisted-confirmation regression target, without implying scheduler loop/full executor authority. `README.md` remains unrelated and must stay untracked unless the user explicitly asks to include it.
 
 ## Verification Commands
 

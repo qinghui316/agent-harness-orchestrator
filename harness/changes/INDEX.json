@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-17T20:41:37.4571674Z",
+    "generated_at":  "2026-06-17T21:07:10.5523546Z",
     "active":  [
 
                ],
@@ -1025,6 +1025,10 @@
                     {
                         "name":  "20260618-phase-11x-goal-loop-integration-candidate-handoff-regression",
                         "path":  "harness/changes/archive/20260618-phase-11x-goal-loop-integration-candidate-handoff-regression"
+                    },
+                    {
+                        "name":  "20260618-phase-11y-goal-loop-plan-prepare-handoff-regression",
+                        "path":  "harness/changes/archive/20260618-phase-11y-goal-loop-plan-prepare-handoff-regression"
                     }
                 ]
 }
