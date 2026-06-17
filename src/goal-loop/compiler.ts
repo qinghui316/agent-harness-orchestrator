@@ -7,6 +7,7 @@ import { hashArtifactRefs } from "../workflow-artifacts/hashes.js";
 import { readLatestDecompositionPlan } from "../workflow-artifacts/decomposition-plan.js";
 import { readLatestDecompositionReadinessManifest } from "../workflow-artifacts/readiness-manifest.js";
 import { validateWorkflowActionRequiredTargets, type WorkflowActionType } from "../workflow-actions/registry.js";
+import { readIntegrationCheck } from "../integration-check/repository.js";
 import { readLatestSchedulerRun } from "../workflow-scheduler/repository.js";
 import type { SchedulerRun } from "../workflow-scheduler/types.js";
 import {
@@ -103,6 +104,7 @@ interface EvidenceSnapshot {
   integrationCandidateNeedsRefresh?: boolean;
   integrationCandidate?: SchedulerIntegrationCandidate | null;
   integrationHandoff?: SchedulerIntegrationCheckHandoff | null;
+  integrationHandoffCurrentStatus?: string | null;
   integrationOutcome?: SchedulerIntegrationOutcome | null;
   runCompletion?: SchedulerRunCompletion | null;
   runCloseout?: SchedulerRunBlockedCloseout | null;
@@ -460,6 +462,9 @@ async function readEvidenceSnapshot(memory: ResolvedMemory, changePath: string):
   }
   const integrationCandidate = await readLatestSchedulerIntegrationCandidateProjection(memory, changePath, schedulerRun.id);
   const integrationHandoff = await readLatestSchedulerIntegrationCheckHandoffProjection(memory, changePath, schedulerRun.id);
+  const integrationHandoffCurrentStatus = integrationHandoff
+    ? await readIntegrationCheck(memory, integrationHandoff.integrationCheckId).then((check) => check.status).catch(() => null)
+    : null;
   const integrationOutcome = await readLatestSchedulerIntegrationOutcomeProjection(memory, changePath, schedulerRun.id);
   const runCompletion = await readLatestSchedulerRunCompletionProjection(memory, changePath, schedulerRun.id);
   const runCloseout = await readLatestSchedulerRunBlockedCloseoutProjection(memory, changePath, schedulerRun.id);
@@ -492,6 +497,7 @@ async function readEvidenceSnapshot(memory: ResolvedMemory, changePath: string):
     claimReservation,
     integrationCandidate,
     integrationHandoff,
+    integrationHandoffCurrentStatus,
     integrationOutcome,
     runCompletion,
     runCloseout,
@@ -530,13 +536,17 @@ function buildDecision(snapshot: EvidenceSnapshot, id: string, artifact: string,
     }, "Record SchedulerRun completion from the terminal scheduler integration outcome.");
   } else if (snapshot.integrationHandoff && snapshot.schedulerRun) {
     decisionKind = "integration-needed";
-    const terminalIntegrationStatus = snapshot.integrationHandoff.integrationCheckStatus && snapshot.integrationHandoff.integrationCheckStatus !== "passed";
+    const currentIntegrationStatus = snapshot.integrationHandoffCurrentStatus ?? snapshot.integrationHandoff.integrationCheckStatus;
+    const terminalIntegrationStatus = currentIntegrationStatus && currentIntegrationStatus !== "passed";
     if (terminalIntegrationStatus) {
       summary = "Scheduler IntegrationCheck handoff has a terminal result; the next legal step is outcome reconciliation.";
       recommendedAction = buildRecommendedAction("planning.scheduler.integration-outcome.reconcile", {
         changeId: snapshot.changeId,
         schedulerRunId: snapshot.schedulerRun.id,
+        schedulerIntegrationCandidateId: snapshot.integrationHandoff.schedulerIntegrationCandidateId,
         schedulerIntegrationCheckHandoffId: snapshot.integrationHandoff.id,
+        applyCheckId: snapshot.integrationHandoff.integrationCheckId,
+        worktreeIds: snapshot.integrationHandoff.readyWorktreeIds,
       }, "Record scheduler-owned integration outcome evidence from the existing IntegrationCheck result.");
     } else {
       summary = "Scheduler IntegrationCheck handoff exists and is waiting on the existing apply/discard path before scheduler outcome reconciliation.";

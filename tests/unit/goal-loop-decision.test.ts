@@ -16,6 +16,7 @@ import type { SchedulerRun } from "../../src/workflow-scheduler/types.js";
 import {
   schedulerClaimReservationArtifactRefs,
   schedulerIntegrationCandidateArtifactRefs,
+  schedulerIntegrationCheckHandoffArtifactRefs,
   schedulerIntegrationOutcomeArtifactRefs,
   schedulerRunCompletionArtifactRefs,
   schedulerRuntimeArtifactRefs,
@@ -27,6 +28,7 @@ import {
   schedulerWorkerStartArtifactRefs,
   schedulerWorkerValidationArtifactRefs,
   writeSchedulerIntegrationCandidate,
+  writeSchedulerIntegrationCheckHandoff,
   writeSchedulerIntegrationOutcome,
   writeSchedulerRunCompletion,
   writeSchedulerRuntimeClaimReservation,
@@ -39,7 +41,7 @@ import {
   writeSchedulerRuntimeWorkerStart,
   writeSchedulerRuntimeWorkerValidation,
 } from "../../src/scheduler-runtime/repository.js";
-import type { SchedulerIntegrationCandidate, SchedulerIntegrationOutcome, SchedulerRunCompletion, SchedulerRuntimeClaimReservation, SchedulerRuntimeState, SchedulerRuntimeWorkerAudit, SchedulerRuntimeWorkerResult, SchedulerRuntimeWorkerReworkPlan, SchedulerRuntimeWorkerReworkResult, SchedulerRuntimeWorkerReworkStart, SchedulerRuntimeWorkerStart, SchedulerRuntimeWorkerValidation } from "../../src/scheduler-runtime/types.js";
+import type { SchedulerIntegrationCandidate, SchedulerIntegrationCheckHandoff, SchedulerIntegrationOutcome, SchedulerRunCompletion, SchedulerRuntimeClaimReservation, SchedulerRuntimeState, SchedulerRuntimeWorkerAudit, SchedulerRuntimeWorkerResult, SchedulerRuntimeWorkerReworkPlan, SchedulerRuntimeWorkerReworkResult, SchedulerRuntimeWorkerReworkStart, SchedulerRuntimeWorkerStart, SchedulerRuntimeWorkerValidation } from "../../src/scheduler-runtime/types.js";
 
 let tempDir: string;
 let memory: ResolvedMemory;
@@ -810,6 +812,46 @@ describe("GoalLoopDecision", () => {
       routingPosture: "integration-check-required",
       routingLabel: "IntegrationCheck path required",
     });
+    expect(decision.executionStarted).toBe(false);
+  });
+
+  it("recommends scheduler integration outcome reconciliation with concrete handoff scope after terminal handoff evidence", async () => {
+    const { schedulerRun, reservation } = await writeSchedulerEvidence({ withWorkerStart: false });
+    const candidate = await writeIntegrationCandidate(schedulerRun, reservation, { readyCount: 2, outputClaimIntentIds: ["claim-1", "claim-2"] });
+    const handoff = await writeIntegrationHandoff(schedulerRun, reservation, candidate, { integrationCheckStatus: "applied" });
+
+    const decision = await compileGoalLoopDecision(memory, changePath);
+
+    expect(decision.recommendedAction).toMatchObject({
+      actionType: "planning.scheduler.integration-outcome.reconcile",
+      scope: {
+        changeId,
+        schedulerRunId: schedulerRun.id,
+        schedulerIntegrationCandidateId: candidate.id,
+        schedulerIntegrationCheckHandoffId: handoff.id,
+        applyCheckId: handoff.integrationCheckId,
+        worktreeIds: candidate.readyWorktreeIds,
+      },
+    });
+    expectConflict(decision, "high", false, "IntegrationCheck handoff");
+    expect(decision.conflictAssessment).toMatchObject({
+      routingPosture: "integration-check-required",
+      routingLabel: "IntegrationCheck path required",
+    });
+    expect(decision.executionStarted).toBe(false);
+  });
+
+  it("waits for existing apply or discard when scheduler IntegrationCheck handoff is still passed", async () => {
+    const { schedulerRun, reservation } = await writeSchedulerEvidence({ withWorkerStart: false });
+    const candidate = await writeIntegrationCandidate(schedulerRun, reservation, { readyCount: 2, outputClaimIntentIds: ["claim-1", "claim-2"] });
+    await writeIntegrationHandoff(schedulerRun, reservation, candidate, { integrationCheckStatus: "passed" });
+
+    const decision = await compileGoalLoopDecision(memory, changePath);
+
+    expect(decision.decisionKind).toBe("integration-needed");
+    expect(decision.recommendedAction).toBeUndefined();
+    expect(decision.summary).toContain("waiting on the existing apply/discard path");
+    expectConflict(decision, "high", false, "IntegrationCheck handoff");
     expect(decision.executionStarted).toBe(false);
   });
 
@@ -1699,6 +1741,45 @@ async function writeIntegrationCandidate(schedulerRun: SchedulerRun, reservation
   };
   await writeSchedulerIntegrationCandidate(memory, changePath, candidate);
   return candidate;
+}
+
+async function writeIntegrationHandoff(
+  schedulerRun: SchedulerRun,
+  reservation: SchedulerRuntimeClaimReservation,
+  candidate: SchedulerIntegrationCandidate,
+  options: { integrationCheckStatus: string },
+): Promise<SchedulerIntegrationCheckHandoff> {
+  const refs = schedulerIntegrationCheckHandoffArtifactRefs(memory, changePath, schedulerRun.id, "handoff-1");
+  const handoff: SchedulerIntegrationCheckHandoff = {
+    version: "1.0",
+    id: "handoff-1",
+    changeId,
+    schedulerRunId: schedulerRun.id,
+    schedulerMode: "parallel-readiness-v1",
+    status: "completed",
+    schedulerRuntimeStateId: "runtime-state-1",
+    schedulerReconcileSnapshotId: "snapshot-1",
+    schedulerClaimReservationId: reservation.id,
+    schedulerIntegrationCandidateId: candidate.id,
+    schedulerContractId: schedulerRun.schedulerContractId,
+    schedulerDispatchDryRunId: schedulerRun.schedulerDispatchDryRunId,
+    schedulerWorkerPlanId: schedulerRun.schedulerWorkerPlanId,
+    schedulerClaimReconcilePlanId: schedulerRun.schedulerClaimReconcilePlanId,
+    schedulerLaunchPreflightId: schedulerRun.schedulerLaunchPreflightId,
+    readyTargets: candidate.readyTargets,
+    readyWorktreeIds: candidate.readyWorktreeIds,
+    integrationCheckId: "integration-check-1",
+    integrationCheckStatus: options.integrationCheckStatus,
+    resultTargetWorktreeIds: candidate.readyWorktreeIds,
+    sourceArtifactHashes: schedulerRun.sourceArtifactHashes,
+    artifactRefs: [refs.artifact],
+    artifact: refs.artifact,
+    markdownArtifact: refs.markdownArtifact,
+    createdAt: "2026-06-14T00:00:00.000Z",
+    updatedAt: "2026-06-14T00:00:00.000Z",
+  };
+  await writeSchedulerIntegrationCheckHandoff(memory, changePath, handoff);
+  return handoff;
 }
 
 async function writeIntegrationOutcome(schedulerRun: SchedulerRun, reservation: SchedulerRuntimeClaimReservation, candidate: SchedulerIntegrationCandidate): Promise<SchedulerIntegrationOutcome> {

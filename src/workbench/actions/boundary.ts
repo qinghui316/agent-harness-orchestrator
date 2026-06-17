@@ -1193,6 +1193,9 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
     if (!latestCandidate || latestCandidate.schedulerClaimReservationId !== reservation.id) {
       throw new Error("planning.scheduler.integration-outcome.reconcile SchedulerIntegrationCandidate scope mismatch.");
     }
+    if (request.schedulerIntegrationCandidateId && request.schedulerIntegrationCandidateId !== latestCandidate.id) {
+      throw new Error("planning.scheduler.integration-outcome.reconcile SchedulerIntegrationCandidate target scope mismatch.");
+    }
     const latestHandoff = await readLatestSchedulerIntegrationCheckHandoffProjection(memory, target.path, run.id);
     if (!latestHandoff || latestHandoff.id !== request.schedulerIntegrationCheckHandoffId) {
       throw new Error("planning.scheduler.integration-outcome.reconcile requires the latest SchedulerIntegrationCheckHandoff.");
@@ -1203,6 +1206,9 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
     const check = await readIntegrationCheck(memory, latestHandoff.integrationCheckId);
     if (check.status === "passed") {
       throw new Error("planning.scheduler.integration-outcome.reconcile waits for the existing apply/discard confirmation while IntegrationCheck is passed.");
+    }
+    if (request.applyCheckId && request.applyCheckId !== latestHandoff.integrationCheckId) {
+      throw new Error("planning.scheduler.integration-outcome.reconcile applyCheckId target scope mismatch.");
     }
     if (request.worktreeIds?.length && !sameStringArray(request.worktreeIds, latestHandoff.readyWorktreeIds)) {
       throw new Error("planning.scheduler.integration-outcome.reconcile worktreeIds target scope mismatch.");

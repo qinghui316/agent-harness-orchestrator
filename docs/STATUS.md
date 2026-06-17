@@ -5,7 +5,7 @@
 - Current date: 2026-06-17.
 - Active ECL change: none.
 - Pending Harness evolution: none.
-- Latest archived product change: `harness/changes/archive/20260617-phase-11f-goal-loop-scheduler-integration-check-handoff-hardening/summary.md`.
+- Latest archived product change: `harness/changes/archive/20260617-phase-11g-goal-loop-scheduler-integration-outcome-handoff-hardening/summary.md`.
 - Latest archived product/Harness docs change: `harness/changes/archive/20260615-harness-self-evolution-slimming-rule-tuning/summary.md`.
 - Latest archived Harness evolution: `harness/changes/archive/20260617-auto-evolve-harness-phase-10z-11d-goal-loop-context-evidence/summary.md`.
 - Active product phase: none. Active Harness evolution phase: none.
@@ -16,6 +16,12 @@ This file is the short resume point. There is no active change. For full history
 Current plan-level roadmap context is preserved in `docs/CURRENT-DEVELOPMENT-PLAN.md`.
 
 ## Recent Completed Work
+
+### Phase 11G Goal Loop Scheduler Integration Outcome Handoff Hardening
+
+Archived at `harness/changes/archive/20260617-phase-11g-goal-loop-scheduler-integration-outcome-handoff-hardening/summary.md`.
+
+Phase 11G hardens the Goal Loop-guided handoff for the existing `planning.scheduler.integration-outcome.reconcile` gate. It carries current scheduler integration candidate, IntegrationCheck handoff, apply check, and ready `worktreeIds` scope through the Goal Loop packet, Workpad summary, controller refresh, gate-readiness preflight, and assisted concrete confirmation. Workbench boundary validation now rejects forged supplied `schedulerIntegrationCandidateId`, `applyCheckId`, and `worktreeIds`; Goal Loop uses the current IntegrationCheck status so passed handoffs wait for existing apply/discard and terminal handoffs can reconcile outcome evidence without adding a scheduler loop, source mutation, apply/discard, landing, PR, merge, close, or SchedulerRun completion executor.
 
 ### Phase 11F Goal Loop Scheduler IntegrationCheck Handoff Hardening
 
@@ -152,6 +158,7 @@ The pending Phase 10P-10T Goal Loop controller/feedback/context/prompt evidence 
 - Phase 11C makes Goal Loop routing posture machine-readable for Workbench and main-Agent inspection while staying evidence-only and non-executing.
 - Phase 11E proves the existing `planning.scheduler.worker.start-next` gate can be guided by fresh Goal Loop packet/controller/preflight evidence while the executable transition remains the concrete scheduler gate.
 - Phase 11F proves the existing `planning.scheduler.integration-check.run` gate can be guided by fresh Goal Loop packet/controller/preflight evidence with ready `worktreeIds` scope while the executable transition remains the concrete scheduler IntegrationCheck gate.
+- Phase 11G proves the existing `planning.scheduler.integration-outcome.reconcile` gate can be guided by fresh Goal Loop packet/controller/preflight evidence with candidate, handoff, apply check, and ready `worktreeIds` scope while the executable transition remains the concrete scheduler outcome gate.
 - Scheduler runtime remains staged and bounded. Existing scheduler worker/result/validation/audit/rework/integration/completion gates do not authorize scheduler loops, whole-wave dispatch, slot allocation, automatic child Changes, automatic apply/merge, or a full parallel executor.
 - Documentation entropy is now an explicit Harness concern: `AGENTS.md` is the routing map, `docs/STATUS.md` is the short handoff, `docs/ECL.md` owns reusable process rules, and archived summaries / `harness/changes/INDEX.json` own history.
 

@@ -1191,6 +1191,7 @@ describe("workflow action registry", () => {
       schedulerReconcileSnapshotId: "scheduler-reconcile-1",
       schedulerIntegrationCandidateId: "scheduler-integration-candidate-1",
       schedulerIntegrationCheckHandoffId: "scheduler-integration-check-handoff-1",
+      applyCheckId: "apply-check-1",
       worktreeIds: ["wt-a", "wt-b"],
     };
     const integrationOutcomeResult = {
@@ -1219,8 +1220,11 @@ describe("workflow action registry", () => {
       schedulerIntegrationCheckHandoffId: "scheduler-integration-check-handoff-1",
       schedulerIntegrationOutcomeId: "scheduler-integration-outcome-1",
       applyCheckId: "apply-check-1",
+      worktreeIds: ["wt-a", "wt-b"],
     });
     expect(workflowActionScopesMatchStrict(integrationOutcomeRequest, { ...integrationOutcomeRequest })).toBe(true);
+    expect(workflowActionScopesMatchStrict(integrationOutcomeRequest, { ...integrationOutcomeRequest, schedulerIntegrationCandidateId: "scheduler-integration-candidate-2" })).toBe(false);
+    expect(workflowActionScopesMatchStrict(integrationOutcomeRequest, { ...integrationOutcomeRequest, applyCheckId: "apply-check-2" })).toBe(false);
     expect(workflowActionScopesMatchStrict(integrationOutcomeRequest, { ...integrationOutcomeRequest, schedulerIntegrationCheckHandoffId: undefined })).toBe(false);
     expect(workflowActionScopesMatchCompatible(integrationOutcomeRequest, { ...integrationOutcomeRequest, schedulerIntegrationCheckHandoffId: undefined })).toBe(true);
 
