@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-17T22:50:56.5258453Z",
+    "generated_at":  "2026-06-17T23:24:23.9628068Z",
     "active":  [
 
                ],
@@ -1045,6 +1045,10 @@
                     {
                         "name":  "20260618-phase-12c-scheduler-loop-snapshot-artifact-surface",
                         "path":  "harness/changes/archive/20260618-phase-12c-scheduler-loop-snapshot-artifact-surface"
+                    },
+                    {
+                        "name":  "20260618-phase-12d-scheduler-loop-snapshot-main-agent-context",
+                        "path":  "harness/changes/archive/20260618-phase-12d-scheduler-loop-snapshot-main-agent-context"
                     }
                 ]
 }

@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { getChangeStatusForChange } from "../../src/change/manager.js";
-import { buildGoalLoopMainAgentContextSection, compileGoalLoopControllerPolicy, compileGoalLoopDecision, compileGoalLoopEvaluation, compileGoalLoopGateReadinessPreflight, isGoalLoopNextStepPacketFresh, readLatestGoalLoopContinuationBrief, readLatestGoalLoopControllerPolicy, readLatestGoalLoopDecision, readLatestGoalLoopFeedback, readLatestGoalLoopGateReadinessPreflight, readLatestGoalLoopIteration, readLatestGoalLoopNextStepPacket, recordGoalLoopFeedback, renderGoalLoopControllerPolicyMarkdown, renderGoalLoopDecisionMarkdown, renderGoalLoopGateReadinessPreflightMarkdown, stripGoalLoopControllerPolicyContext, writeGoalLoopContinuationBrief, writeGoalLoopControllerPolicy, writeGoalLoopGateReadinessPreflight, writeGoalLoopNextStepPacket } from "../../src/goal-loop/manager.js";
+import { buildGoalLoopMainAgentContextSection, compileGoalLoopControllerPolicy, compileGoalLoopDecision, compileGoalLoopEvaluation, compileGoalLoopGateReadinessPreflight, isGoalLoopNextStepPacketFresh, readLatestGoalLoopContinuationBrief, readLatestGoalLoopControllerPolicy, readLatestGoalLoopDecision, readLatestGoalLoopFeedback, readLatestGoalLoopGateReadinessPreflight, readLatestGoalLoopIteration, readLatestGoalLoopNextStepPacket, recordGoalLoopFeedback, renderGoalLoopControllerPolicyMarkdown, renderGoalLoopDecisionMarkdown, renderGoalLoopGateReadinessPreflightMarkdown, stripGoalLoopControllerPolicyContext, writeGoalLoopContinuationBrief, writeGoalLoopControllerPolicy, writeGoalLoopDecision, writeGoalLoopGateReadinessPreflight, writeGoalLoopNextStepPacket } from "../../src/goal-loop/manager.js";
 import { goalLoopControllerPolicySchema, goalLoopDecisionSchema, goalLoopGateReadinessPreflightSchema } from "../../src/goal-loop/schemas.js";
 import { auditHighImpactWorkflowAction } from "../../src/workbench/actions/boundary.js";
 import { assertGoalLoopAssistedConcreteGateConfirmation } from "../../src/workbench/actions/goal-loop-gate-confirmation.js";
@@ -233,7 +233,21 @@ describe("GoalLoopDecision", () => {
     expect(preflight).not.toHaveProperty("schedulerLoopEvidenceSnapshot");
     const contextSection = await buildGoalLoopMainAgentContextSection(memory, changePath, changeId);
     expect(contextSection).not.toBeNull();
-    expect(contextSection?.markdown).not.toContain("Scheduler Loop Evidence Snapshot");
+    expect(contextSection?.schedulerLoopEvidenceSnapshot).toMatchObject({
+      posture: "awaiting-human-gate",
+      currentLegalActionType: "planning.scheduler.plan.prepare",
+      loopAuthorized: false,
+      sourceMutationAuthorized: false,
+      applyAuthorized: false,
+      closeAuthorized: false,
+      harnessEvolutionAuthorized: false,
+    });
+    expect(contextSection?.markdown).toContain("### Scheduler Loop Evidence Snapshot");
+    expect(contextSection?.markdown).toContain("non-executing decision evidence only");
+    expect(contextSection?.markdown).toContain("- sourceMutationAuthorized: false");
+    expect(contextSection?.markdown).toContain("- applyAuthorized: false");
+    expect(contextSection?.markdown).toContain("- closeAuthorized: false");
+    expect(contextSection?.markdown).toContain("- harnessEvolutionAuthorized: false");
 
     const request = {
       actionType: "planning.scheduler.plan.prepare" as const,
@@ -4032,6 +4046,19 @@ describe("GoalLoopDecision", () => {
     expect(section).toMatchObject({
       schedulerExecutionMode: "single-gate-staged",
       schedulerLoopAuthorized: false,
+      schedulerLoopEvidenceSnapshot: {
+        posture: "awaiting-human-gate",
+        decisionKind: "parallel-plan-needed",
+        currentLegalActionType: "planning.scheduler.plan.prepare",
+        loopAuthorized: false,
+        fullParallelExecutorAuthorized: false,
+        wholeWaveDispatchAuthorized: false,
+        slotAllocatorAuthorized: false,
+        sourceMutationAuthorized: false,
+        applyAuthorized: false,
+        closeAuthorized: false,
+        harnessEvolutionAuthorized: false,
+      },
     });
     expect(result.goalLoopDecision.schedulerExecutionMode).toMatchObject({
       mode: "single-gate-staged",
@@ -4049,6 +4076,12 @@ describe("GoalLoopDecision", () => {
     expect(section?.markdown).toContain("- loopAuthorized: false");
     expect(section?.markdown).toContain("Future Loop Requirements");
     expect(section?.markdown).toContain("must not start workers, dispatch waves, allocate slots, or authorize a scheduler loop/full executor");
+    expect(section?.markdown).toContain("Scheduler Loop Evidence Snapshot");
+    expect(section?.markdown).toContain("non-executing decision evidence only");
+    expect(section?.markdown).toContain("- sourceMutationAuthorized: false");
+    expect(section?.markdown).toContain("- applyAuthorized: false");
+    expect(section?.markdown).toContain("- closeAuthorized: false");
+    expect(section?.markdown).toContain("- harnessEvolutionAuthorized: false");
     expect(section?.markdown).toContain("Forbidden Execution Statements");
     expect(section?.markdown).toContain("not workflow truth");
     await expect(readLatestGoalLoopSummary(memory, changePath)).resolves.toMatchObject({
@@ -4082,6 +4115,49 @@ describe("GoalLoopDecision", () => {
       sourceGoalLoopContinuationBriefId: "wrong-brief",
       artifact: "memory-root/harness/changes/active/phase-goal-loop/planning/goal-loop-next-step-packets/forged-packet.json",
       markdownArtifact: "memory-root/harness/changes/active/phase-goal-loop/planning/goal-loop-next-step-packets/forged-packet.md",
+    });
+
+    await expect(buildGoalLoopMainAgentContextSection(memory, changePath, changeId)).resolves.toBeNull();
+  });
+
+  it("fails closed when the decision scheduler-loop snapshot is forged or cross-change", async () => {
+    const result = await compileGoalLoopEvaluation(memory, changePath);
+    await expect(buildGoalLoopMainAgentContextSection(memory, changePath, changeId)).resolves.toMatchObject({
+      goalLoopNextStepPacketId: result.goalLoopNextStepPacket.id,
+    });
+
+    await writeGoalLoopDecision(memory, changePath, {
+      ...result.goalLoopDecision,
+      schedulerLoopEvidenceSnapshot: {
+        ...result.goalLoopDecision.schedulerLoopEvidenceSnapshot,
+        changeId: "forged-change",
+      },
+    });
+
+    await expect(buildGoalLoopMainAgentContextSection(memory, changePath, changeId)).resolves.toBeNull();
+
+    await writeGoalLoopDecision(memory, changePath, {
+      ...result.goalLoopDecision,
+      schedulerLoopEvidenceSnapshot: {
+        ...result.goalLoopDecision.schedulerLoopEvidenceSnapshot,
+        currentLegalAction: {
+          ...result.goalLoopDecision.schedulerLoopEvidenceSnapshot.currentLegalAction!,
+          actionType: "planning.scheduler.worker.start-first",
+        },
+      },
+    });
+
+    await expect(buildGoalLoopMainAgentContextSection(memory, changePath, changeId)).resolves.toBeNull();
+
+    await writeGoalLoopDecision(memory, changePath, {
+      ...result.goalLoopDecision,
+      schedulerLoopEvidenceSnapshot: {
+        ...result.goalLoopDecision.schedulerLoopEvidenceSnapshot,
+        forbiddenAuthority: {
+          ...result.goalLoopDecision.schedulerLoopEvidenceSnapshot.forbiddenAuthority,
+          applyAuthorized: true as false,
+        },
+      },
     });
 
     await expect(buildGoalLoopMainAgentContextSection(memory, changePath, changeId)).resolves.toBeNull();

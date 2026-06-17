@@ -15,6 +15,20 @@ import {
 import { isGoalLoopNextStepPacketFresh } from "./freshness.js";
 import type { GoalLoopContinuationBrief, GoalLoopControllerPolicy, GoalLoopDecision, GoalLoopIteration, GoalLoopNextStepPacket } from "./types.js";
 
+export interface GoalLoopSchedulerLoopSnapshotContext {
+  posture: string;
+  decisionKind: string;
+  currentLegalActionType?: string;
+  loopAuthorized: false;
+  fullParallelExecutorAuthorized: false;
+  wholeWaveDispatchAuthorized: false;
+  slotAllocatorAuthorized: false;
+  sourceMutationAuthorized: false;
+  applyAuthorized: false;
+  closeAuthorized: false;
+  harnessEvolutionAuthorized: false;
+}
+
 export interface GoalLoopMainAgentContextSection {
   goalLoopNextStepPacketId: string;
   goalLoopControllerPolicyId?: string;
@@ -22,6 +36,7 @@ export interface GoalLoopMainAgentContextSection {
   routingLabel: string;
   schedulerExecutionMode: string;
   schedulerLoopAuthorized: false;
+  schedulerLoopEvidenceSnapshot: GoalLoopSchedulerLoopSnapshotContext;
   guidedGateActionType?: string;
   guidedGateScope?: Record<string, string | string[]>;
   controllerVerdict?: string;
@@ -51,6 +66,7 @@ export async function buildGoalLoopMainAgentContextSection(
     if (packet.sourceGoalLoopDecisionId !== decision.id || packet.sourceGoalLoopIterationId !== iteration.id || packet.sourceGoalLoopContinuationBriefId !== brief.id) return null;
     if (decision.executionStarted !== false || iteration.executionStarted !== false || brief.executionStarted !== false || packet.executionStarted !== false) return null;
     if (!(await isGoalLoopNextStepPacketFresh(memory, changePath, packet))) return null;
+    if (!isSchedulerLoopSnapshotValidForContext(decision.schedulerLoopEvidenceSnapshot, decision, packet, expectedChangeId)) return null;
 
     const controllerPolicy = await readLatestGoalLoopControllerPolicy(memory, changePath)
       .then((policy) => isGoalLoopControllerPolicyValidForContext(policy, decision, iteration, brief, packet) ? policy : null)
@@ -68,6 +84,7 @@ export async function buildGoalLoopMainAgentContextSection(
       routingLabel: packet.conflictAssessment.routingLabel,
       schedulerExecutionMode: packet.schedulerExecutionMode.mode,
       schedulerLoopAuthorized: packet.schedulerExecutionMode.loopAuthorized,
+      schedulerLoopEvidenceSnapshot: summarizeSchedulerLoopSnapshot(decision.schedulerLoopEvidenceSnapshot),
       guidedGateActionType: controllerPolicy?.verdict === "recommend-existing-gate" ? controllerPolicy.currentGate?.actionType : undefined,
       guidedGateScope: controllerPolicy?.verdict === "recommend-existing-gate" ? controllerPolicy.currentGate?.scope : undefined,
       controllerVerdict: controllerPolicy?.verdict,
@@ -82,6 +99,7 @@ export async function buildGoalLoopMainAgentContextSection(
         briefArtifact: briefRefs.markdownArtifact,
         controllerPolicy,
         controllerPolicyArtifact: controllerRefs?.markdownArtifact,
+        schedulerLoopSnapshot: decision.schedulerLoopEvidenceSnapshot,
       }),
     };
   } catch {
@@ -97,6 +115,7 @@ export function stripGoalLoopControllerPolicyContext(section: GoalLoopMainAgentC
     routingLabel: section.routingLabel,
     schedulerExecutionMode: section.schedulerExecutionMode,
     schedulerLoopAuthorized: section.schedulerLoopAuthorized,
+    schedulerLoopEvidenceSnapshot: section.schedulerLoopEvidenceSnapshot,
     markdown: stripControllerPolicyMarkdown(section.markdown),
     artifact: section.artifact,
     markdownArtifact: section.markdownArtifact,
@@ -126,6 +145,95 @@ function isGoalLoopControllerPolicyValidForContext(
     && packet.executionStarted === false;
 }
 
+function isSchedulerLoopSnapshotValidForContext(
+  snapshot: GoalLoopDecision["schedulerLoopEvidenceSnapshot"],
+  decision: GoalLoopDecision,
+  packet: GoalLoopNextStepPacket,
+  expectedChangeId: string,
+): boolean {
+  if (snapshot.version !== "1.0") return false;
+  if (snapshot.authority !== "non-executing-scheduler-loop-evidence-snapshot") return false;
+  if (snapshot.changeId !== expectedChangeId || snapshot.changeId !== decision.changeId || snapshot.changeId !== packet.changeId) return false;
+  if (snapshot.decisionKind !== decision.decisionKind) return false;
+  if (!schedulerExecutionModesEqual(snapshot.schedulerExecutionMode, decision.schedulerExecutionMode)) return false;
+  if (!schedulerExecutionModesEqual(snapshot.schedulerExecutionMode, packet.schedulerExecutionMode)) return false;
+  if (!forbiddenAuthorityIsFalse(snapshot.forbiddenAuthority)) return false;
+  if (!recommendedActionMatchesSnapshot(decision.recommendedAction, snapshot.currentLegalAction)) return false;
+  if (!currentLegalActionMatchesSchedulerGate(snapshot.currentLegalAction, snapshot.schedulerExecutionMode.currentGate)) return false;
+  if (snapshot.separateHumanGateRequired !== Boolean(snapshot.currentLegalAction)) return false;
+  if (snapshot.currentLegalAction && !snapshot.humanGateRequired) return false;
+  if (snapshot.currentLegalAction?.separateHumanGateRequired !== undefined && snapshot.currentLegalAction.separateHumanGateRequired !== true) return false;
+  return true;
+}
+
+function forbiddenAuthorityIsFalse(forbiddenAuthority: GoalLoopDecision["schedulerLoopEvidenceSnapshot"]["forbiddenAuthority"]): boolean {
+  return forbiddenAuthority.loopAuthorized === false
+    && forbiddenAuthority.fullParallelExecutorAuthorized === false
+    && forbiddenAuthority.wholeWaveDispatchAuthorized === false
+    && forbiddenAuthority.slotAllocatorAuthorized === false
+    && forbiddenAuthority.executionStarted === false
+    && forbiddenAuthority.sourceMutationAuthorized === false
+    && forbiddenAuthority.applyAuthorized === false
+    && forbiddenAuthority.closeAuthorized === false
+    && forbiddenAuthority.harnessEvolutionAuthorized === false;
+}
+
+function recommendedActionMatchesSnapshot(
+  action: GoalLoopDecision["recommendedAction"],
+  snapshotAction: GoalLoopDecision["schedulerLoopEvidenceSnapshot"]["currentLegalAction"],
+): boolean {
+  if (!action && !snapshotAction) return true;
+  if (!action || !snapshotAction) return false;
+  return action.actionType === snapshotAction.actionType
+    && action.reason === snapshotAction.reason
+    && scopedRecordsEqual(action.scope, snapshotAction.scope)
+    && snapshotAction.separateHumanGateRequired === true;
+}
+
+function currentLegalActionMatchesSchedulerGate(
+  action: GoalLoopDecision["schedulerLoopEvidenceSnapshot"]["currentLegalAction"],
+  currentGate: GoalLoopDecision["schedulerLoopEvidenceSnapshot"]["schedulerExecutionMode"]["currentGate"],
+): boolean {
+  if (!action && !currentGate) return true;
+  if (!action || !currentGate) return false;
+  return action.actionType === currentGate.actionType && currentGate.separateHumanGateRequired === true;
+}
+
+function scopedRecordsEqual(
+  left: Record<string, string | string[]>,
+  right: Record<string, string | string[]>,
+): boolean {
+  const leftEntries = Object.entries(left);
+  const rightEntries = Object.entries(right);
+  if (leftEntries.length !== rightEntries.length) return false;
+  return leftEntries.every(([key, leftValue]) => {
+    const rightValue = right[key];
+    if (Array.isArray(leftValue) || Array.isArray(rightValue)) {
+      return Array.isArray(leftValue)
+        && Array.isArray(rightValue)
+        && leftValue.length === rightValue.length
+        && leftValue.every((value, index) => value === rightValue[index]);
+    }
+    return leftValue === rightValue;
+  });
+}
+
+function summarizeSchedulerLoopSnapshot(snapshot: GoalLoopDecision["schedulerLoopEvidenceSnapshot"]): GoalLoopSchedulerLoopSnapshotContext {
+  return {
+    posture: snapshot.posture,
+    decisionKind: snapshot.decisionKind,
+    currentLegalActionType: snapshot.currentLegalAction?.actionType,
+    loopAuthorized: snapshot.forbiddenAuthority.loopAuthorized,
+    fullParallelExecutorAuthorized: snapshot.forbiddenAuthority.fullParallelExecutorAuthorized,
+    wholeWaveDispatchAuthorized: snapshot.forbiddenAuthority.wholeWaveDispatchAuthorized,
+    slotAllocatorAuthorized: snapshot.forbiddenAuthority.slotAllocatorAuthorized,
+    sourceMutationAuthorized: snapshot.forbiddenAuthority.sourceMutationAuthorized,
+    applyAuthorized: snapshot.forbiddenAuthority.applyAuthorized,
+    closeAuthorized: snapshot.forbiddenAuthority.closeAuthorized,
+    harnessEvolutionAuthorized: snapshot.forbiddenAuthority.harnessEvolutionAuthorized,
+  };
+}
+
 function stripControllerPolicyMarkdown(markdown: string): string {
   const marker = "\n### Controller Policy";
   const index = markdown.indexOf(marker);
@@ -140,6 +248,7 @@ function renderGoalLoopMainAgentContextSection(
     briefArtifact: string;
     controllerPolicy?: GoalLoopControllerPolicy | null;
     controllerPolicyArtifact?: string;
+    schedulerLoopSnapshot: GoalLoopDecision["schedulerLoopEvidenceSnapshot"];
   },
 ): string {
   return [
@@ -216,6 +325,7 @@ function renderGoalLoopMainAgentContextSection(
     "",
     "- Authority: scheduler execution mode is prompt-context evidence only; it must not start workers, dispatch waves, allocate slots, or authorize a scheduler loop/full executor.",
     "",
+    ...renderSchedulerLoopSnapshotContextLines(refs.schedulerLoopSnapshot),
     "### Conflict Assessment",
     "",
     `- Level: ${packet.conflictAssessment.level}`,
@@ -240,6 +350,46 @@ function renderGoalLoopMainAgentContextSection(
     "",
     ...renderControllerPolicyContextLines(refs.controllerPolicy, refs.controllerPolicyArtifact),
   ].join("\n");
+}
+
+function renderSchedulerLoopSnapshotContextLines(snapshot: GoalLoopDecision["schedulerLoopEvidenceSnapshot"]): string[] {
+  const currentLegalActionLines = snapshot.currentLegalAction
+    ? [
+        `- Current legal action: ${snapshot.currentLegalAction.actionType}`,
+        "#### Snapshot Legal Action Scope",
+        "",
+        ...Object.entries(snapshot.currentLegalAction.scope).map(([key, value]) => `- ${key}: ${Array.isArray(value) ? value.join(", ") : value}`),
+        "",
+      ]
+    : ["- Current legal action: none", ""];
+  return [
+    "### Scheduler Loop Evidence Snapshot",
+    "",
+    "This scheduler-loop snapshot is main-Agent prompt context from the latest valid GoalLoopDecision. It is non-executing decision evidence only.",
+    "It must not authorize a scheduler loop, start workers, dispatch waves, allocate slots, mutate source, apply, close, or evolve Harness state.",
+    "",
+    `- Authority: ${snapshot.authority}`,
+    `- Posture: ${snapshot.posture}`,
+    `- Decision kind: ${snapshot.decisionKind}`,
+    `- Human gate required: ${snapshot.humanGateRequired ? "yes" : "no"}`,
+    `- Separate gate required: ${snapshot.separateHumanGateRequired ? "yes" : "no"}`,
+    ...currentLegalActionLines,
+    "#### Snapshot Forbidden Authority",
+    "",
+    `- loopAuthorized: ${snapshot.forbiddenAuthority.loopAuthorized ? "true" : "false"}`,
+    `- fullParallelExecutorAuthorized: ${snapshot.forbiddenAuthority.fullParallelExecutorAuthorized ? "true" : "false"}`,
+    `- wholeWaveDispatchAuthorized: ${snapshot.forbiddenAuthority.wholeWaveDispatchAuthorized ? "true" : "false"}`,
+    `- slotAllocatorAuthorized: ${snapshot.forbiddenAuthority.slotAllocatorAuthorized ? "true" : "false"}`,
+    `- sourceMutationAuthorized: ${snapshot.forbiddenAuthority.sourceMutationAuthorized ? "true" : "false"}`,
+    `- applyAuthorized: ${snapshot.forbiddenAuthority.applyAuthorized ? "true" : "false"}`,
+    `- closeAuthorized: ${snapshot.forbiddenAuthority.closeAuthorized ? "true" : "false"}`,
+    `- harnessEvolutionAuthorized: ${snapshot.forbiddenAuthority.harnessEvolutionAuthorized ? "true" : "false"}`,
+    "",
+    "#### Snapshot Reasons",
+    "",
+    ...snapshot.reasons.map((reason) => `- ${reason}`),
+    "",
+  ];
 }
 
 function renderControllerPolicyContextLines(policy: GoalLoopControllerPolicy | null | undefined, policyArtifact: string | undefined): string[] {
