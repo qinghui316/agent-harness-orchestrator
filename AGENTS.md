@@ -7,8 +7,8 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 - Current date: 2026-06-18.
 - Active change: none.
 - Pending Harness evolution: none.
-- Latest archived product change: Phase 11T Goal Loop Rework Audit Handoff Regression, archived at `harness/changes/archive/20260618-phase-11t-goal-loop-rework-audit-handoff-regression/summary.md`.
-- Latest product/Harness docs change: Auto Evolve Harness Phase 11P-11T Goal Loop Gate Evidence, archived at `harness/changes/archive/20260618-auto-evolve-harness-phase-11p-11t-goal-loop-gate-evidence/summary.md`.
+- Latest archived product change: Phase 11U Goal Loop Rework Plan Handoff Regression, archived at `harness/changes/archive/20260618-phase-11u-goal-loop-rework-plan-handoff-regression/summary.md`.
+- Latest product/Harness docs change: Phase 11U Goal Loop Rework Plan Handoff Regression, archived at `harness/changes/archive/20260618-phase-11u-goal-loop-rework-plan-handoff-regression/summary.md`.
 - Latest Harness evolution: `harness/changes/archive/20260618-auto-evolve-harness-phase-11p-11t-goal-loop-gate-evidence/summary.md`.
 
 Use `docs/STATUS.md` for the short resume state. Use `harness/changes/INDEX.json` and archived `summary.md` files for historical detail. Do not rebuild current context by reading the full archive ledger unless the task requires it.

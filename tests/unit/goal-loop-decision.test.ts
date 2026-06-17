@@ -1491,6 +1491,363 @@ describe("GoalLoopDecision", () => {
     expectConflict(decision, "high", false, "validation failed");
   });
 
+  it("supports current rework-plan handoff after failed validation through packet, controller, preflight, and assisted confirmation", async () => {
+    const { schedulerRun, workerStart } = await writeSchedulerEvidence({ withWorkerStart: true });
+    const result = await writeWorkerResult(workerStart!, "evidence-ready");
+    const validation = await writeWorkerValidation(result, "failed");
+    const expectedScope = {
+      changeId,
+      schedulerRunId: schedulerRun.id,
+      schedulerWorkerValidationId: validation.id,
+    };
+    const currentGate = {
+      actionType: "planning.scheduler.worker.rework-plan.compile" as const,
+      scope: expectedScope,
+    };
+
+    const evaluation = await compileGoalLoopEvaluation(memory, changePath);
+
+    expect(evaluation.goalLoopDecision.recommendedAction?.actionType).toBe("planning.scheduler.worker.rework-plan.compile");
+    expect(evaluation.goalLoopDecision.recommendedAction?.scope).toStrictEqual(expectedScope);
+    expect(Object.keys(evaluation.goalLoopDecision.recommendedAction?.scope ?? {}).sort()).toStrictEqual([
+      "changeId",
+      "schedulerRunId",
+      "schedulerWorkerValidationId",
+    ]);
+    expect(evaluation.goalLoopDecision.executionStarted).toBe(false);
+    expectConflict(evaluation.goalLoopDecision, "high", false, "validation failed");
+    expect(evaluation.goalLoopNextStepPacket.recommendedAction?.actionType).toBe("planning.scheduler.worker.rework-plan.compile");
+    expect(evaluation.goalLoopNextStepPacket.recommendedAction?.scope).toStrictEqual(expectedScope);
+    expect(Object.keys(evaluation.goalLoopNextStepPacket.recommendedAction?.scope ?? {}).sort()).toStrictEqual([
+      "changeId",
+      "schedulerRunId",
+      "schedulerWorkerValidationId",
+    ]);
+    expect(evaluation.goalLoopNextStepPacket).toMatchObject({
+      recommendationState: "separate-gate-required",
+      separateGateRequired: true,
+      executionStarted: false,
+      schedulerExecutionMode: {
+        loopAuthorized: false,
+        fullParallelExecutorAuthorized: false,
+        wholeWaveDispatchAuthorized: false,
+        slotAllocatorAuthorized: false,
+      },
+    });
+
+    const policy = await compileGoalLoopControllerPolicy(memory, changePath, {
+      currentGate,
+      requireCurrentGateMatch: true,
+    });
+    expect(policy.recommendedAction?.actionType).toBe("planning.scheduler.worker.rework-plan.compile");
+    expect(policy.recommendedAction?.scope).toStrictEqual(expectedScope);
+    expect(Object.keys(policy.recommendedAction?.scope ?? {}).sort()).toStrictEqual([
+      "changeId",
+      "schedulerRunId",
+      "schedulerWorkerValidationId",
+    ]);
+    expect(policy).toMatchObject({
+      verdict: "recommend-existing-gate",
+      gateStatus: "matches-current-gate",
+      currentGate,
+      suppressesRecommendedAction: false,
+      executionStarted: false,
+      schedulerExecutionMode: {
+        loopAuthorized: false,
+        fullParallelExecutorAuthorized: false,
+        wholeWaveDispatchAuthorized: false,
+        slotAllocatorAuthorized: false,
+      },
+    });
+
+    const preflight = await compileGoalLoopGateReadinessPreflight(memory, changePath, {
+      goalLoopNextStepPacketId: evaluation.goalLoopNextStepPacket.id,
+      goalLoopControllerPolicyId: policy.id,
+      currentGate,
+    });
+    expect(preflight).toMatchObject({
+      status: "ready",
+      currentGate,
+      concreteGateInvoked: false,
+      toolPolicyAuthorizedConcreteGate: false,
+      humanGateRequired: true,
+      executionStarted: false,
+      schedulerExecutionMode: {
+        loopAuthorized: false,
+        fullParallelExecutorAuthorized: false,
+        wholeWaveDispatchAuthorized: false,
+        slotAllocatorAuthorized: false,
+      },
+    });
+    expect(Object.keys(preflight.currentGate.scope).sort()).toStrictEqual([
+      "changeId",
+      "schedulerRunId",
+      "schedulerWorkerValidationId",
+    ]);
+
+    const request = {
+      actionType: "planning.scheduler.worker.rework-plan.compile" as const,
+      changeId,
+      schedulerRunId: schedulerRun.id,
+      schedulerWorkerValidationId: validation.id,
+      goalLoopGateReadinessPreflightId: preflight.id,
+    };
+    const visibleGate = {
+      actionType: "planning.scheduler.worker.rework-plan.compile" as const,
+      changeId,
+      schedulerRunId: schedulerRun.id,
+      schedulerWorkerValidationId: validation.id,
+      enabled: true,
+    };
+
+    await expect(assertGoalLoopAssistedConcreteGateConfirmation(memory, changePath, changeId, request, { visibleGate }))
+      .resolves.toBeUndefined();
+    await expect(assertGoalLoopAssistedConcreteGateConfirmation(memory, changePath, changeId, {
+      ...request,
+      schedulerRunId: "forged-run",
+    }, { visibleGate })).rejects.toThrow("request scope mismatch");
+    await expect(assertGoalLoopAssistedConcreteGateConfirmation(memory, changePath, changeId, {
+      ...request,
+      schedulerWorkerValidationId: "forged-validation",
+    }, { visibleGate })).rejects.toThrow("request scope mismatch");
+    await expect(assertGoalLoopAssistedConcreteGateConfirmation(memory, changePath, changeId, request, {
+      visibleGate: { ...visibleGate, schedulerWorkerValidationId: "forged-visible-validation" },
+    })).rejects.toThrow("visible target is stale");
+    await expect(assertGoalLoopAssistedConcreteGateConfirmation(memory, changePath, changeId, request, {
+      visibleGate: { ...visibleGate, enabled: false },
+    })).rejects.toThrow("visible target is disabled");
+
+    await writeFile(join(memory.memoryRoot, changePath, "plan.md"), "# Plan\n\nChanged rework-plan handoff scope.\n", "utf8");
+
+    await expect(assertGoalLoopAssistedConcreteGateConfirmation(memory, changePath, changeId, request, { visibleGate }))
+      .rejects.toThrow("packet is stale");
+  });
+
+  it("rejects current rework-plan handoff when current gate targets are missing, wrong, forged, or superseded", async () => {
+    const { schedulerRun, workerStart } = await writeSchedulerEvidence({ withWorkerStart: true });
+    const result = await writeWorkerResult(workerStart!, "evidence-ready");
+    const validation = await writeWorkerValidation(result, "failed");
+    const evaluation = await compileGoalLoopEvaluation(memory, changePath);
+    const expectedScope = {
+      changeId,
+      schedulerRunId: schedulerRun.id,
+      schedulerWorkerValidationId: validation.id,
+    };
+
+    await expect(compileGoalLoopControllerPolicy(memory, changePath, {
+      goalLoopNextStepPacketId: evaluation.goalLoopNextStepPacket.id,
+      requireCurrentGateMatch: true,
+    })).rejects.toThrow("not the current matching gate");
+
+    await expect(compileGoalLoopControllerPolicy(memory, changePath, {
+      goalLoopNextStepPacketId: evaluation.goalLoopNextStepPacket.id,
+      requireCurrentGateMatch: true,
+      currentGate: {
+        actionType: "planning.scheduler.worker.rework-start-first",
+        scope: {
+          changeId,
+          schedulerRunId: schedulerRun.id,
+          schedulerWorkerValidationId: validation.id,
+        },
+      },
+    })).rejects.toThrow("not the current matching gate");
+
+    await expect(compileGoalLoopControllerPolicy(memory, changePath, {
+      goalLoopNextStepPacketId: evaluation.goalLoopNextStepPacket.id,
+      requireCurrentGateMatch: true,
+      currentGate: {
+        actionType: "planning.scheduler.worker.rework-plan.compile",
+        scope: {
+          changeId,
+          schedulerRunId: schedulerRun.id,
+        },
+      },
+    })).rejects.toThrow("not the current matching gate");
+
+    await expect(compileGoalLoopControllerPolicy(memory, changePath, {
+      goalLoopNextStepPacketId: evaluation.goalLoopNextStepPacket.id,
+      requireCurrentGateMatch: true,
+      currentGate: {
+        actionType: "planning.scheduler.worker.rework-plan.compile",
+        scope: {
+          changeId,
+          schedulerRunId: "forged-run",
+          schedulerWorkerValidationId: validation.id,
+        },
+      },
+    })).rejects.toThrow("not the current matching gate");
+
+    await expect(compileGoalLoopControllerPolicy(memory, changePath, {
+      goalLoopNextStepPacketId: evaluation.goalLoopNextStepPacket.id,
+      requireCurrentGateMatch: true,
+      currentGate: {
+        actionType: "planning.scheduler.worker.rework-plan.compile",
+        scope: {
+          changeId,
+          schedulerRunId: schedulerRun.id,
+          schedulerWorkerValidationId: "forged-validation",
+        },
+      },
+    })).rejects.toThrow("not the current matching gate");
+
+    const suppressingPolicy = await compileGoalLoopControllerPolicy(memory, changePath, {
+      goalLoopNextStepPacketId: evaluation.goalLoopNextStepPacket.id,
+      currentGate: {
+        actionType: "planning.scheduler.worker.rework-plan.compile",
+        scope: {
+          changeId,
+          schedulerRunId: schedulerRun.id,
+          schedulerWorkerValidationId: "forged-validation",
+        },
+      },
+    });
+    expect(suppressingPolicy).toMatchObject({
+      verdict: "suppress-stale-guidance",
+      gateStatus: "target-mismatch",
+      recommendedAction: undefined,
+      suppressesRecommendedAction: true,
+    });
+
+    const policy = await compileGoalLoopControllerPolicy(memory, changePath, {
+      goalLoopNextStepPacketId: evaluation.goalLoopNextStepPacket.id,
+      currentGate: {
+        actionType: "planning.scheduler.worker.rework-plan.compile",
+        scope: expectedScope,
+      },
+      requireCurrentGateMatch: true,
+    });
+    const preflight = await compileGoalLoopGateReadinessPreflight(memory, changePath, {
+      goalLoopNextStepPacketId: evaluation.goalLoopNextStepPacket.id,
+      goalLoopControllerPolicyId: policy.id,
+      currentGate: {
+        actionType: "planning.scheduler.worker.rework-plan.compile",
+        scope: expectedScope,
+      },
+    });
+    const request = {
+      actionType: "planning.scheduler.worker.rework-plan.compile" as const,
+      changeId,
+      schedulerRunId: schedulerRun.id,
+      schedulerWorkerValidationId: validation.id,
+      goalLoopGateReadinessPreflightId: preflight.id,
+    };
+    const visibleGate = {
+      actionType: "planning.scheduler.worker.rework-plan.compile" as const,
+      changeId,
+      schedulerRunId: schedulerRun.id,
+      schedulerWorkerValidationId: validation.id,
+      enabled: true,
+    };
+
+    await writeReworkPlan(validation);
+
+    await expect(assertGoalLoopAssistedConcreteGateConfirmation(memory, changePath, changeId, request, { visibleGate }))
+      .rejects.toThrow("packet is stale");
+    await expect(compileGoalLoopGateReadinessPreflight(memory, changePath, {
+      goalLoopNextStepPacketId: evaluation.goalLoopNextStepPacket.id,
+      goalLoopControllerPolicyId: policy.id,
+      currentGate: {
+        actionType: "planning.scheduler.worker.rework-plan.compile",
+        scope: expectedScope,
+      },
+    })).rejects.toThrow("packet is stale");
+
+    const freshEvaluation = await compileGoalLoopEvaluation(memory, changePath);
+    expect(freshEvaluation.goalLoopDecision.recommendedAction?.actionType).toBe("planning.scheduler.worker.rework-start-first");
+  });
+
+  it("requires exact audit scope for audit-driven rework-plan handoff", async () => {
+    const { schedulerRun, workerStart } = await writeSchedulerEvidence({ withWorkerStart: true });
+    const result = await writeWorkerResult(workerStart!, "evidence-ready");
+    const validation = await writeWorkerValidation(result, "passed");
+    const audit = await writeWorkerAudit(validation, "blocked");
+    const expectedScope = {
+      changeId,
+      schedulerRunId: schedulerRun.id,
+      schedulerWorkerValidationId: validation.id,
+      schedulerWorkerAuditId: audit.id,
+    };
+    const currentGate = {
+      actionType: "planning.scheduler.worker.rework-plan.compile" as const,
+      scope: expectedScope,
+    };
+
+    const evaluation = await compileGoalLoopEvaluation(memory, changePath);
+
+    expect(evaluation.goalLoopDecision.recommendedAction?.actionType).toBe("planning.scheduler.worker.rework-plan.compile");
+    expect(evaluation.goalLoopDecision.recommendedAction?.scope).toStrictEqual(expectedScope);
+    expect(Object.keys(evaluation.goalLoopDecision.recommendedAction?.scope ?? {}).sort()).toStrictEqual([
+      "changeId",
+      "schedulerRunId",
+      "schedulerWorkerAuditId",
+      "schedulerWorkerValidationId",
+    ]);
+
+    await expect(compileGoalLoopControllerPolicy(memory, changePath, {
+      goalLoopNextStepPacketId: evaluation.goalLoopNextStepPacket.id,
+      requireCurrentGateMatch: true,
+      currentGate: {
+        actionType: "planning.scheduler.worker.rework-plan.compile",
+        scope: {
+          changeId,
+          schedulerRunId: schedulerRun.id,
+          schedulerWorkerValidationId: validation.id,
+        },
+      },
+    })).rejects.toThrow("not the current matching gate");
+
+    await expect(compileGoalLoopControllerPolicy(memory, changePath, {
+      goalLoopNextStepPacketId: evaluation.goalLoopNextStepPacket.id,
+      requireCurrentGateMatch: true,
+      currentGate: {
+        actionType: "planning.scheduler.worker.rework-plan.compile",
+        scope: {
+          ...expectedScope,
+          schedulerWorkerAuditId: "forged-audit",
+        },
+      },
+    })).rejects.toThrow("not the current matching gate");
+
+    const policy = await compileGoalLoopControllerPolicy(memory, changePath, {
+      currentGate,
+      requireCurrentGateMatch: true,
+    });
+    expect(policy.recommendedAction?.scope).toStrictEqual(expectedScope);
+    const preflight = await compileGoalLoopGateReadinessPreflight(memory, changePath, {
+      goalLoopNextStepPacketId: evaluation.goalLoopNextStepPacket.id,
+      goalLoopControllerPolicyId: policy.id,
+      currentGate,
+    });
+    expect(preflight.currentGate.scope).toStrictEqual(expectedScope);
+
+    const request = {
+      actionType: "planning.scheduler.worker.rework-plan.compile" as const,
+      changeId,
+      schedulerRunId: schedulerRun.id,
+      schedulerWorkerValidationId: validation.id,
+      schedulerWorkerAuditId: audit.id,
+      goalLoopGateReadinessPreflightId: preflight.id,
+    };
+    const visibleGate = {
+      actionType: "planning.scheduler.worker.rework-plan.compile" as const,
+      changeId,
+      schedulerRunId: schedulerRun.id,
+      schedulerWorkerValidationId: validation.id,
+      schedulerWorkerAuditId: audit.id,
+      enabled: true,
+    };
+
+    await expect(assertGoalLoopAssistedConcreteGateConfirmation(memory, changePath, changeId, request, { visibleGate }))
+      .resolves.toBeUndefined();
+    await expect(assertGoalLoopAssistedConcreteGateConfirmation(memory, changePath, changeId, {
+      ...request,
+      schedulerWorkerAuditId: "forged-audit",
+    }, { visibleGate })).rejects.toThrow("request scope mismatch");
+    await expect(assertGoalLoopAssistedConcreteGateConfirmation(memory, changePath, changeId, request, {
+      visibleGate: { ...visibleGate, schedulerWorkerAuditId: "forged-visible-audit" },
+    })).rejects.toThrow("visible target is stale");
+  });
+
   it("recommends rework validation after evidence-ready rework result", async () => {
     const { schedulerRun, workerStart } = await writeSchedulerEvidence({ withWorkerStart: true });
     const result = await writeWorkerResult(workerStart!, "evidence-ready");
@@ -3202,8 +3559,13 @@ async function writeWorkerAudit(validation: SchedulerRuntimeWorkerValidation, st
   return audit;
 }
 
-async function writeReworkPlan(validation: SchedulerRuntimeWorkerValidation): Promise<SchedulerRuntimeWorkerReworkPlan> {
+async function writeReworkPlan(validation: SchedulerRuntimeWorkerValidation, audit?: SchedulerRuntimeWorkerAudit): Promise<SchedulerRuntimeWorkerReworkPlan> {
   const refs = schedulerWorkerReworkPlanArtifactRefs(memory, changePath, validation.schedulerRunId, "rework-plan-1");
+  const blockingSource = validation.status === "failed"
+    ? "validation-failed"
+    : audit?.status === "blocked"
+      ? "audit-blocked"
+      : "audit-failed";
   const plan: SchedulerRuntimeWorkerReworkPlan = {
     version: "1.0",
     id: "rework-plan-1",
@@ -3211,14 +3573,15 @@ async function writeReworkPlan(validation: SchedulerRuntimeWorkerValidation): Pr
     schedulerRunId: validation.schedulerRunId,
     schedulerMode: "parallel-readiness-v1",
     status: "planned",
-    blockingSource: "validation-failed",
-    reworkReason: "Validation failed.",
+    blockingSource,
+    reworkReason: audit ? `Audit ${audit.status}.` : "Validation failed.",
     schedulerRuntimeStateId: validation.schedulerRuntimeStateId,
     schedulerReconcileSnapshotId: validation.schedulerReconcileSnapshotId,
     schedulerClaimReservationId: validation.schedulerClaimReservationId,
     schedulerWorkerStartId: validation.schedulerWorkerStartId,
     schedulerWorkerResultId: validation.schedulerWorkerResultId,
     schedulerWorkerValidationId: validation.id,
+    ...(audit ? { schedulerWorkerAuditId: audit.id } : {}),
     schedulerContractId: validation.schedulerContractId,
     schedulerDispatchDryRunId: validation.schedulerDispatchDryRunId,
     schedulerWorkerPlanId: validation.schedulerWorkerPlanId,
@@ -3240,8 +3603,9 @@ async function writeReworkPlan(validation: SchedulerRuntimeWorkerValidation): Pr
     targetCodeRunId: validation.codeRunId,
     validationRunId: validation.validationRunId,
     validationStatus: validation.validationStatus,
+    ...(audit ? { auditRunId: audit.auditRunId, auditStatus: audit.auditStatus } : {}),
     futureCodeGateMode: "scheduler-claim-rework",
-    recoveryKeyInputs: [validation.id],
+    recoveryKeyInputs: audit ? [validation.id, audit.id] : [validation.id],
     sourceArtifactHashes: validation.sourceArtifactHashes,
     artifactRefs: [refs.artifact],
     artifact: refs.artifact,

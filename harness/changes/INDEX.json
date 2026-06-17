@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-17T18:38:47.4489188Z",
+    "generated_at":  "2026-06-17T19:05:22.6635373Z",
     "active":  [
 
                ],
@@ -1005,6 +1005,10 @@
                     {
                         "name":  "20260618-phase-11t-goal-loop-rework-audit-handoff-regression",
                         "path":  "harness/changes/archive/20260618-phase-11t-goal-loop-rework-audit-handoff-regression"
+                    },
+                    {
+                        "name":  "20260618-phase-11u-goal-loop-rework-plan-handoff-regression",
+                        "path":  "harness/changes/archive/20260618-phase-11u-goal-loop-rework-plan-handoff-regression"
                     }
                 ]
 }
