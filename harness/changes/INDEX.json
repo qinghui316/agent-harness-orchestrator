@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-17T17:24:23.7020523Z",
+    "generated_at":  "2026-06-17T17:39:19.8754076Z",
     "active":  [
 
                ],
@@ -985,6 +985,10 @@
                     {
                         "name":  "20260618-phase-11p-goal-loop-start-first-handoff-regression",
                         "path":  "harness/changes/archive/20260618-phase-11p-goal-loop-start-first-handoff-regression"
+                    },
+                    {
+                        "name":  "20260618-phase-11q-goal-loop-worker-validation-handoff-regression",
+                        "path":  "harness/changes/archive/20260618-phase-11q-goal-loop-worker-validation-handoff-regression"
                     }
                 ]
 }
