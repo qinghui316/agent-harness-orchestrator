@@ -75,6 +75,7 @@ export async function readLatestGoalLoopSummary(
       parallelEligible: brief.conflictAssessment.parallelEligible,
       routingPosture: brief.conflictAssessment.routingPosture,
       routingLabel: brief.conflictAssessment.routingLabel,
+      schedulerExecutionMode: packet.schedulerExecutionMode,
       conflictReasons: [...brief.conflictAssessment.reasons],
       completionStatus: brief.completionAudit.status,
       resumePreconditionCount: brief.resumePreconditions.length,

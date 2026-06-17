@@ -501,6 +501,27 @@ describe("Workbench web app", () => {
             parallelEligible: true,
             routingPosture: "single-worker-gate",
             routingLabel: "Single scoped worker gate",
+            schedulerExecutionMode: {
+              authority: "non-executing-scheduler-execution-mode-evidence",
+              mode: "single-gate-staged",
+              loopAuthorized: false,
+              fullParallelExecutorAuthorized: false,
+              wholeWaveDispatchAuthorized: false,
+              slotAllocatorAuthorized: false,
+              currentGate: {
+                actionType: "planning.scheduler.worker.start-first",
+                separateHumanGateRequired: true,
+              },
+              humanGateRequired: true,
+              summary: "The scheduler path is still a single-gate staged capability.",
+              reasons: [
+                "planning.scheduler.worker.start-first must be revalidated and confirmed as its own concrete Harness gate.",
+              ],
+              futureLoopRequirements: [
+                "accepted architecture decision for a real scheduler loop or full parallel executor",
+                "IntegrationCheck before any source apply path",
+              ],
+            },
             conflictReasons: [
               "Recommended action planning.scheduler.worker.start-first is limited to the existing scoped first worker-start gate.",
             ],
@@ -527,7 +548,15 @@ describe("Workbench web app", () => {
     expect(within(card).getByText("Conflict low")).toBeTruthy();
     expect(within(card).getByText("Single scoped worker gate")).toBeTruthy();
     expect(within(card).getByText("Parallel eligible")).toBeTruthy();
-    expect(within(card).getByText("planning.scheduler.worker.start-first")).toBeTruthy();
+    expect(within(card).getByText("Scheduler mode single-gate-staged")).toBeTruthy();
+    expect(within(card).getByText("Loop authorized: false")).toBeTruthy();
+    expect(within(card).getByText("Full executor: false")).toBeTruthy();
+    expect(within(card).getByText("Whole wave: false")).toBeTruthy();
+    expect(within(card).getByText("Slot allocator: false")).toBeTruthy();
+    expect(within(card).getByText("The scheduler path is still a single-gate staged capability.")).toBeTruthy();
+    expect(within(card).getAllByText("planning.scheduler.worker.start-first").length).toBeGreaterThanOrEqual(2);
+    expect(within(card).getByText("accepted architecture decision for a real scheduler loop or full parallel executor")).toBeTruthy();
+    expect(within(card).getByText("IntegrationCheck before any source apply path")).toBeTruthy();
     expect(within(card).getByText("Recommended action planning.scheduler.worker.start-first is limited to the existing scoped first worker-start gate.")).toBeTruthy();
     expect(within(card).getByText("Read-only evidence; the concrete Harness gate still requires its own confirmation.")).toBeTruthy();
     expect(within(card).queryByRole("button")).toBeNull();

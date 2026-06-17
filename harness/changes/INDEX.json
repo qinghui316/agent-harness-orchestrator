@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-17T13:50:07.0436654Z",
+    "generated_at":  "2026-06-17T14:37:52.5754894Z",
     "active":  [
 
                ],
@@ -949,6 +949,10 @@
                     {
                         "name":  "20260617-phase-11i-scheduler-execution-mode-evidence",
                         "path":  "harness/changes/archive/20260617-phase-11i-scheduler-execution-mode-evidence"
+                    },
+                    {
+                        "name":  "20260617-phase-11j-workpad-scheduler-execution-mode-surface",
+                        "path":  "harness/changes/archive/20260617-phase-11j-workpad-scheduler-execution-mode-surface"
                     }
                 ]
 }

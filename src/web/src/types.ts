@@ -361,6 +361,22 @@ export type GoalLoopSummary = {
   parallelEligible: boolean;
   routingPosture?: string;
   routingLabel?: string;
+  schedulerExecutionMode?: {
+    authority: string;
+    mode: string;
+    loopAuthorized: false;
+    fullParallelExecutorAuthorized: false;
+    wholeWaveDispatchAuthorized: false;
+    slotAllocatorAuthorized: false;
+    currentGate?: {
+      actionType: string;
+      separateHumanGateRequired: true;
+    };
+    humanGateRequired: boolean;
+    summary: string;
+    reasons: string[];
+    futureLoopRequirements: string[];
+  };
   conflictReasons: string[];
   completionStatus?: string;
   artifact?: string;

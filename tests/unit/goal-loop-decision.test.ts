@@ -1098,6 +1098,25 @@ describe("GoalLoopDecision", () => {
       goalLoopNextStepPacketId: result.goalLoopNextStepPacket.id,
       recommendedActionType: "planning.scheduler.plan.prepare",
       recommendedActionScope: { changeId },
+      schedulerExecutionMode: {
+        authority: "non-executing-scheduler-execution-mode-evidence",
+        mode: "single-gate-staged",
+        loopAuthorized: false,
+        fullParallelExecutorAuthorized: false,
+        wholeWaveDispatchAuthorized: false,
+        slotAllocatorAuthorized: false,
+        humanGateRequired: true,
+        currentGate: {
+          actionType: "planning.scheduler.plan.prepare",
+          separateHumanGateRequired: true,
+        },
+        reasons: expect.arrayContaining([
+          expect.stringContaining("must be revalidated"),
+        ]),
+        futureLoopRequirements: expect.arrayContaining([
+          expect.stringContaining("accepted architecture decision"),
+        ]),
+      },
     });
 
     await writeGoalLoopNextStepPacket(memory, changePath, {

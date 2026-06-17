@@ -4,6 +4,7 @@ import type { Workpad } from "../../../types.js";
 import { artifactName } from "../RunReplayPanel.js";
 
 export function GoalLoopEvidenceCard({ goalLoop }: { goalLoop: NonNullable<Workpad["goalLoop"]> }): ReactElement {
+  const schedulerMode = goalLoop.schedulerExecutionMode;
   const artifacts = [
     goalLoop.markdownArtifact ?? goalLoop.artifact,
     goalLoop.nextStepPacketMarkdownArtifact ?? goalLoop.nextStepPacketArtifact,
@@ -23,9 +24,34 @@ export function GoalLoopEvidenceCard({ goalLoop }: { goalLoop: NonNullable<Workp
         <span>Conflict {goalLoop.conflictLevel}</span>
         <span>{goalLoop.routingLabel ?? goalLoop.routingPosture ?? "Routing evidence"}</span>
         <span>{goalLoop.parallelEligible ? "Parallel eligible" : "Sequential or gated"}</span>
+        {schedulerMode ? <span>Scheduler mode {humanStatus(schedulerMode.mode)}</span> : null}
+        {schedulerMode ? <span>Loop authorized: {schedulerMode.loopAuthorized ? "true" : "false"}</span> : null}
+        {schedulerMode ? <span>Full executor: {schedulerMode.fullParallelExecutorAuthorized ? "true" : "false"}</span> : null}
+        {schedulerMode ? <span>Whole wave: {schedulerMode.wholeWaveDispatchAuthorized ? "true" : "false"}</span> : null}
+        {schedulerMode ? <span>Slot allocator: {schedulerMode.slotAllocatorAuthorized ? "true" : "false"}</span> : null}
         <span>{goalLoop.humanGateRequired ? "Human gate required" : "No human gate flag"}</span>
         {goalLoop.recommendedActionType ? <span>{goalLoop.recommendedActionType}</span> : null}
       </div>
+      {schedulerMode ? (
+        <div className="workpad-evidence-list" aria-label="Scheduler execution mode">
+          <div className="workpad-evidence">
+            <strong>Scheduler execution mode</strong>
+            <span>{userFacingText(schedulerMode.summary)}</span>
+          </div>
+          {schedulerMode.currentGate ? (
+            <div className="workpad-evidence">
+              <strong>Separate gate</strong>
+              <span>{schedulerMode.currentGate.actionType}</span>
+            </div>
+          ) : null}
+          {schedulerMode.futureLoopRequirements.map((requirement) => (
+            <div className="workpad-evidence" key={requirement}>
+              <strong>Future loop requirement</strong>
+              <span>{userFacingText(requirement)}</span>
+            </div>
+          ))}
+        </div>
+      ) : null}
       {goalLoop.recommendedActionReason ? <p>{userFacingText(goalLoop.recommendedActionReason)}</p> : null}
       {goalLoop.conflictReasons.length ? (
         <div className="workpad-evidence-list" aria-label="Goal Loop conflict reasons">

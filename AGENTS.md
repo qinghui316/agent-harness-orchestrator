@@ -7,8 +7,8 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 - Current date: 2026-06-17.
 - Active change: none.
 - Pending Harness evolution: none.
-- Latest archived product change: Phase 11I Scheduler Execution Mode Evidence, archived at `harness/changes/archive/20260617-phase-11i-scheduler-execution-mode-evidence/summary.md`.
-- Latest product/Harness docs change: Phase 11I Scheduler Execution Mode Evidence, archived at `harness/changes/archive/20260617-phase-11i-scheduler-execution-mode-evidence/summary.md`.
+- Latest archived product change: Phase 11J Workpad Scheduler Execution Mode Surface, archived at `harness/changes/archive/20260617-phase-11j-workpad-scheduler-execution-mode-surface/summary.md`.
+- Latest product/Harness docs change: Phase 11J Workpad Scheduler Execution Mode Surface, archived at `harness/changes/archive/20260617-phase-11j-workpad-scheduler-execution-mode-surface/summary.md`.
 - Latest Harness evolution: `harness/changes/archive/20260617-auto-evolve-harness-phase-11d-11h-goal-loop-scheduler-handoff-evidence/summary.md`.
 
 Use `docs/STATUS.md` for the short resume state. Use `harness/changes/INDEX.json` and archived `summary.md` files for historical detail. Do not rebuild current context by reading the full archive ledger unless the task requires it.
