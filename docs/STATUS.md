@@ -5,13 +5,13 @@
 - Current date: 2026-06-18.
 - Active ECL change: none.
 - Pending Harness evolution: none.
-- Latest archived product change: `harness/changes/archive/20260618-phase-11u-goal-loop-rework-plan-handoff-regression/summary.md`.
-- Latest archived product/Harness docs change: `harness/changes/archive/20260618-phase-11u-goal-loop-rework-plan-handoff-regression/summary.md`.
+- Latest archived product change: `harness/changes/archive/20260618-phase-11v-goal-loop-rework-start-handoff-regression/summary.md`.
+- Latest archived product/Harness docs change: `harness/changes/archive/20260618-phase-11v-goal-loop-rework-start-handoff-regression/summary.md`.
 - Latest archived Harness evolution: `harness/changes/archive/20260618-auto-evolve-harness-phase-11p-11t-goal-loop-gate-evidence/summary.md`.
 - Active product phase: none. Active Harness evolution phase: none.
 - Active close status: no active change.
 
-This file is the short resume point. No active ECL change or pending Harness evolution exists. Phase 11U is archived after hardening the existing `planning.scheduler.worker.rework-plan.compile` Goal Loop handoff as non-executing evidence for the concrete bounded rework-plan gate. The regression proves exact validation-only and audit-driven scope through decision, next-step packet, controller policy, gate-readiness preflight, and assisted concrete confirmation; forged, missing, disabled, stale, and superseded evidence fails closed. The Phase 11P-11T Harness evolution window remains archived as `noop/independent_review`. For full history, use `harness/changes/INDEX.json` and archived `summary.md` files.
+This file is the short resume point. No active ECL change or pending Harness evolution exists. Phase 11V is archived after hardening the existing `planning.scheduler.worker.rework-start-first` Goal Loop handoff as non-executing evidence for the concrete bounded rework-start gate. The regression proves exact `changeId`, `schedulerRunId`, and `schedulerWorkerReworkPlanId` scope through decision, next-step packet, controller policy, gate-readiness preflight, and assisted concrete confirmation; forged, missing, disabled, stale, superseded, and visible-preflight-id-mismatched evidence fails closed. The Phase 11P-11T Harness evolution window remains archived as `noop/independent_review`. For full history, use `harness/changes/INDEX.json` and archived `summary.md` files.
 
 Current plan-level roadmap context is preserved in `docs/CURRENT-DEVELOPMENT-PLAN.md`.
 
@@ -294,7 +294,7 @@ The pending Phase 10P-10T Goal Loop controller/feedback/context/prompt evidence 
 
 ## Next Resume Point
 
-No active ECL change or pending Harness evolution exists. Continue with the next bounded Goal Loop/Scheduler handoff hardening target, likely `planning.scheduler.worker.rework-start-first` or `planning.scheduler.worker.rework-reconcile-result`, unless a separate accepted design is opened for a real scheduler loop/full parallel executor. `README.md` remains unrelated and must stay untracked unless the user explicitly asks to include it.
+No active ECL change or pending Harness evolution exists. Continue with the next bounded Goal Loop/Scheduler handoff hardening target, likely `planning.scheduler.worker.rework-reconcile-result`, unless a separate accepted design is opened for a real scheduler loop/full parallel executor. `README.md` remains unrelated and must stay untracked unless the user explicitly asks to include it.
 
 ## Verification Commands
 
