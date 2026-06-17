@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-17T16:54:47.4059060Z",
+    "generated_at":  "2026-06-17T17:24:23.7020523Z",
     "active":  [
 
                ],
@@ -967,6 +967,10 @@
                         "path":  "harness/changes/archive/20260617-phase-11l-goal-loop-assisted-gate-scheduler-mode-guard"
                     },
                     {
+                        "name":  "20260618-auto-evolve-harness-phase-11l-11p-goal-loop-gate-evidence",
+                        "path":  "harness/changes/archive/20260618-auto-evolve-harness-phase-11l-11p-goal-loop-gate-evidence"
+                    },
+                    {
                         "name":  "20260618-phase-11m-goal-loop-enabled-gate-projection-guard",
                         "path":  "harness/changes/archive/20260618-phase-11m-goal-loop-enabled-gate-projection-guard"
                     },
@@ -977,6 +981,10 @@
                     {
                         "name":  "20260618-phase-11o-goal-loop-blocked-closeout-handoff",
                         "path":  "harness/changes/archive/20260618-phase-11o-goal-loop-blocked-closeout-handoff"
+                    },
+                    {
+                        "name":  "20260618-phase-11p-goal-loop-start-first-handoff-regression",
+                        "path":  "harness/changes/archive/20260618-phase-11p-goal-loop-start-first-handoff-regression"
                     }
                 ]
 }

@@ -109,6 +109,23 @@ function Test-CloseReadySummary {
   return ($summary -match '(?im)^## Current Status\s+\r?\n\s*(Completed|Ready to close)\.?')
 }
 
+function Test-SummaryCloseoutText {
+  param(
+    [System.IO.DirectoryInfo]$Change,
+    [string]$Scope
+  )
+
+  $summaryPath = Join-Path $Change.FullName "summary.md"
+  if (-not (Test-Path -LiteralPath $summaryPath -PathType Leaf)) { return }
+
+  $summary = Get-Content -LiteralPath $summaryPath -Encoding UTF8 -Raw
+  $relative = $summaryPath.Substring($root.Length).TrimStart([char]92, [char]47) -replace '\\', '/'
+
+  if ($summary -match '(?im)^Before close,\s+replace this with\b') {
+    Add-Err "$Scope summary retains close instruction template text: $relative"
+  }
+}
+
 function Test-ReviewCloseoutText {
   param(
     [System.IO.DirectoryInfo]$Change,
@@ -246,6 +263,7 @@ if ($activeChanges.Count -eq 1) {
     Add-Err "Active phase-scoped change includes later phases without scope expansion rationale: $($activeChanges[0].Name)"
   }
   if (Test-CloseReadySummary -Change $activeChanges[0]) {
+    Test-SummaryCloseoutText -Change $activeChanges[0] -Scope "Close-ready active change"
     Test-ReviewCloseoutText -Change $activeChanges[0] -Scope "Close-ready active change"
   }
 }

@@ -5,17 +5,31 @@
 - Current date: 2026-06-18.
 - Active ECL change: none.
 - Pending Harness evolution: none.
-- Latest archived product change: `harness/changes/archive/20260618-phase-11o-goal-loop-blocked-closeout-handoff/summary.md`.
-- Latest archived product/Harness docs change: `harness/changes/archive/20260618-phase-11o-goal-loop-blocked-closeout-handoff/summary.md`.
-- Latest archived Harness evolution: `harness/changes/archive/20260617-auto-evolve-harness-phase-11h-11l-goal-loop-scheduler-mode-guard/summary.md`.
+- Latest archived product change: `harness/changes/archive/20260618-phase-11p-goal-loop-start-first-handoff-regression/summary.md`.
+- Latest archived product/Harness docs change: `harness/changes/archive/20260618-auto-evolve-harness-phase-11l-11p-goal-loop-gate-evidence/summary.md`.
+- Latest archived Harness evolution: `harness/changes/archive/20260618-auto-evolve-harness-phase-11l-11p-goal-loop-gate-evidence/summary.md`.
 - Active product phase: none. Active Harness evolution phase: none.
-- Active close status: none.
+- Active close status: no active change.
 
-This file is the short resume point. No active change is open and no pending Harness evolution exists. For full history, use `harness/changes/INDEX.json` and archived `summary.md` files.
+This file is the short resume point. No active ECL change exists and no pending Harness evolution exists. Phase 11P is the latest product change; the Phase 11L-11P Harness evolution is archived after promoting a close-ready summary closeout lint rule. For full history, use `harness/changes/INDEX.json` and archived `summary.md` files.
 
 Current plan-level roadmap context is preserved in `docs/CURRENT-DEVELOPMENT-PLAN.md`.
 
 ## Recent Completed Work
+
+### Auto Evolve Harness Phase 11L-11P Goal Loop Gate Evidence
+
+Archived at `harness/changes/archive/20260618-auto-evolve-harness-phase-11l-11p-goal-loop-gate-evidence/summary.md`.
+
+The pending Phase 11L-11P evidence window was handled as `keep/independent_review` with independent review score 82/100. It promoted a narrow `scripts/lint-ecl.ps1` check that rejects close-ready active summaries retaining the `Before close, replace this with` template instruction, while leaving active non-close-ready summaries and the summary template valid. The targeted lint validation proved non-close-ready instruction text passes and close-ready instruction text fails; product runtime, Workbench, Goal Loop, Scheduler, ToolPolicy, source apply, and human gate behavior were not changed.
+
+### Phase 11P Goal Loop Start-First Handoff Regression
+
+Archived at `harness/changes/archive/20260618-phase-11p-goal-loop-start-first-handoff-regression/summary.md`.
+
+Phase 11P locks down the existing Goal Loop handoff path for `planning.scheduler.worker.start-first`. The regression proves the first-worker recommendation, controller policy, gate-readiness preflight, and assisted concrete confirmation stay scoped to the matching `changeId`, `schedulerRunId`, and `schedulerClaimReservationId`; forged targets, disabled visible gates, missing current gates, wrong current actions, and stale packet evidence fail closed. The change is test-only and adds no scheduler runtime, Workbench projection, handler, ToolPolicy, source mutation, scheduler loop, whole-wave dispatch, slot allocator, apply/merge/close, or child Change behavior.
+
+Verification passed for focused/full Goal Loop decision tests, `npm run typecheck`, `npm run lint`, `npm run test:fast`, `npm run build`, `npm run test:integration`, `scripts/lint-ecl.ps1`, `scripts/lint-encoding.ps1`, `scripts/harness-change.ps1 reindex`, and `scripts/harness-evolve.ps1 check`. Full `npm run test` exceeded the local 184 second command timeout without returning a failed assertion.
 
 ### Phase 11O Goal Loop Blocked Closeout Handoff
 
@@ -234,7 +248,7 @@ The pending Phase 10P-10T Goal Loop controller/feedback/context/prompt evidence 
 
 ## Next Resume Point
 
-No active change is open. A good next structured slice is to continue Goal-driven Adaptive Loop + controlled Scheduler/parallel by either hardening another single-gate scheduler/Goal Loop handoff or starting a separate accepted design for a real scheduler loop/full parallel executor. Do not imply loop/full parallelism from execution-mode evidence alone. `README.md` remains unrelated and must stay untracked unless the user explicitly asks to include it.
+No active change or pending Harness evolution exists. Continue Goal-driven Adaptive Loop + controlled Scheduler/parallel by either hardening any remaining single-gate scheduler/Goal Loop handoff or starting a separate accepted design for a real scheduler loop/full parallel executor. `README.md` remains unrelated and must stay untracked unless the user explicitly asks to include it.
 
 ## Verification Commands
 
