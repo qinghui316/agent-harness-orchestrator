@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-18T02:11:49.2316523Z",
+    "generated_at":  "2026-06-18T02:23:45.8278756Z",
     "active":  [
 
                ],
@@ -1069,6 +1069,10 @@
                     {
                         "name":  "20260618-phase-12h-controlled-loop-runtime-prompt-evidence",
                         "path":  "harness/changes/archive/20260618-phase-12h-controlled-loop-runtime-prompt-evidence"
+                    },
+                    {
+                        "name":  "20260618-phase-12i-status-handoff-entropy-cleanup",
+                        "path":  "harness/changes/archive/20260618-phase-12i-status-handoff-entropy-cleanup"
                     }
                 ]
 }
