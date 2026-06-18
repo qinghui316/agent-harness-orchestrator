@@ -862,8 +862,19 @@ export interface WorkbenchAgentTaskSummary {
 export interface WorkbenchMaintenanceSummary {
   ledgerCount: number;
   closeoutCount: number;
+  resolutionCount: number;
   latestReviewWindowId?: string;
   unreviewedTerminalCount: number;
+  latestResolution?: {
+    candidateId: string;
+    outcome: string;
+    candidateSubtype?: string;
+    reviewRecommendation: string;
+    canonicalUpdateRequired: boolean;
+    humanGateRequired: boolean;
+    rationale: string;
+    createdAt: string;
+  };
   latest?: {
     id: string;
     eventType: string;

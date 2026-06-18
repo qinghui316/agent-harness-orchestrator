@@ -40,3 +40,11 @@ export function coldArchiveIndexPath(memory: ResolvedMemory): string {
 export function watermarkPath(memory: ResolvedMemory): string {
   return join(maintenanceRoot(memory), "review-watermark.json");
 }
+
+export function maintenanceResolutionsRoot(memory: ResolvedMemory): string {
+  return join(maintenanceRoot(memory), "resolutions");
+}
+
+export function maintenanceResolutionPath(memory: ResolvedMemory, candidateId: string): string {
+  return join(maintenanceResolutionsRoot(memory), `${candidateId}.json`);
+}

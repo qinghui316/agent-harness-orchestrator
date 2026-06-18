@@ -93,6 +93,23 @@ export const reviewSchema = z.object({
   createdAt: z.string(),
 });
 
+export const resolutionOutcomeSchema = z.enum(["promote", "merge", "retire", "archive-only", "noop"]);
+
+export const resolutionSchema = z.object({
+  version: z.literal("1.0"),
+  id: z.string(),
+  candidateId: z.string(),
+  outcome: resolutionOutcomeSchema,
+  reviewRecommendation: z.enum(["accept", "defer", "reject", "needs-human-review"]),
+  candidateSubtype: z.enum(["stable-memory", "docs-drift", "harness-evolution", "reusable-lesson", "doc-budget", "reference-drift"]).optional(),
+  score: z.number(),
+  rationale: z.string(),
+  canonicalUpdateRequired: z.boolean(),
+  humanGateRequired: z.boolean(),
+  artifactRefs: z.array(z.string()),
+  createdAt: z.string(),
+});
+
 export const lessonCandidateSchema = z.object({
   id: z.string(),
   fingerprint: z.string(),
@@ -162,6 +179,7 @@ export const maintenanceReviewRunSchema: z.ZodType<MaintenanceReviewRun> = z.obj
   candidateRefs: z.array(z.string()),
   scoreRefs: z.array(z.string()),
   reviewRefs: z.array(z.string()),
+  resolutionRefs: z.array(z.string()),
   summary: z.string(),
   createdAt: z.string(),
 });

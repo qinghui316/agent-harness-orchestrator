@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-18T10:59:46.0244354Z",
+    "generated_at":  "2026-06-18T11:25:56.1742203Z",
     "active":  [
 
                ],
@@ -1097,6 +1097,10 @@
                     {
                         "name":  "20260618-phase-12n-scheduler-terminal-handoff-prompt-evidence",
                         "path":  "harness/changes/archive/20260618-phase-12n-scheduler-terminal-handoff-prompt-evidence"
+                    },
+                    {
+                        "name":  "20260618-phase-12o-product-maintenance-candidate-lifecycle-resolution",
+                        "path":  "harness/changes/archive/20260618-phase-12o-product-maintenance-candidate-lifecycle-resolution"
                     }
                 ]
 }

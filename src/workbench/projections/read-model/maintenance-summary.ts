@@ -1,15 +1,17 @@
-import { listDemandMemoryCloseouts, listMaintenanceLedgerEntries, readMaintenanceReviewWatermark } from "../../../agent-task/manager.js";
-import type { DemandMemoryCloseout, MaintenanceLedgerEntry, ResolvedMemory } from "../../../types/index.js";
+import { listDemandMemoryCloseouts, listMaintenanceCandidateResolutions, listMaintenanceLedgerEntries, readMaintenanceReviewWatermark } from "../../../agent-task/manager.js";
+import type { DemandMemoryCloseout, MaintenanceCandidateResolution, MaintenanceLedgerEntry, ResolvedMemory } from "../../../types/index.js";
 import type { WorkbenchMaintenanceSummary } from "../../read-model-types.js";
 
 export async function buildMaintenanceSummary(memory: ResolvedMemory): Promise<WorkbenchMaintenanceSummary> {
   const entries = await listMaintenanceLedgerEntries(memory).catch(() => []);
   const closeouts = await listDemandMemoryCloseouts(memory).catch(() => []);
+  const resolutions = await listMaintenanceCandidateResolutions(memory).catch(() => []);
   const watermark = await readMaintenanceReviewWatermark(memory).catch(() => null);
   const latest = latestMaintenanceEntry(entries);
   const reviewed = new Set(watermark?.lastReviewedChangeIds ?? []);
   const unreviewed = closeouts.filter((closeout) => !reviewed.has(`${closeout.changeId}:${closeout.terminalKind}`)).length;
   const latestCloseout = latestCloseoutEntry(closeouts);
+  const latestResolution = latestResolutionEntry(resolutions);
   const status: WorkbenchMaintenanceSummary["status"] = unreviewed >= 5
     ? "review-ready"
     : watermark?.lastReviewWindowId
@@ -20,8 +22,19 @@ export async function buildMaintenanceSummary(memory: ResolvedMemory): Promise<W
   return {
     ledgerCount: entries.length,
     closeoutCount: closeouts.length,
+    resolutionCount: resolutions.length,
     latestReviewWindowId: watermark?.lastReviewWindowId ?? undefined,
     unreviewedTerminalCount: unreviewed,
+    latestResolution: latestResolution ? {
+      candidateId: latestResolution.candidateId,
+      outcome: latestResolution.outcome,
+      candidateSubtype: latestResolution.candidateSubtype,
+      reviewRecommendation: latestResolution.reviewRecommendation,
+      canonicalUpdateRequired: latestResolution.canonicalUpdateRequired,
+      humanGateRequired: latestResolution.humanGateRequired,
+      rationale: latestResolution.rationale,
+      createdAt: latestResolution.createdAt,
+    } : undefined,
     latest: latest ? {
       id: latest.id,
       eventType: latest.eventType,
@@ -39,7 +52,7 @@ export async function buildMaintenanceSummary(memory: ResolvedMemory): Promise<W
     } : undefined,
     status,
     note: status === "reviewed"
-      ? "后台维护已生成独立审查。维护结果只在项目维护中查看，不进入当前需求确认队列。"
+      ? "后台维护已生成独立审查和候选生命周期决议。维护结果只在项目维护中查看，不进入当前需求确认队列。"
       : unreviewed >= 5
         ? "后台维护已有 5 个终态需求可审查。系统会生成候选、评分和审查，不会静默改写项目文档或稳定记忆。"
         : closeouts.length > 0 || entries.length > 0
@@ -54,4 +67,8 @@ export function latestMaintenanceEntry(entries: MaintenanceLedgerEntry[]): Maint
 
 export function latestCloseoutEntry(closeouts: DemandMemoryCloseout[]): DemandMemoryCloseout | undefined {
   return [...closeouts].sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
+}
+
+export function latestResolutionEntry(resolutions: MaintenanceCandidateResolution[]): MaintenanceCandidateResolution | undefined {
+  return [...resolutions].sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
 }

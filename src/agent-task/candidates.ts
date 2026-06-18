@@ -15,6 +15,7 @@ import { TERMINAL_REVIEW_WINDOW } from "./constants.js";
 import { checkDocBudgets } from "./doc-budget.js";
 import { listMaintenanceLedgerEntries } from "./ledger.js";
 import { displayMaintenancePath, maintenanceRoot } from "./paths.js";
+import { resolveMaintenanceCandidate } from "./resolutions.js";
 import { candidateSchema, reviewSchema, scoreSchema } from "./schemas.js";
 import { contentHash, uniqueSorted } from "./utils.js";
 
@@ -110,6 +111,7 @@ export async function runMaintenanceCandidatePipeline(memory: ResolvedMemory): P
   if (!candidate) return { status: "skipped" };
   const score = await scoreEvolutionCandidate(memory, candidate);
   const review = await reviewEvolutionCandidate(memory, candidate, score);
+  await resolveMaintenanceCandidate(memory, candidate, score, review);
   return { status: "reviewed", candidate, score, review };
 }
 

@@ -7695,6 +7695,10 @@ describe("workbench read model", () => {
     expect(snapshot.center.workpad.maintenance).toBeUndefined();
     expect(maintenance).toMatchObject({
       ledgerCount: 1,
+      resolutionCount: 1,
+      latestResolution: expect.objectContaining({
+        outcome: expect.stringMatching(/archive-only|merge|noop|promote|retire/),
+      }),
       latest: expect.objectContaining({ eventType: "apply" }),
     });
   });
@@ -7748,10 +7752,15 @@ describe("workbench read model", () => {
     expect(snapshot.center.workpad.maintenance).toBeUndefined();
     expect(maintenance).toMatchObject({
       closeoutCount: 5,
+      resolutionCount: expect.any(Number),
+      latestResolution: expect.objectContaining({
+        humanGateRequired: expect.any(Boolean),
+      }),
       status: "reviewed",
       unreviewedTerminalCount: 0,
       latestReviewWindowId: watermark?.lastReviewWindowId,
     });
+    expect(maintenance?.resolutionCount ?? 0).toBeGreaterThan(0);
     expect(snapshot.right.confirmationQueue.maintenance).toEqual([]);
 
     const coderContext = buildRoleScopedContextProjection({

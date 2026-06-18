@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { describe, expect, it, afterEach, beforeEach } from "vitest";
 import { initHarness } from "../../src/harness/init.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
-import type { ManagedProject } from "../../src/types/index.js";
+import type { CandidateReview, CandidateScore, EvolutionCandidate, ManagedProject } from "../../src/types/index.js";
 import {
   buildRoleScopedContextProjection,
   checkDocBudgets,
@@ -13,11 +13,14 @@ import {
   completeAgentTask,
   createAgentTask,
   listAgentTasks,
+  listMaintenanceCandidateResolutions,
   listDemandMemoryCloseouts,
   maybeRunMaintenanceReviewWindow,
   readAgentTaskResult,
+  readMaintenanceCandidateResolution,
   readMaintenanceReviewWatermark,
   recordDemandMemoryCloseout,
+  resolveMaintenanceCandidate,
   runMaintenanceCandidatePipeline,
 } from "../../src/agent-task/manager.js";
 
@@ -37,6 +40,8 @@ describe("AgentTask domain boundaries", () => {
     expect(typeof completeAgentTask).toBe("function");
     expect(typeof recordDemandMemoryCloseout).toBe("function");
     expect(typeof runMaintenanceCandidatePipeline).toBe("function");
+    expect(typeof listMaintenanceCandidateResolutions).toBe("function");
+    expect(typeof readMaintenanceCandidateResolution).toBe("function");
 
     const offenders = (await listSourceFiles("src/agent-task"))
       .filter((file) => !file.endsWith("manager.ts"))
@@ -107,6 +112,17 @@ describe("AgentTask domain boundaries", () => {
       ],
       lastReviewWindowId: expect.stringMatching(/^maintenance-review-/),
     });
+    const resolutions = await listMaintenanceCandidateResolutions(memory);
+    expect(resolutions.length).toBeGreaterThan(0);
+    expect(resolutions[0]).toMatchObject({
+      outcome: expect.stringMatching(/promote|merge|retire|archive-only|noop/),
+      canonicalUpdateRequired: expect.any(Boolean),
+      humanGateRequired: expect.any(Boolean),
+      rationale: expect.stringContaining("evidence/proposal only"),
+    });
+    await expect(readMaintenanceCandidateResolution(memory, resolutions[0].candidateId)).resolves.toMatchObject({
+      candidateId: resolutions[0].candidateId,
+    });
 
     const coderContext = buildRoleScopedContextProjection({
       roleId: "coder-agent",
@@ -154,6 +170,94 @@ describe("AgentTask domain boundaries", () => {
     const result = await runMaintenanceCandidatePipeline(memory);
     expect(result.status).toBe("skipped");
     expect(await readFile(memory.agentGuidePath, "utf8")).toBe(original);
+  });
+
+  it("creates lifecycle resolutions for reviewed maintenance candidates without editing canonical docs", async () => {
+    await initHarness(project());
+    const memory = await resolveProjectMemory(project());
+    const originalGuide = await readFile(memory.agentGuidePath, "utf8");
+
+    for (let index = 1; index <= 5; index += 1) {
+      await recordDemandMemoryCloseout(memory, {
+        changeId: `resolution-closeout-${index}`,
+        title: `Resolution demand ${index}`,
+        terminalKind: "archived",
+        finalResult: `Resolution demand ${index} completed.`,
+        userDecision: "archived",
+        evidenceRefs: [`harness/changes/archive/resolution-${index}/summary.md`],
+        reusableLessonCandidates: [{ summary: "Keep repeated lessons lifecycle managed.", evidenceRefs: [`lesson-${index}.md`] }],
+        docsDriftCandidates: [{ document: "docs/MEMORY.md", summary: "Stale memory guidance should be retired when superseded.", evidenceRefs: [`memory-${index}.md`] }],
+      });
+    }
+
+    const watermark = await readMaintenanceReviewWatermark(memory);
+    const resolutions = await listMaintenanceCandidateResolutions(memory);
+    const reviewMarkdown = await readFile(join(memory.workbenchRoot, "maintenance", "reviews", watermark.lastReviewWindowId!, "maintenance-review.md"), "utf8");
+
+    expect(resolutions.length).toBeGreaterThan(0);
+    expect(resolutions.some((item) => item.canonicalUpdateRequired && item.humanGateRequired)).toBe(true);
+    expect(resolutions[0]).toMatchObject({
+      canonicalUpdateRequired: true,
+      humanGateRequired: true,
+    });
+    expect(reviewMarkdown).toContain("resolution=");
+    expect(reviewMarkdown).toContain("humanGateRequired=");
+    expect(await readFile(memory.agentGuidePath, "utf8")).toBe(originalGuide);
+  });
+
+  it("maps maintenance candidate lifecycle outcomes deterministically", async () => {
+    await initHarness(project());
+    const memory = await resolveProjectMemory(project());
+
+    const cases: Array<{
+      id: string;
+      subtype: EvolutionCandidate["subtype"];
+      summary: string;
+      recommendation: CandidateReview["recommendation"];
+      expected: string;
+    }> = [
+      { id: "reject", subtype: "stable-memory", summary: "Weak one-off lesson.", recommendation: "reject", expected: "noop" },
+      { id: "defer", subtype: "reusable-lesson", summary: "Needs more evidence.", recommendation: "defer", expected: "archive-only" },
+      { id: "human-docs", subtype: "docs-drift", summary: "Docs overlap needs consolidation.", recommendation: "needs-human-review", expected: "merge" },
+      { id: "human-memory", subtype: "stable-memory", summary: "Repeated stable lesson.", recommendation: "needs-human-review", expected: "promote" },
+      { id: "accept-stale-docs", subtype: "docs-drift", summary: "Stale baseline language is superseded.", recommendation: "accept", expected: "retire" },
+    ];
+
+    for (const item of cases) {
+      const candidate: EvolutionCandidate = {
+        version: "1.0",
+        id: `candidate-${item.id}`,
+        sourceLedgerEntryIds: [`ledger-${item.id}`],
+        subtype: item.subtype,
+        title: `Candidate ${item.id}`,
+        summary: item.summary,
+        artifactRefs: [`artifact-${item.id}.md`],
+        status: "candidate",
+        createdAt: "2026-06-18T00:00:00.000Z",
+      };
+      const score: CandidateScore = {
+        version: "1.0",
+        candidateId: candidate.id,
+        score: 75,
+        rationale: "test score",
+        risks: [],
+        confidence: "medium",
+        createdAt: "2026-06-18T00:00:00.000Z",
+      };
+      const review: CandidateReview = {
+        version: "1.0",
+        candidateId: candidate.id,
+        recommendation: item.recommendation,
+        summary: "test review",
+        evidenceRefs: candidate.artifactRefs,
+        createdAt: "2026-06-18T00:00:00.000Z",
+      };
+
+      await expect(resolveMaintenanceCandidate(memory, candidate, score, review)).resolves.toMatchObject({
+        candidateId: candidate.id,
+        outcome: item.expected,
+      });
+    }
   });
 
   function project(): ManagedProject {

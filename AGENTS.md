@@ -6,12 +6,12 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 
 - Current date: 2026-06-18.
 - Active change: none.
-- Pending Harness evolution: none.
-- Latest archived product change: Phase 12N Scheduler Terminal Handoff Prompt Evidence, archived at `harness/changes/archive/20260618-phase-12n-scheduler-terminal-handoff-prompt-evidence/summary.md`.
-- Latest product/Harness docs change: Phase 12N Scheduler Terminal Handoff Prompt Evidence, archived at `harness/changes/archive/20260618-phase-12n-scheduler-terminal-handoff-prompt-evidence/summary.md`.
+- Pending Harness evolution: `harness/evolution/pending.md`.
+- Latest archived product change: Phase 12O Product Maintenance Candidate Lifecycle Resolution, archived at `harness/changes/archive/20260618-phase-12o-product-maintenance-candidate-lifecycle-resolution/summary.md`.
+- Latest product/Harness docs change: Phase 12O Product Maintenance Candidate Lifecycle Resolution, archived at `harness/changes/archive/20260618-phase-12o-product-maintenance-candidate-lifecycle-resolution/summary.md`.
 - Latest Harness evolution: `harness/changes/archive/20260618-auto-evolve-harness-phase-12g-12k-memory-lifecycle-evidence/summary.md`.
 
-If an active change exists, use its files first for the current task. Use `docs/STATUS.md` for the short resume state and next recommended structured work. Use `harness/changes/INDEX.json` and archived `summary.md` files for historical detail. Do not rebuild current context by reading the full archive ledger unless the task requires it.
+If an active change exists, use its files first for the current task. Because no active change exists and pending Harness evolution exists, read `harness/evolution/pending.md` before `docs/STATUS.md`. Use `docs/STATUS.md` for the short resume state and next recommended structured work. Use `harness/changes/INDEX.json` and archived `summary.md` files for historical detail. Do not rebuild current context by reading the full archive ledger unless the task requires it.
 
 ## 2. Context Loading Order
 

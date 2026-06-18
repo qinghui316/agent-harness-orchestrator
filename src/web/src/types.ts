@@ -511,8 +511,19 @@ export type Workpad = {
   maintenance?: {
     ledgerCount: number;
     closeoutCount?: number;
+    resolutionCount?: number;
     latestReviewWindowId?: string;
     unreviewedTerminalCount?: number;
+    latestResolution?: {
+      candidateId: string;
+      outcome: string;
+      candidateSubtype?: string;
+      reviewRecommendation: string;
+      canonicalUpdateRequired: boolean;
+      humanGateRequired: boolean;
+      rationale: string;
+      createdAt: string;
+    };
     latest?: { id: string; eventType: string; changeId?: string; summary: string; severity: string; createdAt: string };
     status: "idle" | "collecting" | "review-ready" | "reviewed";
     note: string;

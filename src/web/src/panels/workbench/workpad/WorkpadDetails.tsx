@@ -247,7 +247,13 @@ export function WorkpadDiagnosticDetails({
             <span>{workpad.maintenance.closeoutCount ?? workpad.maintenance.ledgerCount}</span>
           </div>
           <p>{userFacingText(workpad.maintenance.note)}</p>
-          <p className="panel-note">终态需求：{workpad.maintenance.closeoutCount ?? 0} · 待维护审查：{workpad.maintenance.unreviewedTerminalCount ?? 0}</p>
+          <p className="panel-note">终态需求：{workpad.maintenance.closeoutCount ?? 0} · 待维护审查：{workpad.maintenance.unreviewedTerminalCount ?? 0} · 生命周期决议：{workpad.maintenance.resolutionCount ?? 0}</p>
+          {workpad.maintenance.latestResolution ? (
+            <div className="workpad-evidence">
+              <strong>{userFacingText(workpad.maintenance.latestResolution.outcome)}</strong>
+              <span>{userFacingText(workpad.maintenance.latestResolution.rationale)}</span>
+            </div>
+          ) : null}
           {workpad.maintenance.latest ? (
             <div className="workpad-evidence">
               <strong>{userFacingText(workpad.maintenance.latest.eventType)}</strong>

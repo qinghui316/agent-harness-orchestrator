@@ -31,4 +31,10 @@ export {
   runMaintenanceCandidatePipeline,
   scoreEvolutionCandidate,
 } from "./candidates.js";
+export {
+  listMaintenanceCandidateResolutions,
+  maintenanceResolutionArtifactRef,
+  readMaintenanceCandidateResolution,
+  resolveMaintenanceCandidate,
+} from "./resolutions.js";
 export { buildRoleScopedContextProjection } from "./role-context.js";

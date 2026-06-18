@@ -9,6 +9,7 @@ import type {
   EvolutionCandidate,
   MaintenanceReviewRun,
   MaintenanceReviewWatermark,
+  MaintenanceCandidateResolution,
   ResolvedMemory,
 } from "../types/index.js";
 import { TERMINAL_REVIEW_WINDOW } from "./constants.js";
@@ -23,6 +24,7 @@ import {
   warmIndexPath,
   watermarkPath,
 } from "./paths.js";
+import { maintenanceResolutionArtifactRef, resolveMaintenanceCandidate } from "./resolutions.js";
 import { maintenanceReviewRunSchema, watermarkSchema } from "./schemas.js";
 import { listDemandMemoryCloseouts, refreshMaintenanceIndexes } from "./closeout-store.js";
 import { closeoutReviewKey, contentHash, uniqueSorted } from "./utils.js";
@@ -63,15 +65,19 @@ export async function runMaintenanceReviewWindow(memory: ResolvedMemory, windowC
   const candidates = await createMaintenanceCandidatesForWindow(memory, closeouts, windowLedgerEntries);
   const scores: CandidateScore[] = [];
   const reviews: CandidateReview[] = [];
+  const resolutions: MaintenanceCandidateResolution[] = [];
   for (const candidate of candidates) {
     const score = await scoreEvolutionCandidate(memory, candidate);
     const review = await reviewEvolutionCandidate(memory, candidate, score);
+    const resolution = await resolveMaintenanceCandidate(memory, candidate, score, review);
     scores.push(score);
     reviews.push(review);
+    resolutions.push(resolution);
   }
   const candidateRefs = candidates.map((candidate) => displayMaintenancePath(memory, join(maintenanceRoot(memory), "candidates", `${candidate.id}.json`)));
   const scoreRefs = scores.map((score) => displayMaintenancePath(memory, join(maintenanceRoot(memory), "scores", `${score.candidateId}.json`)));
   const reviewRefs = reviews.map((review) => displayMaintenancePath(memory, join(maintenanceRoot(memory), "reviews", `${review.candidateId}.json`)));
+  const resolutionRefs = resolutions.map((resolution) => maintenanceResolutionArtifactRef(memory, resolution.candidateId));
   const reviewRun: MaintenanceReviewRun = {
     version: "1.0",
     id,
@@ -83,12 +89,13 @@ export async function runMaintenanceReviewWindow(memory: ResolvedMemory, windowC
     candidateRefs,
     scoreRefs,
     reviewRefs,
+    resolutionRefs,
     summary: `Reviewed ${closeouts.length} terminal changes for reusable lessons and documentation drift. Canonical docs, ECL, stable memory, and source root were not modified.`,
     createdAt: now,
   };
   maintenanceReviewRunSchema.parse(reviewRun);
   await writeJsonFile(join(root, "maintenance-review.json"), reviewRun);
-  await writeFile(join(root, "maintenance-review.md"), renderMaintenanceReviewMarkdown(reviewRun, closeouts, candidates, scores, reviews, docBudget), "utf8");
+  await writeFile(join(root, "maintenance-review.md"), renderMaintenanceReviewMarkdown(reviewRun, closeouts, candidates, scores, reviews, resolutions, docBudget), "utf8");
   const previous = await readMaintenanceReviewWatermark(memory);
   const reviewedIds = uniqueSorted([...previous.lastReviewedChangeIds, ...closeouts.map(closeoutReviewKey)]);
   await writeJsonFile(watermarkPath(memory), {
@@ -112,10 +119,12 @@ function renderMaintenanceReviewMarkdown(
   candidates: EvolutionCandidate[],
   scores: CandidateScore[],
   reviews: CandidateReview[],
+  resolutions: MaintenanceCandidateResolution[],
   docBudget: DocBudgetReport,
 ): string {
   const scoreByCandidate = new Map(scores.map((score) => [score.candidateId, score]));
   const reviewByCandidate = new Map(reviews.map((item) => [item.candidateId, item]));
+  const resolutionByCandidate = new Map(resolutions.map((item) => [item.candidateId, item]));
   return [
     `# ${review.id}`,
     "",
@@ -130,7 +139,8 @@ function renderMaintenanceReviewMarkdown(
     ...(candidates.length ? candidates.map((candidate) => {
       const score = scoreByCandidate.get(candidate.id);
       const itemReview = reviewByCandidate.get(candidate.id);
-      return `- ${candidate.title} [${candidate.subtype ?? "maintenance"}] score=${score?.score ?? "n/a"} recommendation=${itemReview?.recommendation ?? "n/a"}\n  ${candidate.summary.replace(/\r?\n/g, " ")}`;
+      const resolution = resolutionByCandidate.get(candidate.id);
+      return `- ${candidate.title} [${candidate.subtype ?? "maintenance"}] score=${score?.score ?? "n/a"} recommendation=${itemReview?.recommendation ?? "n/a"} resolution=${resolution?.outcome ?? "n/a"} canonicalUpdateRequired=${resolution?.canonicalUpdateRequired ?? "n/a"} humanGateRequired=${resolution?.humanGateRequired ?? "n/a"}\n  ${candidate.summary.replace(/\r?\n/g, " ")}`;
     }) : ["- No candidates generated."]),
     "",
     "## Document Budget",

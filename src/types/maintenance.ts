@@ -137,6 +137,28 @@ export interface CandidateReview {
   createdAt: string;
 }
 
+export type MaintenanceCandidateResolutionOutcome =
+  | "promote"
+  | "merge"
+  | "retire"
+  | "archive-only"
+  | "noop";
+
+export interface MaintenanceCandidateResolution {
+  version: "1.0";
+  id: string;
+  candidateId: string;
+  outcome: MaintenanceCandidateResolutionOutcome;
+  reviewRecommendation: CandidateReview["recommendation"];
+  candidateSubtype?: MaintenanceCandidateSubtype;
+  score: number;
+  rationale: string;
+  canonicalUpdateRequired: boolean;
+  humanGateRequired: boolean;
+  artifactRefs: string[];
+  createdAt: string;
+}
+
 export type MaintenanceCandidateSubtype =
   | "stable-memory"
   | "docs-drift"
@@ -214,6 +236,7 @@ export interface MaintenanceReviewRun {
   candidateRefs: string[];
   scoreRefs: string[];
   reviewRefs: string[];
+  resolutionRefs: string[];
   summary: string;
   createdAt: string;
 }
