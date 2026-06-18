@@ -5,20 +5,20 @@
 - Current date: 2026-06-19.
 - Active ECL change: none.
 - Pending Harness evolution: none.
-- Latest archived product change: `harness/changes/archive/20260619-maintenance-canonical-ledger-event-policy-reuse/summary.md`.
-- Latest archived product/Harness docs change: `harness/changes/archive/20260619-auto-evolve-harness-source-convergence-architecture-growth-control/summary.md`.
+- Latest archived product change: `harness/changes/archive/20260619-workbench-action-active-target-revalidation-reuse/summary.md`.
+- Latest archived product/Harness docs change: `harness/changes/archive/20260619-workbench-action-active-target-revalidation-reuse/summary.md`.
 - Latest archived Harness evolution: `harness/changes/archive/20260619-auto-evolve-harness-source-convergence-architecture-growth-control/summary.md`.
 - Active product phase: none.
 - Active Harness evolution phase: none.
 - Active close status: none.
 
-This file is the short resume point. There is no active ECL change and no pending Harness evolution. The latest archived product slice extracted canonical maintenance evidence event classification into a small ledger event-policy owner so candidate extraction no longer carries a private canonical event list. The latest Harness evolution recorded a `keep` result with independent review, retained existing current rules as sufficient, corrected stale STATUS wording, and kept detailed phase/source-convergence narratives archive-only.
+This file is the short resume point. There is no active ECL change and no pending Harness evolution. The latest archived product slice extracted Workbench action active Change target lookup into a small owner helper so high-impact action branches reuse one scoped stale-target lookup before keeping their domain-specific artifact/status/lineage checks. The latest Harness evolution remains a `keep` result with independent review, retained existing current rules as sufficient, corrected stale STATUS wording, and kept detailed phase/source-convergence narratives archive-only.
 
 Current plan-level roadmap context is preserved in `docs/CURRENT-DEVELOPMENT-PLAN.md`. Historical detail belongs in archived summaries and `harness/changes/INDEX.json`.
 
 ## Current Baseline
 
-The product baseline is post-maintenance canonical patch target-boundary, lineage, ledger-idempotency, artifact-store reuse, artifact-reference reuse, and ledger event-policy reuse across the proposal/decision/gate/application/report chain. The latest Harness evolution completed `mark-complete` with result `keep`; no new Harness rule/template/lint/runtime change was required. Goal Loop controlled-loop state, routing posture, and SchedulerRun terminal handoff evidence remain non-executing evidence only. SchedulerRun terminal Workpad completion and blocked-closeout cards remain read-only evidence and do not authorize loop/full-executor/dispatch/slot/source/apply/close/merge/Harness-evolution behavior.
+The product baseline is post-maintenance canonical patch target-boundary, lineage, ledger-idempotency, artifact-store reuse, artifact-reference reuse, ledger event-policy reuse, and Workbench action active-target revalidation reuse. The latest Harness evolution completed `mark-complete` with result `keep`; no new Harness rule/template/lint/runtime change was required. Goal Loop controlled-loop state, routing posture, and SchedulerRun terminal handoff evidence remain non-executing evidence only. SchedulerRun terminal Workpad completion and blocked-closeout cards remain read-only evidence and do not authorize loop/full-executor/dispatch/slot/source/apply/close/merge/Harness-evolution behavior.
 
 Product-level maintenance writes candidate lifecycle-resolution evidence, canonical update proposal evidence, human-gated canonical update decision records, canonical patch proposal evidence, human-gated canonical patch application follow-up records, read-only application manifest/readiness evidence, Phase 12U target-descriptor evidence, Phase 12V human-gated canonical docs/stable-memory application result evidence, and Phase 12W read-only observation report evidence while still forbidding automatic canonical rewrites.
 
@@ -58,6 +58,7 @@ Use `harness/changes/INDEX.json` for the generated archive list. Start with arch
 Recent key archive summaries:
 
 - Latest Harness evolution: `harness/changes/archive/20260619-auto-evolve-harness-source-convergence-architecture-growth-control/summary.md`.
+- Workbench Action Active Target Revalidation Reuse: `harness/changes/archive/20260619-workbench-action-active-target-revalidation-reuse/summary.md`.
 - Maintenance Canonical Ledger Event Policy Reuse: `harness/changes/archive/20260619-maintenance-canonical-ledger-event-policy-reuse/summary.md`.
 - Maintenance Canonical Artifact Reference Reuse: `harness/changes/archive/20260619-maintenance-canonical-artifact-reference-reuse/summary.md`.
 - Maintenance Canonical Artifact Store Canonical Updates Adoption: `harness/changes/archive/20260619-maintenance-canonical-artifact-store-canonical-updates-adoption/summary.md`.

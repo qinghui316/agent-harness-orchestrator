@@ -3,7 +3,6 @@ import { join } from "node:path";
 import { recordToolEventAuditEntry } from "../../agent-task/boundary-audit.js";
 import { evaluateToolPolicy, highImpactActions } from "../../agent-task/tool-policy.js";
 import { getChangeStatusForChange } from "../../change/manager.js";
-import { getActiveChanges } from "../../ecl/index.js";
 import { readIntegrationCheck } from "../../integration-check/manager.js";
 import { resolveProjectMemory } from "../../memory/resolver.js";
 import { readRun } from "../../run/repository.js";
@@ -43,6 +42,7 @@ import {
 } from "../../workflow-actions/registry.js";
 import { readWorkflowRun } from "../../workflow-run/manager.js";
 import type { WorkbenchLiveSink, WorkbenchWorkflowActionRequest } from "../types.js";
+import { requireActiveChangeTarget } from "./active-target.js";
 import { assertGoalLoopAssistedConcreteGateConfirmation } from "./goal-loop-gate-confirmation.js";
 import { readLatestPlanningBundle } from "./planning-bundle.js";
 
@@ -118,15 +118,11 @@ export async function auditHighImpactWorkflowAction(project: ManagedProject, cha
 
 async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, changeId: string, request: WorkbenchWorkflowActionRequest): Promise<void> {
   if (request.goalLoopGateReadinessPreflightId) {
-    const active = await getActiveChanges(memory);
-    const target = active.find((item) => item.name === changeId);
-    if (!target) throw new Error(`Goal Loop-assisted concrete gate target is stale or missing active Change: ${changeId}.`);
+    const target = await requireActiveChangeTarget(memory, changeId, "Goal Loop-assisted concrete gate");
     await assertGoalLoopAssistedConcreteGateConfirmation(memory, target.path, changeId, request);
   }
   if (request.actionType === "planning.confirm-execution") {
-    const active = await getActiveChanges(memory);
-    const target = active.find((item) => item.name === changeId);
-    if (!target) throw new Error(`planning.confirm-execution target is stale or missing active Change: ${changeId}.`);
+    const target = await requireActiveChangeTarget(memory, changeId, "planning.confirm-execution");
     if (!request.planningBundleId) throw new Error("planning.confirm-execution requires planningBundleId.");
     const bundle = await readLatestPlanningBundle(memory, target.path);
     if (bundle.id !== request.planningBundleId || bundle.status !== "draft" || !existsSync(join(memory.memoryRoot, target.path, "planning", "latest-bundle.json"))) {
@@ -134,9 +130,7 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
     }
   }
   if (request.actionType === "planning.decomposition.confirm") {
-    const active = await getActiveChanges(memory);
-    const target = active.find((item) => item.name === changeId);
-    if (!target) throw new Error(`planning.decomposition.confirm target is stale or missing active Change: ${changeId}.`);
+    const target = await requireActiveChangeTarget(memory, changeId, "planning.decomposition.confirm");
     if (!request.decompositionPlanId) throw new Error("planning.decomposition.confirm requires decompositionPlanId.");
     const plan = await readLatestDecompositionPlan(memory, target.path);
     if (plan.id !== request.decompositionPlanId || plan.status !== "draft") {
@@ -144,9 +138,7 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
     }
   }
   if (request.actionType === "planning.decomposition.assess-readiness") {
-    const active = await getActiveChanges(memory);
-    const target = active.find((item) => item.name === changeId);
-    if (!target) throw new Error(`planning.decomposition.assess-readiness target is stale or missing active Change: ${changeId}.`);
+    const target = await requireActiveChangeTarget(memory, changeId, "planning.decomposition.assess-readiness");
     if (!request.decompositionPlanId) throw new Error("planning.decomposition.assess-readiness requires decompositionPlanId.");
     const plan = await readLatestDecompositionPlan(memory, target.path);
     if (plan.id !== request.decompositionPlanId || plan.status !== "confirmed") {
@@ -154,9 +146,7 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
     }
   }
   if (request.actionType === "planning.taskqueue.propose") {
-    const active = await getActiveChanges(memory);
-    const target = active.find((item) => item.name === changeId);
-    if (!target) throw new Error(`planning.taskqueue.propose target is stale or missing active Change: ${changeId}.`);
+    const target = await requireActiveChangeTarget(memory, changeId, "planning.taskqueue.propose");
     if (!request.readinessManifestId) throw new Error("planning.taskqueue.propose requires readinessManifestId.");
     const manifest = await readLatestDecompositionReadinessManifest(memory, target.path);
     if (manifest.id !== request.readinessManifestId || manifest.status !== "ready-for-sequential-taskqueue-proposal" || manifest.nextAllowedAction !== "taskqueue.proposal") {
@@ -164,15 +154,11 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
     }
   }
   if (request.actionType === "planning.goal-loop.evaluate") {
-    const active = await getActiveChanges(memory);
-    const target = active.find((item) => item.name === changeId);
-    if (!target) throw new Error(`planning.goal-loop.evaluate target is stale or missing active Change: ${changeId}.`);
+    await requireActiveChangeTarget(memory, changeId, "planning.goal-loop.evaluate");
     if (request.changeId && request.changeId !== changeId) throw new Error("planning.goal-loop.evaluate changeId scope mismatch.");
   }
   if (request.actionType === "planning.goal-loop.feedback.evaluate") {
-    const active = await getActiveChanges(memory);
-    const target = active.find((item) => item.name === changeId);
-    if (!target) throw new Error(`planning.goal-loop.feedback.evaluate target is stale or missing active Change: ${changeId}.`);
+    const target = await requireActiveChangeTarget(memory, changeId, "planning.goal-loop.feedback.evaluate");
     if (request.changeId && request.changeId !== changeId) throw new Error("planning.goal-loop.feedback.evaluate changeId scope mismatch.");
     if (!request.goalLoopNextStepPacketId) throw new Error("planning.goal-loop.feedback.evaluate requires goalLoopNextStepPacketId.");
     const packet = await readLatestGoalLoopNextStepPacket(memory, target.path);
@@ -181,9 +167,7 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
     }
   }
   if (request.actionType === "planning.goal-loop.controller.refresh") {
-    const active = await getActiveChanges(memory);
-    const target = active.find((item) => item.name === changeId);
-    if (!target) throw new Error(`planning.goal-loop.controller.refresh target is stale or missing active Change: ${changeId}.`);
+    const target = await requireActiveChangeTarget(memory, changeId, "planning.goal-loop.controller.refresh");
     if (request.changeId && request.changeId !== changeId) throw new Error("planning.goal-loop.controller.refresh changeId scope mismatch.");
     if (!request.goalLoopNextStepPacketId) throw new Error("planning.goal-loop.controller.refresh requires goalLoopNextStepPacketId.");
     if (!request.goalLoopCurrentGateActionType) throw new Error("planning.goal-loop.controller.refresh requires goalLoopCurrentGateActionType.");
@@ -196,9 +180,7 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
     }
   }
   if (request.actionType === "planning.goal-loop.gate-readiness.prepare") {
-    const active = await getActiveChanges(memory);
-    const target = active.find((item) => item.name === changeId);
-    if (!target) throw new Error(`planning.goal-loop.gate-readiness.prepare target is stale or missing active Change: ${changeId}.`);
+    const target = await requireActiveChangeTarget(memory, changeId, "planning.goal-loop.gate-readiness.prepare");
     if (request.changeId && request.changeId !== changeId) throw new Error("planning.goal-loop.gate-readiness.prepare changeId scope mismatch.");
     if (!request.goalLoopNextStepPacketId) throw new Error("planning.goal-loop.gate-readiness.prepare requires goalLoopNextStepPacketId.");
     if (!request.goalLoopControllerPolicyId) throw new Error("planning.goal-loop.gate-readiness.prepare requires goalLoopControllerPolicyId.");
@@ -232,9 +214,7 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
     }
   }
   if (request.actionType === "planning.scheduler.plan.prepare") {
-    const active = await getActiveChanges(memory);
-    const target = active.find((item) => item.name === changeId);
-    if (!target) throw new Error(`planning.scheduler.plan.prepare target is stale or missing active Change: ${changeId}.`);
+    const target = await requireActiveChangeTarget(memory, changeId, "planning.scheduler.plan.prepare");
     if (request.changeId && request.changeId !== changeId) throw new Error("planning.scheduler.plan.prepare changeId scope mismatch.");
     if (request.schedulerClaimReservationId || request.schedulerReconcileSnapshotId || request.schedulerRunId) {
       if (!request.schedulerRunId) throw new Error("planning.scheduler.plan.prepare launch confirmation requires schedulerRunId.");
@@ -271,9 +251,7 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
     }
   }
   if (request.actionType === "planning.scheduler.contract.compile") {
-    const active = await getActiveChanges(memory);
-    const target = active.find((item) => item.name === changeId);
-    if (!target) throw new Error(`planning.scheduler.contract.compile target is stale or missing active Change: ${changeId}.`);
+    const target = await requireActiveChangeTarget(memory, changeId, "planning.scheduler.contract.compile");
     if (!request.decompositionPlanId) throw new Error("planning.scheduler.contract.compile requires decompositionPlanId.");
     if (!request.readinessManifestId) throw new Error("planning.scheduler.contract.compile requires readinessManifestId.");
     const plan = await readLatestDecompositionPlan(memory, target.path);
@@ -286,9 +264,7 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
     }
   }
   if (request.actionType === "planning.scheduler.dispatch.dry-run") {
-    const active = await getActiveChanges(memory);
-    const target = active.find((item) => item.name === changeId);
-    if (!target) throw new Error(`planning.scheduler.dispatch.dry-run target is stale or missing active Change: ${changeId}.`);
+    const target = await requireActiveChangeTarget(memory, changeId, "planning.scheduler.dispatch.dry-run");
     if (!request.schedulerContractId) throw new Error("planning.scheduler.dispatch.dry-run requires schedulerContractId.");
     const contract = await readSchedulerContract(memory, target.path, request.schedulerContractId);
     if (contract.id !== request.schedulerContractId || contract.changeId !== changeId || contract.status !== "compiled") {
@@ -296,9 +272,7 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
     }
   }
   if (request.actionType === "planning.scheduler.worker-plan.compile") {
-    const active = await getActiveChanges(memory);
-    const target = active.find((item) => item.name === changeId);
-    if (!target) throw new Error(`planning.scheduler.worker-plan.compile target is stale or missing active Change: ${changeId}.`);
+    const target = await requireActiveChangeTarget(memory, changeId, "planning.scheduler.worker-plan.compile");
     if (!request.schedulerDispatchDryRunId) throw new Error("planning.scheduler.worker-plan.compile requires schedulerDispatchDryRunId.");
     const dryRun = await readSchedulerDispatchDryRun(memory, target.path, request.schedulerDispatchDryRunId);
     if (dryRun.id !== request.schedulerDispatchDryRunId || dryRun.changeId !== changeId || dryRun.status !== "generated") {
@@ -314,9 +288,7 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
     if (latestContract.id !== contract.id) throw new Error("planning.scheduler.worker-plan.compile requires the latest SchedulerContract.");
   }
   if (request.actionType === "planning.scheduler.claim-reconcile.compile") {
-    const active = await getActiveChanges(memory);
-    const target = active.find((item) => item.name === changeId);
-    if (!target) throw new Error(`planning.scheduler.claim-reconcile.compile target is stale or missing active Change: ${changeId}.`);
+    const target = await requireActiveChangeTarget(memory, changeId, "planning.scheduler.claim-reconcile.compile");
     if (!request.schedulerWorkerPlanId) throw new Error("planning.scheduler.claim-reconcile.compile requires schedulerWorkerPlanId.");
     const workerPlan = await readSchedulerWorkerSessionPlan(memory, target.path, request.schedulerWorkerPlanId);
     if (workerPlan.id !== request.schedulerWorkerPlanId || workerPlan.changeId !== changeId || workerPlan.status !== "planned") {
@@ -338,9 +310,7 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
     if (latestContract.id !== contract.id) throw new Error("planning.scheduler.claim-reconcile.compile requires the latest SchedulerContract.");
   }
   if (request.actionType === "planning.scheduler.launch-preflight.check") {
-    const active = await getActiveChanges(memory);
-    const target = active.find((item) => item.name === changeId);
-    if (!target) throw new Error(`planning.scheduler.launch-preflight.check target is stale or missing active Change: ${changeId}.`);
+    const target = await requireActiveChangeTarget(memory, changeId, "planning.scheduler.launch-preflight.check");
     if (!request.schedulerClaimReconcilePlanId) throw new Error("planning.scheduler.launch-preflight.check requires schedulerClaimReconcilePlanId.");
     const claimPlan = await readSchedulerClaimReconcilePlan(memory, target.path, request.schedulerClaimReconcilePlanId);
     if (claimPlan.id !== request.schedulerClaimReconcilePlanId || claimPlan.changeId !== changeId || claimPlan.status !== "planned") {
@@ -368,9 +338,7 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
     if (latestContract.id !== contract.id) throw new Error("planning.scheduler.launch-preflight.check requires the latest SchedulerContract.");
   }
   if (request.actionType === "planning.scheduler.run.prepare") {
-    const active = await getActiveChanges(memory);
-    const target = active.find((item) => item.name === changeId);
-    if (!target) throw new Error(`planning.scheduler.run.prepare target is stale or missing active Change: ${changeId}.`);
+    const target = await requireActiveChangeTarget(memory, changeId, "planning.scheduler.run.prepare");
     if (!request.schedulerLaunchPreflightId) throw new Error("planning.scheduler.run.prepare requires schedulerLaunchPreflightId.");
     const preflight = await readSchedulerLaunchPreflight(memory, target.path, request.schedulerLaunchPreflightId);
     if (preflight.id !== request.schedulerLaunchPreflightId || preflight.changeId !== changeId || preflight.status !== "checked") {
@@ -404,9 +372,7 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
     if (latestContract.id !== contract.id) throw new Error("planning.scheduler.run.prepare requires the latest SchedulerContract.");
   }
   if (request.actionType === "planning.scheduler.runtime.initialize" || request.actionType === "planning.scheduler.runtime.reconcile" || request.actionType === "planning.scheduler.runtime.reserve-claims") {
-    const active = await getActiveChanges(memory);
-    const target = active.find((item) => item.name === changeId);
-    if (!target) throw new Error(`${request.actionType} target is stale or missing active Change: ${changeId}.`);
+    const target = await requireActiveChangeTarget(memory, changeId, request.actionType);
     if (!request.schedulerRunId) throw new Error(`${request.actionType} requires schedulerRunId.`);
     const run = await readSchedulerRun(memory, target.path, request.schedulerRunId);
     if (run.id !== request.schedulerRunId || run.changeId !== changeId || run.status !== "prepared") {
@@ -436,9 +402,7 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
     }
   }
   if (request.actionType === "planning.scheduler.worker.start-first" || request.actionType === "planning.scheduler.worker.start-next") {
-    const active = await getActiveChanges(memory);
-    const target = active.find((item) => item.name === changeId);
-    if (!target) throw new Error(`${request.actionType} target is stale or missing active Change.`);
+    const target = await requireActiveChangeTarget(memory, changeId, request.actionType, { includeChangeId: false });
     if (!request.schedulerRunId) throw new Error(`${request.actionType} requires schedulerRunId.`);
     if (!request.schedulerClaimReservationId) throw new Error(`${request.actionType} requires schedulerClaimReservationId.`);
     if (request.actionType === "planning.scheduler.worker.start-next") {
@@ -496,9 +460,7 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
     }
   }
   if (request.actionType === "planning.scheduler.worker.reconcile-result") {
-    const active = await getActiveChanges(memory);
-    const target = active.find((item) => item.name === changeId);
-    if (!target) throw new Error("planning.scheduler.worker.reconcile-result target is stale or missing active Change.");
+    const target = await requireActiveChangeTarget(memory, changeId, "planning.scheduler.worker.reconcile-result", { includeChangeId: false });
     if (!request.schedulerRunId) throw new Error("planning.scheduler.worker.reconcile-result requires schedulerRunId.");
     if (!request.schedulerWorkerStartId) throw new Error("planning.scheduler.worker.reconcile-result requires schedulerWorkerStartId.");
     const run = await readSchedulerRun(memory, target.path, request.schedulerRunId);
@@ -554,9 +516,7 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
     }
   }
   if (request.actionType === "planning.scheduler.worker.validate-first") {
-    const active = await getActiveChanges(memory);
-    const target = active.find((item) => item.name === changeId);
-    if (!target) throw new Error("planning.scheduler.worker.validate-first target is stale or missing active Change.");
+    const target = await requireActiveChangeTarget(memory, changeId, "planning.scheduler.worker.validate-first", { includeChangeId: false });
     if (!request.schedulerRunId) throw new Error("planning.scheduler.worker.validate-first requires schedulerRunId.");
     if (!request.schedulerWorkerResultId) throw new Error("planning.scheduler.worker.validate-first requires schedulerWorkerResultId.");
     const run = await readSchedulerRun(memory, target.path, request.schedulerRunId);
@@ -619,9 +579,7 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
     }
   }
   if (request.actionType === "planning.scheduler.worker.audit-first") {
-    const active = await getActiveChanges(memory);
-    const target = active.find((item) => item.name === changeId);
-    if (!target) throw new Error("planning.scheduler.worker.audit-first target is stale or missing active Change.");
+    const target = await requireActiveChangeTarget(memory, changeId, "planning.scheduler.worker.audit-first", { includeChangeId: false });
     if (!request.schedulerRunId) throw new Error("planning.scheduler.worker.audit-first requires schedulerRunId.");
     if (!request.schedulerWorkerValidationId) throw new Error("planning.scheduler.worker.audit-first requires schedulerWorkerValidationId.");
     const run = await readSchedulerRun(memory, target.path, request.schedulerRunId);
@@ -690,9 +648,7 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
     }
   }
   if (request.actionType === "planning.scheduler.worker.rework-plan.compile") {
-    const active = await getActiveChanges(memory);
-    const target = active.find((item) => item.name === changeId);
-    if (!target) throw new Error("planning.scheduler.worker.rework-plan.compile target is stale or missing active Change.");
+    const target = await requireActiveChangeTarget(memory, changeId, "planning.scheduler.worker.rework-plan.compile", { includeChangeId: false });
     if (!request.schedulerRunId) throw new Error("planning.scheduler.worker.rework-plan.compile requires schedulerRunId.");
     if (!request.schedulerWorkerValidationId) throw new Error("planning.scheduler.worker.rework-plan.compile requires schedulerWorkerValidationId.");
     const run = await readSchedulerRun(memory, target.path, request.schedulerRunId);
@@ -782,9 +738,7 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
     }
   }
   if (request.actionType === "planning.scheduler.worker.rework-start-first") {
-    const active = await getActiveChanges(memory);
-    const target = active.find((item) => item.name === changeId);
-    if (!target) throw new Error("planning.scheduler.worker.rework-start-first target is stale or missing active Change.");
+    const target = await requireActiveChangeTarget(memory, changeId, "planning.scheduler.worker.rework-start-first", { includeChangeId: false });
     if (!request.schedulerRunId) throw new Error("planning.scheduler.worker.rework-start-first requires schedulerRunId.");
     if (!request.schedulerWorkerReworkPlanId) throw new Error("planning.scheduler.worker.rework-start-first requires schedulerWorkerReworkPlanId.");
     const run = await readSchedulerRun(memory, target.path, request.schedulerRunId);
@@ -839,9 +793,7 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
     if (existingStart) throw new Error("planning.scheduler.worker.rework-start-first rework plan already started.");
   }
   if (request.actionType === "planning.scheduler.worker.rework-reconcile-result") {
-    const active = await getActiveChanges(memory);
-    const target = active.find((item) => item.name === changeId);
-    if (!target) throw new Error("planning.scheduler.worker.rework-reconcile-result target is stale or missing active Change.");
+    const target = await requireActiveChangeTarget(memory, changeId, "planning.scheduler.worker.rework-reconcile-result", { includeChangeId: false });
     if (!request.schedulerRunId) throw new Error("planning.scheduler.worker.rework-reconcile-result requires schedulerRunId.");
     if (!request.schedulerWorkerReworkStartId) throw new Error("planning.scheduler.worker.rework-reconcile-result requires schedulerWorkerReworkStartId.");
     const run = await readSchedulerRun(memory, target.path, request.schedulerRunId);
@@ -908,9 +860,7 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
     }
   }
   if (request.actionType === "planning.scheduler.worker.rework-validate-first") {
-    const active = await getActiveChanges(memory);
-    const target = active.find((item) => item.name === changeId);
-    if (!target) throw new Error("planning.scheduler.worker.rework-validate-first target is stale or missing active Change.");
+    const target = await requireActiveChangeTarget(memory, changeId, "planning.scheduler.worker.rework-validate-first", { includeChangeId: false });
     if (!request.schedulerRunId) throw new Error("planning.scheduler.worker.rework-validate-first requires schedulerRunId.");
     if (!request.schedulerWorkerReworkResultId) throw new Error("planning.scheduler.worker.rework-validate-first requires schedulerWorkerReworkResultId.");
     const run = await readSchedulerRun(memory, target.path, request.schedulerRunId);
@@ -994,9 +944,7 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
     }
   }
   if (request.actionType === "planning.scheduler.worker.rework-audit-first") {
-    const active = await getActiveChanges(memory);
-    const target = active.find((item) => item.name === changeId);
-    if (!target) throw new Error("planning.scheduler.worker.rework-audit-first target is stale or missing active Change.");
+    const target = await requireActiveChangeTarget(memory, changeId, "planning.scheduler.worker.rework-audit-first", { includeChangeId: false });
     if (!request.schedulerRunId) throw new Error("planning.scheduler.worker.rework-audit-first requires schedulerRunId.");
     if (!request.schedulerWorkerReworkValidationId) throw new Error("planning.scheduler.worker.rework-audit-first requires schedulerWorkerReworkValidationId.");
     const run = await readSchedulerRun(memory, target.path, request.schedulerRunId);
@@ -1092,9 +1040,7 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
     }
   }
   if (request.actionType === "planning.scheduler.integration-candidate.compile") {
-    const active = await getActiveChanges(memory);
-    const target = active.find((item) => item.name === changeId);
-    if (!target) throw new Error("planning.scheduler.integration-candidate.compile target is stale or missing active Change.");
+    const target = await requireActiveChangeTarget(memory, changeId, "planning.scheduler.integration-candidate.compile", { includeChangeId: false });
     if (!request.schedulerRunId) throw new Error("planning.scheduler.integration-candidate.compile requires schedulerRunId.");
     const run = await readSchedulerRun(memory, target.path, request.schedulerRunId);
     if (run.id !== request.schedulerRunId || run.changeId !== changeId || run.status !== "prepared") {
@@ -1124,9 +1070,7 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
     }
   }
   if (request.actionType === "planning.scheduler.integration-check.run") {
-    const active = await getActiveChanges(memory);
-    const target = active.find((item) => item.name === changeId);
-    if (!target) throw new Error("planning.scheduler.integration-check.run target is stale or missing active Change.");
+    const target = await requireActiveChangeTarget(memory, changeId, "planning.scheduler.integration-check.run", { includeChangeId: false });
     if (!request.schedulerRunId) throw new Error("planning.scheduler.integration-check.run requires schedulerRunId.");
     if (!request.schedulerIntegrationCandidateId) throw new Error("planning.scheduler.integration-check.run requires schedulerIntegrationCandidateId.");
     const run = await readSchedulerRun(memory, target.path, request.schedulerRunId);
@@ -1168,9 +1112,7 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
     }
   }
   if (request.actionType === "planning.scheduler.integration-outcome.reconcile") {
-    const active = await getActiveChanges(memory);
-    const target = active.find((item) => item.name === changeId);
-    if (!target) throw new Error("planning.scheduler.integration-outcome.reconcile target is stale or missing active Change.");
+    const target = await requireActiveChangeTarget(memory, changeId, "planning.scheduler.integration-outcome.reconcile", { includeChangeId: false });
     if (!request.schedulerRunId) throw new Error("planning.scheduler.integration-outcome.reconcile requires schedulerRunId.");
     if (!request.schedulerIntegrationCheckHandoffId) throw new Error("planning.scheduler.integration-outcome.reconcile requires schedulerIntegrationCheckHandoffId.");
     const run = await readSchedulerRun(memory, target.path, request.schedulerRunId);
@@ -1215,9 +1157,7 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
     }
   }
   if (request.actionType === "planning.scheduler.run.complete") {
-    const active = await getActiveChanges(memory);
-    const target = active.find((item) => item.name === changeId);
-    if (!target) throw new Error("planning.scheduler.run.complete target is stale or missing active Change.");
+    const target = await requireActiveChangeTarget(memory, changeId, "planning.scheduler.run.complete", { includeChangeId: false });
     if (!request.schedulerRunId) throw new Error("planning.scheduler.run.complete requires schedulerRunId.");
     if (!request.schedulerIntegrationOutcomeId) throw new Error("planning.scheduler.run.complete requires schedulerIntegrationOutcomeId.");
     const run = await readSchedulerRun(memory, target.path, request.schedulerRunId);
@@ -1277,9 +1217,7 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
     }
   }
   if (request.actionType === "planning.scheduler.run.close-blocked") {
-    const active = await getActiveChanges(memory);
-    const target = active.find((item) => item.name === changeId);
-    if (!target) throw new Error("planning.scheduler.run.close-blocked target is stale or missing active Change.");
+    const target = await requireActiveChangeTarget(memory, changeId, "planning.scheduler.run.close-blocked", { includeChangeId: false });
     if (!request.schedulerRunId) throw new Error("planning.scheduler.run.close-blocked requires schedulerRunId.");
     if (!request.schedulerClaimReservationId) throw new Error("planning.scheduler.run.close-blocked requires schedulerClaimReservationId.");
     if (!request.schedulerIntegrationCandidateId) throw new Error("planning.scheduler.run.close-blocked requires schedulerIntegrationCandidateId.");
@@ -1320,9 +1258,7 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
     }
   }
   if (request.actionType === "planning.workflowgraph.compile") {
-    const active = await getActiveChanges(memory);
-    const target = active.find((item) => item.name === changeId);
-    if (!target) throw new Error(`planning.workflowgraph.compile target is stale or missing active Change: ${changeId}.`);
+    const target = await requireActiveChangeTarget(memory, changeId, "planning.workflowgraph.compile");
     if (!request.taskQueueProposalId) throw new Error("planning.workflowgraph.compile requires taskQueueProposalId.");
     if (!request.readinessManifestId) throw new Error("planning.workflowgraph.compile requires readinessManifestId.");
     const proposal = await readLatestTaskQueueProposal(memory, target.path);
@@ -1335,9 +1271,7 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
     }
   }
   if (request.actionType === "planning.taskqueue.confirm-start") {
-    const active = await getActiveChanges(memory);
-    const target = active.find((item) => item.name === changeId);
-    if (!target) throw new Error(`planning.taskqueue.confirm-start target is stale or missing active Change: ${changeId}.`);
+    const target = await requireActiveChangeTarget(memory, changeId, "planning.taskqueue.confirm-start");
     if (!request.taskQueueProposalId) throw new Error("planning.taskqueue.confirm-start requires taskQueueProposalId.");
     if (!request.workflowGraphPlanId) throw new Error("planning.taskqueue.confirm-start requires workflowGraphPlanId.");
     if (!request.readinessManifestId) throw new Error("planning.taskqueue.confirm-start requires readinessManifestId.");

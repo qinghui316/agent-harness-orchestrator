@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-18T21:30:36.9452434Z",
+    "generated_at":  "2026-06-18T21:57:10.1050589Z",
     "active":  [
 
                ],
@@ -1185,6 +1185,10 @@
                     {
                         "name":  "20260619-phase-12w-product-maintenance-canonical-patch-application-observation-report-evidence",
                         "path":  "harness/changes/archive/20260619-phase-12w-product-maintenance-canonical-patch-application-observation-report-evidence"
+                    },
+                    {
+                        "name":  "20260619-workbench-action-active-target-revalidation-reuse",
+                        "path":  "harness/changes/archive/20260619-workbench-action-active-target-revalidation-reuse"
                     }
                 ]
 }
