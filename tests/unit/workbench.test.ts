@@ -2,7 +2,7 @@ import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises
 import { existsSync } from "node:fs";
 import { execFile } from "node:child_process";
 import { tmpdir } from "node:os";
-import { delimiter, join } from "node:path";
+import { delimiter, dirname, join } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createChange, createConcurrentChange, closeChange } from "../../src/change/manager.js";
@@ -26,9 +26,11 @@ import {
   buildRoleScopedContextProjection,
   completeAgentTask,
   createAgentTask,
+  applyMaintenanceCanonicalPatchApplicationManifest,
   generateMaintenanceCanonicalPatchApplicationManifest,
   generateMaintenanceCanonicalPatchApplicationReport,
   listAgentTasks,
+  listMaintenanceCanonicalUpdateProposals,
   listMaintenanceCanonicalPatchApplicationReports,
   listMaintenanceCanonicalPatchApplicationResults,
   listMaintenanceCanonicalPatchApplicationGateRecords,
@@ -38,6 +40,8 @@ import {
   maybeRunMaintenanceReviewWindow,
   proposeMaintenanceCanonicalPatch,
   readMaintenanceReviewWatermark,
+  recordMaintenanceCanonicalPatchApplicationGate,
+  recordMaintenanceCanonicalUpdateDecision,
   recordDemandMemoryCloseout,
   recordMaintenanceLedgerEntry,
   runMaintenanceCandidatePipeline,
@@ -82,7 +86,7 @@ import { auditSchedulerFirstWorker, readSchedulerRuntimeEvents, validateSchedule
 import { listSchedulerIntegrationOutcomes } from "../../src/scheduler-runtime/repository.js";
 import { listIntegrationChecks } from "../../src/integration-check/manager.js";
 import { compileGoalLoopControllerPolicy, compileGoalLoopEvaluation, readLatestGoalLoopContinuationBrief, readLatestGoalLoopDecision, readLatestGoalLoopIteration } from "../../src/goal-loop/manager.js";
-import type { ManagedProject, RunMetadata, TaskQueueItem, TaskQueueRun, TaskRun, WorkerLease, WorkflowGraphPlan, WorkflowRun } from "../../src/types/index.js";
+import type { ManagedProject, ResolvedMemory, RunMetadata, TaskQueueItem, TaskQueueRun, TaskRun, WorkerLease, WorkflowGraphPlan, WorkflowRun } from "../../src/types/index.js";
 import type { DecompositionPlan, DecompositionReadinessManifest, TaskQueueProposal } from "../../src/workflow-artifacts/manager.js";
 
 let tempDir: string;
@@ -125,6 +129,70 @@ async function rewriteActiveChangeMetadata(changeId: string, update: Record<stri
 async function readJsonl(path: string): Promise<Array<Record<string, unknown>>> {
   const text = await readFile(path, "utf8");
   return text.trim().split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line) as Record<string, unknown>);
+}
+
+type MaintenanceCanonicalUpdateProposalFixture = Awaited<ReturnType<typeof listMaintenanceCanonicalUpdateProposals>>[number];
+
+async function writeMaintenanceArtifactCreatedAt(
+  memory: ResolvedMemory,
+  directory: string,
+  artifactId: string,
+  createdAt: string,
+): Promise<void> {
+  const artifactPath = join(memory.workbenchRoot, "maintenance", directory, `${artifactId}.json`);
+  const artifact = JSON.parse(await readFile(artifactPath, "utf8")) as Record<string, unknown>;
+  artifact.createdAt = createdAt;
+  await writeFile(artifactPath, `${JSON.stringify(artifact, null, 2)}\n`, "utf8");
+}
+
+async function createMaintenanceCanonicalUpdateProposalFixture(
+  memory: ResolvedMemory,
+  key: string,
+  options: {
+    document: string;
+    originalText: string;
+    updatedText?: string;
+  },
+): Promise<MaintenanceCanonicalUpdateProposalFixture> {
+  const targetPath = join(memory.memoryRoot, options.document);
+  await mkdir(dirname(targetPath), { recursive: true });
+  await writeFile(targetPath, options.originalText, "utf8");
+
+  const beforeIds = new Set((await listMaintenanceCanonicalUpdateProposals(memory)).map((proposal) => proposal.id));
+  for (let index = 1; index <= 5; index += 1) {
+    await recordDemandMemoryCloseout(memory, {
+      changeId: `${key}-${index}`,
+      title: `Maintenance projection fixture ${key} ${index}`,
+      terminalKind: "archived",
+      finalResult: `Maintenance projection fixture ${key} ${index} completed.`,
+      userDecision: "archived",
+      evidenceRefs: [`harness/changes/archive/${key}-${index}/summary.md`],
+      docsDriftCandidates: [{
+        document: options.document,
+        summary: `Maintenance projection fixture ${key} needs a canonical update.`,
+        ...(options.updatedText ? {
+          patch: {
+            patchKind: "hunks" as const,
+            hunks: [{
+              oldText: options.originalText.trimEnd(),
+              newText: options.updatedText.trimEnd(),
+            }],
+          },
+        } : {}),
+        evidenceRefs: [`${key}-${index}.md`],
+      }],
+    });
+  }
+
+  const result = await runMaintenanceCandidatePipeline(memory);
+  if (result.status !== "reviewed") {
+    throw new Error(`Maintenance fixture ${key} did not produce a reviewed candidate.`);
+  }
+  const proposal = (await listMaintenanceCanonicalUpdateProposals(memory)).find((item) => !beforeIds.has(item.id));
+  if (!proposal) {
+    throw new Error(`Maintenance fixture ${key} did not produce a canonical update proposal.`);
+  }
+  return proposal;
 }
 
 async function createFakeGh(initial: { isDraft?: boolean; comments?: unknown[]; inlineComments?: unknown[]; failedChecks?: number; canResolveThreads?: boolean; mergeFails?: boolean } = {}): Promise<{ command: string; args: string[]; stateFile: string }> {
@@ -7965,6 +8033,102 @@ describe("workbench read model", () => {
       status: "review-ready",
       unreviewedTerminalCount: 5,
     });
+  });
+
+  it("selects newest eligible maintenance confirmation records with projection summary helper semantics", async () => {
+    await initHarness(project());
+    const memory = await resolveProjectMemory(project());
+    const olderUpdateProposal = await createMaintenanceCanonicalUpdateProposalFixture(memory, "queue-update-older", {
+      document: "docs/QUEUE-UPDATE-OLDER.md",
+      originalText: "# Queue Update Older\n\nKeep older guidance.\n",
+      updatedText: "# Queue Update Older\n\nKeep older updated guidance.\n",
+    });
+    const selectedUpdateProposal = await createMaintenanceCanonicalUpdateProposalFixture(memory, "queue-update-selected", {
+      document: "docs/QUEUE-UPDATE-SELECTED.md",
+      originalText: "# Queue Update Selected\n\nKeep selected guidance.\n",
+      updatedText: "# Queue Update Selected\n\nKeep selected updated guidance.\n",
+    });
+    const handledUpdateProposal = await createMaintenanceCanonicalUpdateProposalFixture(memory, "queue-update-handled", {
+      document: "docs/QUEUE-UPDATE-HANDLED.md",
+      originalText: "# Queue Update Handled\n\nKeep handled guidance.\n",
+      updatedText: "# Queue Update Handled\n\nKeep handled updated guidance.\n",
+    });
+    await writeMaintenanceArtifactCreatedAt(memory, "canonical-update-proposals", olderUpdateProposal.id, "2026-06-19T00:00:00.000Z");
+    await writeMaintenanceArtifactCreatedAt(memory, "canonical-update-proposals", selectedUpdateProposal.id, "2026-06-19T00:01:00.000Z");
+    await writeMaintenanceArtifactCreatedAt(memory, "canonical-update-proposals", handledUpdateProposal.id, "2026-06-19T00:02:00.000Z");
+    const handledUpdateDecision = await recordMaintenanceCanonicalUpdateDecision(memory, handledUpdateProposal.id);
+
+    const updateSnapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir });
+    expect(updateSnapshot.right.confirmationQueue.maintenance).toEqual([
+      expect.objectContaining({
+        maintenanceProposalId: selectedUpdateProposal.id,
+        actions: [expect.objectContaining({
+          actionType: "maintenance.canonical-update.decision.record",
+          maintenanceProposalId: selectedUpdateProposal.id,
+        })],
+      }),
+    ]);
+
+    const olderUpdateDecision = await recordMaintenanceCanonicalUpdateDecision(memory, olderUpdateProposal.id);
+    const selectedUpdateDecision = await recordMaintenanceCanonicalUpdateDecision(memory, selectedUpdateProposal.id);
+    for (const proposal of await listMaintenanceCanonicalUpdateProposals(memory)) {
+      await recordMaintenanceCanonicalUpdateDecision(memory, proposal.id);
+    }
+    const olderPatchProposal = await proposeMaintenanceCanonicalPatch(memory, olderUpdateDecision.id);
+    const selectedPatchProposal = await proposeMaintenanceCanonicalPatch(memory, selectedUpdateDecision.id);
+    const handledPatchProposal = await proposeMaintenanceCanonicalPatch(memory, handledUpdateDecision.id);
+    await writeMaintenanceArtifactCreatedAt(memory, "canonical-patch-proposals", olderPatchProposal.id, "2026-06-19T00:00:00.000Z");
+    await writeMaintenanceArtifactCreatedAt(memory, "canonical-patch-proposals", selectedPatchProposal.id, "2026-06-19T00:01:00.000Z");
+    await writeMaintenanceArtifactCreatedAt(memory, "canonical-patch-proposals", handledPatchProposal.id, "2026-06-19T00:02:00.000Z");
+    const handledPatchGate = await recordMaintenanceCanonicalPatchApplicationGate(memory, handledPatchProposal.id);
+
+    const patchGateSnapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir });
+    expect(patchGateSnapshot.right.confirmationQueue.maintenance).toEqual([
+      expect.objectContaining({
+        maintenancePatchProposalId: selectedPatchProposal.id,
+        actions: [expect.objectContaining({
+          actionType: "maintenance.canonical-patch.application-gate.record",
+          maintenancePatchProposalId: selectedPatchProposal.id,
+        })],
+      }),
+    ]);
+
+    const olderPatchGate = await recordMaintenanceCanonicalPatchApplicationGate(memory, olderPatchProposal.id);
+    const selectedPatchGate = await recordMaintenanceCanonicalPatchApplicationGate(memory, selectedPatchProposal.id);
+    const olderManifest = await generateMaintenanceCanonicalPatchApplicationManifest(memory, olderPatchGate.id);
+    const selectedManifest = await generateMaintenanceCanonicalPatchApplicationManifest(memory, selectedPatchGate.id);
+    const handledManifest = await generateMaintenanceCanonicalPatchApplicationManifest(memory, handledPatchGate.id);
+    const blockedUpdateProposal = await createMaintenanceCanonicalUpdateProposalFixture(memory, "queue-update-blocked", {
+      document: "docs/QUEUE-UPDATE-BLOCKED.md",
+      originalText: "# Queue Update Blocked\n\nKeep blocked guidance.\n",
+    });
+    for (const proposal of await listMaintenanceCanonicalUpdateProposals(memory)) {
+      await recordMaintenanceCanonicalUpdateDecision(memory, proposal.id);
+    }
+    const blockedUpdateDecision = await recordMaintenanceCanonicalUpdateDecision(memory, blockedUpdateProposal.id);
+    const blockedPatchProposal = await proposeMaintenanceCanonicalPatch(memory, blockedUpdateDecision.id);
+    const blockedPatchGate = await recordMaintenanceCanonicalPatchApplicationGate(memory, blockedPatchProposal.id);
+    const blockedManifest = await generateMaintenanceCanonicalPatchApplicationManifest(memory, blockedPatchGate.id);
+    await writeMaintenanceArtifactCreatedAt(memory, "canonical-patch-application-manifests", olderManifest.id, "2026-06-19T00:00:00.000Z");
+    await writeMaintenanceArtifactCreatedAt(memory, "canonical-patch-application-manifests", selectedManifest.id, "2026-06-19T00:01:00.000Z");
+    await writeMaintenanceArtifactCreatedAt(memory, "canonical-patch-application-manifests", handledManifest.id, "2026-06-19T00:02:00.000Z");
+    await writeMaintenanceArtifactCreatedAt(memory, "canonical-patch-application-manifests", blockedManifest.id, "2026-06-19T00:03:00.000Z");
+    expect(blockedManifest.applicationStatus).toBe("blocked-needs-concrete-targets");
+    await applyMaintenanceCanonicalPatchApplicationManifest(memory, handledManifest.id, {
+      policyAuditRefs: ["workbench/maintenance/projection-helper-policy-audit.json"],
+      confirmedBy: "workbench-human-gate",
+    });
+
+    const manifestSnapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir });
+    expect(manifestSnapshot.right.confirmationQueue.maintenance).toEqual([
+      expect.objectContaining({
+        maintenanceApplicationManifestId: selectedManifest.id,
+        actions: [expect.objectContaining({
+          actionType: "maintenance.canonical-patch.apply",
+          maintenanceApplicationManifestId: selectedManifest.id,
+        })],
+      }),
+    ]);
   });
 
   it("applies ready maintenance canonical patch manifests only through a scoped confirmation", async () => {
