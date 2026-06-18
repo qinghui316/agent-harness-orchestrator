@@ -96,3 +96,15 @@ export function maintenanceCanonicalPatchApplicationGateRecordPath(memory: Resol
 export function maintenanceCanonicalPatchApplicationGateRecordMarkdownPath(memory: ResolvedMemory, gateRecordId: string): string {
   return join(maintenanceCanonicalPatchApplicationGateRecordsRoot(memory), `${gateRecordId}.md`);
 }
+
+export function maintenanceCanonicalPatchApplicationManifestsRoot(memory: ResolvedMemory): string {
+  return join(maintenanceRoot(memory), "canonical-patch-application-manifests");
+}
+
+export function maintenanceCanonicalPatchApplicationManifestPath(memory: ResolvedMemory, manifestId: string): string {
+  return join(maintenanceCanonicalPatchApplicationManifestsRoot(memory), `${manifestId}.json`);
+}
+
+export function maintenanceCanonicalPatchApplicationManifestMarkdownPath(memory: ResolvedMemory, manifestId: string): string {
+  return join(maintenanceCanonicalPatchApplicationManifestsRoot(memory), `${manifestId}.md`);
+}

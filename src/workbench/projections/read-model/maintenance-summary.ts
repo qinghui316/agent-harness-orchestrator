@@ -1,5 +1,5 @@
-import { listDemandMemoryCloseouts, listMaintenanceCandidateResolutions, listMaintenanceCanonicalPatchProposals, listMaintenanceCanonicalUpdateProposals, listMaintenanceLedgerEntries, readMaintenanceReviewWatermark } from "../../../agent-task/manager.js";
-import type { DemandMemoryCloseout, MaintenanceCandidateResolution, MaintenanceCanonicalPatchProposal, MaintenanceCanonicalUpdateProposal, MaintenanceLedgerEntry, ResolvedMemory } from "../../../types/index.js";
+import { listDemandMemoryCloseouts, listMaintenanceCandidateResolutions, listMaintenanceCanonicalPatchApplicationManifests, listMaintenanceCanonicalPatchProposals, listMaintenanceCanonicalUpdateProposals, listMaintenanceLedgerEntries, readMaintenanceReviewWatermark } from "../../../agent-task/manager.js";
+import type { DemandMemoryCloseout, MaintenanceCandidateResolution, MaintenanceCanonicalPatchApplicationManifest, MaintenanceCanonicalPatchProposal, MaintenanceCanonicalUpdateProposal, MaintenanceLedgerEntry, ResolvedMemory } from "../../../types/index.js";
 import type { WorkbenchMaintenanceSummary } from "../../read-model-types.js";
 
 export async function buildMaintenanceSummary(memory: ResolvedMemory): Promise<WorkbenchMaintenanceSummary> {
@@ -8,6 +8,7 @@ export async function buildMaintenanceSummary(memory: ResolvedMemory): Promise<W
   const resolutions = await listMaintenanceCandidateResolutions(memory).catch(() => []);
   const proposals = await listMaintenanceCanonicalUpdateProposals(memory).catch(() => []);
   const patchProposals = await listMaintenanceCanonicalPatchProposals(memory).catch(() => []);
+  const applicationManifests = await listMaintenanceCanonicalPatchApplicationManifests(memory).catch(() => []);
   const watermark = await readMaintenanceReviewWatermark(memory).catch(() => null);
   const latest = latestMaintenanceEntry(entries);
   const reviewed = new Set(watermark?.lastReviewedChangeIds ?? []);
@@ -16,6 +17,7 @@ export async function buildMaintenanceSummary(memory: ResolvedMemory): Promise<W
   const latestResolution = latestResolutionEntry(resolutions);
   const latestProposal = latestCanonicalUpdateProposal(proposals);
   const latestPatchProposal = latestCanonicalPatchProposal(patchProposals);
+  const latestApplicationManifest = latestCanonicalPatchApplicationManifest(applicationManifests);
   const status: WorkbenchMaintenanceSummary["status"] = unreviewed >= 5
     ? "review-ready"
     : watermark?.lastReviewWindowId
@@ -29,6 +31,7 @@ export async function buildMaintenanceSummary(memory: ResolvedMemory): Promise<W
     resolutionCount: resolutions.length,
     proposalCount: proposals.length,
     patchProposalCount: patchProposals.length,
+    applicationManifestCount: applicationManifests.length,
     latestReviewWindowId: watermark?.lastReviewWindowId ?? undefined,
     unreviewedTerminalCount: unreviewed,
     latestPatchProposal: latestPatchProposal ? {
@@ -42,6 +45,19 @@ export async function buildMaintenanceSummary(memory: ResolvedMemory): Promise<W
       canonicalUpdateAuthorized: latestPatchProposal.canonicalUpdateAuthorized,
       summary: latestPatchProposal.summary,
       createdAt: latestPatchProposal.createdAt,
+    } : undefined,
+    latestApplicationManifest: latestApplicationManifest ? {
+      id: latestApplicationManifest.id,
+      status: latestApplicationManifest.status,
+      applicationStatus: latestApplicationManifest.applicationStatus,
+      patchProposalId: latestApplicationManifest.patchProposalId,
+      gateRecordId: latestApplicationManifest.gateRecordId,
+      targetKinds: latestApplicationManifest.targetKinds,
+      operationCount: latestApplicationManifest.operationCount,
+      blockedReasons: latestApplicationManifest.blockedReasons,
+      canonicalPatchApplied: latestApplicationManifest.canonicalPatchApplied,
+      summary: latestApplicationManifest.summary,
+      createdAt: latestApplicationManifest.createdAt,
     } : undefined,
     latestProposal: latestProposal ? {
       id: latestProposal.id,
@@ -107,4 +123,10 @@ export function latestCanonicalUpdateProposal(proposals: MaintenanceCanonicalUpd
 
 export function latestCanonicalPatchProposal(patchProposals: MaintenanceCanonicalPatchProposal[]): MaintenanceCanonicalPatchProposal | undefined {
   return [...patchProposals].sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
+}
+
+export function latestCanonicalPatchApplicationManifest(
+  manifests: MaintenanceCanonicalPatchApplicationManifest[],
+): MaintenanceCanonicalPatchApplicationManifest | undefined {
+  return [...manifests].sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
 }

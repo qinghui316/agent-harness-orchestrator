@@ -26,6 +26,7 @@ import {
   buildRoleScopedContextProjection,
   completeAgentTask,
   createAgentTask,
+  generateMaintenanceCanonicalPatchApplicationManifest,
   listAgentTasks,
   listMaintenanceCanonicalPatchApplicationGateRecords,
   listMaintenanceCanonicalPatchProposals,
@@ -7887,6 +7888,25 @@ describe("workbench read model", () => {
       executionStarted: false,
     })]);
     expect((gateResult.snapshot as Awaited<ReturnType<typeof getWorkbenchSnapshot>>).right.confirmationQueue.maintenance).toEqual([]);
+    const manifest = await generateMaintenanceCanonicalPatchApplicationManifest(memory, gateRecords[0].id);
+    const maintenanceAfterManifest = await getWorkbenchMaintenanceProjection({ project: project(), path: tempDir });
+    const snapshotAfterManifest = await getWorkbenchSnapshot({ project: project(), path: tempDir });
+    expect(manifest).toMatchObject({
+      gateRecordId: gateRecords[0].id,
+      patchProposalId: patchProposal.id,
+      applicationStatus: "blocked-needs-concrete-targets",
+      canonicalPatchApplied: false,
+      executionStarted: false,
+    });
+    expect(maintenanceAfterManifest).toMatchObject({
+      applicationManifestCount: 1,
+      latestApplicationManifest: expect.objectContaining({
+        id: manifest.id,
+        applicationStatus: "blocked-needs-concrete-targets",
+        canonicalPatchApplied: false,
+      }),
+    });
+    expect(snapshotAfterManifest.right.confirmationQueue.maintenance).toEqual([]);
 
     const coderContext = buildRoleScopedContextProjection({
       roleId: "coder-agent",

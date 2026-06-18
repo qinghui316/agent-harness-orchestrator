@@ -53,6 +53,13 @@ export {
   recordMaintenanceCanonicalUpdateDecision,
 } from "./canonical-updates.js";
 export {
+  generateMaintenanceCanonicalPatchApplicationManifest,
+  listMaintenanceCanonicalPatchApplicationManifests,
+  maintenanceCanonicalPatchApplicationManifestArtifactRef,
+  readMaintenanceCanonicalPatchApplicationManifest,
+  readMaintenanceCanonicalPatchApplicationManifestForGate,
+} from "./canonical-patch-application.js";
+export {
   listMaintenanceCandidateResolutions,
   maintenanceResolutionArtifactRef,
   readMaintenanceCandidateResolution,

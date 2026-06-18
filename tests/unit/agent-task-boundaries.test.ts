@@ -12,7 +12,9 @@ import {
   claimAgentTask,
   completeAgentTask,
   createAgentTask,
+  generateMaintenanceCanonicalPatchApplicationManifest,
   listAgentTasks,
+  listMaintenanceCanonicalPatchApplicationManifests,
   listMaintenanceCanonicalPatchApplicationGateRecords,
   listMaintenanceCanonicalPatchProposals,
   listMaintenanceCanonicalUpdateProposals,
@@ -24,6 +26,7 @@ import {
   proposeMaintenanceCanonicalPatch,
   proposeMaintenanceCanonicalUpdate,
   readAgentTaskResult,
+  readMaintenanceCanonicalPatchApplicationManifest,
   readMaintenanceCanonicalPatchApplicationGate,
   readMaintenanceCanonicalPatchProposal,
   recordMaintenanceCanonicalPatchApplicationGate,
@@ -57,6 +60,8 @@ describe("AgentTask domain boundaries", () => {
     expect(typeof readMaintenanceCandidateResolution).toBe("function");
     expect(typeof listMaintenanceCanonicalUpdateProposals).toBe("function");
     expect(typeof readMaintenanceCanonicalUpdateProposal).toBe("function");
+    expect(typeof generateMaintenanceCanonicalPatchApplicationManifest).toBe("function");
+    expect(typeof listMaintenanceCanonicalPatchApplicationManifests).toBe("function");
 
     const offenders = (await listSourceFiles("src/agent-task"))
       .filter((file) => !file.endsWith("manager.ts"))
@@ -231,15 +236,20 @@ describe("AgentTask domain boundaries", () => {
     const repeatedPatchProposal = await proposeMaintenanceCanonicalPatch(memory, decision.id);
     const gateRecord = await recordMaintenanceCanonicalPatchApplicationGate(memory, patchProposal.id);
     const repeatedGateRecord = await recordMaintenanceCanonicalPatchApplicationGate(memory, patchProposal.id);
+    const manifest = await generateMaintenanceCanonicalPatchApplicationManifest(memory, gateRecord.id);
+    const repeatedManifest = await generateMaintenanceCanonicalPatchApplicationManifest(memory, gateRecord.id);
     const decisions = await listMaintenanceCanonicalUpdateDecisions(memory);
     const patchProposals = await listMaintenanceCanonicalPatchProposals(memory);
     const gateRecords = await listMaintenanceCanonicalPatchApplicationGateRecords(memory);
+    const manifests = await listMaintenanceCanonicalPatchApplicationManifests(memory);
     const decisionMarkdown = await readFile(join(memory.workbenchRoot, "maintenance", "canonical-update-decisions", `${decision.id}.md`), "utf8");
     const patchProposalMarkdown = await readFile(join(memory.workbenchRoot, "maintenance", "canonical-patch-proposals", `${patchProposal.id}.md`), "utf8");
     const gateRecordMarkdown = await readFile(join(memory.workbenchRoot, "maintenance", "canonical-patch-application-gates", `${gateRecord.id}.md`), "utf8");
+    const manifestMarkdown = await readFile(join(memory.workbenchRoot, "maintenance", "canonical-patch-application-manifests", `${manifest.id}.md`), "utf8");
     const decisionLedgerCount = (await listMaintenanceLedgerEntries(memory)).filter((entry) => entry.eventType === "canonical-update-decision").length;
     const patchProposalLedgerCount = (await listMaintenanceLedgerEntries(memory)).filter((entry) => entry.eventType === "canonical-patch-proposal").length;
     const gateLedgerCount = (await listMaintenanceLedgerEntries(memory)).filter((entry) => entry.eventType === "canonical-patch-application-gate").length;
+    const manifestLedgerCount = (await listMaintenanceLedgerEntries(memory)).filter((entry) => entry.eventType === "canonical-patch-application-manifest").length;
 
     expect(resolutions.length).toBeGreaterThan(0);
     expect(proposals.length).toBeGreaterThan(0);
@@ -308,6 +318,32 @@ describe("AgentTask domain boundaries", () => {
     expect(gateRecordMarkdown).toContain("Canonical patch applied: false");
     expect(gateRecordMarkdown).toContain("This gate record does not modify stable memory");
     expect(gateLedgerCount).toBe(1);
+    expect(repeatedManifest.id).toBe(manifest.id);
+    expect(manifests).toHaveLength(1);
+    expect(manifest).toMatchObject({
+      patchProposalId: patchProposal.id,
+      gateRecordId: gateRecord.id,
+      proposalId: proposals[0].id,
+      decisionId: decision.id,
+      status: "application-manifest",
+      applicationStatus: "blocked-needs-concrete-targets",
+      sourceMutationAuthorized: false,
+      canonicalUpdateApplied: false,
+      canonicalPatchApplied: false,
+      executionStarted: false,
+      operationCount: patchProposal.operationCount,
+    });
+    expect(manifest.operations).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        targetDescriptor: null,
+        readiness: "blocked-needs-concrete-target",
+        blockedReasons: expect.arrayContaining([expect.stringContaining("deterministic target descriptor")]),
+      }),
+    ]));
+    expect(manifestMarkdown).toContain("non-executing canonical patch application readiness evidence");
+    expect(manifestMarkdown).toContain("Application status: blocked-needs-concrete-targets");
+    expect(manifestMarkdown).toContain("Canonical patch applied: false");
+    expect(manifestLedgerCount).toBe(1);
     await expect(readMaintenanceCanonicalPatchProposal(memory, patchProposal.id)).resolves.toMatchObject({
       id: patchProposal.id,
       proposalId: proposals[0].id,
@@ -317,12 +353,47 @@ describe("AgentTask domain boundaries", () => {
       id: gateRecord.id,
       patchProposalId: patchProposal.id,
     });
+    await expect(readMaintenanceCanonicalPatchApplicationManifest(memory, manifest.id)).resolves.toMatchObject({
+      id: manifest.id,
+      patchProposalId: patchProposal.id,
+      gateRecordId: gateRecord.id,
+    });
     await expect(proposeMaintenanceCanonicalPatch(memory, "missing-decision")).rejects.toThrow("Maintenance canonical update decision not found");
     await expect(recordMaintenanceCanonicalPatchApplicationGate(memory, "missing-patch-proposal")).rejects.toThrow("Maintenance canonical patch proposal not found");
+    await expect(generateMaintenanceCanonicalPatchApplicationManifest(memory, "missing-gate")).rejects.toThrow("Maintenance canonical patch application gate not found");
     expect(await readFile(memory.agentGuidePath, "utf8")).toBe(originalGuide);
   });
 
-  it("does not create maintenance candidates from canonical update proposal, decision, or patch ledger entries", async () => {
+  it("fails closed when canonical patch application manifest lineage is stale", async () => {
+    await initHarness(project());
+    const memory = await resolveProjectMemory(project());
+
+    for (let index = 1; index <= 5; index += 1) {
+      await recordDemandMemoryCloseout(memory, {
+        changeId: `stale-lineage-${index}`,
+        title: `Stale lineage demand ${index}`,
+        terminalKind: "archived",
+        finalResult: `Stale lineage demand ${index} completed.`,
+        userDecision: "archived",
+        reusableLessonCandidates: [{ summary: "Keep manifest lineage fail closed." }],
+      });
+    }
+
+    const proposal = (await listMaintenanceCanonicalUpdateProposals(memory))[0];
+    const decision = await recordMaintenanceCanonicalUpdateDecision(memory, proposal.id);
+    const patchProposal = await proposeMaintenanceCanonicalPatch(memory, decision.id);
+    const gateRecord = await recordMaintenanceCanonicalPatchApplicationGate(memory, patchProposal.id);
+    const forgedGate = {
+      ...gateRecord,
+      id: "forged-gate",
+      operationCount: gateRecord.operationCount + 1,
+    };
+    await writeFile(join(memory.workbenchRoot, "maintenance", "canonical-patch-application-gates", `${forgedGate.id}.json`), JSON.stringify(forgedGate, null, 2), "utf8");
+
+    await expect(generateMaintenanceCanonicalPatchApplicationManifest(memory, forgedGate.id)).rejects.toThrow("operation count mismatch");
+  });
+
+  it("does not create maintenance candidates from canonical update proposal, decision, patch, gate, or manifest ledger entries", async () => {
     await initHarness(project());
     const memory = await resolveProjectMemory(project());
 
@@ -345,6 +416,11 @@ describe("AgentTask domain boundaries", () => {
       eventType: "canonical-patch-application-gate",
       summary: "Patch application gate evidence should not feed the maintenance candidate pipeline.",
       artifactRefs: ["workbench/maintenance/canonical-patch-application-gates/gate.json"],
+    });
+    await recordMaintenanceLedgerEntry(memory, {
+      eventType: "canonical-patch-application-manifest",
+      summary: "Patch application manifest evidence should not feed the maintenance candidate pipeline.",
+      artifactRefs: ["workbench/maintenance/canonical-patch-application-manifests/manifest.json"],
     });
 
     await expect(runMaintenanceCandidatePipeline(memory)).resolves.toMatchObject({ status: "skipped" });

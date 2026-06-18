@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type {
   DemandMemoryCloseout,
+  MaintenanceCanonicalPatchApplicationManifest,
   MaintenanceCanonicalPatchApplicationGateRecord,
   MaintenanceCanonicalPatchProposal,
   DocBudgetReport,
@@ -57,7 +58,7 @@ export const ledgerSchema = z.object({
   id: z.string(),
   projectId: z.string().nullable(),
   changeId: z.string().optional(),
-  eventType: z.enum(["archive", "apply", "remote-landing", "failure", "user-feedback", "doc-drift", "reference-drift", "harness-evolution", "change-closeout", "maintenance-review", "canonical-update-proposal", "canonical-update-decision", "canonical-patch-proposal", "canonical-patch-application-gate"]),
+  eventType: z.enum(["archive", "apply", "remote-landing", "failure", "user-feedback", "doc-drift", "reference-drift", "harness-evolution", "change-closeout", "maintenance-review", "canonical-update-proposal", "canonical-update-decision", "canonical-patch-proposal", "canonical-patch-application-gate", "canonical-patch-application-manifest"]),
   summary: z.string(),
   artifactRefs: z.array(z.string()),
   createdAt: z.string(),
@@ -151,6 +152,29 @@ export const canonicalUpdateDecisionSchema: z.ZodType<MaintenanceCanonicalUpdate
   createdAt: z.string(),
 });
 
+const canonicalPatchTargetKindSchema = z.enum(["stable-memory", "canonical-docs", "harness-evolution", "reference", "maintenance"]);
+
+const canonicalPatchTargetDescriptorSchema = z.union([
+  z.object({
+    targetKind: canonicalPatchTargetKindSchema,
+    targetPath: z.string(),
+    expectedContentHash: z.string(),
+    patchKind: z.literal("replacement"),
+    replacement: z.string(),
+  }),
+  z.object({
+    targetKind: canonicalPatchTargetKindSchema,
+    targetPath: z.string(),
+    expectedContentHash: z.string(),
+    patchKind: z.literal("hunks"),
+    hunks: z.array(z.object({
+      oldText: z.string(),
+      newText: z.string(),
+      occurrence: z.number().int().positive().optional(),
+    })).min(1),
+  }),
+]);
+
 export const canonicalPatchProposalSchema: z.ZodType<MaintenanceCanonicalPatchProposal> = z.object({
   version: z.literal("1.0"),
   id: z.string(),
@@ -161,10 +185,11 @@ export const canonicalPatchProposalSchema: z.ZodType<MaintenanceCanonicalPatchPr
   operationCount: z.number(),
   operations: z.array(z.object({
     id: z.string(),
-    targetKind: z.enum(["stable-memory", "canonical-docs", "harness-evolution", "reference", "maintenance"]),
+    targetKind: canonicalPatchTargetKindSchema,
     operation: resolutionOutcomeSchema,
     sourceResolutionId: z.string(),
     sourceCandidateId: z.string(),
+    targetDescriptor: canonicalPatchTargetDescriptorSchema.optional(),
     summary: z.string(),
     rationale: z.string(),
     artifactRefs: z.array(z.string()),
@@ -195,6 +220,41 @@ export const canonicalPatchApplicationGateRecordSchema: z.ZodType<MaintenanceCan
   executionStarted: z.literal(false),
   summary: z.string(),
   risks: z.array(z.string()),
+  artifactRefs: z.array(z.string()),
+  createdAt: z.string(),
+});
+
+export const canonicalPatchApplicationManifestSchema: z.ZodType<MaintenanceCanonicalPatchApplicationManifest> = z.object({
+  version: z.literal("1.0"),
+  id: z.string(),
+  status: z.literal("application-manifest"),
+  patchProposalId: z.string(),
+  gateRecordId: z.string(),
+  proposalId: z.string(),
+  decisionId: z.string(),
+  targetKinds: z.array(canonicalPatchTargetKindSchema),
+  operationCount: z.number(),
+  applicationStatus: z.enum(["blocked-needs-concrete-targets", "ready-for-application"]),
+  operations: z.array(z.object({
+    id: z.string(),
+    patchOperationId: z.string(),
+    targetKind: canonicalPatchTargetKindSchema,
+    operation: resolutionOutcomeSchema,
+    sourceResolutionId: z.string(),
+    sourceCandidateId: z.string(),
+    targetDescriptor: canonicalPatchTargetDescriptorSchema.nullable(),
+    readiness: z.enum(["blocked-needs-concrete-target", "ready"]),
+    blockedReasons: z.array(z.string()),
+    summary: z.string(),
+    rationale: z.string(),
+    artifactRefs: z.array(z.string()),
+  })),
+  blockedReasons: z.array(z.string()),
+  sourceMutationAuthorized: z.literal(false),
+  canonicalUpdateApplied: z.literal(false),
+  canonicalPatchApplied: z.literal(false),
+  executionStarted: z.literal(false),
+  summary: z.string(),
   artifactRefs: z.array(z.string()),
   createdAt: z.string(),
 });

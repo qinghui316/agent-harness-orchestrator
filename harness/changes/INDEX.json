@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-18T14:28:15.5301513Z",
+    "generated_at":  "2026-06-18T15:29:45.9883696Z",
     "active":  [
 
                ],
@@ -1125,6 +1125,10 @@
                     {
                         "name":  "20260618-phase-12s-product-maintenance-canonical-patch-application-gate",
                         "path":  "harness/changes/archive/20260618-phase-12s-product-maintenance-canonical-patch-application-gate"
+                    },
+                    {
+                        "name":  "20260618-phase-12t-product-maintenance-canonical-patch-application-manifest",
+                        "path":  "harness/changes/archive/20260618-phase-12t-product-maintenance-canonical-patch-application-manifest"
                     }
                 ]
 }

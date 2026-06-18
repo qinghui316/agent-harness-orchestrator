@@ -94,7 +94,8 @@ export type MaintenanceLedgerEventType =
   | "canonical-update-proposal"
   | "canonical-update-decision"
   | "canonical-patch-proposal"
-  | "canonical-patch-application-gate";
+  | "canonical-patch-application-gate"
+  | "canonical-patch-application-manifest";
 
 export interface MaintenanceLedgerEntry {
   version: "1.0";
@@ -216,12 +217,35 @@ export type MaintenanceCanonicalPatchOperationKind =
   | "archive-only"
   | "noop";
 
+export interface MaintenanceCanonicalPatchTargetHunk {
+  oldText: string;
+  newText: string;
+  occurrence?: number;
+}
+
+export type MaintenanceCanonicalPatchTargetDescriptor =
+  | {
+    targetKind: MaintenanceCanonicalUpdateTargetKind;
+    targetPath: string;
+    expectedContentHash: string;
+    patchKind: "replacement";
+    replacement: string;
+  }
+  | {
+    targetKind: MaintenanceCanonicalUpdateTargetKind;
+    targetPath: string;
+    expectedContentHash: string;
+    patchKind: "hunks";
+    hunks: MaintenanceCanonicalPatchTargetHunk[];
+  };
+
 export interface MaintenanceCanonicalPatchOperation {
   id: string;
   targetKind: MaintenanceCanonicalUpdateTargetKind;
   operation: MaintenanceCanonicalPatchOperationKind;
   sourceResolutionId: string;
   sourceCandidateId: string;
+  targetDescriptor?: MaintenanceCanonicalPatchTargetDescriptor;
   summary: string;
   rationale: string;
   artifactRefs: string[];
@@ -262,6 +286,51 @@ export interface MaintenanceCanonicalPatchApplicationGateRecord {
   executionStarted: false;
   summary: string;
   risks: string[];
+  artifactRefs: string[];
+  createdAt: string;
+}
+
+export type MaintenanceCanonicalPatchApplicationStatus =
+  | "blocked-needs-concrete-targets"
+  | "ready-for-application";
+
+export type MaintenanceCanonicalPatchApplicationOperationReadiness =
+  | "blocked-needs-concrete-target"
+  | "ready";
+
+export interface MaintenanceCanonicalPatchApplicationManifestOperation {
+  id: string;
+  patchOperationId: string;
+  targetKind: MaintenanceCanonicalUpdateTargetKind;
+  operation: MaintenanceCanonicalPatchOperationKind;
+  sourceResolutionId: string;
+  sourceCandidateId: string;
+  targetDescriptor: MaintenanceCanonicalPatchTargetDescriptor | null;
+  readiness: MaintenanceCanonicalPatchApplicationOperationReadiness;
+  blockedReasons: string[];
+  summary: string;
+  rationale: string;
+  artifactRefs: string[];
+}
+
+export interface MaintenanceCanonicalPatchApplicationManifest {
+  version: "1.0";
+  id: string;
+  status: "application-manifest";
+  patchProposalId: string;
+  gateRecordId: string;
+  proposalId: string;
+  decisionId: string;
+  targetKinds: MaintenanceCanonicalUpdateTargetKind[];
+  operationCount: number;
+  applicationStatus: MaintenanceCanonicalPatchApplicationStatus;
+  operations: MaintenanceCanonicalPatchApplicationManifestOperation[];
+  blockedReasons: string[];
+  sourceMutationAuthorized: false;
+  canonicalUpdateApplied: false;
+  canonicalPatchApplied: false;
+  executionStarted: false;
+  summary: string;
   artifactRefs: string[];
   createdAt: string;
 }

@@ -518,6 +518,7 @@ export type Workpad = {
     resolutionCount?: number;
     proposalCount?: number;
     patchProposalCount?: number;
+    applicationManifestCount?: number;
     latestReviewWindowId?: string;
     unreviewedTerminalCount?: number;
     latestPatchProposal?: {
@@ -529,6 +530,19 @@ export type Workpad = {
       operationCount: number;
       applicationAuthorized: boolean;
       canonicalUpdateAuthorized: boolean;
+      summary: string;
+      createdAt: string;
+    };
+    latestApplicationManifest?: {
+      id: string;
+      status: string;
+      applicationStatus: string;
+      patchProposalId: string;
+      gateRecordId: string;
+      targetKinds: string[];
+      operationCount: number;
+      blockedReasons: string[];
+      canonicalPatchApplied: boolean;
       summary: string;
       createdAt: string;
     };
