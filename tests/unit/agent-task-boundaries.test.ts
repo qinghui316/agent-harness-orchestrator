@@ -29,7 +29,13 @@ import {
   listMaintenanceCanonicalPatchProposals,
   listMaintenanceCanonicalUpdateProposals,
   listMaintenanceCanonicalUpdateDecisions,
+  maintenanceCanonicalPatchApplicationGateArtifactRef,
+  maintenanceCanonicalPatchApplicationManifestArtifactRef,
   maintenanceCanonicalPatchApplicationReportArtifactRef,
+  maintenanceCanonicalPatchApplicationResultArtifactRef,
+  maintenanceCanonicalPatchProposalArtifactRef,
+  maintenanceCanonicalUpdateDecisionArtifactRef,
+  maintenanceCanonicalUpdateProposalArtifactRef,
   listMaintenanceCandidateResolutions,
   listDemandMemoryCloseouts,
   listMaintenanceLedgerEntries,
@@ -268,6 +274,12 @@ describe("AgentTask domain boundaries", () => {
     const patchProposalLedgerCount = (await listMaintenanceLedgerEntries(memory)).filter((entry) => entry.eventType === "canonical-patch-proposal").length;
     const gateLedgerCount = (await listMaintenanceLedgerEntries(memory)).filter((entry) => entry.eventType === "canonical-patch-application-gate").length;
     const manifestLedgerCount = (await listMaintenanceLedgerEntries(memory)).filter((entry) => entry.eventType === "canonical-patch-application-manifest").length;
+    const canonicalLedgerEntries = await listMaintenanceLedgerEntries(memory);
+    const proposalLedgerEntry = canonicalLedgerEntries.find((entry) => entry.eventType === "canonical-update-proposal");
+    const decisionLedgerEntry = canonicalLedgerEntries.find((entry) => entry.eventType === "canonical-update-decision");
+    const patchProposalLedgerEntry = canonicalLedgerEntries.find((entry) => entry.eventType === "canonical-patch-proposal");
+    const gateLedgerEntry = canonicalLedgerEntries.find((entry) => entry.eventType === "canonical-patch-application-gate");
+    const manifestLedgerEntry = canonicalLedgerEntries.find((entry) => entry.eventType === "canonical-patch-application-manifest");
 
     expect(resolutions.length).toBeGreaterThan(0);
     expect(proposals.length).toBeGreaterThan(0);
@@ -288,6 +300,8 @@ describe("AgentTask domain boundaries", () => {
     expect(proposalMarkdown).toContain("non-executing maintenance proposal evidence");
     expect(proposalMarkdown).toContain("Canonical update authorized: false");
     expect(proposalLedgerAfter).toBe(proposalLedgerBefore);
+    expect(proposalLedgerEntry?.artifactRefs[0]).toBe(maintenanceCanonicalUpdateProposalArtifactRef(memory, proposals[0].id));
+    expect(proposalLedgerEntry?.artifactRefs.some((ref) => ref.endsWith(`maintenance/canonical-update-proposals/${proposals[0].id}.md`))).toBe(true);
     expect(repeatedDecision.id).toBe(decision.id);
     expect(decisions).toHaveLength(1);
     expect(decision).toMatchObject({
@@ -300,6 +314,8 @@ describe("AgentTask domain boundaries", () => {
     expect(decisionMarkdown).toContain("human-gated maintenance decision evidence");
     expect(decisionMarkdown).toContain("Canonical update authorized: false");
     expect(decisionLedgerCount).toBe(1);
+    expect(decisionLedgerEntry?.artifactRefs[0]).toBe(maintenanceCanonicalUpdateDecisionArtifactRef(memory, decision.id));
+    expect(decisionLedgerEntry?.artifactRefs.some((ref) => ref.endsWith(`maintenance/canonical-update-decisions/${decision.id}.md`))).toBe(true);
     expect(repeatedPatchProposal.id).toBe(patchProposal.id);
     expect(patchProposals).toHaveLength(1);
     expect(patchProposal).toMatchObject({
@@ -318,6 +334,8 @@ describe("AgentTask domain boundaries", () => {
     expect(patchProposalMarkdown).toContain("Application authorized: false");
     expect(patchProposalMarkdown).toContain("This patch proposal does not modify stable memory");
     expect(patchProposalLedgerCount).toBe(1);
+    expect(patchProposalLedgerEntry?.artifactRefs[0]).toBe(maintenanceCanonicalPatchProposalArtifactRef(memory, patchProposal.id));
+    expect(patchProposalLedgerEntry?.artifactRefs.some((ref) => ref.endsWith(`maintenance/canonical-patch-proposals/${patchProposal.id}.md`))).toBe(true);
     expect(repeatedGateRecord.id).toBe(gateRecord.id);
     expect(gateRecords).toHaveLength(1);
     expect(gateRecord).toMatchObject({
@@ -336,6 +354,8 @@ describe("AgentTask domain boundaries", () => {
     expect(gateRecordMarkdown).toContain("Canonical patch applied: false");
     expect(gateRecordMarkdown).toContain("This gate record does not modify stable memory");
     expect(gateLedgerCount).toBe(1);
+    expect(gateLedgerEntry?.artifactRefs[0]).toBe(maintenanceCanonicalPatchApplicationGateArtifactRef(memory, gateRecord.id));
+    expect(gateLedgerEntry?.artifactRefs.some((ref) => ref.endsWith(`maintenance/canonical-patch-application-gates/${gateRecord.id}.md`))).toBe(true);
     expect(repeatedManifest.id).toBe(manifest.id);
     expect(manifests).toHaveLength(1);
     expect(manifest).toMatchObject({
@@ -362,6 +382,8 @@ describe("AgentTask domain boundaries", () => {
     expect(manifestMarkdown).toContain("Application status: blocked-needs-concrete-targets");
     expect(manifestMarkdown).toContain("Canonical patch applied: false");
     expect(manifestLedgerCount).toBe(1);
+    expect(manifestLedgerEntry?.artifactRefs[0]).toBe(maintenanceCanonicalPatchApplicationManifestArtifactRef(memory, manifest.id));
+    expect(manifestLedgerEntry?.artifactRefs.some((ref) => ref.endsWith(`maintenance/canonical-patch-application-manifests/${manifest.id}.md`))).toBe(true);
     await expect(readMaintenanceCanonicalPatchProposal(memory, patchProposal.id)).resolves.toMatchObject({
       id: patchProposal.id,
       proposalId: proposals[0].id,
@@ -520,6 +542,7 @@ describe("AgentTask domain boundaries", () => {
     const results = await listMaintenanceCanonicalPatchApplicationResults(memory);
     const resultMarkdown = await readFile(join(memory.workbenchRoot, "maintenance", "canonical-patch-application-results", `${result.id}.md`), "utf8");
     const summary = await buildMaintenanceSummary(memory);
+    const resultLedgerEntry = (await listMaintenanceLedgerEntries(memory)).find((entry) => entry.eventType === "canonical-patch-application-result");
     const originalHash = createHash("sha256").update(Buffer.from(originalMemoryDoc)).digest("hex");
     const updatedHash = createHash("sha256").update(Buffer.from(updatedMemoryDoc)).digest("hex");
 
@@ -553,6 +576,8 @@ describe("AgentTask domain boundaries", () => {
     expect(resultMarkdown).toContain("Classification: human-gated canonical patch application result evidence.");
     expect(resultMarkdown).toContain(`beforeHash: ${originalHash}`);
     expect(resultMarkdown).toContain(`afterHash: ${updatedHash}`);
+    expect(resultLedgerEntry?.artifactRefs[0]).toBe(maintenanceCanonicalPatchApplicationResultArtifactRef(memory, result.id));
+    expect(resultLedgerEntry?.artifactRefs.some((ref) => ref.endsWith(`maintenance/canonical-patch-application-results/${result.id}.md`))).toBe(true);
     expect(summary).toMatchObject({
       applicationResultCount: 1,
       latestApplicationResult: expect.objectContaining({

@@ -7,6 +7,8 @@ import type {
 } from "../types/index.js";
 import { ensureMaintenanceLedgerEntryForArtifactRef } from "./ledger.js";
 import {
+  buildMaintenanceArtifactRefs,
+  buildMaintenanceArtifactRefsForStore,
   listMaintenanceArtifacts,
   readMaintenanceArtifact,
   writeMaintenanceJsonMarkdownArtifact,
@@ -18,7 +20,6 @@ import {
   readMaintenanceCanonicalPatchApplicationResult,
 } from "./canonical-patch-application.js";
 import {
-  displayMaintenancePath,
   maintenanceCanonicalPatchApplicationReportMarkdownPath,
   maintenanceCanonicalPatchApplicationReportPath,
   maintenanceCanonicalPatchApplicationReportsRoot,
@@ -88,7 +89,7 @@ export async function readMaintenanceCanonicalPatchApplicationReportForResult(
 }
 
 export function maintenanceCanonicalPatchApplicationReportArtifactRef(memory: ResolvedMemory, reportId: string): string {
-  return displayMaintenancePath(memory, maintenanceCanonicalPatchApplicationReportPath(memory, reportId));
+  return buildMaintenanceArtifactRefsForStore(memory, canonicalPatchApplicationReportStore, reportId).artifactRef;
 }
 
 function buildCanonicalPatchApplicationReport(
@@ -97,8 +98,11 @@ function buildCanonicalPatchApplicationReport(
   manifest: MaintenanceCanonicalPatchApplicationManifest,
 ): MaintenanceCanonicalPatchApplicationReport {
   const id = `canonical-patch-application-report-${contentHash(result.id).slice(0, 12)}`;
-  const reportRef = displayMaintenancePath(memory, maintenanceCanonicalPatchApplicationReportPath(memory, id));
-  const markdownRef = displayMaintenancePath(memory, maintenanceCanonicalPatchApplicationReportMarkdownPath(memory, id));
+  const reportRefs = buildMaintenanceArtifactRefsForStore(memory, canonicalPatchApplicationReportStore, id);
+  const resultRefs = buildMaintenanceArtifactRefs(memory, {
+    jsonPath: maintenanceCanonicalPatchApplicationResultPath(memory, result.id),
+    markdownPath: maintenanceCanonicalPatchApplicationResultMarkdownPath(memory, result.id),
+  });
   const observedOperations: MaintenanceCanonicalPatchApplicationReportOperation[] = result.appliedOperations.map((operation, index) => ({
     id: `${id}-operation-${String(index + 1).padStart(3, "0")}`,
     resultOperationId: operation.id,
@@ -140,10 +144,10 @@ function buildCanonicalPatchApplicationReport(
     ],
     summary: `Observed canonical patch application result ${result.id} for ${observedOperations.length} applied target(s).`,
     artifactRefs: uniqueSorted([
-      reportRef,
-      markdownRef,
-      displayMaintenancePath(memory, maintenanceCanonicalPatchApplicationResultPath(memory, result.id)),
-      displayMaintenancePath(memory, maintenanceCanonicalPatchApplicationResultMarkdownPath(memory, result.id)),
+      reportRefs.artifactRef,
+      reportRefs.markdownRef,
+      resultRefs.artifactRef,
+      resultRefs.markdownRef,
       maintenanceCanonicalPatchApplicationManifestArtifactRef(memory, manifest.id),
       ...result.artifactRefs,
       ...manifest.artifactRefs,
@@ -158,14 +162,12 @@ async function ensureCanonicalPatchApplicationReportLedgerEntry(
   memory: ResolvedMemory,
   report: MaintenanceCanonicalPatchApplicationReport,
 ): Promise<void> {
-  const reportRef = maintenanceCanonicalPatchApplicationReportArtifactRef(memory, report.id);
+  const reportRefs = buildMaintenanceArtifactRefsForStore(memory, canonicalPatchApplicationReportStore, report.id);
   await ensureMaintenanceLedgerEntryForArtifactRef(memory, {
     eventType: "canonical-patch-application-report",
-    artifactRef: reportRef,
+    artifactRef: reportRefs.artifactRef,
     summary: `${report.summary} This ledger entry records read-only observation evidence and must not feed new maintenance candidates or rewrite triggers.`,
-    artifactRefs: [
-      displayMaintenancePath(memory, maintenanceCanonicalPatchApplicationReportMarkdownPath(memory, report.id)),
-    ],
+    artifactRefs: reportRefs.ledgerArtifactRefs,
   });
 }
 

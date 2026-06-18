@@ -4,12 +4,46 @@ import { join } from "node:path";
 import type { ZodType } from "zod";
 import { readJsonFile, writeJsonFile } from "../fs/json.js";
 import type { ResolvedMemory } from "../types/index.js";
+import { displayMaintenancePath } from "./paths.js";
 
 export interface MaintenanceArtifactStore<T extends { createdAt: string }> {
   root(memory: ResolvedMemory): string;
   jsonPath(memory: ResolvedMemory, id: string): string;
   markdownPath(memory: ResolvedMemory, id: string): string;
   schema: ZodType<T>;
+}
+
+export interface MaintenanceArtifactRefs {
+  artifactRef: string;
+  markdownRef: string;
+  ledgerArtifactRefs: string[];
+}
+
+export function buildMaintenanceArtifactRefs(
+  memory: ResolvedMemory,
+  paths: {
+    jsonPath: string;
+    markdownPath: string;
+  },
+): MaintenanceArtifactRefs {
+  const artifactRef = displayMaintenancePath(memory, paths.jsonPath);
+  const markdownRef = displayMaintenancePath(memory, paths.markdownPath);
+  return {
+    artifactRef,
+    markdownRef,
+    ledgerArtifactRefs: [markdownRef],
+  };
+}
+
+export function buildMaintenanceArtifactRefsForStore<T extends { createdAt: string }>(
+  memory: ResolvedMemory,
+  store: MaintenanceArtifactStore<T>,
+  id: string,
+): MaintenanceArtifactRefs {
+  return buildMaintenanceArtifactRefs(memory, {
+    jsonPath: store.jsonPath(memory, id),
+    markdownPath: store.markdownPath(memory, id),
+  });
 }
 
 export async function readMaintenanceArtifact<T extends { createdAt: string }>(

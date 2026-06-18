@@ -10,6 +10,7 @@ import type {
   ResolvedMemory,
 } from "../types/index.js";
 import {
+  buildMaintenanceArtifactRefsForStore,
   listMaintenanceArtifacts,
   readMaintenanceArtifact,
   writeMaintenanceJsonMarkdownArtifact,
@@ -244,19 +245,19 @@ export async function readMaintenanceCanonicalPatchApplicationGateForPatchPropos
 }
 
 export function maintenanceCanonicalUpdateProposalArtifactRef(memory: ResolvedMemory, proposalId: string): string {
-  return displayMaintenancePath(memory, maintenanceCanonicalUpdateProposalPath(memory, proposalId));
+  return buildMaintenanceArtifactRefsForStore(memory, canonicalUpdateProposalStore, proposalId).artifactRef;
 }
 
 export function maintenanceCanonicalUpdateDecisionArtifactRef(memory: ResolvedMemory, decisionId: string): string {
-  return displayMaintenancePath(memory, maintenanceCanonicalUpdateDecisionPath(memory, decisionId));
+  return buildMaintenanceArtifactRefsForStore(memory, canonicalUpdateDecisionStore, decisionId).artifactRef;
 }
 
 export function maintenanceCanonicalPatchProposalArtifactRef(memory: ResolvedMemory, patchProposalId: string): string {
-  return displayMaintenancePath(memory, maintenanceCanonicalPatchProposalPath(memory, patchProposalId));
+  return buildMaintenanceArtifactRefsForStore(memory, canonicalPatchProposalStore, patchProposalId).artifactRef;
 }
 
 export function maintenanceCanonicalPatchApplicationGateArtifactRef(memory: ResolvedMemory, gateRecordId: string): string {
-  return displayMaintenancePath(memory, maintenanceCanonicalPatchApplicationGateRecordPath(memory, gateRecordId));
+  return buildMaintenanceArtifactRefsForStore(memory, canonicalPatchApplicationGateRecordStore, gateRecordId).artifactRef;
 }
 
 function buildCanonicalUpdateProposal(memory: ResolvedMemory, resolutions: MaintenanceCandidateResolution[]): MaintenanceCanonicalUpdateProposal {
@@ -294,10 +295,7 @@ function buildCanonicalUpdateProposal(memory: ResolvedMemory, resolutions: Maint
 
 function buildCanonicalUpdateDecision(memory: ResolvedMemory, proposal: MaintenanceCanonicalUpdateProposal): MaintenanceCanonicalUpdateDecision {
   const id = `canonical-update-decision-${contentHash(proposal.id).slice(0, 12)}`;
-  const proposalRefs = [
-    maintenanceCanonicalUpdateProposalArtifactRef(memory, proposal.id),
-    displayMaintenancePath(memory, maintenanceCanonicalUpdateProposalMarkdownPath(memory, proposal.id)),
-  ];
+  const proposalRefs = buildMaintenanceArtifactRefsForStore(memory, canonicalUpdateProposalStore, proposal.id);
   return {
     version: "1.0",
     id,
@@ -308,7 +306,7 @@ function buildCanonicalUpdateDecision(memory: ResolvedMemory, proposal: Maintena
     canonicalUpdateAuthorized: false,
     executionStarted: false,
     summary: `Human-gated maintenance decision recorded for proposal ${proposal.id}. This decision accepts the proposal as follow-up input only and does not authorize canonical rewrites.`,
-    artifactRefs: uniqueSorted([...proposalRefs, ...proposal.artifactRefs]),
+    artifactRefs: uniqueSorted([proposalRefs.artifactRef, proposalRefs.markdownRef, ...proposal.artifactRefs]),
     createdAt: new Date().toISOString(),
   };
 }
@@ -319,12 +317,8 @@ async function buildCanonicalPatchProposal(
   decision: MaintenanceCanonicalUpdateDecision,
 ): Promise<MaintenanceCanonicalPatchProposal> {
   const id = `canonical-patch-proposal-${contentHash(`${proposal.id}|${decision.id}`).slice(0, 12)}`;
-  const proposalRefs = [
-    maintenanceCanonicalUpdateProposalArtifactRef(memory, proposal.id),
-    displayMaintenancePath(memory, maintenanceCanonicalUpdateProposalMarkdownPath(memory, proposal.id)),
-    maintenanceCanonicalUpdateDecisionArtifactRef(memory, decision.id),
-    displayMaintenancePath(memory, maintenanceCanonicalUpdateDecisionMarkdownPath(memory, decision.id)),
-  ];
+  const proposalRefs = buildMaintenanceArtifactRefsForStore(memory, canonicalUpdateProposalStore, proposal.id);
+  const decisionRefs = buildMaintenanceArtifactRefsForStore(memory, canonicalUpdateDecisionStore, decision.id);
   const operations = await Promise.all(proposal.resolutionSummaries.map(async (resolution, index): Promise<MaintenanceCanonicalPatchOperation> => {
     const targetKind = targetKindForSubtype(resolution.candidateSubtype);
     const targetDescriptor = await buildCanonicalPatchTargetDescriptor(memory, targetKind, resolution.targetHints);
@@ -341,7 +335,10 @@ async function buildCanonicalPatchProposal(
     };
   }));
   const artifactRefs = uniqueSorted([
-    ...proposalRefs,
+    proposalRefs.artifactRef,
+    proposalRefs.markdownRef,
+    decisionRefs.artifactRef,
+    decisionRefs.markdownRef,
     ...proposal.artifactRefs,
     ...decision.artifactRefs,
     ...operations.flatMap((operation) => operation.artifactRefs),
@@ -375,10 +372,7 @@ function buildCanonicalPatchApplicationGateRecord(
   patchProposal: MaintenanceCanonicalPatchProposal,
 ): MaintenanceCanonicalPatchApplicationGateRecord {
   const id = `canonical-patch-application-gate-${contentHash(patchProposal.id).slice(0, 12)}`;
-  const patchProposalRefs = [
-    maintenanceCanonicalPatchProposalArtifactRef(memory, patchProposal.id),
-    displayMaintenancePath(memory, maintenanceCanonicalPatchProposalMarkdownPath(memory, patchProposal.id)),
-  ];
+  const patchProposalRefs = buildMaintenanceArtifactRefsForStore(memory, canonicalPatchProposalStore, patchProposal.id);
   return {
     version: "1.0",
     id,
@@ -397,7 +391,7 @@ function buildCanonicalPatchApplicationGateRecord(
       "Gate evidence can be mistaken for canonical application unless applied and mutation flags remain false.",
       "A later deterministic canonical application implementation must revalidate this gate, ToolPolicyGate, and human confirmation before any write.",
     ],
-    artifactRefs: uniqueSorted([...patchProposalRefs, ...patchProposal.artifactRefs]),
+    artifactRefs: uniqueSorted([patchProposalRefs.artifactRef, patchProposalRefs.markdownRef, ...patchProposal.artifactRefs]),
     createdAt: new Date().toISOString(),
   };
 }
@@ -406,14 +400,12 @@ async function ensureCanonicalUpdateProposalLedgerEntry(
   memory: ResolvedMemory,
   proposal: MaintenanceCanonicalUpdateProposal,
 ): Promise<void> {
-  const proposalRef = maintenanceCanonicalUpdateProposalArtifactRef(memory, proposal.id);
+  const proposalRefs = buildMaintenanceArtifactRefsForStore(memory, canonicalUpdateProposalStore, proposal.id);
   await ensureMaintenanceLedgerEntryForArtifactRef(memory, {
     eventType: "canonical-update-proposal",
-    artifactRef: proposalRef,
+    artifactRef: proposalRefs.artifactRef,
     summary: `${proposal.summary} This ledger entry is evidence only and does not authorize canonical rewrites.`,
-    artifactRefs: [
-      displayMaintenancePath(memory, maintenanceCanonicalUpdateProposalMarkdownPath(memory, proposal.id)),
-    ],
+    artifactRefs: proposalRefs.ledgerArtifactRefs,
   });
 }
 
@@ -421,14 +413,12 @@ async function ensureCanonicalUpdateDecisionLedgerEntry(
   memory: ResolvedMemory,
   decision: MaintenanceCanonicalUpdateDecision,
 ): Promise<void> {
-  const decisionRef = maintenanceCanonicalUpdateDecisionArtifactRef(memory, decision.id);
+  const decisionRefs = buildMaintenanceArtifactRefsForStore(memory, canonicalUpdateDecisionStore, decision.id);
   await ensureMaintenanceLedgerEntryForArtifactRef(memory, {
     eventType: "canonical-update-decision",
-    artifactRef: decisionRef,
+    artifactRef: decisionRefs.artifactRef,
     summary: `${decision.summary} This ledger entry is evidence only and does not authorize canonical rewrites.`,
-    artifactRefs: [
-      displayMaintenancePath(memory, maintenanceCanonicalUpdateDecisionMarkdownPath(memory, decision.id)),
-    ],
+    artifactRefs: decisionRefs.ledgerArtifactRefs,
   });
 }
 
@@ -436,14 +426,12 @@ async function ensureCanonicalPatchProposalLedgerEntry(
   memory: ResolvedMemory,
   patchProposal: MaintenanceCanonicalPatchProposal,
 ): Promise<void> {
-  const patchProposalRef = maintenanceCanonicalPatchProposalArtifactRef(memory, patchProposal.id);
+  const patchProposalRefs = buildMaintenanceArtifactRefsForStore(memory, canonicalPatchProposalStore, patchProposal.id);
   await ensureMaintenanceLedgerEntryForArtifactRef(memory, {
     eventType: "canonical-patch-proposal",
-    artifactRef: patchProposalRef,
+    artifactRef: patchProposalRefs.artifactRef,
     summary: `${patchProposal.summary} This ledger entry is evidence only and does not authorize canonical application.`,
-    artifactRefs: [
-      displayMaintenancePath(memory, maintenanceCanonicalPatchProposalMarkdownPath(memory, patchProposal.id)),
-    ],
+    artifactRefs: patchProposalRefs.ledgerArtifactRefs,
   });
 }
 
@@ -451,14 +439,12 @@ async function ensureCanonicalPatchApplicationGateLedgerEntry(
   memory: ResolvedMemory,
   gateRecord: MaintenanceCanonicalPatchApplicationGateRecord,
 ): Promise<void> {
-  const gateRecordRef = maintenanceCanonicalPatchApplicationGateArtifactRef(memory, gateRecord.id);
+  const gateRecordRefs = buildMaintenanceArtifactRefsForStore(memory, canonicalPatchApplicationGateRecordStore, gateRecord.id);
   await ensureMaintenanceLedgerEntryForArtifactRef(memory, {
     eventType: "canonical-patch-application-gate",
-    artifactRef: gateRecordRef,
+    artifactRef: gateRecordRefs.artifactRef,
     summary: `${gateRecord.summary} This ledger entry is evidence only and does not authorize canonical mutation.`,
-    artifactRefs: [
-      displayMaintenancePath(memory, maintenanceCanonicalPatchApplicationGateRecordMarkdownPath(memory, gateRecord.id)),
-    ],
+    artifactRefs: gateRecordRefs.ledgerArtifactRefs,
   });
 }
 
