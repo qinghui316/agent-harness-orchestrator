@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-18T22:44:00.5451891Z",
+    "generated_at":  "2026-06-18T23:23:46.5972645Z",
     "active":  [
 
                ],
@@ -1143,6 +1143,10 @@
                         "path":  "harness/changes/archive/20260619-auto-evolve-harness-phase-12s-12w-product-maintenance-evidence"
                     },
                     {
+                        "name":  "20260619-auto-evolve-harness-review-template-handoff-coverage-defaults",
+                        "path":  "harness/changes/archive/20260619-auto-evolve-harness-review-template-handoff-coverage-defaults"
+                    },
+                    {
                         "name":  "20260619-auto-evolve-harness-source-convergence-architecture-growth-control",
                         "path":  "harness/changes/archive/20260619-auto-evolve-harness-source-convergence-architecture-growth-control"
                     },
@@ -1197,6 +1201,10 @@
                     {
                         "name":  "20260619-workbench-projection-summary-helper-reuse",
                         "path":  "harness/changes/archive/20260619-workbench-projection-summary-helper-reuse"
+                    },
+                    {
+                        "name":  "20260619-workbench-read-model-timestamp-summary-helper-reuse",
+                        "path":  "harness/changes/archive/20260619-workbench-read-model-timestamp-summary-helper-reuse"
                     }
                 ]
 }

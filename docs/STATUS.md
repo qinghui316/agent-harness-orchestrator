@@ -5,20 +5,20 @@
 - Current date: 2026-06-19.
 - Active ECL change: none.
 - Pending Harness evolution: none.
-- Latest archived product change: `harness/changes/archive/20260619-workbench-maintenance-confirmation-projection-summary-reuse/summary.md`.
-- Latest archived product/Harness docs change: `harness/changes/archive/20260619-workbench-maintenance-confirmation-projection-summary-reuse/summary.md`.
-- Latest archived Harness evolution: `harness/changes/archive/20260619-auto-evolve-harness-source-convergence-architecture-growth-control/summary.md`.
+- Latest archived product change: `harness/changes/archive/20260619-workbench-read-model-timestamp-summary-helper-reuse/summary.md`.
+- Latest archived product/Harness docs change: `harness/changes/archive/20260619-auto-evolve-harness-review-template-handoff-coverage-defaults/summary.md`.
+- Latest archived Harness evolution: `harness/changes/archive/20260619-auto-evolve-harness-review-template-handoff-coverage-defaults/summary.md`.
 - Active product phase: none.
 - Active Harness evolution phase: none.
 - Active close status: none.
 
-This file is the short resume point. There is no active ECL change and no pending Harness evolution. The latest archived product slice reused the existing Workbench read-model projection summary helper in the maintenance confirmation queue so canonical update, canonical patch gate, and canonical patch apply confirmation paths share latest-by-`createdAt` selection after eligibility filtering without changing workflow truth, action payloads, stale revalidation, ToolPolicyGate, or human gates. Verification passed for targeted Workbench projection/action payload tests, module-boundary tests, typecheck, lint, test:fast, build, integration, ECL lint, and encoding lint; the combined full Workbench test command timed out after 304 seconds with no assertion failure output and is recorded as an environment limitation. The latest Harness evolution remains a `keep` result with independent review, retained existing current rules as sufficient, corrected stale STATUS wording, and kept detailed phase/source-convergence narratives archive-only.
+This file is the short resume point. There is no active ECL change and no pending Harness evolution. The latest archived product slice strengthened the Workbench read-model projection summary helper for timestamp ordering / latest selection without changing workflow truth, action payloads, stale revalidation, ToolPolicyGate, human gates, runtime, scheduler, Goal Loop, or public DTO shape. The latest Harness evolution completed `mark-complete` with result `keep` and applied only a narrow review-template default clarification for Documentation Entropy and Close/Handoff Drift coverage; existing Architecture Growth Control / Core Mechanism Reuse rules were retained. Verification passed for targeted Workbench projection tests, module-boundary tests, typecheck, lint, test:fast, build, integration, ECL lint, encoding lint, and Harness evolution checks; full Workbench testing timed out after 364 seconds with no assertion failure output and remains recorded as an environment limitation.
 
 Current plan-level roadmap context is preserved in `docs/CURRENT-DEVELOPMENT-PLAN.md`. Historical detail belongs in archived summaries and `harness/changes/INDEX.json`.
 
 ## Current Baseline
 
-The product baseline is post-maintenance canonical patch target-boundary, lineage, ledger-idempotency, artifact-store reuse, artifact-reference reuse, ledger event-policy reuse, Workbench action active-target revalidation reuse, Workbench read-model projection summary helper reuse, and Workbench maintenance confirmation projection summary helper reuse. The latest Harness evolution completed `mark-complete` with result `keep`; no new Harness rule/template/lint/runtime change was required. Goal Loop controlled-loop state, routing posture, and SchedulerRun terminal handoff evidence remain non-executing evidence only. SchedulerRun terminal Workpad completion and blocked-closeout cards remain read-only evidence and do not authorize loop/full-executor/dispatch/slot/source/apply/close/merge/Harness-evolution behavior.
+The product baseline is post-maintenance canonical patch target-boundary, lineage, ledger-idempotency, artifact-store reuse, artifact-reference reuse, ledger event-policy reuse, Workbench action active-target revalidation reuse, Workbench read-model projection summary helper reuse, Workbench maintenance confirmation projection summary helper reuse, and Workbench read-model timestamp summary helper reuse. The latest Harness evolution completed `mark-complete` with result `keep` and updated only the review template coverage defaults; no product runtime, lint, CI, or workflow-truth change was made. Goal Loop controlled-loop state, routing posture, and SchedulerRun terminal handoff evidence remain non-executing evidence only. SchedulerRun terminal Workpad completion and blocked-closeout cards remain read-only evidence and do not authorize loop/full-executor/dispatch/slot/source/apply/close/merge/Harness-evolution behavior.
 
 Product-level maintenance writes candidate lifecycle-resolution evidence, canonical update proposal evidence, human-gated canonical update decision records, canonical patch proposal evidence, human-gated canonical patch application follow-up records, read-only application manifest/readiness evidence, Phase 12U target-descriptor evidence, Phase 12V human-gated canonical docs/stable-memory application result evidence, and Phase 12W read-only observation report evidence while still forbidding automatic canonical rewrites.
 
@@ -57,7 +57,9 @@ Use `harness/changes/INDEX.json` for the generated archive list. Start with arch
 
 Recent key archive summaries:
 
-- Latest Harness evolution: `harness/changes/archive/20260619-auto-evolve-harness-source-convergence-architecture-growth-control/summary.md`.
+- Latest Harness evolution: `harness/changes/archive/20260619-auto-evolve-harness-review-template-handoff-coverage-defaults/summary.md`.
+- Workbench Read Model Timestamp Summary Helper Reuse: `harness/changes/archive/20260619-workbench-read-model-timestamp-summary-helper-reuse/summary.md`.
+- Previous Harness evolution: `harness/changes/archive/20260619-auto-evolve-harness-source-convergence-architecture-growth-control/summary.md`.
 - Workbench Maintenance Confirmation Projection Summary Reuse: `harness/changes/archive/20260619-workbench-maintenance-confirmation-projection-summary-reuse/summary.md`.
 - Workbench Projection Summary Helper Reuse: `harness/changes/archive/20260619-workbench-projection-summary-helper-reuse/summary.md`.
 - Workbench Action Active Target Revalidation Reuse: `harness/changes/archive/20260619-workbench-action-active-target-revalidation-reuse/summary.md`.

@@ -21,13 +21,15 @@ import type {
   WorkbenchTopicDetail,
   WorkpadEvidenceSummary,
 } from "../../read-model-types.js";
+import { latestByTimestamp, sortByTimestampDesc } from "./projection-summary.js";
 
 const OFFICIAL_REWORK_BUDGET = 1;
 
 export async function buildResultReview(project: ManagedProject | null, memory: ResolvedMemory, topic: WorkbenchTopicDetail): Promise<WorkbenchResultReview | undefined> {
-  const worktrees = (topic.worktrees as WorktreeStatus[])
-    .filter((worktree) => worktree.changeId === topic.id)
-    .sort((a, b) => (b.appliedAt ?? b.createdAt).localeCompare(a.appliedAt ?? a.createdAt));
+  const worktrees = sortByTimestampDesc(
+    (topic.worktrees as WorktreeStatus[]).filter((worktree) => worktree.changeId === topic.id),
+    (worktree) => worktree.appliedAt ?? worktree.createdAt,
+  );
   const worktree = worktrees.find((item) => item.status === "active") ?? worktrees[0];
   const validations = await listValidationResults(memory, topic.id).catch(() => []);
   const audits = await listAuditResults(memory, topic.id).catch(() => []);
@@ -131,7 +133,7 @@ export function requiresUserInputReason(
 
 function latestResultForWorktree<T extends { worktreeId?: string; finishedAt: string }>(items: T[], worktreeId: string | undefined): T | undefined {
   const scoped = worktreeId ? items.filter((item) => item.worktreeId === worktreeId) : items;
-  return [...scoped].sort((a, b) => b.finishedAt.localeCompare(a.finishedAt))[0];
+  return latestByTimestamp(scoped, (item) => item.finishedAt);
 }
 
 function changedFilesFromWorktree(worktree: WorktreeStatus | undefined): string[] {

@@ -1,5 +1,6 @@
 ﻿import { approvalAction } from "./approval-inbox.js";
 import type { AuditSummary, ValidationSummary } from "../../../types/index.js";
+import { latestByTimestamp, sortByTimestampDesc } from "./projection-summary.js";
 import type {
   WorkbenchApprovalItem,
   WorkbenchApprovalKind,
@@ -56,10 +57,10 @@ export function buildDecisionInspector(input: {
   const current = enrichedContexts.filter((context) => context.kind !== "history");
   const primary = current.sort(compareDecisionContexts)[0] ?? null;
   const related = current.filter((context) => context.id !== primary?.id).sort(compareDecisionContexts);
-  const history = [
+  const history = sortByTimestampDesc([
     ...enrichedContexts.filter((context) => context.kind === "history"),
     ...enrichedHistory,
-  ].sort((a, b) => (b.timestamp ?? "").localeCompare(a.timestamp ?? ""));
+  ], (context) => context.timestamp);
   return { primary, related, history };
 }
 
@@ -278,10 +279,8 @@ function taskDecisionContexts(topic: WorkbenchTopicDetail, workpad: WorkbenchWor
 }
 
 function latestValidationAuditContexts(topic: WorkbenchTopicDetail): WorkbenchDecisionContext[] {
-  const validations = (topic.validations as ValidationSummary[]).sort((a, b) => (b.finishedAt ?? "").localeCompare(a.finishedAt ?? ""));
-  const audits = (topic.audits as AuditSummary[]).sort((a, b) => (b.finishedAt ?? "").localeCompare(a.finishedAt ?? ""));
   const contexts: WorkbenchDecisionContext[] = [];
-  const validation = validations[0];
+  const validation = latestByTimestamp(topic.validations as ValidationSummary[], (item) => item.finishedAt);
   if (validation?.status === "failed") {
     contexts.push({
       id: `validation:${validation.id}:failed`,
@@ -296,7 +295,7 @@ function latestValidationAuditContexts(topic: WorkbenchTopicDetail): WorkbenchDe
       actions: evidenceActions(undefined),
     });
   }
-  const audit = audits[0];
+  const audit = latestByTimestamp(topic.audits as AuditSummary[], (item) => item.finishedAt);
   if (audit?.status === "blocked" || audit?.status === "failed") {
     contexts.push({
       id: `audit:${audit.id}:blocked`,

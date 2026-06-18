@@ -72,7 +72,7 @@ import { findWorkbenchTopicPath } from "../../src/workbench/projections/typed-wo
 import { buildConfirmationQueue, scopeConfirmationQueueItemActions } from "../../src/workbench/projections/read-model/confirmation-queue.js";
 import { buildApprovalInbox } from "../../src/workbench/projections/read-model/approval-inbox.js";
 import { buildMaintenanceSummary } from "../../src/workbench/projections/read-model/maintenance-summary.js";
-import { latestByCreatedAt, projectFields } from "../../src/workbench/projections/read-model/projection-summary.js";
+import { latestByCreatedAt, latestByTimestamp, projectFields, sortByTimestampDesc } from "../../src/workbench/projections/read-model/projection-summary.js";
 import { listWorkbenchTopicsFromMemory } from "../../src/workbench/projections/read-model/topics.js";
 import { workpadNextActionToConfirmationItems } from "../../src/workbench/projections/read-model/confirmation/typed-workflow.js";
 import { schedulerUserFacingActionLabel } from "../../src/workbench/projections/read-model/confirmation/scheduler-user-surface.js";
@@ -268,6 +268,8 @@ describe("Workbench module boundaries", () => {
     expect(typeof buildApprovalInbox).toBe("function");
     expect(typeof buildMaintenanceSummary).toBe("function");
     expect(typeof latestByCreatedAt).toBe("function");
+    expect(typeof latestByTimestamp).toBe("function");
+    expect(typeof sortByTimestampDesc).toBe("function");
     expect(typeof projectFields).toBe("function");
     expect(typeof listWorkbenchTopicsFromMemory).toBe("function");
     expect(typeof workpadNextActionToConfirmationItems).toBe("function");
@@ -1592,15 +1594,40 @@ describe("Workbench module boundaries", () => {
 
     expect(latestByCreatedAt(records)?.id).toBe("newer");
     expect(records.map((record) => record.id)).toEqual(originalOrder);
+    expect(sortByTimestampDesc(records, (record) => record.createdAt).map((record) => record.id)).toEqual(["newer", "older"]);
+    expect(records.map((record) => record.id)).toEqual(originalOrder);
+    expect(latestByTimestamp(records, (record) => record.createdAt)?.id).toBe("newer");
     expect(projectFields(records[1], ["id", "createdAt"] as const)).toEqual({
       id: "newer",
       createdAt: "2026-06-19T00:00:00.000Z",
     });
 
+    const optionalTimestampRecords: Array<{ id: string; finishedAt?: string | null }> = [
+      { id: "missing" },
+      { id: "old", finishedAt: "2026-06-17T00:00:00.000Z" },
+      { id: "new", finishedAt: "2026-06-20T00:00:00.000Z" },
+      { id: "empty", finishedAt: null },
+    ];
+    const optionalOriginalOrder = optionalTimestampRecords.map((record) => record.id);
+    expect(latestByTimestamp(optionalTimestampRecords, (record) => record.finishedAt)?.id).toBe("new");
+    expect(sortByTimestampDesc(optionalTimestampRecords, (record) => record.finishedAt).map((record) => record.id)).toEqual(["new", "old", "missing", "empty"]);
+    expect(optionalTimestampRecords.map((record) => record.id)).toEqual(optionalOriginalOrder);
+
     const helper = readFileSync("src/workbench/projections/read-model/projection-summary.ts", "utf8");
+    expect(helper).toContain("latestByTimestamp(items, (item) => item.createdAt)");
     expect(helper).not.toContain("from \"../../manager");
     expect(helper).not.toContain("from \"../../../server");
     expect(helper).not.toContain("from \"../../../agent-task");
+
+    const taskGraph = readFileSync("src/workbench/projections/read-model/task-graph.ts", "utf8");
+    const workpad = readFileSync("src/workbench/projections/read-model/workpad.ts", "utf8");
+    const resultReview = readFileSync("src/workbench/projections/read-model/result-review.ts", "utf8");
+    const decisionInspector = readFileSync("src/workbench/projections/read-model/decision-inspector.ts", "utf8");
+    expect(taskGraph).toContain('from "./projection-summary.js"');
+    expect(workpad).toContain('from "./projection-summary.js"');
+    expect(resultReview).toContain('from "./projection-summary.js"');
+    expect(decisionInspector).toContain('from "./projection-summary.js"');
+    expect(decisionInspector).toContain("function compareDecisionContexts");
   });
 
   it("keeps confirmation queue planning copy non-executing and preserves explicit action scope", () => {

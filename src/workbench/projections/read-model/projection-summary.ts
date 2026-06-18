@@ -2,8 +2,24 @@ export interface CreatedAtRecord {
   createdAt: string;
 }
 
+export type ProjectionTimestamp = string | null | undefined;
+
+export function sortByTimestampDesc<T>(
+  items: readonly T[],
+  timestamp: (item: T) => ProjectionTimestamp,
+): T[] {
+  return [...items].sort((a, b) => (timestamp(b) ?? "").localeCompare(timestamp(a) ?? ""));
+}
+
+export function latestByTimestamp<T>(
+  items: readonly T[],
+  timestamp: (item: T) => ProjectionTimestamp,
+): T | undefined {
+  return sortByTimestampDesc(items, timestamp)[0];
+}
+
 export function latestByCreatedAt<T extends CreatedAtRecord>(items: readonly T[]): T | undefined {
-  return [...items].sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
+  return latestByTimestamp(items, (item) => item.createdAt);
 }
 
 export function projectFields<T extends object, K extends keyof T>(

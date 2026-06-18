@@ -23,6 +23,7 @@ import type {
   WorkbenchWorkerLeaseSummary,
   WorkpadTaskPreview,
 } from "../../read-model-types.js";
+import { latestByCreatedAt, latestByTimestamp, sortByTimestampDesc } from "./projection-summary.js";
 
 const OFFICIAL_REWORK_BUDGET = 1;
 
@@ -93,7 +94,7 @@ export function buildTaskQueueSummary(
   topic: WorkbenchTopicDetail,
   _readiness: { specReady: boolean; planReady: boolean; tasksReady: boolean },
 ): WorkbenchTaskQueueSummary | undefined {
-  const queue = [...(topic.taskQueues ?? [])].sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
+  const queue = latestByCreatedAt(topic.taskQueues ?? []);
   const queueActionType = queue?.status === "paused" ? "task.queue.start" : "task.queue.reconcile";
   const baseAction: WorkbenchTaskNextAction | undefined = queue
     ? {
@@ -176,7 +177,10 @@ export function buildTaskGraph(
 
   const nodes = topic.acMap.tasks.map((task) => {
     const runs = taskScopedCoderRuns.filter((run) => run.taskIds?.includes(task.id));
-    const taskRunAttempts = taskRuns.filter((run) => run.taskId === task.id).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    const taskRunAttempts = sortByTimestampDesc(
+      taskRuns.filter((run) => run.taskId === task.id),
+      (run) => run.createdAt,
+    );
     const latestTaskRun = taskRunAttempts[0];
     const latestLease = latestTaskRun?.leaseId ? workerLeases.find((lease) => lease.id === latestTaskRun.leaseId) : undefined;
     const running = taskRunAttempts.some((run) => isActiveTaskRunStatus(run.status)) || runs.some((run) => run.status === "created" || run.status === "running");
@@ -193,8 +197,8 @@ export function buildTaskGraph(
     ].sort(compareEvidenceDesc).slice(0, 6);
     const queueActiveForTask = isQueueActiveForTask(queue, task.id);
     const blockers = buildTaskBlockers(topic, readiness, runs, taskValidations, taskAudits, running || queueActiveForTask, latestTaskRun, queueActiveForTask);
-    const latestValidation = [...taskValidations].sort((a, b) => (b.finishedAt ?? "").localeCompare(a.finishedAt ?? ""))[0];
-    const latestAudit = [...taskAudits].sort((a, b) => (b.finishedAt ?? "").localeCompare(a.finishedAt ?? ""))[0];
+    const latestValidation = latestByTimestamp(taskValidations, (validation) => validation.finishedAt);
+    const latestAudit = latestByTimestamp(taskAudits, (audit) => audit.finishedAt);
     const status: WorkbenchTaskNodeStatus = task.done
       ? "checked"
       : running
@@ -388,9 +392,9 @@ function buildTaskBlockers(
   if (!readiness.specReady || !readiness.planReady || !readiness.tasksReady) blockers.push("前置条件未满足：需要已确认的需求说明 / 执行方案 / 任务。");
   if (queueActiveForTask) blockers.push("本地顺序执行正在运行或等待恢复。");
   else if (running) blockers.push("已有该任务的运行正在进行。");
-  const latestRun = [...runs].sort((a, b) => (b.finishedAt ?? b.startedAt ?? "").localeCompare(a.finishedAt ?? a.startedAt ?? ""))[0];
-  const latestValidation = [...validations].sort((a, b) => (b.finishedAt ?? "").localeCompare(a.finishedAt ?? ""))[0];
-  const latestAudit = [...audits].sort((a, b) => (b.finishedAt ?? "").localeCompare(a.finishedAt ?? ""))[0];
+  const latestRun = latestByTimestamp(runs, (run) => run.finishedAt ?? run.startedAt);
+  const latestValidation = latestByTimestamp(validations, (validation) => validation.finishedAt);
+  const latestAudit = latestByTimestamp(audits, (audit) => audit.finishedAt);
   if (latestRun?.status === "failed") blockers.push("Coder run failed.");
   if (latestValidation?.status === "failed") blockers.push("Validation failed.");
   if (latestAudit?.status === "blocked" || latestAudit?.status === "failed") blockers.push(`Audit ${latestAudit.status}.`);

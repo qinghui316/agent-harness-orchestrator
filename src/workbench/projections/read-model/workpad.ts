@@ -68,6 +68,7 @@ import { buildAgentTaskSummaries } from "./agent-task-summary.js";
 import { buildMaintenanceSummary } from "./maintenance-summary.js";
 import { readLatestPlanningBundleProjection } from "./lazy-projections.js";
 import { filterGoalLoopSummaryForCurrentGate } from "./goal-loop-parity.js";
+import { latestByTimestamp, sortByTimestampDesc } from "./projection-summary.js";
 import {
   buildResultReview,
   classifySelectedTopicFailure,
@@ -226,9 +227,9 @@ export async function buildWorkbenchWorkpad(input: {
   ]);
   const topicApprovals = approvals.filter((approval) => !approval.changeId || approval.changeId === selectedTopic.id);
   const topicDecisions = decisions.filter((decision) => !decision.changeId || decision.changeId === selectedTopic.id);
-  const latestRun = [...selectedTopic.runs].sort((a, b) => (b.finishedAt ?? b.startedAt ?? "").localeCompare(a.finishedAt ?? a.startedAt ?? ""))[0];
-  const latestValidation = [...(selectedTopic.validations as ValidationSummary[])].sort((a, b) => (b.finishedAt ?? "").localeCompare(a.finishedAt ?? ""))[0];
-  const latestAudit = [...(selectedTopic.audits as AuditSummary[])].sort((a, b) => (b.finishedAt ?? "").localeCompare(a.finishedAt ?? ""))[0];
+  const latestRun = latestByTimestamp(selectedTopic.runs, (run) => run.finishedAt ?? run.startedAt);
+  const latestValidation = latestByTimestamp(selectedTopic.validations as ValidationSummary[], (validation) => validation.finishedAt);
+  const latestAudit = latestByTimestamp(selectedTopic.audits as AuditSummary[], (audit) => audit.finishedAt);
   const intake = buildWorkpadIntake(selectedTopic);
   const taskQueue = buildTaskQueueSummary(selectedTopic, { specReady, planReady, tasksReady });
   const taskGraph = buildTaskGraph(selectedTopic, { specReady, planReady, tasksReady }, taskQueue);
@@ -425,9 +426,10 @@ function buildPendingFeedback(topic: WorkbenchTopicDetail): WorkbenchPendingFeed
 }
 
 function summarizeCoderSelfTest(topic: WorkbenchTopicDetail): string | undefined {
-  const latestCoder = [...topic.runs]
-    .filter((run) => run.runtime === "coder-codex")
-    .sort((a, b) => (b.finishedAt ?? b.startedAt ?? "").localeCompare(a.finishedAt ?? a.startedAt ?? ""))[0];
+  const latestCoder = latestByTimestamp(
+    topic.runs.filter((run) => run.runtime === "coder-codex"),
+    (run) => run.finishedAt ?? run.startedAt,
+  );
   if (!latestCoder) return undefined;
   if (latestCoder.status === "running" || latestCoder.status === "created") return "正在实现、自测并修正。";
   if (latestCoder.status === "completed") return "Coder 已完成实现和可用自测，等待独立验证/审查确认。";
@@ -436,7 +438,7 @@ function summarizeCoderSelfTest(topic: WorkbenchTopicDetail): string | undefined
 
 function buildScopedFeedbackTarget(topic: WorkbenchTopicDetail, taskGraph: WorkbenchTaskGraph): WorkbenchScopedFeedbackTarget | undefined {
   const blocked = taskGraph.nodes.find((node) => node.status === "blocked") ?? taskGraph.nodes.find((node) => node.taskRun);
-  const latestRun = [...topic.runs].sort((a, b) => (b.finishedAt ?? b.startedAt ?? "").localeCompare(a.finishedAt ?? a.startedAt ?? ""))[0];
+  const latestRun = latestByTimestamp(topic.runs, (run) => run.finishedAt ?? run.startedAt);
   if (!blocked && !latestRun) return undefined;
   return {
     changeId: topic.id,
@@ -466,9 +468,9 @@ function buildRolePipelineSummary(
   const validationRuns = topic.validations as ValidationSummary[];
   const auditRuns = topic.audits as AuditSummary[];
   if (!planningBundle && coderRuns.length === 0 && validationRuns.length === 0 && auditRuns.length === 0 && agentTasks.length === 0) return undefined;
-  const latestCoder = [...coderRuns].sort((a, b) => (b.finishedAt ?? b.startedAt ?? "").localeCompare(a.finishedAt ?? a.startedAt ?? ""))[0];
-  const latestValidation = [...validationRuns].sort((a, b) => (b.finishedAt ?? "").localeCompare(a.finishedAt ?? ""))[0];
-  const latestAudit = [...auditRuns].sort((a, b) => (b.finishedAt ?? "").localeCompare(a.finishedAt ?? ""))[0];
+  const latestCoder = latestByTimestamp(coderRuns, (run) => run.finishedAt ?? run.startedAt);
+  const latestValidation = latestByTimestamp(validationRuns, (validation) => validation.finishedAt);
+  const latestAudit = latestByTimestamp(auditRuns, (audit) => audit.finishedAt);
   const runs: WorkbenchRoleRunSummary[] = [];
   if (planningBundle) runs.push({ roleId: "planning-agent", status: planningBundle.status, summary: planningBundle.goal, artifact: planningBundle.artifact });
   if (latestCoder) runs.push({ roleId: "coder-agent", status: latestCoder.status, runId: latestCoder.id, summary: latestCoder.status === "completed" ? "Coder finished implementation/self-test attempt." : "Coder attempt is not completed.", artifact: latestCoder.artifacts.directory });
@@ -612,8 +614,10 @@ function buildWorkpadEvidence(topic: WorkbenchTopicDetail, approvals: WorkbenchA
     timestamp: decision.completedAt ?? decision.updatedAt,
   }));
   const approvalEvidence = approvals.slice(0, 3).map(approvalWorkpadEvidence);
-  return [...approvalEvidence, ...decisionEvidence, ...auditEvidence, ...validationEvidence, ...runEvidence]
-    .sort((a, b) => (b.timestamp ?? "").localeCompare(a.timestamp ?? ""))
+  return sortByTimestampDesc(
+    [...approvalEvidence, ...decisionEvidence, ...auditEvidence, ...validationEvidence, ...runEvidence],
+    (item) => item.timestamp,
+  )
     .slice(0, 8);
 }
 
@@ -862,11 +866,11 @@ export async function buildMultiWorkpadSummaries(
   const demandWorkers = await listDemandWorkers(memory).catch(() => []);
   const summaries = await Promise.all(topics.map(async (topic): Promise<WorkbenchWorkpadSummary> => {
     const runs = allRuns.filter((run) => run.changeId === topic.id || run.changeId === topic.name);
-    const latestRun = [...runs].sort((a, b) => (b.finishedAt ?? b.startedAt ?? "").localeCompare(a.finishedAt ?? a.startedAt ?? ""))[0];
+    const latestRun = latestByTimestamp(runs, (run) => run.finishedAt ?? run.startedAt);
     const runningRun = runs.find((run) => run.status === "created" || run.status === "running");
     const demandWorker = demandWorkers.find((worker) => worker.changeId === topic.id || worker.changeId === topic.name);
     const queues = await listTaskQueues(memory, topic.id).catch(() => []);
-    const latestQueue = [...queues].sort((a, b) => (b.updatedAt ?? b.createdAt).localeCompare(a.updatedAt ?? a.createdAt))[0];
+    const latestQueue = latestByTimestamp(queues, (queue) => queue.updatedAt ?? queue.createdAt);
     const topicApprovals = approvals.filter((approval) => approval.changeId === topic.id || approval.changeId === topic.name);
     const blockingApproval = topicApprovals.find((approval) => approval.severity === "blocking");
     let runtimeStatus: WorkbenchWorkpadRuntimeStatus = topic.state === "archive" ? "archived" : "active";
@@ -912,9 +916,10 @@ export async function buildMultiWorkpadSummaries(
       updatedAt: demandWorker?.updatedAt ?? latestRun?.finishedAt ?? latestRun?.startedAt ?? latestQueue?.updatedAt ?? topic.updatedAt,
     };
   }));
-  const running = summaries
-    .filter((item) => item.runtimeStatus === "running")
-    .sort((a, b) => (b.updatedAt ?? "").localeCompare(a.updatedAt ?? ""));
+  const running = sortByTimestampDesc(
+    summaries.filter((item) => item.runtimeStatus === "running"),
+    (item) => item.updatedAt,
+  );
   for (const extra of running.slice(1)) {
     extra.runtimeStatus = "queued";
     extra.userStatus = "later";
@@ -954,9 +959,9 @@ function userDecisionStateForSelectedTopic(
   if (taskGraph.nodes.some((task) => task.autoRework?.available)) return "processing";
   if (queue && ["blocked", "failed"].includes(queue.status)) return "needs-rework";
   if (taskGraph.nodes.some((task) => task.status === "blocked")) return "needs-rework";
-  const latestValidation = [...(topic.validations as ValidationSummary[])].sort((a, b) => (b.finishedAt ?? "").localeCompare(a.finishedAt ?? ""))[0];
+  const latestValidation = latestByTimestamp(topic.validations as ValidationSummary[], (validation) => validation.finishedAt);
   if (latestValidation?.status === "failed") return "needs-rework";
-  const latestAudit = [...(topic.audits as AuditSummary[])].sort((a, b) => (b.finishedAt ?? "").localeCompare(a.finishedAt ?? ""))[0];
+  const latestAudit = latestByTimestamp(topic.audits as AuditSummary[], (audit) => audit.finishedAt);
   if (latestAudit?.status === "blocked" || latestAudit?.status === "failed") return "needs-rework";
   if (topic.runs.some((run) => run.status === "created" || run.status === "running")) return "processing";
   if (queue && ["queued", "paused", "running"].includes(queue.status)) return queue.status === "running" ? "processing" : "later";

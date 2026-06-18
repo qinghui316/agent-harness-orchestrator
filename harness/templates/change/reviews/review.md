@@ -23,7 +23,7 @@ Pending.
 
 ## Documentation Entropy Coverage
 
-- Documentation entropy coverage applicable: no.
+- Documentation entropy coverage applicable: no. Change to `yes` when this change updates `AGENTS.md`, `docs/STATUS.md`, Harness rules/templates, auto-evolve evidence, or other current-state / handoff documents.
 - If applicable, documents checked: not applicable.
 - If applicable, before/after line counts: not applicable.
 - If applicable, duplicate current-state fields checked: not applicable.
@@ -31,7 +31,7 @@ Pending.
 - If applicable, archive-ledger content promoted / retained / merged / retired / archive-only: not applicable.
 - If applicable, over-budget documents and rationale: not applicable.
 - If applicable, tested with: not applicable.
-- If not applicable, reason: change does not alter docs, handoff files, Harness rules/templates, or auto-evolve evidence.
+- If not applicable, reason: change does not alter docs, handoff files, current-state wording, Harness rules/templates, or auto-evolve evidence.
 
 ## Experience Lifecycle Coverage
 
@@ -141,12 +141,12 @@ Pending.
 
 ## Close / Handoff Drift Coverage
 
-- Close/handoff drift coverage applicable: no.
+- Close/handoff drift coverage applicable: no. Change to `yes` when this change alters active phase, product baseline, Harness rules/templates, active/pending state, latest archive, or next recommended work.
 - If applicable, handoff files checked: not applicable.
 - If applicable, stale active-path / phase grep: not applicable.
 - If applicable, latest archive / active path alignment: not applicable.
 - If applicable, pending evolution state checked: not applicable.
-- If not applicable, reason: change does not alter active phase, product baseline, Harness rules, or next recommended track.
+- If not applicable, reason: change does not alter active phase, product baseline, Harness rules/templates, active/pending state, latest archive, or next recommended track.
 
 ## Remote Handoff Acceptance Coverage
 
