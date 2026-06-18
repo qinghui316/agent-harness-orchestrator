@@ -342,6 +342,7 @@ export function labelForAction(actionType: string): string {
     case "planning.goal-loop.controller.refresh": return "Goal Loop controller policy refreshed";
     case "planning.goal-loop.gate-readiness.prepare": return "Goal Loop gate readiness preflight recorded";
     case "maintenance.canonical-update.decision.record": return "Maintenance canonical update decision recorded";
+    case "maintenance.canonical-patch.application-gate.record": return "Maintenance canonical patch application gate recorded";
     case "planning.scheduler.plan.prepare": return "Parallel execution plan prepared";
     case "planning.scheduler.contract.compile": return "SchedulerContract compiled";
     case "planning.scheduler.dispatch.dry-run": return "Scheduler dispatch dry-run generated";

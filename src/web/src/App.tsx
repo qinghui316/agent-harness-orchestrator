@@ -373,7 +373,8 @@ export function App(): ReactElement {
   }
 
   async function runWorkflowAction(actionType: string, options: Record<string, unknown> = {}): Promise<void> {
-    const projectScopedAction = actionType === "maintenance.canonical-update.decision.record";
+    const projectScopedAction = actionType === "maintenance.canonical-update.decision.record"
+      || actionType === "maintenance.canonical-patch.application-gate.record";
     if (!selectedProjectId || (!activeTopic && !projectScopedAction)) return;
     setActionRunning(actionType);
     setError(null);
@@ -398,6 +399,16 @@ export function App(): ReactElement {
         });
         setSnapshot(result.snapshot);
         setComposerText("");
+        return;
+      }
+      if (projectScopedAction) {
+        const result = await postJson<{ snapshot: Snapshot }>(`/api/projects/${encodeURIComponent(selectedProjectId)}/workbench/actions`, {
+          actionType,
+          changeId: activeTopic?.id,
+          confirm: true,
+          ...options,
+        });
+        setSnapshot(result.snapshot);
         return;
       }
       await consumeWorkbenchLiveStream(`/api/projects/${encodeURIComponent(selectedProjectId)}/workbench/actions/live`, {

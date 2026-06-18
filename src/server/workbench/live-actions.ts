@@ -28,6 +28,10 @@ export async function sendWorkbenchActionLive(input: WorkbenchProjectInput & { p
         error.name = "BadRequest";
         throw error;
       }
+      if (isProjectScopedMaintenanceWorkflowAction(body.actionType)) {
+        await executeWorkbenchAction(input, body);
+        terminalStatus = "completed";
+      } else {
       await assertCurrentWorkflowAction(input, body);
       const result = await runWorkbenchWorkflowAction(input.project, {
         actionType: body.actionType,
@@ -61,6 +65,8 @@ export async function sendWorkbenchActionLive(input: WorkbenchProjectInput & { p
         goalLoopControllerPolicyId: body.goalLoopControllerPolicyId,
         goalLoopGateReadinessPreflightId: body.goalLoopGateReadinessPreflightId,
         goalLoopCurrentGateActionType: body.goalLoopCurrentGateActionType,
+        maintenancePatchProposalId: body.maintenancePatchProposalId,
+        maintenanceProposalId: body.maintenanceProposalId,
         schedulerWorkerStartId: body.schedulerWorkerStartId,
         schedulerWorkerResultId: body.schedulerWorkerResultId,
         schedulerWorkerValidationId: body.schedulerWorkerValidationId,
@@ -88,6 +94,7 @@ export async function sendWorkbenchActionLive(input: WorkbenchProjectInput & { p
         auditRunId: body.auditRunId,
       }, sink);
       terminalStatus = result.status;
+      }
     } else {
       await executeWorkbenchAction(input, body);
     }
@@ -104,4 +111,9 @@ export async function sendWorkbenchActionLive(input: WorkbenchProjectInput & { p
 
 function isLiveWorkflowAction(actionType: string): actionType is WorkbenchWorkflowActionRequest["actionType"] {
   return isLiveWorkflowActionType(actionType);
+}
+
+function isProjectScopedMaintenanceWorkflowAction(actionType: string): boolean {
+  return actionType === "maintenance.canonical-update.decision.record"
+    || actionType === "maintenance.canonical-patch.application-gate.record";
 }

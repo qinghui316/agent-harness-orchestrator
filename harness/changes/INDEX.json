@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-18T13:24:44.0769942Z",
+    "generated_at":  "2026-06-18T14:28:15.5301513Z",
     "active":  [
 
                ],
@@ -995,6 +995,10 @@
                         "path":  "harness/changes/archive/20260618-auto-evolve-harness-phase-12k-12o-lifecycle-handoff-drift"
                     },
                     {
+                        "name":  "20260618-auto-evolve-harness-phase-12o-12s-product-maintenance-evidence",
+                        "path":  "harness/changes/archive/20260618-auto-evolve-harness-phase-12o-12s-product-maintenance-evidence"
+                    },
+                    {
                         "name":  "20260618-phase-11m-goal-loop-enabled-gate-projection-guard",
                         "path":  "harness/changes/archive/20260618-phase-11m-goal-loop-enabled-gate-projection-guard"
                     },
@@ -1117,6 +1121,10 @@
                     {
                         "name":  "20260618-phase-12r-product-maintenance-canonical-patch-proposal-evidence",
                         "path":  "harness/changes/archive/20260618-phase-12r-product-maintenance-canonical-patch-proposal-evidence"
+                    },
+                    {
+                        "name":  "20260618-phase-12s-product-maintenance-canonical-patch-application-gate",
+                        "path":  "harness/changes/archive/20260618-phase-12s-product-maintenance-canonical-patch-application-gate"
                     }
                 ]
 }

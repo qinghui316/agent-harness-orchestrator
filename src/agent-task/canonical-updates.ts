@@ -3,6 +3,7 @@ import { readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { readJsonFile, writeJsonFile } from "../fs/json.js";
 import type {
+  MaintenanceCanonicalPatchApplicationGateRecord,
   MaintenanceCanonicalPatchOperation,
   MaintenanceCanonicalPatchProposal,
   MaintenanceCanonicalUpdateDecision,
@@ -17,6 +18,9 @@ import {
   maintenanceCanonicalPatchProposalMarkdownPath,
   maintenanceCanonicalPatchProposalPath,
   maintenanceCanonicalPatchProposalsRoot,
+  maintenanceCanonicalPatchApplicationGateRecordMarkdownPath,
+  maintenanceCanonicalPatchApplicationGateRecordPath,
+  maintenanceCanonicalPatchApplicationGateRecordsRoot,
   maintenanceCanonicalUpdateDecisionMarkdownPath,
   maintenanceCanonicalUpdateDecisionPath,
   maintenanceCanonicalUpdateDecisionsRoot,
@@ -26,7 +30,7 @@ import {
   maintenanceResolutionPath,
 } from "./paths.js";
 import { listMaintenanceLedgerEntries, recordMaintenanceLedgerEntry } from "./ledger.js";
-import { canonicalPatchProposalSchema, canonicalUpdateDecisionSchema, canonicalUpdateProposalSchema } from "./schemas.js";
+import { canonicalPatchApplicationGateRecordSchema, canonicalPatchProposalSchema, canonicalUpdateDecisionSchema, canonicalUpdateProposalSchema } from "./schemas.js";
 import { contentHash, uniqueSorted } from "./utils.js";
 
 export async function proposeMaintenanceCanonicalUpdate(
@@ -180,6 +184,58 @@ export async function readMaintenanceCanonicalPatchProposalForDecision(
   return patchProposals.find((proposal) => proposal.decisionId === decisionId) ?? null;
 }
 
+export async function recordMaintenanceCanonicalPatchApplicationGate(
+  memory: ResolvedMemory,
+  patchProposalId: string,
+): Promise<MaintenanceCanonicalPatchApplicationGateRecord> {
+  const patchProposal = await readMaintenanceCanonicalPatchProposal(memory, patchProposalId);
+  if (!patchProposal) throw new Error(`Maintenance canonical patch proposal not found: ${patchProposalId}`);
+  if (!patchProposal.humanApplicationGateRequired) {
+    throw new Error(`Maintenance canonical patch proposal is not human-gated: ${patchProposalId}`);
+  }
+  const existing = await readMaintenanceCanonicalPatchApplicationGateForPatchProposal(memory, patchProposalId);
+  if (existing) {
+    await ensureCanonicalPatchApplicationGateLedgerEntry(memory, existing);
+    return existing;
+  }
+  const gateRecord = buildCanonicalPatchApplicationGateRecord(memory, patchProposal);
+  canonicalPatchApplicationGateRecordSchema.parse(gateRecord);
+  await writeJsonFile(maintenanceCanonicalPatchApplicationGateRecordPath(memory, gateRecord.id), gateRecord);
+  await writeFile(maintenanceCanonicalPatchApplicationGateRecordMarkdownPath(memory, gateRecord.id), renderCanonicalPatchApplicationGateMarkdown(gateRecord), "utf8");
+  await ensureCanonicalPatchApplicationGateLedgerEntry(memory, gateRecord);
+  return gateRecord;
+}
+
+export async function readMaintenanceCanonicalPatchApplicationGate(
+  memory: ResolvedMemory,
+  gateRecordId: string,
+): Promise<MaintenanceCanonicalPatchApplicationGateRecord | null> {
+  const path = maintenanceCanonicalPatchApplicationGateRecordPath(memory, gateRecordId);
+  if (!existsSync(path)) return null;
+  return readJsonFile(path, canonicalPatchApplicationGateRecordSchema, null as unknown as MaintenanceCanonicalPatchApplicationGateRecord).catch(() => null);
+}
+
+export async function listMaintenanceCanonicalPatchApplicationGateRecords(memory: ResolvedMemory): Promise<MaintenanceCanonicalPatchApplicationGateRecord[]> {
+  const root = maintenanceCanonicalPatchApplicationGateRecordsRoot(memory);
+  if (!existsSync(root)) return [];
+  const entries = await readdir(root, { withFileTypes: true });
+  const gateRecords: MaintenanceCanonicalPatchApplicationGateRecord[] = [];
+  for (const entry of entries) {
+    if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
+    const gateRecord = await readJsonFile(join(root, entry.name), canonicalPatchApplicationGateRecordSchema, null as unknown as MaintenanceCanonicalPatchApplicationGateRecord).catch(() => null);
+    if (gateRecord) gateRecords.push(gateRecord);
+  }
+  return gateRecords.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+}
+
+export async function readMaintenanceCanonicalPatchApplicationGateForPatchProposal(
+  memory: ResolvedMemory,
+  patchProposalId: string,
+): Promise<MaintenanceCanonicalPatchApplicationGateRecord | null> {
+  const gateRecords = await listMaintenanceCanonicalPatchApplicationGateRecords(memory);
+  return gateRecords.find((record) => record.patchProposalId === patchProposalId) ?? null;
+}
+
 export function maintenanceCanonicalUpdateProposalArtifactRef(memory: ResolvedMemory, proposalId: string): string {
   return displayMaintenancePath(memory, maintenanceCanonicalUpdateProposalPath(memory, proposalId));
 }
@@ -190,6 +246,10 @@ export function maintenanceCanonicalUpdateDecisionArtifactRef(memory: ResolvedMe
 
 export function maintenanceCanonicalPatchProposalArtifactRef(memory: ResolvedMemory, patchProposalId: string): string {
   return displayMaintenancePath(memory, maintenanceCanonicalPatchProposalPath(memory, patchProposalId));
+}
+
+export function maintenanceCanonicalPatchApplicationGateArtifactRef(memory: ResolvedMemory, gateRecordId: string): string {
+  return displayMaintenancePath(memory, maintenanceCanonicalPatchApplicationGateRecordPath(memory, gateRecordId));
 }
 
 function buildCanonicalUpdateProposal(memory: ResolvedMemory, resolutions: MaintenanceCandidateResolution[]): MaintenanceCanonicalUpdateProposal {
@@ -300,6 +360,38 @@ function buildCanonicalPatchProposal(
   };
 }
 
+function buildCanonicalPatchApplicationGateRecord(
+  memory: ResolvedMemory,
+  patchProposal: MaintenanceCanonicalPatchProposal,
+): MaintenanceCanonicalPatchApplicationGateRecord {
+  const id = `canonical-patch-application-gate-${contentHash(patchProposal.id).slice(0, 12)}`;
+  const patchProposalRefs = [
+    maintenanceCanonicalPatchProposalArtifactRef(memory, patchProposal.id),
+    displayMaintenancePath(memory, maintenanceCanonicalPatchProposalMarkdownPath(memory, patchProposal.id)),
+  ];
+  return {
+    version: "1.0",
+    id,
+    patchProposalId: patchProposal.id,
+    proposalId: patchProposal.proposalId,
+    decisionId: patchProposal.decisionId,
+    decisionStatus: "accepted-for-application-follow-up",
+    targetKinds: patchProposal.targetKinds,
+    operationCount: patchProposal.operationCount,
+    sourceMutationAuthorized: false,
+    canonicalUpdateApplied: false,
+    canonicalPatchApplied: false,
+    executionStarted: false,
+    summary: `Human-gated canonical patch application follow-up recorded for patch proposal ${patchProposal.id}. This gate record does not apply canonical changes.`,
+    risks: [
+      "Gate evidence can be mistaken for canonical application unless applied and mutation flags remain false.",
+      "A later deterministic canonical application implementation must revalidate this gate, ToolPolicyGate, and human confirmation before any write.",
+    ],
+    artifactRefs: uniqueSorted([...patchProposalRefs, ...patchProposal.artifactRefs]),
+    createdAt: new Date().toISOString(),
+  };
+}
+
 async function ensureCanonicalUpdateProposalLedgerEntry(
   memory: ResolvedMemory,
   proposal: MaintenanceCanonicalUpdateProposal,
@@ -353,6 +445,25 @@ async function ensureCanonicalPatchProposalLedgerEntry(
     artifactRefs: [
       patchProposalRef,
       displayMaintenancePath(memory, maintenanceCanonicalPatchProposalMarkdownPath(memory, patchProposal.id)),
+    ],
+  });
+}
+
+async function ensureCanonicalPatchApplicationGateLedgerEntry(
+  memory: ResolvedMemory,
+  gateRecord: MaintenanceCanonicalPatchApplicationGateRecord,
+): Promise<void> {
+  const gateRecordRef = maintenanceCanonicalPatchApplicationGateArtifactRef(memory, gateRecord.id);
+  const entries = await listMaintenanceLedgerEntries(memory);
+  if (entries.some((entry) => entry.eventType === "canonical-patch-application-gate" && entry.artifactRefs.includes(gateRecordRef))) {
+    return;
+  }
+  await recordMaintenanceLedgerEntry(memory, {
+    eventType: "canonical-patch-application-gate",
+    summary: `${gateRecord.summary} This ledger entry is evidence only and does not authorize canonical mutation.`,
+    artifactRefs: [
+      gateRecordRef,
+      displayMaintenancePath(memory, maintenanceCanonicalPatchApplicationGateRecordMarkdownPath(memory, gateRecord.id)),
     ],
   });
 }
@@ -463,6 +574,43 @@ function renderCanonicalPatchProposalMarkdown(patchProposal: MaintenanceCanonica
     "## Evidence",
     "",
     ...patchProposal.artifactRefs.map((ref) => `- ${ref}`),
+    "",
+  ].join("\n");
+}
+
+function renderCanonicalPatchApplicationGateMarkdown(gateRecord: MaintenanceCanonicalPatchApplicationGateRecord): string {
+  return [
+    `# ${gateRecord.id}`,
+    "",
+    gateRecord.summary,
+    "",
+    "## Authority",
+    "",
+    "- Classification: human-gated canonical patch application follow-up evidence.",
+    "- Decision status: accepted-for-application-follow-up.",
+    "- Source mutation authorized: false.",
+    "- Canonical update applied: false.",
+    "- Canonical patch applied: false.",
+    "- Execution started: false.",
+    "- This gate record does not modify stable memory, canonical docs, ECL rules, Harness templates, source root, apply state, close state, remote state, or Harness evolution state.",
+    "",
+    "## Sources",
+    "",
+    `- Patch proposal: ${gateRecord.patchProposalId}`,
+    `- Proposal: ${gateRecord.proposalId}`,
+    `- Decision: ${gateRecord.decisionId}`,
+    "",
+    "## Target Kinds",
+    "",
+    ...gateRecord.targetKinds.map((kind) => `- ${kind}`),
+    "",
+    "## Risks",
+    "",
+    ...gateRecord.risks.map((risk) => `- ${risk}`),
+    "",
+    "## Evidence",
+    "",
+    ...gateRecord.artifactRefs.map((ref) => `- ${ref}`),
     "",
   ].join("\n");
 }

@@ -19,4 +19,12 @@ describe("web workflow action payload helpers", () => {
       decompositionPlanId: "decomposition-1",
     });
   });
+
+  it("preserves maintenance patch proposal scope", () => {
+    expect(workflowActionPayloadFromScope({
+      maintenancePatchProposalId: "canonical-patch-proposal-1",
+    })).toEqual({
+      maintenancePatchProposalId: "canonical-patch-proposal-1",
+    });
+  });
 });

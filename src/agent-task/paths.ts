@@ -84,3 +84,15 @@ export function maintenanceCanonicalPatchProposalPath(memory: ResolvedMemory, pa
 export function maintenanceCanonicalPatchProposalMarkdownPath(memory: ResolvedMemory, patchProposalId: string): string {
   return join(maintenanceCanonicalPatchProposalsRoot(memory), `${patchProposalId}.md`);
 }
+
+export function maintenanceCanonicalPatchApplicationGateRecordsRoot(memory: ResolvedMemory): string {
+  return join(maintenanceRoot(memory), "canonical-patch-application-gates");
+}
+
+export function maintenanceCanonicalPatchApplicationGateRecordPath(memory: ResolvedMemory, gateRecordId: string): string {
+  return join(maintenanceCanonicalPatchApplicationGateRecordsRoot(memory), `${gateRecordId}.json`);
+}
+
+export function maintenanceCanonicalPatchApplicationGateRecordMarkdownPath(memory: ResolvedMemory, gateRecordId: string): string {
+  return join(maintenanceCanonicalPatchApplicationGateRecordsRoot(memory), `${gateRecordId}.md`);
+}

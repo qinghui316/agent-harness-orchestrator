@@ -13,6 +13,7 @@ import {
   completeAgentTask,
   createAgentTask,
   listAgentTasks,
+  listMaintenanceCanonicalPatchApplicationGateRecords,
   listMaintenanceCanonicalPatchProposals,
   listMaintenanceCanonicalUpdateProposals,
   listMaintenanceCanonicalUpdateDecisions,
@@ -23,7 +24,9 @@ import {
   proposeMaintenanceCanonicalPatch,
   proposeMaintenanceCanonicalUpdate,
   readAgentTaskResult,
+  readMaintenanceCanonicalPatchApplicationGate,
   readMaintenanceCanonicalPatchProposal,
+  recordMaintenanceCanonicalPatchApplicationGate,
   recordMaintenanceCanonicalUpdateDecision,
   readMaintenanceCanonicalUpdateProposal,
   readMaintenanceCandidateResolution,
@@ -226,12 +229,17 @@ describe("AgentTask domain boundaries", () => {
     const repeatedDecision = await recordMaintenanceCanonicalUpdateDecision(memory, proposals[0].id);
     const patchProposal = await proposeMaintenanceCanonicalPatch(memory, decision.id);
     const repeatedPatchProposal = await proposeMaintenanceCanonicalPatch(memory, decision.id);
+    const gateRecord = await recordMaintenanceCanonicalPatchApplicationGate(memory, patchProposal.id);
+    const repeatedGateRecord = await recordMaintenanceCanonicalPatchApplicationGate(memory, patchProposal.id);
     const decisions = await listMaintenanceCanonicalUpdateDecisions(memory);
     const patchProposals = await listMaintenanceCanonicalPatchProposals(memory);
+    const gateRecords = await listMaintenanceCanonicalPatchApplicationGateRecords(memory);
     const decisionMarkdown = await readFile(join(memory.workbenchRoot, "maintenance", "canonical-update-decisions", `${decision.id}.md`), "utf8");
     const patchProposalMarkdown = await readFile(join(memory.workbenchRoot, "maintenance", "canonical-patch-proposals", `${patchProposal.id}.md`), "utf8");
+    const gateRecordMarkdown = await readFile(join(memory.workbenchRoot, "maintenance", "canonical-patch-application-gates", `${gateRecord.id}.md`), "utf8");
     const decisionLedgerCount = (await listMaintenanceLedgerEntries(memory)).filter((entry) => entry.eventType === "canonical-update-decision").length;
     const patchProposalLedgerCount = (await listMaintenanceLedgerEntries(memory)).filter((entry) => entry.eventType === "canonical-patch-proposal").length;
+    const gateLedgerCount = (await listMaintenanceLedgerEntries(memory)).filter((entry) => entry.eventType === "canonical-patch-application-gate").length;
 
     expect(resolutions.length).toBeGreaterThan(0);
     expect(proposals.length).toBeGreaterThan(0);
@@ -282,12 +290,35 @@ describe("AgentTask domain boundaries", () => {
     expect(patchProposalMarkdown).toContain("Application authorized: false");
     expect(patchProposalMarkdown).toContain("This patch proposal does not modify stable memory");
     expect(patchProposalLedgerCount).toBe(1);
+    expect(repeatedGateRecord.id).toBe(gateRecord.id);
+    expect(gateRecords).toHaveLength(1);
+    expect(gateRecord).toMatchObject({
+      patchProposalId: patchProposal.id,
+      proposalId: proposals[0].id,
+      decisionId: decision.id,
+      decisionStatus: "accepted-for-application-follow-up",
+      sourceMutationAuthorized: false,
+      canonicalUpdateApplied: false,
+      canonicalPatchApplied: false,
+      executionStarted: false,
+      operationCount: patchProposal.operationCount,
+    });
+    expect(gateRecordMarkdown).toContain("canonical patch application follow-up evidence");
+    expect(gateRecordMarkdown).toContain("Canonical update applied: false");
+    expect(gateRecordMarkdown).toContain("Canonical patch applied: false");
+    expect(gateRecordMarkdown).toContain("This gate record does not modify stable memory");
+    expect(gateLedgerCount).toBe(1);
     await expect(readMaintenanceCanonicalPatchProposal(memory, patchProposal.id)).resolves.toMatchObject({
       id: patchProposal.id,
       proposalId: proposals[0].id,
       decisionId: decision.id,
     });
+    await expect(readMaintenanceCanonicalPatchApplicationGate(memory, gateRecord.id)).resolves.toMatchObject({
+      id: gateRecord.id,
+      patchProposalId: patchProposal.id,
+    });
     await expect(proposeMaintenanceCanonicalPatch(memory, "missing-decision")).rejects.toThrow("Maintenance canonical update decision not found");
+    await expect(recordMaintenanceCanonicalPatchApplicationGate(memory, "missing-patch-proposal")).rejects.toThrow("Maintenance canonical patch proposal not found");
     expect(await readFile(memory.agentGuidePath, "utf8")).toBe(originalGuide);
   });
 
@@ -309,6 +340,11 @@ describe("AgentTask domain boundaries", () => {
       eventType: "canonical-patch-proposal",
       summary: "Patch proposal evidence should not feed the maintenance candidate pipeline.",
       artifactRefs: ["workbench/maintenance/canonical-patch-proposals/patch.json"],
+    });
+    await recordMaintenanceLedgerEntry(memory, {
+      eventType: "canonical-patch-application-gate",
+      summary: "Patch application gate evidence should not feed the maintenance candidate pipeline.",
+      artifactRefs: ["workbench/maintenance/canonical-patch-application-gates/gate.json"],
     });
 
     await expect(runMaintenanceCandidatePipeline(memory)).resolves.toMatchObject({ status: "skipped" });

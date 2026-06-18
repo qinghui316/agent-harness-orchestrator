@@ -93,7 +93,8 @@ export type MaintenanceLedgerEventType =
   | "maintenance-review"
   | "canonical-update-proposal"
   | "canonical-update-decision"
-  | "canonical-patch-proposal";
+  | "canonical-patch-proposal"
+  | "canonical-patch-application-gate";
 
 export interface MaintenanceLedgerEntry {
   version: "1.0";
@@ -240,6 +241,25 @@ export interface MaintenanceCanonicalPatchProposal {
   applicationAuthorized: false;
   executionStarted: false;
   humanApplicationGateRequired: true;
+  summary: string;
+  risks: string[];
+  artifactRefs: string[];
+  createdAt: string;
+}
+
+export interface MaintenanceCanonicalPatchApplicationGateRecord {
+  version: "1.0";
+  id: string;
+  patchProposalId: string;
+  proposalId: string;
+  decisionId: string;
+  decisionStatus: "accepted-for-application-follow-up";
+  targetKinds: MaintenanceCanonicalUpdateTargetKind[];
+  operationCount: number;
+  sourceMutationAuthorized: false;
+  canonicalUpdateApplied: false;
+  canonicalPatchApplied: false;
+  executionStarted: false;
   summary: string;
   risks: string[];
   artifactRefs: string[];

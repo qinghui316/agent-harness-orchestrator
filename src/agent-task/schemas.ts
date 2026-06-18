@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type {
   DemandMemoryCloseout,
+  MaintenanceCanonicalPatchApplicationGateRecord,
   MaintenanceCanonicalPatchProposal,
   DocBudgetReport,
   MaintenanceCanonicalUpdateDecision,
@@ -56,7 +57,7 @@ export const ledgerSchema = z.object({
   id: z.string(),
   projectId: z.string().nullable(),
   changeId: z.string().optional(),
-  eventType: z.enum(["archive", "apply", "remote-landing", "failure", "user-feedback", "doc-drift", "reference-drift", "harness-evolution", "change-closeout", "maintenance-review", "canonical-update-proposal", "canonical-update-decision", "canonical-patch-proposal"]),
+  eventType: z.enum(["archive", "apply", "remote-landing", "failure", "user-feedback", "doc-drift", "reference-drift", "harness-evolution", "change-closeout", "maintenance-review", "canonical-update-proposal", "canonical-update-decision", "canonical-patch-proposal", "canonical-patch-application-gate"]),
   summary: z.string(),
   artifactRefs: z.array(z.string()),
   createdAt: z.string(),
@@ -173,6 +174,25 @@ export const canonicalPatchProposalSchema: z.ZodType<MaintenanceCanonicalPatchPr
   applicationAuthorized: z.literal(false),
   executionStarted: z.literal(false),
   humanApplicationGateRequired: z.literal(true),
+  summary: z.string(),
+  risks: z.array(z.string()),
+  artifactRefs: z.array(z.string()),
+  createdAt: z.string(),
+});
+
+export const canonicalPatchApplicationGateRecordSchema: z.ZodType<MaintenanceCanonicalPatchApplicationGateRecord> = z.object({
+  version: z.literal("1.0"),
+  id: z.string(),
+  patchProposalId: z.string(),
+  proposalId: z.string(),
+  decisionId: z.string(),
+  decisionStatus: z.literal("accepted-for-application-follow-up"),
+  targetKinds: z.array(z.enum(["stable-memory", "canonical-docs", "harness-evolution", "reference", "maintenance"])),
+  operationCount: z.number(),
+  sourceMutationAuthorized: z.literal(false),
+  canonicalUpdateApplied: z.literal(false),
+  canonicalPatchApplied: z.literal(false),
+  executionStarted: z.literal(false),
   summary: z.string(),
   risks: z.array(z.string()),
   artifactRefs: z.array(z.string()),

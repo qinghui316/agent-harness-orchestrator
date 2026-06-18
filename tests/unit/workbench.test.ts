@@ -27,6 +27,7 @@ import {
   completeAgentTask,
   createAgentTask,
   listAgentTasks,
+  listMaintenanceCanonicalPatchApplicationGateRecords,
   listMaintenanceCanonicalPatchProposals,
   listMaintenanceCanonicalUpdateDecisions,
   listDemandMemoryCloseouts,
@@ -7850,7 +7851,42 @@ describe("workbench read model", () => {
       }),
     });
     expect(snapshotAfterPatch.right.confirmationQueue.current.flatMap((item) => item.actions).some((action) => action.actionType.includes("maintenance") && action.actionType.includes("apply"))).toBe(false);
-    expect(snapshotAfterPatch.right.confirmationQueue.maintenance.flatMap((item) => item.actions).some((action) => action.actionType.includes("apply"))).toBe(false);
+    expect(snapshotAfterPatch.right.confirmationQueue.maintenance).toEqual([
+      expect.objectContaining({
+        kind: "maintenance",
+        maintenancePatchProposalId: patchProposal.id,
+        actions: [expect.objectContaining({
+          actionType: "maintenance.canonical-patch.application-gate.record",
+          maintenancePatchProposalId: patchProposal.id,
+          requiresConfirmation: true,
+        })],
+      }),
+    ]);
+    await expect(executeWorkbenchAction({ project: project(), path: tempDir }, {
+      actionType: "maintenance.canonical-patch.application-gate.record",
+      maintenancePatchProposalId: patchProposal.id,
+      confirm: false,
+    })).rejects.toThrow("Mutating Workbench workflow actions require confirm: true.");
+    await expect(executeWorkbenchAction({ project: project(), path: tempDir }, {
+      actionType: "maintenance.canonical-patch.application-gate.record",
+      maintenancePatchProposalId: "forged-patch-proposal",
+      confirm: true,
+    })).rejects.toThrow("Workflow action target is stale or no longer available.");
+    const gateResult = await executeWorkbenchAction({ project: project(), path: tempDir }, {
+      actionType: "maintenance.canonical-patch.application-gate.record",
+      maintenancePatchProposalId: patchProposal.id,
+      confirm: true,
+    });
+    const gateRecords = await listMaintenanceCanonicalPatchApplicationGateRecords(memory);
+    expect(gateRecords).toEqual([expect.objectContaining({
+      patchProposalId: patchProposal.id,
+      decisionStatus: "accepted-for-application-follow-up",
+      sourceMutationAuthorized: false,
+      canonicalUpdateApplied: false,
+      canonicalPatchApplied: false,
+      executionStarted: false,
+    })]);
+    expect((gateResult.snapshot as Awaited<ReturnType<typeof getWorkbenchSnapshot>>).right.confirmationQueue.maintenance).toEqual([]);
 
     const coderContext = buildRoleScopedContextProjection({
       roleId: "coder-agent",

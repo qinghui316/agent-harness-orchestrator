@@ -33,6 +33,7 @@ export function scopeConfirmationQueueItemActions(item: WorkbenchConfirmationQue
       goalLoopGateReadinessPreflightId: action.goalLoopGateReadinessPreflightId ?? item.goalLoopGateReadinessPreflightId,
       goalLoopCurrentGateActionType: action.goalLoopCurrentGateActionType ?? item.goalLoopCurrentGateActionType,
       maintenanceProposalId: action.maintenanceProposalId ?? item.maintenanceProposalId,
+      maintenancePatchProposalId: action.maintenancePatchProposalId ?? item.maintenancePatchProposalId,
     })),
   };
 }

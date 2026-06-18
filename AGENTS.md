@@ -7,10 +7,11 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 - Current date: 2026-06-18.
 - Active change: none.
 - Pending Harness evolution: none.
-- Latest archived product change: Phase 12R Product Maintenance Canonical Patch Proposal Evidence, archived at `harness/changes/archive/20260618-phase-12r-product-maintenance-canonical-patch-proposal-evidence/summary.md`.
-- Latest product/Harness docs change: Phase 12R Product Maintenance Canonical Patch Proposal Evidence, archived at `harness/changes/archive/20260618-phase-12r-product-maintenance-canonical-patch-proposal-evidence/summary.md`.
+- Latest archived product change: Phase 12S Product Maintenance Canonical Patch Application Gate, archived at `harness/changes/archive/20260618-phase-12s-product-maintenance-canonical-patch-application-gate/summary.md`.
+- Latest product/Harness docs change: Auto Evolve Harness Phase 12O-12S Product Maintenance Evidence, archived at `harness/changes/archive/20260618-auto-evolve-harness-phase-12o-12s-product-maintenance-evidence/summary.md`.
+- Active product phase: none.
 - Active Harness evolution phase: none.
-- Latest Harness evolution: `harness/changes/archive/20260618-auto-evolve-harness-phase-12k-12o-lifecycle-handoff-drift/summary.md`.
+- Latest Harness evolution: `harness/changes/archive/20260618-auto-evolve-harness-phase-12o-12s-product-maintenance-evidence/summary.md`.
 
 If an active change exists, use its files first for the current task. Use `docs/STATUS.md` for the short resume state and next recommended structured work. Use `harness/changes/INDEX.json` and archived `summary.md` files for historical detail. Do not rebuild current context by reading the full archive ledger unless the task requires it.
 

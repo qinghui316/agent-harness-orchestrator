@@ -33,18 +33,23 @@ export {
 } from "./candidates.js";
 export {
   eligibleCanonicalUpdateResolutions,
+  listMaintenanceCanonicalPatchApplicationGateRecords,
   listMaintenanceCanonicalPatchProposals,
   listMaintenanceCanonicalUpdateDecisions,
   listMaintenanceCanonicalUpdateProposals,
+  maintenanceCanonicalPatchApplicationGateArtifactRef,
   maintenanceCanonicalPatchProposalArtifactRef,
   maintenanceCanonicalUpdateDecisionArtifactRef,
   maintenanceCanonicalUpdateProposalArtifactRef,
   proposeMaintenanceCanonicalPatch,
   proposeMaintenanceCanonicalUpdate,
+  readMaintenanceCanonicalPatchApplicationGate,
+  readMaintenanceCanonicalPatchApplicationGateForPatchProposal,
   readMaintenanceCanonicalPatchProposal,
   readMaintenanceCanonicalPatchProposalForDecision,
   readMaintenanceCanonicalUpdateDecision,
   readMaintenanceCanonicalUpdateProposal,
+  recordMaintenanceCanonicalPatchApplicationGate,
   recordMaintenanceCanonicalUpdateDecision,
 } from "./canonical-updates.js";
 export {
