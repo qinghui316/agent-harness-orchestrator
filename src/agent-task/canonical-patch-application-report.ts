@@ -1,7 +1,3 @@
-import { existsSync } from "node:fs";
-import { readdir, writeFile } from "node:fs/promises";
-import { join } from "node:path";
-import { readJsonFile, writeJsonFile } from "../fs/json.js";
 import type {
   MaintenanceCanonicalPatchApplicationManifest,
   MaintenanceCanonicalPatchApplicationReport,
@@ -10,6 +6,12 @@ import type {
   ResolvedMemory,
 } from "../types/index.js";
 import { ensureMaintenanceLedgerEntryForArtifactRef } from "./ledger.js";
+import {
+  listMaintenanceArtifacts,
+  readMaintenanceArtifact,
+  writeMaintenanceJsonMarkdownArtifact,
+  type MaintenanceArtifactStore,
+} from "./maintenance-artifact-store.js";
 import {
   maintenanceCanonicalPatchApplicationManifestArtifactRef,
   readMaintenanceCanonicalPatchApplicationManifest,
@@ -26,6 +28,13 @@ import {
 import { canonicalPatchApplicationReportSchema } from "./schemas.js";
 import { validateCanonicalPatchApplicationResultLineage } from "./canonical-patch-lineage.js";
 import { contentHash, uniqueSorted } from "./utils.js";
+
+const canonicalPatchApplicationReportStore: MaintenanceArtifactStore<MaintenanceCanonicalPatchApplicationReport> = {
+  root: maintenanceCanonicalPatchApplicationReportsRoot,
+  jsonPath: maintenanceCanonicalPatchApplicationReportPath,
+  markdownPath: maintenanceCanonicalPatchApplicationReportMarkdownPath,
+  schema: canonicalPatchApplicationReportSchema,
+};
 
 export async function generateMaintenanceCanonicalPatchApplicationReport(
   memory: ResolvedMemory,
@@ -48,8 +57,13 @@ export async function generateMaintenanceCanonicalPatchApplicationReport(
 
   const report = buildCanonicalPatchApplicationReport(memory, result, manifest);
   canonicalPatchApplicationReportSchema.parse(report);
-  await writeJsonFile(maintenanceCanonicalPatchApplicationReportPath(memory, report.id), report);
-  await writeFile(maintenanceCanonicalPatchApplicationReportMarkdownPath(memory, report.id), renderCanonicalPatchApplicationReportMarkdown(report), "utf8");
+  await writeMaintenanceJsonMarkdownArtifact(
+    memory,
+    canonicalPatchApplicationReportStore,
+    report.id,
+    report,
+    renderCanonicalPatchApplicationReportMarkdown(report),
+  );
   await ensureCanonicalPatchApplicationReportLedgerEntry(memory, report);
   return report;
 }
@@ -58,22 +72,11 @@ export async function readMaintenanceCanonicalPatchApplicationReport(
   memory: ResolvedMemory,
   reportId: string,
 ): Promise<MaintenanceCanonicalPatchApplicationReport | null> {
-  const path = maintenanceCanonicalPatchApplicationReportPath(memory, reportId);
-  if (!existsSync(path)) return null;
-  return readJsonFile(path, canonicalPatchApplicationReportSchema, null as unknown as MaintenanceCanonicalPatchApplicationReport).catch(() => null);
+  return readMaintenanceArtifact(memory, canonicalPatchApplicationReportStore, reportId);
 }
 
 export async function listMaintenanceCanonicalPatchApplicationReports(memory: ResolvedMemory): Promise<MaintenanceCanonicalPatchApplicationReport[]> {
-  const root = maintenanceCanonicalPatchApplicationReportsRoot(memory);
-  if (!existsSync(root)) return [];
-  const entries = await readdir(root, { withFileTypes: true });
-  const reports: MaintenanceCanonicalPatchApplicationReport[] = [];
-  for (const entry of entries) {
-    if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
-    const report = await readJsonFile(join(root, entry.name), canonicalPatchApplicationReportSchema, null as unknown as MaintenanceCanonicalPatchApplicationReport).catch(() => null);
-    if (report) reports.push(report);
-  }
-  return reports.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  return listMaintenanceArtifacts(memory, canonicalPatchApplicationReportStore);
 }
 
 export async function readMaintenanceCanonicalPatchApplicationReportForResult(

@@ -661,6 +661,85 @@ describe("AgentTask domain boundaries", () => {
     expect(pipelineResult.candidate?.summary ?? "").not.toContain("canonical-patch-application-report");
   });
 
+  it("keeps canonical patch application artifact IO tolerant and sorted through the shared store", async () => {
+    await initHarness(project());
+    const memory = await resolveProjectMemory(project());
+    const memoryDocPath = join(memory.memoryRoot, "docs", "MEMORY.md");
+    await writeFile(memoryDocPath, "# Memory\n\nKeep old shared store guidance.\n", "utf8");
+
+    for (let index = 1; index <= 5; index += 1) {
+      await recordDemandMemoryCloseout(memory, {
+        changeId: `shared-store-${index}`,
+        title: `Shared store demand ${index}`,
+        terminalKind: "archived",
+        finalResult: `Shared store demand ${index} completed.`,
+        userDecision: "archived",
+        docsDriftCandidates: [{
+          document: "docs/MEMORY.md",
+          summary: "Memory guidance needs shared artifact store coverage.",
+          patch: {
+            patchKind: "hunks",
+            hunks: [{
+              oldText: "Keep old shared store guidance.",
+              newText: "Keep updated shared store guidance.",
+            }],
+          },
+          evidenceRefs: [`shared-store-${index}.md`],
+        }],
+      });
+    }
+
+    const proposal = (await listMaintenanceCanonicalUpdateProposals(memory))[0];
+    const decision = await recordMaintenanceCanonicalUpdateDecision(memory, proposal.id);
+    const patchProposal = await proposeMaintenanceCanonicalPatch(memory, decision.id);
+    const gateRecord = await recordMaintenanceCanonicalPatchApplicationGate(memory, patchProposal.id);
+    const manifest = await generateMaintenanceCanonicalPatchApplicationManifest(memory, gateRecord.id);
+    const result = await applyMaintenanceCanonicalPatchApplicationManifest(memory, manifest.id, {
+      policyAuditRefs: ["workbench/maintenance/policy-audit.json"],
+      confirmedBy: "workbench-human-gate",
+    });
+    const report = await generateMaintenanceCanonicalPatchApplicationReport(memory, result.id);
+
+    const manifestPath = join(memory.workbenchRoot, "maintenance", "canonical-patch-application-manifests", `${manifest.id}.json`);
+    const resultPath = join(memory.workbenchRoot, "maintenance", "canonical-patch-application-results", `${result.id}.json`);
+    const reportRoot = join(memory.workbenchRoot, "maintenance", "canonical-patch-application-reports");
+    const reportPath = join(reportRoot, `${report.id}.json`);
+
+    await expect(readMaintenanceCanonicalPatchApplicationManifest(memory, "missing-manifest")).resolves.toBeNull();
+    await expect(readMaintenanceCanonicalPatchApplicationResult(memory, "missing-result")).resolves.toBeNull();
+    await expect(readMaintenanceCanonicalPatchApplicationReport(memory, "missing-report")).resolves.toBeNull();
+
+    await writeFile(manifestPath, "{ invalid json", "utf8");
+    await expect(readMaintenanceCanonicalPatchApplicationManifest(memory, manifest.id)).resolves.toBeNull();
+    await writeFile(manifestPath, `${JSON.stringify({ id: "schema-invalid" }, null, 2)}\n`, "utf8");
+    await expect(readMaintenanceCanonicalPatchApplicationManifest(memory, manifest.id)).resolves.toBeNull();
+    await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+
+    await writeFile(resultPath, "{ invalid json", "utf8");
+    await expect(readMaintenanceCanonicalPatchApplicationResult(memory, result.id)).resolves.toBeNull();
+    await writeFile(resultPath, `${JSON.stringify({ id: "schema-invalid" }, null, 2)}\n`, "utf8");
+    await expect(readMaintenanceCanonicalPatchApplicationResult(memory, result.id)).resolves.toBeNull();
+    await writeFile(resultPath, `${JSON.stringify(result, null, 2)}\n`, "utf8");
+
+    await writeFile(reportPath, "{ invalid json", "utf8");
+    await expect(readMaintenanceCanonicalPatchApplicationReport(memory, report.id)).resolves.toBeNull();
+    await writeFile(reportPath, `${JSON.stringify({ id: "schema-invalid" }, null, 2)}\n`, "utf8");
+    await expect(readMaintenanceCanonicalPatchApplicationReport(memory, report.id)).resolves.toBeNull();
+    await writeFile(reportPath, `${JSON.stringify(report, null, 2)}\n`, "utf8");
+
+    const olderReport = {
+      ...report,
+      id: "canonical-patch-application-report-older",
+      createdAt: "2026-06-18T00:00:00.000Z",
+    };
+    await writeFile(join(reportRoot, `${olderReport.id}.json`), `${JSON.stringify(olderReport, null, 2)}\n`, "utf8");
+    await writeFile(join(reportRoot, "invalid-json.json"), "{ invalid json", "utf8");
+    await writeFile(join(reportRoot, "schema-invalid.json"), `${JSON.stringify({ id: "schema-invalid" }, null, 2)}\n`, "utf8");
+
+    const reports = await listMaintenanceCanonicalPatchApplicationReports(memory);
+    expect(reports.map((item) => item.id)).toEqual([olderReport.id, report.id]);
+  });
+
   it("fails closed for stale or ambiguous canonical patch application manifests", async () => {
     await initHarness(project());
     const memory = await resolveProjectMemory(project());

@@ -1,7 +1,4 @@
-import { existsSync } from "node:fs";
-import { readFile, readdir, writeFile } from "node:fs/promises";
-import { join } from "node:path";
-import { readJsonFile, writeJsonFile } from "../fs/json.js";
+import { readFile, writeFile } from "node:fs/promises";
 import type {
   MaintenanceCanonicalPatchAppliedOperation,
   MaintenanceCanonicalPatchApplicationGateRecord,
@@ -14,6 +11,12 @@ import type {
   ResolvedMemory,
 } from "../types/index.js";
 import { ensureMaintenanceLedgerEntryForArtifactRef } from "./ledger.js";
+import {
+  listMaintenanceArtifacts,
+  readMaintenanceArtifact,
+  writeMaintenanceJsonMarkdownArtifact,
+  type MaintenanceArtifactStore,
+} from "./maintenance-artifact-store.js";
 import {
   displayMaintenancePath,
   maintenanceCanonicalPatchApplicationGateRecordMarkdownPath,
@@ -61,6 +64,20 @@ interface PreparedApplicationOperation {
   afterHash: string;
 }
 
+const canonicalPatchApplicationManifestStore: MaintenanceArtifactStore<MaintenanceCanonicalPatchApplicationManifest> = {
+  root: maintenanceCanonicalPatchApplicationManifestsRoot,
+  jsonPath: maintenanceCanonicalPatchApplicationManifestPath,
+  markdownPath: maintenanceCanonicalPatchApplicationManifestMarkdownPath,
+  schema: canonicalPatchApplicationManifestSchema,
+};
+
+const canonicalPatchApplicationResultStore: MaintenanceArtifactStore<MaintenanceCanonicalPatchApplicationResult> = {
+  root: maintenanceCanonicalPatchApplicationResultsRoot,
+  jsonPath: maintenanceCanonicalPatchApplicationResultPath,
+  markdownPath: maintenanceCanonicalPatchApplicationResultMarkdownPath,
+  schema: canonicalPatchApplicationResultSchema,
+};
+
 export async function generateMaintenanceCanonicalPatchApplicationManifest(
   memory: ResolvedMemory,
   gateRecordId: string,
@@ -82,8 +99,13 @@ export async function generateMaintenanceCanonicalPatchApplicationManifest(
 
   const manifest = buildCanonicalPatchApplicationManifest(memory, gateRecord, patchProposal);
   canonicalPatchApplicationManifestSchema.parse(manifest);
-  await writeJsonFile(maintenanceCanonicalPatchApplicationManifestPath(memory, manifest.id), manifest);
-  await writeFile(maintenanceCanonicalPatchApplicationManifestMarkdownPath(memory, manifest.id), renderCanonicalPatchApplicationManifestMarkdown(manifest), "utf8");
+  await writeMaintenanceJsonMarkdownArtifact(
+    memory,
+    canonicalPatchApplicationManifestStore,
+    manifest.id,
+    manifest,
+    renderCanonicalPatchApplicationManifestMarkdown(manifest),
+  );
   await ensureCanonicalPatchApplicationManifestLedgerEntry(memory, manifest);
   return manifest;
 }
@@ -92,22 +114,11 @@ export async function readMaintenanceCanonicalPatchApplicationManifest(
   memory: ResolvedMemory,
   manifestId: string,
 ): Promise<MaintenanceCanonicalPatchApplicationManifest | null> {
-  const path = maintenanceCanonicalPatchApplicationManifestPath(memory, manifestId);
-  if (!existsSync(path)) return null;
-  return readJsonFile(path, canonicalPatchApplicationManifestSchema, null as unknown as MaintenanceCanonicalPatchApplicationManifest).catch(() => null);
+  return readMaintenanceArtifact(memory, canonicalPatchApplicationManifestStore, manifestId);
 }
 
 export async function listMaintenanceCanonicalPatchApplicationManifests(memory: ResolvedMemory): Promise<MaintenanceCanonicalPatchApplicationManifest[]> {
-  const root = maintenanceCanonicalPatchApplicationManifestsRoot(memory);
-  if (!existsSync(root)) return [];
-  const entries = await readdir(root, { withFileTypes: true });
-  const manifests: MaintenanceCanonicalPatchApplicationManifest[] = [];
-  for (const entry of entries) {
-    if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
-    const manifest = await readJsonFile(join(root, entry.name), canonicalPatchApplicationManifestSchema, null as unknown as MaintenanceCanonicalPatchApplicationManifest).catch(() => null);
-    if (manifest) manifests.push(manifest);
-  }
-  return manifests.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  return listMaintenanceArtifacts(memory, canonicalPatchApplicationManifestStore);
 }
 
 export async function readMaintenanceCanonicalPatchApplicationManifestForGate(
@@ -150,8 +161,13 @@ export async function applyMaintenanceCanonicalPatchApplicationManifest(
 
   const result = buildCanonicalPatchApplicationResult(memory, manifest, prepared, options.policyAuditRefs);
   canonicalPatchApplicationResultSchema.parse(result);
-  await writeJsonFile(maintenanceCanonicalPatchApplicationResultPath(memory, result.id), result);
-  await writeFile(maintenanceCanonicalPatchApplicationResultMarkdownPath(memory, result.id), renderCanonicalPatchApplicationResultMarkdown(result), "utf8");
+  await writeMaintenanceJsonMarkdownArtifact(
+    memory,
+    canonicalPatchApplicationResultStore,
+    result.id,
+    result,
+    renderCanonicalPatchApplicationResultMarkdown(result),
+  );
   await ensureCanonicalPatchApplicationResultLedgerEntry(memory, result);
   return result;
 }
@@ -160,22 +176,11 @@ export async function readMaintenanceCanonicalPatchApplicationResult(
   memory: ResolvedMemory,
   resultId: string,
 ): Promise<MaintenanceCanonicalPatchApplicationResult | null> {
-  const path = maintenanceCanonicalPatchApplicationResultPath(memory, resultId);
-  if (!existsSync(path)) return null;
-  return readJsonFile(path, canonicalPatchApplicationResultSchema, null as unknown as MaintenanceCanonicalPatchApplicationResult).catch(() => null);
+  return readMaintenanceArtifact(memory, canonicalPatchApplicationResultStore, resultId);
 }
 
 export async function listMaintenanceCanonicalPatchApplicationResults(memory: ResolvedMemory): Promise<MaintenanceCanonicalPatchApplicationResult[]> {
-  const root = maintenanceCanonicalPatchApplicationResultsRoot(memory);
-  if (!existsSync(root)) return [];
-  const entries = await readdir(root, { withFileTypes: true });
-  const results: MaintenanceCanonicalPatchApplicationResult[] = [];
-  for (const entry of entries) {
-    if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
-    const result = await readJsonFile(join(root, entry.name), canonicalPatchApplicationResultSchema, null as unknown as MaintenanceCanonicalPatchApplicationResult).catch(() => null);
-    if (result) results.push(result);
-  }
-  return results.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  return listMaintenanceArtifacts(memory, canonicalPatchApplicationResultStore);
 }
 
 export async function readMaintenanceCanonicalPatchApplicationResultForManifest(
