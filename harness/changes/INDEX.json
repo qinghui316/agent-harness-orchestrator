@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-18T18:54:48.1003283Z",
+    "generated_at":  "2026-06-18T19:23:08.4923738Z",
     "active":  [
 
                ],
@@ -1135,8 +1135,16 @@
                         "path":  "harness/changes/archive/20260619-architecture-growth-control-core-mechanism-reuse"
                     },
                     {
+                        "name":  "20260619-auto-evolve-harness-maintenance-canonical-chain-evidence",
+                        "path":  "harness/changes/archive/20260619-auto-evolve-harness-maintenance-canonical-chain-evidence"
+                    },
+                    {
                         "name":  "20260619-auto-evolve-harness-phase-12s-12w-product-maintenance-evidence",
                         "path":  "harness/changes/archive/20260619-auto-evolve-harness-phase-12s-12w-product-maintenance-evidence"
+                    },
+                    {
+                        "name":  "20260619-maintenance-canonical-ledger-idempotency-reuse",
+                        "path":  "harness/changes/archive/20260619-maintenance-canonical-ledger-idempotency-reuse"
                     },
                     {
                         "name":  "20260619-maintenance-canonical-patch-lineage-reuse",

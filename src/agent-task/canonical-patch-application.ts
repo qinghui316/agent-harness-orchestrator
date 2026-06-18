@@ -13,7 +13,7 @@ import type {
   MaintenanceCanonicalPatchTargetDescriptor,
   ResolvedMemory,
 } from "../types/index.js";
-import { listMaintenanceLedgerEntries, recordMaintenanceLedgerEntry } from "./ledger.js";
+import { ensureMaintenanceLedgerEntryForArtifactRef } from "./ledger.js";
 import {
   displayMaintenancePath,
   maintenanceCanonicalPatchApplicationGateRecordMarkdownPath,
@@ -435,15 +435,11 @@ async function ensureCanonicalPatchApplicationResultLedgerEntry(
   result: MaintenanceCanonicalPatchApplicationResult,
 ): Promise<void> {
   const resultRef = maintenanceCanonicalPatchApplicationResultArtifactRef(memory, result.id);
-  const entries = await listMaintenanceLedgerEntries(memory);
-  if (entries.some((entry) => entry.eventType === "canonical-patch-application-result" && entry.artifactRefs.includes(resultRef))) {
-    return;
-  }
-  await recordMaintenanceLedgerEntry(memory, {
+  await ensureMaintenanceLedgerEntryForArtifactRef(memory, {
     eventType: "canonical-patch-application-result",
+    artifactRef: resultRef,
     summary: `${result.summary} This ledger entry records a human-gated canonical patch application result and must not feed new maintenance candidates.`,
     artifactRefs: [
-      resultRef,
       displayMaintenancePath(memory, maintenanceCanonicalPatchApplicationResultMarkdownPath(memory, result.id)),
     ],
   });
@@ -454,15 +450,11 @@ async function ensureCanonicalPatchApplicationManifestLedgerEntry(
   manifest: MaintenanceCanonicalPatchApplicationManifest,
 ): Promise<void> {
   const manifestRef = maintenanceCanonicalPatchApplicationManifestArtifactRef(memory, manifest.id);
-  const entries = await listMaintenanceLedgerEntries(memory);
-  if (entries.some((entry) => entry.eventType === "canonical-patch-application-manifest" && entry.artifactRefs.includes(manifestRef))) {
-    return;
-  }
-  await recordMaintenanceLedgerEntry(memory, {
+  await ensureMaintenanceLedgerEntryForArtifactRef(memory, {
     eventType: "canonical-patch-application-manifest",
+    artifactRef: manifestRef,
     summary: `${manifest.summary} This ledger entry is evidence only and does not authorize canonical mutation.`,
     artifactRefs: [
-      manifestRef,
       displayMaintenancePath(memory, maintenanceCanonicalPatchApplicationManifestMarkdownPath(memory, manifest.id)),
     ],
   });

@@ -5,6 +5,14 @@ import type { MaintenanceLedgerEntry, MaintenanceLedgerEventType, ResolvedMemory
 import { maintenanceRoot } from "./paths.js";
 import { ledgerSchema } from "./schemas.js";
 
+export interface EnsureMaintenanceLedgerEntryForArtifactRefInput {
+  eventType: MaintenanceLedgerEventType;
+  artifactRef: string;
+  summary: string;
+  changeId?: string;
+  artifactRefs?: string[];
+}
+
 export async function recordMaintenanceLedgerEntry(memory: ResolvedMemory, input: {
   eventType: MaintenanceLedgerEventType;
   summary: string;
@@ -31,4 +39,23 @@ export async function listMaintenanceLedgerEntries(memory: ResolvedMemory): Prom
   if (!existsSync(path)) return [];
   const text = await readFile(path, "utf8");
   return text.split(/\r?\n/).filter(Boolean).map((line) => ledgerSchema.parse(JSON.parse(line)));
+}
+
+export async function ensureMaintenanceLedgerEntryForArtifactRef(
+  memory: ResolvedMemory,
+  input: EnsureMaintenanceLedgerEntryForArtifactRefInput,
+): Promise<MaintenanceLedgerEntry> {
+  const entries = await listMaintenanceLedgerEntries(memory);
+  const existing = entries.find((entry) => entry.eventType === input.eventType && entry.artifactRefs.includes(input.artifactRef));
+  if (existing) return existing;
+  const artifactRefs = [
+    input.artifactRef,
+    ...(input.artifactRefs ?? []).filter((ref) => ref !== input.artifactRef),
+  ];
+  return recordMaintenanceLedgerEntry(memory, {
+    eventType: input.eventType,
+    summary: input.summary,
+    ...(input.changeId ? { changeId: input.changeId } : {}),
+    artifactRefs,
+  });
 }

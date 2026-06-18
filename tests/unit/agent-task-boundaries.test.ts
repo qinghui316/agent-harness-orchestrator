@@ -29,6 +29,7 @@ import {
   listMaintenanceCanonicalPatchProposals,
   listMaintenanceCanonicalUpdateProposals,
   listMaintenanceCanonicalUpdateDecisions,
+  maintenanceCanonicalPatchApplicationReportArtifactRef,
   listMaintenanceCandidateResolutions,
   listDemandMemoryCloseouts,
   listMaintenanceLedgerEntries,
@@ -654,6 +655,8 @@ describe("AgentTask domain boundaries", () => {
     expect(reportMarkdown).toContain("Classification: read-only canonical patch application observation report evidence.");
     expect(reportMarkdown).toContain("Canonical patch applied by this report: false.");
     expect(reportLedgerEntry).toBeTruthy();
+    expect(reportLedgerEntry?.artifactRefs[0]).toBe(maintenanceCanonicalPatchApplicationReportArtifactRef(memory, report.id));
+    expect(reportLedgerEntry?.artifactRefs.some((ref) => ref.endsWith(`maintenance/canonical-patch-application-reports/${report.id}.md`))).toBe(true);
     expect(pipelineResult.candidate?.sourceLedgerEntryIds).not.toContain(reportLedgerEntry?.id);
     expect(pipelineResult.candidate?.summary ?? "").not.toContain("canonical-patch-application-report");
   });

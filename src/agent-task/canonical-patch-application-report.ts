@@ -9,7 +9,7 @@ import type {
   MaintenanceCanonicalPatchApplicationResult,
   ResolvedMemory,
 } from "../types/index.js";
-import { listMaintenanceLedgerEntries, recordMaintenanceLedgerEntry } from "./ledger.js";
+import { ensureMaintenanceLedgerEntryForArtifactRef } from "./ledger.js";
 import {
   maintenanceCanonicalPatchApplicationManifestArtifactRef,
   readMaintenanceCanonicalPatchApplicationManifest,
@@ -156,15 +156,11 @@ async function ensureCanonicalPatchApplicationReportLedgerEntry(
   report: MaintenanceCanonicalPatchApplicationReport,
 ): Promise<void> {
   const reportRef = maintenanceCanonicalPatchApplicationReportArtifactRef(memory, report.id);
-  const entries = await listMaintenanceLedgerEntries(memory);
-  if (entries.some((entry) => entry.eventType === "canonical-patch-application-report" && entry.artifactRefs.includes(reportRef))) {
-    return;
-  }
-  await recordMaintenanceLedgerEntry(memory, {
+  await ensureMaintenanceLedgerEntryForArtifactRef(memory, {
     eventType: "canonical-patch-application-report",
+    artifactRef: reportRef,
     summary: `${report.summary} This ledger entry records read-only observation evidence and must not feed new maintenance candidates or rewrite triggers.`,
     artifactRefs: [
-      reportRef,
       displayMaintenancePath(memory, maintenanceCanonicalPatchApplicationReportMarkdownPath(memory, report.id)),
     ],
   });

@@ -29,7 +29,7 @@ import {
   maintenanceCanonicalUpdateProposalsRoot,
   maintenanceResolutionPath,
 } from "./paths.js";
-import { listMaintenanceLedgerEntries, recordMaintenanceLedgerEntry } from "./ledger.js";
+import { ensureMaintenanceLedgerEntryForArtifactRef } from "./ledger.js";
 import { buildCanonicalPatchTargetDescriptor } from "./canonical-patch-targets.js";
 import { canonicalPatchApplicationGateRecordSchema, canonicalPatchProposalSchema, canonicalUpdateDecisionSchema, canonicalUpdateProposalSchema } from "./schemas.js";
 import { contentHash, uniqueSorted } from "./utils.js";
@@ -401,15 +401,11 @@ async function ensureCanonicalUpdateProposalLedgerEntry(
   proposal: MaintenanceCanonicalUpdateProposal,
 ): Promise<void> {
   const proposalRef = maintenanceCanonicalUpdateProposalArtifactRef(memory, proposal.id);
-  const entries = await listMaintenanceLedgerEntries(memory);
-  if (entries.some((entry) => entry.eventType === "canonical-update-proposal" && entry.artifactRefs.includes(proposalRef))) {
-    return;
-  }
-  await recordMaintenanceLedgerEntry(memory, {
+  await ensureMaintenanceLedgerEntryForArtifactRef(memory, {
     eventType: "canonical-update-proposal",
+    artifactRef: proposalRef,
     summary: `${proposal.summary} This ledger entry is evidence only and does not authorize canonical rewrites.`,
     artifactRefs: [
-      proposalRef,
       displayMaintenancePath(memory, maintenanceCanonicalUpdateProposalMarkdownPath(memory, proposal.id)),
     ],
   });
@@ -420,15 +416,11 @@ async function ensureCanonicalUpdateDecisionLedgerEntry(
   decision: MaintenanceCanonicalUpdateDecision,
 ): Promise<void> {
   const decisionRef = maintenanceCanonicalUpdateDecisionArtifactRef(memory, decision.id);
-  const entries = await listMaintenanceLedgerEntries(memory);
-  if (entries.some((entry) => entry.eventType === "canonical-update-decision" && entry.artifactRefs.includes(decisionRef))) {
-    return;
-  }
-  await recordMaintenanceLedgerEntry(memory, {
+  await ensureMaintenanceLedgerEntryForArtifactRef(memory, {
     eventType: "canonical-update-decision",
+    artifactRef: decisionRef,
     summary: `${decision.summary} This ledger entry is evidence only and does not authorize canonical rewrites.`,
     artifactRefs: [
-      decisionRef,
       displayMaintenancePath(memory, maintenanceCanonicalUpdateDecisionMarkdownPath(memory, decision.id)),
     ],
   });
@@ -439,15 +431,11 @@ async function ensureCanonicalPatchProposalLedgerEntry(
   patchProposal: MaintenanceCanonicalPatchProposal,
 ): Promise<void> {
   const patchProposalRef = maintenanceCanonicalPatchProposalArtifactRef(memory, patchProposal.id);
-  const entries = await listMaintenanceLedgerEntries(memory);
-  if (entries.some((entry) => entry.eventType === "canonical-patch-proposal" && entry.artifactRefs.includes(patchProposalRef))) {
-    return;
-  }
-  await recordMaintenanceLedgerEntry(memory, {
+  await ensureMaintenanceLedgerEntryForArtifactRef(memory, {
     eventType: "canonical-patch-proposal",
+    artifactRef: patchProposalRef,
     summary: `${patchProposal.summary} This ledger entry is evidence only and does not authorize canonical application.`,
     artifactRefs: [
-      patchProposalRef,
       displayMaintenancePath(memory, maintenanceCanonicalPatchProposalMarkdownPath(memory, patchProposal.id)),
     ],
   });
@@ -458,15 +446,11 @@ async function ensureCanonicalPatchApplicationGateLedgerEntry(
   gateRecord: MaintenanceCanonicalPatchApplicationGateRecord,
 ): Promise<void> {
   const gateRecordRef = maintenanceCanonicalPatchApplicationGateArtifactRef(memory, gateRecord.id);
-  const entries = await listMaintenanceLedgerEntries(memory);
-  if (entries.some((entry) => entry.eventType === "canonical-patch-application-gate" && entry.artifactRefs.includes(gateRecordRef))) {
-    return;
-  }
-  await recordMaintenanceLedgerEntry(memory, {
+  await ensureMaintenanceLedgerEntryForArtifactRef(memory, {
     eventType: "canonical-patch-application-gate",
+    artifactRef: gateRecordRef,
     summary: `${gateRecord.summary} This ledger entry is evidence only and does not authorize canonical mutation.`,
     artifactRefs: [
-      gateRecordRef,
       displayMaintenancePath(memory, maintenanceCanonicalPatchApplicationGateRecordMarkdownPath(memory, gateRecord.id)),
     ],
   });
