@@ -1,8 +1,11 @@
 import {
   listMaintenanceCanonicalPatchApplicationGateRecords,
+  listMaintenanceCanonicalPatchApplicationManifests,
+  listMaintenanceCanonicalPatchApplicationResults,
   listMaintenanceCanonicalPatchProposals,
   listMaintenanceCanonicalUpdateDecisions,
   listMaintenanceCanonicalUpdateProposals,
+  maintenanceCanonicalPatchApplicationManifestArtifactRef,
   maintenanceCanonicalPatchProposalArtifactRef,
   maintenanceCanonicalUpdateProposalArtifactRef,
 } from "../../../../agent-task/manager.js";
@@ -21,7 +24,7 @@ export async function maintenanceCanonicalUpdateDecisionQueueItems(input: {
   const proposal = [...proposals]
     .filter((item) => !handledProposalIds.has(item.id))
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
-  if (!proposal) return maintenanceCanonicalPatchApplicationGateQueueItems(input);
+  if (!proposal) return maintenanceCanonicalPatchApplicationQueueItems(input);
   const proposalRef = maintenanceCanonicalUpdateProposalArtifactRef(input.memory, proposal.id);
   return [{
     id: `maintenance-canonical-update-decision:${proposal.id}`,
@@ -61,7 +64,7 @@ async function maintenanceCanonicalPatchApplicationGateQueueItems(input: {
   const patchProposal = [...patchProposals]
     .filter((item) => !handledPatchProposalIds.has(item.id))
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
-  if (!patchProposal) return [];
+  if (!patchProposal) return maintenanceCanonicalPatchApplyQueueItems(input);
   const patchProposalRef = maintenanceCanonicalPatchProposalArtifactRef(input.memory, patchProposal.id);
   return [{
     id: `maintenance-canonical-patch-application-gate:${patchProposal.id}`,
@@ -82,6 +85,54 @@ async function maintenanceCanonicalPatchApplicationGateQueueItems(input: {
         requiresConfirmation: true,
         actionType: "maintenance.canonical-patch.application-gate.record",
         maintenancePatchProposalId: patchProposal.id,
+      },
+    ],
+    primary: false,
+    status: "pending",
+  }];
+}
+
+async function maintenanceCanonicalPatchApplicationQueueItems(input: {
+  project: ManagedProject | null;
+  memory: ResolvedMemory;
+}): Promise<WorkbenchConfirmationQueueItem[]> {
+  const gateItems = await maintenanceCanonicalPatchApplicationGateQueueItems(input);
+  return gateItems.length > 0 ? gateItems : maintenanceCanonicalPatchApplyQueueItems(input);
+}
+
+async function maintenanceCanonicalPatchApplyQueueItems(input: {
+  project: ManagedProject | null;
+  memory: ResolvedMemory;
+}): Promise<WorkbenchConfirmationQueueItem[]> {
+  if (!input.project) return [];
+  const manifests = await listMaintenanceCanonicalPatchApplicationManifests(input.memory).catch(() => []);
+  if (manifests.length === 0) return [];
+  const results = await listMaintenanceCanonicalPatchApplicationResults(input.memory).catch(() => []);
+  const handledManifestIds = new Set(results.map((result) => result.manifestId));
+  const manifest = [...manifests]
+    .filter((item) => item.applicationStatus === "ready-for-application" && !handledManifestIds.has(item.id))
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
+  if (!manifest) return [];
+  const manifestRef = maintenanceCanonicalPatchApplicationManifestArtifactRef(input.memory, manifest.id);
+  return [{
+    id: `maintenance-canonical-patch-apply:${manifest.id}`,
+    kind: "maintenance",
+    projectId: input.project.id,
+    maintenanceApplicationManifestId: manifest.id,
+    summary: manifest.summary,
+    whyNeedsConfirmation: "该 canonical patch manifest 已具备确定目标和补丁内容；应用前必须由人类确认。",
+    confirmEffect: "重新校验 manifest、gate、patch proposal、目标路径和目标文件 hash 后，应用 canonical docs/stable-memory patch，并记录 application result evidence。",
+    riskSummary: "该动作会改写已确认的 canonical docs 或 stable memory；不会改写 ECL、Harness evolution、source apply/close、remote 或 Validation/Audit/IntegrationCheck 状态。",
+    evidenceRefs: [manifestRef, ...manifest.artifactRefs],
+    actions: [
+      {
+        id: `maintenance-canonical-patch-apply:${manifest.id}`,
+        label: "应用 canonical patch",
+        kind: "workflow-action",
+        enabled: true,
+        requiresConfirmation: true,
+        actionType: "maintenance.canonical-patch.apply",
+        maintenanceApplicationManifestId: manifest.id,
       },
     ],
     primary: false,

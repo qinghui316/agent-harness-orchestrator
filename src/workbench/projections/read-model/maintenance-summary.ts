@@ -1,5 +1,5 @@
-import { listDemandMemoryCloseouts, listMaintenanceCandidateResolutions, listMaintenanceCanonicalPatchApplicationManifests, listMaintenanceCanonicalPatchProposals, listMaintenanceCanonicalUpdateProposals, listMaintenanceLedgerEntries, readMaintenanceReviewWatermark } from "../../../agent-task/manager.js";
-import type { DemandMemoryCloseout, MaintenanceCandidateResolution, MaintenanceCanonicalPatchApplicationManifest, MaintenanceCanonicalPatchProposal, MaintenanceCanonicalUpdateProposal, MaintenanceLedgerEntry, ResolvedMemory } from "../../../types/index.js";
+import { listDemandMemoryCloseouts, listMaintenanceCandidateResolutions, listMaintenanceCanonicalPatchApplicationManifests, listMaintenanceCanonicalPatchApplicationResults, listMaintenanceCanonicalPatchProposals, listMaintenanceCanonicalUpdateProposals, listMaintenanceLedgerEntries, readMaintenanceReviewWatermark } from "../../../agent-task/manager.js";
+import type { DemandMemoryCloseout, MaintenanceCandidateResolution, MaintenanceCanonicalPatchApplicationManifest, MaintenanceCanonicalPatchApplicationResult, MaintenanceCanonicalPatchProposal, MaintenanceCanonicalUpdateProposal, MaintenanceLedgerEntry, ResolvedMemory } from "../../../types/index.js";
 import type { WorkbenchMaintenanceSummary } from "../../read-model-types.js";
 
 export async function buildMaintenanceSummary(memory: ResolvedMemory): Promise<WorkbenchMaintenanceSummary> {
@@ -9,6 +9,7 @@ export async function buildMaintenanceSummary(memory: ResolvedMemory): Promise<W
   const proposals = await listMaintenanceCanonicalUpdateProposals(memory).catch(() => []);
   const patchProposals = await listMaintenanceCanonicalPatchProposals(memory).catch(() => []);
   const applicationManifests = await listMaintenanceCanonicalPatchApplicationManifests(memory).catch(() => []);
+  const applicationResults = await listMaintenanceCanonicalPatchApplicationResults(memory).catch(() => []);
   const watermark = await readMaintenanceReviewWatermark(memory).catch(() => null);
   const latest = latestMaintenanceEntry(entries);
   const reviewed = new Set(watermark?.lastReviewedChangeIds ?? []);
@@ -18,6 +19,7 @@ export async function buildMaintenanceSummary(memory: ResolvedMemory): Promise<W
   const latestProposal = latestCanonicalUpdateProposal(proposals);
   const latestPatchProposal = latestCanonicalPatchProposal(patchProposals);
   const latestApplicationManifest = latestCanonicalPatchApplicationManifest(applicationManifests);
+  const latestApplicationResult = latestCanonicalPatchApplicationResult(applicationResults);
   const status: WorkbenchMaintenanceSummary["status"] = unreviewed >= 5
     ? "review-ready"
     : watermark?.lastReviewWindowId
@@ -32,6 +34,7 @@ export async function buildMaintenanceSummary(memory: ResolvedMemory): Promise<W
     proposalCount: proposals.length,
     patchProposalCount: patchProposals.length,
     applicationManifestCount: applicationManifests.length,
+    applicationResultCount: applicationResults.length,
     latestReviewWindowId: watermark?.lastReviewWindowId ?? undefined,
     unreviewedTerminalCount: unreviewed,
     latestPatchProposal: latestPatchProposal ? {
@@ -58,6 +61,18 @@ export async function buildMaintenanceSummary(memory: ResolvedMemory): Promise<W
       canonicalPatchApplied: latestApplicationManifest.canonicalPatchApplied,
       summary: latestApplicationManifest.summary,
       createdAt: latestApplicationManifest.createdAt,
+    } : undefined,
+    latestApplicationResult: latestApplicationResult ? {
+      id: latestApplicationResult.id,
+      status: latestApplicationResult.status,
+      manifestId: latestApplicationResult.manifestId,
+      patchProposalId: latestApplicationResult.patchProposalId,
+      gateRecordId: latestApplicationResult.gateRecordId,
+      targetKinds: latestApplicationResult.targetKinds,
+      operationCount: latestApplicationResult.operationCount,
+      canonicalPatchApplied: latestApplicationResult.canonicalPatchApplied,
+      summary: latestApplicationResult.summary,
+      createdAt: latestApplicationResult.createdAt,
     } : undefined,
     latestProposal: latestProposal ? {
       id: latestProposal.id,
@@ -129,4 +144,10 @@ export function latestCanonicalPatchApplicationManifest(
   manifests: MaintenanceCanonicalPatchApplicationManifest[],
 ): MaintenanceCanonicalPatchApplicationManifest | undefined {
   return [...manifests].sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
+}
+
+export function latestCanonicalPatchApplicationResult(
+  results: MaintenanceCanonicalPatchApplicationResult[],
+): MaintenanceCanonicalPatchApplicationResult | undefined {
+  return [...results].sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
 }

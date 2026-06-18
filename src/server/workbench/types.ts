@@ -57,6 +57,7 @@ export interface WorkbenchActionRequest {
   goalLoopCurrentGateActionType?: WorkbenchWorkflowActionRequest["actionType"];
   maintenanceProposalId?: string;
   maintenancePatchProposalId?: string;
+  maintenanceApplicationManifestId?: string;
   schedulerWorkerStartId?: string;
   schedulerWorkerResultId?: string;
   schedulerWorkerValidationId?: string;

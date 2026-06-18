@@ -1,11 +1,14 @@
 import { existsSync } from "node:fs";
-import { readdir, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { createHash } from "node:crypto";
+import { readFile, readdir, realpath, stat, writeFile } from "node:fs/promises";
+import { isAbsolute, join, normalize, relative, resolve } from "node:path";
 import { readJsonFile, writeJsonFile } from "../fs/json.js";
 import type {
+  MaintenanceCanonicalPatchAppliedOperation,
   MaintenanceCanonicalPatchApplicationGateRecord,
   MaintenanceCanonicalPatchApplicationManifest,
   MaintenanceCanonicalPatchApplicationManifestOperation,
+  MaintenanceCanonicalPatchApplicationResult,
   MaintenanceCanonicalPatchOperation,
   MaintenanceCanonicalPatchProposal,
   MaintenanceCanonicalPatchTargetDescriptor,
@@ -19,6 +22,9 @@ import {
   maintenanceCanonicalPatchApplicationManifestMarkdownPath,
   maintenanceCanonicalPatchApplicationManifestPath,
   maintenanceCanonicalPatchApplicationManifestsRoot,
+  maintenanceCanonicalPatchApplicationResultMarkdownPath,
+  maintenanceCanonicalPatchApplicationResultPath,
+  maintenanceCanonicalPatchApplicationResultsRoot,
   maintenanceCanonicalPatchProposalMarkdownPath,
   maintenanceCanonicalPatchProposalPath,
 } from "./paths.js";
@@ -26,8 +32,24 @@ import {
   readMaintenanceCanonicalPatchApplicationGate,
   readMaintenanceCanonicalPatchProposal,
 } from "./canonical-updates.js";
-import { canonicalPatchApplicationManifestSchema } from "./schemas.js";
+import { canonicalPatchApplicationManifestSchema, canonicalPatchApplicationResultSchema } from "./schemas.js";
 import { contentHash, uniqueSorted } from "./utils.js";
+
+export interface ApplyMaintenanceCanonicalPatchApplicationManifestOptions {
+  policyAuditRefs: string[];
+  confirmedBy: "workbench-human-gate";
+}
+
+interface PreparedApplicationOperation {
+  manifestOperation: MaintenanceCanonicalPatchApplicationManifestOperation;
+  descriptor: MaintenanceCanonicalPatchTargetDescriptor;
+  targetPath: string;
+  absoluteTargetPath: string;
+  beforeContent: string;
+  afterContent: string;
+  beforeHash: string;
+  afterHash: string;
+}
 
 export async function generateMaintenanceCanonicalPatchApplicationManifest(
   memory: ResolvedMemory,
@@ -88,6 +110,74 @@ export async function readMaintenanceCanonicalPatchApplicationManifestForGate(
 
 export function maintenanceCanonicalPatchApplicationManifestArtifactRef(memory: ResolvedMemory, manifestId: string): string {
   return displayMaintenancePath(memory, maintenanceCanonicalPatchApplicationManifestPath(memory, manifestId));
+}
+
+export async function applyMaintenanceCanonicalPatchApplicationManifest(
+  memory: ResolvedMemory,
+  manifestId: string,
+  options: ApplyMaintenanceCanonicalPatchApplicationManifestOptions,
+): Promise<MaintenanceCanonicalPatchApplicationResult> {
+  validateApplicationAuthorization(options);
+  const existing = await readMaintenanceCanonicalPatchApplicationResultForManifest(memory, manifestId);
+  if (existing) {
+    await ensureCanonicalPatchApplicationResultLedgerEntry(memory, existing);
+    return existing;
+  }
+
+  const manifest = await readMaintenanceCanonicalPatchApplicationManifest(memory, manifestId);
+  if (!manifest) throw new Error(`Maintenance canonical patch application manifest not found: ${manifestId}`);
+  const gateRecord = await readMaintenanceCanonicalPatchApplicationGate(memory, manifest.gateRecordId);
+  if (!gateRecord) throw new Error(`Maintenance canonical patch application gate not found for manifest ${manifestId}: ${manifest.gateRecordId}`);
+  const patchProposal = await readMaintenanceCanonicalPatchProposal(memory, manifest.patchProposalId);
+  if (!patchProposal) throw new Error(`Maintenance canonical patch proposal not found for manifest ${manifestId}: ${manifest.patchProposalId}`);
+  validateManifestLineage(gateRecord, patchProposal);
+  validateApplicationManifestLineage(manifest, gateRecord, patchProposal);
+
+  const prepared = await prepareApplicationOperations(memory, manifest, patchProposal);
+  for (const operation of prepared) {
+    await writeFile(operation.absoluteTargetPath, operation.afterContent, "utf8");
+  }
+
+  const result = buildCanonicalPatchApplicationResult(memory, manifest, prepared, options.policyAuditRefs);
+  canonicalPatchApplicationResultSchema.parse(result);
+  await writeJsonFile(maintenanceCanonicalPatchApplicationResultPath(memory, result.id), result);
+  await writeFile(maintenanceCanonicalPatchApplicationResultMarkdownPath(memory, result.id), renderCanonicalPatchApplicationResultMarkdown(result), "utf8");
+  await ensureCanonicalPatchApplicationResultLedgerEntry(memory, result);
+  return result;
+}
+
+export async function readMaintenanceCanonicalPatchApplicationResult(
+  memory: ResolvedMemory,
+  resultId: string,
+): Promise<MaintenanceCanonicalPatchApplicationResult | null> {
+  const path = maintenanceCanonicalPatchApplicationResultPath(memory, resultId);
+  if (!existsSync(path)) return null;
+  return readJsonFile(path, canonicalPatchApplicationResultSchema, null as unknown as MaintenanceCanonicalPatchApplicationResult).catch(() => null);
+}
+
+export async function listMaintenanceCanonicalPatchApplicationResults(memory: ResolvedMemory): Promise<MaintenanceCanonicalPatchApplicationResult[]> {
+  const root = maintenanceCanonicalPatchApplicationResultsRoot(memory);
+  if (!existsSync(root)) return [];
+  const entries = await readdir(root, { withFileTypes: true });
+  const results: MaintenanceCanonicalPatchApplicationResult[] = [];
+  for (const entry of entries) {
+    if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
+    const result = await readJsonFile(join(root, entry.name), canonicalPatchApplicationResultSchema, null as unknown as MaintenanceCanonicalPatchApplicationResult).catch(() => null);
+    if (result) results.push(result);
+  }
+  return results.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+}
+
+export async function readMaintenanceCanonicalPatchApplicationResultForManifest(
+  memory: ResolvedMemory,
+  manifestId: string,
+): Promise<MaintenanceCanonicalPatchApplicationResult | null> {
+  const results = await listMaintenanceCanonicalPatchApplicationResults(memory);
+  return results.find((result) => result.manifestId === manifestId) ?? null;
+}
+
+export function maintenanceCanonicalPatchApplicationResultArtifactRef(memory: ResolvedMemory, resultId: string): string {
+  return displayMaintenancePath(memory, maintenanceCanonicalPatchApplicationResultPath(memory, resultId));
 }
 
 function buildCanonicalPatchApplicationManifest(
@@ -194,6 +284,298 @@ function validateManifestLineage(
   }
 }
 
+function validateApplicationManifestLineage(
+  manifest: MaintenanceCanonicalPatchApplicationManifest,
+  gateRecord: MaintenanceCanonicalPatchApplicationGateRecord,
+  patchProposal: MaintenanceCanonicalPatchProposal,
+): void {
+  if (manifest.gateRecordId !== gateRecord.id) {
+    throw new Error(`Maintenance canonical patch application manifest gate lineage mismatch: manifest ${manifest.id}`);
+  }
+  if (manifest.patchProposalId !== patchProposal.id || gateRecord.patchProposalId !== patchProposal.id) {
+    throw new Error(`Maintenance canonical patch application manifest patch proposal lineage mismatch: manifest ${manifest.id}`);
+  }
+  if (manifest.proposalId !== patchProposal.proposalId || manifest.proposalId !== gateRecord.proposalId) {
+    throw new Error(`Maintenance canonical patch application manifest proposal lineage mismatch: manifest ${manifest.id}`);
+  }
+  if (manifest.decisionId !== patchProposal.decisionId || manifest.decisionId !== gateRecord.decisionId) {
+    throw new Error(`Maintenance canonical patch application manifest decision lineage mismatch: manifest ${manifest.id}`);
+  }
+  if (
+    manifest.operationCount !== manifest.operations.length
+    || manifest.operationCount !== patchProposal.operationCount
+    || manifest.operationCount !== patchProposal.operations.length
+    || manifest.operationCount !== gateRecord.operationCount
+  ) {
+    throw new Error(`Maintenance canonical patch application manifest operation count mismatch: manifest ${manifest.id}`);
+  }
+}
+
+function validateApplicationAuthorization(options: ApplyMaintenanceCanonicalPatchApplicationManifestOptions): void {
+  if (options.confirmedBy !== "workbench-human-gate") {
+    throw new Error("Maintenance canonical patch application requires Workbench human-gate confirmation.");
+  }
+  if (!Array.isArray(options.policyAuditRefs) || options.policyAuditRefs.length === 0 || options.policyAuditRefs.some((ref) => !ref.trim())) {
+    throw new Error("Maintenance canonical patch application requires ToolPolicyGate audit evidence.");
+  }
+}
+
+async function prepareApplicationOperations(
+  memory: ResolvedMemory,
+  manifest: MaintenanceCanonicalPatchApplicationManifest,
+  patchProposal: MaintenanceCanonicalPatchProposal,
+): Promise<PreparedApplicationOperation[]> {
+  if (manifest.applicationStatus !== "ready-for-application") {
+    throw new Error(`Maintenance canonical patch application manifest is not ready: ${manifest.id}`);
+  }
+  if (manifest.blockedReasons.length > 0) {
+    throw new Error(`Maintenance canonical patch application manifest has blocked reasons: ${manifest.id}`);
+  }
+
+  const operationIds = new Set<string>();
+  const patchOperationIds = new Set<string>();
+  const targetPaths = new Set<string>();
+  const proposalOperations = new Map(patchProposal.operations.map((operation) => [operation.id, operation]));
+  const prepared: PreparedApplicationOperation[] = [];
+
+  for (const operation of manifest.operations) {
+    if (operationIds.has(operation.id)) throw new Error(`Duplicate canonical patch application operation id: ${operation.id}`);
+    operationIds.add(operation.id);
+    if (patchOperationIds.has(operation.patchOperationId)) throw new Error(`Duplicate canonical patch application patch operation id: ${operation.patchOperationId}`);
+    patchOperationIds.add(operation.patchOperationId);
+    if (operation.readiness !== "ready" || operation.blockedReasons.length > 0 || !operation.targetDescriptor) {
+      throw new Error(`Canonical patch application operation is not ready: ${operation.id}`);
+    }
+    const proposalOperation = proposalOperations.get(operation.patchOperationId);
+    if (!proposalOperation) throw new Error(`Canonical patch application operation has no matching patch proposal operation: ${operation.id}`);
+    validateOperationMatchesProposal(operation, proposalOperation);
+    validateSupportedApplicationTarget(operation.targetKind, operation.id);
+    validateTargetKindPathBoundary(operation.targetKind, operation.targetDescriptor.targetPath, operation.id);
+
+    const target = await resolveSafeApplicationTarget(memory.memoryRoot, operation.targetDescriptor.targetPath);
+    const targetKey = target.relativeTargetPath.toLowerCase();
+    if (targetPaths.has(targetKey)) throw new Error(`Duplicate canonical patch application target path: ${target.relativeTargetPath}`);
+    targetPaths.add(targetKey);
+
+    const beforeContent = await readFile(target.realTargetPath, "utf8");
+    const beforeHash = sha256(beforeContent);
+    if (beforeHash !== operation.targetDescriptor.expectedContentHash) {
+      throw new Error(`Canonical patch application target hash is stale for ${target.relativeTargetPath}`);
+    }
+    const afterContent = applyDescriptorToContent(beforeContent, operation.targetDescriptor, operation.id);
+    const afterHash = sha256(afterContent);
+    if (afterHash === beforeHash) throw new Error(`Canonical patch application operation produced no content change: ${operation.id}`);
+
+    prepared.push({
+      manifestOperation: operation,
+      descriptor: operation.targetDescriptor,
+      targetPath: target.relativeTargetPath,
+      absoluteTargetPath: target.realTargetPath,
+      beforeContent,
+      afterContent,
+      beforeHash,
+      afterHash,
+    });
+  }
+
+  if (prepared.length !== manifest.operationCount) {
+    throw new Error(`Prepared operation count mismatch for canonical patch application manifest: ${manifest.id}`);
+  }
+  return prepared;
+}
+
+function validateOperationMatchesProposal(
+  manifestOperation: MaintenanceCanonicalPatchApplicationManifestOperation,
+  proposalOperation: MaintenanceCanonicalPatchOperation,
+): void {
+  if (
+    manifestOperation.targetKind !== proposalOperation.targetKind
+    || manifestOperation.operation !== proposalOperation.operation
+    || manifestOperation.sourceResolutionId !== proposalOperation.sourceResolutionId
+    || manifestOperation.sourceCandidateId !== proposalOperation.sourceCandidateId
+  ) {
+    throw new Error(`Canonical patch application operation lineage mismatch: ${manifestOperation.id}`);
+  }
+}
+
+function validateSupportedApplicationTarget(targetKind: string, operationId: string): void {
+  if (targetKind !== "canonical-docs" && targetKind !== "stable-memory") {
+    throw new Error(`Unsupported canonical patch application target kind for ${operationId}: ${targetKind}`);
+  }
+}
+
+function validateTargetKindPathBoundary(targetKind: string, targetPath: string, operationId: string): void {
+  const normalized = normalizeApplicationRelativeTargetPath(targetPath);
+  if (!normalized) throw new Error(`Unsafe canonical patch application target path for ${operationId}: ${targetPath}`);
+  if (targetKind === "canonical-docs") {
+    if (!normalized.startsWith("docs/") || normalized === "docs/" || !normalized.endsWith(".md")) {
+      throw new Error(`Canonical docs patch target is outside docs/*.md boundary for ${operationId}: ${targetPath}`);
+    }
+    return;
+  }
+  if (targetKind === "stable-memory") {
+    if (!normalized.startsWith("project/stable/") || normalized === "project/stable/" || !normalized.endsWith(".md")) {
+      throw new Error(`Stable memory patch target is outside project/stable/*.md boundary for ${operationId}: ${targetPath}`);
+    }
+  }
+}
+
+async function resolveSafeApplicationTarget(
+  rootPath: string,
+  targetPath: string,
+): Promise<{ realTargetPath: string; relativeTargetPath: string }> {
+  const normalized = normalizeApplicationRelativeTargetPath(targetPath);
+  if (!normalized) throw new Error(`Unsafe canonical patch application target path: ${targetPath}`);
+
+  const realRoot = await realpath(rootPath).catch(() => null);
+  if (!realRoot) throw new Error(`Canonical patch application memory root not found: ${rootPath}`);
+  const resolvedTarget = resolve(realRoot, normalized);
+  const realTarget = await realpath(resolvedTarget).catch(() => null);
+  if (!realTarget || !isPathInsideOrEqual(realRoot, realTarget)) {
+    throw new Error(`Canonical patch application target escapes memory root: ${targetPath}`);
+  }
+
+  const targetStat = await stat(realTarget).catch(() => null);
+  if (!targetStat?.isFile()) throw new Error(`Canonical patch application target is not an existing file: ${targetPath}`);
+
+  const relativeTargetPath = relative(realRoot, realTarget).replace(/\\/g, "/");
+  if (!relativeTargetPath || relativeTargetPath === "." || relativeTargetPath.startsWith("../") || isAbsolute(relativeTargetPath)) {
+    throw new Error(`Unsafe canonical patch application resolved target path: ${targetPath}`);
+  }
+  return { realTargetPath: realTarget, relativeTargetPath };
+}
+
+function normalizeApplicationRelativeTargetPath(targetPath: string): string | null {
+  const raw = targetPath.trim();
+  if (!raw || isAbsolute(raw) || /^[a-zA-Z]:/.test(raw)) return null;
+  const rawSegments = raw.replace(/\\/g, "/").split("/");
+  if (rawSegments.includes("..")) return null;
+  const normalized = normalize(raw).replace(/\\/g, "/");
+  if (normalized === "." || normalized === ".." || normalized.startsWith("../") || isAbsolute(normalized)) return null;
+  return normalized;
+}
+
+function isPathInsideOrEqual(rootPath: string, targetPath: string): boolean {
+  const relativePath = relative(rootPath, targetPath);
+  return relativePath === "" || (!relativePath.startsWith("..") && !isAbsolute(relativePath));
+}
+
+function applyDescriptorToContent(content: string, descriptor: MaintenanceCanonicalPatchTargetDescriptor, operationId: string): string {
+  if (descriptor.patchKind === "replacement") {
+    if (descriptor.replacement === content) throw new Error(`Canonical patch replacement is a no-op: ${operationId}`);
+    return descriptor.replacement;
+  }
+  let result = content;
+  for (const hunk of descriptor.hunks) {
+    if (hunk.oldText.trim().length === 0 || hunk.newText.trim().length === 0) {
+      throw new Error(`Canonical patch hunk is missing concrete text: ${operationId}`);
+    }
+    if (hunk.oldText === hunk.newText) throw new Error(`Canonical patch hunk is a no-op: ${operationId}`);
+    const matches = findStringMatches(result, hunk.oldText);
+    if (hunk.occurrence !== undefined) {
+      if (hunk.occurrence < 1 || hunk.occurrence > matches.length) {
+        throw new Error(`Canonical patch hunk occurrence is unavailable for ${operationId}`);
+      }
+      const start = matches[hunk.occurrence - 1];
+      result = `${result.slice(0, start)}${hunk.newText}${result.slice(start + hunk.oldText.length)}`;
+      continue;
+    }
+    if (matches.length === 0) throw new Error(`Canonical patch hunk did not match target content for ${operationId}`);
+    if (matches.length > 1) throw new Error(`Canonical patch hunk matched target content ambiguously for ${operationId}`);
+    const start = matches[0];
+    result = `${result.slice(0, start)}${hunk.newText}${result.slice(start + hunk.oldText.length)}`;
+  }
+  return result;
+}
+
+function findStringMatches(content: string, needle: string): number[] {
+  const matches: number[] = [];
+  let offset = content.indexOf(needle);
+  while (offset !== -1) {
+    matches.push(offset);
+    offset = content.indexOf(needle, offset + needle.length);
+  }
+  return matches;
+}
+
+function buildCanonicalPatchApplicationResult(
+  memory: ResolvedMemory,
+  manifest: MaintenanceCanonicalPatchApplicationManifest,
+  preparedOperations: PreparedApplicationOperation[],
+  policyAuditRefs: string[],
+): MaintenanceCanonicalPatchApplicationResult {
+  const id = `canonical-patch-application-result-${contentHash(manifest.id).slice(0, 12)}`;
+  const resultRef = displayMaintenancePath(memory, maintenanceCanonicalPatchApplicationResultPath(memory, id));
+  const markdownRef = displayMaintenancePath(memory, maintenanceCanonicalPatchApplicationResultMarkdownPath(memory, id));
+  const appliedOperations: MaintenanceCanonicalPatchAppliedOperation[] = preparedOperations.map((operation, index) => ({
+    id: `${id}-operation-${String(index + 1).padStart(3, "0")}`,
+    manifestOperationId: operation.manifestOperation.id,
+    patchOperationId: operation.manifestOperation.patchOperationId,
+    targetKind: operation.manifestOperation.targetKind,
+    operation: operation.manifestOperation.operation,
+    targetPath: operation.targetPath,
+    patchKind: operation.descriptor.patchKind,
+    beforeHash: operation.beforeHash,
+    afterHash: operation.afterHash,
+    status: "applied",
+    summary: `Applied ${operation.descriptor.patchKind} canonical patch to ${operation.targetPath}.`,
+    artifactRefs: operation.manifestOperation.artifactRefs,
+  }));
+  return {
+    version: "1.0",
+    id,
+    status: "applied",
+    manifestId: manifest.id,
+    patchProposalId: manifest.patchProposalId,
+    gateRecordId: manifest.gateRecordId,
+    proposalId: manifest.proposalId,
+    decisionId: manifest.decisionId,
+    targetKinds: manifest.targetKinds,
+    operationCount: appliedOperations.length,
+    appliedOperations,
+    applicationAuthorized: true,
+    sourceMutationAuthorized: true,
+    canonicalUpdateApplied: true,
+    canonicalPatchApplied: true,
+    executionStarted: true,
+    policyAuditRefs,
+    summary: `Applied canonical patch application manifest ${manifest.id} to ${appliedOperations.length} target(s).`,
+    artifactRefs: uniqueSorted([
+      resultRef,
+      markdownRef,
+      maintenanceCanonicalPatchApplicationManifestArtifactRef(memory, manifest.id),
+      displayMaintenancePath(memory, maintenanceCanonicalPatchApplicationManifestMarkdownPath(memory, manifest.id)),
+      ...manifest.artifactRefs,
+      ...appliedOperations.flatMap((operation) => operation.artifactRefs),
+      ...policyAuditRefs,
+    ]),
+    createdAt: new Date().toISOString(),
+  };
+}
+
+async function ensureCanonicalPatchApplicationResultLedgerEntry(
+  memory: ResolvedMemory,
+  result: MaintenanceCanonicalPatchApplicationResult,
+): Promise<void> {
+  const resultRef = maintenanceCanonicalPatchApplicationResultArtifactRef(memory, result.id);
+  const entries = await listMaintenanceLedgerEntries(memory);
+  if (entries.some((entry) => entry.eventType === "canonical-patch-application-result" && entry.artifactRefs.includes(resultRef))) {
+    return;
+  }
+  await recordMaintenanceLedgerEntry(memory, {
+    eventType: "canonical-patch-application-result",
+    summary: `${result.summary} This ledger entry records a human-gated canonical patch application result and must not feed new maintenance candidates.`,
+    artifactRefs: [
+      resultRef,
+      displayMaintenancePath(memory, maintenanceCanonicalPatchApplicationResultMarkdownPath(memory, result.id)),
+    ],
+  });
+}
+
+function sha256(content: string | Buffer): string {
+  return createHash("sha256").update(content).digest("hex");
+}
+
 async function ensureCanonicalPatchApplicationManifestLedgerEntry(
   memory: ResolvedMemory,
   manifest: MaintenanceCanonicalPatchApplicationManifest,
@@ -269,4 +651,52 @@ function renderCanonicalPatchApplicationManifestMarkdown(manifest: MaintenanceCa
 function renderTargetDescriptor(descriptor: MaintenanceCanonicalPatchTargetDescriptor | null): string {
   if (!descriptor) return "missing";
   return `${descriptor.patchKind} ${descriptor.targetPath} sha256=${descriptor.expectedContentHash}`;
+}
+
+function renderCanonicalPatchApplicationResultMarkdown(result: MaintenanceCanonicalPatchApplicationResult): string {
+  return [
+    `# ${result.id}`,
+    "",
+    result.summary,
+    "",
+    "## Authority",
+    "",
+    "- Classification: human-gated canonical patch application result evidence.",
+    "- Application authorized: true.",
+    "- Source mutation authorized: true.",
+    "- Canonical update applied: true.",
+    "- Canonical patch applied: true.",
+    "- Execution started: true.",
+    "- This result records a completed canonical docs/stable-memory patch application. It does not modify apply state, close state, remote state, IntegrationCheck, Validation, Audit, or Harness evolution state.",
+    "",
+    "## Sources",
+    "",
+    `- Manifest: ${result.manifestId}`,
+    `- Patch proposal: ${result.patchProposalId}`,
+    `- Gate record: ${result.gateRecordId}`,
+    `- Proposal: ${result.proposalId}`,
+    `- Decision: ${result.decisionId}`,
+    "",
+    "## Applied Operations",
+    "",
+    ...result.appliedOperations.map((operation) => [
+      `- ${operation.id}: ${operation.status}`,
+      `  manifestOperation: ${operation.manifestOperationId}`,
+      `  patchOperation: ${operation.patchOperationId}`,
+      `  targetKind: ${operation.targetKind}`,
+      `  targetPath: ${operation.targetPath}`,
+      `  patchKind: ${operation.patchKind}`,
+      `  beforeHash: ${operation.beforeHash}`,
+      `  afterHash: ${operation.afterHash}`,
+    ].join("\n")),
+    "",
+    "## Policy Audit",
+    "",
+    ...(result.policyAuditRefs.length > 0 ? result.policyAuditRefs.map((ref) => `- ${ref}`) : ["- none"]),
+    "",
+    "## Evidence",
+    "",
+    ...result.artifactRefs.map((ref) => `- ${ref}`),
+    "",
+  ].join("\n");
 }

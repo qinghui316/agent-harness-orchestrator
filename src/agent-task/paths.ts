@@ -108,3 +108,15 @@ export function maintenanceCanonicalPatchApplicationManifestPath(memory: Resolve
 export function maintenanceCanonicalPatchApplicationManifestMarkdownPath(memory: ResolvedMemory, manifestId: string): string {
   return join(maintenanceCanonicalPatchApplicationManifestsRoot(memory), `${manifestId}.md`);
 }
+
+export function maintenanceCanonicalPatchApplicationResultsRoot(memory: ResolvedMemory): string {
+  return join(maintenanceRoot(memory), "canonical-patch-application-results");
+}
+
+export function maintenanceCanonicalPatchApplicationResultPath(memory: ResolvedMemory, resultId: string): string {
+  return join(maintenanceCanonicalPatchApplicationResultsRoot(memory), `${resultId}.json`);
+}
+
+export function maintenanceCanonicalPatchApplicationResultMarkdownPath(memory: ResolvedMemory, resultId: string): string {
+  return join(maintenanceCanonicalPatchApplicationResultsRoot(memory), `${resultId}.md`);
+}

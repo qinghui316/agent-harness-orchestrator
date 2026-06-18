@@ -67,6 +67,7 @@ export async function sendWorkbenchActionLive(input: WorkbenchProjectInput & { p
         goalLoopCurrentGateActionType: body.goalLoopCurrentGateActionType,
         maintenancePatchProposalId: body.maintenancePatchProposalId,
         maintenanceProposalId: body.maintenanceProposalId,
+        maintenanceApplicationManifestId: body.maintenanceApplicationManifestId,
         schedulerWorkerStartId: body.schedulerWorkerStartId,
         schedulerWorkerResultId: body.schedulerWorkerResultId,
         schedulerWorkerValidationId: body.schedulerWorkerValidationId,
@@ -115,5 +116,6 @@ function isLiveWorkflowAction(actionType: string): actionType is WorkbenchWorkfl
 
 function isProjectScopedMaintenanceWorkflowAction(actionType: string): boolean {
   return actionType === "maintenance.canonical-update.decision.record"
-    || actionType === "maintenance.canonical-patch.application-gate.record";
+    || actionType === "maintenance.canonical-patch.application-gate.record"
+    || actionType === "maintenance.canonical-patch.apply";
 }

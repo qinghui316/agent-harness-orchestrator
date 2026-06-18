@@ -39,6 +39,7 @@ export type WorkflowActionPayloadSource = {
   goalLoopCurrentGateActionType?: WorkbenchThreadActionType;
   maintenanceProposalId?: string;
   maintenancePatchProposalId?: string;
+  maintenanceApplicationManifestId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   workflowRunId?: string;

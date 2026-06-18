@@ -156,6 +156,7 @@ export interface ThreadStreamAction {
   goalLoopCurrentGateActionType?: ThreadStreamAction["actionType"];
   maintenanceProposalId?: string;
   maintenancePatchProposalId?: string;
+  maintenanceApplicationManifestId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   workflowRunId?: string;
@@ -294,6 +295,7 @@ export interface WorkbenchDecisionAction {
   goalLoopCurrentGateActionType?: ThreadStreamAction["actionType"];
   maintenanceProposalId?: string;
   maintenancePatchProposalId?: string;
+  maintenanceApplicationManifestId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   workflowRunId?: string;
@@ -403,6 +405,7 @@ export interface WorkbenchConfirmationQueueItem {
   goalLoopCurrentGateActionType?: ThreadStreamAction["actionType"];
   maintenanceProposalId?: string;
   maintenancePatchProposalId?: string;
+  maintenanceApplicationManifestId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   taskRunId?: string;
@@ -872,6 +875,7 @@ export interface WorkbenchMaintenanceSummary {
   proposalCount: number;
   patchProposalCount?: number;
   applicationManifestCount?: number;
+  applicationResultCount?: number;
   latestReviewWindowId?: string;
   unreviewedTerminalCount: number;
   latestPatchProposal?: {
@@ -895,6 +899,18 @@ export interface WorkbenchMaintenanceSummary {
     targetKinds: string[];
     operationCount: number;
     blockedReasons: string[];
+    canonicalPatchApplied: boolean;
+    summary: string;
+    createdAt: string;
+  };
+  latestApplicationResult?: {
+    id: string;
+    status: string;
+    manifestId: string;
+    patchProposalId: string;
+    gateRecordId: string;
+    targetKinds: string[];
+    operationCount: number;
     canonicalPatchApplied: boolean;
     summary: string;
     createdAt: string;

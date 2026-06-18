@@ -11,7 +11,9 @@ import { candidateSchema, canonicalUpdateProposalSchema, resolutionSchema } from
 import { buildCanonicalPatchTargetDescriptor } from "../../src/agent-task/canonical-patch-targets.js";
 import { normalizeDocsDriftCandidates } from "../../src/agent-task/closeout-store.js";
 import type { CandidateReview, CandidateScore, EvolutionCandidate, ManagedProject } from "../../src/types/index.js";
+import type { MaintenanceCanonicalPatchApplicationGateRecord, MaintenanceCanonicalPatchApplicationManifest, MaintenanceCanonicalPatchProposal, ResolvedMemory } from "../../src/types/index.js";
 import {
+  applyMaintenanceCanonicalPatchApplicationManifest,
   buildRoleScopedContextProjection,
   checkDocBudgets,
   claimAgentTask,
@@ -20,6 +22,7 @@ import {
   generateMaintenanceCanonicalPatchApplicationManifest,
   listAgentTasks,
   listMaintenanceCanonicalPatchApplicationManifests,
+  listMaintenanceCanonicalPatchApplicationResults,
   listMaintenanceCanonicalPatchApplicationGateRecords,
   listMaintenanceCanonicalPatchProposals,
   listMaintenanceCanonicalUpdateProposals,
@@ -32,6 +35,7 @@ import {
   proposeMaintenanceCanonicalUpdate,
   readAgentTaskResult,
   readMaintenanceCanonicalPatchApplicationManifest,
+  readMaintenanceCanonicalPatchApplicationResult,
   readMaintenanceCanonicalPatchApplicationGate,
   readMaintenanceCanonicalPatchProposal,
   recordMaintenanceCanonicalPatchApplicationGate,
@@ -67,6 +71,8 @@ describe("AgentTask domain boundaries", () => {
     expect(typeof readMaintenanceCanonicalUpdateProposal).toBe("function");
     expect(typeof generateMaintenanceCanonicalPatchApplicationManifest).toBe("function");
     expect(typeof listMaintenanceCanonicalPatchApplicationManifests).toBe("function");
+    expect(typeof applyMaintenanceCanonicalPatchApplicationManifest).toBe("function");
+    expect(typeof listMaintenanceCanonicalPatchApplicationResults).toBe("function");
 
     const offenders = (await listSourceFiles("src/agent-task"))
       .filter((file) => !file.endsWith("manager.ts"))
@@ -460,6 +466,239 @@ describe("AgentTask domain boundaries", () => {
     expect(await readFile(memoryDocPath, "utf8")).toBe(originalMemoryDoc);
   });
 
+  it("applies ready canonical patch application manifests through a separate result artifact", async () => {
+    await initHarness(project());
+    const memory = await resolveProjectMemory(project());
+    const memoryDocPath = join(memory.memoryRoot, "docs", "MEMORY.md");
+    const originalMemoryDoc = "# Memory\n\nKeep old memory guidance.\n";
+    const updatedMemoryDoc = "# Memory\n\nKeep updated memory guidance.\n";
+    await writeFile(memoryDocPath, originalMemoryDoc, "utf8");
+
+    for (let index = 1; index <= 5; index += 1) {
+      await recordDemandMemoryCloseout(memory, {
+        changeId: `apply-descriptor-${index}`,
+        title: `Apply descriptor demand ${index}`,
+        terminalKind: "archived",
+        finalResult: `Apply descriptor demand ${index} completed.`,
+        userDecision: "archived",
+        evidenceRefs: [`harness/changes/archive/apply-descriptor-${index}/summary.md`],
+        docsDriftCandidates: [{
+          document: "docs/MEMORY.md",
+          summary: "Memory guidance needs a deterministic application result.",
+          patch: {
+            patchKind: "hunks",
+            hunks: [{
+              oldText: "Keep old memory guidance.",
+              newText: "Keep updated memory guidance.",
+            }],
+          },
+          evidenceRefs: [`memory-apply-${index}.md`],
+        }],
+      });
+    }
+
+    const proposal = (await listMaintenanceCanonicalUpdateProposals(memory))[0];
+    const decision = await recordMaintenanceCanonicalUpdateDecision(memory, proposal.id);
+    const patchProposal = await proposeMaintenanceCanonicalPatch(memory, decision.id);
+    const gateRecord = await recordMaintenanceCanonicalPatchApplicationGate(memory, patchProposal.id);
+    const manifest = await generateMaintenanceCanonicalPatchApplicationManifest(memory, gateRecord.id);
+    const result = await applyMaintenanceCanonicalPatchApplicationManifest(memory, manifest.id, {
+      policyAuditRefs: ["workbench/maintenance/policy-audit.json"],
+      confirmedBy: "workbench-human-gate",
+    });
+    const repeatedResult = await applyMaintenanceCanonicalPatchApplicationManifest(memory, manifest.id, {
+      policyAuditRefs: ["workbench/maintenance/policy-audit.json"],
+      confirmedBy: "workbench-human-gate",
+    });
+    const results = await listMaintenanceCanonicalPatchApplicationResults(memory);
+    const resultMarkdown = await readFile(join(memory.workbenchRoot, "maintenance", "canonical-patch-application-results", `${result.id}.md`), "utf8");
+    const summary = await buildMaintenanceSummary(memory);
+    const originalHash = createHash("sha256").update(Buffer.from(originalMemoryDoc)).digest("hex");
+    const updatedHash = createHash("sha256").update(Buffer.from(updatedMemoryDoc)).digest("hex");
+
+    expect(await readFile(memoryDocPath, "utf8")).toBe(updatedMemoryDoc);
+    expect(result).toMatchObject({
+      status: "applied",
+      manifestId: manifest.id,
+      patchProposalId: patchProposal.id,
+      gateRecordId: gateRecord.id,
+      applicationAuthorized: true,
+      sourceMutationAuthorized: true,
+      canonicalUpdateApplied: true,
+      canonicalPatchApplied: true,
+      executionStarted: true,
+      policyAuditRefs: ["workbench/maintenance/policy-audit.json"],
+      appliedOperations: [expect.objectContaining({
+        targetKind: "canonical-docs",
+        targetPath: "docs/MEMORY.md",
+        patchKind: "hunks",
+        beforeHash: originalHash,
+        afterHash: updatedHash,
+        status: "applied",
+      })],
+    });
+    expect(repeatedResult.id).toBe(result.id);
+    expect(results).toEqual([expect.objectContaining({ id: result.id, manifestId: manifest.id })]);
+    await expect(readMaintenanceCanonicalPatchApplicationResult(memory, result.id)).resolves.toMatchObject({
+      id: result.id,
+      manifestId: manifest.id,
+    });
+    expect(resultMarkdown).toContain("Classification: human-gated canonical patch application result evidence.");
+    expect(resultMarkdown).toContain(`beforeHash: ${originalHash}`);
+    expect(resultMarkdown).toContain(`afterHash: ${updatedHash}`);
+    expect(summary).toMatchObject({
+      applicationResultCount: 1,
+      latestApplicationResult: expect.objectContaining({
+        id: result.id,
+        canonicalPatchApplied: true,
+      }),
+    });
+  });
+
+  it("fails closed for stale or ambiguous canonical patch application manifests", async () => {
+    await initHarness(project());
+    const memory = await resolveProjectMemory(project());
+    const memoryDocPath = join(memory.memoryRoot, "docs", "MEMORY.md");
+    const originalMemoryDoc = "# Memory\n\nKeep old memory guidance.\nKeep old memory guidance.\n";
+    await writeFile(memoryDocPath, originalMemoryDoc, "utf8");
+
+    for (let index = 1; index <= 5; index += 1) {
+      await recordDemandMemoryCloseout(memory, {
+        changeId: `ambiguous-apply-${index}`,
+        title: `Ambiguous apply demand ${index}`,
+        terminalKind: "archived",
+        finalResult: `Ambiguous apply demand ${index} completed.`,
+        userDecision: "archived",
+        docsDriftCandidates: [{
+          document: "docs/MEMORY.md",
+          summary: "Ambiguous hunk must not apply.",
+          patch: {
+            patchKind: "hunks",
+            hunks: [{
+              oldText: "Keep old memory guidance.",
+              newText: "Keep updated memory guidance.",
+            }],
+          },
+          evidenceRefs: [`ambiguous-apply-${index}.md`],
+        }],
+      });
+    }
+
+    const proposal = (await listMaintenanceCanonicalUpdateProposals(memory))[0];
+    const decision = await recordMaintenanceCanonicalUpdateDecision(memory, proposal.id);
+    const patchProposal = await proposeMaintenanceCanonicalPatch(memory, decision.id);
+    const gateRecord = await recordMaintenanceCanonicalPatchApplicationGate(memory, patchProposal.id);
+    const manifest = await generateMaintenanceCanonicalPatchApplicationManifest(memory, gateRecord.id);
+
+    await expect(applyMaintenanceCanonicalPatchApplicationManifest(memory, manifest.id, {
+      policyAuditRefs: ["workbench/maintenance/policy-audit.json"],
+      confirmedBy: "workbench-human-gate",
+    })).rejects.toThrow("ambiguously");
+    expect(await readFile(memoryDocPath, "utf8")).toBe(originalMemoryDoc);
+    expect(await listMaintenanceCanonicalPatchApplicationResults(memory)).toEqual([]);
+
+    await writeFile(memoryDocPath, "# Memory\n\nKeep externally changed memory guidance.\n", "utf8");
+    await expect(applyMaintenanceCanonicalPatchApplicationManifest(memory, manifest.id, {
+      policyAuditRefs: ["workbench/maintenance/policy-audit.json"],
+      confirmedBy: "workbench-human-gate",
+    })).rejects.toThrow("stale");
+    expect(await listMaintenanceCanonicalPatchApplicationResults(memory)).toEqual([]);
+  });
+
+  it("requires human-gate and ToolPolicy evidence before canonical patch application writes", async () => {
+    await initHarness(project());
+    const memory = await resolveProjectMemory(project());
+    const memoryDocPath = join(memory.memoryRoot, "docs", "MEMORY.md");
+    const originalMemoryDoc = "# Memory\n\nKeep old authorization guidance.\n";
+    await writeFile(memoryDocPath, originalMemoryDoc, "utf8");
+
+    for (let index = 1; index <= 5; index += 1) {
+      await recordDemandMemoryCloseout(memory, {
+        changeId: `auth-apply-${index}`,
+        title: `Auth apply demand ${index}`,
+        terminalKind: "archived",
+        finalResult: `Auth apply demand ${index} completed.`,
+        userDecision: "archived",
+        docsDriftCandidates: [{
+          document: "docs/MEMORY.md",
+          summary: "Authorization must be required.",
+          patch: {
+            patchKind: "hunks",
+            hunks: [{
+              oldText: "Keep old authorization guidance.",
+              newText: "Keep updated authorization guidance.",
+            }],
+          },
+          evidenceRefs: [`auth-apply-${index}.md`],
+        }],
+      });
+    }
+
+    const proposal = (await listMaintenanceCanonicalUpdateProposals(memory))[0];
+    const decision = await recordMaintenanceCanonicalUpdateDecision(memory, proposal.id);
+    const patchProposal = await proposeMaintenanceCanonicalPatch(memory, decision.id);
+    const gateRecord = await recordMaintenanceCanonicalPatchApplicationGate(memory, patchProposal.id);
+    const manifest = await generateMaintenanceCanonicalPatchApplicationManifest(memory, gateRecord.id);
+
+    await expect(applyMaintenanceCanonicalPatchApplicationManifest(memory, manifest.id, {
+      policyAuditRefs: [],
+      confirmedBy: "workbench-human-gate",
+    })).rejects.toThrow("ToolPolicyGate audit evidence");
+    await expect(applyMaintenanceCanonicalPatchApplicationManifest(memory, manifest.id, {
+      policyAuditRefs: ["workbench/maintenance/policy-audit.json"],
+      confirmedBy: "manual" as "workbench-human-gate",
+    })).rejects.toThrow("Workbench human-gate confirmation");
+    expect(await readFile(memoryDocPath, "utf8")).toBe(originalMemoryDoc);
+    expect(await listMaintenanceCanonicalPatchApplicationResults(memory)).toEqual([]);
+  });
+
+  it("rejects forged canonical patch application targets outside target-kind path boundaries", async () => {
+    await initHarness(project());
+    const memory = await resolveProjectMemory(project());
+    const sourcePath = join(memory.memoryRoot, "src", "forged-target.ts");
+    const originalSource = "export const value = 'old';\n";
+    await mkdir(join(memory.memoryRoot, "src"), { recursive: true });
+    await writeFile(sourcePath, originalSource, "utf8");
+
+    const forgedManifest = await writeForgedReadyApplicationChain(memory, {
+      manifestId: "forged-src-target-manifest",
+      targetPath: "src/forged-target.ts",
+      expectedContentHash: createHash("sha256").update(Buffer.from(originalSource)).digest("hex"),
+      oldText: "old",
+      newText: "new",
+    });
+
+    await expect(applyMaintenanceCanonicalPatchApplicationManifest(memory, forgedManifest.id, {
+      policyAuditRefs: ["workbench/maintenance/policy-audit.json"],
+      confirmedBy: "workbench-human-gate",
+    })).rejects.toThrow("outside docs/*.md boundary");
+    expect(await readFile(sourcePath, "utf8")).toBe(originalSource);
+    expect(await listMaintenanceCanonicalPatchApplicationResults(memory)).toEqual([]);
+  });
+
+  it("rejects schema-valid empty hunks without hanging canonical patch application", async () => {
+    await initHarness(project());
+    const memory = await resolveProjectMemory(project());
+    const memoryDocPath = join(memory.memoryRoot, "docs", "MEMORY.md");
+    const originalMemoryDoc = "# Memory\n\nKeep empty hunk guidance.\n";
+    await writeFile(memoryDocPath, originalMemoryDoc, "utf8");
+
+    const forgedManifest = await writeForgedReadyApplicationChain(memory, {
+      manifestId: "forged-empty-hunk-manifest",
+      targetPath: "docs/MEMORY.md",
+      expectedContentHash: createHash("sha256").update(Buffer.from(originalMemoryDoc)).digest("hex"),
+      oldText: "",
+      newText: "Keep updated empty hunk guidance.",
+    });
+
+    await expect(applyMaintenanceCanonicalPatchApplicationManifest(memory, forgedManifest.id, {
+      policyAuditRefs: ["workbench/maintenance/policy-audit.json"],
+      confirmedBy: "workbench-human-gate",
+    })).rejects.toThrow("missing concrete text");
+    expect(await readFile(memoryDocPath, "utf8")).toBe(originalMemoryDoc);
+    expect(await listMaintenanceCanonicalPatchApplicationResults(memory)).toEqual([]);
+  });
+
   it("keeps concrete docs-drift patch drafts distinct from older no-payload drift fingerprints", () => {
     const [oldNoPayload] = normalizeDocsDriftCandidates("fingerprint-change", [{
       document: "docs/MEMORY.md",
@@ -692,6 +931,11 @@ describe("AgentTask domain boundaries", () => {
       summary: "Patch application manifest evidence should not feed the maintenance candidate pipeline.",
       artifactRefs: ["workbench/maintenance/canonical-patch-application-manifests/manifest.json"],
     });
+    await recordMaintenanceLedgerEntry(memory, {
+      eventType: "canonical-patch-application-result",
+      summary: "Patch application result evidence should not feed the maintenance candidate pipeline.",
+      artifactRefs: ["workbench/maintenance/canonical-patch-application-results/result.json"],
+    });
 
     await expect(runMaintenanceCandidatePipeline(memory)).resolves.toMatchObject({ status: "skipped" });
   });
@@ -778,6 +1022,131 @@ async function listSourceFiles(root: string): Promise<string[]> {
   }
   await walk(root);
   return files;
+}
+
+async function writeForgedReadyApplicationChain(
+  memory: ResolvedMemory,
+  input: {
+    manifestId: string;
+    targetPath: string;
+    expectedContentHash: string;
+    oldText: string;
+    newText: string;
+  },
+): Promise<MaintenanceCanonicalPatchApplicationManifest> {
+  const patchProposalId = `${input.manifestId}-patch`;
+  const gateRecordId = `${input.manifestId}-gate`;
+  const proposalId = `${input.manifestId}-proposal`;
+  const decisionId = `${input.manifestId}-decision`;
+  const patchOperationId = `${patchProposalId}-operation-001`;
+  const manifestOperationId = `${input.manifestId}-operation-001`;
+  const createdAt = "2026-06-19T00:00:00.000Z";
+  const patchProposal: MaintenanceCanonicalPatchProposal = {
+    version: "1.0",
+    id: patchProposalId,
+    status: "patch-proposed",
+    proposalId,
+    decisionId,
+    targetKinds: ["canonical-docs"],
+    operationCount: 1,
+    operations: [{
+      id: patchOperationId,
+      targetKind: "canonical-docs",
+      operation: "merge",
+      sourceResolutionId: `${input.manifestId}-resolution`,
+      sourceCandidateId: `${input.manifestId}-candidate`,
+      targetDescriptor: {
+        targetKind: "canonical-docs",
+        targetPath: input.targetPath,
+        expectedContentHash: input.expectedContentHash,
+        patchKind: "hunks",
+        hunks: [{
+          oldText: input.oldText,
+          newText: input.newText,
+        }],
+      },
+      summary: "Forged patch proposal for fail-closed test.",
+      rationale: "Exercise writer revalidation.",
+      artifactRefs: [],
+    }],
+    sourceMutationAuthorized: false,
+    canonicalUpdateAuthorized: false,
+    applicationAuthorized: false,
+    executionStarted: false,
+    humanApplicationGateRequired: true,
+    summary: "Forged patch proposal for fail-closed test.",
+    risks: [],
+    artifactRefs: [],
+    createdAt,
+  };
+  const gateRecord: MaintenanceCanonicalPatchApplicationGateRecord = {
+    version: "1.0",
+    id: gateRecordId,
+    patchProposalId,
+    proposalId,
+    decisionId,
+    decisionStatus: "accepted-for-application-follow-up",
+    targetKinds: ["canonical-docs"],
+    operationCount: 1,
+    sourceMutationAuthorized: false,
+    canonicalUpdateApplied: false,
+    canonicalPatchApplied: false,
+    executionStarted: false,
+    summary: "Forged gate for fail-closed test.",
+    risks: [],
+    artifactRefs: [],
+    createdAt,
+  };
+  const manifest: MaintenanceCanonicalPatchApplicationManifest = {
+    version: "1.0",
+    id: input.manifestId,
+    status: "application-manifest",
+    patchProposalId,
+    gateRecordId,
+    proposalId,
+    decisionId,
+    targetKinds: ["canonical-docs"],
+    operationCount: 1,
+    applicationStatus: "ready-for-application",
+    operations: [{
+      id: manifestOperationId,
+      patchOperationId,
+      targetKind: "canonical-docs",
+      operation: "merge",
+      sourceResolutionId: `${input.manifestId}-resolution`,
+      sourceCandidateId: `${input.manifestId}-candidate`,
+      targetDescriptor: {
+        targetKind: "canonical-docs",
+        targetPath: input.targetPath,
+        expectedContentHash: input.expectedContentHash,
+        patchKind: "hunks",
+        hunks: [{
+          oldText: input.oldText,
+          newText: input.newText,
+        }],
+      },
+      readiness: "ready",
+      blockedReasons: [],
+      summary: "Forged manifest operation for fail-closed test.",
+      rationale: "Exercise writer revalidation.",
+      artifactRefs: [],
+    }],
+    blockedReasons: [],
+    sourceMutationAuthorized: false,
+    canonicalUpdateApplied: false,
+    canonicalPatchApplied: false,
+    executionStarted: false,
+    summary: "Forged ready manifest for fail-closed test.",
+    artifactRefs: [],
+    createdAt,
+  };
+  await mkdir(join(memory.workbenchRoot, "maintenance", "canonical-patch-proposals"), { recursive: true });
+  await mkdir(join(memory.workbenchRoot, "maintenance", "canonical-patch-application-gates"), { recursive: true });
+  await mkdir(join(memory.workbenchRoot, "maintenance", "canonical-patch-application-manifests"), { recursive: true });
+  await writeFile(join(memory.workbenchRoot, "maintenance", "canonical-patch-proposals", `${patchProposal.id}.json`), JSON.stringify(patchProposal, null, 2), "utf8");
+  await writeFile(join(memory.workbenchRoot, "maintenance", "canonical-patch-application-gates", `${gateRecord.id}.json`), JSON.stringify(gateRecord, null, 2), "utf8");
+  await writeFile(join(memory.workbenchRoot, "maintenance", "canonical-patch-application-manifests", `${manifest.id}.json`), JSON.stringify(manifest, null, 2), "utf8");
+  return manifest;
 }
 
 function readFileSyncUtf8(path: string): string {

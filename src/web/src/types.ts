@@ -190,6 +190,7 @@ export type WorkpadNextAction = {
   goalLoopCurrentGateActionType?: ThreadStreamAction["actionType"];
   maintenanceProposalId?: string;
   maintenancePatchProposalId?: string;
+  maintenanceApplicationManifestId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   workflowRunId?: string;
@@ -257,6 +258,7 @@ export type WorkbenchTaskNextAction = {
   goalLoopCurrentGateActionType?: ThreadStreamAction["actionType"];
   maintenanceProposalId?: string;
   maintenancePatchProposalId?: string;
+  maintenanceApplicationManifestId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   workflowRunId?: string;
@@ -519,6 +521,7 @@ export type Workpad = {
     proposalCount?: number;
     patchProposalCount?: number;
     applicationManifestCount?: number;
+    applicationResultCount?: number;
     latestReviewWindowId?: string;
     unreviewedTerminalCount?: number;
     latestPatchProposal?: {
@@ -542,6 +545,18 @@ export type Workpad = {
       targetKinds: string[];
       operationCount: number;
       blockedReasons: string[];
+      canonicalPatchApplied: boolean;
+      summary: string;
+      createdAt: string;
+    };
+    latestApplicationResult?: {
+      id: string;
+      status: string;
+      manifestId: string;
+      patchProposalId: string;
+      gateRecordId: string;
+      targetKinds: string[];
+      operationCount: number;
       canonicalPatchApplied: boolean;
       summary: string;
       createdAt: string;
@@ -1298,6 +1313,7 @@ export type ThreadStreamAction = {
   goalLoopCurrentGateActionType?: ThreadStreamAction["actionType"];
   maintenanceProposalId?: string;
   maintenancePatchProposalId?: string;
+  maintenanceApplicationManifestId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   workflowRunId?: string;
@@ -1397,6 +1413,7 @@ export type DecisionAction = {
   schedulerWorkerReworkStartId?: string;
   maintenanceProposalId?: string;
   maintenancePatchProposalId?: string;
+  maintenanceApplicationManifestId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   workflowRunId?: string;

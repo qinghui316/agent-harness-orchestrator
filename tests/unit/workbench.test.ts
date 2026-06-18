@@ -28,6 +28,7 @@ import {
   createAgentTask,
   generateMaintenanceCanonicalPatchApplicationManifest,
   listAgentTasks,
+  listMaintenanceCanonicalPatchApplicationResults,
   listMaintenanceCanonicalPatchApplicationGateRecords,
   listMaintenanceCanonicalPatchProposals,
   listMaintenanceCanonicalUpdateDecisions,
@@ -7961,6 +7962,103 @@ describe("workbench read model", () => {
     await expect(getWorkbenchMaintenanceProjection({ project: project(), path: tempDir })).resolves.toMatchObject({
       status: "review-ready",
       unreviewedTerminalCount: 5,
+    });
+  });
+
+  it("applies ready maintenance canonical patch manifests only through a scoped confirmation", async () => {
+    await initHarness(project());
+    const memory = await resolveProjectMemory(project());
+    const memoryDocPath = join(memory.memoryRoot, "docs", "MEMORY.md");
+    const originalMemoryDoc = "# Memory\n\nKeep old workbench memory guidance.\n";
+    const updatedMemoryDoc = "# Memory\n\nKeep updated workbench memory guidance.\n";
+    await writeFile(memoryDocPath, originalMemoryDoc, "utf8");
+
+    for (let index = 1; index <= 5; index += 1) {
+      await recordDemandMemoryCloseout(memory, {
+        changeId: `workbench-apply-${index}`,
+        title: `Workbench apply demand ${index}`,
+        terminalKind: "archived",
+        finalResult: `Workbench apply demand ${index} completed.`,
+        userDecision: "archived",
+        evidenceRefs: [`harness/changes/archive/workbench-apply-${index}/summary.md`],
+        docsDriftCandidates: [{
+          document: "docs/MEMORY.md",
+          summary: "Workbench maintenance apply needs a concrete target.",
+          patch: {
+            patchKind: "hunks",
+            hunks: [{
+              oldText: "Keep old workbench memory guidance.",
+              newText: "Keep updated workbench memory guidance.",
+            }],
+          },
+          evidenceRefs: [`workbench-apply-${index}.md`],
+        }],
+      });
+    }
+
+    const maintenance = await getWorkbenchMaintenanceProjection({ project: project(), path: tempDir });
+    const maintenanceProposalId = maintenance?.latestProposal?.id;
+    expect(maintenanceProposalId).toBeTruthy();
+    await executeWorkbenchAction({ project: project(), path: tempDir }, {
+      actionType: "maintenance.canonical-update.decision.record",
+      maintenanceProposalId: maintenanceProposalId ?? "",
+      confirm: true,
+    });
+    const decisions = await listMaintenanceCanonicalUpdateDecisions(memory);
+    const patchProposal = await proposeMaintenanceCanonicalPatch(memory, decisions[0].id);
+    await executeWorkbenchAction({ project: project(), path: tempDir }, {
+      actionType: "maintenance.canonical-patch.application-gate.record",
+      maintenancePatchProposalId: patchProposal.id,
+      confirm: true,
+    });
+    const gateRecords = await listMaintenanceCanonicalPatchApplicationGateRecords(memory);
+    const manifest = await generateMaintenanceCanonicalPatchApplicationManifest(memory, gateRecords[0].id);
+    expect(manifest.applicationStatus).toBe("ready-for-application");
+
+    const snapshotBeforeApply = await getWorkbenchSnapshot({ project: project(), path: tempDir });
+    expect(snapshotBeforeApply.right.confirmationQueue.current.flatMap((item) => item.actions).some((action) => action.actionType === "maintenance.canonical-patch.apply")).toBe(false);
+    expect(snapshotBeforeApply.right.confirmationQueue.maintenance).toEqual([
+      expect.objectContaining({
+        kind: "maintenance",
+        maintenanceApplicationManifestId: manifest.id,
+        actions: [expect.objectContaining({
+          actionType: "maintenance.canonical-patch.apply",
+          maintenanceApplicationManifestId: manifest.id,
+          requiresConfirmation: true,
+        })],
+      }),
+    ]);
+    await expect(executeWorkbenchAction({ project: project(), path: tempDir }, {
+      actionType: "maintenance.canonical-patch.apply",
+      maintenanceApplicationManifestId: manifest.id,
+      confirm: false,
+    })).rejects.toThrow("Mutating Workbench workflow actions require confirm: true.");
+    await expect(executeWorkbenchAction({ project: project(), path: tempDir }, {
+      actionType: "maintenance.canonical-patch.apply",
+      maintenanceApplicationManifestId: "forged-manifest",
+      confirm: true,
+    })).rejects.toThrow("Workflow action target is stale or no longer available.");
+
+    const applyResult = await executeWorkbenchAction({ project: project(), path: tempDir }, {
+      actionType: "maintenance.canonical-patch.apply",
+      maintenanceApplicationManifestId: manifest.id,
+      confirm: true,
+    });
+    const applicationResults = await listMaintenanceCanonicalPatchApplicationResults(memory);
+
+    expect(await readFile(memoryDocPath, "utf8")).toBe(updatedMemoryDoc);
+    expect(applicationResults).toEqual([expect.objectContaining({
+      manifestId: manifest.id,
+      canonicalPatchApplied: true,
+      policyAuditRefs: [expect.stringContaining("tool-events.jsonl")],
+    })]);
+    expect((applyResult.snapshot as Awaited<ReturnType<typeof getWorkbenchSnapshot>>).right.confirmationQueue.maintenance).toEqual([]);
+    await expect(getWorkbenchMaintenanceProjection({ project: project(), path: tempDir })).resolves.toMatchObject({
+      applicationResultCount: 1,
+      latestApplicationResult: expect.objectContaining({
+        manifestId: manifest.id,
+        canonicalPatchApplied: true,
+      }),
     });
   });
 });

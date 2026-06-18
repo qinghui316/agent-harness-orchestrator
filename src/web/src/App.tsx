@@ -374,7 +374,8 @@ export function App(): ReactElement {
 
   async function runWorkflowAction(actionType: string, options: Record<string, unknown> = {}): Promise<void> {
     const projectScopedAction = actionType === "maintenance.canonical-update.decision.record"
-      || actionType === "maintenance.canonical-patch.application-gate.record";
+      || actionType === "maintenance.canonical-patch.application-gate.record"
+      || actionType === "maintenance.canonical-patch.apply";
     if (!selectedProjectId || (!activeTopic && !projectScopedAction)) return;
     setActionRunning(actionType);
     setError(null);
