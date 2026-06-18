@@ -6,6 +6,7 @@ import { artifactName } from "../RunReplayPanel.js";
 export function GoalLoopEvidenceCard({ goalLoop }: { goalLoop: NonNullable<Workpad["goalLoop"]> }): ReactElement {
   const schedulerMode = goalLoop.schedulerExecutionMode;
   const schedulerLoopSnapshot = goalLoop.schedulerLoopEvidenceSnapshot;
+  const controlledLoopState = goalLoop.controlledLoopState;
   const artifacts = [
     goalLoop.markdownArtifact ?? goalLoop.artifact,
     goalLoop.nextStepPacketMarkdownArtifact ?? goalLoop.nextStepPacketArtifact,
@@ -30,6 +31,7 @@ export function GoalLoopEvidenceCard({ goalLoop }: { goalLoop: NonNullable<Workp
         {schedulerMode ? <span>Full executor: {schedulerMode.fullParallelExecutorAuthorized ? "true" : "false"}</span> : null}
         {schedulerMode ? <span>Whole wave: {schedulerMode.wholeWaveDispatchAuthorized ? "true" : "false"}</span> : null}
         {schedulerMode ? <span>Slot allocator: {schedulerMode.slotAllocatorAuthorized ? "true" : "false"}</span> : null}
+        {controlledLoopState ? <span>Controlled state {humanStatus(controlledLoopState.state)}</span> : null}
         {schedulerLoopSnapshot ? <span>Snapshot posture {humanStatus(schedulerLoopSnapshot.posture)}</span> : null}
         <span>{goalLoop.humanGateRequired ? "Human gate required" : "No human gate flag"}</span>
         {goalLoop.recommendedActionType ? <span>{goalLoop.recommendedActionType}</span> : null}
@@ -52,6 +54,40 @@ export function GoalLoopEvidenceCard({ goalLoop }: { goalLoop: NonNullable<Workp
               <span>{userFacingText(requirement)}</span>
             </div>
           ))}
+        </div>
+      ) : null}
+      {controlledLoopState ? (
+        <div className="workpad-evidence-list" aria-label="Controlled loop state evidence">
+          <div className="workpad-evidence">
+            <strong>Controlled loop state</strong>
+            <span>{userFacingText(controlledLoopState.summary)}</span>
+          </div>
+          <div className="workpad-evidence">
+            <strong>Phase 12A mapping</strong>
+            <span>{controlledLoopState.phase12aLabel}</span>
+          </div>
+          {controlledLoopState.currentLegalActionType ? (
+            <div className="workpad-evidence">
+              <strong>Controlled legal gate</strong>
+              <span>{controlledLoopState.currentLegalActionType}</span>
+            </div>
+          ) : null}
+          <div className="workpad-evidence">
+            <strong>Future-only states</strong>
+            <span>{controlledLoopState.futureOnlyStates.join(", ")}</span>
+          </div>
+          <div className="workpad-evidence">
+            <strong>Controlled loop forbidden authority</strong>
+            <span>
+              loop={String(controlledLoopState.loopAuthorized)}, fullExecutor={String(controlledLoopState.fullParallelExecutorAuthorized)}, wholeWave={String(controlledLoopState.wholeWaveDispatchAuthorized)}, slots={String(controlledLoopState.slotAllocatorAuthorized)}
+            </span>
+          </div>
+          <div className="workpad-evidence">
+            <strong>Controlled source authority</strong>
+            <span>
+              source={String(controlledLoopState.sourceMutationAuthorized)}, apply={String(controlledLoopState.applyAuthorized)}, close={String(controlledLoopState.closeAuthorized)}, harnessEvolution={String(controlledLoopState.harnessEvolutionAuthorized)}
+            </span>
+          </div>
         </div>
       ) : null}
       {schedulerLoopSnapshot ? (

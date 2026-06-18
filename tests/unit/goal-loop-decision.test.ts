@@ -118,6 +118,27 @@ describe("GoalLoopDecision", () => {
       authority: "non-executing-scheduler-loop-evidence-snapshot",
       changeId,
       posture: "awaiting-human-gate",
+      controlledLoopState: {
+        authority: "non-executing-controlled-loop-state-evidence",
+        changeId,
+        state: "awaiting-human-gate",
+        phase12aLabel: "awaiting human gate for one existing gate",
+        currentLegalAction: {
+          actionType: "planning.scheduler.plan.prepare",
+          separateHumanGateRequired: true,
+        },
+        futureOnlyStates: ["dispatching-approved-scope", "reconciling"],
+        forbiddenAuthority: {
+          loopAuthorized: false,
+          fullParallelExecutorAuthorized: false,
+          wholeWaveDispatchAuthorized: false,
+          slotAllocatorAuthorized: false,
+          sourceMutationAuthorized: false,
+          applyAuthorized: false,
+          closeAuthorized: false,
+          harnessEvolutionAuthorized: false,
+        },
+      },
       currentLegalAction: {
         actionType: "planning.scheduler.plan.prepare",
         separateHumanGateRequired: true,
@@ -135,6 +156,10 @@ describe("GoalLoopDecision", () => {
     });
     expect(persisted.schedulerLoopEvidenceSnapshot).toEqual(decision.schedulerLoopEvidenceSnapshot);
     const markdown = renderGoalLoopDecisionMarkdown(decision);
+    expect(markdown).toContain("## Controlled Loop State Evidence");
+    expect(markdown).toContain("- State: awaiting-human-gate");
+    expect(markdown).toContain("- Phase 12A label: awaiting human gate for one existing gate");
+    expect(markdown).toContain("- Future-only states: dispatching-approved-scope, reconciling");
     expect(markdown).toContain("## Scheduler Loop Evidence Snapshot");
     expect(markdown).toContain("- This snapshot is non-executing evidence only");
     expect(markdown).toContain("- Posture: awaiting-human-gate");
@@ -186,8 +211,11 @@ describe("GoalLoopDecision", () => {
       },
     });
     expect(result.goalLoopIteration).not.toHaveProperty("schedulerLoopEvidenceSnapshot");
+    expect(result.goalLoopIteration).not.toHaveProperty("controlledLoopState");
     expect(result.goalLoopContinuationBrief).not.toHaveProperty("schedulerLoopEvidenceSnapshot");
+    expect(result.goalLoopContinuationBrief).not.toHaveProperty("controlledLoopState");
     expect(result.goalLoopNextStepPacket).not.toHaveProperty("schedulerLoopEvidenceSnapshot");
+    expect(result.goalLoopNextStepPacket).not.toHaveProperty("controlledLoopState");
 
     const policy = await compileGoalLoopControllerPolicy(memory, changePath, {
       currentGate,
@@ -209,6 +237,7 @@ describe("GoalLoopDecision", () => {
       },
     });
     expect(policy).not.toHaveProperty("schedulerLoopEvidenceSnapshot");
+    expect(policy).not.toHaveProperty("controlledLoopState");
 
     const preflight = await compileGoalLoopGateReadinessPreflight(memory, changePath, {
       goalLoopNextStepPacketId: result.goalLoopNextStepPacket.id,
@@ -230,6 +259,7 @@ describe("GoalLoopDecision", () => {
       },
     });
     expect(preflight).not.toHaveProperty("schedulerLoopEvidenceSnapshot");
+    expect(preflight).not.toHaveProperty("controlledLoopState");
     const contextSection = await buildGoalLoopMainAgentContextSection(memory, changePath, changeId);
     expect(contextSection).not.toBeNull();
     expect(contextSection?.schedulerLoopEvidenceSnapshot).toMatchObject({
@@ -302,6 +332,20 @@ describe("GoalLoopDecision", () => {
         posture: "awaiting-human-gate",
         decisionKind: "parallel-plan-needed",
         currentLegalActionType: "planning.scheduler.plan.prepare",
+        loopAuthorized: false,
+        fullParallelExecutorAuthorized: false,
+        wholeWaveDispatchAuthorized: false,
+        slotAllocatorAuthorized: false,
+        sourceMutationAuthorized: false,
+        applyAuthorized: false,
+        closeAuthorized: false,
+        harnessEvolutionAuthorized: false,
+      },
+      controlledLoopState: {
+        state: "awaiting-human-gate",
+        phase12aLabel: "awaiting human gate for one existing gate",
+        currentLegalActionType: "planning.scheduler.plan.prepare",
+        futureOnlyStates: ["dispatching-approved-scope", "reconciling"],
         loopAuthorized: false,
         fullParallelExecutorAuthorized: false,
         wholeWaveDispatchAuthorized: false,
@@ -3865,6 +3909,13 @@ describe("GoalLoopDecision", () => {
     expectConflict(decision, "high", false, "SchedulerIntegrationOutcome");
     expect(decision.schedulerLoopEvidenceSnapshot).toMatchObject({
       posture: "integration-barrier",
+      controlledLoopState: {
+        state: "integration-barrier",
+        phase12aLabel: "integration barrier",
+        currentLegalAction: {
+          actionType: "planning.scheduler.run.complete",
+        },
+      },
       currentLegalAction: {
         actionType: "planning.scheduler.run.complete",
       },
@@ -3904,6 +3955,10 @@ describe("GoalLoopDecision", () => {
     });
     expect(result.goalLoopDecision.schedulerLoopEvidenceSnapshot).toMatchObject({
       posture: "terminal-handoff",
+      controlledLoopState: {
+        state: "terminal-handoff",
+        phase12aLabel: "terminal handoff",
+      },
       currentLegalAction: undefined,
       forbiddenAuthority: {
         loopAuthorized: false,
@@ -4144,6 +4199,11 @@ describe("GoalLoopDecision", () => {
         currentLegalActionType: "planning.scheduler.plan.prepare",
         applyAuthorized: false,
       },
+      controlledLoopState: {
+        state: "awaiting-human-gate",
+        currentLegalActionType: "planning.scheduler.plan.prepare",
+        applyAuthorized: false,
+      },
     });
 
     await writeGoalLoopDecision(memory, changePath, {
@@ -4151,6 +4211,20 @@ describe("GoalLoopDecision", () => {
       schedulerLoopEvidenceSnapshot: {
         ...result.goalLoopDecision.schedulerLoopEvidenceSnapshot,
         changeId: "forged-change",
+      },
+    });
+
+    await expect(buildGoalLoopMainAgentContextSection(memory, changePath, changeId)).resolves.toBeNull();
+    await expect(readLatestGoalLoopSummary(memory, changePath, changeId)).resolves.toBeNull();
+
+    await writeGoalLoopDecision(memory, changePath, {
+      ...result.goalLoopDecision,
+      schedulerLoopEvidenceSnapshot: {
+        ...result.goalLoopDecision.schedulerLoopEvidenceSnapshot,
+        controlledLoopState: {
+          ...result.goalLoopDecision.schedulerLoopEvidenceSnapshot.controlledLoopState,
+          state: "waiting",
+        },
       },
     });
 
@@ -4350,6 +4424,23 @@ describe("GoalLoopDecision", () => {
       authority: "non-executing-scheduler-loop-evidence-snapshot",
       changeId,
       posture: "waiting",
+      controlledLoopState: {
+        authority: "non-executing-controlled-loop-state-evidence",
+        changeId,
+        state: "waiting",
+        phase12aLabel: "observing/waiting",
+        futureOnlyStates: ["dispatching-approved-scope", "reconciling"],
+        forbiddenAuthority: {
+          loopAuthorized: false,
+          fullParallelExecutorAuthorized: false,
+          wholeWaveDispatchAuthorized: false,
+          slotAllocatorAuthorized: false,
+          sourceMutationAuthorized: false,
+          applyAuthorized: false,
+          closeAuthorized: false,
+          harnessEvolutionAuthorized: false,
+        },
+      },
       unsafeEvidence: [{
         kind: "missing",
         summary: expect.stringContaining("Legacy GoalLoopDecision"),
@@ -4366,6 +4457,19 @@ describe("GoalLoopDecision", () => {
       },
     });
     expect(parsed.schedulerLoopEvidenceSnapshot.currentLegalAction).toBeUndefined();
+
+    const legacySnapshotDecision = JSON.parse(JSON.stringify(decision)) as Record<string, unknown>;
+    const legacySnapshot = legacySnapshotDecision.schedulerLoopEvidenceSnapshot as Record<string, unknown>;
+    delete legacySnapshot.controlledLoopState;
+
+    const parsedSnapshot = goalLoopDecisionSchema.parse(legacySnapshotDecision);
+    expect(parsedSnapshot.schedulerLoopEvidenceSnapshot.controlledLoopState).toMatchObject({
+      authority: "non-executing-controlled-loop-state-evidence",
+      changeId,
+      state: parsedSnapshot.schedulerLoopEvidenceSnapshot.posture,
+      currentLegalAction: parsedSnapshot.schedulerLoopEvidenceSnapshot.currentLegalAction,
+      forbiddenAuthority: parsedSnapshot.schedulerLoopEvidenceSnapshot.forbiddenAuthority,
+    });
   });
 
   it("defaults legacy controller and preflight scheduler execution mode to non-executing wait evidence", async () => {

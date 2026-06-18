@@ -2,7 +2,7 @@ import { z } from "zod";
 import { WORKFLOW_ACTION_TYPES } from "../workflow-actions/registry.js";
 import { legacySchedulerExecutionModeAssessment } from "../workflow-scheduler/execution-mode.js";
 import { schedulerExecutionModeAssessmentSchema } from "../workflow-scheduler/schemas.js";
-import { legacySchedulerLoopEvidenceSnapshot } from "./scheduler-loop-snapshot.js";
+import { controlledLoopStateEvidenceFromSnapshot, legacySchedulerLoopEvidenceSnapshot } from "./scheduler-loop-snapshot.js";
 import type { GoalLoopContinuationBrief, GoalLoopControllerPolicy, GoalLoopDecision, GoalLoopFeedback, GoalLoopGateReadinessPreflight, GoalLoopNextStepPacket } from "./types.js";
 
 const sourceEvidenceRefSchema = z.object({
@@ -81,13 +81,29 @@ const schedulerLoopCurrentLegalActionSchema = z.object({
   reason: z.string(),
 });
 
-const schedulerLoopEvidenceSnapshotSchema = z.object({
+const controlledLoopStateEvidenceSchema = z.object({
+  version: z.literal("1.0"),
+  authority: z.literal("non-executing-controlled-loop-state-evidence"),
+  changeId: z.string(),
+  state: z.enum(["waiting", "recommending-gate", "awaiting-human-gate", "quality-routing", "integration-barrier", "terminal-handoff"]),
+  phase12aLabel: z.string(),
+  summary: z.string(),
+  reasons: z.array(z.string()),
+  currentLegalAction: schedulerLoopCurrentLegalActionSchema.optional(),
+  separateHumanGateRequired: z.boolean(),
+  humanGateRequired: z.boolean(),
+  futureOnlyStates: z.array(z.enum(["dispatching-approved-scope", "reconciling"])),
+  forbiddenAuthority: schedulerLoopForbiddenAuthoritySchema,
+});
+
+const schedulerLoopEvidenceSnapshotObjectSchema = z.object({
   version: z.literal("1.0"),
   authority: z.literal("non-executing-scheduler-loop-evidence-snapshot"),
   changeId: z.string(),
   planningComplete: z.boolean(),
   decisionKind: decisionKindSchema,
   posture: z.enum(["waiting", "recommending-gate", "awaiting-human-gate", "quality-routing", "integration-barrier", "terminal-handoff"]),
+  controlledLoopState: controlledLoopStateEvidenceSchema.optional(),
   reasons: z.array(z.string()),
   currentLegalAction: schedulerLoopCurrentLegalActionSchema.optional(),
   separateHumanGateRequired: z.boolean(),
@@ -98,6 +114,12 @@ const schedulerLoopEvidenceSnapshotSchema = z.object({
   schedulerExecutionMode: schedulerExecutionModeSchema,
   forbiddenAuthority: schedulerLoopForbiddenAuthoritySchema,
 });
+
+const schedulerLoopEvidenceSnapshotSchema = schedulerLoopEvidenceSnapshotObjectSchema
+  .transform((snapshot) => ({
+    ...snapshot,
+    controlledLoopState: snapshot.controlledLoopState ?? controlledLoopStateEvidenceFromSnapshot(snapshot),
+  }));
 
 const forbiddenActionSchema = z.object({
   actionType: z.string(),

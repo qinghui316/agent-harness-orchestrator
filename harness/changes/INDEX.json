@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-18T00:14:58.4046809Z",
+    "generated_at":  "2026-06-18T00:51:09.4326327Z",
     "active":  [
 
                ],
@@ -1053,6 +1053,10 @@
                     {
                         "name":  "20260618-phase-12e-scheduler-loop-snapshot-workpad-surface",
                         "path":  "harness/changes/archive/20260618-phase-12e-scheduler-loop-snapshot-workpad-surface"
+                    },
+                    {
+                        "name":  "20260618-phase-12f-controlled-loop-state-evidence",
+                        "path":  "harness/changes/archive/20260618-phase-12f-controlled-loop-state-evidence"
                     }
                 ]
 }

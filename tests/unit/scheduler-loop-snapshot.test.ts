@@ -16,6 +16,17 @@ describe("scheduler loop evidence snapshot", () => {
     expect(snapshot).toMatchObject({
       authority: "non-executing-scheduler-loop-evidence-snapshot",
       posture: "awaiting-human-gate",
+      controlledLoopState: {
+        authority: "non-executing-controlled-loop-state-evidence",
+        state: "awaiting-human-gate",
+        phase12aLabel: "awaiting human gate for one existing gate",
+        currentLegalAction: {
+          actionType: "planning.scheduler.worker.start-first",
+          separateHumanGateRequired: true,
+        },
+        futureOnlyStates: ["dispatching-approved-scope", "reconciling"],
+        forbiddenAuthority: nonExecutingAuthority(),
+      },
       currentLegalAction: {
         actionType: "planning.scheduler.worker.start-first",
         separateHumanGateRequired: true,
@@ -46,6 +57,11 @@ describe("scheduler loop evidence snapshot", () => {
     });
 
     expect(snapshot.posture).toBe("waiting");
+    expect(snapshot.controlledLoopState).toMatchObject({
+      state: "waiting",
+      forbiddenAuthority: nonExecutingAuthority(),
+    });
+    expect(snapshot.controlledLoopState.currentLegalAction).toBeUndefined();
     expect(snapshot.currentLegalAction).toBeUndefined();
     expect(snapshot.unsafeEvidence).toHaveLength(1);
     expect(snapshot.reasons.join("\n")).toContain("cross-change");
@@ -65,6 +81,10 @@ describe("scheduler loop evidence snapshot", () => {
     });
 
     expect(snapshot.posture).toBe("integration-barrier");
+    expect(snapshot.controlledLoopState).toMatchObject({
+      state: "integration-barrier",
+      phase12aLabel: "integration barrier",
+    });
     expect(snapshot.conflictAssessment.routingPosture).toBe("integration-check-required");
     expect(snapshot.schedulerExecutionMode.mode).toBe("single-gate-staged");
     expect(snapshot.forbiddenAuthority.applyAuthorized).toBe(false);
@@ -83,6 +103,10 @@ describe("scheduler loop evidence snapshot", () => {
     });
 
     expect(snapshot.posture).toBe("quality-routing");
+    expect(snapshot.controlledLoopState).toMatchObject({
+      state: "quality-routing",
+      phase12aLabel: "reconciling quality/rework evidence",
+    });
     expect(snapshot.conflictAssessment.routingPosture).toBe("blocked-or-rework");
     expect(snapshot.schedulerExecutionMode.mode).toBe("single-gate-staged");
     expect(snapshot.forbiddenAuthority.wholeWaveDispatchAuthorized).toBe(false);
@@ -102,6 +126,10 @@ describe("scheduler loop evidence snapshot", () => {
     });
 
     expect(snapshot.posture).toBe("terminal-handoff");
+    expect(snapshot.controlledLoopState).toMatchObject({
+      state: "terminal-handoff",
+      phase12aLabel: "terminal handoff",
+    });
     expect(snapshot.currentLegalAction).toBeUndefined();
     expect(snapshot.conflictAssessment.routingPosture).toBe("close-gate-required");
     expect(snapshot.schedulerExecutionMode.mode).toBe("terminal-human-close-gate");

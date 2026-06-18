@@ -33,6 +33,8 @@ export function renderGoalLoopDecisionMarkdown(decision: GoalLoopDecision): stri
     "",
     ...renderSchedulerExecutionModeMarkdown(decision.schedulerExecutionMode),
     "",
+    ...renderControlledLoopStateMarkdown(decision.schedulerLoopEvidenceSnapshot.controlledLoopState),
+    "",
     ...renderSchedulerLoopEvidenceSnapshotMarkdown(decision.schedulerLoopEvidenceSnapshot),
     "",
     "## Completion Audit",
@@ -429,6 +431,37 @@ function renderSchedulerExecutionModeMarkdown(mode: GoalLoopDecision["schedulerE
     "- Scheduler execution mode is evidence only.",
     "- It does not execute, prioritize, or confirm scheduler actions.",
     "- A real scheduler loop or full parallel executor requires a later accepted design and implementation phase.",
+  ];
+}
+
+function renderControlledLoopStateMarkdown(state: GoalLoopDecision["schedulerLoopEvidenceSnapshot"]["controlledLoopState"]): string[] {
+  return [
+    "## Controlled Loop State Evidence",
+    "",
+    "- This controlled-loop state is non-executing decision evidence derived from the scheduler-loop snapshot classifier.",
+    "- It does not dispatch workers, allocate slots, run IntegrationCheck, mutate source, apply, close, or authorize Harness evolution.",
+    `- Authority: ${state.authority}`,
+    `- State: ${state.state}`,
+    `- Phase 12A label: ${state.phase12aLabel}`,
+    `- Summary: ${state.summary}`,
+    `- Human gate required: ${state.humanGateRequired ? "yes" : "no"}`,
+    `- Separate human gate required: ${state.separateHumanGateRequired ? "yes" : "no"}`,
+    state.currentLegalAction
+      ? `- Current legal action: ${state.currentLegalAction.actionType}`
+      : "- Current legal action: none",
+    `- Future-only states: ${state.futureOnlyStates.join(", ")}`,
+    `- loopAuthorized: ${state.forbiddenAuthority.loopAuthorized ? "true" : "false"}`,
+    `- fullParallelExecutorAuthorized: ${state.forbiddenAuthority.fullParallelExecutorAuthorized ? "true" : "false"}`,
+    `- wholeWaveDispatchAuthorized: ${state.forbiddenAuthority.wholeWaveDispatchAuthorized ? "true" : "false"}`,
+    `- slotAllocatorAuthorized: ${state.forbiddenAuthority.slotAllocatorAuthorized ? "true" : "false"}`,
+    `- sourceMutationAuthorized: ${state.forbiddenAuthority.sourceMutationAuthorized ? "true" : "false"}`,
+    `- applyAuthorized: ${state.forbiddenAuthority.applyAuthorized ? "true" : "false"}`,
+    `- closeAuthorized: ${state.forbiddenAuthority.closeAuthorized ? "true" : "false"}`,
+    `- harnessEvolutionAuthorized: ${state.forbiddenAuthority.harnessEvolutionAuthorized ? "true" : "false"}`,
+    "",
+    "### Controlled Loop State Reasons",
+    "",
+    ...(state.reasons.length ? state.reasons.map((reason) => `- ${reason}`) : ["- None."]),
   ];
 }
 

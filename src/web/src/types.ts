@@ -390,6 +390,22 @@ export type GoalLoopSummary = {
     closeAuthorized: false;
     harnessEvolutionAuthorized: false;
   };
+  controlledLoopState?: {
+    state: string;
+    phase12aLabel: string;
+    summary: string;
+    currentLegalActionType?: string;
+    humanGateRequired: boolean;
+    futureOnlyStates: string[];
+    loopAuthorized: false;
+    fullParallelExecutorAuthorized: false;
+    wholeWaveDispatchAuthorized: false;
+    slotAllocatorAuthorized: false;
+    sourceMutationAuthorized: false;
+    applyAuthorized: false;
+    closeAuthorized: false;
+    harnessEvolutionAuthorized: false;
+  };
   conflictReasons: string[];
   completionStatus?: string;
   artifact?: string;

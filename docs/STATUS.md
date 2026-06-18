@@ -5,17 +5,23 @@
 - Current date: 2026-06-18.
 - Active ECL change: none.
 - Pending Harness evolution: none.
-- Latest archived product change: `harness/changes/archive/20260618-phase-12e-scheduler-loop-snapshot-workpad-surface/summary.md`.
+- Latest archived product change: `harness/changes/archive/20260618-phase-12f-controlled-loop-state-evidence/summary.md`.
 - Latest archived product/Harness docs change: `harness/changes/archive/20260618-phase-12a-controlled-scheduler-loop-design-boundary/summary.md`.
 - Latest archived Harness evolution: `harness/changes/archive/20260618-auto-evolve-harness-phase-11x-12c-scheduler-loop-evidence/summary.md`.
 - Active product phase: none. Active Harness evolution phase: none.
 - Active close status: no active change.
 
-This file is the short resume point. Phase 12E is archived after exposing the Phase 12C/12D `GoalLoopDecision.schedulerLoopEvidenceSnapshot` to the Workpad Goal Loop evidence card as read-only non-executing projection data. The surface reuses the same nested snapshot parity guard as main-Agent context, remains absent from packet/controller/preflight/iteration/brief schemas and Workbench actions, and adds no ToolPolicy/human gate, scheduler runtime, source mutation, or recommendation authority. No Harness evolution is pending. Phase 12D is archived after exposing the snapshot to main-Agent prompt context only as non-executing decision evidence. Phase 12A remains the future controlled Scheduler/parallel loop design boundary. For full history, use `harness/changes/INDEX.json` and archived `summary.md` files.
+This file is the short resume point. Phase 12F is archived after making the Phase 12A controlled Scheduler loop state-machine interpretation inspectable as non-executing Goal Loop decision evidence. The implementation keeps `schedulerLoopEvidenceSnapshot.posture` as the persisted compatibility field, derives nested `controlledLoopState` from the same single classifier, renders it in decision Markdown, and projects a compact read-only Workpad/frontend summary only after the existing scheduler-loop snapshot parity guard passes. The state remains absent from packet/controller/preflight/iteration/brief schemas and Workbench action payloads, and adds no ToolPolicy/human gate, scheduler runtime, source mutation, recommendation authority, apply/close, child Change, or Harness evolution authority. No Harness evolution is pending. Phase 12A remains the future controlled Scheduler/parallel loop design boundary. For full history, use `harness/changes/INDEX.json` and archived `summary.md` files.
 
 Current plan-level roadmap context is preserved in `docs/CURRENT-DEVELOPMENT-PLAN.md`.
 
 ## Recent Completed Work
+
+### Phase 12F Controlled Loop State Evidence
+
+Archived at `harness/changes/archive/20260618-phase-12f-controlled-loop-state-evidence/summary.md`.
+
+Phase 12F refactors/names the existing scheduler-loop snapshot posture as the single controlled-loop state classifier and persists nested `controlledLoopState` evidence inside `GoalLoopDecision.schedulerLoopEvidenceSnapshot`. Legacy decisions without the nested state are backfilled conservatively from snapshot posture; decisions without snapshots still parse as observe-only waiting evidence. Goal Loop decision Markdown and the Workpad Goal Loop evidence card render the state as read-only evidence with false loop/full-executor/whole-wave/slot/source/apply/close/Harness-evolution authority. Tests prove planning, integration, quality/rework, terminal, legacy fallback, forged nested-state suppression, Workpad/frontend rendering, and non-propagation into iteration, continuation brief, next-step packet, controller policy, and gate-readiness preflight.
 
 ### Phase 12E Scheduler Loop Snapshot Workpad Surface
 
@@ -338,13 +344,13 @@ The pending Phase 10P-10T Goal Loop controller/feedback/context/prompt evidence 
 - Phase 11M requires Goal Loop feedback, controller refresh, gate-readiness, and assisted concrete projection affordances to attach only beside an enabled matching concrete Workbench gate; disabled same-scope gates cannot gain Goal Loop-derived enabled actions.
 - Phase 11N extends that enabled-gate requirement into server-side current action revalidation and assisted concrete gate confirmation, so forged assisted payloads cannot make disabled visible gates executable.
 - Phase 12A defines the future controlled Scheduler loop boundary in `docs/design-docs/controlled-scheduler-loop.md`. It is an accepted design contract only; current runtime still has no scheduler loop, whole-wave dispatch, slot allocator, worker auto-start, automatic apply/merge/close, child Change creation, ToolPolicy change, or Harness evolution automation.
-- Phase 12D makes the Phase 12C scheduler-loop snapshot visible in main-Agent prompt context only after fresh decision/packet/artifact and nested snapshot parity checks. Phase 12E exposes the same snapshot in the Workpad Goal Loop evidence card as read-only projection data using the shared parity guard. It remains non-executing evidence and is intentionally absent from packet/controller/preflight execution handoff surfaces.
+- Phase 12D makes the Phase 12C scheduler-loop snapshot visible in main-Agent prompt context only after fresh decision/packet/artifact and nested snapshot parity checks. Phase 12E exposes the same snapshot in the Workpad Goal Loop evidence card as read-only projection data using the shared parity guard. Phase 12F names the same classifier as controlled-loop state evidence, nested under the snapshot and projected read-only after parity checks. It remains non-executing evidence and is intentionally absent from packet/controller/preflight/iteration/brief execution handoff surfaces.
 - Scheduler runtime remains staged and bounded. Existing scheduler worker/result/validation/audit/rework/integration/completion gates do not authorize scheduler loops, whole-wave dispatch, slot allocation, automatic child Changes, automatic apply/merge, or a full parallel executor.
 - Documentation entropy is now an explicit Harness concern: `AGENTS.md` is the routing map, `docs/STATUS.md` is the short handoff, `docs/ECL.md` owns reusable process rules, and archived summaries / `harness/changes/INDEX.json` own history.
 
 ## Next Resume Point
 
-No active change is open. Continue with the next small Goal Loop / controlled Scheduler slice from `docs/CURRENT-DEVELOPMENT-PLAN.md`, or handle future pending Harness evolution if `harness/evolution/pending.md` appears. `README.md` remains unrelated and must stay untracked unless the user explicitly asks to include it.
+No active change is open and no Harness evolution is pending. A reasonable next product slice is another small Goal Loop / controlled Scheduler step that keeps current runtime single-gate staged, for example using controlled-loop state evidence to improve main-Agent explanation or adding another narrow regression around integration/rework routing without adding loop execution. `README.md` remains unrelated and must stay untracked unless the user explicitly asks to include it.
 
 ## Verification Commands
 

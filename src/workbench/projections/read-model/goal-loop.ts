@@ -7,7 +7,7 @@ import {
   readLatestGoalLoopIteration,
   readLatestGoalLoopNextStepPacket,
 } from "../../../goal-loop/manager.js";
-import { isSchedulerLoopSnapshotValidForContext, summarizeSchedulerLoopSnapshot } from "../../../goal-loop/scheduler-loop-context.js";
+import { isSchedulerLoopSnapshotValidForContext, summarizeControlledLoopState, summarizeSchedulerLoopSnapshot } from "../../../goal-loop/scheduler-loop-context.js";
 import type { ResolvedMemory } from "../../../types/index.js";
 import type { WorkbenchGoalLoopSummary } from "../../read-model-types.js";
 
@@ -81,6 +81,7 @@ export async function readLatestGoalLoopSummary(
       routingLabel: brief.conflictAssessment.routingLabel,
       schedulerExecutionMode: packet.schedulerExecutionMode,
       schedulerLoopEvidenceSnapshot: summarizeSchedulerLoopSnapshot(decision.schedulerLoopEvidenceSnapshot),
+      controlledLoopState: summarizeControlledLoopState(decision.schedulerLoopEvidenceSnapshot),
       conflictReasons: [...brief.conflictAssessment.reasons],
       completionStatus: brief.completionAudit.status,
       resumePreconditionCount: brief.resumePreconditions.length,

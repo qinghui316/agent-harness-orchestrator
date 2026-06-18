@@ -535,6 +535,22 @@ describe("Workbench web app", () => {
               closeAuthorized: false,
               harnessEvolutionAuthorized: false,
             },
+            controlledLoopState: {
+              state: "awaiting-human-gate",
+              phase12aLabel: "awaiting human gate for one existing gate",
+              summary: "The next safe posture is waiting for a human to confirm one existing scoped Harness gate.",
+              currentLegalActionType: "planning.scheduler.worker.start-first",
+              humanGateRequired: true,
+              futureOnlyStates: ["dispatching-approved-scope", "reconciling"],
+              loopAuthorized: false,
+              fullParallelExecutorAuthorized: false,
+              wholeWaveDispatchAuthorized: false,
+              slotAllocatorAuthorized: false,
+              sourceMutationAuthorized: false,
+              applyAuthorized: false,
+              closeAuthorized: false,
+              harnessEvolutionAuthorized: false,
+            },
             conflictReasons: [
               "Recommended action planning.scheduler.worker.start-first is limited to the existing scoped first worker-start gate.",
             ],
@@ -566,11 +582,19 @@ describe("Workbench web app", () => {
     expect(within(card).getByText("Full executor: false")).toBeTruthy();
     expect(within(card).getByText("Whole wave: false")).toBeTruthy();
     expect(within(card).getByText("Slot allocator: false")).toBeTruthy();
+    expect(within(card).getByText("Controlled state awaiting-human-gate")).toBeTruthy();
+    expect(within(card).getByText("Controlled loop state")).toBeTruthy();
+    expect(within(card).getByText("The next safe posture is waiting for a human to confirm one existing scoped Harness gate.")).toBeTruthy();
+    expect(within(card).getByText("Phase 12A mapping")).toBeTruthy();
+    expect(within(card).getByText("awaiting human gate for one existing gate")).toBeTruthy();
+    expect(within(card).getByText("Future-only states")).toBeTruthy();
+    expect(within(card).getByText("dispatching-approved-scope, reconciling")).toBeTruthy();
+    expect(within(card).getByText("Controlled source authority")).toBeTruthy();
     expect(within(card).getByText("Snapshot posture awaiting-human-gate")).toBeTruthy();
     expect(within(card).getByText("Scheduler loop snapshot")).toBeTruthy();
     expect(within(card).getByText("Read-only decision evidence; it does not authorize scheduler execution.")).toBeTruthy();
     expect(within(card).getByText("Snapshot source authority")).toBeTruthy();
-    expect(within(card).getByText("source=false, apply=false, close=false, harnessEvolution=false")).toBeTruthy();
+    expect(within(card).getAllByText("source=false, apply=false, close=false, harnessEvolution=false").length).toBeGreaterThanOrEqual(2);
     expect(within(card).getByText("The scheduler path is still a single-gate staged capability.")).toBeTruthy();
     expect(within(card).getAllByText("planning.scheduler.worker.start-first").length).toBeGreaterThanOrEqual(2);
     expect(within(card).getByText("accepted architecture decision for a real scheduler loop or full parallel executor")).toBeTruthy();

@@ -4,7 +4,7 @@ import type { ParentAgentTranscript } from "./parent-agent-transcript.js";
 import type { WorkbenchArtifactPreview } from "./artifact-types.js";
 import type { WorkbenchThreadActionType } from "../workflow-actions/registry.js";
 import type { GoalLoopCloseGateHandoff } from "../goal-loop/close-handoff.js";
-import type { GoalLoopSchedulerLoopSnapshotContext } from "../goal-loop/scheduler-loop-context.js";
+import type { GoalLoopControlledLoopStateContext, GoalLoopSchedulerLoopSnapshotContext } from "../goal-loop/scheduler-loop-context.js";
 import type { SchedulerExecutionModeAssessment } from "../workflow-scheduler/types.js";
 import type {
   AcMap,
@@ -721,6 +721,7 @@ export interface WorkbenchGoalLoopSummary {
   routingLabel: string;
   schedulerExecutionMode?: SchedulerExecutionModeAssessment;
   schedulerLoopEvidenceSnapshot?: GoalLoopSchedulerLoopSnapshotContext;
+  controlledLoopState?: GoalLoopControlledLoopStateContext;
   conflictReasons: string[];
   completionStatus: string;
   resumePreconditionCount: number;

@@ -15,6 +15,23 @@ export interface GoalLoopSchedulerLoopSnapshotContext {
   harnessEvolutionAuthorized: false;
 }
 
+export interface GoalLoopControlledLoopStateContext {
+  state: string;
+  phase12aLabel: string;
+  summary: string;
+  currentLegalActionType?: string;
+  humanGateRequired: boolean;
+  futureOnlyStates: string[];
+  loopAuthorized: false;
+  fullParallelExecutorAuthorized: false;
+  wholeWaveDispatchAuthorized: false;
+  slotAllocatorAuthorized: false;
+  sourceMutationAuthorized: false;
+  applyAuthorized: false;
+  closeAuthorized: false;
+  harnessEvolutionAuthorized: false;
+}
+
 export function isSchedulerLoopSnapshotValidForContext(
   snapshot: GoalLoopDecision["schedulerLoopEvidenceSnapshot"],
   decision: GoalLoopDecision,
@@ -25,6 +42,7 @@ export function isSchedulerLoopSnapshotValidForContext(
   if (snapshot.authority !== "non-executing-scheduler-loop-evidence-snapshot") return false;
   if (snapshot.changeId !== expectedChangeId || snapshot.changeId !== decision.changeId || snapshot.changeId !== packet.changeId) return false;
   if (snapshot.decisionKind !== decision.decisionKind) return false;
+  if (!controlledLoopStateValidForSnapshot(snapshot)) return false;
   if (!schedulerExecutionModeAssessmentsEqual(snapshot.schedulerExecutionMode, decision.schedulerExecutionMode)) return false;
   if (!schedulerExecutionModeAssessmentsEqual(snapshot.schedulerExecutionMode, packet.schedulerExecutionMode)) return false;
   if (!forbiddenAuthorityIsFalse(snapshot.forbiddenAuthority)) return false;
@@ -50,6 +68,41 @@ export function summarizeSchedulerLoopSnapshot(snapshot: GoalLoopDecision["sched
     closeAuthorized: snapshot.forbiddenAuthority.closeAuthorized,
     harnessEvolutionAuthorized: snapshot.forbiddenAuthority.harnessEvolutionAuthorized,
   };
+}
+
+export function summarizeControlledLoopState(snapshot: GoalLoopDecision["schedulerLoopEvidenceSnapshot"]): GoalLoopControlledLoopStateContext {
+  const state = snapshot.controlledLoopState;
+  return {
+    state: state.state,
+    phase12aLabel: state.phase12aLabel,
+    summary: state.summary,
+    currentLegalActionType: state.currentLegalAction?.actionType,
+    humanGateRequired: state.humanGateRequired,
+    futureOnlyStates: [...state.futureOnlyStates],
+    loopAuthorized: state.forbiddenAuthority.loopAuthorized,
+    fullParallelExecutorAuthorized: state.forbiddenAuthority.fullParallelExecutorAuthorized,
+    wholeWaveDispatchAuthorized: state.forbiddenAuthority.wholeWaveDispatchAuthorized,
+    slotAllocatorAuthorized: state.forbiddenAuthority.slotAllocatorAuthorized,
+    sourceMutationAuthorized: state.forbiddenAuthority.sourceMutationAuthorized,
+    applyAuthorized: state.forbiddenAuthority.applyAuthorized,
+    closeAuthorized: state.forbiddenAuthority.closeAuthorized,
+    harnessEvolutionAuthorized: state.forbiddenAuthority.harnessEvolutionAuthorized,
+  };
+}
+
+function controlledLoopStateValidForSnapshot(snapshot: GoalLoopDecision["schedulerLoopEvidenceSnapshot"]): boolean {
+  const state = snapshot.controlledLoopState;
+  if (state.version !== "1.0") return false;
+  if (state.authority !== "non-executing-controlled-loop-state-evidence") return false;
+  if (state.changeId !== snapshot.changeId) return false;
+  if (state.state !== snapshot.posture) return false;
+  if (!forbiddenAuthorityIsFalse(state.forbiddenAuthority)) return false;
+  if (!recommendedActionMatchesSnapshot(snapshot.currentLegalAction, state.currentLegalAction)) return false;
+  if (state.separateHumanGateRequired !== snapshot.separateHumanGateRequired) return false;
+  if (state.humanGateRequired !== snapshot.humanGateRequired) return false;
+  if (!state.futureOnlyStates.includes("dispatching-approved-scope")) return false;
+  if (!state.futureOnlyStates.includes("reconciling")) return false;
+  return true;
 }
 
 function forbiddenAuthorityIsFalse(forbiddenAuthority: GoalLoopDecision["schedulerLoopEvidenceSnapshot"]["forbiddenAuthority"]): boolean {

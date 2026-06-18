@@ -7,6 +7,7 @@ import type {
 import type { SchedulerExecutionModeAssessment } from "../workflow-scheduler/types.js";
 
 export type SchedulerLoopEvidenceAuthority = "non-executing-scheduler-loop-evidence-snapshot";
+export type ControlledLoopStateAuthority = "non-executing-controlled-loop-state-evidence";
 
 export type SchedulerLoopPostureState =
   | "waiting"
@@ -15,6 +16,9 @@ export type SchedulerLoopPostureState =
   | "quality-routing"
   | "integration-barrier"
   | "terminal-handoff";
+
+export type ControlledLoopState = SchedulerLoopPostureState;
+export type ControlledLoopFutureOnlyState = "dispatching-approved-scope" | "reconciling";
 
 export type SchedulerLoopUnsafeEvidenceKind =
   | "malformed"
@@ -49,6 +53,21 @@ export interface SchedulerLoopCurrentLegalAction {
   reason: string;
 }
 
+export interface ControlledLoopStateEvidence {
+  version: "1.0";
+  authority: ControlledLoopStateAuthority;
+  changeId: string;
+  state: ControlledLoopState;
+  phase12aLabel: string;
+  summary: string;
+  reasons: string[];
+  currentLegalAction?: SchedulerLoopCurrentLegalAction;
+  separateHumanGateRequired: boolean;
+  humanGateRequired: boolean;
+  futureOnlyStates: ControlledLoopFutureOnlyState[];
+  forbiddenAuthority: SchedulerLoopForbiddenAuthority;
+}
+
 export interface SchedulerLoopEvidenceSnapshotInput {
   changeId: string;
   planningComplete: boolean;
@@ -67,6 +86,7 @@ export interface SchedulerLoopEvidenceSnapshot {
   planningComplete: boolean;
   decisionKind: GoalLoopDecisionKind;
   posture: SchedulerLoopPostureState;
+  controlledLoopState: ControlledLoopStateEvidence;
   reasons: string[];
   currentLegalAction?: SchedulerLoopCurrentLegalAction;
   separateHumanGateRequired: boolean;
@@ -91,6 +111,20 @@ const FORBIDDEN_AUTHORITY: SchedulerLoopForbiddenAuthority = {
 };
 
 export function legacySchedulerLoopEvidenceSnapshot(changeId: string): SchedulerLoopEvidenceSnapshot {
+  const controlledLoopState: ControlledLoopStateEvidence = {
+    version: "1.0",
+    authority: "non-executing-controlled-loop-state-evidence",
+    changeId,
+    state: "waiting",
+    phase12aLabel: "observing/waiting",
+    summary: "Legacy GoalLoopDecision artifact has no controlled-loop state evidence; treat as observe-only waiting evidence.",
+    reasons: ["Legacy GoalLoopDecision artifact has no scheduler-loop evidence snapshot or controlled-loop state evidence."],
+    separateHumanGateRequired: false,
+    humanGateRequired: false,
+    futureOnlyStates: ["dispatching-approved-scope", "reconciling"],
+    forbiddenAuthority: { ...FORBIDDEN_AUTHORITY },
+  };
+
   return {
     version: "1.0",
     authority: "non-executing-scheduler-loop-evidence-snapshot",
@@ -98,6 +132,7 @@ export function legacySchedulerLoopEvidenceSnapshot(changeId: string): Scheduler
     planningComplete: false,
     decisionKind: "wait-for-evidence",
     posture: "waiting",
+    controlledLoopState,
     reasons: ["Legacy GoalLoopDecision artifact has no scheduler-loop evidence snapshot; treat as waiting for fresh evidence."],
     separateHumanGateRequired: false,
     humanGateRequired: false,
@@ -138,11 +173,11 @@ export function legacySchedulerLoopEvidenceSnapshot(changeId: string): Scheduler
 }
 
 export function classifySchedulerLoopEvidenceSnapshot(input: SchedulerLoopEvidenceSnapshotInput): SchedulerLoopEvidenceSnapshot {
+  const controlledLoopState = classifyControlledLoopState(input);
+  const currentLegalAction = controlledLoopState.currentLegalAction;
+  const posture = controlledLoopState.state;
   const unsafeEvidence = input.unsafeEvidence ?? [];
   const unsafeReasons = unsafeEvidence.map((evidence) => `${evidence.kind}: ${evidence.summary}`);
-  const unsafe = unsafeEvidence.length > 0;
-  const currentLegalAction = unsafe ? undefined : currentLegalActionFor(input.recommendedAction);
-  const posture = unsafe ? "waiting" : classifyPosture(input, currentLegalAction);
   const reasons = [
     ...unsafeReasons,
     ...input.conflictAssessment.reasons,
@@ -156,6 +191,7 @@ export function classifySchedulerLoopEvidenceSnapshot(input: SchedulerLoopEviden
     planningComplete: input.planningComplete,
     decisionKind: input.decisionKind,
     posture,
+    controlledLoopState,
     reasons,
     currentLegalAction,
     separateHumanGateRequired: Boolean(currentLegalAction),
@@ -165,6 +201,51 @@ export function classifySchedulerLoopEvidenceSnapshot(input: SchedulerLoopEviden
     completionAudit: input.completionAudit,
     schedulerExecutionMode: input.schedulerExecutionMode,
     forbiddenAuthority: { ...FORBIDDEN_AUTHORITY },
+  };
+}
+
+export function classifyControlledLoopState(input: SchedulerLoopEvidenceSnapshotInput): ControlledLoopStateEvidence {
+  const unsafeEvidence = input.unsafeEvidence ?? [];
+  const unsafeReasons = unsafeEvidence.map((evidence) => `${evidence.kind}: ${evidence.summary}`);
+  const unsafe = unsafeEvidence.length > 0;
+  const currentLegalAction = unsafe ? undefined : currentLegalActionFor(input.recommendedAction);
+  const state = unsafe ? "waiting" : classifyControlledLoopStateKind(input, currentLegalAction);
+  const reasons = [
+    ...unsafeReasons,
+    ...input.conflictAssessment.reasons,
+    ...input.schedulerExecutionMode.reasons,
+  ];
+
+  return {
+    version: "1.0",
+    authority: "non-executing-controlled-loop-state-evidence",
+    changeId: input.changeId,
+    state,
+    phase12aLabel: phase12aLabelForState(state),
+    summary: controlledLoopStateSummary(state),
+    reasons,
+    currentLegalAction,
+    separateHumanGateRequired: Boolean(currentLegalAction),
+    humanGateRequired: input.schedulerExecutionMode.humanGateRequired || Boolean(currentLegalAction),
+    futureOnlyStates: ["dispatching-approved-scope", "reconciling"],
+    forbiddenAuthority: { ...FORBIDDEN_AUTHORITY },
+  };
+}
+
+export function controlledLoopStateEvidenceFromSnapshot(snapshot: Omit<SchedulerLoopEvidenceSnapshot, "controlledLoopState">): ControlledLoopStateEvidence {
+  return {
+    version: "1.0",
+    authority: "non-executing-controlled-loop-state-evidence",
+    changeId: snapshot.changeId,
+    state: snapshot.posture,
+    phase12aLabel: phase12aLabelForState(snapshot.posture),
+    summary: controlledLoopStateSummary(snapshot.posture),
+    reasons: [...snapshot.reasons],
+    currentLegalAction: snapshot.currentLegalAction,
+    separateHumanGateRequired: snapshot.separateHumanGateRequired,
+    humanGateRequired: snapshot.humanGateRequired,
+    futureOnlyStates: ["dispatching-approved-scope", "reconciling"],
+    forbiddenAuthority: { ...snapshot.forbiddenAuthority },
   };
 }
 
@@ -185,6 +266,15 @@ export function assertSchedulerLoopEvidenceSnapshotNonExecuting(snapshot: Schedu
     || schedulerExecutionMode.fullParallelExecutorAuthorized
     || schedulerExecutionMode.wholeWaveDispatchAuthorized
     || schedulerExecutionMode.slotAllocatorAuthorized
+    || snapshot.controlledLoopState.forbiddenAuthority.loopAuthorized
+    || snapshot.controlledLoopState.forbiddenAuthority.fullParallelExecutorAuthorized
+    || snapshot.controlledLoopState.forbiddenAuthority.wholeWaveDispatchAuthorized
+    || snapshot.controlledLoopState.forbiddenAuthority.slotAllocatorAuthorized
+    || snapshot.controlledLoopState.forbiddenAuthority.executionStarted
+    || snapshot.controlledLoopState.forbiddenAuthority.sourceMutationAuthorized
+    || snapshot.controlledLoopState.forbiddenAuthority.applyAuthorized
+    || snapshot.controlledLoopState.forbiddenAuthority.closeAuthorized
+    || snapshot.controlledLoopState.forbiddenAuthority.harnessEvolutionAuthorized
   ) {
     throw new Error("Scheduler loop evidence snapshot must remain non-executing.");
   }
@@ -200,7 +290,7 @@ function currentLegalActionFor(action: GoalLoopRecommendedAction | undefined): S
   };
 }
 
-function classifyPosture(
+function classifyControlledLoopStateKind(
   input: SchedulerLoopEvidenceSnapshotInput,
   currentLegalAction: SchedulerLoopCurrentLegalAction | undefined,
 ): SchedulerLoopPostureState {
@@ -219,4 +309,38 @@ function classifyPosture(
   }
   if (!currentLegalAction) return "waiting";
   return input.schedulerExecutionMode.humanGateRequired ? "awaiting-human-gate" : "recommending-gate";
+}
+
+function phase12aLabelForState(state: ControlledLoopState): string {
+  switch (state) {
+    case "waiting":
+      return "observing/waiting";
+    case "recommending-gate":
+      return "recommending one existing gate";
+    case "awaiting-human-gate":
+      return "awaiting human gate for one existing gate";
+    case "quality-routing":
+      return "reconciling quality/rework evidence";
+    case "integration-barrier":
+      return "integration barrier";
+    case "terminal-handoff":
+      return "terminal handoff";
+  }
+}
+
+function controlledLoopStateSummary(state: ControlledLoopState): string {
+  switch (state) {
+    case "waiting":
+      return "Observe current evidence and wait for a fresh legal Harness gate; no scheduler loop action is authorized.";
+    case "recommending-gate":
+      return "A single existing Harness gate may be recommended as evidence, but it still needs its own confirmation.";
+    case "awaiting-human-gate":
+      return "The next safe posture is waiting for a human to confirm one existing scoped Harness gate.";
+    case "quality-routing":
+      return "Quality, validation, audit, blocked, or rework evidence controls the next step; do not dispatch parallel work.";
+    case "integration-barrier":
+      return "IntegrationCheck handoff/outcome evidence is the barrier before any aggregate apply path.";
+    case "terminal-handoff":
+      return "Terminal SchedulerRun evidence can only hand off to existing human close/apply gates.";
+  }
 }
