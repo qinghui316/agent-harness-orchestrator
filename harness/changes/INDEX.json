@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-18T01:36:36.1146984Z",
+    "generated_at":  "2026-06-18T02:11:49.2316523Z",
     "active":  [
 
                ],
@@ -1065,6 +1065,10 @@
                     {
                         "name":  "20260618-phase-12g-controlled-loop-state-main-agent-context",
                         "path":  "harness/changes/archive/20260618-phase-12g-controlled-loop-state-main-agent-context"
+                    },
+                    {
+                        "name":  "20260618-phase-12h-controlled-loop-runtime-prompt-evidence",
+                        "path":  "harness/changes/archive/20260618-phase-12h-controlled-loop-runtime-prompt-evidence"
                     }
                 ]
 }

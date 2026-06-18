@@ -1,5 +1,6 @@
 import { buildGoalLoopMainAgentContextSection, stripGoalLoopControllerPolicyContext } from "../../goal-loop/manager.js";
 import type { GoalLoopCloseGateHandoff } from "../../goal-loop/close-handoff.js";
+import type { GoalLoopControlledLoopStateContext } from "../../goal-loop/scheduler-loop-context.js";
 import type { ManagedProject, ResolvedMemory } from "../../types/index.js";
 import { getWorkbenchWorkpadProjection } from "../projections/read-model/implementation.js";
 
@@ -11,6 +12,7 @@ export interface VisibleGoalLoopMainAgentContextSection {
   guidedGateActionType?: string;
   guidedGateScope?: Record<string, string | string[]>;
   closeGateHandoff?: GoalLoopCloseGateHandoff;
+  controlledLoopState: GoalLoopControlledLoopStateContext;
   markdown: string;
 }
 

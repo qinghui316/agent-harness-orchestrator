@@ -4,6 +4,21 @@ import type { ManagedProject, ResolvedMemory } from "../../types/index.js";
 import { resolveTopic } from "../topic-resolver.js";
 import { readTopicThreadLog as readThreadLog } from "../thread-log.js";
 import { buildVisibleGoalLoopMainAgentContextSection } from "./goal-loop-context.js";
+import type { VisibleGoalLoopMainAgentContextSection } from "./goal-loop-context.js";
+
+export interface GoalLoopControlledLoopStatePromptEvidence {
+  state: string;
+  phase12aLabel: string;
+  currentLegalActionType?: string;
+  loopAuthorized: false;
+  fullParallelExecutorAuthorized: false;
+  wholeWaveDispatchAuthorized: false;
+  slotAllocatorAuthorized: false;
+  sourceMutationAuthorized: false;
+  applyAuthorized: false;
+  closeAuthorized: false;
+  harnessEvolutionAuthorized: false;
+}
 
 export interface MainAgentContextResult {
   context: string;
@@ -13,6 +28,7 @@ export interface MainAgentContextResult {
   goalLoopRoutingLabel?: string;
   goalLoopGuidedGateActionType?: string;
   goalLoopGuidedGateScope?: Record<string, string | string[]>;
+  goalLoopControlledLoopState?: GoalLoopControlledLoopStatePromptEvidence;
 }
 
 export async function buildChatContext(
@@ -32,6 +48,7 @@ export async function buildChatContext(
     goalLoopRoutingLabel: goalLoopSection?.routingLabel,
     goalLoopGuidedGateActionType: goalLoopSection?.guidedGateActionType,
     goalLoopGuidedGateScope: goalLoopSection?.guidedGateScope,
+    goalLoopControlledLoopState: buildControlledLoopStatePromptEvidence(goalLoopSection),
     context: [
       "# AHO Topic Chat",
       "",
@@ -69,6 +86,7 @@ export async function buildOrchestratorContext(
     goalLoopRoutingLabel: goalLoopSection?.routingLabel,
     goalLoopGuidedGateActionType: goalLoopSection?.guidedGateActionType,
     goalLoopGuidedGateScope: goalLoopSection?.guidedGateScope,
+    goalLoopControlledLoopState: buildControlledLoopStatePromptEvidence(goalLoopSection),
     context: [
       "# AHO Workbench Orchestrator Context",
       "",
@@ -97,5 +115,25 @@ export async function buildOrchestratorContext(
       "",
       userMessage,
     ].join("\n"),
+  };
+}
+
+function buildControlledLoopStatePromptEvidence(
+  section: VisibleGoalLoopMainAgentContextSection | null,
+): GoalLoopControlledLoopStatePromptEvidence | undefined {
+  if (!section) return undefined;
+  const state = section.controlledLoopState;
+  return {
+    state: state.state,
+    phase12aLabel: state.phase12aLabel,
+    currentLegalActionType: state.currentLegalActionType,
+    loopAuthorized: state.loopAuthorized,
+    fullParallelExecutorAuthorized: state.fullParallelExecutorAuthorized,
+    wholeWaveDispatchAuthorized: state.wholeWaveDispatchAuthorized,
+    slotAllocatorAuthorized: state.slotAllocatorAuthorized,
+    sourceMutationAuthorized: state.sourceMutationAuthorized,
+    applyAuthorized: state.applyAuthorized,
+    closeAuthorized: state.closeAuthorized,
+    harnessEvolutionAuthorized: state.harnessEvolutionAuthorized,
   };
 }

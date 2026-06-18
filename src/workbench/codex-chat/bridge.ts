@@ -97,6 +97,10 @@ export async function runOrchestratorPlan(project: ManagedProject, changeId: str
     run = { ...run, promptStack: [...(run.promptStack ?? []), "goal-loop-next-step-packet"] };
     await writeJsonFile(paths.run, run);
   }
+  if (contextResult.goalLoopControlledLoopState) {
+    run = { ...run, promptStack: [...(run.promptStack ?? []), "goal-loop-controlled-loop-state"] };
+    await writeJsonFile(paths.run, run);
+  }
   if (contextResult.goalLoopControllerPolicyId) {
     run = { ...run, promptStack: [...(run.promptStack ?? []), "goal-loop-controller-policy"] };
     await writeJsonFile(paths.run, run);
@@ -115,6 +119,7 @@ export async function runOrchestratorPlan(project: ManagedProject, changeId: str
       goalLoopRoutingLabel: contextResult.goalLoopRoutingLabel,
       goalLoopGuidedGateActionType: contextResult.goalLoopGuidedGateActionType,
       goalLoopGuidedGateScope: contextResult.goalLoopGuidedGateScope,
+      goalLoopControlledLoopState: contextResult.goalLoopControlledLoopState,
     },
   });
   const prompt = `${buildAgentSystemPrompt(role)}\n\n${context}\n\n## User Message\n\n${userMessage}\n`;
@@ -288,6 +293,10 @@ export async function runCodexChat(project: ManagedProject, changeId: string, us
     run = { ...run, promptStack: [...(run.promptStack ?? []), "goal-loop-next-step-packet"] };
     await writeJsonFile(paths.run, run);
   }
+  if (contextResult.goalLoopControlledLoopState) {
+    run = { ...run, promptStack: [...(run.promptStack ?? []), "goal-loop-controlled-loop-state"] };
+    await writeJsonFile(paths.run, run);
+  }
   if (contextResult.goalLoopControllerPolicyId) {
     run = { ...run, promptStack: [...(run.promptStack ?? []), "goal-loop-controller-policy"] };
     await writeJsonFile(paths.run, run);
@@ -308,6 +317,7 @@ export async function runCodexChat(project: ManagedProject, changeId: string, us
       goalLoopRoutingLabel: contextResult.goalLoopRoutingLabel,
       goalLoopGuidedGateActionType: contextResult.goalLoopGuidedGateActionType,
       goalLoopGuidedGateScope: contextResult.goalLoopGuidedGateScope,
+      goalLoopControlledLoopState: contextResult.goalLoopControlledLoopState,
     },
   });
 

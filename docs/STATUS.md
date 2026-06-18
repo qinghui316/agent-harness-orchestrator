@@ -5,13 +5,13 @@
 - Current date: 2026-06-18.
 - Active ECL change: none.
 - Pending Harness evolution: none.
-- Latest archived product change: `harness/changes/archive/20260618-phase-12g-controlled-loop-state-main-agent-context/summary.md`.
+- Latest archived product change: `harness/changes/archive/20260618-phase-12h-controlled-loop-runtime-prompt-evidence/summary.md`.
 - Latest archived product/Harness docs change: `harness/changes/archive/20260618-phase-12a-controlled-scheduler-loop-design-boundary/summary.md`.
 - Latest archived Harness evolution: `harness/changes/archive/20260618-auto-evolve-harness-phase-12c-12g-controlled-loop-context-evidence/summary.md`.
 - Active product phase: none. Active Harness evolution phase: none.
 - Active close status: no active change.
 
-This file is the short resume point. Phase 12G is archived after surfacing the Phase 12F validated `controlledLoopState` in main-Agent prompt context as read-only explanatory evidence after the existing scheduler-loop snapshot parity guard passes. It keeps the state absent from packet/controller/preflight/iteration/brief schemas and Workbench action payloads, and adds no ToolPolicy/human gate, scheduler runtime, source mutation, recommendation authority, apply/close, child Change, or Harness evolution authority. The Phase 12C-12G Harness evolution window completed as `noop/independent_review` with Kant score 84/100; existing Goal Loop Boundary, Runtime Bridge Boundary, Proposal/Runtime Boundary, Read Model Projection, Scoped Workbench Action Payload, Module Boundary, Documentation Entropy, Experience Lifecycle, and ToolPolicy/human-gate rules are sufficient, so no Harness rule/template/lint/docs/product change was added. No Harness evolution is pending. Phase 12A remains the future controlled Scheduler/parallel loop design boundary. For full history, use `harness/changes/INDEX.json` and archived `summary.md` files.
+This file is the short resume point. Phase 12H is archived after adding compact controlled-loop state replay/audit evidence to actual `chat.ask` and `orchestrator.plan` runtime prompt artifacts. Fresh Workpad-visible main-Agent context can now add `goal-loop-controlled-loop-state` to `run.json.promptStack` and compact `goalLoopControlledLoopState` refs to `context.prepared`; stale or hidden Goal Loop context omits those labels/refs. The state remains absent from packet/controller/preflight/iteration/brief schemas and Workbench action payloads, and adds no ToolPolicy/human gate, scheduler runtime, source mutation, recommendation authority, apply/close, child Change, or Harness evolution authority. No Harness evolution is pending. Phase 12A remains the future controlled Scheduler/parallel loop design boundary. For full history, use `harness/changes/INDEX.json` and archived `summary.md` files.
 
 Current plan-level roadmap context is preserved in `docs/CURRENT-DEVELOPMENT-PLAN.md`.
 
