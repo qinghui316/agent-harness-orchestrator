@@ -27,9 +27,11 @@ import {
   completeAgentTask,
   createAgentTask,
   listAgentTasks,
+  listMaintenanceCanonicalPatchProposals,
   listMaintenanceCanonicalUpdateDecisions,
   listDemandMemoryCloseouts,
   maybeRunMaintenanceReviewWindow,
+  proposeMaintenanceCanonicalPatch,
   readMaintenanceReviewWatermark,
   recordDemandMemoryCloseout,
   recordMaintenanceLedgerEntry,
@@ -7827,6 +7829,28 @@ describe("workbench read model", () => {
       }),
     ]);
     expect((decisionResult.snapshot as Awaited<ReturnType<typeof getWorkbenchSnapshot>>).right.confirmationQueue.maintenance).toEqual([]);
+    const patchProposal = await proposeMaintenanceCanonicalPatch(memory, decisions[0].id);
+    const patchProposals = await listMaintenanceCanonicalPatchProposals(memory);
+    const maintenanceAfterPatch = await getWorkbenchMaintenanceProjection({ project: project(), path: tempDir });
+    const snapshotAfterPatch = await getWorkbenchSnapshot({ project: project(), path: tempDir });
+    expect(patchProposals).toEqual([expect.objectContaining({
+      id: patchProposal.id,
+      proposalId: maintenanceProposalId,
+      decisionId: decisions[0].id,
+      applicationAuthorized: false,
+      canonicalUpdateAuthorized: false,
+    })]);
+    expect(maintenanceAfterPatch).toMatchObject({
+      patchProposalCount: 1,
+      latestPatchProposal: expect.objectContaining({
+        id: patchProposal.id,
+        status: "patch-proposed",
+        applicationAuthorized: false,
+        canonicalUpdateAuthorized: false,
+      }),
+    });
+    expect(snapshotAfterPatch.right.confirmationQueue.current.flatMap((item) => item.actions).some((action) => action.actionType.includes("maintenance") && action.actionType.includes("apply"))).toBe(false);
+    expect(snapshotAfterPatch.right.confirmationQueue.maintenance.flatMap((item) => item.actions).some((action) => action.actionType.includes("apply"))).toBe(false);
 
     const coderContext = buildRoleScopedContextProjection({
       roleId: "coder-agent",

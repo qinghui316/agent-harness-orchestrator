@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-18T12:57:30.6097643Z",
+    "generated_at":  "2026-06-18T13:24:44.0769942Z",
     "active":  [
 
                ],
@@ -1113,6 +1113,10 @@
                     {
                         "name":  "20260618-phase-12q-product-maintenance-canonical-update-decision-gate",
                         "path":  "harness/changes/archive/20260618-phase-12q-product-maintenance-canonical-update-decision-gate"
+                    },
+                    {
+                        "name":  "20260618-phase-12r-product-maintenance-canonical-patch-proposal-evidence",
+                        "path":  "harness/changes/archive/20260618-phase-12r-product-maintenance-canonical-patch-proposal-evidence"
                     }
                 ]
 }

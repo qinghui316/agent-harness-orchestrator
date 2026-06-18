@@ -1,5 +1,5 @@
-import { listDemandMemoryCloseouts, listMaintenanceCandidateResolutions, listMaintenanceCanonicalUpdateProposals, listMaintenanceLedgerEntries, readMaintenanceReviewWatermark } from "../../../agent-task/manager.js";
-import type { DemandMemoryCloseout, MaintenanceCandidateResolution, MaintenanceCanonicalUpdateProposal, MaintenanceLedgerEntry, ResolvedMemory } from "../../../types/index.js";
+import { listDemandMemoryCloseouts, listMaintenanceCandidateResolutions, listMaintenanceCanonicalPatchProposals, listMaintenanceCanonicalUpdateProposals, listMaintenanceLedgerEntries, readMaintenanceReviewWatermark } from "../../../agent-task/manager.js";
+import type { DemandMemoryCloseout, MaintenanceCandidateResolution, MaintenanceCanonicalPatchProposal, MaintenanceCanonicalUpdateProposal, MaintenanceLedgerEntry, ResolvedMemory } from "../../../types/index.js";
 import type { WorkbenchMaintenanceSummary } from "../../read-model-types.js";
 
 export async function buildMaintenanceSummary(memory: ResolvedMemory): Promise<WorkbenchMaintenanceSummary> {
@@ -7,6 +7,7 @@ export async function buildMaintenanceSummary(memory: ResolvedMemory): Promise<W
   const closeouts = await listDemandMemoryCloseouts(memory).catch(() => []);
   const resolutions = await listMaintenanceCandidateResolutions(memory).catch(() => []);
   const proposals = await listMaintenanceCanonicalUpdateProposals(memory).catch(() => []);
+  const patchProposals = await listMaintenanceCanonicalPatchProposals(memory).catch(() => []);
   const watermark = await readMaintenanceReviewWatermark(memory).catch(() => null);
   const latest = latestMaintenanceEntry(entries);
   const reviewed = new Set(watermark?.lastReviewedChangeIds ?? []);
@@ -14,6 +15,7 @@ export async function buildMaintenanceSummary(memory: ResolvedMemory): Promise<W
   const latestCloseout = latestCloseoutEntry(closeouts);
   const latestResolution = latestResolutionEntry(resolutions);
   const latestProposal = latestCanonicalUpdateProposal(proposals);
+  const latestPatchProposal = latestCanonicalPatchProposal(patchProposals);
   const status: WorkbenchMaintenanceSummary["status"] = unreviewed >= 5
     ? "review-ready"
     : watermark?.lastReviewWindowId
@@ -26,8 +28,21 @@ export async function buildMaintenanceSummary(memory: ResolvedMemory): Promise<W
     closeoutCount: closeouts.length,
     resolutionCount: resolutions.length,
     proposalCount: proposals.length,
+    patchProposalCount: patchProposals.length,
     latestReviewWindowId: watermark?.lastReviewWindowId ?? undefined,
     unreviewedTerminalCount: unreviewed,
+    latestPatchProposal: latestPatchProposal ? {
+      id: latestPatchProposal.id,
+      status: latestPatchProposal.status,
+      proposalId: latestPatchProposal.proposalId,
+      decisionId: latestPatchProposal.decisionId,
+      targetKinds: latestPatchProposal.targetKinds,
+      operationCount: latestPatchProposal.operationCount,
+      applicationAuthorized: latestPatchProposal.applicationAuthorized,
+      canonicalUpdateAuthorized: latestPatchProposal.canonicalUpdateAuthorized,
+      summary: latestPatchProposal.summary,
+      createdAt: latestPatchProposal.createdAt,
+    } : undefined,
     latestProposal: latestProposal ? {
       id: latestProposal.id,
       status: latestProposal.status,
@@ -88,4 +103,8 @@ export function latestResolutionEntry(resolutions: MaintenanceCandidateResolutio
 
 export function latestCanonicalUpdateProposal(proposals: MaintenanceCanonicalUpdateProposal[]): MaintenanceCanonicalUpdateProposal | undefined {
   return [...proposals].sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
+}
+
+export function latestCanonicalPatchProposal(patchProposals: MaintenanceCanonicalPatchProposal[]): MaintenanceCanonicalPatchProposal | undefined {
+  return [...patchProposals].sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
 }

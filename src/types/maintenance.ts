@@ -92,7 +92,8 @@ export type MaintenanceLedgerEventType =
   | "change-closeout"
   | "maintenance-review"
   | "canonical-update-proposal"
-  | "canonical-update-decision";
+  | "canonical-update-decision"
+  | "canonical-patch-proposal";
 
 export interface MaintenanceLedgerEntry {
   version: "1.0";
@@ -203,6 +204,44 @@ export interface MaintenanceCanonicalUpdateDecision {
   canonicalUpdateAuthorized: false;
   executionStarted: false;
   summary: string;
+  artifactRefs: string[];
+  createdAt: string;
+}
+
+export type MaintenanceCanonicalPatchOperationKind =
+  | "promote"
+  | "merge"
+  | "retire"
+  | "archive-only"
+  | "noop";
+
+export interface MaintenanceCanonicalPatchOperation {
+  id: string;
+  targetKind: MaintenanceCanonicalUpdateTargetKind;
+  operation: MaintenanceCanonicalPatchOperationKind;
+  sourceResolutionId: string;
+  sourceCandidateId: string;
+  summary: string;
+  rationale: string;
+  artifactRefs: string[];
+}
+
+export interface MaintenanceCanonicalPatchProposal {
+  version: "1.0";
+  id: string;
+  status: "patch-proposed";
+  proposalId: string;
+  decisionId: string;
+  targetKinds: MaintenanceCanonicalUpdateTargetKind[];
+  operationCount: number;
+  operations: MaintenanceCanonicalPatchOperation[];
+  sourceMutationAuthorized: false;
+  canonicalUpdateAuthorized: false;
+  applicationAuthorized: false;
+  executionStarted: false;
+  humanApplicationGateRequired: true;
+  summary: string;
+  risks: string[];
   artifactRefs: string[];
   createdAt: string;
 }

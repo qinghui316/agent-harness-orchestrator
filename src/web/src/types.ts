@@ -515,8 +515,21 @@ export type Workpad = {
     closeoutCount?: number;
     resolutionCount?: number;
     proposalCount?: number;
+    patchProposalCount?: number;
     latestReviewWindowId?: string;
     unreviewedTerminalCount?: number;
+    latestPatchProposal?: {
+      id: string;
+      status: string;
+      proposalId: string;
+      decisionId: string;
+      targetKinds: string[];
+      operationCount: number;
+      applicationAuthorized: boolean;
+      canonicalUpdateAuthorized: boolean;
+      summary: string;
+      createdAt: string;
+    };
     latestProposal?: {
       id: string;
       status: string;

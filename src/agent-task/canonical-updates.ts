@@ -3,6 +3,8 @@ import { readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { readJsonFile, writeJsonFile } from "../fs/json.js";
 import type {
+  MaintenanceCanonicalPatchOperation,
+  MaintenanceCanonicalPatchProposal,
   MaintenanceCanonicalUpdateDecision,
   MaintenanceCanonicalUpdateProposal,
   MaintenanceCanonicalUpdateTargetKind,
@@ -12,6 +14,9 @@ import type {
 } from "../types/index.js";
 import {
   displayMaintenancePath,
+  maintenanceCanonicalPatchProposalMarkdownPath,
+  maintenanceCanonicalPatchProposalPath,
+  maintenanceCanonicalPatchProposalsRoot,
   maintenanceCanonicalUpdateDecisionMarkdownPath,
   maintenanceCanonicalUpdateDecisionPath,
   maintenanceCanonicalUpdateDecisionsRoot,
@@ -21,7 +26,7 @@ import {
   maintenanceResolutionPath,
 } from "./paths.js";
 import { listMaintenanceLedgerEntries, recordMaintenanceLedgerEntry } from "./ledger.js";
-import { canonicalUpdateDecisionSchema, canonicalUpdateProposalSchema } from "./schemas.js";
+import { canonicalPatchProposalSchema, canonicalUpdateDecisionSchema, canonicalUpdateProposalSchema } from "./schemas.js";
 import { contentHash, uniqueSorted } from "./utils.js";
 
 export async function proposeMaintenanceCanonicalUpdate(
@@ -121,12 +126,70 @@ export async function readMaintenanceCanonicalUpdateDecisionForProposal(
   return decisions.find((decision) => decision.proposalId === proposalId) ?? null;
 }
 
+export async function proposeMaintenanceCanonicalPatch(
+  memory: ResolvedMemory,
+  decisionId: string,
+): Promise<MaintenanceCanonicalPatchProposal> {
+  const decision = await readMaintenanceCanonicalUpdateDecision(memory, decisionId);
+  if (!decision) throw new Error(`Maintenance canonical update decision not found: ${decisionId}`);
+  if (decision.decisionStatus !== "accepted-for-follow-up") {
+    throw new Error(`Maintenance canonical update decision is not accepted for follow-up: ${decisionId}`);
+  }
+  const proposal = await readMaintenanceCanonicalUpdateProposal(memory, decision.proposalId);
+  if (!proposal) throw new Error(`Maintenance canonical update proposal not found for decision ${decisionId}: ${decision.proposalId}`);
+  const patchProposal = buildCanonicalPatchProposal(memory, proposal, decision);
+  const existing = await readMaintenanceCanonicalPatchProposal(memory, patchProposal.id);
+  if (existing) {
+    await ensureCanonicalPatchProposalLedgerEntry(memory, existing);
+    return existing;
+  }
+  canonicalPatchProposalSchema.parse(patchProposal);
+  await writeJsonFile(maintenanceCanonicalPatchProposalPath(memory, patchProposal.id), patchProposal);
+  await writeFile(maintenanceCanonicalPatchProposalMarkdownPath(memory, patchProposal.id), renderCanonicalPatchProposalMarkdown(patchProposal), "utf8");
+  await ensureCanonicalPatchProposalLedgerEntry(memory, patchProposal);
+  return patchProposal;
+}
+
+export async function readMaintenanceCanonicalPatchProposal(
+  memory: ResolvedMemory,
+  patchProposalId: string,
+): Promise<MaintenanceCanonicalPatchProposal | null> {
+  const path = maintenanceCanonicalPatchProposalPath(memory, patchProposalId);
+  if (!existsSync(path)) return null;
+  return readJsonFile(path, canonicalPatchProposalSchema, null as unknown as MaintenanceCanonicalPatchProposal).catch(() => null);
+}
+
+export async function listMaintenanceCanonicalPatchProposals(memory: ResolvedMemory): Promise<MaintenanceCanonicalPatchProposal[]> {
+  const root = maintenanceCanonicalPatchProposalsRoot(memory);
+  if (!existsSync(root)) return [];
+  const entries = await readdir(root, { withFileTypes: true });
+  const patchProposals: MaintenanceCanonicalPatchProposal[] = [];
+  for (const entry of entries) {
+    if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
+    const patchProposal = await readJsonFile(join(root, entry.name), canonicalPatchProposalSchema, null as unknown as MaintenanceCanonicalPatchProposal).catch(() => null);
+    if (patchProposal) patchProposals.push(patchProposal);
+  }
+  return patchProposals.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+}
+
+export async function readMaintenanceCanonicalPatchProposalForDecision(
+  memory: ResolvedMemory,
+  decisionId: string,
+): Promise<MaintenanceCanonicalPatchProposal | null> {
+  const patchProposals = await listMaintenanceCanonicalPatchProposals(memory);
+  return patchProposals.find((proposal) => proposal.decisionId === decisionId) ?? null;
+}
+
 export function maintenanceCanonicalUpdateProposalArtifactRef(memory: ResolvedMemory, proposalId: string): string {
   return displayMaintenancePath(memory, maintenanceCanonicalUpdateProposalPath(memory, proposalId));
 }
 
 export function maintenanceCanonicalUpdateDecisionArtifactRef(memory: ResolvedMemory, decisionId: string): string {
   return displayMaintenancePath(memory, maintenanceCanonicalUpdateDecisionPath(memory, decisionId));
+}
+
+export function maintenanceCanonicalPatchProposalArtifactRef(memory: ResolvedMemory, patchProposalId: string): string {
+  return displayMaintenancePath(memory, maintenanceCanonicalPatchProposalPath(memory, patchProposalId));
 }
 
 function buildCanonicalUpdateProposal(memory: ResolvedMemory, resolutions: MaintenanceCandidateResolution[]): MaintenanceCanonicalUpdateProposal {
@@ -182,6 +245,61 @@ function buildCanonicalUpdateDecision(memory: ResolvedMemory, proposal: Maintena
   };
 }
 
+function buildCanonicalPatchProposal(
+  memory: ResolvedMemory,
+  proposal: MaintenanceCanonicalUpdateProposal,
+  decision: MaintenanceCanonicalUpdateDecision,
+): MaintenanceCanonicalPatchProposal {
+  const id = `canonical-patch-proposal-${contentHash(`${proposal.id}|${decision.id}`).slice(0, 12)}`;
+  const proposalRefs = [
+    maintenanceCanonicalUpdateProposalArtifactRef(memory, proposal.id),
+    displayMaintenancePath(memory, maintenanceCanonicalUpdateProposalMarkdownPath(memory, proposal.id)),
+    maintenanceCanonicalUpdateDecisionArtifactRef(memory, decision.id),
+    displayMaintenancePath(memory, maintenanceCanonicalUpdateDecisionMarkdownPath(memory, decision.id)),
+  ];
+  const operations = proposal.resolutionSummaries.map((resolution, index): MaintenanceCanonicalPatchOperation => {
+    const targetKind = targetKindForSubtype(resolution.candidateSubtype);
+    return {
+      id: `${id}-operation-${String(index + 1).padStart(3, "0")}`,
+      targetKind,
+      operation: resolution.outcome,
+      sourceResolutionId: resolution.resolutionId,
+      sourceCandidateId: resolution.candidateId,
+      summary: `Prepare ${resolution.outcome} update candidate for ${targetKind} from maintenance resolution ${resolution.resolutionId}.`,
+      rationale: resolution.rationale,
+      artifactRefs: resolution.artifactRefs,
+    };
+  });
+  const artifactRefs = uniqueSorted([
+    ...proposalRefs,
+    ...proposal.artifactRefs,
+    ...decision.artifactRefs,
+    ...operations.flatMap((operation) => operation.artifactRefs),
+  ]);
+  return {
+    version: "1.0",
+    id,
+    status: "patch-proposed",
+    proposalId: proposal.id,
+    decisionId: decision.id,
+    targetKinds: uniqueSorted([...proposal.targetKinds, ...operations.map((operation) => operation.targetKind)]) as MaintenanceCanonicalUpdateTargetKind[],
+    operationCount: operations.length,
+    operations,
+    sourceMutationAuthorized: false,
+    canonicalUpdateAuthorized: false,
+    applicationAuthorized: false,
+    executionStarted: false,
+    humanApplicationGateRequired: true,
+    summary: `Prepare non-executing canonical patch proposal for decision ${decision.id} and proposal ${proposal.id}.`,
+    risks: [
+      "Patch proposal evidence can be mistaken for canonical application unless authority flags remain false.",
+      "A later application gate must revalidate targets, ToolPolicyGate, and human confirmation before any canonical mutation.",
+    ],
+    artifactRefs,
+    createdAt: new Date().toISOString(),
+  };
+}
+
 async function ensureCanonicalUpdateProposalLedgerEntry(
   memory: ResolvedMemory,
   proposal: MaintenanceCanonicalUpdateProposal,
@@ -216,6 +334,25 @@ async function ensureCanonicalUpdateDecisionLedgerEntry(
     artifactRefs: [
       decisionRef,
       displayMaintenancePath(memory, maintenanceCanonicalUpdateDecisionMarkdownPath(memory, decision.id)),
+    ],
+  });
+}
+
+async function ensureCanonicalPatchProposalLedgerEntry(
+  memory: ResolvedMemory,
+  patchProposal: MaintenanceCanonicalPatchProposal,
+): Promise<void> {
+  const patchProposalRef = maintenanceCanonicalPatchProposalArtifactRef(memory, patchProposal.id);
+  const entries = await listMaintenanceLedgerEntries(memory);
+  if (entries.some((entry) => entry.eventType === "canonical-patch-proposal" && entry.artifactRefs.includes(patchProposalRef))) {
+    return;
+  }
+  await recordMaintenanceLedgerEntry(memory, {
+    eventType: "canonical-patch-proposal",
+    summary: `${patchProposal.summary} This ledger entry is evidence only and does not authorize canonical application.`,
+    artifactRefs: [
+      patchProposalRef,
+      displayMaintenancePath(memory, maintenanceCanonicalPatchProposalMarkdownPath(memory, patchProposal.id)),
     ],
   });
 }
@@ -280,6 +417,52 @@ function renderCanonicalUpdateDecisionMarkdown(decision: MaintenanceCanonicalUpd
     "## Evidence",
     "",
     ...decision.artifactRefs.map((ref) => `- ${ref}`),
+    "",
+  ].join("\n");
+}
+
+function renderCanonicalPatchProposalMarkdown(patchProposal: MaintenanceCanonicalPatchProposal): string {
+  return [
+    `# ${patchProposal.id}`,
+    "",
+    patchProposal.summary,
+    "",
+    "## Authority",
+    "",
+    "- Classification: non-executing canonical patch proposal evidence.",
+    "- Source mutation authorized: false.",
+    "- Canonical update authorized: false.",
+    "- Application authorized: false.",
+    "- Execution started: false.",
+    "- Human application gate required: true.",
+    "- This patch proposal does not modify stable memory, canonical docs, ECL rules, Harness templates, source root, apply state, close state, remote state, or Harness evolution state.",
+    "",
+    "## Sources",
+    "",
+    `- Proposal: ${patchProposal.proposalId}`,
+    `- Decision: ${patchProposal.decisionId}`,
+    "",
+    "## Target Kinds",
+    "",
+    ...patchProposal.targetKinds.map((kind) => `- ${kind}`),
+    "",
+    "## Proposed Operations",
+    "",
+    ...patchProposal.operations.map((operation) => [
+      `- ${operation.id}: ${operation.operation} ${operation.targetKind}`,
+      `  resolution: ${operation.sourceResolutionId}`,
+      `  candidate: ${operation.sourceCandidateId}`,
+      `  summary: ${operation.summary}`,
+      `  rationale: ${operation.rationale.replace(/\r?\n/g, " ")}`,
+    ].join("\n")),
+    "",
+    "## Risks",
+    "",
+    ...patchProposal.risks.map((risk) => `- ${risk}`),
+    "",
+    "## Evidence",
+    "",
+    ...patchProposal.artifactRefs.map((ref) => `- ${ref}`),
     "",
   ].join("\n");
 }

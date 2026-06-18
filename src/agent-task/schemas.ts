@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type {
   DemandMemoryCloseout,
+  MaintenanceCanonicalPatchProposal,
   DocBudgetReport,
   MaintenanceCanonicalUpdateDecision,
   MaintenanceCanonicalUpdateProposal,
@@ -55,7 +56,7 @@ export const ledgerSchema = z.object({
   id: z.string(),
   projectId: z.string().nullable(),
   changeId: z.string().optional(),
-  eventType: z.enum(["archive", "apply", "remote-landing", "failure", "user-feedback", "doc-drift", "reference-drift", "harness-evolution", "change-closeout", "maintenance-review", "canonical-update-proposal", "canonical-update-decision"]),
+  eventType: z.enum(["archive", "apply", "remote-landing", "failure", "user-feedback", "doc-drift", "reference-drift", "harness-evolution", "change-closeout", "maintenance-review", "canonical-update-proposal", "canonical-update-decision", "canonical-patch-proposal"]),
   summary: z.string(),
   artifactRefs: z.array(z.string()),
   createdAt: z.string(),
@@ -145,6 +146,35 @@ export const canonicalUpdateDecisionSchema: z.ZodType<MaintenanceCanonicalUpdate
   canonicalUpdateAuthorized: z.literal(false),
   executionStarted: z.literal(false),
   summary: z.string(),
+  artifactRefs: z.array(z.string()),
+  createdAt: z.string(),
+});
+
+export const canonicalPatchProposalSchema: z.ZodType<MaintenanceCanonicalPatchProposal> = z.object({
+  version: z.literal("1.0"),
+  id: z.string(),
+  status: z.literal("patch-proposed"),
+  proposalId: z.string(),
+  decisionId: z.string(),
+  targetKinds: z.array(z.enum(["stable-memory", "canonical-docs", "harness-evolution", "reference", "maintenance"])),
+  operationCount: z.number(),
+  operations: z.array(z.object({
+    id: z.string(),
+    targetKind: z.enum(["stable-memory", "canonical-docs", "harness-evolution", "reference", "maintenance"]),
+    operation: resolutionOutcomeSchema,
+    sourceResolutionId: z.string(),
+    sourceCandidateId: z.string(),
+    summary: z.string(),
+    rationale: z.string(),
+    artifactRefs: z.array(z.string()),
+  })),
+  sourceMutationAuthorized: z.literal(false),
+  canonicalUpdateAuthorized: z.literal(false),
+  applicationAuthorized: z.literal(false),
+  executionStarted: z.literal(false),
+  humanApplicationGateRequired: z.literal(true),
+  summary: z.string(),
+  risks: z.array(z.string()),
   artifactRefs: z.array(z.string()),
   createdAt: z.string(),
 });

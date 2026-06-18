@@ -207,5 +207,5 @@ function candidateSubtypeForEvent(eventType: MaintenanceLedgerEventType): Evolut
 }
 
 function isCanonicalUpdateEvidenceEvent(eventType: MaintenanceLedgerEventType): boolean {
-  return eventType === "canonical-update-proposal" || eventType === "canonical-update-decision";
+  return eventType === "canonical-update-proposal" || eventType === "canonical-update-decision" || eventType === "canonical-patch-proposal";
 }
