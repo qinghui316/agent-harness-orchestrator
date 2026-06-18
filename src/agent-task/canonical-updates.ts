@@ -1,7 +1,3 @@
-import { existsSync } from "node:fs";
-import { readdir, writeFile } from "node:fs/promises";
-import { join } from "node:path";
-import { readJsonFile, writeJsonFile } from "../fs/json.js";
 import type {
   MaintenanceCanonicalPatchApplicationGateRecord,
   MaintenanceCanonicalPatchOperation,
@@ -13,6 +9,12 @@ import type {
   MaintenanceCandidateSubtype,
   ResolvedMemory,
 } from "../types/index.js";
+import {
+  listMaintenanceArtifacts,
+  readMaintenanceArtifact,
+  writeMaintenanceJsonMarkdownArtifact,
+  type MaintenanceArtifactStore,
+} from "./maintenance-artifact-store.js";
 import {
   displayMaintenancePath,
   maintenanceCanonicalPatchProposalMarkdownPath,
@@ -34,6 +36,34 @@ import { buildCanonicalPatchTargetDescriptor } from "./canonical-patch-targets.j
 import { canonicalPatchApplicationGateRecordSchema, canonicalPatchProposalSchema, canonicalUpdateDecisionSchema, canonicalUpdateProposalSchema } from "./schemas.js";
 import { contentHash, uniqueSorted } from "./utils.js";
 
+const canonicalUpdateProposalStore: MaintenanceArtifactStore<MaintenanceCanonicalUpdateProposal> = {
+  root: maintenanceCanonicalUpdateProposalsRoot,
+  jsonPath: maintenanceCanonicalUpdateProposalPath,
+  markdownPath: maintenanceCanonicalUpdateProposalMarkdownPath,
+  schema: canonicalUpdateProposalSchema,
+};
+
+const canonicalUpdateDecisionStore: MaintenanceArtifactStore<MaintenanceCanonicalUpdateDecision> = {
+  root: maintenanceCanonicalUpdateDecisionsRoot,
+  jsonPath: maintenanceCanonicalUpdateDecisionPath,
+  markdownPath: maintenanceCanonicalUpdateDecisionMarkdownPath,
+  schema: canonicalUpdateDecisionSchema,
+};
+
+const canonicalPatchProposalStore: MaintenanceArtifactStore<MaintenanceCanonicalPatchProposal> = {
+  root: maintenanceCanonicalPatchProposalsRoot,
+  jsonPath: maintenanceCanonicalPatchProposalPath,
+  markdownPath: maintenanceCanonicalPatchProposalMarkdownPath,
+  schema: canonicalPatchProposalSchema,
+};
+
+const canonicalPatchApplicationGateRecordStore: MaintenanceArtifactStore<MaintenanceCanonicalPatchApplicationGateRecord> = {
+  root: maintenanceCanonicalPatchApplicationGateRecordsRoot,
+  jsonPath: maintenanceCanonicalPatchApplicationGateRecordPath,
+  markdownPath: maintenanceCanonicalPatchApplicationGateRecordMarkdownPath,
+  schema: canonicalPatchApplicationGateRecordSchema,
+};
+
 export async function proposeMaintenanceCanonicalUpdate(
   memory: ResolvedMemory,
   resolutions: MaintenanceCandidateResolution[],
@@ -47,8 +77,13 @@ export async function proposeMaintenanceCanonicalUpdate(
     return existing;
   }
   canonicalUpdateProposalSchema.parse(proposal);
-  await writeJsonFile(maintenanceCanonicalUpdateProposalPath(memory, proposal.id), proposal);
-  await writeFile(maintenanceCanonicalUpdateProposalMarkdownPath(memory, proposal.id), renderCanonicalUpdateProposalMarkdown(proposal), "utf8");
+  await writeMaintenanceJsonMarkdownArtifact(
+    memory,
+    canonicalUpdateProposalStore,
+    proposal.id,
+    proposal,
+    renderCanonicalUpdateProposalMarkdown(proposal),
+  );
   await ensureCanonicalUpdateProposalLedgerEntry(memory, proposal);
   return proposal;
 }
@@ -63,22 +98,11 @@ export async function readMaintenanceCanonicalUpdateProposal(
   memory: ResolvedMemory,
   proposalId: string,
 ): Promise<MaintenanceCanonicalUpdateProposal | null> {
-  const path = maintenanceCanonicalUpdateProposalPath(memory, proposalId);
-  if (!existsSync(path)) return null;
-  return readJsonFile(path, canonicalUpdateProposalSchema, null as unknown as MaintenanceCanonicalUpdateProposal).catch(() => null);
+  return readMaintenanceArtifact(memory, canonicalUpdateProposalStore, proposalId);
 }
 
 export async function listMaintenanceCanonicalUpdateProposals(memory: ResolvedMemory): Promise<MaintenanceCanonicalUpdateProposal[]> {
-  const root = maintenanceCanonicalUpdateProposalsRoot(memory);
-  if (!existsSync(root)) return [];
-  const entries = await readdir(root, { withFileTypes: true });
-  const proposals: MaintenanceCanonicalUpdateProposal[] = [];
-  for (const entry of entries) {
-    if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
-    const proposal = await readJsonFile(join(root, entry.name), canonicalUpdateProposalSchema, null as unknown as MaintenanceCanonicalUpdateProposal).catch(() => null);
-    if (proposal) proposals.push(proposal);
-  }
-  return proposals.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  return listMaintenanceArtifacts(memory, canonicalUpdateProposalStore);
 }
 
 export async function recordMaintenanceCanonicalUpdateDecision(
@@ -95,8 +119,13 @@ export async function recordMaintenanceCanonicalUpdateDecision(
   }
   const decision = buildCanonicalUpdateDecision(memory, proposal);
   canonicalUpdateDecisionSchema.parse(decision);
-  await writeJsonFile(maintenanceCanonicalUpdateDecisionPath(memory, decision.id), decision);
-  await writeFile(maintenanceCanonicalUpdateDecisionMarkdownPath(memory, decision.id), renderCanonicalUpdateDecisionMarkdown(decision), "utf8");
+  await writeMaintenanceJsonMarkdownArtifact(
+    memory,
+    canonicalUpdateDecisionStore,
+    decision.id,
+    decision,
+    renderCanonicalUpdateDecisionMarkdown(decision),
+  );
   await ensureCanonicalUpdateDecisionLedgerEntry(memory, decision);
   return decision;
 }
@@ -105,22 +134,11 @@ export async function readMaintenanceCanonicalUpdateDecision(
   memory: ResolvedMemory,
   decisionId: string,
 ): Promise<MaintenanceCanonicalUpdateDecision | null> {
-  const path = maintenanceCanonicalUpdateDecisionPath(memory, decisionId);
-  if (!existsSync(path)) return null;
-  return readJsonFile(path, canonicalUpdateDecisionSchema, null as unknown as MaintenanceCanonicalUpdateDecision).catch(() => null);
+  return readMaintenanceArtifact(memory, canonicalUpdateDecisionStore, decisionId);
 }
 
 export async function listMaintenanceCanonicalUpdateDecisions(memory: ResolvedMemory): Promise<MaintenanceCanonicalUpdateDecision[]> {
-  const root = maintenanceCanonicalUpdateDecisionsRoot(memory);
-  if (!existsSync(root)) return [];
-  const entries = await readdir(root, { withFileTypes: true });
-  const decisions: MaintenanceCanonicalUpdateDecision[] = [];
-  for (const entry of entries) {
-    if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
-    const decision = await readJsonFile(join(root, entry.name), canonicalUpdateDecisionSchema, null as unknown as MaintenanceCanonicalUpdateDecision).catch(() => null);
-    if (decision) decisions.push(decision);
-  }
-  return decisions.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  return listMaintenanceArtifacts(memory, canonicalUpdateDecisionStore);
 }
 
 export async function readMaintenanceCanonicalUpdateDecisionForProposal(
@@ -149,8 +167,13 @@ export async function proposeMaintenanceCanonicalPatch(
     return existing;
   }
   canonicalPatchProposalSchema.parse(patchProposal);
-  await writeJsonFile(maintenanceCanonicalPatchProposalPath(memory, patchProposal.id), patchProposal);
-  await writeFile(maintenanceCanonicalPatchProposalMarkdownPath(memory, patchProposal.id), renderCanonicalPatchProposalMarkdown(patchProposal), "utf8");
+  await writeMaintenanceJsonMarkdownArtifact(
+    memory,
+    canonicalPatchProposalStore,
+    patchProposal.id,
+    patchProposal,
+    renderCanonicalPatchProposalMarkdown(patchProposal),
+  );
   await ensureCanonicalPatchProposalLedgerEntry(memory, patchProposal);
   return patchProposal;
 }
@@ -159,22 +182,11 @@ export async function readMaintenanceCanonicalPatchProposal(
   memory: ResolvedMemory,
   patchProposalId: string,
 ): Promise<MaintenanceCanonicalPatchProposal | null> {
-  const path = maintenanceCanonicalPatchProposalPath(memory, patchProposalId);
-  if (!existsSync(path)) return null;
-  return readJsonFile(path, canonicalPatchProposalSchema, null as unknown as MaintenanceCanonicalPatchProposal).catch(() => null);
+  return readMaintenanceArtifact(memory, canonicalPatchProposalStore, patchProposalId);
 }
 
 export async function listMaintenanceCanonicalPatchProposals(memory: ResolvedMemory): Promise<MaintenanceCanonicalPatchProposal[]> {
-  const root = maintenanceCanonicalPatchProposalsRoot(memory);
-  if (!existsSync(root)) return [];
-  const entries = await readdir(root, { withFileTypes: true });
-  const patchProposals: MaintenanceCanonicalPatchProposal[] = [];
-  for (const entry of entries) {
-    if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
-    const patchProposal = await readJsonFile(join(root, entry.name), canonicalPatchProposalSchema, null as unknown as MaintenanceCanonicalPatchProposal).catch(() => null);
-    if (patchProposal) patchProposals.push(patchProposal);
-  }
-  return patchProposals.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  return listMaintenanceArtifacts(memory, canonicalPatchProposalStore);
 }
 
 export async function readMaintenanceCanonicalPatchProposalForDecision(
@@ -201,8 +213,13 @@ export async function recordMaintenanceCanonicalPatchApplicationGate(
   }
   const gateRecord = buildCanonicalPatchApplicationGateRecord(memory, patchProposal);
   canonicalPatchApplicationGateRecordSchema.parse(gateRecord);
-  await writeJsonFile(maintenanceCanonicalPatchApplicationGateRecordPath(memory, gateRecord.id), gateRecord);
-  await writeFile(maintenanceCanonicalPatchApplicationGateRecordMarkdownPath(memory, gateRecord.id), renderCanonicalPatchApplicationGateMarkdown(gateRecord), "utf8");
+  await writeMaintenanceJsonMarkdownArtifact(
+    memory,
+    canonicalPatchApplicationGateRecordStore,
+    gateRecord.id,
+    gateRecord,
+    renderCanonicalPatchApplicationGateMarkdown(gateRecord),
+  );
   await ensureCanonicalPatchApplicationGateLedgerEntry(memory, gateRecord);
   return gateRecord;
 }
@@ -211,22 +228,11 @@ export async function readMaintenanceCanonicalPatchApplicationGate(
   memory: ResolvedMemory,
   gateRecordId: string,
 ): Promise<MaintenanceCanonicalPatchApplicationGateRecord | null> {
-  const path = maintenanceCanonicalPatchApplicationGateRecordPath(memory, gateRecordId);
-  if (!existsSync(path)) return null;
-  return readJsonFile(path, canonicalPatchApplicationGateRecordSchema, null as unknown as MaintenanceCanonicalPatchApplicationGateRecord).catch(() => null);
+  return readMaintenanceArtifact(memory, canonicalPatchApplicationGateRecordStore, gateRecordId);
 }
 
 export async function listMaintenanceCanonicalPatchApplicationGateRecords(memory: ResolvedMemory): Promise<MaintenanceCanonicalPatchApplicationGateRecord[]> {
-  const root = maintenanceCanonicalPatchApplicationGateRecordsRoot(memory);
-  if (!existsSync(root)) return [];
-  const entries = await readdir(root, { withFileTypes: true });
-  const gateRecords: MaintenanceCanonicalPatchApplicationGateRecord[] = [];
-  for (const entry of entries) {
-    if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
-    const gateRecord = await readJsonFile(join(root, entry.name), canonicalPatchApplicationGateRecordSchema, null as unknown as MaintenanceCanonicalPatchApplicationGateRecord).catch(() => null);
-    if (gateRecord) gateRecords.push(gateRecord);
-  }
-  return gateRecords.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  return listMaintenanceArtifacts(memory, canonicalPatchApplicationGateRecordStore);
 }
 
 export async function readMaintenanceCanonicalPatchApplicationGateForPatchProposal(

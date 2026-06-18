@@ -42,6 +42,7 @@ import {
   readMaintenanceCanonicalPatchApplicationResult,
   readMaintenanceCanonicalPatchApplicationGate,
   readMaintenanceCanonicalPatchProposal,
+  readMaintenanceCanonicalUpdateDecision,
   recordMaintenanceCanonicalPatchApplicationGate,
   recordMaintenanceCanonicalUpdateDecision,
   readMaintenanceCanonicalUpdateProposal,
@@ -661,7 +662,7 @@ describe("AgentTask domain boundaries", () => {
     expect(pipelineResult.candidate?.summary ?? "").not.toContain("canonical-patch-application-report");
   });
 
-  it("keeps canonical patch application artifact IO tolerant and sorted through the shared store", async () => {
+  it("keeps maintenance canonical artifact IO tolerant and sorted through the shared store", async () => {
     await initHarness(project());
     const memory = await resolveProjectMemory(project());
     const memoryDocPath = join(memory.memoryRoot, "docs", "MEMORY.md");
@@ -700,14 +701,50 @@ describe("AgentTask domain boundaries", () => {
     });
     const report = await generateMaintenanceCanonicalPatchApplicationReport(memory, result.id);
 
+    const proposalRoot = join(memory.workbenchRoot, "maintenance", "canonical-update-proposals");
+    const decisionRoot = join(memory.workbenchRoot, "maintenance", "canonical-update-decisions");
+    const patchProposalRoot = join(memory.workbenchRoot, "maintenance", "canonical-patch-proposals");
+    const gateRoot = join(memory.workbenchRoot, "maintenance", "canonical-patch-application-gates");
+    const proposalPath = join(proposalRoot, `${proposal.id}.json`);
+    const decisionPath = join(decisionRoot, `${decision.id}.json`);
+    const patchProposalPath = join(patchProposalRoot, `${patchProposal.id}.json`);
+    const gatePath = join(gateRoot, `${gateRecord.id}.json`);
     const manifestPath = join(memory.workbenchRoot, "maintenance", "canonical-patch-application-manifests", `${manifest.id}.json`);
     const resultPath = join(memory.workbenchRoot, "maintenance", "canonical-patch-application-results", `${result.id}.json`);
     const reportRoot = join(memory.workbenchRoot, "maintenance", "canonical-patch-application-reports");
     const reportPath = join(reportRoot, `${report.id}.json`);
 
+    await expect(readMaintenanceCanonicalUpdateProposal(memory, "missing-proposal")).resolves.toBeNull();
+    await expect(readMaintenanceCanonicalUpdateDecision(memory, "missing-decision")).resolves.toBeNull();
+    await expect(readMaintenanceCanonicalPatchProposal(memory, "missing-patch-proposal")).resolves.toBeNull();
+    await expect(readMaintenanceCanonicalPatchApplicationGate(memory, "missing-gate")).resolves.toBeNull();
     await expect(readMaintenanceCanonicalPatchApplicationManifest(memory, "missing-manifest")).resolves.toBeNull();
     await expect(readMaintenanceCanonicalPatchApplicationResult(memory, "missing-result")).resolves.toBeNull();
     await expect(readMaintenanceCanonicalPatchApplicationReport(memory, "missing-report")).resolves.toBeNull();
+
+    await writeFile(proposalPath, "{ invalid json", "utf8");
+    await expect(readMaintenanceCanonicalUpdateProposal(memory, proposal.id)).resolves.toBeNull();
+    await writeFile(proposalPath, `${JSON.stringify({ id: "schema-invalid" }, null, 2)}\n`, "utf8");
+    await expect(readMaintenanceCanonicalUpdateProposal(memory, proposal.id)).resolves.toBeNull();
+    await writeFile(proposalPath, `${JSON.stringify(proposal, null, 2)}\n`, "utf8");
+
+    await writeFile(decisionPath, "{ invalid json", "utf8");
+    await expect(readMaintenanceCanonicalUpdateDecision(memory, decision.id)).resolves.toBeNull();
+    await writeFile(decisionPath, `${JSON.stringify({ id: "schema-invalid" }, null, 2)}\n`, "utf8");
+    await expect(readMaintenanceCanonicalUpdateDecision(memory, decision.id)).resolves.toBeNull();
+    await writeFile(decisionPath, `${JSON.stringify(decision, null, 2)}\n`, "utf8");
+
+    await writeFile(patchProposalPath, "{ invalid json", "utf8");
+    await expect(readMaintenanceCanonicalPatchProposal(memory, patchProposal.id)).resolves.toBeNull();
+    await writeFile(patchProposalPath, `${JSON.stringify({ id: "schema-invalid" }, null, 2)}\n`, "utf8");
+    await expect(readMaintenanceCanonicalPatchProposal(memory, patchProposal.id)).resolves.toBeNull();
+    await writeFile(patchProposalPath, `${JSON.stringify(patchProposal, null, 2)}\n`, "utf8");
+
+    await writeFile(gatePath, "{ invalid json", "utf8");
+    await expect(readMaintenanceCanonicalPatchApplicationGate(memory, gateRecord.id)).resolves.toBeNull();
+    await writeFile(gatePath, `${JSON.stringify({ id: "schema-invalid" }, null, 2)}\n`, "utf8");
+    await expect(readMaintenanceCanonicalPatchApplicationGate(memory, gateRecord.id)).resolves.toBeNull();
+    await writeFile(gatePath, `${JSON.stringify(gateRecord, null, 2)}\n`, "utf8");
 
     await writeFile(manifestPath, "{ invalid json", "utf8");
     await expect(readMaintenanceCanonicalPatchApplicationManifest(memory, manifest.id)).resolves.toBeNull();
@@ -732,11 +769,51 @@ describe("AgentTask domain boundaries", () => {
       id: "canonical-patch-application-report-older",
       createdAt: "2026-06-18T00:00:00.000Z",
     };
+    const olderProposal = {
+      ...proposal,
+      id: "canonical-update-proposal-older",
+      createdAt: "2026-06-18T00:00:00.000Z",
+    };
+    const olderDecision = {
+      ...decision,
+      id: "canonical-update-decision-older",
+      createdAt: "2026-06-18T00:00:00.000Z",
+    };
+    const olderPatchProposal = {
+      ...patchProposal,
+      id: "canonical-patch-proposal-older",
+      createdAt: "2026-06-18T00:00:00.000Z",
+    };
+    const olderGateRecord = {
+      ...gateRecord,
+      id: "canonical-patch-application-gate-older",
+      createdAt: "2026-06-18T00:00:00.000Z",
+    };
+    await writeFile(join(proposalRoot, `${olderProposal.id}.json`), `${JSON.stringify(olderProposal, null, 2)}\n`, "utf8");
+    await writeFile(join(proposalRoot, "invalid-json.json"), "{ invalid json", "utf8");
+    await writeFile(join(proposalRoot, "schema-invalid.json"), `${JSON.stringify({ id: "schema-invalid" }, null, 2)}\n`, "utf8");
+    await writeFile(join(decisionRoot, `${olderDecision.id}.json`), `${JSON.stringify(olderDecision, null, 2)}\n`, "utf8");
+    await writeFile(join(decisionRoot, "invalid-json.json"), "{ invalid json", "utf8");
+    await writeFile(join(decisionRoot, "schema-invalid.json"), `${JSON.stringify({ id: "schema-invalid" }, null, 2)}\n`, "utf8");
+    await writeFile(join(patchProposalRoot, `${olderPatchProposal.id}.json`), `${JSON.stringify(olderPatchProposal, null, 2)}\n`, "utf8");
+    await writeFile(join(patchProposalRoot, "invalid-json.json"), "{ invalid json", "utf8");
+    await writeFile(join(patchProposalRoot, "schema-invalid.json"), `${JSON.stringify({ id: "schema-invalid" }, null, 2)}\n`, "utf8");
+    await writeFile(join(gateRoot, `${olderGateRecord.id}.json`), `${JSON.stringify(olderGateRecord, null, 2)}\n`, "utf8");
+    await writeFile(join(gateRoot, "invalid-json.json"), "{ invalid json", "utf8");
+    await writeFile(join(gateRoot, "schema-invalid.json"), `${JSON.stringify({ id: "schema-invalid" }, null, 2)}\n`, "utf8");
     await writeFile(join(reportRoot, `${olderReport.id}.json`), `${JSON.stringify(olderReport, null, 2)}\n`, "utf8");
     await writeFile(join(reportRoot, "invalid-json.json"), "{ invalid json", "utf8");
     await writeFile(join(reportRoot, "schema-invalid.json"), `${JSON.stringify({ id: "schema-invalid" }, null, 2)}\n`, "utf8");
 
+    const proposals = await listMaintenanceCanonicalUpdateProposals(memory);
+    const decisions = await listMaintenanceCanonicalUpdateDecisions(memory);
+    const patchProposals = await listMaintenanceCanonicalPatchProposals(memory);
+    const gateRecords = await listMaintenanceCanonicalPatchApplicationGateRecords(memory);
     const reports = await listMaintenanceCanonicalPatchApplicationReports(memory);
+    expect(proposals.map((item) => item.id)).toEqual([olderProposal.id, proposal.id]);
+    expect(decisions.map((item) => item.id)).toEqual([olderDecision.id, decision.id]);
+    expect(patchProposals.map((item) => item.id)).toEqual([olderPatchProposal.id, patchProposal.id]);
+    expect(gateRecords.map((item) => item.id)).toEqual([olderGateRecord.id, gateRecord.id]);
     expect(reports.map((item) => item.id)).toEqual([olderReport.id, report.id]);
   });
 

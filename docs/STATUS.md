@@ -5,20 +5,20 @@
 - Current date: 2026-06-19.
 - Active ECL change: none.
 - Pending Harness evolution: none.
-- Latest archived product change: `harness/changes/archive/20260619-maintenance-canonical-artifact-store-reuse/summary.md`.
-- Latest archived product/Harness docs change: `harness/changes/archive/20260619-maintenance-canonical-artifact-store-reuse/summary.md`.
+- Latest archived product change: `harness/changes/archive/20260619-maintenance-canonical-artifact-store-canonical-updates-adoption/summary.md`.
+- Latest archived product/Harness docs change: `harness/changes/archive/20260619-maintenance-canonical-artifact-store-canonical-updates-adoption/summary.md`.
 - Latest archived Harness evolution: `harness/changes/archive/20260619-auto-evolve-harness-maintenance-canonical-chain-evidence/summary.md`.
 - Active product phase: none.
 - Active Harness evolution phase: none.
 - Active close status: none.
 
-This file is the short resume point. There is no active ECL change and no pending Harness evolution. The latest product slice reused generic maintenance artifact IO for canonical patch application manifest/result/report artifacts. The latest Harness evolution reviewed the maintenance canonical chain evidence window, recorded a `keep` result, retained existing current rules as sufficient, and kept detailed phase/source-convergence narratives archive-only.
+This file is the short resume point. There is no active ECL change and no pending Harness evolution. The latest product slice reused the existing maintenance artifact store for canonical update proposals, update decisions, canonical patch proposals, and patch application gate records. The previous product slice reused generic maintenance artifact IO for canonical patch application manifest/result/report artifacts. The latest Harness evolution reviewed the maintenance canonical chain evidence window, recorded a `keep` result, retained existing current rules as sufficient, and kept detailed phase/source-convergence narratives archive-only.
 
 Current plan-level roadmap context is preserved in `docs/CURRENT-DEVELOPMENT-PLAN.md`. Historical detail belongs in archived summaries and `harness/changes/INDEX.json`.
 
 ## Current Baseline
 
-The product baseline is post-maintenance canonical patch target-boundary, lineage, ledger-idempotency, and artifact-store reuse. The pending evolution trigger has been completed as `keep`. Goal Loop controlled-loop state, routing posture, and SchedulerRun terminal handoff evidence remain non-executing evidence only. SchedulerRun terminal Workpad completion and blocked-closeout cards remain read-only evidence and do not authorize loop/full-executor/dispatch/slot/source/apply/close/merge/Harness-evolution behavior.
+The product baseline is post-maintenance canonical patch target-boundary, lineage, ledger-idempotency, and broader canonical artifact-store reuse across the proposal/decision/gate/application/report chain. The pending evolution trigger has been completed as `keep`. Goal Loop controlled-loop state, routing posture, and SchedulerRun terminal handoff evidence remain non-executing evidence only. SchedulerRun terminal Workpad completion and blocked-closeout cards remain read-only evidence and do not authorize loop/full-executor/dispatch/slot/source/apply/close/merge/Harness-evolution behavior.
 
 Product-level maintenance writes candidate lifecycle-resolution evidence, canonical update proposal evidence, human-gated canonical update decision records, canonical patch proposal evidence, human-gated canonical patch application follow-up records, read-only application manifest/readiness evidence, Phase 12U target-descriptor evidence, Phase 12V human-gated canonical docs/stable-memory application result evidence, and Phase 12W read-only observation report evidence while still forbidding automatic canonical rewrites.
 
@@ -57,6 +57,7 @@ Use `harness/changes/INDEX.json` for the generated archive list. Start with arch
 
 Recent key archive summaries:
 
+- Maintenance Canonical Artifact Store Canonical Updates Adoption: `harness/changes/archive/20260619-maintenance-canonical-artifact-store-canonical-updates-adoption/summary.md`.
 - Maintenance Canonical Artifact Store Reuse: `harness/changes/archive/20260619-maintenance-canonical-artifact-store-reuse/summary.md`.
 - Maintenance Canonical Ledger Idempotency Reuse: `harness/changes/archive/20260619-maintenance-canonical-ledger-idempotency-reuse/summary.md`.
 - Latest Harness evolution: `harness/changes/archive/20260619-auto-evolve-harness-maintenance-canonical-chain-evidence/summary.md`.
