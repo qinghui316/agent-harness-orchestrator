@@ -65,6 +65,13 @@ export {
   readMaintenanceCanonicalPatchApplicationResultForManifest,
 } from "./canonical-patch-application.js";
 export {
+  generateMaintenanceCanonicalPatchApplicationReport,
+  listMaintenanceCanonicalPatchApplicationReports,
+  maintenanceCanonicalPatchApplicationReportArtifactRef,
+  readMaintenanceCanonicalPatchApplicationReport,
+  readMaintenanceCanonicalPatchApplicationReportForResult,
+} from "./canonical-patch-application-report.js";
+export {
   listMaintenanceCandidateResolutions,
   maintenanceResolutionArtifactRef,
   readMaintenanceCandidateResolution,

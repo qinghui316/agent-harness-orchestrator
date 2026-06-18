@@ -120,3 +120,15 @@ export function maintenanceCanonicalPatchApplicationResultPath(memory: ResolvedM
 export function maintenanceCanonicalPatchApplicationResultMarkdownPath(memory: ResolvedMemory, resultId: string): string {
   return join(maintenanceCanonicalPatchApplicationResultsRoot(memory), `${resultId}.md`);
 }
+
+export function maintenanceCanonicalPatchApplicationReportsRoot(memory: ResolvedMemory): string {
+  return join(maintenanceRoot(memory), "canonical-patch-application-reports");
+}
+
+export function maintenanceCanonicalPatchApplicationReportPath(memory: ResolvedMemory, reportId: string): string {
+  return join(maintenanceCanonicalPatchApplicationReportsRoot(memory), `${reportId}.json`);
+}
+
+export function maintenanceCanonicalPatchApplicationReportMarkdownPath(memory: ResolvedMemory, reportId: string): string {
+  return join(maintenanceCanonicalPatchApplicationReportsRoot(memory), `${reportId}.md`);
+}

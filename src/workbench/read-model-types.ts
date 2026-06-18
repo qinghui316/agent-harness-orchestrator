@@ -876,6 +876,7 @@ export interface WorkbenchMaintenanceSummary {
   patchProposalCount?: number;
   applicationManifestCount?: number;
   applicationResultCount?: number;
+  applicationReportCount?: number;
   latestReviewWindowId?: string;
   unreviewedTerminalCount: number;
   latestPatchProposal?: {
@@ -906,6 +907,19 @@ export interface WorkbenchMaintenanceSummary {
   latestApplicationResult?: {
     id: string;
     status: string;
+    manifestId: string;
+    patchProposalId: string;
+    gateRecordId: string;
+    targetKinds: string[];
+    operationCount: number;
+    canonicalPatchApplied: boolean;
+    summary: string;
+    createdAt: string;
+  };
+  latestApplicationReport?: {
+    id: string;
+    status: string;
+    resultId: string;
     manifestId: string;
     patchProposalId: string;
     gateRecordId: string;

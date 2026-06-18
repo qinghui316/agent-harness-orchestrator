@@ -20,8 +20,10 @@ import {
   completeAgentTask,
   createAgentTask,
   generateMaintenanceCanonicalPatchApplicationManifest,
+  generateMaintenanceCanonicalPatchApplicationReport,
   listAgentTasks,
   listMaintenanceCanonicalPatchApplicationManifests,
+  listMaintenanceCanonicalPatchApplicationReports,
   listMaintenanceCanonicalPatchApplicationResults,
   listMaintenanceCanonicalPatchApplicationGateRecords,
   listMaintenanceCanonicalPatchProposals,
@@ -35,6 +37,7 @@ import {
   proposeMaintenanceCanonicalUpdate,
   readAgentTaskResult,
   readMaintenanceCanonicalPatchApplicationManifest,
+  readMaintenanceCanonicalPatchApplicationReport,
   readMaintenanceCanonicalPatchApplicationResult,
   readMaintenanceCanonicalPatchApplicationGate,
   readMaintenanceCanonicalPatchProposal,
@@ -73,6 +76,8 @@ describe("AgentTask domain boundaries", () => {
     expect(typeof listMaintenanceCanonicalPatchApplicationManifests).toBe("function");
     expect(typeof applyMaintenanceCanonicalPatchApplicationManifest).toBe("function");
     expect(typeof listMaintenanceCanonicalPatchApplicationResults).toBe("function");
+    expect(typeof generateMaintenanceCanonicalPatchApplicationReport).toBe("function");
+    expect(typeof listMaintenanceCanonicalPatchApplicationReports).toBe("function");
 
     const offenders = (await listSourceFiles("src/agent-task"))
       .filter((file) => !file.endsWith("manager.ts"))
@@ -553,6 +558,93 @@ describe("AgentTask domain boundaries", () => {
         canonicalPatchApplied: true,
       }),
     });
+  });
+
+  it("generates read-only canonical patch application observation reports without feeding new candidates", async () => {
+    await initHarness(project());
+    const memory = await resolveProjectMemory(project());
+    const memoryDocPath = join(memory.memoryRoot, "docs", "MEMORY.md");
+    const originalMemoryDoc = "# Memory\n\nKeep old observation guidance.\n";
+    const updatedMemoryDoc = "# Memory\n\nKeep updated observation guidance.\n";
+    await writeFile(memoryDocPath, originalMemoryDoc, "utf8");
+
+    for (let index = 1; index <= 5; index += 1) {
+      await recordDemandMemoryCloseout(memory, {
+        changeId: `observation-report-${index}`,
+        title: `Observation report demand ${index}`,
+        terminalKind: "archived",
+        finalResult: `Observation report demand ${index} completed.`,
+        userDecision: "archived",
+        evidenceRefs: [`harness/changes/archive/observation-report-${index}/summary.md`],
+        docsDriftCandidates: [{
+          document: "docs/MEMORY.md",
+          summary: "Memory guidance needs an observation report after application.",
+          patch: {
+            patchKind: "hunks",
+            hunks: [{
+              oldText: "Keep old observation guidance.",
+              newText: "Keep updated observation guidance.",
+            }],
+          },
+          evidenceRefs: [`observation-report-${index}.md`],
+        }],
+      });
+    }
+
+    const proposal = (await listMaintenanceCanonicalUpdateProposals(memory))[0];
+    const decision = await recordMaintenanceCanonicalUpdateDecision(memory, proposal.id);
+    const patchProposal = await proposeMaintenanceCanonicalPatch(memory, decision.id);
+    const gateRecord = await recordMaintenanceCanonicalPatchApplicationGate(memory, patchProposal.id);
+    const manifest = await generateMaintenanceCanonicalPatchApplicationManifest(memory, gateRecord.id);
+    const result = await applyMaintenanceCanonicalPatchApplicationManifest(memory, manifest.id, {
+      policyAuditRefs: ["workbench/maintenance/policy-audit.json"],
+      confirmedBy: "workbench-human-gate",
+    });
+    const contentAfterApplication = await readFile(memoryDocPath, "utf8");
+
+    const manifestPath = join(memory.workbenchRoot, "maintenance", "canonical-patch-application-manifests", `${manifest.id}.json`);
+    await writeFile(manifestPath, `${JSON.stringify({ ...manifest, operationCount: 0 }, null, 2)}\n`, "utf8");
+    await expect(generateMaintenanceCanonicalPatchApplicationReport(memory, result.id)).rejects.toThrow("operation count mismatch");
+    await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+
+    const report = await generateMaintenanceCanonicalPatchApplicationReport(memory, result.id);
+    const repeatedReport = await generateMaintenanceCanonicalPatchApplicationReport(memory, result.id);
+    const reports = await listMaintenanceCanonicalPatchApplicationReports(memory);
+    const reportMarkdown = await readFile(join(memory.workbenchRoot, "maintenance", "canonical-patch-application-reports", `${report.id}.md`), "utf8");
+    const ledgerEntries = await listMaintenanceLedgerEntries(memory);
+    const reportLedgerEntry = ledgerEntries.find((entry) => entry.eventType === "canonical-patch-application-report");
+    const pipelineResult = await runMaintenanceCandidatePipeline(memory);
+
+    expect(contentAfterApplication).toBe(updatedMemoryDoc);
+    expect(await readFile(memoryDocPath, "utf8")).toBe(contentAfterApplication);
+    expect(report).toMatchObject({
+      status: "observed",
+      resultId: result.id,
+      manifestId: manifest.id,
+      patchProposalId: patchProposal.id,
+      gateRecordId: gateRecord.id,
+      applicationAuthorized: true,
+      sourceMutationAuthorized: false,
+      canonicalUpdateApplied: false,
+      canonicalPatchApplied: false,
+      executionStarted: false,
+      policyAuditRefs: ["workbench/maintenance/policy-audit.json"],
+      observedOperations: [expect.objectContaining({
+        targetPath: "docs/MEMORY.md",
+        status: "observed",
+      })],
+    });
+    expect(repeatedReport.id).toBe(report.id);
+    expect(reports).toEqual([expect.objectContaining({ id: report.id, resultId: result.id })]);
+    await expect(readMaintenanceCanonicalPatchApplicationReport(memory, report.id)).resolves.toMatchObject({
+      id: report.id,
+      resultId: result.id,
+    });
+    expect(reportMarkdown).toContain("Classification: read-only canonical patch application observation report evidence.");
+    expect(reportMarkdown).toContain("Canonical patch applied by this report: false.");
+    expect(reportLedgerEntry).toBeTruthy();
+    expect(pipelineResult.candidate?.sourceLedgerEntryIds).not.toContain(reportLedgerEntry?.id);
+    expect(pipelineResult.candidate?.summary ?? "").not.toContain("canonical-patch-application-report");
   });
 
   it("fails closed for stale or ambiguous canonical patch application manifests", async () => {

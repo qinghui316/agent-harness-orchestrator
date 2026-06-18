@@ -235,5 +235,6 @@ function isCanonicalUpdateEvidenceEvent(eventType: MaintenanceLedgerEventType): 
     || eventType === "canonical-patch-proposal"
     || eventType === "canonical-patch-application-gate"
     || eventType === "canonical-patch-application-manifest"
-    || eventType === "canonical-patch-application-result";
+    || eventType === "canonical-patch-application-result"
+    || eventType === "canonical-patch-application-report";
 }

@@ -42,7 +42,7 @@ OpenSpec is the planning reference for this part of the loop. AHO should use one
 
 ## 3. Historical Baseline Note
 
-This section preserves the Phase 7F-era product baseline as historical architecture context. It is not the current implementation baseline. For the current post-Phase-10T baseline and next recommended development direction, read `docs/CURRENT-DEVELOPMENT-PLAN.md` and `docs/STATUS.md`.
+This section preserves the Phase 7F-era product baseline as historical architecture context. It is not the current implementation baseline. For the current implementation baseline and next recommended development direction, read `docs/CURRENT-DEVELOPMENT-PLAN.md` and `docs/STATUS.md`.
 
 Historical baseline through Phase 7F:
 

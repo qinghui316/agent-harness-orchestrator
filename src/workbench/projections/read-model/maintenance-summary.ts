@@ -1,5 +1,5 @@
-import { listDemandMemoryCloseouts, listMaintenanceCandidateResolutions, listMaintenanceCanonicalPatchApplicationManifests, listMaintenanceCanonicalPatchApplicationResults, listMaintenanceCanonicalPatchProposals, listMaintenanceCanonicalUpdateProposals, listMaintenanceLedgerEntries, readMaintenanceReviewWatermark } from "../../../agent-task/manager.js";
-import type { DemandMemoryCloseout, MaintenanceCandidateResolution, MaintenanceCanonicalPatchApplicationManifest, MaintenanceCanonicalPatchApplicationResult, MaintenanceCanonicalPatchProposal, MaintenanceCanonicalUpdateProposal, MaintenanceLedgerEntry, ResolvedMemory } from "../../../types/index.js";
+import { listDemandMemoryCloseouts, listMaintenanceCandidateResolutions, listMaintenanceCanonicalPatchApplicationManifests, listMaintenanceCanonicalPatchApplicationReports, listMaintenanceCanonicalPatchApplicationResults, listMaintenanceCanonicalPatchProposals, listMaintenanceCanonicalUpdateProposals, listMaintenanceLedgerEntries, readMaintenanceReviewWatermark } from "../../../agent-task/manager.js";
+import type { DemandMemoryCloseout, MaintenanceCandidateResolution, MaintenanceCanonicalPatchApplicationManifest, MaintenanceCanonicalPatchApplicationReport, MaintenanceCanonicalPatchApplicationResult, MaintenanceCanonicalPatchProposal, MaintenanceCanonicalUpdateProposal, MaintenanceLedgerEntry, ResolvedMemory } from "../../../types/index.js";
 import type { WorkbenchMaintenanceSummary } from "../../read-model-types.js";
 
 export async function buildMaintenanceSummary(memory: ResolvedMemory): Promise<WorkbenchMaintenanceSummary> {
@@ -10,6 +10,7 @@ export async function buildMaintenanceSummary(memory: ResolvedMemory): Promise<W
   const patchProposals = await listMaintenanceCanonicalPatchProposals(memory).catch(() => []);
   const applicationManifests = await listMaintenanceCanonicalPatchApplicationManifests(memory).catch(() => []);
   const applicationResults = await listMaintenanceCanonicalPatchApplicationResults(memory).catch(() => []);
+  const applicationReports = await listMaintenanceCanonicalPatchApplicationReports(memory).catch(() => []);
   const watermark = await readMaintenanceReviewWatermark(memory).catch(() => null);
   const latest = latestMaintenanceEntry(entries);
   const reviewed = new Set(watermark?.lastReviewedChangeIds ?? []);
@@ -20,6 +21,7 @@ export async function buildMaintenanceSummary(memory: ResolvedMemory): Promise<W
   const latestPatchProposal = latestCanonicalPatchProposal(patchProposals);
   const latestApplicationManifest = latestCanonicalPatchApplicationManifest(applicationManifests);
   const latestApplicationResult = latestCanonicalPatchApplicationResult(applicationResults);
+  const latestApplicationReport = latestCanonicalPatchApplicationReport(applicationReports);
   const status: WorkbenchMaintenanceSummary["status"] = unreviewed >= 5
     ? "review-ready"
     : watermark?.lastReviewWindowId
@@ -35,6 +37,7 @@ export async function buildMaintenanceSummary(memory: ResolvedMemory): Promise<W
     patchProposalCount: patchProposals.length,
     applicationManifestCount: applicationManifests.length,
     applicationResultCount: applicationResults.length,
+    applicationReportCount: applicationReports.length,
     latestReviewWindowId: watermark?.lastReviewWindowId ?? undefined,
     unreviewedTerminalCount: unreviewed,
     latestPatchProposal: latestPatchProposal ? {
@@ -73,6 +76,19 @@ export async function buildMaintenanceSummary(memory: ResolvedMemory): Promise<W
       canonicalPatchApplied: latestApplicationResult.canonicalPatchApplied,
       summary: latestApplicationResult.summary,
       createdAt: latestApplicationResult.createdAt,
+    } : undefined,
+    latestApplicationReport: latestApplicationReport ? {
+      id: latestApplicationReport.id,
+      status: latestApplicationReport.status,
+      resultId: latestApplicationReport.resultId,
+      manifestId: latestApplicationReport.manifestId,
+      patchProposalId: latestApplicationReport.patchProposalId,
+      gateRecordId: latestApplicationReport.gateRecordId,
+      targetKinds: latestApplicationReport.targetKinds,
+      operationCount: latestApplicationReport.operationCount,
+      canonicalPatchApplied: latestApplicationReport.canonicalPatchApplied,
+      summary: latestApplicationReport.summary,
+      createdAt: latestApplicationReport.createdAt,
     } : undefined,
     latestProposal: latestProposal ? {
       id: latestProposal.id,
@@ -150,4 +166,10 @@ export function latestCanonicalPatchApplicationResult(
   results: MaintenanceCanonicalPatchApplicationResult[],
 ): MaintenanceCanonicalPatchApplicationResult | undefined {
   return [...results].sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
+}
+
+export function latestCanonicalPatchApplicationReport(
+  reports: MaintenanceCanonicalPatchApplicationReport[],
+): MaintenanceCanonicalPatchApplicationReport | undefined {
+  return [...reports].sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
 }

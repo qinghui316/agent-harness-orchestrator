@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-18T16:49:17.2984550Z",
+    "generated_at":  "2026-06-18T17:22:27.2144533Z",
     "active":  [
 
                ],
@@ -1131,12 +1131,20 @@
                         "path":  "harness/changes/archive/20260618-phase-12t-product-maintenance-canonical-patch-application-manifest"
                     },
                     {
+                        "name":  "20260619-auto-evolve-harness-phase-12s-12w-product-maintenance-evidence",
+                        "path":  "harness/changes/archive/20260619-auto-evolve-harness-phase-12s-12w-product-maintenance-evidence"
+                    },
+                    {
                         "name":  "20260619-phase-12u-product-maintenance-canonical-patch-target-descriptors",
                         "path":  "harness/changes/archive/20260619-phase-12u-product-maintenance-canonical-patch-target-descriptors"
                     },
                     {
                         "name":  "20260619-phase-12v-product-maintenance-canonical-patch-application-writer",
                         "path":  "harness/changes/archive/20260619-phase-12v-product-maintenance-canonical-patch-application-writer"
+                    },
+                    {
+                        "name":  "20260619-phase-12w-product-maintenance-canonical-patch-application-observation-report-evidence",
+                        "path":  "harness/changes/archive/20260619-phase-12w-product-maintenance-canonical-patch-application-observation-report-evidence"
                     }
                 ]
 }

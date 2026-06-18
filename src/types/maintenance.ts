@@ -96,7 +96,8 @@ export type MaintenanceLedgerEventType =
   | "canonical-patch-proposal"
   | "canonical-patch-application-gate"
   | "canonical-patch-application-manifest"
-  | "canonical-patch-application-result";
+  | "canonical-patch-application-result"
+  | "canonical-patch-application-report";
 
 export interface MaintenanceLedgerEntry {
   version: "1.0";
@@ -395,6 +396,50 @@ export interface MaintenanceCanonicalPatchApplicationResult {
   executionStarted: true;
   policyAuditRefs: string[];
   failureReason?: string;
+  summary: string;
+  artifactRefs: string[];
+  createdAt: string;
+}
+
+export type MaintenanceCanonicalPatchApplicationReportStatus =
+  | "observed";
+
+export interface MaintenanceCanonicalPatchApplicationReportOperation {
+  id: string;
+  resultOperationId: string;
+  manifestOperationId: string;
+  patchOperationId: string;
+  targetKind: MaintenanceCanonicalUpdateTargetKind;
+  operation: MaintenanceCanonicalPatchOperationKind;
+  targetPath: string;
+  patchKind: MaintenanceCanonicalPatchTargetDescriptor["patchKind"];
+  beforeHash: string;
+  afterHash: string;
+  status: "observed";
+  summary: string;
+  artifactRefs: string[];
+}
+
+export interface MaintenanceCanonicalPatchApplicationReport {
+  version: "1.0";
+  id: string;
+  status: MaintenanceCanonicalPatchApplicationReportStatus;
+  resultId: string;
+  manifestId: string;
+  patchProposalId: string;
+  gateRecordId: string;
+  proposalId: string;
+  decisionId: string;
+  targetKinds: MaintenanceCanonicalUpdateTargetKind[];
+  operationCount: number;
+  observedOperations: MaintenanceCanonicalPatchApplicationReportOperation[];
+  applicationAuthorized: true;
+  sourceMutationAuthorized: false;
+  canonicalUpdateApplied: false;
+  canonicalPatchApplied: false;
+  executionStarted: false;
+  policyAuditRefs: string[];
+  guardrailNotes: string[];
   summary: string;
   artifactRefs: string[];
   createdAt: string;

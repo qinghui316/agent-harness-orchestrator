@@ -27,7 +27,9 @@ import {
   completeAgentTask,
   createAgentTask,
   generateMaintenanceCanonicalPatchApplicationManifest,
+  generateMaintenanceCanonicalPatchApplicationReport,
   listAgentTasks,
+  listMaintenanceCanonicalPatchApplicationReports,
   listMaintenanceCanonicalPatchApplicationResults,
   listMaintenanceCanonicalPatchApplicationGateRecords,
   listMaintenanceCanonicalPatchProposals,
@@ -8045,6 +8047,8 @@ describe("workbench read model", () => {
       confirm: true,
     });
     const applicationResults = await listMaintenanceCanonicalPatchApplicationResults(memory);
+    const report = await generateMaintenanceCanonicalPatchApplicationReport(memory, applicationResults[0].id);
+    const reports = await listMaintenanceCanonicalPatchApplicationReports(memory);
 
     expect(await readFile(memoryDocPath, "utf8")).toBe(updatedMemoryDoc);
     expect(applicationResults).toEqual([expect.objectContaining({
@@ -8052,13 +8056,32 @@ describe("workbench read model", () => {
       canonicalPatchApplied: true,
       policyAuditRefs: [expect.stringContaining("tool-events.jsonl")],
     })]);
+    expect(reports).toEqual([expect.objectContaining({
+      id: report.id,
+      resultId: applicationResults[0].id,
+      canonicalPatchApplied: false,
+      executionStarted: false,
+    })]);
     expect((applyResult.snapshot as Awaited<ReturnType<typeof getWorkbenchSnapshot>>).right.confirmationQueue.maintenance).toEqual([]);
     await expect(getWorkbenchMaintenanceProjection({ project: project(), path: tempDir })).resolves.toMatchObject({
       applicationResultCount: 1,
+      applicationReportCount: 1,
       latestApplicationResult: expect.objectContaining({
         manifestId: manifest.id,
         canonicalPatchApplied: true,
       }),
+      latestApplicationReport: expect.objectContaining({
+        id: report.id,
+        resultId: applicationResults[0].id,
+        canonicalPatchApplied: false,
+      }),
+    });
+    await expect(getWorkbenchSnapshot({ project: project(), path: tempDir })).resolves.toMatchObject({
+      right: {
+        confirmationQueue: {
+          maintenance: [],
+        },
+      },
     });
   });
 });
