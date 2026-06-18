@@ -42,6 +42,7 @@ import { getLatestAuditSummary, listAuditResults, readAuditResult } from "../../
 import { createWorktree as createWorktreeFacade, getWorktreeStatus as getWorktreeStatusFacade, listWorktreeStatuses as listWorktreeStatusesFacade, removeWorktree as removeWorktreeFacade } from "../../src/worktree/manager.js";
 import { readTopicThreadLog } from "../../src/workbench/thread-log.js";
 import { runWorkbenchWorkflowActionService } from "../../src/workbench/actions/service.js";
+import { assertLatestWorkbenchActionTarget, assertWorkbenchActionChangeScope } from "../../src/workbench/actions/active-target.js";
 import { assertWorkflowActionScope } from "../../src/workbench/actions/boundary.js";
 import { dispatchWorkbenchWorkflowAction } from "../../src/workbench/actions/dispatcher.js";
 import { buildWorkbenchActionHandlers } from "../../src/workbench/actions/handlers/index.js";
@@ -233,6 +234,8 @@ describe("Workbench module boundaries", () => {
 
     expect(typeof readTopicThreadLog).toBe("function");
     expect(typeof runWorkbenchWorkflowActionService).toBe("function");
+    expect(typeof assertWorkbenchActionChangeScope).toBe("function");
+    expect(typeof assertLatestWorkbenchActionTarget).toBe("function");
     expect(typeof assertWorkflowActionScope).toBe("function");
     expect(typeof dispatchWorkbenchWorkflowAction).toBe("function");
     expect(typeof buildWorkbenchActionHandlers).toBe("function");
@@ -1628,6 +1631,38 @@ describe("Workbench module boundaries", () => {
     expect(resultReview).toContain('from "./projection-summary.js"');
     expect(decisionInspector).toContain('from "./projection-summary.js"');
     expect(decisionInspector).toContain("function compareDecisionContexts");
+  });
+
+  it("keeps Workbench action target revalidation helpers pure and fail-closed", () => {
+    expect(() => assertWorkbenchActionChangeScope("other-change", "current-change", "planning.goal-loop.evaluate"))
+      .toThrow("planning.goal-loop.evaluate changeId scope mismatch.");
+    expect(() => assertWorkbenchActionChangeScope("current-change", "current-change", "planning.goal-loop.evaluate"))
+      .not.toThrow();
+    expect(() => assertWorkbenchActionChangeScope(undefined, "current-change", "planning.goal-loop.evaluate"))
+      .not.toThrow();
+
+    expect(() => assertLatestWorkbenchActionTarget(
+      { id: "older-run" },
+      { id: "current-run" },
+      "planning.scheduler.plan.prepare",
+      "SchedulerRun",
+    )).toThrow("planning.scheduler.plan.prepare requires the latest SchedulerRun.");
+    expect(() => assertLatestWorkbenchActionTarget(
+      { id: "current-run" },
+      { id: "current-run" },
+      "planning.scheduler.plan.prepare",
+      "SchedulerRun",
+    )).not.toThrow();
+
+    const helper = readFileSync("src/workbench/actions/active-target.ts", "utf8");
+    expect(helper).toContain("assertWorkbenchActionChangeScope");
+    expect(helper).toContain("assertLatestWorkbenchActionTarget");
+    expect(helper).not.toMatch(/scheduler-runtime|goal-loop|ToolPolicy|server\/|web\/src|repository/);
+
+    const boundary = readFileSync("src/workbench/actions/boundary.ts", "utf8");
+    expect(boundary).toContain('from "./active-target.js"');
+    expect(boundary).toContain("assertWorkbenchActionChangeScope(request.changeId, changeId, \"planning.goal-loop.evaluate\")");
+    expect(boundary).toContain("assertLatestWorkbenchActionTarget(latestRun, run, \"planning.scheduler.plan.prepare\", \"SchedulerRun\")");
   });
 
   it("keeps confirmation queue planning copy non-executing and preserves explicit action scope", () => {

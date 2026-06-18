@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-18T23:23:46.5972645Z",
+    "generated_at":  "2026-06-18T23:47:40.8573023Z",
     "active":  [
 
                ],
@@ -1193,6 +1193,10 @@
                     {
                         "name":  "20260619-workbench-action-active-target-revalidation-reuse",
                         "path":  "harness/changes/archive/20260619-workbench-action-active-target-revalidation-reuse"
+                    },
+                    {
+                        "name":  "20260619-workbench-action-target-revalidation-helper-reuse",
+                        "path":  "harness/changes/archive/20260619-workbench-action-target-revalidation-helper-reuse"
                     },
                     {
                         "name":  "20260619-workbench-maintenance-confirmation-projection-summary-reuse",

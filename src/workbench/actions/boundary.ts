@@ -42,7 +42,7 @@ import {
 } from "../../workflow-actions/registry.js";
 import { readWorkflowRun } from "../../workflow-run/manager.js";
 import type { WorkbenchLiveSink, WorkbenchWorkflowActionRequest } from "../types.js";
-import { requireActiveChangeTarget } from "./active-target.js";
+import { assertLatestWorkbenchActionTarget, assertWorkbenchActionChangeScope, requireActiveChangeTarget } from "./active-target.js";
 import { assertGoalLoopAssistedConcreteGateConfirmation } from "./goal-loop-gate-confirmation.js";
 import { readLatestPlanningBundle } from "./planning-bundle.js";
 
@@ -155,11 +155,11 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
   }
   if (request.actionType === "planning.goal-loop.evaluate") {
     await requireActiveChangeTarget(memory, changeId, "planning.goal-loop.evaluate");
-    if (request.changeId && request.changeId !== changeId) throw new Error("planning.goal-loop.evaluate changeId scope mismatch.");
+    assertWorkbenchActionChangeScope(request.changeId, changeId, "planning.goal-loop.evaluate");
   }
   if (request.actionType === "planning.goal-loop.feedback.evaluate") {
     const target = await requireActiveChangeTarget(memory, changeId, "planning.goal-loop.feedback.evaluate");
-    if (request.changeId && request.changeId !== changeId) throw new Error("planning.goal-loop.feedback.evaluate changeId scope mismatch.");
+    assertWorkbenchActionChangeScope(request.changeId, changeId, "planning.goal-loop.feedback.evaluate");
     if (!request.goalLoopNextStepPacketId) throw new Error("planning.goal-loop.feedback.evaluate requires goalLoopNextStepPacketId.");
     const packet = await readLatestGoalLoopNextStepPacket(memory, target.path);
     if (packet.id !== request.goalLoopNextStepPacketId || packet.changeId !== changeId || packet.executionStarted !== false) {
@@ -168,7 +168,7 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
   }
   if (request.actionType === "planning.goal-loop.controller.refresh") {
     const target = await requireActiveChangeTarget(memory, changeId, "planning.goal-loop.controller.refresh");
-    if (request.changeId && request.changeId !== changeId) throw new Error("planning.goal-loop.controller.refresh changeId scope mismatch.");
+    assertWorkbenchActionChangeScope(request.changeId, changeId, "planning.goal-loop.controller.refresh");
     if (!request.goalLoopNextStepPacketId) throw new Error("planning.goal-loop.controller.refresh requires goalLoopNextStepPacketId.");
     if (!request.goalLoopCurrentGateActionType) throw new Error("planning.goal-loop.controller.refresh requires goalLoopCurrentGateActionType.");
     const packet = await readLatestGoalLoopNextStepPacket(memory, target.path);
@@ -181,7 +181,7 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
   }
   if (request.actionType === "planning.goal-loop.gate-readiness.prepare") {
     const target = await requireActiveChangeTarget(memory, changeId, "planning.goal-loop.gate-readiness.prepare");
-    if (request.changeId && request.changeId !== changeId) throw new Error("planning.goal-loop.gate-readiness.prepare changeId scope mismatch.");
+    assertWorkbenchActionChangeScope(request.changeId, changeId, "planning.goal-loop.gate-readiness.prepare");
     if (!request.goalLoopNextStepPacketId) throw new Error("planning.goal-loop.gate-readiness.prepare requires goalLoopNextStepPacketId.");
     if (!request.goalLoopControllerPolicyId) throw new Error("planning.goal-loop.gate-readiness.prepare requires goalLoopControllerPolicyId.");
     if (!request.goalLoopCurrentGateActionType) throw new Error("planning.goal-loop.gate-readiness.prepare requires goalLoopCurrentGateActionType.");
@@ -215,7 +215,7 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
   }
   if (request.actionType === "planning.scheduler.plan.prepare") {
     const target = await requireActiveChangeTarget(memory, changeId, "planning.scheduler.plan.prepare");
-    if (request.changeId && request.changeId !== changeId) throw new Error("planning.scheduler.plan.prepare changeId scope mismatch.");
+    assertWorkbenchActionChangeScope(request.changeId, changeId, "planning.scheduler.plan.prepare");
     if (request.schedulerClaimReservationId || request.schedulerReconcileSnapshotId || request.schedulerRunId) {
       if (!request.schedulerRunId) throw new Error("planning.scheduler.plan.prepare launch confirmation requires schedulerRunId.");
       if (!request.schedulerReconcileSnapshotId) throw new Error("planning.scheduler.plan.prepare launch confirmation requires schedulerReconcileSnapshotId.");
@@ -223,7 +223,7 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
       const run = await readSchedulerRun(memory, target.path, request.schedulerRunId);
       if (run.changeId !== changeId || run.status !== "prepared") throw new Error("planning.scheduler.plan.prepare SchedulerRun target is stale.");
       const latestRun = await readLatestSchedulerRun(memory, target.path);
-      if (latestRun.id !== run.id) throw new Error("planning.scheduler.plan.prepare requires the latest SchedulerRun.");
+      assertLatestWorkbenchActionTarget(latestRun, run, "planning.scheduler.plan.prepare", "SchedulerRun");
       await readSchedulerRuntimeLineage(memory, target.path, run.id);
       const runtimeState = await readSchedulerRuntimeStateProjection(memory, target.path, run.id);
       if (!runtimeState) throw new Error("planning.scheduler.plan.prepare requires initialized SchedulerRuntimeState.");
@@ -295,19 +295,19 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
       throw new Error("planning.scheduler.claim-reconcile.compile SchedulerWorkerSessionPlan target is stale.");
     }
     const latestWorkerPlan = await readLatestSchedulerWorkerSessionPlan(memory, target.path);
-    if (latestWorkerPlan.id !== workerPlan.id) throw new Error("planning.scheduler.claim-reconcile.compile requires the latest SchedulerWorkerSessionPlan.");
+    assertLatestWorkbenchActionTarget(latestWorkerPlan, workerPlan, "planning.scheduler.claim-reconcile.compile", "SchedulerWorkerSessionPlan");
     const dryRun = await readSchedulerDispatchDryRun(memory, target.path, workerPlan.schedulerDispatchDryRunId);
     if (dryRun.id !== workerPlan.schedulerDispatchDryRunId || dryRun.changeId !== changeId || dryRun.status !== "generated") {
       throw new Error("planning.scheduler.claim-reconcile.compile SchedulerDispatchDryRun lineage is stale.");
     }
     const latestDryRun = await readLatestSchedulerDispatchDryRun(memory, target.path);
-    if (latestDryRun.id !== dryRun.id) throw new Error("planning.scheduler.claim-reconcile.compile requires the latest SchedulerDispatchDryRun.");
+    assertLatestWorkbenchActionTarget(latestDryRun, dryRun, "planning.scheduler.claim-reconcile.compile", "SchedulerDispatchDryRun");
     const contract = await readSchedulerContract(memory, target.path, workerPlan.schedulerContractId);
     if (contract.id !== workerPlan.schedulerContractId || contract.id !== dryRun.schedulerContractId || contract.changeId !== changeId || contract.status !== "compiled") {
       throw new Error("planning.scheduler.claim-reconcile.compile SchedulerContract lineage is stale.");
     }
     const latestContract = await readLatestSchedulerContract(memory, target.path);
-    if (latestContract.id !== contract.id) throw new Error("planning.scheduler.claim-reconcile.compile requires the latest SchedulerContract.");
+    assertLatestWorkbenchActionTarget(latestContract, contract, "planning.scheduler.claim-reconcile.compile", "SchedulerContract");
   }
   if (request.actionType === "planning.scheduler.launch-preflight.check") {
     const target = await requireActiveChangeTarget(memory, changeId, "planning.scheduler.launch-preflight.check");
