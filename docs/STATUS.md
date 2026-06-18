@@ -4,21 +4,21 @@
 
 - Current date: 2026-06-18.
 - Active ECL change: none.
-- Pending Harness evolution: `harness/evolution/pending.md`.
+- Pending Harness evolution: none.
 - Latest archived product change: `harness/changes/archive/20260618-phase-12o-product-maintenance-candidate-lifecycle-resolution/summary.md`.
 - Latest archived product/Harness docs change: `harness/changes/archive/20260618-phase-12o-product-maintenance-candidate-lifecycle-resolution/summary.md`.
-- Latest archived Harness evolution: `harness/changes/archive/20260618-auto-evolve-harness-phase-12g-12k-memory-lifecycle-evidence/summary.md`.
+- Latest archived Harness evolution: `harness/changes/archive/20260618-auto-evolve-harness-phase-12k-12o-lifecycle-handoff-drift/summary.md`.
 - Active product phase: none.
 - Active Harness evolution phase: none.
 - Active close status: no active change.
 
-This file is the short resume point. Phase 12O is archived after implementing product maintenance candidate lifecycle-resolution evidence for promote, merge, retire, archive-only, and noop outcomes without automatic stable-memory or documentation rewrites. Phase 12N is archived after adding compact read-only SchedulerRun terminal handoff evidence to main-Agent prompt/context replay when Workpad-visible Goal Loop parity and terminal state match. Phase 12K recorded product-level maintenance/self-evolution targets for documentation entropy, stable-memory budget, stale-current-state detection, and candidate experience lifecycle decisions. The latest Harness evolution retained Phase 12G-12K lessons, tracked `docs/PRODUCT.md` and `docs/MEMORY.md` as product source docs, and added no broader Harness rule/template/lint or runtime behavior.
+This file is the short resume point. The latest Harness evolution handled the Phase 12K-12O pending window, marked it complete as `keep/independent_review`, and corrected current-plan drift after Phase 12O. Phase 12O is archived after implementing product maintenance candidate lifecycle-resolution evidence for promote, merge, retire, archive-only, and noop outcomes without automatic stable-memory or documentation rewrites. Phase 12N is archived after adding compact read-only SchedulerRun terminal handoff evidence to main-Agent prompt/context replay when Workpad-visible Goal Loop parity and terminal state match. Phase 12K recorded product-level maintenance/self-evolution targets for documentation entropy, stable-memory budget, stale-current-state detection, and candidate experience lifecycle decisions.
 
 Current plan-level roadmap context is preserved in `docs/CURRENT-DEVELOPMENT-PLAN.md`. Historical detail belongs in archived summaries and `harness/changes/INDEX.json`.
 
 ## Current Baseline
 
-The product baseline is post-Phase-12O. Goal Loop controlled-loop state, routing posture, and SchedulerRun terminal handoff evidence remain non-executing evidence only. Fresh Workpad-visible main-Agent context can add `goal-loop-controlled-loop-state`, `goal-loop-routing-posture`, and when terminal SchedulerRun parity matches, `goal-loop-scheduler-terminal-handoff` to actual `chat.ask` / `orchestrator.plan` `run.json.promptStack`, plus compact refs to `context.prepared`; stale or hidden Goal Loop context omits those labels/refs. SchedulerRun terminal Workpad completion and blocked-closeout cards explicitly state they are read-only evidence and do not authorize loop/full-executor/dispatch/slot/source/apply/close/merge/Harness-evolution behavior. Product-level maintenance now writes candidate lifecycle-resolution evidence after candidate score/review; it remains proposal/read-only evidence and does not authorize canonical stable-memory/docs rewrites.
+The product baseline is post-Phase-12O with no pending Harness evolution. Goal Loop controlled-loop state, routing posture, and SchedulerRun terminal handoff evidence remain non-executing evidence only. Fresh Workpad-visible main-Agent context can add `goal-loop-controlled-loop-state`, `goal-loop-routing-posture`, and when terminal SchedulerRun parity matches, `goal-loop-scheduler-terminal-handoff` to actual `chat.ask` / `orchestrator.plan` `run.json.promptStack`, plus compact refs to `context.prepared`; stale or hidden Goal Loop context omits those labels/refs. SchedulerRun terminal Workpad completion and blocked-closeout cards explicitly state they are read-only evidence and do not authorize loop/full-executor/dispatch/slot/source/apply/close/merge/Harness-evolution behavior. Product-level maintenance now writes candidate lifecycle-resolution evidence after candidate score/review; it remains proposal/read-only evidence and does not authorize canonical stable-memory/docs rewrites.
 
 The scheduler-loop snapshot and controlled-loop state remain absent from iteration, continuation brief, next-step packet, controller policy, gate-readiness preflight schemas, and Workbench action payloads. They do not authorize ToolPolicy, scheduler runtime, worker auto-start, whole-wave dispatch, slot allocation, source mutation, apply, close, child Change, or Harness evolution.
 
@@ -26,7 +26,7 @@ Phase 12A remains the future controlled Scheduler/parallel loop design boundary.
 
 ## Next Resume Point
 
-No active change is open. Pending Harness evolution exists at `harness/evolution/pending.md`; next structured work should handle it through ECL with proposal, independent review, validation, results row, and `harness-evolve mark-complete`. Stale documentation cleanup should be folded into the relevant product stage instead of split into a standalone phase unless the user explicitly asks for documentation-only work; keep `README.md` unrelated and untracked unless the user explicitly asks to include it.
+No active change is open and no Harness evolution is pending. Next structured product work should continue from `docs/CURRENT-DEVELOPMENT-PLAN.md` and the post-Phase-12O baseline. Stale documentation cleanup should be folded into the relevant product stage instead of split into a standalone phase unless the user explicitly asks for documentation-only work; keep `README.md` unrelated and untracked unless the user explicitly asks to include it.
 
 ## Verification Commands
 
@@ -66,6 +66,6 @@ Recent key archive summaries:
 - Phase 12J Goal Loop Routing Posture Runtime Evidence: `harness/changes/archive/20260618-phase-12j-goal-loop-routing-posture-runtime-evidence/summary.md`.
 - Phase 12H Controlled Loop Runtime Prompt Evidence: `harness/changes/archive/20260618-phase-12h-controlled-loop-runtime-prompt-evidence/summary.md`.
 - Phase 12A Controlled Scheduler Loop Design Boundary: `harness/changes/archive/20260618-phase-12a-controlled-scheduler-loop-design-boundary/summary.md`.
-- Latest Harness evolution: `harness/changes/archive/20260618-auto-evolve-harness-phase-12g-12k-memory-lifecycle-evidence/summary.md`.
+- Latest Harness evolution: `harness/changes/archive/20260618-auto-evolve-harness-phase-12k-12o-lifecycle-handoff-drift/summary.md`.
 
 Detailed historical phase narratives are archive-only. Do not copy them back into this handoff unless they change current agent decisions.

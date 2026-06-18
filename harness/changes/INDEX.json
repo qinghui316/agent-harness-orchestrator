@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-18T11:25:56.1742203Z",
+    "generated_at":  "2026-06-18T11:36:37.9366939Z",
     "active":  [
 
                ],
@@ -989,6 +989,10 @@
                     {
                         "name":  "20260618-auto-evolve-harness-phase-12g-12k-memory-lifecycle-evidence",
                         "path":  "harness/changes/archive/20260618-auto-evolve-harness-phase-12g-12k-memory-lifecycle-evidence"
+                    },
+                    {
+                        "name":  "20260618-auto-evolve-harness-phase-12k-12o-lifecycle-handoff-drift",
+                        "path":  "harness/changes/archive/20260618-auto-evolve-harness-phase-12k-12o-lifecycle-handoff-drift"
                     },
                     {
                         "name":  "20260618-phase-11m-goal-loop-enabled-gate-projection-guard",
