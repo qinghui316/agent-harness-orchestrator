@@ -2813,7 +2813,7 @@ describe("workbench read model", () => {
       const chatContext = await readFile(join(memory.runsRoot, chat.run.id, "context.md"), "utf8");
       const chatPrompt = await readFile(join(memory.runsRoot, chat.run.id, "prompt.md"), "utf8");
       const chatEvents = await readJsonl(join(memory.runsRoot, chat.run.id, "events.jsonl"));
-      expect(chatRun.promptStack).toEqual(expect.arrayContaining(["goal-loop-next-step-packet", "goal-loop-controlled-loop-state", "goal-loop-controller-policy"]));
+      expect(chatRun.promptStack).toEqual(expect.arrayContaining(["goal-loop-next-step-packet", "goal-loop-routing-posture", "goal-loop-controlled-loop-state", "goal-loop-controller-policy"]));
       expect(chatContext).toContain("### Controller Policy");
       expect(chatContext).toContain("### Controlled Loop State Evidence");
       expect(chatContext).toContain("### Routing Posture");
@@ -2838,6 +2838,22 @@ describe("workbench read model", () => {
             goalLoopControllerPolicyId: visibleGoalLoop?.controllerPolicyId,
             goalLoopRoutingPosture: visibleGoalLoop?.routingPosture,
             goalLoopRoutingLabel: visibleGoalLoop?.routingLabel,
+            goalLoopRoutingPostureEvidence: expect.objectContaining({
+              authority: "non-executing-routing-posture-prompt-evidence",
+              goalLoopNextStepPacketId: visibleGoalLoop?.goalLoopNextStepPacketId,
+              routingPosture: visibleGoalLoop?.routingPosture,
+              routingLabel: visibleGoalLoop?.routingLabel,
+              schedulerExecutionMode: "single-gate-staged",
+              currentLegalActionType: "planning.scheduler.worker.validate-first",
+              loopAuthorized: false,
+              fullParallelExecutorAuthorized: false,
+              wholeWaveDispatchAuthorized: false,
+              slotAllocatorAuthorized: false,
+              sourceMutationAuthorized: false,
+              applyAuthorized: false,
+              closeAuthorized: false,
+              harnessEvolutionAuthorized: false,
+            }),
             goalLoopGuidedGateActionType: "planning.scheduler.worker.validate-first",
             goalLoopGuidedGateScope: expect.objectContaining({
               changeId: prepared.topic.changeId,
@@ -2863,6 +2879,10 @@ describe("workbench read model", () => {
       const chatContextPrepared = chatEvents.find((event) => event.type === "context.prepared")?.data as Record<string, unknown> | undefined;
       expect(chatContextPrepared).toBeTruthy();
       expect(chatContextPrepared).not.toHaveProperty("schedulerLoopEvidenceSnapshot");
+      expect(chatContextPrepared?.goalLoopRoutingPostureEvidence).not.toHaveProperty("schedulerLoopEvidenceSnapshot");
+      expect(chatContextPrepared?.goalLoopRoutingPostureEvidence).not.toHaveProperty("markdown");
+      expect(chatContextPrepared?.goalLoopRoutingPostureEvidence).not.toHaveProperty("scope");
+      expect(chatContextPrepared?.goalLoopRoutingPostureEvidence).not.toHaveProperty("goalLoopGuidedGateScope");
       expect(chatContextPrepared?.goalLoopControlledLoopState).not.toHaveProperty("schedulerLoopEvidenceSnapshot");
       expect(chatContextPrepared?.goalLoopControlledLoopState).not.toHaveProperty("recommendedActionScope");
       expect(chatContextPrepared?.goalLoopControlledLoopState).not.toHaveProperty("markdown");
@@ -2872,7 +2892,7 @@ describe("workbench read model", () => {
       const orchestratorContext = await readFile(join(memory.runsRoot, orchestrator.run.id, "context.md"), "utf8");
       const orchestratorPrompt = await readFile(join(memory.runsRoot, orchestrator.run.id, "prompt.md"), "utf8");
       const orchestratorEvents = await readJsonl(join(memory.runsRoot, orchestrator.run.id, "events.jsonl"));
-      expect(orchestratorRun.promptStack).toEqual(expect.arrayContaining(["goal-loop-next-step-packet", "goal-loop-controlled-loop-state", "goal-loop-controller-policy"]));
+      expect(orchestratorRun.promptStack).toEqual(expect.arrayContaining(["goal-loop-next-step-packet", "goal-loop-routing-posture", "goal-loop-controlled-loop-state", "goal-loop-controller-policy"]));
       expect(orchestratorContext).toContain("### Controller Policy");
       expect(orchestratorContext).toContain("### Controlled Loop State Evidence");
       expect(orchestratorContext).toContain("### Routing Posture");
@@ -2893,6 +2913,22 @@ describe("workbench read model", () => {
             goalLoopControllerPolicyId: visibleGoalLoop?.controllerPolicyId,
             goalLoopRoutingPosture: visibleGoalLoop?.routingPosture,
             goalLoopRoutingLabel: visibleGoalLoop?.routingLabel,
+            goalLoopRoutingPostureEvidence: expect.objectContaining({
+              authority: "non-executing-routing-posture-prompt-evidence",
+              goalLoopNextStepPacketId: visibleGoalLoop?.goalLoopNextStepPacketId,
+              routingPosture: visibleGoalLoop?.routingPosture,
+              routingLabel: visibleGoalLoop?.routingLabel,
+              schedulerExecutionMode: "single-gate-staged",
+              currentLegalActionType: "planning.scheduler.worker.validate-first",
+              loopAuthorized: false,
+              fullParallelExecutorAuthorized: false,
+              wholeWaveDispatchAuthorized: false,
+              slotAllocatorAuthorized: false,
+              sourceMutationAuthorized: false,
+              applyAuthorized: false,
+              closeAuthorized: false,
+              harnessEvolutionAuthorized: false,
+            }),
             goalLoopGuidedGateActionType: "planning.scheduler.worker.validate-first",
             goalLoopGuidedGateScope: expect.objectContaining({
               changeId: prepared.topic.changeId,
@@ -2918,6 +2954,10 @@ describe("workbench read model", () => {
       const orchestratorContextPrepared = orchestratorEvents.find((event) => event.type === "context.prepared")?.data as Record<string, unknown> | undefined;
       expect(orchestratorContextPrepared).toBeTruthy();
       expect(orchestratorContextPrepared).not.toHaveProperty("schedulerLoopEvidenceSnapshot");
+      expect(orchestratorContextPrepared?.goalLoopRoutingPostureEvidence).not.toHaveProperty("schedulerLoopEvidenceSnapshot");
+      expect(orchestratorContextPrepared?.goalLoopRoutingPostureEvidence).not.toHaveProperty("markdown");
+      expect(orchestratorContextPrepared?.goalLoopRoutingPostureEvidence).not.toHaveProperty("scope");
+      expect(orchestratorContextPrepared?.goalLoopRoutingPostureEvidence).not.toHaveProperty("goalLoopGuidedGateScope");
       expect(orchestratorContextPrepared?.goalLoopControlledLoopState).not.toHaveProperty("schedulerLoopEvidenceSnapshot");
       expect(orchestratorContextPrepared?.goalLoopControlledLoopState).not.toHaveProperty("recommendedActionScope");
       expect(orchestratorContextPrepared?.goalLoopControlledLoopState).not.toHaveProperty("markdown");
@@ -2945,6 +2985,7 @@ describe("workbench read model", () => {
       const staleContext = await readFile(join(memory.runsRoot, stalePolicyChat.run.id, "context.md"), "utf8");
       const staleEvents = await readJsonl(join(memory.runsRoot, stalePolicyChat.run.id, "events.jsonl"));
       expect(staleRun.promptStack).toContain("goal-loop-next-step-packet");
+      expect(staleRun.promptStack).toContain("goal-loop-routing-posture");
       expect(staleRun.promptStack).toContain("goal-loop-controlled-loop-state");
       expect(staleRun.promptStack).not.toContain("goal-loop-controller-policy");
       expect(staleContext).toContain("Goal Loop Next-Step Packet");
@@ -2958,6 +2999,13 @@ describe("workbench read model", () => {
           data: expect.objectContaining({
             goalLoopRoutingPosture: expect.any(String),
             goalLoopRoutingLabel: expect.any(String),
+            goalLoopRoutingPostureEvidence: expect.objectContaining({
+              authority: "non-executing-routing-posture-prompt-evidence",
+              loopAuthorized: false,
+              applyAuthorized: false,
+              closeAuthorized: false,
+              harnessEvolutionAuthorized: false,
+            }),
             goalLoopControlledLoopState: expect.objectContaining({
               state: "awaiting-human-gate",
               loopAuthorized: false,
@@ -2980,6 +3028,7 @@ describe("workbench read model", () => {
       const staleOrchestratorContext = await readFile(join(memory.runsRoot, stalePolicyOrchestrator.run.id, "context.md"), "utf8");
       const staleOrchestratorEvents = await readJsonl(join(memory.runsRoot, stalePolicyOrchestrator.run.id, "events.jsonl"));
       expect(staleOrchestratorRun.promptStack).toContain("goal-loop-next-step-packet");
+      expect(staleOrchestratorRun.promptStack).toContain("goal-loop-routing-posture");
       expect(staleOrchestratorRun.promptStack).toContain("goal-loop-controlled-loop-state");
       expect(staleOrchestratorRun.promptStack).not.toContain("goal-loop-controller-policy");
       expect(staleOrchestratorContext).toContain("Goal Loop Next-Step Packet");
@@ -2993,6 +3042,13 @@ describe("workbench read model", () => {
           data: expect.objectContaining({
             goalLoopRoutingPosture: expect.any(String),
             goalLoopRoutingLabel: expect.any(String),
+            goalLoopRoutingPostureEvidence: expect.objectContaining({
+              authority: "non-executing-routing-posture-prompt-evidence",
+              loopAuthorized: false,
+              applyAuthorized: false,
+              closeAuthorized: false,
+              harnessEvolutionAuthorized: false,
+            }),
             goalLoopControlledLoopState: expect.objectContaining({
               state: "awaiting-human-gate",
               loopAuthorized: false,
@@ -3017,6 +3073,7 @@ describe("workbench read model", () => {
       const hiddenContext = await readFile(join(memory.runsRoot, hiddenGoalLoopChat.run.id, "context.md"), "utf8");
       const hiddenEvents = await readJsonl(join(memory.runsRoot, hiddenGoalLoopChat.run.id, "events.jsonl"));
       expect(hiddenRun.promptStack).not.toContain("goal-loop-next-step-packet");
+      expect(hiddenRun.promptStack).not.toContain("goal-loop-routing-posture");
       expect(hiddenRun.promptStack).not.toContain("goal-loop-controlled-loop-state");
       expect(hiddenRun.promptStack).not.toContain("goal-loop-controller-policy");
       expect(hiddenContext).not.toContain("Goal Loop Next-Step Packet");
@@ -3026,6 +3083,7 @@ describe("workbench read model", () => {
           type: "context.prepared",
           data: expect.not.objectContaining({
             goalLoopNextStepPacketId: expect.any(String),
+            goalLoopRoutingPostureEvidence: expect.any(Object),
             goalLoopControlledLoopState: expect.any(Object),
             goalLoopControllerPolicyId: expect.any(String),
           }),
@@ -3037,6 +3095,7 @@ describe("workbench read model", () => {
       const hiddenOrchestratorContext = await readFile(join(memory.runsRoot, hiddenGoalLoopOrchestrator.run.id, "context.md"), "utf8");
       const hiddenOrchestratorEvents = await readJsonl(join(memory.runsRoot, hiddenGoalLoopOrchestrator.run.id, "events.jsonl"));
       expect(hiddenOrchestratorRun.promptStack).not.toContain("goal-loop-next-step-packet");
+      expect(hiddenOrchestratorRun.promptStack).not.toContain("goal-loop-routing-posture");
       expect(hiddenOrchestratorRun.promptStack).not.toContain("goal-loop-controlled-loop-state");
       expect(hiddenOrchestratorRun.promptStack).not.toContain("goal-loop-controller-policy");
       expect(hiddenOrchestratorContext).not.toContain("Goal Loop Next-Step Packet");
@@ -3046,6 +3105,7 @@ describe("workbench read model", () => {
           type: "context.prepared",
           data: expect.not.objectContaining({
             goalLoopNextStepPacketId: expect.any(String),
+            goalLoopRoutingPostureEvidence: expect.any(Object),
             goalLoopControlledLoopState: expect.any(Object),
             goalLoopControllerPolicyId: expect.any(String),
           }),
@@ -3056,6 +3116,143 @@ describe("workbench read model", () => {
       else process.env.PATH = oldPath;
     }
   });
+
+  it("records quality rework routing posture in actual main-agent prompt artifacts", async () => {
+    const prepared = await prepareSchedulerFirstWorkerThroughResult({
+      title: "Goal Loop Rework Routing Runtime Evidence",
+      packageTestScript: "node -e \"process.exit(1)\"",
+    });
+    const memory = await resolveProjectMemory(project());
+    const changePath = join("harness", "changes", "active", prepared.topic.changeId);
+    const validationAction = (await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: prepared.topic.changeId }))
+      .right.confirmationQueue.current
+      .flatMap((item) => item.actions)
+      .find((action) => action.actionType === "planning.scheduler.worker.validate-first" && action.schedulerWorkerResultId === prepared.workerResult.id);
+    if (!validationAction) throw new Error("Missing scheduler first worker validation action.");
+    const validated = await executeWorkbenchAction({ project: project(), path: tempDir }, { ...validationAction, confirm: true });
+    const schedulerWorkerValidationId = ((validated.result as { result?: { schedulerValidation?: { id?: string } } }).result)?.schedulerValidation?.id;
+
+    await compileGoalLoopEvaluation(memory, changePath);
+    const visibleGoalLoop = (await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: prepared.topic.changeId })).center.workpad.goalLoop;
+    expect(visibleGoalLoop).toMatchObject({
+      routingPosture: "blocked-or-rework",
+      routingLabel: "Blocked or bounded rework",
+      controlledLoopState: {
+        state: "quality-routing",
+        currentLegalActionType: "planning.scheduler.worker.rework-plan.compile",
+      },
+    });
+
+    const oldPath = process.env.PATH;
+    const fakeCodex = await createFakeCodex();
+    process.env.PATH = `${fakeCodex.binDir}${delimiter}${oldPath ?? ""}`;
+    try {
+      const chat = await runCodexChat(project(), prepared.topic.changeId, "Explain the rework route.");
+      const chatRun = JSON.parse(await readFile(join(memory.runsRoot, chat.run.id, "run.json"), "utf8")) as RunMetadata;
+      const chatEvents = await readJsonl(join(memory.runsRoot, chat.run.id, "events.jsonl"));
+      expect(chatRun.promptStack).toEqual(expect.arrayContaining(["goal-loop-next-step-packet", "goal-loop-routing-posture", "goal-loop-controlled-loop-state"]));
+      const chatPrepared = chatEvents.find((event) => event.type === "context.prepared")?.data as Record<string, unknown> | undefined;
+      expect(chatPrepared).toEqual(expect.objectContaining({
+        goalLoopRoutingPostureEvidence: expect.objectContaining({
+          authority: "non-executing-routing-posture-prompt-evidence",
+          routingPosture: "blocked-or-rework",
+          routingLabel: "Blocked or bounded rework",
+          schedulerExecutionMode: "single-gate-staged",
+          currentLegalActionType: "planning.scheduler.worker.rework-plan.compile",
+          loopAuthorized: false,
+          applyAuthorized: false,
+          closeAuthorized: false,
+          harnessEvolutionAuthorized: false,
+        }),
+      }));
+      expect(chatPrepared?.goalLoopRoutingPostureEvidence).not.toHaveProperty("schedulerLoopEvidenceSnapshot");
+      expect(chatPrepared?.goalLoopRoutingPostureEvidence).not.toHaveProperty("markdown");
+      expect(chatPrepared?.goalLoopRoutingPostureEvidence).not.toHaveProperty("scope");
+
+      const orchestrator = await runOrchestratorPlan(project(), prepared.topic.changeId, "Plan from the rework route.");
+      const orchestratorRun = JSON.parse(await readFile(join(memory.runsRoot, orchestrator.run.id, "run.json"), "utf8")) as RunMetadata;
+      const orchestratorEvents = await readJsonl(join(memory.runsRoot, orchestrator.run.id, "events.jsonl"));
+      expect(orchestratorRun.promptStack).toEqual(expect.arrayContaining(["goal-loop-next-step-packet", "goal-loop-routing-posture", "goal-loop-controlled-loop-state"]));
+      expect(orchestratorEvents).toEqual(expect.arrayContaining([expect.objectContaining({
+        type: "context.prepared",
+        data: expect.objectContaining({
+          goalLoopRoutingPostureEvidence: expect.objectContaining({
+            routingPosture: "blocked-or-rework",
+            currentLegalActionType: "planning.scheduler.worker.rework-plan.compile",
+            loopAuthorized: false,
+            sourceMutationAuthorized: false,
+            applyAuthorized: false,
+          }),
+        }),
+      })]));
+      expect(schedulerWorkerValidationId).toBeTruthy();
+    } finally {
+      if (oldPath === undefined) delete process.env.PATH;
+      else process.env.PATH = oldPath;
+    }
+  }, 300000);
+
+  it("records integration-barrier routing posture in actual main-agent prompt artifacts", async () => {
+    const prepared = await prepareSchedulerTwoWorkerIntegrationHandoff("Goal Loop Integration Routing Runtime Evidence");
+    const memory = await resolveProjectMemory(project());
+    const changePath = join("harness", "changes", "active", prepared.topic.changeId);
+
+    await compileGoalLoopEvaluation(memory, changePath);
+    const visibleGoalLoop = (await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: prepared.topic.changeId })).center.workpad.goalLoop;
+    expect(visibleGoalLoop).toMatchObject({
+      routingPosture: "integration-check-required",
+      routingLabel: "IntegrationCheck path required",
+      controlledLoopState: {
+        state: "integration-barrier",
+      },
+    });
+
+    const oldPath = process.env.PATH;
+    const fakeCodex = await createFakeCodex();
+    process.env.PATH = `${fakeCodex.binDir}${delimiter}${oldPath ?? ""}`;
+    try {
+      const chat = await runCodexChat(project(), prepared.topic.changeId, "Explain the integration barrier.");
+      const chatRun = JSON.parse(await readFile(join(memory.runsRoot, chat.run.id, "run.json"), "utf8")) as RunMetadata;
+      const chatEvents = await readJsonl(join(memory.runsRoot, chat.run.id, "events.jsonl"));
+      expect(chatRun.promptStack).toEqual(expect.arrayContaining(["goal-loop-next-step-packet", "goal-loop-routing-posture", "goal-loop-controlled-loop-state"]));
+      expect(chatEvents).toEqual(expect.arrayContaining([expect.objectContaining({
+        type: "context.prepared",
+        data: expect.objectContaining({
+          goalLoopRoutingPostureEvidence: expect.objectContaining({
+            authority: "non-executing-routing-posture-prompt-evidence",
+            routingPosture: "integration-check-required",
+            routingLabel: "IntegrationCheck path required",
+            schedulerExecutionMode: "blocked-or-waiting",
+            loopAuthorized: false,
+            wholeWaveDispatchAuthorized: false,
+            slotAllocatorAuthorized: false,
+            sourceMutationAuthorized: false,
+            applyAuthorized: false,
+          }),
+        }),
+      })]));
+
+      const orchestrator = await runOrchestratorPlan(project(), prepared.topic.changeId, "Plan from the integration barrier.");
+      const orchestratorRun = JSON.parse(await readFile(join(memory.runsRoot, orchestrator.run.id, "run.json"), "utf8")) as RunMetadata;
+      const orchestratorEvents = await readJsonl(join(memory.runsRoot, orchestrator.run.id, "events.jsonl"));
+      expect(orchestratorRun.promptStack).toEqual(expect.arrayContaining(["goal-loop-next-step-packet", "goal-loop-routing-posture", "goal-loop-controlled-loop-state"]));
+      const orchestratorPrepared = orchestratorEvents.find((event) => event.type === "context.prepared")?.data as Record<string, unknown> | undefined;
+      expect(orchestratorPrepared?.goalLoopRoutingPostureEvidence).toEqual(expect.objectContaining({
+        routingPosture: "integration-check-required",
+        routingLabel: "IntegrationCheck path required",
+        loopAuthorized: false,
+        sourceMutationAuthorized: false,
+        applyAuthorized: false,
+        closeAuthorized: false,
+      }));
+      expect(orchestratorPrepared?.goalLoopRoutingPostureEvidence).not.toHaveProperty("schedulerLoopEvidenceSnapshot");
+      expect(orchestratorPrepared?.goalLoopRoutingPostureEvidence).not.toHaveProperty("markdown");
+      expect(orchestratorPrepared?.goalLoopRoutingPostureEvidence).not.toHaveProperty("scope");
+    } finally {
+      if (oldPath === undefined) delete process.env.PATH;
+      else process.env.PATH = oldPath;
+    }
+  }, 300000);
 
   it("rejects stale planning bundle confirmation", async () => {
     await initHarness(project());

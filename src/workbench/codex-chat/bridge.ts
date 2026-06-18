@@ -29,6 +29,7 @@ import type {
 } from "../types.js";
 import { createAssistantTranscriptCapture } from "../live-transcript.js";
 import { buildChatContext, buildOrchestratorContext } from "./context.js";
+import { buildGoalLoopContextPreparedEvidence, goalLoopPromptStackLabels } from "./goal-loop-prompt-evidence.js";
 export async function runOrchestratorPlan(project: ManagedProject, changeId: string, userMessage: string, live?: WorkbenchLiveSink): Promise<{
   run: RunMetadata;
   routingDecision: TopicRoutingDecision;
@@ -93,18 +94,12 @@ export async function runOrchestratorPlan(project: ManagedProject, changeId: str
   await appendRunEvent(paths.events, { timestamp: now, type: "orchestrator.plan.started", runId, data: { changeId } });
 
   const contextResult = await buildOrchestratorContext(project, memory, changePath, changeId, userMessage);
-  if (contextResult.goalLoopNextStepPacketId) {
-    run = { ...run, promptStack: [...(run.promptStack ?? []), "goal-loop-next-step-packet"] };
+  const goalLoopLabels = goalLoopPromptStackLabels(contextResult);
+  if (goalLoopLabels.length > 0) {
+    run = { ...run, promptStack: [...(run.promptStack ?? []), ...goalLoopLabels] };
     await writeJsonFile(paths.run, run);
   }
-  if (contextResult.goalLoopControlledLoopState) {
-    run = { ...run, promptStack: [...(run.promptStack ?? []), "goal-loop-controlled-loop-state"] };
-    await writeJsonFile(paths.run, run);
-  }
-  if (contextResult.goalLoopControllerPolicyId) {
-    run = { ...run, promptStack: [...(run.promptStack ?? []), "goal-loop-controller-policy"] };
-    await writeJsonFile(paths.run, run);
-  }
+  const goalLoopPreparedEvidence = buildGoalLoopContextPreparedEvidence(contextResult);
   const context = contextResult.context;
   await writeFile(paths.context, context, "utf8");
   await appendRunEvent(paths.events, {
@@ -113,13 +108,7 @@ export async function runOrchestratorPlan(project: ManagedProject, changeId: str
     runId,
     data: {
       path: run.artifacts.context,
-      goalLoopNextStepPacketId: contextResult.goalLoopNextStepPacketId,
-      goalLoopControllerPolicyId: contextResult.goalLoopControllerPolicyId,
-      goalLoopRoutingPosture: contextResult.goalLoopRoutingPosture,
-      goalLoopRoutingLabel: contextResult.goalLoopRoutingLabel,
-      goalLoopGuidedGateActionType: contextResult.goalLoopGuidedGateActionType,
-      goalLoopGuidedGateScope: contextResult.goalLoopGuidedGateScope,
-      goalLoopControlledLoopState: contextResult.goalLoopControlledLoopState,
+      ...goalLoopPreparedEvidence,
     },
   });
   const prompt = `${buildAgentSystemPrompt(role)}\n\n${context}\n\n## User Message\n\n${userMessage}\n`;
@@ -289,18 +278,12 @@ export async function runCodexChat(project: ManagedProject, changeId: string, us
   live?.emit({ event: "run.started", data: { runId, changeId, runtime: "codex-readonly", actionType: "chat.ask" } });
   await appendRunEvent(paths.events, { timestamp: now, type: "run.created", runId, data: { changeId, runtime: "codex-chat", requestedResume: Boolean(runtime.codexSessionId), skills: skillContext.records.map((item) => item.id) } });
   const contextResult = await buildChatContext(project, memory, changeId, userMessage);
-  if (contextResult.goalLoopNextStepPacketId) {
-    run = { ...run, promptStack: [...(run.promptStack ?? []), "goal-loop-next-step-packet"] };
+  const goalLoopLabels = goalLoopPromptStackLabels(contextResult);
+  if (goalLoopLabels.length > 0) {
+    run = { ...run, promptStack: [...(run.promptStack ?? []), ...goalLoopLabels] };
     await writeJsonFile(paths.run, run);
   }
-  if (contextResult.goalLoopControlledLoopState) {
-    run = { ...run, promptStack: [...(run.promptStack ?? []), "goal-loop-controlled-loop-state"] };
-    await writeJsonFile(paths.run, run);
-  }
-  if (contextResult.goalLoopControllerPolicyId) {
-    run = { ...run, promptStack: [...(run.promptStack ?? []), "goal-loop-controller-policy"] };
-    await writeJsonFile(paths.run, run);
-  }
+  const goalLoopPreparedEvidence = buildGoalLoopContextPreparedEvidence(contextResult);
   const context = contextResult.context;
   await writeFile(paths.context, context, "utf8");
   const prompt = `${context}${skillContext.promptSection ? `\n\n${skillContext.promptSection}` : ""}\n\n## User Message\n\n${userMessage}\n`;
@@ -311,13 +294,7 @@ export async function runCodexChat(project: ManagedProject, changeId: string, us
     runId,
     data: {
       path: run.artifacts.context,
-      goalLoopNextStepPacketId: contextResult.goalLoopNextStepPacketId,
-      goalLoopControllerPolicyId: contextResult.goalLoopControllerPolicyId,
-      goalLoopRoutingPosture: contextResult.goalLoopRoutingPosture,
-      goalLoopRoutingLabel: contextResult.goalLoopRoutingLabel,
-      goalLoopGuidedGateActionType: contextResult.goalLoopGuidedGateActionType,
-      goalLoopGuidedGateScope: contextResult.goalLoopGuidedGateScope,
-      goalLoopControlledLoopState: contextResult.goalLoopControlledLoopState,
+      ...goalLoopPreparedEvidence,
     },
   });
 

@@ -26,6 +26,7 @@ export interface MainAgentContextResult {
   goalLoopControllerPolicyId?: string;
   goalLoopRoutingPosture?: string;
   goalLoopRoutingLabel?: string;
+  goalLoopSchedulerExecutionMode?: string;
   goalLoopGuidedGateActionType?: string;
   goalLoopGuidedGateScope?: Record<string, string | string[]>;
   goalLoopControlledLoopState?: GoalLoopControlledLoopStatePromptEvidence;
@@ -46,6 +47,7 @@ export async function buildChatContext(
     goalLoopControllerPolicyId: goalLoopSection?.goalLoopControllerPolicyId,
     goalLoopRoutingPosture: goalLoopSection?.routingPosture,
     goalLoopRoutingLabel: goalLoopSection?.routingLabel,
+    goalLoopSchedulerExecutionMode: goalLoopSection?.schedulerExecutionMode,
     goalLoopGuidedGateActionType: goalLoopSection?.guidedGateActionType,
     goalLoopGuidedGateScope: goalLoopSection?.guidedGateScope,
     goalLoopControlledLoopState: buildControlledLoopStatePromptEvidence(goalLoopSection),
@@ -84,6 +86,7 @@ export async function buildOrchestratorContext(
     goalLoopControllerPolicyId: goalLoopSection?.goalLoopControllerPolicyId,
     goalLoopRoutingPosture: goalLoopSection?.routingPosture,
     goalLoopRoutingLabel: goalLoopSection?.routingLabel,
+    goalLoopSchedulerExecutionMode: goalLoopSection?.schedulerExecutionMode,
     goalLoopGuidedGateActionType: goalLoopSection?.guidedGateActionType,
     goalLoopGuidedGateScope: goalLoopSection?.guidedGateScope,
     goalLoopControlledLoopState: buildControlledLoopStatePromptEvidence(goalLoopSection),

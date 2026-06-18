@@ -9,6 +9,7 @@ export interface VisibleGoalLoopMainAgentContextSection {
   goalLoopControllerPolicyId?: string;
   routingPosture: string;
   routingLabel: string;
+  schedulerExecutionMode: string;
   guidedGateActionType?: string;
   guidedGateScope?: Record<string, string | string[]>;
   closeGateHandoff?: GoalLoopCloseGateHandoff;

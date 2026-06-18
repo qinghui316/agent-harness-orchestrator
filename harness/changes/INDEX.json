@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-18T02:23:45.8278756Z",
+    "generated_at":  "2026-06-18T03:12:28.5159720Z",
     "active":  [
 
                ],
@@ -1073,6 +1073,10 @@
                     {
                         "name":  "20260618-phase-12i-status-handoff-entropy-cleanup",
                         "path":  "harness/changes/archive/20260618-phase-12i-status-handoff-entropy-cleanup"
+                    },
+                    {
+                        "name":  "20260618-phase-12j-goal-loop-routing-posture-runtime-evidence",
+                        "path":  "harness/changes/archive/20260618-phase-12j-goal-loop-routing-posture-runtime-evidence"
                     }
                 ]
 }
