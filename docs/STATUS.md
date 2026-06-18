@@ -5,13 +5,13 @@
 - Current date: 2026-06-18.
 - Active ECL change: none.
 - Pending Harness evolution: none.
-- Latest archived product change: `harness/changes/archive/20260618-phase-12f-controlled-loop-state-evidence/summary.md`.
+- Latest archived product change: `harness/changes/archive/20260618-phase-12g-controlled-loop-state-main-agent-context/summary.md`.
 - Latest archived product/Harness docs change: `harness/changes/archive/20260618-phase-12a-controlled-scheduler-loop-design-boundary/summary.md`.
-- Latest archived Harness evolution: `harness/changes/archive/20260618-auto-evolve-harness-phase-11x-12c-scheduler-loop-evidence/summary.md`.
+- Latest archived Harness evolution: `harness/changes/archive/20260618-auto-evolve-harness-phase-12c-12g-controlled-loop-context-evidence/summary.md`.
 - Active product phase: none. Active Harness evolution phase: none.
 - Active close status: no active change.
 
-This file is the short resume point. Phase 12F is archived after making the Phase 12A controlled Scheduler loop state-machine interpretation inspectable as non-executing Goal Loop decision evidence. The implementation keeps `schedulerLoopEvidenceSnapshot.posture` as the persisted compatibility field, derives nested `controlledLoopState` from the same single classifier, renders it in decision Markdown, and projects a compact read-only Workpad/frontend summary only after the existing scheduler-loop snapshot parity guard passes. The state remains absent from packet/controller/preflight/iteration/brief schemas and Workbench action payloads, and adds no ToolPolicy/human gate, scheduler runtime, source mutation, recommendation authority, apply/close, child Change, or Harness evolution authority. No Harness evolution is pending. Phase 12A remains the future controlled Scheduler/parallel loop design boundary. For full history, use `harness/changes/INDEX.json` and archived `summary.md` files.
+This file is the short resume point. Phase 12G is archived after surfacing the Phase 12F validated `controlledLoopState` in main-Agent prompt context as read-only explanatory evidence after the existing scheduler-loop snapshot parity guard passes. It keeps the state absent from packet/controller/preflight/iteration/brief schemas and Workbench action payloads, and adds no ToolPolicy/human gate, scheduler runtime, source mutation, recommendation authority, apply/close, child Change, or Harness evolution authority. The Phase 12C-12G Harness evolution window completed as `noop/independent_review` with Kant score 84/100; existing Goal Loop Boundary, Runtime Bridge Boundary, Proposal/Runtime Boundary, Read Model Projection, Scoped Workbench Action Payload, Module Boundary, Documentation Entropy, Experience Lifecycle, and ToolPolicy/human-gate rules are sufficient, so no Harness rule/template/lint/docs/product change was added. No Harness evolution is pending. Phase 12A remains the future controlled Scheduler/parallel loop design boundary. For full history, use `harness/changes/INDEX.json` and archived `summary.md` files.
 
 Current plan-level roadmap context is preserved in `docs/CURRENT-DEVELOPMENT-PLAN.md`.
 
@@ -350,7 +350,7 @@ The pending Phase 10P-10T Goal Loop controller/feedback/context/prompt evidence 
 
 ## Next Resume Point
 
-No active change is open and no Harness evolution is pending. A reasonable next product slice is another small Goal Loop / controlled Scheduler step that keeps current runtime single-gate staged, for example using controlled-loop state evidence to improve main-Agent explanation or adding another narrow regression around integration/rework routing without adding loop execution. `README.md` remains unrelated and must stay untracked unless the user explicitly asks to include it.
+No active change is open and no Harness evolution is pending. A reasonable next product slice is another small Goal Loop / controlled Scheduler step that keeps current runtime single-gate staged, for example adding a narrow regression around integration/rework routing or improving main-Agent explanation without adding loop execution. `README.md` remains unrelated and must stay untracked unless the user explicitly asks to include it.
 
 ## Verification Commands
 

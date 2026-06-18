@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-18T00:51:09.4326327Z",
+    "generated_at":  "2026-06-18T01:36:36.1146984Z",
     "active":  [
 
                ],
@@ -983,6 +983,10 @@
                         "path":  "harness/changes/archive/20260618-auto-evolve-harness-phase-11x-12c-scheduler-loop-evidence"
                     },
                     {
+                        "name":  "20260618-auto-evolve-harness-phase-12c-12g-controlled-loop-context-evidence",
+                        "path":  "harness/changes/archive/20260618-auto-evolve-harness-phase-12c-12g-controlled-loop-context-evidence"
+                    },
+                    {
                         "name":  "20260618-phase-11m-goal-loop-enabled-gate-projection-guard",
                         "path":  "harness/changes/archive/20260618-phase-11m-goal-loop-enabled-gate-projection-guard"
                     },
@@ -1057,6 +1061,10 @@
                     {
                         "name":  "20260618-phase-12f-controlled-loop-state-evidence",
                         "path":  "harness/changes/archive/20260618-phase-12f-controlled-loop-state-evidence"
+                    },
+                    {
+                        "name":  "20260618-phase-12g-controlled-loop-state-main-agent-context",
+                        "path":  "harness/changes/archive/20260618-phase-12g-controlled-loop-state-main-agent-context"
                     }
                 ]
 }

@@ -13,7 +13,13 @@ import {
   readLatestGoalLoopNextStepPacket,
 } from "./repository.js";
 import { isGoalLoopNextStepPacketFresh } from "./freshness.js";
-import { isSchedulerLoopSnapshotValidForContext, summarizeSchedulerLoopSnapshot, type GoalLoopSchedulerLoopSnapshotContext } from "./scheduler-loop-context.js";
+import {
+  isSchedulerLoopSnapshotValidForContext,
+  summarizeControlledLoopState,
+  summarizeSchedulerLoopSnapshot,
+  type GoalLoopControlledLoopStateContext,
+  type GoalLoopSchedulerLoopSnapshotContext,
+} from "./scheduler-loop-context.js";
 import type { GoalLoopContinuationBrief, GoalLoopControllerPolicy, GoalLoopDecision, GoalLoopIteration, GoalLoopNextStepPacket } from "./types.js";
 
 export interface GoalLoopMainAgentContextSection {
@@ -24,6 +30,7 @@ export interface GoalLoopMainAgentContextSection {
   schedulerExecutionMode: string;
   schedulerLoopAuthorized: false;
   schedulerLoopEvidenceSnapshot: GoalLoopSchedulerLoopSnapshotContext;
+  controlledLoopState: GoalLoopControlledLoopStateContext;
   guidedGateActionType?: string;
   guidedGateScope?: Record<string, string | string[]>;
   controllerVerdict?: string;
@@ -64,6 +71,7 @@ export async function buildGoalLoopMainAgentContextSection(
     const iterationRefs = goalLoopIterationArtifactRefs(memory, changePath, iteration.id);
     const briefRefs = goalLoopContinuationBriefArtifactRefs(memory, changePath, brief.id);
     const controllerRefs = controllerPolicy ? goalLoopControllerPolicyArtifactRefs(memory, changePath, controllerPolicy.id) : undefined;
+    const controlledLoopState = summarizeControlledLoopState(decision.schedulerLoopEvidenceSnapshot);
     return {
       goalLoopNextStepPacketId: packet.id,
       goalLoopControllerPolicyId: controllerPolicy?.id,
@@ -72,6 +80,7 @@ export async function buildGoalLoopMainAgentContextSection(
       schedulerExecutionMode: packet.schedulerExecutionMode.mode,
       schedulerLoopAuthorized: packet.schedulerExecutionMode.loopAuthorized,
       schedulerLoopEvidenceSnapshot: summarizeSchedulerLoopSnapshot(decision.schedulerLoopEvidenceSnapshot),
+      controlledLoopState,
       guidedGateActionType: controllerPolicy?.verdict === "recommend-existing-gate" ? controllerPolicy.currentGate?.actionType : undefined,
       guidedGateScope: controllerPolicy?.verdict === "recommend-existing-gate" ? controllerPolicy.currentGate?.scope : undefined,
       controllerVerdict: controllerPolicy?.verdict,
@@ -87,6 +96,7 @@ export async function buildGoalLoopMainAgentContextSection(
         controllerPolicy,
         controllerPolicyArtifact: controllerRefs?.markdownArtifact,
         schedulerLoopSnapshot: decision.schedulerLoopEvidenceSnapshot,
+        controlledLoopState,
       }),
     };
   } catch {
@@ -103,6 +113,7 @@ export function stripGoalLoopControllerPolicyContext(section: GoalLoopMainAgentC
     schedulerExecutionMode: section.schedulerExecutionMode,
     schedulerLoopAuthorized: section.schedulerLoopAuthorized,
     schedulerLoopEvidenceSnapshot: section.schedulerLoopEvidenceSnapshot,
+    controlledLoopState: section.controlledLoopState,
     markdown: stripControllerPolicyMarkdown(section.markdown),
     artifact: section.artifact,
     markdownArtifact: section.markdownArtifact,
@@ -147,6 +158,7 @@ function renderGoalLoopMainAgentContextSection(
     controllerPolicy?: GoalLoopControllerPolicy | null;
     controllerPolicyArtifact?: string;
     schedulerLoopSnapshot: GoalLoopDecision["schedulerLoopEvidenceSnapshot"];
+    controlledLoopState: GoalLoopControlledLoopStateContext;
   },
 ): string {
   return [
@@ -223,6 +235,7 @@ function renderGoalLoopMainAgentContextSection(
     "",
     "- Authority: scheduler execution mode is prompt-context evidence only; it must not start workers, dispatch waves, allocate slots, or authorize a scheduler loop/full executor.",
     "",
+    ...renderControlledLoopStateContextLines(refs.controlledLoopState),
     ...renderSchedulerLoopSnapshotContextLines(refs.schedulerLoopSnapshot),
     "### Conflict Assessment",
     "",
@@ -248,6 +261,34 @@ function renderGoalLoopMainAgentContextSection(
     "",
     ...renderControllerPolicyContextLines(refs.controllerPolicy, refs.controllerPolicyArtifact),
   ].join("\n");
+}
+
+function renderControlledLoopStateContextLines(state: GoalLoopControlledLoopStateContext): string[] {
+  return [
+    "### Controlled Loop State Evidence",
+    "",
+    "This controlled-loop state is main-Agent prompt context from the latest valid GoalLoopDecision scheduler-loop snapshot. It is non-executing decision evidence only.",
+    "It must not authorize a scheduler loop, start workers, dispatch waves, allocate slots, mutate source, apply, close, or evolve Harness state.",
+    "",
+    `- State: ${state.state}`,
+    `- Phase 12A label: ${state.phase12aLabel}`,
+    `- Summary: ${state.summary}`,
+    `- Human gate required: ${state.humanGateRequired ? "yes" : "no"}`,
+    state.currentLegalActionType ? `- Current legal action: ${state.currentLegalActionType}` : "- Current legal action: none",
+    `- Future-only states: ${state.futureOnlyStates.join(", ")}`,
+    "",
+    "#### Controlled Loop Forbidden Authority",
+    "",
+    `- loopAuthorized: ${state.loopAuthorized ? "true" : "false"}`,
+    `- fullParallelExecutorAuthorized: ${state.fullParallelExecutorAuthorized ? "true" : "false"}`,
+    `- wholeWaveDispatchAuthorized: ${state.wholeWaveDispatchAuthorized ? "true" : "false"}`,
+    `- slotAllocatorAuthorized: ${state.slotAllocatorAuthorized ? "true" : "false"}`,
+    `- sourceMutationAuthorized: ${state.sourceMutationAuthorized ? "true" : "false"}`,
+    `- applyAuthorized: ${state.applyAuthorized ? "true" : "false"}`,
+    `- closeAuthorized: ${state.closeAuthorized ? "true" : "false"}`,
+    `- harnessEvolutionAuthorized: ${state.harnessEvolutionAuthorized ? "true" : "false"}`,
+    "",
+  ];
 }
 
 function renderSchedulerLoopSnapshotContextLines(snapshot: GoalLoopDecision["schedulerLoopEvidenceSnapshot"]): string[] {
