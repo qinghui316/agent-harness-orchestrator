@@ -238,7 +238,7 @@ export async function buildWorkbenchWorkpad(input: {
   const decompositionReadiness = await readLatestDecompositionReadinessSummary(memory, selectedTopic.path);
   const taskQueueProposal = await readLatestTaskQueueProposalSummary(memory, selectedTopic.path);
   const workflowGraphPlan = await readLatestWorkflowGraphPlanSummary(memory, selectedTopic.path);
-  const rawGoalLoop = await readLatestGoalLoopSummary(memory, selectedTopic.path);
+  const rawGoalLoop = await readLatestGoalLoopSummary(memory, selectedTopic.path, selectedTopic.id);
   const schedulerContract = await readLatestSchedulerContractSummary(memory, selectedTopic.path);
   const schedulerDispatchDryRun = await readLatestSchedulerDispatchDryRunSummary(memory, selectedTopic.path);
   const schedulerWorkerSessionPlan = await readLatestSchedulerWorkerSessionPlanSummary(memory, selectedTopic.path);

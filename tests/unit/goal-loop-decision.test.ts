@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+﻿import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -66,7 +66,6 @@ function project(): ManagedProject {
     lastSeenAt: "2026-06-14T00:00:00.000Z",
   };
 }
-
 function expectConflict(
   decision: Awaited<ReturnType<typeof compileGoalLoopDecision>>,
   level: "low" | "medium" | "high" | "unknown",
@@ -293,13 +292,27 @@ describe("GoalLoopDecision", () => {
 
   it("matches initial plan preparation guidance only against enabled same-change visible gates", async () => {
     const result = await compileGoalLoopEvaluation(memory, changePath);
-    const summary = await readLatestGoalLoopSummary(memory, changePath);
+    const summary = await readLatestGoalLoopSummary(memory, changePath, changeId);
 
     expect(summary).toMatchObject({
       goalLoopNextStepPacketId: result.goalLoopNextStepPacket.id,
       recommendedActionType: "planning.scheduler.plan.prepare",
       recommendedActionScope: { changeId },
+      schedulerLoopEvidenceSnapshot: {
+        posture: "awaiting-human-gate",
+        decisionKind: "parallel-plan-needed",
+        currentLegalActionType: "planning.scheduler.plan.prepare",
+        loopAuthorized: false,
+        fullParallelExecutorAuthorized: false,
+        wholeWaveDispatchAuthorized: false,
+        slotAllocatorAuthorized: false,
+        sourceMutationAuthorized: false,
+        applyAuthorized: false,
+        closeAuthorized: false,
+        harnessEvolutionAuthorized: false,
+      },
     });
+    await expect(readLatestGoalLoopSummary(memory, changePath, "forged-change")).resolves.toBeNull();
     expect(assessGoalLoopSummaryCurrentGateParity(summary!, {
       id: "current-plan-gate",
       label: "Prepare scheduler plan",
@@ -426,7 +439,7 @@ describe("GoalLoopDecision", () => {
     await writeFile(join(memory.memoryRoot, changePath, "spec.md"), "# Spec\n\nChanged accepted scope.\n", "utf8");
 
     await expect(isGoalLoopNextStepPacketFresh(memory, changePath, result.goalLoopNextStepPacket)).resolves.toBe(false);
-    await expect(readLatestGoalLoopSummary(memory, changePath)).resolves.toBeNull();
+    await expect(readLatestGoalLoopSummary(memory, changePath, changeId)).resolves.toBeNull();
     await expect(buildGoalLoopMainAgentContextSection(memory, changePath, changeId)).resolves.toBeNull();
     await expect(assertGoalLoopAssistedConcreteGateConfirmation(memory, changePath, changeId, {
       actionType: "planning.scheduler.plan.prepare",
@@ -464,7 +477,7 @@ describe("GoalLoopDecision", () => {
     });
 
     await expect(isGoalLoopNextStepPacketFresh(memory, changePath, result.goalLoopNextStepPacket)).resolves.toBe(true);
-    await expect(readLatestGoalLoopSummary(memory, changePath)).resolves.toMatchObject({
+    await expect(readLatestGoalLoopSummary(memory, changePath, changeId)).resolves.toMatchObject({
       goalLoopNextStepPacketId: result.goalLoopNextStepPacket.id,
     });
   });
@@ -691,7 +704,7 @@ describe("GoalLoopDecision", () => {
     await writeSchedulerEvidence({ withWorkerStart: false });
     const result = await compileGoalLoopEvaluation(memory, changePath);
 
-    const summary = await readLatestGoalLoopSummary(memory, changePath);
+    const summary = await readLatestGoalLoopSummary(memory, changePath, changeId);
 
     expect(result.goalLoopDecision.conflictAssessment).toMatchObject({
       level: "low",
@@ -826,7 +839,7 @@ describe("GoalLoopDecision", () => {
     });
     await expect(readLatestGoalLoopFeedback(memory, changePath)).resolves.toMatchObject({ id: feedback.id });
     await expect(isGoalLoopNextStepPacketFresh(memory, changePath, first.goalLoopNextStepPacket)).resolves.toBe(false);
-    await expect(readLatestGoalLoopSummary(memory, changePath)).resolves.toBeNull();
+    await expect(readLatestGoalLoopSummary(memory, changePath, changeId)).resolves.toBeNull();
 
     const second = await compileGoalLoopEvaluation(memory, changePath, { trigger: "user-feedback-evaluate" });
 
@@ -834,7 +847,7 @@ describe("GoalLoopDecision", () => {
     expect(second.goalLoopDecision.sourceEvidenceRefs).toEqual(expect.arrayContaining([
       expect.objectContaining({ kind: "GoalLoopFeedback", id: feedback.id }),
     ]));
-    await expect(readLatestGoalLoopSummary(memory, changePath)).resolves.toMatchObject({
+    await expect(readLatestGoalLoopSummary(memory, changePath, changeId)).resolves.toMatchObject({
       goalLoopNextStepPacketId: second.goalLoopNextStepPacket.id,
       sourceEvidenceCount: second.goalLoopContinuationBrief.sourceEvidenceRefs.length,
     });
@@ -883,7 +896,7 @@ describe("GoalLoopDecision", () => {
       expect.stringContaining("Do not start scheduler workers"),
     ]));
     await expect(readLatestGoalLoopControllerPolicy(memory, changePath)).resolves.toMatchObject({ id: policy.id });
-    await expect(readLatestGoalLoopSummary(memory, changePath)).resolves.toMatchObject({
+    await expect(readLatestGoalLoopSummary(memory, changePath, changeId)).resolves.toMatchObject({
       controllerPolicyId: policy.id,
       controllerVerdict: "recommend-existing-gate",
       controllerGateStatus: "matches-current-gate",
@@ -935,7 +948,7 @@ describe("GoalLoopDecision", () => {
       expect.stringContaining("Do not treat this preflight as ToolPolicy authorization"),
     ]));
     await expect(readLatestGoalLoopGateReadinessPreflight(memory, changePath)).resolves.toMatchObject({ id: preflight.id });
-    await expect(readLatestGoalLoopSummary(memory, changePath)).resolves.toMatchObject({
+    await expect(readLatestGoalLoopSummary(memory, changePath, changeId)).resolves.toMatchObject({
       gateReadinessPreflightId: preflight.id,
       gateReadinessPreflightArtifact: expect.stringContaining("goal-loop-gate-readiness-preflights"),
     });
@@ -3869,7 +3882,7 @@ describe("GoalLoopDecision", () => {
     const outcome = await writeIntegrationOutcome(schedulerRun, reservation, candidate);
     await writeRunCompletion(schedulerRun, reservation, candidate, outcome);
     const result = await compileGoalLoopEvaluation(memory, changePath);
-    const summary = await readLatestGoalLoopSummary(memory, changePath);
+    const summary = await readLatestGoalLoopSummary(memory, changePath, changeId);
 
     expect(result.goalLoopDecision).toMatchObject({
       decisionKind: "completed-ready-for-human-close-gate",
@@ -4016,7 +4029,7 @@ describe("GoalLoopDecision", () => {
     await writeFile(join(memory.memoryRoot, changePath, "spec.md"), "# Spec\n\nAccepted scope changed.\n", "utf8");
 
     await expect(isGoalLoopNextStepPacketFresh(memory, changePath, result.goalLoopNextStepPacket)).resolves.toBe(false);
-    await expect(readLatestGoalLoopSummary(memory, changePath)).resolves.toBeNull();
+    await expect(readLatestGoalLoopSummary(memory, changePath, changeId)).resolves.toBeNull();
     const after = await getWorkbenchWorkpadProjection({ project: project(), path: tempDir }, changeId);
     expect(after.goalLoop).toBeUndefined();
     await expect(buildVisibleGoalLoopMainAgentContextSection(project(), memory, changePath, changeId)).resolves.toBeNull();
@@ -4084,7 +4097,7 @@ describe("GoalLoopDecision", () => {
     expect(section?.markdown).toContain("- harnessEvolutionAuthorized: false");
     expect(section?.markdown).toContain("Forbidden Execution Statements");
     expect(section?.markdown).toContain("not workflow truth");
-    await expect(readLatestGoalLoopSummary(memory, changePath)).resolves.toMatchObject({
+    await expect(readLatestGoalLoopSummary(memory, changePath, changeId)).resolves.toMatchObject({
       goalLoopNextStepPacketId: result.goalLoopNextStepPacket.id,
       recommendedActionType: "planning.scheduler.plan.prepare",
       recommendedActionScope: { changeId },
@@ -4125,6 +4138,13 @@ describe("GoalLoopDecision", () => {
     await expect(buildGoalLoopMainAgentContextSection(memory, changePath, changeId)).resolves.toMatchObject({
       goalLoopNextStepPacketId: result.goalLoopNextStepPacket.id,
     });
+    await expect(readLatestGoalLoopSummary(memory, changePath, changeId)).resolves.toMatchObject({
+      goalLoopNextStepPacketId: result.goalLoopNextStepPacket.id,
+      schedulerLoopEvidenceSnapshot: {
+        currentLegalActionType: "planning.scheduler.plan.prepare",
+        applyAuthorized: false,
+      },
+    });
 
     await writeGoalLoopDecision(memory, changePath, {
       ...result.goalLoopDecision,
@@ -4135,6 +4155,7 @@ describe("GoalLoopDecision", () => {
     });
 
     await expect(buildGoalLoopMainAgentContextSection(memory, changePath, changeId)).resolves.toBeNull();
+    await expect(readLatestGoalLoopSummary(memory, changePath, changeId)).resolves.toBeNull();
 
     await writeGoalLoopDecision(memory, changePath, {
       ...result.goalLoopDecision,
@@ -4148,6 +4169,7 @@ describe("GoalLoopDecision", () => {
     });
 
     await expect(buildGoalLoopMainAgentContextSection(memory, changePath, changeId)).resolves.toBeNull();
+    await expect(readLatestGoalLoopSummary(memory, changePath, changeId)).resolves.toBeNull();
 
     await writeGoalLoopDecision(memory, changePath, {
       ...result.goalLoopDecision,
@@ -4161,6 +4183,7 @@ describe("GoalLoopDecision", () => {
     });
 
     await expect(buildGoalLoopMainAgentContextSection(memory, changePath, changeId)).resolves.toBeNull();
+    await expect(readLatestGoalLoopSummary(memory, changePath, changeId)).resolves.toBeNull();
   });
 
   it("adds valid controller policy evidence to main-Agent context and omits stale policy without hiding the packet", async () => {
@@ -4236,7 +4259,7 @@ describe("GoalLoopDecision", () => {
   it("matches goal loop packet recommendations only against enabled current gate target ids", async () => {
     const { workerStart } = await writeSchedulerEvidence({ withWorkerStart: true });
     await compileGoalLoopEvaluation(memory, changePath);
-    const summary = await readLatestGoalLoopSummary(memory, changePath);
+    const summary = await readLatestGoalLoopSummary(memory, changePath, changeId);
 
     expect(summary).toMatchObject({
       recommendedActionType: "planning.scheduler.worker.reconcile-result",
@@ -4292,14 +4315,14 @@ describe("GoalLoopDecision", () => {
     await expect(buildGoalLoopMainAgentContextSection(memory, changePath, changeId)).resolves.toMatchObject({
       goalLoopNextStepPacketId: result.goalLoopNextStepPacket.id,
     });
-    await expect(readLatestGoalLoopSummary(memory, changePath)).resolves.toMatchObject({
+    await expect(readLatestGoalLoopSummary(memory, changePath, changeId)).resolves.toMatchObject({
       recommendedActionType: "planning.scheduler.worker.reconcile-result",
     });
 
     await writeWorkerResult(workerStart!, "evidence-ready");
 
     await expect(buildGoalLoopMainAgentContextSection(memory, changePath, changeId)).resolves.toBeNull();
-    await expect(readLatestGoalLoopSummary(memory, changePath)).resolves.toBeNull();
+    await expect(readLatestGoalLoopSummary(memory, changePath, changeId)).resolves.toBeNull();
   });
 
   it("defaults legacy conflict assessments to non-executing wait posture", async () => {

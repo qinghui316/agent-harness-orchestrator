@@ -522,6 +522,19 @@ describe("Workbench web app", () => {
                 "IntegrationCheck before any source apply path",
               ],
             },
+            schedulerLoopEvidenceSnapshot: {
+              posture: "awaiting-human-gate",
+              decisionKind: "current-gate-ready",
+              currentLegalActionType: "planning.scheduler.worker.start-first",
+              loopAuthorized: false,
+              fullParallelExecutorAuthorized: false,
+              wholeWaveDispatchAuthorized: false,
+              slotAllocatorAuthorized: false,
+              sourceMutationAuthorized: false,
+              applyAuthorized: false,
+              closeAuthorized: false,
+              harnessEvolutionAuthorized: false,
+            },
             conflictReasons: [
               "Recommended action planning.scheduler.worker.start-first is limited to the existing scoped first worker-start gate.",
             ],
@@ -553,6 +566,11 @@ describe("Workbench web app", () => {
     expect(within(card).getByText("Full executor: false")).toBeTruthy();
     expect(within(card).getByText("Whole wave: false")).toBeTruthy();
     expect(within(card).getByText("Slot allocator: false")).toBeTruthy();
+    expect(within(card).getByText("Snapshot posture awaiting-human-gate")).toBeTruthy();
+    expect(within(card).getByText("Scheduler loop snapshot")).toBeTruthy();
+    expect(within(card).getByText("Read-only decision evidence; it does not authorize scheduler execution.")).toBeTruthy();
+    expect(within(card).getByText("Snapshot source authority")).toBeTruthy();
+    expect(within(card).getByText("source=false, apply=false, close=false, harnessEvolution=false")).toBeTruthy();
     expect(within(card).getByText("The scheduler path is still a single-gate staged capability.")).toBeTruthy();
     expect(within(card).getAllByText("planning.scheduler.worker.start-first").length).toBeGreaterThanOrEqual(2);
     expect(within(card).getByText("accepted architecture decision for a real scheduler loop or full parallel executor")).toBeTruthy();

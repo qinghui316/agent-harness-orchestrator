@@ -7,12 +7,14 @@ import {
   readLatestGoalLoopIteration,
   readLatestGoalLoopNextStepPacket,
 } from "../../../goal-loop/manager.js";
+import { isSchedulerLoopSnapshotValidForContext, summarizeSchedulerLoopSnapshot } from "../../../goal-loop/scheduler-loop-context.js";
 import type { ResolvedMemory } from "../../../types/index.js";
 import type { WorkbenchGoalLoopSummary } from "../../read-model-types.js";
 
 export async function readLatestGoalLoopSummary(
   memory: ResolvedMemory,
   changePath: string,
+  expectedChangeId: string,
 ): Promise<WorkbenchGoalLoopSummary | null> {
   try {
     const [decision, iteration, brief, packet] = await Promise.all([
@@ -24,6 +26,7 @@ export async function readLatestGoalLoopSummary(
     if (brief.sourceGoalLoopDecisionId !== decision.id) return null;
     if (brief.sourceGoalLoopIterationId !== iteration.id) return null;
     if (iteration.goalLoopDecisionId !== decision.id) return null;
+    if (decision.changeId !== expectedChangeId || iteration.changeId !== expectedChangeId || brief.changeId !== expectedChangeId || packet.changeId !== expectedChangeId) return null;
     if (brief.changeId !== decision.changeId || iteration.changeId !== decision.changeId) return null;
     if (packet.sourceGoalLoopDecisionId !== decision.id) return null;
     if (packet.sourceGoalLoopIterationId !== iteration.id) return null;
@@ -31,6 +34,7 @@ export async function readLatestGoalLoopSummary(
     if (packet.changeId !== decision.changeId) return null;
     if (brief.executionStarted !== false || iteration.executionStarted !== false || decision.executionStarted !== false || packet.executionStarted !== false) return null;
     if (!(await isGoalLoopNextStepPacketFresh(memory, changePath, packet))) return null;
+    if (!isSchedulerLoopSnapshotValidForContext(decision.schedulerLoopEvidenceSnapshot, decision, packet, expectedChangeId)) return null;
     const controllerPolicy = await readLatestGoalLoopControllerPolicy(memory, changePath).catch(() => null);
     const validControllerPolicy = controllerPolicy
       && controllerPolicy.changeId === decision.changeId
@@ -76,6 +80,7 @@ export async function readLatestGoalLoopSummary(
       routingPosture: brief.conflictAssessment.routingPosture,
       routingLabel: brief.conflictAssessment.routingLabel,
       schedulerExecutionMode: packet.schedulerExecutionMode,
+      schedulerLoopEvidenceSnapshot: summarizeSchedulerLoopSnapshot(decision.schedulerLoopEvidenceSnapshot),
       conflictReasons: [...brief.conflictAssessment.reasons],
       completionStatus: brief.completionAudit.status,
       resumePreconditionCount: brief.resumePreconditions.length,

@@ -9,5 +9,6 @@ export * from "./freshness.js";
 export * from "./close-handoff.js";
 export * from "./conflict-routing.js";
 export * from "./main-agent-context.js";
+export * from "./scheduler-loop-context.js";
 export * from "./controller.js";
 export * from "./gate-readiness.js";

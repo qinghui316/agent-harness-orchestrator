@@ -4033,6 +4033,19 @@ describe("workbench read model", () => {
       expect(snapshot.center.workpad.goalLoop).toMatchObject({
         goalLoopNextStepPacketId: goalLoopEvaluation.goalLoopNextStepPacket.id,
         recommendedActionType: "planning.scheduler.worker.start-next",
+        schedulerLoopEvidenceSnapshot: {
+          posture: "awaiting-human-gate",
+          decisionKind: "scheduler-next-step",
+          currentLegalActionType: "planning.scheduler.worker.start-next",
+          loopAuthorized: false,
+          fullParallelExecutorAuthorized: false,
+          wholeWaveDispatchAuthorized: false,
+          slotAllocatorAuthorized: false,
+          sourceMutationAuthorized: false,
+          applyAuthorized: false,
+          closeAuthorized: false,
+          harnessEvolutionAuthorized: false,
+        },
         recommendedActionScope: expect.objectContaining({
           changeId: prepared.topic.changeId,
           schedulerRunId: prepared.schedulerRun.id,
@@ -4053,6 +4066,7 @@ describe("workbench read model", () => {
         reservationIntentId: startNextAction.reservationIntentId,
         claimIntentId: startNextAction.claimIntentId,
       });
+      expect(controllerRefreshAction).not.toHaveProperty("schedulerLoopEvidenceSnapshot");
       const controllerRefresh = await executeWorkbenchAction({ project: project(), path: tempDir }, { ...controllerRefreshAction, confirm: true });
       const controllerPolicy = (((controllerRefresh.result as { result?: unknown }).result ?? controllerRefresh.result) as {
         goalLoopControllerPolicy?: { id?: string; verdict?: string; gateStatus?: string; executionStarted?: boolean };
@@ -4121,6 +4135,7 @@ describe("workbench read model", () => {
         goalLoopControllerPolicyId: controllerPolicy?.id,
         goalLoopGateReadinessPreflightId: preflight?.id,
       });
+      expect(assistedStartNextAction).not.toHaveProperty("schedulerLoopEvidenceSnapshot");
       expect(snapshot.right.confirmationQueue.current.flatMap((item) => item.actions).some((action) => action.actionType === "planning.goal-loop.gate.invoke")).toBe(false);
 
       const secondStartResult = await executeWorkbenchAction({ project: project(), path: tempDir }, { ...assistedStartNextAction, confirm: true });

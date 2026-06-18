@@ -5,6 +5,7 @@ import { artifactName } from "../RunReplayPanel.js";
 
 export function GoalLoopEvidenceCard({ goalLoop }: { goalLoop: NonNullable<Workpad["goalLoop"]> }): ReactElement {
   const schedulerMode = goalLoop.schedulerExecutionMode;
+  const schedulerLoopSnapshot = goalLoop.schedulerLoopEvidenceSnapshot;
   const artifacts = [
     goalLoop.markdownArtifact ?? goalLoop.artifact,
     goalLoop.nextStepPacketMarkdownArtifact ?? goalLoop.nextStepPacketArtifact,
@@ -29,6 +30,7 @@ export function GoalLoopEvidenceCard({ goalLoop }: { goalLoop: NonNullable<Workp
         {schedulerMode ? <span>Full executor: {schedulerMode.fullParallelExecutorAuthorized ? "true" : "false"}</span> : null}
         {schedulerMode ? <span>Whole wave: {schedulerMode.wholeWaveDispatchAuthorized ? "true" : "false"}</span> : null}
         {schedulerMode ? <span>Slot allocator: {schedulerMode.slotAllocatorAuthorized ? "true" : "false"}</span> : null}
+        {schedulerLoopSnapshot ? <span>Snapshot posture {humanStatus(schedulerLoopSnapshot.posture)}</span> : null}
         <span>{goalLoop.humanGateRequired ? "Human gate required" : "No human gate flag"}</span>
         {goalLoop.recommendedActionType ? <span>{goalLoop.recommendedActionType}</span> : null}
       </div>
@@ -50,6 +52,36 @@ export function GoalLoopEvidenceCard({ goalLoop }: { goalLoop: NonNullable<Workp
               <span>{userFacingText(requirement)}</span>
             </div>
           ))}
+        </div>
+      ) : null}
+      {schedulerLoopSnapshot ? (
+        <div className="workpad-evidence-list" aria-label="Scheduler loop evidence snapshot">
+          <div className="workpad-evidence">
+            <strong>Scheduler loop snapshot</strong>
+            <span>Read-only decision evidence; it does not authorize scheduler execution.</span>
+          </div>
+          <div className="workpad-evidence">
+            <strong>Snapshot decision</strong>
+            <span>{schedulerLoopSnapshot.decisionKind}</span>
+          </div>
+          {schedulerLoopSnapshot.currentLegalActionType ? (
+            <div className="workpad-evidence">
+              <strong>Snapshot legal gate</strong>
+              <span>{schedulerLoopSnapshot.currentLegalActionType}</span>
+            </div>
+          ) : null}
+          <div className="workpad-evidence">
+            <strong>Snapshot forbidden authority</strong>
+            <span>
+              loop={String(schedulerLoopSnapshot.loopAuthorized)}, fullExecutor={String(schedulerLoopSnapshot.fullParallelExecutorAuthorized)}, wholeWave={String(schedulerLoopSnapshot.wholeWaveDispatchAuthorized)}, slots={String(schedulerLoopSnapshot.slotAllocatorAuthorized)}
+            </span>
+          </div>
+          <div className="workpad-evidence">
+            <strong>Snapshot source authority</strong>
+            <span>
+              source={String(schedulerLoopSnapshot.sourceMutationAuthorized)}, apply={String(schedulerLoopSnapshot.applyAuthorized)}, close={String(schedulerLoopSnapshot.closeAuthorized)}, harnessEvolution={String(schedulerLoopSnapshot.harnessEvolutionAuthorized)}
+            </span>
+          </div>
         </div>
       ) : null}
       {goalLoop.recommendedActionReason ? <p>{userFacingText(goalLoop.recommendedActionReason)}</p> : null}

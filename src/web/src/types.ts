@@ -377,6 +377,19 @@ export type GoalLoopSummary = {
     reasons: string[];
     futureLoopRequirements: string[];
   };
+  schedulerLoopEvidenceSnapshot?: {
+    posture: string;
+    decisionKind: string;
+    currentLegalActionType?: string;
+    loopAuthorized: false;
+    fullParallelExecutorAuthorized: false;
+    wholeWaveDispatchAuthorized: false;
+    slotAllocatorAuthorized: false;
+    sourceMutationAuthorized: false;
+    applyAuthorized: false;
+    closeAuthorized: false;
+    harnessEvolutionAuthorized: false;
+  };
   conflictReasons: string[];
   completionStatus?: string;
   artifact?: string;
