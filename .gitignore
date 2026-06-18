@@ -22,6 +22,8 @@ Desktop.ini
 # Local agent/Harness working state.
 AGENTS.md
 docs/*
+!docs/PRODUCT.md
+!docs/MEMORY.md
 !docs/AGENT-DEVELOPMENT-OS.md
 !docs/CURRENT-DEVELOPMENT-PLAN.md
 !docs/ecl-harness-engineer-skill-recommendations.md
