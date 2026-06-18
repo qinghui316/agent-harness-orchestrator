@@ -9,12 +9,12 @@ import type {
   EvolutionCandidate,
   MaintenanceCandidateTargetHint,
   MaintenanceLedgerEntry,
-  MaintenanceLedgerEventType,
   ResolvedMemory,
 } from "../types/index.js";
 import { TERMINAL_REVIEW_WINDOW } from "./constants.js";
 import { checkDocBudgets } from "./doc-budget.js";
 import { listMaintenanceLedgerEntries } from "./ledger.js";
+import { isMaintenanceCanonicalEvidenceEvent } from "./ledger-event-policy.js";
 import { displayMaintenancePath, maintenanceRoot } from "./paths.js";
 import { proposeMaintenanceCanonicalUpdate } from "./canonical-updates.js";
 import { resolveMaintenanceCandidate } from "./resolutions.js";
@@ -107,7 +107,7 @@ export async function runMaintenanceCandidatePipeline(memory: ResolvedMemory): P
   score?: CandidateScore;
   review?: CandidateReview;
 }> {
-  const entries = (await listMaintenanceLedgerEntries(memory)).filter((entry) => !isCanonicalUpdateEvidenceEvent(entry.eventType));
+  const entries = (await listMaintenanceLedgerEntries(memory)).filter((entry) => !isMaintenanceCanonicalEvidenceEvent(entry.eventType));
   if (entries.length === 0) return { status: "skipped" };
   const candidate = await createEvolutionCandidate(memory, entries.slice(-10));
   if (!candidate) return { status: "skipped" };
@@ -220,21 +220,11 @@ async function findCandidateByFingerprint(memory: ResolvedMemory, fingerprint: s
   return null;
 }
 
-function candidateSubtypeForEvent(eventType: MaintenanceLedgerEventType): EvolutionCandidate["subtype"] {
-  if (isCanonicalUpdateEvidenceEvent(eventType)) return undefined;
+function candidateSubtypeForEvent(eventType: MaintenanceLedgerEntry["eventType"]): EvolutionCandidate["subtype"] {
+  if (isMaintenanceCanonicalEvidenceEvent(eventType)) return undefined;
   if (eventType === "doc-drift") return "docs-drift";
   if (eventType === "reference-drift") return "reference-drift";
   if (eventType === "harness-evolution") return "harness-evolution";
   if (eventType === "change-closeout" || eventType === "maintenance-review") return "stable-memory";
   return "reusable-lesson";
-}
-
-function isCanonicalUpdateEvidenceEvent(eventType: MaintenanceLedgerEventType): boolean {
-  return eventType === "canonical-update-proposal"
-    || eventType === "canonical-update-decision"
-    || eventType === "canonical-patch-proposal"
-    || eventType === "canonical-patch-application-gate"
-    || eventType === "canonical-patch-application-manifest"
-    || eventType === "canonical-patch-application-result"
-    || eventType === "canonical-patch-application-report";
 }

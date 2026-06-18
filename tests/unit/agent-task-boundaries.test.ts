@@ -1189,7 +1189,7 @@ describe("AgentTask domain boundaries", () => {
     await expect(generateMaintenanceCanonicalPatchApplicationManifest(memory, forgedGate.id)).rejects.toThrow("operation count mismatch");
   });
 
-  it("does not create maintenance candidates from canonical update proposal, decision, patch, gate, or manifest ledger entries", async () => {
+  it("does not create maintenance candidates from canonical maintenance evidence ledger entries", async () => {
     await initHarness(project());
     const memory = await resolveProjectMemory(project());
 
@@ -1222,6 +1222,11 @@ describe("AgentTask domain boundaries", () => {
       eventType: "canonical-patch-application-result",
       summary: "Patch application result evidence should not feed the maintenance candidate pipeline.",
       artifactRefs: ["workbench/maintenance/canonical-patch-application-results/result.json"],
+    });
+    await recordMaintenanceLedgerEntry(memory, {
+      eventType: "canonical-patch-application-report",
+      summary: "Patch application report evidence should not feed the maintenance candidate pipeline.",
+      artifactRefs: ["workbench/maintenance/canonical-patch-application-reports/report.json"],
     });
 
     await expect(runMaintenanceCandidatePipeline(memory)).resolves.toMatchObject({ status: "skipped" });
