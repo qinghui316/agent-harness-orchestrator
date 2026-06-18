@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-18T07:14:44.3225013Z",
+    "generated_at":  "2026-06-18T09:14:47.2978630Z",
     "active":  [
 
                ],
@@ -1085,6 +1085,10 @@
                     {
                         "name":  "20260618-phase-12k-product-memory-lifecycle-target",
                         "path":  "harness/changes/archive/20260618-phase-12k-product-memory-lifecycle-target"
+                    },
+                    {
+                        "name":  "20260618-phase-12l-scheduler-terminal-workpad-boundary-copy",
+                        "path":  "harness/changes/archive/20260618-phase-12l-scheduler-terminal-workpad-boundary-copy"
                     }
                 ]
 }

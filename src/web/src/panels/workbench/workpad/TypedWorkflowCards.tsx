@@ -536,6 +536,7 @@ export function SchedulerRunCompletionCard({ completion }: { completion: NonNull
         <span>{humanStatus(completion.status)}</span>
       </div>
       <p className="workpad-goal">SchedulerRun 已记录 terminal completion；source mutation、landing、PR、merge 仍走既有独立 gate</p>
+      <p className="workpad-note">只读 terminal evidence；不授权 scheduler loop、full executor、whole-wave dispatch、slot allocation、source mutation、apply、close、PR、landing、merge 或 Harness evolution。</p>
       <div className="workpad-chip-list">
         <span>Outcome {completion.outcomeStatus}</span>
         <span>IntegrationCheck {completion.integrationCheckId}</span>
@@ -556,6 +557,7 @@ export function SchedulerRunBlockedCloseoutCard({ closeout }: { closeout: NonNul
         <span>{humanStatus(closeout.status)}</span>
       </div>
       <p className="workpad-goal">SchedulerRun 已记录 blocked/exhausted closeout；不会启动执行或修改 source</p>
+      <p className="workpad-note">只读 closeout evidence；不授权 scheduler loop、full executor、whole-wave dispatch、slot allocation、worker start、worktree、run、child Change、source mutation、apply、close、merge 或 Harness evolution。</p>
       <div className="workpad-chip-list">
         <span>{closeout.readyCount} 个 ready target</span>
         <span>{closeout.blockedCount} 个 blocked output</span>

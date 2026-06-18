@@ -604,6 +604,82 @@ describe("Workbench web app", () => {
     expect(within(card).queryByRole("button")).toBeNull();
   });
 
+  it("renders SchedulerRun terminal cards as read-only boundary evidence", async () => {
+    const terminalSnapshot = {
+      ...snapshot,
+      center: {
+        ...snapshot.center,
+        workpad: {
+          ...snapshot.center.workpad,
+          schedulerRunCompletion: {
+            id: "scheduler-run-completion-1",
+            changeId: "member-discount",
+            schedulerRunId: "scheduler-run-1",
+            schedulerClaimReservationId: "claim-reservation-1",
+            schedulerReconcileSnapshotId: "reconcile-snapshot-1",
+            schedulerIntegrationCandidateId: "integration-candidate-1",
+            schedulerIntegrationCheckHandoffId: "integration-handoff-1",
+            schedulerIntegrationOutcomeId: "integration-outcome-1",
+            status: "completed-applied",
+            outcomeStatus: "applied",
+            integrationCheckId: "integration-check-1",
+            integrationCheckStatus: "passed",
+            readyCount: 2,
+            resultTargetCount: 2,
+            outcomeReason: "Existing IntegrationCheck outcome was applied.",
+            artifact: "harness/changes/active/member-discount/scheduler-runtime/runs/scheduler-run-1/completions/completion.json",
+            updatedAt: "2026-05-15T12:05:00.000Z",
+          },
+          schedulerRunBlockedCloseout: {
+            id: "scheduler-run-closeout-1",
+            changeId: "member-discount",
+            schedulerRunId: "scheduler-run-2",
+            schedulerClaimReservationId: "claim-reservation-2",
+            schedulerReconcileSnapshotId: "reconcile-snapshot-2",
+            schedulerIntegrationCandidateId: "integration-candidate-2",
+            schedulerContractId: "scheduler-contract-1",
+            schedulerDispatchDryRunId: "dispatch-dry-run-1",
+            schedulerWorkerPlanId: "worker-plan-1",
+            schedulerClaimReconcilePlanId: "claim-reconcile-plan-1",
+            schedulerLaunchPreflightId: "launch-preflight-1",
+            status: "blocked",
+            reason: "candidate-blocked",
+            closeoutReason: "Ready targets stayed below the IntegrationCheck threshold and no legal worker gate remains.",
+            readyCount: 1,
+            blockedCount: 2,
+            readyWorktreeIds: ["wt-ready-1"],
+            blockedReasons: ["worker validation failed", "no legal next worker gate"],
+            unstartedReservedIntentIds: ["intent-2"],
+            sourceMutated: false,
+            executionStarted: false,
+            artifact: "harness/changes/active/member-discount/scheduler-runtime/runs/scheduler-run-2/blocked-closeouts/closeout.json",
+            updatedAt: "2026-05-15T12:06:00.000Z",
+          },
+        },
+      },
+    };
+
+    render(<WorkpadDiagnosticDetails
+      workpad={terminalSnapshot.center.workpad}
+      approvals={terminalSnapshot.right.approvals}
+      busy={false}
+      onWorkflowAction={async () => undefined}
+      onConfirmApproval={() => undefined}
+      onAnswerClarification={async () => undefined}
+      onSelectDecisionContext={() => undefined}
+    />);
+
+    const completionCard = await screen.findByTestId("scheduler-run-completion-card");
+    expect(within(completionCard).getByText("SchedulerRun 完成状态")).toBeTruthy();
+    expect(within(completionCard).getByText("只读 terminal evidence；不授权 scheduler loop、full executor、whole-wave dispatch、slot allocation、source mutation、apply、close、PR、landing、merge 或 Harness evolution。")).toBeTruthy();
+    expect(within(completionCard).queryByRole("button")).toBeNull();
+
+    const closeoutCard = await screen.findByTestId("scheduler-run-closeout-card");
+    expect(within(closeoutCard).getByText("SchedulerRun 结束记录")).toBeTruthy();
+    expect(within(closeoutCard).getByText("只读 closeout evidence；不授权 scheduler loop、full executor、whole-wave dispatch、slot allocation、worker start、worktree、run、child Change、source mutation、apply、close、merge 或 Harness evolution。")).toBeTruthy();
+    expect(within(closeoutCard).queryByRole("button")).toBeNull();
+  });
+
   it("deduplicates persisted assistant command and usage blocks", async () => {
     const dedupeSnapshot = {
       ...snapshot,
