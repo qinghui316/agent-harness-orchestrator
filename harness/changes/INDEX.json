@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-18T09:26:00.9981547Z",
+    "generated_at":  "2026-06-18T10:59:46.0244354Z",
     "active":  [
 
                ],
@@ -1093,6 +1093,10 @@
                     {
                         "name":  "20260618-phase-12m-current-plan-phase-12l-drift-alignment",
                         "path":  "harness/changes/archive/20260618-phase-12m-current-plan-phase-12l-drift-alignment"
+                    },
+                    {
+                        "name":  "20260618-phase-12n-scheduler-terminal-handoff-prompt-evidence",
+                        "path":  "harness/changes/archive/20260618-phase-12n-scheduler-terminal-handoff-prompt-evidence"
                     }
                 ]
 }

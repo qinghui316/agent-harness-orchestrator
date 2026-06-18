@@ -12,6 +12,8 @@ import { executeWorkbenchAction } from "../../src/server/workbench-server.js";
 import { appendTopicThreadEntry, createWorkbenchTopic, postTopicMessage } from "../../src/workbench/chat.js";
 import { buildChatContext, buildOrchestratorContext } from "../../src/workbench/codex-chat/context.js";
 import { runCodexChat, runOrchestratorPlan } from "../../src/workbench/codex-chat/bridge.js";
+import { buildSchedulerTerminalHandoffContext } from "../../src/workbench/codex-chat/goal-loop-context.js";
+import { buildGoalLoopContextPreparedEvidence, goalLoopPromptStackLabels } from "../../src/workbench/codex-chat/goal-loop-prompt-evidence.js";
 import { buildTypedWorkflowNextAction } from "../../src/workbench/workflow-projection.js";
 import { readTopicThreadLog } from "../../src/workbench/thread-log.js";
 import { answerClarification, reanalyzeIntake, runIntakeScan } from "../../src/workbench/intake.js";
@@ -48,7 +50,7 @@ import {
   reconcileDemandWorkers,
   writeDemandWorker,
 } from "../../src/demand-worker/manager.js";
-import { createWorktree, listWorktreeStatuses } from "../../src/worktree/manager.js";
+import { createWorktree, listWorktreeStatuses, markWorktreeApplied } from "../../src/worktree/manager.js";
 import { classifyPrFeedbackSnapshotData } from "../../src/pr-feedback/manager.js";
 import { cleanupRemoteBranchAfterMerge, preparePostMergeHandoff, syncLocalAfterMerge } from "../../src/post-merge/manager.js";
 import { mergeNextLandingQueueCandidate, prepareLandingQueue } from "../../src/landing-queue/manager.js";
@@ -79,6 +81,8 @@ let tempDir: string;
 const execFileAsync = promisify(execFile);
 
 type BuildTypedWorkflowNextActionInput = Parameters<typeof buildTypedWorkflowNextAction>[0];
+
+type SchedulerTerminalHandoffSectionFixture = Parameters<typeof buildSchedulerTerminalHandoffContext>[1];
 
 function workflowFixture<K extends keyof BuildTypedWorkflowNextActionInput>(
   value: Partial<NonNullable<BuildTypedWorkflowNextActionInput[K]>>,
@@ -3117,6 +3121,144 @@ describe("workbench read model", () => {
     }
   });
 
+  it("keeps scheduler terminal handoff prompt evidence compact and terminal-state matched", () => {
+    const section = {
+      goalLoopNextStepPacketId: "goal-loop-next-step-packet-1",
+      routingPosture: "blocked-or-rework",
+      routingLabel: "Blocked or bounded rework",
+      schedulerExecutionMode: "blocked-or-waiting",
+      controlledLoopState: {
+        state: "quality-routing",
+        phase12aLabel: "reconciling quality/rework evidence",
+        summary: "Blocked terminal evidence controls the next step.",
+        humanGateRequired: true,
+        futureOnlyStates: ["dispatching-approved-scope", "reconciling"],
+        loopAuthorized: false,
+        fullParallelExecutorAuthorized: false,
+        wholeWaveDispatchAuthorized: false,
+        slotAllocatorAuthorized: false,
+        sourceMutationAuthorized: false,
+        applyAuthorized: false,
+        closeAuthorized: false,
+        harnessEvolutionAuthorized: false,
+      },
+      markdown: "## Goal Loop Next-Step Packet",
+    } as SchedulerTerminalHandoffSectionFixture;
+    const workpad = {
+      goalLoop: {
+        changeId: "blocked-change",
+        goalLoopNextStepPacketId: "goal-loop-next-step-packet-1",
+        completionStatus: "blocked",
+      },
+      schedulerRunBlockedCloseout: {
+        id: "scheduler-run-closeout-1",
+        changeId: "blocked-change",
+        schedulerRunId: "scheduler-run-1",
+        status: "blocked",
+        reason: "candidate-blocked",
+        closeoutReason: "Candidate cannot proceed to IntegrationCheck.",
+        readyCount: 1,
+        blockedCount: 1,
+        readyWorktreeIds: ["worktree-a"],
+        blockedReasons: ["candidate blocked"],
+        unstartedReservedIntentIds: ["intent-2"],
+        sourceMutated: false,
+        executionStarted: false,
+        artifact: "harness/changes/active/blocked-change/scheduler-runtime/closeout.json",
+        markdownArtifact: "harness/changes/active/blocked-change/scheduler-runtime/closeout.md",
+      },
+    };
+
+    const blockedHandoff = buildSchedulerTerminalHandoffContext(workpad as never, section);
+    expect(blockedHandoff).toEqual(expect.objectContaining({
+      authority: "non-executing-scheduler-terminal-handoff-prompt-evidence",
+      kind: "blocked-closeout",
+      id: "scheduler-run-closeout-1",
+      changeId: "blocked-change",
+      schedulerRunId: "scheduler-run-1",
+      status: "blocked",
+      blockedReason: "candidate-blocked",
+      readyCount: 1,
+      blockedCount: 1,
+      loopAuthorized: false,
+      fullParallelExecutorAuthorized: false,
+      wholeWaveDispatchAuthorized: false,
+      slotAllocatorAuthorized: false,
+      sourceMutationAuthorized: false,
+      applyAuthorized: false,
+      closeAuthorized: false,
+      harnessEvolutionAuthorized: false,
+    }));
+    expect(blockedHandoff).not.toHaveProperty("readyWorktreeIds");
+    expect(blockedHandoff).not.toHaveProperty("recommendedActionScope");
+    expect(blockedHandoff).not.toHaveProperty("actionPayload");
+    expect(blockedHandoff).not.toHaveProperty("markdown");
+
+    const compactContext = {
+      context: "",
+      goalLoopSchedulerTerminalHandoff: blockedHandoff,
+    } as Parameters<typeof goalLoopPromptStackLabels>[0];
+    expect(goalLoopPromptStackLabels(compactContext)).toContain("goal-loop-scheduler-terminal-handoff");
+    const prepared = buildGoalLoopContextPreparedEvidence(compactContext);
+    expect(prepared.goalLoopSchedulerTerminalHandoff).toEqual(expect.objectContaining({
+      kind: "blocked-closeout",
+      id: "scheduler-run-closeout-1",
+      loopAuthorized: false,
+      closeAuthorized: false,
+      harnessEvolutionAuthorized: false,
+    }));
+    expect(prepared.goalLoopSchedulerTerminalHandoff).not.toHaveProperty("readyWorktreeIds");
+    expect(prepared.goalLoopSchedulerTerminalHandoff).not.toHaveProperty("scope");
+    expect(prepared.goalLoopSchedulerTerminalHandoff).not.toHaveProperty("markdown");
+
+    const nonTerminal = buildSchedulerTerminalHandoffContext({
+      ...workpad,
+      goalLoop: { ...workpad.goalLoop, completionStatus: "incomplete" },
+    } as never, section);
+    expect(nonTerminal).toBeUndefined();
+
+    const completionSection = {
+      ...section,
+      controlledLoopState: {
+        ...section.controlledLoopState,
+        state: "terminal-handoff",
+        phase12aLabel: "terminal handoff",
+      },
+    } as SchedulerTerminalHandoffSectionFixture;
+    const completionHandoff = buildSchedulerTerminalHandoffContext({
+      goalLoop: {
+        changeId: "completed-change",
+        goalLoopNextStepPacketId: "goal-loop-next-step-packet-2",
+        completionStatus: "ready-for-human-close-gate",
+      },
+      schedulerRunCompletion: {
+        id: "scheduler-run-completion-1",
+        changeId: "completed-change",
+        schedulerRunId: "scheduler-run-2",
+        status: "completed-applied",
+        outcomeStatus: "applied",
+        integrationCheckStatus: "passed",
+        readyCount: 2,
+        resultTargetCount: 2,
+        outcomeReason: "Integration outcome was applied by the existing apply path.",
+        artifact: "harness/changes/active/completed-change/scheduler-runtime/completion.json",
+      },
+    } as never, completionSection);
+    expect(completionHandoff).toEqual(expect.objectContaining({
+      kind: "completion",
+      id: "scheduler-run-completion-1",
+      status: "completed-applied",
+      outcomeStatus: "applied",
+      integrationCheckStatus: "passed",
+      readyCount: 2,
+      resultTargetCount: 2,
+      applyAuthorized: false,
+      closeAuthorized: false,
+    }));
+    expect(completionHandoff).not.toHaveProperty("resultTargetWorktreeIds");
+    expect(completionHandoff).not.toHaveProperty("worktreeIds");
+  });
+
   it("records quality rework routing posture in actual main-agent prompt artifacts", async () => {
     const prepared = await prepareSchedulerFirstWorkerThroughResult({
       title: "Goal Loop Rework Routing Runtime Evidence",
@@ -5152,6 +5294,7 @@ describe("workbench read model", () => {
       });
       expect(closeReadyGoalLoopEvaluation.goalLoopNextStepPacket.recommendedAction).toBeUndefined();
       snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: prepared.topic.changeId });
+      expect(snapshot.center.workpad.goalLoop).toBeUndefined();
       expect(snapshot.right.confirmationQueue.current.flatMap((item) => item.actions).some((action) => action.actionType === "planning.scheduler.run.complete")).toBe(false);
       const forbiddenSchedulerFollowUpsAfterCompletion = new Set([
         "planning.scheduler.worker.start-first",
@@ -5168,6 +5311,45 @@ describe("workbench read model", () => {
         .flatMap((item) => item.actions)
         .filter((action) => action.actionType && forbiddenSchedulerFollowUpsAfterCompletion.has(action.actionType));
       expect(executableSchedulerFollowUpsAfterCompletion).toHaveLength(0);
+
+      const actionsBeforeTerminalPromptRuns = snapshot.right.confirmationQueue.current
+        .flatMap((item) => item.actions)
+        .map((action) => action.actionType)
+        .sort();
+      const terminalChat = await runCodexChat(project(), prepared.topic.changeId, "Explain the terminal scheduler handoff.");
+      const terminalChatRun = JSON.parse(await readFile(join(memory.runsRoot, terminalChat.run.id, "run.json"), "utf8")) as RunMetadata;
+      const terminalChatContext = await readFile(join(memory.runsRoot, terminalChat.run.id, "context.md"), "utf8");
+      const terminalChatEvents = await readJsonl(join(memory.runsRoot, terminalChat.run.id, "events.jsonl"));
+      expect(terminalChatRun.promptStack).not.toContain("goal-loop-next-step-packet");
+      expect(terminalChatRun.promptStack).not.toContain("goal-loop-controlled-loop-state");
+      expect(terminalChatRun.promptStack).not.toContain("goal-loop-scheduler-terminal-handoff");
+      expect(terminalChatContext).not.toContain("### Scheduler Terminal Handoff");
+      const terminalChatPrepared = terminalChatEvents.find((event) => event.type === "context.prepared")?.data as Record<string, unknown> | undefined;
+      expect(terminalChatPrepared).toEqual(expect.objectContaining({
+        path: expect.any(String),
+      }));
+      expect(terminalChatPrepared).not.toHaveProperty("goalLoopSchedulerTerminalHandoff");
+
+      const terminalOrchestrator = await runOrchestratorPlan(project(), prepared.topic.changeId, "Plan from the terminal scheduler handoff.");
+      const terminalOrchestratorRun = JSON.parse(await readFile(join(memory.runsRoot, terminalOrchestrator.run.id, "run.json"), "utf8")) as RunMetadata;
+      const terminalOrchestratorContext = await readFile(join(memory.runsRoot, terminalOrchestrator.run.id, "context.md"), "utf8");
+      const terminalOrchestratorEvents = await readJsonl(join(memory.runsRoot, terminalOrchestrator.run.id, "events.jsonl"));
+      expect(terminalOrchestratorRun.promptStack).not.toContain("goal-loop-next-step-packet");
+      expect(terminalOrchestratorRun.promptStack).not.toContain("goal-loop-controlled-loop-state");
+      expect(terminalOrchestratorRun.promptStack).not.toContain("goal-loop-scheduler-terminal-handoff");
+      expect(terminalOrchestratorContext).not.toContain("### Scheduler Terminal Handoff");
+      expect(terminalOrchestratorEvents).toEqual(expect.arrayContaining([expect.objectContaining({
+        type: "context.prepared",
+        data: expect.not.objectContaining({
+          goalLoopSchedulerTerminalHandoff: expect.any(Object),
+        }),
+      })]));
+      const actionsAfterTerminalPromptRuns = (await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: prepared.topic.changeId }))
+        .right.confirmationQueue.current
+        .flatMap((item) => item.actions)
+        .map((action) => action.actionType)
+        .sort();
+      expect(actionsAfterTerminalPromptRuns).toEqual(actionsBeforeTerminalPromptRuns);
       expect(await listWorkflowRuns(finalMemory, prepared.topic.changeId)).toHaveLength(0);
       expect(await listTaskQueues(finalMemory, prepared.topic.changeId)).toHaveLength(0);
       expect(await listAgentTasks(finalMemory, prepared.topic.changeId)).toHaveLength(0);
@@ -5298,6 +5480,147 @@ describe("workbench read model", () => {
       enabled: false,
       schedulerRunCompletionId: completionPayload.completion?.id,
     });
+    const terminalMemory = await resolveProjectMemory(project());
+    for (const worktreeId of prepared.refreshedCandidate.readyWorktreeIds ?? []) {
+      const applied = await markWorktreeApplied(terminalMemory, worktreeId, {
+        applyRunId: `test-close-ready-${worktreeId}`,
+      });
+      expect(applied).toMatchObject({ worktreeId, status: "applied" });
+    }
+    const terminalChangePath = join("harness", "changes", "active", prepared.topic.changeId);
+    const terminalChangeDir = join(terminalMemory.memoryRoot, terminalChangePath);
+    await writeFile(join(terminalChangeDir, "summary.md"), [
+      "# Scheduler Discard Completion Acceptance",
+      "",
+      "## Current Status",
+      "",
+      "Completed test fixture.",
+      "",
+    ].join("\n"), "utf8");
+    await writeFile(join(terminalChangeDir, "tasks.md"), [
+      "# Tasks",
+      "",
+      "- [x] T-001: Update module A.",
+      "  - Covers: AC-001",
+      "- [x] T-002: Update module B.",
+      "  - Covers: AC-001",
+      "",
+    ].join("\n"), "utf8");
+    await writeFile(join(terminalChangeDir, "spec-tests.json"), JSON.stringify({
+      version: "1.0",
+      changeId: prepared.topic.changeId,
+      updatedAt: new Date().toISOString(),
+      mappings: [],
+    }, null, 2), "utf8");
+    const sourceValidationId = `run-validation-source-close-ready-${Date.now()}`;
+    const sourceValidationDir = join(terminalMemory.runsRoot, sourceValidationId);
+    const sourceValidationTime = new Date(Date.now() + 60_000).toISOString();
+    await mkdir(sourceValidationDir, { recursive: true });
+    await writeFile(join(sourceValidationDir, "validation.json"), JSON.stringify({
+      version: "1.0",
+      id: sourceValidationId,
+      runId: sourceValidationId,
+      changeId: prepared.topic.changeId,
+      profile: "test",
+      status: "passed",
+      executionMode: "direct",
+      startedAt: sourceValidationTime,
+      finishedAt: sourceValidationTime,
+      commands: [],
+    }, null, 2), "utf8");
+    await writeFile(join(terminalChangeDir, "reviews", "review.md"), "Status: approved\n", "utf8");
+    await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: prepared.topic.changeId });
+    const terminalGoalLoopEvaluation = await compileGoalLoopEvaluation(terminalMemory, terminalChangePath);
+    expect(terminalGoalLoopEvaluation.goalLoopDecision).toMatchObject({
+      decisionKind: "completed-ready-for-human-close-gate",
+      recommendedAction: undefined,
+      executionStarted: false,
+    });
+
+    snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: prepared.topic.changeId });
+    expect(snapshot.center.workpad.goalLoop).toMatchObject({
+      goalLoopNextStepPacketId: terminalGoalLoopEvaluation.goalLoopNextStepPacket.id,
+      closeGateHandoff: expect.objectContaining({
+        changeId: prepared.topic.changeId,
+        closeActionId: "change.close",
+      }),
+    });
+    expect(snapshot.center.workpad.schedulerRunCompletion).toMatchObject({
+      id: completionPayload.completion?.id,
+      status: "completed-discarded",
+    });
+    expect(snapshot.center.workpad.nextAction).toMatchObject({
+      kind: "approval",
+      approvalId: `close:${prepared.topic.changeId}`,
+      enabled: true,
+      requiresConfirmation: true,
+    });
+    const actionsBeforeTerminalPromptRuns = snapshot.right.confirmationQueue.current
+      .flatMap((item) => item.actions)
+      .map((action) => action.actionType)
+      .sort();
+    const terminalChat = await runCodexChat(project(), prepared.topic.changeId, "Explain the terminal scheduler handoff.");
+    const terminalChatRun = JSON.parse(await readFile(join(terminalMemory.runsRoot, terminalChat.run.id, "run.json"), "utf8")) as RunMetadata;
+    const terminalChatContext = await readFile(join(terminalMemory.runsRoot, terminalChat.run.id, "context.md"), "utf8");
+    const terminalChatEvents = await readJsonl(join(terminalMemory.runsRoot, terminalChat.run.id, "events.jsonl"));
+    expect(terminalChatRun.promptStack).toEqual(expect.arrayContaining([
+      "goal-loop-next-step-packet",
+      "goal-loop-controlled-loop-state",
+      "goal-loop-scheduler-terminal-handoff",
+    ]));
+    expect(terminalChatContext).toContain("### Scheduler Terminal Handoff");
+    expect(terminalChatContext).toContain("Terminal kind: completion");
+    const terminalChatPrepared = terminalChatEvents.find((event) => event.type === "context.prepared")?.data as Record<string, unknown> | undefined;
+    expect(terminalChatPrepared?.goalLoopSchedulerTerminalHandoff).toEqual(expect.objectContaining({
+      authority: "non-executing-scheduler-terminal-handoff-prompt-evidence",
+      kind: "completion",
+      id: completionPayload.completion?.id,
+      changeId: prepared.topic.changeId,
+      schedulerRunId: prepared.schedulerRun.id,
+      status: "completed-discarded",
+      loopAuthorized: false,
+      fullParallelExecutorAuthorized: false,
+      wholeWaveDispatchAuthorized: false,
+      slotAllocatorAuthorized: false,
+      sourceMutationAuthorized: false,
+      applyAuthorized: false,
+      closeAuthorized: false,
+      harnessEvolutionAuthorized: false,
+    }));
+    expect(terminalChatPrepared?.goalLoopSchedulerTerminalHandoff).not.toHaveProperty("readyWorktreeIds");
+    expect(terminalChatPrepared?.goalLoopSchedulerTerminalHandoff).not.toHaveProperty("recommendedActionScope");
+    expect(terminalChatPrepared?.goalLoopSchedulerTerminalHandoff).not.toHaveProperty("actionPayload");
+    expect(terminalChatPrepared?.goalLoopSchedulerTerminalHandoff).not.toHaveProperty("markdown");
+
+    const terminalOrchestrator = await runOrchestratorPlan(project(), prepared.topic.changeId, "Plan from the terminal scheduler handoff.");
+    const terminalOrchestratorRun = JSON.parse(await readFile(join(terminalMemory.runsRoot, terminalOrchestrator.run.id, "run.json"), "utf8")) as RunMetadata;
+    const terminalOrchestratorContext = await readFile(join(terminalMemory.runsRoot, terminalOrchestrator.run.id, "context.md"), "utf8");
+    const terminalOrchestratorEvents = await readJsonl(join(terminalMemory.runsRoot, terminalOrchestrator.run.id, "events.jsonl"));
+    expect(terminalOrchestratorRun.promptStack).toEqual(expect.arrayContaining([
+      "goal-loop-next-step-packet",
+      "goal-loop-controlled-loop-state",
+      "goal-loop-scheduler-terminal-handoff",
+    ]));
+    expect(terminalOrchestratorContext).toContain("### Scheduler Terminal Handoff");
+    const terminalOrchestratorPrepared = terminalOrchestratorEvents.find((event) => event.type === "context.prepared")?.data as Record<string, unknown> | undefined;
+    expect(terminalOrchestratorPrepared?.goalLoopSchedulerTerminalHandoff).toEqual(expect.objectContaining({
+      kind: "completion",
+      id: completionPayload.completion?.id,
+      closeAuthorized: false,
+      harnessEvolutionAuthorized: false,
+    }));
+    expect(terminalOrchestratorPrepared?.goalLoopSchedulerTerminalHandoff).not.toHaveProperty("resultTargetWorktreeIds");
+    expect(terminalOrchestratorPrepared?.goalLoopSchedulerTerminalHandoff).not.toHaveProperty("scope");
+    expect(terminalOrchestratorPrepared?.goalLoopSchedulerTerminalHandoff).not.toHaveProperty("markdown");
+    const actionsAfterTerminalPromptRuns = (await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: prepared.topic.changeId }))
+      .right.confirmationQueue.current
+      .flatMap((item) => item.actions)
+      .map((action) => action.actionType)
+      .sort();
+    expect(actionsAfterTerminalPromptRuns).toEqual(actionsBeforeTerminalPromptRuns);
+    expect(await listWorkflowRuns(terminalMemory, prepared.topic.changeId)).toHaveLength(0);
+    expect(await listTaskQueues(terminalMemory, prepared.topic.changeId)).toHaveLength(0);
+    expect(await listAgentTasks(terminalMemory, prepared.topic.changeId)).toHaveLength(0);
     const forbiddenSchedulerFollowUpsAfterDiscardCompletion = new Set([
       "planning.scheduler.worker.start-first",
       "planning.scheduler.worker.start-next",

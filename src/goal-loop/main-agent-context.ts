@@ -42,6 +42,33 @@ export interface GoalLoopMainAgentContextSection {
   controllerMarkdownArtifact?: string;
 }
 
+export type GoalLoopSchedulerTerminalHandoffKind = "completion" | "blocked-closeout";
+
+export interface GoalLoopSchedulerTerminalHandoffContext {
+  authority: "non-executing-scheduler-terminal-handoff-prompt-evidence";
+  kind: GoalLoopSchedulerTerminalHandoffKind;
+  id: string;
+  changeId: string;
+  schedulerRunId: string;
+  status: string;
+  reason: string;
+  artifact?: string;
+  readyCount?: number;
+  resultTargetCount?: number;
+  blockedCount?: number;
+  integrationCheckStatus?: string;
+  outcomeStatus?: string;
+  blockedReason?: string;
+  loopAuthorized: false;
+  fullParallelExecutorAuthorized: false;
+  wholeWaveDispatchAuthorized: false;
+  slotAllocatorAuthorized: false;
+  sourceMutationAuthorized: false;
+  applyAuthorized: false;
+  closeAuthorized: false;
+  harnessEvolutionAuthorized: false;
+}
+
 export async function buildGoalLoopMainAgentContextSection(
   memory: ResolvedMemory,
   changePath: string,
@@ -102,6 +129,45 @@ export async function buildGoalLoopMainAgentContextSection(
   } catch {
     return null;
   }
+}
+
+export function appendSchedulerTerminalHandoffContext(
+  markdown: string,
+  handoff: GoalLoopSchedulerTerminalHandoffContext,
+): string {
+  return [
+    markdown.trimEnd(),
+    "",
+    "### Scheduler Terminal Handoff",
+    "",
+    "This SchedulerRun terminal handoff is main-Agent prompt context only. It is read-only evidence from the Workpad-visible terminal scheduler state.",
+    "It must not authorize a scheduler loop, full executor, worker start, wave dispatch, slot allocation, source mutation, apply, close, merge, PR, landing, or Harness evolution.",
+    "",
+    `- Terminal kind: ${handoff.kind}`,
+    `- Terminal evidence: ${handoff.id}`,
+    `- Change: ${handoff.changeId}`,
+    `- SchedulerRun: ${handoff.schedulerRunId}`,
+    `- Status: ${handoff.status}`,
+    `- Reason: ${handoff.reason}`,
+    ...(handoff.outcomeStatus ? [`- Outcome status: ${handoff.outcomeStatus}`] : []),
+    ...(handoff.integrationCheckStatus ? [`- IntegrationCheck status: ${handoff.integrationCheckStatus}`] : []),
+    ...(handoff.blockedReason ? [`- Blocked reason: ${handoff.blockedReason}`] : []),
+    ...(handoff.readyCount === undefined ? [] : [`- Ready count: ${handoff.readyCount}`]),
+    ...(handoff.resultTargetCount === undefined ? [] : [`- Result target count: ${handoff.resultTargetCount}`]),
+    ...(handoff.blockedCount === undefined ? [] : [`- Blocked count: ${handoff.blockedCount}`]),
+    ...(handoff.artifact ? [`- Evidence artifact: ${handoff.artifact}`] : []),
+    "",
+    "#### Scheduler Terminal Forbidden Authority",
+    "",
+    `- loopAuthorized: ${handoff.loopAuthorized ? "true" : "false"}`,
+    `- fullParallelExecutorAuthorized: ${handoff.fullParallelExecutorAuthorized ? "true" : "false"}`,
+    `- wholeWaveDispatchAuthorized: ${handoff.wholeWaveDispatchAuthorized ? "true" : "false"}`,
+    `- slotAllocatorAuthorized: ${handoff.slotAllocatorAuthorized ? "true" : "false"}`,
+    `- sourceMutationAuthorized: ${handoff.sourceMutationAuthorized ? "true" : "false"}`,
+    `- applyAuthorized: ${handoff.applyAuthorized ? "true" : "false"}`,
+    `- closeAuthorized: ${handoff.closeAuthorized ? "true" : "false"}`,
+    `- harnessEvolutionAuthorized: ${handoff.harnessEvolutionAuthorized ? "true" : "false"}`,
+  ].join("\n");
 }
 
 export function stripGoalLoopControllerPolicyContext(section: GoalLoopMainAgentContextSection): GoalLoopMainAgentContextSection {

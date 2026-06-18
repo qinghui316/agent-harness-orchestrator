@@ -1,7 +1,9 @@
-import { buildGoalLoopMainAgentContextSection, stripGoalLoopControllerPolicyContext } from "../../goal-loop/manager.js";
+import { appendSchedulerTerminalHandoffContext, buildGoalLoopMainAgentContextSection, stripGoalLoopControllerPolicyContext } from "../../goal-loop/manager.js";
 import type { GoalLoopCloseGateHandoff } from "../../goal-loop/close-handoff.js";
 import type { GoalLoopControlledLoopStateContext } from "../../goal-loop/scheduler-loop-context.js";
+import type { GoalLoopSchedulerTerminalHandoffContext } from "../../goal-loop/main-agent-context.js";
 import type { ManagedProject, ResolvedMemory } from "../../types/index.js";
+import type { WorkbenchWorkpad } from "../read-model-types.js";
 import { getWorkbenchWorkpadProjection } from "../projections/read-model/implementation.js";
 
 export interface VisibleGoalLoopMainAgentContextSection {
@@ -14,6 +16,7 @@ export interface VisibleGoalLoopMainAgentContextSection {
   guidedGateScope?: Record<string, string | string[]>;
   closeGateHandoff?: GoalLoopCloseGateHandoff;
   controlledLoopState: GoalLoopControlledLoopStateContext;
+  schedulerTerminalHandoff?: GoalLoopSchedulerTerminalHandoffContext;
   markdown: string;
 }
 
@@ -27,16 +30,24 @@ export async function buildVisibleGoalLoopMainAgentContextSection(
   if (!section) return null;
   const workpad = await getWorkbenchWorkpadProjection({ project, path: project.path }, changeId).catch(() => null);
   if (workpad?.goalLoop?.goalLoopNextStepPacketId !== section.goalLoopNextStepPacketId) return null;
-  let visibleSection = section;
+  let visibleSection: VisibleGoalLoopMainAgentContextSection = section;
   if (section.goalLoopControllerPolicyId && workpad.goalLoop.controllerPolicyId !== section.goalLoopControllerPolicyId) {
     visibleSection = stripGoalLoopControllerPolicyContext(section);
   }
   if (workpad.goalLoop.closeGateHandoff) {
     const closeGateHandoff = workpad.goalLoop.closeGateHandoff;
-    return {
+    visibleSection = {
       ...visibleSection,
       closeGateHandoff,
       markdown: appendCloseGateHandoffContext(visibleSection.markdown, closeGateHandoff),
+    };
+  }
+  const schedulerTerminalHandoff = buildSchedulerTerminalHandoffContext(workpad, visibleSection);
+  if (schedulerTerminalHandoff) {
+    return {
+      ...visibleSection,
+      schedulerTerminalHandoff,
+      markdown: appendSchedulerTerminalHandoffContext(visibleSection.markdown, schedulerTerminalHandoff),
     };
   }
   return visibleSection;
@@ -55,4 +66,84 @@ function appendCloseGateHandoffContext(
     "- Authority: explanatory Goal Loop evidence only; the Change close/archive transition still requires the existing human close gate.",
     `- Reason: ${handoff.reason}`,
   ].join("\n");
+}
+
+export function buildSchedulerTerminalHandoffContext(
+  workpad: WorkbenchWorkpad,
+  section: VisibleGoalLoopMainAgentContextSection,
+): GoalLoopSchedulerTerminalHandoffContext | undefined {
+  const goalLoop = workpad.goalLoop;
+  const completion = workpad.schedulerRunCompletion;
+  if (
+    completion
+    && goalLoop
+    && completion.changeId === goalLoop.changeId
+    && completion.schedulerRunId
+    && (goalLoop.completionStatus === "ready-for-human-close-gate" || section.controlledLoopState.state === "terminal-handoff")
+  ) {
+    return {
+      authority: "non-executing-scheduler-terminal-handoff-prompt-evidence",
+      kind: "completion",
+      id: completion.id,
+      changeId: completion.changeId,
+      schedulerRunId: completion.schedulerRunId,
+      status: completion.status,
+      reason: completion.outcomeReason,
+      artifact: completion.markdownArtifact ?? completion.artifact,
+      readyCount: completion.readyCount,
+      resultTargetCount: completion.resultTargetCount,
+      integrationCheckStatus: completion.integrationCheckStatus,
+      outcomeStatus: completion.outcomeStatus,
+      ...terminalFalseAuthority(),
+    };
+  }
+
+  const closeout = workpad.schedulerRunBlockedCloseout;
+  if (
+    closeout
+    && goalLoop
+    && closeout.changeId === goalLoop.changeId
+    && closeout.schedulerRunId
+    && goalLoop.completionStatus === "blocked"
+  ) {
+    return {
+      authority: "non-executing-scheduler-terminal-handoff-prompt-evidence",
+      kind: "blocked-closeout",
+      id: closeout.id,
+      changeId: closeout.changeId,
+      schedulerRunId: closeout.schedulerRunId,
+      status: closeout.status,
+      reason: closeout.closeoutReason,
+      artifact: closeout.markdownArtifact ?? closeout.artifact,
+      readyCount: closeout.readyCount,
+      blockedCount: closeout.blockedCount,
+      blockedReason: closeout.reason,
+      ...terminalFalseAuthority(),
+    };
+  }
+
+  return undefined;
+}
+
+function terminalFalseAuthority(): Pick<
+  GoalLoopSchedulerTerminalHandoffContext,
+  | "loopAuthorized"
+  | "fullParallelExecutorAuthorized"
+  | "wholeWaveDispatchAuthorized"
+  | "slotAllocatorAuthorized"
+  | "sourceMutationAuthorized"
+  | "applyAuthorized"
+  | "closeAuthorized"
+  | "harnessEvolutionAuthorized"
+> {
+  return {
+    loopAuthorized: false,
+    fullParallelExecutorAuthorized: false,
+    wholeWaveDispatchAuthorized: false,
+    slotAllocatorAuthorized: false,
+    sourceMutationAuthorized: false,
+    applyAuthorized: false,
+    closeAuthorized: false,
+    harnessEvolutionAuthorized: false,
+  };
 }
