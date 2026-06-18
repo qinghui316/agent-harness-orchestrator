@@ -27,6 +27,7 @@ import {
   completeAgentTask,
   createAgentTask,
   listAgentTasks,
+  listMaintenanceCanonicalUpdateDecisions,
   listDemandMemoryCloseouts,
   maybeRunMaintenanceReviewWindow,
   readMaintenanceReviewWatermark,
@@ -7708,9 +7709,21 @@ describe("workbench read model", () => {
       }),
       latest: expect.objectContaining({ eventType: "apply" }),
     });
+    expect(snapshot.right.confirmationQueue.current.flatMap((item) => item.actions).some((action) => action.actionType === "maintenance.canonical-update.decision.record")).toBe(false);
+    expect(snapshot.right.confirmationQueue.maintenance).toEqual([
+      expect.objectContaining({
+        kind: "maintenance",
+        maintenanceProposalId: maintenance?.latestProposal?.id,
+        actions: [expect.objectContaining({
+          actionType: "maintenance.canonical-update.decision.record",
+          maintenanceProposalId: maintenance?.latestProposal?.id,
+          requiresConfirmation: true,
+        })],
+      }),
+    ]);
   });
 
-  it("records terminal demand closeouts, runs five-change maintenance review, and keeps maintenance out of confirmation queue", async () => {
+  it("records terminal demand closeouts, runs five-change maintenance review, and keeps maintenance out of the current confirmation queue", async () => {
     await initHarness(project());
     const memory = await resolveProjectMemory(project());
 
@@ -7775,7 +7788,45 @@ describe("workbench read model", () => {
     });
     expect(maintenance?.resolutionCount ?? 0).toBeGreaterThan(0);
     expect(maintenance?.proposalCount ?? 0).toBeGreaterThan(0);
-    expect(snapshot.right.confirmationQueue.maintenance).toEqual([]);
+    const maintenanceProposalId = maintenance?.latestProposal?.id;
+    expect(maintenanceProposalId).toBeTruthy();
+    expect(snapshot.right.confirmationQueue.current.flatMap((item) => item.actions).some((action) => action.actionType === "maintenance.canonical-update.decision.record")).toBe(false);
+    expect(snapshot.right.confirmationQueue.maintenance).toEqual([
+      expect.objectContaining({
+        kind: "maintenance",
+        maintenanceProposalId,
+        actions: [expect.objectContaining({
+          actionType: "maintenance.canonical-update.decision.record",
+          maintenanceProposalId,
+          requiresConfirmation: true,
+        })],
+      }),
+    ]);
+    await expect(executeWorkbenchAction({ project: project(), path: tempDir }, {
+      actionType: "maintenance.canonical-update.decision.record",
+      maintenanceProposalId: maintenanceProposalId ?? "",
+      confirm: false,
+    })).rejects.toThrow("Mutating Workbench workflow actions require confirm: true.");
+    await expect(executeWorkbenchAction({ project: project(), path: tempDir }, {
+      actionType: "maintenance.canonical-update.decision.record",
+      maintenanceProposalId: "forged-proposal",
+      confirm: true,
+    })).rejects.toThrow("Workflow action target is stale or no longer available.");
+    const decisionResult = await executeWorkbenchAction({ project: project(), path: tempDir }, {
+      actionType: "maintenance.canonical-update.decision.record",
+      maintenanceProposalId: maintenanceProposalId ?? "",
+      confirm: true,
+    });
+    const decisions = await listMaintenanceCanonicalUpdateDecisions(memory);
+    expect(decisions).toEqual([
+      expect.objectContaining({
+        proposalId: maintenanceProposalId,
+        sourceMutationAuthorized: false,
+        canonicalUpdateAuthorized: false,
+        executionStarted: false,
+      }),
+    ]);
+    expect((decisionResult.snapshot as Awaited<ReturnType<typeof getWorkbenchSnapshot>>).right.confirmationQueue.maintenance).toEqual([]);
 
     const coderContext = buildRoleScopedContextProjection({
       roleId: "coder-agent",

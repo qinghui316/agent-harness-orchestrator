@@ -373,11 +373,13 @@ export function App(): ReactElement {
   }
 
   async function runWorkflowAction(actionType: string, options: Record<string, unknown> = {}): Promise<void> {
-    if (!selectedProjectId || !activeTopic) return;
+    const projectScopedAction = actionType === "maintenance.canonical-update.decision.record";
+    if (!selectedProjectId || (!activeTopic && !projectScopedAction)) return;
     setActionRunning(actionType);
     setError(null);
     try {
       if (actionType === "intake.scan") {
+        if (!activeTopic) return;
         const result = await postJson<{ snapshot: Snapshot }>(`/api/projects/${encodeURIComponent(selectedProjectId)}/workbench/intake/scan`, {
           changeId: activeTopic.id,
           prompt: composerText.trim() || activeTopic.title,
@@ -387,6 +389,7 @@ export function App(): ReactElement {
         return;
       }
       if (actionType === "intake.reanalyze") {
+        if (!activeTopic) return;
         const message = (composerText.trim() || window.prompt("补充需求或回答需要确认的问题") || "").trim();
         if (!message) return;
         const result = await postJson<{ snapshot: Snapshot }>(`/api/projects/${encodeURIComponent(selectedProjectId)}/workbench/intake/reanalyze`, {
@@ -399,7 +402,7 @@ export function App(): ReactElement {
       }
       await consumeWorkbenchLiveStream(`/api/projects/${encodeURIComponent(selectedProjectId)}/workbench/actions/live`, {
         actionType,
-        changeId: activeTopic.id,
+        changeId: activeTopic?.id,
         confirm: true,
         prompt: composerText.trim() || undefined,
         ...options,

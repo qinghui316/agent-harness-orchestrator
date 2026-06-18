@@ -5,20 +5,20 @@
 - Current date: 2026-06-18.
 - Active ECL change: none.
 - Pending Harness evolution: none.
-- Latest archived product change: `harness/changes/archive/20260618-phase-12p-product-maintenance-canonical-update-proposal-evidence/summary.md`.
-- Latest archived product/Harness docs change: `harness/changes/archive/20260618-phase-12p-product-maintenance-canonical-update-proposal-evidence/summary.md`.
+- Latest archived product change: `harness/changes/archive/20260618-phase-12q-product-maintenance-canonical-update-decision-gate/summary.md`.
+- Latest archived product/Harness docs change: `harness/changes/archive/20260618-phase-12q-product-maintenance-canonical-update-decision-gate/summary.md`.
 - Latest archived Harness evolution: `harness/changes/archive/20260618-auto-evolve-harness-phase-12k-12o-lifecycle-handoff-drift/summary.md`.
 - Active product phase: none.
 - Active Harness evolution phase: none.
 - Active close status: no active change.
 
-This file is the short resume point. Phase 12P is archived after adding non-executing product-maintenance canonical update proposal evidence derived from Phase 12O lifecycle resolutions. The latest Harness evolution handled the Phase 12K-12O pending window, marked it complete as `keep/independent_review`, and corrected current-plan drift after Phase 12O. Phase 12O is archived after implementing product maintenance candidate lifecycle-resolution evidence for promote, merge, retire, archive-only, and noop outcomes without automatic stable-memory or documentation rewrites. Phase 12N is archived after adding compact read-only SchedulerRun terminal handoff evidence to main-Agent prompt/context replay when Workpad-visible Goal Loop parity and terminal state match. Phase 12K recorded product-level maintenance/self-evolution targets for documentation entropy, stable-memory budget, stale-current-state detection, and candidate experience lifecycle decisions.
+This file is the short resume point. Phase 12Q is archived after adding a project-level human-gated maintenance canonical update decision record for Phase 12P proposal evidence without automatic stable-memory, canonical documentation, source, apply/close, remote landing, or Harness evolution mutation. Phase 12P is archived after adding non-executing product-maintenance canonical update proposal evidence derived from Phase 12O lifecycle resolutions. The latest Harness evolution handled the Phase 12K-12O pending window, marked it complete as `keep/independent_review`, and corrected current-plan drift after Phase 12O.
 
 Current plan-level roadmap context is preserved in `docs/CURRENT-DEVELOPMENT-PLAN.md`. Historical detail belongs in archived summaries and `harness/changes/INDEX.json`.
 
 ## Current Baseline
 
-The product baseline is post-Phase-12P with no pending Harness evolution. Goal Loop controlled-loop state, routing posture, and SchedulerRun terminal handoff evidence remain non-executing evidence only. Fresh Workpad-visible main-Agent context can add `goal-loop-controlled-loop-state`, `goal-loop-routing-posture`, and when terminal SchedulerRun parity matches, `goal-loop-scheduler-terminal-handoff` to actual `chat.ask` / `orchestrator.plan` `run.json.promptStack`, plus compact refs to `context.prepared`; stale or hidden Goal Loop context omits those labels/refs. SchedulerRun terminal Workpad completion and blocked-closeout cards explicitly state they are read-only evidence and do not authorize loop/full-executor/dispatch/slot/source/apply/close/merge/Harness-evolution behavior. Product-level maintenance now writes candidate lifecycle-resolution evidence and canonical update proposal evidence after candidate score/review; it remains read-only/non-executing preparation until a future human-gated canonical apply path exists.
+The product baseline is post-Phase-12Q with no pending Harness evolution. Goal Loop controlled-loop state, routing posture, and SchedulerRun terminal handoff evidence remain non-executing evidence only. Fresh Workpad-visible main-Agent context can add `goal-loop-controlled-loop-state`, `goal-loop-routing-posture`, and when terminal SchedulerRun parity matches, `goal-loop-scheduler-terminal-handoff` to actual `chat.ask` / `orchestrator.plan` `run.json.promptStack`, plus compact refs to `context.prepared`; stale or hidden Goal Loop context omits those labels/refs. SchedulerRun terminal Workpad completion and blocked-closeout cards explicitly state they are read-only evidence and do not authorize loop/full-executor/dispatch/slot/source/apply/close/merge/Harness-evolution behavior. Product-level maintenance now writes candidate lifecycle-resolution evidence, canonical update proposal evidence, and human-gated canonical update decision records after candidate score/review while still forbidding automatic canonical rewrites.
 
 The scheduler-loop snapshot and controlled-loop state remain absent from iteration, continuation brief, next-step packet, controller policy, gate-readiness preflight schemas, and Workbench action payloads. They do not authorize ToolPolicy, scheduler runtime, worker auto-start, whole-wave dispatch, slot allocation, source mutation, apply, close, child Change, or Harness evolution.
 
@@ -26,7 +26,7 @@ Phase 12A remains the future controlled Scheduler/parallel loop design boundary.
 
 ## Next Resume Point
 
-No active change is open and no Harness evolution is pending. Next structured product work should continue from `docs/CURRENT-DEVELOPMENT-PLAN.md`; for product maintenance, the next slice is a separate human-gated canonical update apply path built from proposal evidence, before any automatic rewrite behavior. Stale documentation cleanup should be folded into the relevant product stage instead of split into a standalone phase unless the user explicitly asks for documentation-only work; keep `README.md` unrelated and untracked unless the user explicitly asks to include it.
+No active change is open and no Harness evolution is pending. Next structured product work should continue from `docs/CURRENT-DEVELOPMENT-PLAN.md`; for product maintenance, the next slice is a separate canonical patch/update proposal and human-gated application path built from Phase 12P proposal evidence and Phase 12Q decision evidence, before any automatic rewrite behavior. Stale documentation cleanup should be folded into the relevant product stage instead of split into a standalone phase unless the user explicitly asks for documentation-only work; keep `README.md` unrelated and untracked unless the user explicitly asks to include it.
 
 ## Verification Commands
 

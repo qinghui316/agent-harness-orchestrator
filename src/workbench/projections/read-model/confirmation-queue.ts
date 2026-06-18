@@ -7,6 +7,7 @@ import { decisionContextToConfirmationItems } from "./confirmation/decision-cont
 import { attachGoalLoopAssistedConcreteGateActions, attachGoalLoopControllerRefreshActions, attachGoalLoopFeedbackActions, attachGoalLoopGateReadinessActions, goalLoopEvaluationQueueItem } from "./confirmation/goal-loop.js";
 import { integrationCandidateQueueItem, integrationCheckHistoryItem, integrationCheckNeedsActionQueueItem, integrationCheckNeedsUserAction, integrationCheckQueueItem, sameIntegrationTargets } from "./confirmation/integration.js";
 import { landingCandidateQueueItem, landingPackageQueueItem, landingQueuePrepareItem, landingQueueSnapshotItems, prDraftQueueItem } from "./confirmation/landing.js";
+import { maintenanceCanonicalUpdateDecisionQueueItems } from "./confirmation/maintenance.js";
 import { dedupeConfirmationItems, emptyConfirmationQueue, scopeConfirmationQueueItemActions } from "./confirmation/shared.js";
 import { decompositionPlanToConfirmationItems, schedulerNextActionToConfirmationItems, taskQueueProposalToConfirmationItems, workpadNextActionToConfirmationItems } from "./confirmation/typed-workflow.js";
 
@@ -97,7 +98,10 @@ export async function buildConfirmationQueue(input: {
       .map((check) => integrationCheckHistoryItem(project, check));
   }
 
-  queue.maintenance = [];
+  queue.maintenance = dedupeConfirmationItems((await maintenanceCanonicalUpdateDecisionQueueItems({
+    project: input.project,
+    memory: input.memory,
+  })).map(scopeConfirmationQueueItemActions));
   if (queue.current.length === 0) {
     const goalLoopItem = goalLoopEvaluationQueueItem(input.project, input.selectedTopic);
     if (goalLoopItem) queue.current.push(goalLoopItem);

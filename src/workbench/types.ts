@@ -201,6 +201,7 @@ export interface WorkbenchWorkflowActionRequest {
   goalLoopControllerPolicyId?: string;
   goalLoopGateReadinessPreflightId?: string;
   goalLoopCurrentGateActionType?: WorkbenchWorkflowActionType;
+  maintenanceProposalId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   workflowRunId?: string;

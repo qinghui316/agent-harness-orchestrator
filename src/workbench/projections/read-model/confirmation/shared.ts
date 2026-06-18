@@ -32,6 +32,7 @@ export function scopeConfirmationQueueItemActions(item: WorkbenchConfirmationQue
       goalLoopControllerPolicyId: action.goalLoopControllerPolicyId ?? item.goalLoopControllerPolicyId,
       goalLoopGateReadinessPreflightId: action.goalLoopGateReadinessPreflightId ?? item.goalLoopGateReadinessPreflightId,
       goalLoopCurrentGateActionType: action.goalLoopCurrentGateActionType ?? item.goalLoopCurrentGateActionType,
+      maintenanceProposalId: action.maintenanceProposalId ?? item.maintenanceProposalId,
     })),
   };
 }

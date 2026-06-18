@@ -91,7 +91,8 @@ export type MaintenanceLedgerEventType =
   | "harness-evolution"
   | "change-closeout"
   | "maintenance-review"
-  | "canonical-update-proposal";
+  | "canonical-update-proposal"
+  | "canonical-update-decision";
 
 export interface MaintenanceLedgerEntry {
   version: "1.0";
@@ -188,6 +189,20 @@ export interface MaintenanceCanonicalUpdateProposal {
   canonicalUpdateAuthorized: false;
   summary: string;
   resolutionSummaries: MaintenanceCanonicalUpdateResolutionSummary[];
+  artifactRefs: string[];
+  createdAt: string;
+}
+
+export interface MaintenanceCanonicalUpdateDecision {
+  version: "1.0";
+  id: string;
+  proposalId: string;
+  decisionStatus: "accepted-for-follow-up";
+  targetKinds: MaintenanceCanonicalUpdateTargetKind[];
+  sourceMutationAuthorized: false;
+  canonicalUpdateAuthorized: false;
+  executionStarted: false;
+  summary: string;
   artifactRefs: string[];
   createdAt: string;
 }

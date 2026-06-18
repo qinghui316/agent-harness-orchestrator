@@ -15,6 +15,7 @@ export const WORKFLOW_ACTION_TYPES = [
   "planning.goal-loop.feedback.evaluate",
   "planning.goal-loop.controller.refresh",
   "planning.goal-loop.gate-readiness.prepare",
+  "maintenance.canonical-update.decision.record",
   "planning.scheduler.plan.prepare",
   "planning.scheduler.contract.compile",
   "planning.scheduler.dispatch.dry-run",
@@ -133,6 +134,7 @@ export const LIVE_WORKFLOW_ACTION_TYPES = [
   "planning.goal-loop.feedback.evaluate",
   "planning.goal-loop.controller.refresh",
   "planning.goal-loop.gate-readiness.prepare",
+  "maintenance.canonical-update.decision.record",
   "planning.scheduler.plan.prepare",
   "planning.scheduler.contract.compile",
   "planning.scheduler.dispatch.dry-run",
@@ -231,6 +233,7 @@ export const HIGH_IMPACT_WORKFLOW_ACTION_TYPES = [
   "planning.goal-loop.feedback.evaluate",
   "planning.goal-loop.controller.refresh",
   "planning.goal-loop.gate-readiness.prepare",
+  "maintenance.canonical-update.decision.record",
   "planning.scheduler.plan.prepare",
   "planning.scheduler.contract.compile",
   "planning.scheduler.dispatch.dry-run",
@@ -290,6 +293,7 @@ export const REVALIDATED_WORKFLOW_ACTION_TYPES = [
   "planning.goal-loop.feedback.evaluate",
   "planning.goal-loop.controller.refresh",
   "planning.goal-loop.gate-readiness.prepare",
+  "maintenance.canonical-update.decision.record",
   "planning.scheduler.plan.prepare",
   "planning.scheduler.contract.compile",
   "planning.scheduler.dispatch.dry-run",
@@ -360,6 +364,7 @@ export const WORKFLOW_ACTION_SCOPE_KEYS = [
   "goalLoopFeedbackId",
   "goalLoopControllerPolicyId",
   "goalLoopGateReadinessPreflightId",
+  "maintenanceProposalId",
   "reservationIntentId",
   "claimIntentId",
   "workflowRunId",
@@ -452,6 +457,9 @@ export function validateWorkflowActionRequiredTargets(request: WorkflowActionSco
       requireOne("goalLoopNextStepPacketId", [request.goalLoopNextStepPacketId]);
       requireOne("goalLoopControllerPolicyId", [request.goalLoopControllerPolicyId]);
       requireOne("goalLoopCurrentGateActionType", [request.goalLoopCurrentGateActionType]);
+      break;
+    case "maintenance.canonical-update.decision.record":
+      requireOne("maintenanceProposalId", [request.maintenanceProposalId]);
       break;
     case "planning.scheduler.plan.prepare":
       requireOne("changeId", [request.changeId]);
@@ -670,6 +678,7 @@ export function workflowActionScopePayload(request: WorkflowActionScopeCarrier, 
     goalLoopControllerPolicyId: request.goalLoopControllerPolicyId ?? extractString(result, "goalLoopControllerPolicy", "id") ?? extractString(result, "goalLoopGateReadinessPreflight", "sourceGoalLoopControllerPolicyId"),
     goalLoopGateReadinessPreflightId: request.goalLoopGateReadinessPreflightId ?? extractString(result, "goalLoopGateReadinessPreflight", "id"),
     goalLoopCurrentGateActionType: request.goalLoopCurrentGateActionType,
+    maintenanceProposalId: request.maintenanceProposalId ?? extractString(result, "decision", "proposalId"),
     reservationIntentId: request.reservationIntentId ?? extractString(result, "workerStart", "reservationIntentId") ?? extractString(result, "result", "reservationIntentId") ?? extractString(result, "schedulerValidation", "reservationIntentId") ?? extractString(result, "schedulerAudit", "reservationIntentId") ?? extractString(result, "reworkPlan", "reservationIntentId"),
     claimIntentId: request.claimIntentId ?? extractString(result, "workerStart", "claimIntentId") ?? extractString(result, "result", "claimIntentId") ?? extractString(result, "schedulerValidation", "claimIntentId") ?? extractString(result, "schedulerAudit", "claimIntentId") ?? extractString(result, "reworkPlan", "claimIntentId"),
     workflowRunId: request.workflowRunId ?? extractString(result, "workflowRun", "id") ?? extractString(result, "workflow", "id"),
@@ -821,6 +830,8 @@ export function workflowActionTargetId(request: WorkflowActionScopeCarrier, chan
       ?? changeId;
   }
   return request.remoteLandingResultId
+    ?? request.maintenanceProposalId
+    ?? extractString(result, "decision", "proposalId")
     ?? request.landingPackageId
     ?? request.applyCheckId
     ?? request.worktreeId
@@ -917,6 +928,7 @@ export function workflowActionScopesMatchStrict(left: WorkflowActionScopeCarrier
     && sameStrictOptional(left.goalLoopControllerPolicyId, right.goalLoopControllerPolicyId)
     && sameStrictOptional(left.goalLoopGateReadinessPreflightId, right.goalLoopGateReadinessPreflightId)
     && sameStrictOptional(left.goalLoopCurrentGateActionType, right.goalLoopCurrentGateActionType)
+    && sameStrictOptional(left.maintenanceProposalId, right.maintenanceProposalId)
     && sameStrictOptional(left.reservationIntentId, right.reservationIntentId)
     && sameStrictOptional(left.claimIntentId, right.claimIntentId)
     && sameStrictOptional(left.workflowRunId, right.workflowRunId)
@@ -979,6 +991,7 @@ export function workflowActionScopesMatchCompatible(left: WorkflowActionScopeCar
     && sameCompatibleOptional(left.goalLoopControllerPolicyId, right.goalLoopControllerPolicyId)
     && sameCompatibleOptional(left.goalLoopGateReadinessPreflightId, right.goalLoopGateReadinessPreflightId)
     && sameCompatibleOptional(left.goalLoopCurrentGateActionType, right.goalLoopCurrentGateActionType)
+    && sameCompatibleOptional(left.maintenanceProposalId, right.maintenanceProposalId)
     && sameCompatibleOptional(left.reservationIntentId, right.reservationIntentId)
     && sameCompatibleOptional(left.claimIntentId, right.claimIntentId)
     && sameCompatibleOptional(left.workflowRunId, right.workflowRunId)

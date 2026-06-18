@@ -14,16 +14,19 @@ import {
   createAgentTask,
   listAgentTasks,
   listMaintenanceCanonicalUpdateProposals,
+  listMaintenanceCanonicalUpdateDecisions,
   listMaintenanceCandidateResolutions,
   listDemandMemoryCloseouts,
   listMaintenanceLedgerEntries,
   maybeRunMaintenanceReviewWindow,
   proposeMaintenanceCanonicalUpdate,
   readAgentTaskResult,
+  recordMaintenanceCanonicalUpdateDecision,
   readMaintenanceCanonicalUpdateProposal,
   readMaintenanceCandidateResolution,
   readMaintenanceReviewWatermark,
   recordDemandMemoryCloseout,
+  recordMaintenanceLedgerEntry,
   resolveMaintenanceCandidate,
   runMaintenanceCandidatePipeline,
 } from "../../src/agent-task/manager.js";
@@ -216,6 +219,11 @@ describe("AgentTask domain boundaries", () => {
     const proposalLedgerBefore = (await listMaintenanceLedgerEntries(memory)).filter((entry) => entry.eventType === "canonical-update-proposal").length;
     await proposeMaintenanceCanonicalUpdate(memory, resolutions);
     const proposalLedgerAfter = (await listMaintenanceLedgerEntries(memory)).filter((entry) => entry.eventType === "canonical-update-proposal").length;
+    const decision = await recordMaintenanceCanonicalUpdateDecision(memory, proposals[0].id);
+    const repeatedDecision = await recordMaintenanceCanonicalUpdateDecision(memory, proposals[0].id);
+    const decisions = await listMaintenanceCanonicalUpdateDecisions(memory);
+    const decisionMarkdown = await readFile(join(memory.workbenchRoot, "maintenance", "canonical-update-decisions", `${decision.id}.md`), "utf8");
+    const decisionLedgerCount = (await listMaintenanceLedgerEntries(memory)).filter((entry) => entry.eventType === "canonical-update-decision").length;
 
     expect(resolutions.length).toBeGreaterThan(0);
     expect(proposals.length).toBeGreaterThan(0);
@@ -236,7 +244,37 @@ describe("AgentTask domain boundaries", () => {
     expect(proposalMarkdown).toContain("non-executing maintenance proposal evidence");
     expect(proposalMarkdown).toContain("Canonical update authorized: false");
     expect(proposalLedgerAfter).toBe(proposalLedgerBefore);
+    expect(repeatedDecision.id).toBe(decision.id);
+    expect(decisions).toHaveLength(1);
+    expect(decision).toMatchObject({
+      proposalId: proposals[0].id,
+      decisionStatus: "accepted-for-follow-up",
+      sourceMutationAuthorized: false,
+      canonicalUpdateAuthorized: false,
+      executionStarted: false,
+    });
+    expect(decisionMarkdown).toContain("human-gated maintenance decision evidence");
+    expect(decisionMarkdown).toContain("Canonical update authorized: false");
+    expect(decisionLedgerCount).toBe(1);
     expect(await readFile(memory.agentGuidePath, "utf8")).toBe(originalGuide);
+  });
+
+  it("does not create maintenance candidates from canonical update proposal or decision ledger entries", async () => {
+    await initHarness(project());
+    const memory = await resolveProjectMemory(project());
+
+    await recordMaintenanceLedgerEntry(memory, {
+      eventType: "canonical-update-proposal",
+      summary: "Proposal evidence should not feed the maintenance candidate pipeline.",
+      artifactRefs: ["workbench/maintenance/canonical-update-proposals/proposal.json"],
+    });
+    await recordMaintenanceLedgerEntry(memory, {
+      eventType: "canonical-update-decision",
+      summary: "Decision evidence should not feed the maintenance candidate pipeline.",
+      artifactRefs: ["workbench/maintenance/canonical-update-decisions/decision.json"],
+    });
+
+    await expect(runMaintenanceCandidatePipeline(memory)).resolves.toMatchObject({ status: "skipped" });
   });
 
   it("maps maintenance candidate lifecycle outcomes deterministically", async () => {

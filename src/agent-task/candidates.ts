@@ -106,7 +106,7 @@ export async function runMaintenanceCandidatePipeline(memory: ResolvedMemory): P
   score?: CandidateScore;
   review?: CandidateReview;
 }> {
-  const entries = (await listMaintenanceLedgerEntries(memory)).filter((entry) => entry.eventType !== "canonical-update-proposal");
+  const entries = (await listMaintenanceLedgerEntries(memory)).filter((entry) => !isCanonicalUpdateEvidenceEvent(entry.eventType));
   if (entries.length === 0) return { status: "skipped" };
   const candidate = await createEvolutionCandidate(memory, entries.slice(-10));
   if (!candidate) return { status: "skipped" };
@@ -198,10 +198,14 @@ async function findCandidateByFingerprint(memory: ResolvedMemory, fingerprint: s
 }
 
 function candidateSubtypeForEvent(eventType: MaintenanceLedgerEventType): EvolutionCandidate["subtype"] {
-  if (eventType === "canonical-update-proposal") return undefined;
+  if (isCanonicalUpdateEvidenceEvent(eventType)) return undefined;
   if (eventType === "doc-drift") return "docs-drift";
   if (eventType === "reference-drift") return "reference-drift";
   if (eventType === "harness-evolution") return "harness-evolution";
   if (eventType === "change-closeout" || eventType === "maintenance-review") return "stable-memory";
   return "reusable-lesson";
+}
+
+function isCanonicalUpdateEvidenceEvent(eventType: MaintenanceLedgerEventType): boolean {
+  return eventType === "canonical-update-proposal" || eventType === "canonical-update-decision";
 }

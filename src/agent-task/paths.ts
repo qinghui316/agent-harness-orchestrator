@@ -60,3 +60,15 @@ export function maintenanceCanonicalUpdateProposalPath(memory: ResolvedMemory, p
 export function maintenanceCanonicalUpdateProposalMarkdownPath(memory: ResolvedMemory, proposalId: string): string {
   return join(maintenanceCanonicalUpdateProposalsRoot(memory), `${proposalId}.md`);
 }
+
+export function maintenanceCanonicalUpdateDecisionsRoot(memory: ResolvedMemory): string {
+  return join(maintenanceRoot(memory), "canonical-update-decisions");
+}
+
+export function maintenanceCanonicalUpdateDecisionPath(memory: ResolvedMemory, decisionId: string): string {
+  return join(maintenanceCanonicalUpdateDecisionsRoot(memory), `${decisionId}.json`);
+}
+
+export function maintenanceCanonicalUpdateDecisionMarkdownPath(memory: ResolvedMemory, decisionId: string): string {
+  return join(maintenanceCanonicalUpdateDecisionsRoot(memory), `${decisionId}.md`);
+}

@@ -3,6 +3,7 @@ import { readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { readJsonFile, writeJsonFile } from "../fs/json.js";
 import type {
+  MaintenanceCanonicalUpdateDecision,
   MaintenanceCanonicalUpdateProposal,
   MaintenanceCanonicalUpdateTargetKind,
   MaintenanceCandidateResolution,
@@ -11,13 +12,16 @@ import type {
 } from "../types/index.js";
 import {
   displayMaintenancePath,
+  maintenanceCanonicalUpdateDecisionMarkdownPath,
+  maintenanceCanonicalUpdateDecisionPath,
+  maintenanceCanonicalUpdateDecisionsRoot,
   maintenanceCanonicalUpdateProposalMarkdownPath,
   maintenanceCanonicalUpdateProposalPath,
   maintenanceCanonicalUpdateProposalsRoot,
   maintenanceResolutionPath,
 } from "./paths.js";
 import { listMaintenanceLedgerEntries, recordMaintenanceLedgerEntry } from "./ledger.js";
-import { canonicalUpdateProposalSchema } from "./schemas.js";
+import { canonicalUpdateDecisionSchema, canonicalUpdateProposalSchema } from "./schemas.js";
 import { contentHash, uniqueSorted } from "./utils.js";
 
 export async function proposeMaintenanceCanonicalUpdate(
@@ -67,8 +71,62 @@ export async function listMaintenanceCanonicalUpdateProposals(memory: ResolvedMe
   return proposals.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 }
 
+export async function recordMaintenanceCanonicalUpdateDecision(
+  memory: ResolvedMemory,
+  proposalId: string,
+): Promise<MaintenanceCanonicalUpdateDecision> {
+  const proposal = await readMaintenanceCanonicalUpdateProposal(memory, proposalId);
+  if (!proposal) throw new Error(`Maintenance canonical update proposal not found: ${proposalId}`);
+  if (!proposal.humanGateRequired) throw new Error(`Maintenance canonical update proposal is not human-gated: ${proposalId}`);
+  const existing = await readMaintenanceCanonicalUpdateDecisionForProposal(memory, proposalId);
+  if (existing) {
+    await ensureCanonicalUpdateDecisionLedgerEntry(memory, existing);
+    return existing;
+  }
+  const decision = buildCanonicalUpdateDecision(memory, proposal);
+  canonicalUpdateDecisionSchema.parse(decision);
+  await writeJsonFile(maintenanceCanonicalUpdateDecisionPath(memory, decision.id), decision);
+  await writeFile(maintenanceCanonicalUpdateDecisionMarkdownPath(memory, decision.id), renderCanonicalUpdateDecisionMarkdown(decision), "utf8");
+  await ensureCanonicalUpdateDecisionLedgerEntry(memory, decision);
+  return decision;
+}
+
+export async function readMaintenanceCanonicalUpdateDecision(
+  memory: ResolvedMemory,
+  decisionId: string,
+): Promise<MaintenanceCanonicalUpdateDecision | null> {
+  const path = maintenanceCanonicalUpdateDecisionPath(memory, decisionId);
+  if (!existsSync(path)) return null;
+  return readJsonFile(path, canonicalUpdateDecisionSchema, null as unknown as MaintenanceCanonicalUpdateDecision).catch(() => null);
+}
+
+export async function listMaintenanceCanonicalUpdateDecisions(memory: ResolvedMemory): Promise<MaintenanceCanonicalUpdateDecision[]> {
+  const root = maintenanceCanonicalUpdateDecisionsRoot(memory);
+  if (!existsSync(root)) return [];
+  const entries = await readdir(root, { withFileTypes: true });
+  const decisions: MaintenanceCanonicalUpdateDecision[] = [];
+  for (const entry of entries) {
+    if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
+    const decision = await readJsonFile(join(root, entry.name), canonicalUpdateDecisionSchema, null as unknown as MaintenanceCanonicalUpdateDecision).catch(() => null);
+    if (decision) decisions.push(decision);
+  }
+  return decisions.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+}
+
+export async function readMaintenanceCanonicalUpdateDecisionForProposal(
+  memory: ResolvedMemory,
+  proposalId: string,
+): Promise<MaintenanceCanonicalUpdateDecision | null> {
+  const decisions = await listMaintenanceCanonicalUpdateDecisions(memory);
+  return decisions.find((decision) => decision.proposalId === proposalId) ?? null;
+}
+
 export function maintenanceCanonicalUpdateProposalArtifactRef(memory: ResolvedMemory, proposalId: string): string {
   return displayMaintenancePath(memory, maintenanceCanonicalUpdateProposalPath(memory, proposalId));
+}
+
+export function maintenanceCanonicalUpdateDecisionArtifactRef(memory: ResolvedMemory, decisionId: string): string {
+  return displayMaintenancePath(memory, maintenanceCanonicalUpdateDecisionPath(memory, decisionId));
 }
 
 function buildCanonicalUpdateProposal(memory: ResolvedMemory, resolutions: MaintenanceCandidateResolution[]): MaintenanceCanonicalUpdateProposal {
@@ -103,6 +161,27 @@ function buildCanonicalUpdateProposal(memory: ResolvedMemory, resolutions: Maint
   };
 }
 
+function buildCanonicalUpdateDecision(memory: ResolvedMemory, proposal: MaintenanceCanonicalUpdateProposal): MaintenanceCanonicalUpdateDecision {
+  const id = `canonical-update-decision-${contentHash(proposal.id).slice(0, 12)}`;
+  const proposalRefs = [
+    maintenanceCanonicalUpdateProposalArtifactRef(memory, proposal.id),
+    displayMaintenancePath(memory, maintenanceCanonicalUpdateProposalMarkdownPath(memory, proposal.id)),
+  ];
+  return {
+    version: "1.0",
+    id,
+    proposalId: proposal.id,
+    decisionStatus: "accepted-for-follow-up",
+    targetKinds: proposal.targetKinds,
+    sourceMutationAuthorized: false,
+    canonicalUpdateAuthorized: false,
+    executionStarted: false,
+    summary: `Human-gated maintenance decision recorded for proposal ${proposal.id}. This decision accepts the proposal as follow-up input only and does not authorize canonical rewrites.`,
+    artifactRefs: uniqueSorted([...proposalRefs, ...proposal.artifactRefs]),
+    createdAt: new Date().toISOString(),
+  };
+}
+
 async function ensureCanonicalUpdateProposalLedgerEntry(
   memory: ResolvedMemory,
   proposal: MaintenanceCanonicalUpdateProposal,
@@ -118,6 +197,25 @@ async function ensureCanonicalUpdateProposalLedgerEntry(
     artifactRefs: [
       proposalRef,
       displayMaintenancePath(memory, maintenanceCanonicalUpdateProposalMarkdownPath(memory, proposal.id)),
+    ],
+  });
+}
+
+async function ensureCanonicalUpdateDecisionLedgerEntry(
+  memory: ResolvedMemory,
+  decision: MaintenanceCanonicalUpdateDecision,
+): Promise<void> {
+  const decisionRef = maintenanceCanonicalUpdateDecisionArtifactRef(memory, decision.id);
+  const entries = await listMaintenanceLedgerEntries(memory);
+  if (entries.some((entry) => entry.eventType === "canonical-update-decision" && entry.artifactRefs.includes(decisionRef))) {
+    return;
+  }
+  await recordMaintenanceLedgerEntry(memory, {
+    eventType: "canonical-update-decision",
+    summary: `${decision.summary} This ledger entry is evidence only and does not authorize canonical rewrites.`,
+    artifactRefs: [
+      decisionRef,
+      displayMaintenancePath(memory, maintenanceCanonicalUpdateDecisionMarkdownPath(memory, decision.id)),
     ],
   });
 }
@@ -152,6 +250,36 @@ function renderCanonicalUpdateProposalMarkdown(proposal: MaintenanceCanonicalUpd
     "## Evidence",
     "",
     ...proposal.artifactRefs.map((ref) => `- ${ref}`),
+    "",
+  ].join("\n");
+}
+
+function renderCanonicalUpdateDecisionMarkdown(decision: MaintenanceCanonicalUpdateDecision): string {
+  return [
+    `# ${decision.id}`,
+    "",
+    decision.summary,
+    "",
+    "## Authority",
+    "",
+    "- Classification: human-gated maintenance decision evidence.",
+    "- Decision status: accepted-for-follow-up.",
+    "- Source mutation authorized: false.",
+    "- Canonical update authorized: false.",
+    "- Execution started: false.",
+    "- This decision does not modify stable memory, canonical docs, ECL rules, Harness templates, source root, apply state, close state, or Harness evolution state.",
+    "",
+    "## Proposal",
+    "",
+    `- ${decision.proposalId}`,
+    "",
+    "## Target Kinds",
+    "",
+    ...decision.targetKinds.map((kind) => `- ${kind}`),
+    "",
+    "## Evidence",
+    "",
+    ...decision.artifactRefs.map((ref) => `- ${ref}`),
     "",
   ].join("\n");
 }

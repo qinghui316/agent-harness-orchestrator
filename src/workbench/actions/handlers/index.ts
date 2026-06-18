@@ -46,6 +46,9 @@ export function buildWorkbenchActionHandlers(deps: WorkbenchActionHandlerDeps): 
   "planning.taskqueue.propose": async (project, changeId, request, live) => proposeTaskQueue(project, changeId, request, live),
   ...buildGoalLoopActionHandlers(),
   ...buildSchedulerActionHandlers(),
+  "maintenance.canonical-update.decision.record": async () => {
+    throw new Error("maintenance.canonical-update.decision.record is project-scoped and must not run through the demand topic workflow service.");
+  },
   "planning.workflowgraph.compile": async (project, changeId, request, live) => compileTaskQueueWorkflowGraph(project, changeId, request, live),
   "planning.taskqueue.confirm-start": async (project, changeId, request, live) => confirmTaskQueueProposalAndStart(project, changeId, request, live),
   "orchestrator.evaluate": async (project, changeId) => evaluateDemandOrchestrator(project, changeId),

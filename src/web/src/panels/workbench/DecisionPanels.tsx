@@ -58,6 +58,24 @@ export function DecisionInspectorPane({
           ))}
         </section>
       ) : null}
+      {confirmationQueue.maintenance.length > 0 ? (
+        <section className="decision-related">
+          <div className="approval-header compact">
+            <h2>后台维护确认</h2>
+            <span>{confirmationQueue.maintenance.length}</span>
+          </div>
+          {confirmationQueue.maintenance.map((item) => (
+            <ConfirmationQueueCard
+              key={item.id}
+              item={item}
+              confirming={confirming}
+              onConfirmingChange={onConfirmingChange}
+              onExecuteAction={onExecuteAction}
+              onFeedback={onFeedback}
+            />
+          ))}
+        </section>
+      ) : null}
       <DecisionContextHistory contexts={inspector.history} onSelectContext={onSelectContext} />
     </>
   );

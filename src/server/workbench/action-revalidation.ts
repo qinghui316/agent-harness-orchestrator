@@ -107,7 +107,7 @@ export async function assertCurrentWorkflowAction(input: WorkbenchProjectInput, 
     return;
   }
   const queue = snapshot.right.confirmationQueue;
-  const queueActions = [queue.primary, ...queue.current, ...queue.otherDemands]
+  const queueActions = [queue.primary, ...queue.current, ...queue.otherDemands, ...(queue.maintenance ?? [])]
     .filter((item): item is NonNullable<typeof item> => Boolean(item))
     .flatMap((item) => item.actions);
   const nextAction = snapshot.center.workpad.nextAction;

@@ -33,10 +33,14 @@ export {
 } from "./candidates.js";
 export {
   eligibleCanonicalUpdateResolutions,
+  listMaintenanceCanonicalUpdateDecisions,
   listMaintenanceCanonicalUpdateProposals,
+  maintenanceCanonicalUpdateDecisionArtifactRef,
   maintenanceCanonicalUpdateProposalArtifactRef,
   proposeMaintenanceCanonicalUpdate,
+  readMaintenanceCanonicalUpdateDecision,
   readMaintenanceCanonicalUpdateProposal,
+  recordMaintenanceCanonicalUpdateDecision,
 } from "./canonical-updates.js";
 export {
   listMaintenanceCandidateResolutions,

@@ -188,6 +188,7 @@ export type WorkpadNextAction = {
   goalLoopControllerPolicyId?: string;
   goalLoopGateReadinessPreflightId?: string;
   goalLoopCurrentGateActionType?: ThreadStreamAction["actionType"];
+  maintenanceProposalId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   workflowRunId?: string;
@@ -253,6 +254,7 @@ export type WorkbenchTaskNextAction = {
   goalLoopControllerPolicyId?: string;
   goalLoopGateReadinessPreflightId?: string;
   goalLoopCurrentGateActionType?: ThreadStreamAction["actionType"];
+  maintenanceProposalId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   workflowRunId?: string;
@@ -1265,6 +1267,7 @@ export type ThreadStreamAction = {
   goalLoopControllerPolicyId?: string;
   goalLoopGateReadinessPreflightId?: string;
   goalLoopCurrentGateActionType?: ThreadStreamAction["actionType"];
+  maintenanceProposalId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   workflowRunId?: string;
@@ -1362,6 +1365,7 @@ export type DecisionAction = {
   schedulerWorkerAuditId?: string;
   schedulerWorkerReworkPlanId?: string;
   schedulerWorkerReworkStartId?: string;
+  maintenanceProposalId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   workflowRunId?: string;

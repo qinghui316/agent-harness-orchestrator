@@ -2,6 +2,7 @@ import { z } from "zod";
 import type {
   DemandMemoryCloseout,
   DocBudgetReport,
+  MaintenanceCanonicalUpdateDecision,
   MaintenanceCanonicalUpdateProposal,
   MaintenanceReviewRun,
   MaintenanceReviewWatermark,
@@ -54,7 +55,7 @@ export const ledgerSchema = z.object({
   id: z.string(),
   projectId: z.string().nullable(),
   changeId: z.string().optional(),
-  eventType: z.enum(["archive", "apply", "remote-landing", "failure", "user-feedback", "doc-drift", "reference-drift", "harness-evolution", "change-closeout", "maintenance-review", "canonical-update-proposal"]),
+  eventType: z.enum(["archive", "apply", "remote-landing", "failure", "user-feedback", "doc-drift", "reference-drift", "harness-evolution", "change-closeout", "maintenance-review", "canonical-update-proposal", "canonical-update-decision"]),
   summary: z.string(),
   artifactRefs: z.array(z.string()),
   createdAt: z.string(),
@@ -130,6 +131,20 @@ export const canonicalUpdateProposalSchema: z.ZodType<MaintenanceCanonicalUpdate
     rationale: z.string(),
     artifactRefs: z.array(z.string()),
   })),
+  artifactRefs: z.array(z.string()),
+  createdAt: z.string(),
+});
+
+export const canonicalUpdateDecisionSchema: z.ZodType<MaintenanceCanonicalUpdateDecision> = z.object({
+  version: z.literal("1.0"),
+  id: z.string(),
+  proposalId: z.string(),
+  decisionStatus: z.literal("accepted-for-follow-up"),
+  targetKinds: z.array(z.enum(["stable-memory", "canonical-docs", "harness-evolution", "reference", "maintenance"])),
+  sourceMutationAuthorized: z.literal(false),
+  canonicalUpdateAuthorized: z.literal(false),
+  executionStarted: z.literal(false),
+  summary: z.string(),
   artifactRefs: z.array(z.string()),
   createdAt: z.string(),
 });

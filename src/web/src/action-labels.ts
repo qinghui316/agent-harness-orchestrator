@@ -16,6 +16,7 @@ export function workflowActionLabel(actionType: string | undefined): string {
   if (actionType === "planning.goal-loop.feedback.evaluate") return "重新评估目标循环";
   if (actionType === "planning.goal-loop.controller.refresh") return "刷新 Goal Loop 控制策略";
   if (actionType === "planning.goal-loop.gate-readiness.prepare") return "准备 Goal Loop gate 预检";
+  if (actionType === "maintenance.canonical-update.decision.record") return "记录维护决策";
   const schedulerLabel = schedulerUserFacingActionLabel(actionType);
   if (schedulerLabel) return schedulerLabel;
   if (actionType === "planning.scheduler.plan.prepare") return "准备并行执行计划";
