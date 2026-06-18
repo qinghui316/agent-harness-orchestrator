@@ -315,6 +315,30 @@ File size alone is not a failure condition. It is evidence that a reviewer shoul
 
 Record the module owners, moved responsibilities, retained facade responsibilities, module handoff map when applicable, compatibility result, and tests run in `reviews/review.md` or `summary.md`.
 
+### 13.7 Core Mechanism Reuse / Architecture Growth Control Coverage
+
+When a structured product or architecture change adds a new feature path, artifact family, state transition, projection, validation/safety gate, ledger event, maintenance record, or cross-module protocol, planning and review must include Core Mechanism Reuse / Architecture Growth Control coverage.
+
+Future work should prefer reusing and strengthening existing core mechanisms. Feature modules should express domain-specific behavior. Cross-cutting behavior belongs in shared owners, such as artifact repositories, lineage and stale-target guards, authority boundaries, ledger event policy, projection summary builders, gate/action target revalidation, human-gate evidence, and ToolPolicy-related checks.
+
+The plan must record:
+
+- which existing core mechanisms are reused or strengthened;
+- why existing mechanisms are insufficient if a new mechanism is proposed;
+- where domain-specific logic belongs;
+- where shared cross-cutting logic belongs;
+- which feature-local framework, state machine, projection system, validation/safety gate, or protocol is being avoided;
+- how the approach lowers future cost for similar features.
+
+The review must confirm that:
+
+- the change does not repeat a local framework, local state machine, local safety/validation system, local projection system, or local artifact protocol when a shared owner exists;
+- any new cross-cutting mechanism is introduced as a reusable owner with clear boundaries rather than as one feature's private helper layer;
+- public APIs, manager facades, and Workbench behavior stay compatible unless a breaking change is explicitly accepted;
+- file count, line count, and surface modularity were treated as signals only, not substitutes for ownership, reuse, tests, and future-cost reduction.
+
+This rule does not prohibit new modules. It prohibits repeating cross-cutting architecture inside each feature. Documentation-only changes that merely record architecture vocabulary should state why product-code reuse coverage is not applicable, while still recording whether they update ECL rules, templates, or future development direction.
+
 ## 14. Goal Loop Boundary
 
 Future autonomous, semi-autonomous, or Goal-driven loop changes must record how the loop stays bounded by AHO evidence.

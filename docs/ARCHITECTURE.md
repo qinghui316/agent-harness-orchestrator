@@ -37,6 +37,10 @@ User Intent
 
 This chain is a safety and evidence contract, not a mandatory role order. The main agent may clarify, split a request, create or select Changes, delegate roles, repeat validation-driven repair, or stop for user input. The invariant is that write-capable work and high-impact transitions pass through explicit Change binding, scoped context, evidence records, and human gates.
 
+Core mechanism reuse is now part of the product kernel. New product features should reuse or strengthen shared owners for artifacts, lineage and stale-target guards, authority boundaries, ledger events, projection summaries, action/gate target revalidation, human-gate evidence, and ToolPolicy-related checks. Feature modules should express domain differences; cross-cutting behavior should not be reimplemented as a feature-local framework, state machine, validation system, projection system, or protocol.
+
+When an existing shared owner is insufficient, the architecture target is to create or extend a reusable mechanism with clear ownership before adding feature-specific branches. Surface modularity, file count, and line count are review signals only; a change is healthier when it reduces the cost of the next similar feature while preserving workflow truth, accepted artifacts, validation/audit, IntegrationCheck, and human gates.
+
 Domain relationship:
 
 ```text

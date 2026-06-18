@@ -125,6 +125,20 @@ Pending.
 - If applicable, tested with: not applicable.
 - If not applicable, reason: change does not add or change Workbench action execution, projections, runtime services, frontend panels, typed workflow artifacts, or cross-module workflow state.
 
+## Core Mechanism Reuse Coverage
+
+- Core mechanism reuse / architecture growth control coverage applicable: no.
+- If applicable, existing mechanisms reused or strengthened: not applicable.
+- If applicable, new cross-cutting mechanism and owner: not applicable.
+- If applicable, why existing mechanisms were insufficient: not applicable.
+- If applicable, domain-specific logic location: not applicable.
+- If applicable, shared cross-cutting logic location: not applicable.
+- If applicable, local framework / state machine / projection / validation / gate avoided: not applicable.
+- If applicable, public API / facade / Workbench compatibility result: not applicable.
+- If applicable, future-cost reduction result: not applicable.
+- If applicable, tested with: not applicable.
+- If not applicable, reason: change does not add or change a product feature path, artifact family, state transition, projection, validation/safety gate, ledger event, maintenance record, or cross-module protocol.
+
 ## Close / Handoff Drift Coverage
 
 - Close/handoff drift coverage applicable: no.

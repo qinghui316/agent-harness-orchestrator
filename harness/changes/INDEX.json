@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-18T17:22:27.2144533Z",
+    "generated_at":  "2026-06-18T17:47:27.5188917Z",
     "active":  [
 
                ],
@@ -1129,6 +1129,10 @@
                     {
                         "name":  "20260618-phase-12t-product-maintenance-canonical-patch-application-manifest",
                         "path":  "harness/changes/archive/20260618-phase-12t-product-maintenance-canonical-patch-application-manifest"
+                    },
+                    {
+                        "name":  "20260619-architecture-growth-control-core-mechanism-reuse",
+                        "path":  "harness/changes/archive/20260619-architecture-growth-control-core-mechanism-reuse"
                     },
                     {
                         "name":  "20260619-auto-evolve-harness-phase-12s-12w-product-maintenance-evidence",

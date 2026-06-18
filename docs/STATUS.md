@@ -6,13 +6,13 @@
 - Active ECL change: none.
 - Pending Harness evolution: none.
 - Latest archived product change: `harness/changes/archive/20260619-phase-12w-product-maintenance-canonical-patch-application-observation-report-evidence/summary.md`.
-- Latest archived product/Harness docs change: `harness/changes/archive/20260619-phase-12w-product-maintenance-canonical-patch-application-observation-report-evidence/summary.md`.
+- Latest archived product/Harness docs change: `harness/changes/archive/20260619-architecture-growth-control-core-mechanism-reuse/summary.md`.
 - Latest archived Harness evolution: `harness/changes/archive/20260619-auto-evolve-harness-phase-12s-12w-product-maintenance-evidence/summary.md`.
 - Active product phase: none.
 - Active Harness evolution phase: none.
 - Active close status: none.
 
-This file is the short resume point. Phase 12W is archived after adding read-only observation report evidence for deterministic, human-gated canonical docs/stable-memory patch application results. The existing readiness manifest remains non-authoritative; application requires a separate result artifact, `maintenanceApplicationManifestId`, Workbench human confirmation, ToolPolicyGate audit evidence, target-kind path boundaries, and immediate target hash revalidation.
+This file is the short resume point. Architecture Growth Control / Core Mechanism Reuse is now documented as a development constraint and local change templates require future structured changes to plan and review reuse of shared mechanisms. Phase 12W remains the latest product behavior baseline after adding read-only observation report evidence for deterministic, human-gated canonical docs/stable-memory patch application results.
 
 Current plan-level roadmap context is preserved in `docs/CURRENT-DEVELOPMENT-PLAN.md`. Historical detail belongs in archived summaries and `harness/changes/INDEX.json`.
 
@@ -26,7 +26,7 @@ Phase 12A remains the future controlled Scheduler/parallel loop design boundary.
 
 ## Next Resume Point
 
-Resume the next structured product slice from `docs/CURRENT-DEVELOPMENT-PLAN.md`. Likely next product-maintenance work should observe the 12V/12W evidence chain in real use before considering broader automatic rewrite behavior. Keep `README.md` unrelated and untracked unless the user explicitly asks to include it.
+Resume the next structured product slice from `docs/CURRENT-DEVELOPMENT-PLAN.md`. Start with the Architecture Growth Control register before opening another evidence-only or descriptor-only phase; the first source convergence candidate is the maintenance / canonical patch chain. Keep `README.md` unrelated and untracked unless the user explicitly asks to include it.
 
 ## Verification Commands
 
@@ -57,6 +57,7 @@ Use `harness/changes/INDEX.json` for the generated archive list. Start with arch
 
 Recent key archive summaries:
 
+- Architecture Growth Control Core Mechanism Reuse: `harness/changes/archive/20260619-architecture-growth-control-core-mechanism-reuse/summary.md`.
 - Phase 12W Product Maintenance Canonical Patch Application Observation Report Evidence: `harness/changes/archive/20260619-phase-12w-product-maintenance-canonical-patch-application-observation-report-evidence/summary.md`.
 - Phase 12V Product Maintenance Canonical Patch Application Writer: `harness/changes/archive/20260619-phase-12v-product-maintenance-canonical-patch-application-writer/summary.md`.
 - Phase 12U Product Maintenance Canonical Patch Target Descriptors: `harness/changes/archive/20260619-phase-12u-product-maintenance-canonical-patch-target-descriptors/summary.md`.

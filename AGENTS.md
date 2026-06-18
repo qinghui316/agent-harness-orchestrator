@@ -8,7 +8,7 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 - Active change: none.
 - Pending Harness evolution: none.
 - Latest archived product change: Phase 12W Product Maintenance Canonical Patch Application Observation Report Evidence, archived at `harness/changes/archive/20260619-phase-12w-product-maintenance-canonical-patch-application-observation-report-evidence/summary.md`.
-- Latest product/Harness docs change: Phase 12W Product Maintenance Canonical Patch Application Observation Report Evidence, archived at `harness/changes/archive/20260619-phase-12w-product-maintenance-canonical-patch-application-observation-report-evidence/summary.md`.
+- Latest product/Harness docs change: Architecture Growth Control Core Mechanism Reuse, archived at `harness/changes/archive/20260619-architecture-growth-control-core-mechanism-reuse/summary.md`.
 - Active product phase: none.
 - Active Harness evolution phase: none.
 - Latest Harness evolution: `harness/changes/archive/20260619-auto-evolve-harness-phase-12s-12w-product-maintenance-evidence/summary.md`.
@@ -119,6 +119,8 @@ Human confirmation remains required before high-impact canonical transitions suc
 Current Goal Loop evidence is non-executing. Controller policy, next-step packets, prompt context, feedback evidence, gate-readiness preflight, and close-gate handoff metadata may explain, check, or recommend existing Harness gates, but they must not execute actions, mutate source, bypass ToolPolicyGate/human gates, or become workflow truth. A preflight id may attach to the matching concrete action as evidence only; close-gate handoff may attach to the existing `change.close` approval as derived context only. Accepted Spec/Plan/Tasks/AC artifact hash drift makes Goal Loop guidance stale until fresh evidence is recorded.
 
 Scheduler and parallel-work artifacts remain bounded. First/next worker gates, validation/audit/rework, integration handoff/outcome, and SchedulerRun completion evidence do not authorize whole-wave dispatch, scheduler loops, slot allocators, child Changes, automatic apply/merge, or a full parallel executor unless a later phase explicitly implements those paths.
+
+New product features must prefer reusing and strengthening existing core mechanisms. Feature modules should express domain differences; shared artifact, lineage, stale-revalidation, authority, ledger, projection, gate, and ToolPolicy logic belongs in common owners rather than feature-local mini-frameworks. Architecture quality is judged by ownership, reuse, verification, and lower future cost for similar features, not by file count, line count, or surface modularity alone.
 
 ## 9. Reference Source Rules
 

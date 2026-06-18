@@ -24,12 +24,30 @@ The user should not need to know internal terms before asking for work. The main
 - Workpad, Topic, TaskQueue, SchedulerRun, Goal Loop packets/policies, SQLite, Workbench projections, and UI state are coordination or evidence layers unless a later accepted architecture decision promotes them.
 - Goal Loop recommendations and controller policies are explanatory evidence only. They must not execute actions, mutate source, bypass ToolPolicyGate/human gates, or become workflow truth.
 - Scheduler gates remain one-confirmation-per-legal-transition. They must not become a scheduler loop, whole-wave dispatch, slot allocator, automatic child Change creator, automatic apply/merge path, or full parallel executor until explicitly designed and implemented.
+- New features must prefer reusing and strengthening existing core mechanisms. Feature modules should express domain differences; cross-cutting artifact, lineage, stale-revalidation, authority, ledger, projection, gate, and ToolPolicy logic belongs in shared owners.
 - Historical phase facts belong in archived summaries and `harness/changes/INDEX.json`, not in entry documents.
+
+## Architecture Growth Control
+
+The near-term development posture is convergence before expansion. Future structured changes should first ask which core mechanism they reuse or strengthen, and only then add feature-specific behavior. Do not continue adding pure evidence-only, report, manifest, descriptor, or local projection phases unless they reuse an existing core mechanism and clearly lower the cost of later similar work.
+
+The rule is not "fewer files" or "never add modules." It is "no repeated local frameworks." A new owned module is acceptable when it becomes the reusable owner for a cross-cutting concern; a feature-local state machine, artifact protocol, safety gate, projection system, or ledger policy is not acceptable when an existing shared owner can be extended.
+
+Current architecture debt register:
+
+| Area | Convergence target | First safe move |
+| --- | --- | --- |
+| Maintenance / canonical patch chain | Shared artifact, lineage, target-descriptor, application-result, and observation-report handling | Pick one narrow chain and extract the smallest reusable artifact + lineage helper before touching other domains |
+| Workbench projections | Shared projection summary and stale-target explanation patterns | Reuse one projection builder pattern across a repeated maintenance or scheduler surface |
+| Gate/action target revalidation | Common target revalidation vocabulary across Workbench actions and assisted gates | Strengthen existing scoped action target checks instead of adding new gate-specific validators |
+| Ledger and event policy | One policy for durable evidence events versus derived summaries | Record which events are canonical evidence and which summaries are projections before adding new maintenance records |
+| Manager facades | Thin compatibility exports and wiring only | Keep new main logic out of broad facades; add owner modules or extend existing owners |
 
 ## Next Product Direction
 
 The current product baseline is post-Phase-12W after adding read-only observation report evidence for human-gated canonical patch application results. Goal Loop evidence remains non-executing, assisted concrete gate guidance and close-gate handoff metadata are freshness-bound to accepted artifacts, conflict-aware routing distinguishes low-conflict first/next worker-start gates from sequential/rework/integration/closeout handling, and scheduler execution mode still reports false scheduler-loop/full-executor/whole-wave/slot authorization. Product maintenance writes typed lifecycle-resolution evidence, canonical update proposal evidence, human-gated canonical update decision evidence, canonical patch proposal evidence, human-gated canonical patch application follow-up records, read-only application manifest readiness evidence, optional safe target descriptors, scoped application result evidence for confirmed canonical docs/stable-memory updates, and read-only observation report evidence over those results. These records do not automatically rewrite stable memory, canonical docs, ECL rules, Harness templates, source roots, apply/close state, remote state, child Changes, loop runtime, worker dispatch, or Harness evolution state. The Phase 12A controlled loop boundary lives in `docs/design-docs/controlled-scheduler-loop.md` and remains future-only until a later ECL change implements runtime behavior. Historical phase-by-phase details stay in archived summaries and `harness/changes/INDEX.json`.
 
+- If continuing product implementation, start with the architecture debt register above before opening another evidence-only or descriptor-only phase.
 - If continuing Goal Loop work, build on controller policy evidence without making it execution authority.
 - If continuing scheduler work, use `docs/design-docs/controlled-scheduler-loop.md` as the future-loop boundary, but keep current runtime single-gate staged until a later accepted implementation change adds and verifies loop behavior.
 - If improving Workbench UX, keep implemented actions honest and bind every high-impact action to concrete target ids, stale revalidation, ToolPolicyGate, and human confirmation.
