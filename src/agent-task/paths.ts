@@ -48,3 +48,15 @@ export function maintenanceResolutionsRoot(memory: ResolvedMemory): string {
 export function maintenanceResolutionPath(memory: ResolvedMemory, candidateId: string): string {
   return join(maintenanceResolutionsRoot(memory), `${candidateId}.json`);
 }
+
+export function maintenanceCanonicalUpdateProposalsRoot(memory: ResolvedMemory): string {
+  return join(maintenanceRoot(memory), "canonical-update-proposals");
+}
+
+export function maintenanceCanonicalUpdateProposalPath(memory: ResolvedMemory, proposalId: string): string {
+  return join(maintenanceCanonicalUpdateProposalsRoot(memory), `${proposalId}.json`);
+}
+
+export function maintenanceCanonicalUpdateProposalMarkdownPath(memory: ResolvedMemory, proposalId: string): string {
+  return join(maintenanceCanonicalUpdateProposalsRoot(memory), `${proposalId}.md`);
+}

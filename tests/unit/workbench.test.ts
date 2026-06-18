@@ -7694,8 +7694,15 @@ describe("workbench read model", () => {
     expect(result.review).toMatchObject({ recommendation: expect.stringMatching(/accept|defer|reject|needs-human-review/) });
     expect(snapshot.center.workpad.maintenance).toBeUndefined();
     expect(maintenance).toMatchObject({
-      ledgerCount: 1,
+      ledgerCount: 2,
       resolutionCount: 1,
+      proposalCount: 1,
+      latestProposal: expect.objectContaining({
+        status: "proposed",
+        humanGateRequired: true,
+        canonicalUpdateAuthorized: false,
+        resolutionCount: 1,
+      }),
       latestResolution: expect.objectContaining({
         outcome: expect.stringMatching(/archive-only|merge|noop|promote|retire/),
       }),
@@ -7753,6 +7760,12 @@ describe("workbench read model", () => {
     expect(maintenance).toMatchObject({
       closeoutCount: 5,
       resolutionCount: expect.any(Number),
+      proposalCount: expect.any(Number),
+      latestProposal: expect.objectContaining({
+        status: "proposed",
+        humanGateRequired: true,
+        canonicalUpdateAuthorized: false,
+      }),
       latestResolution: expect.objectContaining({
         humanGateRequired: expect.any(Boolean),
       }),
@@ -7761,6 +7774,7 @@ describe("workbench read model", () => {
       latestReviewWindowId: watermark?.lastReviewWindowId,
     });
     expect(maintenance?.resolutionCount ?? 0).toBeGreaterThan(0);
+    expect(maintenance?.proposalCount ?? 0).toBeGreaterThan(0);
     expect(snapshot.right.confirmationQueue.maintenance).toEqual([]);
 
     const coderContext = buildRoleScopedContextProjection({

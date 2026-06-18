@@ -13,6 +13,7 @@ import type {
   ResolvedMemory,
 } from "../types/index.js";
 import { TERMINAL_REVIEW_WINDOW } from "./constants.js";
+import { proposeMaintenanceCanonicalUpdate } from "./canonical-updates.js";
 import { createMaintenanceCandidatesForWindow, reviewEvolutionCandidate, scoreEvolutionCandidate } from "./candidates.js";
 import { checkDocBudgets } from "./doc-budget.js";
 import { listMaintenanceLedgerEntries, recordMaintenanceLedgerEntry } from "./ledger.js";
@@ -78,6 +79,8 @@ export async function runMaintenanceReviewWindow(memory: ResolvedMemory, windowC
   const scoreRefs = scores.map((score) => displayMaintenancePath(memory, join(maintenanceRoot(memory), "scores", `${score.candidateId}.json`)));
   const reviewRefs = reviews.map((review) => displayMaintenancePath(memory, join(maintenanceRoot(memory), "reviews", `${review.candidateId}.json`)));
   const resolutionRefs = resolutions.map((resolution) => maintenanceResolutionArtifactRef(memory, resolution.candidateId));
+  const proposal = await proposeMaintenanceCanonicalUpdate(memory, resolutions);
+  const proposalRefs = proposal ? [displayMaintenancePath(memory, join(maintenanceRoot(memory), "canonical-update-proposals", `${proposal.id}.json`))] : [];
   const reviewRun: MaintenanceReviewRun = {
     version: "1.0",
     id,
@@ -90,6 +93,7 @@ export async function runMaintenanceReviewWindow(memory: ResolvedMemory, windowC
     scoreRefs,
     reviewRefs,
     resolutionRefs,
+    proposalRefs,
     summary: `Reviewed ${closeouts.length} terminal changes for reusable lessons and documentation drift. Canonical docs, ECL, stable memory, and source root were not modified.`,
     createdAt: now,
   };
@@ -108,7 +112,7 @@ export async function runMaintenanceReviewWindow(memory: ResolvedMemory, windowC
   await recordMaintenanceLedgerEntry(memory, {
     eventType: "maintenance-review",
     summary: reviewRun.summary,
-    artifactRefs: [displayMaintenancePath(memory, join(root, "maintenance-review.md")), ...candidateRefs, ...reviewRefs],
+    artifactRefs: [displayMaintenancePath(memory, join(root, "maintenance-review.md")), ...candidateRefs, ...reviewRefs, ...proposalRefs],
   });
   return reviewRun;
 }
@@ -146,6 +150,10 @@ function renderMaintenanceReviewMarkdown(
     "## Document Budget",
     "",
     ...docBudget.documents.map((doc) => `- ${doc.path}: ${doc.status} (${doc.wordCount}/${doc.hardLimit})`),
+    "",
+    "## Canonical Update Proposals",
+    "",
+    ...(review.proposalRefs.length ? review.proposalRefs.map((ref) => `- ${ref}`) : ["- No canonical update proposal generated."]),
     "",
     "## Boundary",
     "",

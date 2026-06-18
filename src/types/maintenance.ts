@@ -90,7 +90,8 @@ export type MaintenanceLedgerEventType =
   | "reference-drift"
   | "harness-evolution"
   | "change-closeout"
-  | "maintenance-review";
+  | "maintenance-review"
+  | "canonical-update-proposal";
 
 export interface MaintenanceLedgerEntry {
   version: "1.0";
@@ -155,6 +156,38 @@ export interface MaintenanceCandidateResolution {
   rationale: string;
   canonicalUpdateRequired: boolean;
   humanGateRequired: boolean;
+  artifactRefs: string[];
+  createdAt: string;
+}
+
+export type MaintenanceCanonicalUpdateTargetKind =
+  | "stable-memory"
+  | "canonical-docs"
+  | "harness-evolution"
+  | "reference"
+  | "maintenance";
+
+export interface MaintenanceCanonicalUpdateResolutionSummary {
+  resolutionId: string;
+  candidateId: string;
+  outcome: MaintenanceCandidateResolutionOutcome;
+  candidateSubtype?: MaintenanceCandidateSubtype;
+  reviewRecommendation: CandidateReview["recommendation"];
+  rationale: string;
+  artifactRefs: string[];
+}
+
+export interface MaintenanceCanonicalUpdateProposal {
+  version: "1.0";
+  id: string;
+  status: "proposed";
+  resolutionIds: string[];
+  candidateIds: string[];
+  targetKinds: MaintenanceCanonicalUpdateTargetKind[];
+  humanGateRequired: true;
+  canonicalUpdateAuthorized: false;
+  summary: string;
+  resolutionSummaries: MaintenanceCanonicalUpdateResolutionSummary[];
   artifactRefs: string[];
   createdAt: string;
 }
@@ -237,6 +270,7 @@ export interface MaintenanceReviewRun {
   scoreRefs: string[];
   reviewRefs: string[];
   resolutionRefs: string[];
+  proposalRefs: string[];
   summary: string;
   createdAt: string;
 }

@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-18T11:36:37.9366939Z",
+    "generated_at":  "2026-06-18T12:13:00.6200873Z",
     "active":  [
 
                ],
@@ -1105,6 +1105,10 @@
                     {
                         "name":  "20260618-phase-12o-product-maintenance-candidate-lifecycle-resolution",
                         "path":  "harness/changes/archive/20260618-phase-12o-product-maintenance-candidate-lifecycle-resolution"
+                    },
+                    {
+                        "name":  "20260618-phase-12p-product-maintenance-canonical-update-proposal-evidence",
+                        "path":  "harness/changes/archive/20260618-phase-12p-product-maintenance-canonical-update-proposal-evidence"
                     }
                 ]
 }

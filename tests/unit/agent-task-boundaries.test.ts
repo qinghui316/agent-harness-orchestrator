@@ -13,10 +13,14 @@ import {
   completeAgentTask,
   createAgentTask,
   listAgentTasks,
+  listMaintenanceCanonicalUpdateProposals,
   listMaintenanceCandidateResolutions,
   listDemandMemoryCloseouts,
+  listMaintenanceLedgerEntries,
   maybeRunMaintenanceReviewWindow,
+  proposeMaintenanceCanonicalUpdate,
   readAgentTaskResult,
+  readMaintenanceCanonicalUpdateProposal,
   readMaintenanceCandidateResolution,
   readMaintenanceReviewWatermark,
   recordDemandMemoryCloseout,
@@ -42,6 +46,8 @@ describe("AgentTask domain boundaries", () => {
     expect(typeof runMaintenanceCandidatePipeline).toBe("function");
     expect(typeof listMaintenanceCandidateResolutions).toBe("function");
     expect(typeof readMaintenanceCandidateResolution).toBe("function");
+    expect(typeof listMaintenanceCanonicalUpdateProposals).toBe("function");
+    expect(typeof readMaintenanceCanonicalUpdateProposal).toBe("function");
 
     const offenders = (await listSourceFiles("src/agent-task"))
       .filter((file) => !file.endsWith("manager.ts"))
@@ -113,15 +119,27 @@ describe("AgentTask domain boundaries", () => {
       lastReviewWindowId: expect.stringMatching(/^maintenance-review-/),
     });
     const resolutions = await listMaintenanceCandidateResolutions(memory);
+    const proposals = await listMaintenanceCanonicalUpdateProposals(memory);
     expect(resolutions.length).toBeGreaterThan(0);
+    expect(proposals.length).toBeGreaterThan(0);
     expect(resolutions[0]).toMatchObject({
       outcome: expect.stringMatching(/promote|merge|retire|archive-only|noop/),
       canonicalUpdateRequired: expect.any(Boolean),
       humanGateRequired: expect.any(Boolean),
       rationale: expect.stringContaining("evidence/proposal only"),
     });
+    expect(proposals[0]).toMatchObject({
+      status: "proposed",
+      humanGateRequired: true,
+      canonicalUpdateAuthorized: false,
+      summary: expect.stringContaining("human-gated canonical update proposal"),
+    });
     await expect(readMaintenanceCandidateResolution(memory, resolutions[0].candidateId)).resolves.toMatchObject({
       candidateId: resolutions[0].candidateId,
+    });
+    await expect(readMaintenanceCanonicalUpdateProposal(memory, proposals[0].id)).resolves.toMatchObject({
+      id: proposals[0].id,
+      resolutionIds: expect.arrayContaining([resolutions[0].id]),
     });
 
     const coderContext = buildRoleScopedContextProjection({
@@ -192,16 +210,32 @@ describe("AgentTask domain boundaries", () => {
 
     const watermark = await readMaintenanceReviewWatermark(memory);
     const resolutions = await listMaintenanceCandidateResolutions(memory);
+    const proposals = await listMaintenanceCanonicalUpdateProposals(memory);
     const reviewMarkdown = await readFile(join(memory.workbenchRoot, "maintenance", "reviews", watermark.lastReviewWindowId!, "maintenance-review.md"), "utf8");
+    const proposalMarkdown = await readFile(join(memory.workbenchRoot, "maintenance", "canonical-update-proposals", `${proposals[0].id}.md`), "utf8");
+    const proposalLedgerBefore = (await listMaintenanceLedgerEntries(memory)).filter((entry) => entry.eventType === "canonical-update-proposal").length;
+    await proposeMaintenanceCanonicalUpdate(memory, resolutions);
+    const proposalLedgerAfter = (await listMaintenanceLedgerEntries(memory)).filter((entry) => entry.eventType === "canonical-update-proposal").length;
 
     expect(resolutions.length).toBeGreaterThan(0);
+    expect(proposals.length).toBeGreaterThan(0);
     expect(resolutions.some((item) => item.canonicalUpdateRequired && item.humanGateRequired)).toBe(true);
     expect(resolutions[0]).toMatchObject({
       canonicalUpdateRequired: true,
       humanGateRequired: true,
     });
+    expect(proposals[0]).toMatchObject({
+      status: "proposed",
+      resolutionIds: expect.arrayContaining([resolutions[0].id]),
+      humanGateRequired: true,
+      canonicalUpdateAuthorized: false,
+    });
     expect(reviewMarkdown).toContain("resolution=");
     expect(reviewMarkdown).toContain("humanGateRequired=");
+    expect(reviewMarkdown).toContain("Canonical Update Proposals");
+    expect(proposalMarkdown).toContain("non-executing maintenance proposal evidence");
+    expect(proposalMarkdown).toContain("Canonical update authorized: false");
+    expect(proposalLedgerAfter).toBe(proposalLedgerBefore);
     expect(await readFile(memory.agentGuidePath, "utf8")).toBe(originalGuide);
   });
 

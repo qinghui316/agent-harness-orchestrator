@@ -512,8 +512,19 @@ export type Workpad = {
     ledgerCount: number;
     closeoutCount?: number;
     resolutionCount?: number;
+    proposalCount?: number;
     latestReviewWindowId?: string;
     unreviewedTerminalCount?: number;
+    latestProposal?: {
+      id: string;
+      status: string;
+      targetKinds: string[];
+      resolutionCount: number;
+      humanGateRequired: boolean;
+      canonicalUpdateAuthorized: boolean;
+      summary: string;
+      createdAt: string;
+    };
     latestResolution?: {
       candidateId: string;
       outcome: string;

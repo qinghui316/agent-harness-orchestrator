@@ -32,6 +32,13 @@ export {
   scoreEvolutionCandidate,
 } from "./candidates.js";
 export {
+  eligibleCanonicalUpdateResolutions,
+  listMaintenanceCanonicalUpdateProposals,
+  maintenanceCanonicalUpdateProposalArtifactRef,
+  proposeMaintenanceCanonicalUpdate,
+  readMaintenanceCanonicalUpdateProposal,
+} from "./canonical-updates.js";
+export {
   listMaintenanceCandidateResolutions,
   maintenanceResolutionArtifactRef,
   readMaintenanceCandidateResolution,

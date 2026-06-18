@@ -1,17 +1,19 @@
-import { listDemandMemoryCloseouts, listMaintenanceCandidateResolutions, listMaintenanceLedgerEntries, readMaintenanceReviewWatermark } from "../../../agent-task/manager.js";
-import type { DemandMemoryCloseout, MaintenanceCandidateResolution, MaintenanceLedgerEntry, ResolvedMemory } from "../../../types/index.js";
+import { listDemandMemoryCloseouts, listMaintenanceCandidateResolutions, listMaintenanceCanonicalUpdateProposals, listMaintenanceLedgerEntries, readMaintenanceReviewWatermark } from "../../../agent-task/manager.js";
+import type { DemandMemoryCloseout, MaintenanceCandidateResolution, MaintenanceCanonicalUpdateProposal, MaintenanceLedgerEntry, ResolvedMemory } from "../../../types/index.js";
 import type { WorkbenchMaintenanceSummary } from "../../read-model-types.js";
 
 export async function buildMaintenanceSummary(memory: ResolvedMemory): Promise<WorkbenchMaintenanceSummary> {
   const entries = await listMaintenanceLedgerEntries(memory).catch(() => []);
   const closeouts = await listDemandMemoryCloseouts(memory).catch(() => []);
   const resolutions = await listMaintenanceCandidateResolutions(memory).catch(() => []);
+  const proposals = await listMaintenanceCanonicalUpdateProposals(memory).catch(() => []);
   const watermark = await readMaintenanceReviewWatermark(memory).catch(() => null);
   const latest = latestMaintenanceEntry(entries);
   const reviewed = new Set(watermark?.lastReviewedChangeIds ?? []);
   const unreviewed = closeouts.filter((closeout) => !reviewed.has(`${closeout.changeId}:${closeout.terminalKind}`)).length;
   const latestCloseout = latestCloseoutEntry(closeouts);
   const latestResolution = latestResolutionEntry(resolutions);
+  const latestProposal = latestCanonicalUpdateProposal(proposals);
   const status: WorkbenchMaintenanceSummary["status"] = unreviewed >= 5
     ? "review-ready"
     : watermark?.lastReviewWindowId
@@ -23,8 +25,19 @@ export async function buildMaintenanceSummary(memory: ResolvedMemory): Promise<W
     ledgerCount: entries.length,
     closeoutCount: closeouts.length,
     resolutionCount: resolutions.length,
+    proposalCount: proposals.length,
     latestReviewWindowId: watermark?.lastReviewWindowId ?? undefined,
     unreviewedTerminalCount: unreviewed,
+    latestProposal: latestProposal ? {
+      id: latestProposal.id,
+      status: latestProposal.status,
+      targetKinds: latestProposal.targetKinds,
+      resolutionCount: latestProposal.resolutionIds.length,
+      humanGateRequired: latestProposal.humanGateRequired,
+      canonicalUpdateAuthorized: latestProposal.canonicalUpdateAuthorized,
+      summary: latestProposal.summary,
+      createdAt: latestProposal.createdAt,
+    } : undefined,
     latestResolution: latestResolution ? {
       candidateId: latestResolution.candidateId,
       outcome: latestResolution.outcome,
@@ -62,7 +75,7 @@ export async function buildMaintenanceSummary(memory: ResolvedMemory): Promise<W
 }
 
 export function latestMaintenanceEntry(entries: MaintenanceLedgerEntry[]): MaintenanceLedgerEntry | undefined {
-  return [...entries].sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
+  return entries.filter((entry) => entry.eventType !== "canonical-update-proposal").sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
 }
 
 export function latestCloseoutEntry(closeouts: DemandMemoryCloseout[]): DemandMemoryCloseout | undefined {
@@ -71,4 +84,8 @@ export function latestCloseoutEntry(closeouts: DemandMemoryCloseout[]): DemandMe
 
 export function latestResolutionEntry(resolutions: MaintenanceCandidateResolution[]): MaintenanceCandidateResolution | undefined {
   return [...resolutions].sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
+}
+
+export function latestCanonicalUpdateProposal(proposals: MaintenanceCanonicalUpdateProposal[]): MaintenanceCanonicalUpdateProposal | undefined {
+  return [...proposals].sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
 }

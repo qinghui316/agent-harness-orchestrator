@@ -2,6 +2,7 @@ import { z } from "zod";
 import type {
   DemandMemoryCloseout,
   DocBudgetReport,
+  MaintenanceCanonicalUpdateProposal,
   MaintenanceReviewRun,
   MaintenanceReviewWatermark,
 } from "../types/index.js";
@@ -53,7 +54,7 @@ export const ledgerSchema = z.object({
   id: z.string(),
   projectId: z.string().nullable(),
   changeId: z.string().optional(),
-  eventType: z.enum(["archive", "apply", "remote-landing", "failure", "user-feedback", "doc-drift", "reference-drift", "harness-evolution", "change-closeout", "maintenance-review"]),
+  eventType: z.enum(["archive", "apply", "remote-landing", "failure", "user-feedback", "doc-drift", "reference-drift", "harness-evolution", "change-closeout", "maintenance-review", "canonical-update-proposal"]),
   summary: z.string(),
   artifactRefs: z.array(z.string()),
   createdAt: z.string(),
@@ -106,6 +107,29 @@ export const resolutionSchema = z.object({
   rationale: z.string(),
   canonicalUpdateRequired: z.boolean(),
   humanGateRequired: z.boolean(),
+  artifactRefs: z.array(z.string()),
+  createdAt: z.string(),
+});
+
+export const canonicalUpdateProposalSchema: z.ZodType<MaintenanceCanonicalUpdateProposal> = z.object({
+  version: z.literal("1.0"),
+  id: z.string(),
+  status: z.literal("proposed"),
+  resolutionIds: z.array(z.string()),
+  candidateIds: z.array(z.string()),
+  targetKinds: z.array(z.enum(["stable-memory", "canonical-docs", "harness-evolution", "reference", "maintenance"])),
+  humanGateRequired: z.literal(true),
+  canonicalUpdateAuthorized: z.literal(false),
+  summary: z.string(),
+  resolutionSummaries: z.array(z.object({
+    resolutionId: z.string(),
+    candidateId: z.string(),
+    outcome: resolutionOutcomeSchema,
+    candidateSubtype: z.enum(["stable-memory", "docs-drift", "harness-evolution", "reusable-lesson", "doc-budget", "reference-drift"]).optional(),
+    reviewRecommendation: z.enum(["accept", "defer", "reject", "needs-human-review"]),
+    rationale: z.string(),
+    artifactRefs: z.array(z.string()),
+  })),
   artifactRefs: z.array(z.string()),
   createdAt: z.string(),
 });
@@ -180,6 +204,7 @@ export const maintenanceReviewRunSchema: z.ZodType<MaintenanceReviewRun> = z.obj
   scoreRefs: z.array(z.string()),
   reviewRefs: z.array(z.string()),
   resolutionRefs: z.array(z.string()),
+  proposalRefs: z.array(z.string()),
   summary: z.string(),
   createdAt: z.string(),
 });

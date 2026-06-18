@@ -15,6 +15,7 @@ import { TERMINAL_REVIEW_WINDOW } from "./constants.js";
 import { checkDocBudgets } from "./doc-budget.js";
 import { listMaintenanceLedgerEntries } from "./ledger.js";
 import { displayMaintenancePath, maintenanceRoot } from "./paths.js";
+import { proposeMaintenanceCanonicalUpdate } from "./canonical-updates.js";
 import { resolveMaintenanceCandidate } from "./resolutions.js";
 import { candidateSchema, reviewSchema, scoreSchema } from "./schemas.js";
 import { contentHash, uniqueSorted } from "./utils.js";
@@ -105,13 +106,14 @@ export async function runMaintenanceCandidatePipeline(memory: ResolvedMemory): P
   score?: CandidateScore;
   review?: CandidateReview;
 }> {
-  const entries = await listMaintenanceLedgerEntries(memory);
+  const entries = (await listMaintenanceLedgerEntries(memory)).filter((entry) => entry.eventType !== "canonical-update-proposal");
   if (entries.length === 0) return { status: "skipped" };
   const candidate = await createEvolutionCandidate(memory, entries.slice(-10));
   if (!candidate) return { status: "skipped" };
   const score = await scoreEvolutionCandidate(memory, candidate);
   const review = await reviewEvolutionCandidate(memory, candidate, score);
-  await resolveMaintenanceCandidate(memory, candidate, score, review);
+  const resolution = await resolveMaintenanceCandidate(memory, candidate, score, review);
+  await proposeMaintenanceCanonicalUpdate(memory, [resolution]);
   return { status: "reviewed", candidate, score, review };
 }
 
@@ -196,6 +198,7 @@ async function findCandidateByFingerprint(memory: ResolvedMemory, fingerprint: s
 }
 
 function candidateSubtypeForEvent(eventType: MaintenanceLedgerEventType): EvolutionCandidate["subtype"] {
+  if (eventType === "canonical-update-proposal") return undefined;
   if (eventType === "doc-drift") return "docs-drift";
   if (eventType === "reference-drift") return "reference-drift";
   if (eventType === "harness-evolution") return "harness-evolution";
