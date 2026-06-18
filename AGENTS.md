@@ -7,8 +7,8 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 - Current date: 2026-06-18.
 - Active change: none.
 - Pending Harness evolution: none.
-- Latest archived product change: Phase 12L Scheduler Terminal Workpad Boundary Copy, archived at `harness/changes/archive/20260618-phase-12l-scheduler-terminal-workpad-boundary-copy/summary.md`.
-- Latest product/Harness docs change: Phase 12L Scheduler Terminal Workpad Boundary Copy, archived at `harness/changes/archive/20260618-phase-12l-scheduler-terminal-workpad-boundary-copy/summary.md`.
+- Latest archived product change: Phase 12M Current Plan Phase 12L Drift Alignment, archived at `harness/changes/archive/20260618-phase-12m-current-plan-phase-12l-drift-alignment/summary.md`.
+- Latest product/Harness docs change: Phase 12M Current Plan Phase 12L Drift Alignment, archived at `harness/changes/archive/20260618-phase-12m-current-plan-phase-12l-drift-alignment/summary.md`.
 - Latest Harness evolution: `harness/changes/archive/20260618-auto-evolve-harness-phase-12g-12k-memory-lifecycle-evidence/summary.md`.
 
 If an active change exists, use its files first for the current task. Use `docs/STATUS.md` for the short resume state and next recommended structured work. Use `harness/changes/INDEX.json` and archived `summary.md` files for historical detail. Do not rebuild current context by reading the full archive ledger unless the task requires it.

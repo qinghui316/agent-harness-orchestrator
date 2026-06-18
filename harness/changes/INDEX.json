@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-18T09:14:47.2978630Z",
+    "generated_at":  "2026-06-18T09:26:00.9981547Z",
     "active":  [
 
                ],
@@ -1089,6 +1089,10 @@
                     {
                         "name":  "20260618-phase-12l-scheduler-terminal-workpad-boundary-copy",
                         "path":  "harness/changes/archive/20260618-phase-12l-scheduler-terminal-workpad-boundary-copy"
+                    },
+                    {
+                        "name":  "20260618-phase-12m-current-plan-phase-12l-drift-alignment",
+                        "path":  "harness/changes/archive/20260618-phase-12m-current-plan-phase-12l-drift-alignment"
                     }
                 ]
 }

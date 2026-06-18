@@ -5,14 +5,14 @@
 - Current date: 2026-06-18.
 - Active ECL change: none.
 - Pending Harness evolution: none.
-- Latest archived product change: `harness/changes/archive/20260618-phase-12l-scheduler-terminal-workpad-boundary-copy/summary.md`.
-- Latest archived product/Harness docs change: `harness/changes/archive/20260618-phase-12l-scheduler-terminal-workpad-boundary-copy/summary.md`.
+- Latest archived product change: `harness/changes/archive/20260618-phase-12m-current-plan-phase-12l-drift-alignment/summary.md`.
+- Latest archived product/Harness docs change: `harness/changes/archive/20260618-phase-12m-current-plan-phase-12l-drift-alignment/summary.md`.
 - Latest archived Harness evolution: `harness/changes/archive/20260618-auto-evolve-harness-phase-12g-12k-memory-lifecycle-evidence/summary.md`.
 - Active product phase: none.
 - Active Harness evolution phase: none.
 - Active close status: no active change.
 
-This file is the short resume point. Phase 12L is archived after making SchedulerRun terminal Workpad cards explicitly read-only and test-protected. Phase 12K recorded product-level maintenance/self-evolution targets for documentation entropy, stable-memory budget, stale-current-state detection, and candidate experience lifecycle decisions. The latest Harness evolution retained Phase 12G-12K lessons, tracked `docs/PRODUCT.md` and `docs/MEMORY.md` as product source docs, and added no broader Harness rule/template/lint or runtime behavior.
+This file is the short resume point. Phase 12M is archived after aligning `docs/CURRENT-DEVELOPMENT-PLAN.md` with the post-Phase-12L baseline. Phase 12L made SchedulerRun terminal Workpad cards explicitly read-only and test-protected. Phase 12K recorded product-level maintenance/self-evolution targets for documentation entropy, stable-memory budget, stale-current-state detection, and candidate experience lifecycle decisions. The latest Harness evolution retained Phase 12G-12K lessons, tracked `docs/PRODUCT.md` and `docs/MEMORY.md` as product source docs, and added no broader Harness rule/template/lint or runtime behavior.
 
 Current plan-level roadmap context is preserved in `docs/CURRENT-DEVELOPMENT-PLAN.md`. Historical detail belongs in archived summaries and `harness/changes/INDEX.json`.
 
@@ -26,7 +26,7 @@ Phase 12A remains the future controlled Scheduler/parallel loop design boundary.
 
 ## Next Resume Point
 
-No active change is open and no Harness evolution is pending. A reasonable next product slice is another small Goal Loop / controlled Scheduler step that keeps current runtime single-gate staged, for example tightening read-model or prompt evidence around terminal handoff without adding loop execution. `README.md` remains unrelated and must stay untracked unless the user explicitly asks to include it.
+No active change is open and no Harness evolution is pending. A reasonable next product slice is a substantive small Goal Loop / controlled Scheduler implementation step that keeps current runtime single-gate staged; stale documentation cleanup should normally be folded into that product stage rather than split out alone. `README.md` remains unrelated and must stay untracked unless the user explicitly asks to include it.
 
 ## Verification Commands
 
@@ -58,6 +58,7 @@ Use `harness/changes/INDEX.json` for the generated archive list. Start with arch
 Recent key archive summaries:
 
 - Phase 12I Status Handoff Entropy Cleanup: `harness/changes/archive/20260618-phase-12i-status-handoff-entropy-cleanup/summary.md`.
+- Phase 12M Current Plan Phase 12L Drift Alignment: `harness/changes/archive/20260618-phase-12m-current-plan-phase-12l-drift-alignment/summary.md`.
 - Phase 12L Scheduler Terminal Workpad Boundary Copy: `harness/changes/archive/20260618-phase-12l-scheduler-terminal-workpad-boundary-copy/summary.md`.
 - Phase 12K Product Memory Lifecycle Target: `harness/changes/archive/20260618-phase-12k-product-memory-lifecycle-target/summary.md`.
 - Phase 12J Goal Loop Routing Posture Runtime Evidence: `harness/changes/archive/20260618-phase-12j-goal-loop-routing-posture-runtime-evidence/summary.md`.
