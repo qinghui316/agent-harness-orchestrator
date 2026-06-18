@@ -840,6 +840,25 @@ describe("AgentTask domain boundaries", () => {
     expect(patchProposals.map((item) => item.id)).toEqual([olderPatchProposal.id, patchProposal.id]);
     expect(gateRecords.map((item) => item.id)).toEqual([olderGateRecord.id, gateRecord.id]);
     expect(reports.map((item) => item.id)).toEqual([olderReport.id, report.id]);
+    const summary = await buildMaintenanceSummary(memory);
+    expect(summary.latestProposal?.id).toBe(proposal.id);
+    expect(summary.latestPatchProposal?.id).toBe(patchProposal.id);
+    expect(summary.latestApplicationManifest?.id).toBe(manifest.id);
+    expect(summary.latestApplicationResult?.id).toBe(result.id);
+    expect(summary.latestApplicationReport).toEqual({
+      id: report.id,
+      status: report.status,
+      resultId: result.id,
+      manifestId: manifest.id,
+      patchProposalId: patchProposal.id,
+      gateRecordId: gateRecord.id,
+      targetKinds: report.targetKinds,
+      operationCount: report.operationCount,
+      canonicalPatchApplied: false,
+      summary: report.summary,
+      createdAt: report.createdAt,
+    });
+    expect(summary.latestApplicationReport).not.toHaveProperty("applicationAuthorized");
   });
 
   it("fails closed for stale or ambiguous canonical patch application manifests", async () => {
@@ -1229,6 +1248,9 @@ describe("AgentTask domain boundaries", () => {
       artifactRefs: ["workbench/maintenance/canonical-patch-application-reports/report.json"],
     });
 
+    const summary = await buildMaintenanceSummary(memory);
+    expect(summary.latest?.eventType).toBe("canonical-patch-application-report");
+    expect(summary.latest?.eventType).not.toBe("canonical-update-proposal");
     await expect(runMaintenanceCandidatePipeline(memory)).resolves.toMatchObject({ status: "skipped" });
   });
 

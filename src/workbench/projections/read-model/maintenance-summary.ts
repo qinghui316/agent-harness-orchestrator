@@ -1,6 +1,61 @@
 import { listDemandMemoryCloseouts, listMaintenanceCandidateResolutions, listMaintenanceCanonicalPatchApplicationManifests, listMaintenanceCanonicalPatchApplicationReports, listMaintenanceCanonicalPatchApplicationResults, listMaintenanceCanonicalPatchProposals, listMaintenanceCanonicalUpdateProposals, listMaintenanceLedgerEntries, readMaintenanceReviewWatermark } from "../../../agent-task/manager.js";
 import type { DemandMemoryCloseout, MaintenanceCandidateResolution, MaintenanceCanonicalPatchApplicationManifest, MaintenanceCanonicalPatchApplicationReport, MaintenanceCanonicalPatchApplicationResult, MaintenanceCanonicalPatchProposal, MaintenanceCanonicalUpdateProposal, MaintenanceLedgerEntry, ResolvedMemory } from "../../../types/index.js";
 import type { WorkbenchMaintenanceSummary } from "../../read-model-types.js";
+import { latestByCreatedAt, projectFields } from "./projection-summary.js";
+
+const PATCH_PROPOSAL_SUMMARY_FIELDS = [
+  "id",
+  "status",
+  "proposalId",
+  "decisionId",
+  "targetKinds",
+  "operationCount",
+  "applicationAuthorized",
+  "canonicalUpdateAuthorized",
+  "summary",
+  "createdAt",
+] as const;
+
+const APPLICATION_MANIFEST_SUMMARY_FIELDS = [
+  "id",
+  "status",
+  "applicationStatus",
+  "patchProposalId",
+  "gateRecordId",
+  "targetKinds",
+  "operationCount",
+  "blockedReasons",
+  "canonicalPatchApplied",
+  "summary",
+  "createdAt",
+] as const;
+
+const APPLICATION_RESULT_SUMMARY_FIELDS = [
+  "id",
+  "status",
+  "manifestId",
+  "patchProposalId",
+  "gateRecordId",
+  "targetKinds",
+  "operationCount",
+  "canonicalPatchApplied",
+  "summary",
+  "createdAt",
+] as const;
+
+const APPLICATION_REPORT_SUMMARY_FIELDS = [
+  "id",
+  "status",
+  "resultId",
+  "manifestId",
+  "patchProposalId",
+  "gateRecordId",
+  "targetKinds",
+  "operationCount",
+  "canonicalPatchApplied",
+  "summary",
+  "createdAt",
+] as const;
 
 export async function buildMaintenanceSummary(memory: ResolvedMemory): Promise<WorkbenchMaintenanceSummary> {
   const entries = await listMaintenanceLedgerEntries(memory).catch(() => []);
@@ -40,56 +95,10 @@ export async function buildMaintenanceSummary(memory: ResolvedMemory): Promise<W
     applicationReportCount: applicationReports.length,
     latestReviewWindowId: watermark?.lastReviewWindowId ?? undefined,
     unreviewedTerminalCount: unreviewed,
-    latestPatchProposal: latestPatchProposal ? {
-      id: latestPatchProposal.id,
-      status: latestPatchProposal.status,
-      proposalId: latestPatchProposal.proposalId,
-      decisionId: latestPatchProposal.decisionId,
-      targetKinds: latestPatchProposal.targetKinds,
-      operationCount: latestPatchProposal.operationCount,
-      applicationAuthorized: latestPatchProposal.applicationAuthorized,
-      canonicalUpdateAuthorized: latestPatchProposal.canonicalUpdateAuthorized,
-      summary: latestPatchProposal.summary,
-      createdAt: latestPatchProposal.createdAt,
-    } : undefined,
-    latestApplicationManifest: latestApplicationManifest ? {
-      id: latestApplicationManifest.id,
-      status: latestApplicationManifest.status,
-      applicationStatus: latestApplicationManifest.applicationStatus,
-      patchProposalId: latestApplicationManifest.patchProposalId,
-      gateRecordId: latestApplicationManifest.gateRecordId,
-      targetKinds: latestApplicationManifest.targetKinds,
-      operationCount: latestApplicationManifest.operationCount,
-      blockedReasons: latestApplicationManifest.blockedReasons,
-      canonicalPatchApplied: latestApplicationManifest.canonicalPatchApplied,
-      summary: latestApplicationManifest.summary,
-      createdAt: latestApplicationManifest.createdAt,
-    } : undefined,
-    latestApplicationResult: latestApplicationResult ? {
-      id: latestApplicationResult.id,
-      status: latestApplicationResult.status,
-      manifestId: latestApplicationResult.manifestId,
-      patchProposalId: latestApplicationResult.patchProposalId,
-      gateRecordId: latestApplicationResult.gateRecordId,
-      targetKinds: latestApplicationResult.targetKinds,
-      operationCount: latestApplicationResult.operationCount,
-      canonicalPatchApplied: latestApplicationResult.canonicalPatchApplied,
-      summary: latestApplicationResult.summary,
-      createdAt: latestApplicationResult.createdAt,
-    } : undefined,
-    latestApplicationReport: latestApplicationReport ? {
-      id: latestApplicationReport.id,
-      status: latestApplicationReport.status,
-      resultId: latestApplicationReport.resultId,
-      manifestId: latestApplicationReport.manifestId,
-      patchProposalId: latestApplicationReport.patchProposalId,
-      gateRecordId: latestApplicationReport.gateRecordId,
-      targetKinds: latestApplicationReport.targetKinds,
-      operationCount: latestApplicationReport.operationCount,
-      canonicalPatchApplied: latestApplicationReport.canonicalPatchApplied,
-      summary: latestApplicationReport.summary,
-      createdAt: latestApplicationReport.createdAt,
-    } : undefined,
+    latestPatchProposal: projectFields(latestPatchProposal, PATCH_PROPOSAL_SUMMARY_FIELDS),
+    latestApplicationManifest: projectFields(latestApplicationManifest, APPLICATION_MANIFEST_SUMMARY_FIELDS),
+    latestApplicationResult: projectFields(latestApplicationResult, APPLICATION_RESULT_SUMMARY_FIELDS),
+    latestApplicationReport: projectFields(latestApplicationReport, APPLICATION_REPORT_SUMMARY_FIELDS),
     latestProposal: latestProposal ? {
       id: latestProposal.id,
       status: latestProposal.status,
@@ -137,39 +146,39 @@ export async function buildMaintenanceSummary(memory: ResolvedMemory): Promise<W
 }
 
 export function latestMaintenanceEntry(entries: MaintenanceLedgerEntry[]): MaintenanceLedgerEntry | undefined {
-  return entries.filter((entry) => entry.eventType !== "canonical-update-proposal").sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
+  return latestByCreatedAt(entries.filter((entry) => entry.eventType !== "canonical-update-proposal"));
 }
 
 export function latestCloseoutEntry(closeouts: DemandMemoryCloseout[]): DemandMemoryCloseout | undefined {
-  return [...closeouts].sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
+  return latestByCreatedAt(closeouts);
 }
 
 export function latestResolutionEntry(resolutions: MaintenanceCandidateResolution[]): MaintenanceCandidateResolution | undefined {
-  return [...resolutions].sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
+  return latestByCreatedAt(resolutions);
 }
 
 export function latestCanonicalUpdateProposal(proposals: MaintenanceCanonicalUpdateProposal[]): MaintenanceCanonicalUpdateProposal | undefined {
-  return [...proposals].sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
+  return latestByCreatedAt(proposals);
 }
 
 export function latestCanonicalPatchProposal(patchProposals: MaintenanceCanonicalPatchProposal[]): MaintenanceCanonicalPatchProposal | undefined {
-  return [...patchProposals].sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
+  return latestByCreatedAt(patchProposals);
 }
 
 export function latestCanonicalPatchApplicationManifest(
   manifests: MaintenanceCanonicalPatchApplicationManifest[],
 ): MaintenanceCanonicalPatchApplicationManifest | undefined {
-  return [...manifests].sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
+  return latestByCreatedAt(manifests);
 }
 
 export function latestCanonicalPatchApplicationResult(
   results: MaintenanceCanonicalPatchApplicationResult[],
 ): MaintenanceCanonicalPatchApplicationResult | undefined {
-  return [...results].sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
+  return latestByCreatedAt(results);
 }
 
 export function latestCanonicalPatchApplicationReport(
   reports: MaintenanceCanonicalPatchApplicationReport[],
 ): MaintenanceCanonicalPatchApplicationReport | undefined {
-  return [...reports].sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
+  return latestByCreatedAt(reports);
 }
