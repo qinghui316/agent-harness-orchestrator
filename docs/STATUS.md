@@ -5,20 +5,20 @@
 - Current date: 2026-06-19.
 - Active ECL change: none.
 - Pending Harness evolution: none.
-- Latest archived product change: `harness/changes/archive/20260619-maintenance-canonical-patch-target-boundary-reuse/summary.md`.
-- Latest archived product/Harness docs change: `harness/changes/archive/20260619-maintenance-canonical-patch-target-boundary-reuse/summary.md`.
+- Latest archived product change: `harness/changes/archive/20260619-maintenance-canonical-patch-lineage-reuse/summary.md`.
+- Latest archived product/Harness docs change: `harness/changes/archive/20260619-maintenance-canonical-patch-lineage-reuse/summary.md`.
 - Latest archived Harness evolution: `harness/changes/archive/20260619-auto-evolve-harness-phase-12s-12w-product-maintenance-evidence/summary.md`.
 - Active product phase: none.
 - Active Harness evolution phase: none.
 - Active close status: none.
 
-This file is the short resume point. The latest change completed the first Architecture Growth Control source convergence sample by consolidating maintenance canonical patch target/path/hash boundary logic inside the `src/agent-task` owner. Phase 12W remains the latest user-facing product behavior baseline after adding read-only observation report evidence for deterministic, human-gated canonical docs/stable-memory patch application results.
+This file is the short resume point. The latest closed change continued the Architecture Growth Control source convergence track by consolidating maintenance canonical patch lineage/operation-alignment guards inside the `src/agent-task` owner. Phase 12W remains the latest user-facing product behavior baseline after adding read-only observation report evidence for deterministic, human-gated canonical docs/stable-memory patch application results.
 
 Current plan-level roadmap context is preserved in `docs/CURRENT-DEVELOPMENT-PLAN.md`. Historical detail belongs in archived summaries and `harness/changes/INDEX.json`.
 
 ## Current Baseline
 
-The product baseline is post-maintenance canonical patch target-boundary reuse with no active product change and no pending Harness evolution. Goal Loop controlled-loop state, routing posture, and SchedulerRun terminal handoff evidence remain non-executing evidence only. SchedulerRun terminal Workpad completion and blocked-closeout cards remain read-only evidence and do not authorize loop/full-executor/dispatch/slot/source/apply/close/merge/Harness-evolution behavior.
+The product baseline is post-maintenance canonical patch target-boundary and lineage reuse with no active change and no pending Harness evolution. Goal Loop controlled-loop state, routing posture, and SchedulerRun terminal handoff evidence remain non-executing evidence only. SchedulerRun terminal Workpad completion and blocked-closeout cards remain read-only evidence and do not authorize loop/full-executor/dispatch/slot/source/apply/close/merge/Harness-evolution behavior.
 
 Product-level maintenance writes candidate lifecycle-resolution evidence, canonical update proposal evidence, human-gated canonical update decision records, canonical patch proposal evidence, human-gated canonical patch application follow-up records, read-only application manifest/readiness evidence, Phase 12U target-descriptor evidence, Phase 12V human-gated canonical docs/stable-memory application result evidence, and Phase 12W read-only observation report evidence while still forbidding automatic canonical rewrites.
 
@@ -26,7 +26,7 @@ Phase 12A remains the future controlled Scheduler/parallel loop design boundary.
 
 ## Next Resume Point
 
-Resume the next structured product slice from `docs/CURRENT-DEVELOPMENT-PLAN.md`. Continue the Architecture Growth Control register before opening another evidence-only or descriptor-only phase; the next source convergence candidate should stay narrow within the maintenance / canonical patch chain, such as shared artifact/lineage handling after the completed target-boundary sample. Keep `README.md` unrelated and untracked unless the user explicitly asks to include it.
+Resume the next structured product slice from `docs/CURRENT-DEVELOPMENT-PLAN.md`. Continue the Architecture Growth Control register before opening another evidence-only or descriptor-only phase; the next source convergence candidate should stay narrow within the maintenance / canonical patch chain after the completed target-boundary and lineage samples. Keep `README.md` unrelated and untracked unless the user explicitly asks to include it.
 
 ## Verification Commands
 
@@ -57,6 +57,7 @@ Use `harness/changes/INDEX.json` for the generated archive list. Start with arch
 
 Recent key archive summaries:
 
+- Maintenance Canonical Patch Lineage Reuse: `harness/changes/archive/20260619-maintenance-canonical-patch-lineage-reuse/summary.md`.
 - Maintenance Canonical Patch Target Boundary Reuse: `harness/changes/archive/20260619-maintenance-canonical-patch-target-boundary-reuse/summary.md`.
 - Architecture Growth Control Core Mechanism Reuse: `harness/changes/archive/20260619-architecture-growth-control-core-mechanism-reuse/summary.md`.
 - Phase 12W Product Maintenance Canonical Patch Application Observation Report Evidence: `harness/changes/archive/20260619-phase-12w-product-maintenance-canonical-patch-application-observation-report-evidence/summary.md`.

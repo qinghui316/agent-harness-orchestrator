@@ -24,6 +24,7 @@ import {
   maintenanceCanonicalPatchApplicationResultPath,
 } from "./paths.js";
 import { canonicalPatchApplicationReportSchema } from "./schemas.js";
+import { validateCanonicalPatchApplicationResultLineage } from "./canonical-patch-lineage.js";
 import { contentHash, uniqueSorted } from "./utils.js";
 
 export async function generateMaintenanceCanonicalPatchApplicationReport(
@@ -43,7 +44,7 @@ export async function generateMaintenanceCanonicalPatchApplicationReport(
   }
   const manifest = await readMaintenanceCanonicalPatchApplicationManifest(memory, result.manifestId);
   if (!manifest) throw new Error(`Maintenance canonical patch application manifest not found for result ${applicationResultId}: ${result.manifestId}`);
-  validateReportLineage(result, manifest);
+  validateCanonicalPatchApplicationResultLineage(result, manifest);
 
   const report = buildCanonicalPatchApplicationReport(memory, result, manifest);
   canonicalPatchApplicationReportSchema.parse(report);
@@ -148,45 +149,6 @@ function buildCanonicalPatchApplicationReport(
     ]),
     createdAt: new Date().toISOString(),
   };
-}
-
-function validateReportLineage(
-  result: MaintenanceCanonicalPatchApplicationResult,
-  manifest: MaintenanceCanonicalPatchApplicationManifest,
-): void {
-  if (result.manifestId !== manifest.id) {
-    throw new Error(`Maintenance canonical patch application report lineage mismatch: result ${result.id} points to manifest ${result.manifestId}, loaded ${manifest.id}`);
-  }
-  if (
-    result.patchProposalId !== manifest.patchProposalId
-    || result.gateRecordId !== manifest.gateRecordId
-    || result.proposalId !== manifest.proposalId
-    || result.decisionId !== manifest.decisionId
-  ) {
-    throw new Error(`Maintenance canonical patch application report lineage mismatch: result ${result.id}`);
-  }
-  if (
-    result.operationCount !== result.appliedOperations.length
-    || result.operationCount !== manifest.operationCount
-    || result.operationCount !== manifest.operations.length
-  ) {
-    throw new Error(`Maintenance canonical patch application report operation count mismatch: result ${result.id}`);
-  }
-
-  const manifestOperations = new Map(manifest.operations.map((operation) => [operation.id, operation]));
-  for (const operation of result.appliedOperations) {
-    const manifestOperation = manifestOperations.get(operation.manifestOperationId);
-    if (!manifestOperation) {
-      throw new Error(`Maintenance canonical patch application report missing manifest operation for result operation: ${operation.id}`);
-    }
-    if (
-      operation.patchOperationId !== manifestOperation.patchOperationId
-      || operation.targetKind !== manifestOperation.targetKind
-      || operation.operation !== manifestOperation.operation
-    ) {
-      throw new Error(`Maintenance canonical patch application report operation lineage mismatch: ${operation.id}`);
-    }
-  }
 }
 
 async function ensureCanonicalPatchApplicationReportLedgerEntry(

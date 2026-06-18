@@ -605,6 +605,17 @@ describe("AgentTask domain boundaries", () => {
     const manifestPath = join(memory.workbenchRoot, "maintenance", "canonical-patch-application-manifests", `${manifest.id}.json`);
     await writeFile(manifestPath, `${JSON.stringify({ ...manifest, operationCount: 0 }, null, 2)}\n`, "utf8");
     await expect(generateMaintenanceCanonicalPatchApplicationReport(memory, result.id)).rejects.toThrow("operation count mismatch");
+    await writeFile(
+      manifestPath,
+      `${JSON.stringify({
+        ...manifest,
+        operations: manifest.operations.map((operation, index) => index === 0
+          ? { ...operation, operation: operation.operation === "noop" ? "merge" : "noop" }
+          : operation),
+      }, null, 2)}\n`,
+      "utf8",
+    );
+    await expect(generateMaintenanceCanonicalPatchApplicationReport(memory, result.id)).rejects.toThrow("operation lineage mismatch");
     await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
 
     const report = await generateMaintenanceCanonicalPatchApplicationReport(memory, result.id);

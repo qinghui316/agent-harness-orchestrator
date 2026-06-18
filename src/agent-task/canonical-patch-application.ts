@@ -37,6 +37,11 @@ import {
   resolveRequiredCanonicalPatchApplicationTarget,
   validateCanonicalPatchTargetKindPath,
 } from "./canonical-patch-target-boundary.js";
+import {
+  validateCanonicalPatchApplicationGateLineage,
+  validateCanonicalPatchApplicationManifestLineage,
+  validateCanonicalPatchApplicationManifestOperationLineage,
+} from "./canonical-patch-lineage.js";
 import { canonicalPatchApplicationManifestSchema, canonicalPatchApplicationResultSchema } from "./schemas.js";
 import { contentHash, uniqueSorted } from "./utils.js";
 
@@ -67,7 +72,7 @@ export async function generateMaintenanceCanonicalPatchApplicationManifest(
   if (!patchProposal) {
     throw new Error(`Maintenance canonical patch proposal not found for gate ${gateRecordId}: ${gateRecord.patchProposalId}`);
   }
-  validateManifestLineage(gateRecord, patchProposal);
+  validateCanonicalPatchApplicationGateLineage(gateRecord, patchProposal);
 
   const existing = await readMaintenanceCanonicalPatchApplicationManifestForGate(memory, gateRecordId);
   if (existing) {
@@ -135,8 +140,8 @@ export async function applyMaintenanceCanonicalPatchApplicationManifest(
   if (!gateRecord) throw new Error(`Maintenance canonical patch application gate not found for manifest ${manifestId}: ${manifest.gateRecordId}`);
   const patchProposal = await readMaintenanceCanonicalPatchProposal(memory, manifest.patchProposalId);
   if (!patchProposal) throw new Error(`Maintenance canonical patch proposal not found for manifest ${manifestId}: ${manifest.patchProposalId}`);
-  validateManifestLineage(gateRecord, patchProposal);
-  validateApplicationManifestLineage(manifest, gateRecord, patchProposal);
+  validateCanonicalPatchApplicationGateLineage(gateRecord, patchProposal);
+  validateCanonicalPatchApplicationManifestLineage(manifest, gateRecord, patchProposal);
 
   const prepared = await prepareApplicationOperations(memory, manifest, patchProposal);
   for (const operation of prepared) {
@@ -253,51 +258,6 @@ function buildManifestOperation(
   };
 }
 
-function validateManifestLineage(
-  gateRecord: MaintenanceCanonicalPatchApplicationGateRecord,
-  patchProposal: MaintenanceCanonicalPatchProposal,
-): void {
-  if (gateRecord.patchProposalId !== patchProposal.id) {
-    throw new Error(`Maintenance canonical patch application gate lineage mismatch: gate ${gateRecord.id} points to ${gateRecord.patchProposalId}, loaded ${patchProposal.id}`);
-  }
-  if (gateRecord.proposalId !== patchProposal.proposalId) {
-    throw new Error(`Maintenance canonical patch application gate proposal lineage mismatch: gate ${gateRecord.id}`);
-  }
-  if (gateRecord.decisionId !== patchProposal.decisionId) {
-    throw new Error(`Maintenance canonical patch application gate decision lineage mismatch: gate ${gateRecord.id}`);
-  }
-  if (gateRecord.operationCount !== patchProposal.operationCount || gateRecord.operationCount !== patchProposal.operations.length) {
-    throw new Error(`Maintenance canonical patch application gate operation count mismatch: gate ${gateRecord.id}`);
-  }
-}
-
-function validateApplicationManifestLineage(
-  manifest: MaintenanceCanonicalPatchApplicationManifest,
-  gateRecord: MaintenanceCanonicalPatchApplicationGateRecord,
-  patchProposal: MaintenanceCanonicalPatchProposal,
-): void {
-  if (manifest.gateRecordId !== gateRecord.id) {
-    throw new Error(`Maintenance canonical patch application manifest gate lineage mismatch: manifest ${manifest.id}`);
-  }
-  if (manifest.patchProposalId !== patchProposal.id || gateRecord.patchProposalId !== patchProposal.id) {
-    throw new Error(`Maintenance canonical patch application manifest patch proposal lineage mismatch: manifest ${manifest.id}`);
-  }
-  if (manifest.proposalId !== patchProposal.proposalId || manifest.proposalId !== gateRecord.proposalId) {
-    throw new Error(`Maintenance canonical patch application manifest proposal lineage mismatch: manifest ${manifest.id}`);
-  }
-  if (manifest.decisionId !== patchProposal.decisionId || manifest.decisionId !== gateRecord.decisionId) {
-    throw new Error(`Maintenance canonical patch application manifest decision lineage mismatch: manifest ${manifest.id}`);
-  }
-  if (
-    manifest.operationCount !== manifest.operations.length
-    || manifest.operationCount !== patchProposal.operationCount
-    || manifest.operationCount !== patchProposal.operations.length
-    || manifest.operationCount !== gateRecord.operationCount
-  ) {
-    throw new Error(`Maintenance canonical patch application manifest operation count mismatch: manifest ${manifest.id}`);
-  }
-}
-
 function validateApplicationAuthorization(options: ApplyMaintenanceCanonicalPatchApplicationManifestOptions): void {
   if (options.confirmedBy !== "workbench-human-gate") {
     throw new Error("Maintenance canonical patch application requires Workbench human-gate confirmation.");
@@ -335,7 +295,7 @@ async function prepareApplicationOperations(
     }
     const proposalOperation = proposalOperations.get(operation.patchOperationId);
     if (!proposalOperation) throw new Error(`Canonical patch application operation has no matching patch proposal operation: ${operation.id}`);
-    validateOperationMatchesProposal(operation, proposalOperation);
+    validateCanonicalPatchApplicationManifestOperationLineage(operation, proposalOperation);
     validateSupportedApplicationTarget(operation.targetKind, operation.id);
     validateCanonicalPatchTargetKindPath(operation.targetKind, operation.targetDescriptor.targetPath, operation.id);
 
@@ -369,20 +329,6 @@ async function prepareApplicationOperations(
     throw new Error(`Prepared operation count mismatch for canonical patch application manifest: ${manifest.id}`);
   }
   return prepared;
-}
-
-function validateOperationMatchesProposal(
-  manifestOperation: MaintenanceCanonicalPatchApplicationManifestOperation,
-  proposalOperation: MaintenanceCanonicalPatchOperation,
-): void {
-  if (
-    manifestOperation.targetKind !== proposalOperation.targetKind
-    || manifestOperation.operation !== proposalOperation.operation
-    || manifestOperation.sourceResolutionId !== proposalOperation.sourceResolutionId
-    || manifestOperation.sourceCandidateId !== proposalOperation.sourceCandidateId
-  ) {
-    throw new Error(`Canonical patch application operation lineage mismatch: ${manifestOperation.id}`);
-  }
 }
 
 function validateSupportedApplicationTarget(targetKind: string, operationId: string): void {
