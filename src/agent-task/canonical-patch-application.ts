@@ -1,7 +1,6 @@
 import { existsSync } from "node:fs";
-import { createHash } from "node:crypto";
-import { readFile, readdir, realpath, stat, writeFile } from "node:fs/promises";
-import { isAbsolute, join, normalize, relative, resolve } from "node:path";
+import { readFile, readdir, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { readJsonFile, writeJsonFile } from "../fs/json.js";
 import type {
   MaintenanceCanonicalPatchAppliedOperation,
@@ -32,6 +31,12 @@ import {
   readMaintenanceCanonicalPatchApplicationGate,
   readMaintenanceCanonicalPatchProposal,
 } from "./canonical-updates.js";
+import {
+  canonicalPatchContentHash,
+  isValidCanonicalPatchTargetDescriptor,
+  resolveRequiredCanonicalPatchApplicationTarget,
+  validateCanonicalPatchTargetKindPath,
+} from "./canonical-patch-target-boundary.js";
 import { canonicalPatchApplicationManifestSchema, canonicalPatchApplicationResultSchema } from "./schemas.js";
 import { contentHash, uniqueSorted } from "./utils.js";
 
@@ -228,7 +233,7 @@ function buildManifestOperation(
   operation: MaintenanceCanonicalPatchOperation,
   index: number,
 ): MaintenanceCanonicalPatchApplicationManifestOperation {
-  const targetDescriptor = validTargetDescriptorForOperation(operation);
+  const targetDescriptor = isValidCanonicalPatchTargetDescriptor(operation.targetDescriptor, operation.targetKind) ? operation.targetDescriptor : null;
   const blockedReasons = targetDescriptor
     ? []
     : ["Patch proposal operation lacks a deterministic target descriptor with target path, expected content hash, and patch payload."];
@@ -246,24 +251,6 @@ function buildManifestOperation(
     rationale: operation.rationale,
     artifactRefs: operation.artifactRefs,
   };
-}
-
-function validTargetDescriptorForOperation(operation: MaintenanceCanonicalPatchOperation): MaintenanceCanonicalPatchTargetDescriptor | null {
-  const descriptor = operation.targetDescriptor;
-  if (!descriptor) return null;
-  if (descriptor.targetKind !== operation.targetKind) return null;
-  if (!validRelativeTargetPath(descriptor.targetPath) || !/^[a-f0-9]{64}$/.test(descriptor.expectedContentHash)) return null;
-  if (descriptor.patchKind === "replacement") {
-    return descriptor.replacement.trim().length > 0 ? descriptor : null;
-  }
-  return descriptor.hunks.length > 0 && descriptor.hunks.every((hunk) => hunk.oldText.trim().length > 0 && hunk.newText.trim().length > 0)
-    ? descriptor
-    : null;
-}
-
-function validRelativeTargetPath(targetPath: string): boolean {
-  const normalized = targetPath.trim().replace(/\\/g, "/");
-  return normalized.length > 0 && normalized !== "." && normalized !== ".." && !normalized.split("/").includes("..") && !/^[a-zA-Z]:/.test(normalized) && !normalized.startsWith("/");
 }
 
 function validateManifestLineage(
@@ -350,20 +337,20 @@ async function prepareApplicationOperations(
     if (!proposalOperation) throw new Error(`Canonical patch application operation has no matching patch proposal operation: ${operation.id}`);
     validateOperationMatchesProposal(operation, proposalOperation);
     validateSupportedApplicationTarget(operation.targetKind, operation.id);
-    validateTargetKindPathBoundary(operation.targetKind, operation.targetDescriptor.targetPath, operation.id);
+    validateCanonicalPatchTargetKindPath(operation.targetKind, operation.targetDescriptor.targetPath, operation.id);
 
-    const target = await resolveSafeApplicationTarget(memory.memoryRoot, operation.targetDescriptor.targetPath);
+    const target = await resolveRequiredCanonicalPatchApplicationTarget(memory.memoryRoot, operation.targetDescriptor.targetPath);
     const targetKey = target.relativeTargetPath.toLowerCase();
     if (targetPaths.has(targetKey)) throw new Error(`Duplicate canonical patch application target path: ${target.relativeTargetPath}`);
     targetPaths.add(targetKey);
 
     const beforeContent = await readFile(target.realTargetPath, "utf8");
-    const beforeHash = sha256(beforeContent);
+    const beforeHash = canonicalPatchContentHash(beforeContent);
     if (beforeHash !== operation.targetDescriptor.expectedContentHash) {
       throw new Error(`Canonical patch application target hash is stale for ${target.relativeTargetPath}`);
     }
     const afterContent = applyDescriptorToContent(beforeContent, operation.targetDescriptor, operation.id);
-    const afterHash = sha256(afterContent);
+    const afterHash = canonicalPatchContentHash(afterContent);
     if (afterHash === beforeHash) throw new Error(`Canonical patch application operation produced no content change: ${operation.id}`);
 
     prepared.push({
@@ -402,62 +389,6 @@ function validateSupportedApplicationTarget(targetKind: string, operationId: str
   if (targetKind !== "canonical-docs" && targetKind !== "stable-memory") {
     throw new Error(`Unsupported canonical patch application target kind for ${operationId}: ${targetKind}`);
   }
-}
-
-function validateTargetKindPathBoundary(targetKind: string, targetPath: string, operationId: string): void {
-  const normalized = normalizeApplicationRelativeTargetPath(targetPath);
-  if (!normalized) throw new Error(`Unsafe canonical patch application target path for ${operationId}: ${targetPath}`);
-  if (targetKind === "canonical-docs") {
-    if (!normalized.startsWith("docs/") || normalized === "docs/" || !normalized.endsWith(".md")) {
-      throw new Error(`Canonical docs patch target is outside docs/*.md boundary for ${operationId}: ${targetPath}`);
-    }
-    return;
-  }
-  if (targetKind === "stable-memory") {
-    if (!normalized.startsWith("project/stable/") || normalized === "project/stable/" || !normalized.endsWith(".md")) {
-      throw new Error(`Stable memory patch target is outside project/stable/*.md boundary for ${operationId}: ${targetPath}`);
-    }
-  }
-}
-
-async function resolveSafeApplicationTarget(
-  rootPath: string,
-  targetPath: string,
-): Promise<{ realTargetPath: string; relativeTargetPath: string }> {
-  const normalized = normalizeApplicationRelativeTargetPath(targetPath);
-  if (!normalized) throw new Error(`Unsafe canonical patch application target path: ${targetPath}`);
-
-  const realRoot = await realpath(rootPath).catch(() => null);
-  if (!realRoot) throw new Error(`Canonical patch application memory root not found: ${rootPath}`);
-  const resolvedTarget = resolve(realRoot, normalized);
-  const realTarget = await realpath(resolvedTarget).catch(() => null);
-  if (!realTarget || !isPathInsideOrEqual(realRoot, realTarget)) {
-    throw new Error(`Canonical patch application target escapes memory root: ${targetPath}`);
-  }
-
-  const targetStat = await stat(realTarget).catch(() => null);
-  if (!targetStat?.isFile()) throw new Error(`Canonical patch application target is not an existing file: ${targetPath}`);
-
-  const relativeTargetPath = relative(realRoot, realTarget).replace(/\\/g, "/");
-  if (!relativeTargetPath || relativeTargetPath === "." || relativeTargetPath.startsWith("../") || isAbsolute(relativeTargetPath)) {
-    throw new Error(`Unsafe canonical patch application resolved target path: ${targetPath}`);
-  }
-  return { realTargetPath: realTarget, relativeTargetPath };
-}
-
-function normalizeApplicationRelativeTargetPath(targetPath: string): string | null {
-  const raw = targetPath.trim();
-  if (!raw || isAbsolute(raw) || /^[a-zA-Z]:/.test(raw)) return null;
-  const rawSegments = raw.replace(/\\/g, "/").split("/");
-  if (rawSegments.includes("..")) return null;
-  const normalized = normalize(raw).replace(/\\/g, "/");
-  if (normalized === "." || normalized === ".." || normalized.startsWith("../") || isAbsolute(normalized)) return null;
-  return normalized;
-}
-
-function isPathInsideOrEqual(rootPath: string, targetPath: string): boolean {
-  const relativePath = relative(rootPath, targetPath);
-  return relativePath === "" || (!relativePath.startsWith("..") && !isAbsolute(relativePath));
 }
 
 function applyDescriptorToContent(content: string, descriptor: MaintenanceCanonicalPatchTargetDescriptor, operationId: string): string {
@@ -570,10 +501,6 @@ async function ensureCanonicalPatchApplicationResultLedgerEntry(
       displayMaintenancePath(memory, maintenanceCanonicalPatchApplicationResultMarkdownPath(memory, result.id)),
     ],
   });
-}
-
-function sha256(content: string | Buffer): string {
-  return createHash("sha256").update(content).digest("hex");
 }
 
 async function ensureCanonicalPatchApplicationManifestLedgerEntry(

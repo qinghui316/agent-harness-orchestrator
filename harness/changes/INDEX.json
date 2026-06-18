@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-18T17:47:27.5188917Z",
+    "generated_at":  "2026-06-18T18:13:40.9890737Z",
     "active":  [
 
                ],
@@ -1137,6 +1137,10 @@
                     {
                         "name":  "20260619-auto-evolve-harness-phase-12s-12w-product-maintenance-evidence",
                         "path":  "harness/changes/archive/20260619-auto-evolve-harness-phase-12s-12w-product-maintenance-evidence"
+                    },
+                    {
+                        "name":  "20260619-maintenance-canonical-patch-target-boundary-reuse",
+                        "path":  "harness/changes/archive/20260619-maintenance-canonical-patch-target-boundary-reuse"
                     },
                     {
                         "name":  "20260619-phase-12u-product-maintenance-canonical-patch-target-descriptors",
