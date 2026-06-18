@@ -162,11 +162,18 @@ function validTargetDescriptorForOperation(operation: MaintenanceCanonicalPatchO
   const descriptor = operation.targetDescriptor;
   if (!descriptor) return null;
   if (descriptor.targetKind !== operation.targetKind) return null;
-  if (descriptor.targetPath.trim().length === 0 || descriptor.expectedContentHash.trim().length === 0) return null;
+  if (!validRelativeTargetPath(descriptor.targetPath) || !/^[a-f0-9]{64}$/.test(descriptor.expectedContentHash)) return null;
   if (descriptor.patchKind === "replacement") {
-    return descriptor.replacement.length > 0 ? descriptor : null;
+    return descriptor.replacement.trim().length > 0 ? descriptor : null;
   }
-  return descriptor.hunks.length > 0 ? descriptor : null;
+  return descriptor.hunks.length > 0 && descriptor.hunks.every((hunk) => hunk.oldText.trim().length > 0 && hunk.newText.trim().length > 0)
+    ? descriptor
+    : null;
+}
+
+function validRelativeTargetPath(targetPath: string): boolean {
+  const normalized = targetPath.trim().replace(/\\/g, "/");
+  return normalized.length > 0 && normalized !== "." && normalized !== ".." && !normalized.split("/").includes("..") && !/^[a-zA-Z]:/.test(normalized) && !normalized.startsWith("/");
 }
 
 function validateManifestLineage(
@@ -248,7 +255,7 @@ function renderCanonicalPatchApplicationManifestMarkdown(manifest: MaintenanceCa
       `  patchOperation: ${operation.patchOperationId}`,
       `  targetKind: ${operation.targetKind}`,
       `  operation: ${operation.operation}`,
-      `  targetDescriptor: ${operation.targetDescriptor ? operation.targetDescriptor.patchKind : "missing"}`,
+      `  targetDescriptor: ${renderTargetDescriptor(operation.targetDescriptor)}`,
       `  blockedReasons: ${operation.blockedReasons.length > 0 ? operation.blockedReasons.join("; ") : "none"}`,
     ].join("\n")),
     "",
@@ -257,4 +264,9 @@ function renderCanonicalPatchApplicationManifestMarkdown(manifest: MaintenanceCa
     ...manifest.artifactRefs.map((ref) => `- ${ref}`),
     "",
   ].join("\n");
+}
+
+function renderTargetDescriptor(descriptor: MaintenanceCanonicalPatchTargetDescriptor | null): string {
+  if (!descriptor) return "missing";
+  return `${descriptor.patchKind} ${descriptor.targetPath} sha256=${descriptor.expectedContentHash}`;
 }

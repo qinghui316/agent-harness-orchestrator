@@ -7,6 +7,7 @@ import type {
   CandidateScore,
   DemandMemoryCloseout,
   EvolutionCandidate,
+  MaintenanceCandidateTargetHint,
   MaintenanceLedgerEntry,
   MaintenanceLedgerEventType,
   ResolvedMemory,
@@ -121,7 +122,14 @@ export async function createMaintenanceCandidatesForWindow(memory: ResolvedMemor
   const candidates: EvolutionCandidate[] = [];
   const seen = new Set<string>();
   const ledgerIds = ledgerEntries.map((entry) => entry.id);
-  const addCandidate = async (input: { subtype: EvolutionCandidate["subtype"]; fingerprint: string; title: string; summary: string; artifactRefs: string[] }) => {
+  const addCandidate = async (input: {
+    subtype: EvolutionCandidate["subtype"];
+    fingerprint: string;
+    title: string;
+    summary: string;
+    targetHints?: MaintenanceCandidateTargetHint[];
+    artifactRefs: string[];
+  }) => {
     if (seen.has(input.fingerprint)) return;
     seen.add(input.fingerprint);
     const existing = await findCandidateByFingerprint(memory, input.fingerprint);
@@ -134,6 +142,7 @@ export async function createMaintenanceCandidatesForWindow(memory: ResolvedMemor
       fingerprint: input.fingerprint,
       title: input.title,
       summary: input.summary,
+      ...(input.targetHints?.length ? { targetHints: input.targetHints } : {}),
       artifactRefs: uniqueSorted(input.artifactRefs),
       status: "candidate",
       createdAt: new Date().toISOString(),
@@ -155,12 +164,20 @@ export async function createMaintenanceCandidatesForWindow(memory: ResolvedMemor
   }
   for (const drift of closeouts.flatMap((closeout) => closeout.docsDriftCandidates)) {
     if (drift.status === "superseded") continue;
+    const artifactRefs = uniqueSorted(drift.evidenceRefs);
     await addCandidate({
       subtype: "docs-drift",
       fingerprint: drift.fingerprint,
       title: `Documentation drift candidate for ${drift.document}`,
       summary: drift.summary,
-      artifactRefs: drift.evidenceRefs,
+      targetHints: [{
+        targetKind: "canonical-docs",
+        targetPath: drift.document,
+        ...(drift.patch ? { patch: drift.patch } : {}),
+        reason: `Docs drift candidate identifies ${drift.document} as the canonical docs target. Descriptor generation remains read-only and requires a concrete patch payload.`,
+        artifactRefs,
+      }],
+      artifactRefs,
     });
   }
   const docBudget = await checkDocBudgets(memory);
@@ -170,6 +187,12 @@ export async function createMaintenanceCandidatesForWindow(memory: ResolvedMemor
       fingerprint: contentHash(`doc-budget:${doc.path}:${doc.status}`),
       title: `Document budget candidate for ${doc.path}`,
       summary: `${doc.path} is ${doc.status} (${doc.wordCount}/${doc.hardLimit} estimated words). Prepare a refinement proposal; do not rewrite canonical docs automatically.`,
+      targetHints: [{
+        targetKind: "canonical-docs",
+        targetPath: doc.path,
+        reason: `Document budget candidate identifies ${doc.path} as an over-budget canonical docs target, but does not include a patch payload.`,
+        artifactRefs: [displayMaintenancePath(memory, join(maintenanceRoot(memory), "doc-budgets", `${docBudget.id}.json`))],
+      }],
       artifactRefs: [displayMaintenancePath(memory, join(maintenanceRoot(memory), "doc-budgets", `${docBudget.id}.json`))],
     });
   }

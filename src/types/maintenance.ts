@@ -117,6 +117,7 @@ export interface EvolutionCandidate {
   supersededBy?: string;
   title: string;
   summary: string;
+  targetHints?: MaintenanceCandidateTargetHint[];
   artifactRefs: string[];
   status: "candidate";
   createdAt: string;
@@ -160,6 +161,7 @@ export interface MaintenanceCandidateResolution {
   rationale: string;
   canonicalUpdateRequired: boolean;
   humanGateRequired: boolean;
+  targetHints?: MaintenanceCandidateTargetHint[];
   artifactRefs: string[];
   createdAt: string;
 }
@@ -178,6 +180,7 @@ export interface MaintenanceCanonicalUpdateResolutionSummary {
   candidateSubtype?: MaintenanceCandidateSubtype;
   reviewRecommendation: CandidateReview["recommendation"];
   rationale: string;
+  targetHints?: MaintenanceCandidateTargetHint[];
   artifactRefs: string[];
 }
 
@@ -221,6 +224,24 @@ export interface MaintenanceCanonicalPatchTargetHunk {
   oldText: string;
   newText: string;
   occurrence?: number;
+}
+
+export type MaintenanceCanonicalPatchPayloadDraft =
+  | {
+    patchKind: "replacement";
+    replacement: string;
+  }
+  | {
+    patchKind: "hunks";
+    hunks: MaintenanceCanonicalPatchTargetHunk[];
+  };
+
+export interface MaintenanceCandidateTargetHint {
+  targetKind: MaintenanceCanonicalUpdateTargetKind;
+  targetPath?: string;
+  patch?: MaintenanceCanonicalPatchPayloadDraft;
+  reason: string;
+  artifactRefs: string[];
 }
 
 export type MaintenanceCanonicalPatchTargetDescriptor =
@@ -375,6 +396,7 @@ export interface DocsDriftCandidate {
   fingerprint: string;
   document: string;
   summary: string;
+  patch?: MaintenanceCanonicalPatchPayloadDraft;
   evidenceRefs: string[];
   status: "candidate" | "superseded";
   supersededBy?: string;

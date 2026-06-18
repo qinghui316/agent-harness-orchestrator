@@ -30,6 +30,7 @@ import {
   maintenanceResolutionPath,
 } from "./paths.js";
 import { listMaintenanceLedgerEntries, recordMaintenanceLedgerEntry } from "./ledger.js";
+import { buildCanonicalPatchTargetDescriptor } from "./canonical-patch-targets.js";
 import { canonicalPatchApplicationGateRecordSchema, canonicalPatchProposalSchema, canonicalUpdateDecisionSchema, canonicalUpdateProposalSchema } from "./schemas.js";
 import { contentHash, uniqueSorted } from "./utils.js";
 
@@ -141,7 +142,7 @@ export async function proposeMaintenanceCanonicalPatch(
   }
   const proposal = await readMaintenanceCanonicalUpdateProposal(memory, decision.proposalId);
   if (!proposal) throw new Error(`Maintenance canonical update proposal not found for decision ${decisionId}: ${decision.proposalId}`);
-  const patchProposal = buildCanonicalPatchProposal(memory, proposal, decision);
+  const patchProposal = await buildCanonicalPatchProposal(memory, proposal, decision);
   const existing = await readMaintenanceCanonicalPatchProposal(memory, patchProposal.id);
   if (existing) {
     await ensureCanonicalPatchProposalLedgerEntry(memory, existing);
@@ -277,6 +278,7 @@ function buildCanonicalUpdateProposal(memory: ResolvedMemory, resolutions: Maint
       candidateSubtype: resolution.candidateSubtype,
       reviewRecommendation: resolution.reviewRecommendation,
       rationale: resolution.rationale,
+      ...(resolution.targetHints?.length ? { targetHints: resolution.targetHints } : {}),
       artifactRefs: resolution.artifactRefs,
     })),
     artifactRefs,
@@ -305,11 +307,11 @@ function buildCanonicalUpdateDecision(memory: ResolvedMemory, proposal: Maintena
   };
 }
 
-function buildCanonicalPatchProposal(
+async function buildCanonicalPatchProposal(
   memory: ResolvedMemory,
   proposal: MaintenanceCanonicalUpdateProposal,
   decision: MaintenanceCanonicalUpdateDecision,
-): MaintenanceCanonicalPatchProposal {
+): Promise<MaintenanceCanonicalPatchProposal> {
   const id = `canonical-patch-proposal-${contentHash(`${proposal.id}|${decision.id}`).slice(0, 12)}`;
   const proposalRefs = [
     maintenanceCanonicalUpdateProposalArtifactRef(memory, proposal.id),
@@ -317,19 +319,21 @@ function buildCanonicalPatchProposal(
     maintenanceCanonicalUpdateDecisionArtifactRef(memory, decision.id),
     displayMaintenancePath(memory, maintenanceCanonicalUpdateDecisionMarkdownPath(memory, decision.id)),
   ];
-  const operations = proposal.resolutionSummaries.map((resolution, index): MaintenanceCanonicalPatchOperation => {
+  const operations = await Promise.all(proposal.resolutionSummaries.map(async (resolution, index): Promise<MaintenanceCanonicalPatchOperation> => {
     const targetKind = targetKindForSubtype(resolution.candidateSubtype);
+    const targetDescriptor = await buildCanonicalPatchTargetDescriptor(memory, targetKind, resolution.targetHints);
     return {
       id: `${id}-operation-${String(index + 1).padStart(3, "0")}`,
       targetKind,
       operation: resolution.outcome,
       sourceResolutionId: resolution.resolutionId,
       sourceCandidateId: resolution.candidateId,
+      ...(targetDescriptor ? { targetDescriptor } : {}),
       summary: `Prepare ${resolution.outcome} update candidate for ${targetKind} from maintenance resolution ${resolution.resolutionId}.`,
       rationale: resolution.rationale,
       artifactRefs: resolution.artifactRefs,
     };
-  });
+  }));
   const artifactRefs = uniqueSorted([
     ...proposalRefs,
     ...proposal.artifactRefs,
@@ -563,6 +567,7 @@ function renderCanonicalPatchProposalMarkdown(patchProposal: MaintenanceCanonica
       `- ${operation.id}: ${operation.operation} ${operation.targetKind}`,
       `  resolution: ${operation.sourceResolutionId}`,
       `  candidate: ${operation.sourceCandidateId}`,
+      `  targetDescriptor: ${renderPatchOperationTargetDescriptor(operation)}`,
       `  summary: ${operation.summary}`,
       `  rationale: ${operation.rationale.replace(/\r?\n/g, " ")}`,
     ].join("\n")),
@@ -576,6 +581,12 @@ function renderCanonicalPatchProposalMarkdown(patchProposal: MaintenanceCanonica
     ...patchProposal.artifactRefs.map((ref) => `- ${ref}`),
     "",
   ].join("\n");
+}
+
+function renderPatchOperationTargetDescriptor(operation: MaintenanceCanonicalPatchOperation): string {
+  const descriptor = operation.targetDescriptor;
+  if (!descriptor) return "missing";
+  return `${descriptor.patchKind} ${descriptor.targetPath} sha256=${descriptor.expectedContentHash}`;
 }
 
 function renderCanonicalPatchApplicationGateMarkdown(gateRecord: MaintenanceCanonicalPatchApplicationGateRecord): string {

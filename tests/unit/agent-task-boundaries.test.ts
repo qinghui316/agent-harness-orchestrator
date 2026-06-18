@@ -1,10 +1,15 @@
-import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, afterEach, beforeEach } from "vitest";
 import { initHarness } from "../../src/harness/init.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
+import { buildMaintenanceSummary } from "../../src/workbench/projections/read-model/maintenance-summary.js";
+import { candidateSchema, canonicalUpdateProposalSchema, resolutionSchema } from "../../src/agent-task/schemas.js";
+import { buildCanonicalPatchTargetDescriptor } from "../../src/agent-task/canonical-patch-targets.js";
+import { normalizeDocsDriftCandidates } from "../../src/agent-task/closeout-store.js";
 import type { CandidateReview, CandidateScore, EvolutionCandidate, ManagedProject } from "../../src/types/index.js";
 import {
   buildRoleScopedContextProjection,
@@ -362,6 +367,271 @@ describe("AgentTask domain boundaries", () => {
     await expect(recordMaintenanceCanonicalPatchApplicationGate(memory, "missing-patch-proposal")).rejects.toThrow("Maintenance canonical patch proposal not found");
     await expect(generateMaintenanceCanonicalPatchApplicationManifest(memory, "missing-gate")).rejects.toThrow("Maintenance canonical patch application gate not found");
     expect(await readFile(memory.agentGuidePath, "utf8")).toBe(originalGuide);
+  });
+
+  it("builds canonical patch target descriptors only from explicit safe patch evidence", async () => {
+    await initHarness(project());
+    const memory = await resolveProjectMemory(project());
+    const memoryDocPath = join(memory.memoryRoot, "docs", "MEMORY.md");
+    const originalMemoryDoc = "# Memory\n\nKeep old memory guidance.\n";
+    await writeFile(memoryDocPath, originalMemoryDoc, "utf8");
+
+    for (let index = 1; index <= 5; index += 1) {
+      await recordDemandMemoryCloseout(memory, {
+        changeId: `descriptor-closeout-${index}`,
+        title: `Descriptor demand ${index}`,
+        terminalKind: "archived",
+        finalResult: `Descriptor demand ${index} completed.`,
+        userDecision: "archived",
+        evidenceRefs: [`harness/changes/archive/descriptor-${index}/summary.md`],
+        docsDriftCandidates: [{
+          document: "docs/MEMORY.md",
+          summary: "Memory guidance needs a concrete canonical patch target descriptor.",
+          patch: {
+            patchKind: "hunks",
+            hunks: [{
+              oldText: "Keep old memory guidance.",
+              newText: "Keep updated memory guidance.",
+            }],
+          },
+          evidenceRefs: [`memory-descriptor-${index}.md`],
+        }],
+      });
+    }
+
+    const proposal = (await listMaintenanceCanonicalUpdateProposals(memory))[0];
+    const decision = await recordMaintenanceCanonicalUpdateDecision(memory, proposal.id);
+    const patchProposal = await proposeMaintenanceCanonicalPatch(memory, decision.id);
+    const gateRecord = await recordMaintenanceCanonicalPatchApplicationGate(memory, patchProposal.id);
+    const manifest = await generateMaintenanceCanonicalPatchApplicationManifest(memory, gateRecord.id);
+    const patchProposalMarkdown = await readFile(join(memory.workbenchRoot, "maintenance", "canonical-patch-proposals", `${patchProposal.id}.md`), "utf8");
+    const manifestMarkdown = await readFile(join(memory.workbenchRoot, "maintenance", "canonical-patch-application-manifests", `${manifest.id}.md`), "utf8");
+    const summary = await buildMaintenanceSummary(memory);
+    const expectedHash = createHash("sha256").update(Buffer.from(originalMemoryDoc)).digest("hex");
+    const operation = patchProposal.operations.find((item) => item.targetDescriptor?.targetPath === "docs/MEMORY.md");
+
+    expect(operation?.targetDescriptor).toMatchObject({
+      targetKind: "canonical-docs",
+      targetPath: "docs/MEMORY.md",
+      expectedContentHash: expectedHash,
+      patchKind: "hunks",
+      hunks: [{
+        oldText: "Keep old memory guidance.",
+        newText: "Keep updated memory guidance.",
+      }],
+    });
+    expect(operation?.targetDescriptor?.expectedContentHash).toMatch(/^[a-f0-9]{64}$/);
+    expect(operation?.targetDescriptor?.targetPath).not.toMatch(/^[a-zA-Z]:|^\/|\\/);
+    expect(patchProposal).toMatchObject({
+      sourceMutationAuthorized: false,
+      canonicalUpdateAuthorized: false,
+      applicationAuthorized: false,
+      executionStarted: false,
+    });
+    expect(manifest).toMatchObject({
+      applicationStatus: "ready-for-application",
+      sourceMutationAuthorized: false,
+      canonicalUpdateApplied: false,
+      canonicalPatchApplied: false,
+      executionStarted: false,
+    });
+    expect(manifest.operations).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        patchOperationId: operation?.id,
+        readiness: "ready",
+        targetDescriptor: expect.objectContaining({
+          targetPath: "docs/MEMORY.md",
+          expectedContentHash: expectedHash,
+        }),
+      }),
+    ]));
+    expect(patchProposalMarkdown).toContain(`targetDescriptor: hunks docs/MEMORY.md sha256=${expectedHash}`);
+    expect(manifestMarkdown).toContain("Application status: ready-for-application");
+    expect(manifestMarkdown).toContain(`targetDescriptor: hunks docs/MEMORY.md sha256=${expectedHash}`);
+    expect(summary.latestPatchProposal).toMatchObject({
+      applicationAuthorized: false,
+      canonicalUpdateAuthorized: false,
+    });
+    expect(summary.latestApplicationManifest).toMatchObject({
+      applicationStatus: "ready-for-application",
+      canonicalPatchApplied: false,
+    });
+    expect(summary.latestApplicationManifest).not.toHaveProperty("nextAllowedAction");
+    expect(await readFile(memoryDocPath, "utf8")).toBe(originalMemoryDoc);
+  });
+
+  it("keeps concrete docs-drift patch drafts distinct from older no-payload drift fingerprints", () => {
+    const [oldNoPayload] = normalizeDocsDriftCandidates("fingerprint-change", [{
+      document: "docs/MEMORY.md",
+      summary: "Memory guidance needs a concrete canonical patch target descriptor.",
+      evidenceRefs: ["old.md"],
+    }], []);
+    const [withPayload] = normalizeDocsDriftCandidates("fingerprint-change", [{
+      document: "docs/MEMORY.md",
+      summary: "Memory guidance needs a concrete canonical patch target descriptor.",
+      patch: {
+        patchKind: "hunks",
+        hunks: [{
+          oldText: "Keep old memory guidance.",
+          newText: "Keep updated memory guidance.",
+        }],
+      },
+      evidenceRefs: ["new.md"],
+    }], []);
+
+    expect(oldNoPayload.fingerprint).not.toBe(withPayload.fingerprint);
+    expect(withPayload.patch).toMatchObject({ patchKind: "hunks" });
+  });
+
+  it("keeps unsafe canonical patch target hints blocked and backward-compatible", async () => {
+    await initHarness(project());
+    const memory = await resolveProjectMemory(project());
+    const originalGuide = await readFile(memory.agentGuidePath, "utf8");
+
+    candidateSchema.parse({
+      version: "1.0",
+      id: "candidate-old",
+      sourceLedgerEntryIds: ["ledger-old"],
+      subtype: "docs-drift",
+      title: "Old candidate",
+      summary: "Old candidate without target hints.",
+      artifactRefs: [],
+      status: "candidate",
+      createdAt: "2026-06-18T00:00:00.000Z",
+    });
+    resolutionSchema.parse({
+      version: "1.0",
+      id: "resolution-old",
+      candidateId: "candidate-old",
+      outcome: "merge",
+      reviewRecommendation: "accept",
+      candidateSubtype: "docs-drift",
+      score: 80,
+      rationale: "Old resolution without target hints.",
+      canonicalUpdateRequired: true,
+      humanGateRequired: true,
+      artifactRefs: [],
+      createdAt: "2026-06-18T00:00:00.000Z",
+    });
+    canonicalUpdateProposalSchema.parse({
+      version: "1.0",
+      id: "proposal-old",
+      status: "proposed",
+      resolutionIds: ["resolution-old"],
+      candidateIds: ["candidate-old"],
+      targetKinds: ["canonical-docs"],
+      humanGateRequired: true,
+      canonicalUpdateAuthorized: false,
+      summary: "Old proposal without target hints.",
+      resolutionSummaries: [{
+        resolutionId: "resolution-old",
+        candidateId: "candidate-old",
+        outcome: "merge",
+        candidateSubtype: "docs-drift",
+        reviewRecommendation: "accept",
+        rationale: "Old summary without target hints.",
+        artifactRefs: [],
+      }],
+      artifactRefs: [],
+      createdAt: "2026-06-18T00:00:00.000Z",
+    });
+
+    for (let index = 1; index <= 5; index += 1) {
+      await recordDemandMemoryCloseout(memory, {
+        changeId: `unsafe-descriptor-${index}`,
+        title: `Unsafe descriptor demand ${index}`,
+        terminalKind: "archived",
+        finalResult: `Unsafe descriptor demand ${index} completed.`,
+        userDecision: "archived",
+        docsDriftCandidates: [{
+          document: "../AGENTS.md",
+          summary: "Unsafe target path must not become a descriptor.",
+          patch: {
+            patchKind: "hunks",
+            hunks: [{
+              oldText: "Agent Harness",
+              newText: "Changed Agent Harness",
+            }],
+          },
+          evidenceRefs: [`unsafe-${index}.md`],
+        }],
+      });
+    }
+
+    const proposal = (await listMaintenanceCanonicalUpdateProposals(memory))[0];
+    const decision = await recordMaintenanceCanonicalUpdateDecision(memory, proposal.id);
+    const patchProposal = await proposeMaintenanceCanonicalPatch(memory, decision.id);
+    const gateRecord = await recordMaintenanceCanonicalPatchApplicationGate(memory, patchProposal.id);
+    const manifest = await generateMaintenanceCanonicalPatchApplicationManifest(memory, gateRecord.id);
+
+    expect(patchProposal.operations.every((operation) => operation.targetDescriptor === undefined)).toBe(true);
+    expect(manifest).toMatchObject({
+      applicationStatus: "blocked-needs-concrete-targets",
+      sourceMutationAuthorized: false,
+      canonicalUpdateApplied: false,
+      canonicalPatchApplied: false,
+      executionStarted: false,
+    });
+    expect(manifest.operations).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        targetDescriptor: null,
+        readiness: "blocked-needs-concrete-target",
+        blockedReasons: expect.arrayContaining([expect.stringContaining("deterministic target descriptor")]),
+      }),
+    ]));
+    expect(await readFile(memory.agentGuidePath, "utf8")).toBe(originalGuide);
+  });
+
+  it("rejects missing, directory, mismatched-kind, and symlink-escaping patch target hints", async () => {
+    await initHarness(project());
+    const memory = await resolveProjectMemory(project());
+    await mkdir(join(memory.memoryRoot, "docs", "directory-target"), { recursive: true });
+    const outsideDir = await mkdtemp(join(tmpdir(), "aho-outside-target-"));
+    const outsideFile = join(outsideDir, "outside.md");
+    await writeFile(outsideFile, "outside\n", "utf8");
+    const validPatch = {
+      patchKind: "hunks" as const,
+      hunks: [{ oldText: "old", newText: "new" }],
+    };
+
+    await expect(buildCanonicalPatchTargetDescriptor(memory, "canonical-docs", [{
+      targetKind: "canonical-docs",
+      targetPath: "docs/missing.md",
+      patch: validPatch,
+      reason: "missing target",
+      artifactRefs: [],
+    }])).resolves.toBeNull();
+    await expect(buildCanonicalPatchTargetDescriptor(memory, "canonical-docs", [{
+      targetKind: "canonical-docs",
+      targetPath: "docs/directory-target",
+      patch: validPatch,
+      reason: "directory target",
+      artifactRefs: [],
+    }])).resolves.toBeNull();
+    await expect(buildCanonicalPatchTargetDescriptor(memory, "stable-memory", [{
+      targetKind: "canonical-docs",
+      targetPath: "docs/MEMORY.md",
+      patch: validPatch,
+      reason: "mismatched target kind",
+      artifactRefs: [],
+    }])).resolves.toBeNull();
+
+    const linkPath = join(memory.memoryRoot, "docs", "outside-link.md");
+    let symlinkCreated = true;
+    try {
+      await symlink(outsideFile, linkPath);
+    } catch {
+      symlinkCreated = false;
+    }
+    if (symlinkCreated) {
+      await expect(buildCanonicalPatchTargetDescriptor(memory, "canonical-docs", [{
+        targetKind: "canonical-docs",
+        targetPath: "docs/outside-link.md",
+        patch: validPatch,
+        reason: "symlink escape",
+        artifactRefs: [],
+      }])).resolves.toBeNull();
+    }
   });
 
   it("fails closed when canonical patch application manifest lineage is stale", async () => {

@@ -1,5 +1,11 @@
 import { join } from "node:path";
-import type { DemandMemoryCloseout, MaintenanceLedgerEntry, MaintenanceReviewRun, ResolvedMemory } from "../types/index.js";
+import type {
+  DemandMemoryCloseout,
+  MaintenanceCanonicalPatchPayloadDraft,
+  MaintenanceLedgerEntry,
+  MaintenanceReviewRun,
+  ResolvedMemory,
+} from "../types/index.js";
 import { writeJsonFile } from "../fs/json.js";
 import { closeoutsRoot, displayMaintenancePath } from "./paths.js";
 import { closeoutSchema } from "./schemas.js";
@@ -24,7 +30,7 @@ export interface RecordDemandMemoryCloseoutInput {
   affectedModules?: string[];
   evidenceRefs?: string[];
   reusableLessonCandidates?: Array<{ summary: string; evidenceRefs?: string[] }>;
-  docsDriftCandidates?: Array<{ document: string; summary: string; evidenceRefs?: string[] }>;
+  docsDriftCandidates?: Array<{ document: string; summary: string; patch?: MaintenanceCanonicalPatchPayloadDraft; evidenceRefs?: string[] }>;
   memoryBoundaryNotes?: string[];
 }
 

@@ -64,6 +64,35 @@ export const ledgerSchema = z.object({
   createdAt: z.string(),
 });
 
+const canonicalPatchTargetKindSchema = z.enum(["stable-memory", "canonical-docs", "harness-evolution", "reference", "maintenance"]);
+
+const canonicalPatchTargetHunkSchema = z.object({
+  oldText: z.string(),
+  newText: z.string(),
+  occurrence: z.number().int().positive().optional(),
+});
+
+const canonicalPatchPayloadDraftSchema = z.union([
+  z.object({
+    patchKind: z.literal("replacement"),
+    replacement: z.string(),
+  }),
+  z.object({
+    patchKind: z.literal("hunks"),
+    hunks: z.array(canonicalPatchTargetHunkSchema).min(1),
+  }),
+]);
+
+const maintenanceCandidateTargetHintSchema = z.object({
+  targetKind: canonicalPatchTargetKindSchema,
+  targetPath: z.string().optional(),
+  patch: canonicalPatchPayloadDraftSchema.optional(),
+  reason: z.string(),
+  artifactRefs: z.array(z.string()),
+});
+
+export const maintenanceCandidateTargetHintsSchema = z.array(maintenanceCandidateTargetHintSchema);
+
 export const candidateSchema = z.object({
   version: z.literal("1.0"),
   id: z.string(),
@@ -73,6 +102,7 @@ export const candidateSchema = z.object({
   supersededBy: z.string().optional(),
   title: z.string(),
   summary: z.string(),
+  targetHints: maintenanceCandidateTargetHintsSchema.optional(),
   artifactRefs: z.array(z.string()),
   status: z.literal("candidate"),
   createdAt: z.string(),
@@ -111,6 +141,7 @@ export const resolutionSchema = z.object({
   rationale: z.string(),
   canonicalUpdateRequired: z.boolean(),
   humanGateRequired: z.boolean(),
+  targetHints: maintenanceCandidateTargetHintsSchema.optional(),
   artifactRefs: z.array(z.string()),
   createdAt: z.string(),
 });
@@ -132,6 +163,7 @@ export const canonicalUpdateProposalSchema: z.ZodType<MaintenanceCanonicalUpdate
     candidateSubtype: z.enum(["stable-memory", "docs-drift", "harness-evolution", "reusable-lesson", "doc-budget", "reference-drift"]).optional(),
     reviewRecommendation: z.enum(["accept", "defer", "reject", "needs-human-review"]),
     rationale: z.string(),
+    targetHints: maintenanceCandidateTargetHintsSchema.optional(),
     artifactRefs: z.array(z.string()),
   })),
   artifactRefs: z.array(z.string()),
@@ -152,8 +184,6 @@ export const canonicalUpdateDecisionSchema: z.ZodType<MaintenanceCanonicalUpdate
   createdAt: z.string(),
 });
 
-const canonicalPatchTargetKindSchema = z.enum(["stable-memory", "canonical-docs", "harness-evolution", "reference", "maintenance"]);
-
 const canonicalPatchTargetDescriptorSchema = z.union([
   z.object({
     targetKind: canonicalPatchTargetKindSchema,
@@ -167,11 +197,7 @@ const canonicalPatchTargetDescriptorSchema = z.union([
     targetPath: z.string(),
     expectedContentHash: z.string(),
     patchKind: z.literal("hunks"),
-    hunks: z.array(z.object({
-      oldText: z.string(),
-      newText: z.string(),
-      occurrence: z.number().int().positive().optional(),
-    })).min(1),
+    hunks: z.array(canonicalPatchTargetHunkSchema).min(1),
   }),
 ]);
 
@@ -273,6 +299,7 @@ export const docsDriftCandidateSchema = z.object({
   fingerprint: z.string(),
   document: z.string(),
   summary: z.string(),
+  patch: canonicalPatchPayloadDraftSchema.optional(),
   evidenceRefs: z.array(z.string()),
   status: z.enum(["candidate", "superseded"]),
   supersededBy: z.string().optional(),

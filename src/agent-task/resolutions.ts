@@ -40,6 +40,7 @@ export async function resolveMaintenanceCandidate(
     rationale: buildResolutionRationale(candidate, score, review, outcome),
     canonicalUpdateRequired: canonicalOutcomes.has(outcome),
     humanGateRequired: canonicalOutcomes.has(outcome),
+    ...(candidate.targetHints?.length ? { targetHints: candidate.targetHints } : {}),
     artifactRefs: uniqueSorted([
       displayMaintenancePath(memory, join(maintenanceRoot(memory), "candidates", `${candidate.id}.json`)),
       displayMaintenancePath(memory, join(maintenanceRoot(memory), "scores", `${candidate.id}.json`)),
