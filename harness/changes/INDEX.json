@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-19T07:18:55.5465454Z",
+    "generated_at":  "2026-06-19T07:44:01.7862314Z",
     "active":  [
 
                ],
@@ -1139,6 +1139,10 @@
                         "path":  "harness/changes/archive/20260619-auto-evolve-harness-candidate-window-order"
                     },
                     {
+                        "name":  "20260619-auto-evolve-harness-helper-latest-guard-reuse-window",
+                        "path":  "harness/changes/archive/20260619-auto-evolve-harness-helper-latest-guard-reuse-window"
+                    },
+                    {
                         "name":  "20260619-auto-evolve-harness-helper-reuse-window",
                         "path":  "harness/changes/archive/20260619-auto-evolve-harness-helper-reuse-window"
                     },
@@ -1197,6 +1201,10 @@
                     {
                         "name":  "20260619-maintenance-canonical-patch-application-authority-helper-reuse",
                         "path":  "harness/changes/archive/20260619-maintenance-canonical-patch-application-authority-helper-reuse"
+                    },
+                    {
+                        "name":  "20260619-maintenance-canonical-patch-application-authority-profile-reuse",
+                        "path":  "harness/changes/archive/20260619-maintenance-canonical-patch-application-authority-profile-reuse"
                     },
                     {
                         "name":  "20260619-maintenance-canonical-patch-lineage-reuse",

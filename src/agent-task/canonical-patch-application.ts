@@ -37,7 +37,7 @@ import {
   readMaintenanceCanonicalPatchApplicationGate,
   readMaintenanceCanonicalPatchProposal,
 } from "./canonical-updates.js";
-import { buildNonExecutingCanonicalPatchApplicationAuthority } from "./canonical-patch-application-authority.js";
+import { buildAppliedCanonicalPatchApplicationAuthority, buildNonExecutingCanonicalPatchApplicationAuthority } from "./canonical-patch-application-authority.js";
 import {
   canonicalPatchContentHash,
   formatCanonicalPatchTargetDescriptor,
@@ -432,11 +432,7 @@ function buildCanonicalPatchApplicationResult(
     targetKinds: manifest.targetKinds,
     operationCount: appliedOperations.length,
     appliedOperations,
-    applicationAuthorized: true,
-    sourceMutationAuthorized: true,
-    canonicalUpdateApplied: true,
-    canonicalPatchApplied: true,
-    executionStarted: true,
+    ...buildAppliedCanonicalPatchApplicationAuthority(),
     policyAuditRefs,
     summary: `Applied canonical patch application manifest ${manifest.id} to ${appliedOperations.length} target(s).`,
     artifactRefs: buildMaintenanceArtifactRefListForStores(memory, [

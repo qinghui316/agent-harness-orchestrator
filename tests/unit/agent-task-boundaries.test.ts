@@ -8,7 +8,11 @@ import { initHarness } from "../../src/harness/init.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import { buildMaintenanceSummary } from "../../src/workbench/projections/read-model/maintenance-summary.js";
 import { buildMaintenanceArtifactRefListForStores, findMaintenanceArtifactBy } from "../../src/agent-task/maintenance-artifact-store.js";
-import { buildNonExecutingCanonicalPatchApplicationAuthority } from "../../src/agent-task/canonical-patch-application-authority.js";
+import {
+  buildAppliedCanonicalPatchApplicationAuthority,
+  buildNonExecutingCanonicalPatchApplicationAuthority,
+  buildReadOnlyCanonicalPatchApplicationObservationAuthority,
+} from "../../src/agent-task/canonical-patch-application-authority.js";
 import {
   buildCanonicalPatchDerivedOperationId,
   copyCanonicalPatchAppliedOperationLineage,
@@ -144,8 +148,22 @@ describe("AgentTask domain boundaries", () => {
     await expect(findMaintenanceArtifactBy(memory, store, (artifact) => artifact.groupId === "missing")).resolves.toBeNull();
   });
 
-  it("builds shared non-executing canonical patch application authority flags", () => {
+  it("builds shared canonical patch application authority profiles", () => {
     expect(buildNonExecutingCanonicalPatchApplicationAuthority()).toEqual({
+      sourceMutationAuthorized: false,
+      canonicalUpdateApplied: false,
+      canonicalPatchApplied: false,
+      executionStarted: false,
+    });
+    expect(buildAppliedCanonicalPatchApplicationAuthority()).toEqual({
+      applicationAuthorized: true,
+      sourceMutationAuthorized: true,
+      canonicalUpdateApplied: true,
+      canonicalPatchApplied: true,
+      executionStarted: true,
+    });
+    expect(buildReadOnlyCanonicalPatchApplicationObservationAuthority()).toEqual({
+      applicationAuthorized: true,
       sourceMutationAuthorized: false,
       canonicalUpdateApplied: false,
       canonicalPatchApplied: false,
