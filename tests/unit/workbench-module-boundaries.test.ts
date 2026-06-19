@@ -1671,6 +1671,8 @@ describe("Workbench module boundaries", () => {
     expect(operationMarkdown).toContain("function renderCanonicalPatchManifestOperationMarkdownDetails");
     expect(operationMarkdown).toContain("function renderCanonicalPatchAppliedOperationMarkdownDetails");
     expect(operationMarkdown).toContain("function renderCanonicalPatchObservedOperationMarkdownDetails");
+    expect(operationMarkdown).toContain("function renderCanonicalPatchOperationTargetHashDetailRows");
+    expect(operationMarkdown).not.toContain("export function renderCanonicalPatchOperationTargetHashDetailRows");
     expect(operationMarkdown).toContain('from "./maintenance-markdown.js"');
     expect(operationMarkdown).toContain('from "./canonical-patch-target-boundary.js"');
     expect(operationMarkdown).not.toMatch(/maintenance-artifact-store|ledger|paths|canonical-updates|canonical-patch-application|canonical-patch-application-report|workbench\/|server\/|web\/|ToolPolicy|scheduler|goal-loop|manager/);

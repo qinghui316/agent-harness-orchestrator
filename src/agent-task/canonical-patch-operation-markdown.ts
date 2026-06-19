@@ -7,6 +7,14 @@ import type {
 import { formatCanonicalPatchTargetDescriptor } from "./canonical-patch-target-boundary.js";
 import { renderMaintenanceMarkdownDetailItem } from "./maintenance-markdown.js";
 
+interface CanonicalPatchOperationTargetHashDetails {
+  targetKind: string;
+  targetPath: string;
+  patchKind: string;
+  beforeHash: string;
+  afterHash: string;
+}
+
 export function renderCanonicalPatchProposalOperationMarkdownDetails(
   operation: MaintenanceCanonicalPatchOperation,
 ): string[] {
@@ -45,11 +53,7 @@ export function renderCanonicalPatchAppliedOperationMarkdownDetails(
     [
       `manifestOperation: ${operation.manifestOperationId}`,
       `patchOperation: ${operation.patchOperationId}`,
-      `targetKind: ${operation.targetKind}`,
-      `targetPath: ${operation.targetPath}`,
-      `patchKind: ${operation.patchKind}`,
-      `beforeHash: ${operation.beforeHash}`,
-      `afterHash: ${operation.afterHash}`,
+      ...renderCanonicalPatchOperationTargetHashDetailRows(operation),
     ],
   );
 }
@@ -63,11 +67,19 @@ export function renderCanonicalPatchObservedOperationMarkdownDetails(
       `resultOperation: ${operation.resultOperationId}`,
       `manifestOperation: ${operation.manifestOperationId}`,
       `patchOperation: ${operation.patchOperationId}`,
-      `targetKind: ${operation.targetKind}`,
-      `targetPath: ${operation.targetPath}`,
-      `patchKind: ${operation.patchKind}`,
-      `beforeHash: ${operation.beforeHash}`,
-      `afterHash: ${operation.afterHash}`,
+      ...renderCanonicalPatchOperationTargetHashDetailRows(operation),
     ],
   );
+}
+
+function renderCanonicalPatchOperationTargetHashDetailRows(
+  operation: CanonicalPatchOperationTargetHashDetails,
+): string[] {
+  return [
+    `targetKind: ${operation.targetKind}`,
+    `targetPath: ${operation.targetPath}`,
+    `patchKind: ${operation.patchKind}`,
+    `beforeHash: ${operation.beforeHash}`,
+    `afterHash: ${operation.afterHash}`,
+  ];
 }

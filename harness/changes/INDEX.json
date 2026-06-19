@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-19T10:44:29.9986314Z",
+    "generated_at":  "2026-06-19T11:07:50.2444344Z",
     "active":  [
 
                ],
@@ -1245,6 +1245,10 @@
                     {
                         "name":  "20260619-maintenance-canonical-patch-operation-markdown-detail-renderer-reuse",
                         "path":  "harness/changes/archive/20260619-maintenance-canonical-patch-operation-markdown-detail-renderer-reuse"
+                    },
+                    {
+                        "name":  "20260619-maintenance-canonical-patch-operation-target-detail-renderer-reuse",
+                        "path":  "harness/changes/archive/20260619-maintenance-canonical-patch-operation-target-detail-renderer-reuse"
                     },
                     {
                         "name":  "20260619-maintenance-canonical-patch-proposal-operation-id-helper-reuse",
