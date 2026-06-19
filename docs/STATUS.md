@@ -5,14 +5,14 @@
 - Current date: 2026-06-19.
 - Active ECL change: none.
 - Pending Harness evolution: none.
-- Latest archived product change: `harness/changes/archive/20260619-workbench-test-architecture-scheduler-slow-suite-split/summary.md`.
-- Latest archived product/Harness docs change: `harness/changes/archive/20260619-workbench-test-architecture-scheduler-slow-suite-split/summary.md`.
+- Latest archived product change: `harness/changes/archive/20260619-workbench-test-architecture-remote-landing-slow-suite-split/summary.md`.
+- Latest archived product/Harness docs change: `harness/changes/archive/20260619-workbench-test-architecture-remote-landing-slow-suite-split/summary.md`.
 - Latest archived Harness evolution: `harness/changes/archive/20260619-auto-evolve-harness-helper-reuse-test-architecture-window/summary.md`.
 - Active product phase: none.
 - Active Harness evolution phase: none.
 - Active close status: none.
 
-This file is the short resume point. No active ECL change remains and no pending Harness evolution remains. The latest completed convergence slice is Workbench Test Architecture Scheduler Slow Suite Split, which moved 3 scheduler slow Workbench tests into `tests/slow/workbench-scheduler-flow.test.ts`, added `tests/unit/workbench/fixtures.ts` as the shared scheduler slow-flow fixture owner, and updated Workbench test scripts without changing product runtime behavior.
+This file is the short resume point. No active ECL change remains and no pending Harness evolution remains. The latest completed convergence slice is Workbench Test Architecture Remote Landing Slow Suite Split, which moved 6 remote landing / PR / post-merge Workbench flow tests into `tests/slow/workbench-remote-landing-flow.test.ts`, reused `tests/unit/workbench/fixtures.ts` for shared fake provider helpers, and made the root/workbench test scripts run staged suites sequentially to avoid Windows glob and heavy-suite parallelism issues without changing product runtime behavior.
 
 Current plan-level roadmap context is preserved in `docs/CURRENT-DEVELOPMENT-PLAN.md`. Historical detail belongs in archived summaries and `harness/changes/INDEX.json`.
 
@@ -26,7 +26,7 @@ Phase 12A remains the future controlled Scheduler/parallel loop design boundary.
 
 ## Next Resume Point
 
-No active change exists and no pending Harness evolution exists. Continue Architecture Growth Control from `docs/CURRENT-DEVELOPMENT-PLAN.md`; next Workbench test architecture candidates are remote landing, demand worker, maintenance apply, or remaining read-model/projection domain splits. Keep `README.md` unrelated and untracked unless the user explicitly asks to include it.
+No active change exists and no pending Harness evolution exists. Continue Architecture Growth Control from `docs/CURRENT-DEVELOPMENT-PLAN.md`; next Workbench test architecture candidates are demand worker, maintenance apply, remaining Goal Loop prompt slow tests, apply/IntegrationCheck domains, or read-model/projection domain splits. Keep `README.md` unrelated and untracked unless the user explicitly asks to include it.
 
 ## Verification Commands
 

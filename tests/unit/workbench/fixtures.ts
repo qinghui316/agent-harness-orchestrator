@@ -40,6 +40,146 @@ export async function readJsonl(path: string): Promise<Array<Record<string, unkn
   return text.trim().split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line) as Record<string, unknown>);
 }
 
+export async function createFakeGh(initial: { isDraft?: boolean; comments?: unknown[]; inlineComments?: unknown[]; failedChecks?: number; canResolveThreads?: boolean; mergeFails?: boolean } = {}): Promise<{ command: string; args: string[]; stateFile: string }> {
+  const binDir = join(tempDir, "fake-gh-bin");
+  await mkdir(binDir, { recursive: true });
+  const stateFile = join(binDir, "state.json");
+  await writeFile(stateFile, JSON.stringify({
+    isDraft: initial.isDraft ?? true,
+    comments: initial.comments ?? [],
+    inlineComments: initial.inlineComments ?? [],
+    failedChecks: initial.failedChecks ?? 0,
+    canResolveThreads: initial.canResolveThreads ?? true,
+    mergeFails: initial.mergeFails ?? false,
+    mergeCount: 0,
+    merged: false,
+    replies: [],
+    resolvedThreads: [],
+  }), "utf8");
+  const script = join(binDir, "fake-gh.js");
+  await writeFile(script, `#!/usr/bin/env node
+const fs = require("fs");
+const stateFile = ${JSON.stringify(stateFile)};
+const args = process.argv.slice(2);
+const readState = () => JSON.parse(fs.readFileSync(stateFile, "utf8"));
+const writeState = (state) => fs.writeFileSync(stateFile, JSON.stringify(state), "utf8");
+if (args[0] === "--version") {
+  console.log("gh version 2.0.0");
+  process.exit(0);
+}
+if (args[0] === "auth" && args[1] === "status") {
+  console.log("Logged in to github.com");
+  process.exit(0);
+}
+if (args[0] === "pr" && args[1] === "view") {
+  const state = readState();
+  const failedChecks = Array.from({ length: state.failedChecks || 0 }, (_, index) => ({ name: "check-" + index, conclusion: "FAILURE", status: "COMPLETED" }));
+  console.log(JSON.stringify({
+    url: "https://github.com/qinghui316/private-acceptance/pull/1",
+    state: state.merged ? "MERGED" : "OPEN",
+    isDraft: Boolean(state.isDraft),
+    reviewDecision: null,
+    reviews: [],
+    comments: state.comments || [],
+    headRefName: "aho/test",
+    baseRefName: "main",
+    headRefOid: "head",
+    baseRefOid: "base",
+    mergeable: "MERGEABLE",
+    mergeStateStatus: "CLEAN",
+    mergedAt: state.merged ? "2026-05-30T00:00:00.000Z" : null,
+    mergeCommit: state.merged ? { oid: "merge-commit-sha" } : null,
+    statusCheckRollup: failedChecks,
+  }));
+  process.exit(0);
+}
+if (args[0] === "pr" && args[1] === "merge") {
+  const state = readState();
+  if (state.mergeFails) {
+    console.error("Branch protection blocked merge");
+    process.exit(1);
+  }
+  state.merged = true;
+  state.mergeCount = (state.mergeCount || 0) + 1;
+  writeState(state);
+  console.log("Merged pull request");
+  process.exit(0);
+}
+if (args[0] === "pr" && args[1] === "ready") {
+  const state = readState();
+  state.isDraft = false;
+  writeState(state);
+  console.log("Ready for review");
+  process.exit(0);
+}
+if (args[0] === "pr" && args[1] === "comment") {
+  const state = readState();
+  const bodyIndex = args.indexOf("--body");
+  state.replies = state.replies || [];
+  state.replies.push({ kind: "pr", body: bodyIndex >= 0 ? args[bodyIndex + 1] : "" });
+  writeState(state);
+  console.log("Commented");
+  process.exit(0);
+}
+if (args[0] === "api") {
+  const state = readState();
+  if (args[1] === "graphql") {
+    const queryArg = args.find((arg) => String(arg).startsWith("query=")) || "";
+    if (queryArg.includes("resolveReviewThread")) {
+      if (!state.canResolveThreads) {
+        console.error("Thread resolve is unavailable");
+        process.exit(1);
+      }
+      const threadArg = args.find((arg) => String(arg).startsWith("threadId=")) || "threadId=thread-1";
+      const threadId = threadArg.slice("threadId=".length);
+      state.resolvedThreads = state.resolvedThreads || [];
+      state.resolvedThreads.push(threadId);
+      writeState(state);
+      console.log(JSON.stringify({ data: { resolveReviewThread: { thread: { id: threadId, isResolved: true } } } }));
+      process.exit(0);
+    }
+    if (!state.canResolveThreads) {
+      console.error("GraphQL reviewThreads unavailable");
+      process.exit(1);
+    }
+    console.log(JSON.stringify({
+      data: {
+        repository: {
+          pullRequest: {
+            reviewThreads: {
+              nodes: (state.inlineComments || []).map((comment, index) => ({
+                id: comment.threadId || "thread-" + (index + 1),
+                isResolved: false,
+                comments: { nodes: [{ id: "graphql-comment-" + String(comment.id || index + 1), databaseId: Number(comment.id || index + 1), body: comment.body || "", path: comment.path || null, line: comment.line || null, author: { login: "reviewer" }, createdAt: "2026-05-29T00:00:00.000Z" }] },
+              })),
+            },
+          },
+        },
+      },
+    }));
+    process.exit(0);
+  }
+  if (/^repos\\/[^/]+\\/[^/]+\\/pulls\\/\\d+\\/comments$/.test(args[1])) {
+    console.log(JSON.stringify(state.inlineComments || []));
+    process.exit(0);
+  }
+  const replyMatch = args[1].match(/^repos\\/[^/]+\\/[^/]+\\/pulls\\/\\d+\\/comments\\/(\\d+)\\/replies$/);
+  if (replyMatch) {
+    const bodyArg = args.find((arg) => String(arg).startsWith("body=")) || "body=";
+    state.replies = state.replies || [];
+    state.replies.push({ kind: "inline", commentId: replyMatch[1], body: bodyArg.slice("body=".length) });
+    writeState(state);
+    console.log(JSON.stringify({ id: 999, body: bodyArg.slice("body=".length) }));
+    process.exit(0);
+  }
+}
+console.error("Unsupported fake gh command: " + args.join(" "));
+process.exit(1);
+`, "utf8");
+  await chmod(script, 0o755).catch(() => undefined);
+  return { command: process.execPath, args: [script], stateFile };
+}
+
 export async function createFakeCodex(): Promise<{ binDir: string }> {
   const binDir = join(tempDir, "fake-codex-bin");
   await mkdir(binDir, { recursive: true });
@@ -473,4 +613,63 @@ export async function initGitRepository(cwd: string): Promise<void> {
 
 export async function git(cwd: string, args: string[]): Promise<void> {
   await execFileAsync("git", args, { cwd });
+}
+
+export async function writeValidationResultWithHash(changeId: string, runId: string, worktreeId: string, diffHash: string, status: "passed" | "failed"): Promise<void> {
+  const dir = join(tempDir, ".agent-harness", "runs", runId);
+  await mkdir(dir, { recursive: true });
+  const now = new Date().toISOString();
+  const validation = {
+    version: "1.0",
+    id: runId,
+    runId,
+    changeId,
+    profile: "test",
+    status,
+    executionMode: "worktree",
+    worktreeId,
+    worktreeDiffHash: diffHash,
+    startedAt: now,
+    finishedAt: now,
+    commands: [],
+  };
+  await writeFile(join(dir, "validation.json"), JSON.stringify(validation, null, 2), "utf8");
+}
+
+export async function writeAuditResultWithHash(changeId: string, runId: string, worktreeId: string, diffHash: string, status: "approved" | "approved-with-notes" | "blocked" | "failed"): Promise<void> {
+  const dir = join(tempDir, ".agent-harness", "runs", runId);
+  await mkdir(dir, { recursive: true });
+  const now = new Date().toISOString();
+  const validationId = runId.startsWith("run-audit-")
+    ? runId.replace("run-audit-", "run-validation-")
+    : undefined;
+  const audit = {
+    version: "1.0",
+    id: runId,
+    runId,
+    changeId,
+    status,
+    worktreeId,
+    validationId,
+    worktreeDiffHash: diffHash,
+    startedAt: now,
+    finishedAt: now,
+    findings: status === "approved-with-notes" ? [{
+      severity: "note",
+      area: "risk",
+      evidence: "unit test fixture",
+      recommendation: "review before applying",
+      text: "Package script changed; review before applying.",
+    }] : [],
+    artifacts: {
+      audit: `harness/runs/${runId}/audit.json`,
+      auditMarkdown: `harness/runs/${runId}/audit.md`,
+      lastMessage: `harness/runs/${runId}/last-message.md`,
+      diffStat: `harness/runs/${runId}/diff-stat.txt`,
+    },
+  };
+  await writeFile(join(dir, "audit.json"), JSON.stringify(audit, null, 2), "utf8");
+  await writeFile(join(dir, "audit.md"), "Status: approved-with-notes\n", "utf8");
+  await writeFile(join(dir, "last-message.md"), "Audit approved with notes.\n", "utf8");
+  await writeFile(join(dir, "diff-stat.txt"), " package.json | 2 +-\n", "utf8");
 }

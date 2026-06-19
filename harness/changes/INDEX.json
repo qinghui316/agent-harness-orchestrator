@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-19T13:56:05.2276966Z",
+    "generated_at":  "2026-06-19T15:11:07.2892229Z",
     "active":  [
 
                ],
@@ -1361,6 +1361,10 @@
                     {
                         "name":  "20260619-workbench-scheduler-terminal-latest-target-helper-reuse",
                         "path":  "harness/changes/archive/20260619-workbench-scheduler-terminal-latest-target-helper-reuse"
+                    },
+                    {
+                        "name":  "20260619-workbench-test-architecture-remote-landing-slow-suite-split",
+                        "path":  "harness/changes/archive/20260619-workbench-test-architecture-remote-landing-slow-suite-split"
                     },
                     {
                         "name":  "20260619-workbench-test-architecture-scheduler-slow-suite-split",

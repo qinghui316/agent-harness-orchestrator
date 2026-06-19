@@ -7,8 +7,8 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 - Current date: 2026-06-19.
 - Active change: none.
 - Pending Harness evolution: none.
-- Latest archived product change: Workbench Test Architecture Scheduler Slow Suite Split, archived at `harness/changes/archive/20260619-workbench-test-architecture-scheduler-slow-suite-split/summary.md`.
-- Latest product/Harness docs change: Workbench Test Architecture Scheduler Slow Suite Split, archived at `harness/changes/archive/20260619-workbench-test-architecture-scheduler-slow-suite-split/summary.md`.
+- Latest archived product change: Workbench Test Architecture Remote Landing Slow Suite Split, archived at `harness/changes/archive/20260619-workbench-test-architecture-remote-landing-slow-suite-split/summary.md`.
+- Latest product/Harness docs change: Workbench Test Architecture Remote Landing Slow Suite Split, archived at `harness/changes/archive/20260619-workbench-test-architecture-remote-landing-slow-suite-split/summary.md`.
 - Active product phase: none.
 - Active Harness evolution phase: none.
 - Latest Harness evolution: `harness/changes/archive/20260619-auto-evolve-harness-helper-reuse-test-architecture-window/summary.md`.
