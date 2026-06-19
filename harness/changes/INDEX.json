@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-19T20:27:16.3204905Z",
+    "generated_at":  "2026-06-19T20:42:48.1728092Z",
     "active":  [
 
                ],
@@ -1381,6 +1381,10 @@
                     {
                         "name":  "20260620-auto-evolve-harness-workbench-test-architecture-split-window",
                         "path":  "harness/changes/archive/20260620-auto-evolve-harness-workbench-test-architecture-split-window"
+                    },
+                    {
+                        "name":  "20260620-workbench-goal-loop-surface-test-domain-split",
+                        "path":  "harness/changes/archive/20260620-workbench-goal-loop-surface-test-domain-split"
                     },
                     {
                         "name":  "20260620-workbench-test-architecture-apply-integration-slow-suite-split",
