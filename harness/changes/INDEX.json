@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-19T21:16:53.9223782Z",
+    "generated_at":  "2026-06-19T21:40:41.6338362Z",
     "active":  [
 
                ],
@@ -1375,12 +1375,20 @@
                         "path":  "harness/changes/archive/20260619-workflow-scheduler-latest-artifact-guard-reuse"
                     },
                     {
+                        "name":  "20260620-auto-evolve-harness-workbench-feedback-conversation-split-window",
+                        "path":  "harness/changes/archive/20260620-auto-evolve-harness-workbench-feedback-conversation-split-window"
+                    },
+                    {
                         "name":  "20260620-auto-evolve-harness-workbench-test-architecture-granularity-window",
                         "path":  "harness/changes/archive/20260620-auto-evolve-harness-workbench-test-architecture-granularity-window"
                     },
                     {
                         "name":  "20260620-auto-evolve-harness-workbench-test-architecture-split-window",
                         "path":  "harness/changes/archive/20260620-auto-evolve-harness-workbench-test-architecture-split-window"
+                    },
+                    {
+                        "name":  "20260620-workbench-feedback-conversation-test-domain-split",
+                        "path":  "harness/changes/archive/20260620-workbench-feedback-conversation-test-domain-split"
                     },
                     {
                         "name":  "20260620-workbench-goal-loop-surface-test-domain-split",

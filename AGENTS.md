@@ -7,11 +7,11 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 - Current date: 2026-06-20.
 - Active change: none.
 - Pending Harness evolution: none.
-- Latest archived product change: Workbench Scheduler Residual Test Domain Split, archived at `harness/changes/archive/20260620-workbench-scheduler-residual-test-domain-split/summary.md`.
-- Latest product/Harness docs change: Workbench Scheduler Residual Test Domain Split, archived at `harness/changes/archive/20260620-workbench-scheduler-residual-test-domain-split/summary.md`.
+- Latest archived product change: Workbench Feedback Conversation Test Domain Split, archived at `harness/changes/archive/20260620-workbench-feedback-conversation-test-domain-split/summary.md`.
+- Latest product/Harness docs change: Workbench Feedback Conversation Test Domain Split, archived at `harness/changes/archive/20260620-workbench-feedback-conversation-test-domain-split/summary.md`.
 - Active product phase: none.
 - Active Harness evolution phase: none.
-- Latest Harness evolution: `harness/changes/archive/20260620-auto-evolve-harness-workbench-test-architecture-split-window/summary.md`.
+- Latest Harness evolution: `harness/changes/archive/20260620-auto-evolve-harness-workbench-feedback-conversation-split-window/summary.md`.
 
 If an active change exists, use its files first for the current task. Use `docs/STATUS.md` for the short resume state and next recommended structured work. Use `harness/changes/INDEX.json` and archived `summary.md` files for historical detail. Do not rebuild current context by reading the full archive ledger unless the task requires it.
 

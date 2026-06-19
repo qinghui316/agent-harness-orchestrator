@@ -5,14 +5,14 @@
 - Current date: 2026-06-20.
 - Active ECL change: none.
 - Pending Harness evolution: none.
-- Latest archived product change: `harness/changes/archive/20260620-workbench-scheduler-residual-test-domain-split/summary.md`.
-- Latest archived product/Harness docs change: `harness/changes/archive/20260620-workbench-scheduler-residual-test-domain-split/summary.md`.
-- Latest archived Harness evolution: `harness/changes/archive/20260620-auto-evolve-harness-workbench-test-architecture-split-window/summary.md`.
+- Latest archived product change: `harness/changes/archive/20260620-workbench-feedback-conversation-test-domain-split/summary.md`.
+- Latest archived product/Harness docs change: `harness/changes/archive/20260620-workbench-feedback-conversation-test-domain-split/summary.md`.
+- Latest archived Harness evolution: `harness/changes/archive/20260620-auto-evolve-harness-workbench-feedback-conversation-split-window/summary.md`.
 - Active product phase: none.
 - Active Harness evolution phase: none.
 - Active close status: not applicable.
 
-This file is the short resume point. No active ECL change remains. Pending Harness evolution remains none. The latest archived product change split remaining scheduler-domain tests out of residual `tests/unit/workbench.test.ts`: pure scheduler surface checks moved to `tests/unit/workbench-scheduler-runtime-surface.test.ts`, while the fake Codex / git / worktree first-worker path moved to `tests/slow/workbench-scheduler-worker-runtime.test.ts`. The latest Harness evolution reviewed the five-change Workbench test-architecture split window and recorded `keep` with no new rule/template/lint/product runtime change.
+This file is the short resume point. No active ECL change remains and pending Harness evolution is cleared. The latest archived product change split proposal-feedback and conversation-lifecycle coverage out of residual `tests/unit/workbench.test.ts`; residual `tests/unit/workbench.test.ts` now contains only AgentTask/delegation/boundary coverage. The latest Harness evolution reviewed the five-change Workbench feedback/conversation split window and recorded `keep` with no new rule/template/lint/product runtime change.
 
 Current plan-level roadmap context is preserved in `docs/CURRENT-DEVELOPMENT-PLAN.md`. Historical detail belongs in archived summaries and `harness/changes/INDEX.json`.
 
@@ -26,7 +26,7 @@ Phase 12A remains the future controlled Scheduler/parallel loop design boundary.
 
 ## Next Resume Point
 
-Continue Architecture Growth Control from `docs/CURRENT-DEVELOPMENT-PLAN.md`. Remaining Workbench test-architecture candidates include proposal feedback, conversation lifecycle, and AgentTask residual domains. Keep `README.md` unrelated and untracked unless the user explicitly asks to include it.
+Continue Architecture Growth Control from `docs/CURRENT-DEVELOPMENT-PLAN.md`. The expected remaining Workbench residual candidate is the AgentTask/delegation domain. Keep `README.md` unrelated and untracked unless the user explicitly asks to include it.
 
 ## Verification Commands
 
