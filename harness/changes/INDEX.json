@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-19T18:58:33.7629197Z",
+    "generated_at":  "2026-06-19T19:35:43.0039104Z",
     "active":  [
 
                ],
@@ -1393,6 +1393,10 @@
                     {
                         "name":  "20260620-workbench-test-architecture-maintenance-slow-suite-split",
                         "path":  "harness/changes/archive/20260620-workbench-test-architecture-maintenance-slow-suite-split"
+                    },
+                    {
+                        "name":  "20260620-workbench-test-architecture-read-model-unit-domain-split",
+                        "path":  "harness/changes/archive/20260620-workbench-test-architecture-read-model-unit-domain-split"
                     }
                 ]
 }
