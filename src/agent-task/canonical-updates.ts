@@ -38,7 +38,12 @@ import { ensureMaintenanceLedgerEntryForStoreArtifact } from "./ledger.js";
 import { renderMaintenanceMarkdownList } from "./maintenance-markdown.js";
 import { buildCanonicalPatchTargetDescriptor } from "./canonical-patch-targets.js";
 import { formatCanonicalPatchTargetDescriptor } from "./canonical-patch-target-boundary.js";
-import { buildNonExecutingCanonicalPatchApplicationAuthority } from "./canonical-patch-application-authority.js";
+import {
+  buildNonExecutingCanonicalPatchApplicationAuthority,
+  buildNonExecutingCanonicalPatchProposalAuthority,
+  buildNonExecutingCanonicalUpdateDecisionAuthority,
+  buildNonExecutingCanonicalUpdateProposalAuthority,
+} from "./canonical-patch-application-authority.js";
 import { buildCanonicalPatchDerivedOperationId, mergeCanonicalPatchTargetKinds } from "./canonical-patch-lineage.js";
 import { canonicalPatchApplicationGateRecordSchema, canonicalPatchProposalSchema, canonicalUpdateDecisionSchema, canonicalUpdateProposalSchema } from "./schemas.js";
 import { contentHash, uniqueSorted } from "./utils.js";
@@ -278,8 +283,7 @@ function buildCanonicalUpdateProposal(memory: ResolvedMemory, resolutions: Maint
     resolutionIds,
     candidateIds: uniqueSorted(resolutions.map((resolution) => resolution.candidateId)),
     targetKinds,
-    humanGateRequired: true,
-    canonicalUpdateAuthorized: false,
+    ...buildNonExecutingCanonicalUpdateProposalAuthority(),
     summary: `Prepare a human-gated canonical update proposal for ${resolutions.length} maintenance lifecycle resolution(s): ${targetKinds.join(", ")}.`,
     resolutionSummaries: resolutions.map((resolution) => ({
       resolutionId: resolution.id,
@@ -304,9 +308,7 @@ function buildCanonicalUpdateDecision(memory: ResolvedMemory, proposal: Maintena
     proposalId: proposal.id,
     decisionStatus: "accepted-for-follow-up",
     targetKinds: proposal.targetKinds,
-    sourceMutationAuthorized: false,
-    canonicalUpdateAuthorized: false,
-    executionStarted: false,
+    ...buildNonExecutingCanonicalUpdateDecisionAuthority(),
     summary: `Human-gated maintenance decision recorded for proposal ${proposal.id}. This decision accepts the proposal as follow-up input only and does not authorize canonical rewrites.`,
     artifactRefs: buildMaintenanceArtifactRefListForStores(memory, [
       { store: canonicalUpdateProposalStore, id: proposal.id },
@@ -353,10 +355,7 @@ async function buildCanonicalPatchProposal(
     targetKinds: mergeCanonicalPatchTargetKinds(proposal.targetKinds, operations.map((operation) => operation.targetKind)),
     operationCount: operations.length,
     operations,
-    sourceMutationAuthorized: false,
-    canonicalUpdateAuthorized: false,
-    applicationAuthorized: false,
-    executionStarted: false,
+    ...buildNonExecutingCanonicalPatchProposalAuthority(),
     humanApplicationGateRequired: true,
     summary: `Prepare non-executing canonical patch proposal for decision ${decision.id} and proposal ${proposal.id}.`,
     risks: [

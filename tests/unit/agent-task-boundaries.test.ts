@@ -11,6 +11,9 @@ import { buildMaintenanceArtifactRefListForStores, findMaintenanceArtifactBy } f
 import {
   buildAppliedCanonicalPatchApplicationAuthority,
   buildNonExecutingCanonicalPatchApplicationAuthority,
+  buildNonExecutingCanonicalPatchProposalAuthority,
+  buildNonExecutingCanonicalUpdateDecisionAuthority,
+  buildNonExecutingCanonicalUpdateProposalAuthority,
   buildReadOnlyCanonicalPatchApplicationObservationAuthority,
 } from "../../src/agent-task/canonical-patch-application-authority.js";
 import {
@@ -153,6 +156,21 @@ describe("AgentTask domain boundaries", () => {
       sourceMutationAuthorized: false,
       canonicalUpdateApplied: false,
       canonicalPatchApplied: false,
+      executionStarted: false,
+    });
+    expect(buildNonExecutingCanonicalUpdateProposalAuthority()).toEqual({
+      humanGateRequired: true,
+      canonicalUpdateAuthorized: false,
+    });
+    expect(buildNonExecutingCanonicalUpdateDecisionAuthority()).toEqual({
+      sourceMutationAuthorized: false,
+      canonicalUpdateAuthorized: false,
+      executionStarted: false,
+    });
+    expect(buildNonExecutingCanonicalPatchProposalAuthority()).toEqual({
+      sourceMutationAuthorized: false,
+      canonicalUpdateAuthorized: false,
+      applicationAuthorized: false,
       executionStarted: false,
     });
     expect(buildAppliedCanonicalPatchApplicationAuthority()).toEqual({

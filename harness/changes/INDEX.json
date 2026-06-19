@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-19T07:44:01.7862314Z",
+    "generated_at":  "2026-06-19T08:05:00.3297116Z",
     "active":  [
 
                ],
@@ -1229,6 +1229,10 @@
                     {
                         "name":  "20260619-maintenance-canonical-patch-target-kinds-helper-reuse",
                         "path":  "harness/changes/archive/20260619-maintenance-canonical-patch-target-kinds-helper-reuse"
+                    },
+                    {
+                        "name":  "20260619-maintenance-canonical-update-patch-proposal-authority-profile-reuse",
+                        "path":  "harness/changes/archive/20260619-maintenance-canonical-update-patch-proposal-authority-profile-reuse"
                     },
                     {
                         "name":  "20260619-maintenance-canonical-updates-ledger-helper-adoption",
