@@ -7,6 +7,11 @@ import type { MaintenanceLedgerEntry, ManagedProject, RemoteLandingResult, RunMe
 import { ensureMaintenanceLedgerEntryForStoreArtifact, ensureMaintenancePolicyLedgerEntryForStoreArtifact } from "../../src/agent-task/ledger.js";
 import { buildMaintenanceArtifactRefListForStores } from "../../src/agent-task/maintenance-artifact-store.js";
 import {
+  ensureMaintenancePolicyLedgerForArtifact,
+  returnExistingMaintenanceArtifactWithPolicyLedger,
+  writeMaintenanceArtifactWithPolicyLedger,
+} from "../../src/agent-task/maintenance-artifact-lifecycle.js";
+import {
   buildCanonicalPatchApplicationManifestArtifactRefs,
   buildCanonicalPatchApplicationReportArtifactRefs,
   buildCanonicalPatchApplicationResultArtifactRefs,
@@ -1624,10 +1629,13 @@ describe("Workbench module boundaries", () => {
     expect(threadStream).not.toContain("Scheduler first worker validation");
   });
 
-  it("keeps store-backed maintenance ledger entry reuse in the ledger owner", () => {
+  it("keeps store-backed maintenance artifact lifecycle reuse in owned helpers", () => {
     expect(typeof ensureMaintenanceLedgerEntryForStoreArtifact).toBe("function");
     expect(typeof ensureMaintenancePolicyLedgerEntryForStoreArtifact).toBe("function");
     expect(typeof buildMaintenanceArtifactRefListForStores).toBe("function");
+    expect(typeof ensureMaintenancePolicyLedgerForArtifact).toBe("function");
+    expect(typeof returnExistingMaintenanceArtifactWithPolicyLedger).toBe("function");
+    expect(typeof writeMaintenanceArtifactWithPolicyLedger).toBe("function");
     expect(typeof buildCanonicalPatchApplicationManifestArtifactRefs).toBe("function");
     expect(typeof buildCanonicalPatchApplicationResultArtifactRefs).toBe("function");
     expect(typeof buildCanonicalPatchApplicationReportArtifactRefs).toBe("function");
@@ -1665,6 +1673,14 @@ describe("Workbench module boundaries", () => {
     expect(ledger).toContain("ensureMaintenanceLedgerEntryForArtifactRef(memory");
     expect(ledger).not.toMatch(/canonical-patch|candidate|Workbench|ToolPolicy|scheduler|goal-loop|manager/);
 
+    const lifecycle = readFileSync("src/agent-task/maintenance-artifact-lifecycle.ts", "utf8");
+    expect(lifecycle).toContain("function ensureMaintenancePolicyLedgerForArtifact");
+    expect(lifecycle).toContain("function returnExistingMaintenanceArtifactWithPolicyLedger");
+    expect(lifecycle).toContain("function writeMaintenanceArtifactWithPolicyLedger");
+    expect(lifecycle).toContain("writeMaintenanceJsonMarkdownArtifact(memory");
+    expect(lifecycle).toContain("ensureMaintenancePolicyLedgerEntryForStoreArtifact(memory");
+    expect(lifecycle).not.toMatch(/canonical-patch|canonical-update|candidate|workbench\/|server\/|web\/|ToolPolicy|scheduler|goal-loop|manager/);
+
     const application = readFileSync("src/agent-task/canonical-patch-application.ts", "utf8");
     expect(application).toContain("buildCanonicalPatchApplicationManifestArtifactRefs");
     expect(application).toContain("buildCanonicalPatchApplicationResultArtifactRefs");
@@ -1677,10 +1693,12 @@ describe("Workbench module boundaries", () => {
     expect(application).not.toContain("renderMaintenanceMarkdownDetailItem");
     expect(application).not.toContain("blockedReasons: ${operation.blockedReasons.length");
     expect(application).not.toContain("`Applied ${operation.descriptor.patchKind} canonical patch to ${operation.targetPath}.`");
-    expect(application).toContain("ensureMaintenancePolicyLedgerEntryForStoreArtifact");
+    expect(application).toContain("returnExistingMaintenanceArtifactWithPolicyLedger");
+    expect(application).toContain("writeMaintenanceArtifactWithPolicyLedger");
     expect(application).toContain('eventType: "canonical-patch-application-manifest"');
     expect(application).toContain('eventType: "canonical-patch-application-result"');
     expect(application).not.toContain("ensureMaintenanceLedgerEntryForArtifactRef");
+    expect(application).not.toContain("ensureMaintenancePolicyLedgerEntryForStoreArtifact");
     expect(application).not.toContain("ledger-event-policy");
 
     const report = readFileSync("src/agent-task/canonical-patch-application-report.ts", "utf8");
@@ -1690,20 +1708,24 @@ describe("Workbench module boundaries", () => {
     expect(report).not.toContain("copyCanonicalPatchAppliedOperationLineage");
     expect(report).not.toContain("renderMaintenanceMarkdownDetailItem");
     expect(report).not.toContain("`Observed applied ${lineage.patchKind} canonical patch on ${lineage.targetPath}.`");
-    expect(report).toContain("ensureMaintenancePolicyLedgerEntryForStoreArtifact");
+    expect(report).toContain("returnExistingMaintenanceArtifactWithPolicyLedger");
+    expect(report).toContain("writeMaintenanceArtifactWithPolicyLedger");
     expect(report).toContain('eventType: "canonical-patch-application-report"');
     expect(report).not.toContain("ensureMaintenanceLedgerEntryForArtifactRef");
+    expect(report).not.toContain("ensureMaintenancePolicyLedgerEntryForStoreArtifact");
     expect(report).not.toContain("ledger-event-policy");
 
     const updates = readFileSync("src/agent-task/canonical-updates.ts", "utf8");
     expect(updates).toContain("buildMaintenanceArtifactRefListForStores");
     expect(updates).toContain("renderCanonicalPatchProposalOperationMarkdownDetails");
-    expect(updates).toContain("ensureMaintenancePolicyLedgerEntryForStoreArtifact");
+    expect(updates).toContain("returnExistingMaintenanceArtifactWithPolicyLedger");
+    expect(updates).toContain("writeMaintenanceArtifactWithPolicyLedger");
     expect(updates).toContain('eventType: "canonical-update-proposal"');
     expect(updates).toContain('eventType: "canonical-update-decision"');
     expect(updates).toContain('eventType: "canonical-patch-proposal"');
     expect(updates).toContain('eventType: "canonical-patch-application-gate"');
     expect(updates).not.toContain("ensureMaintenanceLedgerEntryForArtifactRef");
+    expect(updates).not.toContain("ensureMaintenancePolicyLedgerEntryForStoreArtifact");
     const updateImports = updates.split(/\r?\n/).filter((line) => line.startsWith("import ")).join("\n");
     expect(updateImports).not.toMatch(/ledger-event-policy|candidates|workbench\/|ToolPolicy|scheduler|goal-loop|manager/);
 

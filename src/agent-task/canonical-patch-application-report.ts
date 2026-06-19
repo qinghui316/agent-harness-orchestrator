@@ -5,16 +5,18 @@ import type {
   MaintenanceCanonicalPatchApplicationResult,
   ResolvedMemory,
 } from "../types/index.js";
-import { ensureMaintenancePolicyLedgerEntryForStoreArtifact } from "./ledger.js";
 import { renderMaintenanceMarkdownList } from "./maintenance-markdown.js";
 import {
   buildMaintenanceArtifactRefsForStore,
   findMaintenanceArtifactBy,
   listMaintenanceArtifacts,
   readMaintenanceArtifact,
-  writeMaintenanceJsonMarkdownArtifact,
   type MaintenanceArtifactStore,
 } from "./maintenance-artifact-store.js";
+import {
+  returnExistingMaintenanceArtifactWithPolicyLedger,
+  writeMaintenanceArtifactWithPolicyLedger,
+} from "./maintenance-artifact-lifecycle.js";
 import { buildCanonicalPatchApplicationReportArtifactRefs } from "./canonical-patch-application-artifact-refs.js";
 import { buildReadOnlyCanonicalPatchApplicationObservationAuthority } from "./canonical-patch-application-authority.js";
 import {
@@ -49,8 +51,12 @@ export async function generateMaintenanceCanonicalPatchApplicationReport(
 ): Promise<MaintenanceCanonicalPatchApplicationReport> {
   const existing = await readMaintenanceCanonicalPatchApplicationReportForResult(memory, applicationResultId);
   if (existing) {
-    await ensureCanonicalPatchApplicationReportLedgerEntry(memory, existing);
-    return existing;
+    return returnExistingMaintenanceArtifactWithPolicyLedger(memory, existing, {
+      store: canonicalPatchApplicationReportStore,
+      id: existing.id,
+      eventType: "canonical-patch-application-report",
+      summary: existing.summary,
+    });
   }
 
   const result = await readMaintenanceCanonicalPatchApplicationResult(memory, applicationResultId);
@@ -63,15 +69,17 @@ export async function generateMaintenanceCanonicalPatchApplicationReport(
   validateCanonicalPatchApplicationResultLineage(result, manifest);
 
   const report = buildCanonicalPatchApplicationReport(memory, result, manifest);
-  await writeMaintenanceJsonMarkdownArtifact(
+  return writeMaintenanceArtifactWithPolicyLedger(
     memory,
-    canonicalPatchApplicationReportStore,
-    report.id,
-    report,
-    renderCanonicalPatchApplicationReportMarkdown(report),
+    {
+      store: canonicalPatchApplicationReportStore,
+      id: report.id,
+      value: report,
+      markdown: renderCanonicalPatchApplicationReportMarkdown(report),
+      eventType: "canonical-patch-application-report",
+      summary: report.summary,
+    },
   );
-  await ensureCanonicalPatchApplicationReportLedgerEntry(memory, report);
-  return report;
 }
 
 export async function readMaintenanceCanonicalPatchApplicationReport(
@@ -141,18 +149,6 @@ function buildCanonicalPatchApplicationReport(
     }),
     createdAt: new Date().toISOString(),
   };
-}
-
-async function ensureCanonicalPatchApplicationReportLedgerEntry(
-  memory: ResolvedMemory,
-  report: MaintenanceCanonicalPatchApplicationReport,
-): Promise<void> {
-  await ensureMaintenancePolicyLedgerEntryForStoreArtifact(memory, {
-    store: canonicalPatchApplicationReportStore,
-    id: report.id,
-    eventType: "canonical-patch-application-report",
-    summary: report.summary,
-  });
 }
 
 function renderCanonicalPatchApplicationReportMarkdown(report: MaintenanceCanonicalPatchApplicationReport): string {

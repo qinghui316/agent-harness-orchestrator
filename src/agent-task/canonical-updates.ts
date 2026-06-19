@@ -15,7 +15,6 @@ import {
   findMaintenanceArtifactBy,
   listMaintenanceArtifacts,
   readMaintenanceArtifact,
-  writeMaintenanceJsonMarkdownArtifact,
   type MaintenanceArtifactStore,
 } from "./maintenance-artifact-store.js";
 import {
@@ -34,7 +33,10 @@ import {
   maintenanceCanonicalUpdateProposalsRoot,
   maintenanceResolutionPath,
 } from "./paths.js";
-import { ensureMaintenancePolicyLedgerEntryForStoreArtifact } from "./ledger.js";
+import {
+  returnExistingMaintenanceArtifactWithPolicyLedger,
+  writeMaintenanceArtifactWithPolicyLedger,
+} from "./maintenance-artifact-lifecycle.js";
 import { renderMaintenanceMarkdownDetailItem, renderMaintenanceMarkdownList } from "./maintenance-markdown.js";
 import { buildCanonicalPatchTargetDescriptor } from "./canonical-patch-targets.js";
 import { renderCanonicalPatchProposalOperationMarkdownDetails } from "./canonical-patch-operation-markdown.js";
@@ -85,18 +87,24 @@ export async function proposeMaintenanceCanonicalUpdate(
   const proposal = buildCanonicalUpdateProposal(memory, eligible);
   const existing = await readMaintenanceCanonicalUpdateProposal(memory, proposal.id);
   if (existing) {
-    await ensureCanonicalUpdateProposalLedgerEntry(memory, existing);
-    return existing;
+    return returnExistingMaintenanceArtifactWithPolicyLedger(memory, existing, {
+      store: canonicalUpdateProposalStore,
+      id: existing.id,
+      eventType: "canonical-update-proposal",
+      summary: existing.summary,
+    });
   }
-  await writeMaintenanceJsonMarkdownArtifact(
+  return writeMaintenanceArtifactWithPolicyLedger(
     memory,
-    canonicalUpdateProposalStore,
-    proposal.id,
-    proposal,
-    renderCanonicalUpdateProposalMarkdown(proposal),
+    {
+      store: canonicalUpdateProposalStore,
+      id: proposal.id,
+      value: proposal,
+      markdown: renderCanonicalUpdateProposalMarkdown(proposal),
+      eventType: "canonical-update-proposal",
+      summary: proposal.summary,
+    },
   );
-  await ensureCanonicalUpdateProposalLedgerEntry(memory, proposal);
-  return proposal;
 }
 
 export function eligibleCanonicalUpdateResolutions(resolutions: MaintenanceCandidateResolution[]): MaintenanceCandidateResolution[] {
@@ -125,19 +133,25 @@ export async function recordMaintenanceCanonicalUpdateDecision(
   if (!proposal.humanGateRequired) throw new Error(`Maintenance canonical update proposal is not human-gated: ${proposalId}`);
   const existing = await readMaintenanceCanonicalUpdateDecisionForProposal(memory, proposalId);
   if (existing) {
-    await ensureCanonicalUpdateDecisionLedgerEntry(memory, existing);
-    return existing;
+    return returnExistingMaintenanceArtifactWithPolicyLedger(memory, existing, {
+      store: canonicalUpdateDecisionStore,
+      id: existing.id,
+      eventType: "canonical-update-decision",
+      summary: existing.summary,
+    });
   }
   const decision = buildCanonicalUpdateDecision(memory, proposal);
-  await writeMaintenanceJsonMarkdownArtifact(
+  return writeMaintenanceArtifactWithPolicyLedger(
     memory,
-    canonicalUpdateDecisionStore,
-    decision.id,
-    decision,
-    renderCanonicalUpdateDecisionMarkdown(decision),
+    {
+      store: canonicalUpdateDecisionStore,
+      id: decision.id,
+      value: decision,
+      markdown: renderCanonicalUpdateDecisionMarkdown(decision),
+      eventType: "canonical-update-decision",
+      summary: decision.summary,
+    },
   );
-  await ensureCanonicalUpdateDecisionLedgerEntry(memory, decision);
-  return decision;
 }
 
 export async function readMaintenanceCanonicalUpdateDecision(
@@ -172,18 +186,24 @@ export async function proposeMaintenanceCanonicalPatch(
   const patchProposal = await buildCanonicalPatchProposal(memory, proposal, decision);
   const existing = await readMaintenanceCanonicalPatchProposal(memory, patchProposal.id);
   if (existing) {
-    await ensureCanonicalPatchProposalLedgerEntry(memory, existing);
-    return existing;
+    return returnExistingMaintenanceArtifactWithPolicyLedger(memory, existing, {
+      store: canonicalPatchProposalStore,
+      id: existing.id,
+      eventType: "canonical-patch-proposal",
+      summary: existing.summary,
+    });
   }
-  await writeMaintenanceJsonMarkdownArtifact(
+  return writeMaintenanceArtifactWithPolicyLedger(
     memory,
-    canonicalPatchProposalStore,
-    patchProposal.id,
-    patchProposal,
-    renderCanonicalPatchProposalMarkdown(patchProposal),
+    {
+      store: canonicalPatchProposalStore,
+      id: patchProposal.id,
+      value: patchProposal,
+      markdown: renderCanonicalPatchProposalMarkdown(patchProposal),
+      eventType: "canonical-patch-proposal",
+      summary: patchProposal.summary,
+    },
   );
-  await ensureCanonicalPatchProposalLedgerEntry(memory, patchProposal);
-  return patchProposal;
 }
 
 export async function readMaintenanceCanonicalPatchProposal(
@@ -215,19 +235,25 @@ export async function recordMaintenanceCanonicalPatchApplicationGate(
   }
   const existing = await readMaintenanceCanonicalPatchApplicationGateForPatchProposal(memory, patchProposalId);
   if (existing) {
-    await ensureCanonicalPatchApplicationGateLedgerEntry(memory, existing);
-    return existing;
+    return returnExistingMaintenanceArtifactWithPolicyLedger(memory, existing, {
+      store: canonicalPatchApplicationGateRecordStore,
+      id: existing.id,
+      eventType: "canonical-patch-application-gate",
+      summary: existing.summary,
+    });
   }
   const gateRecord = buildCanonicalPatchApplicationGateRecord(memory, patchProposal);
-  await writeMaintenanceJsonMarkdownArtifact(
+  return writeMaintenanceArtifactWithPolicyLedger(
     memory,
-    canonicalPatchApplicationGateRecordStore,
-    gateRecord.id,
-    gateRecord,
-    renderCanonicalPatchApplicationGateMarkdown(gateRecord),
+    {
+      store: canonicalPatchApplicationGateRecordStore,
+      id: gateRecord.id,
+      value: gateRecord,
+      markdown: renderCanonicalPatchApplicationGateMarkdown(gateRecord),
+      eventType: "canonical-patch-application-gate",
+      summary: gateRecord.summary,
+    },
   );
-  await ensureCanonicalPatchApplicationGateLedgerEntry(memory, gateRecord);
-  return gateRecord;
 }
 
 export async function readMaintenanceCanonicalPatchApplicationGate(
@@ -388,54 +414,6 @@ function buildCanonicalPatchApplicationGateRecord(
     ], patchProposal.artifactRefs),
     createdAt: new Date().toISOString(),
   };
-}
-
-async function ensureCanonicalUpdateProposalLedgerEntry(
-  memory: ResolvedMemory,
-  proposal: MaintenanceCanonicalUpdateProposal,
-): Promise<void> {
-  await ensureMaintenancePolicyLedgerEntryForStoreArtifact(memory, {
-    store: canonicalUpdateProposalStore,
-    id: proposal.id,
-    eventType: "canonical-update-proposal",
-    summary: proposal.summary,
-  });
-}
-
-async function ensureCanonicalUpdateDecisionLedgerEntry(
-  memory: ResolvedMemory,
-  decision: MaintenanceCanonicalUpdateDecision,
-): Promise<void> {
-  await ensureMaintenancePolicyLedgerEntryForStoreArtifact(memory, {
-    store: canonicalUpdateDecisionStore,
-    id: decision.id,
-    eventType: "canonical-update-decision",
-    summary: decision.summary,
-  });
-}
-
-async function ensureCanonicalPatchProposalLedgerEntry(
-  memory: ResolvedMemory,
-  patchProposal: MaintenanceCanonicalPatchProposal,
-): Promise<void> {
-  await ensureMaintenancePolicyLedgerEntryForStoreArtifact(memory, {
-    store: canonicalPatchProposalStore,
-    id: patchProposal.id,
-    eventType: "canonical-patch-proposal",
-    summary: patchProposal.summary,
-  });
-}
-
-async function ensureCanonicalPatchApplicationGateLedgerEntry(
-  memory: ResolvedMemory,
-  gateRecord: MaintenanceCanonicalPatchApplicationGateRecord,
-): Promise<void> {
-  await ensureMaintenancePolicyLedgerEntryForStoreArtifact(memory, {
-    store: canonicalPatchApplicationGateRecordStore,
-    id: gateRecord.id,
-    eventType: "canonical-patch-application-gate",
-    summary: gateRecord.summary,
-  });
 }
 
 function renderCanonicalUpdateProposalMarkdown(proposal: MaintenanceCanonicalUpdateProposal): string {

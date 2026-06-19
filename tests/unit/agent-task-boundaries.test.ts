@@ -9,6 +9,10 @@ import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import { buildMaintenanceSummary } from "../../src/workbench/projections/read-model/maintenance-summary.js";
 import { buildMaintenanceArtifactRefListForStores, findMaintenanceArtifactBy, writeMaintenanceJsonMarkdownArtifact } from "../../src/agent-task/maintenance-artifact-store.js";
 import {
+  returnExistingMaintenanceArtifactWithPolicyLedger,
+  writeMaintenanceArtifactWithPolicyLedger,
+} from "../../src/agent-task/maintenance-artifact-lifecycle.js";
+import {
   buildAppliedCanonicalPatchApplicationAuthority,
   buildNonExecutingCanonicalPatchApplicationAuthority,
   buildNonExecutingCanonicalPatchProposalAuthority,
@@ -259,6 +263,64 @@ describe("AgentTask domain boundaries", () => {
 
     expect(existsSync(store.jsonPath(memory, "invalid"))).toBe(false);
     expect(existsSync(store.markdownPath(memory, "invalid"))).toBe(false);
+  });
+
+  it("writes and reuses policy-ledger maintenance artifacts without rewriting existing files", async () => {
+    await initHarness(project());
+    const memory = await resolveProjectMemory(project());
+    const root = join(memory.workbenchRoot, "maintenance", "test-artifact-lifecycle");
+    const store = {
+      root: () => root,
+      jsonPath: (_resolved: ResolvedMemory, id: string) => join(root, `${id}.json`),
+      markdownPath: (_resolved: ResolvedMemory, id: string) => join(root, `${id}.md`),
+      schema: canonicalUpdateProposalSchema.pick({ id: true, createdAt: true }),
+    };
+
+    const fresh = { id: "fresh", createdAt: "2026-06-20T00:00:00.000Z" };
+    await writeMaintenanceArtifactWithPolicyLedger(memory, {
+      store,
+      id: fresh.id,
+      value: fresh,
+      markdown: "# fresh\n",
+      eventType: "canonical-update-proposal",
+      summary: "Fresh lifecycle artifact.",
+    });
+    await expect(readFile(store.jsonPath(memory, fresh.id), "utf8")).resolves.toContain("\"id\": \"fresh\"");
+    await expect(readFile(store.markdownPath(memory, fresh.id), "utf8")).resolves.toBe("# fresh\n");
+
+    const existing = { id: "existing", createdAt: "2026-06-20T00:01:00.000Z" };
+    await mkdir(root, { recursive: true });
+    await writeFile(store.jsonPath(memory, existing.id), `${JSON.stringify(existing, null, 2)}\n`, "utf8");
+    await writeFile(store.markdownPath(memory, existing.id), "# existing sentinel\n", "utf8");
+    const beforeJson = await readFile(store.jsonPath(memory, existing.id), "utf8");
+    const beforeMarkdown = await readFile(store.markdownPath(memory, existing.id), "utf8");
+
+    await expect(returnExistingMaintenanceArtifactWithPolicyLedger(memory, existing, {
+      store,
+      id: existing.id,
+      eventType: "canonical-update-proposal",
+      summary: "Existing lifecycle artifact.",
+    })).resolves.toBe(existing);
+    await expect(readFile(store.jsonPath(memory, existing.id), "utf8")).resolves.toBe(beforeJson);
+    await expect(readFile(store.markdownPath(memory, existing.id), "utf8")).resolves.toBe(beforeMarkdown);
+
+    const ledgerEntries = await listMaintenanceLedgerEntries(memory);
+    expect(ledgerEntries).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        eventType: "canonical-update-proposal",
+        artifactRefs: expect.arrayContaining([
+          ".agent-harness/workbench/maintenance/test-artifact-lifecycle/fresh.json",
+          ".agent-harness/workbench/maintenance/test-artifact-lifecycle/fresh.md",
+        ]),
+      }),
+      expect.objectContaining({
+        eventType: "canonical-update-proposal",
+        artifactRefs: expect.arrayContaining([
+          ".agent-harness/workbench/maintenance/test-artifact-lifecycle/existing.json",
+          ".agent-harness/workbench/maintenance/test-artifact-lifecycle/existing.md",
+        ]),
+      }),
+    ]));
   });
 
   it("builds shared canonical patch application authority profiles", () => {

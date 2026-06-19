@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-19T22:04:29.4895894Z",
+    "generated_at":  "2026-06-19T22:20:22.6749002Z",
     "active":  [
 
                ],
@@ -1385,6 +1385,10 @@
                     {
                         "name":  "20260620-auto-evolve-harness-workbench-test-architecture-split-window",
                         "path":  "harness/changes/archive/20260620-auto-evolve-harness-workbench-test-architecture-split-window"
+                    },
+                    {
+                        "name":  "20260620-maintenance-canonical-artifact-lifecycle-reuse",
+                        "path":  "harness/changes/archive/20260620-maintenance-canonical-artifact-lifecycle-reuse"
                     },
                     {
                         "name":  "20260620-workbench-agenttask-residual-test-domain-split",

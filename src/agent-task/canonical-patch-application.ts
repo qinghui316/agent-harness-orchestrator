@@ -10,16 +10,18 @@ import type {
   MaintenanceCanonicalPatchTargetDescriptor,
   ResolvedMemory,
 } from "../types/index.js";
-import { ensureMaintenancePolicyLedgerEntryForStoreArtifact } from "./ledger.js";
 import { renderMaintenanceMarkdownList } from "./maintenance-markdown.js";
 import {
   buildMaintenanceArtifactRefsForStore,
   findMaintenanceArtifactBy,
   listMaintenanceArtifacts,
   readMaintenanceArtifact,
-  writeMaintenanceJsonMarkdownArtifact,
   type MaintenanceArtifactStore,
 } from "./maintenance-artifact-store.js";
+import {
+  returnExistingMaintenanceArtifactWithPolicyLedger,
+  writeMaintenanceArtifactWithPolicyLedger,
+} from "./maintenance-artifact-lifecycle.js";
 import {
   maintenanceCanonicalPatchApplicationManifestMarkdownPath,
   maintenanceCanonicalPatchApplicationManifestPath,
@@ -107,20 +109,26 @@ export async function generateMaintenanceCanonicalPatchApplicationManifest(
 
   const existing = await readMaintenanceCanonicalPatchApplicationManifestForGate(memory, gateRecordId);
   if (existing) {
-    await ensureCanonicalPatchApplicationManifestLedgerEntry(memory, existing);
-    return existing;
+    return returnExistingMaintenanceArtifactWithPolicyLedger(memory, existing, {
+      store: canonicalPatchApplicationManifestStore,
+      id: existing.id,
+      eventType: "canonical-patch-application-manifest",
+      summary: existing.summary,
+    });
   }
 
   const manifest = buildCanonicalPatchApplicationManifest(memory, gateRecord, patchProposal);
-  await writeMaintenanceJsonMarkdownArtifact(
+  return writeMaintenanceArtifactWithPolicyLedger(
     memory,
-    canonicalPatchApplicationManifestStore,
-    manifest.id,
-    manifest,
-    renderCanonicalPatchApplicationManifestMarkdown(manifest),
+    {
+      store: canonicalPatchApplicationManifestStore,
+      id: manifest.id,
+      value: manifest,
+      markdown: renderCanonicalPatchApplicationManifestMarkdown(manifest),
+      eventType: "canonical-patch-application-manifest",
+      summary: manifest.summary,
+    },
   );
-  await ensureCanonicalPatchApplicationManifestLedgerEntry(memory, manifest);
-  return manifest;
 }
 
 export async function readMaintenanceCanonicalPatchApplicationManifest(
@@ -153,8 +161,12 @@ export async function applyMaintenanceCanonicalPatchApplicationManifest(
   validateApplicationAuthorization(options);
   const existing = await readMaintenanceCanonicalPatchApplicationResultForManifest(memory, manifestId);
   if (existing) {
-    await ensureCanonicalPatchApplicationResultLedgerEntry(memory, existing);
-    return existing;
+    return returnExistingMaintenanceArtifactWithPolicyLedger(memory, existing, {
+      store: canonicalPatchApplicationResultStore,
+      id: existing.id,
+      eventType: "canonical-patch-application-result",
+      summary: existing.summary,
+    });
   }
 
   const manifest = await readMaintenanceCanonicalPatchApplicationManifest(memory, manifestId);
@@ -172,15 +184,17 @@ export async function applyMaintenanceCanonicalPatchApplicationManifest(
   }
 
   const result = buildCanonicalPatchApplicationResult(memory, manifest, prepared, options.policyAuditRefs);
-  await writeMaintenanceJsonMarkdownArtifact(
+  return writeMaintenanceArtifactWithPolicyLedger(
     memory,
-    canonicalPatchApplicationResultStore,
-    result.id,
-    result,
-    renderCanonicalPatchApplicationResultMarkdown(result),
+    {
+      store: canonicalPatchApplicationResultStore,
+      id: result.id,
+      value: result,
+      markdown: renderCanonicalPatchApplicationResultMarkdown(result),
+      eventType: "canonical-patch-application-result",
+      summary: result.summary,
+    },
   );
-  await ensureCanonicalPatchApplicationResultLedgerEntry(memory, result);
-  return result;
 }
 
 export async function readMaintenanceCanonicalPatchApplicationResult(
@@ -424,30 +438,6 @@ function buildCanonicalPatchApplicationResult(
     }),
     createdAt: new Date().toISOString(),
   };
-}
-
-async function ensureCanonicalPatchApplicationResultLedgerEntry(
-  memory: ResolvedMemory,
-  result: MaintenanceCanonicalPatchApplicationResult,
-): Promise<void> {
-  await ensureMaintenancePolicyLedgerEntryForStoreArtifact(memory, {
-    store: canonicalPatchApplicationResultStore,
-    id: result.id,
-    eventType: "canonical-patch-application-result",
-    summary: result.summary,
-  });
-}
-
-async function ensureCanonicalPatchApplicationManifestLedgerEntry(
-  memory: ResolvedMemory,
-  manifest: MaintenanceCanonicalPatchApplicationManifest,
-): Promise<void> {
-  await ensureMaintenancePolicyLedgerEntryForStoreArtifact(memory, {
-    store: canonicalPatchApplicationManifestStore,
-    id: manifest.id,
-    eventType: "canonical-patch-application-manifest",
-    summary: manifest.summary,
-  });
 }
 
 function renderCanonicalPatchApplicationManifestMarkdown(manifest: MaintenanceCanonicalPatchApplicationManifest): string {
