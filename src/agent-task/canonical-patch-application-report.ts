@@ -6,6 +6,7 @@ import type {
   ResolvedMemory,
 } from "../types/index.js";
 import { ensureMaintenanceLedgerEntryForStoreArtifact } from "./ledger.js";
+import { renderMaintenanceMarkdownList } from "./maintenance-markdown.js";
 import {
   buildMaintenanceArtifactRefListForStores,
   buildMaintenanceArtifactRefsForStore,
@@ -228,11 +229,11 @@ function renderCanonicalPatchApplicationReportMarkdown(report: MaintenanceCanoni
     "",
     "## Policy Audit",
     "",
-    ...(report.policyAuditRefs.length > 0 ? report.policyAuditRefs.map((ref) => `- ${ref}`) : ["- none"]),
+    ...renderMaintenanceMarkdownList(report.policyAuditRefs, { emptyLabel: "none" }),
     "",
     "## Evidence",
     "",
-    ...report.artifactRefs.map((ref) => `- ${ref}`),
+    ...renderMaintenanceMarkdownList(report.artifactRefs),
     "",
   ].join("\n");
 }

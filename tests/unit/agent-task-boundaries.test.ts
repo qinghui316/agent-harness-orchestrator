@@ -17,6 +17,7 @@ import {
   mergeCanonicalPatchTargetKinds,
 } from "../../src/agent-task/canonical-patch-lineage.js";
 import { formatCanonicalPatchTargetDescriptor } from "../../src/agent-task/canonical-patch-target-boundary.js";
+import { renderMaintenanceMarkdownList } from "../../src/agent-task/maintenance-markdown.js";
 import { candidateSchema, canonicalUpdateProposalSchema, resolutionSchema } from "../../src/agent-task/schemas.js";
 import { buildCanonicalPatchTargetDescriptor } from "../../src/agent-task/canonical-patch-targets.js";
 import { normalizeDocsDriftCandidates } from "../../src/agent-task/closeout-store.js";
@@ -169,6 +170,15 @@ describe("AgentTask domain boundaries", () => {
       patchKind: "replacement",
       replacement: "new content",
     })).toBe(`replacement project/stable/product.md sha256=${expectedContentHash}`);
+  });
+
+  it("renders maintenance markdown reference lists through the markdown owner", () => {
+    expect(renderMaintenanceMarkdownList(["evidence/a.md", "evidence/b.md"])).toEqual([
+      "- evidence/a.md",
+      "- evidence/b.md",
+    ]);
+    expect(renderMaintenanceMarkdownList([])).toEqual([]);
+    expect(renderMaintenanceMarkdownList([], { emptyLabel: "none" })).toEqual(["- none"]);
   });
 
   it("copies canonical patch operation lineage without owning artifact stores or gates", () => {
