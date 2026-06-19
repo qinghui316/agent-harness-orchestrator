@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-19T08:37:18.1365571Z",
+    "generated_at":  "2026-06-19T08:56:57.9938562Z",
     "active":  [
 
                ],
@@ -1155,6 +1155,10 @@
                         "path":  "harness/changes/archive/20260619-auto-evolve-harness-maintenance-helper-reuse-window"
                     },
                     {
+                        "name":  "20260619-auto-evolve-harness-maintenance-store-authority-reuse-window",
+                        "path":  "harness/changes/archive/20260619-auto-evolve-harness-maintenance-store-authority-reuse-window"
+                    },
+                    {
                         "name":  "20260619-auto-evolve-harness-phase-12s-12w-product-maintenance-evidence",
                         "path":  "harness/changes/archive/20260619-auto-evolve-harness-phase-12s-12w-product-maintenance-evidence"
                     },
@@ -1173,6 +1177,10 @@
                     {
                         "name":  "20260619-maintenance-artifact-ledger-entry-helper-reuse",
                         "path":  "harness/changes/archive/20260619-maintenance-artifact-ledger-entry-helper-reuse"
+                    },
+                    {
+                        "name":  "20260619-maintenance-artifact-store-write-validation-reuse",
+                        "path":  "harness/changes/archive/20260619-maintenance-artifact-store-write-validation-reuse"
                     },
                     {
                         "name":  "20260619-maintenance-candidate-source-policy-reuse",

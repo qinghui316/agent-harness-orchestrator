@@ -127,6 +127,7 @@ export async function writeMaintenanceJsonMarkdownArtifact<T extends { createdAt
   value: T,
   markdown: string,
 ): Promise<void> {
+  store.schema.parse(value);
   await writeJsonFile(store.jsonPath(memory, id), value);
   await writeFile(store.markdownPath(memory, id), markdown, "utf8");
 }

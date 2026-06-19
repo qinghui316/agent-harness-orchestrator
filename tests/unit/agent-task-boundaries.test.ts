@@ -7,7 +7,7 @@ import { describe, expect, it, afterEach, beforeEach } from "vitest";
 import { initHarness } from "../../src/harness/init.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import { buildMaintenanceSummary } from "../../src/workbench/projections/read-model/maintenance-summary.js";
-import { buildMaintenanceArtifactRefListForStores, findMaintenanceArtifactBy } from "../../src/agent-task/maintenance-artifact-store.js";
+import { buildMaintenanceArtifactRefListForStores, findMaintenanceArtifactBy, writeMaintenanceJsonMarkdownArtifact } from "../../src/agent-task/maintenance-artifact-store.js";
 import {
   buildAppliedCanonicalPatchApplicationAuthority,
   buildNonExecutingCanonicalPatchApplicationAuthority,
@@ -149,6 +149,29 @@ describe("AgentTask domain boundaries", () => {
       groupId: "same",
     });
     await expect(findMaintenanceArtifactBy(memory, store, (artifact) => artifact.groupId === "missing")).resolves.toBeNull();
+  });
+
+  it("validates store-backed maintenance artifact writes before persistence", async () => {
+    await initHarness(project());
+    const memory = await resolveProjectMemory(project());
+    const root = join(memory.workbenchRoot, "maintenance", "test-artifact-writes");
+    const store = {
+      root: () => root,
+      jsonPath: (_resolved: ResolvedMemory, id: string) => join(root, `${id}.json`),
+      markdownPath: (_resolved: ResolvedMemory, id: string) => join(root, `${id}.md`),
+      schema: canonicalUpdateProposalSchema.pick({ id: true, createdAt: true }),
+    };
+
+    await expect(writeMaintenanceJsonMarkdownArtifact(
+      memory,
+      store,
+      "invalid",
+      { id: "invalid" } as unknown as { id: string; createdAt: string },
+      "# invalid\n",
+    )).rejects.toThrow();
+
+    expect(existsSync(store.jsonPath(memory, "invalid"))).toBe(false);
+    expect(existsSync(store.markdownPath(memory, "invalid"))).toBe(false);
   });
 
   it("builds shared canonical patch application authority profiles", () => {

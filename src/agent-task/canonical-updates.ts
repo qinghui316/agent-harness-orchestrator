@@ -88,7 +88,6 @@ export async function proposeMaintenanceCanonicalUpdate(
     await ensureCanonicalUpdateProposalLedgerEntry(memory, existing);
     return existing;
   }
-  canonicalUpdateProposalSchema.parse(proposal);
   await writeMaintenanceJsonMarkdownArtifact(
     memory,
     canonicalUpdateProposalStore,
@@ -130,7 +129,6 @@ export async function recordMaintenanceCanonicalUpdateDecision(
     return existing;
   }
   const decision = buildCanonicalUpdateDecision(memory, proposal);
-  canonicalUpdateDecisionSchema.parse(decision);
   await writeMaintenanceJsonMarkdownArtifact(
     memory,
     canonicalUpdateDecisionStore,
@@ -177,7 +175,6 @@ export async function proposeMaintenanceCanonicalPatch(
     await ensureCanonicalPatchProposalLedgerEntry(memory, existing);
     return existing;
   }
-  canonicalPatchProposalSchema.parse(patchProposal);
   await writeMaintenanceJsonMarkdownArtifact(
     memory,
     canonicalPatchProposalStore,
@@ -222,7 +219,6 @@ export async function recordMaintenanceCanonicalPatchApplicationGate(
     return existing;
   }
   const gateRecord = buildCanonicalPatchApplicationGateRecord(memory, patchProposal);
-  canonicalPatchApplicationGateRecordSchema.parse(gateRecord);
   await writeMaintenanceJsonMarkdownArtifact(
     memory,
     canonicalPatchApplicationGateRecordStore,

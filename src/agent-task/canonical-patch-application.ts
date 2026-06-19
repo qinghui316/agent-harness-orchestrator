@@ -105,7 +105,6 @@ export async function generateMaintenanceCanonicalPatchApplicationManifest(
   }
 
   const manifest = buildCanonicalPatchApplicationManifest(memory, gateRecord, patchProposal);
-  canonicalPatchApplicationManifestSchema.parse(manifest);
   await writeMaintenanceJsonMarkdownArtifact(
     memory,
     canonicalPatchApplicationManifestStore,
@@ -166,7 +165,6 @@ export async function applyMaintenanceCanonicalPatchApplicationManifest(
   }
 
   const result = buildCanonicalPatchApplicationResult(memory, manifest, prepared, options.policyAuditRefs);
-  canonicalPatchApplicationResultSchema.parse(result);
   await writeMaintenanceJsonMarkdownArtifact(
     memory,
     canonicalPatchApplicationResultStore,

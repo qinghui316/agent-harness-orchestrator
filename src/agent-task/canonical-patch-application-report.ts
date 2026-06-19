@@ -63,7 +63,6 @@ export async function generateMaintenanceCanonicalPatchApplicationReport(
   validateCanonicalPatchApplicationResultLineage(result, manifest);
 
   const report = buildCanonicalPatchApplicationReport(memory, result, manifest);
-  canonicalPatchApplicationReportSchema.parse(report);
   await writeMaintenanceJsonMarkdownArtifact(
     memory,
     canonicalPatchApplicationReportStore,
