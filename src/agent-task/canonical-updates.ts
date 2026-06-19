@@ -62,14 +62,14 @@ const canonicalUpdateDecisionStore: MaintenanceArtifactStore<MaintenanceCanonica
   schema: canonicalUpdateDecisionSchema,
 };
 
-const canonicalPatchProposalStore: MaintenanceArtifactStore<MaintenanceCanonicalPatchProposal> = {
+export const canonicalPatchProposalStore: MaintenanceArtifactStore<MaintenanceCanonicalPatchProposal> = {
   root: maintenanceCanonicalPatchProposalsRoot,
   jsonPath: maintenanceCanonicalPatchProposalPath,
   markdownPath: maintenanceCanonicalPatchProposalMarkdownPath,
   schema: canonicalPatchProposalSchema,
 };
 
-const canonicalPatchApplicationGateRecordStore: MaintenanceArtifactStore<MaintenanceCanonicalPatchApplicationGateRecord> = {
+export const canonicalPatchApplicationGateRecordStore: MaintenanceArtifactStore<MaintenanceCanonicalPatchApplicationGateRecord> = {
   root: maintenanceCanonicalPatchApplicationGateRecordsRoot,
   jsonPath: maintenanceCanonicalPatchApplicationGateRecordPath,
   markdownPath: maintenanceCanonicalPatchApplicationGateRecordMarkdownPath,

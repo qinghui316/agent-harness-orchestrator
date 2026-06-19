@@ -22,18 +22,16 @@ import {
   type MaintenanceArtifactStore,
 } from "./maintenance-artifact-store.js";
 import {
-  maintenanceCanonicalPatchApplicationGateRecordMarkdownPath,
-  maintenanceCanonicalPatchApplicationGateRecordPath,
   maintenanceCanonicalPatchApplicationManifestMarkdownPath,
   maintenanceCanonicalPatchApplicationManifestPath,
   maintenanceCanonicalPatchApplicationManifestsRoot,
   maintenanceCanonicalPatchApplicationResultMarkdownPath,
   maintenanceCanonicalPatchApplicationResultPath,
   maintenanceCanonicalPatchApplicationResultsRoot,
-  maintenanceCanonicalPatchProposalMarkdownPath,
-  maintenanceCanonicalPatchProposalPath,
 } from "./paths.js";
 import {
+  canonicalPatchApplicationGateRecordStore,
+  canonicalPatchProposalStore,
   readMaintenanceCanonicalPatchApplicationGate,
   readMaintenanceCanonicalPatchProposal,
 } from "./canonical-updates.js";
@@ -73,14 +71,14 @@ interface PreparedApplicationOperation {
   afterHash: string;
 }
 
-const canonicalPatchApplicationManifestStore: MaintenanceArtifactStore<MaintenanceCanonicalPatchApplicationManifest> = {
+export const canonicalPatchApplicationManifestStore: MaintenanceArtifactStore<MaintenanceCanonicalPatchApplicationManifest> = {
   root: maintenanceCanonicalPatchApplicationManifestsRoot,
   jsonPath: maintenanceCanonicalPatchApplicationManifestPath,
   markdownPath: maintenanceCanonicalPatchApplicationManifestMarkdownPath,
   schema: canonicalPatchApplicationManifestSchema,
 };
 
-const canonicalPatchApplicationResultStore: MaintenanceArtifactStore<MaintenanceCanonicalPatchApplicationResult> = {
+export const canonicalPatchApplicationResultStore: MaintenanceArtifactStore<MaintenanceCanonicalPatchApplicationResult> = {
   root: maintenanceCanonicalPatchApplicationResultsRoot,
   jsonPath: maintenanceCanonicalPatchApplicationResultPath,
   markdownPath: maintenanceCanonicalPatchApplicationResultMarkdownPath,
@@ -213,17 +211,11 @@ function buildCanonicalPatchApplicationManifest(
   const applicationStatus = blockedReasons.length > 0 ? "blocked-needs-concrete-targets" : "ready-for-application";
   const artifactRefs = buildMaintenanceArtifactRefListForStores(memory, [
     {
-      store: {
-        jsonPath: maintenanceCanonicalPatchApplicationGateRecordPath,
-        markdownPath: maintenanceCanonicalPatchApplicationGateRecordMarkdownPath,
-      },
+      store: canonicalPatchApplicationGateRecordStore,
       id: gateRecord.id,
     },
     {
-      store: {
-        jsonPath: maintenanceCanonicalPatchProposalPath,
-        markdownPath: maintenanceCanonicalPatchProposalMarkdownPath,
-      },
+      store: canonicalPatchProposalStore,
       id: patchProposal.id,
     },
   ], [

@@ -18,17 +18,15 @@ import {
 } from "./maintenance-artifact-store.js";
 import { buildReadOnlyCanonicalPatchApplicationObservationAuthority } from "./canonical-patch-application-authority.js";
 import {
+  canonicalPatchApplicationManifestStore,
+  canonicalPatchApplicationResultStore,
   readMaintenanceCanonicalPatchApplicationManifest,
   readMaintenanceCanonicalPatchApplicationResult,
 } from "./canonical-patch-application.js";
 import {
-  maintenanceCanonicalPatchApplicationManifestMarkdownPath,
-  maintenanceCanonicalPatchApplicationManifestPath,
   maintenanceCanonicalPatchApplicationReportMarkdownPath,
   maintenanceCanonicalPatchApplicationReportPath,
   maintenanceCanonicalPatchApplicationReportsRoot,
-  maintenanceCanonicalPatchApplicationResultMarkdownPath,
-  maintenanceCanonicalPatchApplicationResultPath,
 } from "./paths.js";
 import { canonicalPatchApplicationReportSchema } from "./schemas.js";
 import {
@@ -147,17 +145,11 @@ function buildCanonicalPatchApplicationReport(
     artifactRefs: buildMaintenanceArtifactRefListForStores(memory, [
       { store: canonicalPatchApplicationReportStore, id },
       {
-        store: {
-          jsonPath: maintenanceCanonicalPatchApplicationResultPath,
-          markdownPath: maintenanceCanonicalPatchApplicationResultMarkdownPath,
-        },
+        store: canonicalPatchApplicationResultStore,
         id: result.id,
       },
       {
-        store: {
-          jsonPath: maintenanceCanonicalPatchApplicationManifestPath,
-          markdownPath: maintenanceCanonicalPatchApplicationManifestMarkdownPath,
-        },
+        store: canonicalPatchApplicationManifestStore,
         id: manifest.id,
         includeMarkdown: false,
       },

@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-19T08:05:00.3297116Z",
+    "generated_at":  "2026-06-19T08:21:48.7255919Z",
     "active":  [
 
                ],
@@ -1185,6 +1185,10 @@
                     {
                         "name":  "20260619-maintenance-canonical-artifact-store-canonical-updates-adoption",
                         "path":  "harness/changes/archive/20260619-maintenance-canonical-artifact-store-canonical-updates-adoption"
+                    },
+                    {
+                        "name":  "20260619-maintenance-canonical-artifact-store-descriptor-reuse",
+                        "path":  "harness/changes/archive/20260619-maintenance-canonical-artifact-store-descriptor-reuse"
                     },
                     {
                         "name":  "20260619-maintenance-canonical-artifact-store-reuse",
