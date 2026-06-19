@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-19T04:46:23.5387306Z",
+    "generated_at":  "2026-06-19T05:06:09.7939960Z",
     "active":  [
 
                ],
@@ -1269,6 +1269,10 @@
                     {
                         "name":  "20260619-workbench-read-model-timestamp-summary-helper-reuse",
                         "path":  "harness/changes/archive/20260619-workbench-read-model-timestamp-summary-helper-reuse"
+                    },
+                    {
+                        "name":  "20260619-workbench-schedulerrun-prepared-target-helper-reuse",
+                        "path":  "harness/changes/archive/20260619-workbench-schedulerrun-prepared-target-helper-reuse"
                     }
                 ]
 }

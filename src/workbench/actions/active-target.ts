@@ -5,6 +5,11 @@ interface WorkbenchActionTargetWithId {
   id: string;
 }
 
+interface PreparedWorkbenchActionTarget extends WorkbenchActionTargetWithId {
+  changeId: string;
+  status: string;
+}
+
 export async function requireActiveChangeTarget(
   memory: ResolvedMemory,
   changeId: string,
@@ -29,4 +34,16 @@ export function assertLatestWorkbenchActionTarget<T extends WorkbenchActionTarge
   targetName: string,
 ): asserts latest is T {
   if (!latest || latest.id !== target.id) throw new Error(`${label} requires the latest ${targetName}.`);
+}
+
+export function assertPreparedWorkbenchActionTarget(
+  target: PreparedWorkbenchActionTarget,
+  targetId: string,
+  changeId: string,
+  label: string,
+  targetName: string,
+): void {
+  if (target.id !== targetId || target.changeId !== changeId || target.status !== "prepared") {
+    throw new Error(`${label} ${targetName} target is stale or not prepared.`);
+  }
 }

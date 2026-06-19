@@ -42,7 +42,7 @@ import {
 } from "../../workflow-actions/registry.js";
 import { readWorkflowRun } from "../../workflow-run/manager.js";
 import type { WorkbenchLiveSink, WorkbenchWorkflowActionRequest } from "../types.js";
-import { assertLatestWorkbenchActionTarget, assertWorkbenchActionChangeScope, requireActiveChangeTarget } from "./active-target.js";
+import { assertLatestWorkbenchActionTarget, assertPreparedWorkbenchActionTarget, assertWorkbenchActionChangeScope, requireActiveChangeTarget } from "./active-target.js";
 import { assertGoalLoopAssistedConcreteGateConfirmation } from "./goal-loop-gate-confirmation.js";
 import { readLatestPlanningBundle } from "./planning-bundle.js";
 
@@ -375,11 +375,9 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
     const target = await requireActiveChangeTarget(memory, changeId, request.actionType);
     if (!request.schedulerRunId) throw new Error(`${request.actionType} requires schedulerRunId.`);
     const run = await readSchedulerRun(memory, target.path, request.schedulerRunId);
-    if (run.id !== request.schedulerRunId || run.changeId !== changeId || run.status !== "prepared") {
-      throw new Error(`${request.actionType} SchedulerRun target is stale or not prepared.`);
-    }
+    assertPreparedWorkbenchActionTarget(run, request.schedulerRunId, changeId, request.actionType, "SchedulerRun");
     const latestRun = await readLatestSchedulerRun(memory, target.path);
-    if (latestRun.id !== run.id) throw new Error(`${request.actionType} requires the latest SchedulerRun.`);
+    assertLatestWorkbenchActionTarget(latestRun, run, request.actionType, "SchedulerRun");
     await readSchedulerRuntimeLineage(memory, target.path, run.id);
     const runtimeState = await readSchedulerRuntimeStateProjection(memory, target.path, run.id);
     if (request.actionType === "planning.scheduler.runtime.initialize" && runtimeState) {
@@ -410,11 +408,9 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
       if (!request.claimIntentId) throw new Error("planning.scheduler.worker.start-next requires claimIntentId.");
     }
     const run = await readSchedulerRun(memory, target.path, request.schedulerRunId);
-    if (run.id !== request.schedulerRunId || run.changeId !== changeId || run.status !== "prepared") {
-      throw new Error(`${request.actionType} SchedulerRun target is stale or not prepared.`);
-    }
+    assertPreparedWorkbenchActionTarget(run, request.schedulerRunId, changeId, request.actionType, "SchedulerRun");
     const latestRun = await readLatestSchedulerRun(memory, target.path);
-    if (latestRun.id !== run.id) throw new Error(`${request.actionType} requires the latest SchedulerRun.`);
+    assertLatestWorkbenchActionTarget(latestRun, run, request.actionType, "SchedulerRun");
     await readSchedulerRuntimeLineage(memory, target.path, run.id);
     const runtimeState = await readSchedulerRuntimeStateProjection(memory, target.path, run.id);
     if (!runtimeState?.lastReconcileSnapshotId || !runtimeState.lastClaimReservationId) {
@@ -464,11 +460,9 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
     if (!request.schedulerRunId) throw new Error("planning.scheduler.worker.reconcile-result requires schedulerRunId.");
     if (!request.schedulerWorkerStartId) throw new Error("planning.scheduler.worker.reconcile-result requires schedulerWorkerStartId.");
     const run = await readSchedulerRun(memory, target.path, request.schedulerRunId);
-    if (run.id !== request.schedulerRunId || run.changeId !== changeId || run.status !== "prepared") {
-      throw new Error("planning.scheduler.worker.reconcile-result SchedulerRun target is stale or not prepared.");
-    }
+    assertPreparedWorkbenchActionTarget(run, request.schedulerRunId, changeId, "planning.scheduler.worker.reconcile-result", "SchedulerRun");
     const latestRun = await readLatestSchedulerRun(memory, target.path);
-    if (latestRun.id !== run.id) throw new Error("planning.scheduler.worker.reconcile-result requires the latest SchedulerRun.");
+    assertLatestWorkbenchActionTarget(latestRun, run, "planning.scheduler.worker.reconcile-result", "SchedulerRun");
     await readSchedulerRuntimeLineage(memory, target.path, run.id);
     const runtimeState = await readSchedulerRuntimeStateProjection(memory, target.path, run.id);
     if (!runtimeState?.lastReconcileSnapshotId || !runtimeState.lastClaimReservationId) {
@@ -520,11 +514,9 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
     if (!request.schedulerRunId) throw new Error("planning.scheduler.worker.validate-first requires schedulerRunId.");
     if (!request.schedulerWorkerResultId) throw new Error("planning.scheduler.worker.validate-first requires schedulerWorkerResultId.");
     const run = await readSchedulerRun(memory, target.path, request.schedulerRunId);
-    if (run.id !== request.schedulerRunId || run.changeId !== changeId || run.status !== "prepared") {
-      throw new Error("planning.scheduler.worker.validate-first SchedulerRun target is stale or not prepared.");
-    }
+    assertPreparedWorkbenchActionTarget(run, request.schedulerRunId, changeId, "planning.scheduler.worker.validate-first", "SchedulerRun");
     const latestRun = await readLatestSchedulerRun(memory, target.path);
-    if (latestRun.id !== run.id) throw new Error("planning.scheduler.worker.validate-first requires the latest SchedulerRun.");
+    assertLatestWorkbenchActionTarget(latestRun, run, "planning.scheduler.worker.validate-first", "SchedulerRun");
     await readSchedulerRuntimeLineage(memory, target.path, run.id);
     const runtimeState = await readSchedulerRuntimeStateProjection(memory, target.path, run.id);
     if (!runtimeState?.lastReconcileSnapshotId || !runtimeState.lastClaimReservationId) {
@@ -583,11 +575,9 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
     if (!request.schedulerRunId) throw new Error("planning.scheduler.worker.audit-first requires schedulerRunId.");
     if (!request.schedulerWorkerValidationId) throw new Error("planning.scheduler.worker.audit-first requires schedulerWorkerValidationId.");
     const run = await readSchedulerRun(memory, target.path, request.schedulerRunId);
-    if (run.id !== request.schedulerRunId || run.changeId !== changeId || run.status !== "prepared") {
-      throw new Error("planning.scheduler.worker.audit-first SchedulerRun target is stale or not prepared.");
-    }
+    assertPreparedWorkbenchActionTarget(run, request.schedulerRunId, changeId, "planning.scheduler.worker.audit-first", "SchedulerRun");
     const latestRun = await readLatestSchedulerRun(memory, target.path);
-    if (latestRun.id !== run.id) throw new Error("planning.scheduler.worker.audit-first requires the latest SchedulerRun.");
+    assertLatestWorkbenchActionTarget(latestRun, run, "planning.scheduler.worker.audit-first", "SchedulerRun");
     await readSchedulerRuntimeLineage(memory, target.path, run.id);
     const runtimeState = await readSchedulerRuntimeStateProjection(memory, target.path, run.id);
     if (!runtimeState?.lastReconcileSnapshotId || !runtimeState.lastClaimReservationId) {
@@ -652,11 +642,9 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
     if (!request.schedulerRunId) throw new Error("planning.scheduler.worker.rework-plan.compile requires schedulerRunId.");
     if (!request.schedulerWorkerValidationId) throw new Error("planning.scheduler.worker.rework-plan.compile requires schedulerWorkerValidationId.");
     const run = await readSchedulerRun(memory, target.path, request.schedulerRunId);
-    if (run.id !== request.schedulerRunId || run.changeId !== changeId || run.status !== "prepared") {
-      throw new Error("planning.scheduler.worker.rework-plan.compile SchedulerRun target is stale or not prepared.");
-    }
+    assertPreparedWorkbenchActionTarget(run, request.schedulerRunId, changeId, "planning.scheduler.worker.rework-plan.compile", "SchedulerRun");
     const latestRun = await readLatestSchedulerRun(memory, target.path);
-    if (latestRun.id !== run.id) throw new Error("planning.scheduler.worker.rework-plan.compile requires the latest SchedulerRun.");
+    assertLatestWorkbenchActionTarget(latestRun, run, "planning.scheduler.worker.rework-plan.compile", "SchedulerRun");
     await readSchedulerRuntimeLineage(memory, target.path, run.id);
     const runtimeState = await readSchedulerRuntimeStateProjection(memory, target.path, run.id);
     if (!runtimeState?.lastReconcileSnapshotId || !runtimeState.lastClaimReservationId) {
@@ -742,11 +730,9 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
     if (!request.schedulerRunId) throw new Error("planning.scheduler.worker.rework-start-first requires schedulerRunId.");
     if (!request.schedulerWorkerReworkPlanId) throw new Error("planning.scheduler.worker.rework-start-first requires schedulerWorkerReworkPlanId.");
     const run = await readSchedulerRun(memory, target.path, request.schedulerRunId);
-    if (run.id !== request.schedulerRunId || run.changeId !== changeId || run.status !== "prepared") {
-      throw new Error("planning.scheduler.worker.rework-start-first SchedulerRun target is stale or not prepared.");
-    }
+    assertPreparedWorkbenchActionTarget(run, request.schedulerRunId, changeId, "planning.scheduler.worker.rework-start-first", "SchedulerRun");
     const latestRun = await readLatestSchedulerRun(memory, target.path);
-    if (latestRun.id !== run.id) throw new Error("planning.scheduler.worker.rework-start-first requires the latest SchedulerRun.");
+    assertLatestWorkbenchActionTarget(latestRun, run, "planning.scheduler.worker.rework-start-first", "SchedulerRun");
     await readSchedulerRuntimeLineage(memory, target.path, run.id);
     const runtimeState = await readSchedulerRuntimeStateProjection(memory, target.path, run.id);
     if (!runtimeState?.lastClaimReservationId) {
@@ -797,11 +783,9 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
     if (!request.schedulerRunId) throw new Error("planning.scheduler.worker.rework-reconcile-result requires schedulerRunId.");
     if (!request.schedulerWorkerReworkStartId) throw new Error("planning.scheduler.worker.rework-reconcile-result requires schedulerWorkerReworkStartId.");
     const run = await readSchedulerRun(memory, target.path, request.schedulerRunId);
-    if (run.id !== request.schedulerRunId || run.changeId !== changeId || run.status !== "prepared") {
-      throw new Error("planning.scheduler.worker.rework-reconcile-result SchedulerRun target is stale or not prepared.");
-    }
+    assertPreparedWorkbenchActionTarget(run, request.schedulerRunId, changeId, "planning.scheduler.worker.rework-reconcile-result", "SchedulerRun");
     const latestRun = await readLatestSchedulerRun(memory, target.path);
-    if (latestRun.id !== run.id) throw new Error("planning.scheduler.worker.rework-reconcile-result requires the latest SchedulerRun.");
+    assertLatestWorkbenchActionTarget(latestRun, run, "planning.scheduler.worker.rework-reconcile-result", "SchedulerRun");
     await readSchedulerRuntimeLineage(memory, target.path, run.id);
     const runtimeState = await readSchedulerRuntimeStateProjection(memory, target.path, run.id);
     if (!runtimeState?.lastClaimReservationId) {
@@ -864,11 +848,9 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
     if (!request.schedulerRunId) throw new Error("planning.scheduler.worker.rework-validate-first requires schedulerRunId.");
     if (!request.schedulerWorkerReworkResultId) throw new Error("planning.scheduler.worker.rework-validate-first requires schedulerWorkerReworkResultId.");
     const run = await readSchedulerRun(memory, target.path, request.schedulerRunId);
-    if (run.id !== request.schedulerRunId || run.changeId !== changeId || run.status !== "prepared") {
-      throw new Error("planning.scheduler.worker.rework-validate-first SchedulerRun target is stale or not prepared.");
-    }
+    assertPreparedWorkbenchActionTarget(run, request.schedulerRunId, changeId, "planning.scheduler.worker.rework-validate-first", "SchedulerRun");
     const latestRun = await readLatestSchedulerRun(memory, target.path);
-    if (latestRun.id !== run.id) throw new Error("planning.scheduler.worker.rework-validate-first requires the latest SchedulerRun.");
+    assertLatestWorkbenchActionTarget(latestRun, run, "planning.scheduler.worker.rework-validate-first", "SchedulerRun");
     await readSchedulerRuntimeLineage(memory, target.path, run.id);
     const runtimeState = await readSchedulerRuntimeStateProjection(memory, target.path, run.id);
     if (!runtimeState?.lastClaimReservationId) {
@@ -948,11 +930,9 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
     if (!request.schedulerRunId) throw new Error("planning.scheduler.worker.rework-audit-first requires schedulerRunId.");
     if (!request.schedulerWorkerReworkValidationId) throw new Error("planning.scheduler.worker.rework-audit-first requires schedulerWorkerReworkValidationId.");
     const run = await readSchedulerRun(memory, target.path, request.schedulerRunId);
-    if (run.id !== request.schedulerRunId || run.changeId !== changeId || run.status !== "prepared") {
-      throw new Error("planning.scheduler.worker.rework-audit-first SchedulerRun target is stale or not prepared.");
-    }
+    assertPreparedWorkbenchActionTarget(run, request.schedulerRunId, changeId, "planning.scheduler.worker.rework-audit-first", "SchedulerRun");
     const latestRun = await readLatestSchedulerRun(memory, target.path);
-    if (latestRun.id !== run.id) throw new Error("planning.scheduler.worker.rework-audit-first requires the latest SchedulerRun.");
+    assertLatestWorkbenchActionTarget(latestRun, run, "planning.scheduler.worker.rework-audit-first", "SchedulerRun");
     await readSchedulerRuntimeLineage(memory, target.path, run.id);
     const runtimeState = await readSchedulerRuntimeStateProjection(memory, target.path, run.id);
     if (!runtimeState?.lastClaimReservationId) {
@@ -1043,11 +1023,9 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
     const target = await requireActiveChangeTarget(memory, changeId, "planning.scheduler.integration-candidate.compile", { includeChangeId: false });
     if (!request.schedulerRunId) throw new Error("planning.scheduler.integration-candidate.compile requires schedulerRunId.");
     const run = await readSchedulerRun(memory, target.path, request.schedulerRunId);
-    if (run.id !== request.schedulerRunId || run.changeId !== changeId || run.status !== "prepared") {
-      throw new Error("planning.scheduler.integration-candidate.compile SchedulerRun target is stale or not prepared.");
-    }
+    assertPreparedWorkbenchActionTarget(run, request.schedulerRunId, changeId, "planning.scheduler.integration-candidate.compile", "SchedulerRun");
     const latestRun = await readLatestSchedulerRun(memory, target.path);
-    if (latestRun.id !== run.id) throw new Error("planning.scheduler.integration-candidate.compile requires the latest SchedulerRun.");
+    assertLatestWorkbenchActionTarget(latestRun, run, "planning.scheduler.integration-candidate.compile", "SchedulerRun");
     await readSchedulerRuntimeLineage(memory, target.path, run.id);
     const runtimeState = await readSchedulerRuntimeStateProjection(memory, target.path, run.id);
     if (!runtimeState?.lastReconcileSnapshotId || !runtimeState.lastClaimReservationId) {
@@ -1074,11 +1052,9 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
     if (!request.schedulerRunId) throw new Error("planning.scheduler.integration-check.run requires schedulerRunId.");
     if (!request.schedulerIntegrationCandidateId) throw new Error("planning.scheduler.integration-check.run requires schedulerIntegrationCandidateId.");
     const run = await readSchedulerRun(memory, target.path, request.schedulerRunId);
-    if (run.id !== request.schedulerRunId || run.changeId !== changeId || run.status !== "prepared") {
-      throw new Error("planning.scheduler.integration-check.run SchedulerRun target is stale or not prepared.");
-    }
+    assertPreparedWorkbenchActionTarget(run, request.schedulerRunId, changeId, "planning.scheduler.integration-check.run", "SchedulerRun");
     const latestRun = await readLatestSchedulerRun(memory, target.path);
-    if (latestRun.id !== run.id) throw new Error("planning.scheduler.integration-check.run requires the latest SchedulerRun.");
+    assertLatestWorkbenchActionTarget(latestRun, run, "planning.scheduler.integration-check.run", "SchedulerRun");
     await readSchedulerRuntimeLineage(memory, target.path, run.id);
     const runtimeState = await readSchedulerRuntimeStateProjection(memory, target.path, run.id);
     if (!runtimeState?.lastReconcileSnapshotId || !runtimeState.lastClaimReservationId) {
@@ -1116,11 +1092,9 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
     if (!request.schedulerRunId) throw new Error("planning.scheduler.integration-outcome.reconcile requires schedulerRunId.");
     if (!request.schedulerIntegrationCheckHandoffId) throw new Error("planning.scheduler.integration-outcome.reconcile requires schedulerIntegrationCheckHandoffId.");
     const run = await readSchedulerRun(memory, target.path, request.schedulerRunId);
-    if (run.id !== request.schedulerRunId || run.changeId !== changeId || run.status !== "prepared") {
-      throw new Error("planning.scheduler.integration-outcome.reconcile SchedulerRun target is stale or not prepared.");
-    }
+    assertPreparedWorkbenchActionTarget(run, request.schedulerRunId, changeId, "planning.scheduler.integration-outcome.reconcile", "SchedulerRun");
     const latestRun = await readLatestSchedulerRun(memory, target.path);
-    if (latestRun.id !== run.id) throw new Error("planning.scheduler.integration-outcome.reconcile requires the latest SchedulerRun.");
+    assertLatestWorkbenchActionTarget(latestRun, run, "planning.scheduler.integration-outcome.reconcile", "SchedulerRun");
     await readSchedulerRuntimeLineage(memory, target.path, run.id);
     const runtimeState = await readSchedulerRuntimeStateProjection(memory, target.path, run.id);
     if (!runtimeState?.lastReconcileSnapshotId || !runtimeState.lastClaimReservationId) {
@@ -1222,11 +1196,9 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
     if (!request.schedulerClaimReservationId) throw new Error("planning.scheduler.run.close-blocked requires schedulerClaimReservationId.");
     if (!request.schedulerIntegrationCandidateId) throw new Error("planning.scheduler.run.close-blocked requires schedulerIntegrationCandidateId.");
     const run = await readSchedulerRun(memory, target.path, request.schedulerRunId);
-    if (run.id !== request.schedulerRunId || run.changeId !== changeId || run.status !== "prepared") {
-      throw new Error("planning.scheduler.run.close-blocked SchedulerRun target is stale or not prepared.");
-    }
+    assertPreparedWorkbenchActionTarget(run, request.schedulerRunId, changeId, "planning.scheduler.run.close-blocked", "SchedulerRun");
     const latestRun = await readLatestSchedulerRun(memory, target.path);
-    if (latestRun.id !== run.id) throw new Error("planning.scheduler.run.close-blocked requires the latest SchedulerRun.");
+    assertLatestWorkbenchActionTarget(latestRun, run, "planning.scheduler.run.close-blocked", "SchedulerRun");
     const runtimeState = await readSchedulerRuntimeStateProjection(memory, target.path, run.id);
     if (!runtimeState?.lastReconcileSnapshotId || !runtimeState.lastClaimReservationId) {
       throw new Error("planning.scheduler.run.close-blocked requires runtime state with latest reconcile snapshot and claim reservation.");

@@ -50,7 +50,7 @@ import { getLatestAuditSummary, listAuditResults, readAuditResult } from "../../
 import { createWorktree as createWorktreeFacade, getWorktreeStatus as getWorktreeStatusFacade, listWorktreeStatuses as listWorktreeStatusesFacade, removeWorktree as removeWorktreeFacade } from "../../src/worktree/manager.js";
 import { readTopicThreadLog } from "../../src/workbench/thread-log.js";
 import { runWorkbenchWorkflowActionService } from "../../src/workbench/actions/service.js";
-import { assertLatestWorkbenchActionTarget, assertWorkbenchActionChangeScope } from "../../src/workbench/actions/active-target.js";
+import { assertLatestWorkbenchActionTarget, assertPreparedWorkbenchActionTarget, assertWorkbenchActionChangeScope } from "../../src/workbench/actions/active-target.js";
 import { assertWorkflowActionScope } from "../../src/workbench/actions/boundary.js";
 import { dispatchWorkbenchWorkflowAction } from "../../src/workbench/actions/dispatcher.js";
 import { buildWorkbenchActionHandlers } from "../../src/workbench/actions/handlers/index.js";
@@ -1718,15 +1718,47 @@ describe("Workbench module boundaries", () => {
       "SchedulerRun",
     )).not.toThrow();
 
+    expect(() => assertPreparedWorkbenchActionTarget(
+      { id: "older-run", changeId: "current-change", status: "prepared" },
+      "current-run",
+      "current-change",
+      "planning.scheduler.runtime.initialize",
+      "SchedulerRun",
+    )).toThrow("planning.scheduler.runtime.initialize SchedulerRun target is stale or not prepared.");
+    expect(() => assertPreparedWorkbenchActionTarget(
+      { id: "current-run", changeId: "other-change", status: "prepared" },
+      "current-run",
+      "current-change",
+      "planning.scheduler.runtime.initialize",
+      "SchedulerRun",
+    )).toThrow("planning.scheduler.runtime.initialize SchedulerRun target is stale or not prepared.");
+    expect(() => assertPreparedWorkbenchActionTarget(
+      { id: "current-run", changeId: "current-change", status: "completed" },
+      "current-run",
+      "current-change",
+      "planning.scheduler.runtime.initialize",
+      "SchedulerRun",
+    )).toThrow("planning.scheduler.runtime.initialize SchedulerRun target is stale or not prepared.");
+    expect(() => assertPreparedWorkbenchActionTarget(
+      { id: "current-run", changeId: "current-change", status: "prepared" },
+      "current-run",
+      "current-change",
+      "planning.scheduler.runtime.initialize",
+      "SchedulerRun",
+    )).not.toThrow();
+
     const helper = readFileSync("src/workbench/actions/active-target.ts", "utf8");
     expect(helper).toContain("assertWorkbenchActionChangeScope");
     expect(helper).toContain("assertLatestWorkbenchActionTarget");
+    expect(helper).toContain("assertPreparedWorkbenchActionTarget");
     expect(helper).not.toMatch(/scheduler-runtime|goal-loop|ToolPolicy|server\/|web\/src|repository/);
 
     const boundary = readFileSync("src/workbench/actions/boundary.ts", "utf8");
     expect(boundary).toContain('from "./active-target.js"');
     expect(boundary).toContain("assertWorkbenchActionChangeScope(request.changeId, changeId, \"planning.goal-loop.evaluate\")");
     expect(boundary).toContain("assertLatestWorkbenchActionTarget(latestRun, run, \"planning.scheduler.plan.prepare\", \"SchedulerRun\")");
+    expect(boundary).toContain("assertPreparedWorkbenchActionTarget(run, request.schedulerRunId, changeId, request.actionType, \"SchedulerRun\")");
+    expect(boundary).toContain("assertPreparedWorkbenchActionTarget(run, request.schedulerRunId, changeId, \"planning.scheduler.worker.validate-first\", \"SchedulerRun\")");
   });
 
   it("keeps confirmation queue planning copy non-executing and preserves explicit action scope", () => {
