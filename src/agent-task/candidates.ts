@@ -11,6 +11,7 @@ import type {
   MaintenanceLedgerEntry,
   ResolvedMemory,
 } from "../types/index.js";
+import { closeoutReviewKeyForLedgerEntry } from "./closeout-review-identity.js";
 import { TERMINAL_REVIEW_WINDOW } from "./constants.js";
 import { checkDocBudgets } from "./doc-budget.js";
 import { listMaintenanceLedgerEntries } from "./ledger.js";
@@ -125,18 +126,8 @@ export async function runMaintenanceCandidatePipeline(memory: ResolvedMemory): P
 }
 
 function isReviewedCloseoutLedgerEntry(entry: MaintenanceLedgerEntry, reviewedCloseoutKeys: ReadonlySet<string>): boolean {
-  if (entry.eventType !== "change-closeout" || !entry.changeId) return false;
-  const terminalKind = inferCloseoutTerminalKind(entry);
-  if (!terminalKind) return false;
-  return reviewedCloseoutKeys.has(`${entry.changeId}:${terminalKind}`);
-}
-
-function inferCloseoutTerminalKind(entry: MaintenanceLedgerEntry): DemandMemoryCloseout["terminalKind"] | null {
-  if (/^archived closeout recorded:/i.test(entry.summary)) return "archived";
-  if (/^applied closeout recorded:/i.test(entry.summary)) return "applied";
-  if (/^remote-handoff closeout recorded:/i.test(entry.summary)) return "remote-handoff";
-  if (/^merged closeout recorded:/i.test(entry.summary)) return "merged";
-  return null;
+  const reviewKey = closeoutReviewKeyForLedgerEntry(entry);
+  return reviewKey ? reviewedCloseoutKeys.has(reviewKey) : false;
 }
 
 export async function createMaintenanceCandidatesForWindow(memory: ResolvedMemory, closeouts: DemandMemoryCloseout[], ledgerEntries: MaintenanceLedgerEntry[]): Promise<EvolutionCandidate[]> {

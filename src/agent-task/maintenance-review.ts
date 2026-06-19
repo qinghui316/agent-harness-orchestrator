@@ -28,7 +28,8 @@ import {
 import { maintenanceResolutionArtifactRef, resolveMaintenanceCandidate } from "./resolutions.js";
 import { maintenanceReviewRunSchema, watermarkSchema } from "./schemas.js";
 import { listDemandMemoryCloseouts, refreshMaintenanceIndexes } from "./closeout-store.js";
-import { closeoutReviewKey, contentHash, uniqueSorted } from "./utils.js";
+import { closeoutReviewKey } from "./closeout-review-identity.js";
+import { contentHash, uniqueSorted } from "./utils.js";
 
 export async function readMaintenanceReviewWatermark(memory: ResolvedMemory): Promise<MaintenanceReviewWatermark> {
   return readJsonFile(watermarkPath(memory), watermarkSchema, {

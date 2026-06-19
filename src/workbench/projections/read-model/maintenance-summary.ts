@@ -1,4 +1,5 @@
 import { listDemandMemoryCloseouts, listMaintenanceCandidateResolutions, listMaintenanceCanonicalPatchApplicationManifests, listMaintenanceCanonicalPatchApplicationReports, listMaintenanceCanonicalPatchApplicationResults, listMaintenanceCanonicalPatchProposals, listMaintenanceCanonicalUpdateProposals, listMaintenanceLedgerEntries, readMaintenanceReviewWatermark } from "../../../agent-task/manager.js";
+import { closeoutReviewKey } from "../../../agent-task/closeout-review-identity.js";
 import type { DemandMemoryCloseout, MaintenanceCandidateResolution, MaintenanceCanonicalPatchApplicationManifest, MaintenanceCanonicalPatchApplicationReport, MaintenanceCanonicalPatchApplicationResult, MaintenanceCanonicalPatchProposal, MaintenanceCanonicalUpdateProposal, MaintenanceLedgerEntry, ResolvedMemory } from "../../../types/index.js";
 import type { WorkbenchMaintenanceSummary } from "../../read-model-types.js";
 import { latestByCreatedAt, projectFields } from "./projection-summary.js";
@@ -69,7 +70,7 @@ export async function buildMaintenanceSummary(memory: ResolvedMemory): Promise<W
   const watermark = await readMaintenanceReviewWatermark(memory).catch(() => null);
   const latest = latestMaintenanceEntry(entries);
   const reviewed = new Set(watermark?.lastReviewedChangeIds ?? []);
-  const unreviewed = closeouts.filter((closeout) => !reviewed.has(`${closeout.changeId}:${closeout.terminalKind}`)).length;
+  const unreviewed = closeouts.filter((closeout) => !reviewed.has(closeoutReviewKey(closeout))).length;
   const latestCloseout = latestCloseoutEntry(closeouts);
   const latestResolution = latestResolutionEntry(resolutions);
   const latestProposal = latestCanonicalUpdateProposal(proposals);

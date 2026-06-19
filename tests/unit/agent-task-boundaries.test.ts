@@ -21,6 +21,7 @@ import { renderMaintenanceMarkdownList } from "../../src/agent-task/maintenance-
 import { candidateSchema, canonicalUpdateProposalSchema, resolutionSchema } from "../../src/agent-task/schemas.js";
 import { buildCanonicalPatchTargetDescriptor } from "../../src/agent-task/canonical-patch-targets.js";
 import { isMaintenanceCandidateSourceEvent, isMaintenanceDerivedSummaryEvent } from "../../src/agent-task/ledger-event-policy.js";
+import { closeoutReviewKey, closeoutReviewKeyForLedgerEntry } from "../../src/agent-task/closeout-review-identity.js";
 import { normalizeDocsDriftCandidates } from "../../src/agent-task/closeout-store.js";
 import type { CandidateReview, CandidateScore, EvolutionCandidate, ManagedProject } from "../../src/types/index.js";
 import type {
@@ -1596,6 +1597,44 @@ describe("AgentTask domain boundaries", () => {
     expect(isMaintenanceCandidateSourceEvent("canonical-patch-application-report")).toBe(false);
     expect(isMaintenanceDerivedSummaryEvent("maintenance-review")).toBe(true);
     expect(isMaintenanceDerivedSummaryEvent("change-closeout")).toBe(false);
+  });
+
+  it("derives closeout review identity from closeout records and known ledger summaries", () => {
+    expect(closeoutReviewKey({ changeId: "closeout-a", terminalKind: "archived" })).toBe("closeout-a:archived");
+    expect(closeoutReviewKeyForLedgerEntry({
+      eventType: "change-closeout",
+      changeId: "closeout-a",
+      summary: "archived closeout recorded: Archived demand",
+    })).toBe("closeout-a:archived");
+    expect(closeoutReviewKeyForLedgerEntry({
+      eventType: "change-closeout",
+      changeId: "closeout-b",
+      summary: "applied closeout recorded: Applied demand",
+    })).toBe("closeout-b:applied");
+    expect(closeoutReviewKeyForLedgerEntry({
+      eventType: "change-closeout",
+      changeId: "closeout-c",
+      summary: "remote-handoff closeout recorded: Remote handoff demand",
+    })).toBe("closeout-c:remote-handoff");
+    expect(closeoutReviewKeyForLedgerEntry({
+      eventType: "change-closeout",
+      changeId: "closeout-d",
+      summary: "merged closeout recorded: Merged demand",
+    })).toBe("closeout-d:merged");
+    expect(closeoutReviewKeyForLedgerEntry({
+      eventType: "change-closeout",
+      changeId: "closeout-e",
+      summary: "unknown closeout recorded: Unknown demand",
+    })).toBeNull();
+    expect(closeoutReviewKeyForLedgerEntry({
+      eventType: "doc-drift",
+      changeId: "closeout-f",
+      summary: "archived closeout recorded: Not a closeout event",
+    })).toBeNull();
+    expect(closeoutReviewKeyForLedgerEntry({
+      eventType: "change-closeout",
+      summary: "archived closeout recorded: Missing change id",
+    })).toBeNull();
   });
 
   it("does not create maintenance candidates from canonical maintenance evidence ledger entries", async () => {

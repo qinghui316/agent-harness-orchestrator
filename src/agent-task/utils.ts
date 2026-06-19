@@ -1,5 +1,3 @@
-import type { DemandMemoryCloseout } from "../types/index.js";
-
 export function inferAffectedModules(files: string[]): string[] {
   return uniqueSorted(files.map((file) => file.replace(/\\/g, "/").split("/")[0]).filter(Boolean));
 }
@@ -16,10 +14,6 @@ export function estimateWordCount(text: string): number {
 
 export function uniqueSorted(values: string[]): string[] {
   return [...new Set(values.filter((value) => value.trim().length > 0))].sort();
-}
-
-export function closeoutReviewKey(closeout: DemandMemoryCloseout): string {
-  return `${closeout.changeId}:${closeout.terminalKind}`;
 }
 
 export function safeSegment(value: string): string {
