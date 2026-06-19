@@ -3,6 +3,7 @@ import { appendFile, mkdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { MaintenanceLedgerEntry, MaintenanceLedgerEventType, ResolvedMemory } from "../types/index.js";
 import { buildMaintenanceArtifactRefsForStore, type MaintenanceArtifactStore } from "./maintenance-artifact-store.js";
+import { buildMaintenanceLedgerEventSummary } from "./ledger-event-policy.js";
 import { maintenanceRoot } from "./paths.js";
 import { ledgerSchema } from "./schemas.js";
 
@@ -80,5 +81,15 @@ export async function ensureMaintenanceLedgerEntryForStoreArtifact<T extends { c
     summary: input.summary,
     ...(input.changeId ? { changeId: input.changeId } : {}),
     artifactRefs: refs.ledgerArtifactRefs,
+  });
+}
+
+export async function ensureMaintenancePolicyLedgerEntryForStoreArtifact<T extends { createdAt: string }>(
+  memory: ResolvedMemory,
+  input: EnsureMaintenanceLedgerEntryForStoreArtifactInput<T>,
+): Promise<MaintenanceLedgerEntry> {
+  return ensureMaintenanceLedgerEntryForStoreArtifact(memory, {
+    ...input,
+    summary: buildMaintenanceLedgerEventSummary(input.eventType, input.summary),
   });
 }

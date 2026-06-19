@@ -34,7 +34,7 @@ import {
   maintenanceCanonicalUpdateProposalsRoot,
   maintenanceResolutionPath,
 } from "./paths.js";
-import { ensureMaintenanceLedgerEntryForStoreArtifact } from "./ledger.js";
+import { ensureMaintenancePolicyLedgerEntryForStoreArtifact } from "./ledger.js";
 import { renderMaintenanceMarkdownDetailItem, renderMaintenanceMarkdownList } from "./maintenance-markdown.js";
 import { buildCanonicalPatchTargetDescriptor } from "./canonical-patch-targets.js";
 import { formatCanonicalPatchTargetDescriptor } from "./canonical-patch-target-boundary.js";
@@ -394,11 +394,11 @@ async function ensureCanonicalUpdateProposalLedgerEntry(
   memory: ResolvedMemory,
   proposal: MaintenanceCanonicalUpdateProposal,
 ): Promise<void> {
-  await ensureMaintenanceLedgerEntryForStoreArtifact(memory, {
+  await ensureMaintenancePolicyLedgerEntryForStoreArtifact(memory, {
     store: canonicalUpdateProposalStore,
     id: proposal.id,
     eventType: "canonical-update-proposal",
-    summary: `${proposal.summary} This ledger entry is evidence only and does not authorize canonical rewrites.`,
+    summary: proposal.summary,
   });
 }
 
@@ -406,11 +406,11 @@ async function ensureCanonicalUpdateDecisionLedgerEntry(
   memory: ResolvedMemory,
   decision: MaintenanceCanonicalUpdateDecision,
 ): Promise<void> {
-  await ensureMaintenanceLedgerEntryForStoreArtifact(memory, {
+  await ensureMaintenancePolicyLedgerEntryForStoreArtifact(memory, {
     store: canonicalUpdateDecisionStore,
     id: decision.id,
     eventType: "canonical-update-decision",
-    summary: `${decision.summary} This ledger entry is evidence only and does not authorize canonical rewrites.`,
+    summary: decision.summary,
   });
 }
 
@@ -418,11 +418,11 @@ async function ensureCanonicalPatchProposalLedgerEntry(
   memory: ResolvedMemory,
   patchProposal: MaintenanceCanonicalPatchProposal,
 ): Promise<void> {
-  await ensureMaintenanceLedgerEntryForStoreArtifact(memory, {
+  await ensureMaintenancePolicyLedgerEntryForStoreArtifact(memory, {
     store: canonicalPatchProposalStore,
     id: patchProposal.id,
     eventType: "canonical-patch-proposal",
-    summary: `${patchProposal.summary} This ledger entry is evidence only and does not authorize canonical application.`,
+    summary: patchProposal.summary,
   });
 }
 
@@ -430,11 +430,11 @@ async function ensureCanonicalPatchApplicationGateLedgerEntry(
   memory: ResolvedMemory,
   gateRecord: MaintenanceCanonicalPatchApplicationGateRecord,
 ): Promise<void> {
-  await ensureMaintenanceLedgerEntryForStoreArtifact(memory, {
+  await ensureMaintenancePolicyLedgerEntryForStoreArtifact(memory, {
     store: canonicalPatchApplicationGateRecordStore,
     id: gateRecord.id,
     eventType: "canonical-patch-application-gate",
-    summary: `${gateRecord.summary} This ledger entry is evidence only and does not authorize canonical mutation.`,
+    summary: gateRecord.summary,
   });
 }
 

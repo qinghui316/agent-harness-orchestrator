@@ -27,7 +27,7 @@ import { formatCanonicalPatchTargetDescriptor } from "../../src/agent-task/canon
 import { renderMaintenanceMarkdownDetailItem, renderMaintenanceMarkdownList } from "../../src/agent-task/maintenance-markdown.js";
 import { candidateSchema, canonicalUpdateProposalSchema, resolutionSchema } from "../../src/agent-task/schemas.js";
 import { buildCanonicalPatchTargetDescriptor } from "../../src/agent-task/canonical-patch-targets.js";
-import { isMaintenanceCandidateSourceEvent, isMaintenanceDerivedSummaryEvent } from "../../src/agent-task/ledger-event-policy.js";
+import { buildMaintenanceLedgerEventSummary, isMaintenanceCandidateSourceEvent, isMaintenanceDerivedSummaryEvent } from "../../src/agent-task/ledger-event-policy.js";
 import { closeoutReviewKey, closeoutReviewKeyForLedgerEntry } from "../../src/agent-task/closeout-review-identity.js";
 import { normalizeDocsDriftCandidates } from "../../src/agent-task/closeout-store.js";
 import type { CandidateReview, CandidateScore, EvolutionCandidate, ManagedProject } from "../../src/types/index.js";
@@ -998,6 +998,10 @@ describe("AgentTask domain boundaries", () => {
     ]);
     expect(resultLedgerEntries).toHaveLength(1);
     expect(resultLedgerEntry?.artifactRefs[0]).toBe(maintenanceCanonicalPatchApplicationResultArtifactRef(memory, result.id));
+    expect(resultLedgerEntry?.summary).toBe(buildMaintenanceLedgerEventSummary(
+      "canonical-patch-application-result",
+      result.summary,
+    ));
     expect(resultLedgerEntry?.artifactRefs.slice(0, 2)).toEqual([
       maintenanceCanonicalPatchApplicationResultArtifactRef(memory, result.id),
       expect.stringMatching(new RegExp(`maintenance/canonical-patch-application-results/${result.id}\\.md$`)),
@@ -1126,6 +1130,10 @@ describe("AgentTask domain boundaries", () => {
     expect(reportLedgerEntry).toBeTruthy();
     expect(reportLedgerEntries).toHaveLength(1);
     expect(reportLedgerEntry?.artifactRefs[0]).toBe(maintenanceCanonicalPatchApplicationReportArtifactRef(memory, report.id));
+    expect(reportLedgerEntry?.summary).toBe(buildMaintenanceLedgerEventSummary(
+      "canonical-patch-application-report",
+      report.summary,
+    ));
     expect(reportLedgerEntry?.artifactRefs.slice(0, 2)).toEqual([
       maintenanceCanonicalPatchApplicationReportArtifactRef(memory, report.id),
       expect.stringMatching(new RegExp(`maintenance/canonical-patch-application-reports/${report.id}\\.md$`)),
@@ -1664,6 +1672,18 @@ describe("AgentTask domain boundaries", () => {
     expect(isMaintenanceCandidateSourceEvent("canonical-patch-application-report")).toBe(false);
     expect(isMaintenanceDerivedSummaryEvent("maintenance-review")).toBe(true);
     expect(isMaintenanceDerivedSummaryEvent("change-closeout")).toBe(false);
+    expect(buildMaintenanceLedgerEventSummary("canonical-update-proposal", "Update proposal.")).toBe("Update proposal. This ledger entry is evidence only and does not authorize canonical rewrites.");
+    expect(buildMaintenanceLedgerEventSummary("canonical-update-decision", "Update decision.")).toBe("Update decision. This ledger entry is evidence only and does not authorize canonical rewrites.");
+    expect(buildMaintenanceLedgerEventSummary("canonical-patch-proposal", "Patch proposal.")).toBe("Patch proposal. This ledger entry is evidence only and does not authorize canonical application.");
+    expect(buildMaintenanceLedgerEventSummary("canonical-patch-application-gate", "Gate record.")).toBe("Gate record. This ledger entry is evidence only and does not authorize canonical mutation.");
+    expect(buildMaintenanceLedgerEventSummary("canonical-patch-application-manifest", "Manifest.")).toBe("Manifest. This ledger entry is evidence only and does not authorize canonical mutation.");
+    expect(buildMaintenanceLedgerEventSummary("canonical-patch-application-result", "Application result.")).toBe("Application result. This ledger entry records a human-gated canonical patch application result and must not feed new maintenance candidates.");
+    expect(buildMaintenanceLedgerEventSummary("canonical-patch-application-report", "Observation report.")).toBe("Observation report. This ledger entry records read-only observation evidence and must not feed new maintenance candidates or rewrite triggers.");
+    expect(buildMaintenanceLedgerEventSummary("doc-drift", "Raw doc drift.")).toBe("Raw doc drift.");
+    expect(buildMaintenanceLedgerEventSummary(
+      "canonical-patch-application-report",
+      "Observation report. This ledger entry records read-only observation evidence and must not feed new maintenance candidates or rewrite triggers.",
+    )).toBe("Observation report. This ledger entry records read-only observation evidence and must not feed new maintenance candidates or rewrite triggers.");
   });
 
   it("derives closeout review identity from closeout records and known ledger summaries", () => {

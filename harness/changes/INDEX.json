@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-19T08:56:57.9938562Z",
+    "generated_at":  "2026-06-19T09:16:51.6996755Z",
     "active":  [
 
                ],
@@ -1209,6 +1209,10 @@
                     {
                         "name":  "20260619-maintenance-canonical-ledger-idempotency-reuse",
                         "path":  "harness/changes/archive/20260619-maintenance-canonical-ledger-idempotency-reuse"
+                    },
+                    {
+                        "name":  "20260619-maintenance-canonical-ledger-summary-policy-reuse",
+                        "path":  "harness/changes/archive/20260619-maintenance-canonical-ledger-summary-policy-reuse"
                     },
                     {
                         "name":  "20260619-maintenance-canonical-patch-application-authority-helper-reuse",

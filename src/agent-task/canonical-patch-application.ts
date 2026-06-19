@@ -10,7 +10,7 @@ import type {
   MaintenanceCanonicalPatchTargetDescriptor,
   ResolvedMemory,
 } from "../types/index.js";
-import { ensureMaintenanceLedgerEntryForStoreArtifact } from "./ledger.js";
+import { ensureMaintenancePolicyLedgerEntryForStoreArtifact } from "./ledger.js";
 import { renderMaintenanceMarkdownDetailItem, renderMaintenanceMarkdownList } from "./maintenance-markdown.js";
 import {
   buildMaintenanceArtifactRefListForStores,
@@ -441,11 +441,11 @@ async function ensureCanonicalPatchApplicationResultLedgerEntry(
   memory: ResolvedMemory,
   result: MaintenanceCanonicalPatchApplicationResult,
 ): Promise<void> {
-  await ensureMaintenanceLedgerEntryForStoreArtifact(memory, {
+  await ensureMaintenancePolicyLedgerEntryForStoreArtifact(memory, {
     store: canonicalPatchApplicationResultStore,
     id: result.id,
     eventType: "canonical-patch-application-result",
-    summary: `${result.summary} This ledger entry records a human-gated canonical patch application result and must not feed new maintenance candidates.`,
+    summary: result.summary,
   });
 }
 
@@ -453,11 +453,11 @@ async function ensureCanonicalPatchApplicationManifestLedgerEntry(
   memory: ResolvedMemory,
   manifest: MaintenanceCanonicalPatchApplicationManifest,
 ): Promise<void> {
-  await ensureMaintenanceLedgerEntryForStoreArtifact(memory, {
+  await ensureMaintenancePolicyLedgerEntryForStoreArtifact(memory, {
     store: canonicalPatchApplicationManifestStore,
     id: manifest.id,
     eventType: "canonical-patch-application-manifest",
-    summary: `${manifest.summary} This ledger entry is evidence only and does not authorize canonical mutation.`,
+    summary: manifest.summary,
   });
 }
 
