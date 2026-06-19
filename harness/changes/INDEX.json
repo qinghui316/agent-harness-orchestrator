@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-19T17:15:22.4707127Z",
+    "generated_at":  "2026-06-19T18:24:23.6898517Z",
     "active":  [
 
                ],
@@ -1377,6 +1377,10 @@
                     {
                         "name":  "20260620-auto-evolve-harness-workbench-test-architecture-granularity-window",
                         "path":  "harness/changes/archive/20260620-auto-evolve-harness-workbench-test-architecture-granularity-window"
+                    },
+                    {
+                        "name":  "20260620-workbench-test-architecture-apply-integration-slow-suite-split",
+                        "path":  "harness/changes/archive/20260620-workbench-test-architecture-apply-integration-slow-suite-split"
                     },
                     {
                         "name":  "20260620-workbench-test-architecture-demand-worker-unit-domain-split",

@@ -20,7 +20,6 @@ import { getWorkbenchDecompositionPlanProjection, getWorkbenchDecompositionReadi
 import { attachGoalLoopAssistedConcreteGateActions, attachGoalLoopControllerRefreshActions, attachGoalLoopFeedbackActions, attachGoalLoopGateReadinessActions } from "../../src/workbench/projections/read-model/confirmation/goal-loop.js";
 import { WorkbenchStore } from "../../src/workbench/store.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
-import { collectWorktreeDiff } from "../../src/audit/diff.js";
 import {
   buildRoleScopedContextProjection,
   completeAgentTask,
@@ -49,7 +48,8 @@ import { buildDelegateTaskManifest, validateDelegateTaskPolicy } from "../../src
 import { findBoundaryViolations } from "../../src/agent-task/boundary-audit.js";
 import { dispatchForegroundRoleTask } from "../../src/agent-task/role-dispatcher.js";
 import { evaluateToolPolicy, workerPermissionProfileForRole } from "../../src/agent-task/tool-policy.js";
-import { createWorktree, listWorktreeStatuses } from "../../src/worktree/manager.js";
+import { writeRawActiveChange } from "./workbench/change-fixtures.js";
+import { listWorktreeStatuses } from "../../src/worktree/manager.js";
 import { classifyPrFeedbackSnapshotData } from "../../src/pr-feedback/manager.js";
 import { listTaskQueueItems, listTaskQueues, pauseTaskQueue, reconcileTaskQueues, startOrResumeTaskQueue } from "../../src/task-queue/manager.js";
 import { finishTaskRunFromWorkflowResult, listTaskRuns, listWorkerLeases, markTaskRunStarted } from "../../src/task-run/manager.js";
@@ -1933,7 +1933,7 @@ describe("workbench read model", () => {
     });
     await writeCoderRun("selected-blocked-workpad", "run-selected-1", ["T-001"], "wt-selected-1", "completed", "taskrun-selected-1");
 
-    await writeRawActiveChange("background-running-workpad", "Background Running Workpad");
+    await writeRawActiveChange(tempDir, "background-running-workpad", "Background Running Workpad");
     await writeAcceptedSpecAndTasks("background-running-workpad");
     await writeCoderRun("background-running-workpad", "run-background-1", ["T-001"], "wt-background-1", "running");
 
@@ -3822,419 +3822,23 @@ describe("workbench read model", () => {
     ]));
   });
 
-  it("projects result review and applies a reviewed worktree through one user decision", async () => {
-    const oldAhoHome = process.env.AHO_HOME;
-    process.env.AHO_HOME = join(tempDir, ".aho-home");
-    try {
-      await initGitRepository(tempDir);
-      await writeFile(join(tempDir, ".gitignore"), ".aho-home/\n.agent-harness/\nharness/\nAGENTS.md\ndocs/\nscripts/\n", "utf8");
-      await writeFile(join(tempDir, "package.json"), "{\"scripts\":{\"test\":\"node -e \\\"process.exit(0)\\\"\"}}\n", "utf8");
-      await git(tempDir, ["add", "."]);
-      await git(tempDir, ["commit", "-m", "initial"]);
-      await initHarness(project());
-      await createChange(project(), { title: "Result Review Demand" });
-      await writeAcceptedSpecAndTasks("result-review-demand");
-      const memory = await resolveProjectMemory(project());
-      const worktree = await createWorktree(project(), memory, "result-review-demand");
-      await writeFile(join(worktree.metadata.checkoutPath, "package.json"), "{\"scripts\":{\"test\":\"node -e \\\"console.log('ok')\\\"\"}}\n", "utf8");
-      const diff = await collectWorktreeDiff(memory, worktree.metadata.worktreeId, "result-review-demand");
-      await writeValidationResultWithHash("result-review-demand", "run-validation-review", worktree.metadata.worktreeId, diff.diffHash, "passed");
-      await writeAuditResultWithHash("result-review-demand", "run-audit-review", worktree.metadata.worktreeId, diff.diffHash, "approved-with-notes");
 
-      const beforeApply = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: "result-review-demand" });
-      expect(beforeApply.center.workpad.resultReview).toMatchObject({
-        status: "ready-to-apply",
-        worktreeId: worktree.metadata.worktreeId,
-        validation: expect.objectContaining({ status: "passed" }),
-        audit: expect.objectContaining({ status: "approved-with-notes" }),
-      });
-      const applyApproval = beforeApply.right.decisionInspector.primary;
-      expect(applyApproval).toMatchObject({ kind: "apply-gate" });
-      expect(applyApproval?.actions.find((action) => action.kind === "approval")?.action).toMatchObject({
-        actionId: "result.apply",
-        args: ["apply", "", "result-review-demand", worktree.metadata.worktreeId],
-      });
 
-      const resultApplyAction = applyApproval?.actions.find((action) => action.action?.actionId === "result.apply")?.action;
-      if (!resultApplyAction) throw new Error("Missing result.apply action.");
-      const applied = await executeWorkbenchAction({ project: project(), path: tempDir }, {
-        action: resultApplyAction,
-        confirm: true,
-      });
 
-      expect(applied.result).toMatchObject({
-        result: {
-          apply: expect.objectContaining({ status: "applied", committed: false }),
-          auditAccepted: expect.objectContaining({ auditId: "run-audit-review" }),
-        },
-        finalization: expect.objectContaining({ status: "not-archived" }),
-      });
-      const afterApply = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: "result-review-demand" });
-      expect(afterApply.center.workpad.resultReview).toMatchObject({ status: "applied-source-dirty" });
-      expect(afterApply.center.selectedTopic?.state).toBe("active");
-    } finally {
-      if (oldAhoHome === undefined) delete process.env.AHO_HOME;
-      else process.env.AHO_HOME = oldAhoHome;
-    }
-  });
 
-  it("auto-finalizes the applied result's scoped Change when multiple demands are active", async () => {
-    const oldAhoHome = process.env.AHO_HOME;
-    process.env.AHO_HOME = join(tempDir, ".aho-home");
-    try {
-      await initGitRepository(tempDir);
-      await writeFile(join(tempDir, ".gitignore"), ".aho-home/\n.agent-harness/\nharness/\nAGENTS.md\ndocs/\nscripts/\n", "utf8");
-      await writeFile(join(tempDir, "package.json"), "{\"scripts\":{\"test\":\"node -e \\\"process.exit(0)\\\"\"}}\n", "utf8");
-      await git(tempDir, ["add", "."]);
-      await git(tempDir, ["commit", "-m", "initial"]);
-      await initHarness(project());
-      await createChange(project(), { title: "Finalize Target" });
-      await createWorkbenchTopic(project(), { title: "Other Active Demand", body: "Keep open." });
-      await writeAcceptedSpecAndTasks("finalize-target");
-      const memory = await resolveProjectMemory(project());
-      const worktree = await createWorktree(project(), memory, "finalize-target");
-      await writeFile(join(worktree.metadata.checkoutPath, "package.json"), "{\"scripts\":{\"test\":\"node -e \\\"console.log('finalize')\\\"\"}}\n", "utf8");
-      const diff = await collectWorktreeDiff(memory, worktree.metadata.worktreeId, "finalize-target");
-      await writeValidationResultWithHash("finalize-target", "run-validation-finalize", worktree.metadata.worktreeId, diff.diffHash, "passed");
-      await writeAuditResultWithHash("finalize-target", "run-audit-finalize", worktree.metadata.worktreeId, diff.diffHash, "approved");
 
-      const snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: "finalize-target" });
-      const applyAction = snapshot.right.decisionInspector.primary?.actions.find((action) => action.action?.actionId === "result.apply")?.action;
-      if (!applyAction) throw new Error("Missing result.apply action.");
-      const applied = await executeWorkbenchAction({ project: project(), path: tempDir }, {
-        action: applyAction,
-        confirm: true,
-        options: { commit: true, message: "Apply finalize target" },
-      });
-      const topics = await listWorkbenchTopics(project());
 
-      expect(applied.result).toMatchObject({
-        finalization: expect.objectContaining({ status: "archived", changeId: "finalize-target" }),
-      });
-      expect(topics.find((topic) => topic.id === "finalize-target")).toMatchObject({ state: "archive" });
-      expect(topics.find((topic) => topic.id === "other-active-demand")).toMatchObject({ state: "active" });
-    } finally {
-      if (oldAhoHome === undefined) delete process.env.AHO_HOME;
-      else process.env.AHO_HOME = oldAhoHome;
-    }
-  });
 
-  it("scopes result review apply decisions to the selected demand worktree", async () => {
-    const oldAhoHome = process.env.AHO_HOME;
-    process.env.AHO_HOME = join(tempDir, ".aho-home");
-    try {
-      await initGitRepository(tempDir);
-      await writeFile(join(tempDir, ".gitignore"), ".aho-home/\n.agent-harness/\nharness/\nAGENTS.md\ndocs/\nscripts/\n", "utf8");
-      await writeFile(join(tempDir, "package.json"), "{\"scripts\":{\"test\":\"node -e \\\"process.exit(0)\\\"\"}}\n", "utf8");
-      await git(tempDir, ["add", "."]);
-      await git(tempDir, ["commit", "-m", "initial"]);
-      await initHarness(project());
-      await writeRawActiveChange("demand-a", "Demand A");
-      await writeRawActiveChange("demand-b", "Demand B");
-      await writeAcceptedSpecAndTasks("demand-a");
-      await writeAcceptedSpecAndTasks("demand-b");
-      const memory = await resolveProjectMemory(project());
-      const worktreeB = await createWorktree(project(), memory, "demand-b");
-      await writeFile(join(worktreeB.metadata.checkoutPath, "package.json"), "{\"scripts\":{\"test\":\"node -e \\\"console.log('b')\\\"\"}}\n", "utf8");
-      const diffB = await collectWorktreeDiff(memory, worktreeB.metadata.worktreeId, "demand-b");
-      await writeValidationResultWithHash("demand-b", "run-validation-b", worktreeB.metadata.worktreeId, diffB.diffHash, "passed");
-      await writeAuditResultWithHash("demand-b", "run-audit-b", worktreeB.metadata.worktreeId, diffB.diffHash, "approved-with-notes");
 
-      const snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: "demand-b" });
-      const applyAction = snapshot.right.decisionInspector.primary?.actions.find((action) => action.action?.actionId === "result.apply")?.action;
 
-      expect(snapshot.center.selectedTopic?.id).toBe("demand-b");
-      expect(snapshot.center.workpad.resultReview).toMatchObject({
-        status: "ready-to-apply",
-        worktreeId: worktreeB.metadata.worktreeId,
-        applyReadiness: expect.objectContaining({ kind: "ready" }),
-      });
-      expect(applyAction).toMatchObject({
-        actionId: "result.apply",
-        args: ["apply", "", "demand-b", worktreeB.metadata.worktreeId],
-      });
-    } finally {
-      if (oldAhoHome === undefined) delete process.env.AHO_HOME;
-      else process.env.AHO_HOME = oldAhoHome;
-    }
-  });
 
-  it("projects multiple ready results into a confirmation queue integration check", async () => {
-    const oldAhoHome = process.env.AHO_HOME;
-    process.env.AHO_HOME = join(tempDir, ".aho-home");
-    try {
-      await initGitRepository(tempDir);
-      await writeFile(join(tempDir, ".gitignore"), ".aho-home/\n.agent-harness/\nharness/\nAGENTS.md\ndocs/\nscripts/\n", "utf8");
-      await writeFile(join(tempDir, "package.json"), "{\"scripts\":{\"test\":\"node -e \\\"process.exit(0)\\\"\"}}\n", "utf8");
-      await writeFile(join(tempDir, "pricing.ts"), "export const base = 1;\n", "utf8");
-      await git(tempDir, ["add", "."]);
-      await git(tempDir, ["commit", "-m", "initial"]);
-      await initHarness(project());
-      await writeRawActiveChange("demand-a", "Demand A");
-      await writeRawActiveChange("demand-b", "Demand B");
-      await writeAcceptedSpecAndTasks("demand-a");
-      await writeAcceptedSpecAndTasks("demand-b");
-      const memory = await resolveProjectMemory(project());
-      const worktreeA = await createWorktree(project(), memory, "demand-a");
-      await writeFile(join(worktreeA.metadata.checkoutPath, "a.txt"), "a\n", "utf8");
-      const diffA = await collectWorktreeDiff(memory, worktreeA.metadata.worktreeId, "demand-a");
-      await writeValidationResultWithHash("demand-a", "run-validation-a", worktreeA.metadata.worktreeId, diffA.diffHash, "passed");
-      await writeAuditResultWithHash("demand-a", "run-audit-a", worktreeA.metadata.worktreeId, diffA.diffHash, "approved-with-notes");
-      const worktreeB = await createWorktree(project(), memory, "demand-b");
-      await writeFile(join(worktreeB.metadata.checkoutPath, "b.txt"), "b\n", "utf8");
-      const diffB = await collectWorktreeDiff(memory, worktreeB.metadata.worktreeId, "demand-b");
-      await writeValidationResultWithHash("demand-b", "run-validation-b", worktreeB.metadata.worktreeId, diffB.diffHash, "passed");
-      await writeAuditResultWithHash("demand-b", "run-audit-b", worktreeB.metadata.worktreeId, diffB.diffHash, "approved-with-notes");
 
-      const snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: "demand-a" });
-      expect(snapshot.right.confirmationQueue.primary).toMatchObject({
-        kind: "integration-check",
-        whyNeedsConfirmation: "多个结果都已准备好应用。",
-      });
-      expect(snapshot.right.confirmationQueue.primary?.actions[0]).toMatchObject({
-        actionType: "apply-check.run",
-        worktreeIds: expect.arrayContaining([worktreeA.metadata.worktreeId, worktreeB.metadata.worktreeId]),
-      });
-    } finally {
-      if (oldAhoHome === undefined) delete process.env.AHO_HOME;
-      else process.env.AHO_HOME = oldAhoHome;
-    }
-  });
 
-  it("runs an integration check in a temporary worktree without changing source root", async () => {
-    const oldAhoHome = process.env.AHO_HOME;
-    process.env.AHO_HOME = join(tempDir, ".aho-home");
-    try {
-      await initGitRepository(tempDir);
-      await writeFile(join(tempDir, ".gitignore"), ".aho-home/\n.agent-harness/\nharness/\nAGENTS.md\ndocs/\nscripts/\n", "utf8");
-      await writeFile(join(tempDir, "package.json"), "{\"scripts\":{\"test\":\"node -e \\\"process.exit(0)\\\"\"}}\n", "utf8");
-      await git(tempDir, ["add", "."]);
-      await git(tempDir, ["commit", "-m", "initial"]);
-      await initHarness(project());
-      await writeRawActiveChange("demand-a", "Demand A");
-      await writeRawActiveChange("demand-b", "Demand B");
-      await writeAcceptedSpecAndTasks("demand-a");
-      await writeAcceptedSpecAndTasks("demand-b");
-      const memory = await resolveProjectMemory(project());
-      const worktreeA = await createWorktree(project(), memory, "demand-a");
-      await writeFile(join(worktreeA.metadata.checkoutPath, "a.txt"), "a\n", "utf8");
-      const diffA = await collectWorktreeDiff(memory, worktreeA.metadata.worktreeId, "demand-a");
-      await writeValidationResultWithHash("demand-a", "run-validation-a", worktreeA.metadata.worktreeId, diffA.diffHash, "passed");
-      await writeAuditResultWithHash("demand-a", "run-audit-a", worktreeA.metadata.worktreeId, diffA.diffHash, "approved-with-notes");
-      const worktreeB = await createWorktree(project(), memory, "demand-b");
-      await writeFile(join(worktreeB.metadata.checkoutPath, "b.txt"), "b\n", "utf8");
-      const diffB = await collectWorktreeDiff(memory, worktreeB.metadata.worktreeId, "demand-b");
-      await writeValidationResultWithHash("demand-b", "run-validation-b", worktreeB.metadata.worktreeId, diffB.diffHash, "passed");
-      await writeAuditResultWithHash("demand-b", "run-audit-b", worktreeB.metadata.worktreeId, diffB.diffHash, "approved-with-notes");
 
-      const checked = await executeWorkbenchAction({ project: project(), path: tempDir }, {
-        actionType: "apply-check.run",
-        changeId: "demand-a",
-        worktreeIds: [worktreeA.metadata.worktreeId, worktreeB.metadata.worktreeId],
-        confirm: true,
-      });
-      expect(checked.result).toMatchObject({
-        result: {
-          check: expect.objectContaining({ status: "passed" }),
-        },
-      });
-      expect(existsSync(join(tempDir, "a.txt"))).toBe(false);
-      expect(existsSync(join(tempDir, "b.txt"))).toBe(false);
 
-      const after = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: "demand-a" });
-      expect(after.right.confirmationQueue.primary).toMatchObject({
-        kind: "integration-apply",
-        whyNeedsConfirmation: "兼容性检查已通过，是否应用这些结果需要你确认。",
-      });
-    } finally {
-      if (oldAhoHome === undefined) delete process.env.AHO_HOME;
-      else process.env.AHO_HOME = oldAhoHome;
-    }
-  });
 
-  it("rejects explicit integration check targets when any requested worktree id is forged", async () => {
-    const oldAhoHome = process.env.AHO_HOME;
-    process.env.AHO_HOME = join(tempDir, ".aho-home");
-    try {
-      await initGitRepository(tempDir);
-      await writeFile(join(tempDir, ".gitignore"), ".aho-home/\n.agent-harness/\nharness/\nAGENTS.md\ndocs/\nscripts/\n", "utf8");
-      await writeFile(join(tempDir, "package.json"), "{\"scripts\":{\"test\":\"node -e \\\"process.exit(0)\\\"\"}}\n", "utf8");
-      await git(tempDir, ["add", "."]);
-      await git(tempDir, ["commit", "-m", "initial"]);
-      await initHarness(project());
-      await writeRawActiveChange("demand-a", "Demand A");
-      await writeRawActiveChange("demand-b", "Demand B");
-      await writeAcceptedSpecAndTasks("demand-a");
-      await writeAcceptedSpecAndTasks("demand-b");
-      const memory = await resolveProjectMemory(project());
-      const worktreeA = await createWorktree(project(), memory, "demand-a");
-      await writeFile(join(worktreeA.metadata.checkoutPath, "a.txt"), "a\n", "utf8");
-      const diffA = await collectWorktreeDiff(memory, worktreeA.metadata.worktreeId, "demand-a");
-      await writeValidationResultWithHash("demand-a", "run-validation-a", worktreeA.metadata.worktreeId, diffA.diffHash, "passed");
-      await writeAuditResultWithHash("demand-a", "run-audit-a", worktreeA.metadata.worktreeId, diffA.diffHash, "approved-with-notes");
-      const worktreeB = await createWorktree(project(), memory, "demand-b");
-      await writeFile(join(worktreeB.metadata.checkoutPath, "b.txt"), "b\n", "utf8");
-      const diffB = await collectWorktreeDiff(memory, worktreeB.metadata.worktreeId, "demand-b");
-      await writeValidationResultWithHash("demand-b", "run-validation-b", worktreeB.metadata.worktreeId, diffB.diffHash, "passed");
-      await writeAuditResultWithHash("demand-b", "run-audit-b", worktreeB.metadata.worktreeId, diffB.diffHash, "approved-with-notes");
 
-      const result = await executeWorkbenchAction({ project: project(), path: tempDir }, {
-        actionType: "apply-check.run",
-        changeId: "demand-a",
-        worktreeIds: [worktreeA.metadata.worktreeId, worktreeB.metadata.worktreeId, "forged-worktree"],
-        confirm: true,
-      });
-      expect(result.result.status).toBe("failed");
-      expect(result.result.error).toMatch(/forged-worktree|requested worktree/i);
-      await expect(listIntegrationChecks(memory)).resolves.toHaveLength(0);
-    } finally {
-      if (oldAhoHome === undefined) delete process.env.AHO_HOME;
-      else process.env.AHO_HOME = oldAhoHome;
-    }
-  });
 
-  it("runs integration fix on aggregate validation failure and applies repaired artifact only after confirmation", async () => {
-    const oldAhoHome = process.env.AHO_HOME;
-    process.env.AHO_HOME = join(tempDir, ".aho-home");
-    try {
-      await initGitRepository(tempDir);
-      await writeFile(join(tempDir, ".gitignore"), ".aho-home/\n.agent-harness/\nharness/\nAGENTS.md\ndocs/\nscripts/\n", "utf8");
-      await writeFile(join(tempDir, "package.json"), "{\"scripts\":{\"test\":\"node -e \\\"process.exit(0)\\\"\"}}\n", "utf8");
-      await git(tempDir, ["add", "."]);
-      await git(tempDir, ["commit", "-m", "initial"]);
-      await initHarness(project());
-      await writeRawActiveChange("demand-a", "Demand A");
-      await writeRawActiveChange("demand-b", "Demand B");
-      await writeAcceptedSpecAndTasks("demand-a");
-      await writeAcceptedSpecAndTasks("demand-b");
-      const memory = await resolveProjectMemory(project());
-      const worktreeA = await createWorktree(project(), memory, "demand-a");
-      await writeFile(join(worktreeA.metadata.checkoutPath, "a.txt"), "a\n", "utf8");
-      const diffA = await collectWorktreeDiff(memory, worktreeA.metadata.worktreeId, "demand-a");
-      await writeValidationResultWithHash("demand-a", "run-validation-a", worktreeA.metadata.worktreeId, diffA.diffHash, "passed");
-      await writeAuditResultWithHash("demand-a", "run-audit-a", worktreeA.metadata.worktreeId, diffA.diffHash, "approved-with-notes");
-      const worktreeB = await createWorktree(project(), memory, "demand-b");
-      await writeFile(join(worktreeB.metadata.checkoutPath, "integration-validation-fail.txt"), "temporary aggregate failure marker\n", "utf8");
-      await writeFile(join(worktreeB.metadata.checkoutPath, "b.txt"), "b\n", "utf8");
-      const diffB = await collectWorktreeDiff(memory, worktreeB.metadata.worktreeId, "demand-b");
-      await writeValidationResultWithHash("demand-b", "run-validation-b", worktreeB.metadata.worktreeId, diffB.diffHash, "passed");
-      await writeAuditResultWithHash("demand-b", "run-audit-b", worktreeB.metadata.worktreeId, diffB.diffHash, "approved-with-notes");
-
-      const checked = await executeWorkbenchAction({ project: project(), path: tempDir }, {
-        actionType: "apply-check.run",
-        changeId: "demand-a",
-        worktreeIds: [worktreeA.metadata.worktreeId, worktreeB.metadata.worktreeId],
-        confirm: true,
-      });
-      const check = (checked.result as { result: { check: { id: string; status: string; latestArtifactRef?: string; aggregateValidation?: { status: string }; aggregateAudit?: { status: string }; fixAttempts?: Array<{ status: string }> } } }).result.check;
-      expect(check).toMatchObject({
-        status: "passed",
-        latestArtifactRef: expect.stringContaining("repaired.patch"),
-        aggregateValidation: expect.objectContaining({ status: "passed" }),
-        aggregateAudit: expect.objectContaining({ status: "approved" }),
-      });
-      expect(check.fixAttempts?.[0]).toMatchObject({ status: "completed" });
-      expect(existsSync(join(tempDir, "a.txt"))).toBe(false);
-      expect(existsSync(join(tempDir, "b.txt"))).toBe(false);
-      expect(existsSync(join(tempDir, "integration-validation-fail.txt"))).toBe(false);
-
-      await executeWorkbenchAction({ project: project(), path: tempDir }, {
-        action: {
-          actionId: "apply-check.apply",
-          command: "apply-check",
-          args: ["apply", check.id],
-          label: "确认应用到项目",
-          mutates: true,
-          requiresConfirmation: true,
-        },
-        confirm: true,
-      });
-      expect(existsSync(join(tempDir, "a.txt"))).toBe(true);
-      expect(existsSync(join(tempDir, "b.txt"))).toBe(true);
-      expect(existsSync(join(tempDir, "integration-validation-fail.txt"))).toBe(false);
-    } finally {
-      if (oldAhoHome === undefined) delete process.env.AHO_HOME;
-      else process.env.AHO_HOME = oldAhoHome;
-    }
-  });
-
-  it("classifies source drift as same-demand refresh rework instead of apply", async () => {
-    const oldAhoHome = process.env.AHO_HOME;
-    process.env.AHO_HOME = join(tempDir, ".aho-home");
-    try {
-      await initGitRepository(tempDir);
-      await writeFile(join(tempDir, ".gitignore"), ".aho-home/\n.agent-harness/\nharness/\nAGENTS.md\ndocs/\nscripts/\n", "utf8");
-      await writeFile(join(tempDir, "package.json"), "{\"scripts\":{\"test\":\"node -e \\\"process.exit(0)\\\"\"}}\n", "utf8");
-      await git(tempDir, ["add", "."]);
-      await git(tempDir, ["commit", "-m", "initial"]);
-      await initHarness(project());
-      await createChange(project(), { title: "Source Drift Demand" });
-      await writeAcceptedSpecAndTasks("source-drift-demand");
-      const memory = await resolveProjectMemory(project());
-      const worktree = await createWorktree(project(), memory, "source-drift-demand");
-      await writeFile(join(worktree.metadata.checkoutPath, "package.json"), "{\"scripts\":{\"test\":\"node -e \\\"console.log('drift')\\\"\"}}\n", "utf8");
-      const diff = await collectWorktreeDiff(memory, worktree.metadata.worktreeId, "source-drift-demand");
-      await writeValidationResultWithHash("source-drift-demand", "run-validation-drift", worktree.metadata.worktreeId, diff.diffHash, "passed");
-      await writeAuditResultWithHash("source-drift-demand", "run-audit-drift", worktree.metadata.worktreeId, diff.diffHash, "approved-with-notes");
-      await writeFile(join(tempDir, "README.md"), "Project changed after result review.\n", "utf8");
-      await git(tempDir, ["add", "README.md"]);
-      await git(tempDir, ["commit", "-m", "source changed"]);
-
-      const snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: "source-drift-demand" });
-      const primary = snapshot.right.decisionInspector.primary;
-
-      expect(snapshot.center.workpad.resultReview?.applyReadiness).toMatchObject({
-        kind: "source-drift",
-        message: "项目已变化，需要重新处理这个结果。",
-      });
-      expect(primary).toMatchObject({
-        title: "项目已变化，需要重新处理这个结果。",
-        targetId: worktree.metadata.worktreeId,
-      });
-      expect(primary?.actions.some((action) => action.actionType === "result.refresh-rework")).toBe(true);
-      expect(primary?.actions.some((action) => action.action?.actionId === "result.apply")).toBe(false);
-      expect(JSON.stringify(snapshot.center.workpad.resultReview)).not.toContain("Source HEAD drifted");
-    } finally {
-      if (oldAhoHome === undefined) delete process.env.AHO_HOME;
-      else process.env.AHO_HOME = oldAhoHome;
-    }
-  });
-
-  it("classifies dirty source as refresh status without automatic coder rework", async () => {
-    const oldAhoHome = process.env.AHO_HOME;
-    process.env.AHO_HOME = join(tempDir, ".aho-home");
-    try {
-      await initGitRepository(tempDir);
-      await writeFile(join(tempDir, ".gitignore"), ".aho-home/\n.agent-harness/\nharness/\nAGENTS.md\ndocs/\nscripts/\n", "utf8");
-      await writeFile(join(tempDir, "package.json"), "{\"scripts\":{\"test\":\"node -e \\\"process.exit(0)\\\"\"}}\n", "utf8");
-      await git(tempDir, ["add", "."]);
-      await git(tempDir, ["commit", "-m", "initial"]);
-      await initHarness(project());
-      await createChange(project(), { title: "Dirty Source Demand" });
-      await writeAcceptedSpecAndTasks("dirty-source-demand");
-      const memory = await resolveProjectMemory(project());
-      const worktree = await createWorktree(project(), memory, "dirty-source-demand");
-      await writeFile(join(worktree.metadata.checkoutPath, "package.json"), "{\"scripts\":{\"test\":\"node -e \\\"console.log('dirty')\\\"\"}}\n", "utf8");
-      const diff = await collectWorktreeDiff(memory, worktree.metadata.worktreeId, "dirty-source-demand");
-      await writeValidationResultWithHash("dirty-source-demand", "run-validation-dirty", worktree.metadata.worktreeId, diff.diffHash, "passed");
-      await writeAuditResultWithHash("dirty-source-demand", "run-audit-dirty", worktree.metadata.worktreeId, diff.diffHash, "approved-with-notes");
-      await writeFile(join(tempDir, "README.md"), "Uncommitted local edit.\n", "utf8");
-
-      const snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: "dirty-source-demand" });
-      const primary = snapshot.right.decisionInspector.primary;
-
-      expect(snapshot.center.workpad.resultReview?.applyReadiness).toMatchObject({
-        kind: "dirty-source",
-        message: "项目里有未处理的本地改动，暂时不能应用。",
-      });
-      expect(primary?.actions.some((action) => action.actionType === "result.refresh-status")).toBe(true);
-      expect(primary?.actions.some((action) => action.actionType === "result.refresh-rework")).toBe(false);
-      expect(primary?.actions.some((action) => action.action?.actionId === "result.apply")).toBe(false);
-    } finally {
-      if (oldAhoHome === undefined) delete process.env.AHO_HOME;
-      else process.env.AHO_HOME = oldAhoHome;
-    }
-  });
 
   it("creates a linked follow-up demand instead of mutating an archived conversation", async () => {
     await initHarness(project());
@@ -4936,26 +4540,6 @@ describe("workbench read model", () => {
   });
 });
 
-async function writeRawActiveChange(changeId: string, title: string): Promise<void> {
-  const changeDir = join(tempDir, "harness", "changes", "active", changeId);
-  await mkdir(join(changeDir, "reviews"), { recursive: true });
-  const now = new Date().toISOString();
-  await writeFile(join(changeDir, "change.json"), JSON.stringify({
-    version: "1.0",
-    id: changeId,
-    title,
-    state: "active",
-    createdAt: now,
-    updatedAt: now,
-    closedAt: null,
-    archivePath: null,
-  }, null, 2), "utf8");
-  await writeFile(join(changeDir, "summary.md"), `# ${title}\n\n## Status\n\nActive test fixture.\n`, "utf8");
-  await writeFile(join(changeDir, "spec.md"), "# Spec\n\n## Acceptance Criteria\n\n- AC-001: Complete one task-scoped change.\n", "utf8");
-  await writeFile(join(changeDir, "plan.md"), "# Plan\n\nImplement this accepted task list.\n", "utf8");
-  await writeFile(join(changeDir, "tasks.md"), "# Tasks\n\n- [ ] T-001: Implement one task.\n  - Covers: AC-001\n", "utf8");
-  await writeFile(join(changeDir, "reviews", "review.md"), "Status: pending\n", "utf8");
-}
 
 async function writeAcceptedSpecAndTasks(changeId: string): Promise<void> {
   const changeDir = join(tempDir, "harness", "changes", "active", changeId);
@@ -5369,65 +4953,6 @@ async function initGitRepository(cwd: string): Promise<void> {
 
 async function git(cwd: string, args: string[]): Promise<void> {
   await execFileAsync("git", args, { cwd });
-}
-
-async function writeValidationResultWithHash(changeId: string, runId: string, worktreeId: string, diffHash: string, status: "passed" | "failed"): Promise<void> {
-  const dir = join(tempDir, ".agent-harness", "runs", runId);
-  await mkdir(dir, { recursive: true });
-  const now = new Date().toISOString();
-  const validation = {
-    version: "1.0",
-    id: runId,
-    runId,
-    changeId,
-    profile: "test",
-    status,
-    executionMode: "worktree",
-    worktreeId,
-    worktreeDiffHash: diffHash,
-    startedAt: now,
-    finishedAt: now,
-    commands: [],
-  };
-  await writeFile(join(dir, "validation.json"), JSON.stringify(validation, null, 2), "utf8");
-}
-
-async function writeAuditResultWithHash(changeId: string, runId: string, worktreeId: string, diffHash: string, status: "approved" | "approved-with-notes" | "blocked" | "failed"): Promise<void> {
-  const dir = join(tempDir, ".agent-harness", "runs", runId);
-  await mkdir(dir, { recursive: true });
-  const now = new Date().toISOString();
-  const validationId = runId.startsWith("run-audit-")
-    ? runId.replace("run-audit-", "run-validation-")
-    : undefined;
-  const audit = {
-    version: "1.0",
-    id: runId,
-    runId,
-    changeId,
-    status,
-    worktreeId,
-    validationId,
-    worktreeDiffHash: diffHash,
-    startedAt: now,
-    finishedAt: now,
-    findings: status === "approved-with-notes" ? [{
-      severity: "note",
-      area: "risk",
-      evidence: "unit test fixture",
-      recommendation: "review before applying",
-      text: "Package script changed; review before applying.",
-    }] : [],
-    artifacts: {
-      audit: `harness/runs/${runId}/audit.json`,
-      auditMarkdown: `harness/runs/${runId}/audit.md`,
-      lastMessage: `harness/runs/${runId}/last-message.md`,
-      diffStat: `harness/runs/${runId}/diff-stat.txt`,
-    },
-  };
-  await writeFile(join(dir, "audit.json"), JSON.stringify(audit, null, 2), "utf8");
-  await writeFile(join(dir, "audit.md"), "Status: approved-with-notes\n", "utf8");
-  await writeFile(join(dir, "last-message.md"), "Audit approved with notes.\n", "utf8");
-  await writeFile(join(dir, "diff-stat.txt"), " package.json | 2 +-\n", "utf8");
 }
 
 async function writeValidationResult(changeId: string, validationId: string, worktreeId: string, status: "passed" | "failed"): Promise<void> {
