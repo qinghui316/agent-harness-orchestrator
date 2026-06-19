@@ -9,3 +9,10 @@ export function renderMaintenanceMarkdownList(
   if (items.length > 0) return items.map((item) => `- ${item}`);
   return options.emptyLabel ? [`- ${options.emptyLabel}`] : [];
 }
+
+export function renderMaintenanceMarkdownDetailItem(label: string, details: string[]): string[] {
+  return [
+    `- ${label}`,
+    ...details.map((detail) => `  ${detail}`),
+  ];
+}

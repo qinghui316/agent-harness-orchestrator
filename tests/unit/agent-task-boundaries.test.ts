@@ -24,7 +24,7 @@ import {
   mergeCanonicalPatchTargetKinds,
 } from "../../src/agent-task/canonical-patch-lineage.js";
 import { formatCanonicalPatchTargetDescriptor } from "../../src/agent-task/canonical-patch-target-boundary.js";
-import { renderMaintenanceMarkdownList } from "../../src/agent-task/maintenance-markdown.js";
+import { renderMaintenanceMarkdownDetailItem, renderMaintenanceMarkdownList } from "../../src/agent-task/maintenance-markdown.js";
 import { candidateSchema, canonicalUpdateProposalSchema, resolutionSchema } from "../../src/agent-task/schemas.js";
 import { buildCanonicalPatchTargetDescriptor } from "../../src/agent-task/canonical-patch-targets.js";
 import { isMaintenanceCandidateSourceEvent, isMaintenanceDerivedSummaryEvent } from "../../src/agent-task/ledger-event-policy.js";
@@ -217,6 +217,14 @@ describe("AgentTask domain boundaries", () => {
     ]);
     expect(renderMaintenanceMarkdownList([])).toEqual([]);
     expect(renderMaintenanceMarkdownList([], { emptyLabel: "none" })).toEqual(["- none"]);
+    expect(renderMaintenanceMarkdownDetailItem("operation-001: applied", [
+      "targetKind: canonical-docs",
+      "targetPath: docs/MEMORY.md",
+    ])).toEqual([
+      "- operation-001: applied",
+      "  targetKind: canonical-docs",
+      "  targetPath: docs/MEMORY.md",
+    ]);
   });
 
   it("copies canonical patch operation lineage without owning artifact stores or gates", () => {

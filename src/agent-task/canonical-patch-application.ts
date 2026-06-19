@@ -11,7 +11,7 @@ import type {
   ResolvedMemory,
 } from "../types/index.js";
 import { ensureMaintenanceLedgerEntryForStoreArtifact } from "./ledger.js";
-import { renderMaintenanceMarkdownList } from "./maintenance-markdown.js";
+import { renderMaintenanceMarkdownDetailItem, renderMaintenanceMarkdownList } from "./maintenance-markdown.js";
 import {
   buildMaintenanceArtifactRefListForStores,
   buildMaintenanceArtifactRefsForStore,
@@ -496,14 +496,16 @@ function renderCanonicalPatchApplicationManifestMarkdown(manifest: MaintenanceCa
     "",
     "## Operations",
     "",
-    ...manifest.operations.map((operation) => [
-      `- ${operation.id}: ${operation.readiness}`,
-      `  patchOperation: ${operation.patchOperationId}`,
-      `  targetKind: ${operation.targetKind}`,
-      `  operation: ${operation.operation}`,
-      `  targetDescriptor: ${formatCanonicalPatchTargetDescriptor(operation.targetDescriptor)}`,
-      `  blockedReasons: ${operation.blockedReasons.length > 0 ? operation.blockedReasons.join("; ") : "none"}`,
-    ].join("\n")),
+    ...manifest.operations.flatMap((operation) => renderMaintenanceMarkdownDetailItem(
+      `${operation.id}: ${operation.readiness}`,
+      [
+        `patchOperation: ${operation.patchOperationId}`,
+        `targetKind: ${operation.targetKind}`,
+        `operation: ${operation.operation}`,
+        `targetDescriptor: ${formatCanonicalPatchTargetDescriptor(operation.targetDescriptor)}`,
+        `blockedReasons: ${operation.blockedReasons.length > 0 ? operation.blockedReasons.join("; ") : "none"}`,
+      ],
+    )),
     "",
     "## Evidence",
     "",
@@ -538,16 +540,18 @@ function renderCanonicalPatchApplicationResultMarkdown(result: MaintenanceCanoni
     "",
     "## Applied Operations",
     "",
-    ...result.appliedOperations.map((operation) => [
-      `- ${operation.id}: ${operation.status}`,
-      `  manifestOperation: ${operation.manifestOperationId}`,
-      `  patchOperation: ${operation.patchOperationId}`,
-      `  targetKind: ${operation.targetKind}`,
-      `  targetPath: ${operation.targetPath}`,
-      `  patchKind: ${operation.patchKind}`,
-      `  beforeHash: ${operation.beforeHash}`,
-      `  afterHash: ${operation.afterHash}`,
-    ].join("\n")),
+    ...result.appliedOperations.flatMap((operation) => renderMaintenanceMarkdownDetailItem(
+      `${operation.id}: ${operation.status}`,
+      [
+        `manifestOperation: ${operation.manifestOperationId}`,
+        `patchOperation: ${operation.patchOperationId}`,
+        `targetKind: ${operation.targetKind}`,
+        `targetPath: ${operation.targetPath}`,
+        `patchKind: ${operation.patchKind}`,
+        `beforeHash: ${operation.beforeHash}`,
+        `afterHash: ${operation.afterHash}`,
+      ],
+    )),
     "",
     "## Policy Audit",
     "",

@@ -6,7 +6,7 @@ import type {
   ResolvedMemory,
 } from "../types/index.js";
 import { ensureMaintenanceLedgerEntryForStoreArtifact } from "./ledger.js";
-import { renderMaintenanceMarkdownList } from "./maintenance-markdown.js";
+import { renderMaintenanceMarkdownDetailItem, renderMaintenanceMarkdownList } from "./maintenance-markdown.js";
 import {
   buildMaintenanceArtifactRefListForStores,
   buildMaintenanceArtifactRefsForStore,
@@ -202,17 +202,19 @@ function renderCanonicalPatchApplicationReportMarkdown(report: MaintenanceCanoni
     "",
     "## Observed Operations",
     "",
-    ...report.observedOperations.map((operation) => [
-      `- ${operation.id}: ${operation.status}`,
-      `  resultOperation: ${operation.resultOperationId}`,
-      `  manifestOperation: ${operation.manifestOperationId}`,
-      `  patchOperation: ${operation.patchOperationId}`,
-      `  targetKind: ${operation.targetKind}`,
-      `  targetPath: ${operation.targetPath}`,
-      `  patchKind: ${operation.patchKind}`,
-      `  beforeHash: ${operation.beforeHash}`,
-      `  afterHash: ${operation.afterHash}`,
-    ].join("\n")),
+    ...report.observedOperations.flatMap((operation) => renderMaintenanceMarkdownDetailItem(
+      `${operation.id}: ${operation.status}`,
+      [
+        `resultOperation: ${operation.resultOperationId}`,
+        `manifestOperation: ${operation.manifestOperationId}`,
+        `patchOperation: ${operation.patchOperationId}`,
+        `targetKind: ${operation.targetKind}`,
+        `targetPath: ${operation.targetPath}`,
+        `patchKind: ${operation.patchKind}`,
+        `beforeHash: ${operation.beforeHash}`,
+        `afterHash: ${operation.afterHash}`,
+      ],
+    )),
     "",
     "## Guardrails",
     "",

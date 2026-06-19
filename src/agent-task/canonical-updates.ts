@@ -35,7 +35,7 @@ import {
   maintenanceResolutionPath,
 } from "./paths.js";
 import { ensureMaintenanceLedgerEntryForStoreArtifact } from "./ledger.js";
-import { renderMaintenanceMarkdownList } from "./maintenance-markdown.js";
+import { renderMaintenanceMarkdownDetailItem, renderMaintenanceMarkdownList } from "./maintenance-markdown.js";
 import { buildCanonicalPatchTargetDescriptor } from "./canonical-patch-targets.js";
 import { formatCanonicalPatchTargetDescriptor } from "./canonical-patch-target-boundary.js";
 import {
@@ -461,13 +461,15 @@ function renderCanonicalUpdateProposalMarkdown(proposal: MaintenanceCanonicalUpd
     "",
     "## Resolutions",
     "",
-    ...proposal.resolutionSummaries.map((resolution) => [
-      `- ${resolution.resolutionId} (${resolution.outcome})`,
-      `  candidate: ${resolution.candidateId}`,
-      `  subtype: ${resolution.candidateSubtype ?? "maintenance"}`,
-      `  review: ${resolution.reviewRecommendation}`,
-      `  rationale: ${resolution.rationale.replace(/\r?\n/g, " ")}`,
-    ].join("\n")),
+    ...proposal.resolutionSummaries.flatMap((resolution) => renderMaintenanceMarkdownDetailItem(
+      `${resolution.resolutionId} (${resolution.outcome})`,
+      [
+        `candidate: ${resolution.candidateId}`,
+        `subtype: ${resolution.candidateSubtype ?? "maintenance"}`,
+        `review: ${resolution.reviewRecommendation}`,
+        `rationale: ${resolution.rationale.replace(/\r?\n/g, " ")}`,
+      ],
+    )),
     "",
     "## Evidence",
     "",
@@ -533,14 +535,16 @@ function renderCanonicalPatchProposalMarkdown(patchProposal: MaintenanceCanonica
     "",
     "## Proposed Operations",
     "",
-    ...patchProposal.operations.map((operation) => [
-      `- ${operation.id}: ${operation.operation} ${operation.targetKind}`,
-      `  resolution: ${operation.sourceResolutionId}`,
-      `  candidate: ${operation.sourceCandidateId}`,
-      `  targetDescriptor: ${formatCanonicalPatchTargetDescriptor(operation.targetDescriptor)}`,
-      `  summary: ${operation.summary}`,
-      `  rationale: ${operation.rationale.replace(/\r?\n/g, " ")}`,
-    ].join("\n")),
+    ...patchProposal.operations.flatMap((operation) => renderMaintenanceMarkdownDetailItem(
+      `${operation.id}: ${operation.operation} ${operation.targetKind}`,
+      [
+        `resolution: ${operation.sourceResolutionId}`,
+        `candidate: ${operation.sourceCandidateId}`,
+        `targetDescriptor: ${formatCanonicalPatchTargetDescriptor(operation.targetDescriptor)}`,
+        `summary: ${operation.summary}`,
+        `rationale: ${operation.rationale.replace(/\r?\n/g, " ")}`,
+      ],
+    )),
     "",
     "## Risks",
     "",

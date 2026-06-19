@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-19T08:21:48.7255919Z",
+    "generated_at":  "2026-06-19T08:37:18.1365571Z",
     "active":  [
 
                ],
@@ -1245,6 +1245,10 @@
                     {
                         "name":  "20260619-maintenance-closeout-review-identity-helper-reuse",
                         "path":  "harness/changes/archive/20260619-maintenance-closeout-review-identity-helper-reuse"
+                    },
+                    {
+                        "name":  "20260619-maintenance-markdown-detail-item-helper-reuse",
+                        "path":  "harness/changes/archive/20260619-maintenance-markdown-detail-item-helper-reuse"
                     },
                     {
                         "name":  "20260619-maintenance-markdown-evidence-list-renderer-reuse",
