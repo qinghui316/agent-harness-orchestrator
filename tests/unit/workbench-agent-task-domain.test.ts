@@ -14,7 +14,7 @@ import { dispatchForegroundRoleTask } from "../../src/agent-task/role-dispatcher
 import { evaluateToolPolicy, workerPermissionProfileForRole } from "../../src/agent-task/tool-policy.js";
 import { project } from "./workbench/fixtures.js";
 
-describe("workbench AgentTask residual domain", () => {
+describe("workbench AgentTask domain", () => {
   it("persists AgentTaskRepository results and projects them into the role pipeline", async () => {
     await initHarness(project());
     await createChange(project(), { title: "Agent Task Demand" });
