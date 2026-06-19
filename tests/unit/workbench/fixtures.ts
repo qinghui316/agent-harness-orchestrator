@@ -8,7 +8,21 @@ import { initHarness } from "../../../src/harness/init.js";
 import { executeWorkbenchAction } from "../../../src/server/workbench-server.js";
 import { createWorkbenchTopic } from "../../../src/workbench/chat.js";
 import { getWorkbenchSnapshot } from "../../../src/workbench/manager.js";
-import type { ManagedProject } from "../../../src/types/index.js";
+import { resolveProjectMemory } from "../../../src/memory/resolver.js";
+import { createWorkflowRunForTaskQueue, validateTaskQueueProposalStart } from "../../../src/workflow-run/manager.js";
+import { compileWorkflowGraphPlan, hashArtifactRefs } from "../../../src/workflow-artifacts/manager.js";
+import type {
+  DecompositionPlan,
+  DecompositionReadinessManifest,
+  ManagedProject,
+  RunMetadata,
+  TaskQueueItem,
+  TaskQueueProposal,
+  TaskQueueRun,
+  TaskRun,
+  WorkerLease,
+  WorkflowGraphPlan,
+} from "../../../src/types/index.js";
 
 let tempDir: string;
 export const execFileAsync = promisify(execFile);
@@ -672,4 +686,445 @@ export async function writeAuditResultWithHash(changeId: string, runId: string, 
   await writeFile(join(dir, "audit.md"), "Status: approved-with-notes\n", "utf8");
   await writeFile(join(dir, "last-message.md"), "Audit approved with notes.\n", "utf8");
   await writeFile(join(dir, "diff-stat.txt"), " package.json | 2 +-\n", "utf8");
+}
+
+export async function prepareConfirmedTaskQueueProposalWithWorkflow(changeId: string, taskIds: string[]): Promise<{ proposalId: string; workflowGraphPlanId: string; workflowRunId: string; readinessManifestId: string; decompositionPlanId: string }> {
+  const memory = await resolveProjectMemory(project());
+  const planningDir = join(tempDir, "harness", "changes", "active", changeId, "planning");
+  await mkdir(planningDir, { recursive: true });
+  const now = new Date().toISOString();
+  const readinessArtifact = `harness/changes/active/${changeId}/planning/decomposition-readiness.json`;
+  const readinessMarkdown = `harness/changes/active/${changeId}/planning/decomposition-readiness.md`;
+  const readiness = {
+    id: `readiness-${changeId}`,
+    changeId,
+    decompositionPlanId: `decomposition-${changeId}`,
+    status: "ready-for-sequential-taskqueue-proposal",
+    recommendation: "taskgraph-sequential",
+    executable: false,
+    schedulerEligible: true,
+    nextAllowedAction: "taskqueue.proposal",
+    units: taskIds.map((taskId, index) => ({
+      id: `DU-${String(index + 1).padStart(3, "0")}`,
+      title: `Task ${taskId}`,
+      taskIds: [taskId],
+      acIds: ["AC-001"],
+      dependsOn: index === 0 ? [] : [`DU-${String(index).padStart(3, "0")}`],
+      guardrailStatus: "passed",
+      sourceScopes: ["src"],
+    })),
+    dependencies: taskIds.slice(1).map((_, index) => ({ from: `DU-${String(index + 1).padStart(3, "0")}`, to: `DU-${String(index + 2).padStart(3, "0")}`, kind: "blocks" })),
+    conflictScopes: [],
+    guardrails: [{ id: "tasks", status: "passed", summary: "Tasks are scoped.", refs: [] }],
+    recoveryKeyMaterial: {
+      changeId,
+      decompositionPlanId: `decomposition-${changeId}`,
+      taskIds,
+      acIds: ["AC-001"],
+      acceptedArtifactRefs: [`harness/changes/active/${changeId}/spec.md`, `harness/changes/active/${changeId}/plan.md`, `harness/changes/active/${changeId}/tasks.md`, `harness/changes/active/${changeId}/ac-map.json`],
+      contextScope: "selected-demand",
+      rolePolicyProfile: "test",
+      notes: [],
+    },
+    artifactRefs: [`harness/changes/active/${changeId}/spec.md`, `harness/changes/active/${changeId}/plan.md`, `harness/changes/active/${changeId}/tasks.md`, `harness/changes/active/${changeId}/ac-map.json`],
+    artifact: readinessArtifact,
+    markdownArtifact: readinessMarkdown,
+    createdAt: now,
+    updatedAt: now,
+  };
+  await writeFile(join(planningDir, "decomposition-readiness.json"), JSON.stringify(readiness, null, 2), "utf8");
+  await writeFile(join(planningDir, "decomposition-readiness.md"), `# ${readiness.id}\n`, "utf8");
+  await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: changeId });
+  const artifactRefs = [...readiness.artifactRefs, readiness.artifact, readiness.markdownArtifact];
+  const proposalId = `taskqueue-proposal-${changeId}`;
+  const proposal = {
+    id: proposalId,
+    changeId,
+    decompositionPlanId: readiness.decompositionPlanId,
+    readinessManifestId: readiness.id,
+    status: "confirmed",
+    recommendation: "taskgraph-sequential",
+    queueMode: "sequential",
+    items: taskIds.map((taskId, index) => ({
+      id: `${proposalId}-item-${String(index + 1).padStart(3, "0")}`,
+      taskId,
+      unitId: readiness.units[index]?.id,
+      title: `Task ${taskId}`,
+      order: index + 1,
+      dependsOn: index === 0 ? [] : [taskIds[index - 1]],
+      sourceScopes: ["src"],
+      acIds: ["AC-001"],
+    })),
+    dependencies: readiness.dependencies,
+    conflictScopes: [],
+    sourceArtifactHashes: await hashArtifactRefs(memory, artifactRefs),
+    recoveryKeyMaterial: readiness.recoveryKeyMaterial,
+    artifactRefs,
+    artifact: `harness/changes/active/${changeId}/planning/taskqueue-proposal.json`,
+    markdownArtifact: `harness/changes/active/${changeId}/planning/taskqueue-proposal.md`,
+    createdAt: now,
+    updatedAt: now,
+  };
+  await writeFile(join(planningDir, "taskqueue-proposal.json"), JSON.stringify(proposal, null, 2), "utf8");
+  await writeFile(join(planningDir, "taskqueue-proposal.md"), `# ${proposal.id}\n`, "utf8");
+  const graph = await compileWorkflowGraphPlan(memory, join("harness", "changes", "active", changeId), proposal, readiness);
+  const validated = await validateTaskQueueProposalStart(memory, project(), changeId, proposalId, graph.id);
+  const workflow = await createWorkflowRunForTaskQueue(memory, project(), validated);
+  return { proposalId, workflowGraphPlanId: graph.id, workflowRunId: workflow.id, readinessManifestId: readiness.id, decompositionPlanId: readiness.decompositionPlanId };
+}
+
+export function minimalDecompositionPlan(changeId: string): DecompositionPlan {
+  const now = new Date().toISOString();
+  return {
+    id: `decomposition-${changeId}`,
+    changeId,
+    status: "confirmed",
+    recommendation: "taskgraph-sequential",
+    rationale: "Test decomposition.",
+    units: [{
+      id: "DU-001",
+      title: "Task T-001",
+      summary: "Test unit.",
+      taskIds: ["T-001"],
+      acIds: ["AC-001"],
+      scopeHints: ["src"],
+      dependsOn: [],
+      recommendedRoleId: "coder-agent",
+    }],
+    dependencies: [],
+    conflictScopes: [],
+    riskSummary: "",
+    openQuestions: [],
+    artifactRefs: [`harness/changes/active/${changeId}/spec.md`],
+    recoveryKeyInputs: {
+      changeId,
+      acceptedArtifactRefs: [`harness/changes/active/${changeId}/spec.md`],
+      contextScope: "selected-demand",
+      rolePolicyProfile: "test",
+      notes: [],
+    },
+    artifact: `harness/changes/active/${changeId}/planning/decomposition-plan.json`,
+    markdownArtifact: `harness/changes/active/${changeId}/planning/decomposition-plan.md`,
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
+export function minimalReadiness(changeId: string, taskIds: string[]): DecompositionReadinessManifest {
+  const now = new Date().toISOString();
+  const artifactRefs = [
+    `harness/changes/active/${changeId}/spec.md`,
+    `harness/changes/active/${changeId}/plan.md`,
+    `harness/changes/active/${changeId}/tasks.md`,
+    `harness/changes/active/${changeId}/ac-map.json`,
+  ];
+  return {
+    id: `readiness-${changeId}`,
+    changeId,
+    decompositionPlanId: `decomposition-${changeId}`,
+    status: "ready-for-sequential-taskqueue-proposal",
+    recommendation: "taskgraph-sequential",
+    executable: false,
+    schedulerEligible: true,
+    nextAllowedAction: "taskqueue.proposal",
+    units: taskIds.map((taskId, index) => ({
+      id: `DU-${String(index + 1).padStart(3, "0")}`,
+      title: `Task ${taskId}`,
+      taskIds: [taskId],
+      acIds: ["AC-001"],
+      dependsOn: index === 0 ? [] : [`DU-${String(index).padStart(3, "0")}`],
+      guardrailStatus: "passed",
+      sourceScopes: ["src"],
+    })),
+    dependencies: taskIds.slice(1).map((_, index) => ({ from: `DU-${String(index + 1).padStart(3, "0")}`, to: `DU-${String(index + 2).padStart(3, "0")}`, kind: "blocks" })),
+    conflictScopes: [],
+    guardrails: [{ id: "tasks", status: "passed", summary: "Tasks are scoped.", refs: [] }],
+    recoveryKeyMaterial: {
+      changeId,
+      decompositionPlanId: `decomposition-${changeId}`,
+      taskIds,
+      acIds: ["AC-001"],
+      acceptedArtifactRefs: artifactRefs,
+      contextScope: "selected-demand",
+      rolePolicyProfile: "test",
+      notes: [],
+    },
+    artifactRefs,
+    artifact: `harness/changes/active/${changeId}/planning/decomposition-readiness.json`,
+    markdownArtifact: `harness/changes/active/${changeId}/planning/decomposition-readiness.md`,
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
+export function minimalTaskQueueProposal(changeId: string, readiness: DecompositionReadinessManifest, status: TaskQueueProposal["status"] = "draft"): TaskQueueProposal {
+  const now = new Date().toISOString();
+  const id = `taskqueue-proposal-${changeId}`;
+  return {
+    id,
+    changeId,
+    decompositionPlanId: readiness.decompositionPlanId,
+    readinessManifestId: readiness.id,
+    status,
+    recommendation: "taskgraph-sequential",
+    queueMode: "sequential",
+    items: readiness.units.map((unit, index) => ({
+      id: `${id}-item-${String(index + 1).padStart(3, "0")}`,
+      taskId: unit.taskIds[0] ?? `T-${String(index + 1).padStart(3, "0")}`,
+      unitId: unit.id,
+      title: unit.title,
+      order: index + 1,
+      dependsOn: unit.dependsOn,
+      sourceScopes: unit.sourceScopes,
+      acIds: unit.acIds,
+    })),
+    dependencies: readiness.dependencies,
+    conflictScopes: readiness.conflictScopes,
+    sourceArtifactHashes: {},
+    recoveryKeyMaterial: readiness.recoveryKeyMaterial,
+    artifactRefs: readiness.artifactRefs,
+    artifact: `harness/changes/active/${changeId}/planning/taskqueue-proposal.json`,
+    markdownArtifact: `harness/changes/active/${changeId}/planning/taskqueue-proposal.md`,
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
+export function minimalWorkflowGraphPlan(changeId: string, proposal: TaskQueueProposal, readiness: DecompositionReadinessManifest): WorkflowGraphPlan {
+  const now = new Date().toISOString();
+  const id = `workflow-graph-${changeId}`;
+  return {
+    version: "1.0",
+    id,
+    changeId,
+    status: "compiled",
+    graphMode: "sequential-v1",
+    decompositionPlanId: proposal.decompositionPlanId,
+    readinessManifestId: readiness.id,
+    taskQueueProposalId: proposal.id,
+    nodes: proposal.items.map((item) => ({
+      id: `${id}-node-${String(item.order).padStart(3, "0")}`,
+      taskId: item.taskId,
+      taskQueueProposalItemId: item.id,
+      unitId: item.unitId,
+      title: item.title,
+      order: item.order,
+      stages: ["coder", "validation", "audit", "bounded-rework"],
+      acIds: item.acIds,
+      sourceScopes: item.sourceScopes,
+    })),
+    edges: [],
+    sourceArtifactHashes: {},
+    artifactRefs: proposal.artifactRefs,
+    artifact: `harness/changes/active/${changeId}/planning/workflow-graphs/${id}.json`,
+    markdownArtifact: `harness/changes/active/${changeId}/planning/workflow-graphs/${id}.md`,
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
+export async function writeCoderRun(changeId: string, runId: string, taskIds: string[], worktreeId: string, status: RunMetadata["status"], taskRunId?: string): Promise<RunMetadata> {
+  const runDir = join(tempDir, ".agent-harness", "runs", runId);
+  await mkdir(runDir, { recursive: true });
+  const now = new Date().toISOString();
+  const run: RunMetadata = {
+    version: "1.0",
+    id: runId,
+    changeId,
+    projectPath: tempDir,
+    runtime: "coder-codex",
+    executionMode: "worktree",
+    proposalOnly: true,
+    command: ["codex"],
+    status,
+    exitCode: status === "failed" ? 1 : 0,
+    signal: null,
+    startedAt: now,
+    finishedAt: status === "running" || status === "created" ? null : now,
+    artifacts: {
+      base: "project-root",
+      directory: `.agent-harness/runs/${runId}`,
+      context: `.agent-harness/runs/${runId}/context.md`,
+      events: `.agent-harness/runs/${runId}/events.jsonl`,
+      stdout: `.agent-harness/runs/${runId}/stdout.log`,
+      stderr: `.agent-harness/runs/${runId}/stderr.log`,
+    },
+    worktree: {
+      worktreeId,
+      branchName: `aho/${runId}`,
+      baseRef: "HEAD",
+      baseCommit: "abc123",
+      checkoutPath: join(tempDir, ".agent-harness", "worktrees", worktreeId),
+      metadataPath: `.agent-harness/worktrees/${worktreeId}.json`,
+    },
+    ...(taskIds.length > 0 ? { taskIds } : {}),
+    ...(taskRunId ? { taskRunId } : {}),
+  };
+  await writeFile(join(runDir, "run.json"), JSON.stringify(run, null, 2), "utf8");
+  await writeFile(join(runDir, "events.jsonl"), `${JSON.stringify({ timestamp: now, type: "run.completed", runId })}\n`, "utf8");
+  return run;
+}
+
+export async function writeTaskRunRecord(changeId: string, taskRunId: string, taskId: string, status: TaskRun["status"], attempt: number, overrides: Partial<TaskRun> = {}): Promise<void> {
+  const dir = join(tempDir, ".agent-harness", "runs", "task-runs", changeId);
+  await mkdir(dir, { recursive: true });
+  const now = new Date().toISOString();
+  const taskRun: TaskRun = {
+    version: "1.0",
+    id: taskRunId,
+    projectId: "test-project",
+    changeId,
+    taskId,
+    roleId: "coder",
+    attempt,
+    status,
+    createdAt: now,
+    updatedAt: now,
+    startedAt: now,
+    finishedAt: status === "running" || status === "claimed" || status === "queued" ? null : now,
+    ...overrides,
+  };
+  await writeFile(join(dir, `${taskRunId}.json`), JSON.stringify(taskRun, null, 2), "utf8");
+}
+
+export async function writeWorkerLeaseRecord(changeId: string, leaseId: string, taskRunId: string, taskId: string, status: WorkerLease["status"]): Promise<void> {
+  const dir = join(tempDir, ".agent-harness", "runs", "worker-leases", changeId);
+  await mkdir(dir, { recursive: true });
+  const now = new Date().toISOString();
+  const lease: WorkerLease = {
+    version: "1.0",
+    id: leaseId,
+    projectId: "test-project",
+    changeId,
+    taskRunId,
+    taskId,
+    roleId: "coder",
+    workerId: "local-test",
+    status,
+    claimedAt: now,
+    updatedAt: now,
+    releasedAt: status === "released" ? now : null,
+    expiresAt: new Date(Date.now() + 60_000).toISOString(),
+  };
+  await writeFile(join(dir, `${leaseId}.json`), JSON.stringify(lease, null, 2), "utf8");
+}
+
+export async function writeTaskQueueRecord(changeId: string, queueId: string, status: TaskQueueRun["status"], overrides: Partial<TaskQueueRun> = {}): Promise<void> {
+  const dir = join(tempDir, ".agent-harness", "runs", "task-queues", changeId);
+  await mkdir(dir, { recursive: true });
+  const now = new Date().toISOString();
+  const queue: TaskQueueRun = {
+    version: "1.0",
+    id: queueId,
+    projectId: "test-project",
+    changeId,
+    status,
+    createdAt: now,
+    updatedAt: now,
+    startedAt: status === "queued" ? null : now,
+    finishedAt: status === "completed" || status === "blocked" || status === "failed" ? now : null,
+    totalCount: 1,
+    completedCount: status === "completed" ? 1 : 0,
+    ...overrides,
+  };
+  await writeFile(join(dir, `${queueId}.json`), JSON.stringify(queue, null, 2), "utf8");
+}
+
+export async function writeTaskQueueItemRecord(changeId: string, queueRunId: string, itemId: string, taskId: string, order: number, status: TaskQueueItem["status"], overrides: Partial<TaskQueueItem> = {}): Promise<void> {
+  const dir = join(tempDir, ".agent-harness", "runs", "task-queue-items", changeId);
+  await mkdir(dir, { recursive: true });
+  const now = new Date().toISOString();
+  const item: TaskQueueItem = {
+    version: "1.0",
+    id: itemId,
+    projectId: "test-project",
+    changeId,
+    queueRunId,
+    taskId,
+    order,
+    status,
+    createdAt: now,
+    updatedAt: now,
+    startedAt: status === "queued" || status === "skipped" ? null : now,
+    finishedAt: status === "completed" || status === "blocked" || status === "failed" || status === "skipped" ? now : null,
+    ...overrides,
+  };
+  await writeFile(join(dir, `${itemId}.json`), JSON.stringify(item, null, 2), "utf8");
+}
+
+export async function writeValidationResult(changeId: string, validationId: string, worktreeId: string, status: "passed" | "failed"): Promise<void> {
+  const runDir = join(tempDir, ".agent-harness", "runs", validationId);
+  await mkdir(runDir, { recursive: true });
+  const now = new Date().toISOString();
+  await writeRunMetadata(changeId, validationId, "validator", "completed", worktreeId, now);
+  await writeFile(join(runDir, "validation.json"), JSON.stringify({
+    version: "1.0",
+    id: validationId,
+    runId: validationId,
+    changeId,
+    profile: "default",
+    status,
+    executionMode: "worktree",
+    worktreeId,
+    startedAt: now,
+    finishedAt: now,
+    commands: [],
+  }, null, 2), "utf8");
+}
+
+export async function writeAuditResult(changeId: string, auditId: string, worktreeId: string, status: "approved" | "approved-with-notes" | "blocked" | "failed"): Promise<void> {
+  const runDir = join(tempDir, ".agent-harness", "runs", auditId);
+  await mkdir(runDir, { recursive: true });
+  const now = new Date().toISOString();
+  await writeRunMetadata(changeId, auditId, "auditor", "completed", worktreeId, now);
+  await writeFile(join(runDir, "audit.json"), JSON.stringify({
+    version: "1.0",
+    id: auditId,
+    runId: auditId,
+    changeId,
+    status,
+    worktreeId,
+    startedAt: now,
+    finishedAt: now,
+    findings: [],
+    artifacts: {
+      audit: `.agent-harness/runs/${auditId}/audit.json`,
+      auditMarkdown: `.agent-harness/runs/${auditId}/audit.md`,
+      lastMessage: `.agent-harness/runs/${auditId}/last-message.md`,
+    },
+  }, null, 2), "utf8");
+}
+
+async function writeRunMetadata(changeId: string, runId: string, runtime: RunMetadata["runtime"], status: RunMetadata["status"], worktreeId: string, now: string): Promise<void> {
+  const run: RunMetadata = {
+    version: "1.0",
+    id: runId,
+    changeId,
+    projectPath: tempDir,
+    runtime,
+    executionMode: "worktree",
+    command: [runtime],
+    status,
+    exitCode: status === "failed" ? 1 : 0,
+    signal: null,
+    startedAt: now,
+    finishedAt: now,
+    artifacts: {
+      base: "project-root",
+      directory: `.agent-harness/runs/${runId}`,
+      context: `.agent-harness/runs/${runId}/context.md`,
+      events: `.agent-harness/runs/${runId}/events.jsonl`,
+      stdout: `.agent-harness/runs/${runId}/stdout.log`,
+      stderr: `.agent-harness/runs/${runId}/stderr.log`,
+    },
+    worktree: {
+      worktreeId,
+      branchName: `aho/${runId}`,
+      baseRef: "HEAD",
+      baseCommit: "abc123",
+      checkoutPath: join(tempDir, ".agent-harness", "worktrees", worktreeId),
+      metadataPath: `.agent-harness/worktrees/${worktreeId}.json`,
+    },
+  };
+  await writeFile(join(tempDir, ".agent-harness", "runs", runId, "run.json"), JSON.stringify(run, null, 2), "utf8");
 }
