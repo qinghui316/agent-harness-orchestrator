@@ -7,6 +7,11 @@ import type { MaintenanceLedgerEntry, ManagedProject, RemoteLandingResult, RunMe
 import { ensureMaintenanceLedgerEntryForStoreArtifact, ensureMaintenancePolicyLedgerEntryForStoreArtifact } from "../../src/agent-task/ledger.js";
 import { buildMaintenanceArtifactRefListForStores } from "../../src/agent-task/maintenance-artifact-store.js";
 import {
+  buildCanonicalPatchApplicationManifestArtifactRefs,
+  buildCanonicalPatchApplicationReportArtifactRefs,
+  buildCanonicalPatchApplicationResultArtifactRefs,
+} from "../../src/agent-task/canonical-patch-application-artifact-refs.js";
+import {
   buildCanonicalPatchDerivedOperationId,
   copyCanonicalPatchAppliedOperationLineage,
   copyCanonicalPatchManifestOperationLineage,
@@ -1565,6 +1570,9 @@ describe("Workbench module boundaries", () => {
     expect(typeof ensureMaintenanceLedgerEntryForStoreArtifact).toBe("function");
     expect(typeof ensureMaintenancePolicyLedgerEntryForStoreArtifact).toBe("function");
     expect(typeof buildMaintenanceArtifactRefListForStores).toBe("function");
+    expect(typeof buildCanonicalPatchApplicationManifestArtifactRefs).toBe("function");
+    expect(typeof buildCanonicalPatchApplicationResultArtifactRefs).toBe("function");
+    expect(typeof buildCanonicalPatchApplicationReportArtifactRefs).toBe("function");
     expect(typeof buildCanonicalPatchDerivedOperationId).toBe("function");
     expect(typeof copyCanonicalPatchProposalOperationLineage).toBe("function");
     expect(typeof copyCanonicalPatchManifestOperationLineage).toBe("function");
@@ -1574,6 +1582,14 @@ describe("Workbench module boundaries", () => {
     expect(artifactStore).toContain("function buildMaintenanceArtifactRefListForStores");
     expect(artifactStore).toContain("buildMaintenanceArtifactRefs(memory");
     expect(artifactStore).not.toMatch(/ledger-event-policy|candidates|workbench\/|ToolPolicy|scheduler|goal-loop|manager/);
+
+    const applicationArtifactRefs = readFileSync("src/agent-task/canonical-patch-application-artifact-refs.ts", "utf8");
+    expect(applicationArtifactRefs).toContain("function buildCanonicalPatchApplicationManifestArtifactRefs");
+    expect(applicationArtifactRefs).toContain("function buildCanonicalPatchApplicationResultArtifactRefs");
+    expect(applicationArtifactRefs).toContain("function buildCanonicalPatchApplicationReportArtifactRefs");
+    expect(applicationArtifactRefs).toContain("buildMaintenanceArtifactRefListForStores");
+    expect(applicationArtifactRefs).toContain("includeMarkdown: false");
+    expect(applicationArtifactRefs).not.toMatch(/ledger|ledger-event-policy|candidates|workbench\/|server\/|web\/|ToolPolicy|scheduler|goal-loop|manager/);
 
     const ledger = readFileSync("src/agent-task/ledger.ts", "utf8");
     expect(ledger).toContain("function ensureMaintenanceLedgerEntryForStoreArtifact");
@@ -1586,7 +1602,8 @@ describe("Workbench module boundaries", () => {
     expect(ledger).not.toMatch(/canonical-patch|candidate|Workbench|ToolPolicy|scheduler|goal-loop|manager/);
 
     const application = readFileSync("src/agent-task/canonical-patch-application.ts", "utf8");
-    expect(application).toContain("buildMaintenanceArtifactRefListForStores");
+    expect(application).toContain("buildCanonicalPatchApplicationManifestArtifactRefs");
+    expect(application).toContain("buildCanonicalPatchApplicationResultArtifactRefs");
     expect(application).toContain("buildCanonicalPatchDerivedOperationId");
     expect(application).toContain("copyCanonicalPatchProposalOperationLineage");
     expect(application).toContain("copyCanonicalPatchManifestOperationLineage");
@@ -1597,7 +1614,7 @@ describe("Workbench module boundaries", () => {
     expect(application).not.toContain("ledger-event-policy");
 
     const report = readFileSync("src/agent-task/canonical-patch-application-report.ts", "utf8");
-    expect(report).toContain("buildMaintenanceArtifactRefListForStores");
+    expect(report).toContain("buildCanonicalPatchApplicationReportArtifactRefs");
     expect(report).toContain("copyCanonicalPatchAppliedOperationLineage");
     expect(report).toContain("ensureMaintenancePolicyLedgerEntryForStoreArtifact");
     expect(report).toContain('eventType: "canonical-patch-application-report"');

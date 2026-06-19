@@ -8,7 +8,6 @@ import type {
 import { ensureMaintenancePolicyLedgerEntryForStoreArtifact } from "./ledger.js";
 import { renderMaintenanceMarkdownDetailItem, renderMaintenanceMarkdownList } from "./maintenance-markdown.js";
 import {
-  buildMaintenanceArtifactRefListForStores,
   buildMaintenanceArtifactRefsForStore,
   findMaintenanceArtifactBy,
   listMaintenanceArtifacts,
@@ -16,6 +15,7 @@ import {
   writeMaintenanceJsonMarkdownArtifact,
   type MaintenanceArtifactStore,
 } from "./maintenance-artifact-store.js";
+import { buildCanonicalPatchApplicationReportArtifactRefs } from "./canonical-patch-application-artifact-refs.js";
 import { buildReadOnlyCanonicalPatchApplicationObservationAuthority } from "./canonical-patch-application-authority.js";
 import {
   canonicalPatchApplicationManifestStore,
@@ -141,23 +141,17 @@ function buildCanonicalPatchApplicationReport(
       "The observed application result remains the human-gated mutation evidence; this report is a compact post-application summary.",
     ],
     summary: `Observed canonical patch application result ${result.id} for ${observedOperations.length} applied target(s).`,
-    artifactRefs: buildMaintenanceArtifactRefListForStores(memory, [
-      { store: canonicalPatchApplicationReportStore, id },
-      {
-        store: canonicalPatchApplicationResultStore,
-        id: result.id,
-      },
-      {
-        store: canonicalPatchApplicationManifestStore,
-        id: manifest.id,
-        includeMarkdown: false,
-      },
-    ], [
-      ...result.artifactRefs,
-      ...manifest.artifactRefs,
-      ...observedOperations.flatMap((operation) => operation.artifactRefs),
-      ...result.policyAuditRefs,
-    ]),
+    artifactRefs: buildCanonicalPatchApplicationReportArtifactRefs(memory, {
+      report: { store: canonicalPatchApplicationReportStore, id },
+      result: { store: canonicalPatchApplicationResultStore, id: result.id },
+      manifest: { store: canonicalPatchApplicationManifestStore, id: manifest.id },
+      upstreamRefs: [
+        ...result.artifactRefs,
+        ...manifest.artifactRefs,
+        ...observedOperations.flatMap((operation) => operation.artifactRefs),
+      ],
+      policyAuditRefs: result.policyAuditRefs,
+    }),
     createdAt: new Date().toISOString(),
   };
 }

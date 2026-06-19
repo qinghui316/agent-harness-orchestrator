@@ -17,6 +17,11 @@ import {
   buildReadOnlyCanonicalPatchApplicationObservationAuthority,
 } from "../../src/agent-task/canonical-patch-application-authority.js";
 import {
+  buildCanonicalPatchApplicationManifestArtifactRefs,
+  buildCanonicalPatchApplicationReportArtifactRefs,
+  buildCanonicalPatchApplicationResultArtifactRefs,
+} from "../../src/agent-task/canonical-patch-application-artifact-refs.js";
+import {
   buildCanonicalPatchDerivedOperationId,
   copyCanonicalPatchAppliedOperationLineage,
   copyCanonicalPatchManifestOperationLineage,
@@ -125,6 +130,80 @@ describe("AgentTask domain boundaries", () => {
       `.agent-harness/workbench/maintenance/test-artifacts/b.json`,
       `.agent-harness/workbench/maintenance/test-artifacts/upstream.md`,
     ]);
+  });
+
+  it("builds canonical patch application artifact refs through the application-chain owner", async () => {
+    await initHarness(project());
+    const memory = await resolveProjectMemory(project());
+    const store = (name: string) => ({
+      jsonPath: (resolved: ResolvedMemory, id: string) => join(resolved.workbenchRoot, "maintenance", name, `${id}.json`),
+      markdownPath: (resolved: ResolvedMemory, id: string) => join(resolved.workbenchRoot, "maintenance", name, `${id}.md`),
+    });
+    const gateRecord = { store: store("canonical-patch-application-gates"), id: "gate-001" };
+    const patchProposal = { store: store("canonical-patch-proposals"), id: "patch-001" };
+    const manifest = { store: store("canonical-patch-application-manifests"), id: "manifest-001" };
+    const result = { store: store("canonical-patch-application-results"), id: "result-001" };
+    const report = { store: store("canonical-patch-application-reports"), id: "report-001" };
+
+    const manifestRefs = buildCanonicalPatchApplicationManifestArtifactRefs(memory, {
+      gateRecord,
+      patchProposal,
+      upstreamRefs: [
+        ".agent-harness/workbench/maintenance/canonical-patch-application-gates/gate-001.json",
+        ".agent-harness/workbench/maintenance/canonical-patch-operations/source.md",
+        "",
+      ],
+    });
+    expect(manifestRefs).toEqual([
+      ".agent-harness/workbench/maintenance/canonical-patch-application-gates/gate-001.json",
+      ".agent-harness/workbench/maintenance/canonical-patch-application-gates/gate-001.md",
+      ".agent-harness/workbench/maintenance/canonical-patch-proposals/patch-001.json",
+      ".agent-harness/workbench/maintenance/canonical-patch-proposals/patch-001.md",
+      ".agent-harness/workbench/maintenance/canonical-patch-operations/source.md",
+    ]);
+    expect(manifestRefs).not.toContain(".agent-harness/workbench/maintenance/canonical-patch-application-manifests/manifest-001.json");
+    expect(manifestRefs).not.toContain(".agent-harness/workbench/maintenance/canonical-patch-application-manifests/manifest-001.md");
+
+    expect(buildCanonicalPatchApplicationResultArtifactRefs(memory, {
+      result,
+      manifest,
+      upstreamRefs: [
+        ".agent-harness/workbench/maintenance/canonical-patch-application-manifests/manifest-001.json",
+        ".agent-harness/workbench/maintenance/canonical-patch-operations/source.md",
+      ],
+      policyAuditRefs: [
+        ".agent-harness/workbench/maintenance/policy-audit.json",
+        ".agent-harness/workbench/maintenance/canonical-patch-operations/source.md",
+      ],
+    })).toEqual([
+      ".agent-harness/workbench/maintenance/canonical-patch-application-results/result-001.json",
+      ".agent-harness/workbench/maintenance/canonical-patch-application-results/result-001.md",
+      ".agent-harness/workbench/maintenance/canonical-patch-application-manifests/manifest-001.json",
+      ".agent-harness/workbench/maintenance/canonical-patch-application-manifests/manifest-001.md",
+      ".agent-harness/workbench/maintenance/canonical-patch-operations/source.md",
+      ".agent-harness/workbench/maintenance/policy-audit.json",
+    ]);
+
+    const reportRefs = buildCanonicalPatchApplicationReportArtifactRefs(memory, {
+      report,
+      result,
+      manifest,
+      upstreamRefs: [
+        ".agent-harness/workbench/maintenance/canonical-patch-application-results/result-001.json",
+        ".agent-harness/workbench/maintenance/canonical-patch-operations/source.md",
+      ],
+      policyAuditRefs: [".agent-harness/workbench/maintenance/policy-audit.json"],
+    });
+    expect(reportRefs).toEqual([
+      ".agent-harness/workbench/maintenance/canonical-patch-application-reports/report-001.json",
+      ".agent-harness/workbench/maintenance/canonical-patch-application-reports/report-001.md",
+      ".agent-harness/workbench/maintenance/canonical-patch-application-results/result-001.json",
+      ".agent-harness/workbench/maintenance/canonical-patch-application-results/result-001.md",
+      ".agent-harness/workbench/maintenance/canonical-patch-application-manifests/manifest-001.json",
+      ".agent-harness/workbench/maintenance/canonical-patch-operations/source.md",
+      ".agent-harness/workbench/maintenance/policy-audit.json",
+    ]);
+    expect(reportRefs).not.toContain(".agent-harness/workbench/maintenance/canonical-patch-application-manifests/manifest-001.md");
   });
 
   it("finds store-backed maintenance artifacts through the artifact-store owner", async () => {

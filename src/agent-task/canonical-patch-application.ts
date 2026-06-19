@@ -13,7 +13,6 @@ import type {
 import { ensureMaintenancePolicyLedgerEntryForStoreArtifact } from "./ledger.js";
 import { renderMaintenanceMarkdownDetailItem, renderMaintenanceMarkdownList } from "./maintenance-markdown.js";
 import {
-  buildMaintenanceArtifactRefListForStores,
   buildMaintenanceArtifactRefsForStore,
   findMaintenanceArtifactBy,
   listMaintenanceArtifacts,
@@ -36,6 +35,10 @@ import {
   readMaintenanceCanonicalPatchProposal,
 } from "./canonical-updates.js";
 import { buildAppliedCanonicalPatchApplicationAuthority, buildNonExecutingCanonicalPatchApplicationAuthority } from "./canonical-patch-application-authority.js";
+import {
+  buildCanonicalPatchApplicationManifestArtifactRefs,
+  buildCanonicalPatchApplicationResultArtifactRefs,
+} from "./canonical-patch-application-artifact-refs.js";
 import {
   canonicalPatchContentHash,
   formatCanonicalPatchTargetDescriptor,
@@ -207,20 +210,15 @@ function buildCanonicalPatchApplicationManifest(
   const operations = patchProposal.operations.map((operation, index) => buildManifestOperation(id, operation, index));
   const blockedReasons = uniqueSorted(operations.flatMap((operation) => operation.blockedReasons));
   const applicationStatus = blockedReasons.length > 0 ? "blocked-needs-concrete-targets" : "ready-for-application";
-  const artifactRefs = buildMaintenanceArtifactRefListForStores(memory, [
-    {
-      store: canonicalPatchApplicationGateRecordStore,
-      id: gateRecord.id,
-    },
-    {
-      store: canonicalPatchProposalStore,
-      id: patchProposal.id,
-    },
-  ], [
+  const artifactRefs = buildCanonicalPatchApplicationManifestArtifactRefs(memory, {
+    gateRecord: { store: canonicalPatchApplicationGateRecordStore, id: gateRecord.id },
+    patchProposal: { store: canonicalPatchProposalStore, id: patchProposal.id },
+    upstreamRefs: [
     ...gateRecord.artifactRefs,
     ...patchProposal.artifactRefs,
     ...operations.flatMap((operation) => operation.artifactRefs),
-  ]);
+    ],
+  });
   return {
     version: "1.0",
     id,
@@ -425,14 +423,15 @@ function buildCanonicalPatchApplicationResult(
     ...buildAppliedCanonicalPatchApplicationAuthority(),
     policyAuditRefs,
     summary: `Applied canonical patch application manifest ${manifest.id} to ${appliedOperations.length} target(s).`,
-    artifactRefs: buildMaintenanceArtifactRefListForStores(memory, [
-      { store: canonicalPatchApplicationResultStore, id },
-      { store: canonicalPatchApplicationManifestStore, id: manifest.id },
-    ], [
-      ...manifest.artifactRefs,
-      ...appliedOperations.flatMap((operation) => operation.artifactRefs),
-      ...policyAuditRefs,
-    ]),
+    artifactRefs: buildCanonicalPatchApplicationResultArtifactRefs(memory, {
+      result: { store: canonicalPatchApplicationResultStore, id },
+      manifest: { store: canonicalPatchApplicationManifestStore, id: manifest.id },
+      upstreamRefs: [
+        ...manifest.artifactRefs,
+        ...appliedOperations.flatMap((operation) => operation.artifactRefs),
+      ],
+      policyAuditRefs,
+    }),
     createdAt: new Date().toISOString(),
   };
 }
