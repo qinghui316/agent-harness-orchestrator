@@ -9,6 +9,7 @@ import { ensureMaintenanceLedgerEntryForStoreArtifact } from "./ledger.js";
 import {
   buildMaintenanceArtifactRefListForStores,
   buildMaintenanceArtifactRefsForStore,
+  findMaintenanceArtifactBy,
   listMaintenanceArtifacts,
   readMaintenanceArtifact,
   writeMaintenanceJsonMarkdownArtifact,
@@ -90,8 +91,7 @@ export async function readMaintenanceCanonicalPatchApplicationReportForResult(
   memory: ResolvedMemory,
   applicationResultId: string,
 ): Promise<MaintenanceCanonicalPatchApplicationReport | null> {
-  const reports = await listMaintenanceCanonicalPatchApplicationReports(memory);
-  return reports.find((report) => report.resultId === applicationResultId) ?? null;
+  return findMaintenanceArtifactBy(memory, canonicalPatchApplicationReportStore, (report) => report.resultId === applicationResultId);
 }
 
 export function maintenanceCanonicalPatchApplicationReportArtifactRef(memory: ResolvedMemory, reportId: string): string {

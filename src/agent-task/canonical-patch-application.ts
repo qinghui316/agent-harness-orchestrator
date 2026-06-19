@@ -14,6 +14,7 @@ import { ensureMaintenanceLedgerEntryForStoreArtifact } from "./ledger.js";
 import {
   buildMaintenanceArtifactRefListForStores,
   buildMaintenanceArtifactRefsForStore,
+  findMaintenanceArtifactBy,
   listMaintenanceArtifacts,
   readMaintenanceArtifact,
   writeMaintenanceJsonMarkdownArtifact,
@@ -131,8 +132,7 @@ export async function readMaintenanceCanonicalPatchApplicationManifestForGate(
   memory: ResolvedMemory,
   gateRecordId: string,
 ): Promise<MaintenanceCanonicalPatchApplicationManifest | null> {
-  const manifests = await listMaintenanceCanonicalPatchApplicationManifests(memory);
-  return manifests.find((manifest) => manifest.gateRecordId === gateRecordId) ?? null;
+  return findMaintenanceArtifactBy(memory, canonicalPatchApplicationManifestStore, (manifest) => manifest.gateRecordId === gateRecordId);
 }
 
 export function maintenanceCanonicalPatchApplicationManifestArtifactRef(memory: ResolvedMemory, manifestId: string): string {
@@ -193,8 +193,7 @@ export async function readMaintenanceCanonicalPatchApplicationResultForManifest(
   memory: ResolvedMemory,
   manifestId: string,
 ): Promise<MaintenanceCanonicalPatchApplicationResult | null> {
-  const results = await listMaintenanceCanonicalPatchApplicationResults(memory);
-  return results.find((result) => result.manifestId === manifestId) ?? null;
+  return findMaintenanceArtifactBy(memory, canonicalPatchApplicationResultStore, (result) => result.manifestId === manifestId);
 }
 
 export function maintenanceCanonicalPatchApplicationResultArtifactRef(memory: ResolvedMemory, resultId: string): string {

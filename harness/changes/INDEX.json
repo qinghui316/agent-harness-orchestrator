@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-19T02:36:26.7924689Z",
+    "generated_at":  "2026-06-19T02:56:44.1281326Z",
     "active":  [
 
                ],
@@ -1209,6 +1209,10 @@
                     {
                         "name":  "20260619-maintenance-canonical-updates-ledger-helper-adoption",
                         "path":  "harness/changes/archive/20260619-maintenance-canonical-updates-ledger-helper-adoption"
+                    },
+                    {
+                        "name":  "20260619-maintenance-store-backed-artifact-lookup-helper-reuse",
+                        "path":  "harness/changes/archive/20260619-maintenance-store-backed-artifact-lookup-helper-reuse"
                     },
                     {
                         "name":  "20260619-maintenance-store-backed-artifact-ref-list-helper-reuse",

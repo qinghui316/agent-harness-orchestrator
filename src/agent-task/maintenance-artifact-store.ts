@@ -111,6 +111,15 @@ export async function listMaintenanceArtifacts<T extends { createdAt: string }>(
   return artifacts.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 }
 
+export async function findMaintenanceArtifactBy<T extends { createdAt: string }>(
+  memory: ResolvedMemory,
+  store: MaintenanceArtifactStore<T>,
+  predicate: (artifact: T) => boolean,
+): Promise<T | null> {
+  const artifacts = await listMaintenanceArtifacts(memory, store);
+  return artifacts.find(predicate) ?? null;
+}
+
 export async function writeMaintenanceJsonMarkdownArtifact<T extends { createdAt: string }>(
   memory: ResolvedMemory,
   store: MaintenanceArtifactStore<T>,

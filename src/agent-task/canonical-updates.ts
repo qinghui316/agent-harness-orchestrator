@@ -12,6 +12,7 @@ import type {
 import {
   buildMaintenanceArtifactRefListForStores,
   buildMaintenanceArtifactRefsForStore,
+  findMaintenanceArtifactBy,
   listMaintenanceArtifacts,
   readMaintenanceArtifact,
   writeMaintenanceJsonMarkdownArtifact,
@@ -149,8 +150,7 @@ export async function readMaintenanceCanonicalUpdateDecisionForProposal(
   memory: ResolvedMemory,
   proposalId: string,
 ): Promise<MaintenanceCanonicalUpdateDecision | null> {
-  const decisions = await listMaintenanceCanonicalUpdateDecisions(memory);
-  return decisions.find((decision) => decision.proposalId === proposalId) ?? null;
+  return findMaintenanceArtifactBy(memory, canonicalUpdateDecisionStore, (decision) => decision.proposalId === proposalId);
 }
 
 export async function proposeMaintenanceCanonicalPatch(
@@ -197,8 +197,7 @@ export async function readMaintenanceCanonicalPatchProposalForDecision(
   memory: ResolvedMemory,
   decisionId: string,
 ): Promise<MaintenanceCanonicalPatchProposal | null> {
-  const patchProposals = await listMaintenanceCanonicalPatchProposals(memory);
-  return patchProposals.find((proposal) => proposal.decisionId === decisionId) ?? null;
+  return findMaintenanceArtifactBy(memory, canonicalPatchProposalStore, (proposal) => proposal.decisionId === decisionId);
 }
 
 export async function recordMaintenanceCanonicalPatchApplicationGate(
@@ -243,8 +242,7 @@ export async function readMaintenanceCanonicalPatchApplicationGateForPatchPropos
   memory: ResolvedMemory,
   patchProposalId: string,
 ): Promise<MaintenanceCanonicalPatchApplicationGateRecord | null> {
-  const gateRecords = await listMaintenanceCanonicalPatchApplicationGateRecords(memory);
-  return gateRecords.find((record) => record.patchProposalId === patchProposalId) ?? null;
+  return findMaintenanceArtifactBy(memory, canonicalPatchApplicationGateRecordStore, (record) => record.patchProposalId === patchProposalId);
 }
 
 export function maintenanceCanonicalUpdateProposalArtifactRef(memory: ResolvedMemory, proposalId: string): string {

@@ -7,7 +7,7 @@ import { describe, expect, it, afterEach, beforeEach } from "vitest";
 import { initHarness } from "../../src/harness/init.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import { buildMaintenanceSummary } from "../../src/workbench/projections/read-model/maintenance-summary.js";
-import { buildMaintenanceArtifactRefListForStores } from "../../src/agent-task/maintenance-artifact-store.js";
+import { buildMaintenanceArtifactRefListForStores, findMaintenanceArtifactBy } from "../../src/agent-task/maintenance-artifact-store.js";
 import { buildNonExecutingCanonicalPatchApplicationAuthority } from "../../src/agent-task/canonical-patch-application-authority.js";
 import {
   buildCanonicalPatchDerivedOperationId,
@@ -114,6 +114,30 @@ describe("AgentTask domain boundaries", () => {
       `.agent-harness/workbench/maintenance/test-artifacts/b.json`,
       `.agent-harness/workbench/maintenance/test-artifacts/upstream.md`,
     ]);
+  });
+
+  it("finds store-backed maintenance artifacts through the artifact-store owner", async () => {
+    await initHarness(project());
+    const memory = await resolveProjectMemory(project());
+    const root = join(memory.workbenchRoot, "maintenance", "test-artifact-lookup");
+    const store = {
+      root: () => root,
+      jsonPath: (_resolved: ResolvedMemory, id: string) => join(root, `${id}.json`),
+      markdownPath: (_resolved: ResolvedMemory, id: string) => join(root, `${id}.md`),
+      schema: canonicalUpdateProposalSchema.pick({ id: true, createdAt: true }).extend({
+        groupId: canonicalUpdateProposalSchema.shape.id,
+      }),
+    };
+
+    await mkdir(root, { recursive: true });
+    await writeFile(store.jsonPath(memory, "later"), JSON.stringify({ id: "later", groupId: "same", createdAt: "2026-06-19T00:02:00.000Z" }), "utf8");
+    await writeFile(store.jsonPath(memory, "earlier"), JSON.stringify({ id: "earlier", groupId: "same", createdAt: "2026-06-19T00:01:00.000Z" }), "utf8");
+
+    await expect(findMaintenanceArtifactBy(memory, store, (artifact) => artifact.groupId === "same")).resolves.toMatchObject({
+      id: "earlier",
+      groupId: "same",
+    });
+    await expect(findMaintenanceArtifactBy(memory, store, (artifact) => artifact.groupId === "missing")).resolves.toBeNull();
   });
 
   it("builds shared non-executing canonical patch application authority flags", () => {
