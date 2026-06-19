@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-19T00:12:07.4156446Z",
+    "generated_at":  "2026-06-19T00:34:11.1659809Z",
     "active":  [
 
                ],
@@ -1181,6 +1181,10 @@
                     {
                         "name":  "20260619-maintenance-canonical-patch-target-boundary-reuse",
                         "path":  "harness/changes/archive/20260619-maintenance-canonical-patch-target-boundary-reuse"
+                    },
+                    {
+                        "name":  "20260619-maintenance-canonical-updates-ledger-helper-adoption",
+                        "path":  "harness/changes/archive/20260619-maintenance-canonical-updates-ledger-helper-adoption"
                     },
                     {
                         "name":  "20260619-phase-12u-product-maintenance-canonical-patch-target-descriptors",

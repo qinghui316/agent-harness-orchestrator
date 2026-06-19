@@ -32,7 +32,7 @@ import {
   maintenanceCanonicalUpdateProposalsRoot,
   maintenanceResolutionPath,
 } from "./paths.js";
-import { ensureMaintenanceLedgerEntryForArtifactRef } from "./ledger.js";
+import { ensureMaintenanceLedgerEntryForStoreArtifact } from "./ledger.js";
 import { buildCanonicalPatchTargetDescriptor } from "./canonical-patch-targets.js";
 import { canonicalPatchApplicationGateRecordSchema, canonicalPatchProposalSchema, canonicalUpdateDecisionSchema, canonicalUpdateProposalSchema } from "./schemas.js";
 import { contentHash, uniqueSorted } from "./utils.js";
@@ -400,12 +400,11 @@ async function ensureCanonicalUpdateProposalLedgerEntry(
   memory: ResolvedMemory,
   proposal: MaintenanceCanonicalUpdateProposal,
 ): Promise<void> {
-  const proposalRefs = buildMaintenanceArtifactRefsForStore(memory, canonicalUpdateProposalStore, proposal.id);
-  await ensureMaintenanceLedgerEntryForArtifactRef(memory, {
+  await ensureMaintenanceLedgerEntryForStoreArtifact(memory, {
+    store: canonicalUpdateProposalStore,
+    id: proposal.id,
     eventType: "canonical-update-proposal",
-    artifactRef: proposalRefs.artifactRef,
     summary: `${proposal.summary} This ledger entry is evidence only and does not authorize canonical rewrites.`,
-    artifactRefs: proposalRefs.ledgerArtifactRefs,
   });
 }
 
@@ -413,12 +412,11 @@ async function ensureCanonicalUpdateDecisionLedgerEntry(
   memory: ResolvedMemory,
   decision: MaintenanceCanonicalUpdateDecision,
 ): Promise<void> {
-  const decisionRefs = buildMaintenanceArtifactRefsForStore(memory, canonicalUpdateDecisionStore, decision.id);
-  await ensureMaintenanceLedgerEntryForArtifactRef(memory, {
+  await ensureMaintenanceLedgerEntryForStoreArtifact(memory, {
+    store: canonicalUpdateDecisionStore,
+    id: decision.id,
     eventType: "canonical-update-decision",
-    artifactRef: decisionRefs.artifactRef,
     summary: `${decision.summary} This ledger entry is evidence only and does not authorize canonical rewrites.`,
-    artifactRefs: decisionRefs.ledgerArtifactRefs,
   });
 }
 
@@ -426,12 +424,11 @@ async function ensureCanonicalPatchProposalLedgerEntry(
   memory: ResolvedMemory,
   patchProposal: MaintenanceCanonicalPatchProposal,
 ): Promise<void> {
-  const patchProposalRefs = buildMaintenanceArtifactRefsForStore(memory, canonicalPatchProposalStore, patchProposal.id);
-  await ensureMaintenanceLedgerEntryForArtifactRef(memory, {
+  await ensureMaintenanceLedgerEntryForStoreArtifact(memory, {
+    store: canonicalPatchProposalStore,
+    id: patchProposal.id,
     eventType: "canonical-patch-proposal",
-    artifactRef: patchProposalRefs.artifactRef,
     summary: `${patchProposal.summary} This ledger entry is evidence only and does not authorize canonical application.`,
-    artifactRefs: patchProposalRefs.ledgerArtifactRefs,
   });
 }
 
@@ -439,12 +436,11 @@ async function ensureCanonicalPatchApplicationGateLedgerEntry(
   memory: ResolvedMemory,
   gateRecord: MaintenanceCanonicalPatchApplicationGateRecord,
 ): Promise<void> {
-  const gateRecordRefs = buildMaintenanceArtifactRefsForStore(memory, canonicalPatchApplicationGateRecordStore, gateRecord.id);
-  await ensureMaintenanceLedgerEntryForArtifactRef(memory, {
+  await ensureMaintenanceLedgerEntryForStoreArtifact(memory, {
+    store: canonicalPatchApplicationGateRecordStore,
+    id: gateRecord.id,
     eventType: "canonical-patch-application-gate",
-    artifactRef: gateRecordRefs.artifactRef,
     summary: `${gateRecord.summary} This ledger entry is evidence only and does not authorize canonical mutation.`,
-    artifactRefs: gateRecordRefs.ledgerArtifactRefs,
   });
 }
 

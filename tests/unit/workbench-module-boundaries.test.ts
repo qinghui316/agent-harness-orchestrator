@@ -1548,8 +1548,14 @@ describe("Workbench module boundaries", () => {
     expect(report).not.toContain("ensureMaintenanceLedgerEntryForArtifactRef");
 
     const updates = readFileSync("src/agent-task/canonical-updates.ts", "utf8");
-    expect(updates).toContain("ensureMaintenanceLedgerEntryForArtifactRef");
-    expect(updates).not.toContain("ensureMaintenanceLedgerEntryForStoreArtifact");
+    expect(updates).toContain("ensureMaintenanceLedgerEntryForStoreArtifact");
+    expect(updates).toContain('eventType: "canonical-update-proposal"');
+    expect(updates).toContain('eventType: "canonical-update-decision"');
+    expect(updates).toContain('eventType: "canonical-patch-proposal"');
+    expect(updates).toContain('eventType: "canonical-patch-application-gate"');
+    expect(updates).not.toContain("ensureMaintenanceLedgerEntryForArtifactRef");
+    const updateImports = updates.split(/\r?\n/).filter((line) => line.startsWith("import ")).join("\n");
+    expect(updateImports).not.toMatch(/ledger-event-policy|candidates|workbench\/|ToolPolicy|scheduler|goal-loop|manager/);
   });
 
   it("keeps workflow-run manager as a compatibility facade with scoped recovery modules", () => {

@@ -301,6 +301,10 @@ describe("AgentTask domain boundaries", () => {
     expect(proposalMarkdown).toContain("Canonical update authorized: false");
     expect(proposalLedgerAfter).toBe(proposalLedgerBefore);
     expect(proposalLedgerEntry?.artifactRefs[0]).toBe(maintenanceCanonicalUpdateProposalArtifactRef(memory, proposals[0].id));
+    expect(proposalLedgerEntry?.artifactRefs.slice(0, 2)).toEqual([
+      maintenanceCanonicalUpdateProposalArtifactRef(memory, proposals[0].id),
+      expect.stringMatching(new RegExp(`maintenance/canonical-update-proposals/${proposals[0].id}\\.md$`)),
+    ]);
     expect(proposalLedgerEntry?.artifactRefs.some((ref) => ref.endsWith(`maintenance/canonical-update-proposals/${proposals[0].id}.md`))).toBe(true);
     expect(repeatedDecision.id).toBe(decision.id);
     expect(decisions).toHaveLength(1);
@@ -315,6 +319,10 @@ describe("AgentTask domain boundaries", () => {
     expect(decisionMarkdown).toContain("Canonical update authorized: false");
     expect(decisionLedgerCount).toBe(1);
     expect(decisionLedgerEntry?.artifactRefs[0]).toBe(maintenanceCanonicalUpdateDecisionArtifactRef(memory, decision.id));
+    expect(decisionLedgerEntry?.artifactRefs.slice(0, 2)).toEqual([
+      maintenanceCanonicalUpdateDecisionArtifactRef(memory, decision.id),
+      expect.stringMatching(new RegExp(`maintenance/canonical-update-decisions/${decision.id}\\.md$`)),
+    ]);
     expect(decisionLedgerEntry?.artifactRefs.some((ref) => ref.endsWith(`maintenance/canonical-update-decisions/${decision.id}.md`))).toBe(true);
     expect(repeatedPatchProposal.id).toBe(patchProposal.id);
     expect(patchProposals).toHaveLength(1);
@@ -335,6 +343,10 @@ describe("AgentTask domain boundaries", () => {
     expect(patchProposalMarkdown).toContain("This patch proposal does not modify stable memory");
     expect(patchProposalLedgerCount).toBe(1);
     expect(patchProposalLedgerEntry?.artifactRefs[0]).toBe(maintenanceCanonicalPatchProposalArtifactRef(memory, patchProposal.id));
+    expect(patchProposalLedgerEntry?.artifactRefs.slice(0, 2)).toEqual([
+      maintenanceCanonicalPatchProposalArtifactRef(memory, patchProposal.id),
+      expect.stringMatching(new RegExp(`maintenance/canonical-patch-proposals/${patchProposal.id}\\.md$`)),
+    ]);
     expect(patchProposalLedgerEntry?.artifactRefs.some((ref) => ref.endsWith(`maintenance/canonical-patch-proposals/${patchProposal.id}.md`))).toBe(true);
     expect(repeatedGateRecord.id).toBe(gateRecord.id);
     expect(gateRecords).toHaveLength(1);
@@ -355,6 +367,10 @@ describe("AgentTask domain boundaries", () => {
     expect(gateRecordMarkdown).toContain("This gate record does not modify stable memory");
     expect(gateLedgerCount).toBe(1);
     expect(gateLedgerEntry?.artifactRefs[0]).toBe(maintenanceCanonicalPatchApplicationGateArtifactRef(memory, gateRecord.id));
+    expect(gateLedgerEntry?.artifactRefs.slice(0, 2)).toEqual([
+      maintenanceCanonicalPatchApplicationGateArtifactRef(memory, gateRecord.id),
+      expect.stringMatching(new RegExp(`maintenance/canonical-patch-application-gates/${gateRecord.id}\\.md$`)),
+    ]);
     expect(gateLedgerEntry?.artifactRefs.some((ref) => ref.endsWith(`maintenance/canonical-patch-application-gates/${gateRecord.id}.md`))).toBe(true);
     expect(repeatedManifest.id).toBe(manifest.id);
     expect(manifests).toHaveLength(1);

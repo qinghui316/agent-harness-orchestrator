@@ -5,20 +5,20 @@
 - Current date: 2026-06-19.
 - Active ECL change: none.
 - Pending Harness evolution: none.
-- Latest archived product change: `harness/changes/archive/20260619-maintenance-artifact-ledger-entry-helper-reuse/summary.md`.
-- Latest archived product/Harness docs change: `harness/changes/archive/20260619-maintenance-artifact-ledger-entry-helper-reuse/summary.md`.
+- Latest archived product change: `harness/changes/archive/20260619-maintenance-canonical-updates-ledger-helper-adoption/summary.md`.
+- Latest archived product/Harness docs change: `harness/changes/archive/20260619-maintenance-canonical-updates-ledger-helper-adoption/summary.md`.
 - Latest archived Harness evolution: `harness/changes/archive/20260619-auto-evolve-harness-review-template-handoff-coverage-defaults/summary.md`.
 - Active product phase: none.
 - Active Harness evolution phase: none.
 - Active close status: none.
 
-This file is the short resume point. There is no active ECL change and no pending Harness evolution. The latest archived product slice added a shared `ensureMaintenanceLedgerEntryForStoreArtifact` helper in the maintenance ledger owner and reused it only for canonical patch application manifest, result, and report ledger entries. It preserved domain-owned event types and summaries, JSON-first artifact ref ordering, idempotent ledger behavior, candidate filtering, source apply behavior, ToolPolicyGate, human gates, Workbench behavior, scheduler behavior, Goal Loop behavior, UI behavior, and manager facade behavior. `npm run test:workbench` still timed out after 394 seconds with no failure output and remains recorded as an environment limitation. The latest Harness evolution completed `mark-complete` with result `keep` and applied only a narrow review-template default clarification for Documentation Entropy and Close/Handoff Drift coverage; existing Architecture Growth Control / Core Mechanism Reuse rules were retained.
+This file is the short resume point. There is no active ECL change and no pending Harness evolution. The latest archived product slice is Maintenance Canonical Updates Ledger Helper Adoption: `src/agent-task/canonical-updates.ts` now reuses the existing `ensureMaintenanceLedgerEntryForStoreArtifact` helper only in four private ledger-entry helpers for canonical update proposal, update decision, patch proposal, and application gate records. Public artifact refs, non-ledger source/evidence refs, event policy, candidate filtering, source apply behavior, ToolPolicyGate, human gates, Workbench behavior, scheduler behavior, Goal Loop behavior, UI behavior, and manager facade behavior remain unchanged. `npm run test:workbench` still timed out after 394 seconds with no failure output and remains recorded as an environment limitation. The latest Harness evolution completed `mark-complete` with result `keep` and applied only a narrow review-template default clarification for Documentation Entropy and Close/Handoff Drift coverage; existing Architecture Growth Control / Core Mechanism Reuse rules were retained.
 
 Current plan-level roadmap context is preserved in `docs/CURRENT-DEVELOPMENT-PLAN.md`. Historical detail belongs in archived summaries and `harness/changes/INDEX.json`.
 
 ## Current Baseline
 
-The product baseline is post-maintenance canonical patch target-boundary, lineage, ledger-idempotency, artifact-store reuse, artifact-reference reuse, ledger event-policy reuse, maintenance artifact ledger-entry helper reuse, Workbench action active-target revalidation reuse, Workbench action target revalidation helper reuse, Workbench read-model projection summary helper reuse, Workbench maintenance confirmation projection summary helper reuse, and Workbench read-model timestamp summary helper reuse. The latest Harness evolution completed `mark-complete` with result `keep` and updated only the review template coverage defaults; no product runtime, lint, CI, or workflow-truth change was made. Goal Loop controlled-loop state, routing posture, and SchedulerRun terminal handoff evidence remain non-executing evidence only. SchedulerRun terminal Workpad completion and blocked-closeout cards remain read-only evidence and do not authorize loop/full-executor/dispatch/slot/source/apply/close/merge/Harness-evolution behavior.
+The product baseline is post-maintenance canonical patch target-boundary, lineage, ledger-idempotency, artifact-store reuse, artifact-reference reuse, ledger event-policy reuse, maintenance artifact ledger-entry helper reuse, canonical updates ledger helper adoption, Workbench action active-target revalidation reuse, Workbench action target revalidation helper reuse, Workbench read-model projection summary helper reuse, Workbench maintenance confirmation projection summary helper reuse, and Workbench read-model timestamp summary helper reuse. The latest Harness evolution completed `mark-complete` with result `keep` and updated only the review template coverage defaults; no product runtime, lint, CI, or workflow-truth change was made. Goal Loop controlled-loop state, routing posture, and SchedulerRun terminal handoff evidence remain non-executing evidence only. SchedulerRun terminal Workpad completion and blocked-closeout cards remain read-only evidence and do not authorize loop/full-executor/dispatch/slot/source/apply/close/merge/Harness-evolution behavior.
 
 Product-level maintenance writes candidate lifecycle-resolution evidence, canonical update proposal evidence, human-gated canonical update decision records, canonical patch proposal evidence, human-gated canonical patch application follow-up records, read-only application manifest/readiness evidence, Phase 12U target-descriptor evidence, Phase 12V human-gated canonical docs/stable-memory application result evidence, and Phase 12W read-only observation report evidence while still forbidding automatic canonical rewrites.
 
@@ -26,7 +26,7 @@ Phase 12A remains the future controlled Scheduler/parallel loop design boundary.
 
 ## Next Resume Point
 
-Resume the next structured product slice from `docs/CURRENT-DEVELOPMENT-PLAN.md`. Continue the Architecture Growth Control register before opening another evidence-only or descriptor-only phase; the next source convergence candidate should stay narrow and reuse existing core mechanisms. Keep `README.md` unrelated and untracked unless the user explicitly asks to include it.
+Resume from `docs/CURRENT-DEVELOPMENT-PLAN.md` and continue the Architecture Growth Control register with one narrow Core Mechanism Reuse slice at a time. Prefer the maintenance / canonical patch chain until the next highest-duplication owner is clearer. Keep `README.md` unrelated and untracked unless the user explicitly asks to include it.
 
 ## Verification Commands
 
@@ -58,6 +58,7 @@ Use `harness/changes/INDEX.json` for the generated archive list. Start with arch
 Recent key archive summaries:
 
 - Latest Harness evolution: `harness/changes/archive/20260619-auto-evolve-harness-review-template-handoff-coverage-defaults/summary.md`.
+- Maintenance Canonical Updates Ledger Helper Adoption: `harness/changes/archive/20260619-maintenance-canonical-updates-ledger-helper-adoption/summary.md`.
 - Maintenance Artifact Ledger Entry Helper Reuse: `harness/changes/archive/20260619-maintenance-artifact-ledger-entry-helper-reuse/summary.md`.
 - Workbench Action Target Revalidation Helper Reuse: `harness/changes/archive/20260619-workbench-action-target-revalidation-helper-reuse/summary.md`.
 - Workbench Read Model Timestamp Summary Helper Reuse: `harness/changes/archive/20260619-workbench-read-model-timestamp-summary-helper-reuse/summary.md`.
