@@ -23,7 +23,7 @@
     "test": "npm run test:fast && npm run test:integration && npm run test:workbench",
     "test:fast": "vitest run --exclude tests/unit/workbench.test.ts --exclude tests/unit/workbench-demand-worker.test.ts --exclude tests/slow/** --exclude tests/integration/cli-flow.test.ts",
     "test:workbench": "vitest run tests/unit/workbench.test.ts && vitest run tests/unit/workbench-demand-worker.test.ts && npm run test:workbench:slow",
-    "test:workbench:slow": "vitest run tests/slow/workbench-scheduler-flow.test.ts && vitest run tests/slow/workbench-remote-landing-flow.test.ts && vitest run tests/slow/workbench-apply-integration-flow.test.ts && vitest run tests/slow/workbench-goal-loop-prompt-flow.test.ts",
+    "test:workbench:slow": "vitest run tests/slow/workbench-scheduler-flow.test.ts && vitest run tests/slow/workbench-remote-landing-flow.test.ts && vitest run tests/slow/workbench-apply-integration-flow.test.ts && vitest run tests/slow/workbench-maintenance-flow.test.ts && vitest run tests/slow/workbench-goal-loop-prompt-flow.test.ts",
     "test:integration": "vitest run tests/integration/cli-flow.test.ts",
     "typecheck": "tsc --noEmit",
     "clean": "node scripts/clean.mjs"
