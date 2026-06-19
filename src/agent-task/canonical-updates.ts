@@ -35,6 +35,7 @@ import {
   maintenanceResolutionPath,
 } from "./paths.js";
 import { ensureMaintenanceLedgerEntryForStoreArtifact } from "./ledger.js";
+import { renderMaintenanceMarkdownList } from "./maintenance-markdown.js";
 import { buildCanonicalPatchTargetDescriptor } from "./canonical-patch-targets.js";
 import { formatCanonicalPatchTargetDescriptor } from "./canonical-patch-target-boundary.js";
 import { buildNonExecutingCanonicalPatchApplicationAuthority } from "./canonical-patch-application-authority.js";
@@ -471,7 +472,7 @@ function renderCanonicalUpdateProposalMarkdown(proposal: MaintenanceCanonicalUpd
     "",
     "## Evidence",
     "",
-    ...proposal.artifactRefs.map((ref) => `- ${ref}`),
+    ...renderMaintenanceMarkdownList(proposal.artifactRefs),
     "",
   ].join("\n");
 }
@@ -501,7 +502,7 @@ function renderCanonicalUpdateDecisionMarkdown(decision: MaintenanceCanonicalUpd
     "",
     "## Evidence",
     "",
-    ...decision.artifactRefs.map((ref) => `- ${ref}`),
+    ...renderMaintenanceMarkdownList(decision.artifactRefs),
     "",
   ].join("\n");
 }
@@ -548,7 +549,7 @@ function renderCanonicalPatchProposalMarkdown(patchProposal: MaintenanceCanonica
     "",
     "## Evidence",
     "",
-    ...patchProposal.artifactRefs.map((ref) => `- ${ref}`),
+    ...renderMaintenanceMarkdownList(patchProposal.artifactRefs),
     "",
   ].join("\n");
 }
@@ -585,7 +586,7 @@ function renderCanonicalPatchApplicationGateMarkdown(gateRecord: MaintenanceCano
     "",
     "## Evidence",
     "",
-    ...gateRecord.artifactRefs.map((ref) => `- ${ref}`),
+    ...renderMaintenanceMarkdownList(gateRecord.artifactRefs),
     "",
   ].join("\n");
 }

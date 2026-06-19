@@ -5,20 +5,20 @@
 - Current date: 2026-06-19.
 - Active ECL change: none.
 - Pending Harness evolution: none.
-- Latest archived product change: `harness/changes/archive/20260619-maintenance-markdown-list-helper-reuse/summary.md`.
-- Latest archived product/Harness docs change: `harness/changes/archive/20260619-maintenance-markdown-list-helper-reuse/summary.md`.
-- Latest archived Harness evolution: `harness/changes/archive/20260619-auto-evolve-harness-candidate-window-order/summary.md`.
+- Latest archived product change: `harness/changes/archive/20260619-maintenance-markdown-evidence-list-renderer-reuse/summary.md`.
+- Latest archived product/Harness docs change: `harness/changes/archive/20260619-maintenance-markdown-evidence-list-renderer-reuse/summary.md`.
+- Latest archived Harness evolution: `harness/changes/archive/20260619-auto-evolve-harness-maintenance-helper-reuse-window/summary.md`.
 - Active product phase: none.
 - Active Harness evolution phase: none.
 - Active close status: none.
 
-This file is the short resume point. There is no active ECL change and no pending Harness evolution. The latest archived product slice is Maintenance Markdown List Helper Reuse: `src/agent-task/maintenance-markdown.ts` now owns presentation-only maintenance markdown list rendering, and canonical patch application result/report `policyAuditRefs` and `artifactRefs` markdown renderers reuse it while preserving markdown output, artifact JSON/schema, ledger refs, authority, gates, and source behavior. The previous slice, Maintenance Canonical Patch Target Descriptor Render Helper Reuse, left `src/agent-task/canonical-patch-target-boundary.ts` owning display-only canonical patch target descriptor summary formatting. The latest Harness evolution remains Auto-evolve Harness Candidate Window Order: it repaired pending evolution candidate-window selection after Maintenance Canonical Patch Application Authority Helper Reuse closed.
+This file is the short resume point. There is no active ECL change and no pending Harness evolution. The latest archived product slice is Maintenance Markdown Evidence List Renderer Reuse: canonical update proposal, canonical update decision, canonical patch proposal, canonical patch application gate, and canonical patch application manifest Evidence `artifactRefs` markdown lists now reuse `src/agent-task/maintenance-markdown.ts` while preserving markdown output, artifact JSON/schema, ledger refs, authority, gates, and source behavior. The latest Harness evolution is Auto-evolve Harness Maintenance Helper Reuse Window: it kept existing Architecture Growth Control / Core Mechanism Reuse and Module Boundary rules as sufficient, recorded the helper-reuse window in proposal/results evidence, and made no new Harness rule/template/lint/product runtime change.
 
 Current plan-level roadmap context is preserved in `docs/CURRENT-DEVELOPMENT-PLAN.md`. Historical detail belongs in archived summaries and `harness/changes/INDEX.json`.
 
 ## Current Baseline
 
-The product baseline is post-maintenance canonical patch target-boundary, lineage, operation lineage helper reuse, target-kind helper reuse, target-descriptor render helper reuse, markdown list helper reuse, application-authority helper reuse, ledger-idempotency, artifact-store reuse, artifact-reference reuse, ledger event-policy reuse, maintenance artifact ledger-entry helper reuse, canonical updates ledger helper adoption, maintenance store-backed artifact ref-list helper reuse, maintenance store-backed artifact lookup helper reuse, Workbench action active-target revalidation reuse, Workbench action target revalidation helper reuse, Workbench read-model projection summary helper reuse, Workbench maintenance confirmation projection summary helper reuse, and Workbench read-model timestamp summary helper reuse. The latest Harness evolution completed `mark-complete` with result `keep` after repairing candidate-window ordering; no product runtime or broad ECL/template change was made. Goal Loop controlled-loop state, routing posture, and SchedulerRun terminal handoff evidence remain non-executing evidence only. SchedulerRun terminal Workpad completion and blocked-closeout cards remain read-only evidence and do not authorize loop/full-executor/dispatch/slot/source/apply/close/merge/Harness-evolution behavior.
+The product baseline is post-maintenance canonical patch target-boundary, lineage, operation lineage helper reuse, target-kind helper reuse, target-descriptor render helper reuse, markdown list helper reuse, markdown evidence-list renderer reuse, application-authority helper reuse, ledger-idempotency, artifact-store reuse, artifact-reference reuse, ledger event-policy reuse, maintenance artifact ledger-entry helper reuse, canonical updates ledger helper adoption, maintenance store-backed artifact ref-list helper reuse, maintenance store-backed artifact lookup helper reuse, Workbench action active-target revalidation reuse, Workbench action target revalidation helper reuse, Workbench read-model projection summary helper reuse, Workbench maintenance confirmation projection summary helper reuse, and Workbench read-model timestamp summary helper reuse. The latest Harness evolution completed `mark-complete` with result `keep` after reviewing the maintenance helper-reuse window; no product runtime or broad ECL/template change was made. Goal Loop controlled-loop state, routing posture, and SchedulerRun terminal handoff evidence remain non-executing evidence only. SchedulerRun terminal Workpad completion and blocked-closeout cards remain read-only evidence and do not authorize loop/full-executor/dispatch/slot/source/apply/close/merge/Harness-evolution behavior.
 
 Product-level maintenance writes candidate lifecycle-resolution evidence, canonical update proposal evidence, human-gated canonical update decision records, canonical patch proposal evidence, human-gated canonical patch application follow-up records, read-only application manifest/readiness evidence, Phase 12U target-descriptor evidence, Phase 12V human-gated canonical docs/stable-memory application result evidence, and Phase 12W read-only observation report evidence while still forbidding automatic canonical rewrites.
 
@@ -26,7 +26,7 @@ Phase 12A remains the future controlled Scheduler/parallel loop design boundary.
 
 ## Next Resume Point
 
-Resume from the Architecture Growth Control register in `docs/CURRENT-DEVELOPMENT-PLAN.md`, preferably another narrow maintenance / canonical patch chain convergence slice only if it reuses or strengthens an existing core mechanism. Keep `README.md` unrelated and untracked unless the user explicitly asks to include it.
+Resume from the Architecture Growth Control register in `docs/CURRENT-DEVELOPMENT-PLAN.md`, preferably another narrow convergence slice only if it reuses or strengthens an existing core mechanism. Keep `README.md` unrelated and untracked unless the user explicitly asks to include it.
 
 ## Verification Commands
 
@@ -57,6 +57,8 @@ Use `harness/changes/INDEX.json` for the generated archive list. Start with arch
 
 Recent key archive summaries:
 
+- Latest Harness evolution: `harness/changes/archive/20260619-auto-evolve-harness-maintenance-helper-reuse-window/summary.md`.
+- Maintenance Markdown Evidence List Renderer Reuse: `harness/changes/archive/20260619-maintenance-markdown-evidence-list-renderer-reuse/summary.md`.
 - Maintenance Markdown List Helper Reuse: `harness/changes/archive/20260619-maintenance-markdown-list-helper-reuse/summary.md`.
 - Maintenance Canonical Patch Target Descriptor Render Helper Reuse: `harness/changes/archive/20260619-maintenance-canonical-patch-target-descriptor-render-helper-reuse/summary.md`.
 - Maintenance Store-backed Artifact Lookup Helper Reuse: `harness/changes/archive/20260619-maintenance-store-backed-artifact-lookup-helper-reuse/summary.md`.

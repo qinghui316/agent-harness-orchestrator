@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-19T03:47:37.4267892Z",
+    "generated_at":  "2026-06-19T04:14:43.5866206Z",
     "active":  [
 
                ],
@@ -1143,6 +1143,10 @@
                         "path":  "harness/changes/archive/20260619-auto-evolve-harness-maintenance-canonical-chain-evidence"
                     },
                     {
+                        "name":  "20260619-auto-evolve-harness-maintenance-helper-reuse-window",
+                        "path":  "harness/changes/archive/20260619-auto-evolve-harness-maintenance-helper-reuse-window"
+                    },
+                    {
                         "name":  "20260619-auto-evolve-harness-phase-12s-12w-product-maintenance-evidence",
                         "path":  "harness/changes/archive/20260619-auto-evolve-harness-phase-12s-12w-product-maintenance-evidence"
                     },
@@ -1213,6 +1217,10 @@
                     {
                         "name":  "20260619-maintenance-canonical-updates-ledger-helper-adoption",
                         "path":  "harness/changes/archive/20260619-maintenance-canonical-updates-ledger-helper-adoption"
+                    },
+                    {
+                        "name":  "20260619-maintenance-markdown-evidence-list-renderer-reuse",
+                        "path":  "harness/changes/archive/20260619-maintenance-markdown-evidence-list-renderer-reuse"
                     },
                     {
                         "name":  "20260619-maintenance-markdown-list-helper-reuse",

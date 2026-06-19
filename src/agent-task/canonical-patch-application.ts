@@ -519,7 +519,7 @@ function renderCanonicalPatchApplicationManifestMarkdown(manifest: MaintenanceCa
     "",
     "## Evidence",
     "",
-    ...manifest.artifactRefs.map((ref) => `- ${ref}`),
+    ...renderMaintenanceMarkdownList(manifest.artifactRefs),
     "",
   ].join("\n");
 }
