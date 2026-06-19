@@ -4,14 +4,14 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 
 ## 1. Current Handoff
 
-- Current date: 2026-06-19.
+- Current date: 2026-06-20.
 - Active change: none.
 - Pending Harness evolution: none.
-- Latest archived product change: Workbench Test Architecture Goal Loop Prompt Slow Suite Split, archived at `harness/changes/archive/20260620-workbench-test-architecture-goal-loop-prompt-slow-suite-split/summary.md`.
-- Latest product/Harness docs change: Workbench Test Architecture Goal Loop Prompt Slow Suite Split, archived at `harness/changes/archive/20260620-workbench-test-architecture-goal-loop-prompt-slow-suite-split/summary.md`.
+- Latest archived product change: Workbench Test Architecture Demand Worker Unit Domain Split, archived at `harness/changes/archive/20260620-workbench-test-architecture-demand-worker-unit-domain-split/summary.md`.
+- Latest product/Harness docs change: Auto Evolve Harness Workbench Test Architecture Granularity Window, archived at `harness/changes/archive/20260620-auto-evolve-harness-workbench-test-architecture-granularity-window/summary.md`.
 - Active product phase: none.
 - Active Harness evolution phase: none.
-- Latest Harness evolution: `harness/changes/archive/20260619-auto-evolve-harness-helper-reuse-test-architecture-window/summary.md`.
+- Latest Harness evolution: `harness/changes/archive/20260620-auto-evolve-harness-workbench-test-architecture-granularity-window/summary.md`.
 
 If an active change exists, use its files first for the current task. Use `docs/STATUS.md` for the short resume state and next recommended structured work. Use `harness/changes/INDEX.json` and archived `summary.md` files for historical detail. Do not rebuild current context by reading the full archive ledger unless the task requires it.
 
