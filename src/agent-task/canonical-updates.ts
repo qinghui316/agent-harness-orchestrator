@@ -35,6 +35,7 @@ import {
 } from "./paths.js";
 import { ensureMaintenanceLedgerEntryForStoreArtifact } from "./ledger.js";
 import { buildCanonicalPatchTargetDescriptor } from "./canonical-patch-targets.js";
+import { buildCanonicalPatchDerivedOperationId } from "./canonical-patch-lineage.js";
 import { canonicalPatchApplicationGateRecordSchema, canonicalPatchProposalSchema, canonicalUpdateDecisionSchema, canonicalUpdateProposalSchema } from "./schemas.js";
 import { contentHash, uniqueSorted } from "./utils.js";
 
@@ -323,7 +324,7 @@ async function buildCanonicalPatchProposal(
     const targetKind = targetKindForSubtype(resolution.candidateSubtype);
     const targetDescriptor = await buildCanonicalPatchTargetDescriptor(memory, targetKind, resolution.targetHints);
     return {
-      id: `${id}-operation-${String(index + 1).padStart(3, "0")}`,
+      id: buildCanonicalPatchDerivedOperationId(id, index),
       targetKind,
       operation: resolution.outcome,
       sourceResolutionId: resolution.resolutionId,

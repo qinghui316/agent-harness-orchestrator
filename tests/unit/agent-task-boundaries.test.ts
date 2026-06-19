@@ -453,6 +453,10 @@ describe("AgentTask domain boundaries", () => {
       operationCount: expect.any(Number),
     });
     expect(patchProposal.operationCount).toBeGreaterThan(0);
+    expect(patchProposal.operations.map((operation) => operation.id)).toEqual(
+      patchProposal.operations.map((_, index) => buildCanonicalPatchDerivedOperationId(patchProposal.id, index)),
+    );
+    expect(patchProposal.operations[0]?.id).toBe(`${patchProposal.id}-operation-001`);
     expect(patchProposal.artifactRefs.slice(0, 4)).toEqual([
       maintenanceCanonicalUpdateProposalArtifactRef(memory, proposals[0].id),
       expect.stringMatching(new RegExp(`maintenance/canonical-update-proposals/${proposals[0].id}\\.md$`)),

@@ -5,14 +5,14 @@
 - Current date: 2026-06-19.
 - Active ECL change: none.
 - Pending Harness evolution: none.
-- Latest archived product change: `harness/changes/archive/20260619-maintenance-canonical-patch-operation-lineage-helper-reuse/summary.md`.
-- Latest archived product/Harness docs change: `harness/changes/archive/20260619-auto-evolve-harness-workbench-reuse-window/summary.md`.
+- Latest archived product change: `harness/changes/archive/20260619-maintenance-canonical-patch-proposal-operation-id-helper-reuse/summary.md`.
+- Latest archived product/Harness docs change: `harness/changes/archive/20260619-maintenance-canonical-patch-proposal-operation-id-helper-reuse/summary.md`.
 - Latest archived Harness evolution: `harness/changes/archive/20260619-auto-evolve-harness-workbench-reuse-window/summary.md`.
 - Active product phase: none.
 - Active Harness evolution phase: none.
 - Active close status: none.
 
-This file is the short resume point. There is no active ECL change and no pending Harness evolution. The latest product slice was Maintenance Canonical Patch Operation Lineage Helper Reuse: `src/agent-task/canonical-patch-lineage.ts` now owns pure canonical patch operation id and lineage/ref copy helpers reused by manifest, application result, and observation report builders without changing artifact shape, authority flags, human gates, ToolPolicyGate requirements, top-level artifact refs, or write behavior. The previous product slice was Maintenance Store-backed Artifact Ref List Helper Reuse: `src/agent-task/maintenance-artifact-store.ts` now owns explicit ordered store-backed artifact ref-list construction, and canonical update / patch call sites reuse it only where existing `artifactRefs` semantics are preserved. The latest Harness evolution was Auto-evolve Harness Workbench Reuse Window with result `keep`: current Architecture Growth Control / Core Mechanism Reuse, Module Boundary, Documentation Entropy, Close/Handoff Drift, Workbench projection/action, workflow-truth, ToolPolicyGate, and human-gate rules are sufficient for the five Workbench helper-reuse archives; no new Harness rule/template/lint/runtime change was made.
+This file is the short resume point. There is no active ECL change and no pending Harness evolution. The latest product slice was Maintenance Canonical Patch Proposal Operation Id Helper Reuse: `src/agent-task/canonical-updates.ts` now reuses `buildCanonicalPatchDerivedOperationId` from `src/agent-task/canonical-patch-lineage.ts` for canonical patch proposal operation ids, preserving the existing `${proposalId}-operation-001` format, artifact shapes, authority flags, human gates, ToolPolicyGate requirements, top-level artifact refs, and Workbench behavior. The previous closed product slice was Maintenance Canonical Patch Operation Lineage Helper Reuse: `src/agent-task/canonical-patch-lineage.ts` owns pure canonical patch operation id and lineage/ref copy helpers reused by manifest, application result, and observation report builders. The latest Harness evolution was Auto-evolve Harness Workbench Reuse Window with result `keep`: current Architecture Growth Control / Core Mechanism Reuse, Module Boundary, Documentation Entropy, Close/Handoff Drift, Workbench projection/action, workflow-truth, ToolPolicyGate, and human-gate rules are sufficient for the five Workbench helper-reuse archives; no new Harness rule/template/lint/runtime change was made.
 
 Current plan-level roadmap context is preserved in `docs/CURRENT-DEVELOPMENT-PLAN.md`. Historical detail belongs in archived summaries and `harness/changes/INDEX.json`.
 
@@ -57,6 +57,7 @@ Use `harness/changes/INDEX.json` for the generated archive list. Start with arch
 
 Recent key archive summaries:
 
+- Maintenance Canonical Patch Proposal Operation Id Helper Reuse: `harness/changes/archive/20260619-maintenance-canonical-patch-proposal-operation-id-helper-reuse/summary.md`.
 - Latest Harness evolution: `harness/changes/archive/20260619-auto-evolve-harness-workbench-reuse-window/summary.md`.
 - Previous Harness evolution: `harness/changes/archive/20260619-auto-evolve-harness-review-template-handoff-coverage-defaults/summary.md`.
 - Maintenance Canonical Patch Operation Lineage Helper Reuse: `harness/changes/archive/20260619-maintenance-canonical-patch-operation-lineage-helper-reuse/summary.md`.
