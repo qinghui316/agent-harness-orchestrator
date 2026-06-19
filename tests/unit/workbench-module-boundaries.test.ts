@@ -1759,6 +1759,11 @@ describe("Workbench module boundaries", () => {
     expect(boundary).toContain("assertLatestWorkbenchActionTarget(latestRun, run, \"planning.scheduler.plan.prepare\", \"SchedulerRun\")");
     expect(boundary).toContain("assertPreparedWorkbenchActionTarget(run, request.schedulerRunId, changeId, request.actionType, \"SchedulerRun\")");
     expect(boundary).toContain("assertPreparedWorkbenchActionTarget(run, request.schedulerRunId, changeId, \"planning.scheduler.worker.validate-first\", \"SchedulerRun\")");
+    expect(boundary).toContain("assertLatestWorkbenchActionTarget(latestDryRun, dryRun, \"planning.scheduler.worker-plan.compile\", \"SchedulerDispatchDryRun\")");
+    expect(boundary).toContain("assertLatestWorkbenchActionTarget(latestClaimPlan, claimPlan, \"planning.scheduler.launch-preflight.check\", \"SchedulerClaimReconcilePlan\")");
+    expect(boundary).toContain("assertLatestWorkbenchActionTarget(latestPreflight, preflight, \"planning.scheduler.run.prepare\", \"SchedulerLaunchPreflight\")");
+    expect(boundary).toContain("planning.scheduler.plan.prepare requires the latest SchedulerReconcileSnapshot");
+    expect(boundary).toContain("planning.scheduler.run.complete SchedulerRun target is not completable");
   });
 
   it("keeps confirmation queue planning copy non-executing and preserves explicit action scope", () => {
