@@ -20,6 +20,7 @@ import { formatCanonicalPatchTargetDescriptor } from "../../src/agent-task/canon
 import { renderMaintenanceMarkdownList } from "../../src/agent-task/maintenance-markdown.js";
 import { candidateSchema, canonicalUpdateProposalSchema, resolutionSchema } from "../../src/agent-task/schemas.js";
 import { buildCanonicalPatchTargetDescriptor } from "../../src/agent-task/canonical-patch-targets.js";
+import { isMaintenanceCandidateSourceEvent, isMaintenanceDerivedSummaryEvent } from "../../src/agent-task/ledger-event-policy.js";
 import { normalizeDocsDriftCandidates } from "../../src/agent-task/closeout-store.js";
 import type { CandidateReview, CandidateScore, EvolutionCandidate, ManagedProject } from "../../src/types/index.js";
 import type {
@@ -1062,8 +1063,7 @@ describe("AgentTask domain boundaries", () => {
       expect.stringMatching(new RegExp(`maintenance/canonical-patch-application-reports/${report.id}\\.md$`)),
     ]);
     expect(reportLedgerEntry?.artifactRefs.some((ref) => ref.endsWith(`maintenance/canonical-patch-application-reports/${report.id}.md`))).toBe(true);
-    expect(pipelineResult.candidate?.sourceLedgerEntryIds).not.toContain(reportLedgerEntry?.id);
-    expect(pipelineResult.candidate?.summary ?? "").not.toContain("canonical-patch-application-report");
+    expect(pipelineResult).toMatchObject({ status: "skipped" });
   });
 
   it("keeps maintenance canonical artifact IO tolerant and sorted through the shared store", async () => {
@@ -1587,6 +1587,17 @@ describe("AgentTask domain boundaries", () => {
     await expect(generateMaintenanceCanonicalPatchApplicationManifest(memory, forgedGate.id)).rejects.toThrow("operation count mismatch");
   });
 
+  it("classifies maintenance candidate source events through the shared ledger policy", () => {
+    expect(isMaintenanceCandidateSourceEvent("change-closeout")).toBe(true);
+    expect(isMaintenanceCandidateSourceEvent("doc-drift")).toBe(true);
+    expect(isMaintenanceCandidateSourceEvent("harness-evolution")).toBe(true);
+    expect(isMaintenanceCandidateSourceEvent("maintenance-review")).toBe(false);
+    expect(isMaintenanceCandidateSourceEvent("canonical-update-proposal")).toBe(false);
+    expect(isMaintenanceCandidateSourceEvent("canonical-patch-application-report")).toBe(false);
+    expect(isMaintenanceDerivedSummaryEvent("maintenance-review")).toBe(true);
+    expect(isMaintenanceDerivedSummaryEvent("change-closeout")).toBe(false);
+  });
+
   it("does not create maintenance candidates from canonical maintenance evidence ledger entries", async () => {
     await initHarness(project());
     const memory = await resolveProjectMemory(project());
@@ -1626,17 +1637,59 @@ describe("AgentTask domain boundaries", () => {
       summary: "Patch application report evidence should not feed the maintenance candidate pipeline.",
       artifactRefs: ["workbench/maintenance/canonical-patch-application-reports/report.json"],
     });
+    await recordMaintenanceLedgerEntry(memory, {
+      eventType: "maintenance-review",
+      summary: "Maintenance review summary should not feed the maintenance candidate pipeline.",
+      artifactRefs: ["workbench/maintenance/reviews/review.md"],
+    });
 
     const entries = await listMaintenanceLedgerEntries(memory);
     const summary = await buildMaintenanceSummary(memory);
     expect(entries.some((entry) => entry.eventType === "canonical-patch-application-report")).toBe(true);
     expect([
+      "maintenance-review",
       "canonical-patch-application-manifest",
       "canonical-patch-application-result",
       "canonical-patch-application-report",
     ]).toContain(summary.latest?.eventType);
     expect(summary.latest?.eventType).not.toBe("canonical-update-proposal");
     await expect(runMaintenanceCandidatePipeline(memory)).resolves.toMatchObject({ status: "skipped" });
+  });
+
+  it("skips reviewed closeout ledger entries but keeps unreviewed source evidence", async () => {
+    await initHarness(project());
+    const memory = await resolveProjectMemory(project());
+
+    for (let index = 1; index <= 5; index += 1) {
+      await recordDemandMemoryCloseout(memory, {
+        changeId: `reviewed-source-${index}`,
+        title: `Reviewed source demand ${index}`,
+        terminalKind: "archived",
+        finalResult: `Reviewed source demand ${index} completed.`,
+        userDecision: "archived",
+        reusableLessonCandidates: [{ summary: "Reviewed closeout should not be reprocessed by ad-hoc pipeline." }],
+      });
+    }
+
+    const watermark = await readMaintenanceReviewWatermark(memory);
+    expect(watermark.lastReviewedChangeIds).toEqual([
+      "reviewed-source-1:archived",
+      "reviewed-source-2:archived",
+      "reviewed-source-3:archived",
+      "reviewed-source-4:archived",
+      "reviewed-source-5:archived",
+    ]);
+    await expect(runMaintenanceCandidatePipeline(memory)).resolves.toMatchObject({ status: "skipped" });
+
+    const unreviewed = await recordMaintenanceLedgerEntry(memory, {
+      eventType: "doc-drift",
+      summary: "A fresh doc drift source event should still feed the maintenance candidate pipeline.",
+      artifactRefs: ["docs/fresh-drift.md"],
+    });
+    const result = await runMaintenanceCandidatePipeline(memory);
+    expect(result.status).toBe("reviewed");
+    expect(result.candidate?.sourceLedgerEntryIds).toEqual([unreviewed.id]);
+    expect(result.candidate?.summary).toContain("doc-drift: A fresh doc drift source event should still feed the maintenance candidate pipeline.");
   });
 
   it("maps maintenance candidate lifecycle outcomes deterministically", async () => {

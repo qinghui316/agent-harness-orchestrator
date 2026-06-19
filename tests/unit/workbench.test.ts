@@ -184,11 +184,14 @@ async function createMaintenanceCanonicalUpdateProposalFixture(
     });
   }
 
-  const result = await runMaintenanceCandidatePipeline(memory);
-  if (result.status !== "reviewed") {
-    throw new Error(`Maintenance fixture ${key} did not produce a reviewed candidate.`);
+  let proposal = (await listMaintenanceCanonicalUpdateProposals(memory)).find((item) => !beforeIds.has(item.id));
+  if (!proposal) {
+    const result = await runMaintenanceCandidatePipeline(memory);
+    if (result.status !== "reviewed") {
+      throw new Error(`Maintenance fixture ${key} did not produce a reviewed candidate.`);
+    }
+    proposal = (await listMaintenanceCanonicalUpdateProposals(memory)).find((item) => !beforeIds.has(item.id));
   }
-  const proposal = (await listMaintenanceCanonicalUpdateProposals(memory)).find((item) => !beforeIds.has(item.id));
   if (!proposal) {
     throw new Error(`Maintenance fixture ${key} did not produce a canonical update proposal.`);
   }

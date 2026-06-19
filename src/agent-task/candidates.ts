@@ -14,7 +14,8 @@ import type {
 import { TERMINAL_REVIEW_WINDOW } from "./constants.js";
 import { checkDocBudgets } from "./doc-budget.js";
 import { listMaintenanceLedgerEntries } from "./ledger.js";
-import { isMaintenanceCanonicalEvidenceEvent } from "./ledger-event-policy.js";
+import { isMaintenanceCandidateSourceEvent, isMaintenanceCanonicalEvidenceEvent } from "./ledger-event-policy.js";
+import { readMaintenanceReviewWatermark } from "./maintenance-review.js";
 import { displayMaintenancePath, maintenanceRoot } from "./paths.js";
 import { proposeMaintenanceCanonicalUpdate } from "./canonical-updates.js";
 import { resolveMaintenanceCandidate } from "./resolutions.js";
@@ -107,7 +108,12 @@ export async function runMaintenanceCandidatePipeline(memory: ResolvedMemory): P
   score?: CandidateScore;
   review?: CandidateReview;
 }> {
-  const entries = (await listMaintenanceLedgerEntries(memory)).filter((entry) => !isMaintenanceCanonicalEvidenceEvent(entry.eventType));
+  const watermark = await readMaintenanceReviewWatermark(memory);
+  const reviewedCloseoutKeys = new Set(watermark.lastReviewedChangeIds);
+  const entries = (await listMaintenanceLedgerEntries(memory)).filter((entry) => (
+    isMaintenanceCandidateSourceEvent(entry.eventType)
+    && !isReviewedCloseoutLedgerEntry(entry, reviewedCloseoutKeys)
+  ));
   if (entries.length === 0) return { status: "skipped" };
   const candidate = await createEvolutionCandidate(memory, entries.slice(-10));
   if (!candidate) return { status: "skipped" };
@@ -116,6 +122,21 @@ export async function runMaintenanceCandidatePipeline(memory: ResolvedMemory): P
   const resolution = await resolveMaintenanceCandidate(memory, candidate, score, review);
   await proposeMaintenanceCanonicalUpdate(memory, [resolution]);
   return { status: "reviewed", candidate, score, review };
+}
+
+function isReviewedCloseoutLedgerEntry(entry: MaintenanceLedgerEntry, reviewedCloseoutKeys: ReadonlySet<string>): boolean {
+  if (entry.eventType !== "change-closeout" || !entry.changeId) return false;
+  const terminalKind = inferCloseoutTerminalKind(entry);
+  if (!terminalKind) return false;
+  return reviewedCloseoutKeys.has(`${entry.changeId}:${terminalKind}`);
+}
+
+function inferCloseoutTerminalKind(entry: MaintenanceLedgerEntry): DemandMemoryCloseout["terminalKind"] | null {
+  if (/^archived closeout recorded:/i.test(entry.summary)) return "archived";
+  if (/^applied closeout recorded:/i.test(entry.summary)) return "applied";
+  if (/^remote-handoff closeout recorded:/i.test(entry.summary)) return "remote-handoff";
+  if (/^merged closeout recorded:/i.test(entry.summary)) return "merged";
+  return null;
 }
 
 export async function createMaintenanceCandidatesForWindow(memory: ResolvedMemory, closeouts: DemandMemoryCloseout[], ledgerEntries: MaintenanceLedgerEntry[]): Promise<EvolutionCandidate[]> {

@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-19T06:15:07.1790809Z",
+    "generated_at":  "2026-06-19T06:47:05.8638606Z",
     "active":  [
 
                ],
@@ -1169,6 +1169,10 @@
                     {
                         "name":  "20260619-maintenance-artifact-ledger-entry-helper-reuse",
                         "path":  "harness/changes/archive/20260619-maintenance-artifact-ledger-entry-helper-reuse"
+                    },
+                    {
+                        "name":  "20260619-maintenance-candidate-source-policy-reuse",
+                        "path":  "harness/changes/archive/20260619-maintenance-candidate-source-policy-reuse"
                     },
                     {
                         "name":  "20260619-maintenance-canonical-artifact-reference-reuse",

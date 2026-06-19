@@ -15,3 +15,17 @@ const maintenanceCanonicalEvidenceEventSet: ReadonlySet<MaintenanceLedgerEventTy
 export function isMaintenanceCanonicalEvidenceEvent(eventType: MaintenanceLedgerEventType): boolean {
   return maintenanceCanonicalEvidenceEventSet.has(eventType);
 }
+
+const maintenanceDerivedSummaryEvents = [
+  "maintenance-review",
+] as const satisfies readonly MaintenanceLedgerEventType[];
+
+const maintenanceDerivedSummaryEventSet: ReadonlySet<MaintenanceLedgerEventType> = new Set(maintenanceDerivedSummaryEvents);
+
+export function isMaintenanceDerivedSummaryEvent(eventType: MaintenanceLedgerEventType): boolean {
+  return maintenanceDerivedSummaryEventSet.has(eventType);
+}
+
+export function isMaintenanceCandidateSourceEvent(eventType: MaintenanceLedgerEventType): boolean {
+  return !isMaintenanceCanonicalEvidenceEvent(eventType) && !isMaintenanceDerivedSummaryEvent(eventType);
+}
