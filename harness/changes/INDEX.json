@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-19T15:11:07.2892229Z",
+    "generated_at":  "2026-06-19T16:09:45.1153652Z",
     "active":  [
 
                ],
@@ -1373,6 +1373,10 @@
                     {
                         "name":  "20260619-workflow-scheduler-latest-artifact-guard-reuse",
                         "path":  "harness/changes/archive/20260619-workflow-scheduler-latest-artifact-guard-reuse"
+                    },
+                    {
+                        "name":  "20260620-workbench-test-architecture-goal-loop-prompt-slow-suite-split",
+                        "path":  "harness/changes/archive/20260620-workbench-test-architecture-goal-loop-prompt-slow-suite-split"
                     }
                 ]
 }
