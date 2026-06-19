@@ -11,7 +11,7 @@ import type {
   ResolvedMemory,
 } from "../types/index.js";
 import { ensureMaintenancePolicyLedgerEntryForStoreArtifact } from "./ledger.js";
-import { renderMaintenanceMarkdownDetailItem, renderMaintenanceMarkdownList } from "./maintenance-markdown.js";
+import { renderMaintenanceMarkdownList } from "./maintenance-markdown.js";
 import {
   buildMaintenanceArtifactRefsForStore,
   findMaintenanceArtifactBy,
@@ -41,11 +41,14 @@ import {
 } from "./canonical-patch-application-artifact-refs.js";
 import {
   canonicalPatchContentHash,
-  formatCanonicalPatchTargetDescriptor,
   isValidCanonicalPatchTargetDescriptor,
   resolveRequiredCanonicalPatchApplicationTarget,
   validateCanonicalPatchTargetKindPath,
 } from "./canonical-patch-target-boundary.js";
+import {
+  renderCanonicalPatchAppliedOperationMarkdownDetails,
+  renderCanonicalPatchManifestOperationMarkdownDetails,
+} from "./canonical-patch-operation-markdown.js";
 import {
   buildCanonicalPatchDerivedOperationId,
   buildCanonicalPatchAppliedOperationFromManifestOperation,
@@ -485,16 +488,7 @@ function renderCanonicalPatchApplicationManifestMarkdown(manifest: MaintenanceCa
     "",
     "## Operations",
     "",
-    ...manifest.operations.flatMap((operation) => renderMaintenanceMarkdownDetailItem(
-      `${operation.id}: ${operation.readiness}`,
-      [
-        `patchOperation: ${operation.patchOperationId}`,
-        `targetKind: ${operation.targetKind}`,
-        `operation: ${operation.operation}`,
-        `targetDescriptor: ${formatCanonicalPatchTargetDescriptor(operation.targetDescriptor)}`,
-        `blockedReasons: ${operation.blockedReasons.length > 0 ? operation.blockedReasons.join("; ") : "none"}`,
-      ],
-    )),
+    ...manifest.operations.flatMap(renderCanonicalPatchManifestOperationMarkdownDetails),
     "",
     "## Evidence",
     "",
@@ -529,18 +523,7 @@ function renderCanonicalPatchApplicationResultMarkdown(result: MaintenanceCanoni
     "",
     "## Applied Operations",
     "",
-    ...result.appliedOperations.flatMap((operation) => renderMaintenanceMarkdownDetailItem(
-      `${operation.id}: ${operation.status}`,
-      [
-        `manifestOperation: ${operation.manifestOperationId}`,
-        `patchOperation: ${operation.patchOperationId}`,
-        `targetKind: ${operation.targetKind}`,
-        `targetPath: ${operation.targetPath}`,
-        `patchKind: ${operation.patchKind}`,
-        `beforeHash: ${operation.beforeHash}`,
-        `afterHash: ${operation.afterHash}`,
-      ],
-    )),
+    ...result.appliedOperations.flatMap(renderCanonicalPatchAppliedOperationMarkdownDetails),
     "",
     "## Policy Audit",
     "",

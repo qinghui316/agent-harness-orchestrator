@@ -37,7 +37,7 @@ import {
 import { ensureMaintenancePolicyLedgerEntryForStoreArtifact } from "./ledger.js";
 import { renderMaintenanceMarkdownDetailItem, renderMaintenanceMarkdownList } from "./maintenance-markdown.js";
 import { buildCanonicalPatchTargetDescriptor } from "./canonical-patch-targets.js";
-import { formatCanonicalPatchTargetDescriptor } from "./canonical-patch-target-boundary.js";
+import { renderCanonicalPatchProposalOperationMarkdownDetails } from "./canonical-patch-operation-markdown.js";
 import {
   buildNonExecutingCanonicalPatchApplicationAuthority,
   buildNonExecutingCanonicalPatchProposalAuthority,
@@ -531,16 +531,7 @@ function renderCanonicalPatchProposalMarkdown(patchProposal: MaintenanceCanonica
     "",
     "## Proposed Operations",
     "",
-    ...patchProposal.operations.flatMap((operation) => renderMaintenanceMarkdownDetailItem(
-      `${operation.id}: ${operation.operation} ${operation.targetKind}`,
-      [
-        `resolution: ${operation.sourceResolutionId}`,
-        `candidate: ${operation.sourceCandidateId}`,
-        `targetDescriptor: ${formatCanonicalPatchTargetDescriptor(operation.targetDescriptor)}`,
-        `summary: ${operation.summary}`,
-        `rationale: ${operation.rationale.replace(/\r?\n/g, " ")}`,
-      ],
-    )),
+    ...patchProposal.operations.flatMap(renderCanonicalPatchProposalOperationMarkdownDetails),
     "",
     "## Risks",
     "",

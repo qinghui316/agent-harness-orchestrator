@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-19T10:10:25.0502415Z",
+    "generated_at":  "2026-06-19T10:44:29.9986314Z",
     "active":  [
 
                ],
@@ -1151,6 +1151,10 @@
                         "path":  "harness/changes/archive/20260619-auto-evolve-harness-maintenance-canonical-chain-evidence"
                     },
                     {
+                        "name":  "20260619-auto-evolve-harness-maintenance-canonical-patch-operation-reuse-window",
+                        "path":  "harness/changes/archive/20260619-auto-evolve-harness-maintenance-canonical-patch-operation-reuse-window"
+                    },
+                    {
                         "name":  "20260619-auto-evolve-harness-maintenance-helper-reuse-window",
                         "path":  "harness/changes/archive/20260619-auto-evolve-harness-maintenance-helper-reuse-window"
                     },
@@ -1237,6 +1241,10 @@
                     {
                         "name":  "20260619-maintenance-canonical-patch-operation-lineage-helper-reuse",
                         "path":  "harness/changes/archive/20260619-maintenance-canonical-patch-operation-lineage-helper-reuse"
+                    },
+                    {
+                        "name":  "20260619-maintenance-canonical-patch-operation-markdown-detail-renderer-reuse",
+                        "path":  "harness/changes/archive/20260619-maintenance-canonical-patch-operation-markdown-detail-renderer-reuse"
                     },
                     {
                         "name":  "20260619-maintenance-canonical-patch-proposal-operation-id-helper-reuse",

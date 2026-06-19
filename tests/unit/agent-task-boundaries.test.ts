@@ -30,6 +30,12 @@ import {
   copyCanonicalPatchProposalOperationLineage,
   mergeCanonicalPatchTargetKinds,
 } from "../../src/agent-task/canonical-patch-lineage.js";
+import {
+  renderCanonicalPatchAppliedOperationMarkdownDetails,
+  renderCanonicalPatchManifestOperationMarkdownDetails,
+  renderCanonicalPatchObservedOperationMarkdownDetails,
+  renderCanonicalPatchProposalOperationMarkdownDetails,
+} from "../../src/agent-task/canonical-patch-operation-markdown.js";
 import { formatCanonicalPatchTargetDescriptor } from "../../src/agent-task/canonical-patch-target-boundary.js";
 import { renderMaintenanceMarkdownDetailItem, renderMaintenanceMarkdownList } from "../../src/agent-task/maintenance-markdown.js";
 import { candidateSchema, canonicalUpdateProposalSchema, resolutionSchema } from "../../src/agent-task/schemas.js";
@@ -354,6 +360,14 @@ describe("AgentTask domain boundaries", () => {
       rationale: "Docs need current wording.",
       artifactRefs: ["evidence/source.md"],
     });
+    expect(renderCanonicalPatchProposalOperationMarkdownDetails(patchOperation)).toEqual([
+      "- patch-op-001: promote canonical-docs",
+      "  resolution: resolution-1",
+      "  candidate: candidate-1",
+      "  targetDescriptor: missing",
+      "  summary: Prepare docs update.",
+      "  rationale: Docs need current wording.",
+    ]);
 
     const manifestOperation: MaintenanceCanonicalPatchApplicationManifestOperation = {
       id: "manifest-op-001",
@@ -369,6 +383,14 @@ describe("AgentTask domain boundaries", () => {
       operation: "promote",
       artifactRefs: ["evidence/source.md"],
     });
+    expect(renderCanonicalPatchManifestOperationMarkdownDetails(manifestOperation)).toEqual([
+      "- manifest-op-001: blocked-needs-concrete-target",
+      "  patchOperation: patch-op-001",
+      "  targetKind: canonical-docs",
+      "  operation: promote",
+      "  targetDescriptor: missing",
+      "  blockedReasons: needs target",
+    ]);
     expect(buildCanonicalPatchAppliedOperationFromManifestOperation({
       resultId: "result-001",
       index: 1,
@@ -418,6 +440,16 @@ describe("AgentTask domain boundaries", () => {
       afterHash: "b".repeat(64),
       artifactRefs: ["evidence/source.md"],
     });
+    expect(renderCanonicalPatchAppliedOperationMarkdownDetails(appliedOperation)).toEqual([
+      "- result-op-001: applied",
+      "  manifestOperation: manifest-op-001",
+      "  patchOperation: patch-op-001",
+      "  targetKind: canonical-docs",
+      "  targetPath: docs/MEMORY.md",
+      "  patchKind: hunks",
+      "  beforeHash: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "  afterHash: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    ]);
     expect(buildCanonicalPatchApplicationReportOperationFromAppliedOperation({
       reportId: "report-001",
       index: 2,
@@ -437,6 +469,31 @@ describe("AgentTask domain boundaries", () => {
       summary: "Observed applied hunks canonical patch on docs/MEMORY.md.",
       artifactRefs: ["evidence/source.md"],
     });
+    expect(renderCanonicalPatchObservedOperationMarkdownDetails({
+      id: "report-op-001",
+      resultOperationId: "result-op-001",
+      manifestOperationId: "manifest-op-001",
+      patchOperationId: "patch-op-001",
+      targetKind: "canonical-docs",
+      operation: "promote",
+      targetPath: "docs/MEMORY.md",
+      patchKind: "hunks",
+      beforeHash: "a".repeat(64),
+      afterHash: "b".repeat(64),
+      status: "observed",
+      summary: "Observed applied hunks canonical patch on docs/MEMORY.md.",
+      artifactRefs: ["evidence/source.md"],
+    })).toEqual([
+      "- report-op-001: observed",
+      "  resultOperation: result-op-001",
+      "  manifestOperation: manifest-op-001",
+      "  patchOperation: patch-op-001",
+      "  targetKind: canonical-docs",
+      "  targetPath: docs/MEMORY.md",
+      "  patchKind: hunks",
+      "  beforeHash: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "  afterHash: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    ]);
   });
 
   it("merges canonical patch target kinds through proposal and manifest lineage helpers", async () => {
