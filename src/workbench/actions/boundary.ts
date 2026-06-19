@@ -42,7 +42,7 @@ import {
 } from "../../workflow-actions/registry.js";
 import { readWorkflowRun } from "../../workflow-run/manager.js";
 import type { WorkbenchLiveSink, WorkbenchWorkflowActionRequest } from "../types.js";
-import { assertLatestWorkbenchActionTarget, assertPreparedWorkbenchActionTarget, assertWorkbenchActionChangeScope, requireActiveChangeTarget } from "./active-target.js";
+import { assertLatestWorkbenchActionTarget, assertPreparedWorkbenchActionTarget, assertWorkbenchActionChangeScope, assertWorkbenchActionStringArrayTarget, requireActiveChangeTarget } from "./active-target.js";
 import { assertGoalLoopAssistedConcreteGateConfirmation } from "./goal-loop-gate-confirmation.js";
 import { readLatestPlanningBundle } from "./planning-bundle.js";
 
@@ -1083,9 +1083,7 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
     ) {
       throw new Error("planning.scheduler.integration-check.run SchedulerIntegrationCandidate is not ready for IntegrationCheck handoff.");
     }
-    if (request.worktreeIds?.length && !sameStringArray(request.worktreeIds, latestCandidate.readyWorktreeIds)) {
-      throw new Error("planning.scheduler.integration-check.run worktreeIds target scope mismatch.");
-    }
+    if (request.worktreeIds?.length) assertWorkbenchActionStringArrayTarget(request.worktreeIds, latestCandidate.readyWorktreeIds, "planning.scheduler.integration-check.run", "worktreeIds");
   }
   if (request.actionType === "planning.scheduler.integration-outcome.reconcile") {
     const target = await requireActiveChangeTarget(memory, changeId, "planning.scheduler.integration-outcome.reconcile", { includeChangeId: false });
@@ -1126,9 +1124,7 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
     if (request.applyCheckId && request.applyCheckId !== latestHandoff.integrationCheckId) {
       throw new Error("planning.scheduler.integration-outcome.reconcile applyCheckId target scope mismatch.");
     }
-    if (request.worktreeIds?.length && !sameStringArray(request.worktreeIds, latestHandoff.readyWorktreeIds)) {
-      throw new Error("planning.scheduler.integration-outcome.reconcile worktreeIds target scope mismatch.");
-    }
+    if (request.worktreeIds?.length) assertWorkbenchActionStringArrayTarget(request.worktreeIds, latestHandoff.readyWorktreeIds, "planning.scheduler.integration-outcome.reconcile", "worktreeIds");
   }
   if (request.actionType === "planning.scheduler.run.complete") {
     const target = await requireActiveChangeTarget(memory, changeId, "planning.scheduler.run.complete", { includeChangeId: false });
@@ -1184,9 +1180,7 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
     if (existingCompletion && existingCompletion.schedulerIntegrationOutcomeId !== outcome.id) {
       throw new Error("planning.scheduler.run.complete latest SchedulerRunCompletion target is stale.");
     }
-    if (request.worktreeIds?.length && !sameStringArray(request.worktreeIds, outcome.readyWorktreeIds)) {
-      throw new Error("planning.scheduler.run.complete worktreeIds target scope mismatch.");
-    }
+    if (request.worktreeIds?.length) assertWorkbenchActionStringArrayTarget(request.worktreeIds, outcome.readyWorktreeIds, "planning.scheduler.run.complete", "worktreeIds");
   }
   if (request.actionType === "planning.scheduler.run.close-blocked") {
     const target = await requireActiveChangeTarget(memory, changeId, "planning.scheduler.run.close-blocked", { includeChangeId: false });
@@ -1299,10 +1293,6 @@ export function workflowActionTargetId(request: WorkbenchWorkflowActionRequest, 
 
 export function workflowActionScopePayload(request: WorkbenchWorkflowActionRequest, changeId: string, result?: unknown): Record<string, unknown> {
   return buildWorkflowActionScopePayload(request, changeId, result);
-}
-
-function sameStringArray(left: string[], right: string[]): boolean {
-  return left.length === right.length && left.every((item, index) => item === right[index]);
 }
 
 function readConcreteGateRequestScope(request: WorkbenchWorkflowActionRequest, expectedScope: Record<string, string | string[]>): Record<string, string | string[]> {

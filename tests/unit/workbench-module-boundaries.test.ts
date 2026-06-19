@@ -78,7 +78,7 @@ import { getLatestAuditSummary, listAuditResults, readAuditResult } from "../../
 import { createWorktree as createWorktreeFacade, getWorktreeStatus as getWorktreeStatusFacade, listWorktreeStatuses as listWorktreeStatusesFacade, removeWorktree as removeWorktreeFacade } from "../../src/worktree/manager.js";
 import { readTopicThreadLog } from "../../src/workbench/thread-log.js";
 import { runWorkbenchWorkflowActionService } from "../../src/workbench/actions/service.js";
-import { assertLatestWorkbenchActionTarget, assertPreparedWorkbenchActionTarget, assertWorkbenchActionChangeScope } from "../../src/workbench/actions/active-target.js";
+import { assertLatestWorkbenchActionTarget, assertPreparedWorkbenchActionTarget, assertWorkbenchActionChangeScope, assertWorkbenchActionStringArrayTarget } from "../../src/workbench/actions/active-target.js";
 import { assertWorkflowActionScope } from "../../src/workbench/actions/boundary.js";
 import { assertLatestSchedulerArtifact } from "../../src/workflow-scheduler/guards.js";
 import { dispatchWorkbenchWorkflowAction } from "../../src/workbench/actions/dispatcher.js";
@@ -1952,11 +1952,30 @@ describe("Workbench module boundaries", () => {
       "planning.scheduler.runtime.initialize",
       "SchedulerRun",
     )).not.toThrow();
+    expect(() => assertWorkbenchActionStringArrayTarget(
+      ["worktree-a", "worktree-b"],
+      ["worktree-a", "worktree-b"],
+      "planning.scheduler.integration-check.run",
+      "worktreeIds",
+    )).not.toThrow();
+    expect(() => assertWorkbenchActionStringArrayTarget(
+      ["worktree-b", "worktree-a"],
+      ["worktree-a", "worktree-b"],
+      "planning.scheduler.integration-check.run",
+      "worktreeIds",
+    )).toThrow("planning.scheduler.integration-check.run worktreeIds target scope mismatch.");
+    expect(() => assertWorkbenchActionStringArrayTarget(
+      ["worktree-a"],
+      ["worktree-a", "worktree-b"],
+      "planning.scheduler.integration-check.run",
+      "worktreeIds",
+    )).toThrow("planning.scheduler.integration-check.run worktreeIds target scope mismatch.");
 
     const helper = readFileSync("src/workbench/actions/active-target.ts", "utf8");
     expect(helper).toContain("assertWorkbenchActionChangeScope");
     expect(helper).toContain("assertLatestWorkbenchActionTarget");
     expect(helper).toContain("assertPreparedWorkbenchActionTarget");
+    expect(helper).toContain("assertWorkbenchActionStringArrayTarget");
     expect(helper).not.toMatch(/scheduler-runtime|goal-loop|ToolPolicy|server\/|web\/src|repository/);
 
     const boundary = readFileSync("src/workbench/actions/boundary.ts", "utf8");
@@ -1971,6 +1990,10 @@ describe("Workbench module boundaries", () => {
     expect(boundary).toContain("assertLatestWorkbenchActionTarget(latestRun, run, \"planning.scheduler.run.complete\", \"SchedulerRun\")");
     expect(boundary).toContain("assertLatestWorkbenchActionTarget(latestOutcome, { id: request.schedulerIntegrationOutcomeId }, \"planning.scheduler.run.complete\", \"SchedulerIntegrationOutcome\")");
     expect(boundary).toContain("assertLatestWorkbenchActionTarget(latestCandidate, { id: request.schedulerIntegrationCandidateId }, \"planning.scheduler.run.close-blocked\", \"SchedulerIntegrationCandidate\")");
+    expect(boundary).toContain("assertWorkbenchActionStringArrayTarget(request.worktreeIds, latestCandidate.readyWorktreeIds, \"planning.scheduler.integration-check.run\", \"worktreeIds\")");
+    expect(boundary).toContain("assertWorkbenchActionStringArrayTarget(request.worktreeIds, latestHandoff.readyWorktreeIds, \"planning.scheduler.integration-outcome.reconcile\", \"worktreeIds\")");
+    expect(boundary).toContain("assertWorkbenchActionStringArrayTarget(request.worktreeIds, outcome.readyWorktreeIds, \"planning.scheduler.run.complete\", \"worktreeIds\")");
+    expect(boundary).not.toContain("function sameStringArray");
     expect(boundary).toContain("planning.scheduler.plan.prepare requires the latest SchedulerReconcileSnapshot");
     expect(boundary).toContain("planning.scheduler.run.complete SchedulerRun target is not completable");
   });

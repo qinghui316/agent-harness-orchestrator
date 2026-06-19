@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-19T23:19:25.7491113Z",
+    "generated_at":  "2026-06-19T23:34:53.9387214Z",
     "active":  [
 
                ],
@@ -1405,6 +1405,10 @@
                     {
                         "name":  "20260620-verification-scope-guidance-alignment",
                         "path":  "harness/changes/archive/20260620-verification-scope-guidance-alignment"
+                    },
+                    {
+                        "name":  "20260620-workbench-action-array-target-helper-reuse",
+                        "path":  "harness/changes/archive/20260620-workbench-action-array-target-helper-reuse"
                     },
                     {
                         "name":  "20260620-workbench-agenttask-residual-test-domain-split",

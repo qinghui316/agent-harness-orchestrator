@@ -47,3 +47,14 @@ export function assertPreparedWorkbenchActionTarget(
     throw new Error(`${label} ${targetName} target is stale or not prepared.`);
   }
 }
+
+export function assertWorkbenchActionStringArrayTarget(
+  requested: string[],
+  latest: string[],
+  label: string,
+  targetName: string,
+): void {
+  if (requested.length !== latest.length || requested.some((item, index) => item !== latest[index])) {
+    throw new Error(`${label} ${targetName} target scope mismatch.`);
+  }
+}
