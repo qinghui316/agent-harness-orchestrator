@@ -19,6 +19,15 @@ export interface MaintenanceArtifactRefs {
   ledgerArtifactRefs: string[];
 }
 
+export interface MaintenanceArtifactRefListItem {
+  store: {
+    jsonPath(memory: ResolvedMemory, id: string): string;
+    markdownPath(memory: ResolvedMemory, id: string): string;
+  };
+  id: string;
+  includeMarkdown?: boolean;
+}
+
 export function buildMaintenanceArtifactRefs(
   memory: ResolvedMemory,
   paths: {
@@ -44,6 +53,32 @@ export function buildMaintenanceArtifactRefsForStore<T extends { createdAt: stri
     jsonPath: store.jsonPath(memory, id),
     markdownPath: store.markdownPath(memory, id),
   });
+}
+
+export function buildMaintenanceArtifactRefListForStores(
+  memory: ResolvedMemory,
+  items: MaintenanceArtifactRefListItem[],
+  upstreamRefs: string[] = [],
+): string[] {
+  const refs: string[] = [];
+  const seen = new Set<string>();
+  const addRef = (ref: string): void => {
+    if (ref.trim().length === 0 || seen.has(ref)) return;
+    seen.add(ref);
+    refs.push(ref);
+  };
+
+  for (const item of items) {
+    const itemRefs = buildMaintenanceArtifactRefs(memory, {
+      jsonPath: item.store.jsonPath(memory, item.id),
+      markdownPath: item.store.markdownPath(memory, item.id),
+    });
+    addRef(itemRefs.artifactRef);
+    if (item.includeMarkdown !== false) addRef(itemRefs.markdownRef);
+  }
+
+  for (const ref of upstreamRefs) addRef(ref);
+  return refs;
 }
 
 export async function readMaintenanceArtifact<T extends { createdAt: string }>(

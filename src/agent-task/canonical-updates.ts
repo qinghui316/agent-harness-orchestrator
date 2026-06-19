@@ -10,6 +10,7 @@ import type {
   ResolvedMemory,
 } from "../types/index.js";
 import {
+  buildMaintenanceArtifactRefListForStores,
   buildMaintenanceArtifactRefsForStore,
   listMaintenanceArtifacts,
   readMaintenanceArtifact,
@@ -295,7 +296,6 @@ function buildCanonicalUpdateProposal(memory: ResolvedMemory, resolutions: Maint
 
 function buildCanonicalUpdateDecision(memory: ResolvedMemory, proposal: MaintenanceCanonicalUpdateProposal): MaintenanceCanonicalUpdateDecision {
   const id = `canonical-update-decision-${contentHash(proposal.id).slice(0, 12)}`;
-  const proposalRefs = buildMaintenanceArtifactRefsForStore(memory, canonicalUpdateProposalStore, proposal.id);
   return {
     version: "1.0",
     id,
@@ -306,7 +306,9 @@ function buildCanonicalUpdateDecision(memory: ResolvedMemory, proposal: Maintena
     canonicalUpdateAuthorized: false,
     executionStarted: false,
     summary: `Human-gated maintenance decision recorded for proposal ${proposal.id}. This decision accepts the proposal as follow-up input only and does not authorize canonical rewrites.`,
-    artifactRefs: uniqueSorted([proposalRefs.artifactRef, proposalRefs.markdownRef, ...proposal.artifactRefs]),
+    artifactRefs: buildMaintenanceArtifactRefListForStores(memory, [
+      { store: canonicalUpdateProposalStore, id: proposal.id },
+    ], proposal.artifactRefs),
     createdAt: new Date().toISOString(),
   };
 }
@@ -317,8 +319,6 @@ async function buildCanonicalPatchProposal(
   decision: MaintenanceCanonicalUpdateDecision,
 ): Promise<MaintenanceCanonicalPatchProposal> {
   const id = `canonical-patch-proposal-${contentHash(`${proposal.id}|${decision.id}`).slice(0, 12)}`;
-  const proposalRefs = buildMaintenanceArtifactRefsForStore(memory, canonicalUpdateProposalStore, proposal.id);
-  const decisionRefs = buildMaintenanceArtifactRefsForStore(memory, canonicalUpdateDecisionStore, decision.id);
   const operations = await Promise.all(proposal.resolutionSummaries.map(async (resolution, index): Promise<MaintenanceCanonicalPatchOperation> => {
     const targetKind = targetKindForSubtype(resolution.candidateSubtype);
     const targetDescriptor = await buildCanonicalPatchTargetDescriptor(memory, targetKind, resolution.targetHints);
@@ -334,11 +334,10 @@ async function buildCanonicalPatchProposal(
       artifactRefs: resolution.artifactRefs,
     };
   }));
-  const artifactRefs = uniqueSorted([
-    proposalRefs.artifactRef,
-    proposalRefs.markdownRef,
-    decisionRefs.artifactRef,
-    decisionRefs.markdownRef,
+  const artifactRefs = buildMaintenanceArtifactRefListForStores(memory, [
+    { store: canonicalUpdateProposalStore, id: proposal.id },
+    { store: canonicalUpdateDecisionStore, id: decision.id },
+  ], [
     ...proposal.artifactRefs,
     ...decision.artifactRefs,
     ...operations.flatMap((operation) => operation.artifactRefs),
@@ -372,7 +371,6 @@ function buildCanonicalPatchApplicationGateRecord(
   patchProposal: MaintenanceCanonicalPatchProposal,
 ): MaintenanceCanonicalPatchApplicationGateRecord {
   const id = `canonical-patch-application-gate-${contentHash(patchProposal.id).slice(0, 12)}`;
-  const patchProposalRefs = buildMaintenanceArtifactRefsForStore(memory, canonicalPatchProposalStore, patchProposal.id);
   return {
     version: "1.0",
     id,
@@ -391,7 +389,9 @@ function buildCanonicalPatchApplicationGateRecord(
       "Gate evidence can be mistaken for canonical application unless applied and mutation flags remain false.",
       "A later deterministic canonical application implementation must revalidate this gate, ToolPolicyGate, and human confirmation before any write.",
     ],
-    artifactRefs: uniqueSorted([patchProposalRefs.artifactRef, patchProposalRefs.markdownRef, ...patchProposal.artifactRefs]),
+    artifactRefs: buildMaintenanceArtifactRefListForStores(memory, [
+      { store: canonicalPatchProposalStore, id: patchProposal.id },
+    ], patchProposal.artifactRefs),
     createdAt: new Date().toISOString(),
   };
 }

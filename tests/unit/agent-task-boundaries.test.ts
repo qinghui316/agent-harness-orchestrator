@@ -7,6 +7,7 @@ import { describe, expect, it, afterEach, beforeEach } from "vitest";
 import { initHarness } from "../../src/harness/init.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import { buildMaintenanceSummary } from "../../src/workbench/projections/read-model/maintenance-summary.js";
+import { buildMaintenanceArtifactRefListForStores } from "../../src/agent-task/maintenance-artifact-store.js";
 import { candidateSchema, canonicalUpdateProposalSchema, resolutionSchema } from "../../src/agent-task/schemas.js";
 import { buildCanonicalPatchTargetDescriptor } from "../../src/agent-task/canonical-patch-targets.js";
 import { normalizeDocsDriftCandidates } from "../../src/agent-task/closeout-store.js";
@@ -69,6 +70,33 @@ describe("AgentTask domain boundaries", () => {
 
   afterEach(async () => {
     await rm(tempDir, { recursive: true, force: true });
+  });
+
+  it("builds explicit store-backed maintenance artifact ref lists with ordered de-duplication", async () => {
+    await initHarness(project());
+    const memory = await resolveProjectMemory(project());
+    const store = {
+      jsonPath: (resolved: ResolvedMemory, id: string) => join(resolved.workbenchRoot, "maintenance", "test-artifacts", `${id}.json`),
+      markdownPath: (resolved: ResolvedMemory, id: string) => join(resolved.workbenchRoot, "maintenance", "test-artifacts", `${id}.md`),
+    };
+
+    const refs = buildMaintenanceArtifactRefListForStores(memory, [
+      { store, id: "a" },
+      { store, id: "b", includeMarkdown: false },
+    ], [
+      `.agent-harness/workbench/maintenance/test-artifacts/a.json`,
+      `.agent-harness/workbench/maintenance/test-artifacts/a.md`,
+      `.agent-harness/workbench/maintenance/test-artifacts/upstream.md`,
+      "",
+      `.agent-harness/workbench/maintenance/test-artifacts/b.json`,
+    ]);
+
+    expect(refs).toEqual([
+      `.agent-harness/workbench/maintenance/test-artifacts/a.json`,
+      `.agent-harness/workbench/maintenance/test-artifacts/a.md`,
+      `.agent-harness/workbench/maintenance/test-artifacts/b.json`,
+      `.agent-harness/workbench/maintenance/test-artifacts/upstream.md`,
+    ]);
   });
 
   it("keeps the manager facade compatible while internal agent-task modules avoid the facade", async () => {
@@ -315,6 +343,12 @@ describe("AgentTask domain boundaries", () => {
       canonicalUpdateAuthorized: false,
       executionStarted: false,
     });
+    expect(decision.artifactRefs.slice(0, 2)).toEqual([
+      maintenanceCanonicalUpdateProposalArtifactRef(memory, proposals[0].id),
+      expect.stringMatching(new RegExp(`maintenance/canonical-update-proposals/${proposals[0].id}\\.md$`)),
+    ]);
+    expect(decision.artifactRefs).not.toContain(maintenanceCanonicalUpdateDecisionArtifactRef(memory, decision.id));
+    expect(decision.artifactRefs.some((ref) => ref.endsWith(`maintenance/canonical-update-decisions/${decision.id}.md`))).toBe(false);
     expect(decisionMarkdown).toContain("human-gated maintenance decision evidence");
     expect(decisionMarkdown).toContain("Canonical update authorized: false");
     expect(decisionLedgerCount).toBe(1);
@@ -338,6 +372,14 @@ describe("AgentTask domain boundaries", () => {
       operationCount: expect.any(Number),
     });
     expect(patchProposal.operationCount).toBeGreaterThan(0);
+    expect(patchProposal.artifactRefs.slice(0, 4)).toEqual([
+      maintenanceCanonicalUpdateProposalArtifactRef(memory, proposals[0].id),
+      expect.stringMatching(new RegExp(`maintenance/canonical-update-proposals/${proposals[0].id}\\.md$`)),
+      maintenanceCanonicalUpdateDecisionArtifactRef(memory, decision.id),
+      expect.stringMatching(new RegExp(`maintenance/canonical-update-decisions/${decision.id}\\.md$`)),
+    ]);
+    expect(patchProposal.artifactRefs).not.toContain(maintenanceCanonicalPatchProposalArtifactRef(memory, patchProposal.id));
+    expect(patchProposal.artifactRefs.some((ref) => ref.endsWith(`maintenance/canonical-patch-proposals/${patchProposal.id}.md`))).toBe(false);
     expect(patchProposalMarkdown).toContain("non-executing canonical patch proposal evidence");
     expect(patchProposalMarkdown).toContain("Application authorized: false");
     expect(patchProposalMarkdown).toContain("This patch proposal does not modify stable memory");
@@ -362,6 +404,12 @@ describe("AgentTask domain boundaries", () => {
       operationCount: patchProposal.operationCount,
     });
     expect(gateRecordMarkdown).toContain("canonical patch application follow-up evidence");
+    expect(gateRecord.artifactRefs.slice(0, 2)).toEqual([
+      maintenanceCanonicalPatchProposalArtifactRef(memory, patchProposal.id),
+      expect.stringMatching(new RegExp(`maintenance/canonical-patch-proposals/${patchProposal.id}\\.md$`)),
+    ]);
+    expect(gateRecord.artifactRefs).not.toContain(maintenanceCanonicalPatchApplicationGateArtifactRef(memory, gateRecord.id));
+    expect(gateRecord.artifactRefs.some((ref) => ref.endsWith(`maintenance/canonical-patch-application-gates/${gateRecord.id}.md`))).toBe(false);
     expect(gateRecordMarkdown).toContain("Canonical update applied: false");
     expect(gateRecordMarkdown).toContain("Canonical patch applied: false");
     expect(gateRecordMarkdown).toContain("This gate record does not modify stable memory");
@@ -394,6 +442,14 @@ describe("AgentTask domain boundaries", () => {
         blockedReasons: expect.arrayContaining([expect.stringContaining("deterministic target descriptor")]),
       }),
     ]));
+    expect(manifest.artifactRefs.slice(0, 4)).toEqual([
+      maintenanceCanonicalPatchApplicationGateArtifactRef(memory, gateRecord.id),
+      expect.stringMatching(new RegExp(`maintenance/canonical-patch-application-gates/${gateRecord.id}\\.md$`)),
+      maintenanceCanonicalPatchProposalArtifactRef(memory, patchProposal.id),
+      expect.stringMatching(new RegExp(`maintenance/canonical-patch-proposals/${patchProposal.id}\\.md$`)),
+    ]);
+    expect(manifest.artifactRefs).not.toContain(maintenanceCanonicalPatchApplicationManifestArtifactRef(memory, manifest.id));
+    expect(manifest.artifactRefs.some((ref) => ref.endsWith(`maintenance/canonical-patch-application-manifests/${manifest.id}.md`))).toBe(false);
     expect(manifestMarkdown).toContain("non-executing canonical patch application readiness evidence");
     expect(manifestMarkdown).toContain("Application status: blocked-needs-concrete-targets");
     expect(manifestMarkdown).toContain("Canonical patch applied: false");
@@ -597,6 +653,12 @@ describe("AgentTask domain boundaries", () => {
     expect(resultMarkdown).toContain("Classification: human-gated canonical patch application result evidence.");
     expect(resultMarkdown).toContain(`beforeHash: ${originalHash}`);
     expect(resultMarkdown).toContain(`afterHash: ${updatedHash}`);
+    expect(result.artifactRefs.slice(0, 4)).toEqual([
+      maintenanceCanonicalPatchApplicationResultArtifactRef(memory, result.id),
+      expect.stringMatching(new RegExp(`maintenance/canonical-patch-application-results/${result.id}\\.md$`)),
+      maintenanceCanonicalPatchApplicationManifestArtifactRef(memory, manifest.id),
+      expect.stringMatching(new RegExp(`maintenance/canonical-patch-application-manifests/${manifest.id}\\.md$`)),
+    ]);
     expect(resultLedgerEntries).toHaveLength(1);
     expect(resultLedgerEntry?.artifactRefs[0]).toBe(maintenanceCanonicalPatchApplicationResultArtifactRef(memory, result.id));
     expect(resultLedgerEntry?.artifactRefs.slice(0, 2)).toEqual([
@@ -707,6 +769,13 @@ describe("AgentTask domain boundaries", () => {
     });
     expect(reportMarkdown).toContain("Classification: read-only canonical patch application observation report evidence.");
     expect(reportMarkdown).toContain("Canonical patch applied by this report: false.");
+    expect(report.artifactRefs.slice(0, 5)).toEqual([
+      maintenanceCanonicalPatchApplicationReportArtifactRef(memory, report.id),
+      expect.stringMatching(new RegExp(`maintenance/canonical-patch-application-reports/${report.id}\\.md$`)),
+      maintenanceCanonicalPatchApplicationResultArtifactRef(memory, result.id),
+      expect.stringMatching(new RegExp(`maintenance/canonical-patch-application-results/${result.id}\\.md$`)),
+      maintenanceCanonicalPatchApplicationManifestArtifactRef(memory, manifest.id),
+    ]);
     expect(reportLedgerEntry).toBeTruthy();
     expect(reportLedgerEntries).toHaveLength(1);
     expect(reportLedgerEntry?.artifactRefs[0]).toBe(maintenanceCanonicalPatchApplicationReportArtifactRef(memory, report.id));

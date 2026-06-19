@@ -5,6 +5,7 @@ import type { Command } from "commander";
 import { createProgram } from "../../src/cli/program.js";
 import type { MaintenanceLedgerEntry, ManagedProject, RemoteLandingResult, RunMetadata, WorkflowRun } from "../../src/types/index.js";
 import { ensureMaintenanceLedgerEntryForStoreArtifact } from "../../src/agent-task/ledger.js";
+import { buildMaintenanceArtifactRefListForStores } from "../../src/agent-task/maintenance-artifact-store.js";
 import { closeChange, createChange, getChangeStatus, getChangeStatusForChange } from "../../src/change/manager.js";
 import { appendTopicThreadEntry, runWorkbenchWorkflowAction } from "../../src/workbench/chat.js";
 import { getWorkbenchSchedulerClaimReconcilePlanProjection, getWorkbenchSchedulerClaimReservationProjection, getWorkbenchSchedulerContractProjection, getWorkbenchSchedulerDispatchDryRunProjection, getWorkbenchSchedulerRunProjection, getWorkbenchSchedulerWorkerReworkResultProjection, getWorkbenchSchedulerWorkerSessionPlanProjection, getWorkbenchSnapshot, getWorkbenchWorkflowGraphPlanProjection } from "../../src/workbench/manager.js";
@@ -1528,6 +1529,12 @@ describe("Workbench module boundaries", () => {
 
   it("keeps store-backed maintenance ledger entry reuse in the ledger owner", () => {
     expect(typeof ensureMaintenanceLedgerEntryForStoreArtifact).toBe("function");
+    expect(typeof buildMaintenanceArtifactRefListForStores).toBe("function");
+
+    const artifactStore = readFileSync("src/agent-task/maintenance-artifact-store.ts", "utf8");
+    expect(artifactStore).toContain("function buildMaintenanceArtifactRefListForStores");
+    expect(artifactStore).toContain("buildMaintenanceArtifactRefs(memory");
+    expect(artifactStore).not.toMatch(/ledger-event-policy|candidates|workbench\/|ToolPolicy|scheduler|goal-loop|manager/);
 
     const ledger = readFileSync("src/agent-task/ledger.ts", "utf8");
     expect(ledger).toContain("function ensureMaintenanceLedgerEntryForStoreArtifact");
@@ -1537,17 +1544,20 @@ describe("Workbench module boundaries", () => {
     expect(ledger).not.toMatch(/canonical-patch|candidate|Workbench|ToolPolicy|scheduler|goal-loop|manager/);
 
     const application = readFileSync("src/agent-task/canonical-patch-application.ts", "utf8");
+    expect(application).toContain("buildMaintenanceArtifactRefListForStores");
     expect(application).toContain("ensureMaintenanceLedgerEntryForStoreArtifact");
     expect(application).toContain('eventType: "canonical-patch-application-manifest"');
     expect(application).toContain('eventType: "canonical-patch-application-result"');
     expect(application).not.toContain("ensureMaintenanceLedgerEntryForArtifactRef");
 
     const report = readFileSync("src/agent-task/canonical-patch-application-report.ts", "utf8");
+    expect(report).toContain("buildMaintenanceArtifactRefListForStores");
     expect(report).toContain("ensureMaintenanceLedgerEntryForStoreArtifact");
     expect(report).toContain('eventType: "canonical-patch-application-report"');
     expect(report).not.toContain("ensureMaintenanceLedgerEntryForArtifactRef");
 
     const updates = readFileSync("src/agent-task/canonical-updates.ts", "utf8");
+    expect(updates).toContain("buildMaintenanceArtifactRefListForStores");
     expect(updates).toContain("ensureMaintenanceLedgerEntryForStoreArtifact");
     expect(updates).toContain('eventType: "canonical-update-proposal"');
     expect(updates).toContain('eventType: "canonical-update-decision"');

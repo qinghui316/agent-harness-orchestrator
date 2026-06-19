@@ -7,7 +7,7 @@ import type {
 } from "../types/index.js";
 import { ensureMaintenanceLedgerEntryForStoreArtifact } from "./ledger.js";
 import {
-  buildMaintenanceArtifactRefs,
+  buildMaintenanceArtifactRefListForStores,
   buildMaintenanceArtifactRefsForStore,
   listMaintenanceArtifacts,
   readMaintenanceArtifact,
@@ -15,11 +15,12 @@ import {
   type MaintenanceArtifactStore,
 } from "./maintenance-artifact-store.js";
 import {
-  maintenanceCanonicalPatchApplicationManifestArtifactRef,
   readMaintenanceCanonicalPatchApplicationManifest,
   readMaintenanceCanonicalPatchApplicationResult,
 } from "./canonical-patch-application.js";
 import {
+  maintenanceCanonicalPatchApplicationManifestMarkdownPath,
+  maintenanceCanonicalPatchApplicationManifestPath,
   maintenanceCanonicalPatchApplicationReportMarkdownPath,
   maintenanceCanonicalPatchApplicationReportPath,
   maintenanceCanonicalPatchApplicationReportsRoot,
@@ -28,7 +29,7 @@ import {
 } from "./paths.js";
 import { canonicalPatchApplicationReportSchema } from "./schemas.js";
 import { validateCanonicalPatchApplicationResultLineage } from "./canonical-patch-lineage.js";
-import { contentHash, uniqueSorted } from "./utils.js";
+import { contentHash } from "./utils.js";
 
 const canonicalPatchApplicationReportStore: MaintenanceArtifactStore<MaintenanceCanonicalPatchApplicationReport> = {
   root: maintenanceCanonicalPatchApplicationReportsRoot,
@@ -98,11 +99,6 @@ function buildCanonicalPatchApplicationReport(
   manifest: MaintenanceCanonicalPatchApplicationManifest,
 ): MaintenanceCanonicalPatchApplicationReport {
   const id = `canonical-patch-application-report-${contentHash(result.id).slice(0, 12)}`;
-  const reportRefs = buildMaintenanceArtifactRefsForStore(memory, canonicalPatchApplicationReportStore, id);
-  const resultRefs = buildMaintenanceArtifactRefs(memory, {
-    jsonPath: maintenanceCanonicalPatchApplicationResultPath(memory, result.id),
-    markdownPath: maintenanceCanonicalPatchApplicationResultMarkdownPath(memory, result.id),
-  });
   const observedOperations: MaintenanceCanonicalPatchApplicationReportOperation[] = result.appliedOperations.map((operation, index) => ({
     id: `${id}-operation-${String(index + 1).padStart(3, "0")}`,
     resultOperationId: operation.id,
@@ -143,12 +139,24 @@ function buildCanonicalPatchApplicationReport(
       "The observed application result remains the human-gated mutation evidence; this report is a compact post-application summary.",
     ],
     summary: `Observed canonical patch application result ${result.id} for ${observedOperations.length} applied target(s).`,
-    artifactRefs: uniqueSorted([
-      reportRefs.artifactRef,
-      reportRefs.markdownRef,
-      resultRefs.artifactRef,
-      resultRefs.markdownRef,
-      maintenanceCanonicalPatchApplicationManifestArtifactRef(memory, manifest.id),
+    artifactRefs: buildMaintenanceArtifactRefListForStores(memory, [
+      { store: canonicalPatchApplicationReportStore, id },
+      {
+        store: {
+          jsonPath: maintenanceCanonicalPatchApplicationResultPath,
+          markdownPath: maintenanceCanonicalPatchApplicationResultMarkdownPath,
+        },
+        id: result.id,
+      },
+      {
+        store: {
+          jsonPath: maintenanceCanonicalPatchApplicationManifestPath,
+          markdownPath: maintenanceCanonicalPatchApplicationManifestMarkdownPath,
+        },
+        id: manifest.id,
+        includeMarkdown: false,
+      },
+    ], [
       ...result.artifactRefs,
       ...manifest.artifactRefs,
       ...observedOperations.flatMap((operation) => operation.artifactRefs),

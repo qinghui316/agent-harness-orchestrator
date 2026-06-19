@@ -7,11 +7,11 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 - Current date: 2026-06-19.
 - Active change: none.
 - Pending Harness evolution: none.
-- Latest archived product change: Maintenance Canonical Updates Ledger Helper Adoption, archived at `harness/changes/archive/20260619-maintenance-canonical-updates-ledger-helper-adoption/summary.md`.
-- Latest product/Harness docs change: Maintenance Canonical Updates Ledger Helper Adoption, archived at `harness/changes/archive/20260619-maintenance-canonical-updates-ledger-helper-adoption/summary.md`.
+- Latest archived product change: Maintenance Store-backed Artifact Ref List Helper Reuse, archived at `harness/changes/archive/20260619-maintenance-store-backed-artifact-ref-list-helper-reuse/summary.md`.
+- Latest product/Harness docs change: Auto-evolve Harness Workbench Reuse Window, archived at `harness/changes/archive/20260619-auto-evolve-harness-workbench-reuse-window/summary.md`.
 - Active product phase: none.
 - Active Harness evolution phase: none.
-- Latest Harness evolution: `harness/changes/archive/20260619-auto-evolve-harness-review-template-handoff-coverage-defaults/summary.md`.
+- Latest Harness evolution: `harness/changes/archive/20260619-auto-evolve-harness-workbench-reuse-window/summary.md`.
 
 If an active change exists, use its files first for the current task. Use `docs/STATUS.md` for the short resume state and next recommended structured work. Use `harness/changes/INDEX.json` and archived `summary.md` files for historical detail. Do not rebuild current context by reading the full archive ledger unless the task requires it.
 

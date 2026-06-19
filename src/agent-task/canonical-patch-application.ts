@@ -12,7 +12,7 @@ import type {
 } from "../types/index.js";
 import { ensureMaintenanceLedgerEntryForStoreArtifact } from "./ledger.js";
 import {
-  buildMaintenanceArtifactRefs,
+  buildMaintenanceArtifactRefListForStores,
   buildMaintenanceArtifactRefsForStore,
   listMaintenanceArtifacts,
   readMaintenanceArtifact,
@@ -205,19 +205,22 @@ function buildCanonicalPatchApplicationManifest(
   const operations = patchProposal.operations.map((operation, index) => buildManifestOperation(id, operation, index));
   const blockedReasons = uniqueSorted(operations.flatMap((operation) => operation.blockedReasons));
   const applicationStatus = blockedReasons.length > 0 ? "blocked-needs-concrete-targets" : "ready-for-application";
-  const gateRecordRefs = buildMaintenanceArtifactRefs(memory, {
-    jsonPath: maintenanceCanonicalPatchApplicationGateRecordPath(memory, gateRecord.id),
-    markdownPath: maintenanceCanonicalPatchApplicationGateRecordMarkdownPath(memory, gateRecord.id),
-  });
-  const patchProposalRefs = buildMaintenanceArtifactRefs(memory, {
-    jsonPath: maintenanceCanonicalPatchProposalPath(memory, patchProposal.id),
-    markdownPath: maintenanceCanonicalPatchProposalMarkdownPath(memory, patchProposal.id),
-  });
-  const artifactRefs = uniqueSorted([
-    gateRecordRefs.artifactRef,
-    gateRecordRefs.markdownRef,
-    patchProposalRefs.artifactRef,
-    patchProposalRefs.markdownRef,
+  const artifactRefs = buildMaintenanceArtifactRefListForStores(memory, [
+    {
+      store: {
+        jsonPath: maintenanceCanonicalPatchApplicationGateRecordPath,
+        markdownPath: maintenanceCanonicalPatchApplicationGateRecordMarkdownPath,
+      },
+      id: gateRecord.id,
+    },
+    {
+      store: {
+        jsonPath: maintenanceCanonicalPatchProposalPath,
+        markdownPath: maintenanceCanonicalPatchProposalMarkdownPath,
+      },
+      id: patchProposal.id,
+    },
+  ], [
     ...gateRecord.artifactRefs,
     ...patchProposal.artifactRefs,
     ...operations.flatMap((operation) => operation.artifactRefs),
@@ -396,8 +399,6 @@ function buildCanonicalPatchApplicationResult(
   policyAuditRefs: string[],
 ): MaintenanceCanonicalPatchApplicationResult {
   const id = `canonical-patch-application-result-${contentHash(manifest.id).slice(0, 12)}`;
-  const resultRefs = buildMaintenanceArtifactRefsForStore(memory, canonicalPatchApplicationResultStore, id);
-  const manifestRefs = buildMaintenanceArtifactRefsForStore(memory, canonicalPatchApplicationManifestStore, manifest.id);
   const appliedOperations: MaintenanceCanonicalPatchAppliedOperation[] = preparedOperations.map((operation, index) => ({
     id: `${id}-operation-${String(index + 1).padStart(3, "0")}`,
     manifestOperationId: operation.manifestOperation.id,
@@ -431,11 +432,10 @@ function buildCanonicalPatchApplicationResult(
     executionStarted: true,
     policyAuditRefs,
     summary: `Applied canonical patch application manifest ${manifest.id} to ${appliedOperations.length} target(s).`,
-    artifactRefs: uniqueSorted([
-      resultRefs.artifactRef,
-      resultRefs.markdownRef,
-      manifestRefs.artifactRef,
-      manifestRefs.markdownRef,
+    artifactRefs: buildMaintenanceArtifactRefListForStores(memory, [
+      { store: canonicalPatchApplicationResultStore, id },
+      { store: canonicalPatchApplicationManifestStore, id: manifest.id },
+    ], [
       ...manifest.artifactRefs,
       ...appliedOperations.flatMap((operation) => operation.artifactRefs),
       ...policyAuditRefs,

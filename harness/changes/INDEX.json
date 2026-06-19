@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-19T00:34:11.1659809Z",
+    "generated_at":  "2026-06-19T00:59:55.0489775Z",
     "active":  [
 
                ],
@@ -1151,6 +1151,10 @@
                         "path":  "harness/changes/archive/20260619-auto-evolve-harness-source-convergence-architecture-growth-control"
                     },
                     {
+                        "name":  "20260619-auto-evolve-harness-workbench-reuse-window",
+                        "path":  "harness/changes/archive/20260619-auto-evolve-harness-workbench-reuse-window"
+                    },
+                    {
                         "name":  "20260619-maintenance-artifact-ledger-entry-helper-reuse",
                         "path":  "harness/changes/archive/20260619-maintenance-artifact-ledger-entry-helper-reuse"
                     },
@@ -1185,6 +1189,10 @@
                     {
                         "name":  "20260619-maintenance-canonical-updates-ledger-helper-adoption",
                         "path":  "harness/changes/archive/20260619-maintenance-canonical-updates-ledger-helper-adoption"
+                    },
+                    {
+                        "name":  "20260619-maintenance-store-backed-artifact-ref-list-helper-reuse",
+                        "path":  "harness/changes/archive/20260619-maintenance-store-backed-artifact-ref-list-helper-reuse"
                     },
                     {
                         "name":  "20260619-phase-12u-product-maintenance-canonical-patch-target-descriptors",
