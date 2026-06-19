@@ -3,10 +3,59 @@ import type {
   MaintenanceCanonicalPatchApplicationGateRecord,
   MaintenanceCanonicalPatchApplicationManifest,
   MaintenanceCanonicalPatchApplicationManifestOperation,
+  MaintenanceCanonicalPatchApplicationReportOperation,
   MaintenanceCanonicalPatchApplicationResult,
   MaintenanceCanonicalPatchOperation,
   MaintenanceCanonicalPatchProposal,
 } from "../types/index.js";
+
+export function buildCanonicalPatchDerivedOperationId(parentId: string, index: number): string {
+  return `${parentId}-operation-${String(index + 1).padStart(3, "0")}`;
+}
+
+export function copyCanonicalPatchProposalOperationLineage(
+  operation: MaintenanceCanonicalPatchOperation,
+): Pick<MaintenanceCanonicalPatchApplicationManifestOperation, "patchOperationId" | "targetKind" | "operation" | "sourceResolutionId" | "sourceCandidateId" | "summary" | "rationale" | "artifactRefs"> {
+  return {
+    patchOperationId: operation.id,
+    targetKind: operation.targetKind,
+    operation: operation.operation,
+    sourceResolutionId: operation.sourceResolutionId,
+    sourceCandidateId: operation.sourceCandidateId,
+    summary: operation.summary,
+    rationale: operation.rationale,
+    artifactRefs: operation.artifactRefs,
+  };
+}
+
+export function copyCanonicalPatchManifestOperationLineage(
+  operation: MaintenanceCanonicalPatchApplicationManifestOperation,
+): Pick<MaintenanceCanonicalPatchAppliedOperation, "manifestOperationId" | "patchOperationId" | "targetKind" | "operation" | "artifactRefs"> {
+  return {
+    manifestOperationId: operation.id,
+    patchOperationId: operation.patchOperationId,
+    targetKind: operation.targetKind,
+    operation: operation.operation,
+    artifactRefs: operation.artifactRefs,
+  };
+}
+
+export function copyCanonicalPatchAppliedOperationLineage(
+  operation: MaintenanceCanonicalPatchAppliedOperation,
+): Pick<MaintenanceCanonicalPatchApplicationReportOperation, "resultOperationId" | "manifestOperationId" | "patchOperationId" | "targetKind" | "operation" | "targetPath" | "patchKind" | "beforeHash" | "afterHash" | "artifactRefs"> {
+  return {
+    resultOperationId: operation.id,
+    manifestOperationId: operation.manifestOperationId,
+    patchOperationId: operation.patchOperationId,
+    targetKind: operation.targetKind,
+    operation: operation.operation,
+    targetPath: operation.targetPath,
+    patchKind: operation.patchKind,
+    beforeHash: operation.beforeHash,
+    afterHash: operation.afterHash,
+    artifactRefs: operation.artifactRefs,
+  };
+}
 
 export function validateCanonicalPatchApplicationGateLineage(
   gateRecord: MaintenanceCanonicalPatchApplicationGateRecord,

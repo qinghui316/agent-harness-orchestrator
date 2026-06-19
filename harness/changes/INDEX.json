@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-19T00:59:55.0489775Z",
+    "generated_at":  "2026-06-19T01:19:27.4567309Z",
     "active":  [
 
                ],
@@ -1181,6 +1181,10 @@
                     {
                         "name":  "20260619-maintenance-canonical-patch-lineage-reuse",
                         "path":  "harness/changes/archive/20260619-maintenance-canonical-patch-lineage-reuse"
+                    },
+                    {
+                        "name":  "20260619-maintenance-canonical-patch-operation-lineage-helper-reuse",
+                        "path":  "harness/changes/archive/20260619-maintenance-canonical-patch-operation-lineage-helper-reuse"
                     },
                     {
                         "name":  "20260619-maintenance-canonical-patch-target-boundary-reuse",

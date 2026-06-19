@@ -6,6 +6,12 @@ import { createProgram } from "../../src/cli/program.js";
 import type { MaintenanceLedgerEntry, ManagedProject, RemoteLandingResult, RunMetadata, WorkflowRun } from "../../src/types/index.js";
 import { ensureMaintenanceLedgerEntryForStoreArtifact } from "../../src/agent-task/ledger.js";
 import { buildMaintenanceArtifactRefListForStores } from "../../src/agent-task/maintenance-artifact-store.js";
+import {
+  buildCanonicalPatchDerivedOperationId,
+  copyCanonicalPatchAppliedOperationLineage,
+  copyCanonicalPatchManifestOperationLineage,
+  copyCanonicalPatchProposalOperationLineage,
+} from "../../src/agent-task/canonical-patch-lineage.js";
 import { closeChange, createChange, getChangeStatus, getChangeStatusForChange } from "../../src/change/manager.js";
 import { appendTopicThreadEntry, runWorkbenchWorkflowAction } from "../../src/workbench/chat.js";
 import { getWorkbenchSchedulerClaimReconcilePlanProjection, getWorkbenchSchedulerClaimReservationProjection, getWorkbenchSchedulerContractProjection, getWorkbenchSchedulerDispatchDryRunProjection, getWorkbenchSchedulerRunProjection, getWorkbenchSchedulerWorkerReworkResultProjection, getWorkbenchSchedulerWorkerSessionPlanProjection, getWorkbenchSnapshot, getWorkbenchWorkflowGraphPlanProjection } from "../../src/workbench/manager.js";
@@ -1530,6 +1536,10 @@ describe("Workbench module boundaries", () => {
   it("keeps store-backed maintenance ledger entry reuse in the ledger owner", () => {
     expect(typeof ensureMaintenanceLedgerEntryForStoreArtifact).toBe("function");
     expect(typeof buildMaintenanceArtifactRefListForStores).toBe("function");
+    expect(typeof buildCanonicalPatchDerivedOperationId).toBe("function");
+    expect(typeof copyCanonicalPatchProposalOperationLineage).toBe("function");
+    expect(typeof copyCanonicalPatchManifestOperationLineage).toBe("function");
+    expect(typeof copyCanonicalPatchAppliedOperationLineage).toBe("function");
 
     const artifactStore = readFileSync("src/agent-task/maintenance-artifact-store.ts", "utf8");
     expect(artifactStore).toContain("function buildMaintenanceArtifactRefListForStores");
@@ -1545,6 +1555,9 @@ describe("Workbench module boundaries", () => {
 
     const application = readFileSync("src/agent-task/canonical-patch-application.ts", "utf8");
     expect(application).toContain("buildMaintenanceArtifactRefListForStores");
+    expect(application).toContain("buildCanonicalPatchDerivedOperationId");
+    expect(application).toContain("copyCanonicalPatchProposalOperationLineage");
+    expect(application).toContain("copyCanonicalPatchManifestOperationLineage");
     expect(application).toContain("ensureMaintenanceLedgerEntryForStoreArtifact");
     expect(application).toContain('eventType: "canonical-patch-application-manifest"');
     expect(application).toContain('eventType: "canonical-patch-application-result"');
@@ -1552,6 +1565,7 @@ describe("Workbench module boundaries", () => {
 
     const report = readFileSync("src/agent-task/canonical-patch-application-report.ts", "utf8");
     expect(report).toContain("buildMaintenanceArtifactRefListForStores");
+    expect(report).toContain("copyCanonicalPatchAppliedOperationLineage");
     expect(report).toContain("ensureMaintenanceLedgerEntryForStoreArtifact");
     expect(report).toContain('eventType: "canonical-patch-application-report"');
     expect(report).not.toContain("ensureMaintenanceLedgerEntryForArtifactRef");
@@ -1566,6 +1580,13 @@ describe("Workbench module boundaries", () => {
     expect(updates).not.toContain("ensureMaintenanceLedgerEntryForArtifactRef");
     const updateImports = updates.split(/\r?\n/).filter((line) => line.startsWith("import ")).join("\n");
     expect(updateImports).not.toMatch(/ledger-event-policy|candidates|workbench\/|ToolPolicy|scheduler|goal-loop|manager/);
+
+    const lineage = readFileSync("src/agent-task/canonical-patch-lineage.ts", "utf8");
+    expect(lineage).toContain("function buildCanonicalPatchDerivedOperationId");
+    expect(lineage).toContain("function copyCanonicalPatchProposalOperationLineage");
+    expect(lineage).toContain("function copyCanonicalPatchManifestOperationLineage");
+    expect(lineage).toContain("function copyCanonicalPatchAppliedOperationLineage");
+    expect(lineage).not.toMatch(/maintenance-artifact-store|ledger|paths|workbench\/|server\/|web\/|ToolPolicy|scheduler|goal-loop|manager/);
   });
 
   it("keeps workflow-run manager as a compatibility facade with scoped recovery modules", () => {

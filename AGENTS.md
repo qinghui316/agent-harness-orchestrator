@@ -7,7 +7,7 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 - Current date: 2026-06-19.
 - Active change: none.
 - Pending Harness evolution: none.
-- Latest archived product change: Maintenance Store-backed Artifact Ref List Helper Reuse, archived at `harness/changes/archive/20260619-maintenance-store-backed-artifact-ref-list-helper-reuse/summary.md`.
+- Latest archived product change: Maintenance Canonical Patch Operation Lineage Helper Reuse, archived at `harness/changes/archive/20260619-maintenance-canonical-patch-operation-lineage-helper-reuse/summary.md`.
 - Latest product/Harness docs change: Auto-evolve Harness Workbench Reuse Window, archived at `harness/changes/archive/20260619-auto-evolve-harness-workbench-reuse-window/summary.md`.
 - Active product phase: none.
 - Active Harness evolution phase: none.

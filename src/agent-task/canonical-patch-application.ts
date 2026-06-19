@@ -42,6 +42,9 @@ import {
   validateCanonicalPatchTargetKindPath,
 } from "./canonical-patch-target-boundary.js";
 import {
+  buildCanonicalPatchDerivedOperationId,
+  copyCanonicalPatchManifestOperationLineage,
+  copyCanonicalPatchProposalOperationLineage,
   validateCanonicalPatchApplicationGateLineage,
   validateCanonicalPatchApplicationManifestLineage,
   validateCanonicalPatchApplicationManifestOperationLineage,
@@ -259,19 +262,20 @@ function buildManifestOperation(
   const blockedReasons = targetDescriptor
     ? []
     : ["Patch proposal operation lacks a deterministic target descriptor with target path, expected content hash, and patch payload."];
+  const lineage = copyCanonicalPatchProposalOperationLineage(operation);
   return {
-    id: `${manifestId}-operation-${String(index + 1).padStart(3, "0")}`,
-    patchOperationId: operation.id,
-    targetKind: operation.targetKind,
-    operation: operation.operation,
-    sourceResolutionId: operation.sourceResolutionId,
-    sourceCandidateId: operation.sourceCandidateId,
+    id: buildCanonicalPatchDerivedOperationId(manifestId, index),
+    patchOperationId: lineage.patchOperationId,
+    targetKind: lineage.targetKind,
+    operation: lineage.operation,
+    sourceResolutionId: lineage.sourceResolutionId,
+    sourceCandidateId: lineage.sourceCandidateId,
     targetDescriptor,
     readiness: blockedReasons.length > 0 ? "blocked-needs-concrete-target" : "ready",
     blockedReasons,
-    summary: operation.summary,
-    rationale: operation.rationale,
-    artifactRefs: operation.artifactRefs,
+    summary: lineage.summary,
+    rationale: lineage.rationale,
+    artifactRefs: lineage.artifactRefs,
   };
 }
 
@@ -399,20 +403,23 @@ function buildCanonicalPatchApplicationResult(
   policyAuditRefs: string[],
 ): MaintenanceCanonicalPatchApplicationResult {
   const id = `canonical-patch-application-result-${contentHash(manifest.id).slice(0, 12)}`;
-  const appliedOperations: MaintenanceCanonicalPatchAppliedOperation[] = preparedOperations.map((operation, index) => ({
-    id: `${id}-operation-${String(index + 1).padStart(3, "0")}`,
-    manifestOperationId: operation.manifestOperation.id,
-    patchOperationId: operation.manifestOperation.patchOperationId,
-    targetKind: operation.manifestOperation.targetKind,
-    operation: operation.manifestOperation.operation,
-    targetPath: operation.targetPath,
-    patchKind: operation.descriptor.patchKind,
-    beforeHash: operation.beforeHash,
-    afterHash: operation.afterHash,
-    status: "applied",
-    summary: `Applied ${operation.descriptor.patchKind} canonical patch to ${operation.targetPath}.`,
-    artifactRefs: operation.manifestOperation.artifactRefs,
-  }));
+  const appliedOperations: MaintenanceCanonicalPatchAppliedOperation[] = preparedOperations.map((operation, index) => {
+    const lineage = copyCanonicalPatchManifestOperationLineage(operation.manifestOperation);
+    return {
+      id: buildCanonicalPatchDerivedOperationId(id, index),
+      manifestOperationId: lineage.manifestOperationId,
+      patchOperationId: lineage.patchOperationId,
+      targetKind: lineage.targetKind,
+      operation: lineage.operation,
+      targetPath: operation.targetPath,
+      patchKind: operation.descriptor.patchKind,
+      beforeHash: operation.beforeHash,
+      afterHash: operation.afterHash,
+      status: "applied",
+      summary: `Applied ${operation.descriptor.patchKind} canonical patch to ${operation.targetPath}.`,
+      artifactRefs: lineage.artifactRefs,
+    };
+  });
   return {
     version: "1.0",
     id,

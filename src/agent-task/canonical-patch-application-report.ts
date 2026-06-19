@@ -28,7 +28,11 @@ import {
   maintenanceCanonicalPatchApplicationResultPath,
 } from "./paths.js";
 import { canonicalPatchApplicationReportSchema } from "./schemas.js";
-import { validateCanonicalPatchApplicationResultLineage } from "./canonical-patch-lineage.js";
+import {
+  buildCanonicalPatchDerivedOperationId,
+  copyCanonicalPatchAppliedOperationLineage,
+  validateCanonicalPatchApplicationResultLineage,
+} from "./canonical-patch-lineage.js";
 import { contentHash } from "./utils.js";
 
 const canonicalPatchApplicationReportStore: MaintenanceArtifactStore<MaintenanceCanonicalPatchApplicationReport> = {
@@ -99,21 +103,24 @@ function buildCanonicalPatchApplicationReport(
   manifest: MaintenanceCanonicalPatchApplicationManifest,
 ): MaintenanceCanonicalPatchApplicationReport {
   const id = `canonical-patch-application-report-${contentHash(result.id).slice(0, 12)}`;
-  const observedOperations: MaintenanceCanonicalPatchApplicationReportOperation[] = result.appliedOperations.map((operation, index) => ({
-    id: `${id}-operation-${String(index + 1).padStart(3, "0")}`,
-    resultOperationId: operation.id,
-    manifestOperationId: operation.manifestOperationId,
-    patchOperationId: operation.patchOperationId,
-    targetKind: operation.targetKind,
-    operation: operation.operation,
-    targetPath: operation.targetPath,
-    patchKind: operation.patchKind,
-    beforeHash: operation.beforeHash,
-    afterHash: operation.afterHash,
-    status: "observed",
-    summary: `Observed applied ${operation.patchKind} canonical patch on ${operation.targetPath}.`,
-    artifactRefs: operation.artifactRefs,
-  }));
+  const observedOperations: MaintenanceCanonicalPatchApplicationReportOperation[] = result.appliedOperations.map((operation, index) => {
+    const lineage = copyCanonicalPatchAppliedOperationLineage(operation);
+    return {
+      id: buildCanonicalPatchDerivedOperationId(id, index),
+      resultOperationId: lineage.resultOperationId,
+      manifestOperationId: lineage.manifestOperationId,
+      patchOperationId: lineage.patchOperationId,
+      targetKind: lineage.targetKind,
+      operation: lineage.operation,
+      targetPath: lineage.targetPath,
+      patchKind: lineage.patchKind,
+      beforeHash: lineage.beforeHash,
+      afterHash: lineage.afterHash,
+      status: "observed",
+      summary: `Observed applied ${lineage.patchKind} canonical patch on ${lineage.targetPath}.`,
+      artifactRefs: lineage.artifactRefs,
+    };
+  });
   return {
     version: "1.0",
     id,

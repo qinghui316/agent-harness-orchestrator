@@ -8,11 +8,25 @@ import { initHarness } from "../../src/harness/init.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import { buildMaintenanceSummary } from "../../src/workbench/projections/read-model/maintenance-summary.js";
 import { buildMaintenanceArtifactRefListForStores } from "../../src/agent-task/maintenance-artifact-store.js";
+import {
+  buildCanonicalPatchDerivedOperationId,
+  copyCanonicalPatchAppliedOperationLineage,
+  copyCanonicalPatchManifestOperationLineage,
+  copyCanonicalPatchProposalOperationLineage,
+} from "../../src/agent-task/canonical-patch-lineage.js";
 import { candidateSchema, canonicalUpdateProposalSchema, resolutionSchema } from "../../src/agent-task/schemas.js";
 import { buildCanonicalPatchTargetDescriptor } from "../../src/agent-task/canonical-patch-targets.js";
 import { normalizeDocsDriftCandidates } from "../../src/agent-task/closeout-store.js";
 import type { CandidateReview, CandidateScore, EvolutionCandidate, ManagedProject } from "../../src/types/index.js";
-import type { MaintenanceCanonicalPatchApplicationGateRecord, MaintenanceCanonicalPatchApplicationManifest, MaintenanceCanonicalPatchProposal, ResolvedMemory } from "../../src/types/index.js";
+import type {
+  MaintenanceCanonicalPatchAppliedOperation,
+  MaintenanceCanonicalPatchApplicationGateRecord,
+  MaintenanceCanonicalPatchApplicationManifest,
+  MaintenanceCanonicalPatchApplicationManifestOperation,
+  MaintenanceCanonicalPatchOperation,
+  MaintenanceCanonicalPatchProposal,
+  ResolvedMemory,
+} from "../../src/types/index.js";
 import {
   applyMaintenanceCanonicalPatchApplicationManifest,
   buildRoleScopedContextProjection,
@@ -97,6 +111,73 @@ describe("AgentTask domain boundaries", () => {
       `.agent-harness/workbench/maintenance/test-artifacts/b.json`,
       `.agent-harness/workbench/maintenance/test-artifacts/upstream.md`,
     ]);
+  });
+
+  it("copies canonical patch operation lineage without owning artifact stores or gates", () => {
+    const patchOperation: MaintenanceCanonicalPatchOperation = {
+      id: "patch-op-001",
+      targetKind: "canonical-docs",
+      operation: "promote",
+      sourceResolutionId: "resolution-1",
+      sourceCandidateId: "candidate-1",
+      summary: "Prepare docs update.",
+      rationale: "Docs need current wording.",
+      artifactRefs: ["evidence/source.md"],
+    };
+    const manifestLineage = copyCanonicalPatchProposalOperationLineage(patchOperation);
+    expect(buildCanonicalPatchDerivedOperationId("parent", 2)).toBe("parent-operation-003");
+    expect(manifestLineage).toEqual({
+      patchOperationId: "patch-op-001",
+      targetKind: "canonical-docs",
+      operation: "promote",
+      sourceResolutionId: "resolution-1",
+      sourceCandidateId: "candidate-1",
+      summary: "Prepare docs update.",
+      rationale: "Docs need current wording.",
+      artifactRefs: ["evidence/source.md"],
+    });
+
+    const manifestOperation: MaintenanceCanonicalPatchApplicationManifestOperation = {
+      id: "manifest-op-001",
+      ...manifestLineage,
+      targetDescriptor: null,
+      readiness: "blocked-needs-concrete-target",
+      blockedReasons: ["needs target"],
+    };
+    expect(copyCanonicalPatchManifestOperationLineage(manifestOperation)).toEqual({
+      manifestOperationId: "manifest-op-001",
+      patchOperationId: "patch-op-001",
+      targetKind: "canonical-docs",
+      operation: "promote",
+      artifactRefs: ["evidence/source.md"],
+    });
+
+    const appliedOperation: MaintenanceCanonicalPatchAppliedOperation = {
+      id: "result-op-001",
+      manifestOperationId: "manifest-op-001",
+      patchOperationId: "patch-op-001",
+      targetKind: "canonical-docs",
+      operation: "promote",
+      targetPath: "docs/MEMORY.md",
+      patchKind: "hunks",
+      beforeHash: "a".repeat(64),
+      afterHash: "b".repeat(64),
+      status: "applied",
+      summary: "Applied docs update.",
+      artifactRefs: ["evidence/source.md"],
+    };
+    expect(copyCanonicalPatchAppliedOperationLineage(appliedOperation)).toEqual({
+      resultOperationId: "result-op-001",
+      manifestOperationId: "manifest-op-001",
+      patchOperationId: "patch-op-001",
+      targetKind: "canonical-docs",
+      operation: "promote",
+      targetPath: "docs/MEMORY.md",
+      patchKind: "hunks",
+      beforeHash: "a".repeat(64),
+      afterHash: "b".repeat(64),
+      artifactRefs: ["evidence/source.md"],
+    });
   });
 
   it("keeps the manager facade compatible while internal agent-task modules avoid the facade", async () => {
@@ -442,6 +523,17 @@ describe("AgentTask domain boundaries", () => {
         blockedReasons: expect.arrayContaining([expect.stringContaining("deterministic target descriptor")]),
       }),
     ]));
+    expect(manifest.operations[0]).toMatchObject({
+      id: `${manifest.id}-operation-001`,
+      patchOperationId: patchProposal.operations[0].id,
+      targetKind: patchProposal.operations[0].targetKind,
+      operation: patchProposal.operations[0].operation,
+      sourceResolutionId: patchProposal.operations[0].sourceResolutionId,
+      sourceCandidateId: patchProposal.operations[0].sourceCandidateId,
+      summary: patchProposal.operations[0].summary,
+      rationale: patchProposal.operations[0].rationale,
+      artifactRefs: patchProposal.operations[0].artifactRefs,
+    });
     expect(manifest.artifactRefs.slice(0, 4)).toEqual([
       maintenanceCanonicalPatchApplicationGateArtifactRef(memory, gateRecord.id),
       expect.stringMatching(new RegExp(`maintenance/canonical-patch-application-gates/${gateRecord.id}\\.md$`)),
@@ -636,6 +728,11 @@ describe("AgentTask domain boundaries", () => {
       executionStarted: true,
       policyAuditRefs: ["workbench/maintenance/policy-audit.json"],
       appliedOperations: [expect.objectContaining({
+        id: `${result.id}-operation-001`,
+        manifestOperationId: manifest.operations[0].id,
+        patchOperationId: manifest.operations[0].patchOperationId,
+        operation: manifest.operations[0].operation,
+        artifactRefs: manifest.operations[0].artifactRefs,
         targetKind: "canonical-docs",
         targetPath: "docs/MEMORY.md",
         patchKind: "hunks",
@@ -757,6 +854,16 @@ describe("AgentTask domain boundaries", () => {
       executionStarted: false,
       policyAuditRefs: ["workbench/maintenance/policy-audit.json"],
       observedOperations: [expect.objectContaining({
+        id: `${report.id}-operation-001`,
+        resultOperationId: result.appliedOperations[0].id,
+        manifestOperationId: result.appliedOperations[0].manifestOperationId,
+        patchOperationId: result.appliedOperations[0].patchOperationId,
+        targetKind: result.appliedOperations[0].targetKind,
+        operation: result.appliedOperations[0].operation,
+        patchKind: result.appliedOperations[0].patchKind,
+        beforeHash: result.appliedOperations[0].beforeHash,
+        afterHash: result.appliedOperations[0].afterHash,
+        artifactRefs: result.appliedOperations[0].artifactRefs,
         targetPath: "docs/MEMORY.md",
         status: "observed",
       })],
