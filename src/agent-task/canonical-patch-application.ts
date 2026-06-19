@@ -504,7 +504,7 @@ function renderCanonicalPatchApplicationManifestMarkdown(manifest: MaintenanceCa
     "",
     "## Blocked Reasons",
     "",
-    ...(manifest.blockedReasons.length > 0 ? manifest.blockedReasons.map((reason) => `- ${reason}`) : ["- none"]),
+    ...renderMaintenanceMarkdownList(manifest.blockedReasons, { emptyLabel: "none" }),
     "",
     "## Operations",
     "",

@@ -225,7 +225,7 @@ function renderCanonicalPatchApplicationReportMarkdown(report: MaintenanceCanoni
     "",
     "## Guardrails",
     "",
-    ...report.guardrailNotes.map((note) => `- ${note}`),
+    ...renderMaintenanceMarkdownList(report.guardrailNotes),
     "",
     "## Policy Audit",
     "",

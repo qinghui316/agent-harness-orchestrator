@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-19T04:14:43.5866206Z",
+    "generated_at":  "2026-06-19T04:46:23.5387306Z",
     "active":  [
 
                ],
@@ -1225,6 +1225,10 @@
                     {
                         "name":  "20260619-maintenance-markdown-list-helper-reuse",
                         "path":  "harness/changes/archive/20260619-maintenance-markdown-list-helper-reuse"
+                    },
+                    {
+                        "name":  "20260619-maintenance-simple-markdown-list-helper-reuse",
+                        "path":  "harness/changes/archive/20260619-maintenance-simple-markdown-list-helper-reuse"
                     },
                     {
                         "name":  "20260619-maintenance-store-backed-artifact-lookup-helper-reuse",
