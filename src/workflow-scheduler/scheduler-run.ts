@@ -4,6 +4,7 @@ import type { ResolvedMemory } from "../types/index.js";
 import { assertWorkflowArtifactScope } from "../workflow-artifacts/guards.js";
 import { hashArtifactRefs } from "../workflow-artifacts/hashes.js";
 import { unique } from "../workflow-artifacts/utils.js";
+import { assertLatestSchedulerArtifact } from "./guards.js";
 import { schedulerRunsDir } from "./paths.js";
 import {
   appendSchedulerRunJournalEvent,
@@ -159,15 +160,15 @@ async function validateSchedulerRunInput(
   }
 
   const latestPreflight = await readLatestSchedulerLaunchPreflight(memory, changePath);
-  if (latestPreflight.id !== launchPreflight.id) throw new Error("SchedulerRun requires the latest SchedulerLaunchPreflight.");
+  assertLatestSchedulerArtifact(latestPreflight, launchPreflight, "SchedulerRun", "SchedulerLaunchPreflight");
   const latestClaimPlan = await readLatestSchedulerClaimReconcilePlan(memory, changePath);
-  if (latestClaimPlan.id !== claimPlan.id) throw new Error("SchedulerRun requires the latest SchedulerClaimReconcilePlan.");
+  assertLatestSchedulerArtifact(latestClaimPlan, claimPlan, "SchedulerRun", "SchedulerClaimReconcilePlan");
   const latestWorkerPlan = await readLatestSchedulerWorkerSessionPlan(memory, changePath);
-  if (latestWorkerPlan.id !== workerPlan.id) throw new Error("SchedulerRun requires the latest SchedulerWorkerSessionPlan.");
+  assertLatestSchedulerArtifact(latestWorkerPlan, workerPlan, "SchedulerRun", "SchedulerWorkerSessionPlan");
   const latestDryRun = await readLatestSchedulerDispatchDryRun(memory, changePath);
-  if (latestDryRun.id !== dryRun.id) throw new Error("SchedulerRun requires the latest SchedulerDispatchDryRun.");
+  assertLatestSchedulerArtifact(latestDryRun, dryRun, "SchedulerRun", "SchedulerDispatchDryRun");
   const latestContract = await readLatestSchedulerContract(memory, changePath);
-  if (latestContract.id !== contract.id) throw new Error("SchedulerRun requires the latest SchedulerContract.");
+  assertLatestSchedulerArtifact(latestContract, contract, "SchedulerRun", "SchedulerContract");
 
   const expectedHashes = await hashArtifactRefs(memory, Object.keys(launchPreflight.sourceArtifactHashes));
   for (const [artifact, hash] of Object.entries(expectedHashes)) {

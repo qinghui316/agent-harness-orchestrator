@@ -5,6 +5,7 @@ import type { ResolvedMemory, WorkflowGraphStage } from "../types/index.js";
 import { assertWorkflowArtifactScope } from "../workflow-artifacts/guards.js";
 import { hashArtifactRefs } from "../workflow-artifacts/hashes.js";
 import { unique } from "../workflow-artifacts/utils.js";
+import { assertLatestSchedulerArtifact } from "./guards.js";
 import { schedulerWorkerSessionPlansDir } from "./paths.js";
 import {
   readLatestSchedulerContract,
@@ -82,9 +83,9 @@ async function validateWorkerSessionPlanInput(memory: ResolvedMemory, changePath
   if (!dryRun.nodeVerdicts.length) throw new Error("SchedulerWorkerSessionPlan requires dry-run node verdicts.");
 
   const latestDryRun = await readLatestSchedulerDispatchDryRun(memory, changePath);
-  if (latestDryRun.id !== dryRun.id) throw new Error("SchedulerWorkerSessionPlan requires the latest SchedulerDispatchDryRun.");
+  assertLatestSchedulerArtifact(latestDryRun, dryRun, "SchedulerWorkerSessionPlan", "SchedulerDispatchDryRun");
   const latestContract = await readLatestSchedulerContract(memory, changePath);
-  if (latestContract.id !== contract.id) throw new Error("SchedulerWorkerSessionPlan requires the latest SchedulerContract.");
+  assertLatestSchedulerArtifact(latestContract, contract, "SchedulerWorkerSessionPlan", "SchedulerContract");
 
   const expectedHashes = await hashArtifactRefs(memory, Object.keys(dryRun.sourceArtifactHashes));
   for (const [artifact, hash] of Object.entries(expectedHashes)) {

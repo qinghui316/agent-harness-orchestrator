@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-19T05:19:50.5373964Z",
+    "generated_at":  "2026-06-19T05:43:00.9446013Z",
     "active":  [
 
                ],
@@ -1139,6 +1139,10 @@
                         "path":  "harness/changes/archive/20260619-auto-evolve-harness-candidate-window-order"
                     },
                     {
+                        "name":  "20260619-auto-evolve-harness-helper-reuse-window",
+                        "path":  "harness/changes/archive/20260619-auto-evolve-harness-helper-reuse-window"
+                    },
+                    {
                         "name":  "20260619-auto-evolve-harness-maintenance-canonical-chain-evidence",
                         "path":  "harness/changes/archive/20260619-auto-evolve-harness-maintenance-canonical-chain-evidence"
                     },
@@ -1277,6 +1281,10 @@
                     {
                         "name":  "20260619-workbench-schedulerrun-prepared-target-helper-reuse",
                         "path":  "harness/changes/archive/20260619-workbench-schedulerrun-prepared-target-helper-reuse"
+                    },
+                    {
+                        "name":  "20260619-workflow-scheduler-latest-artifact-guard-reuse",
+                        "path":  "harness/changes/archive/20260619-workflow-scheduler-latest-artifact-guard-reuse"
                     }
                 ]
 }

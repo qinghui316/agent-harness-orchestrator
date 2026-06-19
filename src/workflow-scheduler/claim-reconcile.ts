@@ -4,6 +4,7 @@ import type { ResolvedMemory } from "../types/index.js";
 import { assertWorkflowArtifactScope } from "../workflow-artifacts/guards.js";
 import { hashArtifactRefs } from "../workflow-artifacts/hashes.js";
 import { unique } from "../workflow-artifacts/utils.js";
+import { assertLatestSchedulerArtifact } from "./guards.js";
 import { schedulerClaimReconcilePlansDir } from "./paths.js";
 import {
   readLatestSchedulerContract,
@@ -108,11 +109,11 @@ async function validateClaimReconcileInput(
   }
 
   const latestWorkerPlan = await readLatestSchedulerWorkerSessionPlan(memory, changePath);
-  if (latestWorkerPlan.id !== workerPlan.id) throw new Error("SchedulerClaimReconcilePlan requires the latest SchedulerWorkerSessionPlan.");
+  assertLatestSchedulerArtifact(latestWorkerPlan, workerPlan, "SchedulerClaimReconcilePlan", "SchedulerWorkerSessionPlan");
   const latestDryRun = await readLatestSchedulerDispatchDryRun(memory, changePath);
-  if (latestDryRun.id !== dryRun.id) throw new Error("SchedulerClaimReconcilePlan requires the latest SchedulerDispatchDryRun.");
+  assertLatestSchedulerArtifact(latestDryRun, dryRun, "SchedulerClaimReconcilePlan", "SchedulerDispatchDryRun");
   const latestContract = await readLatestSchedulerContract(memory, changePath);
-  if (latestContract.id !== contract.id) throw new Error("SchedulerClaimReconcilePlan requires the latest SchedulerContract.");
+  assertLatestSchedulerArtifact(latestContract, contract, "SchedulerClaimReconcilePlan", "SchedulerContract");
 
   const expectedHashes = await hashArtifactRefs(memory, Object.keys(workerPlan.sourceArtifactHashes));
   for (const [artifact, hash] of Object.entries(expectedHashes)) {

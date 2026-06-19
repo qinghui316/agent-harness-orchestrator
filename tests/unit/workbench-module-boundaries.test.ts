@@ -52,6 +52,7 @@ import { readTopicThreadLog } from "../../src/workbench/thread-log.js";
 import { runWorkbenchWorkflowActionService } from "../../src/workbench/actions/service.js";
 import { assertLatestWorkbenchActionTarget, assertPreparedWorkbenchActionTarget, assertWorkbenchActionChangeScope } from "../../src/workbench/actions/active-target.js";
 import { assertWorkflowActionScope } from "../../src/workbench/actions/boundary.js";
+import { assertLatestSchedulerArtifact } from "../../src/workflow-scheduler/guards.js";
 import { dispatchWorkbenchWorkflowAction } from "../../src/workbench/actions/dispatcher.js";
 import { buildWorkbenchActionHandlers } from "../../src/workbench/actions/handlers/index.js";
 import { generatePlanningDraft } from "../../src/workbench/actions/handlers/planning.js";
@@ -1203,20 +1204,32 @@ describe("Workbench module boundaries", () => {
     expect(workerPlan).toContain("compileSchedulerWorkerSessionPlan");
     expect(workerPlan).toContain("workerPermissionProfileForRole");
     expect(workerPlan).toContain("recoveryKeyInputs");
-    expect(workerPlan).toContain("SchedulerWorkerSessionPlan requires the latest SchedulerDispatchDryRun");
+    expect(workerPlan).toContain("assertLatestSchedulerArtifact(latestDryRun, dryRun, \"SchedulerWorkerSessionPlan\", \"SchedulerDispatchDryRun\")");
 
     const claimReconcile = readFileSync("src/workflow-scheduler/claim-reconcile.ts", "utf8");
     expect(claimReconcile).toContain("compileSchedulerClaimReconcilePlan");
     expect(claimReconcile).toContain("claimIntentId");
     expect(claimReconcile).toContain("plannedWorkerKey");
-    expect(claimReconcile).toContain("SchedulerClaimReconcilePlan requires the latest SchedulerWorkerSessionPlan");
+    expect(claimReconcile).toContain("assertLatestSchedulerArtifact(latestWorkerPlan, workerPlan, \"SchedulerClaimReconcilePlan\", \"SchedulerWorkerSessionPlan\")");
     expect(claimReconcile).toContain("source lock conflict");
 
     const schedulerRun = readFileSync("src/workflow-scheduler/scheduler-run.ts", "utf8");
     expect(schedulerRun).toContain("prepareSchedulerRun");
     expect(schedulerRun).toContain("SchedulerRun requires a checked SchedulerLaunchPreflight");
-    expect(schedulerRun).toContain("SchedulerRun requires the latest SchedulerLaunchPreflight");
+    expect(schedulerRun).toContain("assertLatestSchedulerArtifact(latestPreflight, launchPreflight, \"SchedulerRun\", \"SchedulerLaunchPreflight\")");
     expect(schedulerRun).toContain("appendSchedulerRunJournalEvent");
+
+    const guards = readFileSync("src/workflow-scheduler/guards.ts", "utf8");
+    expect(typeof assertLatestSchedulerArtifact).toBe("function");
+    expect(() => assertLatestSchedulerArtifact(
+      { id: "latest-artifact" },
+      { id: "old-artifact" },
+      "SchedulerRun",
+      "SchedulerLaunchPreflight",
+    )).toThrow("SchedulerRun requires the latest SchedulerLaunchPreflight.");
+    expect(guards).toContain("assertLatestSchedulerArtifact");
+    expect(guards).toContain("requires the latest");
+    expect(guards).not.toMatch(/workbench|server|web\/src|cli\/commands|manager/);
 
     for (const file of listSourceFiles(["src/workflow-scheduler"])) {
       const content = readFileSync(file, "utf8");

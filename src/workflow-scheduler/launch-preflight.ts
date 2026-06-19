@@ -4,6 +4,7 @@ import type { ResolvedMemory } from "../types/index.js";
 import { assertWorkflowArtifactScope } from "../workflow-artifacts/guards.js";
 import { hashArtifactRefs } from "../workflow-artifacts/hashes.js";
 import { unique } from "../workflow-artifacts/utils.js";
+import { assertLatestSchedulerArtifact } from "./guards.js";
 import { schedulerLaunchPreflightsDir } from "./paths.js";
 import {
   readLatestSchedulerClaimReconcilePlan,
@@ -129,13 +130,13 @@ async function validateLaunchPreflightInput(
   }
 
   const latestClaimPlan = await readLatestSchedulerClaimReconcilePlan(memory, changePath);
-  if (latestClaimPlan.id !== claimPlan.id) throw new Error("SchedulerLaunchPreflight requires the latest SchedulerClaimReconcilePlan.");
+  assertLatestSchedulerArtifact(latestClaimPlan, claimPlan, "SchedulerLaunchPreflight", "SchedulerClaimReconcilePlan");
   const latestWorkerPlan = await readLatestSchedulerWorkerSessionPlan(memory, changePath);
-  if (latestWorkerPlan.id !== workerPlan.id) throw new Error("SchedulerLaunchPreflight requires the latest SchedulerWorkerSessionPlan.");
+  assertLatestSchedulerArtifact(latestWorkerPlan, workerPlan, "SchedulerLaunchPreflight", "SchedulerWorkerSessionPlan");
   const latestDryRun = await readLatestSchedulerDispatchDryRun(memory, changePath);
-  if (latestDryRun.id !== dryRun.id) throw new Error("SchedulerLaunchPreflight requires the latest SchedulerDispatchDryRun.");
+  assertLatestSchedulerArtifact(latestDryRun, dryRun, "SchedulerLaunchPreflight", "SchedulerDispatchDryRun");
   const latestContract = await readLatestSchedulerContract(memory, changePath);
-  if (latestContract.id !== contract.id) throw new Error("SchedulerLaunchPreflight requires the latest SchedulerContract.");
+  assertLatestSchedulerArtifact(latestContract, contract, "SchedulerLaunchPreflight", "SchedulerContract");
 
   const expectedHashes = await hashArtifactRefs(memory, Object.keys(claimPlan.sourceArtifactHashes));
   for (const [artifact, hash] of Object.entries(expectedHashes)) {
