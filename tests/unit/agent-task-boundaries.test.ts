@@ -13,6 +13,7 @@ import {
   copyCanonicalPatchAppliedOperationLineage,
   copyCanonicalPatchManifestOperationLineage,
   copyCanonicalPatchProposalOperationLineage,
+  mergeCanonicalPatchTargetKinds,
 } from "../../src/agent-task/canonical-patch-lineage.js";
 import { candidateSchema, canonicalUpdateProposalSchema, resolutionSchema } from "../../src/agent-task/schemas.js";
 import { buildCanonicalPatchTargetDescriptor } from "../../src/agent-task/canonical-patch-targets.js";
@@ -25,6 +26,7 @@ import type {
   MaintenanceCanonicalPatchApplicationManifestOperation,
   MaintenanceCanonicalPatchOperation,
   MaintenanceCanonicalPatchProposal,
+  MaintenanceCandidateResolution,
   ResolvedMemory,
 } from "../../src/types/index.js";
 import {
@@ -178,6 +180,105 @@ describe("AgentTask domain boundaries", () => {
       afterHash: "b".repeat(64),
       artifactRefs: ["evidence/source.md"],
     });
+  });
+
+  it("merges canonical patch target kinds through proposal and manifest lineage helpers", async () => {
+    await initHarness(project());
+    const memory = await resolveProjectMemory(project());
+    const createdAt = "2026-06-19T00:00:00.000Z";
+    const resolutions: MaintenanceCandidateResolution[] = [
+      {
+        version: "1.0",
+        id: "resolution-03",
+        candidateId: "candidate-reference",
+        outcome: "promote",
+        reviewRecommendation: "accept",
+        candidateSubtype: "reference-drift",
+        score: 0.9,
+        rationale: "Reference guidance should be promoted.",
+        canonicalUpdateRequired: true,
+        humanGateRequired: true,
+        artifactRefs: ["evidence/reference.md"],
+        createdAt,
+      },
+      {
+        version: "1.0",
+        id: "resolution-01",
+        candidateId: "candidate-docs",
+        outcome: "merge",
+        reviewRecommendation: "accept",
+        candidateSubtype: "docs-drift",
+        score: 0.95,
+        rationale: "Docs guidance should be merged.",
+        canonicalUpdateRequired: true,
+        humanGateRequired: true,
+        artifactRefs: ["evidence/docs.md"],
+        createdAt,
+      },
+      {
+        version: "1.0",
+        id: "resolution-02",
+        candidateId: "candidate-memory",
+        outcome: "retire",
+        reviewRecommendation: "accept",
+        candidateSubtype: "reusable-lesson",
+        score: 0.85,
+        rationale: "Stable memory guidance should be retired.",
+        canonicalUpdateRequired: true,
+        humanGateRequired: true,
+        artifactRefs: ["evidence/memory.md"],
+        createdAt,
+      },
+      {
+        version: "1.0",
+        id: "resolution-04",
+        candidateId: "candidate-docs-duplicate",
+        outcome: "merge",
+        reviewRecommendation: "accept",
+        candidateSubtype: "docs-drift",
+        score: 0.8,
+        rationale: "Duplicate docs guidance should be merged.",
+        canonicalUpdateRequired: true,
+        humanGateRequired: true,
+        artifactRefs: ["evidence/docs-duplicate.md"],
+        createdAt,
+      },
+    ];
+
+    const proposal = await proposeMaintenanceCanonicalUpdate(memory, resolutions);
+    expect(proposal).not.toBeNull();
+    const proposalPath = join(memory.workbenchRoot, "maintenance", "canonical-update-proposals", `${proposal!.id}.json`);
+    await writeFile(
+      proposalPath,
+      `${JSON.stringify({
+        ...proposal,
+        targetKinds: ["stable-memory", "canonical-docs", "stable-memory", "reference"],
+      }, null, 2)}\n`,
+      "utf8",
+    );
+    const decision = await recordMaintenanceCanonicalUpdateDecision(memory, proposal!.id);
+    const patchProposal = await proposeMaintenanceCanonicalPatch(memory, decision.id);
+
+    expect(mergeCanonicalPatchTargetKinds(
+      ["reference", "canonical-docs", "reference"],
+      ["stable-memory", "canonical-docs"],
+    )).toEqual(["canonical-docs", "reference", "stable-memory"]);
+    expect(patchProposal.targetKinds).toEqual(["canonical-docs", "reference", "stable-memory"]);
+
+    const gateRecord = await recordMaintenanceCanonicalPatchApplicationGate(memory, patchProposal.id);
+    const gatePath = join(memory.workbenchRoot, "maintenance", "canonical-patch-application-gates", `${gateRecord.id}.json`);
+    await writeFile(
+      gatePath,
+      `${JSON.stringify({
+        ...gateRecord,
+        targetKinds: ["stable-memory", "canonical-docs", "stable-memory", "reference"],
+      }, null, 2)}\n`,
+      "utf8",
+    );
+    const manifest = await generateMaintenanceCanonicalPatchApplicationManifest(memory, gateRecord.id);
+
+    expect(manifest.targetKinds).toEqual(["canonical-docs", "reference", "stable-memory"]);
+    expect(manifest.operations.map((operation) => operation.targetKind)).toEqual(["canonical-docs", "stable-memory", "reference", "canonical-docs"]);
   });
 
   it("keeps the manager facade compatible while internal agent-task modules avoid the facade", async () => {

@@ -7,10 +7,18 @@ import type {
   MaintenanceCanonicalPatchApplicationResult,
   MaintenanceCanonicalPatchOperation,
   MaintenanceCanonicalPatchProposal,
+  MaintenanceCanonicalUpdateTargetKind,
 } from "../types/index.js";
+import { uniqueSorted } from "./utils.js";
 
 export function buildCanonicalPatchDerivedOperationId(parentId: string, index: number): string {
   return `${parentId}-operation-${String(index + 1).padStart(3, "0")}`;
+}
+
+export function mergeCanonicalPatchTargetKinds(
+  ...groups: MaintenanceCanonicalUpdateTargetKind[][]
+): MaintenanceCanonicalUpdateTargetKind[] {
+  return uniqueSorted(groups.flat()) as MaintenanceCanonicalUpdateTargetKind[];
 }
 
 export function copyCanonicalPatchProposalOperationLineage(

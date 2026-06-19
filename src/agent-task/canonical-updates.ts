@@ -35,7 +35,7 @@ import {
 } from "./paths.js";
 import { ensureMaintenanceLedgerEntryForStoreArtifact } from "./ledger.js";
 import { buildCanonicalPatchTargetDescriptor } from "./canonical-patch-targets.js";
-import { buildCanonicalPatchDerivedOperationId } from "./canonical-patch-lineage.js";
+import { buildCanonicalPatchDerivedOperationId, mergeCanonicalPatchTargetKinds } from "./canonical-patch-lineage.js";
 import { canonicalPatchApplicationGateRecordSchema, canonicalPatchProposalSchema, canonicalUpdateDecisionSchema, canonicalUpdateProposalSchema } from "./schemas.js";
 import { contentHash, uniqueSorted } from "./utils.js";
 
@@ -349,7 +349,7 @@ async function buildCanonicalPatchProposal(
     status: "patch-proposed",
     proposalId: proposal.id,
     decisionId: decision.id,
-    targetKinds: uniqueSorted([...proposal.targetKinds, ...operations.map((operation) => operation.targetKind)]) as MaintenanceCanonicalUpdateTargetKind[],
+    targetKinds: mergeCanonicalPatchTargetKinds(proposal.targetKinds, operations.map((operation) => operation.targetKind)),
     operationCount: operations.length,
     operations,
     sourceMutationAuthorized: false,
