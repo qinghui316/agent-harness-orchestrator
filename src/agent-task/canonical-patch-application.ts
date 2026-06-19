@@ -39,6 +39,7 @@ import {
 import { buildNonExecutingCanonicalPatchApplicationAuthority } from "./canonical-patch-application-authority.js";
 import {
   canonicalPatchContentHash,
+  formatCanonicalPatchTargetDescriptor,
   isValidCanonicalPatchTargetDescriptor,
   resolveRequiredCanonicalPatchApplicationTarget,
   validateCanonicalPatchTargetKindPath,
@@ -511,7 +512,7 @@ function renderCanonicalPatchApplicationManifestMarkdown(manifest: MaintenanceCa
       `  patchOperation: ${operation.patchOperationId}`,
       `  targetKind: ${operation.targetKind}`,
       `  operation: ${operation.operation}`,
-      `  targetDescriptor: ${renderTargetDescriptor(operation.targetDescriptor)}`,
+      `  targetDescriptor: ${formatCanonicalPatchTargetDescriptor(operation.targetDescriptor)}`,
       `  blockedReasons: ${operation.blockedReasons.length > 0 ? operation.blockedReasons.join("; ") : "none"}`,
     ].join("\n")),
     "",
@@ -520,11 +521,6 @@ function renderCanonicalPatchApplicationManifestMarkdown(manifest: MaintenanceCa
     ...manifest.artifactRefs.map((ref) => `- ${ref}`),
     "",
   ].join("\n");
-}
-
-function renderTargetDescriptor(descriptor: MaintenanceCanonicalPatchTargetDescriptor | null): string {
-  if (!descriptor) return "missing";
-  return `${descriptor.patchKind} ${descriptor.targetPath} sha256=${descriptor.expectedContentHash}`;
 }
 
 function renderCanonicalPatchApplicationResultMarkdown(result: MaintenanceCanonicalPatchApplicationResult): string {

@@ -17,6 +17,13 @@ export function canonicalPatchContentHash(content: string | Buffer): string {
   return createHash("sha256").update(content).digest("hex");
 }
 
+export function formatCanonicalPatchTargetDescriptor(
+  descriptor: MaintenanceCanonicalPatchTargetDescriptor | null | undefined,
+): string {
+  if (!descriptor) return "missing";
+  return `${descriptor.patchKind} ${descriptor.targetPath} sha256=${descriptor.expectedContentHash}`;
+}
+
 export function normalizeCanonicalPatchRelativeTargetPath(targetPath: string | undefined): string | null {
   const raw = targetPath?.trim();
   if (!raw || isAbsolute(raw) || /^[a-zA-Z]:/.test(raw)) return null;

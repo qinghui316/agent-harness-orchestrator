@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-19T02:56:44.1281326Z",
+    "generated_at":  "2026-06-19T03:22:17.4461018Z",
     "active":  [
 
                ],
@@ -1201,6 +1201,10 @@
                     {
                         "name":  "20260619-maintenance-canonical-patch-target-boundary-reuse",
                         "path":  "harness/changes/archive/20260619-maintenance-canonical-patch-target-boundary-reuse"
+                    },
+                    {
+                        "name":  "20260619-maintenance-canonical-patch-target-descriptor-render-helper-reuse",
+                        "path":  "harness/changes/archive/20260619-maintenance-canonical-patch-target-descriptor-render-helper-reuse"
                     },
                     {
                         "name":  "20260619-maintenance-canonical-patch-target-kinds-helper-reuse",

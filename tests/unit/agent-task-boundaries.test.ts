@@ -16,6 +16,7 @@ import {
   copyCanonicalPatchProposalOperationLineage,
   mergeCanonicalPatchTargetKinds,
 } from "../../src/agent-task/canonical-patch-lineage.js";
+import { formatCanonicalPatchTargetDescriptor } from "../../src/agent-task/canonical-patch-target-boundary.js";
 import { candidateSchema, canonicalUpdateProposalSchema, resolutionSchema } from "../../src/agent-task/schemas.js";
 import { buildCanonicalPatchTargetDescriptor } from "../../src/agent-task/canonical-patch-targets.js";
 import { normalizeDocsDriftCandidates } from "../../src/agent-task/closeout-store.js";
@@ -147,6 +148,27 @@ describe("AgentTask domain boundaries", () => {
       canonicalPatchApplied: false,
       executionStarted: false,
     });
+  });
+
+  it("formats canonical patch target descriptors through the target-boundary owner", () => {
+    const expectedContentHash = "a".repeat(64);
+
+    expect(formatCanonicalPatchTargetDescriptor(null)).toBe("missing");
+    expect(formatCanonicalPatchTargetDescriptor(undefined)).toBe("missing");
+    expect(formatCanonicalPatchTargetDescriptor({
+      targetKind: "canonical-docs",
+      targetPath: "docs/MEMORY.md",
+      expectedContentHash,
+      patchKind: "hunks",
+      hunks: [{ oldText: "old", newText: "new" }],
+    })).toBe(`hunks docs/MEMORY.md sha256=${expectedContentHash}`);
+    expect(formatCanonicalPatchTargetDescriptor({
+      targetKind: "stable-memory",
+      targetPath: "project/stable/product.md",
+      expectedContentHash,
+      patchKind: "replacement",
+      replacement: "new content",
+    })).toBe(`replacement project/stable/product.md sha256=${expectedContentHash}`);
   });
 
   it("copies canonical patch operation lineage without owning artifact stores or gates", () => {

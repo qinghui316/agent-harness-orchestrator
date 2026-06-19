@@ -36,6 +36,7 @@ import {
 } from "./paths.js";
 import { ensureMaintenanceLedgerEntryForStoreArtifact } from "./ledger.js";
 import { buildCanonicalPatchTargetDescriptor } from "./canonical-patch-targets.js";
+import { formatCanonicalPatchTargetDescriptor } from "./canonical-patch-target-boundary.js";
 import { buildNonExecutingCanonicalPatchApplicationAuthority } from "./canonical-patch-application-authority.js";
 import { buildCanonicalPatchDerivedOperationId, mergeCanonicalPatchTargetKinds } from "./canonical-patch-lineage.js";
 import { canonicalPatchApplicationGateRecordSchema, canonicalPatchProposalSchema, canonicalUpdateDecisionSchema, canonicalUpdateProposalSchema } from "./schemas.js";
@@ -536,7 +537,7 @@ function renderCanonicalPatchProposalMarkdown(patchProposal: MaintenanceCanonica
       `- ${operation.id}: ${operation.operation} ${operation.targetKind}`,
       `  resolution: ${operation.sourceResolutionId}`,
       `  candidate: ${operation.sourceCandidateId}`,
-      `  targetDescriptor: ${renderPatchOperationTargetDescriptor(operation)}`,
+      `  targetDescriptor: ${formatCanonicalPatchTargetDescriptor(operation.targetDescriptor)}`,
       `  summary: ${operation.summary}`,
       `  rationale: ${operation.rationale.replace(/\r?\n/g, " ")}`,
     ].join("\n")),
@@ -550,12 +551,6 @@ function renderCanonicalPatchProposalMarkdown(patchProposal: MaintenanceCanonica
     ...patchProposal.artifactRefs.map((ref) => `- ${ref}`),
     "",
   ].join("\n");
-}
-
-function renderPatchOperationTargetDescriptor(operation: MaintenanceCanonicalPatchOperation): string {
-  const descriptor = operation.targetDescriptor;
-  if (!descriptor) return "missing";
-  return `${descriptor.patchKind} ${descriptor.targetPath} sha256=${descriptor.expectedContentHash}`;
 }
 
 function renderCanonicalPatchApplicationGateMarkdown(gateRecord: MaintenanceCanonicalPatchApplicationGateRecord): string {
