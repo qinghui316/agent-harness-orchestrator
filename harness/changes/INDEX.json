@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-19T21:01:06.9147438Z",
+    "generated_at":  "2026-06-19T21:16:53.9223782Z",
     "active":  [
 
                ],
@@ -1389,6 +1389,10 @@
                     {
                         "name":  "20260620-workbench-planning-scheduler-prep-test-domain-split",
                         "path":  "harness/changes/archive/20260620-workbench-planning-scheduler-prep-test-domain-split"
+                    },
+                    {
+                        "name":  "20260620-workbench-scheduler-residual-test-domain-split",
+                        "path":  "harness/changes/archive/20260620-workbench-scheduler-residual-test-domain-split"
                     },
                     {
                         "name":  "20260620-workbench-test-architecture-apply-integration-slow-suite-split",
