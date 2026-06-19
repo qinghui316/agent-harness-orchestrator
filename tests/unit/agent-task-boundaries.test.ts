@@ -8,6 +8,7 @@ import { initHarness } from "../../src/harness/init.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import { buildMaintenanceSummary } from "../../src/workbench/projections/read-model/maintenance-summary.js";
 import { buildMaintenanceArtifactRefListForStores } from "../../src/agent-task/maintenance-artifact-store.js";
+import { buildNonExecutingCanonicalPatchApplicationAuthority } from "../../src/agent-task/canonical-patch-application-authority.js";
 import {
   buildCanonicalPatchDerivedOperationId,
   copyCanonicalPatchAppliedOperationLineage,
@@ -113,6 +114,15 @@ describe("AgentTask domain boundaries", () => {
       `.agent-harness/workbench/maintenance/test-artifacts/b.json`,
       `.agent-harness/workbench/maintenance/test-artifacts/upstream.md`,
     ]);
+  });
+
+  it("builds shared non-executing canonical patch application authority flags", () => {
+    expect(buildNonExecutingCanonicalPatchApplicationAuthority()).toEqual({
+      sourceMutationAuthorized: false,
+      canonicalUpdateApplied: false,
+      canonicalPatchApplied: false,
+      executionStarted: false,
+    });
   });
 
   it("copies canonical patch operation lineage without owning artifact stores or gates", () => {

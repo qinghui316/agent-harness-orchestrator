@@ -35,6 +35,7 @@ import {
 } from "./paths.js";
 import { ensureMaintenanceLedgerEntryForStoreArtifact } from "./ledger.js";
 import { buildCanonicalPatchTargetDescriptor } from "./canonical-patch-targets.js";
+import { buildNonExecutingCanonicalPatchApplicationAuthority } from "./canonical-patch-application-authority.js";
 import { buildCanonicalPatchDerivedOperationId, mergeCanonicalPatchTargetKinds } from "./canonical-patch-lineage.js";
 import { canonicalPatchApplicationGateRecordSchema, canonicalPatchProposalSchema, canonicalUpdateDecisionSchema, canonicalUpdateProposalSchema } from "./schemas.js";
 import { contentHash, uniqueSorted } from "./utils.js";
@@ -381,10 +382,7 @@ function buildCanonicalPatchApplicationGateRecord(
     decisionStatus: "accepted-for-application-follow-up",
     targetKinds: patchProposal.targetKinds,
     operationCount: patchProposal.operationCount,
-    sourceMutationAuthorized: false,
-    canonicalUpdateApplied: false,
-    canonicalPatchApplied: false,
-    executionStarted: false,
+    ...buildNonExecutingCanonicalPatchApplicationAuthority(),
     summary: `Human-gated canonical patch application follow-up recorded for patch proposal ${patchProposal.id}. This gate record does not apply canonical changes.`,
     risks: [
       "Gate evidence can be mistaken for canonical application unless applied and mutation flags remain false.",

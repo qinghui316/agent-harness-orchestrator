@@ -35,6 +35,7 @@ import {
   readMaintenanceCanonicalPatchApplicationGate,
   readMaintenanceCanonicalPatchProposal,
 } from "./canonical-updates.js";
+import { buildNonExecutingCanonicalPatchApplicationAuthority } from "./canonical-patch-application-authority.js";
 import {
   canonicalPatchContentHash,
   isValidCanonicalPatchTargetDescriptor,
@@ -242,10 +243,7 @@ function buildCanonicalPatchApplicationManifest(
     applicationStatus,
     operations,
     blockedReasons,
-    sourceMutationAuthorized: false,
-    canonicalUpdateApplied: false,
-    canonicalPatchApplied: false,
-    executionStarted: false,
+    ...buildNonExecutingCanonicalPatchApplicationAuthority(),
     summary: applicationStatus === "ready-for-application"
       ? `Canonical patch application manifest is ready for a future deterministic writer for gate ${gateRecord.id}. This manifest does not execute writes.`
       : `Canonical patch application manifest is blocked for gate ${gateRecord.id}: concrete target descriptors are required before any future deterministic writer can run.`,

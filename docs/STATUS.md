@@ -5,20 +5,20 @@
 - Current date: 2026-06-19.
 - Active ECL change: none.
 - Pending Harness evolution: none.
-- Latest archived product change: `harness/changes/archive/20260619-maintenance-canonical-patch-target-kinds-helper-reuse/summary.md`.
-- Latest archived product/Harness docs change: `harness/changes/archive/20260619-maintenance-canonical-patch-target-kinds-helper-reuse/summary.md`.
-- Latest archived Harness evolution: `harness/changes/archive/20260619-auto-evolve-harness-workbench-reuse-window/summary.md`.
+- Latest archived product change: `harness/changes/archive/20260619-maintenance-canonical-patch-application-authority-helper-reuse/summary.md`.
+- Latest archived product/Harness docs change: `harness/changes/archive/20260619-auto-evolve-harness-candidate-window-order/summary.md`.
+- Latest archived Harness evolution: `harness/changes/archive/20260619-auto-evolve-harness-candidate-window-order/summary.md`.
 - Active product phase: none.
 - Active Harness evolution phase: none.
 - Active close status: none.
 
-This file is the short resume point. There is no active ECL change and no pending Harness evolution. The latest product slice was Maintenance Canonical Patch Target Kinds Helper Reuse: `src/agent-task/canonical-patch-lineage.ts` now owns a pure target-kind merge helper reused by canonical patch proposal and application manifest builders, preserving sorted/deduped target-kind behavior, artifact shapes, authority flags, human gates, ToolPolicyGate requirements, top-level artifact refs, and Workbench behavior. The previous product slice was Maintenance Canonical Patch Proposal Operation Id Helper Reuse. The latest Harness evolution was Auto-evolve Harness Workbench Reuse Window with result `keep`: current Architecture Growth Control / Core Mechanism Reuse, Module Boundary, Documentation Entropy, Close/Handoff Drift, Workbench projection/action, workflow-truth, ToolPolicyGate, and human-gate rules are sufficient for the five Workbench helper-reuse archives; no new Harness rule/template/lint/runtime change was made.
+This file is the short resume point. There is no active ECL change and no pending Harness evolution. The latest Harness evolution was Auto-evolve Harness Candidate Window Order: it repaired pending evolution candidate-window selection after Maintenance Canonical Patch Application Authority Helper Reuse closed. The stale pending snapshot repeated the Workbench helper-reuse window already reviewed at archive count 302 because `scripts/harness-evolve.ps1` selected candidate archives by directory name order rather than close-order evidence; after repair, pending evidence used the corrected maintenance canonical patch helper-reuse window and excluded auto-evolve archives from candidate evidence. The latest archived product slice is Maintenance Canonical Patch Application Authority Helper Reuse: `src/agent-task/canonical-patch-application-authority.ts` now owns the four repeated non-executing canonical patch application authority flags reused by application gate, manifest, and observation report builders.
 
 Current plan-level roadmap context is preserved in `docs/CURRENT-DEVELOPMENT-PLAN.md`. Historical detail belongs in archived summaries and `harness/changes/INDEX.json`.
 
 ## Current Baseline
 
-The product baseline is post-maintenance canonical patch target-boundary, lineage, operation lineage helper reuse, target-kind helper reuse, ledger-idempotency, artifact-store reuse, artifact-reference reuse, ledger event-policy reuse, maintenance artifact ledger-entry helper reuse, canonical updates ledger helper adoption, maintenance store-backed artifact ref-list helper reuse, Workbench action active-target revalidation reuse, Workbench action target revalidation helper reuse, Workbench read-model projection summary helper reuse, Workbench maintenance confirmation projection summary helper reuse, and Workbench read-model timestamp summary helper reuse. The latest Harness evolution completed `mark-complete` with result `keep` and no new Harness rule/template/lint/runtime change. Goal Loop controlled-loop state, routing posture, and SchedulerRun terminal handoff evidence remain non-executing evidence only. SchedulerRun terminal Workpad completion and blocked-closeout cards remain read-only evidence and do not authorize loop/full-executor/dispatch/slot/source/apply/close/merge/Harness-evolution behavior.
+The product baseline is post-maintenance canonical patch target-boundary, lineage, operation lineage helper reuse, target-kind helper reuse, application-authority helper reuse, ledger-idempotency, artifact-store reuse, artifact-reference reuse, ledger event-policy reuse, maintenance artifact ledger-entry helper reuse, canonical updates ledger helper adoption, maintenance store-backed artifact ref-list helper reuse, Workbench action active-target revalidation reuse, Workbench action target revalidation helper reuse, Workbench read-model projection summary helper reuse, Workbench maintenance confirmation projection summary helper reuse, and Workbench read-model timestamp summary helper reuse. The latest Harness evolution completed `mark-complete` with result `keep` after repairing candidate-window ordering; no product runtime or broad ECL/template change was made. Goal Loop controlled-loop state, routing posture, and SchedulerRun terminal handoff evidence remain non-executing evidence only. SchedulerRun terminal Workpad completion and blocked-closeout cards remain read-only evidence and do not authorize loop/full-executor/dispatch/slot/source/apply/close/merge/Harness-evolution behavior.
 
 Product-level maintenance writes candidate lifecycle-resolution evidence, canonical update proposal evidence, human-gated canonical update decision records, canonical patch proposal evidence, human-gated canonical patch application follow-up records, read-only application manifest/readiness evidence, Phase 12U target-descriptor evidence, Phase 12V human-gated canonical docs/stable-memory application result evidence, and Phase 12W read-only observation report evidence while still forbidding automatic canonical rewrites.
 
@@ -26,7 +26,7 @@ Phase 12A remains the future controlled Scheduler/parallel loop design boundary.
 
 ## Next Resume Point
 
-Resume from `docs/CURRENT-DEVELOPMENT-PLAN.md` and continue the Architecture Growth Control register with one narrow Core Mechanism Reuse slice at a time. Prefer the maintenance / canonical patch chain until the next highest-duplication owner is clearer. Keep `README.md` unrelated and untracked unless the user explicitly asks to include it.
+Resume from the Architecture Growth Control register in `docs/CURRENT-DEVELOPMENT-PLAN.md`, preferably another narrow maintenance / canonical patch chain convergence slice only if it reuses or strengthens an existing core mechanism. Keep `README.md` unrelated and untracked unless the user explicitly asks to include it.
 
 ## Verification Commands
 

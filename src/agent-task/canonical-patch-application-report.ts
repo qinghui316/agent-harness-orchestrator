@@ -14,6 +14,7 @@ import {
   writeMaintenanceJsonMarkdownArtifact,
   type MaintenanceArtifactStore,
 } from "./maintenance-artifact-store.js";
+import { buildNonExecutingCanonicalPatchApplicationAuthority } from "./canonical-patch-application-authority.js";
 import {
   readMaintenanceCanonicalPatchApplicationManifest,
   readMaintenanceCanonicalPatchApplicationResult,
@@ -135,10 +136,7 @@ function buildCanonicalPatchApplicationReport(
     operationCount: observedOperations.length,
     observedOperations,
     applicationAuthorized: true,
-    sourceMutationAuthorized: false,
-    canonicalUpdateApplied: false,
-    canonicalPatchApplied: false,
-    executionStarted: false,
+    ...buildNonExecutingCanonicalPatchApplicationAuthority(),
     policyAuditRefs: result.policyAuditRefs,
     guardrailNotes: [
       "Observation report generation is read-only for canonical docs and stable memory.",

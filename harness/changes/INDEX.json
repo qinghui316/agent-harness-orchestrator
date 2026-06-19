@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-19T02:05:13.1782026Z",
+    "generated_at":  "2026-06-19T02:36:26.7924689Z",
     "active":  [
 
                ],
@@ -1135,6 +1135,10 @@
                         "path":  "harness/changes/archive/20260619-architecture-growth-control-core-mechanism-reuse"
                     },
                     {
+                        "name":  "20260619-auto-evolve-harness-candidate-window-order",
+                        "path":  "harness/changes/archive/20260619-auto-evolve-harness-candidate-window-order"
+                    },
+                    {
                         "name":  "20260619-auto-evolve-harness-maintenance-canonical-chain-evidence",
                         "path":  "harness/changes/archive/20260619-auto-evolve-harness-maintenance-canonical-chain-evidence"
                     },
@@ -1177,6 +1181,10 @@
                     {
                         "name":  "20260619-maintenance-canonical-ledger-idempotency-reuse",
                         "path":  "harness/changes/archive/20260619-maintenance-canonical-ledger-idempotency-reuse"
+                    },
+                    {
+                        "name":  "20260619-maintenance-canonical-patch-application-authority-helper-reuse",
+                        "path":  "harness/changes/archive/20260619-maintenance-canonical-patch-application-authority-helper-reuse"
                     },
                     {
                         "name":  "20260619-maintenance-canonical-patch-lineage-reuse",
