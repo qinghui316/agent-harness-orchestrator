@@ -18,7 +18,10 @@ import {
   writeMaintenanceArtifactWithPolicyLedger,
 } from "./maintenance-artifact-lifecycle.js";
 import { buildCanonicalPatchApplicationReportArtifactRefs } from "./canonical-patch-application-artifact-refs.js";
-import { buildReadOnlyCanonicalPatchApplicationObservationAuthority } from "./canonical-patch-application-authority.js";
+import {
+  buildReadOnlyCanonicalPatchApplicationObservationAuthority,
+  renderCanonicalPatchApplicationReportAuthorityMarkdown,
+} from "./canonical-patch-application-authority.js";
 import {
   canonicalPatchApplicationManifestStore,
   canonicalPatchApplicationResultStore,
@@ -157,15 +160,7 @@ function renderCanonicalPatchApplicationReportMarkdown(report: MaintenanceCanoni
     "",
     report.summary,
     "",
-    "## Authority",
-    "",
-    "- Classification: read-only canonical patch application observation report evidence.",
-    "- Application authorized: true.",
-    "- Source mutation authorized by this report: false.",
-    "- Canonical update applied by this report: false.",
-    "- Canonical patch applied by this report: false.",
-    "- Execution started by this report: false.",
-    "- This report does not modify stable memory, canonical docs, ECL rules, Harness templates, source root, apply state, close state, remote state, Validation, Audit, IntegrationCheck, or Harness evolution state.",
+    ...renderCanonicalPatchApplicationReportAuthorityMarkdown(),
     "",
     "## Sources",
     "",

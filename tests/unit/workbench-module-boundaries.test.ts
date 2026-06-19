@@ -30,6 +30,15 @@ import {
   renderCanonicalPatchObservedOperationMarkdownDetails,
   renderCanonicalPatchProposalOperationMarkdownDetails,
 } from "../../src/agent-task/canonical-patch-operation-markdown.js";
+import {
+  renderCanonicalPatchApplicationGateAuthorityMarkdown,
+  renderCanonicalPatchApplicationManifestAuthorityMarkdown,
+  renderCanonicalPatchApplicationReportAuthorityMarkdown,
+  renderCanonicalPatchApplicationResultAuthorityMarkdown,
+  renderCanonicalPatchProposalAuthorityMarkdown,
+  renderCanonicalUpdateDecisionAuthorityMarkdown,
+  renderCanonicalUpdateProposalAuthorityMarkdown,
+} from "../../src/agent-task/canonical-patch-application-authority.js";
 import { closeChange, createChange, getChangeStatus, getChangeStatusForChange } from "../../src/change/manager.js";
 import { appendTopicThreadEntry, runWorkbenchWorkflowAction } from "../../src/workbench/chat.js";
 import { getWorkbenchSchedulerClaimReconcilePlanProjection, getWorkbenchSchedulerClaimReservationProjection, getWorkbenchSchedulerContractProjection, getWorkbenchSchedulerDispatchDryRunProjection, getWorkbenchSchedulerRunProjection, getWorkbenchSchedulerWorkerReworkResultProjection, getWorkbenchSchedulerWorkerSessionPlanProjection, getWorkbenchSnapshot, getWorkbenchWorkflowGraphPlanProjection } from "../../src/workbench/manager.js";
@@ -1646,6 +1655,13 @@ describe("Workbench module boundaries", () => {
     expect(typeof renderCanonicalPatchManifestOperationMarkdownDetails).toBe("function");
     expect(typeof renderCanonicalPatchAppliedOperationMarkdownDetails).toBe("function");
     expect(typeof renderCanonicalPatchObservedOperationMarkdownDetails).toBe("function");
+    expect(typeof renderCanonicalUpdateProposalAuthorityMarkdown).toBe("function");
+    expect(typeof renderCanonicalUpdateDecisionAuthorityMarkdown).toBe("function");
+    expect(typeof renderCanonicalPatchProposalAuthorityMarkdown).toBe("function");
+    expect(typeof renderCanonicalPatchApplicationGateAuthorityMarkdown).toBe("function");
+    expect(typeof renderCanonicalPatchApplicationManifestAuthorityMarkdown).toBe("function");
+    expect(typeof renderCanonicalPatchApplicationResultAuthorityMarkdown).toBe("function");
+    expect(typeof renderCanonicalPatchApplicationReportAuthorityMarkdown).toBe("function");
     expect(typeof copyCanonicalPatchProposalOperationLineage).toBe("function");
     expect(typeof copyCanonicalPatchManifestOperationLineage).toBe("function");
     expect(typeof copyCanonicalPatchAppliedOperationLineage).toBe("function");
@@ -1685,6 +1701,8 @@ describe("Workbench module boundaries", () => {
     expect(application).toContain("buildCanonicalPatchApplicationManifestArtifactRefs");
     expect(application).toContain("buildCanonicalPatchApplicationResultArtifactRefs");
     expect(application).toContain("buildCanonicalPatchAppliedOperationFromManifestOperation");
+    expect(application).toContain("renderCanonicalPatchApplicationManifestAuthorityMarkdown");
+    expect(application).toContain("renderCanonicalPatchApplicationResultAuthorityMarkdown");
     expect(application).toContain("renderCanonicalPatchManifestOperationMarkdownDetails");
     expect(application).toContain("renderCanonicalPatchAppliedOperationMarkdownDetails");
     expect(application).toContain("buildCanonicalPatchDerivedOperationId");
@@ -1697,6 +1715,8 @@ describe("Workbench module boundaries", () => {
     expect(application).toContain("writeMaintenanceArtifactWithPolicyLedger");
     expect(application).toContain('eventType: "canonical-patch-application-manifest"');
     expect(application).toContain('eventType: "canonical-patch-application-result"');
+    expect(application).not.toContain('"## Authority"');
+    expect(application).not.toContain("Classification: non-executing canonical patch application readiness evidence");
     expect(application).not.toContain("ensureMaintenanceLedgerEntryForArtifactRef");
     expect(application).not.toContain("ensureMaintenancePolicyLedgerEntryForStoreArtifact");
     expect(application).not.toContain("ledger-event-policy");
@@ -1704,6 +1724,7 @@ describe("Workbench module boundaries", () => {
     const report = readFileSync("src/agent-task/canonical-patch-application-report.ts", "utf8");
     expect(report).toContain("buildCanonicalPatchApplicationReportArtifactRefs");
     expect(report).toContain("buildCanonicalPatchApplicationReportOperationFromAppliedOperation");
+    expect(report).toContain("renderCanonicalPatchApplicationReportAuthorityMarkdown");
     expect(report).toContain("renderCanonicalPatchObservedOperationMarkdownDetails");
     expect(report).not.toContain("copyCanonicalPatchAppliedOperationLineage");
     expect(report).not.toContain("renderMaintenanceMarkdownDetailItem");
@@ -1711,6 +1732,8 @@ describe("Workbench module boundaries", () => {
     expect(report).toContain("returnExistingMaintenanceArtifactWithPolicyLedger");
     expect(report).toContain("writeMaintenanceArtifactWithPolicyLedger");
     expect(report).toContain('eventType: "canonical-patch-application-report"');
+    expect(report).not.toContain('"## Authority"');
+    expect(report).not.toContain("Classification: read-only canonical patch application observation report evidence");
     expect(report).not.toContain("ensureMaintenanceLedgerEntryForArtifactRef");
     expect(report).not.toContain("ensureMaintenancePolicyLedgerEntryForStoreArtifact");
     expect(report).not.toContain("ledger-event-policy");
@@ -1718,12 +1741,18 @@ describe("Workbench module boundaries", () => {
     const updates = readFileSync("src/agent-task/canonical-updates.ts", "utf8");
     expect(updates).toContain("buildMaintenanceArtifactRefListForStores");
     expect(updates).toContain("renderCanonicalPatchProposalOperationMarkdownDetails");
+    expect(updates).toContain("renderCanonicalUpdateProposalAuthorityMarkdown");
+    expect(updates).toContain("renderCanonicalUpdateDecisionAuthorityMarkdown");
+    expect(updates).toContain("renderCanonicalPatchProposalAuthorityMarkdown");
+    expect(updates).toContain("renderCanonicalPatchApplicationGateAuthorityMarkdown");
     expect(updates).toContain("returnExistingMaintenanceArtifactWithPolicyLedger");
     expect(updates).toContain("writeMaintenanceArtifactWithPolicyLedger");
     expect(updates).toContain('eventType: "canonical-update-proposal"');
     expect(updates).toContain('eventType: "canonical-update-decision"');
     expect(updates).toContain('eventType: "canonical-patch-proposal"');
     expect(updates).toContain('eventType: "canonical-patch-application-gate"');
+    expect(updates).not.toContain('"## Authority"');
+    expect(updates).not.toContain("Classification: non-executing maintenance proposal evidence");
     expect(updates).not.toContain("ensureMaintenanceLedgerEntryForArtifactRef");
     expect(updates).not.toContain("ensureMaintenancePolicyLedgerEntryForStoreArtifact");
     const updateImports = updates.split(/\r?\n/).filter((line) => line.startsWith("import ")).join("\n");
@@ -1748,6 +1777,11 @@ describe("Workbench module boundaries", () => {
     expect(operationMarkdown).toContain('from "./maintenance-markdown.js"');
     expect(operationMarkdown).toContain('from "./canonical-patch-target-boundary.js"');
     expect(operationMarkdown).not.toMatch(/maintenance-artifact-store|ledger|paths|canonical-updates|canonical-patch-application|canonical-patch-application-report|workbench\/|server\/|web\/|ToolPolicy|scheduler|goal-loop|manager/);
+
+    const authority = readFileSync("src/agent-task/canonical-patch-application-authority.ts", "utf8");
+    expect(authority).toContain("function renderCanonicalUpdateProposalAuthorityMarkdown");
+    expect(authority).toContain("function renderCanonicalPatchApplicationReportAuthorityMarkdown");
+    expect(authority).not.toMatch(/maintenance-artifact-store|maintenance-artifact-lifecycle|ledger|paths|canonical-updates|canonical-patch-application|canonical-patch-application-report|workbench\/|server\/|web\/|ToolPolicy|scheduler|goal-loop|manager/);
   });
 
   it("keeps workflow-run manager as a compatibility facade with scoped recovery modules", () => {

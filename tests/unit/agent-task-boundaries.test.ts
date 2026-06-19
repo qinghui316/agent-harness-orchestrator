@@ -19,6 +19,13 @@ import {
   buildNonExecutingCanonicalUpdateDecisionAuthority,
   buildNonExecutingCanonicalUpdateProposalAuthority,
   buildReadOnlyCanonicalPatchApplicationObservationAuthority,
+  renderCanonicalPatchApplicationGateAuthorityMarkdown,
+  renderCanonicalPatchApplicationManifestAuthorityMarkdown,
+  renderCanonicalPatchApplicationReportAuthorityMarkdown,
+  renderCanonicalPatchApplicationResultAuthorityMarkdown,
+  renderCanonicalPatchProposalAuthorityMarkdown,
+  renderCanonicalUpdateDecisionAuthorityMarkdown,
+  renderCanonicalUpdateProposalAuthorityMarkdown,
 } from "../../src/agent-task/canonical-patch-application-authority.js";
 import {
   buildCanonicalPatchApplicationManifestArtifactRefs,
@@ -359,6 +366,20 @@ describe("AgentTask domain boundaries", () => {
       canonicalPatchApplied: false,
       executionStarted: false,
     });
+    expect(renderCanonicalUpdateProposalAuthorityMarkdown()).toEqual([
+      "## Authority",
+      "",
+      "- Classification: non-executing maintenance proposal evidence.",
+      "- Human gate required: true.",
+      "- Canonical update authorized: false.",
+      "- This proposal does not modify stable memory, canonical docs, ECL rules, Harness templates, source root, apply state, close state, or Harness evolution state.",
+    ]);
+    expect(renderCanonicalUpdateDecisionAuthorityMarkdown()).toContain("- Decision status: accepted-for-follow-up.");
+    expect(renderCanonicalPatchProposalAuthorityMarkdown()).toContain("- Human application gate required: true.");
+    expect(renderCanonicalPatchApplicationGateAuthorityMarkdown()).toContain("- Decision status: accepted-for-application-follow-up.");
+    expect(renderCanonicalPatchApplicationManifestAuthorityMarkdown()).toContain("- Classification: non-executing canonical patch application readiness evidence.");
+    expect(renderCanonicalPatchApplicationResultAuthorityMarkdown()).toContain("- Source mutation authorized: true.");
+    expect(renderCanonicalPatchApplicationReportAuthorityMarkdown()).toContain("- Source mutation authorized by this report: false.");
   });
 
   it("formats canonical patch target descriptors through the target-boundary owner", () => {
