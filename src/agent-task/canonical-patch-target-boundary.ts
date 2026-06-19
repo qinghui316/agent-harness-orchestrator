@@ -96,6 +96,12 @@ export function validateCanonicalPatchTargetKindPath(targetKind: string, targetP
   }
 }
 
+export function validateCanonicalPatchApplicationTargetKind(targetKind: string, operationId: string): void {
+  if (targetKind !== "canonical-docs" && targetKind !== "stable-memory") {
+    throw new Error(`Unsupported canonical patch application target kind for ${operationId}: ${targetKind}`);
+  }
+}
+
 export function normalizeCanonicalPatchPayloadDraft(
   patch: MaintenanceCanonicalPatchPayloadDraft | undefined,
 ): MaintenanceCanonicalPatchPayloadDraft | null {

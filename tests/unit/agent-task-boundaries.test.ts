@@ -36,7 +36,7 @@ import {
   renderCanonicalPatchObservedOperationMarkdownDetails,
   renderCanonicalPatchProposalOperationMarkdownDetails,
 } from "../../src/agent-task/canonical-patch-operation-markdown.js";
-import { formatCanonicalPatchTargetDescriptor } from "../../src/agent-task/canonical-patch-target-boundary.js";
+import { formatCanonicalPatchTargetDescriptor, validateCanonicalPatchApplicationTargetKind } from "../../src/agent-task/canonical-patch-target-boundary.js";
 import { renderMaintenanceMarkdownDetailItem, renderMaintenanceMarkdownList } from "../../src/agent-task/maintenance-markdown.js";
 import { candidateSchema, canonicalUpdateProposalSchema, resolutionSchema } from "../../src/agent-task/schemas.js";
 import { buildCanonicalPatchTargetDescriptor } from "../../src/agent-task/canonical-patch-targets.js";
@@ -318,6 +318,22 @@ describe("AgentTask domain boundaries", () => {
       patchKind: "replacement",
       replacement: "new content",
     })).toBe(`replacement project/stable/product.md sha256=${expectedContentHash}`);
+  });
+
+  it("validates canonical patch application writable target kinds through the target-boundary owner", () => {
+    expect(() => validateCanonicalPatchApplicationTargetKind("canonical-docs", "operation-001")).not.toThrow();
+    expect(() => validateCanonicalPatchApplicationTargetKind("stable-memory", "operation-002")).not.toThrow();
+    expect(() => validateCanonicalPatchApplicationTargetKind("reference", "operation-003")).toThrow(
+      "Unsupported canonical patch application target kind for operation-003: reference",
+    );
+
+    const targetBoundary = readFileSyncUtf8("src/agent-task/canonical-patch-target-boundary.ts");
+    expect(targetBoundary).toContain("validateCanonicalPatchApplicationTargetKind");
+    expect(targetBoundary).not.toMatch(/workbench\/|server\/|web\/src|cli\/commands|manager|ToolPolicy|ledger|maintenance-artifact-store|canonical-patch-application/);
+
+    const application = readFileSyncUtf8("src/agent-task/canonical-patch-application.ts");
+    expect(application).toContain("validateCanonicalPatchApplicationTargetKind");
+    expect(application).not.toContain("function validateSupportedApplicationTarget");
   });
 
   it("renders maintenance markdown reference lists through the markdown owner", () => {

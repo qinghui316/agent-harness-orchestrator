@@ -42,6 +42,7 @@ Current architecture debt register:
 | Gate/action target revalidation | Common target revalidation vocabulary across Workbench actions and assisted gates | Strengthen existing scoped action target checks instead of adding new gate-specific validators |
 | Ledger and event policy | One policy for durable evidence events versus derived summaries | Record which events are canonical evidence and which summaries are projections before adding new maintenance records |
 | Manager facades | Thin compatibility exports and wiring only | Keep new main logic out of broad facades; add owner modules or extend existing owners |
+| Workbench test architecture | Split overloaded Workbench regression coverage by capability domain and move slow end-to-end scenarios out of the unit suite | Open a dedicated convergence change for `tests/unit/workbench.test.ts`; keep projection/target-revalidation checks as unit tests and move scheduler/apply/remote/maintenance long paths into integration or slow-suite coverage with shared fixture builders |
 
 ## Next Product Direction
 
@@ -51,6 +52,7 @@ The current product baseline is post-Phase-12W after adding read-only observatio
 - If continuing Goal Loop work, build on controller policy evidence without making it execution authority.
 - If continuing scheduler work, use `docs/design-docs/controlled-scheduler-loop.md` as the future-loop boundary, but keep current runtime single-gate staged until a later accepted implementation change adds and verifies loop behavior.
 - If improving Workbench UX, keep implemented actions honest and bind every high-impact action to concrete target ids, stale revalidation, ToolPolicyGate, and human confirmation.
+- If improving test architecture, split `tests/unit/workbench.test.ts` by capability domain first; do not mix that work into product behavior changes.
 - If improving product maintenance/self-evolution, treat raw closeouts/ledgers as durable evidence and current stable memory/docs as compact derived memory. Build only on the Phase 12P-12V human-gated proposal/decision/patch/gate/manifest/descriptor/application-result chain before considering any broader rewrite behavior.
 - If improving Harness self-evolution, use the Experience Lifecycle scan: promote, retain, merge, retire, and archive-only.
 

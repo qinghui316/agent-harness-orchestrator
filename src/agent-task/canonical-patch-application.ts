@@ -43,6 +43,7 @@ import {
   canonicalPatchContentHash,
   isValidCanonicalPatchTargetDescriptor,
   resolveRequiredCanonicalPatchApplicationTarget,
+  validateCanonicalPatchApplicationTargetKind,
   validateCanonicalPatchTargetKindPath,
 } from "./canonical-patch-target-boundary.js";
 import {
@@ -308,7 +309,7 @@ async function prepareApplicationOperations(
     const proposalOperation = proposalOperations.get(operation.patchOperationId);
     if (!proposalOperation) throw new Error(`Canonical patch application operation has no matching patch proposal operation: ${operation.id}`);
     validateCanonicalPatchApplicationManifestOperationLineage(operation, proposalOperation);
-    validateSupportedApplicationTarget(operation.targetKind, operation.id);
+    validateCanonicalPatchApplicationTargetKind(operation.targetKind, operation.id);
     validateCanonicalPatchTargetKindPath(operation.targetKind, operation.targetDescriptor.targetPath, operation.id);
 
     const target = await resolveRequiredCanonicalPatchApplicationTarget(memory.memoryRoot, operation.targetDescriptor.targetPath);
@@ -341,12 +342,6 @@ async function prepareApplicationOperations(
     throw new Error(`Prepared operation count mismatch for canonical patch application manifest: ${manifest.id}`);
   }
   return prepared;
-}
-
-function validateSupportedApplicationTarget(targetKind: string, operationId: string): void {
-  if (targetKind !== "canonical-docs" && targetKind !== "stable-memory") {
-    throw new Error(`Unsupported canonical patch application target kind for ${operationId}: ${targetKind}`);
-  }
 }
 
 function applyDescriptorToContent(content: string, descriptor: MaintenanceCanonicalPatchTargetDescriptor, operationId: string): string {
