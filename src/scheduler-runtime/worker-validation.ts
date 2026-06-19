@@ -7,7 +7,7 @@ import type { ManagedProject, ResolvedMemory, RunMetadata, TaskRun, ValidationRe
 import { readValidationResult } from "../validation/repository.js";
 import { startValidationRun } from "../validation/service.js";
 import { readWorktreeMetadata } from "../worktree/repository.js";
-import { readSchedulerRuntimeLineage } from "./guards.js";
+import { assertLatestSchedulerRuntimeClaimReservation, readSchedulerRuntimeLineage } from "./guards.js";
 import {
   appendSchedulerRuntimeEvent,
   findSchedulerRuntimeWorkerValidationForResult,
@@ -60,9 +60,7 @@ export async function validateSchedulerFirstWorker(project: ManagedProject, inpu
     throw new Error("planning.scheduler.worker.validate-first requires worker result worktree and code run evidence.");
   }
   const reservation = await readSchedulerRuntimeClaimReservation(memory, changePath, run.id, workerResult.schedulerClaimReservationId);
-  if (reservation.id !== runtimeState.lastClaimReservationId || reservation.schedulerReconcileSnapshotId !== runtimeState.lastClaimReservationSnapshotId) {
-    throw new Error("planning.scheduler.worker.validate-first requires the latest SchedulerRuntimeClaimReservation.");
-  }
+  assertLatestSchedulerRuntimeClaimReservation(reservation, runtimeState, "planning.scheduler.worker.validate-first");
   const workerStart = await readSchedulerRuntimeWorkerStart(memory, changePath, run.id, workerResult.schedulerWorkerStartId);
   assertWorkerStartMatchesResult(workerStart, workerResult);
   const existing = await findSchedulerRuntimeWorkerValidationForResult(memory, changePath, run.id, workerResult.id);

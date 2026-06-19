@@ -16,6 +16,7 @@ import {
   readSchedulerWorkerSessionPlan,
 } from "../workflow-scheduler/repository.js";
 import type { SchedulerClaimReconcilePlan, SchedulerContract, SchedulerDispatchDryRun, SchedulerLaunchPreflight, SchedulerRun, SchedulerWorkerSessionPlan } from "../workflow-scheduler/types.js";
+import type { SchedulerRuntimeClaimReservation, SchedulerRuntimeState } from "./types.js";
 
 export interface SchedulerRuntimeLineage {
   run: SchedulerRun;
@@ -58,6 +59,16 @@ export async function assertSchedulerRuntimeLineage(memory: ResolvedMemory, chan
     if (run.sourceArtifactHashes[artifact] !== hash) {
       throw new Error(`Scheduler runtime source artifact hash mismatch: ${artifact}.`);
     }
+  }
+}
+
+export function assertLatestSchedulerRuntimeClaimReservation(
+  reservation: SchedulerRuntimeClaimReservation,
+  runtimeState: Pick<SchedulerRuntimeState, "lastClaimReservationId" | "lastClaimReservationSnapshotId">,
+  context: string,
+): void {
+  if (reservation.id !== runtimeState.lastClaimReservationId || reservation.schedulerReconcileSnapshotId !== runtimeState.lastClaimReservationSnapshotId) {
+    throw new Error(`${context} requires the latest SchedulerRuntimeClaimReservation.`);
   }
 }
 

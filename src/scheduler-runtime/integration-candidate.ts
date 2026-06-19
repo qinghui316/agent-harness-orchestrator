@@ -7,7 +7,7 @@ import { readRun } from "../run/repository.js";
 import { listWorkerLeases, readTaskRun } from "../task-run/repository.js";
 import type { ManagedProject, RunMetadata, TaskRun, WorkerLease, WorktreeMetadata } from "../types/index.js";
 import { readWorktreeMetadata } from "../worktree/repository.js";
-import { readSchedulerRuntimeLineage } from "./guards.js";
+import { assertLatestSchedulerRuntimeClaimReservation, readSchedulerRuntimeLineage } from "./guards.js";
 import {
   appendSchedulerRuntimeEvent,
   listSchedulerRuntimeWorkerAudits,
@@ -57,9 +57,7 @@ export async function compileSchedulerIntegrationCandidate(project: ManagedProje
     throw new Error("planning.scheduler.integration-candidate.compile requires latest SchedulerRuntimeClaimReservation.");
   }
   const reservation = await readSchedulerRuntimeClaimReservation(memory, changePath, run.id, runtimeState.lastClaimReservationId);
-  if (reservation.schedulerReconcileSnapshotId !== runtimeState.lastClaimReservationSnapshotId) {
-    throw new Error("planning.scheduler.integration-candidate.compile claim reservation snapshot mismatch.");
-  }
+  assertLatestSchedulerRuntimeClaimReservation(reservation, runtimeState, "planning.scheduler.integration-candidate.compile");
 
   const existing = await readLatestSchedulerIntegrationCandidateProjection(memory, changePath, run.id);
   const outputs: SchedulerIntegrationCandidateOutput[] = [];

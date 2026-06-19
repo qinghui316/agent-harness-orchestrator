@@ -6,7 +6,7 @@ import { releaseTaskRunLease } from "../task-run/lease-service.js";
 import { listWorkerLeases, readTaskRun, writeTaskRun } from "../task-run/repository.js";
 import type { ManagedProject, ResolvedMemory, RunMetadata, TaskRun, WorkerLease, WorktreeMetadata } from "../types/index.js";
 import { readWorktreeMetadata } from "../worktree/repository.js";
-import { readSchedulerRuntimeLineage } from "./guards.js";
+import { assertLatestSchedulerRuntimeClaimReservation, readSchedulerRuntimeLineage } from "./guards.js";
 import {
   appendSchedulerRuntimeEvent,
   findSchedulerRuntimeWorkerResultForStart,
@@ -58,9 +58,7 @@ export async function reconcileSchedulerFirstWorkerResult(project: ManagedProjec
   const workerStart = await readSchedulerRuntimeWorkerStart(memory, changePath, run.id, input.schedulerWorkerStartId);
   assertWorkerStartLineage(workerStart, runtimeState);
   const reservation = await readSchedulerRuntimeClaimReservation(memory, changePath, run.id, workerStart.schedulerClaimReservationId);
-  if (reservation.id !== runtimeState.lastClaimReservationId || reservation.schedulerReconcileSnapshotId !== runtimeState.lastClaimReservationSnapshotId) {
-    throw new Error("planning.scheduler.worker.reconcile-result requires the latest SchedulerRuntimeClaimReservation.");
-  }
+  assertLatestSchedulerRuntimeClaimReservation(reservation, runtimeState, "planning.scheduler.worker.reconcile-result");
   const existing = await findSchedulerRuntimeWorkerResultForStart(memory, changePath, run.id, workerStart.id);
   if (existing) {
     const taskRun = await readTaskRun(memory, input.changeId, existing.taskRunId);

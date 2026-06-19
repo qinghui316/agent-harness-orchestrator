@@ -8,7 +8,7 @@ import { listWorkerLeases, readTaskRun, writeTaskRun } from "../task-run/reposit
 import type { AuditResult, AuditStatus, ManagedProject, ResolvedMemory, RunMetadata, TaskRun, ValidationResult, WorkerLease, WorktreeMetadata } from "../types/index.js";
 import { readValidationResult } from "../validation/repository.js";
 import { readWorktreeMetadata } from "../worktree/repository.js";
-import { readSchedulerRuntimeLineage } from "./guards.js";
+import { assertLatestSchedulerRuntimeClaimReservation, readSchedulerRuntimeLineage } from "./guards.js";
 import {
   appendSchedulerRuntimeEvent,
   findSchedulerRuntimeWorkerReworkAuditForValidation,
@@ -70,9 +70,7 @@ export async function auditSchedulerFirstWorkerRework(project: ManagedProject, i
     throw new Error("planning.scheduler.worker.rework-audit-first requires a passed SchedulerRuntimeWorkerReworkValidation.");
   }
   const reservation = await readSchedulerRuntimeClaimReservation(memory, changePath, run.id, reworkValidation.schedulerClaimReservationId);
-  if (reservation.id !== runtimeState.lastClaimReservationId || reservation.schedulerReconcileSnapshotId !== runtimeState.lastClaimReservationSnapshotId) {
-    throw new Error("planning.scheduler.worker.rework-audit-first requires the latest SchedulerRuntimeClaimReservation.");
-  }
+  assertLatestSchedulerRuntimeClaimReservation(reservation, runtimeState, "planning.scheduler.worker.rework-audit-first");
   const reworkResult = await readSchedulerRuntimeWorkerReworkResult(memory, changePath, run.id, reworkValidation.schedulerWorkerReworkResultId);
   assertReworkResultMatchesValidation(reworkResult, reworkValidation);
   const reworkStart = await readSchedulerRuntimeWorkerReworkStart(memory, changePath, run.id, reworkValidation.schedulerWorkerReworkStartId);

@@ -7,7 +7,7 @@ import { markTaskRunRunning, startTaskRun } from "../task-run/manager.js";
 import { readTaskRun } from "../task-run/repository.js";
 import type { ManagedProject, RunMetadata, TaskRun, WorkerLease, WorktreeMetadata } from "../types/index.js";
 import { readWorktreeMetadata } from "../worktree/repository.js";
-import { readSchedulerRuntimeLineage } from "./guards.js";
+import { assertLatestSchedulerRuntimeClaimReservation, readSchedulerRuntimeLineage } from "./guards.js";
 import {
   appendSchedulerRuntimeEvent,
   findSchedulerRuntimeWorkerReworkStartForPlan,
@@ -56,9 +56,7 @@ export async function startFirstSchedulerWorkerRework(project: ManagedProject, i
     throw new Error("planning.scheduler.worker.rework-start-first requires scheduler-claim-rework future gate.");
   }
   const reservation = await readSchedulerRuntimeClaimReservation(memory, changePath, run.id, reworkPlan.schedulerClaimReservationId);
-  if (reservation.id !== runtimeState.lastClaimReservationId || reservation.schedulerReconcileSnapshotId !== runtimeState.lastClaimReservationSnapshotId) {
-    throw new Error("planning.scheduler.worker.rework-start-first requires the latest SchedulerRuntimeClaimReservation.");
-  }
+  assertLatestSchedulerRuntimeClaimReservation(reservation, runtimeState, "planning.scheduler.worker.rework-start-first");
   const existing = await findSchedulerRuntimeWorkerReworkStartForPlan(memory, changePath, run.id, reworkPlan.id);
   if (existing) throw new Error("planning.scheduler.worker.rework-start-first rework plan already started.");
   const originalTaskRun = await readTaskRun(memory, input.changeId, reworkPlan.taskRunId);

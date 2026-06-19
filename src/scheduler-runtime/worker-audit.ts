@@ -8,7 +8,7 @@ import { listWorkerLeases, readTaskRun, writeTaskRun } from "../task-run/reposit
 import type { AuditResult, AuditStatus, ManagedProject, ResolvedMemory, RunMetadata, TaskRun, ValidationResult, WorkerLease, WorktreeMetadata } from "../types/index.js";
 import { readValidationResult } from "../validation/repository.js";
 import { readWorktreeMetadata } from "../worktree/repository.js";
-import { readSchedulerRuntimeLineage } from "./guards.js";
+import { assertLatestSchedulerRuntimeClaimReservation, readSchedulerRuntimeLineage } from "./guards.js";
 import {
   appendSchedulerRuntimeEvent,
   findSchedulerRuntimeWorkerAuditForValidation,
@@ -62,9 +62,7 @@ export async function auditSchedulerFirstWorker(project: ManagedProject, input: 
     throw new Error("planning.scheduler.worker.audit-first requires a passed SchedulerRuntimeWorkerValidation.");
   }
   const reservation = await readSchedulerRuntimeClaimReservation(memory, changePath, run.id, workerValidation.schedulerClaimReservationId);
-  if (reservation.id !== runtimeState.lastClaimReservationId || reservation.schedulerReconcileSnapshotId !== runtimeState.lastClaimReservationSnapshotId) {
-    throw new Error("planning.scheduler.worker.audit-first requires the latest SchedulerRuntimeClaimReservation.");
-  }
+  assertLatestSchedulerRuntimeClaimReservation(reservation, runtimeState, "planning.scheduler.worker.audit-first");
   const workerResult = await readSchedulerRuntimeWorkerResult(memory, changePath, run.id, workerValidation.schedulerWorkerResultId);
   assertWorkerResultMatchesValidation(workerResult, workerValidation);
   const workerStart = await readSchedulerRuntimeWorkerStart(memory, changePath, run.id, workerValidation.schedulerWorkerStartId);

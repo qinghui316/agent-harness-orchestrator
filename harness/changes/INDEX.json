@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-19T05:43:00.9446013Z",
+    "generated_at":  "2026-06-19T06:15:07.1790809Z",
     "active":  [
 
                ],
@@ -1253,6 +1253,10 @@
                     {
                         "name":  "20260619-phase-12w-product-maintenance-canonical-patch-application-observation-report-evidence",
                         "path":  "harness/changes/archive/20260619-phase-12w-product-maintenance-canonical-patch-application-observation-report-evidence"
+                    },
+                    {
+                        "name":  "20260619-scheduler-runtime-claim-reservation-latest-guard-reuse",
+                        "path":  "harness/changes/archive/20260619-scheduler-runtime-claim-reservation-latest-guard-reuse"
                     },
                     {
                         "name":  "20260619-workbench-action-active-target-revalidation-reuse",

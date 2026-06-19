@@ -4,7 +4,7 @@ import type { ManagedProject } from "../types/index.js";
 import { resolveRunnableChangeTarget } from "../change/target.js";
 import { completeSchedulerRun } from "../workflow-scheduler/scheduler-run.js";
 import { readSchedulerRun } from "../workflow-scheduler/repository.js";
-import { readSchedulerRuntimeLineage } from "./guards.js";
+import { assertLatestSchedulerRuntimeClaimReservation, readSchedulerRuntimeLineage } from "./guards.js";
 import { findNextSchedulerReservationIntentForWorkerPaths, type SchedulerWorkerPathLike } from "./worker-path.js";
 import {
   appendSchedulerRuntimeEvent,
@@ -86,12 +86,9 @@ export async function closeSchedulerRunBlockedOrExhausted(project: ManagedProjec
   if (!runtimeState.lastClaimReservationId || !runtimeState.lastClaimReservationSnapshotId) {
     throw new Error("planning.scheduler.run.close-blocked requires latest claim reservation evidence.");
   }
-  if (runtimeState.lastClaimReservationId !== input.schedulerClaimReservationId) {
-    throw new Error("planning.scheduler.run.close-blocked requires the latest SchedulerRuntimeClaimReservation.");
-  }
-
   const reservation = await readSchedulerRuntimeClaimReservation(memory, changePath, run.id, input.schedulerClaimReservationId);
-  if (reservation.schedulerReconcileSnapshotId !== runtimeState.lastClaimReservationSnapshotId || reservation.schedulerRuntimeStateId !== runtimeState.id) {
+  assertLatestSchedulerRuntimeClaimReservation(reservation, runtimeState, "planning.scheduler.run.close-blocked");
+  if (reservation.schedulerRuntimeStateId !== runtimeState.id) {
     throw new Error("planning.scheduler.run.close-blocked SchedulerRuntimeClaimReservation target is stale.");
   }
   assertHashesMatch(reservation.sourceArtifactHashes, runtimeState.sourceArtifactHashes, "claim reservation");

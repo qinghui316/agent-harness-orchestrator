@@ -126,6 +126,15 @@ vi.mock("../../src/workflow-scheduler/scheduler-run.js", () => ({
 }));
 
 vi.mock("../../src/scheduler-runtime/guards.js", () => ({
+  assertLatestSchedulerRuntimeClaimReservation: vi.fn((
+    reservation: { id: string; schedulerReconcileSnapshotId: string },
+    runtimeState: { lastClaimReservationId?: string; lastClaimReservationSnapshotId?: string },
+    context: string,
+  ) => {
+    if (reservation.id !== runtimeState.lastClaimReservationId || reservation.schedulerReconcileSnapshotId !== runtimeState.lastClaimReservationSnapshotId) {
+      throw new Error(`${context} requires the latest SchedulerRuntimeClaimReservation.`);
+    }
+  }),
   readSchedulerRuntimeLineage: vi.fn(async () => ({
     run: mocks.run,
     launchPreflight: {},

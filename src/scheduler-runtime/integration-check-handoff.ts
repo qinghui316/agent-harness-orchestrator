@@ -7,7 +7,7 @@ import { readIntegrationCheck } from "../integration-check/repository.js";
 import type { IntegrationCheckRecord } from "../integration-check/types.js";
 import { resolveProjectMemory } from "../memory/resolver.js";
 import type { ManagedProject } from "../types/index.js";
-import { readSchedulerRuntimeLineage } from "./guards.js";
+import { assertLatestSchedulerRuntimeClaimReservation, readSchedulerRuntimeLineage } from "./guards.js";
 import {
   appendSchedulerRuntimeEvent,
   findSchedulerIntegrationCheckHandoffForCandidate,
@@ -159,12 +159,11 @@ function assertRuntimeState(state: SchedulerRuntimeState, changeId: string, sche
 }
 
 function assertReservationMatchesRuntime(reservation: SchedulerRuntimeClaimReservation, runtimeState: SchedulerRuntimeState): void {
+  assertLatestSchedulerRuntimeClaimReservation(reservation, runtimeState, "planning.scheduler.integration-check.run");
   if (
     reservation.changeId !== runtimeState.changeId
     || reservation.schedulerRunId !== runtimeState.schedulerRunId
-    || reservation.id !== runtimeState.lastClaimReservationId
     || reservation.schedulerRuntimeStateId !== runtimeState.id
-    || reservation.schedulerReconcileSnapshotId !== runtimeState.lastClaimReservationSnapshotId
   ) {
     throw new Error("planning.scheduler.integration-check.run SchedulerRuntimeClaimReservation target is stale.");
   }
