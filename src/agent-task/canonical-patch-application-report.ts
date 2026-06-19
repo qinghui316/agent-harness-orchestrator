@@ -30,8 +30,7 @@ import {
 } from "./paths.js";
 import { canonicalPatchApplicationReportSchema } from "./schemas.js";
 import {
-  buildCanonicalPatchDerivedOperationId,
-  copyCanonicalPatchAppliedOperationLineage,
+  buildCanonicalPatchApplicationReportOperationFromAppliedOperation,
   validateCanonicalPatchApplicationResultLineage,
 } from "./canonical-patch-lineage.js";
 import { contentHash } from "./utils.js";
@@ -102,24 +101,11 @@ function buildCanonicalPatchApplicationReport(
   manifest: MaintenanceCanonicalPatchApplicationManifest,
 ): MaintenanceCanonicalPatchApplicationReport {
   const id = `canonical-patch-application-report-${contentHash(result.id).slice(0, 12)}`;
-  const observedOperations: MaintenanceCanonicalPatchApplicationReportOperation[] = result.appliedOperations.map((operation, index) => {
-    const lineage = copyCanonicalPatchAppliedOperationLineage(operation);
-    return {
-      id: buildCanonicalPatchDerivedOperationId(id, index),
-      resultOperationId: lineage.resultOperationId,
-      manifestOperationId: lineage.manifestOperationId,
-      patchOperationId: lineage.patchOperationId,
-      targetKind: lineage.targetKind,
-      operation: lineage.operation,
-      targetPath: lineage.targetPath,
-      patchKind: lineage.patchKind,
-      beforeHash: lineage.beforeHash,
-      afterHash: lineage.afterHash,
-      status: "observed",
-      summary: `Observed applied ${lineage.patchKind} canonical patch on ${lineage.targetPath}.`,
-      artifactRefs: lineage.artifactRefs,
-    };
-  });
+  const observedOperations: MaintenanceCanonicalPatchApplicationReportOperation[] = result.appliedOperations.map((operation, index) => buildCanonicalPatchApplicationReportOperationFromAppliedOperation({
+    reportId: id,
+    index,
+    appliedOperation: operation,
+  }));
   return {
     version: "1.0",
     id,

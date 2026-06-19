@@ -22,6 +22,8 @@ import {
   buildCanonicalPatchApplicationResultArtifactRefs,
 } from "../../src/agent-task/canonical-patch-application-artifact-refs.js";
 import {
+  buildCanonicalPatchAppliedOperationFromManifestOperation,
+  buildCanonicalPatchApplicationReportOperationFromAppliedOperation,
   buildCanonicalPatchDerivedOperationId,
   copyCanonicalPatchAppliedOperationLineage,
   copyCanonicalPatchManifestOperationLineage,
@@ -367,6 +369,28 @@ describe("AgentTask domain boundaries", () => {
       operation: "promote",
       artifactRefs: ["evidence/source.md"],
     });
+    expect(buildCanonicalPatchAppliedOperationFromManifestOperation({
+      resultId: "result-001",
+      index: 1,
+      manifestOperation,
+      targetPath: "docs/MEMORY.md",
+      patchKind: "hunks",
+      beforeHash: "a".repeat(64),
+      afterHash: "b".repeat(64),
+    })).toEqual({
+      id: "result-001-operation-002",
+      manifestOperationId: "manifest-op-001",
+      patchOperationId: "patch-op-001",
+      targetKind: "canonical-docs",
+      operation: "promote",
+      targetPath: "docs/MEMORY.md",
+      patchKind: "hunks",
+      beforeHash: "a".repeat(64),
+      afterHash: "b".repeat(64),
+      status: "applied",
+      summary: "Applied hunks canonical patch to docs/MEMORY.md.",
+      artifactRefs: ["evidence/source.md"],
+    });
 
     const appliedOperation: MaintenanceCanonicalPatchAppliedOperation = {
       id: "result-op-001",
@@ -392,6 +416,25 @@ describe("AgentTask domain boundaries", () => {
       patchKind: "hunks",
       beforeHash: "a".repeat(64),
       afterHash: "b".repeat(64),
+      artifactRefs: ["evidence/source.md"],
+    });
+    expect(buildCanonicalPatchApplicationReportOperationFromAppliedOperation({
+      reportId: "report-001",
+      index: 2,
+      appliedOperation,
+    })).toEqual({
+      id: "report-001-operation-003",
+      resultOperationId: "result-op-001",
+      manifestOperationId: "manifest-op-001",
+      patchOperationId: "patch-op-001",
+      targetKind: "canonical-docs",
+      operation: "promote",
+      targetPath: "docs/MEMORY.md",
+      patchKind: "hunks",
+      beforeHash: "a".repeat(64),
+      afterHash: "b".repeat(64),
+      status: "observed",
+      summary: "Observed applied hunks canonical patch on docs/MEMORY.md.",
       artifactRefs: ["evidence/source.md"],
     });
   });

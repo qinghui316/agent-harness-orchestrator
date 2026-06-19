@@ -48,7 +48,7 @@ import {
 } from "./canonical-patch-target-boundary.js";
 import {
   buildCanonicalPatchDerivedOperationId,
-  copyCanonicalPatchManifestOperationLineage,
+  buildCanonicalPatchAppliedOperationFromManifestOperation,
   copyCanonicalPatchProposalOperationLineage,
   mergeCanonicalPatchTargetKinds,
   validateCanonicalPatchApplicationGateLineage,
@@ -391,23 +391,15 @@ function buildCanonicalPatchApplicationResult(
   policyAuditRefs: string[],
 ): MaintenanceCanonicalPatchApplicationResult {
   const id = `canonical-patch-application-result-${contentHash(manifest.id).slice(0, 12)}`;
-  const appliedOperations: MaintenanceCanonicalPatchAppliedOperation[] = preparedOperations.map((operation, index) => {
-    const lineage = copyCanonicalPatchManifestOperationLineage(operation.manifestOperation);
-    return {
-      id: buildCanonicalPatchDerivedOperationId(id, index),
-      manifestOperationId: lineage.manifestOperationId,
-      patchOperationId: lineage.patchOperationId,
-      targetKind: lineage.targetKind,
-      operation: lineage.operation,
-      targetPath: operation.targetPath,
-      patchKind: operation.descriptor.patchKind,
-      beforeHash: operation.beforeHash,
-      afterHash: operation.afterHash,
-      status: "applied",
-      summary: `Applied ${operation.descriptor.patchKind} canonical patch to ${operation.targetPath}.`,
-      artifactRefs: lineage.artifactRefs,
-    };
-  });
+  const appliedOperations: MaintenanceCanonicalPatchAppliedOperation[] = preparedOperations.map((operation, index) => buildCanonicalPatchAppliedOperationFromManifestOperation({
+    resultId: id,
+    index,
+    manifestOperation: operation.manifestOperation,
+    targetPath: operation.targetPath,
+    patchKind: operation.descriptor.patchKind,
+    beforeHash: operation.beforeHash,
+    afterHash: operation.afterHash,
+  }));
   return {
     version: "1.0",
     id,

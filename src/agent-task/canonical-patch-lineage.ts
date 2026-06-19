@@ -7,9 +7,26 @@ import type {
   MaintenanceCanonicalPatchApplicationResult,
   MaintenanceCanonicalPatchOperation,
   MaintenanceCanonicalPatchProposal,
+  MaintenanceCanonicalPatchTargetDescriptor,
   MaintenanceCanonicalUpdateTargetKind,
 } from "../types/index.js";
 import { uniqueSorted } from "./utils.js";
+
+export interface BuildCanonicalPatchAppliedOperationInput {
+  resultId: string;
+  index: number;
+  manifestOperation: MaintenanceCanonicalPatchApplicationManifestOperation;
+  targetPath: string;
+  patchKind: MaintenanceCanonicalPatchTargetDescriptor["patchKind"];
+  beforeHash: string;
+  afterHash: string;
+}
+
+export interface BuildCanonicalPatchApplicationReportOperationInput {
+  reportId: string;
+  index: number;
+  appliedOperation: MaintenanceCanonicalPatchAppliedOperation;
+}
 
 export function buildCanonicalPatchDerivedOperationId(parentId: string, index: number): string {
   return `${parentId}-operation-${String(index + 1).padStart(3, "0")}`;
@@ -62,6 +79,47 @@ export function copyCanonicalPatchAppliedOperationLineage(
     beforeHash: operation.beforeHash,
     afterHash: operation.afterHash,
     artifactRefs: operation.artifactRefs,
+  };
+}
+
+export function buildCanonicalPatchAppliedOperationFromManifestOperation(
+  input: BuildCanonicalPatchAppliedOperationInput,
+): MaintenanceCanonicalPatchAppliedOperation {
+  const lineage = copyCanonicalPatchManifestOperationLineage(input.manifestOperation);
+  return {
+    id: buildCanonicalPatchDerivedOperationId(input.resultId, input.index),
+    manifestOperationId: lineage.manifestOperationId,
+    patchOperationId: lineage.patchOperationId,
+    targetKind: lineage.targetKind,
+    operation: lineage.operation,
+    targetPath: input.targetPath,
+    patchKind: input.patchKind,
+    beforeHash: input.beforeHash,
+    afterHash: input.afterHash,
+    status: "applied",
+    summary: `Applied ${input.patchKind} canonical patch to ${input.targetPath}.`,
+    artifactRefs: lineage.artifactRefs,
+  };
+}
+
+export function buildCanonicalPatchApplicationReportOperationFromAppliedOperation(
+  input: BuildCanonicalPatchApplicationReportOperationInput,
+): MaintenanceCanonicalPatchApplicationReportOperation {
+  const lineage = copyCanonicalPatchAppliedOperationLineage(input.appliedOperation);
+  return {
+    id: buildCanonicalPatchDerivedOperationId(input.reportId, input.index),
+    resultOperationId: lineage.resultOperationId,
+    manifestOperationId: lineage.manifestOperationId,
+    patchOperationId: lineage.patchOperationId,
+    targetKind: lineage.targetKind,
+    operation: lineage.operation,
+    targetPath: lineage.targetPath,
+    patchKind: lineage.patchKind,
+    beforeHash: lineage.beforeHash,
+    afterHash: lineage.afterHash,
+    status: "observed",
+    summary: `Observed applied ${lineage.patchKind} canonical patch on ${lineage.targetPath}.`,
+    artifactRefs: lineage.artifactRefs,
   };
 }
 

@@ -12,6 +12,8 @@ import {
   buildCanonicalPatchApplicationResultArtifactRefs,
 } from "../../src/agent-task/canonical-patch-application-artifact-refs.js";
 import {
+  buildCanonicalPatchAppliedOperationFromManifestOperation,
+  buildCanonicalPatchApplicationReportOperationFromAppliedOperation,
   buildCanonicalPatchDerivedOperationId,
   copyCanonicalPatchAppliedOperationLineage,
   copyCanonicalPatchManifestOperationLineage,
@@ -1574,6 +1576,8 @@ describe("Workbench module boundaries", () => {
     expect(typeof buildCanonicalPatchApplicationResultArtifactRefs).toBe("function");
     expect(typeof buildCanonicalPatchApplicationReportArtifactRefs).toBe("function");
     expect(typeof buildCanonicalPatchDerivedOperationId).toBe("function");
+    expect(typeof buildCanonicalPatchAppliedOperationFromManifestOperation).toBe("function");
+    expect(typeof buildCanonicalPatchApplicationReportOperationFromAppliedOperation).toBe("function");
     expect(typeof copyCanonicalPatchProposalOperationLineage).toBe("function");
     expect(typeof copyCanonicalPatchManifestOperationLineage).toBe("function");
     expect(typeof copyCanonicalPatchAppliedOperationLineage).toBe("function");
@@ -1604,9 +1608,11 @@ describe("Workbench module boundaries", () => {
     const application = readFileSync("src/agent-task/canonical-patch-application.ts", "utf8");
     expect(application).toContain("buildCanonicalPatchApplicationManifestArtifactRefs");
     expect(application).toContain("buildCanonicalPatchApplicationResultArtifactRefs");
+    expect(application).toContain("buildCanonicalPatchAppliedOperationFromManifestOperation");
     expect(application).toContain("buildCanonicalPatchDerivedOperationId");
     expect(application).toContain("copyCanonicalPatchProposalOperationLineage");
-    expect(application).toContain("copyCanonicalPatchManifestOperationLineage");
+    expect(application).not.toContain("copyCanonicalPatchManifestOperationLineage");
+    expect(application).not.toContain("`Applied ${operation.descriptor.patchKind} canonical patch to ${operation.targetPath}.`");
     expect(application).toContain("ensureMaintenancePolicyLedgerEntryForStoreArtifact");
     expect(application).toContain('eventType: "canonical-patch-application-manifest"');
     expect(application).toContain('eventType: "canonical-patch-application-result"');
@@ -1615,7 +1621,9 @@ describe("Workbench module boundaries", () => {
 
     const report = readFileSync("src/agent-task/canonical-patch-application-report.ts", "utf8");
     expect(report).toContain("buildCanonicalPatchApplicationReportArtifactRefs");
-    expect(report).toContain("copyCanonicalPatchAppliedOperationLineage");
+    expect(report).toContain("buildCanonicalPatchApplicationReportOperationFromAppliedOperation");
+    expect(report).not.toContain("copyCanonicalPatchAppliedOperationLineage");
+    expect(report).not.toContain("`Observed applied ${lineage.patchKind} canonical patch on ${lineage.targetPath}.`");
     expect(report).toContain("ensureMaintenancePolicyLedgerEntryForStoreArtifact");
     expect(report).toContain('eventType: "canonical-patch-application-report"');
     expect(report).not.toContain("ensureMaintenanceLedgerEntryForArtifactRef");
@@ -1634,6 +1642,8 @@ describe("Workbench module boundaries", () => {
 
     const lineage = readFileSync("src/agent-task/canonical-patch-lineage.ts", "utf8");
     expect(lineage).toContain("function buildCanonicalPatchDerivedOperationId");
+    expect(lineage).toContain("function buildCanonicalPatchAppliedOperationFromManifestOperation");
+    expect(lineage).toContain("function buildCanonicalPatchApplicationReportOperationFromAppliedOperation");
     expect(lineage).toContain("function copyCanonicalPatchProposalOperationLineage");
     expect(lineage).toContain("function copyCanonicalPatchManifestOperationLineage");
     expect(lineage).toContain("function copyCanonicalPatchAppliedOperationLineage");
