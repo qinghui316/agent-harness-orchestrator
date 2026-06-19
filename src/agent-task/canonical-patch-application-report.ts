@@ -5,7 +5,7 @@ import type {
   MaintenanceCanonicalPatchApplicationResult,
   ResolvedMemory,
 } from "../types/index.js";
-import { ensureMaintenanceLedgerEntryForArtifactRef } from "./ledger.js";
+import { ensureMaintenanceLedgerEntryForStoreArtifact } from "./ledger.js";
 import {
   buildMaintenanceArtifactRefs,
   buildMaintenanceArtifactRefsForStore,
@@ -162,12 +162,11 @@ async function ensureCanonicalPatchApplicationReportLedgerEntry(
   memory: ResolvedMemory,
   report: MaintenanceCanonicalPatchApplicationReport,
 ): Promise<void> {
-  const reportRefs = buildMaintenanceArtifactRefsForStore(memory, canonicalPatchApplicationReportStore, report.id);
-  await ensureMaintenanceLedgerEntryForArtifactRef(memory, {
+  await ensureMaintenanceLedgerEntryForStoreArtifact(memory, {
+    store: canonicalPatchApplicationReportStore,
+    id: report.id,
     eventType: "canonical-patch-application-report",
-    artifactRef: reportRefs.artifactRef,
     summary: `${report.summary} This ledger entry records read-only observation evidence and must not feed new maintenance candidates or rewrite triggers.`,
-    artifactRefs: reportRefs.ledgerArtifactRefs,
   });
 }
 

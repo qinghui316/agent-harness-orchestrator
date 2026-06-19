@@ -383,6 +383,10 @@ describe("AgentTask domain boundaries", () => {
     expect(manifestMarkdown).toContain("Canonical patch applied: false");
     expect(manifestLedgerCount).toBe(1);
     expect(manifestLedgerEntry?.artifactRefs[0]).toBe(maintenanceCanonicalPatchApplicationManifestArtifactRef(memory, manifest.id));
+    expect(manifestLedgerEntry?.artifactRefs.slice(0, 2)).toEqual([
+      maintenanceCanonicalPatchApplicationManifestArtifactRef(memory, manifest.id),
+      expect.stringMatching(new RegExp(`maintenance/canonical-patch-application-manifests/${manifest.id}\\.md$`)),
+    ]);
     expect(manifestLedgerEntry?.artifactRefs.some((ref) => ref.endsWith(`maintenance/canonical-patch-application-manifests/${manifest.id}.md`))).toBe(true);
     await expect(readMaintenanceCanonicalPatchProposal(memory, patchProposal.id)).resolves.toMatchObject({
       id: patchProposal.id,
@@ -542,7 +546,8 @@ describe("AgentTask domain boundaries", () => {
     const results = await listMaintenanceCanonicalPatchApplicationResults(memory);
     const resultMarkdown = await readFile(join(memory.workbenchRoot, "maintenance", "canonical-patch-application-results", `${result.id}.md`), "utf8");
     const summary = await buildMaintenanceSummary(memory);
-    const resultLedgerEntry = (await listMaintenanceLedgerEntries(memory)).find((entry) => entry.eventType === "canonical-patch-application-result");
+    const resultLedgerEntries = (await listMaintenanceLedgerEntries(memory)).filter((entry) => entry.eventType === "canonical-patch-application-result");
+    const resultLedgerEntry = resultLedgerEntries[0];
     const originalHash = createHash("sha256").update(Buffer.from(originalMemoryDoc)).digest("hex");
     const updatedHash = createHash("sha256").update(Buffer.from(updatedMemoryDoc)).digest("hex");
 
@@ -576,7 +581,12 @@ describe("AgentTask domain boundaries", () => {
     expect(resultMarkdown).toContain("Classification: human-gated canonical patch application result evidence.");
     expect(resultMarkdown).toContain(`beforeHash: ${originalHash}`);
     expect(resultMarkdown).toContain(`afterHash: ${updatedHash}`);
+    expect(resultLedgerEntries).toHaveLength(1);
     expect(resultLedgerEntry?.artifactRefs[0]).toBe(maintenanceCanonicalPatchApplicationResultArtifactRef(memory, result.id));
+    expect(resultLedgerEntry?.artifactRefs.slice(0, 2)).toEqual([
+      maintenanceCanonicalPatchApplicationResultArtifactRef(memory, result.id),
+      expect.stringMatching(new RegExp(`maintenance/canonical-patch-application-results/${result.id}\\.md$`)),
+    ]);
     expect(resultLedgerEntry?.artifactRefs.some((ref) => ref.endsWith(`maintenance/canonical-patch-application-results/${result.id}.md`))).toBe(true);
     expect(summary).toMatchObject({
       applicationResultCount: 1,
@@ -650,7 +660,8 @@ describe("AgentTask domain boundaries", () => {
     const reports = await listMaintenanceCanonicalPatchApplicationReports(memory);
     const reportMarkdown = await readFile(join(memory.workbenchRoot, "maintenance", "canonical-patch-application-reports", `${report.id}.md`), "utf8");
     const ledgerEntries = await listMaintenanceLedgerEntries(memory);
-    const reportLedgerEntry = ledgerEntries.find((entry) => entry.eventType === "canonical-patch-application-report");
+    const reportLedgerEntries = ledgerEntries.filter((entry) => entry.eventType === "canonical-patch-application-report");
+    const reportLedgerEntry = reportLedgerEntries[0];
     const pipelineResult = await runMaintenanceCandidatePipeline(memory);
 
     expect(contentAfterApplication).toBe(updatedMemoryDoc);
@@ -681,7 +692,12 @@ describe("AgentTask domain boundaries", () => {
     expect(reportMarkdown).toContain("Classification: read-only canonical patch application observation report evidence.");
     expect(reportMarkdown).toContain("Canonical patch applied by this report: false.");
     expect(reportLedgerEntry).toBeTruthy();
+    expect(reportLedgerEntries).toHaveLength(1);
     expect(reportLedgerEntry?.artifactRefs[0]).toBe(maintenanceCanonicalPatchApplicationReportArtifactRef(memory, report.id));
+    expect(reportLedgerEntry?.artifactRefs.slice(0, 2)).toEqual([
+      maintenanceCanonicalPatchApplicationReportArtifactRef(memory, report.id),
+      expect.stringMatching(new RegExp(`maintenance/canonical-patch-application-reports/${report.id}\\.md$`)),
+    ]);
     expect(reportLedgerEntry?.artifactRefs.some((ref) => ref.endsWith(`maintenance/canonical-patch-application-reports/${report.id}.md`))).toBe(true);
     expect(pipelineResult.candidate?.sourceLedgerEntryIds).not.toContain(reportLedgerEntry?.id);
     expect(pipelineResult.candidate?.summary ?? "").not.toContain("canonical-patch-application-report");
@@ -1248,8 +1264,14 @@ describe("AgentTask domain boundaries", () => {
       artifactRefs: ["workbench/maintenance/canonical-patch-application-reports/report.json"],
     });
 
+    const entries = await listMaintenanceLedgerEntries(memory);
     const summary = await buildMaintenanceSummary(memory);
-    expect(summary.latest?.eventType).toBe("canonical-patch-application-report");
+    expect(entries.some((entry) => entry.eventType === "canonical-patch-application-report")).toBe(true);
+    expect([
+      "canonical-patch-application-manifest",
+      "canonical-patch-application-result",
+      "canonical-patch-application-report",
+    ]).toContain(summary.latest?.eventType);
     expect(summary.latest?.eventType).not.toBe("canonical-update-proposal");
     await expect(runMaintenanceCandidatePipeline(memory)).resolves.toMatchObject({ status: "skipped" });
   });

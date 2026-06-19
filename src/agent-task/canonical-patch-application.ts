@@ -10,7 +10,7 @@ import type {
   MaintenanceCanonicalPatchTargetDescriptor,
   ResolvedMemory,
 } from "../types/index.js";
-import { ensureMaintenanceLedgerEntryForArtifactRef } from "./ledger.js";
+import { ensureMaintenanceLedgerEntryForStoreArtifact } from "./ledger.js";
 import {
   buildMaintenanceArtifactRefs,
   buildMaintenanceArtifactRefsForStore,
@@ -448,12 +448,11 @@ async function ensureCanonicalPatchApplicationResultLedgerEntry(
   memory: ResolvedMemory,
   result: MaintenanceCanonicalPatchApplicationResult,
 ): Promise<void> {
-  const resultRefs = buildMaintenanceArtifactRefsForStore(memory, canonicalPatchApplicationResultStore, result.id);
-  await ensureMaintenanceLedgerEntryForArtifactRef(memory, {
+  await ensureMaintenanceLedgerEntryForStoreArtifact(memory, {
+    store: canonicalPatchApplicationResultStore,
+    id: result.id,
     eventType: "canonical-patch-application-result",
-    artifactRef: resultRefs.artifactRef,
     summary: `${result.summary} This ledger entry records a human-gated canonical patch application result and must not feed new maintenance candidates.`,
-    artifactRefs: resultRefs.ledgerArtifactRefs,
   });
 }
 
@@ -461,12 +460,11 @@ async function ensureCanonicalPatchApplicationManifestLedgerEntry(
   memory: ResolvedMemory,
   manifest: MaintenanceCanonicalPatchApplicationManifest,
 ): Promise<void> {
-  const manifestRefs = buildMaintenanceArtifactRefsForStore(memory, canonicalPatchApplicationManifestStore, manifest.id);
-  await ensureMaintenanceLedgerEntryForArtifactRef(memory, {
+  await ensureMaintenanceLedgerEntryForStoreArtifact(memory, {
+    store: canonicalPatchApplicationManifestStore,
+    id: manifest.id,
     eventType: "canonical-patch-application-manifest",
-    artifactRef: manifestRefs.artifactRef,
     summary: `${manifest.summary} This ledger entry is evidence only and does not authorize canonical mutation.`,
-    artifactRefs: manifestRefs.ledgerArtifactRefs,
   });
 }
 

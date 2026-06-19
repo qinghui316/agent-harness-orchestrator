@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { appendFile, mkdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { MaintenanceLedgerEntry, MaintenanceLedgerEventType, ResolvedMemory } from "../types/index.js";
+import { buildMaintenanceArtifactRefsForStore, type MaintenanceArtifactStore } from "./maintenance-artifact-store.js";
 import { maintenanceRoot } from "./paths.js";
 import { ledgerSchema } from "./schemas.js";
 
@@ -11,6 +12,14 @@ export interface EnsureMaintenanceLedgerEntryForArtifactRefInput {
   summary: string;
   changeId?: string;
   artifactRefs?: string[];
+}
+
+export interface EnsureMaintenanceLedgerEntryForStoreArtifactInput<T extends { createdAt: string }> {
+  store: MaintenanceArtifactStore<T>;
+  id: string;
+  eventType: MaintenanceLedgerEventType;
+  summary: string;
+  changeId?: string;
 }
 
 export async function recordMaintenanceLedgerEntry(memory: ResolvedMemory, input: {
@@ -57,5 +66,19 @@ export async function ensureMaintenanceLedgerEntryForArtifactRef(
     summary: input.summary,
     ...(input.changeId ? { changeId: input.changeId } : {}),
     artifactRefs,
+  });
+}
+
+export async function ensureMaintenanceLedgerEntryForStoreArtifact<T extends { createdAt: string }>(
+  memory: ResolvedMemory,
+  input: EnsureMaintenanceLedgerEntryForStoreArtifactInput<T>,
+): Promise<MaintenanceLedgerEntry> {
+  const refs = buildMaintenanceArtifactRefsForStore(memory, input.store, input.id);
+  return ensureMaintenanceLedgerEntryForArtifactRef(memory, {
+    eventType: input.eventType,
+    artifactRef: refs.artifactRef,
+    summary: input.summary,
+    ...(input.changeId ? { changeId: input.changeId } : {}),
+    artifactRefs: refs.ledgerArtifactRefs,
   });
 }

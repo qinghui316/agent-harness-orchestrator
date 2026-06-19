@@ -4,6 +4,7 @@ import { join } from "node:path";
 import type { Command } from "commander";
 import { createProgram } from "../../src/cli/program.js";
 import type { MaintenanceLedgerEntry, ManagedProject, RemoteLandingResult, RunMetadata, WorkflowRun } from "../../src/types/index.js";
+import { ensureMaintenanceLedgerEntryForStoreArtifact } from "../../src/agent-task/ledger.js";
 import { closeChange, createChange, getChangeStatus, getChangeStatusForChange } from "../../src/change/manager.js";
 import { appendTopicThreadEntry, runWorkbenchWorkflowAction } from "../../src/workbench/chat.js";
 import { getWorkbenchSchedulerClaimReconcilePlanProjection, getWorkbenchSchedulerClaimReservationProjection, getWorkbenchSchedulerContractProjection, getWorkbenchSchedulerDispatchDryRunProjection, getWorkbenchSchedulerRunProjection, getWorkbenchSchedulerWorkerReworkResultProjection, getWorkbenchSchedulerWorkerSessionPlanProjection, getWorkbenchSnapshot, getWorkbenchWorkflowGraphPlanProjection } from "../../src/workbench/manager.js";
@@ -1523,6 +1524,32 @@ describe("Workbench module boundaries", () => {
     expect(threadStream).toContain("Scheduler current worker validation");
     expect(threadStream).not.toContain("Scheduler first worker result reconcile");
     expect(threadStream).not.toContain("Scheduler first worker validation");
+  });
+
+  it("keeps store-backed maintenance ledger entry reuse in the ledger owner", () => {
+    expect(typeof ensureMaintenanceLedgerEntryForStoreArtifact).toBe("function");
+
+    const ledger = readFileSync("src/agent-task/ledger.ts", "utf8");
+    expect(ledger).toContain("function ensureMaintenanceLedgerEntryForStoreArtifact");
+    expect(ledger).toContain('from "./maintenance-artifact-store.js"');
+    expect(ledger).toContain("buildMaintenanceArtifactRefsForStore(memory, input.store, input.id)");
+    expect(ledger).toContain("ensureMaintenanceLedgerEntryForArtifactRef(memory");
+    expect(ledger).not.toMatch(/canonical-patch|candidate|Workbench|ToolPolicy|scheduler|goal-loop|manager/);
+
+    const application = readFileSync("src/agent-task/canonical-patch-application.ts", "utf8");
+    expect(application).toContain("ensureMaintenanceLedgerEntryForStoreArtifact");
+    expect(application).toContain('eventType: "canonical-patch-application-manifest"');
+    expect(application).toContain('eventType: "canonical-patch-application-result"');
+    expect(application).not.toContain("ensureMaintenanceLedgerEntryForArtifactRef");
+
+    const report = readFileSync("src/agent-task/canonical-patch-application-report.ts", "utf8");
+    expect(report).toContain("ensureMaintenanceLedgerEntryForStoreArtifact");
+    expect(report).toContain('eventType: "canonical-patch-application-report"');
+    expect(report).not.toContain("ensureMaintenanceLedgerEntryForArtifactRef");
+
+    const updates = readFileSync("src/agent-task/canonical-updates.ts", "utf8");
+    expect(updates).toContain("ensureMaintenanceLedgerEntryForArtifactRef");
+    expect(updates).not.toContain("ensureMaintenanceLedgerEntryForStoreArtifact");
   });
 
   it("keeps workflow-run manager as a compatibility facade with scoped recovery modules", () => {
