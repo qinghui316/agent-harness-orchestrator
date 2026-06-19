@@ -16,3 +16,11 @@ export function renderMaintenanceMarkdownDetailItem(label: string, details: stri
     ...details.map((detail) => `  ${detail}`),
   ];
 }
+
+export function renderMaintenanceMarkdownSection(title: string, lines: string[]): string[] {
+  return [
+    `## ${title}`,
+    "",
+    ...lines,
+  ];
+}

@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-19T22:37:02.7320010Z",
+    "generated_at":  "2026-06-19T23:01:19.4732364Z",
     "active":  [
 
                ],
@@ -1375,6 +1375,10 @@
                         "path":  "harness/changes/archive/20260619-workflow-scheduler-latest-artifact-guard-reuse"
                     },
                     {
+                        "name":  "20260620-auto-evolve-harness-maintenance-section-helper-window",
+                        "path":  "harness/changes/archive/20260620-auto-evolve-harness-maintenance-section-helper-window"
+                    },
+                    {
                         "name":  "20260620-auto-evolve-harness-workbench-feedback-conversation-split-window",
                         "path":  "harness/changes/archive/20260620-auto-evolve-harness-workbench-feedback-conversation-split-window"
                     },
@@ -1393,6 +1397,10 @@
                     {
                         "name":  "20260620-maintenance-canonical-authority-markdown-reuse",
                         "path":  "harness/changes/archive/20260620-maintenance-canonical-authority-markdown-reuse"
+                    },
+                    {
+                        "name":  "20260620-maintenance-markdown-section-helper-reuse",
+                        "path":  "harness/changes/archive/20260620-maintenance-markdown-section-helper-reuse"
                     },
                     {
                         "name":  "20260620-workbench-agenttask-residual-test-domain-split",

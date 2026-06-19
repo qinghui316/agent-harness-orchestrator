@@ -37,7 +37,7 @@ import {
   returnExistingMaintenanceArtifactWithPolicyLedger,
   writeMaintenanceArtifactWithPolicyLedger,
 } from "./maintenance-artifact-lifecycle.js";
-import { renderMaintenanceMarkdownDetailItem, renderMaintenanceMarkdownList } from "./maintenance-markdown.js";
+import { renderMaintenanceMarkdownDetailItem, renderMaintenanceMarkdownList, renderMaintenanceMarkdownSection } from "./maintenance-markdown.js";
 import { buildCanonicalPatchTargetDescriptor } from "./canonical-patch-targets.js";
 import { renderCanonicalPatchProposalOperationMarkdownDetails } from "./canonical-patch-operation-markdown.js";
 import {
@@ -428,13 +428,9 @@ function renderCanonicalUpdateProposalMarkdown(proposal: MaintenanceCanonicalUpd
     "",
     ...renderCanonicalUpdateProposalAuthorityMarkdown(),
     "",
-    "## Target Kinds",
+    ...renderMaintenanceMarkdownSection("Target Kinds", renderMaintenanceMarkdownList(proposal.targetKinds)),
     "",
-    ...renderMaintenanceMarkdownList(proposal.targetKinds),
-    "",
-    "## Resolutions",
-    "",
-    ...proposal.resolutionSummaries.flatMap((resolution) => renderMaintenanceMarkdownDetailItem(
+    ...renderMaintenanceMarkdownSection("Resolutions", proposal.resolutionSummaries.flatMap((resolution) => renderMaintenanceMarkdownDetailItem(
       `${resolution.resolutionId} (${resolution.outcome})`,
       [
         `candidate: ${resolution.candidateId}`,
@@ -442,11 +438,9 @@ function renderCanonicalUpdateProposalMarkdown(proposal: MaintenanceCanonicalUpd
         `review: ${resolution.reviewRecommendation}`,
         `rationale: ${resolution.rationale.replace(/\r?\n/g, " ")}`,
       ],
-    )),
+    ))),
     "",
-    "## Evidence",
-    "",
-    ...renderMaintenanceMarkdownList(proposal.artifactRefs),
+    ...renderMaintenanceMarkdownSection("Evidence", renderMaintenanceMarkdownList(proposal.artifactRefs)),
     "",
   ].join("\n");
 }
@@ -459,17 +453,11 @@ function renderCanonicalUpdateDecisionMarkdown(decision: MaintenanceCanonicalUpd
     "",
     ...renderCanonicalUpdateDecisionAuthorityMarkdown(),
     "",
-    "## Proposal",
+    ...renderMaintenanceMarkdownSection("Proposal", [`- ${decision.proposalId}`]),
     "",
-    `- ${decision.proposalId}`,
+    ...renderMaintenanceMarkdownSection("Target Kinds", renderMaintenanceMarkdownList(decision.targetKinds)),
     "",
-    "## Target Kinds",
-    "",
-    ...renderMaintenanceMarkdownList(decision.targetKinds),
-    "",
-    "## Evidence",
-    "",
-    ...renderMaintenanceMarkdownList(decision.artifactRefs),
+    ...renderMaintenanceMarkdownSection("Evidence", renderMaintenanceMarkdownList(decision.artifactRefs)),
     "",
   ].join("\n");
 }
@@ -482,26 +470,18 @@ function renderCanonicalPatchProposalMarkdown(patchProposal: MaintenanceCanonica
     "",
     ...renderCanonicalPatchProposalAuthorityMarkdown(),
     "",
-    "## Sources",
+    ...renderMaintenanceMarkdownSection("Sources", [
+      `- Proposal: ${patchProposal.proposalId}`,
+      `- Decision: ${patchProposal.decisionId}`,
+    ]),
     "",
-    `- Proposal: ${patchProposal.proposalId}`,
-    `- Decision: ${patchProposal.decisionId}`,
+    ...renderMaintenanceMarkdownSection("Target Kinds", renderMaintenanceMarkdownList(patchProposal.targetKinds)),
     "",
-    "## Target Kinds",
+    ...renderMaintenanceMarkdownSection("Proposed Operations", patchProposal.operations.flatMap(renderCanonicalPatchProposalOperationMarkdownDetails)),
     "",
-    ...renderMaintenanceMarkdownList(patchProposal.targetKinds),
+    ...renderMaintenanceMarkdownSection("Risks", renderMaintenanceMarkdownList(patchProposal.risks)),
     "",
-    "## Proposed Operations",
-    "",
-    ...patchProposal.operations.flatMap(renderCanonicalPatchProposalOperationMarkdownDetails),
-    "",
-    "## Risks",
-    "",
-    ...renderMaintenanceMarkdownList(patchProposal.risks),
-    "",
-    "## Evidence",
-    "",
-    ...renderMaintenanceMarkdownList(patchProposal.artifactRefs),
+    ...renderMaintenanceMarkdownSection("Evidence", renderMaintenanceMarkdownList(patchProposal.artifactRefs)),
     "",
   ].join("\n");
 }
@@ -514,23 +494,17 @@ function renderCanonicalPatchApplicationGateMarkdown(gateRecord: MaintenanceCano
     "",
     ...renderCanonicalPatchApplicationGateAuthorityMarkdown(),
     "",
-    "## Sources",
+    ...renderMaintenanceMarkdownSection("Sources", [
+      `- Patch proposal: ${gateRecord.patchProposalId}`,
+      `- Proposal: ${gateRecord.proposalId}`,
+      `- Decision: ${gateRecord.decisionId}`,
+    ]),
     "",
-    `- Patch proposal: ${gateRecord.patchProposalId}`,
-    `- Proposal: ${gateRecord.proposalId}`,
-    `- Decision: ${gateRecord.decisionId}`,
+    ...renderMaintenanceMarkdownSection("Target Kinds", renderMaintenanceMarkdownList(gateRecord.targetKinds)),
     "",
-    "## Target Kinds",
+    ...renderMaintenanceMarkdownSection("Risks", renderMaintenanceMarkdownList(gateRecord.risks)),
     "",
-    ...renderMaintenanceMarkdownList(gateRecord.targetKinds),
-    "",
-    "## Risks",
-    "",
-    ...renderMaintenanceMarkdownList(gateRecord.risks),
-    "",
-    "## Evidence",
-    "",
-    ...renderMaintenanceMarkdownList(gateRecord.artifactRefs),
+    ...renderMaintenanceMarkdownSection("Evidence", renderMaintenanceMarkdownList(gateRecord.artifactRefs)),
     "",
   ].join("\n");
 }

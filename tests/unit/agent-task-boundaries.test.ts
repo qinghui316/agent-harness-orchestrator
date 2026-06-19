@@ -48,7 +48,7 @@ import {
   renderCanonicalPatchProposalOperationMarkdownDetails,
 } from "../../src/agent-task/canonical-patch-operation-markdown.js";
 import { formatCanonicalPatchTargetDescriptor, validateCanonicalPatchApplicationTargetKind } from "../../src/agent-task/canonical-patch-target-boundary.js";
-import { renderMaintenanceMarkdownDetailItem, renderMaintenanceMarkdownList } from "../../src/agent-task/maintenance-markdown.js";
+import { renderMaintenanceMarkdownDetailItem, renderMaintenanceMarkdownList, renderMaintenanceMarkdownSection } from "../../src/agent-task/maintenance-markdown.js";
 import { candidateSchema, canonicalUpdateProposalSchema, resolutionSchema } from "../../src/agent-task/schemas.js";
 import { buildCanonicalPatchTargetDescriptor } from "../../src/agent-task/canonical-patch-targets.js";
 import { buildMaintenanceLedgerEventSummary, isMaintenanceCandidateSourceEvent, isMaintenanceDerivedSummaryEvent } from "../../src/agent-task/ledger-event-policy.js";
@@ -433,6 +433,16 @@ describe("AgentTask domain boundaries", () => {
       "- operation-001: applied",
       "  targetKind: canonical-docs",
       "  targetPath: docs/MEMORY.md",
+    ]);
+    expect(renderMaintenanceMarkdownSection("Evidence", renderMaintenanceMarkdownList(["evidence/a.md"]))).toEqual([
+      "## Evidence",
+      "",
+      "- evidence/a.md",
+    ]);
+    expect(renderMaintenanceMarkdownSection("Policy Audit", renderMaintenanceMarkdownList([], { emptyLabel: "none" }))).toEqual([
+      "## Policy Audit",
+      "",
+      "- none",
     ]);
   });
 
