@@ -6,6 +6,7 @@ import { releaseTaskRunLease } from "../task-run/lease-service.js";
 import { listWorkerLeases, readTaskRun, writeTaskRun } from "../task-run/repository.js";
 import type { ManagedProject, ResolvedMemory, RunMetadata, TaskRun, WorkerLease, WorktreeMetadata } from "../types/index.js";
 import { readWorktreeMetadata } from "../worktree/repository.js";
+import { schedulerWorkerResultEventType } from "./event-policy.js";
 import { assertLatestSchedulerRuntimeClaimReservation, readSchedulerRuntimeLineage } from "./guards.js";
 import {
   appendSchedulerRuntimeEvent,
@@ -138,7 +139,7 @@ export async function reconcileSchedulerFirstWorkerResult(project: ManagedProjec
     updatedAt: now,
   };
   await writeSchedulerRuntimeWorkerResult(memory, changePath, result);
-  await appendSchedulerRuntimeEvent(memory, changePath, run, terminalStatus === "evidence-ready" ? "scheduler-runtime.worker-result-ready" : "scheduler-runtime.worker-result-failed", {
+  await appendSchedulerRuntimeEvent(memory, changePath, run, schedulerWorkerResultEventType(terminalStatus), {
     status: runtimeState.status,
     summary: terminalStatus === "evidence-ready"
       ? `Scheduler coder worker result is evidence-ready for ${workerStart.reservationIntentId}.`

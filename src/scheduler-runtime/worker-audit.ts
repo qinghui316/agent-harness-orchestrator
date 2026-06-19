@@ -8,6 +8,7 @@ import { listWorkerLeases, readTaskRun, writeTaskRun } from "../task-run/reposit
 import type { AuditResult, AuditStatus, ManagedProject, ResolvedMemory, RunMetadata, TaskRun, ValidationResult, WorkerLease, WorktreeMetadata } from "../types/index.js";
 import { readValidationResult } from "../validation/repository.js";
 import { readWorktreeMetadata } from "../worktree/repository.js";
+import { schedulerWorkerAuditEventType } from "./event-policy.js";
 import { assertLatestSchedulerRuntimeClaimReservation, readSchedulerRuntimeLineage } from "./guards.js";
 import {
   appendSchedulerRuntimeEvent,
@@ -165,7 +166,7 @@ export async function auditSchedulerFirstWorker(project: ManagedProject, input: 
     updatedAt: now,
   };
   await writeSchedulerRuntimeWorkerAudit(memory, changePath, schedulerAudit);
-  await appendSchedulerRuntimeEvent(memory, changePath, run, auditEventType(audit.audit.status), {
+  await appendSchedulerRuntimeEvent(memory, changePath, run, schedulerWorkerAuditEventType(audit.audit.status), {
     status: runtimeState.status,
     summary: `Scheduler worker audit ${audit.audit.status} for ${workerValidation.reservationIntentId}.`,
     artifactRefs: schedulerAudit.artifactRefs,
@@ -354,12 +355,6 @@ function auditFailureReason(status: AuditStatus): string | undefined {
   if (status === "blocked") return "Audit blocked.";
   if (status === "failed") return "Audit failed.";
   return undefined;
-}
-
-function auditEventType(status: AuditStatus): "scheduler-runtime.worker-audit-approved" | "scheduler-runtime.worker-audit-blocked" | "scheduler-runtime.worker-audit-failed" {
-  if (status === "approved" || status === "approved-with-notes") return "scheduler-runtime.worker-audit-approved";
-  if (status === "blocked") return "scheduler-runtime.worker-audit-blocked";
-  return "scheduler-runtime.worker-audit-failed";
 }
 
 function assertHashesMatch(actual: Record<string, string>, expected: Record<string, string>, label: string): void {

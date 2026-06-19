@@ -7,6 +7,7 @@ import type { ManagedProject, ResolvedMemory, RunMetadata, TaskRun, ValidationRe
 import { readValidationResult } from "../validation/repository.js";
 import { startValidationRun } from "../validation/service.js";
 import { readWorktreeMetadata } from "../worktree/repository.js";
+import { schedulerWorkerValidationEventType } from "./event-policy.js";
 import { assertLatestSchedulerRuntimeClaimReservation, readSchedulerRuntimeLineage } from "./guards.js";
 import {
   appendSchedulerRuntimeEvent,
@@ -160,7 +161,7 @@ export async function validateSchedulerFirstWorker(project: ManagedProject, inpu
     updatedAt: now,
   };
   await writeSchedulerRuntimeWorkerValidation(memory, changePath, schedulerValidation);
-  await appendSchedulerRuntimeEvent(memory, changePath, run, validationStatus === "passed" ? "scheduler-runtime.worker-validation-passed" : "scheduler-runtime.worker-validation-failed", {
+  await appendSchedulerRuntimeEvent(memory, changePath, run, schedulerWorkerValidationEventType(validationStatus), {
     status: runtimeState.status,
     summary: validationStatus === "passed"
       ? `Scheduler worker validation passed for ${workerResult.reservationIntentId}.`

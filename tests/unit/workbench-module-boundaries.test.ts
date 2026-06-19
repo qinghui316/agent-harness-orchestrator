@@ -128,6 +128,14 @@ import { getDemandWorkerSlot } from "../../src/demand-worker/slot-policy.js";
 import { recordMainOrchestratorDecision } from "../../src/demand-worker/decisions.js";
 import { compileWorkflowGraphPlan, hashArtifactRefs, readLatestTaskQueueProposal, renderWorkflowGraphPlanMarkdown } from "../../src/workflow-artifacts/manager.js";
 import { compileSchedulerClaimReconcilePlan, compileSchedulerContract, compileSchedulerDispatchDryRun, compileSchedulerWorkerSessionPlan, prepareSchedulerRun, renderSchedulerClaimReconcilePlanMarkdown, renderSchedulerContractMarkdown, renderSchedulerDispatchDryRunMarkdown, renderSchedulerRunMarkdown, renderSchedulerWorkerSessionPlanMarkdown } from "../../src/workflow-scheduler/manager.js";
+import {
+  schedulerWorkerAuditEventType,
+  schedulerWorkerResultEventType,
+  schedulerWorkerReworkAuditEventType,
+  schedulerWorkerReworkResultEventType,
+  schedulerWorkerReworkValidationEventType,
+  schedulerWorkerValidationEventType,
+} from "../../src/scheduler-runtime/event-policy.js";
 import { closeSchedulerRunBlockedOrExhausted, compileSchedulerIntegrationCandidate } from "../../src/scheduler-runtime/manager.js";
 import { shouldAutoReworkTaskRun } from "../../src/workflow-runtime/kernel/bounded-rework.js";
 import { emitValidationAssistantEvents } from "../../src/workflow-runtime/kernel/live-events.js";
@@ -1282,6 +1290,7 @@ describe("Workbench module boundaries", () => {
       "src/scheduler-runtime/schemas.ts",
       "src/scheduler-runtime/paths.ts",
       "src/scheduler-runtime/repository.ts",
+      "src/scheduler-runtime/event-policy.ts",
       "src/scheduler-runtime/guards.ts",
       "src/scheduler-runtime/initialize.ts",
       "src/scheduler-runtime/reconcile.ts",
@@ -1342,6 +1351,15 @@ describe("Workbench module boundaries", () => {
     expect(claimReservation).not.toContain("createWorkerLease");
     expect(claimReservation).not.toContain("startTaskRun");
 
+    const eventPolicy = readFileSync("src/scheduler-runtime/event-policy.ts", "utf8");
+    expect(eventPolicy).toContain("schedulerWorkerResultEventType");
+    expect(eventPolicy).toContain("schedulerWorkerReworkResultEventType");
+    expect(eventPolicy).toContain("schedulerWorkerValidationEventType");
+    expect(eventPolicy).toContain("schedulerWorkerReworkValidationEventType");
+    expect(eventPolicy).toContain("schedulerWorkerAuditEventType");
+    expect(eventPolicy).toContain("schedulerWorkerReworkAuditEventType");
+    expect(eventPolicy).not.toMatch(/appendSchedulerRuntimeEvent|repository|workbench\/|server\/|web\/src|cli\/commands|manager|ToolPolicy/);
+
     const workerPath = readFileSync("src/scheduler-runtime/worker-path.ts", "utf8");
     expect(workerPath).toContain("schedulerIntegrationCandidateNeedsRefresh");
     expect(workerPath).toContain("findNextSchedulerReservationIntentForWorkerPaths");
@@ -1362,6 +1380,7 @@ describe("Workbench module boundaries", () => {
     const workerResult = readFileSync("src/scheduler-runtime/worker-result.ts", "utf8");
     expect(workerResult).toContain("reconcileSchedulerFirstWorkerResult");
     expect(workerResult).toContain("assertLatestSchedulerRuntimeClaimReservation");
+    expect(workerResult).toContain("schedulerWorkerResultEventType");
     expect(workerResult).toContain("scheduler-claim-reservation");
     expect(workerResult).toContain("releaseTaskRunLease");
     expect(workerResult).not.toContain("startCodeRun");
@@ -1372,6 +1391,7 @@ describe("Workbench module boundaries", () => {
     const workerValidation = readFileSync("src/scheduler-runtime/worker-validation.ts", "utf8");
     expect(workerValidation).toContain("validateSchedulerFirstWorker");
     expect(workerValidation).toContain("assertLatestSchedulerRuntimeClaimReservation");
+    expect(workerValidation).toContain("schedulerWorkerValidationEventType");
     expect(workerValidation).toContain("SchedulerRuntimeWorkerValidation");
     expect(workerValidation).toContain("startValidationRun");
     expect(workerValidation).toContain("scheduler-claim-reservation");
@@ -1382,6 +1402,7 @@ describe("Workbench module boundaries", () => {
     const workerAudit = readFileSync("src/scheduler-runtime/worker-audit.ts", "utf8");
     expect(workerAudit).toContain("auditSchedulerFirstWorker");
     expect(workerAudit).toContain("assertLatestSchedulerRuntimeClaimReservation");
+    expect(workerAudit).toContain("schedulerWorkerAuditEventType");
     expect(workerAudit).toContain("SchedulerRuntimeWorkerAudit");
     expect(workerAudit).toContain("startAuditRun");
     expect(workerAudit).toContain("validationId");
@@ -1389,6 +1410,7 @@ describe("Workbench module boundaries", () => {
     expect(workerAudit).not.toContain("startCodeRun");
     expect(workerAudit).not.toContain("startValidationRun");
     expect(workerAudit).not.toContain("runTaskQueueSequence");
+    expect(workerAudit).not.toContain("function auditEventType");
 
     const workerReworkPlan = readFileSync("src/scheduler-runtime/worker-rework-plan.ts", "utf8");
     expect(workerReworkPlan).toContain("compileSchedulerFirstWorkerReworkPlan");
@@ -1414,6 +1436,7 @@ describe("Workbench module boundaries", () => {
     const workerReworkResult = readFileSync("src/scheduler-runtime/worker-rework-result.ts", "utf8");
     expect(workerReworkResult).toContain("reconcileSchedulerFirstWorkerReworkResult");
     expect(workerReworkResult).toContain("assertLatestSchedulerRuntimeClaimReservation");
+    expect(workerReworkResult).toContain("schedulerWorkerReworkResultEventType");
     expect(workerReworkResult).toContain("scheduler-claim-rework");
     expect(workerReworkResult).toContain("releaseTaskRunLease");
     expect(workerReworkResult).not.toContain("startCodeRun");
@@ -1424,6 +1447,7 @@ describe("Workbench module boundaries", () => {
     const workerReworkValidation = readFileSync("src/scheduler-runtime/worker-rework-validation.ts", "utf8");
     expect(workerReworkValidation).toContain("validateSchedulerFirstWorkerRework");
     expect(workerReworkValidation).toContain("assertLatestSchedulerRuntimeClaimReservation");
+    expect(workerReworkValidation).toContain("schedulerWorkerReworkValidationEventType");
     expect(workerReworkValidation).toContain("SchedulerRuntimeWorkerReworkValidation");
     expect(workerReworkValidation).toContain("startValidationRun");
     expect(workerReworkValidation).toContain("scheduler-claim-rework");
@@ -1434,6 +1458,7 @@ describe("Workbench module boundaries", () => {
     const workerReworkAudit = readFileSync("src/scheduler-runtime/worker-rework-audit.ts", "utf8");
     expect(workerReworkAudit).toContain("auditSchedulerFirstWorkerRework");
     expect(workerReworkAudit).toContain("assertLatestSchedulerRuntimeClaimReservation");
+    expect(workerReworkAudit).toContain("schedulerWorkerReworkAuditEventType");
     expect(workerReworkAudit).toContain("SchedulerRuntimeWorkerReworkAudit");
     expect(workerReworkAudit).toContain("startAuditRun");
     expect(workerReworkAudit).toContain("validationId");
@@ -1441,6 +1466,7 @@ describe("Workbench module boundaries", () => {
     expect(workerReworkAudit).not.toContain("startCodeRun");
     expect(workerReworkAudit).not.toContain("startValidationRun");
     expect(workerReworkAudit).not.toContain("runTaskQueueSequence");
+    expect(workerReworkAudit).not.toContain("function reworkAuditEventType");
 
     const integrationCandidate = readFileSync("src/scheduler-runtime/integration-candidate.ts", "utf8");
     expect(integrationCandidate).toContain("compileSchedulerIntegrationCandidate");
@@ -1517,6 +1543,30 @@ describe("Workbench module boundaries", () => {
       const content = readFileSync(file, "utf8");
       expect(content).not.toMatch(/workbench\/|server\/|web\/src|cli\/commands|workflow-scheduler\/manager/);
     }
+  });
+
+  it("keeps scheduler runtime worker event type policy explicit and exact", () => {
+    expect(schedulerWorkerResultEventType("evidence-ready")).toBe("scheduler-runtime.worker-result-ready");
+    expect(schedulerWorkerResultEventType("failed")).toBe("scheduler-runtime.worker-result-failed");
+
+    expect(schedulerWorkerReworkResultEventType("evidence-ready")).toBe("scheduler-runtime.worker-rework-result-ready");
+    expect(schedulerWorkerReworkResultEventType("failed")).toBe("scheduler-runtime.worker-rework-result-failed");
+
+    expect(schedulerWorkerValidationEventType("passed")).toBe("scheduler-runtime.worker-validation-passed");
+    expect(schedulerWorkerValidationEventType("failed")).toBe("scheduler-runtime.worker-validation-failed");
+
+    expect(schedulerWorkerReworkValidationEventType("passed")).toBe("scheduler-runtime.worker-rework-validation-passed");
+    expect(schedulerWorkerReworkValidationEventType("failed")).toBe("scheduler-runtime.worker-rework-validation-failed");
+
+    expect(schedulerWorkerAuditEventType("approved")).toBe("scheduler-runtime.worker-audit-approved");
+    expect(schedulerWorkerAuditEventType("approved-with-notes")).toBe("scheduler-runtime.worker-audit-approved");
+    expect(schedulerWorkerAuditEventType("blocked")).toBe("scheduler-runtime.worker-audit-blocked");
+    expect(schedulerWorkerAuditEventType("failed")).toBe("scheduler-runtime.worker-audit-failed");
+
+    expect(schedulerWorkerReworkAuditEventType("approved")).toBe("scheduler-runtime.worker-rework-audit-approved");
+    expect(schedulerWorkerReworkAuditEventType("approved-with-notes")).toBe("scheduler-runtime.worker-rework-audit-approved");
+    expect(schedulerWorkerReworkAuditEventType("blocked")).toBe("scheduler-runtime.worker-rework-audit-blocked");
+    expect(schedulerWorkerReworkAuditEventType("failed")).toBe("scheduler-runtime.worker-rework-audit-failed");
   });
 
   it("keeps scheduler worker-path decisions in the scheduler runtime owner module", () => {

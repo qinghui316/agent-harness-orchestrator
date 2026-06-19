@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-19T11:34:23.6410885Z",
+    "generated_at":  "2026-06-19T12:19:25.6428219Z",
     "active":  [
 
                ],
@@ -1317,6 +1317,10 @@
                     {
                         "name":  "20260619-scheduler-runtime-claim-reservation-latest-guard-reuse",
                         "path":  "harness/changes/archive/20260619-scheduler-runtime-claim-reservation-latest-guard-reuse"
+                    },
+                    {
+                        "name":  "20260619-scheduler-runtime-event-policy-helper-reuse",
+                        "path":  "harness/changes/archive/20260619-scheduler-runtime-event-policy-helper-reuse"
                     },
                     {
                         "name":  "20260619-workbench-action-active-target-revalidation-reuse",

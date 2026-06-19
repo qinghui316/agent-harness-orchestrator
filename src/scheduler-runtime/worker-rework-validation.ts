@@ -7,6 +7,7 @@ import type { ManagedProject, ResolvedMemory, RunMetadata, TaskRun, ValidationRe
 import { readValidationResult } from "../validation/repository.js";
 import { startValidationRun } from "../validation/service.js";
 import { readWorktreeMetadata } from "../worktree/repository.js";
+import { schedulerWorkerReworkValidationEventType } from "./event-policy.js";
 import { assertLatestSchedulerRuntimeClaimReservation, readSchedulerRuntimeLineage } from "./guards.js";
 import {
   appendSchedulerRuntimeEvent,
@@ -173,7 +174,7 @@ export async function validateSchedulerFirstWorkerRework(project: ManagedProject
     updatedAt: now,
   };
   await writeSchedulerRuntimeWorkerReworkValidation(memory, changePath, schedulerReworkValidation);
-  await appendSchedulerRuntimeEvent(memory, changePath, run, validationStatus === "passed" ? "scheduler-runtime.worker-rework-validation-passed" : "scheduler-runtime.worker-rework-validation-failed", {
+  await appendSchedulerRuntimeEvent(memory, changePath, run, schedulerWorkerReworkValidationEventType(validationStatus), {
     status: runtimeState.status,
     summary: validationStatus === "passed"
       ? `Scheduler rework validation passed for ${reworkResult.schedulerWorkerReworkPlanId}.`

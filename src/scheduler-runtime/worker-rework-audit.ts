@@ -8,6 +8,7 @@ import { listWorkerLeases, readTaskRun, writeTaskRun } from "../task-run/reposit
 import type { AuditResult, AuditStatus, ManagedProject, ResolvedMemory, RunMetadata, TaskRun, ValidationResult, WorkerLease, WorktreeMetadata } from "../types/index.js";
 import { readValidationResult } from "../validation/repository.js";
 import { readWorktreeMetadata } from "../worktree/repository.js";
+import { schedulerWorkerReworkAuditEventType } from "./event-policy.js";
 import { assertLatestSchedulerRuntimeClaimReservation, readSchedulerRuntimeLineage } from "./guards.js";
 import {
   appendSchedulerRuntimeEvent,
@@ -184,7 +185,7 @@ export async function auditSchedulerFirstWorkerRework(project: ManagedProject, i
     updatedAt: now,
   };
   await writeSchedulerRuntimeWorkerReworkAudit(memory, changePath, schedulerReworkAudit);
-  await appendSchedulerRuntimeEvent(memory, changePath, run, reworkAuditEventType(audit.audit.status), {
+  await appendSchedulerRuntimeEvent(memory, changePath, run, schedulerWorkerReworkAuditEventType(audit.audit.status), {
     status: runtimeState.status,
     summary: `Scheduler rework audit ${audit.audit.status} for ${reworkValidation.schedulerWorkerReworkPlanId}.`,
     artifactRefs: schedulerReworkAudit.artifactRefs,
@@ -392,12 +393,6 @@ function reworkAuditFailureReason(status: AuditStatus): string | undefined {
   if (status === "blocked") return "Rework audit blocked.";
   if (status === "failed") return "Rework audit failed.";
   return undefined;
-}
-
-function reworkAuditEventType(status: AuditStatus): "scheduler-runtime.worker-rework-audit-approved" | "scheduler-runtime.worker-rework-audit-blocked" | "scheduler-runtime.worker-rework-audit-failed" {
-  if (status === "approved" || status === "approved-with-notes") return "scheduler-runtime.worker-rework-audit-approved";
-  if (status === "blocked") return "scheduler-runtime.worker-rework-audit-blocked";
-  return "scheduler-runtime.worker-rework-audit-failed";
 }
 
 function assertHashesMatch(actual: Record<string, string>, expected: Record<string, string>, label: string): void {

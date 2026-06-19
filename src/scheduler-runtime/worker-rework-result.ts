@@ -6,6 +6,7 @@ import { releaseTaskRunLease } from "../task-run/lease-service.js";
 import { listWorkerLeases, readTaskRun, writeTaskRun } from "../task-run/repository.js";
 import type { ManagedProject, ResolvedMemory, RunMetadata, TaskRun, WorkerLease, WorktreeMetadata } from "../types/index.js";
 import { readWorktreeMetadata } from "../worktree/repository.js";
+import { schedulerWorkerReworkResultEventType } from "./event-policy.js";
 import { assertLatestSchedulerRuntimeClaimReservation, readSchedulerRuntimeLineage } from "./guards.js";
 import {
   appendSchedulerRuntimeEvent,
@@ -150,7 +151,7 @@ export async function reconcileSchedulerFirstWorkerReworkResult(project: Managed
     updatedAt: now,
   };
   await writeSchedulerRuntimeWorkerReworkResult(memory, changePath, result);
-  await appendSchedulerRuntimeEvent(memory, changePath, run, terminalStatus === "evidence-ready" ? "scheduler-runtime.worker-rework-result-ready" : "scheduler-runtime.worker-rework-result-failed", {
+  await appendSchedulerRuntimeEvent(memory, changePath, run, schedulerWorkerReworkResultEventType(terminalStatus), {
     status: runtimeState.status,
     summary: terminalStatus === "evidence-ready"
       ? `Scheduler rework-coder result is evidence-ready for ${reworkStart.schedulerWorkerReworkPlanId}.`
