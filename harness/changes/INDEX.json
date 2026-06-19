@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-19T23:01:19.4732364Z",
+    "generated_at":  "2026-06-19T23:19:25.7491113Z",
     "active":  [
 
                ],
@@ -1401,6 +1401,10 @@
                     {
                         "name":  "20260620-maintenance-markdown-section-helper-reuse",
                         "path":  "harness/changes/archive/20260620-maintenance-markdown-section-helper-reuse"
+                    },
+                    {
+                        "name":  "20260620-verification-scope-guidance-alignment",
+                        "path":  "harness/changes/archive/20260620-verification-scope-guidance-alignment"
                     },
                     {
                         "name":  "20260620-workbench-agenttask-residual-test-domain-split",

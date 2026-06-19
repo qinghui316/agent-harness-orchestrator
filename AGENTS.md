@@ -8,7 +8,7 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 - Active change: none.
 - Pending Harness evolution: none.
 - Latest archived product change: Maintenance Markdown Section Helper Reuse, archived at `harness/changes/archive/20260620-maintenance-markdown-section-helper-reuse/summary.md`.
-- Latest product/Harness docs change: Maintenance Markdown Section Helper Reuse, archived at `harness/changes/archive/20260620-maintenance-markdown-section-helper-reuse/summary.md`.
+- Latest product/Harness docs change: Verification Scope Guidance Alignment, archived at `harness/changes/archive/20260620-verification-scope-guidance-alignment/summary.md`.
 - Active product phase: none.
 - Active Harness evolution phase: none.
 - Latest Harness evolution: `harness/changes/archive/20260620-auto-evolve-harness-maintenance-section-helper-window/summary.md`.
@@ -87,12 +87,20 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/harness-evolve.ps1 c
 Product verification:
 
 ```powershell
+# Always start from the touched boundary: targeted Vitest suites, script contract
+# checks, or drift greps that prove the changed behavior.
 npm run typecheck
 npm run lint
-npm run test
+npm run test:fast
 npm run build
+# Escalate only when the changed boundary needs it:
+npm run test:integration
+npm run test:workbench
 npm run test:workbench:slow
+npm run test
 ```
+
+Use full `npm run test` or slow Workbench suites for broad runtime, Workbench aggregate, gate/source/apply, validation/audit, remote, scheduler, Goal Loop, package-script, or release-risk changes. For bounded docs, helper, or test-topology changes, record the targeted verification and why aggregate/full suites were not needed.
 
 For documentation or Harness-rule changes, also run targeted drift checks for active paths, duplicate current-state fields, stale latest-phase language, and documentation entropy where applicable.
 

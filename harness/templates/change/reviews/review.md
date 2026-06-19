@@ -10,6 +10,10 @@ None recorded yet.
 
 Pending.
 
+- Selected verification scope: pending.
+- Full / aggregate suites run or skipped: pending.
+- Rationale for selected scope: pending.
+
 ## Acceptance Feedback
 
 - Real/manual acceptance performed: no.

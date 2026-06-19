@@ -6,13 +6,13 @@
 - Active ECL change: none.
 - Pending Harness evolution: none.
 - Latest archived product change: `harness/changes/archive/20260620-maintenance-markdown-section-helper-reuse/summary.md`.
-- Latest archived product/Harness docs change: `harness/changes/archive/20260620-maintenance-markdown-section-helper-reuse/summary.md`.
+- Latest archived product/Harness docs change: `harness/changes/archive/20260620-verification-scope-guidance-alignment/summary.md`.
 - Latest archived Harness evolution: `harness/changes/archive/20260620-auto-evolve-harness-maintenance-section-helper-window/summary.md`.
 - Active product phase: none.
 - Active Harness evolution phase: none.
 - Active close status: none.
 
-This file is the short resume point. There is no active ECL change and pending Harness evolution remains none. The latest product/docs change converged repeated maintenance Markdown section layout into the existing maintenance Markdown owner. The latest Harness evolution reviewed the maintenance section helper window and recorded `keep / independent_review` with no new rule/template/lint/product runtime change.
+This file is the short resume point. There is no active ECL change and pending Harness evolution remains none. The latest product/Harness docs change aligns verification-scope guidance so future agents start from targeted boundary checks and escalate to aggregate/full suites only when the changed boundary requires it. The latest archived product code change converged repeated maintenance Markdown section layout into the existing maintenance Markdown owner. The latest Harness evolution reviewed the maintenance section helper window and recorded `keep / independent_review` with no new rule/template/lint/product runtime change.
 
 Current plan-level roadmap context is preserved in `docs/CURRENT-DEVELOPMENT-PLAN.md`. Historical detail belongs in archived summaries and `harness/changes/INDEX.json`.
 
@@ -43,6 +43,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/harness-evolve.ps1 c
 Product verification when product code changes:
 
 ```powershell
+# Start with the smallest command set that covers the touched boundary, then
+# escalate when shared runtime or aggregate workflow behavior is affected.
 npm run typecheck
 npm run lint
 npm run test:fast
@@ -50,6 +52,8 @@ npm run build
 npm run test:integration
 npm run test:workbench
 ```
+
+Use `test:fast` for broad non-Workbench unit coverage, `test:integration` for CLI/integration-style behavior, `test:workbench` for the aggregate Workbench contract, and selected slow Workbench suites only when the touched flow requires them. Full `npm run test` remains the release/broad-risk gate, not the default for bounded docs, helper, or test-topology work.
 
 For test-only relocation, run the affected capability suite, adjacent risk suites, product checks, and the relevant aggregate contract first. Do not repeat the full Workbench aggregate unless shared runtime changed or close evidence has a clear gap.
 
@@ -59,6 +63,7 @@ Use `harness/changes/INDEX.json` for the generated archive list. Start with arch
 
 Recent key archive summaries:
 
+- Latest product/Harness docs change: `harness/changes/archive/20260620-verification-scope-guidance-alignment/summary.md`.
 - Latest product change: `harness/changes/archive/20260620-maintenance-markdown-section-helper-reuse/summary.md`.
 - Previous product change: `harness/changes/archive/20260620-maintenance-canonical-authority-markdown-reuse/summary.md`.
 - Previous product change: `harness/changes/archive/20260620-maintenance-canonical-artifact-lifecycle-reuse/summary.md`.

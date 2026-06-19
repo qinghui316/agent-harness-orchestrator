@@ -60,6 +60,8 @@ Each structured change contains:
 
 High-impact unknowns are recorded as `[NEEDS CLARIFICATION: ...]` and block implementation.
 
+Review verification evidence must name the selected verification scope. Use the smallest command set that directly covers the touched boundary, then escalate to aggregate/full suites when the change affects shared runtime behavior, Workbench aggregate contracts, package scripts, gate/source/apply paths, validation/audit, remote handoff, scheduler, Goal Loop, or release-risk surfaces. When full `npm run test`, full `npm run test:workbench`, or slow Workbench suites are skipped, the review must state why the targeted evidence is sufficient for this change.
+
 ## 6. Plan-First Inputs
 
 When a user gives a plan, split it into:
