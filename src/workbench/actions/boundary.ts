@@ -42,7 +42,7 @@ import {
 } from "../../workflow-actions/registry.js";
 import { readWorkflowRun } from "../../workflow-run/manager.js";
 import type { WorkbenchLiveSink, WorkbenchWorkflowActionRequest } from "../types.js";
-import { assertLatestWorkbenchActionTarget, assertPreparedWorkbenchActionTarget, assertWorkbenchActionChangeScope, assertWorkbenchActionStringArrayTarget, requireActiveChangeTarget } from "./active-target.js";
+import { assertLatestWorkbenchActionTarget, assertPreparedWorkbenchActionTarget, assertWorkbenchActionChangeScope, assertWorkbenchActionOptionalStringTarget, assertWorkbenchActionStringArrayTarget, requireActiveChangeTarget } from "./active-target.js";
 import { assertGoalLoopAssistedConcreteGateConfirmation } from "./goal-loop-gate-confirmation.js";
 import { readLatestPlanningBundle } from "./planning-bundle.js";
 
@@ -1107,9 +1107,7 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
     if (!latestCandidate || latestCandidate.schedulerClaimReservationId !== reservation.id) {
       throw new Error("planning.scheduler.integration-outcome.reconcile SchedulerIntegrationCandidate scope mismatch.");
     }
-    if (request.schedulerIntegrationCandidateId && request.schedulerIntegrationCandidateId !== latestCandidate.id) {
-      throw new Error("planning.scheduler.integration-outcome.reconcile SchedulerIntegrationCandidate target scope mismatch.");
-    }
+    assertWorkbenchActionOptionalStringTarget(request.schedulerIntegrationCandidateId, latestCandidate.id, "planning.scheduler.integration-outcome.reconcile", "SchedulerIntegrationCandidate");
     const latestHandoff = await readLatestSchedulerIntegrationCheckHandoffProjection(memory, target.path, run.id);
     if (!latestHandoff || latestHandoff.id !== request.schedulerIntegrationCheckHandoffId) {
       throw new Error("planning.scheduler.integration-outcome.reconcile requires the latest SchedulerIntegrationCheckHandoff.");
@@ -1121,9 +1119,7 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
     if (check.status === "passed") {
       throw new Error("planning.scheduler.integration-outcome.reconcile waits for the existing apply/discard confirmation while IntegrationCheck is passed.");
     }
-    if (request.applyCheckId && request.applyCheckId !== latestHandoff.integrationCheckId) {
-      throw new Error("planning.scheduler.integration-outcome.reconcile applyCheckId target scope mismatch.");
-    }
+    assertWorkbenchActionOptionalStringTarget(request.applyCheckId, latestHandoff.integrationCheckId, "planning.scheduler.integration-outcome.reconcile", "applyCheckId");
     if (request.worktreeIds?.length) assertWorkbenchActionStringArrayTarget(request.worktreeIds, latestHandoff.readyWorktreeIds, "planning.scheduler.integration-outcome.reconcile", "worktreeIds");
   }
   if (request.actionType === "planning.scheduler.run.complete") {
@@ -1154,18 +1150,10 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
     ) {
       throw new Error("planning.scheduler.run.complete SchedulerIntegrationOutcome target is stale.");
     }
-    if (request.schedulerReconcileSnapshotId && request.schedulerReconcileSnapshotId !== outcome.schedulerReconcileSnapshotId) {
-      throw new Error("planning.scheduler.run.complete schedulerReconcileSnapshotId target scope mismatch.");
-    }
-    if (request.schedulerClaimReservationId && request.schedulerClaimReservationId !== outcome.schedulerClaimReservationId) {
-      throw new Error("planning.scheduler.run.complete schedulerClaimReservationId target scope mismatch.");
-    }
-    if (request.schedulerIntegrationCandidateId && request.schedulerIntegrationCandidateId !== outcome.schedulerIntegrationCandidateId) {
-      throw new Error("planning.scheduler.run.complete SchedulerIntegrationCandidate target scope mismatch.");
-    }
-    if (request.schedulerIntegrationCheckHandoffId && request.schedulerIntegrationCheckHandoffId !== outcome.schedulerIntegrationCheckHandoffId) {
-      throw new Error("planning.scheduler.run.complete SchedulerIntegrationCheckHandoff target scope mismatch.");
-    }
+    assertWorkbenchActionOptionalStringTarget(request.schedulerReconcileSnapshotId, outcome.schedulerReconcileSnapshotId, "planning.scheduler.run.complete", "schedulerReconcileSnapshotId");
+    assertWorkbenchActionOptionalStringTarget(request.schedulerClaimReservationId, outcome.schedulerClaimReservationId, "planning.scheduler.run.complete", "schedulerClaimReservationId");
+    assertWorkbenchActionOptionalStringTarget(request.schedulerIntegrationCandidateId, outcome.schedulerIntegrationCandidateId, "planning.scheduler.run.complete", "SchedulerIntegrationCandidate");
+    assertWorkbenchActionOptionalStringTarget(request.schedulerIntegrationCheckHandoffId, outcome.schedulerIntegrationCheckHandoffId, "planning.scheduler.run.complete", "SchedulerIntegrationCheckHandoff");
     const check = await readIntegrationCheck(memory, outcome.integrationCheckId);
     if (check.status === "passed") {
       throw new Error("planning.scheduler.run.complete cannot complete while IntegrationCheck is waiting for apply/discard.");
@@ -1173,9 +1161,7 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
     if (check.status !== outcome.integrationCheckStatus) {
       throw new Error("planning.scheduler.run.complete IntegrationCheck status drifted.");
     }
-    if (request.applyCheckId && request.applyCheckId !== outcome.integrationCheckId) {
-      throw new Error("planning.scheduler.run.complete applyCheckId target scope mismatch.");
-    }
+    assertWorkbenchActionOptionalStringTarget(request.applyCheckId, outcome.integrationCheckId, "planning.scheduler.run.complete", "applyCheckId");
     const existingCompletion = await readLatestSchedulerRunCompletionProjection(memory, target.path, run.id);
     if (existingCompletion && existingCompletion.schedulerIntegrationOutcomeId !== outcome.id) {
       throw new Error("planning.scheduler.run.complete latest SchedulerRunCompletion target is stale.");

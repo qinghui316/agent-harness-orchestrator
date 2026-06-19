@@ -58,3 +58,14 @@ export function assertWorkbenchActionStringArrayTarget(
     throw new Error(`${label} ${targetName} target scope mismatch.`);
   }
 }
+
+export function assertWorkbenchActionOptionalStringTarget(
+  requested: string | undefined,
+  latest: string,
+  label: string,
+  targetName: string,
+): void {
+  if (requested && requested !== latest) {
+    throw new Error(`${label} ${targetName} target scope mismatch.`);
+  }
+}

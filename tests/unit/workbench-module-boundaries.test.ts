@@ -78,7 +78,7 @@ import { getLatestAuditSummary, listAuditResults, readAuditResult } from "../../
 import { createWorktree as createWorktreeFacade, getWorktreeStatus as getWorktreeStatusFacade, listWorktreeStatuses as listWorktreeStatusesFacade, removeWorktree as removeWorktreeFacade } from "../../src/worktree/manager.js";
 import { readTopicThreadLog } from "../../src/workbench/thread-log.js";
 import { runWorkbenchWorkflowActionService } from "../../src/workbench/actions/service.js";
-import { assertLatestWorkbenchActionTarget, assertPreparedWorkbenchActionTarget, assertWorkbenchActionChangeScope, assertWorkbenchActionStringArrayTarget } from "../../src/workbench/actions/active-target.js";
+import { assertLatestWorkbenchActionTarget, assertPreparedWorkbenchActionTarget, assertWorkbenchActionChangeScope, assertWorkbenchActionOptionalStringTarget, assertWorkbenchActionStringArrayTarget } from "../../src/workbench/actions/active-target.js";
 import { assertWorkflowActionScope } from "../../src/workbench/actions/boundary.js";
 import { assertLatestSchedulerArtifact } from "../../src/workflow-scheduler/guards.js";
 import { dispatchWorkbenchWorkflowAction } from "../../src/workbench/actions/dispatcher.js";
@@ -1970,12 +1970,37 @@ describe("Workbench module boundaries", () => {
       "planning.scheduler.integration-check.run",
       "worktreeIds",
     )).toThrow("planning.scheduler.integration-check.run worktreeIds target scope mismatch.");
+    expect(() => assertWorkbenchActionOptionalStringTarget(
+      undefined,
+      "candidate-current",
+      "planning.scheduler.integration-outcome.reconcile",
+      "SchedulerIntegrationCandidate",
+    )).not.toThrow();
+    expect(() => assertWorkbenchActionOptionalStringTarget(
+      "",
+      "candidate-current",
+      "planning.scheduler.integration-outcome.reconcile",
+      "SchedulerIntegrationCandidate",
+    )).not.toThrow();
+    expect(() => assertWorkbenchActionOptionalStringTarget(
+      "candidate-current",
+      "candidate-current",
+      "planning.scheduler.integration-outcome.reconcile",
+      "SchedulerIntegrationCandidate",
+    )).not.toThrow();
+    expect(() => assertWorkbenchActionOptionalStringTarget(
+      "candidate-old",
+      "candidate-current",
+      "planning.scheduler.integration-outcome.reconcile",
+      "SchedulerIntegrationCandidate",
+    )).toThrow("planning.scheduler.integration-outcome.reconcile SchedulerIntegrationCandidate target scope mismatch.");
 
     const helper = readFileSync("src/workbench/actions/active-target.ts", "utf8");
     expect(helper).toContain("assertWorkbenchActionChangeScope");
     expect(helper).toContain("assertLatestWorkbenchActionTarget");
     expect(helper).toContain("assertPreparedWorkbenchActionTarget");
     expect(helper).toContain("assertWorkbenchActionStringArrayTarget");
+    expect(helper).toContain("assertWorkbenchActionOptionalStringTarget");
     expect(helper).not.toMatch(/scheduler-runtime|goal-loop|ToolPolicy|server\/|web\/src|repository/);
 
     const boundary = readFileSync("src/workbench/actions/boundary.ts", "utf8");
@@ -1993,6 +2018,13 @@ describe("Workbench module boundaries", () => {
     expect(boundary).toContain("assertWorkbenchActionStringArrayTarget(request.worktreeIds, latestCandidate.readyWorktreeIds, \"planning.scheduler.integration-check.run\", \"worktreeIds\")");
     expect(boundary).toContain("assertWorkbenchActionStringArrayTarget(request.worktreeIds, latestHandoff.readyWorktreeIds, \"planning.scheduler.integration-outcome.reconcile\", \"worktreeIds\")");
     expect(boundary).toContain("assertWorkbenchActionStringArrayTarget(request.worktreeIds, outcome.readyWorktreeIds, \"planning.scheduler.run.complete\", \"worktreeIds\")");
+    expect(boundary).toContain("assertWorkbenchActionOptionalStringTarget(request.schedulerIntegrationCandidateId, latestCandidate.id, \"planning.scheduler.integration-outcome.reconcile\", \"SchedulerIntegrationCandidate\")");
+    expect(boundary).toContain("assertWorkbenchActionOptionalStringTarget(request.applyCheckId, latestHandoff.integrationCheckId, \"planning.scheduler.integration-outcome.reconcile\", \"applyCheckId\")");
+    expect(boundary).toContain("assertWorkbenchActionOptionalStringTarget(request.schedulerReconcileSnapshotId, outcome.schedulerReconcileSnapshotId, \"planning.scheduler.run.complete\", \"schedulerReconcileSnapshotId\")");
+    expect(boundary).toContain("assertWorkbenchActionOptionalStringTarget(request.schedulerClaimReservationId, outcome.schedulerClaimReservationId, \"planning.scheduler.run.complete\", \"schedulerClaimReservationId\")");
+    expect(boundary).toContain("assertWorkbenchActionOptionalStringTarget(request.schedulerIntegrationCandidateId, outcome.schedulerIntegrationCandidateId, \"planning.scheduler.run.complete\", \"SchedulerIntegrationCandidate\")");
+    expect(boundary).toContain("assertWorkbenchActionOptionalStringTarget(request.schedulerIntegrationCheckHandoffId, outcome.schedulerIntegrationCheckHandoffId, \"planning.scheduler.run.complete\", \"SchedulerIntegrationCheckHandoff\")");
+    expect(boundary).toContain("assertWorkbenchActionOptionalStringTarget(request.applyCheckId, outcome.integrationCheckId, \"planning.scheduler.run.complete\", \"applyCheckId\")");
     expect(boundary).not.toContain("function sameStringArray");
     expect(boundary).toContain("planning.scheduler.plan.prepare requires the latest SchedulerReconcileSnapshot");
     expect(boundary).toContain("planning.scheduler.run.complete SchedulerRun target is not completable");
