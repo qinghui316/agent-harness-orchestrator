@@ -7,8 +7,8 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 - Current date: 2026-06-19.
 - Active change: none.
 - Pending Harness evolution: none.
-- Latest archived product change: Maintenance Canonical Patch Application Target Kind Boundary Reuse, archived at `harness/changes/archive/20260619-maintenance-canonical-patch-application-target-kind-boundary-reuse/summary.md`.
-- Latest product/Harness docs change: Auto-evolve Harness Helper Reuse Test Architecture Window, archived at `harness/changes/archive/20260619-auto-evolve-harness-helper-reuse-test-architecture-window/summary.md`.
+- Latest archived product change: Workbench Test Architecture Scheduler Slow Suite Split, archived at `harness/changes/archive/20260619-workbench-test-architecture-scheduler-slow-suite-split/summary.md`.
+- Latest product/Harness docs change: Workbench Test Architecture Scheduler Slow Suite Split, archived at `harness/changes/archive/20260619-workbench-test-architecture-scheduler-slow-suite-split/summary.md`.
 - Active product phase: none.
 - Active Harness evolution phase: none.
 - Latest Harness evolution: `harness/changes/archive/20260619-auto-evolve-harness-helper-reuse-test-architecture-window/summary.md`.
@@ -91,6 +91,7 @@ npm run typecheck
 npm run lint
 npm run test
 npm run build
+npm run test:workbench:slow
 ```
 
 For documentation or Harness-rule changes, also run targeted drift checks for active paths, duplicate current-state fields, stale latest-phase language, and documentation entropy where applicable.

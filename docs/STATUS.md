@@ -5,14 +5,14 @@
 - Current date: 2026-06-19.
 - Active ECL change: none.
 - Pending Harness evolution: none.
-- Latest archived product change: `harness/changes/archive/20260619-maintenance-canonical-patch-application-target-kind-boundary-reuse/summary.md`.
-- Latest archived product/Harness docs change: `harness/changes/archive/20260619-auto-evolve-harness-helper-reuse-test-architecture-window/summary.md`.
+- Latest archived product change: `harness/changes/archive/20260619-workbench-test-architecture-scheduler-slow-suite-split/summary.md`.
+- Latest archived product/Harness docs change: `harness/changes/archive/20260619-workbench-test-architecture-scheduler-slow-suite-split/summary.md`.
 - Latest archived Harness evolution: `harness/changes/archive/20260619-auto-evolve-harness-helper-reuse-test-architecture-window/summary.md`.
 - Active product phase: none.
 - Active Harness evolution phase: none.
 - Active close status: none.
 
-This file is the short resume point. No active ECL change remains and no pending Harness evolution remains. The latest completed product convergence slice is Maintenance Canonical Patch Application Target Kind Boundary Reuse, which moved the canonical patch application writer's private writable target-kind policy into the existing canonical patch target-boundary owner while preserving canonical patch proposal/manifest/result/report behavior, target descriptors, artifact schemas, Workbench/API behavior, ToolPolicyGate, human gates, IntegrationCheck/apply/close behavior, and manager facades. The current plan records a future separate Workbench test architecture convergence change for splitting overloaded `tests/unit/workbench.test.ts` by capability domain. The latest completed Harness evolution is Auto-evolve Harness Helper Reuse Test Architecture Window: `mark-complete` recorded `keep / independent_review`, retained existing Architecture Growth Control / Core Mechanism Reuse, Module Boundary, Documentation Entropy, Experience Lifecycle, workflow-truth, ToolPolicyGate, and human-gate rules, kept helper-specific details archive-only, and made no new Harness rule/template/lint/product runtime change.
+This file is the short resume point. No active ECL change remains and no pending Harness evolution remains. The latest completed convergence slice is Workbench Test Architecture Scheduler Slow Suite Split, which moved 3 scheduler slow Workbench tests into `tests/slow/workbench-scheduler-flow.test.ts`, added `tests/unit/workbench/fixtures.ts` as the shared scheduler slow-flow fixture owner, and updated Workbench test scripts without changing product runtime behavior.
 
 Current plan-level roadmap context is preserved in `docs/CURRENT-DEVELOPMENT-PLAN.md`. Historical detail belongs in archived summaries and `harness/changes/INDEX.json`.
 
@@ -26,7 +26,7 @@ Phase 12A remains the future controlled Scheduler/parallel loop design boundary.
 
 ## Next Resume Point
 
-No active change exists and no pending Harness evolution exists. Continue Architecture Growth Control from `docs/CURRENT-DEVELOPMENT-PLAN.md`; the next narrow candidate is the dedicated Workbench test architecture split for `tests/unit/workbench.test.ts`. Keep `README.md` unrelated and untracked unless the user explicitly asks to include it.
+No active change exists and no pending Harness evolution exists. Continue Architecture Growth Control from `docs/CURRENT-DEVELOPMENT-PLAN.md`; next Workbench test architecture candidates are remote landing, demand worker, maintenance apply, or remaining read-model/projection domain splits. Keep `README.md` unrelated and untracked unless the user explicitly asks to include it.
 
 ## Verification Commands
 
