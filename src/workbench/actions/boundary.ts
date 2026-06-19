@@ -1142,15 +1142,13 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
       throw new Error("planning.scheduler.run.complete SchedulerRun target is not completable.");
     }
     const latestRun = await readLatestSchedulerRun(memory, target.path);
-    if (latestRun.id !== run.id) throw new Error("planning.scheduler.run.complete requires the latest SchedulerRun.");
+    assertLatestWorkbenchActionTarget(latestRun, run, "planning.scheduler.run.complete", "SchedulerRun");
     const runtimeState = await readSchedulerRuntimeStateProjection(memory, target.path, run.id);
     if (!runtimeState?.lastReconcileSnapshotId || !runtimeState.lastClaimReservationId) {
       throw new Error("planning.scheduler.run.complete requires runtime state with latest reconcile snapshot and claim reservation.");
     }
     const latestOutcome = await readLatestSchedulerIntegrationOutcomeProjection(memory, target.path, run.id);
-    if (!latestOutcome || latestOutcome.id !== request.schedulerIntegrationOutcomeId) {
-      throw new Error("planning.scheduler.run.complete requires the latest SchedulerIntegrationOutcome.");
-    }
+    assertLatestWorkbenchActionTarget(latestOutcome, { id: request.schedulerIntegrationOutcomeId }, "planning.scheduler.run.complete", "SchedulerIntegrationOutcome");
     const outcome = await readSchedulerIntegrationOutcome(memory, target.path, run.id, request.schedulerIntegrationOutcomeId);
     if (
       outcome.schedulerRuntimeStateId !== runtimeState.id
@@ -1207,9 +1205,7 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
       throw new Error("planning.scheduler.run.close-blocked requires the latest SchedulerRuntimeClaimReservation.");
     }
     const latestCandidate = await readLatestSchedulerIntegrationCandidateProjection(memory, target.path, run.id);
-    if (!latestCandidate || latestCandidate.id !== request.schedulerIntegrationCandidateId) {
-      throw new Error("planning.scheduler.run.close-blocked requires the latest SchedulerIntegrationCandidate.");
-    }
+    assertLatestWorkbenchActionTarget(latestCandidate, { id: request.schedulerIntegrationCandidateId }, "planning.scheduler.run.close-blocked", "SchedulerIntegrationCandidate");
     if (latestCandidate.schedulerRuntimeStateId !== runtimeState.id || latestCandidate.schedulerClaimReservationId !== runtimeState.lastClaimReservationId || latestCandidate.schedulerReconcileSnapshotId !== runtimeState.lastClaimReservationSnapshotId) {
       throw new Error("planning.scheduler.run.close-blocked SchedulerIntegrationCandidate target is stale.");
     }

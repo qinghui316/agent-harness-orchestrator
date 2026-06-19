@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-19T11:07:50.2444344Z",
+    "generated_at":  "2026-06-19T11:34:23.6410885Z",
     "active":  [
 
                ],
@@ -1345,6 +1345,10 @@
                     {
                         "name":  "20260619-workbench-schedulerrun-prepared-target-helper-reuse",
                         "path":  "harness/changes/archive/20260619-workbench-schedulerrun-prepared-target-helper-reuse"
+                    },
+                    {
+                        "name":  "20260619-workbench-scheduler-terminal-latest-target-helper-reuse",
+                        "path":  "harness/changes/archive/20260619-workbench-scheduler-terminal-latest-target-helper-reuse"
                     },
                     {
                         "name":  "20260619-workflow-scheduler-latest-artifact-guard-reuse",
