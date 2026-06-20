@@ -1,4 +1,5 @@
 import type { ManagedProject } from "../../../../types/index.js";
+import { CONTROLLED_SCHEDULER_STEP_ACTION_TYPE, isControlledSchedulerConcreteAction } from "../../../../workflow-scheduler/controlled-step.js";
 import type { WorkbenchConfirmationQueueItem, WorkbenchDecisionAction, WorkbenchTopicDetail, WorkbenchWorkpad } from "../../../read-model-types.js";
 
 type ScopeValue = string | string[] | undefined;
@@ -102,6 +103,20 @@ export function attachGoalLoopAssistedConcreteGateActions(
   }
   if (goalLoop.controllerVerdict !== "recommend-existing-gate" || goalLoop.controllerGateStatus !== "matches-current-gate") return items;
   if (nextAction.changeId !== goalLoop.changeId) return items;
+  const controlledSchedulerStepAction = goalLoopControlledSchedulerStepAction(workpad);
+  if (controlledSchedulerStepAction) {
+    return items.map((item) => {
+      const hasMatchingGate = item.actions.some((action) => action.kind === "workflow-action" && actionMatchesGoalLoopScope(item, action, workpad));
+      if (!hasMatchingGate || item.actions.some((action) => action.id === controlledSchedulerStepAction.id)) return item;
+      return {
+        ...item,
+        actions: [
+          ...item.actions.filter((action) => !(action.kind === "workflow-action" && actionMatchesGoalLoopScope(item, action, workpad))),
+          controlledSchedulerStepAction,
+        ],
+      };
+    });
+  }
   const assistedAction = goalLoopAssistedConcreteGateAction(workpad);
   if (!assistedAction) return items;
   return items.map((item) => {
@@ -154,6 +169,34 @@ function goalLoopAssistedConcreteGateAction(workpad: WorkbenchWorkpad): Workbenc
     goalLoopNextStepPacketId: goalLoop.goalLoopNextStepPacketId,
     goalLoopControllerPolicyId: goalLoop.controllerPolicyId,
     goalLoopGateReadinessPreflightId: goalLoop.gateReadinessPreflightId,
+    artifact: goalLoop.gateReadinessPreflightArtifact ?? goalLoop.controllerArtifact ?? goalLoop.nextStepPacketArtifact ?? goalLoop.artifact,
+  };
+}
+
+function goalLoopControlledSchedulerStepAction(workpad: WorkbenchWorkpad): WorkbenchDecisionAction | null {
+  const goalLoop = workpad.goalLoop;
+  const nextAction = workpad.nextAction;
+  const scope = readGoalLoopScope(goalLoop);
+  const expectedType = readGoalLoopActionType(goalLoop);
+  if (!goalLoop?.gateReadinessPreflightId || !nextAction.actionType || !expectedType || !scope) return null;
+  if (!isControlledSchedulerConcreteAction(expectedType)) return null;
+  if (nextAction.actionType !== expectedType) return null;
+  return {
+    ...scope,
+    id: `workflow:${CONTROLLED_SCHEDULER_STEP_ACTION_TYPE}:goal-loop-assisted:${goalLoop.gateReadinessPreflightId}`,
+    label: "执行一个受控 scheduler 步骤",
+    kind: "workflow-action",
+    enabled: true,
+    requiresConfirmation: true,
+    changeId: goalLoop.changeId,
+    actionType: CONTROLLED_SCHEDULER_STEP_ACTION_TYPE,
+    goalLoopDecisionId: goalLoop.goalLoopDecisionId,
+    goalLoopIterationId: goalLoop.goalLoopIterationId,
+    goalLoopContinuationBriefId: goalLoop.id,
+    goalLoopNextStepPacketId: goalLoop.goalLoopNextStepPacketId,
+    goalLoopControllerPolicyId: goalLoop.controllerPolicyId,
+    goalLoopGateReadinessPreflightId: goalLoop.gateReadinessPreflightId,
+    goalLoopCurrentGateActionType: expectedType as WorkbenchDecisionAction["actionType"],
     artifact: goalLoop.gateReadinessPreflightArtifact ?? goalLoop.controllerArtifact ?? goalLoop.nextStepPacketArtifact ?? goalLoop.artifact,
   };
 }

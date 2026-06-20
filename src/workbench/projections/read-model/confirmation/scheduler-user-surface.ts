@@ -29,6 +29,13 @@ const COPY_BY_ACTION_TYPE: Record<string, SchedulerUserFacingActionCopy> = {
     confirmEffect: "只记录 SchedulerRun journal shell 和 human-gated launch evidence。",
     riskSummary: "不会启动 worker、分配 slot、创建 worktree/run 或绕过后续 worker gate。",
   },
+  "planning.scheduler.controlled-step.run": {
+    label: "执行一个受控 scheduler 步骤",
+    summary: "Goal Loop 预检已匹配当前 scheduler gate；确认后只执行这一项 gate。",
+    whyNeedsConfirmation: "这是受控 Scheduler 单步门禁：需要你确认 wrapper action 和它指向的 concrete scheduler gate。",
+    confirmEffect: "服务端会重读 Goal Loop packet/controller/preflight，重新校验 concrete scheduler target ids，运行 ToolPolicyGate，然后只委托一个 existing scheduler action。",
+    riskSummary: "执行后立即停止；不会自动运行下一 gate、start-all、whole-wave dispatch、slot allocator、IntegrationCheck 后 apply、close、remote landing 或 Harness evolution。",
+  },
   "planning.scheduler.worker.start-first": continueNextTaskCopy(),
   "planning.scheduler.worker.start-next": continueNextTaskCopy(),
   "planning.scheduler.worker.reconcile-result": checkCurrentEvidenceCopy(),

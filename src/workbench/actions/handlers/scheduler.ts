@@ -25,7 +25,10 @@ import {
   validatePlanningSchedulerFirstWorker,
   validatePlanningSchedulerFirstWorkerRework,
 } from "./planning.js";
+import { buildControlledSchedulerStepRequest } from "../../../workflow-scheduler/controlled-step.js";
+import { assertWorkflowActionScope, auditHighImpactWorkflowAction } from "../boundary.js";
 import type { WorkbenchActionHandlerMap } from "../dispatcher.js";
+import type { WorkbenchWorkflowActionRequest } from "../../types.js";
 
 type SchedulerWorkbenchActionType =
   | "planning.scheduler.plan.prepare"
@@ -38,6 +41,7 @@ type SchedulerWorkbenchActionType =
   | "planning.scheduler.runtime.initialize"
   | "planning.scheduler.runtime.reconcile"
   | "planning.scheduler.runtime.reserve-claims"
+  | "planning.scheduler.controlled-step.run"
   | "planning.scheduler.worker.start-first"
   | "planning.scheduler.worker.start-next"
   | "planning.scheduler.worker.reconcile-result"
@@ -55,7 +59,7 @@ type SchedulerWorkbenchActionType =
   | "planning.scheduler.run.close-blocked";
 
 export function buildSchedulerActionHandlers(): Pick<WorkbenchActionHandlerMap, SchedulerWorkbenchActionType> {
-  return {
+  const concreteHandlers = {
     "planning.scheduler.plan.prepare": async (project, changeId, request, live) => preparePlanningSchedulerPlan(project, changeId, request, live),
     "planning.scheduler.contract.compile": async (project, changeId, request, live) => compilePlanningSchedulerContract(project, changeId, request, live),
     "planning.scheduler.dispatch.dry-run": async (project, changeId, request, live) => generateSchedulerDispatchDryRun(project, changeId, request, live),
@@ -81,5 +85,33 @@ export function buildSchedulerActionHandlers(): Pick<WorkbenchActionHandlerMap, 
     "planning.scheduler.integration-outcome.reconcile": async (project, changeId, request, live) => reconcilePlanningSchedulerIntegrationOutcome(project, changeId, request, live),
     "planning.scheduler.run.complete": async (project, changeId, request, live) => completePlanningSchedulerRun(project, changeId, request, live),
     "planning.scheduler.run.close-blocked": async (project, changeId, request, live) => closeBlockedPlanningSchedulerRun(project, changeId, request, live),
+  } satisfies Omit<Pick<WorkbenchActionHandlerMap, SchedulerWorkbenchActionType>, "planning.scheduler.controlled-step.run">;
+  return {
+    ...concreteHandlers,
+    "planning.scheduler.controlled-step.run": async (project, changeId, request, live) => {
+      const { concrete } = buildControlledSchedulerStepRequest(request);
+      const concreteRequest = concrete as WorkbenchWorkflowActionRequest;
+      assertWorkflowActionScope(concreteRequest);
+      await auditHighImpactWorkflowAction(project, changeId, concreteRequest, live);
+      const handler = concreteHandlers[concreteRequest.actionType as keyof typeof concreteHandlers];
+      if (!handler) throw new Error("planning.scheduler.controlled-step.run requires a supported concrete scheduler gate.");
+      const result = await handler(project, changeId, concreteRequest, live);
+      return {
+        controlledStep: {
+          actionType: concreteRequest.actionType,
+          changeId,
+          schedulerRunId: concreteRequest.schedulerRunId,
+          goalLoopNextStepPacketId: concreteRequest.goalLoopNextStepPacketId,
+          goalLoopControllerPolicyId: concreteRequest.goalLoopControllerPolicyId,
+          goalLoopGateReadinessPreflightId: concreteRequest.goalLoopGateReadinessPreflightId,
+          executionStarted: true,
+          stoppedAfterOneSchedulerTransition: true,
+          loopAuthorized: false,
+          wholeWaveDispatchAuthorized: false,
+          slotAllocatorAuthorized: false,
+        },
+        result,
+      };
+    },
   };
 }

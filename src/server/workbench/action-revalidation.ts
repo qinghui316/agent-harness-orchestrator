@@ -3,6 +3,7 @@ import { resolveProjectMemory } from "../../memory/resolver.js";
 import { assertGoalLoopAssistedConcreteGateConfirmation } from "../../workbench/actions/goal-loop-gate-confirmation.js";
 import { getWorkbenchSnapshot, type WorkbenchProjectInput } from "../../workbench/manager.js";
 import { revalidatedWorkflowActionSet, workflowActionScopesMatchStrict } from "../../workflow-actions/registry.js";
+import { CONTROLLED_SCHEDULER_STEP_ACTION_TYPE, buildControlledSchedulerStepRequest } from "../../workflow-scheduler/controlled-step.js";
 import type { WorkbenchActionRequest } from "./types.js";
 
 const REVALIDATED_WORKFLOW_ACTION_IDS = revalidatedWorkflowActionSet();
@@ -146,7 +147,10 @@ export async function assertCurrentWorkflowAction(input: WorkbenchProjectInput, 
       throw error;
     }
     try {
-      await assertGoalLoopAssistedConcreteGateConfirmation(memory, target.path, body.changeId, body, { visibleGate: match });
+      const concreteRequest = body.actionType === CONTROLLED_SCHEDULER_STEP_ACTION_TYPE
+        ? buildControlledSchedulerStepRequest(body).concrete
+        : body;
+      await assertGoalLoopAssistedConcreteGateConfirmation(memory, target.path, body.changeId, concreteRequest, body.actionType === CONTROLLED_SCHEDULER_STEP_ACTION_TYPE ? {} : { visibleGate: match });
     } catch (cause) {
       const error = new Error(cause instanceof Error ? cause.message : "Workflow action target is stale or no longer available.");
       error.name = "Conflict";

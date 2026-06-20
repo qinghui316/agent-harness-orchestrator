@@ -5,14 +5,14 @@
 - Current date: 2026-06-20.
 - Active ECL change: none.
 - Pending Harness evolution: none.
-- Latest archived product change: `harness/changes/archive/20260620-workbench-helper-boundaries-test-suite-split/summary.md`.
-- Latest archived product/Harness docs change: `harness/changes/archive/20260620-auto-evolve-harness-workbench-helper-boundary-window/summary.md`.
+- Latest archived product change: `harness/changes/archive/20260620-controlled-scheduler-single-step-runner/summary.md`.
+- Latest archived product/Harness docs change: `harness/changes/archive/20260620-controlled-scheduler-single-step-runner/summary.md`.
 - Latest archived Harness evolution: `harness/changes/archive/20260620-auto-evolve-harness-workbench-helper-boundary-window/summary.md`.
 - Active product phase: none.
 - Active Harness evolution phase: none.
 - Active close status: none.
 
-This file is the short resume point. There is no active ECL change and pending Harness evolution is none. The latest Harness evolution handled the five-archive Workbench helper boundary window with result `keep / independent_review`; no durable rule/template/lint/docs/product runtime change was made. The latest product change split pure Workbench helper boundary tests into a smaller helper-specific suite without changing product source, package scripts, Workbench behavior, action ids, human gates, source/remote behavior, Goal Loop, Scheduler, ToolPolicy authority, PR/merge behavior, or maintenance logic.
+This file is the short resume point. There is no active ECL change and pending Harness evolution is none. The latest product change implemented a controlled Scheduler single-step runner: one user-confirmed wrapper action backed by fresh Goal Loop packet/controller/preflight evidence may execute exactly one existing concrete scheduler gate, then stop. It preserves ToolPolicyGate, stale-target revalidation, SchedulerRun evidence, IntegrationCheck/apply boundaries, and human gates.
 
 Current plan-level roadmap context is preserved in `docs/CURRENT-DEVELOPMENT-PLAN.md`. Historical detail belongs in archived summaries and `harness/changes/INDEX.json`.
 
@@ -26,7 +26,7 @@ Phase 12A remains the future controlled Scheduler/parallel loop design boundary.
 
 ## Next Resume Point
 
-After this test-topology closeout, next structured work should return to product-function progress. Prefer Goal Loop / controlled Scheduler / parallel-integration functionality that moves AHO toward the usable product shape. Architecture or test convergence should happen only when it materially blocks or lowers the risk of the product feature in front of us, not as another standalone sequence. Keep `README.md` unrelated and untracked unless the user explicitly asks to include it.
+Next structured work should continue product-function progress from the controlled Scheduler / Goal Loop direction. Prefer a larger stage that builds on the controlled single-step runner toward user-visible loop progress, while still preserving one confirmed transition per high-impact action, ToolPolicyGate, stale revalidation, IntegrationCheck/apply boundaries, and human gates. Avoid standalone architecture/test convergence unless it materially blocks or de-risks the product feature in front of us. Keep `README.md` unrelated and untracked unless the user explicitly asks to include it.
 
 ## Verification Commands
 

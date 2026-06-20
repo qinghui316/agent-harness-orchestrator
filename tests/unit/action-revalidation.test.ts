@@ -117,4 +117,62 @@ describe("Workbench action revalidation", () => {
       { visibleGate: visibleAction },
     );
   });
+
+  it("passes controlled scheduler step payloads to the assisted confirmation guard as the concrete scheduler gate", async () => {
+    const visibleAction = {
+      kind: "workflow-action",
+      actionType: "planning.scheduler.controlled-step.run",
+      changeId: "change-1",
+      goalLoopCurrentGateActionType: "planning.scheduler.worker.start-first",
+      goalLoopNextStepPacketId: "packet-1",
+      goalLoopControllerPolicyId: "controller-1",
+      goalLoopGateReadinessPreflightId: "preflight-1",
+      schedulerRunId: "scheduler-run-1",
+      schedulerClaimReservationId: "claim-reservation-1",
+      enabled: true,
+    };
+    mocks.getWorkbenchSnapshot.mockResolvedValue({
+      center: {
+        workpad: {
+          nextAction: {
+            kind: "workflow-action",
+            actionType: "planning.scheduler.worker.start-first",
+            changeId: "change-1",
+            schedulerRunId: "scheduler-run-1",
+            schedulerClaimReservationId: "claim-reservation-1",
+          },
+        },
+      },
+      right: {
+        confirmationQueue: {
+          primary: null,
+          current: [{ actions: [visibleAction] }],
+          otherDemands: [],
+        },
+      },
+    });
+
+    await expect(assertCurrentWorkflowAction({ project: { id: "repo", name: "Repo", path: "project-root", addedAt: "2026-06-18T00:00:00.000Z", lastSeenAt: "2026-06-18T00:00:00.000Z" }, path: "project-root" }, {
+      actionType: "planning.scheduler.controlled-step.run",
+      changeId: "change-1",
+      goalLoopCurrentGateActionType: "planning.scheduler.worker.start-first",
+      goalLoopNextStepPacketId: "packet-1",
+      goalLoopControllerPolicyId: "controller-1",
+      goalLoopGateReadinessPreflightId: "preflight-1",
+      schedulerRunId: "scheduler-run-1",
+      schedulerClaimReservationId: "claim-reservation-1",
+    })).resolves.toBeUndefined();
+    expect(mocks.assertGoalLoopAssistedConcreteGateConfirmation).toHaveBeenCalledWith(
+      { memoryRoot: "memory-root" },
+      "harness/changes/active/change-1",
+      "change-1",
+      expect.objectContaining({
+        actionType: "planning.scheduler.worker.start-first",
+        goalLoopGateReadinessPreflightId: "preflight-1",
+        schedulerRunId: "scheduler-run-1",
+        schedulerClaimReservationId: "claim-reservation-1",
+      }),
+      {},
+    );
+  });
 });

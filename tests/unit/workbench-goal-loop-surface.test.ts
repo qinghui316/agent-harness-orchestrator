@@ -329,7 +329,7 @@ describe("workbench Goal Loop surface", () => {
     ]));
   });
 
-  it("projects Goal Loop-assisted confirmation as the same concrete action with preflight evidence", async () => {
+  it("projects controlled scheduler step instead of duplicate concrete action when preflight evidence is ready", async () => {
     const currentGate = {
       id: "confirm:scheduler-worker:member-discount",
       kind: "planning-confirm",
@@ -394,19 +394,21 @@ describe("workbench Goal Loop surface", () => {
 
     expect(assistedAction).toMatchObject({
       kind: "workflow-action",
-      actionType: "planning.scheduler.worker.start-first",
+      actionType: "planning.scheduler.controlled-step.run",
       changeId: "member-discount",
       schedulerRunId: "scheduler-run-1",
       schedulerClaimReservationId: "claim-reservation-expected",
       goalLoopNextStepPacketId: "goal-loop-next-step-packet-1",
       goalLoopControllerPolicyId: "goal-loop-controller-policy-1",
       goalLoopGateReadinessPreflightId: "goal-loop-gate-readiness-preflight-1",
+      goalLoopCurrentGateActionType: "planning.scheduler.worker.start-first",
       requiresConfirmation: true,
     });
+    expect(item.actions.some((action) => action.actionType === "planning.scheduler.worker.start-first")).toBe(false);
     expect(item.actions.some((action) => action.actionType === "planning.goal-loop.gate.invoke")).toBe(false);
   });
 
-  it("projects Goal Loop-assisted start-next as the same concrete scheduler gate with all scoped ids", async () => {
+  it("projects controlled scheduler start-next with all scoped ids and no duplicate concrete action", async () => {
     const currentGate = {
       id: "confirm:scheduler-worker-next:member-discount",
       kind: "planning-confirm",
@@ -479,7 +481,7 @@ describe("workbench Goal Loop surface", () => {
 
     expect(assistedAction).toMatchObject({
       kind: "workflow-action",
-      actionType: "planning.scheduler.worker.start-next",
+      actionType: "planning.scheduler.controlled-step.run",
       changeId: "member-discount",
       schedulerRunId: "scheduler-run-1",
       schedulerClaimReservationId: "claim-reservation-expected",
@@ -488,9 +490,11 @@ describe("workbench Goal Loop surface", () => {
       goalLoopNextStepPacketId: "goal-loop-next-step-packet-1",
       goalLoopControllerPolicyId: "goal-loop-controller-policy-1",
       goalLoopGateReadinessPreflightId: "goal-loop-gate-readiness-preflight-1",
+      goalLoopCurrentGateActionType: "planning.scheduler.worker.start-next",
       requiresConfirmation: true,
     });
-    expect(item.actions.filter((action) => action.actionType === "planning.scheduler.worker.start-next")).toHaveLength(2);
+    expect(item.actions.some((action) => action.actionType === "planning.scheduler.worker.start-next")).toBe(false);
+    expect(item.actions.filter((action) => action.actionType === "planning.scheduler.controlled-step.run")).toHaveLength(1);
     expect(item.actions.some((action) => action.actionType === "planning.goal-loop.gate.invoke")).toBe(false);
   });
 

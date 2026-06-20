@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-20T04:38:40.5440009Z",
+    "generated_at":  "2026-06-20T05:11:04.0365026Z",
     "active":  [
 
                ],
@@ -1409,6 +1409,10 @@
                     {
                         "name":  "20260620-auto-evolve-harness-workbench-test-architecture-split-window",
                         "path":  "harness/changes/archive/20260620-auto-evolve-harness-workbench-test-architecture-split-window"
+                    },
+                    {
+                        "name":  "20260620-controlled-scheduler-single-step-runner",
+                        "path":  "harness/changes/archive/20260620-controlled-scheduler-single-step-runner"
                     },
                     {
                         "name":  "20260620-maintenance-canonical-artifact-lifecycle-reuse",

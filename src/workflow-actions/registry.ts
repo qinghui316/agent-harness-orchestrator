@@ -28,6 +28,7 @@ export const WORKFLOW_ACTION_TYPES = [
   "planning.scheduler.runtime.initialize",
   "planning.scheduler.runtime.reconcile",
   "planning.scheduler.runtime.reserve-claims",
+  "planning.scheduler.controlled-step.run",
   "planning.scheduler.worker.start-first",
   "planning.scheduler.worker.start-next",
   "planning.scheduler.worker.reconcile-result",
@@ -149,6 +150,7 @@ export const LIVE_WORKFLOW_ACTION_TYPES = [
   "planning.scheduler.runtime.initialize",
   "planning.scheduler.runtime.reconcile",
   "planning.scheduler.runtime.reserve-claims",
+  "planning.scheduler.controlled-step.run",
   "planning.scheduler.worker.start-first",
   "planning.scheduler.worker.start-next",
   "planning.scheduler.worker.reconcile-result",
@@ -250,6 +252,7 @@ export const HIGH_IMPACT_WORKFLOW_ACTION_TYPES = [
   "planning.scheduler.runtime.initialize",
   "planning.scheduler.runtime.reconcile",
   "planning.scheduler.runtime.reserve-claims",
+  "planning.scheduler.controlled-step.run",
   "planning.scheduler.worker.start-first",
   "planning.scheduler.worker.start-next",
   "planning.scheduler.worker.reconcile-result",
@@ -312,6 +315,7 @@ export const REVALIDATED_WORKFLOW_ACTION_TYPES = [
   "planning.scheduler.runtime.initialize",
   "planning.scheduler.runtime.reconcile",
   "planning.scheduler.runtime.reserve-claims",
+  "planning.scheduler.controlled-step.run",
   "planning.scheduler.worker.start-first",
   "planning.scheduler.worker.start-next",
   "planning.scheduler.worker.reconcile-result",
@@ -507,6 +511,27 @@ export function validateWorkflowActionRequiredTargets(request: WorkflowActionSco
       requireOne("schedulerRunId", [request.schedulerRunId]);
       requireOne("schedulerReconcileSnapshotId", [request.schedulerReconcileSnapshotId]);
       break;
+    case "planning.scheduler.controlled-step.run": {
+      requireOne("changeId", [request.changeId]);
+      requireOne("goalLoopNextStepPacketId", [request.goalLoopNextStepPacketId]);
+      requireOne("goalLoopControllerPolicyId", [request.goalLoopControllerPolicyId]);
+      requireOne("goalLoopGateReadinessPreflightId", [request.goalLoopGateReadinessPreflightId]);
+      requireOne("goalLoopCurrentGateActionType", [request.goalLoopCurrentGateActionType]);
+      const concreteActionType = request.goalLoopCurrentGateActionType;
+      if (!concreteActionType || concreteActionType === "planning.scheduler.controlled-step.run" || concreteActionType.startsWith("planning.goal-loop.") || !concreteActionType.startsWith("planning.scheduler.")) {
+        issues.push({ actionType, label: "planning.scheduler.* concrete gate", message: "planning.scheduler.controlled-step.run requires a concrete planning.scheduler.* current gate." });
+        break;
+      }
+      issues.push(...validateWorkflowActionRequiredTargets({
+        ...request,
+        actionType: concreteActionType,
+      }).map((issue) => ({
+        ...issue,
+        actionType,
+        message: `planning.scheduler.controlled-step.run concrete gate target is incomplete: ${issue.label}.`,
+      })));
+      break;
+    }
     case "planning.scheduler.worker.start-first":
       requireOne("schedulerRunId", [request.schedulerRunId]);
       requireOne("schedulerClaimReservationId", [request.schedulerClaimReservationId]);
@@ -718,6 +743,17 @@ export function workflowActionScopePayload(request: WorkflowActionScopeCarrier, 
 }
 
 export function workflowActionTargetId(request: WorkflowActionScopeCarrier, changeId: string, result?: unknown): string {
+  if (request.actionType === "planning.scheduler.controlled-step.run") {
+    return request.goalLoopGateReadinessPreflightId
+      ?? extractString(result, "controlledStep", "goalLoopGateReadinessPreflightId")
+      ?? request.goalLoopControllerPolicyId
+      ?? extractString(result, "controlledStep", "goalLoopControllerPolicyId")
+      ?? request.goalLoopNextStepPacketId
+      ?? extractString(result, "controlledStep", "goalLoopNextStepPacketId")
+      ?? request.schedulerClaimReservationId
+      ?? request.schedulerRunId
+      ?? changeId;
+  }
   if (request.actionType === "planning.goal-loop.evaluate" || request.actionType === "planning.goal-loop.feedback.evaluate" || request.actionType === "planning.goal-loop.controller.refresh" || request.actionType === "planning.goal-loop.gate-readiness.prepare") {
     if (request.actionType === "planning.goal-loop.gate-readiness.prepare") {
       return request.goalLoopGateReadinessPreflightId

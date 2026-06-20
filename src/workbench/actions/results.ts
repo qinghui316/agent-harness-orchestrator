@@ -193,6 +193,10 @@ export function summarizeActionResult(actionType: string, result: unknown): stri
       ? `Scheduler claim reservation ${result.claimReservation.id} recorded. No execution was started.`
       : "Scheduler claim reservation recorded. No execution was started.";
   }
+  if (actionType === "planning.scheduler.controlled-step.run" && isRecord(result) && isRecord(result.controlledStep)) {
+    const nestedActionType = typeof result.controlledStep.actionType === "string" ? result.controlledStep.actionType : "the selected scheduler gate";
+    return `Controlled scheduler step executed ${nestedActionType} and stopped after one transition.`;
+  }
   if (actionType === "planning.scheduler.worker.start-first" && isRecord(result) && isRecord(result.workerStart)) {
     return typeof result.workerStart.id === "string"
       ? `Scheduler first coder worker ${result.workerStart.id} started.`
@@ -354,7 +358,9 @@ export function labelForAction(actionType: string): string {
     case "planning.scheduler.runtime.initialize": return "Scheduler runtime shell initialized";
     case "planning.scheduler.runtime.reconcile": return "Scheduler runtime reconciled";
     case "planning.scheduler.runtime.reserve-claims": return "Scheduler runtime claims reserved";
+    case "planning.scheduler.controlled-step.run": return "Controlled scheduler step executed";
     case "planning.scheduler.worker.start-first": return "Scheduler first coder worker started";
+    case "planning.scheduler.worker.start-next": return "Scheduler next coder worker started";
     case "planning.scheduler.worker.reconcile-result": return "Scheduler first coder worker result reconciled";
     case "planning.scheduler.worker.validate-first": return "Scheduler current worker validated";
     case "planning.scheduler.worker.audit-first": return "Scheduler current worker audited";

@@ -40,6 +40,7 @@ import {
   workflowActionScopesMatchStrict,
   workflowActionTargetId as buildWorkflowActionTargetId,
 } from "../../workflow-actions/registry.js";
+import { CONTROLLED_SCHEDULER_STEP_ACTION_TYPE, buildControlledSchedulerStepRequest } from "../../workflow-scheduler/controlled-step.js";
 import { readWorkflowRun } from "../../workflow-run/manager.js";
 import type { WorkbenchLiveSink, WorkbenchWorkflowActionRequest } from "../types.js";
 import { assertLatestWorkbenchActionTarget, assertPreparedWorkbenchActionTarget, assertWorkbenchActionChangeScope, assertWorkbenchActionOptionalStringTarget, assertWorkbenchActionStringArrayTarget, requireActiveChangeTarget } from "./active-target.js";
@@ -117,6 +118,12 @@ export async function auditHighImpactWorkflowAction(project: ManagedProject, cha
 }
 
 async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, changeId: string, request: WorkbenchWorkflowActionRequest): Promise<void> {
+  if (request.actionType === CONTROLLED_SCHEDULER_STEP_ACTION_TYPE) {
+    const target = await requireActiveChangeTarget(memory, changeId, "planning.scheduler.controlled-step.run");
+    const { concrete } = buildControlledSchedulerStepRequest(request);
+    await assertGoalLoopAssistedConcreteGateConfirmation(memory, target.path, changeId, concrete);
+    return;
+  }
   if (request.goalLoopGateReadinessPreflightId) {
     const target = await requireActiveChangeTarget(memory, changeId, "Goal Loop-assisted concrete gate");
     await assertGoalLoopAssistedConcreteGateConfirmation(memory, target.path, changeId, request);

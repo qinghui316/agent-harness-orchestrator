@@ -221,9 +221,11 @@ describe("workbench scheduler slow flows", () => {
       snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: prepared.topic.changeId });
       const assistedStartNextAction = snapshot.right.confirmationQueue.current
         .flatMap((item) => item.actions)
-        .find((action) => action.actionType === "planning.scheduler.worker.start-next" && action.goalLoopGateReadinessPreflightId === preflight?.id);
-      if (!assistedStartNextAction) throw new Error("Missing assisted scheduler start-next action.");
+        .find((action) => action.actionType === "planning.scheduler.controlled-step.run" && action.goalLoopGateReadinessPreflightId === preflight?.id);
+      if (!assistedStartNextAction) throw new Error("Missing controlled scheduler start-next action.");
       expect(assistedStartNextAction).toMatchObject({
+        actionType: "planning.scheduler.controlled-step.run",
+        goalLoopCurrentGateActionType: "planning.scheduler.worker.start-next",
         schedulerRunId: prepared.schedulerRun.id,
         schedulerClaimReservationId: prepared.claimReservation.id,
         reservationIntentId: startNextAction.reservationIntentId,
@@ -233,10 +235,16 @@ describe("workbench scheduler slow flows", () => {
         goalLoopGateReadinessPreflightId: preflight?.id,
       });
       expect(assistedStartNextAction).not.toHaveProperty("schedulerLoopEvidenceSnapshot");
+      expect(snapshot.right.confirmationQueue.current.flatMap((item) => item.actions).some((action) => action.actionType === "planning.scheduler.worker.start-next" && action.goalLoopGateReadinessPreflightId === preflight?.id)).toBe(false);
       expect(snapshot.right.confirmationQueue.current.flatMap((item) => item.actions).some((action) => action.actionType === "planning.goal-loop.gate.invoke")).toBe(false);
 
       const secondStartResult = await executeWorkbenchAction({ project: project(), path: getTempDir() }, { ...assistedStartNextAction, confirm: true });
-      const secondStart = (((secondStartResult.result as { result?: unknown }).result ?? secondStartResult.result) as {
+      const secondStartWorkflow = secondStartResult.result as { result?: { controlledStep?: { actionType?: string; stoppedAfterOneSchedulerTransition?: boolean }; result?: unknown } };
+      expect(secondStartWorkflow.result?.controlledStep).toMatchObject({
+        actionType: "planning.scheduler.worker.start-next",
+        stoppedAfterOneSchedulerTransition: true,
+      });
+      const secondStart = ((secondStartWorkflow.result?.result ?? secondStartWorkflow.result ?? secondStartResult.result) as {
         workerStart?: {
           id?: string;
           schedulerClaimReservationId?: string;
@@ -479,9 +487,11 @@ describe("workbench scheduler slow flows", () => {
       snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: prepared.topic.changeId });
       const assistedHandoffAction = snapshot.right.confirmationQueue.current
         .flatMap((item) => item.actions)
-        .find((action) => action.actionType === "planning.scheduler.integration-check.run" && action.goalLoopGateReadinessPreflightId === integrationPreflight?.id);
-      if (!assistedHandoffAction) throw new Error("Missing assisted scheduler IntegrationCheck action.");
+        .find((action) => action.actionType === "planning.scheduler.controlled-step.run" && action.goalLoopGateReadinessPreflightId === integrationPreflight?.id);
+      if (!assistedHandoffAction) throw new Error("Missing controlled scheduler IntegrationCheck action.");
       expect(assistedHandoffAction).toMatchObject({
+        actionType: "planning.scheduler.controlled-step.run",
+        goalLoopCurrentGateActionType: "planning.scheduler.integration-check.run",
         schedulerRunId: prepared.schedulerRun.id,
         schedulerIntegrationCandidateId: refreshedCandidate?.id,
         worktreeIds: expect.arrayContaining(refreshedCandidate?.readyWorktreeIds ?? []),
@@ -502,7 +512,12 @@ describe("workbench scheduler slow flows", () => {
       const handoffWorkflow = handoffResult.result as { status?: string; error?: string; result?: unknown };
       if (handoffWorkflow.status === "failed") throw new Error(handoffWorkflow.error ?? "handoff action failed");
       expect(handoffWorkflow).toMatchObject({ status: "completed" });
-      const handoff = (handoffWorkflow.result ?? handoffResult.result) as {
+      const controlledHandoff = handoffWorkflow.result as { controlledStep?: { actionType?: string; stoppedAfterOneSchedulerTransition?: boolean }; result?: unknown };
+      expect(controlledHandoff.controlledStep).toMatchObject({
+        actionType: "planning.scheduler.integration-check.run",
+        stoppedAfterOneSchedulerTransition: true,
+      });
+      const handoff = (controlledHandoff.result ?? controlledHandoff) as {
         handoff?: {
           id?: string;
           schedulerIntegrationCandidateId?: string;
@@ -660,9 +675,11 @@ describe("workbench scheduler slow flows", () => {
       snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: prepared.topic.changeId });
       const outcomeAction = snapshot.right.confirmationQueue.current
         .flatMap((item) => item.actions)
-        .find((action) => action.actionType === "planning.scheduler.integration-outcome.reconcile" && action.goalLoopGateReadinessPreflightId === outcomePreflight?.id);
+        .find((action) => action.actionType === "planning.scheduler.controlled-step.run" && action.goalLoopGateReadinessPreflightId === outcomePreflight?.id);
       if (!outcomeAction) throw new Error("Missing scheduler integration outcome reconcile action after existing apply.");
       expect(outcomeAction).toMatchObject({
+        actionType: "planning.scheduler.controlled-step.run",
+        goalLoopCurrentGateActionType: "planning.scheduler.integration-outcome.reconcile",
         schedulerRunId: prepared.schedulerRun.id,
         schedulerIntegrationCandidateId: refreshedCandidate?.id,
         schedulerIntegrationCheckHandoffId: handoff.handoff?.id,
@@ -694,7 +711,12 @@ describe("workbench scheduler slow flows", () => {
       const outcomeResult = await executeWorkbenchAction({ project: project(), path: getTempDir() }, { ...outcomeAction, confirm: true });
       const outcomeWorkflow = outcomeResult.result as { status?: string; error?: string; result?: unknown };
       if (outcomeWorkflow.status === "failed") throw new Error(outcomeWorkflow.error ?? "outcome action failed");
-      const outcomePayload = (outcomeWorkflow.result ?? outcomeResult.result) as {
+      const controlledOutcome = outcomeWorkflow.result as { controlledStep?: { actionType?: string; stoppedAfterOneSchedulerTransition?: boolean }; result?: unknown };
+      expect(controlledOutcome.controlledStep).toMatchObject({
+        actionType: "planning.scheduler.integration-outcome.reconcile",
+        stoppedAfterOneSchedulerTransition: true,
+      });
+      const outcomePayload = (controlledOutcome.result ?? controlledOutcome) as {
         outcome?: {
           id?: string;
           status?: string;
@@ -838,9 +860,11 @@ describe("workbench scheduler slow flows", () => {
       snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: prepared.topic.changeId });
       const completeAction = snapshot.right.confirmationQueue.current
         .flatMap((item) => item.actions)
-        .find((action) => action.actionType === "planning.scheduler.run.complete" && action.goalLoopGateReadinessPreflightId === completionPreflight?.id);
-      if (!completeAction) throw new Error("Missing assisted scheduler run completion action after scheduler outcome.");
+        .find((action) => action.actionType === "planning.scheduler.controlled-step.run" && action.goalLoopGateReadinessPreflightId === completionPreflight?.id);
+      if (!completeAction) throw new Error("Missing controlled scheduler run completion action after scheduler outcome.");
       expect(completeAction).toMatchObject({
+        actionType: "planning.scheduler.controlled-step.run",
+        goalLoopCurrentGateActionType: "planning.scheduler.run.complete",
         schedulerRunId: prepared.schedulerRun.id,
         schedulerReconcileSnapshotId: outcomePayload.outcome?.schedulerReconcileSnapshotId,
         schedulerClaimReservationId: outcomePayload.outcome?.schedulerClaimReservationId,
@@ -889,7 +913,12 @@ describe("workbench scheduler slow flows", () => {
       const completionResult = await executeWorkbenchAction({ project: project(), path: getTempDir() }, { ...completeAction, confirm: true });
       const completionWorkflow = completionResult.result as { status?: string; error?: string; result?: unknown };
       if (completionWorkflow.status === "failed") throw new Error(completionWorkflow.error ?? "completion action failed");
-      const completionPayload = (completionWorkflow.result ?? completionResult.result) as {
+      const controlledCompletion = completionWorkflow.result as { controlledStep?: { actionType?: string; stoppedAfterOneSchedulerTransition?: boolean }; result?: unknown };
+      expect(controlledCompletion.controlledStep).toMatchObject({
+        actionType: "planning.scheduler.run.complete",
+        stoppedAfterOneSchedulerTransition: true,
+      });
+      const completionPayload = (controlledCompletion.result ?? controlledCompletion) as {
         completion?: {
           id?: string;
           status?: string;
