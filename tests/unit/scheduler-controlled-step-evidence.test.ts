@@ -1,0 +1,225 @@
+import { existsSync } from "node:fs";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { recordSchedulerControlledStepEvidence } from "../../src/scheduler-runtime/controlled-step-evidence.js";
+import {
+  listSchedulerControlledStepEvidence,
+  readLatestSchedulerControlledStepEvidenceProjection,
+  readSchedulerControlledStepEvidence,
+  readSchedulerControlledStepEvidenceProjection,
+  schedulerControlledStepArtifactRefs,
+  writeSchedulerControlledStepEvidence,
+} from "../../src/scheduler-runtime/repository.js";
+import { readLatestSchedulerControlledStepEvidenceSummary } from "../../src/workbench/workflow-projection.js";
+import type { SchedulerControlledStepEvidence } from "../../src/scheduler-runtime/types.js";
+import type { ManagedProject, ResolvedMemory } from "../../src/types/index.js";
+
+describe("Scheduler controlled step evidence", () => {
+  let tempDir: string;
+  let memory: ResolvedMemory;
+  const changePath = "harness/changes/active/change-1";
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "aho-scheduler-controlled-step-"));
+    memory = {
+      memoryRoot: tempDir,
+      artifactBase: "memory-root",
+      supported: true,
+      writable: true,
+      projectId: "project-1",
+    } as ResolvedMemory;
+    await mkdir(join(tempDir, changePath), { recursive: true });
+    await writeFile(join(tempDir, changePath, "change.json"), JSON.stringify({ id: "change-1" }), "utf8");
+  });
+
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  it("writes, reads, renders, and lists scheduler-controlled step evidence scoped to a SchedulerRun", async () => {
+    const refs = schedulerControlledStepArtifactRefs(memory, changePath, "step-1", "scheduler-run-1");
+    const step = buildStep(refs.artifact, refs.markdownArtifact);
+
+    await writeSchedulerControlledStepEvidence(memory, changePath, step);
+
+    const read = await readSchedulerControlledStepEvidence(memory, changePath, "step-1", "scheduler-run-1");
+    expect(read.executedActionType).toBe("planning.scheduler.worker.start-next");
+    expect(read.forbiddenAuthority.loopAuthorized).toBe(false);
+    expect(read.forbiddenAuthority.applyAuthorized).toBe(false);
+    expect(read.humanConfirmationStillRequired).toBe(true);
+
+    const markdown = await readFile(join(tempDir, changePath, "planning", "scheduler-runs", "scheduler-run-1", "scheduler-controlled-steps", "step-1.md"), "utf8");
+    expect(markdown).toContain("One human-confirmed concrete scheduler transition completed.");
+    expect(markdown).toContain("Scheduler loop: not authorized.");
+
+    await expect(readSchedulerControlledStepEvidence(memory, changePath, "step-1", "wrong-run")).rejects.toThrow();
+    await expect(readSchedulerControlledStepEvidenceProjection(memory, changePath, "step-1", "wrong-run")).resolves.toBeNull();
+    await expect(readLatestSchedulerControlledStepEvidenceProjection(memory, changePath, "scheduler-run-1")).resolves.toMatchObject({ id: "step-1" });
+    await expect(readLatestSchedulerControlledStepEvidenceSummary(memory, changePath, "scheduler-run-1")).resolves.toMatchObject({
+      id: "step-1",
+      executedActionType: "planning.scheduler.worker.start-next",
+      postStepStatus: "next-confirmation-candidate-ready",
+      humanConfirmationStillRequired: true,
+      loopAuthorized: false,
+      wholeWaveDispatchAuthorized: false,
+      slotAllocatorAuthorized: false,
+      applyAuthorized: false,
+      closeAuthorized: false,
+    });
+    await expect(listSchedulerControlledStepEvidence(memory, changePath, "scheduler-run-1")).resolves.toHaveLength(1);
+  });
+
+  it("fails closed when the evidence change scope does not match the selected Change", async () => {
+    const refs = schedulerControlledStepArtifactRefs(memory, changePath, "step-2", "scheduler-run-1");
+    const step = { ...buildStep(refs.artifact, refs.markdownArtifact), id: "step-2", changeId: "other-change", targetScope: { actionType: "planning.scheduler.worker.start-next", changeId: "other-change", schedulerRunId: "scheduler-run-1" } };
+
+    await expect(writeSchedulerControlledStepEvidence(memory, changePath, step)).rejects.toThrow(/not scoped/);
+  });
+
+  it("does not project unscoped controlled-step evidence as the latest scoped SchedulerRun evidence", async () => {
+    const refs = schedulerControlledStepArtifactRefs(memory, changePath, "step-unscoped");
+    const step = {
+      ...buildStep(refs.artifact, refs.markdownArtifact),
+      id: "step-unscoped",
+      schedulerRunId: undefined,
+      targetScope: {
+        actionType: "planning.scheduler.worker.start-next",
+        changeId: "change-1",
+      },
+      artifactRefs: [refs.artifact, refs.markdownArtifact],
+      artifact: refs.artifact,
+      markdownArtifact: refs.markdownArtifact,
+    };
+
+    await writeSchedulerControlledStepEvidence(memory, changePath, step);
+
+    await expect(readLatestSchedulerControlledStepEvidenceSummary(memory, changePath, "scheduler-run-1")).resolves.toBeNull();
+    await expect(readLatestSchedulerControlledStepEvidenceSummary(memory, changePath)).resolves.toMatchObject({ id: "step-unscoped" });
+  });
+
+  it("fails before writing evidence when the requested SchedulerRun is missing", async () => {
+    await expect(recordSchedulerControlledStepEvidence(project(tempDir), {
+      changeId: "change-1",
+      schedulerRunId: "missing-scheduler-run",
+      executedActionType: "planning.scheduler.worker.start-next",
+      targetScope: {
+        actionType: "planning.scheduler.worker.start-next",
+        changeId: "change-1",
+        schedulerRunId: "missing-scheduler-run",
+      },
+      preStepEvidence: {
+        goalLoopDecisionId: "decision-pre",
+        goalLoopIterationId: "iteration-pre",
+        goalLoopContinuationBriefId: "brief-pre",
+        goalLoopNextStepPacketId: "packet-pre",
+        goalLoopControllerPolicyId: "controller-pre",
+        goalLoopGateReadinessPreflightId: "preflight-pre",
+      },
+      postStepHandoff: {
+        status: "needs-reevaluation",
+        stopReason: "post-step-refresh-warning",
+        executedActionType: "planning.scheduler.worker.start-next",
+        needsReevaluation: true,
+        warning: "missing run should fail before writing",
+        executionStarted: false,
+        loopAuthorized: false,
+        wholeWaveDispatchAuthorized: false,
+        slotAllocatorAuthorized: false,
+      },
+    })).rejects.toThrow();
+
+    expect(existsSync(join(tempDir, changePath, "planning", "scheduler-runs", "missing-scheduler-run", "scheduler-controlled-steps"))).toBe(false);
+  });
+});
+
+function project(path: string): ManagedProject {
+  return {
+    id: "repo",
+    name: "Repo",
+    path,
+    addedAt: new Date().toISOString(),
+    lastSeenAt: new Date().toISOString(),
+  };
+}
+
+function buildStep(artifact: string, markdownArtifact: string): SchedulerControlledStepEvidence {
+  return {
+    version: "1.0",
+    id: "step-1",
+    changeId: "change-1",
+    schedulerRunId: "scheduler-run-1",
+    status: "recorded",
+    executedActionType: "planning.scheduler.worker.start-next",
+    targetScope: {
+      actionType: "planning.scheduler.worker.start-next",
+      changeId: "change-1",
+      schedulerRunId: "scheduler-run-1",
+      schedulerClaimReservationId: "reservation-1",
+    },
+    preStepEvidence: {
+      goalLoopDecisionId: "decision-pre",
+      goalLoopIterationId: "iteration-pre",
+      goalLoopContinuationBriefId: "brief-pre",
+      goalLoopNextStepPacketId: "packet-pre",
+      goalLoopControllerPolicyId: "controller-pre",
+      goalLoopGateReadinessPreflightId: "preflight-pre",
+    },
+    postStepEvidence: {
+      goalLoopDecisionId: "decision-post",
+      goalLoopIterationId: "iteration-post",
+      goalLoopContinuationBriefId: "brief-post",
+      goalLoopNextStepPacketId: "packet-post",
+      recommendedActionType: "planning.scheduler.worker.reconcile-result",
+      continuationState: "ready-for-existing-gate",
+      goalLoopControllerPolicyId: "controller-post",
+      goalLoopGateReadinessPreflightId: "preflight-post",
+      currentGateActionType: "planning.scheduler.worker.reconcile-result",
+      executionStarted: false,
+      concreteGateInvoked: false,
+      toolPolicyAuthorizedConcreteGate: false,
+    },
+    postStepHandoff: {
+      status: "next-confirmation-candidate-ready",
+      stopReason: "one-confirmed-scheduler-transition-completed",
+      executedActionType: "planning.scheduler.worker.start-next",
+      needsReevaluation: false,
+      nextConfirmationCandidate: {
+        actionType: "planning.scheduler.worker.reconcile-result",
+        goalLoopNextStepPacketId: "packet-post",
+        goalLoopControllerPolicyId: "controller-post",
+        goalLoopGateReadinessPreflightId: "preflight-post",
+        readinessEvidencePrepared: true,
+        executionStarted: false,
+        authorizationGranted: false,
+        humanConfirmationStillRequired: true,
+      },
+      executionStarted: false,
+      loopAuthorized: false,
+      wholeWaveDispatchAuthorized: false,
+      slotAllocatorAuthorized: false,
+    },
+    executionStarted: true,
+    stoppedAfterOneSchedulerTransition: true,
+    humanConfirmationStillRequired: true,
+    sourceMutated: false,
+    forbiddenAuthority: {
+      loopAuthorized: false,
+      wholeWaveDispatchAuthorized: false,
+      slotAllocatorAuthorized: false,
+      fullParallelExecutorAuthorized: false,
+      sourceMutationAuthorized: false,
+      applyAuthorized: false,
+      closeAuthorized: false,
+      mergeAuthorized: false,
+      remoteLandingAuthorized: false,
+      harnessEvolutionAuthorized: false,
+    },
+    artifactRefs: [artifact, markdownArtifact],
+    artifact,
+    markdownArtifact,
+    createdAt: "2026-06-21T00:00:00.000Z",
+    updatedAt: "2026-06-21T00:00:00.000Z",
+  };
+}

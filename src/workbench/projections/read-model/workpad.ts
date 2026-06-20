@@ -16,6 +16,7 @@ import {
   readSchedulerClaimReservationSummary,
   readSchedulerReconcileSnapshotSummary,
   readSchedulerRuntimeSummary,
+  readLatestSchedulerControlledStepEvidenceSummary,
   readLatestSchedulerWorkerStartSummary,
   readSchedulerWorkerResultSummary,
   readSchedulerWorkerAuditSummary,
@@ -256,6 +257,7 @@ export async function buildWorkbenchWorkpad(input: {
   const scopedSchedulerLaunchPreflight = scopedSchedulerClaimReconcilePlan && schedulerLaunchPreflight?.schedulerClaimReconcilePlanId === scopedSchedulerClaimReconcilePlan.id ? schedulerLaunchPreflight : null;
   const scopedSchedulerRun = scopedSchedulerLaunchPreflight && schedulerRun?.schedulerLaunchPreflightId === scopedSchedulerLaunchPreflight.id ? schedulerRun : null;
   const schedulerRuntime = await readSchedulerRuntimeSummary(memory, selectedTopic.path, scopedSchedulerRun?.id);
+  const schedulerControlledStepEvidence = await readLatestSchedulerControlledStepEvidenceSummary(memory, selectedTopic.path, scopedSchedulerRun?.id);
   const schedulerReconcileSnapshot = await readSchedulerReconcileSnapshotSummary(memory, selectedTopic.path, scopedSchedulerRun?.id, schedulerRuntime?.lastReconcileSnapshotId);
   const schedulerClaimReservationRaw = await readSchedulerClaimReservationSummary(memory, selectedTopic.path, scopedSchedulerRun?.id, schedulerRuntime?.lastClaimReservationId);
   const schedulerLaunchConfirmed = Boolean(schedulerClaimReservationRaw && topicDecisions.some((decision) =>
@@ -332,6 +334,7 @@ export async function buildWorkbenchWorkpad(input: {
     schedulerLaunchPreflight: scopedSchedulerLaunchPreflight ?? undefined,
     schedulerRun: scopedSchedulerRun ?? undefined,
     schedulerRuntime: schedulerRuntime ?? undefined,
+    schedulerControlledStepEvidence: schedulerControlledStepEvidence ?? undefined,
     schedulerReconcileSnapshot: schedulerReconcileSnapshot ?? undefined,
     schedulerClaimReservation: schedulerClaimReservation ?? undefined,
     schedulerWorkerStart: schedulerWorkerStart ?? undefined,

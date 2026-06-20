@@ -254,6 +254,28 @@ export function SchedulerRuntimeCard({ runtime }: { runtime: NonNullable<Workpad
   );
 }
 
+export function SchedulerControlledStepEvidenceCard({ step }: { step: NonNullable<Workpad["schedulerControlledStepEvidence"]> }): ReactElement {
+  return (
+    <section className="workpad-section" data-testid="scheduler-controlled-step-evidence-card">
+      <div className="workpad-section-header">
+        <h3>受控步骤运行证据</h3>
+        <span>{humanStatus(step.status)}</span>
+      </div>
+      <p className="workpad-goal">已执行一个用户确认的 Scheduler 步骤，并在完成后停止</p>
+      <p className="workpad-note">只读 runtime evidence；不授权自动循环、批量派发、slot 分配、source apply、close、merge、远端落地或 Harness evolution。</p>
+      <div className="workpad-chip-list">
+        <span>执行：{step.executedActionType}</span>
+        <span>后续状态：{step.postStepStatus}</span>
+        {step.nextCandidateActionType ? <span>下一候选：{step.nextCandidateActionType}</span> : null}
+        <span>{step.humanConfirmationStillRequired ? "继续仍需确认" : "等待证据"}</span>
+        <span>{step.needsReevaluation ? "需要复核" : "已刷新"}</span>
+      </div>
+      {step.warning ? <p className="workpad-note">{step.warning}</p> : null}
+      {step.artifact ? <small className="artifact-link">查看证据：{artifactName(step.artifact)}</small> : null}
+    </section>
+  );
+}
+
 export function SchedulerReconcileSnapshotCard({ snapshot }: { snapshot: NonNullable<Workpad["schedulerReconcileSnapshot"]> }): ReactElement {
   return (
     <section className="workpad-section" data-testid="scheduler-reconcile-snapshot-card">

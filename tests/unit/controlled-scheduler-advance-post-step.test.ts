@@ -68,6 +68,7 @@ const mocks = vi.hoisted(() => {
     resolveTopic: vi.fn(),
     assertWorkflowActionScope: vi.fn(),
     auditHighImpactWorkflowAction: vi.fn(),
+    recordSchedulerControlledStepEvidence: vi.fn(),
   };
 });
 
@@ -105,6 +106,10 @@ vi.mock("../../src/workbench/actions/boundary.js", () => ({
 
 vi.mock("../../src/workbench/actions/visible-goal-loop-current-gate.js", () => ({
   resolveVisibleControlledSchedulerCurrentGate: mocks.resolveVisibleControlledSchedulerCurrentGate,
+}));
+
+vi.mock("../../src/scheduler-runtime/controlled-step-evidence.js", () => ({
+  recordSchedulerControlledStepEvidence: mocks.recordSchedulerControlledStepEvidence,
 }));
 
 import { buildSchedulerActionHandlers } from "../../src/workbench/actions/handlers/scheduler.js";
@@ -147,6 +152,7 @@ describe("controlled scheduler advance post-step evaluation", () => {
     mocks.resolveTopic.mockReset();
     mocks.assertWorkflowActionScope.mockReset();
     mocks.auditHighImpactWorkflowAction.mockReset();
+    mocks.recordSchedulerControlledStepEvidence.mockReset();
 
     mocks.evaluateGoalLoopDecision.mockResolvedValue({
       goalLoopDecision: { id: "goal-loop-decision-pre" },
@@ -222,6 +228,16 @@ describe("controlled scheduler advance post-step evaluation", () => {
         actionType: "planning.scheduler.worker.reconcile-result",
       },
     });
+    mocks.recordSchedulerControlledStepEvidence.mockResolvedValue({
+      schedulerControlledStepEvidence: {
+        id: "scheduler-controlled-step-1",
+        status: "recorded",
+        executedActionType: "planning.scheduler.worker.start-next",
+        humanConfirmationStillRequired: true,
+        artifact: "harness/changes/active/change-1/planning/scheduler-runs/scheduler-run-1/scheduler-controlled-steps/scheduler-controlled-step-1.json",
+        markdownArtifact: "harness/changes/active/change-1/planning/scheduler-runs/scheduler-run-1/scheduler-controlled-steps/scheduler-controlled-step-1.md",
+      },
+    });
   });
 
   it("executes one concrete scheduler transition and then records non-executing post-step readiness evidence", async () => {
@@ -240,6 +256,31 @@ describe("controlled scheduler advance post-step evaluation", () => {
     expect(mocks.compileGoalLoopControllerPolicy).toHaveBeenCalledTimes(1);
     expect(mocks.compileGoalLoopGateReadinessPreflight).toHaveBeenCalledTimes(1);
     expect(mocks.auditHighImpactWorkflowAction).toHaveBeenCalledTimes(3);
+    expect(mocks.recordSchedulerControlledStepEvidence).toHaveBeenCalledTimes(1);
+    expect(mocks.recordSchedulerControlledStepEvidence).toHaveBeenCalledWith(project, expect.objectContaining({
+      changeId: "change-1",
+      schedulerRunId: "scheduler-run-1",
+      executedActionType: "planning.scheduler.worker.start-next",
+      preStepEvidence: expect.objectContaining({
+        goalLoopDecisionId: "goal-loop-decision-pre",
+        goalLoopNextStepPacketId: "goal-loop-packet-pre",
+        goalLoopControllerPolicyId: "goal-loop-controller-pre",
+        goalLoopGateReadinessPreflightId: "goal-loop-preflight-pre",
+      }),
+      postStepGoalLoopEvaluation: expect.objectContaining({
+        goalLoopNextStepPacketId: "goal-loop-packet-post",
+      }),
+      postStepGoalLoopReadiness: expect.objectContaining({
+        goalLoopGateReadinessPreflightId: "goal-loop-preflight-post",
+      }),
+      postStepHandoff: expect.objectContaining({
+        executedActionType: "planning.scheduler.worker.start-next",
+        executionStarted: false,
+        loopAuthorized: false,
+        wholeWaveDispatchAuthorized: false,
+        slotAllocatorAuthorized: false,
+      }),
+    }));
     expect(mocks.planning.startPlanningSchedulerNextWorker.mock.invocationCallOrder[0]).toBeLessThan(
       mocks.compileGoalLoopEvaluation.mock.invocationCallOrder[0],
     );
@@ -281,6 +322,12 @@ describe("controlled scheduler advance post-step evaluation", () => {
         humanConfirmationStillRequired: true,
       },
     });
+    expect(result.schedulerControlledStepEvidence).toMatchObject({
+      id: "scheduler-controlled-step-1",
+      status: "recorded",
+      executedActionType: "planning.scheduler.worker.start-next",
+      humanConfirmationStillRequired: true,
+    });
   });
 
   it("keeps concrete transition success when post-step evidence refresh fails", async () => {
@@ -292,6 +339,14 @@ describe("controlled scheduler advance post-step evaluation", () => {
     expect(mocks.buildControlledSchedulerAdvanceStepRequest).toHaveBeenCalledTimes(1);
     expect(mocks.buildControlledSchedulerStepRequest).toHaveBeenCalledTimes(1);
     expect(mocks.auditHighImpactWorkflowAction).toHaveBeenCalledTimes(3);
+    expect(mocks.recordSchedulerControlledStepEvidence).toHaveBeenCalledTimes(1);
+    expect(mocks.recordSchedulerControlledStepEvidence).toHaveBeenCalledWith(project, expect.objectContaining({
+      postStepGoalLoopEvaluationWarning: expect.stringContaining("projection drift"),
+      postStepHandoff: expect.objectContaining({
+        status: "next-step-evaluation-failed",
+        executedActionType: "planning.scheduler.worker.start-next",
+      }),
+    }));
     expect(mocks.resolveVisibleControlledSchedulerCurrentGate).not.toHaveBeenCalled();
     expect(mocks.compileGoalLoopControllerPolicy).not.toHaveBeenCalled();
     expect(mocks.compileGoalLoopGateReadinessPreflight).not.toHaveBeenCalled();
@@ -314,6 +369,24 @@ describe("controlled scheduler advance post-step evaluation", () => {
       slotAllocatorAuthorized: false,
     });
     expect(result.postStepHandoff).not.toHaveProperty("nextConfirmationCandidate");
+  });
+
+  it("keeps concrete transition success when runtime step evidence recording fails", async () => {
+    mocks.recordSchedulerControlledStepEvidence.mockRejectedValueOnce(new Error("artifact store unavailable"));
+    const handlers = buildSchedulerActionHandlers();
+    const result = await handlers["planning.scheduler.controlled-advance.run"](project, "change-1", request, undefined) as Record<string, unknown>;
+
+    expect(mocks.planning.startPlanningSchedulerNextWorker).toHaveBeenCalledTimes(1);
+    expect(mocks.recordSchedulerControlledStepEvidence).toHaveBeenCalledTimes(1);
+    expect(result.result).toMatchObject({
+      schedulerWorkerStart: { id: "scheduler-worker-start-1" },
+    });
+    expect(result.schedulerControlledStepEvidenceWarning).toContain("artifact store unavailable");
+    expect(result.postStepHandoff).toMatchObject({
+      status: "next-confirmation-candidate-ready",
+      executedActionType: "planning.scheduler.worker.start-next",
+      executionStarted: false,
+    });
   });
 
   it("keeps post-step evaluation when visible readiness proof does not match current Workbench gate", async () => {

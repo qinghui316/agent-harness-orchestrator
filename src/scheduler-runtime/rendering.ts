@@ -1,4 +1,4 @@
-import type { SchedulerIntegrationCandidate, SchedulerIntegrationCheckHandoff, SchedulerIntegrationOutcome, SchedulerReconcileSnapshot, SchedulerRunBlockedCloseout, SchedulerRunCompletion, SchedulerRuntimeClaimReservation, SchedulerRuntimeState, SchedulerRuntimeWorkerAudit, SchedulerRuntimeWorkerResult, SchedulerRuntimeWorkerReworkAudit, SchedulerRuntimeWorkerReworkPlan, SchedulerRuntimeWorkerReworkResult, SchedulerRuntimeWorkerReworkStart, SchedulerRuntimeWorkerReworkValidation, SchedulerRuntimeWorkerStart, SchedulerRuntimeWorkerValidation } from "./types.js";
+import type { SchedulerControlledStepEvidence, SchedulerIntegrationCandidate, SchedulerIntegrationCheckHandoff, SchedulerIntegrationOutcome, SchedulerReconcileSnapshot, SchedulerRunBlockedCloseout, SchedulerRunCompletion, SchedulerRuntimeClaimReservation, SchedulerRuntimeState, SchedulerRuntimeWorkerAudit, SchedulerRuntimeWorkerResult, SchedulerRuntimeWorkerReworkAudit, SchedulerRuntimeWorkerReworkPlan, SchedulerRuntimeWorkerReworkResult, SchedulerRuntimeWorkerReworkStart, SchedulerRuntimeWorkerReworkValidation, SchedulerRuntimeWorkerStart, SchedulerRuntimeWorkerValidation } from "./types.js";
 
 export function renderSchedulerRuntimeStateMarkdown(state: SchedulerRuntimeState): string {
   const lines = [
@@ -35,6 +35,63 @@ export function renderSchedulerRuntimeStateMarkdown(state: SchedulerRuntimeState
     "## Boundary",
     "",
     "This runtime shell is not a parallel executor. It does not allocate WorkerLeases, create WorkerSessions, create TaskRuns, start agents, create worktrees, create runs, or authorize execution.",
+    "",
+  ];
+  return lines.join("\n");
+}
+
+export function renderSchedulerControlledStepEvidenceMarkdown(step: SchedulerControlledStepEvidence): string {
+  const lines = [
+    `# SchedulerControlledStepEvidence ${step.id}`,
+    "",
+    `Status: ${step.status}`,
+    `Change: ${step.changeId}`,
+    `SchedulerRun: ${step.schedulerRunId ?? "none"}`,
+    `Executed action: ${step.executedActionType}`,
+    "",
+    "## Summary",
+    "",
+    "- One human-confirmed concrete scheduler transition completed.",
+    "- The controlled advance stopped after that one transition.",
+    `- Post-step status: ${step.postStepHandoff.status}`,
+    `- Needs reevaluation: ${step.postStepHandoff.needsReevaluation ? "yes" : "no"}`,
+    `- Next candidate: ${step.postStepHandoff.nextConfirmationCandidate?.actionType ?? "none"}`,
+    `- Warning: ${step.postStepEvidence.evaluationWarning ?? step.postStepEvidence.readinessWarning ?? step.postStepHandoff.warning ?? "none"}`,
+    "",
+    "## Pre-step Evidence",
+    "",
+    `- GoalLoopDecision: ${step.preStepEvidence.goalLoopDecisionId}`,
+    `- GoalLoopIteration: ${step.preStepEvidence.goalLoopIterationId}`,
+    `- GoalLoopContinuationBrief: ${step.preStepEvidence.goalLoopContinuationBriefId}`,
+    `- GoalLoopNextStepPacket: ${step.preStepEvidence.goalLoopNextStepPacketId}`,
+    `- GoalLoopControllerPolicy: ${step.preStepEvidence.goalLoopControllerPolicyId}`,
+    `- GoalLoopGateReadinessPreflight: ${step.preStepEvidence.goalLoopGateReadinessPreflightId}`,
+    "",
+    "## Post-step Evidence",
+    "",
+    `- GoalLoopDecision: ${step.postStepEvidence.goalLoopDecisionId ?? "none"}`,
+    `- GoalLoopIteration: ${step.postStepEvidence.goalLoopIterationId ?? "none"}`,
+    `- GoalLoopContinuationBrief: ${step.postStepEvidence.goalLoopContinuationBriefId ?? "none"}`,
+    `- GoalLoopNextStepPacket: ${step.postStepEvidence.goalLoopNextStepPacketId ?? "none"}`,
+    `- Recommended action: ${step.postStepEvidence.recommendedActionType ?? "none"}`,
+    `- ControllerPolicy: ${step.postStepEvidence.goalLoopControllerPolicyId ?? "none"}`,
+    `- GateReadinessPreflight: ${step.postStepEvidence.goalLoopGateReadinessPreflightId ?? "none"}`,
+    "",
+    "## Target Scope",
+    "",
+    ...Object.entries(step.targetScope).map(([key, value]) => `- ${key}: ${Array.isArray(value) ? value.join(", ") : value}`),
+    "",
+    "## Forbidden Authority",
+    "",
+    "- Scheduler loop: not authorized.",
+    "- Whole-wave dispatch: not authorized.",
+    "- Slot allocation: not authorized.",
+    "- Full parallel executor: not authorized.",
+    "- Source mutation / apply / close / merge / remote landing / Harness evolution: not authorized.",
+    "",
+    "## Boundary",
+    "",
+    "This artifact is scheduler-runtime accounting evidence for one completed controlled Scheduler step. It does not authorize hidden continuation, a Scheduler loop, worker waves, source changes, apply, close, merge, remote landing, or Harness evolution. The next high-impact transition still requires the existing scoped human confirmation and ToolPolicy path.",
     "",
   ];
   return lines.join("\n");

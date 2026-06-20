@@ -29,9 +29,11 @@ import {
   readSchedulerRuntimeWorkerReworkStartProjection,
   readSchedulerRuntimeWorkerValidationProjection,
   findNextSchedulerReservationIntentForWorkerPaths,
+  readLatestSchedulerControlledStepEvidenceProjection,
   schedulerIntegrationCandidateNeedsRefresh,
   readSchedulerRuntimeClaimReservationProjection,
   readSchedulerRuntimeStateProjection,
+  type SchedulerControlledStepEvidence,
   type SchedulerReconcileSnapshot,
   type SchedulerRuntimeClaimReservation,
   type SchedulerIntegrationCandidate,
@@ -273,6 +275,30 @@ export interface WorkbenchSchedulerRuntimeSummary {
   lastClaimReservationSnapshotId?: string;
   artifact?: string;
   eventsArtifact?: string;
+  updatedAt: string;
+}
+
+export interface WorkbenchSchedulerControlledStepEvidenceSummary {
+  id: string;
+  changeId: string;
+  schedulerRunId?: string;
+  status: SchedulerControlledStepEvidence["status"];
+  executedActionType: string;
+  postStepStatus: string;
+  nextCandidateActionType?: string;
+  needsReevaluation: boolean;
+  humanConfirmationStillRequired: true;
+  sourceMutated: false;
+  loopAuthorized: false;
+  wholeWaveDispatchAuthorized: false;
+  slotAllocatorAuthorized: false;
+  applyAuthorized: false;
+  closeAuthorized: false;
+  mergeAuthorized: false;
+  harnessEvolutionAuthorized: false;
+  warning?: string;
+  artifact?: string;
+  markdownArtifact?: string;
   updatedAt: string;
 }
 
@@ -1079,6 +1105,19 @@ export async function readSchedulerRuntimeSummary(memory: ResolvedMemory, change
   };
 }
 
+export async function readLatestSchedulerControlledStepEvidenceSummary(
+  memory: ResolvedMemory,
+  changePath: string,
+  schedulerRunId?: string,
+): Promise<WorkbenchSchedulerControlledStepEvidenceSummary | null> {
+  const step = schedulerRunId
+    ? await readLatestSchedulerControlledStepEvidenceProjection(memory, changePath, schedulerRunId).catch(() => null)
+    : await readLatestSchedulerControlledStepEvidenceProjection(memory, changePath).catch(() => null);
+  if (!step) return null;
+  if (schedulerRunId && step.schedulerRunId && step.schedulerRunId !== schedulerRunId) return null;
+  return summarizeSchedulerControlledStepEvidence(step);
+}
+
 export async function readSchedulerClaimReservationSummary(memory: ResolvedMemory, changePath: string, schedulerRunId?: string, reservationId?: string): Promise<WorkbenchSchedulerClaimReservationSummary | null> {
   if (!schedulerRunId || !reservationId) return null;
   const reservation = await readSchedulerRuntimeClaimReservationProjection(memory, changePath, schedulerRunId, reservationId);
@@ -1756,6 +1795,32 @@ function summarizeSchedulerRunCompletion(completion: SchedulerRunCompletion): Wo
     artifact: completion.artifact,
     markdownArtifact: completion.markdownArtifact,
     updatedAt: completion.updatedAt,
+  };
+}
+
+function summarizeSchedulerControlledStepEvidence(step: SchedulerControlledStepEvidence): WorkbenchSchedulerControlledStepEvidenceSummary {
+  return {
+    id: step.id,
+    changeId: step.changeId,
+    schedulerRunId: step.schedulerRunId,
+    status: step.status,
+    executedActionType: step.executedActionType,
+    postStepStatus: step.postStepHandoff.status,
+    nextCandidateActionType: step.postStepHandoff.nextConfirmationCandidate?.actionType,
+    needsReevaluation: step.postStepHandoff.needsReevaluation,
+    humanConfirmationStillRequired: true,
+    sourceMutated: false,
+    loopAuthorized: step.forbiddenAuthority.loopAuthorized,
+    wholeWaveDispatchAuthorized: step.forbiddenAuthority.wholeWaveDispatchAuthorized,
+    slotAllocatorAuthorized: step.forbiddenAuthority.slotAllocatorAuthorized,
+    applyAuthorized: step.forbiddenAuthority.applyAuthorized,
+    closeAuthorized: step.forbiddenAuthority.closeAuthorized,
+    mergeAuthorized: step.forbiddenAuthority.mergeAuthorized,
+    harnessEvolutionAuthorized: step.forbiddenAuthority.harnessEvolutionAuthorized,
+    warning: step.postStepEvidence.evaluationWarning ?? step.postStepEvidence.readinessWarning ?? step.postStepHandoff.warning,
+    artifact: step.artifact,
+    markdownArtifact: step.markdownArtifact,
+    updatedAt: step.updatedAt,
   };
 }
 

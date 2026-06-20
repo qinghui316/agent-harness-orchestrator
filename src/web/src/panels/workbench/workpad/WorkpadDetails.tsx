@@ -32,6 +32,7 @@ import {
   SchedulerDispatchDryRunCard,
   SchedulerLaunchPreflightCard,
   SchedulerReconcileSnapshotCard,
+  SchedulerControlledStepEvidenceCard,
   SchedulerRuntimeCard,
   SchedulerIntegrationCandidateCard,
   SchedulerIntegrationCheckHandoffCard,
@@ -137,6 +138,7 @@ export function WorkpadDiagnosticDetails({
       {workpad.schedulerLaunchPreflight ? <SchedulerLaunchPreflightCard preflight={workpad.schedulerLaunchPreflight} /> : null}
       {workpad.schedulerRun ? <SchedulerRunCard run={workpad.schedulerRun} /> : null}
       {workpad.schedulerRuntime ? <SchedulerRuntimeCard runtime={workpad.schedulerRuntime} /> : null}
+      {workpad.schedulerControlledStepEvidence ? <SchedulerControlledStepEvidenceCard step={workpad.schedulerControlledStepEvidence} /> : null}
       {workpad.schedulerReconcileSnapshot ? <SchedulerReconcileSnapshotCard snapshot={workpad.schedulerReconcileSnapshot} /> : null}
       {workpad.schedulerClaimReservation ? <SchedulerClaimReservationCard reservation={workpad.schedulerClaimReservation} /> : null}
       {workpad.schedulerWorkerStart ? <SchedulerWorkerStartCard start={workpad.schedulerWorkerStart} /> : null}

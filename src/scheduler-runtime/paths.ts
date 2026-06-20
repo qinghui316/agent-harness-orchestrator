@@ -13,6 +13,19 @@ export function schedulerRuntimeEventsPath(memory: ResolvedMemory, changePath: s
   return join(schedulerRuntimeDir(memory, changePath, schedulerRunId), "scheduler-runtime-events.jsonl");
 }
 
+export function schedulerControlledStepsDir(memory: ResolvedMemory, changePath: string, schedulerRunId?: string): string {
+  if (schedulerRunId) return join(schedulerRuntimeDir(memory, changePath, schedulerRunId), "scheduler-controlled-steps");
+  return join(memory.memoryRoot, changePath, "planning", "scheduler-controlled-steps");
+}
+
+export function schedulerControlledStepPath(memory: ResolvedMemory, changePath: string, stepId: string, schedulerRunId?: string): string {
+  return join(schedulerControlledStepsDir(memory, changePath, schedulerRunId), `${stepId}.json`);
+}
+
+export function schedulerControlledStepMarkdownPath(memory: ResolvedMemory, changePath: string, stepId: string, schedulerRunId?: string): string {
+  return join(schedulerControlledStepsDir(memory, changePath, schedulerRunId), `${stepId}.md`);
+}
+
 export function schedulerReconcileSnapshotsDir(memory: ResolvedMemory, changePath: string, schedulerRunId: string): string {
   return join(schedulerRuntimeDir(memory, changePath, schedulerRunId), "scheduler-reconcile-snapshots");
 }

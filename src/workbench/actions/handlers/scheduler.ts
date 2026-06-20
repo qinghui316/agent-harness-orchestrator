@@ -35,6 +35,8 @@ import { assertWritableMemory } from "../../../memory/resolver.js";
 import type { ManagedProject } from "../../../types/index.js";
 import { buildControlledSchedulerPostStepHandoff } from "../../controlled-scheduler-handoff.js";
 import { buildControlledSchedulerAdvanceStepRequest, buildControlledSchedulerStepRequest } from "../../../workflow-scheduler/controlled-step.js";
+import { recordSchedulerControlledStepEvidence } from "../../../scheduler-runtime/controlled-step-evidence.js";
+import type { SchedulerControlledStepHandoffSummary } from "../../../scheduler-runtime/types.js";
 import { assertWorkflowActionScope, auditHighImpactWorkflowAction } from "../boundary.js";
 import { resolveVisibleControlledSchedulerCurrentGate } from "../visible-goal-loop-current-gate.js";
 import { workflowActionScopesMatchStrict, type WorkflowActionScopeCarrier } from "../../../workflow-actions/registry.js";
@@ -210,6 +212,11 @@ export function buildSchedulerActionHandlers(): Pick<WorkbenchActionHandlerMap, 
           wholeWaveDispatchAuthorized: false,
           slotAllocatorAuthorized: false,
         };
+      const postStepHandoff = buildControlledSchedulerPostStepHandoff({
+        controlledAdvance,
+        ...postStep,
+      });
+      const controlledStepEvidence = await recordControlledAdvanceRuntimeStepEvidence(project, changeId, requestedConcreteGate, controlledAdvance, postStep, postStepHandoff);
       return {
         controlledAdvance,
         goalLoopDecision: evaluation.goalLoopDecision,
@@ -219,10 +226,8 @@ export function buildSchedulerActionHandlers(): Pick<WorkbenchActionHandlerMap, 
         goalLoopControllerPolicy: controller.goalLoopControllerPolicy,
         goalLoopGateReadinessPreflight: preflight.goalLoopGateReadinessPreflight,
         ...postStep,
-        postStepHandoff: buildControlledSchedulerPostStepHandoff({
-          controlledAdvance,
-          ...postStep,
-        }),
+        postStepHandoff,
+        ...controlledStepEvidence,
         controlledStep: controlledStepPayload.controlledStep,
         result: controlledStepPayload.result,
       };
@@ -335,6 +340,88 @@ function errorMessage(error: unknown): string {
 
 function concreteGateFromRequest(request: WorkbenchWorkflowActionRequest, actionType: string, changeId: string): WorkflowActionScopeCarrier {
   return { ...request, actionType, changeId };
+}
+
+async function recordControlledAdvanceRuntimeStepEvidence(
+  project: ManagedProject,
+  changeId: string,
+  requestedConcreteGate: WorkflowActionScopeCarrier,
+  controlledAdvance: {
+    actionType: string;
+    changeId: string;
+    schedulerRunId?: string;
+    goalLoopDecisionId: string;
+    goalLoopIterationId: string;
+    goalLoopContinuationBriefId: string;
+    goalLoopNextStepPacketId: string;
+    goalLoopControllerPolicyId: string;
+    goalLoopGateReadinessPreflightId: string;
+  },
+  postStep: ControlledAdvancePostStepEvaluation | ControlledAdvancePostStepWarning,
+  postStepHandoff: ReturnType<typeof buildControlledSchedulerPostStepHandoff>,
+): Promise<Record<string, unknown>> {
+  try {
+    const recorded = await recordSchedulerControlledStepEvidence(project, {
+      changeId,
+      schedulerRunId: controlledAdvance.schedulerRunId,
+      executedActionType: controlledAdvance.actionType,
+      targetScope: requestedConcreteGate,
+      preStepEvidence: {
+        goalLoopDecisionId: controlledAdvance.goalLoopDecisionId,
+        goalLoopIterationId: controlledAdvance.goalLoopIterationId,
+        goalLoopContinuationBriefId: controlledAdvance.goalLoopContinuationBriefId,
+        goalLoopNextStepPacketId: controlledAdvance.goalLoopNextStepPacketId,
+        goalLoopControllerPolicyId: controlledAdvance.goalLoopControllerPolicyId,
+        goalLoopGateReadinessPreflightId: controlledAdvance.goalLoopGateReadinessPreflightId,
+      },
+      postStepGoalLoopEvaluation: "postStepGoalLoopEvaluation" in postStep ? postStep.postStepGoalLoopEvaluation : undefined,
+      postStepGoalLoopReadiness: "postStepGoalLoopReadiness" in postStep ? postStep.postStepGoalLoopReadiness : undefined,
+      postStepGoalLoopEvaluationWarning: "postStepGoalLoopEvaluationWarning" in postStep ? postStep.postStepGoalLoopEvaluationWarning : undefined,
+      postStepGoalLoopReadinessWarning: "postStepGoalLoopReadinessWarning" in postStep ? postStep.postStepGoalLoopReadinessWarning : undefined,
+      postStepHandoff: toSchedulerControlledStepHandoffSummary(postStepHandoff, controlledAdvance.actionType),
+    });
+    return {
+      schedulerControlledStepEvidence: {
+        id: recorded.schedulerControlledStepEvidence.id,
+        artifact: recorded.schedulerControlledStepEvidence.artifact,
+        markdownArtifact: recorded.schedulerControlledStepEvidence.markdownArtifact,
+        status: recorded.schedulerControlledStepEvidence.status,
+        executedActionType: recorded.schedulerControlledStepEvidence.executedActionType,
+        humanConfirmationStillRequired: recorded.schedulerControlledStepEvidence.humanConfirmationStillRequired,
+      },
+    };
+  } catch (error) {
+    return {
+      schedulerControlledStepEvidenceWarning: `Controlled scheduler runtime step evidence was not recorded after the scheduler transition succeeded: ${errorMessage(error)}`,
+    };
+  }
+}
+
+function toSchedulerControlledStepHandoffSummary(
+  handoff: ReturnType<typeof buildControlledSchedulerPostStepHandoff>,
+  executedActionType: string,
+): SchedulerControlledStepHandoffSummary {
+  return {
+    status: handoff.status,
+    stopReason: handoff.stopReason,
+    executedActionType: handoff.executedActionType ?? executedActionType,
+    needsReevaluation: handoff.needsReevaluation,
+    warning: handoff.warning,
+    nextConfirmationCandidate: handoff.nextConfirmationCandidate?.actionType ? {
+      actionType: handoff.nextConfirmationCandidate.actionType,
+      goalLoopNextStepPacketId: handoff.nextConfirmationCandidate.goalLoopNextStepPacketId,
+      goalLoopControllerPolicyId: handoff.nextConfirmationCandidate.goalLoopControllerPolicyId,
+      goalLoopGateReadinessPreflightId: handoff.nextConfirmationCandidate.goalLoopGateReadinessPreflightId,
+      readinessEvidencePrepared: handoff.nextConfirmationCandidate.readinessEvidencePrepared,
+      executionStarted: false,
+      authorizationGranted: false,
+      humanConfirmationStillRequired: true,
+    } : undefined,
+    executionStarted: false,
+    loopAuthorized: false,
+    wholeWaveDispatchAuthorized: false,
+    slotAllocatorAuthorized: false,
+  };
 }
 
 function assertFreshGateMatchesRequest(

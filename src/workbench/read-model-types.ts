@@ -32,6 +32,7 @@ import type {
   WorkbenchSchedulerIntegrationOutcomeSummary,
   WorkbenchSchedulerRunCompletionSummary,
   WorkbenchSchedulerRunBlockedCloseoutSummary,
+  WorkbenchSchedulerControlledStepEvidenceSummary,
   WorkbenchSchedulerReconcileSnapshotSummary,
   WorkbenchSchedulerRunSummary,
   WorkbenchSchedulerRuntimeSummary,
@@ -845,6 +846,7 @@ export interface WorkbenchWorkpad {
   schedulerLaunchPreflight?: WorkbenchSchedulerLaunchPreflightSummary;
   schedulerRun?: WorkbenchSchedulerRunSummary;
   schedulerRuntime?: WorkbenchSchedulerRuntimeSummary;
+  schedulerControlledStepEvidence?: WorkbenchSchedulerControlledStepEvidenceSummary;
   schedulerReconcileSnapshot?: WorkbenchSchedulerReconcileSnapshotSummary;
   schedulerClaimReservation?: WorkbenchSchedulerClaimReservationSummary;
   schedulerWorkerStart?: WorkbenchSchedulerWorkerStartSummary;

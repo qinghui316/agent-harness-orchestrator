@@ -1033,6 +1033,64 @@ describe("Workbench web app", () => {
     expect(normalizedCardText).not.toContain("whole-wave");
   });
 
+  it("renders scheduler controlled step runtime evidence in Workpad as read-only", async () => {
+    const controlledStepSnapshot = {
+      ...snapshot,
+      center: {
+        ...snapshot.center,
+        workpad: {
+          ...snapshot.center.workpad,
+          schedulerControlledStepEvidence: {
+            id: "scheduler-controlled-step-1",
+            changeId: "member-discount",
+            schedulerRunId: "scheduler-run-1",
+            status: "recorded",
+            executedActionType: "planning.scheduler.worker.start-next",
+            postStepStatus: "next-confirmation-candidate-ready",
+            nextCandidateActionType: "planning.scheduler.worker.reconcile-result",
+            needsReevaluation: false,
+            humanConfirmationStillRequired: true,
+            sourceMutated: false,
+            loopAuthorized: false,
+            wholeWaveDispatchAuthorized: false,
+            slotAllocatorAuthorized: false,
+            applyAuthorized: false,
+            closeAuthorized: false,
+            mergeAuthorized: false,
+            harnessEvolutionAuthorized: false,
+            artifact: "harness/changes/active/member-discount/planning/scheduler-runs/scheduler-run-1/scheduler-controlled-steps/scheduler-controlled-step-1.json",
+            markdownArtifact: "harness/changes/active/member-discount/planning/scheduler-runs/scheduler-run-1/scheduler-controlled-steps/scheduler-controlled-step-1.md",
+            updatedAt: "2026-06-21T00:00:00.000Z",
+          },
+        },
+      },
+    };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
+      if (url === "/api/projects") return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
+      if (url.includes("/workbench/projections/transcript/")) return jsonResponse(controlledStepSnapshot.center.parentAgentTranscript);
+      if (url.includes("/workbench/projections/run-graph/")) return jsonResponse(controlledStepSnapshot.center.agentRunGraph);
+      return jsonResponse(url.includes("/stream/") ? stream : controlledStepSnapshot);
+    }));
+
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("tab", { name: "工作台" }));
+    fireEvent.click(screen.getByText("查看详情与证据"));
+    const card = await screen.findByTestId("scheduler-controlled-step-evidence-card");
+    expect(within(card).getByText("受控步骤运行证据")).toBeTruthy();
+    expect(within(card).getByText("已执行一个用户确认的 Scheduler 步骤，并在完成后停止")).toBeTruthy();
+    expect(within(card).getByText("只读 runtime evidence；不授权自动循环、批量派发、slot 分配、source apply、close、merge、远端落地或 Harness evolution。")).toBeTruthy();
+    expect(within(card).getByText("执行：planning.scheduler.worker.start-next")).toBeTruthy();
+    expect(within(card).getByText("后续状态：next-confirmation-candidate-ready")).toBeTruthy();
+    expect(within(card).getByText("下一候选：planning.scheduler.worker.reconcile-result")).toBeTruthy();
+    expect(within(card).getByText("继续仍需确认")).toBeTruthy();
+    expect(within(card).getByText("已刷新")).toBeTruthy();
+    expect(within(card).getByText("查看证据：scheduler-controlled-step-1.json")).toBeTruthy();
+    expect(within(card).queryByRole("button")).toBeNull();
+  });
+
   it("submits project-scoped maintenance patch gates through the non-live action endpoint", async () => {
     const maintenanceSnapshot = {
       ...snapshot,

@@ -486,6 +486,7 @@ export type Workpad = {
   schedulerLaunchPreflight?: SchedulerLaunchPreflightSummary;
   schedulerRun?: SchedulerRunSummary;
   schedulerRuntime?: SchedulerRuntimeSummary;
+  schedulerControlledStepEvidence?: SchedulerControlledStepEvidenceSummary;
   schedulerReconcileSnapshot?: SchedulerReconcileSnapshotSummary;
   schedulerClaimReservation?: SchedulerClaimReservationSummary;
   schedulerWorkerStart?: SchedulerWorkerStartSummary;
@@ -1268,6 +1269,29 @@ export type SchedulerRunBlockedCloseoutSummary = {
   unstartedReservedIntentIds: string[];
   sourceMutated: boolean;
   executionStarted: boolean;
+  artifact?: string;
+  markdownArtifact?: string;
+  updatedAt: string;
+};
+export type SchedulerControlledStepEvidenceSummary = {
+  id: string;
+  changeId: string;
+  schedulerRunId?: string;
+  status: "recorded" | "recorded-with-warning";
+  executedActionType: string;
+  postStepStatus: string;
+  nextCandidateActionType?: string;
+  needsReevaluation: boolean;
+  humanConfirmationStillRequired: true;
+  sourceMutated: false;
+  loopAuthorized: false;
+  wholeWaveDispatchAuthorized: false;
+  slotAllocatorAuthorized: false;
+  applyAuthorized: false;
+  closeAuthorized: false;
+  mergeAuthorized: false;
+  harnessEvolutionAuthorized: false;
+  warning?: string;
   artifact?: string;
   markdownArtifact?: string;
   updatedAt: string;

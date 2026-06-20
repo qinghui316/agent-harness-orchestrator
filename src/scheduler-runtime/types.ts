@@ -35,6 +35,7 @@ export type SchedulerRuntimeEventType =
   | "scheduler-runtime.integration-candidate-compiled"
   | "scheduler-runtime.integration-check-handoff-completed"
   | "scheduler-runtime.integration-outcome-recorded"
+  | "scheduler-runtime.controlled-step-recorded"
   | "scheduler-runtime.run-completed"
   | "scheduler-runtime.run-closeout-recorded";
 export type SchedulerReconcileSnapshotStatus = "generated" | "blocked";
@@ -56,6 +57,7 @@ export type SchedulerIntegrationOutcomeStatus = "applied" | "discarded" | "block
 export type SchedulerRunCompletionStatus = "completed-applied" | "completed-discarded" | "completed-blocked";
 export type SchedulerRunBlockedCloseoutStatus = "blocked" | "exhausted" | "stopped";
 export type SchedulerRunBlockedCloseoutReason = "candidate-waiting-exhausted" | "candidate-blocked" | "candidate-inconsistent" | "user-stopped";
+export type SchedulerControlledStepEvidenceStatus = "recorded" | "recorded-with-warning";
 
 export interface SchedulerRuntimeClaimIntentState {
   claimIntentId: string;
@@ -120,6 +122,93 @@ export interface SchedulerRuntimeEvent {
   summary?: string;
   artifactRefs?: string[];
   payload?: Record<string, unknown>;
+}
+
+export interface SchedulerControlledStepForbiddenAuthority {
+  loopAuthorized: false;
+  wholeWaveDispatchAuthorized: false;
+  slotAllocatorAuthorized: false;
+  fullParallelExecutorAuthorized: false;
+  sourceMutationAuthorized: false;
+  applyAuthorized: false;
+  closeAuthorized: false;
+  mergeAuthorized: false;
+  remoteLandingAuthorized: false;
+  harnessEvolutionAuthorized: false;
+}
+
+export interface SchedulerControlledStepPreStepEvidence {
+  goalLoopDecisionId: string;
+  goalLoopIterationId: string;
+  goalLoopContinuationBriefId: string;
+  goalLoopNextStepPacketId: string;
+  goalLoopControllerPolicyId: string;
+  goalLoopGateReadinessPreflightId: string;
+}
+
+export interface SchedulerControlledStepPostStepEvidence {
+  goalLoopDecisionId?: string;
+  goalLoopIterationId?: string;
+  goalLoopContinuationBriefId?: string;
+  goalLoopNextStepPacketId?: string;
+  recommendedActionType?: string;
+  continuationState?: string;
+  goalLoopControllerPolicyId?: string;
+  goalLoopGateReadinessPreflightId?: string;
+  currentGateActionType?: string;
+  evaluationWarning?: string;
+  readinessWarning?: string;
+  executionStarted: false;
+  concreteGateInvoked: false;
+  toolPolicyAuthorizedConcreteGate: false;
+}
+
+export interface SchedulerControlledStepNextCandidate {
+  actionType: string;
+  goalLoopNextStepPacketId?: string;
+  goalLoopControllerPolicyId?: string;
+  goalLoopGateReadinessPreflightId?: string;
+  readinessEvidencePrepared: boolean;
+  executionStarted: false;
+  authorizationGranted: false;
+  humanConfirmationStillRequired: true;
+}
+
+export interface SchedulerControlledStepHandoffSummary {
+  status: string;
+  stopReason: string;
+  executedActionType: string;
+  needsReevaluation: boolean;
+  warning?: string;
+  nextConfirmationCandidate?: SchedulerControlledStepNextCandidate;
+  executionStarted: false;
+  loopAuthorized: false;
+  wholeWaveDispatchAuthorized: false;
+  slotAllocatorAuthorized: false;
+}
+
+export interface SchedulerControlledStepEvidence {
+  version: "1.0";
+  id: string;
+  changeId: string;
+  schedulerRunId?: string;
+  status: SchedulerControlledStepEvidenceStatus;
+  executedActionType: string;
+  targetScope: Record<string, string | string[]>;
+  preStepEvidence: SchedulerControlledStepPreStepEvidence;
+  postStepEvidence: SchedulerControlledStepPostStepEvidence;
+  postStepHandoff: SchedulerControlledStepHandoffSummary;
+  controlledStepResultSummary?: Record<string, string | number | boolean | string[] | null>;
+  executionStarted: true;
+  stoppedAfterOneSchedulerTransition: true;
+  humanConfirmationStillRequired: true;
+  sourceMutated: false;
+  forbiddenAuthority: SchedulerControlledStepForbiddenAuthority;
+  artifactRefs: string[];
+  artifact: string;
+  markdownArtifact: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface SchedulerReconcileSnapshot {

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { SchedulerIntegrationCandidate, SchedulerIntegrationCheckHandoff, SchedulerIntegrationOutcome, SchedulerReconcileSnapshot, SchedulerRunBlockedCloseout, SchedulerRunCompletion, SchedulerRuntimeClaimReservation, SchedulerRuntimeEvent, SchedulerRuntimeState, SchedulerRuntimeWorkerAudit, SchedulerRuntimeWorkerResult, SchedulerRuntimeWorkerReworkAudit, SchedulerRuntimeWorkerReworkPlan, SchedulerRuntimeWorkerReworkResult, SchedulerRuntimeWorkerReworkStart, SchedulerRuntimeWorkerReworkValidation, SchedulerRuntimeWorkerStart, SchedulerRuntimeWorkerValidation } from "./types.js";
+import type { SchedulerControlledStepEvidence, SchedulerIntegrationCandidate, SchedulerIntegrationCheckHandoff, SchedulerIntegrationOutcome, SchedulerReconcileSnapshot, SchedulerRunBlockedCloseout, SchedulerRunCompletion, SchedulerRuntimeClaimReservation, SchedulerRuntimeEvent, SchedulerRuntimeState, SchedulerRuntimeWorkerAudit, SchedulerRuntimeWorkerResult, SchedulerRuntimeWorkerReworkAudit, SchedulerRuntimeWorkerReworkPlan, SchedulerRuntimeWorkerReworkResult, SchedulerRuntimeWorkerReworkStart, SchedulerRuntimeWorkerReworkValidation, SchedulerRuntimeWorkerStart, SchedulerRuntimeWorkerValidation } from "./types.js";
 
 const claimIntentStateSchema = z.object({
   claimIntentId: z.string(),
@@ -95,6 +95,95 @@ export const schedulerRuntimeEventSchema: z.ZodType<SchedulerRuntimeEvent> = z.o
   summary: z.string().optional(),
   artifactRefs: z.array(z.string()).optional(),
   payload: z.record(z.unknown()).optional(),
+});
+
+const controlledStepScopeValueSchema = z.union([z.string(), z.array(z.string())]);
+
+const schedulerControlledStepForbiddenAuthoritySchema = z.object({
+  loopAuthorized: z.literal(false),
+  wholeWaveDispatchAuthorized: z.literal(false),
+  slotAllocatorAuthorized: z.literal(false),
+  fullParallelExecutorAuthorized: z.literal(false),
+  sourceMutationAuthorized: z.literal(false),
+  applyAuthorized: z.literal(false),
+  closeAuthorized: z.literal(false),
+  mergeAuthorized: z.literal(false),
+  remoteLandingAuthorized: z.literal(false),
+  harnessEvolutionAuthorized: z.literal(false),
+});
+
+const schedulerControlledStepPreStepEvidenceSchema = z.object({
+  goalLoopDecisionId: z.string(),
+  goalLoopIterationId: z.string(),
+  goalLoopContinuationBriefId: z.string(),
+  goalLoopNextStepPacketId: z.string(),
+  goalLoopControllerPolicyId: z.string(),
+  goalLoopGateReadinessPreflightId: z.string(),
+});
+
+const schedulerControlledStepPostStepEvidenceSchema = z.object({
+  goalLoopDecisionId: z.string().optional(),
+  goalLoopIterationId: z.string().optional(),
+  goalLoopContinuationBriefId: z.string().optional(),
+  goalLoopNextStepPacketId: z.string().optional(),
+  recommendedActionType: z.string().optional(),
+  continuationState: z.string().optional(),
+  goalLoopControllerPolicyId: z.string().optional(),
+  goalLoopGateReadinessPreflightId: z.string().optional(),
+  currentGateActionType: z.string().optional(),
+  evaluationWarning: z.string().optional(),
+  readinessWarning: z.string().optional(),
+  executionStarted: z.literal(false),
+  concreteGateInvoked: z.literal(false),
+  toolPolicyAuthorizedConcreteGate: z.literal(false),
+});
+
+const schedulerControlledStepNextCandidateSchema = z.object({
+  actionType: z.string(),
+  goalLoopNextStepPacketId: z.string().optional(),
+  goalLoopControllerPolicyId: z.string().optional(),
+  goalLoopGateReadinessPreflightId: z.string().optional(),
+  readinessEvidencePrepared: z.boolean(),
+  executionStarted: z.literal(false),
+  authorizationGranted: z.literal(false),
+  humanConfirmationStillRequired: z.literal(true),
+});
+
+const schedulerControlledStepHandoffSummarySchema = z.object({
+  status: z.string(),
+  stopReason: z.string(),
+  executedActionType: z.string(),
+  needsReevaluation: z.boolean(),
+  warning: z.string().optional(),
+  nextConfirmationCandidate: schedulerControlledStepNextCandidateSchema.optional(),
+  executionStarted: z.literal(false),
+  loopAuthorized: z.literal(false),
+  wholeWaveDispatchAuthorized: z.literal(false),
+  slotAllocatorAuthorized: z.literal(false),
+});
+
+export const schedulerControlledStepEvidenceSchema: z.ZodType<SchedulerControlledStepEvidence> = z.object({
+  version: z.literal("1.0"),
+  id: z.string(),
+  changeId: z.string(),
+  schedulerRunId: z.string().optional(),
+  status: z.enum(["recorded", "recorded-with-warning"]),
+  executedActionType: z.string(),
+  targetScope: z.record(controlledStepScopeValueSchema),
+  preStepEvidence: schedulerControlledStepPreStepEvidenceSchema,
+  postStepEvidence: schedulerControlledStepPostStepEvidenceSchema,
+  postStepHandoff: schedulerControlledStepHandoffSummarySchema,
+  controlledStepResultSummary: z.record(z.union([z.string(), z.number(), z.boolean(), z.array(z.string()), z.null()])).optional(),
+  executionStarted: z.literal(true),
+  stoppedAfterOneSchedulerTransition: z.literal(true),
+  humanConfirmationStillRequired: z.literal(true),
+  sourceMutated: z.literal(false),
+  forbiddenAuthority: schedulerControlledStepForbiddenAuthoritySchema,
+  artifactRefs: z.array(z.string()),
+  artifact: z.string(),
+  markdownArtifact: z.string(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
 });
 
 export const schedulerReconcileSnapshotSchema: z.ZodType<SchedulerReconcileSnapshot> = z.object({
