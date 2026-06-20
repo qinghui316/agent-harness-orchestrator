@@ -529,6 +529,69 @@ describe("Workbench web app", () => {
     expect(timelineText).not.toContain("preflight id");
   });
 
+  it("renders refreshed controlled scheduler reconfirmation copy in the right confirmation card", async () => {
+    const reconfirmItem = {
+      id: "confirm:controlled-advance:member-discount",
+      kind: "planning-confirm",
+      conversationId: "member-discount",
+      changeId: "member-discount",
+      summary: "当前下一步判断和步骤检查已刷新；这次仍是新的单步确认。",
+      whyNeedsConfirmation: "需要你再次确认当前页面显示的这一步；这不是自动继续。",
+      confirmEffect: "服务端会重新读取当前状态，重新匹配目标和权限；匹配后只执行一个当前合法步骤。",
+      riskSummary: "确认后仍会立即停止；不会自动循环、批量派发、组合检查后的应用、关闭、远端落地或维护演进。",
+      evidenceRefs: [],
+      actions: [{
+        id: "workflow:planning.scheduler.controlled-advance.run:member-discount:planning.scheduler.worker.start-next:claim-reservation-expected",
+        label: "按当前建议继续一个受控步骤",
+        kind: "workflow-action",
+        actionType: "planning.scheduler.controlled-advance.run",
+        changeId: "member-discount",
+        schedulerRunId: "scheduler-run-1",
+        schedulerClaimReservationId: "claim-reservation-expected",
+        reservationIntentId: "reservation-intent-2",
+        claimIntentId: "claim-2",
+        goalLoopCurrentGateActionType: "planning.scheduler.worker.start-next",
+        enabled: true,
+        requiresConfirmation: true,
+      }],
+      primary: true,
+      status: "pending",
+    };
+    const uiSnapshot = {
+      ...snapshot,
+      right: {
+        ...snapshot.right,
+        confirmationQueue: {
+          ...snapshot.right.confirmationQueue,
+          primary: reconfirmItem,
+          current: [reconfirmItem],
+        },
+      },
+    };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
+      if (url === "/api/projects") return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
+      if (url.includes("/workbench/projections/transcript/")) return jsonResponse(snapshot.center.parentAgentTranscript);
+      if (url.includes("/workbench/projections/run-graph/")) return jsonResponse(snapshot.center.agentRunGraph);
+      return jsonResponse(url.includes("/stream/") ? stream : uiSnapshot);
+    }));
+
+    render(<App />);
+
+    const card = await screen.findByTestId("decision-inspector-primary");
+    expect(within(card).getByText("需要你再次确认当前页面显示的这一步；这不是自动继续。")).toBeTruthy();
+    expect(within(card).getByText("当前下一步判断和步骤检查已刷新；这次仍是新的单步确认。")).toBeTruthy();
+    expect(within(card).getByText("服务端会重新读取当前状态，重新匹配目标和权限；匹配后只执行一个当前合法步骤。")).toBeTruthy();
+    expect(within(card).getByText("确认后仍会立即停止；不会自动循环、批量派发、组合检查后的应用、关闭、远端落地或维护演进。")).toBeTruthy();
+    expect(within(card).getByRole("button", { name: "按当前建议继续一个受控步骤" })).toBeTruthy();
+    const cardText = card.textContent ?? "";
+    expect(cardText).not.toContain("上一个受控步骤");
+    expect(cardText).not.toContain("自动应用");
+    expect(cardText).not.toContain("自动关闭");
+    expect(cardText).not.toContain("合并全部");
+  });
+
   it("submits project-scoped maintenance patch gates through the non-live action endpoint", async () => {
     const maintenanceSnapshot = {
       ...snapshot,

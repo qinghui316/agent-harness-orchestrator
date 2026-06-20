@@ -9,7 +9,7 @@ import { buildSchedulerTerminalHandoffContext } from "../../src/workbench/codex-
 import { buildGoalLoopContextPreparedEvidence, goalLoopPromptStackLabels } from "../../src/workbench/codex-chat/goal-loop-prompt-evidence.js";
 import { getWorkbenchSnapshot } from "../../src/workbench/manager.js";
 import { attachControlledSchedulerAdvanceActions, attachGoalLoopAssistedConcreteGateActions, attachGoalLoopControllerRefreshActions, attachGoalLoopFeedbackActions, attachGoalLoopGateReadinessActions } from "../../src/workbench/projections/read-model/confirmation/goal-loop.js";
-import { schedulerUserFacingActionCopy } from "../../src/workbench/projections/read-model/confirmation/scheduler-user-surface.js";
+import { schedulerControlledAdvanceReconfirmCopy, schedulerUserFacingActionCopy } from "../../src/workbench/projections/read-model/confirmation/scheduler-user-surface.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import { listWorktreeStatuses } from "../../src/worktree/manager.js";
 import { listIntegrationChecks } from "../../src/integration-check/manager.js";
@@ -601,6 +601,102 @@ describe("workbench Goal Loop surface", () => {
     ]));
     expect(item.actions.some((action) => action.actionType === "planning.scheduler.worker.start-next")).toBe(false);
     const advance = item.actions.find((action) => action.actionType === "planning.scheduler.controlled-advance.run");
+    expect(advance?.goalLoopNextStepPacketId).toBeUndefined();
+    expect(advance?.goalLoopControllerPolicyId).toBeUndefined();
+    expect(advance?.goalLoopGateReadinessPreflightId).toBeUndefined();
+    expect(item.actions.filter((action) => action.actionType === "planning.scheduler.controlled-advance.run")).toHaveLength(1);
+  });
+
+  it("uses refreshed reconfirmation copy for controlled scheduler advance when current gate readiness matches", async () => {
+    const currentGate = {
+      id: "confirm:scheduler-worker-next:member-discount",
+      kind: "planning-confirm",
+      conversationId: "member-discount",
+      changeId: "member-discount",
+      schedulerRunId: "scheduler-run-1",
+      schedulerClaimReservationId: "claim-reservation-expected",
+      reservationIntentId: "reservation-intent-2",
+      claimIntentId: "claim-2",
+      summary: "启动下一个 worker。",
+      whyNeedsConfirmation: "这是当前可见 Harness gate。",
+      confirmEffect: "只启动指定 next worker。",
+      riskSummary: "不会自动启动后续 validation/audit。",
+      evidenceRefs: [],
+      actions: [{
+        id: "workflow:planning.scheduler.worker.start-next:member-discount",
+        label: "启动下一个 worker",
+        kind: "workflow-action",
+        actionType: "planning.scheduler.worker.start-next",
+        changeId: "member-discount",
+        schedulerRunId: "scheduler-run-1",
+        schedulerClaimReservationId: "claim-reservation-expected",
+        reservationIntentId: "reservation-intent-2",
+        claimIntentId: "claim-2",
+        enabled: true,
+        requiresConfirmation: true,
+        goalLoopNextStepPacketId: "packet-old",
+        goalLoopControllerPolicyId: "policy-old",
+        goalLoopGateReadinessPreflightId: "preflight-old",
+      }],
+      primary: true,
+      status: "pending",
+    } as const;
+    const workpad = {
+      nextAction: {
+        kind: "workflow-action",
+        actionType: "planning.scheduler.worker.start-next",
+        changeId: "member-discount",
+        schedulerRunId: "scheduler-run-1",
+        schedulerClaimReservationId: "claim-reservation-expected",
+        reservationIntentId: "reservation-intent-2",
+        claimIntentId: "claim-2",
+      },
+      goalLoop: {
+        id: "brief-1",
+        changeId: "member-discount",
+        goalLoopDecisionId: "decision-1",
+        goalLoopIterationId: "iteration-1",
+        goalLoopNextStepPacketId: "packet-1",
+        controllerPolicyId: "policy-1",
+        gateReadinessPreflightId: "preflight-1",
+        controllerVerdict: "recommend-existing-gate",
+        controllerGateStatus: "matches-current-gate",
+        recommendedActionType: "planning.scheduler.worker.start-next",
+        recommendedActionScope: {
+          changeId: "member-discount",
+          schedulerRunId: "scheduler-run-1",
+          schedulerClaimReservationId: "claim-reservation-expected",
+          reservationIntentId: "reservation-intent-2",
+          claimIntentId: "claim-2",
+        },
+      },
+    } as unknown as NonNullable<Parameters<typeof attachControlledSchedulerAdvanceActions>[1]>;
+
+    const [item] = attachControlledSchedulerAdvanceActions([currentGate], workpad);
+    const reconfirmCopy = schedulerControlledAdvanceReconfirmCopy();
+
+    expect(item).toMatchObject({
+      summary: reconfirmCopy.summary,
+      whyNeedsConfirmation: reconfirmCopy.whyNeedsConfirmation,
+      confirmEffect: reconfirmCopy.confirmEffect,
+      riskSummary: reconfirmCopy.riskSummary,
+    });
+    expect(item.summary).toContain("已刷新");
+    expect(item.summary).toContain("新的单步确认");
+    expect(item.whyNeedsConfirmation).toContain("不是自动继续");
+    expect(item.summary).not.toContain("上一个受控步骤");
+    expect(item.actions.some((action) => action.actionType === "planning.scheduler.worker.start-next")).toBe(false);
+    const advance = item.actions.find((action) => action.actionType === "planning.scheduler.controlled-advance.run");
+    expect(advance).toMatchObject({
+      label: reconfirmCopy.label,
+      changeId: "member-discount",
+      schedulerRunId: "scheduler-run-1",
+      schedulerClaimReservationId: "claim-reservation-expected",
+      reservationIntentId: "reservation-intent-2",
+      claimIntentId: "claim-2",
+      goalLoopCurrentGateActionType: "planning.scheduler.worker.start-next",
+      requiresConfirmation: true,
+    });
     expect(advance?.goalLoopNextStepPacketId).toBeUndefined();
     expect(advance?.goalLoopControllerPolicyId).toBeUndefined();
     expect(advance?.goalLoopGateReadinessPreflightId).toBeUndefined();

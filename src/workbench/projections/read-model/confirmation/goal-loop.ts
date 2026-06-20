@@ -2,7 +2,7 @@ import type { ManagedProject } from "../../../../types/index.js";
 import { WORKFLOW_ACTION_SCOPE_KEYS } from "../../../../workflow-actions/registry.js";
 import { CONTROLLED_SCHEDULER_ADVANCE_ACTION_TYPE, CONTROLLED_SCHEDULER_STEP_ACTION_TYPE, isControlledSchedulerConcreteAction } from "../../../../workflow-scheduler/controlled-step.js";
 import type { WorkbenchConfirmationQueueItem, WorkbenchDecisionAction, WorkbenchTopicDetail, WorkbenchWorkpad } from "../../../read-model-types.js";
-import { schedulerUserFacingActionCopy } from "./scheduler-user-surface.js";
+import { schedulerControlledAdvanceReconfirmCopy, schedulerUserFacingActionCopy } from "./scheduler-user-surface.js";
 
 type ScopeValue = string | string[] | undefined;
 const CURRENT_GATE_SCOPE_KEYS = WORKFLOW_ACTION_SCOPE_KEYS.filter((key) => !key.startsWith("goalLoop"));
@@ -131,10 +131,12 @@ export function attachGoalLoopAssistedConcreteGateActions(
 
 export function attachControlledSchedulerAdvanceActions(
   items: WorkbenchConfirmationQueueItem[],
+  workpad?: WorkbenchWorkpad,
 ): WorkbenchConfirmationQueueItem[] {
   return items.map((item) => {
-    const advanceActions = item.actions
-      .filter((action) => action.kind === "workflow-action" && action.enabled && isSchedulerAdvanceSourceAction(action))
+    const sourceActions = item.actions
+      .filter((action) => action.kind === "workflow-action" && action.enabled && isSchedulerAdvanceSourceAction(action));
+    const advanceActions = sourceActions
       .map((action) => controlledSchedulerAdvanceAction(action));
     if (advanceActions.length === 0) return item;
     const seenAdvanceIds = new Set<string>();
@@ -143,7 +145,9 @@ export function attachControlledSchedulerAdvanceActions(
       seenAdvanceIds.add(action.id);
       return true;
     });
-    const advanceCopy = schedulerUserFacingActionCopy(CONTROLLED_SCHEDULER_ADVANCE_ACTION_TYPE);
+    const advanceCopy = hasRefreshedControlledSchedulerReconfirmEvidence(item, sourceActions, workpad)
+      ? schedulerControlledAdvanceReconfirmCopy()
+      : schedulerUserFacingActionCopy(CONTROLLED_SCHEDULER_ADVANCE_ACTION_TYPE);
     return {
       ...item,
       summary: advanceCopy.summary,
@@ -156,6 +160,24 @@ export function attachControlledSchedulerAdvanceActions(
       ],
     };
   });
+}
+
+function hasRefreshedControlledSchedulerReconfirmEvidence(
+  item: WorkbenchConfirmationQueueItem,
+  sourceActions: WorkbenchDecisionAction[],
+  workpad: WorkbenchWorkpad | undefined,
+): boolean {
+  if (!workpad) return false;
+  const goalLoop = workpad?.goalLoop;
+  if (!goalLoop?.gateReadinessPreflightId || !goalLoop.controllerPolicyId) return false;
+  if (goalLoop.controllerVerdict !== "recommend-existing-gate" || goalLoop.controllerGateStatus !== "matches-current-gate") return false;
+  const nextAction = workpad?.nextAction;
+  const expectedType = readGoalLoopActionType(goalLoop);
+  const expectedScope = readGoalLoopScope(goalLoop);
+  if (!nextAction || nextAction.kind !== "workflow-action" || !nextAction.actionType || !expectedType || !expectedScope) return false;
+  if (nextAction.changeId !== goalLoop.changeId || nextAction.actionType !== expectedType) return false;
+  if (!isControlledSchedulerConcreteAction(expectedType)) return false;
+  return sourceActions.some((action) => actionRepresentsGoalLoopSchedulerGate(item, action, workpad));
 }
 
 function goalLoopFeedbackAction(workpad: WorkbenchWorkpad): WorkbenchDecisionAction | null {
@@ -266,6 +288,32 @@ function isSchedulerAdvanceSourceAction(action: WorkbenchDecisionAction): boolea
     return isControlledSchedulerConcreteAction(action.goalLoopCurrentGateActionType);
   }
   return isControlledSchedulerConcreteAction(action.actionType);
+}
+
+function actionRepresentsGoalLoopSchedulerGate(
+  item: WorkbenchConfirmationQueueItem,
+  action: WorkbenchDecisionAction,
+  workpad: WorkbenchWorkpad,
+): boolean {
+  const goalLoop = workpad.goalLoop;
+  const nextAction = workpad.nextAction;
+  const expectedScope = goalLoop ? readGoalLoopScope(goalLoop) : undefined;
+  const expectedType = goalLoop ? readGoalLoopActionType(goalLoop) : undefined;
+  const sourceGateActionType = action.actionType === CONTROLLED_SCHEDULER_STEP_ACTION_TYPE
+    ? action.goalLoopCurrentGateActionType
+    : action.actionType;
+  if (!goalLoop || !expectedScope || !expectedType || !sourceGateActionType) return false;
+  if (!action.enabled) return false;
+  if (sourceGateActionType !== expectedType || nextAction.actionType !== expectedType) return false;
+  if (nextAction.changeId !== goalLoop.changeId) return false;
+  for (const [key, expectedValue] of Object.entries(expectedScope)) {
+    const expected = normalizeScopeValues(expectedValue);
+    const actual = key === "changeId"
+      ? normalizeScopeValues(action.changeId ?? item.changeId)
+      : normalizeScopeValues(readQueueActionScopeValue(item, action, key));
+    if (!scopeValuesEqual(expected, actual)) return false;
+  }
+  return true;
 }
 
 function schedulerAdvanceTargetSuffix(action: WorkbenchDecisionAction): string {

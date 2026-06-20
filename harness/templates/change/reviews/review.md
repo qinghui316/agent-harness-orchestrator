@@ -82,6 +82,18 @@ Pending.
 - If applicable, duplicate action/evidence affordance check: not applicable.
 - If not applicable, reason: change does not add or change Workbench live/server UI actions that depend on explicit target ids.
 
+## Transcript Renderer Source-Boundary Coverage
+
+- Transcript renderer source-boundary coverage applicable: no.
+- If applicable, canonical transcript projection checked: not applicable.
+- If applicable, assistant markdown source checked: not applicable.
+- If applicable, process/tool row compactness checked: not applicable.
+- If applicable, derived workflow summary exclusion checked: not applicable.
+- If applicable, worker/role transcript scoping checked: not applicable.
+- If applicable, private chain-of-thought exclusion checked: not applicable.
+- If applicable, tested with: not applicable.
+- If not applicable, reason: change does not affect the default Workbench main conversation transcript or parent-agent transcript projection.
+
 ## Source Apply Safety Coverage
 
 - Source apply safety coverage applicable: no.

@@ -5,14 +5,14 @@
 - Current date: 2026-06-20.
 - Active ECL change: none.
 - Pending Harness evolution: none.
-- Latest archived product change: `harness/changes/archive/20260620-workflow-result-summary-thread-visibility/summary.md`.
-- Latest archived product/Harness docs change: `harness/changes/archive/20260620-workflow-result-summary-thread-visibility/summary.md`.
+- Latest archived product change: `harness/changes/archive/20260620-controlled-scheduler-reconfirm-copy/summary.md`.
+- Latest archived product/Harness docs change: `harness/changes/archive/20260620-controlled-scheduler-reconfirm-copy/summary.md`.
 - Latest archived Harness evolution: `harness/changes/archive/20260620-auto-evolve-harness-controlled-loop-post-step-window/summary.md`.
 - Active product phase: none.
 - Active Harness evolution phase: none.
 - Active close status: none.
 
-This file is the short resume point. There is no active ECL change and pending Harness evolution is none. The latest archived product change closed Workflow Result Summary Thread Visibility: completed Workbench workflow actions now persist their existing user-facing result summary on terminal workflow thread entries and project it into the main thread and parent-agent transcript read models. The previous archived product change closed Controlled Scheduler Stop Handoff: after one user-confirmed controlled scheduler transition succeeds, AHO returns a derived non-executing post-step handoff that explains the intentional stop, whether a next confirmation candidate has matching readiness evidence, and when re-evaluation is needed. The latest Harness evolution recorded a `keep / independent_review` result for the controlled-loop post-step window and did not change Harness rules, templates, scripts, or product runtime.
+This file is the short resume point. There is no active ECL change and pending Harness evolution is none. The latest archived product change closed Controlled Scheduler Reconfirm Copy: the real Workbench right confirmation card now presents refreshed Goal Loop/controller/preflight evidence as a new single-step confirmation rather than an automatic loop. The latest Harness evolution closed Auto Evolve Harness Controlled Scheduler Reconfirm Window: it synced the existing Transcript Renderer Source-Boundary Coverage rule into the default review template and did not change product runtime, ECL rules, scripts, lint, or scheduler behavior. The previous archived product change closed Workflow Result Summary Thread Visibility: completed Workbench workflow actions now persist their existing user-facing result summary on terminal workflow thread entries and project it into the main thread and parent-agent transcript read models.
 
 Current plan-level roadmap context is preserved in `docs/CURRENT-DEVELOPMENT-PLAN.md`. Historical detail belongs in archived summaries and `harness/changes/INDEX.json`.
 

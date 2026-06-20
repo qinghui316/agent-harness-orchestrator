@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-20T10:11:25.0925469Z",
+    "generated_at":  "2026-06-20T10:43:32.5924519Z",
     "active":  [
 
                ],
@@ -1383,6 +1383,10 @@
                         "path":  "harness/changes/archive/20260620-auto-evolve-harness-controlled-loop-surface-window"
                     },
                     {
+                        "name":  "20260620-auto-evolve-harness-controlled-scheduler-reconfirm-window",
+                        "path":  "harness/changes/archive/20260620-auto-evolve-harness-controlled-scheduler-reconfirm-window"
+                    },
+                    {
                         "name":  "20260620-auto-evolve-harness-helper-reuse-projection-window",
                         "path":  "harness/changes/archive/20260620-auto-evolve-harness-helper-reuse-projection-window"
                     },
@@ -1433,6 +1437,10 @@
                     {
                         "name":  "20260620-controlled-scheduler-post-step-visible-readiness-handoff",
                         "path":  "harness/changes/archive/20260620-controlled-scheduler-post-step-visible-readiness-handoff"
+                    },
+                    {
+                        "name":  "20260620-controlled-scheduler-reconfirm-copy",
+                        "path":  "harness/changes/archive/20260620-controlled-scheduler-reconfirm-copy"
                     },
                     {
                         "name":  "20260620-controlled-scheduler-single-step-runner",

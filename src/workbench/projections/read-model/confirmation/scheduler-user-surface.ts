@@ -77,6 +77,16 @@ export function schedulerUserFacingActionCopy(actionType: string | undefined): S
   return COPY_BY_ACTION_TYPE[actionType] ?? DEFAULT_COPY;
 }
 
+export function schedulerControlledAdvanceReconfirmCopy(): SchedulerUserFacingActionCopy {
+  return {
+    label: COPY_BY_ACTION_TYPE["planning.scheduler.controlled-advance.run"].label,
+    summary: "当前下一步判断和步骤检查已刷新；这次仍是新的单步确认。",
+    whyNeedsConfirmation: "需要你再次确认当前页面显示的这一步；这不是自动继续。",
+    confirmEffect: "服务端会重新读取当前状态，重新匹配目标和权限；匹配后只执行一个当前合法步骤。",
+    riskSummary: "确认后仍会立即停止；不会自动循环、批量派发、组合检查后的应用、关闭、远端落地或维护演进。",
+  };
+}
+
 export function schedulerUserFacingActionLabel(actionType: string | undefined): string {
   return schedulerUserFacingActionCopy(actionType).label;
 }

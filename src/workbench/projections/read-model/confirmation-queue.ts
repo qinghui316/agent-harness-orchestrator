@@ -109,7 +109,7 @@ export async function buildConfirmationQueue(input: {
   queue.current = attachControlledSchedulerAdvanceActions(attachGoalLoopAssistedConcreteGateActions(attachGoalLoopGateReadinessActions(
     attachGoalLoopControllerRefreshActions(attachGoalLoopFeedbackActions(queue.current, input.workpad), input.workpad),
     input.workpad,
-  ), input.workpad));
+  ), input.workpad), input.workpad);
   queue.current = dedupeConfirmationItems(queue.current.filter((item) => item.kind !== "maintenance").map(scopeConfirmationQueueItemActions));
   queue.otherDemands = dedupeConfirmationItems(queue.otherDemands.map(scopeConfirmationQueueItemActions));
   queue.history = dedupeConfirmationItems(queue.history.map(scopeConfirmationQueueItemActions));
