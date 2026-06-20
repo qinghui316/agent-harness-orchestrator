@@ -764,6 +764,19 @@ describe("Workbench web app", () => {
               closeAuthorized: false,
               harnessEvolutionAuthorized: false,
             },
+            controlledSchedulerNextCandidate: {
+              status: "ready-for-confirmation",
+              label: "下一步候选已刷新",
+              body: "下一步候选：继续执行下一个任务。当前步骤检查已刷新；继续仍需要你再次确认。",
+              actionLabel: "继续执行下一个任务",
+              readinessEvidencePrepared: true,
+              humanConfirmationStillRequired: true,
+              evidenceRefs: [
+                "harness/changes/active/member-discount/planning/goal-loop-next-step-packets/packet.md",
+                "harness/changes/active/member-discount/planning/goal-loop-controller-policies/policy.md",
+                "harness/changes/active/member-discount/planning/goal-loop-gate-readiness-preflights/preflight.md",
+              ],
+            },
             conflictReasons: [
               "Recommended action planning.scheduler.worker.start-first is limited to the existing scoped first worker-start gate.",
             ],
@@ -863,6 +876,12 @@ describe("Workbench web app", () => {
     expect(within(card).getByText("需要你确认")).toBeTruthy();
     expect(within(card).getByText("下一步确认点")).toBeTruthy();
     expect(within(card).getAllByText("继续执行下一个任务").length).toBeGreaterThanOrEqual(2);
+    expect(within(card).getByText("下一步候选已刷新")).toBeTruthy();
+    expect(within(card).getByText("下一步候选：继续执行下一个任务。当前步骤检查已刷新；继续仍需要你再次确认。")).toBeTruthy();
+    expect(within(card).getByText("确认状态")).toBeTruthy();
+    expect(within(card).getByText("继续前仍需要你再次确认。")).toBeTruthy();
+    expect(within(card).getByText("检查状态")).toBeTruthy();
+    expect(within(card).getByText("当前步骤检查已准备好。")).toBeTruthy();
     expect(within(card).getByText("当前调度仍是单步受控能力，不是自动循环或完整并行执行器。")).toBeTruthy();
     expect(within(card).getByText("只允许你确认一个已存在的具体步骤；确认后仍会停下等待新的证据和下一次确认。")).toBeTruthy();
     expect(within(card).getAllByText("只读建议；不会授权自动循环、整批派发、资源槽分配、源码修改、应用、关闭或 Harness evolution。具体执行仍需要单独确认对应步骤。").length).toBeGreaterThanOrEqual(1);

@@ -412,6 +412,15 @@ export type GoalLoopSummary = {
     closeAuthorized: false;
     harnessEvolutionAuthorized: false;
   };
+  controlledSchedulerNextCandidate?: {
+    status: "ready-for-confirmation" | "needs-review";
+    label: string;
+    body: string;
+    actionLabel: string;
+    readinessEvidencePrepared: boolean;
+    humanConfirmationStillRequired: true;
+    evidenceRefs: string[];
+  };
   conflictReasons: string[];
   completionStatus?: string;
   artifact?: string;

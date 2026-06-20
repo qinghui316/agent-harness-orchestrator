@@ -731,6 +731,7 @@ export interface WorkbenchGoalLoopSummary {
   schedulerExecutionMode?: SchedulerExecutionModeAssessment;
   schedulerLoopEvidenceSnapshot?: GoalLoopSchedulerLoopSnapshotContext;
   controlledLoopState?: GoalLoopControlledLoopStateContext;
+  controlledSchedulerNextCandidate?: WorkbenchControlledSchedulerNextCandidate;
   conflictReasons: string[];
   completionStatus: string;
   resumePreconditionCount: number;
@@ -753,6 +754,16 @@ export interface WorkbenchGoalLoopSummary {
   closeGateHandoff?: GoalLoopCloseGateHandoff;
   updatedAt: string;
   executionStarted: false;
+}
+
+export interface WorkbenchControlledSchedulerNextCandidate {
+  status: "ready-for-confirmation" | "needs-review";
+  label: string;
+  body: string;
+  actionLabel: string;
+  readinessEvidencePrepared: boolean;
+  humanConfirmationStillRequired: true;
+  evidenceRefs: string[];
 }
 
 export interface WorkbenchWorkpad {

@@ -2,8 +2,10 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { compileGoalLoopEvaluation } from "../../src/goal-loop/manager.js";
+import { compileGoalLoopControllerPolicy, compileGoalLoopEvaluation, compileGoalLoopGateReadinessPreflight } from "../../src/goal-loop/manager.js";
+import type { GoalLoopRecommendedAction } from "../../src/goal-loop/types.js";
 import type { ResolvedMemory } from "../../src/types/index.js";
+import type { WorkpadNextAction } from "../../src/workbench/read-model-types.js";
 import { readLatestGoalLoopSummary } from "../../src/workbench/projections/read-model/goal-loop.js";
 import { filterGoalLoopSummaryForCurrentGate } from "../../src/workbench/projections/read-model/goal-loop-parity.js";
 
@@ -52,21 +54,51 @@ describe("controlled scheduler post-step projection", () => {
       executionStarted: false,
     });
 
-    expect(filterGoalLoopSummaryForCurrentGate(summary, {
-      id: "current-plan-gate",
-      label: "Prepare scheduler plan",
-      description: "Current visible gate.",
-      kind: "workflow-action",
-      enabled: true,
-      requiresConfirmation: true,
-      actionType: "planning.scheduler.plan.prepare",
-      changeId,
-    })).toMatchObject({
+    expect(filterGoalLoopSummaryForCurrentGate(summary, nextActionFor(postStep.goalLoopNextStepPacket.recommendedAction))).toMatchObject({
       goalLoopDecisionId: postStep.goalLoopDecision.id,
       goalLoopIterationId: postStep.goalLoopIteration.id,
       goalLoopNextStepPacketId: postStep.goalLoopNextStepPacket.id,
       executionStarted: false,
+      controlledSchedulerNextCandidate: {
+        status: "needs-review",
+        label: "下一步候选需要复核",
+        readinessEvidencePrepared: false,
+        humanConfirmationStillRequired: true,
+      },
     });
+  });
+
+  it("marks the Workpad next candidate ready only when controller and preflight evidence match the fresh packet", async () => {
+    await compileGoalLoopEvaluation(memory, changePath);
+    const postStep = await compileGoalLoopEvaluation(memory, changePath);
+    const currentGate = currentGateFor(postStep.goalLoopNextStepPacket.recommendedAction);
+    const controller = await compileGoalLoopControllerPolicy(memory, changePath, {
+      currentGate,
+      goalLoopNextStepPacketId: postStep.goalLoopNextStepPacket.id,
+      requireCurrentGateMatch: true,
+    });
+    const preflight = await compileGoalLoopGateReadinessPreflight(memory, changePath, {
+      goalLoopNextStepPacketId: postStep.goalLoopNextStepPacket.id,
+      goalLoopControllerPolicyId: controller.id,
+      currentGate,
+    });
+
+    const summary = await readLatestGoalLoopSummary(memory, changePath, changeId);
+    const filtered = filterGoalLoopSummaryForCurrentGate(summary, nextActionFor(postStep.goalLoopNextStepPacket.recommendedAction));
+
+    expect(filtered).toMatchObject({
+      controllerPolicyId: controller.id,
+      gateReadinessPreflightId: preflight.id,
+      controlledSchedulerNextCandidate: {
+        status: "ready-for-confirmation",
+        label: "下一步候选已刷新",
+        readinessEvidencePrepared: true,
+        humanConfirmationStillRequired: true,
+      },
+    });
+    expect(filtered?.controlledSchedulerNextCandidate?.body).toContain("继续仍需要你再次确认");
+    expect(filtered?.controlledSchedulerNextCandidate?.body).not.toContain("planning.scheduler");
+    expect(filtered?.controlledSchedulerNextCandidate?.body).not.toContain("Scheduler");
   });
 });
 
@@ -101,5 +133,28 @@ function buildMemory(root: string): ResolvedMemory {
     skillsRoot: join(root, "skills"),
     worktreeMetadataRoot: join(root, ".agent-harness", "worktrees"),
     worktreeIndexPath: join(root, ".agent-harness", "worktrees", "index.json"),
+  };
+}
+
+function currentGateFor(recommendedAction: GoalLoopRecommendedAction | undefined) {
+  if (!recommendedAction) throw new Error("Expected Goal Loop evaluation to recommend a current gate.");
+  return {
+    actionType: recommendedAction.actionType,
+    scope: recommendedAction.scope,
+  };
+}
+
+function nextActionFor(recommendedAction: GoalLoopRecommendedAction | undefined): WorkpadNextAction {
+  if (!recommendedAction) throw new Error("Expected Goal Loop evaluation to recommend a current gate.");
+  return {
+    id: "current-visible-gate",
+    label: "Current visible gate",
+    description: "Current visible gate.",
+    kind: "workflow-action",
+    enabled: true,
+    requiresConfirmation: true,
+    actionType: recommendedAction.actionType,
+    changeId,
+    ...recommendedAction.scope,
   };
 }

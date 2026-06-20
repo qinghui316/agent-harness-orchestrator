@@ -5,14 +5,14 @@
 - Current date: 2026-06-20.
 - Active ECL change: none.
 - Pending Harness evolution: none.
-- Latest archived product change: `harness/changes/archive/20260620-controlled-scheduler-post-step-result-summary/summary.md`.
-- Latest archived product/Harness docs change: `harness/changes/archive/20260620-controlled-scheduler-post-step-result-summary/summary.md`.
+- Latest archived product change: `harness/changes/archive/20260620-controlled-scheduler-workpad-next-candidate-surface/summary.md`.
+- Latest archived product/Harness docs change: `harness/changes/archive/20260620-controlled-scheduler-workpad-next-candidate-surface/summary.md`.
 - Latest archived Harness evolution: `harness/changes/archive/20260620-auto-evolve-harness-controlled-scheduler-reconfirm-window/summary.md`.
 - Active product phase: none.
 - Active Harness evolution phase: none.
 - Active close status: none.
 
-This file is the short resume point. There is no active ECL change and pending Harness evolution is none. The latest archived product change closed Controlled Scheduler Post-step Result Summary: after one confirmed controlled Scheduler advance, the Workbench main-thread result summary now names the executed step category, the next candidate category, and whether another confirmation is ready or reevaluation is needed. The latest Harness evolution closed Auto Evolve Harness Controlled Scheduler Reconfirm Window: it synced the existing Transcript Renderer Source-Boundary Coverage rule into the default review template and did not change product runtime, ECL rules, scripts, lint, or scheduler behavior. The previous archived product change closed Controlled Scheduler Concrete Step Preview: the right confirmation card states the concrete current step category when unambiguous while preserving the single-step, non-loop, no-apply/close/merge boundary.
+This file is the short resume point. There is no active ECL change and pending Harness evolution is none. The latest archived product change closed Controlled Scheduler Workpad Next Candidate Surface: after a confirmed controlled Scheduler advance stops, Workpad Goal Loop details now show the refreshed next-step candidate, readiness state, and explicit separate-confirmation requirement using read-model evidence rather than transient action result state. The previous archived product change closed Controlled Scheduler Post-step Result Summary: the Workbench main-thread result summary names the executed step category, next candidate category, and whether another confirmation is ready or reevaluation is needed. The latest Harness evolution closed Auto Evolve Harness Controlled Scheduler Reconfirm Window: it synced the existing Transcript Renderer Source-Boundary Coverage rule into the default review template and did not change product runtime, ECL rules, scripts, lint, or scheduler behavior.
 
 Current plan-level roadmap context is preserved in `docs/CURRENT-DEVELOPMENT-PLAN.md`. Historical detail belongs in archived summaries and `harness/changes/INDEX.json`.
 

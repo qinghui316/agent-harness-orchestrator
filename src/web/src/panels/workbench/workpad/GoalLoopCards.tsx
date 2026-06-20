@@ -81,6 +81,22 @@ export function GoalLoopEvidenceCard({ goalLoop }: { goalLoop: NonNullable<Workp
           </div>
         </div>
       ) : null}
+      {goalLoop.controlledSchedulerNextCandidate ? (
+        <div className="workpad-evidence-list" aria-label="Controlled scheduler next candidate">
+          <div className="workpad-evidence">
+            <strong>{goalLoop.controlledSchedulerNextCandidate.label}</strong>
+            <span>{goalLoop.controlledSchedulerNextCandidate.body}</span>
+          </div>
+          <div className="workpad-evidence">
+            <strong>确认状态</strong>
+            <span>{goalLoop.controlledSchedulerNextCandidate.humanConfirmationStillRequired ? "继续前仍需要你再次确认。" : "等待新的证据。"}</span>
+          </div>
+          <div className="workpad-evidence">
+            <strong>检查状态</strong>
+            <span>{goalLoop.controlledSchedulerNextCandidate.readinessEvidencePrepared ? "当前步骤检查已准备好。" : "当前步骤检查还需要复核。"}</span>
+          </div>
+        </div>
+      ) : null}
       {schedulerMode ? (
         <div className="workpad-evidence-list" aria-label="Scheduler execution mode">
           <div className="workpad-evidence">

@@ -10,6 +10,7 @@ import {
 import { isSchedulerLoopSnapshotValidForContext, summarizeControlledLoopState, summarizeSchedulerLoopSnapshot } from "../../../goal-loop/scheduler-loop-context.js";
 import type { ResolvedMemory } from "../../../types/index.js";
 import type { WorkbenchGoalLoopSummary } from "../../read-model-types.js";
+import { buildControlledSchedulerNextCandidate } from "./goal-loop-next-candidate.js";
 
 export async function readLatestGoalLoopSummary(
   memory: ResolvedMemory,
@@ -58,7 +59,7 @@ export async function readLatestGoalLoopSummary(
       && preflight.concreteGateInvoked === false
       ? preflight
       : null;
-    return {
+    const summary: Omit<WorkbenchGoalLoopSummary, "controlledSchedulerNextCandidate"> = {
       id: brief.id,
       changeId: brief.changeId,
       goalLoopDecisionId: decision.id,
@@ -103,6 +104,10 @@ export async function readLatestGoalLoopSummary(
       gateReadinessPreflightMarkdownArtifact: validPreflight?.markdownArtifact,
       updatedAt: brief.updatedAt,
       executionStarted: false,
+    };
+    return {
+      ...summary,
+      controlledSchedulerNextCandidate: buildControlledSchedulerNextCandidate(summary),
     };
   } catch {
     return null;
