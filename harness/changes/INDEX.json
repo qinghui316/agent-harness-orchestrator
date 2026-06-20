@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-20T01:21:53.6002577Z",
+    "generated_at":  "2026-06-20T01:33:29.0345664Z",
     "active":  [
 
                ],
@@ -1437,6 +1437,10 @@
                     {
                         "name":  "20260620-workbench-planning-scheduler-prep-test-domain-split",
                         "path":  "harness/changes/archive/20260620-workbench-planning-scheduler-prep-test-domain-split"
+                    },
+                    {
+                        "name":  "20260620-workbench-scheduler-integration-candidate-target-helper-reuse",
+                        "path":  "harness/changes/archive/20260620-workbench-scheduler-integration-candidate-target-helper-reuse"
                     },
                     {
                         "name":  "20260620-workbench-scheduler-residual-test-domain-split",
