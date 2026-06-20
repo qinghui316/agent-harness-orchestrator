@@ -4,6 +4,35 @@ import { workflowActionLabel } from "../../../action-labels.js";
 import type { Workpad } from "../../../types.js";
 import { artifactName } from "../RunReplayPanel.js";
 
+export function GoalLoopPrimarySummary({ goalLoop }: { goalLoop: NonNullable<Workpad["goalLoop"]> }): ReactElement {
+  const schedulerMode = goalLoop.schedulerExecutionMode;
+  const schedulerLoopSnapshot = goalLoop.schedulerLoopEvidenceSnapshot;
+  const controlledLoopState = goalLoop.controlledLoopState;
+  const currentActionType = controlledLoopState?.currentLegalActionType
+    ?? schedulerLoopSnapshot?.currentLegalActionType
+    ?? schedulerMode?.currentGate?.actionType
+    ?? goalLoop.recommendedActionType;
+  const posture = controlledLoopState?.state ?? schedulerLoopSnapshot?.posture ?? schedulerMode?.mode ?? goalLoop.recommendationState ?? goalLoop.continuationState;
+  return (
+    <section className="parent-agent-section" data-testid="controlled-loop-primary-surface">
+      <div className="parent-section-header">
+        <h3>受控继续</h3>
+        <span>{controlledLoopPostureLabel(posture)}</span>
+      </div>
+      <p className="parent-agent-lead">当前证据已经整理出一个可确认的下一步，但这里只做说明，不会自动执行。</p>
+      <div className="parent-chip-list">
+        <span>下一步确认点：{primaryWorkpadActionLabel(currentActionType)}</span>
+        <span>{goalLoop.humanGateRequired ? "需要你确认" : "等待新的证据"}</span>
+        <span>{goalLoop.parallelEligible ? "低冲突，可评估并行" : "需要顺序推进"}</span>
+      </div>
+      <p>
+        右侧确认区仍是唯一执行入口。确认后也只推进一个已存在步骤；后续执行、应用、关闭或远端操作仍会停下等待新的确认。
+      </p>
+      <p className="muted-inline">更完整的证据和边界说明在下方详情区。</p>
+    </section>
+  );
+}
+
 export function GoalLoopEvidenceCard({ goalLoop }: { goalLoop: NonNullable<Workpad["goalLoop"]> }): ReactElement {
   const schedulerMode = goalLoop.schedulerExecutionMode;
   const schedulerLoopSnapshot = goalLoop.schedulerLoopEvidenceSnapshot;
@@ -134,6 +163,46 @@ export function GoalLoopEvidenceCard({ goalLoop }: { goalLoop: NonNullable<Workp
       ) : null}
     </section>
   );
+}
+
+function primaryWorkpadActionLabel(actionType: string | undefined): string {
+  if (!actionType) return "等待新的证据";
+  const label = workflowActionLabel(actionType);
+  if (!containsPrimarySurfaceInternalTerms(label) && !looksLikeRawActionId(label)) return userFacingText(label);
+  if (actionType === "planning.scheduler.plan.prepare" || actionType === "planning.scheduler.run.prepare") return "确认启动已准备好的执行计划";
+  if (actionType === "planning.scheduler.worker.start-first" || actionType === "planning.scheduler.worker.start-next") return "继续执行下一个任务";
+  if (
+    actionType === "planning.scheduler.worker.reconcile-result"
+    || actionType === "planning.scheduler.worker.validate-first"
+    || actionType === "planning.scheduler.worker.audit-first"
+    || actionType === "planning.scheduler.worker.rework-reconcile-result"
+    || actionType === "planning.scheduler.worker.rework-validate-first"
+    || actionType === "planning.scheduler.worker.rework-audit-first"
+  ) {
+    return "检查当前结果";
+  }
+  if (actionType === "planning.scheduler.worker.rework-plan.compile" || actionType === "planning.scheduler.worker.rework-start-first") {
+    return "处理当前阻塞";
+  }
+  if (
+    actionType === "planning.scheduler.integration-candidate.compile"
+    || actionType === "planning.scheduler.integration-check.run"
+    || actionType === "planning.scheduler.integration-outcome.reconcile"
+  ) {
+    return "检查组合结果";
+  }
+  if (actionType === "planning.scheduler.run.complete") return "完成本轮执行记录";
+  if (actionType === "planning.scheduler.run.close-blocked") return "标记当前无法继续";
+  return "继续当前受控步骤";
+}
+
+function containsPrimarySurfaceInternalTerms(value: string): boolean {
+  return /\b(Goal Loop|Scheduler|Worker|Workpad|Change|TaskQueue|TaskRun|AgentTask|Harness|IntegrationCheck|SchedulerRun)\b/i.test(value)
+    || /worker|scheduler/i.test(value);
+}
+
+function looksLikeRawActionId(value: string): boolean {
+  return /\b[a-z]+(?:\.[a-z0-9-]+){2,}\b/i.test(value);
 }
 
 function replaceActionIds(value: string): string {

@@ -6,6 +6,7 @@ import {
   ResultReviewNarrative,
   RoleToolResultRows,
 } from "./workpad/PlanningCards.js";
+import { GoalLoopPrimarySummary } from "./workpad/GoalLoopCards.js";
 import { ClarificationCard } from "./workpad/TaskGraphCards.js";
 import { WorkpadActionButton } from "./workpad/WorkpadActionButton.js";
 import { WorkpadDiagnosticDetails } from "./workpad/WorkpadDetails.js";
@@ -24,6 +25,7 @@ export function WorkpadView(props: {
   const [detailsOpen, setDetailsOpen] = useState(false);
   const approval = workpad.nextAction.approvalId ? approvals.find((item) => item.id === workpad.nextAction.approvalId) : undefined;
   const maintenanceNotice = workpad.maintenance?.status && workpad.maintenance.status !== "idle" ? workpad.maintenance : null;
+  const hidePrimaryAction = Boolean(workpad.goalLoop && isControlledContinuationAction(workpad.nextAction.actionType));
   return (
     <div className="parent-conversation" data-testid="workpad-view">
       <section className="parent-agent-card">
@@ -32,14 +34,16 @@ export function WorkpadView(props: {
           <h2>{workpad.title}</h2>
           <p>{parentAgentNarrative(workpad)}</p>
         </div>
-        <WorkpadActionButton
-          action={workpad.nextAction}
-          approval={approval}
-          busy={busy}
-          sanitizeInternal
-          onWorkflowAction={onWorkflowAction}
-          onConfirmApproval={onConfirmApproval}
-        />
+        {hidePrimaryAction ? null : (
+          <WorkpadActionButton
+            action={workpad.nextAction}
+            approval={approval}
+            busy={busy}
+            sanitizeInternal
+            onWorkflowAction={onWorkflowAction}
+            onConfirmApproval={onConfirmApproval}
+          />
+        )}
       </section>
 
       {workpad.pendingFeedback?.length ? (
@@ -50,6 +54,8 @@ export function WorkpadView(props: {
           ))}
         </section>
       ) : null}
+
+      {workpad.goalLoop ? <GoalLoopPrimarySummary goalLoop={workpad.goalLoop} /> : null}
 
       {workpad.planningArtifactBundle ? <PlanningNarrativeCard bundle={workpad.planningArtifactBundle} /> : null}
       {workpad.rolePipeline ? <RoleToolResultRows pipeline={workpad.rolePipeline} /> : null}
@@ -105,4 +111,8 @@ export function WorkpadView(props: {
       </details>
     </div>
   );
+}
+
+function isControlledContinuationAction(actionType: string | undefined): boolean {
+  return Boolean(actionType?.startsWith("planning.goal-loop.") || actionType?.startsWith("planning.scheduler."));
 }

@@ -3,6 +3,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "../../src/web/src/App.js";
+import { WorkpadView } from "../../src/web/src/panels/workbench/WorkpadPanel.js";
 import { WorkpadDiagnosticDetails } from "../../src/web/src/panels/workbench/workpad/WorkpadDetails.js";
 
 const snapshot = {
@@ -534,7 +535,7 @@ describe("Workbench web app", () => {
     expect(screen.queryByTestId("goal-loop-evidence-card")).toBeNull();
   });
 
-  it("renders Goal Loop guidance as a read-only Workpad evidence card", async () => {
+  it("renders controlled continuation as a primary summary and read-only details evidence", async () => {
     const goalLoopSnapshot = {
       ...snapshot,
       center: {
@@ -619,6 +620,74 @@ describe("Workbench web app", () => {
         },
       },
     };
+    render(<WorkpadView
+      workpad={goalLoopSnapshot.center.workpad}
+      approvals={goalLoopSnapshot.right.approvals}
+      busy={false}
+      onWorkflowAction={async () => undefined}
+      onConfirmApproval={() => undefined}
+      onAnswerClarification={async () => undefined}
+      onSelectDecisionContext={() => undefined}
+    />);
+
+    const primarySurface = await screen.findByTestId("controlled-loop-primary-surface");
+    expect(within(primarySurface).getByText("受控继续")).toBeTruthy();
+    expect(within(primarySurface).getByText("等待你确认")).toBeTruthy();
+    expect(primarySurface.textContent).toContain("下一步确认点：继续执行下一个任务");
+    expect(primarySurface.textContent).toContain("右侧确认区仍是唯一执行入口");
+    expect(primarySurface.textContent).toContain("只推进一个已存在步骤");
+    expect(within(primarySurface).queryByRole("button")).toBeNull();
+    expect(screen.queryByTestId("goal-loop-evidence-card")).toBeNull();
+    for (const forbidden of [
+      "Goal Loop",
+      "Scheduler",
+      "Worker",
+      "Workpad",
+      "Change",
+      "planning.scheduler",
+      "artifact",
+      "Harness",
+      "IntegrationCheck",
+      "SchedulerRun",
+    ]) {
+      expect(primarySurface.textContent).not.toContain(forbidden);
+    }
+
+    cleanup();
+
+    const controlledActionSnapshot = {
+      ...goalLoopSnapshot,
+      center: {
+        ...goalLoopSnapshot.center,
+        workpad: {
+          ...goalLoopSnapshot.center.workpad,
+          nextAction: {
+            id: "controlled-advance",
+            label: "按当前建议继续一个受控步骤",
+            description: "右侧确认区会处理这一步。",
+            kind: "workflow-action",
+            enabled: true,
+            requiresConfirmation: true,
+            actionType: "planning.scheduler.controlled-advance.run",
+          },
+        },
+      },
+    };
+    render(<WorkpadView
+      workpad={controlledActionSnapshot.center.workpad}
+      approvals={controlledActionSnapshot.right.approvals}
+      busy={false}
+      onWorkflowAction={async () => undefined}
+      onConfirmApproval={() => undefined}
+      onAnswerClarification={async () => undefined}
+      onSelectDecisionContext={() => undefined}
+    />);
+    const controlledWorkpad = screen.getByTestId("workpad-view");
+    expect(within(controlledWorkpad).queryByRole("button", { name: "执行" })).toBeNull();
+    expect(within(controlledWorkpad).queryByText("按当前建议继续一个受控步骤")).toBeNull();
+
+    cleanup();
+
     render(<WorkpadDiagnosticDetails
       workpad={goalLoopSnapshot.center.workpad}
       approvals={goalLoopSnapshot.right.approvals}

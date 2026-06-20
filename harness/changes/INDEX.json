@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-20T07:30:19.6509955Z",
+    "generated_at":  "2026-06-20T07:55:28.5581198Z",
     "active":  [
 
                ],
@@ -1465,6 +1465,10 @@
                     {
                         "name":  "20260620-workbench-controlled-loop-posture-surface",
                         "path":  "harness/changes/archive/20260620-workbench-controlled-loop-posture-surface"
+                    },
+                    {
+                        "name":  "20260620-workbench-controlled-loop-primary-surface",
+                        "path":  "harness/changes/archive/20260620-workbench-controlled-loop-primary-surface"
                     },
                     {
                         "name":  "20260620-workbench-controlled-loop-result-surface",
