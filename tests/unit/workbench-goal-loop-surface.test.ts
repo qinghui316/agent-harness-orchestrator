@@ -661,6 +661,19 @@ describe("workbench Goal Loop surface", () => {
         goalLoopNextStepPacketId: "packet-1",
         controllerPolicyId: "policy-1",
         gateReadinessPreflightId: "preflight-1",
+        controlledSchedulerNextCandidate: {
+          status: "ready-for-confirmation",
+          label: "下一步候选已刷新",
+          body: "下一步候选：继续执行下一个任务。当前步骤检查已刷新；继续仍需要你再次确认。",
+          actionLabel: "继续执行下一个任务",
+          readinessEvidencePrepared: true,
+          humanConfirmationStillRequired: true,
+          evidenceRefs: [
+            "harness/changes/active/member-discount/planning/goal-loop-next-step-packets/packet.md",
+            "harness/changes/active/member-discount/planning/goal-loop-controller-policies/policy.md",
+            "harness/changes/active/member-discount/planning/goal-loop-gate-readiness-preflights/preflight.md",
+          ],
+        },
         controllerVerdict: "recommend-existing-gate",
         controllerGateStatus: "matches-current-gate",
         recommendedActionType: "planning.scheduler.worker.start-next",
@@ -692,6 +705,11 @@ describe("workbench Goal Loop surface", () => {
     expect(item.confirmEffect).toContain("继续执行下一个任务");
     expect(item.whyNeedsConfirmation).toContain("不是自动继续");
     expect(item.summary).not.toContain("上一个受控步骤");
+    expect(item.evidenceRefs).toEqual([
+      "harness/changes/active/member-discount/planning/goal-loop-next-step-packets/packet.md",
+      "harness/changes/active/member-discount/planning/goal-loop-controller-policies/policy.md",
+      "harness/changes/active/member-discount/planning/goal-loop-gate-readiness-preflights/preflight.md",
+    ]);
     expect(item.actions.some((action) => action.actionType === "planning.scheduler.worker.start-next")).toBe(false);
     const advance = item.actions.find((action) => action.actionType === "planning.scheduler.controlled-advance.run");
     expect(advance).toMatchObject({
@@ -708,6 +726,160 @@ describe("workbench Goal Loop surface", () => {
     expect(advance?.goalLoopControllerPolicyId).toBeUndefined();
     expect(advance?.goalLoopGateReadinessPreflightId).toBeUndefined();
     expect(item.actions.filter((action) => action.actionType === "planning.scheduler.controlled-advance.run")).toHaveLength(1);
+  });
+
+  it("does not merge next-candidate evidence refs into controlled scheduler advance unless the candidate is ready", async () => {
+    const currentGate = {
+      id: "confirm:scheduler-worker-next:member-discount",
+      kind: "planning-confirm",
+      conversationId: "member-discount",
+      changeId: "member-discount",
+      schedulerRunId: "scheduler-run-1",
+      schedulerClaimReservationId: "claim-reservation-expected",
+      reservationIntentId: "reservation-intent-2",
+      claimIntentId: "claim-2",
+      summary: "启动下一个 worker。",
+      whyNeedsConfirmation: "这是当前可见 Harness gate。",
+      confirmEffect: "只启动指定 next worker。",
+      riskSummary: "不会自动启动后续 validation/audit。",
+      evidenceRefs: ["existing-evidence.md"],
+      actions: [{
+        id: "workflow:planning.scheduler.worker.start-next:member-discount",
+        label: "启动下一个 worker",
+        kind: "workflow-action",
+        actionType: "planning.scheduler.worker.start-next",
+        changeId: "member-discount",
+        schedulerRunId: "scheduler-run-1",
+        schedulerClaimReservationId: "claim-reservation-expected",
+        reservationIntentId: "reservation-intent-2",
+        claimIntentId: "claim-2",
+        enabled: true,
+        requiresConfirmation: true,
+      }],
+      primary: true,
+      status: "pending",
+    } as const;
+    const workpad = {
+      nextAction: {
+        kind: "workflow-action",
+        actionType: "planning.scheduler.worker.start-next",
+        changeId: "member-discount",
+        schedulerRunId: "scheduler-run-1",
+        schedulerClaimReservationId: "claim-reservation-expected",
+        reservationIntentId: "reservation-intent-2",
+        claimIntentId: "claim-2",
+      },
+      goalLoop: {
+        id: "brief-1",
+        changeId: "member-discount",
+        goalLoopDecisionId: "decision-1",
+        goalLoopIterationId: "iteration-1",
+        goalLoopNextStepPacketId: "packet-1",
+        controllerPolicyId: "policy-1",
+        gateReadinessPreflightId: "preflight-1",
+        controlledSchedulerNextCandidate: {
+          status: "needs-review",
+          label: "下一步候选需要复核",
+          body: "下一步候选：继续执行下一个任务。当前步骤检查还需要复核。",
+          actionLabel: "继续执行下一个任务",
+          readinessEvidencePrepared: false,
+          humanConfirmationStillRequired: true,
+          evidenceRefs: ["candidate-should-not-be-merged.md"],
+        },
+        controllerVerdict: "recommend-existing-gate",
+        controllerGateStatus: "matches-current-gate",
+        recommendedActionType: "planning.scheduler.worker.start-next",
+        recommendedActionScope: {
+          changeId: "member-discount",
+          schedulerRunId: "scheduler-run-1",
+          schedulerClaimReservationId: "claim-reservation-expected",
+          reservationIntentId: "reservation-intent-2",
+          claimIntentId: "claim-2",
+        },
+      },
+    } as unknown as NonNullable<Parameters<typeof attachControlledSchedulerAdvanceActions>[1]>;
+
+    const [item] = attachControlledSchedulerAdvanceActions([currentGate], workpad);
+
+    expect(item.evidenceRefs).toEqual(["existing-evidence.md"]);
+    expect(item.evidenceRefs).not.toContain("candidate-should-not-be-merged.md");
+  });
+
+  it("does not merge ready next-candidate evidence refs when the refreshed gate does not match", async () => {
+    const currentGate = {
+      id: "confirm:scheduler-worker-next:member-discount",
+      kind: "planning-confirm",
+      conversationId: "member-discount",
+      changeId: "member-discount",
+      schedulerRunId: "scheduler-run-1",
+      schedulerClaimReservationId: "claim-reservation-expected",
+      reservationIntentId: "reservation-intent-2",
+      claimIntentId: "claim-2",
+      summary: "启动下一个 worker。",
+      whyNeedsConfirmation: "这是当前可见 Harness gate。",
+      confirmEffect: "只启动指定 next worker。",
+      riskSummary: "不会自动启动后续 validation/audit。",
+      evidenceRefs: ["existing-evidence.md"],
+      actions: [{
+        id: "workflow:planning.scheduler.worker.start-next:member-discount",
+        label: "启动下一个 worker",
+        kind: "workflow-action",
+        actionType: "planning.scheduler.worker.start-next",
+        changeId: "member-discount",
+        schedulerRunId: "scheduler-run-1",
+        schedulerClaimReservationId: "claim-reservation-expected",
+        reservationIntentId: "reservation-intent-2",
+        claimIntentId: "claim-2",
+        enabled: true,
+        requiresConfirmation: true,
+      }],
+      primary: true,
+      status: "pending",
+    } as const;
+    const workpad = {
+      nextAction: {
+        kind: "workflow-action",
+        actionType: "planning.scheduler.worker.start-next",
+        changeId: "member-discount",
+        schedulerRunId: "scheduler-run-1",
+        schedulerClaimReservationId: "claim-reservation-expected",
+        reservationIntentId: "reservation-intent-2",
+        claimIntentId: "claim-2",
+      },
+      goalLoop: {
+        id: "brief-1",
+        changeId: "member-discount",
+        goalLoopDecisionId: "decision-1",
+        goalLoopIterationId: "iteration-1",
+        goalLoopNextStepPacketId: "packet-1",
+        controllerPolicyId: "policy-1",
+        gateReadinessPreflightId: "preflight-1",
+        controlledSchedulerNextCandidate: {
+          status: "ready-for-confirmation",
+          label: "下一步候选已刷新",
+          body: "下一步候选：继续执行下一个任务。当前步骤检查已刷新，但仍需要人工确认。",
+          actionLabel: "继续执行下一个任务",
+          readinessEvidencePrepared: true,
+          humanConfirmationStillRequired: true,
+          evidenceRefs: ["ready-candidate-should-not-be-merged.md"],
+        },
+        controllerVerdict: "recommend-existing-gate",
+        controllerGateStatus: "stale-current-gate",
+        recommendedActionType: "planning.scheduler.worker.start-next",
+        recommendedActionScope: {
+          changeId: "member-discount",
+          schedulerRunId: "scheduler-run-1",
+          schedulerClaimReservationId: "claim-reservation-expected",
+          reservationIntentId: "reservation-intent-2",
+          claimIntentId: "claim-2",
+        },
+      },
+    } as unknown as NonNullable<Parameters<typeof attachControlledSchedulerAdvanceActions>[1]>;
+
+    const [item] = attachControlledSchedulerAdvanceActions([currentGate], workpad);
+
+    expect(item.evidenceRefs).toEqual(["existing-evidence.md"]);
+    expect(item.evidenceRefs).not.toContain("ready-candidate-should-not-be-merged.md");
   });
 
   it("projects controlled scheduler advance with a combined-result step category", async () => {

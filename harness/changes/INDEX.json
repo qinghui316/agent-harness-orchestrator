@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-20T11:35:03.5492783Z",
+    "generated_at":  "2026-06-20T12:15:52.9624523Z",
     "active":  [
 
                ],
@@ -1387,6 +1387,10 @@
                         "path":  "harness/changes/archive/20260620-auto-evolve-harness-controlled-scheduler-reconfirm-window"
                     },
                     {
+                        "name":  "20260620-auto-evolve-harness-controlled-scheduler-ui-validation-window",
+                        "path":  "harness/changes/archive/20260620-auto-evolve-harness-controlled-scheduler-ui-validation-window"
+                    },
+                    {
                         "name":  "20260620-auto-evolve-harness-helper-reuse-projection-window",
                         "path":  "harness/changes/archive/20260620-auto-evolve-harness-helper-reuse-projection-window"
                     },
@@ -1437,6 +1441,10 @@
                     {
                         "name":  "20260620-controlled-scheduler-concrete-step-preview",
                         "path":  "harness/changes/archive/20260620-controlled-scheduler-concrete-step-preview"
+                    },
+                    {
+                        "name":  "20260620-controlled-scheduler-confirmation-evidence-surface",
+                        "path":  "harness/changes/archive/20260620-controlled-scheduler-confirmation-evidence-surface"
                     },
                     {
                         "name":  "20260620-controlled-scheduler-post-step-result-summary",

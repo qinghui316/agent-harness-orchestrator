@@ -2,6 +2,7 @@ import { useState, type ReactElement } from "react";
 import { Check, FileText, X } from "lucide-react";
 import { confirmationKindLabel, decisionKindLabel, formatTime, userFacingText, userStatusLabel } from "../../formatters.js";
 import type { ConfirmationQueue, ConfirmationQueueItem, DecisionAction, DecisionContext, DecisionInspector } from "../../types.js";
+import { artifactName } from "./RunReplayPanel.js";
 
 export function DecisionInspectorPane({
   inspector,
@@ -120,6 +121,7 @@ function confirmationItemToDecisionContext(item: ConfirmationQueueItem): Decisio
     runId: item.runId,
     targetId: item.worktreeId ?? item.applyCheckId ?? item.resultId,
     artifact: item.evidenceRefs[0],
+    evidenceRefs: item.evidenceRefs,
     actions: item.actions,
     userStatus: "waiting-confirmation",
   };
@@ -173,6 +175,13 @@ function DecisionContextCard({
         {context.taskRunId ? <div><dt>执行尝试</dt><dd>{context.taskRunId}</dd></div> : null}
         {context.runId ? <div><dt>运行证据</dt><dd>{context.runId}</dd></div> : null}
       </dl>
+      {context.evidenceRefs?.length ? (
+        <div className="workpad-links" aria-label="Decision evidence refs">
+          {context.evidenceRefs.slice(0, 4).map((artifact) => (
+            <span className="artifact-link" key={artifact}>查看证据：{artifactName(artifact)}</span>
+          ))}
+        </div>
+      ) : null}
       <div className="approval-actions">
         {context.actions.map((action) => {
           if (action.kind === "feedback") {

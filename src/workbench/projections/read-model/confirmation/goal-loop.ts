@@ -153,18 +153,35 @@ export function attachControlledSchedulerAdvanceActions(
       currentGateActionType,
       refreshed: hasRefreshedControlledSchedulerReconfirmEvidence(item, sourceActions, workpad),
     });
+    const evidenceRefs = controlledSchedulerAdvanceEvidenceRefs(item, sourceActions, workpad);
     return {
       ...item,
       summary: advanceCopy.summary,
       whyNeedsConfirmation: advanceCopy.whyNeedsConfirmation,
       confirmEffect: advanceCopy.confirmEffect,
       riskSummary: advanceCopy.riskSummary,
+      evidenceRefs,
       actions: [
         ...item.actions.filter((action) => !(action.kind === "workflow-action" && isSchedulerAdvanceSourceAction(action))),
         ...exposedAdvanceActions,
       ],
     };
   });
+}
+
+function controlledSchedulerAdvanceEvidenceRefs(
+  item: WorkbenchConfirmationQueueItem,
+  sourceActions: WorkbenchDecisionAction[],
+  workpad: WorkbenchWorkpad | undefined,
+): string[] {
+  const candidate = workpad?.goalLoop?.controlledSchedulerNextCandidate;
+  if (
+    candidate?.status !== "ready-for-confirmation"
+    || !hasRefreshedControlledSchedulerReconfirmEvidence(item, sourceActions, workpad)
+  ) {
+    return item.evidenceRefs;
+  }
+  return mergeEvidenceRefs(item.evidenceRefs, candidate.evidenceRefs);
 }
 
 function uniqueControlledSchedulerAdvanceGateType(sourceActions: WorkbenchDecisionAction[]): WorkbenchDecisionAction["actionType"] | undefined {
@@ -453,6 +470,17 @@ function scopeValuesEqual(left: string[], right: string[]): boolean {
 
 function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((item) => typeof item === "string");
+}
+
+function mergeEvidenceRefs(existing: string[], additional: string[]): string[] {
+  const seen = new Set<string>();
+  const refs: string[] = [];
+  for (const ref of [...existing, ...additional]) {
+    if (!ref || seen.has(ref)) continue;
+    seen.add(ref);
+    refs.push(ref);
+  }
+  return refs;
 }
 
 function readGoalLoopScope(goalLoop: WorkbenchWorkpad["goalLoop"]): Record<string, string | string[]> | undefined {

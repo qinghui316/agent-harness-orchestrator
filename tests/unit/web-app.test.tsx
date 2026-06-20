@@ -561,7 +561,11 @@ describe("Workbench web app", () => {
       whyNeedsConfirmation: "需要你再次确认当前页面显示的“继续执行下一个任务”；这不是自动继续。",
       confirmEffect: "服务端会重新读取当前状态，重新匹配目标和权限；匹配后只执行“继续执行下一个任务”这一当前合法步骤。",
       riskSummary: "确认后仍会立即停止；不会自动循环、批量派发、组合检查后的应用、关闭、远端落地或维护演进。",
-      evidenceRefs: [],
+      evidenceRefs: [
+        "harness/changes/active/member-discount/planning/goal-loop-next-step-packets/packet.md",
+        "harness/changes/active/member-discount/planning/goal-loop-controller-policies/policy.md",
+        "harness/changes/active/member-discount/planning/goal-loop-gate-readiness-preflights/preflight.md",
+      ],
       actions: [{
         id: "workflow:planning.scheduler.controlled-advance.run:member-discount:planning.scheduler.worker.start-next:claim-reservation-expected",
         label: "按当前建议继续一个受控步骤",
@@ -606,7 +610,11 @@ describe("Workbench web app", () => {
     expect(within(card).getByText("当前下一步判断和步骤检查已刷新；这次仍是新的单步确认，步骤类别是：继续执行下一个任务。")).toBeTruthy();
     expect(within(card).getByText("服务端会重新读取当前状态，重新匹配目标和权限；匹配后只执行“继续执行下一个任务”这一当前合法步骤。")).toBeTruthy();
     expect(within(card).getByText("确认后仍会立即停止；不会自动循环、批量派发、组合检查后的应用、关闭、远端落地或维护演进。")).toBeTruthy();
+    expect(within(card).getByText("查看证据：packet.md")).toBeTruthy();
+    expect(within(card).getByText("查看证据：policy.md")).toBeTruthy();
+    expect(within(card).getByText("查看证据：preflight.md")).toBeTruthy();
     expect(within(card).getByRole("button", { name: "按当前建议继续一个受控步骤" })).toBeTruthy();
+    expect(within(card).getAllByRole("button")).toHaveLength(1);
     const cardText = card.textContent ?? "";
     const normalizedCardText = cardText.toLowerCase();
     expect(cardText).not.toContain("上一个受控步骤");

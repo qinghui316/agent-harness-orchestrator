@@ -340,6 +340,7 @@ export interface WorkbenchDecisionContext {
   runId?: string;
   targetId?: string;
   artifact?: string;
+  evidenceRefs?: string[];
   timestamp?: string;
   actions: WorkbenchDecisionAction[];
   rework?: WorkbenchReworkPrompt;

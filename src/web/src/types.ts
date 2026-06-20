@@ -1456,6 +1456,7 @@ export type DecisionContext = {
   runId?: string;
   targetId?: string;
   artifact?: string;
+  evidenceRefs?: string[];
   timestamp?: string;
   actions: DecisionAction[];
   rework?: { mode: "inline-feedback" | "record-feedback"; label: string; placeholder: string };

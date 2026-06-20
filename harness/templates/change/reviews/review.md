@@ -71,6 +71,8 @@ Pending.
 - If applicable, forbidden visible internal terms/actions checked: not applicable.
 - If applicable, duplicate primary action check: not applicable.
 - If applicable, high-impact action path result: not applicable.
+- If applicable, real App DOM / browser UI verification result when the behavior is product-visible: not applicable.
+- If applicable, projection/unit evidence that supplements but does not replace visible-surface acceptance: not applicable.
 - If applicable, tested with: not applicable.
 - If not applicable, reason: change does not affect Workbench user-facing decision surfaces, Workpad projections, composer actions, task/queue/audit controls, or post-run result actions.
 

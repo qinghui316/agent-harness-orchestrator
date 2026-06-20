@@ -194,7 +194,7 @@ The check must confirm that:
 - repeated or duplicate primary actions are not shown when one action is the intended user affordance;
 - high-impact actions still route through the documented workflow action or human gate.
 
-Prefer a unit/web DOM assertion for forbidden visible terms/actions when the affected surface is rendered in tests. Real UI screenshots may supplement the check, but should not be the only guard when a deterministic DOM check is practical.
+Prefer a unit/web DOM assertion for forbidden visible terms/actions when the affected surface is rendered in tests. When behavior is product-visible in the Workbench UI, validation should include a real React/App DOM or browser UI check when feasible; projection/unit evidence is useful for derivation and edge cases, but should not be the only visible-surface acceptance evidence. Real UI screenshots may supplement the check, but should not be the only guard when a deterministic DOM check is practical.
 
 Record the sampled surface, forbidden terms/actions checked, implemented action paths verified, and result in `reviews/review.md` or `summary.md`.
 
