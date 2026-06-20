@@ -524,30 +524,14 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
     ) {
       throw new Error("planning.scheduler.worker.validate-first WorkerResult target is stale.");
     }
-    if (request.schedulerWorkerStartId && request.schedulerWorkerStartId !== workerResult.schedulerWorkerStartId) {
-      throw new Error("planning.scheduler.worker.validate-first WorkerStart scope mismatch.");
-    }
-    if (request.schedulerClaimReservationId && request.schedulerClaimReservationId !== workerResult.schedulerClaimReservationId) {
-      throw new Error("planning.scheduler.worker.validate-first SchedulerRuntimeClaimReservation scope mismatch.");
-    }
-    if (request.reservationIntentId && request.reservationIntentId !== workerResult.reservationIntentId) {
-      throw new Error("planning.scheduler.worker.validate-first reservationIntentId scope mismatch.");
-    }
-    if (request.claimIntentId && request.claimIntentId !== workerResult.claimIntentId) {
-      throw new Error("planning.scheduler.worker.validate-first claimIntentId scope mismatch.");
-    }
-    if (request.taskRunId && request.taskRunId !== workerResult.taskRunId) {
-      throw new Error("planning.scheduler.worker.validate-first TaskRun scope mismatch.");
-    }
-    if (request.workerLeaseId && request.workerLeaseId !== workerResult.workerLeaseId) {
-      throw new Error("planning.scheduler.worker.validate-first WorkerLease scope mismatch.");
-    }
-    if (request.worktreeId && request.worktreeId !== workerResult.worktreeId) {
-      throw new Error("planning.scheduler.worker.validate-first worktree scope mismatch.");
-    }
-    if (request.runId && request.runId !== workerResult.runId) {
-      throw new Error("planning.scheduler.worker.validate-first code run scope mismatch.");
-    }
+    assertWorkbenchActionOptionalStringTarget(request.schedulerWorkerStartId, workerResult.schedulerWorkerStartId, "planning.scheduler.worker.validate-first", "WorkerStart");
+    assertWorkbenchActionOptionalStringTarget(request.schedulerClaimReservationId, workerResult.schedulerClaimReservationId, "planning.scheduler.worker.validate-first", "SchedulerRuntimeClaimReservation");
+    assertWorkbenchActionOptionalStringTarget(request.reservationIntentId, workerResult.reservationIntentId, "planning.scheduler.worker.validate-first", "reservationIntentId");
+    assertWorkbenchActionOptionalStringTarget(request.claimIntentId, workerResult.claimIntentId, "planning.scheduler.worker.validate-first", "claimIntentId");
+    assertWorkbenchActionOptionalStringTarget(request.taskRunId, workerResult.taskRunId, "planning.scheduler.worker.validate-first", "TaskRun");
+    assertWorkbenchActionOptionalStringTarget(request.workerLeaseId, workerResult.workerLeaseId, "planning.scheduler.worker.validate-first", "WorkerLease");
+    assertWorkbenchActionOptionalStringTarget(request.worktreeId, workerResult.worktreeId ?? "", "planning.scheduler.worker.validate-first", "worktree");
+    assertWorkbenchActionOptionalStringTarget(request.runId, workerResult.runId ?? "", "planning.scheduler.worker.validate-first", "code run");
     const existingValidation = await findSchedulerRuntimeWorkerValidationForResult(memory, target.path, run.id, workerResult.id);
     if (request.schedulerWorkerValidationId && existingValidation?.id !== request.schedulerWorkerValidationId) {
       throw new Error("planning.scheduler.worker.validate-first WorkerValidation scope mismatch.");
@@ -585,36 +569,16 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
     ) {
       throw new Error("planning.scheduler.worker.audit-first WorkerValidation target is stale.");
     }
-    if (request.schedulerWorkerStartId && request.schedulerWorkerStartId !== workerValidation.schedulerWorkerStartId) {
-      throw new Error("planning.scheduler.worker.audit-first WorkerStart scope mismatch.");
-    }
-    if (request.schedulerWorkerResultId && request.schedulerWorkerResultId !== workerValidation.schedulerWorkerResultId) {
-      throw new Error("planning.scheduler.worker.audit-first WorkerResult scope mismatch.");
-    }
-    if (request.schedulerClaimReservationId && request.schedulerClaimReservationId !== workerValidation.schedulerClaimReservationId) {
-      throw new Error("planning.scheduler.worker.audit-first SchedulerRuntimeClaimReservation scope mismatch.");
-    }
-    if (request.reservationIntentId && request.reservationIntentId !== workerValidation.reservationIntentId) {
-      throw new Error("planning.scheduler.worker.audit-first reservationIntentId scope mismatch.");
-    }
-    if (request.claimIntentId && request.claimIntentId !== workerValidation.claimIntentId) {
-      throw new Error("planning.scheduler.worker.audit-first claimIntentId scope mismatch.");
-    }
-    if (request.taskRunId && request.taskRunId !== workerValidation.taskRunId) {
-      throw new Error("planning.scheduler.worker.audit-first TaskRun scope mismatch.");
-    }
-    if (request.workerLeaseId && request.workerLeaseId !== workerValidation.workerLeaseId) {
-      throw new Error("planning.scheduler.worker.audit-first WorkerLease scope mismatch.");
-    }
-    if (request.worktreeId && request.worktreeId !== workerValidation.worktreeId) {
-      throw new Error("planning.scheduler.worker.audit-first worktree scope mismatch.");
-    }
-    if (request.runId && request.runId !== workerValidation.codeRunId) {
-      throw new Error("planning.scheduler.worker.audit-first code run scope mismatch.");
-    }
-    if (request.validationRunId && request.validationRunId !== workerValidation.validationRunId) {
-      throw new Error("planning.scheduler.worker.audit-first validation run scope mismatch.");
-    }
+    assertWorkbenchActionOptionalStringTarget(request.schedulerWorkerStartId, workerValidation.schedulerWorkerStartId, "planning.scheduler.worker.audit-first", "WorkerStart");
+    assertWorkbenchActionOptionalStringTarget(request.schedulerWorkerResultId, workerValidation.schedulerWorkerResultId, "planning.scheduler.worker.audit-first", "WorkerResult");
+    assertWorkbenchActionOptionalStringTarget(request.schedulerClaimReservationId, workerValidation.schedulerClaimReservationId, "planning.scheduler.worker.audit-first", "SchedulerRuntimeClaimReservation");
+    assertWorkbenchActionOptionalStringTarget(request.reservationIntentId, workerValidation.reservationIntentId, "planning.scheduler.worker.audit-first", "reservationIntentId");
+    assertWorkbenchActionOptionalStringTarget(request.claimIntentId, workerValidation.claimIntentId, "planning.scheduler.worker.audit-first", "claimIntentId");
+    assertWorkbenchActionOptionalStringTarget(request.taskRunId, workerValidation.taskRunId, "planning.scheduler.worker.audit-first", "TaskRun");
+    assertWorkbenchActionOptionalStringTarget(request.workerLeaseId, workerValidation.workerLeaseId, "planning.scheduler.worker.audit-first", "WorkerLease");
+    assertWorkbenchActionOptionalStringTarget(request.worktreeId, workerValidation.worktreeId, "planning.scheduler.worker.audit-first", "worktree");
+    assertWorkbenchActionOptionalStringTarget(request.runId, workerValidation.codeRunId, "planning.scheduler.worker.audit-first", "code run");
+    assertWorkbenchActionOptionalStringTarget(request.validationRunId, workerValidation.validationRunId, "planning.scheduler.worker.audit-first", "validation run");
     const existingAudit = await findSchedulerRuntimeWorkerAuditForValidation(memory, target.path, run.id, workerValidation.id);
     if (request.schedulerWorkerAuditId && existingAudit?.id !== request.schedulerWorkerAuditId) {
       throw new Error("planning.scheduler.worker.audit-first WorkerAudit scope mismatch.");

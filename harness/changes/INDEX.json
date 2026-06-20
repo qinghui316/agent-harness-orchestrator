@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-20T00:08:32.2687306Z",
+    "generated_at":  "2026-06-20T00:21:40.3096253Z",
     "active":  [
 
                ],
@@ -1461,6 +1461,10 @@
                     {
                         "name":  "20260620-workbench-test-architecture-task-runtime-domain-split",
                         "path":  "harness/changes/archive/20260620-workbench-test-architecture-task-runtime-domain-split"
+                    },
+                    {
+                        "name":  "20260620-workbench-worker-first-pass-optional-target-helper-reuse",
+                        "path":  "harness/changes/archive/20260620-workbench-worker-first-pass-optional-target-helper-reuse"
                     },
                     {
                         "name":  "20260620-workbench-worker-reconcile-optional-target-helper-reuse",
