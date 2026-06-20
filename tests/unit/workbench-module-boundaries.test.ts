@@ -2042,6 +2042,15 @@ describe("Workbench module boundaries", () => {
     expect(boundary).toContain("assertWorkbenchActionOptionalStringTarget(request.schedulerWorkerAuditId, reworkPlan.schedulerWorkerAuditId ?? \"\", \"planning.scheduler.worker.rework-start-first\", \"WorkerAudit\")");
     expect(boundary).toContain("assertWorkbenchActionOptionalStringTarget(request.taskRunId, reworkPlan.taskRunId, \"planning.scheduler.worker.rework-start-first\", \"original TaskRun\")");
     expect(boundary).toContain("assertWorkbenchActionOptionalStringTarget(request.runId, reworkPlan.targetCodeRunId, \"planning.scheduler.worker.rework-start-first\", \"original code run\")");
+    expect(boundary).toContain("assertWorkbenchActionOptionalStringTarget(request.schedulerClaimReservationId, reworkStart.schedulerClaimReservationId, \"planning.scheduler.worker.rework-reconcile-result\", \"SchedulerRuntimeClaimReservation\")");
+    expect(boundary).toContain("assertWorkbenchActionOptionalStringTarget(request.schedulerWorkerReworkPlanId, reworkStart.schedulerWorkerReworkPlanId, \"planning.scheduler.worker.rework-reconcile-result\", \"WorkerReworkPlan\")");
+    expect(boundary).toContain("assertWorkbenchActionOptionalStringTarget(request.reservationIntentId, reworkStart.reservationIntentId, \"planning.scheduler.worker.rework-reconcile-result\", \"reservationIntentId\")");
+    expect(boundary).toContain("assertWorkbenchActionOptionalStringTarget(request.claimIntentId, reworkStart.claimIntentId, \"planning.scheduler.worker.rework-reconcile-result\", \"claimIntentId\")");
+    expect(boundary).toContain("assertWorkbenchActionOptionalStringTarget(request.taskRunId, reworkStart.reworkTaskRunId, \"planning.scheduler.worker.rework-reconcile-result\", \"rework TaskRun\")");
+    expect(boundary).toContain("assertWorkbenchActionOptionalStringTarget(request.workerLeaseId, reworkStart.reworkWorkerLeaseId, \"planning.scheduler.worker.rework-reconcile-result\", \"rework WorkerLease\")");
+    expect(boundary).toContain("assertWorkbenchActionOptionalStringTarget(request.worktreeId, reworkStart.worktreeId, \"planning.scheduler.worker.rework-reconcile-result\", \"worktree\")");
+    expect(boundary).toContain("assertWorkbenchActionOptionalStringTarget(request.runId, reworkStart.reworkRunId ?? \"\", \"planning.scheduler.worker.rework-reconcile-result\", \"rework code run\")");
+    expect(boundary).toContain("if (request.schedulerWorkerReworkResultId && existingResult?.id !== request.schedulerWorkerReworkResultId)");
     expect(boundary).toContain("assertWorkbenchActionOptionalStringTarget(request.schedulerIntegrationCandidateId, latestCandidate.id, \"planning.scheduler.integration-outcome.reconcile\", \"SchedulerIntegrationCandidate\")");
     expect(boundary).toContain("assertWorkbenchActionOptionalStringTarget(request.applyCheckId, latestHandoff.integrationCheckId, \"planning.scheduler.integration-outcome.reconcile\", \"applyCheckId\")");
     expect(boundary).toContain("assertWorkbenchActionOptionalStringTarget(request.schedulerReconcileSnapshotId, outcome.schedulerReconcileSnapshotId, \"planning.scheduler.run.complete\", \"schedulerReconcileSnapshotId\")");

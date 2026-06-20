@@ -714,30 +714,14 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
     if (reworkPlan.id !== reworkStart.schedulerWorkerReworkPlanId || reworkPlan.futureCodeGateMode !== "scheduler-claim-rework" || reworkPlan.targetWorktreeId !== reworkStart.worktreeId) {
       throw new Error("planning.scheduler.worker.rework-reconcile-result ReworkPlan target is stale.");
     }
-    if (request.schedulerClaimReservationId && request.schedulerClaimReservationId !== reworkStart.schedulerClaimReservationId) {
-      throw new Error("planning.scheduler.worker.rework-reconcile-result SchedulerRuntimeClaimReservation scope mismatch.");
-    }
-    if (request.schedulerWorkerReworkPlanId && request.schedulerWorkerReworkPlanId !== reworkStart.schedulerWorkerReworkPlanId) {
-      throw new Error("planning.scheduler.worker.rework-reconcile-result WorkerReworkPlan scope mismatch.");
-    }
-    if (request.reservationIntentId && request.reservationIntentId !== reworkStart.reservationIntentId) {
-      throw new Error("planning.scheduler.worker.rework-reconcile-result reservationIntentId scope mismatch.");
-    }
-    if (request.claimIntentId && request.claimIntentId !== reworkStart.claimIntentId) {
-      throw new Error("planning.scheduler.worker.rework-reconcile-result claimIntentId scope mismatch.");
-    }
-    if (request.taskRunId && request.taskRunId !== reworkStart.reworkTaskRunId) {
-      throw new Error("planning.scheduler.worker.rework-reconcile-result rework TaskRun scope mismatch.");
-    }
-    if (request.workerLeaseId && request.workerLeaseId !== reworkStart.reworkWorkerLeaseId) {
-      throw new Error("planning.scheduler.worker.rework-reconcile-result rework WorkerLease scope mismatch.");
-    }
-    if (request.worktreeId && request.worktreeId !== reworkStart.worktreeId) {
-      throw new Error("planning.scheduler.worker.rework-reconcile-result worktree scope mismatch.");
-    }
-    if (request.runId && request.runId !== reworkStart.reworkRunId) {
-      throw new Error("planning.scheduler.worker.rework-reconcile-result rework code run scope mismatch.");
-    }
+    assertWorkbenchActionOptionalStringTarget(request.schedulerClaimReservationId, reworkStart.schedulerClaimReservationId, "planning.scheduler.worker.rework-reconcile-result", "SchedulerRuntimeClaimReservation");
+    assertWorkbenchActionOptionalStringTarget(request.schedulerWorkerReworkPlanId, reworkStart.schedulerWorkerReworkPlanId, "planning.scheduler.worker.rework-reconcile-result", "WorkerReworkPlan");
+    assertWorkbenchActionOptionalStringTarget(request.reservationIntentId, reworkStart.reservationIntentId, "planning.scheduler.worker.rework-reconcile-result", "reservationIntentId");
+    assertWorkbenchActionOptionalStringTarget(request.claimIntentId, reworkStart.claimIntentId, "planning.scheduler.worker.rework-reconcile-result", "claimIntentId");
+    assertWorkbenchActionOptionalStringTarget(request.taskRunId, reworkStart.reworkTaskRunId, "planning.scheduler.worker.rework-reconcile-result", "rework TaskRun");
+    assertWorkbenchActionOptionalStringTarget(request.workerLeaseId, reworkStart.reworkWorkerLeaseId, "planning.scheduler.worker.rework-reconcile-result", "rework WorkerLease");
+    assertWorkbenchActionOptionalStringTarget(request.worktreeId, reworkStart.worktreeId, "planning.scheduler.worker.rework-reconcile-result", "worktree");
+    assertWorkbenchActionOptionalStringTarget(request.runId, reworkStart.reworkRunId ?? "", "planning.scheduler.worker.rework-reconcile-result", "rework code run");
     if (reworkStart.reworkRunId) {
       const codeRun = await readRun(memory, reworkStart.reworkRunId);
       const gate = codeRun.executionGate;
