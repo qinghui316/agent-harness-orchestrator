@@ -111,7 +111,7 @@ import { findWorkbenchTopicPath } from "../../src/workbench/projections/typed-wo
 import { buildConfirmationQueue, scopeConfirmationQueueItemActions } from "../../src/workbench/projections/read-model/confirmation-queue.js";
 import { buildApprovalInbox } from "../../src/workbench/projections/read-model/approval-inbox.js";
 import { buildMaintenanceSummary } from "../../src/workbench/projections/read-model/maintenance-summary.js";
-import { latestByCreatedAt, latestByTimestamp, projectFields, sortByTimestampDesc } from "../../src/workbench/projections/read-model/projection-summary.js";
+import { latestByCreatedAt, latestByTimestamp, latestUnhandledByCreatedAt, projectFields, sortByTimestampDesc } from "../../src/workbench/projections/read-model/projection-summary.js";
 import { listWorkbenchTopicsFromMemory } from "../../src/workbench/projections/read-model/topics.js";
 import { workpadNextActionToConfirmationItems } from "../../src/workbench/projections/read-model/confirmation/typed-workflow.js";
 import { schedulerUserFacingActionLabel } from "../../src/workbench/projections/read-model/confirmation/scheduler-user-surface.js";
@@ -1889,11 +1889,36 @@ describe("Workbench module boundaries", () => {
     expect(sortByTimestampDesc(optionalTimestampRecords, (record) => record.finishedAt).map((record) => record.id)).toEqual(["new", "old", "missing", "empty"]);
     expect(optionalTimestampRecords.map((record) => record.id)).toEqual(optionalOriginalOrder);
 
+    const unhandledRecords = [
+      { id: "eligible-old", createdAt: "2026-06-17T00:00:00.000Z", status: "ready" },
+      { id: "eligible-new", createdAt: "2026-06-20T00:00:00.000Z", status: "ready" },
+      { id: "handled-newest", createdAt: "2026-06-21T00:00:00.000Z", status: "ready" },
+      { id: "blocked-latest", createdAt: "2026-06-22T00:00:00.000Z", status: "blocked" },
+    ];
+    const unhandledOriginalOrder = unhandledRecords.map((record) => record.id);
+    const selectedUnhandled = latestUnhandledByCreatedAt(
+      unhandledRecords,
+      [{ targetId: "handled-newest" }],
+      (record) => record.id,
+      (handled) => handled.targetId,
+      (record) => record.status === "ready",
+    );
+    expect(selectedUnhandled?.id).toBe("eligible-new");
+    expect(unhandledRecords.map((record) => record.id)).toEqual(unhandledOriginalOrder);
+
     const helper = readFileSync("src/workbench/projections/read-model/projection-summary.ts", "utf8");
     expect(helper).toContain("latestByTimestamp(items, (item) => item.createdAt)");
+    expect(helper).toContain("latestUnhandledByCreatedAt");
     expect(helper).not.toContain("from \"../../manager");
     expect(helper).not.toContain("from \"../../../server");
     expect(helper).not.toContain("from \"../../../agent-task");
+
+    const maintenanceConfirmation = readFileSync("src/workbench/projections/read-model/confirmation/maintenance.ts", "utf8");
+    expect(maintenanceConfirmation).toContain('from "../projection-summary.js"');
+    expect(maintenanceConfirmation).toContain("latestUnhandledByCreatedAt(proposals, decisions");
+    expect(maintenanceConfirmation).toContain("latestUnhandledByCreatedAt(patchProposals, gateRecords");
+    expect(maintenanceConfirmation).toContain("latestUnhandledByCreatedAt(");
+    expect(maintenanceConfirmation).toContain('applicationStatus === "ready-for-application"');
 
     const taskGraph = readFileSync("src/workbench/projections/read-model/task-graph.ts", "utf8");
     const workpad = readFileSync("src/workbench/projections/read-model/workpad.ts", "utf8");

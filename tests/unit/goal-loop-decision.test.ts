@@ -3446,19 +3446,19 @@ describe("GoalLoopDecision", () => {
       changeId,
       schedulerRunId: schedulerRun.id,
       schedulerClaimReservationId: "forged-reservation",
-    })).rejects.toThrow("SchedulerRuntimeClaimReservation scope mismatch");
+    })).rejects.toThrow("SchedulerRuntimeClaimReservation target scope mismatch");
     await expect(auditHighImpactWorkflowAction(project(), changeId, {
       actionType: "planning.scheduler.integration-candidate.compile",
       changeId,
       schedulerRunId: schedulerRun.id,
       schedulerReconcileSnapshotId: "forged-snapshot",
-    })).rejects.toThrow("SchedulerReconcileSnapshot scope mismatch");
+    })).rejects.toThrow("SchedulerReconcileSnapshot target scope mismatch");
     await expect(auditHighImpactWorkflowAction(project(), changeId, {
       actionType: "planning.scheduler.integration-candidate.compile",
       changeId,
       schedulerRunId: schedulerRun.id,
       schedulerIntegrationCandidateId: "forged-candidate",
-    })).rejects.toThrow("SchedulerIntegrationCandidate scope mismatch");
+    })).rejects.toThrow("SchedulerIntegrationCandidate target scope mismatch");
 
     await expect(assertGoalLoopAssistedConcreteGateConfirmation(memory, changePath, changeId, request, { visibleGate }))
       .resolves.toBeUndefined();

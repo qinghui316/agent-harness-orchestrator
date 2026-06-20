@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-20T02:49:41.5079288Z",
+    "generated_at":  "2026-06-20T03:20:53.5276534Z",
     "active":  [
 
                ],
@@ -1375,6 +1375,10 @@
                         "path":  "harness/changes/archive/20260619-workflow-scheduler-latest-artifact-guard-reuse"
                     },
                     {
+                        "name":  "20260620-auto-evolve-harness-helper-reuse-projection-window",
+                        "path":  "harness/changes/archive/20260620-auto-evolve-harness-helper-reuse-projection-window"
+                    },
+                    {
                         "name":  "20260620-auto-evolve-harness-maintenance-section-helper-window",
                         "path":  "harness/changes/archive/20260620-auto-evolve-harness-maintenance-section-helper-window"
                     },
@@ -1437,6 +1441,10 @@
                     {
                         "name":  "20260620-workbench-goal-loop-surface-test-domain-split",
                         "path":  "harness/changes/archive/20260620-workbench-goal-loop-surface-test-domain-split"
+                    },
+                    {
+                        "name":  "20260620-workbench-maintenance-confirmation-unhandled-latest-helper-reuse",
+                        "path":  "harness/changes/archive/20260620-workbench-maintenance-confirmation-unhandled-latest-helper-reuse"
                     },
                     {
                         "name":  "20260620-workbench-planning-scheduler-prep-test-domain-split",

@@ -11,7 +11,7 @@ import {
 } from "../../../../agent-task/manager.js";
 import type { ManagedProject, ResolvedMemory } from "../../../../types/index.js";
 import type { WorkbenchConfirmationQueueItem } from "../../../read-model-types.js";
-import { latestByCreatedAt } from "../projection-summary.js";
+import { latestUnhandledByCreatedAt } from "../projection-summary.js";
 
 export async function maintenanceCanonicalUpdateDecisionQueueItems(input: {
   project: ManagedProject | null;
@@ -21,8 +21,7 @@ export async function maintenanceCanonicalUpdateDecisionQueueItems(input: {
   const proposals = await listMaintenanceCanonicalUpdateProposals(input.memory).catch(() => []);
   if (proposals.length === 0) return [];
   const decisions = await listMaintenanceCanonicalUpdateDecisions(input.memory).catch(() => []);
-  const handledProposalIds = new Set(decisions.map((decision) => decision.proposalId));
-  const proposal = latestByCreatedAt(proposals.filter((item) => !handledProposalIds.has(item.id)));
+  const proposal = latestUnhandledByCreatedAt(proposals, decisions, (item) => item.id, (decision) => decision.proposalId);
   if (!proposal) return maintenanceCanonicalPatchApplicationQueueItems(input);
   const proposalRef = maintenanceCanonicalUpdateProposalArtifactRef(input.memory, proposal.id);
   return [{
@@ -59,8 +58,7 @@ async function maintenanceCanonicalPatchApplicationGateQueueItems(input: {
   const patchProposals = await listMaintenanceCanonicalPatchProposals(input.memory).catch(() => []);
   if (patchProposals.length === 0) return [];
   const gateRecords = await listMaintenanceCanonicalPatchApplicationGateRecords(input.memory).catch(() => []);
-  const handledPatchProposalIds = new Set(gateRecords.map((record) => record.patchProposalId));
-  const patchProposal = latestByCreatedAt(patchProposals.filter((item) => !handledPatchProposalIds.has(item.id)));
+  const patchProposal = latestUnhandledByCreatedAt(patchProposals, gateRecords, (item) => item.id, (record) => record.patchProposalId);
   if (!patchProposal) return maintenanceCanonicalPatchApplyQueueItems(input);
   const patchProposalRef = maintenanceCanonicalPatchProposalArtifactRef(input.memory, patchProposal.id);
   return [{
@@ -105,9 +103,12 @@ async function maintenanceCanonicalPatchApplyQueueItems(input: {
   const manifests = await listMaintenanceCanonicalPatchApplicationManifests(input.memory).catch(() => []);
   if (manifests.length === 0) return [];
   const results = await listMaintenanceCanonicalPatchApplicationResults(input.memory).catch(() => []);
-  const handledManifestIds = new Set(results.map((result) => result.manifestId));
-  const manifest = latestByCreatedAt(
-    manifests.filter((item) => item.applicationStatus === "ready-for-application" && !handledManifestIds.has(item.id)),
+  const manifest = latestUnhandledByCreatedAt(
+    manifests,
+    results,
+    (item) => item.id,
+    (result) => result.manifestId,
+    (item) => item.applicationStatus === "ready-for-application",
   );
   if (!manifest) return [];
   const manifestRef = maintenanceCanonicalPatchApplicationManifestArtifactRef(input.memory, manifest.id);
