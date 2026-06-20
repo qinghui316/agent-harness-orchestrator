@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-20T04:11:09.3547711Z",
+    "generated_at":  "2026-06-20T04:38:40.5440009Z",
     "active":  [
 
                ],
@@ -1391,6 +1391,10 @@
                         "path":  "harness/changes/archive/20260620-auto-evolve-harness-workbench-feedback-conversation-split-window"
                     },
                     {
+                        "name":  "20260620-auto-evolve-harness-workbench-helper-boundary-window",
+                        "path":  "harness/changes/archive/20260620-auto-evolve-harness-workbench-helper-boundary-window"
+                    },
+                    {
                         "name":  "20260620-auto-evolve-harness-workbench-rework-helper-reuse-window",
                         "path":  "harness/changes/archive/20260620-auto-evolve-harness-workbench-rework-helper-reuse-window"
                     },
@@ -1445,6 +1449,10 @@
                     {
                         "name":  "20260620-workbench-goal-loop-surface-test-domain-split",
                         "path":  "harness/changes/archive/20260620-workbench-goal-loop-surface-test-domain-split"
+                    },
+                    {
+                        "name":  "20260620-workbench-helper-boundaries-test-suite-split",
+                        "path":  "harness/changes/archive/20260620-workbench-helper-boundaries-test-suite-split"
                     },
                     {
                         "name":  "20260620-workbench-landing-review-artifact-selection-helper-reuse",
