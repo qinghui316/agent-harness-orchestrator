@@ -357,6 +357,22 @@ export function SchedulerControlledStepEvidenceCard({ step }: { step: NonNullabl
           </div>
         </div>
       ) : null}
+      {step.controlledLoopBoundaryResult ? (
+        <div className="workpad-evidence-list" data-testid="scheduler-controlled-loop-boundary-result">
+          <div className="workpad-evidence">
+            <strong>循环边界</strong>
+            <span>{controlledLoopBoundaryResultText(step.controlledLoopBoundaryResult)}</span>
+          </div>
+          <div className="workpad-evidence">
+            <strong>下一确认</strong>
+            <span>{step.controlledLoopBoundaryResult.nextGateActionType ? workflowActionLabel(step.controlledLoopBoundaryResult.nextGateActionType) : "等待新的证据"}</span>
+          </div>
+          <div className="workpad-evidence">
+            <strong>继续要求</strong>
+            <span>继续前必须重新读取 fresh Goal Loop、当前确认门、ToolPolicy 和人工确认状态</span>
+          </div>
+        </div>
+      ) : null}
       {step.warning ? <p className="workpad-note">{step.warning}</p> : null}
       {step.artifact ? <small className="artifact-link">查看证据：{artifactName(step.artifact)}</small> : null}
     </section>
@@ -368,6 +384,7 @@ type ControlledLoopTickSummary = NonNullable<NonNullable<Workpad["schedulerContr
 type ControlledLoopContinuationReadiness = NonNullable<NonNullable<Workpad["schedulerControlledStepEvidence"]>["controlledLoopContinuationReadiness"]>;
 type ControlledLoopIterationSummary = NonNullable<NonNullable<Workpad["schedulerControlledStepEvidence"]>["controlledLoopIteration"]>;
 type ControlledLoopStopSummary = NonNullable<NonNullable<Workpad["schedulerControlledStepEvidence"]>["controlledLoopStopSummary"]>;
+type ControlledLoopBoundaryResult = NonNullable<NonNullable<Workpad["schedulerControlledStepEvidence"]>["controlledLoopBoundaryResult"]>;
 
 function controlledLoopTickPhaseText(tick: ControlledLoopTickSummary): string {
   return [
@@ -421,6 +438,14 @@ function controlledLoopIterationPhaseText(iteration: ControlledLoopIterationSumm
     `检查 ${iteration.chooseCheckStatus}`,
     `派发 ${iteration.dispatchStatus}`,
     `复核 ${iteration.reconcileStatus}`,
+  ].join(" / ");
+}
+
+function controlledLoopBoundaryResultText(result: ControlledLoopBoundaryResult): string {
+  return [
+    controlledLoopTurnRouteLabel(result.boundaryPosture),
+    result.continuationReadinessStatus,
+    result.futureContinuationRequiresFreshEvidence ? "需重新取证" : "等待证据",
   ].join(" / ");
 }
 

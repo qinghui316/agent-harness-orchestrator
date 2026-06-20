@@ -154,6 +154,44 @@ describe("Scheduler controlled step evidence", () => {
         wholeWaveDispatchAuthorized: false,
         slotAllocatorAuthorized: false,
       },
+      controlledLoopCurrentTransitionChoice: {
+        version: "1.0",
+        authority: "scheduler-runtime-current-transition-choice",
+        status: "ready-for-dispatch",
+        changeId: "change-1",
+        selectedActionType: "planning.scheduler.worker.start-next",
+        submittedActionType: "planning.scheduler.controlled-advance.run",
+        currentGate: {
+          actionType: "planning.scheduler.worker.start-next",
+          scope: {
+            changeId: "change-1",
+            schedulerRunId: "scheduler-run-1",
+            schedulerClaimReservationId: "reservation-1",
+          },
+        },
+        goalLoopDecisionId: "decision-pre",
+        goalLoopIterationId: "iteration-pre",
+        goalLoopContinuationBriefId: "brief-pre",
+        goalLoopNextStepPacketId: "packet-pre",
+        goalLoopControllerPolicyId: "controller-pre",
+        goalLoopGateReadinessPreflightId: "preflight-pre",
+        humanGateRequired: true,
+        humanConfirmationStillRequired: true,
+        executionStarted: false,
+        concreteGateInvoked: false,
+        toolPolicyAuthorizedConcreteGate: false,
+        authorizationGranted: false,
+        loopAuthorized: false,
+        fullParallelExecutorAuthorized: false,
+        wholeWaveDispatchAuthorized: false,
+        slotAllocatorAuthorized: false,
+        sourceMutationAuthorized: false,
+        applyAuthorized: false,
+        closeAuthorized: false,
+        mergeAuthorized: false,
+        remoteLandingAuthorized: false,
+        harnessEvolutionAuthorized: false,
+      },
       controlledStepResultSummary: {
         resultKind: "schedulerWorkerStart",
         schedulerWorkerStartId: "scheduler-worker-start-1",
@@ -304,6 +342,49 @@ describe("Scheduler controlled step evidence", () => {
       remoteLandingAuthorized: false,
       harnessEvolutionAuthorized: false,
     });
+    expect(recorded.schedulerControlledStepEvidence.controlledLoopBoundaryResult).toMatchObject({
+      authority: "scheduler-runtime-controlled-loop-boundary-result",
+      status: "recorded",
+      selectedActionType: "planning.scheduler.worker.start-next",
+      submittedActionType: "planning.scheduler.controlled-advance.run",
+      dispatchedActionType: "planning.scheduler.worker.start-next",
+      selectedGateScope: {
+        changeId: "change-1",
+        schedulerRunId: "scheduler-run-1",
+        schedulerClaimReservationId: "reservation-1",
+      },
+      observeStatus: "recorded",
+      chooseCheckStatus: "recorded",
+      dispatchStatus: "completed",
+      reconcileStatus: "recorded",
+      boundaryPosture: "awaiting-human-gate",
+      continuationReadinessStatus: "ready-for-human-gate",
+      stopReason: "one-confirmed-scheduler-transition-completed",
+      nextGateActionType: "planning.scheduler.worker.reconcile-result",
+      nextGateTargetScopeSource: "fresh-current-gate-required",
+      resultKind: "schedulerWorkerStart",
+      resultId: "scheduler-worker-start-1",
+      resultStatus: "started",
+      readinessEvidencePrepared: true,
+      needsReevaluation: false,
+      humanGateRequired: true,
+      humanConfirmationStillRequired: true,
+      futureContinuationRequiresFreshEvidence: true,
+      futureContinuationRequiresFreshCurrentGate: true,
+      stoppedAfterOneSchedulerTransition: true,
+      approvedScopeOnly: true,
+      executionStarted: false,
+      loopAuthorized: false,
+      fullParallelExecutorAuthorized: false,
+      wholeWaveDispatchAuthorized: false,
+      slotAllocatorAuthorized: false,
+      sourceMutationAuthorized: false,
+      applyAuthorized: false,
+      closeAuthorized: false,
+      mergeAuthorized: false,
+      remoteLandingAuthorized: false,
+      harnessEvolutionAuthorized: false,
+    });
     const recordedMarkdown = await readFile(
       join(tempDir, changePath, "planning", "scheduler-runs", "scheduler-run-1", "scheduler-controlled-steps", `${recorded.schedulerControlledStepEvidence.id}.md`),
       "utf8",
@@ -314,6 +395,10 @@ describe("Scheduler controlled step evidence", () => {
     expect(recordedMarkdown).toContain("## Controlled Loop Stop Summary");
     expect(recordedMarkdown).toContain("- Authority: scheduler-runtime-controlled-loop-stop-summary");
     expect(recordedMarkdown).toContain("- Execution from stop summary: not authorized.");
+    expect(recordedMarkdown).toContain("## Controlled Loop Boundary Result");
+    expect(recordedMarkdown).toContain("- Authority: scheduler-runtime-controlled-loop-boundary-result");
+    expect(recordedMarkdown).toContain("- Fresh evidence required before continuation: yes");
+    expect(recordedMarkdown).toContain("- Execution from boundary result: not authorized.");
     await expect(readLatestSchedulerControlledStepEvidenceSummary(memory, changePath, "scheduler-run-1")).resolves.toMatchObject({
       controlledLoopTurnRouteSummary: {
         routePosture: "awaiting-human-gate",
@@ -347,6 +432,15 @@ describe("Scheduler controlled step evidence", () => {
         nextGateActionType: "planning.scheduler.worker.reconcile-result",
         humanConfirmationStillRequired: true,
       },
+      controlledLoopBoundaryResult: {
+        authority: "scheduler-runtime-controlled-loop-boundary-result",
+        boundaryPosture: "awaiting-human-gate",
+        continuationReadinessStatus: "ready-for-human-gate",
+        nextGateActionType: "planning.scheduler.worker.reconcile-result",
+        nextGateTargetScopeSource: "fresh-current-gate-required",
+        futureContinuationRequiresFreshEvidence: true,
+        humanConfirmationStillRequired: true,
+      },
     });
     expect(events).toHaveLength(1);
     expect(events[0]).toMatchObject({
@@ -367,6 +461,11 @@ describe("Scheduler controlled step evidence", () => {
         controlledLoopStopSummaryRoutePosture: "awaiting-human-gate",
         controlledLoopStopSummaryContinuationReadinessStatus: "ready-for-human-gate",
         controlledLoopStopSummaryNextGateActionType: "planning.scheduler.worker.reconcile-result",
+        controlledLoopBoundaryResultAuthority: "scheduler-runtime-controlled-loop-boundary-result",
+        controlledLoopBoundaryResultStatus: "recorded",
+        controlledLoopBoundaryResultPosture: "awaiting-human-gate",
+        controlledLoopBoundaryResultNextGateActionType: "planning.scheduler.worker.reconcile-result",
+        futureContinuationRequiresFreshEvidence: true,
         humanConfirmationStillRequired: true,
       },
     });

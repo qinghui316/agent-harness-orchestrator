@@ -291,6 +291,7 @@ async function recordControlledAdvanceRuntimeStepEvidence(
         controlledLoopTick: recorded.schedulerControlledStepEvidence.controlledLoopTick,
         controlledLoopIteration: recorded.schedulerControlledStepEvidence.controlledLoopIteration,
         controlledLoopStopSummary: recorded.schedulerControlledStepEvidence.controlledLoopStopSummary,
+        controlledLoopBoundaryResult: recorded.schedulerControlledStepEvidence.controlledLoopBoundaryResult,
         controlledLoopCurrentTransitionChoice: recorded.schedulerControlledStepEvidence.controlledLoopCurrentTransitionChoice,
       },
     };

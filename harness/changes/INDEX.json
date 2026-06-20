@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-20T23:30:01.8325082Z",
+    "generated_at":  "2026-06-20T23:58:13.9644732Z",
     "active":  [
 
                ],
@@ -1697,6 +1697,10 @@
                     {
                         "name":  "20260621-controlled-scheduler-current-transition-owner",
                         "path":  "harness/changes/archive/20260621-controlled-scheduler-current-transition-owner"
+                    },
+                    {
+                        "name":  "20260621-controlled-scheduler-loop-boundary-result",
+                        "path":  "harness/changes/archive/20260621-controlled-scheduler-loop-boundary-result"
                     },
                     {
                         "name":  "20260621-controlled-scheduler-loop-iteration-runtime-boundary",

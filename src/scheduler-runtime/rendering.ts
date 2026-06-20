@@ -141,6 +141,24 @@ export function renderSchedulerControlledStepEvidenceMarkdown(step: SchedulerCon
         ]
       : ["- none"]),
     "",
+    "## Controlled Loop Boundary Result",
+    "",
+    ...(step.controlledLoopBoundaryResult
+      ? [
+          `- Authority: ${step.controlledLoopBoundaryResult.authority}`,
+          `- Status: ${step.controlledLoopBoundaryResult.status}`,
+          `- Selected action: ${step.controlledLoopBoundaryResult.selectedActionType}`,
+          `- Dispatched action: ${step.controlledLoopBoundaryResult.dispatchedActionType}`,
+          `- Boundary posture: ${step.controlledLoopBoundaryResult.boundaryPosture}`,
+          `- Continuation readiness: ${step.controlledLoopBoundaryResult.continuationReadinessStatus}`,
+          `- Next gate: ${step.controlledLoopBoundaryResult.nextGateActionType ?? "none"}`,
+          `- Next gate target scope source: ${step.controlledLoopBoundaryResult.nextGateTargetScopeSource ?? "none"}`,
+          `- Fresh evidence required before continuation: ${step.controlledLoopBoundaryResult.futureContinuationRequiresFreshEvidence ? "yes" : "no"}`,
+          `- Fresh current gate required before continuation: ${step.controlledLoopBoundaryResult.futureContinuationRequiresFreshCurrentGate ? "yes" : "no"}`,
+          "- Execution from boundary result: not authorized.",
+        ]
+      : ["- none"]),
+    "",
     "## Current Transition Choice",
     "",
     ...(step.controlledLoopCurrentTransitionChoice
