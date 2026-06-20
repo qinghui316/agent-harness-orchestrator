@@ -2014,6 +2014,7 @@ describe("Workbench module boundaries", () => {
     expect(boundary).toContain("assertLatestWorkbenchActionTarget(latestPreflight, preflight, \"planning.scheduler.run.prepare\", \"SchedulerLaunchPreflight\")");
     expect(boundary).toContain("assertLatestWorkbenchActionTarget(latestRun, run, \"planning.scheduler.run.complete\", \"SchedulerRun\")");
     expect(boundary).toContain("assertLatestWorkbenchActionTarget(latestOutcome, { id: request.schedulerIntegrationOutcomeId }, \"planning.scheduler.run.complete\", \"SchedulerIntegrationOutcome\")");
+    expect(boundary).toContain("assertLatestWorkbenchActionTarget({ id: runtimeState.lastClaimReservationId }, { id: request.schedulerClaimReservationId }, \"planning.scheduler.run.close-blocked\", \"SchedulerRuntimeClaimReservation\")");
     expect(boundary).toContain("assertLatestWorkbenchActionTarget(latestCandidate, { id: request.schedulerIntegrationCandidateId }, \"planning.scheduler.run.close-blocked\", \"SchedulerIntegrationCandidate\")");
     expect(boundary).toContain("assertWorkbenchActionStringArrayTarget(request.worktreeIds, latestCandidate.readyWorktreeIds, \"planning.scheduler.integration-check.run\", \"worktreeIds\")");
     expect(boundary).toContain("assertWorkbenchActionStringArrayTarget(request.worktreeIds, latestHandoff.readyWorktreeIds, \"planning.scheduler.integration-outcome.reconcile\", \"worktreeIds\")");

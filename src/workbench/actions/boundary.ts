@@ -1017,9 +1017,7 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
     if (!runtimeState?.lastReconcileSnapshotId || !runtimeState.lastClaimReservationId) {
       throw new Error("planning.scheduler.run.close-blocked requires runtime state with latest reconcile snapshot and claim reservation.");
     }
-    if (runtimeState.lastClaimReservationId !== request.schedulerClaimReservationId) {
-      throw new Error("planning.scheduler.run.close-blocked requires the latest SchedulerRuntimeClaimReservation.");
-    }
+    assertLatestWorkbenchActionTarget({ id: runtimeState.lastClaimReservationId }, { id: request.schedulerClaimReservationId }, "planning.scheduler.run.close-blocked", "SchedulerRuntimeClaimReservation");
     const latestCandidate = await readLatestSchedulerIntegrationCandidateProjection(memory, target.path, run.id);
     assertLatestWorkbenchActionTarget(latestCandidate, { id: request.schedulerIntegrationCandidateId }, "planning.scheduler.run.close-blocked", "SchedulerIntegrationCandidate");
     if (latestCandidate.schedulerRuntimeStateId !== runtimeState.id || latestCandidate.schedulerClaimReservationId !== runtimeState.lastClaimReservationId || latestCandidate.schedulerReconcileSnapshotId !== runtimeState.lastClaimReservationSnapshotId) {
