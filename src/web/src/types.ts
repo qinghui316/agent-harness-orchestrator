@@ -431,6 +431,19 @@ export type GoalLoopSummary = {
   updatedAt?: string;
   executionStarted: false;
 };
+export type ControlledSchedulerStepReceiptDetail = {
+  status: "ready-for-confirmation" | "needs-review" | "needs-reevaluation" | "refreshed";
+  label: string;
+  body: string;
+  executedStepLabel: string;
+  nextStepLabel?: string;
+  readinessLabel: string;
+  boundary: string;
+  humanConfirmationStillRequired: true;
+  evidenceRefs: string[];
+  decisionId: string;
+  updatedAt: string;
+};
 export type Workpad = {
   title: string;
   subtitle: string;
@@ -483,6 +496,7 @@ export type Workpad = {
   schedulerRunCompletion?: SchedulerRunCompletionSummary;
   schedulerRunBlockedCloseout?: SchedulerRunBlockedCloseoutSummary;
   goalLoop?: GoalLoopSummary;
+  controlledSchedulerStepReceipt?: ControlledSchedulerStepReceiptDetail;
   rolePipeline?: {
     stage: "planning" | "coding" | "validation" | "audit" | "rework" | "done" | "needs-user-input";
     status: "draft" | "running" | "completed" | "needs-user-input" | "stopped";

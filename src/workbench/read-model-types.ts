@@ -769,6 +769,20 @@ export interface WorkbenchControlledSchedulerNextCandidate {
   evidenceRefs: string[];
 }
 
+export interface WorkbenchControlledSchedulerStepReceipt {
+  status: "ready-for-confirmation" | "needs-review" | "needs-reevaluation" | "refreshed";
+  label: string;
+  body: string;
+  executedStepLabel: string;
+  nextStepLabel?: string;
+  readinessLabel: string;
+  boundary: string;
+  humanConfirmationStillRequired: true;
+  evidenceRefs: string[];
+  decisionId: string;
+  updatedAt: string;
+}
+
 export interface WorkbenchControlledSchedulerRoutingPosture {
   label: string;
   body: string;
@@ -832,6 +846,7 @@ export interface WorkbenchWorkpad {
   resultReview?: WorkbenchResultReview;
   maintenance?: WorkbenchMaintenanceSummary;
   runControlState?: WorkbenchRunControlState;
+  controlledSchedulerStepReceipt?: WorkbenchControlledSchedulerStepReceipt;
   intake: WorkpadIntakeSummary;
   progress: WorkpadProgress;
   tasks: WorkpadTaskPreview[];

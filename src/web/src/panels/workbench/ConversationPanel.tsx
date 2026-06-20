@@ -7,6 +7,7 @@ import {
   formatTime,
   humanStatus,
 } from "../../formatters.js";
+import { ControlledSchedulerStepReceiptCard } from "./workpad/GoalLoopCards.js";
 import { cleanTranscriptText,
   cleanTranscriptTitle } from "../../liveTranscript.js";
 import type {
@@ -111,6 +112,7 @@ function ParentAgentTranscriptView({
   const cells = transcript.cells?.length ? transcript.cells.filter((cell) => cell.kind !== "detail-only") : [];
   return (
     <div className="parent-agent-transcript" data-testid="parent-agent-transcript">
+      {workpad.controlledSchedulerStepReceipt ? <ControlledSchedulerStepReceiptCard receipt={workpad.controlledSchedulerStepReceipt} /> : null}
       <div className="parent-agent-message-list">
         {cells.length === 0 ? <div className="empty-state">{transcript.emptyMessage ?? "暂无对话内容。"}</div> : null}
         {cells.map((cell) => <ParentAgentTranscriptCellView key={cell.id} cell={cell} />)}

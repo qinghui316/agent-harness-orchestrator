@@ -10,6 +10,8 @@ import { buildGoalLoopContextPreparedEvidence, goalLoopPromptStackLabels } from 
 import type { WorkbenchWorkpad, WorkpadNextAction } from "../../src/workbench/read-model-types.js";
 import { readLatestGoalLoopSummary } from "../../src/workbench/projections/read-model/goal-loop.js";
 import { filterGoalLoopSummaryForCurrentGate } from "../../src/workbench/projections/read-model/goal-loop-parity.js";
+import { readLatestControlledSchedulerStepReceipt } from "../../src/workbench/projections/read-model/controlled-scheduler-step-receipt.js";
+import { WorkbenchStore, type StoredDecisionRecord } from "../../src/workbench/store.js";
 
 let tempDir: string;
 let memory: ResolvedMemory;
@@ -139,6 +141,174 @@ describe("controlled scheduler post-step projection", () => {
     expect(goalLoopPromptStackLabels(contextResult)).toContain("goal-loop-controlled-scheduler-next-candidate");
     expect(buildGoalLoopContextPreparedEvidence(contextResult).goalLoopControlledSchedulerNextCandidate).toEqual(promptEvidence);
   });
+
+  it("derives a sanitized Workpad step receipt from the latest completed controlled advance decision", async () => {
+    await upsertDecision({
+      id: "workflow:controlled-advance:1",
+      decisionType: "planning.scheduler.controlled-advance.run",
+      status: "completed",
+      artifact: "harness/changes/active/controlled-post-step/planning/controlled-advance/result.json",
+      payloadJson: JSON.stringify({
+        scope: { changeId },
+        result: {
+          postStepHandoff: {
+            authority: "derived-non-executing-workbench-handoff",
+            status: "next-confirmation-candidate-ready",
+            stopReason: "one-confirmed-scheduler-transition-completed",
+            executedActionType: "planning.scheduler.worker.start-next",
+            nextConfirmationCandidate: {
+              actionType: "planning.scheduler.worker.reconcile-result",
+              readinessEvidencePrepared: true,
+              executionStarted: false,
+              authorizationGranted: false,
+              humanConfirmationStillRequired: true,
+            },
+            needsReevaluation: false,
+            executionStarted: false,
+            loopAuthorized: false,
+            wholeWaveDispatchAuthorized: false,
+            slotAllocatorAuthorized: false,
+          },
+        },
+      }),
+      updatedAt: "2026-06-20T12:00:00.000Z",
+      completedAt: "2026-06-20T12:00:00.000Z",
+    });
+
+    const receipt = await readLatestControlledSchedulerStepReceipt(memory, changeId);
+
+    expect(receipt).toMatchObject({
+      label: "已完成一个受控步骤",
+      status: "ready-for-confirmation",
+      executedStepLabel: "继续执行下一个任务",
+      nextStepLabel: "检查当前结果",
+      humanConfirmationStillRequired: true,
+      evidenceRefs: ["harness/changes/active/controlled-post-step/planning/controlled-advance/result.json"],
+    });
+    expect(receipt?.body).toContain("本次执行：继续执行下一个任务");
+    expect(receipt?.body).toContain("下一步候选：检查当前结果");
+    expect(receipt?.body).toContain("继续前仍需要你再次确认");
+    expect(JSON.stringify(receipt)).not.toContain("planning.scheduler");
+    expect(JSON.stringify(receipt)).not.toContain("SchedulerRun");
+    expect(JSON.stringify(receipt)).not.toContain("whole-wave");
+  });
+
+  it("hides the receipt when the latest completed controlled advance decision has invalid handoff evidence", async () => {
+    await upsertDecision({
+      id: "workflow:controlled-advance:valid-old",
+      decisionType: "planning.scheduler.controlled-advance.run",
+      status: "completed",
+      payloadJson: JSON.stringify({
+        scope: { changeId },
+        result: {
+          postStepHandoff: {
+            authority: "derived-non-executing-workbench-handoff",
+            status: "next-step-evaluation-refreshed",
+            stopReason: "one-confirmed-scheduler-transition-completed",
+            executedActionType: "planning.scheduler.worker.start-next",
+            needsReevaluation: false,
+            executionStarted: false,
+            loopAuthorized: false,
+            wholeWaveDispatchAuthorized: false,
+            slotAllocatorAuthorized: false,
+          },
+        },
+      }),
+      updatedAt: "2026-06-20T12:00:00.000Z",
+      completedAt: "2026-06-20T12:00:00.000Z",
+    });
+    await upsertDecision({
+      id: "workflow:controlled-advance:invalid-new",
+      decisionType: "planning.scheduler.controlled-advance.run",
+      status: "completed",
+      payloadJson: JSON.stringify({
+        scope: { changeId },
+        result: {
+          postStepHandoff: {
+            status: "next-step-evaluation-refreshed",
+            executionStarted: false,
+          },
+        },
+      }),
+      updatedAt: "2026-06-20T12:05:00.000Z",
+      completedAt: "2026-06-20T12:05:00.000Z",
+    });
+
+    await upsertDecision({
+      id: "workflow:controlled-advance:failed-newer",
+      decisionType: "planning.scheduler.controlled-advance.run",
+      status: "failed",
+      payloadJson: "{}",
+      updatedAt: "2026-06-20T12:10:00.000Z",
+      completedAt: "2026-06-20T12:10:00.000Z",
+    });
+
+    await upsertDecision({
+      id: "workflow:other-valid-newer",
+      decisionType: "planning.goal-loop.evaluate",
+      status: "completed",
+      payloadJson: JSON.stringify({ result: { postStepHandoff: {} } }),
+      updatedAt: "2026-06-20T12:15:00.000Z",
+      completedAt: "2026-06-20T12:15:00.000Z",
+    });
+
+    await expect(readLatestControlledSchedulerStepReceipt(memory, changeId)).resolves.toBeNull();
+  });
+
+  it("hides the receipt when the controlled advance decision is missing the persisted scope wrapper", async () => {
+    await upsertDecision({
+      id: "workflow:controlled-advance:missing-scope",
+      decisionType: "planning.scheduler.controlled-advance.run",
+      status: "completed",
+      payloadJson: JSON.stringify({
+        result: {
+          postStepHandoff: {
+            authority: "derived-non-executing-workbench-handoff",
+            status: "next-step-evaluation-refreshed",
+            stopReason: "one-confirmed-scheduler-transition-completed",
+            executedActionType: "planning.scheduler.worker.start-next",
+            needsReevaluation: false,
+            executionStarted: false,
+            loopAuthorized: false,
+            wholeWaveDispatchAuthorized: false,
+            slotAllocatorAuthorized: false,
+          },
+        },
+      }),
+      updatedAt: "2026-06-20T12:00:00.000Z",
+      completedAt: "2026-06-20T12:00:00.000Z",
+    });
+
+    await expect(readLatestControlledSchedulerStepReceipt(memory, changeId)).resolves.toBeNull();
+  });
+
+  it("hides the receipt when the persisted controlled advance scope targets another change", async () => {
+    await upsertDecision({
+      id: "workflow:controlled-advance:wrong-scope",
+      decisionType: "planning.scheduler.controlled-advance.run",
+      status: "completed",
+      payloadJson: JSON.stringify({
+        scope: { changeId: "other-change" },
+        result: {
+          postStepHandoff: {
+            authority: "derived-non-executing-workbench-handoff",
+            status: "next-step-evaluation-refreshed",
+            stopReason: "one-confirmed-scheduler-transition-completed",
+            executedActionType: "planning.scheduler.worker.start-next",
+            needsReevaluation: false,
+            executionStarted: false,
+            loopAuthorized: false,
+            wholeWaveDispatchAuthorized: false,
+            slotAllocatorAuthorized: false,
+          },
+        },
+      }),
+      updatedAt: "2026-06-20T12:00:00.000Z",
+      completedAt: "2026-06-20T12:00:00.000Z",
+    });
+
+    await expect(readLatestControlledSchedulerStepReceipt(memory, changeId)).resolves.toBeNull();
+  });
 });
 
 async function writeJson(path: string, value: unknown): Promise<void> {
@@ -196,4 +366,30 @@ function nextActionFor(recommendedAction: GoalLoopRecommendedAction | undefined)
     changeId,
     ...recommendedAction.scope,
   };
+}
+
+async function upsertDecision(overrides: Partial<StoredDecisionRecord>): Promise<void> {
+  const store = await WorkbenchStore.open(memory);
+  try {
+    store.upsertDecision({
+      id: overrides.id ?? `decision-${Date.now()}`,
+      projectId: "repo",
+      changeId,
+      decisionType: overrides.decisionType ?? "planning.scheduler.controlled-advance.run",
+      status: overrides.status ?? "completed",
+      label: overrides.label ?? "按当前建议继续一个受控步骤",
+      summary: overrides.summary ?? "受控步骤已完成。",
+      targetId: overrides.targetId ?? null,
+      runId: overrides.runId ?? null,
+      artifact: overrides.artifact ?? null,
+      actionId: overrides.actionId ?? "planning.scheduler.controlled-advance.run",
+      feedback: overrides.feedback ?? null,
+      payloadJson: overrides.payloadJson ?? "{}",
+      createdAt: overrides.createdAt ?? overrides.updatedAt ?? "2026-06-20T12:00:00.000Z",
+      updatedAt: overrides.updatedAt ?? "2026-06-20T12:00:00.000Z",
+      completedAt: overrides.completedAt ?? "2026-06-20T12:00:00.000Z",
+    });
+  } finally {
+    store.close();
+  }
 }

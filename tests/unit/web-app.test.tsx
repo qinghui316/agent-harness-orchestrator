@@ -706,6 +706,56 @@ describe("Workbench web app", () => {
     });
   });
 
+  it("renders the latest controlled scheduler step receipt in the real App DOM", async () => {
+    const receiptSnapshot = {
+      ...snapshot,
+      center: {
+        ...snapshot.center,
+        workpad: {
+          ...snapshot.center.workpad,
+          controlledSchedulerStepReceipt: {
+            label: "已完成一个受控步骤",
+            status: "ready-for-confirmation",
+            body: "本次执行：继续执行下一个任务。下一步候选：检查当前结果。当前步骤检查已刷新。 继续前仍需要你再次确认。",
+            executedStepLabel: "继续执行下一个任务",
+            nextStepLabel: "检查当前结果",
+            readinessLabel: "当前步骤检查已刷新。",
+            boundary: "已主动停止；是否继续仍需要你重新确认下一步。不会自动连续执行、批量派发、分配资源、应用源码、关闭需求或远端落地。",
+            humanConfirmationStillRequired: true,
+            evidenceRefs: ["harness/changes/active/member-discount/planning/controlled-advance/result.json"],
+            decisionId: "workflow:controlled-advance:1",
+            updatedAt: "2026-06-20T12:00:00.000Z",
+          },
+        },
+      },
+    };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
+      if (url === "/api/projects") return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
+      if (url.includes("/workbench/projections/transcript/")) return jsonResponse(receiptSnapshot.center.parentAgentTranscript);
+      if (url.includes("/workbench/projections/run-graph/")) return jsonResponse(receiptSnapshot.center.agentRunGraph);
+      return jsonResponse(url.includes("/stream/") ? stream : receiptSnapshot);
+    }));
+
+    render(<App />);
+
+    const card = await screen.findByTestId("controlled-scheduler-step-receipt");
+    expect(within(card).getByText("已完成一个受控步骤")).toBeTruthy();
+    expect(within(card).getByText("可以再次确认")).toBeTruthy();
+    expect(within(card).getByText("本次执行：继续执行下一个任务。下一步候选：检查当前结果。当前步骤检查已刷新。 继续前仍需要你再次确认。")).toBeTruthy();
+    expect(within(card).getByText("本次执行")).toBeTruthy();
+    expect(within(card).getByText("继续执行下一个任务")).toBeTruthy();
+    expect(within(card).getByText("下一步状态")).toBeTruthy();
+    expect(within(card).getByText("检查当前结果")).toBeTruthy();
+    expect(within(card).getByText("继续边界")).toBeTruthy();
+    expect(within(card).queryByRole("button")).toBeNull();
+    const cardText = card.textContent ?? "";
+    for (const forbidden of ["planning.scheduler", "SchedulerRun", "worker", "slot", "whole-wave", "start-all", "ToolPolicy"]) {
+      expect(cardText).not.toContain(forbidden);
+    }
+  });
+
   it("renders refreshed controlled scheduler reconfirmation copy in the right confirmation card", async () => {
     const reconfirmItem = {
       id: "confirm:controlled-advance:member-discount",

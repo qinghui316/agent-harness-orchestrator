@@ -187,6 +187,45 @@ export function GoalLoopEvidenceCard({ goalLoop }: { goalLoop: NonNullable<Workp
   );
 }
 
+export function ControlledSchedulerStepReceiptCard({
+  receipt,
+}: {
+  receipt: NonNullable<Workpad["controlledSchedulerStepReceipt"]>;
+}): ReactElement {
+  return (
+    <section className="workpad-section compact-section" data-testid="controlled-scheduler-step-receipt">
+      <div className="workpad-section-header">
+        <h3>{userFacingText(receipt.label)}</h3>
+        <span>{stepReceiptStatusLabel(receipt.status)}</span>
+      </div>
+      <p className="workpad-goal">{userFacingText(receipt.body)}</p>
+      <div className="workpad-evidence-list">
+        <div className="workpad-evidence">
+          <strong>本次执行</strong>
+          <span>{userFacingText(receipt.executedStepLabel)}</span>
+        </div>
+        <div className="workpad-evidence">
+          <strong>下一步状态</strong>
+          <span>{receipt.nextStepLabel ? userFacingText(receipt.nextStepLabel) : "等待新的下一步判断"}</span>
+        </div>
+        <div className="workpad-evidence">
+          <strong>检查状态</strong>
+          <span>{userFacingText(receipt.readinessLabel)}</span>
+        </div>
+        <div className="workpad-evidence">
+          <strong>继续边界</strong>
+          <span>{userFacingText(receipt.boundary)}</span>
+        </div>
+      </div>
+      {receipt.evidenceRefs.length ? (
+        <div className="workpad-links">
+          {receipt.evidenceRefs.slice(0, 3).map((artifact) => <span className="artifact-link" key={artifact}>查看证据：{artifactName(artifact)}</span>)}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
 function primaryWorkpadActionLabel(actionType: string | undefined): string {
   if (!actionType) return "等待新的证据";
   const label = workflowActionLabel(actionType);
@@ -216,6 +255,13 @@ function primaryWorkpadActionLabel(actionType: string | undefined): string {
   if (actionType === "planning.scheduler.run.complete") return "完成本轮执行记录";
   if (actionType === "planning.scheduler.run.close-blocked") return "标记当前无法继续";
   return "继续当前受控步骤";
+}
+
+function stepReceiptStatusLabel(status: NonNullable<Workpad["controlledSchedulerStepReceipt"]>["status"]): string {
+  if (status === "ready-for-confirmation") return "可以再次确认";
+  if (status === "needs-review") return "需要复核";
+  if (status === "needs-reevaluation") return "需要重新判断";
+  return "已刷新";
 }
 
 function containsPrimarySurfaceInternalTerms(value: string): boolean {
