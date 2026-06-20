@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "../../src/web/src/App.js";
 import { WorkpadView } from "../../src/web/src/panels/workbench/WorkpadPanel.js";
 import { WorkpadDiagnosticDetails } from "../../src/web/src/panels/workbench/workpad/WorkpadDetails.js";
+import { summarizeActionResult } from "../../src/workbench/actions/results.js";
 
 const snapshot = {
   project: { id: "repo", name: "Repo", path: "E:/repo" },
@@ -466,7 +467,21 @@ describe("Workbench web app", () => {
   });
 
   it("renders workflow result summaries in the main thread surface", async () => {
-    const resultSummary = "当前受控步骤已完成。下一步判断和当前步骤检查已经刷新；需要再次确认后才能继续。";
+    const controlledAdvanceResult = {
+      postStepHandoff: {
+        status: "next-confirmation-candidate-ready",
+        executedActionType: "planning.scheduler.worker.start-next",
+        nextConfirmationCandidate: {
+          actionType: "planning.scheduler.worker.reconcile-result",
+          readinessEvidencePrepared: true,
+          executionStarted: false,
+          authorizationGranted: false,
+          humanConfirmationStillRequired: true,
+        },
+        executionStarted: false,
+      },
+    };
+    const resultSummary = summarizeActionResult("planning.scheduler.controlled-advance.run", controlledAdvanceResult);
     const uiSnapshot = {
       ...snapshot,
       center: {
@@ -524,9 +539,16 @@ describe("Workbench web app", () => {
       expect(timelineText).toContain(resultSummary);
     });
     const timelineText = document.querySelector(".timeline-panel")?.textContent ?? "";
+    expect(timelineText).toContain("本次执行：继续执行下一个任务");
+    expect(timelineText).toContain("下一步候选：检查当前结果");
     expect(timelineText).not.toContain("derived-non-executing-workbench-handoff");
     expect(timelineText).not.toContain("artifactHash");
     expect(timelineText).not.toContain("preflight id");
+    expect(timelineText.toLowerCase()).not.toContain("worker");
+    expect(timelineText.toLowerCase()).not.toContain("scheduler run");
+    expect(timelineText.toLowerCase()).not.toContain("slot");
+    expect(timelineText.toLowerCase()).not.toContain("start-all");
+    expect(timelineText.toLowerCase()).not.toContain("whole-wave");
   });
 
   it("renders refreshed controlled scheduler reconfirmation copy in the right confirmation card", async () => {

@@ -1,5 +1,6 @@
-import { schedulerUserFacingActionCopy } from "../projections/read-model/confirmation/scheduler-user-surface.js";
+import { knownSchedulerUserFacingActionLabel, schedulerUserFacingActionCopy } from "../projections/read-model/confirmation/scheduler-user-surface.js";
 import { controlledSchedulerPostStepHandoffSummary } from "../controlled-scheduler-handoff.js";
+import { isControlledSchedulerConcreteAction } from "../../workflow-scheduler/controlled-step.js";
 
 type ControlledLoopCopy = {
   label: string;
@@ -54,7 +55,7 @@ export function controlledLoopDecisionSummary(actionType: string, result: unknow
   const schedulerSummary = SCHEDULER_COMPLETED_SUMMARY[actionType];
   if (!schedulerSummary) return null;
   if (actionType !== "planning.scheduler.controlled-advance.run") return schedulerSummary;
-  const handoffSummary = controlledSchedulerPostStepHandoffSummary(result);
+  const handoffSummary = controlledSchedulerPostStepResultSummary(result);
   if (handoffSummary) return `${schedulerSummary} ${handoffSummary}`;
   if (hasRecordField(result, "postStepGoalLoopReadiness")) {
     return `${schedulerSummary} 下一步证据已刷新；若当前页面仍显示匹配步骤，检查证据也已刷新。继续仍需要你单独确认。`;
@@ -69,6 +70,47 @@ export function controlledLoopDecisionSummary(actionType: string, result: unknow
     return `${schedulerSummary} 当前步骤已完成，但下一步证据刷新未完成；请查看证据后再决定是否重新评估。`;
   }
   return schedulerSummary;
+}
+
+function controlledSchedulerPostStepResultSummary(value: unknown): string | null {
+  const handoff = readPostStepHandoff(value);
+  if (!handoff) return controlledSchedulerPostStepHandoffSummary(value);
+  const executed = userSafeSchedulerStepLabel(readString(handoff, "executedActionType"), "本次步骤");
+  const candidate = isRecord(handoff.nextConfirmationCandidate) ? handoff.nextConfirmationCandidate : null;
+  const next = userSafeSchedulerStepLabel(readString(candidate, "actionType"), "下一步");
+  if (handoff.status === "next-confirmation-candidate-ready") {
+    return `已完成这一个受控步骤并主动停止。本次执行：${executed}。下一步候选：${next}，并且当前步骤检查已经刷新；如果页面仍显示这一项，继续仍需要你再次确认。`;
+  }
+  if (handoff.status === "next-confirmation-candidate-needs-review") {
+    return `已完成这一个受控步骤并主动停止。本次执行：${executed}。下一步候选：${next}，但当前步骤检查还需要重新评估或查看证据；不会自动继续。`;
+  }
+  if (handoff.status === "next-step-evaluation-failed") {
+    return `已完成这一个受控步骤并主动停止。本次执行：${executed}。下一步判断刷新未完成；请重新评估下一步或查看证据后再继续。`;
+  }
+  return `已完成这一个受控步骤并主动停止。本次执行：${executed}。下一步判断已刷新；是否继续仍需要你再次确认。`;
+}
+
+function readPostStepHandoff(value: unknown): Record<string, unknown> | null {
+  if (!isRecord(value) || !isRecord(value.postStepHandoff)) return null;
+  const status = value.postStepHandoff.status;
+  if (
+    status !== "next-confirmation-candidate-ready"
+    && status !== "next-confirmation-candidate-needs-review"
+    && status !== "next-step-evaluation-refreshed"
+    && status !== "next-step-evaluation-failed"
+  ) {
+    return null;
+  }
+  return value.postStepHandoff;
+}
+
+function userSafeSchedulerStepLabel(actionType: string | undefined, fallback: string): string {
+  if (!isControlledSchedulerConcreteAction(actionType)) return fallback;
+  return knownSchedulerUserFacingActionLabel(actionType) ?? fallback;
+}
+
+function readString(value: unknown, key: string): string | undefined {
+  return isRecord(value) && typeof value[key] === "string" ? value[key] : undefined;
 }
 
 export function controlledLoopThreadLabel(actionType: string | undefined, status: string | undefined): string | null {
@@ -104,4 +146,8 @@ export function controlledLoopFeedbackRecordedMessage(): string {
 
 function hasRecordField(value: unknown, key: string): boolean {
   return typeof value === "object" && value !== null && key in value;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }

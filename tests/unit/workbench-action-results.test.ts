@@ -7,6 +7,18 @@ const CONTROLLED_LOOP_ACTIONS = [
     result: {
       controlledAdvance: { actionType: "planning.scheduler.worker.start-next" },
       controlledStep: { actionType: "planning.scheduler.worker.start-next" },
+      postStepHandoff: {
+        status: "next-confirmation-candidate-ready",
+        executedActionType: "planning.scheduler.worker.start-next",
+        nextConfirmationCandidate: {
+          actionType: "planning.scheduler.worker.reconcile-result",
+          readinessEvidencePrepared: true,
+          executionStarted: false,
+          authorizationGranted: false,
+          humanConfirmationStillRequired: true,
+        },
+        executionStarted: false,
+      },
     },
     label: "按当前建议继续一个受控步骤",
     summary: "只按当前建议推进了一个受控步骤",
@@ -55,7 +67,12 @@ const FORBIDDEN_PRIMARY_TERMS = [
   "continuation brief",
   "concrete gate",
   "whole-wave",
+  "whole wave",
+  "worker",
+  "scheduler run",
+  "start-all",
   "slot allocator",
+  "slot",
 ];
 
 describe("Workbench action result summaries", () => {
@@ -66,6 +83,11 @@ describe("Workbench action result summaries", () => {
 
       expect(label).toBe(item.label);
       expect(summary).toContain(item.summary);
+      if (item.actionType === "planning.scheduler.controlled-advance.run") {
+        expect(summary).toContain("本次执行：继续执行下一个任务");
+        expect(summary).toContain("下一步候选：检查当前结果");
+        expect(summary).toMatch(/需要你?再次确认/);
+      }
       expect(summary).toMatch(/需要你?单独确认/);
       expectUserCopyNotToContainInternalTerms(`${label}\n${summary}`);
     }
@@ -82,22 +104,39 @@ describe("Workbench action result summaries", () => {
     expectUserCopyNotToContainInternalTerms(summary);
   });
 
-  it("summarizes controlled advance post-step evidence without adding executable language", () => {
+  it("summarizes controlled advance post-step evidence with executed and next-step categories without adding executable language", () => {
     const handoffReady = summarizeActionResult("planning.scheduler.controlled-advance.run", {
       postStepHandoff: {
         status: "next-confirmation-candidate-ready",
+        executedActionType: "planning.scheduler.worker.start-next",
+        nextConfirmationCandidate: {
+          actionType: "planning.scheduler.worker.reconcile-result",
+          readinessEvidencePrepared: true,
+          executionStarted: false,
+          authorizationGranted: false,
+          humanConfirmationStillRequired: true,
+        },
         executionStarted: false,
       },
     });
     const handoffWarning = summarizeActionResult("planning.scheduler.controlled-advance.run", {
       postStepHandoff: {
         status: "next-confirmation-candidate-needs-review",
+        executedActionType: "planning.scheduler.worker.start-next",
+        nextConfirmationCandidate: {
+          actionType: "planning.scheduler.integration-candidate.compile",
+          readinessEvidencePrepared: false,
+          executionStarted: false,
+          authorizationGranted: false,
+          humanConfirmationStillRequired: true,
+        },
         executionStarted: false,
       },
     });
     const handoffFailed = summarizeActionResult("planning.scheduler.controlled-advance.run", {
       postStepHandoff: {
         status: "next-step-evaluation-failed",
+        executedActionType: "planning.scheduler.worker.start-next",
         executionStarted: false,
       },
     });
@@ -121,10 +160,15 @@ describe("Workbench action result summaries", () => {
       postStepGoalLoopEvaluationWarning: "refresh failed",
     });
 
-    expect(handoffReady).toContain("下一步判断和当前步骤检查已经刷新");
+    expect(handoffReady).toContain("本次执行：继续执行下一个任务");
+    expect(handoffReady).toContain("下一步候选：检查当前结果");
+    expect(handoffReady).toContain("当前步骤检查已经刷新");
     expect(handoffReady).toMatch(/需要你?再次确认/);
+    expect(handoffWarning).toContain("本次执行：继续执行下一个任务");
+    expect(handoffWarning).toContain("下一步候选：检查组合结果");
     expect(handoffWarning).toContain("当前步骤检查还需要重新评估");
     expect(handoffWarning).toContain("不会自动继续");
+    expect(handoffFailed).toContain("本次执行：继续执行下一个任务");
     expect(handoffFailed).toContain("下一步判断刷新未完成");
     expect(handoffFailed).toMatch(/重新评估/);
     expect(readiness).toContain("下一步证据已刷新");
@@ -138,6 +182,52 @@ describe("Workbench action result summaries", () => {
     expect(warning).toContain("当前步骤已完成，但下一步证据刷新未完成");
     expect(warning).toMatch(/重新评估/);
     expectUserCopyNotToContainInternalTerms(`${handoffReady}\n${handoffWarning}\n${handoffFailed}\n${readiness}\n${readinessWarning}\n${refreshed}\n${warning}`);
+  });
+
+  it("fails user-safe for missing, unknown, and wrapper post-step action ids", () => {
+    const unknown = summarizeActionResult("planning.scheduler.controlled-advance.run", {
+      postStepHandoff: {
+        status: "next-confirmation-candidate-ready",
+        executedActionType: "planning.scheduler.future.unknown",
+        nextConfirmationCandidate: {
+          actionType: "planning.scheduler.worker.future-unknown",
+          readinessEvidencePrepared: true,
+          executionStarted: false,
+          authorizationGranted: false,
+          humanConfirmationStillRequired: true,
+        },
+        executionStarted: false,
+      },
+    });
+    const wrapper = summarizeActionResult("planning.scheduler.controlled-advance.run", {
+      postStepHandoff: {
+        status: "next-confirmation-candidate-ready",
+        executedActionType: "planning.scheduler.controlled-advance.run",
+        nextConfirmationCandidate: {
+          actionType: "planning.scheduler.controlled-step.run",
+          readinessEvidencePrepared: true,
+          executionStarted: false,
+          authorizationGranted: false,
+          humanConfirmationStillRequired: true,
+        },
+        executionStarted: false,
+      },
+    });
+    const missing = summarizeActionResult("planning.scheduler.controlled-advance.run", {
+      postStepHandoff: {
+        status: "next-confirmation-candidate-ready",
+        executionStarted: false,
+      },
+    });
+
+    for (const summary of [unknown, wrapper, missing]) {
+      expect(summary).toContain("本次执行：本次步骤");
+      expect(summary).toContain("下一步候选：下一步");
+      expect(summary).not.toContain("planning.scheduler");
+      expect(summary).not.toContain("scheduler 阶段");
+      expect(summary).not.toContain("scheduler run");
+      expectUserCopyNotToContainInternalTerms(summary);
+    }
   });
 });
 

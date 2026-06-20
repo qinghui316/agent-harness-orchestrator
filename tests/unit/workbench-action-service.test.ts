@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { runWorkbenchWorkflowActionService, type WorkbenchActionDecisionInput, type WorkbenchActionServiceDeps } from "../../src/workbench/actions/service.js";
+import { summarizeActionResult } from "../../src/workbench/actions/results.js";
 import type { ManagedProject } from "../../src/types/index.js";
 import type { TopicThreadEntry, WorkbenchWorkflowActionRequest } from "../../src/workbench/types.js";
 
@@ -29,6 +30,46 @@ describe("workbench workflow action service", () => {
     expect(decisions[0]?.summary).toBe(terminal?.resultSummary);
   });
 
+  it("persists the concrete controlled advance post-step summary from the shared summarizer", async () => {
+    const appended: TopicThreadEntry[] = [];
+    const decisions: WorkbenchActionDecisionInput[] = [];
+    const result = {
+      postStepHandoff: {
+        status: "next-confirmation-candidate-ready",
+        executedActionType: "planning.scheduler.worker.start-next",
+        nextConfirmationCandidate: {
+          actionType: "planning.scheduler.worker.reconcile-result",
+          readinessEvidencePrepared: true,
+          executionStarted: false,
+          authorizationGranted: false,
+          humanConfirmationStillRequired: true,
+        },
+        executionStarted: false,
+      },
+    };
+    const expectedSummary = summarizeActionResult("planning.scheduler.controlled-advance.run", result);
+    const deps = fakeDeps({
+      append(entry) {
+        appended.push(entry);
+      },
+      record(decision) {
+        decisions.push(decision);
+      },
+      async execute() {
+        return result;
+      },
+      summarize: summarizeActionResult,
+    });
+
+    await runWorkbenchWorkflowActionService(fakeProject(), { actionType: "planning.scheduler.controlled-advance.run" }, undefined, deps);
+
+    const terminal = appended.find((entry) => entry.type === "workflow.completed");
+    expect(expectedSummary).toContain("本次执行：继续执行下一个任务");
+    expect(expectedSummary).toContain("下一步候选：检查当前结果");
+    expect(terminal?.resultSummary).toBe(expectedSummary);
+    expect(decisions[0]?.summary).toBe(expectedSummary);
+  });
+
   it("uses a safe display summary for thrown workflow failures", async () => {
     const appended: TopicThreadEntry[] = [];
     const deps = fakeDeps({
@@ -56,7 +97,7 @@ function fakeProject(): ManagedProject {
 function fakeDeps(overrides: {
   append?: (entry: TopicThreadEntry) => void;
   record?: (decision: WorkbenchActionDecisionInput) => void;
-  summarize?: () => string;
+  summarize?: WorkbenchActionServiceDeps["summarizeResult"];
   execute?: WorkbenchActionServiceDeps["execute"];
 } = {}): WorkbenchActionServiceDeps {
   return {
@@ -86,8 +127,8 @@ function fakeDeps(overrides: {
     failureMessage() {
       return null;
     },
-    summarizeResult() {
-      return overrides.summarize?.() ?? "已完成。";
+    summarizeResult(actionType, result) {
+      return overrides.summarize?.(actionType, result) ?? "已完成。";
     },
     artifactForResult() {
       return null;

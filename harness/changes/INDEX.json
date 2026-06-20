@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-20T11:03:27.1038104Z",
+    "generated_at":  "2026-06-20T11:17:37.5438365Z",
     "active":  [
 
                ],
@@ -1437,6 +1437,10 @@
                     {
                         "name":  "20260620-controlled-scheduler-concrete-step-preview",
                         "path":  "harness/changes/archive/20260620-controlled-scheduler-concrete-step-preview"
+                    },
+                    {
+                        "name":  "20260620-controlled-scheduler-post-step-result-summary",
+                        "path":  "harness/changes/archive/20260620-controlled-scheduler-post-step-result-summary"
                     },
                     {
                         "name":  "20260620-controlled-scheduler-post-step-visible-readiness-handoff",

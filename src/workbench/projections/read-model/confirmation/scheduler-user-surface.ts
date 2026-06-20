@@ -119,6 +119,11 @@ export function schedulerUserFacingActionLabel(actionType: string | undefined): 
   return schedulerUserFacingActionCopy(actionType).label;
 }
 
+export function knownSchedulerUserFacingActionLabel(actionType: string | undefined): string | undefined {
+  if (!actionType) return undefined;
+  return COPY_BY_ACTION_TYPE[actionType]?.label;
+}
+
 function controlledAdvanceStepLabel(actionType: string | undefined): string | undefined {
   if (!actionType) return undefined;
   if (actionType === "planning.scheduler.controlled-advance.run") return undefined;
