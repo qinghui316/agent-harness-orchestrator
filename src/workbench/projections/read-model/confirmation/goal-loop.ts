@@ -1,6 +1,7 @@
 import type { ManagedProject } from "../../../../types/index.js";
 import { CONTROLLED_SCHEDULER_ADVANCE_ACTION_TYPE, CONTROLLED_SCHEDULER_STEP_ACTION_TYPE, isControlledSchedulerConcreteAction } from "../../../../workflow-scheduler/controlled-step.js";
 import type { WorkbenchConfirmationQueueItem, WorkbenchDecisionAction, WorkbenchTopicDetail, WorkbenchWorkpad } from "../../../read-model-types.js";
+import { schedulerUserFacingActionCopy } from "./scheduler-user-surface.js";
 
 type ScopeValue = string | string[] | undefined;
 
@@ -15,10 +16,10 @@ export function goalLoopEvaluationQueueItem(
     projectId: project.id,
     conversationId: selectedTopic.id,
     changeId: selectedTopic.id,
-    summary: "主 Agent 可以先基于当前 evidence 评估下一步。",
-    whyNeedsConfirmation: "这是 Harness 阶段门：只记录 GoalLoopDecision、GoalLoopIteration、continuation brief 和 next-step packet 证据，不启动执行。",
-    confirmEffect: "确认后只写 Goal Loop JSON/Markdown、continuation brief、next-step packet、对话说明和 Workbench decision；不会执行它建议的下一步。",
-    riskSummary: "建议动作仍需要单独确认；不会创建 worker、TaskRun、WorkerLease、worktree、run、IntegrationCheck、Apply/Close、child Change 或 source mutation。",
+    summary: "主 Agent 可以先评估当前需求的下一步。",
+    whyNeedsConfirmation: "需要你确认是否先让主 Agent 做一次非执行评估。",
+    confirmEffect: "确认后只记录下一步建议和对话说明，不会执行建议里的动作。",
+    riskSummary: "后续任何执行、组合检查、应用、关闭或远端操作仍需要单独确认。",
     evidenceRefs: [],
     actions: [{
       id: `workflow:planning.goal-loop.evaluate:${selectedTopic.id}`,
@@ -140,8 +141,13 @@ export function attachControlledSchedulerAdvanceActions(
       seenAdvanceIds.add(action.id);
       return true;
     });
+    const advanceCopy = schedulerUserFacingActionCopy(CONTROLLED_SCHEDULER_ADVANCE_ACTION_TYPE);
     return {
       ...item,
+      summary: advanceCopy.summary,
+      whyNeedsConfirmation: advanceCopy.whyNeedsConfirmation,
+      confirmEffect: advanceCopy.confirmEffect,
+      riskSummary: advanceCopy.riskSummary,
       actions: [
         ...item.actions.filter((action) => !(action.kind === "workflow-action" && isSchedulerAdvanceSourceAction(action))),
         ...uniqueAdvanceActions,
@@ -208,7 +214,7 @@ function goalLoopControlledSchedulerStepAction(workpad: WorkbenchWorkpad): Workb
   return {
     ...scope,
     id: `workflow:${CONTROLLED_SCHEDULER_STEP_ACTION_TYPE}:goal-loop-assisted:${goalLoop.gateReadinessPreflightId}`,
-    label: "执行一个受控 scheduler 步骤",
+    label: schedulerUserFacingActionCopy(CONTROLLED_SCHEDULER_STEP_ACTION_TYPE).label,
     kind: "workflow-action",
     enabled: true,
     requiresConfirmation: true,
@@ -240,7 +246,7 @@ function controlledSchedulerAdvanceAction(action: WorkbenchDecisionAction): Work
   return {
     ...actionWithoutStaleGoalLoopEvidence,
     id: `workflow:${CONTROLLED_SCHEDULER_ADVANCE_ACTION_TYPE}:${action.changeId ?? "change"}:${currentGateActionType ?? "scheduler"}:${schedulerAdvanceTargetSuffix(action)}`,
-    label: "受控推进一个 Scheduler 步骤",
+    label: schedulerUserFacingActionCopy(CONTROLLED_SCHEDULER_ADVANCE_ACTION_TYPE).label,
     kind: "workflow-action",
     actionType: CONTROLLED_SCHEDULER_ADVANCE_ACTION_TYPE,
     goalLoopCurrentGateActionType: currentGateActionType,

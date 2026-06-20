@@ -9,6 +9,7 @@ import { buildSchedulerTerminalHandoffContext } from "../../src/workbench/codex-
 import { buildGoalLoopContextPreparedEvidence, goalLoopPromptStackLabels } from "../../src/workbench/codex-chat/goal-loop-prompt-evidence.js";
 import { getWorkbenchSnapshot } from "../../src/workbench/manager.js";
 import { attachControlledSchedulerAdvanceActions, attachGoalLoopAssistedConcreteGateActions, attachGoalLoopControllerRefreshActions, attachGoalLoopFeedbackActions, attachGoalLoopGateReadinessActions } from "../../src/workbench/projections/read-model/confirmation/goal-loop.js";
+import { schedulerUserFacingActionCopy } from "../../src/workbench/projections/read-model/confirmation/scheduler-user-surface.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import { listWorktreeStatuses } from "../../src/worktree/manager.js";
 import { listIntegrationChecks } from "../../src/integration-check/manager.js";
@@ -37,7 +38,10 @@ describe("workbench Goal Loop surface", () => {
     expect(snapshot.right.confirmationQueue.primary).toMatchObject({
       kind: "planning-confirm",
       changeId: topic.changeId,
-      summary: expect.stringContaining("评估下一步"),
+      summary: "主 Agent 可以先评估当前需求的下一步。",
+      whyNeedsConfirmation: "需要你确认是否先让主 Agent 做一次非执行评估。",
+      confirmEffect: "确认后只记录下一步建议和对话说明，不会执行建议里的动作。",
+      riskSummary: "后续任何执行、组合检查、应用、关闭或远端操作仍需要单独确认。",
     });
     const action = snapshot.right.confirmationQueue.primary?.actions.find((item) => item.actionType === "planning.goal-loop.evaluate");
     expect(action).toMatchObject({
@@ -45,7 +49,16 @@ describe("workbench Goal Loop surface", () => {
       changeId: topic.changeId,
       requiresConfirmation: true,
     });
-    expect(snapshot.right.confirmationQueue.primary?.whyNeedsConfirmation).toContain("continuation brief");
+    expectQueueItemUserCopyNotToContainInternalTerms(snapshot.right.confirmationQueue.primary, [
+      "GoalLoopDecision",
+      "GoalLoopIteration",
+      "continuation brief",
+      "next-step packet",
+      "TaskRun",
+      "WorkerLease",
+      "worktree",
+      "source mutation",
+    ]);
 
     const actionResult = await executeWorkbenchAction({ project: project(), path: tempDir }, {
       actionType: "planning.goal-loop.evaluate",
@@ -395,6 +408,7 @@ describe("workbench Goal Loop surface", () => {
     expect(assistedAction).toMatchObject({
       kind: "workflow-action",
       actionType: "planning.scheduler.controlled-step.run",
+      label: schedulerUserFacingActionCopy("planning.scheduler.controlled-step.run").label,
       changeId: "member-discount",
       schedulerRunId: "scheduler-run-1",
       schedulerClaimReservationId: "claim-reservation-expected",
@@ -482,6 +496,7 @@ describe("workbench Goal Loop surface", () => {
     expect(assistedAction).toMatchObject({
       kind: "workflow-action",
       actionType: "planning.scheduler.controlled-step.run",
+      label: schedulerUserFacingActionCopy("planning.scheduler.controlled-step.run").label,
       changeId: "member-discount",
       schedulerRunId: "scheduler-run-1",
       schedulerClaimReservationId: "claim-reservation-expected",
@@ -540,12 +555,21 @@ describe("workbench Goal Loop surface", () => {
     } as const;
 
     const [item] = attachControlledSchedulerAdvanceActions([currentGate]);
+    const advanceCopy = schedulerUserFacingActionCopy("planning.scheduler.controlled-advance.run");
+
+    expect(item).toMatchObject({
+      summary: advanceCopy.summary,
+      whyNeedsConfirmation: advanceCopy.whyNeedsConfirmation,
+      confirmEffect: advanceCopy.confirmEffect,
+      riskSummary: advanceCopy.riskSummary,
+    });
 
     expect(item.actions).toEqual(expect.arrayContaining([
       expect.objectContaining({ actionType: "planning.goal-loop.feedback.evaluate" }),
       expect.objectContaining({
         kind: "workflow-action",
         actionType: "planning.scheduler.controlled-advance.run",
+        label: advanceCopy.label,
         changeId: "member-discount",
         schedulerRunId: "scheduler-run-1",
         schedulerClaimReservationId: "claim-reservation-expected",
@@ -910,3 +934,14 @@ describe("workbench Goal Loop surface", () => {
   });
 
 });
+
+function expectQueueItemUserCopyNotToContainInternalTerms(
+  item: { summary: string; whyNeedsConfirmation: string; confirmEffect: string; riskSummary: string } | null | undefined,
+  forbiddenTerms: string[],
+): void {
+  expect(item).toBeTruthy();
+  const visibleCopy = [item?.summary, item?.whyNeedsConfirmation, item?.confirmEffect, item?.riskSummary].join("\n");
+  for (const term of forbiddenTerms) {
+    expect(visibleCopy).not.toContain(term);
+  }
+}
