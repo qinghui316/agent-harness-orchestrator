@@ -58,6 +58,20 @@ export function parentTranscriptCellsFromLiveThreadItem(item: ThreadStreamItem):
     if (block.kind === "usage") continue;
     const canRenderWithoutText = block.kind === "command" || block.kind === "command-group" || block.kind === "tool-result" || block.kind === "file-change" || block.kind === "status" || block.kind === "error";
     if (!text && !canRenderWithoutText) continue;
+    if (item.source === "workflow" && (block.source === "workflow" || block.source === "legacy")) {
+      cells.push({
+        id: `live-cell:${block.id}`,
+        kind: block.kind === "error" ? "process-row" : "evidence-row",
+        source: "workflow-evidence",
+        timestamp: item.timestamp,
+        title: cleanTranscriptTitle(block.title) ?? (block.kind === "error" ? "执行未完成" : "执行结果"),
+        text: text || cleanTranscriptText(block.title ?? item.label),
+        status: block.status ?? item.status,
+        isError: block.isError,
+        evidenceRefs: block.artifactRef ? [{ label: block.title ?? "执行证据", ref: block.artifactRef, kind: "artifact" }] : undefined,
+      });
+      continue;
+    }
     const source = block.source === "codex" ? "codex-runtime" : "aho-orchestration";
     if (source !== "codex-runtime" && block.kind !== "error") continue;
     if (block.kind === "workflow-evidence" || block.kind === "plan-card") continue;

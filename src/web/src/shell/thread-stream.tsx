@@ -83,7 +83,7 @@ export function threadItemFromTopicEntry(entry: TopicMessageEntry): ThreadStream
     return { id: `live:${entry.id}`, kind: "assistant-turn", label: "Orchestrator plan", timestamp: entry.timestamp, body: entry.text, source: "chat", artifact: entry.artifact, runId: entry.runId, planCard: entry.planCard, activity: entry.activity, blocks: entry.blocks };
   }
   if (entry.type === "workflow.started" || entry.type === "workflow.completed" || entry.type === "workflow.failed") {
-    return null;
+    return threadItemFromWorkflowEntry(entry);
   }
   if (entry.type === "intake.scan" || entry.type === "intake.iteration") {
     return { id: `live:${entry.id}`, kind: "intake-summary", label: entry.type === "intake.scan" ? "需求分析" : "当前需求理解", timestamp: entry.timestamp, body: entry.text, source: "intake", artifact: entry.artifact, runId: entry.runId, intake: entry.intake };
@@ -92,6 +92,37 @@ export function threadItemFromTopicEntry(entry: TopicMessageEntry): ThreadStream
     return { id: `live:${entry.id}`, kind: "clarification", label: entry.type === "clarification.request" ? "需要确认" : "需求确认", timestamp: entry.timestamp, body: entry.text, source: "intake", runId: entry.runId, status: entry.clarification?.status, clarification: entry.clarification };
   }
   return null;
+}
+
+function threadItemFromWorkflowEntry(entry: TopicMessageEntry): ThreadStreamItem | null {
+  if (entry.type === "workflow.started") return null;
+  const body = entry.resultSummary?.trim() || entry.text?.trim() || entry.error?.trim();
+  if (!body) return null;
+  const failed = entry.type === "workflow.failed" || entry.status === "failed";
+  return {
+    id: `live:workflow:${entry.actionRunId ?? entry.id}`,
+    kind: "assistant-turn",
+    label: failed ? "执行未完成" : "执行结果",
+    timestamp: entry.timestamp,
+    body,
+    source: "workflow",
+    artifact: entry.artifact,
+    runId: entry.runId,
+    actionRunId: entry.actionRunId,
+    status: entry.status ?? (failed ? "failed" : "completed"),
+    blocks: entry.blocks?.length ? entry.blocks : [{
+      id: `live-workflow-result:${entry.actionRunId ?? entry.id}`,
+      runId: entry.runId,
+      sequence: 1,
+      kind: failed ? "error" : "prose",
+      timestamp: entry.timestamp ?? new Date().toISOString(),
+      source: "workflow",
+      title: failed ? "执行未完成" : "执行结果",
+      text: body,
+      artifactRef: entry.artifact,
+      isError: failed,
+    }],
+  };
 }
 
 function threadIcon(item: ThreadStreamItem): ReactElement {

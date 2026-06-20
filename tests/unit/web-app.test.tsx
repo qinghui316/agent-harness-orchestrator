@@ -551,6 +551,161 @@ describe("Workbench web app", () => {
     expect(timelineText.toLowerCase()).not.toContain("whole-wave");
   });
 
+  it("renders controlled scheduler workflow receipts from live action SSE before snapshot replacement", async () => {
+    const controlledAdvanceResult = {
+      postStepHandoff: {
+        status: "next-confirmation-candidate-ready",
+        executedActionType: "planning.scheduler.worker.start-next",
+        nextConfirmationCandidate: {
+          actionType: "planning.scheduler.worker.reconcile-result",
+          readinessEvidencePrepared: true,
+          executionStarted: false,
+          authorizationGranted: false,
+          humanConfirmationStillRequired: true,
+        },
+        executionStarted: false,
+      },
+    };
+    const resultSummary = summarizeActionResult("planning.scheduler.controlled-advance.run", controlledAdvanceResult);
+    const reconfirmItem = {
+      id: "confirm:controlled-advance:member-discount",
+      kind: "planning-confirm",
+      conversationId: "member-discount",
+      changeId: "member-discount",
+      summary: "当前下一步判断和步骤检查已刷新；这次仍是新的单步确认，步骤类别是：继续执行下一个任务。",
+      whyNeedsConfirmation: "需要你再次确认当前页面显示的“继续执行下一个任务”；这不是自动继续。",
+      confirmEffect: "服务端会重新读取当前状态，重新匹配目标和权限；匹配后只执行“继续执行下一个任务”这一当前合法步骤。",
+      riskSummary: "确认后仍会立即停止；不会自动循环、批量派发、组合检查后的应用、关闭、远端落地或维护演进。",
+      evidenceRefs: [],
+      actions: [{
+        id: "workflow:planning.scheduler.controlled-advance.run:member-discount:planning.scheduler.worker.start-next:claim-reservation-expected",
+        label: "按当前建议继续一个受控步骤",
+        kind: "workflow-action",
+        actionType: "planning.scheduler.controlled-advance.run",
+        changeId: "member-discount",
+        schedulerRunId: "scheduler-run-1",
+        schedulerClaimReservationId: "claim-reservation-expected",
+        reservationIntentId: "reservation-intent-2",
+        claimIntentId: "claim-2",
+        goalLoopCurrentGateActionType: "planning.scheduler.worker.start-next",
+        enabled: true,
+        requiresConfirmation: true,
+      }],
+      primary: true,
+      status: "pending",
+    };
+    const liveReadySnapshot = {
+      ...snapshot,
+      right: {
+        ...snapshot.right,
+        confirmationQueue: {
+          ...snapshot.right.confirmationQueue,
+          primary: reconfirmItem,
+          current: [reconfirmItem],
+        },
+      },
+    };
+    const finalSnapshot = {
+      ...liveReadySnapshot,
+      center: {
+        ...liveReadySnapshot.center,
+        thread: {
+          items: [
+            ...liveReadySnapshot.center.thread.items,
+            {
+              id: "workflow-controlled-summary",
+              kind: "assistant-turn",
+              source: "workflow",
+              label: "按当前建议继续一个受控步骤已完成",
+              body: resultSummary,
+              timestamp: "2026-06-20T12:00:00.000Z",
+              status: "completed",
+              actionRunId: "action-controlled-live",
+              blocks: [
+                { id: "summary-prose", sequence: 1, kind: "prose", timestamp: "2026-06-20T12:00:00.000Z", source: "workflow", title: "执行结果", text: resultSummary },
+              ],
+            },
+          ],
+        },
+        parentAgentTranscript: {
+          ...liveReadySnapshot.center.parentAgentTranscript,
+          cells: [
+            ...liveReadySnapshot.center.parentAgentTranscript.cells,
+            {
+              id: "cell:workflow-result:controlled-live",
+              kind: "evidence-row",
+              source: "workflow-evidence",
+              timestamp: "2026-06-20T12:00:00.000Z",
+              title: "执行结果",
+              text: resultSummary,
+              status: "completed",
+            },
+          ],
+        },
+      },
+    };
+    let snapshotReleased = false;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
+      if (url === "/api/projects") return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
+      if (url.endsWith("/workbench/actions/live")) {
+        return delayedSseResponse([
+          ["topic.message", {
+            id: "workflow-controlled-live",
+            type: "workflow.completed",
+            changeId: "member-discount",
+            actionRunId: "action-controlled-live",
+            actionType: "planning.scheduler.controlled-advance.run",
+            status: "completed",
+            resultSummary,
+            timestamp: "2026-06-20T12:00:00.000Z",
+          }],
+        ], [
+          ["snapshot", finalSnapshot],
+          ["done", { status: "completed" }],
+        ], () => {
+          snapshotReleased = true;
+        });
+      }
+      return jsonResponse(url.includes("/stream/") ? stream : liveReadySnapshot);
+    }));
+
+    render(<App />);
+
+    const card = await screen.findByTestId("decision-inspector-primary");
+    fireEvent.click(within(card).getByRole("button", { name: "按当前建议继续一个受控步骤" }));
+    fireEvent.click(await within(card).findByRole("button", { name: "确认" }));
+
+    await waitFor(() => {
+      expect(fetch).toHaveBeenCalledWith("/api/projects/repo/workbench/actions/live", expect.objectContaining({ method: "POST" }));
+    });
+
+    await waitFor(() => {
+      const timelineText = document.querySelector(".timeline-panel")?.textContent ?? "";
+      expect(timelineText).toContain(resultSummary);
+    });
+    expect(snapshotReleased).toBe(false);
+    const liveTimelineText = document.querySelector(".timeline-panel")?.textContent ?? "";
+    expect(liveTimelineText).toContain("本次执行：继续执行下一个任务");
+    expect(liveTimelineText).toContain("下一步候选：检查当前结果");
+    expect(liveTimelineText).not.toContain("planning.scheduler");
+    expect(liveTimelineText).not.toContain("SchedulerRun");
+    expect(liveTimelineText.toLowerCase()).not.toContain("worker");
+    expect(liveTimelineText.toLowerCase()).not.toContain("slot");
+    expect(liveTimelineText.toLowerCase()).not.toContain("start-all");
+    expect(liveTimelineText.toLowerCase()).not.toContain("whole-wave");
+    expect(document.querySelector(".parent-agent-transcript")?.textContent ?? "").not.toContain("按当前建议继续一个受控步骤");
+    expect(within(card).queryAllByRole("button", { name: "按当前建议继续一个受控步骤" })).toHaveLength(0);
+    expect(within(card).getAllByRole("button")).toHaveLength(2);
+
+    await waitFor(() => expect(snapshotReleased).toBe(true));
+    await waitFor(() => {
+      const timelineText = document.querySelector(".timeline-panel")?.textContent ?? "";
+      expect(timelineText).toContain(resultSummary);
+    });
+  });
+
   it("renders refreshed controlled scheduler reconfirmation copy in the right confirmation card", async () => {
     const reconfirmItem = {
       id: "confirm:controlled-advance:member-discount",
@@ -2410,6 +2565,32 @@ function sseResponse(events: Array<[string, unknown]>): Response {
         controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
       }
       controller.close();
+    },
+  });
+  return new Response(streamBody, {
+    status: 200,
+    headers: { "Content-Type": "text/event-stream" },
+  });
+}
+
+function delayedSseResponse(
+  immediateEvents: Array<[string, unknown]>,
+  delayedEvents: Array<[string, unknown]>,
+  beforeDelayedEvents: () => void,
+): Response {
+  const encoder = new TextEncoder();
+  const streamBody = new ReadableStream<Uint8Array>({
+    start(controller) {
+      for (const [event, data] of immediateEvents) {
+        controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
+      }
+      setTimeout(() => {
+        beforeDelayedEvents();
+        for (const [event, data] of delayedEvents) {
+          controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
+        }
+        controller.close();
+      }, 250);
     },
   });
   return new Response(streamBody, {

@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-20T13:00:46.8096507Z",
+    "generated_at":  "2026-06-20T13:23:18.7607318Z",
     "active":  [
 
                ],
@@ -1425,6 +1425,10 @@
                     {
                         "name":  "20260620-auto-evolve-harness-workbench-test-architecture-split-window",
                         "path":  "harness/changes/archive/20260620-auto-evolve-harness-workbench-test-architecture-split-window"
+                    },
+                    {
+                        "name":  "20260620-controlled-scheduler-action-receipt-surface",
+                        "path":  "harness/changes/archive/20260620-controlled-scheduler-action-receipt-surface"
                     },
                     {
                         "name":  "20260620-controlled-scheduler-advance-continuation-surface",
