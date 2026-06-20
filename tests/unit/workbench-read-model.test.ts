@@ -26,6 +26,9 @@ const FORBIDDEN_CONTROLLED_LOOP_PRIMARY_TERMS = [
   "concrete gate",
   "whole-wave",
   "slot allocator",
+  "artifactHash",
+  "preflight id",
+  "derived-non-executing-workbench-handoff",
 ];
 
 describe("workbench read-model projections", () => {
@@ -272,6 +275,19 @@ describe("workbench read-model projections", () => {
       actionRunId: "controlled-completed",
       actionType: "planning.scheduler.controlled-advance.run",
       status: "completed",
+      resultSummary: "当前受控步骤已完成。下一步判断和当前步骤检查已经刷新；需要再次确认后才能继续。",
+    });
+    await appendTopicThreadEntry(project(), topic.changeId, {
+      type: "workflow.started",
+      actionRunId: "controlled-legacy-completed",
+      actionType: "planning.scheduler.controlled-advance.run",
+      status: "running",
+    });
+    await appendTopicThreadEntry(project(), topic.changeId, {
+      type: "workflow.completed",
+      actionRunId: "controlled-legacy-completed",
+      actionType: "planning.scheduler.controlled-advance.run",
+      status: "completed",
     });
     await appendTopicThreadEntry(project(), topic.changeId, {
       type: "workflow.started",
@@ -298,6 +314,18 @@ describe("workbench read-model projections", () => {
       expect.objectContaining({
         actionRunId: "controlled-completed",
         label: "按当前建议继续一个受控步骤已完成",
+        body: "当前受控步骤已完成。下一步判断和当前步骤检查已经刷新；需要再次确认后才能继续。",
+        blocks: expect.arrayContaining([
+          expect.objectContaining({ kind: "prose", source: "workflow", title: "执行结果", text: "当前受控步骤已完成。下一步判断和当前步骤检查已经刷新；需要再次确认后才能继续。" }),
+          expect.objectContaining({ kind: "workflow-evidence", source: "workflow", text: "当前受控步骤已完成。下一步判断和当前步骤检查已经刷新；需要再次确认后才能继续。" }),
+        ]),
+        evidence: expect.arrayContaining([
+          expect.objectContaining({ source: "workflow", body: "当前受控步骤已完成。下一步判断和当前步骤检查已经刷新；需要再次确认后才能继续。" }),
+        ]),
+      }),
+      expect.objectContaining({
+        actionRunId: "controlled-legacy-completed",
+        label: "按当前建议继续一个受控步骤已完成",
         body: expect.stringContaining("只按当前建议推进了一个受控步骤"),
       }),
       expect.objectContaining({
@@ -307,6 +335,30 @@ describe("workbench read-model projections", () => {
       }),
     ]));
     expectUserCopyNotToContainInternalTerms(JSON.stringify(controlledItems));
+    expect(snapshot.center.parentAgentTranscript.cells).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: "assistant-message",
+        source: "workflow-evidence",
+        text: "当前受控步骤已完成。下一步判断和当前步骤检查已经刷新；需要再次确认后才能继续。",
+      }),
+    ]));
+  });
+
+  it("keeps running workflow fallback copy out of the parent transcript", async () => {
+    await initHarness(project());
+    const topic = await createWorkbenchTopic(project(), { title: "Running Workflow Copy", body: "Running workflow should stay out of the main transcript." });
+    await appendTopicThreadEntry(project(), topic.changeId, {
+      type: "workflow.started",
+      actionRunId: "controlled-running-only",
+      actionType: "planning.scheduler.controlled-advance.run",
+      status: "running",
+    });
+
+    const snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: topic.changeId });
+    const transcriptText = JSON.stringify(snapshot.center.parentAgentTranscript.cells);
+
+    expect(transcriptText).not.toContain("只会在确认后推进一个受控步骤");
+    expect(transcriptText).not.toContain("正在按当前建议推进一个受控步骤");
   });
 
   it("prefers persisted assistant blocks over legacy activity when rebuilding the thread", async () => {

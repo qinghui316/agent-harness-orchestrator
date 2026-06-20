@@ -283,7 +283,7 @@ function workflowItemFromMessage(message: TopicThreadEntry, sortKey: number): Th
     kind: "assistant-turn",
     label: workflowLabel(message.actionType, message.status),
     timestamp: message.timestamp,
-    body: message.text ?? message.error ?? workflowBody(message.actionType, message.status),
+    body: workflowDisplayBody(message),
     source: "workflow",
     artifact: message.artifact,
     status: message.status,
@@ -304,7 +304,7 @@ function workflowEvidenceFromMessage(message: TopicThreadEntry): ThreadStreamEvi
     label: workflowLabel(message.actionType, message.status),
     source: "workflow",
     timestamp: message.timestamp,
-    body: message.error ?? workflowBody(message.actionType, message.status),
+    body: workflowDisplayBody(message),
     artifact: message.artifact,
     status: message.status,
     runId: message.runId,
@@ -317,7 +317,8 @@ function blocksFromMessage(message: TopicThreadEntry, evidence?: ThreadStreamEvi
   const blocks: AssistantTurnBlock[] = explicit.length > 0 ? [...explicit] : [];
   const hasExplicitBlocks = blocks.length > 0;
   let sequence = nextBlockSequence(blocks);
-  if (blocks.length === 0 && message.text?.trim()) {
+  const displayText = terminalWorkflowResultSummary(message) ?? message.text;
+  if (blocks.length === 0 && displayText?.trim()) {
     blocks.push({
       id: `legacy-prose:${message.id}`,
       runId: message.runId,
@@ -326,7 +327,7 @@ function blocksFromMessage(message: TopicThreadEntry, evidence?: ThreadStreamEvi
       timestamp: message.timestamp,
       source: message.type === "workflow.completed" || message.type === "workflow.failed" ? "workflow" : "legacy",
       title: message.type === "workflow.completed" || message.type === "workflow.failed" ? "执行结果" : undefined,
-      text: message.text,
+      text: displayText,
       isError: message.status === "failed",
     });
   }
@@ -367,6 +368,15 @@ function blocksFromMessage(message: TopicThreadEntry, evidence?: ThreadStreamEvi
     blocks.push(workflowEvidenceBlock(evidence, sequence++, evidence.source));
   }
   return blocks.length > 0 ? dedupeBlocks(blocks).sort((a, b) => a.sequence - b.sequence || a.id.localeCompare(b.id)) : undefined;
+}
+
+function workflowDisplayBody(message: TopicThreadEntry): string {
+  return terminalWorkflowResultSummary(message) ?? message.text ?? message.error ?? workflowBody(message.actionType, message.status);
+}
+
+function terminalWorkflowResultSummary(message: TopicThreadEntry): string | undefined {
+  if (message.type !== "workflow.completed" && message.type !== "workflow.failed") return undefined;
+  return message.resultSummary?.trim() || undefined;
 }
 
 function normalizeBlocks(blocks: AssistantTurnBlock[] | undefined): AssistantTurnBlock[] {

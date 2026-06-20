@@ -1611,6 +1611,7 @@ export type TopicMessageEntry = {
   runId?: string;
   artifact?: string;
   error?: string;
+  resultSummary?: string;
   planCard?: PlanCard;
   activity?: LiveTurnEvent[];
   blocks?: AssistantTurnBlock[];

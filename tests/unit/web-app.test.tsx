@@ -465,6 +465,70 @@ describe("Workbench web app", () => {
     });
   });
 
+  it("renders workflow result summaries in the main thread surface", async () => {
+    const resultSummary = "当前受控步骤已完成。下一步判断和当前步骤检查已经刷新；需要再次确认后才能继续。";
+    const uiSnapshot = {
+      ...snapshot,
+      center: {
+        ...snapshot.center,
+        thread: {
+          items: [
+            ...snapshot.center.thread.items,
+            {
+              id: "workflow-controlled-summary",
+              kind: "assistant-turn",
+              source: "workflow",
+              label: "按当前建议继续一个受控步骤已完成",
+              body: resultSummary,
+              timestamp: "2026-06-20T12:00:00.000Z",
+              status: "completed",
+              actionRunId: "action-controlled-summary",
+              blocks: [
+                { id: "summary-prose", sequence: 1, kind: "prose", timestamp: "2026-06-20T12:00:00.000Z", source: "workflow", title: "执行结果", text: resultSummary },
+                { id: "summary-evidence", sequence: 2, kind: "workflow-evidence", timestamp: "2026-06-20T12:00:00.000Z", source: "workflow", title: "执行证据", text: resultSummary, status: "completed" },
+              ],
+              evidence: [{ id: "workflow:action-controlled-summary", source: "workflow", label: "按当前建议继续一个受控步骤已完成", body: resultSummary, status: "completed" }],
+            },
+          ],
+        },
+        parentAgentTranscript: {
+          ...snapshot.center.parentAgentTranscript,
+          cells: [
+            ...snapshot.center.parentAgentTranscript.cells,
+            {
+              id: "cell:workflow-result:summary-prose",
+              kind: "assistant-message",
+              source: "workflow-evidence",
+              timestamp: "2026-06-20T12:00:00.000Z",
+              title: "执行结果",
+              text: resultSummary,
+              status: "completed",
+            },
+          ],
+        },
+      },
+    };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
+      if (url === "/api/projects") return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
+      if (url.includes("/workbench/projections/transcript/")) return jsonResponse(uiSnapshot.center.parentAgentTranscript);
+      if (url.includes("/workbench/projections/run-graph/")) return jsonResponse(snapshot.center.agentRunGraph);
+      return jsonResponse(url.includes("/stream/") ? stream : uiSnapshot);
+    }));
+
+    render(<App />);
+
+    await waitFor(() => {
+      const timelineText = document.querySelector(".timeline-panel")?.textContent ?? "";
+      expect(timelineText).toContain(resultSummary);
+    });
+    const timelineText = document.querySelector(".timeline-panel")?.textContent ?? "";
+    expect(timelineText).not.toContain("derived-non-executing-workbench-handoff");
+    expect(timelineText).not.toContain("artifactHash");
+    expect(timelineText).not.toContain("preflight id");
+  });
+
   it("submits project-scoped maintenance patch gates through the non-live action endpoint", async () => {
     const maintenanceSnapshot = {
       ...snapshot,

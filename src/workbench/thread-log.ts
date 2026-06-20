@@ -106,6 +106,7 @@ function fromStoredThreadMessage(row: StoredTopicMessage): TopicThreadEntry {
     runId: row.runId ?? undefined,
     artifact: row.artifact ?? undefined,
     error: row.error ?? undefined,
+    resultSummary: typeof raw.resultSummary === "string" ? raw.resultSummary : undefined,
     planCard: isPlanCard(raw.planCard) ? raw.planCard : undefined,
     activity: Array.isArray(raw.activity) ? raw.activity.filter(isAssistantTurnActivity) : undefined,
     blocks: Array.isArray(raw.blocks) ? raw.blocks.filter(isAssistantTurnBlock) : undefined,

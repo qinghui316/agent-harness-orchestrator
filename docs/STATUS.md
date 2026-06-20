@@ -5,14 +5,14 @@
 - Current date: 2026-06-20.
 - Active ECL change: none.
 - Pending Harness evolution: none.
-- Latest archived product change: `harness/changes/archive/20260620-controlled-scheduler-stop-handoff/summary.md`.
-- Latest archived product/Harness docs change: `harness/changes/archive/20260620-controlled-scheduler-stop-handoff/summary.md`.
+- Latest archived product change: `harness/changes/archive/20260620-workflow-result-summary-thread-visibility/summary.md`.
+- Latest archived product/Harness docs change: `harness/changes/archive/20260620-workflow-result-summary-thread-visibility/summary.md`.
 - Latest archived Harness evolution: `harness/changes/archive/20260620-auto-evolve-harness-controlled-loop-post-step-window/summary.md`.
 - Active product phase: none.
 - Active Harness evolution phase: none.
 - Active close status: none.
 
-This file is the short resume point. There is no active ECL change and pending Harness evolution is none. The latest archived product change closed Controlled Scheduler Stop Handoff: after one user-confirmed controlled scheduler transition succeeds, AHO now returns a derived non-executing post-step handoff that explains the intentional stop, whether a next confirmation candidate has matching readiness evidence, and when re-evaluation is needed. The previous archived product change closed Controlled Scheduler Post-Step Visible Readiness Handoff. The latest Harness evolution recorded a `keep / independent_review` result for the controlled-loop post-step window and did not change Harness rules, templates, scripts, or product runtime.
+This file is the short resume point. There is no active ECL change and pending Harness evolution is none. The latest archived product change closed Workflow Result Summary Thread Visibility: completed Workbench workflow actions now persist their existing user-facing result summary on terminal workflow thread entries and project it into the main thread and parent-agent transcript read models. The previous archived product change closed Controlled Scheduler Stop Handoff: after one user-confirmed controlled scheduler transition succeeds, AHO returns a derived non-executing post-step handoff that explains the intentional stop, whether a next confirmation candidate has matching readiness evidence, and when re-evaluation is needed. The latest Harness evolution recorded a `keep / independent_review` result for the controlled-loop post-step window and did not change Harness rules, templates, scripts, or product runtime.
 
 Current plan-level roadmap context is preserved in `docs/CURRENT-DEVELOPMENT-PLAN.md`. Historical detail belongs in archived summaries and `harness/changes/INDEX.json`.
 
@@ -22,7 +22,7 @@ The product baseline is post-maintenance canonical patch target-boundary, lineag
 
 Product-level maintenance writes candidate lifecycle-resolution evidence, canonical update proposal evidence, human-gated canonical update decision records, canonical patch proposal evidence, human-gated canonical patch application follow-up records, read-only application manifest/readiness evidence, Phase 12U target-descriptor evidence, Phase 12V human-gated canonical docs/stable-memory application result evidence, and Phase 12W read-only observation report evidence while still forbidding automatic canonical rewrites.
 
-Phase 12A remains the future controlled Scheduler/parallel loop design boundary. Current runtime has a user-confirmed controlled Scheduler advance gate that refreshes Goal Loop evidence, executes exactly one concrete Scheduler transition, returns a derived non-executing stop/next-step handoff, then stops. Workpad, result summaries, and the right-side confirmation queue present that posture in user-facing terms. It remains single-gate staged until a later accepted ECL change implements and verifies broader loop behavior.
+Phase 12A remains the future controlled Scheduler/parallel loop design boundary. Current runtime has a user-confirmed controlled Scheduler advance gate that refreshes Goal Loop evidence, executes exactly one concrete Scheduler transition, returns a derived non-executing stop/next-step handoff, then stops. Workpad, result summaries, the main thread / parent-agent transcript, and the right-side confirmation queue present that posture in user-facing terms. It remains single-gate staged until a later accepted ECL change implements and verifies broader loop behavior.
 
 ## Next Resume Point
 

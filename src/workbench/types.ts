@@ -51,6 +51,7 @@ export interface TopicThreadEntry {
   runId?: string;
   artifact?: string;
   error?: string;
+  resultSummary?: string;
   planCard?: OrchestrationPlanCard;
   activity?: AssistantTurnActivity[];
   blocks?: AssistantTurnBlock[];

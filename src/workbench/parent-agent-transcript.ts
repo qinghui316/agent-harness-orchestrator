@@ -137,11 +137,25 @@ function activityCellsFromThreadItem(item: TranscriptThreadItemInput): ParentAge
 
 function transcriptCellFromAssistantBlock(block: AssistantTurnBlock, itemId: string, timestamp?: string): ParentAgentTranscriptCell | null {
   if (block.kind === "usage") return null;
-  const source: ParentAgentTranscriptBlockSource = block.source === "codex" ? "codex-runtime" : "aho-orchestration";
+  const source: ParentAgentTranscriptBlockSource =
+    block.source === "codex" ? "codex-runtime" : block.source === "workflow" ? "workflow-evidence" : "aho-orchestration";
   const rawText = block.text ?? block.preview ?? "";
   const text = isGeneratedRunContext(rawText) ? "" : cleanPrimaryText(rawText);
 
   if (block.kind === "workflow-evidence" || block.kind === "plan-card") return null;
+  if (source === "workflow-evidence" && block.kind === "prose") {
+    if (!text) return null;
+    return {
+      id: `cell:workflow-result:${block.id ?? itemId}`,
+      kind: "assistant-message",
+      source,
+      timestamp,
+      title: cleanToolTitle(block.title),
+      text,
+      status: block.status,
+      isError: block.isError,
+    };
+  }
   if (source !== "codex-runtime" && block.kind !== "error") return null;
 
   if (block.kind === "prose" || block.kind === "reasoning-summary") {

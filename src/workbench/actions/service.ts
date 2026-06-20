@@ -63,6 +63,7 @@ export async function runWorkbenchWorkflowActionService(
     const runId = deps.extractRunId(result);
     const failureMessage = deps.failureMessage(request.actionType, result);
     const finalStatus = failureMessage ? "failed" : "completed";
+    const resultSummary = failureMessage ?? deps.summarizeResult(request.actionType, result);
     capture.sink.emit({ event: "run.status", data: { runId, actionRunId, status: finalStatus, label: deps.labelForAction(request.actionType) } });
     const completed = await deps.appendThreadEntry(project, changeId, {
       type: failureMessage ? "workflow.failed" : "workflow.completed",
@@ -71,6 +72,7 @@ export async function runWorkbenchWorkflowActionService(
       status: finalStatus,
       runId,
       error: failureMessage ?? undefined,
+      resultSummary,
       text: capture.text.trim() || undefined,
       activity: capture.activity,
       blocks: capture.blocks,
@@ -83,7 +85,7 @@ export async function runWorkbenchWorkflowActionService(
       decisionType: request.actionType,
       status: finalStatus,
       label: deps.labelForAction(request.actionType),
-      summary: failureMessage ?? deps.summarizeResult(request.actionType, result),
+      summary: resultSummary,
       targetId: deps.targetId(request, changeId, result),
       runId: runId ?? null,
       artifact: deps.artifactForResult(result),
@@ -94,6 +96,7 @@ export async function runWorkbenchWorkflowActionService(
     return { actionRunId, actionType: request.actionType, status: finalStatus, result, runId, error: failureMessage ?? undefined };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
+    const resultSummary = `${deps.labelForAction(request.actionType)}执行失败。请查看错误和证据后再决定是否重试或调整。`;
     capture.sink.emit({ event: "run.status", data: { actionRunId, status: "failed", label: deps.labelForAction(request.actionType) } });
     const failed = await deps.appendThreadEntry(project, changeId, {
       type: "workflow.failed",
@@ -101,6 +104,7 @@ export async function runWorkbenchWorkflowActionService(
       actionType: request.actionType,
       status: "failed",
       error: message,
+      resultSummary,
       text: capture.text.trim() || undefined,
       activity: capture.activity,
       blocks: capture.blocks,
