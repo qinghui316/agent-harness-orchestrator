@@ -7,11 +7,11 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 - Current date: 2026-06-20.
 - Active change: none.
 - Pending Harness evolution: none.
-- Latest archived product change: Workbench Scheduler Close-Blocked Claim Target Helper Reuse, archived at `harness/changes/archive/20260620-workbench-scheduler-close-blocked-claim-target-helper-reuse/summary.md`.
-- Latest product/Harness docs change: Workbench Scheduler Close-Blocked Claim Target Helper Reuse, archived at `harness/changes/archive/20260620-workbench-scheduler-close-blocked-claim-target-helper-reuse/summary.md`.
+- Latest archived product change: Workbench Scheduler IntegrationCheck Candidate Target Helper Reuse, archived at `harness/changes/archive/20260620-workbench-scheduler-integration-check-candidate-target-helper-reuse/summary.md`.
+- Latest product/Harness docs change: Scheduler Target Helper Reuse Window Harness Evolution, archived at `harness/changes/archive/20260620-auto-evolve-harness-scheduler-target-helper-reuse-window/summary.md`.
 - Active product phase: none.
 - Active Harness evolution phase: none.
-- Latest Harness evolution: `harness/changes/archive/20260620-auto-evolve-harness-workbench-rework-helper-reuse-window/summary.md`.
+- Latest Harness evolution: `harness/changes/archive/20260620-auto-evolve-harness-scheduler-target-helper-reuse-window/summary.md`.
 
 If an active change exists, use its files first for the current task. Use `docs/STATUS.md` for the short resume state and next recommended structured work. Use `harness/changes/INDEX.json` and archived `summary.md` files for historical detail. Do not rebuild current context by reading the full archive ledger unless the task requires it.
 

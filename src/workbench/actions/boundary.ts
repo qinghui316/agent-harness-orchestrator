@@ -908,9 +908,7 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
     assertWorkbenchActionOptionalStringTarget(request.schedulerClaimReservationId, reservation.id, "planning.scheduler.integration-check.run", "SchedulerRuntimeClaimReservation");
     assertWorkbenchActionOptionalStringTarget(request.schedulerReconcileSnapshotId, snapshot.id, "planning.scheduler.integration-check.run", "SchedulerReconcileSnapshot");
     const latestCandidate = await readLatestSchedulerIntegrationCandidateProjection(memory, target.path, run.id);
-    if (!latestCandidate || latestCandidate.id !== request.schedulerIntegrationCandidateId) {
-      throw new Error("planning.scheduler.integration-check.run requires the latest SchedulerIntegrationCandidate.");
-    }
+    assertLatestWorkbenchActionTarget(latestCandidate, { id: request.schedulerIntegrationCandidateId }, "planning.scheduler.integration-check.run", "SchedulerIntegrationCandidate");
     if (
       latestCandidate.status !== "ready"
       || latestCandidate.readyCount < 2

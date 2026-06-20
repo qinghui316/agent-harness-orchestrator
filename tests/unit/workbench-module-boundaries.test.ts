@@ -2085,7 +2085,7 @@ describe("Workbench module boundaries", () => {
     expect(boundary).toContain("assertWorkbenchActionOptionalStringTarget(request.schedulerIntegrationCandidateId, latestCandidate?.id ?? \"\", \"planning.scheduler.integration-candidate.compile\", \"SchedulerIntegrationCandidate\")");
     expect(boundary).toContain("assertWorkbenchActionOptionalStringTarget(request.schedulerClaimReservationId, reservation.id, \"planning.scheduler.integration-check.run\", \"SchedulerRuntimeClaimReservation\")");
     expect(boundary).toContain("assertWorkbenchActionOptionalStringTarget(request.schedulerReconcileSnapshotId, snapshot.id, \"planning.scheduler.integration-check.run\", \"SchedulerReconcileSnapshot\")");
-    expect(boundary).toContain("if (!latestCandidate || latestCandidate.id !== request.schedulerIntegrationCandidateId)");
+    expect(boundary).toContain("assertLatestWorkbenchActionTarget(latestCandidate, { id: request.schedulerIntegrationCandidateId }, \"planning.scheduler.integration-check.run\", \"SchedulerIntegrationCandidate\")");
     expect(boundary).toContain("assertWorkbenchActionOptionalStringTarget(request.schedulerIntegrationCandidateId, latestCandidate.id, \"planning.scheduler.integration-outcome.reconcile\", \"SchedulerIntegrationCandidate\")");
     expect(boundary).toContain("assertWorkbenchActionOptionalStringTarget(request.applyCheckId, latestHandoff.integrationCheckId, \"planning.scheduler.integration-outcome.reconcile\", \"applyCheckId\")");
     expect(boundary).toContain("assertWorkbenchActionOptionalStringTarget(request.schedulerReconcileSnapshotId, outcome.schedulerReconcileSnapshotId, \"planning.scheduler.run.complete\", \"schedulerReconcileSnapshotId\")");

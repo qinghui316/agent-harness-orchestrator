@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-20T01:46:11.4756241Z",
+    "generated_at":  "2026-06-20T02:02:59.5645057Z",
     "active":  [
 
                ],
@@ -1379,6 +1379,10 @@
                         "path":  "harness/changes/archive/20260620-auto-evolve-harness-maintenance-section-helper-window"
                     },
                     {
+                        "name":  "20260620-auto-evolve-harness-scheduler-target-helper-reuse-window",
+                        "path":  "harness/changes/archive/20260620-auto-evolve-harness-scheduler-target-helper-reuse-window"
+                    },
+                    {
                         "name":  "20260620-auto-evolve-harness-workbench-feedback-conversation-split-window",
                         "path":  "harness/changes/archive/20260620-auto-evolve-harness-workbench-feedback-conversation-split-window"
                     },
@@ -1445,6 +1449,10 @@
                     {
                         "name":  "20260620-workbench-scheduler-integration-candidate-target-helper-reuse",
                         "path":  "harness/changes/archive/20260620-workbench-scheduler-integration-candidate-target-helper-reuse"
+                    },
+                    {
+                        "name":  "20260620-workbench-scheduler-integration-check-candidate-target-helper-reuse",
+                        "path":  "harness/changes/archive/20260620-workbench-scheduler-integration-check-candidate-target-helper-reuse"
                     },
                     {
                         "name":  "20260620-workbench-scheduler-residual-test-domain-split",
