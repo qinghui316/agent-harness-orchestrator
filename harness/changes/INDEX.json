@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-20T01:06:41.0093843Z",
+    "generated_at":  "2026-06-20T01:21:53.6002577Z",
     "active":  [
 
                ],
@@ -1473,6 +1473,10 @@
                     {
                         "name":  "20260620-workbench-worker-reconcile-optional-target-helper-reuse",
                         "path":  "harness/changes/archive/20260620-workbench-worker-reconcile-optional-target-helper-reuse"
+                    },
+                    {
+                        "name":  "20260620-workbench-worker-rework-audit-optional-target-helper-reuse",
+                        "path":  "harness/changes/archive/20260620-workbench-worker-rework-audit-optional-target-helper-reuse"
                     },
                     {
                         "name":  "20260620-workbench-worker-rework-entry-optional-target-helper-reuse",
