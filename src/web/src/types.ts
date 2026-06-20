@@ -412,15 +412,7 @@ export type GoalLoopSummary = {
     closeAuthorized: false;
     harnessEvolutionAuthorized: false;
   };
-  controlledSchedulerNextCandidate?: {
-    status: "ready-for-confirmation" | "needs-review";
-    label: string;
-    body: string;
-    actionLabel: string;
-    readinessEvidencePrepared: boolean;
-    humanConfirmationStillRequired: true;
-    evidenceRefs: string[];
-  };
+  controlledSchedulerNextCandidate?: ControlledSchedulerNextCandidateDetail;
   conflictReasons: string[];
   completionStatus?: string;
   artifact?: string;
@@ -1448,6 +1440,7 @@ export type DecisionContext = {
   resultSummary?: string;
   recommendation?: string;
   explanation?: string;
+  controlledSchedulerNextCandidate?: ControlledSchedulerNextCandidateDetail;
   severity: "info" | "warning" | "blocking";
   changeId?: string;
   taskId?: string;
@@ -1467,6 +1460,16 @@ export type DecisionInspector = {
   history: DecisionContext[];
   selectedContextId?: string;
 };
+export type ControlledSchedulerNextCandidateDetail = {
+  status: "ready-for-confirmation" | "needs-review";
+  label: string;
+  body: string;
+  actionLabel: string;
+  readinessEvidencePrepared: boolean;
+  humanConfirmationStillRequired: true;
+  evidenceRefs: string[];
+};
+
 export type ConfirmationQueueItem = {
   id: string;
   kind: string;
@@ -1497,6 +1500,7 @@ export type ConfirmationQueueItem = {
   whyNeedsConfirmation: string;
   confirmEffect: string;
   riskSummary: string;
+  controlledSchedulerNextCandidate?: ControlledSchedulerNextCandidateDetail;
   evidenceRefs: string[];
   actions: DecisionAction[];
   primary: boolean;

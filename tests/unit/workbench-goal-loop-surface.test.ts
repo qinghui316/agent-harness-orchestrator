@@ -710,6 +710,14 @@ describe("workbench Goal Loop surface", () => {
       "harness/changes/active/member-discount/planning/goal-loop-controller-policies/policy.md",
       "harness/changes/active/member-discount/planning/goal-loop-gate-readiness-preflights/preflight.md",
     ]);
+    expect(item.controlledSchedulerNextCandidate).toEqual(expect.objectContaining({
+      status: "ready-for-confirmation",
+      label: "下一步候选已刷新",
+      actionLabel: "继续执行下一个任务",
+      readinessEvidencePrepared: true,
+      humanConfirmationStillRequired: true,
+    }));
+    expect(item.controlledSchedulerNextCandidate?.evidenceRefs).toEqual(item.evidenceRefs);
     expect(item.actions.some((action) => action.actionType === "planning.scheduler.worker.start-next")).toBe(false);
     const advance = item.actions.find((action) => action.actionType === "planning.scheduler.controlled-advance.run");
     expect(advance).toMatchObject({
@@ -803,6 +811,7 @@ describe("workbench Goal Loop surface", () => {
 
     expect(item.evidenceRefs).toEqual(["existing-evidence.md"]);
     expect(item.evidenceRefs).not.toContain("candidate-should-not-be-merged.md");
+    expect(item.controlledSchedulerNextCandidate).toBeUndefined();
   });
 
   it("does not merge ready next-candidate evidence refs when the refreshed gate does not match", async () => {
@@ -880,6 +889,7 @@ describe("workbench Goal Loop surface", () => {
 
     expect(item.evidenceRefs).toEqual(["existing-evidence.md"]);
     expect(item.evidenceRefs).not.toContain("ready-candidate-should-not-be-merged.md");
+    expect(item.controlledSchedulerNextCandidate).toBeUndefined();
   });
 
   it("projects controlled scheduler advance with a combined-result step category", async () => {

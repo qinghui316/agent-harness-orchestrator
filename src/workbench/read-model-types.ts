@@ -419,6 +419,7 @@ export interface WorkbenchConfirmationQueueItem {
   whyNeedsConfirmation: string;
   confirmEffect: string;
   riskSummary: string;
+  controlledSchedulerNextCandidate?: WorkbenchControlledSchedulerNextCandidate;
   evidenceRefs: string[];
   actions: WorkbenchDecisionAction[];
   primary: boolean;

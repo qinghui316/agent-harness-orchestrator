@@ -153,6 +153,7 @@ export function attachControlledSchedulerAdvanceActions(
       currentGateActionType,
       refreshed: hasRefreshedControlledSchedulerReconfirmEvidence(item, sourceActions, workpad),
     });
+    const controlledSchedulerNextCandidate = controlledSchedulerAdvanceCandidateDetail(item, sourceActions, workpad);
     const evidenceRefs = controlledSchedulerAdvanceEvidenceRefs(item, sourceActions, workpad);
     return {
       ...item,
@@ -160,6 +161,7 @@ export function attachControlledSchedulerAdvanceActions(
       whyNeedsConfirmation: advanceCopy.whyNeedsConfirmation,
       confirmEffect: advanceCopy.confirmEffect,
       riskSummary: advanceCopy.riskSummary,
+      controlledSchedulerNextCandidate,
       evidenceRefs,
       actions: [
         ...item.actions.filter((action) => !(action.kind === "workflow-action" && isSchedulerAdvanceSourceAction(action))),
@@ -174,14 +176,20 @@ function controlledSchedulerAdvanceEvidenceRefs(
   sourceActions: WorkbenchDecisionAction[],
   workpad: WorkbenchWorkpad | undefined,
 ): string[] {
-  const candidate = workpad?.goalLoop?.controlledSchedulerNextCandidate;
-  if (
-    candidate?.status !== "ready-for-confirmation"
-    || !hasRefreshedControlledSchedulerReconfirmEvidence(item, sourceActions, workpad)
-  ) {
-    return item.evidenceRefs;
-  }
+  const candidate = controlledSchedulerAdvanceCandidateDetail(item, sourceActions, workpad);
+  if (!candidate) return item.evidenceRefs;
   return mergeEvidenceRefs(item.evidenceRefs, candidate.evidenceRefs);
+}
+
+function controlledSchedulerAdvanceCandidateDetail(
+  item: WorkbenchConfirmationQueueItem,
+  sourceActions: WorkbenchDecisionAction[],
+  workpad: WorkbenchWorkpad | undefined,
+): WorkbenchConfirmationQueueItem["controlledSchedulerNextCandidate"] {
+  const candidate = workpad?.goalLoop?.controlledSchedulerNextCandidate;
+  if (candidate?.status !== "ready-for-confirmation") return undefined;
+  if (!hasRefreshedControlledSchedulerReconfirmEvidence(item, sourceActions, workpad)) return undefined;
+  return candidate;
 }
 
 function uniqueControlledSchedulerAdvanceGateType(sourceActions: WorkbenchDecisionAction[]): WorkbenchDecisionAction["actionType"] | undefined {

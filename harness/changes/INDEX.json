@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-20T12:43:25.9727741Z",
+    "generated_at":  "2026-06-20T13:00:46.8096507Z",
     "active":  [
 
                ],
@@ -1441,6 +1441,10 @@
                     {
                         "name":  "20260620-controlled-scheduler-concrete-step-preview",
                         "path":  "harness/changes/archive/20260620-controlled-scheduler-concrete-step-preview"
+                    },
+                    {
+                        "name":  "20260620-controlled-scheduler-confirmation-candidate-detail",
+                        "path":  "harness/changes/archive/20260620-controlled-scheduler-confirmation-candidate-detail"
                     },
                     {
                         "name":  "20260620-controlled-scheduler-confirmation-evidence-surface",

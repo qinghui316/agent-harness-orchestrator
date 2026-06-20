@@ -116,6 +116,7 @@ function confirmationItemToDecisionContext(item: ConfirmationQueueItem): Decisio
     resultSummary: item.summary,
     recommendation: item.confirmEffect,
     explanation: item.riskSummary,
+    controlledSchedulerNextCandidate: item.controlledSchedulerNextCandidate,
     severity: item.status === "failed" ? "blocking" : "info",
     changeId: item.changeId ?? item.conversationId,
     runId: item.runId,
@@ -168,6 +169,17 @@ function DecisionContextCard({
         <strong>说明</strong>
         <p>{userFacingText(context.explanation ?? "内部运行状态只作为证据和恢复信息，不是用户主决策语言。")}</p>
       </div>
+      {context.controlledSchedulerNextCandidate ? (
+        <div className="decision-explainer" aria-label="Controlled scheduler next candidate">
+          <strong>{userFacingText(context.controlledSchedulerNextCandidate.label)}</strong>
+          <p>{userFacingText(context.controlledSchedulerNextCandidate.body)}</p>
+          <p className="muted-inline">
+            {context.controlledSchedulerNextCandidate.readinessEvidencePrepared ? "当前步骤检查已准备好。" : "当前步骤检查还需要复核。"}
+            {" "}
+            {context.controlledSchedulerNextCandidate.humanConfirmationStillRequired ? "继续前仍需要你确认这个步骤。" : "等待新的证据。"}
+          </p>
+        </div>
+      ) : null}
       <dl className="approval-fields">
         <div><dt>变更</dt><dd>{context.changeId ?? "-"}</dd></div>
         {context.taskId ? <div><dt>任务</dt><dd>{context.taskId}</dd></div> : null}
