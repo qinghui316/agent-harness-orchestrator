@@ -5,14 +5,14 @@
 - Current date: 2026-06-20.
 - Active ECL change: none.
 - Pending Harness evolution: none.
-- Latest archived product change: `harness/changes/archive/20260620-controlled-scheduler-advance-gate/summary.md`.
-- Latest archived product/Harness docs change: `harness/changes/archive/20260620-controlled-scheduler-advance-gate/summary.md`.
+- Latest archived product change: `harness/changes/archive/20260620-controlled-scheduler-advance-continuation-surface/summary.md`.
+- Latest archived product/Harness docs change: `harness/changes/archive/20260620-controlled-scheduler-advance-continuation-surface/summary.md`.
 - Latest archived Harness evolution: `harness/changes/archive/20260620-auto-evolve-harness-workbench-helper-boundary-window/summary.md`.
 - Active product phase: none.
 - Active Harness evolution phase: none.
 - Active close status: none.
 
-This file is the short resume point. There is no active ECL change and pending Harness evolution is none. The latest product change implemented a controlled Scheduler advance gate: one user-confirmed action re-reads current evidence, generates fresh Goal Loop packet/controller/preflight evidence for the visible Scheduler gate, revalidates scope, then delegates to the controlled single-step runner to execute exactly one existing concrete scheduler transition and stop. It preserves ToolPolicyGate, stale-target revalidation, SchedulerRun evidence, IntegrationCheck/apply boundaries, and human gates.
+This file is the short resume point. There is no active ECL change and pending Harness evolution is none. The latest product change closed the controlled Scheduler advance continuation surface: confirmed controlled-advance actions now record a first-class Workbench summary/label that distinguishes fresh Goal Loop evidence refresh from the concrete scheduler gate execution, names the executed concrete gate, states the one-transition stop, and explicitly preserves no scheduler loop, whole-wave dispatch, slot allocator, apply, close, remote landing, or Harness evolution behavior.
 
 Current plan-level roadmap context is preserved in `docs/CURRENT-DEVELOPMENT-PLAN.md`. Historical detail belongs in archived summaries and `harness/changes/INDEX.json`.
 
