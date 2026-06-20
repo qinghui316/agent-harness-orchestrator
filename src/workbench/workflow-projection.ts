@@ -298,6 +298,7 @@ export interface WorkbenchSchedulerControlledStepEvidenceSummary {
   harnessEvolutionAuthorized: false;
   controlledStepResultSummary?: Record<string, string | number | boolean | string[] | null>;
   controlledLoopTurnRouteSummary?: SchedulerControlledStepEvidence["controlledLoopTurnRouteSummary"];
+  controlledLoopTick?: SchedulerControlledStepEvidence["controlledLoopTick"];
   warning?: string;
   artifact?: string;
   markdownArtifact?: string;
@@ -1821,6 +1822,7 @@ function summarizeSchedulerControlledStepEvidence(step: SchedulerControlledStepE
     harnessEvolutionAuthorized: step.forbiddenAuthority.harnessEvolutionAuthorized,
     controlledStepResultSummary: step.controlledStepResultSummary,
     controlledLoopTurnRouteSummary: step.controlledLoopTurnRouteSummary,
+    controlledLoopTick: step.controlledLoopTick,
     warning: step.postStepEvidence.evaluationWarning ?? step.postStepEvidence.readinessWarning ?? step.postStepHandoff.warning,
     artifact: step.artifact,
     markdownArtifact: step.markdownArtifact,

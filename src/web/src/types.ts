@@ -1319,6 +1319,68 @@ export type SchedulerControlledStepEvidenceSummary = {
     remoteLandingAuthorized: false;
     harnessEvolutionAuthorized: false;
   };
+  controlledLoopTick?: {
+    version: "1.0";
+    authority: "scheduler-runtime-controlled-loop-tick-contract-summary";
+    observe: {
+      status: "recorded" | "completed" | "warning";
+      goalLoopDecisionId: string;
+      goalLoopIterationId: string;
+      goalLoopContinuationBriefId: string;
+      goalLoopNextStepPacketId: string;
+      submittedActionType: string;
+    };
+    chooseCheck: {
+      status: "recorded" | "completed" | "warning";
+      goalLoopControllerPolicyId: string;
+      goalLoopGateReadinessPreflightId: string;
+      targetScopeMatched: true;
+      concreteGatePreflightNonExecuting: true;
+    };
+    dispatch: {
+      status: "completed";
+      executedActionType: string;
+      executionStarted: true;
+      stoppedAfterOneSchedulerTransition: true;
+      approvedScopeOnly: true;
+    };
+    reconcile: {
+      status: "recorded" | "completed" | "warning";
+      goalLoopDecisionId?: string;
+      goalLoopIterationId?: string;
+      goalLoopContinuationBriefId?: string;
+      goalLoopNextStepPacketId?: string;
+      goalLoopControllerPolicyId?: string;
+      goalLoopGateReadinessPreflightId?: string;
+      warning?: string;
+      executionStarted: false;
+    };
+    routeStop: {
+      status: string;
+      stopReason: string;
+      routePosture: "waiting" | "recommending-gate" | "awaiting-human-gate" | "quality-routing" | "integration-barrier" | "terminal-handoff";
+      nextCandidateActionType?: string;
+      humanGateRequired: boolean;
+      humanConfirmationStillRequired: true;
+      needsReevaluation: boolean;
+      warning?: string;
+    };
+    resultKind?: string;
+    resultId?: string;
+    resultStatus?: string;
+    resultArtifact?: string;
+    executionStarted: false;
+    loopAuthorized: false;
+    fullParallelExecutorAuthorized: false;
+    wholeWaveDispatchAuthorized: false;
+    slotAllocatorAuthorized: false;
+    sourceMutationAuthorized: false;
+    applyAuthorized: false;
+    closeAuthorized: false;
+    mergeAuthorized: false;
+    remoteLandingAuthorized: false;
+    harnessEvolutionAuthorized: false;
+  };
   warning?: string;
   artifact?: string;
   markdownArtifact?: string;

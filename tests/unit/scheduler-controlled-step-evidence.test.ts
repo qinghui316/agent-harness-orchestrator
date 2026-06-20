@@ -170,11 +170,62 @@ describe("Scheduler controlled step evidence", () => {
       closeAuthorized: false,
       harnessEvolutionAuthorized: false,
     });
+    expect(recorded.schedulerControlledStepEvidence.controlledLoopTick).toMatchObject({
+      authority: "scheduler-runtime-controlled-loop-tick-contract-summary",
+      observe: {
+        status: "recorded",
+        goalLoopNextStepPacketId: "packet-pre",
+        submittedActionType: "planning.scheduler.worker.start-next",
+      },
+      chooseCheck: {
+        status: "recorded",
+        goalLoopGateReadinessPreflightId: "preflight-pre",
+        targetScopeMatched: true,
+        concreteGatePreflightNonExecuting: true,
+      },
+      dispatch: {
+        status: "completed",
+        executedActionType: "planning.scheduler.worker.start-next",
+        executionStarted: true,
+        stoppedAfterOneSchedulerTransition: true,
+        approvedScopeOnly: true,
+      },
+      reconcile: {
+        status: "recorded",
+        goalLoopNextStepPacketId: "packet-post",
+        executionStarted: false,
+      },
+      routeStop: {
+        routePosture: "awaiting-human-gate",
+        stopReason: "one-confirmed-scheduler-transition-completed",
+        humanConfirmationStillRequired: true,
+      },
+      resultKind: "schedulerWorkerStart",
+      resultId: "scheduler-worker-start-1",
+      resultStatus: "started",
+      executionStarted: false,
+      loopAuthorized: false,
+      fullParallelExecutorAuthorized: false,
+      wholeWaveDispatchAuthorized: false,
+      slotAllocatorAuthorized: false,
+      sourceMutationAuthorized: false,
+      applyAuthorized: false,
+      closeAuthorized: false,
+      mergeAuthorized: false,
+      remoteLandingAuthorized: false,
+      harnessEvolutionAuthorized: false,
+    });
     await expect(readLatestSchedulerControlledStepEvidenceSummary(memory, changePath, "scheduler-run-1")).resolves.toMatchObject({
       controlledLoopTurnRouteSummary: {
         routePosture: "awaiting-human-gate",
         resultId: "scheduler-worker-start-1",
         resultStatus: "started",
+      },
+      controlledLoopTick: {
+        authority: "scheduler-runtime-controlled-loop-tick-contract-summary",
+        routeStop: {
+          routePosture: "awaiting-human-gate",
+        },
       },
     });
     expect(events).toHaveLength(1);
@@ -185,6 +236,9 @@ describe("Scheduler controlled step evidence", () => {
       payload: {
         schedulerControlledStepEvidenceId: recorded.schedulerControlledStepEvidence.id,
         postStepStatus: "next-confirmation-candidate-ready",
+        controlledLoopTickAuthority: "scheduler-runtime-controlled-loop-tick-contract-summary",
+        controlledLoopTickRoutePosture: "awaiting-human-gate",
+        controlledLoopTickStopReason: "one-confirmed-scheduler-transition-completed",
         humanConfirmationStillRequired: true,
       },
     });

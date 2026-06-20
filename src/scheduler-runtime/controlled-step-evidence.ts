@@ -17,6 +17,7 @@ import type {
   SchedulerControlledStepResultSummary,
 } from "./types.js";
 import { buildSchedulerControlledLoopTurnRouteSummary } from "./controlled-loop-turn.js";
+import { buildSchedulerControlledLoopTickSummary } from "./controlled-loop-tick.js";
 
 type ScopeValue = string | string[];
 
@@ -91,6 +92,9 @@ export async function recordSchedulerControlledStepEvidence(
         schedulerControlledStepEvidenceId: step.id,
         executedActionType: step.executedActionType,
         postStepStatus: step.postStepHandoff.status,
+        controlledLoopTickAuthority: step.controlledLoopTick?.authority,
+        controlledLoopTickRoutePosture: step.controlledLoopTick?.routeStop.routePosture,
+        controlledLoopTickStopReason: step.controlledLoopTick?.routeStop.stopReason,
         humanConfirmationStillRequired: step.humanConfirmationStillRequired,
       },
     });
@@ -121,6 +125,15 @@ function buildSchedulerControlledStepEvidence(
     controlledStepResultSummary: input.controlledStepResultSummary,
     forbiddenAuthority: FORBIDDEN_AUTHORITY,
   });
+  const controlledLoopTick = buildSchedulerControlledLoopTickSummary({
+    executedActionType: input.executedActionType,
+    preStepEvidence: input.preStepEvidence,
+    postStepEvidence,
+    postStepHandoff: input.postStepHandoff,
+    controlledLoopTurnRouteSummary,
+    controlledStepResultSummary: input.controlledStepResultSummary,
+    forbiddenAuthority: FORBIDDEN_AUTHORITY,
+  });
   return {
     version: "1.0",
     id: stepId,
@@ -134,6 +147,7 @@ function buildSchedulerControlledStepEvidence(
     postStepHandoff: input.postStepHandoff,
     controlledStepResultSummary: input.controlledStepResultSummary,
     controlledLoopTurnRouteSummary,
+    controlledLoopTick,
     executionStarted: true,
     stoppedAfterOneSchedulerTransition: true,
     humanConfirmationStillRequired: true,

@@ -289,6 +289,22 @@ export function SchedulerControlledStepEvidenceCard({ step }: { step: NonNullabl
           </div>
         </div>
       ) : null}
+      {step.controlledLoopTick ? (
+        <div className="workpad-evidence-list" data-testid="scheduler-controlled-loop-tick-summary">
+          <div className="workpad-evidence">
+            <strong>受控 tick</strong>
+            <span>{controlledLoopTickPhaseText(step.controlledLoopTick)}</span>
+          </div>
+          <div className="workpad-evidence">
+            <strong>停止原因</strong>
+            <span>{controlledLoopTickStopText(step.controlledLoopTick)}</span>
+          </div>
+          <div className="workpad-evidence">
+            <strong>权限边界</strong>
+            <span>不授权自动循环、批量派发或 source 变更</span>
+          </div>
+        </div>
+      ) : null}
       {step.warning ? <p className="workpad-note">{step.warning}</p> : null}
       {step.artifact ? <small className="artifact-link">查看证据：{artifactName(step.artifact)}</small> : null}
     </section>
@@ -296,6 +312,20 @@ export function SchedulerControlledStepEvidenceCard({ step }: { step: NonNullabl
 }
 
 type ControlledLoopTurnRouteSummary = NonNullable<NonNullable<Workpad["schedulerControlledStepEvidence"]>["controlledLoopTurnRouteSummary"]>;
+type ControlledLoopTickSummary = NonNullable<NonNullable<Workpad["schedulerControlledStepEvidence"]>["controlledLoopTick"]>;
+
+function controlledLoopTickPhaseText(tick: ControlledLoopTickSummary): string {
+  return [
+    `观察 ${tick.observe.status}`,
+    `检查 ${tick.chooseCheck.status}`,
+    `派发 ${tick.dispatch.status}`,
+    `复核 ${tick.reconcile.status}`,
+  ].join(" / ");
+}
+
+function controlledLoopTickStopText(tick: ControlledLoopTickSummary): string {
+  return `${controlledLoopTurnRouteLabel(tick.routeStop.routePosture)}：${tick.routeStop.stopReason}`;
+}
 
 function controlledLoopTurnRouteLabel(posture: ControlledLoopTurnRouteSummary["routePosture"]): string {
   switch (posture) {

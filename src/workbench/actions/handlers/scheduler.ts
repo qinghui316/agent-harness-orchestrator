@@ -34,13 +34,13 @@ import { compileGoalLoopControllerPolicy, compileGoalLoopEvaluation, compileGoal
 import { assertWritableMemory } from "../../../memory/resolver.js";
 import type { ManagedProject } from "../../../types/index.js";
 import { buildControlledSchedulerPostStepHandoff } from "../../controlled-scheduler-handoff.js";
-import { buildControlledSchedulerAdvanceStepRequest, buildControlledSchedulerStepRequest } from "../../../workflow-scheduler/controlled-step.js";
+import { assertControlledSchedulerFreshGateMatchesRequest, buildControlledSchedulerAdvanceStepRequest, buildControlledSchedulerStepRequest } from "../../../workflow-scheduler/controlled-step.js";
 import { recordSchedulerControlledStepEvidence } from "../../../scheduler-runtime/controlled-step-evidence.js";
 import { summarizeSchedulerControlledStepResult } from "../../../scheduler-runtime/controlled-loop-turn.js";
 import type { SchedulerControlledStepHandoffSummary } from "../../../scheduler-runtime/types.js";
 import { assertWorkflowActionScope, auditHighImpactWorkflowAction } from "../boundary.js";
 import { resolveVisibleControlledSchedulerCurrentGate } from "../visible-goal-loop-current-gate.js";
-import { workflowActionScopesMatchStrict, type WorkflowActionScopeCarrier } from "../../../workflow-actions/registry.js";
+import type { WorkflowActionScopeCarrier } from "../../../workflow-actions/registry.js";
 import type { WorkbenchActionHandlerMap } from "../dispatcher.js";
 import { resolveTopic } from "../../topic-resolver.js";
 import type { WorkbenchWorkflowActionRequest } from "../../types.js";
@@ -142,7 +142,7 @@ export function buildSchedulerActionHandlers(): Pick<WorkbenchActionHandlerMap, 
       if (!packetAction || packetAction.actionType !== concreteActionType) {
         throw new Error("planning.scheduler.controlled-advance.run fresh Goal Loop packet no longer recommends the submitted scheduler gate.");
       }
-      assertFreshGateMatchesRequest(packetAction.actionType, packetAction.scope, requestedConcreteGate, "Goal Loop packet");
+      assertControlledSchedulerFreshGateMatchesRequest(packetAction.actionType, packetAction.scope, requestedConcreteGate, "Goal Loop packet");
 
       const controllerRequest = {
         ...request,
@@ -161,7 +161,7 @@ export function buildSchedulerActionHandlers(): Pick<WorkbenchActionHandlerMap, 
       ) {
         throw new Error("planning.scheduler.controlled-advance.run fresh controller policy no longer matches the submitted scheduler gate.");
       }
-      assertFreshGateMatchesRequest(controller.goalLoopControllerPolicy.currentGate.actionType, controller.goalLoopControllerPolicy.currentGate.scope, requestedConcreteGate, "Goal Loop controller policy");
+      assertControlledSchedulerFreshGateMatchesRequest(controller.goalLoopControllerPolicy.currentGate.actionType, controller.goalLoopControllerPolicy.currentGate.scope, requestedConcreteGate, "Goal Loop controller policy");
 
       const preflightRequest = {
         ...request,
@@ -181,7 +181,7 @@ export function buildSchedulerActionHandlers(): Pick<WorkbenchActionHandlerMap, 
       ) {
         throw new Error("planning.scheduler.controlled-advance.run fresh preflight is not a non-executing match for the submitted scheduler gate.");
       }
-      assertFreshGateMatchesRequest(preflight.goalLoopGateReadinessPreflight.currentGate.actionType, preflight.goalLoopGateReadinessPreflight.currentGate.scope, requestedConcreteGate, "Goal Loop gate-readiness preflight");
+      assertControlledSchedulerFreshGateMatchesRequest(preflight.goalLoopGateReadinessPreflight.currentGate.actionType, preflight.goalLoopGateReadinessPreflight.currentGate.scope, requestedConcreteGate, "Goal Loop gate-readiness preflight");
 
       const { wrapper } = buildControlledSchedulerAdvanceStepRequest(request, {
         goalLoopDecisionId: evaluation.goalLoopDecision.id,
@@ -392,6 +392,7 @@ async function recordControlledAdvanceRuntimeStepEvidence(
         status: recorded.schedulerControlledStepEvidence.status,
         executedActionType: recorded.schedulerControlledStepEvidence.executedActionType,
         humanConfirmationStillRequired: recorded.schedulerControlledStepEvidence.humanConfirmationStillRequired,
+        controlledLoopTick: recorded.schedulerControlledStepEvidence.controlledLoopTick,
       },
     };
   } catch (error) {
@@ -426,31 +427,4 @@ function toSchedulerControlledStepHandoffSummary(
     wholeWaveDispatchAuthorized: false,
     slotAllocatorAuthorized: false,
   };
-}
-
-function assertFreshGateMatchesRequest(
-  actionType: string,
-  scope: Record<string, string | string[]>,
-  requestedConcreteGate: WorkflowActionScopeCarrier,
-  label: string,
-): void {
-  const expectedGate = { actionType, ...scope };
-  const requestedGate = concreteGateFromScope(requestedConcreteGate, expectedGate);
-  if (!workflowActionScopesMatchStrict(expectedGate, requestedGate)) {
-    throw new Error(`planning.scheduler.controlled-advance.run fresh ${label} scope no longer matches the submitted scheduler gate.`);
-  }
-}
-
-function concreteGateFromScope(request: WorkflowActionScopeCarrier, expected: WorkflowActionScopeCarrier): WorkflowActionScopeCarrier {
-  const result: WorkflowActionScopeCarrier = { actionType: expected.actionType, changeId: expected.changeId ?? request.changeId };
-  for (const key of Object.keys(expected) as Array<keyof WorkflowActionScopeCarrier>) {
-    if (key === "actionType" || key === "changeId") continue;
-    const value = request[key];
-    if (typeof value === "string") {
-      (result as Record<string, string>)[key] = value;
-    } else if (Array.isArray(value) && value.every((item) => typeof item === "string")) {
-      (result as Record<string, string[]>)[key] = value;
-    }
-  }
-  return result;
 }

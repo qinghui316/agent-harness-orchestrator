@@ -170,6 +170,71 @@ export interface SchedulerControlledLoopTurnRouteSummary {
   harnessEvolutionAuthorized: false;
 }
 
+export type SchedulerControlledLoopTickPhaseStatus = "recorded" | "completed" | "warning";
+
+export interface SchedulerControlledLoopTickSummary {
+  version: "1.0";
+  authority: "scheduler-runtime-controlled-loop-tick-contract-summary";
+  observe: {
+    status: SchedulerControlledLoopTickPhaseStatus;
+    goalLoopDecisionId: string;
+    goalLoopIterationId: string;
+    goalLoopContinuationBriefId: string;
+    goalLoopNextStepPacketId: string;
+    submittedActionType: string;
+  };
+  chooseCheck: {
+    status: SchedulerControlledLoopTickPhaseStatus;
+    goalLoopControllerPolicyId: string;
+    goalLoopGateReadinessPreflightId: string;
+    targetScopeMatched: true;
+    concreteGatePreflightNonExecuting: true;
+  };
+  dispatch: {
+    status: "completed";
+    executedActionType: string;
+    executionStarted: true;
+    stoppedAfterOneSchedulerTransition: true;
+    approvedScopeOnly: true;
+  };
+  reconcile: {
+    status: SchedulerControlledLoopTickPhaseStatus;
+    goalLoopDecisionId?: string;
+    goalLoopIterationId?: string;
+    goalLoopContinuationBriefId?: string;
+    goalLoopNextStepPacketId?: string;
+    goalLoopControllerPolicyId?: string;
+    goalLoopGateReadinessPreflightId?: string;
+    warning?: string;
+    executionStarted: false;
+  };
+  routeStop: {
+    status: string;
+    stopReason: string;
+    routePosture: SchedulerControlledLoopTurnRoutePosture;
+    nextCandidateActionType?: string;
+    humanGateRequired: boolean;
+    humanConfirmationStillRequired: true;
+    needsReevaluation: boolean;
+    warning?: string;
+  };
+  resultKind?: string;
+  resultId?: string;
+  resultStatus?: string;
+  resultArtifact?: string;
+  executionStarted: false;
+  loopAuthorized: false;
+  fullParallelExecutorAuthorized: false;
+  wholeWaveDispatchAuthorized: false;
+  slotAllocatorAuthorized: false;
+  sourceMutationAuthorized: false;
+  applyAuthorized: false;
+  closeAuthorized: false;
+  mergeAuthorized: false;
+  remoteLandingAuthorized: false;
+  harnessEvolutionAuthorized: false;
+}
+
 export interface SchedulerControlledStepPreStepEvidence {
   goalLoopDecisionId: string;
   goalLoopIterationId: string;
@@ -233,6 +298,7 @@ export interface SchedulerControlledStepEvidence {
   postStepHandoff: SchedulerControlledStepHandoffSummary;
   controlledStepResultSummary?: SchedulerControlledStepResultSummary;
   controlledLoopTurnRouteSummary?: SchedulerControlledLoopTurnRouteSummary;
+  controlledLoopTick?: SchedulerControlledLoopTickSummary;
   executionStarted: true;
   stoppedAfterOneSchedulerTransition: true;
   humanConfirmationStillRequired: true;

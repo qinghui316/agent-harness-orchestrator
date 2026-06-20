@@ -446,9 +446,8 @@ describe("Workbench web app", () => {
     expect(screen.getByText("记忆：external-local")).toBeTruthy();
     expect(screen.getByText("当前需求：会员折扣计价")).toBeTruthy();
     fireEvent.click(screen.getByRole("tab", { name: "Agent 运行图" }));
-    await waitFor(() => expect(screen.getByRole("tab", { name: "Agent 运行图" }).getAttribute("aria-selected")).toBe("true"));
     await waitFor(() => expect(fetch).toHaveBeenCalledWith("/api/projects/repo/workbench/projections/run-graph/member-discount"));
-    expect(screen.getByTestId("agent-run-graph")).toBeTruthy();
+    expect(await screen.findByTestId("agent-run-graph")).toBeTruthy();
     expect(screen.getByTestId("agent-run-node-main-agent")).toBeTruthy();
     expect(screen.getByTestId("agent-run-node-coder-agent")).toBeTruthy();
     expect(screen.queryByTestId("agent-run-node-memory-closeout")).toBeNull();
@@ -1013,7 +1012,7 @@ describe("Workbench web app", () => {
     expect(within(card).getByText("查看证据：controlled-advance-1.json")).toBeTruthy();
     expect(within(card).getByRole("button", { name: "按当前建议继续一个受控步骤" })).toBeTruthy();
     expect(within(card).getAllByRole("button")).toHaveLength(1);
-    fireEvent.click(screen.getByText("查看详情与证据"));
+    fireEvent.click(await screen.findByText("查看详情与证据"));
     const detailCard = await screen.findByTestId("controlled-scheduler-reconfirmation-card");
     expect(within(detailCard).getByText("当前步骤可以重新确认")).toBeTruthy();
     expect(within(detailCard).getByText("继续边界")).toBeTruthy();
@@ -1088,6 +1087,65 @@ describe("Workbench web app", () => {
               remoteLandingAuthorized: false,
               harnessEvolutionAuthorized: false,
             },
+            controlledLoopTick: {
+              version: "1.0",
+              authority: "scheduler-runtime-controlled-loop-tick-contract-summary",
+              observe: {
+                status: "recorded",
+                goalLoopDecisionId: "goal-loop-decision-pre",
+                goalLoopIterationId: "goal-loop-iteration-pre",
+                goalLoopContinuationBriefId: "goal-loop-brief-pre",
+                goalLoopNextStepPacketId: "goal-loop-packet-pre",
+                submittedActionType: "planning.scheduler.worker.start-next",
+              },
+              chooseCheck: {
+                status: "recorded",
+                goalLoopControllerPolicyId: "goal-loop-controller-pre",
+                goalLoopGateReadinessPreflightId: "goal-loop-preflight-pre",
+                targetScopeMatched: true,
+                concreteGatePreflightNonExecuting: true,
+              },
+              dispatch: {
+                status: "completed",
+                executedActionType: "planning.scheduler.worker.start-next",
+                executionStarted: true,
+                stoppedAfterOneSchedulerTransition: true,
+                approvedScopeOnly: true,
+              },
+              reconcile: {
+                status: "recorded",
+                goalLoopDecisionId: "goal-loop-decision-post",
+                goalLoopIterationId: "goal-loop-iteration-post",
+                goalLoopContinuationBriefId: "goal-loop-brief-post",
+                goalLoopNextStepPacketId: "goal-loop-packet-post",
+                goalLoopControllerPolicyId: "goal-loop-controller-post",
+                goalLoopGateReadinessPreflightId: "goal-loop-preflight-post",
+                executionStarted: false,
+              },
+              routeStop: {
+                status: "next-confirmation-candidate-ready",
+                stopReason: "one-confirmed-scheduler-transition-completed",
+                routePosture: "awaiting-human-gate",
+                nextCandidateActionType: "planning.scheduler.worker.reconcile-result",
+                humanGateRequired: true,
+                humanConfirmationStillRequired: true,
+                needsReevaluation: false,
+              },
+              resultKind: "schedulerWorkerStart",
+              resultId: "scheduler-worker-start-1",
+              resultStatus: "started",
+              executionStarted: false,
+              loopAuthorized: false,
+              fullParallelExecutorAuthorized: false,
+              wholeWaveDispatchAuthorized: false,
+              slotAllocatorAuthorized: false,
+              sourceMutationAuthorized: false,
+              applyAuthorized: false,
+              closeAuthorized: false,
+              mergeAuthorized: false,
+              remoteLandingAuthorized: false,
+              harnessEvolutionAuthorized: false,
+            },
             artifact: "harness/changes/active/member-discount/planning/scheduler-runs/scheduler-run-1/scheduler-controlled-steps/scheduler-controlled-step-1.json",
             markdownArtifact: "harness/changes/active/member-discount/planning/scheduler-runs/scheduler-run-1/scheduler-controlled-steps/scheduler-controlled-step-1.md",
             updatedAt: "2026-06-21T00:00:00.000Z",
@@ -1107,7 +1165,7 @@ describe("Workbench web app", () => {
     render(<App />);
 
     fireEvent.click(await screen.findByRole("tab", { name: "工作台" }));
-    fireEvent.click(screen.getByText("查看详情与证据"));
+    fireEvent.click(await screen.findByText("查看详情与证据"));
     const card = await screen.findByTestId("scheduler-controlled-step-evidence-card");
     expect(within(card).getByText("受控步骤运行证据")).toBeTruthy();
     expect(within(card).getByText("已执行一个用户确认的 Scheduler 步骤，并在完成后停止")).toBeTruthy();
@@ -1126,8 +1184,18 @@ describe("Workbench web app", () => {
     expect(within(card).getByText("schedulerWorkerStart / scheduler-worker-start-1 / started")).toBeTruthy();
     expect(within(card).getByText("下一确认")).toBeTruthy();
     expect(within(card).getByText("检查当前结果")).toBeTruthy();
+    expect(within(card).getByTestId("scheduler-controlled-loop-tick-summary")).toBeTruthy();
+    expect(within(card).getByText("受控 tick")).toBeTruthy();
+    expect(within(card).getByText("观察 recorded / 检查 recorded / 派发 completed / 复核 recorded")).toBeTruthy();
+    expect(within(card).getByText("停止原因")).toBeTruthy();
+    expect(within(card).getByText("已停在下一次人工确认：one-confirmed-scheduler-transition-completed")).toBeTruthy();
+    expect(within(card).getByText("权限边界")).toBeTruthy();
+    expect(within(card).getByText("不授权自动循环、批量派发或 source 变更")).toBeTruthy();
     expect(within(card).getByText("查看证据：scheduler-controlled-step-1.json")).toBeTruthy();
     expect(within(card).queryByRole("button")).toBeNull();
+    const normalizedCardText = card.textContent?.toLowerCase() ?? "";
+    expect(normalizedCardText).not.toContain("start-all");
+    expect(normalizedCardText).not.toContain("whole-wave");
   });
 
   it("submits project-scoped maintenance patch gates through the non-live action endpoint", async () => {

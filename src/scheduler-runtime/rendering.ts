@@ -79,6 +79,21 @@ export function renderSchedulerControlledStepEvidenceMarkdown(step: SchedulerCon
         ]
       : ["- none"]),
     "",
+    "## Controlled Loop Tick Contract",
+    "",
+    ...(step.controlledLoopTick
+      ? [
+          `- Authority: ${step.controlledLoopTick.authority}`,
+          `- Observe: ${step.controlledLoopTick.observe.status} / ${step.controlledLoopTick.observe.goalLoopNextStepPacketId}`,
+          `- Choose/check: ${step.controlledLoopTick.chooseCheck.status} / ${step.controlledLoopTick.chooseCheck.goalLoopGateReadinessPreflightId}`,
+          `- Dispatch: ${step.controlledLoopTick.dispatch.status} / ${step.controlledLoopTick.dispatch.executedActionType}`,
+          `- Reconcile: ${step.controlledLoopTick.reconcile.status} / ${step.controlledLoopTick.reconcile.goalLoopNextStepPacketId ?? "none"}`,
+          `- Route/stop: ${step.controlledLoopTick.routeStop.routePosture} / ${step.controlledLoopTick.routeStop.stopReason}`,
+          `- Human gate required: ${step.controlledLoopTick.routeStop.humanGateRequired ? "yes" : "no"}`,
+          "- Execution from tick contract: not authorized.",
+        ]
+      : ["- none"]),
+    "",
     "## Pre-step Evidence",
     "",
     `- GoalLoopDecision: ${step.preStepEvidence.goalLoopDecisionId}`,

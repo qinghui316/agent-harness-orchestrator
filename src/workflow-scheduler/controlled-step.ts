@@ -1,4 +1,4 @@
-import { isWorkflowActionType, type WorkflowActionScopeCarrier, type WorkflowActionType } from "../workflow-actions/registry.js";
+import { isWorkflowActionType, workflowActionScopesMatchStrict, type WorkflowActionScopeCarrier, type WorkflowActionType } from "../workflow-actions/registry.js";
 
 export const CONTROLLED_SCHEDULER_STEP_ACTION_TYPE = "planning.scheduler.controlled-step.run" as const;
 export const CONTROLLED_SCHEDULER_ADVANCE_ACTION_TYPE = "planning.scheduler.controlled-advance.run" as const;
@@ -79,4 +79,34 @@ export function isControlledSchedulerConcreteAction(actionType: string | undefin
     && !isControlledSchedulerWrapperAction(actionType)
     && actionType.startsWith("planning.scheduler.")
     && !actionType.startsWith("planning.goal-loop.");
+}
+
+export function assertControlledSchedulerFreshGateMatchesRequest(
+  actionType: string,
+  scope: Record<string, string | string[]>,
+  requestedConcreteGate: WorkflowActionScopeCarrier,
+  label: string,
+): void {
+  const expectedGate: WorkflowActionScopeCarrier = { actionType, ...scope };
+  if (expectedGate.changeId !== requestedConcreteGate.changeId) {
+    throw new Error(`planning.scheduler.controlled-advance.run fresh ${label} scope no longer matches the submitted scheduler gate.`);
+  }
+  const requestedGate = concreteGateFromScope(requestedConcreteGate, expectedGate);
+  if (!workflowActionScopesMatchStrict(expectedGate, requestedGate)) {
+    throw new Error(`planning.scheduler.controlled-advance.run fresh ${label} scope no longer matches the submitted scheduler gate.`);
+  }
+}
+
+function concreteGateFromScope(request: WorkflowActionScopeCarrier, expected: WorkflowActionScopeCarrier): WorkflowActionScopeCarrier {
+  const result: WorkflowActionScopeCarrier = { actionType: expected.actionType, changeId: expected.changeId ?? request.changeId };
+  for (const key of Object.keys(expected) as Array<keyof WorkflowActionScopeCarrier>) {
+    if (key === "actionType" || key === "changeId") continue;
+    const value = request[key];
+    if (typeof value === "string") {
+      (result as Record<string, string>)[key] = value;
+    } else if (Array.isArray(value) && value.every((item) => typeof item === "string")) {
+      (result as Record<string, string[]>)[key] = value;
+    }
+  }
+  return result;
 }

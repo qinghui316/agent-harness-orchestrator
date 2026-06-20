@@ -60,6 +60,7 @@ const mocks = vi.hoisted(() => {
         actionType: request.goalLoopCurrentGateActionType,
       },
     })),
+    assertControlledSchedulerFreshGateMatchesRequest: vi.fn(),
     compileGoalLoopEvaluation: vi.fn(),
     compileGoalLoopControllerPolicy: vi.fn(),
     compileGoalLoopGateReadinessPreflight: vi.fn(),
@@ -81,6 +82,7 @@ vi.mock("../../src/workbench/actions/handlers/goal-loop.js", () => ({
 }));
 
 vi.mock("../../src/workflow-scheduler/controlled-step.js", () => ({
+  assertControlledSchedulerFreshGateMatchesRequest: mocks.assertControlledSchedulerFreshGateMatchesRequest,
   buildControlledSchedulerAdvanceStepRequest: mocks.buildControlledSchedulerAdvanceStepRequest,
   buildControlledSchedulerStepRequest: mocks.buildControlledSchedulerStepRequest,
 }));
@@ -144,6 +146,7 @@ describe("controlled scheduler advance post-step evaluation", () => {
     mocks.prepareGoalLoopGateReadinessPreflight.mockReset();
     mocks.buildControlledSchedulerAdvanceStepRequest.mockClear();
     mocks.buildControlledSchedulerStepRequest.mockClear();
+    mocks.assertControlledSchedulerFreshGateMatchesRequest.mockClear();
     mocks.compileGoalLoopEvaluation.mockReset();
     mocks.compileGoalLoopControllerPolicy.mockReset();
     mocks.compileGoalLoopGateReadinessPreflight.mockReset();
@@ -240,6 +243,57 @@ describe("controlled scheduler advance post-step evaluation", () => {
         status: "recorded",
         executedActionType: "planning.scheduler.worker.start-next",
         humanConfirmationStillRequired: true,
+        controlledLoopTick: {
+          version: "1.0",
+          authority: "scheduler-runtime-controlled-loop-tick-contract-summary",
+          observe: {
+            status: "recorded",
+            goalLoopDecisionId: "goal-loop-decision-pre",
+            goalLoopIterationId: "goal-loop-iteration-pre",
+            goalLoopContinuationBriefId: "goal-loop-brief-pre",
+            goalLoopNextStepPacketId: "goal-loop-packet-pre",
+            submittedActionType: "planning.scheduler.worker.start-next",
+          },
+          chooseCheck: {
+            status: "recorded",
+            goalLoopControllerPolicyId: "goal-loop-controller-pre",
+            goalLoopGateReadinessPreflightId: "goal-loop-preflight-pre",
+            targetScopeMatched: true,
+            concreteGatePreflightNonExecuting: true,
+          },
+          dispatch: {
+            status: "completed",
+            executedActionType: "planning.scheduler.worker.start-next",
+            executionStarted: true,
+            stoppedAfterOneSchedulerTransition: true,
+            approvedScopeOnly: true,
+          },
+          reconcile: {
+            status: "recorded",
+            goalLoopNextStepPacketId: "goal-loop-packet-post",
+            executionStarted: false,
+          },
+          routeStop: {
+            status: "next-confirmation-candidate-ready",
+            stopReason: "one-confirmed-scheduler-transition-completed",
+            routePosture: "awaiting-human-gate",
+            nextCandidateActionType: "planning.scheduler.worker.reconcile-result",
+            humanGateRequired: true,
+            humanConfirmationStillRequired: true,
+            needsReevaluation: false,
+          },
+          executionStarted: false,
+          loopAuthorized: false,
+          fullParallelExecutorAuthorized: false,
+          wholeWaveDispatchAuthorized: false,
+          slotAllocatorAuthorized: false,
+          sourceMutationAuthorized: false,
+          applyAuthorized: false,
+          closeAuthorized: false,
+          mergeAuthorized: false,
+          remoteLandingAuthorized: false,
+          harnessEvolutionAuthorized: false,
+        },
         artifact: "harness/changes/active/change-1/planning/scheduler-runs/scheduler-run-1/scheduler-controlled-steps/scheduler-controlled-step-1.json",
         markdownArtifact: "harness/changes/active/change-1/planning/scheduler-runs/scheduler-run-1/scheduler-controlled-steps/scheduler-controlled-step-1.md",
       },
@@ -262,6 +316,7 @@ describe("controlled scheduler advance post-step evaluation", () => {
     expect(mocks.compileGoalLoopControllerPolicy).toHaveBeenCalledTimes(1);
     expect(mocks.compileGoalLoopGateReadinessPreflight).toHaveBeenCalledTimes(1);
     expect(mocks.auditHighImpactWorkflowAction).toHaveBeenCalledTimes(3);
+    expect(mocks.assertControlledSchedulerFreshGateMatchesRequest).toHaveBeenCalledTimes(3);
     expect(mocks.recordSchedulerControlledStepEvidence).toHaveBeenCalledTimes(1);
     expect(mocks.recordSchedulerControlledStepEvidence).toHaveBeenCalledWith(project, expect.objectContaining({
       changeId: "change-1",
@@ -347,6 +402,22 @@ describe("controlled scheduler advance post-step evaluation", () => {
       status: "recorded",
       executedActionType: "planning.scheduler.worker.start-next",
       humanConfirmationStillRequired: true,
+      controlledLoopTick: {
+        authority: "scheduler-runtime-controlled-loop-tick-contract-summary",
+        dispatch: {
+          status: "completed",
+          stoppedAfterOneSchedulerTransition: true,
+        },
+        routeStop: {
+          routePosture: "awaiting-human-gate",
+          humanConfirmationStillRequired: true,
+        },
+        loopAuthorized: false,
+        sourceMutationAuthorized: false,
+        applyAuthorized: false,
+        closeAuthorized: false,
+        harnessEvolutionAuthorized: false,
+      },
     });
   });
 
