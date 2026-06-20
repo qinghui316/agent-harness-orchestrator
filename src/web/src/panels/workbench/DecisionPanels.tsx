@@ -118,6 +118,7 @@ function confirmationItemToDecisionContext(item: ConfirmationQueueItem): Decisio
     recommendation: item.confirmEffect,
     explanation: item.riskSummary,
     controlledSchedulerNextCandidate: item.controlledSchedulerNextCandidate,
+    controlledSchedulerReconfirmation: item.controlledSchedulerReconfirmation,
     severity: item.status === "failed" ? "blocking" : "info",
     changeId: item.changeId ?? item.conversationId,
     runId: item.runId,
@@ -181,6 +182,27 @@ function DecisionContextCard({
           </p>
           {context.controlledSchedulerNextCandidate.routingPosture ? (
             <ControlledSchedulerRoutingPosture posture={context.controlledSchedulerNextCandidate.routingPosture} />
+          ) : null}
+        </div>
+      ) : null}
+      {context.controlledSchedulerReconfirmation ? (
+        <div className="decision-explainer" aria-label="Controlled scheduler reconfirmation">
+          <strong>{userFacingText(context.controlledSchedulerReconfirmation.label)}</strong>
+          <p>{userFacingText(context.controlledSchedulerReconfirmation.body)}</p>
+          <dl className="approval-fields compact">
+            {context.controlledSchedulerReconfirmation.lastStoppedStepLabel ? (
+              <div><dt>上一步</dt><dd>{userFacingText(context.controlledSchedulerReconfirmation.lastStoppedStepLabel)}</dd></div>
+            ) : null}
+            <div><dt>当前确认</dt><dd>{userFacingText(context.controlledSchedulerReconfirmation.currentStepLabel)}</dd></div>
+            <div><dt>检查状态</dt><dd>{userFacingText(context.controlledSchedulerReconfirmation.freshnessLabel)}</dd></div>
+          </dl>
+          <p className="muted-inline">{userFacingText(context.controlledSchedulerReconfirmation.boundary)}</p>
+          {context.controlledSchedulerReconfirmation.evidenceRefs.length ? (
+            <div className="workpad-links" aria-label="Controlled scheduler reconfirmation evidence refs">
+              {context.controlledSchedulerReconfirmation.evidenceRefs.slice(0, 4).map((artifact) => (
+                <span className="artifact-link" key={artifact}>查看证据：{artifactName(artifact)}</span>
+              ))}
+            </div>
           ) : null}
         </div>
       ) : null}

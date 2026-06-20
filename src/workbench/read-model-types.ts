@@ -420,6 +420,7 @@ export interface WorkbenchConfirmationQueueItem {
   confirmEffect: string;
   riskSummary: string;
   controlledSchedulerNextCandidate?: WorkbenchControlledSchedulerNextCandidate;
+  controlledSchedulerReconfirmation?: WorkbenchControlledSchedulerReconfirmation;
   evidenceRefs: string[];
   actions: WorkbenchDecisionAction[];
   primary: boolean;
@@ -797,6 +798,17 @@ export interface WorkbenchControlledSchedulerRoutingPosture {
   body: string;
   boundary: string;
   reasons: string[];
+}
+
+export interface WorkbenchControlledSchedulerReconfirmation {
+  status: "aligned" | "needs-review" | "missing-receipt" | "stale-mismatch";
+  label: string;
+  body: string;
+  lastStoppedStepLabel?: string;
+  currentStepLabel: string;
+  freshnessLabel: string;
+  boundary: string;
+  evidenceRefs: string[];
 }
 
 export interface WorkbenchWorkpad {

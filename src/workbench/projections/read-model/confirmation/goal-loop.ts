@@ -2,6 +2,7 @@ import type { ManagedProject } from "../../../../types/index.js";
 import { WORKFLOW_ACTION_SCOPE_KEYS } from "../../../../workflow-actions/registry.js";
 import { CONTROLLED_SCHEDULER_ADVANCE_ACTION_TYPE, CONTROLLED_SCHEDULER_STEP_ACTION_TYPE, isControlledSchedulerConcreteAction } from "../../../../workflow-scheduler/controlled-step.js";
 import type { WorkbenchConfirmationQueueItem, WorkbenchDecisionAction, WorkbenchTopicDetail, WorkbenchWorkpad } from "../../../read-model-types.js";
+import { buildControlledSchedulerReconfirmation, controlledSchedulerSourceGateActionType } from "./controlled-scheduler-reconfirmation.js";
 import { schedulerControlledAdvanceCopy, schedulerUserFacingActionCopy } from "./scheduler-user-surface.js";
 
 type ScopeValue = string | string[] | undefined;
@@ -154,6 +155,12 @@ export function attachControlledSchedulerAdvanceActions(
       refreshed: hasRefreshedControlledSchedulerReconfirmEvidence(item, sourceActions, workpad),
     });
     const controlledSchedulerNextCandidate = controlledSchedulerAdvanceCandidateDetail(item, sourceActions, workpad);
+    const controlledSchedulerReconfirmation = buildControlledSchedulerReconfirmation({
+      item,
+      sourceActions,
+      workpad,
+      currentGateActionType,
+    });
     const evidenceRefs = controlledSchedulerAdvanceEvidenceRefs(item, sourceActions, workpad);
     return {
       ...item,
@@ -162,6 +169,7 @@ export function attachControlledSchedulerAdvanceActions(
       confirmEffect: advanceCopy.confirmEffect,
       riskSummary: advanceCopy.riskSummary,
       controlledSchedulerNextCandidate,
+      controlledSchedulerReconfirmation,
       evidenceRefs,
       actions: [
         ...item.actions.filter((action) => !(action.kind === "workflow-action" && isSchedulerAdvanceSourceAction(action))),
@@ -195,9 +203,7 @@ function controlledSchedulerAdvanceCandidateDetail(
 function uniqueControlledSchedulerAdvanceGateType(sourceActions: WorkbenchDecisionAction[]): WorkbenchDecisionAction["actionType"] | undefined {
   const gateTypes = new Set<WorkbenchDecisionAction["actionType"]>();
   for (const action of sourceActions) {
-    const gateType = action.actionType === CONTROLLED_SCHEDULER_STEP_ACTION_TYPE
-      ? action.goalLoopCurrentGateActionType
-      : action.actionType;
+    const gateType = controlledSchedulerSourceGateActionType(action);
     if (gateType) gateTypes.add(gateType);
   }
   if (gateTypes.size !== 1) return undefined;

@@ -5,14 +5,18 @@
 - Current date: 2026-06-20.
 - Active ECL change: none.
 - Pending Harness evolution: none.
-- Latest archived product change: `harness/changes/archive/20260620-controlled-scheduler-step-trace-surface/summary.md`.
-- Latest archived product/Harness docs change: `harness/changes/archive/20260620-controlled-scheduler-step-trace-surface/summary.md`.
-- Latest archived Harness evolution: `harness/changes/archive/20260620-auto-evolve-harness-controlled-scheduler-routing-window-noop/summary.md`.
+- Latest archived product change: `harness/changes/archive/20260620-controlled-scheduler-reconfirm-cross-change-guard/summary.md`.
+- Latest archived product/Harness docs change: `harness/changes/archive/20260620-controlled-scheduler-reconfirm-cross-change-guard/summary.md`.
+- Latest archived Harness evolution: `harness/changes/archive/20260620-auto-evolve-harness-controlled-scheduler-reconfirm-window-noop/summary.md`.
 - Active product phase: none.
 - Active Harness evolution phase: none.
-- Active close status: none.
+- Active close status: no active change.
 
-This file is the short resume point. There is no active ECL change and no pending Harness evolution. The latest archived product change adds a read-only controlled Scheduler step trace surface from existing `planning.scheduler.controlled-advance.run` decision evidence so the user can see recent bounded steps, per-step time/evidence, next-candidate/readiness posture, and the boundary that continuing still requires another human confirmation. It does not change scheduler runtime, Goal Loop policy, action payloads, stale revalidation, ToolPolicyGate, human gates, IntegrationCheck, apply/close/remote/Harness evolution behavior, or source mutation. UI-visible product behavior was verified with real App DOM; projection evidence covers derivation and fail-closed edge cases.
+This file is the short resume point. The latest product change `controlled-scheduler-reconfirm-surface` is archived. It added a read-model-owned right-confirmation reconfirmation status for controlled Scheduler continuation by reusing existing stopped-step receipt/trace, Goal Loop next-candidate, and confirmation queue evidence. It shows the last stopped step, current reconfirmation target, freshness/status, and evidence refs in the real Workbench right confirmation card while preserving the single human-confirmed controlled Scheduler action. It does not change scheduler runtime, Goal Loop policy, action payloads, stale revalidation, ToolPolicyGate, human gates, IntegrationCheck, apply/close/remote behavior, or source mutation. UI-visible product behavior was verified with real App DOM; projection evidence covers aligned, stale/mismatch, missing receipt, and needs-review states.
+
+The Harness evolution window created after closing the product change is archived as `auto-evolve-harness-controlled-scheduler-reconfirm-window-noop`. Independent subagent review recommended `noop`: existing broad Harness rules already cover the observed controlled Scheduler UI/read-model lessons, and phase-specific details should remain archive-only.
+
+The closeout change `controlled-scheduler-reconfirm-cross-change-guard` is archived. It records a submission-time fail-closed guard discovered before git commit: reconfirmation alignment now also requires the Goal Loop recommended action scope `changeId` to match the current confirmation target, so cross-change evidence remains `stale-mismatch`.
 
 Current plan-level roadmap context is preserved in `docs/CURRENT-DEVELOPMENT-PLAN.md`. Historical detail belongs in archived summaries and `harness/changes/INDEX.json`.
 
@@ -26,7 +30,7 @@ Phase 12A remains the future controlled Scheduler/parallel loop design boundary.
 
 ## Next Resume Point
 
-Start the next product-functional controlled Scheduler / Goal Loop slice from the current roadmap rather than architecture-only cleanup. Keep the slice larger than a tiny helper-only change when scope and risk are clear. Keep `README.md` unrelated and untracked unless the user explicitly asks to include it.
+Start the next product-functional controlled Scheduler / Goal Loop slice from the current roadmap rather than architecture-only cleanup. A good next slice is to make controlled continuation status useful in the main conversation / Workpad only if it reuses the same read-model owner and remains tied to the right-side human gate. Keep the slice larger than a tiny helper-only change when scope and risk are clear. Keep `README.md` unrelated and untracked unless the user explicitly asks to include it.
 
 ## Verification Commands
 
@@ -63,7 +67,9 @@ Use `harness/changes/INDEX.json` for the generated archive list. Start with arch
 
 Recent key archive summaries:
 
-- Latest product/Harness docs change: `harness/changes/archive/20260620-controlled-scheduler-step-trace-surface/summary.md`.
+- Latest product/Harness docs change: `harness/changes/archive/20260620-controlled-scheduler-reconfirm-cross-change-guard/summary.md`.
+- Recent product change: `harness/changes/archive/20260620-controlled-scheduler-reconfirm-surface/summary.md`.
+- Recent product change: `harness/changes/archive/20260620-controlled-scheduler-step-trace-surface/summary.md`.
 - Recent product/Harness docs change: `harness/changes/archive/20260620-workbench-landing-review-artifact-selection-helper-reuse/summary.md`.
 - Previous product/Harness docs change: `harness/changes/archive/20260620-workbench-confirmation-evidence-refs-helper-reuse/summary.md`.
 - Recent product/Harness docs change: `harness/changes/archive/20260620-workbench-read-model-evidence-action-helper-reuse/summary.md`.

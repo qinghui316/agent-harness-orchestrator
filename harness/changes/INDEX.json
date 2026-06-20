@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-20T15:00:25.8610608Z",
+    "generated_at":  "2026-06-20T15:49:19.3589217Z",
     "active":  [
 
                ],
@@ -1387,6 +1387,10 @@
                         "path":  "harness/changes/archive/20260620-auto-evolve-harness-controlled-scheduler-reconfirm-window"
                     },
                     {
+                        "name":  "20260620-auto-evolve-harness-controlled-scheduler-reconfirm-window-noop",
+                        "path":  "harness/changes/archive/20260620-auto-evolve-harness-controlled-scheduler-reconfirm-window-noop"
+                    },
+                    {
                         "name":  "20260620-auto-evolve-harness-controlled-scheduler-routing-window-noop",
                         "path":  "harness/changes/archive/20260620-auto-evolve-harness-controlled-scheduler-routing-window-noop"
                     },
@@ -1477,6 +1481,14 @@
                     {
                         "name":  "20260620-controlled-scheduler-reconfirm-copy",
                         "path":  "harness/changes/archive/20260620-controlled-scheduler-reconfirm-copy"
+                    },
+                    {
+                        "name":  "20260620-controlled-scheduler-reconfirm-cross-change-guard",
+                        "path":  "harness/changes/archive/20260620-controlled-scheduler-reconfirm-cross-change-guard"
+                    },
+                    {
+                        "name":  "20260620-controlled-scheduler-reconfirm-surface",
+                        "path":  "harness/changes/archive/20260620-controlled-scheduler-reconfirm-surface"
                     },
                     {
                         "name":  "20260620-controlled-scheduler-single-step-runner",

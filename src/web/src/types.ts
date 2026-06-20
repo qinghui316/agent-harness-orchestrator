@@ -1464,6 +1464,7 @@ export type DecisionContext = {
   recommendation?: string;
   explanation?: string;
   controlledSchedulerNextCandidate?: ControlledSchedulerNextCandidateDetail;
+  controlledSchedulerReconfirmation?: ControlledSchedulerReconfirmationDetail;
   severity: "info" | "warning" | "blocking";
   changeId?: string;
   taskId?: string;
@@ -1501,6 +1502,17 @@ export type ControlledSchedulerRoutingPostureDetail = {
   reasons: string[];
 };
 
+export type ControlledSchedulerReconfirmationDetail = {
+  status: "aligned" | "needs-review" | "missing-receipt" | "stale-mismatch";
+  label: string;
+  body: string;
+  lastStoppedStepLabel?: string;
+  currentStepLabel: string;
+  freshnessLabel: string;
+  boundary: string;
+  evidenceRefs: string[];
+};
+
 export type ConfirmationQueueItem = {
   id: string;
   kind: string;
@@ -1532,6 +1544,7 @@ export type ConfirmationQueueItem = {
   confirmEffect: string;
   riskSummary: string;
   controlledSchedulerNextCandidate?: ControlledSchedulerNextCandidateDetail;
+  controlledSchedulerReconfirmation?: ControlledSchedulerReconfirmationDetail;
   evidenceRefs: string[];
   actions: DecisionAction[];
   primary: boolean;

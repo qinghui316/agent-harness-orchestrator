@@ -861,6 +861,18 @@ describe("Workbench web app", () => {
           "harness/changes/active/member-discount/planning/goal-loop-gate-readiness-preflights/preflight.md",
         ],
       },
+      controlledSchedulerReconfirmation: {
+        status: "aligned",
+        label: "当前步骤可以重新确认",
+        body: "上一步已停止在“继续执行下一个任务”之后；当前重新确认目标是“继续执行下一个任务”。下一步判断和步骤检查已刷新。",
+        lastStoppedStepLabel: "继续执行下一个任务",
+        currentStepLabel: "继续执行下一个任务",
+        freshnessLabel: "上一步停止记录、下一步候选和当前确认目标一致。",
+        boundary: "这是只读重新确认状态；不会自动继续、批量派发、分配资源、应用源码、关闭需求、远端落地或维护演进。",
+        evidenceRefs: [
+          "harness/workbench/decisions/controlled-advance-1.json",
+        ],
+      },
       evidenceRefs: [
         "harness/changes/active/member-discount/planning/goal-loop-next-step-packets/packet.md",
         "harness/changes/active/member-discount/planning/goal-loop-controller-policies/policy.md",
@@ -918,9 +930,17 @@ describe("Workbench web app", () => {
     expect(within(card).getByText("当前证据只支持继续一个已限定范围的任务步骤；可以评估低冲突并行，但本次仍只确认这一步。")).toBeTruthy();
     expect(within(card).getByText("调度能力仍是单步受控：不会自动循环、整批派发、分配资源槽或启动完整并行执行器。")).toBeTruthy();
     expect(within(card).getByText("继续执行下一个任务是当前已限定范围的步骤；即使冲突较低，也只允许这一次人工确认。")).toBeTruthy();
+    expect(within(card).getByText("当前步骤可以重新确认")).toBeTruthy();
+    expect(within(card).getByText("上一步已停止在“继续执行下一个任务”之后；当前重新确认目标是“继续执行下一个任务”。下一步判断和步骤检查已刷新。")).toBeTruthy();
+    expect(within(card).getByText("上一步")).toBeTruthy();
+    expect(within(card).getByText("当前确认")).toBeTruthy();
+    expect(within(card).getByText("检查状态")).toBeTruthy();
+    expect(within(card).getByText("上一步停止记录、下一步候选和当前确认目标一致。")).toBeTruthy();
+    expect(within(card).getByText("这是只读重新确认状态；不会自动继续、批量派发、分配资源、应用源码、关闭需求、远端落地或维护演进。")).toBeTruthy();
     expect(within(card).getByText("查看证据：packet.md")).toBeTruthy();
     expect(within(card).getByText("查看证据：policy.md")).toBeTruthy();
     expect(within(card).getByText("查看证据：preflight.md")).toBeTruthy();
+    expect(within(card).getByText("查看证据：controlled-advance-1.json")).toBeTruthy();
     expect(within(card).getByRole("button", { name: "按当前建议继续一个受控步骤" })).toBeTruthy();
     expect(within(card).getAllByRole("button")).toHaveLength(1);
     const cardText = card.textContent ?? "";
