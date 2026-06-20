@@ -73,6 +73,8 @@ const mocks = vi.hoisted(() => {
     auditHighImpactWorkflowAction: vi.fn(),
     recordSchedulerControlledStepEvidence: vi.fn(),
     readLatestSchedulerControlledStepEvidenceProjection: vi.fn(),
+    resolveProjectMemory: vi.fn(),
+    resolveRunnableChangeTarget: vi.fn(),
   };
 });
 
@@ -103,6 +105,11 @@ vi.mock("../../src/goal-loop/repository.js", () => ({
 
 vi.mock("../../src/memory/resolver.js", () => ({
   assertWritableMemory: mocks.assertWritableMemory,
+  resolveProjectMemory: mocks.resolveProjectMemory,
+}));
+
+vi.mock("../../src/change/target.js", () => ({
+  resolveRunnableChangeTarget: mocks.resolveRunnableChangeTarget,
 }));
 
 vi.mock("../../src/workbench/topic-resolver.js", () => ({
@@ -171,6 +178,8 @@ describe("controlled scheduler advance post-step evaluation", () => {
     mocks.auditHighImpactWorkflowAction.mockReset();
     mocks.recordSchedulerControlledStepEvidence.mockReset();
     mocks.readLatestSchedulerControlledStepEvidenceProjection.mockReset();
+    mocks.resolveProjectMemory.mockReset();
+    mocks.resolveRunnableChangeTarget.mockReset();
 
     mocks.evaluateGoalLoopDecision.mockResolvedValue({
       goalLoopDecision: { id: "goal-loop-decision-pre" },
@@ -218,6 +227,12 @@ describe("controlled scheduler advance post-step evaluation", () => {
     mocks.resolveTopic.mockResolvedValue({
       memory: { memoryRoot: "memory-root", writable: true },
       changePath: "harness/changes/active/change-1",
+    });
+    mocks.resolveProjectMemory.mockResolvedValue({ memoryRoot: "memory-root", writable: true });
+    mocks.resolveRunnableChangeTarget.mockResolvedValue({
+      status: {
+        activeChanges: [{ name: "change-1", path: "harness/changes/active/change-1" }],
+      },
     });
     mocks.readLatestSchedulerControlledStepEvidenceProjection.mockResolvedValue(null);
     mocks.compileGoalLoopEvaluation.mockResolvedValue({

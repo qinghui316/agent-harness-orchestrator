@@ -5,8 +5,8 @@
 - Current date: 2026-06-21.
 - Active ECL change: none.
 - Pending Harness evolution: none.
-- Latest archived product change: `harness/changes/archive/20260621-controlled-scheduler-advance-candidate-owner/summary.md`.
-- Latest archived product/Harness docs change: `harness/changes/archive/20260621-controlled-scheduler-advance-candidate-owner/summary.md`.
+- Latest archived product change: `harness/changes/archive/20260621-controlled-scheduler-loop-step-owner/summary.md`.
+- Latest archived product/Harness docs change: `harness/changes/archive/20260621-controlled-scheduler-loop-step-owner/summary.md`.
 - Latest archived Harness evolution: `harness/changes/archive/20260621-auto-evolve-harness-controlled-scheduler-continuation-window-noop/summary.md`.
 - Active product phase: none.
 - Active Harness evolution phase: none.
@@ -16,7 +16,18 @@ This file is the short resume point. No active structured change or pending
 Harness evolution exists. Continue product-functional work from the next resume
 point below, using archived summaries only as needed.
 
-The latest product change makes the current controlled Scheduler advance
+The latest product change moves the existing one-human-confirmed controlled
+Scheduler advance loop-step orchestration out of the Workbench scheduler action
+handler into `src/scheduler-runtime/`. Workbench remains the action entry,
+visible confirmation, stale revalidation, ToolPolicy audit, and concrete
+dispatcher adapter. The public `planning.scheduler.controlled-advance.run`
+action id, payload/result shape, right confirmation behavior, post-step warning
+semantics, and one-transition-then-stop boundary remain unchanged. No automatic
+loop, whole-wave dispatch, slot allocation, source apply/merge/close, remote
+landing, child Change, ToolPolicy change, or Harness evolution automation was
+added.
+
+The previous product change makes the current controlled Scheduler advance
 candidate path owner-backed and fail-closed. Generic gate/candidate carrier
 logic now lives under `src/workflow-scheduler/` and is reused by Workbench
 confirmation projection, reconfirmation, and visible current-gate proof. The
@@ -25,7 +36,7 @@ visible behavior remains the existing right-side human confirmation for one
 dispatch, slot allocation, source apply/merge/close, remote landing,
 ToolPolicy change, child Change, or Harness evolution automation was added.
 
-The latest product change records the existing human-confirmed controlled
+The recent product change records the existing human-confirmed controlled
 Scheduler advance as one scheduler-runtime controlled loop iteration summary,
 embedded in existing controlled-step evidence. It preserves the single-gate
 human-confirmed execution boundary and adds no automatic loop, whole-wave
