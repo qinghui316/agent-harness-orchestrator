@@ -25,7 +25,7 @@ export function WorkpadView(props: {
   const [detailsOpen, setDetailsOpen] = useState(false);
   const approval = workpad.nextAction.approvalId ? approvals.find((item) => item.id === workpad.nextAction.approvalId) : undefined;
   const maintenanceNotice = workpad.maintenance?.status && workpad.maintenance.status !== "idle" ? workpad.maintenance : null;
-  const hidePrimaryAction = Boolean(workpad.goalLoop && isControlledContinuationAction(workpad.nextAction.actionType));
+  const hidePrimaryAction = Boolean(workpad.controlledSchedulerReconfirmation || (workpad.goalLoop && isControlledContinuationAction(workpad.nextAction.actionType)));
   return (
     <div className="parent-conversation" data-testid="workpad-view">
       <section className="parent-agent-card">
@@ -55,7 +55,12 @@ export function WorkpadView(props: {
         </section>
       ) : null}
 
-      {workpad.goalLoop ? <GoalLoopPrimarySummary goalLoop={workpad.goalLoop} /> : null}
+      {workpad.goalLoop ? (
+        <GoalLoopPrimarySummary
+          goalLoop={workpad.goalLoop}
+          controlledSchedulerReconfirmation={workpad.controlledSchedulerReconfirmation}
+        />
+      ) : null}
 
       {workpad.planningArtifactBundle ? <PlanningNarrativeCard bundle={workpad.planningArtifactBundle} /> : null}
       {workpad.rolePipeline ? <RoleToolResultRows pipeline={workpad.rolePipeline} /> : null}

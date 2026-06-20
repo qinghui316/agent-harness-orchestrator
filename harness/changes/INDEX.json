@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-20T15:49:19.3589217Z",
+    "generated_at":  "2026-06-20T16:32:58.3072819Z",
     "active":  [
 
                ],
@@ -1669,6 +1669,10 @@
                     {
                         "name":  "20260620-workflow-result-summary-thread-visibility",
                         "path":  "harness/changes/archive/20260620-workflow-result-summary-thread-visibility"
+                    },
+                    {
+                        "name":  "20260621-workpad-controlled-scheduler-reconfirmation-surface",
+                        "path":  "harness/changes/archive/20260621-workpad-controlled-scheduler-reconfirmation-surface"
                     }
                 ]
 }

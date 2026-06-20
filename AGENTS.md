@@ -4,11 +4,11 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 
 ## 1. Current Handoff
 
-- Current date: 2026-06-20.
+- Current date: 2026-06-21.
 - Active change: none.
 - Pending Harness evolution: none.
-- Latest archived product change: Controlled Scheduler Reconfirm Cross-Change Guard, archived at `harness/changes/archive/20260620-controlled-scheduler-reconfirm-cross-change-guard/summary.md`.
-- Latest product/Harness docs change: Controlled Scheduler Reconfirm Cross-Change Guard, archived at `harness/changes/archive/20260620-controlled-scheduler-reconfirm-cross-change-guard/summary.md`.
+- Latest archived product change: Workpad Controlled Scheduler Reconfirmation Surface, archived at `harness/changes/archive/20260621-workpad-controlled-scheduler-reconfirmation-surface/summary.md`.
+- Latest product/Harness docs change: Workpad Controlled Scheduler Reconfirmation Surface, archived at `harness/changes/archive/20260621-workpad-controlled-scheduler-reconfirmation-surface/summary.md`.
 - Active product phase: none.
 - Active Harness evolution phase: none.
 - Latest Harness evolution: `harness/changes/archive/20260620-auto-evolve-harness-controlled-scheduler-reconfirm-window-noop/summary.md`.

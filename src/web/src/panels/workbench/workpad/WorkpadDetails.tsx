@@ -15,7 +15,7 @@ import {
 } from "../../../formatters.js";
 import type { Approval, Workpad } from "../../../types.js";
 import { artifactName } from "../RunReplayPanel.js";
-import { ControlledSchedulerStepReceiptCard, ControlledSchedulerStepTraceCard, GoalLoopEvidenceCard } from "./GoalLoopCards.js";
+import { ControlledSchedulerReconfirmationCard, ControlledSchedulerStepReceiptCard, ControlledSchedulerStepTraceCard, GoalLoopEvidenceCard } from "./GoalLoopCards.js";
 import {
   ClarificationCard,
   CodingPackageCard,
@@ -76,6 +76,7 @@ export function WorkpadDiagnosticDetails({
   const openQuestions = workpad.intake.openQuestions ?? [];
   const assumptions = workpad.intake.assumptions ?? [];
   const pendingClarifications = workpad.intake.pendingClarifications ?? [];
+  const hideHeroAction = Boolean(workpad.controlledSchedulerReconfirmation);
   return (
     <div className="workpad" data-testid="workpad-view">
       <section className="workpad-hero">
@@ -90,13 +91,15 @@ export function WorkpadDiagnosticDetails({
             </p>
           ) : null}
         </div>
-        <WorkpadActionButton
-          action={workpad.nextAction}
-          approval={approval}
-          busy={busy}
-          onWorkflowAction={onWorkflowAction}
-          onConfirmApproval={onConfirmApproval}
-        />
+        {hideHeroAction ? null : (
+          <WorkpadActionButton
+            action={workpad.nextAction}
+            approval={approval}
+            busy={busy}
+            onWorkflowAction={onWorkflowAction}
+            onConfirmApproval={onConfirmApproval}
+          />
+        )}
       </section>
 
       {(workpad.pendingFeedback?.length || workpad.coderSelfTestSummary || workpad.postArchiveEvolutionCandidate) ? (
@@ -168,6 +171,7 @@ export function WorkpadDiagnosticDetails({
       {workpad.schedulerRunCompletion ? <SchedulerRunCompletionCard completion={workpad.schedulerRunCompletion} /> : null}
       {workpad.schedulerRunBlockedCloseout ? <SchedulerRunBlockedCloseoutCard closeout={workpad.schedulerRunBlockedCloseout} /> : null}
       {workpad.goalLoop ? <GoalLoopEvidenceCard goalLoop={workpad.goalLoop} /> : null}
+      {workpad.controlledSchedulerReconfirmation ? <ControlledSchedulerReconfirmationCard reconfirmation={workpad.controlledSchedulerReconfirmation} /> : null}
       {workpad.controlledSchedulerStepReceipt ? <ControlledSchedulerStepReceiptCard receipt={workpad.controlledSchedulerStepReceipt} /> : null}
       {workpad.controlledSchedulerStepTrace ? <ControlledSchedulerStepTraceCard trace={workpad.controlledSchedulerStepTrace} /> : null}
 

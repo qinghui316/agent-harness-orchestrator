@@ -84,6 +84,7 @@ import {
 } from "./task-graph.js";
 import { readLatestGoalLoopSummary } from "./goal-loop.js";
 import { readControlledSchedulerStepTrace, readLatestControlledSchedulerStepReceipt } from "./controlled-scheduler-step-receipt.js";
+import { buildControlledSchedulerWorkpadReconfirmation } from "./confirmation/controlled-scheduler-reconfirmation.js";
 import type {
   AuditSummary,
   ManagedProject,
@@ -291,6 +292,12 @@ export async function buildWorkbenchWorkpad(input: {
   const selectedLifecycle = selectedWorkpadSummary?.conversationLifecycle ?? conversationLifecycleForTopic(selectedTopic, taskQueue);
   const nextAction = buildWorkpadNextAction(selectedTopic, topicApprovals, { specReady, planReady, tasksReady }, intake, taskQueue, taskGraph, planningBundle, decompositionPlan, decompositionReadiness, taskQueueProposal, workflowGraphPlan, schedulerContract, scopedSchedulerDispatchDryRun, scopedSchedulerWorkerSessionPlan, scopedSchedulerClaimReconcilePlan, scopedSchedulerLaunchPreflight, scopedSchedulerRun, schedulerRuntime, schedulerReconcileSnapshot, schedulerClaimReservation, schedulerWorkerStart, schedulerWorkerResult, schedulerWorkerValidation, schedulerWorkerAudit, schedulerWorkerReworkPlan, schedulerWorkerReworkStart, schedulerWorkerReworkResult, schedulerWorkerReworkValidation, schedulerWorkerReworkAudit, schedulerWorkerPaths, schedulerIntegrationCandidate, schedulerIntegrationCheckHandoff, schedulerIntegrationOutcome, schedulerRunCompletion, schedulerRunBlockedCloseout, workflowRun);
   const goalLoop = filterGoalLoopSummaryForCurrentGate(rawGoalLoop, nextAction);
+  const controlledSchedulerReconfirmation = buildControlledSchedulerWorkpadReconfirmation({
+    nextAction,
+    goalLoop: goalLoop ?? undefined,
+    controlledSchedulerStepReceipt: controlledSchedulerStepReceipt ?? undefined,
+    controlledSchedulerStepTrace: controlledSchedulerStepTrace ?? undefined,
+  });
 
   return {
     title: selectedTopic.title,
@@ -372,6 +379,7 @@ export async function buildWorkbenchWorkpad(input: {
     goalLoop: goalLoop ?? undefined,
     controlledSchedulerStepReceipt: controlledSchedulerStepReceipt ?? undefined,
     controlledSchedulerStepTrace: controlledSchedulerStepTrace ?? undefined,
+    controlledSchedulerReconfirmation,
     evidence: buildWorkpadEvidence(selectedTopic, topicApprovals, topicDecisions),
     blockers: [
       ...(selectedTopic.closeGate?.blockingIssues ?? []),

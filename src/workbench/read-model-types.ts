@@ -869,6 +869,7 @@ export interface WorkbenchWorkpad {
   runControlState?: WorkbenchRunControlState;
   controlledSchedulerStepReceipt?: WorkbenchControlledSchedulerStepReceipt;
   controlledSchedulerStepTrace?: WorkbenchControlledSchedulerStepTrace;
+  controlledSchedulerReconfirmation?: WorkbenchControlledSchedulerReconfirmation;
   intake: WorkpadIntakeSummary;
   progress: WorkpadProgress;
   tasks: WorkpadTaskPreview[];

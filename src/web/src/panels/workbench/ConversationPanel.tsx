@@ -2,6 +2,7 @@ import {
   type ReactElement,
   type ReactNode } from "react";
 import { RunReplay, artifactName } from "./RunReplayPanel.js";
+import { WorkpadView } from "./WorkpadPanel.js";
 import {
   agentRunStatusLabel,
   formatTime,
@@ -34,7 +35,9 @@ export function MainConversationView({
   activeRun,
   stream,
   busy,
+  approvals,
   onAction,
+  onConfirmApproval,
   onAnswerClarification,
   onSelectDecisionContext,
   onTabChange,
@@ -50,7 +53,9 @@ export function MainConversationView({
   activeRun?: RunSummary;
   stream: StreamPacket | null;
   busy: boolean;
+  approvals: Snapshot["right"]["approvals"];
   onAction: (actionType: string, options?: Record<string, unknown>) => Promise<void>;
+  onConfirmApproval: (approvalId: string) => void;
   onAnswerClarification: (clarificationId: string, answer: string) => Promise<void>;
   onSelectDecisionContext: (contextId: string) => void;
   onTabChange: (tab: CenterTab) => void;
@@ -62,6 +67,7 @@ export function MainConversationView({
     <div className="main-conversation-view" data-testid="main-conversation-view">
       <div className="center-demand-tabs" role="tablist" aria-label="需求对话视图">
         <button type="button" role="tab" aria-selected={activeTab === "conversation"} className={activeTab === "conversation" ? "active" : ""} onClick={() => onTabChange("conversation")}>对话</button>
+        <button type="button" role="tab" aria-selected={activeTab === "workpad"} className={activeTab === "workpad" ? "active" : ""} onClick={() => onTabChange("workpad")}>工作台</button>
         <button type="button" role="tab" aria-selected={activeTab === "agentGraph"} className={activeTab === "agentGraph" ? "active" : ""} onClick={() => onTabChange("agentGraph")}>Agent 运行图</button>
       </div>
       {activeTab === "conversation" ? (
@@ -71,6 +77,16 @@ export function MainConversationView({
           liveTurns={liveTurns}
           busy={busy}
           onAction={onAction}
+          onAnswerClarification={onAnswerClarification}
+          onSelectDecisionContext={onSelectDecisionContext}
+        />
+      ) : activeTab === "workpad" ? (
+        <WorkpadView
+          workpad={workpad}
+          approvals={approvals}
+          busy={busy}
+          onWorkflowAction={onAction}
+          onConfirmApproval={onConfirmApproval}
           onAnswerClarification={onAnswerClarification}
           onSelectDecisionContext={onSelectDecisionContext}
         />

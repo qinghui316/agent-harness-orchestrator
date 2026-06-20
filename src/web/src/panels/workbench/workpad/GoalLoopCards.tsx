@@ -5,7 +5,13 @@ import type { Workpad } from "../../../types.js";
 import { artifactName } from "../RunReplayPanel.js";
 import { ControlledSchedulerRoutingPosture } from "../ControlledSchedulerRoutingPosture.js";
 
-export function GoalLoopPrimarySummary({ goalLoop }: { goalLoop: NonNullable<Workpad["goalLoop"]> }): ReactElement {
+export function GoalLoopPrimarySummary({
+  goalLoop,
+  controlledSchedulerReconfirmation,
+}: {
+  goalLoop: NonNullable<Workpad["goalLoop"]>;
+  controlledSchedulerReconfirmation?: Workpad["controlledSchedulerReconfirmation"];
+}): ReactElement {
   const schedulerMode = goalLoop.schedulerExecutionMode;
   const schedulerLoopSnapshot = goalLoop.schedulerLoopEvidenceSnapshot;
   const controlledLoopState = goalLoop.controlledLoopState;
@@ -31,7 +37,66 @@ export function GoalLoopPrimarySummary({ goalLoop }: { goalLoop: NonNullable<Wor
         右侧确认区仍是唯一执行入口。确认后也只推进一个已存在步骤；后续执行、应用、关闭或远端操作仍会停下等待新的确认。
       </p>
       {routingPosture ? <ControlledSchedulerRoutingPosture posture={routingPosture} compact /> : null}
+      {controlledSchedulerReconfirmation ? (
+        <div className="workpad-evidence-list compact" aria-label="当前步骤重新确认状态" data-testid="controlled-scheduler-reconfirmation-primary">
+          <div className="workpad-evidence">
+            <strong>{userFacingText(controlledSchedulerReconfirmation.label)}</strong>
+            <span>{userFacingText(controlledSchedulerReconfirmation.freshnessLabel)}</span>
+          </div>
+          <div className="workpad-evidence">
+            <strong>当前确认</strong>
+            <span>{userFacingText(controlledSchedulerReconfirmation.currentStepLabel)}</span>
+          </div>
+          {controlledSchedulerReconfirmation.lastStoppedStepLabel ? (
+            <div className="workpad-evidence">
+              <strong>上一步</strong>
+              <span>{userFacingText(controlledSchedulerReconfirmation.lastStoppedStepLabel)}</span>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
       <p className="muted-inline">更完整的证据和边界说明在下方详情区。</p>
+    </section>
+  );
+}
+
+export function ControlledSchedulerReconfirmationCard({
+  reconfirmation,
+}: {
+  reconfirmation: NonNullable<Workpad["controlledSchedulerReconfirmation"]>;
+}): ReactElement {
+  return (
+    <section className="workpad-section compact-section" data-testid="controlled-scheduler-reconfirmation-card">
+      <div className="workpad-section-header">
+        <h3>{userFacingText(reconfirmation.label)}</h3>
+        <span>{reconfirmationStatusLabel(reconfirmation.status)}</span>
+      </div>
+      <p className="workpad-goal">{userFacingText(reconfirmation.body)}</p>
+      <div className="workpad-evidence-list" aria-label="当前步骤重新确认状态详情">
+        {reconfirmation.lastStoppedStepLabel ? (
+          <div className="workpad-evidence">
+            <strong>上一步</strong>
+            <span>{userFacingText(reconfirmation.lastStoppedStepLabel)}</span>
+          </div>
+        ) : null}
+        <div className="workpad-evidence">
+          <strong>当前确认</strong>
+          <span>{userFacingText(reconfirmation.currentStepLabel)}</span>
+        </div>
+        <div className="workpad-evidence">
+          <strong>检查状态</strong>
+          <span>{userFacingText(reconfirmation.freshnessLabel)}</span>
+        </div>
+        <div className="workpad-evidence">
+          <strong>继续边界</strong>
+          <span>{userFacingText(reconfirmation.boundary)}</span>
+        </div>
+      </div>
+      {reconfirmation.evidenceRefs.length ? (
+        <div className="workpad-links">
+          {reconfirmation.evidenceRefs.slice(0, 4).map((artifact) => <span className="artifact-link" key={artifact}>查看证据：{artifactName(artifact)}</span>)}
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -304,6 +369,13 @@ function stepReceiptStatusLabel(status: NonNullable<Workpad["controlledScheduler
   if (status === "needs-review") return "需要复核";
   if (status === "needs-reevaluation") return "需要重新判断";
   return "已刷新";
+}
+
+function reconfirmationStatusLabel(status: NonNullable<Workpad["controlledSchedulerReconfirmation"]>["status"]): string {
+  if (status === "aligned") return "证据一致";
+  if (status === "needs-review") return "需要复核";
+  if (status === "missing-receipt") return "缺少停止记录";
+  return "需要刷新";
 }
 
 function containsPrimarySurfaceInternalTerms(value: string): boolean {

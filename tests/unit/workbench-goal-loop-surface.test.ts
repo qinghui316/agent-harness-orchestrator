@@ -8,6 +8,7 @@ import { buildChatContext, buildOrchestratorContext } from "../../src/workbench/
 import { buildControlledSchedulerNextCandidatePromptEvidence, buildSchedulerTerminalHandoffContext } from "../../src/workbench/codex-chat/goal-loop-context.js";
 import { buildGoalLoopContextPreparedEvidence, goalLoopPromptStackLabels } from "../../src/workbench/codex-chat/goal-loop-prompt-evidence.js";
 import { getWorkbenchSnapshot } from "../../src/workbench/manager.js";
+import { buildControlledSchedulerWorkpadReconfirmation } from "../../src/workbench/projections/read-model/confirmation/controlled-scheduler-reconfirmation.js";
 import { attachControlledSchedulerAdvanceActions, attachGoalLoopAssistedConcreteGateActions, attachGoalLoopControllerRefreshActions, attachGoalLoopFeedbackActions, attachGoalLoopGateReadinessActions } from "../../src/workbench/projections/read-model/confirmation/goal-loop.js";
 import { buildControlledSchedulerNextCandidate } from "../../src/workbench/projections/read-model/goal-loop-next-candidate.js";
 import { schedulerControlledAdvanceCopy, schedulerUserFacingActionCopy } from "../../src/workbench/projections/read-model/confirmation/scheduler-user-surface.js";
@@ -1093,6 +1094,109 @@ describe("workbench Goal Loop surface", () => {
       freshnessLabel: "下一步候选与当前目标不一致。",
     });
     expect(crossChangeItem.actions.filter((action) => action.actionType === "planning.scheduler.controlled-advance.run")).toHaveLength(1);
+  });
+
+  it("derives Workpad controlled scheduler reconfirmation only from the current scoped next action", () => {
+    type WorkpadReconfirmationInput = Parameters<typeof buildControlledSchedulerWorkpadReconfirmation>[0];
+    const baseWorkpad = {
+      nextAction: {
+        id: "next:planning.scheduler.worker.start-next:member-discount",
+        label: "继续执行下一个任务",
+        description: "继续一个受控步骤。",
+        kind: "workflow-action",
+        enabled: true,
+        requiresConfirmation: true,
+        actionType: "planning.scheduler.worker.start-next",
+        changeId: "member-discount",
+        schedulerRunId: "scheduler-run-1",
+        schedulerClaimReservationId: "claim-reservation-expected",
+        reservationIntentId: "reservation-intent-2",
+        claimIntentId: "claim-2",
+      },
+      goalLoop: {
+        id: "brief-1",
+        changeId: "member-discount",
+        goalLoopDecisionId: "decision-1",
+        goalLoopIterationId: "iteration-1",
+        goalLoopNextStepPacketId: "packet-1",
+        controllerPolicyId: "policy-1",
+        gateReadinessPreflightId: "preflight-1",
+        controlledSchedulerNextCandidate: {
+          status: "ready-for-confirmation",
+          label: "下一步候选已刷新",
+          body: "下一步候选：继续执行下一个任务。当前步骤检查已刷新；继续仍需要你再次确认。",
+          actionLabel: "继续执行下一个任务",
+          readinessEvidencePrepared: true,
+          humanConfirmationStillRequired: true,
+          evidenceRefs: ["candidate.md"],
+        },
+        recommendedActionType: "planning.scheduler.worker.start-next",
+        recommendedActionScope: {
+          changeId: "member-discount",
+          schedulerRunId: "scheduler-run-1",
+          schedulerClaimReservationId: "claim-reservation-expected",
+          reservationIntentId: "reservation-intent-2",
+          claimIntentId: "claim-2",
+        },
+      },
+      controlledSchedulerStepReceipt: {
+        status: "ready-for-confirmation",
+        label: "已完成一个受控步骤",
+        body: "本次执行：继续执行下一个任务。下一步候选：继续执行下一个任务。当前步骤检查已刷新。 继续前仍需要你再次确认。",
+        executedStepLabel: "继续执行下一个任务",
+        nextStepLabel: "继续执行下一个任务",
+        readinessLabel: "当前步骤检查已刷新。",
+        boundary: "已主动停止；是否继续仍需要你重新确认下一步。",
+        humanConfirmationStillRequired: true,
+        evidenceRefs: ["receipt.md"],
+        decisionId: "decision-controlled-advance-1",
+        updatedAt: "2026-06-20T12:00:00.000Z",
+      },
+    } as const;
+    const asInput = (workpad: unknown): WorkpadReconfirmationInput => workpad as WorkpadReconfirmationInput;
+
+    expect(buildControlledSchedulerWorkpadReconfirmation(asInput(baseWorkpad))).toMatchObject({
+      status: "aligned",
+      label: "当前步骤可以重新确认",
+      currentStepLabel: "继续执行下一个任务",
+      freshnessLabel: "上一步停止记录、下一步候选和当前确认目标一致。",
+    });
+
+    expect(buildControlledSchedulerWorkpadReconfirmation(asInput({
+      ...baseWorkpad,
+      goalLoop: {
+        ...baseWorkpad.goalLoop,
+        changeId: "other-change",
+        recommendedActionScope: {
+          ...baseWorkpad.goalLoop.recommendedActionScope,
+          changeId: "other-change",
+        },
+      },
+    }))).toMatchObject({
+      status: "stale-mismatch",
+      freshnessLabel: "下一步候选与当前目标不一致。",
+    });
+
+    expect(buildControlledSchedulerWorkpadReconfirmation(asInput({
+      ...baseWorkpad,
+      goalLoop: undefined,
+    }))).toBeUndefined();
+
+    expect(buildControlledSchedulerWorkpadReconfirmation(asInput({
+      ...baseWorkpad,
+      nextAction: {
+        ...baseWorkpad.nextAction,
+        reservationIntentId: undefined,
+      },
+    }))).toBeUndefined();
+
+    expect(buildControlledSchedulerWorkpadReconfirmation(asInput({
+      ...baseWorkpad,
+      nextAction: {
+        ...baseWorkpad.nextAction,
+        enabled: false,
+      },
+    }))).toBeUndefined();
   });
 
   it("derives sanitized routing posture copy for controlled scheduler next-candidate detail", () => {

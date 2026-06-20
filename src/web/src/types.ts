@@ -99,7 +99,7 @@ export type DemandAgentRunGraph = {
   edges: DemandAgentRunGraphEdge[];
   updatedAt?: string;
 };
-export type CenterTab = "conversation" | "agentGraph";
+export type CenterTab = "conversation" | "workpad" | "agentGraph";
 export type ParentAgentTranscriptBlock = {
   id: string;
   kind: "prose" | "process" | "tool-result" | "evidence";
@@ -641,6 +641,7 @@ export type Workpad = {
   blockers: string[];
   warnings: string[];
   nextAction: WorkpadNextAction;
+  controlledSchedulerReconfirmation?: ControlledSchedulerReconfirmationDetail;
   background?: {
     totalCount: number;
     runningCount: number;

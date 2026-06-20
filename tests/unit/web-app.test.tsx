@@ -897,6 +897,68 @@ describe("Workbench web app", () => {
     };
     const uiSnapshot = {
       ...snapshot,
+      center: {
+        ...snapshot.center,
+        workpad: {
+          ...snapshot.center.workpad,
+          nextAction: {
+            id: "next:planning.scheduler.worker.start-next:member-discount",
+            label: "继续执行下一个任务",
+            description: "继续一个受控步骤。",
+            kind: "workflow-action",
+            enabled: true,
+            requiresConfirmation: true,
+            actionType: "planning.scheduler.worker.start-next",
+            changeId: "member-discount",
+            schedulerRunId: "scheduler-run-1",
+            schedulerClaimReservationId: "claim-reservation-expected",
+            reservationIntentId: "reservation-intent-2",
+            claimIntentId: "claim-2",
+          },
+          goalLoop: {
+            id: "goal-loop-continuation-brief-1",
+            goalLoopDecisionId: "goal-loop-decision-1",
+            goalLoopIterationId: "goal-loop-iteration-1",
+            goalLoopNextStepPacketId: "packet-1",
+            changeId: "member-discount",
+            status: "ready",
+            summary: "当前证据建议继续一个受控任务步骤。",
+            recommendedActionType: "planning.scheduler.worker.start-next",
+            recommendedActionReason: "当前第一个任务启动步骤的范围有效。",
+            recommendedActionScope: {
+              changeId: "member-discount",
+              schedulerRunId: "scheduler-run-1",
+              schedulerClaimReservationId: "claim-reservation-expected",
+              reservationIntentId: "reservation-intent-2",
+              claimIntentId: "claim-2",
+            },
+            recommendationState: "awaiting-human-gate",
+            continuationState: "ready-for-existing-gate",
+            conflictLevel: "low",
+            conflictReasons: [],
+            routingLabel: "Single scoped worker gate",
+            routingPosture: "single-gate-staged",
+            parallelEligible: true,
+            humanGateRequired: true,
+            evidenceRefs: [],
+            controlledSchedulerNextCandidate: reconfirmItem.controlledSchedulerNextCandidate,
+          },
+          controlledSchedulerStepReceipt: {
+            label: "已完成一个受控步骤",
+            status: "ready-for-confirmation",
+            body: "本次执行：继续执行下一个任务。下一步候选：继续执行下一个任务。当前步骤检查已刷新。 继续前仍需要你再次确认。",
+            executedStepLabel: "继续执行下一个任务",
+            nextStepLabel: "继续执行下一个任务",
+            readinessLabel: "当前步骤检查已刷新。",
+            boundary: "已主动停止；是否继续仍需要你重新确认下一步。不会自动连续执行、批量派发、分配资源、应用源码、关闭需求或远端落地。",
+            humanConfirmationStillRequired: true,
+            evidenceRefs: ["harness/workbench/decisions/controlled-advance-1.json"],
+            decisionId: "decision-controlled-advance-1",
+            updatedAt: "2026-06-20T12:00:00.000Z",
+          },
+          controlledSchedulerReconfirmation: reconfirmItem.controlledSchedulerReconfirmation,
+        },
+      },
       right: {
         ...snapshot.right,
         confirmationQueue: {
@@ -916,6 +978,14 @@ describe("Workbench web app", () => {
     }));
 
     render(<App />);
+
+    fireEvent.click(await screen.findByRole("tab", { name: "工作台" }));
+    const primarySurface = await screen.findByTestId("controlled-loop-primary-surface");
+    expect(within(primarySurface).getByText("当前步骤可以重新确认")).toBeTruthy();
+    expect(within(primarySurface).getByText("上一步停止记录、下一步候选和当前确认目标一致。")).toBeTruthy();
+    expect(within(primarySurface).getByText("当前确认")).toBeTruthy();
+    expect(within(primarySurface).queryByRole("button")).toBeNull();
+    expect(document.querySelector(".parent-conversation .workpad-next-action")).toBeNull();
 
     const card = await screen.findByTestId("decision-inspector-primary");
     expect(within(card).getByText("需要你再次确认当前页面显示的“继续执行下一个任务”；这不是自动继续。")).toBeTruthy();
@@ -943,6 +1013,11 @@ describe("Workbench web app", () => {
     expect(within(card).getByText("查看证据：controlled-advance-1.json")).toBeTruthy();
     expect(within(card).getByRole("button", { name: "按当前建议继续一个受控步骤" })).toBeTruthy();
     expect(within(card).getAllByRole("button")).toHaveLength(1);
+    fireEvent.click(screen.getByText("查看详情与证据"));
+    const detailCard = await screen.findByTestId("controlled-scheduler-reconfirmation-card");
+    expect(within(detailCard).getByText("当前步骤可以重新确认")).toBeTruthy();
+    expect(within(detailCard).getByText("继续边界")).toBeTruthy();
+    expect(within(detailCard).queryByRole("button")).toBeNull();
     const cardText = card.textContent ?? "";
     const normalizedCardText = cardText.toLowerCase();
     expect(cardText).not.toContain("上一个受控步骤");
@@ -2258,7 +2333,7 @@ describe("Workbench web app", () => {
     expect(screen.queryByTestId("taskgraph-node-T-001")).toBeNull();
     expect(screen.queryByText("运行此任务")).toBeNull();
     fireEvent.click(screen.getByRole("tab", { name: "Agent 运行图" }));
-    expect(screen.getByTestId("agent-run-graph")).toBeTruthy();
+    expect(await screen.findByTestId("agent-run-graph")).toBeTruthy();
   });
 
   it("runs the local TaskQueue from Workpad without exposing fake parallel controls", async () => {

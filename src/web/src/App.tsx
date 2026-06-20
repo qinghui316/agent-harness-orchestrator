@@ -281,6 +281,25 @@ export function App(): ReactElement {
     }
   }
 
+  function confirmWorkpadApproval(approvalId: string): void {
+    const approval = snapshot.right.approvals.find((item) => item.id === approvalId);
+    if (!approval?.action || !selectedProjectId) return;
+    setError(null);
+    void (async () => {
+      try {
+        const result = await fetch(`/api/projects/${encodeURIComponent(selectedProjectId)}/workbench/actions`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: approval.action, confirm: true }),
+        });
+        if (!result.ok) throw new Error(await result.text());
+        await refresh();
+      } catch (cause) {
+        setError(cause instanceof Error ? cause.message : String(cause));
+      }
+    })();
+  }
+
   async function requestDecisionFeedback(context: DecisionContext, action: DecisionAction, feedback: string): Promise<void> {
     if (!selectedProjectId || !feedback.trim()) return;
     if (action.actionType) {
@@ -619,7 +638,8 @@ export function App(): ReactElement {
     };
   }, [selectedDecisionContextId, snapshot.right.decisionInspector]);
   const activeConfirmationQueue = snapshot.right.confirmationQueue ?? { primary: null, current: [], otherDemands: [], maintenance: [], history: [] };
-  const activeRunGraph = loadedRunGraph ?? snapshot.center.agentRunGraph ?? emptyAgentRunGraph();
+  const rawActiveRunGraph = loadedRunGraph ?? snapshot.center.agentRunGraph;
+  const activeRunGraph = isDemandAgentRunGraph(rawActiveRunGraph) ? rawActiveRunGraph : emptyAgentRunGraph();
   const selectedRunGraphNode = useMemo(() => {
     return activeRunGraph.nodes.find((node) => node.id === selectedRunGraphNodeId) ?? activeRunGraph.nodes[0] ?? null;
   }, [activeRunGraph.nodes, selectedRunGraphNodeId]);
@@ -756,7 +776,9 @@ export function App(): ReactElement {
                     activeRun={activeRun}
                     stream={stream}
                     busy={actionRunning !== null}
+                    approvals={snapshot.right.approvals}
                     onAction={runWorkflowAction}
+                    onConfirmApproval={confirmWorkpadApproval}
                     onAnswerClarification={answerClarification}
                     onSelectDecisionContext={setSelectedDecisionContextId}
                     onTabChange={setCenterTab}
@@ -831,6 +853,16 @@ function snapshotForProject(project: ProjectStatus | null | undefined): Snapshot
     center: { ...emptySnapshot.center, workpad: emptyWorkpad(project.project.name) },
     warnings: project.managed ? [] : ["Project is not managed by Harness yet."],
   };
+}
+
+function isDemandAgentRunGraph(value: unknown): value is DemandAgentRunGraph {
+  if (!value || typeof value !== "object") return false;
+  const graph = value as Partial<DemandAgentRunGraph>;
+  return typeof graph.title === "string"
+    && typeof graph.summary === "string"
+    && Array.isArray(graph.lanes)
+    && Array.isArray(graph.nodes)
+    && Array.isArray(graph.edges);
 }
 
 function emptyWorkpad(projectName = "未选择项目"): Workpad {
