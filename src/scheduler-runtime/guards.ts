@@ -63,12 +63,28 @@ export async function assertSchedulerRuntimeLineage(memory: ResolvedMemory, chan
 }
 
 export function assertLatestSchedulerRuntimeClaimReservation(
-  reservation: SchedulerRuntimeClaimReservation,
+  reservation: Pick<SchedulerRuntimeClaimReservation, "id" | "schedulerReconcileSnapshotId">,
   runtimeState: Pick<SchedulerRuntimeState, "lastClaimReservationId" | "lastClaimReservationSnapshotId">,
   context: string,
 ): void {
   if (reservation.id !== runtimeState.lastClaimReservationId || reservation.schedulerReconcileSnapshotId !== runtimeState.lastClaimReservationSnapshotId) {
     throw new Error(`${context} requires the latest SchedulerRuntimeClaimReservation.`);
+  }
+}
+
+export function assertLatestSchedulerRuntimeClaimReservationForSnapshot(
+  reservation: Pick<SchedulerRuntimeClaimReservation, "id" | "schedulerReconcileSnapshotId" | "status">,
+  runtimeState: Pick<SchedulerRuntimeState, "lastClaimReservationId" | "lastClaimReservationSnapshotId" | "lastReconcileSnapshotId">,
+  snapshot: { id: string },
+  context: string,
+  options: { requiredStatus?: SchedulerRuntimeClaimReservation["status"] } = {},
+): void {
+  assertLatestSchedulerRuntimeClaimReservation(reservation, runtimeState, context);
+  if (runtimeState.lastReconcileSnapshotId !== snapshot.id || runtimeState.lastClaimReservationSnapshotId !== snapshot.id) {
+    throw new Error(`${context} requires the latest SchedulerRuntimeClaimReservation.`);
+  }
+  if (options.requiredStatus && reservation.status !== options.requiredStatus) {
+    throw new Error(`${context} SchedulerRuntimeClaimReservation target is stale or not ${options.requiredStatus}.`);
   }
 }
 

@@ -81,6 +81,7 @@ import { runWorkbenchWorkflowActionService } from "../../src/workbench/actions/s
 import { assertLatestWorkbenchActionTarget, assertPreparedWorkbenchActionTarget, assertWorkbenchActionChangeScope, assertWorkbenchActionOptionalStringTarget, assertWorkbenchActionStringArrayTarget } from "../../src/workbench/actions/active-target.js";
 import { assertWorkflowActionScope } from "../../src/workbench/actions/boundary.js";
 import { assertLatestSchedulerArtifact } from "../../src/workflow-scheduler/guards.js";
+import { assertLatestSchedulerRuntimeClaimReservationForSnapshot } from "../../src/scheduler-runtime/guards.js";
 import { dispatchWorkbenchWorkflowAction } from "../../src/workbench/actions/dispatcher.js";
 import { buildWorkbenchActionHandlers } from "../../src/workbench/actions/handlers/index.js";
 import { generatePlanningDraft } from "../../src/workbench/actions/handlers/planning.js";
@@ -281,6 +282,7 @@ describe("Workbench module boundaries", () => {
     expect(typeof runWorkbenchWorkflowActionService).toBe("function");
     expect(typeof assertWorkbenchActionChangeScope).toBe("function");
     expect(typeof assertLatestWorkbenchActionTarget).toBe("function");
+    expect(typeof assertLatestSchedulerRuntimeClaimReservationForSnapshot).toBe("function");
     expect(typeof assertWorkflowActionScope).toBe("function");
     expect(typeof dispatchWorkbenchWorkflowAction).toBe("function");
     expect(typeof buildWorkbenchActionHandlers).toBe("function");
@@ -1347,6 +1349,7 @@ describe("Workbench module boundaries", () => {
 
     const guards = readFileSync("src/scheduler-runtime/guards.ts", "utf8");
     expect(guards).toContain("assertLatestSchedulerRuntimeClaimReservation");
+    expect(guards).toContain("assertLatestSchedulerRuntimeClaimReservationForSnapshot");
     expect(guards).not.toMatch(/workbench\/|server\/|web\/src|cli\/commands|workflow-scheduler\/manager/);
 
     const initialize = readFileSync("src/scheduler-runtime/initialize.ts", "utf8");
@@ -1935,6 +1938,38 @@ describe("Workbench module boundaries", () => {
       "planning.scheduler.plan.prepare",
       "SchedulerRuntimeClaimReservation",
     )).toThrow("planning.scheduler.plan.prepare requires the latest SchedulerRuntimeClaimReservation.");
+    expect(() => assertLatestSchedulerRuntimeClaimReservationForSnapshot(
+      { id: "reservation-1", schedulerReconcileSnapshotId: "snapshot-1", status: "reserved" },
+      { lastClaimReservationId: "reservation-1", lastClaimReservationSnapshotId: "snapshot-1", lastReconcileSnapshotId: "snapshot-1" },
+      { id: "snapshot-1" },
+      "planning.scheduler.worker.start-first",
+      { requiredStatus: "reserved" },
+    )).not.toThrow();
+    expect(() => assertLatestSchedulerRuntimeClaimReservationForSnapshot(
+      { id: "reservation-2", schedulerReconcileSnapshotId: "snapshot-1", status: "reserved" },
+      { lastClaimReservationId: "reservation-1", lastClaimReservationSnapshotId: "snapshot-1", lastReconcileSnapshotId: "snapshot-1" },
+      { id: "snapshot-1" },
+      "planning.scheduler.worker.start-first",
+    )).toThrow("planning.scheduler.worker.start-first requires the latest SchedulerRuntimeClaimReservation.");
+    expect(() => assertLatestSchedulerRuntimeClaimReservationForSnapshot(
+      { id: "reservation-1", schedulerReconcileSnapshotId: "snapshot-2", status: "reserved" },
+      { lastClaimReservationId: "reservation-1", lastClaimReservationSnapshotId: "snapshot-1", lastReconcileSnapshotId: "snapshot-1" },
+      { id: "snapshot-1" },
+      "planning.scheduler.worker.start-first",
+    )).toThrow("planning.scheduler.worker.start-first requires the latest SchedulerRuntimeClaimReservation.");
+    expect(() => assertLatestSchedulerRuntimeClaimReservationForSnapshot(
+      { id: "reservation-1", schedulerReconcileSnapshotId: "snapshot-1", status: "reserved" },
+      { lastClaimReservationId: "reservation-1", lastClaimReservationSnapshotId: "snapshot-1", lastReconcileSnapshotId: "snapshot-2" },
+      { id: "snapshot-1" },
+      "planning.scheduler.worker.start-first",
+    )).toThrow("planning.scheduler.worker.start-first requires the latest SchedulerRuntimeClaimReservation.");
+    expect(() => assertLatestSchedulerRuntimeClaimReservationForSnapshot(
+      { id: "reservation-1", schedulerReconcileSnapshotId: "snapshot-1", status: "blocked" },
+      { lastClaimReservationId: "reservation-1", lastClaimReservationSnapshotId: "snapshot-1", lastReconcileSnapshotId: "snapshot-1" },
+      { id: "snapshot-1" },
+      "planning.scheduler.worker.start-first",
+      { requiredStatus: "reserved" },
+    )).toThrow("planning.scheduler.worker.start-first SchedulerRuntimeClaimReservation target is stale or not reserved.");
 
     expect(() => assertPreparedWorkbenchActionTarget(
       { id: "older-run", changeId: "current-change", status: "prepared" },
@@ -2031,6 +2066,9 @@ describe("Workbench module boundaries", () => {
     expect(boundary).toContain("assertLatestWorkbenchActionTarget(latestOutcome, { id: request.schedulerIntegrationOutcomeId }, \"planning.scheduler.run.complete\", \"SchedulerIntegrationOutcome\")");
     expect(boundary).toContain("assertLatestWorkbenchActionTarget({ id: runtimeState.lastClaimReservationId }, { id: request.schedulerClaimReservationId }, \"planning.scheduler.run.close-blocked\", \"SchedulerRuntimeClaimReservation\")");
     expect(boundary).toContain("assertLatestWorkbenchActionTarget(latestCandidate, { id: request.schedulerIntegrationCandidateId }, \"planning.scheduler.run.close-blocked\", \"SchedulerIntegrationCandidate\")");
+    expect(boundary).toContain("assertLatestSchedulerRuntimeClaimReservationForSnapshot(reservation, runtimeState, snapshot, request.actionType, { requiredStatus: \"reserved\" })");
+    expect(boundary).toContain("assertLatestSchedulerRuntimeClaimReservationForSnapshot(reservation, runtimeState, snapshot, \"planning.scheduler.worker.reconcile-result\")");
+    expect(boundary).toContain("assertLatestSchedulerRuntimeClaimReservationForSnapshot(reservation, runtimeState, snapshot, \"planning.scheduler.integration-check.run\")");
     expect(boundary).toContain("assertWorkbenchActionStringArrayTarget(request.worktreeIds, latestCandidate.readyWorktreeIds, \"planning.scheduler.integration-check.run\", \"worktreeIds\")");
     expect(boundary).toContain("assertWorkbenchActionStringArrayTarget(request.worktreeIds, latestHandoff.readyWorktreeIds, \"planning.scheduler.integration-outcome.reconcile\", \"worktreeIds\")");
     expect(boundary).toContain("assertWorkbenchActionStringArrayTarget(request.worktreeIds, outcome.readyWorktreeIds, \"planning.scheduler.run.complete\", \"worktreeIds\")");
@@ -2112,6 +2150,7 @@ describe("Workbench module boundaries", () => {
     expect(boundary).not.toContain("runtimeState.lastReconcileSnapshotId !== request.schedulerReconcileSnapshotId");
     expect(boundary).not.toContain("runtimeState.lastClaimReservationId !== request.schedulerClaimReservationId");
     expect(boundary).not.toContain("runtimeState?.lastReconcileSnapshotId !== request.schedulerReconcileSnapshotId");
+    expect(boundary).not.toContain("reservation.schedulerReconcileSnapshotId !== snapshot.id || runtimeState.lastClaimReservationSnapshotId !== snapshot.id");
     expect(boundary).not.toContain("function sameStringArray");
     expect(boundary).toContain("planning.scheduler.run.complete SchedulerRun target is not completable");
   });

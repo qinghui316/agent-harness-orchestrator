@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-20T02:32:03.7687537Z",
+    "generated_at":  "2026-06-20T02:49:41.5079288Z",
     "active":  [
 
                ],
@@ -1441,6 +1441,10 @@
                     {
                         "name":  "20260620-workbench-planning-scheduler-prep-test-domain-split",
                         "path":  "harness/changes/archive/20260620-workbench-planning-scheduler-prep-test-domain-split"
+                    },
+                    {
+                        "name":  "20260620-workbench-scheduler-claim-reservation-snapshot-guard-reuse",
+                        "path":  "harness/changes/archive/20260620-workbench-scheduler-claim-reservation-snapshot-guard-reuse"
                     },
                     {
                         "name":  "20260620-workbench-scheduler-close-blocked-claim-target-helper-reuse",

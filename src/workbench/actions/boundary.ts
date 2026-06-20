@@ -6,7 +6,7 @@ import { getChangeStatusForChange } from "../../change/manager.js";
 import { readIntegrationCheck } from "../../integration-check/manager.js";
 import { resolveProjectMemory } from "../../memory/resolver.js";
 import { readRun } from "../../run/repository.js";
-import { readSchedulerRuntimeLineage } from "../../scheduler-runtime/guards.js";
+import { assertLatestSchedulerRuntimeClaimReservationForSnapshot, readSchedulerRuntimeLineage } from "../../scheduler-runtime/guards.js";
 import { findSchedulerClaimReservationForSnapshot, findSchedulerRuntimeWorkerAuditForValidation, findSchedulerRuntimeWorkerResultForStart, findSchedulerRuntimeWorkerReworkAuditForValidation, findSchedulerRuntimeWorkerReworkPlanForBlockingEvidence, findSchedulerRuntimeWorkerReworkResultForStart, findSchedulerRuntimeWorkerReworkStartForPlan, findSchedulerRuntimeWorkerReworkValidationForResult, findSchedulerRuntimeWorkerStartForReservationIntent, findSchedulerRuntimeWorkerValidationForResult, listSchedulerRuntimeWorkerStarts, readLatestSchedulerIntegrationCandidateProjection, readLatestSchedulerIntegrationCheckHandoffProjection, readLatestSchedulerIntegrationOutcomeProjection, readLatestSchedulerRunBlockedCloseoutProjection, readLatestSchedulerRunCompletionProjection, readSchedulerIntegrationOutcome, readSchedulerReconcileSnapshot, readSchedulerRuntimeClaimReservation, readSchedulerRuntimeStateProjection, readSchedulerRuntimeWorkerAudit, readSchedulerRuntimeWorkerResult, readSchedulerRuntimeWorkerReworkPlan, readSchedulerRuntimeWorkerReworkResult, readSchedulerRuntimeWorkerReworkStart, readSchedulerRuntimeWorkerReworkValidation, readSchedulerRuntimeWorkerStart, readSchedulerRuntimeWorkerValidation } from "../../scheduler-runtime/repository.js";
 import { latestLandingQueueSnapshot } from "../../landing-queue/manager.js";
 import { readLatestGoalLoopControllerPolicy, readLatestGoalLoopNextStepPacket } from "../../goal-loop/manager.js";
@@ -420,9 +420,7 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
     }
     const snapshot = await readSchedulerReconcileSnapshot(memory, target.path, run.id, runtimeState.lastReconcileSnapshotId);
     const reservation = await readSchedulerRuntimeClaimReservation(memory, target.path, run.id, request.schedulerClaimReservationId);
-    if (reservation.id !== runtimeState.lastClaimReservationId || reservation.schedulerReconcileSnapshotId !== snapshot.id || runtimeState.lastClaimReservationSnapshotId !== snapshot.id || reservation.status !== "reserved") {
-      throw new Error(`${request.actionType} SchedulerRuntimeClaimReservation target is stale or not reserved.`);
-    }
+    assertLatestSchedulerRuntimeClaimReservationForSnapshot(reservation, runtimeState, snapshot, request.actionType, { requiredStatus: "reserved" });
     const selectedIntent = request.reservationIntentId
       ? reservation.reservationIntents.find((intent) => intent.reservationIntentId === request.reservationIntentId)
       : reservation.reservationIntents.find((intent) => intent.status === "reserved");
@@ -472,9 +470,7 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
     }
     const snapshot = await readSchedulerReconcileSnapshot(memory, target.path, run.id, runtimeState.lastReconcileSnapshotId);
     const reservation = await readSchedulerRuntimeClaimReservation(memory, target.path, run.id, runtimeState.lastClaimReservationId);
-    if (reservation.schedulerReconcileSnapshotId !== snapshot.id || runtimeState.lastClaimReservationSnapshotId !== snapshot.id) {
-      throw new Error("planning.scheduler.worker.reconcile-result SchedulerRuntimeClaimReservation target is stale.");
-    }
+    assertLatestSchedulerRuntimeClaimReservationForSnapshot(reservation, runtimeState, snapshot, "planning.scheduler.worker.reconcile-result");
     const workerStart = await readSchedulerRuntimeWorkerStart(memory, target.path, run.id, request.schedulerWorkerStartId);
     if (
       workerStart.changeId !== changeId
@@ -512,9 +508,7 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
     }
     const snapshot = await readSchedulerReconcileSnapshot(memory, target.path, run.id, runtimeState.lastReconcileSnapshotId);
     const reservation = await readSchedulerRuntimeClaimReservation(memory, target.path, run.id, runtimeState.lastClaimReservationId);
-    if (reservation.schedulerReconcileSnapshotId !== snapshot.id || runtimeState.lastClaimReservationSnapshotId !== snapshot.id) {
-      throw new Error("planning.scheduler.worker.validate-first SchedulerRuntimeClaimReservation target is stale.");
-    }
+    assertLatestSchedulerRuntimeClaimReservationForSnapshot(reservation, runtimeState, snapshot, "planning.scheduler.worker.validate-first");
     const workerResult = await readSchedulerRuntimeWorkerResult(memory, target.path, run.id, request.schedulerWorkerResultId);
     if (
       workerResult.changeId !== changeId
@@ -557,9 +551,7 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
     }
     const snapshot = await readSchedulerReconcileSnapshot(memory, target.path, run.id, runtimeState.lastReconcileSnapshotId);
     const reservation = await readSchedulerRuntimeClaimReservation(memory, target.path, run.id, runtimeState.lastClaimReservationId);
-    if (reservation.schedulerReconcileSnapshotId !== snapshot.id || runtimeState.lastClaimReservationSnapshotId !== snapshot.id) {
-      throw new Error("planning.scheduler.worker.audit-first SchedulerRuntimeClaimReservation target is stale.");
-    }
+    assertLatestSchedulerRuntimeClaimReservationForSnapshot(reservation, runtimeState, snapshot, "planning.scheduler.worker.audit-first");
     const workerValidation = await readSchedulerRuntimeWorkerValidation(memory, target.path, run.id, request.schedulerWorkerValidationId);
     if (
       workerValidation.changeId !== changeId
@@ -604,9 +596,7 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
     }
     const snapshot = await readSchedulerReconcileSnapshot(memory, target.path, run.id, runtimeState.lastReconcileSnapshotId);
     const reservation = await readSchedulerRuntimeClaimReservation(memory, target.path, run.id, runtimeState.lastClaimReservationId);
-    if (reservation.schedulerReconcileSnapshotId !== snapshot.id || runtimeState.lastClaimReservationSnapshotId !== snapshot.id) {
-      throw new Error("planning.scheduler.worker.rework-plan.compile SchedulerRuntimeClaimReservation target is stale.");
-    }
+    assertLatestSchedulerRuntimeClaimReservationForSnapshot(reservation, runtimeState, snapshot, "planning.scheduler.worker.rework-plan.compile");
     const workerValidation = await readSchedulerRuntimeWorkerValidation(memory, target.path, run.id, request.schedulerWorkerValidationId);
     if (
       workerValidation.changeId !== changeId
@@ -881,9 +871,7 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
     }
     const snapshot = await readSchedulerReconcileSnapshot(memory, target.path, run.id, runtimeState.lastReconcileSnapshotId);
     const reservation = await readSchedulerRuntimeClaimReservation(memory, target.path, run.id, runtimeState.lastClaimReservationId);
-    if (reservation.schedulerReconcileSnapshotId !== snapshot.id || runtimeState.lastClaimReservationSnapshotId !== snapshot.id) {
-      throw new Error("planning.scheduler.integration-candidate.compile SchedulerRuntimeClaimReservation target is stale.");
-    }
+    assertLatestSchedulerRuntimeClaimReservationForSnapshot(reservation, runtimeState, snapshot, "planning.scheduler.integration-candidate.compile");
     assertWorkbenchActionOptionalStringTarget(request.schedulerClaimReservationId, reservation.id, "planning.scheduler.integration-candidate.compile", "SchedulerRuntimeClaimReservation");
     assertWorkbenchActionOptionalStringTarget(request.schedulerReconcileSnapshotId, snapshot.id, "planning.scheduler.integration-candidate.compile", "SchedulerReconcileSnapshot");
     const latestCandidate = await readLatestSchedulerIntegrationCandidateProjection(memory, target.path, run.id);
@@ -904,9 +892,7 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
     }
     const snapshot = await readSchedulerReconcileSnapshot(memory, target.path, run.id, runtimeState.lastReconcileSnapshotId);
     const reservation = await readSchedulerRuntimeClaimReservation(memory, target.path, run.id, runtimeState.lastClaimReservationId);
-    if (reservation.schedulerReconcileSnapshotId !== snapshot.id || runtimeState.lastClaimReservationSnapshotId !== snapshot.id) {
-      throw new Error("planning.scheduler.integration-check.run SchedulerRuntimeClaimReservation target is stale.");
-    }
+    assertLatestSchedulerRuntimeClaimReservationForSnapshot(reservation, runtimeState, snapshot, "planning.scheduler.integration-check.run");
     assertWorkbenchActionOptionalStringTarget(request.schedulerClaimReservationId, reservation.id, "planning.scheduler.integration-check.run", "SchedulerRuntimeClaimReservation");
     assertWorkbenchActionOptionalStringTarget(request.schedulerReconcileSnapshotId, snapshot.id, "planning.scheduler.integration-check.run", "SchedulerReconcileSnapshot");
     const latestCandidate = await readLatestSchedulerIntegrationCandidateProjection(memory, target.path, run.id);
@@ -936,9 +922,7 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
     }
     const snapshot = await readSchedulerReconcileSnapshot(memory, target.path, run.id, runtimeState.lastReconcileSnapshotId);
     const reservation = await readSchedulerRuntimeClaimReservation(memory, target.path, run.id, runtimeState.lastClaimReservationId);
-    if (reservation.schedulerReconcileSnapshotId !== snapshot.id || runtimeState.lastClaimReservationSnapshotId !== snapshot.id) {
-      throw new Error("planning.scheduler.integration-outcome.reconcile SchedulerRuntimeClaimReservation target is stale.");
-    }
+    assertLatestSchedulerRuntimeClaimReservationForSnapshot(reservation, runtimeState, snapshot, "planning.scheduler.integration-outcome.reconcile");
     const latestCandidate = await readLatestSchedulerIntegrationCandidateProjection(memory, target.path, run.id);
     if (!latestCandidate || latestCandidate.schedulerClaimReservationId !== reservation.id) {
       throw new Error("planning.scheduler.integration-outcome.reconcile SchedulerIntegrationCandidate scope mismatch.");
