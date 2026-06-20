@@ -305,6 +305,26 @@ export function SchedulerControlledStepEvidenceCard({ step }: { step: NonNullabl
           </div>
         </div>
       ) : null}
+      {step.controlledLoopStopSummary ? (
+        <div className="workpad-evidence-list" data-testid="scheduler-controlled-loop-stop-summary">
+          <div className="workpad-evidence">
+            <strong>停止位置</strong>
+            <span>{controlledLoopStopPositionText(step.controlledLoopStopSummary)}</span>
+          </div>
+          <div className="workpad-evidence">
+            <strong>下一确认</strong>
+            <span>{step.controlledLoopStopSummary.nextGateActionType ? workflowActionLabel(step.controlledLoopStopSummary.nextGateActionType) : "等待新的证据"}</span>
+          </div>
+          <div className="workpad-evidence">
+            <strong>停止原因</strong>
+            <span>{userFacingText(step.controlledLoopStopSummary.userFacingReason)}</span>
+          </div>
+          <div className="workpad-evidence">
+            <strong>继续边界</strong>
+            <span>只能通过右侧确认区继续；不会自动循环、批量派发、应用源码、关闭需求或远端落地</span>
+          </div>
+        </div>
+      ) : null}
       {step.controlledLoopContinuationReadiness ? (
         <div className="workpad-evidence-list" data-testid="scheduler-controlled-loop-continuation-readiness">
           <div className="workpad-evidence">
@@ -347,6 +367,7 @@ type ControlledLoopTurnRouteSummary = NonNullable<NonNullable<Workpad["scheduler
 type ControlledLoopTickSummary = NonNullable<NonNullable<Workpad["schedulerControlledStepEvidence"]>["controlledLoopTick"]>;
 type ControlledLoopContinuationReadiness = NonNullable<NonNullable<Workpad["schedulerControlledStepEvidence"]>["controlledLoopContinuationReadiness"]>;
 type ControlledLoopIterationSummary = NonNullable<NonNullable<Workpad["schedulerControlledStepEvidence"]>["controlledLoopIteration"]>;
+type ControlledLoopStopSummary = NonNullable<NonNullable<Workpad["schedulerControlledStepEvidence"]>["controlledLoopStopSummary"]>;
 
 function controlledLoopTickPhaseText(tick: ControlledLoopTickSummary): string {
   return [
@@ -380,6 +401,12 @@ function controlledLoopContinuationStatusLabel(status: ControlledLoopContinuatio
 
 function controlledLoopContinuationReadinessStatusText(readiness: ControlledLoopContinuationReadiness): string {
   return controlledLoopContinuationStatusLabel(readiness.status);
+}
+
+function controlledLoopStopPositionText(summary: ControlledLoopStopSummary): string {
+  const posture = controlledLoopTurnRouteLabel(summary.routePosture);
+  const readiness = controlledLoopContinuationStatusLabel(summary.continuationReadinessStatus);
+  return `${posture} / ${readiness}`;
 }
 
 function controlledLoopIterationStatusText(iteration: ControlledLoopIterationSummary): string {

@@ -290,6 +290,7 @@ async function recordControlledAdvanceRuntimeStepEvidence(
         humanConfirmationStillRequired: recorded.schedulerControlledStepEvidence.humanConfirmationStillRequired,
         controlledLoopTick: recorded.schedulerControlledStepEvidence.controlledLoopTick,
         controlledLoopIteration: recorded.schedulerControlledStepEvidence.controlledLoopIteration,
+        controlledLoopStopSummary: recorded.schedulerControlledStepEvidence.controlledLoopStopSummary,
         controlledLoopCurrentTransitionChoice: recorded.schedulerControlledStepEvidence.controlledLoopCurrentTransitionChoice,
       },
     };

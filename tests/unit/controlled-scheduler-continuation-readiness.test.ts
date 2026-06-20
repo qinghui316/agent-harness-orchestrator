@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { buildSchedulerControlledLoopContinuationReadiness } from "../../src/scheduler-runtime/controlled-loop-continuation-readiness.js";
+import { buildSchedulerControlledLoopIterationSummary } from "../../src/scheduler-runtime/controlled-loop-iteration.js";
+import { buildSchedulerControlledLoopStopSummary } from "../../src/scheduler-runtime/controlled-loop-stop-summary.js";
 import { alignControlledSchedulerContinuationReadiness } from "../../src/workbench/projections/read-model/workpad.js";
 import type { SchedulerControlledLoopTickSummary, SchedulerControlledLoopTurnRouteSummary, SchedulerControlledStepForbiddenAuthority, SchedulerControlledStepHandoffSummary } from "../../src/scheduler-runtime/types.js";
 import type { WorkbenchSchedulerControlledStepEvidenceSummary } from "../../src/workbench/workflow-projection.js";
@@ -55,6 +57,10 @@ describe("controlled scheduler continuation readiness", () => {
       expect(aligned?.controlledLoopContinuationReadiness?.readinessEvidencePrepared, label).toBe(false);
       expect(aligned?.controlledLoopContinuationReadiness?.executionStarted, label).toBe(false);
       expect(aligned?.controlledLoopContinuationReadiness?.humanConfirmationStillRequired, label).toBe(true);
+      expect(aligned?.controlledLoopStopSummary?.continuationReadinessStatus, label).toBe(expectedStatus);
+      expect(aligned?.controlledLoopStopSummary?.readinessEvidencePrepared, label).toBe(false);
+      expect(aligned?.controlledLoopStopSummary?.executionStarted, label).toBe(false);
+      expect(aligned?.controlledLoopStopSummary?.humanConfirmationStillRequired, label).toBe(true);
     }
   });
 });
@@ -63,6 +69,21 @@ function baseStep(): WorkbenchSchedulerControlledStepEvidenceSummary {
   const route = baseRoute();
   const tick = baseTick(route);
   const handoff = baseHandoff(false);
+  const readiness = buildSchedulerControlledLoopContinuationReadiness({
+    executedActionType: "planning.scheduler.worker.start-next",
+    postStepHandoff: handoff,
+    controlledLoopTurnRouteSummary: route,
+    controlledLoopTick: tick,
+    forbiddenAuthority,
+  });
+  const iteration = buildSchedulerControlledLoopIterationSummary({
+    executedActionType: "planning.scheduler.worker.start-next",
+    postStepHandoff: handoff,
+    controlledLoopTurnRouteSummary: route,
+    controlledLoopTick: tick,
+    controlledLoopContinuationReadiness: readiness,
+    forbiddenAuthority,
+  });
   return {
     id: "scheduler-controlled-step-1",
     changeId: "change-1",
@@ -88,11 +109,15 @@ function baseStep(): WorkbenchSchedulerControlledStepEvidenceSummary {
     },
     controlledLoopTurnRouteSummary: route,
     controlledLoopTick: tick,
-    controlledLoopContinuationReadiness: buildSchedulerControlledLoopContinuationReadiness({
+    controlledLoopContinuationReadiness: readiness,
+    controlledLoopIteration: iteration,
+    controlledLoopStopSummary: buildSchedulerControlledLoopStopSummary({
       executedActionType: "planning.scheduler.worker.start-next",
       postStepHandoff: handoff,
       controlledLoopTurnRouteSummary: route,
       controlledLoopTick: tick,
+      controlledLoopContinuationReadiness: readiness,
+      controlledLoopIteration: iteration,
       forbiddenAuthority,
     }),
     updatedAt: "2026-06-21T00:00:00.000Z",

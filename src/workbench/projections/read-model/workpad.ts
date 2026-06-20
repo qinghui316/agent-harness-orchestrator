@@ -2,6 +2,7 @@
 import { listRuns } from "../../../run/manager.js";
 import { listDemandWorkers } from "../../../demand-worker/manager.js";
 import { listTaskQueues } from "../../../task-queue/manager.js";
+import { buildSchedulerControlledLoopStopSummary, CONTROLLED_STEP_FORBIDDEN_AUTHORITY } from "../../../scheduler-runtime/manager.js";
 import { getLatestWorkflowRun, summarizeWorkflowRun } from "../../../workflow-run/manager.js";
 import { validateWorkflowActionRequiredTargets, workflowActionScopesMatchStrict, type WorkflowActionScopeCarrier } from "../../../workflow-actions/registry.js";
 import {
@@ -475,7 +476,7 @@ function downgradeContinuationReadiness(
 ): WorkbenchSchedulerControlledStepEvidenceSummary {
   const readiness = step.controlledLoopContinuationReadiness;
   if (!readiness) return step;
-  return {
+  const downgraded = {
     ...step,
     controlledLoopContinuationReadiness: {
       ...readiness,
@@ -483,6 +484,48 @@ function downgradeContinuationReadiness(
       readinessEvidencePrepared: false,
       reason,
     },
+  };
+  return withRecomputedControlledLoopStopSummary(downgraded);
+}
+
+function withRecomputedControlledLoopStopSummary(
+  step: WorkbenchSchedulerControlledStepEvidenceSummary,
+): WorkbenchSchedulerControlledStepEvidenceSummary {
+  if (!step.controlledLoopTurnRouteSummary || !step.controlledLoopTick || !step.controlledLoopContinuationReadiness || !step.controlledLoopIteration) {
+    return step;
+  }
+  return {
+    ...step,
+    controlledLoopStopSummary: buildSchedulerControlledLoopStopSummary({
+      executedActionType: step.executedActionType,
+      postStepHandoff: {
+        status: step.postStepStatus,
+        stopReason: step.controlledLoopTick.routeStop.stopReason,
+        executedActionType: step.executedActionType,
+        needsReevaluation: step.needsReevaluation,
+        nextConfirmationCandidate: step.nextCandidateActionType ? {
+          actionType: step.nextCandidateActionType,
+          readinessEvidencePrepared: step.controlledLoopContinuationReadiness.readinessEvidencePrepared,
+          executionStarted: false,
+          authorizationGranted: false,
+          humanConfirmationStillRequired: true,
+        } : undefined,
+        executionStarted: false,
+        loopAuthorized: false,
+        wholeWaveDispatchAuthorized: false,
+        slotAllocatorAuthorized: false,
+      },
+      controlledLoopTurnRouteSummary: step.controlledLoopTurnRouteSummary,
+      controlledLoopTick: step.controlledLoopTick,
+      controlledLoopContinuationReadiness: step.controlledLoopContinuationReadiness,
+      controlledLoopIteration: step.controlledLoopIteration,
+      controlledStepResultSummary: step.controlledStepResultSummary,
+      forbiddenAuthority: CONTROLLED_STEP_FORBIDDEN_AUTHORITY,
+      evidenceRefs: [
+        ...(step.markdownArtifact ? [step.markdownArtifact] : []),
+        ...(step.artifact ? [step.artifact] : []),
+      ],
+    }),
   };
 }
 

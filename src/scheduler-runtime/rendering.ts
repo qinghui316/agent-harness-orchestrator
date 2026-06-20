@@ -125,6 +125,22 @@ export function renderSchedulerControlledStepEvidenceMarkdown(step: SchedulerCon
         ]
       : ["- none"]),
     "",
+    "## Controlled Loop Stop Summary",
+    "",
+    ...(step.controlledLoopStopSummary
+      ? [
+          `- Authority: ${step.controlledLoopStopSummary.authority}`,
+          `- Stop reason: ${step.controlledLoopStopSummary.stopReason}`,
+          `- Route posture: ${step.controlledLoopStopSummary.routePosture}`,
+          `- Continuation readiness: ${step.controlledLoopStopSummary.continuationReadinessStatus}`,
+          `- Next gate: ${step.controlledLoopStopSummary.nextGateActionType ?? "none"}`,
+          `- Readiness evidence prepared: ${step.controlledLoopStopSummary.readinessEvidencePrepared ? "yes" : "no"}`,
+          `- Human confirmation still required: ${step.controlledLoopStopSummary.humanConfirmationStillRequired ? "yes" : "no"}`,
+          `- Reason: ${step.controlledLoopStopSummary.userFacingReason}`,
+          "- Execution from stop summary: not authorized.",
+        ]
+      : ["- none"]),
+    "",
     "## Current Transition Choice",
     "",
     ...(step.controlledLoopCurrentTransitionChoice

@@ -1211,6 +1211,36 @@ describe("Workbench web app", () => {
               remoteLandingAuthorized: false,
               harnessEvolutionAuthorized: false,
             },
+            controlledLoopStopSummary: {
+              version: "1.0",
+              authority: "scheduler-runtime-controlled-loop-stop-summary",
+              executedActionType: "planning.scheduler.worker.start-next",
+              stopReason: "one-confirmed-scheduler-transition-completed",
+              routePosture: "awaiting-human-gate",
+              continuationReadinessStatus: "ready-for-human-gate",
+              nextGateActionType: "planning.scheduler.worker.reconcile-result",
+              resultKind: "schedulerWorkerStart",
+              resultId: "scheduler-worker-start-1",
+              resultStatus: "started",
+              humanGateRequired: true,
+              readinessEvidencePrepared: true,
+              needsReevaluation: false,
+              humanConfirmationStillRequired: true,
+              userFacingReason: "The last controlled step stopped and the next candidate is ready for the existing human confirmation gate.",
+              boundary: "Read-only summary of where one human-confirmed controlled Scheduler step stopped; continuing still requires the existing scoped human confirmation and ToolPolicy path.",
+              evidenceRefs: ["harness/changes/active/member-discount/planning/scheduler-runs/scheduler-run-1/scheduler-controlled-steps/scheduler-controlled-step-1.md"],
+              executionStarted: false,
+              loopAuthorized: false,
+              fullParallelExecutorAuthorized: false,
+              wholeWaveDispatchAuthorized: false,
+              slotAllocatorAuthorized: false,
+              sourceMutationAuthorized: false,
+              applyAuthorized: false,
+              closeAuthorized: false,
+              mergeAuthorized: false,
+              remoteLandingAuthorized: false,
+              harnessEvolutionAuthorized: false,
+            },
             artifact: "harness/changes/active/member-discount/planning/scheduler-runs/scheduler-run-1/scheduler-controlled-steps/scheduler-controlled-step-1.json",
             markdownArtifact: "harness/changes/active/member-discount/planning/scheduler-runs/scheduler-run-1/scheduler-controlled-steps/scheduler-controlled-step-1.md",
             updatedAt: "2026-06-21T00:00:00.000Z",
@@ -1257,6 +1287,14 @@ describe("Workbench web app", () => {
     expect(within(tickSummary).getByText("已停在下一次人工确认：one-confirmed-scheduler-transition-completed")).toBeTruthy();
     expect(within(tickSummary).getByText("权限边界")).toBeTruthy();
     expect(within(tickSummary).getByText("不授权自动循环、批量派发或 source 变更")).toBeTruthy();
+    const stopSummary = within(card).getByTestId("scheduler-controlled-loop-stop-summary");
+    expect(stopSummary).toBeTruthy();
+    expect(within(stopSummary).getByText("停止位置")).toBeTruthy();
+    expect(within(stopSummary).getByText("已停在下一次人工确认 / 下一步已准备好，但必须再次人工确认")).toBeTruthy();
+    expect(within(stopSummary).getByText("停止原因")).toBeTruthy();
+    expect(within(stopSummary).getByText("The last controlled step stopped and the next candidate is ready for the existing human confirmation gate.")).toBeTruthy();
+    expect(within(stopSummary).getByText("只能通过右侧确认区继续；不会自动循环、批量派发、应用源码、关闭需求或远端落地")).toBeTruthy();
+    expect(within(stopSummary).queryByRole("button")).toBeNull();
     expect(within(card).getByTestId("scheduler-controlled-loop-continuation-readiness")).toBeTruthy();
     expect(within(card).getByText("继续状态")).toBeTruthy();
     expect(within(card).getByText("下一步已准备好，但必须再次人工确认")).toBeTruthy();

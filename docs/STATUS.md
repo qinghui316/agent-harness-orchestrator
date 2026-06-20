@@ -5,15 +5,26 @@
 - Current date: 2026-06-21.
 - Active ECL change: none.
 - Pending Harness evolution: none.
-- Latest archived product change: `harness/changes/archive/20260621-controlled-scheduler-current-transition-owner/summary.md`.
-- Latest archived product/Harness docs change: `harness/changes/archive/20260621-auto-evolve-harness-controlled-scheduler-current-transition-window-noop/summary.md`.
+- Latest archived product change: `harness/changes/archive/20260621-controlled-scheduler-loop-stop-summary/summary.md`.
+- Latest archived product/Harness docs change: `harness/changes/archive/20260621-controlled-scheduler-loop-stop-summary/summary.md`.
 - Latest archived Harness evolution: `harness/changes/archive/20260621-auto-evolve-harness-controlled-scheduler-current-transition-window-noop/summary.md`.
 - Active product phase: none.
 - Active Harness evolution phase: none.
 - Active close status: none.
 
 This file is the short resume point. No active structured change exists and no
-pending Harness evolution exists. The latest Harness evolution recorded
+pending Harness evolution exists.
+
+The latest product change adds a read-only controlled-loop stop summary to
+existing Scheduler controlled-step evidence and Workpad detail rendering. The
+summary derives from existing handoff, route, tick, continuation readiness,
+iteration, and result summaries, and it shows where the latest one-confirmed
+controlled Scheduler step stopped, why it stopped, and which existing gate
+controls any continuation. It does not add a new action, artifact family,
+ToolPolicy path, automatic loop, source apply/merge/close, remote landing,
+child Change, or Harness evolution automation.
+
+The latest Harness evolution recorded
 `noop / independent_review` for the controlled Scheduler current-transition
 archive window; no Harness rule, template, lint, script, or product runtime
 change was needed.
