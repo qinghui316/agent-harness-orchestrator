@@ -33,6 +33,7 @@ import {
 import { compileGoalLoopControllerPolicy, compileGoalLoopEvaluation, compileGoalLoopGateReadinessPreflight } from "../../../goal-loop/manager.js";
 import { assertWritableMemory } from "../../../memory/resolver.js";
 import type { ManagedProject } from "../../../types/index.js";
+import { buildControlledSchedulerPostStepHandoff } from "../../controlled-scheduler-handoff.js";
 import { buildControlledSchedulerAdvanceStepRequest, buildControlledSchedulerStepRequest } from "../../../workflow-scheduler/controlled-step.js";
 import { assertWorkflowActionScope, auditHighImpactWorkflowAction } from "../boundary.js";
 import { resolveVisibleControlledSchedulerCurrentGate } from "../visible-goal-loop-current-gate.js";
@@ -193,8 +194,7 @@ export function buildSchedulerActionHandlers(): Pick<WorkbenchActionHandlerMap, 
         result?: unknown;
       };
       const postStep = await recordControlledAdvancePostStepEvaluation(project, changeId);
-      return {
-        controlledAdvance: {
+      const controlledAdvance = {
           actionType: concreteActionType,
           changeId,
           schedulerRunId: request.schedulerRunId,
@@ -209,7 +209,9 @@ export function buildSchedulerActionHandlers(): Pick<WorkbenchActionHandlerMap, 
           loopAuthorized: false,
           wholeWaveDispatchAuthorized: false,
           slotAllocatorAuthorized: false,
-        },
+        };
+      return {
+        controlledAdvance,
         goalLoopDecision: evaluation.goalLoopDecision,
         goalLoopIteration: evaluation.goalLoopIteration,
         goalLoopContinuationBrief: evaluation.goalLoopContinuationBrief,
@@ -217,6 +219,10 @@ export function buildSchedulerActionHandlers(): Pick<WorkbenchActionHandlerMap, 
         goalLoopControllerPolicy: controller.goalLoopControllerPolicy,
         goalLoopGateReadinessPreflight: preflight.goalLoopGateReadinessPreflight,
         ...postStep,
+        postStepHandoff: buildControlledSchedulerPostStepHandoff({
+          controlledAdvance,
+          ...postStep,
+        }),
         controlledStep: controlledStepPayload.controlledStep,
         result: controlledStepPayload.result,
       };

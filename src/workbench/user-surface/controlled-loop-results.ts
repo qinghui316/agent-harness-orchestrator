@@ -1,4 +1,5 @@
 import { schedulerUserFacingActionCopy } from "../projections/read-model/confirmation/scheduler-user-surface.js";
+import { controlledSchedulerPostStepHandoffSummary } from "../controlled-scheduler-handoff.js";
 
 type ControlledLoopCopy = {
   label: string;
@@ -53,6 +54,8 @@ export function controlledLoopDecisionSummary(actionType: string, result: unknow
   const schedulerSummary = SCHEDULER_COMPLETED_SUMMARY[actionType];
   if (!schedulerSummary) return null;
   if (actionType !== "planning.scheduler.controlled-advance.run") return schedulerSummary;
+  const handoffSummary = controlledSchedulerPostStepHandoffSummary(result);
+  if (handoffSummary) return `${schedulerSummary} ${handoffSummary}`;
   if (hasRecordField(result, "postStepGoalLoopReadiness")) {
     return `${schedulerSummary} 下一步证据已刷新；若当前页面仍显示匹配步骤，检查证据也已刷新。继续仍需要你单独确认。`;
   }

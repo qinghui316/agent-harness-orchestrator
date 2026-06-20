@@ -83,6 +83,24 @@ describe("Workbench action result summaries", () => {
   });
 
   it("summarizes controlled advance post-step evidence without adding executable language", () => {
+    const handoffReady = summarizeActionResult("planning.scheduler.controlled-advance.run", {
+      postStepHandoff: {
+        status: "next-confirmation-candidate-ready",
+        executionStarted: false,
+      },
+    });
+    const handoffWarning = summarizeActionResult("planning.scheduler.controlled-advance.run", {
+      postStepHandoff: {
+        status: "next-confirmation-candidate-needs-review",
+        executionStarted: false,
+      },
+    });
+    const handoffFailed = summarizeActionResult("planning.scheduler.controlled-advance.run", {
+      postStepHandoff: {
+        status: "next-step-evaluation-failed",
+        executionStarted: false,
+      },
+    });
     const readiness = summarizeActionResult("planning.scheduler.controlled-advance.run", {
       postStepGoalLoopReadiness: {
         goalLoopControllerPolicyId: "policy-post",
@@ -103,6 +121,12 @@ describe("Workbench action result summaries", () => {
       postStepGoalLoopEvaluationWarning: "refresh failed",
     });
 
+    expect(handoffReady).toContain("下一步判断和当前步骤检查已经刷新");
+    expect(handoffReady).toMatch(/需要你?再次确认/);
+    expect(handoffWarning).toContain("当前步骤检查还需要重新评估");
+    expect(handoffWarning).toContain("不会自动继续");
+    expect(handoffFailed).toContain("下一步判断刷新未完成");
+    expect(handoffFailed).toMatch(/重新评估/);
     expect(readiness).toContain("下一步证据已刷新");
     expect(readiness).toContain("若当前页面仍显示匹配步骤");
     expect(readiness).toMatch(/需要你?单独确认/);
@@ -113,7 +137,7 @@ describe("Workbench action result summaries", () => {
     expect(refreshed).toMatch(/需要你?单独确认/);
     expect(warning).toContain("当前步骤已完成，但下一步证据刷新未完成");
     expect(warning).toMatch(/重新评估/);
-    expectUserCopyNotToContainInternalTerms(`${readiness}\n${readinessWarning}\n${refreshed}\n${warning}`);
+    expectUserCopyNotToContainInternalTerms(`${handoffReady}\n${handoffWarning}\n${handoffFailed}\n${readiness}\n${readinessWarning}\n${refreshed}\n${warning}`);
   });
 });
 

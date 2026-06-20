@@ -260,6 +260,27 @@ describe("controlled scheduler advance post-step evaluation", () => {
       concreteGateInvoked: false,
       toolPolicyAuthorizedConcreteGate: false,
     });
+    expect(result.postStepHandoff).toMatchObject({
+      authority: "derived-non-executing-workbench-handoff",
+      status: "next-confirmation-candidate-ready",
+      stopReason: "one-confirmed-scheduler-transition-completed",
+      executedActionType: "planning.scheduler.worker.start-next",
+      needsReevaluation: false,
+      executionStarted: false,
+      loopAuthorized: false,
+      wholeWaveDispatchAuthorized: false,
+      slotAllocatorAuthorized: false,
+      nextConfirmationCandidate: {
+        actionType: "planning.scheduler.worker.reconcile-result",
+        goalLoopNextStepPacketId: "goal-loop-packet-post",
+        goalLoopControllerPolicyId: "goal-loop-controller-post",
+        goalLoopGateReadinessPreflightId: "goal-loop-preflight-post",
+        readinessEvidencePrepared: true,
+        executionStarted: false,
+        authorizationGranted: false,
+        humanConfirmationStillRequired: true,
+      },
+    });
   });
 
   it("keeps concrete transition success when post-step evidence refresh fails", async () => {
@@ -283,6 +304,16 @@ describe("controlled scheduler advance post-step evaluation", () => {
       schedulerWorkerStart: { id: "scheduler-worker-start-1" },
     });
     expect(result.postStepGoalLoopEvaluationWarning).toContain("projection drift");
+    expect(result.postStepHandoff).toMatchObject({
+      status: "next-step-evaluation-failed",
+      executedActionType: "planning.scheduler.worker.start-next",
+      needsReevaluation: true,
+      executionStarted: false,
+      loopAuthorized: false,
+      wholeWaveDispatchAuthorized: false,
+      slotAllocatorAuthorized: false,
+    });
+    expect(result.postStepHandoff).not.toHaveProperty("nextConfirmationCandidate");
   });
 
   it("keeps post-step evaluation when visible readiness proof does not match current Workbench gate", async () => {
@@ -304,6 +335,19 @@ describe("controlled scheduler advance post-step evaluation", () => {
     });
     expect(result.postStepGoalLoopReadiness).toBeUndefined();
     expect(result.postStepGoalLoopReadinessWarning).toContain("target-mismatch");
+    expect(result.postStepHandoff).toMatchObject({
+      status: "next-confirmation-candidate-needs-review",
+      executedActionType: "planning.scheduler.worker.start-next",
+      needsReevaluation: true,
+      executionStarted: false,
+      nextConfirmationCandidate: {
+        actionType: "planning.scheduler.worker.reconcile-result",
+        goalLoopNextStepPacketId: "goal-loop-packet-post",
+        readinessEvidencePrepared: false,
+        authorizationGranted: false,
+        humanConfirmationStillRequired: true,
+      },
+    });
   });
 
   it("keeps concrete transition success when post-step readiness compile fails", async () => {
@@ -322,6 +366,16 @@ describe("controlled scheduler advance post-step evaluation", () => {
     expect(result.postStepGoalLoopReadinessWarning).toContain("policy stale");
     expect(result.result).toMatchObject({
       schedulerWorkerStart: { id: "scheduler-worker-start-1" },
+    });
+    expect(result.postStepHandoff).toMatchObject({
+      status: "next-confirmation-candidate-needs-review",
+      warning: expect.stringContaining("policy stale"),
+      nextConfirmationCandidate: {
+        actionType: "planning.scheduler.worker.reconcile-result",
+        readinessEvidencePrepared: false,
+        authorizationGranted: false,
+        humanConfirmationStillRequired: true,
+      },
     });
   });
 });
