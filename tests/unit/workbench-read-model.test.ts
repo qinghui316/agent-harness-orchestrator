@@ -15,6 +15,19 @@ import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import { getTempDir, project, writeAcceptedSpecAndTasks } from "./workbench/fixtures.js";
 import type { RunMetadata } from "../../src/types/index.js";
 
+const FORBIDDEN_CONTROLLED_LOOP_PRIMARY_TERMS = [
+  "Goal Loop",
+  "Goal loop",
+  "GoalLoop",
+  "planning.scheduler",
+  "SchedulerRun",
+  "Harness gate",
+  "continuation brief",
+  "concrete gate",
+  "whole-wave",
+  "slot allocator",
+];
+
 describe("workbench read-model projections", () => {
   it("lists active and archived changes as topics", async () => {
     await initHarness(project());
@@ -237,6 +250,63 @@ describe("workbench read-model projections", () => {
     ]));
     expect(snapshot.center.thread.items.some((item) => item.kind === "evidence" && item.runId === run.run.id)).toBe(false);
     expect(snapshot.center.thread.items.some((item) => item.label === "process.started" || item.label === "run.completed")).toBe(false);
+  });
+
+  it("projects controlled loop workflow fallbacks in user-facing terms", async () => {
+    await initHarness(project());
+    const topic = await createWorkbenchTopic(project(), { title: "Controlled Loop Copy", body: "Show controlled loop results clearly." });
+    await appendTopicThreadEntry(project(), topic.changeId, {
+      type: "workflow.started",
+      actionRunId: "controlled-running",
+      actionType: "planning.goal-loop.controller.refresh",
+      status: "running",
+    });
+    await appendTopicThreadEntry(project(), topic.changeId, {
+      type: "workflow.started",
+      actionRunId: "controlled-completed",
+      actionType: "planning.scheduler.controlled-advance.run",
+      status: "running",
+    });
+    await appendTopicThreadEntry(project(), topic.changeId, {
+      type: "workflow.completed",
+      actionRunId: "controlled-completed",
+      actionType: "planning.scheduler.controlled-advance.run",
+      status: "completed",
+    });
+    await appendTopicThreadEntry(project(), topic.changeId, {
+      type: "workflow.started",
+      actionRunId: "controlled-failed",
+      actionType: "planning.goal-loop.gate-readiness.prepare",
+      status: "running",
+    });
+    await appendTopicThreadEntry(project(), topic.changeId, {
+      type: "workflow.failed",
+      actionRunId: "controlled-failed",
+      actionType: "planning.goal-loop.gate-readiness.prepare",
+      status: "failed",
+    });
+
+    const snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: topic.changeId });
+    const controlledItems = snapshot.center.thread.items.filter((item) => item.actionRunId?.startsWith("controlled-"));
+
+    expect(controlledItems).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        actionRunId: "controlled-running",
+        label: "刷新下一步判断进行中",
+        body: "正在刷新下一步判断；这里只会更新是否适合继续的证据。",
+      }),
+      expect.objectContaining({
+        actionRunId: "controlled-completed",
+        label: "按当前建议继续一个受控步骤已完成",
+        body: expect.stringContaining("只按当前建议推进了一个受控步骤"),
+      }),
+      expect.objectContaining({
+        actionRunId: "controlled-failed",
+        label: "检查当前步骤未完成",
+        body: "当前步骤检查未完成；请查看错误和证据后再决定是否重试或调整。",
+      }),
+    ]));
+    expectUserCopyNotToContainInternalTerms(JSON.stringify(controlledItems));
   });
 
   it("prefers persisted assistant blocks over legacy activity when rebuilding the thread", async () => {
@@ -843,4 +913,10 @@ async function writeSpecProposalRun(changeId: string): Promise<RunMetadata> {
   expect(existsSync(join(runDir, "spec-proposal.json"))).toBe(true);
   expect(await readFile(join(runDir, "events.jsonl"), "utf8")).toContain("change.spec.proposal.completed");
   return run;
+}
+
+function expectUserCopyNotToContainInternalTerms(copy: string): void {
+  for (const forbidden of FORBIDDEN_CONTROLLED_LOOP_PRIMARY_TERMS) {
+    expect(copy).not.toContain(forbidden);
+  }
 }

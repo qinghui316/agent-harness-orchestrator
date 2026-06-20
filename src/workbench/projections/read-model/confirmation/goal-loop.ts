@@ -23,7 +23,7 @@ export function goalLoopEvaluationQueueItem(
     evidenceRefs: [],
     actions: [{
       id: `workflow:planning.goal-loop.evaluate:${selectedTopic.id}`,
-      label: "评估目标循环",
+      label: "评估下一步",
       kind: "workflow-action",
       changeId: selectedTopic.id,
       actionType: "planning.goal-loop.evaluate",
@@ -162,7 +162,7 @@ function goalLoopFeedbackAction(workpad: WorkbenchWorkpad): WorkbenchDecisionAct
   if (!goalLoop?.goalLoopNextStepPacketId || !nextAction.actionType || !readGoalLoopScope(goalLoop)) return null;
   return {
     id: `workflow:planning.goal-loop.feedback.evaluate:${goalLoop.goalLoopNextStepPacketId}`,
-    label: "修正 Goal Loop 建议",
+    label: "修正下一步建议",
     kind: "feedback",
     enabled: true,
     requiresConfirmation: false,
@@ -187,7 +187,7 @@ function goalLoopAssistedConcreteGateAction(workpad: WorkbenchWorkpad): Workbenc
   return {
     ...scope,
     id: `workflow:${expectedType}:goal-loop-assisted:${goalLoop.gateReadinessPreflightId}`,
-    label: "确认当前 gate（Goal Loop 已预检）",
+    label: "确认当前步骤",
     kind: "workflow-action",
     enabled: true,
     requiresConfirmation: true,
@@ -294,7 +294,7 @@ function goalLoopControllerRefreshAction(workpad: WorkbenchWorkpad): WorkbenchDe
   return {
     ...scope,
     id: `workflow:planning.goal-loop.controller.refresh:${goalLoop.goalLoopNextStepPacketId}`,
-    label: "刷新 Goal Loop 控制策略",
+    label: "刷新下一步判断",
     kind: "workflow-action",
     enabled: true,
     requiresConfirmation: true,
@@ -320,7 +320,7 @@ function goalLoopGateReadinessAction(workpad: WorkbenchWorkpad): WorkbenchDecisi
   return {
     ...scope,
     id: `workflow:planning.goal-loop.gate-readiness.prepare:${goalLoop.controllerPolicyId}`,
-    label: "准备 Goal Loop gate 预检",
+    label: "检查当前步骤",
     kind: "workflow-action",
     enabled: true,
     requiresConfirmation: true,

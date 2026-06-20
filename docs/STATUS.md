@@ -3,16 +3,16 @@
 ## Current Handoff
 
 - Current date: 2026-06-20.
-- Active ECL change: none.
+- Active ECL change: `harness/changes/active/workbench-controlled-loop-result-surface/summary.md`.
 - Pending Harness evolution: none.
 - Latest archived product change: `harness/changes/archive/20260620-workbench-controlled-loop-confirmation-surface/summary.md`.
 - Latest archived product/Harness docs change: `harness/changes/archive/20260620-workbench-controlled-loop-confirmation-surface/summary.md`.
 - Latest archived Harness evolution: `harness/changes/archive/20260620-auto-evolve-harness-controlled-loop-surface-window/summary.md`.
-- Active product phase: none.
+- Active product phase: Workbench Controlled Loop Result Surface.
 - Active Harness evolution phase: none.
 - Active close status: none.
 
-This file is the short resume point. There is no active ECL change and pending Harness evolution is none. The latest product change closed the Workbench controlled loop confirmation surface: the right-side confirmation queue now presents fallback Goal Loop evaluation and controlled Scheduler advance in user-facing terms, reuses the Scheduler user-surface copy owner, preserves one-step confirmation boundaries, and keeps runtime/action authority unchanged. The previous product change closed the Workpad controlled loop posture surface: Goal Loop / Scheduler evidence renders as a user-facing controlled continuation posture with a readable next-gate label, explicit one-step boundary, and no raw `planning.scheduler.*` / false authority flags in the primary card. The latest Harness evolution completed `keep / independent_review` and added the missing Workbench User-Surface Honesty Coverage prompt to the default change review template.
+This file is the short resume point. Active work is extending the controlled Scheduler / Goal Loop product surface beyond pre-confirmation copy: result summaries, thread replay fallback, and Goal Loop handler conversation messages should use user-facing one-step continuation language while preserving detailed artifacts as evidence. Pending Harness evolution is none. The latest product change closed the Workbench controlled loop confirmation surface: the right-side confirmation queue now presents fallback Goal Loop evaluation and controlled Scheduler advance in user-facing terms, reuses the Scheduler user-surface copy owner, preserves one-step confirmation boundaries, and keeps runtime/action authority unchanged. The previous product change closed the Workpad controlled loop posture surface: Goal Loop / Scheduler evidence renders as a user-facing controlled continuation posture with a readable next-gate label, explicit one-step boundary, and no raw `planning.scheduler.*` / false authority flags in the primary card. The latest Harness evolution completed `keep / independent_review` and added the missing Workbench User-Surface Honesty Coverage prompt to the default change review template.
 
 Current plan-level roadmap context is preserved in `docs/CURRENT-DEVELOPMENT-PLAN.md`. Historical detail belongs in archived summaries and `harness/changes/INDEX.json`.
 
@@ -26,7 +26,7 @@ Phase 12A remains the future controlled Scheduler/parallel loop design boundary.
 
 ## Next Resume Point
 
-Next structured work should continue product-function progress from the controlled Scheduler / Goal Loop direction with larger feature slices that build toward user-visible loop progress, while still preserving one confirmed transition per high-impact action, ToolPolicyGate, stale revalidation, IntegrationCheck/apply boundaries, and human gates. Avoid standalone architecture/test convergence unless it materially blocks or de-risks the product feature in front of us. Keep `README.md` unrelated and untracked unless the user explicitly asks to include it.
+Continue the active Workbench Controlled Loop Result Surface change. Implement the whole user-visible result chain in one stage: action result copy, thread fallback copy, Goal Loop conversation messages, focused tests, review, close, and commit. Keep runtime authority unchanged, preserve one confirmed transition per high-impact action, ToolPolicyGate, stale revalidation, IntegrationCheck/apply boundaries, and human gates. Avoid standalone architecture/test convergence unless it materially blocks or de-risks the product feature in front of us. Keep `README.md` unrelated and untracked unless the user explicitly asks to include it.
 
 ## Verification Commands
 

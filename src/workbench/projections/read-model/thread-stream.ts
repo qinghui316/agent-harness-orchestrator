@@ -2,6 +2,7 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { readTopicThreadLog } from "../../thread-log.js";
+import { controlledLoopThreadBody, controlledLoopThreadLabel } from "../../user-surface/controlled-loop-results.js";
 import type { AssistantTurnActivity, AssistantTurnBlock, TopicThreadEntry } from "../../types.js";
 import type { ClarificationRequest, WorkbenchIntakeIteration, WorkbenchIntakeScan } from "../../intake.js";
 import type { AuditSummary, ResolvedMemory, RunEvent, RunMetadata, ValidationSummary } from "../../../types/index.js";
@@ -695,6 +696,9 @@ export async function isConcreteChangeFile(memory: ResolvedMemory, changePath: s
 }
 
 function workflowLabel(actionType: string | undefined, status: string | undefined): string {
+  const controlledLoopLabel = controlledLoopThreadLabel(actionType, status);
+  if (controlledLoopLabel) return controlledLoopLabel;
+
   const label = actionType ? workflowActionLabel(actionType) : "Workflow action";
   if (status === "failed") return `${label} failed`;
   if (status === "running") return `${label} running`;
@@ -702,6 +706,9 @@ function workflowLabel(actionType: string | undefined, status: string | undefine
 }
 
 function workflowBody(actionType: string | undefined, status: string | undefined): string {
+  const controlledLoopBody = controlledLoopThreadBody(actionType, status);
+  if (controlledLoopBody) return controlledLoopBody;
+
   if (status === "running") return "The action has started and is waiting for a terminal result.";
   if (status === "failed") return "The action failed. See Run Replay for low-level events and artifacts.";
   if (actionType === "code.run") return "Coder, validation, and audit ran as the sequential confirmed workflow.";

@@ -15,6 +15,7 @@ import { listWorktreeStatuses } from "../../src/worktree/manager.js";
 import { listIntegrationChecks } from "../../src/integration-check/manager.js";
 import { readLatestGoalLoopContinuationBrief, readLatestGoalLoopDecision, readLatestGoalLoopIteration } from "../../src/goal-loop/manager.js";
 import { getTempDir, project, writeAcceptedSpecAndTasks } from "./workbench/fixtures.js";
+import { readTopicThreadLog } from "../../src/workbench/thread-log.js";
 
 type SchedulerTerminalHandoffSectionFixture = Parameters<typeof buildSchedulerTerminalHandoffContext>[1];
 
@@ -45,7 +46,7 @@ describe("workbench Goal Loop surface", () => {
     });
     const action = snapshot.right.confirmationQueue.primary?.actions.find((item) => item.actionType === "planning.goal-loop.evaluate");
     expect(action).toMatchObject({
-      label: "评估目标循环",
+      label: "评估下一步",
       changeId: topic.changeId,
       requiresConfirmation: true,
     });
@@ -100,6 +101,21 @@ describe("workbench Goal Loop surface", () => {
       sourceGoalLoopIterationId: result.goalLoopIteration?.id,
       sourceGoalLoopContinuationBriefId: result.goalLoopContinuationBrief?.id,
     });
+    const threadLog = await readTopicThreadLog(await resolveProjectMemory(project()), join("harness", "changes", "active", topic.changeId));
+    const goalLoopMessage = threadLog.find((entry) => entry.type === "assistant.message" && entry.status === "goal-loop-evaluated");
+    expect(goalLoopMessage).toMatchObject({
+      text: "下一步评估已完成。这里只记录建议和证据，没有执行任何步骤；继续执行仍需要你单独确认。",
+      artifact: result.goalLoopContinuationBrief?.artifact,
+    });
+    expectUserCopyNotToContainInternalTerms(goalLoopMessage?.text ?? "", [
+      "GoalLoopContinuationBrief",
+      "Goal Loop",
+      "continuation brief",
+      "Recommended Action Snapshot",
+      "planning.scheduler",
+      "Harness gate",
+      "concrete gate",
+    ]);
     const memory = await resolveProjectMemory(project());
     await expect(readLatestGoalLoopDecision(memory, join("harness", "changes", "active", topic.changeId))).resolves.toMatchObject({
       changeId: topic.changeId,
@@ -941,7 +957,11 @@ function expectQueueItemUserCopyNotToContainInternalTerms(
 ): void {
   expect(item).toBeTruthy();
   const visibleCopy = [item?.summary, item?.whyNeedsConfirmation, item?.confirmEffect, item?.riskSummary].join("\n");
+  expectUserCopyNotToContainInternalTerms(visibleCopy, forbiddenTerms);
+}
+
+function expectUserCopyNotToContainInternalTerms(copy: string, forbiddenTerms: string[]): void {
   for (const term of forbiddenTerms) {
-    expect(visibleCopy).not.toContain(term);
+    expect(copy).not.toContain(term);
   }
 }

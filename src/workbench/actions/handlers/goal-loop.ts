@@ -1,4 +1,4 @@
-import { compileGoalLoopControllerPolicy, compileGoalLoopEvaluation, compileGoalLoopGateReadinessPreflight, readLatestGoalLoopNextStepPacket, recordGoalLoopFeedback, renderGoalLoopContinuationBriefMarkdown, renderGoalLoopControllerPolicyMarkdown, renderGoalLoopFeedbackAcknowledgementMarkdown, renderGoalLoopGateReadinessPreflightMarkdown, type GoalLoopContinuationBrief, type GoalLoopControllerPolicy, type GoalLoopCurrentGateSnapshot, type GoalLoopDecision, type GoalLoopFeedback, type GoalLoopGateReadinessPreflight, type GoalLoopIteration, type GoalLoopNextStepPacket } from "../../../goal-loop/manager.js";
+import { compileGoalLoopControllerPolicy, compileGoalLoopEvaluation, compileGoalLoopGateReadinessPreflight, readLatestGoalLoopNextStepPacket, recordGoalLoopFeedback, type GoalLoopContinuationBrief, type GoalLoopControllerPolicy, type GoalLoopCurrentGateSnapshot, type GoalLoopDecision, type GoalLoopFeedback, type GoalLoopGateReadinessPreflight, type GoalLoopIteration, type GoalLoopNextStepPacket } from "../../../goal-loop/manager.js";
 import { assertWritableMemory } from "../../../memory/resolver.js";
 import type { ManagedProject } from "../../../types/index.js";
 import { WORKFLOW_ACTION_SCOPE_KEYS, isWorkflowActionType } from "../../../workflow-actions/registry.js";
@@ -7,6 +7,7 @@ import { emitAssistantEvent } from "../../live-events.js";
 import { resolveTopic } from "../../topic-resolver.js";
 import { appendTopicThreadEntry } from "../../topic-thread.js";
 import type { WorkbenchWorkflowActionRequest, WorkbenchLiveSink } from "../../types.js";
+import { controlledLoopAssistantMessage, controlledLoopFeedbackRecordedMessage, controlledLoopResultLabel } from "../../user-surface/controlled-loop-results.js";
 import type { WorkbenchActionHandlerMap } from "../dispatcher.js";
 
 type GoalLoopWorkbenchActionType = "planning.goal-loop.evaluate" | "planning.goal-loop.feedback.evaluate" | "planning.goal-loop.controller.refresh" | "planning.goal-loop.gate-readiness.prepare";
@@ -34,15 +35,15 @@ export async function evaluateGoalLoopDecision(
   await appendTopicThreadEntry(project, changeId, {
     type: "assistant.message",
     status: "goal-loop-evaluated",
-    text: renderGoalLoopContinuationBriefMarkdown(brief),
+    text: controlledLoopAssistantMessage("planning.goal-loop.evaluate") ?? decision.summary,
     artifact: brief.artifact,
   });
   emitAssistantEvent(live, {
     runId: brief.id,
     kind: "file-change",
     phase: "goal-loop-evaluated",
-    title: "Goal loop continuation brief recorded",
-    summary: `${iteration.continuationVerdict}: ${decision.summary}`,
+    title: controlledLoopResultLabel("planning.goal-loop.evaluate") ?? "评估下一步",
+    summary: controlledLoopAssistantMessage("planning.goal-loop.evaluate") ?? decision.summary,
     artifactRef: brief.artifact,
   });
   await recordWorkbenchDecision(project, {
@@ -50,8 +51,8 @@ export async function evaluateGoalLoopDecision(
     changeId,
     decisionType: "planning.goal-loop.evaluate",
     status: "completed",
-    label: "Goal loop continuation brief evaluated",
-    summary: decision.summary,
+    label: controlledLoopResultLabel("planning.goal-loop.evaluate") ?? "评估下一步",
+    summary: controlledLoopAssistantMessage("planning.goal-loop.evaluate") ?? decision.summary,
     targetId: brief.id,
     runId: null,
     artifact: brief.artifact,
@@ -114,21 +115,21 @@ export async function evaluateGoalLoopFeedback(
   await appendTopicThreadEntry(project, changeId, {
     type: "assistant.message",
     status: "goal-loop-feedback-recorded",
-    text: renderGoalLoopFeedbackAcknowledgementMarkdown(feedback),
+    text: controlledLoopFeedbackRecordedMessage(),
     artifact: feedback.artifact,
   });
   await appendTopicThreadEntry(project, changeId, {
     type: "assistant.message",
     status: "goal-loop-feedback-evaluated",
-    text: renderGoalLoopContinuationBriefMarkdown(brief),
+    text: controlledLoopAssistantMessage("planning.goal-loop.feedback.evaluate") ?? decision.summary,
     artifact: brief.artifact,
   });
   emitAssistantEvent(live, {
     runId: brief.id,
     kind: "file-change",
     phase: "goal-loop-feedback-evaluated",
-    title: "Goal loop feedback recorded and re-evaluated",
-    summary: `${iteration.continuationVerdict}: ${decision.summary}`,
+    title: controlledLoopResultLabel("planning.goal-loop.feedback.evaluate") ?? "根据反馈重新评估",
+    summary: controlledLoopAssistantMessage("planning.goal-loop.feedback.evaluate") ?? decision.summary,
     artifactRef: brief.artifact,
   });
   await recordWorkbenchDecision(project, {
@@ -136,8 +137,8 @@ export async function evaluateGoalLoopFeedback(
     changeId,
     decisionType: "planning.goal-loop.feedback.evaluate",
     status: "completed",
-    label: "Goal loop feedback re-evaluated",
-    summary: decision.summary,
+    label: controlledLoopResultLabel("planning.goal-loop.feedback.evaluate") ?? "根据反馈重新评估",
+    summary: controlledLoopAssistantMessage("planning.goal-loop.feedback.evaluate") ?? decision.summary,
     targetId: feedback.id,
     runId: null,
     artifact: feedback.artifact,
@@ -182,15 +183,15 @@ export async function refreshGoalLoopControllerPolicy(
   await appendTopicThreadEntry(project, changeId, {
     type: "assistant.message",
     status: "goal-loop-controller-policy-refreshed",
-    text: renderGoalLoopControllerPolicyMarkdown(policy),
+    text: controlledLoopAssistantMessage("planning.goal-loop.controller.refresh") ?? policy.summary,
     artifact: policy.artifact,
   });
   emitAssistantEvent(live, {
     runId: policy.id,
     kind: "file-change",
     phase: "goal-loop-controller-policy-refreshed",
-    title: "Goal Loop controller policy refreshed",
-    summary: `${policy.verdict}: ${policy.summary}`,
+    title: controlledLoopResultLabel("planning.goal-loop.controller.refresh") ?? "刷新下一步判断",
+    summary: controlledLoopAssistantMessage("planning.goal-loop.controller.refresh") ?? policy.summary,
     artifactRef: policy.artifact,
   });
   await recordWorkbenchDecision(project, {
@@ -198,8 +199,8 @@ export async function refreshGoalLoopControllerPolicy(
     changeId,
     decisionType: "planning.goal-loop.controller.refresh",
     status: "completed",
-    label: "Goal Loop controller policy refreshed",
-    summary: policy.summary,
+    label: controlledLoopResultLabel("planning.goal-loop.controller.refresh") ?? "刷新下一步判断",
+    summary: controlledLoopAssistantMessage("planning.goal-loop.controller.refresh") ?? policy.summary,
     targetId: policy.id,
     runId: null,
     artifact: policy.artifact,
@@ -243,15 +244,15 @@ export async function prepareGoalLoopGateReadinessPreflight(
   await appendTopicThreadEntry(project, changeId, {
     type: "assistant.message",
     status: "goal-loop-gate-readiness-preflight-recorded",
-    text: renderGoalLoopGateReadinessPreflightMarkdown(preflight),
+    text: controlledLoopAssistantMessage("planning.goal-loop.gate-readiness.prepare") ?? preflight.summary,
     artifact: preflight.artifact,
   });
   emitAssistantEvent(live, {
     runId: preflight.id,
     kind: "file-change",
     phase: "goal-loop-gate-readiness-preflight-recorded",
-    title: "Goal Loop gate readiness preflight recorded",
-    summary: preflight.summary,
+    title: controlledLoopResultLabel("planning.goal-loop.gate-readiness.prepare") ?? "检查当前步骤",
+    summary: controlledLoopAssistantMessage("planning.goal-loop.gate-readiness.prepare") ?? preflight.summary,
     artifactRef: preflight.artifact,
   });
   await recordWorkbenchDecision(project, {
@@ -259,8 +260,8 @@ export async function prepareGoalLoopGateReadinessPreflight(
     changeId,
     decisionType: "planning.goal-loop.gate-readiness.prepare",
     status: "completed",
-    label: "Goal Loop gate readiness preflight recorded",
-    summary: preflight.summary,
+    label: controlledLoopResultLabel("planning.goal-loop.gate-readiness.prepare") ?? "检查当前步骤",
+    summary: controlledLoopAssistantMessage("planning.goal-loop.gate-readiness.prepare") ?? preflight.summary,
     targetId: preflight.id,
     runId: null,
     artifact: preflight.artifact,

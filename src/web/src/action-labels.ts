@@ -12,10 +12,10 @@ export function workflowActionLabel(actionType: string | undefined): string {
   if (actionType === "taskqueue.proposal") return "TaskQueue proposal";
   if (actionType === "scheduler.contract") return "Scheduler Contract";
   if (actionType === "planning.taskqueue.propose") return "生成 TaskQueue 提案";
-  if (actionType === "planning.goal-loop.evaluate") return "评估目标循环";
-  if (actionType === "planning.goal-loop.feedback.evaluate") return "重新评估目标循环";
-  if (actionType === "planning.goal-loop.controller.refresh") return "刷新 Goal Loop 控制策略";
-  if (actionType === "planning.goal-loop.gate-readiness.prepare") return "准备 Goal Loop gate 预检";
+  if (actionType === "planning.goal-loop.evaluate") return "评估下一步";
+  if (actionType === "planning.goal-loop.feedback.evaluate") return "根据反馈重新评估";
+  if (actionType === "planning.goal-loop.controller.refresh") return "刷新下一步判断";
+  if (actionType === "planning.goal-loop.gate-readiness.prepare") return "检查当前步骤";
   if (actionType === "maintenance.canonical-update.decision.record") return "记录维护决策";
   if (actionType === "maintenance.canonical-patch.application-gate.record") return "记录 patch 应用 gate";
   if (actionType === "maintenance.canonical-patch.apply") return "应用 canonical patch";

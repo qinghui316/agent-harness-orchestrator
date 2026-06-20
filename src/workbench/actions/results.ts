@@ -1,3 +1,5 @@
+import { controlledLoopDecisionSummary, controlledLoopResultLabel } from "../user-surface/controlled-loop-results.js";
+
 export function extractRunId(result: unknown): string | undefined {
   if (isRecord(result) && isRecord(result.run) && typeof result.run.id === "string") return result.run.id;
   if (isRecord(result) && isRecord(result.code) && isRecord(result.code.run) && typeof result.code.run.id === "string") return result.code.run.id;
@@ -35,6 +37,9 @@ export function artifactForActionResult(result: unknown): string | null {
 }
 
 export function summarizeActionResult(actionType: string, result: unknown): string {
+  const controlledLoopSummary = controlledLoopDecisionSummary(actionType, result);
+  if (controlledLoopSummary) return controlledLoopSummary;
+
   if ((actionType === "landing.prepare" || actionType === "landing.review" || actionType === "landing.refresh") && isRecord(result) && isRecord(result.package)) {
     const summary = typeof result.package.summary === "string" ? result.package.summary : "Landing readiness package updated.";
     return summary;
@@ -193,22 +198,6 @@ export function summarizeActionResult(actionType: string, result: unknown): stri
       ? `Scheduler claim reservation ${result.claimReservation.id} recorded. No execution was started.`
       : "Scheduler claim reservation recorded. No execution was started.";
   }
-  if (actionType === "planning.scheduler.controlled-step.run" && isRecord(result) && isRecord(result.controlledStep)) {
-    const nestedActionType = typeof result.controlledStep.actionType === "string" ? result.controlledStep.actionType : "the selected scheduler gate";
-    return `Controlled scheduler step executed ${nestedActionType} and stopped after one transition.`;
-  }
-  if (actionType === "planning.scheduler.controlled-advance.run" && isRecord(result)) {
-    const controlledAdvance = isRecord(result.controlledAdvance) ? result.controlledAdvance : null;
-    const controlledStep = isRecord(result.controlledStep) ? result.controlledStep : null;
-    const concreteActionType = typeof controlledStep?.actionType === "string"
-      ? controlledStep.actionType
-      : typeof controlledAdvance?.actionType === "string"
-        ? controlledAdvance.actionType
-        : "the selected scheduler gate";
-    const stoppedAfterOne = controlledAdvance?.stoppedAfterOneSchedulerTransition === true || controlledStep?.stoppedAfterOneSchedulerTransition === true;
-    const stopText = stoppedAfterOne ? "stopped after one transition" : "stopped without authorizing a scheduler loop";
-    return `Controlled scheduler advance refreshed Goal Loop evidence, matched the visible ${concreteActionType} gate, executed that concrete scheduler gate, and ${stopText}. No scheduler loop, whole-wave dispatch, slot allocator, apply, close, remote landing, or Harness evolution was started.`;
-  }
   if (actionType === "planning.scheduler.worker.start-first" && isRecord(result) && isRecord(result.workerStart)) {
     return typeof result.workerStart.id === "string"
       ? `Scheduler first coder worker ${result.workerStart.id} started.`
@@ -292,30 +281,6 @@ export function summarizeActionResult(actionType: string, result: unknown): stri
     const status = typeof result.closeout.status === "string" ? result.closeout.status : "closed";
     return `SchedulerRun closeout ${status} recorded before IntegrationCheck. No apply, landing, PR, merge, or next worker was started.`;
   }
-  if ((actionType === "planning.goal-loop.evaluate" || actionType === "planning.goal-loop.feedback.evaluate") && isRecord(result) && isRecord(result.goalLoopIteration)) {
-    const state = typeof result.goalLoopIteration.continuationState === "string"
-      ? result.goalLoopIteration.continuationState
-      : typeof result.goalLoopIteration.continuationVerdict === "string"
-        ? result.goalLoopIteration.continuationVerdict
-        : "recorded";
-    const brief = isRecord(result.goalLoopContinuationBrief) && typeof result.goalLoopContinuationBrief.id === "string"
-      ? ` with continuation brief ${result.goalLoopContinuationBrief.id}`
-      : "";
-    if (actionType === "planning.goal-loop.feedback.evaluate") {
-      return `Goal Loop feedback recorded and re-evaluated as ${state}${brief}. The concrete Harness gate still requires separate confirmation; no execution was started.`;
-    }
-    return `Goal loop iteration ${state}${brief} recorded. No execution was started.`;
-  }
-  if (actionType === "planning.goal-loop.controller.refresh" && isRecord(result) && isRecord(result.goalLoopControllerPolicy)) {
-    const verdict = typeof result.goalLoopControllerPolicy.verdict === "string" ? result.goalLoopControllerPolicy.verdict : "recorded";
-    return `Goal Loop controller policy refreshed as ${verdict}. No execution was started.`;
-  }
-  if (actionType === "planning.goal-loop.gate-readiness.prepare" && isRecord(result) && isRecord(result.goalLoopGateReadinessPreflight)) {
-    const gate = isRecord(result.goalLoopGateReadinessPreflight.currentGate) && typeof result.goalLoopGateReadinessPreflight.currentGate.actionType === "string"
-      ? result.goalLoopGateReadinessPreflight.currentGate.actionType
-      : "current Harness gate";
-    return `Goal Loop gate readiness preflight recorded for ${gate}. The concrete gate still requires separate confirmation; no execution was started.`;
-  }
   if (actionType === "planning.confirm-execution" && isRecord(result)) {
     return "Planning confirmed and canonical artifacts were written. No execution was started.";
   }
@@ -341,6 +306,9 @@ export function workflowFailureMessage(actionType: string, result: unknown): str
 }
 
 export function labelForAction(actionType: string): string {
+  const controlledLoopLabel = controlledLoopResultLabel(actionType);
+  if (controlledLoopLabel) return controlledLoopLabel;
+
   switch (actionType) {
     case "change.spec.propose": return "Spec proposal generated";
     case "change.spec.accept": return "Spec proposal accepted";
@@ -353,10 +321,6 @@ export function labelForAction(actionType: string): string {
     case "planning.decomposition.confirm": return "DecompositionPlan confirmed";
     case "planning.decomposition.assess-readiness": return "Decomposition readiness assessed";
     case "planning.taskqueue.propose": return "TaskQueueProposal generated";
-    case "planning.goal-loop.evaluate": return "Goal loop decision evaluated";
-    case "planning.goal-loop.feedback.evaluate": return "Goal loop feedback re-evaluated";
-    case "planning.goal-loop.controller.refresh": return "Goal Loop controller policy refreshed";
-    case "planning.goal-loop.gate-readiness.prepare": return "Goal Loop gate readiness preflight recorded";
     case "maintenance.canonical-update.decision.record": return "Maintenance canonical update decision recorded";
     case "maintenance.canonical-patch.application-gate.record": return "Maintenance canonical patch application gate recorded";
     case "maintenance.canonical-patch.apply": return "Maintenance canonical patch applied";
@@ -370,8 +334,6 @@ export function labelForAction(actionType: string): string {
     case "planning.scheduler.runtime.initialize": return "Scheduler runtime shell initialized";
     case "planning.scheduler.runtime.reconcile": return "Scheduler runtime reconciled";
     case "planning.scheduler.runtime.reserve-claims": return "Scheduler runtime claims reserved";
-    case "planning.scheduler.controlled-advance.run": return "Controlled scheduler advance executed";
-    case "planning.scheduler.controlled-step.run": return "Controlled scheduler step executed";
     case "planning.scheduler.worker.start-first": return "Scheduler first coder worker started";
     case "planning.scheduler.worker.start-next": return "Scheduler next coder worker started";
     case "planning.scheduler.worker.reconcile-result": return "Scheduler first coder worker result reconciled";
