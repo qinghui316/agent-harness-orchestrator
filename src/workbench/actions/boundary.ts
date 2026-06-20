@@ -483,27 +483,13 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
     ) {
       throw new Error("planning.scheduler.worker.reconcile-result WorkerStart target is stale.");
     }
-    if (request.schedulerClaimReservationId && request.schedulerClaimReservationId !== workerStart.schedulerClaimReservationId) {
-      throw new Error("planning.scheduler.worker.reconcile-result SchedulerRuntimeClaimReservation scope mismatch.");
-    }
-    if (request.reservationIntentId && request.reservationIntentId !== workerStart.reservationIntentId) {
-      throw new Error("planning.scheduler.worker.reconcile-result reservationIntentId scope mismatch.");
-    }
-    if (request.claimIntentId && request.claimIntentId !== workerStart.claimIntentId) {
-      throw new Error("planning.scheduler.worker.reconcile-result claimIntentId scope mismatch.");
-    }
-    if (request.taskRunId && request.taskRunId !== workerStart.taskRunId) {
-      throw new Error("planning.scheduler.worker.reconcile-result TaskRun scope mismatch.");
-    }
-    if (request.workerLeaseId && request.workerLeaseId !== workerStart.workerLeaseId) {
-      throw new Error("planning.scheduler.worker.reconcile-result WorkerLease scope mismatch.");
-    }
-    if (request.worktreeId && request.worktreeId !== workerStart.worktreeId) {
-      throw new Error("planning.scheduler.worker.reconcile-result worktree scope mismatch.");
-    }
-    if (request.runId && request.runId !== workerStart.runId) {
-      throw new Error("planning.scheduler.worker.reconcile-result code run scope mismatch.");
-    }
+    assertWorkbenchActionOptionalStringTarget(request.schedulerClaimReservationId, workerStart.schedulerClaimReservationId, "planning.scheduler.worker.reconcile-result", "SchedulerRuntimeClaimReservation");
+    assertWorkbenchActionOptionalStringTarget(request.reservationIntentId, workerStart.reservationIntentId, "planning.scheduler.worker.reconcile-result", "reservationIntentId");
+    assertWorkbenchActionOptionalStringTarget(request.claimIntentId, workerStart.claimIntentId, "planning.scheduler.worker.reconcile-result", "claimIntentId");
+    assertWorkbenchActionOptionalStringTarget(request.taskRunId, workerStart.taskRunId, "planning.scheduler.worker.reconcile-result", "TaskRun");
+    assertWorkbenchActionOptionalStringTarget(request.workerLeaseId, workerStart.workerLeaseId, "planning.scheduler.worker.reconcile-result", "WorkerLease");
+    assertWorkbenchActionOptionalStringTarget(request.worktreeId, workerStart.worktreeId ?? "", "planning.scheduler.worker.reconcile-result", "worktree");
+    assertWorkbenchActionOptionalStringTarget(request.runId, workerStart.runId ?? "", "planning.scheduler.worker.reconcile-result", "code run");
     const existingResult = await findSchedulerRuntimeWorkerResultForStart(memory, target.path, run.id, workerStart.id);
     if (request.schedulerWorkerResultId && existingResult?.id !== request.schedulerWorkerResultId) {
       throw new Error("planning.scheduler.worker.reconcile-result WorkerResult scope mismatch.");

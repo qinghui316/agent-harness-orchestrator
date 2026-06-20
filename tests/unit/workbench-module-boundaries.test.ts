@@ -2018,6 +2018,13 @@ describe("Workbench module boundaries", () => {
     expect(boundary).toContain("assertWorkbenchActionStringArrayTarget(request.worktreeIds, latestCandidate.readyWorktreeIds, \"planning.scheduler.integration-check.run\", \"worktreeIds\")");
     expect(boundary).toContain("assertWorkbenchActionStringArrayTarget(request.worktreeIds, latestHandoff.readyWorktreeIds, \"planning.scheduler.integration-outcome.reconcile\", \"worktreeIds\")");
     expect(boundary).toContain("assertWorkbenchActionStringArrayTarget(request.worktreeIds, outcome.readyWorktreeIds, \"planning.scheduler.run.complete\", \"worktreeIds\")");
+    expect(boundary).toContain("assertWorkbenchActionOptionalStringTarget(request.schedulerClaimReservationId, workerStart.schedulerClaimReservationId, \"planning.scheduler.worker.reconcile-result\", \"SchedulerRuntimeClaimReservation\")");
+    expect(boundary).toContain("assertWorkbenchActionOptionalStringTarget(request.reservationIntentId, workerStart.reservationIntentId, \"planning.scheduler.worker.reconcile-result\", \"reservationIntentId\")");
+    expect(boundary).toContain("assertWorkbenchActionOptionalStringTarget(request.claimIntentId, workerStart.claimIntentId, \"planning.scheduler.worker.reconcile-result\", \"claimIntentId\")");
+    expect(boundary).toContain("assertWorkbenchActionOptionalStringTarget(request.taskRunId, workerStart.taskRunId, \"planning.scheduler.worker.reconcile-result\", \"TaskRun\")");
+    expect(boundary).toContain("assertWorkbenchActionOptionalStringTarget(request.workerLeaseId, workerStart.workerLeaseId, \"planning.scheduler.worker.reconcile-result\", \"WorkerLease\")");
+    expect(boundary).toContain("assertWorkbenchActionOptionalStringTarget(request.worktreeId, workerStart.worktreeId ?? \"\", \"planning.scheduler.worker.reconcile-result\", \"worktree\")");
+    expect(boundary).toContain("assertWorkbenchActionOptionalStringTarget(request.runId, workerStart.runId ?? \"\", \"planning.scheduler.worker.reconcile-result\", \"code run\")");
     expect(boundary).toContain("assertWorkbenchActionOptionalStringTarget(request.schedulerIntegrationCandidateId, latestCandidate.id, \"planning.scheduler.integration-outcome.reconcile\", \"SchedulerIntegrationCandidate\")");
     expect(boundary).toContain("assertWorkbenchActionOptionalStringTarget(request.applyCheckId, latestHandoff.integrationCheckId, \"planning.scheduler.integration-outcome.reconcile\", \"applyCheckId\")");
     expect(boundary).toContain("assertWorkbenchActionOptionalStringTarget(request.schedulerReconcileSnapshotId, outcome.schedulerReconcileSnapshotId, \"planning.scheduler.run.complete\", \"schedulerReconcileSnapshotId\")");
