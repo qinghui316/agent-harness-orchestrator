@@ -36,6 +36,7 @@ import type { ManagedProject } from "../../../types/index.js";
 import { buildControlledSchedulerPostStepHandoff } from "../../controlled-scheduler-handoff.js";
 import { buildControlledSchedulerAdvanceStepRequest, buildControlledSchedulerStepRequest } from "../../../workflow-scheduler/controlled-step.js";
 import { recordSchedulerControlledStepEvidence } from "../../../scheduler-runtime/controlled-step-evidence.js";
+import { summarizeSchedulerControlledStepResult } from "../../../scheduler-runtime/controlled-loop-turn.js";
 import type { SchedulerControlledStepHandoffSummary } from "../../../scheduler-runtime/types.js";
 import { assertWorkflowActionScope, auditHighImpactWorkflowAction } from "../boundary.js";
 import { resolveVisibleControlledSchedulerCurrentGate } from "../visible-goal-loop-current-gate.js";
@@ -72,9 +73,6 @@ type SchedulerWorkbenchActionType =
   | "planning.scheduler.integration-outcome.reconcile"
   | "planning.scheduler.run.complete"
   | "planning.scheduler.run.close-blocked";
-
-type ControlledStepResultSummaryValue = string | number | boolean | string[] | null;
-type ControlledStepResultSummary = Record<string, ControlledStepResultSummaryValue>;
 
 export function buildSchedulerActionHandlers(): Pick<WorkbenchActionHandlerMap, SchedulerWorkbenchActionType> {
   const concreteHandlers = {
@@ -219,7 +217,7 @@ export function buildSchedulerActionHandlers(): Pick<WorkbenchActionHandlerMap, 
         controlledAdvance,
         ...postStep,
       });
-      const controlledStepResultSummary = summarizeControlledStepResult(controlledStepPayload.result);
+      const controlledStepResultSummary = summarizeSchedulerControlledStepResult(controlledStepPayload.result);
       const controlledStepEvidence = await recordControlledAdvanceRuntimeStepEvidence(project, changeId, requestedConcreteGate, controlledAdvance, postStep, postStepHandoff, controlledStepResultSummary);
       return {
         controlledAdvance,
@@ -363,7 +361,7 @@ async function recordControlledAdvanceRuntimeStepEvidence(
   },
   postStep: ControlledAdvancePostStepEvaluation | ControlledAdvancePostStepWarning,
   postStepHandoff: ReturnType<typeof buildControlledSchedulerPostStepHandoff>,
-  controlledStepResultSummary?: ControlledStepResultSummary,
+  controlledStepResultSummary?: ReturnType<typeof summarizeSchedulerControlledStepResult>,
 ): Promise<Record<string, unknown>> {
   try {
     const recorded = await recordSchedulerControlledStepEvidence(project, {
@@ -401,54 +399,6 @@ async function recordControlledAdvanceRuntimeStepEvidence(
       schedulerControlledStepEvidenceWarning: `Controlled scheduler runtime step evidence was not recorded after the scheduler transition succeeded: ${errorMessage(error)}`,
     };
   }
-}
-
-const CONTROLLED_STEP_RESULT_KEYS: Array<{
-  key: string;
-  idField: string;
-  statusField?: string;
-}> = [
-  { key: "schedulerRuntime", idField: "schedulerRuntimeStateId", statusField: "schedulerRuntimeStatus" },
-  { key: "schedulerReconcileSnapshot", idField: "schedulerReconcileSnapshotId", statusField: "schedulerReconcileSnapshotStatus" },
-  { key: "schedulerClaimReservation", idField: "schedulerClaimReservationId", statusField: "schedulerClaimReservationStatus" },
-  { key: "schedulerWorkerStart", idField: "schedulerWorkerStartId", statusField: "schedulerWorkerStartStatus" },
-  { key: "schedulerWorkerResult", idField: "schedulerWorkerResultId", statusField: "schedulerWorkerResultStatus" },
-  { key: "schedulerWorkerValidation", idField: "schedulerWorkerValidationId", statusField: "schedulerWorkerValidationStatus" },
-  { key: "schedulerWorkerAudit", idField: "schedulerWorkerAuditId", statusField: "schedulerWorkerAuditStatus" },
-  { key: "schedulerWorkerReworkPlan", idField: "schedulerWorkerReworkPlanId", statusField: "schedulerWorkerReworkPlanStatus" },
-  { key: "schedulerWorkerReworkStart", idField: "schedulerWorkerReworkStartId", statusField: "schedulerWorkerReworkStartStatus" },
-  { key: "schedulerWorkerReworkResult", idField: "schedulerWorkerReworkResultId", statusField: "schedulerWorkerReworkResultStatus" },
-  { key: "schedulerWorkerReworkValidation", idField: "schedulerWorkerReworkValidationId", statusField: "schedulerWorkerReworkValidationStatus" },
-  { key: "schedulerWorkerReworkAudit", idField: "schedulerWorkerReworkAuditId", statusField: "schedulerWorkerReworkAuditStatus" },
-  { key: "schedulerIntegrationCandidate", idField: "schedulerIntegrationCandidateId", statusField: "schedulerIntegrationCandidateStatus" },
-  { key: "schedulerIntegrationCheckHandoff", idField: "schedulerIntegrationCheckHandoffId", statusField: "schedulerIntegrationCheckHandoffStatus" },
-  { key: "schedulerIntegrationOutcome", idField: "schedulerIntegrationOutcomeId", statusField: "schedulerIntegrationOutcomeStatus" },
-  { key: "schedulerRunCompletion", idField: "schedulerRunCompletionId", statusField: "schedulerRunCompletionStatus" },
-  { key: "schedulerRunBlockedCloseout", idField: "schedulerRunBlockedCloseoutId", statusField: "schedulerRunBlockedCloseoutStatus" },
-];
-
-function summarizeControlledStepResult(result: unknown): ControlledStepResultSummary | undefined {
-  if (!isRecord(result)) return undefined;
-  const summary: ControlledStepResultSummary = {};
-  for (const spec of CONTROLLED_STEP_RESULT_KEYS) {
-    const candidate = result[spec.key];
-    if (!isRecord(candidate)) continue;
-    const id = candidate.id;
-    if (typeof id !== "string" || !id) continue;
-    summary.resultKind = spec.key;
-    summary[spec.idField] = id;
-    if (spec.statusField && typeof candidate.status === "string" && candidate.status) {
-      summary[spec.statusField] = candidate.status;
-    }
-    const artifact = candidate.artifact;
-    if (typeof artifact === "string" && artifact) summary.resultArtifact = artifact;
-    break;
-  }
-  return Object.keys(summary).length > 0 ? summary : undefined;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
 function toSchedulerControlledStepHandoffSummary(

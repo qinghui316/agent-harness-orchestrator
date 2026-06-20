@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-20T17:52:08.6736501Z",
+    "generated_at":  "2026-06-20T18:28:36.4372179Z",
     "active":  [
 
                ],
@@ -1673,6 +1673,10 @@
                     {
                         "name":  "20260621-auto-evolve-harness-controlled-scheduler-step-result-window-noop",
                         "path":  "harness/changes/archive/20260621-auto-evolve-harness-controlled-scheduler-step-result-window-noop"
+                    },
+                    {
+                        "name":  "20260621-controlled-scheduler-loop-turn-routing",
+                        "path":  "harness/changes/archive/20260621-controlled-scheduler-loop-turn-routing"
                     },
                     {
                         "name":  "20260621-controlled-scheduler-runtime-step-evidence",

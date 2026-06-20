@@ -163,6 +163,34 @@ const schedulerControlledStepHandoffSummarySchema = z.object({
   slotAllocatorAuthorized: z.literal(false),
 });
 
+const schedulerControlledLoopTurnRouteSummarySchema = z.object({
+  version: z.literal("1.0"),
+  authority: z.literal("scheduler-runtime-controlled-loop-turn-route-summary"),
+  executedActionType: z.string(),
+  resultKind: z.string().optional(),
+  resultId: z.string().optional(),
+  resultStatus: z.string().optional(),
+  resultArtifact: z.string().optional(),
+  routePosture: z.enum(["waiting", "recommending-gate", "awaiting-human-gate", "quality-routing", "integration-barrier", "terminal-handoff"]),
+  postStepStatus: z.string(),
+  nextCandidateActionType: z.string().optional(),
+  humanGateRequired: z.boolean(),
+  humanConfirmationStillRequired: z.literal(true),
+  needsReevaluation: z.boolean(),
+  warning: z.string().optional(),
+  executionStarted: z.literal(false),
+  loopAuthorized: z.literal(false),
+  fullParallelExecutorAuthorized: z.literal(false),
+  wholeWaveDispatchAuthorized: z.literal(false),
+  slotAllocatorAuthorized: z.literal(false),
+  sourceMutationAuthorized: z.literal(false),
+  applyAuthorized: z.literal(false),
+  closeAuthorized: z.literal(false),
+  mergeAuthorized: z.literal(false),
+  remoteLandingAuthorized: z.literal(false),
+  harnessEvolutionAuthorized: z.literal(false),
+});
+
 export const schedulerControlledStepEvidenceSchema: z.ZodType<SchedulerControlledStepEvidence> = z.object({
   version: z.literal("1.0"),
   id: z.string(),
@@ -175,6 +203,7 @@ export const schedulerControlledStepEvidenceSchema: z.ZodType<SchedulerControlle
   postStepEvidence: schedulerControlledStepPostStepEvidenceSchema,
   postStepHandoff: schedulerControlledStepHandoffSummarySchema,
   controlledStepResultSummary: z.record(z.union([z.string(), z.number(), z.boolean(), z.array(z.string()), z.null()])).optional(),
+  controlledLoopTurnRouteSummary: schedulerControlledLoopTurnRouteSummarySchema.optional(),
   executionStarted: z.literal(true),
   stoppedAfterOneSchedulerTransition: z.literal(true),
   humanConfirmationStillRequired: z.literal(true),

@@ -131,6 +131,16 @@ describe("Scheduler controlled step evidence", () => {
         stopReason: "one-confirmed-scheduler-transition-completed",
         executedActionType: "planning.scheduler.worker.start-next",
         needsReevaluation: false,
+        nextConfirmationCandidate: {
+          actionType: "planning.scheduler.worker.reconcile-result",
+          goalLoopNextStepPacketId: "packet-post",
+          goalLoopControllerPolicyId: "controller-post",
+          goalLoopGateReadinessPreflightId: "preflight-post",
+          readinessEvidencePrepared: true,
+          executionStarted: false,
+          authorizationGranted: false,
+          humanConfirmationStillRequired: true,
+        },
         executionStarted: false,
         loopAuthorized: false,
         wholeWaveDispatchAuthorized: false,
@@ -146,6 +156,26 @@ describe("Scheduler controlled step evidence", () => {
     const events = await readSchedulerRuntimeEvents(memory, changePath, "scheduler-run-1");
     expect(recorded.schedulerControlledStepEvidence.controlledStepResultSummary).toMatchObject({
       schedulerWorkerStartId: "scheduler-worker-start-1",
+    });
+    expect(recorded.schedulerControlledStepEvidence.controlledLoopTurnRouteSummary).toMatchObject({
+      routePosture: "awaiting-human-gate",
+      resultKind: "schedulerWorkerStart",
+      resultId: "scheduler-worker-start-1",
+      resultStatus: "started",
+      nextCandidateActionType: "planning.scheduler.worker.reconcile-result",
+      humanConfirmationStillRequired: true,
+      executionStarted: false,
+      loopAuthorized: false,
+      applyAuthorized: false,
+      closeAuthorized: false,
+      harnessEvolutionAuthorized: false,
+    });
+    await expect(readLatestSchedulerControlledStepEvidenceSummary(memory, changePath, "scheduler-run-1")).resolves.toMatchObject({
+      controlledLoopTurnRouteSummary: {
+        routePosture: "awaiting-human-gate",
+        resultId: "scheduler-worker-start-1",
+        resultStatus: "started",
+      },
     });
     expect(events).toHaveLength(1);
     expect(events[0]).toMatchObject({

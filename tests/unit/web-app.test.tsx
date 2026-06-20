@@ -1063,6 +1063,31 @@ describe("Workbench web app", () => {
               schedulerWorkerStartId: "scheduler-worker-start-1",
               schedulerWorkerStartStatus: "started",
             },
+            controlledLoopTurnRouteSummary: {
+              version: "1.0",
+              authority: "scheduler-runtime-controlled-loop-turn-route-summary",
+              executedActionType: "planning.scheduler.worker.start-next",
+              resultKind: "schedulerWorkerStart",
+              resultId: "scheduler-worker-start-1",
+              resultStatus: "started",
+              routePosture: "awaiting-human-gate",
+              postStepStatus: "next-confirmation-candidate-ready",
+              nextCandidateActionType: "planning.scheduler.worker.reconcile-result",
+              humanGateRequired: true,
+              humanConfirmationStillRequired: true,
+              needsReevaluation: false,
+              executionStarted: false,
+              loopAuthorized: false,
+              fullParallelExecutorAuthorized: false,
+              wholeWaveDispatchAuthorized: false,
+              slotAllocatorAuthorized: false,
+              sourceMutationAuthorized: false,
+              applyAuthorized: false,
+              closeAuthorized: false,
+              mergeAuthorized: false,
+              remoteLandingAuthorized: false,
+              harnessEvolutionAuthorized: false,
+            },
             artifact: "harness/changes/active/member-discount/planning/scheduler-runs/scheduler-run-1/scheduler-controlled-steps/scheduler-controlled-step-1.json",
             markdownArtifact: "harness/changes/active/member-discount/planning/scheduler-runs/scheduler-run-1/scheduler-controlled-steps/scheduler-controlled-step-1.md",
             updatedAt: "2026-06-21T00:00:00.000Z",
@@ -1095,6 +1120,12 @@ describe("Workbench web app", () => {
     expect(within(card).getByText("产物：schedulerWorkerStart")).toBeTruthy();
     expect(within(card).getByText("Worker Start ID：scheduler-worker-start-1")).toBeTruthy();
     expect(within(card).getByText("Worker Start 状态：started")).toBeTruthy();
+    expect(within(card).getByText("受控路线")).toBeTruthy();
+    expect(within(card).getByText("已停在下一次人工确认")).toBeTruthy();
+    expect(within(card).getByText("执行结果")).toBeTruthy();
+    expect(within(card).getByText("schedulerWorkerStart / scheduler-worker-start-1 / started")).toBeTruthy();
+    expect(within(card).getByText("下一确认")).toBeTruthy();
+    expect(within(card).getByText("检查当前结果")).toBeTruthy();
     expect(within(card).getByText("查看证据：scheduler-controlled-step-1.json")).toBeTruthy();
     expect(within(card).queryByRole("button")).toBeNull();
   });

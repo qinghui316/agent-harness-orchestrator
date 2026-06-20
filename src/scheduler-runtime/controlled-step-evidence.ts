@@ -14,10 +14,11 @@ import type {
   SchedulerControlledStepHandoffSummary,
   SchedulerControlledStepPostStepEvidence,
   SchedulerControlledStepPreStepEvidence,
+  SchedulerControlledStepResultSummary,
 } from "./types.js";
+import { buildSchedulerControlledLoopTurnRouteSummary } from "./controlled-loop-turn.js";
 
 type ScopeValue = string | string[];
-type SimpleResultValue = string | number | boolean | string[] | null;
 
 export interface RecordSchedulerControlledStepEvidenceInput {
   changeId: string;
@@ -45,7 +46,7 @@ export interface RecordSchedulerControlledStepEvidenceInput {
   postStepGoalLoopEvaluationWarning?: string;
   postStepGoalLoopReadinessWarning?: string;
   postStepHandoff: SchedulerControlledStepHandoffSummary;
-  controlledStepResultSummary?: Record<string, SimpleResultValue>;
+  controlledStepResultSummary?: SchedulerControlledStepResultSummary;
 }
 
 export interface RecordSchedulerControlledStepEvidenceResult {
@@ -113,6 +114,13 @@ function buildSchedulerControlledStepEvidence(
   const stepId = buildSchedulerControlledStepEvidenceId(input, now);
   const refs = schedulerControlledStepArtifactRefs(memory, changePath, stepId, input.schedulerRunId);
   const postStepEvidence = buildPostStepEvidence(input);
+  const controlledLoopTurnRouteSummary = buildSchedulerControlledLoopTurnRouteSummary({
+    executedActionType: input.executedActionType,
+    postStepEvidence,
+    postStepHandoff: input.postStepHandoff,
+    controlledStepResultSummary: input.controlledStepResultSummary,
+    forbiddenAuthority: FORBIDDEN_AUTHORITY,
+  });
   return {
     version: "1.0",
     id: stepId,
@@ -125,6 +133,7 @@ function buildSchedulerControlledStepEvidence(
     postStepEvidence,
     postStepHandoff: input.postStepHandoff,
     controlledStepResultSummary: input.controlledStepResultSummary,
+    controlledLoopTurnRouteSummary,
     executionStarted: true,
     stoppedAfterOneSchedulerTransition: true,
     humanConfirmationStillRequired: true,

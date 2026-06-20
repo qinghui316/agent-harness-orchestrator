@@ -273,10 +273,54 @@ export function SchedulerControlledStepEvidenceCard({ step }: { step: NonNullabl
           <span key={chip}>{chip}</span>
         ))}
       </div>
+      {step.controlledLoopTurnRouteSummary ? (
+        <div className="workpad-evidence-list">
+          <div className="workpad-evidence">
+            <strong>受控路线</strong>
+            <span>{controlledLoopTurnRouteLabel(step.controlledLoopTurnRouteSummary.routePosture)}</span>
+          </div>
+          <div className="workpad-evidence">
+            <strong>执行结果</strong>
+            <span>{controlledLoopTurnResultText(step.controlledLoopTurnRouteSummary)}</span>
+          </div>
+          <div className="workpad-evidence">
+            <strong>下一确认</strong>
+            <span>{step.controlledLoopTurnRouteSummary.nextCandidateActionType ? workflowActionLabel(step.controlledLoopTurnRouteSummary.nextCandidateActionType) : "等待新的证据"}</span>
+          </div>
+        </div>
+      ) : null}
       {step.warning ? <p className="workpad-note">{step.warning}</p> : null}
       {step.artifact ? <small className="artifact-link">查看证据：{artifactName(step.artifact)}</small> : null}
     </section>
   );
+}
+
+type ControlledLoopTurnRouteSummary = NonNullable<NonNullable<Workpad["schedulerControlledStepEvidence"]>["controlledLoopTurnRouteSummary"]>;
+
+function controlledLoopTurnRouteLabel(posture: ControlledLoopTurnRouteSummary["routePosture"]): string {
+  switch (posture) {
+    case "awaiting-human-gate":
+      return "已停在下一次人工确认";
+    case "recommending-gate":
+      return "已给出下一步候选，仍需检查";
+    case "quality-routing":
+      return "已停在质量 / rework 路由";
+    case "integration-barrier":
+      return "已停在 IntegrationCheck barrier";
+    case "terminal-handoff":
+      return "已停在终态 handoff";
+    case "waiting":
+      return "等待新的证据";
+  }
+}
+
+function controlledLoopTurnResultText(route: ControlledLoopTurnRouteSummary): string {
+  const parts = [
+    route.resultKind,
+    route.resultId,
+    route.resultStatus,
+  ].filter(Boolean);
+  return parts.length ? parts.join(" / ") : "无可展示结果";
 }
 
 function controlledStepResultChips(summary: NonNullable<Workpad["schedulerControlledStepEvidence"]>["controlledStepResultSummary"]): string[] {

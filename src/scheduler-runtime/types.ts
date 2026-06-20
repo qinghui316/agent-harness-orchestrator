@@ -1,4 +1,5 @@
 import type { SchedulerMode } from "../workflow-scheduler/types.js";
+import type { SchedulerLoopPostureState } from "../goal-loop/scheduler-loop-snapshot.js";
 
 export type SchedulerRuntimeStateStatus = "initialized" | "blocked";
 export type SchedulerClaimIntentRuntimeStatus = "pending" | "blocked";
@@ -137,6 +138,38 @@ export interface SchedulerControlledStepForbiddenAuthority {
   harnessEvolutionAuthorized: false;
 }
 
+export type SchedulerControlledStepResultSummaryValue = string | number | boolean | string[] | null;
+export type SchedulerControlledStepResultSummary = Record<string, SchedulerControlledStepResultSummaryValue>;
+export type SchedulerControlledLoopTurnRoutePosture = SchedulerLoopPostureState;
+
+export interface SchedulerControlledLoopTurnRouteSummary {
+  version: "1.0";
+  authority: "scheduler-runtime-controlled-loop-turn-route-summary";
+  executedActionType: string;
+  resultKind?: string;
+  resultId?: string;
+  resultStatus?: string;
+  resultArtifact?: string;
+  routePosture: SchedulerControlledLoopTurnRoutePosture;
+  postStepStatus: string;
+  nextCandidateActionType?: string;
+  humanGateRequired: boolean;
+  humanConfirmationStillRequired: true;
+  needsReevaluation: boolean;
+  warning?: string;
+  executionStarted: false;
+  loopAuthorized: false;
+  fullParallelExecutorAuthorized: false;
+  wholeWaveDispatchAuthorized: false;
+  slotAllocatorAuthorized: false;
+  sourceMutationAuthorized: false;
+  applyAuthorized: false;
+  closeAuthorized: false;
+  mergeAuthorized: false;
+  remoteLandingAuthorized: false;
+  harnessEvolutionAuthorized: false;
+}
+
 export interface SchedulerControlledStepPreStepEvidence {
   goalLoopDecisionId: string;
   goalLoopIterationId: string;
@@ -198,7 +231,8 @@ export interface SchedulerControlledStepEvidence {
   preStepEvidence: SchedulerControlledStepPreStepEvidence;
   postStepEvidence: SchedulerControlledStepPostStepEvidence;
   postStepHandoff: SchedulerControlledStepHandoffSummary;
-  controlledStepResultSummary?: Record<string, string | number | boolean | string[] | null>;
+  controlledStepResultSummary?: SchedulerControlledStepResultSummary;
+  controlledLoopTurnRouteSummary?: SchedulerControlledLoopTurnRouteSummary;
   executionStarted: true;
   stoppedAfterOneSchedulerTransition: true;
   humanConfirmationStillRequired: true;

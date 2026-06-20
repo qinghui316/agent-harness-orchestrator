@@ -64,6 +64,21 @@ export function renderSchedulerControlledStepEvidenceMarkdown(step: SchedulerCon
       ? Object.entries(step.controlledStepResultSummary).map(([key, value]) => `- ${key}: ${Array.isArray(value) ? value.join(", ") : String(value)}`)
       : ["- none"]),
     "",
+    "## Controlled Loop Turn Route",
+    "",
+    ...(step.controlledLoopTurnRouteSummary
+      ? [
+          `- Route posture: ${step.controlledLoopTurnRouteSummary.routePosture}`,
+          `- Result kind: ${step.controlledLoopTurnRouteSummary.resultKind ?? "none"}`,
+          `- Result id: ${step.controlledLoopTurnRouteSummary.resultId ?? "none"}`,
+          `- Result status: ${step.controlledLoopTurnRouteSummary.resultStatus ?? "none"}`,
+          `- Next candidate: ${step.controlledLoopTurnRouteSummary.nextCandidateActionType ?? "none"}`,
+          `- Human gate required: ${step.controlledLoopTurnRouteSummary.humanGateRequired ? "yes" : "no"}`,
+          `- Warning: ${step.controlledLoopTurnRouteSummary.warning ?? "none"}`,
+          "- Execution from route summary: not authorized.",
+        ]
+      : ["- none"]),
+    "",
     "## Pre-step Evidence",
     "",
     `- GoalLoopDecision: ${step.preStepEvidence.goalLoopDecisionId}`,
