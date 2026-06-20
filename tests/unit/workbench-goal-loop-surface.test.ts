@@ -1153,17 +1153,64 @@ describe("workbench Goal Loop surface", () => {
         decisionId: "decision-controlled-advance-1",
         updatedAt: "2026-06-20T12:00:00.000Z",
       },
+      schedulerControlledStepEvidence: {
+        id: "controlled-step-1",
+        changeId: "member-discount",
+        executedActionType: "planning.scheduler.worker.start-next",
+        controlledLoopStopSummary: {
+          authority: "scheduler-runtime-controlled-loop-stop-summary",
+          executedActionType: "planning.scheduler.worker.start-next",
+          stopReason: "one-confirmed-scheduler-transition-completed",
+          routePosture: "awaiting-human-gate",
+          continuationReadinessStatus: "ready-for-human-gate",
+          nextGateActionType: "planning.scheduler.worker.start-next",
+          humanGateRequired: true,
+          readinessEvidencePrepared: true,
+          needsReevaluation: false,
+          humanConfirmationStillRequired: true,
+          userFacingReason: "当前步骤检查已刷新。",
+          boundary: "只读停止摘要。",
+          evidenceRefs: ["stop-summary.md"],
+          executionStarted: false,
+          loopAuthorized: false,
+          fullParallelExecutorAuthorized: false,
+          wholeWaveDispatchAuthorized: false,
+          slotAllocatorAuthorized: false,
+          sourceMutationAuthorized: false,
+          applyAuthorized: false,
+          closeAuthorized: false,
+          mergeAuthorized: false,
+          remoteLandingAuthorized: false,
+          harnessEvolutionAuthorized: false,
+        },
+      },
     } as const;
     const asInput = (workpad: unknown): WorkpadReconfirmationInput => workpad as WorkpadReconfirmationInput;
 
-    expect(buildControlledSchedulerWorkpadReconfirmation(asInput(baseWorkpad))).toMatchObject({
+    const aligned = buildControlledSchedulerWorkpadReconfirmation(asInput(baseWorkpad));
+    expect(aligned).toMatchObject({
       status: "aligned",
       label: "当前步骤可以重新确认",
       currentStepLabel: "继续执行下一个任务",
       freshnessLabel: "上一步停止记录、下一步候选和当前确认目标一致。",
+      stopPosture: {
+        authority: "non-executing-controlled-scheduler-stop-posture",
+        status: "aligned",
+        executedStepLabel: "继续执行下一个任务",
+        nextStepLabel: "继续执行下一个任务",
+        readinessLabel: "当前步骤检查已准备好",
+        humanConfirmationStillRequired: true,
+        executionStarted: false,
+        loopAuthorized: false,
+        sourceMutationAuthorized: false,
+        closeAuthorized: false,
+        harnessEvolutionAuthorized: false,
+      },
     });
+    expect(aligned?.stopPosture?.body).toContain("停止原因是“已完成一次确认的调度步骤并主动停止”");
+    expect(aligned?.stopPosture?.evidenceRefs).toEqual(expect.arrayContaining(["candidate.md", "receipt.md", "stop-summary.md"]));
 
-    expect(buildControlledSchedulerWorkpadReconfirmation(asInput({
+    const crossChange = buildControlledSchedulerWorkpadReconfirmation(asInput({
       ...baseWorkpad,
       goalLoop: {
         ...baseWorkpad.goalLoop,
@@ -1173,10 +1220,23 @@ describe("workbench Goal Loop surface", () => {
           changeId: "other-change",
         },
       },
-    }))).toMatchObject({
+    }));
+    expect(crossChange).toMatchObject({
       status: "stale-mismatch",
       freshnessLabel: "下一步候选与当前目标不一致。",
     });
+    expect(crossChange?.stopPosture).toBeUndefined();
+
+    expect(buildControlledSchedulerWorkpadReconfirmation(asInput({
+      ...baseWorkpad,
+      schedulerControlledStepEvidence: {
+        ...baseWorkpad.schedulerControlledStepEvidence,
+        controlledLoopStopSummary: {
+          ...baseWorkpad.schedulerControlledStepEvidence.controlledLoopStopSummary,
+          nextGateActionType: "planning.scheduler.worker.reconcile-result",
+        },
+      },
+    }))?.stopPosture).toBeUndefined();
 
     expect(buildControlledSchedulerWorkpadReconfirmation(asInput({
       ...baseWorkpad,
@@ -1929,6 +1989,40 @@ describe("workbench Goal Loop surface", () => {
           ],
         },
       },
+      controlledSchedulerReconfirmation: {
+        status: "aligned",
+        label: "当前步骤可以重新确认",
+        body: "上一步停在“继续执行下一个任务”之后；停止原因是“已完成一次确认的调度步骤并主动停止”。当前继续目标是“继续执行下一个任务”，仍需要你确认。",
+        lastStoppedStepLabel: "继续执行下一个任务",
+        currentStepLabel: "继续执行下一个任务",
+        freshnessLabel: "上一步停止记录、下一步候选和当前确认目标一致。",
+        boundary: "这是只读重新确认状态；不会自动继续、批量派发、分配资源、应用源码、关闭需求、远端落地或维护演进。",
+        evidenceRefs: ["receipt.md", "stop-summary.md"],
+        stopPosture: {
+          authority: "non-executing-controlled-scheduler-stop-posture",
+          status: "aligned",
+          label: "上一步停止状态已对齐",
+          body: "上一步停在“继续执行下一个任务”之后；停止原因是“已完成一次确认的调度步骤并主动停止”。当前继续目标是“继续执行下一个任务”，仍需要你确认。",
+          executedStepLabel: "继续执行下一个任务",
+          stopReasonLabel: "已完成一次确认的调度步骤并主动停止",
+          nextStepLabel: "继续执行下一个任务",
+          readinessLabel: "当前步骤检查已准备好",
+          boundary: "这是只读停止状态摘要；不会自动继续、批量派发、分配资源、应用源码、关闭需求、远端落地或维护演进。",
+          evidenceRefs: ["receipt.md", "stop-summary.md"],
+          humanConfirmationStillRequired: true,
+          executionStarted: false,
+          loopAuthorized: false,
+          fullParallelExecutorAuthorized: false,
+          wholeWaveDispatchAuthorized: false,
+          slotAllocatorAuthorized: false,
+          sourceMutationAuthorized: false,
+          applyAuthorized: false,
+          closeAuthorized: false,
+          mergeAuthorized: false,
+          remoteLandingAuthorized: false,
+          harnessEvolutionAuthorized: false,
+        },
+      },
     };
 
     const candidate = buildControlledSchedulerNextCandidatePromptEvidence(workpad as never, "goal-loop-next-step-packet-1");
@@ -1950,6 +2044,16 @@ describe("workbench Goal Loop surface", () => {
       closeAuthorized: false,
       harnessEvolutionAuthorized: false,
     }));
+    expect(candidate?.stopPosture).toMatchObject({
+      authority: "non-executing-controlled-scheduler-stop-posture",
+      label: "上一步停止状态已对齐",
+      nextStepLabel: "继续执行下一个任务",
+      humanConfirmationStillRequired: true,
+      loopAuthorized: false,
+      sourceMutationAuthorized: false,
+      closeAuthorized: false,
+      harnessEvolutionAuthorized: false,
+    });
     expect(candidate?.evidenceRefs).toEqual([
       "harness/changes/active/member-discount/planning/goal-loop-next-step-packets/packet.md",
       "harness/changes/active/member-discount/planning/goal-loop-controller-policies/policy.md",
@@ -1967,6 +2071,7 @@ describe("workbench Goal Loop surface", () => {
     expect(goalLoopPromptStackLabels(compactContext)).toContain("goal-loop-controlled-scheduler-next-candidate");
     const prepared = buildGoalLoopContextPreparedEvidence(compactContext);
     expect(prepared.goalLoopControlledSchedulerNextCandidate).toEqual(candidate);
+    expect(prepared.goalLoopControlledSchedulerNextCandidate?.stopPosture).toEqual(candidate?.stopPosture);
     expect(prepared.goalLoopControlledSchedulerNextCandidate).not.toHaveProperty("recommendedActionScope");
     expect(prepared.goalLoopControlledSchedulerNextCandidate).not.toHaveProperty("markdown");
   });

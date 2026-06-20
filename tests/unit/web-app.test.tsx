@@ -863,11 +863,37 @@ describe("Workbench web app", () => {
       controlledSchedulerReconfirmation: {
         status: "aligned",
         label: "当前步骤可以重新确认",
-        body: "上一步已停止在“继续执行下一个任务”之后；当前重新确认目标是“继续执行下一个任务”。下一步判断和步骤检查已刷新。",
+        body: "上一步停在“继续执行下一个任务”之后；停止原因是“已完成一次确认的调度步骤并主动停止”。当前继续目标是“继续执行下一个任务”，仍需要你确认。 下一步判断和步骤检查已刷新。",
         lastStoppedStepLabel: "继续执行下一个任务",
         currentStepLabel: "继续执行下一个任务",
         freshnessLabel: "上一步停止记录、下一步候选和当前确认目标一致。",
         boundary: "这是只读重新确认状态；不会自动继续、批量派发、分配资源、应用源码、关闭需求、远端落地或维护演进。",
+        stopPosture: {
+          authority: "non-executing-controlled-scheduler-stop-posture",
+          status: "aligned",
+          label: "上一步停止状态已对齐",
+          body: "上一步停在“继续执行下一个任务”之后；停止原因是“已完成一次确认的调度步骤并主动停止”。当前继续目标是“继续执行下一个任务”，仍需要你确认。",
+          executedStepLabel: "继续执行下一个任务",
+          stopReasonLabel: "已完成一次确认的调度步骤并主动停止",
+          nextStepLabel: "继续执行下一个任务",
+          readinessLabel: "当前步骤检查已准备好",
+          boundary: "这是只读停止状态摘要；不会自动继续、批量派发、分配资源、应用源码、关闭需求、远端落地或维护演进。",
+          evidenceRefs: [
+            "harness/workbench/decisions/controlled-advance-1.json",
+          ],
+          humanConfirmationStillRequired: true,
+          executionStarted: false,
+          loopAuthorized: false,
+          fullParallelExecutorAuthorized: false,
+          wholeWaveDispatchAuthorized: false,
+          slotAllocatorAuthorized: false,
+          sourceMutationAuthorized: false,
+          applyAuthorized: false,
+          closeAuthorized: false,
+          mergeAuthorized: false,
+          remoteLandingAuthorized: false,
+          harnessEvolutionAuthorized: false,
+        },
         evidenceRefs: [
           "harness/workbench/decisions/controlled-advance-1.json",
         ],
@@ -1000,10 +1026,12 @@ describe("Workbench web app", () => {
     expect(within(card).getByText("调度能力仍是单步受控：不会自动循环、整批派发、分配资源槽或启动完整并行执行器。")).toBeTruthy();
     expect(within(card).getByText("继续执行下一个任务是当前已限定范围的步骤；即使冲突较低，也只允许这一次人工确认。")).toBeTruthy();
     expect(within(card).getByText("当前步骤可以重新确认")).toBeTruthy();
-    expect(within(card).getByText("上一步已停止在“继续执行下一个任务”之后；当前重新确认目标是“继续执行下一个任务”。下一步判断和步骤检查已刷新。")).toBeTruthy();
+    expect(within(card).getByText("上一步停在“继续执行下一个任务”之后；停止原因是“已完成一次确认的调度步骤并主动停止”。当前继续目标是“继续执行下一个任务”，仍需要你确认。 下一步判断和步骤检查已刷新。")).toBeTruthy();
     expect(within(card).getByText("上一步")).toBeTruthy();
     expect(within(card).getByText("当前确认")).toBeTruthy();
     expect(within(card).getByText("检查状态")).toBeTruthy();
+    expect(within(card).getByText("停止原因")).toBeTruthy();
+    expect(within(card).getAllByText("已完成一次确认的调度步骤并主动停止").length).toBeGreaterThan(0);
     expect(within(card).getByText("上一步停止记录、下一步候选和当前确认目标一致。")).toBeTruthy();
     expect(within(card).getByText("这是只读重新确认状态；不会自动继续、批量派发、分配资源、应用源码、关闭需求、远端落地或维护演进。")).toBeTruthy();
     expect(within(card).getByText("查看证据：packet.md")).toBeTruthy();
@@ -1015,6 +1043,7 @@ describe("Workbench web app", () => {
     fireEvent.click(await screen.findByText("查看详情与证据"));
     const detailCard = await screen.findByTestId("controlled-scheduler-reconfirmation-card");
     expect(within(detailCard).getByText("当前步骤可以重新确认")).toBeTruthy();
+    expect(within(detailCard).getByText("停止原因")).toBeTruthy();
     expect(within(detailCard).getByText("继续边界")).toBeTruthy();
     expect(within(detailCard).queryByRole("button")).toBeNull();
     const cardText = card.textContent ?? "";

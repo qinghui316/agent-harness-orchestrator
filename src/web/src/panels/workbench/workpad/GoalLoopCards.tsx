@@ -87,6 +87,12 @@ export function ControlledSchedulerReconfirmationCard({
           <strong>检查状态</strong>
           <span>{userFacingText(reconfirmation.freshnessLabel)}</span>
         </div>
+        {reconfirmation.stopPosture ? (
+          <div className="workpad-evidence">
+            <strong>停止原因</strong>
+            <span>{userFacingText(reconfirmation.stopPosture.stopReasonLabel)}</span>
+          </div>
+        ) : null}
         <div className="workpad-evidence">
           <strong>继续边界</strong>
           <span>{userFacingText(reconfirmation.boundary)}</span>

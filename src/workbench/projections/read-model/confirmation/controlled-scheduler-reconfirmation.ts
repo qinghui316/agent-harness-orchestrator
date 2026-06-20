@@ -4,10 +4,13 @@ import {
   controlledSchedulerSourceGateActionType as workflowControlledSchedulerSourceGateActionType,
 } from "../../../../workflow-scheduler/controlled-advance-candidate.js";
 import { validateWorkflowActionRequiredTargets, workflowActionScopesMatchStrict, type WorkflowActionScopeCarrier } from "../../../../workflow-actions/registry.js";
-import type { WorkbenchConfirmationQueueItem, WorkbenchControlledSchedulerReconfirmation, WorkbenchDecisionAction, WorkbenchWorkpad } from "../../../read-model-types.js";
+import type { WorkbenchConfirmationQueueItem, WorkbenchControlledSchedulerReconfirmation, WorkbenchControlledSchedulerStopPosture, WorkbenchDecisionAction, WorkbenchWorkpad } from "../../../read-model-types.js";
+import type { WorkbenchSchedulerControlledStepEvidenceSummary } from "../../../workflow-projection.js";
 import { schedulerUserFacingActionLabel } from "./scheduler-user-surface.js";
 
-type ControlledSchedulerWorkpadReconfirmationInput = Pick<WorkbenchWorkpad, "nextAction" | "goalLoop" | "controlledSchedulerStepReceipt" | "controlledSchedulerStepTrace">;
+type ControlledSchedulerWorkpadReconfirmationInput = Pick<WorkbenchWorkpad, "nextAction" | "goalLoop" | "controlledSchedulerStepReceipt" | "controlledSchedulerStepTrace"> & {
+  schedulerControlledStepEvidence?: WorkbenchSchedulerControlledStepEvidenceSummary;
+};
 
 export function buildControlledSchedulerReconfirmation(input: {
   item: WorkbenchConfirmationQueueItem;
@@ -60,6 +63,7 @@ function buildControlledSchedulerReconfirmationStatus(input: {
   const sourceEvidenceRefs = unique([
     ...(receipt?.evidenceRefs ?? []),
     ...(candidate?.evidenceRefs ?? []),
+    ...(input.workpad.schedulerControlledStepEvidence?.controlledLoopStopSummary?.evidenceRefs ?? []),
     ...input.itemEvidenceRefs,
   ]);
 
@@ -116,16 +120,98 @@ function buildControlledSchedulerReconfirmationStatus(input: {
     };
   }
 
+  const stopPosture = buildAlignedStopPosture({
+    step: input.workpad.schedulerControlledStepEvidence,
+    currentGateChangeId: input.currentGate.changeId,
+    currentGateActionType: input.currentGateActionType,
+    currentStepLabel: input.currentStepLabel,
+    receiptExecutedStepLabel: receipt.executedStepLabel,
+    evidenceRefs: sourceEvidenceRefs,
+  });
+
   return {
     status: "aligned",
     label: "当前步骤可以重新确认",
-    body: `上一步已停止在“${receipt.executedStepLabel}”之后；当前重新确认目标是“${input.currentStepLabel}”。下一步判断和步骤检查已刷新。`,
+    body: stopPosture
+      ? `${stopPosture.body} 下一步判断和步骤检查已刷新。`
+      : `上一步已停止在“${receipt.executedStepLabel}”之后；当前重新确认目标是“${input.currentStepLabel}”。下一步判断和步骤检查已刷新。`,
     lastStoppedStepLabel: receipt.executedStepLabel,
     currentStepLabel: input.currentStepLabel,
     freshnessLabel: "上一步停止记录、下一步候选和当前确认目标一致。",
+    stopPosture,
     boundary: boundaryText(),
     evidenceRefs: sourceEvidenceRefs,
   };
+}
+
+function buildAlignedStopPosture(input: {
+  step?: WorkbenchSchedulerControlledStepEvidenceSummary;
+  currentGateChangeId?: string | string[];
+  currentGateActionType: WorkbenchDecisionAction["actionType"];
+  currentStepLabel: string;
+  receiptExecutedStepLabel: string;
+  evidenceRefs: string[];
+}): WorkbenchControlledSchedulerStopPosture | undefined {
+  const summary = input.step?.controlledLoopStopSummary;
+  if (!input.step || !summary) return undefined;
+  if (!scopeValuesMatch(input.step.changeId, input.currentGateChangeId)) return undefined;
+  if (summary.nextGateActionType !== input.currentGateActionType) return undefined;
+  if (summary.continuationReadinessStatus !== "ready-for-human-gate") return undefined;
+  if (!summary.readinessEvidencePrepared || !summary.humanGateRequired || !summary.humanConfirmationStillRequired) return undefined;
+  if (
+    summary.executionStarted
+    || summary.loopAuthorized
+    || summary.fullParallelExecutorAuthorized
+    || summary.wholeWaveDispatchAuthorized
+    || summary.slotAllocatorAuthorized
+    || summary.sourceMutationAuthorized
+    || summary.applyAuthorized
+    || summary.closeAuthorized
+    || summary.mergeAuthorized
+    || summary.remoteLandingAuthorized
+    || summary.harnessEvolutionAuthorized
+  ) {
+    return undefined;
+  }
+  const executedStepLabel = schedulerUserFacingActionLabel(summary.executedActionType) ?? input.receiptExecutedStepLabel;
+  const nextStepLabel = schedulerUserFacingActionLabel(summary.nextGateActionType) ?? input.currentStepLabel;
+  if (nextStepLabel !== input.currentStepLabel) return undefined;
+  return {
+    authority: "non-executing-controlled-scheduler-stop-posture",
+    status: "aligned",
+    label: "上一步停止状态已对齐",
+    body: `上一步停在“${executedStepLabel}”之后；停止原因是“${stopReasonLabel(summary.stopReason)}”。当前继续目标是“${nextStepLabel}”，仍需要你确认。`,
+    executedStepLabel,
+    stopReasonLabel: stopReasonLabel(summary.stopReason),
+    nextStepLabel,
+    readinessLabel: readinessLabel(summary.continuationReadinessStatus),
+    boundary: "这是只读停止状态摘要；不会自动继续、批量派发、分配资源、应用源码、关闭需求、远端落地或维护演进。",
+    evidenceRefs: unique([...input.evidenceRefs, ...(summary.evidenceRefs ?? [])]),
+    humanConfirmationStillRequired: true,
+    executionStarted: false,
+    loopAuthorized: false,
+    fullParallelExecutorAuthorized: false,
+    wholeWaveDispatchAuthorized: false,
+    slotAllocatorAuthorized: false,
+    sourceMutationAuthorized: false,
+    applyAuthorized: false,
+    closeAuthorized: false,
+    mergeAuthorized: false,
+    remoteLandingAuthorized: false,
+    harnessEvolutionAuthorized: false,
+  };
+}
+
+function stopReasonLabel(reason: string): string {
+  if (reason === "one-confirmed-scheduler-transition-completed") return "已完成一次确认的调度步骤并主动停止";
+  return reason;
+}
+
+function readinessLabel(status: string): string {
+  if (status === "ready-for-human-gate") return "当前步骤检查已准备好";
+  if (status === "needs-review") return "当前步骤检查需要复核";
+  if (status === "waiting") return "等待新的可确认步骤";
+  return status;
 }
 
 export function controlledSchedulerSourceGateActionType(action: WorkbenchDecisionAction): WorkbenchDecisionAction["actionType"] | undefined {

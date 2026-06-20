@@ -12,6 +12,7 @@ export interface ControlledSchedulerNextCandidatePromptEvidence {
   label: string;
   body: string;
   actionLabel: string;
+  stopPosture?: WorkbenchControlledSchedulerNextCandidate["stopPosture"];
   readinessEvidencePrepared: boolean;
   humanConfirmationStillRequired: boolean;
   evidenceRefs: string[];
@@ -65,6 +66,11 @@ export async function buildVisibleGoalLoopMainAgentContextSection(
   }
   const schedulerTerminalHandoff = buildSchedulerTerminalHandoffContext(workpad, visibleSection);
   const controlledSchedulerNextCandidate = buildControlledSchedulerNextCandidatePromptEvidence(workpad, visibleSection.goalLoopNextStepPacketId);
+  const controlledSchedulerMarkdown = appendControlledSchedulerStopPostureContext(visibleSection.markdown, controlledSchedulerNextCandidate?.stopPosture);
+  visibleSection = controlledSchedulerMarkdown === visibleSection.markdown ? visibleSection : {
+    ...visibleSection,
+    markdown: controlledSchedulerMarkdown,
+  };
   if (schedulerTerminalHandoff) {
     return {
       ...visibleSection,
@@ -181,12 +187,16 @@ export function buildControlledSchedulerNextCandidatePromptEvidence(
   if (workpad.goalLoop?.goalLoopNextStepPacketId !== goalLoopNextStepPacketId) return undefined;
   const candidate = workpad.goalLoop?.controlledSchedulerNextCandidate;
   if (!candidate) return undefined;
+  const stopPosture = workpad.controlledSchedulerReconfirmation?.status === "aligned"
+    ? workpad.controlledSchedulerReconfirmation.stopPosture
+    : undefined;
   return {
     authority: "non-executing-controlled-scheduler-next-candidate-prompt-evidence",
     status: candidate.status,
     label: candidate.label,
     body: candidate.body,
     actionLabel: candidate.actionLabel,
+    stopPosture,
     readinessEvidencePrepared: candidate.readinessEvidencePrepared,
     humanConfirmationStillRequired: candidate.humanConfirmationStillRequired,
     evidenceRefs: [...candidate.evidenceRefs],
@@ -200,4 +210,39 @@ export function buildControlledSchedulerNextCandidatePromptEvidence(
     closeAuthorized: false,
     harnessEvolutionAuthorized: false,
   };
+}
+
+function appendControlledSchedulerStopPostureContext(
+  markdown: string,
+  stopPosture: ControlledSchedulerNextCandidatePromptEvidence["stopPosture"],
+): string {
+  if (!stopPosture) return markdown;
+  return [
+    markdown.trimEnd(),
+    "",
+    "### Controlled Scheduler Stop Resume Handoff",
+    "",
+    "This stop posture is main-Agent prompt context only. It is a read-only summary of the latest controlled Scheduler stop that still matches the visible human gate.",
+    "It must not authorize a scheduler loop, worker start, wave dispatch, slot allocation, source mutation, apply, close, merge, PR, landing, or Harness evolution.",
+    "",
+    `- Stop posture: ${stopPosture.label}`,
+    `- Executed step: ${stopPosture.executedStepLabel}`,
+    `- Stop reason: ${stopPosture.stopReasonLabel}`,
+    `- Current continuation gate: ${stopPosture.nextStepLabel}`,
+    `- Readiness: ${stopPosture.readinessLabel}`,
+    `- Human confirmation still required: ${stopPosture.humanConfirmationStillRequired ? "yes" : "no"}`,
+    "",
+    "#### Stop Posture Forbidden Authority",
+    "",
+    `- loopAuthorized: ${stopPosture.loopAuthorized ? "true" : "false"}`,
+    `- fullParallelExecutorAuthorized: ${stopPosture.fullParallelExecutorAuthorized ? "true" : "false"}`,
+    `- wholeWaveDispatchAuthorized: ${stopPosture.wholeWaveDispatchAuthorized ? "true" : "false"}`,
+    `- slotAllocatorAuthorized: ${stopPosture.slotAllocatorAuthorized ? "true" : "false"}`,
+    `- sourceMutationAuthorized: ${stopPosture.sourceMutationAuthorized ? "true" : "false"}`,
+    `- applyAuthorized: ${stopPosture.applyAuthorized ? "true" : "false"}`,
+    `- closeAuthorized: ${stopPosture.closeAuthorized ? "true" : "false"}`,
+    `- mergeAuthorized: ${stopPosture.mergeAuthorized ? "true" : "false"}`,
+    `- remoteLandingAuthorized: ${stopPosture.remoteLandingAuthorized ? "true" : "false"}`,
+    `- harnessEvolutionAuthorized: ${stopPosture.harnessEvolutionAuthorized ? "true" : "false"}`,
+  ].join("\n");
 }

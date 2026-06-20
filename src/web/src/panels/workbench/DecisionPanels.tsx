@@ -195,7 +195,13 @@ function DecisionContextCard({
             ) : null}
             <div><dt>当前确认</dt><dd>{userFacingText(context.controlledSchedulerReconfirmation.currentStepLabel)}</dd></div>
             <div><dt>检查状态</dt><dd>{userFacingText(context.controlledSchedulerReconfirmation.freshnessLabel)}</dd></div>
+            {context.controlledSchedulerReconfirmation.stopPosture ? (
+              <div><dt>停止原因</dt><dd>{userFacingText(context.controlledSchedulerReconfirmation.stopPosture.stopReasonLabel)}</dd></div>
+            ) : null}
           </dl>
+          {context.controlledSchedulerReconfirmation.stopPosture ? (
+            <p className="muted-inline">{userFacingText(context.controlledSchedulerReconfirmation.stopPosture.body)}</p>
+          ) : null}
           <p className="muted-inline">{userFacingText(context.controlledSchedulerReconfirmation.boundary)}</p>
           {context.controlledSchedulerReconfirmation.evidenceRefs.length ? (
             <div className="workpad-links" aria-label="Controlled scheduler reconfirmation evidence refs">

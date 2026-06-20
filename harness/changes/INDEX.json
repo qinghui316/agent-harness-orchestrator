@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-20T22:59:34.6147379Z",
+    "generated_at":  "2026-06-20T23:30:01.8325082Z",
     "active":  [
 
                ],
@@ -1721,6 +1721,10 @@
                     {
                         "name":  "20260621-controlled-scheduler-runtime-step-evidence",
                         "path":  "harness/changes/archive/20260621-controlled-scheduler-runtime-step-evidence"
+                    },
+                    {
+                        "name":  "20260621-controlled-scheduler-stop-summary-resume-handoff",
+                        "path":  "harness/changes/archive/20260621-controlled-scheduler-stop-summary-resume-handoff"
                     },
                     {
                         "name":  "20260621-scheduler-controlled-step-result-boundary",

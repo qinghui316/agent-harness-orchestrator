@@ -1704,6 +1704,7 @@ export type ControlledSchedulerNextCandidateDetail = {
   body: string;
   actionLabel: string;
   routingPosture?: ControlledSchedulerRoutingPostureDetail;
+  stopPosture?: ControlledSchedulerStopPostureDetail;
   readinessEvidencePrepared: boolean;
   humanConfirmationStillRequired: true;
   evidenceRefs: string[];
@@ -1723,8 +1724,34 @@ export type ControlledSchedulerReconfirmationDetail = {
   lastStoppedStepLabel?: string;
   currentStepLabel: string;
   freshnessLabel: string;
+  stopPosture?: ControlledSchedulerStopPostureDetail;
   boundary: string;
   evidenceRefs: string[];
+};
+
+export type ControlledSchedulerStopPostureDetail = {
+  authority: "non-executing-controlled-scheduler-stop-posture";
+  status: "aligned";
+  label: string;
+  body: string;
+  executedStepLabel: string;
+  stopReasonLabel: string;
+  nextStepLabel: string;
+  readinessLabel: string;
+  boundary: string;
+  evidenceRefs: string[];
+  humanConfirmationStillRequired: true;
+  executionStarted: false;
+  loopAuthorized: false;
+  fullParallelExecutorAuthorized: false;
+  wholeWaveDispatchAuthorized: false;
+  slotAllocatorAuthorized: false;
+  sourceMutationAuthorized: false;
+  applyAuthorized: false;
+  closeAuthorized: false;
+  mergeAuthorized: false;
+  remoteLandingAuthorized: false;
+  harnessEvolutionAuthorized: false;
 };
 
 export type ConfirmationQueueItem = {

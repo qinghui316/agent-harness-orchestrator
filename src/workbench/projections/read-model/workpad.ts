@@ -306,6 +306,7 @@ export async function buildWorkbenchWorkpad(input: {
     goalLoop: goalLoop ?? undefined,
     controlledSchedulerStepReceipt: controlledSchedulerStepReceipt ?? undefined,
     controlledSchedulerStepTrace: controlledSchedulerStepTrace ?? undefined,
+    schedulerControlledStepEvidence: schedulerControlledStepEvidenceForWorkpad ?? undefined,
   });
 
   return {

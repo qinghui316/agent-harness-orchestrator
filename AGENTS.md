@@ -7,15 +7,15 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 - Current date: 2026-06-21.
 - Active change: none.
 - Pending Harness evolution: none.
-- Latest archived product change: Controlled Scheduler Loop Stop Summary, archived at `harness/changes/archive/20260621-controlled-scheduler-loop-stop-summary/summary.md`.
-- Latest product/Harness docs change: Controlled Scheduler Loop Stop Summary, archived at `harness/changes/archive/20260621-controlled-scheduler-loop-stop-summary/summary.md`.
+- Latest archived product change: Controlled Scheduler Stop Summary Resume Handoff, archived at `harness/changes/archive/20260621-controlled-scheduler-stop-summary-resume-handoff/summary.md`.
+- Latest product/Harness docs change: Controlled Scheduler Stop Summary Resume Handoff, archived at `harness/changes/archive/20260621-controlled-scheduler-stop-summary-resume-handoff/summary.md`.
 - Active product phase: none.
 - Active Harness evolution phase: none.
 - Latest Harness evolution: `harness/changes/archive/20260621-auto-evolve-harness-controlled-scheduler-current-transition-window-noop/summary.md`.
 
-No active structured change exists. Use `docs/STATUS.md` for the short resume
-state and next recommended structured work. Use archived summaries only as
-needed.
+No active structured change exists. Start the next structured product stage from
+`docs/STATUS.md` and `docs/CURRENT-DEVELOPMENT-PLAN.md`, then create a new ECL
+change before implementation.
 
 ## 2. Context Loading Order
 
