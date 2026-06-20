@@ -5,7 +5,7 @@ import { listRuns } from "../../src/run/manager.js";
 import { executeWorkbenchAction } from "../../src/server/workbench-server.js";
 import { createWorkbenchTopic } from "../../src/workbench/chat.js";
 import { buildChatContext, buildOrchestratorContext } from "../../src/workbench/codex-chat/context.js";
-import { buildSchedulerTerminalHandoffContext } from "../../src/workbench/codex-chat/goal-loop-context.js";
+import { buildControlledSchedulerNextCandidatePromptEvidence, buildSchedulerTerminalHandoffContext } from "../../src/workbench/codex-chat/goal-loop-context.js";
 import { buildGoalLoopContextPreparedEvidence, goalLoopPromptStackLabels } from "../../src/workbench/codex-chat/goal-loop-prompt-evidence.js";
 import { getWorkbenchSnapshot } from "../../src/workbench/manager.js";
 import { attachControlledSchedulerAdvanceActions, attachGoalLoopAssistedConcreteGateActions, attachGoalLoopControllerRefreshActions, attachGoalLoopFeedbackActions, attachGoalLoopGateReadinessActions } from "../../src/workbench/projections/read-model/confirmation/goal-loop.js";
@@ -1338,6 +1338,101 @@ describe("workbench Goal Loop surface", () => {
     }));
     expect(completionHandoff).not.toHaveProperty("resultTargetWorktreeIds");
     expect(completionHandoff).not.toHaveProperty("worktreeIds");
+  });
+
+  it("prepares compact controlled scheduler next-candidate prompt evidence only for matching packets", () => {
+    const workpad = {
+      goalLoop: {
+        changeId: "member-discount",
+        goalLoopNextStepPacketId: "goal-loop-next-step-packet-1",
+        controlledSchedulerNextCandidate: {
+          status: "ready-for-confirmation",
+          label: "下一步候选已刷新",
+          body: "下一步候选：继续执行下一个任务。当前步骤检查已刷新；继续仍需要你再次确认。",
+          actionLabel: "继续执行下一个任务",
+          readinessEvidencePrepared: true,
+          humanConfirmationStillRequired: true,
+          evidenceRefs: [
+            "harness/changes/active/member-discount/planning/goal-loop-next-step-packets/packet.md",
+            "harness/changes/active/member-discount/planning/goal-loop-controller-policies/policy.md",
+          ],
+        },
+      },
+    };
+
+    const candidate = buildControlledSchedulerNextCandidatePromptEvidence(workpad as never, "goal-loop-next-step-packet-1");
+
+    expect(candidate).toEqual(expect.objectContaining({
+      authority: "non-executing-controlled-scheduler-next-candidate-prompt-evidence",
+      status: "ready-for-confirmation",
+      label: "下一步候选已刷新",
+      actionLabel: "继续执行下一个任务",
+      readinessEvidencePrepared: true,
+      humanConfirmationStillRequired: true,
+      executionStarted: false,
+      loopAuthorized: false,
+      fullParallelExecutorAuthorized: false,
+      wholeWaveDispatchAuthorized: false,
+      slotAllocatorAuthorized: false,
+      sourceMutationAuthorized: false,
+      applyAuthorized: false,
+      closeAuthorized: false,
+      harnessEvolutionAuthorized: false,
+    }));
+    expect(candidate?.evidenceRefs).toEqual([
+      "harness/changes/active/member-discount/planning/goal-loop-next-step-packets/packet.md",
+      "harness/changes/active/member-discount/planning/goal-loop-controller-policies/policy.md",
+    ]);
+    expect(candidate).not.toHaveProperty("recommendedActionScope");
+    expect(candidate).not.toHaveProperty("actionPayload");
+    expect(candidate).not.toHaveProperty("markdown");
+
+    expect(buildControlledSchedulerNextCandidatePromptEvidence(workpad as never, "stale-packet")).toBeUndefined();
+
+    const compactContext = {
+      context: "",
+      goalLoopControlledSchedulerNextCandidate: candidate,
+    } as Parameters<typeof goalLoopPromptStackLabels>[0];
+    expect(goalLoopPromptStackLabels(compactContext)).toContain("goal-loop-controlled-scheduler-next-candidate");
+    const prepared = buildGoalLoopContextPreparedEvidence(compactContext);
+    expect(prepared.goalLoopControlledSchedulerNextCandidate).toEqual(candidate);
+    expect(prepared.goalLoopControlledSchedulerNextCandidate).not.toHaveProperty("recommendedActionScope");
+    expect(prepared.goalLoopControlledSchedulerNextCandidate).not.toHaveProperty("markdown");
+  });
+
+  it("keeps needs-review controlled scheduler next-candidate prompt evidence explanatory", () => {
+    const candidate = buildControlledSchedulerNextCandidatePromptEvidence({
+      goalLoop: {
+        changeId: "member-discount",
+        goalLoopNextStepPacketId: "goal-loop-next-step-packet-1",
+        controlledSchedulerNextCandidate: {
+          status: "needs-review",
+          label: "下一步候选需要复核",
+          body: "下一步候选：继续执行下一个任务。下一步判断已刷新，但当前步骤检查还需要重新评估或查看证据；不会自动继续。",
+          actionLabel: "继续执行下一个任务",
+          readinessEvidencePrepared: false,
+          humanConfirmationStillRequired: true,
+          evidenceRefs: ["harness/changes/active/member-discount/planning/goal-loop-next-step-packets/packet.md"],
+        },
+      },
+    } as never, "goal-loop-next-step-packet-1");
+
+    expect(candidate).toEqual(expect.objectContaining({
+      status: "needs-review",
+      readinessEvidencePrepared: false,
+      humanConfirmationStillRequired: true,
+      executionStarted: false,
+      loopAuthorized: false,
+      fullParallelExecutorAuthorized: false,
+      sourceMutationAuthorized: false,
+      applyAuthorized: false,
+      closeAuthorized: false,
+      harnessEvolutionAuthorized: false,
+    }));
+    expect(candidate?.body).toContain("还需要重新评估或查看证据");
+    expect(candidate?.body).toContain("不会自动继续");
+    expect(candidate?.body).not.toContain("已准备好");
+    expect(candidate?.body).not.toContain("可以执行");
   });
 
 });

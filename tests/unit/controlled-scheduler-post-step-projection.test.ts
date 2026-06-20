@@ -5,7 +5,9 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { compileGoalLoopControllerPolicy, compileGoalLoopEvaluation, compileGoalLoopGateReadinessPreflight } from "../../src/goal-loop/manager.js";
 import type { GoalLoopRecommendedAction } from "../../src/goal-loop/types.js";
 import type { ResolvedMemory } from "../../src/types/index.js";
-import type { WorkpadNextAction } from "../../src/workbench/read-model-types.js";
+import { buildControlledSchedulerNextCandidatePromptEvidence } from "../../src/workbench/codex-chat/goal-loop-context.js";
+import { buildGoalLoopContextPreparedEvidence, goalLoopPromptStackLabels } from "../../src/workbench/codex-chat/goal-loop-prompt-evidence.js";
+import type { WorkbenchWorkpad, WorkpadNextAction } from "../../src/workbench/read-model-types.js";
 import { readLatestGoalLoopSummary } from "../../src/workbench/projections/read-model/goal-loop.js";
 import { filterGoalLoopSummaryForCurrentGate } from "../../src/workbench/projections/read-model/goal-loop-parity.js";
 
@@ -99,6 +101,43 @@ describe("controlled scheduler post-step projection", () => {
     expect(filtered?.controlledSchedulerNextCandidate?.body).toContain("继续仍需要你再次确认");
     expect(filtered?.controlledSchedulerNextCandidate?.body).not.toContain("planning.scheduler");
     expect(filtered?.controlledSchedulerNextCandidate?.body).not.toContain("Scheduler");
+
+    const promptEvidence = buildControlledSchedulerNextCandidatePromptEvidence(
+      { goalLoop: filtered } as WorkbenchWorkpad,
+      postStep.goalLoopNextStepPacket.id,
+    );
+    expect(promptEvidence).toEqual(expect.objectContaining({
+      authority: "non-executing-controlled-scheduler-next-candidate-prompt-evidence",
+      status: "ready-for-confirmation",
+      actionLabel: filtered?.controlledSchedulerNextCandidate?.actionLabel,
+      readinessEvidencePrepared: true,
+      humanConfirmationStillRequired: true,
+      executionStarted: false,
+      loopAuthorized: false,
+      fullParallelExecutorAuthorized: false,
+      wholeWaveDispatchAuthorized: false,
+      slotAllocatorAuthorized: false,
+      sourceMutationAuthorized: false,
+      applyAuthorized: false,
+      closeAuthorized: false,
+      harnessEvolutionAuthorized: false,
+    }));
+    expect(promptEvidence?.evidenceRefs).toEqual(expect.arrayContaining([
+      expect.stringContaining("goal-loop-next-step-packets"),
+      expect.stringContaining("goal-loop-controller-policies"),
+      expect.stringContaining("goal-loop-gate-readiness-preflights"),
+    ]));
+    expect(promptEvidence).not.toHaveProperty("recommendedActionScope");
+    expect(promptEvidence).not.toHaveProperty("actionPayload");
+    expect(promptEvidence).not.toHaveProperty("markdown");
+
+    const contextResult = {
+      context: "",
+      goalLoopNextStepPacketId: postStep.goalLoopNextStepPacket.id,
+      goalLoopControlledSchedulerNextCandidate: promptEvidence,
+    } as Parameters<typeof goalLoopPromptStackLabels>[0];
+    expect(goalLoopPromptStackLabels(contextResult)).toContain("goal-loop-controlled-scheduler-next-candidate");
+    expect(buildGoalLoopContextPreparedEvidence(contextResult).goalLoopControlledSchedulerNextCandidate).toEqual(promptEvidence);
   });
 });
 

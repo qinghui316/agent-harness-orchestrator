@@ -31,6 +31,7 @@ export interface MainAgentContextResult {
   goalLoopGuidedGateScope?: Record<string, string | string[]>;
   goalLoopControlledLoopState?: GoalLoopControlledLoopStatePromptEvidence;
   goalLoopSchedulerTerminalHandoff?: VisibleGoalLoopMainAgentContextSection["schedulerTerminalHandoff"];
+  goalLoopControlledSchedulerNextCandidate?: VisibleGoalLoopMainAgentContextSection["controlledSchedulerNextCandidate"];
 }
 
 export async function buildChatContext(
@@ -53,6 +54,7 @@ export async function buildChatContext(
     goalLoopGuidedGateScope: goalLoopSection?.guidedGateScope,
     goalLoopControlledLoopState: buildControlledLoopStatePromptEvidence(goalLoopSection),
     goalLoopSchedulerTerminalHandoff: goalLoopSection?.schedulerTerminalHandoff,
+    goalLoopControlledSchedulerNextCandidate: goalLoopSection?.controlledSchedulerNextCandidate,
     context: [
       "# AHO Topic Chat",
       "",
@@ -93,6 +95,7 @@ export async function buildOrchestratorContext(
     goalLoopGuidedGateScope: goalLoopSection?.guidedGateScope,
     goalLoopControlledLoopState: buildControlledLoopStatePromptEvidence(goalLoopSection),
     goalLoopSchedulerTerminalHandoff: goalLoopSection?.schedulerTerminalHandoff,
+    goalLoopControlledSchedulerNextCandidate: goalLoopSection?.controlledSchedulerNextCandidate,
     context: [
       "# AHO Workbench Orchestrator Context",
       "",

@@ -5,6 +5,7 @@ export const GOAL_LOOP_ROUTING_POSTURE_PROMPT_LABEL = "goal-loop-routing-posture
 export const GOAL_LOOP_CONTROLLED_LOOP_STATE_PROMPT_LABEL = "goal-loop-controlled-loop-state";
 export const GOAL_LOOP_CONTROLLER_POLICY_PROMPT_LABEL = "goal-loop-controller-policy";
 export const GOAL_LOOP_SCHEDULER_TERMINAL_HANDOFF_PROMPT_LABEL = "goal-loop-scheduler-terminal-handoff";
+export const GOAL_LOOP_CONTROLLED_SCHEDULER_NEXT_CANDIDATE_PROMPT_LABEL = "goal-loop-controlled-scheduler-next-candidate";
 
 export interface GoalLoopRoutingPosturePromptEvidence {
   authority: "non-executing-routing-posture-prompt-evidence";
@@ -33,6 +34,7 @@ export interface GoalLoopContextPreparedEvidence {
   goalLoopGuidedGateScope?: Record<string, string | string[]>;
   goalLoopControlledLoopState?: MainAgentContextResult["goalLoopControlledLoopState"];
   goalLoopSchedulerTerminalHandoff?: MainAgentContextResult["goalLoopSchedulerTerminalHandoff"];
+  goalLoopControlledSchedulerNextCandidate?: MainAgentContextResult["goalLoopControlledSchedulerNextCandidate"];
 }
 
 export function goalLoopPromptStackLabels(context: MainAgentContextResult): string[] {
@@ -52,6 +54,9 @@ export function goalLoopPromptStackLabels(context: MainAgentContextResult): stri
   if (context.goalLoopSchedulerTerminalHandoff) {
     labels.push(GOAL_LOOP_SCHEDULER_TERMINAL_HANDOFF_PROMPT_LABEL);
   }
+  if (context.goalLoopControlledSchedulerNextCandidate) {
+    labels.push(GOAL_LOOP_CONTROLLED_SCHEDULER_NEXT_CANDIDATE_PROMPT_LABEL);
+  }
   return labels;
 }
 
@@ -66,6 +71,7 @@ export function buildGoalLoopContextPreparedEvidence(context: MainAgentContextRe
     goalLoopGuidedGateScope: context.goalLoopGuidedGateScope,
     goalLoopControlledLoopState: context.goalLoopControlledLoopState,
     goalLoopSchedulerTerminalHandoff: context.goalLoopSchedulerTerminalHandoff,
+    goalLoopControlledSchedulerNextCandidate: context.goalLoopControlledSchedulerNextCandidate,
   };
 }
 

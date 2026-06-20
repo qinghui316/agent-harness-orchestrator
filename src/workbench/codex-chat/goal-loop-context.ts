@@ -3,8 +3,28 @@ import type { GoalLoopCloseGateHandoff } from "../../goal-loop/close-handoff.js"
 import type { GoalLoopControlledLoopStateContext } from "../../goal-loop/scheduler-loop-context.js";
 import type { GoalLoopSchedulerTerminalHandoffContext } from "../../goal-loop/main-agent-context.js";
 import type { ManagedProject, ResolvedMemory } from "../../types/index.js";
-import type { WorkbenchWorkpad } from "../read-model-types.js";
+import type { WorkbenchControlledSchedulerNextCandidate, WorkbenchWorkpad } from "../read-model-types.js";
 import { getWorkbenchWorkpadProjection } from "../projections/read-model/implementation.js";
+
+export interface ControlledSchedulerNextCandidatePromptEvidence {
+  authority: "non-executing-controlled-scheduler-next-candidate-prompt-evidence";
+  status: WorkbenchControlledSchedulerNextCandidate["status"];
+  label: string;
+  body: string;
+  actionLabel: string;
+  readinessEvidencePrepared: boolean;
+  humanConfirmationStillRequired: boolean;
+  evidenceRefs: string[];
+  executionStarted: false;
+  loopAuthorized: false;
+  fullParallelExecutorAuthorized: false;
+  wholeWaveDispatchAuthorized: false;
+  slotAllocatorAuthorized: false;
+  sourceMutationAuthorized: false;
+  applyAuthorized: false;
+  closeAuthorized: false;
+  harnessEvolutionAuthorized: false;
+}
 
 export interface VisibleGoalLoopMainAgentContextSection {
   goalLoopNextStepPacketId: string;
@@ -17,6 +37,7 @@ export interface VisibleGoalLoopMainAgentContextSection {
   closeGateHandoff?: GoalLoopCloseGateHandoff;
   controlledLoopState: GoalLoopControlledLoopStateContext;
   schedulerTerminalHandoff?: GoalLoopSchedulerTerminalHandoffContext;
+  controlledSchedulerNextCandidate?: ControlledSchedulerNextCandidatePromptEvidence;
   markdown: string;
 }
 
@@ -43,14 +64,19 @@ export async function buildVisibleGoalLoopMainAgentContextSection(
     };
   }
   const schedulerTerminalHandoff = buildSchedulerTerminalHandoffContext(workpad, visibleSection);
+  const controlledSchedulerNextCandidate = buildControlledSchedulerNextCandidatePromptEvidence(workpad, visibleSection.goalLoopNextStepPacketId);
   if (schedulerTerminalHandoff) {
     return {
       ...visibleSection,
       schedulerTerminalHandoff,
+      controlledSchedulerNextCandidate,
       markdown: appendSchedulerTerminalHandoffContext(visibleSection.markdown, schedulerTerminalHandoff),
     };
   }
-  return visibleSection;
+  return {
+    ...visibleSection,
+    controlledSchedulerNextCandidate,
+  };
 }
 
 function appendCloseGateHandoffContext(
@@ -137,6 +163,34 @@ function terminalFalseAuthority(): Pick<
   | "harnessEvolutionAuthorized"
 > {
   return {
+    loopAuthorized: false,
+    fullParallelExecutorAuthorized: false,
+    wholeWaveDispatchAuthorized: false,
+    slotAllocatorAuthorized: false,
+    sourceMutationAuthorized: false,
+    applyAuthorized: false,
+    closeAuthorized: false,
+    harnessEvolutionAuthorized: false,
+  };
+}
+
+export function buildControlledSchedulerNextCandidatePromptEvidence(
+  workpad: WorkbenchWorkpad,
+  goalLoopNextStepPacketId: string,
+): ControlledSchedulerNextCandidatePromptEvidence | undefined {
+  if (workpad.goalLoop?.goalLoopNextStepPacketId !== goalLoopNextStepPacketId) return undefined;
+  const candidate = workpad.goalLoop?.controlledSchedulerNextCandidate;
+  if (!candidate) return undefined;
+  return {
+    authority: "non-executing-controlled-scheduler-next-candidate-prompt-evidence",
+    status: candidate.status,
+    label: candidate.label,
+    body: candidate.body,
+    actionLabel: candidate.actionLabel,
+    readinessEvidencePrepared: candidate.readinessEvidencePrepared,
+    humanConfirmationStillRequired: candidate.humanConfirmationStillRequired,
+    evidenceRefs: [...candidate.evidenceRefs],
+    executionStarted: false,
     loopAuthorized: false,
     fullParallelExecutorAuthorized: false,
     wholeWaveDispatchAuthorized: false,
