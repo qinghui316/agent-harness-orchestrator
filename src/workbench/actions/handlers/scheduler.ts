@@ -30,10 +30,14 @@ import {
   validatePlanningSchedulerFirstWorker,
   validatePlanningSchedulerFirstWorkerRework,
 } from "./planning.js";
+import { compileGoalLoopEvaluation } from "../../../goal-loop/manager.js";
+import { assertWritableMemory } from "../../../memory/resolver.js";
+import type { ManagedProject } from "../../../types/index.js";
 import { buildControlledSchedulerAdvanceStepRequest, buildControlledSchedulerStepRequest } from "../../../workflow-scheduler/controlled-step.js";
 import { assertWorkflowActionScope, auditHighImpactWorkflowAction } from "../boundary.js";
 import { workflowActionScopesMatchStrict, type WorkflowActionScopeCarrier } from "../../../workflow-actions/registry.js";
 import type { WorkbenchActionHandlerMap } from "../dispatcher.js";
+import { resolveTopic } from "../../topic-resolver.js";
 import type { WorkbenchWorkflowActionRequest } from "../../types.js";
 
 type SchedulerWorkbenchActionType =
@@ -187,6 +191,7 @@ export function buildSchedulerActionHandlers(): Pick<WorkbenchActionHandlerMap, 
         controlledStep?: unknown;
         result?: unknown;
       };
+      const postStep = await recordControlledAdvancePostStepEvaluation(project, changeId);
       return {
         controlledAdvance: {
           actionType: concreteActionType,
@@ -210,11 +215,59 @@ export function buildSchedulerActionHandlers(): Pick<WorkbenchActionHandlerMap, 
         goalLoopNextStepPacket: evaluation.goalLoopNextStepPacket,
         goalLoopControllerPolicy: controller.goalLoopControllerPolicy,
         goalLoopGateReadinessPreflight: preflight.goalLoopGateReadinessPreflight,
+        ...postStep,
         controlledStep: controlledStepPayload.controlledStep,
         result: controlledStepPayload.result,
       };
     },
   };
+}
+
+type ControlledAdvancePostStepEvaluation = {
+  postStepGoalLoopEvaluation: {
+    goalLoopDecisionId: string;
+    goalLoopIterationId: string;
+    goalLoopContinuationBriefId: string;
+    goalLoopNextStepPacketId: string;
+    recommendedActionType?: string;
+    continuationState: string;
+    executionStarted: false;
+  };
+};
+
+type ControlledAdvancePostStepWarning = {
+  postStepGoalLoopEvaluationWarning: string;
+};
+
+async function recordControlledAdvancePostStepEvaluation(
+  project: ManagedProject,
+  changeId: string,
+): Promise<ControlledAdvancePostStepEvaluation | ControlledAdvancePostStepWarning> {
+  try {
+    const { memory, changePath } = await resolveTopic(project, changeId);
+    assertWritableMemory(memory, "Controlled scheduler post-step Goal Loop evaluation");
+    const { goalLoopDecision, goalLoopIteration, goalLoopContinuationBrief, goalLoopNextStepPacket } = await compileGoalLoopEvaluation(memory, changePath);
+    return {
+      postStepGoalLoopEvaluation: {
+        goalLoopDecisionId: goalLoopDecision.id,
+        goalLoopIterationId: goalLoopIteration.id,
+        goalLoopContinuationBriefId: goalLoopContinuationBrief.id,
+        goalLoopNextStepPacketId: goalLoopNextStepPacket.id,
+        recommendedActionType: goalLoopNextStepPacket.recommendedAction?.actionType,
+        continuationState: goalLoopIteration.continuationState,
+        executionStarted: false,
+      },
+    };
+  } catch (error) {
+    return {
+      postStepGoalLoopEvaluationWarning: `Next-step evidence refresh failed after the scheduler transition succeeded: ${errorMessage(error)}`,
+    };
+  }
+}
+
+function errorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  return String(error);
 }
 
 function concreteGateFromRequest(request: WorkbenchWorkflowActionRequest, actionType: string, changeId: string): WorkflowActionScopeCarrier {

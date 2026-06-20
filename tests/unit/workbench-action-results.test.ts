@@ -81,6 +81,24 @@ describe("Workbench action result summaries", () => {
     expect(summary).toContain("只按当前建议推进了一个受控步骤");
     expectUserCopyNotToContainInternalTerms(summary);
   });
+
+  it("summarizes controlled advance post-step evidence without adding executable language", () => {
+    const refreshed = summarizeActionResult("planning.scheduler.controlled-advance.run", {
+      postStepGoalLoopEvaluation: {
+        goalLoopNextStepPacketId: "packet-post",
+        executionStarted: false,
+      },
+    });
+    const warning = summarizeActionResult("planning.scheduler.controlled-advance.run", {
+      postStepGoalLoopEvaluationWarning: "refresh failed",
+    });
+
+    expect(refreshed).toContain("下一步证据已刷新");
+    expect(refreshed).toMatch(/需要你?单独确认/);
+    expect(warning).toContain("当前步骤已完成，但下一步证据刷新未完成");
+    expect(warning).toMatch(/重新评估/);
+    expectUserCopyNotToContainInternalTerms(`${refreshed}\n${warning}`);
+  });
 });
 
 function expectUserCopyNotToContainInternalTerms(copy: string): void {

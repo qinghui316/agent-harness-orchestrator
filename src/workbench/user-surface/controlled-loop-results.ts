@@ -48,9 +48,18 @@ export function controlledLoopResultLabel(actionType: string | undefined): strin
   return null;
 }
 
-export function controlledLoopDecisionSummary(actionType: string, _result: unknown): string | null {
+export function controlledLoopDecisionSummary(actionType: string, result: unknown): string | null {
   if (GOAL_LOOP_COPY[actionType]) return GOAL_LOOP_COPY[actionType].completedSummary;
-  return SCHEDULER_COMPLETED_SUMMARY[actionType] ?? null;
+  const schedulerSummary = SCHEDULER_COMPLETED_SUMMARY[actionType];
+  if (!schedulerSummary) return null;
+  if (actionType !== "planning.scheduler.controlled-advance.run") return schedulerSummary;
+  if (hasRecordField(result, "postStepGoalLoopEvaluation")) {
+    return `${schedulerSummary} 下一步证据已刷新；是否继续仍需要你单独确认。`;
+  }
+  if (hasRecordField(result, "postStepGoalLoopEvaluationWarning")) {
+    return `${schedulerSummary} 当前步骤已完成，但下一步证据刷新未完成；请查看证据后再决定是否重新评估。`;
+  }
+  return schedulerSummary;
 }
 
 export function controlledLoopThreadLabel(actionType: string | undefined, status: string | undefined): string | null {
@@ -82,4 +91,8 @@ export function controlledLoopAssistantMessage(actionType: string): string | nul
 
 export function controlledLoopFeedbackRecordedMessage(): string {
   return "你的反馈已记录。接下来会根据这条反馈重新评估下一步；还没有执行任何步骤。";
+}
+
+function hasRecordField(value: unknown, key: string): boolean {
+  return typeof value === "object" && value !== null && key in value;
 }
