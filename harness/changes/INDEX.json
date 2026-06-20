@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-20T13:23:18.7607318Z",
+    "generated_at":  "2026-06-20T13:46:53.8136524Z",
     "active":  [
 
                ],
@@ -1387,6 +1387,10 @@
                         "path":  "harness/changes/archive/20260620-auto-evolve-harness-controlled-scheduler-reconfirm-window"
                     },
                     {
+                        "name":  "20260620-auto-evolve-harness-controlled-scheduler-routing-window-noop",
+                        "path":  "harness/changes/archive/20260620-auto-evolve-harness-controlled-scheduler-routing-window-noop"
+                    },
+                    {
                         "name":  "20260620-auto-evolve-harness-controlled-scheduler-ui-validation-window",
                         "path":  "harness/changes/archive/20260620-auto-evolve-harness-controlled-scheduler-ui-validation-window"
                     },
@@ -1453,6 +1457,10 @@
                     {
                         "name":  "20260620-controlled-scheduler-confirmation-evidence-surface",
                         "path":  "harness/changes/archive/20260620-controlled-scheduler-confirmation-evidence-surface"
+                    },
+                    {
+                        "name":  "20260620-controlled-scheduler-confirmation-routing-posture",
+                        "path":  "harness/changes/archive/20260620-controlled-scheduler-confirmation-routing-posture"
                     },
                     {
                         "name":  "20260620-controlled-scheduler-next-candidate-prompt-evidence",

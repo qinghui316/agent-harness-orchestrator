@@ -1465,9 +1465,17 @@ export type ControlledSchedulerNextCandidateDetail = {
   label: string;
   body: string;
   actionLabel: string;
+  routingPosture?: ControlledSchedulerRoutingPostureDetail;
   readinessEvidencePrepared: boolean;
   humanConfirmationStillRequired: true;
   evidenceRefs: string[];
+};
+
+export type ControlledSchedulerRoutingPostureDetail = {
+  label: string;
+  body: string;
+  boundary: string;
+  reasons: string[];
 };
 
 export type ConfirmationQueueItem = {

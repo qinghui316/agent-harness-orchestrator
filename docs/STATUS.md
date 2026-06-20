@@ -5,14 +5,14 @@
 - Current date: 2026-06-20.
 - Active ECL change: none.
 - Pending Harness evolution: none.
-- Latest archived product change: `harness/changes/archive/20260620-controlled-scheduler-action-receipt-surface/summary.md`.
-- Latest archived product/Harness docs change: `harness/changes/archive/20260620-controlled-scheduler-action-receipt-surface/summary.md`.
-- Latest archived Harness evolution: `harness/changes/archive/20260620-auto-evolve-harness-controlled-scheduler-ui-validation-window/summary.md`.
+- Latest archived product change: `harness/changes/archive/20260620-controlled-scheduler-confirmation-routing-posture/summary.md`.
+- Latest archived product/Harness docs change: `harness/changes/archive/20260620-auto-evolve-harness-controlled-scheduler-routing-window-noop/summary.md`.
+- Latest archived Harness evolution: `harness/changes/archive/20260620-auto-evolve-harness-controlled-scheduler-routing-window-noop/summary.md`.
 - Active product phase: none.
 - Active Harness evolution phase: none.
 - Active close status: not applicable.
 
-This file is the short resume point. No active ECL change is open. The latest archived product change made live terminal workflow receipts visible as workflow/evidence UI before the final snapshot arrives, reusing existing `resultSummary` / controlled Scheduler handoff copy and preserving confirmation queue authority. The previous archived product change added passive ready next-candidate detail to the right controlled Scheduler confirmation card, reusing existing Workpad candidate evidence while preserving one human-confirmed controlled Scheduler advance action. The latest Harness evolution promoted the repeated UI-validation lesson into Workbench User-Surface Honesty and the review template: UI-visible Workbench behavior needs real App DOM or browser verification when feasible; projection evidence remains supplemental for derivation and edge cases.
+This file is the short resume point. No active ECL change remains and no pending Harness evolution exists. The latest product change made the right controlled Scheduler confirmation card show sanitized user-facing conflict/routing posture while preserving one human-confirmed controlled advance action and avoiding any scheduler runtime, ToolPolicyGate, stale revalidation, action payload, or human gate changes. The latest Harness evolution closed as `noop`: the existing Workbench User-Surface Honesty rule and review template already require real App DOM or browser verification when UI-visible Workbench behavior is changed; projection evidence remains supplemental for derivation and edge cases.
 
 Current plan-level roadmap context is preserved in `docs/CURRENT-DEVELOPMENT-PLAN.md`. Historical detail belongs in archived summaries and `harness/changes/INDEX.json`.
 
@@ -26,7 +26,7 @@ Phase 12A remains the future controlled Scheduler/parallel loop design boundary.
 
 ## Next Resume Point
 
-Start the next product-function change from the current roadmap, biased toward controlled Scheduler / Goal-driven Adaptive Loop usability rather than further architecture-only cleanup unless it directly unblocks product progress. Preserve one confirmed transition per high-impact action, ToolPolicyGate, stale revalidation, IntegrationCheck/apply boundaries, and human gates. UI-visible behavior needs real App/DOM verification, not projection-only evidence. Keep `README.md` unrelated and untracked unless the user explicitly asks to include it.
+Open the next structured product-function change rather than another architecture-only cleanup unless a concrete blocker appears. Prefer a larger user-visible controlled Scheduler / Goal Loop slice, keep one human-confirmed transition per high-impact action until a later accepted loop implementation, and cover UI-visible behavior with real App DOM or browser verification. Keep `README.md` unrelated and untracked unless the user explicitly asks to include it.
 
 ## Verification Commands
 

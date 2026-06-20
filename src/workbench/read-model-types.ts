@@ -763,9 +763,17 @@ export interface WorkbenchControlledSchedulerNextCandidate {
   label: string;
   body: string;
   actionLabel: string;
+  routingPosture?: WorkbenchControlledSchedulerRoutingPosture;
   readinessEvidencePrepared: boolean;
   humanConfirmationStillRequired: true;
   evidenceRefs: string[];
+}
+
+export interface WorkbenchControlledSchedulerRoutingPosture {
+  label: string;
+  body: string;
+  boundary: string;
+  reasons: string[];
 }
 
 export interface WorkbenchWorkpad {

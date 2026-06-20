@@ -178,6 +178,20 @@ function DecisionContextCard({
             {" "}
             {context.controlledSchedulerNextCandidate.humanConfirmationStillRequired ? "继续前仍需要你确认这个步骤。" : "等待新的证据。"}
           </p>
+          {context.controlledSchedulerNextCandidate.routingPosture ? (
+            <div className="decision-routing-posture" aria-label="Controlled scheduler routing posture">
+              <strong>{userFacingText(context.controlledSchedulerNextCandidate.routingPosture.label)}</strong>
+              <p>{userFacingText(context.controlledSchedulerNextCandidate.routingPosture.body)}</p>
+              <p className="muted-inline">{userFacingText(context.controlledSchedulerNextCandidate.routingPosture.boundary)}</p>
+              {context.controlledSchedulerNextCandidate.routingPosture.reasons.length ? (
+                <ul>
+                  {context.controlledSchedulerNextCandidate.routingPosture.reasons.map((reason) => (
+                    <li key={reason}>{userFacingText(reason)}</li>
+                  ))}
+                </ul>
+              ) : null}
+            </div>
+          ) : null}
         </div>
       ) : null}
       <dl className="approval-fields">

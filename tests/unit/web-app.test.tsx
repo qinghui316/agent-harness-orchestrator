@@ -721,6 +721,14 @@ describe("Workbench web app", () => {
         label: "下一步候选已刷新",
         body: "下一步候选：继续执行下一个任务。当前步骤检查已刷新；继续仍需要你再次确认。",
         actionLabel: "继续执行下一个任务",
+        routingPosture: {
+          label: "低冲突，仍需单步确认",
+          body: "当前证据只支持继续一个已限定范围的任务步骤；可以评估低冲突并行，但本次仍只确认这一步。",
+          boundary: "调度能力仍是单步受控：不会自动循环、整批派发、分配资源槽或启动完整并行执行器。",
+          reasons: [
+            "继续执行下一个任务是当前已限定范围的步骤；即使冲突较低，也只允许这一次人工确认。",
+          ],
+        },
         readinessEvidencePrepared: true,
         humanConfirmationStillRequired: true,
         evidenceRefs: [
@@ -782,6 +790,10 @@ describe("Workbench web app", () => {
     expect(within(card).getByText("下一步候选：继续执行下一个任务。当前步骤检查已刷新；继续仍需要你再次确认。")).toBeTruthy();
     expect(within(card).getByText(/当前步骤检查已准备好。/)).toBeTruthy();
     expect(within(card).getByText(/继续前仍需要你确认这个步骤。/)).toBeTruthy();
+    expect(within(card).getByText("低冲突，仍需单步确认")).toBeTruthy();
+    expect(within(card).getByText("当前证据只支持继续一个已限定范围的任务步骤；可以评估低冲突并行，但本次仍只确认这一步。")).toBeTruthy();
+    expect(within(card).getByText("调度能力仍是单步受控：不会自动循环、整批派发、分配资源槽或启动完整并行执行器。")).toBeTruthy();
+    expect(within(card).getByText("继续执行下一个任务是当前已限定范围的步骤；即使冲突较低，也只允许这一次人工确认。")).toBeTruthy();
     expect(within(card).getByText("查看证据：packet.md")).toBeTruthy();
     expect(within(card).getByText("查看证据：policy.md")).toBeTruthy();
     expect(within(card).getByText("查看证据：preflight.md")).toBeTruthy();
@@ -793,6 +805,8 @@ describe("Workbench web app", () => {
     expect(cardText).not.toContain("自动应用");
     expect(cardText).not.toContain("自动关闭");
     expect(cardText).not.toContain("合并全部");
+    expect(cardText).not.toContain("planning.scheduler");
+    expect(cardText).not.toContain("SchedulerRun");
     expect(normalizedCardText).not.toContain("worker");
     expect(normalizedCardText).not.toContain("scheduler run");
     expect(normalizedCardText).not.toContain("slot");

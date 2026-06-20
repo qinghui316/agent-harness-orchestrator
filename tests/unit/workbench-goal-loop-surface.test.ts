@@ -9,6 +9,7 @@ import { buildControlledSchedulerNextCandidatePromptEvidence, buildSchedulerTerm
 import { buildGoalLoopContextPreparedEvidence, goalLoopPromptStackLabels } from "../../src/workbench/codex-chat/goal-loop-prompt-evidence.js";
 import { getWorkbenchSnapshot } from "../../src/workbench/manager.js";
 import { attachControlledSchedulerAdvanceActions, attachGoalLoopAssistedConcreteGateActions, attachGoalLoopControllerRefreshActions, attachGoalLoopFeedbackActions, attachGoalLoopGateReadinessActions } from "../../src/workbench/projections/read-model/confirmation/goal-loop.js";
+import { buildControlledSchedulerNextCandidate } from "../../src/workbench/projections/read-model/goal-loop-next-candidate.js";
 import { schedulerControlledAdvanceCopy, schedulerUserFacingActionCopy } from "../../src/workbench/projections/read-model/confirmation/scheduler-user-surface.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import { listWorktreeStatuses } from "../../src/worktree/manager.js";
@@ -734,6 +735,103 @@ describe("workbench Goal Loop surface", () => {
     expect(advance?.goalLoopControllerPolicyId).toBeUndefined();
     expect(advance?.goalLoopGateReadinessPreflightId).toBeUndefined();
     expect(item.actions.filter((action) => action.actionType === "planning.scheduler.controlled-advance.run")).toHaveLength(1);
+  });
+
+  it("derives sanitized routing posture copy for controlled scheduler next-candidate detail", () => {
+    const candidate = buildControlledSchedulerNextCandidate({
+      id: "brief-1",
+      changeId: "member-discount",
+      goalLoopDecisionId: "decision-1",
+      goalLoopIterationId: "iteration-1",
+      goalLoopNextStepPacketId: "packet-1",
+      iterationOrdinal: 1,
+      decisionKind: "current-gate-ready",
+      continuationVerdict: "continue",
+      continuationState: "ready-for-existing-gate",
+      recommendationState: "recommend-existing-gate",
+      summary: "Goal Loop recommends the current scoped worker gate.",
+      recommendedActionType: "planning.scheduler.worker.start-next",
+      recommendedActionScope: {
+        changeId: "member-discount",
+        schedulerRunId: "scheduler-run-1",
+        schedulerClaimReservationId: "claim-reservation-expected",
+        reservationIntentId: "reservation-intent-2",
+        claimIntentId: "claim-2",
+      },
+      recommendedActionReason: "Recommended action planning.scheduler.worker.start-next is limited to the existing scoped first worker-start gate.",
+      separateGateRequired: true,
+      humanGateRequired: true,
+      conflictLevel: "low",
+      parallelEligible: true,
+      routingPosture: "single-worker-gate",
+      routingLabel: "Single scoped worker gate",
+      schedulerExecutionMode: {
+        authority: "non-executing-scheduler-execution-mode-evidence",
+        mode: "single-gate-staged",
+        loopAuthorized: false,
+        fullParallelExecutorAuthorized: false,
+        wholeWaveDispatchAuthorized: false,
+        slotAllocatorAuthorized: false,
+        currentGate: {
+          actionType: "planning.scheduler.worker.start-next",
+          separateHumanGateRequired: true,
+        },
+        humanGateRequired: true,
+        summary: "The scheduler path is still a single-gate staged capability.",
+        reasons: [
+          "planning.scheduler.worker.start-next must be revalidated and confirmed as its own concrete Harness gate.",
+        ],
+        futureLoopRequirements: [
+          "accepted architecture decision for a real scheduler loop or full parallel executor",
+          "IntegrationCheck before any source apply path",
+        ],
+      },
+      conflictReasons: [
+        "planning.scheduler.worker.start-next is the current existing scoped worker gate; parallel eligibility is limited to this single human-confirmed transition.",
+      ],
+      completionStatus: "incomplete",
+      resumePreconditionCount: 0,
+      revalidationChecklistCount: 1,
+      sourceEvidenceCount: 1,
+      stalenessInstruction: "re-read current evidence",
+      nextStepPacketArtifact: "packet.json",
+      controllerPolicyId: "policy-1",
+      controllerVerdict: "recommend-existing-gate",
+      controllerGateStatus: "matches-current-gate",
+      controllerArtifact: "policy.json",
+      gateReadinessPreflightId: "preflight-1",
+      gateReadinessPreflightArtifact: "preflight.json",
+      updatedAt: "2026-06-20T12:00:00.000Z",
+      executionStarted: false,
+    });
+
+    expect(candidate).toMatchObject({
+      status: "ready-for-confirmation",
+      label: "下一步候选已刷新",
+      actionLabel: "继续执行下一个任务",
+      routingPosture: {
+        label: "低冲突，仍需单步确认",
+        body: "当前证据只支持继续一个已限定范围的任务步骤；可以评估低冲突并行，但本次仍只确认这一步。",
+        boundary: "调度能力仍是单步受控：不会自动循环、整批派发、分配资源槽或启动完整并行执行器。",
+        reasons: [
+          "继续执行下一个任务是当前已限定范围的步骤；即使冲突较低，也只允许这一次人工确认。",
+        ],
+      },
+    });
+    const visibleCopy = [
+      candidate?.label,
+      candidate?.body,
+      candidate?.routingPosture?.label,
+      candidate?.routingPosture?.body,
+      candidate?.routingPosture?.boundary,
+      ...(candidate?.routingPosture?.reasons ?? []),
+    ].join("\n");
+    expect(visibleCopy).not.toContain("planning.scheduler");
+    expect(visibleCopy).not.toContain("SchedulerRun");
+    expect(visibleCopy.toLowerCase()).not.toContain("worker");
+    expect(visibleCopy.toLowerCase()).not.toContain("slot");
+    expect(visibleCopy.toLowerCase()).not.toContain("whole-wave");
+    expect(visibleCopy.toLowerCase()).not.toContain("start-all");
   });
 
   it("does not merge next-candidate evidence refs into controlled scheduler advance unless the candidate is ready", async () => {
