@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-20T00:48:20.5015016Z",
+    "generated_at":  "2026-06-20T01:06:41.0093843Z",
     "active":  [
 
                ],
@@ -1383,6 +1383,10 @@
                         "path":  "harness/changes/archive/20260620-auto-evolve-harness-workbench-feedback-conversation-split-window"
                     },
                     {
+                        "name":  "20260620-auto-evolve-harness-workbench-rework-helper-reuse-window",
+                        "path":  "harness/changes/archive/20260620-auto-evolve-harness-workbench-rework-helper-reuse-window"
+                    },
+                    {
                         "name":  "20260620-auto-evolve-harness-workbench-target-helper-verification-window",
                         "path":  "harness/changes/archive/20260620-auto-evolve-harness-workbench-target-helper-verification-window"
                     },
@@ -1477,6 +1481,10 @@
                     {
                         "name":  "20260620-workbench-worker-rework-reconcile-optional-target-helper-reuse",
                         "path":  "harness/changes/archive/20260620-workbench-worker-rework-reconcile-optional-target-helper-reuse"
+                    },
+                    {
+                        "name":  "20260620-workbench-worker-rework-validate-optional-target-helper-reuse",
+                        "path":  "harness/changes/archive/20260620-workbench-worker-rework-validate-optional-target-helper-reuse"
                     }
                 ]
 }
