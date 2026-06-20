@@ -189,7 +189,13 @@ describe("controlled scheduler advance post-step evaluation", () => {
       },
     });
     mocks.planning.startPlanningSchedulerNextWorker.mockResolvedValue({
-      schedulerWorkerStart: { id: "scheduler-worker-start-1" },
+      schedulerWorkerStart: {
+        id: "scheduler-worker-start-1",
+        status: "started",
+        artifact: "harness/changes/active/change-1/planning/scheduler-runs/scheduler-run-1/scheduler-worker-starts/scheduler-worker-start-1.json",
+        internalResult: { shouldNotPersist: true },
+        sourceArtifactHashes: { spec: "hash-1" },
+      },
     });
     mocks.resolveTopic.mockResolvedValue({
       memory: { memoryRoot: "memory-root", writable: true },
@@ -280,7 +286,21 @@ describe("controlled scheduler advance post-step evaluation", () => {
         wholeWaveDispatchAuthorized: false,
         slotAllocatorAuthorized: false,
       }),
+      controlledStepResultSummary: expect.objectContaining({
+        resultKind: "schedulerWorkerStart",
+        schedulerWorkerStartId: "scheduler-worker-start-1",
+        schedulerWorkerStartStatus: "started",
+      }),
     }));
+    const controlledStepEvidenceInput = mocks.recordSchedulerControlledStepEvidence.mock.calls[0]?.[1] as {
+      controlledStepResultSummary?: Record<string, unknown>;
+    };
+    expect(controlledStepEvidenceInput.controlledStepResultSummary).toEqual({
+      resultKind: "schedulerWorkerStart",
+      schedulerWorkerStartId: "scheduler-worker-start-1",
+      schedulerWorkerStartStatus: "started",
+      resultArtifact: "harness/changes/active/change-1/planning/scheduler-runs/scheduler-run-1/scheduler-worker-starts/scheduler-worker-start-1.json",
+    });
     expect(mocks.planning.startPlanningSchedulerNextWorker.mock.invocationCallOrder[0]).toBeLessThan(
       mocks.compileGoalLoopEvaluation.mock.invocationCallOrder[0],
     );

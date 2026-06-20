@@ -58,6 +58,12 @@ export function renderSchedulerControlledStepEvidenceMarkdown(step: SchedulerCon
     `- Next candidate: ${step.postStepHandoff.nextConfirmationCandidate?.actionType ?? "none"}`,
     `- Warning: ${step.postStepEvidence.evaluationWarning ?? step.postStepEvidence.readinessWarning ?? step.postStepHandoff.warning ?? "none"}`,
     "",
+    "## Concrete Result Summary",
+    "",
+    ...(step.controlledStepResultSummary
+      ? Object.entries(step.controlledStepResultSummary).map(([key, value]) => `- ${key}: ${Array.isArray(value) ? value.join(", ") : String(value)}`)
+      : ["- none"]),
+    "",
     "## Pre-step Evidence",
     "",
     `- GoalLoopDecision: ${step.preStepEvidence.goalLoopDecisionId}`,

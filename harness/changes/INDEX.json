@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-20T17:17:23.2349618Z",
+    "generated_at":  "2026-06-20T17:52:08.6736501Z",
     "active":  [
 
                ],
@@ -1671,8 +1671,16 @@
                         "path":  "harness/changes/archive/20260620-workflow-result-summary-thread-visibility"
                     },
                     {
+                        "name":  "20260621-auto-evolve-harness-controlled-scheduler-step-result-window-noop",
+                        "path":  "harness/changes/archive/20260621-auto-evolve-harness-controlled-scheduler-step-result-window-noop"
+                    },
+                    {
                         "name":  "20260621-controlled-scheduler-runtime-step-evidence",
                         "path":  "harness/changes/archive/20260621-controlled-scheduler-runtime-step-evidence"
+                    },
+                    {
+                        "name":  "20260621-scheduler-controlled-step-result-boundary",
+                        "path":  "harness/changes/archive/20260621-scheduler-controlled-step-result-boundary"
                     },
                     {
                         "name":  "20260621-workpad-controlled-scheduler-reconfirmation-surface",

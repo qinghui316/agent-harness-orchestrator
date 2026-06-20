@@ -1291,6 +1291,7 @@ export type SchedulerControlledStepEvidenceSummary = {
   closeAuthorized: false;
   mergeAuthorized: false;
   harnessEvolutionAuthorized: false;
+  controlledStepResultSummary?: Record<string, string | number | boolean | string[] | null>;
   warning?: string;
   artifact?: string;
   markdownArtifact?: string;

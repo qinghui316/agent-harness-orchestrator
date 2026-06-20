@@ -5,15 +5,20 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { recordSchedulerControlledStepEvidence } from "../../src/scheduler-runtime/controlled-step-evidence.js";
 import {
+  readSchedulerRuntimeEvents,
   listSchedulerControlledStepEvidence,
   readLatestSchedulerControlledStepEvidenceProjection,
   readSchedulerControlledStepEvidence,
   readSchedulerControlledStepEvidenceProjection,
   schedulerControlledStepArtifactRefs,
+  schedulerRuntimeArtifactRefs,
   writeSchedulerControlledStepEvidence,
+  writeSchedulerRuntimeState,
 } from "../../src/scheduler-runtime/repository.js";
+import { schedulerRunArtifactRefs, writeSchedulerRun } from "../../src/workflow-scheduler/repository.js";
 import { readLatestSchedulerControlledStepEvidenceSummary } from "../../src/workbench/workflow-projection.js";
-import type { SchedulerControlledStepEvidence } from "../../src/scheduler-runtime/types.js";
+import type { SchedulerControlledStepEvidence, SchedulerRuntimeState } from "../../src/scheduler-runtime/types.js";
+import type { SchedulerRun } from "../../src/workflow-scheduler/types.js";
 import type { ManagedProject, ResolvedMemory } from "../../src/types/index.js";
 
 describe("Scheduler controlled step evidence", () => {
@@ -31,7 +36,22 @@ describe("Scheduler controlled step evidence", () => {
       projectId: "project-1",
     } as ResolvedMemory;
     await mkdir(join(tempDir, changePath), { recursive: true });
-    await writeFile(join(tempDir, changePath, "change.json"), JSON.stringify({ id: "change-1" }), "utf8");
+    await mkdir(join(tempDir, changePath, "reviews"), { recursive: true });
+    await writeFile(join(tempDir, changePath, "change.json"), JSON.stringify({
+      version: "1.0",
+      id: "change-1",
+      title: "Change 1",
+      state: "active",
+      createdAt: "2026-06-21T00:00:00.000Z",
+      updatedAt: "2026-06-21T00:00:00.000Z",
+      closedAt: null,
+      archivePath: null,
+    }), "utf8");
+    await writeFile(join(tempDir, changePath, "summary.md"), "# Change 1\n\n## Current Status\n\nActive.\n", "utf8");
+    await writeFile(join(tempDir, changePath, "spec.md"), "# Spec\n\n## Acceptance Criteria\n\n- AC-001: Test.\n", "utf8");
+    await writeFile(join(tempDir, changePath, "plan.md"), "# Plan\n\nTest.\n", "utf8");
+    await writeFile(join(tempDir, changePath, "tasks.md"), "# Tasks\n\n- [ ] T-001: Test.\n  - Covers: AC-001\n", "utf8");
+    await writeFile(join(tempDir, changePath, "reviews", "review.md"), "Status: pending.\n", "utf8");
   });
 
   afterEach(async () => {
@@ -52,6 +72,7 @@ describe("Scheduler controlled step evidence", () => {
 
     const markdown = await readFile(join(tempDir, changePath, "planning", "scheduler-runs", "scheduler-run-1", "scheduler-controlled-steps", "step-1.md"), "utf8");
     expect(markdown).toContain("One human-confirmed concrete scheduler transition completed.");
+    expect(markdown).toContain("schedulerWorkerStartId: scheduler-worker-start-1");
     expect(markdown).toContain("Scheduler loop: not authorized.");
 
     await expect(readSchedulerControlledStepEvidence(memory, changePath, "step-1", "wrong-run")).rejects.toThrow();
@@ -67,8 +88,76 @@ describe("Scheduler controlled step evidence", () => {
       slotAllocatorAuthorized: false,
       applyAuthorized: false,
       closeAuthorized: false,
+      controlledStepResultSummary: expect.objectContaining({
+        schedulerWorkerStartId: "scheduler-worker-start-1",
+      }),
     });
     await expect(listSchedulerControlledStepEvidence(memory, changePath, "scheduler-run-1")).resolves.toHaveLength(1);
+  });
+
+  it("records and reads a SchedulerRun-scoped controlled-step runtime event", async () => {
+    await writeSchedulerRun(memory, changePath, buildSchedulerRun(memory, changePath));
+    await writeSchedulerRuntimeState(memory, changePath, buildRuntimeState(memory, changePath));
+
+    const recorded = await recordSchedulerControlledStepEvidence(project(tempDir), {
+      changeId: "change-1",
+      schedulerRunId: "scheduler-run-1",
+      executedActionType: "planning.scheduler.worker.start-next",
+      targetScope: {
+        actionType: "planning.scheduler.worker.start-next",
+        changeId: "change-1",
+        schedulerRunId: "scheduler-run-1",
+        schedulerClaimReservationId: "reservation-1",
+      },
+      preStepEvidence: {
+        goalLoopDecisionId: "decision-pre",
+        goalLoopIterationId: "iteration-pre",
+        goalLoopContinuationBriefId: "brief-pre",
+        goalLoopNextStepPacketId: "packet-pre",
+        goalLoopControllerPolicyId: "controller-pre",
+        goalLoopGateReadinessPreflightId: "preflight-pre",
+      },
+      postStepGoalLoopEvaluation: {
+        goalLoopDecisionId: "decision-post",
+        goalLoopIterationId: "iteration-post",
+        goalLoopContinuationBriefId: "brief-post",
+        goalLoopNextStepPacketId: "packet-post",
+        recommendedActionType: "planning.scheduler.worker.reconcile-result",
+        continuationState: "ready-for-existing-gate",
+        executionStarted: false,
+      },
+      postStepHandoff: {
+        status: "next-confirmation-candidate-ready",
+        stopReason: "one-confirmed-scheduler-transition-completed",
+        executedActionType: "planning.scheduler.worker.start-next",
+        needsReevaluation: false,
+        executionStarted: false,
+        loopAuthorized: false,
+        wholeWaveDispatchAuthorized: false,
+        slotAllocatorAuthorized: false,
+      },
+      controlledStepResultSummary: {
+        resultKind: "schedulerWorkerStart",
+        schedulerWorkerStartId: "scheduler-worker-start-1",
+        schedulerWorkerStartStatus: "started",
+      },
+    });
+
+    const events = await readSchedulerRuntimeEvents(memory, changePath, "scheduler-run-1");
+    expect(recorded.schedulerControlledStepEvidence.controlledStepResultSummary).toMatchObject({
+      schedulerWorkerStartId: "scheduler-worker-start-1",
+    });
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      type: "scheduler-runtime.controlled-step-recorded",
+      schedulerRunId: "scheduler-run-1",
+      changeId: "change-1",
+      payload: {
+        schedulerControlledStepEvidenceId: recorded.schedulerControlledStepEvidence.id,
+        postStepStatus: "next-confirmation-candidate-ready",
+        humanConfirmationStillRequired: true,
+      },
+    });
   });
 
   it("fails closed when the evidence change scope does not match the selected Change", async () => {
@@ -200,6 +289,11 @@ function buildStep(artifact: string, markdownArtifact: string): SchedulerControl
       wholeWaveDispatchAuthorized: false,
       slotAllocatorAuthorized: false,
     },
+    controlledStepResultSummary: {
+      resultKind: "schedulerWorkerStart",
+      schedulerWorkerStartId: "scheduler-worker-start-1",
+      schedulerWorkerStartStatus: "started",
+    },
     executionStarted: true,
     stoppedAfterOneSchedulerTransition: true,
     humanConfirmationStillRequired: true,
@@ -219,6 +313,68 @@ function buildStep(artifact: string, markdownArtifact: string): SchedulerControl
     artifactRefs: [artifact, markdownArtifact],
     artifact,
     markdownArtifact,
+    createdAt: "2026-06-21T00:00:00.000Z",
+    updatedAt: "2026-06-21T00:00:00.000Z",
+  };
+}
+
+function buildSchedulerRun(memory: ResolvedMemory, changePath: string): SchedulerRun {
+  const refs = schedulerRunArtifactRefs(memory, changePath, "scheduler-run-1");
+  return {
+    version: "1.0",
+    id: "scheduler-run-1",
+    changeId: "change-1",
+    status: "prepared",
+    schedulerMode: "parallel-readiness-v1",
+    schedulerContractId: "scheduler-contract-1",
+    schedulerDispatchDryRunId: "scheduler-dispatch-dry-run-1",
+    schedulerWorkerPlanId: "scheduler-worker-plan-1",
+    schedulerClaimReconcilePlanId: "scheduler-claim-reconcile-plan-1",
+    schedulerLaunchPreflightId: "scheduler-launch-preflight-1",
+    decompositionPlanId: "decomposition-plan-1",
+    readinessManifestId: "readiness-manifest-1",
+    claimIntentCount: 1,
+    plannedSlotDemand: 1,
+    maxPlannedWaveWidth: 1,
+    blockedCount: 0,
+    humanConfirmed: true,
+    futureToolPolicyGateRequired: true,
+    futureHumanGateRequired: true,
+    sourceArtifactHashes: {},
+    artifactRefs: [refs.artifact, refs.markdownArtifact, refs.journalArtifact],
+    artifact: refs.artifact,
+    markdownArtifact: refs.markdownArtifact,
+    journalArtifact: refs.journalArtifact,
+    createdAt: "2026-06-21T00:00:00.000Z",
+    updatedAt: "2026-06-21T00:00:00.000Z",
+  };
+}
+
+function buildRuntimeState(memory: ResolvedMemory, changePath: string): SchedulerRuntimeState {
+  const refs = schedulerRuntimeArtifactRefs(memory, changePath, "scheduler-run-1");
+  return {
+    version: "1.0",
+    id: "scheduler-runtime-state-1",
+    changeId: "change-1",
+    schedulerRunId: "scheduler-run-1",
+    schedulerMode: "parallel-readiness-v1",
+    status: "initialized",
+    schedulerContractId: "scheduler-contract-1",
+    schedulerDispatchDryRunId: "scheduler-dispatch-dry-run-1",
+    schedulerWorkerPlanId: "scheduler-worker-plan-1",
+    schedulerClaimReconcilePlanId: "scheduler-claim-reconcile-plan-1",
+    schedulerLaunchPreflightId: "scheduler-launch-preflight-1",
+    decompositionPlanId: "decomposition-plan-1",
+    readinessManifestId: "readiness-manifest-1",
+    claimIntents: [],
+    waves: [],
+    plannedSlotDemand: 1,
+    maxPlannedWaveWidth: 1,
+    blockedCount: 0,
+    sourceArtifactHashes: {},
+    artifactRefs: [refs.artifact, refs.eventsArtifact],
+    artifact: refs.artifact,
+    eventsArtifact: refs.eventsArtifact,
     createdAt: "2026-06-21T00:00:00.000Z",
     updatedAt: "2026-06-21T00:00:00.000Z",
   };

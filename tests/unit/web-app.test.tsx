@@ -1058,6 +1058,11 @@ describe("Workbench web app", () => {
             closeAuthorized: false,
             mergeAuthorized: false,
             harnessEvolutionAuthorized: false,
+            controlledStepResultSummary: {
+              resultKind: "schedulerWorkerStart",
+              schedulerWorkerStartId: "scheduler-worker-start-1",
+              schedulerWorkerStartStatus: "started",
+            },
             artifact: "harness/changes/active/member-discount/planning/scheduler-runs/scheduler-run-1/scheduler-controlled-steps/scheduler-controlled-step-1.json",
             markdownArtifact: "harness/changes/active/member-discount/planning/scheduler-runs/scheduler-run-1/scheduler-controlled-steps/scheduler-controlled-step-1.md",
             updatedAt: "2026-06-21T00:00:00.000Z",
@@ -1087,6 +1092,9 @@ describe("Workbench web app", () => {
     expect(within(card).getByText("下一候选：planning.scheduler.worker.reconcile-result")).toBeTruthy();
     expect(within(card).getByText("继续仍需确认")).toBeTruthy();
     expect(within(card).getByText("已刷新")).toBeTruthy();
+    expect(within(card).getByText("产物：schedulerWorkerStart")).toBeTruthy();
+    expect(within(card).getByText("Worker Start ID：scheduler-worker-start-1")).toBeTruthy();
+    expect(within(card).getByText("Worker Start 状态：started")).toBeTruthy();
     expect(within(card).getByText("查看证据：scheduler-controlled-step-1.json")).toBeTruthy();
     expect(within(card).queryByRole("button")).toBeNull();
   });

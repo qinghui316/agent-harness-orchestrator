@@ -87,6 +87,7 @@ export const schedulerRuntimeEventSchema: z.ZodType<SchedulerRuntimeEvent> = z.o
     "scheduler-runtime.integration-candidate-compiled",
     "scheduler-runtime.integration-check-handoff-completed",
     "scheduler-runtime.integration-outcome-recorded",
+    "scheduler-runtime.controlled-step-recorded",
     "scheduler-runtime.run-completed",
     "scheduler-runtime.run-closeout-recorded",
   ]),

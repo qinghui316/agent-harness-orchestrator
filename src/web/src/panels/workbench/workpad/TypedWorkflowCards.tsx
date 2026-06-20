@@ -269,11 +269,38 @@ export function SchedulerControlledStepEvidenceCard({ step }: { step: NonNullabl
         {step.nextCandidateActionType ? <span>下一候选：{step.nextCandidateActionType}</span> : null}
         <span>{step.humanConfirmationStillRequired ? "继续仍需确认" : "等待证据"}</span>
         <span>{step.needsReevaluation ? "需要复核" : "已刷新"}</span>
+        {controlledStepResultChips(step.controlledStepResultSummary).map((chip) => (
+          <span key={chip}>{chip}</span>
+        ))}
       </div>
       {step.warning ? <p className="workpad-note">{step.warning}</p> : null}
       {step.artifact ? <small className="artifact-link">查看证据：{artifactName(step.artifact)}</small> : null}
     </section>
   );
+}
+
+function controlledStepResultChips(summary: NonNullable<Workpad["schedulerControlledStepEvidence"]>["controlledStepResultSummary"]): string[] {
+  if (!summary) return [];
+  return Object.entries(summary)
+    .filter(([key]) => key !== "resultArtifact")
+    .slice(0, 4)
+    .map(([key, value]) => `${controlledStepResultLabel(key)}：${controlledStepResultValue(value)}`);
+}
+
+function controlledStepResultLabel(key: string): string {
+  if (key === "resultKind") return "产物";
+  return key
+    .replace(/^scheduler/, "")
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/\bId\b/g, "ID")
+    .replace(/\bStatus\b/g, "状态")
+    .trim();
+}
+
+function controlledStepResultValue(value: string | number | boolean | string[] | null): string {
+  if (Array.isArray(value)) return value.join(", ");
+  if (value === null) return "none";
+  return String(value);
 }
 
 export function SchedulerReconcileSnapshotCard({ snapshot }: { snapshot: NonNullable<Workpad["schedulerReconcileSnapshot"]> }): ReactElement {
