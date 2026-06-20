@@ -746,7 +746,7 @@ describe("Workbench web app", () => {
     expect(within(card).getByText("本次执行")).toBeTruthy();
     expect(within(card).getByText("继续执行下一个任务")).toBeTruthy();
     expect(within(card).getByText("下一步状态")).toBeTruthy();
-    expect(within(card).getByText("检查当前结果")).toBeTruthy();
+    expect(within(card).getAllByText("检查当前结果").length).toBeGreaterThanOrEqual(1);
     expect(within(card).getByText("继续边界")).toBeTruthy();
     expect(within(card).queryByRole("button")).toBeNull();
     const cardText = card.textContent ?? "";
@@ -1146,6 +1146,35 @@ describe("Workbench web app", () => {
               remoteLandingAuthorized: false,
               harnessEvolutionAuthorized: false,
             },
+            controlledLoopContinuationReadiness: {
+              version: "1.0",
+              authority: "scheduler-runtime-controlled-loop-continuation-readiness",
+              status: "ready-for-human-gate",
+              routePosture: "awaiting-human-gate",
+              executedActionType: "planning.scheduler.worker.start-next",
+              nextCandidateActionType: "planning.scheduler.worker.reconcile-result",
+              resultKind: "schedulerWorkerStart",
+              resultId: "scheduler-worker-start-1",
+              resultStatus: "started",
+              reason: "The last controlled step stopped and the next candidate is ready for the existing human confirmation gate.",
+              boundary: "Read-only continuation readiness; the next transition still requires the existing scoped human gate and ToolPolicy path.",
+              readinessEvidencePrepared: true,
+              needsReevaluation: false,
+              humanGateRequired: true,
+              humanConfirmationStillRequired: true,
+              evidenceRefs: ["harness/changes/active/member-discount/planning/scheduler-runs/scheduler-run-1/scheduler-controlled-steps/scheduler-controlled-step-1.md"],
+              executionStarted: false,
+              loopAuthorized: false,
+              fullParallelExecutorAuthorized: false,
+              wholeWaveDispatchAuthorized: false,
+              slotAllocatorAuthorized: false,
+              sourceMutationAuthorized: false,
+              applyAuthorized: false,
+              closeAuthorized: false,
+              mergeAuthorized: false,
+              remoteLandingAuthorized: false,
+              harnessEvolutionAuthorized: false,
+            },
             artifact: "harness/changes/active/member-discount/planning/scheduler-runs/scheduler-run-1/scheduler-controlled-steps/scheduler-controlled-step-1.json",
             markdownArtifact: "harness/changes/active/member-discount/planning/scheduler-runs/scheduler-run-1/scheduler-controlled-steps/scheduler-controlled-step-1.md",
             updatedAt: "2026-06-21T00:00:00.000Z",
@@ -1182,8 +1211,8 @@ describe("Workbench web app", () => {
     expect(within(card).getByText("已停在下一次人工确认")).toBeTruthy();
     expect(within(card).getByText("执行结果")).toBeTruthy();
     expect(within(card).getByText("schedulerWorkerStart / scheduler-worker-start-1 / started")).toBeTruthy();
-    expect(within(card).getByText("下一确认")).toBeTruthy();
-    expect(within(card).getByText("检查当前结果")).toBeTruthy();
+    expect(within(card).getAllByText("下一确认").length).toBeGreaterThanOrEqual(1);
+    expect(within(card).getAllByText("检查当前结果").length).toBeGreaterThanOrEqual(1);
     expect(within(card).getByTestId("scheduler-controlled-loop-tick-summary")).toBeTruthy();
     expect(within(card).getByText("受控 tick")).toBeTruthy();
     expect(within(card).getByText("观察 recorded / 检查 recorded / 派发 completed / 复核 recorded")).toBeTruthy();
@@ -1191,6 +1220,10 @@ describe("Workbench web app", () => {
     expect(within(card).getByText("已停在下一次人工确认：one-confirmed-scheduler-transition-completed")).toBeTruthy();
     expect(within(card).getByText("权限边界")).toBeTruthy();
     expect(within(card).getByText("不授权自动循环、批量派发或 source 变更")).toBeTruthy();
+    expect(within(card).getByTestId("scheduler-controlled-loop-continuation-readiness")).toBeTruthy();
+    expect(within(card).getByText("继续状态")).toBeTruthy();
+    expect(within(card).getByText("下一步已准备好，但必须再次人工确认")).toBeTruthy();
+    expect(within(card).getByText("仍需右侧确认区单独确认；不会自动循环、批量派发、应用源码、关闭需求或远端落地")).toBeTruthy();
     expect(within(card).getByText("查看证据：scheduler-controlled-step-1.json")).toBeTruthy();
     expect(within(card).queryByRole("button")).toBeNull();
     const normalizedCardText = card.textContent?.toLowerCase() ?? "";

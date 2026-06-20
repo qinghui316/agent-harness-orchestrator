@@ -235,6 +235,45 @@ export interface SchedulerControlledLoopTickSummary {
   harnessEvolutionAuthorized: false;
 }
 
+export type SchedulerControlledLoopContinuationReadinessStatus =
+  | "ready-for-human-gate"
+  | "needs-review"
+  | "waiting"
+  | "quality-routing"
+  | "integration-barrier"
+  | "terminal-handoff";
+
+export interface SchedulerControlledLoopContinuationReadiness {
+  version: "1.0";
+  authority: "scheduler-runtime-controlled-loop-continuation-readiness";
+  status: SchedulerControlledLoopContinuationReadinessStatus;
+  routePosture: SchedulerControlledLoopTurnRoutePosture;
+  executedActionType: string;
+  nextCandidateActionType?: string;
+  resultKind?: string;
+  resultId?: string;
+  resultStatus?: string;
+  reason: string;
+  boundary: string;
+  readinessEvidencePrepared: boolean;
+  needsReevaluation: boolean;
+  humanGateRequired: boolean;
+  humanConfirmationStillRequired: true;
+  evidenceRefs: string[];
+  warning?: string;
+  executionStarted: false;
+  loopAuthorized: false;
+  fullParallelExecutorAuthorized: false;
+  wholeWaveDispatchAuthorized: false;
+  slotAllocatorAuthorized: false;
+  sourceMutationAuthorized: false;
+  applyAuthorized: false;
+  closeAuthorized: false;
+  mergeAuthorized: false;
+  remoteLandingAuthorized: false;
+  harnessEvolutionAuthorized: false;
+}
+
 export interface SchedulerControlledStepPreStepEvidence {
   goalLoopDecisionId: string;
   goalLoopIterationId: string;
@@ -299,6 +338,7 @@ export interface SchedulerControlledStepEvidence {
   controlledStepResultSummary?: SchedulerControlledStepResultSummary;
   controlledLoopTurnRouteSummary?: SchedulerControlledLoopTurnRouteSummary;
   controlledLoopTick?: SchedulerControlledLoopTickSummary;
+  controlledLoopContinuationReadiness?: SchedulerControlledLoopContinuationReadiness;
   executionStarted: true;
   stoppedAfterOneSchedulerTransition: true;
   humanConfirmationStillRequired: true;

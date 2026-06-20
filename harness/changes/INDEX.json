@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-20T19:22:33.8421500Z",
+    "generated_at":  "2026-06-20T19:51:17.7380066Z",
     "active":  [
 
                ],
@@ -1673,6 +1673,10 @@
                     {
                         "name":  "20260621-auto-evolve-harness-controlled-scheduler-step-result-window-noop",
                         "path":  "harness/changes/archive/20260621-auto-evolve-harness-controlled-scheduler-step-result-window-noop"
+                    },
+                    {
+                        "name":  "20260621-controlled-scheduler-continuation-readiness",
+                        "path":  "harness/changes/archive/20260621-controlled-scheduler-continuation-readiness"
                     },
                     {
                         "name":  "20260621-controlled-scheduler-loop-tick-runtime-boundary",

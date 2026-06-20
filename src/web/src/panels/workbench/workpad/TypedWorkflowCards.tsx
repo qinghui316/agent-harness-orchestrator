@@ -305,6 +305,22 @@ export function SchedulerControlledStepEvidenceCard({ step }: { step: NonNullabl
           </div>
         </div>
       ) : null}
+      {step.controlledLoopContinuationReadiness ? (
+        <div className="workpad-evidence-list" data-testid="scheduler-controlled-loop-continuation-readiness">
+          <div className="workpad-evidence">
+            <strong>继续状态</strong>
+            <span>{controlledLoopContinuationReadinessStatusText(step.controlledLoopContinuationReadiness)}</span>
+          </div>
+          <div className="workpad-evidence">
+            <strong>下一确认</strong>
+            <span>{step.controlledLoopContinuationReadiness.nextCandidateActionType ? workflowActionLabel(step.controlledLoopContinuationReadiness.nextCandidateActionType) : "等待新的证据"}</span>
+          </div>
+          <div className="workpad-evidence">
+            <strong>继续边界</strong>
+            <span>仍需右侧确认区单独确认；不会自动循环、批量派发、应用源码、关闭需求或远端落地</span>
+          </div>
+        </div>
+      ) : null}
       {step.warning ? <p className="workpad-note">{step.warning}</p> : null}
       {step.artifact ? <small className="artifact-link">查看证据：{artifactName(step.artifact)}</small> : null}
     </section>
@@ -313,6 +329,7 @@ export function SchedulerControlledStepEvidenceCard({ step }: { step: NonNullabl
 
 type ControlledLoopTurnRouteSummary = NonNullable<NonNullable<Workpad["schedulerControlledStepEvidence"]>["controlledLoopTurnRouteSummary"]>;
 type ControlledLoopTickSummary = NonNullable<NonNullable<Workpad["schedulerControlledStepEvidence"]>["controlledLoopTick"]>;
+type ControlledLoopContinuationReadiness = NonNullable<NonNullable<Workpad["schedulerControlledStepEvidence"]>["controlledLoopContinuationReadiness"]>;
 
 function controlledLoopTickPhaseText(tick: ControlledLoopTickSummary): string {
   return [
@@ -325,6 +342,23 @@ function controlledLoopTickPhaseText(tick: ControlledLoopTickSummary): string {
 
 function controlledLoopTickStopText(tick: ControlledLoopTickSummary): string {
   return `${controlledLoopTurnRouteLabel(tick.routeStop.routePosture)}：${tick.routeStop.stopReason}`;
+}
+
+function controlledLoopContinuationReadinessStatusText(readiness: ControlledLoopContinuationReadiness): string {
+  switch (readiness.status) {
+    case "ready-for-human-gate":
+      return "下一步已准备好，但必须再次人工确认";
+    case "needs-review":
+      return "下一步需要复核当前证据";
+    case "quality-routing":
+      return "当前应先处理质量 / rework 证据";
+    case "integration-barrier":
+      return "当前停在 IntegrationCheck barrier";
+    case "terminal-handoff":
+      return "当前停在终态 handoff";
+    case "waiting":
+      return "等待新的证据";
+  }
 }
 
 function controlledLoopTurnRouteLabel(posture: ControlledLoopTurnRouteSummary["routePosture"]): string {

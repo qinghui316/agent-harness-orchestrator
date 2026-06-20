@@ -18,6 +18,7 @@ import type {
 } from "./types.js";
 import { buildSchedulerControlledLoopTurnRouteSummary } from "./controlled-loop-turn.js";
 import { buildSchedulerControlledLoopTickSummary } from "./controlled-loop-tick.js";
+import { buildSchedulerControlledLoopContinuationReadiness } from "./controlled-loop-continuation-readiness.js";
 
 type ScopeValue = string | string[];
 
@@ -134,6 +135,15 @@ function buildSchedulerControlledStepEvidence(
     controlledStepResultSummary: input.controlledStepResultSummary,
     forbiddenAuthority: FORBIDDEN_AUTHORITY,
   });
+  const controlledLoopContinuationReadiness = buildSchedulerControlledLoopContinuationReadiness({
+    executedActionType: input.executedActionType,
+    postStepHandoff: input.postStepHandoff,
+    controlledLoopTurnRouteSummary,
+    controlledLoopTick,
+    controlledStepResultSummary: input.controlledStepResultSummary,
+    forbiddenAuthority: FORBIDDEN_AUTHORITY,
+    evidenceRefs: [refs.markdownArtifact, refs.artifact],
+  });
   return {
     version: "1.0",
     id: stepId,
@@ -148,6 +158,7 @@ function buildSchedulerControlledStepEvidence(
     controlledStepResultSummary: input.controlledStepResultSummary,
     controlledLoopTurnRouteSummary,
     controlledLoopTick,
+    controlledLoopContinuationReadiness,
     executionStarted: true,
     stoppedAfterOneSchedulerTransition: true,
     humanConfirmationStillRequired: true,

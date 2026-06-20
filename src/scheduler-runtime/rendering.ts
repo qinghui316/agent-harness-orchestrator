@@ -94,6 +94,21 @@ export function renderSchedulerControlledStepEvidenceMarkdown(step: SchedulerCon
         ]
       : ["- none"]),
     "",
+    "## Controlled Loop Continuation Readiness",
+    "",
+    ...(step.controlledLoopContinuationReadiness
+      ? [
+          `- Authority: ${step.controlledLoopContinuationReadiness.authority}`,
+          `- Status: ${step.controlledLoopContinuationReadiness.status}`,
+          `- Route posture: ${step.controlledLoopContinuationReadiness.routePosture}`,
+          `- Next candidate: ${step.controlledLoopContinuationReadiness.nextCandidateActionType ?? "none"}`,
+          `- Readiness evidence prepared: ${step.controlledLoopContinuationReadiness.readinessEvidencePrepared ? "yes" : "no"}`,
+          `- Human confirmation still required: ${step.controlledLoopContinuationReadiness.humanConfirmationStillRequired ? "yes" : "no"}`,
+          `- Reason: ${step.controlledLoopContinuationReadiness.reason}`,
+          "- Execution from continuation readiness: not authorized.",
+        ]
+      : ["- none"]),
+    "",
     "## Pre-step Evidence",
     "",
     `- GoalLoopDecision: ${step.preStepEvidence.goalLoopDecisionId}`,

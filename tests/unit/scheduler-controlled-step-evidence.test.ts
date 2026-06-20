@@ -126,6 +126,14 @@ describe("Scheduler controlled step evidence", () => {
         continuationState: "ready-for-existing-gate",
         executionStarted: false,
       },
+      postStepGoalLoopReadiness: {
+        goalLoopControllerPolicyId: "controller-post",
+        goalLoopGateReadinessPreflightId: "preflight-post",
+        currentGateActionType: "planning.scheduler.worker.reconcile-result",
+        executionStarted: false,
+        concreteGateInvoked: false,
+        toolPolicyAuthorizedConcreteGate: false,
+      },
       postStepHandoff: {
         status: "next-confirmation-candidate-ready",
         stopReason: "one-confirmed-scheduler-transition-completed",
@@ -215,6 +223,31 @@ describe("Scheduler controlled step evidence", () => {
       remoteLandingAuthorized: false,
       harnessEvolutionAuthorized: false,
     });
+    expect(recorded.schedulerControlledStepEvidence.controlledLoopContinuationReadiness).toMatchObject({
+      authority: "scheduler-runtime-controlled-loop-continuation-readiness",
+      status: "ready-for-human-gate",
+      routePosture: "awaiting-human-gate",
+      executedActionType: "planning.scheduler.worker.start-next",
+      nextCandidateActionType: "planning.scheduler.worker.reconcile-result",
+      resultKind: "schedulerWorkerStart",
+      resultId: "scheduler-worker-start-1",
+      resultStatus: "started",
+      readinessEvidencePrepared: true,
+      needsReevaluation: false,
+      humanGateRequired: true,
+      humanConfirmationStillRequired: true,
+      executionStarted: false,
+      loopAuthorized: false,
+      fullParallelExecutorAuthorized: false,
+      wholeWaveDispatchAuthorized: false,
+      slotAllocatorAuthorized: false,
+      sourceMutationAuthorized: false,
+      applyAuthorized: false,
+      closeAuthorized: false,
+      mergeAuthorized: false,
+      remoteLandingAuthorized: false,
+      harnessEvolutionAuthorized: false,
+    });
     await expect(readLatestSchedulerControlledStepEvidenceSummary(memory, changePath, "scheduler-run-1")).resolves.toMatchObject({
       controlledLoopTurnRouteSummary: {
         routePosture: "awaiting-human-gate",
@@ -226,6 +259,12 @@ describe("Scheduler controlled step evidence", () => {
         routeStop: {
           routePosture: "awaiting-human-gate",
         },
+      },
+      controlledLoopContinuationReadiness: {
+        authority: "scheduler-runtime-controlled-loop-continuation-readiness",
+        status: "ready-for-human-gate",
+        nextCandidateActionType: "planning.scheduler.worker.reconcile-result",
+        humanConfirmationStillRequired: true,
       },
     });
     expect(events).toHaveLength(1);
