@@ -227,8 +227,9 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
       await readSchedulerRuntimeLineage(memory, target.path, run.id);
       const runtimeState = await readSchedulerRuntimeStateProjection(memory, target.path, run.id);
       if (!runtimeState) throw new Error("planning.scheduler.plan.prepare requires initialized SchedulerRuntimeState.");
-      if (runtimeState.lastReconcileSnapshotId !== request.schedulerReconcileSnapshotId) throw new Error("planning.scheduler.plan.prepare requires the latest SchedulerReconcileSnapshot.");
-      if (runtimeState.lastClaimReservationId !== request.schedulerClaimReservationId || runtimeState.lastClaimReservationSnapshotId !== request.schedulerReconcileSnapshotId) {
+      assertLatestWorkbenchActionTarget(runtimeState.lastReconcileSnapshotId ? { id: runtimeState.lastReconcileSnapshotId } : null, { id: request.schedulerReconcileSnapshotId }, "planning.scheduler.plan.prepare", "SchedulerReconcileSnapshot");
+      assertLatestWorkbenchActionTarget(runtimeState.lastClaimReservationId ? { id: runtimeState.lastClaimReservationId } : null, { id: request.schedulerClaimReservationId }, "planning.scheduler.plan.prepare", "SchedulerRuntimeClaimReservation");
+      if (runtimeState.lastClaimReservationSnapshotId !== request.schedulerReconcileSnapshotId) {
         throw new Error("planning.scheduler.plan.prepare requires the latest SchedulerRuntimeClaimReservation.");
       }
       const snapshot = await readSchedulerReconcileSnapshot(memory, target.path, run.id, request.schedulerReconcileSnapshotId);
@@ -388,11 +389,12 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
     }
     if (request.actionType === "planning.scheduler.runtime.reserve-claims") {
       if (!request.schedulerReconcileSnapshotId) throw new Error("planning.scheduler.runtime.reserve-claims requires schedulerReconcileSnapshotId.");
-      if (runtimeState?.lastReconcileSnapshotId !== request.schedulerReconcileSnapshotId) {
-        throw new Error("planning.scheduler.runtime.reserve-claims requires the latest SchedulerReconcileSnapshot.");
-      }
+      const initializedRuntimeState = runtimeState;
+      if (!initializedRuntimeState) throw new Error("planning.scheduler.runtime.reserve-claims requires initialized SchedulerRuntimeState.");
+      const latestReconcileSnapshotId = initializedRuntimeState.lastReconcileSnapshotId;
+      assertLatestWorkbenchActionTarget(latestReconcileSnapshotId ? { id: latestReconcileSnapshotId } : null, { id: request.schedulerReconcileSnapshotId }, "planning.scheduler.runtime.reserve-claims", "SchedulerReconcileSnapshot");
       const snapshot = await readSchedulerReconcileSnapshot(memory, target.path, run.id, request.schedulerReconcileSnapshotId);
-      if (snapshot.changeId !== changeId || snapshot.schedulerRunId !== run.id || snapshot.schedulerRuntimeStateId !== runtimeState.id) {
+      if (snapshot.changeId !== changeId || snapshot.schedulerRunId !== run.id || snapshot.schedulerRuntimeStateId !== initializedRuntimeState.id) {
         throw new Error("planning.scheduler.runtime.reserve-claims SchedulerReconcileSnapshot target is stale.");
       }
       const existing = await findSchedulerClaimReservationForSnapshot(memory, target.path, run.id, snapshot.id);
