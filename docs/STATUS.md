@@ -5,16 +5,29 @@
 - Current date: 2026-06-21.
 - Active ECL change: none.
 - Pending Harness evolution: none.
-- Latest archived product change: `harness/changes/archive/20260621-controlled-scheduler-loop-step-owner/summary.md`.
-- Latest archived product/Harness docs change: `harness/changes/archive/20260621-controlled-scheduler-loop-step-owner/summary.md`.
-- Latest archived Harness evolution: `harness/changes/archive/20260621-auto-evolve-harness-controlled-scheduler-continuation-window-noop/summary.md`.
+- Latest archived product change: `harness/changes/archive/20260621-controlled-scheduler-current-transition-owner/summary.md`.
+- Latest archived product/Harness docs change: `harness/changes/archive/20260621-auto-evolve-harness-controlled-scheduler-current-transition-window-noop/summary.md`.
+- Latest archived Harness evolution: `harness/changes/archive/20260621-auto-evolve-harness-controlled-scheduler-current-transition-window-noop/summary.md`.
 - Active product phase: none.
 - Active Harness evolution phase: none.
 - Active close status: none.
 
-This file is the short resume point. No active structured change or pending
-Harness evolution exists. Continue product-functional work from the next resume
-point below, using archived summaries only as needed.
+This file is the short resume point. No active structured change exists and no
+pending Harness evolution exists. The latest Harness evolution recorded
+`noop / independent_review` for the controlled Scheduler current-transition
+archive window; no Harness rule, template, lint, script, or product runtime
+change was needed.
+
+The latest product change adds a scheduler-runtime current-transition choice
+owner for the existing human-confirmed controlled Scheduler advance path. After
+the user confirms `planning.scheduler.controlled-advance.run` and before the
+concrete Scheduler gate dispatches,
+`src/scheduler-runtime/controlled-loop-current-transition.ts` re-observes
+current Goal Loop packet/controller/preflight and visible gate evidence, fails
+closed on stale or mismatched targets, and returns non-executing
+choice/readiness evidence. Existing controlled-step dispatch, ToolPolicy audit,
+post-step evidence, Workbench action id, and one-transition-then-stop behavior
+remain intact.
 
 The latest product change moves the existing one-human-confirmed controlled
 Scheduler advance loop-step orchestration out of the Workbench scheduler action

@@ -341,6 +341,41 @@ export interface SchedulerControlledStepPostStepEvidence {
   toolPolicyAuthorizedConcreteGate: false;
 }
 
+export interface SchedulerControlledLoopCurrentTransitionChoice {
+  version: "1.0";
+  authority: "scheduler-runtime-current-transition-choice";
+  status: "ready-for-dispatch";
+  changeId: string;
+  selectedActionType: string;
+  submittedActionType: string;
+  currentGate: {
+    actionType: string;
+    scope: Record<string, string | string[]>;
+  };
+  goalLoopDecisionId: string;
+  goalLoopIterationId: string;
+  goalLoopContinuationBriefId: string;
+  goalLoopNextStepPacketId: string;
+  goalLoopControllerPolicyId: string;
+  goalLoopGateReadinessPreflightId: string;
+  humanGateRequired: true;
+  humanConfirmationStillRequired: true;
+  executionStarted: false;
+  concreteGateInvoked: false;
+  toolPolicyAuthorizedConcreteGate: false;
+  authorizationGranted: false;
+  loopAuthorized: false;
+  fullParallelExecutorAuthorized: false;
+  wholeWaveDispatchAuthorized: false;
+  slotAllocatorAuthorized: false;
+  sourceMutationAuthorized: false;
+  applyAuthorized: false;
+  closeAuthorized: false;
+  mergeAuthorized: false;
+  remoteLandingAuthorized: false;
+  harnessEvolutionAuthorized: false;
+}
+
 export interface SchedulerControlledStepNextCandidate {
   actionType: string;
   goalLoopNextStepPacketId?: string;
@@ -376,6 +411,7 @@ export interface SchedulerControlledStepEvidence {
   preStepEvidence: SchedulerControlledStepPreStepEvidence;
   postStepEvidence: SchedulerControlledStepPostStepEvidence;
   postStepHandoff: SchedulerControlledStepHandoffSummary;
+  controlledLoopCurrentTransitionChoice?: SchedulerControlledLoopCurrentTransitionChoice;
   controlledStepResultSummary?: SchedulerControlledStepResultSummary;
   controlledLoopTurnRouteSummary?: SchedulerControlledLoopTurnRouteSummary;
   controlledLoopTick?: SchedulerControlledLoopTickSummary;

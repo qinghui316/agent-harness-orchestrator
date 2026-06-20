@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-20T21:53:57.4824800Z",
+    "generated_at":  "2026-06-20T22:33:41.2624820Z",
     "active":  [
 
                ],
@@ -1675,6 +1675,10 @@
                         "path":  "harness/changes/archive/20260621-auto-evolve-harness-controlled-scheduler-continuation-window-noop"
                     },
                     {
+                        "name":  "20260621-auto-evolve-harness-controlled-scheduler-current-transition-window-noop",
+                        "path":  "harness/changes/archive/20260621-auto-evolve-harness-controlled-scheduler-current-transition-window-noop"
+                    },
+                    {
                         "name":  "20260621-auto-evolve-harness-controlled-scheduler-step-result-window-noop",
                         "path":  "harness/changes/archive/20260621-auto-evolve-harness-controlled-scheduler-step-result-window-noop"
                     },
@@ -1689,6 +1693,10 @@
                     {
                         "name":  "20260621-controlled-scheduler-continuation-readiness",
                         "path":  "harness/changes/archive/20260621-controlled-scheduler-continuation-readiness"
+                    },
+                    {
+                        "name":  "20260621-controlled-scheduler-current-transition-owner",
+                        "path":  "harness/changes/archive/20260621-controlled-scheduler-current-transition-owner"
                     },
                     {
                         "name":  "20260621-controlled-scheduler-loop-iteration-runtime-boundary",

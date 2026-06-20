@@ -1,12 +1,4 @@
 import { resolveRunnableChangeTarget } from "../change/target.js";
-import type {
-  GoalLoopContinuationBrief,
-  GoalLoopControllerPolicy,
-  GoalLoopDecision,
-  GoalLoopGateReadinessPreflight,
-  GoalLoopIteration,
-  GoalLoopNextStepPacket,
-} from "../goal-loop/manager.js";
 import { compileGoalLoopControllerPolicy, compileGoalLoopEvaluation, compileGoalLoopGateReadinessPreflight } from "../goal-loop/manager.js";
 import { readGoalLoopGateReadinessPreflight } from "../goal-loop/repository.js";
 import { assertWritableMemory, resolveProjectMemory } from "../memory/resolver.js";
@@ -14,52 +6,21 @@ import type { ManagedProject } from "../types/index.js";
 import type { WorkflowActionScopeCarrier, WorkflowActionType } from "../workflow-actions/registry.js";
 import {
   assertControlledSchedulerContinuationGuard,
-  assertControlledSchedulerFreshGateMatchesRequest,
   buildControlledSchedulerAdvanceStepRequest,
+  isControlledSchedulerConcreteAction,
 } from "../workflow-scheduler/controlled-step.js";
+import {
+  chooseControlledSchedulerCurrentTransition,
+  type ControlledSchedulerCurrentTransitionServices,
+} from "./controlled-loop-current-transition.js";
 import { buildControlledSchedulerPostStepHandoff } from "./controlled-step-handoff.js";
 import { recordSchedulerControlledStepEvidence } from "./controlled-step-evidence.js";
 import { summarizeSchedulerControlledStepResult } from "./controlled-loop-turn.js";
 import { readLatestSchedulerControlledStepEvidenceProjection } from "./repository.js";
-import type { SchedulerControlledStepEvidence, SchedulerControlledStepHandoffSummary } from "./types.js";
+import type { SchedulerControlledLoopCurrentTransitionChoice, SchedulerControlledStepEvidence, SchedulerControlledStepHandoffSummary } from "./types.js";
 
-export interface ControlledSchedulerLoopStepEvaluationResult {
-  goalLoopDecision: GoalLoopDecision;
-  goalLoopIteration: GoalLoopIteration;
-  goalLoopContinuationBrief: GoalLoopContinuationBrief;
-  goalLoopNextStepPacket: GoalLoopNextStepPacket;
-  executionStarted: false;
-}
-
-export interface ControlledSchedulerLoopStepControllerResult {
-  goalLoopControllerPolicy: GoalLoopControllerPolicy;
-  executionStarted: false;
-}
-
-export interface ControlledSchedulerLoopStepPreflightResult {
-  goalLoopGateReadinessPreflight: GoalLoopGateReadinessPreflight;
-  executionStarted: false;
-}
-
-export type ControlledSchedulerLoopStepVisibleGateResult =
-  | {
-      currentGate: {
-        actionType: WorkflowActionType;
-        scope: Record<string, string | string[]>;
-      };
-      goalLoopNextStepPacketId?: string;
-    }
-  | {
-      warning: string;
-    };
-
-export interface ControlledSchedulerLoopStepServices {
-  evaluateGoalLoopDecision(request: WorkflowActionScopeCarrier): Promise<ControlledSchedulerLoopStepEvaluationResult>;
-  refreshGoalLoopControllerPolicy(request: WorkflowActionScopeCarrier): Promise<ControlledSchedulerLoopStepControllerResult>;
-  prepareGoalLoopGateReadinessPreflight(request: WorkflowActionScopeCarrier): Promise<ControlledSchedulerLoopStepPreflightResult>;
-  auditHighImpactAction(request: WorkflowActionScopeCarrier): Promise<void>;
+export interface ControlledSchedulerLoopStepServices extends ControlledSchedulerCurrentTransitionServices {
   dispatchControlledStep(request: WorkflowActionScopeCarrier): Promise<unknown>;
-  resolveVisibleCurrentGate(goalLoopNextStepPacketId: string): Promise<ControlledSchedulerLoopStepVisibleGateResult>;
 }
 
 export type ControlledSchedulerLoopStepRequest = WorkflowActionScopeCarrier & {
@@ -98,64 +59,26 @@ export async function runControlledSchedulerLoopStep(
   services: ControlledSchedulerLoopStepServices,
 ): Promise<Record<string, unknown>> {
   const concreteActionType = request.goalLoopCurrentGateActionType;
-  if (!concreteActionType) throw new Error("planning.scheduler.controlled-advance.run requires goalLoopCurrentGateActionType.");
+  if (!isControlledSchedulerConcreteAction(concreteActionType)) {
+    throw new Error("planning.scheduler.controlled-advance.run requires a concrete planning.scheduler.* current gate.");
+  }
   const requestedConcreteGate = concreteGateFromRequest(request, concreteActionType, changeId);
   await assertControlledAdvanceContinuationGuard(project, changeId, requestedConcreteGate);
 
-  const evaluation = await services.evaluateGoalLoopDecision({
-    actionType: "planning.goal-loop.evaluate",
+  const currentTransition = await chooseControlledSchedulerCurrentTransition({
     changeId,
+    request,
+    requestedConcreteGate,
+    services,
   });
-  const packetAction = evaluation.goalLoopNextStepPacket.recommendedAction;
-  if (!packetAction || packetAction.actionType !== concreteActionType) {
-    throw new Error("planning.scheduler.controlled-advance.run fresh Goal Loop packet no longer recommends the submitted scheduler gate.");
-  }
-  assertControlledSchedulerFreshGateMatchesRequest(packetAction.actionType, packetAction.scope, requestedConcreteGate, "Goal Loop packet");
-
-  const controllerRequest = {
-    ...request,
-    actionType: "planning.goal-loop.controller.refresh",
-    changeId,
-    goalLoopNextStepPacketId: evaluation.goalLoopNextStepPacket.id,
-    goalLoopCurrentGateActionType: concreteActionType,
-  };
-  await services.auditHighImpactAction(controllerRequest);
-  const controller = await services.refreshGoalLoopControllerPolicy(controllerRequest);
-  if (
-    controller.goalLoopControllerPolicy.verdict !== "recommend-existing-gate"
-    || controller.goalLoopControllerPolicy.gateStatus !== "matches-current-gate"
-    || controller.goalLoopControllerPolicy.currentGate?.actionType !== concreteActionType
-  ) {
-    throw new Error("planning.scheduler.controlled-advance.run fresh controller policy no longer matches the submitted scheduler gate.");
-  }
-  assertControlledSchedulerFreshGateMatchesRequest(controller.goalLoopControllerPolicy.currentGate.actionType, controller.goalLoopControllerPolicy.currentGate.scope, requestedConcreteGate, "Goal Loop controller policy");
-
-  const preflightRequest = {
-    ...request,
-    actionType: "planning.goal-loop.gate-readiness.prepare",
-    changeId,
-    goalLoopNextStepPacketId: evaluation.goalLoopNextStepPacket.id,
-    goalLoopControllerPolicyId: controller.goalLoopControllerPolicy.id,
-    goalLoopCurrentGateActionType: concreteActionType,
-  };
-  await services.auditHighImpactAction(preflightRequest);
-  const preflight = await services.prepareGoalLoopGateReadinessPreflight(preflightRequest);
-  if (
-    preflight.goalLoopGateReadinessPreflight.concreteGateInvoked !== false
-    || preflight.goalLoopGateReadinessPreflight.toolPolicyAuthorizedConcreteGate !== false
-    || preflight.goalLoopGateReadinessPreflight.currentGate.actionType !== concreteActionType
-  ) {
-    throw new Error("planning.scheduler.controlled-advance.run fresh preflight is not a non-executing match for the submitted scheduler gate.");
-  }
-  assertControlledSchedulerFreshGateMatchesRequest(preflight.goalLoopGateReadinessPreflight.currentGate.actionType, preflight.goalLoopGateReadinessPreflight.currentGate.scope, requestedConcreteGate, "Goal Loop gate-readiness preflight");
 
   const { wrapper } = buildControlledSchedulerAdvanceStepRequest(request, {
-    goalLoopDecisionId: evaluation.goalLoopDecision.id,
-    goalLoopIterationId: evaluation.goalLoopIteration.id,
-    goalLoopContinuationBriefId: evaluation.goalLoopContinuationBrief.id,
-    goalLoopNextStepPacketId: evaluation.goalLoopNextStepPacket.id,
-    goalLoopControllerPolicyId: controller.goalLoopControllerPolicy.id,
-    goalLoopGateReadinessPreflightId: preflight.goalLoopGateReadinessPreflight.id,
+    goalLoopDecisionId: currentTransition.goalLoopDecision.id,
+    goalLoopIterationId: currentTransition.goalLoopIteration.id,
+    goalLoopContinuationBriefId: currentTransition.goalLoopContinuationBrief.id,
+    goalLoopNextStepPacketId: currentTransition.goalLoopNextStepPacket.id,
+    goalLoopControllerPolicyId: currentTransition.goalLoopControllerPolicy.id,
+    goalLoopGateReadinessPreflightId: currentTransition.goalLoopGateReadinessPreflight.id,
   });
   const controlledStepResult = await services.dispatchControlledStep(wrapper);
   const controlledStepPayload = controlledStepResult as {
@@ -167,12 +90,12 @@ export async function runControlledSchedulerLoopStep(
     actionType: concreteActionType,
     changeId,
     schedulerRunId: request.schedulerRunId,
-    goalLoopDecisionId: evaluation.goalLoopDecision.id,
-    goalLoopIterationId: evaluation.goalLoopIteration.id,
-    goalLoopContinuationBriefId: evaluation.goalLoopContinuationBrief.id,
-    goalLoopNextStepPacketId: evaluation.goalLoopNextStepPacket.id,
-    goalLoopControllerPolicyId: controller.goalLoopControllerPolicy.id,
-    goalLoopGateReadinessPreflightId: preflight.goalLoopGateReadinessPreflight.id,
+    goalLoopDecisionId: currentTransition.goalLoopDecision.id,
+    goalLoopIterationId: currentTransition.goalLoopIteration.id,
+    goalLoopContinuationBriefId: currentTransition.goalLoopContinuationBrief.id,
+    goalLoopNextStepPacketId: currentTransition.goalLoopNextStepPacket.id,
+    goalLoopControllerPolicyId: currentTransition.goalLoopControllerPolicy.id,
+    goalLoopGateReadinessPreflightId: currentTransition.goalLoopGateReadinessPreflight.id,
     executionStarted: true,
     stoppedAfterOneSchedulerTransition: true,
     loopAuthorized: false,
@@ -184,15 +107,16 @@ export async function runControlledSchedulerLoopStep(
     ...postStep,
   });
   const controlledStepResultSummary = summarizeSchedulerControlledStepResult(controlledStepPayload.result);
-  const controlledStepEvidence = await recordControlledAdvanceRuntimeStepEvidence(project, changeId, requestedConcreteGate, controlledAdvance, postStep, postStepHandoff, controlledStepResultSummary);
+  const controlledStepEvidence = await recordControlledAdvanceRuntimeStepEvidence(project, changeId, requestedConcreteGate, controlledAdvance, postStep, postStepHandoff, controlledStepResultSummary, currentTransition.controlledLoopCurrentTransitionChoice);
   return {
     controlledAdvance,
-    goalLoopDecision: evaluation.goalLoopDecision,
-    goalLoopIteration: evaluation.goalLoopIteration,
-    goalLoopContinuationBrief: evaluation.goalLoopContinuationBrief,
-    goalLoopNextStepPacket: evaluation.goalLoopNextStepPacket,
-    goalLoopControllerPolicy: controller.goalLoopControllerPolicy,
-    goalLoopGateReadinessPreflight: preflight.goalLoopGateReadinessPreflight,
+    controlledLoopCurrentTransitionChoice: currentTransition.controlledLoopCurrentTransitionChoice,
+    goalLoopDecision: currentTransition.goalLoopDecision,
+    goalLoopIteration: currentTransition.goalLoopIteration,
+    goalLoopContinuationBrief: currentTransition.goalLoopContinuationBrief,
+    goalLoopNextStepPacket: currentTransition.goalLoopNextStepPacket,
+    goalLoopControllerPolicy: currentTransition.goalLoopControllerPolicy,
+    goalLoopGateReadinessPreflight: currentTransition.goalLoopGateReadinessPreflight,
     ...postStep,
     postStepHandoff,
     ...controlledStepEvidence,
@@ -332,6 +256,7 @@ async function recordControlledAdvanceRuntimeStepEvidence(
   postStep: ControlledAdvancePostStepEvaluation | ControlledAdvancePostStepWarning,
   postStepHandoff: ReturnType<typeof buildControlledSchedulerPostStepHandoff>,
   controlledStepResultSummary?: ReturnType<typeof summarizeSchedulerControlledStepResult>,
+  controlledLoopCurrentTransitionChoice?: SchedulerControlledLoopCurrentTransitionChoice,
 ): Promise<Record<string, unknown>> {
   try {
     const recorded = await recordSchedulerControlledStepEvidence(project, {
@@ -352,6 +277,7 @@ async function recordControlledAdvanceRuntimeStepEvidence(
       postStepGoalLoopEvaluationWarning: "postStepGoalLoopEvaluationWarning" in postStep ? postStep.postStepGoalLoopEvaluationWarning : undefined,
       postStepGoalLoopReadinessWarning: "postStepGoalLoopReadinessWarning" in postStep ? postStep.postStepGoalLoopReadinessWarning : undefined,
       postStepHandoff: toSchedulerControlledStepHandoffSummary(postStepHandoff, controlledAdvance.actionType),
+      controlledLoopCurrentTransitionChoice,
       controlledStepResultSummary,
     });
     return {
@@ -364,6 +290,7 @@ async function recordControlledAdvanceRuntimeStepEvidence(
         humanConfirmationStillRequired: recorded.schedulerControlledStepEvidence.humanConfirmationStillRequired,
         controlledLoopTick: recorded.schedulerControlledStepEvidence.controlledLoopTick,
         controlledLoopIteration: recorded.schedulerControlledStepEvidence.controlledLoopIteration,
+        controlledLoopCurrentTransitionChoice: recorded.schedulerControlledStepEvidence.controlledLoopCurrentTransitionChoice,
       },
     };
   } catch (error) {
@@ -400,7 +327,7 @@ function toSchedulerControlledStepHandoffSummary(
   };
 }
 
-function concreteGateFromRequest(request: WorkflowActionScopeCarrier, actionType: string, changeId: string): WorkflowActionScopeCarrier {
+function concreteGateFromRequest(request: WorkflowActionScopeCarrier, actionType: WorkflowActionType, changeId: string): WorkflowActionScopeCarrier & { actionType: WorkflowActionType } {
   return { ...request, actionType, changeId };
 }
 

@@ -125,6 +125,21 @@ export function renderSchedulerControlledStepEvidenceMarkdown(step: SchedulerCon
         ]
       : ["- none"]),
     "",
+    "## Current Transition Choice",
+    "",
+    ...(step.controlledLoopCurrentTransitionChoice
+      ? [
+          `- Authority: ${step.controlledLoopCurrentTransitionChoice.authority}`,
+          `- Status: ${step.controlledLoopCurrentTransitionChoice.status}`,
+          `- Selected action: ${step.controlledLoopCurrentTransitionChoice.selectedActionType}`,
+          `- GoalLoopNextStepPacket: ${step.controlledLoopCurrentTransitionChoice.goalLoopNextStepPacketId}`,
+          `- ControllerPolicy: ${step.controlledLoopCurrentTransitionChoice.goalLoopControllerPolicyId}`,
+          `- GateReadinessPreflight: ${step.controlledLoopCurrentTransitionChoice.goalLoopGateReadinessPreflightId}`,
+          `- Human confirmation still required: ${step.controlledLoopCurrentTransitionChoice.humanConfirmationStillRequired ? "yes" : "no"}`,
+          "- Execution from current transition choice: not authorized.",
+        ]
+      : ["- none"]),
+    "",
     "## Pre-step Evidence",
     "",
     `- GoalLoopDecision: ${step.preStepEvidence.goalLoopDecisionId}`,

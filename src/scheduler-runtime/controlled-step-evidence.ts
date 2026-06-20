@@ -10,6 +10,7 @@ import {
 } from "./repository.js";
 import type {
   SchedulerControlledStepEvidence,
+  SchedulerControlledLoopCurrentTransitionChoice,
   SchedulerControlledStepForbiddenAuthority,
   SchedulerControlledStepHandoffSummary,
   SchedulerControlledStepPostStepEvidence,
@@ -49,6 +50,7 @@ export interface RecordSchedulerControlledStepEvidenceInput {
   postStepGoalLoopEvaluationWarning?: string;
   postStepGoalLoopReadinessWarning?: string;
   postStepHandoff: SchedulerControlledStepHandoffSummary;
+  controlledLoopCurrentTransitionChoice?: SchedulerControlledLoopCurrentTransitionChoice;
   controlledStepResultSummary?: SchedulerControlledStepResultSummary;
 }
 
@@ -175,6 +177,7 @@ function buildSchedulerControlledStepEvidence(
     controlledLoopTick,
     controlledLoopContinuationReadiness,
     controlledLoopIteration,
+    controlledLoopCurrentTransitionChoice: input.controlledLoopCurrentTransitionChoice,
     executionStarted: true,
     stoppedAfterOneSchedulerTransition: true,
     humanConfirmationStillRequired: true,

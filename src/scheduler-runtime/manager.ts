@@ -1,6 +1,7 @@
 export * from "./guards.js";
 export * from "./claim-reservation.js";
 export * from "./controlled-loop-step.js";
+export * from "./controlled-loop-current-transition.js";
 export * from "./controlled-loop-iteration.js";
 export * from "./controlled-step-handoff.js";
 export * from "./controlled-step-evidence.js";
