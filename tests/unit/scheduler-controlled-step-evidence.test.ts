@@ -248,6 +248,44 @@ describe("Scheduler controlled step evidence", () => {
       remoteLandingAuthorized: false,
       harnessEvolutionAuthorized: false,
     });
+    expect(recorded.schedulerControlledStepEvidence.controlledLoopIteration).toMatchObject({
+      authority: "scheduler-runtime-controlled-loop-iteration-summary",
+      status: "completed",
+      executedActionType: "planning.scheduler.worker.start-next",
+      observeStatus: "recorded",
+      chooseCheckStatus: "recorded",
+      dispatchStatus: "completed",
+      reconcileStatus: "recorded",
+      routePosture: "awaiting-human-gate",
+      routeStopReason: "one-confirmed-scheduler-transition-completed",
+      continuationReadinessStatus: "ready-for-human-gate",
+      nextCandidateActionType: "planning.scheduler.worker.reconcile-result",
+      resultKind: "schedulerWorkerStart",
+      resultId: "scheduler-worker-start-1",
+      resultStatus: "started",
+      readinessEvidencePrepared: true,
+      humanConfirmationStillRequired: true,
+      stoppedAfterOneSchedulerTransition: true,
+      approvedScopeOnly: true,
+      executionStarted: false,
+      loopAuthorized: false,
+      fullParallelExecutorAuthorized: false,
+      wholeWaveDispatchAuthorized: false,
+      slotAllocatorAuthorized: false,
+      sourceMutationAuthorized: false,
+      applyAuthorized: false,
+      closeAuthorized: false,
+      mergeAuthorized: false,
+      remoteLandingAuthorized: false,
+      harnessEvolutionAuthorized: false,
+    });
+    const recordedMarkdown = await readFile(
+      join(tempDir, changePath, "planning", "scheduler-runs", "scheduler-run-1", "scheduler-controlled-steps", `${recorded.schedulerControlledStepEvidence.id}.md`),
+      "utf8",
+    );
+    expect(recordedMarkdown).toContain("## Controlled Loop Iteration");
+    expect(recordedMarkdown).toContain("- Authority: scheduler-runtime-controlled-loop-iteration-summary");
+    expect(recordedMarkdown).toContain("- Execution from iteration summary: not authorized.");
     await expect(readLatestSchedulerControlledStepEvidenceSummary(memory, changePath, "scheduler-run-1")).resolves.toMatchObject({
       controlledLoopTurnRouteSummary: {
         routePosture: "awaiting-human-gate",
@@ -266,6 +304,14 @@ describe("Scheduler controlled step evidence", () => {
         nextCandidateActionType: "planning.scheduler.worker.reconcile-result",
         humanConfirmationStillRequired: true,
       },
+      controlledLoopIteration: {
+        authority: "scheduler-runtime-controlled-loop-iteration-summary",
+        status: "completed",
+        routePosture: "awaiting-human-gate",
+        continuationReadinessStatus: "ready-for-human-gate",
+        nextCandidateActionType: "planning.scheduler.worker.reconcile-result",
+        humanConfirmationStillRequired: true,
+      },
     });
     expect(events).toHaveLength(1);
     expect(events[0]).toMatchObject({
@@ -278,6 +324,10 @@ describe("Scheduler controlled step evidence", () => {
         controlledLoopTickAuthority: "scheduler-runtime-controlled-loop-tick-contract-summary",
         controlledLoopTickRoutePosture: "awaiting-human-gate",
         controlledLoopTickStopReason: "one-confirmed-scheduler-transition-completed",
+        controlledLoopIterationAuthority: "scheduler-runtime-controlled-loop-iteration-summary",
+        controlledLoopIterationStatus: "completed",
+        controlledLoopIterationRoutePosture: "awaiting-human-gate",
+        controlledLoopIterationContinuationReadinessStatus: "ready-for-human-gate",
         humanConfirmationStillRequired: true,
       },
     });

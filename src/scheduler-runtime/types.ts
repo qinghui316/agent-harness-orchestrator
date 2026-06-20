@@ -274,6 +274,47 @@ export interface SchedulerControlledLoopContinuationReadiness {
   harnessEvolutionAuthorized: false;
 }
 
+export type SchedulerControlledLoopIterationStatus = "completed" | "completed-with-warning";
+
+export interface SchedulerControlledLoopIterationSummary {
+  version: "1.0";
+  authority: "scheduler-runtime-controlled-loop-iteration-summary";
+  status: SchedulerControlledLoopIterationStatus;
+  executedActionType: string;
+  observeStatus: SchedulerControlledLoopTickPhaseStatus;
+  chooseCheckStatus: SchedulerControlledLoopTickPhaseStatus;
+  dispatchStatus: "completed";
+  reconcileStatus: SchedulerControlledLoopTickPhaseStatus;
+  routePosture: SchedulerControlledLoopTurnRoutePosture;
+  routeStopReason: string;
+  continuationReadinessStatus: SchedulerControlledLoopContinuationReadinessStatus;
+  nextCandidateActionType?: string;
+  resultKind?: string;
+  resultId?: string;
+  resultStatus?: string;
+  resultArtifact?: string;
+  readinessEvidencePrepared: boolean;
+  needsReevaluation: boolean;
+  humanGateRequired: boolean;
+  humanConfirmationStillRequired: true;
+  stoppedAfterOneSchedulerTransition: true;
+  approvedScopeOnly: true;
+  boundary: string;
+  evidenceRefs: string[];
+  warning?: string;
+  executionStarted: false;
+  loopAuthorized: false;
+  fullParallelExecutorAuthorized: false;
+  wholeWaveDispatchAuthorized: false;
+  slotAllocatorAuthorized: false;
+  sourceMutationAuthorized: false;
+  applyAuthorized: false;
+  closeAuthorized: false;
+  mergeAuthorized: false;
+  remoteLandingAuthorized: false;
+  harnessEvolutionAuthorized: false;
+}
+
 export interface SchedulerControlledStepPreStepEvidence {
   goalLoopDecisionId: string;
   goalLoopIterationId: string;
@@ -339,6 +380,7 @@ export interface SchedulerControlledStepEvidence {
   controlledLoopTurnRouteSummary?: SchedulerControlledLoopTurnRouteSummary;
   controlledLoopTick?: SchedulerControlledLoopTickSummary;
   controlledLoopContinuationReadiness?: SchedulerControlledLoopContinuationReadiness;
+  controlledLoopIteration?: SchedulerControlledLoopIterationSummary;
   executionStarted: true;
   stoppedAfterOneSchedulerTransition: true;
   humanConfirmationStillRequired: true;

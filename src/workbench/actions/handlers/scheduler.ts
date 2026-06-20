@@ -426,6 +426,7 @@ async function recordControlledAdvanceRuntimeStepEvidence(
         executedActionType: recorded.schedulerControlledStepEvidence.executedActionType,
         humanConfirmationStillRequired: recorded.schedulerControlledStepEvidence.humanConfirmationStillRequired,
         controlledLoopTick: recorded.schedulerControlledStepEvidence.controlledLoopTick,
+        controlledLoopIteration: recorded.schedulerControlledStepEvidence.controlledLoopIteration,
       },
     };
   } catch (error) {

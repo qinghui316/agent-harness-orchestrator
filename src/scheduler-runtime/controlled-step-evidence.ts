@@ -19,6 +19,7 @@ import type {
 import { buildSchedulerControlledLoopTurnRouteSummary } from "./controlled-loop-turn.js";
 import { buildSchedulerControlledLoopTickSummary } from "./controlled-loop-tick.js";
 import { buildSchedulerControlledLoopContinuationReadiness } from "./controlled-loop-continuation-readiness.js";
+import { buildSchedulerControlledLoopIterationSummary } from "./controlled-loop-iteration.js";
 
 type ScopeValue = string | string[];
 
@@ -96,6 +97,10 @@ export async function recordSchedulerControlledStepEvidence(
         controlledLoopTickAuthority: step.controlledLoopTick?.authority,
         controlledLoopTickRoutePosture: step.controlledLoopTick?.routeStop.routePosture,
         controlledLoopTickStopReason: step.controlledLoopTick?.routeStop.stopReason,
+        controlledLoopIterationAuthority: step.controlledLoopIteration?.authority,
+        controlledLoopIterationStatus: step.controlledLoopIteration?.status,
+        controlledLoopIterationRoutePosture: step.controlledLoopIteration?.routePosture,
+        controlledLoopIterationContinuationReadinessStatus: step.controlledLoopIteration?.continuationReadinessStatus,
         humanConfirmationStillRequired: step.humanConfirmationStillRequired,
       },
     });
@@ -144,6 +149,16 @@ function buildSchedulerControlledStepEvidence(
     forbiddenAuthority: FORBIDDEN_AUTHORITY,
     evidenceRefs: [refs.markdownArtifact, refs.artifact],
   });
+  const controlledLoopIteration = buildSchedulerControlledLoopIterationSummary({
+    executedActionType: input.executedActionType,
+    postStepHandoff: input.postStepHandoff,
+    controlledLoopTurnRouteSummary,
+    controlledLoopTick,
+    controlledLoopContinuationReadiness,
+    controlledStepResultSummary: input.controlledStepResultSummary,
+    forbiddenAuthority: FORBIDDEN_AUTHORITY,
+    evidenceRefs: [refs.markdownArtifact, refs.artifact],
+  });
   return {
     version: "1.0",
     id: stepId,
@@ -159,6 +174,7 @@ function buildSchedulerControlledStepEvidence(
     controlledLoopTurnRouteSummary,
     controlledLoopTick,
     controlledLoopContinuationReadiness,
+    controlledLoopIteration,
     executionStarted: true,
     stoppedAfterOneSchedulerTransition: true,
     humanConfirmationStillRequired: true,

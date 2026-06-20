@@ -109,6 +109,22 @@ export function renderSchedulerControlledStepEvidenceMarkdown(step: SchedulerCon
         ]
       : ["- none"]),
     "",
+    "## Controlled Loop Iteration",
+    "",
+    ...(step.controlledLoopIteration
+      ? [
+          `- Authority: ${step.controlledLoopIteration.authority}`,
+          `- Status: ${step.controlledLoopIteration.status}`,
+          `- Executed action: ${step.controlledLoopIteration.executedActionType}`,
+          `- Phases: observe ${step.controlledLoopIteration.observeStatus} / check ${step.controlledLoopIteration.chooseCheckStatus} / dispatch ${step.controlledLoopIteration.dispatchStatus} / reconcile ${step.controlledLoopIteration.reconcileStatus}`,
+          `- Route posture: ${step.controlledLoopIteration.routePosture}`,
+          `- Continuation readiness: ${step.controlledLoopIteration.continuationReadinessStatus}`,
+          `- Next candidate: ${step.controlledLoopIteration.nextCandidateActionType ?? "none"}`,
+          `- Human confirmation still required: ${step.controlledLoopIteration.humanConfirmationStillRequired ? "yes" : "no"}`,
+          "- Execution from iteration summary: not authorized.",
+        ]
+      : ["- none"]),
+    "",
     "## Pre-step Evidence",
     "",
     `- GoalLoopDecision: ${step.preStepEvidence.goalLoopDecisionId}`,

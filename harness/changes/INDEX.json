@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-20T20:26:59.7473517Z",
+    "generated_at":  "2026-06-20T20:53:17.1430444Z",
     "active":  [
 
                ],
@@ -1685,6 +1685,10 @@
                     {
                         "name":  "20260621-controlled-scheduler-continuation-readiness",
                         "path":  "harness/changes/archive/20260621-controlled-scheduler-continuation-readiness"
+                    },
+                    {
+                        "name":  "20260621-controlled-scheduler-loop-iteration-runtime-boundary",
+                        "path":  "harness/changes/archive/20260621-controlled-scheduler-loop-iteration-runtime-boundary"
                     },
                     {
                         "name":  "20260621-controlled-scheduler-loop-tick-runtime-boundary",

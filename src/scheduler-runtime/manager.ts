@@ -1,5 +1,6 @@
 export * from "./guards.js";
 export * from "./claim-reservation.js";
+export * from "./controlled-loop-iteration.js";
 export * from "./controlled-step-evidence.js";
 export * from "./initialize.js";
 export * from "./integration-candidate.js";

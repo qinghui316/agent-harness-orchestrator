@@ -4,6 +4,7 @@ import {
   summarizeSchedulerControlledStepResult,
 } from "../../src/scheduler-runtime/controlled-loop-turn.js";
 import { buildSchedulerControlledLoopContinuationReadiness } from "../../src/scheduler-runtime/controlled-loop-continuation-readiness.js";
+import { buildSchedulerControlledLoopIterationSummary } from "../../src/scheduler-runtime/controlled-loop-iteration.js";
 import { buildSchedulerControlledLoopTickSummary } from "../../src/scheduler-runtime/controlled-loop-tick.js";
 import type { SchedulerControlledStepForbiddenAuthority } from "../../src/scheduler-runtime/types.js";
 
@@ -280,6 +281,64 @@ describe("scheduler controlled loop turn route summary", () => {
       nextCandidateActionType: "planning.scheduler.worker.reconcile-result",
       readinessEvidencePrepared: true,
       humanConfirmationStillRequired: true,
+      executionStarted: false,
+      loopAuthorized: false,
+      fullParallelExecutorAuthorized: false,
+      wholeWaveDispatchAuthorized: false,
+      slotAllocatorAuthorized: false,
+      sourceMutationAuthorized: false,
+      applyAuthorized: false,
+      closeAuthorized: false,
+      mergeAuthorized: false,
+      remoteLandingAuthorized: false,
+      harnessEvolutionAuthorized: false,
+    });
+
+    const iteration = buildSchedulerControlledLoopIterationSummary({
+      executedActionType: "planning.scheduler.worker.start-next",
+      postStepHandoff: {
+        status: "next-confirmation-candidate-ready",
+        stopReason: "one-confirmed-scheduler-transition-completed",
+        executedActionType: "planning.scheduler.worker.start-next",
+        needsReevaluation: false,
+        nextConfirmationCandidate: {
+          actionType: "planning.scheduler.worker.reconcile-result",
+          goalLoopNextStepPacketId: "packet-post",
+          goalLoopControllerPolicyId: "controller-post",
+          goalLoopGateReadinessPreflightId: "preflight-post",
+          readinessEvidencePrepared: true,
+          executionStarted: false,
+          authorizationGranted: false,
+          humanConfirmationStillRequired: true,
+        },
+        executionStarted: false,
+        loopAuthorized: false,
+        wholeWaveDispatchAuthorized: false,
+        slotAllocatorAuthorized: false,
+      },
+      controlledLoopTurnRouteSummary: route,
+      controlledLoopTick: tick,
+      controlledLoopContinuationReadiness: readiness,
+      forbiddenAuthority,
+      evidenceRefs: ["step.md"],
+    });
+
+    expect(iteration).toMatchObject({
+      authority: "scheduler-runtime-controlled-loop-iteration-summary",
+      status: "completed",
+      executedActionType: "planning.scheduler.worker.start-next",
+      observeStatus: "recorded",
+      chooseCheckStatus: "recorded",
+      dispatchStatus: "completed",
+      reconcileStatus: "recorded",
+      routePosture: "awaiting-human-gate",
+      routeStopReason: "one-confirmed-scheduler-transition-completed",
+      continuationReadinessStatus: "ready-for-human-gate",
+      nextCandidateActionType: "planning.scheduler.worker.reconcile-result",
+      readinessEvidencePrepared: true,
+      humanConfirmationStillRequired: true,
+      stoppedAfterOneSchedulerTransition: true,
+      approvedScopeOnly: true,
       executionStarted: false,
       loopAuthorized: false,
       fullParallelExecutorAuthorized: false,
