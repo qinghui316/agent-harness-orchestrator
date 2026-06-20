@@ -1,6 +1,7 @@
 ﻿import { approvalAction } from "./approval-inbox.js";
 import type { AuditSummary, ValidationSummary } from "../../../types/index.js";
 import { latestByTimestamp, sortByTimestampDesc } from "./projection-summary.js";
+import { evidenceActions } from "./evidence-actions.js";
 import type {
   WorkbenchApprovalItem,
   WorkbenchApprovalKind,
@@ -344,7 +345,7 @@ function decisionHistoryContext(decision: WorkbenchDecisionItem): WorkbenchDecis
     targetId: decision.targetId,
     artifact: decision.artifact,
     timestamp: decision.completedAt ?? decision.updatedAt,
-    actions: decision.artifact ? evidenceActions(decision.artifact) : [],
+    actions: evidenceActions(decision.artifact),
   };
 }
 
@@ -444,17 +445,6 @@ function decisionActionsForApproval(approval: WorkbenchApprovalItem, kind: Workb
     });
   }
   return actions;
-}
-
-function evidenceActions(artifact?: string): WorkbenchDecisionAction[] {
-  return artifact ? [{
-    id: `evidence:${artifact}`,
-    label: "查看证据",
-    kind: "evidence",
-    enabled: true,
-    requiresConfirmation: false,
-    artifact,
-  }] : [];
 }
 
 function firstEvidenceAction(task?: WorkbenchTaskNode): WorkbenchDecisionAction | undefined {

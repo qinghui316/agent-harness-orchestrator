@@ -112,6 +112,7 @@ import { buildConfirmationQueue, scopeConfirmationQueueItemActions } from "../..
 import { buildApprovalInbox } from "../../src/workbench/projections/read-model/approval-inbox.js";
 import { buildMaintenanceSummary } from "../../src/workbench/projections/read-model/maintenance-summary.js";
 import { latestByCreatedAt, latestByTimestamp, latestUnhandledByCreatedAt, projectFields, sortByTimestampDesc } from "../../src/workbench/projections/read-model/projection-summary.js";
+import { evidenceActions } from "../../src/workbench/projections/read-model/evidence-actions.js";
 import { listWorkbenchTopicsFromMemory } from "../../src/workbench/projections/read-model/topics.js";
 import { workpadNextActionToConfirmationItems } from "../../src/workbench/projections/read-model/confirmation/typed-workflow.js";
 import { schedulerUserFacingActionLabel } from "../../src/workbench/projections/read-model/confirmation/scheduler-user-surface.js";
@@ -1929,6 +1930,45 @@ describe("Workbench module boundaries", () => {
     expect(resultReview).toContain('from "./projection-summary.js"');
     expect(decisionInspector).toContain('from "./projection-summary.js"');
     expect(decisionInspector).toContain("function compareDecisionContexts");
+  });
+
+  it("keeps read-model evidence action helpers pure and shared across projection surfaces", () => {
+    expect(evidenceActions()).toEqual([]);
+    expect(evidenceActions("runs/audit.md")).toEqual([{
+      id: "evidence:runs/audit.md",
+      label: "查看证据",
+      kind: "evidence",
+      enabled: true,
+      requiresConfirmation: false,
+      artifact: "runs/audit.md",
+    }]);
+    expect(evidenceActions("runs/audit.md", { label: "查看审查证据" })[0]).toMatchObject({
+      id: "evidence:runs/audit.md",
+      label: "查看审查证据",
+      kind: "evidence",
+      enabled: true,
+      requiresConfirmation: false,
+      artifact: "runs/audit.md",
+    });
+
+    const helper = readFileSync("src/workbench/projections/read-model/evidence-actions.ts", "utf8");
+    expect(helper).toContain("export function evidenceActions");
+    expect(helper).not.toMatch(/workbench\/actions|server\/|manager|ToolPolicy|approvalAction|scopeConfirmationQueueItemActions/);
+
+    const decisionInspector = readFileSync("src/workbench/projections/read-model/decision-inspector.ts", "utf8");
+    expect(decisionInspector).toContain('from "./evidence-actions.js"');
+    expect(decisionInspector).not.toContain("function evidenceActions");
+
+    const confirmationShared = readFileSync("src/workbench/projections/read-model/confirmation/shared.ts", "utf8");
+    expect(confirmationShared).not.toContain("function evidenceActions");
+    expect(confirmationShared).toContain("scopeConfirmationQueueItemActions");
+    expect(confirmationShared).toContain("approvalAction");
+
+    const integrationConfirmation = readFileSync("src/workbench/projections/read-model/confirmation/integration.ts", "utf8");
+    const landingConfirmation = readFileSync("src/workbench/projections/read-model/confirmation/landing.ts", "utf8");
+    expect(integrationConfirmation).toContain('from "../evidence-actions.js"');
+    expect(landingConfirmation).toContain('from "../evidence-actions.js"');
+    expect(`${integrationConfirmation}\n${landingConfirmation}`).not.toMatch(/evidenceActions\([^)]*\)\.map/);
   });
 
   it("keeps Workbench action target revalidation helpers pure and fail-closed", () => {

@@ -1,4 +1,4 @@
-import type { WorkbenchApprovalAction, WorkbenchConfirmationQueue, WorkbenchConfirmationQueueItem, WorkbenchDecisionAction } from "../../../read-model-types.js";
+import type { WorkbenchApprovalAction, WorkbenchConfirmationQueue, WorkbenchConfirmationQueueItem } from "../../../read-model-types.js";
 
 export function emptyConfirmationQueue(): WorkbenchConfirmationQueue {
   return {
@@ -37,18 +37,6 @@ export function scopeConfirmationQueueItemActions(item: WorkbenchConfirmationQue
       maintenanceApplicationManifestId: action.maintenanceApplicationManifestId ?? item.maintenanceApplicationManifestId,
     })),
   };
-}
-
-export function evidenceActions(artifact?: string): WorkbenchDecisionAction[] {
-  if (!artifact) return [];
-  return [{
-    id: `evidence:${artifact}`,
-    label: "查看证据",
-    kind: "evidence",
-    enabled: true,
-    requiresConfirmation: false,
-    artifact,
-  }];
 }
 
 export function approvalAction(actionId: string, label: string, command: string, args: string[], mutates: boolean): WorkbenchApprovalAction {

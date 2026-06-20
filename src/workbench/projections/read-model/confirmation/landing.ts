@@ -7,7 +7,7 @@ import { latestMergedRemoteLandingResultForLanding, latestRemoteLandingReadiness
 import { latestPostMergeHandoffForLanding } from "../../../../post-merge/manager.js";
 import type { ManagedProject, ResolvedMemory, LandingQueueCandidate, LandingQueueSnapshot } from "../../../../types/index.js";
 import type { WorkbenchConfirmationQueueItem, WorkbenchDecisionAction } from "../../../read-model-types.js";
-import { evidenceActions } from "./shared.js";
+import { evidenceActions } from "../evidence-actions.js";
 
 export function landingCandidateQueueItem(project: ManagedProject, candidate: LandingCandidate, selectedChangeId: string | undefined): WorkbenchConfirmationQueueItem {
   const selected = Boolean(selectedChangeId && candidate.changeIds.includes(selectedChangeId));
@@ -199,7 +199,7 @@ export function landingPackageQueueItem(project: ManagedProject, pkg: LandingRea
     confirmEffect: "这是本地落地证据；当前版本不会 commit、push、创建 PR 或 merge。",
     riskSummary: pkg.review?.riskSummary ?? pkg.riskSummary,
     evidenceRefs: pkg.artifactRefs,
-    actions: reviewArtifact ? evidenceActions(reviewArtifact) : [],
+    actions: evidenceActions(reviewArtifact),
     primary: selected,
     status: pkg.review?.verdict === "ready" ? "passed" : "failed",
   };
@@ -239,7 +239,7 @@ export async function prDraftQueueItem(
           enabled: true,
           requiresConfirmation: true,
         },
-        ...(reviewArtifact ? evidenceActions(reviewArtifact) : []),
+        ...evidenceActions(reviewArtifact),
       ],
       primary: selected,
       status: "pending",
@@ -290,7 +290,7 @@ export async function prDraftQueueItem(
             enabled: true,
             requiresConfirmation: false,
           },
-          ...(postMerge.summaryArtifact ? evidenceActions(postMerge.summaryArtifact) : []),
+          ...evidenceActions(postMerge.summaryArtifact),
         ];
         return {
           id: `post-merge:handoff:${postMerge.id}`,
@@ -336,7 +336,7 @@ export async function prDraftQueueItem(
             enabled: true,
             requiresConfirmation: false,
           },
-          ...(mergedLanding.artifactRefs[0] ? evidenceActions(mergedLanding.artifactRefs[0]) : []),
+          ...evidenceActions(mergedLanding.artifactRefs[0]),
         ],
         primary: selected,
         status: "pending",
@@ -366,7 +366,7 @@ export async function prDraftQueueItem(
             enabled: true,
             requiresConfirmation: true,
           },
-          ...(remoteReadiness.summaryArtifact ? evidenceActions(remoteReadiness.summaryArtifact) : []),
+          ...evidenceActions(remoteReadiness.summaryArtifact),
         ],
         primary: selected,
         status: "pending",
@@ -396,7 +396,7 @@ export async function prDraftQueueItem(
             enabled: true,
             requiresConfirmation: true,
           },
-          ...(readiness.summaryArtifact ? evidenceActions(readiness.summaryArtifact) : []),
+          ...evidenceActions(readiness.summaryArtifact),
         ],
         primary: selected,
         status: "pending",
@@ -427,7 +427,7 @@ export async function prDraftQueueItem(
               enabled: true,
               requiresConfirmation: true,
             },
-            ...(landingReadiness.summaryArtifact ? evidenceActions(landingReadiness.summaryArtifact) : []),
+            ...evidenceActions(landingReadiness.summaryArtifact),
           ],
           primary: selected,
           status: "pending",
@@ -465,7 +465,7 @@ export async function prDraftQueueItem(
               enabled: true,
               requiresConfirmation: false,
             },
-            ...(landingReadiness.summaryArtifact ? evidenceActions(landingReadiness.summaryArtifact) : []),
+            ...evidenceActions(landingReadiness.summaryArtifact),
           ],
           primary: selected,
           status: "pending",
@@ -541,7 +541,7 @@ export async function prDraftQueueItem(
             enabled: true,
             requiresConfirmation: false,
           },
-          ...(readiness.summaryArtifact ? evidenceActions(readiness.summaryArtifact) : []),
+          ...evidenceActions(readiness.summaryArtifact),
         ],
         primary: selected,
         status: "passed",
@@ -608,7 +608,7 @@ export async function prDraftQueueItem(
           enabled: true,
           requiresConfirmation: true,
         },
-        ...(reviewArtifact ? evidenceActions(reviewArtifact) : []),
+        ...evidenceActions(reviewArtifact),
       ],
       primary: selected,
       status: "passed",
@@ -634,7 +634,7 @@ export async function prDraftQueueItem(
       confirmEffect: capability.setupHint,
       riskSummary: "AHO 不会伪造创建 PR；provider ready 前不会显示创建 PR 草稿按钮。",
       evidenceRefs: pkg.artifactRefs,
-      actions: reviewArtifact ? evidenceActions(reviewArtifact) : [],
+      actions: evidenceActions(reviewArtifact),
       primary: selected,
       status: "pending",
     };
@@ -661,7 +661,7 @@ export async function prDraftQueueItem(
         enabled: true,
         requiresConfirmation: true,
       },
-      ...(reviewArtifact ? evidenceActions(reviewArtifact) : []),
+      ...evidenceActions(reviewArtifact),
     ],
     primary: selected,
     status: "pending",

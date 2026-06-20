@@ -1,7 +1,8 @@
 import type { IntegrationCheckCandidate, IntegrationCheckRecord } from "../../../../integration-check/manager.js";
 import type { ManagedProject } from "../../../../types/index.js";
 import type { WorkbenchConfirmationQueueItem } from "../../../read-model-types.js";
-import { approvalAction, evidenceActions } from "./shared.js";
+import { evidenceActions } from "../evidence-actions.js";
+import { approvalAction } from "./shared.js";
 
 export function integrationCandidateQueueItem(project: ManagedProject, candidate: IntegrationCheckCandidate, selectedChangeId: string | undefined): WorkbenchConfirmationQueueItem {
   const selected = Boolean(selectedChangeId && candidate.targets.some((target) => target.changeId === selectedChangeId));
@@ -82,7 +83,7 @@ export function integrationCheckQueueItem(project: ManagedProject, check: Integr
         enabled: true,
         requiresConfirmation: true,
       },
-      ...(check.artifactRefs[0] ? evidenceActions(check.artifactRefs[0]).map((action) => ({ ...action, label: "查看证据" })) : []),
+      ...evidenceActions(check.artifactRefs[0], { label: "查看证据" }),
     ],
     primary: selected,
     status: "passed",
@@ -122,7 +123,7 @@ export function integrationCheckNeedsActionQueueItem(project: ManagedProject, ch
         enabled: true,
         requiresConfirmation: true,
       },
-      ...(check.artifactRefs[0] ? evidenceActions(check.artifactRefs[0]).map((action) => ({ ...action, label: "查看证据" })) : []),
+      ...evidenceActions(check.artifactRefs[0], { label: "查看证据" }),
     ],
     primary: selected,
     status: "failed",
@@ -140,7 +141,7 @@ export function integrationCheckHistoryItem(project: ManagedProject, check: Inte
     confirmEffect: "无当前动作。",
     riskSummary: check.riskSummary,
     evidenceRefs: check.artifactRefs,
-    actions: check.artifactRefs[0] ? evidenceActions(check.artifactRefs[0]) : [],
+    actions: evidenceActions(check.artifactRefs[0]),
     primary: false,
     status: check.status === "applied" ? "applied" : check.status === "discarded" ? "discarded" : "failed",
   };
