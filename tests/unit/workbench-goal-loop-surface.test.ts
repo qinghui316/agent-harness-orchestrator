@@ -9,7 +9,7 @@ import { buildSchedulerTerminalHandoffContext } from "../../src/workbench/codex-
 import { buildGoalLoopContextPreparedEvidence, goalLoopPromptStackLabels } from "../../src/workbench/codex-chat/goal-loop-prompt-evidence.js";
 import { getWorkbenchSnapshot } from "../../src/workbench/manager.js";
 import { attachControlledSchedulerAdvanceActions, attachGoalLoopAssistedConcreteGateActions, attachGoalLoopControllerRefreshActions, attachGoalLoopFeedbackActions, attachGoalLoopGateReadinessActions } from "../../src/workbench/projections/read-model/confirmation/goal-loop.js";
-import { schedulerControlledAdvanceReconfirmCopy, schedulerUserFacingActionCopy } from "../../src/workbench/projections/read-model/confirmation/scheduler-user-surface.js";
+import { schedulerControlledAdvanceCopy, schedulerUserFacingActionCopy } from "../../src/workbench/projections/read-model/confirmation/scheduler-user-surface.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import { listWorktreeStatuses } from "../../src/worktree/manager.js";
 import { listIntegrationChecks } from "../../src/integration-check/manager.js";
@@ -575,7 +575,7 @@ describe("workbench Goal Loop surface", () => {
     } as const;
 
     const [item] = attachControlledSchedulerAdvanceActions([currentGate]);
-    const advanceCopy = schedulerUserFacingActionCopy("planning.scheduler.controlled-advance.run");
+    const advanceCopy = schedulerControlledAdvanceCopy({ currentGateActionType: "planning.scheduler.worker.start-next" });
 
     expect(item).toMatchObject({
       summary: advanceCopy.summary,
@@ -583,6 +583,8 @@ describe("workbench Goal Loop surface", () => {
       confirmEffect: advanceCopy.confirmEffect,
       riskSummary: advanceCopy.riskSummary,
     });
+    expect(item.summary).toContain("继续执行下一个任务");
+    expect(item.confirmEffect).toContain("继续执行下一个任务");
 
     expect(item.actions).toEqual(expect.arrayContaining([
       expect.objectContaining({ actionType: "planning.goal-loop.feedback.evaluate" }),
@@ -607,7 +609,7 @@ describe("workbench Goal Loop surface", () => {
     expect(item.actions.filter((action) => action.actionType === "planning.scheduler.controlled-advance.run")).toHaveLength(1);
   });
 
-  it("uses refreshed reconfirmation copy for controlled scheduler advance when current gate readiness matches", async () => {
+  it("uses refreshed concrete-step reconfirmation copy for controlled scheduler advance when current gate readiness matches", async () => {
     const currentGate = {
       id: "confirm:scheduler-worker-next:member-discount",
       kind: "planning-confirm",
@@ -673,7 +675,10 @@ describe("workbench Goal Loop surface", () => {
     } as unknown as NonNullable<Parameters<typeof attachControlledSchedulerAdvanceActions>[1]>;
 
     const [item] = attachControlledSchedulerAdvanceActions([currentGate], workpad);
-    const reconfirmCopy = schedulerControlledAdvanceReconfirmCopy();
+    const reconfirmCopy = schedulerControlledAdvanceCopy({
+      currentGateActionType: "planning.scheduler.worker.start-next",
+      refreshed: true,
+    });
 
     expect(item).toMatchObject({
       summary: reconfirmCopy.summary,
@@ -683,6 +688,8 @@ describe("workbench Goal Loop surface", () => {
     });
     expect(item.summary).toContain("已刷新");
     expect(item.summary).toContain("新的单步确认");
+    expect(item.summary).toContain("继续执行下一个任务");
+    expect(item.confirmEffect).toContain("继续执行下一个任务");
     expect(item.whyNeedsConfirmation).toContain("不是自动继续");
     expect(item.summary).not.toContain("上一个受控步骤");
     expect(item.actions.some((action) => action.actionType === "planning.scheduler.worker.start-next")).toBe(false);
@@ -700,6 +707,118 @@ describe("workbench Goal Loop surface", () => {
     expect(advance?.goalLoopNextStepPacketId).toBeUndefined();
     expect(advance?.goalLoopControllerPolicyId).toBeUndefined();
     expect(advance?.goalLoopGateReadinessPreflightId).toBeUndefined();
+    expect(item.actions.filter((action) => action.actionType === "planning.scheduler.controlled-advance.run")).toHaveLength(1);
+  });
+
+  it("projects controlled scheduler advance with a combined-result step category", async () => {
+    const currentGate = {
+      id: "confirm:scheduler-integration-candidate:member-discount",
+      kind: "planning-confirm",
+      conversationId: "member-discount",
+      changeId: "member-discount",
+      schedulerRunId: "scheduler-run-1",
+      schedulerIntegrationCandidateId: "integration-candidate-1",
+      summary: "检查组合结果。",
+      whyNeedsConfirmation: "这是当前可见 Harness gate。",
+      confirmEffect: "只生成 integration candidate evidence。",
+      riskSummary: "不会应用或合并。",
+      evidenceRefs: [],
+      actions: [{
+        id: "workflow:planning.scheduler.integration-candidate.compile:member-discount",
+        label: "检查组合结果",
+        kind: "workflow-action",
+        actionType: "planning.scheduler.integration-candidate.compile",
+        changeId: "member-discount",
+        schedulerRunId: "scheduler-run-1",
+        schedulerIntegrationCandidateId: "integration-candidate-1",
+        enabled: true,
+        requiresConfirmation: true,
+      }],
+      primary: true,
+      status: "pending",
+    } as const;
+
+    const [item] = attachControlledSchedulerAdvanceActions([currentGate]);
+    const advanceCopy = schedulerControlledAdvanceCopy({ currentGateActionType: "planning.scheduler.integration-candidate.compile" });
+
+    expect(item).toMatchObject({
+      summary: advanceCopy.summary,
+      whyNeedsConfirmation: advanceCopy.whyNeedsConfirmation,
+      confirmEffect: advanceCopy.confirmEffect,
+      riskSummary: advanceCopy.riskSummary,
+    });
+    expect(item.summary).toContain("检查组合结果");
+    expect(item.confirmEffect).toContain("检查组合结果");
+    expect(item.riskSummary).not.toContain("自动应用");
+    expect(item.actions.some((action) => action.actionType === "planning.scheduler.integration-candidate.compile")).toBe(false);
+    const advance = item.actions.find((action) => action.actionType === "planning.scheduler.controlled-advance.run");
+    expect(advance).toMatchObject({
+      label: advanceCopy.label,
+      changeId: "member-discount",
+      schedulerRunId: "scheduler-run-1",
+      schedulerIntegrationCandidateId: "integration-candidate-1",
+      goalLoopCurrentGateActionType: "planning.scheduler.integration-candidate.compile",
+      requiresConfirmation: true,
+    });
+    expect(item.actions.filter((action) => action.actionType === "planning.scheduler.controlled-advance.run")).toHaveLength(1);
+  });
+
+  it("falls back to generic controlled advance copy for ambiguous concrete gate categories without changing replacement semantics", async () => {
+    const currentGate = {
+      id: "confirm:scheduler-ambiguous:member-discount",
+      kind: "planning-confirm",
+      conversationId: "member-discount",
+      changeId: "member-discount",
+      schedulerRunId: "scheduler-run-1",
+      schedulerClaimReservationId: "claim-reservation-expected",
+      schedulerIntegrationCandidateId: "integration-candidate-1",
+      reservationIntentId: "reservation-intent-2",
+      claimIntentId: "claim-2",
+      summary: "多个候选步骤。",
+      whyNeedsConfirmation: "这是当前可见 Harness gate。",
+      confirmEffect: "只执行当前步骤。",
+      riskSummary: "不会循环。",
+      evidenceRefs: [],
+      actions: [{
+        id: "workflow:planning.scheduler.worker.start-next:member-discount",
+        label: "启动下一个 worker",
+        kind: "workflow-action",
+        actionType: "planning.scheduler.worker.start-next",
+        changeId: "member-discount",
+        schedulerRunId: "scheduler-run-1",
+        schedulerClaimReservationId: "claim-reservation-expected",
+        reservationIntentId: "reservation-intent-2",
+        claimIntentId: "claim-2",
+        enabled: true,
+        requiresConfirmation: true,
+      }, {
+        id: "workflow:planning.scheduler.integration-candidate.compile:member-discount",
+        label: "检查组合结果",
+        kind: "workflow-action",
+        actionType: "planning.scheduler.integration-candidate.compile",
+        changeId: "member-discount",
+        schedulerRunId: "scheduler-run-1",
+        schedulerIntegrationCandidateId: "integration-candidate-1",
+        enabled: true,
+        requiresConfirmation: true,
+      }],
+      primary: true,
+      status: "pending",
+    } as const;
+
+    const [item] = attachControlledSchedulerAdvanceActions([currentGate]);
+    const genericCopy = schedulerControlledAdvanceCopy();
+
+    expect(item).toMatchObject({
+      summary: genericCopy.summary,
+      whyNeedsConfirmation: genericCopy.whyNeedsConfirmation,
+      confirmEffect: genericCopy.confirmEffect,
+      riskSummary: genericCopy.riskSummary,
+    });
+    expect(item.summary).not.toContain("继续执行下一个任务");
+    expect(item.summary).not.toContain("检查组合结果");
+    expect(item.actions.some((action) => action.actionType === "planning.scheduler.worker.start-next")).toBe(false);
+    expect(item.actions.some((action) => action.actionType === "planning.scheduler.integration-candidate.compile")).toBe(false);
     expect(item.actions.filter((action) => action.actionType === "planning.scheduler.controlled-advance.run")).toHaveLength(1);
   });
 

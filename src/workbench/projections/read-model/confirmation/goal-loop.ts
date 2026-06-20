@@ -2,7 +2,7 @@ import type { ManagedProject } from "../../../../types/index.js";
 import { WORKFLOW_ACTION_SCOPE_KEYS } from "../../../../workflow-actions/registry.js";
 import { CONTROLLED_SCHEDULER_ADVANCE_ACTION_TYPE, CONTROLLED_SCHEDULER_STEP_ACTION_TYPE, isControlledSchedulerConcreteAction } from "../../../../workflow-scheduler/controlled-step.js";
 import type { WorkbenchConfirmationQueueItem, WorkbenchDecisionAction, WorkbenchTopicDetail, WorkbenchWorkpad } from "../../../read-model-types.js";
-import { schedulerControlledAdvanceReconfirmCopy, schedulerUserFacingActionCopy } from "./scheduler-user-surface.js";
+import { schedulerControlledAdvanceCopy, schedulerUserFacingActionCopy } from "./scheduler-user-surface.js";
 
 type ScopeValue = string | string[] | undefined;
 const CURRENT_GATE_SCOPE_KEYS = WORKFLOW_ACTION_SCOPE_KEYS.filter((key) => !key.startsWith("goalLoop"));
@@ -145,9 +145,14 @@ export function attachControlledSchedulerAdvanceActions(
       seenAdvanceIds.add(action.id);
       return true;
     });
-    const advanceCopy = hasRefreshedControlledSchedulerReconfirmEvidence(item, sourceActions, workpad)
-      ? schedulerControlledAdvanceReconfirmCopy()
-      : schedulerUserFacingActionCopy(CONTROLLED_SCHEDULER_ADVANCE_ACTION_TYPE);
+    const currentGateActionType = uniqueControlledSchedulerAdvanceGateType(sourceActions);
+    const exposedAdvanceActions = currentGateActionType
+      ? uniqueAdvanceActions
+      : uniqueAdvanceActions.slice(0, 1);
+    const advanceCopy = schedulerControlledAdvanceCopy({
+      currentGateActionType,
+      refreshed: hasRefreshedControlledSchedulerReconfirmEvidence(item, sourceActions, workpad),
+    });
     return {
       ...item,
       summary: advanceCopy.summary,
@@ -156,10 +161,22 @@ export function attachControlledSchedulerAdvanceActions(
       riskSummary: advanceCopy.riskSummary,
       actions: [
         ...item.actions.filter((action) => !(action.kind === "workflow-action" && isSchedulerAdvanceSourceAction(action))),
-        ...uniqueAdvanceActions,
+        ...exposedAdvanceActions,
       ],
     };
   });
+}
+
+function uniqueControlledSchedulerAdvanceGateType(sourceActions: WorkbenchDecisionAction[]): WorkbenchDecisionAction["actionType"] | undefined {
+  const gateTypes = new Set<WorkbenchDecisionAction["actionType"]>();
+  for (const action of sourceActions) {
+    const gateType = action.actionType === CONTROLLED_SCHEDULER_STEP_ACTION_TYPE
+      ? action.goalLoopCurrentGateActionType
+      : action.actionType;
+    if (gateType) gateTypes.add(gateType);
+  }
+  if (gateTypes.size !== 1) return undefined;
+  return [...gateTypes][0];
 }
 
 function hasRefreshedControlledSchedulerReconfirmEvidence(

@@ -6,6 +6,11 @@ export interface SchedulerUserFacingActionCopy {
   riskSummary: string;
 }
 
+export interface SchedulerControlledAdvanceCopyOptions {
+  currentGateActionType?: string;
+  refreshed?: boolean;
+}
+
 const DEFAULT_COPY: SchedulerUserFacingActionCopy = {
   label: "继续当前 scheduler 阶段",
   summary: "主 Agent 已判断出当前 scheduler run 的下一步。",
@@ -77,6 +82,29 @@ export function schedulerUserFacingActionCopy(actionType: string | undefined): S
   return COPY_BY_ACTION_TYPE[actionType] ?? DEFAULT_COPY;
 }
 
+export function schedulerControlledAdvanceCopy(options: SchedulerControlledAdvanceCopyOptions = {}): SchedulerUserFacingActionCopy {
+  const baseCopy = COPY_BY_ACTION_TYPE["planning.scheduler.controlled-advance.run"];
+  const currentStepLabel = controlledAdvanceStepLabel(options.currentGateActionType);
+  if (options.refreshed) {
+    if (!currentStepLabel) return schedulerControlledAdvanceReconfirmCopy();
+    return {
+      label: baseCopy.label,
+      summary: `当前下一步判断和步骤检查已刷新；这次仍是新的单步确认，步骤类别是：${currentStepLabel}。`,
+      whyNeedsConfirmation: `需要你再次确认当前页面显示的“${currentStepLabel}”；这不是自动继续。`,
+      confirmEffect: `服务端会重新读取当前状态，重新匹配目标和权限；匹配后只执行“${currentStepLabel}”这一当前合法步骤。`,
+      riskSummary: "确认后仍会立即停止；不会自动循环、批量派发、组合检查后的应用、关闭、远端落地或维护演进。",
+    };
+  }
+  if (!currentStepLabel) return baseCopy;
+  return {
+    label: baseCopy.label,
+    summary: `主 Agent 将先刷新下一步判断；当前显示的步骤类别是：${currentStepLabel}。`,
+    whyNeedsConfirmation: `需要你确认当前页面显示的“${currentStepLabel}”仍是要处理的单步。`,
+    confirmEffect: `服务端会重新读取当前状态，重新匹配目标和权限；匹配后只执行“${currentStepLabel}”这一受控步骤。`,
+    riskSummary: "执行后立即停止；不会自动运行下一步、连续循环、批量派发、组合检查后的应用、关闭、远端落地或维护演进。",
+  };
+}
+
 export function schedulerControlledAdvanceReconfirmCopy(): SchedulerUserFacingActionCopy {
   return {
     label: COPY_BY_ACTION_TYPE["planning.scheduler.controlled-advance.run"].label,
@@ -89,6 +117,14 @@ export function schedulerControlledAdvanceReconfirmCopy(): SchedulerUserFacingAc
 
 export function schedulerUserFacingActionLabel(actionType: string | undefined): string {
   return schedulerUserFacingActionCopy(actionType).label;
+}
+
+function controlledAdvanceStepLabel(actionType: string | undefined): string | undefined {
+  if (!actionType) return undefined;
+  if (actionType === "planning.scheduler.controlled-advance.run") return undefined;
+  if (actionType === "planning.scheduler.controlled-step.run") return undefined;
+  const copy = COPY_BY_ACTION_TYPE[actionType];
+  return copy?.label;
 }
 
 function continueNextTaskCopy(): SchedulerUserFacingActionCopy {

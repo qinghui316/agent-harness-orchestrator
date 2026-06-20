@@ -535,9 +535,9 @@ describe("Workbench web app", () => {
       kind: "planning-confirm",
       conversationId: "member-discount",
       changeId: "member-discount",
-      summary: "当前下一步判断和步骤检查已刷新；这次仍是新的单步确认。",
-      whyNeedsConfirmation: "需要你再次确认当前页面显示的这一步；这不是自动继续。",
-      confirmEffect: "服务端会重新读取当前状态，重新匹配目标和权限；匹配后只执行一个当前合法步骤。",
+      summary: "当前下一步判断和步骤检查已刷新；这次仍是新的单步确认，步骤类别是：继续执行下一个任务。",
+      whyNeedsConfirmation: "需要你再次确认当前页面显示的“继续执行下一个任务”；这不是自动继续。",
+      confirmEffect: "服务端会重新读取当前状态，重新匹配目标和权限；匹配后只执行“继续执行下一个任务”这一当前合法步骤。",
       riskSummary: "确认后仍会立即停止；不会自动循环、批量派发、组合检查后的应用、关闭、远端落地或维护演进。",
       evidenceRefs: [],
       actions: [{
@@ -580,16 +580,22 @@ describe("Workbench web app", () => {
     render(<App />);
 
     const card = await screen.findByTestId("decision-inspector-primary");
-    expect(within(card).getByText("需要你再次确认当前页面显示的这一步；这不是自动继续。")).toBeTruthy();
-    expect(within(card).getByText("当前下一步判断和步骤检查已刷新；这次仍是新的单步确认。")).toBeTruthy();
-    expect(within(card).getByText("服务端会重新读取当前状态，重新匹配目标和权限；匹配后只执行一个当前合法步骤。")).toBeTruthy();
+    expect(within(card).getByText("需要你再次确认当前页面显示的“继续执行下一个任务”；这不是自动继续。")).toBeTruthy();
+    expect(within(card).getByText("当前下一步判断和步骤检查已刷新；这次仍是新的单步确认，步骤类别是：继续执行下一个任务。")).toBeTruthy();
+    expect(within(card).getByText("服务端会重新读取当前状态，重新匹配目标和权限；匹配后只执行“继续执行下一个任务”这一当前合法步骤。")).toBeTruthy();
     expect(within(card).getByText("确认后仍会立即停止；不会自动循环、批量派发、组合检查后的应用、关闭、远端落地或维护演进。")).toBeTruthy();
     expect(within(card).getByRole("button", { name: "按当前建议继续一个受控步骤" })).toBeTruthy();
     const cardText = card.textContent ?? "";
+    const normalizedCardText = cardText.toLowerCase();
     expect(cardText).not.toContain("上一个受控步骤");
     expect(cardText).not.toContain("自动应用");
     expect(cardText).not.toContain("自动关闭");
     expect(cardText).not.toContain("合并全部");
+    expect(normalizedCardText).not.toContain("worker");
+    expect(normalizedCardText).not.toContain("scheduler run");
+    expect(normalizedCardText).not.toContain("slot");
+    expect(normalizedCardText).not.toContain("start-all");
+    expect(normalizedCardText).not.toContain("whole-wave");
   });
 
   it("submits project-scoped maintenance patch gates through the non-live action endpoint", async () => {
