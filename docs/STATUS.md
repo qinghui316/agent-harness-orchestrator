@@ -5,16 +5,32 @@
 - Current date: 2026-06-21.
 - Active ECL change: none.
 - Pending Harness evolution: none.
-- Latest archived product change: `harness/changes/archive/20260621-controlled-scheduler-continuation-readiness/summary.md`.
-- Latest archived product/Harness docs change: `harness/changes/archive/20260621-controlled-scheduler-continuation-readiness/summary.md`.
-- Latest archived Harness evolution: `harness/changes/archive/20260621-auto-evolve-harness-controlled-scheduler-step-result-window-noop/summary.md`.
+- Latest archived product change: `harness/changes/archive/20260621-controlled-scheduler-continuation-guard/summary.md`.
+- Latest archived product/Harness docs change: `harness/changes/archive/20260621-auto-evolve-harness-controlled-scheduler-continuation-window-noop/summary.md`.
+- Latest archived Harness evolution: `harness/changes/archive/20260621-auto-evolve-harness-controlled-scheduler-continuation-window-noop/summary.md`.
 - Active product phase: none.
 - Active Harness evolution phase: none.
-- Active close status: no active structured change.
+- Active close status: none.
 
-This file is the short resume point. Active structured change
-`controlled-scheduler-continuation-readiness` is archived, and no pending Harness
-evolution exists.
+This file is the short resume point. No active structured change or pending
+Harness evolution exists. Continue product-functional work from the next resume
+point below, using archived summaries only as needed.
+
+The latest product change turns controlled Scheduler continuation readiness from
+read-only evidence into a fail-closed pre-execution guard for the existing
+`planning.scheduler.controlled-advance.run` wrapper. It keeps the request shape
+unchanged, compares the submitted concrete scheduler gate against the prior
+post-step preflight currentGate scope, rejects cross-change preflight scope, and
+avoids new actions, automatic loops, whole-wave dispatch, slot allocation,
+source apply/merge/close, remote landing, child Changes, ToolPolicy changes, or
+Harness evolution automation.
+
+The latest Harness evolution reviewed the controlled Scheduler result/route/tick
+/readiness/guard archive window and recorded a `noop / independent_review`
+proposal. Existing scoped action, proposal/runtime, Goal Loop, module boundary,
+core reuse, Workbench honesty, close/handoff, documentation entropy, and
+experience lifecycle rules are sufficient; no new Harness rule, template, lint,
+script, or product runtime change is needed.
 
 The latest product change adds an embedded scheduler-runtime controlled loop
 continuation readiness summary to existing `SchedulerControlledStepEvidence`.
@@ -55,7 +71,13 @@ Phase 12A remains the future controlled Scheduler/parallel loop design boundary.
 
 ## Next Resume Point
 
-After closing the continuation-readiness change, start the next structured product-functional controlled Scheduler / Goal Loop slice. Prefer a larger useful phase than a tiny cleanup-only change: build on the `controlledLoopTick` and continuation-readiness summaries toward the smallest controlled Scheduler loop runtime boundary that can observe current evidence, choose or recommend one legal transition, require the existing human gate when needed, dispatch only the approved bounded scope, reconcile evidence, then stop at validation/audit, IntegrationCheck, apply/close, remote, blocked, or Harness-evolution gates. Keep reusing existing Goal Loop, scheduler planning/runtime, stale revalidation, ToolPolicy, Workbench read-model, validation/audit, and IntegrationCheck owners. Keep `README.md` unrelated and untracked unless the user explicitly asks to include it.
+Start the next product-functional controlled Scheduler / Goal Loop slice. The
+preferred next stage is the smallest controlled Scheduler loop runtime boundary
+that can observe current evidence, choose or recommend one legal transition,
+require the existing human gate, dispatch only the approved bounded scope,
+reconcile evidence, and then stop at validation/audit, IntegrationCheck,
+apply/close, remote, blocked, or Harness-evolution gates. Keep `README.md`
+unrelated and untracked unless the user explicitly asks to include it.
 
 ## Verification Commands
 
@@ -92,7 +114,9 @@ Use `harness/changes/INDEX.json` for the generated archive list. Start with arch
 
 Recent key archive summaries:
 
-- Latest product/Harness docs change: `harness/changes/archive/20260621-controlled-scheduler-continuation-readiness/summary.md`.
+- Latest product/Harness docs change: `harness/changes/archive/20260621-auto-evolve-harness-controlled-scheduler-continuation-window-noop/summary.md`.
+- Recent product/Harness docs change: `harness/changes/archive/20260621-controlled-scheduler-continuation-guard/summary.md`.
+- Recent product/Harness docs change: `harness/changes/archive/20260621-controlled-scheduler-continuation-readiness/summary.md`.
 - Recent product/Harness docs change: `harness/changes/archive/20260621-controlled-scheduler-runtime-step-evidence/summary.md`.
 - Recent product change: `harness/changes/archive/20260621-workpad-controlled-scheduler-reconfirmation-surface/summary.md`.
 - Recent product change: `harness/changes/archive/20260620-controlled-scheduler-reconfirm-surface/summary.md`.

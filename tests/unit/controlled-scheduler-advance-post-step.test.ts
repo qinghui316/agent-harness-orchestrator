@@ -60,16 +60,19 @@ const mocks = vi.hoisted(() => {
         actionType: request.goalLoopCurrentGateActionType,
       },
     })),
+    assertControlledSchedulerContinuationGuard: vi.fn(),
     assertControlledSchedulerFreshGateMatchesRequest: vi.fn(),
     compileGoalLoopEvaluation: vi.fn(),
     compileGoalLoopControllerPolicy: vi.fn(),
     compileGoalLoopGateReadinessPreflight: vi.fn(),
+    readGoalLoopGateReadinessPreflight: vi.fn(),
     resolveVisibleControlledSchedulerCurrentGate: vi.fn(),
     assertWritableMemory: vi.fn(),
     resolveTopic: vi.fn(),
     assertWorkflowActionScope: vi.fn(),
     auditHighImpactWorkflowAction: vi.fn(),
     recordSchedulerControlledStepEvidence: vi.fn(),
+    readLatestSchedulerControlledStepEvidenceProjection: vi.fn(),
   };
 });
 
@@ -83,6 +86,7 @@ vi.mock("../../src/workbench/actions/handlers/goal-loop.js", () => ({
 
 vi.mock("../../src/workflow-scheduler/controlled-step.js", () => ({
   assertControlledSchedulerFreshGateMatchesRequest: mocks.assertControlledSchedulerFreshGateMatchesRequest,
+  assertControlledSchedulerContinuationGuard: mocks.assertControlledSchedulerContinuationGuard,
   buildControlledSchedulerAdvanceStepRequest: mocks.buildControlledSchedulerAdvanceStepRequest,
   buildControlledSchedulerStepRequest: mocks.buildControlledSchedulerStepRequest,
 }));
@@ -91,6 +95,10 @@ vi.mock("../../src/goal-loop/manager.js", () => ({
   compileGoalLoopEvaluation: mocks.compileGoalLoopEvaluation,
   compileGoalLoopControllerPolicy: mocks.compileGoalLoopControllerPolicy,
   compileGoalLoopGateReadinessPreflight: mocks.compileGoalLoopGateReadinessPreflight,
+}));
+
+vi.mock("../../src/goal-loop/repository.js", () => ({
+  readGoalLoopGateReadinessPreflight: mocks.readGoalLoopGateReadinessPreflight,
 }));
 
 vi.mock("../../src/memory/resolver.js", () => ({
@@ -112,6 +120,10 @@ vi.mock("../../src/workbench/actions/visible-goal-loop-current-gate.js", () => (
 
 vi.mock("../../src/scheduler-runtime/controlled-step-evidence.js", () => ({
   recordSchedulerControlledStepEvidence: mocks.recordSchedulerControlledStepEvidence,
+}));
+
+vi.mock("../../src/scheduler-runtime/repository.js", () => ({
+  readLatestSchedulerControlledStepEvidenceProjection: mocks.readLatestSchedulerControlledStepEvidenceProjection,
 }));
 
 import { buildSchedulerActionHandlers } from "../../src/workbench/actions/handlers/scheduler.js";
@@ -146,16 +158,19 @@ describe("controlled scheduler advance post-step evaluation", () => {
     mocks.prepareGoalLoopGateReadinessPreflight.mockReset();
     mocks.buildControlledSchedulerAdvanceStepRequest.mockClear();
     mocks.buildControlledSchedulerStepRequest.mockClear();
+    mocks.assertControlledSchedulerContinuationGuard.mockReset();
     mocks.assertControlledSchedulerFreshGateMatchesRequest.mockClear();
     mocks.compileGoalLoopEvaluation.mockReset();
     mocks.compileGoalLoopControllerPolicy.mockReset();
     mocks.compileGoalLoopGateReadinessPreflight.mockReset();
+    mocks.readGoalLoopGateReadinessPreflight.mockReset();
     mocks.resolveVisibleControlledSchedulerCurrentGate.mockReset();
     mocks.assertWritableMemory.mockReset();
     mocks.resolveTopic.mockReset();
     mocks.assertWorkflowActionScope.mockReset();
     mocks.auditHighImpactWorkflowAction.mockReset();
     mocks.recordSchedulerControlledStepEvidence.mockReset();
+    mocks.readLatestSchedulerControlledStepEvidenceProjection.mockReset();
 
     mocks.evaluateGoalLoopDecision.mockResolvedValue({
       goalLoopDecision: { id: "goal-loop-decision-pre" },
@@ -204,6 +219,7 @@ describe("controlled scheduler advance post-step evaluation", () => {
       memory: { memoryRoot: "memory-root", writable: true },
       changePath: "harness/changes/active/change-1",
     });
+    mocks.readLatestSchedulerControlledStepEvidenceProjection.mockResolvedValue(null);
     mocks.compileGoalLoopEvaluation.mockResolvedValue({
       goalLoopDecision: { id: "goal-loop-decision-post" },
       goalLoopIteration: {
@@ -305,6 +321,15 @@ describe("controlled scheduler advance post-step evaluation", () => {
     const result = await handlers["planning.scheduler.controlled-advance.run"](project, "change-1", request, undefined) as Record<string, unknown>;
 
     expect(mocks.evaluateGoalLoopDecision).toHaveBeenCalledTimes(1);
+    expect(mocks.assertControlledSchedulerContinuationGuard).toHaveBeenCalledWith(expect.objectContaining({
+      changeId: "change-1",
+      previousStep: null,
+      previousGateReadinessPreflight: null,
+      requestedConcreteGate: expect.objectContaining({
+        actionType: "planning.scheduler.worker.start-next",
+        schedulerRunId: "scheduler-run-1",
+      }),
+    }));
     expect(mocks.refreshGoalLoopControllerPolicy).toHaveBeenCalledTimes(1);
     expect(mocks.prepareGoalLoopGateReadinessPreflight).toHaveBeenCalledTimes(1);
     expect(mocks.buildControlledSchedulerAdvanceStepRequest).toHaveBeenCalledTimes(1);
@@ -419,6 +444,58 @@ describe("controlled scheduler advance post-step evaluation", () => {
         harnessEvolutionAuthorized: false,
       },
     });
+  });
+
+  it("fails before refreshing Goal Loop evidence or executing a scheduler gate when the continuation guard rejects the request", async () => {
+    mocks.readLatestSchedulerControlledStepEvidenceProjection.mockResolvedValueOnce({
+      id: "scheduler-controlled-step-previous",
+      changeId: "change-1",
+      schedulerRunId: "scheduler-run-1",
+      status: "recorded",
+      postStepEvidence: {
+        goalLoopGateReadinessPreflightId: "preflight-post",
+      },
+      controlledLoopContinuationReadiness: {
+        status: "ready-for-human-gate",
+        nextCandidateActionType: "planning.scheduler.worker.reconcile-result",
+        readinessEvidencePrepared: true,
+      },
+      createdAt: "2026-06-21T00:00:00.000Z",
+    });
+    mocks.readGoalLoopGateReadinessPreflight.mockResolvedValueOnce({
+      id: "preflight-post",
+      changeId: "change-1",
+      currentGate: {
+        actionType: "planning.scheduler.worker.reconcile-result",
+        scope: {
+          changeId: "change-1",
+          schedulerRunId: "scheduler-run-1",
+          schedulerWorkerStartId: "scheduler-worker-start-1",
+        },
+      },
+      concreteGateInvoked: false,
+      toolPolicyAuthorizedConcreteGate: false,
+      executionStarted: false,
+    });
+    mocks.assertControlledSchedulerContinuationGuard.mockImplementationOnce(() => {
+      throw new Error("planning.scheduler.controlled-advance.run continuation guard submitted gate scope no longer matches prior post-step preflight.");
+    });
+
+    const handlers = buildSchedulerActionHandlers();
+    await expect(handlers["planning.scheduler.controlled-advance.run"](project, "change-1", request, undefined)).rejects.toThrow(/continuation guard/);
+
+    expect(mocks.readGoalLoopGateReadinessPreflight).toHaveBeenCalledWith(
+      { memoryRoot: "memory-root", writable: true },
+      "harness/changes/active/change-1",
+      "preflight-post",
+    );
+    expect(mocks.evaluateGoalLoopDecision).not.toHaveBeenCalled();
+    expect(mocks.refreshGoalLoopControllerPolicy).not.toHaveBeenCalled();
+    expect(mocks.prepareGoalLoopGateReadinessPreflight).not.toHaveBeenCalled();
+    expect(mocks.buildControlledSchedulerAdvanceStepRequest).not.toHaveBeenCalled();
+    expect(mocks.buildControlledSchedulerStepRequest).not.toHaveBeenCalled();
+    expect(mocks.planning.startPlanningSchedulerNextWorker).not.toHaveBeenCalled();
+    expect(mocks.recordSchedulerControlledStepEvidence).not.toHaveBeenCalled();
   });
 
   it("keeps concrete transition success when post-step evidence refresh fails", async () => {

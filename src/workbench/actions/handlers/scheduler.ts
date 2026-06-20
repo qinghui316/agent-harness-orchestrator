@@ -31,13 +31,15 @@ import {
   validatePlanningSchedulerFirstWorkerRework,
 } from "./planning.js";
 import { compileGoalLoopControllerPolicy, compileGoalLoopEvaluation, compileGoalLoopGateReadinessPreflight } from "../../../goal-loop/manager.js";
+import { readGoalLoopGateReadinessPreflight } from "../../../goal-loop/repository.js";
 import { assertWritableMemory } from "../../../memory/resolver.js";
 import type { ManagedProject } from "../../../types/index.js";
 import { buildControlledSchedulerPostStepHandoff } from "../../controlled-scheduler-handoff.js";
-import { assertControlledSchedulerFreshGateMatchesRequest, buildControlledSchedulerAdvanceStepRequest, buildControlledSchedulerStepRequest } from "../../../workflow-scheduler/controlled-step.js";
+import { assertControlledSchedulerContinuationGuard, assertControlledSchedulerFreshGateMatchesRequest, buildControlledSchedulerAdvanceStepRequest, buildControlledSchedulerStepRequest } from "../../../workflow-scheduler/controlled-step.js";
 import { recordSchedulerControlledStepEvidence } from "../../../scheduler-runtime/controlled-step-evidence.js";
+import { readLatestSchedulerControlledStepEvidenceProjection } from "../../../scheduler-runtime/repository.js";
 import { summarizeSchedulerControlledStepResult } from "../../../scheduler-runtime/controlled-loop-turn.js";
-import type { SchedulerControlledStepHandoffSummary } from "../../../scheduler-runtime/types.js";
+import type { SchedulerControlledStepEvidence, SchedulerControlledStepHandoffSummary } from "../../../scheduler-runtime/types.js";
 import { assertWorkflowActionScope, auditHighImpactWorkflowAction } from "../boundary.js";
 import { resolveVisibleControlledSchedulerCurrentGate } from "../visible-goal-loop-current-gate.js";
 import type { WorkflowActionScopeCarrier } from "../../../workflow-actions/registry.js";
@@ -133,6 +135,7 @@ export function buildSchedulerActionHandlers(): Pick<WorkbenchActionHandlerMap, 
       const concreteActionType = request.goalLoopCurrentGateActionType;
       if (!concreteActionType) throw new Error("planning.scheduler.controlled-advance.run requires goalLoopCurrentGateActionType.");
       const requestedConcreteGate = concreteGateFromRequest(request, concreteActionType, changeId);
+      await assertControlledAdvanceContinuationGuard(project, changeId, requestedConcreteGate);
 
       const evaluation = await evaluateGoalLoopDecision(project, changeId, {
         actionType: "planning.goal-loop.evaluate",
@@ -342,6 +345,36 @@ function errorMessage(error: unknown): string {
 
 function concreteGateFromRequest(request: WorkbenchWorkflowActionRequest, actionType: string, changeId: string): WorkflowActionScopeCarrier {
   return { ...request, actionType, changeId };
+}
+
+async function assertControlledAdvanceContinuationGuard(
+  project: ManagedProject,
+  changeId: string,
+  requestedConcreteGate: WorkflowActionScopeCarrier,
+): Promise<void> {
+  const { memory, changePath } = await resolveTopic(project, changeId);
+  const previousStep = await readLatestControlledStepForContinuation(memory, changePath, requestedConcreteGate.schedulerRunId);
+  const previousGateReadinessPreflight = previousStep?.postStepEvidence.goalLoopGateReadinessPreflightId
+    ? await readGoalLoopGateReadinessPreflight(memory, changePath, previousStep.postStepEvidence.goalLoopGateReadinessPreflightId)
+    : null;
+  assertControlledSchedulerContinuationGuard({
+    changeId,
+    requestedConcreteGate,
+    previousStep,
+    previousGateReadinessPreflight,
+  });
+}
+
+async function readLatestControlledStepForContinuation(
+  memory: Awaited<ReturnType<typeof resolveTopic>>["memory"],
+  changePath: string,
+  schedulerRunId?: string,
+): Promise<SchedulerControlledStepEvidence | null> {
+  const candidates = [
+    schedulerRunId ? await readLatestSchedulerControlledStepEvidenceProjection(memory, changePath, schedulerRunId) : null,
+    await readLatestSchedulerControlledStepEvidenceProjection(memory, changePath),
+  ].filter((item): item is SchedulerControlledStepEvidence => Boolean(item));
+  return candidates.sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0] ?? null;
 }
 
 async function recordControlledAdvanceRuntimeStepEvidence(
