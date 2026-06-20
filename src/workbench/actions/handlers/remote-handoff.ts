@@ -9,6 +9,7 @@ import { mergeRemoteLanding, prepareRemoteLandingReadiness, refreshRemoteLanding
 import { cleanupRemoteBranchAfterMerge, prepareLocalSync, preparePostMergeHandoff, prepareRemoteBranchCleanup, syncLocalAfterMerge } from "../../../post-merge/manager.js";
 import { runCodeValidateAuditSequence } from "../../../workflow-runtime/code-workflow.js";
 import type { ManagedProject } from "../../../types/index.js";
+import { selectLandingReviewArtifactRef, selectLandingSummaryArtifactRef } from "../../artifact-selection.js";
 import { emitAssistantEvent } from "../../live-events.js";
 import { appendTopicThreadEntry } from "../../topic-thread.js";
 import type { WorkbenchLiveSink, WorkbenchWorkflowActionRequest } from "../../types.js";
@@ -31,7 +32,7 @@ export async function prepareLandingForAction(
     type: "assistant.message",
     status: "landing-readiness",
     text,
-    artifact: reviewed.artifactRefs[1] ?? reviewed.artifactRefs[0],
+    artifact: selectLandingSummaryArtifactRef(reviewed.artifactRefs),
     blocks: [
       {
         id: `${reviewed.id}:landing-prose`,
@@ -52,7 +53,7 @@ export async function prepareLandingForAction(
         source: "aho",
         title: reviewed.review?.verdict === "ready" ? "落地检查通过" : "落地检查需要处理",
         text: reviewed.review?.suggestedNextAction ?? "请查看证据后决定下一步。",
-        artifactRef: reviewed.review ? reviewed.artifactRefs.find((ref) => ref.endsWith("merge-review.md")) : reviewed.artifactRefs[0],
+        artifactRef: reviewed.review ? selectLandingReviewArtifactRef(reviewed.artifactRefs, { fallback: "package" }) : reviewed.artifactRefs[0],
       },
     ],
   });
@@ -80,7 +81,7 @@ export async function reviewLandingForAction(
     type: "assistant.message",
     status: "landing-review",
     text: reviewed.review?.summary ?? reviewed.summary,
-    artifact: reviewed.artifactRefs.find((ref) => ref.endsWith("merge-review.md")) ?? reviewed.artifactRefs[0],
+    artifact: selectLandingReviewArtifactRef(reviewed.artifactRefs, { fallback: "package" }),
   });
   live?.emit({ event: "assistant.message", data: entry });
   return { package: reviewed };

@@ -6,6 +6,7 @@ import { latestPrReviewReadinessForDraft, latestPrReviewReplyDraftForLanding } f
 import { latestMergedRemoteLandingResultForLanding, latestRemoteLandingReadinessForDraft } from "../../../../remote-landing/manager.js";
 import { latestPostMergeHandoffForLanding } from "../../../../post-merge/manager.js";
 import type { ManagedProject, ResolvedMemory, LandingQueueCandidate, LandingQueueSnapshot } from "../../../../types/index.js";
+import { selectLandingReviewArtifactRef } from "../../../artifact-selection.js";
 import type { WorkbenchConfirmationQueueItem, WorkbenchDecisionAction } from "../../../read-model-types.js";
 import { evidenceActions } from "../evidence-actions.js";
 
@@ -186,7 +187,7 @@ function landingQueueCandidateItem(
 export function landingPackageQueueItem(project: ManagedProject, pkg: LandingReadinessPackage, selectedChangeId: string | undefined): WorkbenchConfirmationQueueItem {
   const selected = Boolean(selectedChangeId && pkg.target.changeIds.includes(selectedChangeId));
   const itemChangeId = selected ? selectedChangeId : pkg.target.changeIds[0];
-  const reviewArtifact = pkg.artifactRefs.find((ref) => ref.endsWith("merge-review.md")) ?? pkg.artifactRefs[1] ?? pkg.artifactRefs[0];
+  const reviewArtifact = selectLandingReviewArtifactRef(pkg.artifactRefs);
   return {
     id: `landing:package:${pkg.id}`,
     kind: "landing-readiness",
@@ -213,7 +214,7 @@ export async function prDraftQueueItem(
 ): Promise<WorkbenchConfirmationQueueItem> {
   const selected = Boolean(selectedChangeId && pkg.target.changeIds.includes(selectedChangeId));
   const itemChangeId = selected ? selectedChangeId : pkg.target.changeIds[0];
-  const reviewArtifact = pkg.artifactRefs.find((ref) => ref.endsWith("merge-review.md")) ?? pkg.artifactRefs[1] ?? pkg.artifactRefs[0];
+  const reviewArtifact = selectLandingReviewArtifactRef(pkg.artifactRefs);
   const existingDraft = await findPrDraftPackageForLanding(memory, pkg.id).catch(() => null);
   const existingDemandDraft = existingDraft ?? await findLatestCreatedPrDraftPackageForChanges(memory, pkg.target.changeIds).catch(() => null);
   if (!existingDraft && existingDemandDraft?.status === "created") {

@@ -124,6 +124,7 @@ import { readLatestPlanningBundleProjection } from "../../src/workbench/projecti
 import { buildResultReview } from "../../src/workbench/projections/read-model/result-review.js";
 import { buildTaskGraph, buildTaskQueueSummary, emptyTaskGraph } from "../../src/workbench/projections/read-model/task-graph.js";
 import { buildDiagnosticWorkpad, buildWorkbenchWorkpad } from "../../src/workbench/projections/read-model/workpad.js";
+import { selectLandingReviewArtifactRef, selectLandingSummaryArtifactRef } from "../../src/workbench/artifact-selection.js";
 import {
   assertKnownTaskIds,
   requireSingleTaskId,
@@ -1986,6 +1987,33 @@ describe("Workbench module boundaries", () => {
     expect(decisionContext).toContain('from "../evidence-refs.js"');
     expect(`${typedWorkflow}\n${decisionContext}`).not.toMatch(/evidenceRefs:\s*[^,\n]+\.artifact\s*\?\s*\[[^\]]+\.artifact\]\s*:\s*\[\]/);
     expect(`${typedWorkflow}\n${decisionContext}`).not.toMatch(/evidenceRefs:\s*\[[^\]]+\]\.filter\(\(item\): item is string => Boolean\(item\)\)/);
+  });
+
+  it("keeps landing review artifact selection shared across Workbench surfaces", () => {
+    const artifactRefs = [
+      "landing/landing-123/landing-package.json",
+      "landing/landing-123/landing-summary.md",
+      "landing/landing-123/source-diff.patch",
+      "landing/landing-123/merge-review.md",
+    ];
+    expect(selectLandingSummaryArtifactRef(artifactRefs)).toBe("landing/landing-123/landing-summary.md");
+    expect(selectLandingReviewArtifactRef(artifactRefs)).toBe("landing/landing-123/merge-review.md");
+    expect(selectLandingReviewArtifactRef(artifactRefs, { fallback: "package" })).toBe("landing/landing-123/merge-review.md");
+    expect(selectLandingReviewArtifactRef(artifactRefs.slice(0, 3))).toBe("landing/landing-123/landing-summary.md");
+    expect(selectLandingReviewArtifactRef(artifactRefs.slice(0, 3), { fallback: "package" })).toBe("landing/landing-123/landing-package.json");
+
+    const helper = readFileSync("src/workbench/artifact-selection.ts", "utf8");
+    expect(helper).toContain("export function selectLandingReviewArtifactRef");
+    expect(helper).not.toMatch(/workbench\/actions|projections\/read-model|server\/|manager|ToolPolicy|approvalAction|scopeConfirmationQueueItemActions/);
+
+    const landingConfirmation = readFileSync("src/workbench/projections/read-model/confirmation/landing.ts", "utf8");
+    const remoteHandoff = readFileSync("src/workbench/actions/handlers/remote-handoff.ts", "utf8");
+    expect(landingConfirmation).toContain('from "../../../artifact-selection.js"');
+    expect(remoteHandoff).toContain('from "../../artifact-selection.js"');
+    expect(remoteHandoff).not.toContain("projections/read-model");
+    expect(landingConfirmation).not.toContain("actions/results");
+    expect(`${landingConfirmation}\n${remoteHandoff}`).not.toMatch(/artifactRefs\.find\(\(ref\) => ref\.endsWith\("merge-review\.md"\)\)/);
+    expect(`${landingConfirmation}\n${remoteHandoff}`).not.toMatch(/const reviewArtifact = [^;\n]*artifactRefs\[[01]\]/);
   });
 
   it("keeps Workbench action target revalidation helpers pure and fail-closed", () => {
