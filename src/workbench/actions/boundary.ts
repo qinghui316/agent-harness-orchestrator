@@ -943,9 +943,7 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
     }
     assertWorkbenchActionOptionalStringTarget(request.schedulerIntegrationCandidateId, latestCandidate.id, "planning.scheduler.integration-outcome.reconcile", "SchedulerIntegrationCandidate");
     const latestHandoff = await readLatestSchedulerIntegrationCheckHandoffProjection(memory, target.path, run.id);
-    if (!latestHandoff || latestHandoff.id !== request.schedulerIntegrationCheckHandoffId) {
-      throw new Error("planning.scheduler.integration-outcome.reconcile requires the latest SchedulerIntegrationCheckHandoff.");
-    }
+    assertLatestWorkbenchActionTarget(latestHandoff, { id: request.schedulerIntegrationCheckHandoffId }, "planning.scheduler.integration-outcome.reconcile", "SchedulerIntegrationCheckHandoff");
     if (latestHandoff.schedulerIntegrationCandidateId !== latestCandidate.id || latestHandoff.schedulerClaimReservationId !== reservation.id || latestHandoff.schedulerRuntimeStateId !== runtimeState.id) {
       throw new Error("planning.scheduler.integration-outcome.reconcile SchedulerIntegrationCheckHandoff scope mismatch.");
     }
