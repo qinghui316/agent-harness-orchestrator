@@ -62,6 +62,18 @@ Pending.
 - If applicable, tested with: not applicable.
 - If not applicable, reason: change does not affect derived read models, approval inboxes, thread/run projections, role summaries, or Harness gap reports.
 
+## Workbench User-Surface Honesty Coverage
+
+- Workbench user-surface honesty coverage applicable: no.
+- If applicable, sampled surface: not applicable.
+- If applicable, visible primary UI backed by implemented workflow paths: not applicable.
+- If applicable, out-of-scope future capability check: not applicable.
+- If applicable, forbidden visible internal terms/actions checked: not applicable.
+- If applicable, duplicate primary action check: not applicable.
+- If applicable, high-impact action path result: not applicable.
+- If applicable, tested with: not applicable.
+- If not applicable, reason: change does not affect Workbench user-facing decision surfaces, Workpad projections, composer actions, task/queue/audit controls, or post-run result actions.
+
 ## Scoped Workbench Action Payload Coverage
 
 - Scoped Workbench action payload coverage applicable: no.

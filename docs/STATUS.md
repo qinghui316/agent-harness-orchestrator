@@ -5,14 +5,14 @@
 - Current date: 2026-06-20.
 - Active ECL change: none.
 - Pending Harness evolution: none.
-- Latest archived product change: `harness/changes/archive/20260620-controlled-scheduler-advance-continuation-surface/summary.md`.
-- Latest archived product/Harness docs change: `harness/changes/archive/20260620-controlled-scheduler-advance-continuation-surface/summary.md`.
-- Latest archived Harness evolution: `harness/changes/archive/20260620-auto-evolve-harness-workbench-helper-boundary-window/summary.md`.
+- Latest archived product change: `harness/changes/archive/20260620-workbench-controlled-loop-posture-surface/summary.md`.
+- Latest archived product/Harness docs change: `harness/changes/archive/20260620-workbench-controlled-loop-posture-surface/summary.md`.
+- Latest archived Harness evolution: `harness/changes/archive/20260620-auto-evolve-harness-controlled-loop-surface-window/summary.md`.
 - Active product phase: none.
 - Active Harness evolution phase: none.
 - Active close status: none.
 
-This file is the short resume point. There is no active ECL change and pending Harness evolution is none. The latest product change closed the controlled Scheduler advance continuation surface: confirmed controlled-advance actions now record a first-class Workbench summary/label that distinguishes fresh Goal Loop evidence refresh from the concrete scheduler gate execution, names the executed concrete gate, states the one-transition stop, and explicitly preserves no scheduler loop, whole-wave dispatch, slot allocator, apply, close, remote landing, or Harness evolution behavior.
+This file is the short resume point. There is no active ECL change and pending Harness evolution is none. The latest product change closed the Workpad controlled loop posture surface: Goal Loop / Scheduler evidence now renders as a user-facing controlled continuation posture with a readable next-gate label, explicit one-step boundary, and no raw `planning.scheduler.*` / false authority flags in the primary card. The latest Harness evolution completed `keep / independent_review` and added the missing Workbench User-Surface Honesty Coverage prompt to the default change review template.
 
 Current plan-level roadmap context is preserved in `docs/CURRENT-DEVELOPMENT-PLAN.md`. Historical detail belongs in archived summaries and `harness/changes/INDEX.json`.
 
@@ -22,7 +22,7 @@ The product baseline is post-maintenance canonical patch target-boundary, lineag
 
 Product-level maintenance writes candidate lifecycle-resolution evidence, canonical update proposal evidence, human-gated canonical update decision records, canonical patch proposal evidence, human-gated canonical patch application follow-up records, read-only application manifest/readiness evidence, Phase 12U target-descriptor evidence, Phase 12V human-gated canonical docs/stable-memory application result evidence, and Phase 12W read-only observation report evidence while still forbidding automatic canonical rewrites.
 
-Phase 12A remains the future controlled Scheduler/parallel loop design boundary. Current runtime has a user-confirmed controlled Scheduler advance gate that refreshes Goal Loop evidence and executes exactly one concrete Scheduler transition, then stops; it remains single-gate staged until a later accepted ECL change implements and verifies broader loop behavior.
+Phase 12A remains the future controlled Scheduler/parallel loop design boundary. Current runtime has a user-confirmed controlled Scheduler advance gate that refreshes Goal Loop evidence and executes exactly one concrete Scheduler transition, then stops; Workpad now presents that posture in user-facing terms. It remains single-gate staged until a later accepted ECL change implements and verifies broader loop behavior.
 
 ## Next Resume Point
 
