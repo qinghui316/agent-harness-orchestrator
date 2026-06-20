@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-20T13:46:53.8136524Z",
+    "generated_at":  "2026-06-20T14:05:02.3927747Z",
     "active":  [
 
                ],
@@ -1489,6 +1489,10 @@
                     {
                         "name":  "20260620-controlled-scheduler-workpad-next-candidate-surface",
                         "path":  "harness/changes/archive/20260620-controlled-scheduler-workpad-next-candidate-surface"
+                    },
+                    {
+                        "name":  "20260620-controlled-scheduler-workpad-routing-posture",
+                        "path":  "harness/changes/archive/20260620-controlled-scheduler-workpad-routing-posture"
                     },
                     {
                         "name":  "20260620-maintenance-canonical-artifact-lifecycle-reuse",

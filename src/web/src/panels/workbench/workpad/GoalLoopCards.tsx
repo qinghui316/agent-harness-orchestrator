@@ -3,6 +3,7 @@ import { userFacingText } from "../../../formatters.js";
 import { workflowActionLabel } from "../../../action-labels.js";
 import type { Workpad } from "../../../types.js";
 import { artifactName } from "../RunReplayPanel.js";
+import { ControlledSchedulerRoutingPosture } from "../ControlledSchedulerRoutingPosture.js";
 
 export function GoalLoopPrimarySummary({ goalLoop }: { goalLoop: NonNullable<Workpad["goalLoop"]> }): ReactElement {
   const schedulerMode = goalLoop.schedulerExecutionMode;
@@ -13,6 +14,7 @@ export function GoalLoopPrimarySummary({ goalLoop }: { goalLoop: NonNullable<Wor
     ?? schedulerMode?.currentGate?.actionType
     ?? goalLoop.recommendedActionType;
   const posture = controlledLoopState?.state ?? schedulerLoopSnapshot?.posture ?? schedulerMode?.mode ?? goalLoop.recommendationState ?? goalLoop.continuationState;
+  const routingPosture = goalLoop.controlledSchedulerNextCandidate?.routingPosture;
   return (
     <section className="parent-agent-section" data-testid="controlled-loop-primary-surface">
       <div className="parent-section-header">
@@ -28,6 +30,7 @@ export function GoalLoopPrimarySummary({ goalLoop }: { goalLoop: NonNullable<Wor
       <p>
         右侧确认区仍是唯一执行入口。确认后也只推进一个已存在步骤；后续执行、应用、关闭或远端操作仍会停下等待新的确认。
       </p>
+      {routingPosture ? <ControlledSchedulerRoutingPosture posture={routingPosture} compact /> : null}
       <p className="muted-inline">更完整的证据和边界说明在下方详情区。</p>
     </section>
   );
@@ -95,6 +98,9 @@ export function GoalLoopEvidenceCard({ goalLoop }: { goalLoop: NonNullable<Workp
             <strong>检查状态</strong>
             <span>{goalLoop.controlledSchedulerNextCandidate.readinessEvidencePrepared ? "当前步骤检查已准备好。" : "当前步骤检查还需要复核。"}</span>
           </div>
+          {goalLoop.controlledSchedulerNextCandidate.routingPosture ? (
+            <ControlledSchedulerRoutingPosture posture={goalLoop.controlledSchedulerNextCandidate.routingPosture} />
+          ) : null}
         </div>
       ) : null}
       {schedulerMode ? (

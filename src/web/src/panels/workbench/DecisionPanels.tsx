@@ -3,6 +3,7 @@ import { Check, FileText, X } from "lucide-react";
 import { confirmationKindLabel, decisionKindLabel, formatTime, userFacingText, userStatusLabel } from "../../formatters.js";
 import type { ConfirmationQueue, ConfirmationQueueItem, DecisionAction, DecisionContext, DecisionInspector } from "../../types.js";
 import { artifactName } from "./RunReplayPanel.js";
+import { ControlledSchedulerRoutingPosture } from "./ControlledSchedulerRoutingPosture.js";
 
 export function DecisionInspectorPane({
   inspector,
@@ -179,18 +180,7 @@ function DecisionContextCard({
             {context.controlledSchedulerNextCandidate.humanConfirmationStillRequired ? "继续前仍需要你确认这个步骤。" : "等待新的证据。"}
           </p>
           {context.controlledSchedulerNextCandidate.routingPosture ? (
-            <div className="decision-routing-posture" aria-label="Controlled scheduler routing posture">
-              <strong>{userFacingText(context.controlledSchedulerNextCandidate.routingPosture.label)}</strong>
-              <p>{userFacingText(context.controlledSchedulerNextCandidate.routingPosture.body)}</p>
-              <p className="muted-inline">{userFacingText(context.controlledSchedulerNextCandidate.routingPosture.boundary)}</p>
-              {context.controlledSchedulerNextCandidate.routingPosture.reasons.length ? (
-                <ul>
-                  {context.controlledSchedulerNextCandidate.routingPosture.reasons.map((reason) => (
-                    <li key={reason}>{userFacingText(reason)}</li>
-                  ))}
-                </ul>
-              ) : null}
-            </div>
+            <ControlledSchedulerRoutingPosture posture={context.controlledSchedulerNextCandidate.routingPosture} />
           ) : null}
         </div>
       ) : null}
