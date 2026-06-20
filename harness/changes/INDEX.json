@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-20T03:41:33.1068137Z",
+    "generated_at":  "2026-06-20T03:53:57.6575367Z",
     "active":  [
 
                ],
@@ -1433,6 +1433,10 @@
                     {
                         "name":  "20260620-workbench-agenttask-residual-test-domain-split",
                         "path":  "harness/changes/archive/20260620-workbench-agenttask-residual-test-domain-split"
+                    },
+                    {
+                        "name":  "20260620-workbench-confirmation-evidence-refs-helper-reuse",
+                        "path":  "harness/changes/archive/20260620-workbench-confirmation-evidence-refs-helper-reuse"
                     },
                     {
                         "name":  "20260620-workbench-feedback-conversation-test-domain-split",

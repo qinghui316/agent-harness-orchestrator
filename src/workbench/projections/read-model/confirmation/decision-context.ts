@@ -1,4 +1,5 @@
 import type { WorkbenchConfirmationQueueItem, WorkbenchConfirmationQueueItemKind, WorkbenchDecisionContext } from "../../../read-model-types.js";
+import { evidenceRefs } from "../evidence-refs.js";
 
 export function decisionContextToConfirmationItems(context: WorkbenchDecisionContext | null, primary: boolean): WorkbenchConfirmationQueueItem[] {
   if (!context) return [];
@@ -25,7 +26,7 @@ export function decisionContextToConfirmationItems(context: WorkbenchDecisionCon
     whyNeedsConfirmation: context.title,
     confirmEffect: context.recommendation ?? "确认后会推进当前需求的下一步。",
     riskSummary: context.explanation ?? "执行前请确认摘要和证据。",
-    evidenceRefs: [context.artifact].filter((item): item is string => Boolean(item)),
+    evidenceRefs: evidenceRefs(context.artifact),
     actions: confirmActions,
     primary,
     status: "pending",

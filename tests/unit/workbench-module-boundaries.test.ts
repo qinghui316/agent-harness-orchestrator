@@ -113,6 +113,7 @@ import { buildApprovalInbox } from "../../src/workbench/projections/read-model/a
 import { buildMaintenanceSummary } from "../../src/workbench/projections/read-model/maintenance-summary.js";
 import { latestByCreatedAt, latestByTimestamp, latestUnhandledByCreatedAt, projectFields, sortByTimestampDesc } from "../../src/workbench/projections/read-model/projection-summary.js";
 import { evidenceActions } from "../../src/workbench/projections/read-model/evidence-actions.js";
+import { evidenceRefs } from "../../src/workbench/projections/read-model/evidence-refs.js";
 import { listWorkbenchTopicsFromMemory } from "../../src/workbench/projections/read-model/topics.js";
 import { workpadNextActionToConfirmationItems } from "../../src/workbench/projections/read-model/confirmation/typed-workflow.js";
 import { schedulerUserFacingActionLabel } from "../../src/workbench/projections/read-model/confirmation/scheduler-user-surface.js";
@@ -1969,6 +1970,22 @@ describe("Workbench module boundaries", () => {
     expect(integrationConfirmation).toContain('from "../evidence-actions.js"');
     expect(landingConfirmation).toContain('from "../evidence-actions.js"');
     expect(`${integrationConfirmation}\n${landingConfirmation}`).not.toMatch(/evidenceActions\([^)]*\)\.map/);
+  });
+
+  it("keeps read-model evidence ref helpers pure and shared across confirmation projections", () => {
+    expect(evidenceRefs()).toEqual([]);
+    expect(evidenceRefs(undefined, "first.md", null, "", "second.md", "first.md")).toEqual(["first.md", "second.md", "first.md"]);
+
+    const helper = readFileSync("src/workbench/projections/read-model/evidence-refs.ts", "utf8");
+    expect(helper).toContain("export function evidenceRefs");
+    expect(helper).not.toMatch(/WorkbenchDecisionAction|workbench\/actions|server\/|manager|ToolPolicy|approvalAction|scopeConfirmationQueueItemActions/);
+
+    const typedWorkflow = readFileSync("src/workbench/projections/read-model/confirmation/typed-workflow.ts", "utf8");
+    const decisionContext = readFileSync("src/workbench/projections/read-model/confirmation/decision-context.ts", "utf8");
+    expect(typedWorkflow).toContain('from "../evidence-refs.js"');
+    expect(decisionContext).toContain('from "../evidence-refs.js"');
+    expect(`${typedWorkflow}\n${decisionContext}`).not.toMatch(/evidenceRefs:\s*[^,\n]+\.artifact\s*\?\s*\[[^\]]+\.artifact\]\s*:\s*\[\]/);
+    expect(`${typedWorkflow}\n${decisionContext}`).not.toMatch(/evidenceRefs:\s*\[[^\]]+\]\.filter\(\(item\): item is string => Boolean\(item\)\)/);
   });
 
   it("keeps Workbench action target revalidation helpers pure and fail-closed", () => {

@@ -1,6 +1,7 @@
 import type { ManagedProject } from "../../../../types/index.js";
 import type { DecompositionRecommendation } from "../../../../workflow-artifacts/manager.js";
 import type { WorkbenchConfirmationQueueItem, WorkbenchTopicDetail, WorkbenchWorkpad } from "../../../read-model-types.js";
+import { evidenceRefs } from "../evidence-refs.js";
 import { schedulerUserFacingActionCopy } from "./scheduler-user-surface.js";
 
 export function workpadNextActionToConfirmationItems(
@@ -24,7 +25,7 @@ export function workpadNextActionToConfirmationItems(
       ? action.description
       : "确认只写 canonical spec/plan/tasks/ac-map 和确认记录；不会启动 coder、validator、auditor、TaskQueue、TaskRun 或 AgentTask。",
     riskSummary: "确认规划不是执行授权；后续执行仍必须经过 DecompositionPlan、readiness、TaskQueueProposal/WorkflowGraphPlan 或 single-change code gate。",
-    evidenceRefs: workpad.planningArtifactBundle?.artifact ? [workpad.planningArtifactBundle.artifact] : [],
+    evidenceRefs: evidenceRefs(workpad.planningArtifactBundle?.artifact),
     actions: [{
       id: `workflow:planning.confirm-execution:${selectedTopic.id}`,
       label: action.actionType === "planning.confirm-execution" ? action.label : "确认执行",
@@ -220,7 +221,7 @@ export function decompositionPlanToConfirmationItems(
       whyNeedsConfirmation: "需要你确认检查执行边界。检查只写 readiness manifest，不会启动执行。",
       confirmEffect: "生成 DecompositionReadinessManifest；不会创建 TaskQueue、TaskRun、AgentTask、子 Change、worktree 或 run。",
       riskSummary: "Manifest 只说明后续执行层是否可安全消费该拆分提案；不能绕过 Harness workflow truth。",
-      evidenceRefs: plan.artifact ? [plan.artifact] : [],
+      evidenceRefs: evidenceRefs(plan.artifact),
       actions: [{
         id: `workflow:planning.decomposition.assess-readiness:${selectedTopic.id}:${plan.id}`,
         label: "检查执行边界",
@@ -246,7 +247,7 @@ export function decompositionPlanToConfirmationItems(
     whyNeedsConfirmation: "需要你确认这个拆分方向。确认只记录 proposal 接受，不会启动执行。",
     confirmEffect: "记录 DecompositionPlan 已确认；不会创建子 Change、TaskRun、AgentTask 或启动 Code。",
     riskSummary: plan.riskSummary,
-    evidenceRefs: plan.artifact ? [plan.artifact] : [],
+    evidenceRefs: evidenceRefs(plan.artifact),
     actions: [{
       id: `workflow:planning.decomposition.confirm:${selectedTopic.id}:${plan.id}`,
       label: "确认拆分方向",
@@ -327,7 +328,7 @@ export function taskQueueProposalToConfirmationItems(
                 whyNeedsConfirmation: "这是 Harness 阶段门：只根据 validation failed 或 audit blocked/failed evidence 生成 bounded rework 计划，不启动 rework。",
                 confirmEffect: "重读 latest SchedulerRun、RuntimeState、ClaimReservation、WorkerStart、WorkerResult、WorkerValidation、可选 WorkerAudit、TaskRun、worktree 和 run gate；写 SchedulerRuntimeWorkerReworkPlan evidence。",
                 riskSummary: "rework 计划不是执行授权；Phase 9K 不调用 startCodeRun，不创建新 TaskRun/WorkerLease/worktree/run，也不启动下一个 worker。",
-                evidenceRefs: [workerValidation.artifact, workerAudit?.artifact, workerResult.artifact].filter((item): item is string => Boolean(item)),
+                evidenceRefs: evidenceRefs(workerValidation.artifact, workerAudit?.artifact, workerResult.artifact),
                 actions: [{
                   id: `workflow:planning.scheduler.worker.rework-plan.compile:${selectedTopic.id}:${workerValidation.id}:${workerAudit?.id ?? "validation"}`,
                   label: "生成当前 worker rework 计划",
@@ -398,7 +399,7 @@ export function taskQueueProposalToConfirmationItems(
                       whyNeedsConfirmation: "这是 Harness 阶段门：只对 Phase 9L 复用的同一个 worker worktree 运行一次 scoped Audit，不启动 next worker、integration 或 apply。",
                       confirmEffect: "重读 latest SchedulerRun、RuntimeState、ClaimReservation、ReworkPlan、ReworkStart、ReworkResult、ReworkValidation、TaskRun、WorkerLease、worktree、code gate 和 exact validation run；对同一个 worktree 运行 Audit，并写 SchedulerRuntimeWorkerReworkAudit evidence。",
                       riskSummary: "audit approved 才能让 rework TaskRun completed；audit blocked/failed 只阻塞当前 rework path。",
-                      evidenceRefs: [workerReworkValidation.artifact, workerReworkResult.artifact, workerReworkStart.artifact, reworkPlan.artifact].filter((item): item is string => Boolean(item)),
+                      evidenceRefs: evidenceRefs(workerReworkValidation.artifact, workerReworkResult.artifact, workerReworkStart.artifact, reworkPlan.artifact),
                       actions: [{
                         id: `workflow:planning.scheduler.worker.rework-audit-first:${selectedTopic.id}:${workerReworkValidation.id}`,
                         label: "审计当前 worker rework 结果",
@@ -465,7 +466,7 @@ export function taskQueueProposalToConfirmationItems(
                     whyNeedsConfirmation: "这是 Harness 阶段门：只对 Phase 9L 复用的同一个 worker worktree 运行一次 scoped Validation，不启动 audit、next worker 或 whole wave。",
                     confirmEffect: "重读 latest SchedulerRun、RuntimeState、ClaimReservation、ReworkPlan、ReworkStart、ReworkResult、TaskRun、WorkerLease、worktree 和 rework code gate；对同一个 worktree 运行 Validation，并写 SchedulerRuntimeWorkerReworkValidation evidence。",
                     riskSummary: "rework validation passed 仍不是任务完成；rework audit 另开阶段。validation failed 只阻塞当前 rework TaskRun。",
-                    evidenceRefs: [workerReworkResult.artifact, workerReworkStart.artifact, reworkPlan.artifact].filter((item): item is string => Boolean(item)),
+                    evidenceRefs: evidenceRefs(workerReworkResult.artifact, workerReworkStart.artifact, reworkPlan.artifact),
                     actions: [{
                       id: `workflow:planning.scheduler.worker.rework-validate-first:${selectedTopic.id}:${workerReworkResult.id}`,
                       label: "验证当前 worker rework 结果",
@@ -527,7 +528,7 @@ export function taskQueueProposalToConfirmationItems(
                   whyNeedsConfirmation: "这是 Harness 阶段门：只读取 rework TaskRun、WorkerLease、worktree 和 code run evidence，并写 scheduler-owned rework result。",
                   confirmEffect: "重读 latest SchedulerRun、RuntimeState、ClaimReservation、ReworkPlan、ReworkStart、TaskRun、WorkerLease、worktree 和 rework code gate；完成时写 SchedulerRuntimeWorkerReworkResult 并释放 rework WorkerLease。",
                   riskSummary: "rework result 不是完成信号；validation/audit、next worker、whole wave、integration/apply 都是后续阶段。",
-                  evidenceRefs: [workerReworkStart.artifact, reworkPlan.artifact, workerValidation?.artifact, workerAudit?.artifact, workerResult.artifact].filter((item): item is string => Boolean(item)),
+                  evidenceRefs: evidenceRefs(workerReworkStart.artifact, reworkPlan.artifact, workerValidation?.artifact, workerAudit?.artifact, workerResult.artifact),
                   actions: [{
                     id: `workflow:planning.scheduler.worker.rework-reconcile-result:${selectedTopic.id}:${workerReworkStart.id}`,
                     label: "检查当前 worker rework 结果",
@@ -589,7 +590,7 @@ export function taskQueueProposalToConfirmationItems(
                 whyNeedsConfirmation: "这是 Harness 阶段门：只在原 worker worktree 上启动一次 scoped rework-coder，不启动下一个 worker 或 scheduler loop。",
                 confirmEffect: "重读 latest SchedulerRun、RuntimeState、ClaimReservation、WorkerReworkPlan、TaskRun、worktree 和 code gate；创建一个 rework TaskRun、WorkerLease、code run 与 Runtime Continuity sidecars。",
                 riskSummary: "rework 复用原 worktree，不创建新 worktree；rework 结果对账、validation、audit、integration/apply 都是后续阶段。",
-                evidenceRefs: [reworkPlan.artifact, workerValidation?.artifact, workerAudit?.artifact, workerResult.artifact].filter((item): item is string => Boolean(item)),
+                evidenceRefs: evidenceRefs(reworkPlan.artifact, workerValidation?.artifact, workerAudit?.artifact, workerResult.artifact),
                 actions: [{
                   id: `workflow:planning.scheduler.worker.rework-start-first:${selectedTopic.id}:${reworkPlan.id}`,
                   label: "启动当前 worker rework",
@@ -650,7 +651,7 @@ export function taskQueueProposalToConfirmationItems(
                 whyNeedsConfirmation: "这是 Harness 阶段门：只对当前 scheduler worker 验证通过的 worktree 运行一次 scoped Audit，不启动 rework、下一个 worker 或 whole wave。",
                 confirmEffect: "重读 latest SchedulerRun、RuntimeState、ClaimReservation、WorkerStart、WorkerResult、WorkerValidation、TaskRun、code run、validation run 和 worktree；对同一个 worktree 运行 Audit，并写 SchedulerRuntimeWorkerAudit evidence。",
                 riskSummary: "audit approved 才能把该 TaskRun 标记 completed；audit blocked/failed 只阻塞当前 worker path，不自动 rework。",
-                evidenceRefs: [workerValidation.artifact, workerResult.artifact].filter((item): item is string => Boolean(item)),
+                evidenceRefs: evidenceRefs(workerValidation.artifact, workerResult.artifact),
                 actions: [{
                   id: `workflow:planning.scheduler.worker.audit-first:${selectedTopic.id}:${workerValidation.id}`,
                   label: "审计当前 worker 结果",
@@ -706,7 +707,7 @@ export function taskQueueProposalToConfirmationItems(
               whyNeedsConfirmation: "这是 Harness 阶段门：只对当前 scheduler worker 的 worktree 运行一次 scoped Validation，不启动 audit、rework 或下一个 worker。",
               confirmEffect: "重读 latest SchedulerRun、RuntimeState、ClaimReservation、WorkerResult、TaskRun、code run 和 worktree；对同一个 worktree 运行 Validation，并写 SchedulerRuntimeWorkerValidation evidence。",
               riskSummary: "验证通过仍不是任务完成；audit 才能在后续阶段决定完成。验证失败只阻塞当前 scheduler worker path，不自动 rework。",
-              evidenceRefs: workerResult.artifact ? [workerResult.artifact] : [],
+              evidenceRefs: evidenceRefs(workerResult.artifact),
               actions: [{
                 id: `workflow:planning.scheduler.worker.validate-first:${selectedTopic.id}:${workerResult.id}`,
                 label: "验证当前 worker 结果",
@@ -756,7 +757,7 @@ export function taskQueueProposalToConfirmationItems(
             whyNeedsConfirmation: "这是 Harness 阶段门：只对当前 worker 做结果对账，不启动 validation、audit、rework 或下一个 worker。",
             confirmEffect: "重读 latest SchedulerRun、RuntimeState、ClaimReservation、WorkerStart、TaskRun、WorkerLease、worktree 和 code run；若 code run terminal，则写 SchedulerRuntimeWorkerResult 并释放 WorkerLease；若仍 running，则只返回 running 摘要。",
             riskSummary: "对账不会启动任何新的 worker 或验证阶段；后续 validation/audit/rework 仍需另开阶段并重新经过 scoped evidence、ToolPolicyGate 和 human gate。",
-            evidenceRefs: workerStart.artifact ? [workerStart.artifact] : [],
+            evidenceRefs: evidenceRefs(workerStart.artifact),
             actions: [{
               id: `workflow:planning.scheduler.worker.reconcile-result:${selectedTopic.id}:${workerStart.id}`,
               label: "检查当前 worker 结果",
@@ -797,7 +798,7 @@ export function taskQueueProposalToConfirmationItems(
           whyNeedsConfirmation: "这是 Harness 阶段门：只允许从 latest claim reservation 启动一个 coder-stage worker，不启动整 wave。",
           confirmEffect: "重读 latest SchedulerRun、RuntimeState、ReconcileSnapshot、ClaimReservation，创建 exactly one TaskRun、WorkerLease、worktree、code run 和 Runtime Continuity sidecar；不会启动 validation、audit、rework、scheduler loop、TaskQueueRun、WorkflowRun、AgentTask 或 child Change。",
           riskSummary: "后续 validation/audit/rework、wave dispatch、slot allocator 和完整 parallel executor 必须另开阶段并重新经过 scoped evidence、ToolPolicyGate 和 human gate。",
-          evidenceRefs: claimReservation.artifact ? [claimReservation.artifact] : [],
+          evidenceRefs: evidenceRefs(claimReservation.artifact),
           actions: [{
             id: `workflow:planning.scheduler.worker.start-first:${selectedTopic.id}:${claimReservation.id}`,
             label: "启动第一个 worker",
@@ -831,7 +832,7 @@ export function taskQueueProposalToConfirmationItems(
         whyNeedsConfirmation: "需要你确认是否认可这个并行执行计划的启动方向；这不是工具权限弹窗，也不是实际启动 worker。",
         confirmEffect: "重读 latest SchedulerRun、RuntimeState、ReconcileSnapshot、ClaimReservation，生成主对话可读 launch brief 并记录 decision/audit scope；不会创建 worker、TaskRun、WorkerLease、WorkerSession、RuntimeWorkspace、EventSource、worktree、run 或 child Change。",
         riskSummary: "真正 parallel executor 必须另开阶段，并重新经过 scoped evidence、ToolPolicyGate 和 human gate。你也可以先要求主 Agent 修改计划后再确认。",
-        evidenceRefs: claimReservation.artifact ? [claimReservation.artifact] : [],
+        evidenceRefs: evidenceRefs(claimReservation.artifact),
         actions: [{
           id: `workflow:planning.scheduler.plan.prepare:${selectedTopic.id}:${claimReservation.id}:launch-confirmation`,
           label: "确认启动这个并行执行计划",
@@ -865,7 +866,7 @@ export function taskQueueProposalToConfirmationItems(
       whyNeedsConfirmation: "需要你确认让主 Agent 补齐内部 scheduler evidence。普通用户不需要逐个确认 SchedulerContract、dry-run、worker plan、runtime shell 或 claim reservation。",
       confirmEffect: "按顺序写入或校验 scheduler pre-executor evidence，并在主对话生成可读 launch brief；不会创建 worker、TaskRun、WorkerLease、WorkerSession、RuntimeWorkspace、EventSource、worktree、run 或 child Change。",
       riskSummary: "准备计划不是执行授权；真正 parallel executor 后续仍必须重新读取 scoped evidence、执行 ToolPolicyGate，并再次经过 human gate。",
-      evidenceRefs: readiness.artifact ? [readiness.artifact] : [],
+      evidenceRefs: evidenceRefs(readiness.artifact),
       actions: [{
         id: `workflow:planning.scheduler.plan.prepare:${selectedTopic.id}:${readiness.id}`,
         label: "准备并行执行计划",
@@ -894,7 +895,7 @@ export function taskQueueProposalToConfirmationItems(
       whyNeedsConfirmation: "需要你确认生成 TaskQueueProposal。生成 proposal 不会启动执行。",
       confirmEffect: "写入 taskqueue-proposal.json/.md；不会创建 TaskQueue、TaskRun、AgentTask、worktree 或 run。",
       riskSummary: "TaskQueueProposal 是执行前 typed artifact，不是 workflow truth。",
-      evidenceRefs: readiness.artifact ? [readiness.artifact] : [],
+      evidenceRefs: evidenceRefs(readiness.artifact),
       actions: [{
         id: `workflow:planning.taskqueue.propose:${selectedTopic.id}:${readiness.id}`,
         label: "生成 TaskQueue 提案",
@@ -921,7 +922,7 @@ export function taskQueueProposalToConfirmationItems(
       whyNeedsConfirmation: "需要你确认编译 versioned WorkflowGraphPlan。编译不会启动执行。",
       confirmEffect: "写入 workflow-graphs 下的 versioned graph artifact；不会创建 TaskQueue、TaskRun、AgentTask、worktree 或 run。",
       riskSummary: "过期、伪造或已 superseded 的 proposal/readiness 会被拒绝。",
-      evidenceRefs: proposal.artifact ? [proposal.artifact] : [],
+      evidenceRefs: evidenceRefs(proposal.artifact),
       actions: [{
         id: `workflow:planning.workflowgraph.compile:${selectedTopic.id}:${proposal.id}`,
         label: "编译执行图",
@@ -948,7 +949,7 @@ export function taskQueueProposalToConfirmationItems(
     whyNeedsConfirmation: "需要你确认启动这个 latest WorkflowGraphPlan。",
     confirmEffect: "重新读取 graph/proposal/readiness 后创建 TaskQueue/TaskRun 记录并开始顺序执行。",
     riskSummary: "过期、伪造或已 superseded 的 graph/proposal/readiness 会被拒绝。",
-    evidenceRefs: graph.artifact ? [graph.artifact] : [],
+    evidenceRefs: evidenceRefs(graph.artifact),
     actions: [{
       id: `workflow:planning.taskqueue.confirm-start:${selectedTopic.id}:${graph.id}`,
       label: "确认启动 TaskQueue",
