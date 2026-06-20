@@ -29,6 +29,7 @@ export const WORKFLOW_ACTION_TYPES = [
   "planning.scheduler.runtime.reconcile",
   "planning.scheduler.runtime.reserve-claims",
   "planning.scheduler.controlled-step.run",
+  "planning.scheduler.controlled-advance.run",
   "planning.scheduler.worker.start-first",
   "planning.scheduler.worker.start-next",
   "planning.scheduler.worker.reconcile-result",
@@ -151,6 +152,7 @@ export const LIVE_WORKFLOW_ACTION_TYPES = [
   "planning.scheduler.runtime.reconcile",
   "planning.scheduler.runtime.reserve-claims",
   "planning.scheduler.controlled-step.run",
+  "planning.scheduler.controlled-advance.run",
   "planning.scheduler.worker.start-first",
   "planning.scheduler.worker.start-next",
   "planning.scheduler.worker.reconcile-result",
@@ -253,6 +255,7 @@ export const HIGH_IMPACT_WORKFLOW_ACTION_TYPES = [
   "planning.scheduler.runtime.reconcile",
   "planning.scheduler.runtime.reserve-claims",
   "planning.scheduler.controlled-step.run",
+  "planning.scheduler.controlled-advance.run",
   "planning.scheduler.worker.start-first",
   "planning.scheduler.worker.start-next",
   "planning.scheduler.worker.reconcile-result",
@@ -316,6 +319,7 @@ export const REVALIDATED_WORKFLOW_ACTION_TYPES = [
   "planning.scheduler.runtime.reconcile",
   "planning.scheduler.runtime.reserve-claims",
   "planning.scheduler.controlled-step.run",
+  "planning.scheduler.controlled-advance.run",
   "planning.scheduler.worker.start-first",
   "planning.scheduler.worker.start-next",
   "planning.scheduler.worker.reconcile-result",
@@ -518,7 +522,7 @@ export function validateWorkflowActionRequiredTargets(request: WorkflowActionSco
       requireOne("goalLoopGateReadinessPreflightId", [request.goalLoopGateReadinessPreflightId]);
       requireOne("goalLoopCurrentGateActionType", [request.goalLoopCurrentGateActionType]);
       const concreteActionType = request.goalLoopCurrentGateActionType;
-      if (!concreteActionType || concreteActionType === "planning.scheduler.controlled-step.run" || concreteActionType.startsWith("planning.goal-loop.") || !concreteActionType.startsWith("planning.scheduler.")) {
+      if (!concreteActionType || concreteActionType === "planning.scheduler.controlled-step.run" || concreteActionType === "planning.scheduler.controlled-advance.run" || concreteActionType.startsWith("planning.goal-loop.") || !concreteActionType.startsWith("planning.scheduler.")) {
         issues.push({ actionType, label: "planning.scheduler.* concrete gate", message: "planning.scheduler.controlled-step.run requires a concrete planning.scheduler.* current gate." });
         break;
       }
@@ -529,6 +533,24 @@ export function validateWorkflowActionRequiredTargets(request: WorkflowActionSco
         ...issue,
         actionType,
         message: `planning.scheduler.controlled-step.run concrete gate target is incomplete: ${issue.label}.`,
+      })));
+      break;
+    }
+    case "planning.scheduler.controlled-advance.run": {
+      requireOne("changeId", [request.changeId]);
+      requireOne("goalLoopCurrentGateActionType", [request.goalLoopCurrentGateActionType]);
+      const concreteActionType = request.goalLoopCurrentGateActionType;
+      if (!concreteActionType || concreteActionType === "planning.scheduler.controlled-step.run" || concreteActionType === "planning.scheduler.controlled-advance.run" || concreteActionType.startsWith("planning.goal-loop.") || !concreteActionType.startsWith("planning.scheduler.")) {
+        issues.push({ actionType, label: "planning.scheduler.* concrete gate", message: "planning.scheduler.controlled-advance.run requires a concrete planning.scheduler.* current gate." });
+        break;
+      }
+      issues.push(...validateWorkflowActionRequiredTargets({
+        ...request,
+        actionType: concreteActionType,
+      }).map((issue) => ({
+        ...issue,
+        actionType,
+        message: `planning.scheduler.controlled-advance.run concrete gate target is incomplete: ${issue.label}.`,
       })));
       break;
     }
@@ -750,6 +772,17 @@ export function workflowActionTargetId(request: WorkflowActionScopeCarrier, chan
       ?? extractString(result, "controlledStep", "goalLoopControllerPolicyId")
       ?? request.goalLoopNextStepPacketId
       ?? extractString(result, "controlledStep", "goalLoopNextStepPacketId")
+      ?? request.schedulerClaimReservationId
+      ?? request.schedulerRunId
+      ?? changeId;
+  }
+  if (request.actionType === "planning.scheduler.controlled-advance.run") {
+    return extractString(result, "goalLoopGateReadinessPreflight", "id")
+      ?? extractString(result, "controlledAdvance", "goalLoopGateReadinessPreflightId")
+      ?? extractString(result, "goalLoopControllerPolicy", "id")
+      ?? extractString(result, "controlledAdvance", "goalLoopControllerPolicyId")
+      ?? extractString(result, "goalLoopNextStepPacket", "id")
+      ?? extractString(result, "controlledAdvance", "goalLoopNextStepPacketId")
       ?? request.schedulerClaimReservationId
       ?? request.schedulerRunId
       ?? changeId;

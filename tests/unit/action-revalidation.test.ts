@@ -175,4 +175,61 @@ describe("Workbench action revalidation", () => {
       {},
     );
   });
+
+  it("passes controlled scheduler advance payloads only when the current visible gate scope matches", async () => {
+    const visibleAction = {
+      kind: "workflow-action",
+      actionType: "planning.scheduler.controlled-advance.run",
+      changeId: "change-1",
+      goalLoopCurrentGateActionType: "planning.scheduler.worker.start-next",
+      schedulerRunId: "scheduler-run-1",
+      schedulerClaimReservationId: "claim-reservation-1",
+      reservationIntentId: "reservation-intent-2",
+      claimIntentId: "claim-intent-2",
+      enabled: true,
+    };
+    mocks.getWorkbenchSnapshot.mockResolvedValue({
+      center: {
+        workpad: {
+          nextAction: {
+            kind: "workflow-action",
+            actionType: "planning.scheduler.worker.start-next",
+            changeId: "change-1",
+            schedulerRunId: "scheduler-run-1",
+            schedulerClaimReservationId: "claim-reservation-1",
+            reservationIntentId: "reservation-intent-2",
+            claimIntentId: "claim-intent-2",
+          },
+        },
+      },
+      right: {
+        confirmationQueue: {
+          primary: null,
+          current: [{ actions: [visibleAction] }],
+          otherDemands: [],
+        },
+      },
+    });
+
+    await expect(assertCurrentWorkflowAction({ project: { id: "repo", name: "Repo", path: "project-root", addedAt: "2026-06-18T00:00:00.000Z", lastSeenAt: "2026-06-18T00:00:00.000Z" }, path: "project-root" }, {
+      actionType: "planning.scheduler.controlled-advance.run",
+      changeId: "change-1",
+      goalLoopCurrentGateActionType: "planning.scheduler.worker.start-next",
+      schedulerRunId: "scheduler-run-1",
+      schedulerClaimReservationId: "claim-reservation-1",
+      reservationIntentId: "reservation-intent-2",
+      claimIntentId: "claim-intent-2",
+    })).resolves.toBeUndefined();
+    expect(mocks.assertGoalLoopAssistedConcreteGateConfirmation).not.toHaveBeenCalled();
+
+    await expect(assertCurrentWorkflowAction({ project: { id: "repo", name: "Repo", path: "project-root", addedAt: "2026-06-18T00:00:00.000Z", lastSeenAt: "2026-06-18T00:00:00.000Z" }, path: "project-root" }, {
+      actionType: "planning.scheduler.controlled-advance.run",
+      changeId: "change-1",
+      goalLoopCurrentGateActionType: "planning.scheduler.worker.start-next",
+      schedulerRunId: "scheduler-run-1",
+      schedulerClaimReservationId: "claim-reservation-1",
+      reservationIntentId: "reservation-intent-other",
+      claimIntentId: "claim-intent-2",
+    })).rejects.toThrow("stale or no longer available");
+  });
 });

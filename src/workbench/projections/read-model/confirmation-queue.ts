@@ -4,7 +4,7 @@ import { latestLandingQueueSnapshot } from "../../../landing-queue/manager.js";
 import type { ManagedProject, ResolvedMemory } from "../../../types/index.js";
 import type { WorkbenchConfirmationQueue, WorkbenchDecisionInspector, WorkbenchTopicDetail, WorkbenchWorkpad } from "../../read-model-types.js";
 import { decisionContextToConfirmationItems } from "./confirmation/decision-context.js";
-import { attachGoalLoopAssistedConcreteGateActions, attachGoalLoopControllerRefreshActions, attachGoalLoopFeedbackActions, attachGoalLoopGateReadinessActions, goalLoopEvaluationQueueItem } from "./confirmation/goal-loop.js";
+import { attachControlledSchedulerAdvanceActions, attachGoalLoopAssistedConcreteGateActions, attachGoalLoopControllerRefreshActions, attachGoalLoopFeedbackActions, attachGoalLoopGateReadinessActions, goalLoopEvaluationQueueItem } from "./confirmation/goal-loop.js";
 import { integrationCandidateQueueItem, integrationCheckHistoryItem, integrationCheckNeedsActionQueueItem, integrationCheckNeedsUserAction, integrationCheckQueueItem, sameIntegrationTargets } from "./confirmation/integration.js";
 import { landingCandidateQueueItem, landingPackageQueueItem, landingQueuePrepareItem, landingQueueSnapshotItems, prDraftQueueItem } from "./confirmation/landing.js";
 import { maintenanceCanonicalUpdateDecisionQueueItems } from "./confirmation/maintenance.js";
@@ -106,10 +106,10 @@ export async function buildConfirmationQueue(input: {
     const goalLoopItem = goalLoopEvaluationQueueItem(input.project, input.selectedTopic);
     if (goalLoopItem) queue.current.push(goalLoopItem);
   }
-  queue.current = attachGoalLoopAssistedConcreteGateActions(attachGoalLoopGateReadinessActions(
+  queue.current = attachControlledSchedulerAdvanceActions(attachGoalLoopAssistedConcreteGateActions(attachGoalLoopGateReadinessActions(
     attachGoalLoopControllerRefreshActions(attachGoalLoopFeedbackActions(queue.current, input.workpad), input.workpad),
     input.workpad,
-  ), input.workpad);
+  ), input.workpad));
   queue.current = dedupeConfirmationItems(queue.current.filter((item) => item.kind !== "maintenance").map(scopeConfirmationQueueItemActions));
   queue.otherDemands = dedupeConfirmationItems(queue.otherDemands.map(scopeConfirmationQueueItemActions));
   queue.history = dedupeConfirmationItems(queue.history.map(scopeConfirmationQueueItemActions));

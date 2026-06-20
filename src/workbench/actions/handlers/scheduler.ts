@@ -1,4 +1,9 @@
 import {
+  evaluateGoalLoopDecision,
+  prepareGoalLoopGateReadinessPreflight,
+  refreshGoalLoopControllerPolicy,
+} from "./goal-loop.js";
+import {
   auditPlanningSchedulerFirstWorker,
   auditPlanningSchedulerFirstWorkerRework,
   checkPlanningSchedulerLaunchPreflight,
@@ -25,8 +30,9 @@ import {
   validatePlanningSchedulerFirstWorker,
   validatePlanningSchedulerFirstWorkerRework,
 } from "./planning.js";
-import { buildControlledSchedulerStepRequest } from "../../../workflow-scheduler/controlled-step.js";
+import { buildControlledSchedulerAdvanceStepRequest, buildControlledSchedulerStepRequest } from "../../../workflow-scheduler/controlled-step.js";
 import { assertWorkflowActionScope, auditHighImpactWorkflowAction } from "../boundary.js";
+import { workflowActionScopesMatchStrict, type WorkflowActionScopeCarrier } from "../../../workflow-actions/registry.js";
 import type { WorkbenchActionHandlerMap } from "../dispatcher.js";
 import type { WorkbenchWorkflowActionRequest } from "../../types.js";
 
@@ -42,6 +48,7 @@ type SchedulerWorkbenchActionType =
   | "planning.scheduler.runtime.reconcile"
   | "planning.scheduler.runtime.reserve-claims"
   | "planning.scheduler.controlled-step.run"
+  | "planning.scheduler.controlled-advance.run"
   | "planning.scheduler.worker.start-first"
   | "planning.scheduler.worker.start-next"
   | "planning.scheduler.worker.reconcile-result"
@@ -85,7 +92,7 @@ export function buildSchedulerActionHandlers(): Pick<WorkbenchActionHandlerMap, 
     "planning.scheduler.integration-outcome.reconcile": async (project, changeId, request, live) => reconcilePlanningSchedulerIntegrationOutcome(project, changeId, request, live),
     "planning.scheduler.run.complete": async (project, changeId, request, live) => completePlanningSchedulerRun(project, changeId, request, live),
     "planning.scheduler.run.close-blocked": async (project, changeId, request, live) => closeBlockedPlanningSchedulerRun(project, changeId, request, live),
-  } satisfies Omit<Pick<WorkbenchActionHandlerMap, SchedulerWorkbenchActionType>, "planning.scheduler.controlled-step.run">;
+  } satisfies Omit<Pick<WorkbenchActionHandlerMap, SchedulerWorkbenchActionType>, "planning.scheduler.controlled-step.run" | "planning.scheduler.controlled-advance.run">;
   return {
     ...concreteHandlers,
     "planning.scheduler.controlled-step.run": async (project, changeId, request, live) => {
@@ -113,5 +120,130 @@ export function buildSchedulerActionHandlers(): Pick<WorkbenchActionHandlerMap, 
         result,
       };
     },
+    "planning.scheduler.controlled-advance.run": async (project, changeId, request, live) => {
+      const concreteActionType = request.goalLoopCurrentGateActionType;
+      if (!concreteActionType) throw new Error("planning.scheduler.controlled-advance.run requires goalLoopCurrentGateActionType.");
+      const requestedConcreteGate = concreteGateFromRequest(request, concreteActionType, changeId);
+
+      const evaluation = await evaluateGoalLoopDecision(project, changeId, {
+        actionType: "planning.goal-loop.evaluate",
+        changeId,
+      } as WorkbenchWorkflowActionRequest, live);
+      const packetAction = evaluation.goalLoopNextStepPacket.recommendedAction;
+      if (!packetAction || packetAction.actionType !== concreteActionType) {
+        throw new Error("planning.scheduler.controlled-advance.run fresh Goal Loop packet no longer recommends the submitted scheduler gate.");
+      }
+      assertFreshGateMatchesRequest(packetAction.actionType, packetAction.scope, requestedConcreteGate, "Goal Loop packet");
+
+      const controllerRequest = {
+        ...request,
+        actionType: "planning.goal-loop.controller.refresh",
+        changeId,
+        goalLoopNextStepPacketId: evaluation.goalLoopNextStepPacket.id,
+        goalLoopCurrentGateActionType: concreteActionType,
+      } as WorkbenchWorkflowActionRequest;
+      assertWorkflowActionScope(controllerRequest);
+      await auditHighImpactWorkflowAction(project, changeId, controllerRequest, live);
+      const controller = await refreshGoalLoopControllerPolicy(project, changeId, controllerRequest, live);
+      if (
+        controller.goalLoopControllerPolicy.verdict !== "recommend-existing-gate"
+        || controller.goalLoopControllerPolicy.gateStatus !== "matches-current-gate"
+        || controller.goalLoopControllerPolicy.currentGate?.actionType !== concreteActionType
+      ) {
+        throw new Error("planning.scheduler.controlled-advance.run fresh controller policy no longer matches the submitted scheduler gate.");
+      }
+      assertFreshGateMatchesRequest(controller.goalLoopControllerPolicy.currentGate.actionType, controller.goalLoopControllerPolicy.currentGate.scope, requestedConcreteGate, "Goal Loop controller policy");
+
+      const preflightRequest = {
+        ...request,
+        actionType: "planning.goal-loop.gate-readiness.prepare",
+        changeId,
+        goalLoopNextStepPacketId: evaluation.goalLoopNextStepPacket.id,
+        goalLoopControllerPolicyId: controller.goalLoopControllerPolicy.id,
+        goalLoopCurrentGateActionType: concreteActionType,
+      } as WorkbenchWorkflowActionRequest;
+      assertWorkflowActionScope(preflightRequest);
+      await auditHighImpactWorkflowAction(project, changeId, preflightRequest, live);
+      const preflight = await prepareGoalLoopGateReadinessPreflight(project, changeId, preflightRequest, live);
+      if (
+        preflight.goalLoopGateReadinessPreflight.concreteGateInvoked !== false
+        || preflight.goalLoopGateReadinessPreflight.toolPolicyAuthorizedConcreteGate !== false
+        || preflight.goalLoopGateReadinessPreflight.currentGate.actionType !== concreteActionType
+      ) {
+        throw new Error("planning.scheduler.controlled-advance.run fresh preflight is not a non-executing match for the submitted scheduler gate.");
+      }
+      assertFreshGateMatchesRequest(preflight.goalLoopGateReadinessPreflight.currentGate.actionType, preflight.goalLoopGateReadinessPreflight.currentGate.scope, requestedConcreteGate, "Goal Loop gate-readiness preflight");
+
+      const { wrapper } = buildControlledSchedulerAdvanceStepRequest(request, {
+        goalLoopDecisionId: evaluation.goalLoopDecision.id,
+        goalLoopIterationId: evaluation.goalLoopIteration.id,
+        goalLoopContinuationBriefId: evaluation.goalLoopContinuationBrief.id,
+        goalLoopNextStepPacketId: evaluation.goalLoopNextStepPacket.id,
+        goalLoopControllerPolicyId: controller.goalLoopControllerPolicy.id,
+        goalLoopGateReadinessPreflightId: preflight.goalLoopGateReadinessPreflight.id,
+      });
+      const controlledStepResult = await (buildSchedulerActionHandlers()["planning.scheduler.controlled-step.run"])(project, changeId, wrapper as WorkbenchWorkflowActionRequest, live);
+      const controlledStepPayload = controlledStepResult as {
+        controlledStep?: unknown;
+        result?: unknown;
+      };
+      return {
+        controlledAdvance: {
+          actionType: concreteActionType,
+          changeId,
+          schedulerRunId: request.schedulerRunId,
+          goalLoopDecisionId: evaluation.goalLoopDecision.id,
+          goalLoopIterationId: evaluation.goalLoopIteration.id,
+          goalLoopContinuationBriefId: evaluation.goalLoopContinuationBrief.id,
+          goalLoopNextStepPacketId: evaluation.goalLoopNextStepPacket.id,
+          goalLoopControllerPolicyId: controller.goalLoopControllerPolicy.id,
+          goalLoopGateReadinessPreflightId: preflight.goalLoopGateReadinessPreflight.id,
+          executionStarted: true,
+          stoppedAfterOneSchedulerTransition: true,
+          loopAuthorized: false,
+          wholeWaveDispatchAuthorized: false,
+          slotAllocatorAuthorized: false,
+        },
+        goalLoopDecision: evaluation.goalLoopDecision,
+        goalLoopIteration: evaluation.goalLoopIteration,
+        goalLoopContinuationBrief: evaluation.goalLoopContinuationBrief,
+        goalLoopNextStepPacket: evaluation.goalLoopNextStepPacket,
+        goalLoopControllerPolicy: controller.goalLoopControllerPolicy,
+        goalLoopGateReadinessPreflight: preflight.goalLoopGateReadinessPreflight,
+        controlledStep: controlledStepPayload.controlledStep,
+        result: controlledStepPayload.result,
+      };
+    },
   };
+}
+
+function concreteGateFromRequest(request: WorkbenchWorkflowActionRequest, actionType: string, changeId: string): WorkflowActionScopeCarrier {
+  return { ...request, actionType, changeId };
+}
+
+function assertFreshGateMatchesRequest(
+  actionType: string,
+  scope: Record<string, string | string[]>,
+  requestedConcreteGate: WorkflowActionScopeCarrier,
+  label: string,
+): void {
+  const expectedGate = { actionType, ...scope };
+  const requestedGate = concreteGateFromScope(requestedConcreteGate, expectedGate);
+  if (!workflowActionScopesMatchStrict(expectedGate, requestedGate)) {
+    throw new Error(`planning.scheduler.controlled-advance.run fresh ${label} scope no longer matches the submitted scheduler gate.`);
+  }
+}
+
+function concreteGateFromScope(request: WorkflowActionScopeCarrier, expected: WorkflowActionScopeCarrier): WorkflowActionScopeCarrier {
+  const result: WorkflowActionScopeCarrier = { actionType: expected.actionType, changeId: expected.changeId ?? request.changeId };
+  for (const key of Object.keys(expected) as Array<keyof WorkflowActionScopeCarrier>) {
+    if (key === "actionType" || key === "changeId") continue;
+    const value = request[key];
+    if (typeof value === "string") {
+      (result as Record<string, string>)[key] = value;
+    } else if (Array.isArray(value) && value.every((item) => typeof item === "string")) {
+      (result as Record<string, string[]>)[key] = value;
+    }
+  }
+  return result;
 }

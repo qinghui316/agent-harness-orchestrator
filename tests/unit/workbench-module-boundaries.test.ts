@@ -871,7 +871,11 @@ describe("Workbench module boundaries", () => {
     expect(confirmation).not.toContain("compileGoalLoopEvaluation");
     expect(confirmation).not.toContain("recommendedAction");
     expect(confirmation).not.toContain("GoalLoopNextStepPacket");
-    expect(confirmation).not.toContain("planning.scheduler.");
+    expect(confirmation).toContain("attachControlledSchedulerAdvanceActions");
+    expect(confirmation).toContain("CONTROLLED_SCHEDULER_ADVANCE_ACTION_TYPE");
+    expect(confirmation).not.toContain("executeWorkbenchAction");
+    expect(confirmation).not.toContain("dispatchWorkbenchWorkflowAction");
+    expect(confirmation).not.toContain("startPlanningScheduler");
     expect(assistedConfirmation).toContain("assertGoalLoopAssistedConcreteGateConfirmation");
     expect(assistedConfirmation).toContain("readLatestGoalLoopGateReadinessPreflight");
     expect(assistedConfirmation).not.toContain("dispatchWorkbenchWorkflowAction");

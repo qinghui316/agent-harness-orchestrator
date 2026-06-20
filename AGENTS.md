@@ -7,8 +7,8 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 - Current date: 2026-06-20.
 - Active change: none.
 - Pending Harness evolution: none.
-- Latest archived product change: Controlled Scheduler Single-Step Runner, archived at `harness/changes/archive/20260620-controlled-scheduler-single-step-runner/summary.md`.
-- Latest product/Harness docs change: Controlled Scheduler Single-Step Runner, archived at `harness/changes/archive/20260620-controlled-scheduler-single-step-runner/summary.md`.
+- Latest archived product change: Controlled Scheduler Advance Gate, archived at `harness/changes/archive/20260620-controlled-scheduler-advance-gate/summary.md`.
+- Latest product/Harness docs change: Controlled Scheduler Advance Gate, archived at `harness/changes/archive/20260620-controlled-scheduler-advance-gate/summary.md`.
 - Active product phase: none.
 - Active Harness evolution phase: none.
 - Latest Harness evolution: `harness/changes/archive/20260620-auto-evolve-harness-workbench-helper-boundary-window/summary.md`.

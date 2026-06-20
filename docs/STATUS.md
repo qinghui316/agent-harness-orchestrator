@@ -5,14 +5,14 @@
 - Current date: 2026-06-20.
 - Active ECL change: none.
 - Pending Harness evolution: none.
-- Latest archived product change: `harness/changes/archive/20260620-controlled-scheduler-single-step-runner/summary.md`.
-- Latest archived product/Harness docs change: `harness/changes/archive/20260620-controlled-scheduler-single-step-runner/summary.md`.
+- Latest archived product change: `harness/changes/archive/20260620-controlled-scheduler-advance-gate/summary.md`.
+- Latest archived product/Harness docs change: `harness/changes/archive/20260620-controlled-scheduler-advance-gate/summary.md`.
 - Latest archived Harness evolution: `harness/changes/archive/20260620-auto-evolve-harness-workbench-helper-boundary-window/summary.md`.
 - Active product phase: none.
 - Active Harness evolution phase: none.
 - Active close status: none.
 
-This file is the short resume point. There is no active ECL change and pending Harness evolution is none. The latest product change implemented a controlled Scheduler single-step runner: one user-confirmed wrapper action backed by fresh Goal Loop packet/controller/preflight evidence may execute exactly one existing concrete scheduler gate, then stop. It preserves ToolPolicyGate, stale-target revalidation, SchedulerRun evidence, IntegrationCheck/apply boundaries, and human gates.
+This file is the short resume point. There is no active ECL change and pending Harness evolution is none. The latest product change implemented a controlled Scheduler advance gate: one user-confirmed action re-reads current evidence, generates fresh Goal Loop packet/controller/preflight evidence for the visible Scheduler gate, revalidates scope, then delegates to the controlled single-step runner to execute exactly one existing concrete scheduler transition and stop. It preserves ToolPolicyGate, stale-target revalidation, SchedulerRun evidence, IntegrationCheck/apply boundaries, and human gates.
 
 Current plan-level roadmap context is preserved in `docs/CURRENT-DEVELOPMENT-PLAN.md`. Historical detail belongs in archived summaries and `harness/changes/INDEX.json`.
 
@@ -22,11 +22,11 @@ The product baseline is post-maintenance canonical patch target-boundary, lineag
 
 Product-level maintenance writes candidate lifecycle-resolution evidence, canonical update proposal evidence, human-gated canonical update decision records, canonical patch proposal evidence, human-gated canonical patch application follow-up records, read-only application manifest/readiness evidence, Phase 12U target-descriptor evidence, Phase 12V human-gated canonical docs/stable-memory application result evidence, and Phase 12W read-only observation report evidence while still forbidding automatic canonical rewrites.
 
-Phase 12A remains the future controlled Scheduler/parallel loop design boundary. Current runtime remains single-gate staged until a later accepted ECL change implements and verifies loop behavior.
+Phase 12A remains the future controlled Scheduler/parallel loop design boundary. Current runtime has a user-confirmed controlled Scheduler advance gate that refreshes Goal Loop evidence and executes exactly one concrete Scheduler transition, then stops; it remains single-gate staged until a later accepted ECL change implements and verifies broader loop behavior.
 
 ## Next Resume Point
 
-Next structured work should continue product-function progress from the controlled Scheduler / Goal Loop direction. Prefer a larger stage that builds on the controlled single-step runner toward user-visible loop progress, while still preserving one confirmed transition per high-impact action, ToolPolicyGate, stale revalidation, IntegrationCheck/apply boundaries, and human gates. Avoid standalone architecture/test convergence unless it materially blocks or de-risks the product feature in front of us. Keep `README.md` unrelated and untracked unless the user explicitly asks to include it.
+Next structured work should continue product-function progress from the controlled Scheduler / Goal Loop direction with larger feature slices that build toward user-visible loop progress, while still preserving one confirmed transition per high-impact action, ToolPolicyGate, stale revalidation, IntegrationCheck/apply boundaries, and human gates. Avoid standalone architecture/test convergence unless it materially blocks or de-risks the product feature in front of us. Keep `README.md` unrelated and untracked unless the user explicitly asks to include it.
 
 ## Verification Commands
 

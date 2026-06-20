@@ -1,5 +1,5 @@
 import type { ManagedProject } from "../../../../types/index.js";
-import { CONTROLLED_SCHEDULER_STEP_ACTION_TYPE, isControlledSchedulerConcreteAction } from "../../../../workflow-scheduler/controlled-step.js";
+import { CONTROLLED_SCHEDULER_ADVANCE_ACTION_TYPE, CONTROLLED_SCHEDULER_STEP_ACTION_TYPE, isControlledSchedulerConcreteAction } from "../../../../workflow-scheduler/controlled-step.js";
 import type { WorkbenchConfirmationQueueItem, WorkbenchDecisionAction, WorkbenchTopicDetail, WorkbenchWorkpad } from "../../../read-model-types.js";
 
 type ScopeValue = string | string[] | undefined;
@@ -126,6 +126,30 @@ export function attachGoalLoopAssistedConcreteGateActions(
   });
 }
 
+export function attachControlledSchedulerAdvanceActions(
+  items: WorkbenchConfirmationQueueItem[],
+): WorkbenchConfirmationQueueItem[] {
+  return items.map((item) => {
+    const advanceActions = item.actions
+      .filter((action) => action.kind === "workflow-action" && action.enabled && isSchedulerAdvanceSourceAction(action))
+      .map((action) => controlledSchedulerAdvanceAction(action));
+    if (advanceActions.length === 0) return item;
+    const seenAdvanceIds = new Set<string>();
+    const uniqueAdvanceActions = advanceActions.filter((action) => {
+      if (seenAdvanceIds.has(action.id)) return false;
+      seenAdvanceIds.add(action.id);
+      return true;
+    });
+    return {
+      ...item,
+      actions: [
+        ...item.actions.filter((action) => !(action.kind === "workflow-action" && isSchedulerAdvanceSourceAction(action))),
+        ...uniqueAdvanceActions,
+      ],
+    };
+  });
+}
+
 function goalLoopFeedbackAction(workpad: WorkbenchWorkpad): WorkbenchDecisionAction | null {
   const goalLoop = workpad.goalLoop;
   const nextAction = workpad.nextAction;
@@ -199,6 +223,59 @@ function goalLoopControlledSchedulerStepAction(workpad: WorkbenchWorkpad): Workb
     goalLoopCurrentGateActionType: expectedType as WorkbenchDecisionAction["actionType"],
     artifact: goalLoop.gateReadinessPreflightArtifact ?? goalLoop.controllerArtifact ?? goalLoop.nextStepPacketArtifact ?? goalLoop.artifact,
   };
+}
+
+function controlledSchedulerAdvanceAction(action: WorkbenchDecisionAction): WorkbenchDecisionAction {
+  const currentGateActionType = action.actionType === CONTROLLED_SCHEDULER_STEP_ACTION_TYPE
+    ? action.goalLoopCurrentGateActionType
+    : action.actionType;
+  const actionWithoutStaleGoalLoopEvidence = { ...action };
+  delete actionWithoutStaleGoalLoopEvidence.goalLoopDecisionId;
+  delete actionWithoutStaleGoalLoopEvidence.goalLoopIterationId;
+  delete actionWithoutStaleGoalLoopEvidence.goalLoopContinuationBriefId;
+  delete actionWithoutStaleGoalLoopEvidence.goalLoopNextStepPacketId;
+  delete actionWithoutStaleGoalLoopEvidence.goalLoopFeedbackId;
+  delete actionWithoutStaleGoalLoopEvidence.goalLoopControllerPolicyId;
+  delete actionWithoutStaleGoalLoopEvidence.goalLoopGateReadinessPreflightId;
+  return {
+    ...actionWithoutStaleGoalLoopEvidence,
+    id: `workflow:${CONTROLLED_SCHEDULER_ADVANCE_ACTION_TYPE}:${action.changeId ?? "change"}:${currentGateActionType ?? "scheduler"}:${schedulerAdvanceTargetSuffix(action)}`,
+    label: "受控推进一个 Scheduler 步骤",
+    kind: "workflow-action",
+    actionType: CONTROLLED_SCHEDULER_ADVANCE_ACTION_TYPE,
+    goalLoopCurrentGateActionType: currentGateActionType,
+    enabled: true,
+    requiresConfirmation: true,
+  };
+}
+
+function isSchedulerAdvanceSourceAction(action: WorkbenchDecisionAction): boolean {
+  if (action.actionType === CONTROLLED_SCHEDULER_ADVANCE_ACTION_TYPE) return false;
+  if (action.actionType === "planning.scheduler.plan.prepare") return false;
+  if (action.actionType === CONTROLLED_SCHEDULER_STEP_ACTION_TYPE) {
+    return isControlledSchedulerConcreteAction(action.goalLoopCurrentGateActionType);
+  }
+  return isControlledSchedulerConcreteAction(action.actionType);
+}
+
+function schedulerAdvanceTargetSuffix(action: WorkbenchDecisionAction): string {
+  return action.goalLoopGateReadinessPreflightId
+    ?? action.schedulerRunCompletionId
+    ?? action.schedulerIntegrationOutcomeId
+    ?? action.schedulerIntegrationCheckHandoffId
+    ?? action.schedulerIntegrationCandidateId
+    ?? action.schedulerWorkerReworkAuditId
+    ?? action.schedulerWorkerReworkValidationId
+    ?? action.schedulerWorkerReworkResultId
+    ?? action.schedulerWorkerReworkStartId
+    ?? action.schedulerWorkerReworkPlanId
+    ?? action.schedulerWorkerAuditId
+    ?? action.schedulerWorkerValidationId
+    ?? action.schedulerWorkerResultId
+    ?? action.schedulerWorkerStartId
+    ?? action.schedulerClaimReservationId
+    ?? action.schedulerRunId
+    ?? "current";
 }
 
 function goalLoopControllerRefreshAction(workpad: WorkbenchWorkpad): WorkbenchDecisionAction | null {

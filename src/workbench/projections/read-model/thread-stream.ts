@@ -728,6 +728,8 @@ function workflowActionLabel(actionType: string): string {
     case "planning.scheduler.runtime.initialize": return "Scheduler runtime initialize";
     case "planning.scheduler.runtime.reconcile": return "Scheduler runtime reconcile";
     case "planning.scheduler.runtime.reserve-claims": return "Scheduler runtime claim reservation";
+    case "planning.scheduler.controlled-advance.run": return "Controlled scheduler advance";
+    case "planning.scheduler.controlled-step.run": return "Controlled scheduler step";
     case "planning.scheduler.worker.start-first": return "Scheduler current worker start";
     case "planning.scheduler.worker.start-next": return "Scheduler next worker start";
     case "planning.scheduler.worker.reconcile-result": return "Scheduler current worker result reconcile";

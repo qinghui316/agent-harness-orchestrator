@@ -36,6 +36,13 @@ const COPY_BY_ACTION_TYPE: Record<string, SchedulerUserFacingActionCopy> = {
     confirmEffect: "服务端会重读 Goal Loop packet/controller/preflight，重新校验 concrete scheduler target ids，运行 ToolPolicyGate，然后只委托一个 existing scheduler action。",
     riskSummary: "执行后立即停止；不会自动运行下一 gate、start-all、whole-wave dispatch、slot allocator、IntegrationCheck 后 apply、close、remote landing 或 Harness evolution。",
   },
+  "planning.scheduler.controlled-advance.run": {
+    label: "受控推进一个 Scheduler 步骤",
+    summary: "主 Agent 将刷新 Goal Loop 证据，并只推进当前这个 scheduler gate。",
+    whyNeedsConfirmation: "这是受控 Scheduler 推进门禁：需要你确认当前 visible scheduler gate 仍是要执行的下一步。",
+    confirmEffect: "服务端会重读当前 evidence，生成 fresh Goal Loop packet/controller/preflight，重新匹配当前 gate scope，再通过 controlled-step 执行一个 existing scheduler action。",
+    riskSummary: "执行后立即停止；不会自动运行下一 gate、scheduler loop、whole-wave dispatch、slot allocator、IntegrationCheck 后 apply、close、remote landing 或 Harness evolution。",
+  },
   "planning.scheduler.worker.start-first": continueNextTaskCopy(),
   "planning.scheduler.worker.start-next": continueNextTaskCopy(),
   "planning.scheduler.worker.reconcile-result": checkCurrentEvidenceCopy(),

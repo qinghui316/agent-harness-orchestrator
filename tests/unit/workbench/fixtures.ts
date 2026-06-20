@@ -8,6 +8,7 @@ import { initHarness } from "../../../src/harness/init.js";
 import { executeWorkbenchAction } from "../../../src/server/workbench-server.js";
 import { createWorkbenchTopic } from "../../../src/workbench/chat.js";
 import { getWorkbenchSnapshot } from "../../../src/workbench/manager.js";
+import type { WorkbenchDecisionAction } from "../../../src/workbench/read-model-types.js";
 import { resolveProjectMemory } from "../../../src/memory/resolver.js";
 import { createWorkflowRunForTaskQueue, validateTaskQueueProposalStart } from "../../../src/workflow-run/manager.js";
 import { compileWorkflowGraphPlan, hashArtifactRefs } from "../../../src/workflow-artifacts/manager.js";
@@ -52,6 +53,25 @@ export function project(path = tempDir): ManagedProject {
 export async function readJsonl(path: string): Promise<Array<Record<string, unknown>>> {
   const text = await readFile(path, "utf8");
   return text.trim().split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line) as Record<string, unknown>);
+}
+
+export function findSchedulerGateAction(actions: WorkbenchDecisionAction[], concreteActionType: WorkbenchDecisionAction["actionType"], predicate: (action: WorkbenchDecisionAction) => boolean): WorkbenchDecisionAction | undefined {
+  return actions.find((action) => {
+    if (action.actionType === concreteActionType && predicate(action)) return true;
+    return action.actionType === "planning.scheduler.controlled-advance.run"
+      && action.goalLoopCurrentGateActionType === concreteActionType
+      && predicate(action);
+  });
+}
+
+export function unwrapControlledSchedulerAdvanceResult(result: unknown): unknown {
+  if (!result || typeof result !== "object") return result;
+  const record = result as Record<string, unknown>;
+  const controlledStep = record.controlledStep;
+  if (record.controlledAdvance) return record.result ?? result;
+  if (!controlledStep || typeof controlledStep !== "object") return result;
+  const stepRecord = controlledStep as Record<string, unknown>;
+  return record.result ?? stepRecord.result ?? controlledStep;
 }
 
 export async function createFakeGh(initial: { isDraft?: boolean; comments?: unknown[]; inlineComments?: unknown[]; failedChecks?: number; canResolveThreads?: boolean; mergeFails?: boolean } = {}): Promise<{ command: string; args: string[]; stateFile: string }> {
@@ -326,17 +346,21 @@ export async function prepareSchedulerTwoWorkerIntegrationHandoff(title: string)
     let snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: prepared.topic.changeId });
     const firstValidationAction = snapshot.right.confirmationQueue.current
       .flatMap((item) => item.actions)
-      .find((action) => action.actionType === "planning.scheduler.worker.validate-first" && action.schedulerWorkerResultId === prepared.workerResult.id);
+      .find((action) => findSchedulerGateAction([action], "planning.scheduler.worker.validate-first", (candidate) => candidate.schedulerWorkerResultId === prepared.workerResult.id));
     if (!firstValidationAction) throw new Error("Missing first worker validation action.");
     const firstValidation = await executeWorkbenchAction({ project: project(), path: tempDir }, { ...firstValidationAction, confirm: true });
-    const firstValidationResult = (firstValidation.result as {
+    const firstValidationResult = unwrapControlledSchedulerAdvanceResult((firstValidation.result as {
+      result?: unknown;
+    }).result ?? firstValidation.result) as {
       result?: { schedulerValidation?: { id?: string } };
-    }).result;
+      schedulerValidation?: { id?: string };
+    };
+    const firstValidationConcreteResult = firstValidationResult.result ?? firstValidationResult;
 
     snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: prepared.topic.changeId });
     const firstAuditAction = snapshot.right.confirmationQueue.current
       .flatMap((item) => item.actions)
-      .find((action) => action.actionType === "planning.scheduler.worker.audit-first" && action.schedulerWorkerValidationId === firstValidationResult?.schedulerValidation?.id);
+      .find((action) => findSchedulerGateAction([action], "planning.scheduler.worker.audit-first", (candidate) => candidate.schedulerWorkerValidationId === firstValidationConcreteResult?.schedulerValidation?.id));
     if (!firstAuditAction) throw new Error("Missing first worker audit action.");
     await executeWorkbenchAction({ project: project(), path: tempDir }, { ...firstAuditAction, confirm: true });
     await rm(join(tempDir, "README.md"), { force: true });
@@ -344,12 +368,12 @@ export async function prepareSchedulerTwoWorkerIntegrationHandoff(title: string)
     snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: prepared.topic.changeId });
     const firstCandidateAction = snapshot.right.confirmationQueue.current
       .flatMap((item) => item.actions)
-      .find((action) => action.actionType === "planning.scheduler.integration-candidate.compile" && action.schedulerRunId === prepared.schedulerRun.id);
+      .find((action) => findSchedulerGateAction([action], "planning.scheduler.integration-candidate.compile", (candidate) => candidate.schedulerRunId === prepared.schedulerRun.id));
     if (!firstCandidateAction) throw new Error("Missing first scheduler integration candidate action.");
     const firstCandidateResult = await executeWorkbenchAction({ project: project(), path: tempDir }, { ...firstCandidateAction, confirm: true });
     const firstCandidateWorkflow = firstCandidateResult.result as { status?: string; error?: string; result?: unknown };
     if (firstCandidateWorkflow.status === "failed") throw new Error(firstCandidateWorkflow.error ?? "first candidate action failed");
-    const firstCandidate = ((firstCandidateWorkflow.result ?? firstCandidateResult.result) as {
+    const firstCandidate = (unwrapControlledSchedulerAdvanceResult(firstCandidateWorkflow.result ?? firstCandidateResult.result) as {
       candidate?: { id?: string; readyCount?: number };
     }).candidate;
     expect(firstCandidate).toMatchObject({ readyCount: 1 });
@@ -357,10 +381,10 @@ export async function prepareSchedulerTwoWorkerIntegrationHandoff(title: string)
     snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: prepared.topic.changeId });
     const startNextAction = snapshot.right.confirmationQueue.current
       .flatMap((item) => item.actions)
-      .find((action) => action.actionType === "planning.scheduler.worker.start-next" && action.schedulerRunId === prepared.schedulerRun.id);
+      .find((action) => findSchedulerGateAction([action], "planning.scheduler.worker.start-next", (candidate) => candidate.schedulerRunId === prepared.schedulerRun.id));
     if (!startNextAction) throw new Error("Missing scheduler start-next action.");
     const secondStartResult = await executeWorkbenchAction({ project: project(), path: tempDir }, { ...startNextAction, confirm: true });
-    const secondStart = (((secondStartResult.result as { result?: unknown }).result ?? secondStartResult.result) as {
+    const secondStart = (unwrapControlledSchedulerAdvanceResult((secondStartResult.result as { result?: unknown }).result ?? secondStartResult.result) as {
       workerStart?: {
         id?: string;
         taskRunId?: string;
@@ -373,32 +397,28 @@ export async function prepareSchedulerTwoWorkerIntegrationHandoff(title: string)
     snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: prepared.topic.changeId });
     const secondResultAction = snapshot.right.confirmationQueue.current
       .flatMap((item) => item.actions)
-      .find((action) => action.actionType === "planning.scheduler.worker.reconcile-result" && action.schedulerWorkerStartId === secondStart.workerStart?.id);
+      .find((action) => findSchedulerGateAction([action], "planning.scheduler.worker.reconcile-result", (candidate) => candidate.schedulerWorkerStartId === secondStart.workerStart?.id));
     if (!secondResultAction) throw new Error("Missing second worker result reconcile action.");
     const secondResult = await executeWorkbenchAction({ project: project(), path: tempDir }, { ...secondResultAction, confirm: true });
-    const secondWorkerResult = (secondResult.result as {
-      result?: { result?: { id?: string; status?: string } };
-    }).result;
+    const secondWorkerResult = unwrapControlledSchedulerAdvanceResult((secondResult.result as { result?: unknown }).result ?? secondResult.result) as { result?: { id?: string; status?: string } };
     expect(secondWorkerResult).toMatchObject({ result: { status: "evidence-ready" } });
 
     snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: prepared.topic.changeId });
     const secondValidationAction = snapshot.right.confirmationQueue.current
       .flatMap((item) => item.actions)
-      .find((action) => action.actionType === "planning.scheduler.worker.validate-first" && action.schedulerWorkerResultId === secondWorkerResult?.result?.id);
+      .find((action) => findSchedulerGateAction([action], "planning.scheduler.worker.validate-first", (candidate) => candidate.schedulerWorkerResultId === secondWorkerResult?.result?.id));
     if (!secondValidationAction) throw new Error("Missing second worker validation action.");
     const secondValidation = await executeWorkbenchAction({ project: project(), path: tempDir }, { ...secondValidationAction, confirm: true });
-    const secondValidationResult = (secondValidation.result as {
-      result?: { schedulerValidation?: { id?: string; status?: string } };
-    }).result;
+    const secondValidationResult = unwrapControlledSchedulerAdvanceResult((secondValidation.result as { result?: unknown }).result ?? secondValidation.result) as { schedulerValidation?: { id?: string; status?: string } };
     expect(secondValidationResult).toMatchObject({ schedulerValidation: { status: "passed" } });
 
     snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: prepared.topic.changeId });
     const secondAuditAction = snapshot.right.confirmationQueue.current
       .flatMap((item) => item.actions)
-      .find((action) => action.actionType === "planning.scheduler.worker.audit-first" && action.schedulerWorkerValidationId === secondValidationResult?.schedulerValidation?.id);
+      .find((action) => findSchedulerGateAction([action], "planning.scheduler.worker.audit-first", (candidate) => candidate.schedulerWorkerValidationId === secondValidationResult?.schedulerValidation?.id));
     if (!secondAuditAction) throw new Error("Missing second worker audit action.");
     const secondAudit = await executeWorkbenchAction({ project: project(), path: tempDir }, { ...secondAuditAction, confirm: true });
-    const secondAuditResult = ((secondAudit.result as { result?: unknown }).result ?? secondAudit.result) as {
+    const secondAuditResult = unwrapControlledSchedulerAdvanceResult((secondAudit.result as { result?: unknown }).result ?? secondAudit.result) as {
       schedulerAudit?: { status?: string };
     };
     expect(secondAuditResult).toMatchObject({ schedulerAudit: { status: "approved" } });
@@ -407,12 +427,12 @@ export async function prepareSchedulerTwoWorkerIntegrationHandoff(title: string)
     snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: prepared.topic.changeId });
     const refreshedCandidateAction = snapshot.right.confirmationQueue.current
       .flatMap((item) => item.actions)
-      .find((action) => action.actionType === "planning.scheduler.integration-candidate.compile" && action.schedulerRunId === prepared.schedulerRun.id);
+      .find((action) => findSchedulerGateAction([action], "planning.scheduler.integration-candidate.compile", (candidate) => candidate.schedulerRunId === prepared.schedulerRun.id));
     if (!refreshedCandidateAction) throw new Error("Missing refreshed scheduler integration candidate action.");
     const refreshedCandidateResult = await executeWorkbenchAction({ project: project(), path: tempDir }, { ...refreshedCandidateAction, confirm: true });
     const refreshedCandidateWorkflow = refreshedCandidateResult.result as { status?: string; error?: string; result?: unknown };
     if (refreshedCandidateWorkflow.status === "failed") throw new Error(refreshedCandidateWorkflow.error ?? "refreshed candidate action failed");
-    const refreshedCandidate = ((refreshedCandidateWorkflow.result ?? refreshedCandidateResult.result) as {
+    const refreshedCandidate = (unwrapControlledSchedulerAdvanceResult(refreshedCandidateWorkflow.result ?? refreshedCandidateResult.result) as {
       candidate?: { id?: string; status?: string; readyCount?: number; readyWorktreeIds?: string[] };
     }).candidate ?? {};
     expect(refreshedCandidate).toMatchObject({ status: "ready", readyCount: 2 });
@@ -420,12 +440,12 @@ export async function prepareSchedulerTwoWorkerIntegrationHandoff(title: string)
     snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: prepared.topic.changeId });
     const handoffAction = snapshot.right.confirmationQueue.current
       .flatMap((item) => item.actions)
-      .find((action) => action.actionType === "planning.scheduler.integration-check.run" && action.schedulerIntegrationCandidateId === refreshedCandidate.id);
+      .find((action) => findSchedulerGateAction([action], "planning.scheduler.integration-check.run", (candidate) => candidate.schedulerIntegrationCandidateId === refreshedCandidate.id));
     if (!handoffAction) throw new Error("Missing scheduler IntegrationCheck handoff action.");
     const handoffResult = await executeWorkbenchAction({ project: project(), path: tempDir }, { ...handoffAction, confirm: true });
     const handoffWorkflow = handoffResult.result as { status?: string; error?: string; result?: unknown };
     if (handoffWorkflow.status === "failed") throw new Error(handoffWorkflow.error ?? "handoff action failed");
-    const handoff = (handoffWorkflow.result ?? handoffResult.result) as {
+    const handoff = unwrapControlledSchedulerAdvanceResult(handoffWorkflow.result ?? handoffResult.result) as {
       handoff?: {
         id?: string;
         integrationCheckId?: string;
@@ -552,9 +572,12 @@ export async function prepareSchedulerFirstWorkerThroughResult(options: {
   const reservedSnapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: topic.changeId });
   const launchAction = reservedSnapshot.right.confirmationQueue.current
     .flatMap((item) => item.actions)
-    .find((action) => action.actionType === "planning.scheduler.plan.prepare" && action.schedulerClaimReservationId === claimReservation.id);
+    .find((action) => findSchedulerGateAction([action], "planning.scheduler.plan.prepare", (candidate) => candidate.schedulerClaimReservationId === claimReservation.id));
   if (!launchAction) throw new Error("Missing scheduler launch confirmation action.");
-  await executeWorkbenchAction({ project: project(), path: tempDir }, { ...launchAction, confirm: true });
+  const launchResult = await executeWorkbenchAction({ project: project(), path: tempDir }, { ...launchAction, confirm: true });
+  if ((launchResult.result as { status?: string; error?: string }).status === "failed") {
+    throw new Error((launchResult.result as { error?: string }).error ?? "scheduler launch confirmation action failed");
+  }
 
   await initGitRepository(tempDir);
   await mkdir(join(tempDir, "src"), { recursive: true });
@@ -568,7 +591,7 @@ export async function prepareSchedulerFirstWorkerThroughResult(options: {
   const startSnapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: topic.changeId });
   const startAction = startSnapshot.right.confirmationQueue.current
     .flatMap((item) => item.actions)
-    .find((action) => action.actionType === "planning.scheduler.worker.start-first" && action.schedulerClaimReservationId === claimReservation.id);
+    .find((action) => findSchedulerGateAction([action], "planning.scheduler.worker.start-first", (candidate) => candidate.schedulerClaimReservationId === claimReservation.id));
   if (!startAction) throw new Error("Missing scheduler first worker action.");
 
   const oldPath = process.env.PATH;
@@ -576,9 +599,7 @@ export async function prepareSchedulerFirstWorkerThroughResult(options: {
   try {
     process.env.PATH = `${fakeCodex.binDir}${delimiter}${oldPath ?? ""}`;
     const started = await executeWorkbenchAction({ project: project(), path: tempDir }, { ...startAction, confirm: true });
-    const startedActionResult = (started.result as {
-      result?: unknown;
-    }).result ?? started.result;
+    const startedActionResult = unwrapControlledSchedulerAdvanceResult((started.result as { result?: unknown }).result ?? started.result);
     const startedResult = startedActionResult as {
         workerStart?: {
           id?: string;
@@ -596,14 +617,12 @@ export async function prepareSchedulerFirstWorkerThroughResult(options: {
     const resultSnapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: topic.changeId });
     const resultAction = resultSnapshot.right.confirmationQueue.current
       .flatMap((item) => item.actions)
-      .find((action) => action.actionType === "planning.scheduler.worker.reconcile-result" && action.schedulerWorkerStartId === workerStart.id);
+      .find((action) => findSchedulerGateAction([action], "planning.scheduler.worker.reconcile-result", (candidate) => candidate.schedulerWorkerStartId === workerStart.id));
     if (!resultAction) throw new Error("Missing scheduler first worker result reconcile action.");
     const reconciled = await executeWorkbenchAction({ project: project(), path: tempDir }, { ...resultAction, confirm: true });
-    const reconciledResult = (reconciled.result as {
-      result?: {
-        result?: { id?: string; status?: string };
-      };
-    }).result;
+    const reconciledResult = unwrapControlledSchedulerAdvanceResult((reconciled.result as { result?: unknown }).result ?? reconciled.result) as {
+      result?: { id?: string; status?: string };
+    };
     return {
       topic,
       changeDir,

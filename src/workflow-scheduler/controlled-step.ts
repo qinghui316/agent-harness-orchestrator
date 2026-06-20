@@ -1,10 +1,25 @@
 import { isWorkflowActionType, type WorkflowActionScopeCarrier, type WorkflowActionType } from "../workflow-actions/registry.js";
 
 export const CONTROLLED_SCHEDULER_STEP_ACTION_TYPE = "planning.scheduler.controlled-step.run" as const;
+export const CONTROLLED_SCHEDULER_ADVANCE_ACTION_TYPE = "planning.scheduler.controlled-advance.run" as const;
+
+const CONTROLLED_SCHEDULER_WRAPPER_ACTION_TYPES = new Set<string>([
+  CONTROLLED_SCHEDULER_STEP_ACTION_TYPE,
+  CONTROLLED_SCHEDULER_ADVANCE_ACTION_TYPE,
+]);
 
 export interface ControlledSchedulerStepRequest {
   wrapper: WorkflowActionScopeCarrier;
   concrete: WorkflowActionScopeCarrier & { actionType: WorkflowActionType };
+}
+
+export interface ControlledSchedulerAdvanceEvidence {
+  goalLoopDecisionId: string;
+  goalLoopIterationId: string;
+  goalLoopContinuationBriefId: string;
+  goalLoopNextStepPacketId: string;
+  goalLoopControllerPolicyId: string;
+  goalLoopGateReadinessPreflightId: string;
 }
 
 export function buildControlledSchedulerStepRequest(request: WorkflowActionScopeCarrier): ControlledSchedulerStepRequest {
@@ -33,10 +48,35 @@ export function buildControlledSchedulerStepRequest(request: WorkflowActionScope
   };
 }
 
+export function buildControlledSchedulerAdvanceStepRequest(request: WorkflowActionScopeCarrier, evidence: ControlledSchedulerAdvanceEvidence): ControlledSchedulerStepRequest {
+  if (request.actionType !== CONTROLLED_SCHEDULER_ADVANCE_ACTION_TYPE) {
+    throw new Error("Controlled scheduler advance requires planning.scheduler.controlled-advance.run.");
+  }
+  const concreteActionType = request.goalLoopCurrentGateActionType;
+  if (!isControlledSchedulerConcreteAction(concreteActionType)) {
+    throw new Error("planning.scheduler.controlled-advance.run requires a concrete planning.scheduler.* current gate.");
+  }
+  return buildControlledSchedulerStepRequest({
+    ...request,
+    actionType: CONTROLLED_SCHEDULER_STEP_ACTION_TYPE,
+    goalLoopDecisionId: evidence.goalLoopDecisionId,
+    goalLoopIterationId: evidence.goalLoopIterationId,
+    goalLoopContinuationBriefId: evidence.goalLoopContinuationBriefId,
+    goalLoopNextStepPacketId: evidence.goalLoopNextStepPacketId,
+    goalLoopControllerPolicyId: evidence.goalLoopControllerPolicyId,
+    goalLoopGateReadinessPreflightId: evidence.goalLoopGateReadinessPreflightId,
+    goalLoopCurrentGateActionType: concreteActionType,
+  });
+}
+
+export function isControlledSchedulerWrapperAction(actionType: string | undefined): boolean {
+  return typeof actionType === "string" && CONTROLLED_SCHEDULER_WRAPPER_ACTION_TYPES.has(actionType);
+}
+
 export function isControlledSchedulerConcreteAction(actionType: string | undefined): actionType is WorkflowActionType {
   return typeof actionType === "string"
     && isWorkflowActionType(actionType)
-    && actionType !== CONTROLLED_SCHEDULER_STEP_ACTION_TYPE
+    && !isControlledSchedulerWrapperAction(actionType)
     && actionType.startsWith("planning.scheduler.")
     && !actionType.startsWith("planning.goal-loop.");
 }

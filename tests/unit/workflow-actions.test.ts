@@ -59,6 +59,9 @@ describe("workflow action registry", () => {
     expect(LIVE_WORKFLOW_ACTION_TYPES).toContain("planning.scheduler.controlled-step.run");
     expect(HIGH_IMPACT_WORKFLOW_ACTION_TYPES).toContain("planning.scheduler.controlled-step.run");
     expect(REVALIDATED_WORKFLOW_ACTION_TYPES).toContain("planning.scheduler.controlled-step.run");
+    expect(LIVE_WORKFLOW_ACTION_TYPES).toContain("planning.scheduler.controlled-advance.run");
+    expect(HIGH_IMPACT_WORKFLOW_ACTION_TYPES).toContain("planning.scheduler.controlled-advance.run");
+    expect(REVALIDATED_WORKFLOW_ACTION_TYPES).toContain("planning.scheduler.controlled-advance.run");
     expect(LIVE_WORKFLOW_ACTION_TYPES).toContain("planning.scheduler.worker.start-first");
     expect(HIGH_IMPACT_WORKFLOW_ACTION_TYPES).toContain("planning.scheduler.worker.start-first");
     expect(REVALIDATED_WORKFLOW_ACTION_TYPES).toContain("planning.scheduler.worker.start-first");
@@ -347,6 +350,10 @@ describe("workflow action registry", () => {
       ...request,
       goalLoopCurrentGateActionType: "planning.goal-loop.evaluate",
     }).map((item) => item.label)).toEqual(["planning.scheduler.* concrete gate"]);
+    expect(validateWorkflowActionRequiredTargets({
+      ...request,
+      goalLoopCurrentGateActionType: "planning.scheduler.controlled-advance.run",
+    }).map((item) => item.label)).toEqual(["planning.scheduler.* concrete gate"]);
     expect(workflowActionTargetId(request, request.changeId)).toBe("goal-loop-gate-readiness-preflight-1");
     expect(workflowActionScopePayload(request, request.changeId, {
       controlledStep: {
@@ -362,6 +369,69 @@ describe("workflow action registry", () => {
       goalLoopNextStepPacketId: "goal-loop-next-step-packet-1",
       goalLoopControllerPolicyId: "goal-loop-controller-policy-1",
       goalLoopGateReadinessPreflightId: "goal-loop-gate-readiness-preflight-1",
+      goalLoopCurrentGateActionType: "planning.scheduler.worker.start-next",
+    });
+    expect(workflowActionScopesMatchStrict(request, { ...request })).toBe(true);
+    expect(workflowActionScopesMatchStrict(request, { ...request, goalLoopCurrentGateActionType: "planning.scheduler.worker.start-first" })).toBe(false);
+    expect(workflowActionScopesMatchStrict(request, { ...request, schedulerClaimReservationId: "other-reservation" })).toBe(false);
+  });
+
+  it("keeps controlled scheduler advance targets scoped to the concrete gate without requiring old Goal Loop evidence", () => {
+    const request = {
+      actionType: "planning.scheduler.controlled-advance.run",
+      changeId: "change-1",
+      goalLoopCurrentGateActionType: "planning.scheduler.worker.start-next",
+      schedulerRunId: "scheduler-run-1",
+      schedulerClaimReservationId: "claim-reservation-1",
+      reservationIntentId: "reservation-intent-2",
+      claimIntentId: "claim-intent-2",
+    };
+
+    expect(validateWorkflowActionRequiredTargets(request)).toEqual([]);
+    expect(validateWorkflowActionRequiredTargets({
+      ...request,
+      reservationIntentId: undefined,
+      claimIntentId: undefined,
+    }).map((item) => item.label)).toEqual(["reservationIntentId", "claimIntentId"]);
+    expect(validateWorkflowActionRequiredTargets({
+      ...request,
+      goalLoopNextStepPacketId: undefined,
+      goalLoopControllerPolicyId: undefined,
+      goalLoopGateReadinessPreflightId: undefined,
+    })).toEqual([]);
+    expect(validateWorkflowActionRequiredTargets({
+      ...request,
+      goalLoopCurrentGateActionType: "planning.scheduler.controlled-step.run",
+    }).map((item) => item.label)).toEqual(["planning.scheduler.* concrete gate"]);
+    expect(validateWorkflowActionRequiredTargets({
+      ...request,
+      goalLoopCurrentGateActionType: "planning.scheduler.controlled-advance.run",
+    }).map((item) => item.label)).toEqual(["planning.scheduler.* concrete gate"]);
+    expect(workflowActionTargetId(request, request.changeId)).toBe("claim-reservation-1");
+    expect(workflowActionTargetId(request, request.changeId, {
+      controlledAdvance: {
+        goalLoopGateReadinessPreflightId: "goal-loop-gate-readiness-preflight-2",
+      },
+    })).toBe("goal-loop-gate-readiness-preflight-2");
+    expect(workflowActionScopePayload(request, request.changeId, {
+      goalLoopDecision: { id: "goal-loop-decision-2" },
+      goalLoopIteration: { id: "goal-loop-iteration-2" },
+      goalLoopContinuationBrief: { id: "goal-loop-continuation-brief-2" },
+      goalLoopNextStepPacket: { id: "goal-loop-next-step-packet-2" },
+      goalLoopControllerPolicy: { id: "goal-loop-controller-policy-2" },
+      goalLoopGateReadinessPreflight: { id: "goal-loop-gate-readiness-preflight-2" },
+    })).toMatchObject({
+      changeId: "change-1",
+      schedulerRunId: "scheduler-run-1",
+      schedulerClaimReservationId: "claim-reservation-1",
+      reservationIntentId: "reservation-intent-2",
+      claimIntentId: "claim-intent-2",
+      goalLoopDecisionId: "goal-loop-decision-2",
+      goalLoopIterationId: "goal-loop-iteration-2",
+      goalLoopContinuationBriefId: "goal-loop-continuation-brief-2",
+      goalLoopNextStepPacketId: "goal-loop-next-step-packet-2",
+      goalLoopControllerPolicyId: "goal-loop-controller-policy-2",
+      goalLoopGateReadinessPreflightId: "goal-loop-gate-readiness-preflight-2",
       goalLoopCurrentGateActionType: "planning.scheduler.worker.start-next",
     });
     expect(workflowActionScopesMatchStrict(request, { ...request })).toBe(true);
