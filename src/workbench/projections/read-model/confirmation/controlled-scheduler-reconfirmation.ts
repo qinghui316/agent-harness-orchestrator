@@ -1,9 +1,11 @@
-import { CONTROLLED_SCHEDULER_STEP_ACTION_TYPE, isControlledSchedulerConcreteAction } from "../../../../workflow-scheduler/controlled-step.js";
-import { validateWorkflowActionRequiredTargets, WORKFLOW_ACTION_SCOPE_KEYS, workflowActionScopesMatchStrict, type WorkflowActionScopeCarrier } from "../../../../workflow-actions/registry.js";
+import { isControlledSchedulerConcreteAction } from "../../../../workflow-scheduler/controlled-step.js";
+import {
+  buildControlledSchedulerCurrentGateCarrier,
+  controlledSchedulerSourceGateActionType as workflowControlledSchedulerSourceGateActionType,
+} from "../../../../workflow-scheduler/controlled-advance-candidate.js";
+import { validateWorkflowActionRequiredTargets, workflowActionScopesMatchStrict, type WorkflowActionScopeCarrier } from "../../../../workflow-actions/registry.js";
 import type { WorkbenchConfirmationQueueItem, WorkbenchControlledSchedulerReconfirmation, WorkbenchDecisionAction, WorkbenchWorkpad } from "../../../read-model-types.js";
 import { schedulerUserFacingActionLabel } from "./scheduler-user-surface.js";
-
-const CURRENT_GATE_SCOPE_KEYS = WORKFLOW_ACTION_SCOPE_KEYS.filter((key) => !key.startsWith("goalLoop"));
 
 type ControlledSchedulerWorkpadReconfirmationInput = Pick<WorkbenchWorkpad, "nextAction" | "goalLoop" | "controlledSchedulerStepReceipt" | "controlledSchedulerStepTrace">;
 
@@ -34,7 +36,7 @@ export function buildControlledSchedulerWorkpadReconfirmation(workpad: Controlle
   if (!isControlledSchedulerConcreteAction(nextAction.actionType)) return undefined;
   const currentStepLabel = schedulerUserFacingActionLabel(nextAction.actionType);
   if (!currentStepLabel) return undefined;
-  const currentGate = carrierFromScopeValues(nextAction, nextAction.actionType, nextAction.changeId);
+  const currentGate = buildControlledSchedulerCurrentGateCarrier(nextAction, nextAction.actionType, nextAction.changeId);
   if (!currentGate.changeId) return undefined;
   if (validateWorkflowActionRequiredTargets(currentGate).length > 0) return undefined;
   return buildControlledSchedulerReconfirmationStatus({
@@ -127,8 +129,7 @@ function buildControlledSchedulerReconfirmationStatus(input: {
 }
 
 export function controlledSchedulerSourceGateActionType(action: WorkbenchDecisionAction): WorkbenchDecisionAction["actionType"] | undefined {
-  if (action.actionType === CONTROLLED_SCHEDULER_STEP_ACTION_TYPE) return action.goalLoopCurrentGateActionType;
-  return action.actionType;
+  return workflowControlledSchedulerSourceGateActionType(action) as WorkbenchDecisionAction["actionType"] | undefined;
 }
 
 function boundaryText(): string {
@@ -173,27 +174,7 @@ function currentGateCarrier(
 ): WorkflowActionScopeCarrier | undefined {
   if (!actionType) return undefined;
   const action = sourceActions.find((candidate) => controlledSchedulerSourceGateActionType(candidate) === actionType);
-  return carrierFromScopeValues(action ?? item, actionType, action?.changeId ?? item.changeId, item);
-}
-
-function carrierFromScopeValues(source: object, actionType: WorkbenchDecisionAction["actionType"], changeId: string | undefined, fallback?: object): WorkflowActionScopeCarrier {
-  const values = source as Record<string, unknown>;
-  const fallbackValues = fallback as Record<string, unknown> | undefined;
-  const result: WorkflowActionScopeCarrier = { actionType, changeId };
-  for (const key of CURRENT_GATE_SCOPE_KEYS) {
-    const value = scopeValue(values[key]) ?? scopeValue(fallbackValues?.[key]);
-    if (typeof value === "string") {
-      (result as Record<string, string>)[key] = value;
-    } else if (isStringArray(value) && value.length > 0) {
-      (result as Record<string, string[]>)[key] = [...value];
-    }
-  }
-  return result;
-}
-
-function scopeValue(value: unknown): string | string[] | undefined {
-  if (typeof value === "string" || isStringArray(value)) return value;
-  return undefined;
+  return buildControlledSchedulerCurrentGateCarrier(action ?? item, actionType, action?.changeId ?? item.changeId, item);
 }
 
 function readGoalLoopField(goalLoop: WorkbenchWorkpad["goalLoop"], key: string): unknown {

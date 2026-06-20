@@ -1,5 +1,10 @@
 import type { ManagedProject } from "../../../../types/index.js";
 import { WORKFLOW_ACTION_SCOPE_KEYS } from "../../../../workflow-actions/registry.js";
+import {
+  buildControlledSchedulerAdvanceCandidate,
+  controlledSchedulerAdvanceTargetKey,
+  controlledSchedulerSourceGateActionType as workflowControlledSchedulerSourceGateActionType,
+} from "../../../../workflow-scheduler/controlled-advance-candidate.js";
 import { CONTROLLED_SCHEDULER_ADVANCE_ACTION_TYPE, CONTROLLED_SCHEDULER_STEP_ACTION_TYPE, isControlledSchedulerConcreteAction } from "../../../../workflow-scheduler/controlled-step.js";
 import type { WorkbenchConfirmationQueueItem, WorkbenchDecisionAction, WorkbenchTopicDetail, WorkbenchWorkpad } from "../../../read-model-types.js";
 import { buildControlledSchedulerReconfirmation, controlledSchedulerSourceGateActionType } from "./controlled-scheduler-reconfirmation.js";
@@ -306,36 +311,25 @@ function goalLoopControlledSchedulerStepAction(workpad: WorkbenchWorkpad): Workb
 }
 
 function controlledSchedulerAdvanceAction(action: WorkbenchDecisionAction): WorkbenchDecisionAction {
-  const currentGateActionType = action.actionType === CONTROLLED_SCHEDULER_STEP_ACTION_TYPE
-    ? action.goalLoopCurrentGateActionType
-    : action.actionType;
-  const actionWithoutStaleGoalLoopEvidence = { ...action };
-  delete actionWithoutStaleGoalLoopEvidence.goalLoopDecisionId;
-  delete actionWithoutStaleGoalLoopEvidence.goalLoopIterationId;
-  delete actionWithoutStaleGoalLoopEvidence.goalLoopContinuationBriefId;
-  delete actionWithoutStaleGoalLoopEvidence.goalLoopNextStepPacketId;
-  delete actionWithoutStaleGoalLoopEvidence.goalLoopFeedbackId;
-  delete actionWithoutStaleGoalLoopEvidence.goalLoopControllerPolicyId;
-  delete actionWithoutStaleGoalLoopEvidence.goalLoopGateReadinessPreflightId;
+  const candidate = buildControlledSchedulerAdvanceCandidate(action);
+  if (!candidate || candidate.validationIssues.length > 0) {
+    throw new Error("Controlled scheduler advance action requires a valid scheduler source gate.");
+  }
   return {
-    ...actionWithoutStaleGoalLoopEvidence,
-    id: `workflow:${CONTROLLED_SCHEDULER_ADVANCE_ACTION_TYPE}:${action.changeId ?? "change"}:${currentGateActionType ?? "scheduler"}:${schedulerAdvanceTargetSuffix(action)}`,
+    ...candidate.controlledAdvance,
+    id: `workflow:${CONTROLLED_SCHEDULER_ADVANCE_ACTION_TYPE}:${candidate.controlledAdvance.changeId ?? "change"}:${candidate.currentGateActionType}:${controlledSchedulerAdvanceTargetKey(action)}`,
     label: schedulerUserFacingActionCopy(CONTROLLED_SCHEDULER_ADVANCE_ACTION_TYPE).label,
     kind: "workflow-action",
     actionType: CONTROLLED_SCHEDULER_ADVANCE_ACTION_TYPE,
-    goalLoopCurrentGateActionType: currentGateActionType,
+    goalLoopCurrentGateActionType: candidate.currentGateActionType,
     enabled: true,
     requiresConfirmation: true,
-  };
+  } as WorkbenchDecisionAction;
 }
 
 function isSchedulerAdvanceSourceAction(action: WorkbenchDecisionAction): boolean {
-  if (action.actionType === CONTROLLED_SCHEDULER_ADVANCE_ACTION_TYPE) return false;
-  if (action.actionType === "planning.scheduler.plan.prepare") return false;
-  if (action.actionType === CONTROLLED_SCHEDULER_STEP_ACTION_TYPE) {
-    return isControlledSchedulerConcreteAction(action.goalLoopCurrentGateActionType);
-  }
-  return isControlledSchedulerConcreteAction(action.actionType);
+  const candidate = buildControlledSchedulerAdvanceCandidate(action);
+  return Boolean(candidate && candidate.validationIssues.length === 0);
 }
 
 function actionRepresentsGoalLoopSchedulerGate(
@@ -347,9 +341,7 @@ function actionRepresentsGoalLoopSchedulerGate(
   const nextAction = workpad.nextAction;
   const expectedScope = goalLoop ? readGoalLoopScope(goalLoop) : undefined;
   const expectedType = goalLoop ? readGoalLoopActionType(goalLoop) : undefined;
-  const sourceGateActionType = action.actionType === CONTROLLED_SCHEDULER_STEP_ACTION_TYPE
-    ? action.goalLoopCurrentGateActionType
-    : action.actionType;
+  const sourceGateActionType = workflowControlledSchedulerSourceGateActionType(action);
   if (!goalLoop || !expectedScope || !expectedType || !sourceGateActionType) return false;
   if (!action.enabled) return false;
   if (sourceGateActionType !== expectedType || nextAction.actionType !== expectedType) return false;
@@ -362,26 +354,6 @@ function actionRepresentsGoalLoopSchedulerGate(
     if (!scopeValuesEqual(expected, actual)) return false;
   }
   return true;
-}
-
-function schedulerAdvanceTargetSuffix(action: WorkbenchDecisionAction): string {
-  return action.goalLoopGateReadinessPreflightId
-    ?? action.schedulerRunCompletionId
-    ?? action.schedulerIntegrationOutcomeId
-    ?? action.schedulerIntegrationCheckHandoffId
-    ?? action.schedulerIntegrationCandidateId
-    ?? action.schedulerWorkerReworkAuditId
-    ?? action.schedulerWorkerReworkValidationId
-    ?? action.schedulerWorkerReworkResultId
-    ?? action.schedulerWorkerReworkStartId
-    ?? action.schedulerWorkerReworkPlanId
-    ?? action.schedulerWorkerAuditId
-    ?? action.schedulerWorkerValidationId
-    ?? action.schedulerWorkerResultId
-    ?? action.schedulerWorkerStartId
-    ?? action.schedulerClaimReservationId
-    ?? action.schedulerRunId
-    ?? "current";
 }
 
 function goalLoopControllerRefreshAction(workpad: WorkbenchWorkpad): WorkbenchDecisionAction | null {

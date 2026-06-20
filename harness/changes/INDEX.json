@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-20T20:53:17.1430444Z",
+    "generated_at":  "2026-06-20T21:20:44.4044149Z",
     "active":  [
 
                ],
@@ -1677,6 +1677,10 @@
                     {
                         "name":  "20260621-auto-evolve-harness-controlled-scheduler-step-result-window-noop",
                         "path":  "harness/changes/archive/20260621-auto-evolve-harness-controlled-scheduler-step-result-window-noop"
+                    },
+                    {
+                        "name":  "20260621-controlled-scheduler-advance-candidate-owner",
+                        "path":  "harness/changes/archive/20260621-controlled-scheduler-advance-candidate-owner"
                     },
                     {
                         "name":  "20260621-controlled-scheduler-continuation-guard",

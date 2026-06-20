@@ -1,13 +1,12 @@
 import type { GoalLoopCurrentGateSnapshot } from "../../goal-loop/manager.js";
 import type { ManagedProject } from "../../types/index.js";
+import { buildControlledSchedulerCurrentGateSnapshot } from "../../workflow-scheduler/controlled-advance-candidate.js";
 import { isControlledSchedulerConcreteAction } from "../../workflow-scheduler/controlled-step.js";
-import { WORKFLOW_ACTION_SCOPE_KEYS, isWorkflowActionType, validateWorkflowActionRequiredTargets, type WorkflowActionScopeCarrier } from "../../workflow-actions/registry.js";
+import { isWorkflowActionType, validateWorkflowActionRequiredTargets, type WorkflowActionScopeCarrier } from "../../workflow-actions/registry.js";
 import { getWorkbenchWorkpadProjection } from "../projections/read-model/implementation.js";
 import { assessGoalLoopSummaryCurrentGateParity } from "../projections/read-model/goal-loop-parity.js";
 import type { WorkbenchWorkflowActionRequest } from "../types.js";
 import type { WorkpadNextAction } from "../read-model-types.js";
-
-const CURRENT_GATE_SCOPE_KEYS = WORKFLOW_ACTION_SCOPE_KEYS.filter((key) => !key.startsWith("goalLoop"));
 
 export type VisibleGoalLoopCurrentGateResult =
   | {
@@ -88,17 +87,7 @@ function currentGateSnapshotFromScopeCarrier(
   carrier: WorkflowActionScopeCarrier | WorkpadNextAction,
   actionType: GoalLoopCurrentGateSnapshot["actionType"],
 ): GoalLoopCurrentGateSnapshot {
-  const scope: Record<string, string | string[]> = {};
-  if (carrier.changeId) scope.changeId = carrier.changeId;
-  const values = carrier as unknown as Record<string, unknown>;
-  for (const key of CURRENT_GATE_SCOPE_KEYS) {
-    const value = values[key];
-    if (typeof value === "string") scope[key] = value;
-    if (Array.isArray(value) && value.every((item) => typeof item === "string") && value.length > 0) {
-      scope[key] = value;
-    }
-  }
-  return { actionType, scope };
+  return buildControlledSchedulerCurrentGateSnapshot(carrier, actionType);
 }
 
 function scopeToCarrier(scope: Record<string, string | string[]>): WorkflowActionScopeCarrier {

@@ -745,6 +745,7 @@ describe("workbench Goal Loop surface", () => {
     expect(item.actions.some((action) => action.actionType === "planning.scheduler.worker.start-next")).toBe(false);
     const advance = item.actions.find((action) => action.actionType === "planning.scheduler.controlled-advance.run");
     expect(advance).toMatchObject({
+      id: "workflow:planning.scheduler.controlled-advance.run:member-discount:planning.scheduler.worker.start-next:preflight-old",
       label: reconfirmCopy.label,
       changeId: "member-discount",
       schedulerRunId: "scheduler-run-1",
