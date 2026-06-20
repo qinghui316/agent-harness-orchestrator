@@ -760,6 +760,7 @@ describe("Workbench module boundaries", () => {
   it("keeps scheduler user surface and handler glue in owned modules", () => {
     const handlerIndex = readFileSync("src/workbench/actions/handlers/index.ts", "utf8");
     const schedulerHandler = readFileSync("src/workbench/actions/handlers/scheduler.ts", "utf8");
+    const visibleGoalLoopCurrentGate = readFileSync("src/workbench/actions/visible-goal-loop-current-gate.ts", "utf8");
     const schedulerSurface = readFileSync("src/workbench/projections/read-model/confirmation/scheduler-user-surface.ts", "utf8");
     const webSchedulerLabels = readFileSync("src/web/src/scheduler-action-labels.ts", "utf8");
 
@@ -767,6 +768,10 @@ describe("Workbench module boundaries", () => {
     expect(handlerIndex).not.toContain('"planning.scheduler.worker.start-first":');
     expect(handlerIndex).not.toContain('"planning.scheduler.worker.start-next":');
     expect(schedulerHandler).toContain("buildSchedulerActionHandlers");
+    expect(schedulerHandler).toContain("resolveVisibleControlledSchedulerCurrentGate");
+    expect(schedulerHandler).not.toContain("projections/read-model");
+    expect(visibleGoalLoopCurrentGate).toContain("getWorkbenchWorkpadProjection");
+    expect(visibleGoalLoopCurrentGate).toContain("assessGoalLoopSummaryCurrentGateParity");
     for (const source of [schedulerHandler, schedulerSurface, webSchedulerLabels]) {
       expect(source).not.toMatch(/from\s+["'].*chat\.js["']/);
       expect(source).not.toMatch(/from\s+["'].*workbench-server\.js["']/);

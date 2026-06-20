@@ -1,13 +1,13 @@
-import { compileGoalLoopControllerPolicy, compileGoalLoopEvaluation, compileGoalLoopGateReadinessPreflight, readLatestGoalLoopNextStepPacket, recordGoalLoopFeedback, type GoalLoopContinuationBrief, type GoalLoopControllerPolicy, type GoalLoopCurrentGateSnapshot, type GoalLoopDecision, type GoalLoopFeedback, type GoalLoopGateReadinessPreflight, type GoalLoopIteration, type GoalLoopNextStepPacket } from "../../../goal-loop/manager.js";
+import { compileGoalLoopControllerPolicy, compileGoalLoopEvaluation, compileGoalLoopGateReadinessPreflight, readLatestGoalLoopNextStepPacket, recordGoalLoopFeedback, type GoalLoopContinuationBrief, type GoalLoopControllerPolicy, type GoalLoopDecision, type GoalLoopFeedback, type GoalLoopGateReadinessPreflight, type GoalLoopIteration, type GoalLoopNextStepPacket } from "../../../goal-loop/manager.js";
 import { assertWritableMemory } from "../../../memory/resolver.js";
 import type { ManagedProject } from "../../../types/index.js";
-import { WORKFLOW_ACTION_SCOPE_KEYS, isWorkflowActionType } from "../../../workflow-actions/registry.js";
 import { recordWorkbenchDecision } from "../../decisions.js";
 import { emitAssistantEvent } from "../../live-events.js";
 import { resolveTopic } from "../../topic-resolver.js";
 import { appendTopicThreadEntry } from "../../topic-thread.js";
 import type { WorkbenchWorkflowActionRequest, WorkbenchLiveSink } from "../../types.js";
 import { controlledLoopAssistantMessage, controlledLoopFeedbackRecordedMessage, controlledLoopResultLabel } from "../../user-surface/controlled-loop-results.js";
+import { currentGateSnapshotFromRequest } from "../visible-goal-loop-current-gate.js";
 import type { WorkbenchActionHandlerMap } from "../dispatcher.js";
 
 type GoalLoopWorkbenchActionType = "planning.goal-loop.evaluate" | "planning.goal-loop.feedback.evaluate" | "planning.goal-loop.controller.refresh" | "planning.goal-loop.gate-readiness.prepare";
@@ -283,24 +283,4 @@ export async function prepareGoalLoopGateReadinessPreflight(
     completedAt: new Date().toISOString(),
   });
   return { goalLoopGateReadinessPreflight: preflight, executionStarted: false };
-}
-
-const CURRENT_GATE_SCOPE_KEYS = WORKFLOW_ACTION_SCOPE_KEYS.filter((key) => !key.startsWith("goalLoop"));
-
-function currentGateSnapshotFromRequest(request: WorkbenchWorkflowActionRequest, actionLabel = "planning.goal-loop.controller.refresh"): GoalLoopCurrentGateSnapshot {
-  const actionType = request.goalLoopCurrentGateActionType;
-  if (!actionType || !isWorkflowActionType(actionType)) {
-    throw new Error(`${actionLabel} requires goalLoopCurrentGateActionType.`);
-  }
-  const scope: Record<string, string | string[]> = {};
-  if (request.changeId) scope.changeId = request.changeId;
-  const values = request as unknown as Record<string, unknown>;
-  for (const key of CURRENT_GATE_SCOPE_KEYS) {
-    const value = values[key];
-    if (typeof value === "string") scope[key] = value;
-    if (Array.isArray(value) && value.every((item) => typeof item === "string") && value.length > 0) {
-      scope[key] = value;
-    }
-  }
-  return { actionType, scope };
 }

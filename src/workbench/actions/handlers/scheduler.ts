@@ -30,11 +30,12 @@ import {
   validatePlanningSchedulerFirstWorker,
   validatePlanningSchedulerFirstWorkerRework,
 } from "./planning.js";
-import { compileGoalLoopEvaluation } from "../../../goal-loop/manager.js";
+import { compileGoalLoopControllerPolicy, compileGoalLoopEvaluation, compileGoalLoopGateReadinessPreflight } from "../../../goal-loop/manager.js";
 import { assertWritableMemory } from "../../../memory/resolver.js";
 import type { ManagedProject } from "../../../types/index.js";
 import { buildControlledSchedulerAdvanceStepRequest, buildControlledSchedulerStepRequest } from "../../../workflow-scheduler/controlled-step.js";
 import { assertWorkflowActionScope, auditHighImpactWorkflowAction } from "../boundary.js";
+import { resolveVisibleControlledSchedulerCurrentGate } from "../visible-goal-loop-current-gate.js";
 import { workflowActionScopesMatchStrict, type WorkflowActionScopeCarrier } from "../../../workflow-actions/registry.js";
 import type { WorkbenchActionHandlerMap } from "../dispatcher.js";
 import { resolveTopic } from "../../topic-resolver.js";
@@ -233,6 +234,15 @@ type ControlledAdvancePostStepEvaluation = {
     continuationState: string;
     executionStarted: false;
   };
+  postStepGoalLoopReadiness?: {
+    goalLoopControllerPolicyId: string;
+    goalLoopGateReadinessPreflightId: string;
+    currentGateActionType: string;
+    executionStarted: false;
+    concreteGateInvoked: false;
+    toolPolicyAuthorizedConcreteGate: false;
+  };
+  postStepGoalLoopReadinessWarning?: string;
 };
 
 type ControlledAdvancePostStepWarning = {
@@ -247,6 +257,13 @@ async function recordControlledAdvancePostStepEvaluation(
     const { memory, changePath } = await resolveTopic(project, changeId);
     assertWritableMemory(memory, "Controlled scheduler post-step Goal Loop evaluation");
     const { goalLoopDecision, goalLoopIteration, goalLoopContinuationBrief, goalLoopNextStepPacket } = await compileGoalLoopEvaluation(memory, changePath);
+    const readiness = await recordControlledAdvancePostStepReadiness(
+      project,
+      changeId,
+      memory,
+      changePath,
+      goalLoopNextStepPacket.id,
+    );
     return {
       postStepGoalLoopEvaluation: {
         goalLoopDecisionId: goalLoopDecision.id,
@@ -257,10 +274,50 @@ async function recordControlledAdvancePostStepEvaluation(
         continuationState: goalLoopIteration.continuationState,
         executionStarted: false,
       },
+      ...readiness,
     };
   } catch (error) {
     return {
       postStepGoalLoopEvaluationWarning: `Next-step evidence refresh failed after the scheduler transition succeeded: ${errorMessage(error)}`,
+    };
+  }
+}
+
+async function recordControlledAdvancePostStepReadiness(
+  project: ManagedProject,
+  changeId: string,
+  memory: Awaited<ReturnType<typeof resolveTopic>>["memory"],
+  changePath: string,
+  goalLoopNextStepPacketId: string,
+): Promise<Pick<ControlledAdvancePostStepEvaluation, "postStepGoalLoopReadiness" | "postStepGoalLoopReadinessWarning">> {
+  const visibleGate = await resolveVisibleControlledSchedulerCurrentGate(project, changeId, goalLoopNextStepPacketId);
+  if ("warning" in visibleGate) {
+    return { postStepGoalLoopReadinessWarning: visibleGate.warning };
+  }
+  try {
+    const policy = await compileGoalLoopControllerPolicy(memory, changePath, {
+      currentGate: visibleGate.currentGate,
+      goalLoopNextStepPacketId,
+      requireCurrentGateMatch: true,
+    });
+    const preflight = await compileGoalLoopGateReadinessPreflight(memory, changePath, {
+      goalLoopNextStepPacketId,
+      goalLoopControllerPolicyId: policy.id,
+      currentGate: visibleGate.currentGate,
+    });
+    return {
+      postStepGoalLoopReadiness: {
+        goalLoopControllerPolicyId: policy.id,
+        goalLoopGateReadinessPreflightId: preflight.id,
+        currentGateActionType: preflight.currentGate.actionType,
+        executionStarted: false,
+        concreteGateInvoked: preflight.concreteGateInvoked,
+        toolPolicyAuthorizedConcreteGate: preflight.toolPolicyAuthorizedConcreteGate,
+      },
+    };
+  } catch (error) {
+    return {
+      postStepGoalLoopReadinessWarning: `Post-step readiness evidence was not prepared: ${errorMessage(error)}`,
     };
   }
 }

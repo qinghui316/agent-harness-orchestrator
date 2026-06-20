@@ -5,14 +5,14 @@
 - Current date: 2026-06-20.
 - Active ECL change: none.
 - Pending Harness evolution: none.
-- Latest archived product change: `harness/changes/archive/20260620-controlled-scheduler-advance-post-step-evaluation/summary.md`.
-- Latest archived product/Harness docs change: `harness/changes/archive/20260620-controlled-scheduler-advance-post-step-evaluation/summary.md`.
+- Latest archived product change: `harness/changes/archive/20260620-controlled-scheduler-post-step-visible-readiness-handoff/summary.md`.
+- Latest archived product/Harness docs change: `harness/changes/archive/20260620-controlled-scheduler-post-step-visible-readiness-handoff/summary.md`.
 - Latest archived Harness evolution: `harness/changes/archive/20260620-auto-evolve-harness-controlled-loop-post-step-window/summary.md`.
 - Active product phase: none.
 - Active Harness evolution phase: none.
 - Active close status: none.
 
-This file is the short resume point. There is no active ECL change and pending Harness evolution is none. The latest archived product change closed Controlled Scheduler Advance Post-Step Evaluation: `planning.scheduler.controlled-advance.run` now refreshes non-executing post-step Goal Loop observation evidence after one user-confirmed Scheduler transition succeeds. The latest Harness evolution recorded a `keep / independent_review` result for the controlled-loop post-step window and did not change Harness rules, templates, scripts, or product runtime.
+This file is the short resume point. There is no active ECL change and pending Harness evolution is none. The latest archived product change closed Controlled Scheduler Post-Step Visible Readiness Handoff: after one user-confirmed controlled scheduler transition succeeds, AHO refreshes next-step Goal Loop evidence and prepares non-executing controller/readiness evidence only when the current visible Workbench gate matches that fresh packet and selected Change scope. The latest Harness evolution recorded a `keep / independent_review` result for the controlled-loop post-step window and did not change Harness rules, templates, scripts, or product runtime.
 
 Current plan-level roadmap context is preserved in `docs/CURRENT-DEVELOPMENT-PLAN.md`. Historical detail belongs in archived summaries and `harness/changes/INDEX.json`.
 

@@ -1,9 +1,11 @@
 import type { ManagedProject } from "../../../../types/index.js";
+import { WORKFLOW_ACTION_SCOPE_KEYS } from "../../../../workflow-actions/registry.js";
 import { CONTROLLED_SCHEDULER_ADVANCE_ACTION_TYPE, CONTROLLED_SCHEDULER_STEP_ACTION_TYPE, isControlledSchedulerConcreteAction } from "../../../../workflow-scheduler/controlled-step.js";
 import type { WorkbenchConfirmationQueueItem, WorkbenchDecisionAction, WorkbenchTopicDetail, WorkbenchWorkpad } from "../../../read-model-types.js";
 import { schedulerUserFacingActionCopy } from "./scheduler-user-surface.js";
 
 type ScopeValue = string | string[] | undefined;
+const CURRENT_GATE_SCOPE_KEYS = WORKFLOW_ACTION_SCOPE_KEYS.filter((key) => !key.startsWith("goalLoop"));
 
 export function goalLoopEvaluationQueueItem(
   project: ManagedProject | null,
@@ -184,8 +186,9 @@ function goalLoopAssistedConcreteGateAction(workpad: WorkbenchWorkpad): Workbenc
   if (!goalLoop?.gateReadinessPreflightId || !nextAction.actionType || !expectedType || !scope) return null;
   if (expectedType.startsWith("planning.goal-loop.")) return null;
   if (nextAction.actionType !== expectedType) return null;
+  const actionScope = mergeGoalLoopScopeWithNextActionScope(scope, nextAction);
   return {
-    ...scope,
+    ...actionScope,
     id: `workflow:${expectedType}:goal-loop-assisted:${goalLoop.gateReadinessPreflightId}`,
     label: "确认当前步骤",
     kind: "workflow-action",
@@ -211,8 +214,9 @@ function goalLoopControlledSchedulerStepAction(workpad: WorkbenchWorkpad): Workb
   if (!goalLoop?.gateReadinessPreflightId || !nextAction.actionType || !expectedType || !scope) return null;
   if (!isControlledSchedulerConcreteAction(expectedType)) return null;
   if (nextAction.actionType !== expectedType) return null;
+  const actionScope = mergeGoalLoopScopeWithNextActionScope(scope, nextAction);
   return {
-    ...scope,
+    ...actionScope,
     id: `workflow:${CONTROLLED_SCHEDULER_STEP_ACTION_TYPE}:goal-loop-assisted:${goalLoop.gateReadinessPreflightId}`,
     label: schedulerUserFacingActionCopy(CONTROLLED_SCHEDULER_STEP_ACTION_TYPE).label,
     kind: "workflow-action",
@@ -399,6 +403,21 @@ function readGoalLoopScope(goalLoop: WorkbenchWorkpad["goalLoop"]): Record<strin
 function readGoalLoopActionType(goalLoop: WorkbenchWorkpad["goalLoop"]): string | undefined {
   const value = readGoalLoopField(goalLoop, "recommended" + "ActionType");
   return typeof value === "string" ? value : undefined;
+}
+
+function mergeGoalLoopScopeWithNextActionScope(
+  scope: Record<string, string | string[]>,
+  nextAction: WorkbenchWorkpad["nextAction"],
+): Record<string, string | string[]> {
+  const merged: Record<string, string | string[]> = { ...scope };
+  const values = nextAction as unknown as Record<string, unknown>;
+  for (const key of CURRENT_GATE_SCOPE_KEYS) {
+    const value = values[key];
+    if (typeof value === "string" || isStringArray(value)) {
+      merged[key] = value;
+    }
+  }
+  return merged;
 }
 
 function readGoalLoopField(goalLoop: WorkbenchWorkpad["goalLoop"], key: string): unknown {

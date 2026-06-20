@@ -1105,12 +1105,12 @@ describe("workbench scheduler slow flows", () => {
     snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: prepared.topic.changeId });
     const outcomeAction = snapshot.right.confirmationQueue.current
       .flatMap((item) => item.actions)
-      .find((action) => action.actionType === "planning.scheduler.integration-outcome.reconcile" && action.schedulerIntegrationCheckHandoffId === prepared.handoff.handoff?.id);
+      .find((action) => findSchedulerGateAction([action], "planning.scheduler.integration-outcome.reconcile", (candidate) => candidate.schedulerIntegrationCheckHandoffId === prepared.handoff.handoff?.id));
     if (!outcomeAction) throw new Error("Missing scheduler integration outcome reconcile action after existing discard.");
     const outcomeResult = await executeWorkbenchAction({ project: project(), path: getTempDir() }, { ...outcomeAction, confirm: true });
     const outcomeWorkflow = outcomeResult.result as { status?: string; error?: string; result?: unknown };
     if (outcomeWorkflow.status === "failed") throw new Error(outcomeWorkflow.error ?? "discard outcome action failed");
-    const outcomePayload = (outcomeWorkflow.result ?? outcomeResult.result) as {
+    const outcomePayload = unwrapControlledSchedulerAdvanceResult(outcomeWorkflow.result ?? outcomeResult.result) as {
       outcome?: {
         id?: string;
         status?: string;
@@ -1133,12 +1133,12 @@ describe("workbench scheduler slow flows", () => {
     snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: prepared.topic.changeId });
     const completeAction = snapshot.right.confirmationQueue.current
       .flatMap((item) => item.actions)
-      .find((action) => action.actionType === "planning.scheduler.run.complete" && action.schedulerIntegrationOutcomeId === outcomePayload.outcome?.id);
+      .find((action) => findSchedulerGateAction([action], "planning.scheduler.run.complete", (candidate) => candidate.schedulerIntegrationOutcomeId === outcomePayload.outcome?.id));
     if (!completeAction) throw new Error("Missing scheduler run completion action after discarded scheduler outcome.");
     const completionResult = await executeWorkbenchAction({ project: project(), path: getTempDir() }, { ...completeAction, confirm: true });
     const completionWorkflow = completionResult.result as { status?: string; error?: string; result?: unknown };
     if (completionWorkflow.status === "failed") throw new Error(completionWorkflow.error ?? "discard completion action failed");
-    const completionPayload = (completionWorkflow.result ?? completionResult.result) as {
+    const completionPayload = unwrapControlledSchedulerAdvanceResult(completionWorkflow.result ?? completionResult.result) as {
       completion?: {
         id?: string;
         status?: string;
@@ -1350,14 +1350,13 @@ describe("workbench scheduler slow flows", () => {
     const postResultSnapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: prepared.topic.changeId });
     const validationAction = postResultSnapshot.right.confirmationQueue.current
       .flatMap((item) => item.actions)
-      .find((action) => action.actionType === "planning.scheduler.worker.validate-first" && action.schedulerWorkerResultId === prepared.workerResult.id);
+      .find((action) => findSchedulerGateAction([action], "planning.scheduler.worker.validate-first", (candidate) => candidate.schedulerWorkerResultId === prepared.workerResult.id));
     if (!validationAction) throw new Error("Missing scheduler first worker validation action.");
     const validated = await executeWorkbenchAction({ project: project(), path: getTempDir() }, {
       ...validationAction,
       confirm: true,
     });
-    const validatedResult = (validated.result as {
-      result?: {
+    const validatedResult = unwrapControlledSchedulerAdvanceResult((validated.result as { result?: unknown }).result ?? validated.result) as {
         status?: "passed" | "failed";
         schedulerValidation?: {
           id?: string;
@@ -1373,7 +1372,6 @@ describe("workbench scheduler slow flows", () => {
         taskRun?: { id?: string; status?: string; blockedReason?: string };
         validationResult?: { id?: string; status?: string; worktreeId?: string };
       };
-    }).result;
     expect(validatedResult).toMatchObject({
       status: "failed",
       schedulerValidation: {
@@ -1418,7 +1416,7 @@ describe("workbench scheduler slow flows", () => {
     expect(reworkSnapshot.right.confirmationQueue.current.flatMap((item) => item.actions).some((action) => action.actionType === "planning.scheduler.worker.audit-first")).toBe(false);
     const reworkAction = reworkSnapshot.right.confirmationQueue.current
       .flatMap((item) => item.actions)
-      .find((action) => action.actionType === "planning.scheduler.worker.rework-plan.compile" && action.schedulerWorkerValidationId === validatedResult?.schedulerValidation?.id);
+      .find((action) => findSchedulerGateAction([action], "planning.scheduler.worker.rework-plan.compile", (candidate) => candidate.schedulerWorkerValidationId === validatedResult?.schedulerValidation?.id));
     if (!reworkAction) throw new Error("Missing scheduler first worker rework plan action.");
     expect(reworkAction).toMatchObject({
       schedulerRunId: prepared.schedulerRun.id,
@@ -1437,7 +1435,7 @@ describe("workbench scheduler slow flows", () => {
       ...reworkAction,
       confirm: true,
     });
-    const reworkResult = ((compiled.result as {
+    const reworkResult = unwrapControlledSchedulerAdvanceResult((compiled.result as {
       result?: unknown;
     }).result ?? compiled.result) as {
       existing?: boolean;
@@ -1533,7 +1531,7 @@ describe("workbench scheduler slow flows", () => {
     expect(afterPlanSnapshot.right.confirmationQueue.current.flatMap((item) => item.actions).some((action) => action.actionType === "planning.scheduler.worker.rework-plan.compile")).toBe(false);
     const reworkStartAction = afterPlanSnapshot.right.confirmationQueue.current
       .flatMap((item) => item.actions)
-      .find((action) => action.actionType === "planning.scheduler.worker.rework-start-first" && action.schedulerWorkerReworkPlanId === reworkResult.reworkPlan?.id);
+      .find((action) => findSchedulerGateAction([action], "planning.scheduler.worker.rework-start-first", (candidate) => candidate.schedulerWorkerReworkPlanId === reworkResult.reworkPlan?.id));
     if (!reworkStartAction) throw new Error("Missing scheduler first worker rework start action.");
     expect(reworkStartAction).toMatchObject({
       schedulerRunId: prepared.schedulerRun.id,
@@ -1557,7 +1555,7 @@ describe("workbench scheduler slow flows", () => {
         ...reworkStartAction,
         confirm: true,
       });
-      const reworkStartResult = ((startedRework.result as { result?: unknown }).result ?? startedRework.result) as {
+      const reworkStartResult = unwrapControlledSchedulerAdvanceResult((startedRework.result as { result?: unknown }).result ?? startedRework.result) as {
         executionStarted?: boolean;
         reworkStart?: {
           id?: string;
@@ -1633,7 +1631,7 @@ describe("workbench scheduler slow flows", () => {
       expect(afterStartSnapshot.right.confirmationQueue.current.flatMap((item) => item.actions).some((action) => action.actionType === "planning.scheduler.worker.rework-start-first")).toBe(false);
       const reworkResultAction = afterStartSnapshot.right.confirmationQueue.current
         .flatMap((item) => item.actions)
-        .find((action) => action.actionType === "planning.scheduler.worker.rework-reconcile-result" && action.schedulerWorkerReworkStartId === reworkStartResult.reworkStart?.id);
+        .find((action) => findSchedulerGateAction([action], "planning.scheduler.worker.rework-reconcile-result", (candidate) => candidate.schedulerWorkerReworkStartId === reworkStartResult.reworkStart?.id));
       if (!reworkResultAction) throw new Error("Missing scheduler first worker rework result reconcile action.");
       expect(reworkResultAction).toMatchObject({
         schedulerRunId: prepared.schedulerRun.id,
@@ -1653,7 +1651,7 @@ describe("workbench scheduler slow flows", () => {
         ...reworkResultAction,
         confirm: true,
       });
-      const reconciledReworkResult = ((reconciledRework.result as { result?: unknown }).result ?? reconciledRework.result) as {
+      const reconciledReworkResult = unwrapControlledSchedulerAdvanceResult((reconciledRework.result as { result?: unknown }).result ?? reconciledRework.result) as {
         status?: string;
         result?: {
           id?: string;
@@ -1721,7 +1719,7 @@ describe("workbench scheduler slow flows", () => {
       expect(afterReworkResultSnapshot.right.confirmationQueue.current.flatMap((item) => item.actions).some((action) => action.actionType === "planning.scheduler.worker.validate-first" || action.actionType === "planning.scheduler.worker.audit-first")).toBe(false);
       const reworkValidationAction = afterReworkResultSnapshot.right.confirmationQueue.current
         .flatMap((item) => item.actions)
-        .find((action) => action.actionType === "planning.scheduler.worker.rework-validate-first" && action.schedulerWorkerReworkResultId === reconciledReworkResult.result?.id);
+        .find((action) => findSchedulerGateAction([action], "planning.scheduler.worker.rework-validate-first", (candidate) => candidate.schedulerWorkerReworkResultId === reconciledReworkResult.result?.id));
       if (!reworkValidationAction) throw new Error("Missing scheduler first worker rework validation action.");
       expect(reworkValidationAction).toMatchObject({
         schedulerRunId: prepared.schedulerRun.id,
@@ -1742,7 +1740,7 @@ describe("workbench scheduler slow flows", () => {
         ...reworkValidationAction,
         confirm: true,
       });
-      const validatedReworkResult = ((validatedRework.result as { result?: unknown }).result ?? validatedRework.result) as {
+      const validatedReworkResult = unwrapControlledSchedulerAdvanceResult((validatedRework.result as { result?: unknown }).result ?? validatedRework.result) as {
         existing?: boolean;
         status?: "passed" | "failed";
         schedulerReworkValidation?: {
