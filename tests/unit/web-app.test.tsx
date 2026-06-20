@@ -756,6 +756,80 @@ describe("Workbench web app", () => {
     }
   });
 
+  it("renders the controlled scheduler step trace in the real App DOM without executable controls", async () => {
+    const traceSnapshot = {
+      ...snapshot,
+      center: {
+        ...snapshot.center,
+        workpad: {
+          ...snapshot.center.workpad,
+          controlledSchedulerStepTrace: {
+            label: "受控推进轨迹",
+            body: "最近 2 个受控步骤都已在完成后主动停止；继续仍要回到右侧确认区重新确认当前步骤。",
+            boundary: "这是只读轨迹，不会自动继续、连续循环、批量派发、分配资源、应用源码、关闭需求、远端落地或维护演进。",
+            updatedAt: "2026-06-20T12:10:00.000Z",
+            evidenceRefs: [
+              "harness/changes/active/member-discount/planning/controlled-advance/newest.json",
+              "harness/changes/active/member-discount/planning/controlled-advance/older.json",
+            ],
+            items: [
+              {
+                label: "已完成一个受控步骤",
+                status: "ready-for-confirmation",
+                body: "本次执行：检查当前结果。下一步候选：检查当前结果。当前步骤检查已刷新。 继续前仍需要你再次确认。",
+                executedStepLabel: "检查当前结果",
+                nextStepLabel: "检查当前结果",
+                readinessLabel: "当前步骤检查已刷新。",
+                boundary: "已主动停止；是否继续仍需要你重新确认下一步。不会自动连续执行、批量派发、分配资源、应用源码、关闭需求或远端落地。",
+                humanConfirmationStillRequired: true,
+                evidenceRefs: ["harness/changes/active/member-discount/planning/controlled-advance/newest.json"],
+                decisionId: "workflow:controlled-advance:newest",
+                updatedAt: "2026-06-20T12:10:00.000Z",
+              },
+              {
+                label: "已完成一个受控步骤",
+                status: "ready-for-confirmation",
+                body: "本次执行：继续执行下一个任务。下一步候选：检查当前结果。当前步骤检查已刷新。 继续前仍需要你再次确认。",
+                executedStepLabel: "继续执行下一个任务",
+                nextStepLabel: "检查当前结果",
+                readinessLabel: "当前步骤检查已刷新。",
+                boundary: "已主动停止；是否继续仍需要你重新确认下一步。不会自动连续执行、批量派发、分配资源、应用源码、关闭需求或远端落地。",
+                humanConfirmationStillRequired: true,
+                evidenceRefs: ["harness/changes/active/member-discount/planning/controlled-advance/older.json"],
+                decisionId: "workflow:controlled-advance:older",
+                updatedAt: "2026-06-20T12:00:00.000Z",
+              },
+            ],
+          },
+        },
+      },
+    };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
+      if (url === "/api/projects") return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
+      if (url.includes("/workbench/projections/transcript/")) return jsonResponse(traceSnapshot.center.parentAgentTranscript);
+      if (url.includes("/workbench/projections/run-graph/")) return jsonResponse(traceSnapshot.center.agentRunGraph);
+      return jsonResponse(url.includes("/stream/") ? stream : traceSnapshot);
+    }));
+
+    render(<App />);
+
+    const card = await screen.findByTestId("controlled-scheduler-step-trace");
+    expect(within(card).getByText("受控推进轨迹")).toBeTruthy();
+    expect(within(card).getByText("2 步")).toBeTruthy();
+    expect(within(card).getByText("最近一步")).toBeTruthy();
+    expect(within(card).getByText("第 2 步")).toBeTruthy();
+    expect(within(card).getByText(/检查当前结果；下一步候选：检查当前结果；当前步骤检查已刷新。 继续仍需要再次确认。 时间：.*证据：newest\.json/)).toBeTruthy();
+    expect(within(card).getByText(/继续执行下一个任务；下一步候选：检查当前结果；当前步骤检查已刷新。 继续仍需要再次确认。 时间：.*证据：older\.json/)).toBeTruthy();
+    expect(within(card).getByText("继续边界")).toBeTruthy();
+    expect(within(card).queryByRole("button")).toBeNull();
+    const cardText = card.textContent ?? "";
+    for (const forbidden of ["planning.scheduler", "SchedulerRun", "worker", "slot", "whole-wave", "start-all", "ToolPolicy"]) {
+      expect(cardText).not.toContain(forbidden);
+    }
+  });
+
   it("renders refreshed controlled scheduler reconfirmation copy in the right confirmation card", async () => {
     const reconfirmItem = {
       id: "confirm:controlled-advance:member-discount",

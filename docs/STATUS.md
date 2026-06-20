@@ -5,14 +5,14 @@
 - Current date: 2026-06-20.
 - Active ECL change: none.
 - Pending Harness evolution: none.
-- Latest archived product change: `harness/changes/archive/20260620-controlled-scheduler-workpad-step-receipt/summary.md`.
-- Latest archived product/Harness docs change: `harness/changes/archive/20260620-controlled-scheduler-workpad-step-receipt/summary.md`.
+- Latest archived product change: `harness/changes/archive/20260620-controlled-scheduler-step-trace-surface/summary.md`.
+- Latest archived product/Harness docs change: `harness/changes/archive/20260620-controlled-scheduler-step-trace-surface/summary.md`.
 - Latest archived Harness evolution: `harness/changes/archive/20260620-auto-evolve-harness-controlled-scheduler-routing-window-noop/summary.md`.
 - Active product phase: none.
 - Active Harness evolution phase: none.
 - Active close status: none.
 
-This file is the short resume point. There is no active ECL change and no pending Harness evolution. The latest archived product change derives a read-only Workpad receipt from existing `planning.scheduler.controlled-advance.run` decision evidence so the user can see that one bounded step completed, stopped, refreshed next-candidate evidence when available, and still requires another human confirmation. It does not change scheduler runtime, Goal Loop policy, action payloads, stale revalidation, ToolPolicyGate, human gates, IntegrationCheck, apply/close/remote/Harness evolution behavior, or source mutation. UI-visible product behavior was verified with real App DOM; projection evidence covers derivation and edge cases.
+This file is the short resume point. There is no active ECL change and no pending Harness evolution. The latest archived product change adds a read-only controlled Scheduler step trace surface from existing `planning.scheduler.controlled-advance.run` decision evidence so the user can see recent bounded steps, per-step time/evidence, next-candidate/readiness posture, and the boundary that continuing still requires another human confirmation. It does not change scheduler runtime, Goal Loop policy, action payloads, stale revalidation, ToolPolicyGate, human gates, IntegrationCheck, apply/close/remote/Harness evolution behavior, or source mutation. UI-visible product behavior was verified with real App DOM; projection evidence covers derivation and fail-closed edge cases.
 
 Current plan-level roadmap context is preserved in `docs/CURRENT-DEVELOPMENT-PLAN.md`. Historical detail belongs in archived summaries and `harness/changes/INDEX.json`.
 
@@ -63,6 +63,7 @@ Use `harness/changes/INDEX.json` for the generated archive list. Start with arch
 
 Recent key archive summaries:
 
+- Latest product/Harness docs change: `harness/changes/archive/20260620-controlled-scheduler-step-trace-surface/summary.md`.
 - Recent product/Harness docs change: `harness/changes/archive/20260620-workbench-landing-review-artifact-selection-helper-reuse/summary.md`.
 - Previous product/Harness docs change: `harness/changes/archive/20260620-workbench-confirmation-evidence-refs-helper-reuse/summary.md`.
 - Recent product/Harness docs change: `harness/changes/archive/20260620-workbench-read-model-evidence-action-helper-reuse/summary.md`.

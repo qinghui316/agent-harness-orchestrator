@@ -444,6 +444,14 @@ export type ControlledSchedulerStepReceiptDetail = {
   decisionId: string;
   updatedAt: string;
 };
+export type ControlledSchedulerStepTraceDetail = {
+  label: string;
+  body: string;
+  boundary: string;
+  items: ControlledSchedulerStepReceiptDetail[];
+  evidenceRefs: string[];
+  updatedAt?: string;
+};
 export type Workpad = {
   title: string;
   subtitle: string;
@@ -497,6 +505,7 @@ export type Workpad = {
   schedulerRunBlockedCloseout?: SchedulerRunBlockedCloseoutSummary;
   goalLoop?: GoalLoopSummary;
   controlledSchedulerStepReceipt?: ControlledSchedulerStepReceiptDetail;
+  controlledSchedulerStepTrace?: ControlledSchedulerStepTraceDetail;
   rolePipeline?: {
     stage: "planning" | "coding" | "validation" | "audit" | "rework" | "done" | "needs-user-input";
     status: "draft" | "running" | "completed" | "needs-user-input" | "stopped";

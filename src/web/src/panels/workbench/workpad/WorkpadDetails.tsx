@@ -15,7 +15,7 @@ import {
 } from "../../../formatters.js";
 import type { Approval, Workpad } from "../../../types.js";
 import { artifactName } from "../RunReplayPanel.js";
-import { ControlledSchedulerStepReceiptCard, GoalLoopEvidenceCard } from "./GoalLoopCards.js";
+import { ControlledSchedulerStepReceiptCard, ControlledSchedulerStepTraceCard, GoalLoopEvidenceCard } from "./GoalLoopCards.js";
 import {
   ClarificationCard,
   CodingPackageCard,
@@ -169,6 +169,7 @@ export function WorkpadDiagnosticDetails({
       {workpad.schedulerRunBlockedCloseout ? <SchedulerRunBlockedCloseoutCard closeout={workpad.schedulerRunBlockedCloseout} /> : null}
       {workpad.goalLoop ? <GoalLoopEvidenceCard goalLoop={workpad.goalLoop} /> : null}
       {workpad.controlledSchedulerStepReceipt ? <ControlledSchedulerStepReceiptCard receipt={workpad.controlledSchedulerStepReceipt} /> : null}
+      {workpad.controlledSchedulerStepTrace ? <ControlledSchedulerStepTraceCard trace={workpad.controlledSchedulerStepTrace} /> : null}
 
       {workpad.rolePipeline ? (
         <section className="workpad-section" data-testid="role-pipeline-summary">

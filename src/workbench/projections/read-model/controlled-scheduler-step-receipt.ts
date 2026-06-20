@@ -1,10 +1,11 @@
 import type { ControlledSchedulerPostStepHandoff, ControlledSchedulerPostStepHandoffStatus } from "../../controlled-scheduler-handoff.js";
-import type { WorkbenchControlledSchedulerStepReceipt } from "../../read-model-types.js";
+import type { WorkbenchControlledSchedulerStepReceipt, WorkbenchControlledSchedulerStepTrace } from "../../read-model-types.js";
 import { WorkbenchStore, type StoredDecisionRecord } from "../../store.js";
 import type { ResolvedMemory } from "../../../types/index.js";
 import { knownSchedulerUserFacingActionLabel } from "./confirmation/scheduler-user-surface.js";
 
 const CONTROLLED_ADVANCE_ACTION = "planning.scheduler.controlled-advance.run";
+const STEP_TRACE_LIMIT = 5;
 
 export async function readLatestControlledSchedulerStepReceipt(
   memory: ResolvedMemory,
@@ -18,6 +19,33 @@ export async function readLatestControlledSchedulerStepReceipt(
       return controlledSchedulerStepReceiptFromDecision(record, changeId);
     }
     return null;
+  } finally {
+    store.close();
+  }
+}
+
+export async function readControlledSchedulerStepTrace(
+  memory: ResolvedMemory,
+  changeId: string,
+  limit = STEP_TRACE_LIMIT,
+): Promise<WorkbenchControlledSchedulerStepTrace | null> {
+  if (!memory.projectId) return null;
+  const store = await WorkbenchStore.open(memory);
+  try {
+    const items = store.listDecisions(memory.projectId, changeId)
+      .filter((record) => record.decisionType === CONTROLLED_ADVANCE_ACTION && record.status === "completed")
+      .map((record) => controlledSchedulerStepReceiptFromDecision(record, changeId))
+      .filter((item): item is WorkbenchControlledSchedulerStepReceipt => Boolean(item))
+      .slice(0, limit);
+    if (items.length === 0) return null;
+    return {
+      label: "受控推进轨迹",
+      body: `最近 ${items.length} 个受控步骤都已在完成后主动停止；继续仍要回到右侧确认区重新确认当前步骤。`,
+      boundary: "这是只读轨迹，不会自动继续、连续循环、批量派发、分配资源、应用源码、关闭需求、远端落地或维护演进。",
+      items,
+      evidenceRefs: unique(items.flatMap((item) => item.evidenceRefs)).slice(0, limit),
+      updatedAt: items[0]?.updatedAt,
+    };
   } finally {
     store.close();
   }
@@ -114,4 +142,8 @@ function parseJsonRecord(value: string): Record<string, unknown> | null {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+function unique(values: string[]): string[] {
+  return Array.from(new Set(values));
 }

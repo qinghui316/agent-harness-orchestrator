@@ -10,7 +10,7 @@ import { buildGoalLoopContextPreparedEvidence, goalLoopPromptStackLabels } from 
 import type { WorkbenchWorkpad, WorkpadNextAction } from "../../src/workbench/read-model-types.js";
 import { readLatestGoalLoopSummary } from "../../src/workbench/projections/read-model/goal-loop.js";
 import { filterGoalLoopSummaryForCurrentGate } from "../../src/workbench/projections/read-model/goal-loop-parity.js";
-import { readLatestControlledSchedulerStepReceipt } from "../../src/workbench/projections/read-model/controlled-scheduler-step-receipt.js";
+import { readControlledSchedulerStepTrace, readLatestControlledSchedulerStepReceipt } from "../../src/workbench/projections/read-model/controlled-scheduler-step-receipt.js";
 import { WorkbenchStore, type StoredDecisionRecord } from "../../src/workbench/store.js";
 
 let tempDir: string;
@@ -193,6 +193,76 @@ describe("controlled scheduler post-step projection", () => {
     expect(JSON.stringify(receipt)).not.toContain("whole-wave");
   });
 
+  it("derives a bounded sanitized Workpad step trace from recent valid controlled advance decisions", async () => {
+    await upsertDecision(validControlledAdvanceDecision({
+      id: "workflow:controlled-advance:newest",
+      updatedAt: "2026-06-20T12:10:00.000Z",
+      completedAt: "2026-06-20T12:10:00.000Z",
+      executedActionType: "planning.scheduler.worker.reconcile-result",
+      nextActionType: "planning.scheduler.worker.validate-first",
+      artifact: "harness/changes/active/controlled-post-step/planning/controlled-advance/newest.json",
+    }));
+    await upsertDecision({
+      id: "workflow:controlled-advance:invalid-middle",
+      decisionType: "planning.scheduler.controlled-advance.run",
+      status: "completed",
+      payloadJson: JSON.stringify({
+        scope: { changeId },
+        result: { postStepHandoff: { status: "next-step-evaluation-refreshed" } },
+      }),
+      updatedAt: "2026-06-20T12:05:00.000Z",
+      completedAt: "2026-06-20T12:05:00.000Z",
+    });
+    await upsertDecision(validControlledAdvanceDecision({
+      id: "workflow:controlled-advance:older",
+      updatedAt: "2026-06-20T12:00:00.000Z",
+      completedAt: "2026-06-20T12:00:00.000Z",
+      executedActionType: "planning.scheduler.worker.start-next",
+      nextActionType: "planning.scheduler.worker.reconcile-result",
+      artifact: "harness/changes/active/controlled-post-step/planning/controlled-advance/older.json",
+    }));
+    await upsertDecision({
+      id: "workflow:controlled-advance:wrong-scope-newer",
+      decisionType: "planning.scheduler.controlled-advance.run",
+      status: "completed",
+      payloadJson: JSON.stringify({
+        scope: { changeId: "other-change" },
+        result: validPostStepHandoff("planning.scheduler.worker.start-next", "planning.scheduler.worker.reconcile-result"),
+      }),
+      updatedAt: "2026-06-20T12:15:00.000Z",
+      completedAt: "2026-06-20T12:15:00.000Z",
+    });
+
+    const trace = await readControlledSchedulerStepTrace(memory, changeId);
+
+    expect(trace).toMatchObject({
+      label: "受控推进轨迹",
+      items: [
+        {
+          decisionId: "workflow:controlled-advance:newest",
+          executedStepLabel: "检查当前结果",
+          nextStepLabel: "检查当前结果",
+          humanConfirmationStillRequired: true,
+        },
+        {
+          decisionId: "workflow:controlled-advance:older",
+          executedStepLabel: "继续执行下一个任务",
+          nextStepLabel: "检查当前结果",
+          humanConfirmationStillRequired: true,
+        },
+      ],
+      evidenceRefs: [
+        "harness/changes/active/controlled-post-step/planning/controlled-advance/newest.json",
+        "harness/changes/active/controlled-post-step/planning/controlled-advance/older.json",
+      ],
+    });
+    expect(trace?.body).toContain("最近 2 个受控步骤");
+    expect(trace?.boundary).toContain("只读轨迹");
+    expect(JSON.stringify(trace)).not.toContain("planning.scheduler");
+    expect(JSON.stringify(trace)).not.toContain("SchedulerRun");
+    expect(JSON.stringify(trace)).not.toContain("whole-wave");
+  });
+
   it("hides the receipt when the latest completed controlled advance decision has invalid handoff evidence", async () => {
     await upsertDecision({
       id: "workflow:controlled-advance:valid-old",
@@ -253,6 +323,14 @@ describe("controlled scheduler post-step projection", () => {
     });
 
     await expect(readLatestControlledSchedulerStepReceipt(memory, changeId)).resolves.toBeNull();
+    await expect(readControlledSchedulerStepTrace(memory, changeId)).resolves.toMatchObject({
+      items: [
+        expect.objectContaining({
+          decisionId: "workflow:controlled-advance:valid-old",
+          executedStepLabel: "继续执行下一个任务",
+        }),
+      ],
+    });
   });
 
   it("hides the receipt when the controlled advance decision is missing the persisted scope wrapper", async () => {
@@ -310,6 +388,51 @@ describe("controlled scheduler post-step projection", () => {
     await expect(readLatestControlledSchedulerStepReceipt(memory, changeId)).resolves.toBeNull();
   });
 });
+
+function validControlledAdvanceDecision(input: {
+  id: string;
+  updatedAt: string;
+  completedAt: string;
+  executedActionType: string;
+  nextActionType: string;
+  artifact: string;
+}): Partial<StoredDecisionRecord> {
+  return {
+    id: input.id,
+    decisionType: "planning.scheduler.controlled-advance.run",
+    status: "completed",
+    artifact: input.artifact,
+    payloadJson: JSON.stringify({
+      scope: { changeId },
+      result: validPostStepHandoff(input.executedActionType, input.nextActionType),
+    }),
+    updatedAt: input.updatedAt,
+    completedAt: input.completedAt,
+  };
+}
+
+function validPostStepHandoff(executedActionType: string, nextActionType: string): { postStepHandoff: Record<string, unknown> } {
+  return {
+    postStepHandoff: {
+      authority: "derived-non-executing-workbench-handoff",
+      status: "next-confirmation-candidate-ready",
+      stopReason: "one-confirmed-scheduler-transition-completed",
+      executedActionType,
+      nextConfirmationCandidate: {
+        actionType: nextActionType,
+        readinessEvidencePrepared: true,
+        executionStarted: false,
+        authorizationGranted: false,
+        humanConfirmationStillRequired: true,
+      },
+      needsReevaluation: false,
+      executionStarted: false,
+      loopAuthorized: false,
+      wholeWaveDispatchAuthorized: false,
+      slotAllocatorAuthorized: false,
+    },
+  };
+}
 
 async function writeJson(path: string, value: unknown): Promise<void> {
   await mkdir(dirname(path), { recursive: true });

@@ -783,6 +783,15 @@ export interface WorkbenchControlledSchedulerStepReceipt {
   updatedAt: string;
 }
 
+export interface WorkbenchControlledSchedulerStepTrace {
+  label: string;
+  body: string;
+  boundary: string;
+  items: WorkbenchControlledSchedulerStepReceipt[];
+  evidenceRefs: string[];
+  updatedAt?: string;
+}
+
 export interface WorkbenchControlledSchedulerRoutingPosture {
   label: string;
   body: string;
@@ -847,6 +856,7 @@ export interface WorkbenchWorkpad {
   maintenance?: WorkbenchMaintenanceSummary;
   runControlState?: WorkbenchRunControlState;
   controlledSchedulerStepReceipt?: WorkbenchControlledSchedulerStepReceipt;
+  controlledSchedulerStepTrace?: WorkbenchControlledSchedulerStepTrace;
   intake: WorkpadIntakeSummary;
   progress: WorkpadProgress;
   tasks: WorkpadTaskPreview[];

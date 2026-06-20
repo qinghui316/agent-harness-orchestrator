@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-20T14:37:06.2711210Z",
+    "generated_at":  "2026-06-20T15:00:25.8610608Z",
     "active":  [
 
                ],
@@ -1481,6 +1481,10 @@
                     {
                         "name":  "20260620-controlled-scheduler-single-step-runner",
                         "path":  "harness/changes/archive/20260620-controlled-scheduler-single-step-runner"
+                    },
+                    {
+                        "name":  "20260620-controlled-scheduler-step-trace-surface",
+                        "path":  "harness/changes/archive/20260620-controlled-scheduler-step-trace-surface"
                     },
                     {
                         "name":  "20260620-controlled-scheduler-stop-handoff",

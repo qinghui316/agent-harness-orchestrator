@@ -1,5 +1,5 @@
 import type { ReactElement } from "react";
-import { userFacingText } from "../../../formatters.js";
+import { formatTime, userFacingText } from "../../../formatters.js";
 import { workflowActionLabel } from "../../../action-labels.js";
 import type { Workpad } from "../../../types.js";
 import { artifactName } from "../RunReplayPanel.js";
@@ -224,6 +224,48 @@ export function ControlledSchedulerStepReceiptCard({
       ) : null}
     </section>
   );
+}
+
+export function ControlledSchedulerStepTraceCard({
+  trace,
+}: {
+  trace: NonNullable<Workpad["controlledSchedulerStepTrace"]>;
+}): ReactElement {
+  return (
+    <section className="workpad-section compact-section" data-testid="controlled-scheduler-step-trace">
+      <div className="workpad-section-header">
+        <h3>{userFacingText(trace.label)}</h3>
+        <span>{trace.items.length} 步</span>
+      </div>
+      <p className="workpad-goal">{userFacingText(trace.body)}</p>
+      <div className="workpad-evidence-list" aria-label="受控推进轨迹">
+        {trace.items.map((item, index) => (
+          <div className="workpad-evidence" key={item.decisionId}>
+            <strong>{index === 0 ? "最近一步" : `第 ${index + 1} 步`}</strong>
+            <span>
+              {userFacingText(stepTraceItemText(item))}
+              {item.updatedAt ? ` 时间：${formatTime(item.updatedAt)}` : ""}
+              {item.evidenceRefs.length ? ` 证据：${item.evidenceRefs.slice(0, 2).map(artifactName).join("、")}` : ""}
+            </span>
+          </div>
+        ))}
+        <div className="workpad-evidence">
+          <strong>继续边界</strong>
+          <span>{userFacingText(trace.boundary)}</span>
+        </div>
+      </div>
+      {trace.evidenceRefs.length ? (
+        <div className="workpad-links">
+          {trace.evidenceRefs.slice(0, 3).map((artifact) => <span className="artifact-link" key={artifact}>查看证据：{artifactName(artifact)}</span>)}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function stepTraceItemText(item: NonNullable<Workpad["controlledSchedulerStepTrace"]>["items"][number]): string {
+  const next = item.nextStepLabel ? `下一步候选：${item.nextStepLabel}` : "下一步等待重新判断";
+  return `${item.executedStepLabel}；${next}；${item.readinessLabel} 继续仍需要再次确认。`;
 }
 
 function primaryWorkpadActionLabel(actionType: string | undefined): string {

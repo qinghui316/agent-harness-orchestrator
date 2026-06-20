@@ -83,7 +83,7 @@ import {
   taskNodeToPreview,
 } from "./task-graph.js";
 import { readLatestGoalLoopSummary } from "./goal-loop.js";
-import { readLatestControlledSchedulerStepReceipt } from "./controlled-scheduler-step-receipt.js";
+import { readControlledSchedulerStepTrace, readLatestControlledSchedulerStepReceipt } from "./controlled-scheduler-step-receipt.js";
 import type {
   AuditSummary,
   ManagedProject,
@@ -242,6 +242,7 @@ export async function buildWorkbenchWorkpad(input: {
   const workflowGraphPlan = await readLatestWorkflowGraphPlanSummary(memory, selectedTopic.path);
   const rawGoalLoop = await readLatestGoalLoopSummary(memory, selectedTopic.path, selectedTopic.id);
   const controlledSchedulerStepReceipt = await readLatestControlledSchedulerStepReceipt(memory, selectedTopic.id);
+  const controlledSchedulerStepTrace = await readControlledSchedulerStepTrace(memory, selectedTopic.id);
   const schedulerContract = await readLatestSchedulerContractSummary(memory, selectedTopic.path);
   const schedulerDispatchDryRun = await readLatestSchedulerDispatchDryRunSummary(memory, selectedTopic.path);
   const schedulerWorkerSessionPlan = await readLatestSchedulerWorkerSessionPlanSummary(memory, selectedTopic.path);
@@ -370,6 +371,7 @@ export async function buildWorkbenchWorkpad(input: {
     taskQueue,
     goalLoop: goalLoop ?? undefined,
     controlledSchedulerStepReceipt: controlledSchedulerStepReceipt ?? undefined,
+    controlledSchedulerStepTrace: controlledSchedulerStepTrace ?? undefined,
     evidence: buildWorkpadEvidence(selectedTopic, topicApprovals, topicDecisions),
     blockers: [
       ...(selectedTopic.closeGate?.blockingIssues ?? []),
