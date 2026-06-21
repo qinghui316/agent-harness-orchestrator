@@ -61,16 +61,17 @@ export function evaluateControlledSchedulerBoundaryContinuation(input: {
   if (!runtimeBoundary) {
     return decision(changeId, "needs-review", "requires prior controlled loop runtime-boundary evidence.", boundary.nextGateActionType, evidenceRefs(previousStep));
   }
-  const boundaryIssue = evaluatePriorBoundary(previousStep);
+  const allowsFreshRecoveryFromPostStepReadinessWarning = allowsPostStepReadinessWarningRecovery(input);
+  const boundaryIssue = evaluatePriorBoundary(previousStep, allowsFreshRecoveryFromPostStepReadinessWarning);
   if (boundaryIssue) return boundaryIssue;
-  const runtimeIssue = evaluatePriorRuntimeBoundary(previousStep);
+  const runtimeIssue = evaluatePriorRuntimeBoundary(previousStep, allowsFreshRecoveryFromPostStepReadinessWarning);
   if (runtimeIssue) return runtimeIssue;
-  if (input.requestedConcreteGate?.actionType !== undefined && input.requestedConcreteGate.actionType !== boundary.nextGateActionType) {
+  if (boundary.nextGateActionType && input.requestedConcreteGate?.actionType !== undefined && input.requestedConcreteGate.actionType !== boundary.nextGateActionType) {
     return decision(changeId, "needs-review", "submitted gate no longer matches the boundary-result next gate.", input.requestedConcreteGate.actionType, evidenceRefs(previousStep));
   }
   const requestedIssue = input.requestedConcreteGate ? evaluateRequestedGate(changeId, input.requestedConcreteGate) : null;
   if (requestedIssue) return requestedIssue;
-  const preflightIssue = evaluatePriorPreflight(input);
+  const preflightIssue = evaluatePriorPreflight(input, allowsFreshRecoveryFromPostStepReadinessWarning);
   if (preflightIssue) return preflightIssue;
   const freshGateIssue = input.freshGate ? evaluateFreshGate(input) : null;
   if (freshGateIssue) return freshGateIssue;
@@ -82,16 +83,19 @@ export function evaluateControlledSchedulerBoundaryContinuation(input: {
       return decision(changeId, "needs-review", "The current controlled Scheduler gate target scope no longer matches prior post-step evidence.", boundary.nextGateActionType, evidenceRefs(previousStep, input.freshGate));
     }
   }
-  return decision(changeId, boundary.continuationReadinessStatus, "Fresh current human-gate evidence matches the prior controlled Scheduler boundary. Continuation still requires the existing human confirmation and ToolPolicy/stale revalidation path.", boundary.nextGateActionType, evidenceRefs(previousStep, input.freshGate));
+  const continuationStatus = allowsFreshRecoveryFromPostStepReadinessWarning
+    ? "ready-for-human-gate"
+    : boundary.continuationReadinessStatus;
+  return decision(changeId, continuationStatus, "Fresh current human-gate evidence matches the prior controlled Scheduler boundary. Continuation still requires the existing human confirmation and ToolPolicy/stale revalidation path.", boundary.nextGateActionType ?? input.requestedConcreteGate?.actionType, evidenceRefs(previousStep, input.freshGate));
 }
 
-function evaluatePriorBoundary(input: ControlledSchedulerContinuationPriorStepEvidence): ControlledSchedulerContinuationDecision | null {
+function evaluatePriorBoundary(input: ControlledSchedulerContinuationPriorStepEvidence, allowsPostStepReadinessWarningRecovery = false): ControlledSchedulerContinuationDecision | null {
   const boundary = input.controlledLoopBoundaryResult;
   if (!boundary) return null;
   if (boundary.authority !== "scheduler-runtime-controlled-loop-boundary-result") {
     return decision(input.changeId, "needs-review", "Prior controlled loop boundary-result evidence has an unexpected authority.", boundary.nextGateActionType, evidenceRefs(input));
   }
-  if (boundary.status !== "recorded" || boundary.warning) {
+  if ((boundary.status !== "recorded" || boundary.warning) && !allowsPostStepReadinessWarningRecovery) {
     return decision(input.changeId, "needs-review", "Prior controlled loop boundary-result evidence has warnings and must be reviewed before continuation.", boundary.nextGateActionType, evidenceRefs(input));
   }
   if (hasForbiddenAuthority(boundary)) {
@@ -100,25 +104,25 @@ function evaluatePriorBoundary(input: ControlledSchedulerContinuationPriorStepEv
   if (!boundary.futureContinuationRequiresFreshEvidence || !boundary.futureContinuationRequiresFreshCurrentGate || !boundary.humanConfirmationStillRequired || !boundary.stoppedAfterOneSchedulerTransition || !boundary.approvedScopeOnly) {
     return decision(input.changeId, "needs-review", "Prior controlled loop boundary-result evidence is missing conservative continuation flags.", boundary.nextGateActionType, evidenceRefs(input));
   }
-  if (!isRoutableContinuationStatus(boundary.continuationReadinessStatus)) {
+  if (!isRoutableContinuationStatus(boundary.continuationReadinessStatus) && !allowsPostStepReadinessWarningRecovery) {
     return decision(input.changeId, boundary.continuationReadinessStatus, `Prior controlled loop boundary-result evidence routes continuation through existing ${boundary.continuationReadinessStatus} evidence instead of a ready human gate.`, boundary.nextGateActionType, evidenceRefs(input));
   }
-  if (!boundary.nextGateActionType || !isControlledSchedulerConcreteAction(boundary.nextGateActionType)) {
+  if ((!boundary.nextGateActionType || !isControlledSchedulerConcreteAction(boundary.nextGateActionType)) && !allowsPostStepReadinessWarningRecovery) {
     return decision(input.changeId, "needs-review", "Prior controlled loop boundary-result evidence does not name a concrete Scheduler next gate.", boundary.nextGateActionType, evidenceRefs(input));
   }
-  if (boundary.nextGateTargetScopeSource !== "fresh-current-gate-required") {
+  if (boundary.nextGateTargetScopeSource !== "fresh-current-gate-required" && !allowsPostStepReadinessWarningRecovery) {
     return decision(input.changeId, "needs-review", "Prior controlled loop boundary-result evidence does not require a fresh current-gate target scope.", boundary.nextGateActionType, evidenceRefs(input));
   }
   return null;
 }
 
-function evaluatePriorRuntimeBoundary(input: ControlledSchedulerContinuationPriorStepEvidence): ControlledSchedulerContinuationDecision | null {
+function evaluatePriorRuntimeBoundary(input: ControlledSchedulerContinuationPriorStepEvidence, allowsPostStepReadinessWarningRecovery = false): ControlledSchedulerContinuationDecision | null {
   const runtimeBoundary = input.controlledLoopRuntimeBoundary;
   if (!runtimeBoundary) return null;
   if (runtimeBoundary.authority !== "scheduler-runtime-controlled-loop-runtime-boundary-evidence") {
     return decision(input.changeId, "needs-review", "Prior controlled loop runtime-boundary evidence has an unexpected authority.", runtimeBoundary.nextGateActionType, evidenceRefs(input));
   }
-  if (runtimeBoundary.status !== "recorded" || runtimeBoundary.warning) {
+  if ((runtimeBoundary.status !== "recorded" || runtimeBoundary.warning) && !allowsPostStepReadinessWarningRecovery) {
     return decision(input.changeId, "needs-review", "Prior controlled loop runtime-boundary evidence has warnings and must be reviewed before continuation.", runtimeBoundary.nextGateActionType, evidenceRefs(input));
   }
   if (hasForbiddenAuthority(runtimeBoundary)) {
@@ -128,13 +132,43 @@ function evaluatePriorRuntimeBoundary(input: ControlledSchedulerContinuationPrio
     return decision(input.changeId, "needs-review", "Prior controlled loop runtime-boundary evidence is missing conservative continuation flags.", runtimeBoundary.nextGateActionType, evidenceRefs(input));
   }
   const boundary = input.controlledLoopBoundaryResult;
-  if (boundary?.nextGateActionType !== runtimeBoundary.nextGateActionType) {
+  if (boundary?.nextGateActionType !== runtimeBoundary.nextGateActionType && !allowsPostStepReadinessWarningRecovery) {
     return decision(input.changeId, "needs-review", "Prior controlled loop runtime-boundary next gate no longer matches boundary-result evidence.", runtimeBoundary.nextGateActionType, evidenceRefs(input));
   }
-  if (runtimeBoundary.nextGateTargetScopeSource !== "fresh-current-gate-required") {
+  if (runtimeBoundary.nextGateTargetScopeSource !== "fresh-current-gate-required" && !allowsPostStepReadinessWarningRecovery) {
     return decision(input.changeId, "needs-review", "Prior controlled loop runtime-boundary evidence does not require a fresh current-gate target scope.", runtimeBoundary.nextGateActionType, evidenceRefs(input));
   }
   return null;
+}
+
+function allowsPostStepReadinessWarningRecovery(input: {
+  changeId: string;
+  previousStep: ControlledSchedulerContinuationPriorStepEvidence | null;
+  previousGateReadinessPreflight?: ControlledSchedulerContinuationPreflightEvidence | null;
+  requestedConcreteGate?: WorkflowActionScopeCarrier;
+}): boolean {
+  const previousStep = input.previousStep;
+  const boundary = previousStep?.controlledLoopBoundaryResult;
+  const runtimeBoundary = previousStep?.controlledLoopRuntimeBoundary;
+  const requestedGate = input.requestedConcreteGate;
+  const preflight = input.previousGateReadinessPreflight;
+  if (!previousStep || !boundary || !runtimeBoundary || !requestedGate) return false;
+  if (!isRecoverablePostStepReadinessWarning(boundary.warning) || !isRecoverablePostStepReadinessWarning(runtimeBoundary.warning)) return false;
+  if (boundary.status !== "recorded-with-warning" || runtimeBoundary.status !== "recorded-with-warning") return false;
+  if (boundary.nextGateActionType && runtimeBoundary.nextGateActionType && boundary.nextGateActionType !== runtimeBoundary.nextGateActionType) return false;
+  if (boundary.nextGateActionType && (!isControlledSchedulerConcreteAction(boundary.nextGateActionType) || requestedGate.actionType !== boundary.nextGateActionType)) return false;
+  if (runtimeBoundary.nextGateActionType && (!isControlledSchedulerConcreteAction(runtimeBoundary.nextGateActionType) || requestedGate.actionType !== runtimeBoundary.nextGateActionType)) return false;
+  if (previousStep.changeId !== input.changeId) return false;
+  if (preflight) {
+    if (preflight.currentGate.actionType !== requestedGate.actionType) return false;
+    if (preflight.changeId !== input.changeId) return false;
+    if (preflight.concreteGateInvoked !== false || preflight.toolPolicyAuthorizedConcreteGate !== false || preflight.executionStarted !== false) return false;
+  }
+  return true;
+}
+
+function isRecoverablePostStepReadinessWarning(warning: string | undefined): boolean {
+  return Boolean(warning?.startsWith("Post-step readiness evidence was not prepared:"));
 }
 
 function evaluateRequestedGate(changeId: string, gate: WorkflowActionScopeCarrier): ControlledSchedulerContinuationDecision | null {
@@ -157,12 +191,13 @@ function evaluatePriorPreflight(input: {
   previousGateReadinessPreflight?: ControlledSchedulerContinuationPreflightEvidence | null;
   requestedConcreteGate?: WorkflowActionScopeCarrier;
   requirePriorPreflight?: boolean;
-}): ControlledSchedulerContinuationDecision | null {
+}, allowsPostStepReadinessWarningRecovery = false): ControlledSchedulerContinuationDecision | null {
   const previousStep = input.previousStep;
   if (!previousStep) return null;
   const boundary = previousStep.controlledLoopBoundaryResult;
   const priorPreflightId = previousStep.postStepEvidence?.goalLoopGateReadinessPreflightId;
   if (!input.requirePriorPreflight && !input.previousGateReadinessPreflight) return null;
+  if (allowsPostStepReadinessWarningRecovery && !input.previousGateReadinessPreflight) return null;
   if (!input.previousGateReadinessPreflight) {
     return decision(input.changeId, "needs-review", "Prior post-step Goal Loop gate-readiness preflight evidence is unavailable.", boundary?.nextGateActionType, evidenceRefs(previousStep));
   }
@@ -173,11 +208,14 @@ function evaluatePriorPreflight(input: {
   if (preflight.changeId !== input.changeId || preflight.concreteGateInvoked !== false || preflight.toolPolicyAuthorizedConcreteGate !== false || preflight.executionStarted !== false) {
     return decision(input.changeId, "needs-review", "Prior post-step Goal Loop gate-readiness preflight is not non-executing evidence for this Change.", preflight.currentGate.actionType, evidenceRefs(previousStep));
   }
-  if (preflight.currentGate.actionType !== boundary?.nextGateActionType) {
+  if (boundary?.nextGateActionType && preflight.currentGate.actionType !== boundary.nextGateActionType) {
     return decision(input.changeId, "needs-review", "Prior post-step Goal Loop gate-readiness preflight current gate does not match boundary-result evidence.", preflight.currentGate.actionType, evidenceRefs(previousStep));
   }
-  if (input.requestedConcreteGate?.actionType !== boundary?.nextGateActionType) {
+  if (boundary?.nextGateActionType && input.requestedConcreteGate?.actionType !== boundary.nextGateActionType) {
     return decision(input.changeId, "needs-review", "submitted gate no longer matches the boundary-result next gate.", input.requestedConcreteGate?.actionType, evidenceRefs(previousStep));
+  }
+  if (allowsPostStepReadinessWarningRecovery && input.requestedConcreteGate?.actionType && preflight.currentGate.actionType !== input.requestedConcreteGate.actionType) {
+    return decision(input.changeId, "needs-review", "Prior post-step Goal Loop gate-readiness preflight current gate does not match submitted recovered gate.", preflight.currentGate.actionType, evidenceRefs(previousStep));
   }
   if (preflight.currentGate.scope.changeId !== input.changeId) {
     return decision(input.changeId, "needs-review", "Prior post-step Goal Loop gate-readiness preflight current gate belongs to a different Change.", preflight.currentGate.actionType, evidenceRefs(previousStep));

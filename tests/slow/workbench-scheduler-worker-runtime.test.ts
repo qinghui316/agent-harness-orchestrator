@@ -13,7 +13,7 @@ import { listTaskQueues } from "../../src/task-queue/manager.js";
 import { listTaskRuns, listWorkerLeases } from "../../src/task-run/manager.js";
 import { listWorkflowRuns } from "../../src/workflow-run/manager.js";
 import { auditSchedulerFirstWorker, validateSchedulerFirstWorker } from "../../src/scheduler-runtime/manager.js";
-import { createFakeCodex, getTempDir, git, initGitRepository, project, writeAcceptedSpecAndTasks, writePlanningBundleFixture } from "../unit/workbench/fixtures.js";
+import { createFakeCodex, findSchedulerGateAction, getTempDir, git, initGitRepository, project, unwrapControlledSchedulerAdvanceResult, writeAcceptedSpecAndTasks, writePlanningBundleFixture } from "../unit/workbench/fixtures.js";
 
 describe("workbench scheduler worker runtime slow path", () => {
   it("starts and validates the first scheduler worker after prepared launch confirmation", async () => {
@@ -248,14 +248,15 @@ describe("workbench scheduler worker runtime slow path", () => {
     });
     expect(startSnapshot.right.confirmationQueue.primary?.actions).toEqual(expect.arrayContaining([
       expect.objectContaining({
-        actionType: "planning.scheduler.worker.start-first",
+        actionType: "planning.scheduler.controlled-advance.run",
+        goalLoopCurrentGateActionType: "planning.scheduler.worker.start-first",
         schedulerRunId: schedulerRun?.id,
         schedulerClaimReservationId: claimReservation?.id,
       }),
     ]));
     const startAction = startSnapshot.right.confirmationQueue.current
       .flatMap((item) => item.actions)
-      .find((action) => action.actionType === "planning.scheduler.worker.start-first" && action.schedulerClaimReservationId === claimReservation?.id);
+      .find((action) => findSchedulerGateAction([action], "planning.scheduler.worker.start-first", (candidate) => candidate.schedulerClaimReservationId === claimReservation?.id));
     if (!startAction) throw new Error("Missing scheduler first worker action.");
 
     await initGitRepository(tempDir);
@@ -278,7 +279,7 @@ describe("workbench scheduler worker runtime slow path", () => {
       const startedActionResult = (started.result as {
         result?: unknown;
       }).result ?? started.result;
-      const startedResult = startedActionResult as {
+      const startedResult = unwrapControlledSchedulerAdvanceResult(startedActionResult) as {
           executionStarted?: boolean;
           workerStart?: {
             id?: string;
@@ -372,16 +373,11 @@ describe("workbench scheduler worker runtime slow path", () => {
       });
       const resultAction = resultSnapshot.right.confirmationQueue.current
         .flatMap((item) => item.actions)
-        .find((action) => action.actionType === "planning.scheduler.worker.reconcile-result" && action.schedulerWorkerStartId === startedResult?.workerStart?.id);
+        .find((action) => findSchedulerGateAction([action], "planning.scheduler.worker.reconcile-result", (candidate) => candidate.schedulerWorkerStartId === startedResult?.workerStart?.id));
       if (!resultAction) throw new Error("Missing scheduler first worker result reconcile action.");
       expect(resultAction).toMatchObject({
         schedulerRunId: schedulerRun?.id,
-        schedulerClaimReservationId: claimReservation?.id,
         schedulerWorkerStartId: startedResult?.workerStart?.id,
-        taskRunId: startedResult?.workerStart?.taskRunId,
-        workerLeaseId: startedResult?.workerStart?.workerLeaseId,
-        worktreeId: startedResult?.workerStart?.worktreeId,
-        runId: startedResult?.workerStart?.runId,
       });
 
       const reconciled = await executeWorkbenchAction({ project: project(), path: tempDir }, {
@@ -389,7 +385,7 @@ describe("workbench scheduler worker runtime slow path", () => {
         confirm: true,
       });
       expect(reconciled.result).toMatchObject({ status: "completed" });
-      const reconciledResult = (reconciled.result as {
+      const reconciledActionResult = (reconciled.result as {
         result?: {
           status?: "terminal" | "running";
           result?: {
@@ -405,7 +401,22 @@ describe("workbench scheduler worker runtime slow path", () => {
           lease?: { id?: string; status?: string };
           codeRun?: { id?: string; status?: string };
         };
-      }).result;
+      }).result ?? reconciled.result;
+      const reconciledResult = unwrapControlledSchedulerAdvanceResult(reconciledActionResult) as {
+        status?: "terminal" | "running";
+        result?: {
+          id?: string;
+          status?: string;
+          schedulerWorkerStartId?: string;
+          taskRunId?: string;
+          workerLeaseId?: string;
+          worktreeId?: string;
+          runId?: string;
+        };
+        taskRun?: { id?: string; status?: string };
+        lease?: { id?: string; status?: string };
+        codeRun?: { id?: string; status?: string };
+      };
       expect(reconciledResult).toMatchObject({
         status: "terminal",
         result: {
@@ -463,23 +474,17 @@ describe("workbench scheduler worker runtime slow path", () => {
       expect(postResultSnapshot.right.confirmationQueue.current.flatMap((item) => item.actions).some((action) => action.actionType === "planning.scheduler.worker.reconcile-result")).toBe(false);
       const validationAction = postResultSnapshot.right.confirmationQueue.current
         .flatMap((item) => item.actions)
-        .find((action) => action.actionType === "planning.scheduler.worker.validate-first" && action.schedulerWorkerResultId === reconciledResult?.result?.id);
+        .find((action) => findSchedulerGateAction([action], "planning.scheduler.worker.validate-first", (candidate) => candidate.schedulerWorkerResultId === reconciledResult?.result?.id));
       if (!validationAction) throw new Error("Missing scheduler first worker validation action.");
       expect(validationAction).toMatchObject({
         schedulerRunId: schedulerRun?.id,
-        schedulerClaimReservationId: claimReservation?.id,
-        schedulerWorkerStartId: startedResult?.workerStart?.id,
         schedulerWorkerResultId: reconciledResult?.result?.id,
-        taskRunId: startedResult?.workerStart?.taskRunId,
-        workerLeaseId: startedResult?.workerStart?.workerLeaseId,
-        worktreeId: startedResult?.workerStart?.worktreeId,
-        runId: startedResult?.workerStart?.runId,
       });
       const validated = await executeWorkbenchAction({ project: project(), path: tempDir }, {
         ...validationAction,
         confirm: true,
       });
-      const validatedResult = (validated.result as {
+      const validatedActionResult = (validated.result as {
         result?: {
           status?: "passed" | "failed";
           schedulerValidation?: {
@@ -496,7 +501,23 @@ describe("workbench scheduler worker runtime slow path", () => {
           validationRun?: { id?: string; runtime?: string; worktree?: { worktreeId?: string } };
           validationResult?: { id?: string; status?: string; worktreeId?: string };
         };
-      }).result;
+      }).result ?? validated.result;
+      const validatedResult = unwrapControlledSchedulerAdvanceResult(validatedActionResult) as {
+        status?: "passed" | "failed";
+        schedulerValidation?: {
+          id?: string;
+          status?: string;
+          schedulerWorkerResultId?: string;
+          taskRunId?: string;
+          workerLeaseId?: string;
+          worktreeId?: string;
+          codeRunId?: string;
+          validationRunId?: string;
+        };
+        taskRun?: { id?: string; status?: string };
+        validationRun?: { id?: string; runtime?: string; worktree?: { worktreeId?: string } };
+        validationResult?: { id?: string; status?: string; worktreeId?: string };
+      };
       expect(validatedResult).toMatchObject({
         status: "passed",
         schedulerValidation: {
@@ -561,19 +582,11 @@ describe("workbench scheduler worker runtime slow path", () => {
       expect(postValidationSnapshot.right.confirmationQueue.current.flatMap((item) => item.actions).some((action) => action.actionType === "planning.scheduler.worker.validate-first")).toBe(false);
       const auditAction = postValidationSnapshot.right.confirmationQueue.current
         .flatMap((item) => item.actions)
-        .find((action) => action.actionType === "planning.scheduler.worker.audit-first" && action.schedulerWorkerValidationId === validatedResult?.schedulerValidation?.id);
+        .find((action) => findSchedulerGateAction([action], "planning.scheduler.worker.audit-first", (candidate) => candidate.schedulerWorkerValidationId === validatedResult?.schedulerValidation?.id));
       if (!auditAction) throw new Error("Missing scheduler first worker audit action.");
       expect(auditAction).toMatchObject({
         schedulerRunId: schedulerRun?.id,
-        schedulerClaimReservationId: claimReservation?.id,
-        schedulerWorkerStartId: startedResult?.workerStart?.id,
-        schedulerWorkerResultId: reconciledResult?.result?.id,
         schedulerWorkerValidationId: validatedResult?.schedulerValidation?.id,
-        taskRunId: startedResult?.workerStart?.taskRunId,
-        workerLeaseId: startedResult?.workerStart?.workerLeaseId,
-        worktreeId: startedResult?.workerStart?.worktreeId,
-        runId: startedResult?.workerStart?.runId,
-        validationRunId: validatedResult?.schedulerValidation?.validationRunId,
       });
       const repeatedValidation = await validateSchedulerFirstWorker(project(), {
         changeId: topic.changeId,
@@ -592,7 +605,7 @@ describe("workbench scheduler worker runtime slow path", () => {
       const auditedActionResult = (audited.result as {
         result?: unknown;
       }).result ?? audited.result;
-      const auditedResult = (auditedActionResult as {
+      const auditedResult = (unwrapControlledSchedulerAdvanceResult(auditedActionResult) as {
         existing?: boolean;
         executionStarted?: boolean;
         schedulerAudit?: {
@@ -681,7 +694,11 @@ describe("workbench scheduler worker runtime slow path", () => {
         schedulerWorkerAuditId: auditedResult.schedulerAudit?.id,
       });
       expect(postAuditSnapshot.right.confirmationQueue.current.flatMap((item) => item.actions).some((action) => action.actionType === "planning.scheduler.worker.audit-first")).toBe(false);
-      expect(postAuditSnapshot.right.confirmationQueue.current.flatMap((item) => item.actions).some((action) => action.actionType === "planning.scheduler.integration-candidate.compile")).toBe(true);
+      expect(postAuditSnapshot.right.confirmationQueue.current.flatMap((item) => item.actions).some((action) => findSchedulerGateAction(
+        [action],
+        "planning.scheduler.integration-candidate.compile",
+        (candidate) => candidate.schedulerWorkerAuditId === auditedResult.schedulerAudit?.id,
+      ))).toBe(true);
       expect(postAuditSnapshot.right.confirmationQueue.current.flatMap((item) => item.actions).some((action) => {
         const actionType = action.actionType ?? "";
         return actionType === "apply-check.run" || actionType.startsWith("landing.") || actionType.startsWith("remote-landing.");

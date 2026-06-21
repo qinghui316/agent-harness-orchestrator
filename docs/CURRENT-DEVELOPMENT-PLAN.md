@@ -17,6 +17,7 @@ The user should not need to know internal terms before asking for work. The main
 - Goal Loop path: GoalLoopDecision, iteration, continuation brief, next-step packet, packet freshness/parity, feedback, controller policy, controller refresh, main-Agent context, runtime prompt evidence, assisted concrete gate evidence, accepted artifact freshness, human close-gate handoff metadata, conflict reasons, Workpad read-only explanation cards, scoped start-next handoff evidence, scoped scheduler IntegrationCheck handoff evidence, scoped scheduler integration outcome handoff evidence, scoped SchedulerRun completion handoff evidence, scoped SchedulerRun blocked-closeout handoff evidence, compact SchedulerRun terminal handoff prompt evidence, compact controlled Scheduler post-step routing prompt evidence, optional controlled Scheduler post-step routing support on `GoalLoopGateReadinessPreflight`, scheduler execution-mode assessment, Workpad scheduler execution-mode surface, controller/preflight scheduler execution-mode handoff evidence, assisted concrete gate scheduler-mode consistency guard, enabled-gate projection guard, and enabled-gate server revalidation guard are implemented as non-executing evidence/context layers.
 - Product maintenance/self-evolution foundation: terminal demand closeouts, append-only maintenance ledger entries, generated maintenance indexes/cache, five-terminal-change maintenance reviews, candidate scoring/review types, lifecycle-resolution evidence, canonical update proposal evidence, human-gated canonical update decision evidence, canonical patch proposal evidence, human-gated canonical patch application follow-up records, canonical patch application manifest/readiness evidence, canonical patch target descriptor evidence, human-gated canonical docs/stable-memory patch application result evidence, read-only canonical patch application observation report evidence, doc budget reports, Workbench maintenance summaries, and maintenance confirmation queue projection exist as evidence/projection layers. Automatic rewrite behavior remains future-only.
 - Harness self-evolution: archive-triggered evolution can produce proposals, independent/subagent review evidence, results.tsv entries, and ECL/template deltas. The latest controlled Scheduler decision/routing window recorded `noop / independent_review`, retaining existing scoped-action, proposal/runtime, Goal Loop, module-boundary, core-reuse, Workbench honesty, read-model projection, close/handoff, documentation entropy, and experience-lifecycle rules without adding duplicate process text.
+- Workbench verification: `npm run test:workbench` now has explicit Workbench unit, scheduler-slow, slow, and aggregate layers. The residual scheduler slow monolith is split into capability-domain suites, the demand-to-execution golden-flow suite is part of the Workbench slow gate, and App DOM run-graph assertions use rendered DOM state as the primary signal. The remaining scheduler slow-suite issue is runtime cost, not ambiguous pass/fail health.
 
 ## Current Hard Boundaries
 
@@ -47,10 +48,16 @@ Current architecture debt register:
 ## Next Product Direction
 
 No structured product change is currently active. The latest archived
-`workbench-demand-to-execution-golden-flow` change proved the front half of the
-manual loop: natural-language Workbench demand, planning draft, execution
-confirmation, decomposition/readiness, readiness-scoped `code.run`, and
-validation/audit/result evidence. The earlier
+`workbench-verification-signal-stability` change made Workbench aggregate
+verification trustworthy again: `npm run test:workbench` passes through
+explicit unit / scheduler-slow / slow / aggregate layers, the stale App DOM
+fetch mock and controlled-advance test expectations are fixed, and the
+demand-to-execution golden-flow suite is part of the Workbench slow gate.
+
+The earlier `workbench-demand-to-execution-golden-flow` change proved the front
+half of the manual loop: natural-language Workbench demand, planning draft,
+execution confirmation, decomposition/readiness, readiness-scoped `code.run`,
+and validation/audit/result evidence. The
 `workbench-usable-manual-closed-loop` change proved the back half from result
 review through validation/audit, human-confirmed apply, and separate
 human-confirmed close/archive handoff.
@@ -73,14 +80,16 @@ constraint for future scheduler automation. Historical phase-by-phase details
 stay in archived summaries and `harness/changes/INDEX.json`.
 
 - If continuing product implementation, harden the proven Workbench
-  manual-gated loop with concrete product blockers, or address the remaining
-  Workbench aggregate test-stability debt.
+  manual-gated loop with concrete product blockers.
+- If improving test architecture, reduce the still-expensive scheduler slow
+  runtime without dropping scheduler/runtime/source-safety assertions or
+  recreating a residual Workbench monolith.
 - If exploring broader automation, open a separate full-auto design slice that
   explicitly reuses the proven gates and source safety.
 - If continuing Goal Loop work, build on controller policy evidence without making it execution authority.
 - If continuing scheduler work, use `docs/design-docs/controlled-scheduler-loop.md` as the loop boundary, but keep runtime staged and human-gated until an accepted ECL change implements and verifies each transition.
 - If improving Workbench UX, keep implemented actions honest and bind every high-impact action to concrete target ids, stale revalidation, ToolPolicyGate, and human confirmation.
-- If improving test architecture, keep new Workbench coverage in explicit capability-domain suites and do not recreate a residual Workbench monolith; do not mix test topology work into product behavior changes.
+- If adding Workbench tests, keep new coverage in explicit capability-domain suites and do not recreate a residual Workbench monolith; do not mix test topology work into unrelated product behavior changes.
 - If improving product maintenance/self-evolution, treat raw closeouts/ledgers as durable evidence and current stable memory/docs as compact derived memory. Build only on the Phase 12P-12V human-gated proposal/decision/patch/gate/manifest/descriptor/application-result chain before considering any broader rewrite behavior.
 - If improving Harness self-evolution, use the Experience Lifecycle scan: promote, retain, merge, retire, and archive-only.
 

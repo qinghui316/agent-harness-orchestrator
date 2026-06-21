@@ -158,6 +158,57 @@ describe("controlled scheduler step contract", () => {
     })).toThrow(/requires prior continuation readiness evidence/);
   });
 
+  it("allows recoverable post-step readiness warnings so fresh current-transition checks can revalidate the next gate", () => {
+    const warning = "Post-step readiness evidence was not prepared: current Workbench gate is not a controlled scheduler concrete action.";
+    expect(assertControlledSchedulerContinuationGuard({
+      changeId: "change-1",
+      previousStep: {
+        ...priorStep(),
+        status: "recorded-with-warning",
+        postStepEvidence: {
+          readinessWarning: warning,
+        },
+        controlledLoopContinuationReadiness: {
+          status: "needs-review",
+          nextCandidateActionType: "planning.scheduler.worker.reconcile-result",
+          readinessEvidencePrepared: false,
+          warning,
+        },
+      },
+      requestedConcreteGate: {
+        actionType: "planning.scheduler.worker.reconcile-result",
+        changeId: "change-1",
+        schedulerRunId: "scheduler-run-1",
+        schedulerWorkerStartId: "worker-start-1",
+      },
+    })).toBe("matched");
+  });
+
+  it("allows recoverable post-step readiness warnings that waited on a non-scheduler gate", () => {
+    const warning = "Post-step readiness evidence was not prepared: current Workbench gate is not a controlled scheduler concrete action.";
+    expect(assertControlledSchedulerContinuationGuard({
+      changeId: "change-1",
+      previousStep: {
+        ...priorStep(),
+        status: "recorded-with-warning",
+        postStepEvidence: {
+          readinessWarning: warning,
+        },
+        controlledLoopContinuationReadiness: {
+          status: "waiting",
+          readinessEvidencePrepared: false,
+          warning,
+        },
+      },
+      requestedConcreteGate: {
+        actionType: "planning.scheduler.worker.reconcile-result",
+        changeId: "change-1",
+        schedulerRunId: "scheduler-run-1",
+        schedulerWorkerStartId: "worker-start-1",
+      },
+    })).toBe("matched");
+  });
+
   it("fails closed for blocked prior continuation states", () => {
     for (const status of ["needs-review", "waiting"]) {
       expect(() => assertControlledSchedulerContinuationGuard({

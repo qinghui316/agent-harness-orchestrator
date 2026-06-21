@@ -352,6 +352,11 @@ const stream = {
   diagnostics: [],
 };
 
+function fetchCallUrls(): string[] {
+  return (fetch as unknown as { mock: { calls: Array<[RequestInfo | URL, RequestInit?]> } }).mock.calls
+    .map(([input]) => String(input));
+}
+
 describe("Workbench web app", () => {
   beforeEach(() => {
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
@@ -446,8 +451,8 @@ describe("Workbench web app", () => {
     expect(screen.getByText("记忆：external-local")).toBeTruthy();
     expect(screen.getByText("当前需求：会员折扣计价")).toBeTruthy();
     fireEvent.click(screen.getByRole("tab", { name: "Agent 运行图" }));
-    await waitFor(() => expect(fetch).toHaveBeenCalledWith("/api/projects/repo/workbench/projections/run-graph/member-discount"));
     expect(await screen.findByTestId("agent-run-graph")).toBeTruthy();
+    expect(fetchCallUrls()).toContain("/api/projects/repo/workbench/projections/run-graph/member-discount");
     expect(screen.getByTestId("agent-run-node-main-agent")).toBeTruthy();
     expect(screen.getByTestId("agent-run-node-coder-agent")).toBeTruthy();
     expect(screen.queryByTestId("agent-run-node-memory-closeout")).toBeNull();

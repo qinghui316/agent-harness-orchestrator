@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-21T06:15:26.0067757Z",
+    "generated_at":  "2026-06-21T09:54:22.8354260Z",
     "active":  [
 
                ],
@@ -1789,6 +1789,10 @@
                     {
                         "name":  "20260621-workbench-usable-manual-closed-loop",
                         "path":  "harness/changes/archive/20260621-workbench-usable-manual-closed-loop"
+                    },
+                    {
+                        "name":  "20260621-workbench-verification-signal-stability",
+                        "path":  "harness/changes/archive/20260621-workbench-verification-signal-stability"
                     },
                     {
                         "name":  "20260621-workpad-controlled-scheduler-reconfirmation-surface",

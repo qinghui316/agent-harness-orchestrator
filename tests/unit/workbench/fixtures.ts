@@ -33,7 +33,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await rm(tempDir, { recursive: true, force: true });
+  await rm(tempDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 });
 
 export function getTempDir(): string {

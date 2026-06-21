@@ -143,18 +143,23 @@ export function assertControlledSchedulerContinuationGuard(input: {
   if (previousStep.changeId !== changeId) {
     throw new Error("planning.scheduler.controlled-advance.run continuation guard found prior controlled step for a different Change.");
   }
-  if (previousStep.status !== "recorded") {
+  const recoverablePostStepReadinessWarning = isRecoverablePostStepReadinessWarning(previousStep, requestedConcreteGate);
+  if (previousStep.status !== "recorded" && !recoverablePostStepReadinessWarning) {
     throw new Error("planning.scheduler.controlled-advance.run continuation guard requires prior controlled step evidence without warnings.");
   }
-  if (previousStep.postStepEvidence?.evaluationWarning || previousStep.postStepEvidence?.readinessWarning) {
+  if ((previousStep.postStepEvidence?.evaluationWarning || previousStep.postStepEvidence?.readinessWarning) && !recoverablePostStepReadinessWarning) {
     throw new Error("planning.scheduler.controlled-advance.run continuation guard requires warning-free post-step evidence.");
   }
   const readiness = previousStep.controlledLoopContinuationReadiness;
   if (!readiness) {
     throw new Error("planning.scheduler.controlled-advance.run continuation guard requires prior continuation readiness evidence.");
   }
-  if (!isRoutableContinuationStatus(readiness.status) || !readiness.readinessEvidencePrepared || readiness.warning) {
+  if ((!isRoutableContinuationStatus(readiness.status) || !readiness.readinessEvidencePrepared || readiness.warning) && !recoverablePostStepReadinessWarning) {
     throw new Error("planning.scheduler.controlled-advance.run continuation guard requires routable prior continuation evidence.");
+  }
+  assertControlledSchedulerConcreteGateRequest(requestedConcreteGate, "planning.scheduler.controlled-advance.run continuation guard submitted gate");
+  if (recoverablePostStepReadinessWarning) {
+    return "matched";
   }
   if (!previousStep.postStepEvidence?.goalLoopGateReadinessPreflightId) {
     throw new Error("planning.scheduler.controlled-advance.run continuation guard requires prior post-step gate-readiness preflight evidence.");
@@ -184,12 +189,25 @@ export function assertControlledSchedulerContinuationGuard(input: {
   }
   const expectedGate = gateFromCurrentGate(changeId, previousGateReadinessPreflight.currentGate);
   assertControlledSchedulerConcreteGateRequest(expectedGate, "planning.scheduler.controlled-advance.run continuation guard expected gate");
-  assertControlledSchedulerConcreteGateRequest(requestedConcreteGate, "planning.scheduler.controlled-advance.run continuation guard submitted gate");
   const comparableSubmittedGate = concreteGateFromScope(requestedConcreteGate, expectedGate);
   if (!workflowActionScopesMatchStrict(expectedGate, comparableSubmittedGate)) {
     throw new Error("planning.scheduler.controlled-advance.run continuation guard submitted gate scope no longer matches prior post-step preflight.");
   }
   return "matched";
+}
+
+function isRecoverablePostStepReadinessWarning(
+  previousStep: ControlledSchedulerContinuationStepEvidence,
+  requestedConcreteGate: WorkflowActionScopeCarrier,
+): boolean {
+  const readiness = previousStep.controlledLoopContinuationReadiness;
+  return previousStep.status === "recorded-with-warning"
+    && Boolean(previousStep.postStepEvidence?.readinessWarning?.startsWith("Post-step readiness evidence was not prepared:"))
+    && !previousStep.postStepEvidence?.evaluationWarning
+    && (readiness?.status === "needs-review" || readiness?.status === "waiting")
+    && readiness.readinessEvidencePrepared === false
+    && readiness.warning?.startsWith("Post-step readiness evidence was not prepared:") === true
+    && (!readiness.nextCandidateActionType || readiness.nextCandidateActionType === requestedConcreteGate.actionType);
 }
 
 function isRoutableContinuationStatus(status: string): boolean {

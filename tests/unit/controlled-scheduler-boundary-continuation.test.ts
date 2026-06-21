@@ -60,6 +60,60 @@ describe("controlled scheduler boundary continuation guard", () => {
     })).not.toThrow();
   });
 
+  it("accepts recoverable post-step readiness warnings after fresh matching preflight evidence is available", () => {
+    const warning = "Post-step readiness evidence was not prepared: current Workbench gate is not a controlled scheduler concrete action.";
+    expect(() => assertControlledSchedulerBoundaryContinuation({
+      changeId: "change-1",
+      requestedConcreteGate: requestedGate,
+      previousStep: step({
+        boundaryPatch: {
+          status: "recorded-with-warning",
+          continuationReadinessStatus: "needs-review",
+          readinessEvidencePrepared: false,
+          needsReevaluation: true,
+          warning,
+        },
+        runtimePatch: {
+          status: "recorded-with-warning",
+          continuationReadinessStatus: "needs-review",
+          readinessEvidencePrepared: false,
+          needsReevaluation: true,
+          warning,
+        },
+      }),
+      previousGateReadinessPreflight: preflight,
+    })).not.toThrow();
+  });
+
+  it("accepts recoverable post-step readiness warnings even when the prior step was waiting on a non-scheduler gate", () => {
+    const warning = "Post-step readiness evidence was not prepared: current Workbench gate is not a controlled scheduler concrete action.";
+    expect(() => assertControlledSchedulerBoundaryContinuation({
+      changeId: "change-1",
+      requestedConcreteGate: requestedGate,
+      previousStep: step({
+        boundaryPatch: {
+          status: "recorded-with-warning",
+          continuationReadinessStatus: "waiting",
+          nextGateActionType: undefined,
+          nextGateTargetScopeSource: undefined,
+          readinessEvidencePrepared: false,
+          needsReevaluation: true,
+          warning,
+        },
+        runtimePatch: {
+          status: "recorded-with-warning",
+          continuationReadinessStatus: "waiting",
+          nextGateActionType: undefined,
+          nextGateTargetScopeSource: "none",
+          readinessEvidencePrepared: false,
+          needsReevaluation: true,
+          warning,
+        },
+      }),
+      previousGateReadinessPreflight: preflight,
+    })).not.toThrow();
+  });
+
   it("fails closed when prior boundary evidence is missing", () => {
     expect(() => assertControlledSchedulerBoundaryContinuation({
       changeId: "change-1",
@@ -150,6 +204,7 @@ function step(input: {
   changeId?: string;
   controlledLoopBoundaryResult?: SchedulerControlledStepEvidence["controlledLoopBoundaryResult"];
   boundaryPatch?: Record<string, unknown>;
+  runtimePatch?: Record<string, unknown>;
 } = {}): SchedulerControlledStepEvidence {
   const changeId = input.changeId ?? "change-1";
   const controlledLoopBoundaryResult = input.controlledLoopBoundaryResult === undefined && !("controlledLoopBoundaryResult" in input)
@@ -243,6 +298,7 @@ function step(input: {
         mergeAuthorized: false,
         remoteLandingAuthorized: false,
         harnessEvolutionAuthorized: false,
+        ...(input.runtimePatch ?? {}),
       }
     : undefined;
 

@@ -7,8 +7,8 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 - Current date: 2026-06-21.
 - Active change: none.
 - Pending Harness evolution: none.
-- Latest archived product change: Workbench Demand To Execution Golden Flow, archived at `harness/changes/archive/20260621-workbench-demand-to-execution-golden-flow/summary.md`.
-- Latest product/Harness docs change: Workbench Demand To Execution Golden Flow, archived at `harness/changes/archive/20260621-workbench-demand-to-execution-golden-flow/summary.md`.
+- Latest archived product change: Workbench Verification Signal Stability, archived at `harness/changes/archive/20260621-workbench-verification-signal-stability/summary.md`.
+- Latest product/Harness docs change: Workbench Verification Signal Stability, archived at `harness/changes/archive/20260621-workbench-verification-signal-stability/summary.md`.
 - Active product phase: none.
 - Active Harness evolution phase: none.
 - Latest Harness evolution: `harness/changes/archive/20260621-auto-evolve-harness-controlled-scheduler-continuation-window/summary.md`.
@@ -16,11 +16,13 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 No active structured work is open. The latest product baseline proves the
 Workbench manual-gated path from natural-language demand through planning,
 decomposition/readiness, `code.run`, validation/audit/result evidence,
-human-confirmed apply, and explicit close/archive. No Harness evolution is
-pending. Use `docs/STATUS.md` for short handoff context and
-`harness/changes/INDEX.json` plus archived `summary.md` files for historical
-detail. Do not rebuild current context by reading the full archive ledger unless
-the task requires it.
+human-confirmed apply, and explicit close/archive. The latest verification
+stability change made `npm run test:workbench` pass through explicit unit,
+scheduler-slow, slow, and aggregate layers; the remaining issue is test cost,
+not an ambiguous pass/fail signal. No Harness evolution is pending. Use
+`docs/STATUS.md` for short handoff context and `harness/changes/INDEX.json`
+plus archived `summary.md` files for historical detail. Do not rebuild current
+context by reading the full archive ledger unless the task requires it.
 
 ## 2. Context Loading Order
 

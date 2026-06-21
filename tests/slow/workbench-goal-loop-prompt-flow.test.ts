@@ -9,11 +9,13 @@ import { compileGoalLoopControllerPolicy, compileGoalLoopEvaluation } from "../.
 import type { RunMetadata } from "../../src/types/index.js";
 import {
   createFakeCodex,
+  findSchedulerGateAction,
   getTempDir,
   prepareSchedulerFirstWorkerThroughResult,
   prepareSchedulerTwoWorkerIntegrationHandoff,
   project,
   readJsonl,
+  unwrapControlledSchedulerAdvanceResult,
 } from "../unit/workbench/fixtures.js";
 
 describe("Workbench Goal Loop prompt slow flows", () => {
@@ -215,8 +217,18 @@ describe("Workbench Goal Loop prompt slow flows", () => {
       const actionsAfterPromptRuns = actionsAfterPromptRunsFull
         .map((action) => action.actionType)
         .sort();
-      expect(actionsBeforeChat).toContain("planning.scheduler.worker.validate-first");
-      expect(actionsAfterPromptRuns).toContain("planning.scheduler.worker.validate-first");
+      expect(actionsBeforeChat).toContain("planning.scheduler.controlled-advance.run");
+      expect(actionsAfterPromptRuns).toContain("planning.scheduler.controlled-advance.run");
+      expect(snapshot.right.confirmationQueue.current.flatMap((item) => item.actions).some((action) => findSchedulerGateAction(
+        [action],
+        "planning.scheduler.worker.validate-first",
+        (candidate) => candidate.schedulerWorkerResultId === prepared.workerResult.id,
+      ))).toBe(true);
+      expect(actionsAfterPromptRunsFull.some((action) => findSchedulerGateAction(
+        [action],
+        "planning.scheduler.worker.validate-first",
+        (candidate) => candidate.schedulerWorkerResultId === prepared.workerResult.id,
+      ))).toBe(true);
       expect(actionsAfterPromptRunsFull.every((action) => !("controlledLoopState" in action) && !("goalLoopControlledLoopState" in action) && !("schedulerLoopEvidenceSnapshot" in action))).toBe(true);
       const allowedGoalLoopEvidenceActions = new Set([
         "planning.goal-loop.feedback.evaluate",
@@ -375,10 +387,17 @@ describe("Workbench Goal Loop prompt slow flows", () => {
     const validationAction = (await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: prepared.topic.changeId }))
       .right.confirmationQueue.current
       .flatMap((item) => item.actions)
-      .find((action) => action.actionType === "planning.scheduler.worker.validate-first" && action.schedulerWorkerResultId === prepared.workerResult.id);
+      .find((action) => findSchedulerGateAction(
+        [action],
+        "planning.scheduler.worker.validate-first",
+        (candidate) => candidate.schedulerWorkerResultId === prepared.workerResult.id,
+      ));
     if (!validationAction) throw new Error("Missing scheduler first worker validation action.");
     const validated = await executeWorkbenchAction({ project: project(), path: getTempDir() }, { ...validationAction, confirm: true });
-    const schedulerWorkerValidationId = ((validated.result as { result?: { schedulerValidation?: { id?: string } } }).result)?.schedulerValidation?.id;
+    const validationResult = unwrapControlledSchedulerAdvanceResult((validated.result as { result?: unknown }).result ?? validated.result) as {
+      schedulerValidation?: { id?: string };
+    };
+    const schedulerWorkerValidationId = validationResult.schedulerValidation?.id;
 
     await compileGoalLoopEvaluation(memory, changePath);
     const visibleGoalLoop = (await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: prepared.topic.changeId })).center.workpad.goalLoop;
