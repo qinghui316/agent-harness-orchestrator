@@ -7,15 +7,15 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 - Current date: 2026-06-21.
 - Active change: none.
 - Pending Harness evolution: none.
-- Latest archived product change: Controlled Scheduler Continuation Preflight Support, archived at `harness/changes/archive/20260621-controlled-scheduler-continuation-preflight-support/summary.md`.
-- Latest product/Harness docs change: Controlled Scheduler Continuation Preflight Support, archived at `harness/changes/archive/20260621-controlled-scheduler-continuation-preflight-support/summary.md`.
+- Latest archived product change: Workbench Usable Manual Closed Loop, archived at `harness/changes/archive/20260621-workbench-usable-manual-closed-loop/summary.md`.
+- Latest product/Harness docs change: Workbench Usable Manual Closed Loop, archived at `harness/changes/archive/20260621-workbench-usable-manual-closed-loop/summary.md`.
 - Active product phase: none.
 - Active Harness evolution phase: none.
-- Latest Harness evolution: `harness/changes/archive/20260621-auto-evolve-harness-controlled-scheduler-decision-routing-window-noop/summary.md`.
+- Latest Harness evolution: `harness/changes/archive/20260621-auto-evolve-harness-controlled-scheduler-continuation-window/summary.md`.
 
-No active structured work is open. Use `docs/STATUS.md` for the short resume
-state and next recommended structured work. Use `harness/changes/INDEX.json`
-and archived `summary.md` files for historical detail. Do not rebuild current
+No active structured work is open. No Harness evolution is pending. Use
+`docs/STATUS.md` for short handoff context and `harness/changes/INDEX.json`
+plus archived `summary.md` files for historical detail. Do not rebuild current
 context by reading the full archive ledger unless the task requires it.
 
 ## 2. Context Loading Order

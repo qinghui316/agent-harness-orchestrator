@@ -465,6 +465,86 @@ describe("Workbench web app", () => {
     });
   });
 
+  it("renders a usable manual-gated loop with one real apply confirmation and no future automation affordance", async () => {
+    const applyDecision = {
+      id: "result:member-discount:wt-1:ready",
+      kind: "apply-gate",
+      title: "确认应用到项目",
+      summary: "验证和审查已通过，可以由你确认应用到项目。",
+      userStatus: "waiting-confirmation",
+      resultSummary: "验证和审查已通过，可以由你确认应用到项目。",
+      recommendation: "应用会把当前结果写入项目；要求修改会进入下一轮修改；放弃只丢弃这次结果。",
+      explanation: "应用是高影响动作，仍需要明确确认；这不会执行远端提交或合并。",
+      severity: "info",
+      changeId: "member-discount",
+      targetId: "wt-1",
+      actions: [{
+        id: "apply:wt-1",
+        label: "应用到项目",
+        kind: "approval",
+        changeId: "member-discount",
+        action: { actionId: "result.apply", label: "应用到项目", command: "result", args: ["apply", "", "member-discount", "wt-1"], mutates: true, requiresConfirmation: true },
+        enabled: true,
+        requiresConfirmation: true,
+      }],
+    };
+    const applyQueueItem = {
+      id: "confirm:result:member-discount:wt-1:ready",
+      kind: "single-result-apply",
+      conversationId: "member-discount",
+      changeId: "member-discount",
+      resultId: "wt-1",
+      worktreeId: "wt-1",
+      summary: "验证和审查已通过，可以由你确认应用到项目。",
+      whyNeedsConfirmation: "确认应用到项目",
+      confirmEffect: "应用会把当前结果写入项目；要求修改会进入下一轮修改；放弃只丢弃这次结果。",
+      riskSummary: "应用是高影响动作，仍需要明确确认；这不会执行远端提交或合并。",
+      evidenceRefs: ["harness/runs/audit-1/audit.md"],
+      actions: applyDecision.actions,
+      primary: true,
+      status: "pending",
+    };
+    const uiSnapshot = {
+      ...snapshot,
+      right: {
+        ...snapshot.right,
+        decisionInspector: { ...snapshot.right.decisionInspector, primary: applyDecision, related: [], history: snapshot.right.decisionInspector.history },
+        confirmationQueue: { ...snapshot.right.confirmationQueue, primary: applyQueueItem, current: [applyQueueItem], otherDemands: [], maintenance: [] },
+      },
+    };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
+      if (url === "/api/projects") return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
+      if (url.includes("/workbench/projections/transcript/")) return jsonResponse(uiSnapshot.center.parentAgentTranscript);
+      if (url.includes("/workbench/projections/run-graph/")) return jsonResponse(uiSnapshot.center.agentRunGraph);
+      return jsonResponse(url.includes("/stream/") ? stream : uiSnapshot);
+    }));
+
+    render(<App />);
+
+    await waitFor(() => expect(screen.getAllByText("会员折扣计价").length).toBeGreaterThan(0));
+    const transcript = screen.getByTestId("parent-agent-transcript");
+    expect(within(transcript).getByText("会员用户满 100 元享 9 折")).toBeTruthy();
+    expect(within(transcript).getByText("Codex final summary 完整显示。")).toBeTruthy();
+    const primaryDecision = screen.getByTestId("decision-inspector-primary");
+    expect(within(primaryDecision).getByText("确认应用到项目")).toBeTruthy();
+    expect(within(primaryDecision).getByText("验证和审查已通过，可以由你确认应用到项目。")).toBeTruthy();
+    expect(within(primaryDecision).getAllByRole("button", { name: /应用到项目/ })).toHaveLength(1);
+    expect(primaryDecision.textContent).toContain("audit.md");
+
+    fireEvent.click(screen.getByRole("tab", { name: "工作台" }));
+    const resultReview = await screen.findByTestId("result-review-card");
+    expect(within(resultReview).getByText("结果可应用到项目")).toBeTruthy();
+    expect(within(resultReview).getByText("验证")).toBeTruthy();
+    expect(within(resultReview).getByText("审查")).toBeTruthy();
+    expect(within(resultReview).getByText("下一步")).toBeTruthy();
+
+    const visibleText = document.body.textContent ?? "";
+    expect(visibleText).not.toMatch(/full-auto|全自动|parallel executor|merge queue|slot allocator|whole-wave/i);
+    expect(screen.queryByRole("button", { name: /full-auto|全自动|merge|parallel|slot/i })).toBeNull();
+  });
+
   it("renders workflow result summaries in the main thread surface", async () => {
     const controlledAdvanceResult = {
       postStepHandoff: {

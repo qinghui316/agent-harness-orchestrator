@@ -46,11 +46,31 @@ Current architecture debt register:
 
 ## Next Product Direction
 
-The current product baseline includes product-maintenance evidence through the canonical patch application observation report chain, controlled Scheduler / Goal Loop evidence surfaces, right-confirmation reconfirmation evidence, Workpad read-only reconfirmation evidence, controlled-step result summaries, controlled-loop turn route summaries, controlled loop tick contract summaries, controlled loop continuation readiness summaries, controlled loop iteration summaries, controlled stop-summary resume handoff, a fail-closed controlled-advance continuation guard, a scheduler-owned controlled-advance candidate carrier that keeps current legal Scheduler gate wrapping consistent across confirmation, reconfirmation, and current-gate proof, a scheduler-runtime controlled loop-step owner that coordinates the existing one-transition `planning.scheduler.controlled-advance.run` flow while Workbench remains the human-gated action surface, a scheduler-runtime runtime-boundary evidence summary that records the implemented observe-current-evidence, choose-one-legal-transition, require-existing-human-gate, dispatch-approved-scope, reconcile-evidence, and stop-at-boundary phases as prior-turn evidence, durable pre-dispatch continuation decision evidence that records whether the current controlled advance was bootstrap or admitted by ready prior-step boundary evidence, a post-step routing decision that names the next existing owner/gate without creating execution authority, compact main-Agent / Goal Loop prompt evidence for the aligned latest post-step routing decision, and optional fail-closed post-step-routing support lineage on `GoalLoopGateReadinessPreflight`. Goal Loop evidence remains non-executing, assisted concrete gate guidance and close-gate handoff metadata are freshness-bound to accepted artifacts, conflict-aware routing distinguishes low-conflict first/next worker-start gates from sequential/rework/integration/closeout handling, and scheduler execution mode still reports false full-executor/whole-wave/slot authorization. Product maintenance writes typed lifecycle-resolution evidence, canonical update proposal evidence, human-gated canonical update decision evidence, canonical patch proposal evidence, human-gated canonical patch application follow-up records, read-only application manifest readiness evidence, optional safe target descriptors, scoped application result evidence for confirmed canonical docs/stable-memory updates, and read-only observation report evidence over those results. These records do not automatically rewrite stable memory, canonical docs, ECL rules, Harness templates, source roots, apply/close state, remote state, child Changes, loop runtime, worker dispatch, or Harness evolution state.
+The immediate product-functional baseline is now the Workbench manual-gated
+usable loop. The archived `workbench-usable-manual-closed-loop` change proved a
+user-visible closed loop where the Workbench main surface carries one local
+demand from conversation to result, validation/audit, human-confirmed apply, and
+separate human-confirmed close/archive handoff.
 
-The next product-functional direction is to wire the archived post-step-routing preflight support contract into the real controlled Scheduler continuation path. The next slice should let a one-confirmed Scheduler step stop, re-read fresh current evidence, attach aligned post-step-routing support to the existing Goal Loop gate-readiness preflight, and present the matching existing quality, rework, IntegrationCheck, terminal handoff, or waiting owner as the next human-confirmed decision. It should not add a new action, scheduler loop, confirmation queue, ToolPolicy path, source mutation, apply/close/merge, remote landing, or Harness evolution automation. This must reuse existing Goal Loop, scheduler planning/runtime, stale revalidation, ToolPolicy, Workbench read-model, validation/audit, and IntegrationCheck owners rather than creating a parallel local framework or autonomous executor. The Phase 12A controlled loop boundary lives in `docs/design-docs/controlled-scheduler-loop.md` and remains the implementation constraint for that future change. Historical phase-by-phase details stay in archived summaries and `harness/changes/INDEX.json`.
+Future product slices should build on that loop instead of adding more
+read-only evidence layers. They should reuse Workbench action registry, scoped
+target revalidation, ToolPolicy/human gates, artifact refs, validation/audit,
+source apply safety, and close/archive handoff. If a new acceptance path finds a
+real usability or action-scope gap, fix that product blocker before expanding
+automation.
 
-- If continuing product implementation, prioritize a product-functional controlled Scheduler / Goal Loop slice over architecture-only cleanup, while still applying the architecture debt register as a design gate.
+Full-auto task mode remains a later product direction. A separate accepted
+change may design scoped automation authorization from the main conversation for
+the current demand / Change / accepted plan / permission profile / source state
+hash. Remote PR/update/ready/merge behavior must remain behind a later explicit
+profile. The Phase 12A controlled loop boundary lives in
+`docs/design-docs/controlled-scheduler-loop.md` and remains the implementation
+constraint for future scheduler automation. Historical phase-by-phase details
+stay in archived summaries and `harness/changes/INDEX.json`.
+
+- If continuing product implementation, either harden the proven Workbench
+  manual-gated loop with concrete product blockers or open a separate full-auto
+  design slice that explicitly reuses the proven gates and source safety.
 - If continuing Goal Loop work, build on controller policy evidence without making it execution authority.
 - If continuing scheduler work, use `docs/design-docs/controlled-scheduler-loop.md` as the loop boundary, but keep runtime staged and human-gated until an accepted ECL change implements and verifies each transition.
 - If improving Workbench UX, keep implemented actions honest and bind every high-impact action to concrete target ids, stale revalidation, ToolPolicyGate, and human confirmation.

@@ -158,8 +158,8 @@ describe("controlled scheduler step contract", () => {
     })).toThrow(/requires prior continuation readiness evidence/);
   });
 
-  it("fails closed for non-ready prior continuation states", () => {
-    for (const status of ["needs-review", "waiting", "quality-routing", "integration-barrier", "terminal-handoff"]) {
+  it("fails closed for blocked prior continuation states", () => {
+    for (const status of ["needs-review", "waiting"]) {
       expect(() => assertControlledSchedulerContinuationGuard({
         changeId: "change-1",
         previousStep: {
@@ -176,7 +176,29 @@ describe("controlled scheduler step contract", () => {
           schedulerRunId: "scheduler-run-1",
           schedulerWorkerStartId: "worker-start-1",
         },
-      }), status).toThrow(/requires ready prior continuation evidence/);
+      }), status).toThrow(/requires routable prior continuation evidence/);
+    }
+  });
+
+  it("accepts routable prior continuation states when they still name the concrete next gate", () => {
+    for (const status of ["quality-routing", "integration-barrier", "terminal-handoff"]) {
+      expect(assertControlledSchedulerContinuationGuard({
+        changeId: "change-1",
+        previousStep: {
+          ...priorStep(),
+          controlledLoopContinuationReadiness: {
+            ...priorStep().controlledLoopContinuationReadiness,
+            status,
+          },
+        },
+        previousGateReadinessPreflight: priorPreflight(),
+        requestedConcreteGate: {
+          actionType: "planning.scheduler.worker.reconcile-result",
+          changeId: "change-1",
+          schedulerRunId: "scheduler-run-1",
+          schedulerWorkerStartId: "worker-start-1",
+        },
+      }), status).toBe("matched");
     }
   });
 

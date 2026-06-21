@@ -12,6 +12,7 @@ import { answerClarification, reanalyzeIntake, runIntakeScan } from "../../src/w
 import { getWorkbenchSnapshot, getWorkbenchStream, getWorkbenchTopic, listWorkbenchApprovals, listWorkbenchRoles, listWorkbenchTopics } from "../../src/workbench/manager.js";
 import { WorkbenchStore } from "../../src/workbench/store.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
+import { buildDecisionInspector } from "../../src/workbench/projections/read-model/decision-inspector.js";
 import { getTempDir, project, writeAcceptedSpecAndTasks } from "./workbench/fixtures.js";
 import type { RunMetadata } from "../../src/types/index.js";
 
@@ -773,6 +774,38 @@ describe("workbench read-model projections", () => {
       expect.objectContaining({ id: "run:run-change-level" }),
       expect.objectContaining({ id: "validation:validation-change-level" }),
     ]));
+  });
+
+  it("dedupes only the matching result-review apply approval and preserves other apply targets", () => {
+    const inspector = buildDecisionInspector({
+      selectedTopic: { id: "change-1", title: "Change 1", state: "active", validations: [], audits: [] },
+      workpad: {
+        resultReview: {
+          status: "ready-to-apply",
+          summary: "Ready.",
+          worktreeId: "wt-1",
+          applyReadiness: { kind: "ready", ready: true, label: "ready", message: "ready", blockingIssues: [], warnings: [] },
+        },
+        taskGraph: { nodes: [] },
+      },
+      approvals: [
+        { id: "apply:wt-1", kind: "worktree-apply", label: "same", changeId: "change-1", targetId: "wt-1", severity: "info", action: { actionId: "result.apply", label: "Apply same", command: "result", args: ["apply", "repo", "change-1", "wt-1"], mutates: true, requiresConfirmation: true } },
+        { id: "apply:wt-2", kind: "worktree-apply", label: "other worktree", changeId: "change-1", targetId: "wt-2", severity: "info", action: { actionId: "result.apply", label: "Apply other worktree", command: "result", args: ["apply", "repo", "change-1", "wt-2"], mutates: true, requiresConfirmation: true } },
+        { id: "apply:other-change", kind: "worktree-apply", label: "other change", changeId: "change-2", targetId: "wt-1", severity: "info", action: { actionId: "result.apply", label: "Apply other change", command: "result", args: ["apply", "repo", "change-2", "wt-1"], mutates: true, requiresConfirmation: true } },
+      ],
+      decisions: [],
+    } as Parameters<typeof buildDecisionInspector>[0]);
+
+    const applyActions = [inspector.primary, ...inspector.related]
+      .flatMap((context) => context?.actions ?? [])
+      .filter((action) => action.kind === "approval" && action.action?.actionId === "result.apply")
+      .map((action) => action.action?.args);
+
+    expect(applyActions).toEqual([
+      ["apply", "", "change-1", "wt-1"],
+      ["apply", "repo", "change-1", "wt-2"],
+      ["apply", "repo", "change-2", "wt-1"],
+    ]);
   });
 
 });

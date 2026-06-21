@@ -11,6 +11,11 @@ export type GoalLoopControllerPolicyAuthority = "non-executing-controller-policy
 export type GoalLoopGateReadinessPreflightAuthority = "non-executing-concrete-gate-readiness-preflight-evidence";
 export type GoalLoopControlledSchedulerPostStepRoutingPreflightSupportAuthority =
   "non-executing-controlled-scheduler-post-step-routing-preflight-support";
+export type GoalLoopControlledSchedulerPostStepRoutingStatus =
+  | "ready-for-human-gate"
+  | "quality-routing"
+  | "integration-barrier"
+  | "terminal-handoff";
 
 export type GoalLoopDecisionKind =
   | "planning-needed"
@@ -74,8 +79,8 @@ export interface GoalLoopControlledSchedulerPostStepRoutingPreflightSupport {
   routeFamily: string;
   ownerModule: string;
   existingGateActionType: WorkflowActionType;
-  continuationDecisionStatus: "ready-for-human-gate";
-  routingReadinessStatus: "ready-for-human-gate";
+  continuationDecisionStatus: GoalLoopControlledSchedulerPostStepRoutingStatus;
+  routingReadinessStatus: GoalLoopControlledSchedulerPostStepRoutingStatus;
   needsReevaluation: false;
   reason: string;
   currentGateScope: Record<string, string | string[]>;

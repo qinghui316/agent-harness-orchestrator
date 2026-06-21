@@ -32,7 +32,7 @@ export function buildControlledSchedulerPostStepRoutingPreflightSupport(input: {
   const sourcePreflightId = previousStep.postStepEvidence.goalLoopGateReadinessPreflightId;
   const label = "Controlled scheduler continuation preflight support";
 
-  if (continuationDecision.status !== "ready-for-human-gate") {
+  if (!isRoutableContinuationStatus(continuationDecision.status)) {
     throw new Error(`${label} requires a ready current continuation decision.`);
   }
   if (continuationDecision.nextGateActionType && continuationDecision.nextGateActionType !== input.currentGate.actionType) {
@@ -52,10 +52,13 @@ export function buildControlledSchedulerPostStepRoutingPreflightSupport(input: {
     throw new Error(`${label} prior preflight gate mismatch.`);
   }
   if (!scopeMatches(previousGateReadinessPreflight.currentGate.scope, input.currentGate.scope, input.changeId)) {
-    throw new Error(`${label} prior preflight scope mismatch.`);
+    throw new Error(`${label} prior preflight scope mismatch: prior=${JSON.stringify(previousGateReadinessPreflight.currentGate.scope)} current=${JSON.stringify(input.currentGate.scope)}.`);
   }
-  if (routing.continuationReadinessStatus !== "ready-for-human-gate") {
+  if (!isRoutableContinuationStatus(routing.continuationReadinessStatus)) {
     throw new Error(`${label} requires ready routing evidence.`);
+  }
+  if (routing.continuationReadinessStatus !== continuationDecision.status) {
+    throw new Error(`${label} routing and continuation decision status mismatch.`);
   }
   if (routing.needsReevaluation !== false) {
     throw new Error(`${label} requires fresh routing evidence.`);
@@ -149,13 +152,19 @@ function assertNoForbiddenAuthority(
   if (authorized) throw new Error(`${label} has forbidden authority: ${authorized}.`);
 }
 
+function isRoutableContinuationStatus(status: string): boolean {
+  return status === "ready-for-human-gate"
+    || status === "quality-routing"
+    || status === "integration-barrier"
+    || status === "terminal-handoff";
+}
+
 function scopeMatches(
   left: Record<string, string | string[]>,
   right: Record<string, string | string[]>,
   changeId: string,
 ): boolean {
-  const keys = new Set([...Object.keys(left), ...Object.keys(right)]);
-  for (const key of keys) {
+  for (const key of Object.keys(left)) {
     const leftValue = key === "changeId" ? left[key] ?? changeId : left[key];
     const rightValue = key === "changeId" ? right[key] ?? changeId : right[key];
     if (!scopeValuesEqual(normalizeScopeValue(leftValue), normalizeScopeValue(rightValue))) return false;

@@ -31,10 +31,20 @@ describe("workbench scheduler slow flows", () => {
       process.env.PATH = `${fakeCodex.binDir}${delimiter}${oldPath ?? ""}`;
 
       let snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: prepared.topic.changeId });
+      const firstValidationActions = snapshot.right.confirmationQueue.current.flatMap((item) => item.actions);
       const firstValidationAction = snapshot.right.confirmationQueue.current
         .flatMap((item) => item.actions)
         .find((action) => findSchedulerGateAction([action], "planning.scheduler.worker.validate-first", (candidate) => candidate.schedulerWorkerResultId === prepared.workerResult.id));
-      if (!firstValidationAction) throw new Error("Missing first worker validation action.");
+      if (!firstValidationAction) {
+        throw new Error(`Missing first worker validation action. workerResultId=${prepared.workerResult.id}; actions=${JSON.stringify(firstValidationActions.map((action) => ({
+          actionType: action.actionType,
+          goalLoopCurrentGateActionType: action.goalLoopCurrentGateActionType,
+          schedulerWorkerResultId: action.schedulerWorkerResultId,
+          schedulerWorkerStartId: action.schedulerWorkerStartId,
+          schedulerWorkerValidationId: action.schedulerWorkerValidationId,
+          enabled: action.enabled,
+        })))}`);
+      }
       const firstValidation = await executeWorkbenchAction({ project: project(), path: getTempDir() }, { ...firstValidationAction, confirm: true });
       const firstValidationResult = unwrapControlledSchedulerAdvanceResult((firstValidation.result as { result?: unknown }).result ?? firstValidation.result) as {
         schedulerValidation?: { id?: string; validationRunId?: string };
@@ -245,6 +255,42 @@ describe("workbench scheduler slow flows", () => {
       expect(secondStartWorkflow.result?.controlledStep).toMatchObject({
         actionType: "planning.scheduler.worker.start-next",
         stoppedAfterOneSchedulerTransition: true,
+      });
+      const secondStartPreflight = (secondStartWorkflow.result as unknown as {
+        goalLoopGateReadinessPreflight?: {
+          controlledSchedulerPostStepRoutingSupport?: {
+            authority?: string;
+            existingGateActionType?: string;
+            continuationDecisionStatus?: string;
+            routingReadinessStatus?: string;
+            needsReevaluation?: boolean;
+            executionStarted?: boolean;
+            loopAuthorized?: boolean;
+            sourceMutationAuthorized?: boolean;
+            applyAuthorized?: boolean;
+            closeAuthorized?: boolean;
+            currentGateScope?: Record<string, unknown>;
+          };
+        };
+      } | undefined)?.goalLoopGateReadinessPreflight;
+      expect(secondStartPreflight?.controlledSchedulerPostStepRoutingSupport).toMatchObject({
+        authority: "non-executing-controlled-scheduler-post-step-routing-preflight-support",
+        existingGateActionType: "planning.scheduler.worker.start-next",
+        continuationDecisionStatus: "ready-for-human-gate",
+        routingReadinessStatus: "ready-for-human-gate",
+        needsReevaluation: false,
+        executionStarted: false,
+        loopAuthorized: false,
+        sourceMutationAuthorized: false,
+        applyAuthorized: false,
+        closeAuthorized: false,
+        currentGateScope: expect.objectContaining({
+          changeId: prepared.topic.changeId,
+          schedulerRunId: prepared.schedulerRun.id,
+          schedulerClaimReservationId: prepared.claimReservation.id,
+          reservationIntentId: startNextAction.reservationIntentId,
+          claimIntentId: startNextAction.claimIntentId,
+        }),
       });
       const secondStart = unwrapControlledSchedulerAdvanceResult(secondStartWorkflow.result ?? secondStartResult.result) as {
         workerStart?: {

@@ -46,7 +46,14 @@ export function buildDecisionInspector(input: {
   }
 
   const hasCurrentBlocker = contexts.some((context) => ["queue-blocker", "task-blocker", "validation-failed", "audit-blocked"].includes(context.kind));
-  const approvalContexts = input.approvals.map((approval) => approvalDecisionContext(approval));
+  const resultReviewApplyTargets = new Set(
+    contexts
+      .filter((context) => context.kind === "apply-gate" && context.targetId)
+      .map((context) => `${context.changeId ?? ""}:${context.targetId ?? ""}`),
+  );
+  const approvalContexts = input.approvals
+    .filter((approval) => approval.kind !== "worktree-apply" || !resultReviewApplyTargets.has(`${approval.changeId ?? ""}:${approval.targetId ?? ""}`))
+    .map((approval) => approvalDecisionContext(approval));
   for (const context of approvalContexts) {
     if (hasCurrentBlocker && context.kind === "audit-approved") contexts.push({ ...context, kind: "history", severity: "info" });
     else contexts.push(context);
@@ -235,7 +242,7 @@ function userDecisionExplanation(context: WorkbenchDecisionContext): string {
   if (context.kind === "queue-blocker") return "执行状态仍用于恢复和归因；你只需要处理当前暂停的任务。";
   if (context.kind === "task-blocker") return "任务状态来自执行记录、验证和审查证据，不会自动修改任务清单。";
   if (context.kind === "validation-failed" || context.kind === "audit-blocked") return "这不是最终失败，而是需要修改或补证据的检查结果。";
-  if (context.kind === "apply-gate") return "应用是高影响动作，仍需要明确确认；这不是 PR、push 或 merge queue。";
+  if (context.kind === "apply-gate") return "应用是高影响动作，仍需要明确确认；这不会执行远端提交或合并。";
   if (context.kind === "close-gate") return "归档是需求生命周期收口，之后仍可从历史查看。";
   return "右侧只显示当前对象的主决策，旧决策折叠到历史。";
 }

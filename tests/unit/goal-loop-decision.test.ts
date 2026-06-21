@@ -1133,6 +1133,50 @@ describe("GoalLoopDecision", () => {
     });
   });
 
+  it("accepts controlled Scheduler post-step routing support for integration-barrier gates", async () => {
+    const result = await compileGoalLoopEvaluation(memory, changePath);
+    const currentGate = {
+      actionType: "planning.scheduler.plan.prepare" as const,
+      scope: { changeId },
+    };
+    const policy = await compileGoalLoopControllerPolicy(memory, changePath, {
+      currentGate,
+      requireCurrentGateMatch: true,
+    });
+    const support = buildControlledSchedulerPostStepRoutingSupport(
+      result.goalLoopNextStepPacket.id,
+      policy.id,
+      currentGate,
+      {
+        routeFamily: "integration-barrier",
+        continuationDecisionStatus: "integration-barrier",
+        routingReadinessStatus: "integration-barrier",
+      },
+    );
+
+    const preflight = await compileGoalLoopGateReadinessPreflight(memory, changePath, {
+      goalLoopNextStepPacketId: result.goalLoopNextStepPacket.id,
+      goalLoopControllerPolicyId: policy.id,
+      currentGate,
+      sourceGoalLoopGateReadinessPreflightId: "previous-preflight-1",
+      controlledSchedulerPostStepRoutingSupport: support,
+    });
+
+    expect(preflight.controlledSchedulerPostStepRoutingSupport).toMatchObject({
+      routeFamily: "integration-barrier",
+      continuationDecisionStatus: "integration-barrier",
+      routingReadinessStatus: "integration-barrier",
+      existingGateActionType: "planning.scheduler.plan.prepare",
+      executionStarted: false,
+      loopAuthorized: false,
+      sourceMutationAuthorized: false,
+    });
+    expect(goalLoopGateReadinessPreflightSchema.parse(preflight).controlledSchedulerPostStepRoutingSupport).toMatchObject({
+      continuationDecisionStatus: "integration-barrier",
+      routingReadinessStatus: "integration-barrier",
+    });
+  });
+
   it("rejects stale or mismatched controlled Scheduler post-step routing support", async () => {
     const result = await compileGoalLoopEvaluation(memory, changePath);
     const currentGate = {
@@ -1179,6 +1223,8 @@ describe("GoalLoopDecision", () => {
       .rejects.toThrow("requires ready continuation decision");
     await expect(compileWith({ ...support, routingReadinessStatus: "blocked" }))
       .rejects.toThrow("requires ready routing evidence");
+    await expect(compileWith({ ...support, continuationDecisionStatus: "integration-barrier" }))
+      .rejects.toThrow("controlled Scheduler post-step routing support status mismatch");
     await expect(compileWith({ ...support, needsReevaluation: true }))
       .rejects.toThrow("requires fresh routing evidence");
     await expect(compileWith({ ...support, existingGateActionType: "planning.scheduler.worker.start-next" }))

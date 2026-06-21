@@ -1,6 +1,8 @@
 import { existsSync } from "node:fs";
+import { execFile } from "node:child_process";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
 import { collectWorktreeDiff } from "../../src/audit/diff.js";
 import { createChange } from "../../src/change/manager.js";
@@ -21,6 +23,8 @@ import {
   writeAuditResultWithHash,
   writeValidationResultWithHash,
 } from "../unit/workbench/fixtures.js";
+
+const execFileAsync = promisify(execFile);
 
 describe("workbench apply and integration slow flows", () => {
   it("projects result review and applies a reviewed worktree through one user decision", async () => {
@@ -64,11 +68,8 @@ describe("workbench apply and integration slow flows", () => {
       });
 
       expect(applied.result).toMatchObject({
-        result: {
-          apply: expect.objectContaining({ status: "applied", committed: false }),
-          auditAccepted: expect.objectContaining({ auditId: "run-audit-review" }),
-        },
-        finalization: expect.objectContaining({ status: "not-archived" }),
+        apply: expect.objectContaining({ status: "applied", committed: false }),
+        auditAccepted: expect.objectContaining({ auditId: "run-audit-review" }),
       });
       const afterApply = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: "result-review-demand" });
       expect(afterApply.center.workpad.resultReview).toMatchObject({ status: "applied-source-dirty" });
@@ -79,7 +80,7 @@ describe("workbench apply and integration slow flows", () => {
     }
   });
 
-  it("auto-finalizes the applied result's scoped Change when multiple demands are active", async () => {
+  it("completes a user-facing manual gated Workbench loop through apply and archive", async () => {
     const oldAhoHome = process.env.AHO_HOME;
     process.env.AHO_HOME = join(getTempDir(), ".aho-home");
     try {
@@ -89,31 +90,76 @@ describe("workbench apply and integration slow flows", () => {
       await git(getTempDir(), ["add", "."]);
       await git(getTempDir(), ["commit", "-m", "initial"]);
       await initHarness(project());
-      await createChange(project(), { title: "Finalize Target" });
+      const topic = await createWorkbenchTopic(project(), { title: "Finalize Target", body: "Make the package test print finalize." });
       await createWorkbenchTopic(project(), { title: "Other Active Demand", body: "Keep open." });
-      await writeAcceptedSpecAndTasks("finalize-target");
+      await writeAcceptedSpecAndTasks(topic.changeId);
       const memory = await resolveProjectMemory(project());
-      const worktree = await createWorktree(project(), memory, "finalize-target");
+      const worktree = await createWorktree(project(), memory, topic.changeId);
       await writeFile(join(worktree.metadata.checkoutPath, "package.json"), "{\"scripts\":{\"test\":\"node -e \\\"console.log('finalize')\\\"\"}}\n", "utf8");
-      const diff = await collectWorktreeDiff(memory, worktree.metadata.worktreeId, "finalize-target");
-      await writeValidationResultWithHash("finalize-target", "run-validation-finalize", worktree.metadata.worktreeId, diff.diffHash, "passed");
-      await writeAuditResultWithHash("finalize-target", "run-audit-finalize", worktree.metadata.worktreeId, diff.diffHash, "approved");
+      const diff = await collectWorktreeDiff(memory, worktree.metadata.worktreeId, topic.changeId);
+      await writeValidationResultWithHash(topic.changeId, "run-validation-finalize", worktree.metadata.worktreeId, diff.diffHash, "passed");
+      await writeAuditResultWithHash(topic.changeId, "run-audit-finalize", worktree.metadata.worktreeId, diff.diffHash, "approved");
 
-      const snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: "finalize-target" });
+      const snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: topic.changeId });
+      expect(snapshot.center.thread.items).toEqual(expect.arrayContaining([
+        expect.objectContaining({ kind: "user-message", body: "Make the package test print finalize." }),
+      ]));
+      expect(snapshot.center.workpad).toMatchObject({
+        intake: expect.objectContaining({ currentUnderstanding: expect.any(String) }),
+        resultReview: expect.objectContaining({
+          status: "ready-to-apply",
+          worktreeId: worktree.metadata.worktreeId,
+          validation: expect.objectContaining({ id: "run-validation-finalize", status: "passed" }),
+          audit: expect.objectContaining({ id: "run-audit-finalize", status: "approved" }),
+          applyReadiness: expect.objectContaining({ ready: true }),
+        }),
+      });
+      expect(snapshot.right.confirmationQueue.primary).toMatchObject({
+        kind: "single-result-apply",
+        changeId: topic.changeId,
+        worktreeId: worktree.metadata.worktreeId,
+        primary: true,
+      });
+      expect(snapshot.right.confirmationQueue.current.filter((item) => item.primary)).toHaveLength(1);
+      expect(snapshot.right.confirmationQueue.current.flatMap((item) => item.actions).filter((action) => action.action?.actionId === "result.apply")).toHaveLength(1);
+      expect(JSON.stringify(snapshot.right.confirmationQueue)).not.toMatch(/full-auto|parallel executor|merge queue/i);
       const applyAction = snapshot.right.decisionInspector.primary?.actions.find((action) => action.action?.actionId === "result.apply")?.action;
       if (!applyAction) throw new Error("Missing result.apply action.");
+      expect(applyAction.args).toEqual(["apply", "", topic.changeId, worktree.metadata.worktreeId]);
+      expect(await gitStatus(getTempDir())).toBe("");
       const applied = await executeWorkbenchAction({ project: project(), path: getTempDir() }, {
         action: applyAction,
         confirm: true,
         options: { commit: true, message: "Apply finalize target" },
       });
-      const topics = await listWorkbenchTopics(project());
 
       expect(applied.result).toMatchObject({
-        finalization: expect.objectContaining({ status: "archived", changeId: "finalize-target" }),
+        apply: expect.objectContaining({ status: "applied", committed: true }),
+        auditAccepted: expect.objectContaining({ auditId: "run-audit-finalize" }),
       });
-      expect(topics.find((topic) => topic.id === "finalize-target")).toMatchObject({ state: "archive" });
-      expect(topics.find((topic) => topic.id === "other-active-demand")).toMatchObject({ state: "active" });
+      expect(await gitStatus(getTempDir())).toBe("");
+      const afterApply = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: topic.changeId });
+      expect(afterApply.center.selectedTopic?.state).toBe("active");
+      expect(afterApply.center.workpad.resultReview).toMatchObject({ status: "applied-clean" });
+      expect(afterApply.right.confirmationQueue.primary).toMatchObject({
+        changeId: topic.changeId,
+        whyNeedsConfirmation: "确认完成需求",
+        primary: true,
+      });
+      const closeAction = afterApply.right.decisionInspector.primary?.actions.find((action) => action.action?.actionId === "change.close")?.action;
+      if (!closeAction) throw new Error("Missing change.close action after apply.");
+      expect(closeAction.args).toEqual(["close", "repo", topic.changeId]);
+      const closed = await executeWorkbenchAction({ project: project(), path: getTempDir() }, {
+        action: closeAction,
+        confirm: true,
+      });
+      expect(closed.result).toMatchObject({
+        change: expect.objectContaining({ id: topic.changeId }),
+        archivePath: expect.stringContaining(topic.changeId),
+      });
+      const topics = await listWorkbenchTopics(project());
+      expect(topics.find((item) => item.id === topic.changeId)).toMatchObject({ state: "archive" });
+      expect(topics.find((item) => item.id === "other-active-demand")).toMatchObject({ state: "active" });
     } finally {
       if (oldAhoHome === undefined) delete process.env.AHO_HOME;
       else process.env.AHO_HOME = oldAhoHome;
@@ -437,3 +483,8 @@ describe("workbench apply and integration slow flows", () => {
     }
   });
 });
+
+async function gitStatus(cwd: string): Promise<string> {
+  const { stdout } = await execFileAsync("git", ["status", "--porcelain"], { cwd });
+  return stdout.trim();
+}

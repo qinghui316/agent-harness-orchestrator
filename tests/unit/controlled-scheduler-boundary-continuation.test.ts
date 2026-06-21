@@ -46,6 +46,20 @@ describe("controlled scheduler boundary continuation guard", () => {
     })).not.toThrow();
   });
 
+  it("accepts integration-barrier boundary evidence when it still names a concrete fresh human gate", () => {
+    expect(() => assertControlledSchedulerBoundaryContinuation({
+      changeId: "change-1",
+      requestedConcreteGate: requestedGate,
+      previousStep: step({
+        boundaryPatch: {
+          boundaryPosture: "integration-barrier",
+          continuationReadinessStatus: "integration-barrier",
+        },
+      }),
+      previousGateReadinessPreflight: preflight,
+    })).not.toThrow();
+  });
+
   it("fails closed when prior boundary evidence is missing", () => {
     expect(() => assertControlledSchedulerBoundaryContinuation({
       changeId: "change-1",

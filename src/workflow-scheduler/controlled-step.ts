@@ -153,8 +153,8 @@ export function assertControlledSchedulerContinuationGuard(input: {
   if (!readiness) {
     throw new Error("planning.scheduler.controlled-advance.run continuation guard requires prior continuation readiness evidence.");
   }
-  if (readiness.status !== "ready-for-human-gate" || !readiness.readinessEvidencePrepared || readiness.warning) {
-    throw new Error("planning.scheduler.controlled-advance.run continuation guard requires ready prior continuation evidence.");
+  if (!isRoutableContinuationStatus(readiness.status) || !readiness.readinessEvidencePrepared || readiness.warning) {
+    throw new Error("planning.scheduler.controlled-advance.run continuation guard requires routable prior continuation evidence.");
   }
   if (!previousStep.postStepEvidence?.goalLoopGateReadinessPreflightId) {
     throw new Error("planning.scheduler.controlled-advance.run continuation guard requires prior post-step gate-readiness preflight evidence.");
@@ -190,6 +190,13 @@ export function assertControlledSchedulerContinuationGuard(input: {
     throw new Error("planning.scheduler.controlled-advance.run continuation guard submitted gate scope no longer matches prior post-step preflight.");
   }
   return "matched";
+}
+
+function isRoutableContinuationStatus(status: string): boolean {
+  return status === "ready-for-human-gate"
+    || status === "quality-routing"
+    || status === "integration-barrier"
+    || status === "terminal-handoff";
 }
 
 function assertControlledSchedulerConcreteGateRequest(request: WorkflowActionScopeCarrier, label: string): void {

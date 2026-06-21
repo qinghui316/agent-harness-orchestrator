@@ -111,10 +111,25 @@ export async function buildConfirmationQueue(input: {
     input.workpad,
   ), input.workpad), input.workpad);
   queue.current = dedupeConfirmationItems(queue.current.filter((item) => item.kind !== "maintenance").map(scopeConfirmationQueueItemActions));
+  queue.current = promoteSelectedCloseGate(queue.current, input.selectedTopic?.id);
   queue.otherDemands = dedupeConfirmationItems(queue.otherDemands.map(scopeConfirmationQueueItemActions));
   queue.history = dedupeConfirmationItems(queue.history.map(scopeConfirmationQueueItemActions));
   queue.primary = queue.current.find((item) => item.primary) ?? queue.current[0] ?? null;
   return queue;
+}
+
+function promoteSelectedCloseGate(items: WorkbenchConfirmationQueue["current"], selectedChangeId: string | undefined): WorkbenchConfirmationQueue["current"] {
+  if (!selectedChangeId) return items;
+  const index = items.findIndex((item) =>
+    item.primary
+    && item.changeId === selectedChangeId
+    && item.actions.some((action) => action.action?.actionId === "change.close")
+  );
+  if (index <= 0) return items;
+  const next = [...items];
+  const [closeGate] = next.splice(index, 1);
+  if (closeGate) next.unshift(closeGate);
+  return next;
 }
 
 function schedulerIntegrationCandidateCoversApplyCandidate(workpad: WorkbenchWorkpad, worktreeIds: string[]): boolean {

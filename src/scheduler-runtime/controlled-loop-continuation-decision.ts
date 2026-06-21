@@ -82,7 +82,7 @@ export function evaluateControlledSchedulerBoundaryContinuation(input: {
       return decision(changeId, "needs-review", "The current controlled Scheduler gate target scope no longer matches prior post-step evidence.", boundary.nextGateActionType, evidenceRefs(previousStep, input.freshGate));
     }
   }
-  return decision(changeId, "ready-for-human-gate", "Fresh current human-gate evidence matches the prior controlled Scheduler boundary. Continuation still requires the existing human confirmation and ToolPolicy/stale revalidation path.", boundary.nextGateActionType, evidenceRefs(previousStep, input.freshGate));
+  return decision(changeId, boundary.continuationReadinessStatus, "Fresh current human-gate evidence matches the prior controlled Scheduler boundary. Continuation still requires the existing human confirmation and ToolPolicy/stale revalidation path.", boundary.nextGateActionType, evidenceRefs(previousStep, input.freshGate));
 }
 
 function evaluatePriorBoundary(input: ControlledSchedulerContinuationPriorStepEvidence): ControlledSchedulerContinuationDecision | null {
@@ -100,7 +100,7 @@ function evaluatePriorBoundary(input: ControlledSchedulerContinuationPriorStepEv
   if (!boundary.futureContinuationRequiresFreshEvidence || !boundary.futureContinuationRequiresFreshCurrentGate || !boundary.humanConfirmationStillRequired || !boundary.stoppedAfterOneSchedulerTransition || !boundary.approvedScopeOnly) {
     return decision(input.changeId, "needs-review", "Prior controlled loop boundary-result evidence is missing conservative continuation flags.", boundary.nextGateActionType, evidenceRefs(input));
   }
-  if (boundary.continuationReadinessStatus !== "ready-for-human-gate") {
+  if (!isRoutableContinuationStatus(boundary.continuationReadinessStatus)) {
     return decision(input.changeId, boundary.continuationReadinessStatus, `Prior controlled loop boundary-result evidence routes continuation through existing ${boundary.continuationReadinessStatus} evidence instead of a ready human gate.`, boundary.nextGateActionType, evidenceRefs(input));
   }
   if (!boundary.nextGateActionType || !isControlledSchedulerConcreteAction(boundary.nextGateActionType)) {
@@ -314,6 +314,13 @@ function hasForbiddenAuthority(flags: {
     || flags.remoteLandingAuthorized
     || flags.harnessEvolutionAuthorized
   );
+}
+
+function isRoutableContinuationStatus(status: SchedulerControlledLoopContinuationReadinessStatus): boolean {
+  return status === "ready-for-human-gate"
+    || status === "quality-routing"
+    || status === "integration-barrier"
+    || status === "terminal-handoff";
 }
 
 function decision(

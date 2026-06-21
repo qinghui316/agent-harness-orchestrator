@@ -1,7 +1,7 @@
 import { recordToolEventAuditEntry } from "../../agent-task/boundary-audit.js";
 import { applyMaintenanceCanonicalPatchApplicationManifest, maintenanceCanonicalPatchApplicationGateArtifactRef, maintenanceCanonicalPatchApplicationResultArtifactRef, maintenanceCanonicalUpdateDecisionArtifactRef, recordDemandMemoryCloseout, recordMaintenanceLedgerEntry, recordMaintenanceCanonicalPatchApplicationGate, recordMaintenanceCanonicalUpdateDecision, runMaintenanceCandidatePipeline } from "../../agent-task/manager.js";
 import { evaluateToolPolicy } from "../../agent-task/tool-policy.js";
-import { abandonChangeForChange, closeChangeForChange } from "../../change/manager.js";
+import { abandonChangeForChange } from "../../change/manager.js";
 import { resolveProjectMemory } from "../../memory/resolver.js";
 import type { ManagedProject } from "../../types/index.js";
 import { recordWorkbenchDecision, runWorkbenchWorkflowAction } from "../../workbench/chat.js";
@@ -386,7 +386,7 @@ async function executeApprovalOrFeedbackAction(input: WorkbenchProjectInput & { 
     error.name = "Conflict";
     throw error;
   }
-  let result = await runAllowlistedAction(input.project, action, body.options);
+  const result = await runAllowlistedAction(input.project, action, body.options);
   await recordWorkbenchDecision(input.project, {
     id: `approval:${action.actionId}:${action.args.join(":")}`,
     changeId: inferChangeIdFromAction(action, result),
@@ -411,31 +411,6 @@ async function executeApprovalOrFeedbackAction(input: WorkbenchProjectInput & { 
       "Demand conversation was closed and archived.",
       archiveRef ? [archiveRef] : [],
     );
-  }
-  if (action.actionId === "worktree.apply" || action.actionId === "result.apply") {
-    try {
-      const changeId = inferChangeIdFromAction(action, result);
-      if (!changeId) throw new Error("Cannot auto-finalize applied result without a scoped changeId.");
-      const finalized = await closeChangeForChange(input.project, changeId);
-      result = { result, finalization: { status: "archived", archivePath: finalized.archivePath, changeId: finalized.change.id } };
-      await recordWorkbenchDecision(input.project, {
-        id: `auto-close:${finalized.change.id}:${Date.now()}`,
-        changeId: finalized.change.id,
-        decisionType: "workpad.auto-finalize",
-        status: "completed",
-        label: "Demand conversation auto finalized",
-        summary: "Applied source change was accepted, so the demand conversation was automatically closed and archived.",
-        targetId: finalized.change.id,
-        runId: null,
-        artifact: finalized.archivePath,
-        actionId: "workpad.auto-finalize",
-        payload: result,
-        completedAt: new Date().toISOString(),
-      });
-      await recordPostDecisionMaintenance(input.project, finalized.change.id, "apply", "Applied source change was accepted and the demand conversation was archived.", [finalized.archivePath]);
-    } catch (cause) {
-      result = { result, finalization: { status: "not-archived", error: cause instanceof Error ? cause.message : String(cause) } };
-    }
   }
   return { result, snapshot: await getWorkbenchSnapshot(input) };
 }

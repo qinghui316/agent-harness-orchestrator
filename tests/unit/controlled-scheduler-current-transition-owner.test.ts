@@ -103,6 +103,66 @@ describe("controlled scheduler current transition owner", () => {
     }));
   });
 
+  it("accepts prior post-step routing support when the fresh current gate adds compatible optional targets", async () => {
+    const extendedGateScope = {
+      ...gateScope,
+      worktreeId: "worktree-1",
+    };
+    const extendedRequest = {
+      ...request,
+      ...extendedGateScope,
+    };
+    const services = buildServices({
+      packetScope: extendedGateScope,
+      visibleGate: {
+        currentGate: {
+          actionType: "planning.scheduler.worker.start-next",
+          scope: extendedGateScope,
+        },
+        goalLoopNextStepPacketId: "goal-loop-packet-pre",
+      },
+      controllerPolicy: {
+        id: "goal-loop-controller-pre",
+        verdict: "recommend-existing-gate",
+        gateStatus: "matches-current-gate",
+        currentGate: {
+          actionType: "planning.scheduler.worker.start-next",
+          scope: extendedGateScope,
+        },
+      },
+      preflight: {
+        id: "goal-loop-preflight-pre",
+        concreteGateInvoked: false,
+        toolPolicyAuthorizedConcreteGate: false,
+        currentGate: {
+          actionType: "planning.scheduler.worker.start-next",
+          scope: extendedGateScope,
+        },
+      },
+    });
+
+    await chooseControlledSchedulerCurrentTransition({
+      changeId,
+      request: extendedRequest,
+      requestedConcreteGate: {
+        ...extendedRequest,
+        actionType: "planning.scheduler.worker.start-next",
+      },
+      services,
+      postStepRoutingSupportSource: buildPostStepRoutingSupportSource(),
+    });
+
+    expect(services.prepareGoalLoopGateReadinessPreflight).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      controlledSchedulerPostStepRoutingSupport: expect.objectContaining({
+        existingGateActionType: "planning.scheduler.worker.start-next",
+        currentGateScope: extendedGateScope,
+        executionStarted: false,
+        loopAuthorized: false,
+        sourceMutationAuthorized: false,
+      }),
+    }));
+  });
+
   it("fails closed before preflight dispatch when guarded prior routing needs reevaluation", async () => {
     const services = buildServices();
 

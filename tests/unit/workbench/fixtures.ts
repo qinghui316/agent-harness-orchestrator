@@ -620,6 +620,9 @@ export async function prepareSchedulerFirstWorkerThroughResult(options: {
       .find((action) => findSchedulerGateAction([action], "planning.scheduler.worker.reconcile-result", (candidate) => candidate.schedulerWorkerStartId === workerStart.id));
     if (!resultAction) throw new Error("Missing scheduler first worker result reconcile action.");
     const reconciled = await executeWorkbenchAction({ project: project(), path: tempDir }, { ...resultAction, confirm: true });
+    if ((reconciled.result as { status?: string; error?: string }).status === "failed") {
+      throw new Error((reconciled.result as { error?: string }).error ?? "scheduler first worker result reconcile action failed");
+    }
     const reconciledResult = unwrapControlledSchedulerAdvanceResult((reconciled.result as { result?: unknown }).result ?? reconciled.result) as {
       result?: { id?: string; status?: string };
     };

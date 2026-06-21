@@ -17,6 +17,7 @@ import {
 } from "./repository.js";
 import type {
   GoalLoopControlledSchedulerPostStepRoutingPreflightSupport,
+  GoalLoopControlledSchedulerPostStepRoutingStatus,
   GoalLoopControllerPolicy,
   GoalLoopCurrentGateSnapshot,
   GoalLoopGateReadinessPreflight,
@@ -197,11 +198,14 @@ function normalizeControlledSchedulerPostStepRoutingSupport(
   if (!support.sourceGoalLoopGateReadinessPreflightId || !expectedSourcePreflightId || support.sourceGoalLoopGateReadinessPreflightId !== expectedSourcePreflightId) {
     throw new Error("GoalLoopGateReadinessPreflight controlled Scheduler post-step routing support preflight lineage mismatch.");
   }
-  if (support.continuationDecisionStatus !== "ready-for-human-gate") {
+  if (!isRoutableControlledSchedulerPostStepRoutingStatus(support.continuationDecisionStatus)) {
     throw new Error("GoalLoopGateReadinessPreflight controlled Scheduler post-step routing support requires ready continuation decision.");
   }
-  if (support.routingReadinessStatus !== "ready-for-human-gate") {
+  if (!isRoutableControlledSchedulerPostStepRoutingStatus(support.routingReadinessStatus)) {
     throw new Error("GoalLoopGateReadinessPreflight controlled Scheduler post-step routing support requires ready routing evidence.");
+  }
+  if (support.routingReadinessStatus !== support.continuationDecisionStatus) {
+    throw new Error("GoalLoopGateReadinessPreflight controlled Scheduler post-step routing support status mismatch.");
   }
   if (support.needsReevaluation !== false) {
     throw new Error("GoalLoopGateReadinessPreflight controlled Scheduler post-step routing support requires fresh routing evidence.");
@@ -229,8 +233,8 @@ function normalizeControlledSchedulerPostStepRoutingSupport(
     routeFamily: support.routeFamily,
     ownerModule: support.ownerModule,
     existingGateActionType: support.existingGateActionType,
-    continuationDecisionStatus: "ready-for-human-gate",
-    routingReadinessStatus: "ready-for-human-gate",
+    continuationDecisionStatus: support.continuationDecisionStatus,
+    routingReadinessStatus: support.routingReadinessStatus,
     needsReevaluation: false,
     reason: support.reason,
     currentGateScope: cloneScope(support.currentGateScope),
@@ -247,6 +251,15 @@ function normalizeControlledSchedulerPostStepRoutingSupport(
     harnessEvolutionAuthorized: false,
     executionStarted: false,
   };
+}
+
+function isRoutableControlledSchedulerPostStepRoutingStatus(
+  status: string,
+): status is GoalLoopControlledSchedulerPostStepRoutingStatus {
+  return status === "ready-for-human-gate"
+    || status === "quality-routing"
+    || status === "integration-barrier"
+    || status === "terminal-handoff";
 }
 
 function assertControlledSchedulerPostStepRoutingSupportHasNoAuthority(

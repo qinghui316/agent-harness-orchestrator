@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-21T03:47:14.2587974Z",
+    "generated_at":  "2026-06-21T05:23:43.7446737Z",
     "active":  [
 
                ],
@@ -1675,6 +1675,10 @@
                         "path":  "harness/changes/archive/20260621-auto-evolve-harness-controlled-scheduler-boundary-guard-window-noop"
                     },
                     {
+                        "name":  "20260621-auto-evolve-harness-controlled-scheduler-continuation-window",
+                        "path":  "harness/changes/archive/20260621-auto-evolve-harness-controlled-scheduler-continuation-window"
+                    },
+                    {
                         "name":  "20260621-auto-evolve-harness-controlled-scheduler-continuation-window-noop",
                         "path":  "harness/changes/archive/20260621-auto-evolve-harness-controlled-scheduler-continuation-window-noop"
                     },
@@ -1697,6 +1701,10 @@
                     {
                         "name":  "20260621-controlled-scheduler-boundary-result-continuation-guard",
                         "path":  "harness/changes/archive/20260621-controlled-scheduler-boundary-result-continuation-guard"
+                    },
+                    {
+                        "name":  "20260621-controlled-scheduler-continuation-acceptance",
+                        "path":  "harness/changes/archive/20260621-controlled-scheduler-continuation-acceptance"
                     },
                     {
                         "name":  "20260621-controlled-scheduler-continuation-decision",
@@ -1773,6 +1781,10 @@
                     {
                         "name":  "20260621-scheduler-controlled-step-result-boundary",
                         "path":  "harness/changes/archive/20260621-scheduler-controlled-step-result-boundary"
+                    },
+                    {
+                        "name":  "20260621-workbench-usable-manual-closed-loop",
+                        "path":  "harness/changes/archive/20260621-workbench-usable-manual-closed-loop"
                     },
                     {
                         "name":  "20260621-workpad-controlled-scheduler-reconfirmation-surface",
