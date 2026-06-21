@@ -55,6 +55,17 @@ describe("controlled scheduler boundary continuation guard", () => {
     })).toThrow(/requires prior controlled loop boundary result/);
   });
 
+  it("fails closed when prior runtime-boundary evidence is missing", () => {
+    const previousStep = step();
+    previousStep.controlledLoopRuntimeBoundary = undefined;
+    expect(() => assertControlledSchedulerBoundaryContinuation({
+      changeId: "change-1",
+      requestedConcreteGate: requestedGate,
+      previousStep,
+      previousGateReadinessPreflight: preflight,
+    })).toThrow(/runtime-boundary evidence/);
+  });
+
   it.each([
     ["warning status", { status: "recorded-with-warning" }],
     ["warning text", { warning: "post-step warning" }],
@@ -173,6 +184,53 @@ function step(input: {
         ...(input.boundaryPatch ?? {}),
       } as SchedulerControlledStepEvidence["controlledLoopBoundaryResult"]
     : input.controlledLoopBoundaryResult;
+  const controlledLoopRuntimeBoundary: SchedulerControlledStepEvidence["controlledLoopRuntimeBoundary"] = controlledLoopBoundaryResult
+    ? {
+        version: "1.0",
+        authority: "scheduler-runtime-controlled-loop-runtime-boundary-evidence",
+        status: "recorded",
+        changeId,
+        schedulerRunId: "scheduler-run-1",
+        submittedActionType: "planning.scheduler.controlled-advance.run",
+        selectedActionType: "planning.scheduler.worker.start-next",
+        dispatchedActionType: "planning.scheduler.worker.start-next",
+        observeStatus: "recorded",
+        chooseStatus: "recorded",
+        humanGateStatus: "confirmed-current-step",
+        dispatchStatus: "completed",
+        reconcileStatus: "recorded",
+        stopStatus: "next-confirmation-candidate-ready",
+        stopPosture: "awaiting-human-gate",
+        stopReason: "one-confirmed-scheduler-transition-completed",
+        continuationReadinessStatus: "ready-for-human-gate",
+        nextGateActionType: "planning.scheduler.worker.reconcile-result",
+        nextGateTargetScopeSource: "fresh-current-gate-required",
+        observedGoalLoopNextStepPacketId: "packet-pre",
+        selectedGoalLoopGateReadinessPreflightId: "preflight-pre",
+        reconciledGoalLoopNextStepPacketId: "packet-post",
+        readinessEvidencePrepared: true,
+        needsReevaluation: false,
+        humanConfirmationStillRequired: true,
+        stoppedAfterOneSchedulerTransition: true,
+        approvedScopeOnly: true,
+        priorTurnEvidence: true,
+        freshEvidenceRequiredBeforeContinuation: true,
+        freshCurrentGateRequiredBeforeContinuation: true,
+        boundary: "runtime-boundary evidence",
+        evidenceRefs: ["scheduler-controlled-step.md"],
+        executionStarted: false,
+        loopAuthorized: false,
+        fullParallelExecutorAuthorized: false,
+        wholeWaveDispatchAuthorized: false,
+        slotAllocatorAuthorized: false,
+        sourceMutationAuthorized: false,
+        applyAuthorized: false,
+        closeAuthorized: false,
+        mergeAuthorized: false,
+        remoteLandingAuthorized: false,
+        harnessEvolutionAuthorized: false,
+      }
+    : undefined;
 
   return {
     id: "scheduler-controlled-step-1",
@@ -192,6 +250,7 @@ function step(input: {
       toolPolicyAuthorizedConcreteGate: false,
     },
     controlledLoopBoundaryResult,
+    controlledLoopRuntimeBoundary,
     executionStarted: true,
     stoppedAfterOneSchedulerTransition: true,
     humanConfirmationStillRequired: true,

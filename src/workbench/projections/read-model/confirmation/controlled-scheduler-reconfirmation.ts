@@ -119,6 +119,19 @@ function buildControlledSchedulerReconfirmationStatus(input: {
       evidenceRefs: sourceEvidenceRefs,
     };
   }
+  const continuationDecision = input.workpad.schedulerControlledStepEvidence?.controlledLoopContinuationDecision;
+  if (continuationDecision && continuationDecision.status !== "ready-for-human-gate") {
+    return {
+      status: "needs-review",
+      label: "重新确认前需要复核",
+      body: `上一步已停止在“${receipt.executedStepLabel}”之后；当前确认目标是“${input.currentStepLabel}”，但继续判断还需要复核：${continuationDecision.reason}`,
+      lastStoppedStepLabel: receipt.executedStepLabel,
+      currentStepLabel: input.currentStepLabel,
+      freshnessLabel: continuationDecision.reason,
+      boundary: boundaryText(),
+      evidenceRefs: unique([...sourceEvidenceRefs, ...continuationDecision.evidenceRefs]),
+    };
+  }
 
   const stopPosture = buildAlignedStopPosture({
     step: input.workpad.schedulerControlledStepEvidence,

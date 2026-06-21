@@ -52,6 +52,7 @@ import {
   type SchedulerRuntimeWorkerReworkStart,
   type SchedulerRuntimeWorkerValidation,
 } from "../scheduler-runtime/manager.js";
+import type { ControlledSchedulerContinuationDecision } from "../scheduler-runtime/controlled-loop-continuation-decision.js";
 import { readIntegrationCheck } from "../integration-check/manager.js";
 import {
   readLatestDecompositionPlan,
@@ -304,6 +305,7 @@ export interface WorkbenchSchedulerControlledStepEvidenceSummary {
   controlledLoopStopSummary?: SchedulerControlledStepEvidence["controlledLoopStopSummary"];
   controlledLoopBoundaryResult?: SchedulerControlledStepEvidence["controlledLoopBoundaryResult"];
   controlledLoopRuntimeBoundary?: SchedulerControlledStepEvidence["controlledLoopRuntimeBoundary"];
+  controlledLoopContinuationDecision?: ControlledSchedulerContinuationDecision;
   warning?: string;
   artifact?: string;
   markdownArtifact?: string;

@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-21T00:51:02.8866220Z",
+    "generated_at":  "2026-06-21T01:19:00.6902345Z",
     "active":  [
 
                ],
@@ -1693,6 +1693,10 @@
                     {
                         "name":  "20260621-controlled-scheduler-boundary-result-continuation-guard",
                         "path":  "harness/changes/archive/20260621-controlled-scheduler-boundary-result-continuation-guard"
+                    },
+                    {
+                        "name":  "20260621-controlled-scheduler-continuation-decision",
+                        "path":  "harness/changes/archive/20260621-controlled-scheduler-continuation-decision"
                     },
                     {
                         "name":  "20260621-controlled-scheduler-continuation-guard",

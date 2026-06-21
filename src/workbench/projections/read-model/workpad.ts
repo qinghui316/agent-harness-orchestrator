@@ -3,8 +3,12 @@ import { listRuns } from "../../../run/manager.js";
 import { listDemandWorkers } from "../../../demand-worker/manager.js";
 import { listTaskQueues } from "../../../task-queue/manager.js";
 import { buildSchedulerControlledLoopStopSummary, CONTROLLED_STEP_FORBIDDEN_AUTHORITY } from "../../../scheduler-runtime/manager.js";
+import {
+  evaluateControlledSchedulerBoundaryContinuation,
+  type ControlledSchedulerFreshGateSnapshot,
+} from "../../../scheduler-runtime/controlled-loop-continuation-decision.js";
 import { getLatestWorkflowRun, summarizeWorkflowRun } from "../../../workflow-run/manager.js";
-import { validateWorkflowActionRequiredTargets, workflowActionScopesMatchStrict, type WorkflowActionScopeCarrier } from "../../../workflow-actions/registry.js";
+import type { WorkflowActionScopeCarrier } from "../../../workflow-actions/registry.js";
 import {
   buildTypedWorkflowNextAction,
   readLatestDecompositionPlanSummary,
@@ -413,31 +417,17 @@ export function alignControlledSchedulerContinuationReadiness(
 ): WorkbenchSchedulerControlledStepEvidenceSummary | null {
   const readiness = step?.controlledLoopContinuationReadiness;
   if (!step || !readiness?.nextCandidateActionType) return step;
-  if (readiness.status !== "ready-for-human-gate") return step;
-  if (nextAction.kind !== "workflow-action" || !nextAction.requiresConfirmation) {
-    return downgradeContinuationReadiness(step, "waiting", "No current visible human gate is available for the recorded continuation candidate.");
+  const decision = evaluateControlledSchedulerBoundaryContinuation({
+    changeId: step.changeId,
+    previousStep: step,
+    freshGate: freshGateSnapshotFromNextAction(nextAction),
+  });
+  const withDecision = { ...step, controlledLoopContinuationDecision: decision };
+  if (readiness.status !== "ready-for-human-gate") return withDecision;
+  if (decision.status !== "ready-for-human-gate") {
+    return downgradeContinuationReadiness(withDecision, decision.status, decision.reason);
   }
-  if (!nextAction.enabled) {
-    return downgradeContinuationReadiness(step, "needs-review", "The current visible human gate is disabled, so continuation readiness needs review.");
-  }
-  if (nextAction.changeId !== step.changeId) {
-    return downgradeContinuationReadiness(step, "needs-review", "The current visible human gate belongs to a different Change.");
-  }
-  if (nextAction.actionType !== readiness.nextCandidateActionType) {
-    return downgradeContinuationReadiness(step, "needs-review", "The current visible human gate action no longer matches the recorded continuation candidate.");
-  }
-  const currentGate = workflowActionCarrierFromNextAction(nextAction);
-  if (validateWorkflowActionRequiredTargets(currentGate).length > 0) {
-    return downgradeContinuationReadiness(step, "needs-review", "The current visible human gate is missing required scheduler target ids.");
-  }
-  if (step.schedulerRunId && currentGate.schedulerRunId !== step.schedulerRunId) {
-    return downgradeContinuationReadiness(step, "needs-review", "The current visible human gate targets a different SchedulerRun.");
-  }
-  const expectedGate = expectedContinuationGateFromStep(step);
-  if (expectedGate && !workflowActionScopesMatchStrict(expectedGate, currentGate)) {
-    return downgradeContinuationReadiness(step, "needs-review", "The current visible human gate target scope no longer matches the recorded controlled step target.");
-  }
-  return step;
+  return withDecision;
 }
 
 function workflowActionCarrierFromNextAction(nextAction: WorkpadNextAction): WorkflowActionScopeCarrier {
@@ -456,23 +446,22 @@ function workflowActionCarrierFromNextAction(nextAction: WorkpadNextAction): Wor
   return carrier;
 }
 
-function expectedContinuationGateFromStep(step: WorkbenchSchedulerControlledStepEvidenceSummary): WorkflowActionScopeCarrier | undefined {
-  const readiness = step.controlledLoopContinuationReadiness;
-  if (!readiness?.nextCandidateActionType) return undefined;
-  const scope: WorkflowActionScopeCarrier = {
-    actionType: readiness.nextCandidateActionType,
-    changeId: step.changeId,
+function freshGateSnapshotFromNextAction(nextAction: WorkpadNextAction): ControlledSchedulerFreshGateSnapshot {
+  const scope = nextAction.kind === "workflow-action"
+    ? workflowActionCarrierFromNextAction(nextAction)
+    : { actionType: nextAction.actionType, changeId: nextAction.changeId };
+  return {
+    actionType: nextAction.actionType,
+    changeId: nextAction.changeId,
+    enabled: Boolean(nextAction.enabled),
+    requiresConfirmation: nextAction.kind === "workflow-action" && Boolean(nextAction.requiresConfirmation),
+    scope,
   };
-  if (step.schedulerRunId) scope.schedulerRunId = step.schedulerRunId;
-  if (readiness.nextCandidateActionType === "planning.scheduler.worker.reconcile-result" && typeof step.controlledStepResultSummary?.schedulerWorkerStartId === "string") {
-    scope.schedulerWorkerStartId = step.controlledStepResultSummary.schedulerWorkerStartId;
-  }
-  return scope;
 }
 
 function downgradeContinuationReadiness(
   step: WorkbenchSchedulerControlledStepEvidenceSummary,
-  status: "needs-review" | "waiting",
+  status: NonNullable<WorkbenchSchedulerControlledStepEvidenceSummary["controlledLoopContinuationReadiness"]>["status"],
   reason: string,
 ): WorkbenchSchedulerControlledStepEvidenceSummary {
   const readiness = step.controlledLoopContinuationReadiness;
