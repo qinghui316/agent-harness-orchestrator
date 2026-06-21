@@ -7,13 +7,13 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 - Current date: 2026-06-21.
 - Active change: none.
 - Pending Harness evolution: none.
-- Latest archived product change: Controlled Scheduler Post-Step Routing Decision, archived at `harness/changes/archive/20260621-controlled-scheduler-post-step-routing-decision/summary.md`.
-- Latest product/Harness docs change: Controlled Scheduler Post-Step Routing Decision, archived at `harness/changes/archive/20260621-controlled-scheduler-post-step-routing-decision/summary.md`.
+- Latest archived product change: Controlled Scheduler Post-Step Routing Prompt Context, archived at `harness/changes/archive/20260621-controlled-scheduler-post-step-routing-prompt-context/summary.md`.
+- Latest product/Harness docs change: Controlled Scheduler Post-Step Routing Prompt Context, archived at `harness/changes/archive/20260621-controlled-scheduler-post-step-routing-prompt-context/summary.md`.
 - Active product phase: none.
 - Active Harness evolution phase: none.
 - Latest Harness evolution: `harness/changes/archive/20260621-auto-evolve-harness-controlled-scheduler-decision-routing-window-noop/summary.md`.
 
-No active structured work remains. Use `docs/STATUS.md` for the short resume
+No active structured work is open. Use `docs/STATUS.md` for the short resume
 state and next recommended structured work. Use `harness/changes/INDEX.json`
 and archived `summary.md` files for historical detail. Do not rebuild current
 context by reading the full archive ledger unless the task requires it.

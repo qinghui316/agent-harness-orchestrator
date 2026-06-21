@@ -3,6 +3,7 @@ import type { GoalLoopCloseGateHandoff } from "../../goal-loop/close-handoff.js"
 import type { GoalLoopControlledLoopStateContext } from "../../goal-loop/scheduler-loop-context.js";
 import type { GoalLoopSchedulerTerminalHandoffContext } from "../../goal-loop/main-agent-context.js";
 import type { ManagedProject, ResolvedMemory } from "../../types/index.js";
+import type { WorkbenchThreadActionType } from "../../workflow-actions/registry.js";
 import type { WorkbenchControlledSchedulerNextCandidate, WorkbenchWorkpad } from "../read-model-types.js";
 import { getWorkbenchWorkpadProjection } from "../projections/read-model/implementation.js";
 
@@ -27,6 +28,36 @@ export interface ControlledSchedulerNextCandidatePromptEvidence {
   harnessEvolutionAuthorized: false;
 }
 
+export interface ControlledSchedulerPostStepRoutingPromptEvidence {
+  authority: "non-executing-controlled-scheduler-post-step-routing-prompt-evidence";
+  status: "ready-for-current-gate";
+  routeFamily: string;
+  ownerModule: string;
+  existingGateActionType: WorkbenchThreadActionType;
+  continuationReadinessStatus: string;
+  resultKind?: string;
+  resultId?: string;
+  resultStatus?: string;
+  reason: string;
+  readinessEvidencePrepared: true;
+  freshEvidenceRequiredBeforeContinuation: true;
+  freshCurrentGateRequiredBeforeContinuation: true;
+  humanGateRequired: boolean;
+  humanConfirmationStillRequired: true;
+  evidenceRefs: string[];
+  executionStarted: false;
+  loopAuthorized: false;
+  fullParallelExecutorAuthorized: false;
+  wholeWaveDispatchAuthorized: false;
+  slotAllocatorAuthorized: false;
+  sourceMutationAuthorized: false;
+  applyAuthorized: false;
+  closeAuthorized: false;
+  mergeAuthorized: false;
+  remoteLandingAuthorized: false;
+  harnessEvolutionAuthorized: false;
+}
+
 export interface VisibleGoalLoopMainAgentContextSection {
   goalLoopNextStepPacketId: string;
   goalLoopControllerPolicyId?: string;
@@ -39,6 +70,7 @@ export interface VisibleGoalLoopMainAgentContextSection {
   controlledLoopState: GoalLoopControlledLoopStateContext;
   schedulerTerminalHandoff?: GoalLoopSchedulerTerminalHandoffContext;
   controlledSchedulerNextCandidate?: ControlledSchedulerNextCandidatePromptEvidence;
+  controlledSchedulerPostStepRouting?: ControlledSchedulerPostStepRoutingPromptEvidence;
   markdown: string;
 }
 
@@ -66,7 +98,11 @@ export async function buildVisibleGoalLoopMainAgentContextSection(
   }
   const schedulerTerminalHandoff = buildSchedulerTerminalHandoffContext(workpad, visibleSection);
   const controlledSchedulerNextCandidate = buildControlledSchedulerNextCandidatePromptEvidence(workpad, visibleSection.goalLoopNextStepPacketId);
-  const controlledSchedulerMarkdown = appendControlledSchedulerStopPostureContext(visibleSection.markdown, controlledSchedulerNextCandidate?.stopPosture);
+  const controlledSchedulerPostStepRouting = buildControlledSchedulerPostStepRoutingPromptEvidence(workpad, visibleSection.goalLoopNextStepPacketId);
+  const controlledSchedulerMarkdown = appendControlledSchedulerPostStepRoutingContext(
+    appendControlledSchedulerStopPostureContext(visibleSection.markdown, controlledSchedulerNextCandidate?.stopPosture),
+    controlledSchedulerPostStepRouting,
+  );
   visibleSection = controlledSchedulerMarkdown === visibleSection.markdown ? visibleSection : {
     ...visibleSection,
     markdown: controlledSchedulerMarkdown,
@@ -76,12 +112,14 @@ export async function buildVisibleGoalLoopMainAgentContextSection(
       ...visibleSection,
       schedulerTerminalHandoff,
       controlledSchedulerNextCandidate,
+      controlledSchedulerPostStepRouting,
       markdown: appendSchedulerTerminalHandoffContext(visibleSection.markdown, schedulerTerminalHandoff),
     };
   }
   return {
     ...visibleSection,
     controlledSchedulerNextCandidate,
+    controlledSchedulerPostStepRouting,
   };
 }
 
@@ -212,6 +250,66 @@ export function buildControlledSchedulerNextCandidatePromptEvidence(
   };
 }
 
+export function buildControlledSchedulerPostStepRoutingPromptEvidence(
+  workpad: WorkbenchWorkpad,
+  goalLoopNextStepPacketId: string,
+): ControlledSchedulerPostStepRoutingPromptEvidence | undefined {
+  const goalLoop = workpad.goalLoop;
+  if (goalLoop?.goalLoopNextStepPacketId !== goalLoopNextStepPacketId) return undefined;
+  const step = workpad.schedulerControlledStepEvidence;
+  const routing = step?.controlledLoopPostStepRoutingDecision;
+  if (!step || !routing) return undefined;
+  if (step.changeId !== goalLoop.changeId) return undefined;
+  if (step.controlledLoopContinuationDecision?.status !== "ready-for-human-gate") return undefined;
+  if (routing.continuationReadinessStatus !== "ready-for-human-gate") return undefined;
+  if (routing.needsReevaluation) return undefined;
+  const existingGateActionType = routing.existingGateActionType;
+  if (!existingGateActionType) return undefined;
+  if (!isCurrentWorkflowGate(workpad, existingGateActionType, step.changeId)) return undefined;
+  return {
+    authority: "non-executing-controlled-scheduler-post-step-routing-prompt-evidence",
+    status: "ready-for-current-gate",
+    routeFamily: routing.routeFamily,
+    ownerModule: routing.ownerModule,
+    existingGateActionType,
+    continuationReadinessStatus: routing.continuationReadinessStatus,
+    resultKind: routing.resultKind,
+    resultId: routing.resultId,
+    resultStatus: routing.resultStatus,
+    reason: routing.reason,
+    readinessEvidencePrepared: true,
+    freshEvidenceRequiredBeforeContinuation: true,
+    freshCurrentGateRequiredBeforeContinuation: true,
+    humanGateRequired: routing.humanGateRequired,
+    humanConfirmationStillRequired: true,
+    evidenceRefs: [...routing.evidenceRefs],
+    executionStarted: false,
+    loopAuthorized: false,
+    fullParallelExecutorAuthorized: false,
+    wholeWaveDispatchAuthorized: false,
+    slotAllocatorAuthorized: false,
+    sourceMutationAuthorized: false,
+    applyAuthorized: false,
+    closeAuthorized: false,
+    mergeAuthorized: false,
+    remoteLandingAuthorized: false,
+    harnessEvolutionAuthorized: false,
+  };
+}
+
+function isCurrentWorkflowGate(
+  workpad: WorkbenchWorkpad,
+  actionType: string,
+  changeId: string,
+): actionType is WorkbenchThreadActionType {
+  const nextAction = workpad.nextAction;
+  return nextAction.kind === "workflow-action"
+    && nextAction.enabled === true
+    && nextAction.requiresConfirmation === true
+    && nextAction.actionType === actionType
+    && (!nextAction.changeId || nextAction.changeId === changeId);
+}
+
 function appendControlledSchedulerStopPostureContext(
   markdown: string,
   stopPosture: ControlledSchedulerNextCandidatePromptEvidence["stopPosture"],
@@ -244,5 +342,46 @@ function appendControlledSchedulerStopPostureContext(
     `- mergeAuthorized: ${stopPosture.mergeAuthorized ? "true" : "false"}`,
     `- remoteLandingAuthorized: ${stopPosture.remoteLandingAuthorized ? "true" : "false"}`,
     `- harnessEvolutionAuthorized: ${stopPosture.harnessEvolutionAuthorized ? "true" : "false"}`,
+  ].join("\n");
+}
+
+function appendControlledSchedulerPostStepRoutingContext(
+  markdown: string,
+  routing: ControlledSchedulerPostStepRoutingPromptEvidence | undefined,
+): string {
+  if (!routing) return markdown;
+  return [
+    markdown.trimEnd(),
+    "",
+    "### Controlled Scheduler Post-Step Routing",
+    "",
+    "This post-step routing decision is main-Agent prompt context only. It is compact prior-turn evidence from the latest Workpad-visible controlled Scheduler step.",
+    "It names the existing owner/gate for the next continuation, but the current gate must still be freshly revalidated, ToolPolicy-checked, and human confirmed before any transition.",
+    "It must not authorize a scheduler loop, worker start, wave dispatch, slot allocation, source mutation, apply, close, merge, PR, landing, or Harness evolution.",
+    "",
+    `- Route family: ${routing.routeFamily}`,
+    `- Owner module: ${routing.ownerModule}`,
+    `- Existing gate: ${routing.existingGateActionType}`,
+    `- Continuation readiness: ${routing.continuationReadinessStatus}`,
+    `- Human gate required: ${routing.humanGateRequired ? "yes" : "no"}`,
+    `- Fresh evidence required before continuation: ${routing.freshEvidenceRequiredBeforeContinuation ? "yes" : "no"}`,
+    `- Reason: ${routing.reason}`,
+    ...(routing.resultKind ? [`- Result kind: ${routing.resultKind}`] : []),
+    ...(routing.resultId ? [`- Result id: ${routing.resultId}`] : []),
+    ...(routing.resultStatus ? [`- Result status: ${routing.resultStatus}`] : []),
+    "",
+    "#### Post-Step Routing Forbidden Authority",
+    "",
+    `- executionStarted: ${routing.executionStarted ? "true" : "false"}`,
+    `- loopAuthorized: ${routing.loopAuthorized ? "true" : "false"}`,
+    `- fullParallelExecutorAuthorized: ${routing.fullParallelExecutorAuthorized ? "true" : "false"}`,
+    `- wholeWaveDispatchAuthorized: ${routing.wholeWaveDispatchAuthorized ? "true" : "false"}`,
+    `- slotAllocatorAuthorized: ${routing.slotAllocatorAuthorized ? "true" : "false"}`,
+    `- sourceMutationAuthorized: ${routing.sourceMutationAuthorized ? "true" : "false"}`,
+    `- applyAuthorized: ${routing.applyAuthorized ? "true" : "false"}`,
+    `- closeAuthorized: ${routing.closeAuthorized ? "true" : "false"}`,
+    `- mergeAuthorized: ${routing.mergeAuthorized ? "true" : "false"}`,
+    `- remoteLandingAuthorized: ${routing.remoteLandingAuthorized ? "true" : "false"}`,
+    `- harnessEvolutionAuthorized: ${routing.harnessEvolutionAuthorized ? "true" : "false"}`,
   ].join("\n");
 }

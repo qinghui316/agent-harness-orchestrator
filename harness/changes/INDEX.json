@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-21T02:26:06.1068903Z",
+    "generated_at":  "2026-06-21T02:53:28.5945022Z",
     "active":  [
 
                ],
@@ -1749,6 +1749,10 @@
                     {
                         "name":  "20260621-controlled-scheduler-post-step-routing-decision",
                         "path":  "harness/changes/archive/20260621-controlled-scheduler-post-step-routing-decision"
+                    },
+                    {
+                        "name":  "20260621-controlled-scheduler-post-step-routing-prompt-context",
+                        "path":  "harness/changes/archive/20260621-controlled-scheduler-post-step-routing-prompt-context"
                     },
                     {
                         "name":  "20260621-controlled-scheduler-runtime-step-evidence",

@@ -6,6 +6,7 @@ export const GOAL_LOOP_CONTROLLED_LOOP_STATE_PROMPT_LABEL = "goal-loop-controlle
 export const GOAL_LOOP_CONTROLLER_POLICY_PROMPT_LABEL = "goal-loop-controller-policy";
 export const GOAL_LOOP_SCHEDULER_TERMINAL_HANDOFF_PROMPT_LABEL = "goal-loop-scheduler-terminal-handoff";
 export const GOAL_LOOP_CONTROLLED_SCHEDULER_NEXT_CANDIDATE_PROMPT_LABEL = "goal-loop-controlled-scheduler-next-candidate";
+export const GOAL_LOOP_CONTROLLED_SCHEDULER_POST_STEP_ROUTING_PROMPT_LABEL = "goal-loop-controlled-scheduler-post-step-routing";
 
 export interface GoalLoopRoutingPosturePromptEvidence {
   authority: "non-executing-routing-posture-prompt-evidence";
@@ -35,6 +36,7 @@ export interface GoalLoopContextPreparedEvidence {
   goalLoopControlledLoopState?: MainAgentContextResult["goalLoopControlledLoopState"];
   goalLoopSchedulerTerminalHandoff?: MainAgentContextResult["goalLoopSchedulerTerminalHandoff"];
   goalLoopControlledSchedulerNextCandidate?: MainAgentContextResult["goalLoopControlledSchedulerNextCandidate"];
+  goalLoopControlledSchedulerPostStepRouting?: MainAgentContextResult["goalLoopControlledSchedulerPostStepRouting"];
 }
 
 export function goalLoopPromptStackLabels(context: MainAgentContextResult): string[] {
@@ -57,6 +59,9 @@ export function goalLoopPromptStackLabels(context: MainAgentContextResult): stri
   if (context.goalLoopControlledSchedulerNextCandidate) {
     labels.push(GOAL_LOOP_CONTROLLED_SCHEDULER_NEXT_CANDIDATE_PROMPT_LABEL);
   }
+  if (context.goalLoopControlledSchedulerPostStepRouting) {
+    labels.push(GOAL_LOOP_CONTROLLED_SCHEDULER_POST_STEP_ROUTING_PROMPT_LABEL);
+  }
   return labels;
 }
 
@@ -72,6 +77,7 @@ export function buildGoalLoopContextPreparedEvidence(context: MainAgentContextRe
     goalLoopControlledLoopState: context.goalLoopControlledLoopState,
     goalLoopSchedulerTerminalHandoff: context.goalLoopSchedulerTerminalHandoff,
     goalLoopControlledSchedulerNextCandidate: context.goalLoopControlledSchedulerNextCandidate,
+    goalLoopControlledSchedulerPostStepRouting: context.goalLoopControlledSchedulerPostStepRouting,
   };
 }
 

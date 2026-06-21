@@ -5,12 +5,21 @@
 - Current date: 2026-06-21.
 - Active ECL change: none.
 - Pending Harness evolution: none.
-- Latest archived product change: `harness/changes/archive/20260621-controlled-scheduler-post-step-routing-decision/summary.md`.
-- Latest archived product/Harness docs change: `harness/changes/archive/20260621-controlled-scheduler-post-step-routing-decision/summary.md`.
+- Latest archived product change: `harness/changes/archive/20260621-controlled-scheduler-post-step-routing-prompt-context/summary.md`.
+- Latest archived product/Harness docs change: `harness/changes/archive/20260621-controlled-scheduler-post-step-routing-prompt-context/summary.md`.
 - Latest archived Harness evolution: `harness/changes/archive/20260621-auto-evolve-harness-controlled-scheduler-decision-routing-window-noop/summary.md`.
 - Active product phase: none.
 - Active Harness evolution phase: none.
-- Active close status: no active change.
+- Active close status: none.
+
+No active structured work is open. The latest product change
+`controlled-scheduler-post-step-routing-prompt-context` is archived. It connects
+the latest Workpad-visible `controlledLoopPostStepRoutingDecision` into compact
+main-Agent / Goal Loop prompt evidence only when the visible packet, current
+gate, continuation decision, and route remain aligned. It is explicitly
+non-executing: no new scheduler loop, action, confirmation queue behavior,
+ToolPolicy path, source mutation, apply/close/merge, remote landing, or Harness
+evolution automation.
 
 This file is the short resume point. The latest product change
 `controlled-scheduler-post-step-routing-decision` is archived. It derives an

@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { compileGoalLoopControllerPolicy, compileGoalLoopEvaluation, compileGoalLoopGateReadinessPreflight } from "../../src/goal-loop/manager.js";
 import type { GoalLoopRecommendedAction } from "../../src/goal-loop/types.js";
 import type { ResolvedMemory } from "../../src/types/index.js";
-import { buildControlledSchedulerNextCandidatePromptEvidence } from "../../src/workbench/codex-chat/goal-loop-context.js";
+import { buildControlledSchedulerNextCandidatePromptEvidence, buildControlledSchedulerPostStepRoutingPromptEvidence } from "../../src/workbench/codex-chat/goal-loop-context.js";
 import { buildGoalLoopContextPreparedEvidence, goalLoopPromptStackLabels } from "../../src/workbench/codex-chat/goal-loop-prompt-evidence.js";
 import type { WorkbenchWorkpad, WorkpadNextAction } from "../../src/workbench/read-model-types.js";
 import { readLatestGoalLoopSummary } from "../../src/workbench/projections/read-model/goal-loop.js";
@@ -140,6 +140,91 @@ describe("controlled scheduler post-step projection", () => {
     } as Parameters<typeof goalLoopPromptStackLabels>[0];
     expect(goalLoopPromptStackLabels(contextResult)).toContain("goal-loop-controlled-scheduler-next-candidate");
     expect(buildGoalLoopContextPreparedEvidence(contextResult).goalLoopControlledSchedulerNextCandidate).toEqual(promptEvidence);
+  });
+
+  it("builds compact post-step routing prompt evidence only for the aligned current gate", () => {
+    const workpad = postStepRoutingWorkpad();
+
+    const evidence = buildControlledSchedulerPostStepRoutingPromptEvidence(workpad as never, "goal-loop-next-step-packet-1");
+
+    expect(evidence).toEqual(expect.objectContaining({
+      authority: "non-executing-controlled-scheduler-post-step-routing-prompt-evidence",
+      status: "ready-for-current-gate",
+      routeFamily: "awaiting-human-gate",
+      ownerModule: "scheduler-runtime",
+      existingGateActionType: "planning.scheduler.worker.reconcile-result",
+      continuationReadinessStatus: "ready-for-human-gate",
+      resultKind: "worker-start",
+      resultId: "worker-start-1",
+      resultStatus: "started",
+      readinessEvidencePrepared: true,
+      freshEvidenceRequiredBeforeContinuation: true,
+      freshCurrentGateRequiredBeforeContinuation: true,
+      humanGateRequired: true,
+      humanConfirmationStillRequired: true,
+      executionStarted: false,
+      loopAuthorized: false,
+      fullParallelExecutorAuthorized: false,
+      wholeWaveDispatchAuthorized: false,
+      slotAllocatorAuthorized: false,
+      sourceMutationAuthorized: false,
+      applyAuthorized: false,
+      closeAuthorized: false,
+      mergeAuthorized: false,
+      remoteLandingAuthorized: false,
+      harnessEvolutionAuthorized: false,
+    }));
+    expect(evidence?.evidenceRefs).toEqual([
+      "harness/changes/active/controlled-post-step/planning/scheduler-controlled-step/step.md",
+    ]);
+    expect(evidence).not.toHaveProperty("dispatchedTargetScope");
+    expect(evidence).not.toHaveProperty("recommendedActionScope");
+    expect(evidence).not.toHaveProperty("actionPayload");
+    expect(evidence).not.toHaveProperty("markdown");
+
+    const contextResult = {
+      context: "",
+      goalLoopControlledSchedulerPostStepRouting: evidence,
+    } as Parameters<typeof goalLoopPromptStackLabels>[0];
+    expect(goalLoopPromptStackLabels(contextResult)).toContain("goal-loop-controlled-scheduler-post-step-routing");
+    const prepared = buildGoalLoopContextPreparedEvidence(contextResult);
+    expect(prepared.goalLoopControlledSchedulerPostStepRouting).toEqual(evidence);
+    expect(prepared.goalLoopControlledSchedulerPostStepRouting).not.toHaveProperty("dispatchedTargetScope");
+    expect(prepared.goalLoopControlledSchedulerPostStepRouting).not.toHaveProperty("markdown");
+  });
+
+  it("suppresses post-step routing prompt evidence when packet, gate, or continuation evidence is not current", () => {
+    const aligned = postStepRoutingWorkpad();
+
+    expect(buildControlledSchedulerPostStepRoutingPromptEvidence(aligned as never, "stale-packet")).toBeUndefined();
+    expect(buildControlledSchedulerPostStepRoutingPromptEvidence({
+      ...aligned,
+      nextAction: {
+        ...aligned.nextAction,
+        actionType: "planning.scheduler.worker.validate-first",
+      },
+    } as never, "goal-loop-next-step-packet-1")).toBeUndefined();
+    expect(buildControlledSchedulerPostStepRoutingPromptEvidence({
+      ...aligned,
+      schedulerControlledStepEvidence: {
+        ...aligned.schedulerControlledStepEvidence,
+        controlledLoopContinuationDecision: {
+          ...aligned.schedulerControlledStepEvidence.controlledLoopContinuationDecision,
+          status: "needs-review",
+          reason: "Current gate no longer matches the prior step.",
+        },
+      },
+    } as never, "goal-loop-next-step-packet-1")).toBeUndefined();
+    expect(buildControlledSchedulerPostStepRoutingPromptEvidence({
+      ...aligned,
+      schedulerControlledStepEvidence: {
+        ...aligned.schedulerControlledStepEvidence,
+        controlledLoopPostStepRoutingDecision: {
+          ...aligned.schedulerControlledStepEvidence.controlledLoopPostStepRoutingDecision,
+          needsReevaluation: true,
+        },
+      },
+    } as never, "goal-loop-next-step-packet-1")).toBeUndefined();
   });
 
   it("derives a sanitized Workpad step receipt from the latest completed controlled advance decision", async () => {
@@ -488,6 +573,87 @@ function nextActionFor(recommendedAction: GoalLoopRecommendedAction | undefined)
     actionType: recommendedAction.actionType,
     changeId,
     ...recommendedAction.scope,
+  };
+}
+
+function postStepRoutingWorkpad() {
+  return {
+    goalLoop: {
+      changeId,
+      goalLoopNextStepPacketId: "goal-loop-next-step-packet-1",
+    },
+    nextAction: {
+      id: "current-visible-gate",
+      label: "Current visible gate",
+      description: "Current visible gate.",
+      kind: "workflow-action",
+      enabled: true,
+      requiresConfirmation: true,
+      actionType: "planning.scheduler.worker.reconcile-result",
+      changeId,
+      schedulerRunId: "scheduler-run-1",
+      schedulerWorkerStartId: "worker-start-1",
+    },
+    schedulerControlledStepEvidence: {
+      id: "controlled-step-1",
+      changeId,
+      schedulerRunId: "scheduler-run-1",
+      controlledLoopContinuationDecision: {
+        version: "1.0",
+        authority: "scheduler-runtime-controlled-loop-continuation-decision",
+        status: "ready-for-human-gate",
+        changeId,
+        nextGateActionType: "planning.scheduler.worker.reconcile-result",
+        reason: "Current gate matches the prior controlled step.",
+        boundary: "non-executing",
+        evidenceRefs: ["harness/changes/active/controlled-post-step/planning/scheduler-controlled-step/step.md"],
+        executionStarted: false,
+        loopAuthorized: false,
+        fullParallelExecutorAuthorized: false,
+        wholeWaveDispatchAuthorized: false,
+        slotAllocatorAuthorized: false,
+        sourceMutationAuthorized: false,
+        applyAuthorized: false,
+        closeAuthorized: false,
+        mergeAuthorized: false,
+        remoteLandingAuthorized: false,
+        harnessEvolutionAuthorized: false,
+      },
+      controlledLoopPostStepRoutingDecision: {
+        version: "1.0",
+        authority: "scheduler-runtime-controlled-loop-post-step-routing-decision",
+        routeFamily: "awaiting-human-gate",
+        continuationReadinessStatus: "ready-for-human-gate",
+        ownerModule: "scheduler-runtime",
+        executedActionType: "planning.scheduler.worker.start-next",
+        existingGateActionType: "planning.scheduler.worker.reconcile-result",
+        gateTargetScopeSource: "fresh-current-gate-required",
+        resultKind: "worker-start",
+        resultId: "worker-start-1",
+        resultStatus: "started",
+        reason: "The next existing gate is ready for a fresh human confirmation.",
+        boundary: "prior-turn evidence only",
+        readinessEvidencePrepared: true,
+        needsReevaluation: false,
+        freshEvidenceRequiredBeforeContinuation: true,
+        freshCurrentGateRequiredBeforeContinuation: true,
+        humanGateRequired: true,
+        humanConfirmationStillRequired: true,
+        priorTurnEvidence: true,
+        evidenceRefs: ["harness/changes/active/controlled-post-step/planning/scheduler-controlled-step/step.md"],
+        executionStarted: false,
+        loopAuthorized: false,
+        fullParallelExecutorAuthorized: false,
+        wholeWaveDispatchAuthorized: false,
+        slotAllocatorAuthorized: false,
+        sourceMutationAuthorized: false,
+        applyAuthorized: false,
+        closeAuthorized: false,
+        mergeAuthorized: false,
+        remoteLandingAuthorized: false,
+        harnessEvolutionAuthorized: false,
+      },
+    },
   };
 }
 
