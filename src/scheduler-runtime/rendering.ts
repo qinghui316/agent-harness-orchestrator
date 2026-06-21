@@ -178,6 +178,24 @@ export function renderSchedulerControlledStepEvidenceMarkdown(step: SchedulerCon
         ]
       : ["- none"]),
     "",
+    "## Controlled Loop Post-Step Routing Decision",
+    "",
+    ...(step.controlledLoopPostStepRoutingDecision
+      ? [
+          `- Authority: ${step.controlledLoopPostStepRoutingDecision.authority}`,
+          `- Route family: ${step.controlledLoopPostStepRoutingDecision.routeFamily}`,
+          `- Continuation readiness: ${step.controlledLoopPostStepRoutingDecision.continuationReadinessStatus}`,
+          `- Owner module: ${step.controlledLoopPostStepRoutingDecision.ownerModule}`,
+          `- Existing gate: ${step.controlledLoopPostStepRoutingDecision.existingGateActionType ?? "none"}`,
+          `- Gate target scope source: ${step.controlledLoopPostStepRoutingDecision.gateTargetScopeSource}`,
+          `- Fresh evidence required before continuation: ${step.controlledLoopPostStepRoutingDecision.freshEvidenceRequiredBeforeContinuation ? "yes" : "no"}`,
+          `- Human gate required: ${step.controlledLoopPostStepRoutingDecision.humanGateRequired ? "yes" : "no"}`,
+          `- Reason: ${step.controlledLoopPostStepRoutingDecision.reason}`,
+          "- Execution from post-step routing decision: not authorized.",
+          "- Workbench confirmation, ToolPolicyGate, stale revalidation, source apply, close, remote landing, and Harness evolution remain separate.",
+        ]
+      : ["- none"]),
+    "",
     ...(step.controlledLoopPreDispatchDecision
       ? [
           "## Pre-dispatch Continuation Decision",

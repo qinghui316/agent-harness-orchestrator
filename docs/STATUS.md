@@ -5,15 +5,33 @@
 - Current date: 2026-06-21.
 - Active ECL change: none.
 - Pending Harness evolution: none.
-- Latest archived product change: `harness/changes/archive/20260621-controlled-scheduler-decision-gated-step-evidence/summary.md`.
-- Latest archived product/Harness docs change: `harness/changes/archive/20260621-controlled-scheduler-decision-gated-step-evidence/summary.md`.
-- Latest archived Harness evolution: `harness/changes/archive/20260621-auto-evolve-harness-controlled-scheduler-boundary-guard-window-noop/summary.md`.
+- Latest archived product change: `harness/changes/archive/20260621-controlled-scheduler-post-step-routing-decision/summary.md`.
+- Latest archived product/Harness docs change: `harness/changes/archive/20260621-controlled-scheduler-post-step-routing-decision/summary.md`.
+- Latest archived Harness evolution: `harness/changes/archive/20260621-auto-evolve-harness-controlled-scheduler-decision-routing-window-noop/summary.md`.
 - Active product phase: none.
 - Active Harness evolution phase: none.
 - Active close status: no active change.
 
-This file is the short resume point. No active structured work remains. The
-latest product change closed Controlled Scheduler Decision Gated Step Evidence.
+This file is the short resume point. The latest product change
+`controlled-scheduler-post-step-routing-decision` is archived. It derives an
+embedded scheduler-runtime post-step routing decision from the existing
+controlled-step evidence chain so one-confirmed Scheduler transitions route
+quality, rework, IntegrationCheck, terminal handoff, or waiting states through
+existing owners. The decision remains prior-turn routing evidence only: no new
+action, artifact family, scheduler loop, ToolPolicy path, Workbench
+confirmation behavior, source mutation, apply/close/merge, remote landing, or
+Harness evolution automation.
+
+The close-triggered Harness evolution window over the latest five controlled
+Scheduler archives is archived as
+`harness/changes/archive/20260621-auto-evolve-harness-controlled-scheduler-decision-routing-window-noop/summary.md`.
+It recorded `noop / independent_review`: existing ECL scoped-action,
+proposal/runtime, Goal Loop, Workbench honesty, read-model projection, module
+boundary, core reuse, close/handoff, documentation entropy, and experience
+lifecycle rules already cover the repeated lessons. No new Harness rule,
+template, lint, script, product runtime path, or current docs rule was added.
+
+The latest product change closed Controlled Scheduler Decision Gated Step Evidence.
 It records the scheduler-runtime continuation decision that gated the current
 `planning.scheduler.controlled-advance.run` step on the durable
 `SchedulerControlledStepEvidence`. Bootstrap advances now record a distinct
@@ -171,11 +189,15 @@ Phase 12A remains the future controlled Scheduler/parallel loop design boundary.
 ## Next Resume Point
 
 Start the next product-functional controlled Scheduler / Goal Loop slice. The
-preferred next stage is to consume the decision-gated controlled-step evidence
-chain as routing input after each one-confirmed Scheduler transition: route
-quality, bounded rework, IntegrationCheck, terminal handoff, or blocked state
-through existing owners. Keep `README.md` unrelated and untracked unless the
-user explicitly asks to include it.
+preferred next stage is to consume the new
+`controlledLoopPostStepRoutingDecision` as main-Agent / Goal Loop continuation
+input after each one-confirmed Scheduler transition. The next slice should
+route quality, bounded rework, IntegrationCheck, terminal handoff, or waiting
+states through existing owners without creating a scheduler loop, new
+Workbench action, ToolPolicy path, confirmation queue behavior, source
+mutation, apply/close/merge, remote landing, or Harness evolution automation.
+Keep `README.md` unrelated and untracked unless the user explicitly asks to
+include it.
 
 ## Verification Commands
 
@@ -212,7 +234,8 @@ Use `harness/changes/INDEX.json` for the generated archive list. Start with arch
 
 Recent key archive summaries:
 
-- Latest product/Harness docs change: `harness/changes/archive/20260621-controlled-scheduler-decision-gated-step-evidence/summary.md`.
+- Latest product/Harness docs change: `harness/changes/archive/20260621-controlled-scheduler-post-step-routing-decision/summary.md`.
+- Latest Harness evolution: `harness/changes/archive/20260621-auto-evolve-harness-controlled-scheduler-decision-routing-window-noop/summary.md`.
 - Recent product/Harness docs change: `harness/changes/archive/20260621-controlled-scheduler-continuation-decision/summary.md`.
 - Recent product/Harness docs change: `harness/changes/archive/20260621-controlled-scheduler-loop-runtime-boundary/summary.md`.
 - Recent product/Harness docs change: `harness/changes/archive/20260621-auto-evolve-harness-controlled-scheduler-continuation-window-noop/summary.md`.

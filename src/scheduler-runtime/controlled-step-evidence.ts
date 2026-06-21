@@ -25,6 +25,7 @@ import { buildSchedulerControlledLoopIterationSummary } from "./controlled-loop-
 import { buildSchedulerControlledLoopStopSummary } from "./controlled-loop-stop-summary.js";
 import { buildSchedulerControlledLoopBoundaryResult } from "./controlled-loop-boundary-result.js";
 import { buildSchedulerControlledLoopRuntimeBoundary } from "./controlled-loop-runtime-boundary.js";
+import { buildSchedulerControlledLoopPostStepRoutingDecision } from "./controlled-loop-post-step-routing.js";
 
 type ScopeValue = string | string[];
 
@@ -120,6 +121,10 @@ export async function recordSchedulerControlledStepEvidence(
         controlledLoopRuntimeBoundaryStatus: step.controlledLoopRuntimeBoundary?.status,
         controlledLoopRuntimeBoundaryStopPosture: step.controlledLoopRuntimeBoundary?.stopPosture,
         controlledLoopRuntimeBoundaryNextGateActionType: step.controlledLoopRuntimeBoundary?.nextGateActionType,
+        controlledLoopPostStepRoutingDecisionAuthority: step.controlledLoopPostStepRoutingDecision?.authority,
+        controlledLoopPostStepRoutingDecisionRouteFamily: step.controlledLoopPostStepRoutingDecision?.routeFamily,
+        controlledLoopPostStepRoutingDecisionOwnerModule: step.controlledLoopPostStepRoutingDecision?.ownerModule,
+        controlledLoopPostStepRoutingDecisionExistingGateActionType: step.controlledLoopPostStepRoutingDecision?.existingGateActionType,
         controlledLoopPreDispatchDecisionAuthority: step.controlledLoopPreDispatchDecision?.authority,
         controlledLoopPreDispatchDecisionStatus: step.controlledLoopPreDispatchDecision?.status,
         controlledLoopPreDispatchDecisionNextGateActionType: step.controlledLoopPreDispatchDecision?.nextGateActionType,
@@ -216,6 +221,18 @@ function buildSchedulerControlledStepEvidence(
     forbiddenAuthority: CONTROLLED_STEP_FORBIDDEN_AUTHORITY,
     evidenceRefs: [refs.markdownArtifact, refs.artifact],
   });
+  const controlledLoopPostStepRoutingDecision = buildSchedulerControlledLoopPostStepRoutingDecision({
+    executedActionType: input.executedActionType,
+    postStepHandoff: input.postStepHandoff,
+    controlledLoopPreDispatchDecision: input.controlledLoopPreDispatchDecision,
+    controlledLoopCurrentTransitionChoice: input.controlledLoopCurrentTransitionChoice,
+    controlledLoopTurnRouteSummary,
+    controlledLoopContinuationReadiness,
+    controlledLoopRuntimeBoundary,
+    controlledStepResultSummary: input.controlledStepResultSummary,
+    forbiddenAuthority: CONTROLLED_STEP_FORBIDDEN_AUTHORITY,
+    evidenceRefs: [refs.markdownArtifact, refs.artifact],
+  });
   return {
     version: "1.0",
     id: stepId,
@@ -236,6 +253,7 @@ function buildSchedulerControlledStepEvidence(
     controlledLoopStopSummary,
     controlledLoopBoundaryResult,
     controlledLoopRuntimeBoundary,
+    controlledLoopPostStepRoutingDecision,
     controlledLoopCurrentTransitionChoice: input.controlledLoopCurrentTransitionChoice,
     executionStarted: true,
     stoppedAfterOneSchedulerTransition: true,

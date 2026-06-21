@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-21T01:41:32.6531846Z",
+    "generated_at":  "2026-06-21T02:26:06.1068903Z",
     "active":  [
 
                ],
@@ -1683,6 +1683,10 @@
                         "path":  "harness/changes/archive/20260621-auto-evolve-harness-controlled-scheduler-current-transition-window-noop"
                     },
                     {
+                        "name":  "20260621-auto-evolve-harness-controlled-scheduler-decision-routing-window-noop",
+                        "path":  "harness/changes/archive/20260621-auto-evolve-harness-controlled-scheduler-decision-routing-window-noop"
+                    },
+                    {
                         "name":  "20260621-auto-evolve-harness-controlled-scheduler-step-result-window-noop",
                         "path":  "harness/changes/archive/20260621-auto-evolve-harness-controlled-scheduler-step-result-window-noop"
                     },
@@ -1741,6 +1745,10 @@
                     {
                         "name":  "20260621-controlled-scheduler-loop-turn-routing",
                         "path":  "harness/changes/archive/20260621-controlled-scheduler-loop-turn-routing"
+                    },
+                    {
+                        "name":  "20260621-controlled-scheduler-post-step-routing-decision",
+                        "path":  "harness/changes/archive/20260621-controlled-scheduler-post-step-routing-decision"
                     },
                     {
                         "name":  "20260621-controlled-scheduler-runtime-step-evidence",

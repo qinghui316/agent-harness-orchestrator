@@ -405,6 +405,26 @@ export function SchedulerControlledStepEvidenceCard({ step }: { step: NonNullabl
           </div>
         </div>
       ) : null}
+      {step.controlledLoopPostStepRoutingDecision ? (
+        <div className="workpad-evidence-list" data-testid="scheduler-controlled-loop-post-step-routing-decision">
+          <div className="workpad-evidence">
+            <strong>后续路由</strong>
+            <span>{controlledLoopPostStepRoutingText(step.controlledLoopPostStepRoutingDecision)}</span>
+          </div>
+          <div className="workpad-evidence">
+            <strong>现有门控</strong>
+            <span>{step.controlledLoopPostStepRoutingDecision.existingGateActionType ? workflowActionLabel(step.controlledLoopPostStepRoutingDecision.existingGateActionType) : "等待新的证据"}</span>
+          </div>
+          <div className="workpad-evidence">
+            <strong>路由原因</strong>
+            <span>{userFacingText(step.controlledLoopPostStepRoutingDecision.reason)}</span>
+          </div>
+          <div className="workpad-evidence">
+            <strong>路由边界</strong>
+            <span>只读上一轮路由输入；不会改变右侧确认、ToolPolicy、重新取证、应用源码、关闭需求、远端落地或维护演进</span>
+          </div>
+        </div>
+      ) : null}
       {step.warning ? <p className="workpad-note">{step.warning}</p> : null}
       {step.artifact ? <small className="artifact-link">查看证据：{artifactName(step.artifact)}</small> : null}
     </section>
@@ -419,6 +439,7 @@ type ControlledLoopIterationSummary = NonNullable<NonNullable<Workpad["scheduler
 type ControlledLoopStopSummary = NonNullable<NonNullable<Workpad["schedulerControlledStepEvidence"]>["controlledLoopStopSummary"]>;
 type ControlledLoopBoundaryResult = NonNullable<NonNullable<Workpad["schedulerControlledStepEvidence"]>["controlledLoopBoundaryResult"]>;
 type ControlledLoopRuntimeBoundary = NonNullable<NonNullable<Workpad["schedulerControlledStepEvidence"]>["controlledLoopRuntimeBoundary"]>;
+type ControlledLoopPostStepRoutingDecision = NonNullable<NonNullable<Workpad["schedulerControlledStepEvidence"]>["controlledLoopPostStepRoutingDecision"]>;
 
 function controlledLoopTickPhaseText(tick: ControlledLoopTickSummary): string {
   return [
@@ -496,6 +517,30 @@ function controlledLoopRuntimeBoundaryText(boundary: ControlledLoopRuntimeBounda
     boundary.priorTurnEvidence ? "上一轮证据" : "等待证据",
     boundary.freshEvidenceRequiredBeforeContinuation ? "继续前需 fresh evidence" : "等待证据",
   ].join(" / ");
+}
+
+function controlledLoopPostStepRoutingText(decision: ControlledLoopPostStepRoutingDecision): string {
+  return [
+    controlledLoopTurnRouteLabel(decision.routeFamily),
+    routingOwnerLabel(decision.ownerModule),
+    decision.continuationReadinessStatus,
+    decision.freshEvidenceRequiredBeforeContinuation ? "继续前需 fresh evidence" : "等待证据",
+  ].join(" / ");
+}
+
+function routingOwnerLabel(owner: ControlledLoopPostStepRoutingDecision["ownerModule"]): string {
+  switch (owner) {
+    case "scheduler-runtime":
+      return "Scheduler runtime";
+    case "integration-check":
+      return "IntegrationCheck";
+    case "validation-audit":
+      return "Validation / Audit";
+    case "goal-loop-current-gate":
+      return "Goal Loop 当前门";
+    case "existing-human-gate":
+      return "既有人类门控";
+  }
 }
 
 function controlledLoopTurnRouteLabel(posture: ControlledLoopTurnRouteSummary["routePosture"]): string {

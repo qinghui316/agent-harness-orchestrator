@@ -143,6 +143,18 @@ describe("controlled scheduler loop step owner", () => {
           closeAuthorized: false,
           harnessEvolutionAuthorized: false,
         },
+        controlledLoopPostStepRoutingDecision: {
+          authority: "scheduler-runtime-controlled-loop-post-step-routing-decision",
+          routeFamily: "awaiting-human-gate",
+          ownerModule: "scheduler-runtime",
+          existingGateActionType: "planning.scheduler.worker.reconcile-result",
+          priorTurnEvidence: true,
+          executionStarted: false,
+          loopAuthorized: false,
+          applyAuthorized: false,
+          closeAuthorized: false,
+          harnessEvolutionAuthorized: false,
+        },
         controlledLoopPreDispatchDecision: {
           authority: "scheduler-runtime-controlled-loop-continuation-decision",
           status: "waiting",
@@ -355,6 +367,13 @@ describe("controlled scheduler loop step owner", () => {
           applyAuthorized: false,
           closeAuthorized: false,
           harnessEvolutionAuthorized: false,
+        },
+        controlledLoopPostStepRoutingDecision: {
+          authority: "scheduler-runtime-controlled-loop-post-step-routing-decision",
+          ownerModule: "scheduler-runtime",
+          existingGateActionType: "planning.scheduler.worker.reconcile-result",
+          priorTurnEvidence: true,
+          executionStarted: false,
         },
         controlledLoopPreDispatchDecision: {
           authority: "scheduler-runtime-controlled-loop-continuation-decision",

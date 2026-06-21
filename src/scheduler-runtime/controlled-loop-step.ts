@@ -304,6 +304,7 @@ async function recordControlledAdvanceRuntimeStepEvidence(
         controlledLoopStopSummary: recorded.schedulerControlledStepEvidence.controlledLoopStopSummary,
         controlledLoopBoundaryResult: recorded.schedulerControlledStepEvidence.controlledLoopBoundaryResult,
         controlledLoopRuntimeBoundary: recorded.schedulerControlledStepEvidence.controlledLoopRuntimeBoundary,
+        controlledLoopPostStepRoutingDecision: recorded.schedulerControlledStepEvidence.controlledLoopPostStepRoutingDecision,
         controlledLoopPreDispatchDecision: recorded.schedulerControlledStepEvidence.controlledLoopPreDispatchDecision,
         controlledLoopCurrentTransitionChoice: recorded.schedulerControlledStepEvidence.controlledLoopCurrentTransitionChoice,
       },

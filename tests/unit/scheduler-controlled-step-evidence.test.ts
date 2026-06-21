@@ -461,6 +461,43 @@ describe("Scheduler controlled step evidence", () => {
       remoteLandingAuthorized: false,
       harnessEvolutionAuthorized: false,
     });
+    expect(recorded.schedulerControlledStepEvidence.controlledLoopPostStepRoutingDecision).toMatchObject({
+      authority: "scheduler-runtime-controlled-loop-post-step-routing-decision",
+      routeFamily: "awaiting-human-gate",
+      continuationReadinessStatus: "ready-for-human-gate",
+      ownerModule: "scheduler-runtime",
+      executedActionType: "planning.scheduler.worker.start-next",
+      selectedActionType: "planning.scheduler.worker.start-next",
+      dispatchedActionType: "planning.scheduler.worker.start-next",
+      existingGateActionType: "planning.scheduler.worker.reconcile-result",
+      gateTargetScopeSource: "fresh-current-gate-required",
+      dispatchedTargetScope: {
+        changeId: "change-1",
+        schedulerRunId: "scheduler-run-1",
+        schedulerClaimReservationId: "reservation-1",
+      },
+      resultKind: "schedulerWorkerStart",
+      resultId: "scheduler-worker-start-1",
+      resultStatus: "started",
+      readinessEvidencePrepared: true,
+      needsReevaluation: false,
+      freshEvidenceRequiredBeforeContinuation: true,
+      freshCurrentGateRequiredBeforeContinuation: true,
+      humanGateRequired: true,
+      humanConfirmationStillRequired: true,
+      priorTurnEvidence: true,
+      executionStarted: false,
+      loopAuthorized: false,
+      fullParallelExecutorAuthorized: false,
+      wholeWaveDispatchAuthorized: false,
+      slotAllocatorAuthorized: false,
+      sourceMutationAuthorized: false,
+      applyAuthorized: false,
+      closeAuthorized: false,
+      mergeAuthorized: false,
+      remoteLandingAuthorized: false,
+      harnessEvolutionAuthorized: false,
+    });
     const recordedMarkdown = await readFile(
       join(tempDir, changePath, "planning", "scheduler-runs", "scheduler-run-1", "scheduler-controlled-steps", `${recorded.schedulerControlledStepEvidence.id}.md`),
       "utf8",
@@ -479,6 +516,11 @@ describe("Scheduler controlled step evidence", () => {
     expect(recordedMarkdown).toContain("- Authority: scheduler-runtime-controlled-loop-runtime-boundary-evidence");
     expect(recordedMarkdown).toContain("- Prior-turn evidence: yes");
     expect(recordedMarkdown).toContain("- Execution from runtime-boundary evidence: not authorized.");
+    expect(recordedMarkdown).toContain("## Controlled Loop Post-Step Routing Decision");
+    expect(recordedMarkdown).toContain("- Authority: scheduler-runtime-controlled-loop-post-step-routing-decision");
+    expect(recordedMarkdown).toContain("- Owner module: scheduler-runtime");
+    expect(recordedMarkdown).toContain("- Execution from post-step routing decision: not authorized.");
+    expect(recordedMarkdown).toContain("- Workbench confirmation, ToolPolicyGate, stale revalidation, source apply, close, remote landing, and Harness evolution remain separate.");
     expect(recordedMarkdown).toContain("## Pre-dispatch Continuation Decision");
     expect(recordedMarkdown).toContain("- Authority: scheduler-runtime-controlled-loop-continuation-decision");
     expect(recordedMarkdown).toContain("- Status: ready-for-human-gate");
@@ -546,6 +588,22 @@ describe("Scheduler controlled step evidence", () => {
         closeAuthorized: false,
         harnessEvolutionAuthorized: false,
       },
+      controlledLoopPostStepRoutingDecision: {
+        authority: "scheduler-runtime-controlled-loop-post-step-routing-decision",
+        routeFamily: "awaiting-human-gate",
+        continuationReadinessStatus: "ready-for-human-gate",
+        ownerModule: "scheduler-runtime",
+        existingGateActionType: "planning.scheduler.worker.reconcile-result",
+        gateTargetScopeSource: "fresh-current-gate-required",
+        priorTurnEvidence: true,
+        freshEvidenceRequiredBeforeContinuation: true,
+        humanConfirmationStillRequired: true,
+        loopAuthorized: false,
+        sourceMutationAuthorized: false,
+        applyAuthorized: false,
+        closeAuthorized: false,
+        harnessEvolutionAuthorized: false,
+      },
     });
     expect(events).toHaveLength(1);
     expect(events[0]).toMatchObject({
@@ -574,6 +632,10 @@ describe("Scheduler controlled step evidence", () => {
         controlledLoopRuntimeBoundaryStatus: "recorded",
         controlledLoopRuntimeBoundaryStopPosture: "awaiting-human-gate",
         controlledLoopRuntimeBoundaryNextGateActionType: "planning.scheduler.worker.reconcile-result",
+        controlledLoopPostStepRoutingDecisionAuthority: "scheduler-runtime-controlled-loop-post-step-routing-decision",
+        controlledLoopPostStepRoutingDecisionRouteFamily: "awaiting-human-gate",
+        controlledLoopPostStepRoutingDecisionOwnerModule: "scheduler-runtime",
+        controlledLoopPostStepRoutingDecisionExistingGateActionType: "planning.scheduler.worker.reconcile-result",
         controlledLoopPreDispatchDecisionAuthority: "scheduler-runtime-controlled-loop-continuation-decision",
         controlledLoopPreDispatchDecisionStatus: "ready-for-human-gate",
         controlledLoopPreDispatchDecisionNextGateActionType: "planning.scheduler.worker.start-next",

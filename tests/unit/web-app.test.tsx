@@ -1364,6 +1364,47 @@ describe("Workbench web app", () => {
               remoteLandingAuthorized: false,
               harnessEvolutionAuthorized: false,
             },
+            controlledLoopPostStepRoutingDecision: {
+              version: "1.0",
+              authority: "scheduler-runtime-controlled-loop-post-step-routing-decision",
+              routeFamily: "awaiting-human-gate",
+              continuationReadinessStatus: "ready-for-human-gate",
+              ownerModule: "scheduler-runtime",
+              executedActionType: "planning.scheduler.worker.start-next",
+              selectedActionType: "planning.scheduler.worker.start-next",
+              dispatchedActionType: "planning.scheduler.worker.start-next",
+              existingGateActionType: "planning.scheduler.worker.reconcile-result",
+              gateTargetScopeSource: "fresh-current-gate-required",
+              dispatchedTargetScope: {
+                changeId: "member-discount",
+                schedulerRunId: "scheduler-run-1",
+                schedulerClaimReservationId: "claim-reservation-1",
+              },
+              resultKind: "schedulerWorkerStart",
+              resultId: "scheduler-worker-start-1",
+              resultStatus: "started",
+              reason: "The next existing gate is ready for a fresh human confirmation: planning.scheduler.worker.reconcile-result. Existing gate is available after the controlled step stopped.",
+              boundary: "Prior-turn scheduler-runtime routing input derived from the existing controlled-step evidence chain.",
+              readinessEvidencePrepared: true,
+              needsReevaluation: false,
+              freshEvidenceRequiredBeforeContinuation: true,
+              freshCurrentGateRequiredBeforeContinuation: true,
+              humanGateRequired: true,
+              humanConfirmationStillRequired: true,
+              priorTurnEvidence: true,
+              evidenceRefs: ["harness/changes/active/member-discount/planning/scheduler-runs/scheduler-run-1/scheduler-controlled-steps/scheduler-controlled-step-1.md"],
+              executionStarted: false,
+              loopAuthorized: false,
+              fullParallelExecutorAuthorized: false,
+              wholeWaveDispatchAuthorized: false,
+              slotAllocatorAuthorized: false,
+              sourceMutationAuthorized: false,
+              applyAuthorized: false,
+              closeAuthorized: false,
+              mergeAuthorized: false,
+              remoteLandingAuthorized: false,
+              harnessEvolutionAuthorized: false,
+            },
             controlledLoopPreDispatchDecision: {
               version: "1.0",
               authority: "scheduler-runtime-controlled-loop-continuation-decision",
@@ -1475,6 +1516,15 @@ describe("Workbench web app", () => {
     expect(within(runtimeBoundary).getByText("证据性质")).toBeTruthy();
     expect(within(runtimeBoundary).getByText("这是上一轮受控步骤 evidence summary；继续前必须重新读取 fresh Goal Loop、当前确认门、ToolPolicy 和人工确认状态")).toBeTruthy();
     expect(within(runtimeBoundary).queryByRole("button")).toBeNull();
+    const postStepRouting = within(card).getByTestId("scheduler-controlled-loop-post-step-routing-decision");
+    expect(postStepRouting).toBeTruthy();
+    expect(within(postStepRouting).getByText("后续路由")).toBeTruthy();
+    expect(within(postStepRouting).getByText("已停在下一次人工确认 / Scheduler runtime / ready-for-human-gate / 继续前需 fresh evidence")).toBeTruthy();
+    expect(within(postStepRouting).getByText("现有门控")).toBeTruthy();
+    expect(within(postStepRouting).getByText("检查当前结果")).toBeTruthy();
+    expect(within(postStepRouting).getByText("路由边界")).toBeTruthy();
+    expect(within(postStepRouting).getByText("只读上一轮路由输入；不会改变右侧确认、ToolPolicy、重新取证、应用源码、关闭需求、远端落地或维护演进")).toBeTruthy();
+    expect(within(postStepRouting).queryByRole("button")).toBeNull();
     expect(within(card).getByText("查看证据：scheduler-controlled-step-1.json")).toBeTruthy();
     expect(within(card).queryByRole("button")).toBeNull();
     const normalizedCardText = card.textContent?.toLowerCase() ?? "";

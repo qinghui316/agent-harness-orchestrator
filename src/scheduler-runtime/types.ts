@@ -141,6 +141,16 @@ export interface SchedulerControlledStepForbiddenAuthority {
 export type SchedulerControlledStepResultSummaryValue = string | number | boolean | string[] | null;
 export type SchedulerControlledStepResultSummary = Record<string, SchedulerControlledStepResultSummaryValue>;
 export type SchedulerControlledLoopTurnRoutePosture = SchedulerLoopPostureState;
+export type SchedulerControlledLoopPostStepRoutingOwner =
+  | "scheduler-runtime"
+  | "integration-check"
+  | "validation-audit"
+  | "goal-loop-current-gate"
+  | "existing-human-gate";
+export type SchedulerControlledLoopPostStepRoutingTargetScopeSource =
+  | "dispatched-current-gate"
+  | "fresh-current-gate-required"
+  | "none";
 
 export interface SchedulerControlledLoopTurnRouteSummary {
   version: "1.0";
@@ -156,6 +166,45 @@ export interface SchedulerControlledLoopTurnRouteSummary {
   humanGateRequired: boolean;
   humanConfirmationStillRequired: true;
   needsReevaluation: boolean;
+  warning?: string;
+  executionStarted: false;
+  loopAuthorized: false;
+  fullParallelExecutorAuthorized: false;
+  wholeWaveDispatchAuthorized: false;
+  slotAllocatorAuthorized: false;
+  sourceMutationAuthorized: false;
+  applyAuthorized: false;
+  closeAuthorized: false;
+  mergeAuthorized: false;
+  remoteLandingAuthorized: false;
+  harnessEvolutionAuthorized: false;
+}
+
+export interface SchedulerControlledLoopPostStepRoutingDecision {
+  version: "1.0";
+  authority: "scheduler-runtime-controlled-loop-post-step-routing-decision";
+  routeFamily: SchedulerControlledLoopTurnRoutePosture;
+  continuationReadinessStatus: SchedulerControlledLoopContinuationReadinessStatus;
+  ownerModule: SchedulerControlledLoopPostStepRoutingOwner;
+  executedActionType: string;
+  selectedActionType?: string;
+  dispatchedActionType?: string;
+  existingGateActionType?: string;
+  gateTargetScopeSource: SchedulerControlledLoopPostStepRoutingTargetScopeSource;
+  dispatchedTargetScope?: Record<string, string | string[]>;
+  resultKind?: string;
+  resultId?: string;
+  resultStatus?: string;
+  reason: string;
+  boundary: string;
+  readinessEvidencePrepared: boolean;
+  needsReevaluation: boolean;
+  freshEvidenceRequiredBeforeContinuation: true;
+  freshCurrentGateRequiredBeforeContinuation: true;
+  humanGateRequired: boolean;
+  humanConfirmationStillRequired: true;
+  priorTurnEvidence: true;
+  evidenceRefs: string[];
   warning?: string;
   executionStarted: false;
   loopAuthorized: false;
@@ -575,6 +624,7 @@ export interface SchedulerControlledStepEvidence {
   controlledLoopStopSummary?: SchedulerControlledLoopStopSummary;
   controlledLoopBoundaryResult?: SchedulerControlledLoopBoundaryResult;
   controlledLoopRuntimeBoundary?: SchedulerControlledLoopRuntimeBoundary;
+  controlledLoopPostStepRoutingDecision?: SchedulerControlledLoopPostStepRoutingDecision;
   executionStarted: true;
   stoppedAfterOneSchedulerTransition: true;
   humanConfirmationStillRequired: true;
