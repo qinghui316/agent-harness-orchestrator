@@ -303,6 +303,7 @@ export interface WorkbenchSchedulerControlledStepEvidenceSummary {
   controlledLoopIteration?: SchedulerControlledStepEvidence["controlledLoopIteration"];
   controlledLoopStopSummary?: SchedulerControlledStepEvidence["controlledLoopStopSummary"];
   controlledLoopBoundaryResult?: SchedulerControlledStepEvidence["controlledLoopBoundaryResult"];
+  controlledLoopRuntimeBoundary?: SchedulerControlledStepEvidence["controlledLoopRuntimeBoundary"];
   warning?: string;
   artifact?: string;
   markdownArtifact?: string;
@@ -1831,6 +1832,7 @@ function summarizeSchedulerControlledStepEvidence(step: SchedulerControlledStepE
     controlledLoopIteration: step.controlledLoopIteration,
     controlledLoopStopSummary: step.controlledLoopStopSummary,
     controlledLoopBoundaryResult: step.controlledLoopBoundaryResult,
+    controlledLoopRuntimeBoundary: step.controlledLoopRuntimeBoundary,
     warning: step.postStepEvidence.evaluationWarning ?? step.postStepEvidence.readinessWarning ?? step.postStepHandoff.warning,
     artifact: step.artifact,
     markdownArtifact: step.markdownArtifact,

@@ -1316,6 +1316,54 @@ describe("Workbench web app", () => {
               remoteLandingAuthorized: false,
               harnessEvolutionAuthorized: false,
             },
+            controlledLoopRuntimeBoundary: {
+              version: "1.0",
+              authority: "scheduler-runtime-controlled-loop-runtime-boundary-evidence",
+              status: "recorded",
+              changeId: "member-discount",
+              schedulerRunId: "scheduler-run-1",
+              submittedActionType: "planning.scheduler.controlled-advance.run",
+              selectedActionType: "planning.scheduler.worker.start-next",
+              dispatchedActionType: "planning.scheduler.worker.start-next",
+              observeStatus: "recorded",
+              chooseStatus: "recorded",
+              humanGateStatus: "confirmed-current-step",
+              dispatchStatus: "completed",
+              reconcileStatus: "recorded",
+              stopStatus: "next-confirmation-candidate-ready",
+              stopPosture: "awaiting-human-gate",
+              stopReason: "one-confirmed-scheduler-transition-completed",
+              continuationReadinessStatus: "ready-for-human-gate",
+              nextGateActionType: "planning.scheduler.worker.reconcile-result",
+              nextGateTargetScopeSource: "fresh-current-gate-required",
+              resultKind: "schedulerWorkerStart",
+              resultId: "scheduler-worker-start-1",
+              resultStatus: "started",
+              observedGoalLoopNextStepPacketId: "goal-loop-packet-pre",
+              selectedGoalLoopGateReadinessPreflightId: "goal-loop-preflight-pre",
+              reconciledGoalLoopNextStepPacketId: "goal-loop-packet-post",
+              readinessEvidencePrepared: true,
+              needsReevaluation: false,
+              humanConfirmationStillRequired: true,
+              stoppedAfterOneSchedulerTransition: true,
+              approvedScopeOnly: true,
+              priorTurnEvidence: true,
+              freshEvidenceRequiredBeforeContinuation: true,
+              freshCurrentGateRequiredBeforeContinuation: true,
+              boundary: "Scheduler-runtime evidence summary for the currently implemented controlled Scheduler boundary.",
+              evidenceRefs: ["harness/changes/active/member-discount/planning/scheduler-runs/scheduler-run-1/scheduler-controlled-steps/scheduler-controlled-step-1.md"],
+              executionStarted: false,
+              loopAuthorized: false,
+              fullParallelExecutorAuthorized: false,
+              wholeWaveDispatchAuthorized: false,
+              slotAllocatorAuthorized: false,
+              sourceMutationAuthorized: false,
+              applyAuthorized: false,
+              closeAuthorized: false,
+              mergeAuthorized: false,
+              remoteLandingAuthorized: false,
+              harnessEvolutionAuthorized: false,
+            },
             artifact: "harness/changes/active/member-discount/planning/scheduler-runs/scheduler-run-1/scheduler-controlled-steps/scheduler-controlled-step-1.json",
             markdownArtifact: "harness/changes/active/member-discount/planning/scheduler-runs/scheduler-run-1/scheduler-controlled-steps/scheduler-controlled-step-1.md",
             updatedAt: "2026-06-21T00:00:00.000Z",
@@ -1390,6 +1438,15 @@ describe("Workbench web app", () => {
     expect(within(boundaryResult).getByText("继续要求")).toBeTruthy();
     expect(within(boundaryResult).getByText("继续前必须重新读取 fresh Goal Loop、当前确认门、ToolPolicy 和人工确认状态")).toBeTruthy();
     expect(within(boundaryResult).queryByRole("button")).toBeNull();
+    const runtimeBoundary = within(card).getByTestId("scheduler-controlled-loop-runtime-boundary");
+    expect(runtimeBoundary).toBeTruthy();
+    expect(within(runtimeBoundary).getByText("运行边界证据")).toBeTruthy();
+    expect(within(runtimeBoundary).getByText("已停在下一次人工确认 / ready-for-human-gate / 上一轮证据 / 继续前需 fresh evidence")).toBeTruthy();
+    expect(within(runtimeBoundary).getByText("下一确认")).toBeTruthy();
+    expect(within(runtimeBoundary).getByText("检查当前结果")).toBeTruthy();
+    expect(within(runtimeBoundary).getByText("证据性质")).toBeTruthy();
+    expect(within(runtimeBoundary).getByText("这是上一轮受控步骤 evidence summary；继续前必须重新读取 fresh Goal Loop、当前确认门、ToolPolicy 和人工确认状态")).toBeTruthy();
+    expect(within(runtimeBoundary).queryByRole("button")).toBeNull();
     expect(within(card).getByText("查看证据：scheduler-controlled-step-1.json")).toBeTruthy();
     expect(within(card).queryByRole("button")).toBeNull();
     const normalizedCardText = card.textContent?.toLowerCase() ?? "";

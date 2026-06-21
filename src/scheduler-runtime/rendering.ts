@@ -159,6 +159,25 @@ export function renderSchedulerControlledStepEvidenceMarkdown(step: SchedulerCon
         ]
       : ["- none"]),
     "",
+    "## Controlled Loop Runtime Boundary Evidence",
+    "",
+    ...(step.controlledLoopRuntimeBoundary
+      ? [
+          `- Authority: ${step.controlledLoopRuntimeBoundary.authority}`,
+          `- Status: ${step.controlledLoopRuntimeBoundary.status}`,
+          `- Submitted action: ${step.controlledLoopRuntimeBoundary.submittedActionType}`,
+          `- Selected action: ${step.controlledLoopRuntimeBoundary.selectedActionType}`,
+          `- Dispatched action: ${step.controlledLoopRuntimeBoundary.dispatchedActionType}`,
+          `- Phases: observe ${step.controlledLoopRuntimeBoundary.observeStatus} / choose ${step.controlledLoopRuntimeBoundary.chooseStatus} / human gate ${step.controlledLoopRuntimeBoundary.humanGateStatus} / dispatch ${step.controlledLoopRuntimeBoundary.dispatchStatus} / reconcile ${step.controlledLoopRuntimeBoundary.reconcileStatus}`,
+          `- Stop: ${step.controlledLoopRuntimeBoundary.stopPosture} / ${step.controlledLoopRuntimeBoundary.stopReason}`,
+          `- Next gate: ${step.controlledLoopRuntimeBoundary.nextGateActionType ?? "none"}`,
+          `- Next gate target scope source: ${step.controlledLoopRuntimeBoundary.nextGateTargetScopeSource}`,
+          `- Prior-turn evidence: ${step.controlledLoopRuntimeBoundary.priorTurnEvidence ? "yes" : "no"}`,
+          `- Fresh evidence required before continuation: ${step.controlledLoopRuntimeBoundary.freshEvidenceRequiredBeforeContinuation ? "yes" : "no"}`,
+          "- Execution from runtime-boundary evidence: not authorized.",
+        ]
+      : ["- none"]),
+    "",
     "## Current Transition Choice",
     "",
     ...(step.controlledLoopCurrentTransitionChoice

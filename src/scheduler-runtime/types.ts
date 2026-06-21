@@ -394,6 +394,59 @@ export interface SchedulerControlledLoopBoundaryResult {
   harnessEvolutionAuthorized: false;
 }
 
+export type SchedulerControlledLoopRuntimeBoundaryStatus = "recorded" | "recorded-with-warning";
+export type SchedulerControlledLoopRuntimeBoundaryStopTargetScopeSource = "fresh-current-gate-required" | "none";
+
+export interface SchedulerControlledLoopRuntimeBoundary {
+  version: "1.0";
+  authority: "scheduler-runtime-controlled-loop-runtime-boundary-evidence";
+  status: SchedulerControlledLoopRuntimeBoundaryStatus;
+  changeId: string;
+  schedulerRunId?: string;
+  submittedActionType: string;
+  selectedActionType: string;
+  dispatchedActionType: string;
+  observeStatus: SchedulerControlledLoopTickPhaseStatus;
+  chooseStatus: SchedulerControlledLoopTickPhaseStatus;
+  humanGateStatus: "confirmed-current-step";
+  dispatchStatus: "completed";
+  reconcileStatus: SchedulerControlledLoopTickPhaseStatus;
+  stopStatus: string;
+  stopPosture: SchedulerControlledLoopTurnRoutePosture;
+  stopReason: string;
+  continuationReadinessStatus: SchedulerControlledLoopContinuationReadinessStatus;
+  nextGateActionType?: string;
+  nextGateTargetScopeSource: SchedulerControlledLoopRuntimeBoundaryStopTargetScopeSource;
+  resultKind?: string;
+  resultId?: string;
+  resultStatus?: string;
+  observedGoalLoopNextStepPacketId: string;
+  selectedGoalLoopGateReadinessPreflightId: string;
+  reconciledGoalLoopNextStepPacketId?: string;
+  readinessEvidencePrepared: boolean;
+  needsReevaluation: boolean;
+  humanConfirmationStillRequired: true;
+  stoppedAfterOneSchedulerTransition: true;
+  approvedScopeOnly: true;
+  priorTurnEvidence: true;
+  freshEvidenceRequiredBeforeContinuation: true;
+  freshCurrentGateRequiredBeforeContinuation: true;
+  boundary: string;
+  evidenceRefs: string[];
+  warning?: string;
+  executionStarted: false;
+  loopAuthorized: false;
+  fullParallelExecutorAuthorized: false;
+  wholeWaveDispatchAuthorized: false;
+  slotAllocatorAuthorized: false;
+  sourceMutationAuthorized: false;
+  applyAuthorized: false;
+  closeAuthorized: false;
+  mergeAuthorized: false;
+  remoteLandingAuthorized: false;
+  harnessEvolutionAuthorized: false;
+}
+
 export interface SchedulerControlledStepPreStepEvidence {
   goalLoopDecisionId: string;
   goalLoopIterationId: string;
@@ -498,6 +551,7 @@ export interface SchedulerControlledStepEvidence {
   controlledLoopIteration?: SchedulerControlledLoopIterationSummary;
   controlledLoopStopSummary?: SchedulerControlledLoopStopSummary;
   controlledLoopBoundaryResult?: SchedulerControlledLoopBoundaryResult;
+  controlledLoopRuntimeBoundary?: SchedulerControlledLoopRuntimeBoundary;
   executionStarted: true;
   stoppedAfterOneSchedulerTransition: true;
   humanConfirmationStillRequired: true;

@@ -385,6 +385,51 @@ describe("Scheduler controlled step evidence", () => {
       remoteLandingAuthorized: false,
       harnessEvolutionAuthorized: false,
     });
+    expect(recorded.schedulerControlledStepEvidence.controlledLoopRuntimeBoundary).toMatchObject({
+      authority: "scheduler-runtime-controlled-loop-runtime-boundary-evidence",
+      status: "recorded",
+      changeId: "change-1",
+      schedulerRunId: "scheduler-run-1",
+      submittedActionType: "planning.scheduler.controlled-advance.run",
+      selectedActionType: "planning.scheduler.worker.start-next",
+      dispatchedActionType: "planning.scheduler.worker.start-next",
+      observeStatus: "recorded",
+      chooseStatus: "recorded",
+      humanGateStatus: "confirmed-current-step",
+      dispatchStatus: "completed",
+      reconcileStatus: "recorded",
+      stopStatus: "next-confirmation-candidate-ready",
+      stopPosture: "awaiting-human-gate",
+      stopReason: "one-confirmed-scheduler-transition-completed",
+      continuationReadinessStatus: "ready-for-human-gate",
+      nextGateActionType: "planning.scheduler.worker.reconcile-result",
+      nextGateTargetScopeSource: "fresh-current-gate-required",
+      resultKind: "schedulerWorkerStart",
+      resultId: "scheduler-worker-start-1",
+      resultStatus: "started",
+      observedGoalLoopNextStepPacketId: "packet-pre",
+      selectedGoalLoopGateReadinessPreflightId: "preflight-pre",
+      reconciledGoalLoopNextStepPacketId: "packet-post",
+      readinessEvidencePrepared: true,
+      needsReevaluation: false,
+      humanConfirmationStillRequired: true,
+      stoppedAfterOneSchedulerTransition: true,
+      approvedScopeOnly: true,
+      priorTurnEvidence: true,
+      freshEvidenceRequiredBeforeContinuation: true,
+      freshCurrentGateRequiredBeforeContinuation: true,
+      executionStarted: false,
+      loopAuthorized: false,
+      fullParallelExecutorAuthorized: false,
+      wholeWaveDispatchAuthorized: false,
+      slotAllocatorAuthorized: false,
+      sourceMutationAuthorized: false,
+      applyAuthorized: false,
+      closeAuthorized: false,
+      mergeAuthorized: false,
+      remoteLandingAuthorized: false,
+      harnessEvolutionAuthorized: false,
+    });
     const recordedMarkdown = await readFile(
       join(tempDir, changePath, "planning", "scheduler-runs", "scheduler-run-1", "scheduler-controlled-steps", `${recorded.schedulerControlledStepEvidence.id}.md`),
       "utf8",
@@ -399,6 +444,10 @@ describe("Scheduler controlled step evidence", () => {
     expect(recordedMarkdown).toContain("- Authority: scheduler-runtime-controlled-loop-boundary-result");
     expect(recordedMarkdown).toContain("- Fresh evidence required before continuation: yes");
     expect(recordedMarkdown).toContain("- Execution from boundary result: not authorized.");
+    expect(recordedMarkdown).toContain("## Controlled Loop Runtime Boundary Evidence");
+    expect(recordedMarkdown).toContain("- Authority: scheduler-runtime-controlled-loop-runtime-boundary-evidence");
+    expect(recordedMarkdown).toContain("- Prior-turn evidence: yes");
+    expect(recordedMarkdown).toContain("- Execution from runtime-boundary evidence: not authorized.");
     await expect(readLatestSchedulerControlledStepEvidenceSummary(memory, changePath, "scheduler-run-1")).resolves.toMatchObject({
       controlledLoopTurnRouteSummary: {
         routePosture: "awaiting-human-gate",
@@ -441,6 +490,20 @@ describe("Scheduler controlled step evidence", () => {
         futureContinuationRequiresFreshEvidence: true,
         humanConfirmationStillRequired: true,
       },
+      controlledLoopRuntimeBoundary: {
+        authority: "scheduler-runtime-controlled-loop-runtime-boundary-evidence",
+        stopPosture: "awaiting-human-gate",
+        continuationReadinessStatus: "ready-for-human-gate",
+        nextGateActionType: "planning.scheduler.worker.reconcile-result",
+        nextGateTargetScopeSource: "fresh-current-gate-required",
+        priorTurnEvidence: true,
+        freshEvidenceRequiredBeforeContinuation: true,
+        loopAuthorized: false,
+        sourceMutationAuthorized: false,
+        applyAuthorized: false,
+        closeAuthorized: false,
+        harnessEvolutionAuthorized: false,
+      },
     });
     expect(events).toHaveLength(1);
     expect(events[0]).toMatchObject({
@@ -465,6 +528,10 @@ describe("Scheduler controlled step evidence", () => {
         controlledLoopBoundaryResultStatus: "recorded",
         controlledLoopBoundaryResultPosture: "awaiting-human-gate",
         controlledLoopBoundaryResultNextGateActionType: "planning.scheduler.worker.reconcile-result",
+        controlledLoopRuntimeBoundaryAuthority: "scheduler-runtime-controlled-loop-runtime-boundary-evidence",
+        controlledLoopRuntimeBoundaryStatus: "recorded",
+        controlledLoopRuntimeBoundaryStopPosture: "awaiting-human-gate",
+        controlledLoopRuntimeBoundaryNextGateActionType: "planning.scheduler.worker.reconcile-result",
         futureContinuationRequiresFreshEvidence: true,
         humanConfirmationStillRequired: true,
       },

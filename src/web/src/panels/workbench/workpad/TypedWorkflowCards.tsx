@@ -373,6 +373,22 @@ export function SchedulerControlledStepEvidenceCard({ step }: { step: NonNullabl
           </div>
         </div>
       ) : null}
+      {step.controlledLoopRuntimeBoundary ? (
+        <div className="workpad-evidence-list" data-testid="scheduler-controlled-loop-runtime-boundary">
+          <div className="workpad-evidence">
+            <strong>运行边界证据</strong>
+            <span>{controlledLoopRuntimeBoundaryText(step.controlledLoopRuntimeBoundary)}</span>
+          </div>
+          <div className="workpad-evidence">
+            <strong>下一确认</strong>
+            <span>{step.controlledLoopRuntimeBoundary.nextGateActionType ? workflowActionLabel(step.controlledLoopRuntimeBoundary.nextGateActionType) : "等待新的证据"}</span>
+          </div>
+          <div className="workpad-evidence">
+            <strong>证据性质</strong>
+            <span>这是上一轮受控步骤 evidence summary；继续前必须重新读取 fresh Goal Loop、当前确认门、ToolPolicy 和人工确认状态</span>
+          </div>
+        </div>
+      ) : null}
       {step.warning ? <p className="workpad-note">{step.warning}</p> : null}
       {step.artifact ? <small className="artifact-link">查看证据：{artifactName(step.artifact)}</small> : null}
     </section>
@@ -385,6 +401,7 @@ type ControlledLoopContinuationReadiness = NonNullable<NonNullable<Workpad["sche
 type ControlledLoopIterationSummary = NonNullable<NonNullable<Workpad["schedulerControlledStepEvidence"]>["controlledLoopIteration"]>;
 type ControlledLoopStopSummary = NonNullable<NonNullable<Workpad["schedulerControlledStepEvidence"]>["controlledLoopStopSummary"]>;
 type ControlledLoopBoundaryResult = NonNullable<NonNullable<Workpad["schedulerControlledStepEvidence"]>["controlledLoopBoundaryResult"]>;
+type ControlledLoopRuntimeBoundary = NonNullable<NonNullable<Workpad["schedulerControlledStepEvidence"]>["controlledLoopRuntimeBoundary"]>;
 
 function controlledLoopTickPhaseText(tick: ControlledLoopTickSummary): string {
   return [
@@ -446,6 +463,15 @@ function controlledLoopBoundaryResultText(result: ControlledLoopBoundaryResult):
     controlledLoopTurnRouteLabel(result.boundaryPosture),
     result.continuationReadinessStatus,
     result.futureContinuationRequiresFreshEvidence ? "需重新取证" : "等待证据",
+  ].join(" / ");
+}
+
+function controlledLoopRuntimeBoundaryText(boundary: ControlledLoopRuntimeBoundary): string {
+  return [
+    controlledLoopTurnRouteLabel(boundary.stopPosture),
+    boundary.continuationReadinessStatus,
+    boundary.priorTurnEvidence ? "上一轮证据" : "等待证据",
+    boundary.freshEvidenceRequiredBeforeContinuation ? "继续前需 fresh evidence" : "等待证据",
   ].join(" / ");
 }
 

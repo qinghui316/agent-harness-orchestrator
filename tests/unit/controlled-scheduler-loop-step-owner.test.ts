@@ -134,6 +134,15 @@ describe("controlled scheduler loop step owner", () => {
           authority: "scheduler-runtime-controlled-loop-boundary-result",
           futureContinuationRequiresFreshEvidence: true,
         },
+        controlledLoopRuntimeBoundary: {
+          authority: "scheduler-runtime-controlled-loop-runtime-boundary-evidence",
+          priorTurnEvidence: true,
+          freshEvidenceRequiredBeforeContinuation: true,
+          loopAuthorized: false,
+          applyAuthorized: false,
+          closeAuthorized: false,
+          harnessEvolutionAuthorized: false,
+        },
         controlledLoopCurrentTransitionChoice: { authority: "scheduler-runtime-current-transition-choice" },
       },
     });
@@ -316,6 +325,15 @@ describe("controlled scheduler loop step owner", () => {
         controlledLoopBoundaryResult: {
           authority: "scheduler-runtime-controlled-loop-boundary-result",
           futureContinuationRequiresFreshEvidence: true,
+        },
+        controlledLoopRuntimeBoundary: {
+          authority: "scheduler-runtime-controlled-loop-runtime-boundary-evidence",
+          priorTurnEvidence: true,
+          freshEvidenceRequiredBeforeContinuation: true,
+          loopAuthorized: false,
+          applyAuthorized: false,
+          closeAuthorized: false,
+          harnessEvolutionAuthorized: false,
         },
       },
     });
