@@ -12,6 +12,7 @@ import { getWorkbenchWorkpadProjection } from "../../src/workbench/projections/r
 import { assessGoalLoopSummaryCurrentGateParity, filterGoalLoopSummaryForCurrentGate } from "../../src/workbench/projections/read-model/goal-loop-parity.js";
 import { readLatestGoalLoopSummary } from "../../src/workbench/projections/read-model/goal-loop.js";
 import type { ManagedProject, ResolvedMemory } from "../../src/types/index.js";
+import type { GoalLoopControlledSchedulerPostStepRoutingPreflightSupport, GoalLoopCurrentGateSnapshot } from "../../src/goal-loop/types.js";
 import { schedulerClaimReconcilePlanArtifactRefs, schedulerContractArtifactRefs, schedulerDispatchDryRunArtifactRefs, schedulerLaunchPreflightArtifactRefs, schedulerRunArtifactRefs, schedulerWorkerSessionPlanArtifactRefs, writeSchedulerClaimReconcilePlan, writeSchedulerContract, writeSchedulerDispatchDryRun, writeSchedulerLaunchPreflight, writeSchedulerRun, writeSchedulerWorkerSessionPlan } from "../../src/workflow-scheduler/repository.js";
 import type { SchedulerClaimReconcilePlan, SchedulerContract, SchedulerDispatchDryRun, SchedulerLaunchPreflight, SchedulerRun, SchedulerWorkerSessionPlan } from "../../src/workflow-scheduler/types.js";
 import {
@@ -77,6 +78,55 @@ function expectConflict(
   if (reasonIncludes) {
     expect(decision.conflictAssessment.reasons.join("\n")).toContain(reasonIncludes);
   }
+}
+
+function buildControlledSchedulerPostStepRoutingSupport(
+  packetId: string,
+  policyId: string,
+  currentGate: GoalLoopCurrentGateSnapshot,
+  overrides: Partial<GoalLoopControlledSchedulerPostStepRoutingPreflightSupport> = {},
+): GoalLoopControlledSchedulerPostStepRoutingPreflightSupport {
+  return {
+    authority: "non-executing-controlled-scheduler-post-step-routing-preflight-support",
+    sourceSchedulerControlledStepEvidenceId: "controlled-step-1",
+    sourceSchedulerControlledStepArtifact: "memory-root/harness/changes/active/phase-goal-loop/scheduler-runtime/controlled-steps/controlled-step-1.json",
+    sourceSchedulerControlledStepMarkdownArtifact: "memory-root/harness/changes/active/phase-goal-loop/scheduler-runtime/controlled-steps/controlled-step-1.md",
+    changeId,
+    sourceGoalLoopNextStepPacketId: packetId,
+    sourceGoalLoopControllerPolicyId: policyId,
+    sourceGoalLoopGateReadinessPreflightId: "previous-preflight-1",
+    routeFamily: "quality",
+    ownerModule: "src/scheduler-runtime/controlled-loop-post-step-routing.ts",
+    existingGateActionType: currentGate.actionType,
+    continuationDecisionStatus: "ready-for-human-gate",
+    routingReadinessStatus: "ready-for-human-gate",
+    needsReevaluation: false,
+    reason: "Prior controlled Scheduler step routed to the current existing Harness gate.",
+    currentGateScope: cloneTestScope(currentGate.scope),
+    evidenceRefs: [
+      "memory-root/harness/changes/active/phase-goal-loop/scheduler-runtime/controlled-steps/controlled-step-1.json",
+    ],
+    loopAuthorized: false,
+    fullParallelExecutorAuthorized: false,
+    wholeWaveDispatchAuthorized: false,
+    slotAllocatorAuthorized: false,
+    sourceMutationAuthorized: false,
+    applyAuthorized: false,
+    closeAuthorized: false,
+    mergeAuthorized: false,
+    remoteLandingAuthorized: false,
+    harnessEvolutionAuthorized: false,
+    executionStarted: false,
+    ...overrides,
+  };
+}
+
+function cloneTestScope(scope: Record<string, string | string[]>): Record<string, string | string[]> {
+  const result: Record<string, string | string[]> = {};
+  for (const [key, value] of Object.entries(scope)) {
+    result[key] = Array.isArray(value) ? [...value] : value;
+  }
+  return result;
 }
 
 beforeEach(async () => {
@@ -1018,6 +1068,151 @@ describe("GoalLoopDecision", () => {
       gateReadinessPreflightId: preflight.id,
       gateReadinessPreflightArtifact: expect.stringContaining("goal-loop-gate-readiness-preflights"),
     });
+  });
+
+  it("records controlled Scheduler post-step routing support on gate readiness preflight when aligned", async () => {
+    const result = await compileGoalLoopEvaluation(memory, changePath);
+    const currentGate = {
+      actionType: "planning.scheduler.plan.prepare" as const,
+      scope: { changeId },
+    };
+    const policy = await compileGoalLoopControllerPolicy(memory, changePath, {
+      currentGate,
+      requireCurrentGateMatch: true,
+    });
+    const support = buildControlledSchedulerPostStepRoutingSupport(
+      result.goalLoopNextStepPacket.id,
+      policy.id,
+      currentGate,
+    );
+
+    const preflight = await compileGoalLoopGateReadinessPreflight(memory, changePath, {
+      goalLoopNextStepPacketId: result.goalLoopNextStepPacket.id,
+      goalLoopControllerPolicyId: policy.id,
+      currentGate,
+      sourceGoalLoopGateReadinessPreflightId: "previous-preflight-1",
+      controlledSchedulerPostStepRoutingSupport: support,
+    });
+    const markdown = renderGoalLoopGateReadinessPreflightMarkdown(preflight);
+
+    expect(preflight.controlledSchedulerPostStepRoutingSupport).toMatchObject({
+      authority: "non-executing-controlled-scheduler-post-step-routing-preflight-support",
+      sourceSchedulerControlledStepEvidenceId: "controlled-step-1",
+      changeId,
+      sourceGoalLoopNextStepPacketId: result.goalLoopNextStepPacket.id,
+      sourceGoalLoopControllerPolicyId: policy.id,
+      existingGateActionType: "planning.scheduler.plan.prepare",
+      continuationDecisionStatus: "ready-for-human-gate",
+      routingReadinessStatus: "ready-for-human-gate",
+      needsReevaluation: false,
+      currentGateScope: { changeId },
+      loopAuthorized: false,
+      fullParallelExecutorAuthorized: false,
+      wholeWaveDispatchAuthorized: false,
+      slotAllocatorAuthorized: false,
+      sourceMutationAuthorized: false,
+      applyAuthorized: false,
+      closeAuthorized: false,
+      mergeAuthorized: false,
+      remoteLandingAuthorized: false,
+      harnessEvolutionAuthorized: false,
+      executionStarted: false,
+    });
+    expect(goalLoopGateReadinessPreflightSchema.parse(preflight).controlledSchedulerPostStepRoutingSupport).toMatchObject({
+      sourceSchedulerControlledStepEvidenceId: "controlled-step-1",
+      existingGateActionType: "planning.scheduler.plan.prepare",
+    });
+    expect(markdown).toContain("## Controlled Scheduler Post-Step Routing Support");
+    expect(markdown).toContain("- loopAuthorized: false");
+    expect(markdown).toContain("- sourceMutationAuthorized: false");
+    await expect(readLatestGoalLoopGateReadinessPreflight(memory, changePath)).resolves.toMatchObject({
+      id: preflight.id,
+      controlledSchedulerPostStepRoutingSupport: {
+        sourceSchedulerControlledStepEvidenceId: "controlled-step-1",
+      },
+    });
+  });
+
+  it("rejects stale or mismatched controlled Scheduler post-step routing support", async () => {
+    const result = await compileGoalLoopEvaluation(memory, changePath);
+    const currentGate = {
+      actionType: "planning.scheduler.plan.prepare" as const,
+      scope: { changeId },
+    };
+    const policy = await compileGoalLoopControllerPolicy(memory, changePath, {
+      currentGate,
+      requireCurrentGateMatch: true,
+    });
+    const support = buildControlledSchedulerPostStepRoutingSupport(
+      result.goalLoopNextStepPacket.id,
+      policy.id,
+      currentGate,
+    );
+    const compileWith = (controlledSchedulerPostStepRoutingSupport: Record<string, unknown>) =>
+      compileGoalLoopGateReadinessPreflight(memory, changePath, {
+        goalLoopNextStepPacketId: result.goalLoopNextStepPacket.id,
+        goalLoopControllerPolicyId: policy.id,
+        currentGate,
+        sourceGoalLoopGateReadinessPreflightId: "previous-preflight-1",
+        controlledSchedulerPostStepRoutingSupport: controlledSchedulerPostStepRoutingSupport as never,
+      });
+
+    await expect(compileGoalLoopGateReadinessPreflight(memory, changePath, {
+      goalLoopNextStepPacketId: result.goalLoopNextStepPacket.id,
+      goalLoopControllerPolicyId: policy.id,
+      currentGate,
+      controlledSchedulerPostStepRoutingSupport: support,
+    })).rejects.toThrow("controlled Scheduler post-step routing support preflight lineage mismatch");
+    await expect(compileWith({ ...support, changeId: "other-change" }))
+      .rejects.toThrow("controlled Scheduler post-step routing support change scope mismatch");
+    await expect(compileWith({ ...support, sourceSchedulerControlledStepEvidenceId: "" }))
+      .rejects.toThrow("requires source step evidence");
+    await expect(compileWith({ ...support, sourceGoalLoopNextStepPacketId: "stale-packet" }))
+      .rejects.toThrow("controlled Scheduler post-step routing support packet lineage mismatch");
+    await expect(compileWith({ ...support, sourceGoalLoopControllerPolicyId: "stale-policy" }))
+      .rejects.toThrow("controlled Scheduler post-step routing support controller policy lineage mismatch");
+    await expect(compileWith({ ...support, sourceGoalLoopGateReadinessPreflightId: undefined }))
+      .rejects.toThrow("controlled Scheduler post-step routing support preflight lineage mismatch");
+    await expect(compileWith({ ...support, sourceGoalLoopGateReadinessPreflightId: "forged-preflight" }))
+      .rejects.toThrow("controlled Scheduler post-step routing support preflight lineage mismatch");
+    await expect(compileWith({ ...support, continuationDecisionStatus: "wait" }))
+      .rejects.toThrow("requires ready continuation decision");
+    await expect(compileWith({ ...support, routingReadinessStatus: "blocked" }))
+      .rejects.toThrow("requires ready routing evidence");
+    await expect(compileWith({ ...support, needsReevaluation: true }))
+      .rejects.toThrow("requires fresh routing evidence");
+    await expect(compileWith({ ...support, existingGateActionType: "planning.scheduler.worker.start-next" }))
+      .rejects.toThrow("current gate action mismatch");
+    await expect(compileWith({ ...support, currentGateScope: { changeId, schedulerRunId: "wrong-run" } }))
+      .rejects.toThrow("controlled Scheduler post-step routing support scope does not match current gate");
+  });
+
+  it("rejects controlled Scheduler post-step routing support with forged authority flags", async () => {
+    const result = await compileGoalLoopEvaluation(memory, changePath);
+    const currentGate = {
+      actionType: "planning.scheduler.plan.prepare" as const,
+      scope: { changeId },
+    };
+    const policy = await compileGoalLoopControllerPolicy(memory, changePath, {
+      currentGate,
+      requireCurrentGateMatch: true,
+    });
+    const support = buildControlledSchedulerPostStepRoutingSupport(
+      result.goalLoopNextStepPacket.id,
+      policy.id,
+      currentGate,
+    );
+
+    await expect(compileGoalLoopGateReadinessPreflight(memory, changePath, {
+      goalLoopNextStepPacketId: result.goalLoopNextStepPacket.id,
+      goalLoopControllerPolicyId: policy.id,
+      currentGate,
+      sourceGoalLoopGateReadinessPreflightId: "previous-preflight-1",
+      controlledSchedulerPostStepRoutingSupport: {
+        ...support,
+        sourceMutationAuthorized: true,
+      } as never,
+    })).rejects.toThrow("forbidden authority: sourceMutationAuthorized");
   });
 
   it("validates Goal Loop-assisted concrete gate confirmation without changing the concrete action path", async () => {

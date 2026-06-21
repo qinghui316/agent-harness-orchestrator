@@ -9,6 +9,8 @@ export type GoalLoopNextStepPacketAuthority = "non-executing-main-agent-next-ste
 export type GoalLoopFeedbackAuthority = "non-executing-user-feedback-evidence";
 export type GoalLoopControllerPolicyAuthority = "non-executing-controller-policy-evidence";
 export type GoalLoopGateReadinessPreflightAuthority = "non-executing-concrete-gate-readiness-preflight-evidence";
+export type GoalLoopControlledSchedulerPostStepRoutingPreflightSupportAuthority =
+  "non-executing-controlled-scheduler-post-step-routing-preflight-support";
 
 export type GoalLoopDecisionKind =
   | "planning-needed"
@@ -58,6 +60,37 @@ export interface GoalLoopRecommendedAction {
   actionType: WorkflowActionType;
   scope: Record<string, string | string[]>;
   reason: string;
+}
+
+export interface GoalLoopControlledSchedulerPostStepRoutingPreflightSupport {
+  authority: GoalLoopControlledSchedulerPostStepRoutingPreflightSupportAuthority;
+  sourceSchedulerControlledStepEvidenceId: string;
+  sourceSchedulerControlledStepArtifact: string;
+  sourceSchedulerControlledStepMarkdownArtifact?: string;
+  changeId: string;
+  sourceGoalLoopNextStepPacketId: string;
+  sourceGoalLoopControllerPolicyId: string;
+  sourceGoalLoopGateReadinessPreflightId?: string;
+  routeFamily: string;
+  ownerModule: string;
+  existingGateActionType: WorkflowActionType;
+  continuationDecisionStatus: "ready-for-human-gate";
+  routingReadinessStatus: "ready-for-human-gate";
+  needsReevaluation: false;
+  reason: string;
+  currentGateScope: Record<string, string | string[]>;
+  evidenceRefs: string[];
+  loopAuthorized: false;
+  fullParallelExecutorAuthorized: false;
+  wholeWaveDispatchAuthorized: false;
+  slotAllocatorAuthorized: false;
+  sourceMutationAuthorized: false;
+  applyAuthorized: false;
+  closeAuthorized: false;
+  mergeAuthorized: false;
+  remoteLandingAuthorized: false;
+  harnessEvolutionAuthorized: false;
+  executionStarted: false;
 }
 
 export interface GoalLoopForbiddenAction {
@@ -304,6 +337,7 @@ export interface GoalLoopGateReadinessPreflight {
   recommendedAction: GoalLoopRecommendedAction;
   currentGate: GoalLoopCurrentGateSnapshot;
   schedulerExecutionMode: SchedulerExecutionModeAssessment;
+  controlledSchedulerPostStepRoutingSupport?: GoalLoopControlledSchedulerPostStepRoutingPreflightSupport;
   summary: string;
   requiredTargetLabels: string[];
   revalidationChecklist: string[];

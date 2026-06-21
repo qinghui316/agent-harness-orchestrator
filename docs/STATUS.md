@@ -5,20 +5,22 @@
 - Current date: 2026-06-21.
 - Active ECL change: none.
 - Pending Harness evolution: none.
-- Latest archived product change: `harness/changes/archive/20260621-controlled-scheduler-post-step-routing-prompt-context/summary.md`.
-- Latest archived product/Harness docs change: `harness/changes/archive/20260621-controlled-scheduler-post-step-routing-prompt-context/summary.md`.
+- Latest archived product change: `harness/changes/archive/20260621-controlled-scheduler-post-step-routing-preflight-handoff/summary.md`.
+- Latest archived product/Harness docs change: `harness/changes/archive/20260621-controlled-scheduler-post-step-routing-preflight-handoff/summary.md`.
 - Latest archived Harness evolution: `harness/changes/archive/20260621-auto-evolve-harness-controlled-scheduler-decision-routing-window-noop/summary.md`.
 - Active product phase: none.
 - Active Harness evolution phase: none.
 - Active close status: none.
 
 No active structured work is open. The latest product change
-`controlled-scheduler-post-step-routing-prompt-context` is archived. It connects
-the latest Workpad-visible `controlledLoopPostStepRoutingDecision` into compact
-main-Agent / Goal Loop prompt evidence only when the visible packet, current
-gate, continuation decision, and route remain aligned. It is explicitly
-non-executing: no new scheduler loop, action, confirmation queue behavior,
-ToolPolicy path, source mutation, apply/close/merge, remote landing, or Harness
+`controlled-scheduler-post-step-routing-preflight-handoff` is archived. It
+promotes aligned controlled Scheduler post-step routing evidence into optional,
+compact `GoalLoopGateReadinessPreflight` support lineage owned by
+`src/goal-loop/`. The compiler now fails closed on stale, cross-Change,
+missing-source, packet/controller/preflight-lineage mismatch, non-ready,
+reevaluation-required, action/scope mismatch, or authority-bearing support. It
+does not add a Workbench action, confirmation queue behavior, ToolPolicy path,
+scheduler loop, source mutation, apply/close/merge, remote landing, or Harness
 evolution automation.
 
 This file is the short resume point. The latest product change
@@ -197,14 +199,15 @@ Phase 12A remains the future controlled Scheduler/parallel loop design boundary.
 
 ## Next Resume Point
 
-Start the next product-functional controlled Scheduler / Goal Loop slice. The
-preferred next stage is to consume the new
-`controlledLoopPostStepRoutingDecision` as main-Agent / Goal Loop continuation
-input after each one-confirmed Scheduler transition. The next slice should
-route quality, bounded rework, IntegrationCheck, terminal handoff, or waiting
-states through existing owners without creating a scheduler loop, new
-Workbench action, ToolPolicy path, confirmation queue behavior, source
-mutation, apply/close/merge, remote landing, or Harness evolution automation.
+Start the next product-functional controlled Scheduler / Goal Loop slice by
+wiring the archived preflight support contract into the real controlled
+Scheduler continuation path. The next change should let a one-confirmed
+Scheduler step stop, re-read fresh current evidence, attach aligned
+post-step-routing support to `GoalLoopGateReadinessPreflight`, and present the
+matching existing gate as the next human-confirmed decision. Keep the path
+single-gate staged: no automatic scheduler loop, new Workbench action,
+ToolPolicy path, confirmation queue behavior, source mutation, apply/close
+/merge, remote landing, or Harness evolution automation.
 Keep `README.md` unrelated and untracked unless the user explicitly asks to
 include it.
 
@@ -243,7 +246,7 @@ Use `harness/changes/INDEX.json` for the generated archive list. Start with arch
 
 Recent key archive summaries:
 
-- Latest product/Harness docs change: `harness/changes/archive/20260621-controlled-scheduler-post-step-routing-decision/summary.md`.
+- Latest product/Harness docs change: `harness/changes/archive/20260621-controlled-scheduler-post-step-routing-preflight-handoff/summary.md`.
 - Latest Harness evolution: `harness/changes/archive/20260621-auto-evolve-harness-controlled-scheduler-decision-routing-window-noop/summary.md`.
 - Recent product/Harness docs change: `harness/changes/archive/20260621-controlled-scheduler-continuation-decision/summary.md`.
 - Recent product/Harness docs change: `harness/changes/archive/20260621-controlled-scheduler-loop-runtime-boundary/summary.md`.

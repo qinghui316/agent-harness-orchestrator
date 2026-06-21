@@ -16,16 +16,53 @@ import {
   writeGoalLoopGateReadinessPreflight,
 } from "./repository.js";
 import type {
+  GoalLoopControlledSchedulerPostStepRoutingPreflightSupport,
   GoalLoopControllerPolicy,
   GoalLoopCurrentGateSnapshot,
   GoalLoopGateReadinessPreflight,
   GoalLoopNextStepPacket,
 } from "./types.js";
 
+type ControlledSchedulerPostStepRoutingPreflightSupportInput =
+  Omit<
+    GoalLoopControlledSchedulerPostStepRoutingPreflightSupport,
+    | "continuationDecisionStatus"
+    | "routingReadinessStatus"
+    | "needsReevaluation"
+    | "loopAuthorized"
+    | "fullParallelExecutorAuthorized"
+    | "wholeWaveDispatchAuthorized"
+    | "slotAllocatorAuthorized"
+    | "sourceMutationAuthorized"
+    | "applyAuthorized"
+    | "closeAuthorized"
+    | "mergeAuthorized"
+    | "remoteLandingAuthorized"
+    | "harnessEvolutionAuthorized"
+    | "executionStarted"
+  > & {
+    continuationDecisionStatus: string;
+    routingReadinessStatus: string;
+    needsReevaluation: boolean;
+    loopAuthorized: boolean;
+    fullParallelExecutorAuthorized: boolean;
+    wholeWaveDispatchAuthorized: boolean;
+    slotAllocatorAuthorized: boolean;
+    sourceMutationAuthorized: boolean;
+    applyAuthorized: boolean;
+    closeAuthorized: boolean;
+    mergeAuthorized: boolean;
+    remoteLandingAuthorized: boolean;
+    harnessEvolutionAuthorized: boolean;
+    executionStarted: boolean;
+  };
+
 export interface CompileGoalLoopGateReadinessPreflightOptions {
   goalLoopNextStepPacketId: string;
   goalLoopControllerPolicyId: string;
   currentGate: GoalLoopCurrentGateSnapshot;
+  sourceGoalLoopGateReadinessPreflightId?: string;
+  controlledSchedulerPostStepRoutingSupport?: ControlledSchedulerPostStepRoutingPreflightSupportInput;
 }
 
 export async function compileGoalLoopGateReadinessPreflight(
@@ -78,6 +115,13 @@ export async function compileGoalLoopGateReadinessPreflight(
   if (requiredTargetIssues.length) {
     throw new Error(`GoalLoopGateReadinessPreflight concrete gate target is incomplete: ${requiredTargetIssues.map((issue) => issue.label).join(", ")}.`);
   }
+  const controlledSchedulerPostStepRoutingSupport = normalizeControlledSchedulerPostStepRoutingSupport(
+    options.controlledSchedulerPostStepRoutingSupport,
+    packet,
+    policy,
+    options.currentGate,
+    options.sourceGoalLoopGateReadinessPreflightId,
+  );
 
   const now = new Date().toISOString();
   const preflightId = `goal-loop-gate-readiness-preflight-${now.replace(/[-:.TZ]/g, "").slice(0, 14)}-${shortHash(`${packet.changeId}:${packet.id}:${policy.id}:${options.currentGate.actionType}:${now}`)}`;
@@ -97,7 +141,10 @@ export async function compileGoalLoopGateReadinessPreflight(
     recommendedAction: packet.recommendedAction,
     currentGate: options.currentGate,
     schedulerExecutionMode: packet.schedulerExecutionMode,
-    summary: `Goal Loop packet and controller policy still match the current ${options.currentGate.actionType} Harness gate. The concrete gate remains separate and unexecuted.`,
+    ...(controlledSchedulerPostStepRoutingSupport ? { controlledSchedulerPostStepRoutingSupport } : {}),
+    summary: controlledSchedulerPostStepRoutingSupport
+      ? `Goal Loop packet, controller policy, and controlled Scheduler post-step routing support still match the current ${options.currentGate.actionType} Harness gate. The concrete gate remains separate and unexecuted.`
+      : `Goal Loop packet and controller policy still match the current ${options.currentGate.actionType} Harness gate. The concrete gate remains separate and unexecuted.`,
     requiredTargetLabels: Object.keys(options.currentGate.scope).sort(),
     revalidationChecklist: [
       "Re-read selected Change, latest packet, latest controller policy, and current Workbench gate before relying on this preflight.",
@@ -122,6 +169,106 @@ export async function compileGoalLoopGateReadinessPreflight(
   };
   await writeGoalLoopGateReadinessPreflight(memory, changePath, preflight);
   return preflight;
+}
+
+function normalizeControlledSchedulerPostStepRoutingSupport(
+  support: ControlledSchedulerPostStepRoutingPreflightSupportInput | undefined,
+  packet: GoalLoopNextStepPacket,
+  policy: GoalLoopControllerPolicy,
+  currentGate: GoalLoopCurrentGateSnapshot,
+  expectedSourcePreflightId: string | undefined,
+): GoalLoopControlledSchedulerPostStepRoutingPreflightSupport | undefined {
+  if (!support) return undefined;
+  if (support.authority !== "non-executing-controlled-scheduler-post-step-routing-preflight-support") {
+    throw new Error("GoalLoopGateReadinessPreflight controlled Scheduler post-step routing support authority mismatch.");
+  }
+  if (!support.sourceSchedulerControlledStepEvidenceId || !support.sourceSchedulerControlledStepArtifact) {
+    throw new Error("GoalLoopGateReadinessPreflight controlled Scheduler post-step routing support requires source step evidence.");
+  }
+  if (support.changeId !== packet.changeId) {
+    throw new Error("GoalLoopGateReadinessPreflight controlled Scheduler post-step routing support change scope mismatch.");
+  }
+  if (support.sourceGoalLoopNextStepPacketId !== packet.id) {
+    throw new Error("GoalLoopGateReadinessPreflight controlled Scheduler post-step routing support packet lineage mismatch.");
+  }
+  if (support.sourceGoalLoopControllerPolicyId !== policy.id) {
+    throw new Error("GoalLoopGateReadinessPreflight controlled Scheduler post-step routing support controller policy lineage mismatch.");
+  }
+  if (!support.sourceGoalLoopGateReadinessPreflightId || !expectedSourcePreflightId || support.sourceGoalLoopGateReadinessPreflightId !== expectedSourcePreflightId) {
+    throw new Error("GoalLoopGateReadinessPreflight controlled Scheduler post-step routing support preflight lineage mismatch.");
+  }
+  if (support.continuationDecisionStatus !== "ready-for-human-gate") {
+    throw new Error("GoalLoopGateReadinessPreflight controlled Scheduler post-step routing support requires ready continuation decision.");
+  }
+  if (support.routingReadinessStatus !== "ready-for-human-gate") {
+    throw new Error("GoalLoopGateReadinessPreflight controlled Scheduler post-step routing support requires ready routing evidence.");
+  }
+  if (support.needsReevaluation !== false) {
+    throw new Error("GoalLoopGateReadinessPreflight controlled Scheduler post-step routing support requires fresh routing evidence.");
+  }
+  if (support.existingGateActionType !== currentGate.actionType) {
+    throw new Error("GoalLoopGateReadinessPreflight controlled Scheduler post-step routing support current gate action mismatch.");
+  }
+  assertScopeMatches("controlled Scheduler post-step routing support", packet.changeId, {
+    actionType: support.existingGateActionType,
+    scope: support.currentGateScope,
+  }, currentGate);
+  assertControlledSchedulerPostStepRoutingSupportHasNoAuthority(support);
+  if (!support.routeFamily || !support.ownerModule || !support.reason || !support.evidenceRefs.length) {
+    throw new Error("GoalLoopGateReadinessPreflight controlled Scheduler post-step routing support requires compact routing evidence.");
+  }
+  return {
+    authority: support.authority,
+    sourceSchedulerControlledStepEvidenceId: support.sourceSchedulerControlledStepEvidenceId,
+    sourceSchedulerControlledStepArtifact: support.sourceSchedulerControlledStepArtifact,
+    ...(support.sourceSchedulerControlledStepMarkdownArtifact ? { sourceSchedulerControlledStepMarkdownArtifact: support.sourceSchedulerControlledStepMarkdownArtifact } : {}),
+    changeId: support.changeId,
+    sourceGoalLoopNextStepPacketId: support.sourceGoalLoopNextStepPacketId,
+    sourceGoalLoopControllerPolicyId: support.sourceGoalLoopControllerPolicyId,
+    ...(support.sourceGoalLoopGateReadinessPreflightId ? { sourceGoalLoopGateReadinessPreflightId: support.sourceGoalLoopGateReadinessPreflightId } : {}),
+    routeFamily: support.routeFamily,
+    ownerModule: support.ownerModule,
+    existingGateActionType: support.existingGateActionType,
+    continuationDecisionStatus: "ready-for-human-gate",
+    routingReadinessStatus: "ready-for-human-gate",
+    needsReevaluation: false,
+    reason: support.reason,
+    currentGateScope: cloneScope(support.currentGateScope),
+    evidenceRefs: [...support.evidenceRefs],
+    loopAuthorized: false,
+    fullParallelExecutorAuthorized: false,
+    wholeWaveDispatchAuthorized: false,
+    slotAllocatorAuthorized: false,
+    sourceMutationAuthorized: false,
+    applyAuthorized: false,
+    closeAuthorized: false,
+    mergeAuthorized: false,
+    remoteLandingAuthorized: false,
+    harnessEvolutionAuthorized: false,
+    executionStarted: false,
+  };
+}
+
+function assertControlledSchedulerPostStepRoutingSupportHasNoAuthority(
+  support: ControlledSchedulerPostStepRoutingPreflightSupportInput,
+): void {
+  const forbiddenFlags: Array<keyof ControlledSchedulerPostStepRoutingPreflightSupportInput> = [
+    "loopAuthorized",
+    "fullParallelExecutorAuthorized",
+    "wholeWaveDispatchAuthorized",
+    "slotAllocatorAuthorized",
+    "sourceMutationAuthorized",
+    "applyAuthorized",
+    "closeAuthorized",
+    "mergeAuthorized",
+    "remoteLandingAuthorized",
+    "harnessEvolutionAuthorized",
+    "executionStarted",
+  ];
+  const authorized = forbiddenFlags.find((flag) => support[flag] !== false);
+  if (authorized) {
+    throw new Error(`GoalLoopGateReadinessPreflight controlled Scheduler post-step routing support has forbidden authority: ${authorized}.`);
+  }
 }
 
 function assertSchedulerExecutionModeMatches(packet: GoalLoopNextStepPacket, policy: GoalLoopControllerPolicy): void {
@@ -197,6 +344,14 @@ function scopeToCarrier(scope: Record<string, string | string[]>): WorkflowActio
   const result: WorkflowActionScopeCarrier = {};
   for (const [key, value] of Object.entries(scope)) {
     (result as Record<string, string | string[]>)[key] = Array.isArray(value) ? [...value] : value;
+  }
+  return result;
+}
+
+function cloneScope(scope: Record<string, string | string[]>): Record<string, string | string[]> {
+  const result: Record<string, string | string[]> = {};
+  for (const [key, value] of Object.entries(scope)) {
+    result[key] = Array.isArray(value) ? [...value] : value;
   }
   return result;
 }

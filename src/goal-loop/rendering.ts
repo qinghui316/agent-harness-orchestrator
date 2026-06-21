@@ -578,6 +578,51 @@ export function renderGoalLoopControllerPolicyMarkdown(policy: GoalLoopControlle
 }
 
 export function renderGoalLoopGateReadinessPreflightMarkdown(preflight: GoalLoopGateReadinessPreflight): string {
+  const routingSupportLines = preflight.controlledSchedulerPostStepRoutingSupport
+    ? [
+        "",
+        "## Controlled Scheduler Post-Step Routing Support",
+        "",
+        `- Authority: ${preflight.controlledSchedulerPostStepRoutingSupport.authority}`,
+        `- Source controlled step: ${preflight.controlledSchedulerPostStepRoutingSupport.sourceSchedulerControlledStepEvidenceId}`,
+        `- Source artifact: ${preflight.controlledSchedulerPostStepRoutingSupport.sourceSchedulerControlledStepArtifact}`,
+        `- Source markdown artifact: ${preflight.controlledSchedulerPostStepRoutingSupport.sourceSchedulerControlledStepMarkdownArtifact ?? "not recorded"}`,
+        `- Source GoalLoopNextStepPacket: ${preflight.controlledSchedulerPostStepRoutingSupport.sourceGoalLoopNextStepPacketId}`,
+        `- Source GoalLoopControllerPolicy: ${preflight.controlledSchedulerPostStepRoutingSupport.sourceGoalLoopControllerPolicyId}`,
+        `- Source GoalLoopGateReadinessPreflight: ${preflight.controlledSchedulerPostStepRoutingSupport.sourceGoalLoopGateReadinessPreflightId ?? "not recorded"}`,
+        `- Route family: ${preflight.controlledSchedulerPostStepRoutingSupport.routeFamily}`,
+        `- Owner module: ${preflight.controlledSchedulerPostStepRoutingSupport.ownerModule}`,
+        `- Existing gate action: ${preflight.controlledSchedulerPostStepRoutingSupport.existingGateActionType}`,
+        `- Continuation decision status: ${preflight.controlledSchedulerPostStepRoutingSupport.continuationDecisionStatus}`,
+        `- Routing readiness status: ${preflight.controlledSchedulerPostStepRoutingSupport.routingReadinessStatus}`,
+        `- Needs reevaluation: ${preflight.controlledSchedulerPostStepRoutingSupport.needsReevaluation ? "yes" : "no"}`,
+        `- loopAuthorized: ${preflight.controlledSchedulerPostStepRoutingSupport.loopAuthorized}`,
+        `- fullParallelExecutorAuthorized: ${preflight.controlledSchedulerPostStepRoutingSupport.fullParallelExecutorAuthorized}`,
+        `- wholeWaveDispatchAuthorized: ${preflight.controlledSchedulerPostStepRoutingSupport.wholeWaveDispatchAuthorized}`,
+        `- slotAllocatorAuthorized: ${preflight.controlledSchedulerPostStepRoutingSupport.slotAllocatorAuthorized}`,
+        `- sourceMutationAuthorized: ${preflight.controlledSchedulerPostStepRoutingSupport.sourceMutationAuthorized}`,
+        `- applyAuthorized: ${preflight.controlledSchedulerPostStepRoutingSupport.applyAuthorized}`,
+        `- closeAuthorized: ${preflight.controlledSchedulerPostStepRoutingSupport.closeAuthorized}`,
+        `- mergeAuthorized: ${preflight.controlledSchedulerPostStepRoutingSupport.mergeAuthorized}`,
+        `- remoteLandingAuthorized: ${preflight.controlledSchedulerPostStepRoutingSupport.remoteLandingAuthorized}`,
+        `- harnessEvolutionAuthorized: ${preflight.controlledSchedulerPostStepRoutingSupport.harnessEvolutionAuthorized}`,
+        `- Execution started: ${preflight.controlledSchedulerPostStepRoutingSupport.executionStarted ? "yes" : "no"}`,
+        "",
+        "### Support Current Gate Scope",
+        "",
+        ...Object.entries(preflight.controlledSchedulerPostStepRoutingSupport.currentGateScope).map(([key, value]) => `- ${key}: ${Array.isArray(value) ? value.join(", ") : value}`),
+        "",
+        "### Support Evidence Refs",
+        "",
+        ...(preflight.controlledSchedulerPostStepRoutingSupport.evidenceRefs.length
+          ? preflight.controlledSchedulerPostStepRoutingSupport.evidenceRefs.map((ref) => `- ${ref}`)
+          : ["- None."]),
+        "",
+        "### Support Reason",
+        "",
+        preflight.controlledSchedulerPostStepRoutingSupport.reason,
+      ]
+    : [];
   const lines = [
     `# GoalLoopGateReadinessPreflight ${preflight.id}`,
     "",
@@ -600,6 +645,7 @@ export function renderGoalLoopGateReadinessPreflightMarkdown(preflight: GoalLoop
     preflight.summary,
     "",
     ...renderSchedulerExecutionModeMarkdown(preflight.schedulerExecutionMode),
+    ...routingSupportLines,
     "",
     "## Concrete Gate Scope",
     "",
