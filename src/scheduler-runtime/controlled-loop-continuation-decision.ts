@@ -8,6 +8,7 @@ import {
   type ControlledSchedulerContinuationPreflightEvidence,
 } from "../workflow-scheduler/controlled-step.js";
 import type {
+  ControlledSchedulerContinuationDecision,
   SchedulerControlledLoopContinuationReadinessStatus,
   SchedulerControlledStepEvidence,
 } from "./types.js";
@@ -30,28 +31,6 @@ export interface ControlledSchedulerFreshGateSnapshot {
   requiresConfirmation: boolean;
   scope: WorkflowActionScopeCarrier;
   evidenceRefs?: string[];
-}
-
-export interface ControlledSchedulerContinuationDecision {
-  version: "1.0";
-  authority: "scheduler-runtime-controlled-loop-continuation-decision";
-  status: SchedulerControlledLoopContinuationReadinessStatus;
-  changeId: string;
-  nextGateActionType?: string;
-  reason: string;
-  boundary: string;
-  evidenceRefs: string[];
-  executionStarted: false;
-  loopAuthorized: false;
-  fullParallelExecutorAuthorized: false;
-  wholeWaveDispatchAuthorized: false;
-  slotAllocatorAuthorized: false;
-  sourceMutationAuthorized: false;
-  applyAuthorized: false;
-  closeAuthorized: false;
-  mergeAuthorized: false;
-  remoteLandingAuthorized: false;
-  harnessEvolutionAuthorized: false;
 }
 
 export function evaluateControlledSchedulerBoundaryContinuation(input: {

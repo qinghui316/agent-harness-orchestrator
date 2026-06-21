@@ -289,6 +289,22 @@ export function SchedulerControlledStepEvidenceCard({ step }: { step: NonNullabl
           </div>
         </div>
       ) : null}
+      {step.controlledLoopPreDispatchDecision ? (
+        <div className="workpad-evidence-list" data-testid="scheduler-controlled-loop-pre-dispatch-decision">
+          <div className="workpad-evidence">
+            <strong>执行前判断</strong>
+            <span>{controlledLoopPreDispatchDecisionText(step.controlledLoopPreDispatchDecision)}</span>
+          </div>
+          <div className="workpad-evidence">
+            <strong>下一确认</strong>
+            <span>{step.controlledLoopPreDispatchDecision.nextGateActionType ? workflowActionLabel(step.controlledLoopPreDispatchDecision.nextGateActionType) : "首次受控推进"}</span>
+          </div>
+          <div className="workpad-evidence">
+            <strong>判断边界</strong>
+            <span>只证明执行前 guard 状态；ToolPolicy 与人工确认仍来自既有确认路径</span>
+          </div>
+        </div>
+      ) : null}
       {step.controlledLoopTick ? (
         <div className="workpad-evidence-list" data-testid="scheduler-controlled-loop-tick-summary">
           <div className="workpad-evidence">
@@ -397,6 +413,7 @@ export function SchedulerControlledStepEvidenceCard({ step }: { step: NonNullabl
 
 type ControlledLoopTurnRouteSummary = NonNullable<NonNullable<Workpad["schedulerControlledStepEvidence"]>["controlledLoopTurnRouteSummary"]>;
 type ControlledLoopTickSummary = NonNullable<NonNullable<Workpad["schedulerControlledStepEvidence"]>["controlledLoopTick"]>;
+type ControlledLoopPreDispatchDecision = NonNullable<NonNullable<Workpad["schedulerControlledStepEvidence"]>["controlledLoopPreDispatchDecision"]>;
 type ControlledLoopContinuationReadiness = NonNullable<NonNullable<Workpad["schedulerControlledStepEvidence"]>["controlledLoopContinuationReadiness"]>;
 type ControlledLoopIterationSummary = NonNullable<NonNullable<Workpad["schedulerControlledStepEvidence"]>["controlledLoopIteration"]>;
 type ControlledLoopStopSummary = NonNullable<NonNullable<Workpad["schedulerControlledStepEvidence"]>["controlledLoopStopSummary"]>;
@@ -435,6 +452,12 @@ function controlledLoopContinuationStatusLabel(status: ControlledLoopContinuatio
 
 function controlledLoopContinuationReadinessStatusText(readiness: ControlledLoopContinuationReadiness): string {
   return controlledLoopContinuationStatusLabel(readiness.status);
+}
+
+function controlledLoopPreDispatchDecisionText(decision: ControlledLoopPreDispatchDecision): string {
+  if (decision.status === "ready-for-human-gate") return "ready：prior-step 证据与当前确认目标匹配";
+  if (decision.status === "waiting" && !decision.nextGateActionType) return "bootstrap：无 prior-step 证据，使用当前确认门首次推进";
+  return `${controlledLoopContinuationStatusLabel(decision.status)}：${userFacingText(decision.reason)}`;
 }
 
 function controlledLoopStopPositionText(summary: ControlledLoopStopSummary): string {

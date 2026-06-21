@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-21T01:19:00.6902345Z",
+    "generated_at":  "2026-06-21T01:41:32.6531846Z",
     "active":  [
 
                ],
@@ -1709,6 +1709,10 @@
                     {
                         "name":  "20260621-controlled-scheduler-current-transition-owner",
                         "path":  "harness/changes/archive/20260621-controlled-scheduler-current-transition-owner"
+                    },
+                    {
+                        "name":  "20260621-controlled-scheduler-decision-gated-step-evidence",
+                        "path":  "harness/changes/archive/20260621-controlled-scheduler-decision-gated-step-evidence"
                     },
                     {
                         "name":  "20260621-controlled-scheduler-loop-boundary-result",

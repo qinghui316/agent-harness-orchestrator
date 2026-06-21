@@ -1364,6 +1364,27 @@ describe("Workbench web app", () => {
               remoteLandingAuthorized: false,
               harnessEvolutionAuthorized: false,
             },
+            controlledLoopPreDispatchDecision: {
+              version: "1.0",
+              authority: "scheduler-runtime-controlled-loop-continuation-decision",
+              status: "ready-for-human-gate",
+              changeId: "member-discount",
+              nextGateActionType: "planning.scheduler.worker.start-next",
+              reason: "Fresh current human-gate evidence matches the prior controlled Scheduler boundary. Continuation still requires the existing human confirmation and ToolPolicy/stale revalidation path.",
+              boundary: "Read-only scheduler-runtime continuation decision. It compares prior controlled Scheduler boundary evidence with fresh current gate evidence and never dispatches, authorizes, mutates source, applies, closes, merges, lands remotely, or evolves Harness state.",
+              evidenceRefs: ["harness/changes/active/member-discount/planning/scheduler-runs/scheduler-run-1/scheduler-controlled-steps/scheduler-controlled-step-previous.md"],
+              executionStarted: false,
+              loopAuthorized: false,
+              fullParallelExecutorAuthorized: false,
+              wholeWaveDispatchAuthorized: false,
+              slotAllocatorAuthorized: false,
+              sourceMutationAuthorized: false,
+              applyAuthorized: false,
+              closeAuthorized: false,
+              mergeAuthorized: false,
+              remoteLandingAuthorized: false,
+              harnessEvolutionAuthorized: false,
+            },
             artifact: "harness/changes/active/member-discount/planning/scheduler-runs/scheduler-run-1/scheduler-controlled-steps/scheduler-controlled-step-1.json",
             markdownArtifact: "harness/changes/active/member-discount/planning/scheduler-runs/scheduler-run-1/scheduler-controlled-steps/scheduler-controlled-step-1.md",
             updatedAt: "2026-06-21T00:00:00.000Z",
@@ -1402,6 +1423,13 @@ describe("Workbench web app", () => {
     expect(within(card).getByText("schedulerWorkerStart / scheduler-worker-start-1 / started")).toBeTruthy();
     expect(within(card).getAllByText("下一确认").length).toBeGreaterThanOrEqual(1);
     expect(within(card).getAllByText("检查当前结果").length).toBeGreaterThanOrEqual(1);
+    const preDispatchDecision = within(card).getByTestId("scheduler-controlled-loop-pre-dispatch-decision");
+    expect(preDispatchDecision).toBeTruthy();
+    expect(within(preDispatchDecision).getByText("执行前判断")).toBeTruthy();
+    expect(within(preDispatchDecision).getByText("ready：prior-step 证据与当前确认目标匹配")).toBeTruthy();
+    expect(within(preDispatchDecision).getByText("判断边界")).toBeTruthy();
+    expect(within(preDispatchDecision).getByText("只证明执行前 guard 状态；ToolPolicy 与人工确认仍来自既有确认路径")).toBeTruthy();
+    expect(within(preDispatchDecision).queryByRole("button")).toBeNull();
     const tickSummary = within(card).getByTestId("scheduler-controlled-loop-tick-summary");
     expect(tickSummary).toBeTruthy();
     expect(within(tickSummary).getByText("受控 tick")).toBeTruthy();

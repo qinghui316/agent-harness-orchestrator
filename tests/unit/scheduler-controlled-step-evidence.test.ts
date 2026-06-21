@@ -154,6 +154,27 @@ describe("Scheduler controlled step evidence", () => {
         wholeWaveDispatchAuthorized: false,
         slotAllocatorAuthorized: false,
       },
+      controlledLoopPreDispatchDecision: {
+        version: "1.0",
+        authority: "scheduler-runtime-controlled-loop-continuation-decision",
+        status: "ready-for-human-gate",
+        changeId: "change-1",
+        nextGateActionType: "planning.scheduler.worker.start-next",
+        reason: "Fresh current human-gate evidence matches the prior controlled Scheduler boundary.",
+        boundary: "Read-only scheduler-runtime continuation decision.",
+        evidenceRefs: ["scheduler-controlled-step-previous.md"],
+        executionStarted: false,
+        loopAuthorized: false,
+        fullParallelExecutorAuthorized: false,
+        wholeWaveDispatchAuthorized: false,
+        slotAllocatorAuthorized: false,
+        sourceMutationAuthorized: false,
+        applyAuthorized: false,
+        closeAuthorized: false,
+        mergeAuthorized: false,
+        remoteLandingAuthorized: false,
+        harnessEvolutionAuthorized: false,
+      },
       controlledLoopCurrentTransitionChoice: {
         version: "1.0",
         authority: "scheduler-runtime-current-transition-choice",
@@ -202,6 +223,16 @@ describe("Scheduler controlled step evidence", () => {
     const events = await readSchedulerRuntimeEvents(memory, changePath, "scheduler-run-1");
     expect(recorded.schedulerControlledStepEvidence.controlledStepResultSummary).toMatchObject({
       schedulerWorkerStartId: "scheduler-worker-start-1",
+    });
+    expect(recorded.schedulerControlledStepEvidence.controlledLoopPreDispatchDecision).toMatchObject({
+      authority: "scheduler-runtime-controlled-loop-continuation-decision",
+      status: "ready-for-human-gate",
+      nextGateActionType: "planning.scheduler.worker.start-next",
+      executionStarted: false,
+      loopAuthorized: false,
+      applyAuthorized: false,
+      closeAuthorized: false,
+      harnessEvolutionAuthorized: false,
     });
     expect(recorded.schedulerControlledStepEvidence.controlledLoopTurnRouteSummary).toMatchObject({
       routePosture: "awaiting-human-gate",
@@ -448,7 +479,18 @@ describe("Scheduler controlled step evidence", () => {
     expect(recordedMarkdown).toContain("- Authority: scheduler-runtime-controlled-loop-runtime-boundary-evidence");
     expect(recordedMarkdown).toContain("- Prior-turn evidence: yes");
     expect(recordedMarkdown).toContain("- Execution from runtime-boundary evidence: not authorized.");
+    expect(recordedMarkdown).toContain("## Pre-dispatch Continuation Decision");
+    expect(recordedMarkdown).toContain("- Authority: scheduler-runtime-controlled-loop-continuation-decision");
+    expect(recordedMarkdown).toContain("- Status: ready-for-human-gate");
+    expect(recordedMarkdown).toContain("- Execution from continuation decision: not authorized.");
+    expect(recordedMarkdown).toContain("- ToolPolicy and human confirmation remain in the existing controlled-advance action path.");
     await expect(readLatestSchedulerControlledStepEvidenceSummary(memory, changePath, "scheduler-run-1")).resolves.toMatchObject({
+      controlledLoopPreDispatchDecision: {
+        authority: "scheduler-runtime-controlled-loop-continuation-decision",
+        status: "ready-for-human-gate",
+        nextGateActionType: "planning.scheduler.worker.start-next",
+        executionStarted: false,
+      },
       controlledLoopTurnRouteSummary: {
         routePosture: "awaiting-human-gate",
         resultId: "scheduler-worker-start-1",
@@ -532,6 +574,9 @@ describe("Scheduler controlled step evidence", () => {
         controlledLoopRuntimeBoundaryStatus: "recorded",
         controlledLoopRuntimeBoundaryStopPosture: "awaiting-human-gate",
         controlledLoopRuntimeBoundaryNextGateActionType: "planning.scheduler.worker.reconcile-result",
+        controlledLoopPreDispatchDecisionAuthority: "scheduler-runtime-controlled-loop-continuation-decision",
+        controlledLoopPreDispatchDecisionStatus: "ready-for-human-gate",
+        controlledLoopPreDispatchDecisionNextGateActionType: "planning.scheduler.worker.start-next",
         futureContinuationRequiresFreshEvidence: true,
         humanConfirmationStillRequired: true,
       },

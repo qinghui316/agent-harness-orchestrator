@@ -9,6 +9,7 @@ import {
   writeSchedulerControlledStepEvidence,
 } from "./repository.js";
 import type {
+  ControlledSchedulerContinuationDecision,
   SchedulerControlledStepEvidence,
   SchedulerControlledLoopCurrentTransitionChoice,
   SchedulerControlledStepForbiddenAuthority,
@@ -53,6 +54,7 @@ export interface RecordSchedulerControlledStepEvidenceInput {
   postStepGoalLoopEvaluationWarning?: string;
   postStepGoalLoopReadinessWarning?: string;
   postStepHandoff: SchedulerControlledStepHandoffSummary;
+  controlledLoopPreDispatchDecision?: ControlledSchedulerContinuationDecision;
   controlledLoopCurrentTransitionChoice?: SchedulerControlledLoopCurrentTransitionChoice;
   controlledStepResultSummary?: SchedulerControlledStepResultSummary;
 }
@@ -118,6 +120,9 @@ export async function recordSchedulerControlledStepEvidence(
         controlledLoopRuntimeBoundaryStatus: step.controlledLoopRuntimeBoundary?.status,
         controlledLoopRuntimeBoundaryStopPosture: step.controlledLoopRuntimeBoundary?.stopPosture,
         controlledLoopRuntimeBoundaryNextGateActionType: step.controlledLoopRuntimeBoundary?.nextGateActionType,
+        controlledLoopPreDispatchDecisionAuthority: step.controlledLoopPreDispatchDecision?.authority,
+        controlledLoopPreDispatchDecisionStatus: step.controlledLoopPreDispatchDecision?.status,
+        controlledLoopPreDispatchDecisionNextGateActionType: step.controlledLoopPreDispatchDecision?.nextGateActionType,
         futureContinuationRequiresFreshEvidence: step.controlledLoopBoundaryResult?.futureContinuationRequiresFreshEvidence,
         humanConfirmationStillRequired: step.humanConfirmationStillRequired,
       },
@@ -222,6 +227,7 @@ function buildSchedulerControlledStepEvidence(
     preStepEvidence: input.preStepEvidence,
     postStepEvidence,
     postStepHandoff: input.postStepHandoff,
+    controlledLoopPreDispatchDecision: input.controlledLoopPreDispatchDecision,
     controlledStepResultSummary: input.controlledStepResultSummary,
     controlledLoopTurnRouteSummary,
     controlledLoopTick,

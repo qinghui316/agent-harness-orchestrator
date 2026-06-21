@@ -287,6 +287,28 @@ const schedulerControlledLoopContinuationReadinessSchema = z.object({
   harnessEvolutionAuthorized: z.literal(false),
 });
 
+const schedulerControlledLoopContinuationDecisionSchema = z.object({
+  version: z.literal("1.0"),
+  authority: z.literal("scheduler-runtime-controlled-loop-continuation-decision"),
+  status: z.enum(["ready-for-human-gate", "needs-review", "waiting", "quality-routing", "integration-barrier", "terminal-handoff"]),
+  changeId: z.string(),
+  nextGateActionType: z.string().optional(),
+  reason: z.string(),
+  boundary: z.string(),
+  evidenceRefs: z.array(z.string()),
+  executionStarted: z.literal(false),
+  loopAuthorized: z.literal(false),
+  fullParallelExecutorAuthorized: z.literal(false),
+  wholeWaveDispatchAuthorized: z.literal(false),
+  slotAllocatorAuthorized: z.literal(false),
+  sourceMutationAuthorized: z.literal(false),
+  applyAuthorized: z.literal(false),
+  closeAuthorized: z.literal(false),
+  mergeAuthorized: z.literal(false),
+  remoteLandingAuthorized: z.literal(false),
+  harnessEvolutionAuthorized: z.literal(false),
+});
+
 const schedulerControlledLoopIterationSummarySchema = z.object({
   version: z.literal("1.0"),
   authority: z.literal("scheduler-runtime-controlled-loop-iteration-summary"),
@@ -499,6 +521,7 @@ export const schedulerControlledStepEvidenceSchema: z.ZodType<SchedulerControlle
   postStepEvidence: schedulerControlledStepPostStepEvidenceSchema,
   postStepHandoff: schedulerControlledStepHandoffSummarySchema,
   controlledStepResultSummary: z.record(z.union([z.string(), z.number(), z.boolean(), z.array(z.string()), z.null()])).optional(),
+  controlledLoopPreDispatchDecision: schedulerControlledLoopContinuationDecisionSchema.optional(),
   controlledLoopTurnRouteSummary: schedulerControlledLoopTurnRouteSummarySchema.optional(),
   controlledLoopTick: schedulerControlledLoopTickSummarySchema.optional(),
   controlledLoopContinuationReadiness: schedulerControlledLoopContinuationReadinessSchema.optional(),

@@ -243,6 +243,28 @@ export type SchedulerControlledLoopContinuationReadinessStatus =
   | "integration-barrier"
   | "terminal-handoff";
 
+export interface ControlledSchedulerContinuationDecision {
+  version: "1.0";
+  authority: "scheduler-runtime-controlled-loop-continuation-decision";
+  status: SchedulerControlledLoopContinuationReadinessStatus;
+  changeId: string;
+  nextGateActionType?: string;
+  reason: string;
+  boundary: string;
+  evidenceRefs: string[];
+  executionStarted: false;
+  loopAuthorized: false;
+  fullParallelExecutorAuthorized: false;
+  wholeWaveDispatchAuthorized: false;
+  slotAllocatorAuthorized: false;
+  sourceMutationAuthorized: false;
+  applyAuthorized: false;
+  closeAuthorized: false;
+  mergeAuthorized: false;
+  remoteLandingAuthorized: false;
+  harnessEvolutionAuthorized: false;
+}
+
 export interface SchedulerControlledLoopContinuationReadiness {
   version: "1.0";
   authority: "scheduler-runtime-controlled-loop-continuation-readiness";
@@ -543,6 +565,7 @@ export interface SchedulerControlledStepEvidence {
   preStepEvidence: SchedulerControlledStepPreStepEvidence;
   postStepEvidence: SchedulerControlledStepPostStepEvidence;
   postStepHandoff: SchedulerControlledStepHandoffSummary;
+  controlledLoopPreDispatchDecision?: ControlledSchedulerContinuationDecision;
   controlledLoopCurrentTransitionChoice?: SchedulerControlledLoopCurrentTransitionChoice;
   controlledStepResultSummary?: SchedulerControlledStepResultSummary;
   controlledLoopTurnRouteSummary?: SchedulerControlledLoopTurnRouteSummary;

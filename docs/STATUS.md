@@ -5,25 +5,35 @@
 - Current date: 2026-06-21.
 - Active ECL change: none.
 - Pending Harness evolution: none.
-- Latest archived product change: `harness/changes/archive/20260621-controlled-scheduler-continuation-decision/summary.md`.
-- Latest archived product/Harness docs change: `harness/changes/archive/20260621-controlled-scheduler-continuation-decision/summary.md`.
+- Latest archived product change: `harness/changes/archive/20260621-controlled-scheduler-decision-gated-step-evidence/summary.md`.
+- Latest archived product/Harness docs change: `harness/changes/archive/20260621-controlled-scheduler-decision-gated-step-evidence/summary.md`.
 - Latest archived Harness evolution: `harness/changes/archive/20260621-auto-evolve-harness-controlled-scheduler-boundary-guard-window-noop/summary.md`.
 - Active product phase: none.
 - Active Harness evolution phase: none.
 - Active close status: no active change.
 
 This file is the short resume point. No active structured work remains. The
-latest product change closed Controlled Scheduler Continuation Decision. It adds
-a scheduler-runtime owned, non-executing continuation decision evaluator that
-consumes prior controlled Scheduler boundary/runtime-boundary evidence plus a
-narrow fresh-gate snapshot supplied by Workbench projection. Workbench projects
+latest product change closed Controlled Scheduler Decision Gated Step Evidence.
+It records the scheduler-runtime continuation decision that gated the current
+`planning.scheduler.controlled-advance.run` step on the durable
+`SchedulerControlledStepEvidence`. Bootstrap advances now record a distinct
+no-prior-step decision, while prior-step continuation must be
+`ready-for-human-gate` before fresh Goal Loop refresh or concrete Scheduler
+dispatch. Workbench projects the pre-dispatch decision read-only in the Workpad
+controlled-step evidence card. The decision proves guard status only; ToolPolicy
+audit, stale revalidation, and human confirmation remain in the existing
+controlled-advance action path. It adds no automatic scheduler loop, parallel
+executor, whole-wave dispatch, slot allocator, source mutation, apply/close/merge,
+remote landing, ToolPolicy bypass, or Harness evolution automation.
+
+The previous product change closed Controlled Scheduler Continuation Decision.
+It adds a scheduler-runtime owned, non-executing continuation decision evaluator
+that consumes prior controlled Scheduler boundary/runtime-boundary evidence plus
+a narrow fresh-gate snapshot supplied by Workbench projection. Workbench projects
 the decision read-only into controlled Scheduler continuation/reconfirmation
 surfaces so the user can see whether the existing
 `planning.scheduler.controlled-advance.run` human gate can be used again, or
-which existing evidence/gate condition requires waiting or review. It remains
-evidence-only: no automatic scheduler loop, parallel executor, whole-wave
-dispatch, slot allocator, source mutation, apply/close/merge, remote landing,
-ToolPolicy bypass, or Harness evolution automation.
+which existing evidence/gate condition requires waiting or review.
 
 The previous product change closed Controlled Scheduler Boundary Result
 Continuation Guard. It adds a scheduler-runtime owned pre-dispatch continuation
@@ -152,7 +162,7 @@ Current plan-level roadmap context is preserved in `docs/CURRENT-DEVELOPMENT-PLA
 
 ## Current Baseline
 
-The product baseline is post-maintenance canonical patch target-boundary, lineage, operation lineage helper reuse, operation lineage builder reuse, operation Markdown detail renderer reuse, operation target/hash detail renderer reuse, application target-kind boundary reuse, target-kind helper reuse, target-descriptor render helper reuse, markdown list helper reuse, markdown evidence-list renderer reuse, simple markdown list helper reuse, markdown detail-item helper reuse, application-authority helper reuse, application-authority profile reuse, proposal-authority profile reuse, artifact-store write validation reuse, canonical ledger summary policy reuse, application artifact-ref helper reuse, ledger-idempotency, artifact-store reuse, artifact-reference reuse, store-descriptor reuse, ledger event-policy reuse, maintenance candidate source-policy reuse, closeout review identity helper reuse, maintenance artifact ledger-entry helper reuse, canonical updates ledger helper adoption, maintenance store-backed artifact ref-list helper reuse, maintenance store-backed artifact lookup helper reuse, maintenance canonical artifact lifecycle reuse, maintenance canonical authority markdown reuse, maintenance markdown section helper reuse, Workbench action active-target revalidation reuse, Workbench action target revalidation helper reuse, Workbench action array target helper reuse, Workbench action scalar target helper reuse, Workbench action worker/scheduler target helper reuse, workflow-scheduler latest artifact guard reuse, scheduler-runtime claim-reservation/latest/event-policy helper reuse, Workbench read-model/projection summary helper reuse, Workbench confirmation evidence refs helper reuse, Workbench landing review artifact selection helper reuse, Controlled Scheduler next-candidate prompt evidence, confirmation candidate detail, action receipt surface, Workpad routing/step receipt/reconfirmation surfaces, scheduler-runtime controlled-step evidence, result/route/tick/continuation-readiness/iteration/stop-summary/boundary-result/runtime-boundary/continuation-decision summaries, and Workbench test architecture domain splits. The latest controlled Scheduler continuation decision remains non-executing current-gate comparison evidence and does not authorize loop/full-executor/dispatch/slot/source/apply/close/merge/remote/IntegrationCheck/Harness-evolution behavior. Goal Loop controlled-loop state, routing posture, controlled Scheduler prompt/confirmation/detail evidence, Workpad evidence, SchedulerRun terminal handoff evidence, and scheduler-runtime controlled-step summaries remain non-executing evidence only.
+The product baseline is post-maintenance canonical patch target-boundary, lineage, operation lineage helper reuse, operation lineage builder reuse, operation Markdown detail renderer reuse, operation target/hash detail renderer reuse, application target-kind boundary reuse, target-kind helper reuse, target-descriptor render helper reuse, markdown list helper reuse, markdown evidence-list renderer reuse, simple markdown list helper reuse, markdown detail-item helper reuse, application-authority helper reuse, application-authority profile reuse, proposal-authority profile reuse, artifact-store write validation reuse, canonical ledger summary policy reuse, application artifact-ref helper reuse, ledger-idempotency, artifact-store reuse, artifact-reference reuse, store-descriptor reuse, ledger event-policy reuse, maintenance candidate source-policy reuse, closeout review identity helper reuse, maintenance artifact ledger-entry helper reuse, canonical updates ledger helper adoption, maintenance store-backed artifact ref-list helper reuse, maintenance store-backed artifact lookup helper reuse, maintenance canonical artifact lifecycle reuse, maintenance canonical authority markdown reuse, maintenance markdown section helper reuse, Workbench action active-target revalidation reuse, Workbench action target revalidation helper reuse, Workbench action array target helper reuse, Workbench action scalar target helper reuse, Workbench action worker/scheduler target helper reuse, workflow-scheduler latest artifact guard reuse, scheduler-runtime claim-reservation/latest/event-policy helper reuse, Workbench read-model/projection summary helper reuse, Workbench confirmation evidence refs helper reuse, Workbench landing review artifact selection helper reuse, Controlled Scheduler next-candidate prompt evidence, confirmation candidate detail, action receipt surface, Workpad routing/step receipt/reconfirmation surfaces, scheduler-runtime controlled-step evidence, result/route/tick/continuation-readiness/iteration/stop-summary/boundary-result/runtime-boundary/continuation-decision/pre-dispatch-decision summaries, and Workbench test architecture domain splits. The latest controlled Scheduler continuation decision remains non-executing current-gate comparison evidence and does not authorize loop/full-executor/dispatch/slot/source/apply/close/merge/remote/IntegrationCheck/Harness-evolution behavior. Goal Loop controlled-loop state, routing posture, controlled Scheduler prompt/confirmation/detail evidence, Workpad evidence, SchedulerRun terminal handoff evidence, and scheduler-runtime controlled-step summaries remain non-executing evidence only.
 
 Product-level maintenance writes candidate lifecycle-resolution evidence, canonical update proposal evidence, human-gated canonical update decision records, canonical patch proposal evidence, human-gated canonical patch application follow-up records, read-only application manifest/readiness evidence, Phase 12U target-descriptor evidence, Phase 12V human-gated canonical docs/stable-memory application result evidence, and Phase 12W read-only observation report evidence while still forbidding automatic canonical rewrites.
 
@@ -161,12 +171,11 @@ Phase 12A remains the future controlled Scheduler/parallel loop design boundary.
 ## Next Resume Point
 
 Start the next product-functional controlled Scheduler / Goal Loop slice. The
-preferred next stage is to use the new scheduler-runtime continuation decision
-as the current-gate guard for one larger controlled-loop step: after a ready
-decision, continue through the existing human gate into the next concrete
-Scheduler transition, then route quality, integration, terminal handoff, or
-blocked state from the resulting existing evidence. Keep `README.md` unrelated
-and untracked unless the user explicitly asks to include it.
+preferred next stage is to consume the decision-gated controlled-step evidence
+chain as routing input after each one-confirmed Scheduler transition: route
+quality, bounded rework, IntegrationCheck, terminal handoff, or blocked state
+through existing owners. Keep `README.md` unrelated and untracked unless the
+user explicitly asks to include it.
 
 ## Verification Commands
 
@@ -203,7 +212,8 @@ Use `harness/changes/INDEX.json` for the generated archive list. Start with arch
 
 Recent key archive summaries:
 
-- Latest product/Harness docs change: `harness/changes/archive/20260621-controlled-scheduler-continuation-decision/summary.md`.
+- Latest product/Harness docs change: `harness/changes/archive/20260621-controlled-scheduler-decision-gated-step-evidence/summary.md`.
+- Recent product/Harness docs change: `harness/changes/archive/20260621-controlled-scheduler-continuation-decision/summary.md`.
 - Recent product/Harness docs change: `harness/changes/archive/20260621-controlled-scheduler-loop-runtime-boundary/summary.md`.
 - Recent product/Harness docs change: `harness/changes/archive/20260621-auto-evolve-harness-controlled-scheduler-continuation-window-noop/summary.md`.
 - Recent product/Harness docs change: `harness/changes/archive/20260621-controlled-scheduler-continuation-guard/summary.md`.

@@ -1292,6 +1292,7 @@ export type SchedulerControlledStepEvidenceSummary = {
   mergeAuthorized: false;
   harnessEvolutionAuthorized: false;
   controlledStepResultSummary?: Record<string, string | number | boolean | string[] | null>;
+  controlledLoopPreDispatchDecision?: SchedulerControlledContinuationDecisionSummary;
   controlledLoopTurnRouteSummary?: {
     version: "1.0";
     authority: "scheduler-runtime-controlled-loop-turn-route-summary";
@@ -1572,10 +1573,32 @@ export type SchedulerControlledStepEvidenceSummary = {
     remoteLandingAuthorized: false;
     harnessEvolutionAuthorized: false;
   };
+  controlledLoopContinuationDecision?: SchedulerControlledContinuationDecisionSummary;
   warning?: string;
   artifact?: string;
   markdownArtifact?: string;
   updatedAt: string;
+};
+export type SchedulerControlledContinuationDecisionSummary = {
+  version: "1.0";
+  authority: "scheduler-runtime-controlled-loop-continuation-decision";
+  status: "ready-for-human-gate" | "needs-review" | "waiting" | "quality-routing" | "integration-barrier" | "terminal-handoff";
+  changeId: string;
+  nextGateActionType?: string;
+  reason: string;
+  boundary: string;
+  evidenceRefs: string[];
+  executionStarted: false;
+  loopAuthorized: false;
+  fullParallelExecutorAuthorized: false;
+  wholeWaveDispatchAuthorized: false;
+  slotAllocatorAuthorized: false;
+  sourceMutationAuthorized: false;
+  applyAuthorized: false;
+  closeAuthorized: false;
+  mergeAuthorized: false;
+  remoteLandingAuthorized: false;
+  harnessEvolutionAuthorized: false;
 };
 export type SchedulerReconcileSnapshotSummary = {
   id: string;

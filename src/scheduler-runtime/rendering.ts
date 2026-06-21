@@ -178,6 +178,19 @@ export function renderSchedulerControlledStepEvidenceMarkdown(step: SchedulerCon
         ]
       : ["- none"]),
     "",
+    ...(step.controlledLoopPreDispatchDecision
+      ? [
+          "## Pre-dispatch Continuation Decision",
+          "",
+          `- Authority: ${step.controlledLoopPreDispatchDecision.authority}`,
+          `- Status: ${step.controlledLoopPreDispatchDecision.status}`,
+          `- Next gate: ${step.controlledLoopPreDispatchDecision.nextGateActionType ?? "none"}`,
+          `- Reason: ${step.controlledLoopPreDispatchDecision.reason}`,
+          "- Execution from continuation decision: not authorized.",
+          "- ToolPolicy and human confirmation remain in the existing controlled-advance action path.",
+          "",
+        ]
+      : []),
     "## Current Transition Choice",
     "",
     ...(step.controlledLoopCurrentTransitionChoice

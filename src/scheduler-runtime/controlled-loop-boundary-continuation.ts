@@ -3,19 +3,19 @@ import type { ControlledSchedulerContinuationPreflightEvidence } from "../workfl
 import {
   evaluateControlledSchedulerBoundaryContinuation,
 } from "./controlled-loop-continuation-decision.js";
-import type { SchedulerControlledStepEvidence } from "./types.js";
+import type { ControlledSchedulerContinuationDecision, SchedulerControlledStepEvidence } from "./types.js";
 
 export function assertControlledSchedulerBoundaryContinuation(input: {
   changeId: string;
   requestedConcreteGate: WorkflowActionScopeCarrier;
   previousStep: SchedulerControlledStepEvidence | null;
   previousGateReadinessPreflight?: ControlledSchedulerContinuationPreflightEvidence | null;
-}): void {
+}): ControlledSchedulerContinuationDecision {
   const decision = evaluateControlledSchedulerBoundaryContinuation({
     ...input,
     requirePriorPreflight: true,
   });
-  if (!input.previousStep) return;
-  if (decision.status === "ready-for-human-gate") return;
+  if (!input.previousStep) return decision;
+  if (decision.status === "ready-for-human-gate") return decision;
   throw new Error(`planning.scheduler.controlled-advance.run boundary continuation guard ${decision.reason}`);
 }

@@ -18,7 +18,7 @@ import { buildControlledSchedulerPostStepHandoff } from "./controlled-step-hando
 import { recordSchedulerControlledStepEvidence } from "./controlled-step-evidence.js";
 import { summarizeSchedulerControlledStepResult } from "./controlled-loop-turn.js";
 import { readLatestSchedulerControlledStepEvidenceProjection } from "./repository.js";
-import type { SchedulerControlledLoopCurrentTransitionChoice, SchedulerControlledStepEvidence, SchedulerControlledStepHandoffSummary } from "./types.js";
+import type { ControlledSchedulerContinuationDecision, SchedulerControlledLoopCurrentTransitionChoice, SchedulerControlledStepEvidence, SchedulerControlledStepHandoffSummary } from "./types.js";
 
 export interface ControlledSchedulerLoopStepServices extends ControlledSchedulerCurrentTransitionServices {
   dispatchControlledStep(request: WorkflowActionScopeCarrier): Promise<unknown>;
@@ -64,7 +64,7 @@ export async function runControlledSchedulerLoopStep(
     throw new Error("planning.scheduler.controlled-advance.run requires a concrete planning.scheduler.* current gate.");
   }
   const requestedConcreteGate = concreteGateFromRequest(request, concreteActionType, changeId);
-  await assertControlledAdvanceContinuationGuard(project, changeId, requestedConcreteGate);
+  const controlledLoopPreDispatchDecision = await assertControlledAdvanceContinuationGuard(project, changeId, requestedConcreteGate);
 
   const currentTransition = await chooseControlledSchedulerCurrentTransition({
     changeId,
@@ -108,9 +108,10 @@ export async function runControlledSchedulerLoopStep(
     ...postStep,
   });
   const controlledStepResultSummary = summarizeSchedulerControlledStepResult(controlledStepPayload.result);
-  const controlledStepEvidence = await recordControlledAdvanceRuntimeStepEvidence(project, changeId, requestedConcreteGate, controlledAdvance, postStep, postStepHandoff, controlledStepResultSummary, currentTransition.controlledLoopCurrentTransitionChoice);
+  const controlledStepEvidence = await recordControlledAdvanceRuntimeStepEvidence(project, changeId, requestedConcreteGate, controlledAdvance, postStep, postStepHandoff, controlledStepResultSummary, currentTransition.controlledLoopCurrentTransitionChoice, controlledLoopPreDispatchDecision);
   return {
     controlledAdvance,
+    controlledLoopPreDispatchDecision,
     controlledLoopCurrentTransitionChoice: currentTransition.controlledLoopCurrentTransitionChoice,
     goalLoopDecision: currentTransition.goalLoopDecision,
     goalLoopIteration: currentTransition.goalLoopIteration,
@@ -202,13 +203,13 @@ async function assertControlledAdvanceContinuationGuard(
   project: ManagedProject,
   changeId: string,
   requestedConcreteGate: WorkflowActionScopeCarrier,
-): Promise<void> {
+): Promise<ControlledSchedulerContinuationDecision> {
   const { memory, changePath } = await resolveControlledLoopChangeContext(project, changeId);
   const previousStep = await readLatestControlledStepForContinuation(memory, changePath, requestedConcreteGate.schedulerRunId);
   const previousGateReadinessPreflight = previousStep?.postStepEvidence.goalLoopGateReadinessPreflightId
     ? await readGoalLoopGateReadinessPreflight(memory, changePath, previousStep.postStepEvidence.goalLoopGateReadinessPreflightId)
     : null;
-  assertControlledSchedulerBoundaryContinuation({
+  const decision = assertControlledSchedulerBoundaryContinuation({
     changeId,
     requestedConcreteGate,
     previousStep,
@@ -220,6 +221,7 @@ async function assertControlledAdvanceContinuationGuard(
     previousStep,
     previousGateReadinessPreflight,
   });
+  return decision;
 }
 
 async function resolveControlledLoopChangeContext(project: ManagedProject, changeId: string): Promise<{
@@ -264,6 +266,7 @@ async function recordControlledAdvanceRuntimeStepEvidence(
   postStepHandoff: ReturnType<typeof buildControlledSchedulerPostStepHandoff>,
   controlledStepResultSummary?: ReturnType<typeof summarizeSchedulerControlledStepResult>,
   controlledLoopCurrentTransitionChoice?: SchedulerControlledLoopCurrentTransitionChoice,
+  controlledLoopPreDispatchDecision?: ControlledSchedulerContinuationDecision,
 ): Promise<Record<string, unknown>> {
   try {
     const recorded = await recordSchedulerControlledStepEvidence(project, {
@@ -284,6 +287,7 @@ async function recordControlledAdvanceRuntimeStepEvidence(
       postStepGoalLoopEvaluationWarning: "postStepGoalLoopEvaluationWarning" in postStep ? postStep.postStepGoalLoopEvaluationWarning : undefined,
       postStepGoalLoopReadinessWarning: "postStepGoalLoopReadinessWarning" in postStep ? postStep.postStepGoalLoopReadinessWarning : undefined,
       postStepHandoff: toSchedulerControlledStepHandoffSummary(postStepHandoff, controlledAdvance.actionType),
+      controlledLoopPreDispatchDecision,
       controlledLoopCurrentTransitionChoice,
       controlledStepResultSummary,
     });
@@ -300,6 +304,7 @@ async function recordControlledAdvanceRuntimeStepEvidence(
         controlledLoopStopSummary: recorded.schedulerControlledStepEvidence.controlledLoopStopSummary,
         controlledLoopBoundaryResult: recorded.schedulerControlledStepEvidence.controlledLoopBoundaryResult,
         controlledLoopRuntimeBoundary: recorded.schedulerControlledStepEvidence.controlledLoopRuntimeBoundary,
+        controlledLoopPreDispatchDecision: recorded.schedulerControlledStepEvidence.controlledLoopPreDispatchDecision,
         controlledLoopCurrentTransitionChoice: recorded.schedulerControlledStepEvidence.controlledLoopCurrentTransitionChoice,
       },
     };

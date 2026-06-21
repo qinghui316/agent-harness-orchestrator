@@ -34,6 +34,7 @@ import {
   readSchedulerRuntimeClaimReservationProjection,
   readSchedulerRuntimeStateProjection,
   type SchedulerControlledStepEvidence,
+  type ControlledSchedulerContinuationDecision,
   type SchedulerReconcileSnapshot,
   type SchedulerRuntimeClaimReservation,
   type SchedulerIntegrationCandidate,
@@ -52,7 +53,6 @@ import {
   type SchedulerRuntimeWorkerReworkStart,
   type SchedulerRuntimeWorkerValidation,
 } from "../scheduler-runtime/manager.js";
-import type { ControlledSchedulerContinuationDecision } from "../scheduler-runtime/controlled-loop-continuation-decision.js";
 import { readIntegrationCheck } from "../integration-check/manager.js";
 import {
   readLatestDecompositionPlan,
@@ -305,6 +305,7 @@ export interface WorkbenchSchedulerControlledStepEvidenceSummary {
   controlledLoopStopSummary?: SchedulerControlledStepEvidence["controlledLoopStopSummary"];
   controlledLoopBoundaryResult?: SchedulerControlledStepEvidence["controlledLoopBoundaryResult"];
   controlledLoopRuntimeBoundary?: SchedulerControlledStepEvidence["controlledLoopRuntimeBoundary"];
+  controlledLoopPreDispatchDecision?: ControlledSchedulerContinuationDecision;
   controlledLoopContinuationDecision?: ControlledSchedulerContinuationDecision;
   warning?: string;
   artifact?: string;
@@ -1835,6 +1836,7 @@ function summarizeSchedulerControlledStepEvidence(step: SchedulerControlledStepE
     controlledLoopStopSummary: step.controlledLoopStopSummary,
     controlledLoopBoundaryResult: step.controlledLoopBoundaryResult,
     controlledLoopRuntimeBoundary: step.controlledLoopRuntimeBoundary,
+    controlledLoopPreDispatchDecision: step.controlledLoopPreDispatchDecision,
     warning: step.postStepEvidence.evaluationWarning ?? step.postStepEvidence.readinessWarning ?? step.postStepHandoff.warning,
     artifact: step.artifact,
     markdownArtifact: step.markdownArtifact,
