@@ -179,6 +179,45 @@ describe("controlled scheduler loop step owner", () => {
     expect(services.dispatchControlledStep).not.toHaveBeenCalled();
   });
 
+  it("fails closed before Goal Loop refresh or dispatch when prior boundary result is not acceptable", async () => {
+    mocks.readLatestSchedulerControlledStepEvidenceProjection.mockResolvedValue({
+      id: "scheduler-controlled-step-previous",
+      changeId: "change-1",
+      schedulerRunId: "scheduler-run-1",
+      status: "recorded",
+      postStepEvidence: {},
+      controlledLoopBoundaryResult: {
+        authority: "scheduler-runtime-controlled-loop-boundary-result",
+        status: "recorded-with-warning",
+        warning: "prior boundary warning",
+      },
+      createdAt: "2026-06-21T00:00:00.000Z",
+    });
+    const services = {
+      evaluateGoalLoopDecision: vi.fn(),
+      refreshGoalLoopControllerPolicy: vi.fn(),
+      prepareGoalLoopGateReadinessPreflight: vi.fn(),
+      auditHighImpactAction: vi.fn(),
+      dispatchControlledStep: vi.fn(),
+      resolveVisibleCurrentGate: vi.fn(),
+    };
+
+    await expect(runControlledSchedulerLoopStep(project, "change-1", {
+      actionType: "planning.scheduler.controlled-advance.run",
+      changeId: "change-1",
+      goalLoopCurrentGateActionType: "planning.scheduler.worker.reconcile-result",
+      schedulerRunId: "scheduler-run-1",
+      schedulerWorkerStartId: "worker-start-1",
+    }, services)).rejects.toThrow(/boundary continuation guard/);
+
+    expect(mocks.assertControlledSchedulerContinuationGuard).not.toHaveBeenCalled();
+    expect(services.evaluateGoalLoopDecision).not.toHaveBeenCalled();
+    expect(services.auditHighImpactAction).not.toHaveBeenCalled();
+    expect(services.refreshGoalLoopControllerPolicy).not.toHaveBeenCalled();
+    expect(services.prepareGoalLoopGateReadinessPreflight).not.toHaveBeenCalled();
+    expect(services.dispatchControlledStep).not.toHaveBeenCalled();
+  });
+
   it("dispatches one approved scheduler gate, records boundary evidence, and stops", async () => {
     const submittedScope = {
       changeId: "change-1",

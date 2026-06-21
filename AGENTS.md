@@ -7,15 +7,15 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 - Current date: 2026-06-21.
 - Active change: none.
 - Pending Harness evolution: none.
-- Latest archived product change: Controlled Scheduler Loop Boundary Result, archived at `harness/changes/archive/20260621-controlled-scheduler-loop-boundary-result/summary.md`.
-- Latest product/Harness docs change: Controlled Scheduler Loop Boundary Result, archived at `harness/changes/archive/20260621-controlled-scheduler-loop-boundary-result/summary.md`.
+- Latest archived product change: Controlled Scheduler Boundary Result Continuation Guard, archived at `harness/changes/archive/20260621-controlled-scheduler-boundary-result-continuation-guard/summary.md`.
+- Latest product/Harness docs change: Controlled Scheduler Boundary Result Continuation Guard, archived at `harness/changes/archive/20260621-controlled-scheduler-boundary-result-continuation-guard/summary.md`.
 - Active product phase: none.
 - Active Harness evolution phase: none.
-- Latest Harness evolution: `harness/changes/archive/20260621-auto-evolve-harness-controlled-scheduler-current-transition-window-noop/summary.md`.
+- Latest Harness evolution: `harness/changes/archive/20260621-auto-evolve-harness-controlled-scheduler-boundary-guard-window-noop/summary.md`.
 
-No active structured change exists. Start the next structured product stage from
-`docs/STATUS.md` and `docs/CURRENT-DEVELOPMENT-PLAN.md`, then create a new ECL
-change before implementation.
+No active structured change exists and no pending Harness evolution exists. Start
+the next product stage from `docs/STATUS.md` and
+`docs/CURRENT-DEVELOPMENT-PLAN.md`.
 
 ## 2. Context Loading Order
 

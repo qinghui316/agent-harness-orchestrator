@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-20T23:58:13.9644732Z",
+    "generated_at":  "2026-06-21T00:25:19.1297212Z",
     "active":  [
 
                ],
@@ -1671,6 +1671,10 @@
                         "path":  "harness/changes/archive/20260620-workflow-result-summary-thread-visibility"
                     },
                     {
+                        "name":  "20260621-auto-evolve-harness-controlled-scheduler-boundary-guard-window-noop",
+                        "path":  "harness/changes/archive/20260621-auto-evolve-harness-controlled-scheduler-boundary-guard-window-noop"
+                    },
+                    {
                         "name":  "20260621-auto-evolve-harness-controlled-scheduler-continuation-window-noop",
                         "path":  "harness/changes/archive/20260621-auto-evolve-harness-controlled-scheduler-continuation-window-noop"
                     },
@@ -1685,6 +1689,10 @@
                     {
                         "name":  "20260621-controlled-scheduler-advance-candidate-owner",
                         "path":  "harness/changes/archive/20260621-controlled-scheduler-advance-candidate-owner"
+                    },
+                    {
+                        "name":  "20260621-controlled-scheduler-boundary-result-continuation-guard",
+                        "path":  "harness/changes/archive/20260621-controlled-scheduler-boundary-result-continuation-guard"
                     },
                     {
                         "name":  "20260621-controlled-scheduler-continuation-guard",

@@ -13,6 +13,7 @@ import {
   chooseControlledSchedulerCurrentTransition,
   type ControlledSchedulerCurrentTransitionServices,
 } from "./controlled-loop-current-transition.js";
+import { assertControlledSchedulerBoundaryContinuation } from "./controlled-loop-boundary-continuation.js";
 import { buildControlledSchedulerPostStepHandoff } from "./controlled-step-handoff.js";
 import { recordSchedulerControlledStepEvidence } from "./controlled-step-evidence.js";
 import { summarizeSchedulerControlledStepResult } from "./controlled-loop-turn.js";
@@ -207,6 +208,12 @@ async function assertControlledAdvanceContinuationGuard(
   const previousGateReadinessPreflight = previousStep?.postStepEvidence.goalLoopGateReadinessPreflightId
     ? await readGoalLoopGateReadinessPreflight(memory, changePath, previousStep.postStepEvidence.goalLoopGateReadinessPreflightId)
     : null;
+  assertControlledSchedulerBoundaryContinuation({
+    changeId,
+    requestedConcreteGate,
+    previousStep,
+    previousGateReadinessPreflight,
+  });
   assertControlledSchedulerContinuationGuard({
     changeId,
     requestedConcreteGate,

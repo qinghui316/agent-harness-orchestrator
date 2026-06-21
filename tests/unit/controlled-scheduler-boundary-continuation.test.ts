@@ -1,0 +1,217 @@
+import { describe, expect, it } from "vitest";
+import { assertControlledSchedulerBoundaryContinuation } from "../../src/scheduler-runtime/controlled-loop-boundary-continuation.js";
+import type { SchedulerControlledStepEvidence } from "../../src/scheduler-runtime/types.js";
+import type { WorkflowActionScopeCarrier } from "../../src/workflow-actions/registry.js";
+import type { ControlledSchedulerContinuationPreflightEvidence } from "../../src/workflow-scheduler/controlled-step.js";
+
+const requestedGate: WorkflowActionScopeCarrier = {
+  actionType: "planning.scheduler.worker.reconcile-result",
+  changeId: "change-1",
+  schedulerRunId: "scheduler-run-1",
+  schedulerWorkerStartId: "worker-start-1",
+};
+
+const preflight: ControlledSchedulerContinuationPreflightEvidence = {
+  id: "preflight-post",
+  changeId: "change-1",
+  currentGate: {
+    actionType: "planning.scheduler.worker.reconcile-result",
+    scope: {
+      changeId: "change-1",
+      schedulerRunId: "scheduler-run-1",
+      schedulerWorkerStartId: "worker-start-1",
+    },
+  },
+  concreteGateInvoked: false,
+  toolPolicyAuthorizedConcreteGate: false,
+  executionStarted: false,
+};
+
+describe("controlled scheduler boundary continuation guard", () => {
+  it("allows bootstrap when no prior controlled step exists", () => {
+    expect(() => assertControlledSchedulerBoundaryContinuation({
+      changeId: "change-1",
+      requestedConcreteGate: requestedGate,
+      previousStep: null,
+      previousGateReadinessPreflight: null,
+    })).not.toThrow();
+  });
+
+  it("accepts warning-free boundary evidence while ignoring prior selected gate scope as next scope", () => {
+    expect(() => assertControlledSchedulerBoundaryContinuation({
+      changeId: "change-1",
+      requestedConcreteGate: requestedGate,
+      previousStep: step(),
+      previousGateReadinessPreflight: preflight,
+    })).not.toThrow();
+  });
+
+  it("fails closed when prior boundary evidence is missing", () => {
+    expect(() => assertControlledSchedulerBoundaryContinuation({
+      changeId: "change-1",
+      requestedConcreteGate: requestedGate,
+      previousStep: step({ controlledLoopBoundaryResult: undefined }),
+      previousGateReadinessPreflight: preflight,
+    })).toThrow(/requires prior controlled loop boundary result/);
+  });
+
+  it.each([
+    ["warning status", { status: "recorded-with-warning" }],
+    ["warning text", { warning: "post-step warning" }],
+    ["fresh evidence not required", { futureContinuationRequiresFreshEvidence: false }],
+    ["fresh current gate not required", { futureContinuationRequiresFreshCurrentGate: false }],
+    ["human confirmation not required", { humanConfirmationStillRequired: false }],
+    ["wrong target scope source", { nextGateTargetScopeSource: undefined }],
+    ["not ready", { continuationReadinessStatus: "needs-review" }],
+    ["forbidden loop authority", { loopAuthorized: true }],
+  ])("fails closed for %s", (_label, boundaryPatch) => {
+    expect(() => assertControlledSchedulerBoundaryContinuation({
+      changeId: "change-1",
+      requestedConcreteGate: requestedGate,
+      previousStep: step({ boundaryPatch }),
+      previousGateReadinessPreflight: preflight,
+    })).toThrow(/boundary continuation guard/);
+  });
+
+  it("fails closed for cross-change prior evidence", () => {
+    expect(() => assertControlledSchedulerBoundaryContinuation({
+      changeId: "change-1",
+      requestedConcreteGate: requestedGate,
+      previousStep: step({ changeId: "other-change" }),
+      previousGateReadinessPreflight: preflight,
+    })).toThrow(/different Change/);
+  });
+
+  it("fails closed when the submitted gate no longer matches the boundary next gate", () => {
+    expect(() => assertControlledSchedulerBoundaryContinuation({
+      changeId: "change-1",
+      requestedConcreteGate: {
+        ...requestedGate,
+        actionType: "planning.scheduler.integration-check.run",
+        schedulerIntegrationCheckHandoffId: "handoff-1",
+      },
+      previousStep: step(),
+      previousGateReadinessPreflight: preflight,
+    })).toThrow(/submitted gate no longer matches/);
+  });
+
+  it("fails closed when the submitted target scope no longer matches the prior preflight", () => {
+    expect(() => assertControlledSchedulerBoundaryContinuation({
+      changeId: "change-1",
+      requestedConcreteGate: {
+        ...requestedGate,
+        schedulerWorkerStartId: "worker-start-stale",
+      },
+      previousStep: step(),
+      previousGateReadinessPreflight: preflight,
+    })).toThrow(/scope no longer matches/);
+  });
+
+  it("fails closed when required submitted target ids are missing", () => {
+    expect(() => assertControlledSchedulerBoundaryContinuation({
+      changeId: "change-1",
+      requestedConcreteGate: {
+        actionType: "planning.scheduler.worker.reconcile-result",
+        changeId: "change-1",
+        schedulerRunId: "scheduler-run-1",
+      },
+      previousStep: step(),
+      previousGateReadinessPreflight: preflight,
+    })).toThrow(/target is incomplete/);
+  });
+});
+
+function step(input: {
+  changeId?: string;
+  controlledLoopBoundaryResult?: SchedulerControlledStepEvidence["controlledLoopBoundaryResult"];
+  boundaryPatch?: Record<string, unknown>;
+} = {}): SchedulerControlledStepEvidence {
+  const changeId = input.changeId ?? "change-1";
+  const controlledLoopBoundaryResult = input.controlledLoopBoundaryResult === undefined && !("controlledLoopBoundaryResult" in input)
+    ? {
+        version: "1.0",
+        authority: "scheduler-runtime-controlled-loop-boundary-result",
+        status: "recorded",
+        selectedActionType: "planning.scheduler.worker.start-next",
+        submittedActionType: "planning.scheduler.controlled-advance.run",
+        dispatchedActionType: "planning.scheduler.worker.start-next",
+        selectedGateScope: {
+          changeId,
+          schedulerRunId: "scheduler-run-1",
+          schedulerClaimReservationId: "prior-reservation",
+        },
+        observeStatus: "recorded",
+        chooseCheckStatus: "recorded",
+        dispatchStatus: "completed",
+        reconcileStatus: "recorded",
+        boundaryPosture: "awaiting-human-gate",
+        continuationReadinessStatus: "ready-for-human-gate",
+        stopReason: "one-confirmed-scheduler-transition-completed",
+        nextGateActionType: "planning.scheduler.worker.reconcile-result",
+        nextGateTargetScopeSource: "fresh-current-gate-required",
+        readinessEvidencePrepared: true,
+        needsReevaluation: false,
+        humanGateRequired: true,
+        humanConfirmationStillRequired: true,
+        futureContinuationRequiresFreshEvidence: true,
+        futureContinuationRequiresFreshCurrentGate: true,
+        stoppedAfterOneSchedulerTransition: true,
+        approvedScopeOnly: true,
+        boundary: "prior-turn evidence",
+        evidenceRefs: ["scheduler-controlled-step.md"],
+        executionStarted: false,
+        loopAuthorized: false,
+        fullParallelExecutorAuthorized: false,
+        wholeWaveDispatchAuthorized: false,
+        slotAllocatorAuthorized: false,
+        sourceMutationAuthorized: false,
+        applyAuthorized: false,
+        closeAuthorized: false,
+        mergeAuthorized: false,
+        remoteLandingAuthorized: false,
+        harnessEvolutionAuthorized: false,
+        ...(input.boundaryPatch ?? {}),
+      } as SchedulerControlledStepEvidence["controlledLoopBoundaryResult"]
+    : input.controlledLoopBoundaryResult;
+
+  return {
+    id: "scheduler-controlled-step-1",
+    changeId,
+    schedulerRunId: "scheduler-run-1",
+    status: "recorded",
+    executedActionType: "planning.scheduler.worker.start-next",
+    targetScope: {
+      actionType: "planning.scheduler.worker.start-next",
+      changeId,
+      schedulerRunId: "scheduler-run-1",
+    },
+    postStepEvidence: {
+      goalLoopGateReadinessPreflightId: "preflight-post",
+      executionStarted: false,
+      concreteGateInvoked: false,
+      toolPolicyAuthorizedConcreteGate: false,
+    },
+    controlledLoopBoundaryResult,
+    executionStarted: true,
+    stoppedAfterOneSchedulerTransition: true,
+    humanConfirmationStillRequired: true,
+    sourceMutated: false,
+    forbiddenAuthority: {
+      loopAuthorized: false,
+      fullParallelExecutorAuthorized: false,
+      wholeWaveDispatchAuthorized: false,
+      slotAllocatorAuthorized: false,
+      sourceMutationAuthorized: false,
+      applyAuthorized: false,
+      closeAuthorized: false,
+      mergeAuthorized: false,
+      remoteLandingAuthorized: false,
+      harnessEvolutionAuthorized: false,
+    },
+    artifactRefs: [],
+    artifact: "scheduler-controlled-step.json",
+    markdownArtifact: "scheduler-controlled-step.md",
+    createdAt: "2026-06-21T00:00:00.000Z",
+    updatedAt: "2026-06-21T00:00:00.000Z",
+  } as SchedulerControlledStepEvidence;
+}

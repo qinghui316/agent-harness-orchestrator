@@ -5,15 +5,27 @@
 - Current date: 2026-06-21.
 - Active ECL change: none.
 - Pending Harness evolution: none.
-- Latest archived product change: `harness/changes/archive/20260621-controlled-scheduler-loop-boundary-result/summary.md`.
-- Latest archived product/Harness docs change: `harness/changes/archive/20260621-controlled-scheduler-loop-boundary-result/summary.md`.
-- Latest archived Harness evolution: `harness/changes/archive/20260621-auto-evolve-harness-controlled-scheduler-current-transition-window-noop/summary.md`.
+- Latest archived product change: `harness/changes/archive/20260621-controlled-scheduler-boundary-result-continuation-guard/summary.md`.
+- Latest archived product/Harness docs change: `harness/changes/archive/20260621-controlled-scheduler-boundary-result-continuation-guard/summary.md`.
+- Latest archived Harness evolution: `harness/changes/archive/20260621-auto-evolve-harness-controlled-scheduler-boundary-guard-window-noop/summary.md`.
 - Active product phase: none.
 - Active Harness evolution phase: none.
 - Active close status: no active change.
 
 This file is the short resume point. No active structured change exists and no
-pending Harness evolution exists.
+pending Harness evolution exists. The latest Harness evolution recorded
+`noop / independent_review` for the controlled Scheduler boundary-guard archive
+window; no ECL rule, template, lint, script, product runtime, Workbench,
+ToolPolicy, or scheduler behavior change was needed.
+
+The latest product change closed Controlled Scheduler Boundary Result
+Continuation Guard. It adds a scheduler-runtime owned pre-dispatch continuation
+guard over the prior `SchedulerControlledLoopBoundaryResult`: invalid,
+warning-bearing, cross-Change, stale-scope, missing-target, or forbidden-authority
+boundary evidence fails before fresh Goal Loop refresh, ToolPolicy audit, or
+concrete scheduler dispatch. The boundary result remains blocking prior-turn
+evidence only; it does not authorize a loop, ToolPolicy, source mutation,
+apply/close/merge, remote landing, or Harness evolution.
 
 The latest product change closed Controlled Scheduler Loop Boundary Result. It
 adds an embedded scheduler-runtime `SchedulerControlledLoopBoundaryResult`
