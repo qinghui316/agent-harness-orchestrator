@@ -13,7 +13,7 @@ import { getWorkbenchSnapshot, getWorkbenchStream, getWorkbenchTopic, listWorkbe
 import { WorkbenchStore } from "../../src/workbench/store.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import { buildDecisionInspector } from "../../src/workbench/projections/read-model/decision-inspector.js";
-import { getTempDir, project, writeAcceptedSpecAndTasks } from "./workbench/fixtures.js";
+import { getTempDir, minimalDecompositionPlan, minimalReadiness, project, writeAcceptedSpecAndTasks } from "./workbench/fixtures.js";
 import type { RunMetadata } from "../../src/types/index.js";
 
 const FORBIDDEN_CONTROLLED_LOOP_PRIMARY_TERMS = [
@@ -254,6 +254,82 @@ describe("workbench read-model projections", () => {
     ]));
     expect(snapshot.center.thread.items.some((item) => item.kind === "evidence" && item.runId === run.run.id)).toBe(false);
     expect(snapshot.center.thread.items.some((item) => item.label === "process.started" || item.label === "run.completed")).toBe(false);
+  });
+
+  it("projects front-half Workbench gates as one scoped primary confirmation", async () => {
+    await initHarness(project());
+    const topic = await createWorkbenchTopic(project(), { title: "Front Half Gates", body: "Implement one focused pricing rule." });
+    await writeAcceptedSpecAndTasks(topic.changeId);
+
+    let snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: topic.changeId });
+    expect(snapshot.center.workpad.nextAction).toMatchObject({ actionType: "planning.decompose" });
+    expect(snapshot.right.confirmationQueue.current.filter((item) => item.primary)).toHaveLength(1);
+    expect(snapshot.right.confirmationQueue.primary).toMatchObject({
+      changeId: topic.changeId,
+      actions: [expect.objectContaining({ actionType: "planning.decompose", changeId: topic.changeId })],
+    });
+
+    const planningDir = join(getTempDir(), "harness", "changes", "active", topic.changeId, "planning");
+    await mkdir(planningDir, { recursive: true });
+    const draftPlan = {
+      ...minimalDecompositionPlan(topic.changeId),
+      status: "draft" as const,
+      recommendation: "single-change" as const,
+      rationale: "Keep this demand as one Coding Work Package.",
+    };
+    await writeFile(join(planningDir, "decomposition-plan.json"), JSON.stringify(draftPlan, null, 2), "utf8");
+    await writeFile(join(planningDir, "decomposition-plan.md"), "# Decomposition\n", "utf8");
+
+    snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: topic.changeId });
+    expect(snapshot.right.confirmationQueue.current.filter((item) => item.primary)).toHaveLength(1);
+    expect(snapshot.right.confirmationQueue.primary).toMatchObject({
+      changeId: topic.changeId,
+      actions: [expect.objectContaining({
+        actionType: "planning.decomposition.confirm",
+        changeId: topic.changeId,
+        decompositionPlanId: draftPlan.id,
+      })],
+    });
+
+    const confirmedPlan = { ...draftPlan, status: "confirmed" as const };
+    await writeFile(join(planningDir, "decomposition-plan.json"), JSON.stringify(confirmedPlan, null, 2), "utf8");
+    snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: topic.changeId });
+    expect(snapshot.right.confirmationQueue.current.filter((item) => item.primary)).toHaveLength(1);
+    expect(snapshot.right.confirmationQueue.primary).toMatchObject({
+      changeId: topic.changeId,
+      actions: [expect.objectContaining({
+        actionType: "planning.decomposition.assess-readiness",
+        changeId: topic.changeId,
+        decompositionPlanId: confirmedPlan.id,
+      })],
+    });
+
+    const readiness = {
+      ...minimalReadiness(topic.changeId, ["T-001"]),
+      status: "ready-for-single-change" as const,
+      recommendation: "single-change" as const,
+      schedulerEligible: false,
+      nextAllowedAction: "code.run" as const,
+      decompositionPlanId: confirmedPlan.id,
+    };
+    await writeFile(join(planningDir, "decomposition-readiness.json"), JSON.stringify(readiness, null, 2), "utf8");
+    await writeFile(join(planningDir, "decomposition-readiness.md"), "# Readiness\n", "utf8");
+
+    snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: topic.changeId });
+    expect(snapshot.center.workpad.nextAction).toMatchObject({
+      actionType: "code.run",
+      readinessManifestId: readiness.id,
+    });
+    expect(snapshot.right.confirmationQueue.current.filter((item) => item.primary)).toHaveLength(1);
+    expect(snapshot.right.confirmationQueue.primary).toMatchObject({
+      changeId: topic.changeId,
+      actions: [expect.objectContaining({
+        actionType: "code.run",
+        changeId: topic.changeId,
+        readinessManifestId: readiness.id,
+      })],
+    });
+    expect(JSON.stringify(snapshot.right.confirmationQueue)).not.toMatch(/full-auto|parallel executor|merge queue|slot allocator|whole-wave/i);
   });
 
   it("projects controlled loop workflow fallbacks in user-facing terms", async () => {

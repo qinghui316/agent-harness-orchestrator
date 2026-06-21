@@ -1,10 +1,7 @@
-import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import { initHarness } from "../../src/harness/init.js";
 import { listRuns } from "../../src/run/manager.js";
-import { executeWorkbenchAction } from "../../src/server/workbench-server.js";
 import { createWorkbenchTopic } from "../../src/workbench/chat.js";
-import { buildChatContext, buildOrchestratorContext } from "../../src/workbench/codex-chat/context.js";
 import { buildControlledSchedulerNextCandidatePromptEvidence, buildSchedulerTerminalHandoffContext } from "../../src/workbench/codex-chat/goal-loop-context.js";
 import { buildGoalLoopContextPreparedEvidence, goalLoopPromptStackLabels } from "../../src/workbench/codex-chat/goal-loop-prompt-evidence.js";
 import { getWorkbenchSnapshot } from "../../src/workbench/manager.js";
@@ -15,9 +12,7 @@ import { schedulerControlledAdvanceCopy, schedulerUserFacingActionCopy } from ".
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import { listWorktreeStatuses } from "../../src/worktree/manager.js";
 import { listIntegrationChecks } from "../../src/integration-check/manager.js";
-import { readLatestGoalLoopContinuationBrief, readLatestGoalLoopDecision, readLatestGoalLoopIteration } from "../../src/goal-loop/manager.js";
 import { getTempDir, project, writeAcceptedSpecAndTasks } from "./workbench/fixtures.js";
-import { readTopicThreadLog } from "../../src/workbench/thread-log.js";
 
 type SchedulerTerminalHandoffSectionFixture = Parameters<typeof buildSchedulerTerminalHandoffContext>[1];
 
@@ -28,11 +23,11 @@ beforeEach(async () => {
 });
 
 describe("workbench Goal Loop surface", () => {
-  it("projects goal loop evaluation as a fallback confirmation without starting execution", async () => {
+  it("suppresses goal loop fallback when a concrete planning gate is available", async () => {
     await initHarness(project());
     const topic = await createWorkbenchTopic(project(), {
-      title: "Goal Loop Fallback",
-      body: "Evaluate the long-running goal before doing more work.",
+      title: "Goal Loop Concrete Gate",
+      body: "Evaluate the long-running goal after the accepted plan is ready.",
     });
     await writeAcceptedSpecAndTasks(topic.changeId);
 
@@ -41,17 +36,18 @@ describe("workbench Goal Loop surface", () => {
     expect(snapshot.right.confirmationQueue.primary).toMatchObject({
       kind: "planning-confirm",
       changeId: topic.changeId,
-      summary: "主 Agent 可以先评估当前需求的下一步。",
-      whyNeedsConfirmation: "需要你确认是否先让主 Agent 做一次非执行评估。",
-      confirmEffect: "确认后只记录下一步建议和对话说明，不会执行建议里的动作。",
-      riskSummary: "后续任何执行、组合检查、应用、关闭或远端操作仍需要单独确认。",
+      summary: "规划已确认，可以生成拆分提案。",
+      whyNeedsConfirmation: "需要你确认生成拆分提案。它只是执行前的方案整理，不会启动执行。",
+      confirmEffect: "记录拆分提案草案；不会创建子需求、后台执行任务、工作副本或启动执行。",
+      riskSummary: "拆分提案必须再经过确认和执行边界检查后，才可能进入下一步真实执行。",
     });
-    const action = snapshot.right.confirmationQueue.primary?.actions.find((item) => item.actionType === "planning.goal-loop.evaluate");
+    const action = snapshot.right.confirmationQueue.primary?.actions.find((item) => item.actionType === "planning.decompose");
     expect(action).toMatchObject({
-      label: "评估下一步",
+      label: "生成拆分提案",
       changeId: topic.changeId,
       requiresConfirmation: true,
     });
+    expect(snapshot.right.confirmationQueue.current.flatMap((item) => item.actions).some((item) => item.actionType === "planning.goal-loop.evaluate")).toBe(false);
     expectQueueItemUserCopyNotToContainInternalTerms(snapshot.right.confirmationQueue.primary, [
       "GoalLoopDecision",
       "GoalLoopIteration",
@@ -62,88 +58,7 @@ describe("workbench Goal Loop surface", () => {
       "worktree",
       "source mutation",
     ]);
-
-    const actionResult = await executeWorkbenchAction({ project: project(), path: tempDir }, {
-      actionType: "planning.goal-loop.evaluate",
-      changeId: topic.changeId,
-      confirm: true,
-    });
-    expect(actionResult.result).toMatchObject({ status: "completed" });
-    const result = actionResult.result.result as {
-      goalLoopDecision?: { changeId: string; executionStarted: boolean; authority: string; id: string };
-      goalLoopIteration?: { changeId: string; executionStarted: boolean; authority: string; goalLoopDecisionId: string; ordinal: number; continuationState: string };
-      goalLoopContinuationBrief?: { changeId: string; executionStarted: boolean; authority: string; sourceGoalLoopDecisionId: string; sourceGoalLoopIterationId: string; id: string };
-      goalLoopNextStepPacket?: { changeId: string; executionStarted: boolean; authority: string; sourceGoalLoopDecisionId: string; sourceGoalLoopIterationId: string; sourceGoalLoopContinuationBriefId: string; id: string };
-    };
-    expect(result.goalLoopDecision).toMatchObject({
-      changeId: topic.changeId,
-      executionStarted: false,
-      authority: "non-executing-planning-evidence",
-    });
-    expect(result.goalLoopIteration).toMatchObject({
-      changeId: topic.changeId,
-      executionStarted: false,
-      authority: "non-executing-continuation-evidence",
-      goalLoopDecisionId: result.goalLoopDecision?.id,
-      ordinal: 1,
-      continuationState: "ready-for-existing-gate",
-    });
-    expect(result.goalLoopContinuationBrief).toMatchObject({
-      changeId: topic.changeId,
-      executionStarted: false,
-      authority: "non-executing-continuation-brief-evidence",
-      sourceGoalLoopDecisionId: result.goalLoopDecision?.id,
-      sourceGoalLoopIterationId: result.goalLoopIteration?.id,
-    });
-    expect(result.goalLoopNextStepPacket).toMatchObject({
-      changeId: topic.changeId,
-      executionStarted: false,
-      authority: "non-executing-main-agent-next-step-packet",
-      sourceGoalLoopDecisionId: result.goalLoopDecision?.id,
-      sourceGoalLoopIterationId: result.goalLoopIteration?.id,
-      sourceGoalLoopContinuationBriefId: result.goalLoopContinuationBrief?.id,
-    });
-    const threadLog = await readTopicThreadLog(await resolveProjectMemory(project()), join("harness", "changes", "active", topic.changeId));
-    const goalLoopMessage = threadLog.find((entry) => entry.type === "assistant.message" && entry.status === "goal-loop-evaluated");
-    expect(goalLoopMessage).toMatchObject({
-      text: "下一步评估已完成。这里只记录建议和证据，没有执行任何步骤；继续执行仍需要你单独确认。",
-      artifact: result.goalLoopContinuationBrief?.artifact,
-    });
-    expectUserCopyNotToContainInternalTerms(goalLoopMessage?.text ?? "", [
-      "GoalLoopContinuationBrief",
-      "Goal Loop",
-      "continuation brief",
-      "Recommended Action Snapshot",
-      "planning.scheduler",
-      "Harness gate",
-      "concrete gate",
-    ]);
     const memory = await resolveProjectMemory(project());
-    await expect(readLatestGoalLoopDecision(memory, join("harness", "changes", "active", topic.changeId))).resolves.toMatchObject({
-      changeId: topic.changeId,
-      executionStarted: false,
-    });
-    await expect(readLatestGoalLoopIteration(memory, join("harness", "changes", "active", topic.changeId))).resolves.toMatchObject({
-      changeId: topic.changeId,
-      goalLoopDecisionId: result.goalLoopDecision?.id,
-      continuationState: "ready-for-existing-gate",
-      executionStarted: false,
-    });
-    await expect(readLatestGoalLoopContinuationBrief(memory, join("harness", "changes", "active", topic.changeId))).resolves.toMatchObject({
-      changeId: topic.changeId,
-      sourceGoalLoopDecisionId: result.goalLoopDecision?.id,
-      sourceGoalLoopIterationId: result.goalLoopIteration?.id,
-      executionStarted: false,
-    });
-    const resumedSnapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: topic.changeId });
-    expect(resumedSnapshot.center.workpad.goalLoop).toBeUndefined();
-    expect(resumedSnapshot.center.workpad.nextAction.actionType).not.toBe("planning.goal-loop.evaluate");
-    const chatContext = await buildChatContext(project(), memory, topic.changeId, "continue the goal");
-    expect(chatContext.goalLoopNextStepPacketId).toBeUndefined();
-    expect(chatContext.context).not.toContain("Goal Loop Next-Step Packet");
-    const orchestratorContext = await buildOrchestratorContext(project(), memory, join("harness", "changes", "active", topic.changeId), topic.changeId, "plan the next step");
-    expect(orchestratorContext.goalLoopNextStepPacketId).toBeUndefined();
-    expect(orchestratorContext.context).not.toContain("Goal Loop Next-Step Packet");
     expect(await listRuns(memory)).toHaveLength(0);
     expect(await listWorktreeStatuses(memory)).toHaveLength(0);
     expect(await listIntegrationChecks(memory)).toHaveLength(0);

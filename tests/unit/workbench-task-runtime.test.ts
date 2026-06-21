@@ -132,6 +132,47 @@ describe("workbench task runtime domain", () => {
     })).rejects.toThrow("stale or no longer available");
   });
 
+  it("rejects stale readiness ids on change-level code.run", async () => {
+    await initHarness(project());
+    await createChange(project(), { title: "Stale Code Readiness" });
+    await writeAcceptedSpecAndTasks("stale-code-readiness");
+    const planningDir = join(tempDir, "harness", "changes", "active", "stale-code-readiness", "planning");
+    await mkdir(planningDir, { recursive: true });
+    const plan = {
+      ...minimalDecompositionPlan("stale-code-readiness"),
+      recommendation: "single-change" as const,
+      status: "confirmed" as const,
+    };
+    const readiness = {
+      ...minimalReadiness("stale-code-readiness", ["T-001"]),
+      status: "ready-for-single-change" as const,
+      recommendation: "single-change" as const,
+      schedulerEligible: false,
+      nextAllowedAction: "code.run" as const,
+      decompositionPlanId: plan.id,
+    };
+    await writeFile(join(planningDir, "decomposition-plan.json"), JSON.stringify(plan, null, 2), "utf8");
+    await writeFile(join(planningDir, "decomposition-plan.md"), "# Decomposition\n", "utf8");
+    await writeFile(join(planningDir, "decomposition-readiness.json"), JSON.stringify(readiness, null, 2), "utf8");
+    await writeFile(join(planningDir, "decomposition-readiness.md"), "# Readiness\n", "utf8");
+
+    const snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: "stale-code-readiness" });
+    expect(snapshot.right.confirmationQueue.primary?.actions).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        actionType: "code.run",
+        changeId: "stale-code-readiness",
+        readinessManifestId: readiness.id,
+      }),
+    ]));
+
+    await expect(executeWorkbenchAction({ project: project(), path: tempDir }, {
+      actionType: "code.run",
+      changeId: "stale-code-readiness",
+      readinessManifestId: "readiness-forged",
+      confirm: true,
+    })).rejects.toThrow("stale or no longer available");
+  });
+
   it("projects latest TaskRun and WorkerLease state on the matching TaskGraph node", async () => {
     await initHarness(project());
     await createChange(project(), { title: "TaskRun State" });

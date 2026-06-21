@@ -46,18 +46,22 @@ Current architecture debt register:
 
 ## Next Product Direction
 
-The immediate product-functional baseline is now the Workbench manual-gated
-usable loop. The archived `workbench-usable-manual-closed-loop` change proved a
-user-visible closed loop where the Workbench main surface carries one local
-demand from conversation to result, validation/audit, human-confirmed apply, and
-separate human-confirmed close/archive handoff.
+No structured product change is currently active. The latest archived
+`workbench-demand-to-execution-golden-flow` change proved the front half of the
+manual loop: natural-language Workbench demand, planning draft, execution
+confirmation, decomposition/readiness, readiness-scoped `code.run`, and
+validation/audit/result evidence. The earlier
+`workbench-usable-manual-closed-loop` change proved the back half from result
+review through validation/audit, human-confirmed apply, and separate
+human-confirmed close/archive handoff.
 
-Future product slices should build on that loop instead of adding more
-read-only evidence layers. They should reuse Workbench action registry, scoped
-target revalidation, ToolPolicy/human gates, artifact refs, validation/audit,
-source apply safety, and close/archive handoff. If a new acceptance path finds a
-real usability or action-scope gap, fix that product blocker before expanding
-automation.
+The current product baseline is therefore a local Workbench manual-gated path
+from demand conversation to apply/close. Future product work should build on
+existing Workbench action registry, scoped target revalidation,
+ToolPolicy/human gates, typed workflow artifacts, readiness manifests, code
+runtime orchestration, validation/audit, source apply safety, and close/archive
+handoff. If real usage finds a blocker in that manual path, fix the concrete
+product blocker before expanding automation.
 
 Full-auto task mode remains a later product direction. A separate accepted
 change may design scoped automation authorization from the main conversation for
@@ -68,9 +72,11 @@ profile. The Phase 12A controlled loop boundary lives in
 constraint for future scheduler automation. Historical phase-by-phase details
 stay in archived summaries and `harness/changes/INDEX.json`.
 
-- If continuing product implementation, either harden the proven Workbench
-  manual-gated loop with concrete product blockers or open a separate full-auto
-  design slice that explicitly reuses the proven gates and source safety.
+- If continuing product implementation, harden the proven Workbench
+  manual-gated loop with concrete product blockers, or address the remaining
+  Workbench aggregate test-stability debt.
+- If exploring broader automation, open a separate full-auto design slice that
+  explicitly reuses the proven gates and source safety.
 - If continuing Goal Loop work, build on controller policy evidence without making it execution authority.
 - If continuing scheduler work, use `docs/design-docs/controlled-scheduler-loop.md` as the loop boundary, but keep runtime staged and human-gated until an accepted ECL change implements and verifies each transition.
 - If improving Workbench UX, keep implemented actions honest and bind every high-impact action to concrete target ids, stale revalidation, ToolPolicyGate, and human confirmation.

@@ -12,33 +12,121 @@ export function workpadNextActionToConfirmationItems(
   const action = workpad.nextAction;
   if (!selectedTopic) return [];
   const planningBundleId = workpad.planningArtifactBundle?.status === "draft" ? workpad.planningArtifactBundle.id : undefined;
-  if (!planningBundleId) return [];
-  return [{
-    id: `confirm:planning:${selectedTopic.id}`,
-    kind: "planning-confirm",
-    projectId: project?.id ?? null,
-    conversationId: selectedTopic.id,
-    changeId: selectedTopic.id,
-    summary: "规划草案已经准备好，可以写入内部 spec/plan/tasks/ac-map。",
-    whyNeedsConfirmation: "需要你确认将当前规划写入 canonical spec/plan/tasks/ac-map。",
-    confirmEffect: action.actionType === "planning.confirm-execution"
-      ? action.description
-      : "确认只写 canonical spec/plan/tasks/ac-map 和确认记录；不会启动 coder、validator、auditor、TaskQueue、TaskRun 或 AgentTask。",
-    riskSummary: "确认规划不是执行授权；后续执行仍必须经过 DecompositionPlan、readiness、TaskQueueProposal/WorkflowGraphPlan 或 single-change code gate。",
-    evidenceRefs: evidenceRefs(workpad.planningArtifactBundle?.artifact),
-    actions: [{
-      id: `workflow:planning.confirm-execution:${selectedTopic.id}`,
-      label: action.actionType === "planning.confirm-execution" ? action.label : "确认执行",
-      kind: "workflow-action",
+  if (planningBundleId) {
+    return [{
+      id: `confirm:planning:${selectedTopic.id}`,
+      kind: "planning-confirm",
+      projectId: project?.id ?? null,
+      conversationId: selectedTopic.id,
       changeId: selectedTopic.id,
-      actionType: "planning.confirm-execution",
-      planningBundleId,
+      summary: "规划草案已经准备好，可以写入内部 spec/plan/tasks/ac-map。",
+      whyNeedsConfirmation: "需要你确认将当前规划写入 canonical spec/plan/tasks/ac-map。",
+      confirmEffect: action.actionType === "planning.confirm-execution"
+        ? action.description
+        : "确认只写 canonical spec/plan/tasks/ac-map 和确认记录；不会启动 coder、validator、auditor、TaskQueue、TaskRun 或 AgentTask。",
+      riskSummary: "确认规划不是执行授权；后续执行仍必须经过拆分评估和执行边界检查。",
+      evidenceRefs: evidenceRefs(workpad.planningArtifactBundle?.artifact),
+      actions: [{
+        id: `workflow:planning.confirm-execution:${selectedTopic.id}`,
+        label: action.actionType === "planning.confirm-execution" ? action.label : "确认执行",
+        kind: "workflow-action",
+        changeId: selectedTopic.id,
+        actionType: "planning.confirm-execution",
+        planningBundleId,
+        enabled: true,
+        requiresConfirmation: true,
+      }],
+      primary: true,
+      status: "pending",
+    }];
+  }
+  if (action.kind !== "workflow-action" || !action.enabled || !action.requiresConfirmation || !action.actionType) return [];
+  if (action.actionType === "planning.generate") {
+    return [genericWorkflowQueueItem({
+      project,
+      selectedTopic,
+      id: `confirm:planning-generate:${selectedTopic.id}`,
+      summary: "可以先生成方案草案。",
+      whyNeedsConfirmation: "需要你确认让 planning-agent 生成一个可审阅方案草案。",
+      confirmEffect: "只生成 proposal/spec/design/tasks 草案和证据；不会写 canonical artifacts，也不会启动执行。",
+      riskSummary: "草案仍需后续确认执行后才会写入内部 spec/plan/tasks/ac-map。",
+      label: action.label,
+      actionType: "planning.generate",
+      evidence: [],
+    })];
+  }
+  if (action.actionType === "planning.decompose") {
+    return [genericWorkflowQueueItem({
+      project,
+      selectedTopic,
+      id: `confirm:planning-decompose:${selectedTopic.id}`,
+      summary: "规划已确认，可以生成拆分提案。",
+      whyNeedsConfirmation: "需要你确认生成拆分提案。它只是执行前的方案整理，不会启动执行。",
+      confirmEffect: "记录拆分提案草案；不会创建子需求、后台执行任务、工作副本或启动执行。",
+      riskSummary: "拆分提案必须再经过确认和执行边界检查后，才可能进入下一步真实执行。",
+      label: action.label,
+      actionType: "planning.decompose",
+      evidence: evidenceRefs(workpad.planningArtifactBundle?.artifact),
+    })];
+  }
+  if (action.actionType === "code.run" && action.readinessManifestId) {
+    return [genericWorkflowQueueItem({
+      project,
+      selectedTopic,
+      id: `confirm:code-run:${selectedTopic.id}:${action.readinessManifestId}`,
+      summary: "执行边界已通过，可以运行 Code。",
+      whyNeedsConfirmation: "需要你确认启动 coder、validation 和 audit 的现有代码工作流。",
+      confirmEffect: "服务端会重新校验当前执行边界后启动现有代码工作流；不会应用、归档、合并或远端落地。",
+      riskSummary: "执行产出仍只是候选结果和证据；项目源码只有在后续应用确认后才会修改。",
+      label: action.label,
+      actionType: "code.run",
+      evidence: evidenceRefs(workpad.decompositionReadiness?.artifact),
+      readinessManifestId: action.readinessManifestId,
+      taskIds: action.taskIds,
+    })];
+  }
+  return [];
+}
+
+function genericWorkflowQueueItem(input: {
+  project: ManagedProject | null;
+  selectedTopic: WorkbenchTopicDetail;
+  id: string;
+  summary: string;
+  whyNeedsConfirmation: string;
+  confirmEffect: string;
+  riskSummary: string;
+  label: string;
+  actionType: NonNullable<WorkbenchWorkpad["nextAction"]["actionType"]>;
+  evidence: string[];
+  readinessManifestId?: string;
+  taskIds?: string[];
+}): WorkbenchConfirmationQueueItem {
+  return {
+    id: input.id,
+    kind: "planning-confirm",
+    projectId: input.project?.id ?? null,
+    conversationId: input.selectedTopic.id,
+    changeId: input.selectedTopic.id,
+    summary: input.summary,
+    whyNeedsConfirmation: input.whyNeedsConfirmation,
+    confirmEffect: input.confirmEffect,
+    riskSummary: input.riskSummary,
+    evidenceRefs: input.evidence,
+    actions: [{
+      id: `workflow:${input.actionType}:${input.selectedTopic.id}${input.readinessManifestId ? `:${input.readinessManifestId}` : ""}`,
+      label: input.label,
+      kind: "workflow-action",
+      changeId: input.selectedTopic.id,
+      actionType: input.actionType,
+      readinessManifestId: input.readinessManifestId,
+      taskIds: input.taskIds,
       enabled: true,
       requiresConfirmation: true,
     }],
     primary: true,
     status: "pending",
-  }];
+  };
 }
 
 export function schedulerNextActionToConfirmationItems(
@@ -218,9 +306,9 @@ export function decompositionPlanToConfirmationItems(
       conversationId: selectedTopic.id,
       changeId: selectedTopic.id,
       summary: `拆分方向已确认：${decompositionRecommendationSummary(plan.recommendation)}。`,
-      whyNeedsConfirmation: "需要你确认检查执行边界。检查只写 readiness manifest，不会启动执行。",
-      confirmEffect: "生成 DecompositionReadinessManifest；不会创建 TaskQueue、TaskRun、AgentTask、子 Change、worktree 或 run。",
-      riskSummary: "Manifest 只说明后续执行层是否可安全消费该拆分提案；不能绕过 Harness workflow truth。",
+      whyNeedsConfirmation: "需要你确认检查执行边界。检查只记录是否可进入下一步，不会启动执行。",
+      confirmEffect: "记录执行边界检查结果；不会创建后台执行任务、子需求、工作副本或启动执行。",
+      riskSummary: "执行边界检查只说明下一步是否安全；不能绕过已确认方案、证据和人工确认。",
       evidenceRefs: evidenceRefs(plan.artifact),
       actions: [{
         id: `workflow:planning.decomposition.assess-readiness:${selectedTopic.id}:${plan.id}`,
@@ -232,7 +320,7 @@ export function decompositionPlanToConfirmationItems(
         enabled: true,
         requiresConfirmation: true,
       }],
-      primary: false,
+      primary: true,
       status: "pending",
     }];
   }
@@ -244,8 +332,8 @@ export function decompositionPlanToConfirmationItems(
     conversationId: selectedTopic.id,
     changeId: selectedTopic.id,
     summary: `拆分建议：${decompositionRecommendationSummary(plan.recommendation)}。`,
-    whyNeedsConfirmation: "需要你确认这个拆分方向。确认只记录 proposal 接受，不会启动执行。",
-    confirmEffect: "记录 DecompositionPlan 已确认；不会创建子 Change、TaskRun、AgentTask 或启动 Code。",
+    whyNeedsConfirmation: "需要你确认这个拆分方向。确认只记录接受该拆分提案，不会启动执行。",
+    confirmEffect: "记录拆分方向已确认；不会创建子需求、后台执行任务或启动代码工作流。",
     riskSummary: plan.riskSummary,
     evidenceRefs: evidenceRefs(plan.artifact),
     actions: [{
@@ -258,7 +346,7 @@ export function decompositionPlanToConfirmationItems(
       enabled: true,
       requiresConfirmation: true,
     }],
-    primary: false,
+    primary: true,
     status: "pending",
   }];
 }

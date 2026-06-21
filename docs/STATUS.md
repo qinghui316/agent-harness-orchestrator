@@ -5,26 +5,30 @@
 - Current date: 2026-06-21.
 - Active ECL change: none.
 - Pending Harness evolution: none.
-- Latest archived product change: `harness/changes/archive/20260621-workbench-usable-manual-closed-loop/summary.md`.
-- Latest archived product/Harness docs change: `harness/changes/archive/20260621-workbench-usable-manual-closed-loop/summary.md`.
+- Latest archived product change: `harness/changes/archive/20260621-workbench-demand-to-execution-golden-flow/summary.md`.
+- Latest archived product/Harness docs change: `harness/changes/archive/20260621-workbench-demand-to-execution-golden-flow/summary.md`.
 - Latest archived Harness evolution: `harness/changes/archive/20260621-auto-evolve-harness-controlled-scheduler-continuation-window/summary.md`.
 - Active product phase: none.
 - Active Harness evolution phase: none.
-- Active close status: none.
+- Active close status: no active change.
 
-This file is the short resume point. No structured change is active. The latest
-closed product slice proved the minimum Workbench main-surface manual-gated loop
-from user demand to result evidence, validation/audit, human-confirmed local
-apply, and explicit close/archive handoff.
+This file is the short resume point. The latest product change proved the
+Workbench front half from natural-language demand conversation through planning
+confirmation, decomposition/readiness, `code.run`, validation/audit, and result
+evidence. Together with the previous manual-loop slice, the current baseline is
+a full local Workbench manual-gated path through human-confirmed apply and
+explicit close/archive.
 
 ## Current Baseline
 
 The product has mature evidence and boundary layers for Workbench conversations,
 role execution, validation/audit, result review, apply readiness, controlled
 Scheduler continuation, Goal Loop guidance, maintenance evidence, and Harness
-evolution. The latest Workbench usable-loop acceptance proved that the main
-surface can carry one local demand through result review, validation/audit,
-human-confirmed apply, and a separate human-confirmed close/archive gate.
+evolution. The latest Workbench golden-flow acceptance proved that the main
+surface can carry one local demand from ordinary user request through planning,
+decomposition/readiness, readiness-scoped `code.run`, validation/audit evidence,
+result review, human-confirmed apply, and a separate human-confirmed
+close/archive gate.
 
 The latest controlled Scheduler acceptance also proved that one confirmed
 `planning.scheduler.controlled-advance.run` can execute one existing Scheduler
@@ -40,16 +44,21 @@ and Harness evolution.
 
 ## Next Resume Point
 
-Start from the archived Workbench usable-loop change summary:
+No active change is open.
 
-`harness/changes/archive/20260621-workbench-usable-manual-closed-loop/summary.md`
+Latest archive:
 
-The next product decision may evaluate full-auto task mode or broader
-automation, but it should start from the now-proven manual-gated closed loop and
-reuse existing action registry, target revalidation, ToolPolicy/human gates,
-artifact refs, validation/audit, source apply safety, and close/archive handoff.
-If new acceptance finds a concrete blocker in the manual loop, fix that product
-blocker before adding automation.
+`harness/changes/archive/20260621-workbench-demand-to-execution-golden-flow/summary.md`
+
+Next recommended structured work should start from the proven manual baseline,
+not another read-only evidence layer. Reasonable next slices are:
+
+- harden the remaining Workbench UX/test-stability blockers, especially the slow
+  `npm run test:workbench` timeout and aggregate-only DOM `fetch` mock flake;
+- evaluate full-auto task mode as a separate scoped-authorization design only
+  after reusing the proven manual gates and source safety;
+- improve a concrete Workbench usability gap found through real use of the
+  demand-to-apply/close path.
 
 ## Verification Commands
 
@@ -89,6 +98,7 @@ current task needs that evidence.
 
 Recent relevant archive summaries:
 
+- Workbench Demand To Execution Golden Flow: `harness/changes/archive/20260621-workbench-demand-to-execution-golden-flow/summary.md`.
 - Workbench Usable Manual Closed Loop: `harness/changes/archive/20260621-workbench-usable-manual-closed-loop/summary.md`.
 - Controlled Scheduler Continuation Acceptance: `harness/changes/archive/20260621-controlled-scheduler-continuation-acceptance/summary.md`.
 - Latest Harness evolution: `harness/changes/archive/20260621-auto-evolve-harness-controlled-scheduler-continuation-window/summary.md`.
