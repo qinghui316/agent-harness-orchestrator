@@ -1,4 +1,4 @@
-import { compileGoalLoopControllerPolicy, compileGoalLoopEvaluation, compileGoalLoopGateReadinessPreflight, readLatestGoalLoopNextStepPacket, recordGoalLoopFeedback, type GoalLoopContinuationBrief, type GoalLoopControllerPolicy, type GoalLoopDecision, type GoalLoopFeedback, type GoalLoopGateReadinessPreflight, type GoalLoopIteration, type GoalLoopNextStepPacket } from "../../../goal-loop/manager.js";
+import { compileGoalLoopControllerPolicy, compileGoalLoopEvaluation, compileGoalLoopGateReadinessPreflight, readLatestGoalLoopNextStepPacket, recordGoalLoopFeedback, type CompileGoalLoopGateReadinessPreflightOptions, type GoalLoopContinuationBrief, type GoalLoopControllerPolicy, type GoalLoopDecision, type GoalLoopFeedback, type GoalLoopGateReadinessPreflight, type GoalLoopIteration, type GoalLoopNextStepPacket } from "../../../goal-loop/manager.js";
 import { assertWritableMemory } from "../../../memory/resolver.js";
 import type { ManagedProject } from "../../../types/index.js";
 import { recordWorkbenchDecision } from "../../decisions.js";
@@ -11,6 +11,11 @@ import { currentGateSnapshotFromRequest } from "../visible-goal-loop-current-gat
 import type { WorkbenchActionHandlerMap } from "../dispatcher.js";
 
 type GoalLoopWorkbenchActionType = "planning.goal-loop.evaluate" | "planning.goal-loop.feedback.evaluate" | "planning.goal-loop.controller.refresh" | "planning.goal-loop.gate-readiness.prepare";
+
+export type GoalLoopGateReadinessPreflightInternalOptions = Pick<
+  CompileGoalLoopGateReadinessPreflightOptions,
+  "sourceGoalLoopGateReadinessPreflightId" | "controlledSchedulerPostStepRoutingSupport"
+>;
 
 export function buildGoalLoopActionHandlers(): Pick<WorkbenchActionHandlerMap, GoalLoopWorkbenchActionType> {
   return {
@@ -228,6 +233,7 @@ export async function prepareGoalLoopGateReadinessPreflight(
   changeId: string,
   request: WorkbenchWorkflowActionRequest,
   live: WorkbenchLiveSink | undefined,
+  options?: GoalLoopGateReadinessPreflightInternalOptions,
 ): Promise<{ goalLoopGateReadinessPreflight: GoalLoopGateReadinessPreflight; executionStarted: false }> {
   if (!request.changeId) throw new Error("planning.goal-loop.gate-readiness.prepare requires changeId.");
   if (request.changeId !== changeId) throw new Error("planning.goal-loop.gate-readiness.prepare changeId scope mismatch.");
@@ -240,6 +246,8 @@ export async function prepareGoalLoopGateReadinessPreflight(
     goalLoopNextStepPacketId: request.goalLoopNextStepPacketId,
     goalLoopControllerPolicyId: request.goalLoopControllerPolicyId,
     currentGate,
+    sourceGoalLoopGateReadinessPreflightId: options?.sourceGoalLoopGateReadinessPreflightId,
+    controlledSchedulerPostStepRoutingSupport: options?.controlledSchedulerPostStepRoutingSupport,
   });
   await appendTopicThreadEntry(project, changeId, {
     type: "assistant.message",

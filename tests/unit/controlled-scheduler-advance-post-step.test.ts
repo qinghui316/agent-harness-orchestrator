@@ -441,6 +441,11 @@ describe("controlled scheduler advance post-step evaluation", () => {
     expect(mocks.resolveVisibleControlledSchedulerCurrentGate).toHaveBeenCalledWith(project, "change-1", "goal-loop-packet-post");
     expect(mocks.compileGoalLoopControllerPolicy).toHaveBeenCalledTimes(1);
     expect(mocks.compileGoalLoopGateReadinessPreflight).toHaveBeenCalledTimes(1);
+    expect(mocks.prepareGoalLoopGateReadinessPreflight).toHaveBeenCalledWith(project, "change-1", expect.objectContaining({
+      actionType: "planning.goal-loop.gate-readiness.prepare",
+      goalLoopNextStepPacketId: "goal-loop-packet-pre",
+      goalLoopControllerPolicyId: "goal-loop-controller-pre",
+    }), undefined, undefined);
     expect(mocks.auditHighImpactWorkflowAction).toHaveBeenCalledTimes(3);
     expect(mocks.assertControlledSchedulerFreshGateMatchesRequest).toHaveBeenCalledTimes(4);
     expect(mocks.recordSchedulerControlledStepEvidence).toHaveBeenCalledTimes(1);
@@ -589,6 +594,113 @@ describe("controlled scheduler advance post-step evaluation", () => {
     });
   });
 
+  it("consumes prior post-step routing support when the user confirms the next controlled scheduler gate", async () => {
+    const continuationScope = {
+      changeId: "change-1",
+      schedulerRunId: "scheduler-run-1",
+      schedulerWorkerStartId: "scheduler-worker-start-1",
+    };
+    const continuationGate = {
+      actionType: "planning.scheduler.worker.reconcile-result",
+      scope: continuationScope,
+    };
+    mocks.readLatestSchedulerControlledStepEvidenceProjection.mockResolvedValueOnce(buildPriorControlledStepForReconcile());
+    mocks.readGoalLoopGateReadinessPreflight.mockResolvedValueOnce({
+      id: "goal-loop-preflight-post",
+      changeId: "change-1",
+      currentGate: continuationGate,
+      concreteGateInvoked: false,
+      toolPolicyAuthorizedConcreteGate: false,
+      executionStarted: false,
+      artifact: "goal-loop-preflight-post.json",
+      markdownArtifact: "goal-loop-preflight-post.md",
+    });
+    mocks.evaluateGoalLoopDecision.mockResolvedValueOnce({
+      goalLoopDecision: { id: "goal-loop-decision-continuation" },
+      goalLoopIteration: { id: "goal-loop-iteration-continuation" },
+      goalLoopContinuationBrief: { id: "goal-loop-brief-continuation" },
+      goalLoopNextStepPacket: {
+        id: "goal-loop-packet-continuation",
+        recommendedAction: continuationGate,
+      },
+    });
+    mocks.refreshGoalLoopControllerPolicy.mockResolvedValueOnce({
+      goalLoopControllerPolicy: {
+        id: "goal-loop-controller-continuation",
+        verdict: "recommend-existing-gate",
+        gateStatus: "matches-current-gate",
+        currentGate: continuationGate,
+      },
+    });
+    mocks.prepareGoalLoopGateReadinessPreflight.mockResolvedValueOnce({
+      goalLoopGateReadinessPreflight: {
+        id: "goal-loop-preflight-continuation",
+        concreteGateInvoked: false,
+        toolPolicyAuthorizedConcreteGate: false,
+        currentGate: continuationGate,
+      },
+    });
+    mocks.resolveVisibleControlledSchedulerCurrentGate.mockResolvedValueOnce({
+      currentGate: continuationGate,
+      goalLoopNextStepPacketId: "goal-loop-packet-continuation",
+    });
+    mocks.planning.reconcilePlanningSchedulerFirstWorkerResult.mockResolvedValueOnce({
+      schedulerWorkerResult: {
+        id: "scheduler-worker-result-1",
+        status: "evidence-ready",
+        artifact: "scheduler-worker-result-1.json",
+      },
+    });
+
+    const handlers = buildSchedulerActionHandlers();
+    await handlers["planning.scheduler.controlled-advance.run"](project, "change-1", {
+      actionType: "planning.scheduler.controlled-advance.run",
+      goalLoopCurrentGateActionType: "planning.scheduler.worker.reconcile-result",
+      ...continuationScope,
+    }, undefined);
+
+    expect(mocks.prepareGoalLoopGateReadinessPreflight).toHaveBeenCalledWith(project, "change-1", expect.objectContaining({
+      actionType: "planning.goal-loop.gate-readiness.prepare",
+      goalLoopNextStepPacketId: "goal-loop-packet-continuation",
+      goalLoopControllerPolicyId: "goal-loop-controller-continuation",
+      goalLoopCurrentGateActionType: "planning.scheduler.worker.reconcile-result",
+    }), undefined, expect.objectContaining({
+      sourceGoalLoopGateReadinessPreflightId: "goal-loop-preflight-post",
+      controlledSchedulerPostStepRoutingSupport: expect.objectContaining({
+        authority: "non-executing-controlled-scheduler-post-step-routing-preflight-support",
+        sourceSchedulerControlledStepEvidenceId: "scheduler-controlled-step-previous",
+        sourceSchedulerControlledStepArtifact: "scheduler-controlled-step-previous.json",
+        sourceSchedulerControlledStepMarkdownArtifact: "scheduler-controlled-step-previous.md",
+        sourceGoalLoopNextStepPacketId: "goal-loop-packet-continuation",
+        sourceGoalLoopControllerPolicyId: "goal-loop-controller-continuation",
+        sourceGoalLoopGateReadinessPreflightId: "goal-loop-preflight-post",
+        existingGateActionType: "planning.scheduler.worker.reconcile-result",
+        continuationDecisionStatus: "ready-for-human-gate",
+        routingReadinessStatus: "ready-for-human-gate",
+        needsReevaluation: false,
+        currentGateScope: continuationScope,
+        loopAuthorized: false,
+        sourceMutationAuthorized: false,
+        applyAuthorized: false,
+        closeAuthorized: false,
+        executionStarted: false,
+      }),
+    }));
+    expect(mocks.planning.reconcilePlanningSchedulerFirstWorkerResult).toHaveBeenCalledTimes(1);
+    expect(mocks.planning.startPlanningSchedulerNextWorker).not.toHaveBeenCalled();
+    expect(mocks.recordSchedulerControlledStepEvidence).toHaveBeenCalledWith(project, expect.objectContaining({
+      executedActionType: "planning.scheduler.worker.reconcile-result",
+      controlledLoopPreDispatchDecision: expect.objectContaining({
+        status: "ready-for-human-gate",
+        nextGateActionType: "planning.scheduler.worker.reconcile-result",
+        executionStarted: false,
+        loopAuthorized: false,
+        applyAuthorized: false,
+        closeAuthorized: false,
+      }),
+    }));
+  });
+
   it("fails before refreshing Goal Loop evidence or executing a scheduler gate when the continuation guard rejects the request", async () => {
     mocks.readLatestSchedulerControlledStepEvidenceProjection.mockResolvedValueOnce({
       id: "scheduler-controlled-step-previous",
@@ -638,6 +750,71 @@ describe("controlled scheduler advance post-step evaluation", () => {
     expect(mocks.buildControlledSchedulerAdvanceStepRequest).not.toHaveBeenCalled();
     expect(mocks.buildControlledSchedulerStepRequest).not.toHaveBeenCalled();
     expect(mocks.planning.startPlanningSchedulerNextWorker).not.toHaveBeenCalled();
+    expect(mocks.recordSchedulerControlledStepEvidence).not.toHaveBeenCalled();
+  });
+
+  it("fails closed before dispatch when accepted prior routing support cannot be derived", async () => {
+    const priorStep = buildPriorControlledStepForReconcile({
+      controlledLoopPostStepRoutingDecision: undefined,
+    });
+    mocks.readLatestSchedulerControlledStepEvidenceProjection.mockResolvedValueOnce(priorStep);
+    mocks.readGoalLoopGateReadinessPreflight.mockResolvedValueOnce({
+      id: "goal-loop-preflight-post",
+      changeId: "change-1",
+      currentGate: {
+        actionType: "planning.scheduler.worker.reconcile-result",
+        scope: {
+          changeId: "change-1",
+          schedulerRunId: "scheduler-run-1",
+          schedulerWorkerStartId: "scheduler-worker-start-1",
+        },
+      },
+      concreteGateInvoked: false,
+      toolPolicyAuthorizedConcreteGate: false,
+      executionStarted: false,
+      artifact: "goal-loop-preflight-post.json",
+      markdownArtifact: "goal-loop-preflight-post.md",
+    });
+    const continuationScope = {
+      changeId: "change-1",
+      schedulerRunId: "scheduler-run-1",
+      schedulerWorkerStartId: "scheduler-worker-start-1",
+    };
+    const continuationGate = {
+      actionType: "planning.scheduler.worker.reconcile-result",
+      scope: continuationScope,
+    };
+    mocks.evaluateGoalLoopDecision.mockResolvedValueOnce({
+      goalLoopDecision: { id: "goal-loop-decision-continuation" },
+      goalLoopIteration: { id: "goal-loop-iteration-continuation" },
+      goalLoopContinuationBrief: { id: "goal-loop-brief-continuation" },
+      goalLoopNextStepPacket: {
+        id: "goal-loop-packet-continuation",
+        recommendedAction: continuationGate,
+      },
+    });
+    mocks.refreshGoalLoopControllerPolicy.mockResolvedValueOnce({
+      goalLoopControllerPolicy: {
+        id: "goal-loop-controller-continuation",
+        verdict: "recommend-existing-gate",
+        gateStatus: "matches-current-gate",
+        currentGate: continuationGate,
+      },
+    });
+    mocks.resolveVisibleControlledSchedulerCurrentGate.mockResolvedValueOnce({
+      currentGate: continuationGate,
+      goalLoopNextStepPacketId: "goal-loop-packet-continuation",
+    });
+
+    const handlers = buildSchedulerActionHandlers();
+    await expect(handlers["planning.scheduler.controlled-advance.run"](project, "change-1", {
+      actionType: "planning.scheduler.controlled-advance.run",
+      goalLoopCurrentGateActionType: "planning.scheduler.worker.reconcile-result",
+      ...continuationScope,
+    }, undefined)).rejects.toThrow(/requires prior post-step routing evidence/);
+
+    expect(mocks.prepareGoalLoopGateReadinessPreflight).not.toHaveBeenCalled();
+    expect(mocks.planning.reconcilePlanningSchedulerFirstWorkerResult).not.toHaveBeenCalled();
     expect(mocks.recordSchedulerControlledStepEvidence).not.toHaveBeenCalled();
   });
 
@@ -771,3 +948,115 @@ describe("controlled scheduler advance post-step evaluation", () => {
     });
   });
 });
+
+function buildPriorControlledStepForReconcile(overrides: Record<string, unknown> = {}) {
+  const continuationScope = {
+    changeId: "change-1",
+    schedulerRunId: "scheduler-run-1",
+    schedulerWorkerStartId: "scheduler-worker-start-1",
+  };
+  return {
+    id: "scheduler-controlled-step-previous",
+    changeId: "change-1",
+    schedulerRunId: "scheduler-run-1",
+    status: "recorded",
+    postStepEvidence: {
+      goalLoopGateReadinessPreflightId: "goal-loop-preflight-post",
+      currentGateActionType: "planning.scheduler.worker.reconcile-result",
+      executionStarted: false,
+      concreteGateInvoked: false,
+      toolPolicyAuthorizedConcreteGate: false,
+    },
+    controlledStepResultSummary: {
+      resultKind: "schedulerWorkerStart",
+      schedulerWorkerStartId: "scheduler-worker-start-1",
+      schedulerWorkerStartStatus: "started",
+    },
+    controlledLoopBoundaryResult: {
+      authority: "scheduler-runtime-controlled-loop-boundary-result",
+      status: "recorded",
+      continuationReadinessStatus: "ready-for-human-gate",
+      nextGateActionType: "planning.scheduler.worker.reconcile-result",
+      nextGateTargetScopeSource: "fresh-current-gate-required",
+      futureContinuationRequiresFreshEvidence: true,
+      futureContinuationRequiresFreshCurrentGate: true,
+      humanConfirmationStillRequired: true,
+      stoppedAfterOneSchedulerTransition: true,
+      approvedScopeOnly: true,
+      evidenceRefs: ["scheduler-controlled-step-previous.md"],
+      executionStarted: false,
+      loopAuthorized: false,
+      fullParallelExecutorAuthorized: false,
+      wholeWaveDispatchAuthorized: false,
+      slotAllocatorAuthorized: false,
+      sourceMutationAuthorized: false,
+      applyAuthorized: false,
+      closeAuthorized: false,
+      mergeAuthorized: false,
+      remoteLandingAuthorized: false,
+      harnessEvolutionAuthorized: false,
+    },
+    controlledLoopRuntimeBoundary: {
+      authority: "scheduler-runtime-controlled-loop-runtime-boundary-evidence",
+      status: "recorded",
+      changeId: "change-1",
+      schedulerRunId: "scheduler-run-1",
+      continuationReadinessStatus: "ready-for-human-gate",
+      nextGateActionType: "planning.scheduler.worker.reconcile-result",
+      nextGateTargetScopeSource: "fresh-current-gate-required",
+      priorTurnEvidence: true,
+      freshEvidenceRequiredBeforeContinuation: true,
+      freshCurrentGateRequiredBeforeContinuation: true,
+      humanConfirmationStillRequired: true,
+      stoppedAfterOneSchedulerTransition: true,
+      approvedScopeOnly: true,
+      evidenceRefs: ["scheduler-controlled-step-previous.md"],
+      executionStarted: false,
+      loopAuthorized: false,
+      fullParallelExecutorAuthorized: false,
+      wholeWaveDispatchAuthorized: false,
+      slotAllocatorAuthorized: false,
+      sourceMutationAuthorized: false,
+      applyAuthorized: false,
+      closeAuthorized: false,
+      mergeAuthorized: false,
+      remoteLandingAuthorized: false,
+      harnessEvolutionAuthorized: false,
+    },
+    controlledLoopPostStepRoutingDecision: {
+      authority: "scheduler-runtime-controlled-loop-post-step-routing-decision",
+      routeFamily: "awaiting-human-gate",
+      continuationReadinessStatus: "ready-for-human-gate",
+      ownerModule: "scheduler-runtime",
+      executedActionType: "planning.scheduler.worker.start-next",
+      existingGateActionType: "planning.scheduler.worker.reconcile-result",
+      gateTargetScopeSource: "fresh-current-gate-required",
+      reason: "Prior step stopped with reconcile-result as the next human gate.",
+      boundary: "Non-executing prior routing evidence.",
+      readinessEvidencePrepared: true,
+      needsReevaluation: false,
+      freshEvidenceRequiredBeforeContinuation: true,
+      freshCurrentGateRequiredBeforeContinuation: true,
+      humanGateRequired: true,
+      humanConfirmationStillRequired: true,
+      priorTurnEvidence: true,
+      evidenceRefs: ["scheduler-controlled-step-previous.md"],
+      executionStarted: false,
+      loopAuthorized: false,
+      fullParallelExecutorAuthorized: false,
+      wholeWaveDispatchAuthorized: false,
+      slotAllocatorAuthorized: false,
+      sourceMutationAuthorized: false,
+      applyAuthorized: false,
+      closeAuthorized: false,
+      mergeAuthorized: false,
+      remoteLandingAuthorized: false,
+      harnessEvolutionAuthorized: false,
+    },
+    targetScope: continuationScope,
+    artifact: "scheduler-controlled-step-previous.json",
+    markdownArtifact: "scheduler-controlled-step-previous.md",
+    createdAt: "2026-06-21T00:00:00.000Z",
+    ...overrides,
+  };
+}

@@ -19,6 +19,7 @@ import { recordSchedulerControlledStepEvidence } from "./controlled-step-evidenc
 import { summarizeSchedulerControlledStepResult } from "./controlled-loop-turn.js";
 import { readLatestSchedulerControlledStepEvidenceProjection } from "./repository.js";
 import type { ControlledSchedulerContinuationDecision, SchedulerControlledLoopCurrentTransitionChoice, SchedulerControlledStepEvidence, SchedulerControlledStepHandoffSummary } from "./types.js";
+import type { GoalLoopGateReadinessPreflight } from "../goal-loop/manager.js";
 
 export interface ControlledSchedulerLoopStepServices extends ControlledSchedulerCurrentTransitionServices {
   dispatchControlledStep(request: WorkflowActionScopeCarrier): Promise<unknown>;
@@ -26,6 +27,12 @@ export interface ControlledSchedulerLoopStepServices extends ControlledScheduler
 
 export type ControlledSchedulerLoopStepRequest = WorkflowActionScopeCarrier & {
   actionType: "planning.scheduler.controlled-advance.run";
+};
+
+type ControlledAdvanceContinuationGuardResult = {
+  decision: ControlledSchedulerContinuationDecision;
+  previousStep: SchedulerControlledStepEvidence | null;
+  previousGateReadinessPreflight: GoalLoopGateReadinessPreflight | null;
 };
 
 type ControlledAdvancePostStepEvaluation = {
@@ -64,13 +71,21 @@ export async function runControlledSchedulerLoopStep(
     throw new Error("planning.scheduler.controlled-advance.run requires a concrete planning.scheduler.* current gate.");
   }
   const requestedConcreteGate = concreteGateFromRequest(request, concreteActionType, changeId);
-  const controlledLoopPreDispatchDecision = await assertControlledAdvanceContinuationGuard(project, changeId, requestedConcreteGate);
+  const continuationGuard = await assertControlledAdvanceContinuationGuard(project, changeId, requestedConcreteGate);
+  const controlledLoopPreDispatchDecision = continuationGuard.decision;
 
   const currentTransition = await chooseControlledSchedulerCurrentTransition({
     changeId,
     request,
     requestedConcreteGate,
     services,
+    postStepRoutingSupportSource: continuationGuard.previousStep && continuationGuard.previousGateReadinessPreflight
+      ? {
+          previousStep: continuationGuard.previousStep,
+          previousGateReadinessPreflight: continuationGuard.previousGateReadinessPreflight,
+          continuationDecision: continuationGuard.decision,
+        }
+      : undefined,
   });
 
   const { wrapper } = buildControlledSchedulerAdvanceStepRequest(request, {
@@ -203,7 +218,7 @@ async function assertControlledAdvanceContinuationGuard(
   project: ManagedProject,
   changeId: string,
   requestedConcreteGate: WorkflowActionScopeCarrier,
-): Promise<ControlledSchedulerContinuationDecision> {
+): Promise<ControlledAdvanceContinuationGuardResult> {
   const { memory, changePath } = await resolveControlledLoopChangeContext(project, changeId);
   const previousStep = await readLatestControlledStepForContinuation(memory, changePath, requestedConcreteGate.schedulerRunId);
   const previousGateReadinessPreflight = previousStep?.postStepEvidence.goalLoopGateReadinessPreflightId
@@ -221,7 +236,7 @@ async function assertControlledAdvanceContinuationGuard(
     previousStep,
     previousGateReadinessPreflight,
   });
-  return decision;
+  return { decision, previousStep, previousGateReadinessPreflight };
 }
 
 async function resolveControlledLoopChangeContext(project: ManagedProject, changeId: string): Promise<{

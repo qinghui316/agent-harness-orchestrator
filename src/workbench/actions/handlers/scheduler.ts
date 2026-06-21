@@ -125,7 +125,7 @@ export function buildSchedulerActionHandlers(): Pick<WorkbenchActionHandlerMap, 
       return runControlledSchedulerLoopStep(project, changeId, request as WorkbenchWorkflowActionRequest & { actionType: "planning.scheduler.controlled-advance.run" }, {
         evaluateGoalLoopDecision: (nextRequest) => evaluateGoalLoopDecision(project, changeId, nextRequest as WorkbenchWorkflowActionRequest, live),
         refreshGoalLoopControllerPolicy: (nextRequest) => refreshGoalLoopControllerPolicy(project, changeId, nextRequest as WorkbenchWorkflowActionRequest, live),
-        prepareGoalLoopGateReadinessPreflight: (nextRequest) => prepareGoalLoopGateReadinessPreflight(project, changeId, nextRequest as WorkbenchWorkflowActionRequest, live),
+        prepareGoalLoopGateReadinessPreflight: (nextRequest, options) => prepareGoalLoopGateReadinessPreflight(project, changeId, nextRequest as WorkbenchWorkflowActionRequest, live, options),
         auditHighImpactAction: async (nextRequest) => {
           const workflowRequest = nextRequest as WorkbenchWorkflowActionRequest;
           assertWorkflowActionScope(workflowRequest);

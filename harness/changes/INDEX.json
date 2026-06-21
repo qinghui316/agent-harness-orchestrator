@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-21T03:21:25.8621373Z",
+    "generated_at":  "2026-06-21T03:47:14.2587974Z",
     "active":  [
 
                ],
@@ -1705,6 +1705,10 @@
                     {
                         "name":  "20260621-controlled-scheduler-continuation-guard",
                         "path":  "harness/changes/archive/20260621-controlled-scheduler-continuation-guard"
+                    },
+                    {
+                        "name":  "20260621-controlled-scheduler-continuation-preflight-support",
+                        "path":  "harness/changes/archive/20260621-controlled-scheduler-continuation-preflight-support"
                     },
                     {
                         "name":  "20260621-controlled-scheduler-continuation-readiness",

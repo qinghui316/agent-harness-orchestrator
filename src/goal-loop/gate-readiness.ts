@@ -23,7 +23,7 @@ import type {
   GoalLoopNextStepPacket,
 } from "./types.js";
 
-type ControlledSchedulerPostStepRoutingPreflightSupportInput =
+export type ControlledSchedulerPostStepRoutingPreflightSupportInput =
   Omit<
     GoalLoopControlledSchedulerPostStepRoutingPreflightSupport,
     | "continuationDecisionStatus"

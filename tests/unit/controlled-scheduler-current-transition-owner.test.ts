@@ -63,6 +63,64 @@ describe("controlled scheduler current transition owner", () => {
     });
   });
 
+  it("passes prior post-step routing support into the current preflight when continuation evidence is available", async () => {
+    const services = buildServices();
+
+    await chooseControlledSchedulerCurrentTransition({
+      changeId,
+      request,
+      requestedConcreteGate,
+      services,
+      postStepRoutingSupportSource: buildPostStepRoutingSupportSource(),
+    });
+
+    expect(services.prepareGoalLoopGateReadinessPreflight).toHaveBeenCalledWith(expect.objectContaining({
+      actionType: "planning.goal-loop.gate-readiness.prepare",
+      goalLoopNextStepPacketId: "goal-loop-packet-pre",
+      goalLoopControllerPolicyId: "goal-loop-controller-pre",
+      goalLoopCurrentGateActionType: "planning.scheduler.worker.start-next",
+    }), expect.objectContaining({
+      sourceGoalLoopGateReadinessPreflightId: "previous-post-preflight",
+      controlledSchedulerPostStepRoutingSupport: expect.objectContaining({
+        authority: "non-executing-controlled-scheduler-post-step-routing-preflight-support",
+        sourceSchedulerControlledStepEvidenceId: "previous-controlled-step",
+        sourceSchedulerControlledStepArtifact: "previous-controlled-step.json",
+        sourceSchedulerControlledStepMarkdownArtifact: "previous-controlled-step.md",
+        sourceGoalLoopNextStepPacketId: "goal-loop-packet-pre",
+        sourceGoalLoopControllerPolicyId: "goal-loop-controller-pre",
+        sourceGoalLoopGateReadinessPreflightId: "previous-post-preflight",
+        existingGateActionType: "planning.scheduler.worker.start-next",
+        continuationDecisionStatus: "ready-for-human-gate",
+        routingReadinessStatus: "ready-for-human-gate",
+        needsReevaluation: false,
+        currentGateScope: gateScope,
+        loopAuthorized: false,
+        sourceMutationAuthorized: false,
+        applyAuthorized: false,
+        closeAuthorized: false,
+        executionStarted: false,
+      }),
+    }));
+  });
+
+  it("fails closed before preflight dispatch when guarded prior routing needs reevaluation", async () => {
+    const services = buildServices();
+
+    await expect(chooseControlledSchedulerCurrentTransition({
+      changeId,
+      request,
+      requestedConcreteGate,
+      services,
+      postStepRoutingSupportSource: buildPostStepRoutingSupportSource({
+        routing: {
+          needsReevaluation: true,
+        },
+      }),
+    })).rejects.toThrow(/requires fresh routing evidence/);
+
+    expect(services.prepareGoalLoopGateReadinessPreflight).not.toHaveBeenCalled();
+  });
+
   it("fails closed before Goal Loop evaluation when the submitted concrete gate lacks required targets", async () => {
     const services = buildServices();
 
@@ -220,4 +278,93 @@ function buildServices(options: {
       goalLoopNextStepPacketId: "goal-loop-packet-pre",
     }),
   };
+}
+
+function buildPostStepRoutingSupportSource(overrides: {
+  routing?: Record<string, unknown>;
+  previousStep?: Record<string, unknown>;
+} = {}) {
+  return {
+    previousStep: {
+      id: "previous-controlled-step",
+      changeId,
+      schedulerRunId: "scheduler-run-1",
+      status: "recorded",
+      postStepEvidence: {
+        goalLoopGateReadinessPreflightId: "previous-post-preflight",
+        currentGateActionType: "planning.scheduler.worker.start-next",
+        executionStarted: false,
+        concreteGateInvoked: false,
+        toolPolicyAuthorizedConcreteGate: false,
+      },
+      controlledLoopPostStepRoutingDecision: {
+        authority: "scheduler-runtime-controlled-loop-post-step-routing-decision",
+        routeFamily: "awaiting-human-gate",
+        continuationReadinessStatus: "ready-for-human-gate",
+        ownerModule: "scheduler-runtime",
+        executedActionType: "planning.scheduler.worker.start-first",
+        existingGateActionType: "planning.scheduler.worker.start-next",
+        gateTargetScopeSource: "fresh-current-gate-required",
+        reason: "Prior step stopped with a ready next human gate.",
+        boundary: "Non-executing prior routing evidence.",
+        readinessEvidencePrepared: true,
+        needsReevaluation: false,
+        freshEvidenceRequiredBeforeContinuation: true,
+        freshCurrentGateRequiredBeforeContinuation: true,
+        humanGateRequired: true,
+        humanConfirmationStillRequired: true,
+        priorTurnEvidence: true,
+        evidenceRefs: ["previous-controlled-step.md"],
+        executionStarted: false,
+        loopAuthorized: false,
+        fullParallelExecutorAuthorized: false,
+        wholeWaveDispatchAuthorized: false,
+        slotAllocatorAuthorized: false,
+        sourceMutationAuthorized: false,
+        applyAuthorized: false,
+        closeAuthorized: false,
+        mergeAuthorized: false,
+        remoteLandingAuthorized: false,
+        harnessEvolutionAuthorized: false,
+        ...overrides.routing,
+      },
+      artifact: "previous-controlled-step.json",
+      markdownArtifact: "previous-controlled-step.md",
+      createdAt: "2026-06-21T00:00:00.000Z",
+      ...overrides.previousStep,
+    },
+    previousGateReadinessPreflight: {
+      id: "previous-post-preflight",
+      changeId,
+      currentGate: {
+        actionType: "planning.scheduler.worker.start-next",
+        scope: gateScope,
+      },
+      concreteGateInvoked: false,
+      toolPolicyAuthorizedConcreteGate: false,
+      executionStarted: false,
+      artifact: "previous-post-preflight.json",
+      markdownArtifact: "previous-post-preflight.md",
+    },
+    continuationDecision: {
+      authority: "scheduler-runtime-controlled-loop-continuation-decision",
+      status: "ready-for-human-gate",
+      changeId,
+      nextGateActionType: "planning.scheduler.worker.start-next",
+      reason: "Fresh current gate matches prior routing.",
+      boundary: "Continuation remains human-gated.",
+      evidenceRefs: ["previous-controlled-step.md"],
+      executionStarted: false,
+      loopAuthorized: false,
+      fullParallelExecutorAuthorized: false,
+      wholeWaveDispatchAuthorized: false,
+      slotAllocatorAuthorized: false,
+      sourceMutationAuthorized: false,
+      applyAuthorized: false,
+      closeAuthorized: false,
+      mergeAuthorized: false,
+      remoteLandingAuthorized: false,
+      harnessEvolutionAuthorized: false,
+    },
+  } as never;
 }

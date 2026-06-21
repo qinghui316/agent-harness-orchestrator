@@ -11,6 +11,11 @@ import { validateWorkflowActionRequiredTargets } from "../workflow-actions/regis
 import {
   assertControlledSchedulerFreshGateMatchesRequest,
 } from "../workflow-scheduler/controlled-step.js";
+import {
+  buildControlledSchedulerPostStepRoutingPreflightSupport,
+  type ControlledSchedulerPostStepRoutingPreflightSupportOptions,
+  type ControlledSchedulerPostStepRoutingPreflightSupportSource,
+} from "./controlled-loop-preflight-support.js";
 import type { SchedulerControlledLoopCurrentTransitionChoice } from "./types.js";
 
 export interface ControlledSchedulerCurrentTransitionEvaluationResult {
@@ -46,7 +51,7 @@ export type ControlledSchedulerCurrentTransitionVisibleGateResult =
 export interface ControlledSchedulerCurrentTransitionServices {
   evaluateGoalLoopDecision(request: WorkflowActionScopeCarrier): Promise<ControlledSchedulerCurrentTransitionEvaluationResult>;
   refreshGoalLoopControllerPolicy(request: WorkflowActionScopeCarrier): Promise<ControlledSchedulerCurrentTransitionControllerResult>;
-  prepareGoalLoopGateReadinessPreflight(request: WorkflowActionScopeCarrier): Promise<ControlledSchedulerCurrentTransitionPreflightResult>;
+  prepareGoalLoopGateReadinessPreflight(request: WorkflowActionScopeCarrier, options?: ControlledSchedulerPostStepRoutingPreflightSupportOptions): Promise<ControlledSchedulerCurrentTransitionPreflightResult>;
   auditHighImpactAction(request: WorkflowActionScopeCarrier): Promise<void>;
   resolveVisibleCurrentGate(goalLoopNextStepPacketId: string): Promise<ControlledSchedulerCurrentTransitionVisibleGateResult>;
 }
@@ -66,6 +71,7 @@ export async function chooseControlledSchedulerCurrentTransition(input: {
   request: WorkflowActionScopeCarrier;
   requestedConcreteGate: WorkflowActionScopeCarrier & { actionType: WorkflowActionType };
   services: ControlledSchedulerCurrentTransitionServices;
+  postStepRoutingSupportSource?: ControlledSchedulerPostStepRoutingPreflightSupportSource;
 }): Promise<ControlledSchedulerCurrentTransitionResult> {
   const { changeId, request, requestedConcreteGate, services } = input;
   const concreteActionType = requestedConcreteGate.actionType;
@@ -122,7 +128,18 @@ export async function chooseControlledSchedulerCurrentTransition(input: {
     goalLoopCurrentGateActionType: concreteActionType,
   };
   await services.auditHighImpactAction(preflightRequest);
-  const preflight = await services.prepareGoalLoopGateReadinessPreflight(preflightRequest);
+  const preflightCurrentGate = {
+    actionType: controller.goalLoopControllerPolicy.currentGate.actionType,
+    scope: controller.goalLoopControllerPolicy.currentGate.scope,
+  };
+  const preflightOptions = buildControlledSchedulerPostStepRoutingPreflightSupport({
+    source: input.postStepRoutingSupportSource,
+    changeId,
+    goalLoopNextStepPacketId: evaluation.goalLoopNextStepPacket.id,
+    goalLoopControllerPolicyId: controller.goalLoopControllerPolicy.id,
+    currentGate: preflightCurrentGate,
+  });
+  const preflight = await services.prepareGoalLoopGateReadinessPreflight(preflightRequest, preflightOptions);
   if (
     preflight.goalLoopGateReadinessPreflight.concreteGateInvoked !== false
     || preflight.goalLoopGateReadinessPreflight.toolPolicyAuthorizedConcreteGate !== false

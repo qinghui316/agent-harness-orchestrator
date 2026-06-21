@@ -5,23 +5,23 @@
 - Current date: 2026-06-21.
 - Active ECL change: none.
 - Pending Harness evolution: none.
-- Latest archived product change: `harness/changes/archive/20260621-controlled-scheduler-post-step-routing-preflight-handoff/summary.md`.
-- Latest archived product/Harness docs change: `harness/changes/archive/20260621-controlled-scheduler-post-step-routing-preflight-handoff/summary.md`.
+- Latest archived product change: `harness/changes/archive/20260621-controlled-scheduler-continuation-preflight-support/summary.md`.
+- Latest archived product/Harness docs change: `harness/changes/archive/20260621-controlled-scheduler-continuation-preflight-support/summary.md`.
 - Latest archived Harness evolution: `harness/changes/archive/20260621-auto-evolve-harness-controlled-scheduler-decision-routing-window-noop/summary.md`.
 - Active product phase: none.
 - Active Harness evolution phase: none.
 - Active close status: none.
 
 No active structured work is open. The latest product change
-`controlled-scheduler-post-step-routing-preflight-handoff` is archived. It
-promotes aligned controlled Scheduler post-step routing evidence into optional,
-compact `GoalLoopGateReadinessPreflight` support lineage owned by
-`src/goal-loop/`. The compiler now fails closed on stale, cross-Change,
-missing-source, packet/controller/preflight-lineage mismatch, non-ready,
-reevaluation-required, action/scope mismatch, or authority-bearing support. It
-does not add a Workbench action, confirmation queue behavior, ToolPolicy path,
-scheduler loop, source mutation, apply/close/merge, remote landing, or Harness
-evolution automation.
+`controlled-scheduler-continuation-preflight-support` is archived. It wires prior
+controlled Scheduler post-step routing support into the real Workbench-controlled
+continuation path: after one human-confirmed Scheduler step stops, the next
+existing Scheduler gate can be freshly evaluated, preflighted with aligned
+prior-step routing support, human-confirmed, dispatched once, and stopped again.
+Bootstrap/no-prior-step behavior remains unchanged. The change adds no new
+Workbench action, public request carrier, automatic loop, ToolPolicy bypass,
+source mutation, apply/close/merge, remote landing, or Harness evolution
+automation.
 
 This file is the short resume point. The latest product change
 `controlled-scheduler-post-step-routing-decision` is archived. It derives an
