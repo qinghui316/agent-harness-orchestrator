@@ -194,6 +194,8 @@ When a change affects Workbench user-facing decision surfaces, Workpad projectio
 The check must confirm that:
 
 - visible primary UI only exposes actions backed by implemented workflow paths;
+- authoritative current-decision surfaces agree on the same primary gate when a gate exists, including the confirmation queue, selected-demand decision inspector, and visible primary action card;
+- stale result, validation, audit, landing, or historical context does not override a newer concrete gate, and running or archived selected-demand state suppresses primary gates that are no longer currently actionable;
 - the UI does not advertise out-of-scope future capabilities such as fake parallel workers, fake app-server sessions, fake agent conversations, fake merge queues, or unsupported retry/fix paths;
 - primary user-facing surfaces do not leak raw internal runtime terms unless the spec explicitly allows them;
 - repeated or duplicate primary actions are not shown when one action is the intended user affordance;

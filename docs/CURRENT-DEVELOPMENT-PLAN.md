@@ -137,9 +137,13 @@ Current architecture debt register:
 
 ## Next Product Direction
 
-No structured product change is currently active. Pending Harness evolution is
-open at `harness/evolution/pending.md`; handle that maintenance window before
-opening another product slice. The latest verification change,
+No structured product or Harness evolution change is currently active. The
+latest Harness evolution is archived at
+`harness/changes/archive/20260623-auto-evolve-harness-post-real-ui-scheduler-window/summary.md`.
+It promoted a narrow Workbench primary-surface alignment prompt into ECL and
+the review template; existing real-Codex, Goal Loop, Scheduler, source-safety,
+and aggregate-timeout rules were retained.
+The latest verification change,
 `harness/changes/archive/20260623-scheduler-slow-runtime-reduction/summary.md`,
 reduced the scheduler discard-completion slow path while retaining the
 two-worker scheduler golden path. Full `npm run test:workbench` still exceeds

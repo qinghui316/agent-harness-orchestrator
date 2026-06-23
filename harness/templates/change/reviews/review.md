@@ -70,6 +70,8 @@ Pending.
 - Workbench user-surface honesty coverage applicable: no.
 - If applicable, sampled surface: not applicable.
 - If applicable, visible primary UI backed by implemented workflow paths: not applicable.
+- If applicable, authoritative primary-surface alignment checked across confirmation queue / decision inspector / visible primary card: not applicable.
+- If applicable, stale-history override and running/archived selected-demand suppression checked: not applicable.
 - If applicable, out-of-scope future capability check: not applicable.
 - If applicable, forbidden visible internal terms/actions checked: not applicable.
 - If applicable, duplicate primary action / in-flight suppression check: not applicable.

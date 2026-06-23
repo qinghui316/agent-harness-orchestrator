@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-23T10:54:00.6081656Z",
+    "generated_at":  "2026-06-23T11:28:03.4357754Z",
     "active":  [
 
                ],
@@ -1797,6 +1797,10 @@
                     {
                         "name":  "20260621-workpad-controlled-scheduler-reconfirmation-surface",
                         "path":  "harness/changes/archive/20260621-workpad-controlled-scheduler-reconfirmation-surface"
+                    },
+                    {
+                        "name":  "20260623-auto-evolve-harness-post-real-ui-scheduler-window",
+                        "path":  "harness/changes/archive/20260623-auto-evolve-harness-post-real-ui-scheduler-window"
                     },
                     {
                         "name":  "20260623-auto-evolve-harness-real-codex-acceptance-window",

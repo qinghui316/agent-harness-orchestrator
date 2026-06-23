@@ -4,19 +4,21 @@
 
 - Current date: 2026-06-23.
 - Active ECL change: none.
-- Pending Harness evolution: `harness/evolution/pending.md`.
+- Pending Harness evolution: none.
 - Latest archived verification change: `harness/changes/archive/20260623-scheduler-slow-runtime-reduction/summary.md`.
 - Latest archived product change: `harness/changes/archive/20260623-workbench-real-ui-next-blocker-scout/summary.md`.
 - Latest archived projection fix: `harness/changes/archive/20260623-workbench-close-gate-projection-alignment/summary.md`.
 - Latest real-Codex acceptance change: `harness/changes/archive/20260623-workbench-current-project-real-codex-acceptance/summary.md`.
 - Latest archived product/Harness docs change: `harness/changes/archive/20260623-document-goal-driven-workflow-loop-target/summary.md`.
-- Latest archived Harness evolution: `harness/changes/archive/20260623-auto-evolve-harness-real-codex-acceptance-window/summary.md`.
+- Latest archived Harness evolution: `harness/changes/archive/20260623-auto-evolve-harness-post-real-ui-scheduler-window/summary.md`.
 - Active product phase: post real-Codex manual loop acceptance with clarified Goal-driven Workflow Loop target.
-- Active Harness evolution phase: pending archive-threshold review.
+- Active Harness evolution phase: none.
 
-This file is the short resume point. No structured product change is active.
-Pending Harness evolution exists at `harness/evolution/pending.md` because five
-archives have accumulated since the last completed evolution window. The latest
+This file is the short resume point. No structured product or Harness evolution
+change is active. The latest Harness evolution is archived at
+`harness/changes/archive/20260623-auto-evolve-harness-post-real-ui-scheduler-window/summary.md`.
+It promoted a narrow Workbench primary-surface alignment prompt into ECL and
+the review template after authorized subagent review. The latest
 verification change archived at
 `harness/changes/archive/20260623-scheduler-slow-runtime-reduction/summary.md`
 reduced the scheduler discard-completion slow path by replacing repeated
@@ -105,9 +107,10 @@ Latest real-Codex product acceptance archive:
 
 `harness/changes/archive/20260623-workbench-current-project-real-codex-acceptance/summary.md`
 
-Pending Harness evolution:
+Latest Harness evolution:
 
-`harness/evolution/pending.md`. It lists these candidate archives:
+`harness/changes/archive/20260623-auto-evolve-harness-post-real-ui-scheduler-window/summary.md`.
+It reviewed these candidate archives:
 
 - `harness/changes/archive/20260623-workbench-current-project-real-codex-acceptance/summary.md`
 - `harness/changes/archive/20260623-document-goal-driven-workflow-loop-target/summary.md`
@@ -121,9 +124,9 @@ None.
 
 Reasonable next steps are:
 
-- next recommended: handle the pending Harness evolution window with proposal,
-  independent/subagent review if allowed, validation result, `results.tsv`, and
-  `harness-evolve mark-complete`;
+- next recommended: continue reducing the remaining Workbench aggregate runtime
+  cost, especially the retained two-worker scheduler golden path and full
+  `test:workbench` timeout;
 - after evolution closeout: reduce the remaining Workbench aggregate runtime
   cost, especially the retained two-worker scheduler golden path and full
   `test:workbench` timeout;
