@@ -1,0 +1,87 @@
+{
+  "version": "1.0",
+  "generatedAt": "2026-06-23T00:00:00.0000000Z",
+  "changeId": "workbench-real-ui-next-blocker-scout",
+  "acceptanceCriteria": [
+    {
+      "id": "AC-001",
+      "text": "The scout uses an external managed project source root and external AHO runtime home, separate from the AHO development checkout."
+    },
+    {
+      "id": "AC-002",
+      "text": "The scout starts from a real browser UI demand and records visible primary gate evidence for each reached stage."
+    },
+    {
+      "id": "AC-003",
+      "text": "If code.run is reached, the pass evidence includes real coder-codex worktree run artifacts, not fake Codex, mocked PATH, fixture result, or hand-written artifacts."
+    },
+    {
+      "id": "AC-004",
+      "text": "If validation/audit/result/apply/close are reached, the change records validation/audit artifacts, result review state, apply before/after source status, and close/archive path."
+    },
+    {
+      "id": "AC-005",
+      "text": "If the scout fails, the failure is classified as product path bug, Codex agent-quality issue, validation/audit failure, source safety blocker, or environment/provider blocker."
+    },
+    {
+      "id": "AC-006",
+      "text": "Any product blocker fix stays minimal and reuses existing Workbench action, projection, server revalidation, runtime, validation/audit, apply, or close mechanisms."
+    }
+  ],
+  "tasks": [
+    {
+      "id": "T-001",
+      "text": "Confirm clean baseline and active-change setup.",
+      "covers": [
+        "AC-001"
+      ]
+    },
+    {
+      "id": "T-002",
+      "text": "Prepare external sandbox source/runtime home and start Workbench.",
+      "covers": [
+        "AC-001"
+      ]
+    },
+    {
+      "id": "T-003",
+      "text": "Drive the real browser UI scout through each legal primary gate.",
+      "covers": [
+        "AC-002",
+        "AC-003",
+        "AC-004"
+      ]
+    },
+    {
+      "id": "T-004",
+      "text": "Record run artifacts, validation/audit/result/apply/close evidence or classify the blocker accurately.",
+      "covers": [
+        "AC-003",
+        "AC-004",
+        "AC-005"
+      ]
+    },
+    {
+      "id": "T-005",
+      "text": "If a product blocker is found, make the minimal owner-module fix and run targeted verification.",
+      "covers": [
+        "AC-005",
+        "AC-006"
+      ]
+    },
+    {
+      "id": "T-006",
+      "text": "Close out docs, review evidence, Harness checks, and next resume direction.",
+      "covers": [
+        "AC-001",
+        "AC-002",
+        "AC-003",
+        "AC-004",
+        "AC-005",
+        "AC-006"
+      ]
+    }
+  ],
+  "warnings": [],
+  "blockingIssues": []
+}

@@ -7,17 +7,25 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 - Current date: 2026-06-23.
 - Active change: none.
 - Pending Harness evolution: none.
-- Latest archived product change: Workbench Close Gate Projection Alignment, archived at `harness/changes/archive/20260623-workbench-close-gate-projection-alignment/summary.md`.
+- Latest archived product change: Workbench Real UI Next-Blocker Scout, archived at `harness/changes/archive/20260623-workbench-real-ui-next-blocker-scout/summary.md`.
+- Latest projection fix: Workbench Close Gate Projection Alignment, archived at `harness/changes/archive/20260623-workbench-close-gate-projection-alignment/summary.md`.
 - Latest real-Codex acceptance change: Current Project Real Codex Acceptance, archived at `harness/changes/archive/20260623-workbench-current-project-real-codex-acceptance/summary.md`.
 - Latest product/Harness docs change: Goal-Driven Workflow Loop Target, archived at `harness/changes/archive/20260623-document-goal-driven-workflow-loop-target/summary.md`.
 - Active product phase: post real-Codex manual loop acceptance with close-gate projection aligned and clarified Goal-driven Workflow Loop target.
 - Active Harness evolution phase: none.
 - Latest Harness evolution: `harness/changes/archive/20260623-auto-evolve-harness-real-codex-acceptance-window/summary.md`.
 
-No structured product or Harness evolution change is active. The Workbench
-close-gate projection alignment is archived and now keeps the Decision
-Inspector primary aligned with the authoritative confirmation queue when a
-selected demand is close-ready. The future Goal-driven Workflow Loop target is clarified in
+No structured product or Harness evolution change is active. The latest real UI
+scout is archived and used external sandbox `C:\aho-accept\next2` to carry a
+real browser demand through planning, decomposition/readiness, real
+`coder-codex` `code.run`, validation, audit approval, UI `audit.accept`,
+human-gated `result.apply` with local commit, and human-confirmed
+close/archive. The scout fixed two product issues: active foreground validator
+tasks now suppress premature result-review decisions, and archived selected
+demands no longer expose landing context as the current primary confirmation.
+The Workbench close-gate projection alignment is archived and now keeps the
+Decision Inspector primary aligned with the authoritative confirmation queue
+when a selected demand is close-ready. The future Goal-driven Workflow Loop target is clarified in
 `harness/changes/archive/20260623-document-goal-driven-workflow-loop-target/summary.md`.
 The real Codex Workbench acceptance is archived. External sandbox `a10` reached real browser UI demand creation,
 planning, decomposition/readiness, real `coder-codex` `code.run`, validation

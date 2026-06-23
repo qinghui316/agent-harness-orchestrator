@@ -137,7 +137,16 @@ Current architecture debt register:
 
 ## Next Product Direction
 
-A structured product or Harness evolution change is not currently active. The
+No structured product change is currently active. The latest product change,
+`harness/changes/archive/20260623-workbench-real-ui-next-blocker-scout/summary.md`,
+used external sandbox `C:\aho-accept\next2` and real browser UI evidence to
+smoke the proven manual-gated local loop before expanding automation. It
+reached planning, decomposition/readiness, real `coder-codex` `code.run`,
+validation pass, audit approval, UI `audit.accept`, human-gated `result.apply`
+with local commit, and human-confirmed close/archive. It fixed two concrete
+Workbench product blockers: active foreground validator tasks now suppress
+premature result-review decisions, and selected archived demands no longer
+expose landing context as the current primary confirmation. The
 latest Harness evolution is archived at
 `harness/changes/archive/20260623-auto-evolve-harness-real-codex-acceptance-window/summary.md`.
 The latest product projection fix is archived at
@@ -186,9 +195,7 @@ self-acceptance must keep the AHO development repository separate from the
 managed project under test. Future product work should build on existing
 Workbench action registry, scoped target revalidation, ToolPolicy/human gates,
 typed workflow artifacts, readiness manifests, code runtime orchestration,
-validation/audit, source apply safety, and close/archive handoff. The active
-real-acceptance blocker should be resolved or intentionally parked before
-expanding automation.
+validation/audit, source apply safety, and close/archive handoff.
 
 The next architecture direction should be evaluated against the
 Goal-driven Workflow Loop target above. Product work should avoid treating every
@@ -207,11 +214,11 @@ profile. The Phase 12A controlled loop boundary lives in
 constraint for future scheduler automation. Historical phase-by-phase details
 stay in archived summaries and `harness/changes/INDEX.json`.
 
-- If continuing product implementation, harden the proven Workbench
-  manual-gated loop with concrete product blockers.
 - If improving test architecture, reduce the still-expensive scheduler slow
   runtime without dropping scheduler/runtime/source-safety assertions or
   recreating a residual Workbench monolith.
+- If continuing product implementation, harden the proven Workbench
+  manual-gated loop only when a new concrete product blocker appears.
 - If exploring broader automation, open a separate full-auto design slice that
   explicitly reuses the proven gates and source safety.
 - If continuing Goal Loop work, build on controller policy evidence without making it execution authority.

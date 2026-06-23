@@ -297,8 +297,9 @@ export async function buildWorkbenchWorkpad(input: {
   const resultReview = await buildResultReview(project, memory, selectedTopic);
   const maintenance = await buildMaintenanceSummary(memory);
   const runningRun = selectedTopic.runs.find((run) => run.status === "created" || run.status === "running");
+  const activeAgentTask = agentTasks.find((task) => isActiveAgentTaskStatus(task.status));
   const selectedWorkpadSummary = workpads.find((item) => item.id === selectedTopic.id || item.id === selectedTopic.name);
-  const selectedUserState = selectedWorkpadSummary?.userStatus ?? userDecisionStateForSelectedTopic(selectedTopic, topicApprovals, taskQueue, taskGraph);
+  const selectedUserState = selectedWorkpadSummary?.userStatus ?? (activeAgentTask ? "processing" : userDecisionStateForSelectedTopic(selectedTopic, topicApprovals, taskQueue, taskGraph));
   const selectedLifecycle = selectedWorkpadSummary?.conversationLifecycle ?? conversationLifecycleForTopic(selectedTopic, taskQueue);
   const nextAction = suppressStaleCodeRunAfterResultReview(
     buildWorkpadNextAction(selectedTopic, topicApprovals, { specReady, planReady, tasksReady }, intake, taskQueue, taskGraph, planningBundle, decompositionPlan, decompositionReadiness, taskQueueProposal, workflowGraphPlan, schedulerContract, scopedSchedulerDispatchDryRun, scopedSchedulerWorkerSessionPlan, scopedSchedulerClaimReconcilePlan, scopedSchedulerLaunchPreflight, scopedSchedulerRun, schedulerRuntime, schedulerReconcileSnapshot, schedulerClaimReservation, schedulerWorkerStart, schedulerWorkerResult, schedulerWorkerValidation, schedulerWorkerAudit, schedulerWorkerReworkPlan, schedulerWorkerReworkStart, schedulerWorkerReworkResult, schedulerWorkerReworkValidation, schedulerWorkerReworkAudit, schedulerWorkerPaths, schedulerIntegrationCandidate, schedulerIntegrationCheckHandoff, schedulerIntegrationOutcome, schedulerRunCompletion, schedulerRunBlockedCloseout, workflowRun),
@@ -373,10 +374,10 @@ export async function buildWorkbenchWorkpad(input: {
     resultReview,
     maintenance,
     runControlState: {
-      canStop: Boolean(runningRun),
-      stopActionType: runningRun ? "conversation.interrupt" : undefined,
+      canStop: Boolean(runningRun || activeAgentTask),
+      stopActionType: runningRun || activeAgentTask ? "conversation.interrupt" : undefined,
       pendingFeedbackCount: selectedTopic.threadItems.filter((item) => item.kind === "user-message" && item.status === "pending-feedback").length,
-      explanation: runningRun ? "支持实时引导时，补充要求会发送给当前执行；不支持时会记录到下一轮。停止会保留证据并进入下一轮方案或修改。" : "当前没有正在执行的需求。",
+      explanation: runningRun || activeAgentTask ? "支持实时引导时，补充要求会发送给当前执行；不支持时会记录到下一轮。停止会保留证据并进入下一轮方案或修改。" : "当前没有正在执行的需求。",
     },
     intake,
     progress: {
@@ -616,17 +617,32 @@ function buildRolePipelineSummary(
   if (latestCoder) runs.push({ roleId: "coder-agent", status: latestCoder.status, runId: latestCoder.id, summary: latestCoder.status === "completed" ? "Coder finished implementation/self-test attempt." : "Coder attempt is not completed.", artifact: latestCoder.artifacts.directory });
   if (latestValidation) runs.push({ roleId: "validator", status: latestValidation.status, runId: latestValidation.runId, summary: `Validation ${latestValidation.status}.` });
   if (latestAudit) runs.push({ roleId: "auditor-agent", status: latestAudit.status, runId: latestAudit.runId, summary: `Audit ${latestAudit.status}.` });
-  const stage: WorkbenchRolePipelineSummary["stage"] = latestAudit
+  const activeAgentTask = agentTasks.find((task) => isActiveAgentTaskStatus(task.status));
+  const stage: WorkbenchRolePipelineSummary["stage"] = activeAgentTask
+    ? rolePipelineStageForActiveTask(activeAgentTask.roleId)
+    : latestAudit
     ? (latestAudit.status === "approved" || latestAudit.status === "approved-with-notes" ? "done" : "needs-user-input")
     : latestValidation
       ? (latestValidation.status === "passed" ? "audit" : "rework")
       : latestCoder
         ? (latestCoder.status === "completed" ? "validation" : "coding")
         : "planning";
-  const status: WorkbenchRolePipelineSummary["status"] = topic.runs.some((run) => run.status === "created" || run.status === "running")
+  const status: WorkbenchRolePipelineSummary["status"] = activeAgentTask || topic.runs.some((run) => run.status === "created" || run.status === "running")
     ? "running"
     : stage === "needs-user-input" ? "needs-user-input" : stage === "done" ? "completed" : planningBundle?.status === "confirmed" ? "completed" : "draft";
   return { stage, status, runs, agentTasks, reworkUsed: 0, reworkBudget: OFFICIAL_REWORK_BUDGET };
+}
+
+function isActiveAgentTaskStatus(status: WorkbenchAgentTaskSummary["status"]): boolean {
+  return status === "queued" || status === "claimed" || status === "running";
+}
+
+function rolePipelineStageForActiveTask(roleId: string): WorkbenchRolePipelineSummary["stage"] {
+  if (roleId === "validator") return "validation";
+  if (roleId === "auditor-agent") return "audit";
+  if (roleId === "rework-coder") return "rework";
+  if (roleId === "coder-agent") return "coding";
+  return "planning";
 }
 
 function buildWorkpadBackground(workpads: WorkbenchWorkpadSummary[], selectedId: string | undefined): WorkpadBackgroundActivitySummary {
@@ -1028,10 +1044,16 @@ export async function buildMultiWorkpadSummaries(
     const latestQueue = latestByTimestamp(queues, (queue) => queue.updatedAt ?? queue.createdAt);
     const topicApprovals = approvals.filter((approval) => approval.changeId === topic.id || approval.changeId === topic.name);
     const blockingApproval = topicApprovals.find((approval) => approval.severity === "blocking");
+    const agentTasks = topic.state === "active"
+      ? await buildAgentTaskSummaries(memory, topic.id).catch(() => [])
+      : [];
+    const activeAgentTask = agentTasks.find((task) => isActiveAgentTaskStatus(task.status));
     let runtimeStatus: WorkbenchWorkpadRuntimeStatus = topic.state === "archive" ? "archived" : "active";
     let blocker = blockingApproval?.reason ?? blockingApproval?.label;
     if (topic.state === "active") {
       if (demandWorker && ["claimed", "running"].includes(demandWorker.status)) {
+        runtimeStatus = "running";
+      } else if (activeAgentTask) {
         runtimeStatus = "running";
       } else if (demandWorker?.status === "queued") {
         runtimeStatus = "queued";

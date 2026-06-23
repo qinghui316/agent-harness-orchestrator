@@ -22,9 +22,17 @@ export async function buildConfirmationQueue(input: {
   includeProjectWideActions?: boolean;
 }): Promise<WorkbenchConfirmationQueue> {
   const queue = emptyConfirmationQueue();
-  const selectedTopicBusy = Boolean(input.selectedTopic && (hasActiveExecutionRun(input.selectedTopic) || hasActiveWorkflowAction(input.selectedTopic)));
+  const selectedTopicBusy = Boolean(input.selectedTopic && (
+    hasActiveExecutionRun(input.selectedTopic)
+    || hasActiveWorkflowAction(input.selectedTopic)
+    || hasActiveRolePipeline(input.workpad)
+  ));
   const enqueueCurrentOrOther = (item: WorkbenchConfirmationQueue["current"][number]): void => {
     if (selectedTopicBusy && isSelectedTopicItem(item, input.selectedTopic?.id)) return;
+    if (input.selectedTopic && input.selectedTopic.state !== "active" && isSelectedTopicItem(item, input.selectedTopic.id)) {
+      queue.otherDemands.push({ ...item, primary: false });
+      return;
+    }
     if (item.primary) queue.current.unshift(item);
     else queue.otherDemands.push(item);
   };
@@ -143,6 +151,11 @@ function hasActiveExecutionRun(topic: WorkbenchTopicDetail): boolean {
     && run.runtime !== "orchestrator"
     && run.runtime !== "intake-scan"
   );
+}
+
+function hasActiveRolePipeline(workpad: WorkbenchWorkpad): boolean {
+  return workpad.rolePipeline?.status === "running"
+    || Boolean(workpad.rolePipeline?.agentTasks.some((task) => task.status === "queued" || task.status === "claimed" || task.status === "running"));
 }
 
 function promoteSelectedWorkpadApprovalGate(items: WorkbenchConfirmationQueue["current"], nextAction: WorkbenchWorkpad["nextAction"]): WorkbenchConfirmationQueue["current"] {

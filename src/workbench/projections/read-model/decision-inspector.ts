@@ -34,7 +34,7 @@ export function buildDecisionInspector(input: {
   decisions: WorkbenchDecisionItem[];
 }): WorkbenchDecisionInspector {
   const contexts: WorkbenchDecisionContext[] = [];
-  if (input.selectedTopic) {
+  if (input.selectedTopic && !hasActiveRolePipeline(input.workpad)) {
     const resultContext = resultReviewDecisionContext(input.selectedTopic, input.workpad);
     if (resultContext) contexts.push(resultContext);
     const autoReworkAvailable = input.workpad.taskGraph.nodes.some((node) => node.autoRework?.available);
@@ -70,6 +70,11 @@ export function buildDecisionInspector(input: {
     ...enrichedHistory,
   ], (context) => context.timestamp);
   return { primary, related, history };
+}
+
+function hasActiveRolePipeline(workpad: WorkbenchWorkpad): boolean {
+  return workpad.rolePipeline?.status === "running"
+    || Boolean(workpad.rolePipeline?.agentTasks.some((task) => task.status === "queued" || task.status === "claimed" || task.status === "running"));
 }
 
 function resultReviewDecisionContext(topic: WorkbenchTopicDetail, workpad: WorkbenchWorkpad): WorkbenchDecisionContext | null {

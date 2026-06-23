@@ -12,6 +12,7 @@ import { answerClarification, reanalyzeIntake, runIntakeScan } from "../../src/w
 import { getWorkbenchSnapshot, getWorkbenchStream, getWorkbenchTopic, listWorkbenchApprovals, listWorkbenchRoles, listWorkbenchTopics } from "../../src/workbench/manager.js";
 import { WorkbenchStore } from "../../src/workbench/store.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
+import { createAgentTask } from "../../src/agent-task/manager.js";
 import { buildDecisionInspector } from "../../src/workbench/projections/read-model/decision-inspector.js";
 import { buildConfirmationQueue } from "../../src/workbench/projections/read-model/confirmation-queue.js";
 import { getTempDir, minimalDecompositionPlan, minimalReadiness, project, writeAcceptedSpecAndTasks, writePlanningBundleFixture } from "./workbench/fixtures.js";
@@ -449,6 +450,36 @@ describe("workbench read-model projections", () => {
     expect(snapshot.center.workpad.runControlState?.canStop).toBe(true);
     expect(snapshot.right.confirmationQueue.primary).toBeNull();
     expect(JSON.stringify(snapshot.right.confirmationQueue.current)).not.toContain(topic.changeId);
+  });
+
+  it("suppresses result review decisions while a foreground validator task is running", async () => {
+    await initHarness(project());
+    await createChange(project(), { title: "Validator Running Result Review" });
+    await writeAcceptedSpecAndTasks("validator-running-result-review");
+    await writeCoderRun("validator-running-result-review", "run-validator-running", [], "wt-validator-running", "completed");
+    const memory = await resolveProjectMemory(project());
+    await createAgentTask(memory, {
+      conversationId: "validator-running-result-review",
+      changeId: "validator-running-result-review",
+      roleId: "validator",
+      kind: "foreground",
+      summary: "Run independent mechanical validation for the coder worktree.",
+      inputArtifacts: ["runs/run-validator-running"],
+      initialStatus: "running",
+    });
+
+    const snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: "validator-running-result-review" });
+
+    expect(snapshot.center.workpad.userStatus).toBe("processing");
+    expect(snapshot.center.workpad.runControlState?.canStop).toBe(true);
+    expect(snapshot.center.workpad.rolePipeline).toMatchObject({
+      stage: "validation",
+      status: "running",
+    });
+    expect(snapshot.right.confirmationQueue.primary).toBeNull();
+    expect(snapshot.right.decisionInspector.primary).toBeNull();
+    expect(JSON.stringify(snapshot.right.confirmationQueue.current)).not.toContain("result.apply");
+    expect(JSON.stringify(snapshot.right.decisionInspector)).not.toContain("放弃这次结果");
   });
 
   it("suppresses selected demand primary confirmations only while a workflow action is in flight", async () => {

@@ -5,7 +5,8 @@
 - Current date: 2026-06-23.
 - Active ECL change: none.
 - Pending Harness evolution: none.
-- Latest archived product change: `harness/changes/archive/20260623-workbench-close-gate-projection-alignment/summary.md`.
+- Latest archived product change: `harness/changes/archive/20260623-workbench-real-ui-next-blocker-scout/summary.md`.
+- Latest archived projection fix: `harness/changes/archive/20260623-workbench-close-gate-projection-alignment/summary.md`.
 - Latest real-Codex acceptance change: `harness/changes/archive/20260623-workbench-current-project-real-codex-acceptance/summary.md`.
 - Latest archived product/Harness docs change: `harness/changes/archive/20260623-document-goal-driven-workflow-loop-target/summary.md`.
 - Latest archived Harness evolution: `harness/changes/archive/20260623-auto-evolve-harness-real-codex-acceptance-window/summary.md`.
@@ -14,6 +15,15 @@
 
 This file is the short resume point. No structured product or Harness evolution
 change is active. The latest product change archived at
+`harness/changes/archive/20260623-workbench-real-ui-next-blocker-scout/summary.md`
+used external sandbox `C:\aho-accept\next2` to run a real browser UI scout over
+the proven manual-gated local Workbench loop. It reached real UI planning,
+decomposition/readiness, real `coder-codex` `code.run`, validation pass, audit
+approval, visible UI `audit.accept`, human-gated `result.apply` with local
+commit, and human-confirmed close/archive. It fixed two product blockers:
+active foreground validator tasks now suppress premature result-review
+decisions, and selected archived demands no longer expose landing context as
+the current primary confirmation. The prior projection fix archived at
 `harness/changes/archive/20260623-workbench-close-gate-projection-alignment/summary.md`
 fixed the bounded Workbench projection gap where the Decision Inspector could
 lag behind the authoritative confirmation queue after committed apply and
@@ -77,13 +87,13 @@ Latest product projection fix archive:
 
 `harness/changes/archive/20260623-workbench-close-gate-projection-alignment/summary.md`
 
+Latest real UI scout archive:
+
+`harness/changes/archive/20260623-workbench-real-ui-next-blocker-scout/summary.md`
+
 Latest real-Codex product acceptance archive:
 
 `harness/changes/archive/20260623-workbench-current-project-real-codex-acceptance/summary.md`
-
-Current active work:
-
-None.
 
 Pending Harness evolution:
 
@@ -92,10 +102,9 @@ None. The archive-threshold pending window has been handled and archived at
 
 Reasonable later product slices are:
 
-- reduce the still-expensive scheduler slow-suite runtime without dropping
+- next recommended: reduce the still-expensive scheduler slow-suite runtime
+  without dropping
   scheduler/runtime/source-safety assertions;
-- address the next concrete Workbench product blocker found by real/manual UI
-  use before expanding automation;
 - evaluate full-auto task mode as a separate scoped-authorization design only
   after reusing the proven manual gates and source safety;
 - if a new product blocker appears, fix that blocker before expanding

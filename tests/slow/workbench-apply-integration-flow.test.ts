@@ -162,6 +162,10 @@ describe("workbench apply and integration slow flows", () => {
       const topics = await listWorkbenchTopics(project());
       expect(topics.find((item) => item.id === topic.changeId)).toMatchObject({ state: "archive" });
       expect(topics.find((item) => item.id === "other-active-demand")).toMatchObject({ state: "active" });
+      const archivedSnapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: topic.changeId });
+      expect(archivedSnapshot.center.selectedTopic?.state).toBe("archive");
+      expect(archivedSnapshot.right.confirmationQueue.primary?.changeId).not.toBe(topic.changeId);
+      expect(JSON.stringify(archivedSnapshot.right.confirmationQueue.primary)).not.toContain("landing.prepare");
     } finally {
       if (oldAhoHome === undefined) delete process.env.AHO_HOME;
       else process.env.AHO_HOME = oldAhoHome;

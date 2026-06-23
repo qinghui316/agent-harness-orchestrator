@@ -230,7 +230,37 @@ export async function runCodeValidateAuditSequence(
   live?.emit({ event: "run.status", data: { runId: code.run.id, status: "running", label: "Validation" } });
   live?.emit({ event: "tool.event", data: { runId: code.run.id, phase: "status", name: "Validation", status: "running" } });
   emitAssistantEvent(live, { runId: code.run.id, kind: "status", phase: "running", title: "Validation running", summary: "AHO started validation for the coder worktree." });
-  const validation = await startValidationRun(project, { changeId, worktree: code.run.worktree.worktreeId });
+  let validation: Awaited<ReturnType<typeof startValidationRun>>;
+  try {
+    validation = await startValidationRun(project, { changeId, worktree: code.run.worktree.worktreeId });
+  } catch (cause) {
+    const message = cause instanceof Error ? cause.message : String(cause);
+    orchestration = recordMainAgentOrchestrationStep(orchestration, {
+      roleId: "validator",
+      status: "failed",
+      inputArtifacts: validationDecision.inputArtifacts,
+      outputArtifacts: [],
+      failureClassification: "validation-failure",
+      stoppedAt: "validation",
+      summary: "Independent validation failed before validation artifacts were completed.",
+    });
+    await completeAgentTask(memory, validatorTask, {
+      status: "failed",
+      summary: "Independent validation failed before validation artifacts were completed.",
+      artifactRefs: [],
+      policyAuditRefs: [validatorDispatch.policyAuditRef],
+      failureClassification: "validation-failure",
+      requiresUserInputReason: message,
+    });
+    emitDelegatedRoleReturn(live, changeId, "validator", "failed", "validator failed before validation artifacts were completed.", validatorDispatch.policyAuditRef);
+    await recordMaintenanceLedgerEntry(memory, {
+      eventType: "failure",
+      changeId,
+      summary: `Validation failed before artifacts were completed: ${message}`,
+      artifactRefs: [validatorDispatch.policyAuditRef],
+    });
+    return { code, stoppedAt: "validation", status: "failed", error: message, orchestration };
+  }
   live?.emit({ event: "run.status", data: { runId: code.run.id, status: validation.validation.status, label: "Validation" } });
   live?.emit({ event: "tool.event", data: { runId: code.run.id, phase: "status", name: "Validation", status: validation.validation.status } });
   emitValidationAssistantEvents(live, code.run.id, validation);
@@ -303,11 +333,41 @@ export async function runCodeValidateAuditSequence(
   live?.emit({ event: "run.status", data: { runId: code.run.id, status: "running", label: "Audit" } });
   live?.emit({ event: "tool.event", data: { runId: code.run.id, phase: "status", name: "Audit", status: "running" } });
   emitAssistantEvent(live, { runId: code.run.id, kind: "status", phase: "running", title: "Audit running", summary: "AHO started audit after validation passed." });
-  const audit = await startAuditRun(project, {
-    changeId,
-    worktreeId: code.run.worktree.worktreeId,
-    prompt: "This audit was automatically started after the user confirmed the Coder run and validation passed for the same worktree.",
-  });
+  let audit: Awaited<ReturnType<typeof startAuditRun>>;
+  try {
+    audit = await startAuditRun(project, {
+      changeId,
+      worktreeId: code.run.worktree.worktreeId,
+      prompt: "This audit was automatically started after the user confirmed the Coder run and validation passed for the same worktree.",
+    });
+  } catch (cause) {
+    const message = cause instanceof Error ? cause.message : String(cause);
+    orchestration = recordMainAgentOrchestrationStep(orchestration, {
+      roleId: "auditor-agent",
+      status: "failed",
+      inputArtifacts: auditDecision.inputArtifacts,
+      outputArtifacts: [],
+      failureClassification: "audit-failure",
+      stoppedAt: "audit",
+      summary: "Independent audit failed before audit artifacts were completed.",
+    });
+    await completeAgentTask(memory, auditorTask, {
+      status: "failed",
+      summary: "Independent audit failed before audit artifacts were completed.",
+      artifactRefs: [],
+      policyAuditRefs: [auditorDispatch.policyAuditRef],
+      failureClassification: "audit-failure",
+      requiresUserInputReason: message,
+    });
+    emitDelegatedRoleReturn(live, changeId, "auditor-agent", "failed", "auditor-agent failed before audit artifacts were completed.", auditorDispatch.policyAuditRef);
+    await recordMaintenanceLedgerEntry(memory, {
+      eventType: "failure",
+      changeId,
+      summary: `Audit failed before artifacts were completed: ${message}`,
+      artifactRefs: [auditorDispatch.policyAuditRef],
+    });
+    return { code, validation, stoppedAt: "audit", status: "failed", error: message, orchestration };
+  }
   live?.emit({ event: "run.status", data: { runId: code.run.id, status: audit.audit.status, label: "Audit" } });
   live?.emit({ event: "tool.event", data: { runId: code.run.id, phase: "status", name: "Audit", status: audit.audit.status } });
   emitAuditAssistantEvent(live, code.run.id, audit);

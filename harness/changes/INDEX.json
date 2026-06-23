@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-23T06:27:01.1090547Z",
+    "generated_at":  "2026-06-23T08:17:18.7996718Z",
     "active":  [
 
                ],
@@ -1813,6 +1813,10 @@
                     {
                         "name":  "20260623-workbench-current-project-real-codex-acceptance",
                         "path":  "harness/changes/archive/20260623-workbench-current-project-real-codex-acceptance"
+                    },
+                    {
+                        "name":  "20260623-workbench-real-ui-next-blocker-scout",
+                        "path":  "harness/changes/archive/20260623-workbench-real-ui-next-blocker-scout"
                     }
                 ]
 }
