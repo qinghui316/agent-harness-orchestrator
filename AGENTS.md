@@ -6,17 +6,27 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 
 - Current date: 2026-06-23.
 - Active change: none.
-- Pending Harness evolution: none.
+- Pending Harness evolution: `harness/evolution/pending.md`.
+- Latest archived verification change: Scheduler Slow Runtime Reduction, archived at `harness/changes/archive/20260623-scheduler-slow-runtime-reduction/summary.md`.
 - Latest archived product change: Workbench Real UI Next-Blocker Scout, archived at `harness/changes/archive/20260623-workbench-real-ui-next-blocker-scout/summary.md`.
 - Latest projection fix: Workbench Close Gate Projection Alignment, archived at `harness/changes/archive/20260623-workbench-close-gate-projection-alignment/summary.md`.
 - Latest real-Codex acceptance change: Current Project Real Codex Acceptance, archived at `harness/changes/archive/20260623-workbench-current-project-real-codex-acceptance/summary.md`.
 - Latest product/Harness docs change: Goal-Driven Workflow Loop Target, archived at `harness/changes/archive/20260623-document-goal-driven-workflow-loop-target/summary.md`.
 - Active product phase: post real-Codex manual loop acceptance with close-gate projection aligned and clarified Goal-driven Workflow Loop target.
-- Active Harness evolution phase: none.
+- Active Harness evolution phase: pending archive-threshold review.
 - Latest Harness evolution: `harness/changes/archive/20260623-auto-evolve-harness-real-codex-acceptance-window/summary.md`.
 
-No structured product or Harness evolution change is active. The latest real UI
-scout is archived and used external sandbox `C:\aho-accept\next2` to carry a
+No structured product change is active. Pending Harness evolution exists at
+`harness/evolution/pending.md` because five archives have accumulated since the
+last completed evolution window. The latest verification change reduced the
+scheduler discard-completion slow path by replacing repeated full-chain setup
+with a canonical seeded scheduler handoff while retaining the full two-worker
+golden path. `npm run test:workbench:slow:scheduler` passed; full
+`npm run test:workbench` still exceeded the tool window and is recorded as
+aggregate runtime-cost debt, not a product failure.
+
+The latest real UI scout is archived and used external sandbox
+`C:\aho-accept\next2` to carry a
 real browser demand through planning, decomposition/readiness, real
 `coder-codex` `code.run`, validation, audit approval, UI `audit.accept`,
 human-gated `result.apply` with local commit, and human-confirmed

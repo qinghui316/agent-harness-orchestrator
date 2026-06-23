@@ -137,7 +137,14 @@ Current architecture debt register:
 
 ## Next Product Direction
 
-No structured product change is currently active. The latest product change,
+No structured product change is currently active. Pending Harness evolution is
+open at `harness/evolution/pending.md`; handle that maintenance window before
+opening another product slice. The latest verification change,
+`harness/changes/archive/20260623-scheduler-slow-runtime-reduction/summary.md`,
+reduced the scheduler discard-completion slow path while retaining the
+two-worker scheduler golden path. Full `npm run test:workbench` still exceeds
+the ordinary tool window, so remaining Workbench aggregate runtime cost is
+explicit debt. The latest product change,
 `harness/changes/archive/20260623-workbench-real-ui-next-blocker-scout/summary.md`,
 used external sandbox `C:\aho-accept\next2` and real browser UI evidence to
 smoke the proven manual-gated local loop before expanding automation. It

@@ -1,5 +1,5 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { executeWorkbenchAction } from "../../src/server/workbench-server.js";
 import { runCodexChat, runOrchestratorPlan } from "../../src/workbench/codex-chat/bridge.js";
@@ -10,12 +10,12 @@ import { markWorktreeApplied } from "../../src/worktree/manager.js";
 import { listTaskQueues } from "../../src/task-queue/manager.js";
 import { listWorkflowRuns } from "../../src/workflow-run/manager.js";
 import { compileGoalLoopEvaluation } from "../../src/goal-loop/manager.js";
-import { execFileAsync, findSchedulerGateAction, getTempDir, prepareSchedulerTwoWorkerIntegrationHandoff, project, readJsonl, unwrapControlledSchedulerAdvanceResult } from "../unit/workbench/fixtures.js";
+import { createFakeCodex, execFileAsync, findSchedulerGateAction, getTempDir, prepareSeededSchedulerIntegrationHandoff, project, readJsonl, unwrapControlledSchedulerAdvanceResult } from "../unit/workbench/fixtures.js";
 import type { RunMetadata } from "../../src/types/index.js";
 
 describe("workbench scheduler discard completion slow flow", () => {
   it("records discarded SchedulerRun completion after existing IntegrationCheck discard without mutating source", async () => {
-    const prepared = await prepareSchedulerTwoWorkerIntegrationHandoff("Scheduler Discard Completion Acceptance");
+    const prepared = await prepareSeededSchedulerIntegrationHandoff("Scheduler Discard Completion Acceptance");
     const moduleABeforeDiscard = await readFile(join(getTempDir(), "src", "module-a.ts"), "utf8");
     const moduleBBeforeDiscard = await readFile(join(getTempDir(), "src", "module-b.ts"), "utf8");
     const sourceStatusBeforeDiscard = await execFileAsync("git", ["status", "--short", "--untracked-files=all"], { cwd: getTempDir() });
@@ -193,10 +193,29 @@ describe("workbench scheduler discard completion slow flow", () => {
       .flatMap((item) => item.actions)
       .map((action) => action.actionType)
       .sort();
-    const terminalChat = await runCodexChat(project(), prepared.topic.changeId, "Explain the terminal scheduler handoff.");
-    const terminalChatRun = JSON.parse(await readFile(join(terminalMemory.runsRoot, terminalChat.run.id, "run.json"), "utf8")) as RunMetadata;
-    const terminalChatContext = await readFile(join(terminalMemory.runsRoot, terminalChat.run.id, "context.md"), "utf8");
-    const terminalChatEvents = await readJsonl(join(terminalMemory.runsRoot, terminalChat.run.id, "events.jsonl"));
+    const oldPath = process.env.PATH;
+    const fakeCodex = await createFakeCodex({ mutateOnExec: false, message: "fake scheduler terminal handoff" });
+    process.env.PATH = `${fakeCodex.binDir}${delimiter}${oldPath ?? ""}`;
+    let terminalChatRun!: RunMetadata;
+    let terminalChatContext!: string;
+    let terminalChatEvents!: Array<Record<string, unknown>>;
+    let terminalOrchestratorRun!: RunMetadata;
+    let terminalOrchestratorContext!: string;
+    let terminalOrchestratorEvents!: Array<Record<string, unknown>>;
+    try {
+      const terminalChat = await runCodexChat(project(), prepared.topic.changeId, "Explain the terminal scheduler handoff.");
+      terminalChatRun = JSON.parse(await readFile(join(terminalMemory.runsRoot, terminalChat.run.id, "run.json"), "utf8")) as RunMetadata;
+      terminalChatContext = await readFile(join(terminalMemory.runsRoot, terminalChat.run.id, "context.md"), "utf8");
+      terminalChatEvents = await readJsonl(join(terminalMemory.runsRoot, terminalChat.run.id, "events.jsonl"));
+
+      const terminalOrchestrator = await runOrchestratorPlan(project(), prepared.topic.changeId, "Plan from the terminal scheduler handoff.");
+      terminalOrchestratorRun = JSON.parse(await readFile(join(terminalMemory.runsRoot, terminalOrchestrator.run.id, "run.json"), "utf8")) as RunMetadata;
+      terminalOrchestratorContext = await readFile(join(terminalMemory.runsRoot, terminalOrchestrator.run.id, "context.md"), "utf8");
+      terminalOrchestratorEvents = await readJsonl(join(terminalMemory.runsRoot, terminalOrchestrator.run.id, "events.jsonl"));
+    } finally {
+      if (oldPath === undefined) delete process.env.PATH;
+      else process.env.PATH = oldPath;
+    }
     expect(terminalChatRun.promptStack).toEqual(expect.arrayContaining([
       "goal-loop-next-step-packet",
       "goal-loop-controlled-loop-state",
@@ -226,10 +245,6 @@ describe("workbench scheduler discard completion slow flow", () => {
     expect(terminalChatPrepared?.goalLoopSchedulerTerminalHandoff).not.toHaveProperty("actionPayload");
     expect(terminalChatPrepared?.goalLoopSchedulerTerminalHandoff).not.toHaveProperty("markdown");
 
-    const terminalOrchestrator = await runOrchestratorPlan(project(), prepared.topic.changeId, "Plan from the terminal scheduler handoff.");
-    const terminalOrchestratorRun = JSON.parse(await readFile(join(terminalMemory.runsRoot, terminalOrchestrator.run.id, "run.json"), "utf8")) as RunMetadata;
-    const terminalOrchestratorContext = await readFile(join(terminalMemory.runsRoot, terminalOrchestrator.run.id, "context.md"), "utf8");
-    const terminalOrchestratorEvents = await readJsonl(join(terminalMemory.runsRoot, terminalOrchestrator.run.id, "events.jsonl"));
     expect(terminalOrchestratorRun.promptStack).toEqual(expect.arrayContaining([
       "goal-loop-next-step-packet",
       "goal-loop-controlled-loop-state",

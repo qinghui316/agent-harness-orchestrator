@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import { initHarness } from "../../src/harness/init.js";
 import { executeWorkbenchAction } from "../../src/server/workbench-server.js";
 import { createWorkbenchTopic } from "../../src/workbench/chat.js";
+import { runIntakeScan } from "../../src/workbench/intake.js";
 import { getWorkbenchSnapshot } from "../../src/workbench/manager.js";
 import {
   createFakeCodex,
@@ -36,6 +37,7 @@ describe("workbench demand-to-execution golden flow", () => {
         title: "Pricing Demand",
         body: "会员订单满 100 元打九折，非会员不打折，需要测试。",
       });
+      await runIntakeScan(project(), topic.changeId, "会员订单满 100 元打九折，非会员不打折，需要测试。");
       process.env.PATH = join(getTempDir(), "no-codex-bin");
 
       await executeWorkbenchAction({ project: project(), path: getTempDir() }, {

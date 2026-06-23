@@ -627,7 +627,7 @@ function buildRolePipelineSummary(
       : latestCoder
         ? (latestCoder.status === "completed" ? "validation" : "coding")
         : "planning";
-  const status: WorkbenchRolePipelineSummary["status"] = activeAgentTask || topic.runs.some((run) => run.status === "created" || run.status === "running")
+  const status: WorkbenchRolePipelineSummary["status"] = activeAgentTask || coderRuns.some((run) => run.status === "created" || run.status === "running")
     ? "running"
     : stage === "needs-user-input" ? "needs-user-input" : stage === "done" ? "completed" : planningBundle?.status === "confirmed" ? "completed" : "draft";
   return { stage, status, runs, agentTasks, reworkUsed: 0, reworkBudget: OFFICIAL_REWORK_BUDGET };

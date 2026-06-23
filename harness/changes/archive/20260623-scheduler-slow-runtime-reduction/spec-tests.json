@@ -1,0 +1,35 @@
+{
+  "version": "1.0",
+  "changeId": "scheduler-slow-runtime-reduction",
+  "updatedAt": "2026-06-23T00:00:00.000Z",
+  "mappings": [
+    {
+      "acId": "AC-001",
+      "tests": ["individual scheduler slow diagnostics"]
+    },
+    {
+      "acId": "AC-002",
+      "tests": ["npm run test:workbench:slow:scheduler"]
+    },
+    {
+      "acId": "AC-003",
+      "tests": ["scheduler slow split members"]
+    },
+    {
+      "acId": "AC-004",
+      "tests": ["workbench-scheduler-two-worker-integration-flow.test.ts"]
+    },
+    {
+      "acId": "AC-005",
+      "tests": ["scheduler slow split members", "npm run test:workbench"]
+    },
+    {
+      "acId": "AC-006",
+      "tests": ["targeted product/runtime tests if product code changes"]
+    },
+    {
+      "acId": "AC-007",
+      "tests": ["review evidence", "Harness checks"]
+    }
+  ]
+}

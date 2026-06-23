@@ -11,7 +11,11 @@ export function workpadNextActionToConfirmationItems(
 ): WorkbenchConfirmationQueueItem[] {
   const action = workpad.nextAction;
   if (!selectedTopic) return [];
-  const planningBundleId = workpad.planningArtifactBundle?.status === "draft" ? workpad.planningArtifactBundle.id : undefined;
+  const planningBundleId = workpad.planningArtifactBundle?.status === "draft"
+    ? workpad.planningArtifactBundle.id
+    : action.actionType === "planning.confirm-execution"
+      ? action.planningBundleId
+      : undefined;
   if (planningBundleId) {
     return [{
       id: `confirm:planning:${selectedTopic.id}`,

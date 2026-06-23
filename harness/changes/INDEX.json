@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-23T08:17:18.7996718Z",
+    "generated_at":  "2026-06-23T10:54:00.6081656Z",
     "active":  [
 
                ],
@@ -1805,6 +1805,10 @@
                     {
                         "name":  "20260623-document-goal-driven-workflow-loop-target",
                         "path":  "harness/changes/archive/20260623-document-goal-driven-workflow-loop-target"
+                    },
+                    {
+                        "name":  "20260623-scheduler-slow-runtime-reduction",
+                        "path":  "harness/changes/archive/20260623-scheduler-slow-runtime-reduction"
                     },
                     {
                         "name":  "20260623-workbench-close-gate-projection-alignment",
