@@ -4,20 +4,26 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 
 ## 1. Current Handoff
 
-- Current date: 2026-06-23.
+- Current date: 2026-06-24.
 - Active change: none.
 - Pending Harness evolution: none.
 - Latest archived verification change: Workbench Verification Runtime Convergence, archived at `harness/changes/archive/20260623-workbench-verification-runtime-convergence/summary.md`.
+- Latest archived product audit: Workbench Goal Loop Surface Gap Audit, archived at `harness/changes/archive/20260624-workbench-goal-loop-surface-gap-audit/summary.md`.
 - Latest archived product change: Workbench Real UI Next-Blocker Scout, archived at `harness/changes/archive/20260623-workbench-real-ui-next-blocker-scout/summary.md`.
 - Latest projection fix: Workbench Close Gate Projection Alignment, archived at `harness/changes/archive/20260623-workbench-close-gate-projection-alignment/summary.md`.
 - Latest real-Codex acceptance change: Current Project Real Codex Acceptance, archived at `harness/changes/archive/20260623-workbench-current-project-real-codex-acceptance/summary.md`.
 - Latest product/Harness docs change: Goal-Driven Workflow Loop Target, archived at `harness/changes/archive/20260623-document-goal-driven-workflow-loop-target/summary.md`.
-- Active product phase: post Workbench verification runtime convergence.
+- Active product phase: post Workbench Goal Loop surface gap audit.
 - Active Harness evolution phase: none.
 - Latest Harness evolution: `harness/changes/archive/20260623-auto-evolve-harness-post-real-ui-scheduler-window/summary.md`.
 
-No structured product or Harness evolution change is active. The latest
-verification convergence is archived at
+No structured product or Harness evolution change is active. The latest product
+audit is archived at
+`harness/changes/archive/20260624-workbench-goal-loop-surface-gap-audit/summary.md`.
+It verified the existing GoalLoopDecision / packet / controller / Workbench
+projection / confirmation queue chain with targeted Goal Loop, Workbench
+surface, read-model, and App DOM tests. No user-surface gap was found, and no
+product code changed. The latest verification convergence is archived at
 `harness/changes/archive/20260623-workbench-verification-runtime-convergence/summary.md`.
 It separates daily Workbench aggregate coverage from explicit release/deep
 scheduler/apply/Goal Loop coverage: daily `npm run test:workbench` passes in

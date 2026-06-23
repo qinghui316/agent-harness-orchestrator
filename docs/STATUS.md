@@ -2,20 +2,27 @@
 
 ## Current Handoff
 
-- Current date: 2026-06-23.
+- Current date: 2026-06-24.
 - Active ECL change: none.
 - Pending Harness evolution: none.
 - Latest archived verification change: `harness/changes/archive/20260623-workbench-verification-runtime-convergence/summary.md`.
+- Latest archived product audit: `harness/changes/archive/20260624-workbench-goal-loop-surface-gap-audit/summary.md`.
 - Latest archived product change: `harness/changes/archive/20260623-workbench-real-ui-next-blocker-scout/summary.md`.
 - Latest archived projection fix: `harness/changes/archive/20260623-workbench-close-gate-projection-alignment/summary.md`.
 - Latest real-Codex acceptance change: `harness/changes/archive/20260623-workbench-current-project-real-codex-acceptance/summary.md`.
 - Latest archived product/Harness docs change: `harness/changes/archive/20260623-document-goal-driven-workflow-loop-target/summary.md`.
 - Latest archived Harness evolution: `harness/changes/archive/20260623-auto-evolve-harness-post-real-ui-scheduler-window/summary.md`.
-- Active product phase: post Workbench verification runtime convergence.
+- Active product phase: post Workbench Goal Loop surface gap audit.
 - Active Harness evolution phase: none.
 
 This file is the short resume point. No structured product or Harness evolution
-change is active. The latest verification convergence is archived at
+change is active. The latest product audit is archived at
+`harness/changes/archive/20260624-workbench-goal-loop-surface-gap-audit/summary.md`.
+It verified the existing GoalLoopDecision / packet / controller / Workbench
+projection / confirmation queue chain with targeted Goal Loop, Workbench
+surface, read-model, and App DOM tests. No user-surface gap was found, and no
+product code changed. The latest verification
+convergence is archived at
 `harness/changes/archive/20260623-workbench-verification-runtime-convergence/summary.md`.
 It separates daily Workbench aggregate coverage from explicit release/deep
 scheduler/apply/Goal Loop coverage: daily `npm run test:workbench` passes in
@@ -93,6 +100,10 @@ is still required for high-impact source apply, close/archive, remote landing,
 and Harness evolution.
 
 ## Next Resume Point
+
+Latest product audit archive:
+
+`harness/changes/archive/20260624-workbench-goal-loop-surface-gap-audit/summary.md`
 
 Latest docs convergence archive:
 
