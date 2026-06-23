@@ -7,25 +7,26 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 - Current date: 2026-06-23.
 - Active change: none.
 - Pending Harness evolution: none.
-- Latest archived verification change: Scheduler Slow Runtime Reduction, archived at `harness/changes/archive/20260623-scheduler-slow-runtime-reduction/summary.md`.
+- Latest archived verification change: Workbench Verification Runtime Convergence, archived at `harness/changes/archive/20260623-workbench-verification-runtime-convergence/summary.md`.
 - Latest archived product change: Workbench Real UI Next-Blocker Scout, archived at `harness/changes/archive/20260623-workbench-real-ui-next-blocker-scout/summary.md`.
 - Latest projection fix: Workbench Close Gate Projection Alignment, archived at `harness/changes/archive/20260623-workbench-close-gate-projection-alignment/summary.md`.
 - Latest real-Codex acceptance change: Current Project Real Codex Acceptance, archived at `harness/changes/archive/20260623-workbench-current-project-real-codex-acceptance/summary.md`.
 - Latest product/Harness docs change: Goal-Driven Workflow Loop Target, archived at `harness/changes/archive/20260623-document-goal-driven-workflow-loop-target/summary.md`.
-- Active product phase: post real-Codex manual loop acceptance with close-gate projection aligned and clarified Goal-driven Workflow Loop target.
+- Active product phase: post Workbench verification runtime convergence.
 - Active Harness evolution phase: none.
 - Latest Harness evolution: `harness/changes/archive/20260623-auto-evolve-harness-post-real-ui-scheduler-window/summary.md`.
 
-No structured product or Harness evolution change is active. The latest Harness
-evolution is archived at
+No structured product or Harness evolution change is active. The latest
+verification convergence is archived at
+`harness/changes/archive/20260623-workbench-verification-runtime-convergence/summary.md`.
+It separates daily Workbench aggregate coverage from explicit release/deep
+scheduler/apply/Goal Loop coverage: daily `npm run test:workbench` passes in
+the ordinary tool window, and full-chain deep coverage remains available
+through `npm run test:workbench:release`. The latest Harness evolution is
+archived at
 `harness/changes/archive/20260623-auto-evolve-harness-post-real-ui-scheduler-window/summary.md`.
 It promoted a narrow Workbench primary-surface alignment prompt into ECL and
-the review template after authorized subagent review. The latest verification change reduced the
-scheduler discard-completion slow path by replacing repeated full-chain setup
-with a canonical seeded scheduler handoff while retaining the full two-worker
-golden path. `npm run test:workbench:slow:scheduler` passed; full
-`npm run test:workbench` still exceeded the tool window and is recorded as
-aggregate runtime-cost debt, not a product failure.
+the review template after authorized subagent review.
 
 The latest real UI scout is archived and used external sandbox
 `C:\aho-accept\next2` to carry a
@@ -47,8 +48,8 @@ human-confirmed close/archive. The original real Codex startup blocker,
 isolated validation dependency blocker, same-root source-safety blocker,
 duplicate in-flight action blocker, missing committed-apply local close path,
 and committed-apply landing attribution blocker are resolved in AHO source.
-The archive-threshold pending evolution has been handled and archived at
-`harness/changes/archive/20260623-auto-evolve-harness-real-codex-acceptance-window/summary.md`.
+Archive-threshold Harness evolution windows have been handled; use the latest
+Harness evolution pointer above for current handoff decisions.
 Use `docs/STATUS.md` for short handoff context and
 `harness/changes/INDEX.json` plus archived `summary.md` files for historical
 detail. Do not rebuild current context by reading the full archive ledger unless

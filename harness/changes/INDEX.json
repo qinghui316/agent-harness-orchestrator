@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-23T11:28:03.4357754Z",
+    "generated_at":  "2026-06-23T14:44:33.4274446Z",
     "active":  [
 
                ],
@@ -1825,6 +1825,10 @@
                     {
                         "name":  "20260623-workbench-real-ui-next-blocker-scout",
                         "path":  "harness/changes/archive/20260623-workbench-real-ui-next-blocker-scout"
+                    },
+                    {
+                        "name":  "20260623-workbench-verification-runtime-convergence",
+                        "path":  "harness/changes/archive/20260623-workbench-verification-runtime-convergence"
                     }
                 ]
 }
