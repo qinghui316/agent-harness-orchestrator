@@ -43,6 +43,15 @@ user demand
 
 This is the current default code-change template, not a universal agent-order rule. Future orchestration may let the main agent clarify, split, delegate, retry, or stop for user input in a different order, while write-capable actions and high-impact transitions still remain bound to Change, evidence, and human gates.
 
+Future Goal-driven loop UX should keep that same user surface. The center
+conversation should say what goal is active, what evidence changed, and why the
+main Agent wants to continue, run sequentially, fan out low-conflict worktree
+slices, wait, repair, or ask the user. The right confirmation queue should show
+only the current real gate. Users should not have to understand TaskRun,
+WorkerLease, SchedulerRun, WorkflowRun, recovery keys, or queue internals to
+complete the demand. Those terms belong in Agent run graph details, evidence
+drawers, or developer docs.
+
 OpenSpec is the reference for the planning artifact flow. Proposal, spec, design, tasks, and AC are artifacts produced and revised in one main planning conversation. They are not separate user-visible spec-agent and planner-agent flows. When the user confirms planning, AHO promotes the accepted bundle into internal canonical artifacts; Phase 7J no longer treats that confirmation as permission to start the role pipeline.
 
 Open Dynamic Workflows is the reference for deterministic workflow-as-artifact mechanics, not for the Workbench product surface. Phase 7H used only the proposal lesson: if a broad demand needs decomposition, the center conversation can show the main agent's DecompositionPlan in user language. Phase 7I adds a separate `DecompositionReadinessManifest` check after confirmation. Phase 7J uses that verdict as a gate: `ready-for-single-change` may expose `code.run`, while `ready-for-sequential-taskqueue-proposal` exposes TaskQueueProposal generation. Phase 7L adds a separate `WorkflowGraphPlan` compile action before confirmed queue start; graph compile is evidence and execution input, not execution. Phase 7K adds typed WorkflowRun progress recovery for that confirmed sequential queue. It still does not start a parallel scheduler, child Change, executable WorkflowPlan runtime, recovery replay from cached LLM output, or ODWF-style JavaScript script. Workflow scripts, resume keys, versioned graph refs, and raw orchestration internals belong in graph/details/evidence views, not the primary conversation.

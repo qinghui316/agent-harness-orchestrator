@@ -8,6 +8,96 @@ AHO is a local-first Agent Development OS. The user-facing model remains simple:
 
 The user should not need to know internal terms before asking for work. The main conversation should explain the current understanding, accepted state, agent progress, strongest evidence, and next safe decision. Internal objects support that conversation and must not leak as required user workflow unless the UI intentionally exposes them.
 
+## Goal-Driven Workflow Loop Target
+
+The target architecture is a Goal-driven Workflow Loop, not a Scheduler-first
+product. After the user confirms the goal, boundaries, accepted plan, and
+permission profile, the main Agent keeps a persistent Goal/Change in view,
+re-reads current evidence, chooses the next legal strategy, records new
+evidence, and repeats until the demand is completed, blocked, or reaches a
+high-impact human gate.
+
+User responsibility stays small and explicit:
+
+- state the goal and constraints in ordinary project language;
+- review and correct the plan when the model's understanding is wrong;
+- grant bounded execution permission for the current demand or stage;
+- decide product tradeoffs, requirement clarifications, apply/merge/close, and
+  other high-impact transitions.
+
+Main-Agent responsibility is evidence-aware continuation:
+
+- observe the current Change, accepted artifacts, source state, runs,
+  validation/audit, integration evidence, Workbench gates, and user feedback;
+- decide whether the next step should be read-only analysis, planning,
+  sequential implementation, low-conflict parallel worktree execution,
+  validation/audit, bounded rework, IntegrationCheck, IntegrationFix, waiting,
+  or user clarification;
+- select only legal scoped actions with current target ids and stale-target
+  revalidation;
+- audit completion against the original goal, accepted artifacts, current
+  evidence, and human decisions.
+
+WorkflowGraph/WorkflowRun responsibility is structure and recovery, not product
+authority. DecompositionPlan, WorkflowGraphPlan, WorkflowRun, journals, recovery
+keys, and pipeline/parallel barriers describe how accepted work may be
+executed, resumed, or repaired. They do not replace Change/ECL truth,
+validation/audit, ToolPolicyGate, or human apply/close decisions.
+
+Scheduler responsibility is bounded execution strategy. Scheduler and worktree
+paths are useful when the main Agent can prove a low-conflict write-capable
+slice: independent file/module scope, fresh accepted artifacts, clean enough
+source state, explicit target ids, and a legal human-confirmed gate. Scheduler
+is not the whole product core, not the default answer for every TaskGraph node,
+and not merge safety.
+
+Worktrees are for isolated write-capable implementation and validation. They
+are not useful for read-only analysis, planning proposal, documentation
+judgment, requirement tradeoff, Workbench projection explanation, or Harness
+handoff cleanup unless the task actually needs isolated source mutation.
+High-conflict, dependent, ambiguous, or product-judgment-heavy slices should run
+sequentially, wait for predecessor evidence, enter bounded rework /
+IntegrationFix, or return to the user.
+
+```mermaid
+flowchart TD
+  A["User confirms goal and boundaries"] --> B["Goal Loop: observe current evidence"]
+  B --> C["Main Agent decides next legal step"]
+
+  C --> D{"Execution strategy"}
+  D --> E["Read-only analysis / planning proposal"]
+  D --> F["Sequential workflow step"]
+  D --> G["Low-conflict parallel worktree slice"]
+  D --> H["Validation / audit / bounded rework"]
+  D --> I["IntegrationCheck / IntegrationFix"]
+  D --> J["Ask user / wait / blocked"]
+
+  E --> K["Record evidence"]
+  F --> K
+  G --> K
+  H --> K
+  I --> K
+  J --> K
+
+  K --> B
+  B --> L{"Terminal or high-impact gate?"}
+  L --> M["Human apply / merge / close / archive"]
+```
+
+This target combines four reference lessons:
+
+- Codex Goal: persistent objective, continuation, explicit blocked/completed
+  lifecycle, and completion audit.
+- Loop Engineering: act, observe evidence, reason about conflict and next step,
+  repeat.
+- Open Dynamic Workflows: durable workflow artifact, pipeline/parallel shape,
+  evented execution, and recovery journal.
+- Symphony: orchestrator-owned poll, dispatch, reconcile, retry, blocked state,
+  isolated workspace, and operator-visible status.
+
+AHO combines those lessons as Goal Loop plus typed workflow recovery plus
+evidence-bound scheduler/action execution plus human gates.
+
 ## Current Implemented Capability Tracks
 
 - Conversation-first Workbench: project folders contain demand conversations, parent-agent transcript surfaces, inline run graph tabs, Workpad summaries, evidence/detail surfaces, and confirmation queues.
@@ -16,8 +106,8 @@ The user should not need to know internal terms before asking for work. The main
 - Scheduler path: scheduler artifacts now cover readiness contracts, launch preflight, SchedulerRun shell, runtime reconcile/claim reservation, first/next worker start, worker result/validation/audit, bounded rework, integration candidate/handoff/outcome, terminal completion, blocked/exhausted closeout, controlled-step result summaries, controlled-loop turn route summaries, controlled loop tick contract summaries, controlled loop continuation readiness summaries, controlled loop iteration summaries, controlled stop-summary resume handoff, a fail-closed controlled-advance continuation guard, a scheduler-owned controlled-advance candidate carrier reused by Workbench confirmation/reconfirmation/current-gate proof, a scheduler-runtime controlled loop-step owner for the existing one-confirmed-transition advance wrapper, a scheduler-runtime runtime-boundary evidence summary that composes the implemented observe/choose/human-gate/dispatch/reconcile/stop phases without becoming loop authority, durable pre-dispatch continuation decision evidence on controlled-step records, and an embedded post-step routing decision that names the existing owner/gate for continuation while remaining prior-turn evidence only.
 - Goal Loop path: GoalLoopDecision, iteration, continuation brief, next-step packet, packet freshness/parity, feedback, controller policy, controller refresh, main-Agent context, runtime prompt evidence, assisted concrete gate evidence, accepted artifact freshness, human close-gate handoff metadata, conflict reasons, Workpad read-only explanation cards, scoped start-next handoff evidence, scoped scheduler IntegrationCheck handoff evidence, scoped scheduler integration outcome handoff evidence, scoped SchedulerRun completion handoff evidence, scoped SchedulerRun blocked-closeout handoff evidence, compact SchedulerRun terminal handoff prompt evidence, compact controlled Scheduler post-step routing prompt evidence, optional controlled Scheduler post-step routing support on `GoalLoopGateReadinessPreflight`, scheduler execution-mode assessment, Workpad scheduler execution-mode surface, controller/preflight scheduler execution-mode handoff evidence, assisted concrete gate scheduler-mode consistency guard, enabled-gate projection guard, and enabled-gate server revalidation guard are implemented as non-executing evidence/context layers.
 - Product maintenance/self-evolution foundation: terminal demand closeouts, append-only maintenance ledger entries, generated maintenance indexes/cache, five-terminal-change maintenance reviews, candidate scoring/review types, lifecycle-resolution evidence, canonical update proposal evidence, human-gated canonical update decision evidence, canonical patch proposal evidence, human-gated canonical patch application follow-up records, canonical patch application manifest/readiness evidence, canonical patch target descriptor evidence, human-gated canonical docs/stable-memory patch application result evidence, read-only canonical patch application observation report evidence, doc budget reports, Workbench maintenance summaries, and maintenance confirmation queue projection exist as evidence/projection layers. Automatic rewrite behavior remains future-only.
-- Harness self-evolution: archive-triggered evolution can produce proposals, independent/subagent review evidence, results.tsv entries, and ECL/template deltas. The latest controlled Scheduler decision/routing window recorded `noop / independent_review`, retaining existing scoped-action, proposal/runtime, Goal Loop, module-boundary, core-reuse, Workbench honesty, read-model projection, close/handoff, documentation entropy, and experience-lifecycle rules without adding duplicate process text.
-- Workbench verification: `npm run test:workbench` now has explicit Workbench unit, scheduler-slow, slow, and aggregate layers. The residual scheduler slow monolith is split into capability-domain suites, the demand-to-execution golden-flow suite is part of the Workbench slow gate, and App DOM run-graph assertions use rendered DOM state as the primary signal. The remaining scheduler slow-suite issue is runtime cost, not ambiguous pass/fail health.
+- Harness self-evolution: archive-triggered evolution can produce proposals, independent/subagent review evidence, results.tsv entries, and ECL/template deltas. The latest real-Codex acceptance window recorded `template_update / subagent_review`, adding compact prompts for real self-acceptance isolation, Workbench aggregate split evidence, no-fake real Codex evidence, and in-flight duplicate action suppression without adding product runtime behavior.
+- Workbench verification: `npm run test:workbench` now has explicit Workbench unit, scheduler-slow, slow, and aggregate layers. The residual scheduler slow monolith is split into capability-domain suites, the demand-to-execution golden-flow suite is part of the Workbench slow gate, App DOM run-graph assertions use rendered DOM state as the primary signal, and slow acceptance cases now carry explicit timeouts. The remaining Workbench aggregate issue is runtime cost: split members pass, while the full aggregate can exceed ordinary tool windows.
 
 ## Current Hard Boundaries
 
@@ -47,12 +137,40 @@ Current architecture debt register:
 
 ## Next Product Direction
 
-No structured product change is currently active. The latest archived
-`workbench-verification-signal-stability` change made Workbench aggregate
-verification trustworthy again: `npm run test:workbench` passes through
-explicit unit / scheduler-slow / slow / aggregate layers, the stale App DOM
-fetch mock and controlled-advance test expectations are fixed, and the
-demand-to-execution golden-flow suite is part of the Workbench slow gate.
+A structured product or Harness evolution change is not currently active. The
+latest Harness evolution is archived at
+`harness/changes/archive/20260623-auto-evolve-harness-real-codex-acceptance-window/summary.md`.
+The latest product projection fix is archived at
+`harness/changes/archive/20260623-workbench-close-gate-projection-alignment/summary.md`.
+It fixed the bounded Workbench projection gap found during final close: when a
+selected demand has a real `change.close` approval, both the authoritative
+confirmation queue and `decisionInspector.primary` now show the close gate, and
+stale failure/result context remains related or historical evidence.
+
+The current-project real Codex acceptance is archived at
+`harness/changes/archive/20260623-workbench-current-project-real-codex-acceptance/summary.md`.
+It validated the current AHO repository itself through real
+Workbench/Codex/manual-gated paths, not fixture or fake Codex paths. External
+sandbox `a10` resolved the Codex startup blocker, isolated worktree dependency
+setup blocker, same-root source-safety blocker, duplicate in-flight action
+blocker, missing local committed-apply close path, and committed-apply landing
+attribution blocker. It reached real UI planning, decomposition/readiness,
+`code.run`, validation failure, bounded rework, validation pass, audit
+`approved`, UI `audit.accept`, human-gated `result.apply` with local commit,
+landing readiness refresh, and human-confirmed close/archive without remote
+PR/push/merge.
+
+The archive-threshold Harness evolution window has been handled. The
+close-gate projection follow-up from final close has also been handled, so the
+next structured product slice should address the next concrete Workbench
+product blocker found by real/manual UI use before expanding automation.
+
+The latest archived `workbench-verification-signal-stability` change made
+Workbench aggregate verification trustworthy again: `npm run test:workbench`
+passes through explicit unit / scheduler-slow / slow / aggregate layers, the
+stale App DOM fetch mock and controlled-advance test expectations are fixed,
+and the demand-to-execution golden-flow suite is part of the Workbench slow
+gate.
 
 The earlier `workbench-demand-to-execution-golden-flow` change proved the front
 half of the manual loop: natural-language Workbench demand, planning draft,
@@ -62,13 +180,23 @@ and validation/audit/result evidence. The
 review through validation/audit, human-confirmed apply, and separate
 human-confirmed close/archive handoff.
 
-The current product baseline is therefore a local Workbench manual-gated path
-from demand conversation to apply/close. Future product work should build on
-existing Workbench action registry, scoped target revalidation,
-ToolPolicy/human gates, typed workflow artifacts, readiness manifests, code
-runtime orchestration, validation/audit, source apply safety, and close/archive
-handoff. If real usage finds a blocker in that manual path, fix the concrete
-product blocker before expanding automation.
+The current product baseline is a real-accepted local Workbench manual-gated
+path from demand conversation to committed apply and close/archive. Real
+self-acceptance must keep the AHO development repository separate from the
+managed project under test. Future product work should build on existing
+Workbench action registry, scoped target revalidation, ToolPolicy/human gates,
+typed workflow artifacts, readiness manifests, code runtime orchestration,
+validation/audit, source apply safety, and close/archive handoff. The active
+real-acceptance blocker should be resolved or intentionally parked before
+expanding automation.
+
+The next architecture direction should be evaluated against the
+Goal-driven Workflow Loop target above. Product work should avoid treating every
+TaskGraph node as a worktree job, avoid making Scheduler the product core, and
+avoid exposing future workflow internals as primary user actions. Parallel
+worktree execution belongs only to low-conflict write-capable slices selected
+by the main Agent; sequential loop turns, read-only planning, bounded rework,
+IntegrationFix, and human clarification remain equally valid strategies.
 
 Full-auto task mode remains a later product direction. A separate accepted
 change may design scoped automation authorization from the main conversation for

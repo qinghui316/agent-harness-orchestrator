@@ -13,15 +13,18 @@ Pending.
 - Selected verification scope: pending.
 - Full / aggregate suites run or skipped: pending.
 - Rationale for selected scope: pending.
+- If an aggregate Workbench / slow suite exceeded the tool window: record timeout, split suite members run, pass/fail status, and whether the timeout is product failure or verification runtime-cost debt.
 
 ## Acceptance Feedback
 
 - Real/manual acceptance performed: no.
+- Real Codex acceptance claimed: no.
+- If real Codex acceptance is claimed, fake Codex / mocked PATH / fixture result / hand-written artifact exclusion evidence: not applicable.
 - Manual config edits: none recorded.
 - Extra prompts or reviewer instructions: none recorded.
 - Retries or environment failures: none recorded.
 - Screenshots / artifacts / run ids: none recorded.
-- External source/state safety: not applicable.
+- External source/state safety: not applicable. If real/self acceptance uses a managed source project, record source root, runtime home, whether same-root evidence is negative-only, and before/after `git status --short`.
 - Remote handoff acceptance: not applicable.
 - Product-fixable workarounds or follow-up evidence: none recorded.
 
@@ -69,7 +72,7 @@ Pending.
 - If applicable, visible primary UI backed by implemented workflow paths: not applicable.
 - If applicable, out-of-scope future capability check: not applicable.
 - If applicable, forbidden visible internal terms/actions checked: not applicable.
-- If applicable, duplicate primary action check: not applicable.
+- If applicable, duplicate primary action / in-flight suppression check: not applicable.
 - If applicable, high-impact action path result: not applicable.
 - If applicable, real App DOM / browser UI verification result when the behavior is product-visible: not applicable.
 - If applicable, projection/unit evidence that supplements but does not replace visible-surface acceptance: not applicable.
@@ -81,7 +84,7 @@ Pending.
 - Scoped Workbench action payload coverage applicable: no.
 - If applicable, checked target ids: not applicable.
 - If applicable, tested action path: not applicable.
-- If applicable, duplicate action/evidence affordance check: not applicable.
+- If applicable, duplicate action/evidence affordance and in-flight duplicate submission check: not applicable.
 - If not applicable, reason: change does not add or change Workbench live/server UI actions that depend on explicit target ids.
 
 ## Transcript Renderer Source-Boundary Coverage
@@ -100,6 +103,7 @@ Pending.
 
 - Source apply safety coverage applicable: no.
 - If applicable, checked source project / fixture: not applicable.
+- If applicable, checked runtime home / external managed-project isolation: not applicable.
 - If applicable, checked worktree ids / result ids / integration check ids: not applicable.
 - If applicable, source-root mutation gate checked: not applicable.
 - If applicable, out-of-scope source mutation check: not applicable.

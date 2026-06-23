@@ -1,6 +1,6 @@
 import { writeFile } from "node:fs/promises";
 import { resolveRunnableChangeTarget } from "../change/target.js";
-import { detectCodexAppServerCapability } from "../codex/app-server.js";
+import { detectCodexAppServerCapability, shouldUseCodexAppServerForMemory } from "../codex/app-server.js";
 import { readPromptInput } from "../codex/prompt.js";
 import { buildAgentSystemPrompt, buildRunAgentRecord, resolveAgentRole } from "../agent/catalog.js";
 import { writeJsonFile } from "../fs/json.js";
@@ -8,9 +8,10 @@ import { assertWritableMemory, resolveProjectMemory } from "../memory/resolver.j
 import { appendRunEvent, buildRunId } from "../run/manager.js";
 import type { ManagedProject, RunMetadata, RunWorktreeInfo } from "../types/index.js";
 import { createWorktree, getWorktreeMetadataPath } from "../worktree/manager.js";
+import { prepareWorktreeDependencyBridge } from "../worktree/dependencies.js";
 import { readWorktreeMetadata } from "../worktree/repository.js";
 import { composeCoderPrompt } from "./prompt.js";
-import { getSortedSourceStatus } from "./artifacts.js";
+import { getSortedSourceStatus, writeEmptyCodeArtifacts } from "./artifacts.js";
 import { runCodexAppServerCode } from "./codex-app-server-runner.js";
 import { runCodexExecCode } from "./codex-exec-runner.js";
 import { buildCodeRoleContextArtifact } from "./context.js";
@@ -125,8 +126,47 @@ export async function startCodeRun(project: ManagedProject, options: CodeRunOpti
   });
   await writeFile(session.paths.prompt, prompt, "utf8");
 
+  try {
+    const dependencyBridge = await prepareWorktreeDependencyBridge({ sourceRoot: project.path, checkoutPath: worktree.checkoutPath });
+    await appendRunEvent(session.paths.events, {
+      timestamp: new Date().toISOString(),
+      type: "code.dependency_bridge.prepared",
+      runId,
+      data: bridgeData(dependencyBridge),
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    await writeFile(session.paths.stderr, `## dependency setup\n${message}\n`, "utf8");
+    await appendRunEvent(session.paths.events, {
+      timestamp: new Date().toISOString(),
+      type: "code.dependency_bridge.failed",
+      runId,
+      data: { error: message },
+    });
+    await writeEmptyCodeArtifacts(session.paths, [
+      "# Coder Unavailable",
+      "",
+      "AHO could not prepare local project dependencies for the assigned coder worktree.",
+      "",
+      message,
+      "",
+    ].join("\n"));
+    const failedRun = {
+      ...run,
+      status: "failed" as const,
+      exitCode: 1,
+      signal: null,
+      finishedAt: new Date().toISOString(),
+    };
+    await writeJsonFile(session.paths.run, failedRun);
+    await appendRunEvent(session.paths.events, { timestamp: failedRun.finishedAt, type: "run.failed", runId, data: { reason: message } });
+    emitCodeLiveStatus(options.live, { runId, status: "failed", label: "Coder" });
+    return { run: failedRun, warnings: [message] };
+  }
+
   const appServerCapabilities = await detectCodexAppServerCapability();
-  if (appServerCapabilities.available) {
+  const useAppServer = appServerCapabilities.available && shouldUseCodexAppServerForMemory(memory.mode);
+  if (useAppServer) {
     await appendRunEvent(session.paths.events, { timestamp: new Date().toISOString(), type: "app-server.capabilities.detected", runId, data: { supportsStdio: appServerCapabilities.supportsStdio } });
     return runCodexAppServerCode({
       project,
@@ -142,7 +182,16 @@ export async function startCodeRun(project: ManagedProject, options: CodeRunOpti
       live: options.live,
     });
   }
-  await appendRunEvent(session.paths.events, { timestamp: new Date().toISOString(), type: "app-server.unavailable", runId, data: { errors: appServerCapabilities.errors } });
+  if (appServerCapabilities.available) {
+    await appendRunEvent(session.paths.events, {
+      timestamp: new Date().toISOString(),
+      type: "app-server.skipped",
+      runId,
+      data: { reason: "external-local memory requires codex exec --add-dir memoryRoot", memoryMode: memory.mode },
+    });
+  } else {
+    await appendRunEvent(session.paths.events, { timestamp: new Date().toISOString(), type: "app-server.unavailable", runId, data: { errors: appServerCapabilities.errors } });
+  }
   emitCodeLiveStatus(options.live, { runId, status: "fallback-next-turn", label: "实时引导不可用" });
 
   return runCodexExecCode({
@@ -158,4 +207,18 @@ export async function startCodeRun(project: ManagedProject, options: CodeRunOpti
     createdWarnings: created?.warnings ?? [],
     options,
   });
+}
+
+function bridgeData(input: {
+  status: string;
+  checkoutDependencyPath: string;
+  sourceDependencyPath?: string;
+  reason?: string;
+}): Record<string, unknown> {
+  return {
+    status: input.status,
+    checkoutDependencyPath: input.checkoutDependencyPath,
+    sourceDependencyPath: input.sourceDependencyPath,
+    reason: input.reason,
+  };
 }

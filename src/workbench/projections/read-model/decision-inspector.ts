@@ -63,7 +63,7 @@ export function buildDecisionInspector(input: {
   const enrichedContexts = contexts.map(enrichDecisionContext);
   const enrichedHistory = decisionHistory.map(enrichDecisionContext);
   const current = enrichedContexts.filter((context) => context.kind !== "history");
-  const primary = current.sort(compareDecisionContexts)[0] ?? null;
+  const primary = choosePrimaryDecisionContext(current, input.selectedTopic?.id);
   const related = current.filter((context) => context.id !== primary?.id).sort(compareDecisionContexts);
   const history = sortByTimestampDesc([
     ...enrichedContexts.filter((context) => context.kind === "history"),
@@ -98,10 +98,14 @@ function decisionActionsForResultReview(topic: WorkbenchTopicDetail, review: Wor
   if (review.applyReadiness.kind === "ready") {
     actions.push({
       id: `apply:${worktreeId}`,
-      label: "应用到项目",
+      label: "应用并本地提交",
       kind: "approval",
       changeId: topic.id,
-      action: approvalAction("result.apply", "应用到项目", "result", ["apply", "", topic.id, worktreeId], true),
+      action: approvalAction("result.apply", "应用并本地提交", "result", ["apply", "", topic.id, worktreeId], true),
+      options: {
+        commit: true,
+        message: `Apply AHO result: ${topic.id}`,
+      },
       enabled: true,
       requiresConfirmation: true,
     });
@@ -139,6 +143,38 @@ function decisionActionsForResultReview(topic: WorkbenchTopicDetail, review: Wor
       requiresConfirmation: true,
     });
   } else if (review.applyReadiness.kind === "stale-audit") {
+    actions.push({
+      id: `reaudit:${worktreeId}`,
+      label: "重新审查",
+      kind: "workflow-action",
+      changeId: topic.id,
+      actionType: "result.reaudit",
+      worktreeId,
+      enabled: true,
+      requiresConfirmation: true,
+    });
+  } else if (review.applyReadiness.kind === "not-approved" && review.validation?.status === "failed") {
+    actions.push({
+      id: `refresh-rework:${worktreeId}`,
+      label: "要求修改",
+      kind: "workflow-action",
+      changeId: topic.id,
+      actionType: "result.refresh-rework",
+      worktreeId,
+      enabled: true,
+      requiresConfirmation: true,
+    });
+    actions.push({
+      id: `revalidate:${worktreeId}`,
+      label: "重新验证",
+      kind: "workflow-action",
+      changeId: topic.id,
+      actionType: "result.revalidate",
+      worktreeId,
+      enabled: true,
+      requiresConfirmation: true,
+    });
+  } else if (review.applyReadiness.kind === "not-approved" && (review.audit?.status === "blocked" || review.audit?.status === "failed")) {
     actions.push({
       id: `reaudit:${worktreeId}`,
       label: "重新审查",
@@ -201,6 +237,8 @@ function userDecisionTitle(context: WorkbenchDecisionContext): string {
   if (context.kind === "apply-gate") {
     return context.actions.some((action) => action.actionType === "result.refresh-rework" || action.actionType === "result.revalidate" || action.actionType === "result.reaudit" || action.actionType === "result.refresh-status")
       ? context.title
+      : resultApplyCommits(context)
+        ? "确认应用并本地提交"
       : "确认应用到项目";
   }
   if (context.kind === "close-gate") return "确认完成需求";
@@ -232,6 +270,7 @@ function userRecommendation(context: WorkbenchDecisionContext): string {
     if (context.actions.some((action) => action.actionType === "result.revalidate")) return "当前结果需要先重新验证，验证通过后再决定是否应用。";
     if (context.actions.some((action) => action.actionType === "result.reaudit")) return "当前结果需要先重新审查，审查通过后再决定是否应用。";
     if (context.actions.some((action) => action.actionType === "result.refresh-status")) return "先刷新当前项目状态或处理本地改动；系统不会把本地脏状态自动交给 coder 修改。";
+    if (resultApplyCommits(context)) return "应用会把当前结果写入项目并创建本地提交；要求修改会进入下一轮修改；放弃只丢弃这次结果。";
     return "应用会把当前结果写入项目；要求修改会进入下一轮修改；放弃只丢弃这次结果。";
   }
   if (context.kind === "close-gate") return "同意会完成并归档这个需求。";
@@ -242,9 +281,16 @@ function userDecisionExplanation(context: WorkbenchDecisionContext): string {
   if (context.kind === "queue-blocker") return "执行状态仍用于恢复和归因；你只需要处理当前暂停的任务。";
   if (context.kind === "task-blocker") return "任务状态来自执行记录、验证和审查证据，不会自动修改任务清单。";
   if (context.kind === "validation-failed" || context.kind === "audit-blocked") return "这不是最终失败，而是需要修改或补证据的检查结果。";
-  if (context.kind === "apply-gate") return "应用是高影响动作，仍需要明确确认；这不会执行远端提交或合并。";
+  if (context.kind === "apply-gate") {
+    if (resultApplyCommits(context)) return "应用和本地提交都是高影响动作，仍需要明确确认；这不会执行远端提交、PR 或合并。";
+    return "应用是高影响动作，仍需要明确确认；这不会执行远端提交或合并。";
+  }
   if (context.kind === "close-gate") return "归档是需求生命周期收口，之后仍可从历史查看。";
   return "右侧只显示当前对象的主决策，旧决策折叠到历史。";
+}
+
+function resultApplyCommits(context: WorkbenchDecisionContext): boolean {
+  return context.actions.some((action) => action.action?.actionId === "result.apply" && action.options?.commit === true);
 }
 
 function queueDecisionContexts(topic: WorkbenchTopicDetail, workpad: WorkbenchWorkpad): WorkbenchDecisionContext[] {
@@ -300,7 +346,30 @@ function latestValidationAuditContexts(topic: WorkbenchTopicDetail): WorkbenchDe
       targetId: validation.id,
       runId: validation.runId,
       timestamp: validation.finishedAt,
-      actions: evidenceActions(undefined),
+      actions: validation.worktreeId
+        ? [
+          {
+            id: `refresh-rework:${validation.worktreeId}`,
+            label: "要求修改",
+            kind: "workflow-action",
+            changeId: topic.id,
+            actionType: "result.refresh-rework",
+            worktreeId: validation.worktreeId,
+            enabled: true,
+            requiresConfirmation: true,
+          },
+          {
+            id: `revalidate:${validation.worktreeId}`,
+            label: "重新验证",
+            kind: "workflow-action",
+            changeId: topic.id,
+            actionType: "result.revalidate",
+            worktreeId: validation.worktreeId,
+            enabled: true,
+            requiresConfirmation: true,
+          },
+        ]
+        : evidenceActions(undefined),
     });
   }
   const audit = latestByTimestamp(topic.audits as AuditSummary[], (item) => item.finishedAt);
@@ -315,7 +384,30 @@ function latestValidationAuditContexts(topic: WorkbenchTopicDetail): WorkbenchDe
       targetId: audit.id,
       runId: audit.runId,
       timestamp: audit.finishedAt,
-      actions: evidenceActions(undefined),
+      actions: audit.worktreeId
+        ? [
+          {
+            id: `refresh-rework:${audit.worktreeId}`,
+            label: "要求修改",
+            kind: "workflow-action",
+            changeId: topic.id,
+            actionType: "result.refresh-rework",
+            worktreeId: audit.worktreeId,
+            enabled: true,
+            requiresConfirmation: true,
+          },
+          {
+            id: `reaudit:${audit.worktreeId}`,
+            label: "重新审查",
+            kind: "workflow-action",
+            changeId: topic.id,
+            actionType: "result.reaudit",
+            worktreeId: audit.worktreeId,
+            enabled: true,
+            requiresConfirmation: true,
+          },
+        ]
+        : evidenceActions(undefined),
       rework: recordFeedbackPrompt("记录审查反馈"),
     });
   }
@@ -506,6 +598,17 @@ function recordFeedbackPrompt(label: string): WorkbenchReworkPrompt {
 
 function compareDecisionContexts(a: WorkbenchDecisionContext, b: WorkbenchDecisionContext): number {
   return decisionPriority(a) - decisionPriority(b) || (b.timestamp ?? "").localeCompare(a.timestamp ?? "");
+}
+
+function choosePrimaryDecisionContext(contexts: WorkbenchDecisionContext[], selectedChangeId: string | undefined): WorkbenchDecisionContext | null {
+  const selectedCloseGate = selectedChangeId
+    ? contexts.find((context) =>
+      context.kind === "close-gate"
+      && context.changeId === selectedChangeId
+      && context.actions.some((action) => action.kind === "approval" && action.action?.actionId === "change.close")
+    )
+    : undefined;
+  return selectedCloseGate ?? [...contexts].sort(compareDecisionContexts)[0] ?? null;
 }
 
 function decisionPriority(context: WorkbenchDecisionContext): number {

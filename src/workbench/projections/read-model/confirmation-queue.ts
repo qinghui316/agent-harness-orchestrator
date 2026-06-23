@@ -19,29 +19,37 @@ export async function buildConfirmationQueue(input: {
   selectedTopic: WorkbenchTopicDetail | null;
   workpad: WorkbenchWorkpad;
   decisionInspector: WorkbenchDecisionInspector;
+  includeProjectWideActions?: boolean;
 }): Promise<WorkbenchConfirmationQueue> {
   const queue = emptyConfirmationQueue();
-  const currentItems = [
-    ...workpadNextActionToConfirmationItems(input.project, input.selectedTopic, input.workpad),
-    ...decompositionPlanToConfirmationItems(input.project, input.selectedTopic, input.workpad),
-    ...taskQueueProposalToConfirmationItems(input.project, input.selectedTopic, input.workpad),
-    ...decisionContextToConfirmationItems(input.decisionInspector.primary, true),
-    ...input.decisionInspector.related.flatMap((context) => decisionContextToConfirmationItems(context, false)),
-  ];
+  const selectedTopicBusy = Boolean(input.selectedTopic && (hasActiveExecutionRun(input.selectedTopic) || hasActiveWorkflowAction(input.selectedTopic)));
+  const enqueueCurrentOrOther = (item: WorkbenchConfirmationQueue["current"][number]): void => {
+    if (selectedTopicBusy && isSelectedTopicItem(item, input.selectedTopic?.id)) return;
+    if (item.primary) queue.current.unshift(item);
+    else queue.otherDemands.push(item);
+  };
+  const currentItems = selectedTopicBusy
+    ? []
+    : [
+      ...workpadNextActionToConfirmationItems(input.project, input.selectedTopic, input.workpad),
+      ...decompositionPlanToConfirmationItems(input.project, input.selectedTopic, input.workpad),
+      ...taskQueueProposalToConfirmationItems(input.project, input.selectedTopic, input.workpad),
+      ...decisionContextToConfirmationItems(input.decisionInspector.primary, true),
+      ...input.decisionInspector.related.flatMap((context) => decisionContextToConfirmationItems(context, false)),
+    ];
   const nextActionType = input.workpad.nextAction.actionType;
-  if (nextActionType?.startsWith("planning.scheduler.") && !currentItems.some((item) => item.actions.some((action) => action.actionType === nextActionType))) {
+  if (!selectedTopicBusy && nextActionType?.startsWith("planning.scheduler.") && !currentItems.some((item) => item.actions.some((action) => action.actionType === nextActionType))) {
     currentItems.push(...schedulerNextActionToConfirmationItems(input.project, input.selectedTopic, input.workpad));
   }
   queue.current = currentItems;
 
-  if (input.project) {
+  if (input.project && input.includeProjectWideActions !== false) {
     const project = input.project;
     const checks = await listIntegrationChecks(input.memory).catch(() => []);
     const latestActionableCheck = checks.find((check) => integrationCheckNeedsUserAction(check.status));
     if (latestActionableCheck) {
       const item = integrationCheckNeedsActionQueueItem(project, latestActionableCheck, input.selectedTopic?.id);
-      if (item.primary) queue.current.unshift(item);
-      else queue.otherDemands.push(item);
+      enqueueCurrentOrOther(item);
     }
     const candidate = await findIntegrationCheckCandidate(project).catch(() => null);
     const candidateAlreadyChecked = candidate && latestActionableCheck
@@ -52,14 +60,12 @@ export async function buildConfirmationQueue(input: {
       : false;
     if (candidate && !candidateAlreadyChecked && !candidateHandledByScheduler) {
       const item = integrationCandidateQueueItem(project, candidate, input.selectedTopic?.id);
-      if (item.primary) queue.current.unshift(item);
-      else queue.otherDemands.push(item);
+      enqueueCurrentOrOther(item);
     }
     const latestPassed = checks.find((check) => check.status === "passed");
     if (latestPassed) {
       const item = integrationCheckQueueItem(project, latestPassed, input.selectedTopic?.id);
-      if (item.primary) queue.current.unshift(item);
-      else queue.otherDemands.push(item);
+      enqueueCurrentOrOther(item);
     }
     const landingPackages = await listLandingPackages(input.memory).catch(() => []);
     const queueSnapshot = await latestLandingQueueSnapshot(input.memory).catch(() => null);
@@ -68,14 +74,12 @@ export async function buildConfirmationQueue(input: {
       const queueItems = landingQueueSnapshotItems(project, queueSnapshot, input.selectedTopic?.id);
       for (const item of queueItems) {
         if (item.landingPackageId) queuedLandingPackageIds.add(item.landingPackageId);
-        if (item.primary) queue.current.unshift(item);
-        else queue.otherDemands.push(item);
+        enqueueCurrentOrOther(item);
       }
     } else {
       const prepareItem = await landingQueuePrepareItem(project, input.memory, landingPackages, input.selectedTopic?.id).catch(() => null);
       if (prepareItem) {
-        if (prepareItem.primary) queue.current.unshift(prepareItem);
-        else queue.otherDemands.push(prepareItem);
+        enqueueCurrentOrOther(prepareItem);
       }
     }
     const latestLanding = landingPackages[0];
@@ -83,14 +87,12 @@ export async function buildConfirmationQueue(input: {
       const item = latestLanding.review?.verdict === "ready"
         ? await prDraftQueueItem(project, input.memory, latestLanding, input.selectedTopic?.id)
         : landingPackageQueueItem(project, latestLanding, input.selectedTopic?.id);
-      if (item.primary) queue.current.unshift(item);
-      else queue.otherDemands.push(item);
+      enqueueCurrentOrOther(item);
     }
     const landingCandidate = await findLandingCandidate(project).catch(() => null);
     if (landingCandidate) {
       const item = landingCandidateQueueItem(project, landingCandidate, input.selectedTopic?.id);
-      if (item.primary) queue.current.unshift(item);
-      else queue.otherDemands.push(item);
+      enqueueCurrentOrOther(item);
     }
     queue.history = checks
       .filter((check) => check.status === "applied" || check.status === "discarded" || check.status === "conflict" || check.status === "failed")
@@ -98,11 +100,13 @@ export async function buildConfirmationQueue(input: {
       .map((check) => integrationCheckHistoryItem(project, check));
   }
 
-  queue.maintenance = dedupeConfirmationItems((await maintenanceCanonicalUpdateDecisionQueueItems({
-    project: input.project,
-    memory: input.memory,
-  })).map(scopeConfirmationQueueItemActions));
-  if (queue.current.length === 0) {
+  queue.maintenance = input.includeProjectWideActions === false
+    ? []
+    : dedupeConfirmationItems((await maintenanceCanonicalUpdateDecisionQueueItems({
+      project: input.project,
+      memory: input.memory,
+    })).map(scopeConfirmationQueueItemActions));
+  if (!selectedTopicBusy && queue.current.length === 0) {
     const goalLoopItem = goalLoopEvaluationQueueItem(input.project, input.selectedTopic);
     if (goalLoopItem) queue.current.push(goalLoopItem);
   }
@@ -112,23 +116,58 @@ export async function buildConfirmationQueue(input: {
   ), input.workpad), input.workpad);
   queue.current = dedupeConfirmationItems(queue.current.filter((item) => item.kind !== "maintenance").map(scopeConfirmationQueueItemActions));
   queue.current = promoteSelectedCloseGate(queue.current, input.selectedTopic?.id);
+  queue.current = promoteSelectedWorkpadApprovalGate(queue.current, input.workpad.nextAction);
   queue.otherDemands = dedupeConfirmationItems(queue.otherDemands.map(scopeConfirmationQueueItemActions));
   queue.history = dedupeConfirmationItems(queue.history.map(scopeConfirmationQueueItemActions));
   queue.primary = queue.current.find((item) => item.primary) ?? queue.current[0] ?? null;
   return queue;
 }
 
+function isSelectedTopicItem(item: WorkbenchConfirmationQueue["current"][number], selectedChangeId: string | undefined): boolean {
+  return Boolean(selectedChangeId && (item.changeId === selectedChangeId || item.conversationId === selectedChangeId));
+}
+
+function hasActiveWorkflowAction(topic: WorkbenchTopicDetail): boolean {
+  return topic.threadItems.some((item) =>
+    item.source === "workflow"
+    && item.kind === "assistant-turn"
+    && item.actionRunId
+    && item.status === "running"
+  );
+}
+
+function hasActiveExecutionRun(topic: WorkbenchTopicDetail): boolean {
+  return topic.runs.some((run) =>
+    (run.status === "created" || run.status === "running")
+    && run.runtime !== "codex-readonly"
+    && run.runtime !== "orchestrator"
+    && run.runtime !== "intake-scan"
+  );
+}
+
+function promoteSelectedWorkpadApprovalGate(items: WorkbenchConfirmationQueue["current"], nextAction: WorkbenchWorkpad["nextAction"]): WorkbenchConfirmationQueue["current"] {
+  if (nextAction.kind !== "approval" || !nextAction.approvalId) return items;
+  const index = items.findIndex((item) =>
+    item.id === `confirm:approval:${nextAction.approvalId}`
+    || item.actions.some((action) => action.approvalId === nextAction.approvalId)
+  );
+  if (index < 0) return items;
+  const next = items.map((item) => ({ ...item, primary: false }));
+  const [approvalGate] = next.splice(index, 1);
+  if (!approvalGate) return items;
+  return [{ ...approvalGate, primary: true }, ...next];
+}
+
 function promoteSelectedCloseGate(items: WorkbenchConfirmationQueue["current"], selectedChangeId: string | undefined): WorkbenchConfirmationQueue["current"] {
   if (!selectedChangeId) return items;
   const index = items.findIndex((item) =>
-    item.primary
-    && item.changeId === selectedChangeId
+    item.changeId === selectedChangeId
     && item.actions.some((action) => action.action?.actionId === "change.close")
   );
-  if (index <= 0) return items;
-  const next = [...items];
+  if (index < 0) return items;
+  const next = items.map((item) => ({ ...item, primary: false }));
   const [closeGate] = next.splice(index, 1);
-  if (closeGate) next.unshift(closeGate);
+  if (closeGate) next.unshift({ ...closeGate, primary: true });
   return next;
 }
 

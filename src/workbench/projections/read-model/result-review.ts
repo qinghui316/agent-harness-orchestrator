@@ -1,3 +1,6 @@
+import { existsSync } from "node:fs";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { canApplyResultFromGate,
   classifyApplyReadiness,
   previewWorktreeApply,
@@ -37,15 +40,16 @@ export async function buildResultReview(project: ManagedProject | null, memory: 
   const audit = latestResultForWorktree(audits, worktree?.worktreeId);
   if (!worktree && !validation && !audit) return undefined;
 
-  const preview = project && worktree && worktree.status !== "applied"
+  const hasFailedEvidence = validation?.status === "failed" || audit?.status === "blocked" || audit?.status === "failed";
+  const preview = project && worktree && worktree.status !== "applied" && !hasFailedEvidence
     ? await previewWorktreeApply(project, worktree.worktreeId).catch(() => null)
     : null;
   const sourceDirty = project && worktree?.status === "applied" ? await isGitDirty(project.path).catch(() => null) : null;
   const auditNotes = audit?.findings.filter((finding) => finding.severity === "note").map((finding) => finding.text) ?? [];
   const blockingIssues = preview?.gate.blockingIssues ?? [];
-  const canApply = preview ? canApplyResultFromGate(preview.gate) : false;
-  const readiness = preview?.gate ? classifyApplyReadiness(preview.gate) : undefined;
-  const hasFailedEvidence = validation?.status === "failed" || audit?.status === "blocked" || audit?.status === "failed";
+  const auditAccepted = audit ? await auditAlreadyAccepted(memory, topic.path, audit.id) : false;
+  const canApply = preview && auditAccepted ? canApplyResultFromGate(preview.gate) : false;
+  const readiness = preview?.gate && auditAccepted ? classifyApplyReadiness(preview.gate) : undefined;
   const status: WorkbenchResultReviewStatus = worktree?.status === "applied"
     ? sourceDirty === true ? "applied-source-dirty" : "applied-clean"
     : hasFailedEvidence
@@ -93,10 +97,10 @@ export async function buildResultReview(project: ManagedProject | null, memory: 
     applyReadiness: {
       ready: status === "ready-to-apply",
       kind: readiness?.kind ?? (status === "ready-to-apply" ? "ready" : "not-approved"),
-      label: applyReadinessLabel(status, preview?.gate),
-      message: readiness?.message ?? applyReadinessLabel(status, preview?.gate),
-      blockingIssues: readiness && readiness.kind !== "ready" ? [readiness.message] : blockingIssues,
-      warnings: preview?.gate.warnings ?? [],
+      label: applyReadinessLabel(status, auditAccepted ? preview?.gate : undefined),
+      message: readiness?.message ?? applyReadinessLabel(status, auditAccepted ? preview?.gate : undefined),
+      blockingIssues: readiness && readiness.kind !== "ready" ? [readiness.message] : auditAccepted ? blockingIssues : [],
+      warnings: auditAccepted ? preview?.gate.warnings ?? [] : [],
     },
     evidence,
   };
@@ -167,4 +171,15 @@ function applyReadinessLabel(status: WorkbenchResultReviewStatus, gate: Worktree
   if (status === "applied-source-dirty") return "已应用，但本地改动需要你处理";
   if (gate) return classifyApplyReadiness(gate).message;
   return "等待验证、审查或结果证据";
+}
+
+async function auditAlreadyAccepted(memory: ResolvedMemory, changePath: string, auditId: string): Promise<boolean> {
+  const reviewPath = join(memory.memoryRoot, changePath, "reviews", "review.md");
+  if (!existsSync(reviewPath)) return false;
+  try {
+    const content = await readFile(reviewPath, "utf8");
+    return content.includes(`- Audit ID: ${auditId}`) || content.includes(`Audit ID: ${auditId}`);
+  } catch {
+    return false;
+  }
 }

@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -46,4 +46,39 @@ describe("ProjectRegistryStore", () => {
     expect(first.id).toBe("repo");
     expect(second.id).toMatch(/^repo-[a-f0-9]{8}$/);
   });
+
+  it("inherits an existing project marker id when registering a managed project", async () => {
+    const store = new ProjectRegistryStore(join(tempDir, "home"));
+    const projectPath = join(tempDir, "repo");
+    await writeMarker(projectPath, "ahoacc1", "ahoacc1");
+
+    const project = await store.addProject(projectPath);
+
+    expect(project.id).toBe("ahoacc1");
+    expect(project.name).toBe("ahoacc1");
+    expect(await store.resolveProject("ahoacc1")).toMatchObject({ path: projectPath });
+  });
+
+  it("fails closed when a managed project marker id is already registered to another path", async () => {
+    const store = new ProjectRegistryStore(join(tempDir, "home"));
+    const firstPath = join(tempDir, "one");
+    const secondPath = join(tempDir, "two");
+    await writeMarker(firstPath, "ahoacc1", "ahoacc1");
+    await writeMarker(secondPath, "ahoacc1", "ahoacc1");
+    await store.addProject(firstPath);
+
+    await expect(store.addProject(secondPath)).rejects.toThrow("Project marker id is already registered");
+  });
 });
+
+async function writeMarker(projectPath: string, id: string, name: string): Promise<void> {
+  await mkdir(join(projectPath, ".agent-harness"), { recursive: true });
+  await writeFile(join(projectPath, ".agent-harness", "project.json"), JSON.stringify({
+    version: "1.0",
+    id,
+    name,
+    managedBy: "agent-harness-orchestrator",
+    memoryMode: "external-local",
+    createdAt: "2026-06-22T00:00:00.000Z",
+  }, null, 2), "utf8");
+}

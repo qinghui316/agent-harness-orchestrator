@@ -1,11 +1,11 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { openNativeFolderDialog } from "./native-dialog.js";
 import { matchProjectWorkbenchRoute, resolveProjectInput } from "./routes.js";
-import { addExistingProject, createNewProject, initProjectHarness, listProjectStatuses } from "./project-admin.js";
+import { addExistingProject, createNewProject, initProjectHarness, listProjectStatuses, trustCodexProjectForWorkbench } from "./project-admin.js";
 import { handleDirectWorkbenchApi } from "./direct-routes.js";
 import { handleProjectWorkbenchApi } from "./project-routes.js";
 import { assertLocalWorkbenchRequest, readJsonBody, sendJson } from "./http.js";
-import type { AddExistingProjectRequest, CreateNewProjectRequest, InitProjectHarnessRequest, WorkbenchServerContext } from "./types.js";
+import type { AddExistingProjectRequest, CreateNewProjectRequest, InitProjectHarnessRequest, TrustCodexProjectRequest, WorkbenchServerContext } from "./types.js";
 
 export async function handleApi(context: WorkbenchServerContext, request: IncomingMessage, response: ServerResponse, url: URL): Promise<void> {
   if (request.method !== "GET") {
@@ -42,6 +42,11 @@ export async function handleApi(context: WorkbenchServerContext, request: Incomi
   const initMatch = url.pathname.match(/^\/api\/projects\/([^/]+)\/harness\/init$/);
   if (request.method === "POST" && initMatch?.[1]) {
     sendJson(response, 200, await initProjectHarness(context.store, decodeURIComponent(initMatch[1]), await readJsonBody<InitProjectHarnessRequest>(request)));
+    return;
+  }
+  const codexTrustMatch = url.pathname.match(/^\/api\/projects\/([^/]+)\/codex\/trust$/);
+  if (request.method === "POST" && codexTrustMatch?.[1]) {
+    sendJson(response, 200, await trustCodexProjectForWorkbench(context.store, decodeURIComponent(codexTrustMatch[1]), await readJsonBody<TrustCodexProjectRequest>(request)));
     return;
   }
 

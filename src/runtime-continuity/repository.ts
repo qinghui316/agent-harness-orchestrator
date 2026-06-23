@@ -201,33 +201,35 @@ export async function appendAgentEventEnvelope(
   eventSource: EventSource,
   input: AppendAgentEventInput,
 ): Promise<AgentEventEnvelope> {
-  assertEventSourceScope(eventSource, session);
-  const sequence = await nextSequence(paths.agentEvents);
-  const envelope: AgentEventEnvelope = {
-    version: "1.0",
-    kind: "agent-event-envelope",
-    id: stableId("agent-event", session.runId, String(sequence)),
-    sequence,
-    projectId: session.projectId,
-    changeId: session.changeId,
-    runId: session.runId,
-    roleId: session.roleId,
-    ...(session.taskRunId ? { taskRunId: session.taskRunId } : {}),
-    ...(session.workflowRunId ? { workflowRunId: session.workflowRunId } : {}),
-    ...(session.queueRunId ? { queueRunId: session.queueRunId } : {}),
-    ...(session.schedulerContractId ? { schedulerContractId: session.schedulerContractId } : {}),
-    adapter: session.adapter,
-    workerSessionId: session.id,
-    eventSourceId: eventSource.id,
-    eventType: input.eventType,
-    timestamp: input.timestamp ?? new Date().toISOString(),
-    ...(input.summary ? { summary: input.summary } : {}),
-    raw: input.raw,
-  };
-  assertAgentEventEnvelopeScope(envelope, session, eventSource);
-  agentEventEnvelopeSchema.parse(envelope);
-  await appendFile(paths.agentEvents, `${JSON.stringify(envelope)}\n`, "utf8");
-  return envelope;
+  return withAgentEventAppendLock(paths.agentEvents, async () => {
+    assertEventSourceScope(eventSource, session);
+    const sequence = await nextSequence(paths.agentEvents);
+    const envelope: AgentEventEnvelope = {
+      version: "1.0",
+      kind: "agent-event-envelope",
+      id: stableId("agent-event", session.runId, String(sequence)),
+      sequence,
+      projectId: session.projectId,
+      changeId: session.changeId,
+      runId: session.runId,
+      roleId: session.roleId,
+      ...(session.taskRunId ? { taskRunId: session.taskRunId } : {}),
+      ...(session.workflowRunId ? { workflowRunId: session.workflowRunId } : {}),
+      ...(session.queueRunId ? { queueRunId: session.queueRunId } : {}),
+      ...(session.schedulerContractId ? { schedulerContractId: session.schedulerContractId } : {}),
+      adapter: session.adapter,
+      workerSessionId: session.id,
+      eventSourceId: eventSource.id,
+      eventType: input.eventType,
+      timestamp: input.timestamp ?? new Date().toISOString(),
+      ...(input.summary ? { summary: input.summary } : {}),
+      raw: input.raw,
+    };
+    assertAgentEventEnvelopeScope(envelope, session, eventSource);
+    agentEventEnvelopeSchema.parse(envelope);
+    await appendFile(paths.agentEvents, `${JSON.stringify(envelope)}\n`, "utf8");
+    return envelope;
+  });
 }
 
 export async function readAgentEventEnvelopes(paths: RuntimeContinuityFilePaths, session: WorkerSession, eventSource: EventSource): Promise<AgentEventEnvelope[]> {
@@ -272,6 +274,26 @@ async function nextSequence(path: string): Promise<number> {
       throw new Error(`Invalid AgentEventEnvelope journal ${path}: ${(error as Error).message}`);
     }
     throw error;
+  }
+}
+
+const agentEventAppendLocks = new Map<string, Promise<void>>();
+
+async function withAgentEventAppendLock<T>(path: string, fn: () => Promise<T>): Promise<T> {
+  const previous = agentEventAppendLocks.get(path) ?? Promise.resolve();
+  let release!: () => void;
+  const current = previous.catch(() => undefined).then(() => new Promise<void>((resolve) => {
+    release = resolve;
+  }));
+  agentEventAppendLocks.set(path, current);
+  await previous.catch(() => undefined);
+  try {
+    return await fn();
+  } finally {
+    release();
+    if (agentEventAppendLocks.get(path) === current) {
+      agentEventAppendLocks.delete(path);
+    }
   }
 }
 

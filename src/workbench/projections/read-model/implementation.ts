@@ -277,6 +277,7 @@ export async function getWorkbenchRunGraphProjection(input: WorkbenchProjectInpu
     selectedTopic,
     workpad,
     decisionInspector,
+    includeProjectWideActions: false,
   });
   return buildDemandAgentRunGraph({ project: input.project, selectedTopic, workpad, confirmationQueue });
 }

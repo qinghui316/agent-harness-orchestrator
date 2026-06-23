@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -13,6 +13,7 @@ let tempDir: string;
 let staticRoot: string;
 let registryRoot: string;
 let handle: WorkbenchServerHandle | null = null;
+let originalCodexHome: string | undefined;
 
 interface SnapshotResponse {
   left: { topics: Array<{ id: string }> };
@@ -34,6 +35,8 @@ describe("workbench server", () => {
     tempDir = await mkdtemp(join(tmpdir(), "aho-server-"));
     staticRoot = await mkdtemp(join(tmpdir(), "aho-web-"));
     registryRoot = await mkdtemp(join(tmpdir(), "aho-registry-"));
+    originalCodexHome = process.env.CODEX_HOME;
+    process.env.CODEX_HOME = join(tempDir, "codex-home");
     await writeFile(join(staticRoot, "index.html"), "<div>AHO</div>", "utf8");
     await initHarness(project());
     await createChange(project(), { title: "Server Topic" });
@@ -43,6 +46,8 @@ describe("workbench server", () => {
 
   afterEach(async () => {
     if (handle) await new Promise<void>((resolve) => handle?.server.close(() => resolve()));
+    if (originalCodexHome === undefined) delete process.env.CODEX_HOME;
+    else process.env.CODEX_HOME = originalCodexHome;
     await rm(tempDir, { recursive: true, force: true });
     await rm(staticRoot, { recursive: true, force: true });
     await rm(registryRoot, { recursive: true, force: true });
@@ -238,8 +243,29 @@ describe("workbench server", () => {
       });
       expect(directTopic.status).toBe(404);
 
-      const projects = await getJson<{ projects: unknown[] }>(`${appHandle.url}/api/projects`);
+      const projects = await getJson<{ projects: Array<{ codexTrust: { trusted: boolean; projectKey: string } }> }>(`${appHandle.url}/api/projects`);
       expect(projects.projects).toHaveLength(1);
+      expect(projects.projects[0].codexTrust.trusted).toBe(false);
+      expect(projects.projects[0].codexTrust.projectKey).toContain("aho-server-");
+
+      const unconfirmedTrust = await fetch(`${appHandle.url}/api/projects/${addedBody.project.id}/codex/trust`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      expect(unconfirmedTrust.status).toBe(409);
+
+      const trusted = await fetch(`${appHandle.url}/api/projects/${addedBody.project.id}/codex/trust`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ confirm: true }),
+      });
+      expect(trusted.ok).toBe(true);
+      const trustedBody = await trusted.json() as { codexTrust: { trusted: boolean; projectKey: string } };
+      expect(trustedBody.codexTrust.trusted).toBe(true);
+      const config = await readFile(join(tempDir, "codex-home", "config.toml"), "utf8");
+      expect(config).toContain(`[projects.'${trustedBody.codexTrust.projectKey}']`);
+      expect(config).toContain('trust_level = "trusted"');
 
       const init = await fetch(`${appHandle.url}/api/projects/${addedBody.project.id}/harness/init`, {
         method: "POST",

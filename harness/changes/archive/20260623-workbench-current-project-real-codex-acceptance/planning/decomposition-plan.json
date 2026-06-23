@@ -1,0 +1,43 @@
+{
+  "id": "decomposition-1782039046119-5646a1",
+  "changeId": "workbench-current-project-real-codex-acceptance",
+  "status": "confirmed",
+  "recommendation": "single-change",
+  "rationale": "The accepted scope fits one Change and one Coding Work Package.",
+  "units": [
+    {
+      "id": "DU-001",
+      "title": "Clarify and implement the accepted demand.",
+      "summary": "Keep this demand as one Coding Work Package.",
+      "taskIds": [
+        "T-001"
+      ],
+      "acIds": [],
+      "scopeHints": [
+        "selected-demand",
+        "AHO-owned worktree only"
+      ],
+      "dependsOn": [],
+      "recommendedRoleId": "coder-agent"
+    }
+  ],
+  "dependencies": [],
+  "conflictScopes": [],
+  "riskSummary": "This is a proposal only. User confirmation does not start execution, create child Changes, or trust recovered work.",
+  "openQuestions": [],
+  "artifactRefs": [],
+  "recoveryKeyInputs": {
+    "changeId": "workbench-current-project-real-codex-acceptance",
+    "acceptedArtifactRefs": [],
+    "contextScope": "selected-demand",
+    "rolePolicyProfile": "main-agent proposal; worker roles remain leaves",
+    "notes": [
+      "Recovery may reuse only scoped execution progress in later phases.",
+      "Change, context, source, policy, and accepted artifact hashes must still match."
+    ]
+  },
+  "artifact": "harness/changes/active/workbench-current-project-real-codex-acceptance/planning/decomposition-plan.json",
+  "markdownArtifact": "harness/changes/active/workbench-current-project-real-codex-acceptance/planning/decomposition-plan.md",
+  "createdAt": "2026-06-21T10:50:46.119Z",
+  "updatedAt": "2026-06-21T10:50:57.880Z"
+}

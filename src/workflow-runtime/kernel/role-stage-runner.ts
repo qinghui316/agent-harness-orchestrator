@@ -78,23 +78,53 @@ export async function runCodeValidateAuditSequence(
   const coderTask = coderDispatch.task;
   live?.emit({ event: "run.status", data: { status: "running", label: "Coder" } });
   let coderStartedEmitted = false;
-  const code = await startCodeRun(project, {
-    changeId,
-    roleId: coderRoleId,
-    prompt,
-    taskIds,
-    taskRunId,
-    executionGate,
-    live: {
-      onRunStarted: (run) => {
-        coderStartedEmitted = true;
-        live?.emit({ event: "run.started", data: { runId: run.id, changeId: run.changeId, runtime: run.runtime, actionType: "code.run", taskIds: run.taskIds } });
+  let code: Awaited<ReturnType<typeof startCodeRun>>;
+  try {
+    code = await startCodeRun(project, {
+      changeId,
+      roleId: coderRoleId,
+      prompt,
+      taskIds,
+      taskRunId,
+      executionGate,
+      live: {
+        onRunStarted: (run) => {
+          coderStartedEmitted = true;
+          live?.emit({ event: "run.started", data: { runId: run.id, changeId: run.changeId, runtime: run.runtime, actionType: "code.run", taskIds: run.taskIds } });
+        },
+        onStatus: (event) => live?.emit({ event: "run.status", data: event }),
+        onCodexEvent: (event) => forwardCodexStreamEvent(event.runId, event, live),
+        onCallbackError: (event) => live?.emit({ event: "error", data: { runId: event.runId, message: event.error instanceof Error ? event.error.message : String(event.error) } }),
       },
-      onStatus: (event) => live?.emit({ event: "run.status", data: event }),
-      onCodexEvent: (event) => forwardCodexStreamEvent(event.runId, event, live),
-      onCallbackError: (event) => live?.emit({ event: "error", data: { runId: event.runId, message: event.error instanceof Error ? event.error.message : String(event.error) } }),
-    },
-  });
+    });
+  } catch (cause) {
+    const message = cause instanceof Error ? cause.message : String(cause);
+    orchestration = recordMainAgentOrchestrationStep(orchestration, {
+      roleId: coderRole,
+      status: "failed",
+      inputArtifacts: coderInputArtifacts,
+      outputArtifacts: [],
+      failureClassification: "code-failure",
+      stoppedAt: "code",
+      summary: "Coder failed before code run artifacts were created.",
+    });
+    await completeAgentTask(memory, coderTask, {
+      status: "failed",
+      summary: "Coder failed before code run artifacts were created.",
+      artifactRefs: [],
+      policyAuditRefs: [coderDispatch.policyAuditRef],
+      failureClassification: "code-failure",
+      requiresUserInputReason: message,
+    });
+    emitDelegatedRoleReturn(live, changeId, coderRoleId, "failed", "coder-agent 在创建 code run 前失败，任务已关闭为 failed。", coderDispatch.policyAuditRef);
+    await recordMaintenanceLedgerEntry(memory, {
+      eventType: "failure",
+      changeId,
+      summary: `Coder task failed before code run artifacts were created: ${message}`,
+      artifactRefs: [coderDispatch.policyAuditRef],
+    });
+    return { status: "failed", error: message, stoppedAt: "code", orchestration };
+  }
   if (!coderStartedEmitted) live?.emit({ event: "run.started", data: { runId: code.run.id, changeId: code.run.changeId, runtime: code.run.runtime, actionType: "code.run", taskIds: code.run.taskIds } });
   live?.emit({ event: "run.status", data: { runId: code.run.id, status: code.run.status, label: "Coder" } });
   const coderBoundaryAudit = await recordPostRunBoundaryAudit(memory, {

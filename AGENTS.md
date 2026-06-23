@@ -4,25 +4,35 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 
 ## 1. Current Handoff
 
-- Current date: 2026-06-21.
+- Current date: 2026-06-23.
 - Active change: none.
 - Pending Harness evolution: none.
-- Latest archived product change: Workbench Verification Signal Stability, archived at `harness/changes/archive/20260621-workbench-verification-signal-stability/summary.md`.
-- Latest product/Harness docs change: Workbench Verification Signal Stability, archived at `harness/changes/archive/20260621-workbench-verification-signal-stability/summary.md`.
-- Active product phase: none.
+- Latest archived product change: Workbench Close Gate Projection Alignment, archived at `harness/changes/archive/20260623-workbench-close-gate-projection-alignment/summary.md`.
+- Latest real-Codex acceptance change: Current Project Real Codex Acceptance, archived at `harness/changes/archive/20260623-workbench-current-project-real-codex-acceptance/summary.md`.
+- Latest product/Harness docs change: Goal-Driven Workflow Loop Target, archived at `harness/changes/archive/20260623-document-goal-driven-workflow-loop-target/summary.md`.
+- Active product phase: post real-Codex manual loop acceptance with close-gate projection aligned and clarified Goal-driven Workflow Loop target.
 - Active Harness evolution phase: none.
-- Latest Harness evolution: `harness/changes/archive/20260621-auto-evolve-harness-controlled-scheduler-continuation-window/summary.md`.
+- Latest Harness evolution: `harness/changes/archive/20260623-auto-evolve-harness-real-codex-acceptance-window/summary.md`.
 
-No active structured work is open. The latest product baseline proves the
-Workbench manual-gated path from natural-language demand through planning,
-decomposition/readiness, `code.run`, validation/audit/result evidence,
-human-confirmed apply, and explicit close/archive. The latest verification
-stability change made `npm run test:workbench` pass through explicit unit,
-scheduler-slow, slow, and aggregate layers; the remaining issue is test cost,
-not an ambiguous pass/fail signal. No Harness evolution is pending. Use
-`docs/STATUS.md` for short handoff context and `harness/changes/INDEX.json`
-plus archived `summary.md` files for historical detail. Do not rebuild current
-context by reading the full archive ledger unless the task requires it.
+No structured product or Harness evolution change is active. The Workbench
+close-gate projection alignment is archived and now keeps the Decision
+Inspector primary aligned with the authoritative confirmation queue when a
+selected demand is close-ready. The future Goal-driven Workflow Loop target is clarified in
+`harness/changes/archive/20260623-document-goal-driven-workflow-loop-target/summary.md`.
+The real Codex Workbench acceptance is archived. External sandbox `a10` reached real browser UI demand creation,
+planning, decomposition/readiness, real `coder-codex` `code.run`, validation
+failure with bounded rework, validation pass, audit approval, UI `audit.accept`,
+human-gated `result.apply` with local commit, landing readiness refresh, and
+human-confirmed close/archive. The original real Codex startup blocker,
+isolated validation dependency blocker, same-root source-safety blocker,
+duplicate in-flight action blocker, missing committed-apply local close path,
+and committed-apply landing attribution blocker are resolved in AHO source.
+The archive-threshold pending evolution has been handled and archived at
+`harness/changes/archive/20260623-auto-evolve-harness-real-codex-acceptance-window/summary.md`.
+Use `docs/STATUS.md` for short handoff context and
+`harness/changes/INDEX.json` plus archived `summary.md` files for historical
+detail. Do not rebuild current context by reading the full archive ledger unless
+the task requires it.
 
 ## 2. Context Loading Order
 

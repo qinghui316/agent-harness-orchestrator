@@ -32,6 +32,10 @@ export interface CodexArgvOptions {
   additionalReadDirs?: string[];
 }
 
+export function codexRuntimeConfigArgs(): string[] {
+  return ["-c", 'service_tier="fast"'];
+}
+
 export function evaluateCodexCapabilities(versionOutput: string | null, rootHelp: string | null, execHelp: string | null, spawnError?: string, resumeHelp: string | null = null): CodexCapabilities {
   const errors: string[] = [];
   if (spawnError) errors.push(spawnError);
@@ -108,7 +112,7 @@ export function assertCodexSafeToRun(capabilities: CodexCapabilities): void {
 export function buildCodexReadonlyArgv(capabilities: CodexCapabilities, options: CodexArgvOptions): CodexArgv {
   assertCodexSafeToRun(capabilities);
 
-  const args: string[] = [];
+  const args: string[] = [...codexRuntimeConfigArgs()];
   if (capabilities.approvalFlagPlacement === "root") {
     args.push("--ask-for-approval", "never");
   }
@@ -142,7 +146,7 @@ export function buildCodexReadonlyResumeArgv(capabilities: CodexCapabilities, op
     throw new Error("Codex resume does not expose equivalent read-only sandbox and cwd constraints; use a fresh read-only exec.");
   }
 
-  const args: string[] = ["exec", "resume", "--json", "--sandbox", "read-only", "--cd", options.projectPath];
+  const args: string[] = [...codexRuntimeConfigArgs(), "exec", "resume", "--json", "--sandbox", "read-only", "--cd", options.projectPath];
   if (capabilities.supportsOutputLastMessage) args.push("--output-last-message", options.lastMessagePath);
   if (options.model) args.push("--model", options.model);
   if (options.profile) args.push("--profile", options.profile);
@@ -154,7 +158,7 @@ export function buildCodexReadonlyResumeArgv(capabilities: CodexCapabilities, op
 export function buildCodexWorkspaceWriteArgv(capabilities: CodexCapabilities, options: CodexArgvOptions): CodexArgv {
   assertCodexSafeToRun(capabilities);
 
-  const args: string[] = [];
+  const args: string[] = [...codexRuntimeConfigArgs()];
   if (capabilities.approvalFlagPlacement === "root") {
     args.push("--ask-for-approval", "never");
   }
@@ -169,6 +173,11 @@ export function buildCodexWorkspaceWriteArgv(capabilities: CodexCapabilities, op
   if (capabilities.supportsColor) args.push("--color", "never");
   args.push("--sandbox", "workspace-write");
   args.push("--cd", options.projectPath);
+  if (capabilities.supportsAddDir) {
+    for (const dir of options.additionalReadDirs ?? []) {
+      args.push("--add-dir", dir);
+    }
+  }
   if (capabilities.supportsOutputLastMessage) args.push("--output-last-message", options.lastMessagePath);
   if (options.model) args.push("--model", options.model);
   if (options.profile) args.push("--profile", options.profile);

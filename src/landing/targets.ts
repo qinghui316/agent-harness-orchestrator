@@ -4,7 +4,7 @@ import { readIntegrationCheck } from "../integration-check/repository.js";
 import { getWorktreeStatus } from "../worktree/manager.js";
 import type { ResolvedMemory } from "../types/index.js";
 import type { LandingReadinessTarget } from "./types.js";
-import { displayLandingArtifactPath, unique } from "./utils.js";
+import { diffContentHash, displayLandingArtifactPath, unique } from "./utils.js";
 
 export async function targetFromWorktree(memory: ResolvedMemory, worktreeId: string | undefined): Promise<LandingReadinessTarget> {
   if (!worktreeId) throw new Error("landing.prepare requires worktreeId or applyCheckId.");
@@ -18,7 +18,7 @@ export async function targetFromWorktree(memory: ResolvedMemory, worktreeId: str
     changeIds: [worktree.changeId],
     worktreeIds: [worktree.worktreeId],
     applyRunId: worktree.applyRunId,
-    expectedDiffHash: worktree.worktreeDiffHash ?? diff.diffHash,
+    expectedDiffHash: diffContentHash(diff.diff),
     evidenceRefs: [displayLandingArtifactPath(memory, join(memory.runsRoot, worktree.applyRunId, "apply.json"))],
   };
 }

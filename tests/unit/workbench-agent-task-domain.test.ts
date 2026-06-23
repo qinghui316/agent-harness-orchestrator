@@ -12,6 +12,7 @@ import { buildDelegateTaskManifest, validateDelegateTaskPolicy } from "../../src
 import { findBoundaryViolations } from "../../src/agent-task/boundary-audit.js";
 import { dispatchForegroundRoleTask } from "../../src/agent-task/role-dispatcher.js";
 import { evaluateToolPolicy, workerPermissionProfileForRole } from "../../src/agent-task/tool-policy.js";
+import { runCodeValidateAuditSequence } from "../../src/workflow-runtime/kernel/role-stage-runner.js";
 import { project } from "./workbench/fixtures.js";
 
 describe("workbench AgentTask domain", () => {
@@ -132,6 +133,49 @@ describe("workbench AgentTask domain", () => {
     expect(tasks).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: dispatched.task.id, roleId: "coder-agent", status: "running" }),
     ]));
+  });
+
+  it("marks coder AgentTask failed when code setup fails before run artifacts exist", async () => {
+    await initHarness(project());
+    await createChange(project(), { title: "Code Setup Failure" });
+    const memory = await resolveProjectMemory(project());
+
+    const result = await runCodeValidateAuditSequence(
+      project(),
+      "code-setup-failure",
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      "coder-agent",
+      undefined,
+      undefined,
+      { mode: "single-change-readiness", readinessManifestId: "readiness-missing" },
+    );
+
+    expect(result).toMatchObject({
+      status: "failed",
+      stoppedAt: "code",
+      error: expect.any(String),
+    });
+    const tasks = await listAgentTasks(memory, "code-setup-failure");
+    expect(tasks).toEqual([
+      expect.objectContaining({
+        roleId: "coder-agent",
+        status: "failed",
+        outputArtifacts: [],
+      }),
+    ]);
+
+    const nextDelegation = await validateDelegateTaskPolicy(memory, {
+      conversationId: "code-setup-failure",
+      changeId: "code-setup-failure",
+      roleId: "coder-agent",
+      kind: "foreground",
+      goal: "Retry implementation after failed setup.",
+      inputArtifacts: ["harness/changes/active/code-setup-failure/spec.md"],
+    });
+    expect(nextDelegation.ok).toBe(true);
   });
 
   it("enforces worker permission boundaries for delegation and high-impact actions", () => {

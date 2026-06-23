@@ -81,6 +81,20 @@ The current fixed-window pending evolution mechanism remains a lightweight compa
 
 Product-level maintenance must also prevent stable memory and long-lived docs from becoming append-only history. Raw closeouts, ledgers, run evidence, and archives remain durable, but current project memory should be compact, current, provenance-backed, and allowed to forget superseded inputs. Maintenance candidates should carry an explicit lifecycle resolution before any human-gated canonical update: promote a repeated lesson, merge duplicates into a shorter rule, retire stale current-state guidance, leave detailed history archive-only, or record noop when existing memory already covers the lesson.
 
+The final user experience should feel like a goal-driven development
+conversation. The user describes a goal, corrects the plan, and grants scoped
+authorization; the main Agent then loops over current evidence and explains why
+the next safe step is planning, sequential work, low-conflict parallel
+worktree work, validation/audit, bounded rework, IntegrationFix, waiting, or a
+user decision. TaskGraph, WorkflowRun, SchedulerRun, WorkerLease, recovery
+keys, and worktree ids remain internal evidence/detail concepts unless the user
+opens technical details. Low-risk authorized steps may eventually continue
+inside the loop, but full-auto behavior is a later scoped-authorization
+direction bound to the current demand, accepted plan, permission profile, and
+source state. Apply, merge, close/archive, remote landing, destructive external
+actions, product tradeoffs, and unclear requirements remain explicit human
+decisions.
+
 ## 2. Problems
 
 - Requirements often go straight into coding without `spec.md`, `plan.md`, or `tasks.md`.

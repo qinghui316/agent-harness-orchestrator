@@ -39,13 +39,12 @@ describe("workbench remote landing slow flow", () => {
         const memory = await resolveProjectMemory(project());
         const worktree = await createWorktree(project(), memory, "landing-demand");
         await writeFile(join(worktree.metadata.checkoutPath, "package.json"), "{\"scripts\":{\"test\":\"node -e \\\"console.log('landing')\\\"\"}}\n", "utf8");
+        await writeFile(join(worktree.metadata.checkoutPath, "acceptance-note.txt"), "real acceptance\n", "utf8");
         const diff = await collectWorktreeDiff(memory, worktree.metadata.worktreeId, "landing-demand");
         await writeValidationResultWithHash("landing-demand", "run-validation-landing", worktree.metadata.worktreeId, diff.diffHash, "passed");
         await writeAuditResultWithHash("landing-demand", "run-audit-landing", worktree.metadata.worktreeId, diff.diffHash, "approved-with-notes");
 
-        const snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: "landing-demand" });
-        const applyAction = snapshot.right.decisionInspector.primary?.actions.find((action) => action.action?.actionId === "result.apply")?.action;
-        if (!applyAction) throw new Error("Missing result.apply action.");
+        const applyAction = await applyActionAfterAuditAcceptance("landing-demand");
         await executeWorkbenchAction({ project: project(), path: getTempDir() }, { action: applyAction, confirm: true });
         const statusBeforeLanding = (await execFileAsync("git", ["status", "--short"], { cwd: getTempDir() })).stdout;
 
@@ -107,7 +106,59 @@ describe("workbench remote landing slow flow", () => {
         if (oldAhoHome === undefined) delete process.env.AHO_HOME;
         else process.env.AHO_HOME = oldAhoHome;
       }
-    });
+    }, 120_000);
+
+  it("prepares landing evidence from a committed worktree apply", async () => {
+      const oldAhoHome = process.env.AHO_HOME;
+      process.env.AHO_HOME = join(getTempDir(), ".aho-home");
+      try {
+        await initGitRepository(getTempDir());
+        await writeFile(join(getTempDir(), ".gitignore"), ".aho-home/\n.agent-harness/\nharness/\nAGENTS.md\ndocs/\nscripts/\n", "utf8");
+        await writeFile(join(getTempDir(), "package.json"), "{\"scripts\":{\"test\":\"node -e \\\"process.exit(0)\\\"\"}}\n", "utf8");
+        await git(getTempDir(), ["add", "."]);
+        await git(getTempDir(), ["commit", "-m", "initial"]);
+        await initHarness(project());
+        await createChange(project(), { title: "Committed Landing Demand" });
+        await writeAcceptedSpecAndTasks("committed-landing-demand");
+        const memory = await resolveProjectMemory(project());
+        const worktree = await createWorktree(project(), memory, "committed-landing-demand");
+        await writeFile(join(worktree.metadata.checkoutPath, "package.json"), "{\"scripts\":{\"test\":\"node -e \\\"console.log('committed landing')\\\"\"}}\n", "utf8");
+        await writeFile(join(worktree.metadata.checkoutPath, "committed-acceptance-note.txt"), "real acceptance\n", "utf8");
+        const diff = await collectWorktreeDiff(memory, worktree.metadata.worktreeId, "committed-landing-demand");
+        await writeValidationResultWithHash("committed-landing-demand", "run-validation-committed-landing", worktree.metadata.worktreeId, diff.diffHash, "passed");
+        await writeAuditResultWithHash("committed-landing-demand", "run-audit-committed-landing", worktree.metadata.worktreeId, diff.diffHash, "approved-with-notes");
+
+        const applyAction = await applyActionAfterAuditAcceptance("committed-landing-demand");
+        await executeWorkbenchAction({ project: project(), path: getTempDir() }, {
+          action: applyAction,
+          confirm: true,
+          options: { commit: true, message: "Apply AHO result: committed-landing-demand" },
+        });
+        const statusBeforeLanding = (await execFileAsync("git", ["status", "--short"], { cwd: getTempDir() })).stdout;
+        expect(statusBeforeLanding).toBe("");
+        const latestCommit = (await execFileAsync("git", ["log", "-1", "--pretty=%s"], { cwd: getTempDir() })).stdout.trim();
+        expect(latestCommit).toBe("Apply AHO result: committed-landing-demand");
+
+        const prepared = await executeWorkbenchAction({ project: project(), path: getTempDir() }, {
+          actionType: "landing.prepare",
+          changeId: "committed-landing-demand",
+          worktreeId: worktree.metadata.worktreeId,
+          confirm: true,
+        });
+        const pkg = (prepared.result as { result: { package: { status: string; review?: { roleId: string; verdict: string }; sourceDiffHash: string; changedFiles: string[] } } }).result.package;
+        expect(pkg).toMatchObject({
+          status: "ready",
+          sourceDiffHash: diff.diffHash,
+          review: expect.objectContaining({ roleId: "merge-reviewer-agent", verdict: "ready" }),
+        });
+        expect(pkg.changedFiles).toEqual(expect.arrayContaining(["package.json", "committed-acceptance-note.txt"]));
+        const statusAfterLanding = (await execFileAsync("git", ["status", "--short"], { cwd: getTempDir() })).stdout;
+        expect(statusAfterLanding).toBe("");
+      } finally {
+        if (oldAhoHome === undefined) delete process.env.AHO_HOME;
+        else process.env.AHO_HOME = oldAhoHome;
+      }
+    }, 120_000);
 
   it("prepares and submits a Draft PR for human review without merging or archiving", async () => {
       const oldAhoHome = process.env.AHO_HOME;
@@ -134,9 +185,7 @@ describe("workbench remote landing slow flow", () => {
         await writeValidationResultWithHash("pr-review-demand", "run-validation-pr-review", worktree.metadata.worktreeId, diff.diffHash, "passed");
         await writeAuditResultWithHash("pr-review-demand", "run-audit-pr-review", worktree.metadata.worktreeId, diff.diffHash, "approved-with-notes");
 
-        const snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: "pr-review-demand" });
-        const applyAction = snapshot.right.decisionInspector.primary?.actions.find((action) => action.action?.actionId === "result.apply")?.action;
-        if (!applyAction) throw new Error("Missing result.apply action.");
+        const applyAction = await applyActionAfterAuditAcceptance("pr-review-demand");
         await executeWorkbenchAction({ project: project(), path: getTempDir() }, { action: applyAction, confirm: true });
         const landingPrepared = await executeWorkbenchAction({ project: project(), path: getTempDir() }, {
           actionType: "landing.prepare",
@@ -211,7 +260,7 @@ describe("workbench remote landing slow flow", () => {
         if (oldGhCommandArgs === undefined) delete process.env.AHO_GH_COMMAND_ARGS;
         else process.env.AHO_GH_COMMAND_ARGS = oldGhCommandArgs;
       }
-    });
+    }, 120_000);
 
   it("prepares and performs a user-confirmed remote PR merge with merged closeout", async () => {
       const oldAhoHome = process.env.AHO_HOME;
@@ -238,9 +287,7 @@ describe("workbench remote landing slow flow", () => {
         await writeValidationResultWithHash("remote-landing-demand", "run-validation-remote-landing", worktree.metadata.worktreeId, diff.diffHash, "passed");
         await writeAuditResultWithHash("remote-landing-demand", "run-audit-remote-landing", worktree.metadata.worktreeId, diff.diffHash, "approved-with-notes");
 
-        const snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: "remote-landing-demand" });
-        const applyAction = snapshot.right.decisionInspector.primary?.actions.find((action) => action.action?.actionId === "result.apply")?.action;
-        if (!applyAction) throw new Error("Missing result.apply action.");
+        const applyAction = await applyActionAfterAuditAcceptance("remote-landing-demand");
         await executeWorkbenchAction({ project: project(), path: getTempDir() }, { action: applyAction, confirm: true });
         await recordDemandMemoryCloseout(memory, {
           changeId: "remote-landing-demand",
@@ -346,7 +393,7 @@ describe("workbench remote landing slow flow", () => {
         if (oldGhCommandArgs === undefined) delete process.env.AHO_GH_COMMAND_ARGS;
         else process.env.AHO_GH_COMMAND_ARGS = oldGhCommandArgs;
       }
-    });
+    }, 90_000);
 
   it("builds a landing queue from explicit PR targets and merges only one refreshed PR", async () => {
       const oldAhoHome = process.env.AHO_HOME;
@@ -621,9 +668,7 @@ describe("workbench remote landing slow flow", () => {
         await writeValidationResultWithHash("pr-feedback-demand", "run-validation-pr-feedback", worktree.metadata.worktreeId, diff.diffHash, "passed");
         await writeAuditResultWithHash("pr-feedback-demand", "run-audit-pr-feedback", worktree.metadata.worktreeId, diff.diffHash, "approved-with-notes");
 
-        const snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: "pr-feedback-demand" });
-        const applyAction = snapshot.right.decisionInspector.primary?.actions.find((action) => action.action?.actionId === "result.apply")?.action;
-        if (!applyAction) throw new Error("Missing result.apply action.");
+        const applyAction = await applyActionAfterAuditAcceptance("pr-feedback-demand");
         await executeWorkbenchAction({ project: project(), path: getTempDir() }, { action: applyAction, confirm: true });
         const landingPrepared = await executeWorkbenchAction({ project: project(), path: getTempDir() }, {
           actionType: "landing.prepare",
@@ -711,5 +756,18 @@ describe("workbench remote landing slow flow", () => {
         if (oldGhCommandArgs === undefined) delete process.env.AHO_GH_COMMAND_ARGS;
         else process.env.AHO_GH_COMMAND_ARGS = oldGhCommandArgs;
       }
-    });
+    }, 120_000);
 });
+
+async function applyActionAfterAuditAcceptance(topicId: string) {
+  let snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId });
+  const auditAccept = snapshot.right.confirmationQueue.primary?.actions.find((action) => action.action?.actionId === "audit.accept")?.action;
+  if (auditAccept) {
+    await executeWorkbenchAction({ project: project(), path: getTempDir() }, { action: auditAccept, confirm: true });
+    snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId });
+  }
+  const applyAction = snapshot.right.decisionInspector.primary?.actions.find((action) => action.action?.actionId === "result.apply")?.action
+    ?? snapshot.right.confirmationQueue.primary?.actions.find((action) => action.action?.actionId === "result.apply")?.action;
+  if (!applyAction) throw new Error("Missing result.apply action.");
+  return applyAction;
+}

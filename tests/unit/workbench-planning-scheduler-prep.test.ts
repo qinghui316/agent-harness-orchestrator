@@ -8,6 +8,7 @@ import { createWorkbenchTopic } from "../../src/workbench/chat.js";
 import { getWorkbenchDecompositionPlanProjection, getWorkbenchDecompositionReadinessProjection, getWorkbenchSchedulerClaimReservationProjection, getWorkbenchSchedulerContractProjection, getWorkbenchSnapshot, getWorkbenchTaskQueueProposalProjection, getWorkbenchWorkflowGraphPlanProjection } from "../../src/workbench/manager.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import { listAgentTasks } from "../../src/agent-task/manager.js";
+import { buildDeterministicPlanningBundle } from "../../src/workbench/planning/builders.js";
 import { listWorktreeStatuses } from "../../src/worktree/manager.js";
 import { listTaskQueues } from "../../src/task-queue/manager.js";
 import { listTaskRuns } from "../../src/task-run/manager.js";
@@ -21,6 +22,21 @@ beforeEach(async () => {
 });
 
 describe("workbench planning and scheduler preparation", () => {
+  it("builds generic planning artifacts from the accepted demand instead of stale demo rules", async () => {
+    await initHarness(project());
+    const memory = await resolveProjectMemory(project());
+    const prompt = "为 AHO 增加一个非 CI 的 current-project real Codex acceptance 入口或说明，明确如何用当前项目跑真实 Workbench/Codex 验收，并区分它和 fake fixture 测试。";
+
+    const bundle = buildDeterministicPlanningBundle(memory, "harness/changes/active/real-codex-acceptance", "real-codex-acceptance", prompt, null, false);
+    const acceptedText = [...bundle.acceptanceCriteria, bundle.design, bundle.tasks[0]?.title ?? ""].join("\n");
+
+    expect(acceptedText).toContain("完成用户需求");
+    expect(acceptedText).toContain("真实 Codex 验收");
+    expect(acceptedText).toContain("Workbench action path");
+    expect(acceptedText).not.toContain("金额按分");
+    expect(acceptedText).not.toContain("pricing rule");
+  });
+
   it("projects confirmed planning next action into the right confirmation queue", async () => {
     await initHarness(project());
     const topic = await createWorkbenchTopic(project(), {

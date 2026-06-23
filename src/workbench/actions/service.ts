@@ -33,6 +33,7 @@ export interface WorkbenchActionDecisionInput {
 export interface WorkbenchActionServiceDeps {
   resolveChangeId(project: ManagedProject, request: WorkbenchWorkflowActionRequest): Promise<string>;
   createTranscriptCapture(live: WorkbenchLiveSink | undefined): AssistantTranscriptCapture;
+  readThreadEntries(project: ManagedProject, changeId: string): Promise<TopicThreadEntry[]>;
   appendThreadEntry(project: ManagedProject, changeId: string, input: Omit<TopicThreadEntry, "id" | "timestamp" | "changeId">): Promise<TopicThreadEntry>;
   execute(project: ManagedProject, changeId: string, request: WorkbenchWorkflowActionRequest, live?: WorkbenchLiveSink): Promise<unknown>;
   labelForAction(actionType: WorkbenchWorkflowActionRequest["actionType"]): string;
@@ -53,6 +54,17 @@ export async function runWorkbenchWorkflowActionService(
 ): Promise<WorkbenchWorkflowActionResult> {
   const actionRunId = `action-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
   const changeId = await deps.resolveChangeId(project, request);
+  if (!isConcurrentControlAction(request.actionType)) {
+    const active = findActiveWorkflowAction(await deps.readThreadEntries(project, changeId));
+    if (active) {
+      const activeLabel = active.actionType
+        ? deps.labelForAction(active.actionType as WorkbenchWorkflowActionRequest["actionType"])
+        : "当前动作";
+      const error = new Error(`当前已有执行正在进行（${activeLabel}）。请等待完成，或先停止当前执行后再确认下一步。`);
+      error.name = "Conflict";
+      throw error;
+    }
+  }
   const started = await deps.appendThreadEntry(project, changeId, { type: "workflow.started", actionRunId, actionType: request.actionType, status: "running" });
   live?.emit({ event: "topic.message", data: started });
   live?.emit({ event: "run.status", data: { actionRunId, status: "running", label: deps.labelForAction(request.actionType) } });
@@ -113,4 +125,23 @@ export async function runWorkbenchWorkflowActionService(
     live?.emit({ event: "error", data: { message, actionRunId } });
     return { actionRunId, actionType: request.actionType, status: "failed", error: message };
   }
+}
+
+function isConcurrentControlAction(actionType: WorkbenchWorkflowActionRequest["actionType"]): boolean {
+  return actionType === "conversation.steer" || actionType === "conversation.interrupt" || actionType === "role.pipeline.stop";
+}
+
+function findActiveWorkflowAction(entries: TopicThreadEntry[]): TopicThreadEntry | null {
+  const active = new Map<string, TopicThreadEntry>();
+  for (const entry of entries) {
+    if (!entry.actionRunId) continue;
+    if (entry.type === "workflow.started") {
+      active.set(entry.actionRunId, entry);
+      continue;
+    }
+    if (entry.type === "workflow.completed" || entry.type === "workflow.failed") {
+      active.delete(entry.actionRunId);
+    }
+  }
+  return active.values().next().value ?? null;
 }

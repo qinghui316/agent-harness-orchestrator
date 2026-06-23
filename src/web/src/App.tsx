@@ -238,10 +238,13 @@ export function App(): ReactElement {
   async function executeDecisionAction(action: DecisionAction, context: DecisionContext): Promise<void> {
     if (!selectedProjectId || !action.enabled) return;
     if (action.kind === "approval" && action.action) {
+      const body = action.options
+        ? { action: action.action, confirm: true, options: action.options }
+        : { action: action.action, confirm: true };
       const result = await fetch(`/api/projects/${encodeURIComponent(selectedProjectId)}/workbench/actions`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: action.action, confirm: true }),
+        body: JSON.stringify(body),
       });
       if (!result.ok) throw new Error(await result.text());
       setConfirming(null);
@@ -618,6 +621,7 @@ export function App(): ReactElement {
   const activeWorkpad = snapshot.center.workpad ?? emptyWorkpad(activeTopic?.title ?? snapshot.project?.name);
   const activeRun = useMemo(() => snapshot.center.agentLoop.runs.find((run) => run.id === selectedRun) ?? snapshot.center.agentLoop.runs[0], [snapshot, selectedRun]);
   const selectedProjectStatus = useMemo(() => projects.find((item) => item.project?.id === selectedProjectId) ?? null, [projects, selectedProjectId]);
+  const selectedProjectMemoryReady = Boolean(selectedProjectStatus?.managed && snapshot.project?.id === selectedProjectId && snapshot.memory.harnessReady !== false);
   const runIds = useMemo(() => snapshot.center.agentLoop.runs.map((run) => run.id).join("|"), [snapshot.center.agentLoop.runs]);
   const snapshotTranscript = useMemo(() => {
     return normalizeParentAgentTranscript(loadedTranscript ?? snapshot.center.parentAgentTranscript);
@@ -669,7 +673,7 @@ export function App(): ReactElement {
     let cancelled = false;
     fetchJson<DemandAgentRunGraph>(`/api/projects/${encodeURIComponent(selectedProjectId)}/workbench/projections/run-graph/${encodeURIComponent(activeTopic.id)}`)
       .then((projection) => {
-        if (!cancelled) setLoadedRunGraph(projection);
+        if (!cancelled && isDemandAgentRunGraph(projection)) setLoadedRunGraph(projection);
       })
       .catch((cause: unknown) => {
         if (!cancelled) setError(cause instanceof Error ? cause.message : String(cause));
@@ -735,7 +739,7 @@ export function App(): ReactElement {
       <main className="workspace">
         {!selectedProjectId ? (
           <EmptyWorkbench title="选择一个项目开始" description="从左侧添加已有项目或新建空仓库。AHO 会把项目、记忆、需求对话和确认动作组织在这个工作台里。" />
-        ) : !selectedProjectStatus?.managed ? (
+        ) : !selectedProjectStatus?.managed || !selectedProjectMemoryReady ? (
           <UnmanagedProjectView project={selectedProjectStatus} onDone={() => loadApp().then(() => selectedProjectId ? refresh(selectedProjectId, null) : undefined)} />
         ) : !activeTopic ? (
           <TopicEmptyView
@@ -816,6 +820,7 @@ export function App(): ReactElement {
           inspector={activeDecisionInspector}
           confirmationQueue={activeConfirmationQueue}
           confirming={confirming}
+          busy={actionRunning !== null}
           error={error}
           onConfirmingChange={setConfirming}
           onExecuteAction={executeDecisionAction}

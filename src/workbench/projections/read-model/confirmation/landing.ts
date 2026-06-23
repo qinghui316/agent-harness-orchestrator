@@ -188,6 +188,21 @@ export function landingPackageQueueItem(project: ManagedProject, pkg: LandingRea
   const selected = Boolean(selectedChangeId && pkg.target.changeIds.includes(selectedChangeId));
   const itemChangeId = selected ? selectedChangeId : pkg.target.changeIds[0];
   const reviewArtifact = selectLandingReviewArtifactRef(pkg.artifactRefs);
+  const refreshAction: WorkbenchDecisionAction = {
+    id: `landing-refresh:${pkg.id}`,
+    label: "重新检查",
+    kind: "workflow-action",
+    actionType: "landing.refresh",
+    worktreeId: pkg.target.worktreeIds[0],
+    worktreeIds: pkg.target.worktreeIds.length > 0 ? pkg.target.worktreeIds : undefined,
+    applyCheckId: pkg.target.applyCheckId,
+    landingPackageId: pkg.id,
+    enabled: true,
+    requiresConfirmation: true,
+  };
+  const actions = pkg.review?.verdict === "ready"
+    ? evidenceActions(reviewArtifact)
+    : [refreshAction, ...evidenceActions(reviewArtifact)];
   return {
     id: `landing:package:${pkg.id}`,
     kind: "landing-readiness",
@@ -200,7 +215,7 @@ export function landingPackageQueueItem(project: ManagedProject, pkg: LandingRea
     confirmEffect: "这是本地落地证据；当前版本不会 commit、push、创建 PR 或 merge。",
     riskSummary: pkg.review?.riskSummary ?? pkg.riskSummary,
     evidenceRefs: pkg.artifactRefs,
-    actions: evidenceActions(reviewArtifact),
+    actions,
     primary: selected,
     status: pkg.review?.verdict === "ready" ? "passed" : "failed",
   };

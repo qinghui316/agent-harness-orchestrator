@@ -91,6 +91,41 @@ describe("runtime continuity evidence", () => {
     expect(await readFile(paths.agentEvents, "utf8")).toContain("\"agent-event-envelope\"");
   });
 
+  it("serializes concurrent agent event appends into valid JSONL", async () => {
+    const paths = runtimeContinuityPaths(tempDir);
+    const artifacts = await createRuntimeContinuityArtifacts(paths, {
+      projectId: "project-1",
+      changeId: "change-1",
+      runId: "run-concurrent",
+      roleId: "coder-agent",
+      adapter: "codex-exec",
+      worktree: {
+        worktreeId: "wt-1",
+        branchName: "aho/wt-1",
+        baseRef: "main",
+        baseCommit: "abc123",
+        checkoutPath: join(tempDir, "checkout"),
+        metadataPath: join(tempDir, "wt-1.json"),
+      },
+      permissionProfile,
+      rawArtifactRefs: ["runs/run-concurrent/codex-events.jsonl"],
+      sandboxPolicy: "workspace-write",
+    });
+
+    await Promise.all(Array.from({ length: 40 }, (_, index) => appendAgentEventEnvelope(paths, artifacts.session, artifacts.eventSource, {
+      eventType: "text_delta",
+      summary: `event-${index}`,
+      raw: { index, payload: "x".repeat(2048) },
+    })));
+
+    const lines = (await readFile(paths.agentEvents, "utf8")).trim().split(/\r?\n/);
+    const envelopes = await readAgentEventEnvelopes(paths, artifacts.session, artifacts.eventSource);
+
+    expect(lines).toHaveLength(40);
+    expect(envelopes.map((event) => event.sequence)).toEqual(Array.from({ length: 40 }, (_, index) => index + 1));
+    expect(new Set(envelopes.map((event) => event.id)).size).toBe(40);
+  });
+
   it("rejects cross-change and cross-role direct reads", async () => {
     const paths = runtimeContinuityPaths(tempDir);
     await createRuntimeContinuityArtifacts(paths, {

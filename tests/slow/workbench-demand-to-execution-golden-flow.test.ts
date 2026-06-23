@@ -17,6 +17,7 @@ import {
 import type { WorkbenchDecisionAction } from "../../src/workbench/read-model-types.js";
 
 const execFileAsync = promisify(execFile);
+const SLOW_FLOW_TIMEOUT_MS = 120_000;
 
 describe("workbench demand-to-execution golden flow", () => {
   it("carries a natural demand through planning, readiness, code, validation, and audit without source apply", async () => {
@@ -110,6 +111,24 @@ describe("workbench demand-to-execution golden flow", () => {
 
       snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: topic.changeId });
       expect(snapshot.center.workpad.resultReview).toMatchObject({
+        status: "not-ready",
+        validation: expect.objectContaining({ status: "passed" }),
+        audit: expect.objectContaining({ status: expect.stringMatching(/approved/) }),
+        applyReadiness: expect.objectContaining({ kind: "not-approved" }),
+      });
+      expect(snapshot.right.confirmationQueue.primary).toMatchObject({
+        id: expect.stringContaining("confirm:approval:audit:"),
+        changeId: topic.changeId,
+        primary: true,
+      });
+      const auditAccept = primaryApprovalAction(snapshot, "audit.accept");
+      await executeWorkbenchAction({ project: project(), path: getTempDir() }, {
+        action: auditAccept.action,
+        confirm: true,
+      });
+
+      snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: topic.changeId });
+      expect(snapshot.center.workpad.resultReview).toMatchObject({
         status: "ready-to-apply",
         validation: expect.objectContaining({ status: "passed" }),
         audit: expect.objectContaining({ status: expect.stringMatching(/approved/) }),
@@ -125,12 +144,18 @@ describe("workbench demand-to-execution golden flow", () => {
       if (oldPath === undefined) delete process.env.PATH;
       else process.env.PATH = oldPath;
     }
-  });
+  }, SLOW_FLOW_TIMEOUT_MS);
 });
 
 function primaryWorkflowAction(snapshot: Awaited<ReturnType<typeof getWorkbenchSnapshot>>, actionType: string): WorkbenchDecisionAction {
   const action = snapshot.right.confirmationQueue.primary?.actions.find((candidate) => candidate.actionType === actionType);
   if (!action) throw new Error(`Missing primary ${actionType} action.`);
+  return action;
+}
+
+function primaryApprovalAction(snapshot: Awaited<ReturnType<typeof getWorkbenchSnapshot>>, actionId: string): WorkbenchDecisionAction {
+  const action = snapshot.right.confirmationQueue.primary?.actions.find((candidate) => candidate.action?.actionId === actionId);
+  if (!action) throw new Error(`Missing primary ${actionId} approval action.`);
   return action;
 }
 

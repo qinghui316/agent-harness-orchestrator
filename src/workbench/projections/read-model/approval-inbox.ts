@@ -8,7 +8,8 @@ import { listPlanProposalSummaries, listSpecProposalSummaries } from "../../../c
 import { hasPendingEvolution } from "../../../ecl/index.js";
 import { readRun } from "../../../run/manager.js";
 import { listSpecTestProposalSummaries } from "../../../spec-test/proposal.js";
-import { listWorktreeStatuses } from "../../../worktree/manager.js";
+import { listValidationResults } from "../../../validation/artifacts.js";
+import { listWorktreesForChange } from "../../../worktree/manager.js";
 import type { ManagedProject, ResolvedMemory } from "../../../types/index.js";
 import type { WorkbenchApprovalAction, WorkbenchApprovalItem, WorkbenchTopicSummary } from "../../read-model-types.js";
 import { readRunEvents } from "./thread-stream.js";
@@ -61,9 +62,9 @@ export async function buildApprovalInbox(project: ManagedProject, memory: Resolv
     });
   }
 
-  const worktrees = await listWorktreeStatuses(memory).catch(() => []);
   for (const activeTopic of activeTopics) {
     const audits = await listAuditResults(memory, activeTopic.id).catch(() => []);
+    const validations = await listValidationResults(memory, activeTopic.id).catch(() => []);
     for (const audit of audits.filter((item) => item.status === "approved" || item.status === "approved-with-notes").slice(0, 3)) {
       if (await auditAlreadyAccepted(memory, activeTopic.path, audit.id)) continue;
       approvals.push({
@@ -78,7 +79,9 @@ export async function buildApprovalInbox(project: ManagedProject, memory: Resolv
         artifact: audit.artifacts.audit,
       });
     }
-    for (const worktree of worktrees.filter((item) => item.changeId === activeTopic.id && item.status !== "applied")) {
+    const worktrees = await listWorktreesForChange(memory, activeTopic.id).catch(() => []);
+    for (const worktree of worktrees.filter((item) => item.status !== "applied")) {
+      if (!hasPotentialApplyEvidence(validations, audits, worktree.worktreeId)) continue;
       const preview = await previewWorktreeApply(project, worktree.worktreeId).catch(() => null);
       if (preview && canApplyResultFromGate(preview.gate)) {
         approvals.push({
@@ -141,6 +144,23 @@ export async function buildApprovalInbox(project: ManagedProject, memory: Resolv
     });
   }
   return approvals;
+}
+
+function hasPotentialApplyEvidence(
+  validations: Array<{ worktreeId?: string; status: string; finishedAt: string }>,
+  audits: Array<{ worktreeId?: string; status: string; finishedAt: string }>,
+  worktreeId: string,
+): boolean {
+  const validation = latestForWorktree(validations, worktreeId);
+  if (validation?.status !== "passed") return false;
+  const audit = latestForWorktree(audits, worktreeId);
+  return audit?.status === "approved" || audit?.status === "approved-with-notes";
+}
+
+function latestForWorktree<T extends { worktreeId?: string; finishedAt: string }>(items: T[], worktreeId: string): T | undefined {
+  return items
+    .filter((item) => item.worktreeId === worktreeId)
+    .sort((a, b) => b.finishedAt.localeCompare(a.finishedAt))[0];
 }
 
 export async function runHasEvent(memory: ResolvedMemory, runId: string, eventType: string): Promise<boolean> {

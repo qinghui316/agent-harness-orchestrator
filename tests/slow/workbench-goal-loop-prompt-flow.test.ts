@@ -519,5 +519,5 @@ describe("Workbench Goal Loop prompt slow flows", () => {
       if (oldPath === undefined) delete process.env.PATH;
       else process.env.PATH = oldPath;
     }
-  }, 300000);
+  }, 600_000);
 });

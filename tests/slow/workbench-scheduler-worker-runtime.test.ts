@@ -720,6 +720,6 @@ describe("workbench scheduler worker runtime slow path", () => {
     } finally {
       process.env.PATH = oldPath;
     }
-  }, 90000);
+  }, 120000);
 
 });

@@ -14,7 +14,9 @@ export async function getWorktreeStatus(memory: ResolvedMemory, worktreeId: stri
 }
 
 export async function listWorktreesForChange(memory: ResolvedMemory, changeId: string): Promise<WorktreeStatus[]> {
-  return (await listWorktreeStatuses(memory)).filter((item) => item.changeId === changeId);
+  const metadata = (await listWorktreeMetadata(memory)).filter((item) => item.changeId === changeId);
+  const statuses = await Promise.all(metadata.map((item) => statusFromMetadata(item)));
+  return statuses.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
 export async function statusFromMetadata(metadata: WorktreeMetadata): Promise<WorktreeStatus> {
@@ -36,4 +38,3 @@ export async function statusFromMetadata(metadata: WorktreeMetadata): Promise<Wo
     diffSummary,
   };
 }
-

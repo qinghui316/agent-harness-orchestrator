@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -8,9 +8,11 @@ import { writeJsonFile } from "../../src/fs/json.js";
 import { initHarness } from "../../src/harness/init.js";
 import { repoLocalMemory } from "../../src/memory/resolver.js";
 import { git } from "../../src/project/git.js";
+import { collectWorktreeDiff } from "../../src/audit/diff.js";
 import { resolveValidationProfile } from "../../src/validation/profiles.js";
 import { startValidationRun } from "../../src/validation/manager.js";
 import { listValidationResults, readValidationResult } from "../../src/validation/artifacts.js";
+import { createWorktree } from "../../src/worktree/creation.js";
 import type { ManagedProject, ValidationResult } from "../../src/types/index.js";
 
 let tempDir: string;
@@ -181,6 +183,94 @@ describe("validation", () => {
       "external-execution.requested",
       "external-execution.completed",
     ]));
+  });
+
+  it("bridges source Node dependencies for worktree validation without entering the diff", async () => {
+    await initGitRepo(tempDir);
+    await writeFile(join(tempDir, ".gitignore"), "node_modules/\n", "utf8");
+    await writeFile(join(tempDir, "package.json"), JSON.stringify({
+      scripts: {
+        test: "probe-bin",
+      },
+    }), "utf8");
+    await git(tempDir, ["add", ".gitignore", "package.json"]);
+    await git(tempDir, ["commit", "-m", "add package"]);
+    await mkdir(join(tempDir, "node_modules", "local-probe"), { recursive: true });
+    await writeFile(join(tempDir, "node_modules", "local-probe", "index.js"), "module.exports = 'probe';\n", "utf8");
+    await mkdir(join(tempDir, "node_modules", ".bin"), { recursive: true });
+    await writeFile(join(tempDir, "node_modules", ".bin", "probe-bin"), "#!/usr/bin/env node\nrequire('local-probe'); console.log('probe-ok');\n", "utf8");
+    await chmod(join(tempDir, "node_modules", ".bin", "probe-bin"), 0o755);
+    await writeFile(join(tempDir, "node_modules", ".bin", "probe-bin.cmd"), "@echo off\r\nnode -e \"require('local-probe'); console.log('probe-ok')\"\r\n", "utf8");
+    await initHarness(project(tempDir));
+    await createChange(project(tempDir), { title: "Worktree Dependency Bridge" });
+
+    const result = await startValidationRun(project(tempDir), { worktree: true });
+    const runDir = join(tempDir, result.run.artifacts.directory);
+    const worktreeId = result.run.worktree?.worktreeId;
+    expect(worktreeId).toBeTruthy();
+    const diff = await collectWorktreeDiff(repoLocalMemory(tempDir, "repo"), worktreeId as string, "worktree-dependency-bridge");
+
+    expect(result.validation.status).toBe("passed");
+    expect(await readFile(join(runDir, "commands", "001-test.stdout.log"), "utf8")).toContain("probe-ok");
+    expect(existsSync(join(result.run.worktree?.checkoutPath ?? "", "node_modules"))).toBe(true);
+    expect(diff.diff).toBe("");
+    expect(diff.diffStat).not.toContain("node_modules");
+    expect(result.validation.worktreeDiffHash).toBe(diff.diffHash);
+  });
+
+  it("restores the candidate worktree diff after validation command side effects", async () => {
+    await git(tempDir, ["init"]);
+    await git(tempDir, ["config", "user.email", "test@example.com"]);
+    await git(tempDir, ["config", "user.name", "Test User"]);
+    await writeFile(join(tempDir, "package.json"), JSON.stringify({
+      scripts: {
+        test: `${process.execPath} -e "require('fs').writeFileSync('README.md','validation side effect\\n')"`,
+      },
+    }), "utf8");
+    await git(tempDir, ["add", "package.json"]);
+    await git(tempDir, ["commit", "-m", "initial"]);
+    await initHarness(project(tempDir));
+    const change = await createChange(project(tempDir), { title: "Validation Side Effects" });
+    const memory = repoLocalMemory(tempDir, "repo");
+    const worktree = await createWorktree(project(tempDir), memory, change.change.id, { runId: "candidate-run" });
+    await mkdir(join(worktree.metadata.checkoutPath, "src"), { recursive: true });
+    await writeFile(join(worktree.metadata.checkoutPath, "src", "proposal.ts"), "export const proposal = true;\n", "utf8");
+
+    const result = await startValidationRun(project(tempDir), { worktree: worktree.metadata.worktreeId });
+    const diff = await collectWorktreeDiff(memory, worktree.metadata.worktreeId, change.change.id);
+
+    expect(result.validation.status).toBe("passed");
+    expect(existsSync(join(worktree.metadata.checkoutPath, "README.md"))).toBe(false);
+    expect(existsSync(join(worktree.metadata.checkoutPath, "src", "proposal.ts"))).toBe(true);
+    expect(diff.diff).toContain("src/proposal.ts");
+    expect(diff.diff).not.toContain("validation side effect");
+    expect(result.validation.worktreeDiffHash).toBe(diff.diffHash);
+    const runDir = join(tempDir, result.run.artifacts.directory);
+    const events = await readFile(join(runDir, "agent-events.jsonl"), "utf8");
+    expect(events).toContain("validation.worktree_candidate_restored");
+    expect(events).toContain("README.md");
+  });
+
+  it("fails closed before worktree validation commands when source dependencies are missing", async () => {
+    await initGitRepo(tempDir);
+    await writeFile(join(tempDir, ".gitignore"), "node_modules/\n", "utf8");
+    await writeFile(join(tempDir, "package.json"), JSON.stringify({
+      scripts: { test: "node -e \"console.log('should-not-run')\"" },
+      devDependencies: { "dependency-that-is-not-installed": "1.0.0" },
+    }), "utf8");
+    await git(tempDir, ["add", ".gitignore", "package.json"]);
+    await git(tempDir, ["commit", "-m", "add package without dependencies"]);
+    await initHarness(project(tempDir));
+    await createChange(project(tempDir), { title: "Missing Source Dependencies" });
+
+    const result = await startValidationRun(project(tempDir), { worktree: true });
+    const runDir = join(tempDir, result.run.artifacts.directory);
+
+    expect(result.validation.status).toBe("failed");
+    expect(result.validation.commands).toEqual([]);
+    expect(result.run.status).toBe("failed");
+    expect(await readFile(join(runDir, "stderr.log"), "utf8")).toContain("source dependencies are missing");
+    expect(existsSync(join(runDir, "commands", "001-test.stdout.log"))).toBe(false);
   });
 
   it("runs validation for an explicit Change target when multiple active demands exist", async () => {

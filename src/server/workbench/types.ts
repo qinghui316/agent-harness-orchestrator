@@ -134,6 +134,10 @@ export interface InitProjectHarnessRequest {
   confirm?: boolean;
 }
 
+export interface TrustCodexProjectRequest {
+  confirm?: boolean;
+}
+
 export interface CreateTopicRequest {
   title?: string;
   body?: string;

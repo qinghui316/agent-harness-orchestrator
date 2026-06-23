@@ -1,15 +1,19 @@
 import { useState, type ReactElement } from "react";
-import { Folder, Plus } from "lucide-react";
+import { Folder, Plus, ShieldCheck } from "lucide-react";
 import { postJson } from "../api.js";
 import type { FolderDialogResult, ProjectStatus, Snapshot } from "../types.js";
 
 export function ProjectDetailsPanel({ project, snapshot, selected, onOpen, onRefresh }: { project: ProjectStatus; snapshot: Snapshot | undefined; selected: boolean; onOpen: () => void; onRefresh: () => void }): ReactElement {
+  const memoryReady = snapshot?.memory.harnessReady ?? project.harness.readiness === "ready";
   return (
     <div className="project-details-panel">
       <InfoRow label="仓库" value={snapshot?.left.repo?.branch ?? (project.isGitRepo ? "已初始化" : "未检测到")} />
       <InfoRow label="记忆" value={snapshot?.memory.memoryMode ?? (project.managed ? "已配置" : "未初始化")} />
-      <InfoRow label="状态" value={project.managed ? "Harness 就绪" : "未初始化"} />
-      {!selected ? <button className="project-detail-action" onClick={onOpen}>{project.managed ? "打开项目" : "初始化 Harness"}</button> : null}
+      <InfoRow label="状态" value={memoryReady ? "Harness 就绪" : "需要初始化"} />
+      <InfoRow label="Codex" value={project.codexTrust?.trusted ? "项目已信任" : "需要确认信任"} />
+      {!project.codexTrust?.trusted ? <CodexTrustButton project={project} onDone={onRefresh} /> : null}
+      {project.project && !memoryReady ? <HarnessInitButton projectId={project.project.id} onDone={async () => onRefresh()} /> : null}
+      {!selected && memoryReady ? <button className="project-detail-action" onClick={onOpen}>打开项目</button> : null}
       <button className="project-detail-action" onClick={onRefresh}>刷新项目</button>
     </div>
   );
@@ -142,5 +146,28 @@ export function HarnessInitButton({ projectId, onDone }: { projectId: string; on
       <button className="secondary-button" onClick={() => void init().catch((cause: unknown) => setMessage(cause instanceof Error ? cause.message : String(cause)))}>初始化 Harness</button>
       {message ? <small>{message}</small> : null}
     </>
+  );
+}
+
+function CodexTrustButton({ project, onDone }: { project: ProjectStatus; onDone: () => void }): ReactElement | null {
+  const [message, setMessage] = useState<string | null>(project.codexTrust?.reason ?? null);
+  if (!project.project) return null;
+  async function trust(): Promise<void> {
+    const response = await fetch(`/api/projects/${encodeURIComponent(project.project!.id)}/codex/trust`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ confirm: true }),
+    });
+    if (!response.ok) throw new Error(await response.text());
+    setMessage(`已写入 ${project.codexTrust?.configPath ?? "Codex config.toml"}`);
+    onDone();
+  }
+  return (
+    <div className="project-trust-action">
+      <button className="project-detail-action" onClick={() => void trust().catch((cause: unknown) => setMessage(cause instanceof Error ? cause.message : String(cause)))}>
+        <ShieldCheck size={15} />信任 Codex 项目
+      </button>
+      {message ? <small>{message}</small> : null}
+    </div>
   );
 }

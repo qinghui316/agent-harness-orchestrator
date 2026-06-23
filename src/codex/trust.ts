@@ -1,0 +1,128 @@
+import { existsSync } from "node:fs";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
+import { dirname, join, resolve } from "node:path";
+
+export interface CodexProjectTrustStatus {
+  trusted: boolean;
+  configPath: string;
+  projectKey: string;
+  configExists: boolean;
+  reason?: string;
+}
+
+export interface CodexTrustOptions {
+  codexHome?: string;
+  platform?: NodeJS.Platform;
+}
+
+export function getCodexConfigPath(options: CodexTrustOptions = {}): string {
+  return join(options.codexHome ?? process.env.CODEX_HOME ?? join(homedir(), ".codex"), "config.toml");
+}
+
+export function getCodexProjectKey(projectPath: string, options: CodexTrustOptions = {}): string {
+  const resolved = resolve(projectPath);
+  return (options.platform ?? process.platform) === "win32" ? resolved.toLowerCase() : resolved;
+}
+
+export async function readCodexProjectTrust(projectPath: string, options: CodexTrustOptions = {}): Promise<CodexProjectTrustStatus> {
+  const configPath = getCodexConfigPath(options);
+  const projectKey = getCodexProjectKey(projectPath, options);
+  if (!existsSync(configPath)) {
+    return { trusted: false, configPath, projectKey, configExists: false, reason: "Codex config.toml was not found." };
+  }
+  try {
+    const content = await readFile(configPath, "utf8");
+    const section = findProjectTrustSection(content, projectKey, options.platform ?? process.platform);
+    if (!section) {
+      return { trusted: false, configPath, projectKey, configExists: true, reason: "Project is not listed in Codex config.toml." };
+    }
+    if (section.trusted) return { trusted: true, configPath, projectKey, configExists: true };
+    return { trusted: false, configPath, projectKey, configExists: true, reason: "Project entry exists but trust_level is not trusted." };
+  } catch (cause) {
+    return {
+      trusted: false,
+      configPath,
+      projectKey,
+      configExists: true,
+      reason: cause instanceof Error ? cause.message : String(cause),
+    };
+  }
+}
+
+export async function trustCodexProject(projectPath: string, options: CodexTrustOptions = {}): Promise<CodexProjectTrustStatus> {
+  const configPath = getCodexConfigPath(options);
+  const projectKey = getCodexProjectKey(projectPath, options);
+  const content = existsSync(configPath) ? await readFile(configPath, "utf8") : "";
+  const updated = upsertProjectTrust(content, projectKey, options.platform ?? process.platform);
+  await mkdir(dirname(configPath), { recursive: true });
+  await writeFile(configPath, updated, "utf8");
+  return readCodexProjectTrust(projectPath, options);
+}
+
+function upsertProjectTrust(content: string, projectKey: string, platform: NodeJS.Platform): string {
+  const lines = content.split(/\r?\n/);
+  const section = findProjectTrustSection(content, projectKey, platform);
+  if (!section) {
+    const prefix = content.trim().length > 0 ? trimTrailingBlankLines(lines).join("\n") + "\n\n" : "";
+    return `${prefix}${projectHeader(projectKey)}\ntrust_level = "trusted"\n`;
+  }
+  const nextLines = [...lines];
+  if (section.trustLineIndex !== undefined) {
+    nextLines[section.trustLineIndex] = 'trust_level = "trusted"';
+  } else {
+    nextLines.splice(section.startLine + 1, 0, 'trust_level = "trusted"');
+  }
+  return ensureTrailingNewline(nextLines.join("\n"));
+}
+
+function findProjectTrustSection(content: string, projectKey: string, platform: NodeJS.Platform): { startLine: number; trustLineIndex?: number; trusted: boolean } | null {
+  const lines = content.split(/\r?\n/);
+  for (let index = 0; index < lines.length; index += 1) {
+    const key = parseProjectHeader(lines[index]);
+    if (key === null || comparableProjectKey(key, platform) !== comparableProjectKey(projectKey, platform)) continue;
+    let trustLineIndex: number | undefined;
+    let trusted = false;
+    for (let cursor = index + 1; cursor < lines.length; cursor += 1) {
+      if (/^\s*\[.+\]\s*$/.test(lines[cursor])) break;
+      const match = lines[cursor].match(/^\s*trust_level\s*=\s*["']([^"']+)["']\s*$/);
+      if (match) {
+        trustLineIndex = cursor;
+        trusted = match[1] === "trusted";
+      }
+    }
+    return { startLine: index, trustLineIndex, trusted };
+  }
+  return null;
+}
+
+function parseProjectHeader(line: string): string | null {
+  const single = line.match(/^\s*\[projects\.'([^']+)'\]\s*$/);
+  if (single) return single[1];
+  const double = line.match(/^\s*\[projects\.(".*")\]\s*$/);
+  if (!double) return null;
+  try {
+    return JSON.parse(double[1]) as string;
+  } catch {
+    return null;
+  }
+}
+
+function projectHeader(projectKey: string): string {
+  return projectKey.includes("'") ? `[projects.${JSON.stringify(projectKey)}]` : `[projects.'${projectKey}']`;
+}
+
+function comparableProjectKey(projectKey: string, platform: NodeJS.Platform): string {
+  const normalized = projectKey.replace(/\//g, "\\");
+  return platform === "win32" ? normalized.toLowerCase() : projectKey;
+}
+
+function trimTrailingBlankLines(lines: string[]): string[] {
+  const next = [...lines];
+  while (next.length > 0 && next[next.length - 1].trim() === "") next.pop();
+  return next;
+}
+
+function ensureTrailingNewline(content: string): string {
+  return content.endsWith("\n") ? content : `${content}\n`;
+}

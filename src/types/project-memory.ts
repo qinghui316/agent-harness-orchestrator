@@ -113,6 +113,14 @@ export interface HarnessAuditResult {
   components: HarnessComponentStatus[];
 }
 
+export interface CodexProjectTrustStatus {
+  trusted: boolean;
+  configPath: string;
+  projectKey: string;
+  configExists: boolean;
+  reason?: string;
+}
+
 export interface ProjectStatus {
   project: ManagedProject | null;
   path: string;
@@ -122,4 +130,5 @@ export interface ProjectStatus {
   dirty: boolean | null;
   managed: boolean;
   harness: HarnessAuditResult;
+  codexTrust: CodexProjectTrustStatus;
 }

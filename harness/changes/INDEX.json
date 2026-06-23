@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-21T09:54:22.8354260Z",
+    "generated_at":  "2026-06-23T06:27:01.1090547Z",
     "active":  [
 
                ],
@@ -1797,6 +1797,22 @@
                     {
                         "name":  "20260621-workpad-controlled-scheduler-reconfirmation-surface",
                         "path":  "harness/changes/archive/20260621-workpad-controlled-scheduler-reconfirmation-surface"
+                    },
+                    {
+                        "name":  "20260623-auto-evolve-harness-real-codex-acceptance-window",
+                        "path":  "harness/changes/archive/20260623-auto-evolve-harness-real-codex-acceptance-window"
+                    },
+                    {
+                        "name":  "20260623-document-goal-driven-workflow-loop-target",
+                        "path":  "harness/changes/archive/20260623-document-goal-driven-workflow-loop-target"
+                    },
+                    {
+                        "name":  "20260623-workbench-close-gate-projection-alignment",
+                        "path":  "harness/changes/archive/20260623-workbench-close-gate-projection-alignment"
+                    },
+                    {
+                        "name":  "20260623-workbench-current-project-real-codex-acceptance",
+                        "path":  "harness/changes/archive/20260623-workbench-current-project-real-codex-acceptance"
                     }
                 ]
 }

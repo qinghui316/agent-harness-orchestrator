@@ -62,6 +62,8 @@ High-impact unknowns are recorded as `[NEEDS CLARIFICATION: ...]` and block impl
 
 Review verification evidence must name the selected verification scope. Use the smallest command set that directly covers the touched boundary, then escalate to aggregate/full suites when the change affects shared runtime behavior, Workbench aggregate contracts, package scripts, gate/source/apply paths, validation/audit, remote handoff, scheduler, Goal Loop, or release-risk surfaces. When full `npm run test`, full `npm run test:workbench`, or slow Workbench suites are skipped, the review must state why the targeted evidence is sufficient for this change.
 
+When an aggregate Workbench or slow suite exceeds the tool/session window without an assertion failure, the review must record the timeout and run the relevant split package-script or capability-domain suite members when practical. Passing split members may support the scoped product-health conclusion, but the aggregate timeout remains verification topology or runtime-cost debt until addressed.
+
 ## 6. Plan-First Inputs
 
 When a user gives a plan, split it into:
@@ -141,12 +143,15 @@ Capture these signals in `summary.md` or `reviews/review.md`:
 - screenshots, DOM summaries, API snapshots, or run artifacts used as real acceptance evidence;
 - environment-only failures that should not weaken product gates;
 - agent-quality failures or product-fixable workarounds that should become follow-up changes or evolution evidence.
+- when claiming real Codex acceptance, explicit evidence that the pass did not rely on fake Codex binaries, mocked PATH entries, fixture results, or hand-written run artifacts;
 - external source/state safety when acceptance uses a demo repo, external project, reference repo, or temporary AHO home:
   - path or home used;
   - whether source mutation is in scope;
   - before/after source safety check, usually `git status --short`;
   - any state workaround, such as using an existing active Topic instead of mutating close/park state;
   - if real-project acceptance is deferred or split out, the follow-up acceptance path or limitation.
+
+When real acceptance validates the current project itself, formal apply/close evidence should keep the development checkout, the managed project source under test, and the AHO runtime home separate unless same-root source-safety behavior is explicitly the test target. A same-root dirty-source block is valid negative source-safety evidence, not positive apply/close pass evidence.
 
 Do not make real Codex acceptance mandatory for every change. Use it when the change affects the coding, validation, audit, apply, runtime, or memory path. If real acceptance is unavailable for environment reasons, record that as an environment limitation and keep mechanical validation gates intact.
 

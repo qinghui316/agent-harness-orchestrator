@@ -2,23 +2,47 @@
 
 ## Current Handoff
 
-- Current date: 2026-06-21.
+- Current date: 2026-06-23.
 - Active ECL change: none.
 - Pending Harness evolution: none.
-- Latest archived product change: `harness/changes/archive/20260621-workbench-verification-signal-stability/summary.md`.
-- Latest archived product/Harness docs change: `harness/changes/archive/20260621-workbench-verification-signal-stability/summary.md`.
-- Latest archived Harness evolution: `harness/changes/archive/20260621-auto-evolve-harness-controlled-scheduler-continuation-window/summary.md`.
-- Active product phase: none.
+- Latest archived product change: `harness/changes/archive/20260623-workbench-close-gate-projection-alignment/summary.md`.
+- Latest real-Codex acceptance change: `harness/changes/archive/20260623-workbench-current-project-real-codex-acceptance/summary.md`.
+- Latest archived product/Harness docs change: `harness/changes/archive/20260623-document-goal-driven-workflow-loop-target/summary.md`.
+- Latest archived Harness evolution: `harness/changes/archive/20260623-auto-evolve-harness-real-codex-acceptance-window/summary.md`.
+- Active product phase: post real-Codex manual loop acceptance with clarified Goal-driven Workflow Loop target.
 - Active Harness evolution phase: none.
-- Active close status: none.
 
-This file is the short resume point. No structured change is active. The latest
-change stabilized Workbench verification signals by splitting residual scheduler
-slow coverage, fixing stale App DOM / controlled-advance test expectations, and
-making package script membership explicit. The product baseline remains a full
-local Workbench manual-gated path through natural-language demand, planning,
-decomposition/readiness, `code.run`, validation/audit/result evidence,
-human-confirmed apply, and explicit close/archive.
+This file is the short resume point. No structured product or Harness evolution
+change is active. The latest product change archived at
+`harness/changes/archive/20260623-workbench-close-gate-projection-alignment/summary.md`
+fixed the bounded Workbench projection gap where the Decision Inspector could
+lag behind the authoritative confirmation queue after committed apply and
+landing refresh. The latest docs convergence change archived at
+`harness/changes/archive/20260623-document-goal-driven-workflow-loop-target/summary.md`
+clarified the future Goal-driven Workflow Loop target: the main Agent loops over current
+Goal/Change evidence and chooses read-only planning, sequential work,
+low-conflict parallel worktree slices, validation/audit, bounded rework,
+IntegrationFix, waiting, or user clarification while high-impact gates remain
+human confirmed. The archive-threshold Harness evolution window has been
+handled and archived at
+`harness/changes/archive/20260623-auto-evolve-harness-real-codex-acceptance-window/summary.md`.
+The real Workbench/Codex acceptance on the current AHO repository is archived.
+External sandbox `a10` reached scoped planning, decomposition/readiness, real
+`coder-codex` worktree `code.run`, validation failure, bounded rework,
+validation pass, audit `approved`, visible UI `audit.accept`, human-gated
+`result.apply` with local commit, landing readiness refresh, and
+human-confirmed close/archive. No fake Codex, fixture result, hand-written run
+artifact, remote PR, push, or merge was used. Resolved blockers include Codex
+startup config, isolated worktree dependency setup, stale `web-app.test.tsx`
+run-graph signal, same-root source pollution, duplicate in-flight primary
+actions, missing local committed-apply close path, and committed-apply landing
+attribution.
+
+The follow-up projection issue from that acceptance has been handled: when a
+selected demand has a real `change.close` approval, both
+`confirmationQueue.primary` and `decisionInspector.primary` now project the
+close gate, while stale failure/result context remains related or historical
+evidence.
 
 ## Current Baseline
 
@@ -45,18 +69,33 @@ and Harness evolution.
 
 ## Next Resume Point
 
-Latest archive:
+Latest docs convergence archive:
 
-`harness/changes/archive/20260621-workbench-verification-signal-stability/summary.md`
+`harness/changes/archive/20260623-document-goal-driven-workflow-loop-target/summary.md`
 
-Next recommended structured work should start from the proven manual baseline
-and the now-trustworthy Workbench aggregate signal, not another read-only
-evidence layer. Reasonable next slices are:
+Latest product projection fix archive:
+
+`harness/changes/archive/20260623-workbench-close-gate-projection-alignment/summary.md`
+
+Latest real-Codex product acceptance archive:
+
+`harness/changes/archive/20260623-workbench-current-project-real-codex-acceptance/summary.md`
+
+Current active work:
+
+None.
+
+Pending Harness evolution:
+
+None. The archive-threshold pending window has been handled and archived at
+`harness/changes/archive/20260623-auto-evolve-harness-real-codex-acceptance-window/summary.md`.
+
+Reasonable later product slices are:
 
 - reduce the still-expensive scheduler slow-suite runtime without dropping
   scheduler/runtime/source-safety assertions;
-- improve a concrete Workbench usability gap found through real use of the
-  demand-to-apply/close path;
+- address the next concrete Workbench product blocker found by real/manual UI
+  use before expanding automation;
 - evaluate full-auto task mode as a separate scoped-authorization design only
   after reusing the proven manual gates and source safety;
 - if a new product blocker appears, fix that blocker before expanding
@@ -104,7 +143,7 @@ Recent relevant archive summaries:
 - Workbench Demand To Execution Golden Flow: `harness/changes/archive/20260621-workbench-demand-to-execution-golden-flow/summary.md`.
 - Workbench Usable Manual Closed Loop: `harness/changes/archive/20260621-workbench-usable-manual-closed-loop/summary.md`.
 - Controlled Scheduler Continuation Acceptance: `harness/changes/archive/20260621-controlled-scheduler-continuation-acceptance/summary.md`.
-- Latest Harness evolution: `harness/changes/archive/20260621-auto-evolve-harness-controlled-scheduler-continuation-window/summary.md`.
+- Latest Harness evolution: `harness/changes/archive/20260623-auto-evolve-harness-real-codex-acceptance-window/summary.md`.
 - Controlled Scheduler Post-Step Routing Preflight Handoff: `harness/changes/archive/20260621-controlled-scheduler-post-step-routing-preflight-handoff/summary.md`.
 - Workpad Controlled Scheduler Reconfirmation Surface: `harness/changes/archive/20260621-workpad-controlled-scheduler-reconfirmation-surface/summary.md`.
 

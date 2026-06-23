@@ -1,5 +1,7 @@
-import { mkdir, writeFile } from "node:fs/promises";
-import { join, relative } from "node:path";
+import { execFile } from "node:child_process";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { dirname, join, relative } from "node:path";
+import { promisify } from "node:util";
 import { getChangeStatus } from "../change/status.js";
 import { resolveRunnableChangeTarget } from "../change/target.js";
 import { buildRoleContextArtifact, buildRoleContextPacket, contextSourceRef } from "../context/packets.js";
@@ -12,6 +14,7 @@ import { appendExternalExecutionCompleted, appendExternalExecutionFailed, append
 import { appendAgentEventEnvelope, createRuntimeContinuityArtifacts, markRuntimeContinuityStatus, type RuntimeContinuityWorkspaceDescriptor } from "../runtime-continuity/repository.js";
 import type { RuntimeContinuityArtifacts } from "../runtime-continuity/types.js";
 import { createWorktree } from "../worktree/creation.js";
+import { prepareWorktreeDependencyBridge } from "../worktree/dependencies.js";
 import { getWorktreeMetadataPath } from "../worktree/paths.js";
 import { getWorktreeStatus } from "../worktree/status.js";
 import type {
@@ -29,8 +32,11 @@ import { buildRunId } from "../run/run-id.js";
 import { isRunStopRequested } from "../run/control.js";
 import { executeProcessStreaming } from "../run/process.js";
 import { collectWorktreeDiff } from "../audit/diff.js";
+import { gitRaw, gitText } from "../project/git.js";
 import { listValidationResults, readValidationResult, summarizeValidation } from "./repository.js";
 import { resolveValidationProfile } from "./profiles.js";
+
+const execFileAsync = promisify(execFile);
 
 export interface ValidationRunOptions {
   changeId?: string;
@@ -184,7 +190,37 @@ export async function startValidationRun(project: ManagedProject, options: Valid
   await writeJsonFile(paths.run, run);
   continuity = await markRuntimeContinuityStatus(paths, continuity, "running");
   await appendValidationContinuityWrite(paths, continuity, appendPermissionProfileAttached(paths, continuity, { source: "validation" }));
-  await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "validation.started", runId, data: { profile: profileName, commandCount: profile.commands.length } });
+
+  let dependencyBridge: Record<string, unknown> | undefined;
+  if (worktree) {
+    try {
+      dependencyBridge = bridgeData(await prepareWorktreeDependencyBridge({ sourceRoot: project.path, checkoutPath: worktree.checkoutPath }));
+      await appendValidationContinuityEvent(paths, continuity, "validation.dependency_bridge.prepared", dependencyBridge, `Dependency bridge: ${String(dependencyBridge.status)}.`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      await appendStderr(paths.stderr, `## dependency setup\n${message}\n`);
+      await appendValidationContinuityEvent(paths, continuity, "validation.dependency_bridge.failed", { error: message }, "Dependency bridge failed.");
+      if (worktree) {
+        worktreeDiffHash = (await collectWorktreeDiff(memory, worktree.worktreeId, changeId)).diffHash;
+      }
+      const failed = await finishValidationWithoutCommands({
+        paths,
+        run,
+        continuity,
+        runId,
+        changeId,
+        profileName,
+        runExecutionMode: run.executionMode ?? "direct",
+        worktree,
+        worktreeDiffHash,
+        startedAt: now,
+        errorMessage: message,
+      });
+      return failed;
+    }
+  }
+
+  await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "validation.started", runId, data: { profile: profileName, commandCount: profile.commands.length, dependencyBridge } });
   await appendValidationContinuityEvent(paths, continuity, "validation.started", {
     profile: profileName,
     commandCount: profile.commands.length,
@@ -192,6 +228,7 @@ export async function startValidationRun(project: ManagedProject, options: Valid
   }, `Validation profile ${profileName} started.`);
 
   const commandResults: ValidationCommandResult[] = [];
+  const candidateSnapshot = worktree ? await captureWorktreeCandidateSnapshot(worktree.checkoutPath) : null;
   for (let index = 0; index < profile.commands.length; index += 1) {
     const item = profile.commands[index];
     const commandStartedAt = new Date().toISOString();
@@ -276,6 +313,10 @@ export async function startValidationRun(project: ManagedProject, options: Valid
   const validationStatus: ValidationStatus = commandResults.every((item) => item.status === "passed") ? "passed" : "failed";
   const finishedAt = new Date().toISOString();
   if (worktree) {
+    if (candidateSnapshot) {
+      const restore = await restoreWorktreeCandidateSnapshot(worktree.checkoutPath, candidateSnapshot, join(directory, "pre-validation-candidate.patch"));
+      await appendValidationContinuityEvent(paths, continuity, "validation.worktree_candidate_restored", restore, "Restored candidate diff after validation commands.");
+    }
     worktreeDiffHash = (await collectWorktreeDiff(memory, worktree.worktreeId, changeId)).diffHash;
   }
   const validation: ValidationResult = {
@@ -345,6 +386,112 @@ function displayArtifactPath(memory: ResolvedMemory, absolutePath: string): stri
 async function appendStderr(path: string, content: string): Promise<void> {
   const { appendFile } = await import("node:fs/promises");
   await appendFile(path, content, "utf8");
+}
+
+interface CandidateSnapshot {
+  trackedPatch: Buffer;
+  untrackedFiles: Map<string, Buffer>;
+}
+
+async function captureWorktreeCandidateSnapshot(cwd: string): Promise<CandidateSnapshot> {
+  const [trackedPatch, untracked] = await Promise.all([
+    gitRaw(cwd, ["diff", "--no-ext-diff", "--binary", "HEAD"]),
+    listCandidateUntrackedFiles(cwd),
+  ]);
+  const untrackedFiles = new Map<string, Buffer>();
+  for (const file of untracked) {
+    untrackedFiles.set(file, await readFile(join(cwd, file)));
+  }
+  return { trackedPatch, untrackedFiles };
+}
+
+async function restoreWorktreeCandidateSnapshot(cwd: string, snapshot: CandidateSnapshot, patchPath: string): Promise<{ trackedPatchBytes: number; untrackedRestored: number; validationSideEffectsRemoved: string[] }> {
+  const currentUntracked = await listCandidateUntrackedFiles(cwd);
+  const validationSideEffectsRemoved: string[] = [];
+  for (const file of currentUntracked) {
+    await rm(join(cwd, file), { force: true });
+    if (!snapshot.untrackedFiles.has(file)) validationSideEffectsRemoved.push(file);
+  }
+  await execFileAsync("git", ["checkout", "--", "."], { cwd, maxBuffer: 50 * 1024 * 1024 });
+  if (snapshot.trackedPatch.length > 0) {
+    await writeFile(patchPath, snapshot.trackedPatch);
+    await execFileAsync("git", ["apply", "--binary", "--whitespace=nowarn", patchPath], { cwd, maxBuffer: 50 * 1024 * 1024 });
+  }
+  for (const [file, content] of snapshot.untrackedFiles.entries()) {
+    await mkdir(dirname(join(cwd, file)), { recursive: true });
+    await writeFile(join(cwd, file), content);
+  }
+  return {
+    trackedPatchBytes: snapshot.trackedPatch.length,
+    untrackedRestored: snapshot.untrackedFiles.size,
+    validationSideEffectsRemoved: validationSideEffectsRemoved.sort(),
+  };
+}
+
+async function listCandidateUntrackedFiles(cwd: string): Promise<string[]> {
+  const output = await gitText(cwd, ["ls-files", "--others", "--exclude-standard", "-z", "--", ".", ":!node_modules", ":!node_modules/**"]);
+  return output.split("\0").map((item) => item.trim()).filter(Boolean).sort();
+}
+
+function bridgeData(input: {
+  status: string;
+  checkoutDependencyPath: string;
+  sourceDependencyPath?: string;
+  reason?: string;
+}): Record<string, unknown> {
+  return {
+    status: input.status,
+    checkoutDependencyPath: input.checkoutDependencyPath,
+    sourceDependencyPath: input.sourceDependencyPath,
+    reason: input.reason,
+  };
+}
+
+async function finishValidationWithoutCommands(input: {
+  paths: RuntimeContinuityPaths & { run: string; events: string; validation: string };
+  run: RunMetadata;
+  continuity: RuntimeContinuityArtifacts;
+  runId: string;
+  changeId: string;
+  profileName: string;
+  runExecutionMode: NonNullable<RunMetadata["executionMode"]>;
+  worktree: RunWorktreeInfo | undefined;
+  worktreeDiffHash: string | undefined;
+  startedAt: string;
+  errorMessage: string;
+}): Promise<ValidationRunResult> {
+  const finishedAt = new Date().toISOString();
+  const validation: ValidationResult = {
+    version: "1.0",
+    id: input.runId,
+    runId: input.runId,
+    changeId: input.changeId,
+    profile: input.profileName,
+    status: "failed",
+    executionMode: input.runExecutionMode,
+    worktreeId: input.worktree?.worktreeId,
+    worktreeDiffHash: input.worktreeDiffHash,
+    startedAt: input.startedAt,
+    finishedAt,
+    commands: [],
+  };
+  await writeJsonFile(input.paths.validation, validation);
+  const run: RunMetadata = {
+    ...input.run,
+    status: "failed",
+    exitCode: 1,
+    signal: null,
+    finishedAt,
+  };
+  await writeJsonFile(input.paths.run, run);
+  await appendRunEvent(input.paths.events, { timestamp: finishedAt, type: "validation.failed", runId: input.runId, data: { status: "failed", reason: input.errorMessage } });
+  await appendValidationContinuityEvent(input.paths, input.continuity, "validation.failed", {
+    status: "failed",
+    reason: input.errorMessage,
+  }, "Validation failed before commands.");
+  await markRuntimeContinuityStatus(input.paths, input.continuity, "failed");
+  await appendRunEvent(input.paths.events, { timestamp: finishedAt, type: "run.failed", runId: input.runId });
+  return { run, validation };
 }
 
 function runtimeWorkspaceForValidation(projectPath: string, cwd: string, worktree: RunWorktreeInfo | undefined): RuntimeContinuityWorkspaceDescriptor {

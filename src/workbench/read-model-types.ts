@@ -258,6 +258,10 @@ export interface WorkbenchDecisionAction {
   changeId?: string;
   approvalId?: string;
   action?: WorkbenchApprovalAction;
+  options?: {
+    commit?: boolean;
+    message?: string;
+  };
   actionType?: ThreadStreamAction["actionType"];
   planningBundleId?: string;
   decompositionPlanId?: string;

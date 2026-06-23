@@ -5,6 +5,85 @@ import type { ManagedProject } from "../../src/types/index.js";
 import type { TopicThreadEntry, WorkbenchWorkflowActionRequest } from "../../src/workbench/types.js";
 
 describe("workbench workflow action service", () => {
+  it("rejects a second non-control workflow action while another workflow action is in flight", async () => {
+    const appended: TopicThreadEntry[] = [];
+    const deps = fakeDeps({
+      threadEntries: [{
+        id: "msg-started",
+        timestamp: "2026-06-20T00:00:00.000Z",
+        changeId: "change-1",
+        type: "workflow.started",
+        actionRunId: "action-running",
+        actionType: "planning.generate",
+        status: "running",
+      }],
+      append(entry) {
+        appended.push(entry);
+      },
+    });
+
+    await expect(runWorkbenchWorkflowActionService(fakeProject(), { actionType: "planning.generate" }, undefined, deps)).rejects.toThrow("当前已有执行正在进行");
+
+    expect(appended).toHaveLength(0);
+  });
+
+  it("allows a workflow action after the prior workflow action has a terminal entry", async () => {
+    const appended: TopicThreadEntry[] = [];
+    const deps = fakeDeps({
+      threadEntries: [
+        {
+          id: "msg-started",
+          timestamp: "2026-06-20T00:00:00.000Z",
+          changeId: "change-1",
+          type: "workflow.started",
+          actionRunId: "action-finished",
+          actionType: "planning.generate",
+          status: "running",
+        },
+        {
+          id: "msg-completed",
+          timestamp: "2026-06-20T00:00:01.000Z",
+          changeId: "change-1",
+          type: "workflow.completed",
+          actionRunId: "action-finished",
+          actionType: "planning.generate",
+          status: "completed",
+        },
+      ],
+      append(entry) {
+        appended.push(entry);
+      },
+    });
+
+    await runWorkbenchWorkflowActionService(fakeProject(), { actionType: "planning.generate" }, undefined, deps);
+
+    expect(appended.some((entry) => entry.type === "workflow.started" && entry.actionType === "planning.generate")).toBe(true);
+    expect(appended.some((entry) => entry.type === "workflow.completed" && entry.actionType === "planning.generate")).toBe(true);
+  });
+
+  it("allows stop and steer control actions while another workflow action is in flight", async () => {
+    const appended: TopicThreadEntry[] = [];
+    const deps = fakeDeps({
+      threadEntries: [{
+        id: "msg-started",
+        timestamp: "2026-06-20T00:00:00.000Z",
+        changeId: "change-1",
+        type: "workflow.started",
+        actionRunId: "action-running",
+        actionType: "planning.generate",
+        status: "running",
+      }],
+      append(entry) {
+        appended.push(entry);
+      },
+    });
+
+    await runWorkbenchWorkflowActionService(fakeProject(), { actionType: "conversation.interrupt" }, undefined, deps);
+    await runWorkbenchWorkflowActionService(fakeProject(), { actionType: "conversation.steer", prompt: "add detail" }, undefined, deps);
+
+    expect(appended.filter((entry) => entry.type === "workflow.started").map((entry) => entry.actionType)).toEqual(["conversation.interrupt", "conversation.steer"]);
+  });
+
   it("computes one result summary and reuses it for terminal thread entries and decision history", async () => {
     const appended: TopicThreadEntry[] = [];
     const decisions: WorkbenchActionDecisionInput[] = [];
@@ -95,6 +174,7 @@ function fakeProject(): ManagedProject {
 }
 
 function fakeDeps(overrides: {
+  threadEntries?: TopicThreadEntry[];
   append?: (entry: TopicThreadEntry) => void;
   record?: (decision: WorkbenchActionDecisionInput) => void;
   summarize?: WorkbenchActionServiceDeps["summarizeResult"];
@@ -106,6 +186,9 @@ function fakeDeps(overrides: {
     },
     createTranscriptCapture() {
       return { sink: { emit() {} }, text: "", activity: [], blocks: [] };
+    },
+    async readThreadEntries() {
+      return overrides.threadEntries ?? [];
     },
     async appendThreadEntry(_project, changeId, input) {
       const entry: TopicThreadEntry = {

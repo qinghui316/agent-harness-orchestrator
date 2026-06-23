@@ -451,8 +451,10 @@ describe("Workbench web app", () => {
     expect(screen.getByText("记忆：external-local")).toBeTruthy();
     expect(screen.getByText("当前需求：会员折扣计价")).toBeTruthy();
     fireEvent.click(screen.getByRole("tab", { name: "Agent 运行图" }));
-    expect(await screen.findByTestId("agent-run-graph")).toBeTruthy();
-    expect(fetchCallUrls()).toContain("/api/projects/repo/workbench/projections/run-graph/member-discount");
+    await waitFor(() => {
+      expect(fetchCallUrls()).toContain("/api/projects/repo/workbench/projections/run-graph/member-discount");
+    }, { timeout: 5000 });
+    expect(await screen.findByTestId("agent-run-graph", undefined, { timeout: 5000 })).toBeTruthy();
     expect(screen.getByTestId("agent-run-node-main-agent")).toBeTruthy();
     expect(screen.getByTestId("agent-run-node-coder-agent")).toBeTruthy();
     expect(screen.queryByTestId("agent-run-node-memory-closeout")).toBeNull();
@@ -474,7 +476,7 @@ describe("Workbench web app", () => {
     const applyDecision = {
       id: "result:member-discount:wt-1:ready",
       kind: "apply-gate",
-      title: "确认应用到项目",
+      title: "确认应用并本地提交",
       summary: "验证和审查已通过，可以由你确认应用到项目。",
       userStatus: "waiting-confirmation",
       resultSummary: "验证和审查已通过，可以由你确认应用到项目。",
@@ -485,10 +487,11 @@ describe("Workbench web app", () => {
       targetId: "wt-1",
       actions: [{
         id: "apply:wt-1",
-        label: "应用到项目",
+        label: "应用并本地提交",
         kind: "approval",
         changeId: "member-discount",
-        action: { actionId: "result.apply", label: "应用到项目", command: "result", args: ["apply", "", "member-discount", "wt-1"], mutates: true, requiresConfirmation: true },
+        action: { actionId: "result.apply", label: "应用并本地提交", command: "result", args: ["apply", "", "member-discount", "wt-1"], mutates: true, requiresConfirmation: true },
+        options: { commit: true, message: "Apply AHO result: member-discount" },
         enabled: true,
         requiresConfirmation: true,
       }],
@@ -502,8 +505,8 @@ describe("Workbench web app", () => {
       worktreeId: "wt-1",
       summary: "验证和审查已通过，可以由你确认应用到项目。",
       whyNeedsConfirmation: "确认应用到项目",
-      confirmEffect: "应用会把当前结果写入项目；要求修改会进入下一轮修改；放弃只丢弃这次结果。",
-      riskSummary: "应用是高影响动作，仍需要明确确认；这不会执行远端提交或合并。",
+      confirmEffect: "应用会把当前结果写入项目并创建本地提交；要求修改会进入下一轮修改；放弃只丢弃这次结果。",
+      riskSummary: "应用是高影响动作，仍需要明确确认；这不会执行远端提交、PR 或合并。",
       evidenceRefs: ["harness/runs/audit-1/audit.md"],
       actions: applyDecision.actions,
       primary: true,
@@ -535,8 +538,21 @@ describe("Workbench web app", () => {
     const primaryDecision = screen.getByTestId("decision-inspector-primary");
     expect(within(primaryDecision).getByText("确认应用到项目")).toBeTruthy();
     expect(within(primaryDecision).getByText("验证和审查已通过，可以由你确认应用到项目。")).toBeTruthy();
-    expect(within(primaryDecision).getAllByRole("button", { name: /应用到项目/ })).toHaveLength(1);
+    expect(within(primaryDecision).getAllByRole("button", { name: /应用并本地提交/ })).toHaveLength(1);
     expect(primaryDecision.textContent).toContain("audit.md");
+    fireEvent.click(within(primaryDecision).getByRole("button", { name: /应用并本地提交/ }));
+    fireEvent.click(within(primaryDecision).getByRole("button", { name: "确认" }));
+    await waitFor(() => {
+      const actionCall = (fetch as unknown as { mock: { calls: Array<[RequestInfo | URL, RequestInit | undefined]> } }).mock.calls.find(([url, init]) =>
+        String(url) === "/api/projects/repo/workbench/actions" && init?.method === "POST"
+      );
+      expect(actionCall).toBeTruthy();
+      expect(JSON.parse(String(actionCall?.[1]?.body))).toMatchObject({
+        action: { actionId: "result.apply", args: ["apply", "", "member-discount", "wt-1"] },
+        confirm: true,
+        options: { commit: true, message: "Apply AHO result: member-discount" },
+      });
+    });
 
     fireEvent.click(screen.getByRole("tab", { name: "工作台" }));
     const resultReview = await screen.findByTestId("result-review-card");
@@ -2630,6 +2646,103 @@ describe("Workbench web app", () => {
     expect(screen.getByText("查看历史决策")).toBeTruthy();
   });
 
+  it("shows the close confirmation queue primary instead of a stale failed inspector card", async () => {
+    const staleFailedPrimary = {
+      id: "validation:validation-old-failed:failed",
+      kind: "validation-failed",
+      title: "验证未通过：validation-old-failed",
+      summary: "旧验证失败已经被后续 rework 和 apply 收口。",
+      userStatus: "needs-rework",
+      resultSummary: "旧验证失败已经被后续 rework 和 apply 收口。",
+      recommendation: "这条旧失败只能作为历史证据。",
+      explanation: "旧失败证据不能压过当前 close gate。",
+      severity: "blocking",
+      changeId: "member-discount",
+      targetId: "validation-old-failed",
+      runId: "validation-old-failed",
+      actions: [{
+        id: "revalidate:wt-old",
+        label: "重新验证",
+        kind: "workflow-action",
+        actionType: "result.revalidate",
+        changeId: "member-discount",
+        worktreeId: "wt-old",
+        enabled: true,
+        requiresConfirmation: true,
+      }],
+    };
+    const closeQueuePrimary = {
+      id: "confirm:approval:close:member-discount",
+      kind: "planning-confirm",
+      conversationId: "member-discount",
+      changeId: "member-discount",
+      resultId: "member-discount",
+      summary: "这个需求可以结束并归档。",
+      whyNeedsConfirmation: "确认完成需求",
+      confirmEffect: "同意会完成并归档这个需求。",
+      riskSummary: "归档是需求生命周期收口，之后仍可从历史查看。",
+      evidenceRefs: [],
+      actions: [{
+        id: "accept:close:member-discount",
+        label: "同意",
+        kind: "approval",
+        approvalId: "close:member-discount",
+        action: { actionId: "change.close", label: "同意", command: "change", args: ["close", "repo", "member-discount"], mutates: true, requiresConfirmation: true },
+        enabled: true,
+        requiresConfirmation: true,
+      }],
+      primary: true,
+      status: "pending",
+    };
+    const closeSnapshot = {
+      ...snapshot,
+      right: {
+        ...snapshot.right,
+        decisionInspector: {
+          ...snapshot.right.decisionInspector,
+          primary: staleFailedPrimary,
+          related: [snapshot.right.decisionInspector.primary],
+          history: [],
+        },
+        confirmationQueue: {
+          ...snapshot.right.confirmationQueue,
+          primary: closeQueuePrimary,
+          current: [closeQueuePrimary],
+          otherDemands: [],
+          maintenance: [],
+        },
+      },
+    };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
+      if (url === "/api/projects") return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
+      if (url.endsWith("/workbench/actions") && init?.method === "POST") return jsonResponse({ result: { ok: true }, snapshot: closeSnapshot });
+      return jsonResponse(url.includes("/stream/") ? stream : closeSnapshot);
+    }));
+
+    render(<App />);
+
+    const card = await screen.findByTestId("decision-inspector-primary");
+    expect(within(card).getByText("确认完成需求")).toBeTruthy();
+    expect(within(card).getByText("这个需求可以结束并归档。")).toBeTruthy();
+    expect(card.textContent).not.toContain("验证未通过：validation-old-failed");
+    expect(screen.queryByRole("button", { name: /full-auto|全自动|parallel|merge queue|slot/i })).toBeNull();
+
+    fireEvent.click(within(card).getByRole("button", { name: "同意" }));
+    fireEvent.click(within(card).getByRole("button", { name: "确认" }));
+    await waitFor(() => {
+      const actionCall = vi.mocked(fetch).mock.calls.find(([url, init]) =>
+        String(url) === "/api/projects/repo/workbench/actions" && init?.method === "POST"
+      );
+      expect(actionCall).toBeTruthy();
+      expect(JSON.parse(String(actionCall?.[1]?.body))).toMatchObject({
+        action: { actionId: "change.close", args: ["close", "repo", "member-discount"] },
+        confirm: true,
+      });
+    });
+  });
+
   it("uses inline feedback for proposal request-changes", async () => {
     const proposalSnapshot = {
       ...snapshot,
@@ -2902,6 +3015,8 @@ describe("Workbench web app", () => {
       const url = String(input);
       if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
       if (url === "/api/projects") return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
+      if (url.includes("/workbench/projections/transcript/")) return jsonResponse(snapshot.center.parentAgentTranscript);
+      if (url.includes("/workbench/projections/run-graph/")) return jsonResponse(snapshot.center.agentRunGraph);
       if (url.endsWith("/workbench/actions/live")) {
         return sseResponse([
           ["snapshot", snapshot],
@@ -3326,6 +3441,78 @@ describe("Workbench web app", () => {
     expect(screen.queryByText(/worker pool|并行 worktree|merge queue/)).toBeNull();
   });
 
+  it("does not expose selected-demand confirmations while the demand is running", async () => {
+    const runningSnapshot = {
+      ...snapshot,
+      left: {
+        ...snapshot.left,
+        workpads: [{ id: "member-discount", title: "会员折扣计价", state: "active", runtimeStatus: "running", selected: true, waitingDecisionCount: 0, latestRunStatus: "running", latestRunId: "run-planning-active" }],
+      },
+      center: {
+        ...snapshot.center,
+        workpad: {
+          ...snapshot.center.workpad,
+          conversationLifecycle: "running",
+          runControlState: {
+            canStop: true,
+            stopActionType: "conversation.interrupt",
+            pendingFeedbackCount: 0,
+            explanation: "当前执行正在运行。",
+          },
+        },
+      },
+      right: {
+        ...snapshot.right,
+        confirmationQueue: { ...snapshot.right.confirmationQueue, primary: null, current: [] },
+      },
+    };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
+      if (url === "/api/projects") return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
+      return jsonResponse(url.includes("/stream/") ? stream : runningSnapshot);
+    }));
+
+    render(<App />);
+
+    await waitFor(() => expect(screen.getByTestId("main-conversation-view")).toBeTruthy());
+    expect(screen.queryByTestId("decision-inspector-primary")).toBeNull();
+    expect(screen.getByText("暂无需要确认")).toBeTruthy();
+    expect(screen.getByTitle("停止当前执行")).toBeTruthy();
+  });
+
+  it("disables inline confirmation immediately after submit so repeated clicks do not submit twice", async () => {
+    let resolveAction: ((response: Response) => void) | null = null;
+    const actionResponse = new Promise<Response>((resolve) => {
+      resolveAction = resolve;
+    });
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
+      if (url === "/api/projects") return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
+      if (url.endsWith("/workbench/actions")) return actionResponse;
+      return jsonResponse(url.includes("/stream/") ? stream : snapshot);
+    }));
+
+    render(<App />);
+
+    const card = await screen.findByTestId("decision-inspector-primary");
+    fireEvent.click(within(card).getByRole("button", { name: "同意" }));
+    const confirmButton = await within(card).findByRole("button", { name: "确认" }) as HTMLButtonElement;
+    fireEvent.click(confirmButton);
+    expect(confirmButton.disabled).toBe(true);
+    fireEvent.click(confirmButton);
+
+    await waitFor(() => {
+      const actionPosts = vi.mocked(fetch).mock.calls.filter((call) => String(call[0]).endsWith("/workbench/actions"));
+      expect(actionPosts).toHaveLength(1);
+    });
+    resolveAction?.(jsonResponse({ result: { ok: true }, snapshot }));
+    await waitFor(() => {
+      expect(within(card).queryByRole("button", { name: "确认" })).toBeNull();
+    });
+  });
+
   it("renders sidebar project onboarding when no direct project is selected", async () => {
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
@@ -3349,6 +3536,31 @@ describe("Workbench web app", () => {
     expect(screen.getByText("暂无需要确认")).toBeTruthy();
     fireEvent.click(screen.getByText("Repo"));
     await waitFor(() => expect(screen.getByText("初始化 Harness")).toBeTruthy());
+  });
+
+  it("does not expose demand creation when a marker exists but durable memory is unavailable", async () => {
+    const unavailableSnapshot = {
+      ...snapshot,
+      memory: { memoryMode: "external-local", harnessReady: false },
+      left: { ...snapshot.left, topics: [], workpads: [] },
+      center: { ...snapshot.center, selectedTopic: null },
+    };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/app/status") {
+        return new Response(JSON.stringify({ mode: "project", directProjectId: "repo" }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      if (url === "/api/projects") {
+        return new Response(JSON.stringify({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "partial" } }] }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      return new Response(JSON.stringify(unavailableSnapshot), { status: 200, headers: { "Content-Type": "application/json" } });
+    }));
+
+    render(<App />);
+
+    await waitFor(() => expect(screen.getByText("初始化 Harness")).toBeTruthy());
+    expect(screen.queryByText("创建需求对话")).toBeNull();
+    expect(screen.queryByLabelText("在 Repo 中开始新对话")).toBeNull();
   });
 
   it("adds an existing project from the native folder picker", async () => {

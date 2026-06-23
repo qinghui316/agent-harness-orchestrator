@@ -37,7 +37,7 @@ export async function collectWorktreeDiff(memory: ResolvedMemory, worktreeId: st
 }
 
 async function listUntrackedFiles(cwd: string): Promise<string[]> {
-  const output = await gitText(cwd, ["ls-files", "--others", "--exclude-standard", "-z"]);
+  const output = await gitText(cwd, ["ls-files", "--others", "--exclude-standard", "-z", "--", ".", ":!node_modules", ":!node_modules/**"]);
   return output.split("\0").map((item) => item.trim()).filter(Boolean).sort();
 }
 

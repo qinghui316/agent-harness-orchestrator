@@ -9,6 +9,7 @@ export function DecisionInspectorPane({
   inspector,
   confirmationQueue,
   confirming,
+  busy,
   error,
   onConfirmingChange,
   onExecuteAction,
@@ -18,6 +19,7 @@ export function DecisionInspectorPane({
   inspector: DecisionInspector;
   confirmationQueue: ConfirmationQueue;
   confirming: string | null;
+  busy: boolean;
   error: string | null;
   onConfirmingChange: (id: string | null) => void;
   onExecuteAction: (action: DecisionAction, context: DecisionContext) => Promise<void>;
@@ -41,6 +43,7 @@ export function DecisionInspectorPane({
         <ConfirmationQueueCard
           item={primaryQueueItem}
           confirming={confirming}
+          busy={busy}
           onConfirmingChange={onConfirmingChange}
           onExecuteAction={onExecuteAction}
           onFeedback={onFeedback}
@@ -71,6 +74,7 @@ export function DecisionInspectorPane({
               key={item.id}
               item={item}
               confirming={confirming}
+              busy={busy}
               onConfirmingChange={onConfirmingChange}
               onExecuteAction={onExecuteAction}
               onFeedback={onFeedback}
@@ -86,12 +90,14 @@ export function DecisionInspectorPane({
 function ConfirmationQueueCard({
   item,
   confirming,
+  busy,
   onConfirmingChange,
   onExecuteAction,
   onFeedback,
 }: {
   item: ConfirmationQueueItem;
   confirming: string | null;
+  busy: boolean;
   onConfirmingChange: (id: string | null) => void;
   onExecuteAction: (action: DecisionAction, context: DecisionContext) => Promise<void>;
   onFeedback: (context: DecisionContext, action: DecisionAction, feedback: string) => Promise<void>;
@@ -101,6 +107,7 @@ function ConfirmationQueueCard({
     <DecisionContextCard
       context={context}
       confirming={confirming}
+      busy={busy}
       onConfirmingChange={onConfirmingChange}
       onExecuteAction={onExecuteAction}
       onFeedback={onFeedback}
@@ -133,19 +140,33 @@ function confirmationItemToDecisionContext(item: ConfirmationQueueItem): Decisio
 function DecisionContextCard({
   context,
   confirming,
+  busy,
   onConfirmingChange,
   onExecuteAction,
   onFeedback,
 }: {
   context: DecisionContext;
   confirming: string | null;
+  busy: boolean;
   onConfirmingChange: (id: string | null) => void;
   onExecuteAction: (action: DecisionAction, context: DecisionContext) => Promise<void>;
   onFeedback: (context: DecisionContext, action: DecisionAction, feedback: string) => Promise<void>;
 }): ReactElement {
   const [feedbackActionId, setFeedbackActionId] = useState<string | null>(null);
   const [feedback, setFeedback] = useState("");
+  const [pendingActionId, setPendingActionId] = useState<string | null>(null);
   const feedbackAction = context.actions.find((action) => action.id === feedbackActionId);
+  const actionBusy = busy || pendingActionId !== null;
+  async function executeAction(action: DecisionAction): Promise<void> {
+    if (!action.enabled || actionBusy) return;
+    setPendingActionId(action.id);
+    try {
+      await onExecuteAction(action, context);
+      onConfirmingChange(null);
+    } finally {
+      setPendingActionId(null);
+    }
+  }
   async function submitFeedback(): Promise<void> {
     if (!feedbackAction || !feedback.trim()) return;
     await onFeedback(context, feedbackAction, feedback);
@@ -228,20 +249,22 @@ function DecisionContextCard({
       ) : null}
       <div className="approval-actions">
         {context.actions.map((action) => {
+          const disabled = actionBusy || !action.enabled;
+          const title = action.disabledReason ?? (actionBusy ? "当前已有动作正在执行。" : undefined);
           if (action.kind === "feedback") {
-            return <button key={action.id} className="outline-button" disabled={!action.enabled} title={action.disabledReason} onClick={() => setFeedbackActionId(action.id)}><FileText size={15} />{userFacingText(action.label)}</button>;
+            return <button key={action.id} className="outline-button" disabled={disabled} title={title} onClick={() => setFeedbackActionId(action.id)}><FileText size={15} />{userFacingText(action.label)}</button>;
           }
           if (action.kind === "evidence") {
-            return <button key={action.id} className="outline-button" disabled={!action.enabled} onClick={() => void onExecuteAction(action, context)}><FileText size={15} />{userFacingText(action.label)}</button>;
+            return <button key={action.id} className="outline-button" disabled={disabled} title={title} onClick={() => void executeAction(action)}><FileText size={15} />{userFacingText(action.label)}</button>;
           }
           if (action.kind !== "approval" && action.kind !== "workflow-action" && action.kind !== "abandon") return null;
           return confirming === action.id ? (
             <span className="confirm-inline" key={action.id}>
-              <button className="primary-button" onClick={() => void onExecuteAction(action, context)}><Check size={15} />确认</button>
-              <button className="outline-button" onClick={() => onConfirmingChange(null)}><X size={15} />取消</button>
+              <button className="primary-button" disabled={disabled} title={title} onClick={() => void executeAction(action)}><Check size={15} />确认</button>
+              <button className="outline-button" disabled={actionBusy} onClick={() => onConfirmingChange(null)}><X size={15} />取消</button>
             </span>
           ) : (
-            <button key={action.id} className="primary-button" disabled={!action.enabled} title={action.disabledReason} onClick={() => action.requiresConfirmation ? onConfirmingChange(action.id) : void onExecuteAction(action, context)}><Check size={15} />{userFacingText(action.label)}</button>
+            <button key={action.id} className="primary-button" disabled={disabled} title={title} onClick={() => action.requiresConfirmation ? onConfirmingChange(action.id) : void executeAction(action)}><Check size={15} />{userFacingText(action.label)}</button>
           );
         })}
       </div>

@@ -8,6 +8,7 @@ export type ProjectStatus = {
   isGitRepo: boolean;
   managed: boolean;
   harness: { readiness: string };
+  codexTrust?: { trusted: boolean; configPath: string; projectKey: string; configExists: boolean; reason?: string };
 };
 export type Snapshot = {
   project: { id: string; name: string; path: string } | null;
@@ -1783,6 +1784,10 @@ export type DecisionAction = {
   changeId?: string;
   approvalId?: string;
   action?: { actionId: string; label: string; command: string; args: string[]; mutates: boolean; requiresConfirmation: boolean };
+  options?: {
+    commit?: boolean;
+    message?: string;
+  };
   actionType?: ThreadStreamAction["actionType"];
   planningBundleId?: string;
   decompositionPlanId?: string;

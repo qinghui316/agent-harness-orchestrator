@@ -6,7 +6,9 @@ import { dirname, join } from "node:path";
 import { finished } from "node:stream/promises";
 import { tmpdir } from "node:os";
 import { mkdtemp, rm } from "node:fs/promises";
+import { codexRuntimeConfigArgs } from "./capabilities.js";
 import { executeProcessStreaming } from "../run/process.js";
+import type { MemoryMode } from "../types/index.js";
 
 export interface CodexAppServerCapabilities {
   available: boolean;
@@ -101,11 +103,17 @@ export function evaluateCodexAppServerCapabilities(help: string | null, spawnErr
   };
 }
 
+export function shouldUseCodexAppServerForMemory(memoryMode: MemoryMode): boolean {
+  return memoryMode !== "external-local";
+}
+
 export async function detectCodexAppServerCapability(): Promise<CodexAppServerCapabilities> {
   let help: string | null = null;
   let spawnError: string | undefined;
   try {
     help = await captureCodexAppServerHelp();
+    const startupError = await captureCodexAppServerStartupError();
+    if (startupError) spawnError = startupError;
   } catch (error) {
     spawnError = `Failed to inspect Codex app-server: ${(error as Error).message}`;
   }
@@ -159,7 +167,7 @@ export async function runCodexAppServerTurn(options: CodexAppServerTurnOptions):
 
   const startedAt = new Date().toISOString();
   try {
-    child = spawn("codex", ["app-server", "--listen", "stdio://"], {
+    child = spawn("codex", [...codexRuntimeConfigArgs(), "app-server", "--listen", "stdio://"], {
       cwd: options.cwd,
       shell: false,
       windowsHide: true,
@@ -356,6 +364,44 @@ async function captureCodexAppServerHelp(): Promise<string> {
     });
     if (result.exitCode !== 0) throw new Error(result.stderrSample || `codex app-server --help exited with ${result.exitCode}`);
     return result.stdoutSample;
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
+async function captureCodexAppServerStartupError(): Promise<string | null> {
+  const dir = await mkdtemp(join(tmpdir(), "aho-codex-app-server-startup-"));
+  try {
+    const stdoutPath = join(dir, "stdout.log");
+    const stderrPath = join(dir, "stderr.log");
+    const initializeRequest = `${JSON.stringify({
+      id: 1,
+      method: "initialize",
+      params: {
+        capabilities: { experimentalApi: true },
+        clientInfo: { name: "agent-harness-orchestrator", title: "Agent Harness Orchestrator", version: "0.1.0" },
+      },
+    })}\n`;
+    const result = await executeProcessStreaming({
+      cwd: process.cwd(),
+      command: "codex",
+      args: [...codexRuntimeConfigArgs(), "app-server", "--listen", "stdio://"],
+      stdin: initializeRequest,
+      stdoutPath,
+      stderrPath,
+      timeoutMs: 2000,
+      completionSignal: () => false,
+    });
+    if (result.exitCode !== 0 && result.exitCode !== null) {
+      return result.stderrSample || `codex app-server startup exited with ${result.exitCode}`;
+    }
+    if (result.stderrSample.includes("failed to load configuration") || result.stderrSample.includes("Invalid configuration")) {
+      return result.stderrSample.trim();
+    }
+    if (!result.stdoutSample.includes('"id"') && !result.stdoutSample.includes('"result"')) {
+      return result.stderrSample || "Codex app-server did not respond to initialize during startup check.";
+    }
+    return null;
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

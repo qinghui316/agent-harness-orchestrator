@@ -15,6 +15,11 @@ export function contentHash(content: string): string {
   return createHash("sha256").update(Buffer.from(content, "utf8")).digest("hex");
 }
 
+export function diffContentHash(diff: string): string {
+  const normalized = `${diff.replace(/\r\n/g, "\n").trimEnd()}\n`;
+  return contentHash(normalized);
+}
+
 export function unique(values: string[]): string[] {
   return Array.from(new Set(values.filter(Boolean)));
 }

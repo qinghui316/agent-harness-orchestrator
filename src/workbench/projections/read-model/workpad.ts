@@ -109,6 +109,7 @@ import type {
   WorkbenchPendingFeedback,
   WorkbenchPlanningArtifactBundle,
   WorkbenchPostArchiveEvolutionCandidate,
+  WorkbenchResultReview,
   WorkbenchRolePipelineSummary,
   WorkbenchRoleRunSummary,
   WorkbenchScopedFeedbackTarget,
@@ -299,7 +300,10 @@ export async function buildWorkbenchWorkpad(input: {
   const selectedWorkpadSummary = workpads.find((item) => item.id === selectedTopic.id || item.id === selectedTopic.name);
   const selectedUserState = selectedWorkpadSummary?.userStatus ?? userDecisionStateForSelectedTopic(selectedTopic, topicApprovals, taskQueue, taskGraph);
   const selectedLifecycle = selectedWorkpadSummary?.conversationLifecycle ?? conversationLifecycleForTopic(selectedTopic, taskQueue);
-  const nextAction = buildWorkpadNextAction(selectedTopic, topicApprovals, { specReady, planReady, tasksReady }, intake, taskQueue, taskGraph, planningBundle, decompositionPlan, decompositionReadiness, taskQueueProposal, workflowGraphPlan, schedulerContract, scopedSchedulerDispatchDryRun, scopedSchedulerWorkerSessionPlan, scopedSchedulerClaimReconcilePlan, scopedSchedulerLaunchPreflight, scopedSchedulerRun, schedulerRuntime, schedulerReconcileSnapshot, schedulerClaimReservation, schedulerWorkerStart, schedulerWorkerResult, schedulerWorkerValidation, schedulerWorkerAudit, schedulerWorkerReworkPlan, schedulerWorkerReworkStart, schedulerWorkerReworkResult, schedulerWorkerReworkValidation, schedulerWorkerReworkAudit, schedulerWorkerPaths, schedulerIntegrationCandidate, schedulerIntegrationCheckHandoff, schedulerIntegrationOutcome, schedulerRunCompletion, schedulerRunBlockedCloseout, workflowRun);
+  const nextAction = suppressStaleCodeRunAfterResultReview(
+    buildWorkpadNextAction(selectedTopic, topicApprovals, { specReady, planReady, tasksReady }, intake, taskQueue, taskGraph, planningBundle, decompositionPlan, decompositionReadiness, taskQueueProposal, workflowGraphPlan, schedulerContract, scopedSchedulerDispatchDryRun, scopedSchedulerWorkerSessionPlan, scopedSchedulerClaimReconcilePlan, scopedSchedulerLaunchPreflight, scopedSchedulerRun, schedulerRuntime, schedulerReconcileSnapshot, schedulerClaimReservation, schedulerWorkerStart, schedulerWorkerResult, schedulerWorkerValidation, schedulerWorkerAudit, schedulerWorkerReworkPlan, schedulerWorkerReworkStart, schedulerWorkerReworkResult, schedulerWorkerReworkValidation, schedulerWorkerReworkAudit, schedulerWorkerPaths, schedulerIntegrationCandidate, schedulerIntegrationCheckHandoff, schedulerIntegrationOutcome, schedulerRunCompletion, schedulerRunBlockedCloseout, workflowRun),
+    resultReview,
+  );
   const goalLoop = filterGoalLoopSummaryForCurrentGate(rawGoalLoop, nextAction);
   const schedulerControlledStepEvidenceForWorkpad = alignControlledSchedulerContinuationReadiness(
     schedulerControlledStepEvidence,
@@ -926,6 +930,19 @@ function scopeTypedWorkflowNextAction(topic: WorkbenchTopicDetail, action: Workp
   return { ...action, changeId: action.changeId ?? topic.id };
 }
 
+function suppressStaleCodeRunAfterResultReview(action: WorkpadNextAction, resultReview: WorkbenchResultReview | undefined): WorkpadNextAction {
+  if (!resultReview || action.kind !== "workflow-action" || action.actionType !== "code.run") return action;
+  return {
+    id: "result-review-blocks-code-run",
+    label: "等待结果处理",
+    description: resultReview.summary,
+    kind: "read-only",
+    enabled: false,
+    requiresConfirmation: false,
+    disabledReason: "当前已有结果证据；请先处理验证、审查、修改或应用决策，不重复启动旧 code.run gate。",
+  };
+}
+
 function approvalToNextAction(approval: WorkbenchApprovalItem): WorkpadNextAction {
   return {
     id: `approval:${approval.id}`,
@@ -1005,7 +1022,9 @@ export async function buildMultiWorkpadSummaries(
     const latestRun = latestByTimestamp(runs, (run) => run.finishedAt ?? run.startedAt);
     const runningRun = runs.find((run) => run.status === "created" || run.status === "running");
     const demandWorker = demandWorkers.find((worker) => worker.changeId === topic.id || worker.changeId === topic.name);
-    const queues = await listTaskQueues(memory, topic.id).catch(() => []);
+    const queues = topic.state === "active"
+      ? await listTaskQueues(memory, topic.id).catch(() => [])
+      : [];
     const latestQueue = latestByTimestamp(queues, (queue) => queue.updatedAt ?? queue.createdAt);
     const topicApprovals = approvals.filter((approval) => approval.changeId === topic.id || approval.changeId === topic.name);
     const blockingApproval = topicApprovals.find((approval) => approval.severity === "blocking");

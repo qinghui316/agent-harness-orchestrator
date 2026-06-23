@@ -103,6 +103,7 @@ export function ProjectConversationSidebar({
             const selected = item.project?.id === selectedProjectId;
             const expanded = selected || expandedProjects.has(projectId);
             const projectSnapshot = item.project?.id === selectedProjectId ? snapshot : item.project?.id ? snapshots[item.project.id] : undefined;
+            const memoryReady = projectSnapshot?.memory.harnessReady ?? item.harness.readiness === "ready";
             const conversations = conversationsForSidebar(projectSnapshot, selectedTopicId);
             const filteredConversations = normalizedSearch
               ? conversations.filter((conversation) => conversation.title.toLowerCase().includes(normalizedSearch) || conversation.status.toLowerCase().includes(normalizedSearch))
@@ -118,9 +119,9 @@ export function ProjectConversationSidebar({
                   <button className="project-folder-main" onClick={() => item.project ? void onOpenProject(item.project.id) : undefined}>
                     <Folder size={16} />
                     <span>{projectName}</span>
-                    {item.managed ? null : <small>未初始化</small>}
+                    {memoryReady ? null : <small>未初始化</small>}
                   </button>
-                  {item.project && item.managed ? (
+                  {item.project && memoryReady ? (
                     <button
                       className="project-folder-new"
                       aria-label={`在 ${projectName} 中开始新对话`}
@@ -145,8 +146,8 @@ export function ProjectConversationSidebar({
                 ) : null}
                 {expanded ? (
                   <div className="conversation-list">
-                    {item.managed && !projectSnapshot ? <div className="conversation-placeholder">展开后加载对话。</div> : null}
-                    {!item.managed ? <div className="conversation-placeholder">选择项目后初始化 Harness。</div> : null}
+                    {memoryReady && !projectSnapshot ? <div className="conversation-placeholder">展开后加载对话。</div> : null}
+                    {!memoryReady ? <div className="conversation-placeholder">选择项目后初始化 Harness。</div> : null}
                     {filteredConversations.map((conversation) => (
                       <button
                         key={conversation.id}
@@ -158,7 +159,7 @@ export function ProjectConversationSidebar({
                         {conversation.blocker ? <em>{userFacingText(conversation.blocker)}</em> : null}
                       </button>
                     ))}
-                    {item.managed && projectSnapshot && filteredConversations.length === 0 ? <div className="conversation-placeholder">暂无已加载对话。</div> : null}
+                    {memoryReady && projectSnapshot && filteredConversations.length === 0 ? <div className="conversation-placeholder">暂无已加载对话。</div> : null}
                   </div>
                 ) : null}
               </div>

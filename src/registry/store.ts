@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { ManagedProject, RegistryFile } from "../types/index.js";
 import { getAhoHome, normalizeForCompare, shortHash, slugify } from "../fs/path.js";
 import { readJsonFile, writeJsonFile } from "../fs/json.js";
+import { readProjectMarker } from "../project/marker.js";
 
 const ManagedProjectSchema = z.object({
   id: z.string(),
@@ -46,9 +47,15 @@ export class ProjectRegistryStore {
       return existing;
     }
 
-    const displayName = name?.trim() || path.split(/[\\/]/).filter(Boolean).at(-1) || "project";
-    const baseId = slugify(displayName);
+    const marker = await readProjectMarker(path);
+    const displayName = name?.trim() || marker?.name || path.split(/[\\/]/).filter(Boolean).at(-1) || "project";
+    const baseId = marker?.id ?? slugify(displayName);
     const ids = new Set(registry.projects.map((project) => project.id));
+    if (marker && ids.has(marker.id)) {
+      const error = new Error(`Project marker id is already registered for a different path: ${marker.id}`);
+      error.name = "Conflict";
+      throw error;
+    }
     const id = ids.has(baseId) ? `${baseId}-${shortHash(path)}` : baseId;
     const now = new Date().toISOString();
     const project: ManagedProject = {

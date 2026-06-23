@@ -3,7 +3,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
 import { buildAgentSystemPrompt, buildRunAgentRecord, resolveAgentRole } from "../../agent/catalog.js";
-import { detectCodexAppServerCapability, runCodexAppServerTurn, type CodexAppServerNotification } from "../../codex/app-server.js";
+import { detectCodexAppServerCapability, runCodexAppServerTurn, shouldUseCodexAppServerForMemory, type CodexAppServerNotification } from "../../codex/app-server.js";
 import { buildCodexReadonlyArgv, buildCodexReadonlyResumeArgv, detectCodexCapabilities } from "../../codex/capabilities.js";
 import { createCodexJsonlStreamParser, extractCodexSessionIdFromJsonl, extractFinalMessageFromCodexJsonl, truncateReadablePreview, type CodexJsonlStreamEvent } from "../../codex/jsonl.js";
 import { writeJsonFile } from "../../fs/json.js";
@@ -299,7 +299,8 @@ export async function runCodexChat(project: ManagedProject, changeId: string, us
   });
 
   const appServerCapabilities = await detectCodexAppServerCapability();
-  if (appServerCapabilities.available) {
+  const useAppServer = appServerCapabilities.available && shouldUseCodexAppServerForMemory(memory.mode);
+  if (useAppServer) {
     run = { ...run, command: ["codex", "app-server", "--listen", "stdio://"], status: "running" };
     await writeJsonFile(paths.run, run);
     await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "app-server.started", runId, data: { phase: "chat", resumed: Boolean(runtime.codexSessionId) } });
@@ -333,14 +334,21 @@ export async function runCodexChat(project: ManagedProject, changeId: string, us
     live?.emit({ event: "run.status", data: { runId, status } });
     return { run, message: lastMessage, codexSessionId: result.threadId ?? runtime.codexSessionId };
   }
+  const appServerSkipReason = appServerCapabilities.available
+    ? "external-local memory requires codex exec --add-dir memoryRoot"
+    : null;
   emitAssistantEvent(live, {
     runId,
     kind: "status",
     phase: "fallback",
     title: "实时引导不可用",
-    summary: "Codex app-server 不可用，当前输入会在下一轮生效。",
+    summary: appServerSkipReason
+      ? "当前项目使用外部 AHO memory，已切换到 Codex exec 以读取完整项目记忆。"
+      : "Codex app-server 不可用，当前输入会在下一轮生效。",
   });
-  await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "app-server.unavailable", runId, data: { errors: appServerCapabilities.errors } });
+  await appendRunEvent(paths.events, appServerSkipReason
+    ? { timestamp: new Date().toISOString(), type: "app-server.skipped", runId, data: { reason: appServerSkipReason, memoryMode: memory.mode } }
+    : { timestamp: new Date().toISOString(), type: "app-server.unavailable", runId, data: { errors: appServerCapabilities.errors } });
 
   const capabilities = await detectCodexCapabilities();
   const canResume = Boolean(runtime.codexSessionId) && capabilities.supportsSafeResume;

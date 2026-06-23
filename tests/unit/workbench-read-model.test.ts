@@ -13,7 +13,8 @@ import { getWorkbenchSnapshot, getWorkbenchStream, getWorkbenchTopic, listWorkbe
 import { WorkbenchStore } from "../../src/workbench/store.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import { buildDecisionInspector } from "../../src/workbench/projections/read-model/decision-inspector.js";
-import { getTempDir, minimalDecompositionPlan, minimalReadiness, project, writeAcceptedSpecAndTasks } from "./workbench/fixtures.js";
+import { buildConfirmationQueue } from "../../src/workbench/projections/read-model/confirmation-queue.js";
+import { getTempDir, minimalDecompositionPlan, minimalReadiness, project, writeAcceptedSpecAndTasks, writePlanningBundleFixture } from "./workbench/fixtures.js";
 import type { RunMetadata } from "../../src/types/index.js";
 
 const FORBIDDEN_CONTROLLED_LOOP_PRIMARY_TERMS = [
@@ -438,6 +439,45 @@ describe("workbench read-model projections", () => {
     expect(transcriptText).not.toContain("正在按当前建议推进一个受控步骤");
   });
 
+  it("suppresses selected demand primary confirmations while a run is active", async () => {
+    await initHarness(project());
+    const topic = await createWorkbenchTopic(project(), { title: "Running Planning", body: "Generate a plan." });
+    await writeCoderRun(topic.changeId, "run-planning-active", [], "wt-planning-active", "running");
+
+    const snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: topic.changeId });
+
+    expect(snapshot.center.workpad.runControlState?.canStop).toBe(true);
+    expect(snapshot.right.confirmationQueue.primary).toBeNull();
+    expect(JSON.stringify(snapshot.right.confirmationQueue.current)).not.toContain(topic.changeId);
+  });
+
+  it("suppresses selected demand primary confirmations only while a workflow action is in flight", async () => {
+    await initHarness(project());
+    const topic = await createWorkbenchTopic(project(), { title: "Planning Gate", body: "Generate a plan." });
+    await writePlanningBundleFixture(topic.changeId, "Generate a small plan.");
+    await appendTopicThreadEntry(project(), topic.changeId, {
+      type: "workflow.started",
+      actionRunId: "action-planning",
+      actionType: "planning.generate",
+      status: "running",
+    });
+
+    let snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: topic.changeId });
+    expect(snapshot.right.confirmationQueue.primary).toBeNull();
+
+    await appendTopicThreadEntry(project(), topic.changeId, {
+      type: "workflow.completed",
+      actionRunId: "action-planning",
+      actionType: "planning.generate",
+      status: "completed",
+    });
+    snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: topic.changeId });
+
+    expect(snapshot.right.confirmationQueue.primary?.actions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ actionType: "planning.confirm-execution", planningBundleId: expect.any(String) }),
+    ]));
+  });
+
   it("prefers persisted assistant blocks over legacy activity when rebuilding the thread", async () => {
     await initHarness(project());
     const topic = await createWorkbenchTopic(project(), { title: "Block Dedupe", body: "Show one command and one usage." });
@@ -650,6 +690,105 @@ describe("workbench read-model projections", () => {
     ]));
   });
 
+  it("aligns decision inspector primary with close gate when stale failures remain as evidence", async () => {
+    await initHarness(project());
+    const memory = await resolveProjectMemory(project());
+    const selectedTopic = {
+      id: "close-projection-target",
+      name: "close-projection-target",
+      title: "Close Projection Target",
+      state: "active",
+      path: "harness/changes/active/close-projection-target",
+      change: null,
+      runs: [],
+      taskQueues: [],
+      taskQueueItems: [],
+      taskRuns: [],
+      workerLeases: [],
+      worktrees: [],
+      validations: [{
+        id: "validation-old-failed",
+        runId: "validation-old-failed",
+        status: "failed",
+        worktreeId: "wt-old",
+        finishedAt: "2026-06-22T00:00:00.000Z",
+      }],
+      audits: [],
+      threadItems: [],
+    };
+    const workpad = {
+      resultReview: undefined,
+      taskGraph: { nodes: [] },
+      nextAction: {
+        id: "none",
+        label: "None",
+        description: "No workpad action.",
+        kind: "none",
+        enabled: false,
+        requiresConfirmation: false,
+      },
+    };
+    const inspector = buildDecisionInspector({
+      selectedTopic,
+      workpad,
+      approvals: [{
+        id: "close:close-projection-target",
+        kind: "change-close",
+        label: "Close",
+        changeId: "close-projection-target",
+        targetId: "close-projection-target",
+        severity: "info",
+        action: {
+          actionId: "change.close",
+          label: "Close",
+          command: "change",
+          args: ["close", "repo", "close-projection-target"],
+          mutates: true,
+          requiresConfirmation: true,
+        },
+      }],
+      decisions: [],
+    } as Parameters<typeof buildDecisionInspector>[0]);
+    const queue = await buildConfirmationQueue({
+      project: project(),
+      memory,
+      selectedTopic,
+      workpad,
+      decisionInspector: inspector,
+      includeProjectWideActions: false,
+    } as Parameters<typeof buildConfirmationQueue>[0]);
+
+    expect(queue.current.filter((item) => item.primary)).toHaveLength(1);
+    expect(queue.primary?.actions).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        action: expect.objectContaining({
+          actionId: "change.close",
+          args: ["close", "repo", "close-projection-target"],
+        }),
+      }),
+    ]));
+    expect(inspector.primary).toMatchObject({
+      kind: "close-gate",
+      changeId: "close-projection-target",
+      targetId: "close-projection-target",
+    });
+    expect(inspector.primary?.actions).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        action: expect.objectContaining({
+          actionId: "change.close",
+          args: ["close", "repo", "close-projection-target"],
+        }),
+      }),
+    ]));
+    expect(inspector.related).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: "validation-failed",
+        changeId: "close-projection-target",
+        targetId: "validation-old-failed",
+      }),
+    ]));
+  });
+
   it("closes only the scoped active demand when multiple demands are active", async () => {
     await initHarness(project());
     await createWorkbenchTopic(project(), { title: "First Close Target", body: "First" });
@@ -852,6 +991,77 @@ describe("workbench read-model projections", () => {
     ]));
   });
 
+  it("offers bounded rework for failed result validation without reviving stale code.run", () => {
+    const inspector = buildDecisionInspector({
+      selectedTopic: {
+        id: "change-1",
+        name: "change-1",
+        title: "Change 1",
+        state: "active",
+        path: "harness/changes/active/change-1",
+        change: null,
+        runs: [],
+        taskQueues: [],
+        taskQueueItems: [],
+        taskRuns: [],
+        workerLeases: [],
+        worktrees: [],
+        validations: [{
+          id: "validation-1",
+          runId: "validation-1",
+          status: "failed",
+          worktreeId: "wt-1",
+          finishedAt: "2026-06-22T00:00:00.000Z",
+        }],
+        audits: [],
+        threadItems: [],
+      },
+      workpad: {
+        resultReview: {
+          status: "needs-rework",
+          title: "需要修改",
+          summary: "验证未通过，需要修改。",
+          worktreeId: "wt-1",
+          changedFiles: ["src/example.ts"],
+          validation: { id: "validation-1", runId: "validation-1", status: "failed" },
+          applyReadiness: {
+            ready: false,
+            kind: "not-approved",
+            label: "not approved",
+            message: "验证或审查还没有通过，反馈会进入下一轮修改。",
+            blockingIssues: ["Validation failed."],
+            warnings: [],
+          },
+          evidence: [],
+        },
+        taskGraph: { nodes: [] },
+      },
+      approvals: [],
+      decisions: [],
+    });
+
+    expect(inspector.primary).toMatchObject({
+      kind: "validation-failed",
+      changeId: "change-1",
+      runId: "validation-1",
+    });
+    expect(inspector.primary?.actions).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        actionType: "result.refresh-rework",
+        changeId: "change-1",
+        worktreeId: "wt-1",
+        requiresConfirmation: true,
+      }),
+      expect.objectContaining({
+        actionType: "result.revalidate",
+        changeId: "change-1",
+        worktreeId: "wt-1",
+        requiresConfirmation: true,
+      }),
+    ]));
+    expect(inspector.primary?.actions.some((action) => action.actionType === "code.run")).toBe(false);
+  });
+
   it("dedupes only the matching result-review apply approval and preserves other apply targets", () => {
     const inspector = buildDecisionInspector({
       selectedTopic: { id: "change-1", title: "Change 1", state: "active", validations: [], audits: [] },
@@ -875,12 +1085,15 @@ describe("workbench read-model projections", () => {
     const applyActions = [inspector.primary, ...inspector.related]
       .flatMap((context) => context?.actions ?? [])
       .filter((action) => action.kind === "approval" && action.action?.actionId === "result.apply")
-      .map((action) => action.action?.args);
+      .map((action) => ({ args: action.action?.args, options: action.options }));
 
     expect(applyActions).toEqual([
-      ["apply", "", "change-1", "wt-1"],
-      ["apply", "repo", "change-1", "wt-2"],
-      ["apply", "repo", "change-2", "wt-1"],
+      {
+        args: ["apply", "", "change-1", "wt-1"],
+        options: { commit: true, message: "Apply AHO result: change-1" },
+      },
+      { args: ["apply", "repo", "change-1", "wt-2"], options: undefined },
+      { args: ["apply", "repo", "change-2", "wt-1"], options: undefined },
     ]);
   });
 

@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { gitText } from "../project/git.js";
 import type { LandingSourceDiff } from "./types.js";
-import { contentHash, unique } from "./utils.js";
+import { diffContentHash, unique } from "./utils.js";
 
 export async function collectSourceDiff(cwd: string): Promise<LandingSourceDiff> {
   const [trackedDiff, trackedStat, trackedNames, untrackedFiles] = await Promise.all([
@@ -13,7 +13,7 @@ export async function collectSourceDiff(cwd: string): Promise<LandingSourceDiff>
   ]);
   const untrackedDiff = (await Promise.all(untrackedFiles.map((file) => renderUntrackedTextPatch(cwd, file)))).join("");
   const diff = trackedDiff + untrackedDiff;
-  const diffHash = contentHash(diff);
+  const diffHash = diffContentHash(diff);
   const changedFiles = unique([...trackedNames.split(/\r?\n/).filter(Boolean), ...untrackedFiles.map((file) => file.replace(/\\/g, "/"))]).sort();
   const untrackedStat = untrackedFiles.map((file) => ` ${file.replace(/\\/g, "/")} | new file`).join("\n");
   return {

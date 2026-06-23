@@ -30,7 +30,7 @@ export function buildDeterministicPlanningBundle(
   ]);
   const acceptanceCriteria = buildAcceptanceCriteria(goal, constraints);
   const tasks = [
-    { id: "T-001", title: "Implement the accepted demand and update tests.", acIds: acceptanceCriteria.map((_item, index) => `AC-${String(index + 1).padStart(3, "0")}`) },
+    { id: "T-001", title: taskTitleForGoal(goal), acIds: acceptanceCriteria.map((_item, index) => `AC-${String(index + 1).padStart(3, "0")}`) },
   ];
   const specMd = renderSpecMarkdown(changeId, goal, constraints, acceptanceCriteria);
   const planMd = renderImplementationPlanMarkdown(goal, tasks);
@@ -43,10 +43,10 @@ export function buildDeterministicPlanningBundle(
     goal,
     constraints,
     acceptanceCriteria,
-    design: "Use the smallest focused implementation in an AHO-owned worktree, add or update tests for the pricing rule, then run independent validation and audit.",
+    design: "Use the smallest focused implementation in an AHO-owned worktree, add or update targeted verification for the accepted demand, then run independent validation and audit.",
     tasks,
     risks: ["Validation or audit may require one bounded rework cycle.", "User confirmation is still required before applying/merging source changes."],
-    openQuestions: constraints.length > 0 ? [] : ["Confirm rounding, membership eligibility, and test coverage expectations if they are not already stated."],
+    openQuestions: [],
     specMd,
     planMd,
     tasksMd,
@@ -266,17 +266,28 @@ function rationaleForRecommendation(recommendation: DecompositionRecommendation,
 
 function extractConstraintCandidates(prompt: string): string[] {
   const candidates: string[] = [];
-  if (/四舍五入|分/.test(prompt)) candidates.push("金额按分处理，涉及折扣时需要明确舍入规则。");
+  if (/四舍五入|金额|按分|元|折扣|满\s*100|100\s*元/.test(prompt)) candidates.push("金额按分处理，涉及折扣时需要明确舍入规则。");
   if (/会员/.test(prompt)) candidates.push("只有会员订单参与会员折扣规则。");
   if (/非会员/.test(prompt)) candidates.push("非会员不打折。");
   if (/100/.test(prompt)) candidates.push("会员订单满 100 元才触发折扣。");
+  if (/非\s*CI|not\s+ci|non[-\s]?ci/i.test(prompt)) candidates.push("真实验收入口不得接入默认 CI 或默认测试脚本。");
+  if (/fake|fixture|mock/i.test(prompt)) candidates.push("必须明确区分真实 Codex 验收和 fake/fixture 测试。");
+  if (/sandbox|同根|同一个仓|当前项目|current-project/i.test(prompt)) candidates.push("真实验收应使用外部 sandbox managed project 和外部 AHO runtime home，避免污染开发仓库。");
+  if (/Workbench|Codex|code\.run/i.test(prompt)) candidates.push("验收说明必须覆盖真实 Workbench action path 和真实 Codex code.run 证据。");
   if (/测试|test/i.test(prompt)) candidates.push("需要补充或更新测试覆盖核心规则。");
   return candidates;
 }
 
 function buildAcceptanceCriteria(goal: string, constraints: string[]): string[] {
-  const criteria = constraints.length > 0 ? constraints : [goal];
+  const criteria = uniqueStrings([`完成用户需求：${goal}`, ...constraints]);
   return criteria.slice(0, 5).map((criterion, index) => `AC-${String(index + 1).padStart(3, "0")}: ${criterion}`);
+}
+
+function taskTitleForGoal(goal: string): string {
+  const compact = goal.replace(/\s+/g, " ").trim();
+  return compact.length > 80
+    ? `Implement accepted demand: ${compact.slice(0, 77)}...`
+    : `Implement accepted demand: ${compact}`;
 }
 
 function renderSpecMarkdown(changeId: string, goal: string, constraints: string[], acceptanceCriteria: string[]): string {

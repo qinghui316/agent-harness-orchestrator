@@ -40,6 +40,35 @@ The user should not need to know ECL, Change, Workpad, Topic, TaskRun, WorkerLea
 
 OpenSpec is the planning reference for this part of the loop. AHO should use one main planning-agent conversation to refine the user's demand and produce proposal/spec/design/tasks/AC artifacts, rather than exposing separate spec and planner agents as mandatory user-facing steps. The artifact split remains important internally; the user interaction should stay conversational.
 
+## 2A. Goal-Driven Workflow Reference Combination
+
+The target AHO loop combines several reference patterns without copying any one
+authority model:
+
+- Codex Goal contributes persistent objective state, continuation across turns,
+  explicit blocked/completed lifecycle, and completion audit. AHO maps this to a
+  persistent Goal/Change, not to Codex thread state as workflow truth.
+- Loop Engineering contributes the control pattern: act, observe current
+  evidence, reason about the next legal strategy, and repeat. AHO uses this to
+  let the main Agent decide between read-only analysis, sequential work,
+  parallel worktree slices, rework, IntegrationFix, waiting, or user input.
+- Open Dynamic Workflows contributes workflow-as-artifact, pipeline/parallel
+  semantics, evented progress, and journal-backed recovery. AHO maps this to
+  DecompositionPlan, WorkflowGraphPlan, WorkflowRun, recovery keys, and
+  bounded leaf runs rather than product-facing workflow scripts.
+- Symphony contributes orchestrator-owned poll, dispatch, reconcile, retry,
+  blocked state, isolated workspaces, and operator-visible status. AHO maps
+  this to Change/TaskGraph/worktree-backed execution rather than external issue
+  state or unattended landing.
+
+The combined AHO target is Goal Loop plus typed workflow recovery plus
+evidence-bound scheduler/action execution plus human gates. That means
+Scheduler/worktree paths are execution strategies for low-conflict
+write-capable slices, not the product core and not the destination for every
+TaskGraph node. High-conflict, ambiguous, dependent, documentation-judgment, or
+read-only planning work should continue as sequential loop turns, proposal
+updates, bounded rework, IntegrationFix, or user clarification.
+
 ## 3. Historical Baseline Note
 
 This section preserves the Phase 7F-era product baseline as historical architecture context. It is not the current implementation baseline. For the current implementation baseline and next recommended development direction, read `docs/CURRENT-DEVELOPMENT-PLAN.md` and `docs/STATUS.md`.

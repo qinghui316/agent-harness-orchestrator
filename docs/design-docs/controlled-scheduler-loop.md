@@ -2,6 +2,16 @@
 
 Status: Phase 12A design boundary. This document is an accepted implementation contract for later phases. It is not current runtime authority and does not add a scheduler loop, executor, Workbench action, ToolPolicy path, or source mutation path.
 
+Positioning: this document defines only the future Scheduler loop boundary. It
+is not the complete Goal-driven Workflow Loop architecture. The complete target
+is recorded in `docs/CURRENT-DEVELOPMENT-PLAN.md` under
+`Goal-Driven Workflow Loop Target`: the main Agent loops over current evidence
+and may choose read-only planning, sequential workflow steps, low-conflict
+parallel worktree slices, validation/audit, bounded rework, IntegrationFix,
+waiting, or user clarification. Scheduler loop behavior is one bounded
+execution strategy that the Goal Loop may call after the relevant evidence,
+target ids, ToolPolicy checks, and human gates are satisfied.
+
 ## Purpose
 
 AHO currently has Goal Loop evidence that can recommend one existing scoped scheduler gate at a time. That is intentionally not a scheduler loop. A future controlled Scheduler loop may repeatedly inspect current evidence, decide the next legal scheduler transition, and stop at human gates, but only if it remains bounded by AHO workflow truth.

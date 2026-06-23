@@ -644,6 +644,12 @@ export function validateWorkflowActionRequiredTargets(request: WorkflowActionSco
       requireOne("readinessManifestId", [request.readinessManifestId]);
       requireOne("decompositionPlanId", [request.decompositionPlanId]);
       break;
+    case "result.refresh-rework":
+    case "result.revalidate":
+    case "result.reaudit":
+    case "result.refresh-status":
+      requireOne("worktreeId", [request.worktreeId]);
+      break;
     case "apply-check.run":
       requireOne("worktreeId or worktreeIds", [request.worktreeId, request.worktreeIds]);
       break;

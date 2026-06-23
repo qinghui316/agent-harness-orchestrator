@@ -55,6 +55,7 @@ export async function runCodexExecCode(input: {
     lastMessagePath: input.paths.lastMessage,
     model: input.options.model,
     profile: input.options.profile,
+    additionalReadDirs: input.memory.mode === "external-local" ? [input.memory.memoryRoot] : [],
   });
   let run: RunMetadata = { ...input.run, command: [argv.command, ...argv.args], status: "running" };
   await writeJsonFile(input.paths.run, run);

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { evaluateCodexAppServerCapabilities } from "../../src/codex/app-server.js";
+import { evaluateCodexAppServerCapabilities, shouldUseCodexAppServerForMemory } from "../../src/codex/app-server.js";
 import { buildCodexReadonlyArgv, buildCodexReadonlyResumeArgv, buildCodexWorkspaceWriteArgv, evaluateCodexCapabilities } from "../../src/codex/capabilities.js";
 import { createCodexJsonlStreamParser, extractFinalMessageFromCodexJsonl, truncateReadablePreview, type CodexJsonlStreamEvent } from "../../src/codex/jsonl.js";
 import { composeCodexPrompt, readPromptInput } from "../../src/codex/prompt.js";
@@ -37,6 +37,12 @@ describe("codex capabilities", () => {
     ]));
   });
 
+  it("skips app-server when project memory is external-local", () => {
+    expect(shouldUseCodexAppServerForMemory("repo-local")).toBe(true);
+    expect(shouldUseCodexAppServerForMemory("remote")).toBe(true);
+    expect(shouldUseCodexAppServerForMemory("external-local")).toBe(false);
+  });
+
   it("builds root-level approval argv", () => {
     const capabilities = evaluateCodexCapabilities("codex-cli 1.0", rootHelp, execHelp);
 
@@ -47,7 +53,7 @@ describe("codex capabilities", () => {
       profile: "default",
     });
 
-    expect(argv.args.slice(0, 4)).toEqual(["--ask-for-approval", "never", "exec", "--json"]);
+    expect(argv.args.slice(0, 6)).toEqual(["-c", 'service_tier="fast"', "--ask-for-approval", "never", "exec", "--json"]);
     expect(argv.args).toContain("--sandbox");
     expect(argv.args).toContain("read-only");
     expect(argv.args).toContain("--output-last-message");
@@ -59,6 +65,7 @@ describe("codex capabilities", () => {
     expect(argv.args).not.toContain("--dangerously-bypass-approvals-and-sandbox");
     expect(argv.args).not.toContain("--ignore-user-config");
     expect(argv.args).not.toContain("--skip-git-repo-check");
+    expect(argv.args).toContain('service_tier="fast"');
   });
 
   it("builds exec-level approval argv", () => {
@@ -69,7 +76,7 @@ describe("codex capabilities", () => {
       lastMessagePath: "/repo/.agent-harness/runs/run/last-message.md",
     });
 
-    expect(argv.args.slice(0, 4)).toEqual(["exec", "--ask-for-approval", "never", "--json"]);
+    expect(argv.args.slice(0, 6)).toEqual(["-c", 'service_tier="fast"', "exec", "--ask-for-approval", "never", "--json"]);
   });
 
   it("fails capability evaluation without safe required flags", () => {
@@ -145,6 +152,8 @@ describe("codex capabilities", () => {
     });
 
     expect(argv.args).toEqual([
+      "-c",
+      'service_tier="fast"',
       "exec",
       "--json",
       "--color",
@@ -162,6 +171,18 @@ describe("codex capabilities", () => {
     expect(argv.args).not.toContain("--dangerously-bypass-approvals-and-sandbox");
     expect(argv.args).not.toContain("--ignore-user-config");
     expect(argv.args).not.toContain("--skip-git-repo-check");
+  });
+
+  it("adds optional workspace-write memory directories when supported", () => {
+    const capabilities = evaluateCodexCapabilities("codex-cli 1.0", "Usage: codex", execHelp);
+    const argv = buildCodexWorkspaceWriteArgv(capabilities, {
+      projectPath: "/worktree",
+      lastMessagePath: "/memory/runs/run/last-message.md",
+      additionalReadDirs: ["/memory"],
+    });
+
+    expect(argv.args).toContain("--add-dir");
+    expect(argv.args).toContain("/memory");
   });
 });
 

@@ -165,6 +165,7 @@ export async function runWorkbenchWorkflowAction(project: ManagedProject, reques
   return runWorkbenchWorkflowActionService(project, request, live, {
     resolveChangeId: resolveWorkflowActionChangeId,
     createTranscriptCapture: createAssistantTranscriptCapture,
+    readThreadEntries: readWorkflowActionThreadEntries,
     appendThreadEntry: appendTopicThreadEntry,
     execute: executeWorkflowAction,
     labelForAction,
@@ -176,6 +177,11 @@ export async function runWorkbenchWorkflowAction(project: ManagedProject, reques
     scopePayload: workflowActionScopePayload,
     recordDecision: recordWorkbenchDecision,
   });
+}
+
+async function readWorkflowActionThreadEntries(project: ManagedProject, changeId: string): Promise<TopicThreadEntry[]> {
+  const { memory, changePath } = await resolveTopic(project, changeId);
+  return readThreadLog(memory, changePath);
 }
 
 async function resolveWorkflowActionChangeId(project: ManagedProject, request: WorkbenchWorkflowActionRequest): Promise<string> {

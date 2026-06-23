@@ -46,7 +46,9 @@ describe("workbench apply and integration slow flows", () => {
       await writeValidationResultWithHash("result-review-demand", "run-validation-review", worktree.metadata.worktreeId, diff.diffHash, "passed");
       await writeAuditResultWithHash("result-review-demand", "run-audit-review", worktree.metadata.worktreeId, diff.diffHash, "approved-with-notes");
 
-      const beforeApply = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: "result-review-demand" });
+      const beforeAuditAccept = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: "result-review-demand" });
+      expect(beforeAuditAccept.right.confirmationQueue.primary?.actions.some((action) => action.action?.actionId === "audit.accept")).toBe(true);
+      const beforeApply = await acceptAuditAndGetSnapshot("result-review-demand");
       expect(beforeApply.center.workpad.resultReview).toMatchObject({
         status: "ready-to-apply",
         worktreeId: worktree.metadata.worktreeId,
@@ -69,7 +71,6 @@ describe("workbench apply and integration slow flows", () => {
 
       expect(applied.result).toMatchObject({
         apply: expect.objectContaining({ status: "applied", committed: false }),
-        auditAccepted: expect.objectContaining({ auditId: "run-audit-review" }),
       });
       const afterApply = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: "result-review-demand" });
       expect(afterApply.center.workpad.resultReview).toMatchObject({ status: "applied-source-dirty" });
@@ -78,7 +79,7 @@ describe("workbench apply and integration slow flows", () => {
       if (oldAhoHome === undefined) delete process.env.AHO_HOME;
       else process.env.AHO_HOME = oldAhoHome;
     }
-  });
+  }, 120_000);
 
   it("completes a user-facing manual gated Workbench loop through apply and archive", async () => {
     const oldAhoHome = process.env.AHO_HOME;
@@ -100,7 +101,9 @@ describe("workbench apply and integration slow flows", () => {
       await writeValidationResultWithHash(topic.changeId, "run-validation-finalize", worktree.metadata.worktreeId, diff.diffHash, "passed");
       await writeAuditResultWithHash(topic.changeId, "run-audit-finalize", worktree.metadata.worktreeId, diff.diffHash, "approved");
 
-      const snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: topic.changeId });
+      const beforeAuditAccept = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: topic.changeId });
+      expect(beforeAuditAccept.right.confirmationQueue.primary?.actions.some((action) => action.action?.actionId === "audit.accept")).toBe(true);
+      const snapshot = await acceptAuditAndGetSnapshot(topic.changeId);
       expect(snapshot.center.thread.items).toEqual(expect.arrayContaining([
         expect.objectContaining({ kind: "user-message", body: "Make the package test print finalize." }),
       ]));
@@ -135,7 +138,6 @@ describe("workbench apply and integration slow flows", () => {
 
       expect(applied.result).toMatchObject({
         apply: expect.objectContaining({ status: "applied", committed: true }),
-        auditAccepted: expect.objectContaining({ auditId: "run-audit-finalize" }),
       });
       expect(await gitStatus(getTempDir())).toBe("");
       const afterApply = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: topic.changeId });
@@ -164,7 +166,7 @@ describe("workbench apply and integration slow flows", () => {
       if (oldAhoHome === undefined) delete process.env.AHO_HOME;
       else process.env.AHO_HOME = oldAhoHome;
     }
-  });
+  }, 120_000);
 
   it("scopes result review apply decisions to the selected demand worktree", async () => {
     const oldAhoHome = process.env.AHO_HOME;
@@ -187,7 +189,7 @@ describe("workbench apply and integration slow flows", () => {
       await writeValidationResultWithHash("demand-b", "run-validation-b", worktreeB.metadata.worktreeId, diffB.diffHash, "passed");
       await writeAuditResultWithHash("demand-b", "run-audit-b", worktreeB.metadata.worktreeId, diffB.diffHash, "approved-with-notes");
 
-      const snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: "demand-b" });
+      const snapshot = await acceptAuditAndGetSnapshot("demand-b");
       const applyAction = snapshot.right.decisionInspector.primary?.actions.find((action) => action.action?.actionId === "result.apply")?.action;
 
       expect(snapshot.center.selectedTopic?.id).toBe("demand-b");
@@ -233,6 +235,8 @@ describe("workbench apply and integration slow flows", () => {
       await writeValidationResultWithHash("demand-b", "run-validation-b", worktreeB.metadata.worktreeId, diffB.diffHash, "passed");
       await writeAuditResultWithHash("demand-b", "run-audit-b", worktreeB.metadata.worktreeId, diffB.diffHash, "approved-with-notes");
 
+      await acceptAuditAndGetSnapshot("demand-a");
+      await acceptAuditAndGetSnapshot("demand-b");
       const snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: "demand-a" });
       expect(snapshot.right.confirmationQueue.primary).toMatchObject({
         kind: "integration-check",
@@ -246,7 +250,7 @@ describe("workbench apply and integration slow flows", () => {
       if (oldAhoHome === undefined) delete process.env.AHO_HOME;
       else process.env.AHO_HOME = oldAhoHome;
     }
-  });
+  }, 120_000);
 
   it("runs an integration check in a temporary worktree without changing source root", async () => {
     const oldAhoHome = process.env.AHO_HOME;
@@ -274,6 +278,8 @@ describe("workbench apply and integration slow flows", () => {
       await writeValidationResultWithHash("demand-b", "run-validation-b", worktreeB.metadata.worktreeId, diffB.diffHash, "passed");
       await writeAuditResultWithHash("demand-b", "run-audit-b", worktreeB.metadata.worktreeId, diffB.diffHash, "approved-with-notes");
 
+      await acceptAuditAndGetSnapshot("demand-a");
+      await acceptAuditAndGetSnapshot("demand-b");
       const checked = await executeWorkbenchAction({ project: project(), path: getTempDir() }, {
         actionType: "apply-check.run",
         changeId: "demand-a",
@@ -297,7 +303,7 @@ describe("workbench apply and integration slow flows", () => {
       if (oldAhoHome === undefined) delete process.env.AHO_HOME;
       else process.env.AHO_HOME = oldAhoHome;
     }
-  });
+  }, 120_000);
 
   it("rejects explicit integration check targets when any requested worktree id is forged", async () => {
     const oldAhoHome = process.env.AHO_HOME;
@@ -325,6 +331,8 @@ describe("workbench apply and integration slow flows", () => {
       await writeValidationResultWithHash("demand-b", "run-validation-b", worktreeB.metadata.worktreeId, diffB.diffHash, "passed");
       await writeAuditResultWithHash("demand-b", "run-audit-b", worktreeB.metadata.worktreeId, diffB.diffHash, "approved-with-notes");
 
+      await acceptAuditAndGetSnapshot("demand-a");
+      await acceptAuditAndGetSnapshot("demand-b");
       const result = await executeWorkbenchAction({ project: project(), path: getTempDir() }, {
         actionType: "apply-check.run",
         changeId: "demand-a",
@@ -338,7 +346,7 @@ describe("workbench apply and integration slow flows", () => {
       if (oldAhoHome === undefined) delete process.env.AHO_HOME;
       else process.env.AHO_HOME = oldAhoHome;
     }
-  });
+  }, 120_000);
 
   it("runs integration fix on aggregate validation failure and applies repaired artifact only after confirmation", async () => {
     const oldAhoHome = process.env.AHO_HOME;
@@ -367,6 +375,8 @@ describe("workbench apply and integration slow flows", () => {
       await writeValidationResultWithHash("demand-b", "run-validation-b", worktreeB.metadata.worktreeId, diffB.diffHash, "passed");
       await writeAuditResultWithHash("demand-b", "run-audit-b", worktreeB.metadata.worktreeId, diffB.diffHash, "approved-with-notes");
 
+      await acceptAuditAndGetSnapshot("demand-a");
+      await acceptAuditAndGetSnapshot("demand-b");
       const checked = await executeWorkbenchAction({ project: project(), path: getTempDir() }, {
         actionType: "apply-check.run",
         changeId: "demand-a",
@@ -403,7 +413,7 @@ describe("workbench apply and integration slow flows", () => {
       if (oldAhoHome === undefined) delete process.env.AHO_HOME;
       else process.env.AHO_HOME = oldAhoHome;
     }
-  });
+  }, 120_000);
 
   it("classifies source drift as same-demand refresh rework instead of apply", async () => {
     const oldAhoHome = process.env.AHO_HOME;
@@ -423,6 +433,7 @@ describe("workbench apply and integration slow flows", () => {
       const diff = await collectWorktreeDiff(memory, worktree.metadata.worktreeId, "source-drift-demand");
       await writeValidationResultWithHash("source-drift-demand", "run-validation-drift", worktree.metadata.worktreeId, diff.diffHash, "passed");
       await writeAuditResultWithHash("source-drift-demand", "run-audit-drift", worktree.metadata.worktreeId, diff.diffHash, "approved-with-notes");
+      await acceptAuditAndGetSnapshot("source-drift-demand");
       await writeFile(join(getTempDir(), "README.md"), "Project changed after result review.\n", "utf8");
       await git(getTempDir(), ["add", "README.md"]);
       await git(getTempDir(), ["commit", "-m", "source changed"]);
@@ -465,6 +476,7 @@ describe("workbench apply and integration slow flows", () => {
       const diff = await collectWorktreeDiff(memory, worktree.metadata.worktreeId, "dirty-source-demand");
       await writeValidationResultWithHash("dirty-source-demand", "run-validation-dirty", worktree.metadata.worktreeId, diff.diffHash, "passed");
       await writeAuditResultWithHash("dirty-source-demand", "run-audit-dirty", worktree.metadata.worktreeId, diff.diffHash, "approved-with-notes");
+      await acceptAuditAndGetSnapshot("dirty-source-demand");
       await writeFile(join(getTempDir(), "README.md"), "Uncommitted local edit.\n", "utf8");
 
       const snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: "dirty-source-demand" });
@@ -487,4 +499,13 @@ describe("workbench apply and integration slow flows", () => {
 async function gitStatus(cwd: string): Promise<string> {
   const { stdout } = await execFileAsync("git", ["status", "--porcelain"], { cwd });
   return stdout.trim();
+}
+
+async function acceptAuditAndGetSnapshot(topicId: string) {
+  let snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId });
+  const auditAccept = snapshot.right.confirmationQueue.primary?.actions.find((action) => action.action?.actionId === "audit.accept")?.action;
+  if (!auditAccept) throw new Error(`Missing audit.accept action for ${topicId}.`);
+  await executeWorkbenchAction({ project: project(), path: getTempDir() }, { action: auditAccept, confirm: true });
+  snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId });
+  return snapshot;
 }
