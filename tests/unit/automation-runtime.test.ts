@@ -22,6 +22,7 @@ describe("Scoped automation runtime", () => {
   it("executes multiple allowed workflow actions under one scoped authorization", async () => {
     const dispatched: Array<{ request: WorkflowActionScopeCarrier; auditScope: Record<string, unknown> }> = [];
     const sequence = [
+      { actionType: "planning.decompose" as const, changeId: "change-1" },
       { actionType: "planning.decomposition.confirm" as const, changeId: "change-1", decompositionPlanId: "decomp-1" },
       { actionType: "planning.decomposition.assess-readiness" as const, changeId: "change-1", decompositionPlanId: "decomp-1" },
     ];
@@ -47,16 +48,16 @@ describe("Scoped automation runtime", () => {
     expect(result.authorization.codexRuntimeCapability).toBe("full-access");
     expect(result.authorization.applyAuthorized).toBe(false);
     expect(result.automationRun.status).toBe("stopped");
-    expect(result.automationRun.completedSteps).toBe(2);
+    expect(result.automationRun.completedSteps).toBe(3);
     expect(result.stopReason).toBe("no-primary-gate");
-    expect(dispatched).toHaveLength(2);
+    expect(dispatched).toHaveLength(3);
     expect(dispatched[0]?.auditScope).toMatchObject({
       coveredByAutomationAuthorizationId: result.authorization.id,
       automationRunId: result.automationRun.id,
       automationIterationOrdinal: 1,
     });
     expect(dispatched[0]?.request).toMatchObject({
-      actionType: "planning.decomposition.confirm",
+      actionType: "planning.decompose",
       automationAuthorizationId: result.authorization.id,
       automationRunId: result.automationRun.id,
     });

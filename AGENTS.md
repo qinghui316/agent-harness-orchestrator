@@ -9,7 +9,7 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 - Pending Harness evolution: none.
 - Latest archived verification change: Workbench Verification Runtime Convergence, archived at `harness/changes/archive/20260623-workbench-verification-runtime-convergence/summary.md`.
 - Latest archived product audit: Workbench Goal Loop Surface Gap Audit, archived at `harness/changes/archive/20260624-workbench-goal-loop-surface-gap-audit/summary.md`.
-- Latest archived product change: Workbench Two-Tier Scoped Automation Authorization V1, archived at `harness/changes/archive/20260624-workbench-two-tier-scoped-automation-authorization-v1/summary.md`.
+- Latest archived product change: Workbench Scoped Automation Decomposition Gate Coverage V1, archived at `harness/changes/archive/20260624-workbench-scoped-automation-decomposition-gate-coverage-v1/summary.md`.
 - Latest real UI continuation scout: Workbench Real UI Continuation Next-Blocker Scout, archived at `harness/changes/archive/20260624-workbench-real-ui-continuation-next-blocker-scout/summary.md`.
 - Latest real-Codex acceptance change: Current Project Real Codex Acceptance, archived at `harness/changes/archive/20260623-workbench-current-project-real-codex-acceptance/summary.md`.
 - Latest product/Harness docs change: Goal-Driven Workflow Loop Target, archived at `harness/changes/archive/20260623-document-goal-driven-workflow-loop-target/summary.md`.
@@ -25,6 +25,12 @@ Change and stops before apply/close/merge, remote landing, Harness evolution,
 unsupported gates, stale targets, drift, or blockers. Daily
 `npm run test:workbench` is the normal Workbench gate; deep scheduler/apply/
 Goal Loop coverage remains in release/deep scripts.
+
+The latest product change extends Workbench scoped `完全访问权限` automation to
+the existing `planning.decompose` decomposition proposal gate only when that
+gate is the current authoritative primary confirmation for the selected Change.
+It does not auto-run `planning.generate`, apply, close/archive, merge, remote
+landing, Harness evolution, scheduler loops, or parallel execution.
 
 The latest Harness evolution reviewed the post-continuation five-archive window
 with an authorized subagent. Result: `noop` for ECL/template/lint/product

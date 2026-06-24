@@ -5,7 +5,7 @@
 - Current date: 2026-06-24.
 - Active ECL change: none.
 - Pending Harness evolution: none.
-- Latest archived product change: `harness/changes/archive/20260624-workbench-two-tier-scoped-automation-authorization-v1/summary.md`.
+- Latest archived product change: `harness/changes/archive/20260624-workbench-scoped-automation-decomposition-gate-coverage-v1/summary.md`.
 - Latest real UI continuation scout: `harness/changes/archive/20260624-workbench-real-ui-continuation-next-blocker-scout/summary.md`.
 - Latest bounded continuation runtime: `harness/changes/archive/20260624-goal-driven-controlled-continuation-runtime-v1/summary.md`.
 - Latest product audit: `harness/changes/archive/20260624-workbench-goal-loop-surface-gap-audit/summary.md`.
@@ -14,11 +14,12 @@
 - Latest Harness evolution: `harness/changes/archive/20260624-auto-evolve-post-continuation-scout-window/summary.md`.
 
 No structured product change is currently active. The latest product change
-added the Workbench two-tier authorization surface: `请求批准` preserves
-per-step confirmation, while `完全访问权限` creates an AHO-scoped automation
-authorization for the selected demand. Codex may run with full-access runtime
-capability, but AHO still enforces scoped target ids, stale revalidation,
-ToolPolicyGate, source safety, validation/audit, and human apply/close gates.
+extends the Workbench two-tier authorization surface so `完全访问权限` can consume
+the existing `planning.decompose` decomposition proposal gate only when it is
+the current authoritative primary confirmation for the selected demand. Codex
+may run with full-access runtime capability, but AHO still enforces scoped
+target ids, stale revalidation, ToolPolicyGate, source safety,
+validation/audit, and human apply/close gates.
 
 No pending Harness evolution remains. The latest Harness evolution reviewed the
 post-continuation five-archive window with an authorized subagent. Result:

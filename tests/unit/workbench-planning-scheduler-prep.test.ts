@@ -88,7 +88,13 @@ describe("workbench planning and scheduler preparation", () => {
       body: "Assess whether this should be split before execution.",
     });
     await writeAcceptedSpecAndTasks(topic.changeId);
-    await writePlanningBundleFixture(topic.changeId, "Implement one scoped demand.");
+    const planningBundleId = await writePlanningBundleFixture(topic.changeId, "Implement one scoped demand.");
+    await executeWorkbenchAction({ project: project(), path: tempDir }, {
+      actionType: "planning.confirm-execution",
+      changeId: topic.changeId,
+      planningBundleId,
+      confirm: true,
+    });
 
     const draft = await executeWorkbenchAction({ project: project(), path: tempDir }, {
       actionType: "planning.decompose",
@@ -169,7 +175,13 @@ describe("workbench planning and scheduler preparation", () => {
       body: "Assess only the visible confirmed decomposition plan.",
     });
     await writeAcceptedSpecAndTasks(topic.changeId);
-    await writePlanningBundleFixture(topic.changeId, "Implement one scoped demand.");
+    const planningBundleId = await writePlanningBundleFixture(topic.changeId, "Implement one scoped demand.");
+    await executeWorkbenchAction({ project: project(), path: tempDir }, {
+      actionType: "planning.confirm-execution",
+      changeId: topic.changeId,
+      planningBundleId,
+      confirm: true,
+    });
 
     const draft = await executeWorkbenchAction({ project: project(), path: tempDir }, {
       actionType: "planning.decompose",
@@ -207,7 +219,13 @@ describe("workbench planning and scheduler preparation", () => {
       body: "Reject decomposition plans that no longer match accepted tasks.",
     });
     await writeAcceptedSpecAndTasks(topic.changeId);
-    await writePlanningBundleFixture(topic.changeId, "Implement one scoped demand.");
+    const planningBundleId = await writePlanningBundleFixture(topic.changeId, "Implement one scoped demand.");
+    await executeWorkbenchAction({ project: project(), path: tempDir }, {
+      actionType: "planning.confirm-execution",
+      changeId: topic.changeId,
+      planningBundleId,
+      confirm: true,
+    });
 
     const draft = await executeWorkbenchAction({ project: project(), path: tempDir }, {
       actionType: "planning.decompose",
@@ -259,7 +277,7 @@ describe("workbench planning and scheduler preparation", () => {
       "  - Covers: AC-001",
       "",
     ].join("\n"), "utf8");
-    await writePlanningBundleFixture(topic.changeId, "Implement ordered split work.");
+    const planningBundleId = await writePlanningBundleFixture(topic.changeId, "Implement ordered split work.");
     const bundlePath = join(changeDir, "planning", "latest-bundle.json");
     const bundle = JSON.parse(await readFile(bundlePath, "utf8"));
     bundle.tasks = [
@@ -268,6 +286,12 @@ describe("workbench planning and scheduler preparation", () => {
     ];
     bundle.tasksMd = "- [ ] T-001: First task\n  - Covers: AC-001\n- [ ] T-002: Second task\n  - Covers: AC-001\n";
     await writeFile(bundlePath, JSON.stringify(bundle, null, 2), "utf8");
+    await executeWorkbenchAction({ project: project(), path: tempDir }, {
+      actionType: "planning.confirm-execution",
+      changeId: topic.changeId,
+      planningBundleId,
+      confirm: true,
+    });
 
     const draft = await executeWorkbenchAction({ project: project(), path: tempDir }, {
       actionType: "planning.decompose",

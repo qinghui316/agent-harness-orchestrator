@@ -536,6 +536,32 @@ describe("workflow action registry", () => {
     });
     expect(workflowActionScopesMatchStrict(request, { ...request })).toBe(true);
     expect(workflowActionScopesMatchStrict(request, { ...request, decompositionPlanId: "decomp-old" })).toBe(false);
+
+    const decomposeRequest = {
+      actionType: "planning.decompose",
+      changeId: "change-1",
+    };
+    expect(validateWorkflowActionRequiredTargets(decomposeRequest)).toEqual([]);
+    expect(validateWorkflowActionRequiredTargets({
+      ...decomposeRequest,
+      changeId: undefined,
+    }).map((item) => item.label)).toEqual(["changeId"]);
+
+    const automationDecomposeRequest = {
+      actionType: "planning.automation.scoped-auto.run",
+      changeId: "change-1",
+      automationMode: "full-access",
+      automationCurrentGateActionType: "planning.decompose",
+      maxSteps: 5,
+    };
+    expect(validateWorkflowActionRequiredTargets(automationDecomposeRequest)).toEqual([]);
+    expect(workflowActionScopesMatchStrict(automationDecomposeRequest, { ...automationDecomposeRequest })).toBe(true);
+    expect(workflowActionScopePayload(automationDecomposeRequest, automationDecomposeRequest.changeId)).toMatchObject({
+      changeId: "change-1",
+      automationMode: "full-access",
+      automationCurrentGateActionType: "planning.decompose",
+      maxSteps: 5,
+    });
   });
 
   it("keeps SchedulerContract ids in target and audit scope matching", () => {

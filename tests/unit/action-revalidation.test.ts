@@ -345,5 +345,49 @@ describe("Workbench action revalidation", () => {
       changeId: "change-2",
     })).rejects.toThrow("stale or no longer available");
   });
+
+  it("revalidates planning.decompose against the current primary gate", async () => {
+    const visibleAction = {
+      kind: "workflow-action",
+      actionType: "planning.decompose",
+      changeId: "change-1",
+      enabled: true,
+    };
+    mocks.getWorkbenchSnapshot.mockResolvedValue({
+      center: { workpad: { nextAction: { kind: "workflow-action", ...visibleAction } } },
+      right: {
+        confirmationQueue: {
+          primary: { actions: [visibleAction], changeId: "change-1" },
+          current: [],
+          otherDemands: [],
+        },
+      },
+    });
+
+    await expect(assertCurrent({ project: { id: "repo", name: "Repo", path: "project-root", addedAt: "2026-06-18T00:00:00.000Z", lastSeenAt: "2026-06-18T00:00:00.000Z" }, path: "project-root" }, {
+      actionType: "planning.decompose",
+      changeId: "change-1",
+    })).resolves.toBeUndefined();
+
+    await expect(assertCurrent({ project: { id: "repo", name: "Repo", path: "project-root", addedAt: "2026-06-18T00:00:00.000Z", lastSeenAt: "2026-06-18T00:00:00.000Z" }, path: "project-root" }, {
+      actionType: "planning.decompose",
+      changeId: "change-2",
+    })).rejects.toThrow("stale or no longer available");
+
+    mocks.getWorkbenchSnapshot.mockResolvedValueOnce({
+      center: { workpad: { nextAction: { kind: "workflow-action", ...visibleAction, enabled: false } } },
+      right: {
+        confirmationQueue: {
+          primary: { actions: [{ ...visibleAction, enabled: false }], changeId: "change-1" },
+          current: [],
+          otherDemands: [],
+        },
+      },
+    });
+    await expect(assertCurrent({ project: { id: "repo", name: "Repo", path: "project-root", addedAt: "2026-06-18T00:00:00.000Z", lastSeenAt: "2026-06-18T00:00:00.000Z" }, path: "project-root" }, {
+      actionType: "planning.decompose",
+      changeId: "change-1",
+    })).rejects.toThrow("stale or no longer available");
+  });
 });
 

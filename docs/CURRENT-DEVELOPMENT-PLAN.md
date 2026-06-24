@@ -139,18 +139,21 @@ Current architecture debt register:
 
 No structured product change is currently active, and no Harness evolution is
 pending. The latest product change is archived at
-`harness/changes/archive/20260624-workbench-two-tier-scoped-automation-authorization-v1/summary.md`.
-It adds the Workbench two-tier authorization surface: `请求批准` keeps the
+`harness/changes/archive/20260624-workbench-scoped-automation-decomposition-gate-coverage-v1/summary.md`.
+It extends the Workbench two-tier authorization surface: `请求批准` keeps the
 existing per-step confirmation path, while `完全访问权限` creates a scoped
-automation authorization for the selected demand. Codex may run with
-full-access runtime capability, but AHO authority remains bounded to the
-current `projectId + changeId`, current target ids, source state, accepted
-artifact hashes, allowed local workflow action set, budget, and human
-confirmation evidence. Real UI acceptance in external sandbox
-`C:\aho-accept\two-tier-v3` proved one full-access confirmation advanced
-`planning.confirm-execution` and then stopped at unsupported
-`planning.decomposition.generate`; no apply, close, merge, remote, Harness
-evolution, or parallel executor behavior was authorized.
+automation authorization for the selected demand and can now consume the
+existing `planning.decompose` decomposition proposal gate when it is the
+current authoritative primary confirmation. Codex may run with full-access
+runtime capability, but AHO authority remains bounded to the current
+`projectId + changeId`, current target ids, source state, accepted artifact
+hashes, allowed local workflow action set, budget, and human confirmation
+evidence. Real UI acceptance in external sandbox
+`C:\aho-accept\decompose-gate-v1` proved one full-access confirmation advanced
+past `planning.decompose`, continued through already allowed local
+code/validation/audit gates, and stopped at a human audit acceptance gate; no
+apply, close, merge, remote, Harness evolution, or parallel executor behavior
+was authorized.
 
 The previous real UI continuation scout is archived at
 `harness/changes/archive/20260624-workbench-real-ui-continuation-next-blocker-scout/summary.md`.

@@ -419,6 +419,31 @@ function decompositionConfirmQueueItem() {
   } as const;
 }
 
+function decomposeQueueItem() {
+  return {
+    id: "confirm:planning-decompose:member-discount",
+    kind: "planning-confirm",
+    conversationId: "member-discount",
+    changeId: "member-discount",
+    summary: "规划已确认，可以生成拆分提案。",
+    whyNeedsConfirmation: "需要你确认生成拆分提案。",
+    confirmEffect: "记录拆分提案草案；不会创建子需求、后台执行任务、工作副本或启动执行。",
+    riskSummary: "拆分提案必须再经过确认和执行边界检查后，才可能进入下一步真实执行。",
+    evidenceRefs: ["planning-bundle.md"],
+    primary: true,
+    status: "pending",
+    actions: [{
+      id: "workflow:planning.decompose:member-discount",
+      label: "生成拆分提案",
+      kind: "workflow-action",
+      enabled: true,
+      requiresConfirmation: true,
+      actionType: "planning.decompose",
+      changeId: "member-discount",
+    }],
+  } as const;
+}
+
 describe("Workbench web app", () => {
   beforeEach(() => {
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
@@ -564,6 +589,53 @@ describe("Workbench web app", () => {
       decompositionPlanId: "decomp-1",
       maxSteps: 5,
     });
+  });
+
+  it("submits scoped-auto for the decomposition proposal gate", async () => {
+    const execute = vi.fn(async () => undefined);
+    function Harness() {
+      const [confirming, setConfirming] = useState<string | null>(null);
+      return (
+        <DecisionInspectorPane
+          inspector={{ primary: null, related: [], history: [] }}
+          confirmationQueue={{
+            primary: decomposeQueueItem(),
+            current: [decomposeQueueItem()],
+            otherDemands: [],
+            maintenance: [],
+            history: [],
+          }}
+          confirming={confirming}
+          busy={false}
+          error={null}
+          onConfirmingChange={setConfirming}
+          onExecuteAction={execute}
+          onFeedback={async () => undefined}
+          onSelectContext={() => undefined}
+        />
+      );
+    }
+
+    render(<Harness />);
+
+    const card = screen.getByTestId("decision-inspector-primary");
+    const fullAccessButtons = within(card).getAllByRole("button", { name: "完全访问权限" });
+    fireEvent.click(fullAccessButtons[fullAccessButtons.length - 1]!);
+    const executeFullAccessButtons = within(card).getAllByRole("button", { name: "完全访问权限" });
+    fireEvent.click(executeFullAccessButtons[executeFullAccessButtons.length - 1]!);
+    fireEvent.click(within(card).getByRole("button", { name: "确认" }));
+
+    await waitFor(() => expect(execute).toHaveBeenCalledTimes(1));
+    expect(execute.mock.calls[0]?.[0]).toMatchObject({
+      actionType: "planning.automation.scoped-auto.run",
+      automationMode: "full-access",
+      automationCurrentGateActionType: "planning.decompose",
+      changeId: "member-discount",
+      maxSteps: 5,
+    });
+    expect(card.textContent).not.toContain("full-auto");
+    expect(card.textContent).not.toContain("parallel executor");
+    expect(card.textContent).not.toContain("merge queue");
   });
 
   it("renders Chinese workbench panes and replay artifacts", async () => {

@@ -350,6 +350,7 @@ function scopedAutomationActionFrom(action: DecisionAction, context: DecisionCon
 
 function isScopedAutomationAllowedAction(actionType: string | undefined): boolean {
   return actionType === "planning.confirm-execution"
+    || actionType === "planning.decompose"
     || actionType === "planning.decomposition.confirm"
     || actionType === "planning.decomposition.assess-readiness"
     || actionType === "code.run"

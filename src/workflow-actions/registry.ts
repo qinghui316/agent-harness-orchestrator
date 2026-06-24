@@ -304,6 +304,7 @@ export const REVALIDATED_WORKFLOW_ACTION_TYPES = [
   "landing-queue.merge-next",
   "pr-draft.create",
   "planning.confirm-execution",
+  "planning.decompose",
   "planning.decomposition.confirm",
   "planning.decomposition.assess-readiness",
   "planning.taskqueue.propose",
@@ -465,6 +466,9 @@ export function validateWorkflowActionRequiredTargets(request: WorkflowActionSco
       break;
     case "planning.confirm-execution":
       requireOne("planningBundleId", [request.planningBundleId]);
+      break;
+    case "planning.decompose":
+      requireOne("changeId", [request.changeId]);
       break;
     case "planning.decomposition.confirm":
     case "planning.decomposition.assess-readiness":

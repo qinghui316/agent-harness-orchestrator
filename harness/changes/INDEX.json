@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-24T07:01:14.6979347Z",
+    "generated_at":  "2026-06-24T07:59:27.3632124Z",
     "active":  [
 
                ],
@@ -1845,6 +1845,10 @@
                     {
                         "name":  "20260624-workbench-real-ui-continuation-next-blocker-scout",
                         "path":  "harness/changes/archive/20260624-workbench-real-ui-continuation-next-blocker-scout"
+                    },
+                    {
+                        "name":  "20260624-workbench-scoped-automation-decomposition-gate-coverage-v1",
+                        "path":  "harness/changes/archive/20260624-workbench-scoped-automation-decomposition-gate-coverage-v1"
                     },
                     {
                         "name":  "20260624-workbench-two-tier-scoped-automation-authorization-v1",
