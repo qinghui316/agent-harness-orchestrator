@@ -130,6 +130,25 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
     });
     return;
   }
+  if (request.actionType === "planning.goal-loop.controlled-continue.run") {
+    const target = await requireActiveChangeTarget(memory, changeId, "planning.goal-loop.controlled-continue.run");
+    assertWorkbenchActionChangeScope(request.changeId, changeId, "planning.goal-loop.controlled-continue.run");
+    if (!request.goalLoopNextStepPacketId) throw new Error("planning.goal-loop.controlled-continue.run requires goalLoopNextStepPacketId.");
+    if (!request.goalLoopControllerPolicyId) throw new Error("planning.goal-loop.controlled-continue.run requires goalLoopControllerPolicyId.");
+    if (!request.goalLoopGateReadinessPreflightId) throw new Error("planning.goal-loop.controlled-continue.run requires goalLoopGateReadinessPreflightId.");
+    if (!isControlledSchedulerConcreteAction(request.goalLoopCurrentGateActionType)) {
+      throw new Error("planning.goal-loop.controlled-continue.run requires a concrete planning.scheduler.* current gate.");
+    }
+    await assertGoalLoopAssistedConcreteGateConfirmation(memory, target.path, changeId, {
+      ...request,
+      actionType: request.goalLoopCurrentGateActionType,
+    });
+    await assertCurrentHighImpactWorkflowTarget(memory, changeId, {
+      ...request,
+      actionType: request.goalLoopCurrentGateActionType,
+    });
+    return;
+  }
   if (request.actionType === CONTROLLED_SCHEDULER_STEP_ACTION_TYPE) {
     const target = await requireActiveChangeTarget(memory, changeId, "planning.scheduler.controlled-step.run");
     const { concrete } = buildControlledSchedulerStepRequest(request);

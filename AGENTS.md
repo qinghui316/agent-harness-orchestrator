@@ -9,16 +9,25 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 - Pending Harness evolution: none.
 - Latest archived verification change: Workbench Verification Runtime Convergence, archived at `harness/changes/archive/20260623-workbench-verification-runtime-convergence/summary.md`.
 - Latest archived product audit: Workbench Goal Loop Surface Gap Audit, archived at `harness/changes/archive/20260624-workbench-goal-loop-surface-gap-audit/summary.md`.
-- Latest archived product change: Workbench Real UI Next-Blocker Scout, archived at `harness/changes/archive/20260623-workbench-real-ui-next-blocker-scout/summary.md`.
+- Latest archived product change: Goal-Driven Controlled Continuation Runtime V1, archived at `harness/changes/archive/20260624-goal-driven-controlled-continuation-runtime-v1/summary.md`.
+- Latest archived real UI scout: Workbench Real UI Next-Blocker Scout, archived at `harness/changes/archive/20260623-workbench-real-ui-next-blocker-scout/summary.md`.
 - Latest projection fix: Workbench Close Gate Projection Alignment, archived at `harness/changes/archive/20260623-workbench-close-gate-projection-alignment/summary.md`.
 - Latest real-Codex acceptance change: Current Project Real Codex Acceptance, archived at `harness/changes/archive/20260623-workbench-current-project-real-codex-acceptance/summary.md`.
 - Latest product/Harness docs change: Goal-Driven Workflow Loop Target, archived at `harness/changes/archive/20260623-document-goal-driven-workflow-loop-target/summary.md`.
-- Active product phase: post Workbench Goal Loop surface gap audit.
+- Active product phase: no active product change; bounded Goal-driven controlled continuation runtime V1 is now part of the baseline.
 - Active Harness evolution phase: none.
 - Latest Harness evolution: `harness/changes/archive/20260623-auto-evolve-harness-post-real-ui-scheduler-window/summary.md`.
 
-No structured product or Harness evolution change is active. The latest product
-audit is archived at
+The latest product change is archived at
+`harness/changes/archive/20260624-goal-driven-controlled-continuation-runtime-v1/summary.md`.
+It implements the first bounded Goal-driven continuation runtime: one explicit
+Workbench confirmation may advance the current matching controlled Scheduler
+gate for a small step budget by re-reading evidence and dispatching only the
+existing `planning.scheduler.controlled-advance.run` safety wrapper. Real
+browser smoke in external sandbox `C:\aho-accept\continue-v1` confirmed one
+authorization ran two controlled Scheduler child steps and stopped at the next
+real gate. This is not full-auto task mode, not a parallel executor, and not
+automatic apply/merge/close. The latest product audit is archived at
 `harness/changes/archive/20260624-workbench-goal-loop-surface-gap-audit/summary.md`.
 It verified the existing GoalLoopDecision / packet / controller / Workbench
 projection / confirmation queue chain with targeted Goal Loop, Workbench

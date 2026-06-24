@@ -97,15 +97,26 @@ export async function readJsonl(path: string): Promise<Array<Record<string, unkn
 export function findSchedulerGateAction(actions: WorkbenchDecisionAction[], concreteActionType: WorkbenchDecisionAction["actionType"], predicate: (action: WorkbenchDecisionAction) => boolean): WorkbenchDecisionAction | undefined {
   return actions.find((action) => {
     if (action.actionType === concreteActionType && predicate(action)) return true;
-    return action.actionType === "planning.scheduler.controlled-advance.run"
+    if (
+      (action.actionType === "planning.scheduler.controlled-advance.run" || action.actionType === "planning.goal-loop.controlled-continue.run")
       && action.goalLoopCurrentGateActionType === concreteActionType
-      && predicate(action);
+      && predicate(action)
+    ) {
+      if (action.actionType === "planning.goal-loop.controlled-continue.run") {
+        (action as WorkbenchDecisionAction & { maxSteps?: number }).maxSteps = 1;
+      }
+      return true;
+    }
+    return false;
   });
 }
 
 export function unwrapControlledSchedulerAdvanceResult(result: unknown): unknown {
   if (!result || typeof result !== "object") return result;
   const record = result as Record<string, unknown>;
+  if (Array.isArray(record.childResults) && record.childResults.length > 0) {
+    return unwrapControlledSchedulerAdvanceResult(record.childResults[record.childResults.length - 1]);
+  }
   const controlledStep = record.controlledStep;
   if (record.controlledAdvance) return record.result ?? result;
   if (!controlledStep || typeof controlledStep !== "object") return result;
@@ -1395,6 +1406,10 @@ export async function prepareSchedulerFirstWorkerThroughResult(options: {
     const reconciledResult = unwrapControlledSchedulerAdvanceResult((reconciled.result as { result?: unknown }).result ?? reconciled.result) as {
       result?: { id?: string; status?: string };
     };
+    const afterResultSnapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: topic.changeId });
+    const workerResult = reconciledResult?.result?.id
+      ? reconciledResult.result
+      : afterResultSnapshot.center.workpad.schedulerWorkerResult ?? {};
     return {
       topic,
       changeDir,
@@ -1402,7 +1417,7 @@ export async function prepareSchedulerFirstWorkerThroughResult(options: {
       schedulerRun,
       claimReservation,
       workerStart,
-      workerResult: reconciledResult?.result ?? {},
+      workerResult,
     };
   } finally {
     if (oldPath === undefined) delete process.env.PATH;

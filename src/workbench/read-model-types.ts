@@ -155,6 +155,7 @@ export interface ThreadStreamAction {
   goalLoopControllerPolicyId?: string;
   goalLoopGateReadinessPreflightId?: string;
   goalLoopCurrentGateActionType?: ThreadStreamAction["actionType"];
+  maxSteps?: number;
   maintenanceProposalId?: string;
   maintenancePatchProposalId?: string;
   maintenanceApplicationManifestId?: string;
@@ -298,6 +299,7 @@ export interface WorkbenchDecisionAction {
   goalLoopControllerPolicyId?: string;
   goalLoopGateReadinessPreflightId?: string;
   goalLoopCurrentGateActionType?: ThreadStreamAction["actionType"];
+  maxSteps?: number;
   maintenanceProposalId?: string;
   maintenancePatchProposalId?: string;
   maintenanceApplicationManifestId?: string;
@@ -409,6 +411,7 @@ export interface WorkbenchConfirmationQueueItem {
   goalLoopControllerPolicyId?: string;
   goalLoopGateReadinessPreflightId?: string;
   goalLoopCurrentGateActionType?: ThreadStreamAction["actionType"];
+  maxSteps?: number;
   maintenanceProposalId?: string;
   maintenancePatchProposalId?: string;
   maintenanceApplicationManifestId?: string;

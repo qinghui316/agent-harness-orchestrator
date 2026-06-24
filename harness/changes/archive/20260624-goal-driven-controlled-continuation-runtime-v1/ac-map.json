@@ -1,0 +1,26 @@
+{
+  "version": "1.0",
+  "changeId": "goal-driven-controlled-continuation-runtime-v1",
+  "acceptanceCriteria": [
+    { "id": "AC-001", "summary": "Workbench exposes bounded continuation only for supported fresh matching controlled Scheduler gates." },
+    { "id": "AC-002", "summary": "Action payload carries change, Goal Loop, current gate, concrete target ids, and maxSteps." },
+    { "id": "AC-003", "summary": "Server revalidation rejects stale, missing, forged, cross-change, unsupported, or mismatched targets." },
+    { "id": "AC-004", "summary": "One confirmation creates scoped authorization/run records and child iterations reference them." },
+    { "id": "AC-005", "summary": "Child iterations dispatch only the existing controlled Scheduler advance wrapper after re-reading evidence." },
+    { "id": "AC-006", "summary": "Child iterations preserve target validation, current-action revalidation, ToolPolicy audit, and Scheduler guards." },
+    { "id": "AC-007", "summary": "Runtime stops at budget, terminal gates, blockers, source safety, stale targets, unsupported gates, or failures." },
+    { "id": "AC-008", "summary": "Workbench suppresses duplicate selected-demand primary confirmations while continuation is running." },
+    { "id": "AC-009", "summary": "User copy describes bounded continuation and does not advertise future automation capabilities." }
+  ],
+  "tasks": [
+    { "id": "T-001", "covers": ["AC-001", "AC-002", "AC-003"] },
+    { "id": "T-002", "covers": ["AC-002", "AC-003", "AC-006"] },
+    { "id": "T-003", "covers": ["AC-004", "AC-005", "AC-006", "AC-007"] },
+    { "id": "T-004", "covers": ["AC-004", "AC-005", "AC-006"] },
+    { "id": "T-005", "covers": ["AC-001", "AC-002", "AC-008", "AC-009"] },
+    { "id": "T-006", "covers": ["AC-001", "AC-002", "AC-003", "AC-004", "AC-005", "AC-006", "AC-007", "AC-008", "AC-009"] },
+    { "id": "T-007", "covers": ["AC-001", "AC-002", "AC-003", "AC-004", "AC-005", "AC-006", "AC-007", "AC-008", "AC-009"] }
+  ],
+  "warnings": [],
+  "blockingIssues": []
+}

@@ -21,6 +21,8 @@ export function artifactForActionResult(result: unknown): string | null {
   if (isRecord(result) && isRecord(result.launchPreflight) && typeof result.launchPreflight.artifact === "string") return result.launchPreflight.artifact;
   if (isRecord(result) && isRecord(result.goalLoopDecision) && typeof result.goalLoopDecision.artifact === "string") return result.goalLoopDecision.artifact;
   if (isRecord(result) && isRecord(result.goalLoopControllerPolicy) && typeof result.goalLoopControllerPolicy.artifact === "string") return result.goalLoopControllerPolicy.artifact;
+  if (isRecord(result) && isRecord(result.runtimeRun) && typeof result.runtimeRun.artifact === "string") return result.runtimeRun.artifact;
+  if (isRecord(result) && isRecord(result.authorization) && typeof result.authorization.artifact === "string") return result.authorization.artifact;
   if (isRecord(result) && isRecord(result.schedulerRun) && typeof result.schedulerRun.artifact === "string") return result.schedulerRun.artifact;
   if (isRecord(result) && isRecord(result.runtimeState) && typeof result.runtimeState.artifact === "string") return result.runtimeState.artifact;
   if (isRecord(result) && isRecord(result.reconcileSnapshot) && typeof result.reconcileSnapshot.artifact === "string") return result.reconcileSnapshot.artifact;

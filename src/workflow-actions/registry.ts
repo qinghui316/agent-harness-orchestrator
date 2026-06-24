@@ -15,6 +15,7 @@ export const WORKFLOW_ACTION_TYPES = [
   "planning.goal-loop.feedback.evaluate",
   "planning.goal-loop.controller.refresh",
   "planning.goal-loop.gate-readiness.prepare",
+  "planning.goal-loop.controlled-continue.run",
   "maintenance.canonical-update.decision.record",
   "maintenance.canonical-patch.application-gate.record",
   "maintenance.canonical-patch.apply",
@@ -138,6 +139,7 @@ export const LIVE_WORKFLOW_ACTION_TYPES = [
   "planning.goal-loop.feedback.evaluate",
   "planning.goal-loop.controller.refresh",
   "planning.goal-loop.gate-readiness.prepare",
+  "planning.goal-loop.controlled-continue.run",
   "maintenance.canonical-update.decision.record",
   "maintenance.canonical-patch.application-gate.record",
   "maintenance.canonical-patch.apply",
@@ -241,6 +243,7 @@ export const HIGH_IMPACT_WORKFLOW_ACTION_TYPES = [
   "planning.goal-loop.feedback.evaluate",
   "planning.goal-loop.controller.refresh",
   "planning.goal-loop.gate-readiness.prepare",
+  "planning.goal-loop.controlled-continue.run",
   "maintenance.canonical-update.decision.record",
   "maintenance.canonical-patch.application-gate.record",
   "maintenance.canonical-patch.apply",
@@ -305,6 +308,7 @@ export const REVALIDATED_WORKFLOW_ACTION_TYPES = [
   "planning.goal-loop.feedback.evaluate",
   "planning.goal-loop.controller.refresh",
   "planning.goal-loop.gate-readiness.prepare",
+  "planning.goal-loop.controlled-continue.run",
   "maintenance.canonical-update.decision.record",
   "maintenance.canonical-patch.application-gate.record",
   "maintenance.canonical-patch.apply",
@@ -408,6 +412,9 @@ export type WorkflowActionScopeCarrier = {
   actionType?: string;
   changeId?: string;
   goalLoopCurrentGateActionType?: string;
+  goalLoopRuntimeAuthorizationId?: string;
+  goalLoopRuntimeRunId?: string;
+  maxSteps?: number;
 } & Partial<Record<Exclude<WorkflowActionScopeKey, "worktreeIds" | "taskIds">, string>> & {
   worktreeIds?: string[];
   taskIds?: string[];
@@ -476,6 +483,27 @@ export function validateWorkflowActionRequiredTargets(request: WorkflowActionSco
       requireOne("goalLoopControllerPolicyId", [request.goalLoopControllerPolicyId]);
       requireOne("goalLoopCurrentGateActionType", [request.goalLoopCurrentGateActionType]);
       break;
+    case "planning.goal-loop.controlled-continue.run": {
+      requireOne("changeId", [request.changeId]);
+      requireOne("goalLoopNextStepPacketId", [request.goalLoopNextStepPacketId]);
+      requireOne("goalLoopControllerPolicyId", [request.goalLoopControllerPolicyId]);
+      requireOne("goalLoopGateReadinessPreflightId", [request.goalLoopGateReadinessPreflightId]);
+      requireOne("goalLoopCurrentGateActionType", [request.goalLoopCurrentGateActionType]);
+      const concreteActionType = request.goalLoopCurrentGateActionType;
+      if (!concreteActionType || concreteActionType === "planning.scheduler.controlled-step.run" || concreteActionType === "planning.scheduler.controlled-advance.run" || concreteActionType.startsWith("planning.goal-loop.") || !concreteActionType.startsWith("planning.scheduler.")) {
+        issues.push({ actionType, label: "planning.scheduler.* concrete gate", message: "planning.goal-loop.controlled-continue.run requires a concrete planning.scheduler.* current gate." });
+        break;
+      }
+      issues.push(...validateWorkflowActionRequiredTargets({
+        ...request,
+        actionType: concreteActionType,
+      }).map((issue) => ({
+        ...issue,
+        actionType,
+        message: `planning.goal-loop.controlled-continue.run concrete gate target is incomplete: ${issue.label}.`,
+      })));
+      break;
+    }
     case "maintenance.canonical-update.decision.record":
       requireOne("maintenanceProposalId", [request.maintenanceProposalId]);
       break;
@@ -747,6 +775,9 @@ export function workflowActionScopePayload(request: WorkflowActionScopeCarrier, 
     goalLoopControllerPolicyId: request.goalLoopControllerPolicyId ?? extractString(result, "goalLoopControllerPolicy", "id") ?? extractString(result, "goalLoopGateReadinessPreflight", "sourceGoalLoopControllerPolicyId"),
     goalLoopGateReadinessPreflightId: request.goalLoopGateReadinessPreflightId ?? extractString(result, "goalLoopGateReadinessPreflight", "id"),
     goalLoopCurrentGateActionType: request.goalLoopCurrentGateActionType,
+    goalLoopRuntimeAuthorizationId: request.goalLoopRuntimeAuthorizationId ?? extractString(result, "authorization", "id"),
+    goalLoopRuntimeRunId: request.goalLoopRuntimeRunId ?? extractString(result, "runtimeRun", "id"),
+    maxSteps: request.maxSteps,
     maintenanceProposalId: request.maintenanceProposalId ?? extractString(result, "decision", "proposalId"),
     maintenancePatchProposalId: request.maintenancePatchProposalId ?? extractString(result, "gateRecord", "patchProposalId") ?? extractString(result, "applicationResult", "patchProposalId"),
     maintenanceApplicationManifestId: request.maintenanceApplicationManifestId ?? extractString(result, "applicationResult", "manifestId"),
@@ -791,6 +822,14 @@ export function workflowActionTargetId(request: WorkflowActionScopeCarrier, chan
       ?? extractString(result, "controlledAdvance", "goalLoopNextStepPacketId")
       ?? request.schedulerClaimReservationId
       ?? request.schedulerRunId
+      ?? changeId;
+  }
+  if (request.actionType === "planning.goal-loop.controlled-continue.run") {
+    return extractString(result, "runtimeRun", "id")
+      ?? extractString(result, "authorization", "id")
+      ?? request.goalLoopGateReadinessPreflightId
+      ?? request.goalLoopControllerPolicyId
+      ?? request.goalLoopNextStepPacketId
       ?? changeId;
   }
   if (request.actionType === "planning.goal-loop.evaluate" || request.actionType === "planning.goal-loop.feedback.evaluate" || request.actionType === "planning.goal-loop.controller.refresh" || request.actionType === "planning.goal-loop.gate-readiness.prepare") {

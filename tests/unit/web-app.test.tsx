@@ -1,8 +1,10 @@
 // @vitest-environment jsdom
 
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "../../src/web/src/App.js";
+import { DecisionInspectorPane } from "../../src/web/src/panels/workbench/DecisionPanels.js";
 import { WorkpadView } from "../../src/web/src/panels/workbench/WorkpadPanel.js";
 import { WorkpadDiagnosticDetails } from "../../src/web/src/panels/workbench/workpad/WorkpadDetails.js";
 import { summarizeActionResult } from "../../src/workbench/actions/results.js";
@@ -357,6 +359,40 @@ function fetchCallUrls(): string[] {
     .map(([input]) => String(input));
 }
 
+function boundedContinuationQueueItem() {
+  return {
+    id: "confirm:goal-loop-controlled-continue:member-discount",
+    kind: "planning-confirm",
+    conversationId: "member-discount",
+    changeId: "member-discount",
+    summary: "主 Agent 可以在当前目标内连续推进几个已验证的 scheduler 步骤。",
+    whyNeedsConfirmation: "需要你确认一次 bounded continuation 授权；每一步仍会重新读取证据和校验 target。",
+    confirmEffect: "确认后最多推进 5 步，遇到阻塞、漂移、终点 gate 或预算耗尽就停止并显示新的当前 gate。",
+    riskSummary: "这不是全自动任务模式；应用、关闭、远端落地、维护演进和产品取舍仍需要单独确认。",
+    evidenceRefs: ["preflight.md"],
+    primary: true,
+    status: "pending",
+    actions: [{
+      id: "workflow:planning.goal-loop.controlled-continue.run:preflight-1",
+      label: "连续推进当前目标",
+      kind: "workflow-action",
+      enabled: true,
+      requiresConfirmation: true,
+      actionType: "planning.goal-loop.controlled-continue.run",
+      changeId: "member-discount",
+      goalLoopNextStepPacketId: "packet-1",
+      goalLoopControllerPolicyId: "policy-1",
+      goalLoopGateReadinessPreflightId: "preflight-1",
+      goalLoopCurrentGateActionType: "planning.scheduler.worker.start-next",
+      schedulerRunId: "scheduler-run-1",
+      schedulerClaimReservationId: "claim-reservation-1",
+      reservationIntentId: "reservation-1",
+      claimIntentId: "claim-1",
+      maxSteps: 5,
+    }],
+  } as const;
+}
+
 describe("Workbench web app", () => {
   beforeEach(() => {
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
@@ -399,6 +435,59 @@ describe("Workbench web app", () => {
   afterEach(() => {
     cleanup();
     vi.unstubAllGlobals();
+  });
+
+  it("renders bounded continuation as the primary confirmation and submits maxSteps once confirmed", async () => {
+    const execute = vi.fn(async () => undefined);
+    function Harness() {
+      const [confirming, setConfirming] = useState<string | null>(null);
+      return (
+        <DecisionInspectorPane
+          inspector={{ primary: null, related: [], history: [] }}
+          confirmationQueue={{
+            primary: boundedContinuationQueueItem(),
+            current: [boundedContinuationQueueItem()],
+            otherDemands: [],
+            maintenance: [],
+            history: [],
+          }}
+          confirming={confirming}
+          busy={false}
+          error={null}
+          onConfirmingChange={setConfirming}
+          onExecuteAction={execute}
+          onFeedback={async () => undefined}
+          onSelectContext={() => undefined}
+        />
+      );
+    }
+
+    render(<Harness />);
+
+    const card = screen.getByTestId("decision-inspector-primary");
+    expect(within(card).getByText("连续推进当前目标")).toBeTruthy();
+    expect(card.textContent).toContain("最多推进 5 步");
+    expect(card.textContent).toContain("不是全自动任务模式");
+    expect(card.textContent).not.toContain("parallel executor");
+    expect(card.textContent).not.toContain("merge queue");
+
+    fireEvent.click(within(card).getByRole("button", { name: "连续推进当前目标" }));
+    fireEvent.click(within(card).getByRole("button", { name: "确认" }));
+
+    await waitFor(() => expect(execute).toHaveBeenCalledTimes(1));
+    expect(execute.mock.calls[0]?.[0]).toMatchObject({
+      actionType: "planning.goal-loop.controlled-continue.run",
+      changeId: "member-discount",
+      goalLoopNextStepPacketId: "packet-1",
+      goalLoopControllerPolicyId: "policy-1",
+      goalLoopGateReadinessPreflightId: "preflight-1",
+      goalLoopCurrentGateActionType: "planning.scheduler.worker.start-next",
+      schedulerRunId: "scheduler-run-1",
+      schedulerClaimReservationId: "claim-reservation-1",
+      reservationIntentId: "reservation-1",
+      claimIntentId: "claim-1",
+      maxSteps: 5,
+    });
   });
 
   it("renders Chinese workbench panes and replay artifacts", async () => {

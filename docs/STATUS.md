@@ -7,16 +7,27 @@
 - Pending Harness evolution: none.
 - Latest archived verification change: `harness/changes/archive/20260623-workbench-verification-runtime-convergence/summary.md`.
 - Latest archived product audit: `harness/changes/archive/20260624-workbench-goal-loop-surface-gap-audit/summary.md`.
-- Latest archived product change: `harness/changes/archive/20260623-workbench-real-ui-next-blocker-scout/summary.md`.
+- Latest archived product change: `harness/changes/archive/20260624-goal-driven-controlled-continuation-runtime-v1/summary.md`.
+- Latest archived real UI scout: `harness/changes/archive/20260623-workbench-real-ui-next-blocker-scout/summary.md`.
 - Latest archived projection fix: `harness/changes/archive/20260623-workbench-close-gate-projection-alignment/summary.md`.
 - Latest real-Codex acceptance change: `harness/changes/archive/20260623-workbench-current-project-real-codex-acceptance/summary.md`.
 - Latest archived product/Harness docs change: `harness/changes/archive/20260623-document-goal-driven-workflow-loop-target/summary.md`.
 - Latest archived Harness evolution: `harness/changes/archive/20260623-auto-evolve-harness-post-real-ui-scheduler-window/summary.md`.
-- Active product phase: post Workbench Goal Loop surface gap audit.
+- Active product phase: no active product change; bounded Goal-driven controlled continuation runtime V1 is now part of the baseline.
 - Active Harness evolution phase: none.
 
 This file is the short resume point. No structured product or Harness evolution
-change is active. The latest product audit is archived at
+change is currently active. The latest product change is archived at
+`harness/changes/archive/20260624-goal-driven-controlled-continuation-runtime-v1/summary.md`.
+It implements the first bounded Goal-driven continuation runtime: one
+explicit Workbench confirmation may advance the current matching controlled
+Scheduler gate for a small step budget by re-reading evidence and dispatching
+only the existing `planning.scheduler.controlled-advance.run` safety wrapper.
+Real browser smoke in external sandbox `C:\aho-accept\continue-v1` confirmed one
+authorization ran two controlled Scheduler child steps and stopped at the next
+real gate. This remains bounded continuation, not full-auto task mode, not a
+parallel executor, and not automatic apply/merge/close. The latest product
+audit is archived at
 `harness/changes/archive/20260624-workbench-goal-loop-surface-gap-audit/summary.md`.
 It verified the existing GoalLoopDecision / packet / controller / Workbench
 projection / confirmation queue chain with targeted Goal Loop, Workbench
@@ -87,19 +98,21 @@ decomposition/readiness, readiness-scoped `code.run`, validation/audit evidence,
 result review, human-confirmed apply, and a separate human-confirmed
 close/archive gate.
 
-The controlled Scheduler acceptance also proved that one confirmed
-`planning.scheduler.controlled-advance.run` can execute one existing Scheduler
-gate, stop, refresh evidence, prepare the next preflight, and allow another
-human-confirmed step.
-
-That controlled Scheduler path remains useful boundary work, but it is not the
-same as product usability. Goal Loop, Scheduler, readiness, summary, decision,
+The controlled Scheduler path now has a bounded continuation V1: one explicit
+Workbench confirmation may run a small number of current matching controlled
+Scheduler advance steps, re-reading evidence before each child step, then stop
+at a blocker, budget, unsupported gate, or high-impact human gate. This remains
+bounded continuation only. Goal Loop, Scheduler, readiness, summary, decision,
 handoff, and prompt-context artifacts remain evidence/projection layers unless a
 later accepted change promotes a specific runtime authority. Human confirmation
 is still required for high-impact source apply, close/archive, remote landing,
 and Harness evolution.
 
 ## Next Resume Point
+
+Latest product change archive:
+
+`harness/changes/archive/20260624-goal-driven-controlled-continuation-runtime-v1/summary.md`
 
 Latest product audit archive:
 
@@ -132,17 +145,16 @@ It reviewed these candidate archives:
 - `harness/changes/archive/20260623-workbench-real-ui-next-blocker-scout/summary.md`
 - `harness/changes/archive/20260623-scheduler-slow-runtime-reduction/summary.md`
 
-Current active change: none.
-
 Reasonable next steps are:
 
-- next recommended: use the now-stable daily Workbench gate for ordinary
-  product work; if verification cost becomes the next concrete bottleneck,
-  target the release/deep members with narrower fixture work;
+- next recommended: use real/manual Workbench UI use to find the next concrete
+  product blocker, then fix that blocker before broadening automation;
+- if continuing Goal Loop runtime, extend only from the bounded continuation
+  baseline and keep apply/merge/close/handoff gates human-confirmed;
 - evaluate full-auto task mode as a separate scoped-authorization design only
   after reusing the proven manual gates and source safety;
-- if a new product blocker appears, fix that blocker before expanding
-  automation.
+- if verification cost becomes the next concrete bottleneck, target the
+  release/deep members with narrower fixture work.
 
 ## Verification Commands
 

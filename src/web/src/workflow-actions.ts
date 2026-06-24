@@ -37,6 +37,7 @@ export type WorkflowActionPayloadSource = {
   goalLoopControllerPolicyId?: string;
   goalLoopGateReadinessPreflightId?: string;
   goalLoopCurrentGateActionType?: WorkbenchThreadActionType;
+  maxSteps?: number;
   maintenanceProposalId?: string;
   maintenancePatchProposalId?: string;
   maintenanceApplicationManifestId?: string;

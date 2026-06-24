@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-23T16:14:02.3917499Z",
+    "generated_at":  "2026-06-24T03:11:28.2931588Z",
     "active":  [
 
                ],
@@ -1829,6 +1829,10 @@
                     {
                         "name":  "20260623-workbench-verification-runtime-convergence",
                         "path":  "harness/changes/archive/20260623-workbench-verification-runtime-convergence"
+                    },
+                    {
+                        "name":  "20260624-goal-driven-controlled-continuation-runtime-v1",
+                        "path":  "harness/changes/archive/20260624-goal-driven-controlled-continuation-runtime-v1"
                     },
                     {
                         "name":  "20260624-workbench-goal-loop-surface-gap-audit",

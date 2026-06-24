@@ -202,6 +202,9 @@ export interface WorkbenchWorkflowActionRequest {
   goalLoopControllerPolicyId?: string;
   goalLoopGateReadinessPreflightId?: string;
   goalLoopCurrentGateActionType?: WorkbenchWorkflowActionType;
+  goalLoopRuntimeAuthorizationId?: string;
+  goalLoopRuntimeRunId?: string;
+  maxSteps?: number;
   maintenanceProposalId?: string;
   maintenancePatchProposalId?: string;
   maintenanceApplicationManifestId?: string;

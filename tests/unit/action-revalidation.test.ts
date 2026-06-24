@@ -232,4 +232,72 @@ describe("Workbench action revalidation", () => {
       claimIntentId: "claim-intent-2",
     })).rejects.toThrow("stale or no longer available");
   });
+
+  it("passes controlled continuation payloads only when Goal Loop evidence and current scheduler gate match", async () => {
+    mocks.getWorkbenchSnapshot.mockResolvedValue({
+      center: {
+        workpad: {
+          goalLoop: {
+            changeId: "change-1",
+            goalLoopNextStepPacketId: "packet-1",
+            controllerPolicyId: "policy-1",
+            gateReadinessPreflightId: "preflight-1",
+            controllerVerdict: "recommend-existing-gate",
+            controllerGateStatus: "matches-current-gate",
+            recommendedActionType: "planning.scheduler.worker.start-next",
+            recommendedActionScope: {
+              changeId: "change-1",
+              schedulerRunId: "scheduler-run-1",
+              schedulerClaimReservationId: "claim-reservation-1",
+              reservationIntentId: "reservation-intent-2",
+              claimIntentId: "claim-intent-2",
+            },
+          },
+          nextAction: {
+            kind: "workflow-action",
+            actionType: "planning.scheduler.worker.start-next",
+            changeId: "change-1",
+            schedulerRunId: "scheduler-run-1",
+            schedulerClaimReservationId: "claim-reservation-1",
+            reservationIntentId: "reservation-intent-2",
+            claimIntentId: "claim-intent-2",
+          },
+        },
+      },
+      right: {
+        confirmationQueue: {
+          primary: null,
+          current: [],
+          otherDemands: [],
+        },
+      },
+    });
+
+    const request = {
+      actionType: "planning.goal-loop.controlled-continue.run",
+      changeId: "change-1",
+      goalLoopNextStepPacketId: "packet-1",
+      goalLoopControllerPolicyId: "policy-1",
+      goalLoopGateReadinessPreflightId: "preflight-1",
+      goalLoopCurrentGateActionType: "planning.scheduler.worker.start-next",
+      schedulerRunId: "scheduler-run-1",
+      schedulerClaimReservationId: "claim-reservation-1",
+      reservationIntentId: "reservation-intent-2",
+      claimIntentId: "claim-intent-2",
+      maxSteps: 5,
+    } as const;
+
+    await expect(assertCurrentWorkflowAction({ project: { id: "repo", name: "Repo", path: "project-root", addedAt: "2026-06-18T00:00:00.000Z", lastSeenAt: "2026-06-18T00:00:00.000Z" }, path: "project-root" }, request)).resolves.toBeUndefined();
+    expect(mocks.assertGoalLoopAssistedConcreteGateConfirmation).not.toHaveBeenCalled();
+
+    await expect(assertCurrentWorkflowAction({ project: { id: "repo", name: "Repo", path: "project-root", addedAt: "2026-06-18T00:00:00.000Z", lastSeenAt: "2026-06-18T00:00:00.000Z" }, path: "project-root" }, {
+      ...request,
+      goalLoopGateReadinessPreflightId: "preflight-old",
+    })).rejects.toThrow("stale or no longer available");
+
+    await expect(assertCurrentWorkflowAction({ project: { id: "repo", name: "Repo", path: "project-root", addedAt: "2026-06-18T00:00:00.000Z", lastSeenAt: "2026-06-18T00:00:00.000Z" }, path: "project-root" }, {
+      ...request,
+      claimIntentId: "claim-intent-other",
+    })).rejects.toThrow("stale or no longer available");
+  });
 });

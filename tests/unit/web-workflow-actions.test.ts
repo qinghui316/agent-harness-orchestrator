@@ -27,4 +27,30 @@ describe("web workflow action payload helpers", () => {
       maintenancePatchProposalId: "canonical-patch-proposal-1",
     });
   });
+
+  it("preserves bounded continuation budget and Goal Loop scheduler target ids", () => {
+    expect(workflowActionPayloadFromScope({
+      changeId: "change-1",
+      goalLoopNextStepPacketId: "packet-1",
+      goalLoopControllerPolicyId: "policy-1",
+      goalLoopGateReadinessPreflightId: "preflight-1",
+      goalLoopCurrentGateActionType: "planning.scheduler.worker.start-next",
+      schedulerRunId: "scheduler-run-1",
+      schedulerClaimReservationId: "claim-reservation-1",
+      reservationIntentId: "reservation-1",
+      claimIntentId: "claim-1",
+      maxSteps: 5,
+    })).toEqual({
+      changeId: "change-1",
+      goalLoopNextStepPacketId: "packet-1",
+      goalLoopControllerPolicyId: "policy-1",
+      goalLoopGateReadinessPreflightId: "preflight-1",
+      goalLoopCurrentGateActionType: "planning.scheduler.worker.start-next",
+      schedulerRunId: "scheduler-run-1",
+      schedulerClaimReservationId: "claim-reservation-1",
+      reservationIntentId: "reservation-1",
+      claimIntentId: "claim-1",
+      maxSteps: 5,
+    });
+  });
 });

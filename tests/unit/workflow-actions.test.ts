@@ -439,6 +439,66 @@ describe("workflow action registry", () => {
     expect(workflowActionScopesMatchStrict(request, { ...request, schedulerClaimReservationId: "other-reservation" })).toBe(false);
   });
 
+  it("requires Goal Loop controlled continuation payloads to carry fresh evidence and concrete scheduler targets", () => {
+    const request = {
+      actionType: "planning.goal-loop.controlled-continue.run",
+      changeId: "change-1",
+      goalLoopNextStepPacketId: "packet-1",
+      goalLoopControllerPolicyId: "policy-1",
+      goalLoopGateReadinessPreflightId: "preflight-1",
+      goalLoopCurrentGateActionType: "planning.scheduler.worker.start-next",
+      schedulerRunId: "scheduler-run-1",
+      schedulerClaimReservationId: "claim-reservation-1",
+      reservationIntentId: "reservation-intent-2",
+      claimIntentId: "claim-intent-2",
+      maxSteps: 5,
+    };
+
+    expect(validateWorkflowActionRequiredTargets(request)).toEqual([]);
+    expect(validateWorkflowActionRequiredTargets({
+      ...request,
+      goalLoopNextStepPacketId: undefined,
+      goalLoopControllerPolicyId: undefined,
+      goalLoopGateReadinessPreflightId: undefined,
+    }).map((item) => item.label)).toEqual([
+      "goalLoopNextStepPacketId",
+      "goalLoopControllerPolicyId",
+      "goalLoopGateReadinessPreflightId",
+    ]);
+    expect(validateWorkflowActionRequiredTargets({
+      ...request,
+      claimIntentId: undefined,
+    }).map((item) => item.label)).toEqual(["claimIntentId"]);
+    expect(validateWorkflowActionRequiredTargets({
+      ...request,
+      goalLoopCurrentGateActionType: "planning.scheduler.controlled-advance.run",
+    }).map((item) => item.label)).toEqual(["planning.scheduler.* concrete gate"]);
+    expect(validateWorkflowActionRequiredTargets({
+      ...request,
+      goalLoopCurrentGateActionType: "planning.goal-loop.evaluate",
+    }).map((item) => item.label)).toEqual(["planning.scheduler.* concrete gate"]);
+    expect(workflowActionTargetId(request, request.changeId)).toBe("preflight-1");
+    expect(workflowActionScopePayload(request, request.changeId, {
+      runtimeRun: { id: "runtime-run-1" },
+      authorization: { id: "authorization-1" },
+    })).toMatchObject({
+      changeId: "change-1",
+      schedulerRunId: "scheduler-run-1",
+      schedulerClaimReservationId: "claim-reservation-1",
+      reservationIntentId: "reservation-intent-2",
+      claimIntentId: "claim-intent-2",
+      goalLoopNextStepPacketId: "packet-1",
+      goalLoopControllerPolicyId: "policy-1",
+      goalLoopGateReadinessPreflightId: "preflight-1",
+      goalLoopCurrentGateActionType: "planning.scheduler.worker.start-next",
+      goalLoopRuntimeAuthorizationId: "authorization-1",
+      goalLoopRuntimeRunId: "runtime-run-1",
+      maxSteps: 5,
+    });
+    expect(workflowActionScopesMatchStrict(request, { ...request })).toBe(true);
+    expect(workflowActionScopesMatchStrict(request, { ...request, goalLoopNextStepPacketId: "packet-other" })).toBe(false);
+  });
+
   it("keeps SchedulerContract ids in target and audit scope matching", () => {
     const request = {
       changeId: "change-1",

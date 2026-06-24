@@ -1,7 +1,8 @@
 import type { GoalLoopCurrentGateSnapshot } from "../../goal-loop/manager.js";
+import type { GoalLoopRuntimeStopReason } from "../../goal-loop-runtime/types.js";
 import type { ManagedProject } from "../../types/index.js";
-import { buildControlledSchedulerCurrentGateSnapshot } from "../../workflow-scheduler/controlled-advance-candidate.js";
-import { isControlledSchedulerConcreteAction } from "../../workflow-scheduler/controlled-step.js";
+import { buildControlledSchedulerAdvanceCandidate, buildControlledSchedulerCurrentGateSnapshot } from "../../workflow-scheduler/controlled-advance-candidate.js";
+import { CONTROLLED_SCHEDULER_ADVANCE_ACTION_TYPE, isControlledSchedulerConcreteAction } from "../../workflow-scheduler/controlled-step.js";
 import { isWorkflowActionType, validateWorkflowActionRequiredTargets, type WorkflowActionScopeCarrier } from "../../workflow-actions/registry.js";
 import { getWorkbenchWorkpadProjection } from "../projections/read-model/implementation.js";
 import { assessGoalLoopSummaryCurrentGateParity } from "../projections/read-model/goal-loop-parity.js";
@@ -16,6 +17,61 @@ export type VisibleGoalLoopCurrentGateResult =
   | {
     warning: string;
   };
+
+export type VisibleControlledSchedulerAdvanceRequestResult =
+  | {
+    request: WorkbenchWorkflowActionRequest & { actionType: "planning.scheduler.controlled-advance.run" };
+  }
+  | {
+    stopReason: GoalLoopRuntimeStopReason;
+    summary: string;
+  };
+
+export async function resolveVisibleControlledSchedulerAdvanceRequest(
+  project: ManagedProject,
+  changeId: string,
+): Promise<VisibleControlledSchedulerAdvanceRequestResult> {
+  const workpad = await getWorkbenchWorkpadProjection({ project, path: project.path }, changeId);
+  const goalLoop = workpad.goalLoop;
+  const nextAction = workpad.nextAction;
+  if (nextAction.kind !== "workflow-action" || !nextAction.actionType) {
+    return { stopReason: "no-current-gate", summary: "当前没有可继续的 workflow gate。" };
+  }
+  if (!nextAction.enabled || !nextAction.requiresConfirmation) {
+    return { stopReason: "blocked", summary: "当前 gate 不处于可确认执行状态。" };
+  }
+  if (nextAction.changeId !== changeId) {
+    return { stopReason: "stale-target", summary: "当前 gate 已漂移到其他 Change。" };
+  }
+  if (isTerminalHighImpactGate(nextAction.actionType)) {
+    return { stopReason: "high-impact-terminal-gate", summary: `已停在需要单独人工确认的终点 gate：${nextAction.actionType}。` };
+  }
+  if (!goalLoop?.goalLoopNextStepPacketId || !goalLoop.controllerPolicyId || !goalLoop.gateReadinessPreflightId) {
+    return { stopReason: "stale-target", summary: "当前 gate 缺少 fresh Goal Loop packet/controller/preflight 证据。" };
+  }
+  if (goalLoop.changeId !== changeId || goalLoop.controllerVerdict !== "recommend-existing-gate" || goalLoop.controllerGateStatus !== "matches-current-gate") {
+    return { stopReason: "stale-target", summary: "当前 Goal Loop 证据已不再匹配可执行 gate。" };
+  }
+  if (!isControlledSchedulerConcreteAction(nextAction.actionType)) {
+    return { stopReason: "unsupported-gate", summary: `V1 只支持 controlled scheduler gate，当前 gate 是 ${nextAction.actionType}。` };
+  }
+  const candidate = buildControlledSchedulerAdvanceCandidate(nextAction);
+  if (!candidate || candidate.validationIssues.length > 0) {
+    return {
+      stopReason: "stale-target",
+      summary: candidate
+        ? `当前 scheduler gate target 不完整：${candidate.validationIssues.map((issue) => issue.label).join(", ")}。`
+        : "当前 Workbench gate 不能转换为 controlled scheduler advance。",
+    };
+  }
+  return {
+    request: {
+      ...candidate.controlledAdvance,
+      actionType: CONTROLLED_SCHEDULER_ADVANCE_ACTION_TYPE,
+      goalLoopCurrentGateActionType: candidate.currentGateActionType,
+    } as WorkbenchWorkflowActionRequest & { actionType: "planning.scheduler.controlled-advance.run" },
+  };
+}
 
 export async function resolveVisibleControlledSchedulerCurrentGate(
   project: ManagedProject,
@@ -107,4 +163,15 @@ function readinessWarning(reason: string): { warning: string } {
 function errorMessage(error: unknown): string {
   if (error instanceof Error) return error.message;
   return String(error);
+}
+
+function isTerminalHighImpactGate(actionType: string): boolean {
+  return actionType === "result.apply"
+    || actionType === "change.close"
+    || actionType.startsWith("landing.")
+    || actionType.startsWith("landing-queue.")
+    || actionType.startsWith("remote-landing.")
+    || actionType.startsWith("pr-")
+    || actionType.startsWith("post-merge.")
+    || actionType.startsWith("maintenance.");
 }

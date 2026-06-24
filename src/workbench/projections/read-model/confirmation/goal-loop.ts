@@ -184,6 +184,50 @@ export function attachControlledSchedulerAdvanceActions(
   });
 }
 
+export function attachGoalLoopControlledContinuationActions(
+  items: WorkbenchConfirmationQueueItem[],
+  workpad: WorkbenchWorkpad,
+): WorkbenchConfirmationQueueItem[] {
+  const goalLoop = workpad.goalLoop;
+  if (
+    !goalLoop?.goalLoopNextStepPacketId
+    || !goalLoop.controllerPolicyId
+    || !goalLoop.gateReadinessPreflightId
+    || goalLoop.controllerVerdict !== "recommend-existing-gate"
+    || goalLoop.controllerGateStatus !== "matches-current-gate"
+  ) {
+    return items;
+  }
+  return items.map((item) => {
+    const advanceActions = item.actions.filter((action) =>
+      action.kind === "workflow-action"
+      && action.enabled
+      && action.actionType === CONTROLLED_SCHEDULER_ADVANCE_ACTION_TYPE
+      && controlledAdvanceMatchesGoalLoop(item, action, workpad)
+    );
+    if (advanceActions.length !== 1) return item;
+    const continuationAction = goalLoopControlledContinuationAction(advanceActions[0], workpad);
+    if (!continuationAction) return item;
+    return {
+      ...item,
+      summary: "主 Agent 可以在当前目标内连续推进几个已验证的 scheduler 步骤。",
+      whyNeedsConfirmation: "需要你确认一次 bounded continuation 授权；每一步仍会重新读取证据和校验 target。",
+      confirmEffect: "确认后最多推进 5 步，遇到阻塞、漂移、终点 gate 或预算耗尽就停止并显示新的当前 gate。",
+      riskSummary: "这不是全自动任务模式；应用、关闭、远端落地、维护演进和产品取舍仍需要单独确认。",
+      evidenceRefs: mergeEvidenceRefs(item.evidenceRefs, [
+        goalLoop.gateReadinessPreflightArtifact,
+        goalLoop.controllerArtifact,
+        goalLoop.nextStepPacketArtifact,
+        goalLoop.artifact,
+      ].filter(isString)),
+      actions: [
+        ...item.actions.filter((action) => action !== advanceActions[0]),
+        continuationAction,
+      ],
+    };
+  });
+}
+
 function controlledSchedulerAdvanceEvidenceRefs(
   item: WorkbenchConfirmationQueueItem,
   sourceActions: WorkbenchDecisionAction[],
@@ -327,6 +371,31 @@ function controlledSchedulerAdvanceAction(action: WorkbenchDecisionAction): Work
   } as WorkbenchDecisionAction;
 }
 
+function goalLoopControlledContinuationAction(action: WorkbenchDecisionAction, workpad: WorkbenchWorkpad): WorkbenchDecisionAction | null {
+  const goalLoop = workpad.goalLoop;
+  if (!goalLoop?.goalLoopNextStepPacketId || !goalLoop.controllerPolicyId || !goalLoop.gateReadinessPreflightId) return null;
+  if (!isControlledSchedulerConcreteAction(action.goalLoopCurrentGateActionType)) return null;
+  return {
+    ...action,
+    id: `workflow:planning.goal-loop.controlled-continue.run:${goalLoop.gateReadinessPreflightId}`,
+    label: "连续推进当前目标",
+    kind: "workflow-action",
+    enabled: true,
+    requiresConfirmation: true,
+    changeId: goalLoop.changeId,
+    actionType: "planning.goal-loop.controlled-continue.run",
+    goalLoopDecisionId: goalLoop.goalLoopDecisionId,
+    goalLoopIterationId: goalLoop.goalLoopIterationId,
+    goalLoopContinuationBriefId: goalLoop.id,
+    goalLoopNextStepPacketId: goalLoop.goalLoopNextStepPacketId,
+    goalLoopControllerPolicyId: goalLoop.controllerPolicyId,
+    goalLoopGateReadinessPreflightId: goalLoop.gateReadinessPreflightId,
+    goalLoopCurrentGateActionType: action.goalLoopCurrentGateActionType,
+    maxSteps: 5,
+    artifact: goalLoop.gateReadinessPreflightArtifact ?? goalLoop.controllerArtifact ?? goalLoop.nextStepPacketArtifact ?? goalLoop.artifact,
+  };
+}
+
 function isSchedulerAdvanceSourceAction(action: WorkbenchDecisionAction): boolean {
   const candidate = buildControlledSchedulerAdvanceCandidate(action);
   return Boolean(candidate && candidate.validationIssues.length === 0);
@@ -345,6 +414,29 @@ function actionRepresentsGoalLoopSchedulerGate(
   if (!goalLoop || !expectedScope || !expectedType || !sourceGateActionType) return false;
   if (!action.enabled) return false;
   if (sourceGateActionType !== expectedType || nextAction.actionType !== expectedType) return false;
+  if (nextAction.changeId !== goalLoop.changeId) return false;
+  for (const [key, expectedValue] of Object.entries(expectedScope)) {
+    const expected = normalizeScopeValues(expectedValue);
+    const actual = key === "changeId"
+      ? normalizeScopeValues(action.changeId ?? item.changeId)
+      : normalizeScopeValues(readQueueActionScopeValue(item, action, key));
+    if (!scopeValuesEqual(expected, actual)) return false;
+  }
+  return true;
+}
+
+function controlledAdvanceMatchesGoalLoop(
+  item: WorkbenchConfirmationQueueItem,
+  action: WorkbenchDecisionAction,
+  workpad: WorkbenchWorkpad,
+): boolean {
+  const goalLoop = workpad.goalLoop;
+  const nextAction = workpad.nextAction;
+  const expectedScope = goalLoop ? readGoalLoopScope(goalLoop) : undefined;
+  const expectedType = goalLoop ? readGoalLoopActionType(goalLoop) : undefined;
+  if (!goalLoop || !expectedScope || !expectedType) return false;
+  if (!action.enabled || action.actionType !== CONTROLLED_SCHEDULER_ADVANCE_ACTION_TYPE) return false;
+  if (action.goalLoopCurrentGateActionType !== expectedType || nextAction.actionType !== expectedType) return false;
   if (nextAction.changeId !== goalLoop.changeId) return false;
   for (const [key, expectedValue] of Object.entries(expectedScope)) {
     const expected = normalizeScopeValues(expectedValue);
@@ -456,6 +548,10 @@ function scopeValuesEqual(left: string[], right: string[]): boolean {
 
 function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((item) => typeof item === "string");
+}
+
+function isString(value: unknown): value is string {
+  return typeof value === "string";
 }
 
 function mergeEvidenceRefs(existing: string[], additional: string[]): string[] {

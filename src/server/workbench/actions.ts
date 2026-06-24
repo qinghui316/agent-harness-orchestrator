@@ -146,6 +146,7 @@ async function executeWorkflowAction(input: WorkbenchProjectInput & { project: M
     goalLoopControllerPolicyId: body.goalLoopControllerPolicyId,
     goalLoopGateReadinessPreflightId: body.goalLoopGateReadinessPreflightId,
     goalLoopCurrentGateActionType: body.goalLoopCurrentGateActionType,
+    maxSteps: body.maxSteps,
     maintenanceProposalId: body.maintenanceProposalId,
     maintenancePatchProposalId: body.maintenancePatchProposalId,
     maintenanceApplicationManifestId: body.maintenanceApplicationManifestId,

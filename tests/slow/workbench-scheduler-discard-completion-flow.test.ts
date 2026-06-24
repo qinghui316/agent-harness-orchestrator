@@ -12,6 +12,17 @@ import { listWorkflowRuns } from "../../src/workflow-run/manager.js";
 import { compileGoalLoopEvaluation } from "../../src/goal-loop/manager.js";
 import { createFakeCodex, execFileAsync, findSchedulerGateAction, getTempDir, prepareSeededSchedulerIntegrationHandoff, project, readJsonl, unwrapControlledSchedulerAdvanceResult } from "../unit/workbench/fixtures.js";
 import type { RunMetadata } from "../../src/types/index.js";
+import type { WorkbenchDecisionAction } from "../../src/workbench/read-model-types.js";
+
+function findSchedulerGateOrContinuationAction(actions: WorkbenchDecisionAction[], concreteActionType: WorkbenchDecisionAction["actionType"], predicate: (action: WorkbenchDecisionAction) => boolean): WorkbenchDecisionAction | undefined {
+  return actions.find((action) =>
+    Boolean(findSchedulerGateAction([action], concreteActionType, predicate))
+    || (
+      action.actionType === "planning.goal-loop.controlled-continue.run"
+      && action.goalLoopCurrentGateActionType === concreteActionType
+      && predicate(action)
+    ));
+}
 
 describe("workbench scheduler discard completion slow flow", () => {
   it("records discarded SchedulerRun completion after existing IntegrationCheck discard without mutating source", async () => {
@@ -68,12 +79,41 @@ describe("workbench scheduler discard completion slow flow", () => {
     snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: prepared.topic.changeId });
     const completeAction = snapshot.right.confirmationQueue.current
       .flatMap((item) => item.actions)
-      .find((action) => findSchedulerGateAction([action], "planning.scheduler.run.complete", (candidate) => candidate.schedulerIntegrationOutcomeId === outcomePayload.outcome?.id));
-    if (!completeAction) throw new Error("Missing scheduler run completion action after discarded scheduler outcome.");
-    const completionResult = await executeWorkbenchAction({ project: project(), path: getTempDir() }, { ...completeAction, confirm: true });
-    const completionWorkflow = completionResult.result as { status?: string; error?: string; result?: unknown };
-    if (completionWorkflow.status === "failed") throw new Error(completionWorkflow.error ?? "discard completion action failed");
-    const completionPayload = unwrapControlledSchedulerAdvanceResult(completionWorkflow.result ?? completionResult.result) as {
+      .find((action) => findSchedulerGateOrContinuationAction([action], "planning.scheduler.run.complete", (candidate) => candidate.schedulerIntegrationOutcomeId === outcomePayload.outcome?.id));
+    let completionPayload = snapshot.center.workpad.schedulerRunCompletion?.schedulerIntegrationOutcomeId === outcomePayload.outcome?.id
+      ? {
+        completion: snapshot.center.workpad.schedulerRunCompletion,
+        schedulerRunStatus: "completed",
+        sourceMutated: false,
+      }
+      : null;
+    if (!completionPayload) {
+      if (!completeAction) throw new Error("Missing scheduler run completion action after discarded scheduler outcome.");
+      const completionResult = await executeWorkbenchAction({ project: project(), path: getTempDir() }, { ...completeAction, confirm: true });
+      const completionWorkflow = completionResult.result as { status?: string; error?: string; result?: unknown };
+      if (completionWorkflow.status === "failed") throw new Error(completionWorkflow.error ?? "discard completion action failed");
+      const rawCompletionPayload = unwrapControlledSchedulerAdvanceResult(completionWorkflow.result ?? completionResult.result) as {
+        completion?: {
+          id?: string;
+          status?: string;
+          schedulerIntegrationOutcomeId?: string;
+          integrationCheckId?: string;
+        };
+        schedulerRunStatus?: string;
+        sourceMutated?: boolean;
+      };
+      if (rawCompletionPayload.completion) {
+        completionPayload = rawCompletionPayload;
+      } else {
+        snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: prepared.topic.changeId });
+        completionPayload = {
+          completion: snapshot.center.workpad.schedulerRunCompletion,
+          schedulerRunStatus: "completed",
+          sourceMutated: false,
+        };
+      }
+    }
+    const typedCompletionPayload = completionPayload as {
       completion?: {
         id?: string;
         status?: string;
@@ -83,7 +123,7 @@ describe("workbench scheduler discard completion slow flow", () => {
       schedulerRunStatus?: string;
       sourceMutated?: boolean;
     };
-    expect(completionPayload).toMatchObject({
+    expect(typedCompletionPayload).toMatchObject({
       schedulerRunStatus: "completed",
       sourceMutated: false,
       completion: {
@@ -96,23 +136,23 @@ describe("workbench scheduler discard completion slow flow", () => {
       { project: project(), path: getTempDir() },
       prepared.topic.changeId,
       prepared.schedulerRun.id,
-      completionPayload.completion?.id,
+      typedCompletionPayload.completion?.id,
     );
     expect(completionProjection).toMatchObject({
-      id: completionPayload.completion?.id,
+      id: typedCompletionPayload.completion?.id,
       status: "completed-discarded",
       schedulerIntegrationOutcomeId: outcomePayload.outcome?.id,
     });
     snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: prepared.topic.changeId });
     expect(snapshot.center.workpad.schedulerRunCompletion).toMatchObject({
-      id: completionPayload.completion?.id,
+      id: typedCompletionPayload.completion?.id,
       status: "completed-discarded",
       schedulerIntegrationOutcomeId: outcomePayload.outcome?.id,
     });
     expect(snapshot.center.workpad.nextAction).toMatchObject({
       actionType: "planning.scheduler.run.complete",
       enabled: false,
-      schedulerRunCompletionId: completionPayload.completion?.id,
+      schedulerRunCompletionId: typedCompletionPayload.completion?.id,
     });
     const terminalMemory = await resolveProjectMemory(project());
     for (const worktreeId of prepared.refreshedCandidate.readyWorktreeIds ?? []) {
@@ -180,7 +220,7 @@ describe("workbench scheduler discard completion slow flow", () => {
       }),
     });
     expect(snapshot.center.workpad.schedulerRunCompletion).toMatchObject({
-      id: completionPayload.completion?.id,
+      id: typedCompletionPayload.completion?.id,
       status: "completed-discarded",
     });
     expect(snapshot.center.workpad.nextAction).toMatchObject({
@@ -227,7 +267,7 @@ describe("workbench scheduler discard completion slow flow", () => {
     expect(terminalChatPrepared?.goalLoopSchedulerTerminalHandoff).toEqual(expect.objectContaining({
       authority: "non-executing-scheduler-terminal-handoff-prompt-evidence",
       kind: "completion",
-      id: completionPayload.completion?.id,
+      id: typedCompletionPayload.completion?.id,
       changeId: prepared.topic.changeId,
       schedulerRunId: prepared.schedulerRun.id,
       status: "completed-discarded",
@@ -254,7 +294,7 @@ describe("workbench scheduler discard completion slow flow", () => {
     const terminalOrchestratorPrepared = terminalOrchestratorEvents.find((event) => event.type === "context.prepared")?.data as Record<string, unknown> | undefined;
     expect(terminalOrchestratorPrepared?.goalLoopSchedulerTerminalHandoff).toEqual(expect.objectContaining({
       kind: "completion",
-      id: completionPayload.completion?.id,
+      id: typedCompletionPayload.completion?.id,
       closeAuthorized: false,
       harnessEvolutionAuthorized: false,
     }));

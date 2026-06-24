@@ -34,6 +34,12 @@ const GOAL_LOOP_COPY: Record<string, ControlledLoopCopy> = {
     runningBody: "正在检查当前步骤是否仍可执行；不会执行该步骤。",
     failedBody: "当前步骤检查未完成；请查看错误和证据后再决定是否重试或调整。",
   },
+  "planning.goal-loop.controlled-continue.run": {
+    label: "连续推进当前目标",
+    completedSummary: "已按你确认的预算连续推进当前目标。每一步都重新读取证据并在停止条件处停下；应用、关闭、远端落地或维护演进仍需要单独确认。",
+    runningBody: "正在按已确认的预算连续推进当前目标；每一步都会重新检查当前证据。",
+    failedBody: "连续推进未完成；请查看错误和证据后再决定是否重试、停止或调整。",
+  },
 };
 
 const SCHEDULER_COMPLETED_SUMMARY: Record<string, string> = {
@@ -51,6 +57,14 @@ export function controlledLoopResultLabel(actionType: string | undefined): strin
 }
 
 export function controlledLoopDecisionSummary(actionType: string, result: unknown): string | null {
+  if (actionType === "planning.goal-loop.controlled-continue.run") {
+    const completedSteps = readNestedNumber(result, ["runtimeRun", "completedSteps"]);
+    const stopReason = readNestedString(result, ["runtimeRun", "stopReason"]);
+    const summary = readNestedString(result, ["summary"]) ?? readNestedString(result, ["runtimeRun", "stopSummary"]);
+    if (typeof completedSteps === "number" && stopReason) {
+      return `已按你确认的预算连续推进 ${completedSteps} 步，停止原因：${summary ?? stopReason}。应用、关闭、远端落地或维护演进仍需要单独确认。`;
+    }
+  }
   if (GOAL_LOOP_COPY[actionType]) return GOAL_LOOP_COPY[actionType].completedSummary;
   const schedulerSummary = SCHEDULER_COMPLETED_SUMMARY[actionType];
   if (!schedulerSummary) return null;
@@ -111,6 +125,25 @@ function userSafeSchedulerStepLabel(actionType: string | undefined, fallback: st
 
 function readString(value: unknown, key: string): string | undefined {
   return isRecord(value) && typeof value[key] === "string" ? value[key] : undefined;
+}
+
+function readNestedString(value: unknown, path: string[]): string | undefined {
+  const item = readNestedValue(value, path);
+  return typeof item === "string" ? item : undefined;
+}
+
+function readNestedNumber(value: unknown, path: string[]): number | undefined {
+  const item = readNestedValue(value, path);
+  return typeof item === "number" ? item : undefined;
+}
+
+function readNestedValue(value: unknown, path: string[]): unknown {
+  let current = value;
+  for (const key of path) {
+    if (!isRecord(current)) return undefined;
+    current = current[key];
+  }
+  return current;
 }
 
 export function controlledLoopThreadLabel(actionType: string | undefined, status: string | undefined): string | null {

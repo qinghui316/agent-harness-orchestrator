@@ -138,7 +138,15 @@ Current architecture debt register:
 ## Next Product Direction
 
 No structured product or Harness evolution change is currently active. The
-latest verification convergence is archived at
+latest product change,
+`harness/changes/archive/20260624-goal-driven-controlled-continuation-runtime-v1/summary.md`,
+implements bounded Goal-driven continuation over the existing controlled
+Scheduler advance wrapper. One explicit Workbench confirmation may advance a
+small number of current matching controlled Scheduler steps, re-reading evidence
+and revalidating targets before each child step, then stopping at the next
+blocker, unsupported gate, high-impact human gate, or budget limit. It is not
+full-auto task mode, not a parallel executor, and not automatic
+apply/merge/close. The latest verification convergence is archived at
 `harness/changes/archive/20260623-workbench-verification-runtime-convergence/summary.md`.
 It separates daily Workbench aggregate coverage from explicit release/deep
 scheduler/apply/Goal Loop coverage: daily `npm run test:workbench` passes in

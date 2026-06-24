@@ -10,7 +10,11 @@ import { controlledLoopAssistantMessage, controlledLoopFeedbackRecordedMessage, 
 import { currentGateSnapshotFromRequest } from "../visible-goal-loop-current-gate.js";
 import type { WorkbenchActionHandlerMap } from "../dispatcher.js";
 
-type GoalLoopWorkbenchActionType = "planning.goal-loop.evaluate" | "planning.goal-loop.feedback.evaluate" | "planning.goal-loop.controller.refresh" | "planning.goal-loop.gate-readiness.prepare";
+type GoalLoopWorkbenchActionType =
+  | "planning.goal-loop.evaluate"
+  | "planning.goal-loop.feedback.evaluate"
+  | "planning.goal-loop.controller.refresh"
+  | "planning.goal-loop.gate-readiness.prepare";
 
 export type GoalLoopGateReadinessPreflightInternalOptions = Pick<
   CompileGoalLoopGateReadinessPreflightOptions,

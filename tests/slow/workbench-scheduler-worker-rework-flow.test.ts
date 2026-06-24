@@ -24,7 +24,15 @@ describe("workbench scheduler worker rework slow flow", () => {
     const validationAction = postResultSnapshot.right.confirmationQueue.current
       .flatMap((item) => item.actions)
       .find((action) => findSchedulerGateAction([action], "planning.scheduler.worker.validate-first", (candidate) => candidate.schedulerWorkerResultId === prepared.workerResult.id));
-    if (!validationAction) throw new Error("Missing scheduler first worker validation action.");
+    if (!validationAction) {
+      throw new Error(`Missing scheduler first worker validation action for ${prepared.workerResult.id}. Visible actions: ${JSON.stringify(postResultSnapshot.right.confirmationQueue.current.flatMap((item) => item.actions).map((action) => ({
+        actionType: action.actionType,
+        goalLoopCurrentGateActionType: action.goalLoopCurrentGateActionType,
+        schedulerWorkerResultId: action.schedulerWorkerResultId,
+        schedulerWorkerValidationId: action.schedulerWorkerValidationId,
+        maxSteps: action.maxSteps,
+      })))}`);
+    }
     const validated = await executeWorkbenchAction({ project: project(), path: getTempDir() }, {
       ...validationAction,
       confirm: true,

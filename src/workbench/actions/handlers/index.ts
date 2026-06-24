@@ -12,6 +12,7 @@ import { assessDecompositionReadiness, compileTaskQueueWorkflowGraph, confirmDec
 import { cleanupRemoteBranchForAction, createPrDraftForAction, mergeNextLandingQueueForAction, mergeRemoteLandingForAction, prepareLandingForAction, prepareLandingQueueForAction, prepareLocalSyncForAction, preparePostMergeForAction, preparePrDraftForAction, preparePrReviewForAction, preparePrReviewReplyForAction, prepareRemoteBranchCleanupForAction, prepareRemoteLandingForAction, refreshLandingQueueForAction, refreshPrDraftForAction, refreshPrFeedbackForAction, refreshPrReviewForAction, refreshRemoteLandingForAction, reworkPrFeedbackForAction, resolvePrReviewThreadForAction, reviewLandingForAction, submitPrReviewForAction, submitPrReviewReplyForAction, syncLocalForAction, updatePrDraftForAction } from "./remote-handoff.js";
 import { interruptConversation, steerConversation, stopRunningPipeline } from "./control.js";
 import { buildGoalLoopActionHandlers } from "./goal-loop.js";
+import { buildGoalLoopRuntimeActionHandlers } from "./goal-loop-runtime.js";
 import { buildSchedulerActionHandlers } from "./scheduler.js";
 import type { WorkbenchActionHandlerMap } from "../dispatcher.js";
 import type { TopicMessageResult, WorkbenchLiveSink } from "../../types.js";
@@ -45,6 +46,7 @@ export function buildWorkbenchActionHandlers(deps: WorkbenchActionHandlerDeps): 
   "planning.decomposition.assess-readiness": async (project, changeId, request, live) => assessDecompositionReadiness(project, changeId, request, live),
   "planning.taskqueue.propose": async (project, changeId, request, live) => proposeTaskQueue(project, changeId, request, live),
   ...buildGoalLoopActionHandlers(),
+  ...buildGoalLoopRuntimeActionHandlers(),
   ...buildSchedulerActionHandlers(),
   "maintenance.canonical-update.decision.record": async () => {
     throw new Error("maintenance.canonical-update.decision.record is project-scoped and must not run through the demand topic workflow service.");
