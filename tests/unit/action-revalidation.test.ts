@@ -3,6 +3,7 @@
 const mocks = vi.hoisted(() => ({
   getWorkbenchSnapshot: vi.fn(),
   assertGoalLoopAssistedConcreteGateConfirmation: vi.fn(),
+  listAuditResults: vi.fn(),
 }));
 
 vi.mock("../../src/workbench/manager.js", () => ({
@@ -21,6 +22,10 @@ vi.mock("../../src/workbench/actions/goal-loop-gate-confirmation.js", () => ({
   assertGoalLoopAssistedConcreteGateConfirmation: mocks.assertGoalLoopAssistedConcreteGateConfirmation,
 }));
 
+vi.mock("../../src/audit/artifacts.js", () => ({
+  listAuditResults: mocks.listAuditResults,
+}));
+
 import { assertCurrentWorkflowAction } from "../../src/server/workbench/action-revalidation.js";
 
 function assertCurrent(input: Parameters<typeof assertCurrentWorkflowAction>[0], body: Parameters<typeof assertCurrentWorkflowAction>[1]): ReturnType<typeof assertCurrentWorkflowAction> {
@@ -31,6 +36,7 @@ describe("Workbench action revalidation", () => {
   beforeEach(() => {
     mocks.getWorkbenchSnapshot.mockReset();
     mocks.assertGoalLoopAssistedConcreteGateConfirmation.mockReset();
+    mocks.listAuditResults.mockReset();
   });
 
   it("rejects Goal Loop-assisted concrete gate payloads when the matched visible gate is disabled", async () => {
@@ -343,6 +349,90 @@ describe("Workbench action revalidation", () => {
     await expect(assertCurrent({ project: { id: "repo", name: "Repo", path: "project-root", addedAt: "2026-06-18T00:00:00.000Z", lastSeenAt: "2026-06-18T00:00:00.000Z" }, path: "project-root" }, {
       ...request,
       changeId: "change-2",
+    })).rejects.toThrow("stale or no longer available");
+  });
+
+  it("passes scoped automation for current approved audit.accept approval gates", async () => {
+    mocks.getWorkbenchSnapshot.mockResolvedValue({
+      center: { workpad: { nextAction: { kind: "none" } } },
+      right: {
+        confirmationQueue: {
+          primary: {
+            changeId: "change-1",
+            runId: "audit-run-1",
+            resultId: "audit-1",
+            evidenceRefs: ["runs/audit-run-1/audit.json"],
+            actions: [{
+              kind: "approval",
+              enabled: true,
+              changeId: "change-1",
+              action: { actionId: "audit.accept", args: ["accept", "repo", "audit-1"] },
+            }],
+          },
+          current: [],
+          otherDemands: [],
+        },
+      },
+    });
+    mocks.listAuditResults.mockResolvedValue([{
+      id: "audit-1",
+      changeId: "change-1",
+      runId: "audit-run-1",
+      status: "approved",
+      artifacts: { audit: "runs/audit-run-1/audit.json" },
+    }]);
+
+    await expect(assertCurrent({ project: { id: "repo", name: "Repo", path: "project-root", addedAt: "2026-06-18T00:00:00.000Z", lastSeenAt: "2026-06-18T00:00:00.000Z" }, path: "project-root" }, {
+      actionType: "planning.automation.scoped-auto.run",
+      changeId: "change-1",
+      automationMode: "full-access",
+      automationCurrentGateApprovalActionId: "audit.accept",
+      automationCurrentGateTargetId: "audit-1",
+      automationCurrentGateRunId: "audit-run-1",
+      automationCurrentGateArtifact: "runs/audit-run-1/audit.json",
+      maxSteps: 5,
+    })).resolves.toBeUndefined();
+  });
+
+  it("rejects scoped automation for approved-with-notes audit.accept approval gates", async () => {
+    mocks.getWorkbenchSnapshot.mockResolvedValue({
+      center: { workpad: { nextAction: { kind: "none" } } },
+      right: {
+        confirmationQueue: {
+          primary: {
+            changeId: "change-1",
+            runId: "audit-run-1",
+            resultId: "audit-1",
+            evidenceRefs: ["runs/audit-run-1/audit.json"],
+            actions: [{
+              kind: "approval",
+              enabled: true,
+              changeId: "change-1",
+              action: { actionId: "audit.accept", args: ["accept", "repo", "audit-1"] },
+            }],
+          },
+          current: [],
+          otherDemands: [],
+        },
+      },
+    });
+    mocks.listAuditResults.mockResolvedValue([{
+      id: "audit-1",
+      changeId: "change-1",
+      runId: "audit-run-1",
+      status: "approved-with-notes",
+      artifacts: { audit: "runs/audit-run-1/audit.json" },
+    }]);
+
+    await expect(assertCurrent({ project: { id: "repo", name: "Repo", path: "project-root", addedAt: "2026-06-18T00:00:00.000Z", lastSeenAt: "2026-06-18T00:00:00.000Z" }, path: "project-root" }, {
+      actionType: "planning.automation.scoped-auto.run",
+      changeId: "change-1",
+      automationMode: "full-access",
+      automationCurrentGateApprovalActionId: "audit.accept",
+      automationCurrentGateTargetId: "audit-1",
+      automationCurrentGateRunId: "audit-run-1",
+      automationCurrentGateArtifact: "runs/audit-run-1/audit.json",
+      maxSteps: 5,
     })).rejects.toThrow("stale or no longer available");
   });
 

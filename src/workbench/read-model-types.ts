@@ -157,6 +157,10 @@ export interface ThreadStreamAction {
   goalLoopCurrentGateActionType?: ThreadStreamAction["actionType"];
   automationMode?: "request-approval" | "full-access";
   automationCurrentGateActionType?: ThreadStreamAction["actionType"];
+  automationCurrentGateApprovalActionId?: string;
+  automationCurrentGateTargetId?: string;
+  automationCurrentGateRunId?: string;
+  automationCurrentGateArtifact?: string;
   automationAuthorizationId?: string;
   automationRunId?: string;
   maxSteps?: number;
@@ -224,6 +228,7 @@ export interface WorkbenchApprovalItem {
   action?: WorkbenchApprovalAction;
   artifact?: string;
   reason?: string;
+  automationEligible?: boolean;
 }
 
 export interface WorkbenchDecisionItem {
@@ -305,6 +310,10 @@ export interface WorkbenchDecisionAction {
   goalLoopCurrentGateActionType?: ThreadStreamAction["actionType"];
   automationMode?: "request-approval" | "full-access";
   automationCurrentGateActionType?: ThreadStreamAction["actionType"];
+  automationCurrentGateApprovalActionId?: string;
+  automationCurrentGateTargetId?: string;
+  automationCurrentGateRunId?: string;
+  automationCurrentGateArtifact?: string;
   automationAuthorizationId?: string;
   automationRunId?: string;
   maxSteps?: number;
@@ -330,6 +339,7 @@ export interface WorkbenchDecisionAction {
   remoteLandingResultId?: string;
   artifact?: string;
   disabledReason?: string;
+  automationEligible?: boolean;
 }
 
 export interface WorkbenchReworkPrompt {
@@ -421,6 +431,10 @@ export interface WorkbenchConfirmationQueueItem {
   goalLoopCurrentGateActionType?: ThreadStreamAction["actionType"];
   automationMode?: "request-approval" | "full-access";
   automationCurrentGateActionType?: ThreadStreamAction["actionType"];
+  automationCurrentGateApprovalActionId?: string;
+  automationCurrentGateTargetId?: string;
+  automationCurrentGateRunId?: string;
+  automationCurrentGateArtifact?: string;
   automationAuthorizationId?: string;
   automationRunId?: string;
   maxSteps?: number;

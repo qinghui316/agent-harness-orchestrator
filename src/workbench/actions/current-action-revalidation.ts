@@ -1,6 +1,8 @@
 import { getActiveChanges } from "../../ecl/index.js";
+import { listAuditResults } from "../../audit/artifacts.js";
 import { resolveProjectMemory } from "../../memory/resolver.js";
 import type { ManagedProject } from "../../types/index.js";
+import type { WorkbenchApprovalAction } from "../read-model-types.js";
 import { revalidatedWorkflowActionSet, workflowActionScopesMatchStrict } from "../../workflow-actions/registry.js";
 import { CONTROLLED_SCHEDULER_STEP_ACTION_TYPE, buildControlledSchedulerStepRequest } from "../../workflow-scheduler/controlled-step.js";
 import { assertGoalLoopAssistedConcreteGateConfirmation } from "./goal-loop-gate-confirmation.js";
@@ -22,6 +24,11 @@ type SnapshotAction = Record<string, unknown> & {
   actionType?: string;
   changeId?: string;
   enabled?: boolean;
+  approvalId?: string;
+  runId?: string;
+  targetId?: string;
+  artifact?: string;
+  action?: Partial<WorkbenchApprovalAction>;
   actions?: SnapshotAction[];
 };
 
@@ -45,7 +52,7 @@ interface CurrentWorkflowActionSnapshot {
   };
   right: {
     confirmationQueue: {
-      primary: { actions: SnapshotAction[] } | null;
+      primary: { changeId?: string; runId?: string; resultId?: string; evidenceRefs?: string[]; actions: SnapshotAction[] } | null;
       current: Array<{ actions: SnapshotAction[] }>;
       otherDemands: Array<{ actions: SnapshotAction[] }>;
       maintenance?: Array<{ actions: SnapshotAction[] }>;
@@ -210,6 +217,10 @@ export async function assertCurrentWorkflowAction(input: CurrentWorkflowActionIn
   }
   if (body.actionType === "planning.automation.scoped-auto.run") {
     const primary = snapshot.right.confirmationQueue.primary;
+    if (body.automationCurrentGateApprovalActionId) {
+      await assertCurrentAutomationApprovalAction(input, body, deps, snapshot);
+      return;
+    }
     const primaryWorkflowAction = primary?.actions.find((action: Record<string, unknown>) => action.kind === "workflow-action" && action.actionType === body.automationCurrentGateActionType);
     if (
       !primaryWorkflowAction
@@ -290,6 +301,59 @@ export async function assertCurrentWorkflowAction(input: CurrentWorkflowActionIn
       throw error;
     }
   }
+}
+
+export async function assertCurrentAutomationApprovalAction(
+  input: CurrentWorkflowActionInput,
+  body: CurrentWorkflowActionRequest,
+  _deps: CurrentWorkflowActionDeps,
+  existingSnapshot?: CurrentWorkflowActionSnapshot,
+): Promise<void> {
+  const snapshot = existingSnapshot ?? await _deps.getWorkbenchSnapshot(input, { topicId: body.changeId }) as CurrentWorkflowActionSnapshot;
+  const primary = snapshot.right.confirmationQueue.primary;
+  const actionId = body.automationCurrentGateApprovalActionId;
+  const primaryApprovalAction = primary?.actions.find((action) =>
+    action.kind === "approval"
+    && action.enabled !== false
+    && action.action?.actionId === actionId
+  );
+  if (
+    !primary
+    || !primaryApprovalAction
+    || !actionId
+    || actionId !== "audit.accept"
+    || !body.changeId
+    || (primary.changeId && primary.changeId !== body.changeId)
+    || (primaryApprovalAction.changeId && primaryApprovalAction.changeId !== body.changeId)
+  ) {
+    throwStaleWorkflowTarget();
+  }
+  const targetId = body.automationCurrentGateTargetId;
+  const currentTargetId = primary.resultId ?? primaryApprovalAction.targetId ?? primaryApprovalAction.action?.args?.[2];
+  if (!targetId || currentTargetId !== targetId) throwStaleWorkflowTarget();
+  if (body.automationCurrentGateRunId && primary.runId && body.automationCurrentGateRunId !== primary.runId) throwStaleWorkflowTarget();
+  const currentArtifact = primary.evidenceRefs?.[0] ?? primaryApprovalAction.artifact;
+  if (body.automationCurrentGateArtifact && currentArtifact && body.automationCurrentGateArtifact !== currentArtifact) throwStaleWorkflowTarget();
+
+  if (!input.project) throwStaleWorkflowTarget();
+  const memory = await resolveProjectMemory(input.project);
+  const audits = await listAuditResults(memory, body.changeId).catch(() => []);
+  const audit = audits.find((item) => item.id === targetId);
+  if (
+    !audit
+    || audit.changeId !== body.changeId
+    || audit.status !== "approved"
+    || (body.automationCurrentGateRunId && audit.runId !== body.automationCurrentGateRunId)
+    || (body.automationCurrentGateArtifact && audit.artifacts.audit !== body.automationCurrentGateArtifact)
+  ) {
+    throwStaleWorkflowTarget();
+  }
+}
+
+function throwStaleWorkflowTarget(): never {
+  const error = new Error("Workflow action target is stale or no longer available.");
+  error.name = "Conflict";
+  throw error;
 }
 
 function readGoalLoopCurrentGateRequestScope(body: CurrentWorkflowActionRequest, expectedScope: Record<string, unknown>): Record<string, string | string[]> {

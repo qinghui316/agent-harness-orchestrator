@@ -513,11 +513,31 @@ describe("workflow action registry", () => {
     expect(validateWorkflowActionRequiredTargets({
       ...request,
       automationCurrentGateActionType: undefined,
-    }).map((item) => item.label)).toEqual(["automationCurrentGateActionType", "current visible primary gate"]);
+    }).map((item) => item.label)).toEqual(["automationCurrentGateActionType or automationCurrentGateApprovalActionId", "current visible primary gate"]);
+    expect(validateWorkflowActionRequiredTargets({
+      ...request,
+      automationCurrentGateApprovalActionId: "audit.accept",
+      automationCurrentGateTargetId: "audit-1",
+    }).map((item) => item.label)).toEqual(["single current visible primary gate"]);
     expect(validateWorkflowActionRequiredTargets({
       ...request,
       decompositionPlanId: undefined,
     }).map((item) => item.label)).toEqual(["decompositionPlanId"]);
+    const auditAcceptAutomationRequest = {
+      actionType: "planning.automation.scoped-auto.run",
+      changeId: "change-1",
+      automationMode: "full-access",
+      automationCurrentGateApprovalActionId: "audit.accept",
+      automationCurrentGateTargetId: "audit-1",
+      automationCurrentGateRunId: "audit-run-1",
+      automationCurrentGateArtifact: "harness/changes/active/change-1/audit/audit-1.json",
+      maxSteps: 5,
+    };
+    expect(validateWorkflowActionRequiredTargets(auditAcceptAutomationRequest)).toEqual([]);
+    expect(validateWorkflowActionRequiredTargets({
+      ...auditAcceptAutomationRequest,
+      automationCurrentGateTargetId: undefined,
+    }).map((item) => item.label)).toEqual(["automationCurrentGateTargetId"]);
     expect(workflowActionTargetId(request, request.changeId, {
       automationRun: { id: "automation-run-1" },
       authorization: { id: "automation-auth-1" },

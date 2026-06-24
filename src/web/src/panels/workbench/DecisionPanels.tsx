@@ -157,8 +157,8 @@ function DecisionContextCard({
   const [pendingActionId, setPendingActionId] = useState<string | null>(null);
   const [automationMode, setAutomationMode] = useState<"request-approval" | "full-access">("request-approval");
   const feedbackAction = context.actions.find((action) => action.id === feedbackActionId);
-  const primaryWorkflowAction = context.actions.find((action) => action.kind === "workflow-action" && action.actionType);
-  const scopedAutomationAvailable = isScopedAutomationAllowedAction(primaryWorkflowAction?.actionType);
+  const primaryAutomationAction = context.actions.find((action) => isScopedAutomationAllowedAction(action));
+  const scopedAutomationAvailable = Boolean(primaryAutomationAction);
   const actionBusy = busy || pendingActionId !== null;
   async function executeAction(action: DecisionAction): Promise<void> {
     if (!action.enabled || actionBusy) return;
@@ -250,7 +250,7 @@ function DecisionContextCard({
           ))}
         </div>
       ) : null}
-      {primaryWorkflowAction ? (
+      {primaryAutomationAction ? (
         <AutomationModeSelector
           value={automationMode}
           canUseFullAccess={scopedAutomationAvailable}
@@ -259,10 +259,10 @@ function DecisionContextCard({
       ) : null}
       <div className="approval-actions">
         {context.actions.map((action) => {
-          const effectiveAction = action === primaryWorkflowAction && automationMode === "full-access" && scopedAutomationAvailable
+          const effectiveAction = action === primaryAutomationAction && automationMode === "full-access" && scopedAutomationAvailable
             ? scopedAutomationActionFrom(action, context)
             : action;
-          const disabled = actionBusy || !effectiveAction.enabled || (action === primaryWorkflowAction && automationMode === "full-access" && !scopedAutomationAvailable);
+          const disabled = actionBusy || !effectiveAction.enabled || (action === primaryAutomationAction && automationMode === "full-access" && !scopedAutomationAvailable);
           const title = action.disabledReason ?? (actionBusy ? "当前已有动作正在执行。" : undefined);
           if (action.kind === "feedback") {
             return <button key={action.id} className="outline-button" disabled={disabled} title={title} onClick={() => setFeedbackActionId(action.id)}><FileText size={15} />{userFacingText(action.label)}</button>;
@@ -334,22 +334,31 @@ function AutomationModeSelector({
 }
 
 function scopedAutomationActionFrom(action: DecisionAction, context: DecisionContext): DecisionAction {
-  if (!action.actionType) return action;
+  if (!action.actionType && action.action?.actionId !== "audit.accept") return action;
   return {
     ...action,
     id: `automation:${action.id}`,
     label: "完全访问权限",
+    kind: "workflow-action",
     actionType: "planning.automation.scoped-auto.run",
     automationMode: "full-access",
     automationCurrentGateActionType: action.actionType,
+    automationCurrentGateApprovalActionId: action.action?.actionId === "audit.accept" ? "audit.accept" : undefined,
+    automationCurrentGateTargetId: context.targetId,
+    automationCurrentGateRunId: context.runId,
+    automationCurrentGateArtifact: context.artifact,
     changeId: action.changeId ?? context.changeId,
     maxSteps: action.maxSteps ?? 5,
     requiresConfirmation: true,
   };
 }
 
-function isScopedAutomationAllowedAction(actionType: string | undefined): boolean {
-  return actionType === "planning.confirm-execution"
+function isScopedAutomationAllowedAction(action: DecisionAction): boolean {
+  const actionType = action.actionType;
+  if (action.kind === "approval") {
+    return action.action?.actionId === "audit.accept" && action.automationEligible === true;
+  }
+  return action.kind === "workflow-action" && (actionType === "planning.confirm-execution"
     || actionType === "planning.decompose"
     || actionType === "planning.decomposition.confirm"
     || actionType === "planning.decomposition.assess-readiness"
@@ -359,7 +368,7 @@ function isScopedAutomationAllowedAction(actionType: string | undefined): boolea
     || actionType === "result.refresh-rework"
     || actionType === "result.revalidate"
     || actionType === "result.reaudit"
-    || actionType === "planning.goal-loop.controlled-continue.run";
+    || actionType === "planning.goal-loop.controlled-continue.run");
 }
 
 function DecisionContextHistory({ contexts, onSelectContext }: { contexts: DecisionContext[]; onSelectContext: (id: string) => void }): ReactElement {

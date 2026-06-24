@@ -206,6 +206,10 @@ export interface WorkbenchWorkflowActionRequest {
   goalLoopRuntimeRunId?: string;
   automationMode?: "request-approval" | "full-access";
   automationCurrentGateActionType?: WorkbenchWorkflowActionType;
+  automationCurrentGateApprovalActionId?: string;
+  automationCurrentGateTargetId?: string;
+  automationCurrentGateRunId?: string;
+  automationCurrentGateArtifact?: string;
   automationAuthorizationId?: string;
   automationRunId?: string;
   maxSteps?: number;

@@ -77,6 +77,8 @@ export async function buildApprovalInbox(project: ManagedProject, memory: Resolv
         severity: "info",
         action: approvalAction("audit.accept", "Accept audit", "audit", ["accept", project.id, audit.id], true),
         artifact: audit.artifacts.audit,
+        reason: audit.status === "approved" ? undefined : "Audit approved with notes requires manual acceptance.",
+        automationEligible: audit.status === "approved",
       });
     }
     const worktrees = await listWorktreesForChange(memory, activeTopic.id).catch(() => []);

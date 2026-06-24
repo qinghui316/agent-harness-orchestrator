@@ -1,4 +1,5 @@
 import type { WorkflowActionScopeCarrier, WorkflowActionType } from "../workflow-actions/registry.js";
+import type { ScopedAutomationAllowedApprovalActionId } from "./policy.js";
 
 export type AutomationAuthorizationMode = "full-access";
 export type AutomationCodexRuntimeCapability = "full-access";
@@ -39,6 +40,7 @@ export interface AutomationAuthorization {
   mode: AutomationAuthorizationMode;
   codexRuntimeCapability: AutomationCodexRuntimeCapability;
   allowedActionTypes: WorkflowActionType[];
+  allowedApprovalActionIds: ScopedAutomationAllowedApprovalActionId[];
   maxSteps: number;
   hardMaxSteps: number;
   requestedGate: WorkflowActionScopeCarrier;
@@ -66,7 +68,9 @@ export interface AutomationIteration {
   automationRunId: string;
   ordinal: number;
   submittedActionType?: WorkflowActionType;
+  submittedApprovalActionId?: string;
   currentGateActionType?: string;
+  currentGateKind?: "workflow-action" | "approval-action";
   currentGateScope?: Record<string, unknown>;
   status: "completed" | "failed" | "stopped";
   stopReason?: AutomationStopReason;

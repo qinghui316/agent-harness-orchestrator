@@ -5,7 +5,7 @@
 - Current date: 2026-06-24.
 - Active ECL change: none.
 - Pending Harness evolution: none.
-- Latest archived product change: `harness/changes/archive/20260624-workbench-scoped-automation-decomposition-gate-coverage-v1/summary.md`.
+- Latest archived product change: `harness/changes/archive/20260624-workbench-scoped-automation-audit-acceptance-v1/summary.md`.
 - Latest real UI continuation scout: `harness/changes/archive/20260624-workbench-real-ui-continuation-next-blocker-scout/summary.md`.
 - Latest bounded continuation runtime: `harness/changes/archive/20260624-goal-driven-controlled-continuation-runtime-v1/summary.md`.
 - Latest product audit: `harness/changes/archive/20260624-workbench-goal-loop-surface-gap-audit/summary.md`.
@@ -13,13 +13,14 @@
 - Latest real-Codex acceptance: `harness/changes/archive/20260623-workbench-current-project-real-codex-acceptance/summary.md`.
 - Latest Harness evolution: `harness/changes/archive/20260624-auto-evolve-post-continuation-scout-window/summary.md`.
 
-No structured product change is currently active. The latest product change
-extends the Workbench two-tier authorization surface so `完全访问权限` can consume
-the existing `planning.decompose` decomposition proposal gate only when it is
-the current authoritative primary confirmation for the selected demand. Codex
-may run with full-access runtime capability, but AHO still enforces scoped
-target ids, stale revalidation, ToolPolicyGate, source safety,
-validation/audit, and human apply/close gates.
+The latest product change is archived at
+`harness/changes/archive/20260624-workbench-scoped-automation-audit-acceptance-v1/summary.md`.
+It extends the Workbench two-tier authorization surface so `完全访问权限` can
+consume the existing `audit.accept` approval gate only when it is the current
+authoritative primary confirmation for the selected demand and the audit status
+is exactly `approved`. Codex may run with full-access runtime capability, but
+AHO still enforces scoped target ids, stale revalidation, ToolPolicyGate,
+source safety, validation/audit, and human apply/close gates.
 
 No pending Harness evolution remains. The latest Harness evolution reviewed the
 post-continuation five-archive window with an authorized subagent. Result:
@@ -45,7 +46,9 @@ decision surface. A user can keep per-step `请求批准`, or choose
 `完全访问权限` once for the current demand. V1 repeatedly consumes the current
 authoritative `confirmationQueue.primary` only when the action is in the local
 allowed set, and it stops at unsupported gates or high-impact human gates. It
-does not auto apply, close, merge, push, or run Harness evolution.
+can now automatically accept safe approved audit evidence through `audit.accept`
+and then stops at `result.apply`. It does not auto apply, close, merge, push, or
+run Harness evolution.
 
 Verification baseline: daily `npm run test:workbench` is the ordinary Workbench
 aggregate gate. Heavier full-chain scheduler/apply/Goal Loop coverage is kept
@@ -55,11 +58,10 @@ in release/deep package scripts.
 
 No active change is open. Next recommended work:
 
-- If continuing product automation, design the next scoped automation slice
-  from the proven two-tier V1 boundary, likely adding the next safe Workbench
-  gate family rather than jumping to global full-auto.
-- If checking product health first, run a light external-sandbox real UI smoke
-  over ordinary demand creation and `完全访问权限` stop behavior.
+- If continuing product capability, design the next scoped automation profile
+  or broader Goal-driven loop slice from the proven human gates.
+- If improving verification cost, target remaining Workbench aggregate/runtime
+  topology debt without moving deep/release paths back into the daily gate.
 - Keep automatic apply/close/merge, remote landing, Harness evolution, and
   parallel executor as separate later profiles.
 

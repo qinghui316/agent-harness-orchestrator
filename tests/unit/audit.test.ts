@@ -89,6 +89,8 @@ describe("audit parser and prompt", () => {
 
     expect(prompt).toContain("Auditor Agent Profile");
     expect(prompt).toContain("Status: approved | approved-with-notes | blocked");
+    expect(prompt).toContain("Use Status: approved when the implementation satisfies the accepted demand");
+    expect(prompt).toContain("Do not turn positive evidence or passing validation into note findings");
     expect(prompt).toContain("Authoritative Audit Packet");
     expect(prompt).toContain("Do not block only because external-local durable memory is outside the Codex working directory.");
     expect(prompt).toContain("AC-001");

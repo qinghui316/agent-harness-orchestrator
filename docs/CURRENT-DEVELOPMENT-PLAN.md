@@ -138,22 +138,26 @@ Current architecture debt register:
 ## Next Product Direction
 
 No structured product change is currently active, and no Harness evolution is
-pending. The latest product change is archived at
+pending. The latest archived product change is
+`harness/changes/archive/20260624-workbench-scoped-automation-audit-acceptance-v1/summary.md`.
+It extends the two-tier `完全访问权限` execution segment with one safe approval
+gate: current selected-Change `audit.accept` when the audit status is exactly
+`approved`. Real UI acceptance used E-drive sandbox
+`E:\aho-accept\audit-accept-v1e` and proved one full-access confirmation
+advanced through decomposition/readiness, real `coder-codex` code execution,
+validation, audit, automatic `audit.accept`, and then stopped at the human
+`result.apply` gate with `AutomationRun.stopReason = "terminal-human-gate"`.
+No source apply, close, merge, remote landing, Harness evolution, scheduler
+loop, or parallel executor behavior was authorized.
+
+The previous two-tier automation product change is archived at
 `harness/changes/archive/20260624-workbench-scoped-automation-decomposition-gate-coverage-v1/summary.md`.
-It extends the Workbench two-tier authorization surface: `请求批准` keeps the
-existing per-step confirmation path, while `完全访问权限` creates a scoped
-automation authorization for the selected demand and can now consume the
-existing `planning.decompose` decomposition proposal gate when it is the
-current authoritative primary confirmation. Codex may run with full-access
-runtime capability, but AHO authority remains bounded to the current
+It proved `完全访问权限` can consume the existing `planning.decompose`
+decomposition proposal gate when it is the current authoritative primary
+confirmation, while still keeping AHO authority bounded to the current
 `projectId + changeId`, current target ids, source state, accepted artifact
 hashes, allowed local workflow action set, budget, and human confirmation
-evidence. Real UI acceptance in external sandbox
-`C:\aho-accept\decompose-gate-v1` proved one full-access confirmation advanced
-past `planning.decompose`, continued through already allowed local
-code/validation/audit gates, and stopped at a human audit acceptance gate; no
-apply, close, merge, remote, Harness evolution, or parallel executor behavior
-was authorized.
+evidence.
 
 The previous real UI continuation scout is archived at
 `harness/changes/archive/20260624-workbench-real-ui-continuation-next-blocker-scout/summary.md`.

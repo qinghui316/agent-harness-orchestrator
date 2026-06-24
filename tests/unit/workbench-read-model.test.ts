@@ -1048,6 +1048,28 @@ describe("workbench read-model projections", () => {
     ]));
   });
 
+  it("marks only plain approved audit approvals as scoped-automation eligible", async () => {
+    await initHarness(project());
+    await createChange(project(), { title: "Audit Automation" });
+    await writeAuditResult("audit-automation", "audit-approved", "wt-approved", "approved");
+    await writeAuditResult("audit-automation", "audit-notes", "wt-notes", "approved-with-notes");
+
+    const snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: "audit-automation" });
+    const approved = snapshot.right.approvals.find((item) => item.id === "audit:audit-approved");
+    const notes = snapshot.right.approvals.find((item) => item.id === "audit:audit-notes");
+
+    expect(approved).toMatchObject({
+      kind: "audit-proposal",
+      automationEligible: true,
+      action: expect.objectContaining({ actionId: "audit.accept" }),
+    });
+    expect(notes).toMatchObject({
+      kind: "audit-proposal",
+      automationEligible: false,
+      reason: expect.stringContaining("manual acceptance"),
+    });
+  });
+
   it("offers bounded rework for failed result validation without reviving stale code.run", () => {
     const inspector = buildDecisionInspector({
       selectedTopic: {

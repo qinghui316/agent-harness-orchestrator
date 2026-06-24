@@ -421,6 +421,10 @@ export type WorkflowActionScopeCarrier = {
   goalLoopRuntimeRunId?: string;
   automationMode?: "request-approval" | "full-access";
   automationCurrentGateActionType?: string;
+  automationCurrentGateApprovalActionId?: string;
+  automationCurrentGateTargetId?: string;
+  automationCurrentGateRunId?: string;
+  automationCurrentGateArtifact?: string;
   automationAuthorizationId?: string;
   automationRunId?: string;
   maxSteps?: number;
@@ -518,8 +522,17 @@ export function validateWorkflowActionRequiredTargets(request: WorkflowActionSco
     }
     case "planning.automation.scoped-auto.run": {
       requireOne("changeId", [request.changeId]);
-      requireOne("automationCurrentGateActionType", [request.automationCurrentGateActionType]);
+      requireOne("automationCurrentGateActionType or automationCurrentGateApprovalActionId", [request.automationCurrentGateActionType, request.automationCurrentGateApprovalActionId]);
       const concreteActionType = request.automationCurrentGateActionType;
+      const concreteApprovalActionId = request.automationCurrentGateApprovalActionId;
+      if (concreteActionType && concreteApprovalActionId) {
+        issues.push({ actionType, label: "single current visible primary gate", message: "planning.automation.scoped-auto.run requires exactly one current workflow or approval gate." });
+        break;
+      }
+      if (concreteApprovalActionId) {
+        requireOne("automationCurrentGateTargetId", [request.automationCurrentGateTargetId]);
+        break;
+      }
       if (!concreteActionType || concreteActionType === "planning.automation.scoped-auto.run") {
         issues.push({ actionType, label: "current visible primary gate", message: "planning.automation.scoped-auto.run requires the current visible primary gate action type." });
         break;
@@ -809,6 +822,10 @@ export function workflowActionScopePayload(request: WorkflowActionScopeCarrier, 
     goalLoopRuntimeRunId: request.goalLoopRuntimeRunId ?? extractString(result, "runtimeRun", "id"),
     automationMode: request.automationMode,
     automationCurrentGateActionType: request.automationCurrentGateActionType,
+    automationCurrentGateApprovalActionId: request.automationCurrentGateApprovalActionId,
+    automationCurrentGateTargetId: request.automationCurrentGateTargetId,
+    automationCurrentGateRunId: request.automationCurrentGateRunId,
+    automationCurrentGateArtifact: request.automationCurrentGateArtifact,
     automationAuthorizationId: request.automationAuthorizationId ?? extractString(result, "authorization", "id"),
     automationRunId: request.automationRunId ?? extractString(result, "automationRun", "id"),
     maxSteps: request.maxSteps,
@@ -869,6 +886,8 @@ export function workflowActionTargetId(request: WorkflowActionScopeCarrier, chan
   if (request.actionType === "planning.automation.scoped-auto.run") {
     return extractString(result, "automationRun", "id")
       ?? extractString(result, "authorization", "id")
+      ?? request.automationCurrentGateTargetId
+      ?? request.automationCurrentGateApprovalActionId
       ?? request.automationCurrentGateActionType
       ?? changeId;
   }

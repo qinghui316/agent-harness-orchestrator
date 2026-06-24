@@ -1,17 +1,21 @@
 import { runScopedAutomation } from "../../../automation-runtime/runner.js";
 import { captureAcceptedArtifactHashes, captureAutomationSourceState } from "../../../automation-runtime/safety.js";
+import { isScopedAutomationTerminalHumanGate } from "../../../automation-runtime/policy.js";
+import type { ScopedAutomationChildGate } from "../../../automation-runtime/runner.js";
 import type { AutomationStopReason } from "../../../automation-runtime/types.js";
 import { assertWritableMemory } from "../../../memory/resolver.js";
 import type { ManagedProject } from "../../../types/index.js";
 import { isWorkflowActionType, workflowActionScopesMatchStrict, type WorkflowActionType } from "../../../workflow-actions/registry.js";
 import { emitAssistantEvent } from "../../live-events.js";
 import { getWorkbenchSnapshot } from "../../manager.js";
+import { recordWorkbenchDecision } from "../../decisions.js";
 import { resolveTopic } from "../../topic-resolver.js";
 import { appendTopicThreadEntry } from "../../topic-thread.js";
-import type { WorkbenchDecisionAction } from "../../read-model-types.js";
+import type { WorkbenchApprovalAction, WorkbenchDecisionAction } from "../../read-model-types.js";
 import type { WorkbenchLiveSink, WorkbenchWorkflowActionRequest } from "../../types.js";
+import { inferArtifactFromActionResult, inferChangeIdFromAction, inferRunIdFromActionResult, inferTargetIdFromAction, runAllowlistedAction } from "../approval-execution.js";
 import { assertWorkflowActionScope, auditHighImpactWorkflowAction } from "../boundary.js";
-import { assertCurrentWorkflowAction } from "../current-action-revalidation.js";
+import { assertCurrentAutomationApprovalAction, assertCurrentWorkflowAction } from "../current-action-revalidation.js";
 import { dispatchWorkbenchWorkflowAction, type WorkbenchActionHandlerMap } from "../dispatcher.js";
 import { summarizeActionResult } from "../results.js";
 
@@ -43,8 +47,37 @@ export async function runScopedAutomationAction(
     acceptedArtifactHashes,
     request: automationRequest,
     services: {
-      resolveCurrentPrimaryGate: async () => resolveCurrentPrimaryWorkflowGate(project, changeId),
+      resolveCurrentPrimaryGate: async () => resolveCurrentPrimaryAutomationGate(project, changeId),
       dispatchChildAction: async (childRequest, auditScope) => {
+        if (childRequest.kind === "approval-action") {
+          const action = childRequest.action as WorkbenchApprovalAction;
+          await assertCurrentAutomationApprovalAction({ project, path: project.path }, {
+            actionType: "planning.automation.scoped-auto.run",
+            changeId,
+            automationMode: "full-access",
+            automationCurrentGateApprovalActionId: childRequest.actionId,
+            automationCurrentGateTargetId: childRequest.targetId,
+            automationCurrentGateRunId: childRequest.runId,
+            automationCurrentGateArtifact: childRequest.artifact,
+          }, { getWorkbenchSnapshot: getAutomationInternalSnapshot });
+          const approvalResult = await runAllowlistedAction(project, action, undefined);
+          await recordWorkbenchDecision(project, {
+            id: `approval:${action.actionId}:${action.args.join(":")}`,
+            changeId: inferChangeIdFromAction(action, approvalResult),
+            decisionType: action.actionId,
+            status: "accepted",
+            label: action.label,
+            summary: `Accepted ${action.label}.`,
+            targetId: inferTargetIdFromAction(action, approvalResult),
+            runId: inferRunIdFromActionResult(approvalResult),
+            artifact: inferArtifactFromActionResult(approvalResult),
+            actionId: action.actionId,
+            feedback: null,
+            payload: { result: approvalResult, automation: auditScope },
+            completedAt: new Date().toISOString(),
+          });
+          return approvalResult;
+        }
         const workflowRequest = {
           ...childRequest,
           changeId,
@@ -56,7 +89,12 @@ export async function runScopedAutomationAction(
         await auditHighImpactWorkflowAction(project, changeId, workflowRequest, live);
         return dispatchWorkbenchWorkflowAction(handlers, project, changeId, workflowRequest, live);
       },
-      summarizeChildResult: (actionType, childResult) => summarizeActionResult(actionType, childResult),
+      summarizeChildResult: (gate, childResult) => gate.kind === "workflow-action"
+        ? summarizeActionResult(gate.actionType, childResult)
+        : `${gate.actionId} completed`,
+      waitForSettledPrimaryGate: async () => {
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+      },
     },
   });
 
@@ -78,10 +116,10 @@ export async function runScopedAutomationAction(
   return result;
 }
 
-async function resolveCurrentPrimaryWorkflowGate(
+async function resolveCurrentPrimaryAutomationGate(
   project: ManagedProject,
   changeId: string,
-): Promise<WorkbenchWorkflowActionRequest & { actionType: WorkflowActionType } | { stopReason: AutomationStopReason; summary: string }> {
+): Promise<ScopedAutomationChildGate | { stopReason: AutomationStopReason; summary: string }> {
   const snapshot = await getAutomationInternalSnapshot({ project, path: project.path }, { topicId: changeId });
   const primary = snapshot.right.confirmationQueue.primary;
   if (!primary) return { stopReason: "no-primary-gate", summary: "当前没有需要确认的主 gate。" };
@@ -90,10 +128,10 @@ async function resolveCurrentPrimaryWorkflowGate(
   if (!action) {
     const disabledWorkflow = primary.actions.find((item) => item.kind === "workflow-action" && item.actionType);
     if (disabledWorkflow) return { stopReason: "blocked", summary: disabledWorkflow.disabledReason ?? "当前 workflow gate 暂不可执行。" };
-    return { stopReason: "terminal-human-gate", summary: "当前主 gate 需要人工 approval，自动推进已停止。" };
+    return approvalGateToAutomationGate(project, changeId, primary);
   }
   if (action.changeId && action.changeId !== changeId) return { stopReason: "stale-target", summary: "当前 workflow gate 已漂移到其他 Change。" };
-  return decisionActionToWorkflowRequest(action, changeId);
+  return { kind: "workflow-action", ...decisionActionToWorkflowRequest(action, changeId) };
 }
 
 function getAutomationInternalSnapshot(
@@ -114,13 +152,59 @@ function assertScopedAutomationRequest(
   actionType: "planning.automation.scoped-auto.run";
   changeId: string;
   automationMode: "full-access";
-  automationCurrentGateActionType: WorkflowActionType;
+  automationCurrentGateActionType?: WorkflowActionType;
+  automationCurrentGateApprovalActionId?: "audit.accept";
 } {
   if (request.actionType !== "planning.automation.scoped-auto.run") throw new Error("Expected planning.automation.scoped-auto.run.");
   if (request.changeId !== changeId) throw new Error("planning.automation.scoped-auto.run changeId scope mismatch.");
   if (request.automationMode !== "full-access") throw new Error("planning.automation.scoped-auto.run requires automationMode full-access.");
-  if (!request.automationCurrentGateActionType) throw new Error("planning.automation.scoped-auto.run requires automationCurrentGateActionType.");
+  if (!request.automationCurrentGateActionType && !request.automationCurrentGateApprovalActionId) throw new Error("planning.automation.scoped-auto.run requires a current gate target.");
+  if (request.automationCurrentGateActionType && request.automationCurrentGateApprovalActionId) throw new Error("planning.automation.scoped-auto.run requires exactly one current gate target.");
+  if (request.automationCurrentGateApprovalActionId && request.automationCurrentGateApprovalActionId !== "audit.accept") throw new Error("planning.automation.scoped-auto.run supports only audit.accept approval automation.");
   return request as ReturnType<typeof assertScopedAutomationRequest>;
+}
+
+async function approvalGateToAutomationGate(
+  project: ManagedProject,
+  changeId: string,
+  primary: NonNullable<Awaited<ReturnType<typeof getAutomationInternalSnapshot>>["right"]["confirmationQueue"]["primary"]>,
+): Promise<ScopedAutomationChildGate | { stopReason: AutomationStopReason; summary: string }> {
+  const approval = primary.actions.find((item) => item.kind === "approval" && item.enabled && item.action);
+  if (!approval?.action) return { stopReason: "terminal-human-gate", summary: "当前主 gate 需要人工 approval，自动推进已停止。" };
+  const actionId = approval.action.actionId;
+  if (!actionId) return { stopReason: "terminal-human-gate", summary: "当前主 gate 缺少 approval action id，自动推进已停止。" };
+  if (isScopedAutomationTerminalHumanGate(actionId)) {
+    return { stopReason: "terminal-human-gate", summary: "Scoped automation stopped at a human terminal gate." };
+  }
+  if (actionId !== "audit.accept") {
+    return { stopReason: "unsupported-gate", summary: "当前 approval gate 不在完全访问权限 V1 范围内。" };
+  }
+  const targetId = primary.resultId ?? approval.action.args?.[2];
+  const artifact = primary.evidenceRefs?.[0] ?? approval.artifact;
+  const runId = primary.runId ?? approval.runId;
+  try {
+    await assertCurrentAutomationApprovalAction({ project, path: project.path }, {
+      actionType: "planning.automation.scoped-auto.run",
+      changeId,
+      automationMode: "full-access",
+      automationCurrentGateApprovalActionId: "audit.accept",
+      automationCurrentGateTargetId: targetId,
+      automationCurrentGateRunId: runId,
+      automationCurrentGateArtifact: artifact,
+    }, { getWorkbenchSnapshot: getAutomationInternalSnapshot });
+  } catch {
+    return { stopReason: "stale-target", summary: "当前 audit.accept gate 不满足自动接收条件。" };
+  }
+  return {
+    kind: "approval-action",
+    actionId: "audit.accept",
+    changeId,
+    approvalId: approval.approvalId,
+    targetId,
+    runId,
+    artifact,
+    action: approval.action,
+  };
 }
 
 function decisionActionToWorkflowRequest(action: WorkbenchDecisionAction, changeId: string): WorkbenchWorkflowActionRequest & { actionType: WorkflowActionType } {
@@ -134,8 +218,17 @@ function decisionActionToWorkflowRequest(action: WorkbenchDecisionAction, change
 }
 
 export function scopedAutomationInitialGateMatches(request: WorkbenchWorkflowActionRequest, action: WorkbenchDecisionAction, changeId: string): boolean {
-  if (request.actionType !== "planning.automation.scoped-auto.run" || !request.automationCurrentGateActionType) return false;
-  if (!action.actionType || !isWorkflowActionType(action.actionType)) return false;
+  if (request.actionType !== "planning.automation.scoped-auto.run") return false;
+  if (request.automationCurrentGateApprovalActionId) {
+    if (request.automationCurrentGateApprovalActionId !== action.action?.actionId) return false;
+    if ((action.changeId ?? changeId) !== changeId) return false;
+    if (request.automationCurrentGateApprovalActionId !== "audit.accept") return false;
+    if (request.automationCurrentGateTargetId && request.automationCurrentGateTargetId !== action.approvalId?.replace(/^audit:/, "")) {
+      return false;
+    }
+    return action.automationEligible === true;
+  }
+  if (!request.automationCurrentGateActionType || !action.actionType || !isWorkflowActionType(action.actionType)) return false;
   const requestedGate = { ...request, actionType: request.automationCurrentGateActionType, changeId };
   const expectedGate = { ...action, actionType: request.automationCurrentGateActionType, changeId: action.changeId ?? changeId };
   return workflowActionScopesMatchStrict(expectedGate, requestedGate);

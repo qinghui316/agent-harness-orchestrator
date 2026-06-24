@@ -18,7 +18,14 @@ export const SCOPED_AUTOMATION_ALLOWED_ACTION_TYPES = [
   "planning.goal-loop.controlled-continue.run",
 ] as const satisfies readonly WorkflowActionType[];
 
+export const SCOPED_AUTOMATION_ALLOWED_APPROVAL_ACTION_IDS = [
+  "audit.accept",
+] as const;
+
+export type ScopedAutomationAllowedApprovalActionId = typeof SCOPED_AUTOMATION_ALLOWED_APPROVAL_ACTION_IDS[number];
+
 const allowed = new Set<string>(SCOPED_AUTOMATION_ALLOWED_ACTION_TYPES);
+const allowedApprovals = new Set<string>(SCOPED_AUTOMATION_ALLOWED_APPROVAL_ACTION_IDS);
 
 const terminalHumanGates = new Set<string>([
   "result.apply",
@@ -40,6 +47,10 @@ const terminalHumanGates = new Set<string>([
 
 export function isScopedAutomationAllowedAction(actionType: string | undefined): actionType is typeof SCOPED_AUTOMATION_ALLOWED_ACTION_TYPES[number] {
   return Boolean(actionType && allowed.has(actionType));
+}
+
+export function isScopedAutomationAllowedApprovalAction(actionId: string | undefined): actionId is ScopedAutomationAllowedApprovalActionId {
+  return Boolean(actionId && allowedApprovals.has(actionId));
 }
 
 export function isScopedAutomationTerminalHumanGate(actionType: string | undefined): boolean {

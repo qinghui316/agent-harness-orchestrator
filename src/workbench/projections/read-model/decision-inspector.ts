@@ -508,6 +508,7 @@ function decisionActionsForApproval(approval: WorkbenchApprovalItem, kind: Workb
       action: { ...approval.action, label: actionLabelForDecision(kind, approval.action.label) },
       enabled: true,
       requiresConfirmation: approval.action.requiresConfirmation,
+      automationEligible: approval.automationEligible,
     });
   }
   if (approval.artifact) actions.push(...evidenceActions(approval.artifact));

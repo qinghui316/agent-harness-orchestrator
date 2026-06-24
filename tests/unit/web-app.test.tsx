@@ -444,6 +444,63 @@ function decomposeQueueItem() {
   } as const;
 }
 
+function auditAcceptQueueItem(automationEligible = true) {
+  return {
+    id: "confirm:approval:audit:audit-1",
+    kind: "request-changes",
+    conversationId: "member-discount",
+    changeId: "member-discount",
+    resultId: "audit-1",
+    runId: "audit-run-1",
+    summary: "审查证据可以接受。",
+    whyNeedsConfirmation: "审查证据可接受：audit-1",
+    confirmEffect: "接受后会记录审查证据，下一步才是应用到项目。",
+    riskSummary: "这不会修改 source root。",
+    evidenceRefs: ["runs/audit-run-1/audit.json"],
+    primary: true,
+    status: "pending",
+    actions: [{
+      id: "accept:audit:audit-1",
+      label: "接受审查证据",
+      kind: "approval",
+      enabled: true,
+      requiresConfirmation: true,
+      changeId: "member-discount",
+      approvalId: "audit:audit-1",
+      automationEligible,
+      action: { actionId: "audit.accept", label: "接受审查证据", command: "audit", args: ["accept", "repo", "audit-1"], mutates: true, requiresConfirmation: true },
+    }],
+  } as const;
+}
+
+function applyQueueItem() {
+  return {
+    id: "confirm:apply:wt-1",
+    kind: "single-result-apply",
+    conversationId: "member-discount",
+    changeId: "member-discount",
+    resultId: "wt-1",
+    worktreeId: "wt-1",
+    summary: "结果可应用到项目。",
+    whyNeedsConfirmation: "确认应用代码",
+    confirmEffect: "会修改 source root 并提交本地结果。",
+    riskSummary: "这是 source mutation，必须人工确认。",
+    evidenceRefs: ["runs/audit-run-1/audit.json"],
+    primary: true,
+    status: "pending",
+    actions: [{
+      id: "accept:apply:wt-1",
+      label: "应用到项目",
+      kind: "approval",
+      enabled: true,
+      requiresConfirmation: true,
+      changeId: "member-discount",
+      approvalId: "apply:wt-1",
+      action: { actionId: "result.apply", label: "应用到项目", command: "result", args: ["apply", "repo", "member-discount", "wt-1"], mutates: true, requiresConfirmation: true },
+    }],
+  } as const;
+}
+
 describe("Workbench web app", () => {
   beforeEach(() => {
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
@@ -636,6 +693,104 @@ describe("Workbench web app", () => {
     expect(card.textContent).not.toContain("full-auto");
     expect(card.textContent).not.toContain("parallel executor");
     expect(card.textContent).not.toContain("merge queue");
+  });
+
+  it("submits scoped-auto for an eligible audit.accept approval gate", async () => {
+    const execute = vi.fn(async () => undefined);
+    function Harness() {
+      const [confirming, setConfirming] = useState<string | null>(null);
+      return (
+        <DecisionInspectorPane
+          inspector={{ primary: null, related: [], history: [] }}
+          confirmationQueue={{
+            primary: auditAcceptQueueItem(true),
+            current: [auditAcceptQueueItem(true)],
+            otherDemands: [],
+            maintenance: [],
+            history: [],
+          }}
+          confirming={confirming}
+          busy={false}
+          error={null}
+          onConfirmingChange={setConfirming}
+          onExecuteAction={execute}
+          onFeedback={async () => undefined}
+          onSelectContext={() => undefined}
+        />
+      );
+    }
+
+    render(<Harness />);
+
+    const card = screen.getByTestId("decision-inspector-primary");
+    const fullAccessButtons = within(card).getAllByRole("button", { name: "完全访问权限" });
+    fireEvent.click(fullAccessButtons[fullAccessButtons.length - 1]!);
+    const executeFullAccessButtons = within(card).getAllByRole("button", { name: "完全访问权限" });
+    fireEvent.click(executeFullAccessButtons[executeFullAccessButtons.length - 1]!);
+    fireEvent.click(within(card).getByRole("button", { name: "确认" }));
+
+    await waitFor(() => expect(execute).toHaveBeenCalledTimes(1));
+    expect(execute.mock.calls[0]?.[0]).toMatchObject({
+      actionType: "planning.automation.scoped-auto.run",
+      automationMode: "full-access",
+      automationCurrentGateApprovalActionId: "audit.accept",
+      automationCurrentGateTargetId: "audit-1",
+      automationCurrentGateRunId: "audit-run-1",
+      automationCurrentGateArtifact: "runs/audit-run-1/audit.json",
+      changeId: "member-discount",
+      maxSteps: 5,
+    });
+    expect(card.textContent).not.toContain("full-auto");
+    expect(card.textContent).not.toContain("parallel executor");
+    expect(card.textContent).not.toContain("merge queue");
+  });
+
+  it("does not offer full-access for apply gates or non-eligible audit approvals", () => {
+    const execute = vi.fn(async () => undefined);
+    const noop = async () => undefined;
+    const { rerender } = render(
+      <DecisionInspectorPane
+        inspector={{ primary: null, related: [], history: [] }}
+        confirmationQueue={{
+          primary: applyQueueItem(),
+          current: [applyQueueItem()],
+          otherDemands: [],
+          maintenance: [],
+          history: [],
+        }}
+        confirming={null}
+        busy={false}
+        error={null}
+        onConfirmingChange={() => undefined}
+        onExecuteAction={execute}
+        onFeedback={noop}
+        onSelectContext={() => undefined}
+      />,
+    );
+
+    expect(screen.queryByRole("button", { name: "完全访问权限" })).toBeNull();
+
+    rerender(
+      <DecisionInspectorPane
+        inspector={{ primary: null, related: [], history: [] }}
+        confirmationQueue={{
+          primary: auditAcceptQueueItem(false),
+          current: [auditAcceptQueueItem(false)],
+          otherDemands: [],
+          maintenance: [],
+          history: [],
+        }}
+        confirming={null}
+        busy={false}
+        error={null}
+        onConfirmingChange={() => undefined}
+        onExecuteAction={execute}
+        onFeedback={noop}
+        onSelectContext={() => undefined}
+      />,
+    );
+
+    expect(screen.queryByRole("button", { name: "完全访问权限" })).toBeNull();
   });
 
   it("renders Chinese workbench panes and replay artifacts", async () => {

@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { runScopedAutomation } from "../../src/automation-runtime/runner.js";
 import type { ResolvedMemory } from "../../src/types/index.js";
+import type { ScopedAutomationChildGate } from "../../src/automation-runtime/runner.js";
 import type { WorkflowActionScopeCarrier } from "../../src/workflow-actions/registry.js";
 
 describe("Scoped automation runtime", () => {
@@ -22,9 +23,9 @@ describe("Scoped automation runtime", () => {
   it("executes multiple allowed workflow actions under one scoped authorization", async () => {
     const dispatched: Array<{ request: WorkflowActionScopeCarrier; auditScope: Record<string, unknown> }> = [];
     const sequence = [
-      { actionType: "planning.decompose" as const, changeId: "change-1" },
-      { actionType: "planning.decomposition.confirm" as const, changeId: "change-1", decompositionPlanId: "decomp-1" },
-      { actionType: "planning.decomposition.assess-readiness" as const, changeId: "change-1", decompositionPlanId: "decomp-1" },
+      { kind: "workflow-action" as const, actionType: "planning.decompose" as const, changeId: "change-1" },
+      { kind: "workflow-action" as const, actionType: "planning.decomposition.confirm" as const, changeId: "change-1", decompositionPlanId: "decomp-1" },
+      { kind: "workflow-action" as const, actionType: "planning.decomposition.assess-readiness" as const, changeId: "change-1", decompositionPlanId: "decomp-1" },
     ];
 
     const result = await runScopedAutomation({
@@ -40,7 +41,7 @@ describe("Scoped automation runtime", () => {
           dispatched.push({ request, auditScope });
           return { ok: true, actionType: request.actionType };
         },
-        summarizeChildResult: (actionType) => `${actionType} completed`,
+        summarizeChildResult: (gate) => `${gate.kind === "workflow-action" ? gate.actionType : gate.actionId} completed`,
       },
     });
 
@@ -72,7 +73,7 @@ describe("Scoped automation runtime", () => {
       acceptedArtifactHashes: {},
       request: baseRequest(),
       services: {
-        resolveCurrentPrimaryGate: async () => ({ actionType: "result.apply" as const, changeId: "change-1", worktreeId: "wt-1" }),
+        resolveCurrentPrimaryGate: async () => ({ kind: "approval-action", actionId: "result.apply", changeId: "change-1", targetId: "wt-1", action: { actionId: "result.apply" } }),
         dispatchChildAction: async () => {
           throw new Error("should not dispatch");
         },
@@ -82,6 +83,93 @@ describe("Scoped automation runtime", () => {
 
     expect(result.stopReason).toBe("terminal-human-gate");
     expect(result.automationRun.completedSteps).toBe(0);
+  });
+
+  it("executes allowed audit.accept approval actions and then stops at apply", async () => {
+    const dispatched: ScopedAutomationChildGate[] = [];
+    const sequence: ScopedAutomationChildGate[] = [
+      {
+        kind: "approval-action",
+        actionId: "audit.accept",
+        changeId: "change-1",
+        targetId: "audit-1",
+        runId: "audit-run-1",
+        artifact: "runs/audit-run-1/audit.json",
+        action: { actionId: "audit.accept", args: ["accept", "project-1", "audit-1"] },
+      },
+      { kind: "approval-action", actionId: "result.apply", changeId: "change-1", targetId: "wt-1", action: { actionId: "result.apply" } },
+    ];
+
+    const result = await runScopedAutomation({
+      memory,
+      changePath: "harness/changes/active/change-1",
+      projectId: "project-1",
+      sourceState: { capturedAt: "2026-06-24T00:00:00.000Z" },
+      acceptedArtifactHashes: {},
+      request: baseRequest({ automationCurrentGateActionType: undefined, automationCurrentGateApprovalActionId: "audit.accept", automationCurrentGateTargetId: "audit-1" }),
+      services: {
+        resolveCurrentPrimaryGate: async () => sequence[dispatched.length] ?? { stopReason: "no-primary-gate", summary: "No gate." },
+        dispatchChildAction: async (request) => {
+          dispatched.push(request);
+          return { audit: { id: request.kind === "approval-action" ? request.targetId : "unknown" } };
+        },
+        summarizeChildResult: (gate) => `${gate.kind === "approval-action" ? gate.actionId : gate.actionType} completed`,
+      },
+    });
+
+    expect(result.authorization.allowedApprovalActionIds).toContain("audit.accept");
+    expect(result.stopReason).toBe("terminal-human-gate");
+    expect(result.automationRun.completedSteps).toBe(1);
+    expect(dispatched).toHaveLength(1);
+    expect(result.iterations[0]).toMatchObject({
+      submittedApprovalActionId: "audit.accept",
+      currentGateKind: "approval-action",
+      currentGateActionType: "audit.accept",
+    });
+  });
+
+  it("attributes stop to terminal human gate when maxSteps ends immediately before apply", async () => {
+    const dispatched: ScopedAutomationChildGate[] = [];
+    const sequence: ScopedAutomationChildGate[] = [
+      {
+        kind: "approval-action",
+        actionId: "audit.accept",
+        changeId: "change-1",
+        targetId: "audit-1",
+        runId: "audit-run-1",
+        artifact: "runs/audit-run-1/audit.json",
+        action: { actionId: "audit.accept", args: ["accept", "project-1", "audit-1"] },
+      },
+      { kind: "approval-action", actionId: "result.apply", changeId: "change-1", targetId: "wt-1", action: { actionId: "result.apply" } },
+    ];
+
+    const result = await runScopedAutomation({
+      memory,
+      changePath: "harness/changes/active/change-1",
+      projectId: "project-1",
+      sourceState: { capturedAt: "2026-06-24T00:00:00.000Z" },
+      acceptedArtifactHashes: {},
+      request: baseRequest({
+        automationCurrentGateActionType: undefined,
+        automationCurrentGateApprovalActionId: "audit.accept",
+        automationCurrentGateTargetId: "audit-1",
+        maxSteps: 1,
+      }),
+      services: {
+        resolveCurrentPrimaryGate: async () => sequence[dispatched.length] ?? { stopReason: "no-primary-gate", summary: "No gate." },
+        dispatchChildAction: async (request) => {
+          dispatched.push(request);
+          return { audit: { id: request.kind === "approval-action" ? request.targetId : "unknown" } };
+        },
+        summarizeChildResult: (gate) => `${gate.kind === "approval-action" ? gate.actionId : gate.actionType} completed`,
+      },
+    });
+
+    expect(result.stopReason).toBe("terminal-human-gate");
+    expect(result.automationRun.status).toBe("stopped");
+    expect(result.automationRun.completedSteps).toBe(1);
+    expect(dispatched).toHaveLength(1);
+    expect(dispatched[0]).toMatchObject({ kind: "approval-action", actionId: "audit.accept" });
   });
 
   it("fails closed when source safety reports drift", async () => {
@@ -94,7 +182,7 @@ describe("Scoped automation runtime", () => {
       request: baseRequest(),
       services: {
         checkSafety: async () => ({ stopReason: "source-drift", summary: "source changed" }),
-        resolveCurrentPrimaryGate: async () => ({ actionType: "validate.run" as const, changeId: "change-1", worktreeId: "wt-1" }),
+        resolveCurrentPrimaryGate: async () => ({ kind: "workflow-action", actionType: "validate.run" as const, changeId: "change-1", worktreeId: "wt-1" }),
         dispatchChildAction: async () => ({ ok: true }),
         summarizeChildResult: () => "unused",
       },

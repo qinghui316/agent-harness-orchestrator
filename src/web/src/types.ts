@@ -191,6 +191,10 @@ export type WorkpadNextAction = {
   goalLoopCurrentGateActionType?: ThreadStreamAction["actionType"];
   automationMode?: "request-approval" | "full-access";
   automationCurrentGateActionType?: ThreadStreamAction["actionType"];
+  automationCurrentGateApprovalActionId?: string;
+  automationCurrentGateTargetId?: string;
+  automationCurrentGateRunId?: string;
+  automationCurrentGateArtifact?: string;
   automationAuthorizationId?: string;
   automationRunId?: string;
   maxSteps?: number;
@@ -264,6 +268,10 @@ export type WorkbenchTaskNextAction = {
   goalLoopCurrentGateActionType?: ThreadStreamAction["actionType"];
   automationMode?: "request-approval" | "full-access";
   automationCurrentGateActionType?: ThreadStreamAction["actionType"];
+  automationCurrentGateApprovalActionId?: string;
+  automationCurrentGateTargetId?: string;
+  automationCurrentGateRunId?: string;
+  automationCurrentGateArtifact?: string;
   automationAuthorizationId?: string;
   automationRunId?: string;
   maxSteps?: number;
@@ -1802,6 +1810,10 @@ export type DecisionAction = {
   actionType?: ThreadStreamAction["actionType"];
   automationMode?: "request-approval" | "full-access";
   automationCurrentGateActionType?: ThreadStreamAction["actionType"];
+  automationCurrentGateApprovalActionId?: string;
+  automationCurrentGateTargetId?: string;
+  automationCurrentGateRunId?: string;
+  automationCurrentGateArtifact?: string;
   automationAuthorizationId?: string;
   automationRunId?: string;
   maxSteps?: number;
@@ -1842,6 +1854,7 @@ export type DecisionAction = {
   auditRunId?: string;
   artifact?: string;
   disabledReason?: string;
+  automationEligible?: boolean;
 };
 export type DecisionContext = {
   id: string;
