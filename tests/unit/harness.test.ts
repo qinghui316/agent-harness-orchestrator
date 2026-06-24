@@ -53,10 +53,25 @@ describe("harness", () => {
   it("initializes a Core Harness without an active change", async () => {
     const result = await initHarness(project(tempDir));
     const audit = await auditHarness(tempDir);
+    const ignore = await readFile(join(tempDir, ".agent-harness", ".gitignore"), "utf8");
 
     expect(result.created).toContainEqual({ base: "project-root", path: ".agent-harness/project.json" });
+    expect(ignore).toContain("runs/");
+    expect(ignore).toContain("worktrees/");
+    expect(ignore).toContain("workbench/");
     expect(audit.managed).toBe(true);
     expect(audit.readiness).toBe("ready");
+  });
+
+  it("backfills Workbench runtime ignore entries without rewriting marker state", async () => {
+    await mkdir(join(tempDir, ".agent-harness"), { recursive: true });
+    await writeFile(join(tempDir, ".agent-harness", ".gitignore"), "runs/\nworktrees/\n", "utf8");
+
+    const result = await initHarness(project(tempDir));
+    const ignore = await readFile(join(tempDir, ".agent-harness", ".gitignore"), "utf8");
+
+    expect(result.created).toContainEqual({ base: "project-root", path: ".agent-harness/.gitignore" });
+    expect(ignore).toContain("workbench/");
   });
 
   it("aborts init when an active change exists", async () => {

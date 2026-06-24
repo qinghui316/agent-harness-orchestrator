@@ -133,7 +133,10 @@ describe("CLI flow", () => {
     await runCli(["harness", "init", "repo"]);
 
     expect(existsSync(join(repoDir, ".agent-harness", "project.json"))).toBe(true);
-    expect(await readFile(join(repoDir, ".agent-harness", ".gitignore"), "utf8")).toContain("runs/");
+    const agentHarnessIgnore = await readFile(join(repoDir, ".agent-harness", ".gitignore"), "utf8");
+    expect(agentHarnessIgnore).toContain("runs/");
+    expect(agentHarnessIgnore).toContain("worktrees/");
+    expect(agentHarnessIgnore).toContain("workbench/");
     expect(existsSync(join(repoDir, "AGENTS.md"))).toBe(true);
     expect(existsSync(join(repoDir, "harness", "changes", "INDEX.json"))).toBe(true);
 

@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { extname, join, relative } from "node:path";
 import { buildChangeIndex } from "../ecl/index.js";
-import { writeJsonFile } from "../fs/json.js";
+import { parseJsonText, writeJsonFile } from "../fs/json.js";
 import { resolveProjectMemory } from "../memory/resolver.js";
 import { getMemoryStatus } from "../memory/status.js";
 import { getProjectStatus } from "../project/status.js";
@@ -306,7 +306,7 @@ async function buildIntakeScan(project: ManagedProject, memory: ResolvedMemory, 
 async function readPackageScripts(projectPath: string): Promise<Array<{ name: string; command: string }>> {
   const packagePath = join(projectPath, "package.json");
   if (!existsSync(packagePath)) return [];
-  const parsed = JSON.parse(await readFile(packagePath, "utf8")) as Record<string, unknown>;
+  const parsed = parseJsonText(await readFile(packagePath, "utf8"), packagePath) as Record<string, unknown>;
   const scripts = isRecord(parsed.scripts) ? parsed.scripts : {};
   return Object.entries(scripts)
     .filter((entry): entry is [string, string] => typeof entry[1] === "string")

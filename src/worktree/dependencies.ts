@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { lstat, readFile, symlink } from "node:fs/promises";
 import { join, resolve } from "node:path";
+import { parseJsonText } from "../fs/json.js";
 
 export type WorktreeDependencyBridgeStatus = "created" | "already-present" | "skipped";
 
@@ -77,7 +78,7 @@ export async function prepareWorktreeDependencyBridge(options: WorktreeDependenc
 
 async function packageDeclaresDependencies(packageJsonPath: string): Promise<boolean> {
   try {
-    const parsed = JSON.parse(await readFile(packageJsonPath, "utf8")) as {
+    const parsed = parseJsonText(await readFile(packageJsonPath, "utf8"), packageJsonPath) as {
       dependencies?: Record<string, unknown>;
       devDependencies?: Record<string, unknown>;
       optionalDependencies?: Record<string, unknown>;

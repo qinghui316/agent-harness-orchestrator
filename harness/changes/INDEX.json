@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-24T03:11:28.2931588Z",
+    "generated_at":  "2026-06-24T05:03:06.8813144Z",
     "active":  [
 
                ],
@@ -1831,12 +1831,20 @@
                         "path":  "harness/changes/archive/20260623-workbench-verification-runtime-convergence"
                     },
                     {
+                        "name":  "20260624-auto-evolve-post-continuation-scout-window",
+                        "path":  "harness/changes/archive/20260624-auto-evolve-post-continuation-scout-window"
+                    },
+                    {
                         "name":  "20260624-goal-driven-controlled-continuation-runtime-v1",
                         "path":  "harness/changes/archive/20260624-goal-driven-controlled-continuation-runtime-v1"
                     },
                     {
                         "name":  "20260624-workbench-goal-loop-surface-gap-audit",
                         "path":  "harness/changes/archive/20260624-workbench-goal-loop-surface-gap-audit"
+                    },
+                    {
+                        "name":  "20260624-workbench-real-ui-continuation-next-blocker-scout",
+                        "path":  "harness/changes/archive/20260624-workbench-real-ui-continuation-next-blocker-scout"
                     }
                 ]
 }

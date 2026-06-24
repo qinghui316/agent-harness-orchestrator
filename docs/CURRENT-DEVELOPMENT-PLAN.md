@@ -137,10 +137,23 @@ Current architecture debt register:
 
 ## Next Product Direction
 
-No structured product or Harness evolution change is currently active. The
-latest product change,
-`harness/changes/archive/20260624-goal-driven-controlled-continuation-runtime-v1/summary.md`,
-implements bounded Goal-driven continuation over the existing controlled
+No structured product change is currently active, and no Harness evolution is
+pending. The latest product change is archived at
+`harness/changes/archive/20260624-workbench-real-ui-continuation-next-blocker-scout/summary.md`.
+It used external sandbox `C:\aho-accept\continue-next-external` and real
+browser Workbench UI evidence to carry an ordinary demand through planning,
+decomposition/readiness, real `coder-codex` `code.run`, validation, audit,
+UI `audit.accept`, human-gated `result.apply` with local commit, and
+human-confirmed close/archive. It fixed two small real blockers: repo-local
+Harness runtime state is now ignored under `.agent-harness/workbench/`, and
+BOM-prefixed `package.json` files no longer block Workbench intake or worktree
+dependency setup. The ordinary path did not naturally expose a supported
+controlled Scheduler continuation gate, so no fake continuation success was
+claimed.
+
+The previous bounded continuation runtime is archived at
+`harness/changes/archive/20260624-goal-driven-controlled-continuation-runtime-v1/summary.md`.
+It implements bounded Goal-driven continuation over the existing controlled
 Scheduler advance wrapper. One explicit Workbench confirmation may advance a
 small number of current matching controlled Scheduler steps, re-reading evidence
 and revalidating targets before each child step, then stopping at the next
@@ -151,11 +164,13 @@ apply/merge/close. The latest verification convergence is archived at
 It separates daily Workbench aggregate coverage from explicit release/deep
 scheduler/apply/Goal Loop coverage: daily `npm run test:workbench` passes in
 the ordinary tool window, and full-chain deep coverage remains available
-through `npm run test:workbench:release`. The latest Harness evolution is archived at
-`harness/changes/archive/20260623-auto-evolve-harness-post-real-ui-scheduler-window/summary.md`.
-It promoted a narrow Workbench primary-surface alignment prompt into ECL and
-the review template; existing real-Codex, Goal Loop, Scheduler, source-safety,
-and aggregate-timeout rules were retained.
+through `npm run test:workbench:release`. The latest Harness evolution is
+archived at
+`harness/changes/archive/20260624-auto-evolve-post-continuation-scout-window/summary.md`.
+It reviewed the post-continuation archive window with an authorized subagent and
+kept existing ECL/template/lint/product runtime rules unchanged; the accepted
+delta was handoff compression so detailed sandbox/run history remains
+archive-only.
 The latest verification change,
 `harness/changes/archive/20260623-scheduler-slow-runtime-reduction/summary.md`,
 reduced the scheduler discard-completion slow path while retaining the
@@ -189,13 +204,13 @@ attribution blocker. It reached real UI planning, decomposition/readiness,
 landing readiness refresh, and human-confirmed close/archive without remote
 PR/push/merge.
 
-The archive-threshold Harness evolution window has been handled. The
-close-gate projection follow-up and Workbench verification runtime convergence
-have also been handled. The next structured product slice should address the
-next concrete Workbench product blocker found by real/manual UI use before
-expanding automation. If verification cost becomes the next concrete blocker,
-target the explicit release/deep members with narrower fixture work rather than
-moving them back into the daily gate.
+The archive-threshold Harness evolution window has been handled. The next
+structured product slice can either design scoped full-auto / wider
+Goal-driven loop authorization from the proven manual gates, or address the
+next concrete Workbench blocker found by real/manual UI use before expanding
+automation. If verification cost becomes the next concrete blocker, target the
+explicit release/deep members with narrower fixture work rather than moving
+them back into the daily gate.
 
 The latest archived `workbench-verification-signal-stability` change made
 Workbench aggregate verification trustworthy again: `npm run test:workbench`

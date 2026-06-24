@@ -577,6 +577,24 @@ describe("workbench read-model projections", () => {
     expect(snapshot.center.thread.items.some((item) => /stdout|stderr|jsonl|process/.test(`${item.body ?? ""}${item.label}`))).toBe(false);
   });
 
+  it("reads package scripts from a UTF-8 BOM package.json during intake scan", async () => {
+    await initHarness(project());
+    await writeFile(join(getTempDir(), "package.json"), `\uFEFF${JSON.stringify({
+      scripts: { test: "vitest", build: "tsc -p tsconfig.json" },
+    }, null, 2)}`, "utf8");
+    const topic = await createWorkbenchTopic(project(), {
+      title: "BOM Package Intake",
+      body: "请检查 package scripts。",
+    });
+
+    const { scan } = await runIntakeScan(project(), topic.changeId, "请读取项目脚本并继续。");
+
+    expect(scan.scripts).toEqual(expect.arrayContaining([
+      { name: "test", command: "vitest" },
+      { name: "build", command: "tsc -p tsconfig.json" },
+    ]));
+  });
+
   it("replays run stream artifacts with bounded previews and diagnostics", async () => {
     await initHarness(project());
     await createChange(project(), { title: "Stream Topic" });

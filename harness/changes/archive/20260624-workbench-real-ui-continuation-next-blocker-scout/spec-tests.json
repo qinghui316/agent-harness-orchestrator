@@ -1,0 +1,35 @@
+{
+  "version": "1.0",
+  "changeId": "workbench-real-ui-continuation-next-blocker-scout",
+  "updatedAt": "2026-06-24T03:37:24.2690232Z",
+  "mappings": [
+    {
+      "acceptance": "AC-001",
+      "tests": ["git status --short", "external sandbox before/after status"]
+    },
+    {
+      "acceptance": "AC-002",
+      "tests": ["real browser Workbench UI scout"]
+    },
+    {
+      "acceptance": "AC-003",
+      "tests": ["real browser bounded continuation observation when gate appears"]
+    },
+    {
+      "acceptance": "AC-004",
+      "tests": ["real Codex/runtime artifact inspection"]
+    },
+    {
+      "acceptance": "AC-005",
+      "tests": ["external sandbox before/after git status"]
+    },
+    {
+      "acceptance": "AC-006",
+      "tests": ["blocker classification in summary/review"]
+    },
+    {
+      "acceptance": "AC-007",
+      "tests": ["targeted suites and aggregate checks when code changes"]
+    }
+  ]
+}

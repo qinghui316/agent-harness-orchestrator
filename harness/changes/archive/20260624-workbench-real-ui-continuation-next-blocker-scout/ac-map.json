@@ -1,0 +1,25 @@
+{
+  "version": "1.0",
+  "generatedAt": "2026-06-24T03:37:24.2690232Z",
+  "changeId": "workbench-real-ui-continuation-next-blocker-scout",
+  "acceptanceCriteria": [
+    "AC-001",
+    "AC-002",
+    "AC-003",
+    "AC-004",
+    "AC-005",
+    "AC-006",
+    "AC-007"
+  ],
+  "tasks": [
+    "T-001",
+    "T-002",
+    "T-003",
+    "T-004",
+    "T-005",
+    "T-006",
+    "T-007"
+  ],
+  "warnings": [],
+  "blockingIssues": []
+}

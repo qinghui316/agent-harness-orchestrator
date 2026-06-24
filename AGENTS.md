@@ -9,62 +9,23 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 - Pending Harness evolution: none.
 - Latest archived verification change: Workbench Verification Runtime Convergence, archived at `harness/changes/archive/20260623-workbench-verification-runtime-convergence/summary.md`.
 - Latest archived product audit: Workbench Goal Loop Surface Gap Audit, archived at `harness/changes/archive/20260624-workbench-goal-loop-surface-gap-audit/summary.md`.
-- Latest archived product change: Goal-Driven Controlled Continuation Runtime V1, archived at `harness/changes/archive/20260624-goal-driven-controlled-continuation-runtime-v1/summary.md`.
-- Latest archived real UI scout: Workbench Real UI Next-Blocker Scout, archived at `harness/changes/archive/20260623-workbench-real-ui-next-blocker-scout/summary.md`.
-- Latest projection fix: Workbench Close Gate Projection Alignment, archived at `harness/changes/archive/20260623-workbench-close-gate-projection-alignment/summary.md`.
+- Latest archived product change: Workbench Real UI Continuation Next-Blocker Scout, archived at `harness/changes/archive/20260624-workbench-real-ui-continuation-next-blocker-scout/summary.md`.
 - Latest real-Codex acceptance change: Current Project Real Codex Acceptance, archived at `harness/changes/archive/20260623-workbench-current-project-real-codex-acceptance/summary.md`.
 - Latest product/Harness docs change: Goal-Driven Workflow Loop Target, archived at `harness/changes/archive/20260623-document-goal-driven-workflow-loop-target/summary.md`.
-- Active product phase: no active product change; bounded Goal-driven controlled continuation runtime V1 is now part of the baseline.
-- Active Harness evolution phase: none.
-- Latest Harness evolution: `harness/changes/archive/20260623-auto-evolve-harness-post-real-ui-scheduler-window/summary.md`.
+- Latest Harness evolution: `harness/changes/archive/20260624-auto-evolve-post-continuation-scout-window/summary.md`.
 
-The latest product change is archived at
-`harness/changes/archive/20260624-goal-driven-controlled-continuation-runtime-v1/summary.md`.
-It implements the first bounded Goal-driven continuation runtime: one explicit
-Workbench confirmation may advance the current matching controlled Scheduler
-gate for a small step budget by re-reading evidence and dispatching only the
-existing `planning.scheduler.controlled-advance.run` safety wrapper. Real
-browser smoke in external sandbox `C:\aho-accept\continue-v1` confirmed one
-authorization ran two controlled Scheduler child steps and stopped at the next
-real gate. This is not full-auto task mode, not a parallel executor, and not
-automatic apply/merge/close. The latest product audit is archived at
-`harness/changes/archive/20260624-workbench-goal-loop-surface-gap-audit/summary.md`.
-It verified the existing GoalLoopDecision / packet / controller / Workbench
-projection / confirmation queue chain with targeted Goal Loop, Workbench
-surface, read-model, and App DOM tests. No user-surface gap was found, and no
-product code changed. The latest verification convergence is archived at
-`harness/changes/archive/20260623-workbench-verification-runtime-convergence/summary.md`.
-It separates daily Workbench aggregate coverage from explicit release/deep
-scheduler/apply/Goal Loop coverage: daily `npm run test:workbench` passes in
-the ordinary tool window, and full-chain deep coverage remains available
-through `npm run test:workbench:release`. The latest Harness evolution is
-archived at
-`harness/changes/archive/20260623-auto-evolve-harness-post-real-ui-scheduler-window/summary.md`.
-It promoted a narrow Workbench primary-surface alignment prompt into ECL and
-the review template after authorized subagent review.
+Current baseline: the local manual-gated Workbench loop has real browser
+acceptance through planning, code, validation/audit, human apply, and
+close/archive. Bounded continuation V1 exists for matching controlled Scheduler
+gates only; it is not full-auto, not a parallel executor, and not automatic
+apply/merge/close. Daily `npm run test:workbench` is the normal Workbench gate;
+deep scheduler/apply/Goal Loop coverage remains in release/deep scripts.
 
-The latest real UI scout is archived and used external sandbox
-`C:\aho-accept\next2` to carry a
-real browser demand through planning, decomposition/readiness, real
-`coder-codex` `code.run`, validation, audit approval, UI `audit.accept`,
-human-gated `result.apply` with local commit, and human-confirmed
-close/archive. The scout fixed two product issues: active foreground validator
-tasks now suppress premature result-review decisions, and archived selected
-demands no longer expose landing context as the current primary confirmation.
-The Workbench close-gate projection alignment is archived and now keeps the
-Decision Inspector primary aligned with the authoritative confirmation queue
-when a selected demand is close-ready. The future Goal-driven Workflow Loop target is clarified in
-`harness/changes/archive/20260623-document-goal-driven-workflow-loop-target/summary.md`.
-The real Codex Workbench acceptance is archived. External sandbox `a10` reached real browser UI demand creation,
-planning, decomposition/readiness, real `coder-codex` `code.run`, validation
-failure with bounded rework, validation pass, audit approval, UI `audit.accept`,
-human-gated `result.apply` with local commit, landing readiness refresh, and
-human-confirmed close/archive. The original real Codex startup blocker,
-isolated validation dependency blocker, same-root source-safety blocker,
-duplicate in-flight action blocker, missing committed-apply local close path,
-and committed-apply landing attribution blocker are resolved in AHO source.
-Archive-threshold Harness evolution windows have been handled; use the latest
-Harness evolution pointer above for current handoff decisions.
+The latest Harness evolution reviewed the post-continuation five-archive window
+with an authorized subagent. Result: `noop` for ECL/template/lint/product
+runtime changes, plus compressed handoff docs so detailed sandbox/run history
+stays archive-only. No pending evolution remains.
+
 Use `docs/STATUS.md` for short handoff context and
 `harness/changes/INDEX.json` plus archived `summary.md` files for historical
 detail. Do not rebuild current context by reading the full archive ledger unless

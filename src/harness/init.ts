@@ -112,7 +112,7 @@ async function ensureAgentHarnessIgnore(projectPath: string, created: HarnessIni
   const path = join(projectPath, ".agent-harness", ".gitignore");
   if (existsSync(path)) {
     const existing = await readFile(path, "utf8");
-    const required = ["runs/", "worktrees/"];
+    const required = ["runs/", "worktrees/", "workbench/"];
     const missing = required.filter((line) => !existing.split(/\r?\n/).includes(line));
     if (missing.length === 0) {
       skipped.push({ base: "project-root", path: ".agent-harness/.gitignore" });
@@ -123,7 +123,7 @@ async function ensureAgentHarnessIgnore(projectPath: string, created: HarnessIni
     created.push({ base: "project-root", path: ".agent-harness/.gitignore" });
     return;
   }
-  await writeFile(path, "runs/\nworktrees/\n", "utf8");
+  await writeFile(path, "runs/\nworktrees/\nworkbench/\n", "utf8");
   created.push({ base: "project-root", path: ".agent-harness/.gitignore" });
 }
 

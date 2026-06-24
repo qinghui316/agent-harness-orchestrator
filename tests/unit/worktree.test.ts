@@ -11,6 +11,7 @@ import {
   markWorktreeApplied,
   removeWorktree,
 } from "../../src/worktree/manager.js";
+import { prepareWorktreeDependencyBridge } from "../../src/worktree/dependencies.js";
 import { repoLocalMemory } from "../../src/memory/resolver.js";
 import type { ResolvedMemory, WorktreeMetadata } from "../../src/types/index.js";
 
@@ -64,6 +65,23 @@ describe("worktree metadata scope", () => {
   });
 });
 
+describe("worktree dependency bridge", () => {
+  it("does not treat a BOM package.json with no dependencies as a missing dependency setup blocker", async () => {
+    const sourceRoot = join(tempDir, "source");
+    const checkoutPath = join(tempDir, "checkout");
+    await mkdir(sourceRoot, { recursive: true });
+    await mkdir(checkoutPath, { recursive: true });
+    await writeFile(join(sourceRoot, "package.json"), `\uFEFF${JSON.stringify({
+      scripts: { build: "node -e \"process.exit(0)\"" },
+    }, null, 2)}`, "utf8");
+
+    await expect(prepareWorktreeDependencyBridge({ sourceRoot, checkoutPath })).resolves.toMatchObject({
+      status: "skipped",
+      reason: "source package declares no dependencies",
+    });
+  });
+});
+
 async function writeMetadata(worktreeId: string, metadata: WorktreeMetadata): Promise<void> {
   await writeFile(getWorktreeMetadataPath(memory, worktreeId), JSON.stringify(metadata, null, 2), "utf8");
 }
@@ -85,4 +103,3 @@ function validMetadata(overrides: Partial<WorktreeMetadata> = {}): WorktreeMetad
     ...overrides,
   };
 }
-
