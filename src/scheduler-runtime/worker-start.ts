@@ -27,6 +27,7 @@ import {
   writeSchedulerRuntimeWorkerStart,
 } from "./repository.js";
 import type { SchedulerRuntimeClaimReservationIntent, SchedulerRuntimeWorkerStart } from "./types.js";
+import { buildSchedulerWorkerScopeContext, composeSchedulerWorkerCoderScopePrompt } from "./worker-scope.js";
 
 export interface SchedulerFirstWorkerStartInput {
   changeId: string;
@@ -110,6 +111,7 @@ async function startOneSchedulerCoderWorker(
     throw new Error(`${actionType} currently requires a scheduler node with exactly one task id.`);
   }
   const taskId = node.taskIds[0];
+  const scopeContext = buildSchedulerWorkerScopeContext(target.status, reservation, intent, taskId);
   const started = await startTaskRun(project, { changeId: input.changeId, taskId, roleId: "coder" });
   const workerStartId = buildWorkerStartId(run.id, intent.reservationIntentId, started.taskRun.id);
   const refs = schedulerWorkerStartArtifactRefs(memory, changePath, run.id, workerStartId);
@@ -119,7 +121,7 @@ async function startOneSchedulerCoderWorker(
       taskIds: [taskId],
       taskRunId: started.taskRun.id,
       roleId: "coder-agent",
-      prompt: input.prompt,
+      prompt: input.prompt ?? composeSchedulerWorkerCoderScopePrompt(scopeContext),
       live: input.live,
       executionGate: {
         mode: "scheduler-claim-reservation",

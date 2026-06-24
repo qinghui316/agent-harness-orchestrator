@@ -5,7 +5,7 @@
 - Current date: 2026-06-25.
 - Active ECL change: none.
 - Pending Harness evolution: none.
-- Latest archived product change: `harness/changes/archive/20260624-workbench-scoped-automation-bounded-rework-acceptance-v1/summary.md`.
+- Latest archived product change: `harness/changes/archive/20260625-workbench-scheduler-worker-integration-real-acceptance-v1/summary.md`.
 - Latest real UI continuation scout: `harness/changes/archive/20260624-workbench-real-ui-continuation-next-blocker-scout/summary.md`.
 - Latest bounded continuation runtime: `harness/changes/archive/20260624-goal-driven-controlled-continuation-runtime-v1/summary.md`.
 - Latest product audit: `harness/changes/archive/20260624-workbench-goal-loop-surface-gap-audit/summary.md`.
@@ -13,17 +13,17 @@
 - Latest real-Codex acceptance: `harness/changes/archive/20260623-workbench-current-project-real-codex-acceptance/summary.md`.
 - Latest completed Harness evolution: `harness/changes/archive/20260624-auto-evolve-post-bounded-rework-window/summary.md`.
 - Latest scheduler reachability change: `harness/changes/archive/20260625-workbench-low-conflict-taskgraph-scheduler-reachability-v1/summary.md`.
+- Latest scheduler worker/integration acceptance: `harness/changes/archive/20260625-workbench-scheduler-worker-integration-real-acceptance-v1/summary.md`.
 
 The latest product change is archived at
-`harness/changes/archive/20260624-workbench-scoped-automation-bounded-rework-acceptance-v1/summary.md`.
-It extends the Workbench two-tier authorization surface so `完全访问权限` can
-consume local bounded recovery gates (`result.refresh-rework`,
-`result.revalidate`, `result.reaudit`) only when one of them is the current
-authoritative primary confirmation for the selected demand. When the resulting
-audit is exactly `approved`, it can also consume safe `audit.accept` and then
-stops at the human `result.apply` gate. Codex may run with full-access runtime
-capability, but AHO still enforces scoped target ids, stale revalidation,
-ToolPolicyGate, source safety, validation/audit, and human apply/close gates.
+`harness/changes/archive/20260625-workbench-scheduler-worker-integration-real-acceptance-v1/summary.md`.
+It verifies the scheduler worker / integration path on an E-drive external
+source with dependencies installed as acceptance setup. The real browser UI run
+used ordinary planning, manual confirmation, `完全访问权限`, Goal Loop
+preparation, and controlled scheduler continuation to reach two real
+`coder-codex` worker worktrees, worker validation/audit, and a ready integration
+candidate. It then stopped at the human-confirmed
+`planning.scheduler.integration-check.run` gate.
 
 The latest Harness evolution handled the five-archive window from
 `20260624-auto-evolve-post-continuation-scout-window` through
@@ -56,6 +56,12 @@ safe approved audit evidence through `audit.accept`, and then stops at
 `result.apply`. It does not auto apply, close, merge, push, or run Harness
 evolution.
 
+Scheduler worker acceptance now verifies that strict independent source scopes
+can continue past worker start when the external source has dependencies
+installed. Two workers produced ready worktree outputs, validation passed, audit
+approved, and the integration candidate was ready. This is still bounded
+scheduler execution, not full parallel executor behavior.
+
 Verification baseline: daily `npm run test:workbench` is the fast Workbench
 unit-capability gate. Heavier full-chain scheduler/apply/Goal Loop coverage is
 kept in `npm run test:workbench:release` and other explicit slow/deep package
@@ -67,23 +73,23 @@ No pre-existing active change remains.
 
 Latest result:
 
-- Implemented low-conflict TaskGraph readiness for explicit independent source
-  scopes.
-- Verified raw `planning.scheduler.*` actions are not directly consumed by
-  `完全访问权限`.
-- Real E-drive UI acceptance reached scheduler preparation, generated Goal Loop
-  packet/controller/preflight evidence through scoped automation, entered the
-  existing controlled scheduler path, and reached scheduler worker start.
-- Final stop: the external acceptance source lacked `node_modules`, so the
-  worktree dependency bridge failed closed before Codex code execution. Source
-  root stayed clean.
+- Real E-drive UI acceptance used `E:\aho-accept\scheduler-worker-v1b\src` and
+  `E:\aho-accept\scheduler-worker-v1b\home`.
+- `完全访问权限` reached two real scheduler worker `coder-codex` runs, worker
+  validation/audit, and `scheduler-integration-candidate-7fe358fd`.
+- The next visible primary gate is `planning.scheduler.integration-check.run`;
+  no source apply, close, merge, remote landing, or Harness evolution occurred.
+- Raw `planning.scheduler.*` actions remain outside the direct
+  `完全访问权限` allowlist.
 
 Next recommended work:
 
-- If continuing scheduler execution acceptance, prepare a fresh E-drive sandbox
-  with dependencies installed, then test scheduler worker validation/audit and
-  integration progression.
-- Do not add raw scheduler actions to `完全访问权限`.
+- If continuing scheduler execution, confirm the existing IntegrationCheck gate
+  in an E-drive sandbox and record whether aggregate validation/audit,
+  IntegrationFix, or apply-readiness is the next blocker.
+- If designing wider automation, keep it scoped by current Change, source
+  state, accepted artifacts, stale revalidation, ToolPolicyGate, and human
+  terminal gates.
 - Keep automatic apply/close/merge, remote landing, Harness evolution, and full
   parallel executor out of scope.
 

@@ -29,6 +29,7 @@ import type {
   SchedulerRuntimeWorkerReworkStart,
   SchedulerRuntimeWorkerReworkValidation,
 } from "./types.js";
+import { buildSchedulerWorkerScopeContext, composeSchedulerWorkerAuditScopePrompt, resolveSchedulerWorkerReservationIntent } from "./worker-scope.js";
 
 export interface SchedulerWorkerReworkAuditInput {
   changeId: string;
@@ -72,6 +73,8 @@ export async function auditSchedulerFirstWorkerRework(project: ManagedProject, i
   }
   const reservation = await readSchedulerRuntimeClaimReservation(memory, changePath, run.id, reworkValidation.schedulerClaimReservationId);
   assertLatestSchedulerRuntimeClaimReservation(reservation, runtimeState, "planning.scheduler.worker.rework-audit-first");
+  const intent = resolveSchedulerWorkerReservationIntent(reservation, reworkValidation, "planning.scheduler.worker.rework-audit-first");
+  const scopeContext = buildSchedulerWorkerScopeContext(target.status, reservation, intent, reworkValidation.taskId);
   const reworkResult = await readSchedulerRuntimeWorkerReworkResult(memory, changePath, run.id, reworkValidation.schedulerWorkerReworkResultId);
   assertReworkResultMatchesValidation(reworkResult, reworkValidation);
   const reworkStart = await readSchedulerRuntimeWorkerReworkStart(memory, changePath, run.id, reworkValidation.schedulerWorkerReworkStartId);
@@ -120,6 +123,7 @@ export async function auditSchedulerFirstWorkerRework(project: ManagedProject, i
     changeId: input.changeId,
     worktreeId: reworkValidation.worktreeId,
     validationId: reworkValidation.validationRunId,
+    prompt: composeSchedulerWorkerAuditScopePrompt(scopeContext),
   });
   if (audit.audit.changeId !== input.changeId || audit.audit.worktreeId !== reworkValidation.worktreeId || audit.audit.validationId !== reworkValidation.validationRunId) {
     throw new Error("planning.scheduler.worker.rework-audit-first audit result scope mismatch.");

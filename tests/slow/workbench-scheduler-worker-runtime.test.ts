@@ -106,7 +106,7 @@ describe("workbench scheduler worker runtime slow path", () => {
     expect(snapshot.right.confirmationQueue.current.flatMap((item) => item.actions).map((action) => action.actionType))
       .not.toContain("planning.scheduler.contract.compile");
     expect(snapshot.right.confirmationQueue.primary?.actions).toEqual(expect.arrayContaining([
-      expect.objectContaining({ actionType: "planning.scheduler.plan.prepare", label: "准备并行执行计划" }),
+      expect.objectContaining({ actionType: "planning.scheduler.plan.prepare", label: "准备低冲突任务执行路径" }),
     ]));
 
     const prepared = await executeWorkbenchAction({ project: project(), path: tempDir }, {
@@ -192,13 +192,13 @@ describe("workbench scheduler worker runtime slow path", () => {
     });
     expect(reservedSnapshot.center.workpad.nextAction).toMatchObject({
       actionType: "planning.scheduler.plan.prepare",
-      label: "确认启动这个并行执行计划",
+      label: "确认低冲突执行方向",
       schedulerRunId: schedulerRun?.id,
       schedulerReconcileSnapshotId: reconcileSnapshot?.id,
       schedulerClaimReservationId: claimReservation?.id,
     });
     expect(reservedSnapshot.right.confirmationQueue.primary?.actions).toEqual(expect.arrayContaining([
-      expect.objectContaining({ actionType: "planning.scheduler.plan.prepare", label: "确认启动这个并行执行计划" }),
+      expect.objectContaining({ actionType: "planning.scheduler.plan.prepare", label: "确认低冲突执行方向" }),
     ]));
     const schedulerActions = reservedSnapshot.right.confirmationQueue.current.flatMap((item) => item.actions).map((action) => action.actionType);
     expect(schedulerActions).toContain("planning.scheduler.plan.prepare");
@@ -242,7 +242,7 @@ describe("workbench scheduler worker runtime slow path", () => {
     const startSnapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: topic.changeId });
     expect(startSnapshot.center.workpad.nextAction).toMatchObject({
       actionType: "planning.scheduler.worker.start-first",
-      label: "启动第一个 worker",
+      label: "开始第一个任务",
       schedulerRunId: schedulerRun?.id,
       schedulerClaimReservationId: claimReservation?.id,
     });

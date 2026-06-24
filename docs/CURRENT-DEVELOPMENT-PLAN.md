@@ -146,7 +146,9 @@ Current architecture debt register:
 ## Next Product Direction
 
 No structured product change is currently active, and no Harness evolution is
-pending. The latest scheduler reachability change is
+pending. The latest scheduler worker/integration acceptance is
+`harness/changes/archive/20260625-workbench-scheduler-worker-integration-real-acceptance-v1/summary.md`.
+The latest scheduler reachability change is
 `harness/changes/archive/20260625-workbench-low-conflict-taskgraph-scheduler-reachability-v1/summary.md`.
 The latest scoped automation product change is
 `harness/changes/archive/20260624-workbench-scoped-automation-bounded-rework-acceptance-v1/summary.md`.
@@ -171,11 +173,10 @@ Current baseline:
   release/deep scripts such as `npm run test:workbench:release`.
 - Low-conflict TaskGraph reachability has implemented strict explicit
   source-scope readiness and user-facing scheduler copy hardening. E-drive real
-  UI acceptance reached scheduler preparation, prepared Goal Loop
-  packet/controller/preflight evidence through scoped automation, entered the
-  existing controlled scheduler path, and reached scheduler worker start. The
-  run then stopped at a real dependency setup blocker because the external
-  source root lacked `node_modules`; source root stayed clean.
+  UI acceptance with dependencies installed reached two real scheduler worker
+  `coder-codex` worktrees, worker validation/audit, and a ready integration
+  candidate. The run then stopped at the human-confirmed
+  `planning.scheduler.integration-check.run` gate; source root stayed clean.
 
 Latest evolution and archive lookup:
 
@@ -189,9 +190,9 @@ Latest evolution and archive lookup:
 
 Next work should not assume a full parallel executor exists:
 
-- For scheduler execution acceptance, use a fresh E-drive sandbox with
-  dependencies installed and test scheduler worker validation/audit plus
-  integration progression.
+- For scheduler execution acceptance, continue from a fresh E-drive sandbox by
+  confirming the existing IntegrationCheck gate and recording aggregate
+  validation/audit, IntegrationFix, or apply-readiness behavior.
 - Do not put raw `planning.scheduler.*` actions into the `完全访问权限` allowlist.
 - Do not widen into full parallel executor, automatic apply/close/merge, remote
   landing, or Harness evolution without a separate accepted design.

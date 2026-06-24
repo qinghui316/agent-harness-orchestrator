@@ -18,6 +18,7 @@ import {
   writeSchedulerRuntimeWorkerReworkStart,
 } from "./repository.js";
 import type { SchedulerRuntimeWorkerReworkPlan, SchedulerRuntimeWorkerReworkStart } from "./types.js";
+import { buildSchedulerWorkerScopeContext, composeSchedulerWorkerReworkScopePrompt, resolveSchedulerWorkerReservationIntent } from "./worker-scope.js";
 
 export interface SchedulerFirstWorkerReworkStartInput {
   changeId: string;
@@ -57,6 +58,8 @@ export async function startFirstSchedulerWorkerRework(project: ManagedProject, i
   }
   const reservation = await readSchedulerRuntimeClaimReservation(memory, changePath, run.id, reworkPlan.schedulerClaimReservationId);
   assertLatestSchedulerRuntimeClaimReservation(reservation, runtimeState, "planning.scheduler.worker.rework-start-first");
+  const intent = resolveSchedulerWorkerReservationIntent(reservation, reworkPlan, "planning.scheduler.worker.rework-start-first");
+  const scopeContext = buildSchedulerWorkerScopeContext(target.status, reservation, intent, reworkPlan.taskId);
   const existing = await findSchedulerRuntimeWorkerReworkStartForPlan(memory, changePath, run.id, reworkPlan.id);
   if (existing) throw new Error("planning.scheduler.worker.rework-start-first rework plan already started.");
   const originalTaskRun = await readTaskRun(memory, input.changeId, reworkPlan.taskRunId);
@@ -76,7 +79,7 @@ export async function startFirstSchedulerWorkerRework(project: ManagedProject, i
       taskRunId: started.taskRun.id,
       roleId: "rework-coder",
       existingWorktreeId: reworkPlan.targetWorktreeId,
-      prompt: input.prompt ?? buildDefaultReworkPrompt(reworkPlan),
+      prompt: input.prompt ?? buildDefaultReworkPrompt(reworkPlan, scopeContext),
       live: input.live,
       executionGate: {
         mode: "scheduler-claim-rework",
@@ -265,13 +268,8 @@ function assertWorktreeMatchesReworkPlan(worktree: WorktreeMetadata, plan: Sched
   }
 }
 
-function buildDefaultReworkPrompt(plan: SchedulerRuntimeWorkerReworkPlan): string {
-  return [
-    `Rework the scheduler worker result for task ${plan.taskId}.`,
-    `Blocking source: ${plan.blockingSource}.`,
-    `Reason: ${plan.reworkReason}`,
-    "Use the existing worktree. Do not start validation, audit, apply, merge, another worker, or a scheduler loop.",
-  ].join("\n");
+function buildDefaultReworkPrompt(plan: SchedulerRuntimeWorkerReworkPlan, scopeContext: ReturnType<typeof buildSchedulerWorkerScopeContext>): string {
+  return composeSchedulerWorkerReworkScopePrompt(scopeContext, plan.blockingSource, plan.reworkReason);
 }
 
 function buildReworkStartId(schedulerRunId: string, reworkPlanId: string, taskRunId: string): string {

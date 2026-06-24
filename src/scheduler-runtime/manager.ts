@@ -32,3 +32,4 @@ export * from "./worker-rework.js";
 export * from "./worker-rework-result.js";
 export * from "./worker-rework-validation.js";
 export * from "./worker-rework-audit.js";
+export * from "./worker-scope.js";

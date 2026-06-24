@@ -1,5 +1,6 @@
 import { shortHash } from "../fs/path.js";
 import { resolveRunnableChangeTarget } from "../change/target.js";
+import { collectWorktreeDiff } from "../audit/diff.js";
 import { resolveProjectMemory } from "../memory/resolver.js";
 import { readRun } from "../run/repository.js";
 import { releaseTaskRunLease } from "../task-run/lease-service.js";
@@ -19,6 +20,7 @@ import {
   writeSchedulerRuntimeWorkerReworkResult,
 } from "./repository.js";
 import type { SchedulerRuntimeWorkerReworkPlan, SchedulerRuntimeWorkerReworkResult, SchedulerRuntimeWorkerReworkStart } from "./types.js";
+import { buildSchedulerWorkerScopeContext, findSiblingSourceScopeWrites, resolveSchedulerWorkerReservationIntent } from "./worker-scope.js";
 
 export interface SchedulerWorkerReworkResultReconcileInput {
   changeId: string;
@@ -65,6 +67,8 @@ export async function reconcileSchedulerFirstWorkerReworkResult(project: Managed
   assertReworkPlanMatchesStart(reworkPlan, reworkStart);
   const reservation = await readSchedulerRuntimeClaimReservation(memory, changePath, run.id, reworkStart.schedulerClaimReservationId);
   assertLatestSchedulerRuntimeClaimReservation(reservation, runtimeState, "planning.scheduler.worker.rework-reconcile-result");
+  const intent = resolveSchedulerWorkerReservationIntent(reservation, reworkStart, "planning.scheduler.worker.rework-reconcile-result");
+  const scopeContext = buildSchedulerWorkerScopeContext(target.status, reservation, intent, reworkStart.taskId);
   const existing = await findSchedulerRuntimeWorkerReworkResultForStart(memory, changePath, run.id, reworkStart.id);
   if (existing) {
     const taskRun = await readTaskRun(memory, input.changeId, existing.reworkTaskRunId);
@@ -84,14 +88,25 @@ export async function reconcileSchedulerFirstWorkerReworkResult(project: Managed
     return { status: "running", reworkStart, reworkPlan, taskRun, lease, codeRun, executionStarted: false };
   }
 
-  const terminalStatus = reworkStart.status === "failed" || codeRun?.status === "failed" ? "failed" : "evidence-ready";
+  let terminalStatus: SchedulerRuntimeWorkerReworkResult["status"] = reworkStart.status === "failed" || codeRun?.status === "failed" ? "failed" : "evidence-ready";
+  let failureReason = terminalStatus === "failed"
+    ? reworkStart.failureReason ?? (codeRun ? `Rework code run ${codeRun.status}.` : "Scheduler rework start failed.")
+    : undefined;
+  if (terminalStatus === "evidence-ready") {
+    const diff = await collectWorktreeDiff(memory, reworkStart.worktreeId, input.changeId);
+    const siblingWrites = findSiblingSourceScopeWrites(diff.diff, scopeContext);
+    if (siblingWrites.length > 0) {
+      terminalStatus = "failed";
+      failureReason = `Scheduler rework touched sibling source scope: ${siblingWrites.join(", ")}.`;
+    }
+  }
   const now = new Date().toISOString();
   const nextTaskRun: TaskRun = {
     ...taskRun,
     status: terminalStatus === "evidence-ready" ? "evidence-ready" : "failed",
     runId: reworkStart.reworkRunId ?? taskRun.runId,
     worktreeId: reworkStart.worktreeId ?? taskRun.worktreeId,
-    failureReason: terminalStatus === "failed" ? reworkStart.failureReason ?? "Scheduler rework-coder failed." : undefined,
+    failureReason,
     blockedReason: undefined,
     finishedAt: now,
     updatedAt: now,
@@ -142,7 +157,7 @@ export async function reconcileSchedulerFirstWorkerReworkResult(project: Managed
     worktreeId: reworkStart.worktreeId,
     reworkRunId: reworkStart.reworkRunId,
     reworkRunStatus: codeRun?.status,
-    failureReason: terminalStatus === "failed" ? reworkStart.failureReason ?? (codeRun ? `Rework code run ${codeRun.status}.` : "Scheduler rework start failed.") : undefined,
+    failureReason,
     sourceArtifactHashes: reworkStart.sourceArtifactHashes,
     artifactRefs: [refs.artifact, refs.markdownArtifact, reworkStart.artifact, ...(codeRun ? [codeRun.artifacts.directory] : [])],
     artifact: refs.artifact,
