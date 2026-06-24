@@ -55,6 +55,10 @@ export interface WorkbenchActionRequest {
   goalLoopControllerPolicyId?: string;
   goalLoopGateReadinessPreflightId?: string;
   goalLoopCurrentGateActionType?: WorkbenchWorkflowActionRequest["actionType"];
+  automationMode?: "request-approval" | "full-access";
+  automationCurrentGateActionType?: WorkbenchWorkflowActionRequest["actionType"];
+  automationAuthorizationId?: string;
+  automationRunId?: string;
   maxSteps?: number;
   maintenanceProposalId?: string;
   maintenancePatchProposalId?: string;

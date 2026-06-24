@@ -139,17 +139,26 @@ Current architecture debt register:
 
 No structured product change is currently active, and no Harness evolution is
 pending. The latest product change is archived at
+`harness/changes/archive/20260624-workbench-two-tier-scoped-automation-authorization-v1/summary.md`.
+It adds the Workbench two-tier authorization surface: `请求批准` keeps the
+existing per-step confirmation path, while `完全访问权限` creates a scoped
+automation authorization for the selected demand. Codex may run with
+full-access runtime capability, but AHO authority remains bounded to the
+current `projectId + changeId`, current target ids, source state, accepted
+artifact hashes, allowed local workflow action set, budget, and human
+confirmation evidence. Real UI acceptance in external sandbox
+`C:\aho-accept\two-tier-v3` proved one full-access confirmation advanced
+`planning.confirm-execution` and then stopped at unsupported
+`planning.decomposition.generate`; no apply, close, merge, remote, Harness
+evolution, or parallel executor behavior was authorized.
+
+The previous real UI continuation scout is archived at
 `harness/changes/archive/20260624-workbench-real-ui-continuation-next-blocker-scout/summary.md`.
-It used external sandbox `C:\aho-accept\continue-next-external` and real
-browser Workbench UI evidence to carry an ordinary demand through planning,
-decomposition/readiness, real `coder-codex` `code.run`, validation, audit,
-UI `audit.accept`, human-gated `result.apply` with local commit, and
-human-confirmed close/archive. It fixed two small real blockers: repo-local
-Harness runtime state is now ignored under `.agent-harness/workbench/`, and
-BOM-prefixed `package.json` files no longer block Workbench intake or worktree
-dependency setup. The ordinary path did not naturally expose a supported
-controlled Scheduler continuation gate, so no fake continuation success was
-claimed.
+It used external sandbox `C:\aho-accept\continue-next-external` and real browser
+Workbench UI evidence to carry an ordinary demand through planning,
+decomposition/readiness, real `coder-codex` `code.run`, validation, audit, UI
+`audit.accept`, human-gated `result.apply` with local commit, and
+human-confirmed close/archive.
 
 The previous bounded continuation runtime is archived at
 `harness/changes/archive/20260624-goal-driven-controlled-continuation-runtime-v1/summary.md`.
@@ -174,7 +183,7 @@ archive-only.
 The latest verification change,
 `harness/changes/archive/20260623-scheduler-slow-runtime-reduction/summary.md`,
 reduced the scheduler discard-completion slow path while retaining the
-two-worker scheduler golden path. The latest product change,
+two-worker scheduler golden path. An earlier product change,
 `harness/changes/archive/20260623-workbench-real-ui-next-blocker-scout/summary.md`,
 used external sandbox `C:\aho-accept\next2` and real browser UI evidence to
 smoke the proven manual-gated local loop before expanding automation. It
@@ -243,11 +252,12 @@ worktree execution belongs only to low-conflict write-capable slices selected
 by the main Agent; sequential loop turns, read-only planning, bounded rework,
 IntegrationFix, and human clarification remain equally valid strategies.
 
-Full-auto task mode remains a later product direction. A separate accepted
-change may design scoped automation authorization from the main conversation for
-the current demand / Change / accepted plan / permission profile / source state
-hash. Remote PR/update/ready/merge behavior must remain behind a later explicit
-profile. The Phase 12A controlled loop boundary lives in
+Full-auto task mode remains a later product direction. The current two-tier V1
+has implemented scoped local automation for a narrow allowed action set; later
+accepted changes may widen profiles, budgets, or gate families only by reusing
+the same target revalidation, source-state, accepted-artifact-hash, and human
+gate boundaries. Remote PR/update/ready/merge behavior must remain behind a
+later explicit profile. The Phase 12A controlled loop boundary lives in
 `docs/design-docs/controlled-scheduler-loop.md` and remains the implementation
 constraint for future scheduler automation. Historical phase-by-phase details
 stay in archived summaries and `harness/changes/INDEX.json`.

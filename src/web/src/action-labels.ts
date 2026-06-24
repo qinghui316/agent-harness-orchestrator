@@ -17,6 +17,7 @@ export function workflowActionLabel(actionType: string | undefined): string {
   if (actionType === "planning.goal-loop.controller.refresh") return "刷新下一步判断";
   if (actionType === "planning.goal-loop.gate-readiness.prepare") return "检查当前步骤";
   if (actionType === "planning.goal-loop.controlled-continue.run") return "连续推进当前目标";
+  if (actionType === "planning.automation.scoped-auto.run") return "完全访问权限";
   if (actionType === "maintenance.canonical-update.decision.record") return "记录维护决策";
   if (actionType === "maintenance.canonical-patch.application-gate.record") return "记录 patch 应用 gate";
   if (actionType === "maintenance.canonical-patch.apply") return "应用 canonical patch";

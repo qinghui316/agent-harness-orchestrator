@@ -53,4 +53,20 @@ describe("web workflow action payload helpers", () => {
       maxSteps: 5,
     });
   });
+
+  it("preserves scoped automation mode and current gate target ids", () => {
+    expect(workflowActionPayloadFromScope({
+      changeId: "change-1",
+      automationMode: "full-access",
+      automationCurrentGateActionType: "planning.decomposition.confirm",
+      decompositionPlanId: "decomp-1",
+      maxSteps: 5,
+    })).toEqual({
+      changeId: "change-1",
+      automationMode: "full-access",
+      automationCurrentGateActionType: "planning.decomposition.confirm",
+      decompositionPlanId: "decomp-1",
+      maxSteps: 5,
+    });
+  });
 });

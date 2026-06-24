@@ -9,7 +9,8 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 - Pending Harness evolution: none.
 - Latest archived verification change: Workbench Verification Runtime Convergence, archived at `harness/changes/archive/20260623-workbench-verification-runtime-convergence/summary.md`.
 - Latest archived product audit: Workbench Goal Loop Surface Gap Audit, archived at `harness/changes/archive/20260624-workbench-goal-loop-surface-gap-audit/summary.md`.
-- Latest archived product change: Workbench Real UI Continuation Next-Blocker Scout, archived at `harness/changes/archive/20260624-workbench-real-ui-continuation-next-blocker-scout/summary.md`.
+- Latest archived product change: Workbench Two-Tier Scoped Automation Authorization V1, archived at `harness/changes/archive/20260624-workbench-two-tier-scoped-automation-authorization-v1/summary.md`.
+- Latest real UI continuation scout: Workbench Real UI Continuation Next-Blocker Scout, archived at `harness/changes/archive/20260624-workbench-real-ui-continuation-next-blocker-scout/summary.md`.
 - Latest real-Codex acceptance change: Current Project Real Codex Acceptance, archived at `harness/changes/archive/20260623-workbench-current-project-real-codex-acceptance/summary.md`.
 - Latest product/Harness docs change: Goal-Driven Workflow Loop Target, archived at `harness/changes/archive/20260623-document-goal-driven-workflow-loop-target/summary.md`.
 - Latest Harness evolution: `harness/changes/archive/20260624-auto-evolve-post-continuation-scout-window/summary.md`.
@@ -17,9 +18,13 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 Current baseline: the local manual-gated Workbench loop has real browser
 acceptance through planning, code, validation/audit, human apply, and
 close/archive. Bounded continuation V1 exists for matching controlled Scheduler
-gates only; it is not full-auto, not a parallel executor, and not automatic
-apply/merge/close. Daily `npm run test:workbench` is the normal Workbench gate;
-deep scheduler/apply/Goal Loop coverage remains in release/deep scripts.
+gates only, and Workbench now also exposes two scoped authorization modes:
+`请求批准` and `完全访问权限`. `完全访问权限` may let Codex run with full-access
+runtime capability, but AHO workflow authority remains scoped to the selected
+Change and stops before apply/close/merge, remote landing, Harness evolution,
+unsupported gates, stale targets, drift, or blockers. Daily
+`npm run test:workbench` is the normal Workbench gate; deep scheduler/apply/
+Goal Loop coverage remains in release/deep scripts.
 
 The latest Harness evolution reviewed the post-continuation five-archive window
 with an authorized subagent. Result: `noop` for ECL/template/lint/product

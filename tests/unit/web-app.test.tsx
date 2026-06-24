@@ -393,6 +393,32 @@ function boundedContinuationQueueItem() {
   } as const;
 }
 
+function decompositionConfirmQueueItem() {
+  return {
+    id: "confirm:decomposition:member-discount",
+    kind: "planning-confirm",
+    conversationId: "member-discount",
+    changeId: "member-discount",
+    summary: "分解计划已准备好。",
+    whyNeedsConfirmation: "需要你确认任务分解。",
+    confirmEffect: "确认后写入当前需求的 decomposition 证据。",
+    riskSummary: "不会自动 apply 或 close。",
+    evidenceRefs: ["decomposition.md"],
+    primary: true,
+    status: "pending",
+    actions: [{
+      id: "workflow:planning.decomposition.confirm:decomp-1",
+      label: "确认任务分解",
+      kind: "workflow-action",
+      enabled: true,
+      requiresConfirmation: true,
+      actionType: "planning.decomposition.confirm",
+      changeId: "member-discount",
+      decompositionPlanId: "decomp-1",
+    }],
+  } as const;
+}
+
 describe("Workbench web app", () => {
   beforeEach(() => {
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
@@ -486,6 +512,56 @@ describe("Workbench web app", () => {
       schedulerClaimReservationId: "claim-reservation-1",
       reservationIntentId: "reservation-1",
       claimIntentId: "claim-1",
+      maxSteps: 5,
+    });
+  });
+
+  it("renders two approval tiers and submits scoped-auto with the current gate target ids", async () => {
+    const execute = vi.fn(async () => undefined);
+    function Harness() {
+      const [confirming, setConfirming] = useState<string | null>(null);
+      return (
+        <DecisionInspectorPane
+          inspector={{ primary: null, related: [], history: [] }}
+          confirmationQueue={{
+            primary: decompositionConfirmQueueItem(),
+            current: [decompositionConfirmQueueItem()],
+            otherDemands: [],
+            maintenance: [],
+            history: [],
+          }}
+          confirming={confirming}
+          busy={false}
+          error={null}
+          onConfirmingChange={setConfirming}
+          onExecuteAction={execute}
+          onFeedback={async () => undefined}
+          onSelectContext={() => undefined}
+        />
+      );
+    }
+
+    render(<Harness />);
+
+    const card = screen.getByTestId("decision-inspector-primary");
+    expect(within(card).getByRole("button", { name: "请求批准" })).toBeTruthy();
+    const fullAccessButtons = within(card).getAllByRole("button", { name: "完全访问权限" });
+    fireEvent.click(fullAccessButtons[fullAccessButtons.length - 1]!);
+    expect(card.textContent).not.toContain("full-auto");
+    expect(card.textContent).not.toContain("parallel executor");
+    expect(card.textContent).not.toContain("merge queue");
+
+    const executeFullAccessButtons = within(card).getAllByRole("button", { name: "完全访问权限" });
+    fireEvent.click(executeFullAccessButtons[executeFullAccessButtons.length - 1]!);
+    fireEvent.click(within(card).getByRole("button", { name: "确认" }));
+
+    await waitFor(() => expect(execute).toHaveBeenCalledTimes(1));
+    expect(execute.mock.calls[0]?.[0]).toMatchObject({
+      actionType: "planning.automation.scoped-auto.run",
+      automationMode: "full-access",
+      automationCurrentGateActionType: "planning.decomposition.confirm",
+      changeId: "member-discount",
+      decompositionPlanId: "decomp-1",
       maxSteps: 5,
     });
   });
@@ -884,7 +960,7 @@ describe("Workbench web app", () => {
     expect(liveTimelineText.toLowerCase()).not.toContain("whole-wave");
     expect(document.querySelector(".parent-agent-transcript")?.textContent ?? "").not.toContain("按当前建议继续一个受控步骤");
     expect(within(card).queryAllByRole("button", { name: "按当前建议继续一个受控步骤" })).toHaveLength(0);
-    expect(within(card).getAllByRole("button")).toHaveLength(2);
+    expect(within(card.querySelector(".approval-actions") as HTMLElement).getAllByRole("button")).toHaveLength(2);
 
     await waitFor(() => expect(snapshotReleased).toBe(true));
     await waitFor(() => {
@@ -1227,7 +1303,7 @@ describe("Workbench web app", () => {
     expect(within(card).getByText("查看证据：preflight.md")).toBeTruthy();
     expect(within(card).getByText("查看证据：controlled-advance-1.json")).toBeTruthy();
     expect(within(card).getByRole("button", { name: "按当前建议继续一个受控步骤" })).toBeTruthy();
-    expect(within(card).getAllByRole("button")).toHaveLength(1);
+    expect(within(card.querySelector(".approval-actions") as HTMLElement).getAllByRole("button")).toHaveLength(1);
     fireEvent.click(await screen.findByText("查看详情与证据"));
     const detailCard = await screen.findByTestId("controlled-scheduler-reconfirmation-card");
     expect(within(detailCard).getByText("当前步骤可以重新确认")).toBeTruthy();

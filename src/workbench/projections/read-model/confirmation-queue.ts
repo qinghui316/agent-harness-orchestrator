@@ -20,11 +20,14 @@ export async function buildConfirmationQueue(input: {
   workpad: WorkbenchWorkpad;
   decisionInspector: WorkbenchDecisionInspector;
   includeProjectWideActions?: boolean;
+  ignoreActiveWorkflowActions?: boolean;
+  ignoreActiveWorkflowActionTypes?: string[];
 }): Promise<WorkbenchConfirmationQueue> {
   const queue = emptyConfirmationQueue();
+  const ignoredActiveWorkflowActionTypes = new Set(input.ignoreActiveWorkflowActionTypes ?? []);
   const selectedTopicBusy = Boolean(input.selectedTopic && (
     hasActiveExecutionRun(input.selectedTopic)
-    || hasActiveWorkflowAction(input.selectedTopic)
+    || (!input.ignoreActiveWorkflowActions && hasActiveWorkflowAction(input.selectedTopic, ignoredActiveWorkflowActionTypes))
     || hasActiveRolePipeline(input.workpad)
   ));
   const enqueueCurrentOrOther = (item: WorkbenchConfirmationQueue["current"][number]): void => {
@@ -136,12 +139,13 @@ function isSelectedTopicItem(item: WorkbenchConfirmationQueue["current"][number]
   return Boolean(selectedChangeId && (item.changeId === selectedChangeId || item.conversationId === selectedChangeId));
 }
 
-function hasActiveWorkflowAction(topic: WorkbenchTopicDetail): boolean {
+function hasActiveWorkflowAction(topic: WorkbenchTopicDetail, ignoredActionTypes: Set<string>): boolean {
   return topic.threadItems.some((item) =>
     item.source === "workflow"
     && item.kind === "assistant-turn"
     && item.actionRunId
     && item.status === "running"
+    && !(("actionType" in item) && typeof item.actionType === "string" && ignoredActionTypes.has(item.actionType))
   );
 }
 

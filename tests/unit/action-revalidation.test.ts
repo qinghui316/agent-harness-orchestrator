@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+﻿import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   getWorkbenchSnapshot: vi.fn(),
@@ -22,6 +22,10 @@ vi.mock("../../src/workbench/actions/goal-loop-gate-confirmation.js", () => ({
 }));
 
 import { assertCurrentWorkflowAction } from "../../src/server/workbench/action-revalidation.js";
+
+function assertCurrent(input: Parameters<typeof assertCurrentWorkflowAction>[0], body: Parameters<typeof assertCurrentWorkflowAction>[1]): ReturnType<typeof assertCurrentWorkflowAction> {
+  return assertCurrentWorkflowAction(input, body, { getWorkbenchSnapshot: mocks.getWorkbenchSnapshot });
+}
 
 describe("Workbench action revalidation", () => {
   beforeEach(() => {
@@ -61,7 +65,7 @@ describe("Workbench action revalidation", () => {
       },
     });
 
-    await expect(assertCurrentWorkflowAction({ project: null, path: "project-root" }, {
+    await expect(assertCurrent({ project: null, path: "project-root" }, {
       actionType: "planning.scheduler.worker.start-first",
       changeId: "change-1",
       schedulerRunId: "scheduler-run-1",
@@ -102,7 +106,7 @@ describe("Workbench action revalidation", () => {
       },
     });
 
-    await expect(assertCurrentWorkflowAction({ project: { id: "repo", name: "Repo", path: "project-root", addedAt: "2026-06-18T00:00:00.000Z", lastSeenAt: "2026-06-18T00:00:00.000Z" }, path: "project-root" }, {
+    await expect(assertCurrent({ project: { id: "repo", name: "Repo", path: "project-root", addedAt: "2026-06-18T00:00:00.000Z", lastSeenAt: "2026-06-18T00:00:00.000Z" }, path: "project-root" }, {
       actionType: "planning.scheduler.worker.start-first",
       changeId: "change-1",
       schedulerRunId: "scheduler-run-1",
@@ -152,7 +156,7 @@ describe("Workbench action revalidation", () => {
       },
     });
 
-    await expect(assertCurrentWorkflowAction({ project: { id: "repo", name: "Repo", path: "project-root", addedAt: "2026-06-18T00:00:00.000Z", lastSeenAt: "2026-06-18T00:00:00.000Z" }, path: "project-root" }, {
+    await expect(assertCurrent({ project: { id: "repo", name: "Repo", path: "project-root", addedAt: "2026-06-18T00:00:00.000Z", lastSeenAt: "2026-06-18T00:00:00.000Z" }, path: "project-root" }, {
       actionType: "planning.scheduler.controlled-step.run",
       changeId: "change-1",
       goalLoopCurrentGateActionType: "planning.scheduler.worker.start-first",
@@ -211,7 +215,7 @@ describe("Workbench action revalidation", () => {
       },
     });
 
-    await expect(assertCurrentWorkflowAction({ project: { id: "repo", name: "Repo", path: "project-root", addedAt: "2026-06-18T00:00:00.000Z", lastSeenAt: "2026-06-18T00:00:00.000Z" }, path: "project-root" }, {
+    await expect(assertCurrent({ project: { id: "repo", name: "Repo", path: "project-root", addedAt: "2026-06-18T00:00:00.000Z", lastSeenAt: "2026-06-18T00:00:00.000Z" }, path: "project-root" }, {
       actionType: "planning.scheduler.controlled-advance.run",
       changeId: "change-1",
       goalLoopCurrentGateActionType: "planning.scheduler.worker.start-next",
@@ -222,7 +226,7 @@ describe("Workbench action revalidation", () => {
     })).resolves.toBeUndefined();
     expect(mocks.assertGoalLoopAssistedConcreteGateConfirmation).not.toHaveBeenCalled();
 
-    await expect(assertCurrentWorkflowAction({ project: { id: "repo", name: "Repo", path: "project-root", addedAt: "2026-06-18T00:00:00.000Z", lastSeenAt: "2026-06-18T00:00:00.000Z" }, path: "project-root" }, {
+    await expect(assertCurrent({ project: { id: "repo", name: "Repo", path: "project-root", addedAt: "2026-06-18T00:00:00.000Z", lastSeenAt: "2026-06-18T00:00:00.000Z" }, path: "project-root" }, {
       actionType: "planning.scheduler.controlled-advance.run",
       changeId: "change-1",
       goalLoopCurrentGateActionType: "planning.scheduler.worker.start-next",
@@ -287,17 +291,59 @@ describe("Workbench action revalidation", () => {
       maxSteps: 5,
     } as const;
 
-    await expect(assertCurrentWorkflowAction({ project: { id: "repo", name: "Repo", path: "project-root", addedAt: "2026-06-18T00:00:00.000Z", lastSeenAt: "2026-06-18T00:00:00.000Z" }, path: "project-root" }, request)).resolves.toBeUndefined();
+    await expect(assertCurrent({ project: { id: "repo", name: "Repo", path: "project-root", addedAt: "2026-06-18T00:00:00.000Z", lastSeenAt: "2026-06-18T00:00:00.000Z" }, path: "project-root" }, request)).resolves.toBeUndefined();
     expect(mocks.assertGoalLoopAssistedConcreteGateConfirmation).not.toHaveBeenCalled();
 
-    await expect(assertCurrentWorkflowAction({ project: { id: "repo", name: "Repo", path: "project-root", addedAt: "2026-06-18T00:00:00.000Z", lastSeenAt: "2026-06-18T00:00:00.000Z" }, path: "project-root" }, {
+    await expect(assertCurrent({ project: { id: "repo", name: "Repo", path: "project-root", addedAt: "2026-06-18T00:00:00.000Z", lastSeenAt: "2026-06-18T00:00:00.000Z" }, path: "project-root" }, {
       ...request,
       goalLoopGateReadinessPreflightId: "preflight-old",
     })).rejects.toThrow("stale or no longer available");
 
-    await expect(assertCurrentWorkflowAction({ project: { id: "repo", name: "Repo", path: "project-root", addedAt: "2026-06-18T00:00:00.000Z", lastSeenAt: "2026-06-18T00:00:00.000Z" }, path: "project-root" }, {
+    await expect(assertCurrent({ project: { id: "repo", name: "Repo", path: "project-root", addedAt: "2026-06-18T00:00:00.000Z", lastSeenAt: "2026-06-18T00:00:00.000Z" }, path: "project-root" }, {
       ...request,
       claimIntentId: "claim-intent-other",
     })).rejects.toThrow("stale or no longer available");
   });
+
+  it("passes scoped automation only when the current primary gate scope matches", async () => {
+    const visibleAction = {
+      kind: "workflow-action",
+      actionType: "planning.decomposition.confirm",
+      changeId: "change-1",
+      decompositionPlanId: "decomp-1",
+      enabled: true,
+    };
+    mocks.getWorkbenchSnapshot.mockResolvedValue({
+      center: { workpad: { nextAction: { kind: "none" } } },
+      right: {
+        confirmationQueue: {
+          primary: { actions: [visibleAction], changeId: "change-1" },
+          current: [],
+          otherDemands: [],
+        },
+      },
+    });
+
+    const request = {
+      actionType: "planning.automation.scoped-auto.run",
+      changeId: "change-1",
+      automationMode: "full-access",
+      automationCurrentGateActionType: "planning.decomposition.confirm",
+      decompositionPlanId: "decomp-1",
+      maxSteps: 5,
+    } as const;
+
+    await expect(assertCurrent({ project: { id: "repo", name: "Repo", path: "project-root", addedAt: "2026-06-18T00:00:00.000Z", lastSeenAt: "2026-06-18T00:00:00.000Z" }, path: "project-root" }, request)).resolves.toBeUndefined();
+
+    await expect(assertCurrent({ project: { id: "repo", name: "Repo", path: "project-root", addedAt: "2026-06-18T00:00:00.000Z", lastSeenAt: "2026-06-18T00:00:00.000Z" }, path: "project-root" }, {
+      ...request,
+      decompositionPlanId: "decomp-old",
+    })).rejects.toThrow("stale or no longer available");
+
+    await expect(assertCurrent({ project: { id: "repo", name: "Repo", path: "project-root", addedAt: "2026-06-18T00:00:00.000Z", lastSeenAt: "2026-06-18T00:00:00.000Z" }, path: "project-root" }, {
+      ...request,
+      changeId: "change-2",
+    })).rejects.toThrow("stale or no longer available");
+  });
 });
+

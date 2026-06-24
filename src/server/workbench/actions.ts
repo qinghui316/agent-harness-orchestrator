@@ -110,7 +110,7 @@ async function executeWorkflowAction(input: WorkbenchProjectInput & { project: M
     error.name = "Conflict";
     throw error;
   }
-  await assertCurrentWorkflowAction(input, body);
+  await assertCurrentWorkflowAction(input, body, { getWorkbenchSnapshot });
   if (actionType === "maintenance.canonical-update.decision.record" || actionType === "maintenance.canonical-patch.application-gate.record" || actionType === "maintenance.canonical-patch.apply") {
     return executeProjectScopedMaintenanceAction(input, body);
   }
@@ -146,6 +146,10 @@ async function executeWorkflowAction(input: WorkbenchProjectInput & { project: M
     goalLoopControllerPolicyId: body.goalLoopControllerPolicyId,
     goalLoopGateReadinessPreflightId: body.goalLoopGateReadinessPreflightId,
     goalLoopCurrentGateActionType: body.goalLoopCurrentGateActionType,
+    automationMode: body.automationMode,
+    automationCurrentGateActionType: body.automationCurrentGateActionType,
+    automationAuthorizationId: body.automationAuthorizationId,
+    automationRunId: body.automationRunId,
     maxSteps: body.maxSteps,
     maintenanceProposalId: body.maintenanceProposalId,
     maintenancePatchProposalId: body.maintenancePatchProposalId,

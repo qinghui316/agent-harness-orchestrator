@@ -499,6 +499,45 @@ describe("workflow action registry", () => {
     expect(workflowActionScopesMatchStrict(request, { ...request, goalLoopNextStepPacketId: "packet-other" })).toBe(false);
   });
 
+  it("requires scoped automation payloads to carry the current visible gate target ids", () => {
+    const request = {
+      actionType: "planning.automation.scoped-auto.run",
+      changeId: "change-1",
+      automationMode: "full-access",
+      automationCurrentGateActionType: "planning.decomposition.confirm",
+      decompositionPlanId: "decomp-1",
+      maxSteps: 5,
+    };
+
+    expect(validateWorkflowActionRequiredTargets(request)).toEqual([]);
+    expect(validateWorkflowActionRequiredTargets({
+      ...request,
+      automationCurrentGateActionType: undefined,
+    }).map((item) => item.label)).toEqual(["automationCurrentGateActionType", "current visible primary gate"]);
+    expect(validateWorkflowActionRequiredTargets({
+      ...request,
+      decompositionPlanId: undefined,
+    }).map((item) => item.label)).toEqual(["decompositionPlanId"]);
+    expect(workflowActionTargetId(request, request.changeId, {
+      automationRun: { id: "automation-run-1" },
+      authorization: { id: "automation-auth-1" },
+    })).toBe("automation-run-1");
+    expect(workflowActionScopePayload(request, request.changeId, {
+      automationRun: { id: "automation-run-1" },
+      authorization: { id: "automation-auth-1" },
+    })).toMatchObject({
+      changeId: "change-1",
+      automationMode: "full-access",
+      automationCurrentGateActionType: "planning.decomposition.confirm",
+      automationAuthorizationId: "automation-auth-1",
+      automationRunId: "automation-run-1",
+      decompositionPlanId: "decomp-1",
+      maxSteps: 5,
+    });
+    expect(workflowActionScopesMatchStrict(request, { ...request })).toBe(true);
+    expect(workflowActionScopesMatchStrict(request, { ...request, decompositionPlanId: "decomp-old" })).toBe(false);
+  });
+
   it("keeps SchedulerContract ids in target and audit scope matching", () => {
     const request = {
       changeId: "change-1",

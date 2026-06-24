@@ -37,6 +37,10 @@ export type WorkflowActionPayloadSource = {
   goalLoopControllerPolicyId?: string;
   goalLoopGateReadinessPreflightId?: string;
   goalLoopCurrentGateActionType?: WorkbenchThreadActionType;
+  automationMode?: "request-approval" | "full-access";
+  automationCurrentGateActionType?: WorkbenchThreadActionType;
+  automationAuthorizationId?: string;
+  automationRunId?: string;
   maxSteps?: number;
   maintenanceProposalId?: string;
   maintenancePatchProposalId?: string;

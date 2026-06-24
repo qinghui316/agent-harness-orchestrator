@@ -141,7 +141,11 @@ export {
   getWorkbenchWorkflowRunProjection,
 } from "./lazy-projections.js";
 
-export async function getWorkbenchSnapshot(input: WorkbenchProjectInput, options: { topicId?: string } = {}): Promise<WorkbenchSnapshot> {
+export async function getWorkbenchSnapshot(input: WorkbenchProjectInput, options: {
+  topicId?: string;
+  ignoreActiveWorkflowActions?: boolean;
+  ignoreActiveWorkflowActionTypes?: string[];
+} = {}): Promise<WorkbenchSnapshot> {
   const memoryStatus = await getMemoryStatus(input.project, input.path);
   const projectStatus = await getProjectStatus(input.project, input.path);
   const memory = await resolveWorkbenchMemory(input);
@@ -208,6 +212,8 @@ export async function getWorkbenchSnapshot(input: WorkbenchProjectInput, options
     selectedTopic,
     workpad,
     decisionInspector,
+    ignoreActiveWorkflowActions: options.ignoreActiveWorkflowActions,
+    ignoreActiveWorkflowActionTypes: options.ignoreActiveWorkflowActionTypes,
   });
   const shellWorkpad = shellWorkbenchWorkpad(workpad);
   const parentAgentTranscript = buildParentAgentTranscript({

@@ -149,6 +149,13 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
     });
     return;
   }
+  if (request.actionType === "planning.automation.scoped-auto.run") {
+    await requireActiveChangeTarget(memory, changeId, "planning.automation.scoped-auto.run");
+    assertWorkbenchActionChangeScope(request.changeId, changeId, "planning.automation.scoped-auto.run");
+    if (request.automationMode !== "full-access") throw new Error("planning.automation.scoped-auto.run requires automationMode full-access.");
+    if (!request.automationCurrentGateActionType) throw new Error("planning.automation.scoped-auto.run requires automationCurrentGateActionType.");
+    return;
+  }
   if (request.actionType === CONTROLLED_SCHEDULER_STEP_ACTION_TYPE) {
     const target = await requireActiveChangeTarget(memory, changeId, "planning.scheduler.controlled-step.run");
     const { concrete } = buildControlledSchedulerStepRequest(request);

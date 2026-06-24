@@ -496,6 +496,14 @@ describe("workbench read-model projections", () => {
     let snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: topic.changeId });
     expect(snapshot.right.confirmationQueue.primary).toBeNull();
 
+    const automationInternalSnapshot = await getWorkbenchSnapshot(
+      { project: project(), path: getTempDir() },
+      { topicId: topic.changeId, ignoreActiveWorkflowActions: true },
+    );
+    expect(automationInternalSnapshot.right.confirmationQueue.primary?.actions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ actionType: "planning.confirm-execution", planningBundleId: expect.any(String) }),
+    ]));
+
     await appendTopicThreadEntry(project(), topic.changeId, {
       type: "workflow.completed",
       actionRunId: "action-planning",

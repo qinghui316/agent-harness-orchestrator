@@ -1,0 +1,26 @@
+{
+  "version": "1.0",
+  "changeId": "workbench-two-tier-scoped-automation-authorization-v1",
+  "acceptanceCriteria": [
+    { "id": "AC-001", "tasks": ["T-001", "T-005", "T-006", "T-007"] },
+    { "id": "AC-002", "tasks": ["T-001", "T-002", "T-006", "T-007"] },
+    { "id": "AC-003", "tasks": ["T-002", "T-006", "T-007"] },
+    { "id": "AC-004", "tasks": ["T-002", "T-003", "T-004", "T-006", "T-007"] },
+    { "id": "AC-005", "tasks": ["T-002", "T-004", "T-006", "T-007"] },
+    { "id": "AC-006", "tasks": ["T-002", "T-004", "T-006", "T-007"] },
+    { "id": "AC-007", "tasks": ["T-001", "T-003", "T-004", "T-006", "T-007"] },
+    { "id": "AC-008", "tasks": ["T-002", "T-003", "T-004", "T-006", "T-007"] },
+    { "id": "AC-009", "tasks": ["T-005", "T-006", "T-007"] },
+    { "id": "AC-010", "tasks": ["T-005", "T-006", "T-007"] },
+    { "id": "AC-011", "tasks": ["T-002", "T-003", "T-005", "T-006", "T-007"] }
+  ],
+  "tasks": [
+    { "id": "T-001", "acceptanceCriteria": ["AC-001", "AC-002", "AC-007"] },
+    { "id": "T-002", "acceptanceCriteria": ["AC-002", "AC-003", "AC-004", "AC-005", "AC-006", "AC-008", "AC-011"] },
+    { "id": "T-003", "acceptanceCriteria": ["AC-004", "AC-007", "AC-008", "AC-011"] },
+    { "id": "T-004", "acceptanceCriteria": ["AC-004", "AC-005", "AC-006", "AC-007", "AC-008"] },
+    { "id": "T-005", "acceptanceCriteria": ["AC-001", "AC-009", "AC-010", "AC-011"] },
+    { "id": "T-006", "acceptanceCriteria": ["AC-001", "AC-002", "AC-003", "AC-004", "AC-005", "AC-006", "AC-007", "AC-008", "AC-009", "AC-010", "AC-011"] },
+    { "id": "T-007", "acceptanceCriteria": ["AC-001", "AC-002", "AC-003", "AC-004", "AC-005", "AC-006", "AC-007", "AC-008", "AC-009", "AC-010", "AC-011"] }
+  ]
+}

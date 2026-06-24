@@ -1,0 +1,330 @@
+import { getActiveChanges } from "../../ecl/index.js";
+import { resolveProjectMemory } from "../../memory/resolver.js";
+import type { ManagedProject } from "../../types/index.js";
+import { revalidatedWorkflowActionSet, workflowActionScopesMatchStrict } from "../../workflow-actions/registry.js";
+import { CONTROLLED_SCHEDULER_STEP_ACTION_TYPE, buildControlledSchedulerStepRequest } from "../../workflow-scheduler/controlled-step.js";
+import { assertGoalLoopAssistedConcreteGateConfirmation } from "./goal-loop-gate-confirmation.js";
+import type { WorkbenchWorkflowActionRequest } from "../types.js";
+
+const REVALIDATED_WORKFLOW_ACTION_IDS = revalidatedWorkflowActionSet();
+
+export type CurrentWorkflowActionRequest = Partial<WorkbenchWorkflowActionRequest> & {
+  actionType?: WorkbenchWorkflowActionRequest["actionType"];
+};
+
+export interface CurrentWorkflowActionInput {
+  project: ManagedProject | null;
+  path: string;
+}
+
+type SnapshotAction = Record<string, unknown> & {
+  kind?: string;
+  actionType?: string;
+  changeId?: string;
+  enabled?: boolean;
+  actions?: SnapshotAction[];
+};
+
+type SnapshotGoalLoop = Record<string, unknown> & {
+  goalLoopNextStepPacketId?: string;
+  controllerPolicyId?: string;
+  gateReadinessPreflightId?: string;
+  controllerVerdict?: string;
+  controllerGateStatus?: string;
+  recommendedActionType?: string;
+  recommendedActionScope?: Record<string, unknown>;
+};
+
+interface CurrentWorkflowActionSnapshot {
+  center: {
+    workpad: {
+      goalLoop?: SnapshotGoalLoop;
+      nextAction: SnapshotAction;
+      taskQueue?: { nextAction?: SnapshotAction };
+    };
+  };
+  right: {
+    confirmationQueue: {
+      primary: { actions: SnapshotAction[] } | null;
+      current: Array<{ actions: SnapshotAction[] }>;
+      otherDemands: Array<{ actions: SnapshotAction[] }>;
+      maintenance?: Array<{ actions: SnapshotAction[] }>;
+    };
+  };
+}
+
+export interface CurrentWorkflowActionDeps {
+  getWorkbenchSnapshot(input: CurrentWorkflowActionInput, options?: { topicId?: string }): Promise<unknown>;
+}
+
+export async function assertCurrentWorkflowAction(input: CurrentWorkflowActionInput, body: CurrentWorkflowActionRequest, deps: CurrentWorkflowActionDeps): Promise<void> {
+  if (!body.actionType || !REVALIDATED_WORKFLOW_ACTION_IDS.has(body.actionType)) return;
+  const snapshot = await deps.getWorkbenchSnapshot(input, { topicId: body.changeId }) as CurrentWorkflowActionSnapshot;
+  if (body.actionType === "planning.goal-loop.feedback.evaluate") {
+    const goalLoop = snapshot.center.workpad.goalLoop;
+    const nextAction = snapshot.center.workpad.nextAction;
+    if (!body.goalLoopNextStepPacketId || !goalLoop || goalLoop.goalLoopNextStepPacketId !== body.goalLoopNextStepPacketId) {
+      const error = new Error("Workflow action target is stale or no longer available.");
+      error.name = "Conflict";
+      throw error;
+    }
+    if (!goalLoop.recommendedActionType || !goalLoop.recommendedActionScope || nextAction.kind !== "workflow-action" || nextAction.actionType !== goalLoop.recommendedActionType) {
+      const error = new Error("Workflow action target is stale or no longer available.");
+      error.name = "Conflict";
+      throw error;
+    }
+    if (!goalLoopCurrentGateScopeMatches(goalLoop.recommendedActionType, body.changeId, goalLoop.recommendedActionScope, nextAction)) {
+      const error = new Error("Workflow action target is stale or no longer available.");
+      error.name = "Conflict";
+      throw error;
+    }
+    return;
+  }
+  if (body.actionType === "planning.goal-loop.controller.refresh") {
+    const goalLoop = snapshot.center.workpad.goalLoop;
+    const nextAction = snapshot.center.workpad.nextAction;
+    if (!body.goalLoopNextStepPacketId || !body.goalLoopCurrentGateActionType || !goalLoop || goalLoop.goalLoopNextStepPacketId !== body.goalLoopNextStepPacketId) {
+      const error = new Error("Workflow action target is stale or no longer available.");
+      error.name = "Conflict";
+      throw error;
+    }
+    if (!goalLoop.recommendedActionType || !goalLoop.recommendedActionScope || nextAction.kind !== "workflow-action" || nextAction.actionType !== goalLoop.recommendedActionType) {
+      const error = new Error("Workflow action target is stale or no longer available.");
+      error.name = "Conflict";
+      throw error;
+    }
+    if (body.goalLoopCurrentGateActionType !== goalLoop.recommendedActionType || body.goalLoopCurrentGateActionType !== nextAction.actionType) {
+      const error = new Error("Workflow action target is stale or no longer available.");
+      error.name = "Conflict";
+      throw error;
+    }
+    const expectedGate = { actionType: goalLoop.recommendedActionType, changeId: body.changeId, ...goalLoop.recommendedActionScope };
+    const requestedGate = {
+      actionType: body.goalLoopCurrentGateActionType,
+      changeId: body.changeId,
+      ...readGoalLoopCurrentGateRequestScope(body, goalLoop.recommendedActionScope),
+    };
+    if (!goalLoopCurrentGateScopeMatches(goalLoop.recommendedActionType, body.changeId, goalLoop.recommendedActionScope, nextAction) || !workflowActionScopesMatchStrict(expectedGate, requestedGate)) {
+      const error = new Error("Workflow action target is stale or no longer available.");
+      error.name = "Conflict";
+      throw error;
+    }
+    return;
+  }
+  if (body.actionType === "planning.goal-loop.gate-readiness.prepare") {
+    const goalLoop = snapshot.center.workpad.goalLoop;
+    const nextAction = snapshot.center.workpad.nextAction;
+    if (
+      !body.goalLoopNextStepPacketId
+      || !body.goalLoopControllerPolicyId
+      || !body.goalLoopCurrentGateActionType
+      || !goalLoop
+      || goalLoop.goalLoopNextStepPacketId !== body.goalLoopNextStepPacketId
+      || goalLoop.controllerPolicyId !== body.goalLoopControllerPolicyId
+    ) {
+      const error = new Error("Workflow action target is stale or no longer available.");
+      error.name = "Conflict";
+      throw error;
+    }
+    if (
+      goalLoop.controllerVerdict !== "recommend-existing-gate"
+      || goalLoop.controllerGateStatus !== "matches-current-gate"
+      || !goalLoop.recommendedActionType
+      || !goalLoop.recommendedActionScope
+      || nextAction.kind !== "workflow-action"
+      || nextAction.actionType !== goalLoop.recommendedActionType
+    ) {
+      const error = new Error("Workflow action target is stale or no longer available.");
+      error.name = "Conflict";
+      throw error;
+    }
+    if (body.goalLoopCurrentGateActionType !== goalLoop.recommendedActionType || body.goalLoopCurrentGateActionType !== nextAction.actionType || body.goalLoopCurrentGateActionType.startsWith("planning.goal-loop.")) {
+      const error = new Error("Workflow action target is stale or no longer available.");
+      error.name = "Conflict";
+      throw error;
+    }
+    const expectedGate = { actionType: goalLoop.recommendedActionType, changeId: body.changeId, ...goalLoop.recommendedActionScope };
+    const requestedGate = {
+      actionType: body.goalLoopCurrentGateActionType,
+      changeId: body.changeId,
+      ...readGoalLoopCurrentGateRequestScope(body, goalLoop.recommendedActionScope),
+    };
+    if (!goalLoopCurrentGateScopeMatches(goalLoop.recommendedActionType, body.changeId, goalLoop.recommendedActionScope, nextAction) || !workflowActionScopesMatchStrict(expectedGate, requestedGate)) {
+      const error = new Error("Workflow action target is stale or no longer available.");
+      error.name = "Conflict";
+      throw error;
+    }
+    return;
+  }
+  if (body.actionType === "planning.goal-loop.controlled-continue.run") {
+    const goalLoop = snapshot.center.workpad.goalLoop;
+    const nextAction = snapshot.center.workpad.nextAction;
+    if (
+      !body.goalLoopNextStepPacketId
+      || !body.goalLoopControllerPolicyId
+      || !body.goalLoopGateReadinessPreflightId
+      || !body.goalLoopCurrentGateActionType
+      || !goalLoop
+      || goalLoop.goalLoopNextStepPacketId !== body.goalLoopNextStepPacketId
+      || goalLoop.controllerPolicyId !== body.goalLoopControllerPolicyId
+      || goalLoop.gateReadinessPreflightId !== body.goalLoopGateReadinessPreflightId
+    ) {
+      const error = new Error("Workflow action target is stale or no longer available.");
+      error.name = "Conflict";
+      throw error;
+    }
+    if (
+      goalLoop.controllerVerdict !== "recommend-existing-gate"
+      || goalLoop.controllerGateStatus !== "matches-current-gate"
+      || !goalLoop.recommendedActionType
+      || !goalLoop.recommendedActionScope
+      || nextAction.kind !== "workflow-action"
+      || nextAction.actionType !== goalLoop.recommendedActionType
+    ) {
+      const error = new Error("Workflow action target is stale or no longer available.");
+      error.name = "Conflict";
+      throw error;
+    }
+    if (
+      body.goalLoopCurrentGateActionType !== goalLoop.recommendedActionType
+      || body.goalLoopCurrentGateActionType !== nextAction.actionType
+      || body.goalLoopCurrentGateActionType.startsWith("planning.goal-loop.")
+      || !body.goalLoopCurrentGateActionType.startsWith("planning.scheduler.")
+    ) {
+      const error = new Error("Workflow action target is stale or no longer available.");
+      error.name = "Conflict";
+      throw error;
+    }
+    const expectedGate = { actionType: goalLoop.recommendedActionType, changeId: body.changeId, ...goalLoop.recommendedActionScope };
+    const requestedGate = {
+      actionType: body.goalLoopCurrentGateActionType,
+      changeId: body.changeId,
+      ...readGoalLoopCurrentGateRequestScope(body, goalLoop.recommendedActionScope),
+    };
+    if (!goalLoopCurrentGateScopeMatches(goalLoop.recommendedActionType, body.changeId, goalLoop.recommendedActionScope, nextAction) || !workflowActionScopesMatchStrict(expectedGate, requestedGate)) {
+      const error = new Error("Workflow action target is stale or no longer available.");
+      error.name = "Conflict";
+      throw error;
+    }
+    return;
+  }
+  if (body.actionType === "planning.automation.scoped-auto.run") {
+    const primary = snapshot.right.confirmationQueue.primary;
+    const primaryWorkflowAction = primary?.actions.find((action: Record<string, unknown>) => action.kind === "workflow-action" && action.actionType === body.automationCurrentGateActionType);
+    if (
+      !primaryWorkflowAction
+      || !body.automationCurrentGateActionType
+      || !body.changeId
+      || primaryWorkflowAction.enabled !== true
+      || (primaryWorkflowAction.changeId && primaryWorkflowAction.changeId !== body.changeId)
+    ) {
+      const error = new Error("Workflow action target is stale or no longer available.");
+      error.name = "Conflict";
+      throw error;
+    }
+    const expectedGate = { ...primaryWorkflowAction, actionType: body.automationCurrentGateActionType, changeId: body.changeId };
+    const requestedGate = {
+      ...body,
+      actionType: body.automationCurrentGateActionType,
+      changeId: body.changeId,
+    };
+    if (!workflowActionScopesMatchStrict(expectedGate, requestedGate)) {
+      const error = new Error("Workflow action target is stale or no longer available.");
+      error.name = "Conflict";
+      throw error;
+    }
+    return;
+  }
+  const queue = snapshot.right.confirmationQueue;
+  const queueActions = [queue.primary, ...queue.current, ...queue.otherDemands, ...(queue.maintenance ?? [])]
+    .filter((item): item is NonNullable<typeof item> => Boolean(item))
+    .flatMap((item) => item.actions);
+  const nextAction = snapshot.center.workpad.nextAction;
+  const taskQueueNextAction = snapshot.center.workpad.taskQueue?.nextAction;
+  const actions = [
+    ...queueActions,
+    ...(nextAction.kind === "workflow-action" && nextAction.actionType ? [nextAction] : []),
+    ...(taskQueueNextAction?.actionType ? [{ ...taskQueueNextAction, kind: "workflow-action" as const, changeId: body.changeId }] : []),
+  ];
+  const match = actions.find((action) => action.kind === "workflow-action"
+    && action.actionType === body.actionType
+    && (!action.changeId || action.changeId === body.changeId)
+    && workflowActionScopesMatchStrict(action, body));
+  if (!match) {
+    const error = new Error("Workflow action target is stale or no longer available.");
+    error.name = "Conflict";
+    throw error;
+  }
+  if (body.goalLoopGateReadinessPreflightId) {
+    if (match.enabled !== true) {
+      const error = new Error("Workflow action target is stale or no longer available.");
+      error.name = "Conflict";
+      throw error;
+    }
+    if (!body.changeId || !input.project) {
+      const error = new Error("Workflow action target is stale or no longer available.");
+      error.name = "Conflict";
+      throw error;
+    }
+    const memory = await resolveProjectMemory(input.project);
+    const active = await getActiveChanges(memory);
+    const target = active.find((item) => item.name === body.changeId);
+    if (!target) {
+      const error = new Error("Workflow action target is stale or no longer available.");
+      error.name = "Conflict";
+      throw error;
+    }
+    try {
+      const concreteRequest = body.actionType === CONTROLLED_SCHEDULER_STEP_ACTION_TYPE
+        ? buildControlledSchedulerStepRequest(body).concrete
+        : body;
+      await assertGoalLoopAssistedConcreteGateConfirmation(memory, target.path, body.changeId, concreteRequest, body.actionType === CONTROLLED_SCHEDULER_STEP_ACTION_TYPE ? {} : { visibleGate: match });
+    } catch (cause) {
+      const error = new Error(cause instanceof Error ? cause.message : "Workflow action target is stale or no longer available.");
+      error.name = "Conflict";
+      throw error;
+    }
+  }
+}
+
+function readGoalLoopCurrentGateRequestScope(body: CurrentWorkflowActionRequest, expectedScope: Record<string, unknown>): Record<string, string | string[]> {
+  const result: Record<string, string | string[]> = {};
+  const values = body as unknown as Record<string, unknown>;
+  for (const key of Object.keys(expectedScope)) {
+    if (key === "changeId") continue;
+    const value = values[key];
+    if (typeof value === "string") result[key] = value;
+    if (Array.isArray(value) && value.every((item) => typeof item === "string")) result[key] = value;
+  }
+  return result;
+}
+
+function goalLoopCurrentGateScopeMatches(
+  actionType: string,
+  changeId: string | undefined,
+  expectedScope: Record<string, unknown>,
+  actual: unknown,
+): boolean {
+  const actualRecord = actual as Record<string, unknown>;
+  if (actualRecord.actionType !== actionType) return false;
+  if (changeId && actualRecord.changeId && actualRecord.changeId !== changeId) return false;
+  for (const [key, expected] of Object.entries(expectedScope)) {
+    const expectedValue = key === "changeId" ? changeId ?? expected : expected;
+    const actualValue = key === "changeId" ? actualRecord.changeId ?? changeId : actualRecord[key];
+    if (!goalLoopScopeValuesEqual(expectedValue, actualValue)) return false;
+  }
+  return true;
+}
+
+function goalLoopScopeValuesEqual(left: unknown, right: unknown): boolean {
+  const normalizedLeft = normalizeGoalLoopScopeValues(left);
+  const normalizedRight = normalizeGoalLoopScopeValues(right);
+  return normalizedLeft.length === normalizedRight.length
+    && normalizedLeft.every((value, index) => value === normalizedRight[index]);
+}
+
+function normalizeGoalLoopScopeValues(value: unknown): string[] {
+  if (typeof value === "string") return [value];
+  if (Array.isArray(value) && value.every((item) => typeof item === "string")) return [...value].sort();
+  return [];
+}

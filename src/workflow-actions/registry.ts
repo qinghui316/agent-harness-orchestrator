@@ -16,6 +16,7 @@ export const WORKFLOW_ACTION_TYPES = [
   "planning.goal-loop.controller.refresh",
   "planning.goal-loop.gate-readiness.prepare",
   "planning.goal-loop.controlled-continue.run",
+  "planning.automation.scoped-auto.run",
   "maintenance.canonical-update.decision.record",
   "maintenance.canonical-patch.application-gate.record",
   "maintenance.canonical-patch.apply",
@@ -140,6 +141,7 @@ export const LIVE_WORKFLOW_ACTION_TYPES = [
   "planning.goal-loop.controller.refresh",
   "planning.goal-loop.gate-readiness.prepare",
   "planning.goal-loop.controlled-continue.run",
+  "planning.automation.scoped-auto.run",
   "maintenance.canonical-update.decision.record",
   "maintenance.canonical-patch.application-gate.record",
   "maintenance.canonical-patch.apply",
@@ -244,6 +246,7 @@ export const HIGH_IMPACT_WORKFLOW_ACTION_TYPES = [
   "planning.goal-loop.controller.refresh",
   "planning.goal-loop.gate-readiness.prepare",
   "planning.goal-loop.controlled-continue.run",
+  "planning.automation.scoped-auto.run",
   "maintenance.canonical-update.decision.record",
   "maintenance.canonical-patch.application-gate.record",
   "maintenance.canonical-patch.apply",
@@ -309,6 +312,7 @@ export const REVALIDATED_WORKFLOW_ACTION_TYPES = [
   "planning.goal-loop.controller.refresh",
   "planning.goal-loop.gate-readiness.prepare",
   "planning.goal-loop.controlled-continue.run",
+  "planning.automation.scoped-auto.run",
   "maintenance.canonical-update.decision.record",
   "maintenance.canonical-patch.application-gate.record",
   "maintenance.canonical-patch.apply",
@@ -414,6 +418,10 @@ export type WorkflowActionScopeCarrier = {
   goalLoopCurrentGateActionType?: string;
   goalLoopRuntimeAuthorizationId?: string;
   goalLoopRuntimeRunId?: string;
+  automationMode?: "request-approval" | "full-access";
+  automationCurrentGateActionType?: string;
+  automationAuthorizationId?: string;
+  automationRunId?: string;
   maxSteps?: number;
 } & Partial<Record<Exclude<WorkflowActionScopeKey, "worktreeIds" | "taskIds">, string>> & {
   worktreeIds?: string[];
@@ -501,6 +509,24 @@ export function validateWorkflowActionRequiredTargets(request: WorkflowActionSco
         ...issue,
         actionType,
         message: `planning.goal-loop.controlled-continue.run concrete gate target is incomplete: ${issue.label}.`,
+      })));
+      break;
+    }
+    case "planning.automation.scoped-auto.run": {
+      requireOne("changeId", [request.changeId]);
+      requireOne("automationCurrentGateActionType", [request.automationCurrentGateActionType]);
+      const concreteActionType = request.automationCurrentGateActionType;
+      if (!concreteActionType || concreteActionType === "planning.automation.scoped-auto.run") {
+        issues.push({ actionType, label: "current visible primary gate", message: "planning.automation.scoped-auto.run requires the current visible primary gate action type." });
+        break;
+      }
+      issues.push(...validateWorkflowActionRequiredTargets({
+        ...request,
+        actionType: concreteActionType,
+      }).map((issue) => ({
+        ...issue,
+        actionType,
+        message: `planning.automation.scoped-auto.run current gate target is incomplete: ${issue.label}.`,
       })));
       break;
     }
@@ -777,6 +803,10 @@ export function workflowActionScopePayload(request: WorkflowActionScopeCarrier, 
     goalLoopCurrentGateActionType: request.goalLoopCurrentGateActionType,
     goalLoopRuntimeAuthorizationId: request.goalLoopRuntimeAuthorizationId ?? extractString(result, "authorization", "id"),
     goalLoopRuntimeRunId: request.goalLoopRuntimeRunId ?? extractString(result, "runtimeRun", "id"),
+    automationMode: request.automationMode,
+    automationCurrentGateActionType: request.automationCurrentGateActionType,
+    automationAuthorizationId: request.automationAuthorizationId ?? extractString(result, "authorization", "id"),
+    automationRunId: request.automationRunId ?? extractString(result, "automationRun", "id"),
     maxSteps: request.maxSteps,
     maintenanceProposalId: request.maintenanceProposalId ?? extractString(result, "decision", "proposalId"),
     maintenancePatchProposalId: request.maintenancePatchProposalId ?? extractString(result, "gateRecord", "patchProposalId") ?? extractString(result, "applicationResult", "patchProposalId"),
@@ -830,6 +860,12 @@ export function workflowActionTargetId(request: WorkflowActionScopeCarrier, chan
       ?? request.goalLoopGateReadinessPreflightId
       ?? request.goalLoopControllerPolicyId
       ?? request.goalLoopNextStepPacketId
+      ?? changeId;
+  }
+  if (request.actionType === "planning.automation.scoped-auto.run") {
+    return extractString(result, "automationRun", "id")
+      ?? extractString(result, "authorization", "id")
+      ?? request.automationCurrentGateActionType
       ?? changeId;
   }
   if (request.actionType === "planning.goal-loop.evaluate" || request.actionType === "planning.goal-loop.feedback.evaluate" || request.actionType === "planning.goal-loop.controller.refresh" || request.actionType === "planning.goal-loop.gate-readiness.prepare") {

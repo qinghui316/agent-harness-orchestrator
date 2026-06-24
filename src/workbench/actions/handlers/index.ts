@@ -13,6 +13,7 @@ import { cleanupRemoteBranchForAction, createPrDraftForAction, mergeNextLandingQ
 import { interruptConversation, steerConversation, stopRunningPipeline } from "./control.js";
 import { buildGoalLoopActionHandlers } from "./goal-loop.js";
 import { buildGoalLoopRuntimeActionHandlers } from "./goal-loop-runtime.js";
+import { runScopedAutomationAction } from "./automation.js";
 import { buildSchedulerActionHandlers } from "./scheduler.js";
 import type { WorkbenchActionHandlerMap } from "../dispatcher.js";
 import type { TopicMessageResult, WorkbenchLiveSink } from "../../types.js";
@@ -23,7 +24,7 @@ export interface WorkbenchActionHandlerDeps {
 }
 
 export function buildWorkbenchActionHandlers(deps: WorkbenchActionHandlerDeps): WorkbenchActionHandlerMap {
-  return {
+  const handlers: WorkbenchActionHandlerMap = {
   "chat.ask": async (project, changeId, request, live) => {
     if (!request.prompt) throw new Error("chat.ask requires prompt.");
     return deps.postTopicMessage(project, changeId, request.prompt, live);
@@ -47,6 +48,7 @@ export function buildWorkbenchActionHandlers(deps: WorkbenchActionHandlerDeps): 
   "planning.taskqueue.propose": async (project, changeId, request, live) => proposeTaskQueue(project, changeId, request, live),
   ...buildGoalLoopActionHandlers(),
   ...buildGoalLoopRuntimeActionHandlers(),
+  "planning.automation.scoped-auto.run": async (project, changeId, request, live) => runScopedAutomationAction(project, changeId, request, live, handlers),
   ...buildSchedulerActionHandlers(),
   "maintenance.canonical-update.decision.record": async () => {
     throw new Error("maintenance.canonical-update.decision.record is project-scoped and must not run through the demand topic workflow service.");
@@ -131,4 +133,5 @@ export function buildWorkbenchActionHandlers(deps: WorkbenchActionHandlerDeps): 
   "audit.run": async (project, changeId, request) => startAuditRun(project, { changeId, worktreeId: request.worktreeId, prompt: request.prompt }),
   "spec-test.drift": async (project, changeId, request) => getSpecTestDriftReport(project, { changeId, worktreeId: request.worktreeId }),
   };
+  return handlers;
 }

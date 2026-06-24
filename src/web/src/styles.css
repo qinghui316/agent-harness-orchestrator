@@ -2252,6 +2252,44 @@ input:focus-visible {
   margin-top: 12px;
 }
 
+.automation-mode-selector {
+  display: inline-flex;
+  width: fit-content;
+  max-width: 100%;
+  gap: 2px;
+  margin-top: 12px;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-panel);
+}
+
+.automation-mode-selector button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 5px 9px;
+  border: 0;
+  border-radius: calc(var(--radius-sm) - 2px);
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.automation-mode-selector button.selected {
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 650;
+}
+
+.automation-mode-selector button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
 .inline-confirm {
   display: flex;
   flex-wrap: wrap;

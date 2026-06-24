@@ -32,7 +32,7 @@ export async function sendWorkbenchActionLive(input: WorkbenchProjectInput & { p
         await executeWorkbenchAction(input, body);
         terminalStatus = "completed";
       } else {
-      await assertCurrentWorkflowAction(input, body);
+      await assertCurrentWorkflowAction(input, body, { getWorkbenchSnapshot });
       const result = await runWorkbenchWorkflowAction(input.project, {
         actionType: body.actionType,
         changeId: body.changeId,
@@ -65,6 +65,11 @@ export async function sendWorkbenchActionLive(input: WorkbenchProjectInput & { p
         goalLoopControllerPolicyId: body.goalLoopControllerPolicyId,
         goalLoopGateReadinessPreflightId: body.goalLoopGateReadinessPreflightId,
         goalLoopCurrentGateActionType: body.goalLoopCurrentGateActionType,
+        automationMode: body.automationMode,
+        automationCurrentGateActionType: body.automationCurrentGateActionType,
+        automationAuthorizationId: body.automationAuthorizationId,
+        automationRunId: body.automationRunId,
+        maxSteps: body.maxSteps,
         maintenancePatchProposalId: body.maintenancePatchProposalId,
         maintenanceProposalId: body.maintenanceProposalId,
         maintenanceApplicationManifestId: body.maintenanceApplicationManifestId,

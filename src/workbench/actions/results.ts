@@ -323,6 +323,7 @@ export function labelForAction(actionType: string): string {
     case "planning.decomposition.confirm": return "DecompositionPlan confirmed";
     case "planning.decomposition.assess-readiness": return "Decomposition readiness assessed";
     case "planning.taskqueue.propose": return "TaskQueueProposal generated";
+    case "planning.automation.scoped-auto.run": return "Scoped automation run";
     case "maintenance.canonical-update.decision.record": return "Maintenance canonical update decision recorded";
     case "maintenance.canonical-patch.application-gate.record": return "Maintenance canonical patch application gate recorded";
     case "maintenance.canonical-patch.apply": return "Maintenance canonical patch applied";

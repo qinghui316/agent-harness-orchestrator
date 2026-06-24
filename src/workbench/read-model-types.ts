@@ -155,6 +155,10 @@ export interface ThreadStreamAction {
   goalLoopControllerPolicyId?: string;
   goalLoopGateReadinessPreflightId?: string;
   goalLoopCurrentGateActionType?: ThreadStreamAction["actionType"];
+  automationMode?: "request-approval" | "full-access";
+  automationCurrentGateActionType?: ThreadStreamAction["actionType"];
+  automationAuthorizationId?: string;
+  automationRunId?: string;
   maxSteps?: number;
   maintenanceProposalId?: string;
   maintenancePatchProposalId?: string;
@@ -299,6 +303,10 @@ export interface WorkbenchDecisionAction {
   goalLoopControllerPolicyId?: string;
   goalLoopGateReadinessPreflightId?: string;
   goalLoopCurrentGateActionType?: ThreadStreamAction["actionType"];
+  automationMode?: "request-approval" | "full-access";
+  automationCurrentGateActionType?: ThreadStreamAction["actionType"];
+  automationAuthorizationId?: string;
+  automationRunId?: string;
   maxSteps?: number;
   maintenanceProposalId?: string;
   maintenancePatchProposalId?: string;
@@ -411,6 +419,10 @@ export interface WorkbenchConfirmationQueueItem {
   goalLoopControllerPolicyId?: string;
   goalLoopGateReadinessPreflightId?: string;
   goalLoopCurrentGateActionType?: ThreadStreamAction["actionType"];
+  automationMode?: "request-approval" | "full-access";
+  automationCurrentGateActionType?: ThreadStreamAction["actionType"];
+  automationAuthorizationId?: string;
+  automationRunId?: string;
   maxSteps?: number;
   maintenanceProposalId?: string;
   maintenancePatchProposalId?: string;
