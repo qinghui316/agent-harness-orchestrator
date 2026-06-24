@@ -473,6 +473,35 @@ function auditAcceptQueueItem(automationEligible = true) {
   } as const;
 }
 
+function recoveryQueueItem(actionType: "result.refresh-rework" | "result.revalidate" | "result.reaudit" = "result.refresh-rework") {
+  const label = actionType === "result.refresh-rework" ? "要求修改" : actionType === "result.revalidate" ? "重新验证" : "重新审查";
+  return {
+    id: `confirm:recovery:${actionType}:wt-1`,
+    kind: "request-changes",
+    conversationId: "member-discount",
+    changeId: "member-discount",
+    resultId: "wt-1",
+    worktreeId: "wt-1",
+    summary: "当前结果需要修改或补证据。",
+    whyNeedsConfirmation: "需要处理当前验证或审查失败。",
+    confirmEffect: "只会在当前工作副本里推进一轮本地修复或证据刷新，不会应用到 source root。",
+    riskSummary: "应用、关闭、远端落地和合并仍需要单独人工确认。",
+    evidenceRefs: ["runs/validation-run-1/validation.json"],
+    primary: true,
+    status: "pending",
+    actions: [{
+      id: `workflow:${actionType}:wt-1`,
+      label,
+      kind: "workflow-action",
+      enabled: true,
+      requiresConfirmation: true,
+      actionType,
+      changeId: "member-discount",
+      worktreeId: "wt-1",
+    }],
+  } as const;
+}
+
 function applyQueueItem() {
   return {
     id: "confirm:apply:wt-1",
@@ -738,6 +767,54 @@ describe("Workbench web app", () => {
       automationCurrentGateRunId: "audit-run-1",
       automationCurrentGateArtifact: "runs/audit-run-1/audit.json",
       changeId: "member-discount",
+      maxSteps: 5,
+    });
+    expect(card.textContent).not.toContain("full-auto");
+    expect(card.textContent).not.toContain("parallel executor");
+    expect(card.textContent).not.toContain("merge queue");
+  });
+
+  it("submits scoped-auto for bounded recovery workflow gates with worktree scope", async () => {
+    const execute = vi.fn(async () => undefined);
+    function Harness() {
+      const [confirming, setConfirming] = useState<string | null>(null);
+      return (
+        <DecisionInspectorPane
+          inspector={{ primary: null, related: [], history: [] }}
+          confirmationQueue={{
+            primary: recoveryQueueItem("result.refresh-rework"),
+            current: [recoveryQueueItem("result.refresh-rework")],
+            otherDemands: [],
+            maintenance: [],
+            history: [],
+          }}
+          confirming={confirming}
+          busy={false}
+          error={null}
+          onConfirmingChange={setConfirming}
+          onExecuteAction={execute}
+          onFeedback={async () => undefined}
+          onSelectContext={() => undefined}
+        />
+      );
+    }
+
+    render(<Harness />);
+
+    const card = screen.getByTestId("decision-inspector-primary");
+    const fullAccessButtons = within(card).getAllByRole("button", { name: "完全访问权限" });
+    fireEvent.click(fullAccessButtons[fullAccessButtons.length - 1]!);
+    const executeFullAccessButtons = within(card).getAllByRole("button", { name: "完全访问权限" });
+    fireEvent.click(executeFullAccessButtons[executeFullAccessButtons.length - 1]!);
+    fireEvent.click(within(card).getByRole("button", { name: "确认" }));
+
+    await waitFor(() => expect(execute).toHaveBeenCalledTimes(1));
+    expect(execute.mock.calls[0]?.[0]).toMatchObject({
+      actionType: "planning.automation.scoped-auto.run",
+      automationMode: "full-access",
+      automationCurrentGateActionType: "result.refresh-rework",
+      changeId: "member-discount",
+      worktreeId: "wt-1",
       maxSteps: 5,
     });
     expect(card.textContent).not.toContain("full-auto");

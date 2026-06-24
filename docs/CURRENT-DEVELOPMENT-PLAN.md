@@ -107,7 +107,15 @@ evidence-bound scheduler/action execution plus human gates.
 - Goal Loop path: GoalLoopDecision, iteration, continuation brief, next-step packet, packet freshness/parity, feedback, controller policy, controller refresh, main-Agent context, runtime prompt evidence, assisted concrete gate evidence, accepted artifact freshness, human close-gate handoff metadata, conflict reasons, Workpad read-only explanation cards, scoped start-next handoff evidence, scoped scheduler IntegrationCheck handoff evidence, scoped scheduler integration outcome handoff evidence, scoped SchedulerRun completion handoff evidence, scoped SchedulerRun blocked-closeout handoff evidence, compact SchedulerRun terminal handoff prompt evidence, compact controlled Scheduler post-step routing prompt evidence, optional controlled Scheduler post-step routing support on `GoalLoopGateReadinessPreflight`, scheduler execution-mode assessment, Workpad scheduler execution-mode surface, controller/preflight scheduler execution-mode handoff evidence, assisted concrete gate scheduler-mode consistency guard, enabled-gate projection guard, and enabled-gate server revalidation guard are implemented as non-executing evidence/context layers.
 - Product maintenance/self-evolution foundation: terminal demand closeouts, append-only maintenance ledger entries, generated maintenance indexes/cache, five-terminal-change maintenance reviews, candidate scoring/review types, lifecycle-resolution evidence, canonical update proposal evidence, human-gated canonical update decision evidence, canonical patch proposal evidence, human-gated canonical patch application follow-up records, canonical patch application manifest/readiness evidence, canonical patch target descriptor evidence, human-gated canonical docs/stable-memory patch application result evidence, read-only canonical patch application observation report evidence, doc budget reports, Workbench maintenance summaries, and maintenance confirmation queue projection exist as evidence/projection layers. Automatic rewrite behavior remains future-only.
 - Harness self-evolution: archive-triggered evolution can produce proposals, independent/subagent review evidence, results.tsv entries, and ECL/template deltas. The latest real-Codex acceptance window recorded `template_update / subagent_review`, adding compact prompts for real self-acceptance isolation, Workbench aggregate split evidence, no-fake real Codex evidence, and in-flight duplicate action suppression without adding product runtime behavior.
-- Workbench verification: `npm run test:workbench` now has explicit Workbench unit, scheduler-slow, slow, and aggregate layers and passes as the daily Workbench gate. Full-chain scheduler/apply/Goal Loop deep coverage is retained in explicit release/deep scripts so ordinary product iteration is not blocked by the heaviest acceptance paths. The demand-to-execution golden-flow suite is part of the Workbench slow gate, App DOM run-graph assertions use rendered DOM state as the primary signal, and slow acceptance cases carry explicit timeouts.
+- Workbench verification: `npm run test:workbench` is the daily fast
+  Workbench unit-capability gate and runs the explicit Workbench unit suites in
+  one Vitest invocation. Full-chain scheduler/apply/Goal Loop deep coverage is
+  retained in explicit release/deep scripts, especially
+  `npm run test:workbench:release`, so ordinary product iteration is not
+  blocked by the heaviest acceptance paths. The demand-to-execution golden-flow
+  suite remains part of the Workbench slow/release gate, App DOM run-graph
+  assertions use rendered DOM state as the primary signal, and slow acceptance
+  cases carry explicit timeouts.
 
 ## Current Hard Boundaries
 
@@ -137,18 +145,27 @@ Current architecture debt register:
 
 ## Next Product Direction
 
-No structured product change is currently active, and no Harness evolution is
-pending. The latest archived product change is
+No structured product change is currently active. A Harness evolution window is
+pending at `harness/evolution/pending.md` after the latest bounded-rework
+acceptance archive. The latest archived product change is
+`harness/changes/archive/20260624-workbench-scoped-automation-bounded-rework-acceptance-v1/summary.md`.
+It extends the two-tier `完全访问权限` execution segment with local bounded
+recovery gates: current selected-Change `result.refresh-rework`,
+`result.revalidate`, and `result.reaudit` when one is the authoritative primary
+confirmation. Positive real UI acceptance used E-drive sandbox
+`E:\aho-accept\bounded-rework-v1-success` and proved one full-access
+confirmation advanced through decomposition/readiness, real `coder-codex` code
+execution, validation, audit, automatic safe `audit.accept`, and then stopped at
+the human `result.apply` gate with `AutomationRun.stopReason =
+"terminal-human-gate"`. A prior E-drive negative scout proved repeated recovery
+gate consumption but correctly stopped on an accepted-scope / validation-script
+conflict. No source apply, close, merge, remote landing, Harness evolution,
+scheduler loop, or parallel executor behavior was authorized.
+
+The previous scoped automation product change is archived at
 `harness/changes/archive/20260624-workbench-scoped-automation-audit-acceptance-v1/summary.md`.
-It extends the two-tier `完全访问权限` execution segment with one safe approval
-gate: current selected-Change `audit.accept` when the audit status is exactly
-`approved`. Real UI acceptance used E-drive sandbox
-`E:\aho-accept\audit-accept-v1e` and proved one full-access confirmation
-advanced through decomposition/readiness, real `coder-codex` code execution,
-validation, audit, automatic `audit.accept`, and then stopped at the human
-`result.apply` gate with `AutomationRun.stopReason = "terminal-human-gate"`.
-No source apply, close, merge, remote landing, Harness evolution, scheduler
-loop, or parallel executor behavior was authorized.
+It added the safe `audit.accept` approval gate when the audit status is exactly
+`approved`.
 
 The previous two-tier automation product change is archived at
 `harness/changes/archive/20260624-workbench-scoped-automation-decomposition-gate-coverage-v1/summary.md`.
@@ -177,7 +194,7 @@ blocker, unsupported gate, high-impact human gate, or budget limit. It is not
 full-auto task mode, not a parallel executor, and not automatic
 apply/merge/close. The latest verification convergence is archived at
 `harness/changes/archive/20260623-workbench-verification-runtime-convergence/summary.md`.
-It separates daily Workbench aggregate coverage from explicit release/deep
+It separates daily Workbench unit-capability coverage from explicit release/deep
 scheduler/apply/Goal Loop coverage: daily `npm run test:workbench` passes in
 the ordinary tool window, and full-chain deep coverage remains available
 through `npm run test:workbench:release`. The latest Harness evolution is
@@ -220,20 +237,22 @@ attribution blocker. It reached real UI planning, decomposition/readiness,
 landing readiness refresh, and human-confirmed close/archive without remote
 PR/push/merge.
 
-The archive-threshold Harness evolution window has been handled. The next
-structured product slice can either design scoped full-auto / wider
-Goal-driven loop authorization from the proven manual gates, or address the
-next concrete Workbench blocker found by real/manual UI use before expanding
-automation. If verification cost becomes the next concrete blocker, target the
-explicit release/deep members with narrower fixture work rather than moving
-them back into the daily gate.
+The archive-threshold Harness evolution window is pending after the latest
+bounded-rework acceptance archive. Handle it through proposal, independent
+review, validation, results logging, and `harness-evolve mark-complete` before
+treating it as completed. The next structured product slice can either design
+scoped full-auto / wider Goal-driven loop authorization from the proven manual
+gates, or address the next concrete Workbench blocker found by real/manual UI
+use before expanding automation. If verification cost becomes the next concrete
+blocker, target the explicit release/deep members with narrower fixture work
+rather than moving them back into the daily gate.
 
 The latest archived `workbench-verification-signal-stability` change made
-Workbench aggregate verification trustworthy again: `npm run test:workbench`
-passes through explicit unit / scheduler-slow / slow / aggregate layers, the
-stale App DOM fetch mock and controlled-advance test expectations are fixed,
-and the demand-to-execution golden-flow suite is part of the Workbench slow
-gate.
+Workbench verification trustworthy again. The later package-script convergence
+keeps `npm run test:workbench` as the daily fast unit-capability gate, while
+slow/deep Workbench acceptance remains in explicit release scripts. The stale
+App DOM fetch mock and controlled-advance test expectations are fixed, and the
+demand-to-execution golden-flow suite remains part of the Workbench slow gate.
 
 The earlier `workbench-demand-to-execution-golden-flow` change proved the front
 half of the manual loop: natural-language Workbench demand, planning draft,

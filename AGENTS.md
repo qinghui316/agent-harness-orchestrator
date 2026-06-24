@@ -6,34 +6,39 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 
 - Current date: 2026-06-24.
 - Active change: none.
-- Pending Harness evolution: none.
+- Pending Harness evolution: `harness/evolution/pending.md`.
 - Latest archived verification change: Workbench Verification Runtime Convergence, archived at `harness/changes/archive/20260623-workbench-verification-runtime-convergence/summary.md`.
 - Latest archived product audit: Workbench Goal Loop Surface Gap Audit, archived at `harness/changes/archive/20260624-workbench-goal-loop-surface-gap-audit/summary.md`.
-- Latest archived product change: Workbench Scoped Automation Audit Acceptance V1, archived at `harness/changes/archive/20260624-workbench-scoped-automation-audit-acceptance-v1/summary.md`.
+- Latest archived product change: Workbench Scoped Automation Bounded Rework Acceptance V1, archived at `harness/changes/archive/20260624-workbench-scoped-automation-bounded-rework-acceptance-v1/summary.md`.
 - Latest real UI continuation scout: Workbench Real UI Continuation Next-Blocker Scout, archived at `harness/changes/archive/20260624-workbench-real-ui-continuation-next-blocker-scout/summary.md`.
 - Latest real-Codex acceptance change: Current Project Real Codex Acceptance, archived at `harness/changes/archive/20260623-workbench-current-project-real-codex-acceptance/summary.md`.
 - Latest product/Harness docs change: Goal-Driven Workflow Loop Target, archived at `harness/changes/archive/20260623-document-goal-driven-workflow-loop-target/summary.md`.
-- Latest Harness evolution: `harness/changes/archive/20260624-auto-evolve-post-continuation-scout-window/summary.md`.
+- Latest completed Harness evolution: `harness/changes/archive/20260624-auto-evolve-post-continuation-scout-window/summary.md`.
+- Current pending evolution window: from
+  `harness/changes/archive/20260624-auto-evolve-post-continuation-scout-window/summary.md`
+  through
+  `harness/changes/archive/20260624-workbench-scoped-automation-bounded-rework-acceptance-v1/summary.md`.
 
 Current baseline: the local manual-gated Workbench loop has real browser
 acceptance through planning, code, validation/audit, human apply, and
 close/archive. Workbench exposes two scoped authorization modes: `请求批准` and
 `完全访问权限`. `完全访问权限` may let Codex run with full-access runtime capability,
 but AHO workflow authority remains scoped to the selected Change. It can now
-automatically consume a safe current `audit.accept` approval when audit status
-is exactly `approved`, then stops at the human `result.apply` gate. It still
-does not auto-run planning generation, apply/close/merge, remote landing,
-Harness evolution, scheduler loops, or parallel execution. Daily
-`npm run test:workbench` is the normal Workbench gate; deep scheduler/apply/
-Goal Loop coverage remains in release/deep scripts.
+automatically consume local execution and recovery gates including bounded
+`result.refresh-rework` / `result.revalidate` / `result.reaudit` when they are
+the current authoritative primary gate. If audit status is exactly `approved`,
+it may also consume safe `audit.accept`, then stops at the human `result.apply`
+gate. It still does not auto-run planning generation, apply/close/merge,
+remote landing, Harness evolution, scheduler loops, or parallel execution. Daily
+`npm run test:workbench` is the fast Workbench unit-capability gate; slow
+scheduler/apply/Goal Loop coverage remains in explicit release/deep scripts.
 
 The latest product change is archived at
-`harness/changes/archive/20260624-workbench-scoped-automation-audit-acceptance-v1/summary.md`.
+`harness/changes/archive/20260624-workbench-scoped-automation-bounded-rework-acceptance-v1/summary.md`.
 
-The latest Harness evolution reviewed the post-continuation five-archive window
-with an authorized subagent. Result: `noop` for ECL/template/lint/product
-runtime changes, plus compressed handoff docs so detailed sandbox/run history
-stays archive-only. No pending evolution remains.
+A new Harness evolution window is pending after the bounded-rework acceptance
+archive. Do not auto-apply it: handle it through proposal, independent review,
+validation, `results.tsv`, and `harness-evolve mark-complete`.
 
 Use `docs/STATUS.md` for short handoff context and
 `harness/changes/INDEX.json` plus archived `summary.md` files for historical
@@ -122,10 +127,11 @@ npm run build
 npm run test:integration
 npm run test:workbench
 npm run test:workbench:slow
+npm run test:workbench:release
 npm run test
 ```
 
-Use full `npm run test` or slow Workbench suites for broad runtime, Workbench aggregate, gate/source/apply, validation/audit, remote, scheduler, Goal Loop, package-script, or release-risk changes. For bounded docs, helper, or test-topology changes, record the targeted verification and why aggregate/full suites were not needed.
+Use full `npm run test`, `npm run test:workbench:release`, or slow Workbench suites for broad runtime, full Workbench contracts, gate/source/apply, validation/audit, remote, scheduler, Goal Loop, package-script, or release-risk changes. For bounded docs, helper, or test-topology changes, record the targeted verification and why aggregate/full suites were not needed.
 
 For documentation or Harness-rule changes, also run targeted drift checks for active paths, duplicate current-state fields, stale latest-phase language, and documentation entropy where applicable.
 

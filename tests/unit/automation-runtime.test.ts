@@ -64,6 +64,94 @@ describe("Scoped automation runtime", () => {
     });
   });
 
+  it("executes bounded recovery workflow gates before safe audit accept and stops at apply", async () => {
+    const dispatched: ScopedAutomationChildGate[] = [];
+    const sequence: ScopedAutomationChildGate[] = [
+      { kind: "workflow-action", actionType: "result.refresh-rework", changeId: "change-1", worktreeId: "wt-1" },
+      { kind: "workflow-action", actionType: "result.revalidate", changeId: "change-1", worktreeId: "wt-2" },
+      { kind: "workflow-action", actionType: "result.reaudit", changeId: "change-1", worktreeId: "wt-2" },
+      {
+        kind: "approval-action",
+        actionId: "audit.accept",
+        changeId: "change-1",
+        targetId: "audit-2",
+        runId: "audit-run-2",
+        artifact: "runs/audit-run-2/audit.json",
+        action: { actionId: "audit.accept", args: ["accept", "project-1", "audit-2"] },
+      },
+      { kind: "approval-action", actionId: "result.apply", changeId: "change-1", targetId: "wt-2", action: { actionId: "result.apply" } },
+    ];
+
+    const result = await runScopedAutomation({
+      memory,
+      changePath: "harness/changes/active/change-1",
+      projectId: "project-1",
+      sourceState: { capturedAt: "2026-06-24T00:00:00.000Z" },
+      acceptedArtifactHashes: {},
+      request: baseRequest({ automationCurrentGateActionType: "result.refresh-rework", worktreeId: "wt-1", maxSteps: 5 }),
+      services: {
+        resolveCurrentPrimaryGate: async () => sequence[dispatched.length] ?? { stopReason: "no-primary-gate", summary: "No gate." },
+        dispatchChildAction: async (request) => {
+          dispatched.push(request);
+          return request.kind === "workflow-action"
+            ? { actionType: request.actionType, worktreeId: request.worktreeId === "wt-1" ? "wt-2" : request.worktreeId }
+            : { actionId: request.actionId, targetId: request.targetId };
+        },
+        summarizeChildResult: (gate) => `${gate.kind === "workflow-action" ? gate.actionType : gate.actionId} completed`,
+      },
+    });
+
+    expect(result.stopReason).toBe("terminal-human-gate");
+    expect(result.automationRun.completedSteps).toBe(4);
+    expect(dispatched.map((gate) => gate.kind === "workflow-action" ? gate.actionType : gate.actionId)).toEqual([
+      "result.refresh-rework",
+      "result.revalidate",
+      "result.reaudit",
+      "audit.accept",
+    ]);
+    expect(result.iterations.map((iteration) => iteration.currentGateActionType)).toEqual([
+      "result.refresh-rework",
+      "result.revalidate",
+      "result.reaudit",
+      "audit.accept",
+    ]);
+    expect(result.authorization.applyAuthorized).toBe(false);
+  });
+
+  it("stops at max steps after recovery gates when the next gate is not terminal", async () => {
+    const dispatched: ScopedAutomationChildGate[] = [];
+    const sequence: ScopedAutomationChildGate[] = [
+      { kind: "workflow-action", actionType: "result.revalidate", changeId: "change-1", worktreeId: "wt-1" },
+      { kind: "workflow-action", actionType: "result.reaudit", changeId: "change-1", worktreeId: "wt-1" },
+      { kind: "workflow-action", actionType: "audit.run", changeId: "change-1", worktreeId: "wt-1" },
+    ];
+
+    const result = await runScopedAutomation({
+      memory,
+      changePath: "harness/changes/active/change-1",
+      projectId: "project-1",
+      sourceState: { capturedAt: "2026-06-24T00:00:00.000Z" },
+      acceptedArtifactHashes: {},
+      request: baseRequest({ automationCurrentGateActionType: "result.revalidate", worktreeId: "wt-1", maxSteps: 2 }),
+      services: {
+        resolveCurrentPrimaryGate: async () => sequence[dispatched.length] ?? { stopReason: "no-primary-gate", summary: "No gate." },
+        dispatchChildAction: async (request) => {
+          dispatched.push(request);
+          return { ok: true };
+        },
+        summarizeChildResult: (gate) => `${gate.kind === "workflow-action" ? gate.actionType : gate.actionId} completed`,
+      },
+    });
+
+    expect(result.stopReason).toBe("max-steps");
+    expect(result.automationRun.status).toBe("completed");
+    expect(result.automationRun.completedSteps).toBe(2);
+    expect(dispatched.map((gate) => gate.kind === "workflow-action" ? gate.actionType : gate.actionId)).toEqual([
+      "result.revalidate",
+      "result.reaudit",
+    ]);
+  });
+
   it("stops before terminal human gates", async () => {
     const result = await runScopedAutomation({
       memory,

@@ -1141,6 +1141,77 @@ describe("workbench read-model projections", () => {
     expect(inspector.primary?.actions.some((action) => action.actionType === "code.run")).toBe(false);
   });
 
+  it("offers bounded rework and reaudit for blocked audit without exposing apply", () => {
+    const inspector = buildDecisionInspector({
+      selectedTopic: {
+        id: "change-1",
+        name: "change-1",
+        title: "Change 1",
+        state: "active",
+        path: "harness/changes/active/change-1",
+        change: null,
+        runs: [],
+        taskQueues: [],
+        taskQueueItems: [],
+        taskRuns: [],
+        workerLeases: [],
+        worktrees: [],
+        validations: [],
+        audits: [{
+          id: "audit-1",
+          runId: "audit-run-1",
+          status: "blocked",
+          worktreeId: "wt-1",
+          finishedAt: "2026-06-22T00:00:00.000Z",
+        }],
+        threadItems: [],
+      },
+      workpad: {
+        resultReview: {
+          status: "needs-rework",
+          title: "需要修改",
+          summary: "审查未通过，需要修改。",
+          worktreeId: "wt-1",
+          changedFiles: ["src/example.ts"],
+          audit: { id: "audit-1", runId: "audit-run-1", status: "blocked" },
+          applyReadiness: {
+            ready: false,
+            kind: "not-approved",
+            label: "not approved",
+            message: "验证或审查还没有通过，反馈会进入下一轮修改。",
+            blockingIssues: ["Audit blocked."],
+            warnings: [],
+          },
+          evidence: [],
+        },
+        taskGraph: { nodes: [] },
+      },
+      approvals: [],
+      decisions: [],
+    });
+
+    expect(inspector.primary).toMatchObject({
+      kind: "audit-blocked",
+      changeId: "change-1",
+      runId: "audit-run-1",
+    });
+    expect(inspector.primary?.actions).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        actionType: "result.refresh-rework",
+        changeId: "change-1",
+        worktreeId: "wt-1",
+        requiresConfirmation: true,
+      }),
+      expect.objectContaining({
+        actionType: "result.reaudit",
+        changeId: "change-1",
+        worktreeId: "wt-1",
+        requiresConfirmation: true,
+      }),
+    ]));
+    expect(inspector.primary?.actions.some((action) => action.action?.actionId === "result.apply")).toBe(false);
+  });
+
   it("dedupes only the matching result-review apply approval and preserves other apply targets", () => {
     const inspector = buildDecisionInspector({
       selectedTopic: { id: "change-1", title: "Change 1", state: "active", validations: [], audits: [] },
