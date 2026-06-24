@@ -2696,7 +2696,7 @@ export function buildTypedWorkflowNextAction(input: {
           };
         }
         return {
-          ...workflowNextAction("planning.scheduler.worker.start-first", "启动第一个 worker", "用户已确认并行执行计划启动意图；本操作只启动 latest claim reservation 中第一个 runnable claim 的 coder stage。"),
+          ...workflowNextAction("planning.scheduler.worker.start-first", "开始第一个任务", "用户已确认低冲突执行方向；本操作只开始当前准备记录中的第一个可执行编码任务。"),
           decompositionPlanId: decompositionPlan.id,
           readinessManifestId: decompositionReadiness.id,
           schedulerContractId: schedulerRun.schedulerContractId,
@@ -2710,7 +2710,7 @@ export function buildTypedWorkflowNextAction(input: {
         };
       }
       return {
-        ...workflowNextAction("planning.scheduler.plan.prepare", "确认启动这个并行执行计划", "主 Agent 会重读 prepared scheduler evidence，输出可读 launch brief 并记录你的整体启动意图；本阶段不会启动 worker。"),
+        ...workflowNextAction("planning.scheduler.plan.prepare", "确认低冲突执行方向", "主 Agent 会重读当前准备证据，输出可读启动摘要并记录你的整体启动意图；本阶段不会开始写代码。"),
         decompositionPlanId: decompositionPlan.id,
         readinessManifestId: decompositionReadiness.id,
         schedulerContractId: schedulerRun.schedulerContractId,
@@ -2724,7 +2724,7 @@ export function buildTypedWorkflowNextAction(input: {
       };
     }
     return {
-      ...workflowNextAction("planning.scheduler.plan.prepare", "准备并行执行计划", "主 Agent 一次性补齐 scheduler pre-executor evidence，并在对话里解释计划；不会启动 scheduler、worker、lease、worktree 或 run。"),
+      ...workflowNextAction("planning.scheduler.plan.prepare", "准备低冲突任务执行路径", "主 Agent 会整理低冲突任务执行前的必要证据，并在对话里解释计划；不会开始任务、创建工作副本或运行代码。"),
       decompositionPlanId: decompositionPlan.id,
       readinessManifestId: decompositionReadiness.id,
     };

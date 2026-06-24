@@ -2,7 +2,7 @@
 
 ## Current Handoff
 
-- Current date: 2026-06-24.
+- Current date: 2026-06-25.
 - Active ECL change: none.
 - Pending Harness evolution: none.
 - Latest archived product change: `harness/changes/archive/20260624-workbench-scoped-automation-bounded-rework-acceptance-v1/summary.md`.
@@ -12,6 +12,7 @@
 - Latest verification convergence: `harness/changes/archive/20260623-workbench-verification-runtime-convergence/summary.md`.
 - Latest real-Codex acceptance: `harness/changes/archive/20260623-workbench-current-project-real-codex-acceptance/summary.md`.
 - Latest completed Harness evolution: `harness/changes/archive/20260624-auto-evolve-post-bounded-rework-window/summary.md`.
+- Latest scheduler reachability change: `harness/changes/archive/20260625-workbench-low-conflict-taskgraph-scheduler-reachability-v1/summary.md`.
 
 The latest product change is archived at
 `harness/changes/archive/20260624-workbench-scoped-automation-bounded-rework-acceptance-v1/summary.md`.
@@ -62,14 +63,29 @@ scripts.
 
 ## Next Resume Point
 
-No active change is open. Next recommended work:
+No pre-existing active change remains.
 
-- If continuing product capability, design the next scoped automation profile
-  or broader Goal-driven loop slice from the proven human gates.
-- If improving verification cost, target remaining Workbench aggregate/runtime
-  topology debt without moving deep/release paths back into the daily gate.
-- Keep automatic apply/close/merge, remote landing, Harness evolution, and
-  parallel executor as separate later profiles.
+Latest result:
+
+- Implemented low-conflict TaskGraph readiness for explicit independent source
+  scopes.
+- Verified raw `planning.scheduler.*` actions are not directly consumed by
+  `完全访问权限`.
+- Real E-drive UI acceptance reached scheduler preparation, generated Goal Loop
+  packet/controller/preflight evidence through scoped automation, entered the
+  existing controlled scheduler path, and reached scheduler worker start.
+- Final stop: the external acceptance source lacked `node_modules`, so the
+  worktree dependency bridge failed closed before Codex code execution. Source
+  root stayed clean.
+
+Next recommended work:
+
+- If continuing scheduler execution acceptance, prepare a fresh E-drive sandbox
+  with dependencies installed, then test scheduler worker validation/audit and
+  integration progression.
+- Do not add raw scheduler actions to `完全访问权限`.
+- Keep automatic apply/close/merge, remote landing, Harness evolution, and full
+  parallel executor out of scope.
 
 ## Verification Commands
 

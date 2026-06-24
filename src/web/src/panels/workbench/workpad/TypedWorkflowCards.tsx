@@ -262,7 +262,7 @@ export function SchedulerControlledStepEvidenceCard({ step }: { step: NonNullabl
         <span>{humanStatus(step.status)}</span>
       </div>
       <p className="workpad-goal">已执行一个用户确认的 Scheduler 步骤，并在完成后停止</p>
-      <p className="workpad-note">只读 runtime evidence；不授权自动循环、批量派发、slot 分配、source apply、close、merge、远端落地或 Harness evolution。</p>
+      <p className="workpad-note">只读 runtime evidence；不授权自动循环、批量启动任务、slot 分配、source apply、close、merge、远端落地或 Harness evolution。</p>
       <div className="workpad-chip-list">
         <span>执行：{step.executedActionType}</span>
         <span>后续状态：{step.postStepStatus}</span>
@@ -317,7 +317,7 @@ export function SchedulerControlledStepEvidenceCard({ step }: { step: NonNullabl
           </div>
           <div className="workpad-evidence">
             <strong>权限边界</strong>
-            <span>不授权自动循环、批量派发或 source 变更</span>
+            <span>不授权自动循环、批量启动任务或 source 变更</span>
           </div>
         </div>
       ) : null}
@@ -337,7 +337,7 @@ export function SchedulerControlledStepEvidenceCard({ step }: { step: NonNullabl
           </div>
           <div className="workpad-evidence">
             <strong>继续边界</strong>
-            <span>只能通过右侧确认区继续；不会自动循环、批量派发、应用源码、关闭需求或远端落地</span>
+            <span>只能通过右侧确认区继续；不会自动循环、批量启动任务、应用源码、关闭需求或远端落地</span>
           </div>
         </div>
       ) : null}
@@ -353,7 +353,7 @@ export function SchedulerControlledStepEvidenceCard({ step }: { step: NonNullabl
           </div>
           <div className="workpad-evidence">
             <strong>继续边界</strong>
-            <span>仍需右侧确认区单独确认；不会自动循环、批量派发、应用源码、关闭需求或远端落地</span>
+            <span>仍需右侧确认区单独确认；不会自动循环、批量启动任务、应用源码、关闭需求或远端落地</span>
           </div>
         </div>
       ) : null}

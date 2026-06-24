@@ -1,6 +1,6 @@
 import { runScopedAutomation } from "../../../automation-runtime/runner.js";
 import { captureAcceptedArtifactHashes, captureAutomationSourceState } from "../../../automation-runtime/safety.js";
-import { isScopedAutomationTerminalHumanGate } from "../../../automation-runtime/policy.js";
+import { isScopedAutomationAllowedAction, isScopedAutomationTerminalHumanGate, scopedAutomationActionPriority } from "../../../automation-runtime/policy.js";
 import type { ScopedAutomationChildGate } from "../../../automation-runtime/runner.js";
 import type { AutomationStopReason } from "../../../automation-runtime/types.js";
 import { assertWritableMemory } from "../../../memory/resolver.js";
@@ -124,7 +124,7 @@ async function resolveCurrentPrimaryAutomationGate(
   const primary = snapshot.right.confirmationQueue.primary;
   if (!primary) return { stopReason: "no-primary-gate", summary: "当前没有需要确认的主 gate。" };
   if (primary.changeId && primary.changeId !== changeId) return { stopReason: "stale-target", summary: "当前主 gate 已漂移到其他 Change。" };
-  const action = primary.actions.find((item) => item.kind === "workflow-action" && item.enabled && item.actionType);
+  const action = chooseCurrentAutomationWorkflowAction(primary.actions);
   if (!action) {
     const disabledWorkflow = primary.actions.find((item) => item.kind === "workflow-action" && item.actionType);
     if (disabledWorkflow) return { stopReason: "blocked", summary: disabledWorkflow.disabledReason ?? "当前 workflow gate 暂不可执行。" };
@@ -132,6 +132,18 @@ async function resolveCurrentPrimaryAutomationGate(
   }
   if (action.changeId && action.changeId !== changeId) return { stopReason: "stale-target", summary: "当前 workflow gate 已漂移到其他 Change。" };
   return { kind: "workflow-action", ...decisionActionToWorkflowRequest(action, changeId) };
+}
+
+function chooseCurrentAutomationWorkflowAction(actions: WorkbenchDecisionAction[]): WorkbenchDecisionAction | undefined {
+  const candidates = actions.filter((item) =>
+    item.kind === "workflow-action"
+    && item.enabled
+    && item.actionType
+    && isScopedAutomationAllowedAction(item.actionType)
+  );
+  return candidates
+    .map((action, index) => ({ action, index, priority: scopedAutomationActionPriority(action.actionType) }))
+    .sort((left, right) => right.priority - left.priority || left.index - right.index)[0]?.action;
 }
 
 function getAutomationInternalSnapshot(

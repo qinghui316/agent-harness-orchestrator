@@ -146,7 +146,9 @@ Current architecture debt register:
 ## Next Product Direction
 
 No structured product change is currently active, and no Harness evolution is
-pending. The latest archived product change is
+pending. The latest scheduler reachability change is
+`harness/changes/archive/20260625-workbench-low-conflict-taskgraph-scheduler-reachability-v1/summary.md`.
+The latest scoped automation product change is
 `harness/changes/archive/20260624-workbench-scoped-automation-bounded-rework-acceptance-v1/summary.md`.
 Current baseline:
 
@@ -167,6 +169,13 @@ Current baseline:
 - Daily `npm run test:workbench` is the fast Workbench unit-capability gate;
   full-chain scheduler/apply/Goal Loop coverage remains in explicit
   release/deep scripts such as `npm run test:workbench:release`.
+- Low-conflict TaskGraph reachability has implemented strict explicit
+  source-scope readiness and user-facing scheduler copy hardening. E-drive real
+  UI acceptance reached scheduler preparation, prepared Goal Loop
+  packet/controller/preflight evidence through scoped automation, entered the
+  existing controlled scheduler path, and reached scheduler worker start. The
+  run then stopped at a real dependency setup blocker because the external
+  source root lacked `node_modules`; source root stayed clean.
 
 Latest evolution and archive lookup:
 
@@ -178,7 +187,17 @@ Latest evolution and archive lookup:
   sandbox evidence, old blocker history, and per-run ids; do not copy that
   history into current handoff docs.
 
-Next work should be chosen from one concrete track:
+Next work should not assume a full parallel executor exists:
+
+- For scheduler execution acceptance, use a fresh E-drive sandbox with
+  dependencies installed and test scheduler worker validation/audit plus
+  integration progression.
+- Do not put raw `planning.scheduler.*` actions into the `完全访问权限` allowlist.
+- Do not widen into full parallel executor, automatic apply/close/merge, remote
+  landing, or Harness evolution without a separate accepted design.
+
+After the active change is closed or parked, next work should be chosen from one
+concrete track:
 
 - Product capability: design the next scoped automation profile or broader
   Goal-driven loop slice from the proven gates, without auto apply/close/merge,

@@ -7,7 +7,7 @@ import { buildGoalLoopContextPreparedEvidence, goalLoopPromptStackLabels } from 
 import { getWorkbenchSnapshot } from "../../src/workbench/manager.js";
 import { buildConfirmationQueue } from "../../src/workbench/projections/read-model/confirmation-queue.js";
 import { buildControlledSchedulerWorkpadReconfirmation } from "../../src/workbench/projections/read-model/confirmation/controlled-scheduler-reconfirmation.js";
-import { attachControlledSchedulerAdvanceActions, attachGoalLoopAssistedConcreteGateActions, attachGoalLoopControlledContinuationActions, attachGoalLoopControllerRefreshActions, attachGoalLoopFeedbackActions, attachGoalLoopGateReadinessActions } from "../../src/workbench/projections/read-model/confirmation/goal-loop.js";
+import { attachControlledSchedulerAdvanceActions, attachGoalLoopAssistedConcreteGateActions, attachGoalLoopControlledContinuationActions, attachGoalLoopControllerRefreshActions, attachGoalLoopFeedbackActions, attachGoalLoopGateReadinessActions, attachGoalLoopSchedulerEvaluationActions } from "../../src/workbench/projections/read-model/confirmation/goal-loop.js";
 import { buildControlledSchedulerNextCandidate } from "../../src/workbench/projections/read-model/goal-loop-next-candidate.js";
 import { schedulerControlledAdvanceCopy, schedulerUserFacingActionCopy } from "../../src/workbench/projections/read-model/confirmation/scheduler-user-surface.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
@@ -274,6 +274,73 @@ describe("workbench Goal Loop surface", () => {
         requiresConfirmation: true,
       }),
     ]));
+  });
+
+  it("adds a Goal Loop preparation action to supported scheduler gates without making raw scheduler actions automatic", () => {
+    const currentGate = {
+      id: "confirm:scheduler-worker-next:member-discount",
+      kind: "planning-confirm",
+      conversationId: "member-discount",
+      changeId: "member-discount",
+      schedulerRunId: "scheduler-run-1",
+      schedulerClaimReservationId: "claim-reservation-expected",
+      reservationIntentId: "reservation-intent-2",
+      claimIntentId: "claim-2",
+      summary: "启动下一个任务。",
+      whyNeedsConfirmation: "这是当前可见 Harness gate。",
+      confirmEffect: "只启动指定 next task。",
+      riskSummary: "不会自动启动后续 validation/audit。",
+      evidenceRefs: [],
+      actions: [{
+        id: "workflow:planning.scheduler.worker.start-next:member-discount",
+        label: "开始下一个任务",
+        kind: "workflow-action",
+        actionType: "planning.scheduler.worker.start-next",
+        changeId: "member-discount",
+        schedulerRunId: "scheduler-run-1",
+        schedulerClaimReservationId: "claim-reservation-expected",
+        reservationIntentId: "reservation-intent-2",
+        claimIntentId: "claim-2",
+        enabled: true,
+        requiresConfirmation: true,
+      }],
+      primary: true,
+      status: "pending",
+    } as const;
+    const workpad = {
+      nextAction: {
+        kind: "workflow-action",
+        actionType: "planning.scheduler.worker.start-next",
+        changeId: "member-discount",
+        schedulerRunId: "scheduler-run-1",
+        schedulerClaimReservationId: "claim-reservation-expected",
+        reservationIntentId: "reservation-intent-2",
+        claimIntentId: "claim-2",
+        enabled: true,
+        requiresConfirmation: true,
+      },
+    } as const;
+
+    const [advanceItem] = attachControlledSchedulerAdvanceActions([currentGate], workpad as never);
+    const [item] = attachGoalLoopSchedulerEvaluationActions(
+      [advanceItem],
+      project(),
+      { id: "member-discount", state: "active" } as never,
+      workpad as never,
+    );
+
+    expect(item.actions).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        actionType: "planning.scheduler.controlled-advance.run",
+        goalLoopCurrentGateActionType: "planning.scheduler.worker.start-next",
+      }),
+      expect.objectContaining({
+        actionType: "planning.goal-loop.evaluate",
+        label: "准备连续推进",
+        changeId: "member-discount",
+      }),
+    ]));
+    expect(item.actions.some((action) => action.actionType === "planning.scheduler.worker.start-next")).toBe(false);
   });
 
   it("projects controlled scheduler step instead of duplicate concrete action when preflight evidence is ready", async () => {

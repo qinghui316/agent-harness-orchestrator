@@ -41,7 +41,7 @@ export async function readControlledSchedulerStepTrace(
     return {
       label: "受控推进轨迹",
       body: `最近 ${items.length} 个受控步骤都已在完成后主动停止；继续仍要回到右侧确认区重新确认当前步骤。`,
-      boundary: "这是只读轨迹，不会自动继续、连续循环、批量派发、分配资源、应用源码、关闭需求、远端落地或维护演进。",
+      boundary: "这是只读轨迹，不会自动继续、连续循环、批量启动任务、分配资源、应用源码、关闭需求、远端落地或维护演进。",
       items,
       evidenceRefs: unique(items.flatMap((item) => item.evidenceRefs)).slice(0, limit),
       updatedAt: items[0]?.updatedAt,
@@ -70,7 +70,7 @@ export function controlledSchedulerStepReceiptFromDecision(
     executedStepLabel,
     nextStepLabel,
     readinessLabel: readinessLabel(handoff.status),
-    boundary: "已主动停止；是否继续仍需要你重新确认下一步。不会自动连续执行、批量派发、分配资源、应用源码、关闭需求或远端落地。",
+    boundary: "已主动停止；是否继续仍需要你重新确认下一步。不会自动连续执行、批量启动任务、分配资源、应用源码、关闭需求或远端落地。",
     humanConfirmationStillRequired: true,
     evidenceRefs: record.artifact ? [record.artifact] : [],
     decisionId: record.id,

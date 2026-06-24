@@ -37,6 +37,23 @@ describe("workbench planning and scheduler preparation", () => {
     expect(acceptedText).not.toContain("pricing rule");
   });
 
+  it("splits deterministic planning tasks for explicit independent source scopes", async () => {
+    await initHarness(project());
+    const memory = await resolveProjectMemory(project());
+    const prompt = "请并行独立修改 src/alpha.ts 和 src/beta.ts：分别新增 alphaLabel 和 betaLabel 导出，并保持两个文件互不依赖。";
+
+    const bundle = buildDeterministicPlanningBundle(memory, "harness/changes/active/parallel-files", "parallel-files", prompt, null, false);
+
+    expect(bundle.tasks).toEqual([
+      expect.objectContaining({ id: "T-001", title: expect.stringContaining("src/alpha.ts"), acIds: ["AC-001"] }),
+      expect.objectContaining({ id: "T-002", title: expect.stringContaining("src/beta.ts"), acIds: ["AC-001"] }),
+    ]);
+    expect(bundle.tasksMd).toContain("T-001");
+    expect(bundle.tasksMd).toContain("src/alpha.ts");
+    expect(bundle.tasksMd).toContain("T-002");
+    expect(bundle.tasksMd).toContain("src/beta.ts");
+  });
+
   it("projects confirmed planning next action into the right confirmation queue", async () => {
     await initHarness(project());
     const topic = await createWorkbenchTopic(project(), {
@@ -405,13 +422,15 @@ describe("workbench planning and scheduler preparation", () => {
     const planId = (draft.result as { result?: { plan?: { id?: string } } }).result?.plan?.id;
     const planPath = join(changeDir, "planning", "decomposition-plan.json");
     const plan = JSON.parse(await readFile(planPath, "utf8"));
-    plan.units[0].scopeHints = ["src/module-a.ts"];
-    plan.units[1].scopeHints = ["src/module-b.ts"];
-    plan.units[0].dependsOn = [];
-    plan.units[1].dependsOn = [];
-    plan.dependencies = [];
-    plan.conflictScopes = ["src/module-a.ts", "src/module-b.ts"];
-    await writeFile(planPath, JSON.stringify(plan, null, 2), "utf8");
+    expect(plan).toMatchObject({
+      recommendation: "taskgraph-parallel-candidate",
+      units: [
+        expect.objectContaining({ scopeHints: ["src/module-a.ts"], dependsOn: [] }),
+        expect.objectContaining({ scopeHints: ["src/module-b.ts"], dependsOn: [] }),
+      ],
+      dependencies: [],
+      conflictScopes: ["src/module-a.ts", "src/module-b.ts"],
+    });
 
     await executeWorkbenchAction({ project: project(), path: tempDir }, {
       actionType: "planning.decomposition.confirm",
@@ -457,7 +476,7 @@ describe("workbench planning and scheduler preparation", () => {
     expect(snapshot.right.confirmationQueue.current.flatMap((item) => item.actions).map((action) => action.actionType))
       .not.toContain("planning.scheduler.contract.compile");
     expect(snapshot.right.confirmationQueue.primary?.actions).toEqual(expect.arrayContaining([
-      expect.objectContaining({ actionType: "planning.scheduler.plan.prepare", label: "准备并行执行计划" }),
+      expect.objectContaining({ actionType: "planning.scheduler.plan.prepare", label: "准备低冲突任务执行路径" }),
     ]));
 
     const prepared = await executeWorkbenchAction({ project: project(), path: tempDir }, {
@@ -543,13 +562,13 @@ describe("workbench planning and scheduler preparation", () => {
     });
     expect(reservedSnapshot.center.workpad.nextAction).toMatchObject({
       actionType: "planning.scheduler.plan.prepare",
-      label: "确认启动这个并行执行计划",
+      label: "确认低冲突执行方向",
       schedulerRunId: schedulerRun?.id,
       schedulerReconcileSnapshotId: reconcileSnapshot?.id,
       schedulerClaimReservationId: claimReservation?.id,
     });
     expect(reservedSnapshot.right.confirmationQueue.primary?.actions).toEqual(expect.arrayContaining([
-      expect.objectContaining({ actionType: "planning.scheduler.plan.prepare", label: "确认启动这个并行执行计划" }),
+      expect.objectContaining({ actionType: "planning.scheduler.plan.prepare", label: "确认低冲突执行方向" }),
     ]));
     const schedulerActions = reservedSnapshot.right.confirmationQueue.current.flatMap((item) => item.actions).map((action) => action.actionType);
     expect(schedulerActions).toContain("planning.scheduler.plan.prepare");
@@ -590,5 +609,110 @@ describe("workbench planning and scheduler preparation", () => {
     expect(await listWorktreeStatuses(beforeMemory)).toHaveLength(0);
     expect((await listRuns(beforeMemory)).filter((run) => run.changeId === topic.changeId)).toHaveLength(0);
 
+  });
+
+  it.each([
+    {
+      name: "ambiguous source scope",
+      scopes: [["selected-demand"], ["src/module-b.ts"]],
+      dependencies: [] as Array<{ from: string; to: string; kind: string }>,
+      dependsOn: [[], []],
+      conflictScopes: ["src/module-b.ts"],
+      reason: "every unit needs explicit source scopes",
+    },
+    {
+      name: "overlapping source scopes",
+      scopes: [["src/module"], ["src/module/sub.ts"]],
+      dependencies: [] as Array<{ from: string; to: string; kind: string }>,
+      dependsOn: [[], []],
+      conflictScopes: ["src/module", "src/module/sub.ts"],
+      reason: "source scopes overlap",
+    },
+    {
+      name: "dependent units",
+      scopes: [["src/module-a.ts"], ["src/module-b.ts"]],
+      dependencies: [{ from: "DU-001", to: "DU-002", kind: "blocks" }],
+      dependsOn: [[], ["DU-001"]],
+      conflictScopes: ["src/module-a.ts", "src/module-b.ts"],
+      reason: "dependent or conflict-linked units must run sequentially",
+    },
+  ])("blocks scheduler readiness for $name", async ({ scopes, dependencies, dependsOn, conflictScopes, reason }) => {
+    await initHarness(project());
+    const topic = await createWorkbenchTopic(project(), {
+      title: "Blocked Parallel Scheduler Contract",
+      body: "Split this into independent parallel work across multiple modules.",
+    });
+    await writeAcceptedSpecAndTasks(topic.changeId);
+    const changeDir = join(tempDir, "harness", "changes", "active", topic.changeId);
+    await writeFile(join(changeDir, "tasks.md"), [
+      "# Tasks",
+      "",
+      "- [ ] T-001: Update module A.",
+      "  - Covers: AC-001",
+      "- [ ] T-002: Update module B.",
+      "  - Covers: AC-001",
+      "",
+    ].join("\n"), "utf8");
+    await writePlanningBundleFixture(topic.changeId, "Implement independent parallel module updates.");
+    const bundlePath = join(changeDir, "planning", "latest-bundle.json");
+    const bundle = JSON.parse(await readFile(bundlePath, "utf8"));
+    bundle.status = "confirmed";
+    bundle.tasks = [
+      { id: "T-001", title: "Update module A", acIds: ["AC-001"] },
+      { id: "T-002", title: "Update module B", acIds: ["AC-001"] },
+    ];
+    bundle.tasksMd = "- [ ] T-001: Update module A\n  - Covers: AC-001\n- [ ] T-002: Update module B\n  - Covers: AC-001\n";
+    await writeFile(bundlePath, JSON.stringify(bundle, null, 2), "utf8");
+
+    const draft = await executeWorkbenchAction({ project: project(), path: tempDir }, {
+      actionType: "planning.decompose",
+      changeId: topic.changeId,
+      prompt: "并行 独立 src/module-a.ts src/module-b.ts",
+      confirm: true,
+    });
+    const planId = (draft.result as { result?: { plan?: { id?: string } } }).result?.plan?.id;
+    const planPath = join(changeDir, "planning", "decomposition-plan.json");
+    const plan = JSON.parse(await readFile(planPath, "utf8"));
+    plan.units[0].scopeHints = scopes[0];
+    plan.units[1].scopeHints = scopes[1];
+    plan.units[0].dependsOn = dependsOn[0];
+    plan.units[1].dependsOn = dependsOn[1];
+    plan.dependencies = dependencies;
+    plan.conflictScopes = conflictScopes;
+    await writeFile(planPath, JSON.stringify(plan, null, 2), "utf8");
+
+    await executeWorkbenchAction({ project: project(), path: tempDir }, {
+      actionType: "planning.decomposition.confirm",
+      changeId: topic.changeId,
+      decompositionPlanId: planId,
+      confirm: true,
+    });
+    const readiness = await executeWorkbenchAction({ project: project(), path: tempDir }, {
+      actionType: "planning.decomposition.assess-readiness",
+      changeId: topic.changeId,
+      decompositionPlanId: planId,
+      confirm: true,
+    });
+    const manifest = (readiness.result as { result?: { manifest?: { status?: string; nextAllowedAction?: string; guardrails?: Array<{ id?: string; status?: string; summary?: string }> } } }).result?.manifest;
+    expect(manifest).toMatchObject({
+      status: "blocked-parallel-guardrails",
+      nextAllowedAction: "none",
+    });
+    expect(manifest?.guardrails).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: "parallel-low-conflict-guardrails",
+        status: "blocked",
+        summary: expect.stringContaining(reason),
+      }),
+    ]));
+
+    const snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: topic.changeId });
+    expect(snapshot.center.workpad.decompositionReadiness).toMatchObject({
+      status: "blocked-parallel-guardrails",
+      nextAllowedAction: "none",
+    });
+    const actions = snapshot.right.confirmationQueue.current.flatMap((item) => item.actions).map((action) => action.actionType);
+    expect(actions).not.toContain("planning.scheduler.plan.prepare");
+    expect(actions).not.toContain("planning.scheduler.contract.compile");
   });
 });

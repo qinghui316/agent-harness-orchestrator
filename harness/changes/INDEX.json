@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-24T15:20:41.5926218Z",
+    "generated_at":  "2026-06-24T17:14:26.3586348Z",
     "active":  [
 
                ],
@@ -1865,6 +1865,10 @@
                     {
                         "name":  "20260624-workbench-two-tier-scoped-automation-authorization-v1",
                         "path":  "harness/changes/archive/20260624-workbench-two-tier-scoped-automation-authorization-v1"
+                    },
+                    {
+                        "name":  "20260625-workbench-low-conflict-taskgraph-scheduler-reachability-v1",
+                        "path":  "harness/changes/archive/20260625-workbench-low-conflict-taskgraph-scheduler-reachability-v1"
                     }
                 ]
 }

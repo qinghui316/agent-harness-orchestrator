@@ -198,7 +198,7 @@ function buildAlignedStopPosture(input: {
     stopReasonLabel: stopReasonLabel(summary.stopReason),
     nextStepLabel,
     readinessLabel: readinessLabel(summary.continuationReadinessStatus),
-    boundary: "这是只读停止状态摘要；不会自动继续、批量派发、分配资源、应用源码、关闭需求、远端落地或维护演进。",
+    boundary: "这是只读停止状态摘要；不会自动继续、批量启动任务、分配资源、应用源码、关闭需求、远端落地或维护演进。",
     evidenceRefs: unique([...input.evidenceRefs, ...(summary.evidenceRefs ?? [])]),
     humanConfirmationStillRequired: true,
     executionStarted: false,
@@ -232,7 +232,7 @@ export function controlledSchedulerSourceGateActionType(action: WorkbenchDecisio
 }
 
 function boundaryText(): string {
-  return "这是只读重新确认状态；不会自动继续、批量派发、分配资源、应用源码、关闭需求、远端落地或维护演进。";
+  return "这是只读重新确认状态；不会自动继续、批量启动任务、分配资源、应用源码、关闭需求、远端落地或维护演进。";
 }
 
 function unique(values: string[]): string[] {

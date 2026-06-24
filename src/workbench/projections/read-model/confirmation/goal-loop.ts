@@ -184,6 +184,40 @@ export function attachControlledSchedulerAdvanceActions(
   });
 }
 
+export function attachGoalLoopSchedulerEvaluationActions(
+  items: WorkbenchConfirmationQueueItem[],
+  project: ManagedProject | null,
+  selectedTopic: WorkbenchTopicDetail | null,
+  workpad: WorkbenchWorkpad,
+): WorkbenchConfirmationQueueItem[] {
+  if (!project || !selectedTopic || selectedTopic.state !== "active") return items;
+  if (workpad.goalLoop?.goalLoopNextStepPacketId) return items;
+  return items.map((item) => {
+    if (!isSelectedTopicItem(item, selectedTopic.id)) return item;
+    const hasControlledSchedulerAdvance = item.actions.some((action) =>
+      action.kind === "workflow-action"
+      && action.enabled
+      && action.actionType === CONTROLLED_SCHEDULER_ADVANCE_ACTION_TYPE
+    );
+    if (!hasControlledSchedulerAdvance || item.actions.some((action) => action.actionType === "planning.goal-loop.evaluate")) return item;
+    return {
+      ...item,
+      actions: [
+        ...item.actions,
+        {
+          id: `workflow:planning.goal-loop.evaluate:${selectedTopic.id}:scheduler-continuation`,
+          label: "准备连续推进",
+          kind: "workflow-action",
+          changeId: selectedTopic.id,
+          actionType: "planning.goal-loop.evaluate",
+          enabled: true,
+          requiresConfirmation: true,
+        },
+      ],
+    };
+  });
+}
+
 export function attachGoalLoopControlledContinuationActions(
   items: WorkbenchConfirmationQueueItem[],
   workpad: WorkbenchWorkpad,
@@ -552,6 +586,10 @@ function isStringArray(value: unknown): value is string[] {
 
 function isString(value: unknown): value is string {
   return typeof value === "string";
+}
+
+function isSelectedTopicItem(item: WorkbenchConfirmationQueueItem, selectedChangeId: string): boolean {
+  return item.changeId === selectedChangeId || item.conversationId === selectedChangeId;
 }
 
 function mergeEvidenceRefs(existing: string[], additional: string[]): string[] {

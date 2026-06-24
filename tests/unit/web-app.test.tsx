@@ -530,6 +530,113 @@ function applyQueueItem() {
   } as const;
 }
 
+function rawSchedulerQueueItem() {
+  return {
+    id: "confirm:scheduler:start-next:member-discount",
+    kind: "planning-confirm",
+    conversationId: "member-discount",
+    changeId: "member-discount",
+    summary: "下一个低冲突任务可以开始。",
+    whyNeedsConfirmation: "这是当前阶段门，必须通过受控连续推进包装后才能进入完全访问权限。",
+    confirmEffect: "只开始一个任务，不会应用结果或关闭需求。",
+    riskSummary: "不是完整并行执行器。",
+    evidenceRefs: ["scheduler-run.md"],
+    primary: true,
+    status: "pending",
+    actions: [{
+      id: "workflow:planning.scheduler.worker.start-next:claim-1",
+      label: "开始下一个任务",
+      kind: "workflow-action",
+      enabled: true,
+      requiresConfirmation: true,
+      actionType: "planning.scheduler.worker.start-next",
+      changeId: "member-discount",
+      schedulerRunId: "scheduler-run-1",
+      schedulerClaimReservationId: "claim-reservation-1",
+      reservationIntentId: "reservation-1",
+      claimIntentId: "claim-1",
+    }],
+  } as const;
+}
+
+function schedulerPreparationQueueItem() {
+  return {
+    ...rawSchedulerQueueItem(),
+    actions: [
+      {
+        id: "workflow:planning.scheduler.controlled-advance.run:claim-1",
+        label: "继续执行下一个任务",
+        kind: "workflow-action",
+        enabled: true,
+        requiresConfirmation: true,
+        actionType: "planning.scheduler.controlled-advance.run",
+        changeId: "member-discount",
+        goalLoopCurrentGateActionType: "planning.scheduler.worker.start-next",
+        schedulerRunId: "scheduler-run-1",
+        schedulerClaimReservationId: "claim-reservation-1",
+        reservationIntentId: "reservation-1",
+        claimIntentId: "claim-1",
+      },
+      {
+        id: "workflow:planning.goal-loop.evaluate:member-discount:scheduler-continuation",
+        label: "准备连续推进",
+        kind: "workflow-action",
+        enabled: true,
+        requiresConfirmation: true,
+        actionType: "planning.goal-loop.evaluate",
+        changeId: "member-discount",
+      },
+    ],
+  } as const;
+}
+
+function schedulerGateReadinessQueueItem() {
+  return {
+    ...rawSchedulerQueueItem(),
+    actions: [
+      {
+        id: "workflow:planning.goal-loop.controller.refresh:packet-1",
+        label: "刷新下一步判断",
+        kind: "workflow-action",
+        enabled: true,
+        requiresConfirmation: true,
+        actionType: "planning.goal-loop.controller.refresh",
+        changeId: "member-discount",
+        goalLoopNextStepPacketId: "packet-1",
+        goalLoopCurrentGateActionType: "planning.scheduler.worker.start-next",
+        schedulerRunId: "scheduler-run-1",
+        schedulerClaimReservationId: "claim-reservation-1",
+      },
+      {
+        id: "workflow:planning.goal-loop.gate-readiness.prepare:policy-1",
+        label: "检查当前步骤",
+        kind: "workflow-action",
+        enabled: true,
+        requiresConfirmation: true,
+        actionType: "planning.goal-loop.gate-readiness.prepare",
+        changeId: "member-discount",
+        goalLoopNextStepPacketId: "packet-1",
+        goalLoopControllerPolicyId: "policy-1",
+        goalLoopCurrentGateActionType: "planning.scheduler.worker.start-next",
+        schedulerRunId: "scheduler-run-1",
+        schedulerClaimReservationId: "claim-reservation-1",
+      },
+      {
+        id: "workflow:planning.scheduler.controlled-advance.run:claim-1",
+        label: "按当前建议继续一个受控步骤",
+        kind: "workflow-action",
+        enabled: true,
+        requiresConfirmation: true,
+        actionType: "planning.scheduler.controlled-advance.run",
+        changeId: "member-discount",
+        goalLoopCurrentGateActionType: "planning.scheduler.worker.start-next",
+        schedulerRunId: "scheduler-run-1",
+        schedulerClaimReservationId: "claim-reservation-1",
+      },
+    ],
+  } as const;
+}
+
 describe("Workbench web app", () => {
   beforeEach(() => {
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
@@ -870,6 +977,140 @@ describe("Workbench web app", () => {
     expect(screen.queryByRole("button", { name: "完全访问权限" })).toBeNull();
   });
 
+  it("does not offer full-access directly for raw scheduler workflow gates", () => {
+    const execute = vi.fn(async () => undefined);
+    render(
+      <DecisionInspectorPane
+        inspector={{ primary: null, related: [], history: [] }}
+        confirmationQueue={{
+          primary: rawSchedulerQueueItem(),
+          current: [rawSchedulerQueueItem()],
+          otherDemands: [],
+          maintenance: [],
+          history: [],
+        }}
+        confirming={null}
+        busy={false}
+        error={null}
+        onConfirmingChange={() => undefined}
+        onExecuteAction={execute}
+        onFeedback={async () => undefined}
+        onSelectContext={() => undefined}
+      />,
+    );
+
+    const card = screen.getByTestId("decision-inspector-primary");
+    expect(within(card).getByRole("button", { name: "开始下一个任务" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "完全访问权限" })).toBeNull();
+    expect(card.textContent).not.toContain("full-auto");
+    expect(card.textContent).not.toContain("parallel executor");
+    expect(card.textContent).not.toContain("merge queue");
+    expect(card.textContent).not.toContain("SchedulerContract");
+    expect(card.textContent).not.toContain("WorkerLease");
+    expect(card.textContent?.toLowerCase()).not.toContain("worker");
+    expect(card.textContent).not.toContain("dry-run");
+  });
+
+  it("offers full-access through Goal Loop preparation on supported scheduler gates", async () => {
+    const execute = vi.fn(async () => undefined);
+    function Harness() {
+      const [confirming, setConfirming] = useState<string | null>(null);
+      return (
+        <DecisionInspectorPane
+          inspector={{ primary: null, related: [], history: [] }}
+          confirmationQueue={{
+            primary: schedulerPreparationQueueItem(),
+            current: [schedulerPreparationQueueItem()],
+            otherDemands: [],
+            maintenance: [],
+            history: [],
+          }}
+          confirming={confirming}
+          busy={false}
+          error={null}
+          onConfirmingChange={setConfirming}
+          onExecuteAction={execute}
+          onFeedback={async () => undefined}
+          onSelectContext={() => undefined}
+        />
+      );
+    }
+
+    render(<Harness />);
+
+    const card = screen.getByTestId("decision-inspector-primary");
+    const fullAccessButtons = within(card).getAllByRole("button", { name: "完全访问权限" });
+    fireEvent.click(fullAccessButtons[fullAccessButtons.length - 1]!);
+    const executeFullAccessButtons = within(card).getAllByRole("button", { name: "完全访问权限" });
+    fireEvent.click(executeFullAccessButtons[executeFullAccessButtons.length - 1]!);
+    fireEvent.click(within(card).getByRole("button", { name: "确认" }));
+
+    await waitFor(() => expect(execute).toHaveBeenCalledTimes(1));
+    expect(execute.mock.calls[0]?.[0]).toMatchObject({
+      actionType: "planning.automation.scoped-auto.run",
+      automationMode: "full-access",
+      automationCurrentGateActionType: "planning.goal-loop.evaluate",
+      changeId: "member-discount",
+      maxSteps: 5,
+    });
+    expect(execute.mock.calls[0]?.[0]).not.toMatchObject({
+      automationCurrentGateActionType: "planning.scheduler.controlled-advance.run",
+    });
+    expect(card.textContent).not.toContain("full-auto");
+    expect(card.textContent).not.toContain("parallel executor");
+    expect(card.textContent).not.toContain("merge queue");
+  });
+
+  it("prioritizes gate readiness before refreshing older Goal Loop evidence for full-access", async () => {
+    const execute = vi.fn(async () => undefined);
+    function Harness() {
+      const [confirming, setConfirming] = useState<string | null>(null);
+      return (
+        <DecisionInspectorPane
+          inspector={{ primary: null, related: [], history: [] }}
+          confirmationQueue={{
+            primary: schedulerGateReadinessQueueItem(),
+            current: [schedulerGateReadinessQueueItem()],
+            otherDemands: [],
+            maintenance: [],
+            history: [],
+          }}
+          confirming={confirming}
+          busy={false}
+          error={null}
+          onConfirmingChange={setConfirming}
+          onExecuteAction={execute}
+          onFeedback={async () => undefined}
+          onSelectContext={() => undefined}
+        />
+      );
+    }
+
+    render(<Harness />);
+
+    const card = screen.getByTestId("decision-inspector-primary");
+    const modeButtons = within(card).getAllByRole("button", { name: "完全访问权限" });
+    fireEvent.click(modeButtons[0]!);
+    const submitButtons = within(card).getAllByRole("button", { name: "完全访问权限" });
+    fireEvent.click(submitButtons[submitButtons.length - 1]!);
+    fireEvent.click(within(card).getByRole("button", { name: "确认" }));
+
+    await waitFor(() => expect(execute).toHaveBeenCalledTimes(1));
+    expect(execute.mock.calls[0]?.[0]).toMatchObject({
+      actionType: "planning.automation.scoped-auto.run",
+      automationMode: "full-access",
+      automationCurrentGateActionType: "planning.goal-loop.gate-readiness.prepare",
+      changeId: "member-discount",
+      maxSteps: 5,
+    });
+    expect(execute.mock.calls[0]?.[0]).not.toMatchObject({
+      automationCurrentGateActionType: "planning.goal-loop.controller.refresh",
+    });
+    expect(execute.mock.calls[0]?.[0]).not.toMatchObject({
+      automationCurrentGateActionType: "planning.scheduler.controlled-advance.run",
+    });
+  });
+
   it("renders Chinese workbench panes and replay artifacts", async () => {
     render(<App />);
 
@@ -1142,7 +1383,7 @@ describe("Workbench web app", () => {
       summary: "当前下一步判断和步骤检查已刷新；这次仍是新的单步确认，步骤类别是：继续执行下一个任务。",
       whyNeedsConfirmation: "需要你再次确认当前页面显示的“继续执行下一个任务”；这不是自动继续。",
       confirmEffect: "服务端会重新读取当前状态，重新匹配目标和权限；匹配后只执行“继续执行下一个任务”这一当前合法步骤。",
-      riskSummary: "确认后仍会立即停止；不会自动循环、批量派发、组合检查后的应用、关闭、远端落地或维护演进。",
+      riskSummary: "确认后仍会立即停止；不会自动循环、批量启动任务、组合检查后的应用、关闭、远端落地或维护演进。",
       evidenceRefs: [],
       actions: [{
         id: "workflow:planning.scheduler.controlled-advance.run:member-discount:planning.scheduler.worker.start-next:claim-reservation-expected",
@@ -1287,7 +1528,7 @@ describe("Workbench web app", () => {
             executedStepLabel: "继续执行下一个任务",
             nextStepLabel: "检查当前结果",
             readinessLabel: "当前步骤检查已刷新。",
-            boundary: "已主动停止；是否继续仍需要你重新确认下一步。不会自动连续执行、批量派发、分配资源、应用源码、关闭需求或远端落地。",
+            boundary: "已主动停止；是否继续仍需要你重新确认下一步。不会自动连续执行、批量启动任务、分配资源、应用源码、关闭需求或远端落地。",
             humanConfirmationStillRequired: true,
             evidenceRefs: ["harness/changes/active/member-discount/planning/controlled-advance/result.json"],
             decisionId: "workflow:controlled-advance:1",
@@ -1333,7 +1574,7 @@ describe("Workbench web app", () => {
           controlledSchedulerStepTrace: {
             label: "受控推进轨迹",
             body: "最近 2 个受控步骤都已在完成后主动停止；继续仍要回到右侧确认区重新确认当前步骤。",
-            boundary: "这是只读轨迹，不会自动继续、连续循环、批量派发、分配资源、应用源码、关闭需求、远端落地或维护演进。",
+            boundary: "这是只读轨迹，不会自动继续、连续循环、批量启动任务、分配资源、应用源码、关闭需求、远端落地或维护演进。",
             updatedAt: "2026-06-20T12:10:00.000Z",
             evidenceRefs: [
               "harness/changes/active/member-discount/planning/controlled-advance/newest.json",
@@ -1347,7 +1588,7 @@ describe("Workbench web app", () => {
                 executedStepLabel: "检查当前结果",
                 nextStepLabel: "检查当前结果",
                 readinessLabel: "当前步骤检查已刷新。",
-                boundary: "已主动停止；是否继续仍需要你重新确认下一步。不会自动连续执行、批量派发、分配资源、应用源码、关闭需求或远端落地。",
+                boundary: "已主动停止；是否继续仍需要你重新确认下一步。不会自动连续执行、批量启动任务、分配资源、应用源码、关闭需求或远端落地。",
                 humanConfirmationStillRequired: true,
                 evidenceRefs: ["harness/changes/active/member-discount/planning/controlled-advance/newest.json"],
                 decisionId: "workflow:controlled-advance:newest",
@@ -1360,7 +1601,7 @@ describe("Workbench web app", () => {
                 executedStepLabel: "继续执行下一个任务",
                 nextStepLabel: "检查当前结果",
                 readinessLabel: "当前步骤检查已刷新。",
-                boundary: "已主动停止；是否继续仍需要你重新确认下一步。不会自动连续执行、批量派发、分配资源、应用源码、关闭需求或远端落地。",
+                boundary: "已主动停止；是否继续仍需要你重新确认下一步。不会自动连续执行、批量启动任务、分配资源、应用源码、关闭需求或远端落地。",
                 humanConfirmationStillRequired: true,
                 evidenceRefs: ["harness/changes/active/member-discount/planning/controlled-advance/older.json"],
                 decisionId: "workflow:controlled-advance:older",
@@ -1406,7 +1647,7 @@ describe("Workbench web app", () => {
       summary: "当前下一步判断和步骤检查已刷新；这次仍是新的单步确认，步骤类别是：继续执行下一个任务。",
       whyNeedsConfirmation: "需要你再次确认当前页面显示的“继续执行下一个任务”；这不是自动继续。",
       confirmEffect: "服务端会重新读取当前状态，重新匹配目标和权限；匹配后只执行“继续执行下一个任务”这一当前合法步骤。",
-      riskSummary: "确认后仍会立即停止；不会自动循环、批量派发、组合检查后的应用、关闭、远端落地或维护演进。",
+      riskSummary: "确认后仍会立即停止；不会自动循环、批量启动任务、组合检查后的应用、关闭、远端落地或维护演进。",
       controlledSchedulerNextCandidate: {
         status: "ready-for-confirmation",
         label: "下一步候选已刷新",
@@ -1435,7 +1676,7 @@ describe("Workbench web app", () => {
         lastStoppedStepLabel: "继续执行下一个任务",
         currentStepLabel: "继续执行下一个任务",
         freshnessLabel: "上一步停止记录、下一步候选和当前确认目标一致。",
-        boundary: "这是只读重新确认状态；不会自动继续、批量派发、分配资源、应用源码、关闭需求、远端落地或维护演进。",
+        boundary: "这是只读重新确认状态；不会自动继续、批量启动任务、分配资源、应用源码、关闭需求、远端落地或维护演进。",
         stopPosture: {
           authority: "non-executing-controlled-scheduler-stop-posture",
           status: "aligned",
@@ -1445,7 +1686,7 @@ describe("Workbench web app", () => {
           stopReasonLabel: "已完成一次确认的调度步骤并主动停止",
           nextStepLabel: "继续执行下一个任务",
           readinessLabel: "当前步骤检查已准备好",
-          boundary: "这是只读停止状态摘要；不会自动继续、批量派发、分配资源、应用源码、关闭需求、远端落地或维护演进。",
+          boundary: "这是只读停止状态摘要；不会自动继续、批量启动任务、分配资源、应用源码、关闭需求、远端落地或维护演进。",
           evidenceRefs: [
             "harness/workbench/decisions/controlled-advance-1.json",
           ],
@@ -1543,7 +1784,7 @@ describe("Workbench web app", () => {
             executedStepLabel: "继续执行下一个任务",
             nextStepLabel: "继续执行下一个任务",
             readinessLabel: "当前步骤检查已刷新。",
-            boundary: "已主动停止；是否继续仍需要你重新确认下一步。不会自动连续执行、批量派发、分配资源、应用源码、关闭需求或远端落地。",
+            boundary: "已主动停止；是否继续仍需要你重新确认下一步。不会自动连续执行、批量启动任务、分配资源、应用源码、关闭需求或远端落地。",
             humanConfirmationStillRequired: true,
             evidenceRefs: ["harness/workbench/decisions/controlled-advance-1.json"],
             decisionId: "decision-controlled-advance-1",
@@ -1584,7 +1825,7 @@ describe("Workbench web app", () => {
     expect(within(card).getByText("需要你再次确认当前页面显示的“继续执行下一个任务”；这不是自动继续。")).toBeTruthy();
     expect(within(card).getByText("当前下一步判断和步骤检查已刷新；这次仍是新的单步确认，步骤类别是：继续执行下一个任务。")).toBeTruthy();
     expect(within(card).getByText("服务端会重新读取当前状态，重新匹配目标和权限；匹配后只执行“继续执行下一个任务”这一当前合法步骤。")).toBeTruthy();
-    expect(within(card).getByText("确认后仍会立即停止；不会自动循环、批量派发、组合检查后的应用、关闭、远端落地或维护演进。")).toBeTruthy();
+    expect(within(card).getByText("确认后仍会立即停止；不会自动循环、批量启动任务、组合检查后的应用、关闭、远端落地或维护演进。")).toBeTruthy();
     expect(within(card).getByText("下一步候选已刷新")).toBeTruthy();
     expect(within(card).getByText("下一步候选：继续执行下一个任务。当前步骤检查已刷新；继续仍需要你再次确认。")).toBeTruthy();
     expect(within(card).getByText(/当前步骤检查已准备好。/)).toBeTruthy();
@@ -1601,7 +1842,7 @@ describe("Workbench web app", () => {
     expect(within(card).getByText("停止原因")).toBeTruthy();
     expect(within(card).getAllByText("已完成一次确认的调度步骤并主动停止").length).toBeGreaterThan(0);
     expect(within(card).getByText("上一步停止记录、下一步候选和当前确认目标一致。")).toBeTruthy();
-    expect(within(card).getByText("这是只读重新确认状态；不会自动继续、批量派发、分配资源、应用源码、关闭需求、远端落地或维护演进。")).toBeTruthy();
+    expect(within(card).getByText("这是只读重新确认状态；不会自动继续、批量启动任务、分配资源、应用源码、关闭需求、远端落地或维护演进。")).toBeTruthy();
     expect(within(card).getByText("查看证据：packet.md")).toBeTruthy();
     expect(within(card).getByText("查看证据：policy.md")).toBeTruthy();
     expect(within(card).getByText("查看证据：preflight.md")).toBeTruthy();
@@ -2017,7 +2258,7 @@ describe("Workbench web app", () => {
     const card = await screen.findByTestId("scheduler-controlled-step-evidence-card");
     expect(within(card).getByText("受控步骤运行证据")).toBeTruthy();
     expect(within(card).getByText("已执行一个用户确认的 Scheduler 步骤，并在完成后停止")).toBeTruthy();
-    expect(within(card).getByText("只读 runtime evidence；不授权自动循环、批量派发、slot 分配、source apply、close、merge、远端落地或 Harness evolution。")).toBeTruthy();
+    expect(within(card).getByText("只读 runtime evidence；不授权自动循环、批量启动任务、slot 分配、source apply、close、merge、远端落地或 Harness evolution。")).toBeTruthy();
     expect(within(card).getByText("执行：planning.scheduler.worker.start-next")).toBeTruthy();
     expect(within(card).getByText("后续状态：next-confirmation-candidate-ready")).toBeTruthy();
     expect(within(card).getByText("下一候选：planning.scheduler.worker.reconcile-result")).toBeTruthy();
@@ -2046,19 +2287,19 @@ describe("Workbench web app", () => {
     expect(within(tickSummary).getByText("停止原因")).toBeTruthy();
     expect(within(tickSummary).getByText("已停在下一次人工确认：one-confirmed-scheduler-transition-completed")).toBeTruthy();
     expect(within(tickSummary).getByText("权限边界")).toBeTruthy();
-    expect(within(tickSummary).getByText("不授权自动循环、批量派发或 source 变更")).toBeTruthy();
+    expect(within(tickSummary).getByText("不授权自动循环、批量启动任务或 source 变更")).toBeTruthy();
     const stopSummary = within(card).getByTestId("scheduler-controlled-loop-stop-summary");
     expect(stopSummary).toBeTruthy();
     expect(within(stopSummary).getByText("停止位置")).toBeTruthy();
     expect(within(stopSummary).getByText("已停在下一次人工确认 / 下一步已准备好，但必须再次人工确认")).toBeTruthy();
     expect(within(stopSummary).getByText("停止原因")).toBeTruthy();
     expect(within(stopSummary).getByText("The last controlled step stopped and the next candidate is ready for the existing human confirmation gate.")).toBeTruthy();
-    expect(within(stopSummary).getByText("只能通过右侧确认区继续；不会自动循环、批量派发、应用源码、关闭需求或远端落地")).toBeTruthy();
+    expect(within(stopSummary).getByText("只能通过右侧确认区继续；不会自动循环、批量启动任务、应用源码、关闭需求或远端落地")).toBeTruthy();
     expect(within(stopSummary).queryByRole("button")).toBeNull();
     expect(within(card).getByTestId("scheduler-controlled-loop-continuation-readiness")).toBeTruthy();
     expect(within(card).getByText("继续状态")).toBeTruthy();
     expect(within(card).getByText("下一步已准备好，但必须再次人工确认")).toBeTruthy();
-    expect(within(card).getByText("仍需右侧确认区单独确认；不会自动循环、批量派发、应用源码、关闭需求或远端落地")).toBeTruthy();
+    expect(within(card).getByText("仍需右侧确认区单独确认；不会自动循环、批量启动任务、应用源码、关闭需求或远端落地")).toBeTruthy();
     const iterationSummary = within(card).getByTestId("scheduler-controlled-loop-iteration-summary");
     expect(iterationSummary).toBeTruthy();
     expect(within(iterationSummary).getByText("受控迭代")).toBeTruthy();

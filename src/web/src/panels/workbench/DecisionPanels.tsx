@@ -157,7 +157,7 @@ function DecisionContextCard({
   const [pendingActionId, setPendingActionId] = useState<string | null>(null);
   const [automationMode, setAutomationMode] = useState<"request-approval" | "full-access">("request-approval");
   const feedbackAction = context.actions.find((action) => action.id === feedbackActionId);
-  const primaryAutomationAction = context.actions.find((action) => isScopedAutomationAllowedAction(action));
+  const primaryAutomationAction = chooseScopedAutomationAction(context.actions);
   const scopedAutomationAvailable = Boolean(primaryAutomationAction);
   const actionBusy = busy || pendingActionId !== null;
   async function executeAction(action: DecisionAction): Promise<void> {
@@ -362,6 +362,9 @@ function isScopedAutomationAllowedAction(action: DecisionAction): boolean {
     || actionType === "planning.decompose"
     || actionType === "planning.decomposition.confirm"
     || actionType === "planning.decomposition.assess-readiness"
+    || actionType === "planning.goal-loop.evaluate"
+    || actionType === "planning.goal-loop.controller.refresh"
+    || actionType === "planning.goal-loop.gate-readiness.prepare"
     || actionType === "code.run"
     || actionType === "validate.run"
     || actionType === "audit.run"
@@ -369,6 +372,30 @@ function isScopedAutomationAllowedAction(action: DecisionAction): boolean {
     || actionType === "result.revalidate"
     || actionType === "result.reaudit"
     || actionType === "planning.goal-loop.controlled-continue.run");
+}
+
+function chooseScopedAutomationAction(actions: DecisionAction[]): DecisionAction | undefined {
+  const candidates = actions
+    .map((action, index) => ({ action, index, priority: scopedAutomationActionPriority(action) }))
+    .filter((item) => item.priority >= 0);
+  candidates.sort((left, right) => right.priority - left.priority || left.index - right.index);
+  return candidates[0]?.action;
+}
+
+function scopedAutomationActionPriority(action: DecisionAction): number {
+  if (!isScopedAutomationAllowedAction(action)) return -1;
+  switch (action.actionType) {
+    case "planning.goal-loop.controlled-continue.run":
+      return 400;
+    case "planning.goal-loop.gate-readiness.prepare":
+      return 300;
+    case "planning.goal-loop.controller.refresh":
+      return 200;
+    case "planning.goal-loop.evaluate":
+      return 100;
+    default:
+      return 0;
+  }
 }
 
 function DecisionContextHistory({ contexts, onSelectContext }: { contexts: DecisionContext[]; onSelectContext: (id: string) => void }): ReactElement {

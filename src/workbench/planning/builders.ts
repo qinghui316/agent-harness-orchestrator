@@ -29,9 +29,18 @@ export function buildDeterministicPlanningBundle(
     ...extractConstraintCandidates(prompt),
   ]);
   const acceptanceCriteria = buildAcceptanceCriteria(goal, constraints);
-  const tasks = [
-    { id: "T-001", title: taskTitleForGoal(goal), acIds: acceptanceCriteria.map((_item, index) => `AC-${String(index + 1).padStart(3, "0")}`) },
-  ];
+  const acIds = acceptanceCriteria.map((_item, index) => `AC-${String(index + 1).padStart(3, "0")}`);
+  const explicitSourceScopes = extractExplicitSourceScopes(goal);
+  const parallelSignal = /并行|parallel|多个模块|多模块|independent|独立/.test(goal);
+  const tasks = parallelSignal && explicitSourceScopes.length >= 2
+    ? explicitSourceScopes.slice(0, 8).map((scope, index) => ({
+        id: `T-${String(index + 1).padStart(3, "0")}`,
+        title: taskTitleForSourceScope(scope, goal),
+        acIds,
+      }))
+    : [
+        { id: "T-001", title: taskTitleForGoal(goal), acIds },
+      ];
   const specMd = renderSpecMarkdown(changeId, goal, constraints, acceptanceCriteria);
   const planMd = renderImplementationPlanMarkdown(goal, tasks);
   const tasksMd = renderTasksMarkdown(tasks);
@@ -79,17 +88,21 @@ export function buildDeterministicDecompositionPlan(
       : tasks.length > 1
         ? parallelSignal ? "taskgraph-parallel-candidate" : "taskgraph-sequential"
         : "single-change";
+  const explicitSourceScopes = extractExplicitSourceScopes(signalText);
+  const scopedParallelCandidate = recommendation === "taskgraph-parallel-candidate" && explicitSourceScopes.length >= tasks.length;
   const units: DecompositionUnit[] = tasks.map((task, index) => ({
     id: `DU-${String(index + 1).padStart(3, "0")}`,
     title: task.title,
     summary: recommendation === "single-change" ? "Keep this demand as one Coding Work Package." : "Candidate scoped execution unit from accepted planning tasks.",
     taskIds: [task.id],
     acIds: task.acIds,
-    scopeHints: ["selected-demand", "AHO-owned worktree only"],
-    dependsOn: index === 0 ? [] : [`DU-${String(index).padStart(3, "0")}`],
+    scopeHints: scopedParallelCandidate ? [explicitSourceScopes[index] ?? "selected-demand"] : ["selected-demand", "AHO-owned worktree only"],
+    dependsOn: scopedParallelCandidate ? [] : index === 0 ? [] : [`DU-${String(index).padStart(3, "0")}`],
     recommendedRoleId: "coder-agent",
   }));
-  const dependencies = units.slice(1).map((unit, index) => ({ from: units[index]?.id ?? units[0]?.id ?? unit.id, to: unit.id, kind: "blocks" as const }));
+  const dependencies = scopedParallelCandidate
+    ? []
+    : units.slice(1).map((unit, index) => ({ from: units[index]?.id ?? units[0]?.id ?? unit.id, to: unit.id, kind: "blocks" as const }));
   const changeDir = join(memory.memoryRoot, changePath);
   const artifact = displayArtifactPath(memory, join(changeDir, "planning", "decomposition-plan.json"));
   const markdownArtifact = displayArtifactPath(memory, join(changeDir, "planning", "decomposition-plan.md"));
@@ -101,7 +114,9 @@ export function buildDeterministicDecompositionPlan(
     rationale: rationaleForRecommendation(recommendation, units.length),
     units,
     dependencies,
-    conflictScopes: recommendation === "single-change" ? [] : ["source overlap must be checked before parallel execution"],
+    conflictScopes: scopedParallelCandidate
+      ? explicitSourceScopes.slice(0, tasks.length)
+      : recommendation === "single-change" ? [] : ["source overlap must be checked before parallel execution"],
     riskSummary: "This is a proposal only. User confirmation does not start execution, create child Changes, or trust recovered work.",
     openQuestions: bundle?.openQuestions ?? [],
     artifactRefs: [bundle?.artifact].filter((item): item is string => Boolean(item)),
@@ -156,17 +171,15 @@ export async function buildDecompositionReadinessManifest(
     throw new Error(`DecompositionReadiness guardrail failed: ${guardrails.filter((item) => item.status === "failed").map((item) => item.id).join(", ")}.`);
   }
 
-  const sourceScopesSpecific = plan.units.every((unit) => unit.scopeHints.some((hint) => isSpecificSourceScope(hint)));
-  const conflictScopesSpecific = plan.conflictScopes.length > 0 && plan.conflictScopes.every((scope) => isSpecificSourceScope(scope));
-  const parallelReady = sourceScopesSpecific && conflictScopesSpecific;
+  const parallelAssessment = assessParallelReadiness(plan);
   const recommendationGuardrail: DecompositionReadinessGuardrail = plan.recommendation === "taskgraph-parallel-candidate"
     ? {
-        id: "parallel-conflict-scopes",
-        status: parallelReady ? "passed" : "blocked",
-        summary: parallelReady
-          ? "Parallel candidate has explicit source and conflict scopes."
-          : "Parallel candidate is blocked until source/task scopes and conflict scopes are concrete.",
-        refs: [...plan.conflictScopes, ...plan.units.flatMap((unit) => unit.scopeHints)],
+        id: "parallel-low-conflict-guardrails",
+        status: parallelAssessment.ready ? "passed" : "blocked",
+        summary: parallelAssessment.ready
+          ? "Parallel candidate has independent units with explicit non-overlapping source scopes."
+          : `Parallel candidate is blocked: ${parallelAssessment.blockedReasons.join("; ")}.`,
+        refs: parallelAssessment.refs,
       }
     : {
         id: "recommendation-boundary",
@@ -176,7 +189,7 @@ export async function buildDecompositionReadinessManifest(
       };
   guardrails.push(recommendationGuardrail);
 
-  const readinessStatus = readinessStatusForRecommendation(plan.recommendation, parallelReady);
+  const readinessStatus = readinessStatusForRecommendation(plan.recommendation, parallelAssessment.ready);
   const now = new Date().toISOString();
   const dir = join(memory.memoryRoot, changePath, "planning");
   const artifact = displayArtifactPath(memory, join(dir, "decomposition-readiness.json"));
@@ -227,6 +240,64 @@ function readinessStatusForRecommendation(recommendation: DecompositionRecommend
   }
 }
 
+function assessParallelReadiness(plan: DecompositionPlan): { ready: boolean; blockedReasons: string[]; refs: string[] } {
+  if (plan.recommendation !== "taskgraph-parallel-candidate") {
+    return { ready: false, blockedReasons: ["not a parallel candidate"], refs: [plan.recommendation] };
+  }
+  const refs = unique([...plan.conflictScopes, ...plan.units.flatMap((unit) => unit.scopeHints), ...plan.dependencies.flatMap((dep) => [dep.from, dep.to])]);
+  const blockedReasons: string[] = [];
+  if (plan.units.length < 2) blockedReasons.push("requires at least two units");
+  const unitsWithExplicitScopes = plan.units.every((unit) => unit.scopeHints.length > 0 && unit.scopeHints.every((hint) => isSpecificSourceScope(hint)));
+  if (!unitsWithExplicitScopes) blockedReasons.push("every unit needs explicit source scopes");
+  const conflictScopesSpecific = plan.conflictScopes.length > 0 && plan.conflictScopes.every((scope) => isSpecificSourceScope(scope));
+  if (!conflictScopesSpecific) blockedReasons.push("conflict scopes must be concrete");
+  const hasUnitDependencies = plan.units.some((unit) => unit.dependsOn.length > 0);
+  const hasPlanDependencies = plan.dependencies.length > 0;
+  if (hasUnitDependencies || hasPlanDependencies) blockedReasons.push("dependent or conflict-linked units must run sequentially");
+  const overlaps = findOverlappingSourceScopes(plan.units);
+  if (overlaps.length > 0) blockedReasons.push(`source scopes overlap: ${overlaps.join(", ")}`);
+  return { ready: blockedReasons.length === 0, blockedReasons, refs };
+}
+
+function extractExplicitSourceScopes(text: string): string[] {
+  const matches = text.matchAll(/\b(?:src|test|tests|docs|packages|package|app|apps|lib|scripts|harness|public)[/\\][A-Za-z0-9._/\\-]+/gi);
+  const scopes: string[] = [];
+  const seen = new Set<string>();
+  for (const match of matches) {
+    const scope = match[0].replace(/\\/g, "/").replace(/[),;，。；、]+$/g, "");
+    if (!isSpecificSourceScope(scope)) continue;
+    const normalized = normalizeScope(scope);
+    if (seen.has(normalized)) continue;
+    seen.add(normalized);
+    scopes.push(scope);
+  }
+  return scopes;
+}
+
+function findOverlappingSourceScopes(units: DecompositionUnit[]): string[] {
+  const owners: Array<{ unitId: string; scope: string }> = [];
+  const overlaps: string[] = [];
+  for (const unit of units) {
+    for (const rawScope of unit.scopeHints) {
+      if (!isSpecificSourceScope(rawScope)) continue;
+      const scope = normalizeScope(rawScope);
+      for (const owner of owners) {
+        if (owner.unitId === unit.id) continue;
+        if (sourceScopesOverlap(owner.scope, scope)) {
+          overlaps.push(`${owner.unitId}:${owner.scope}<->${unit.id}:${scope}`);
+        }
+      }
+      owners.push({ unitId: unit.id, scope });
+    }
+  }
+  return overlaps;
+}
+
+function sourceScopesOverlap(left: string, right: string): boolean {
+  if (left === right) return true;
+  return left.startsWith(`${right}/`) || right.startsWith(`${left}/`);
+}
+
 function nextAllowedActionForReadiness(status: DecompositionReadinessStatus): DecompositionReadinessManifest["nextAllowedAction"] {
   switch (status) {
     case "ready-for-single-change": return "code.run";
@@ -241,13 +312,17 @@ function nextAllowedActionForReadiness(status: DecompositionReadinessStatus): De
 }
 
 function isSpecificSourceScope(scope: string): boolean {
-  const normalized = scope.trim().toLowerCase();
+  const normalized = normalizeScope(scope);
   if (!normalized) return false;
   if (normalized === "selected-demand") return false;
   if (normalized === "aho-owned worktree only") return false;
   if (normalized.includes("must be checked")) return false;
   if (normalized.includes("source overlap")) return false;
   return /[/.\\]/.test(normalized) || /\bsrc\b|\btest\b|\bdocs\b|\bmodule\b|\bpackage\b/.test(normalized);
+}
+
+function normalizeScope(scope: string): string {
+  return scope.trim().toLowerCase().replace(/\\/g, "/").replace(/\/+$/, "");
 }
 
 function unique(values: string[]): string[] {
@@ -288,6 +363,13 @@ function taskTitleForGoal(goal: string): string {
   return compact.length > 80
     ? `Implement accepted demand: ${compact.slice(0, 77)}...`
     : `Implement accepted demand: ${compact}`;
+}
+
+function taskTitleForSourceScope(scope: string, goal: string): string {
+  const normalized = scope.replace(/\\/g, "/");
+  const compactGoal = goal.replace(/\s+/g, " ").trim();
+  const suffix = compactGoal.length > 48 ? `${compactGoal.slice(0, 45)}...` : compactGoal;
+  return `Update ${normalized}: ${suffix}`;
 }
 
 function renderSpecMarkdown(changeId: string, goal: string, constraints: string[], acceptanceCriteria: string[]): string {

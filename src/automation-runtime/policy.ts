@@ -9,6 +9,9 @@ export const SCOPED_AUTOMATION_ALLOWED_ACTION_TYPES = [
   "planning.decompose",
   "planning.decomposition.confirm",
   "planning.decomposition.assess-readiness",
+  "planning.goal-loop.evaluate",
+  "planning.goal-loop.controller.refresh",
+  "planning.goal-loop.gate-readiness.prepare",
   "code.run",
   "validate.run",
   "audit.run",
@@ -26,6 +29,13 @@ export type ScopedAutomationAllowedApprovalActionId = typeof SCOPED_AUTOMATION_A
 
 const allowed = new Set<string>(SCOPED_AUTOMATION_ALLOWED_ACTION_TYPES);
 const allowedApprovals = new Set<string>(SCOPED_AUTOMATION_ALLOWED_APPROVAL_ACTION_IDS);
+
+const actionPriority = new Map<string, number>([
+  ["planning.goal-loop.controlled-continue.run", 400],
+  ["planning.goal-loop.gate-readiness.prepare", 300],
+  ["planning.goal-loop.controller.refresh", 200],
+  ["planning.goal-loop.evaluate", 100],
+]);
 
 const terminalHumanGates = new Set<string>([
   "result.apply",
@@ -47,6 +57,11 @@ const terminalHumanGates = new Set<string>([
 
 export function isScopedAutomationAllowedAction(actionType: string | undefined): actionType is typeof SCOPED_AUTOMATION_ALLOWED_ACTION_TYPES[number] {
   return Boolean(actionType && allowed.has(actionType));
+}
+
+export function scopedAutomationActionPriority(actionType: string | undefined): number {
+  if (!isScopedAutomationAllowedAction(actionType)) return -1;
+  return actionPriority.get(actionType) ?? 0;
 }
 
 export function isScopedAutomationAllowedApprovalAction(actionId: string | undefined): actionId is ScopedAutomationAllowedApprovalActionId {

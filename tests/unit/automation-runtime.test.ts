@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { runScopedAutomation } from "../../src/automation-runtime/runner.js";
+import { isScopedAutomationAllowedAction } from "../../src/automation-runtime/policy.js";
 import type { ResolvedMemory } from "../../src/types/index.js";
 import type { ScopedAutomationChildGate } from "../../src/automation-runtime/runner.js";
 import type { WorkflowActionScopeCarrier } from "../../src/workflow-actions/registry.js";
@@ -18,6 +19,16 @@ describe("Scoped automation runtime", () => {
 
   afterEach(async () => {
     await rm(tempDir, { recursive: true, force: true });
+  });
+
+  it("keeps raw scheduler actions outside the scoped automation allowlist", () => {
+    expect(isScopedAutomationAllowedAction("planning.goal-loop.controlled-continue.run")).toBe(true);
+    expect(isScopedAutomationAllowedAction("planning.goal-loop.evaluate")).toBe(true);
+    expect(isScopedAutomationAllowedAction("planning.goal-loop.controller.refresh")).toBe(true);
+    expect(isScopedAutomationAllowedAction("planning.goal-loop.gate-readiness.prepare")).toBe(true);
+    expect(isScopedAutomationAllowedAction("planning.scheduler.worker.start-next")).toBe(false);
+    expect(isScopedAutomationAllowedAction("planning.scheduler.integration-check.run")).toBe(false);
+    expect(isScopedAutomationAllowedAction("planning.scheduler.plan.prepare")).toBe(false);
   });
 
   it("executes multiple allowed workflow actions under one scoped authorization", async () => {
@@ -62,6 +73,70 @@ describe("Scoped automation runtime", () => {
       automationAuthorizationId: result.authorization.id,
       automationRunId: result.automationRun.id,
     });
+  });
+
+  it("can prepare Goal Loop evidence before controlled scheduler continuation without allowing raw scheduler gates", async () => {
+    const dispatched: ScopedAutomationChildGate[] = [];
+    const sequence: ScopedAutomationChildGate[] = [
+      { kind: "workflow-action", actionType: "planning.goal-loop.evaluate", changeId: "change-1" },
+      {
+        kind: "workflow-action",
+        actionType: "planning.goal-loop.controller.refresh",
+        changeId: "change-1",
+        goalLoopNextStepPacketId: "packet-1",
+        goalLoopCurrentGateActionType: "planning.scheduler.worker.start-next",
+        schedulerRunId: "scheduler-run-1",
+        schedulerClaimReservationId: "claim-reservation-1",
+      },
+      {
+        kind: "workflow-action",
+        actionType: "planning.goal-loop.gate-readiness.prepare",
+        changeId: "change-1",
+        goalLoopNextStepPacketId: "packet-1",
+        goalLoopControllerPolicyId: "policy-1",
+        goalLoopCurrentGateActionType: "planning.scheduler.worker.start-next",
+        schedulerRunId: "scheduler-run-1",
+        schedulerClaimReservationId: "claim-reservation-1",
+      },
+      {
+        kind: "workflow-action",
+        actionType: "planning.goal-loop.controlled-continue.run",
+        changeId: "change-1",
+        goalLoopNextStepPacketId: "packet-1",
+        goalLoopControllerPolicyId: "policy-1",
+        goalLoopGateReadinessPreflightId: "preflight-1",
+        goalLoopCurrentGateActionType: "planning.scheduler.worker.start-next",
+        schedulerRunId: "scheduler-run-1",
+        schedulerClaimReservationId: "claim-reservation-1",
+      },
+      { kind: "workflow-action", actionType: "planning.scheduler.worker.start-next", changeId: "change-1", schedulerRunId: "scheduler-run-1" },
+    ];
+
+    const result = await runScopedAutomation({
+      memory,
+      changePath: "harness/changes/active/change-1",
+      projectId: "project-1",
+      sourceState: { capturedAt: "2026-06-25T00:00:00.000Z" },
+      acceptedArtifactHashes: {},
+      request: baseRequest({ automationCurrentGateActionType: "planning.goal-loop.evaluate", maxSteps: 5 }),
+      services: {
+        resolveCurrentPrimaryGate: async () => sequence[dispatched.length] ?? { stopReason: "no-primary-gate", summary: "No gate." },
+        dispatchChildAction: async (request) => {
+          dispatched.push(request);
+          return { ok: true, actionType: request.kind === "workflow-action" ? request.actionType : request.actionId };
+        },
+        summarizeChildResult: (gate) => `${gate.kind === "workflow-action" ? gate.actionType : gate.actionId} completed`,
+      },
+    });
+
+    expect(result.stopReason).toBe("unsupported-gate");
+    expect(dispatched.map((gate) => gate.kind === "workflow-action" ? gate.actionType : gate.actionId)).toEqual([
+      "planning.goal-loop.evaluate",
+      "planning.goal-loop.controller.refresh",
+      "planning.goal-loop.gate-readiness.prepare",
+      "planning.goal-loop.controlled-continue.run",
+    ]);
+    expect(dispatched.some((gate) => gate.kind === "workflow-action" && gate.actionType === "planning.scheduler.worker.start-next")).toBe(false);
   });
 
   it("executes bounded recovery workflow gates before safe audit accept and stops at apply", async () => {

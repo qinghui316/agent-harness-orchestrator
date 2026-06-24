@@ -4,7 +4,7 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 
 ## 1. Current Handoff
 
-- Current date: 2026-06-24.
+- Current date: 2026-06-25.
 - Active change: none.
 - Pending Harness evolution: none.
 - Latest archived verification change: Workbench Verification Runtime Convergence, archived at `harness/changes/archive/20260623-workbench-verification-runtime-convergence/summary.md`.
@@ -13,6 +13,7 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 - Latest real UI continuation scout: Workbench Real UI Continuation Next-Blocker Scout, archived at `harness/changes/archive/20260624-workbench-real-ui-continuation-next-blocker-scout/summary.md`.
 - Latest real-Codex acceptance change: Current Project Real Codex Acceptance, archived at `harness/changes/archive/20260623-workbench-current-project-real-codex-acceptance/summary.md`.
 - Latest product/Harness docs change: Goal-Driven Workflow Loop Target, archived at `harness/changes/archive/20260623-document-goal-driven-workflow-loop-target/summary.md`.
+- Latest scheduler reachability change: Workbench Low-Conflict TaskGraph Scheduler Reachability V1, archived at `harness/changes/archive/20260625-workbench-low-conflict-taskgraph-scheduler-reachability-v1/summary.md`.
 - Latest completed Harness evolution: `harness/changes/archive/20260624-auto-evolve-post-bounded-rework-window/summary.md`.
 
 Current baseline: the local manual-gated Workbench loop has real browser
@@ -37,6 +38,15 @@ with authorized subagent review. Result: `docs_merge` for compact
 handoff/current-doc alignment, and no ECL/template/lint/product runtime change.
 It did not expand automatic apply/close/merge/remote/Harness evolution
 authority.
+
+Latest scheduler reachability work shows explicit, independent source scopes
+can reach the existing scheduler-controlled path from ordinary Workbench UI.
+`完全访问权限` does not directly allow raw `planning.scheduler.*` or
+`planning.scheduler.controlled-advance.run`; it may prepare Goal Loop
+packet/controller/preflight evidence and then enter the existing controlled
+scheduler path. The E-drive real UI run reached scheduler worker start and
+stopped at a true dependency setup blocker because the external source root
+lacked `node_modules`; source root stayed clean.
 
 Use `docs/STATUS.md` for short handoff context and
 `harness/changes/INDEX.json` plus archived `summary.md` files for historical
