@@ -30,6 +30,7 @@ export interface ScopedAutomationServices {
   summarizeChildResult(gate: ScopedAutomationChildGate, result: unknown): string;
   checkSafety?(previousResult: unknown | null): Promise<{ stopReason: "source-drift" | "accepted-artifact-drift"; summary: string } | null>;
   waitForSettledPrimaryGate?(attempt: number): Promise<void>;
+  primaryGateResolutionTimeoutMs?: number;
 }
 
 export interface ScopedAutomationResult {
@@ -53,6 +54,7 @@ export async function runScopedAutomation(input: {
 }): Promise<ScopedAutomationResult> {
   const { memory, changePath, projectId, request, sourceState, acceptedArtifactHashes, services } = input;
   const maxSteps = clampAutomationMaxSteps(request.maxSteps);
+  const primaryGateResolutionTimeoutMs = services.primaryGateResolutionTimeoutMs ?? 10_000;
   const authId = createAutomationRuntimeId("automation-authorization", `${projectId}:${request.changeId}:${request.automationCurrentGateActionType ?? request.automationCurrentGateApprovalActionId ?? "unknown"}`);
   const authRefs = automationRuntimeArtifactRefs(memory, changePath, authId);
   const authorization: AutomationAuthorization = {
@@ -119,26 +121,24 @@ export async function runScopedAutomation(input: {
       break;
     }
 
-    const next = await services.resolveCurrentPrimaryGate(previousResult);
+    let next: ScopedAutomationChildGate | { stopReason: AutomationStopReason; summary: string };
+    try {
+      next = await resolveCurrentPrimaryGateWithTimeout(services, previousResult, primaryGateResolutionTimeoutMs);
+    } catch (error) {
+      stopReason = "blocked";
+      stopSummary = `Failed to resolve the current primary gate: ${error instanceof Error ? error.message : String(error)}`;
+      break;
+    }
     if ("stopReason" in next) {
       stopReason = next.stopReason;
       stopSummary = next.summary;
       break;
     }
-    const gateActionId = next.kind === "workflow-action" ? next.actionType : next.actionId;
-    if (isScopedAutomationTerminalHumanGate(gateActionId)) {
-      stopReason = "terminal-human-gate";
-      stopSummary = automationStopReasonSummary("terminal-human-gate");
-      break;
-    }
-    if (next.kind === "workflow-action" && !isScopedAutomationAllowedAction(next.actionType)) {
-      stopReason = "unsupported-gate";
-      stopSummary = automationStopReasonSummary("unsupported-gate");
-      break;
-    }
-    if (next.kind === "approval-action" && !isScopedAutomationAllowedApprovalAction(next.actionId)) {
-      stopReason = "unsupported-gate";
-      stopSummary = automationStopReasonSummary("unsupported-gate");
+    const gateActionId = scopedAutomationGateActionId(next);
+    const gateStop = scopedAutomationStopForGate(next);
+    if (gateStop) {
+      stopReason = gateStop.stopReason;
+      stopSummary = gateStop.summary;
       break;
     }
 
@@ -227,19 +227,6 @@ export async function runScopedAutomation(input: {
   }
 
   if (stopReason === "max-steps" && iterations.every((iteration) => iteration.status === "completed")) {
-    const maxFinalGateAttempts = services.waitForSettledPrimaryGate ? 10 : 1;
-    for (let attempt = 0; attempt < maxFinalGateAttempts; attempt += 1) {
-      if (attempt > 0 && services.waitForSettledPrimaryGate) await services.waitForSettledPrimaryGate(attempt);
-      const finalGate = await services.resolveCurrentPrimaryGate(previousResult);
-      if (!("stopReason" in finalGate)) {
-        const finalGateActionId = finalGate.kind === "workflow-action" ? finalGate.actionType : finalGate.actionId;
-        if (isScopedAutomationTerminalHumanGate(finalGateActionId)) {
-          stopReason = "terminal-human-gate";
-          stopSummary = automationStopReasonSummary("terminal-human-gate");
-          break;
-        }
-      }
-    }
     const lastCompletedIteration = iterations.at(-1);
     if (stopReason === "max-steps" && lastCompletedIteration?.submittedApprovalActionId === "audit.accept") {
       stopReason = "terminal-human-gate";
@@ -264,4 +251,55 @@ export async function runScopedAutomation(input: {
     summary: stopSummary,
     artifactRefs: [authorization.artifact, automationRun.artifact, ...iterations.map((iteration) => iteration.artifact)],
   };
+}
+
+async function resolveCurrentPrimaryGateWithTimeout(
+  services: ScopedAutomationServices,
+  previousResult: unknown | null,
+  timeoutMs: number,
+): Promise<ScopedAutomationChildGate | { stopReason: AutomationStopReason; summary: string }> {
+  return withTimeout(
+    services.resolveCurrentPrimaryGate(previousResult),
+    timeoutMs,
+    "current primary gate resolution timed out",
+  );
+}
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timeout = setTimeout(() => reject(new Error(message)), timeoutMs);
+    });
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+}
+
+function scopedAutomationGateActionId(gate: ScopedAutomationChildGate): string {
+  return gate.kind === "workflow-action" ? gate.actionType : gate.actionId;
+}
+
+function scopedAutomationStopForGate(gate: ScopedAutomationChildGate): { stopReason: AutomationStopReason; summary: string } | null {
+  const gateActionId = scopedAutomationGateActionId(gate);
+  if (isScopedAutomationTerminalHumanGate(gateActionId)) {
+    return {
+      stopReason: "terminal-human-gate",
+      summary: automationStopReasonSummary("terminal-human-gate"),
+    };
+  }
+  if (gate.kind === "workflow-action" && !isScopedAutomationAllowedAction(gate.actionType)) {
+    return {
+      stopReason: "unsupported-gate",
+      summary: automationStopReasonSummary("unsupported-gate"),
+    };
+  }
+  if (gate.kind === "approval-action" && !isScopedAutomationAllowedApprovalAction(gate.actionId)) {
+    return {
+      stopReason: "unsupported-gate",
+      summary: automationStopReasonSummary("unsupported-gate"),
+    };
+  }
+  return null;
 }

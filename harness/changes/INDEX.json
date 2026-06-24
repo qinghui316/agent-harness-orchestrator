@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-24T18:19:37.3395212Z",
+    "generated_at":  "2026-06-24T21:01:30.5979067Z",
     "active":  [
 
                ],
@@ -1869,6 +1869,10 @@
                     {
                         "name":  "20260625-workbench-low-conflict-taskgraph-scheduler-reachability-v1",
                         "path":  "harness/changes/archive/20260625-workbench-low-conflict-taskgraph-scheduler-reachability-v1"
+                    },
+                    {
+                        "name":  "20260625-workbench-scheduler-integrationcheck-real-acceptance-v1",
+                        "path":  "harness/changes/archive/20260625-workbench-scheduler-integrationcheck-real-acceptance-v1"
                     },
                     {
                         "name":  "20260625-workbench-scheduler-worker-integration-real-acceptance-v1",

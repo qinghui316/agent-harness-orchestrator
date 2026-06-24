@@ -145,8 +145,10 @@ Current architecture debt register:
 
 ## Next Product Direction
 
-No structured product change is currently active, and no Harness evolution is
-pending. The latest scheduler worker/integration acceptance is
+Current structured product change: none.
+No Harness evolution is pending. The latest scheduler IntegrationCheck acceptance is
+`harness/changes/archive/20260625-workbench-scheduler-integrationcheck-real-acceptance-v1/summary.md`.
+The latest scheduler worker/integration acceptance is
 `harness/changes/archive/20260625-workbench-scheduler-worker-integration-real-acceptance-v1/summary.md`.
 The latest scheduler reachability change is
 `harness/changes/archive/20260625-workbench-low-conflict-taskgraph-scheduler-reachability-v1/summary.md`.
@@ -175,8 +177,10 @@ Current baseline:
   source-scope readiness and user-facing scheduler copy hardening. E-drive real
   UI acceptance with dependencies installed reached two real scheduler worker
   `coder-codex` worktrees, worker validation/audit, and a ready integration
-  candidate. The run then stopped at the human-confirmed
-  `planning.scheduler.integration-check.run` gate; source root stayed clean.
+  candidate. The raw `planning.scheduler.integration-check.run` gate stayed
+  manual. After manual confirmation, existing IntegrationCheck ran aggregate
+  validation/audit, passed, and stopped at the existing human integration
+  apply/discard gate; source root stayed clean.
 
 Latest evolution and archive lookup:
 
@@ -190,9 +194,10 @@ Latest evolution and archive lookup:
 
 Next work should not assume a full parallel executor exists:
 
-- For scheduler execution acceptance, continue from a fresh E-drive sandbox by
-  confirming the existing IntegrationCheck gate and recording aggregate
-  validation/audit, IntegrationFix, or apply-readiness behavior.
+- For scheduler execution acceptance, the next product gap is planning /
+  decomposition honesty: when the user asks for a low-conflict two-file change,
+  the accepted plan should not silently expand into test/index work unless that
+  expansion is justified and accepted.
 - Do not put raw `planning.scheduler.*` actions into the `完全访问权限` allowlist.
 - Do not widen into full parallel executor, automatic apply/close/merge, remote
   landing, or Harness evolution without a separate accepted design.
@@ -200,10 +205,9 @@ Next work should not assume a full parallel executor exists:
 After the active change is closed or parked, next work should be chosen from one
 concrete track:
 
-- Product capability: design the next scoped automation profile or broader
-  Goal-driven loop slice from the proven gates, without auto apply/close/merge,
-  remote landing, Harness evolution, or parallel execution unless a later
-  accepted profile explicitly implements those boundaries.
+- Product capability: tighten planning/decomposition scope honesty for
+  low-conflict TaskGraph demands before widening scheduler automation or the
+  Goal-driven loop.
 - Product hardening: run a focused real UI scout only when there is a suspected
   Workbench blocker; fix the owner path rather than adding explanation layers.
 - Verification cost: improve explicit release/deep members without moving slow

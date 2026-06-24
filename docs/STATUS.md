@@ -5,7 +5,7 @@
 - Current date: 2026-06-25.
 - Active ECL change: none.
 - Pending Harness evolution: none.
-- Latest archived product change: `harness/changes/archive/20260625-workbench-scheduler-worker-integration-real-acceptance-v1/summary.md`.
+- Latest archived product change: `harness/changes/archive/20260625-workbench-scheduler-integrationcheck-real-acceptance-v1/summary.md`.
 - Latest real UI continuation scout: `harness/changes/archive/20260624-workbench-real-ui-continuation-next-blocker-scout/summary.md`.
 - Latest bounded continuation runtime: `harness/changes/archive/20260624-goal-driven-controlled-continuation-runtime-v1/summary.md`.
 - Latest product audit: `harness/changes/archive/20260624-workbench-goal-loop-surface-gap-audit/summary.md`.
@@ -14,16 +14,19 @@
 - Latest completed Harness evolution: `harness/changes/archive/20260624-auto-evolve-post-bounded-rework-window/summary.md`.
 - Latest scheduler reachability change: `harness/changes/archive/20260625-workbench-low-conflict-taskgraph-scheduler-reachability-v1/summary.md`.
 - Latest scheduler worker/integration acceptance: `harness/changes/archive/20260625-workbench-scheduler-worker-integration-real-acceptance-v1/summary.md`.
+- Latest scheduler IntegrationCheck acceptance: `harness/changes/archive/20260625-workbench-scheduler-integrationcheck-real-acceptance-v1/summary.md`.
 
-The latest product change is archived at
-`harness/changes/archive/20260625-workbench-scheduler-worker-integration-real-acceptance-v1/summary.md`.
-It verifies the scheduler worker / integration path on an E-drive external
+The latest archived product change is at
+`harness/changes/archive/20260625-workbench-scheduler-integrationcheck-real-acceptance-v1/summary.md`.
+It verifies the scheduler IntegrationCheck handoff on an E-drive external
 source with dependencies installed as acceptance setup. The real browser UI run
 used ordinary planning, manual confirmation, `完全访问权限`, Goal Loop
 preparation, and controlled scheduler continuation to reach two real
 `coder-codex` worker worktrees, worker validation/audit, and a ready integration
-candidate. It then stopped at the human-confirmed
-`planning.scheduler.integration-check.run` gate.
+candidate. The raw `planning.scheduler.integration-check.run` gate remained
+manual. After manual confirmation, existing IntegrationCheck ran aggregate
+validation/audit, passed, and stopped at the existing human integration
+apply/discard gate.
 
 The latest Harness evolution handled the five-archive window from
 `20260624-auto-evolve-post-continuation-scout-window` through
@@ -56,11 +59,13 @@ safe approved audit evidence through `audit.accept`, and then stops at
 `result.apply`. It does not auto apply, close, merge, push, or run Harness
 evolution.
 
-Scheduler worker acceptance now verifies that strict independent source scopes
-can continue past worker start when the external source has dependencies
-installed. Two workers produced ready worktree outputs, validation passed, audit
-approved, and the integration candidate was ready. This is still bounded
-scheduler execution, not full parallel executor behavior.
+Scheduler worker and IntegrationCheck acceptance now verifies that strict
+independent source scopes can continue past worker start when the external
+source has dependencies installed. Two workers produced ready worktree outputs,
+validation passed, audit approved, the integration candidate was ready, and
+IntegrationCheck passed aggregate validation/audit before stopping at the human
+integration apply/discard gate. This is still bounded scheduler execution, not
+full parallel executor behavior.
 
 Verification baseline: daily `npm run test:workbench` is the fast Workbench
 unit-capability gate. Heavier full-chain scheduler/apply/Goal Loop coverage is
@@ -69,24 +74,26 @@ scripts.
 
 ## Next Resume Point
 
-No pre-existing active change remains.
+No active change.
 
 Latest result:
 
-- Real E-drive UI acceptance used `E:\aho-accept\scheduler-worker-v1b\src` and
-  `E:\aho-accept\scheduler-worker-v1b\home`.
+- Real E-drive UI acceptance used `E:\aho-accept\scheduler-integrationcheck-v1g\src` and
+  `E:\aho-accept\scheduler-integrationcheck-v1g\home`.
 - `完全访问权限` reached two real scheduler worker `coder-codex` runs, worker
-  validation/audit, and `scheduler-integration-candidate-7fe358fd`.
-- The next visible primary gate is `planning.scheduler.integration-check.run`;
-  no source apply, close, merge, remote landing, or Harness evolution occurred.
+  validation/audit, and `scheduler-integration-candidate-c71d788b`.
+- `planning.scheduler.integration-check.run` stayed a manual gate. After manual
+  confirmation, `apply-check-20260624205104-80da3aab` passed aggregate
+  validation/audit and stopped at the existing integration apply/discard gate.
 - Raw `planning.scheduler.*` actions remain outside the direct
   `完全访问权限` allowlist.
 
 Next recommended work:
 
-- If continuing scheduler execution, confirm the existing IntegrationCheck gate
-  in an E-drive sandbox and record whether aggregate validation/audit,
-  IntegrationFix, or apply-readiness is the next blocker.
+- Fix planning/decomposition honesty for low-conflict scheduler demands: when a
+  user constrains the change to explicit source scopes, the accepted plan should
+  not add test/index work items or diffs unless it explains why they are
+  necessary and the user accepts that expansion.
 - If designing wider automation, keep it scoped by current Change, source
   state, accepted artifacts, stale revalidation, ToolPolicyGate, and human
   terminal gates.

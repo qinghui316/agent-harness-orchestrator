@@ -9,12 +9,13 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 - Pending Harness evolution: none.
 - Latest archived verification change: Workbench Verification Runtime Convergence, archived at `harness/changes/archive/20260623-workbench-verification-runtime-convergence/summary.md`.
 - Latest archived product audit: Workbench Goal Loop Surface Gap Audit, archived at `harness/changes/archive/20260624-workbench-goal-loop-surface-gap-audit/summary.md`.
-- Latest archived product change: Workbench Scheduler Worker / Integration Real Acceptance V1, archived at `harness/changes/archive/20260625-workbench-scheduler-worker-integration-real-acceptance-v1/summary.md`.
+- Latest archived product change: Workbench Scheduler IntegrationCheck Real Acceptance V1, archived at `harness/changes/archive/20260625-workbench-scheduler-integrationcheck-real-acceptance-v1/summary.md`.
 - Latest real UI continuation scout: Workbench Real UI Continuation Next-Blocker Scout, archived at `harness/changes/archive/20260624-workbench-real-ui-continuation-next-blocker-scout/summary.md`.
 - Latest real-Codex acceptance change: Current Project Real Codex Acceptance, archived at `harness/changes/archive/20260623-workbench-current-project-real-codex-acceptance/summary.md`.
 - Latest product/Harness docs change: Goal-Driven Workflow Loop Target, archived at `harness/changes/archive/20260623-document-goal-driven-workflow-loop-target/summary.md`.
 - Latest scheduler reachability change: Workbench Low-Conflict TaskGraph Scheduler Reachability V1, archived at `harness/changes/archive/20260625-workbench-low-conflict-taskgraph-scheduler-reachability-v1/summary.md`.
 - Latest scheduler worker/integration acceptance: Workbench Scheduler Worker / Integration Real Acceptance V1, archived at `harness/changes/archive/20260625-workbench-scheduler-worker-integration-real-acceptance-v1/summary.md`.
+- Latest scheduler IntegrationCheck acceptance: Workbench Scheduler IntegrationCheck Real Acceptance V1, archived at `harness/changes/archive/20260625-workbench-scheduler-integrationcheck-real-acceptance-v1/summary.md`.
 - Latest completed Harness evolution: `harness/changes/archive/20260624-auto-evolve-post-bounded-rework-window/summary.md`.
 
 Current baseline: the local manual-gated Workbench loop has real browser
@@ -31,8 +32,8 @@ remote landing, Harness evolution, scheduler loops, or parallel execution. Daily
 `npm run test:workbench` is the fast Workbench unit-capability gate; slow
 scheduler/apply/Goal Loop coverage remains in explicit release/deep scripts.
 
-The latest product change is archived at
-`harness/changes/archive/20260625-workbench-scheduler-worker-integration-real-acceptance-v1/summary.md`.
+The latest archived product change is at
+`harness/changes/archive/20260625-workbench-scheduler-integrationcheck-real-acceptance-v1/summary.md`.
 
 The latest Harness evolution handled the post-bounded-rework archive window
 with authorized subagent review. Result: `docs_merge` for compact
@@ -44,8 +45,10 @@ Latest scheduler acceptance shows explicit, independent source scopes can reach
 the existing scheduler-controlled path from ordinary Workbench UI. With an
 E-drive external source whose dependencies were installed as acceptance setup,
 `完全访问权限` reached two real scheduler worker `coder-codex` worktree runs,
-worker validation/audit, and a ready integration candidate. It stopped at the
-real `planning.scheduler.integration-check.run` human-confirmed gate. Raw
+worker validation/audit, and a ready integration candidate. The real
+`planning.scheduler.integration-check.run` gate stayed manual; after manual
+confirmation, existing IntegrationCheck produced aggregate validation/audit,
+passed, and stopped at the existing human integration apply/discard gate. Raw
 `planning.scheduler.*` actions are still not directly in the scoped automation
 allowlist, and no automatic source apply/close/merge occurred.
 

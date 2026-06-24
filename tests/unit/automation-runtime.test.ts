@@ -227,6 +227,57 @@ describe("Scoped automation runtime", () => {
     ]);
   });
 
+  it("finalizes at the step budget without auto-running an integration-check gate", async () => {
+    const dispatched: ScopedAutomationChildGate[] = [];
+    const sequence: ScopedAutomationChildGate[] = [
+      {
+        kind: "workflow-action",
+        actionType: "planning.goal-loop.controlled-continue.run",
+        changeId: "change-1",
+        goalLoopNextStepPacketId: "packet-1",
+        goalLoopControllerPolicyId: "policy-1",
+        goalLoopGateReadinessPreflightId: "preflight-1",
+        goalLoopCurrentGateActionType: "planning.scheduler.worker.start-next",
+        schedulerRunId: "scheduler-run-1",
+        schedulerClaimReservationId: "claim-reservation-1",
+      },
+      {
+        kind: "workflow-action",
+        actionType: "planning.scheduler.integration-check.run",
+        changeId: "change-1",
+        schedulerRunId: "scheduler-run-1",
+        schedulerIntegrationCandidateId: "integration-candidate-1",
+      },
+    ];
+
+    const result = await runScopedAutomation({
+      memory,
+      changePath: "harness/changes/active/change-1",
+      projectId: "project-1",
+      sourceState: { capturedAt: "2026-06-25T00:00:00.000Z" },
+      acceptedArtifactHashes: {},
+      request: baseRequest({
+        automationCurrentGateActionType: "planning.goal-loop.controlled-continue.run",
+        maxSteps: 1,
+      }),
+      services: {
+        resolveCurrentPrimaryGate: async () => sequence[dispatched.length] ?? { stopReason: "no-primary-gate", summary: "No gate." },
+        dispatchChildAction: async (request) => {
+          dispatched.push(request);
+          return { ok: true, stopReason: "integration-barrier" };
+        },
+        summarizeChildResult: (gate) => `${gate.kind === "workflow-action" ? gate.actionType : gate.actionId} completed`,
+      },
+    });
+
+    expect(result.stopReason).toBe("max-steps");
+    expect(result.automationRun.status).toBe("completed");
+    expect(result.automationRun.completedSteps).toBe(1);
+    expect(dispatched.map((gate) => gate.kind === "workflow-action" ? gate.actionType : gate.actionId)).toEqual([
+      "planning.goal-loop.controlled-continue.run",
+    ]);
+  });
+
   it("stops before terminal human gates", async () => {
     const result = await runScopedAutomation({
       memory,

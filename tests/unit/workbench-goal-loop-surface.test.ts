@@ -841,6 +841,77 @@ describe("workbench Goal Loop surface", () => {
     ]);
   });
 
+  it("keeps scheduler IntegrationCheck as a manual gate instead of wrapping it in continuation", async () => {
+    const currentGate = {
+      id: "confirm:scheduler-integration-check:member-discount",
+      kind: "planning-confirm",
+      conversationId: "member-discount",
+      changeId: "member-discount",
+      summary: "组合结果可以检查。",
+      whyNeedsConfirmation: "需要人工确认 IntegrationCheck。",
+      confirmEffect: "只运行 IntegrationCheck。",
+      riskSummary: "不会 apply、close、merge。",
+      evidenceRefs: ["candidate.md"],
+      actions: [{
+        id: "workflow:planning.scheduler.integration-check.run:member-discount",
+        label: "运行 scheduler IntegrationCheck",
+        kind: "workflow-action",
+        actionType: "planning.scheduler.integration-check.run",
+        changeId: "member-discount",
+        schedulerRunId: "scheduler-run-1",
+        schedulerIntegrationCandidateId: "integration-candidate-1",
+        worktreeIds: ["wt-1", "wt-2"],
+        enabled: true,
+        requiresConfirmation: true,
+      }],
+      primary: true,
+      status: "pending",
+    } as const;
+    const workpad = {
+      nextAction: {
+        kind: "workflow-action",
+        actionType: "planning.scheduler.integration-check.run",
+        changeId: "member-discount",
+        schedulerRunId: "scheduler-run-1",
+        schedulerIntegrationCandidateId: "integration-candidate-1",
+        worktreeIds: ["wt-1", "wt-2"],
+        enabled: true,
+        requiresConfirmation: true,
+      },
+      goalLoop: {
+        id: "brief-1",
+        changeId: "member-discount",
+        goalLoopDecisionId: "decision-1",
+        goalLoopIterationId: "iteration-1",
+        goalLoopNextStepPacketId: "packet-1",
+        nextStepPacketArtifact: "packet.md",
+        controllerPolicyId: "policy-1",
+        controllerArtifact: "policy.md",
+        gateReadinessPreflightId: "preflight-1",
+        gateReadinessPreflightArtifact: "preflight.md",
+        controllerVerdict: "recommend-existing-gate",
+        controllerGateStatus: "matches-current-gate",
+        recommendedActionType: "planning.scheduler.integration-check.run",
+        recommendedActionScope: {
+          changeId: "member-discount",
+          schedulerRunId: "scheduler-run-1",
+          schedulerIntegrationCandidateId: "integration-candidate-1",
+          worktreeIds: ["wt-1", "wt-2"],
+        },
+      },
+    } as unknown as NonNullable<Parameters<typeof attachGoalLoopControlledContinuationActions>[1]>;
+
+    const [assistedItem] = attachGoalLoopAssistedConcreteGateActions([currentGate], workpad);
+    const [advanceItem] = attachControlledSchedulerAdvanceActions([assistedItem], workpad);
+    const [item] = attachGoalLoopControlledContinuationActions([advanceItem], workpad);
+
+    expect(item.actions.some((action) => action.actionType === "planning.scheduler.integration-check.run")).toBe(true);
+    expect(item.actions.some((action) => action.actionType === "planning.scheduler.controlled-step.run")).toBe(false);
+    expect(item.actions.some((action) => action.actionType === "planning.scheduler.controlled-advance.run")).toBe(false);
+    expect(item.actions.some((action) => action.actionType === "planning.goal-loop.controlled-continue.run")).toBe(false);
+    expect(item.summary).toBe("组合结果可以检查。");
+  });
+
   it("promotes the bounded continuation gate over stale primary decision context for the selected next action", async () => {
     const workpad = {
       nextAction: {

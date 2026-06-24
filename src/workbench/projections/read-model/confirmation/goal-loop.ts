@@ -12,6 +12,9 @@ import { schedulerControlledAdvanceCopy, schedulerUserFacingActionCopy } from ".
 
 type ScopeValue = string | string[] | undefined;
 const CURRENT_GATE_SCOPE_KEYS = WORKFLOW_ACTION_SCOPE_KEYS.filter((key) => !key.startsWith("goalLoop"));
+const MANUAL_SCHEDULER_GATE_ACTION_TYPES = new Set<string>([
+  "planning.scheduler.integration-check.run",
+]);
 
 export function goalLoopEvaluationQueueItem(
   project: ManagedProject | null,
@@ -307,7 +310,7 @@ function hasRefreshedControlledSchedulerReconfirmEvidence(
   const expectedScope = readGoalLoopScope(goalLoop);
   if (!nextAction || nextAction.kind !== "workflow-action" || !nextAction.actionType || !expectedType || !expectedScope) return false;
   if (nextAction.changeId !== goalLoop.changeId || nextAction.actionType !== expectedType) return false;
-  if (!isControlledSchedulerConcreteAction(expectedType)) return false;
+  if (!isWorkbenchControlledContinuationSchedulerGate(expectedType)) return false;
   return sourceActions.some((action) => actionRepresentsGoalLoopSchedulerGate(item, action, workpad));
 }
 
@@ -365,7 +368,7 @@ function goalLoopControlledSchedulerStepAction(workpad: WorkbenchWorkpad): Workb
   const scope = readGoalLoopScope(goalLoop);
   const expectedType = readGoalLoopActionType(goalLoop);
   if (!goalLoop?.gateReadinessPreflightId || !nextAction.actionType || !expectedType || !scope) return null;
-  if (!isControlledSchedulerConcreteAction(expectedType)) return null;
+  if (!isWorkbenchControlledContinuationSchedulerGate(expectedType)) return null;
   if (nextAction.actionType !== expectedType) return null;
   const actionScope = mergeGoalLoopScopeWithNextActionScope(scope, nextAction);
   return {
@@ -408,7 +411,7 @@ function controlledSchedulerAdvanceAction(action: WorkbenchDecisionAction): Work
 function goalLoopControlledContinuationAction(action: WorkbenchDecisionAction, workpad: WorkbenchWorkpad): WorkbenchDecisionAction | null {
   const goalLoop = workpad.goalLoop;
   if (!goalLoop?.goalLoopNextStepPacketId || !goalLoop.controllerPolicyId || !goalLoop.gateReadinessPreflightId) return null;
-  if (!isControlledSchedulerConcreteAction(action.goalLoopCurrentGateActionType)) return null;
+  if (!isWorkbenchControlledContinuationSchedulerGate(action.goalLoopCurrentGateActionType)) return null;
   return {
     ...action,
     id: `workflow:planning.goal-loop.controlled-continue.run:${goalLoop.gateReadinessPreflightId}`,
@@ -432,7 +435,14 @@ function goalLoopControlledContinuationAction(action: WorkbenchDecisionAction, w
 
 function isSchedulerAdvanceSourceAction(action: WorkbenchDecisionAction): boolean {
   const candidate = buildControlledSchedulerAdvanceCandidate(action);
-  return Boolean(candidate && candidate.validationIssues.length === 0);
+  return Boolean(candidate
+    && candidate.validationIssues.length === 0
+    && isWorkbenchControlledContinuationSchedulerGate(candidate.currentGateActionType));
+}
+
+function isWorkbenchControlledContinuationSchedulerGate(actionType: string | undefined): boolean {
+  return isControlledSchedulerConcreteAction(actionType)
+    && !MANUAL_SCHEDULER_GATE_ACTION_TYPES.has(actionType);
 }
 
 function actionRepresentsGoalLoopSchedulerGate(
