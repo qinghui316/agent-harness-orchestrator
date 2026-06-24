@@ -4,14 +4,14 @@
 
 - Current date: 2026-06-24.
 - Active ECL change: none.
-- Pending Harness evolution: `harness/evolution/pending.md`.
+- Pending Harness evolution: none.
 - Latest archived product change: `harness/changes/archive/20260624-workbench-scoped-automation-bounded-rework-acceptance-v1/summary.md`.
 - Latest real UI continuation scout: `harness/changes/archive/20260624-workbench-real-ui-continuation-next-blocker-scout/summary.md`.
 - Latest bounded continuation runtime: `harness/changes/archive/20260624-goal-driven-controlled-continuation-runtime-v1/summary.md`.
 - Latest product audit: `harness/changes/archive/20260624-workbench-goal-loop-surface-gap-audit/summary.md`.
 - Latest verification convergence: `harness/changes/archive/20260623-workbench-verification-runtime-convergence/summary.md`.
 - Latest real-Codex acceptance: `harness/changes/archive/20260623-workbench-current-project-real-codex-acceptance/summary.md`.
-- Latest completed Harness evolution: `harness/changes/archive/20260624-auto-evolve-post-continuation-scout-window/summary.md`.
+- Latest completed Harness evolution: `harness/changes/archive/20260624-auto-evolve-post-bounded-rework-window/summary.md`.
 
 The latest product change is archived at
 `harness/changes/archive/20260624-workbench-scoped-automation-bounded-rework-acceptance-v1/summary.md`.
@@ -24,12 +24,12 @@ stops at the human `result.apply` gate. Codex may run with full-access runtime
 capability, but AHO still enforces scoped target ids, stale revalidation,
 ToolPolicyGate, source safety, validation/audit, and human apply/close gates.
 
-A new Harness evolution window is pending after the bounded-rework acceptance
-archive. It covers the five-archive window from
+The latest Harness evolution handled the five-archive window from
 `20260624-auto-evolve-post-continuation-scout-window` through
-`20260624-workbench-scoped-automation-bounded-rework-acceptance-v1`. Do not
-auto-apply it; handle it through proposal, independent review, validation,
-`results.tsv`, and `harness-evolve mark-complete`.
+`20260624-workbench-scoped-automation-bounded-rework-acceptance-v1`. Authorized
+subagent review recommends `docs_merge`: compact handoff/current-doc alignment
+only, with no ECL/template/lint/product runtime change. It is archived at
+`harness/changes/archive/20260624-auto-evolve-post-bounded-rework-window/summary.md`.
 
 ## Current Baseline
 
@@ -64,8 +64,6 @@ scripts.
 
 No active change is open. Next recommended work:
 
-- First handle `harness/evolution/pending.md` if continuing Harness
-  maintenance.
 - If continuing product capability, design the next scoped automation profile
   or broader Goal-driven loop slice from the proven human gates.
 - If improving verification cost, target remaining Workbench aggregate/runtime

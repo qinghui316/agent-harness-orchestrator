@@ -6,18 +6,14 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 
 - Current date: 2026-06-24.
 - Active change: none.
-- Pending Harness evolution: `harness/evolution/pending.md`.
+- Pending Harness evolution: none.
 - Latest archived verification change: Workbench Verification Runtime Convergence, archived at `harness/changes/archive/20260623-workbench-verification-runtime-convergence/summary.md`.
 - Latest archived product audit: Workbench Goal Loop Surface Gap Audit, archived at `harness/changes/archive/20260624-workbench-goal-loop-surface-gap-audit/summary.md`.
 - Latest archived product change: Workbench Scoped Automation Bounded Rework Acceptance V1, archived at `harness/changes/archive/20260624-workbench-scoped-automation-bounded-rework-acceptance-v1/summary.md`.
 - Latest real UI continuation scout: Workbench Real UI Continuation Next-Blocker Scout, archived at `harness/changes/archive/20260624-workbench-real-ui-continuation-next-blocker-scout/summary.md`.
 - Latest real-Codex acceptance change: Current Project Real Codex Acceptance, archived at `harness/changes/archive/20260623-workbench-current-project-real-codex-acceptance/summary.md`.
 - Latest product/Harness docs change: Goal-Driven Workflow Loop Target, archived at `harness/changes/archive/20260623-document-goal-driven-workflow-loop-target/summary.md`.
-- Latest completed Harness evolution: `harness/changes/archive/20260624-auto-evolve-post-continuation-scout-window/summary.md`.
-- Current pending evolution window: from
-  `harness/changes/archive/20260624-auto-evolve-post-continuation-scout-window/summary.md`
-  through
-  `harness/changes/archive/20260624-workbench-scoped-automation-bounded-rework-acceptance-v1/summary.md`.
+- Latest completed Harness evolution: `harness/changes/archive/20260624-auto-evolve-post-bounded-rework-window/summary.md`.
 
 Current baseline: the local manual-gated Workbench loop has real browser
 acceptance through planning, code, validation/audit, human apply, and
@@ -36,9 +32,11 @@ scheduler/apply/Goal Loop coverage remains in explicit release/deep scripts.
 The latest product change is archived at
 `harness/changes/archive/20260624-workbench-scoped-automation-bounded-rework-acceptance-v1/summary.md`.
 
-A new Harness evolution window is pending after the bounded-rework acceptance
-archive. Do not auto-apply it: handle it through proposal, independent review,
-validation, `results.tsv`, and `harness-evolve mark-complete`.
+The latest Harness evolution handled the post-bounded-rework archive window
+with authorized subagent review. Result: `docs_merge` for compact
+handoff/current-doc alignment, and no ECL/template/lint/product runtime change.
+It did not expand automatic apply/close/merge/remote/Harness evolution
+authority.
 
 Use `docs/STATUS.md` for short handoff context and
 `harness/changes/INDEX.json` plus archived `summary.md` files for historical

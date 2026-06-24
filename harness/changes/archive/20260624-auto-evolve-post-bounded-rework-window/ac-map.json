@@ -1,0 +1,64 @@
+{
+  "version": "1.0",
+  "generatedAt": "2026-06-24T15:11:26.6776908Z",
+  "changeId": "auto-evolve-post-bounded-rework-window",
+  "acceptanceCriteria": [
+    {
+      "id": "AC-001",
+      "summary": "Evaluate five pending archives and record Experience Retention Scan.",
+      "tasks": [
+        "T-001",
+        "T-002"
+      ]
+    },
+    {
+      "id": "AC-002",
+      "summary": "Record authorized subagent independent review and score.",
+      "tasks": [
+        "T-003"
+      ]
+    },
+    {
+      "id": "AC-003",
+      "summary": "Implement or reject durable changes with evidence.",
+      "tasks": [
+        "T-002",
+        "T-003",
+        "T-004"
+      ]
+    },
+    {
+      "id": "AC-004",
+      "summary": "Update evolution results/state only through mark-complete and clear pending.",
+      "tasks": [
+        "T-005"
+      ]
+    },
+    {
+      "id": "AC-005",
+      "summary": "Align handoff docs and keep detailed history archive-only.",
+      "tasks": [
+        "T-004",
+        "T-006"
+      ]
+    },
+    {
+      "id": "AC-006",
+      "summary": "Harness verification passes after closeout.",
+      "tasks": [
+        "T-005",
+        "T-006"
+      ]
+    }
+  ],
+  "tasks": [
+    "T-001",
+    "T-002",
+    "T-003",
+    "T-004",
+    "T-005",
+    "T-006"
+  ],
+  "warnings": [],
+  "blockingIssues": []
+}

@@ -145,162 +145,54 @@ Current architecture debt register:
 
 ## Next Product Direction
 
-No structured product change is currently active. A Harness evolution window is
-pending at `harness/evolution/pending.md` after the latest bounded-rework
-acceptance archive. The latest archived product change is
+No structured product change is currently active, and no Harness evolution is
+pending. The latest archived product change is
 `harness/changes/archive/20260624-workbench-scoped-automation-bounded-rework-acceptance-v1/summary.md`.
-It extends the two-tier `完全访问权限` execution segment with local bounded
-recovery gates: current selected-Change `result.refresh-rework`,
-`result.revalidate`, and `result.reaudit` when one is the authoritative primary
-confirmation. Positive real UI acceptance used E-drive sandbox
-`E:\aho-accept\bounded-rework-v1-success` and proved one full-access
-confirmation advanced through decomposition/readiness, real `coder-codex` code
-execution, validation, audit, automatic safe `audit.accept`, and then stopped at
-the human `result.apply` gate with `AutomationRun.stopReason =
-"terminal-human-gate"`. A prior E-drive negative scout proved repeated recovery
-gate consumption but correctly stopped on an accepted-scope / validation-script
-conflict. No source apply, close, merge, remote landing, Harness evolution,
-scheduler loop, or parallel executor behavior was authorized.
+Current baseline:
 
-The previous scoped automation product change is archived at
-`harness/changes/archive/20260624-workbench-scoped-automation-audit-acceptance-v1/summary.md`.
-It added the safe `audit.accept` approval gate when the audit status is exactly
-`approved`.
+- Local manual-gated Workbench loop has real browser acceptance from ordinary
+  demand through planning, decomposition/readiness, real `coder-codex`
+  execution, validation/audit, result review, human apply, and close/archive.
+- Two-tier scoped automation is available on the ordinary Workbench surface:
+  `请求批准` keeps per-step confirmation, while `完全访问权限` may automatically
+  consume current selected-Change local gates from the allowed set.
+- The latest product slice proves `完全访问权限` can consume bounded local
+  recovery gates (`result.refresh-rework`, `result.revalidate`,
+  `result.reaudit`) and safe `audit.accept` when audit status is exactly
+  `approved`, then stop at the human `result.apply` gate.
+- Codex runtime full-access capability is evidence of executor capability only;
+  AHO workflow authority remains scoped to target ids, source state, accepted
+  artifacts, stale revalidation, ToolPolicyGate, validation/audit, and human
+  terminal gates.
+- Daily `npm run test:workbench` is the fast Workbench unit-capability gate;
+  full-chain scheduler/apply/Goal Loop coverage remains in explicit
+  release/deep scripts such as `npm run test:workbench:release`.
 
-The previous two-tier automation product change is archived at
-`harness/changes/archive/20260624-workbench-scoped-automation-decomposition-gate-coverage-v1/summary.md`.
-It proved `完全访问权限` can consume the existing `planning.decompose`
-decomposition proposal gate when it is the current authoritative primary
-confirmation, while still keeping AHO authority bounded to the current
-`projectId + changeId`, current target ids, source state, accepted artifact
-hashes, allowed local workflow action set, budget, and human confirmation
-evidence.
+Latest evolution and archive lookup:
 
-The previous real UI continuation scout is archived at
-`harness/changes/archive/20260624-workbench-real-ui-continuation-next-blocker-scout/summary.md`.
-It used external sandbox `C:\aho-accept\continue-next-external` and real browser
-Workbench UI evidence to carry an ordinary demand through planning,
-decomposition/readiness, real `coder-codex` `code.run`, validation, audit, UI
-`audit.accept`, human-gated `result.apply` with local commit, and
-human-confirmed close/archive.
+- Latest Harness evolution:
+  `harness/changes/archive/20260624-auto-evolve-post-bounded-rework-window/summary.md`.
+  Result: `docs_merge` for compact handoff/current-doc alignment, no
+  ECL/template/lint/product runtime change.
+- Use archived summaries and `harness/changes/INDEX.json` for detailed real UI
+  sandbox evidence, old blocker history, and per-run ids; do not copy that
+  history into current handoff docs.
 
-The previous bounded continuation runtime is archived at
-`harness/changes/archive/20260624-goal-driven-controlled-continuation-runtime-v1/summary.md`.
-It implements bounded Goal-driven continuation over the existing controlled
-Scheduler advance wrapper. One explicit Workbench confirmation may advance a
-small number of current matching controlled Scheduler steps, re-reading evidence
-and revalidating targets before each child step, then stopping at the next
-blocker, unsupported gate, high-impact human gate, or budget limit. It is not
-full-auto task mode, not a parallel executor, and not automatic
-apply/merge/close. The latest verification convergence is archived at
-`harness/changes/archive/20260623-workbench-verification-runtime-convergence/summary.md`.
-It separates daily Workbench unit-capability coverage from explicit release/deep
-scheduler/apply/Goal Loop coverage: daily `npm run test:workbench` passes in
-the ordinary tool window, and full-chain deep coverage remains available
-through `npm run test:workbench:release`. The latest Harness evolution is
-archived at
-`harness/changes/archive/20260624-auto-evolve-post-continuation-scout-window/summary.md`.
-It reviewed the post-continuation archive window with an authorized subagent and
-kept existing ECL/template/lint/product runtime rules unchanged; the accepted
-delta was handoff compression so detailed sandbox/run history remains
-archive-only.
-The latest verification change,
-`harness/changes/archive/20260623-scheduler-slow-runtime-reduction/summary.md`,
-reduced the scheduler discard-completion slow path while retaining the
-two-worker scheduler golden path. An earlier product change,
-`harness/changes/archive/20260623-workbench-real-ui-next-blocker-scout/summary.md`,
-used external sandbox `C:\aho-accept\next2` and real browser UI evidence to
-smoke the proven manual-gated local loop before expanding automation. It
-reached planning, decomposition/readiness, real `coder-codex` `code.run`,
-validation pass, audit approval, UI `audit.accept`, human-gated `result.apply`
-with local commit, and human-confirmed close/archive. It fixed two concrete
-Workbench product blockers: active foreground validator tasks now suppress
-premature result-review decisions, and selected archived demands no longer
-expose landing context as the current primary confirmation.
-The latest product projection fix is archived at
-`harness/changes/archive/20260623-workbench-close-gate-projection-alignment/summary.md`.
-It fixed the bounded Workbench projection gap found during final close: when a
-selected demand has a real `change.close` approval, both the authoritative
-confirmation queue and `decisionInspector.primary` now show the close gate, and
-stale failure/result context remains related or historical evidence.
+Next work should be chosen from one concrete track:
 
-The current-project real Codex acceptance is archived at
-`harness/changes/archive/20260623-workbench-current-project-real-codex-acceptance/summary.md`.
-It validated the current AHO repository itself through real
-Workbench/Codex/manual-gated paths, not fixture or fake Codex paths. External
-sandbox `a10` resolved the Codex startup blocker, isolated worktree dependency
-setup blocker, same-root source-safety blocker, duplicate in-flight action
-blocker, missing local committed-apply close path, and committed-apply landing
-attribution blocker. It reached real UI planning, decomposition/readiness,
-`code.run`, validation failure, bounded rework, validation pass, audit
-`approved`, UI `audit.accept`, human-gated `result.apply` with local commit,
-landing readiness refresh, and human-confirmed close/archive without remote
-PR/push/merge.
-
-The archive-threshold Harness evolution window is pending after the latest
-bounded-rework acceptance archive. Handle it through proposal, independent
-review, validation, results logging, and `harness-evolve mark-complete` before
-treating it as completed. The next structured product slice can either design
-scoped full-auto / wider Goal-driven loop authorization from the proven manual
-gates, or address the next concrete Workbench blocker found by real/manual UI
-use before expanding automation. If verification cost becomes the next concrete
-blocker, target the explicit release/deep members with narrower fixture work
-rather than moving them back into the daily gate.
-
-The latest archived `workbench-verification-signal-stability` change made
-Workbench verification trustworthy again. The later package-script convergence
-keeps `npm run test:workbench` as the daily fast unit-capability gate, while
-slow/deep Workbench acceptance remains in explicit release scripts. The stale
-App DOM fetch mock and controlled-advance test expectations are fixed, and the
-demand-to-execution golden-flow suite remains part of the Workbench slow gate.
-
-The earlier `workbench-demand-to-execution-golden-flow` change proved the front
-half of the manual loop: natural-language Workbench demand, planning draft,
-execution confirmation, decomposition/readiness, readiness-scoped `code.run`,
-and validation/audit/result evidence. The
-`workbench-usable-manual-closed-loop` change proved the back half from result
-review through validation/audit, human-confirmed apply, and separate
-human-confirmed close/archive handoff.
-
-The current product baseline is a real-accepted local Workbench manual-gated
-path from demand conversation to committed apply and close/archive. Real
-self-acceptance must keep the AHO development repository separate from the
-managed project under test. Future product work should build on existing
-Workbench action registry, scoped target revalidation, ToolPolicy/human gates,
-typed workflow artifacts, readiness manifests, code runtime orchestration,
-validation/audit, source apply safety, and close/archive handoff.
-
-The next architecture direction should be evaluated against the
-Goal-driven Workflow Loop target above. Product work should avoid treating every
-TaskGraph node as a worktree job, avoid making Scheduler the product core, and
-avoid exposing future workflow internals as primary user actions. Parallel
-worktree execution belongs only to low-conflict write-capable slices selected
-by the main Agent; sequential loop turns, read-only planning, bounded rework,
-IntegrationFix, and human clarification remain equally valid strategies.
-
-Full-auto task mode remains a later product direction. The current two-tier V1
-has implemented scoped local automation for a narrow allowed action set; later
-accepted changes may widen profiles, budgets, or gate families only by reusing
-the same target revalidation, source-state, accepted-artifact-hash, and human
-gate boundaries. Remote PR/update/ready/merge behavior must remain behind a
-later explicit profile. The Phase 12A controlled loop boundary lives in
-`docs/design-docs/controlled-scheduler-loop.md` and remains the implementation
-constraint for future scheduler automation. Historical phase-by-phase details
-stay in archived summaries and `harness/changes/INDEX.json`.
-
-- If improving test architecture, reduce the still-expensive scheduler slow
-  runtime without dropping scheduler/runtime/source-safety assertions or
-  recreating a residual Workbench monolith.
-- If continuing product implementation, harden the proven Workbench
-  manual-gated loop only when a new concrete product blocker appears.
-- If exploring broader automation, open a separate full-auto design slice that
-  explicitly reuses the proven gates and source safety.
-- If continuing Goal Loop work, build on controller policy evidence without making it execution authority.
-- If continuing scheduler work, use `docs/design-docs/controlled-scheduler-loop.md` as the loop boundary, but keep runtime staged and human-gated until an accepted ECL change implements and verifies each transition.
-- If improving Workbench UX, keep implemented actions honest and bind every high-impact action to concrete target ids, stale revalidation, ToolPolicyGate, and human confirmation.
-- If adding Workbench tests, keep new coverage in explicit capability-domain suites and do not recreate a residual Workbench monolith; do not mix test topology work into unrelated product behavior changes.
-- If improving product maintenance/self-evolution, treat raw closeouts/ledgers as durable evidence and current stable memory/docs as compact derived memory. Build only on the Phase 12P-12V human-gated proposal/decision/patch/gate/manifest/descriptor/application-result chain before considering any broader rewrite behavior.
-- If improving Harness self-evolution, use the Experience Lifecycle scan: promote, retain, merge, retire, and archive-only.
+- Product capability: design the next scoped automation profile or broader
+  Goal-driven loop slice from the proven gates, without auto apply/close/merge,
+  remote landing, Harness evolution, or parallel execution unless a later
+  accepted profile explicitly implements those boundaries.
+- Product hardening: run a focused real UI scout only when there is a suspected
+  Workbench blocker; fix the owner path rather than adding explanation layers.
+- Verification cost: improve explicit release/deep members without moving slow
+  coverage back into the daily Workbench gate.
+- Scheduler/Goal Loop: keep Scheduler as one execution strategy under the
+  Goal-driven Workflow Loop target, not the product core. Parallel worktrees
+  are only for low-conflict write-capable slices selected by the main Agent;
+  sequential loop turns, read-only planning, bounded rework, IntegrationFix,
+  and human clarification remain valid strategies.
 
 ## Later Roadmap Options
 

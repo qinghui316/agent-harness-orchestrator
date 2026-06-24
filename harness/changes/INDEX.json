@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-24T14:29:27.3034980Z",
+    "generated_at":  "2026-06-24T15:20:41.5926218Z",
     "active":  [
 
                ],
@@ -1829,6 +1829,10 @@
                     {
                         "name":  "20260623-workbench-verification-runtime-convergence",
                         "path":  "harness/changes/archive/20260623-workbench-verification-runtime-convergence"
+                    },
+                    {
+                        "name":  "20260624-auto-evolve-post-bounded-rework-window",
+                        "path":  "harness/changes/archive/20260624-auto-evolve-post-bounded-rework-window"
                     },
                     {
                         "name":  "20260624-auto-evolve-post-continuation-scout-window",
