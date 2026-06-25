@@ -48,6 +48,7 @@ describe("workbench planning and scheduler preparation", () => {
       expect.objectContaining({ id: "T-001", title: expect.stringContaining("src/alpha.ts"), acIds: ["AC-001"] }),
       expect.objectContaining({ id: "T-002", title: expect.stringContaining("src/beta.ts"), acIds: ["AC-001"] }),
     ]);
+    expect(bundle.sourceScopeConstraints).toEqual(["src/alpha.ts", "src/beta.ts"]);
     expect(bundle.tasksMd).toContain("T-001");
     expect(bundle.tasksMd).toContain("src/alpha.ts");
     expect(bundle.tasksMd).toContain("T-002");
@@ -430,6 +431,8 @@ describe("workbench planning and scheduler preparation", () => {
       ],
       dependencies: [],
       conflictScopes: ["src/module-a.ts", "src/module-b.ts"],
+      sourceScopeConstraints: ["src/module-a.ts", "src/module-b.ts"],
+      scopeExpansions: [],
     });
 
     await executeWorkbenchAction({ project: project(), path: tempDir }, {
@@ -613,6 +616,14 @@ describe("workbench planning and scheduler preparation", () => {
 
   it.each([
     {
+      name: "silent source scope expansion",
+      scopes: [["src/module-a.ts", "tests/module-a.test.ts"], ["src/module-b.ts"]],
+      dependencies: [] as Array<{ from: string; to: string; kind: string }>,
+      dependsOn: [[], []],
+      conflictScopes: ["src/module-a.ts", "src/module-b.ts"],
+      reason: "source scope expansion requires accepted plan update",
+    },
+    {
       name: "ambiguous source scope",
       scopes: [["selected-demand"], ["src/module-b.ts"]],
       dependencies: [] as Array<{ from: string; to: string; kind: string }>,
@@ -714,5 +725,67 @@ describe("workbench planning and scheduler preparation", () => {
     const actions = snapshot.right.confirmationQueue.current.flatMap((item) => item.actions).map((action) => action.actionType);
     expect(actions).not.toContain("planning.scheduler.plan.prepare");
     expect(actions).not.toContain("planning.scheduler.contract.compile");
+  });
+
+  it("allows scheduler readiness when an expanded source scope is explicitly accepted", async () => {
+    await initHarness(project());
+    const topic = await createWorkbenchTopic(project(), {
+      title: "Accepted Scope Expansion",
+      body: "Split this into independent parallel work across selected modules.",
+    });
+    await writeAcceptedSpecAndTasks(topic.changeId);
+    const changeDir = join(tempDir, "harness", "changes", "active", topic.changeId);
+    await writeFile(join(changeDir, "tasks.md"), [
+      "# Tasks",
+      "",
+      "- [ ] T-001: Update module A.",
+      "  - Covers: AC-001",
+      "- [ ] T-002: Update module B.",
+      "  - Covers: AC-001",
+      "",
+    ].join("\n"), "utf8");
+    await writePlanningBundleFixture(topic.changeId, "Implement independent parallel module updates.");
+    const bundlePath = join(changeDir, "planning", "latest-bundle.json");
+    const bundle = JSON.parse(await readFile(bundlePath, "utf8"));
+    bundle.status = "confirmed";
+    bundle.tasks = [
+      { id: "T-001", title: "Update module A", acIds: ["AC-001"] },
+      { id: "T-002", title: "Update module B", acIds: ["AC-001"] },
+    ];
+    bundle.tasksMd = "- [ ] T-001: Update module A\n  - Covers: AC-001\n- [ ] T-002: Update module B\n  - Covers: AC-001\n";
+    await writeFile(bundlePath, JSON.stringify(bundle, null, 2), "utf8");
+
+    const draft = await executeWorkbenchAction({ project: project(), path: tempDir }, {
+      actionType: "planning.decompose",
+      changeId: topic.changeId,
+      prompt: "并行 独立 src/module-a.ts src/module-b.ts",
+      confirm: true,
+    });
+    const planId = (draft.result as { result?: { plan?: { id?: string } } }).result?.plan?.id;
+    const planPath = join(changeDir, "planning", "decomposition-plan.json");
+    const plan = JSON.parse(await readFile(planPath, "utf8"));
+    plan.units[0].scopeHints = ["src/module-a.ts", "tests/module-a.test.ts"];
+    plan.scopeExpansions = [
+      { scope: "tests/module-a.test.ts", reason: "User accepted targeted verification in the revised plan.", accepted: true },
+    ];
+    await writeFile(planPath, JSON.stringify(plan, null, 2), "utf8");
+
+    await executeWorkbenchAction({ project: project(), path: tempDir }, {
+      actionType: "planning.decomposition.confirm",
+      changeId: topic.changeId,
+      decompositionPlanId: planId,
+      confirm: true,
+    });
+    const readiness = await executeWorkbenchAction({ project: project(), path: tempDir }, {
+      actionType: "planning.decomposition.assess-readiness",
+      changeId: topic.changeId,
+      decompositionPlanId: planId,
+      confirm: true,
+    });
+    const manifest = (readiness.result as { result?: { manifest?: { status?: string; nextAllowedAction?: string } } }).result?.manifest;
+    expect(manifest).toMatchObject({
+      status: "ready-for-scheduler-contract",
+      nextAllowedAction: "scheduler.contract",
+    });
   });
 });

@@ -13,6 +13,12 @@ const recoveryKeyInputsSchema = z.object({
   notes: z.array(z.string()),
 });
 
+const scopeExpansionSchema = z.object({
+  scope: z.string(),
+  reason: z.string(),
+  accepted: z.boolean(),
+});
+
 export const decompositionPlanSchema: z.ZodType<DecompositionPlan> = z.object({
   id: z.string(),
   changeId: z.string(),
@@ -35,6 +41,8 @@ export const decompositionPlanSchema: z.ZodType<DecompositionPlan> = z.object({
     kind: z.enum(["blocks", "synthesizes", "conflicts"]),
   })),
   conflictScopes: z.array(z.string()),
+  sourceScopeConstraints: z.array(z.string()).optional(),
+  scopeExpansions: z.array(scopeExpansionSchema).optional(),
   riskSummary: z.string(),
   openQuestions: z.array(z.string()),
   artifactRefs: z.array(z.string()),

@@ -53,6 +53,7 @@ export function renderPlanningBundleSummary(bundle: PlanningArtifactBundle): str
     `验收标准：${bundle.acceptanceCriteria.join("；")}`,
     `实现方案：${bundle.design}`,
     `任务：${bundle.tasks.map((task) => `${task.id} ${task.title}`).join("；")}`,
+    `范围：${bundle.sourceScopeConstraints?.length ? `保持在 ${bundle.sourceScopeConstraints.join("、")}` : "未明确限定具体文件范围"}`,
     bundle.openQuestions.length > 0 ? `待确认：${bundle.openQuestions.join("；")}` : "如果认可，可以确认执行；如果不认可，可以直接在主对话里要求修改。",
   ].join("\n");
 }
@@ -70,6 +71,10 @@ export function renderPlanningBundleMarkdown(bundle: PlanningArtifactBundle): st
     "## Constraints",
     "",
     ...(bundle.constraints.length > 0 ? bundle.constraints.map((item) => `- ${item}`) : ["- None confirmed."]),
+    "",
+    "## Source Scope Constraints",
+    "",
+    ...(bundle.sourceScopeConstraints?.length ? bundle.sourceScopeConstraints.map((item) => `- ${item}`) : ["- None explicitly limited."]),
     "",
     "## Acceptance Criteria",
     "",

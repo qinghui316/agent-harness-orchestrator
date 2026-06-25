@@ -146,6 +146,11 @@ Current architecture debt register:
 ## Next Product Direction
 
 Current structured change: none.
+Latest product hardening:
+`harness/changes/archive/20260625-workbench-planning-decomposition-scope-honesty-v1/summary.md`.
+Planning/decomposition now preserves explicit user source constraints and
+blocks scheduler-ready continuation when a plan silently expands into tests,
+docs, indexes, or other files.
 Latest Harness docs change:
 `harness/changes/archive/20260625-document-minimality-gate-and-complexity-review/summary.md`.
 Pending Harness evolution: none. The five-archive window ending with scheduler
@@ -154,7 +159,7 @@ integration apply/discard hardening was archived as
 with result `docs_merge`. The latest scheduler integration apply/discard
 hardening is
 `harness/changes/archive/20260625-workbench-scheduler-integration-apply-discard-real-acceptance-v1/summary.md`.
-The latest product hardening is
+Previous product hardening:
 `harness/changes/archive/20260625-workbench-external-local-restore-v1/summary.md`.
 The latest scheduler IntegrationCheck acceptance is
 `harness/changes/archive/20260625-workbench-scheduler-integrationcheck-real-acceptance-v1/summary.md`.

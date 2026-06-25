@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-25T04:05:12.1436997Z",
+    "generated_at":  "2026-06-25T04:40:13.3673529Z",
     "active":  [
 
                ],
@@ -1881,6 +1881,10 @@
                     {
                         "name":  "20260625-workbench-low-conflict-taskgraph-scheduler-reachability-v1",
                         "path":  "harness/changes/archive/20260625-workbench-low-conflict-taskgraph-scheduler-reachability-v1"
+                    },
+                    {
+                        "name":  "20260625-workbench-planning-decomposition-scope-honesty-v1",
+                        "path":  "harness/changes/archive/20260625-workbench-planning-decomposition-scope-honesty-v1"
                     },
                     {
                         "name":  "20260625-workbench-scheduler-integration-apply-discard-real-acceptance-v1",

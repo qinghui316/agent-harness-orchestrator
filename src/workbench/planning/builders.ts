@@ -51,6 +51,7 @@ export function buildDeterministicPlanningBundle(
     status: "draft",
     goal,
     constraints,
+    sourceScopeConstraints: explicitSourceScopes,
     acceptanceCriteria,
     design: "Use the smallest focused implementation in an AHO-owned worktree, add or update targeted verification for the accepted demand, then run independent validation and audit.",
     tasks,
@@ -89,6 +90,11 @@ export function buildDeterministicDecompositionPlan(
         ? parallelSignal ? "taskgraph-parallel-candidate" : "taskgraph-sequential"
         : "single-change";
   const explicitSourceScopes = extractExplicitSourceScopes(signalText);
+  const sourceScopeConstraints = unique([
+    ...(bundle?.sourceScopeConstraints ?? []),
+    ...extractExplicitSourceScopes(bundle?.goal ?? ""),
+    ...extractExplicitSourceScopes(prompt ?? ""),
+  ]);
   const scopedParallelCandidate = recommendation === "taskgraph-parallel-candidate" && explicitSourceScopes.length >= tasks.length;
   const units: DecompositionUnit[] = tasks.map((task, index) => ({
     id: `DU-${String(index + 1).padStart(3, "0")}`,
@@ -103,6 +109,10 @@ export function buildDeterministicDecompositionPlan(
   const dependencies = scopedParallelCandidate
     ? []
     : units.slice(1).map((unit, index) => ({ from: units[index]?.id ?? units[0]?.id ?? unit.id, to: unit.id, kind: "blocks" as const }));
+  const conflictScopes = scopedParallelCandidate
+    ? explicitSourceScopes.slice(0, tasks.length)
+    : recommendation === "single-change" ? [] : ["source overlap must be checked before parallel execution"];
+  const scopeExpansions = detectSourceScopeExpansions([...units.flatMap((unit) => unit.scopeHints), ...conflictScopes], sourceScopeConstraints, []);
   const changeDir = join(memory.memoryRoot, changePath);
   const artifact = displayArtifactPath(memory, join(changeDir, "planning", "decomposition-plan.json"));
   const markdownArtifact = displayArtifactPath(memory, join(changeDir, "planning", "decomposition-plan.md"));
@@ -114,9 +124,9 @@ export function buildDeterministicDecompositionPlan(
     rationale: rationaleForRecommendation(recommendation, units.length),
     units,
     dependencies,
-    conflictScopes: scopedParallelCandidate
-      ? explicitSourceScopes.slice(0, tasks.length)
-      : recommendation === "single-change" ? [] : ["source overlap must be checked before parallel execution"],
+    conflictScopes,
+    sourceScopeConstraints,
+    scopeExpansions,
     riskSummary: "This is a proposal only. User confirmation does not start execution, create child Changes, or trust recovered work.",
     openQuestions: bundle?.openQuestions ?? [],
     artifactRefs: [bundle?.artifact].filter((item): item is string => Boolean(item)),
@@ -256,6 +266,10 @@ function assessParallelReadiness(plan: DecompositionPlan): { ready: boolean; blo
   if (hasUnitDependencies || hasPlanDependencies) blockedReasons.push("dependent or conflict-linked units must run sequentially");
   const overlaps = findOverlappingSourceScopes(plan.units);
   if (overlaps.length > 0) blockedReasons.push(`source scopes overlap: ${overlaps.join(", ")}`);
+  const unacceptedExpansions = detectSourceScopeExpansions([...plan.units.flatMap((unit) => unit.scopeHints), ...plan.conflictScopes], plan.sourceScopeConstraints ?? [], plan.scopeExpansions ?? []);
+  if (unacceptedExpansions.length > 0) {
+    blockedReasons.push(`source scope expansion requires accepted plan update: ${unacceptedExpansions.map((item) => item.scope).join(", ")}`);
+  }
   return { ready: blockedReasons.length === 0, blockedReasons, refs };
 }
 
@@ -291,6 +305,40 @@ function findOverlappingSourceScopes(units: DecompositionUnit[]): string[] {
     }
   }
   return overlaps;
+}
+
+function detectSourceScopeExpansions(
+  scopes: string[],
+  constraints: string[],
+  acceptedExpansions: Array<{ scope: string; accepted: boolean }> = [],
+): Array<{ scope: string; reason: string; accepted: boolean }> {
+  const normalizedConstraints = unique(constraints.map(normalizeScope)).filter(Boolean);
+  if (normalizedConstraints.length === 0) return [];
+  const accepted = new Set(
+    acceptedExpansions
+      .filter((item) => item.accepted)
+      .map((item) => normalizeScope(item.scope)),
+  );
+  const expansions: Array<{ scope: string; reason: string; accepted: boolean }> = [];
+  const seen = new Set<string>();
+  for (const rawScope of scopes) {
+    if (!isSpecificSourceScope(rawScope)) continue;
+    const scope = normalizeScope(rawScope);
+    if (!scope || seen.has(scope)) continue;
+    seen.add(scope);
+    if (scopeCoveredByConstraints(scope, normalizedConstraints)) continue;
+    if (accepted.has(scope)) continue;
+    expansions.push({
+      scope: rawScope,
+      reason: "Source scope is outside the user-accepted planning constraints.",
+      accepted: false,
+    });
+  }
+  return expansions;
+}
+
+function scopeCoveredByConstraints(scope: string, constraints: string[]): boolean {
+  return constraints.some((constraint) => scope === constraint || scope.startsWith(`${constraint}/`));
 }
 
 function sourceScopesOverlap(left: string, right: string): boolean {

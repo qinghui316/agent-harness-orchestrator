@@ -951,6 +951,7 @@ export interface WorkbenchPlanningDraft {
   id: string;
   goal: string;
   constraints: string[];
+  sourceScopeConstraints?: string[];
   acceptanceCriteria: string[];
   design: string;
   tasks: Array<{ id: string; title: string; acIds: string[] }>;

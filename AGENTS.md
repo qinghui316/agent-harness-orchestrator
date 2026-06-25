@@ -7,7 +7,8 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 - Current date: 2026-06-25.
 - Active change: none.
 - Pending Harness evolution: none.
-- Latest archived product change: Workbench External-Local Restore V1, archived at `harness/changes/archive/20260625-workbench-external-local-restore-v1/summary.md`.
+- Latest archived product change: Workbench Planning / Decomposition Scope Honesty V1, archived at `harness/changes/archive/20260625-workbench-planning-decomposition-scope-honesty-v1/summary.md`.
+- Previous external-local restore change: `harness/changes/archive/20260625-workbench-external-local-restore-v1/summary.md`.
 - Latest archived Harness docs change: Minimality Gate And Complexity Review, archived at `harness/changes/archive/20260625-document-minimality-gate-and-complexity-review/summary.md`.
 - Previous scheduler apply/discard hardening: `harness/changes/archive/20260625-workbench-scheduler-integration-apply-discard-real-acceptance-v1/summary.md`.
 - Latest completed Harness evolution: `harness/changes/archive/20260625-auto-evolve-post-scheduler-integration-window/summary.md` (`docs_merge`; no ECL/template/lint or product runtime change).
@@ -23,6 +24,11 @@ terminal gates. It can consume local execution/recovery gates and safe
 `audit.accept`, then stops at human `result.apply`; it still does not auto-run
 planning generation, apply/close/merge, remote landing, Harness evolution,
 scheduler loops, or parallel execution.
+
+Latest product hardening: planning/decomposition scope honesty before
+low-conflict scheduler readiness. Explicit user source scopes are preserved
+through planning and DecompositionPlan, and unaccepted expansion into tests,
+docs, indexes, or other files blocks scheduler-ready continuation.
 
 Scheduler acceptance has reached real two-worker `coder-codex` worktrees,
 worker validation/audit, ready integration candidate, manual IntegrationCheck,

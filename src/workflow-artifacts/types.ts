@@ -29,6 +29,12 @@ export interface DecompositionUnit {
   recommendedRoleId: string;
 }
 
+export interface DecompositionScopeExpansion {
+  scope: string;
+  reason: string;
+  accepted: boolean;
+}
+
 export interface DecompositionPlan {
   id: string;
   changeId: string;
@@ -38,6 +44,8 @@ export interface DecompositionPlan {
   units: DecompositionUnit[];
   dependencies: Array<{ from: string; to: string; kind: "blocks" | "synthesizes" | "conflicts" }>;
   conflictScopes: string[];
+  sourceScopeConstraints?: string[];
+  scopeExpansions?: DecompositionScopeExpansion[];
   riskSummary: string;
   openQuestions: string[];
   artifactRefs: string[];

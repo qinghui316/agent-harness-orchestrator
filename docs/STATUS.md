@@ -5,7 +5,8 @@
 - Current date: 2026-06-25.
 - Active ECL change: none.
 - Pending Harness evolution: none.
-- Latest archived product change: `harness/changes/archive/20260625-workbench-external-local-restore-v1/summary.md`.
+- Latest archived product change: `harness/changes/archive/20260625-workbench-planning-decomposition-scope-honesty-v1/summary.md`.
+- Previous external-local restore change: `harness/changes/archive/20260625-workbench-external-local-restore-v1/summary.md`.
 - Latest archived Harness docs change: `harness/changes/archive/20260625-document-minimality-gate-and-complexity-review/summary.md`.
 - Previous scheduler integration apply/discard hardening: `harness/changes/archive/20260625-workbench-scheduler-integration-apply-discard-real-acceptance-v1/summary.md`.
 - Latest real UI continuation scout: `harness/changes/archive/20260624-workbench-real-ui-continuation-next-blocker-scout/summary.md`.
@@ -20,14 +21,16 @@
 - Latest scheduler integration apply/discard hardening: `harness/changes/archive/20260625-workbench-scheduler-integration-apply-discard-real-acceptance-v1/summary.md`.
 
 The latest archived product change is at
+`harness/changes/archive/20260625-workbench-planning-decomposition-scope-honesty-v1/summary.md`.
+It tightens low-conflict scheduler readiness: accepted planning and
+DecompositionPlan scopes must stay within explicit user source constraints, and
+unaccepted expansion into tests, docs, indexes, or other files blocks
+`ready-for-scheduler-contract`.
+
+The previous external-local restore change is at
 `harness/changes/archive/20260625-workbench-external-local-restore-v1/summary.md`.
-It fixes external-local Workbench restore for old E-drive sandboxes: when
-`workbench serve <sourcePath>` sees a valid `.agent-harness/project.json` and
-the current `AHO_HOME/projects/<projectId>` memory exists, the server restores a
-session-scoped direct project, `/api/projects` includes it, project-scoped
-Workbench routes rehydrate existing conversations/gates, and the UI shows
-Harness-ready external-local memory. Missing memory is now shown as an
-`AHO_HOME` mismatch instead of generic Harness-uninitialized copy.
+It fixes direct `workbench serve <sourcePath>` restore for old E-drive
+sandboxes when marker and `AHO_HOME/projects/<projectId>` memory match.
 
 The latest archived scheduler integration apply/discard hardening is at
 `harness/changes/archive/20260625-workbench-scheduler-integration-apply-discard-real-acceptance-v1/summary.md`.

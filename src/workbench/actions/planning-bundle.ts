@@ -9,6 +9,7 @@ const planningBundleSchema = z.object({
   status: z.enum(["draft", "confirmed"]),
   goal: z.string(),
   constraints: z.array(z.string()),
+  sourceScopeConstraints: z.array(z.string()).optional(),
   acceptanceCriteria: z.array(z.string()),
   design: z.string(),
   tasks: z.array(z.object({ id: z.string(), title: z.string(), acIds: z.array(z.string()) })),

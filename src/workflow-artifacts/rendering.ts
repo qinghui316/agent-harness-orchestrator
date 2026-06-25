@@ -16,6 +16,15 @@ export function renderDecompositionPlanMarkdown(plan: DecompositionPlan): string
     "",
     ...plan.units.map((unit) => `- ${unit.id}: ${unit.title} (${unit.taskIds.join(", ") || "no task ids"})`),
     "",
+    "## Source Scope Honesty",
+    "",
+    ...(plan.sourceScopeConstraints?.length
+      ? plan.sourceScopeConstraints.map((scope) => `- Accepted scope: ${scope}`)
+      : ["- No explicit source scope constraints were recorded."]),
+    ...(plan.scopeExpansions?.length
+      ? ["", ...plan.scopeExpansions.map((item) => `- Expansion: ${item.scope} (${item.accepted ? "accepted" : "not accepted"}) - ${item.reason}`)]
+      : []),
+    "",
     "## Boundary",
     "",
     "- Proposal only; not executable workflow truth.",
