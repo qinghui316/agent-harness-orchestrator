@@ -11,13 +11,15 @@ The user should not need to know internal terms before asking for work. The main
 ## Goal-Driven Workflow Loop Target
 
 Latest implementation and acceptance slice:
-`harness/changes/archive/20260626-workbench-integrationfix-real-ui-acceptance-v1/summary.md`.
+`harness/changes/archive/20260626-workbench-repaired-integration-apply-real-ui-acceptance-v1/summary.md`.
 It verified the existing IntegrationCheck / IntegrationFix owner path through
-real E-drive Workbench UI: low-conflict workers, ready integration candidate,
-manual IntegrationCheck, real aggregate failure, Codex-backed repair in the
-integration fix checkout, repaired patch, aggregate validation/audit pass, and
-final human integration apply/discard gate. It did not implement a new workflow
-runtime, full parallel executor, or automatic integration apply/discard.
+real E-drive Workbench UI through the final human application of a repaired
+integration artifact. The prior acceptance reached the manual integration
+apply/discard gate after Codex-backed repair; this acceptance confirmed the
+human `apply-check.apply` action safely updated the external source root and
+removed the stale integration apply/discard primary gate. It did not implement
+a new workflow runtime, full parallel executor, or automatic integration
+apply/discard.
 
 The target architecture is a Goal-driven Workflow Loop, not a Scheduler-first
 product. After the user confirms the goal, boundaries, accepted plan, and
@@ -156,14 +158,15 @@ Current architecture debt register:
 ## Next Product Direction
 
 Current structured change: none.
-Pending Harness evolution: none.
+Pending Harness evolution: `harness/evolution/pending.md`.
 Latest completed Harness evolution:
 `harness/changes/archive/20260625-auto-evolve-post-feedback-real-ui-window/summary.md`.
 It evaluated the window generated after `harness/changes/archive/20260625-workbench-confirmation-feedback-real-ui-scout-v1/summary.md` closed as a separate human-gated Harness evolution pass and completed as `noop`.
 Latest product acceptance:
-`harness/changes/archive/20260626-workbench-integrationfix-real-ui-acceptance-v1/summary.md`.
-It confirms real UI acceptance for Codex-backed IntegrationFix and keeps
-integration apply/discard human-gated.
+`harness/changes/archive/20260626-workbench-repaired-integration-apply-real-ui-acceptance-v1/summary.md`.
+It confirms real UI acceptance for applying a Codex-backed IntegrationFix
+repair through the human integration apply gate. Integration apply/discard
+remains human-gated and outside scoped `完全访问权限`.
 Latest product change:
 `harness/changes/archive/20260625-workbench-scheduler-worker-progression-to-integration-candidate-v1/summary.md`.
 It confirms that existing scheduler owners already cover same-Change
@@ -257,7 +260,9 @@ Current baseline:
 - Integration apply/discard remains a high-impact human decision. Apply keeps
   source clean, HEAD, artifact hash, aggregate validation, and audit guards;
   discard now also fails closed in the handler for terminal or non-discardable
-  check states.
+  check states. The latest real UI acceptance proves a repaired IntegrationFix
+  artifact can be applied through this human gate and then stops showing the
+  old apply/discard gate as primary.
 - External-local restore is implemented for direct `workbench serve <path>`.
   When a source marker and the current `AHO_HOME/projects/<projectId>` memory
   exist, Workbench restores a session-scoped direct project, lists existing
@@ -271,7 +276,10 @@ Latest evolution and archive lookup:
   `harness/changes/archive/20260625-auto-evolve-post-feedback-real-ui-window/summary.md`.
   Result: `noop`; subagent review score 88; no
   ECL/template/lint/product runtime change.
-- Current pending Harness evolution: none.
+- Current pending Harness evolution: `harness/evolution/pending.md`; it covers
+  the five-archive window ending with
+  `20260626-workbench-repaired-integration-apply-real-ui-acceptance-v1` and
+  remains human-gated.
 - Use archived summaries and `harness/changes/INDEX.json` for detailed real UI
   sandbox evidence, old blocker history, and per-run ids; do not copy that
   history into current handoff docs.

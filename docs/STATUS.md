@@ -4,9 +4,10 @@
 
 - Current date: 2026-06-26.
 - Active ECL change: none.
-- Pending Harness evolution: none.
+- Pending Harness evolution: `harness/evolution/pending.md`.
 - Latest archived product audit: `harness/changes/archive/20260625-workbench-goal-loop-decision-surface-audit-v1/summary.md`.
-- Latest archived product acceptance: `harness/changes/archive/20260626-workbench-integrationfix-real-ui-acceptance-v1/summary.md`.
+- Latest archived product acceptance: `harness/changes/archive/20260626-workbench-repaired-integration-apply-real-ui-acceptance-v1/summary.md`.
+- Previous IntegrationFix real UI acceptance: `harness/changes/archive/20260626-workbench-integrationfix-real-ui-acceptance-v1/summary.md`.
 - Latest archived product change: `harness/changes/archive/20260625-workbench-codex-backed-integrationfix-real-repair-v1/summary.md`.
 - Previous scheduler progression: `harness/changes/archive/20260625-workbench-scheduler-worker-progression-to-integration-candidate-v1/summary.md`.
 - Latest archived boundary guard: `harness/changes/archive/20260625-workbench-loop-per-change-boundary-guard-v1/summary.md`.
@@ -32,6 +33,17 @@
 - Latest scheduler integration apply/discard hardening: `harness/changes/archive/20260625-workbench-scheduler-integration-apply-discard-real-acceptance-v1/summary.md`.
 
 Latest product acceptance:
+`harness/changes/archive/20260626-workbench-repaired-integration-apply-real-ui-acceptance-v1/summary.md`.
+It verified through the real Workbench UI that the Codex-backed repaired
+IntegrationFix artifact can be manually applied to the E-drive external source
+root. Before apply the source was clean and the visible primary gate was the
+human integration apply card. After the browser confirmation, IntegrationCheck
+`apply-check-20260625165935-fa41891a` became `applied`, source files reflected
+the repaired result, and Workbench no longer showed the stale integration
+apply/discard gate as primary. Integration apply/discard remains a human gate
+outside scoped `完全访问权限`.
+
+Previous product acceptance:
 `harness/changes/archive/20260626-workbench-integrationfix-real-ui-acceptance-v1/summary.md`.
 It verified the Codex-backed IntegrationFix path through real Workbench UI in
 `E:\aho-accept\integrationfix-real-ui-v1`: two same-Change scheduler worker
@@ -201,10 +213,18 @@ scripts.
 
 Active change: none.
 
+Pending Harness evolution: `harness/evolution/pending.md`. It was generated
+after the repaired integration apply acceptance closed and covers the
+five-archive window from `20260625-auto-evolve-post-feedback-real-ui-window`
+through `20260626-workbench-repaired-integration-apply-real-ui-acceptance-v1`.
+Handle it as a separate human-gated Harness evolution change; do not auto-apply
+it from scoped automation.
+
 Recommended next resume point: choose the next concrete product capability
 from existing Workbench gate/action/runtime owners. The Codex-backed
-IntegrationFix branch now has real UI acceptance through repair and the final
-human integration apply/discard gate. Do not widen `完全访问权限` into raw
+IntegrationFix branch now has real UI acceptance through repair and manual
+application of the repaired artifact to the external source root. Do not widen
+`完全访问权限` into raw
 scheduler, integration apply/discard, remote, merge, PR, or Harness evolution
 without a separate structured change.
 

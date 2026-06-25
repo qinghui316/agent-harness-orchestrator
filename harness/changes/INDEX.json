@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-25T17:14:55.3760333Z",
+    "generated_at":  "2026-06-25T17:52:18.5071698Z",
     "active":  [
 
                ],
@@ -1957,6 +1957,10 @@
                     {
                         "name":  "20260626-workbench-integrationfix-real-ui-acceptance-v1",
                         "path":  "harness/changes/archive/20260626-workbench-integrationfix-real-ui-acceptance-v1"
+                    },
+                    {
+                        "name":  "20260626-workbench-repaired-integration-apply-real-ui-acceptance-v1",
+                        "path":  "harness/changes/archive/20260626-workbench-repaired-integration-apply-real-ui-acceptance-v1"
                     }
                 ]
 }

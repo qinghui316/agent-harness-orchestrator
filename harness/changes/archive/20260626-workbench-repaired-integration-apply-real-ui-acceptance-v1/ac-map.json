@@ -1,0 +1,59 @@
+{
+  "version": "1.0",
+  "generatedAt": "2026-06-26T01:45:00.000Z",
+  "changeId": "workbench-repaired-integration-apply-real-ui-acceptance-v1",
+  "acceptanceCriteria": [
+    {
+      "id": "AC-001",
+      "text": "Workbench restores or recreates a passed repaired IntegrationCheck whose current primary gate is integration-apply."
+    },
+    {
+      "id": "AC-002",
+      "text": "The visible apply action carries the current IntegrationCheck id and latest repaired artifact hash."
+    },
+    {
+      "id": "AC-003",
+      "text": "Before apply, the external source root is clean and its source HEAD matches the IntegrationCheck source evidence."
+    },
+    {
+      "id": "AC-004",
+      "text": "After real browser confirmation of apply-check.apply, the external source root contains the repaired integration result and the IntegrationCheck status is applied."
+    },
+    {
+      "id": "AC-005",
+      "text": "Workbench no longer shows the stale integration apply/discard gate as the current primary gate after apply."
+    },
+    {
+      "id": "AC-006",
+      "text": "Full access remains unavailable for integration apply/discard, and no remote, merge, PR, Harness evolution, or cross-Change action is executed."
+    }
+  ],
+  "tasks": [
+    {
+      "id": "T-001",
+      "covers": ["AC-001", "AC-003"]
+    },
+    {
+      "id": "T-002",
+      "covers": ["AC-001", "AC-002", "AC-006"]
+    },
+    {
+      "id": "T-003",
+      "covers": ["AC-003", "AC-004"]
+    },
+    {
+      "id": "T-004",
+      "covers": ["AC-004", "AC-005"]
+    },
+    {
+      "id": "T-005",
+      "covers": ["AC-002", "AC-005", "AC-006"]
+    },
+    {
+      "id": "T-006",
+      "covers": ["AC-001", "AC-002", "AC-003", "AC-004", "AC-005", "AC-006"]
+    }
+  ],
+  "warnings": [],
+  "blockingIssues": []
+}
