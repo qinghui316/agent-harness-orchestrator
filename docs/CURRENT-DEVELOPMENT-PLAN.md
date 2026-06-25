@@ -146,8 +146,11 @@ Current architecture debt register:
 ## Next Product Direction
 
 Current structured product change: none.
-Pending Harness evolution exists at `harness/evolution/pending.md`. The latest
-scheduler integration apply/discard hardening is
+Pending Harness evolution: none. The five-archive window ending with scheduler
+integration apply/discard hardening was archived as
+`harness/changes/archive/20260625-auto-evolve-post-scheduler-integration-window/summary.md`
+with result `docs_merge`. The latest scheduler integration apply/discard
+hardening is
 `harness/changes/archive/20260625-workbench-scheduler-integration-apply-discard-real-acceptance-v1/summary.md`.
 The latest scheduler IntegrationCheck acceptance is
 `harness/changes/archive/20260625-workbench-scheduler-integrationcheck-real-acceptance-v1/summary.md`.
@@ -195,12 +198,10 @@ Current baseline:
 Latest evolution and archive lookup:
 
 - Latest Harness evolution:
-  `harness/changes/archive/20260624-auto-evolve-post-bounded-rework-window/summary.md`.
-  Result: `docs_merge` for compact handoff/current-doc alignment, no
+  `harness/changes/archive/20260625-auto-evolve-post-scheduler-integration-window/summary.md`.
+  Result: `docs_merge` for compact handoff/current-doc alignment; no
   ECL/template/lint/product runtime change.
-- Current pending Harness evolution:
-  `harness/evolution/pending.md`, covering the five-archive window ending with
-  `20260625-workbench-scheduler-integration-apply-discard-real-acceptance-v1`.
+- Current pending Harness evolution: none.
 - Use archived summaries and `harness/changes/INDEX.json` for detailed real UI
   sandbox evidence, old blocker history, and per-run ids; do not copy that
   history into current handoff docs.
@@ -215,8 +216,7 @@ Next work should not assume a full parallel executor exists:
 - Do not widen into full parallel executor, automatic apply/close/merge, remote
   landing, or Harness evolution without a separate accepted design.
 
-After pending Harness evolution is handled, next work should be chosen from one
-concrete track:
+Next work should be chosen from one concrete track:
 
 - Product hardening: fix Workbench external-local restore so old E-drive
   acceptance sandboxes with valid source markers and `AHO_HOME` artifacts can

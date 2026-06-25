@@ -4,14 +4,14 @@
 
 - Current date: 2026-06-25.
 - Active ECL change: none.
-- Pending Harness evolution: `harness/evolution/pending.md`.
+- Pending Harness evolution: none.
 - Latest archived product change: `harness/changes/archive/20260625-workbench-scheduler-integration-apply-discard-real-acceptance-v1/summary.md`.
 - Latest real UI continuation scout: `harness/changes/archive/20260624-workbench-real-ui-continuation-next-blocker-scout/summary.md`.
 - Latest bounded continuation runtime: `harness/changes/archive/20260624-goal-driven-controlled-continuation-runtime-v1/summary.md`.
 - Latest product audit: `harness/changes/archive/20260624-workbench-goal-loop-surface-gap-audit/summary.md`.
 - Latest verification convergence: `harness/changes/archive/20260623-workbench-verification-runtime-convergence/summary.md`.
 - Latest real-Codex acceptance: `harness/changes/archive/20260623-workbench-current-project-real-codex-acceptance/summary.md`.
-- Latest completed Harness evolution: `harness/changes/archive/20260624-auto-evolve-post-bounded-rework-window/summary.md`.
+- Latest completed Harness evolution: `harness/changes/archive/20260625-auto-evolve-post-scheduler-integration-window/summary.md`.
 - Latest scheduler reachability change: `harness/changes/archive/20260625-workbench-low-conflict-taskgraph-scheduler-reachability-v1/summary.md`.
 - Latest scheduler worker/integration acceptance: `harness/changes/archive/20260625-workbench-scheduler-worker-integration-real-acceptance-v1/summary.md`.
 - Latest scheduler IntegrationCheck acceptance: `harness/changes/archive/20260625-workbench-scheduler-integrationcheck-real-acceptance-v1/summary.md`.
@@ -39,12 +39,12 @@ manual. After manual confirmation, existing IntegrationCheck ran aggregate
 validation/audit, passed, and stopped at the existing human integration
 apply/discard gate.
 
-The latest Harness evolution handled the five-archive window from
-`20260624-auto-evolve-post-continuation-scout-window` through
-`20260624-workbench-scoped-automation-bounded-rework-acceptance-v1`. Authorized
-subagent review recommends `docs_merge`: compact handoff/current-doc alignment
+The latest Harness evolution handled the scheduler integration five-archive
+window ending with
+`20260625-workbench-scheduler-integration-apply-discard-real-acceptance-v1`.
+Authorized subagent review recommended `docs_merge`: compact handoff alignment
 only, with no ECL/template/lint/product runtime change. It is archived at
-`harness/changes/archive/20260624-auto-evolve-post-bounded-rework-window/summary.md`.
+`harness/changes/archive/20260625-auto-evolve-post-scheduler-integration-window/summary.md`.
 
 ## Current Baseline
 
@@ -85,15 +85,11 @@ scripts.
 
 ## Next Resume Point
 
-Handle `harness/evolution/pending.md` before opening the next unrelated
-structured change. Recommended result is likely a compact docs/review proposal
-over the five-archive window, with no automatic product runtime change unless
-the evidence shows a repeatable rule gap.
+No active change and no pending evolution.
 
-After pending evolution, the next product-sized blocker is Workbench
-external-local restore of old acceptance sandboxes: a source marker plus
-`AHO_HOME` artifacts should rehydrate existing conversations/gates instead of
-showing Harness-uninitialized / memory unknown.
+Next product-sized blocker: Workbench external-local restore of old acceptance
+sandboxes. A source marker plus `AHO_HOME` artifacts should rehydrate existing
+conversations/gates instead of showing Harness-uninitialized / memory unknown.
 
 Latest result:
 
