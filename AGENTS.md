@@ -9,7 +9,8 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 - Pending Harness evolution: none.
 - Latest archived product audit: Workbench Goal Loop Decision Surface Audit V1, archived at `harness/changes/archive/20260625-workbench-goal-loop-decision-surface-audit-v1/summary.md`.
 - Latest archived boundary guard: Workbench Loop-Per-Change Boundary Guard V1, archived at `harness/changes/archive/20260625-workbench-loop-per-change-boundary-guard-v1/summary.md`.
-- Latest archived product change: Workbench Post-Apply Local Landing Autonomy V1, archived at `harness/changes/archive/20260625-workbench-post-apply-local-landing-autonomy-v1/summary.md`.
+- Latest archived product change: Workbench Confirmation Feedback To Rework V1, archived at `harness/changes/archive/20260625-workbench-confirmation-feedback-to-rework-v1/summary.md`.
+- Previous post-apply landing autonomy: `harness/changes/archive/20260625-workbench-post-apply-local-landing-autonomy-v1/summary.md`.
 - Previous Codex Plan Mode + Post-Plan Local Autonomy V1: `harness/changes/archive/20260625-workbench-codex-plan-mode-post-plan-local-autonomy-v1/summary.md`.
 - Previous post-plan local autonomy change: `harness/changes/archive/20260625-workbench-post-plan-scoped-local-autonomy-v1/summary.md`.
 - Previous post-plan automation hardening: Workbench Post-Plan Scoped Automation Execution V1, archived at `harness/changes/archive/20260625-workbench-post-plan-scoped-automation-execution-v1/summary.md`.
@@ -75,10 +76,11 @@ handoff alignment and no ECL/template/lint/product runtime change.
 Daily `npm run test:workbench` is the fast Workbench unit-capability gate; slow
 scheduler/apply/Goal Loop coverage remains in explicit release/deep scripts.
 
-Next product slice to consider: `workbench-confirmation-feedback-to-rework-v1`
+Latest product slice: `workbench-confirmation-feedback-to-rework-v1`
 so user feedback entered at a confirmation point can revise/rework and return
-to confirmation or continuation. This is not implemented in the current
-baseline.
+to confirmation or continuation. V1 routes plan-confirm feedback to
+`planning.revise`, routes result/apply feedback to `result.refresh-rework`, and
+keeps unsupported confirmation feedback record-only.
 
 Use `docs/STATUS.md` for short handoff context and
 `harness/changes/INDEX.json` plus archived `summary.md` files for historical

@@ -405,6 +405,7 @@ export interface WorkbenchConfirmationQueueItem {
   runId?: string;
   worktreeId?: string;
   applyCheckId?: string;
+  planningBundleId?: string;
   landingPackageId?: string;
   schedulerRunId?: string;
   schedulerReconcileSnapshotId?: string;

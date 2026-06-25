@@ -197,6 +197,18 @@ function decisionActionsForResultReview(topic: WorkbenchTopicDetail, review: Wor
       label: "要求修改",
       kind: "feedback",
       changeId: topic.id,
+      worktreeId,
+      enabled: true,
+      requiresConfirmation: false,
+    });
+  }
+  if (!actions.some((action) => action.kind === "feedback")) {
+    actions.push({
+      id: `feedback:${worktreeId}`,
+      label: "要求修改",
+      kind: "feedback",
+      changeId: topic.id,
+      worktreeId,
       enabled: true,
       requiresConfirmation: false,
     });

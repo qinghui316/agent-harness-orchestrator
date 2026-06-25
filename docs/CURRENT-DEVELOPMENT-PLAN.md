@@ -274,12 +274,18 @@ and should not be followed by another explanation layer:
   landing, PR, Harness evolution, and full parallel execution remain outside
   direct `完全访问权限`.
 
-Choose one concrete track:
+Recently completed:
 
 - Confirmation feedback: implement
   `workbench-confirmation-feedback-to-rework-v1`, where user feedback entered
   at a confirmation point revises/reworks the current proposal/result and then
-  returns to confirmation or continuation.
+  returns to confirmation or continuation. V1 is implemented for plan-confirm
+  feedback (`planning.revise`) and result/apply feedback
+  (`result.refresh-rework`); unsupported confirmation feedback remains
+  record-only.
+
+Choose one concrete track:
+
 - Product capability: widen Goal-driven continuation only through existing
   legal gates, with source state, accepted artifacts, stale revalidation,
   ToolPolicyGate, and human terminal gates preserved.

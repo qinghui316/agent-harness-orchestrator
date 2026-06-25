@@ -97,10 +97,19 @@ export interface WorkbenchActionRequest {
   feedback?: string;
   feedbackContext?: {
     contextId?: string;
+    actionId?: string;
+    actionKind?: string;
+    actionType?: WorkbenchWorkflowActionRequest["actionType"];
+    approvalActionId?: string;
     approvalId?: string;
     changeId?: string;
     targetId?: string;
     runId?: string;
+    planningBundleId?: string;
+    worktreeId?: string;
+    applyCheckId?: string;
+    landingPackageId?: string;
+    artifact?: string;
   };
   abandon?: {
     changeId?: string;

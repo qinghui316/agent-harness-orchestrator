@@ -130,6 +130,7 @@ function confirmationItemToDecisionContext(item: ConfirmationQueueItem): Decisio
     changeId: item.changeId ?? item.conversationId,
     runId: item.runId,
     targetId: item.worktreeId ?? item.applyCheckId ?? item.resultId,
+    planningBundleId: item.planningBundleId,
     artifact: item.evidenceRefs[0],
     evidenceRefs: item.evidenceRefs,
     actions: item.actions,

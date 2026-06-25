@@ -23,6 +23,7 @@ export function workpadNextActionToConfirmationItems(
       projectId: project?.id ?? null,
       conversationId: selectedTopic.id,
       changeId: selectedTopic.id,
+      planningBundleId,
       summary: "规划草案已经准备好，可以写入内部 spec/plan/tasks/ac-map。",
       whyNeedsConfirmation: "需要你确认将当前规划写入 canonical spec/plan/tasks/ac-map。",
       confirmEffect: action.actionType === "planning.confirm-execution"
@@ -39,6 +40,14 @@ export function workpadNextActionToConfirmationItems(
         planningBundleId,
         enabled: true,
         requiresConfirmation: true,
+      }, {
+        id: `feedback:planning:${selectedTopic.id}:${planningBundleId}`,
+        label: "提出修改意见",
+        kind: "feedback",
+        changeId: selectedTopic.id,
+        planningBundleId,
+        enabled: true,
+        requiresConfirmation: false,
       }],
       primary: true,
       status: "pending",

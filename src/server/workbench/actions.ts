@@ -16,6 +16,7 @@ import {
   inferTargetIdFromAction,
   runAllowlistedAction,
 } from "./approval-actions.js";
+import { resolveFeedbackRouteFromPrimary, resolveLegacyFeedbackRoute, type FeedbackRoute, type FeedbackSnapshotPrimary } from "./feedback-routing.js";
 import { isRecord } from "./http.js";
 import type { WorkbenchActionRequest } from "./types.js";
 
@@ -365,26 +366,33 @@ async function executeApprovalOrFeedbackAction(input: WorkbenchProjectInput & { 
     throw error;
   }
   if (typeof body.feedback === "string" && body.feedback.trim()) {
-    const context = body.feedbackContext ?? {};
-    const feedbackChangeId = context.changeId ?? (action ? inferChangeIdFromAction(action, null) : null);
+    const route = await resolveWorkbenchFeedbackRoute(input, body);
+    const feedbackChangeId = route.changeId ?? (action ? inferChangeIdFromAction(action, null) : null);
     await recordWorkbenchDecision(input.project, {
-      id: `feedback:${context.contextId ?? action?.actionId ?? "scoped"}:${action?.args.join(":") ?? context.targetId ?? "target"}:${Date.now()}`,
+      id: `feedback:${body.feedbackContext?.contextId ?? action?.actionId ?? route.actionId ?? "scoped"}:${action?.args.join(":") ?? route.targetId ?? "target"}:${Date.now()}`,
       changeId: feedbackChangeId,
-      decisionType: action?.actionId ?? "scoped.feedback",
+      decisionType: route.decisionType,
       status: "requested-changes",
-      label: `Requested changes: ${action?.label ?? "scoped feedback"}`,
-      summary: "User requested changes instead of accepting this decision.",
-      targetId: context.targetId ?? (action ? inferTargetIdFromAction(action, null) : null),
-      runId: context.runId ?? null,
-      artifact: null,
-      actionId: action?.actionId ?? "scoped.feedback",
+      label: `Requested changes: ${route.label}`,
+      summary: route.summary,
+      targetId: route.targetId ?? (action ? inferTargetIdFromAction(action, null) : null),
+      runId: route.runId,
+      artifact: route.artifact,
+      actionId: route.actionId,
       feedback: body.feedback.trim(),
-      payload: { action, feedback: body.feedback.trim(), context },
+      payload: { action, feedback: body.feedback.trim(), context: body.feedbackContext ?? {}, route },
     });
     if (feedbackChangeId) {
       await recordPostDecisionMaintenance(input.project, feedbackChangeId, "user-feedback", body.feedback.trim(), []);
     }
-    return { result: { status: "requested-changes" }, snapshot: await getWorkbenchSnapshot(input) };
+    if (route.workflowRequest) {
+      const routed = await runWorkbenchWorkflowAction(input.project, route.workflowRequest);
+      return {
+        result: { status: "requested-changes", routedTo: route.workflowRequest.actionType, result: routed },
+        snapshot: await getWorkbenchSnapshot(input, { topicId: route.workflowRequest.changeId }),
+      };
+    }
+    return { result: { status: "requested-changes", routedTo: "record-only" }, snapshot: await getWorkbenchSnapshot(input, { topicId: feedbackChangeId ?? undefined }) };
   }
   if (!action) {
     const error = new Error("Unknown or unsupported Workbench action.");
@@ -423,4 +431,35 @@ async function executeApprovalOrFeedbackAction(input: WorkbenchProjectInput & { 
     );
   }
   return { result, snapshot: await getWorkbenchSnapshot(input) };
+}
+
+type FeedbackSnapshot = {
+  right?: {
+    confirmationQueue?: {
+      primary?: FeedbackSnapshotPrimary | null;
+    };
+  };
+};
+
+async function resolveWorkbenchFeedbackRoute(input: WorkbenchProjectInput & { project: ManagedProject }, body: WorkbenchActionRequest): Promise<FeedbackRoute> {
+  const feedback = body.feedback?.trim();
+  if (!feedback) {
+    const error = new Error("Feedback action requires feedback text.");
+    error.name = "BadRequest";
+    throw error;
+  }
+  const snapshot = await getWorkbenchSnapshot(input, { topicId: body.feedbackContext?.changeId }) as FeedbackSnapshot;
+  const primary = snapshot.right?.confirmationQueue?.primary;
+  if (!primary && body.action && allowedActionIds.has(body.action.actionId)) return resolveLegacyFeedbackRoute(body);
+  if (!primary) {
+    const error = new Error("Feedback target is stale or no longer available.");
+    error.name = "Conflict";
+    throw error;
+  }
+  try {
+    return resolveFeedbackRouteFromPrimary(primary, body);
+  } catch (error) {
+    if (body.action && allowedActionIds.has(body.action.actionId)) return resolveLegacyFeedbackRoute(body);
+    throw error;
+  }
 }

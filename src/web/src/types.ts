@@ -1889,6 +1889,7 @@ export type DecisionContext = {
   queueRunId?: string;
   runId?: string;
   targetId?: string;
+  planningBundleId?: string;
   artifact?: string;
   evidenceRefs?: string[];
   timestamp?: string;
@@ -1968,6 +1969,7 @@ export type ConfirmationQueueItem = {
   worktreeId?: string;
   applyCheckId?: string;
   landingPackageId?: string;
+  planningBundleId?: string;
   schedulerRunId?: string;
   schedulerReconcileSnapshotId?: string;
   schedulerClaimReservationId?: string;

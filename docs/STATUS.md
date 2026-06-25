@@ -7,7 +7,8 @@
 - Pending Harness evolution: none.
 - Latest archived product audit: `harness/changes/archive/20260625-workbench-goal-loop-decision-surface-audit-v1/summary.md`.
 - Latest archived boundary guard: `harness/changes/archive/20260625-workbench-loop-per-change-boundary-guard-v1/summary.md`.
-- Latest archived product change: `harness/changes/archive/20260625-workbench-post-apply-local-landing-autonomy-v1/summary.md`.
+- Latest archived product change: `harness/changes/archive/20260625-workbench-confirmation-feedback-to-rework-v1/summary.md`.
+- Previous post-apply landing autonomy: `harness/changes/archive/20260625-workbench-post-apply-local-landing-autonomy-v1/summary.md`.
 - Previous Codex Plan Mode + post-plan local autonomy: `harness/changes/archive/20260625-workbench-codex-plan-mode-post-plan-local-autonomy-v1/summary.md`.
 - Previous post-plan local autonomy change: `harness/changes/archive/20260625-workbench-post-plan-scoped-local-autonomy-v1/summary.md`.
 - Previous post-plan automation hardening: `harness/changes/archive/20260625-workbench-post-plan-scoped-automation-execution-v1/summary.md`.
@@ -34,6 +35,16 @@ authoritative Workbench `confirmationQueue.primary`, and it does not become a
 new decision engine or execution authority.
 
 The latest archived product change is at
+`harness/changes/archive/20260625-workbench-confirmation-feedback-to-rework-v1/summary.md`.
+It implements confirmation-point feedback routing for two V1 loops:
+plan-confirm feedback records a scoped decision and routes to existing
+`planning.revise`; result/apply feedback records a scoped decision and routes
+to existing bounded `result.refresh-rework`. Feedback is evidence, not approval:
+it does not write canonical planning artifacts, apply source root, close,
+remote, merge, PR, or Harness evolution. Unsupported confirmation feedback
+remains record-only.
+
+The previous post-apply landing autonomy change is at
 `harness/changes/archive/20260625-workbench-post-apply-local-landing-autonomy-v1/summary.md`.
 It extends scoped post-plan local automation by allowing the existing local
 `landing.prepare` gate after local `result.apply`. The action remains selected
@@ -193,9 +204,9 @@ Next recommended work after this evolution closes:
 - Do not widen `完全访问权限` into raw `planning.scheduler.*`, integration
   apply/discard, merge, remote landing, Harness evolution, PR, or full parallel
   execution.
-- Next product slice: `workbench-confirmation-feedback-to-rework-v1`, so user
-  modification feedback entered at a confirmation point can revise/rework and
-  return to confirmation or continuation.
+- Confirmation feedback V1 is complete. Next product slice should be chosen
+  from current blockers or capability gaps, not by adding another explanation
+  layer.
 - If widening scoped automation later, keep plan confirmation human-only and
   use the existing confirmation queue/current-gate revalidation path rather
   than a new permission or workflow runtime.
