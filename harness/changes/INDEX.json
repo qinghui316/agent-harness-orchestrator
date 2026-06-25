@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-25T11:39:38.2144439Z",
+    "generated_at":  "2026-06-25T12:24:24.3437083Z",
     "active":  [
 
                ],
@@ -1905,6 +1905,10 @@
                     {
                         "name":  "20260625-workbench-planning-decomposition-scope-honesty-v1",
                         "path":  "harness/changes/archive/20260625-workbench-planning-decomposition-scope-honesty-v1"
+                    },
+                    {
+                        "name":  "20260625-workbench-post-apply-local-landing-autonomy-v1",
+                        "path":  "harness/changes/archive/20260625-workbench-post-apply-local-landing-autonomy-v1"
                     },
                     {
                         "name":  "20260625-workbench-post-plan-scoped-automation-execution-v1",

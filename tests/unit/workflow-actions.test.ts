@@ -523,6 +523,23 @@ describe("workflow action registry", () => {
       ...request,
       decompositionPlanId: undefined,
     }).map((item) => item.label)).toEqual(["decompositionPlanId"]);
+    const landingAutomationRequest = {
+      actionType: "planning.automation.scoped-auto.run",
+      changeId: "change-1",
+      automationMode: "full-access",
+      automationCurrentGateActionType: "landing.prepare",
+      worktreeId: "worktree-1",
+      applyCheckId: "apply-1",
+      maxSteps: 5,
+    };
+    expect(validateWorkflowActionRequiredTargets(landingAutomationRequest)).toEqual([]);
+    expect(validateWorkflowActionRequiredTargets({
+      ...landingAutomationRequest,
+      worktreeId: undefined,
+      applyCheckId: undefined,
+    }).map((item) => item.label)).toEqual(["applyCheckId or worktreeId"]);
+    expect(workflowActionScopesMatchStrict(landingAutomationRequest, { ...landingAutomationRequest })).toBe(true);
+    expect(workflowActionScopesMatchStrict(landingAutomationRequest, { ...landingAutomationRequest, applyCheckId: "apply-old" })).toBe(false);
     const auditAcceptAutomationRequest = {
       actionType: "planning.automation.scoped-auto.run",
       changeId: "change-1",
@@ -1637,6 +1654,7 @@ describe("workflow action registry", () => {
     expect(validateWorkflowActionRequiredTargets({ actionType: "landing-queue.refresh" })).toEqual([]);
     expect(validateWorkflowActionRequiredTargets({ actionType: "landing-queue.merge-next" }).map((item) => item.label)).toEqual(["landingPackageId"]);
     expect(validateWorkflowActionRequiredTargets({ actionType: "landing-queue.merge-next", landingPackageId: "landing-1" })).toEqual([]);
+    expect(REVALIDATED_WORKFLOW_ACTION_TYPES).toContain("landing.prepare");
     expect(REVALIDATED_WORKFLOW_ACTION_TYPES).toContain("pr-draft.create");
   });
 });

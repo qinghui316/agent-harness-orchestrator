@@ -301,6 +301,7 @@ export const HIGH_IMPACT_WORKFLOW_ACTION_TYPES = [
 ] as const;
 
 export const REVALIDATED_WORKFLOW_ACTION_TYPES = [
+  "landing.prepare",
   "landing-queue.merge-next",
   "pr-draft.create",
   "planning.confirm-execution",

@@ -7,7 +7,8 @@
 - Pending Harness evolution: none.
 - Latest archived product audit: `harness/changes/archive/20260625-workbench-goal-loop-decision-surface-audit-v1/summary.md`.
 - Latest archived boundary guard: `harness/changes/archive/20260625-workbench-loop-per-change-boundary-guard-v1/summary.md`.
-- Latest archived product change: `harness/changes/archive/20260625-workbench-codex-plan-mode-post-plan-local-autonomy-v1/summary.md`.
+- Latest archived product change: `harness/changes/archive/20260625-workbench-post-apply-local-landing-autonomy-v1/summary.md`.
+- Previous Codex Plan Mode + post-plan local autonomy: `harness/changes/archive/20260625-workbench-codex-plan-mode-post-plan-local-autonomy-v1/summary.md`.
 - Previous post-plan local autonomy change: `harness/changes/archive/20260625-workbench-post-plan-scoped-local-autonomy-v1/summary.md`.
 - Previous post-plan automation hardening: `harness/changes/archive/20260625-workbench-post-plan-scoped-automation-execution-v1/summary.md`.
 - Previous planning/decomposition hardening: `harness/changes/archive/20260625-workbench-planning-decomposition-scope-honesty-v1/summary.md`.
@@ -33,6 +34,17 @@ authoritative Workbench `confirmationQueue.primary`, and it does not become a
 new decision engine or execution authority.
 
 The latest archived product change is at
+`harness/changes/archive/20260625-workbench-post-apply-local-landing-autonomy-v1/summary.md`.
+It extends scoped post-plan local automation by allowing the existing local
+`landing.prepare` gate after local `result.apply`. The action remains selected
+Change scoped, current-gate revalidated, and local evidence/readiness only. If
+the next gate is local `change.close`, automation may close; if the next gate
+is PR, remote, merge, post-merge, integration apply/discard, Harness evolution,
+or a blocker, automation stops and returns the real gate to the user. This
+change was verified by targeted automation/revalidation/read-model/DOM suites
+and the daily Workbench aggregate; no new real UI acceptance is claimed.
+
+The previous Codex Plan Mode + post-plan autonomy change is at
 `harness/changes/archive/20260625-workbench-codex-plan-mode-post-plan-local-autonomy-v1/summary.md`.
 It routes Workbench planning through Codex proposal mode where available and
 stores the raw `proposedPlanMd` as proposal evidence. In the accepted E-drive
@@ -110,8 +122,9 @@ decision surface. A user can keep per-step `请求批准`, or choose
 The plan is still manually confirmed. V1 repeatedly consumes the current
 authoritative `confirmationQueue.primary` only when the action is in the local
 allowed set. It can run bounded local execution/recovery gates, accept safe
-approved audit evidence through `audit.accept`, apply the local result, and
-close/archive the local Change. It does not auto-run planning confirmation,
+approved audit evidence through `audit.accept`, apply the local result, run
+local `landing.prepare`, and close/archive the local Change. It does not
+auto-run planning confirmation,
 raw scheduler actions, integration apply/discard, merge, push, PR, remote
 landing, or Harness evolution.
 
@@ -151,9 +164,11 @@ belong to that same Change. Cross-Change merge is not handled by a single
 IntegrationCheck.
 
 The latest product change is archived at
-`harness/changes/archive/20260625-workbench-post-plan-scoped-local-autonomy-v1/summary.md`.
-It confirmed through real UI that full-access scoped automation starts only
-after human plan confirmation and can complete local apply and close/archive.
+`harness/changes/archive/20260625-workbench-post-apply-local-landing-autonomy-v1/summary.md`.
+It extends the existing post-plan local automation after `result.apply` to run
+local `landing.prepare` and then local `change.close` when that is the next
+gate. It does not automate PR, remote, merge, integration apply/discard, or
+Harness evolution.
 
 Previous resume context:
 
@@ -178,9 +193,12 @@ Next recommended work after this evolution closes:
 - Do not widen `完全访问权限` into raw `planning.scheduler.*`, integration
   apply/discard, merge, remote landing, Harness evolution, PR, or full parallel
   execution.
-- If widening scoped automation next, keep plan confirmation human-only and use
-  the existing confirmation queue/current-gate revalidation path rather than a
-  new permission or workflow runtime.
+- Next product slice: `workbench-confirmation-feedback-to-rework-v1`, so user
+  modification feedback entered at a confirmation point can revise/rework and
+  return to confirmation or continuation.
+- If widening scoped automation later, keep plan confirmation human-only and
+  use the existing confirmation queue/current-gate revalidation path rather
+  than a new permission or workflow runtime.
 
 ## Verification Commands
 

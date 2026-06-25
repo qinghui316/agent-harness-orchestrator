@@ -585,6 +585,36 @@ function closeQueueItem(automationEligible = false) {
   } as const;
 }
 
+function landingPrepareQueueItem() {
+  return {
+    id: "landing:candidate:wt-1",
+    kind: "landing-readiness",
+    conversationId: "member-discount",
+    changeId: "member-discount",
+    resultId: "wt-1",
+    worktreeId: "wt-1",
+    summary: "本地结果已应用，可以做提交/PR 前检查。",
+    whyNeedsConfirmation: "本地结果已应用，可以做提交/PR 前检查。",
+    confirmEffect: "会生成本地落地证据包和 merge-reviewer 审查；不会 commit、push、创建 PR 或 merge。",
+    riskSummary: "这是本地证据准备，不是远端落地。",
+    evidenceRefs: ["runs/audit-run-1/audit.json"],
+    primary: true,
+    status: "pending",
+    actions: [{
+      id: "landing-prepare:wt-1",
+      label: "开始落地检查",
+      kind: "workflow-action",
+      enabled: true,
+      requiresConfirmation: true,
+      automationEligible: true,
+      actionType: "landing.prepare",
+      changeId: "member-discount",
+      worktreeId: "wt-1",
+      worktreeIds: ["wt-1"],
+    }],
+  } as const;
+}
+
 function integrationApplyQueueItem() {
   return {
     id: "apply-check:apply-check-1",
@@ -1083,6 +1113,55 @@ describe("Workbench web app", () => {
       changeId: "member-discount",
       maxSteps: 10,
     });
+  });
+
+  it("submits scoped-auto for the local landing.prepare gate with worktree scope", async () => {
+    const execute = vi.fn(async () => undefined);
+    function Harness() {
+      const [confirming, setConfirming] = useState<string | null>(null);
+      return (
+        <DecisionInspectorPane
+          inspector={{ primary: null, related: [], history: [] }}
+          confirmationQueue={{
+            primary: landingPrepareQueueItem(),
+            current: [landingPrepareQueueItem()],
+            otherDemands: [],
+            maintenance: [],
+            history: [],
+          }}
+          confirming={confirming}
+          busy={false}
+          error={null}
+          onConfirmingChange={setConfirming}
+          onExecuteAction={execute}
+          onFeedback={async () => undefined}
+          onSelectContext={() => undefined}
+        />
+      );
+    }
+
+    render(<Harness />);
+
+    const card = screen.getByTestId("decision-inspector-primary");
+    expect(within(card).getAllByText("本地结果已应用，可以做提交/PR 前检查。").length).toBeGreaterThan(0);
+    const fullAccessButtons = within(card).getAllByRole("button", { name: "完全访问权限" });
+    fireEvent.click(fullAccessButtons[fullAccessButtons.length - 1]!);
+    const executeFullAccessButtons = within(card).getAllByRole("button", { name: "完全访问权限" });
+    fireEvent.click(executeFullAccessButtons[executeFullAccessButtons.length - 1]!);
+    fireEvent.click(within(card).getByRole("button", { name: "确认" }));
+
+    await waitFor(() => expect(execute).toHaveBeenCalledTimes(1));
+    expect(execute.mock.calls[0]?.[0]).toMatchObject({
+      actionType: "planning.automation.scoped-auto.run",
+      automationMode: "full-access",
+      automationCurrentGateActionType: "landing.prepare",
+      changeId: "member-discount",
+      worktreeId: "wt-1",
+      worktreeIds: ["wt-1"],
+      maxSteps: 10,
+    });
+    expect(card.textContent).not.toContain("full-auto");
+    expect(card.textContent).not.toContain("merge queue");
   });
 
   it("submits scoped-auto for bounded recovery workflow gates with worktree scope", async () => {

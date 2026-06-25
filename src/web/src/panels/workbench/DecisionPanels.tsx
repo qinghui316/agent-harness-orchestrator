@@ -401,6 +401,7 @@ function isScopedAutomationAllowedAction(action: DecisionAction): boolean {
     || actionType === "result.refresh-status"
     || actionType === "result.revalidate"
     || actionType === "result.reaudit"
+    || actionType === "landing.prepare"
     || actionType === "planning.goal-loop.controlled-continue.run");
 }
 

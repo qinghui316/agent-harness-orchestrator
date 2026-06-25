@@ -454,6 +454,54 @@ describe("Workbench action revalidation", () => {
     })).rejects.toThrow("stale or no longer available");
   });
 
+  it("passes scoped automation for local landing.prepare only with matching current gate targets", async () => {
+    const visibleAction = {
+      kind: "workflow-action",
+      actionType: "landing.prepare",
+      changeId: "change-1",
+      worktreeId: "wt-1",
+      applyCheckId: "apply-check-1",
+      enabled: true,
+    };
+    mocks.getWorkbenchSnapshot.mockResolvedValue({
+      center: { workpad: { nextAction: { kind: "none" } } },
+      right: {
+        confirmationQueue: {
+          primary: { actions: [visibleAction], changeId: "change-1" },
+          current: [],
+          otherDemands: [],
+        },
+      },
+    });
+
+    const request = {
+      actionType: "planning.automation.scoped-auto.run",
+      changeId: "change-1",
+      automationMode: "full-access",
+      automationCurrentGateActionType: "landing.prepare",
+      worktreeId: "wt-1",
+      applyCheckId: "apply-check-1",
+      maxSteps: 5,
+    } as const;
+
+    await expect(assertCurrent({ project: { id: "repo", name: "Repo", path: "project-root", addedAt: "2026-06-18T00:00:00.000Z", lastSeenAt: "2026-06-18T00:00:00.000Z" }, path: "project-root" }, request)).resolves.toBeUndefined();
+
+    await expect(assertCurrent({ project: { id: "repo", name: "Repo", path: "project-root", addedAt: "2026-06-18T00:00:00.000Z", lastSeenAt: "2026-06-18T00:00:00.000Z" }, path: "project-root" }, {
+      ...request,
+      worktreeId: "wt-old",
+    })).rejects.toThrow("stale or no longer available");
+
+    await expect(assertCurrent({ project: { id: "repo", name: "Repo", path: "project-root", addedAt: "2026-06-18T00:00:00.000Z", lastSeenAt: "2026-06-18T00:00:00.000Z" }, path: "project-root" }, {
+      ...request,
+      applyCheckId: "apply-check-old",
+    })).rejects.toThrow("stale or no longer available");
+
+    await expect(assertCurrent({ project: { id: "repo", name: "Repo", path: "project-root", addedAt: "2026-06-18T00:00:00.000Z", lastSeenAt: "2026-06-18T00:00:00.000Z" }, path: "project-root" }, {
+      ...request,
+      changeId: "change-2",
+    })).rejects.toThrow("stale or no longer available");
+  });
+
   it("passes scoped automation for current approved audit.accept approval gates", async () => {
     mocks.getWorkbenchSnapshot.mockResolvedValue({
       center: { workpad: { nextAction: { kind: "none" } } },

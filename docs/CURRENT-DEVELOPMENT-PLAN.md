@@ -101,7 +101,7 @@ evidence-bound scheduler/action execution plus human gates.
 ## Current Implemented Capability Tracks
 
 - Conversation-first Workbench: project folders contain demand conversations, parent-agent transcript surfaces, inline run graph tabs, Workpad summaries, evidence/detail surfaces, and confirmation queues.
-- Workbench planning and local autonomy: planning generation prefers Codex Plan Mode proposal capture and records `proposedPlanMd`; when native plan deltas are unavailable it uses the prompt-level `<proposed_plan>` fallback. Plan confirmation remains a human gate. If the user chooses `完全访问权限` while confirming the plan, the existing scoped automation runtime may continue through local execution, validation/audit, safe `audit.accept`, local `result.apply`, and local `change.close`, then stops after archive.
+- Workbench planning and local autonomy: planning generation prefers Codex Plan Mode proposal capture and records `proposedPlanMd`; when native plan deltas are unavailable it uses the prompt-level `<proposed_plan>` fallback. Plan confirmation remains a human gate. If the user chooses `完全访问权限` while confirming the plan, the existing scoped automation runtime may continue through local execution, validation/audit, safe `audit.accept`, local `result.apply`, local `landing.prepare`, and local `change.close`, then stops after archive.
 - Role execution: planning/coder turns may use Codex app-server when available; `codex exec` fallback remains valid and must be labeled honestly. Validator and auditor remain independent evidence runners.
 - Result safety: result review, apply readiness, source refresh rework, integration checks, aggregate validation/audit, IntegrationFix, local landing readiness, Draft PR handoff, PR feedback, ready-for-review, remote landing, and post-merge reconcile are staged and human-gated.
 - Scheduler path: scheduler artifacts now cover readiness contracts, launch preflight, SchedulerRun shell, runtime reconcile/claim reservation, first/next worker start, worker result/validation/audit, bounded rework, integration candidate/handoff/outcome, terminal completion, blocked/exhausted closeout, controlled-step result summaries, controlled-loop turn route summaries, controlled loop tick contract summaries, controlled loop continuation readiness summaries, controlled loop iteration summaries, controlled stop-summary resume handoff, a fail-closed controlled-advance continuation guard, a scheduler-owned controlled-advance candidate carrier reused by Workbench confirmation/reconfirmation/current-gate proof, a scheduler-runtime controlled loop-step owner for the existing one-confirmed-transition advance wrapper, a scheduler-runtime runtime-boundary evidence summary that composes the implemented observe/choose/human-gate/dispatch/reconcile/stop phases without becoming loop authority, durable pre-dispatch continuation decision evidence on controlled-step records, and an embedded post-step routing decision that names the existing owner/gate for continuation while remaining prior-turn evidence only.
@@ -148,6 +148,12 @@ Current architecture debt register:
 
 Current structured change: none.
 Pending Harness evolution: none.
+Latest product change:
+`harness/changes/archive/20260625-workbench-post-apply-local-landing-autonomy-v1/summary.md`.
+It extends scoped post-plan local automation to consume the existing local
+`landing.prepare` gate after local `result.apply`, then close if the next gate
+is `change.close`. It does not automate PR, remote, merge, post-merge,
+integration apply/discard, or Harness evolution.
 Latest boundary guard:
 `harness/changes/archive/20260625-workbench-loop-per-change-boundary-guard-v1/summary.md`.
 Latest product audit:
@@ -189,7 +195,7 @@ The latest scheduler worker/integration acceptance is
 The latest scheduler reachability change is
 `harness/changes/archive/20260625-workbench-low-conflict-taskgraph-scheduler-reachability-v1/summary.md`.
 The latest scoped automation product change is
-`harness/changes/archive/20260624-workbench-scoped-automation-bounded-rework-acceptance-v1/summary.md`.
+`harness/changes/archive/20260625-workbench-post-apply-local-landing-autonomy-v1/summary.md`.
 Current baseline:
 
 - One loop execution is scoped to one parent Change. A long-lived demand may
@@ -209,8 +215,8 @@ Current baseline:
 - The latest product slice proves `完全访问权限` can consume bounded local
   recovery gates (`result.refresh-rework`, `result.revalidate`,
   `result.reaudit`), safe `audit.accept` when audit status is exactly
-  `approved`, local `result.apply`, and local `change.close`; it then stops
-  with no primary gate after archive.
+  `approved`, local `result.apply`, local `landing.prepare`, and local
+  `change.close`; it then stops with no primary gate after archive.
 - Codex runtime full-access capability is evidence of executor capability only;
   AHO workflow authority remains scoped to target ids, source state, accepted
   artifacts, stale revalidation, ToolPolicyGate, validation/audit, and the
@@ -270,6 +276,10 @@ and should not be followed by another explanation layer:
 
 Choose one concrete track:
 
+- Confirmation feedback: implement
+  `workbench-confirmation-feedback-to-rework-v1`, where user feedback entered
+  at a confirmation point revises/reworks the current proposal/result and then
+  returns to confirmation or continuation.
 - Product capability: widen Goal-driven continuation only through existing
   legal gates, with source state, accepted artifacts, stale revalidation,
   ToolPolicyGate, and human terminal gates preserved.

@@ -15,6 +15,7 @@ import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import { createAgentTask } from "../../src/agent-task/manager.js";
 import { buildDecisionInspector } from "../../src/workbench/projections/read-model/decision-inspector.js";
 import { buildConfirmationQueue } from "../../src/workbench/projections/read-model/confirmation-queue.js";
+import { landingCandidateQueueItem } from "../../src/workbench/projections/read-model/confirmation/landing.js";
 import { getTempDir, minimalDecompositionPlan, minimalReadiness, prepareSeededSchedulerIntegrationHandoff, project, writeAcceptedSpecAndTasks, writePlanningBundleFixture } from "./workbench/fixtures.js";
 import type { RunMetadata } from "../../src/types/index.js";
 
@@ -1096,6 +1097,31 @@ describe("workbench read-model projections", () => {
     expect(primary?.actions.some((action) => action.actionType === "planning.automation.scoped-auto.run")).toBe(false);
     expect(primary?.actions.some((action) => action.automationEligible === true)).toBe(false);
     expect(JSON.stringify(primary)).not.toMatch(/full-auto|parallel executor|merge queue/i);
+  });
+
+  it("marks local landing.prepare as scoped-automation eligible without widening remote landing", () => {
+    const item = landingCandidateQueueItem(project(), {
+      kind: "worktree",
+      worktreeId: "wt-1",
+      changeIds: ["change-1"],
+      summary: "本地结果已应用，可以做提交/PR 前检查。",
+      riskSummary: "这是本地证据准备。",
+    }, "change-1");
+
+    expect(item).toMatchObject({
+      kind: "landing-readiness",
+      changeId: "change-1",
+      worktreeId: "wt-1",
+      primary: true,
+    });
+    expect(item.actions).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        actionType: "landing.prepare",
+        worktreeId: "wt-1",
+        automationEligible: true,
+      }),
+    ]));
+    expect(JSON.stringify(item)).not.toMatch(/remote-landing|pr-draft|merge-next|Harness evolution|full-auto|parallel executor/i);
   });
 
   it("offers bounded rework for failed result validation without reviving stale code.run", () => {

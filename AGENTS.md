@@ -9,7 +9,8 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 - Pending Harness evolution: none.
 - Latest archived product audit: Workbench Goal Loop Decision Surface Audit V1, archived at `harness/changes/archive/20260625-workbench-goal-loop-decision-surface-audit-v1/summary.md`.
 - Latest archived boundary guard: Workbench Loop-Per-Change Boundary Guard V1, archived at `harness/changes/archive/20260625-workbench-loop-per-change-boundary-guard-v1/summary.md`.
-- Latest archived product change: Workbench Codex Plan Mode + Post-Plan Local Autonomy V1, archived at `harness/changes/archive/20260625-workbench-codex-plan-mode-post-plan-local-autonomy-v1/summary.md`.
+- Latest archived product change: Workbench Post-Apply Local Landing Autonomy V1, archived at `harness/changes/archive/20260625-workbench-post-apply-local-landing-autonomy-v1/summary.md`.
+- Previous Codex Plan Mode + Post-Plan Local Autonomy V1: `harness/changes/archive/20260625-workbench-codex-plan-mode-post-plan-local-autonomy-v1/summary.md`.
 - Previous post-plan local autonomy change: `harness/changes/archive/20260625-workbench-post-plan-scoped-local-autonomy-v1/summary.md`.
 - Previous post-plan automation hardening: Workbench Post-Plan Scoped Automation Execution V1, archived at `harness/changes/archive/20260625-workbench-post-plan-scoped-automation-execution-v1/summary.md`.
 - Previous planning/decomposition hardening: `harness/changes/archive/20260625-workbench-planning-decomposition-scope-honesty-v1/summary.md`.
@@ -30,10 +31,12 @@ AHO authority remains bound to the selected Change, current target ids, source
 state, accepted artifacts, stale revalidation, ToolPolicyGate,
 validation/audit, and scoped local terminal gates. After human plan
 confirmation, scoped `完全访问权限` can consume local execution/recovery gates,
-safe `audit.accept`, local `result.apply`, and local `change.close`, then stops
-with no primary gate after the Change is archived. The latest E-drive
-acceptance confirmed this surface from ordinary demand through local apply and
-close. It still does not auto-run planning confirmation, raw
+safe `audit.accept`, local `result.apply`, local `landing.prepare`, and local
+`change.close`, then stops with no primary gate after the Change is archived.
+The latest post-apply landing hardening verified this local gate through
+targeted automation/revalidation/read-model/DOM tests and the daily Workbench
+aggregate; the earlier E-drive acceptance remains the real UI baseline through
+local apply and close. It still does not auto-run planning confirmation, raw
 `planning.scheduler.*`, integration apply/discard, merge, remote landing, PR,
 Harness evolution, scheduler loops, or parallel execution.
 
@@ -71,6 +74,11 @@ handoff alignment and no ECL/template/lint/product runtime change.
 
 Daily `npm run test:workbench` is the fast Workbench unit-capability gate; slow
 scheduler/apply/Goal Loop coverage remains in explicit release/deep scripts.
+
+Next product slice to consider: `workbench-confirmation-feedback-to-rework-v1`
+so user feedback entered at a confirmation point can revise/rework and return
+to confirmation or continuation. This is not implemented in the current
+baseline.
 
 Use `docs/STATUS.md` for short handoff context and
 `harness/changes/INDEX.json` plus archived `summary.md` files for historical

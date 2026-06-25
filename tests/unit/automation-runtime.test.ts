@@ -28,9 +28,13 @@ describe("Scoped automation runtime", () => {
     expect(isScopedAutomationAllowedAction("planning.goal-loop.controller.refresh")).toBe(true);
     expect(isScopedAutomationAllowedAction("planning.goal-loop.gate-readiness.prepare")).toBe(true);
     expect(isScopedAutomationAllowedAction("result.refresh-status")).toBe(true);
+    expect(isScopedAutomationAllowedAction("landing.prepare")).toBe(true);
     expect(isScopedAutomationAllowedAction("planning.scheduler.worker.start-next")).toBe(false);
     expect(isScopedAutomationAllowedAction("planning.scheduler.integration-check.run")).toBe(false);
     expect(isScopedAutomationAllowedAction("planning.scheduler.plan.prepare")).toBe(false);
+    expect(isScopedAutomationAllowedAction("remote-landing.merge")).toBe(false);
+    expect(isScopedAutomationAllowedAction("post-merge.sync-local.run")).toBe(false);
+    expect(isScopedAutomationAllowedAction("landing-queue.merge-next")).toBe(false);
   });
 
   it("executes multiple allowed workflow actions under one scoped authorization", async () => {
@@ -490,6 +494,52 @@ describe("Scoped automation runtime", () => {
     ]);
     expect(result.authorization.applyAuthorized).toBe(true);
     expect(result.authorization.closeAuthorized).toBe(true);
+  });
+
+  it("executes local landing preparation after apply and then local close", async () => {
+    const dispatched: ScopedAutomationChildGate[] = [];
+    const sequence: ScopedAutomationChildGate[] = [
+      { kind: "approval-action", actionId: "result.apply", changeId: "change-1", targetId: "wt-1", artifact: "runs/audit-1/audit.json", action: { actionId: "result.apply" } },
+      { kind: "workflow-action", actionType: "landing.prepare", changeId: "change-1", worktreeId: "wt-1" },
+      { kind: "approval-action", actionId: "change.close", changeId: "change-1", targetId: "change-1", action: { actionId: "change.close" } },
+    ];
+
+    const result = await runScopedAutomation({
+      memory,
+      changePath: "harness/changes/active/change-1",
+      projectId: "project-1",
+      sourceState: { capturedAt: "2026-06-25T00:00:00.000Z", statusShort: [] },
+      acceptedArtifactHashes: { spec: "spec", plan: "plan", tasks: "tasks", acMap: "ac" },
+      request: baseRequest({
+        automationCurrentGateActionType: undefined,
+        automationCurrentGateApprovalActionId: "result.apply",
+        automationCurrentGateTargetId: "wt-1",
+        maxSteps: 5,
+      }),
+      services: {
+        resolveCurrentPrimaryGate: async () => sequence[dispatched.length] ?? { stopReason: "no-primary-gate", summary: "No gate." },
+        dispatchChildAction: async (request) => {
+          dispatched.push(request);
+          return request.kind === "workflow-action"
+            ? { actionType: request.actionType, package: { id: "landing-package-1" } }
+            : { actionId: request.actionId, targetId: request.targetId };
+        },
+        summarizeChildResult: (gate) => `${gate.kind === "approval-action" ? gate.actionId : gate.actionType} completed`,
+      },
+    });
+
+    expect(result.stopReason).toBe("no-primary-gate");
+    expect(result.automationRun.completedSteps).toBe(3);
+    expect(dispatched.map((gate) => gate.kind === "approval-action" ? gate.actionId : gate.actionType)).toEqual([
+      "result.apply",
+      "landing.prepare",
+      "change.close",
+    ]);
+    expect(result.iterations[1]).toMatchObject({
+      submittedActionType: "landing.prepare",
+      currentGateKind: "workflow-action",
+      currentGateActionType: "landing.prepare",
+    });
   });
 
   it("does not recreate the active change after close archives it", async () => {

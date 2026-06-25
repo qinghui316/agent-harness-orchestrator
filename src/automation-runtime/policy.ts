@@ -18,6 +18,7 @@ export const SCOPED_AUTOMATION_ALLOWED_ACTION_TYPES = [
   "result.refresh-status",
   "result.revalidate",
   "result.reaudit",
+  "landing.prepare",
   "planning.goal-loop.controlled-continue.run",
 ] as const satisfies readonly WorkflowActionType[];
 
