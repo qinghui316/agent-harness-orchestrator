@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-25T12:52:44.5526575Z",
+    "generated_at":  "2026-06-25T13:49:48.0778623Z",
     "active":  [
 
                ],
@@ -1885,6 +1885,10 @@
                     {
                         "name":  "20260625-workbench-codex-plan-mode-post-plan-local-autonomy-v1",
                         "path":  "harness/changes/archive/20260625-workbench-codex-plan-mode-post-plan-local-autonomy-v1"
+                    },
+                    {
+                        "name":  "20260625-workbench-confirmation-feedback-real-ui-scout-v1",
+                        "path":  "harness/changes/archive/20260625-workbench-confirmation-feedback-real-ui-scout-v1"
                     },
                     {
                         "name":  "20260625-workbench-confirmation-feedback-to-rework-v1",

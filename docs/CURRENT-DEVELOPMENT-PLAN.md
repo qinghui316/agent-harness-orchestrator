@@ -147,13 +147,15 @@ Current architecture debt register:
 ## Next Product Direction
 
 Current structured change: none.
-Pending Harness evolution: none.
+Pending Harness evolution: `harness/evolution/pending.md`.
+It was generated after `harness/changes/archive/20260625-workbench-confirmation-feedback-real-ui-scout-v1/summary.md` closed; handle it as a separate human-gated Harness evolution change.
 Latest product change:
-`harness/changes/archive/20260625-workbench-post-apply-local-landing-autonomy-v1/summary.md`.
-It extends scoped post-plan local automation to consume the existing local
-`landing.prepare` gate after local `result.apply`, then close if the next gate
-is `change.close`. It does not automate PR, remote, merge, post-merge,
-integration apply/discard, or Harness evolution.
+`harness/changes/archive/20260625-workbench-confirmation-feedback-real-ui-scout-v1/summary.md`.
+It verifies confirmation-point feedback in real Workbench UI. Plan feedback
+routes to `planning.revise`; result/apply feedback routes to bounded
+`result.refresh-rework`; source root stays clean before apply. The scout fixed
+stale older apply gates so a newer validation/audit blocker remains the current
+primary decision.
 Latest boundary guard:
 `harness/changes/archive/20260625-workbench-loop-per-change-boundary-guard-v1/summary.md`.
 Latest product audit:

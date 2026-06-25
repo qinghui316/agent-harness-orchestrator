@@ -1169,7 +1169,17 @@ describe("workbench read-model projections", () => {
         },
         taskGraph: { nodes: [] },
       },
-      approvals: [],
+      approvals: [
+        {
+          id: "apply:old-wt",
+          kind: "worktree-apply",
+          label: "old apply",
+          changeId: "change-1",
+          targetId: "old-wt",
+          severity: "info",
+          action: { actionId: "result.apply", label: "Apply old", command: "result", args: ["apply", "repo", "change-1", "old-wt"], mutates: true, requiresConfirmation: true },
+        },
+      ],
       decisions: [],
     });
 
@@ -1264,6 +1274,7 @@ describe("workbench read-model projections", () => {
       }),
     ]));
     expect(inspector.primary?.actions.some((action) => action.action?.actionId === "result.apply")).toBe(false);
+    expect(inspector.related.flatMap((context) => context.actions).some((action) => action.action?.actionId === "result.apply")).toBe(false);
   });
 
   it("dedupes only the matching result-review apply approval and preserves other apply targets", () => {

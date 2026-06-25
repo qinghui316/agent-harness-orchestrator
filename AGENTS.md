@@ -6,10 +6,11 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 
 - Current date: 2026-06-25.
 - Active change: none.
-- Pending Harness evolution: none.
+- Pending Harness evolution: `harness/evolution/pending.md`.
 - Latest archived product audit: Workbench Goal Loop Decision Surface Audit V1, archived at `harness/changes/archive/20260625-workbench-goal-loop-decision-surface-audit-v1/summary.md`.
 - Latest archived boundary guard: Workbench Loop-Per-Change Boundary Guard V1, archived at `harness/changes/archive/20260625-workbench-loop-per-change-boundary-guard-v1/summary.md`.
-- Latest archived product change: Workbench Confirmation Feedback To Rework V1, archived at `harness/changes/archive/20260625-workbench-confirmation-feedback-to-rework-v1/summary.md`.
+- Latest archived product acceptance: Workbench Confirmation Feedback Real UI Scout V1, archived at `harness/changes/archive/20260625-workbench-confirmation-feedback-real-ui-scout-v1/summary.md`.
+- Previous archived product change: Workbench Confirmation Feedback To Rework V1, archived at `harness/changes/archive/20260625-workbench-confirmation-feedback-to-rework-v1/summary.md`.
 - Previous post-apply landing autonomy: `harness/changes/archive/20260625-workbench-post-apply-local-landing-autonomy-v1/summary.md`.
 - Previous Codex Plan Mode + Post-Plan Local Autonomy V1: `harness/changes/archive/20260625-workbench-codex-plan-mode-post-plan-local-autonomy-v1/summary.md`.
 - Previous post-plan local autonomy change: `harness/changes/archive/20260625-workbench-post-plan-scoped-local-autonomy-v1/summary.md`.
@@ -81,6 +82,14 @@ so user feedback entered at a confirmation point can revise/rework and return
 to confirmation or continuation. V1 routes plan-confirm feedback to
 `planning.revise`, routes result/apply feedback to `result.refresh-rework`, and
 keeps unsupported confirmation feedback record-only.
+
+Latest real UI scout: `workbench-confirmation-feedback-real-ui-scout-v1`
+verified the two confirmation feedback loops in an E-drive external sandbox.
+Plan-confirm feedback revised the planning draft and returned to plan
+confirmation without accepting canonical artifacts early. Result/apply feedback
+entered bounded rework and preserved source-root safety. The scout fixed one
+projection bug: when a newer validation/audit blocker exists, older same-Change
+worktree apply approvals no longer remain current primary gates.
 
 Use `docs/STATUS.md` for short handoff context and
 `harness/changes/INDEX.json` plus archived `summary.md` files for historical

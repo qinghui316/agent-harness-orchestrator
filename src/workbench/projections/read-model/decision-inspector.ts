@@ -55,7 +55,9 @@ export function buildDecisionInspector(input: {
     .filter((approval) => approval.kind !== "worktree-apply" || !resultReviewApplyTargets.has(`${approval.changeId ?? ""}:${approval.targetId ?? ""}`))
     .map((approval) => approvalDecisionContext(approval));
   for (const context of approvalContexts) {
-    if (hasCurrentBlocker && context.kind === "audit-approved") contexts.push({ ...context, kind: "history", severity: "info" });
+    if (hasCurrentBlocker && context.changeId === input.selectedTopic?.id && context.kind === "apply-gate") {
+      contexts.push({ ...context, kind: "history", severity: "info" });
+    } else if (hasCurrentBlocker && context.kind === "audit-approved") contexts.push({ ...context, kind: "history", severity: "info" });
     else contexts.push(context);
   }
 
