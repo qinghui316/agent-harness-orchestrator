@@ -9,7 +9,8 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 - Pending Harness evolution: none.
 - Latest archived product audit: Workbench Goal Loop Decision Surface Audit V1, archived at `harness/changes/archive/20260625-workbench-goal-loop-decision-surface-audit-v1/summary.md`.
 - Latest archived boundary guard: Workbench Loop-Per-Change Boundary Guard V1, archived at `harness/changes/archive/20260625-workbench-loop-per-change-boundary-guard-v1/summary.md`.
-- Latest archived product change: Workbench Post-Plan Scoped Local Autonomy V1, archived at `harness/changes/archive/20260625-workbench-post-plan-scoped-local-autonomy-v1/summary.md`.
+- Latest archived product change: Workbench Codex Plan Mode + Post-Plan Local Autonomy V1, archived at `harness/changes/archive/20260625-workbench-codex-plan-mode-post-plan-local-autonomy-v1/summary.md`.
+- Previous post-plan local autonomy change: `harness/changes/archive/20260625-workbench-post-plan-scoped-local-autonomy-v1/summary.md`.
 - Previous post-plan automation hardening: Workbench Post-Plan Scoped Automation Execution V1, archived at `harness/changes/archive/20260625-workbench-post-plan-scoped-automation-execution-v1/summary.md`.
 - Previous planning/decomposition hardening: `harness/changes/archive/20260625-workbench-planning-decomposition-scope-honesty-v1/summary.md`.
 - Previous external-local restore change: `harness/changes/archive/20260625-workbench-external-local-restore-v1/summary.md`.
@@ -20,19 +21,21 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 
 Current baseline: the local manual-gated Workbench loop has real browser
 acceptance through planning, code, validation/audit, human apply, and
-close/archive. Workbench exposes `请求批准` and scoped `完全访问权限`; the latter
-may run Codex with full-access runtime capability, but AHO authority remains
-bound to the selected Change, current target ids, source state, accepted
-artifacts, stale revalidation, ToolPolicyGate, validation/audit, and scoped
-local terminal gates. It no longer exposes `完全访问权限` for
-`planning.confirm-execution`; plan confirmation remains human-only. After
-human plan confirmation, scoped `完全访问权限` can consume local
-execution/recovery gates, safe `audit.accept`, local `result.apply`, and local
-`change.close`, then stops with no primary gate after the Change is archived.
-The latest real E-drive UI acceptance confirmed this surface from ordinary
-demand through local apply and close. It still does not auto-run planning
-generation, raw `planning.scheduler.*`, integration apply/discard, merge,
-remote landing, PR, Harness evolution, scheduler loops, or parallel execution.
+close/archive. Workbench planning now prefers Codex Plan Mode and records a
+proposal-only `proposedPlanMd`; when native plan deltas are unavailable, it
+falls back to a prompt-level `<proposed_plan>` contract. The user still
+manually confirms the plan. Workbench exposes `请求批准` and scoped
+`完全访问权限`; the latter may run Codex with full-access runtime capability, but
+AHO authority remains bound to the selected Change, current target ids, source
+state, accepted artifacts, stale revalidation, ToolPolicyGate,
+validation/audit, and scoped local terminal gates. After human plan
+confirmation, scoped `完全访问权限` can consume local execution/recovery gates,
+safe `audit.accept`, local `result.apply`, and local `change.close`, then stops
+with no primary gate after the Change is archived. The latest E-drive
+acceptance confirmed this surface from ordinary demand through local apply and
+close. It still does not auto-run planning confirmation, raw
+`planning.scheduler.*`, integration apply/discard, merge, remote landing, PR,
+Harness evolution, scheduler loops, or parallel execution.
 
 Latest completed product audit: Goal Loop decision surface alignment found no
 new product-code gap. The existing decision chain remains an explanation and

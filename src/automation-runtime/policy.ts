@@ -15,6 +15,7 @@ export const SCOPED_AUTOMATION_ALLOWED_ACTION_TYPES = [
   "validate.run",
   "audit.run",
   "result.refresh-rework",
+  "result.refresh-status",
   "result.revalidate",
   "result.reaudit",
   "planning.goal-loop.controlled-continue.run",

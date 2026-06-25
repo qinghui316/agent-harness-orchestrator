@@ -66,6 +66,7 @@ export async function sendWorkbenchActionLive(input: WorkbenchProjectInput & { p
         goalLoopGateReadinessPreflightId: body.goalLoopGateReadinessPreflightId,
         goalLoopCurrentGateActionType: body.goalLoopCurrentGateActionType,
         automationMode: body.automationMode,
+        postPlanAutomationMode: body.postPlanAutomationMode,
         automationCurrentGateActionType: body.automationCurrentGateActionType,
         automationCurrentGateApprovalActionId: body.automationCurrentGateApprovalActionId,
         automationCurrentGateTargetId: body.automationCurrentGateTargetId,

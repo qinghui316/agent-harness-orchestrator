@@ -692,6 +692,10 @@ export type Workpad = {
 export type PlanningArtifactBundle = {
   id: string;
   status?: "draft" | "confirmed";
+  planningMode?: "codex-plan-mode" | "prompt-plan-contract" | "deterministic-fallback";
+  proposedPlanMd?: string;
+  proposedPlanRunId?: string;
+  planningWarnings?: string[];
   goal: string;
   constraints: string[];
   sourceScopeConstraints?: string[];
@@ -1731,6 +1735,7 @@ export type ThreadStreamAction = {
   goalLoopControllerPolicyId?: string;
   goalLoopGateReadinessPreflightId?: string;
   goalLoopCurrentGateActionType?: ThreadStreamAction["actionType"];
+  postPlanAutomationMode?: "request-approval" | "full-access";
   maxSteps?: number;
   maintenanceProposalId?: string;
   maintenancePatchProposalId?: string;
@@ -1817,6 +1822,7 @@ export type DecisionAction = {
     message?: string;
   };
   actionType?: ThreadStreamAction["actionType"];
+  postPlanAutomationMode?: "request-approval" | "full-access";
   automationMode?: "request-approval" | "full-access";
   automationCurrentGateActionType?: ThreadStreamAction["actionType"];
   automationCurrentGateApprovalActionId?: string;

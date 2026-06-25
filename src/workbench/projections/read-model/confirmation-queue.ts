@@ -30,6 +30,7 @@ export async function buildConfirmationQueue(input: {
     || (!input.ignoreActiveWorkflowActions && hasActiveWorkflowAction(input.selectedTopic, ignoredActiveWorkflowActionTypes))
     || hasActiveRolePipeline(input.workpad)
   ));
+  const selectedTopicInactive = Boolean(input.selectedTopic && input.selectedTopic.state !== "active");
   const enqueueCurrentOrOther = (item: WorkbenchConfirmationQueue["current"][number]): void => {
     if (selectedTopicBusy && isSelectedTopicItem(item, input.selectedTopic?.id)) return;
     if (input.selectedTopic && input.selectedTopic.state !== "active" && isSelectedTopicItem(item, input.selectedTopic.id)) {
@@ -39,7 +40,7 @@ export async function buildConfirmationQueue(input: {
     if (item.primary) queue.current.unshift(item);
     else queue.otherDemands.push(item);
   };
-  const currentItems = selectedTopicBusy
+  const currentItems = selectedTopicBusy || selectedTopicInactive
     ? []
     : [
       ...workpadNextActionToConfirmationItems(input.project, input.selectedTopic, input.workpad),
@@ -49,7 +50,7 @@ export async function buildConfirmationQueue(input: {
       ...input.decisionInspector.related.flatMap((context) => decisionContextToConfirmationItems(context, false)),
     ];
   const nextActionType = input.workpad.nextAction.actionType;
-  if (!selectedTopicBusy && nextActionType?.startsWith("planning.scheduler.") && !currentItems.some((item) => item.actions.some((action) => action.actionType === nextActionType))) {
+  if (!selectedTopicBusy && !selectedTopicInactive && nextActionType?.startsWith("planning.scheduler.") && !currentItems.some((item) => item.actions.some((action) => action.actionType === nextActionType))) {
     currentItems.push(...schedulerNextActionToConfirmationItems(input.project, input.selectedTopic, input.workpad));
   }
   queue.current = currentItems;
@@ -117,7 +118,7 @@ export async function buildConfirmationQueue(input: {
       project: input.project,
       memory: input.memory,
     })).map(scopeConfirmationQueueItemActions));
-  if (!selectedTopicBusy && queue.current.length === 0) {
+  if (!selectedTopicBusy && !selectedTopicInactive && queue.current.length === 0) {
     const goalLoopItem = goalLoopEvaluationQueueItem(input.project, input.selectedTopic);
     if (goalLoopItem) queue.current.push(goalLoopItem);
   }

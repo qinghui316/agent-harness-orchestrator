@@ -4,7 +4,7 @@ import { createWriteStream, existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { finished } from "node:stream/promises";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { mkdtemp, rm } from "node:fs/promises";
 import { codexRuntimeConfigArgs } from "./capabilities.js";
 import { executeProcessStreaming } from "../run/process.js";
@@ -63,7 +63,9 @@ export interface CodexAppServerTurnOptions {
   timeoutMs?: number;
   onNotification?: CodexAppServerNotificationHandler;
   onTextDelta?: (text: string) => void;
+  onPlanDelta?: (text: string) => void;
   onError?: (error: unknown) => void;
+  collaborationMode?: "plan";
 }
 
 export interface CodexAppServerTurnResult {
@@ -71,6 +73,7 @@ export interface CodexAppServerTurnResult {
   threadId: string | null;
   turnId: string | null;
   lastMessage: string;
+  planText?: string;
   error?: string;
 }
 
@@ -140,6 +143,7 @@ export async function runCodexAppServerTurn(options: CodexAppServerTurnOptions):
   let threadId: string | null = options.existingThreadId ?? null;
   let turnId: string | null = null;
   let lastMessage = "";
+  let planText = "";
   let terminalStatus: CodexAppServerTurnResult["status"] | null = null;
   let terminalError: string | undefined;
   const pending = new Map<number, { resolve: (value: Record<string, unknown>) => void; reject: (error: Error) => void }>();
@@ -204,13 +208,25 @@ export async function runCodexAppServerTurn(options: CodexAppServerTurnOptions):
     if (!threadId) throw new Error("Codex app-server did not return a thread id.");
     await writeSession("started");
 
-    const turnResponse = await sendRequest("turn/start", {
+    const nativePlanModeModel = options.collaborationMode === "plan" ? await readCodexDefaultModel() : null;
+    const turnRequest = {
       threadId,
       input: [userTextInput(options.prompt)],
       cwd: options.cwd,
       sandboxPolicy: sandboxPolicyFor(options.sandboxPolicy, options.cwd),
       approvalPolicy: "never",
-    });
+      ...(options.collaborationMode === "plan" && nativePlanModeModel ? {
+        collaborationMode: {
+          mode: "plan",
+          settings: {
+            model: nativePlanModeModel,
+            developer_instructions: null,
+            reasoning_effort: null,
+          },
+        },
+      } : {}),
+    };
+    const turnResponse = await sendRequest("turn/start", turnRequest);
     turnId = extractTurnId(turnResponse);
     if (!turnId) throw new Error("Codex app-server did not return a turn id.");
     await writeSession("running");
@@ -234,14 +250,14 @@ export async function runCodexAppServerTurn(options: CodexAppServerTurnOptions):
     await writeFile(options.paths.lastMessage, lastMessage, "utf8");
     const finalStatus = terminalStatus ?? "failed";
     await writeSession(finalStatus);
-    return { status: finalStatus, threadId, turnId, lastMessage };
+    return { status: finalStatus, threadId, turnId, lastMessage, planText };
   } catch (error) {
     terminalStatus = "failed";
     terminalError = error instanceof Error ? error.message : String(error);
     options.onError?.(error);
     await writeFile(options.paths.lastMessage, lastMessage || terminalError, "utf8");
     await writeSession("failed", terminalError).catch(() => undefined);
-    return { status: "failed", threadId, turnId, lastMessage, error: terminalError };
+    return { status: "failed", threadId, turnId, lastMessage, planText, error: terminalError };
   } finally {
     activeTurns.delete(options.changeId);
     for (const [, item] of pending) item.reject(new Error("Codex app-server turn finished."));
@@ -307,6 +323,10 @@ export async function runCodexAppServerTurn(options: CodexAppServerTurnOptions):
       lastMessage += text;
       options.onTextDelta?.(text);
     }
+    if (method === "item/plan/delta" && typeof params.delta === "string") {
+      planText += params.delta;
+      options.onPlanDelta?.(params.delta);
+    }
     if (method === "turn/completed") {
       terminalStatus = completionStatus(params) === "interrupted" ? "interrupted" : "completed";
     } else if (method === "turn/failed") {
@@ -315,6 +335,7 @@ export async function runCodexAppServerTurn(options: CodexAppServerTurnOptions):
     } else if (method === "item/completed") {
       const finalText = extractCompletedText(params);
       if (finalText && !lastMessage.includes(finalText)) lastMessage += finalText;
+      if (isPlanItem(params) && finalText) planText = finalText;
     }
   }
 
@@ -335,6 +356,17 @@ export async function runCodexAppServerTurn(options: CodexAppServerTurnOptions):
 
 function userTextInput(text: string): Record<string, unknown> {
   return { type: "text", text, text_elements: [] };
+}
+
+async function readCodexDefaultModel(): Promise<string | null> {
+  const configPath = join(process.env.CODEX_HOME ?? join(homedir(), ".codex"), "config.toml");
+  try {
+    const content = await readFile(configPath, "utf8");
+    const match = content.match(/^\s*model\s*=\s*["']([^"']+)["']\s*$/m);
+    return match?.[1]?.trim() || null;
+  } catch {
+    return null;
+  }
 }
 
 function sandboxPolicyFor(policy: "read-only" | "workspace-write", cwd: string): Record<string, unknown> {
@@ -439,6 +471,11 @@ function extractCompletedText(params: Record<string, unknown>): string {
     return item.content.map((entry) => isRecord(entry) && typeof entry.text === "string" ? entry.text : "").filter(Boolean).join("\n");
   }
   return "";
+}
+
+function isPlanItem(params: Record<string, unknown>): boolean {
+  const item = isRecord(params.item) ? params.item : params;
+  return item.type === "plan" || item.kind === "plan" || item.itemType === "plan";
 }
 
 function completionStatus(params: Record<string, unknown>): string | null {

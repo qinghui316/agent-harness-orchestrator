@@ -168,6 +168,7 @@ export function automationStopReasonSummary(reason: AutomationStopReason): strin
     case "no-primary-gate": return "No current primary confirmation gate is available.";
     case "unsupported-gate": return "The current primary gate is outside scoped automation V1.";
     case "terminal-human-gate": return "Scoped automation stopped at a human terminal gate.";
+    case "no-progress": return "The current primary gate did not advance after the previous automation step.";
     case "stale-target": return "The current gate target is stale or mismatched.";
     case "source-drift": return "Source state changed outside the authorization scope.";
     case "accepted-artifact-drift": return "Accepted artifact hashes changed outside the authorization scope.";

@@ -56,6 +56,7 @@ export interface WorkbenchActionRequest {
   goalLoopGateReadinessPreflightId?: string;
   goalLoopCurrentGateActionType?: WorkbenchWorkflowActionRequest["actionType"];
   automationMode?: "request-approval" | "full-access";
+  postPlanAutomationMode?: "request-approval" | "full-access";
   automationCurrentGateActionType?: WorkbenchWorkflowActionRequest["actionType"];
   automationCurrentGateApprovalActionId?: string;
   automationCurrentGateTargetId?: string;

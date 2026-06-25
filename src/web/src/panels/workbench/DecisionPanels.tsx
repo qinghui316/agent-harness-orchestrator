@@ -158,7 +158,9 @@ function DecisionContextCard({
   const [automationMode, setAutomationMode] = useState<"request-approval" | "full-access">("request-approval");
   const feedbackAction = context.actions.find((action) => action.id === feedbackActionId);
   const primaryAutomationAction = chooseScopedAutomationAction(context.actions);
+  const planningConfirmationAction = context.actions.find(isPlanningConfirmationAction);
   const scopedAutomationAvailable = Boolean(primaryAutomationAction);
+  const canSelectFullAccess = scopedAutomationAvailable || Boolean(planningConfirmationAction);
   const actionBusy = busy || pendingActionId !== null;
   async function executeAction(action: DecisionAction): Promise<void> {
     if (!action.enabled || actionBusy) return;
@@ -250,17 +252,19 @@ function DecisionContextCard({
           ))}
         </div>
       ) : null}
-      {primaryAutomationAction ? (
+      {canSelectFullAccess ? (
         <AutomationModeSelector
           value={automationMode}
-          canUseFullAccess={scopedAutomationAvailable}
+          canUseFullAccess={canSelectFullAccess}
           onChange={setAutomationMode}
         />
       ) : null}
       <div className="approval-actions">
         {context.actions.map((action) => {
-          const effectiveAction = action === primaryAutomationAction && automationMode === "full-access" && scopedAutomationAvailable
-            ? scopedAutomationActionFrom(action, context)
+          const effectiveAction = action === planningConfirmationAction && (automationMode === "full-access" || isPostPlanAutomationConfirming(confirming, action))
+            ? postPlanAutomationConfirmationActionFrom(action)
+            : action === primaryAutomationAction && scopedAutomationAvailable && (automationMode === "full-access" || isScopedAutomationConfirming(confirming, action))
+              ? scopedAutomationActionFrom(action, context)
             : action;
           const disabled = actionBusy || !effectiveAction.enabled || (action === primaryAutomationAction && automationMode === "full-access" && !scopedAutomationAvailable);
           const title = action.disabledReason ?? (actionBusy ? "当前已有动作正在执行。" : undefined);
@@ -353,6 +357,32 @@ function scopedAutomationActionFrom(action: DecisionAction, context: DecisionCon
   };
 }
 
+function postPlanAutomationConfirmationActionFrom(action: DecisionAction): DecisionAction {
+  return {
+    ...action,
+    id: postPlanAutomationConfirmationActionId(action),
+    label: action.label,
+    postPlanAutomationMode: "full-access",
+    requiresConfirmation: true,
+  };
+}
+
+function isPlanningConfirmationAction(action: DecisionAction): boolean {
+  return action.kind === "workflow-action" && action.actionType === "planning.confirm-execution";
+}
+
+function postPlanAutomationConfirmationActionId(action: DecisionAction): string {
+  return `post-plan-automation:${action.id}`;
+}
+
+function isPostPlanAutomationConfirming(confirming: string | null, action: DecisionAction): boolean {
+  return confirming === postPlanAutomationConfirmationActionId(action);
+}
+
+function isScopedAutomationConfirming(confirming: string | null, action: DecisionAction): boolean {
+  return confirming === `automation:${action.id}`;
+}
+
 function isScopedAutomationAllowedAction(action: DecisionAction): boolean {
   const actionType = action.actionType;
   if (action.kind === "approval") {
@@ -368,6 +398,7 @@ function isScopedAutomationAllowedAction(action: DecisionAction): boolean {
     || actionType === "validate.run"
     || actionType === "audit.run"
     || actionType === "result.refresh-rework"
+    || actionType === "result.refresh-status"
     || actionType === "result.revalidate"
     || actionType === "result.reaudit"
     || actionType === "planning.goal-loop.controlled-continue.run");

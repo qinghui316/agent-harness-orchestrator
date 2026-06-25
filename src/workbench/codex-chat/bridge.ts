@@ -217,7 +217,11 @@ export async function postTopicPlanMessage(project: ManagedProject, changeId: st
   };
 }
 
-export async function runCodexChat(project: ManagedProject, changeId: string, userMessage: string, live?: WorkbenchLiveSink): Promise<{ run: RunMetadata; message: string; codexSessionId: string | null }> {
+export interface RunCodexChatOptions {
+  planningMode?: boolean;
+}
+
+export async function runCodexChat(project: ManagedProject, changeId: string, userMessage: string, live?: WorkbenchLiveSink, options: RunCodexChatOptions = {}): Promise<{ run: RunMetadata; message: string; codexSessionId: string | null; planText?: string }> {
   const memory = await resolveProjectMemory(project);
   assertWritableMemory(memory, "Topic chat");
   const { changePath } = await resolveTopic(project, changeId);
@@ -271,7 +275,7 @@ export async function runCodexChat(project: ManagedProject, changeId: string, us
       agentSession: `${relativeDir}/agent-session.json`,
       lastMessage: `${relativeDir}/last-message.md`,
     },
-    promptStack: ["active-change", "topic-thread", "aho-skills", "user-message"],
+    promptStack: ["active-change", "topic-thread", "aho-skills", "user-message", ...(options.planningMode ? ["codex-plan-mode"] : [])],
     enabledSkills: skillContext.records,
   };
   await writeJsonFile(paths.run, run);
@@ -320,11 +324,13 @@ export async function runCodexChat(project: ManagedProject, changeId: string, us
       },
       existingThreadId: runtime.codexSessionId,
       onTextDelta: (delta) => emitLive(live, { event: "assistant.delta", data: { delta, runId } }),
+      onPlanDelta: (delta) => emitLive(live, { event: "assistant.delta", data: { delta, runId } }),
       onNotification: (notification) => forwardAppServerNotification(runId, notification, live),
       onError: (error) => emitLive(live, { event: "error", data: { runId, message: error instanceof Error ? error.message : String(error) } }),
+      collaborationMode: options.planningMode ? "plan" : undefined,
     });
     const status: RunStatus = result.status === "completed" ? "completed" : "failed";
-    const lastMessage = result.lastMessage.trim() || result.error || "Codex app-server did not return a final message.";
+    const lastMessage = result.lastMessage.trim() || result.planText?.trim() || result.error || "Codex app-server did not return a final message.";
     await writeFile(paths.lastMessage, lastMessage, "utf8");
     await writeTopicRuntime(memory, changePath, { version: "1.0", changeId, codexSessionId: result.threadId ?? runtime.codexSessionId, updatedAt: new Date().toISOString() });
     await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "app-server.exited", runId, data: { phase: "chat", status: result.status, threadId: result.threadId, turnId: result.turnId, error: result.error } });
@@ -332,7 +338,7 @@ export async function runCodexChat(project: ManagedProject, changeId: string, us
     await writeJsonFile(paths.run, run);
     await appendRunEvent(paths.events, { timestamp: run.finishedAt ?? new Date().toISOString(), type: status === "completed" ? "run.completed" : "run.failed", runId });
     live?.emit({ event: "run.status", data: { runId, status } });
-    return { run, message: lastMessage, codexSessionId: result.threadId ?? runtime.codexSessionId };
+    return { run, message: lastMessage, codexSessionId: result.threadId ?? runtime.codexSessionId, planText: result.planText };
   }
   const appServerSkipReason = appServerCapabilities.available
     ? "external-local memory requires codex exec --add-dir memoryRoot"

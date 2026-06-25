@@ -2,7 +2,7 @@ import { join } from "node:path";
 import { buildAcMap, parseReviewStatus } from "../ecl/anchors.js";
 import { getActiveChanges, writeChangeIndex } from "../ecl/index.js";
 import { writeJsonFile } from "../fs/json.js";
-import { isGitDirty } from "../project/git.js";
+import { isGitDirtyIgnoringAhoMemory } from "../project/git.js";
 import { getSpecTestStatus } from "../spec-test/manager.js";
 import { getLatestAuditSummary } from "../audit/artifacts.js";
 import { getLatestValidationSummary } from "../validation/artifacts.js";
@@ -120,12 +120,14 @@ async function getChangeStatusForActive(
     }
     const worktrees = await listWorktreesForChange(memory, change.id);
     const hasAppliedWorktree = worktrees.some((worktree) => worktree.status === "applied");
-    if (hasAppliedWorktree && (await isGitDirty(memory.projectRoot)) === true) {
+    if (hasAppliedWorktree && (await isGitDirtyIgnoringAhoMemory(memory.projectRoot)) === true) {
       blockingIssues.push("Source repo has uncommitted changes after apply; commit or clean the source repo before closing the change.");
     }
     for (const worktree of worktrees) {
       if (worktree.status === "applied") {
         warnings.push(`Applied worktree remains available for cleanup: ${worktree.worktreeId}.`);
+      } else if (worktree.dirty && hasAppliedWorktree) {
+        warnings.push(`Superseded dirty worktree remains available for cleanup: ${worktree.worktreeId} (${worktree.checkoutPath}).`);
       } else if (worktree.dirty) {
         blockingIssues.push(`Dirty worktree blocks close: ${worktree.worktreeId} (${worktree.checkoutPath}).`);
       } else {

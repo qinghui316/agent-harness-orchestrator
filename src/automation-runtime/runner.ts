@@ -112,6 +112,7 @@ export async function runScopedAutomation(input: {
   let previousResult: unknown | null = null;
   let stopReason: AutomationStopReason = "max-steps";
   let stopSummary = automationStopReasonSummary("max-steps");
+  let previousGateSignature: string | null = null;
 
   for (let index = 0; index < maxSteps; index += 1) {
     const safety = services.checkSafety ? await services.checkSafety(previousResult) : null;
@@ -140,15 +141,21 @@ export async function runScopedAutomation(input: {
       stopSummary = scopeStop.summary;
       break;
     }
-    const gateActionId = scopedAutomationGateActionId(next);
-    const gateStop = scopedAutomationStopForGate(next);
-    if (gateStop) {
-      stopReason = gateStop.stopReason;
-      stopSummary = gateStop.summary;
-      break;
-    }
+      const gateActionId = scopedAutomationGateActionId(next);
+      const gateStop = scopedAutomationStopForGate(next);
+      if (gateStop) {
+        stopReason = gateStop.stopReason;
+        stopSummary = gateStop.summary;
+        break;
+      }
+      const gateSignature = scopedAutomationGateSignature(next);
+      if (previousGateSignature === gateSignature) {
+        stopReason = "no-progress";
+        stopSummary = automationStopReasonSummary("no-progress");
+        break;
+      }
 
-    const iterationId = createAutomationRuntimeId("automation-iteration", `${automationRun.id}:${index + 1}`);
+      const iterationId = createAutomationRuntimeId("automation-iteration", `${automationRun.id}:${index + 1}`);
     const iterationRefs = automationRuntimeArtifactRefs(memory, changePath, iterationId);
     const auditScope = {
       coveredByAutomationAuthorizationId: authorization.id,
@@ -194,11 +201,12 @@ export async function runScopedAutomation(input: {
       automationRun.iterations.push(iteration.id);
       automationRun.completedSteps = iterations.length;
       automationRun.updatedAt = new Date().toISOString();
-      await writeAutomationIteration(memory, changePath, iteration);
-      await writeAutomationRun(memory, changePath, automationRun);
-      if (next.kind === "approval-action" && next.actionId === "change.close") {
-        stopReason = "no-primary-gate";
-        stopSummary = "Local close completed; no further local automation gate remains.";
+        await writeAutomationIteration(memory, changePath, iteration);
+        await writeAutomationRun(memory, changePath, automationRun);
+        previousGateSignature = gateSignature;
+        if (next.kind === "approval-action" && next.actionId === "change.close") {
+          stopReason = "no-primary-gate";
+          stopSummary = "Local close completed; no further local automation gate remains.";
         break;
       }
     } catch (error) {
@@ -282,6 +290,24 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: s
 
 function scopedAutomationGateActionId(gate: ScopedAutomationChildGate): string {
   return gate.kind === "workflow-action" ? gate.actionType : gate.actionId;
+}
+
+function scopedAutomationGateSignature(gate: ScopedAutomationChildGate): string {
+  return stableJson({
+    kind: gate.kind,
+    action: scopedAutomationGateActionId(gate),
+    changeId: gate.changeId,
+    scope: gate,
+  });
+}
+
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    return `{${Object.keys(record).sort().map((key) => `${JSON.stringify(key)}:${stableJson(record[key])}`).join(",")}}`;
+  }
+  return JSON.stringify(value);
 }
 
 function scopedAutomationStopForGate(gate: ScopedAutomationChildGate): { stopReason: AutomationStopReason; summary: string } | null {

@@ -96,6 +96,7 @@ export async function runScopedAutomationAction(
       waitForSettledPrimaryGate: async () => {
         await new Promise((resolve) => setTimeout(resolve, 1000));
       },
+      primaryGateResolutionTimeoutMs: 60_000,
     },
   });
 
@@ -115,6 +116,33 @@ export async function runScopedAutomationAction(
     artifactRef: result.automationRun.artifact,
   });
   return result;
+}
+
+export async function runPostPlanScopedAutomation(
+  project: ManagedProject,
+  changeId: string,
+  live: WorkbenchLiveSink | undefined,
+  handlers: WorkbenchActionHandlerMap,
+): Promise<unknown> {
+  const gate = await resolveCurrentPrimaryAutomationGate(project, changeId);
+  if ("stopReason" in gate) {
+    const text = `计划已确认，但完全访问权限未启动：${gate.summary}`;
+    await appendTopicThreadEntry(project, changeId, {
+      type: "assistant.message",
+      status: "scoped-automation-not-started",
+      text,
+    });
+    emitAssistantEvent(live, {
+      runId: changeId,
+      kind: "status",
+      phase: "scoped-automation-not-started",
+      title: "完全访问权限未启动",
+      summary: text,
+    });
+    return { status: "not-started", stopReason: gate.stopReason, summary: gate.summary };
+  }
+  const request = scopedAutomationRequestFromGate(changeId, gate);
+  return runScopedAutomationAction(project, changeId, request, live, handlers);
 }
 
 async function resolveCurrentPrimaryAutomationGate(
@@ -229,6 +257,33 @@ function decisionActionToWorkflowRequest(action: WorkbenchDecisionAction, change
     actionType: action.actionType,
     changeId: action.changeId ?? changeId,
   } as unknown as WorkbenchWorkflowActionRequest & { actionType: WorkflowActionType };
+}
+
+function scopedAutomationRequestFromGate(changeId: string, gate: ScopedAutomationChildGate): WorkbenchWorkflowActionRequest {
+  if (gate.kind === "approval-action") {
+    return {
+      actionType: "planning.automation.scoped-auto.run",
+      changeId,
+      automationMode: "full-access",
+      automationCurrentGateApprovalActionId: gate.actionId,
+      automationCurrentGateTargetId: gate.targetId,
+      automationCurrentGateRunId: gate.runId,
+      automationCurrentGateArtifact: gate.artifact,
+      maxSteps: 10,
+    };
+  }
+  const actionType = gate.actionType;
+  const scope = { ...gate } as Record<string, unknown>;
+  delete scope.kind;
+  delete scope.actionType;
+  return {
+    ...(scope as unknown as WorkbenchWorkflowActionRequest),
+    actionType: "planning.automation.scoped-auto.run",
+    changeId,
+    automationMode: "full-access",
+    automationCurrentGateActionType: actionType,
+    maxSteps: 10,
+  };
 }
 
 export function scopedAutomationInitialGateMatches(request: WorkbenchWorkflowActionRequest, action: WorkbenchDecisionAction, changeId: string): boolean {

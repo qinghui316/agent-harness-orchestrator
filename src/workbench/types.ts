@@ -166,6 +166,7 @@ export interface WorkbenchWorkflowActionRequest {
   changeId?: string;
   prompt?: string;
   feedback?: string;
+  postPlanAutomationMode?: "request-approval" | "full-access";
   proposalId?: string;
   planningBundleId?: string;
   decompositionPlanId?: string;
@@ -247,6 +248,10 @@ export interface WorkbenchWorkflowActionResult {
 export interface PlanningArtifactBundle {
   id: string;
   status: "draft" | "confirmed";
+  planningMode?: "codex-plan-mode" | "prompt-plan-contract" | "deterministic-fallback";
+  proposedPlanMd?: string;
+  proposedPlanRunId?: string;
+  planningWarnings?: string[];
   goal: string;
   constraints: string[];
   sourceScopeConstraints?: string[];

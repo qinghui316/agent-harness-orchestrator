@@ -7,7 +7,7 @@ import { canApplyResultFromGate,
   type WorktreeGateState
 } from "../../../apply/manager.js";
 import { listAuditResults } from "../../../audit/artifacts.js";
-import { isGitDirty } from "../../../project/git.js";
+import { isGitDirtyIgnoringAhoMemory } from "../../../project/git.js";
 import { listValidationResults } from "../../../validation/artifacts.js";
 import type {
   AuditSummary,
@@ -44,7 +44,7 @@ export async function buildResultReview(project: ManagedProject | null, memory: 
   const preview = project && worktree && worktree.status !== "applied" && !hasFailedEvidence
     ? await previewWorktreeApply(project, worktree.worktreeId).catch(() => null)
     : null;
-  const sourceDirty = project && worktree?.status === "applied" ? await isGitDirty(project.path).catch(() => null) : null;
+  const sourceDirty = project && worktree?.status === "applied" ? await isGitDirtyIgnoringAhoMemory(project.path).catch(() => null) : null;
   const auditNotes = audit?.findings.filter((finding) => finding.severity === "note").map((finding) => finding.text) ?? [];
   const blockingIssues = preview?.gate.blockingIssues ?? [];
   const auditAccepted = audit ? await auditAlreadyAccepted(memory, topic.path, audit.id) : false;

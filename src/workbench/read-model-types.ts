@@ -155,6 +155,7 @@ export interface ThreadStreamAction {
   goalLoopControllerPolicyId?: string;
   goalLoopGateReadinessPreflightId?: string;
   goalLoopCurrentGateActionType?: ThreadStreamAction["actionType"];
+  postPlanAutomationMode?: "request-approval" | "full-access";
   automationMode?: "request-approval" | "full-access";
   automationCurrentGateActionType?: ThreadStreamAction["actionType"];
   automationCurrentGateApprovalActionId?: string;
@@ -308,6 +309,7 @@ export interface WorkbenchDecisionAction {
   goalLoopControllerPolicyId?: string;
   goalLoopGateReadinessPreflightId?: string;
   goalLoopCurrentGateActionType?: ThreadStreamAction["actionType"];
+  postPlanAutomationMode?: "request-approval" | "full-access";
   automationMode?: "request-approval" | "full-access";
   automationCurrentGateActionType?: ThreadStreamAction["actionType"];
   automationCurrentGateApprovalActionId?: string;
@@ -429,6 +431,7 @@ export interface WorkbenchConfirmationQueueItem {
   goalLoopControllerPolicyId?: string;
   goalLoopGateReadinessPreflightId?: string;
   goalLoopCurrentGateActionType?: ThreadStreamAction["actionType"];
+  postPlanAutomationMode?: "request-approval" | "full-access";
   automationMode?: "request-approval" | "full-access";
   automationCurrentGateActionType?: ThreadStreamAction["actionType"];
   automationCurrentGateApprovalActionId?: string;
@@ -949,6 +952,10 @@ export interface WorkbenchWorkpad {
 
 export interface WorkbenchPlanningDraft {
   id: string;
+  planningMode?: "codex-plan-mode" | "prompt-plan-contract" | "deterministic-fallback";
+  proposedPlanMd?: string;
+  proposedPlanRunId?: string;
+  planningWarnings?: string[];
   goal: string;
   constraints: string[];
   sourceScopeConstraints?: string[];

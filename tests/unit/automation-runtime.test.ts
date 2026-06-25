@@ -27,6 +27,7 @@ describe("Scoped automation runtime", () => {
     expect(isScopedAutomationAllowedAction("planning.goal-loop.evaluate")).toBe(true);
     expect(isScopedAutomationAllowedAction("planning.goal-loop.controller.refresh")).toBe(true);
     expect(isScopedAutomationAllowedAction("planning.goal-loop.gate-readiness.prepare")).toBe(true);
+    expect(isScopedAutomationAllowedAction("result.refresh-status")).toBe(true);
     expect(isScopedAutomationAllowedAction("planning.scheduler.worker.start-next")).toBe(false);
     expect(isScopedAutomationAllowedAction("planning.scheduler.integration-check.run")).toBe(false);
     expect(isScopedAutomationAllowedAction("planning.scheduler.plan.prepare")).toBe(false);
@@ -139,6 +140,37 @@ describe("Scoped automation runtime", () => {
       "planning.goal-loop.controlled-continue.run",
     ]);
     expect(dispatched.some((gate) => gate.kind === "workflow-action" && gate.actionType === "planning.scheduler.worker.start-next")).toBe(false);
+  });
+
+  it("stops when an allowed gate repeats without advancing the primary surface", async () => {
+    const dispatched: ScopedAutomationChildGate[] = [];
+    const repeatedGate: ScopedAutomationChildGate = {
+      kind: "workflow-action",
+      actionType: "planning.goal-loop.evaluate",
+      changeId: "change-1",
+    };
+
+    const result = await runScopedAutomation({
+      memory,
+      changePath: "harness/changes/active/change-1",
+      projectId: "project-1",
+      sourceState: { capturedAt: "2026-06-25T00:00:00.000Z" },
+      acceptedArtifactHashes: {},
+      request: baseRequest({ automationCurrentGateActionType: "planning.goal-loop.evaluate", maxSteps: 5 }),
+      services: {
+        resolveCurrentPrimaryGate: async () => repeatedGate,
+        dispatchChildAction: async (request) => {
+          dispatched.push(request);
+          return { ok: true, actionType: request.kind === "workflow-action" ? request.actionType : request.actionId };
+        },
+        summarizeChildResult: (gate) => `${gate.kind === "workflow-action" ? gate.actionType : gate.actionId} completed`,
+      },
+    });
+
+    expect(dispatched).toHaveLength(1);
+    expect(result.stopReason).toBe("no-progress");
+    expect(result.summary).toContain("did not advance");
+    expect(result.automationRun.completedSteps).toBe(1);
   });
 
   it("executes bounded recovery workflow gates, safe audit accept, and local apply", async () => {

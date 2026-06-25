@@ -125,12 +125,15 @@ import type {
   WorkbenchLiveSink,
   WorkbenchWorkflowActionRequest,
 } from "../../types.js";
+import type { WorkbenchActionHandlerMap } from "../dispatcher.js";
+import { runPostPlanScopedAutomation } from "./automation.js";
 import {
   buildDecompositionReadinessManifest,
   buildDeterministicDecompositionPlan,
   buildDeterministicPlanningBundle,
 } from "../../planning/builders.js";
 import { writePlanningBundle } from "../../planning/persistence.js";
+import { extractProposedPlanBlock, wrapPlanModePrompt } from "../../planning/proposed-plan.js";
 import {
   decompositionRecommendationLabel,
   renderDecompositionPlanSummary,
@@ -174,13 +177,14 @@ export async function generatePlanningDraft(
   const latestUserText = prompt?.trim()
     || [...thread].reverse().find((entry) => entry.type === "user.message")?.text
     || changeId;
-  const planningRuntime = await runCodexChat(project, changeId, [
+  const planModePrompt = wrapPlanModePrompt([
     "作为 planning-agent，请基于当前需求对话生成或修订方案草案。",
     "输出目标、约束、验收标准、实现方案、任务清单、风险和待确认点。",
     "不要修改文件；AHO 会在用户确认执行后再写入 canonical artifacts。",
     "",
     latestUserText,
-  ].join("\n")).catch((error: unknown) => {
+  ].join("\n"));
+  const planningRuntime = await runCodexChat(project, changeId, planModePrompt, undefined, { planningMode: true }).catch((error: unknown) => {
     emitAssistantEvent(live, {
       runId: changeId,
       kind: "status",
@@ -192,7 +196,32 @@ export async function generatePlanningDraft(
     return null;
   });
   const previous = await readLatestPlanningBundle(memory, changePath).catch(() => null);
-  const bundle = buildDeterministicPlanningBundle(memory, changePath, changeId, latestUserText, previous, revision);
+  const rawPlanText = planningRuntime?.planText?.trim();
+  const planningMessage = planningRuntime?.message.trim();
+  const extractionInput = planningMessage?.includes("<proposed_plan")
+    ? planningMessage
+    : planningMessage && rawPlanText && planningMessage === rawPlanText
+      ? planningMessage
+      : [planningMessage, rawPlanText].filter(Boolean).join("\n\n");
+  const extraction = extractProposedPlanBlock(extractionInput);
+  const proposedPlanMd = extraction.proposedPlanMd ?? rawPlanText ?? null;
+  const planningWarnings = [
+    ...(extraction.proposedPlanMd || rawPlanText ? [] : extraction.warnings),
+    ...(proposedPlanMd && extraction.headings.length === 0 ? ["Codex proposed plan had no headings; AHO derived task/AC structure conservatively."] : []),
+  ];
+  const bundle = buildDeterministicPlanningBundle(memory, changePath, changeId, latestUserText, previous, revision, {
+    proposedPlanMd,
+    proposedPlanRunId: planningRuntime?.run.id,
+    planningMode: proposedPlanMd ? (rawPlanText ? "codex-plan-mode" : "prompt-plan-contract") : "deterministic-fallback",
+    planningWarnings,
+  });
+  const supportingPlanningText = proposedPlanMd
+    ? undefined
+    : extraction.proseWithoutPlan && extraction.proseWithoutPlan.trim() !== proposedPlanMd?.trim()
+      ? extraction.proseWithoutPlan
+      : planningMessage !== proposedPlanMd?.trim()
+        ? planningMessage
+        : undefined;
   await writePlanningBundle(memory, changePath, bundle);
   emitAssistantEvent(live, {
     runId: bundle.id,
@@ -215,7 +244,7 @@ export async function generatePlanningDraft(
   const assistant = await appendTopicThreadEntry(project, changeId, {
     type: "assistant.message",
     status: "planning-draft",
-    text: [planningRuntime?.message.trim(), renderPlanningBundleSummary(bundle)].filter(Boolean).join("\n\n"),
+    text: [supportingPlanningText, proposedPlanMd, renderPlanningBundleSummary(bundle)].filter(Boolean).join("\n\n"),
     runId: planningRuntime?.run.id,
     artifact: planningRuntime?.run.artifacts.lastMessage ?? bundle.artifact,
     planCard,
@@ -228,7 +257,7 @@ export async function generatePlanningDraft(
         timestamp: new Date().toISOString(),
         source: planningRuntime ? "codex" : "aho",
         title: revision ? "方案草案已更新" : "方案草案",
-        text: [planningRuntime?.message.trim(), renderPlanningBundleSummary(bundle)].filter(Boolean).join("\n\n"),
+        text: [supportingPlanningText, proposedPlanMd, renderPlanningBundleSummary(bundle)].filter(Boolean).join("\n\n"),
       },
       {
         id: `${bundle.id}:plan-card`,
@@ -271,6 +300,7 @@ export async function confirmPlanningAndStartPipeline(
   changeId: string,
   request: WorkbenchWorkflowActionRequest,
   live: WorkbenchLiveSink | undefined,
+  handlers?: WorkbenchActionHandlerMap,
 ): Promise<unknown> {
   const { memory, changePath } = await resolveTopic(project, changeId);
   assertWritableMemory(memory, "Confirm planning execution");
@@ -321,7 +351,12 @@ export async function confirmPlanningAndStartPipeline(
     summary: "Canonical planning artifacts were written after user confirmation.",
     artifactRef: confirmed.artifact,
   });
-  return { bundle: confirmed, executionStarted: false };
+  if (request.postPlanAutomationMode === "full-access") {
+    if (!handlers) throw new Error("post-plan automation requires Workbench action handlers.");
+    const automation = await runPostPlanScopedAutomation(project, changeId, live, handlers);
+    return { bundle: confirmed, executionStarted: true, postPlanAutomationMode: "full-access", automation };
+  }
+  return { bundle: confirmed, executionStarted: false, postPlanAutomationMode: "request-approval" };
 }
 
 export async function generateDecompositionPlan(

@@ -20,6 +20,12 @@ export function buildDeterministicPlanningBundle(
   prompt: string,
   previous: PlanningArtifactBundle | null,
   revision: boolean,
+  options: {
+    proposedPlanMd?: string | null;
+    proposedPlanRunId?: string;
+    planningMode?: PlanningArtifactBundle["planningMode"];
+    planningWarnings?: string[];
+  } = {},
 ): PlanningArtifactBundle {
   const now = new Date().toISOString();
   const id = `planning-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
@@ -42,13 +48,19 @@ export function buildDeterministicPlanningBundle(
         { id: "T-001", title: taskTitleForGoal(goal), acIds },
       ];
   const specMd = renderSpecMarkdown(changeId, goal, constraints, acceptanceCriteria);
-  const planMd = renderImplementationPlanMarkdown(goal, tasks);
+  const planMd = options.proposedPlanMd?.trim()
+    ? renderImplementationPlanMarkdownFromProposedPlan(options.proposedPlanMd, tasks)
+    : renderImplementationPlanMarkdown(goal, tasks);
   const tasksMd = renderTasksMarkdown(tasks);
   const changeDir = join(memory.memoryRoot, changePath);
   const artifact = displayArtifactPath(memory, join(changeDir, "planning", "latest-bundle.md"));
   return {
     id,
     status: "draft",
+    ...(options.planningMode ? { planningMode: options.planningMode } : {}),
+    ...(options.proposedPlanMd?.trim() ? { proposedPlanMd: options.proposedPlanMd.trim() } : {}),
+    ...(options.proposedPlanRunId ? { proposedPlanRunId: options.proposedPlanRunId } : {}),
+    ...(options.planningWarnings?.length ? { planningWarnings: options.planningWarnings } : {}),
     goal,
     constraints,
     sourceScopeConstraints: explicitSourceScopes,
@@ -56,7 +68,7 @@ export function buildDeterministicPlanningBundle(
     design: "Use the smallest focused implementation in an AHO-owned worktree, add or update targeted verification for the accepted demand, then run independent validation and audit.",
     tasks,
     risks: ["Validation or audit may require one bounded rework cycle.", "User confirmation is still required before applying/merging source changes."],
-    openQuestions: [],
+    openQuestions: [...(options.planningWarnings ?? [])],
     specMd,
     planMd,
     tasksMd,
@@ -81,7 +93,7 @@ export function buildDeterministicDecompositionPlan(
   const tasks = bundle?.tasks.length ? bundle.tasks : [{ id: "T-001", title: bundle?.goal ?? "Clarify and implement the accepted demand.", acIds: [] }];
   const asksClarification = (bundle?.openQuestions.length ?? 0) > 0 || /不明确|澄清|clarify/i.test(signalText);
   const parallelSignal = /并行|parallel|多个模块|多模块|independent|独立/.test(signalText);
-  const multiChangeSignal = /多个 change|multi-change|多个需求|拆成多个/.test(signalText);
+  const multiChangeSignal = hasMultiChangeImplementationSignal(signalText);
   const recommendation: DecompositionRecommendation = asksClarification
     ? "needs-clarification"
     : multiChangeSignal
@@ -248,6 +260,12 @@ function readinessStatusForRecommendation(recommendation: DecompositionRecommend
     case "multi-change-candidate": return "blocked-multi-change-boundary";
     case "needs-clarification": return "blocked-needs-clarification";
   }
+}
+
+function hasMultiChangeImplementationSignal(text: string): boolean {
+  return /拆成多个|多个需求|multiple changes/i.test(text)
+    || /multi-change\s+(candidate|split|implementation|execution)/i.test(text)
+    || /多个\s*(?:Change|change)\s*(?:执行|实现|拆分|分别|候选)/.test(text);
 }
 
 function assessParallelReadiness(plan: DecompositionPlan): { ready: boolean; blockedReasons: string[]; refs: string[] } {
@@ -454,6 +472,19 @@ function renderImplementationPlanMarkdown(goal: string, tasks: PlanningArtifactB
     "## Verification",
     "",
     "- Run targeted tests, then independent validation and audit.",
+    "",
+  ].join("\n");
+}
+
+function renderImplementationPlanMarkdownFromProposedPlan(proposedPlanMd: string, tasks: PlanningArtifactBundle["tasks"]): string {
+  return [
+    "# Plan",
+    "",
+    proposedPlanMd.trim(),
+    "",
+    "## AHO Derived Task Mapping",
+    "",
+    ...tasks.map((task) => `- ${task.id}: ${task.title} (${task.acIds.join(", ")})`),
     "",
   ].join("\n");
 }

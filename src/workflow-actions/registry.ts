@@ -420,6 +420,7 @@ export type WorkflowActionScopeCarrier = {
   goalLoopRuntimeAuthorizationId?: string;
   goalLoopRuntimeRunId?: string;
   automationMode?: "request-approval" | "full-access";
+  postPlanAutomationMode?: "request-approval" | "full-access";
   automationCurrentGateActionType?: string;
   automationCurrentGateApprovalActionId?: string;
   automationCurrentGateTargetId?: string;

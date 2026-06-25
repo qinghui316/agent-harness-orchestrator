@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-25T08:50:34.8139199Z",
+    "generated_at":  "2026-06-25T11:39:38.2144439Z",
     "active":  [
 
                ],
@@ -1881,6 +1881,10 @@
                     {
                         "name":  "20260625-document-minimality-gate-and-complexity-review",
                         "path":  "harness/changes/archive/20260625-document-minimality-gate-and-complexity-review"
+                    },
+                    {
+                        "name":  "20260625-workbench-codex-plan-mode-post-plan-local-autonomy-v1",
+                        "path":  "harness/changes/archive/20260625-workbench-codex-plan-mode-post-plan-local-autonomy-v1"
                     },
                     {
                         "name":  "20260625-workbench-external-local-restore-v1",

@@ -8,7 +8,7 @@ import { createWorkbenchTopic } from "../../src/workbench/chat.js";
 import { getWorkbenchDecompositionPlanProjection, getWorkbenchDecompositionReadinessProjection, getWorkbenchSchedulerClaimReservationProjection, getWorkbenchSchedulerContractProjection, getWorkbenchSnapshot, getWorkbenchTaskQueueProposalProjection, getWorkbenchWorkflowGraphPlanProjection } from "../../src/workbench/manager.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import { listAgentTasks } from "../../src/agent-task/manager.js";
-import { buildDeterministicPlanningBundle } from "../../src/workbench/planning/builders.js";
+import { buildDeterministicDecompositionPlan, buildDeterministicPlanningBundle } from "../../src/workbench/planning/builders.js";
 import { listWorktreeStatuses } from "../../src/worktree/manager.js";
 import { listTaskQueues } from "../../src/task-queue/manager.js";
 import { listTaskRuns } from "../../src/task-run/manager.js";
@@ -53,6 +53,18 @@ describe("workbench planning and scheduler preparation", () => {
     expect(bundle.tasksMd).toContain("src/alpha.ts");
     expect(bundle.tasksMd).toContain("T-002");
     expect(bundle.tasksMd).toContain("src/beta.ts");
+  });
+
+  it("does not treat active-change safety warnings as multi-change implementation intent", async () => {
+    await initHarness(project());
+    const memory = await resolveProjectMemory(project());
+    const prompt = "新增 src/cheer.ts，导出 cheerGreeting(name: string)。当前 harness/changes/active/ 中存在多个 active change；本任务不得创建第二个 active change。";
+    const bundle = buildDeterministicPlanningBundle(memory, "harness/changes/active/cheer", "cheer", prompt, null, false);
+
+    const plan = buildDeterministicDecompositionPlan(memory, "harness/changes/active/cheer", "cheer", bundle, [], undefined);
+
+    expect(plan.recommendation).toBe("single-change");
+    expect(plan.rationale).toContain("one Change");
   });
 
   it("projects confirmed planning next action into the right confirmation queue", async () => {

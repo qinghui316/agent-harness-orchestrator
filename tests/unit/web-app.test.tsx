@@ -878,7 +878,7 @@ describe("Workbench web app", () => {
     });
   });
 
-  it("does not offer scoped-auto for human-only planning confirmation", async () => {
+  it("offers full-access as post-plan mode without converting planning confirmation to scoped-auto", async () => {
     const execute = vi.fn(async () => undefined);
     function Harness() {
       const [confirming, setConfirming] = useState<string | null>(null);
@@ -906,7 +906,8 @@ describe("Workbench web app", () => {
     render(<Harness />);
 
     const card = screen.getByTestId("decision-inspector-primary");
-    expect(screen.queryByRole("button", { name: "完全访问权限" })).toBeNull();
+    expect(within(card).getByRole("button", { name: "请求批准" })).toBeTruthy();
+    fireEvent.click(within(card).getByRole("button", { name: "完全访问权限" }));
     fireEvent.click(within(card).getByRole("button", { name: "确认规划" }));
     fireEvent.click(within(card).getByRole("button", { name: "确认" }));
 
@@ -915,6 +916,7 @@ describe("Workbench web app", () => {
       actionType: "planning.confirm-execution",
       changeId: "member-discount",
       planningBundleId: "planning-bundle-1",
+      postPlanAutomationMode: "full-access",
     });
     expect(execute.mock.calls[0]?.[0]).not.toMatchObject({
       actionType: "planning.automation.scoped-auto.run",

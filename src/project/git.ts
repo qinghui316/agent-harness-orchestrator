@@ -43,9 +43,37 @@ export async function isGitDirty(path: string): Promise<boolean | null> {
   }
 }
 
+export async function isGitDirtyIgnoringAhoMemory(path: string): Promise<boolean | null> {
+  try {
+    return (await getGitStatusShort(path)).some((line) => !isAhoOwnedMemoryStatusLine(line));
+  } catch {
+    return null;
+  }
+}
+
 export async function getGitStatusShort(path: string): Promise<string[]> {
-  const output = await git(path, ["status", "--short"]);
+  const output = (await gitText(path, ["status", "--short"])).trimEnd();
   return output ? output.split(/\r?\n/) : [];
+}
+
+function isAhoOwnedMemoryStatusLine(line: string): boolean {
+  const changedPath = line.length > 3 ? line.slice(3).trim() : line.trim();
+  if (!changedPath) return false;
+  const paths = changedPath.split(" -> ").map((item) => normalizeGitStatusPath(item));
+  return paths.length > 0 && paths.every(isAhoOwnedMemoryPath);
+}
+
+function normalizeGitStatusPath(path: string): string {
+  const trimmed = path.trim().replace(/^"|"$/g, "").replace(/\\/g, "/");
+  return trimmed.startsWith("./") ? trimmed.slice(2) : trimmed;
+}
+
+function isAhoOwnedMemoryPath(path: string): boolean {
+  return path === "harness/changes/INDEX.json"
+    || path.startsWith("harness/changes/active/")
+    || path.startsWith("harness/changes/archive/")
+    || path.startsWith("harness/changes/parking/")
+    || path.startsWith(".agent-harness/");
 }
 
 export async function getGitCommit(path: string, ref = "HEAD"): Promise<string | null> {
