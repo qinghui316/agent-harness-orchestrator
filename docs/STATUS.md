@@ -4,8 +4,8 @@
 
 - Current date: 2026-06-25.
 - Active ECL change: none.
-- Pending Harness evolution: none.
-- Latest archived product change: `harness/changes/archive/20260625-workbench-scheduler-integrationcheck-real-acceptance-v1/summary.md`.
+- Pending Harness evolution: `harness/evolution/pending.md`.
+- Latest archived product change: `harness/changes/archive/20260625-workbench-scheduler-integration-apply-discard-real-acceptance-v1/summary.md`.
 - Latest real UI continuation scout: `harness/changes/archive/20260624-workbench-real-ui-continuation-next-blocker-scout/summary.md`.
 - Latest bounded continuation runtime: `harness/changes/archive/20260624-goal-driven-controlled-continuation-runtime-v1/summary.md`.
 - Latest product audit: `harness/changes/archive/20260624-workbench-goal-loop-surface-gap-audit/summary.md`.
@@ -15,8 +15,19 @@
 - Latest scheduler reachability change: `harness/changes/archive/20260625-workbench-low-conflict-taskgraph-scheduler-reachability-v1/summary.md`.
 - Latest scheduler worker/integration acceptance: `harness/changes/archive/20260625-workbench-scheduler-worker-integration-real-acceptance-v1/summary.md`.
 - Latest scheduler IntegrationCheck acceptance: `harness/changes/archive/20260625-workbench-scheduler-integrationcheck-real-acceptance-v1/summary.md`.
+- Latest scheduler integration apply/discard hardening: `harness/changes/archive/20260625-workbench-scheduler-integration-apply-discard-real-acceptance-v1/summary.md`.
 
 The latest archived product change is at
+`harness/changes/archive/20260625-workbench-scheduler-integration-apply-discard-real-acceptance-v1/summary.md`.
+It hardens the final scheduler IntegrationCheck human decision. Apply keeps the
+existing source clean, HEAD, artifact hash, aggregate validation, and audit
+guards. Discard now fails closed at the handler for terminal or non-discardable
+check states. Targeted and Workbench aggregate tests passed. Real browser
+re-entry of a prior passed IntegrationCheck gate exposed a restore-path blocker:
+the old external-local sandbox reopened as Harness-uninitialized / memory
+unknown, so final browser apply/discard click was not claimed as passed.
+
+Previous scheduler IntegrationCheck acceptance is at
 `harness/changes/archive/20260625-workbench-scheduler-integrationcheck-real-acceptance-v1/summary.md`.
 It verifies the scheduler IntegrationCheck handoff on an E-drive external
 source with dependencies installed as acceptance setup. The real browser UI run
@@ -74,7 +85,15 @@ scripts.
 
 ## Next Resume Point
 
-No active change.
+Handle `harness/evolution/pending.md` before opening the next unrelated
+structured change. Recommended result is likely a compact docs/review proposal
+over the five-archive window, with no automatic product runtime change unless
+the evidence shows a repeatable rule gap.
+
+After pending evolution, the next product-sized blocker is Workbench
+external-local restore of old acceptance sandboxes: a source marker plus
+`AHO_HOME` artifacts should rehydrate existing conversations/gates instead of
+showing Harness-uninitialized / memory unknown.
 
 Latest result:
 

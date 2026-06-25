@@ -11,6 +11,15 @@ import { integrationCheckRoot } from "./paths.js";
 import { appendIntegrationEvent, readIntegrationCheck, writeCheckArtifacts } from "./repository.js";
 import type { IntegrationCheckRecord, IntegrationCheckResult } from "./types.js";
 
+const DISCARDABLE_INTEGRATION_CHECK_STATUSES = new Set<IntegrationCheckRecord["status"]>([
+  "passed",
+  "conflict",
+  "validation-failed",
+  "audit-failed",
+  "stale-result",
+  "failed",
+]);
+
 export async function applyIntegrationCheck(project: ManagedProject, applyCheckId: string, expectedArtifactHash?: string): Promise<IntegrationCheckResult> {
   const memory = await resolveProjectMemory(project);
   assertWritableMemory(memory, "Integration check apply");
@@ -76,6 +85,9 @@ export async function discardIntegrationCheck(project: ManagedProject, applyChec
   assertWritableMemory(memory, "Integration check discard");
   const directory = join(integrationCheckRoot(memory), applyCheckId);
   const check = await readIntegrationCheck(memory, applyCheckId);
+  if (!DISCARDABLE_INTEGRATION_CHECK_STATUSES.has(check.status)) {
+    throw new Error(`Cannot discard integration check ${applyCheckId}: status is ${check.status}.`);
+  }
   const discarded: IntegrationCheckRecord = {
     ...check,
     status: "discarded",

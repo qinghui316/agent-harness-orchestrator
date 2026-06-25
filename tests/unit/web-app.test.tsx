@@ -530,6 +530,45 @@ function applyQueueItem() {
   } as const;
 }
 
+function integrationApplyQueueItem() {
+  return {
+    id: "apply-check:apply-check-1",
+    kind: "integration-apply",
+    conversationId: "member-discount",
+    changeId: "member-discount",
+    applyCheckId: "apply-check-1",
+    summary: "组合结果已通过兼容性检查。",
+    whyNeedsConfirmation: "兼容性检查已通过，是否应用这些结果需要你确认。",
+    confirmEffect: "确认后会把检查通过的组合结果应用到项目源码。",
+    riskSummary: "这是 source mutation，必须人工确认。",
+    evidenceRefs: ["apply-check-1/integration-check.json"],
+    primary: true,
+    status: "passed",
+    actions: [
+      {
+        id: "apply-check-apply:apply-check-1",
+        label: "确认应用到项目",
+        kind: "approval",
+        enabled: true,
+        requiresConfirmation: true,
+        changeId: "member-discount",
+        approvalId: "apply-check:apply-check-1",
+        action: { actionId: "apply-check.apply", label: "确认应用到项目", command: "apply-check", args: ["apply", "apply-check-1", "artifact-hash-1"], mutates: true, requiresConfirmation: true },
+      },
+      {
+        id: "apply-check-discard:apply-check-1",
+        label: "放弃",
+        kind: "approval",
+        enabled: true,
+        requiresConfirmation: true,
+        changeId: "member-discount",
+        approvalId: "apply-check:apply-check-1",
+        action: { actionId: "apply-check.discard", label: "放弃组合结果", command: "apply-check", args: ["discard", "apply-check-1"], mutates: true, requiresConfirmation: true },
+      },
+    ],
+  } as const;
+}
+
 function rawSchedulerQueueItem() {
   return {
     id: "confirm:scheduler:start-next:member-discount",
@@ -952,6 +991,30 @@ describe("Workbench web app", () => {
       />,
     );
 
+    expect(screen.queryByRole("button", { name: "完全访问权限" })).toBeNull();
+
+    rerender(
+      <DecisionInspectorPane
+        inspector={{ primary: null, related: [], history: [] }}
+        confirmationQueue={{
+          primary: integrationApplyQueueItem(),
+          current: [integrationApplyQueueItem()],
+          otherDemands: [],
+          maintenance: [],
+          history: [],
+        }}
+        confirming={null}
+        busy={false}
+        error={null}
+        onConfirmingChange={() => undefined}
+        onExecuteAction={execute}
+        onFeedback={noop}
+        onSelectContext={() => undefined}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "确认应用到项目" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "放弃" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "完全访问权限" })).toBeNull();
 
     rerender(

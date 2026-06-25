@@ -15,7 +15,7 @@ import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import { createAgentTask } from "../../src/agent-task/manager.js";
 import { buildDecisionInspector } from "../../src/workbench/projections/read-model/decision-inspector.js";
 import { buildConfirmationQueue } from "../../src/workbench/projections/read-model/confirmation-queue.js";
-import { getTempDir, minimalDecompositionPlan, minimalReadiness, project, writeAcceptedSpecAndTasks, writePlanningBundleFixture } from "./workbench/fixtures.js";
+import { getTempDir, minimalDecompositionPlan, minimalReadiness, prepareSeededSchedulerIntegrationHandoff, project, writeAcceptedSpecAndTasks, writePlanningBundleFixture } from "./workbench/fixtures.js";
 import type { RunMetadata } from "../../src/types/index.js";
 
 const FORBIDDEN_CONTROLLED_LOOP_PRIMARY_TERMS = [
@@ -1068,6 +1068,34 @@ describe("workbench read-model projections", () => {
       automationEligible: false,
       reason: expect.stringContaining("manual acceptance"),
     });
+  });
+
+  it("projects IntegrationCheck apply/discard as human gates outside scoped automation", async () => {
+    const prepared = await prepareSeededSchedulerIntegrationHandoff("Integration Apply Discard Projection");
+
+    const snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: prepared.topic.changeId });
+    const primary = snapshot.right.confirmationQueue.primary;
+    const applyAction = primary?.actions.find((action) => action.action?.actionId === "apply-check.apply")?.action;
+    const discardAction = primary?.actions.find((action) => action.action?.actionId === "apply-check.discard")?.action;
+
+    expect(primary).toMatchObject({
+      kind: "integration-apply",
+      applyCheckId: prepared.handoff.handoff?.integrationCheckId,
+      primary: true,
+    });
+    expect(applyAction).toMatchObject({
+      actionId: "apply-check.apply",
+      command: "apply-check",
+      args: ["apply", prepared.handoff.handoff?.integrationCheckId, "seed-combined-hash"],
+    });
+    expect(discardAction).toMatchObject({
+      actionId: "apply-check.discard",
+      command: "apply-check",
+      args: ["discard", prepared.handoff.handoff?.integrationCheckId],
+    });
+    expect(primary?.actions.some((action) => action.actionType === "planning.automation.scoped-auto.run")).toBe(false);
+    expect(primary?.actions.some((action) => action.automationEligible === true)).toBe(false);
+    expect(JSON.stringify(primary)).not.toMatch(/full-auto|parallel executor|merge queue/i);
   });
 
   it("offers bounded rework for failed result validation without reviving stale code.run", () => {

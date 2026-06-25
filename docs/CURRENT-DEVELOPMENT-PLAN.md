@@ -146,7 +146,10 @@ Current architecture debt register:
 ## Next Product Direction
 
 Current structured product change: none.
-No Harness evolution is pending. The latest scheduler IntegrationCheck acceptance is
+Pending Harness evolution exists at `harness/evolution/pending.md`. The latest
+scheduler integration apply/discard hardening is
+`harness/changes/archive/20260625-workbench-scheduler-integration-apply-discard-real-acceptance-v1/summary.md`.
+The latest scheduler IntegrationCheck acceptance is
 `harness/changes/archive/20260625-workbench-scheduler-integrationcheck-real-acceptance-v1/summary.md`.
 The latest scheduler worker/integration acceptance is
 `harness/changes/archive/20260625-workbench-scheduler-worker-integration-real-acceptance-v1/summary.md`.
@@ -181,6 +184,13 @@ Current baseline:
   manual. After manual confirmation, existing IntegrationCheck ran aggregate
   validation/audit, passed, and stopped at the existing human integration
   apply/discard gate; source root stayed clean.
+- Integration apply/discard remains a high-impact human decision. Apply keeps
+  source clean, HEAD, artifact hash, aggregate validation, and audit guards;
+  discard now also fails closed in the handler for terminal or non-discardable
+  check states. Real browser re-entry of an old passed IntegrationCheck sandbox
+  exposed a separate restore-path blocker: existing `AHO_HOME` artifacts plus a
+  source marker can reopen as Harness-uninitialized / memory unknown, so old
+  gates are not reliably recoverable through UI yet.
 
 Latest evolution and archive lookup:
 
@@ -188,6 +198,9 @@ Latest evolution and archive lookup:
   `harness/changes/archive/20260624-auto-evolve-post-bounded-rework-window/summary.md`.
   Result: `docs_merge` for compact handoff/current-doc alignment, no
   ECL/template/lint/product runtime change.
+- Current pending Harness evolution:
+  `harness/evolution/pending.md`, covering the five-archive window ending with
+  `20260625-workbench-scheduler-integration-apply-discard-real-acceptance-v1`.
 - Use archived summaries and `harness/changes/INDEX.json` for detailed real UI
   sandbox evidence, old blocker history, and per-run ids; do not copy that
   history into current handoff docs.
@@ -202,9 +215,12 @@ Next work should not assume a full parallel executor exists:
 - Do not widen into full parallel executor, automatic apply/close/merge, remote
   landing, or Harness evolution without a separate accepted design.
 
-After the active change is closed or parked, next work should be chosen from one
+After pending Harness evolution is handled, next work should be chosen from one
 concrete track:
 
+- Product hardening: fix Workbench external-local restore so old E-drive
+  acceptance sandboxes with valid source markers and `AHO_HOME` artifacts can
+  rehydrate conversations/gates instead of appearing uninitialized.
 - Product capability: tighten planning/decomposition scope honesty for
   low-conflict TaskGraph demands before widening scheduler automation or the
   Goal-driven loop.
