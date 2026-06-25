@@ -6,7 +6,8 @@
 - Active ECL change: none.
 - Pending Harness evolution: none.
 - Latest archived product audit: `harness/changes/archive/20260625-workbench-goal-loop-decision-surface-audit-v1/summary.md`.
-- Latest archived product change: `harness/changes/archive/20260625-workbench-post-plan-scoped-automation-execution-v1/summary.md`.
+- Latest archived product change: `harness/changes/archive/20260625-workbench-post-plan-scoped-automation-real-ui-scout-v1/summary.md`.
+- Previous post-plan automation hardening: `harness/changes/archive/20260625-workbench-post-plan-scoped-automation-execution-v1/summary.md`.
 - Previous planning/decomposition hardening: `harness/changes/archive/20260625-workbench-planning-decomposition-scope-honesty-v1/summary.md`.
 - Previous external-local restore change: `harness/changes/archive/20260625-workbench-external-local-restore-v1/summary.md`.
 - Latest archived Harness docs change: `harness/changes/archive/20260625-document-minimality-gate-and-complexity-review/summary.md`.
@@ -30,6 +31,15 @@ authoritative Workbench `confirmationQueue.primary`, and it does not become a
 new decision engine or execution authority.
 
 The latest archived product change is at
+`harness/changes/archive/20260625-workbench-post-plan-scoped-automation-real-ui-scout-v1/summary.md`.
+It ran a real E-drive Workbench UI scout after the post-plan scoped automation
+boundary tightened. The scout confirmed `完全访问权限` is unavailable for plan
+confirmation, becomes available only after human plan confirmation, automates
+local post-plan execution gates plus safe `audit.accept`, and stops at the human
+`result.apply` gate with the external source still clean. No product-code
+blocker was found.
+
+The previous product hardening is at
 `harness/changes/archive/20260625-workbench-post-plan-scoped-automation-execution-v1/summary.md`.
 It tightens scoped `完全访问权限` so `planning.confirm-execution` cannot be
 automated. Plan confirmation remains human-only, while existing post-plan
@@ -117,13 +127,14 @@ scripts.
 
 ## Next Resume Point
 
-No active change and no pending Harness evolution.
+No active change.
+
+No pending Harness evolution.
 
 The latest product change is archived at
-`harness/changes/archive/20260625-workbench-post-plan-scoped-automation-execution-v1/summary.md`.
-It closed the gap where full-access scoped automation could target
-`planning.confirm-execution`; future automation should continue widening only
-post-plan execution gates, not plan approval.
+`harness/changes/archive/20260625-workbench-post-plan-scoped-automation-real-ui-scout-v1/summary.md`.
+It confirmed through real UI that full-access scoped automation starts only
+after human plan confirmation and stops at human `result.apply`.
 
 Previous resume context:
 
@@ -146,6 +157,9 @@ Next recommended product work:
   not manufacture execution authority.
 - Do not widen `完全访问权限` into raw `planning.scheduler.*`, apply, close,
   merge, remote landing, Harness evolution, or full parallel execution.
+- If widening scoped automation next, keep plan confirmation human-only and use
+  the existing confirmation queue/current-gate revalidation path rather than a
+  new permission or workflow runtime.
 
 ## Verification Commands
 

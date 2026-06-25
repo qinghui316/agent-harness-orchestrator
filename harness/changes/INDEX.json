@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-25T05:50:42.9700007Z",
+    "generated_at":  "2026-06-25T06:22:55.9381421Z",
     "active":  [
 
                ],
@@ -1897,6 +1897,10 @@
                     {
                         "name":  "20260625-workbench-post-plan-scoped-automation-execution-v1",
                         "path":  "harness/changes/archive/20260625-workbench-post-plan-scoped-automation-execution-v1"
+                    },
+                    {
+                        "name":  "20260625-workbench-post-plan-scoped-automation-real-ui-scout-v1",
+                        "path":  "harness/changes/archive/20260625-workbench-post-plan-scoped-automation-real-ui-scout-v1"
                     },
                     {
                         "name":  "20260625-workbench-scheduler-integration-apply-discard-real-acceptance-v1",

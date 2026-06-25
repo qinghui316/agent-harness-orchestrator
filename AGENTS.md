@@ -8,7 +8,8 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 - Active change: none.
 - Pending Harness evolution: none.
 - Latest archived product audit: Workbench Goal Loop Decision Surface Audit V1, archived at `harness/changes/archive/20260625-workbench-goal-loop-decision-surface-audit-v1/summary.md`.
-- Latest archived product change: Workbench Post-Plan Scoped Automation Execution V1, archived at `harness/changes/archive/20260625-workbench-post-plan-scoped-automation-execution-v1/summary.md`.
+- Latest archived product change: Workbench Post-Plan Scoped Automation Real UI Scout V1, archived at `harness/changes/archive/20260625-workbench-post-plan-scoped-automation-real-ui-scout-v1/summary.md`.
+- Previous post-plan automation hardening: Workbench Post-Plan Scoped Automation Execution V1, archived at `harness/changes/archive/20260625-workbench-post-plan-scoped-automation-execution-v1/summary.md`.
 - Previous planning/decomposition hardening: `harness/changes/archive/20260625-workbench-planning-decomposition-scope-honesty-v1/summary.md`.
 - Previous external-local restore change: `harness/changes/archive/20260625-workbench-external-local-restore-v1/summary.md`.
 - Latest archived Harness docs change: Minimality Gate And Complexity Review, archived at `harness/changes/archive/20260625-document-minimality-gate-and-complexity-review/summary.md`.
@@ -25,9 +26,13 @@ artifacts, stale revalidation, ToolPolicyGate, validation/audit, and human
 terminal gates. It can consume local execution/recovery gates and safe
 `audit.accept`, then stops at human `result.apply`. It no longer exposes
 `完全访问权限` for `planning.confirm-execution`; plan confirmation remains
-human-only before post-plan execution automation. It still does not auto-run
-planning generation, apply/close/merge, remote landing, Harness evolution,
-scheduler loops, or parallel execution.
+human-only before post-plan execution automation. The latest real E-drive UI
+scout confirmed this product surface: `完全访问权限` was absent at plan
+confirmation, became available after human plan confirmation, consumed local
+post-plan execution gates and safe `audit.accept`, and stopped at the human
+`result.apply` gate with the external source still clean. It still does not
+auto-run planning generation, apply/close/merge, remote landing, Harness
+evolution, scheduler loops, or parallel execution.
 
 Latest completed product audit: Goal Loop decision surface alignment found no
 new product-code gap. The existing decision chain remains an explanation and

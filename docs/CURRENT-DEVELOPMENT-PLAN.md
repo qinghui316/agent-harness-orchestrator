@@ -150,10 +150,13 @@ Pending Harness evolution: none.
 Latest product audit:
 `harness/changes/archive/20260625-workbench-goal-loop-decision-surface-audit-v1/summary.md`.
 Latest product hardening:
+`harness/changes/archive/20260625-workbench-post-plan-scoped-automation-real-ui-scout-v1/summary.md`.
+The real E-drive Workbench UI scout confirms post-plan scoped automation works
+as intended: `完全访问权限` is not available for plan confirmation, becomes
+available after human plan confirmation, consumes local execution gates and
+safe `audit.accept`, and stops at human `result.apply` with source clean.
+Previous post-plan policy hardening:
 `harness/changes/archive/20260625-workbench-post-plan-scoped-automation-execution-v1/summary.md`.
-Post-plan scoped automation now excludes `planning.confirm-execution`; plan
-confirmation is human-only, while execution-stage gates remain eligible only
-through existing scoped automation boundaries.
 Previous planning/decomposition hardening:
 `harness/changes/archive/20260625-workbench-planning-decomposition-scope-honesty-v1/summary.md`.
 Planning/decomposition now preserves explicit user source constraints and
