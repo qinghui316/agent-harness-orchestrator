@@ -6,7 +6,7 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 
 - Current date: 2026-06-26.
 - Active change: none.
-- Pending Harness evolution: `harness/evolution/pending.md`.
+- Pending Harness evolution: none.
 - Latest archived product audit: Workbench Goal Loop Decision Surface Audit V1, archived at `harness/changes/archive/20260625-workbench-goal-loop-decision-surface-audit-v1/summary.md`.
 - Latest archived product acceptance: Workbench Repaired Integration Apply Real UI Acceptance V1, archived at `harness/changes/archive/20260626-workbench-repaired-integration-apply-real-ui-acceptance-v1/summary.md`.
 - Previous IntegrationFix real UI acceptance: `harness/changes/archive/20260626-workbench-integrationfix-real-ui-acceptance-v1/summary.md`.
@@ -14,7 +14,8 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 - Previous scheduler progression: `harness/changes/archive/20260625-workbench-scheduler-worker-progression-to-integration-candidate-v1/summary.md`.
 - Latest archived boundary guard: Workbench Loop-Per-Change Boundary Guard V1, archived at `harness/changes/archive/20260625-workbench-loop-per-change-boundary-guard-v1/summary.md`.
 - Latest archived product acceptance: Workbench Confirmation Feedback Real UI Scout V1, archived at `harness/changes/archive/20260625-workbench-confirmation-feedback-real-ui-scout-v1/summary.md`.
-- Latest completed Harness evolution: `harness/changes/archive/20260625-auto-evolve-post-feedback-real-ui-window/summary.md` (`noop`; subagent review score 88; no ECL/template/lint/product runtime change).
+- Latest completed Harness evolution: `harness/changes/archive/20260626-auto-evolve-post-integrationfix-apply-window/summary.md` (`noop`; subagent review score 91; no ECL/template/lint/product runtime change).
+- Previous completed Harness evolution: `harness/changes/archive/20260625-auto-evolve-post-feedback-real-ui-window/summary.md` (`noop`; subagent review score 88; no ECL/template/lint/product runtime change).
 - Previous archived product change: Workbench Confirmation Feedback To Rework V1, archived at `harness/changes/archive/20260625-workbench-confirmation-feedback-to-rework-v1/summary.md`.
 - Previous post-apply landing autonomy: `harness/changes/archive/20260625-workbench-post-apply-local-landing-autonomy-v1/summary.md`.
 - Previous Codex Plan Mode + Post-Plan Local Autonomy V1: `harness/changes/archive/20260625-workbench-codex-plan-mode-post-plan-local-autonomy-v1/summary.md`.
@@ -111,12 +112,12 @@ Latest Harness evolution reviewed the five-archive window ending with the
 loop-per-Change boundary guard. It recorded a `docs_merge` result for compact
 handoff alignment and no ECL/template/lint/product runtime change.
 
-Current pending Harness evolution was generated after the repaired integration
-apply acceptance closed. It covers the five-archive window from
+Latest Harness evolution reviewed the five-archive window from
 `20260625-auto-evolve-post-feedback-real-ui-window` through
-`20260626-workbench-repaired-integration-apply-real-ui-acceptance-v1` and must
-be handled as a separate human-gated Harness evolution change; do not auto-apply
-it from scoped automation.
+`20260626-workbench-repaired-integration-apply-real-ui-acceptance-v1`. The
+decision was `noop` with subagent Leibniz score 91; pending evolution was
+marked complete and no
+ECL/template/lint/product runtime change was made.
 
 Daily `npm run test:workbench` is the fast Workbench unit-capability gate; slow
 scheduler/apply/Goal Loop coverage remains in explicit release/deep scripts.

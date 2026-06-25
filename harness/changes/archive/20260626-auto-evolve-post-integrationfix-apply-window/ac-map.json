@@ -1,0 +1,58 @@
+{
+  "version": "1.0",
+  "changeId": "auto-evolve-post-integrationfix-apply-window",
+  "acceptanceCriteria": [
+    {
+      "id": "AC-001",
+      "description": "Candidate archives from harness/evolution/pending.md are reviewed."
+    },
+    {
+      "id": "AC-002",
+      "description": "Proposal records an Experience Retention Scan covering Promote, Retain, Merge, Retire, and Archive-only decisions."
+    },
+    {
+      "id": "AC-003",
+      "description": "Independent subagent review/score is recorded."
+    },
+    {
+      "id": "AC-004",
+      "description": "The final decision is recorded in harness/evolution/results.tsv and pending.md is cleared through harness-evolve mark-complete."
+    },
+    {
+      "id": "AC-005",
+      "description": "Any current-doc or template changes are minimal and justified by repeated archive evidence; if no durable delta is justified, result is noop."
+    },
+    {
+      "id": "AC-006",
+      "description": "Harness checks pass and handoff docs agree on active/pending/latest state before close."
+    }
+  ],
+  "tasks": [
+    {
+      "id": "T-001",
+      "covers": ["AC-001"]
+    },
+    {
+      "id": "T-002",
+      "covers": ["AC-002", "AC-005"]
+    },
+    {
+      "id": "T-003",
+      "covers": ["AC-003"]
+    },
+    {
+      "id": "T-004",
+      "covers": ["AC-005"]
+    },
+    {
+      "id": "T-005",
+      "covers": ["AC-004"]
+    },
+    {
+      "id": "T-006",
+      "covers": ["AC-006"]
+    }
+  ],
+  "warnings": [],
+  "blockingIssues": []
+}

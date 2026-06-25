@@ -4,7 +4,7 @@
 
 - Current date: 2026-06-26.
 - Active ECL change: none.
-- Pending Harness evolution: `harness/evolution/pending.md`.
+- Pending Harness evolution: none.
 - Latest archived product audit: `harness/changes/archive/20260625-workbench-goal-loop-decision-surface-audit-v1/summary.md`.
 - Latest archived product acceptance: `harness/changes/archive/20260626-workbench-repaired-integration-apply-real-ui-acceptance-v1/summary.md`.
 - Previous IntegrationFix real UI acceptance: `harness/changes/archive/20260626-workbench-integrationfix-real-ui-acceptance-v1/summary.md`.
@@ -26,7 +26,8 @@
 - Latest product audit: `harness/changes/archive/20260624-workbench-goal-loop-surface-gap-audit/summary.md`.
 - Latest verification convergence: `harness/changes/archive/20260623-workbench-verification-runtime-convergence/summary.md`.
 - Latest real-Codex acceptance: `harness/changes/archive/20260623-workbench-current-project-real-codex-acceptance/summary.md`.
-- Latest completed Harness evolution: `harness/changes/archive/20260625-auto-evolve-post-feedback-real-ui-window/summary.md`.
+- Latest completed Harness evolution: `harness/changes/archive/20260626-auto-evolve-post-integrationfix-apply-window/summary.md`.
+- Previous completed Harness evolution: `harness/changes/archive/20260625-auto-evolve-post-feedback-real-ui-window/summary.md`.
 - Latest scheduler reachability change: `harness/changes/archive/20260625-workbench-low-conflict-taskgraph-scheduler-reachability-v1/summary.md`.
 - Latest scheduler worker/integration acceptance: `harness/changes/archive/20260625-workbench-scheduler-worker-integration-real-acceptance-v1/summary.md`.
 - Latest scheduler IntegrationCheck acceptance: `harness/changes/archive/20260625-workbench-scheduler-integrationcheck-real-acceptance-v1/summary.md`.
@@ -213,12 +214,11 @@ scripts.
 
 Active change: none.
 
-Pending Harness evolution: `harness/evolution/pending.md`. It was generated
-after the repaired integration apply acceptance closed and covers the
-five-archive window from `20260625-auto-evolve-post-feedback-real-ui-window`
-through `20260626-workbench-repaired-integration-apply-real-ui-acceptance-v1`.
-Handle it as a separate human-gated Harness evolution change; do not auto-apply
-it from scoped automation.
+Latest completed Harness evolution:
+`harness/changes/archive/20260626-auto-evolve-post-integrationfix-apply-window/summary.md`.
+Decision: `noop`. `harness-evolve mark-complete` removed `pending.md`,
+advanced the archive counter to 487, and recorded subagent review score 91 in
+`results.tsv`. No ECL/template/lint/product runtime change was made.
 
 Recommended next resume point: choose the next concrete product capability
 from existing Workbench gate/action/runtime owners. The Codex-backed

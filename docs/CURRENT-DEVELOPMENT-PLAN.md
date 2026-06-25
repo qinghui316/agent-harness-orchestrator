@@ -158,10 +158,12 @@ Current architecture debt register:
 ## Next Product Direction
 
 Current structured change: none.
-Pending Harness evolution: `harness/evolution/pending.md`.
+Pending Harness evolution: none.
 Latest completed Harness evolution:
-`harness/changes/archive/20260625-auto-evolve-post-feedback-real-ui-window/summary.md`.
-It evaluated the window generated after `harness/changes/archive/20260625-workbench-confirmation-feedback-real-ui-scout-v1/summary.md` closed as a separate human-gated Harness evolution pass and completed as `noop`.
+`harness/changes/archive/20260626-auto-evolve-post-integrationfix-apply-window/summary.md`.
+It evaluated the window ending with
+`harness/changes/archive/20260626-workbench-repaired-integration-apply-real-ui-acceptance-v1/summary.md`
+as a separate human-gated Harness evolution pass and completed as `noop`.
 Latest product acceptance:
 `harness/changes/archive/20260626-workbench-repaired-integration-apply-real-ui-acceptance-v1/summary.md`.
 It confirms real UI acceptance for applying a Codex-backed IntegrationFix
@@ -276,10 +278,10 @@ Latest evolution and archive lookup:
   `harness/changes/archive/20260625-auto-evolve-post-feedback-real-ui-window/summary.md`.
   Result: `noop`; subagent review score 88; no
   ECL/template/lint/product runtime change.
-- Current pending Harness evolution: `harness/evolution/pending.md`; it covers
-  the five-archive window ending with
-  `20260626-workbench-repaired-integration-apply-real-ui-acceptance-v1` and
-  remains human-gated.
+- Current pending Harness evolution: none. The five-archive window ending with
+  `20260626-workbench-repaired-integration-apply-real-ui-acceptance-v1` was
+  marked complete as `noop` with subagent review score 91; no
+  ECL/template/lint/product runtime change was made.
 - Use archived summaries and `harness/changes/INDEX.json` for detailed real UI
   sandbox evidence, old blocker history, and per-run ids; do not copy that
   history into current handoff docs.
