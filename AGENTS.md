@@ -8,7 +8,8 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 - Active change: none.
 - Pending Harness evolution: none.
 - Latest archived product audit: Workbench Goal Loop Decision Surface Audit V1, archived at `harness/changes/archive/20260625-workbench-goal-loop-decision-surface-audit-v1/summary.md`.
-- Latest archived product change: Workbench Planning / Decomposition Scope Honesty V1, archived at `harness/changes/archive/20260625-workbench-planning-decomposition-scope-honesty-v1/summary.md`.
+- Latest archived product change: Workbench Post-Plan Scoped Automation Execution V1, archived at `harness/changes/archive/20260625-workbench-post-plan-scoped-automation-execution-v1/summary.md`.
+- Previous planning/decomposition hardening: `harness/changes/archive/20260625-workbench-planning-decomposition-scope-honesty-v1/summary.md`.
 - Previous external-local restore change: `harness/changes/archive/20260625-workbench-external-local-restore-v1/summary.md`.
 - Latest archived Harness docs change: Minimality Gate And Complexity Review, archived at `harness/changes/archive/20260625-document-minimality-gate-and-complexity-review/summary.md`.
 - Previous scheduler apply/discard hardening: `harness/changes/archive/20260625-workbench-scheduler-integration-apply-discard-real-acceptance-v1/summary.md`.
@@ -22,7 +23,9 @@ may run Codex with full-access runtime capability, but AHO authority remains
 bound to the selected Change, current target ids, source state, accepted
 artifacts, stale revalidation, ToolPolicyGate, validation/audit, and human
 terminal gates. It can consume local execution/recovery gates and safe
-`audit.accept`, then stops at human `result.apply`; it still does not auto-run
+`audit.accept`, then stops at human `result.apply`. It no longer exposes
+`完全访问权限` for `planning.confirm-execution`; plan confirmation remains
+human-only before post-plan execution automation. It still does not auto-run
 planning generation, apply/close/merge, remote landing, Harness evolution,
 scheduler loops, or parallel execution.
 

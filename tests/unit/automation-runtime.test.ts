@@ -22,6 +22,7 @@ describe("Scoped automation runtime", () => {
   });
 
   it("keeps raw scheduler actions outside the scoped automation allowlist", () => {
+    expect(isScopedAutomationAllowedAction("planning.confirm-execution")).toBe(false);
     expect(isScopedAutomationAllowedAction("planning.goal-loop.controlled-continue.run")).toBe(true);
     expect(isScopedAutomationAllowedAction("planning.goal-loop.evaluate")).toBe(true);
     expect(isScopedAutomationAllowedAction("planning.goal-loop.controller.refresh")).toBe(true);

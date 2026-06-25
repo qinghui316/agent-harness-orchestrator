@@ -3,6 +3,7 @@ import { listAuditResults } from "../../audit/artifacts.js";
 import { resolveProjectMemory } from "../../memory/resolver.js";
 import type { ManagedProject } from "../../types/index.js";
 import type { WorkbenchApprovalAction } from "../read-model-types.js";
+import { isScopedAutomationAllowedAction } from "../../automation-runtime/policy.js";
 import { revalidatedWorkflowActionSet, workflowActionScopesMatchStrict } from "../../workflow-actions/registry.js";
 import { CONTROLLED_SCHEDULER_STEP_ACTION_TYPE, buildControlledSchedulerStepRequest } from "../../workflow-scheduler/controlled-step.js";
 import { assertGoalLoopAssistedConcreteGateConfirmation } from "./goal-loop-gate-confirmation.js";
@@ -220,6 +221,11 @@ export async function assertCurrentWorkflowAction(input: CurrentWorkflowActionIn
     if (body.automationCurrentGateApprovalActionId) {
       await assertCurrentAutomationApprovalAction(input, body, deps, snapshot);
       return;
+    }
+    if (!isScopedAutomationAllowedAction(body.automationCurrentGateActionType)) {
+      const error = new Error("Workflow action target is stale or no longer available.");
+      error.name = "Conflict";
+      throw error;
     }
     const primaryWorkflowAction = primary?.actions.find((action: Record<string, unknown>) => action.kind === "workflow-action" && action.actionType === body.automationCurrentGateActionType);
     if (

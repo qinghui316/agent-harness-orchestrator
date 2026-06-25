@@ -150,6 +150,11 @@ Pending Harness evolution: none.
 Latest product audit:
 `harness/changes/archive/20260625-workbench-goal-loop-decision-surface-audit-v1/summary.md`.
 Latest product hardening:
+`harness/changes/archive/20260625-workbench-post-plan-scoped-automation-execution-v1/summary.md`.
+Post-plan scoped automation now excludes `planning.confirm-execution`; plan
+confirmation is human-only, while execution-stage gates remain eligible only
+through existing scoped automation boundaries.
+Previous planning/decomposition hardening:
 `harness/changes/archive/20260625-workbench-planning-decomposition-scope-honesty-v1/summary.md`.
 Planning/decomposition now preserves explicit user source constraints and
 blocks scheduler-ready continuation when a plan silently expands into tests,
@@ -184,6 +189,9 @@ Current baseline:
 - Two-tier scoped automation is available on the ordinary Workbench surface:
   `请求批准` keeps per-step confirmation, while `完全访问权限` may automatically
   consume current selected-Change local gates from the allowed set.
+- `planning.confirm-execution` is not in the `完全访问权限` execution segment;
+  users confirm plans manually, and automation starts only after accepted
+  planning artifacts exist.
 - The latest product slice proves `完全访问权限` can consume bounded local
   recovery gates (`result.refresh-rework`, `result.revalidate`,
   `result.reaudit`) and safe `audit.accept` when audit status is exactly

@@ -358,8 +358,7 @@ function isScopedAutomationAllowedAction(action: DecisionAction): boolean {
   if (action.kind === "approval") {
     return action.action?.actionId === "audit.accept" && action.automationEligible === true;
   }
-  return action.kind === "workflow-action" && (actionType === "planning.confirm-execution"
-    || actionType === "planning.decompose"
+  return action.kind === "workflow-action" && (actionType === "planning.decompose"
     || actionType === "planning.decomposition.confirm"
     || actionType === "planning.decomposition.assess-readiness"
     || actionType === "planning.goal-loop.evaluate"

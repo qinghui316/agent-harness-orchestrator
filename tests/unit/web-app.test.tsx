@@ -393,6 +393,32 @@ function boundedContinuationQueueItem() {
   } as const;
 }
 
+function planningConfirmQueueItem() {
+  return {
+    id: "confirm:planning:member-discount",
+    kind: "planning-confirm",
+    conversationId: "member-discount",
+    changeId: "member-discount",
+    summary: "规划草案已准备好。",
+    whyNeedsConfirmation: "需要你确认计划；确认计划不会启动执行。",
+    confirmEffect: "确认后写入当前需求的 spec/plan/tasks/ac-map。",
+    riskSummary: "计划确认是人工边界。",
+    evidenceRefs: ["planning-bundle.md"],
+    primary: true,
+    status: "pending",
+    actions: [{
+      id: "workflow:planning.confirm-execution:planning-bundle-1",
+      label: "确认规划",
+      kind: "workflow-action",
+      enabled: true,
+      requiresConfirmation: true,
+      actionType: "planning.confirm-execution",
+      changeId: "member-discount",
+      planningBundleId: "planning-bundle-1",
+    }],
+  } as const;
+}
+
 function decompositionConfirmQueueItem() {
   return {
     id: "confirm:decomposition:member-discount",
@@ -820,6 +846,49 @@ describe("Workbench web app", () => {
       changeId: "member-discount",
       decompositionPlanId: "decomp-1",
       maxSteps: 5,
+    });
+  });
+
+  it("does not offer scoped-auto for human-only planning confirmation", async () => {
+    const execute = vi.fn(async () => undefined);
+    function Harness() {
+      const [confirming, setConfirming] = useState<string | null>(null);
+      return (
+        <DecisionInspectorPane
+          inspector={{ primary: null, related: [], history: [] }}
+          confirmationQueue={{
+            primary: planningConfirmQueueItem(),
+            current: [planningConfirmQueueItem()],
+            otherDemands: [],
+            maintenance: [],
+            history: [],
+          }}
+          confirming={confirming}
+          busy={false}
+          error={null}
+          onConfirmingChange={setConfirming}
+          onExecuteAction={execute}
+          onFeedback={async () => undefined}
+          onSelectContext={() => undefined}
+        />
+      );
+    }
+
+    render(<Harness />);
+
+    const card = screen.getByTestId("decision-inspector-primary");
+    expect(screen.queryByRole("button", { name: "完全访问权限" })).toBeNull();
+    fireEvent.click(within(card).getByRole("button", { name: "确认规划" }));
+    fireEvent.click(within(card).getByRole("button", { name: "确认" }));
+
+    await waitFor(() => expect(execute).toHaveBeenCalledTimes(1));
+    expect(execute.mock.calls[0]?.[0]).toMatchObject({
+      actionType: "planning.confirm-execution",
+      changeId: "member-discount",
+      planningBundleId: "planning-bundle-1",
+    });
+    expect(execute.mock.calls[0]?.[0]).not.toMatchObject({
+      actionType: "planning.automation.scoped-auto.run",
     });
   });
 

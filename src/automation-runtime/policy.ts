@@ -5,7 +5,6 @@ export const AUTOMATION_DEFAULT_MAX_STEPS = 5;
 export const AUTOMATION_HARD_MAX_STEPS = 10;
 
 export const SCOPED_AUTOMATION_ALLOWED_ACTION_TYPES = [
-  "planning.confirm-execution",
   "planning.decompose",
   "planning.decomposition.confirm",
   "planning.decomposition.assess-readiness",
