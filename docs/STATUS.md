@@ -5,7 +5,8 @@
 - Current date: 2026-06-25.
 - Active ECL change: none.
 - Pending Harness evolution: none.
-- Latest archived product change: `harness/changes/archive/20260625-workbench-scheduler-integration-apply-discard-real-acceptance-v1/summary.md`.
+- Latest archived product change: `harness/changes/archive/20260625-workbench-external-local-restore-v1/summary.md`.
+- Previous scheduler integration apply/discard hardening: `harness/changes/archive/20260625-workbench-scheduler-integration-apply-discard-real-acceptance-v1/summary.md`.
 - Latest real UI continuation scout: `harness/changes/archive/20260624-workbench-real-ui-continuation-next-blocker-scout/summary.md`.
 - Latest bounded continuation runtime: `harness/changes/archive/20260624-goal-driven-controlled-continuation-runtime-v1/summary.md`.
 - Latest product audit: `harness/changes/archive/20260624-workbench-goal-loop-surface-gap-audit/summary.md`.
@@ -18,14 +19,21 @@
 - Latest scheduler integration apply/discard hardening: `harness/changes/archive/20260625-workbench-scheduler-integration-apply-discard-real-acceptance-v1/summary.md`.
 
 The latest archived product change is at
+`harness/changes/archive/20260625-workbench-external-local-restore-v1/summary.md`.
+It fixes external-local Workbench restore for old E-drive sandboxes: when
+`workbench serve <sourcePath>` sees a valid `.agent-harness/project.json` and
+the current `AHO_HOME/projects/<projectId>` memory exists, the server restores a
+session-scoped direct project, `/api/projects` includes it, project-scoped
+Workbench routes rehydrate existing conversations/gates, and the UI shows
+Harness-ready external-local memory. Missing memory is now shown as an
+`AHO_HOME` mismatch instead of generic Harness-uninitialized copy.
+
+The latest archived scheduler integration apply/discard hardening is at
 `harness/changes/archive/20260625-workbench-scheduler-integration-apply-discard-real-acceptance-v1/summary.md`.
 It hardens the final scheduler IntegrationCheck human decision. Apply keeps the
 existing source clean, HEAD, artifact hash, aggregate validation, and audit
 guards. Discard now fails closed at the handler for terminal or non-discardable
-check states. Targeted and Workbench aggregate tests passed. Real browser
-re-entry of a prior passed IntegrationCheck gate exposed a restore-path blocker:
-the old external-local sandbox reopened as Harness-uninitialized / memory
-unknown, so final browser apply/discard click was not claimed as passed.
+check states. Targeted and Workbench aggregate tests passed.
 
 Previous scheduler IntegrationCheck acceptance is at
 `harness/changes/archive/20260625-workbench-scheduler-integrationcheck-real-acceptance-v1/summary.md`.
@@ -78,6 +86,11 @@ IntegrationCheck passed aggregate validation/audit before stopping at the human
 integration apply/discard gate. This is still bounded scheduler execution, not
 full parallel executor behavior.
 
+External-local restore is now implemented for direct `workbench serve <path>`
+sessions. Reopening an E-drive source with a valid marker and matching
+`AHO_HOME` rehydrates the project, conversations, and current gate without
+writing the registry or mutating the source root.
+
 Verification baseline: daily `npm run test:workbench` is the fast Workbench
 unit-capability gate. Heavier full-chain scheduler/apply/Goal Loop coverage is
 kept in `npm run test:workbench:release` and other explicit slow/deep package
@@ -87,9 +100,10 @@ scripts.
 
 No active change and no pending evolution.
 
-Next product-sized blocker: Workbench external-local restore of old acceptance
-sandboxes. A source marker plus `AHO_HOME` artifacts should rehydrate existing
-conversations/gates instead of showing Harness-uninitialized / memory unknown.
+Next product-sized blocker: planning/decomposition scope honesty for
+low-conflict scheduler demands. When a user constrains the change to explicit
+source scopes, the accepted plan should not add test/index work items or diffs
+unless it explains why they are necessary and the user accepts that expansion.
 
 Latest result:
 
@@ -105,10 +119,8 @@ Latest result:
 
 Next recommended work:
 
-- Fix planning/decomposition honesty for low-conflict scheduler demands: when a
-  user constrains the change to explicit source scopes, the accepted plan should
-  not add test/index work items or diffs unless it explains why they are
-  necessary and the user accepts that expansion.
+- Fix planning/decomposition honesty for low-conflict scheduler demands before
+  widening scheduler automation or full Goal-driven loop behavior.
 - If designing wider automation, keep it scoped by current Change, source
   state, accepted artifacts, stale revalidation, ToolPolicyGate, and human
   terminal gates.

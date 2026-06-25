@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -14,6 +14,7 @@ let staticRoot: string;
 let registryRoot: string;
 let handle: WorkbenchServerHandle | null = null;
 let originalCodexHome: string | undefined;
+let originalAhoHome: string | undefined;
 
 interface SnapshotResponse {
   left: { topics: Array<{ id: string }> };
@@ -36,6 +37,7 @@ describe("workbench server", () => {
     staticRoot = await mkdtemp(join(tmpdir(), "aho-web-"));
     registryRoot = await mkdtemp(join(tmpdir(), "aho-registry-"));
     originalCodexHome = process.env.CODEX_HOME;
+    originalAhoHome = process.env.AHO_HOME;
     process.env.CODEX_HOME = join(tempDir, "codex-home");
     await writeFile(join(staticRoot, "index.html"), "<div>AHO</div>", "utf8");
     await initHarness(project());
@@ -48,6 +50,8 @@ describe("workbench server", () => {
     if (handle) await new Promise<void>((resolve) => handle?.server.close(() => resolve()));
     if (originalCodexHome === undefined) delete process.env.CODEX_HOME;
     else process.env.CODEX_HOME = originalCodexHome;
+    if (originalAhoHome === undefined) delete process.env.AHO_HOME;
+    else process.env.AHO_HOME = originalAhoHome;
     await rm(tempDir, { recursive: true, force: true });
     await rm(staticRoot, { recursive: true, force: true });
     await rm(registryRoot, { recursive: true, force: true });
@@ -293,6 +297,84 @@ describe("workbench server", () => {
     }
   });
 
+  it("restores an unregistered direct external-local project from marker and AHO_HOME", async () => {
+    const sourceRoot = await mkdtemp(join(tmpdir(), "aho-external-src-"));
+    const ahoHome = await mkdtemp(join(tmpdir(), "aho-external-home-"));
+    const store = new ProjectRegistryStore(join(registryRoot, "restore-home"));
+    const directProject: ManagedProject = {
+      id: "external-repo",
+      name: "External Repo",
+      path: sourceRoot,
+      addedAt: "2026-06-25T00:00:00.000Z",
+      lastSeenAt: "2026-06-25T00:00:00.000Z",
+    };
+    process.env.AHO_HOME = ahoHome;
+    await initHarness(directProject, { memoryMode: "external-local" });
+    await createChange(directProject, { title: "Restored Topic" });
+
+    const directHandle = await startWorkbenchServer({ project: null, path: sourceRoot }, { port: 0, staticRoot, store });
+    try {
+      const status = await getJson<{ mode: string; directProjectId: string | null }>(`${directHandle.url}/api/app/status`);
+      expect(status).toMatchObject({ mode: "project", directProjectId: "external-repo" });
+
+      const projects = await getJson<{ projects: Array<{ project: { id: string } | null; memory: { memoryMode: string; memoryAvailable: boolean; harnessReady: boolean } }> }>(`${directHandle.url}/api/projects`);
+      expect(projects.projects).toHaveLength(1);
+      expect(projects.projects[0]).toMatchObject({
+        project: { id: "external-repo" },
+        memory: { memoryMode: "external-local", memoryAvailable: true, harnessReady: true },
+      });
+      expect(await store.listProjects()).toHaveLength(0);
+
+      const snapshot = await getJson<SnapshotResponse>(`${directHandle.url}/api/projects/external-repo/workbench/snapshot`);
+      expect(snapshot.left.topics[0]).toMatchObject({ id: "restored-topic" });
+    } finally {
+      await new Promise<void>((resolve) => directHandle.server.close(() => resolve()));
+      await rm(sourceRoot, { recursive: true, force: true });
+      await rm(ahoHome, { recursive: true, force: true });
+    }
+  });
+
+  it("reports missing external-local memory for a restored direct project", async () => {
+    const sourceRoot = await mkdtemp(join(tmpdir(), "aho-external-missing-src-"));
+    const ahoHome = await mkdtemp(join(tmpdir(), "aho-external-missing-home-"));
+    const store = new ProjectRegistryStore(join(registryRoot, "restore-missing-home"));
+    process.env.AHO_HOME = ahoHome;
+    await writeMarker(sourceRoot, "missing-memory-repo", "Missing Memory Repo");
+
+    const directHandle = await startWorkbenchServer({ project: null, path: sourceRoot }, { port: 0, staticRoot, store });
+    try {
+      const projects = await getJson<{ projects: Array<{ project: { id: string } | null; memory: { memoryMode: string; memoryAvailable: boolean; harnessReady: boolean; roots: { memoryRoot: string } } }> }>(`${directHandle.url}/api/projects`);
+      expect(projects.projects[0]).toMatchObject({
+        project: { id: "missing-memory-repo" },
+        memory: { memoryMode: "external-local", memoryAvailable: false, harnessReady: false },
+      });
+      expect(projects.projects[0].memory.roots.memoryRoot).toContain("missing-memory-repo");
+
+      const snapshot = await getJson<{ warnings: string[]; left: { topics: unknown[] } }>(`${directHandle.url}/api/projects/missing-memory-repo/workbench/snapshot`);
+      expect(snapshot.left.topics).toHaveLength(0);
+      expect(snapshot.warnings).toContain("Durable memory is unavailable. AHO will not infer project history.");
+    } finally {
+      await new Promise<void>((resolve) => directHandle.server.close(() => resolve()));
+      await rm(sourceRoot, { recursive: true, force: true });
+      await rm(ahoHome, { recursive: true, force: true });
+    }
+  });
+
+  it("fails closed when direct marker id is registered to another path", async () => {
+    const sourceRoot = await mkdtemp(join(tmpdir(), "aho-external-src-"));
+    const otherRoot = await mkdtemp(join(tmpdir(), "aho-external-other-"));
+    const store = new ProjectRegistryStore(join(registryRoot, "restore-conflict-home"));
+    await writeMarker(sourceRoot, "external-repo", "External Repo");
+    await writeMarker(otherRoot, "external-repo", "External Repo");
+    await store.addProject(otherRoot);
+
+    await expect(startWorkbenchServer({ project: null, path: sourceRoot }, { port: 0, staticRoot, store }))
+      .rejects.toThrow("Project marker id is already registered for a different path");
+
+    await rm(sourceRoot, { recursive: true, force: true });
+    await rm(otherRoot, { recursive: true, force: true });
+  });
+
   it("builds native folder dialog commands with fixed argv", () => {
     const windows = buildNativeFolderDialogCommand("win32");
     expect(windows?.command).toBe("powershell.exe");
@@ -313,4 +395,16 @@ async function getJson<T>(url: string): Promise<T> {
   const response = await fetch(url);
   expect(response.ok).toBe(true);
   return response.json() as Promise<T>;
+}
+
+async function writeMarker(projectPath: string, id: string, name: string): Promise<void> {
+  await mkdir(join(projectPath, ".agent-harness"), { recursive: true });
+  await writeFile(join(projectPath, ".agent-harness", "project.json"), JSON.stringify({
+    version: "1.0",
+    id,
+    name,
+    managedBy: "agent-harness-orchestrator",
+    memoryMode: "external-local",
+    createdAt: "2026-06-25T00:00:00.000Z",
+  }, null, 2), "utf8");
 }

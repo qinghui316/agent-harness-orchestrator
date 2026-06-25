@@ -4,15 +4,19 @@ import { postJson } from "../api.js";
 import type { FolderDialogResult, ProjectStatus, Snapshot } from "../types.js";
 
 export function ProjectDetailsPanel({ project, snapshot, selected, onOpen, onRefresh }: { project: ProjectStatus; snapshot: Snapshot | undefined; selected: boolean; onOpen: () => void; onRefresh: () => void }): ReactElement {
-  const memoryReady = snapshot?.memory.harnessReady ?? project.harness.readiness === "ready";
+  const memoryReady = snapshot?.memory.harnessReady ?? project.memory?.harnessReady ?? project.harness.readiness === "ready";
+  const memoryMode = snapshot?.memory.memoryMode ?? project.memory?.memoryMode;
+  const memoryIssue = project.managed && memoryMode === "external-local" && project.memory?.memoryAvailable === false
+    ? `记忆未找到：${project.memory.roots.memoryRoot}`
+    : null;
   return (
     <div className="project-details-panel">
       <InfoRow label="仓库" value={snapshot?.left.repo?.branch ?? (project.isGitRepo ? "已初始化" : "未检测到")} />
-      <InfoRow label="记忆" value={snapshot?.memory.memoryMode ?? (project.managed ? "已配置" : "未初始化")} />
-      <InfoRow label="状态" value={memoryReady ? "Harness 就绪" : "需要初始化"} />
+      <InfoRow label="记忆" value={memoryIssue ?? memoryMode ?? (project.managed ? "已配置" : "未初始化")} />
+      <InfoRow label="状态" value={memoryReady ? "Harness 就绪" : memoryIssue ? "需要确认 AHO_HOME" : "需要初始化"} />
       <InfoRow label="Codex" value={project.codexTrust?.trusted ? "项目已信任" : "需要确认信任"} />
       {!project.codexTrust?.trusted ? <CodexTrustButton project={project} onDone={onRefresh} /> : null}
-      {project.project && !memoryReady ? <HarnessInitButton projectId={project.project.id} onDone={async () => onRefresh()} /> : null}
+      {project.project && !memoryReady && !memoryIssue ? <HarnessInitButton projectId={project.project.id} onDone={async () => onRefresh()} /> : null}
       {!selected && memoryReady ? <button className="project-detail-action" onClick={onOpen}>打开项目</button> : null}
       <button className="project-detail-action" onClick={onRefresh}>刷新项目</button>
     </div>

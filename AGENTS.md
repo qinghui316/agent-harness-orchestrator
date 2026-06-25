@@ -7,7 +7,8 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 - Current date: 2026-06-25.
 - Active change: none.
 - Pending Harness evolution: none.
-- Latest archived product change: Workbench Scheduler Integration Apply/Discard Real Acceptance V1, archived at `harness/changes/archive/20260625-workbench-scheduler-integration-apply-discard-real-acceptance-v1/summary.md`.
+- Latest archived product change: Workbench External-Local Restore V1, archived at `harness/changes/archive/20260625-workbench-external-local-restore-v1/summary.md`.
+- Previous scheduler apply/discard hardening: `harness/changes/archive/20260625-workbench-scheduler-integration-apply-discard-real-acceptance-v1/summary.md`.
 - Latest completed Harness evolution: `harness/changes/archive/20260625-auto-evolve-post-scheduler-integration-window/summary.md` (`docs_merge`; no ECL/template/lint or product runtime change).
 - Other recent archives are discoverable via `docs/STATUS.md` and `harness/changes/INDEX.json`; avoid expanding this entry map into a phase ledger.
 
@@ -27,9 +28,11 @@ worker validation/audit, ready integration candidate, manual IntegrationCheck,
 aggregate validation/audit, and the human integration apply/discard gate. Raw
 `planning.scheduler.*` actions remain outside direct `完全访问权限`. The latest
 apply/discard hardening keeps IntegrationCheck apply/discard human-gated and
-adds handler-level fail-closed discard protection. Follow-up product blocker:
-old external-local sandboxes with valid artifacts can reopen as
-Harness-uninitialized / memory unknown instead of restoring old gates.
+adds handler-level fail-closed discard protection. External-local restore now
+rehydrates old projects opened by path when `.agent-harness/project.json` and
+the current `AHO_HOME/projects/<projectId>` memory exist; missing memory is
+shown as an explicit `AHO_HOME` mismatch instead of generic Harness
+uninitialized state.
 
 Daily `npm run test:workbench` is the fast Workbench unit-capability gate; slow
 scheduler/apply/Goal Loop coverage remains in explicit release/deep scripts.

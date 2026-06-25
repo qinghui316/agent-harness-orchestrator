@@ -152,6 +152,8 @@ integration apply/discard hardening was archived as
 with result `docs_merge`. The latest scheduler integration apply/discard
 hardening is
 `harness/changes/archive/20260625-workbench-scheduler-integration-apply-discard-real-acceptance-v1/summary.md`.
+The latest product hardening is
+`harness/changes/archive/20260625-workbench-external-local-restore-v1/summary.md`.
 The latest scheduler IntegrationCheck acceptance is
 `harness/changes/archive/20260625-workbench-scheduler-integrationcheck-real-acceptance-v1/summary.md`.
 The latest scheduler worker/integration acceptance is
@@ -190,10 +192,13 @@ Current baseline:
 - Integration apply/discard remains a high-impact human decision. Apply keeps
   source clean, HEAD, artifact hash, aggregate validation, and audit guards;
   discard now also fails closed in the handler for terminal or non-discardable
-  check states. Real browser re-entry of an old passed IntegrationCheck sandbox
-  exposed a separate restore-path blocker: existing `AHO_HOME` artifacts plus a
-  source marker can reopen as Harness-uninitialized / memory unknown, so old
-  gates are not reliably recoverable through UI yet.
+  check states.
+- External-local restore is implemented for direct `workbench serve <path>`.
+  When a source marker and the current `AHO_HOME/projects/<projectId>` memory
+  exist, Workbench restores a session-scoped direct project, lists existing
+  conversations/gates, and shows Harness-ready memory without writing the
+  registry or mutating the source root. Missing memory is shown as an explicit
+  `AHO_HOME` mismatch.
 
 Latest evolution and archive lookup:
 
@@ -218,9 +223,6 @@ Next work should not assume a full parallel executor exists:
 
 Next work should be chosen from one concrete track:
 
-- Product hardening: fix Workbench external-local restore so old E-drive
-  acceptance sandboxes with valid source markers and `AHO_HOME` artifacts can
-  rehydrate conversations/gates instead of appearing uninitialized.
 - Product capability: tighten planning/decomposition scope honesty for
   low-conflict TaskGraph demands before widening scheduler automation or the
   Goal-driven loop.

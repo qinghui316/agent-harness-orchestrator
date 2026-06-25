@@ -621,7 +621,9 @@ export function App(): ReactElement {
   const activeWorkpad = snapshot.center.workpad ?? emptyWorkpad(activeTopic?.title ?? snapshot.project?.name);
   const activeRun = useMemo(() => snapshot.center.agentLoop.runs.find((run) => run.id === selectedRun) ?? snapshot.center.agentLoop.runs[0], [snapshot, selectedRun]);
   const selectedProjectStatus = useMemo(() => projects.find((item) => item.project?.id === selectedProjectId) ?? null, [projects, selectedProjectId]);
-  const selectedProjectMemoryReady = Boolean(selectedProjectStatus?.managed && snapshot.project?.id === selectedProjectId && snapshot.memory.harnessReady !== false);
+  const selectedProjectMemoryReady = Boolean(selectedProjectStatus?.managed
+    && snapshot.project?.id === selectedProjectId
+    && (snapshot.memory.harnessReady ?? selectedProjectStatus.memory?.harnessReady) !== false);
   const runIds = useMemo(() => snapshot.center.agentLoop.runs.map((run) => run.id).join("|"), [snapshot.center.agentLoop.runs]);
   const snapshotTranscript = useMemo(() => {
     return normalizeParentAgentTranscript(loadedTranscript ?? snapshot.center.parentAgentTranscript);
@@ -854,7 +856,11 @@ function snapshotForProject(project: ProjectStatus | null | undefined): Snapshot
   return {
     ...emptySnapshot,
     project: project.project,
-    memory: { harnessReady: project.managed },
+    memory: {
+      harnessReady: project.memory?.harnessReady ?? project.managed,
+      memoryMode: project.memory?.memoryMode,
+      artifactBase: project.memory?.artifactBase,
+    },
     center: { ...emptySnapshot.center, workpad: emptyWorkpad(project.project.name) },
     warnings: project.managed ? [] : ["Project is not managed by Harness yet."],
   };

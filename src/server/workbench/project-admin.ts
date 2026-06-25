@@ -11,10 +11,11 @@ import type { CodexProjectTrustStatus } from "../../types/index.js";
 import type { ManagedProject, MemoryMode } from "../../types/index.js";
 import { assertConfirmed, isWithinDirectory } from "./http.js";
 import type { AddExistingProjectRequest, CreateNewProjectRequest, InitProjectHarnessRequest, TrustCodexProjectRequest } from "./types.js";
+import { listProjectStatusesWithDirect } from "./direct-project.js";
+import type { WorkbenchProjectInput } from "../../workbench/manager.js";
 
-export async function listProjectStatuses(store: ProjectRegistryStore): Promise<unknown[]> {
-  const projects = await store.listProjects();
-  return Promise.all(projects.map(async (project) => getProjectStatus(project, project.path)));
+export async function listProjectStatuses(store: ProjectRegistryStore, directInput: WorkbenchProjectInput | null = null): Promise<unknown[]> {
+  return listProjectStatusesWithDirect(store, directInput);
 }
 
 export async function addExistingProject(store: ProjectRegistryStore, body: AddExistingProjectRequest): Promise<{ project: ManagedProject; status: unknown }> {

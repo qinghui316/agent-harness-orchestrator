@@ -1,6 +1,7 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { openNativeFolderDialog } from "./native-dialog.js";
-import { matchProjectWorkbenchRoute, resolveProjectInput } from "./routes.js";
+import { matchProjectWorkbenchRoute } from "./routes.js";
+import { resolveProjectInputWithDirect } from "./direct-project.js";
 import { addExistingProject, createNewProject, initProjectHarness, listProjectStatuses, trustCodexProjectForWorkbench } from "./project-admin.js";
 import { handleDirectWorkbenchApi } from "./direct-routes.js";
 import { handleProjectWorkbenchApi } from "./project-routes.js";
@@ -14,7 +15,7 @@ export async function handleApi(context: WorkbenchServerContext, request: Incomi
 
   const projectWorkbench = matchProjectWorkbenchRoute(url.pathname);
   if (projectWorkbench) {
-    const input = await resolveProjectInput(context.store, projectWorkbench.projectId);
+    const input = await resolveProjectInputWithDirect(context.store, context.input, projectWorkbench.projectId);
     await handleProjectWorkbenchApi(input, request, response, projectWorkbench.rest, url);
     return;
   }
@@ -24,7 +25,7 @@ export async function handleApi(context: WorkbenchServerContext, request: Incomi
     return;
   }
   if (request.method === "GET" && url.pathname === "/api/projects") {
-    sendJson(response, 200, { projects: await listProjectStatuses(context.store) });
+    sendJson(response, 200, { projects: await listProjectStatuses(context.store, context.input) });
     return;
   }
   if (request.method === "POST" && url.pathname === "/api/projects") {

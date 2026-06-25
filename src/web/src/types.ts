@@ -7,6 +7,14 @@ export type ProjectStatus = {
   pathExists: boolean;
   isGitRepo: boolean;
   managed: boolean;
+  memory?: {
+    memoryMode: string;
+    memoryAvailable: boolean;
+    harnessReady: boolean;
+    artifactBase: string;
+    roots: { memoryRoot: string };
+    unsupportedReason?: string;
+  };
   harness: { readiness: string };
   codexTrust?: { trusted: boolean; configPath: string; projectKey: string; configExists: boolean; reason?: string };
 };

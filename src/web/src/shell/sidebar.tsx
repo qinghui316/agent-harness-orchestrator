@@ -103,7 +103,8 @@ export function ProjectConversationSidebar({
             const selected = item.project?.id === selectedProjectId;
             const expanded = selected || expandedProjects.has(projectId);
             const projectSnapshot = item.project?.id === selectedProjectId ? snapshot : item.project?.id ? snapshots[item.project.id] : undefined;
-            const memoryReady = projectSnapshot?.memory.harnessReady ?? item.harness.readiness === "ready";
+            const memoryReady = projectSnapshot?.memory.harnessReady ?? item.memory?.harnessReady ?? item.harness.readiness === "ready";
+            const memoryIssue = memoryStatusIssue(item, projectSnapshot);
             const conversations = conversationsForSidebar(projectSnapshot, selectedTopicId);
             const filteredConversations = normalizedSearch
               ? conversations.filter((conversation) => conversation.title.toLowerCase().includes(normalizedSearch) || conversation.status.toLowerCase().includes(normalizedSearch))
@@ -119,7 +120,7 @@ export function ProjectConversationSidebar({
                   <button className="project-folder-main" onClick={() => item.project ? void onOpenProject(item.project.id) : undefined}>
                     <Folder size={16} />
                     <span>{projectName}</span>
-                    {memoryReady ? null : <small>未初始化</small>}
+                    {memoryReady ? null : <small>{memoryIssue?.short ?? "未初始化"}</small>}
                   </button>
                   {item.project && memoryReady ? (
                     <button
@@ -147,7 +148,7 @@ export function ProjectConversationSidebar({
                 {expanded ? (
                   <div className="conversation-list">
                     {memoryReady && !projectSnapshot ? <div className="conversation-placeholder">展开后加载对话。</div> : null}
-                    {!memoryReady ? <div className="conversation-placeholder">选择项目后初始化 Harness。</div> : null}
+                    {!memoryReady ? <div className="conversation-placeholder">{memoryIssue?.detail ?? "选择项目后初始化 Harness。"}</div> : null}
                     {filteredConversations.map((conversation) => (
                       <button
                         key={conversation.id}
@@ -182,13 +183,14 @@ export function currentWorkpadSummary(snapshot: Snapshot, topic: TopicDetail | n
 
 export function UnmanagedProjectView({ project, onDone }: { project: ProjectStatus | null; onDone: () => Promise<void> }): ReactElement {
   if (!project?.project) return <EmptyWorkbench title="项目不可用" description="请选择左侧项目或重新刷新项目列表。" />;
+  const issue = memoryStatusIssue(project);
   return (
     <section className="empty-workbench">
       <p className="eyebrow">项目已添加</p>
       <h1>{project.project.name}</h1>
       <p>{project.path}</p>
-      <p>这个项目还没有初始化 Harness。初始化后会创建项目入口地图和 external-local 记忆。</p>
-      <HarnessInitButton projectId={project.project.id} onDone={onDone} />
+      <p>{issue?.detail ?? "这个项目还没有初始化 Harness。初始化后会创建项目入口地图和 external-local 记忆。"}</p>
+      {issue?.kind === "missing-external-memory" ? null : <HarnessInitButton projectId={project.project.id} onDone={onDone} />}
     </section>
   );
 }
@@ -240,6 +242,26 @@ type SidebarConversation = {
   waitingDecisionCount: number;
   blocker?: string;
 };
+
+function memoryStatusIssue(project: ProjectStatus, snapshot?: Snapshot): { kind: "missing-external-memory" | "uninitialized"; short: string; detail: string } | null {
+  const memoryMode = snapshot?.memory.memoryMode ?? project.memory?.memoryMode;
+  const available = project.memory?.memoryAvailable ?? true;
+  const harnessReady = snapshot?.memory.harnessReady ?? project.memory?.harnessReady ?? project.harness.readiness === "ready";
+  if (harnessReady) return null;
+  if (project.managed && memoryMode === "external-local" && !available) {
+    const root = project.memory?.roots?.memoryRoot;
+    return {
+      kind: "missing-external-memory",
+      short: "记忆未找到",
+      detail: root ? `external-local 记忆未找到：${root}。请确认当前 AHO_HOME。` : "external-local 记忆未找到，请确认当前 AHO_HOME。",
+    };
+  }
+  return {
+    kind: "uninitialized",
+    short: "未初始化",
+    detail: "选择项目后初始化 Harness。",
+  };
+}
 
 function conversationsForSidebar(snapshot: Snapshot | undefined, selectedTopicId: string | null): SidebarConversation[] {
   if (!snapshot) return [];

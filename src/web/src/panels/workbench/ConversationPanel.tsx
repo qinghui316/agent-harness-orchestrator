@@ -443,7 +443,7 @@ export function BottomStatusBar({ snapshot, project, topic }: { snapshot: Snapsh
   const issueCount = snapshot.warnings.length + (topic?.closeGate?.blockingIssues.length ?? 0);
   return (
     <footer className="bottom-status">
-      <span>记忆：{snapshot.memory.memoryMode ?? (project?.project ? "unknown" : "未选择")}</span>
+      <span>记忆：{snapshot.memory.memoryMode ?? project?.memory?.memoryMode ?? (project?.project ? "unknown" : "未选择")}</span>
       <span>根目录：{repoPath}</span>
       <span><i className={snapshot.memory.harnessReady ? "status-dot ready-dot" : "status-dot muted-dot"} />状态：{snapshot.memory.harnessReady ? "就绪" : "未就绪"}</span>
       <span>当前需求：{topic?.title ?? "无"}</span>

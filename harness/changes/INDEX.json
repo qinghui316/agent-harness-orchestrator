@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-25T02:59:34.5969155Z",
+    "generated_at":  "2026-06-25T03:37:41.1063239Z",
     "active":  [
 
                ],
@@ -1869,6 +1869,10 @@
                     {
                         "name":  "20260625-auto-evolve-post-scheduler-integration-window",
                         "path":  "harness/changes/archive/20260625-auto-evolve-post-scheduler-integration-window"
+                    },
+                    {
+                        "name":  "20260625-workbench-external-local-restore-v1",
+                        "path":  "harness/changes/archive/20260625-workbench-external-local-restore-v1"
                     },
                     {
                         "name":  "20260625-workbench-low-conflict-taskgraph-scheduler-reachability-v1",

@@ -4322,14 +4322,29 @@ describe("Workbench web app", () => {
         return new Response(JSON.stringify({ mode: "project", directProjectId: "repo" }), { status: 200, headers: { "Content-Type": "application/json" } });
       }
       if (url === "/api/projects") {
-        return new Response(JSON.stringify({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "partial" } }] }), { status: 200, headers: { "Content-Type": "application/json" } });
+        return new Response(JSON.stringify({ projects: [{
+          project: snapshot.project,
+          path: "E:/repo",
+          pathExists: true,
+          isGitRepo: true,
+          managed: true,
+          memory: {
+            memoryMode: "external-local",
+            memoryAvailable: false,
+            harnessReady: false,
+            artifactBase: "memory-root",
+            roots: { memoryRoot: "E:/aho-home/projects/repo" },
+          },
+          harness: { readiness: "partial" },
+        }] }), { status: 200, headers: { "Content-Type": "application/json" } });
       }
       return new Response(JSON.stringify(unavailableSnapshot), { status: 200, headers: { "Content-Type": "application/json" } });
     }));
 
     render(<App />);
 
-    await waitFor(() => expect(screen.getByText("初始化 Harness")).toBeTruthy());
+    await waitFor(() => expect(screen.getAllByText(/external-local 记忆未找到/).length).toBeGreaterThan(0));
+    expect(screen.queryByText("初始化 Harness")).toBeNull();
     expect(screen.queryByText("创建需求对话")).toBeNull();
     expect(screen.queryByLabelText("在 Repo 中开始新对话")).toBeNull();
   });

@@ -129,6 +129,7 @@ export interface ProjectStatus {
   branch: string | null;
   dirty: boolean | null;
   managed: boolean;
+  memory: MemoryStatus;
   harness: HarnessAuditResult;
   codexTrust: CodexProjectTrustStatus;
 }

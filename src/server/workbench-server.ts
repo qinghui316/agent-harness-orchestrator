@@ -2,6 +2,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { ProjectRegistryStore } from "../registry/store.js";
 import type { WorkbenchProjectInput } from "../workbench/manager.js";
 import { handleApi } from "./workbench/api-router.js";
+import { restoreDirectProjectInput } from "./workbench/direct-project.js";
 import { sendJson, statusForError } from "./workbench/http.js";
 import { defaultStaticRoot, serveStatic } from "./workbench/static.js";
 import type { WorkbenchServeOptions, WorkbenchServerContext, WorkbenchServerHandle } from "./workbench/types.js";
@@ -14,7 +15,8 @@ export async function startWorkbenchServer(input: WorkbenchProjectInput | null =
   const host = options.host ?? "127.0.0.1";
   const port = options.port ?? 4317;
   const staticRoot = options.staticRoot ?? defaultStaticRoot();
-  const context: WorkbenchServerContext = { input, staticRoot, store: options.store ?? new ProjectRegistryStore() };
+  const store = options.store ?? new ProjectRegistryStore();
+  const context: WorkbenchServerContext = { input: await restoreDirectProjectInput(input, store), staticRoot, store };
   const server = createServer((request, response) => {
     handleRequest(context, request, response).catch((error: unknown) => {
       sendJson(response, statusForError(error), { error: error instanceof Error ? error.message : String(error) });
