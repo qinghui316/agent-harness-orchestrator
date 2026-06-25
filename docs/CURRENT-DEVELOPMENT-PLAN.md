@@ -146,7 +146,7 @@ Current architecture debt register:
 ## Next Product Direction
 
 Current structured change: none.
-Pending Harness evolution: `harness/evolution/pending.md`.
+Pending Harness evolution: none.
 Latest boundary guard:
 `harness/changes/archive/20260625-workbench-loop-per-change-boundary-guard-v1/summary.md`.
 Latest product audit:
@@ -240,8 +240,9 @@ Current baseline:
 Latest evolution and archive lookup:
 
 - Latest Harness evolution:
-  `harness/changes/archive/20260625-auto-evolve-post-goal-loop-decision-surface-window/summary.md`.
-  Result: `noop`; no ECL/template/lint/docs/product runtime change.
+  `harness/changes/archive/20260625-auto-evolve-post-loop-boundary-window/summary.md`.
+  Result: `docs_merge`; subagent review score 84; no
+  ECL/template/lint/product runtime change.
 - Current pending Harness evolution: none.
 - Use archived summaries and `harness/changes/INDEX.json` for detailed real UI
   sandbox evidence, old blocker history, and per-run ids; do not copy that

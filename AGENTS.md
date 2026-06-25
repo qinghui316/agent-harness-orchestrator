@@ -6,7 +6,7 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 
 - Current date: 2026-06-25.
 - Active change: none.
-- Pending Harness evolution: `harness/evolution/pending.md`.
+- Pending Harness evolution: none.
 - Latest archived product audit: Workbench Goal Loop Decision Surface Audit V1, archived at `harness/changes/archive/20260625-workbench-goal-loop-decision-surface-audit-v1/summary.md`.
 - Latest archived boundary guard: Workbench Loop-Per-Change Boundary Guard V1, archived at `harness/changes/archive/20260625-workbench-loop-per-change-boundary-guard-v1/summary.md`.
 - Latest archived product change: Workbench Post-Plan Scoped Local Autonomy V1, archived at `harness/changes/archive/20260625-workbench-post-plan-scoped-local-autonomy-v1/summary.md`.
@@ -15,7 +15,7 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 - Previous external-local restore change: `harness/changes/archive/20260625-workbench-external-local-restore-v1/summary.md`.
 - Latest archived Harness docs change: Minimality Gate And Complexity Review, archived at `harness/changes/archive/20260625-document-minimality-gate-and-complexity-review/summary.md`.
 - Previous scheduler apply/discard hardening: `harness/changes/archive/20260625-workbench-scheduler-integration-apply-discard-real-acceptance-v1/summary.md`.
-- Latest completed Harness evolution: `harness/changes/archive/20260625-auto-evolve-post-goal-loop-decision-surface-window/summary.md` (`noop`; subagent review score 89; no ECL/template/lint/docs/product runtime change).
+- Latest completed Harness evolution: `harness/changes/archive/20260625-auto-evolve-post-loop-boundary-window/summary.md` (`docs_merge`; subagent review score 84; no ECL/template/lint/product runtime change).
 - Other recent archives are discoverable via `docs/STATUS.md` and `harness/changes/INDEX.json`; avoid expanding this entry map into a phase ledger.
 
 Current baseline: the local manual-gated Workbench loop has real browser
@@ -58,8 +58,13 @@ uninitialized state.
 Latest boundary guard: one loop execution maps to one parent Change.
 Multi-worktree outputs may feed an IntegrationCheck only when all targets
 belong to that same Change; cross-Change merge remains a future explicit
-higher-level design. The close created `harness/evolution/pending.md`; do not
-auto-apply it without an explicit Harness evolution decision.
+higher-level design. The resulting Harness evolution window has been marked
+complete; do not auto-apply future Harness evolution without an explicit
+decision.
+
+Latest Harness evolution reviewed the five-archive window ending with the
+loop-per-Change boundary guard. It recorded a `docs_merge` result for compact
+handoff alignment and no ECL/template/lint/product runtime change.
 
 Daily `npm run test:workbench` is the fast Workbench unit-capability gate; slow
 scheduler/apply/Goal Loop coverage remains in explicit release/deep scripts.

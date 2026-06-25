@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-25T08:39:59.3334937Z",
+    "generated_at":  "2026-06-25T08:50:34.8139199Z",
     "active":  [
 
                ],
@@ -1869,6 +1869,10 @@
                     {
                         "name":  "20260625-auto-evolve-post-goal-loop-decision-surface-window",
                         "path":  "harness/changes/archive/20260625-auto-evolve-post-goal-loop-decision-surface-window"
+                    },
+                    {
+                        "name":  "20260625-auto-evolve-post-loop-boundary-window",
+                        "path":  "harness/changes/archive/20260625-auto-evolve-post-loop-boundary-window"
                     },
                     {
                         "name":  "20260625-auto-evolve-post-scheduler-integration-window",

@@ -4,7 +4,7 @@
 
 - Current date: 2026-06-25.
 - Active ECL change: none.
-- Pending Harness evolution: `harness/evolution/pending.md`.
+- Pending Harness evolution: none.
 - Latest archived product audit: `harness/changes/archive/20260625-workbench-goal-loop-decision-surface-audit-v1/summary.md`.
 - Latest archived boundary guard: `harness/changes/archive/20260625-workbench-loop-per-change-boundary-guard-v1/summary.md`.
 - Latest archived product change: `harness/changes/archive/20260625-workbench-post-plan-scoped-local-autonomy-v1/summary.md`.
@@ -18,7 +18,7 @@
 - Latest product audit: `harness/changes/archive/20260624-workbench-goal-loop-surface-gap-audit/summary.md`.
 - Latest verification convergence: `harness/changes/archive/20260623-workbench-verification-runtime-convergence/summary.md`.
 - Latest real-Codex acceptance: `harness/changes/archive/20260623-workbench-current-project-real-codex-acceptance/summary.md`.
-- Latest completed Harness evolution: `harness/changes/archive/20260625-auto-evolve-post-goal-loop-decision-surface-window/summary.md`.
+- Latest completed Harness evolution: `harness/changes/archive/20260625-auto-evolve-post-loop-boundary-window/summary.md`.
 - Latest scheduler reachability change: `harness/changes/archive/20260625-workbench-low-conflict-taskgraph-scheduler-reachability-v1/summary.md`.
 - Latest scheduler worker/integration acceptance: `harness/changes/archive/20260625-workbench-scheduler-worker-integration-real-acceptance-v1/summary.md`.
 - Latest scheduler IntegrationCheck acceptance: `harness/changes/archive/20260625-workbench-scheduler-integrationcheck-real-acceptance-v1/summary.md`.
@@ -132,8 +132,11 @@ scripts.
 
 No active change.
 
-Pending Harness evolution: `harness/evolution/pending.md`. It was generated
-after closing the loop-per-Change boundary guard and must remain human-gated.
+Pending Harness evolution: none. The loop-per-Change window was reviewed with
+authorized subagent review and marked complete as `docs_merge`.
+
+Latest completed Harness evolution:
+`harness/changes/archive/20260625-auto-evolve-post-loop-boundary-window/summary.md`.
 
 The latest archived boundary guard is at
 `harness/changes/archive/20260625-workbench-loop-per-change-boundary-guard-v1/summary.md`.
@@ -149,16 +152,17 @@ after human plan confirmation and can complete local apply and close/archive.
 
 Previous resume context:
 
-The pending evolution has been completed as `noop` with independent subagent
-review. The latest completed product audit confirmed that the existing Goal
-Loop chain stays a user-surface explanation layer over real Workbench gates:
+The latest pending evolution has been completed as `docs_merge` with
+independent subagent review. The latest completed product audit confirmed that
+the existing Goal Loop chain stays a user-surface explanation layer over real
+Workbench gates:
 
 ```text
 GoalLoopDecision -> GoalLoopNextStepPacket -> ControllerPolicy
 -> GateReadinessPreflight -> confirmationQueue
 ```
 
-Next recommended product work:
+Next recommended work after this evolution closes:
 
 - Choose the next concrete product capability or blocker scout from the
   existing Workbench gate/action/runtime owners; do not add a new Goal Loop
