@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-25T07:37:58.4247254Z",
+    "generated_at":  "2026-06-25T08:39:59.3334937Z",
     "active":  [
 
                ],
@@ -1885,6 +1885,10 @@
                     {
                         "name":  "20260625-workbench-goal-loop-decision-surface-audit-v1",
                         "path":  "harness/changes/archive/20260625-workbench-goal-loop-decision-surface-audit-v1"
+                    },
+                    {
+                        "name":  "20260625-workbench-loop-per-change-boundary-guard-v1",
+                        "path":  "harness/changes/archive/20260625-workbench-loop-per-change-boundary-guard-v1"
                     },
                     {
                         "name":  "20260625-workbench-low-conflict-taskgraph-scheduler-reachability-v1",

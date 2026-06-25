@@ -6,10 +6,10 @@ import type { ManagedProject, ResolvedMemory } from "../types/index.js";
 import { compactTimestamp } from "./paths.js";
 import type { IntegrationCheckCandidate, IntegrationCheckTarget } from "./types.js";
 
-export async function findIntegrationCheckCandidate(project: ManagedProject): Promise<IntegrationCheckCandidate | null> {
+export async function findIntegrationCheckCandidate(project: ManagedProject, changeId?: string): Promise<IntegrationCheckCandidate | null> {
   const memory = await resolveProjectMemory(project);
   if (!memory.supported || !memory.writable) return null;
-  const targets = await collectReadyTargets(project, memory);
+  const targets = selectIntegrationCandidateTargets(await collectReadyTargetCandidates(project, memory), changeId);
   if (targets.length < 2) return null;
   return {
     id: `candidate:${targets.map((target) => target.worktreeId).join("+")}`,
@@ -19,9 +19,19 @@ export async function findIntegrationCheckCandidate(project: ManagedProject): Pr
   };
 }
 
-export async function collectReadyTargets(project: ManagedProject, memory: ResolvedMemory, requestedWorktreeIds?: string[]): Promise<IntegrationCheckTarget[]> {
+export async function collectReadyTargets(project: ManagedProject, memory: ResolvedMemory, requestedWorktreeIds?: string[], expectedChangeId?: string): Promise<IntegrationCheckTarget[]> {
   const requested = requestedWorktreeIds?.length ? requestedWorktreeIds : null;
   if (requested) assertUniqueRequestedWorktreeIds(requested);
+  const sorted = await collectReadyTargetCandidates(project, memory, requestedWorktreeIds);
+  assertSameChangeTargets(sorted);
+  if (expectedChangeId && sorted.some((target) => target.changeId !== expectedChangeId)) {
+    throw new Error("Integration check targets must belong to the requested Change.");
+  }
+  return sorted;
+}
+
+async function collectReadyTargetCandidates(project: ManagedProject, memory: ResolvedMemory, requestedWorktreeIds?: string[]): Promise<IntegrationCheckTarget[]> {
+  const requested = requestedWorktreeIds?.length ? requestedWorktreeIds : null;
   const requestedSet = requested ? new Set(requested) : null;
   const statuses = await listWorktreeStatuses(memory);
   const statusById = new Map(statuses.map((status) => [status.worktreeId, status]));
@@ -60,6 +70,17 @@ export async function collectReadyTargets(project: ManagedProject, memory: Resol
   return sorted;
 }
 
+function selectIntegrationCandidateTargets(targets: IntegrationCheckTarget[], changeId: string | undefined): IntegrationCheckTarget[] {
+  const groups = new Map<string, IntegrationCheckTarget[]>();
+  for (const target of targets) {
+    const group = groups.get(target.changeId) ?? [];
+    group.push(target);
+    groups.set(target.changeId, group);
+  }
+  if (changeId) return groups.get(changeId) ?? [];
+  return [...groups.values()].find((group) => group.length >= 2) ?? [];
+}
+
 export function targetFromGate(gate: WorktreeGateState): IntegrationCheckTarget {
   return {
     changeId: gate.changeId,
@@ -80,5 +101,12 @@ function assertUniqueRequestedWorktreeIds(worktreeIds: string[]): void {
   for (const worktreeId of worktreeIds) {
     if (seen.has(worktreeId)) throw new Error(`Duplicate requested worktree ${worktreeId}.`);
     seen.add(worktreeId);
+  }
+}
+
+function assertSameChangeTargets(targets: IntegrationCheckTarget[]): void {
+  const changeIds = new Set(targets.map((target) => target.changeId));
+  if (changeIds.size > 1) {
+    throw new Error("Integration check targets must belong to the same Change.");
   }
 }

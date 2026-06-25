@@ -303,6 +303,31 @@ describe("Scoped automation runtime", () => {
     expect(result.automationRun.completedSteps).toBe(0);
   });
 
+  it("fails closed when the current child gate belongs to another Change", async () => {
+    const dispatched: ScopedAutomationChildGate[] = [];
+    const result = await runScopedAutomation({
+      memory,
+      changePath: "harness/changes/active/change-1",
+      projectId: "project-1",
+      sourceState: { capturedAt: "2026-06-25T00:00:00.000Z" },
+      acceptedArtifactHashes: {},
+      request: baseRequest(),
+      services: {
+        resolveCurrentPrimaryGate: async () => ({ kind: "workflow-action", actionType: "validate.run", changeId: "change-2", worktreeId: "wt-2" }),
+        dispatchChildAction: async (request) => {
+          dispatched.push(request);
+          return { ok: true };
+        },
+        summarizeChildResult: () => "unused",
+      },
+    });
+
+    expect(result.stopReason).toBe("stale-target");
+    expect(result.summary).toContain("authorized Change");
+    expect(result.automationRun.completedSteps).toBe(0);
+    expect(dispatched).toHaveLength(0);
+  });
+
   it("executes allowed audit.accept approval actions and then local apply", async () => {
     const dispatched: ScopedAutomationChildGate[] = [];
     const sequence: ScopedAutomationChildGate[] = [

@@ -5,13 +5,14 @@ import { evidenceActions } from "../evidence-actions.js";
 import { approvalAction } from "./shared.js";
 
 export function integrationCandidateQueueItem(project: ManagedProject, candidate: IntegrationCheckCandidate, selectedChangeId: string | undefined): WorkbenchConfirmationQueueItem {
-  const selected = Boolean(selectedChangeId && candidate.targets.some((target) => target.changeId === selectedChangeId));
+  const candidateChangeId = candidate.targets[0]?.changeId;
+  const selected = Boolean(selectedChangeId && candidateChangeId === selectedChangeId);
   return {
     id: `apply-check:candidate:${candidate.targets.map((target) => target.worktreeId).join("+")}`,
     kind: "integration-check",
     projectId: project.id,
-    conversationId: selectedChangeId,
-    changeId: selectedChangeId,
+    conversationId: candidateChangeId ?? selectedChangeId,
+    changeId: candidateChangeId ?? selectedChangeId,
     summary: candidate.summary,
     whyNeedsConfirmation: "多个结果都已准备好应用。",
     confirmEffect: "会在临时工作区检查这些结果能否一起应用；不会修改项目源码。",

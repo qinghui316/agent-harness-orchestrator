@@ -62,7 +62,7 @@ export async function buildConfirmationQueue(input: {
       const item = integrationCheckNeedsActionQueueItem(project, latestActionableCheck, input.selectedTopic?.id);
       enqueueCurrentOrOther(item);
     }
-    const candidate = await findIntegrationCheckCandidate(project).catch(() => null);
+    const candidate = await findIntegrationCheckCandidate(project, input.selectedTopic?.id).catch(() => null);
     const candidateAlreadyChecked = candidate && latestActionableCheck
       ? sameIntegrationTargets(candidate.targets, latestActionableCheck.resultTargets)
       : false;

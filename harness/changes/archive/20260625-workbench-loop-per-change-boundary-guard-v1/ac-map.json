@@ -1,0 +1,18 @@
+﻿{
+    "version":  "1.0",
+    "generatedAt":  "2026-06-25T08:08:42.9207011Z",
+    "changeId":  "workbench-loop-per-change-boundary-guard-v1",
+    "acceptanceCriteria":  [
+
+                           ],
+    "tasks":  [
+
+              ],
+    "warnings":  [
+                     "Run product planning or update ac-map.json before using AC-gated readiness."
+                 ],
+    "blockingIssues":  [
+                           "ac-map.json was backfilled without parsed acceptance criteria."
+                       ]
+}
+

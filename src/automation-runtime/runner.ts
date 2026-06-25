@@ -134,6 +134,12 @@ export async function runScopedAutomation(input: {
       stopSummary = next.summary;
       break;
     }
+    const scopeStop = scopedAutomationStopForChange(next, request.changeId);
+    if (scopeStop) {
+      stopReason = scopeStop.stopReason;
+      stopSummary = scopeStop.summary;
+      break;
+    }
     const gateActionId = scopedAutomationGateActionId(next);
     const gateStop = scopedAutomationStopForGate(next);
     if (gateStop) {
@@ -296,6 +302,16 @@ function scopedAutomationStopForGate(gate: ScopedAutomationChildGate): { stopRea
     return {
       stopReason: "unsupported-gate",
       summary: automationStopReasonSummary("unsupported-gate"),
+    };
+  }
+  return null;
+}
+
+function scopedAutomationStopForChange(gate: ScopedAutomationChildGate, authorizedChangeId: string): { stopReason: AutomationStopReason; summary: string } | null {
+  if (gate.changeId !== authorizedChangeId) {
+    return {
+      stopReason: "stale-target",
+      summary: "Scoped automation current gate is not scoped to the authorized Change.",
     };
   }
   return null;

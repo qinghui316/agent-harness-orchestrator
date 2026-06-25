@@ -4,8 +4,9 @@
 
 - Current date: 2026-06-25.
 - Active ECL change: none.
-- Pending Harness evolution: none.
+- Pending Harness evolution: `harness/evolution/pending.md`.
 - Latest archived product audit: `harness/changes/archive/20260625-workbench-goal-loop-decision-surface-audit-v1/summary.md`.
+- Latest archived boundary guard: `harness/changes/archive/20260625-workbench-loop-per-change-boundary-guard-v1/summary.md`.
 - Latest archived product change: `harness/changes/archive/20260625-workbench-post-plan-scoped-local-autonomy-v1/summary.md`.
 - Previous post-plan automation hardening: `harness/changes/archive/20260625-workbench-post-plan-scoped-automation-execution-v1/summary.md`.
 - Previous planning/decomposition hardening: `harness/changes/archive/20260625-workbench-planning-decomposition-scope-honesty-v1/summary.md`.
@@ -131,7 +132,15 @@ scripts.
 
 No active change.
 
-No pending Harness evolution.
+Pending Harness evolution: `harness/evolution/pending.md`. It was generated
+after closing the loop-per-Change boundary guard and must remain human-gated.
+
+The latest archived boundary guard is at
+`harness/changes/archive/20260625-workbench-loop-per-change-boundary-guard-v1/summary.md`.
+It closes the rule that one loop execution maps to one parent Change.
+Multi-worktree outputs may feed IntegrationCheck only when all ready targets
+belong to that same Change. Cross-Change merge is not handled by a single
+IntegrationCheck.
 
 The latest product change is archived at
 `harness/changes/archive/20260625-workbench-post-plan-scoped-local-autonomy-v1/summary.md`.

@@ -109,6 +109,11 @@ export async function runGoalLoopControlledContinuation(input: {
       stopSummary = next.summary;
       break;
     }
+    if (next.changeId !== request.changeId) {
+      stopReason = "stale-target";
+      stopSummary = "Controlled continuation current scheduler gate is not scoped to the authorized Change.";
+      break;
+    }
 
     const auditScope = {
       coveredByGoalLoopRuntimeAuthorizationId: authorization.id,

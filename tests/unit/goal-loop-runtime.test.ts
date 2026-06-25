@@ -113,6 +113,32 @@ describe("Goal Loop controlled continuation runtime", () => {
       error: "stale target",
     });
   });
+
+  it("fails closed before dispatching a controlled advance for another Change", async () => {
+    const dispatched: WorkflowActionScopeCarrier[] = [];
+    const result = await runGoalLoopControlledContinuation({
+      memory,
+      changePath: "harness/changes/active/change-1",
+      request: baseRequest({ maxSteps: 3 }),
+      services: {
+        resolveCurrentControlledAdvanceRequest: async () => ({
+          ...controlledAdvanceRequest("claim-1"),
+          changeId: "change-2",
+        }),
+        dispatchControlledAdvance: async (request) => {
+          dispatched.push(request);
+          return { ok: true };
+        },
+        summarizeChildResult: () => "unused",
+      },
+    });
+
+    expect(result.runtimeRun.status).toBe("stopped");
+    expect(result.stopReason).toBe("stale-target");
+    expect(result.summary).toContain("authorized Change");
+    expect(result.runtimeRun.completedSteps).toBe(0);
+    expect(dispatched).toHaveLength(0);
+  });
 });
 
 function baseRequest(overrides: Partial<Parameters<typeof runGoalLoopControlledContinuation>[0]["request"]> = {}): Parameters<typeof runGoalLoopControlledContinuation>[0]["request"] {

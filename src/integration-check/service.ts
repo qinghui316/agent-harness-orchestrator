@@ -15,11 +15,11 @@ import { prepareIntegrationCheckout } from "./patch-workspace.js";
 import { appendIntegrationEvent, writeCheckArtifacts } from "./repository.js";
 import type { IntegrationArtifact, IntegrationCheckResult, IntegrationCheckStatus, IntegrationFixAttempt } from "./types.js";
 
-export async function runIntegrationCheck(project: ManagedProject, worktreeIds?: string[]): Promise<IntegrationCheckResult> {
+export async function runIntegrationCheck(project: ManagedProject, worktreeIds?: string[], expectedChangeId?: string): Promise<IntegrationCheckResult> {
   const memory = await resolveProjectMemory(project);
   assertWritableMemory(memory, "Integration check");
   const sourceHead = await getGitCommit(project.path);
-  const targets = await collectReadyTargets(project, memory, worktreeIds);
+  const targets = await collectReadyTargets(project, memory, worktreeIds, expectedChangeId);
   if (targets.length < 2) {
     throw new Error("Integration check requires at least two ready results.");
   }

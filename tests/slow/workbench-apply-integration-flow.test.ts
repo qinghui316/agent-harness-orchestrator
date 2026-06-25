@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 import { collectWorktreeDiff } from "../../src/audit/diff.js";
 import { createChange } from "../../src/change/manager.js";
 import { initHarness } from "../../src/harness/init.js";
-import { listIntegrationChecks } from "../../src/integration-check/manager.js";
+import { listIntegrationChecks, runIntegrationCheck } from "../../src/integration-check/manager.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import { executeWorkbenchAction } from "../../src/server/workbench-server.js";
 import { createWorkbenchTopic } from "../../src/workbench/chat.js";
@@ -224,26 +224,23 @@ describe("workbench apply and integration slow flows", () => {
       await git(getTempDir(), ["commit", "-m", "initial"]);
       await initHarness(project());
       await writeRawActiveChange(getTempDir(), "demand-a", "Demand A");
-      await writeRawActiveChange(getTempDir(), "demand-b", "Demand B");
       await writeAcceptedSpecAndTasks("demand-a");
-      await writeAcceptedSpecAndTasks("demand-b");
       const memory = await resolveProjectMemory(project());
       const worktreeA = await createWorktree(project(), memory, "demand-a");
       await writeFile(join(worktreeA.metadata.checkoutPath, "a.txt"), "a\n", "utf8");
       const diffA = await collectWorktreeDiff(memory, worktreeA.metadata.worktreeId, "demand-a");
       await writeValidationResultWithHash("demand-a", "run-validation-a", worktreeA.metadata.worktreeId, diffA.diffHash, "passed");
-      await writeAuditResultWithHash("demand-a", "run-audit-a", worktreeA.metadata.worktreeId, diffA.diffHash, "approved-with-notes");
-      const worktreeB = await createWorktree(project(), memory, "demand-b");
+      await writeAuditResultWithHash("demand-a", "run-audit-a", worktreeA.metadata.worktreeId, diffA.diffHash, "approved");
+      const worktreeB = await createWorktree(project(), memory, "demand-a");
       await writeFile(join(worktreeB.metadata.checkoutPath, "b.txt"), "b\n", "utf8");
-      const diffB = await collectWorktreeDiff(memory, worktreeB.metadata.worktreeId, "demand-b");
-      await writeValidationResultWithHash("demand-b", "run-validation-b", worktreeB.metadata.worktreeId, diffB.diffHash, "passed");
-      await writeAuditResultWithHash("demand-b", "run-audit-b", worktreeB.metadata.worktreeId, diffB.diffHash, "approved-with-notes");
+      const diffB = await collectWorktreeDiff(memory, worktreeB.metadata.worktreeId, "demand-a");
+      await writeValidationResultWithHash("demand-a", "run-validation-b", worktreeB.metadata.worktreeId, diffB.diffHash, "passed");
+      await writeAuditResultWithHash("demand-a", "run-audit-b", worktreeB.metadata.worktreeId, diffB.diffHash, "approved");
 
-      await acceptAuditAndGetSnapshot("demand-a");
-      await acceptAuditAndGetSnapshot("demand-b");
-      const snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: "demand-a" });
+      const snapshot = await acceptAllAuditGatesAndGetSnapshot("demand-a");
       expect(snapshot.right.confirmationQueue.primary).toMatchObject({
         kind: "integration-check",
+        changeId: "demand-a",
         whyNeedsConfirmation: "多个结果都已准备好应用。",
       });
       expect(snapshot.right.confirmationQueue.primary?.actions[0]).toMatchObject({
@@ -256,7 +253,7 @@ describe("workbench apply and integration slow flows", () => {
     }
   }, 120_000);
 
-  it("runs an integration check in a temporary worktree without changing source root", async () => {
+  it("does not combine ready worktrees from different Changes into one IntegrationCheck", async () => {
     const oldAhoHome = process.env.AHO_HOME;
     process.env.AHO_HOME = join(getTempDir(), ".aho-home");
     try {
@@ -275,15 +272,74 @@ describe("workbench apply and integration slow flows", () => {
       await writeFile(join(worktreeA.metadata.checkoutPath, "a.txt"), "a\n", "utf8");
       const diffA = await collectWorktreeDiff(memory, worktreeA.metadata.worktreeId, "demand-a");
       await writeValidationResultWithHash("demand-a", "run-validation-a", worktreeA.metadata.worktreeId, diffA.diffHash, "passed");
-      await writeAuditResultWithHash("demand-a", "run-audit-a", worktreeA.metadata.worktreeId, diffA.diffHash, "approved-with-notes");
+      await writeAuditResultWithHash("demand-a", "run-audit-a", worktreeA.metadata.worktreeId, diffA.diffHash, "approved");
       const worktreeB = await createWorktree(project(), memory, "demand-b");
       await writeFile(join(worktreeB.metadata.checkoutPath, "b.txt"), "b\n", "utf8");
       const diffB = await collectWorktreeDiff(memory, worktreeB.metadata.worktreeId, "demand-b");
       await writeValidationResultWithHash("demand-b", "run-validation-b", worktreeB.metadata.worktreeId, diffB.diffHash, "passed");
-      await writeAuditResultWithHash("demand-b", "run-audit-b", worktreeB.metadata.worktreeId, diffB.diffHash, "approved-with-notes");
+      await writeAuditResultWithHash("demand-b", "run-audit-b", worktreeB.metadata.worktreeId, diffB.diffHash, "approved");
+      const worktreeB2 = await createWorktree(project(), memory, "demand-b");
+      await writeFile(join(worktreeB2.metadata.checkoutPath, "b2.txt"), "b2\n", "utf8");
+      const diffB2 = await collectWorktreeDiff(memory, worktreeB2.metadata.worktreeId, "demand-b");
+      await writeValidationResultWithHash("demand-b", "run-validation-b2", worktreeB2.metadata.worktreeId, diffB2.diffHash, "passed");
+      await writeAuditResultWithHash("demand-b", "run-audit-b2", worktreeB2.metadata.worktreeId, diffB2.diffHash, "approved");
 
-      await acceptAuditAndGetSnapshot("demand-a");
-      await acceptAuditAndGetSnapshot("demand-b");
+      const snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: "demand-a" });
+      expect(snapshot.right.confirmationQueue.current.some((item) =>
+        item.kind === "integration-check"
+        && item.actions.some((action) => action.actionType === "apply-check.run")
+      )).toBe(false);
+
+      const checked = await executeWorkbenchAction({ project: project(), path: getTempDir() }, {
+        actionType: "apply-check.run",
+        changeId: "demand-a",
+        worktreeIds: [worktreeA.metadata.worktreeId, worktreeB.metadata.worktreeId],
+        confirm: true,
+      });
+      expect(checked.result.status).toBe("failed");
+      expect(checked.result.error).toMatch(/same Change|stale/i);
+      await expect(runIntegrationCheck(project(), [worktreeA.metadata.worktreeId, worktreeB.metadata.worktreeId], "demand-a")).rejects.toThrow(/same Change/i);
+      const hijacked = await executeWorkbenchAction({ project: project(), path: getTempDir() }, {
+        actionType: "apply-check.run",
+        changeId: "demand-a",
+        worktreeIds: [worktreeB.metadata.worktreeId, worktreeB2.metadata.worktreeId],
+        confirm: true,
+      });
+      expect(hijacked.result.status).toBe("failed");
+      expect(hijacked.result.error).toMatch(/requested Change|stale/i);
+      await expect(runIntegrationCheck(project(), [worktreeB.metadata.worktreeId, worktreeB2.metadata.worktreeId], "demand-a")).rejects.toThrow(/requested Change/i);
+      await expect(listIntegrationChecks(memory)).resolves.toHaveLength(0);
+    } finally {
+      if (oldAhoHome === undefined) delete process.env.AHO_HOME;
+      else process.env.AHO_HOME = oldAhoHome;
+    }
+  }, 120_000);
+
+  it("runs an integration check in a temporary worktree without changing source root", async () => {
+    const oldAhoHome = process.env.AHO_HOME;
+    process.env.AHO_HOME = join(getTempDir(), ".aho-home");
+    try {
+      await initGitRepository(getTempDir());
+      await writeFile(join(getTempDir(), ".gitignore"), ".aho-home/\n.agent-harness/\nharness/\nAGENTS.md\ndocs/\nscripts/\n", "utf8");
+      await writeFile(join(getTempDir(), "package.json"), "{\"scripts\":{\"test\":\"node -e \\\"process.exit(0)\\\"\"}}\n", "utf8");
+      await git(getTempDir(), ["add", "."]);
+      await git(getTempDir(), ["commit", "-m", "initial"]);
+      await initHarness(project());
+      await writeRawActiveChange(getTempDir(), "demand-a", "Demand A");
+      await writeAcceptedSpecAndTasks("demand-a");
+      const memory = await resolveProjectMemory(project());
+      const worktreeA = await createWorktree(project(), memory, "demand-a");
+      await writeFile(join(worktreeA.metadata.checkoutPath, "a.txt"), "a\n", "utf8");
+      const diffA = await collectWorktreeDiff(memory, worktreeA.metadata.worktreeId, "demand-a");
+      await writeValidationResultWithHash("demand-a", "run-validation-a", worktreeA.metadata.worktreeId, diffA.diffHash, "passed");
+      await writeAuditResultWithHash("demand-a", "run-audit-a", worktreeA.metadata.worktreeId, diffA.diffHash, "approved");
+      const worktreeB = await createWorktree(project(), memory, "demand-a");
+      await writeFile(join(worktreeB.metadata.checkoutPath, "b.txt"), "b\n", "utf8");
+      const diffB = await collectWorktreeDiff(memory, worktreeB.metadata.worktreeId, "demand-a");
+      await writeValidationResultWithHash("demand-a", "run-validation-b", worktreeB.metadata.worktreeId, diffB.diffHash, "passed");
+      await writeAuditResultWithHash("demand-a", "run-audit-b", worktreeB.metadata.worktreeId, diffB.diffHash, "approved");
+
+      await acceptAllAuditGatesAndGetSnapshot("demand-a");
       const checked = await executeWorkbenchAction({ project: project(), path: getTempDir() }, {
         actionType: "apply-check.run",
         changeId: "demand-a",
@@ -363,24 +419,21 @@ describe("workbench apply and integration slow flows", () => {
       await git(getTempDir(), ["commit", "-m", "initial"]);
       await initHarness(project());
       await writeRawActiveChange(getTempDir(), "demand-a", "Demand A");
-      await writeRawActiveChange(getTempDir(), "demand-b", "Demand B");
       await writeAcceptedSpecAndTasks("demand-a");
-      await writeAcceptedSpecAndTasks("demand-b");
       const memory = await resolveProjectMemory(project());
       const worktreeA = await createWorktree(project(), memory, "demand-a");
       await writeFile(join(worktreeA.metadata.checkoutPath, "a.txt"), "a\n", "utf8");
       const diffA = await collectWorktreeDiff(memory, worktreeA.metadata.worktreeId, "demand-a");
       await writeValidationResultWithHash("demand-a", "run-validation-a", worktreeA.metadata.worktreeId, diffA.diffHash, "passed");
-      await writeAuditResultWithHash("demand-a", "run-audit-a", worktreeA.metadata.worktreeId, diffA.diffHash, "approved-with-notes");
-      const worktreeB = await createWorktree(project(), memory, "demand-b");
+      await writeAuditResultWithHash("demand-a", "run-audit-a", worktreeA.metadata.worktreeId, diffA.diffHash, "approved");
+      const worktreeB = await createWorktree(project(), memory, "demand-a");
       await writeFile(join(worktreeB.metadata.checkoutPath, "integration-validation-fail.txt"), "temporary aggregate failure marker\n", "utf8");
       await writeFile(join(worktreeB.metadata.checkoutPath, "b.txt"), "b\n", "utf8");
-      const diffB = await collectWorktreeDiff(memory, worktreeB.metadata.worktreeId, "demand-b");
-      await writeValidationResultWithHash("demand-b", "run-validation-b", worktreeB.metadata.worktreeId, diffB.diffHash, "passed");
-      await writeAuditResultWithHash("demand-b", "run-audit-b", worktreeB.metadata.worktreeId, diffB.diffHash, "approved-with-notes");
+      const diffB = await collectWorktreeDiff(memory, worktreeB.metadata.worktreeId, "demand-a");
+      await writeValidationResultWithHash("demand-a", "run-validation-b", worktreeB.metadata.worktreeId, diffB.diffHash, "passed");
+      await writeAuditResultWithHash("demand-a", "run-audit-b", worktreeB.metadata.worktreeId, diffB.diffHash, "approved");
 
-      await acceptAuditAndGetSnapshot("demand-a");
-      await acceptAuditAndGetSnapshot("demand-b");
+      await acceptAllAuditGatesAndGetSnapshot("demand-a");
       const checked = await executeWorkbenchAction({ project: project(), path: getTempDir() }, {
         actionType: "apply-check.run",
         changeId: "demand-a",
@@ -512,4 +565,15 @@ async function acceptAuditAndGetSnapshot(topicId: string) {
   await executeWorkbenchAction({ project: project(), path: getTempDir() }, { action: auditAccept, confirm: true });
   snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId });
   return snapshot;
+}
+
+async function acceptAllAuditGatesAndGetSnapshot(topicId: string) {
+  let snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId });
+  for (let index = 0; index < 10; index += 1) {
+    const auditAccept = snapshot.right.confirmationQueue.primary?.actions.find((action) => action.action?.actionId === "audit.accept")?.action;
+    if (!auditAccept) return snapshot;
+    await executeWorkbenchAction({ project: project(), path: getTempDir() }, { action: auditAccept, confirm: true });
+    snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId });
+  }
+  throw new Error(`Audit gate did not settle for ${topicId}.`);
 }

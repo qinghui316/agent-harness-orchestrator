@@ -6,8 +6,9 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 
 - Current date: 2026-06-25.
 - Active change: none.
-- Pending Harness evolution: none.
+- Pending Harness evolution: `harness/evolution/pending.md`.
 - Latest archived product audit: Workbench Goal Loop Decision Surface Audit V1, archived at `harness/changes/archive/20260625-workbench-goal-loop-decision-surface-audit-v1/summary.md`.
+- Latest archived boundary guard: Workbench Loop-Per-Change Boundary Guard V1, archived at `harness/changes/archive/20260625-workbench-loop-per-change-boundary-guard-v1/summary.md`.
 - Latest archived product change: Workbench Post-Plan Scoped Local Autonomy V1, archived at `harness/changes/archive/20260625-workbench-post-plan-scoped-local-autonomy-v1/summary.md`.
 - Previous post-plan automation hardening: Workbench Post-Plan Scoped Automation Execution V1, archived at `harness/changes/archive/20260625-workbench-post-plan-scoped-automation-execution-v1/summary.md`.
 - Previous planning/decomposition hardening: `harness/changes/archive/20260625-workbench-planning-decomposition-scope-honesty-v1/summary.md`.
@@ -53,6 +54,12 @@ rehydrates old projects opened by path when `.agent-harness/project.json` and
 the current `AHO_HOME/projects/<projectId>` memory exist; missing memory is
 shown as an explicit `AHO_HOME` mismatch instead of generic Harness
 uninitialized state.
+
+Latest boundary guard: one loop execution maps to one parent Change.
+Multi-worktree outputs may feed an IntegrationCheck only when all targets
+belong to that same Change; cross-Change merge remains a future explicit
+higher-level design. The close created `harness/evolution/pending.md`; do not
+auto-apply it without an explicit Harness evolution decision.
 
 Daily `npm run test:workbench` is the fast Workbench unit-capability gate; slow
 scheduler/apply/Goal Loop coverage remains in explicit release/deep scripts.

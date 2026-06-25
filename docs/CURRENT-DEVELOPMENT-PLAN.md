@@ -146,7 +146,9 @@ Current architecture debt register:
 ## Next Product Direction
 
 Current structured change: none.
-Pending Harness evolution: none.
+Pending Harness evolution: `harness/evolution/pending.md`.
+Latest boundary guard:
+`harness/changes/archive/20260625-workbench-loop-per-change-boundary-guard-v1/summary.md`.
 Latest product audit:
 `harness/changes/archive/20260625-workbench-goal-loop-decision-surface-audit-v1/summary.md`.
 Latest product hardening:
@@ -189,6 +191,11 @@ The latest scoped automation product change is
 `harness/changes/archive/20260624-workbench-scoped-automation-bounded-rework-acceptance-v1/summary.md`.
 Current baseline:
 
+- One loop execution is scoped to one parent Change. A long-lived demand may
+  continue through later loops, but each later implementation loop is a new
+  Change. Multi-worktree outputs may feed IntegrationCheck only within the
+  same Change; cross-Change merge must be a future explicit higher-level
+  merge/landing design.
 - Local manual-gated Workbench loop has real browser acceptance from ordinary
   demand through planning, decomposition/readiness, real `coder-codex`
   execution, validation/audit, result review, human apply, and close/archive.

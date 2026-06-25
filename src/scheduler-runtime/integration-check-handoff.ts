@@ -69,7 +69,7 @@ export async function runSchedulerIntegrationCheckHandoff(project: ManagedProjec
   }
 
   const readyTargets = await revalidateReadyTargets(project, candidate.readyTargets);
-  const integrationResult = await runIntegrationCheck(project, readyWorktreeIds);
+  const integrationResult = await runIntegrationCheck(project, readyWorktreeIds, input.changeId);
   const resultTargetWorktreeIds = integrationResult.check.resultTargets.map((item) => item.worktreeId);
   const handoffId = buildSchedulerIntegrationCheckHandoffId(run.id, candidate.id, readyWorktreeIds);
   const refs = schedulerIntegrationCheckHandoffArtifactRefs(memory, changePath, run.id, handoffId);

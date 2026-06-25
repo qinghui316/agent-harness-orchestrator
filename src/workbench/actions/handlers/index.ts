@@ -89,7 +89,7 @@ export function buildWorkbenchActionHandlers(deps: WorkbenchActionHandlerDeps): 
     return startAuditRun(project, { changeId, worktreeId: request.worktreeId, prompt: request.prompt ?? "Re-run audit for the selected result review evidence." });
   },
   "result.refresh-status": async (_project, changeId, request) => ({ status: "refreshed", changeId, worktreeId: request.worktreeId }),
-  "apply-check.run": async (project, _changeId, request) => runIntegrationCheck(project, request.worktreeIds ?? (request.worktreeId ? [request.worktreeId] : undefined)),
+  "apply-check.run": async (project, changeId, request) => runIntegrationCheck(project, request.worktreeIds ?? (request.worktreeId ? [request.worktreeId] : undefined), changeId),
   "landing.prepare": async (project, changeId, request, live) => prepareLandingForAction(project, changeId, request, live),
   "landing.review": async (project, changeId, request, live) => reviewLandingForAction(project, changeId, request, live),
   "landing.refresh": async (project, changeId, request, live) => prepareLandingForAction(project, changeId, request, live),
