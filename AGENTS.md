@@ -6,10 +6,11 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 
 - Current date: 2026-06-25.
 - Active change: none.
-- Pending Harness evolution: `harness/evolution/pending.md`.
+- Pending Harness evolution: none.
 - Latest archived product audit: Workbench Goal Loop Decision Surface Audit V1, archived at `harness/changes/archive/20260625-workbench-goal-loop-decision-surface-audit-v1/summary.md`.
 - Latest archived boundary guard: Workbench Loop-Per-Change Boundary Guard V1, archived at `harness/changes/archive/20260625-workbench-loop-per-change-boundary-guard-v1/summary.md`.
 - Latest archived product acceptance: Workbench Confirmation Feedback Real UI Scout V1, archived at `harness/changes/archive/20260625-workbench-confirmation-feedback-real-ui-scout-v1/summary.md`.
+- Latest completed Harness evolution: `harness/changes/archive/20260625-auto-evolve-post-feedback-real-ui-window/summary.md` (`noop`; subagent review score 88; no ECL/template/lint/product runtime change).
 - Previous archived product change: Workbench Confirmation Feedback To Rework V1, archived at `harness/changes/archive/20260625-workbench-confirmation-feedback-to-rework-v1/summary.md`.
 - Previous post-apply landing autonomy: `harness/changes/archive/20260625-workbench-post-apply-local-landing-autonomy-v1/summary.md`.
 - Previous Codex Plan Mode + Post-Plan Local Autonomy V1: `harness/changes/archive/20260625-workbench-codex-plan-mode-post-plan-local-autonomy-v1/summary.md`.
@@ -19,7 +20,7 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 - Previous external-local restore change: `harness/changes/archive/20260625-workbench-external-local-restore-v1/summary.md`.
 - Latest archived Harness docs change: Minimality Gate And Complexity Review, archived at `harness/changes/archive/20260625-document-minimality-gate-and-complexity-review/summary.md`.
 - Previous scheduler apply/discard hardening: `harness/changes/archive/20260625-workbench-scheduler-integration-apply-discard-real-acceptance-v1/summary.md`.
-- Latest completed Harness evolution: `harness/changes/archive/20260625-auto-evolve-post-loop-boundary-window/summary.md` (`docs_merge`; subagent review score 84; no ECL/template/lint/product runtime change).
+- Previous completed Harness evolution: `harness/changes/archive/20260625-auto-evolve-post-loop-boundary-window/summary.md` (`docs_merge`; subagent review score 84; no ECL/template/lint/product runtime change).
 - Other recent archives are discoverable via `docs/STATUS.md` and `harness/changes/INDEX.json`; avoid expanding this entry map into a phase ledger.
 
 Current baseline: the local manual-gated Workbench loop has real browser

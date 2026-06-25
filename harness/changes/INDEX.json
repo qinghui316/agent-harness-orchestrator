@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-25T13:49:48.0778623Z",
+    "generated_at":  "2026-06-25T14:03:19.3694011Z",
     "active":  [
 
                ],
@@ -1865,6 +1865,10 @@
                     {
                         "name":  "20260624-workbench-two-tier-scoped-automation-authorization-v1",
                         "path":  "harness/changes/archive/20260624-workbench-two-tier-scoped-automation-authorization-v1"
+                    },
+                    {
+                        "name":  "20260625-auto-evolve-post-feedback-real-ui-window",
+                        "path":  "harness/changes/archive/20260625-auto-evolve-post-feedback-real-ui-window"
                     },
                     {
                         "name":  "20260625-auto-evolve-post-goal-loop-decision-surface-window",

@@ -147,8 +147,10 @@ Current architecture debt register:
 ## Next Product Direction
 
 Current structured change: none.
-Pending Harness evolution: `harness/evolution/pending.md`.
-It was generated after `harness/changes/archive/20260625-workbench-confirmation-feedback-real-ui-scout-v1/summary.md` closed; handle it as a separate human-gated Harness evolution change.
+Pending Harness evolution: none.
+Latest completed Harness evolution:
+`harness/changes/archive/20260625-auto-evolve-post-feedback-real-ui-window/summary.md`.
+It evaluated the window generated after `harness/changes/archive/20260625-workbench-confirmation-feedback-real-ui-scout-v1/summary.md` closed as a separate human-gated Harness evolution pass and completed as `noop`.
 Latest product change:
 `harness/changes/archive/20260625-workbench-confirmation-feedback-real-ui-scout-v1/summary.md`.
 It verifies confirmation-point feedback in real Workbench UI. Plan feedback
@@ -249,8 +251,8 @@ Current baseline:
 Latest evolution and archive lookup:
 
 - Latest Harness evolution:
-  `harness/changes/archive/20260625-auto-evolve-post-loop-boundary-window/summary.md`.
-  Result: `docs_merge`; subagent review score 84; no
+  `harness/changes/archive/20260625-auto-evolve-post-feedback-real-ui-window/summary.md`.
+  Result: `noop`; subagent review score 88; no
   ECL/template/lint/product runtime change.
 - Current pending Harness evolution: none.
 - Use archived summaries and `harness/changes/INDEX.json` for detailed real UI
