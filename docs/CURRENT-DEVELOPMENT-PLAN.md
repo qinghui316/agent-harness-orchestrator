@@ -128,9 +128,9 @@ evidence-bound scheduler/action execution plus human gates.
 
 ## Architecture Growth Control
 
-The near-term development posture is convergence before expansion. Future structured changes should first ask which core mechanism they reuse or strengthen, and only then add feature-specific behavior. Do not continue adding pure evidence-only, report, manifest, descriptor, or local projection phases unless they reuse an existing core mechanism and clearly lower the cost of later similar work.
+The near-term development posture is convergence before expansion. Future structured changes should use this ladder before writing feature code: delete or no-op, reuse an existing owner/helper, extend an existing shared owner, add a reusable owner only when needed, and use feature-local logic only when the plan explains why the earlier steps are insufficient. Do not continue adding pure evidence-only, report, manifest, descriptor, or local projection phases unless they replace older complexity or clearly make a real product action reachable.
 
-The rule is not "fewer files" or "never add modules." It is "no repeated local frameworks." A new owned module is acceptable when it becomes the reusable owner for a cross-cutting concern; a feature-local state machine, artifact protocol, safety gate, projection system, or ledger policy is not acceptable when an existing shared owner can be extended.
+The rule is not "fewer files" or "never add modules." It is "no repeated local frameworks." A new owned module is acceptable when it becomes the reusable owner for a cross-cutting concern; a one-off helper or single-use abstraction is not architecture improvement by itself. A feature-local state machine, artifact protocol, safety gate, projection system, or ledger policy is not acceptable when an existing shared owner can be extended.
 
 Current architecture debt register:
 
@@ -145,7 +145,9 @@ Current architecture debt register:
 
 ## Next Product Direction
 
-Current structured product change: none.
+Current structured change: none.
+Latest Harness docs change:
+`harness/changes/archive/20260625-document-minimality-gate-and-complexity-review/summary.md`.
 Pending Harness evolution: none. The five-archive window ending with scheduler
 integration apply/discard hardening was archived as
 `harness/changes/archive/20260625-auto-evolve-post-scheduler-integration-window/summary.md`

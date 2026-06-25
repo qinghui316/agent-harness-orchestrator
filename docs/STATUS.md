@@ -6,6 +6,7 @@
 - Active ECL change: none.
 - Pending Harness evolution: none.
 - Latest archived product change: `harness/changes/archive/20260625-workbench-external-local-restore-v1/summary.md`.
+- Latest archived Harness docs change: `harness/changes/archive/20260625-document-minimality-gate-and-complexity-review/summary.md`.
 - Previous scheduler integration apply/discard hardening: `harness/changes/archive/20260625-workbench-scheduler-integration-apply-discard-real-acceptance-v1/summary.md`.
 - Latest real UI continuation scout: `harness/changes/archive/20260624-workbench-real-ui-continuation-next-blocker-scout/summary.md`.
 - Latest bounded continuation runtime: `harness/changes/archive/20260624-goal-driven-controlled-continuation-runtime-v1/summary.md`.
@@ -99,6 +100,11 @@ scripts.
 ## Next Resume Point
 
 No active change and no pending evolution.
+
+Latest Harness docs change added a lightweight Minimal Implementation Gate and
+Complexity Deletion Review to AHO docs/templates so future changes check
+delete/reuse/YAGNI before adding new layers. This was docs/Harness only;
+product runtime remains unchanged.
 
 Next product-sized blocker: planning/decomposition scope honesty for
 low-conflict scheduler demands. When a user constrains the change to explicit

@@ -74,6 +74,36 @@ When a user gives a plan, split it into:
 
 Do not repeat a full interview when the plan is complete and does not conflict with repository evidence.
 
+## 6A. Minimality / Complexity Control
+
+Structured plans must record the smallest coherent implementation path. Before
+adding product code, Harness rules, templates, projections, evidence families,
+or cross-cutting protocols, the plan should check whether the work can be a
+no-op, reuse an existing owner/helper/mechanism, use platform/stdlib/current
+dependencies, fix a shared root cause, delete or merge old logic, or shrink the
+change.
+
+Bug fixes should inspect likely callers, route owners, and shared helpers before
+adding local guards to one path. New modules are justified when they become a
+reusable owner for a responsibility; a one-off feature helper is not an
+architecture improvement by itself.
+
+Product/code/Harness-template/rule changes must include a lightweight
+`Complexity Deletion Review` in `reviews/review.md`. Keep it short:
+
+```text
+delete: none | ...
+reuse: existing owner/helper/mechanism used: ...
+yagni: avoided: ...
+shrink: simpler alternative checked: ...
+net: Lean already. | approx -N lines possible but deferred because ...
+```
+
+Docs-only wording changes may mark it not applicable. This review is
+supplemental; it must not replace correctness, security, source safety,
+validation/audit, stale-target, ToolPolicyGate, human-gate, or required coverage
+checks.
+
 ## 7. Change Lifecycle
 
 ```text

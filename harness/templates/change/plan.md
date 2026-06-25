@@ -12,6 +12,14 @@ TBD
 
 - TBD
 
+## Minimality Gate Plan
+
+- Can this be a no-op: TBD.
+- Reuse: existing owner/helper/mechanism considered: TBD.
+- Shared root fix: callers / route owners / shared helpers checked: TBD.
+- Avoided: local framework / single-use abstraction / future-only branch avoided: TBD.
+- Smallest coherent change: TBD.
+
 ## Module Boundary Plan
 
 - Owner module: TBD or not applicable.

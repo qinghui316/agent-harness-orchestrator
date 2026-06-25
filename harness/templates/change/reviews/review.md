@@ -15,6 +15,16 @@ Pending.
 - Rationale for selected scope: pending.
 - If an aggregate Workbench / slow suite exceeded the tool window: record timeout, split suite members run, pass/fail status, and whether the timeout is product failure or verification runtime-cost debt.
 
+## Complexity Deletion Review
+
+- Complexity deletion review applicable: yes for product/code/Harness-template/rule changes; docs-only wording changes may mark this not applicable.
+- delete: none.
+- reuse: existing owner/helper/mechanism used: pending.
+- yagni: avoided: pending.
+- shrink: simpler alternative checked: pending.
+- net: Lean already.
+- Note: this is supplemental and does not replace correctness, security, source safety, validation/audit, stale-target, ToolPolicyGate, human-gate, or required coverage checks.
+
 ## Acceptance Feedback
 
 - Real/manual acceptance performed: no.

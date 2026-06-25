@@ -8,6 +8,7 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 - Active change: none.
 - Pending Harness evolution: none.
 - Latest archived product change: Workbench External-Local Restore V1, archived at `harness/changes/archive/20260625-workbench-external-local-restore-v1/summary.md`.
+- Latest archived Harness docs change: Minimality Gate And Complexity Review, archived at `harness/changes/archive/20260625-document-minimality-gate-and-complexity-review/summary.md`.
 - Previous scheduler apply/discard hardening: `harness/changes/archive/20260625-workbench-scheduler-integration-apply-discard-real-acceptance-v1/summary.md`.
 - Latest completed Harness evolution: `harness/changes/archive/20260625-auto-evolve-post-scheduler-integration-window/summary.md` (`docs_merge`; no ECL/template/lint or product runtime change).
 - Other recent archives are discoverable via `docs/STATUS.md` and `harness/changes/INDEX.json`; avoid expanding this entry map into a phase ledger.
@@ -99,6 +100,17 @@ Structured work needs:
 - `reviews/review.md` for independent review, coverage, and verification.
 
 High-impact unknowns are recorded as `[NEEDS CLARIFICATION: ...]` and resolved before implementation.
+
+## 5A. Minimal Implementation Gate
+
+Before adding code or a Harness rule, check in order: can this be a no-op, can
+an existing owner/helper solve it, can platform/stdlib/current dependencies
+solve it, can the shared root cause be fixed instead of one caller, and only
+then write the smallest coherent implementation. New evidence, projection,
+summary, descriptor, or local framework layers are not justified unless they
+replace an older layer or make a real product action reachable. This gate must
+not weaken validation, source safety, stale revalidation, ToolPolicyGate, human
+gates, security, or required tests.
 
 ## 6. Verification
 
