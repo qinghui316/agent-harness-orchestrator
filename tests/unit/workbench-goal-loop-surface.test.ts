@@ -172,7 +172,6 @@ describe("workbench Goal Loop surface", () => {
         recommendedActionScope: {
           changeId: "member-discount",
           schedulerRunId: "scheduler-run-1",
-          schedulerClaimReservationId: "claim-reservation-expected",
         },
         artifact: "harness/changes/active/member-discount/goal-loop/continuation.md",
         nextStepPacketArtifact: "harness/changes/active/member-discount/goal-loop/next-step.json",
@@ -249,7 +248,6 @@ describe("workbench Goal Loop surface", () => {
         recommendedActionScope: {
           changeId: "member-discount",
           schedulerRunId: "scheduler-run-1",
-          schedulerClaimReservationId: "claim-reservation-expected",
         },
         artifact: "harness/changes/active/member-discount/goal-loop/continuation.md",
         nextStepPacketArtifact: "harness/changes/active/member-discount/goal-loop/next-step.json",

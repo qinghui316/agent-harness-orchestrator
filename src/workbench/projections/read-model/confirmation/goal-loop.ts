@@ -499,8 +499,9 @@ function goalLoopControllerRefreshAction(workpad: WorkbenchWorkpad): WorkbenchDe
   const expectedType = readGoalLoopActionType(goalLoop);
   if (!goalLoop?.goalLoopNextStepPacketId || !nextAction.actionType || !expectedType || !scope) return null;
   if (nextAction.actionType !== expectedType) return null;
+  const actionScope = mergeGoalLoopScopeWithNextActionScope(scope, nextAction);
   return {
-    ...scope,
+    ...actionScope,
     id: `workflow:planning.goal-loop.controller.refresh:${goalLoop.goalLoopNextStepPacketId}`,
     label: "刷新下一步判断",
     kind: "workflow-action",
@@ -525,8 +526,9 @@ function goalLoopGateReadinessAction(workpad: WorkbenchWorkpad): WorkbenchDecisi
   if (!goalLoop?.goalLoopNextStepPacketId || !goalLoop.controllerPolicyId || !nextAction.actionType || !expectedType || !scope) return null;
   if (expectedType.startsWith("planning.goal-loop.")) return null;
   if (nextAction.actionType !== expectedType) return null;
+  const actionScope = mergeGoalLoopScopeWithNextActionScope(scope, nextAction);
   return {
-    ...scope,
+    ...actionScope,
     id: `workflow:planning.goal-loop.gate-readiness.prepare:${goalLoop.controllerPolicyId}`,
     label: "检查当前步骤",
     kind: "workflow-action",

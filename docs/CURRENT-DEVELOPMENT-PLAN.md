@@ -10,12 +10,14 @@ The user should not need to know internal terms before asking for work. The main
 
 ## Goal-Driven Workflow Loop Target
 
-Latest implementation slice:
-`harness/changes/archive/20260625-workbench-codex-backed-integrationfix-real-repair-v1/summary.md`.
-It kept the existing IntegrationCheck owner and turned failed aggregate
-conflict/validation/audit repair into a real Codex-backed bounded repair in the
-integration fix checkout. It did not implement a new workflow runtime, full
-parallel executor, or automatic integration apply/discard.
+Latest implementation and acceptance slice:
+`harness/changes/archive/20260626-workbench-integrationfix-real-ui-acceptance-v1/summary.md`.
+It verified the existing IntegrationCheck / IntegrationFix owner path through
+real E-drive Workbench UI: low-conflict workers, ready integration candidate,
+manual IntegrationCheck, real aggregate failure, Codex-backed repair in the
+integration fix checkout, repaired patch, aggregate validation/audit pass, and
+final human integration apply/discard gate. It did not implement a new workflow
+runtime, full parallel executor, or automatic integration apply/discard.
 
 The target architecture is a Goal-driven Workflow Loop, not a Scheduler-first
 product. After the user confirms the goal, boundaries, accepted plan, and
@@ -158,6 +160,10 @@ Pending Harness evolution: none.
 Latest completed Harness evolution:
 `harness/changes/archive/20260625-auto-evolve-post-feedback-real-ui-window/summary.md`.
 It evaluated the window generated after `harness/changes/archive/20260625-workbench-confirmation-feedback-real-ui-scout-v1/summary.md` closed as a separate human-gated Harness evolution pass and completed as `noop`.
+Latest product acceptance:
+`harness/changes/archive/20260626-workbench-integrationfix-real-ui-acceptance-v1/summary.md`.
+It confirms real UI acceptance for Codex-backed IntegrationFix and keeps
+integration apply/discard human-gated.
 Latest product change:
 `harness/changes/archive/20260625-workbench-scheduler-worker-progression-to-integration-candidate-v1/summary.md`.
 It confirms that existing scheduler owners already cover same-Change

@@ -55,6 +55,66 @@ describe("workbench planning and scheduler preparation", () => {
     expect(bundle.tasksMd).toContain("src/beta.ts");
   });
 
+  it("preserves scoped tasks from a Codex proposed plan instead of collapsing to one worktree", async () => {
+    await initHarness(project());
+    const memory = await resolveProjectMemory(project());
+    const prompt = "请做一个低冲突两文件改动：把 src/alpha.ts 和 src/beta.ts 分别更新，后续组合问题由 IntegrationFix 处理。";
+    const proposedPlanMd = [
+      "目标:",
+      "- 低冲突 TaskGraph，两项任务互不重叠。",
+      "",
+      "任务清单:",
+      "- [ ] T-001: 修改 `src/alpha.ts` 的 alphaMode，覆盖 AC-001。",
+      "- [ ] T-002: 修改 `src/beta.ts` 的 betaMode，覆盖 AC-002。",
+      "",
+      "验证:",
+      "- 两个 worker 先独立验证，再进入组合检查。",
+    ].join("\n");
+
+    const bundle = buildDeterministicPlanningBundle(memory, "harness/changes/active/proposed-plan-parallel", "proposed-plan-parallel", prompt, null, false, {
+      proposedPlanMd,
+      planningMode: "prompt-plan-contract",
+    });
+
+    expect(bundle.tasks).toEqual([
+      expect.objectContaining({ id: "T-001", title: expect.stringContaining("src/alpha.ts") }),
+      expect.objectContaining({ id: "T-002", title: expect.stringContaining("src/beta.ts") }),
+    ]);
+
+    const plan = buildDeterministicDecompositionPlan(memory, "harness/changes/active/proposed-plan-parallel", "proposed-plan-parallel", bundle, [], undefined);
+    expect(plan).toMatchObject({
+      recommendation: "taskgraph-parallel-candidate",
+      units: [
+        expect.objectContaining({ taskIds: ["T-001"], scopeHints: ["src/alpha.ts"], dependsOn: [] }),
+        expect.objectContaining({ taskIds: ["T-002"], scopeHints: ["src/beta.ts"], dependsOn: [] }),
+      ],
+      dependencies: [],
+      conflictScopes: ["src/alpha.ts", "src/beta.ts"],
+    });
+  });
+
+  it("does not treat negated source paths as accepted scheduler source scopes", async () => {
+    await initHarness(project());
+    const memory = await resolveProjectMemory(project());
+    const prompt = "请把这个需求作为低冲突 TaskGraph 执行：任务 A 只修改 src/alpha.ts，把 alphaMode 从 legacy 改成 modern；任务 B 只修改 src/beta.ts，把 betaMode 从 legacy 改成 modern。两个任务 sourceScopes 必须分别是 src/alpha.ts 和 src/beta.ts，互不重叠、无依赖；不要在 worker 阶段新增 src/integration-note.ts，组合验证需要时由 IntegrationFix 处理。";
+
+    const bundle = buildDeterministicPlanningBundle(memory, "harness/changes/active/negated-scope", "negated-scope", prompt, null, false);
+
+    expect(bundle.sourceScopeConstraints).toEqual(["src/alpha.ts", "src/beta.ts"]);
+    expect(bundle.tasks).toEqual([
+      expect.objectContaining({ id: "T-001", title: expect.stringContaining("src/alpha.ts") }),
+      expect.objectContaining({ id: "T-002", title: expect.stringContaining("src/beta.ts") }),
+    ]);
+
+    const plan = buildDeterministicDecompositionPlan(memory, "harness/changes/active/negated-scope", "negated-scope", bundle, [], undefined);
+    expect(plan).toMatchObject({
+      recommendation: "taskgraph-parallel-candidate",
+      conflictScopes: ["src/alpha.ts", "src/beta.ts"],
+      sourceScopeConstraints: ["src/alpha.ts", "src/beta.ts"],
+      scopeExpansions: [],
+    });
+  });
+
   it("does not treat active-change safety warnings as multi-change implementation intent", async () => {
     await initHarness(project());
     const memory = await resolveProjectMemory(project());

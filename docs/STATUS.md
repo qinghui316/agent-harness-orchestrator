@@ -2,10 +2,11 @@
 
 ## Current Handoff
 
-- Current date: 2026-06-25.
+- Current date: 2026-06-26.
 - Active ECL change: none.
 - Pending Harness evolution: none.
 - Latest archived product audit: `harness/changes/archive/20260625-workbench-goal-loop-decision-surface-audit-v1/summary.md`.
+- Latest archived product acceptance: `harness/changes/archive/20260626-workbench-integrationfix-real-ui-acceptance-v1/summary.md`.
 - Latest archived product change: `harness/changes/archive/20260625-workbench-codex-backed-integrationfix-real-repair-v1/summary.md`.
 - Previous scheduler progression: `harness/changes/archive/20260625-workbench-scheduler-worker-progression-to-integration-candidate-v1/summary.md`.
 - Latest archived boundary guard: `harness/changes/archive/20260625-workbench-loop-per-change-boundary-guard-v1/summary.md`.
@@ -30,13 +31,21 @@
 - Latest scheduler IntegrationCheck acceptance: `harness/changes/archive/20260625-workbench-scheduler-integrationcheck-real-acceptance-v1/summary.md`.
 - Latest scheduler integration apply/discard hardening: `harness/changes/archive/20260625-workbench-scheduler-integration-apply-discard-real-acceptance-v1/summary.md`.
 
-Latest product closeout:
+Latest product acceptance:
+`harness/changes/archive/20260626-workbench-integrationfix-real-ui-acceptance-v1/summary.md`.
+It verified the Codex-backed IntegrationFix path through real Workbench UI in
+`E:\aho-accept\integrationfix-real-ui-v1`: two same-Change scheduler worker
+worktrees reached a ready candidate, IntegrationCheck hit a real aggregate
+validation failure, Codex repaired the integration checkout, aggregate
+validation/audit passed, and Workbench stopped at the human integration
+apply/discard gate. Marker-only repair was not used as product acceptance.
+
+Previous product closeout:
 `harness/changes/archive/20260625-workbench-codex-backed-integrationfix-real-repair-v1/summary.md`.
 It upgrades IntegrationFix from marker-only repair to Codex-backed bounded
 repair in the integration fix checkout. Failed conflict, aggregate validation,
 or aggregate audit paths can now create a repaired artifact only after Codex
-produces a real checkout diff and aggregate validation/audit pass. Integration
-apply/discard remains human-gated, and marker deletion is test-only.
+produces a real checkout diff and aggregate validation/audit pass.
 
 Previous product closeout:
 `harness/changes/archive/20260625-workbench-scheduler-worker-progression-to-integration-candidate-v1/summary.md`.
@@ -192,11 +201,12 @@ scripts.
 
 Active change: none.
 
-Recommended next resume point: choose the next concrete product capability or
-blocker scout from existing Workbench gate/action/runtime owners. Do not add a
-new scheduler framework after the latest closeout confirmed the current
-same-Change worker progression path and terminal IntegrationCheck handoff are
-covered by existing owners. No pending Harness evolution.
+Recommended next resume point: choose the next concrete product capability
+from existing Workbench gate/action/runtime owners. The Codex-backed
+IntegrationFix branch now has real UI acceptance through repair and the final
+human integration apply/discard gate. Do not widen `完全访问权限` into raw
+scheduler, integration apply/discard, remote, merge, PR, or Harness evolution
+without a separate structured change.
 
 Latest completed Harness evolution:
 `harness/changes/archive/20260625-auto-evolve-post-feedback-real-ui-window/summary.md`.

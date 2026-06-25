@@ -9,7 +9,11 @@ vi.mock("../../src/workbench/projections/read-model/implementation.js", () => ({
   getWorkbenchWorkpadProjection: mocks.getWorkbenchWorkpadProjection,
 }));
 
-import { currentGateSnapshotFromRequest, resolveVisibleControlledSchedulerCurrentGate } from "../../src/workbench/actions/visible-goal-loop-current-gate.js";
+import {
+  currentGateSnapshotFromRequest,
+  resolveVisibleControlledSchedulerAdvanceRequest,
+  resolveVisibleControlledSchedulerCurrentGate,
+} from "../../src/workbench/actions/visible-goal-loop-current-gate.js";
 
 const project: ManagedProject = {
   id: "repo",
@@ -161,5 +165,50 @@ describe("visible Goal Loop current gate proof", () => {
         schedulerClaimReservationId: "claim-reservation-1",
       },
     });
+  });
+
+  it("stops controlled continuation at the manual IntegrationCheck gate", async () => {
+    mocks.getWorkbenchWorkpadProjection.mockResolvedValue({
+      goalLoop: {
+        changeId: "change-1",
+        goalLoopNextStepPacketId: "goal-loop-packet-post",
+        controllerPolicyId: "controller-policy-1",
+        gateReadinessPreflightId: "preflight-1",
+        controllerVerdict: "recommend-existing-gate",
+        controllerGateStatus: "matches-current-gate",
+        recommendationState: "ready-for-existing-gate",
+        continuationState: "ready-for-existing-gate",
+        recommendedActionType: "planning.scheduler.integration-check.run",
+        recommendedActionScope: {
+          changeId: "change-1",
+          schedulerRunId: "scheduler-run-1",
+          schedulerIntegrationCandidateId: "candidate-1",
+          schedulerClaimReservationId: "claim-reservation-1",
+          schedulerReconcileSnapshotId: "snapshot-1",
+          worktreeIds: ["wt-1", "wt-2"],
+        },
+        executionStarted: false,
+      },
+      nextAction: {
+        kind: "workflow-action",
+        enabled: true,
+        requiresConfirmation: true,
+        actionType: "planning.scheduler.integration-check.run",
+        changeId: "change-1",
+        schedulerRunId: "scheduler-run-1",
+        schedulerIntegrationCandidateId: "candidate-1",
+        schedulerClaimReservationId: "claim-reservation-1",
+        schedulerReconcileSnapshotId: "snapshot-1",
+        worktreeIds: ["wt-1", "wt-2"],
+      },
+    });
+
+    const result = await resolveVisibleControlledSchedulerAdvanceRequest(project, "change-1");
+
+    expect(result).toMatchObject({
+      stopReason: "high-impact-terminal-gate",
+      summary: expect.stringContaining("planning.scheduler.integration-check.run"),
+    });
+    expect(result).not.toHaveProperty("request");
   });
 });

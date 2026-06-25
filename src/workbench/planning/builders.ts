@@ -37,11 +37,16 @@ export function buildDeterministicPlanningBundle(
   const acceptanceCriteria = buildAcceptanceCriteria(goal, constraints);
   const acIds = acceptanceCriteria.map((_item, index) => `AC-${String(index + 1).padStart(3, "0")}`);
   const explicitSourceScopes = extractExplicitSourceScopes(goal);
-  const parallelSignal = /并行|parallel|多个模块|多模块|independent|独立/.test(goal);
-  const tasks = parallelSignal && explicitSourceScopes.length >= 2
-    ? explicitSourceScopes.slice(0, 8).map((scope, index) => ({
+  const planningSignalText = [goal, options.proposedPlanMd].filter(Boolean).join("\n");
+  const proposedTaskSpecs = extractScopedTaskSpecs(options.proposedPlanMd ?? "");
+  const scopedTaskSpecs = proposedTaskSpecs.length >= 2
+    ? proposedTaskSpecs
+    : explicitSourceScopes.map((scope) => ({ scope, title: taskTitleForSourceScope(scope, goal) }));
+  const parallelSignal = hasParallelPlanningSignal(planningSignalText);
+  const tasks = parallelSignal && scopedTaskSpecs.length >= 2
+    ? scopedTaskSpecs.slice(0, 8).map((task, index) => ({
         id: `T-${String(index + 1).padStart(3, "0")}`,
-        title: taskTitleForSourceScope(scope, goal),
+        title: task.title,
         acIds,
       }))
     : [
@@ -89,10 +94,10 @@ export function buildDeterministicDecompositionPlan(
   const now = new Date().toISOString();
   const id = `decomposition-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
   const threadText = thread.map((entry) => entry.text ?? "").join("\n");
-  const signalText = [bundle?.goal, bundle?.design, prompt, threadText].filter(Boolean).join("\n");
+  const signalText = [bundle?.goal, bundle?.proposedPlanMd, bundle?.design, prompt, threadText].filter(Boolean).join("\n");
   const tasks = bundle?.tasks.length ? bundle.tasks : [{ id: "T-001", title: bundle?.goal ?? "Clarify and implement the accepted demand.", acIds: [] }];
   const asksClarification = (bundle?.openQuestions.length ?? 0) > 0 || /不明确|澄清|clarify/i.test(signalText);
-  const parallelSignal = /并行|parallel|多个模块|多模块|independent|独立/.test(signalText);
+  const parallelSignal = hasParallelPlanningSignal(signalText);
   const multiChangeSignal = hasMultiChangeImplementationSignal(signalText);
   const recommendation: DecompositionRecommendation = asksClarification
     ? "needs-clarification"
@@ -296,6 +301,9 @@ function extractExplicitSourceScopes(text: string): string[] {
   const scopes: string[] = [];
   const seen = new Set<string>();
   for (const match of matches) {
+    const index = match.index ?? 0;
+    const before = text.slice(Math.max(0, index - 32), index);
+    if (isNegatedSourceScopeMention(before)) continue;
     const scope = match[0].replace(/\\/g, "/").replace(/[),;，。；、]+$/g, "");
     if (!isSpecificSourceScope(scope)) continue;
     const normalized = normalizeScope(scope);
@@ -304,6 +312,42 @@ function extractExplicitSourceScopes(text: string): string[] {
     scopes.push(scope);
   }
   return scopes;
+}
+
+function extractScopedTaskSpecs(text: string): Array<{ scope: string; title: string }> {
+  if (!text.trim()) return [];
+  const specs: Array<{ scope: string; title: string }> = [];
+  const seen = new Set<string>();
+  for (const line of text.split(/\r?\n/)) {
+    if (!/(?:^|\s|[-*])(?:\[.\]\s*)?(?:T-\d{3}|任务\s*[A-Za-z0-9一二三四五六七八九十]+)/i.test(line)) continue;
+    const scope = extractExplicitSourceScopes(line)[0];
+    if (!scope) continue;
+    const normalized = normalizeScope(scope);
+    if (seen.has(normalized)) continue;
+    seen.add(normalized);
+    specs.push({ scope, title: taskTitleFromPlanLine(line, scope) });
+  }
+  return specs;
+}
+
+function taskTitleFromPlanLine(line: string, scope: string): string {
+  const cleaned = line
+    .replace(/^\s*[-*]\s*/, "")
+    .replace(/^\[.\]\s*/, "")
+    .replace(/^T-\d{3}\s*[:：-]?\s*/i, "")
+    .replace(/^任务\s*[A-Za-z0-9一二三四五六七八九十]+\s*[:：-]?\s*/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  const title = cleaned || `Update ${scope}`;
+  return title.length > 96 ? `${title.slice(0, 93)}...` : title;
+}
+
+function hasParallelPlanningSignal(text: string): boolean {
+  return /并行|parallel|多个模块|多模块|independent|独立|低冲突|source\s*Scopes?|sourceScopes|互不重叠|无依赖|两个\s*(?:worker|任务|文件)|two[-\s]?(?:file|task|worker)/i.test(text);
+}
+
+function isNegatedSourceScopeMention(before: string): boolean {
+  return /(?:不要|不得|禁止|不修改|不新增|不允许|不能|无需|无须|not|never|without|do\s+not|don't)\s*(?:在\s*\w+\s*阶段\s*)?(?:修改|新增|创建|add|modify|create)?\s*$/i.test(before);
 }
 
 function findOverlappingSourceScopes(units: DecompositionUnit[]): string[] {

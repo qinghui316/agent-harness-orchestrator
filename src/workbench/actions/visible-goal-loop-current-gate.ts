@@ -43,7 +43,7 @@ export async function resolveVisibleControlledSchedulerAdvanceRequest(
   if (nextAction.changeId !== changeId) {
     return { stopReason: "stale-target", summary: "当前 gate 已漂移到其他 Change。" };
   }
-  if (isTerminalHighImpactGate(nextAction.actionType)) {
+  if (isTerminalHighImpactGate(nextAction.actionType) || isManualSchedulerBarrierGate(nextAction.actionType)) {
     return { stopReason: "high-impact-terminal-gate", summary: `已停在需要单独人工确认的终点 gate：${nextAction.actionType}。` };
   }
   if (!goalLoop?.goalLoopNextStepPacketId || !goalLoop.controllerPolicyId || !goalLoop.gateReadinessPreflightId) {
@@ -174,4 +174,8 @@ function isTerminalHighImpactGate(actionType: string): boolean {
     || actionType.startsWith("pr-")
     || actionType.startsWith("post-merge.")
     || actionType.startsWith("maintenance.");
+}
+
+function isManualSchedulerBarrierGate(actionType: string): boolean {
+  return actionType === "planning.scheduler.integration-check.run";
 }

@@ -4,10 +4,11 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 
 ## 1. Current Handoff
 
-- Current date: 2026-06-25.
+- Current date: 2026-06-26.
 - Active change: none.
 - Pending Harness evolution: none.
 - Latest archived product audit: Workbench Goal Loop Decision Surface Audit V1, archived at `harness/changes/archive/20260625-workbench-goal-loop-decision-surface-audit-v1/summary.md`.
+- Latest archived product acceptance: Workbench IntegrationFix Real UI Acceptance V1, archived at `harness/changes/archive/20260626-workbench-integrationfix-real-ui-acceptance-v1/summary.md`.
 - Latest archived product change: Workbench Codex-Backed IntegrationFix Real Repair V1, archived at `harness/changes/archive/20260625-workbench-codex-backed-integrationfix-real-repair-v1/summary.md`.
 - Previous scheduler progression: `harness/changes/archive/20260625-workbench-scheduler-worker-progression-to-integration-candidate-v1/summary.md`.
 - Latest archived boundary guard: Workbench Loop-Per-Change Boundary Guard V1, archived at `harness/changes/archive/20260625-workbench-loop-per-change-boundary-guard-v1/summary.md`.
@@ -38,6 +39,15 @@ inside the integration fix checkout. Attempts record repair mode, Codex run id,
 run artifact refs, repaired patch hash, and summary. Marker deletion remains
 only an explicit deterministic test helper. IntegrationCheck and integration
 apply/discard remain human-gated.
+
+Latest IntegrationFix real UI acceptance:
+`harness/changes/archive/20260626-workbench-integrationfix-real-ui-acceptance-v1/summary.md`.
+It verified the E-drive Workbench UI path through two same-Change scheduler
+worker worktrees, ready integration candidate, IntegrationCheck, real
+Codex-backed IntegrationFix in the integration fix checkout, repaired patch,
+aggregate validation/audit pass, and final human integration apply/discard
+gate. It also fixed the controlled-continuation boundary so
+`planning.scheduler.integration-check.run` remains a manual scheduler barrier.
 
 Current baseline: the local manual-gated Workbench loop has real browser
 acceptance through planning, code, validation/audit, human apply, and

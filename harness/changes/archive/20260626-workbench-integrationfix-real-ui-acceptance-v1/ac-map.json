@@ -1,0 +1,95 @@
+{
+  "version": "1.0",
+  "generatedAt": "2026-06-25T00:00:00.000Z",
+  "changeId": "workbench-integrationfix-real-ui-acceptance-v1",
+  "acceptanceCriteria": [
+    {
+      "id": "AC-001",
+      "text": "Workbench opens the E-drive external source/runtime home and uses browser UI as the primary acceptance surface.",
+      "taskIds": ["T-001", "T-002", "T-003", "T-007"],
+      "validationRefs": [],
+      "warnings": []
+    },
+    {
+      "id": "AC-002",
+      "text": "A normal low-conflict demand reaches two same-Change worker worktrees, Codex artifacts, worker validation/audit evidence, and a ready SchedulerIntegrationCandidate.",
+      "taskIds": ["T-003", "T-006"],
+      "validationRefs": [],
+      "warnings": []
+    },
+    {
+      "id": "AC-003",
+      "text": "The user manually confirms planning.scheduler.integration-check.run; raw scheduler and integration apply/discard actions are not auto-consumed.",
+      "taskIds": ["T-003", "T-004", "T-006"],
+      "validationRefs": [],
+      "warnings": []
+    },
+    {
+      "id": "AC-004",
+      "text": "A real aggregate validation or audit failure, not marker-only deletion, triggers Codex-backed IntegrationFix in the integration fix checkout.",
+      "taskIds": ["T-002", "T-004", "T-006"],
+      "validationRefs": [],
+      "warnings": []
+    },
+    {
+      "id": "AC-005",
+      "text": "IntegrationFix records Codex run artifacts, repaired patch evidence, repaired diff hash, attempt status, and rerun aggregate validation/audit evidence.",
+      "taskIds": ["T-004", "T-005", "T-006"],
+      "validationRefs": [],
+      "warnings": []
+    },
+    {
+      "id": "AC-006",
+      "text": "The repaired result stops at human integration apply/discard or records a clearly classified blocker.",
+      "taskIds": ["T-005", "T-006", "T-007"],
+      "validationRefs": [],
+      "warnings": []
+    },
+    {
+      "id": "AC-007",
+      "text": "Source root is not mutated before explicit human integration apply; before/after source git status is recorded.",
+      "taskIds": ["T-002", "T-005", "T-006", "T-007"],
+      "validationRefs": [],
+      "warnings": []
+    }
+  ],
+  "tasks": [
+    {
+      "id": "T-001",
+      "text": "Create active change scope and handoff pointers.",
+      "acceptanceCriteriaIds": ["AC-001"]
+    },
+    {
+      "id": "T-002",
+      "text": "Build and prepare the E-drive external sandbox with dependencies and real aggregate validation setup.",
+      "acceptanceCriteriaIds": ["AC-001", "AC-004", "AC-007"]
+    },
+    {
+      "id": "T-003",
+      "text": "Drive the real Workbench UI path to same-Change scheduler workers and ready integration candidate.",
+      "acceptanceCriteriaIds": ["AC-001", "AC-002", "AC-003"]
+    },
+    {
+      "id": "T-004",
+      "text": "Manually confirm IntegrationCheck and capture aggregate failure plus Codex-backed IntegrationFix evidence.",
+      "acceptanceCriteriaIds": ["AC-003", "AC-004", "AC-005"]
+    },
+    {
+      "id": "T-005",
+      "text": "Verify post-repair aggregate validation/audit and final human gate or blocker classification.",
+      "acceptanceCriteriaIds": ["AC-005", "AC-006", "AC-007"]
+    },
+    {
+      "id": "T-006",
+      "text": "If needed, patch only the blocker owner and run targeted verification.",
+      "acceptanceCriteriaIds": ["AC-002", "AC-003", "AC-004", "AC-005", "AC-006", "AC-007"]
+    },
+    {
+      "id": "T-007",
+      "text": "Complete review coverage, handoff docs, Harness checks, close, and git settlement.",
+      "acceptanceCriteriaIds": ["AC-001", "AC-006", "AC-007"]
+    }
+  ],
+  "warnings": [],
+  "blockingIssues": []
+}

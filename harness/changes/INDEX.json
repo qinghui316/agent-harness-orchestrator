@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-25T15:42:50.8177462Z",
+    "generated_at":  "2026-06-25T17:14:55.3760333Z",
     "active":  [
 
                ],
@@ -1953,6 +1953,10 @@
                     {
                         "name":  "20260625-workbench-scheduler-worker-progression-to-integration-candidate-v1",
                         "path":  "harness/changes/archive/20260625-workbench-scheduler-worker-progression-to-integration-candidate-v1"
+                    },
+                    {
+                        "name":  "20260626-workbench-integrationfix-real-ui-acceptance-v1",
+                        "path":  "harness/changes/archive/20260626-workbench-integrationfix-real-ui-acceptance-v1"
                     }
                 ]
 }
