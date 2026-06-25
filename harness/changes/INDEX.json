@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-25T04:40:13.3673529Z",
+    "generated_at":  "2026-06-25T05:16:17.7431870Z",
     "active":  [
 
                ],
@@ -1877,6 +1877,10 @@
                     {
                         "name":  "20260625-workbench-external-local-restore-v1",
                         "path":  "harness/changes/archive/20260625-workbench-external-local-restore-v1"
+                    },
+                    {
+                        "name":  "20260625-workbench-goal-loop-decision-surface-audit-v1",
+                        "path":  "harness/changes/archive/20260625-workbench-goal-loop-decision-surface-audit-v1"
                     },
                     {
                         "name":  "20260625-workbench-low-conflict-taskgraph-scheduler-reachability-v1",

@@ -146,6 +146,9 @@ Current architecture debt register:
 ## Next Product Direction
 
 Current structured change: none.
+Pending Harness evolution: `harness/evolution/pending.md`.
+Latest product audit:
+`harness/changes/archive/20260625-workbench-goal-loop-decision-surface-audit-v1/summary.md`.
 Latest product hardening:
 `harness/changes/archive/20260625-workbench-planning-decomposition-scope-honesty-v1/summary.md`.
 Planning/decomposition now preserves explicit user source constraints and
@@ -153,8 +156,8 @@ blocks scheduler-ready continuation when a plan silently expands into tests,
 docs, indexes, or other files.
 Latest Harness docs change:
 `harness/changes/archive/20260625-document-minimality-gate-and-complexity-review/summary.md`.
-Pending Harness evolution: none. The five-archive window ending with scheduler
-integration apply/discard hardening was archived as
+The previous five-archive window ending with scheduler integration
+apply/discard hardening was archived as
 `harness/changes/archive/20260625-auto-evolve-post-scheduler-integration-window/summary.md`
 with result `docs_merge`. The latest scheduler integration apply/discard
 hardening is
@@ -213,35 +216,39 @@ Latest evolution and archive lookup:
   `harness/changes/archive/20260625-auto-evolve-post-scheduler-integration-window/summary.md`.
   Result: `docs_merge` for compact handoff/current-doc alignment; no
   ECL/template/lint/product runtime change.
-- Current pending Harness evolution: none.
+- Current pending Harness evolution: `harness/evolution/pending.md`.
 - Use archived summaries and `harness/changes/INDEX.json` for detailed real UI
   sandbox evidence, old blocker history, and per-run ids; do not copy that
   history into current handoff docs.
 
-Next work should not assume a full parallel executor exists:
+The latest completed Goal Loop decision surface audit found no product-code gap
+and should not be followed by another explanation layer:
 
-- For scheduler execution acceptance, the next product gap is planning /
-  decomposition honesty: when the user asks for a low-conflict two-file change,
-  the accepted plan should not silently expand into test/index work unless that
-  expansion is justified and accepted.
-- Do not put raw `planning.scheduler.*` actions into the `完全访问权限` allowlist.
-- Do not widen into full parallel executor, automatic apply/close/merge, remote
-  landing, or Harness evolution without a separate accepted design.
+- Existing Goal Loop decision evidence remains a user-surface explanation and
+  assisted-gate layer over the real Workbench
+  `confirmationQueue.primary`.
+- Ordinary planning, decomposition, and `code.run` continue through existing
+  Workbench gates; Goal Loop should not become the owner of those sequential
+  paths.
+- Scheduler guidance may surface only when the current gate, packet,
+  controller policy, and preflight match; stale or mismatched evidence must be
+  hidden or downgraded.
+- Single-worker validation/audit failure should point to bounded rework or
+  refresh; IntegrationFix language belongs only to aggregate / IntegrationCheck
+  failures.
+- Raw `planning.scheduler.*`, apply, close, merge, remote landing, Harness
+  evolution, and full parallel execution remain outside direct `完全访问权限`.
 
-Next work should be chosen from one concrete track:
+After the pending Harness evolution is handled or explicitly deferred, choose
+one concrete track:
 
-- Product capability: tighten planning/decomposition scope honesty for
-  low-conflict TaskGraph demands before widening scheduler automation or the
-  Goal-driven loop.
+- Product capability: widen Goal-driven continuation only through existing
+  legal gates, with source state, accepted artifacts, stale revalidation,
+  ToolPolicyGate, and human terminal gates preserved.
 - Product hardening: run a focused real UI scout only when there is a suspected
   Workbench blocker; fix the owner path rather than adding explanation layers.
 - Verification cost: improve explicit release/deep members without moving slow
   coverage back into the daily Workbench gate.
-- Scheduler/Goal Loop: keep Scheduler as one execution strategy under the
-  Goal-driven Workflow Loop target, not the product core. Parallel worktrees
-  are only for low-conflict write-capable slices selected by the main Agent;
-  sequential loop turns, read-only planning, bounded rework, IntegrationFix,
-  and human clarification remain valid strategies.
 
 ## Later Roadmap Options
 

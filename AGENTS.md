@@ -6,7 +6,8 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 
 - Current date: 2026-06-25.
 - Active change: none.
-- Pending Harness evolution: none.
+- Pending Harness evolution: `harness/evolution/pending.md`.
+- Latest archived product audit: Workbench Goal Loop Decision Surface Audit V1, archived at `harness/changes/archive/20260625-workbench-goal-loop-decision-surface-audit-v1/summary.md`.
 - Latest archived product change: Workbench Planning / Decomposition Scope Honesty V1, archived at `harness/changes/archive/20260625-workbench-planning-decomposition-scope-honesty-v1/summary.md`.
 - Previous external-local restore change: `harness/changes/archive/20260625-workbench-external-local-restore-v1/summary.md`.
 - Latest archived Harness docs change: Minimality Gate And Complexity Review, archived at `harness/changes/archive/20260625-document-minimality-gate-and-complexity-review/summary.md`.
@@ -25,7 +26,12 @@ terminal gates. It can consume local execution/recovery gates and safe
 planning generation, apply/close/merge, remote landing, Harness evolution,
 scheduler loops, or parallel execution.
 
-Latest product hardening: planning/decomposition scope honesty before
+Latest completed product audit: Goal Loop decision surface alignment found no
+new product-code gap. The existing decision chain remains an explanation and
+assisted-gate layer over the authoritative Workbench `confirmationQueue.primary`;
+it does not create a new decision engine or execution authority.
+
+Latest completed product hardening: planning/decomposition scope honesty before
 low-conflict scheduler readiness. Explicit user source scopes are preserved
 through planning and DecompositionPlan, and unaccepted expansion into tests,
 docs, indexes, or other files blocks scheduler-ready continuation.

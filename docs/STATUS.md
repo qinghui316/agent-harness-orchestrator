@@ -4,7 +4,8 @@
 
 - Current date: 2026-06-25.
 - Active ECL change: none.
-- Pending Harness evolution: none.
+- Pending Harness evolution: `harness/evolution/pending.md`.
+- Latest archived product audit: `harness/changes/archive/20260625-workbench-goal-loop-decision-surface-audit-v1/summary.md`.
 - Latest archived product change: `harness/changes/archive/20260625-workbench-planning-decomposition-scope-honesty-v1/summary.md`.
 - Previous external-local restore change: `harness/changes/archive/20260625-workbench-external-local-restore-v1/summary.md`.
 - Latest archived Harness docs change: `harness/changes/archive/20260625-document-minimality-gate-and-complexity-review/summary.md`.
@@ -19,6 +20,13 @@
 - Latest scheduler worker/integration acceptance: `harness/changes/archive/20260625-workbench-scheduler-worker-integration-real-acceptance-v1/summary.md`.
 - Latest scheduler IntegrationCheck acceptance: `harness/changes/archive/20260625-workbench-scheduler-integrationcheck-real-acceptance-v1/summary.md`.
 - Latest scheduler integration apply/discard hardening: `harness/changes/archive/20260625-workbench-scheduler-integration-apply-discard-real-acceptance-v1/summary.md`.
+
+The latest archived product audit is at
+`harness/changes/archive/20260625-workbench-goal-loop-decision-surface-audit-v1/summary.md`.
+It verified the existing Goal Loop decision surface without adding product code:
+Goal Loop evidence remains explanation/assisted-gate context over the
+authoritative Workbench `confirmationQueue.primary`, and it does not become a
+new decision engine or execution authority.
 
 The latest archived product change is at
 `harness/changes/archive/20260625-workbench-planning-decomposition-scope-honesty-v1/summary.md`.
@@ -102,39 +110,28 @@ scripts.
 
 ## Next Resume Point
 
-No active change and no pending evolution.
+No active change. Pending Harness evolution exists:
+`harness/evolution/pending.md`.
 
-Latest Harness docs change added a lightweight Minimal Implementation Gate and
-Complexity Deletion Review to AHO docs/templates so future changes check
-delete/reuse/YAGNI before adding new layers. This was docs/Harness only;
-product runtime remains unchanged.
+Before starting new product work, handle or explicitly defer that pending
+evolution. The latest completed product audit confirmed that the existing Goal
+Loop chain stays a user-surface explanation layer over real Workbench gates:
 
-Next product-sized blocker: planning/decomposition scope honesty for
-low-conflict scheduler demands. When a user constrains the change to explicit
-source scopes, the accepted plan should not add test/index work items or diffs
-unless it explains why they are necessary and the user accepts that expansion.
+```text
+GoalLoopDecision -> GoalLoopNextStepPacket -> ControllerPolicy
+-> GateReadinessPreflight -> confirmationQueue
+```
 
-Latest result:
+Next recommended product work, after pending evolution is handled or deferred:
 
-- Real E-drive UI acceptance used `E:\aho-accept\scheduler-integrationcheck-v1g\src` and
-  `E:\aho-accept\scheduler-integrationcheck-v1g\home`.
-- `完全访问权限` reached two real scheduler worker `coder-codex` runs, worker
-  validation/audit, and `scheduler-integration-candidate-c71d788b`.
-- `planning.scheduler.integration-check.run` stayed a manual gate. After manual
-  confirmation, `apply-check-20260624205104-80da3aab` passed aggregate
-  validation/audit and stopped at the existing integration apply/discard gate.
-- Raw `planning.scheduler.*` actions remain outside the direct
-  `完全访问权限` allowlist.
-
-Next recommended work:
-
-- Fix planning/decomposition honesty for low-conflict scheduler demands before
-  widening scheduler automation or full Goal-driven loop behavior.
-- If designing wider automation, keep it scoped by current Change, source
-  state, accepted artifacts, stale revalidation, ToolPolicyGate, and human
-  terminal gates.
-- Keep automatic apply/close/merge, remote landing, Harness evolution, and full
-  parallel executor out of scope.
+- Choose the next concrete product capability or blocker scout from the
+  existing Workbench gate/action/runtime owners; do not add a new Goal Loop
+  decision layer after the completed audit found no product-code gap.
+- Keep ordinary planning/decomposition/code paths owned by existing Workbench
+  gates; Goal Loop may explain matching scheduler/integration gates but must
+  not manufacture execution authority.
+- Do not widen `完全访问权限` into raw `planning.scheduler.*`, apply, close,
+  merge, remote landing, Harness evolution, or full parallel execution.
 
 ## Verification Commands
 

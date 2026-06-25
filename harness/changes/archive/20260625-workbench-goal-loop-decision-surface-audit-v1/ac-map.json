@@ -1,0 +1,59 @@
+{
+  "version": "1.0",
+  "generatedAt": "2026-06-25T05:12:00.000Z",
+  "changeId": "workbench-goal-loop-decision-surface-audit-v1",
+  "acceptanceCriteria": [
+    {
+      "id": "AC-001",
+      "summary": "Handoff docs no longer name completed scope-honesty work as the next product blocker."
+    },
+    {
+      "id": "AC-002",
+      "summary": "Fresh matching Goal Loop scheduler guidance remains subordinate to confirmationQueue.primary."
+    },
+    {
+      "id": "AC-003",
+      "summary": "Stale or mismatched Goal Loop guidance is hidden or downgraded."
+    },
+    {
+      "id": "AC-004",
+      "summary": "Ordinary sequential paths do not show scheduler, parallel, or full-auto wording."
+    },
+    {
+      "id": "AC-005",
+      "summary": "Worker failure points to bounded rework; IntegrationFix wording is reserved for aggregate failures."
+    },
+    {
+      "id": "AC-006",
+      "summary": "Scoped automation does not widen to raw scheduler or terminal gates."
+    },
+    {
+      "id": "AC-007",
+      "summary": "No-code close is allowed when audit finds no product gap."
+    }
+  ],
+  "tasks": [
+    {
+      "id": "T-001",
+      "covers": ["AC-001", "AC-007"]
+    },
+    {
+      "id": "T-002",
+      "covers": ["AC-001"]
+    },
+    {
+      "id": "T-003",
+      "covers": ["AC-002", "AC-003", "AC-004", "AC-005", "AC-006"]
+    },
+    {
+      "id": "T-004",
+      "covers": ["AC-002", "AC-003", "AC-004", "AC-005", "AC-006", "AC-007"]
+    },
+    {
+      "id": "T-005",
+      "covers": ["AC-001", "AC-007"]
+    }
+  ],
+  "warnings": [],
+  "blockingIssues": []
+}
