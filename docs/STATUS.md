@@ -4,7 +4,7 @@
 
 - Current date: 2026-06-25.
 - Active ECL change: none.
-- Pending Harness evolution: `harness/evolution/pending.md`.
+- Pending Harness evolution: none.
 - Latest archived product audit: `harness/changes/archive/20260625-workbench-goal-loop-decision-surface-audit-v1/summary.md`.
 - Latest archived product change: `harness/changes/archive/20260625-workbench-planning-decomposition-scope-honesty-v1/summary.md`.
 - Previous external-local restore change: `harness/changes/archive/20260625-workbench-external-local-restore-v1/summary.md`.
@@ -15,7 +15,7 @@
 - Latest product audit: `harness/changes/archive/20260624-workbench-goal-loop-surface-gap-audit/summary.md`.
 - Latest verification convergence: `harness/changes/archive/20260623-workbench-verification-runtime-convergence/summary.md`.
 - Latest real-Codex acceptance: `harness/changes/archive/20260623-workbench-current-project-real-codex-acceptance/summary.md`.
-- Latest completed Harness evolution: `harness/changes/archive/20260625-auto-evolve-post-scheduler-integration-window/summary.md`.
+- Latest completed Harness evolution: `harness/changes/archive/20260625-auto-evolve-post-goal-loop-decision-surface-window/summary.md`.
 - Latest scheduler reachability change: `harness/changes/archive/20260625-workbench-low-conflict-taskgraph-scheduler-reachability-v1/summary.md`.
 - Latest scheduler worker/integration acceptance: `harness/changes/archive/20260625-workbench-scheduler-worker-integration-real-acceptance-v1/summary.md`.
 - Latest scheduler IntegrationCheck acceptance: `harness/changes/archive/20260625-workbench-scheduler-integrationcheck-real-acceptance-v1/summary.md`.
@@ -59,12 +59,12 @@ manual. After manual confirmation, existing IntegrationCheck ran aggregate
 validation/audit, passed, and stopped at the existing human integration
 apply/discard gate.
 
-The latest Harness evolution handled the scheduler integration five-archive
-window ending with
-`20260625-workbench-scheduler-integration-apply-discard-real-acceptance-v1`.
-Authorized subagent review recommended `docs_merge`: compact handoff alignment
-only, with no ECL/template/lint/product runtime change. It is archived at
-`harness/changes/archive/20260625-auto-evolve-post-scheduler-integration-window/summary.md`.
+The latest Harness evolution handled the five-archive window ending with
+`20260625-workbench-goal-loop-decision-surface-audit-v1`. Authorized subagent
+review recommended `noop` with score 89: existing ECL/template/handoff rules
+already cover the lessons, so no durable ECL/template/lint/docs/product runtime
+change was applied. It is archived at
+`harness/changes/archive/20260625-auto-evolve-post-goal-loop-decision-surface-window/summary.md`.
 
 ## Current Baseline
 
@@ -110,11 +110,10 @@ scripts.
 
 ## Next Resume Point
 
-No active change. Pending Harness evolution exists:
-`harness/evolution/pending.md`.
+No active change and no pending Harness evolution.
 
-Before starting new product work, handle or explicitly defer that pending
-evolution. The latest completed product audit confirmed that the existing Goal
+The pending evolution has been completed as `noop` with independent subagent
+review. The latest completed product audit confirmed that the existing Goal
 Loop chain stays a user-surface explanation layer over real Workbench gates:
 
 ```text
@@ -122,7 +121,7 @@ GoalLoopDecision -> GoalLoopNextStepPacket -> ControllerPolicy
 -> GateReadinessPreflight -> confirmationQueue
 ```
 
-Next recommended product work, after pending evolution is handled or deferred:
+Next recommended product work:
 
 - Choose the next concrete product capability or blocker scout from the
   existing Workbench gate/action/runtime owners; do not add a new Goal Loop

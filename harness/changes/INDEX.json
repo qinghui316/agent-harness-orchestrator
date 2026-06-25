@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-25T05:16:17.7431870Z",
+    "generated_at":  "2026-06-25T05:26:22.3141886Z",
     "active":  [
 
                ],
@@ -1865,6 +1865,10 @@
                     {
                         "name":  "20260624-workbench-two-tier-scoped-automation-authorization-v1",
                         "path":  "harness/changes/archive/20260624-workbench-two-tier-scoped-automation-authorization-v1"
+                    },
+                    {
+                        "name":  "20260625-auto-evolve-post-goal-loop-decision-surface-window",
+                        "path":  "harness/changes/archive/20260625-auto-evolve-post-goal-loop-decision-surface-window"
                     },
                     {
                         "name":  "20260625-auto-evolve-post-scheduler-integration-window",

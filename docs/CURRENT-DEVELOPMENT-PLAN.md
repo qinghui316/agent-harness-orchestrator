@@ -146,7 +146,7 @@ Current architecture debt register:
 ## Next Product Direction
 
 Current structured change: none.
-Pending Harness evolution: `harness/evolution/pending.md`.
+Pending Harness evolution: none.
 Latest product audit:
 `harness/changes/archive/20260625-workbench-goal-loop-decision-surface-audit-v1/summary.md`.
 Latest product hardening:
@@ -156,10 +156,14 @@ blocks scheduler-ready continuation when a plan silently expands into tests,
 docs, indexes, or other files.
 Latest Harness docs change:
 `harness/changes/archive/20260625-document-minimality-gate-and-complexity-review/summary.md`.
-The previous five-archive window ending with scheduler integration
-apply/discard hardening was archived as
-`harness/changes/archive/20260625-auto-evolve-post-scheduler-integration-window/summary.md`
-with result `docs_merge`. The latest scheduler integration apply/discard
+The latest Harness evolution is archived as
+`harness/changes/archive/20260625-auto-evolve-post-goal-loop-decision-surface-window/summary.md`
+with result `noop`: subagent review scored 89 and found existing
+ECL/template/handoff rules sufficient, so no durable rule/template/lint/docs or
+product runtime change was applied. The previous scheduler integration window
+is archived at
+`harness/changes/archive/20260625-auto-evolve-post-scheduler-integration-window/summary.md`.
+The latest scheduler integration apply/discard
 hardening is
 `harness/changes/archive/20260625-workbench-scheduler-integration-apply-discard-real-acceptance-v1/summary.md`.
 Previous product hardening:
@@ -213,10 +217,9 @@ Current baseline:
 Latest evolution and archive lookup:
 
 - Latest Harness evolution:
-  `harness/changes/archive/20260625-auto-evolve-post-scheduler-integration-window/summary.md`.
-  Result: `docs_merge` for compact handoff/current-doc alignment; no
-  ECL/template/lint/product runtime change.
-- Current pending Harness evolution: `harness/evolution/pending.md`.
+  `harness/changes/archive/20260625-auto-evolve-post-goal-loop-decision-surface-window/summary.md`.
+  Result: `noop`; no ECL/template/lint/docs/product runtime change.
+- Current pending Harness evolution: none.
 - Use archived summaries and `harness/changes/INDEX.json` for detailed real UI
   sandbox evidence, old blocker history, and per-run ids; do not copy that
   history into current handoff docs.
@@ -239,8 +242,7 @@ and should not be followed by another explanation layer:
 - Raw `planning.scheduler.*`, apply, close, merge, remote landing, Harness
   evolution, and full parallel execution remain outside direct `完全访问权限`.
 
-After the pending Harness evolution is handled or explicitly deferred, choose
-one concrete track:
+Choose one concrete track:
 
 - Product capability: widen Goal-driven continuation only through existing
   legal gates, with source state, accepted artifacts, stale revalidation,
