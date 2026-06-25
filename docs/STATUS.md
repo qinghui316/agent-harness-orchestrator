@@ -6,7 +6,7 @@
 - Active ECL change: none.
 - Pending Harness evolution: none.
 - Latest archived product audit: `harness/changes/archive/20260625-workbench-goal-loop-decision-surface-audit-v1/summary.md`.
-- Latest archived product change: `harness/changes/archive/20260625-workbench-post-plan-scoped-automation-real-ui-scout-v1/summary.md`.
+- Latest archived product change: `harness/changes/archive/20260625-workbench-post-plan-scoped-local-autonomy-v1/summary.md`.
 - Previous post-plan automation hardening: `harness/changes/archive/20260625-workbench-post-plan-scoped-automation-execution-v1/summary.md`.
 - Previous planning/decomposition hardening: `harness/changes/archive/20260625-workbench-planning-decomposition-scope-honesty-v1/summary.md`.
 - Previous external-local restore change: `harness/changes/archive/20260625-workbench-external-local-restore-v1/summary.md`.
@@ -31,13 +31,15 @@ authoritative Workbench `confirmationQueue.primary`, and it does not become a
 new decision engine or execution authority.
 
 The latest archived product change is at
-`harness/changes/archive/20260625-workbench-post-plan-scoped-automation-real-ui-scout-v1/summary.md`.
-It ran a real E-drive Workbench UI scout after the post-plan scoped automation
-boundary tightened. The scout confirmed `完全访问权限` is unavailable for plan
-confirmation, becomes available only after human plan confirmation, automates
-local post-plan execution gates plus safe `audit.accept`, and stops at the human
-`result.apply` gate with the external source still clean. No product-code
-blocker was found.
+`harness/changes/archive/20260625-workbench-post-plan-scoped-local-autonomy-v1/summary.md`.
+It extends post-plan scoped `完全访问权限` through the local terminal loop. Plan
+confirmation remains human-only; after human plan confirmation, one scoped
+authorization can run local execution, validation/audit, safe `audit.accept`,
+local `result.apply`, and local `change.close`, then stop with no primary gate
+after the Change is archived. The real E-drive UI acceptance used
+`E:\aho-accept\scoped-local-autonomy-v1c` and produced a local apply commit
+without running remote, merge, PR, integration apply/discard, raw scheduler, or
+Harness evolution actions.
 
 The previous product hardening is at
 `harness/changes/archive/20260625-workbench-post-plan-scoped-automation-execution-v1/summary.md`.
@@ -99,13 +101,13 @@ apply/merge/close.
 
 Two-tier scoped automation V1 is implemented for the ordinary Workbench
 decision surface. A user can keep per-step `请求批准`, or choose
-`完全访问权限` once for the current demand. V1 repeatedly consumes the current
-authoritative `confirmationQueue.primary` only when the action is in the local
-allowed set, and it stops at unsupported gates or high-impact human gates. It
-can now automatically run bounded local recovery gates, automatically accept
-safe approved audit evidence through `audit.accept`, and then stops at
-`result.apply`. It does not auto apply, close, merge, push, or run Harness
-evolution.
+`完全访问权限` once for the current demand after manually confirming the plan.
+V1 repeatedly consumes the current authoritative `confirmationQueue.primary`
+only when the action is in the local allowed set. It can now run bounded local
+execution/recovery gates, accept safe approved audit evidence through
+`audit.accept`, apply the local result, and close/archive the local Change. It
+does not auto-run plan confirmation, raw scheduler actions, integration
+apply/discard, merge, push, PR, remote landing, or Harness evolution.
 
 Scheduler worker and IntegrationCheck acceptance now verifies that strict
 independent source scopes can continue past worker start when the external
@@ -132,9 +134,9 @@ No active change.
 No pending Harness evolution.
 
 The latest product change is archived at
-`harness/changes/archive/20260625-workbench-post-plan-scoped-automation-real-ui-scout-v1/summary.md`.
+`harness/changes/archive/20260625-workbench-post-plan-scoped-local-autonomy-v1/summary.md`.
 It confirmed through real UI that full-access scoped automation starts only
-after human plan confirmation and stops at human `result.apply`.
+after human plan confirmation and can complete local apply and close/archive.
 
 Previous resume context:
 
@@ -155,8 +157,9 @@ Next recommended product work:
 - Keep ordinary planning/decomposition/code paths owned by existing Workbench
   gates; Goal Loop may explain matching scheduler/integration gates but must
   not manufacture execution authority.
-- Do not widen `完全访问权限` into raw `planning.scheduler.*`, apply, close,
-  merge, remote landing, Harness evolution, or full parallel execution.
+- Do not widen `完全访问权限` into raw `planning.scheduler.*`, integration
+  apply/discard, merge, remote landing, Harness evolution, PR, or full parallel
+  execution.
 - If widening scoped automation next, keep plan confirmation human-only and use
   the existing confirmation queue/current-gate revalidation path rather than a
   new permission or workflow runtime.

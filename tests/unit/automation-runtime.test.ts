@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, rename, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -59,7 +59,8 @@ describe("Scoped automation runtime", () => {
 
     expect(result.authorization.mode).toBe("full-access");
     expect(result.authorization.codexRuntimeCapability).toBe("full-access");
-    expect(result.authorization.applyAuthorized).toBe(false);
+    expect(result.authorization.applyAuthorized).toBe(true);
+    expect(result.authorization.closeAuthorized).toBe(true);
     expect(result.automationRun.status).toBe("stopped");
     expect(result.automationRun.completedSteps).toBe(3);
     expect(result.stopReason).toBe("no-primary-gate");
@@ -140,7 +141,7 @@ describe("Scoped automation runtime", () => {
     expect(dispatched.some((gate) => gate.kind === "workflow-action" && gate.actionType === "planning.scheduler.worker.start-next")).toBe(false);
   });
 
-  it("executes bounded recovery workflow gates before safe audit accept and stops at apply", async () => {
+  it("executes bounded recovery workflow gates, safe audit accept, and local apply", async () => {
     const dispatched: ScopedAutomationChildGate[] = [];
     const sequence: ScopedAutomationChildGate[] = [
       { kind: "workflow-action", actionType: "result.refresh-rework", changeId: "change-1", worktreeId: "wt-1" },
@@ -164,7 +165,7 @@ describe("Scoped automation runtime", () => {
       projectId: "project-1",
       sourceState: { capturedAt: "2026-06-24T00:00:00.000Z" },
       acceptedArtifactHashes: {},
-      request: baseRequest({ automationCurrentGateActionType: "result.refresh-rework", worktreeId: "wt-1", maxSteps: 5 }),
+      request: baseRequest({ automationCurrentGateActionType: "result.refresh-rework", worktreeId: "wt-1", maxSteps: 6 }),
       services: {
         resolveCurrentPrimaryGate: async () => sequence[dispatched.length] ?? { stopReason: "no-primary-gate", summary: "No gate." },
         dispatchChildAction: async (request) => {
@@ -177,21 +178,23 @@ describe("Scoped automation runtime", () => {
       },
     });
 
-    expect(result.stopReason).toBe("terminal-human-gate");
-    expect(result.automationRun.completedSteps).toBe(4);
+    expect(result.stopReason).toBe("no-primary-gate");
+    expect(result.automationRun.completedSteps).toBe(5);
     expect(dispatched.map((gate) => gate.kind === "workflow-action" ? gate.actionType : gate.actionId)).toEqual([
       "result.refresh-rework",
       "result.revalidate",
       "result.reaudit",
       "audit.accept",
+      "result.apply",
     ]);
     expect(result.iterations.map((iteration) => iteration.currentGateActionType)).toEqual([
       "result.refresh-rework",
       "result.revalidate",
       "result.reaudit",
       "audit.accept",
+      "result.apply",
     ]);
-    expect(result.authorization.applyAuthorized).toBe(false);
+    expect(result.authorization.applyAuthorized).toBe(true);
   });
 
   it("stops at max steps after recovery gates when the next gate is not terminal", async () => {
@@ -279,7 +282,7 @@ describe("Scoped automation runtime", () => {
     ]);
   });
 
-  it("stops before terminal human gates", async () => {
+  it("stops before external or aggregate terminal human gates", async () => {
     const result = await runScopedAutomation({
       memory,
       changePath: "harness/changes/active/change-1",
@@ -288,7 +291,7 @@ describe("Scoped automation runtime", () => {
       acceptedArtifactHashes: {},
       request: baseRequest(),
       services: {
-        resolveCurrentPrimaryGate: async () => ({ kind: "approval-action", actionId: "result.apply", changeId: "change-1", targetId: "wt-1", action: { actionId: "result.apply" } }),
+        resolveCurrentPrimaryGate: async () => ({ kind: "approval-action", actionId: "apply-check.apply", changeId: "change-1", targetId: "check-1", action: { actionId: "apply-check.apply" } }),
         dispatchChildAction: async () => {
           throw new Error("should not dispatch");
         },
@@ -300,7 +303,7 @@ describe("Scoped automation runtime", () => {
     expect(result.automationRun.completedSteps).toBe(0);
   });
 
-  it("executes allowed audit.accept approval actions and then stops at apply", async () => {
+  it("executes allowed audit.accept approval actions and then local apply", async () => {
     const dispatched: ScopedAutomationChildGate[] = [];
     const sequence: ScopedAutomationChildGate[] = [
       {
@@ -333,17 +336,22 @@ describe("Scoped automation runtime", () => {
     });
 
     expect(result.authorization.allowedApprovalActionIds).toContain("audit.accept");
-    expect(result.stopReason).toBe("terminal-human-gate");
-    expect(result.automationRun.completedSteps).toBe(1);
-    expect(dispatched).toHaveLength(1);
+    expect(result.stopReason).toBe("no-primary-gate");
+    expect(result.automationRun.completedSteps).toBe(2);
+    expect(dispatched).toHaveLength(2);
     expect(result.iterations[0]).toMatchObject({
       submittedApprovalActionId: "audit.accept",
       currentGateKind: "approval-action",
       currentGateActionType: "audit.accept",
     });
+    expect(result.iterations[1]).toMatchObject({
+      submittedApprovalActionId: "result.apply",
+      currentGateKind: "approval-action",
+      currentGateActionType: "result.apply",
+    });
   });
 
-  it("attributes stop to terminal human gate when maxSteps ends immediately before apply", async () => {
+  it("keeps budget exhaustion distinct when maxSteps ends immediately before local apply", async () => {
     const dispatched: ScopedAutomationChildGate[] = [];
     const sequence: ScopedAutomationChildGate[] = [
       {
@@ -380,11 +388,97 @@ describe("Scoped automation runtime", () => {
       },
     });
 
-    expect(result.stopReason).toBe("terminal-human-gate");
-    expect(result.automationRun.status).toBe("stopped");
+    expect(result.stopReason).toBe("max-steps");
+    expect(result.automationRun.status).toBe("completed");
     expect(result.automationRun.completedSteps).toBe(1);
     expect(dispatched).toHaveLength(1);
     expect(dispatched[0]).toMatchObject({ kind: "approval-action", actionId: "audit.accept" });
+  });
+
+  it("executes local apply and close under scoped authorization", async () => {
+    const dispatched: ScopedAutomationChildGate[] = [];
+    const sequence: ScopedAutomationChildGate[] = [
+      { kind: "approval-action", actionId: "result.apply", changeId: "change-1", targetId: "wt-1", artifact: "runs/audit-1/audit.json", action: { actionId: "result.apply" } },
+      { kind: "approval-action", actionId: "change.close", changeId: "change-1", targetId: "change-1", action: { actionId: "change.close" } },
+      { kind: "approval-action", actionId: "audit.accept", changeId: "change-1", targetId: "audit-1", action: { actionId: "audit.accept" } },
+    ];
+
+    const result = await runScopedAutomation({
+      memory,
+      changePath: "harness/changes/active/change-1",
+      projectId: "project-1",
+      sourceState: { capturedAt: "2026-06-25T00:00:00.000Z" },
+      acceptedArtifactHashes: { spec: "spec", plan: "plan", tasks: "tasks", acMap: "ac" },
+      request: baseRequest({
+        automationCurrentGateActionType: undefined,
+        automationCurrentGateApprovalActionId: "result.apply",
+        automationCurrentGateTargetId: "wt-1",
+        maxSteps: 5,
+      }),
+      services: {
+        resolveCurrentPrimaryGate: async () => sequence[dispatched.length] ?? { stopReason: "no-primary-gate", summary: "No gate." },
+        dispatchChildAction: async (request) => {
+          dispatched.push(request);
+          return { actionId: request.kind === "approval-action" ? request.actionId : request.actionType, targetId: request.kind === "approval-action" ? request.targetId : undefined };
+        },
+        summarizeChildResult: (gate) => `${gate.kind === "approval-action" ? gate.actionId : gate.actionType} completed`,
+      },
+    });
+
+    expect(result.stopReason).toBe("no-primary-gate");
+    expect(result.automationRun.completedSteps).toBe(2);
+    expect(dispatched.map((gate) => gate.kind === "approval-action" ? gate.actionId : gate.actionType)).toEqual([
+      "result.apply",
+      "change.close",
+    ]);
+    expect(result.authorization.applyAuthorized).toBe(true);
+    expect(result.authorization.closeAuthorized).toBe(true);
+  });
+
+  it("does not recreate the active change after close archives it", async () => {
+    const dispatched: ScopedAutomationChildGate[] = [];
+    const activeRoot = join(tempDir, "harness", "changes", "active", "change-1");
+    const archiveRoot = join(tempDir, "harness", "changes", "archive", "20260625-change-1");
+    await mkdir(activeRoot, { recursive: true });
+    await mkdir(join(tempDir, "harness", "changes", "archive"), { recursive: true });
+    const sequence: ScopedAutomationChildGate[] = [
+      { kind: "approval-action", actionId: "result.apply", changeId: "change-1", targetId: "wt-1", action: { actionId: "result.apply" } },
+      { kind: "approval-action", actionId: "change.close", changeId: "change-1", targetId: "change-1", action: { actionId: "change.close" } },
+    ];
+
+    const result = await runScopedAutomation({
+      memory,
+      changePath: "harness/changes/active/change-1",
+      projectId: "project-1",
+      sourceState: { capturedAt: "2026-06-25T00:00:00.000Z" },
+      acceptedArtifactHashes: { spec: "spec", plan: "plan", tasks: "tasks", acMap: "ac" },
+      request: baseRequest({
+        automationCurrentGateActionType: undefined,
+        automationCurrentGateApprovalActionId: "result.apply",
+        automationCurrentGateTargetId: "wt-1",
+        maxSteps: 5,
+      }),
+      services: {
+        resolveCurrentPrimaryGate: async () => sequence[dispatched.length] ?? { stopReason: "no-primary-gate", summary: "No gate." },
+        dispatchChildAction: async (request) => {
+          dispatched.push(request);
+          if (request.kind === "approval-action" && request.actionId === "change.close") {
+            await rename(activeRoot, archiveRoot);
+          }
+          return { actionId: request.kind === "approval-action" ? request.actionId : request.actionType };
+        },
+        summarizeChildResult: (gate) => `${gate.kind === "approval-action" ? gate.actionId : gate.actionType} completed`,
+      },
+    });
+
+    await expect(access(activeRoot)).rejects.toThrow();
+    const archivedRun = JSON.parse(await readFile(join(archiveRoot, "planning", "automation-runtime", `${result.automationRun.id}.json`), "utf8")) as { stopReason?: string; artifact?: string };
+    expect(archivedRun.stopReason).toBe("no-primary-gate");
+    expect(archivedRun.artifact).toContain("harness/changes/archive/20260625-change-1/planning/automation-runtime/");
+    expect(dispatched.map((gate) => gate.kind === "approval-action" ? gate.actionId : gate.actionType)).toEqual([
+      "result.apply",
+      "change.close",
+    ]);
   });
 
   it("fails closed when source safety reports drift", async () => {

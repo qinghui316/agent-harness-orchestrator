@@ -1275,6 +1275,27 @@ describe("workbench read-model projections", () => {
     ]);
   });
 
+  it("preserves scoped automation eligibility on local apply and close approval surfaces", () => {
+    const inspector = buildDecisionInspector({
+      selectedTopic: { id: "change-1", title: "Change 1", state: "active", validations: [], audits: [] },
+      workpad: { taskGraph: { nodes: [] } },
+      approvals: [
+        { id: "apply:wt-1", kind: "worktree-apply", label: "apply", changeId: "change-1", targetId: "wt-1", severity: "info", automationEligible: true, action: { actionId: "result.apply", label: "Apply", command: "result", args: ["apply", "repo", "change-1", "wt-1"], mutates: true, requiresConfirmation: true } },
+        { id: "close:change-1", kind: "change-close", label: "close", changeId: "change-1", targetId: "change-1", severity: "info", automationEligible: true, action: { actionId: "change.close", label: "Close", command: "change", args: ["close", "repo", "change-1"], mutates: true, requiresConfirmation: true } },
+      ],
+      decisions: [],
+    } as Parameters<typeof buildDecisionInspector>[0]);
+
+    const approvalActions = [inspector.primary, ...inspector.related]
+      .flatMap((context) => context?.actions ?? [])
+      .filter((action) => action.kind === "approval");
+
+    expect(approvalActions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ action: expect.objectContaining({ actionId: "result.apply" }), automationEligible: true }),
+      expect.objectContaining({ action: expect.objectContaining({ actionId: "change.close" }), automationEligible: true }),
+    ]));
+  });
+
 });
 
 async function rewriteActiveChangeMetadata(changeId: string, update: Record<string, unknown>): Promise<void> {

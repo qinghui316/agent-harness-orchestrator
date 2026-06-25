@@ -1,5 +1,5 @@
-import { mkdir, writeFile } from "node:fs/promises";
-import { join, relative } from "node:path";
+import { access, mkdir, readdir, writeFile } from "node:fs/promises";
+import { join, relative, sep } from "node:path";
 import { writeJsonFile } from "../fs/json.js";
 import { shortHash } from "../fs/path.js";
 import type { ResolvedMemory } from "../types/index.js";
@@ -37,10 +37,69 @@ export async function writeAutomationIteration(memory: ResolvedMemory, changePat
 }
 
 async function writeAutomationRecord(memory: ResolvedMemory, changePath: string, id: string, value: unknown, markdown: string): Promise<void> {
-  const root = automationRuntimeRoot(memory, changePath);
+  const root = await automationRuntimeRootForWrite(memory, changePath, changeIdFromRecord(value));
   await mkdir(root, { recursive: true });
-  await writeJsonFile(join(root, `${id}.json`), value);
-  await writeFile(join(root, `${id}.md`), markdown, "utf8");
+  const jsonPath = join(root, `${id}.json`);
+  const markdownPath = join(root, `${id}.md`);
+  updateRecordArtifactRefs(memory, value, jsonPath, markdownPath);
+  await writeJsonFile(jsonPath, value);
+  await writeFile(markdownPath, markdown, "utf8");
+}
+
+async function automationRuntimeRootForWrite(memory: ResolvedMemory, changePath: string, changeId: string | undefined): Promise<string> {
+  const root = automationRuntimeRoot(memory, changePath);
+  const changeRoot = join(memory.memoryRoot, changePath);
+  if (!isActiveChangePath(changePath) || await pathExists(changeRoot)) {
+    return root;
+  }
+  const archivePath = changeId ? await findArchivedChangePath(memory, changeId) : null;
+  return archivePath ? join(memory.memoryRoot, archivePath, "planning", RUNTIME_DIR) : root;
+}
+
+function isActiveChangePath(changePath: string): boolean {
+  return changePath.replace(/\\/g, "/").startsWith("harness/changes/active/");
+}
+
+async function findArchivedChangePath(memory: ResolvedMemory, changeId: string): Promise<string | null> {
+  const archiveRoot = join(memory.memoryRoot, "harness", "changes", "archive");
+  let entries: string[];
+  try {
+    entries = await readdir(archiveRoot);
+  } catch {
+    return null;
+  }
+  const suffix = `-${changeId}`;
+  const match = entries
+    .filter((entry) => entry === changeId || entry.endsWith(suffix))
+    .sort()
+    .at(-1);
+  return match ? ["harness", "changes", "archive", match].join(sep) : null;
+}
+
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    await access(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function changeIdFromRecord(value: unknown): string | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const candidate = (value as { changeId?: unknown }).changeId;
+  return typeof candidate === "string" && candidate.trim() ? candidate : undefined;
+}
+
+function updateRecordArtifactRefs(memory: ResolvedMemory, value: unknown, artifactPath: string, markdownPath: string): void {
+  if (!value || typeof value !== "object") return;
+  const record = value as { artifact?: unknown; markdownArtifact?: unknown };
+  if (typeof record.artifact === "string") {
+    record.artifact = displayMemoryPath(memory, artifactPath);
+  }
+  if (typeof record.markdownArtifact === "string") {
+    record.markdownArtifact = displayMemoryPath(memory, markdownPath);
+  }
 }
 
 function renderAuthorizationMarkdown(authorization: AutomationAuthorization): string {
@@ -57,8 +116,8 @@ function renderAuthorizationMarkdown(authorization: AutomationAuthorization): st
     "## Boundaries",
     "",
     "- Scope: current project and current Change only",
-    "- Apply authorized: false",
-    "- Close authorized: false",
+    `- Apply authorized: ${authorization.applyAuthorized ? "true" : "false"}`,
+    `- Close authorized: ${authorization.closeAuthorized ? "true" : "false"}`,
     "- Merge/remote authorized: false",
     "- Harness evolution authorized: false",
     "- Parallel executor authorized: false",

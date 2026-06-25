@@ -48,8 +48,8 @@ export interface AutomationAuthorization {
   acceptedArtifactHashes: AutomationAcceptedArtifactHashes;
   humanConfirmed: true;
   scopedToCurrentChangeOnly: true;
-  applyAuthorized: false;
-  closeAuthorized: false;
+  applyAuthorized: boolean;
+  closeAuthorized: boolean;
   mergeAuthorized: false;
   remoteLandingAuthorized: false;
   harnessEvolutionAuthorized: false;

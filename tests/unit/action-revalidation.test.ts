@@ -511,6 +511,89 @@ describe("Workbench action revalidation", () => {
     })).rejects.toThrow("stale or no longer available");
   });
 
+  it("passes scoped automation for current local result.apply approval gates", async () => {
+    mocks.getWorkbenchSnapshot.mockResolvedValue({
+      center: { workpad: { nextAction: { kind: "none" } } },
+      right: {
+        confirmationQueue: {
+          primary: {
+            changeId: "change-1",
+            resultId: "wt-1",
+            evidenceRefs: ["runs/audit-run-1/audit.json"],
+            actions: [{
+              kind: "approval",
+              enabled: true,
+              changeId: "change-1",
+              action: { actionId: "result.apply", args: ["apply", "repo", "change-1", "wt-1"] },
+            }],
+          },
+          current: [],
+          otherDemands: [],
+        },
+      },
+    });
+
+    await expect(assertCurrent({ project: { id: "repo", name: "Repo", path: "project-root", addedAt: "2026-06-18T00:00:00.000Z", lastSeenAt: "2026-06-18T00:00:00.000Z" }, path: "project-root" }, {
+      actionType: "planning.automation.scoped-auto.run",
+      changeId: "change-1",
+      automationMode: "full-access",
+      automationCurrentGateApprovalActionId: "result.apply",
+      automationCurrentGateTargetId: "wt-1",
+      automationCurrentGateArtifact: "runs/audit-run-1/audit.json",
+      maxSteps: 5,
+    })).resolves.toBeUndefined();
+
+    await expect(assertCurrent({ project: { id: "repo", name: "Repo", path: "project-root", addedAt: "2026-06-18T00:00:00.000Z", lastSeenAt: "2026-06-18T00:00:00.000Z" }, path: "project-root" }, {
+      actionType: "planning.automation.scoped-auto.run",
+      changeId: "change-1",
+      automationMode: "full-access",
+      automationCurrentGateApprovalActionId: "result.apply",
+      automationCurrentGateTargetId: "wt-old",
+      automationCurrentGateArtifact: "runs/audit-run-1/audit.json",
+      maxSteps: 5,
+    })).rejects.toThrow("stale or no longer available");
+  });
+
+  it("passes scoped automation for current local change.close approval gates", async () => {
+    mocks.getWorkbenchSnapshot.mockResolvedValue({
+      center: { workpad: { nextAction: { kind: "none" } } },
+      right: {
+        confirmationQueue: {
+          primary: {
+            changeId: "change-1",
+            resultId: "change-1",
+            actions: [{
+              kind: "approval",
+              enabled: true,
+              changeId: "change-1",
+              action: { actionId: "change.close", args: ["close", "repo", "change-1"] },
+            }],
+          },
+          current: [],
+          otherDemands: [],
+        },
+      },
+    });
+
+    await expect(assertCurrent({ project: { id: "repo", name: "Repo", path: "project-root", addedAt: "2026-06-18T00:00:00.000Z", lastSeenAt: "2026-06-18T00:00:00.000Z" }, path: "project-root" }, {
+      actionType: "planning.automation.scoped-auto.run",
+      changeId: "change-1",
+      automationMode: "full-access",
+      automationCurrentGateApprovalActionId: "change.close",
+      automationCurrentGateTargetId: "change-1",
+      maxSteps: 5,
+    })).resolves.toBeUndefined();
+
+    await expect(assertCurrent({ project: { id: "repo", name: "Repo", path: "project-root", addedAt: "2026-06-18T00:00:00.000Z", lastSeenAt: "2026-06-18T00:00:00.000Z" }, path: "project-root" }, {
+      actionType: "planning.automation.scoped-auto.run",
+      changeId: "change-2",
+      automationMode: "full-access",
+      automationCurrentGateApprovalActionId: "change.close",
+      automationCurrentGateTargetId: "change-1",
+      maxSteps: 5,
+    })).rejects.toThrow("stale or no longer available");
+  });
+
   it("revalidates planning.decompose against the current primary gate", async () => {
     const visibleAction = {
       kind: "workflow-action",

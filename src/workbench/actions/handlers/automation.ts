@@ -1,6 +1,6 @@
 import { runScopedAutomation } from "../../../automation-runtime/runner.js";
 import { captureAcceptedArtifactHashes, captureAutomationSourceState } from "../../../automation-runtime/safety.js";
-import { isScopedAutomationAllowedAction, isScopedAutomationTerminalHumanGate, scopedAutomationActionPriority } from "../../../automation-runtime/policy.js";
+import { isScopedAutomationAllowedAction, isScopedAutomationAllowedApprovalAction, isScopedAutomationTerminalHumanGate, scopedAutomationActionPriority, type ScopedAutomationAllowedApprovalActionId } from "../../../automation-runtime/policy.js";
 import type { ScopedAutomationChildGate } from "../../../automation-runtime/runner.js";
 import type { AutomationStopReason } from "../../../automation-runtime/types.js";
 import { assertWritableMemory } from "../../../memory/resolver.js";
@@ -13,7 +13,7 @@ import { resolveTopic } from "../../topic-resolver.js";
 import { appendTopicThreadEntry } from "../../topic-thread.js";
 import type { WorkbenchApprovalAction, WorkbenchDecisionAction } from "../../read-model-types.js";
 import type { WorkbenchLiveSink, WorkbenchWorkflowActionRequest } from "../../types.js";
-import { inferArtifactFromActionResult, inferChangeIdFromAction, inferRunIdFromActionResult, inferTargetIdFromAction, runAllowlistedAction } from "../approval-execution.js";
+import { inferArtifactFromActionResult, inferChangeIdFromAction, inferRunIdFromActionResult, inferTargetIdFromAction, runAllowlistedAction, type WorkbenchApprovalOptions } from "../approval-execution.js";
 import { assertWorkflowActionScope, auditHighImpactWorkflowAction } from "../boundary.js";
 import { assertCurrentAutomationApprovalAction, assertCurrentWorkflowAction } from "../current-action-revalidation.js";
 import { dispatchWorkbenchWorkflowAction, type WorkbenchActionHandlerMap } from "../dispatcher.js";
@@ -51,6 +51,7 @@ export async function runScopedAutomationAction(
       dispatchChildAction: async (childRequest, auditScope) => {
         if (childRequest.kind === "approval-action") {
           const action = childRequest.action as WorkbenchApprovalAction;
+          const options = childRequest.options as WorkbenchApprovalOptions | undefined;
           await assertCurrentAutomationApprovalAction({ project, path: project.path }, {
             actionType: "planning.automation.scoped-auto.run",
             changeId,
@@ -60,7 +61,7 @@ export async function runScopedAutomationAction(
             automationCurrentGateRunId: childRequest.runId,
             automationCurrentGateArtifact: childRequest.artifact,
           }, { getWorkbenchSnapshot: getAutomationInternalSnapshot });
-          const approvalResult = await runAllowlistedAction(project, action, undefined);
+          const approvalResult = await runAllowlistedAction(project, action, options);
           await recordWorkbenchDecision(project, {
             id: `approval:${action.actionId}:${action.args.join(":")}`,
             changeId: inferChangeIdFromAction(action, approvalResult),
@@ -165,14 +166,14 @@ function assertScopedAutomationRequest(
   changeId: string;
   automationMode: "full-access";
   automationCurrentGateActionType?: WorkflowActionType;
-  automationCurrentGateApprovalActionId?: "audit.accept";
+  automationCurrentGateApprovalActionId?: ScopedAutomationAllowedApprovalActionId;
 } {
   if (request.actionType !== "planning.automation.scoped-auto.run") throw new Error("Expected planning.automation.scoped-auto.run.");
   if (request.changeId !== changeId) throw new Error("planning.automation.scoped-auto.run changeId scope mismatch.");
   if (request.automationMode !== "full-access") throw new Error("planning.automation.scoped-auto.run requires automationMode full-access.");
   if (!request.automationCurrentGateActionType && !request.automationCurrentGateApprovalActionId) throw new Error("planning.automation.scoped-auto.run requires a current gate target.");
   if (request.automationCurrentGateActionType && request.automationCurrentGateApprovalActionId) throw new Error("planning.automation.scoped-auto.run requires exactly one current gate target.");
-  if (request.automationCurrentGateApprovalActionId && request.automationCurrentGateApprovalActionId !== "audit.accept") throw new Error("planning.automation.scoped-auto.run supports only audit.accept approval automation.");
+  if (request.automationCurrentGateApprovalActionId && !isScopedAutomationAllowedApprovalAction(request.automationCurrentGateApprovalActionId)) throw new Error("planning.automation.scoped-auto.run supports only local allowlisted approval automation.");
   return request as ReturnType<typeof assertScopedAutomationRequest>;
 }
 
@@ -188,10 +189,10 @@ async function approvalGateToAutomationGate(
   if (isScopedAutomationTerminalHumanGate(actionId)) {
     return { stopReason: "terminal-human-gate", summary: "Scoped automation stopped at a human terminal gate." };
   }
-  if (actionId !== "audit.accept") {
+  if (!isScopedAutomationAllowedApprovalAction(actionId)) {
     return { stopReason: "unsupported-gate", summary: "当前 approval gate 不在完全访问权限 V1 范围内。" };
   }
-  const targetId = primary.resultId ?? approval.action.args?.[2];
+  const targetId = primary.resultId ?? automationApprovalTargetFromArgs(actionId, approval.action.args);
   const artifact = primary.evidenceRefs?.[0] ?? approval.artifact;
   const runId = primary.runId ?? approval.runId;
   try {
@@ -199,23 +200,24 @@ async function approvalGateToAutomationGate(
       actionType: "planning.automation.scoped-auto.run",
       changeId,
       automationMode: "full-access",
-      automationCurrentGateApprovalActionId: "audit.accept",
+      automationCurrentGateApprovalActionId: actionId,
       automationCurrentGateTargetId: targetId,
       automationCurrentGateRunId: runId,
       automationCurrentGateArtifact: artifact,
     }, { getWorkbenchSnapshot: getAutomationInternalSnapshot });
   } catch {
-    return { stopReason: "stale-target", summary: "当前 audit.accept gate 不满足自动接收条件。" };
+    return { stopReason: "stale-target", summary: "当前 approval gate 不满足自动推进条件。" };
   }
   return {
     kind: "approval-action",
-    actionId: "audit.accept",
+    actionId,
     changeId,
     approvalId: approval.approvalId,
     targetId,
     runId,
     artifact,
     action: approval.action,
+    options: approval.options,
   };
 }
 
@@ -234,8 +236,8 @@ export function scopedAutomationInitialGateMatches(request: WorkbenchWorkflowAct
   if (request.automationCurrentGateApprovalActionId) {
     if (request.automationCurrentGateApprovalActionId !== action.action?.actionId) return false;
     if ((action.changeId ?? changeId) !== changeId) return false;
-    if (request.automationCurrentGateApprovalActionId !== "audit.accept") return false;
-    if (request.automationCurrentGateTargetId && request.automationCurrentGateTargetId !== action.approvalId?.replace(/^audit:/, "")) {
+    if (!isScopedAutomationAllowedApprovalAction(request.automationCurrentGateApprovalActionId)) return false;
+    if (request.automationCurrentGateTargetId && !automationApprovalTargetMatches(request.automationCurrentGateApprovalActionId, request.automationCurrentGateTargetId, action)) {
       return false;
     }
     return action.automationEligible === true;
@@ -244,6 +246,24 @@ export function scopedAutomationInitialGateMatches(request: WorkbenchWorkflowAct
   const requestedGate = { ...request, actionType: request.automationCurrentGateActionType, changeId };
   const expectedGate = { ...action, actionType: request.automationCurrentGateActionType, changeId: action.changeId ?? changeId };
   return workflowActionScopesMatchStrict(expectedGate, requestedGate);
+}
+
+function automationApprovalTargetMatches(actionId: ScopedAutomationAllowedApprovalActionId, requestedTargetId: string, action: WorkbenchDecisionAction): boolean {
+  const approvalIdTarget = action.approvalId?.replace(new RegExp(`^${approvalPrefixForAction(actionId)}:`), "");
+  const actionArgsTarget = automationApprovalTargetFromArgs(actionId, action.action?.args);
+  return requestedTargetId === approvalIdTarget || requestedTargetId === actionArgsTarget;
+}
+
+function approvalPrefixForAction(actionId: ScopedAutomationAllowedApprovalActionId): string {
+  if (actionId === "audit.accept") return "audit";
+  if (actionId === "result.apply") return "apply";
+  return "close";
+}
+
+function automationApprovalTargetFromArgs(actionId: ScopedAutomationAllowedApprovalActionId, args: string[] | undefined): string | undefined {
+  if (!args) return undefined;
+  if (actionId === "result.apply") return args[3] ?? args[2];
+  return args[2];
 }
 
 function readString(value: Record<string, unknown>, key: string): string | undefined {

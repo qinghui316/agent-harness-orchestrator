@@ -113,6 +113,7 @@ function decisionActionsForResultReview(topic: WorkbenchTopicDetail, review: Wor
       },
       enabled: true,
       requiresConfirmation: true,
+      automationEligible: true,
     });
   } else if (review.applyReadiness.kind === "source-drift") {
     actions.push({

@@ -42,7 +42,7 @@ Structured changes include:
 
 Structured changes use active change directories in the current ECL lifecycle. Legacy CLI and hand-edited ECL flows remain single-active compatible: when no explicit `changeId` is supplied, commands may resolve the one active Change and reject zero or multiple active Changes. Workbench-managed demand conversations may have multiple active Changes; any write-capable run or high-impact action in that mode must carry an explicit `changeId`.
 
-The Change is the binding and evidence boundary for the work, not a mandate that every task use the same fixed agent sequence. A structured code change may use the recommended planning/coder/validator/auditor template, but the main agent may also clarify, split work, request user input, retry repair, or run additional review when the evidence requires it. Apply, close, archive, merge, and Harness evolution remain high-impact transitions that require Harness gates and human confirmation.
+The Change is the binding and evidence boundary for the work, not a mandate that every task use the same fixed agent sequence. A structured code change may use the recommended planning/coder/validator/auditor template, but the main agent may also clarify, split work, request user input, retry repair, or run additional review when the evidence requires it. Apply, close, archive, merge, and Harness evolution remain high-impact transitions that require Harness gates. Local apply/close may be covered only by an explicit current-Change scoped post-plan authorization that still revalidates source state, accepted artifacts, and current target ids; merge, remote landing, PR, and Harness evolution still require separate human confirmation.
 
 Structured change files must not keep unresolved placeholder-only lines once work is ready for Harness validation. The ECL lint checks the current active change for lines that are exactly `TBD`, `- TBD`, or `- [ ] TBD`. Use explicit anchors such as `AC-001` in `spec.md` and `T-001` with `Covers: AC-001` in `tasks.md` so acceptance criteria and work items can be mapped mechanically.
 
@@ -260,7 +260,7 @@ The acceptance record must show:
 - the exact source project, isolated copy, fixture, or temporary AHO home used;
 - whether the source root was read-only, checked in an isolated copy, or intentionally mutated only through explicit user confirmation;
 - before/after source-root cleanliness or equivalent source-state evidence;
-- that no source-root mutation occurs before the explicit human apply/merge confirmation;
+- that no source-root mutation occurs before explicit human apply/merge confirmation or a current-Change scoped local apply authorization that is recorded with source-state evidence;
 - for multi-result flows, that compatibility or integration evidence is recorded before applying multiple ready results.
 
 Automatic IntegrationFix, remote PR/push, merge queues, and aggregate validation/audit are product capabilities. This rule does not require or imply those capabilities.
@@ -389,9 +389,9 @@ The review must state:
 - which evidence the loop reads before each continuation;
 - how low-conflict parallel slices are distinguished from high-conflict sequential / rework / IntegrationFix slices;
 - how completion is audited against the original objective and current evidence;
-- which high-impact gates remain human confirmed.
+- which high-impact gates remain human confirmed or are covered by a current-Change scoped local authorization.
 
-A Goal loop must not replace Change/ECL, accepted artifacts, Run, Validation, Audit, IntegrationCheck, ToolPolicyGate, Apply/Close human gates, or Harness evolution. Multi-worktree parallelism is execution isolation only and must not be treated as final merge safety. If a loop cannot prove conflict safety, it must wait, ask the user, or route through a fix loop instead of starting parallel work.
+A Goal loop must not replace Change/ECL, accepted artifacts, Run, Validation, Audit, IntegrationCheck, ToolPolicyGate, scoped local apply/close authorization, remote/merge/Harness human gates, or Harness evolution. Multi-worktree parallelism is execution isolation only and must not be treated as final merge safety. If a loop cannot prove conflict safety, it must wait, ask the user, or route through a fix loop instead of starting parallel work.
 
 GoalLoopDecision or Goal Loop confirmation-surface changes must include review coverage for recommendation authority and fallback priority. The review must prove that `GoalLoopDecision.recommendedAction` remains explanatory planning evidence only, references only existing scoped actions with required target ids and stale revalidation, and is not copied into fallback confirmation executable actions. Goal Loop evaluation must remain fallback-only: it is hidden whenever concrete planning, scheduler, IntegrationCheck, apply, close, landing, PR, or remote confirmations exist; it must not be placed in `workpad.nextAction`, bypass ToolPolicyGate / human gates, or start runtime/source mutations.
 

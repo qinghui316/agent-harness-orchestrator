@@ -150,11 +150,14 @@ Pending Harness evolution: none.
 Latest product audit:
 `harness/changes/archive/20260625-workbench-goal-loop-decision-surface-audit-v1/summary.md`.
 Latest product hardening:
+`harness/changes/archive/20260625-workbench-post-plan-scoped-local-autonomy-v1/summary.md`.
+The real E-drive Workbench UI acceptance confirms post-plan scoped local
+autonomy works as intended: `完全访问权限` is not available for plan
+confirmation, becomes available after human plan confirmation, consumes local
+execution gates and safe `audit.accept`, applies the local result, closes the
+local Change, and stops with no primary gate after archive.
+Previous post-plan UI scout:
 `harness/changes/archive/20260625-workbench-post-plan-scoped-automation-real-ui-scout-v1/summary.md`.
-The real E-drive Workbench UI scout confirms post-plan scoped automation works
-as intended: `完全访问权限` is not available for plan confirmation, becomes
-available after human plan confirmation, consumes local execution gates and
-safe `audit.accept`, and stops at human `result.apply` with source clean.
 Previous post-plan policy hardening:
 `harness/changes/archive/20260625-workbench-post-plan-scoped-automation-execution-v1/summary.md`.
 Previous planning/decomposition hardening:
@@ -197,12 +200,14 @@ Current baseline:
   planning artifacts exist.
 - The latest product slice proves `完全访问权限` can consume bounded local
   recovery gates (`result.refresh-rework`, `result.revalidate`,
-  `result.reaudit`) and safe `audit.accept` when audit status is exactly
-  `approved`, then stop at the human `result.apply` gate.
+  `result.reaudit`), safe `audit.accept` when audit status is exactly
+  `approved`, local `result.apply`, and local `change.close`; it then stops
+  with no primary gate after archive.
 - Codex runtime full-access capability is evidence of executor capability only;
   AHO workflow authority remains scoped to target ids, source state, accepted
-  artifacts, stale revalidation, ToolPolicyGate, validation/audit, and human
-  terminal gates.
+  artifacts, stale revalidation, ToolPolicyGate, validation/audit, and the
+  local terminal gates explicitly included in the current Change
+  authorization.
 - Daily `npm run test:workbench` is the fast Workbench unit-capability gate;
   full-chain scheduler/apply/Goal Loop coverage remains in explicit
   release/deep scripts such as `npm run test:workbench:release`.
@@ -250,8 +255,9 @@ and should not be followed by another explanation layer:
 - Single-worker validation/audit failure should point to bounded rework or
   refresh; IntegrationFix language belongs only to aggregate / IntegrationCheck
   failures.
-- Raw `planning.scheduler.*`, apply, close, merge, remote landing, Harness
-  evolution, and full parallel execution remain outside direct `完全访问权限`.
+- Raw `planning.scheduler.*`, integration apply/discard, merge, remote
+  landing, PR, Harness evolution, and full parallel execution remain outside
+  direct `完全访问权限`.
 
 Choose one concrete track:
 

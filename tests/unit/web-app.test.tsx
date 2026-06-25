@@ -388,7 +388,7 @@ function boundedContinuationQueueItem() {
       schedulerClaimReservationId: "claim-reservation-1",
       reservationIntentId: "reservation-1",
       claimIntentId: "claim-1",
-      maxSteps: 5,
+      maxSteps: 10,
     }],
   } as const;
 }
@@ -528,7 +528,7 @@ function recoveryQueueItem(actionType: "result.refresh-rework" | "result.revalid
   } as const;
 }
 
-function applyQueueItem() {
+function applyQueueItem(automationEligible = false) {
   return {
     id: "confirm:apply:wt-1",
     kind: "single-result-apply",
@@ -551,7 +551,36 @@ function applyQueueItem() {
       requiresConfirmation: true,
       changeId: "member-discount",
       approvalId: "apply:wt-1",
+      automationEligible,
       action: { actionId: "result.apply", label: "应用到项目", command: "result", args: ["apply", "repo", "member-discount", "wt-1"], mutates: true, requiresConfirmation: true },
+    }],
+  } as const;
+}
+
+function closeQueueItem(automationEligible = false) {
+  return {
+    id: "confirm:close:member-discount",
+    kind: "request-changes",
+    conversationId: "member-discount",
+    changeId: "member-discount",
+    resultId: "member-discount",
+    summary: "需求已完成，可以关闭。",
+    whyNeedsConfirmation: "确认完成需求",
+    confirmEffect: "会关闭并归档当前本地需求。",
+    riskSummary: "不会执行远端提交、PR 或合并。",
+    evidenceRefs: ["harness/changes/active/member-discount/summary.md"],
+    primary: true,
+    status: "pending",
+    actions: [{
+      id: "accept:close:member-discount",
+      label: "确认完成需求",
+      kind: "approval",
+      enabled: true,
+      requiresConfirmation: true,
+      changeId: "member-discount",
+      approvalId: "close:member-discount",
+      automationEligible,
+      action: { actionId: "change.close", label: "确认完成需求", command: "change", args: ["close", "repo", "member-discount"], mutates: true, requiresConfirmation: true },
     }],
   } as const;
 }
@@ -795,7 +824,7 @@ describe("Workbench web app", () => {
       schedulerClaimReservationId: "claim-reservation-1",
       reservationIntentId: "reservation-1",
       claimIntentId: "claim-1",
-      maxSteps: 5,
+      maxSteps: 10,
     });
   });
 
@@ -845,7 +874,7 @@ describe("Workbench web app", () => {
       automationCurrentGateActionType: "planning.decomposition.confirm",
       changeId: "member-discount",
       decompositionPlanId: "decomp-1",
-      maxSteps: 5,
+      maxSteps: 10,
     });
   });
 
@@ -932,7 +961,7 @@ describe("Workbench web app", () => {
       automationMode: "full-access",
       automationCurrentGateActionType: "planning.decompose",
       changeId: "member-discount",
-      maxSteps: 5,
+      maxSteps: 10,
     });
     expect(card.textContent).not.toContain("full-auto");
     expect(card.textContent).not.toContain("parallel executor");
@@ -982,11 +1011,76 @@ describe("Workbench web app", () => {
       automationCurrentGateRunId: "audit-run-1",
       automationCurrentGateArtifact: "runs/audit-run-1/audit.json",
       changeId: "member-discount",
-      maxSteps: 5,
+      maxSteps: 10,
     });
     expect(card.textContent).not.toContain("full-auto");
     expect(card.textContent).not.toContain("parallel executor");
     expect(card.textContent).not.toContain("merge queue");
+  });
+
+  it("submits scoped-auto for eligible local apply and close approval gates", async () => {
+    const execute = vi.fn(async () => undefined);
+    function Harness({ close = false }: { close?: boolean }) {
+      const [confirming, setConfirming] = useState<string | null>(null);
+      const item = close ? closeQueueItem(true) : applyQueueItem(true);
+      return (
+        <DecisionInspectorPane
+          inspector={{ primary: null, related: [], history: [] }}
+          confirmationQueue={{
+            primary: item,
+            current: [item],
+            otherDemands: [],
+            maintenance: [],
+            history: [],
+          }}
+          confirming={confirming}
+          busy={false}
+          error={null}
+          onConfirmingChange={setConfirming}
+          onExecuteAction={execute}
+          onFeedback={async () => undefined}
+          onSelectContext={() => undefined}
+        />
+      );
+    }
+
+    const { rerender } = render(<Harness />);
+    let card = screen.getByTestId("decision-inspector-primary");
+    let fullAccessButtons = within(card).getAllByRole("button", { name: "完全访问权限" });
+    fireEvent.click(fullAccessButtons[fullAccessButtons.length - 1]!);
+    fullAccessButtons = within(card).getAllByRole("button", { name: "完全访问权限" });
+    fireEvent.click(fullAccessButtons[fullAccessButtons.length - 1]!);
+    fireEvent.click(within(card).getByRole("button", { name: "确认" }));
+
+    await waitFor(() => expect(execute).toHaveBeenCalledTimes(1));
+    expect(execute.mock.calls[0]?.[0]).toMatchObject({
+      actionType: "planning.automation.scoped-auto.run",
+      automationMode: "full-access",
+      automationCurrentGateApprovalActionId: "result.apply",
+      automationCurrentGateTargetId: "wt-1",
+      automationCurrentGateArtifact: "runs/audit-run-1/audit.json",
+      changeId: "member-discount",
+      maxSteps: 10,
+    });
+
+    execute.mockClear();
+    rerender(<Harness close />);
+    card = screen.getByTestId("decision-inspector-primary");
+    fullAccessButtons = within(card).getAllByRole("button", { name: "完全访问权限" });
+    fireEvent.click(fullAccessButtons[fullAccessButtons.length - 1]!);
+    fullAccessButtons = within(card).getAllByRole("button", { name: "完全访问权限" });
+    fireEvent.click(fullAccessButtons[fullAccessButtons.length - 1]!);
+    fireEvent.click(within(card).getByRole("button", { name: "确认" }));
+
+    await waitFor(() => expect(execute).toHaveBeenCalledTimes(1));
+    expect(execute.mock.calls[0]?.[0]).toMatchObject({
+      actionType: "planning.automation.scoped-auto.run",
+      automationMode: "full-access",
+      automationCurrentGateApprovalActionId: "change.close",
+      automationCurrentGateTargetId: "member-discount",
+      changeId: "member-discount",
+      maxSteps: 10,
+    });
   });
 
   it("submits scoped-auto for bounded recovery workflow gates with worktree scope", async () => {
@@ -1030,7 +1124,7 @@ describe("Workbench web app", () => {
       automationCurrentGateActionType: "result.refresh-rework",
       changeId: "member-discount",
       worktreeId: "wt-1",
-      maxSteps: 5,
+      maxSteps: 10,
     });
     expect(card.textContent).not.toContain("full-auto");
     expect(card.textContent).not.toContain("parallel executor");
@@ -1183,7 +1277,7 @@ describe("Workbench web app", () => {
       automationMode: "full-access",
       automationCurrentGateActionType: "planning.goal-loop.evaluate",
       changeId: "member-discount",
-      maxSteps: 5,
+      maxSteps: 10,
     });
     expect(execute.mock.calls[0]?.[0]).not.toMatchObject({
       automationCurrentGateActionType: "planning.scheduler.controlled-advance.run",
@@ -1233,7 +1327,7 @@ describe("Workbench web app", () => {
       automationMode: "full-access",
       automationCurrentGateActionType: "planning.goal-loop.gate-readiness.prepare",
       changeId: "member-discount",
-      maxSteps: 5,
+      maxSteps: 10,
     });
     expect(execute.mock.calls[0]?.[0]).not.toMatchObject({
       automationCurrentGateActionType: "planning.goal-loop.controller.refresh",

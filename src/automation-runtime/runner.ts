@@ -22,7 +22,7 @@ export interface ScopedAutomationRequest extends WorkflowActionScopeCarrier {
 
 export type ScopedAutomationChildGate =
   | (WorkflowActionScopeCarrier & { kind: "workflow-action"; actionType: WorkflowActionType })
-  | { kind: "approval-action"; actionId: string; changeId?: string; approvalId?: string; runId?: string; targetId?: string; artifact?: string; action: unknown };
+  | { kind: "approval-action"; actionId: string; changeId?: string; approvalId?: string; runId?: string; targetId?: string; artifact?: string; action: unknown; options?: unknown };
 
 export interface ScopedAutomationServices {
   resolveCurrentPrimaryGate(previousResult: unknown | null): Promise<ScopedAutomationChildGate | { stopReason: AutomationStopReason; summary: string }>;
@@ -75,8 +75,8 @@ export async function runScopedAutomation(input: {
     acceptedArtifactHashes,
     humanConfirmed: true,
     scopedToCurrentChangeOnly: true,
-    applyAuthorized: false,
-    closeAuthorized: false,
+    applyAuthorized: true,
+    closeAuthorized: true,
     mergeAuthorized: false,
     remoteLandingAuthorized: false,
     harnessEvolutionAuthorized: false,
@@ -190,6 +190,11 @@ export async function runScopedAutomation(input: {
       automationRun.updatedAt = new Date().toISOString();
       await writeAutomationIteration(memory, changePath, iteration);
       await writeAutomationRun(memory, changePath, automationRun);
+      if (next.kind === "approval-action" && next.actionId === "change.close") {
+        stopReason = "no-primary-gate";
+        stopSummary = "Local close completed; no further local automation gate remains.";
+        break;
+      }
     } catch (error) {
       stopReason = "handler-failed";
       stopSummary = error instanceof Error ? error.message : String(error);
@@ -223,14 +228,6 @@ export async function runScopedAutomation(input: {
       automationRun.updatedAt = new Date().toISOString();
       await writeAutomationIteration(memory, changePath, iteration);
       break;
-    }
-  }
-
-  if (stopReason === "max-steps" && iterations.every((iteration) => iteration.status === "completed")) {
-    const lastCompletedIteration = iterations.at(-1);
-    if (stopReason === "max-steps" && lastCompletedIteration?.submittedApprovalActionId === "audit.accept") {
-      stopReason = "terminal-human-gate";
-      stopSummary = automationStopReasonSummary("terminal-human-gate");
     }
   }
 

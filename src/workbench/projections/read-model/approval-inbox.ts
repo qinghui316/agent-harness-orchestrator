@@ -95,6 +95,7 @@ export async function buildApprovalInbox(project: ManagedProject, memory: Resolv
           severity: "info",
           action: approvalAction("result.apply", "应用到项目", "result", ["apply", project.id, worktree.changeId, worktree.worktreeId], true),
           artifact: preview.gate.audit?.artifacts.audit,
+          automationEligible: true,
         });
       }
     }
@@ -108,6 +109,7 @@ export async function buildApprovalInbox(project: ManagedProject, memory: Resolv
         targetId: activeTopic.id,
         severity: "info",
         action: approvalAction("change.close", "Close change", "change", ["close", project.id, activeTopic.id], true),
+        automationEligible: true,
       });
     }
     if (status?.latestValidation?.status === "failed") {

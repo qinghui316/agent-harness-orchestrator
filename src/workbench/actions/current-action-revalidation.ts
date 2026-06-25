@@ -3,7 +3,7 @@ import { listAuditResults } from "../../audit/artifacts.js";
 import { resolveProjectMemory } from "../../memory/resolver.js";
 import type { ManagedProject } from "../../types/index.js";
 import type { WorkbenchApprovalAction } from "../read-model-types.js";
-import { isScopedAutomationAllowedAction } from "../../automation-runtime/policy.js";
+import { isScopedAutomationAllowedAction, isScopedAutomationAllowedApprovalAction } from "../../automation-runtime/policy.js";
 import { revalidatedWorkflowActionSet, workflowActionScopesMatchStrict } from "../../workflow-actions/registry.js";
 import { CONTROLLED_SCHEDULER_STEP_ACTION_TYPE, buildControlledSchedulerStepRequest } from "../../workflow-scheduler/controlled-step.js";
 import { assertGoalLoopAssistedConcreteGateConfirmation } from "./goal-loop-gate-confirmation.js";
@@ -327,7 +327,7 @@ export async function assertCurrentAutomationApprovalAction(
     !primary
     || !primaryApprovalAction
     || !actionId
-    || actionId !== "audit.accept"
+    || !isScopedAutomationAllowedApprovalAction(actionId)
     || !body.changeId
     || (primary.changeId && primary.changeId !== body.changeId)
     || (primaryApprovalAction.changeId && primaryApprovalAction.changeId !== body.changeId)
@@ -335,11 +335,13 @@ export async function assertCurrentAutomationApprovalAction(
     throwStaleWorkflowTarget();
   }
   const targetId = body.automationCurrentGateTargetId;
-  const currentTargetId = primary.resultId ?? primaryApprovalAction.targetId ?? primaryApprovalAction.action?.args?.[2];
+  const currentTargetId = primary.resultId ?? primaryApprovalAction.targetId ?? automationApprovalTargetFromArgs(actionId, primaryApprovalAction.action?.args);
   if (!targetId || currentTargetId !== targetId) throwStaleWorkflowTarget();
   if (body.automationCurrentGateRunId && primary.runId && body.automationCurrentGateRunId !== primary.runId) throwStaleWorkflowTarget();
   const currentArtifact = primary.evidenceRefs?.[0] ?? primaryApprovalAction.artifact;
   if (body.automationCurrentGateArtifact && currentArtifact && body.automationCurrentGateArtifact !== currentArtifact) throwStaleWorkflowTarget();
+
+  if (actionId !== "audit.accept") return;
 
   if (!input.project) throwStaleWorkflowTarget();
   const memory = await resolveProjectMemory(input.project);
@@ -354,6 +356,12 @@ export async function assertCurrentAutomationApprovalAction(
   ) {
     throwStaleWorkflowTarget();
   }
+}
+
+function automationApprovalTargetFromArgs(actionId: string, args: string[] | undefined): string | undefined {
+  if (!args) return undefined;
+  if (actionId === "result.apply") return args[3] ?? args[2];
+  return args[2];
 }
 
 function throwStaleWorkflowTarget(): never {

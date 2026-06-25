@@ -324,7 +324,7 @@ function AutomationModeSelector({
         type="button"
         className={value === "full-access" ? "selected" : ""}
         disabled={!canUseFullAccess}
-        title={canUseFullAccess ? "授权当前需求自动推进到下一个需要你决定的节点。" : "当前步骤不在本地低风险自动推进范围内。"}
+        title={canUseFullAccess ? "授权当前需求在已确认计划范围内自动完成本地闭环，遇到阻塞或外部动作再停下。" : "当前步骤不在本地自动推进范围内。"}
         onClick={() => canUseFullAccess ? onChange("full-access") : undefined}
       >
         <ShieldCheck size={15} />完全访问权限
@@ -334,7 +334,7 @@ function AutomationModeSelector({
 }
 
 function scopedAutomationActionFrom(action: DecisionAction, context: DecisionContext): DecisionAction {
-  if (!action.actionType && action.action?.actionId !== "audit.accept") return action;
+  if (!action.actionType && !isScopedAutomationAllowedApprovalActionId(action.action?.actionId)) return action;
   return {
     ...action,
     id: `automation:${action.id}`,
@@ -343,12 +343,12 @@ function scopedAutomationActionFrom(action: DecisionAction, context: DecisionCon
     actionType: "planning.automation.scoped-auto.run",
     automationMode: "full-access",
     automationCurrentGateActionType: action.actionType,
-    automationCurrentGateApprovalActionId: action.action?.actionId === "audit.accept" ? "audit.accept" : undefined,
+    automationCurrentGateApprovalActionId: isScopedAutomationAllowedApprovalActionId(action.action?.actionId) ? action.action?.actionId : undefined,
     automationCurrentGateTargetId: context.targetId,
     automationCurrentGateRunId: context.runId,
     automationCurrentGateArtifact: context.artifact,
     changeId: action.changeId ?? context.changeId,
-    maxSteps: action.maxSteps ?? 5,
+    maxSteps: action.maxSteps ?? 10,
     requiresConfirmation: true,
   };
 }
@@ -356,7 +356,7 @@ function scopedAutomationActionFrom(action: DecisionAction, context: DecisionCon
 function isScopedAutomationAllowedAction(action: DecisionAction): boolean {
   const actionType = action.actionType;
   if (action.kind === "approval") {
-    return action.action?.actionId === "audit.accept" && action.automationEligible === true;
+    return isScopedAutomationAllowedApprovalActionId(action.action?.actionId) && action.automationEligible === true;
   }
   return action.kind === "workflow-action" && (actionType === "planning.decompose"
     || actionType === "planning.decomposition.confirm"
@@ -371,6 +371,10 @@ function isScopedAutomationAllowedAction(action: DecisionAction): boolean {
     || actionType === "result.revalidate"
     || actionType === "result.reaudit"
     || actionType === "planning.goal-loop.controlled-continue.run");
+}
+
+function isScopedAutomationAllowedApprovalActionId(actionId: string | undefined): actionId is "audit.accept" | "result.apply" | "change.close" {
+  return actionId === "audit.accept" || actionId === "result.apply" || actionId === "change.close";
 }
 
 function chooseScopedAutomationAction(actions: DecisionAction[]): DecisionAction | undefined {

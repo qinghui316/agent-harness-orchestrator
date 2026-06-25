@@ -1,7 +1,7 @@
 import type { WorkflowActionType } from "../workflow-actions/registry.js";
 
 export const SCOPED_AUTOMATION_ACTION_TYPE = "planning.automation.scoped-auto.run" as const;
-export const AUTOMATION_DEFAULT_MAX_STEPS = 5;
+export const AUTOMATION_DEFAULT_MAX_STEPS = 10;
 export const AUTOMATION_HARD_MAX_STEPS = 10;
 
 export const SCOPED_AUTOMATION_ALLOWED_ACTION_TYPES = [
@@ -22,6 +22,8 @@ export const SCOPED_AUTOMATION_ALLOWED_ACTION_TYPES = [
 
 export const SCOPED_AUTOMATION_ALLOWED_APPROVAL_ACTION_IDS = [
   "audit.accept",
+  "result.apply",
+  "change.close",
 ] as const;
 
 export type ScopedAutomationAllowedApprovalActionId = typeof SCOPED_AUTOMATION_ALLOWED_APPROVAL_ACTION_IDS[number];
@@ -37,9 +39,9 @@ const actionPriority = new Map<string, number>([
 ]);
 
 const terminalHumanGates = new Set<string>([
-  "result.apply",
   "worktree.apply",
-  "change.close",
+  "apply-check.apply",
+  "apply-check.discard",
   "harness-change.close",
   "harness-evolve.apply",
   "harness-evolve.mark-complete",
