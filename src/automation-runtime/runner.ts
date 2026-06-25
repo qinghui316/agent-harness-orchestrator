@@ -245,6 +245,14 @@ export async function runScopedAutomation(input: {
     }
   }
 
+  if (stopReason === "max-steps" && iterations.filter((iteration) => iteration.status === "completed").length >= maxSteps) {
+    const postBudgetStop = await resolvePostBudgetStop(services, previousResult, request.changeId, primaryGateResolutionTimeoutMs);
+    if (postBudgetStop) {
+      stopReason = postBudgetStop.stopReason;
+      stopSummary = postBudgetStop.summary;
+    }
+  }
+
   automationRun.status = stopReason === "handler-failed" ? "failed" : stopReason === "max-steps" ? "completed" : "stopped";
   automationRun.completedSteps = iterations.filter((iteration) => iteration.status === "completed").length;
   automationRun.stopReason = stopReason;
@@ -262,6 +270,24 @@ export async function runScopedAutomation(input: {
     summary: stopSummary,
     artifactRefs: [authorization.artifact, automationRun.artifact, ...iterations.map((iteration) => iteration.artifact)],
   };
+}
+
+async function resolvePostBudgetStop(
+  services: ScopedAutomationServices,
+  previousResult: unknown | null,
+  authorizedChangeId: string,
+  timeoutMs: number,
+): Promise<{ stopReason: AutomationStopReason; summary: string } | null> {
+  let next: ScopedAutomationChildGate | { stopReason: AutomationStopReason; summary: string };
+  try {
+    next = await resolveCurrentPrimaryGateWithTimeout(services, previousResult, timeoutMs);
+  } catch {
+    return null;
+  }
+  if ("stopReason" in next) {
+    return next.stopReason === "no-primary-gate" ? next : null;
+  }
+  return scopedAutomationStopForChange(next, authorizedChangeId) ?? scopedAutomationStopForGate(next);
 }
 
 async function resolveCurrentPrimaryGateWithTimeout(

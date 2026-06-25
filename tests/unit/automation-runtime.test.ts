@@ -267,7 +267,7 @@ describe("Scoped automation runtime", () => {
     ]);
   });
 
-  it("finalizes at the step budget without auto-running an integration-check gate", async () => {
+  it("records a terminal human gate when scheduler progression reaches IntegrationCheck at the step budget", async () => {
     const dispatched: ScopedAutomationChildGate[] = [];
     const sequence: ScopedAutomationChildGate[] = [
       {
@@ -310,8 +310,8 @@ describe("Scoped automation runtime", () => {
       },
     });
 
-    expect(result.stopReason).toBe("max-steps");
-    expect(result.automationRun.status).toBe("completed");
+    expect(result.stopReason).toBe("terminal-human-gate");
+    expect(result.automationRun.status).toBe("stopped");
     expect(result.automationRun.completedSteps).toBe(1);
     expect(dispatched.map((gate) => gate.kind === "workflow-action" ? gate.actionType : gate.actionId)).toEqual([
       "planning.goal-loop.controlled-continue.run",

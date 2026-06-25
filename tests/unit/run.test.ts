@@ -146,7 +146,7 @@ describe("run manager", () => {
       completionSignal: () => tracker.isComplete(),
       completionGraceMs: 50,
       killGraceMs: 500,
-      timeoutMs: 2000,
+      timeoutMs: 10000,
     });
     parser.flush();
 

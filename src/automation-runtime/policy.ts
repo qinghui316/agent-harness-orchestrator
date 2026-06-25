@@ -41,6 +41,7 @@ const actionPriority = new Map<string, number>([
 ]);
 
 const terminalHumanGates = new Set<string>([
+  "planning.scheduler.integration-check.run",
   "worktree.apply",
   "apply-check.apply",
   "apply-check.discard",

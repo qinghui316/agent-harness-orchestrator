@@ -6,6 +6,7 @@
 - Active ECL change: none.
 - Pending Harness evolution: none.
 - Latest archived product audit: `harness/changes/archive/20260625-workbench-goal-loop-decision-surface-audit-v1/summary.md`.
+- Latest archived product change: `harness/changes/archive/20260625-workbench-scheduler-worker-progression-to-integration-candidate-v1/summary.md`.
 - Latest archived boundary guard: `harness/changes/archive/20260625-workbench-loop-per-change-boundary-guard-v1/summary.md`.
 - Latest archived product acceptance: `harness/changes/archive/20260625-workbench-confirmation-feedback-real-ui-scout-v1/summary.md`.
 - Previous archived product change: `harness/changes/archive/20260625-workbench-confirmation-feedback-to-rework-v1/summary.md`.
@@ -27,6 +28,16 @@
 - Latest scheduler worker/integration acceptance: `harness/changes/archive/20260625-workbench-scheduler-worker-integration-real-acceptance-v1/summary.md`.
 - Latest scheduler IntegrationCheck acceptance: `harness/changes/archive/20260625-workbench-scheduler-integrationcheck-real-acceptance-v1/summary.md`.
 - Latest scheduler integration apply/discard hardening: `harness/changes/archive/20260625-workbench-scheduler-integration-apply-discard-real-acceptance-v1/summary.md`.
+
+Latest product closeout:
+`harness/changes/archive/20260625-workbench-scheduler-worker-progression-to-integration-candidate-v1/summary.md`.
+It confirmed that existing scheduler owners already cover same-Change
+two-worker progression to a ready `SchedulerIntegrationCandidate`. The only
+product fix was stop evidence honesty: when bounded controlled continuation
+lands on the manual `planning.scheduler.integration-check.run` gate at the
+step budget, scoped automation now records `terminal-human-gate` instead of
+misleading `max-steps`. Raw scheduler actions remain outside direct
+`完全访问权限`.
 
 The latest archived product audit is at
 `harness/changes/archive/20260625-workbench-goal-loop-decision-surface-audit-v1/summary.md`.
@@ -170,7 +181,13 @@ scripts.
 
 ## Next Resume Point
 
-No active change. No pending Harness evolution.
+Active change: none.
+
+Recommended next resume point: choose the next concrete product capability or
+blocker scout from existing Workbench gate/action/runtime owners. Do not add a
+new scheduler framework after the latest closeout confirmed the current
+same-Change worker progression path and terminal IntegrationCheck handoff are
+covered by existing owners. No pending Harness evolution.
 
 Latest completed Harness evolution:
 `harness/changes/archive/20260625-auto-evolve-post-feedback-real-ui-window/summary.md`.

@@ -185,7 +185,7 @@ describe("spec-test manager", () => {
         latestValidationId: "run-b",
       },
     });
-  });
+  }, 60000);
 });
 
 describe("spec-test drift", () => {

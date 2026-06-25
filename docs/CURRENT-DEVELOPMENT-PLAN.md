@@ -152,12 +152,13 @@ Latest completed Harness evolution:
 `harness/changes/archive/20260625-auto-evolve-post-feedback-real-ui-window/summary.md`.
 It evaluated the window generated after `harness/changes/archive/20260625-workbench-confirmation-feedback-real-ui-scout-v1/summary.md` closed as a separate human-gated Harness evolution pass and completed as `noop`.
 Latest product change:
-`harness/changes/archive/20260625-workbench-confirmation-feedback-real-ui-scout-v1/summary.md`.
-It verifies confirmation-point feedback in real Workbench UI. Plan feedback
-routes to `planning.revise`; result/apply feedback routes to bounded
-`result.refresh-rework`; source root stays clean before apply. The scout fixed
-stale older apply gates so a newer validation/audit blocker remains the current
-primary decision.
+`harness/changes/archive/20260625-workbench-scheduler-worker-progression-to-integration-candidate-v1/summary.md`.
+It confirms that existing scheduler owners already cover same-Change
+two-worker progression to a ready `SchedulerIntegrationCandidate`; no new
+executor or raw scheduler automation was added. The only product fix was stop
+evidence honesty: scoped automation now records `terminal-human-gate` when a
+budgeted controlled continuation lands on the manual
+`planning.scheduler.integration-check.run` gate.
 Latest boundary guard:
 `harness/changes/archive/20260625-workbench-loop-per-change-boundary-guard-v1/summary.md`.
 Latest product audit:
@@ -236,7 +237,10 @@ Current baseline:
   candidate. The raw `planning.scheduler.integration-check.run` gate stayed
   manual. After manual confirmation, existing IntegrationCheck ran aggregate
   validation/audit, passed, and stopped at the existing human integration
-  apply/discard gate; source root stayed clean.
+  apply/discard gate; source root stayed clean. Scoped automation now records
+  the handoff to manual IntegrationCheck as `terminal-human-gate` when it is
+  the fresh next gate after a budgeted controlled continuation, instead of
+  reporting a generic `max-steps` stop.
 - Integration apply/discard remains a high-impact human decision. Apply keeps
   source clean, HEAD, artifact hash, aggregate validation, and audit guards;
   discard now also fails closed in the handler for terminal or non-discardable

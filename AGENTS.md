@@ -8,6 +8,7 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 - Active change: none.
 - Pending Harness evolution: none.
 - Latest archived product audit: Workbench Goal Loop Decision Surface Audit V1, archived at `harness/changes/archive/20260625-workbench-goal-loop-decision-surface-audit-v1/summary.md`.
+- Latest archived product change: Workbench Scheduler Worker Progression To Integration Candidate V1, archived at `harness/changes/archive/20260625-workbench-scheduler-worker-progression-to-integration-candidate-v1/summary.md`.
 - Latest archived boundary guard: Workbench Loop-Per-Change Boundary Guard V1, archived at `harness/changes/archive/20260625-workbench-loop-per-change-boundary-guard-v1/summary.md`.
 - Latest archived product acceptance: Workbench Confirmation Feedback Real UI Scout V1, archived at `harness/changes/archive/20260625-workbench-confirmation-feedback-real-ui-scout-v1/summary.md`.
 - Latest completed Harness evolution: `harness/changes/archive/20260625-auto-evolve-post-feedback-real-ui-window/summary.md` (`noop`; subagent review score 88; no ECL/template/lint/product runtime change).
@@ -22,6 +23,13 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 - Previous scheduler apply/discard hardening: `harness/changes/archive/20260625-workbench-scheduler-integration-apply-discard-real-acceptance-v1/summary.md`.
 - Previous completed Harness evolution: `harness/changes/archive/20260625-auto-evolve-post-loop-boundary-window/summary.md` (`docs_merge`; subagent review score 84; no ECL/template/lint/product runtime change).
 - Other recent archives are discoverable via `docs/STATUS.md` and `harness/changes/INDEX.json`; avoid expanding this entry map into a phase ledger.
+
+Latest scheduler progression closeout: existing scheduler owners already cover
+same-Change two-worker progression to a ready `SchedulerIntegrationCandidate`.
+Scoped automation now records `terminal-human-gate` when bounded controlled
+continuation lands on the manual `planning.scheduler.integration-check.run`
+gate at the step budget; raw scheduler actions still stay outside direct
+`完全访问权限`.
 
 Current baseline: the local manual-gated Workbench loop has real browser
 acceptance through planning, code, validation/audit, human apply, and
