@@ -55,7 +55,7 @@ function renderCheckSummary(check: IntegrationCheckRecord): string {
     `- Audit: ${check.aggregateAudit?.status ?? "-"}`,
     "",
     check.fixAttempts.length ? "## IntegrationFix Attempts" : "",
-    ...check.fixAttempts.map((attempt) => `- ${attempt.id}: ${attempt.status} - ${attempt.summary}`),
+    ...check.fixAttempts.map((attempt) => `- ${attempt.id}: ${attempt.status}${attempt.repairMode ? ` / ${attempt.repairMode}` : ""}${attempt.runId ? ` / ${attempt.runId}` : ""} - ${attempt.summary}`),
     "",
     check.blockingIssues.length ? "## Blocking Issues" : "",
     ...check.blockingIssues.map((issue) => `- ${issue}`),

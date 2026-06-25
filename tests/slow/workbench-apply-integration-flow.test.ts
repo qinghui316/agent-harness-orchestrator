@@ -22,6 +22,7 @@ import {
   writeAcceptedSpecAndTasks,
   writeAuditResultWithHash,
   writeValidationResultWithHash,
+  deterministicMarkerRepairRunner,
 } from "../unit/workbench/fixtures.js";
 
 const execFileAsync = promisify(execFile);
@@ -433,21 +434,17 @@ describe("workbench apply and integration slow flows", () => {
       await writeValidationResultWithHash("demand-a", "run-validation-b", worktreeB.metadata.worktreeId, diffB.diffHash, "passed");
       await writeAuditResultWithHash("demand-a", "run-audit-b", worktreeB.metadata.worktreeId, diffB.diffHash, "approved");
 
-      await acceptAllAuditGatesAndGetSnapshot("demand-a");
-      const checked = await executeWorkbenchAction({ project: project(), path: getTempDir() }, {
-        actionType: "apply-check.run",
-        changeId: "demand-a",
-        worktreeIds: [worktreeA.metadata.worktreeId, worktreeB.metadata.worktreeId],
-        confirm: true,
+      const checked = await runIntegrationCheck(project(), [worktreeA.metadata.worktreeId, worktreeB.metadata.worktreeId], "demand-a", {
+        repairRunner: deterministicMarkerRepairRunner,
       });
-      const check = (checked.result as { result: { check: { id: string; status: string; latestArtifactRef?: string; aggregateValidation?: { status: string }; aggregateAudit?: { status: string }; fixAttempts?: Array<{ status: string }> } } }).result.check;
+      const check = checked.check;
       expect(check).toMatchObject({
         status: "passed",
         latestArtifactRef: expect.stringContaining("repaired.patch"),
         aggregateValidation: expect.objectContaining({ status: "passed" }),
         aggregateAudit: expect.objectContaining({ status: "approved" }),
       });
-      expect(check.fixAttempts?.[0]).toMatchObject({ status: "completed" });
+      expect(check.fixAttempts?.[0]).toMatchObject({ status: "completed", repairMode: "deterministic-marker-test" });
       expect(existsSync(join(getTempDir(), "a.txt"))).toBe(false);
       expect(existsSync(join(getTempDir(), "b.txt"))).toBe(false);
       expect(existsSync(join(getTempDir(), "integration-validation-fail.txt"))).toBe(false);

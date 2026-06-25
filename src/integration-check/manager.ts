@@ -12,6 +12,8 @@ export type {
   IntegrationFixAttempt,
   IntegrationFixAttemptStatus,
 } from "./types.js";
+export type { IntegrationFixRepairRunner } from "./fix-attempts.js";
+export type { RunIntegrationCheckOptions } from "./service.js";
 export { findIntegrationCheckCandidate } from "./candidates.js";
 export { runIntegrationCheck } from "./service.js";
 export { applyIntegrationCheck, discardIntegrationCheck } from "./apply-discard.js";

@@ -6,7 +6,8 @@
 - Active ECL change: none.
 - Pending Harness evolution: none.
 - Latest archived product audit: `harness/changes/archive/20260625-workbench-goal-loop-decision-surface-audit-v1/summary.md`.
-- Latest archived product change: `harness/changes/archive/20260625-workbench-scheduler-worker-progression-to-integration-candidate-v1/summary.md`.
+- Latest archived product change: `harness/changes/archive/20260625-workbench-codex-backed-integrationfix-real-repair-v1/summary.md`.
+- Previous scheduler progression: `harness/changes/archive/20260625-workbench-scheduler-worker-progression-to-integration-candidate-v1/summary.md`.
 - Latest archived boundary guard: `harness/changes/archive/20260625-workbench-loop-per-change-boundary-guard-v1/summary.md`.
 - Latest archived product acceptance: `harness/changes/archive/20260625-workbench-confirmation-feedback-real-ui-scout-v1/summary.md`.
 - Previous archived product change: `harness/changes/archive/20260625-workbench-confirmation-feedback-to-rework-v1/summary.md`.
@@ -30,6 +31,14 @@
 - Latest scheduler integration apply/discard hardening: `harness/changes/archive/20260625-workbench-scheduler-integration-apply-discard-real-acceptance-v1/summary.md`.
 
 Latest product closeout:
+`harness/changes/archive/20260625-workbench-codex-backed-integrationfix-real-repair-v1/summary.md`.
+It upgrades IntegrationFix from marker-only repair to Codex-backed bounded
+repair in the integration fix checkout. Failed conflict, aggregate validation,
+or aggregate audit paths can now create a repaired artifact only after Codex
+produces a real checkout diff and aggregate validation/audit pass. Integration
+apply/discard remains human-gated, and marker deletion is test-only.
+
+Previous product closeout:
 `harness/changes/archive/20260625-workbench-scheduler-worker-progression-to-integration-candidate-v1/summary.md`.
 It confirmed that existing scheduler owners already cover same-Change
 two-worker progression to a ready `SchedulerIntegrationCandidate`. The only

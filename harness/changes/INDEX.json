@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-25T14:48:29.0166544Z",
+    "generated_at":  "2026-06-25T15:42:50.8177462Z",
     "active":  [
 
                ],
@@ -1885,6 +1885,10 @@
                     {
                         "name":  "20260625-document-minimality-gate-and-complexity-review",
                         "path":  "harness/changes/archive/20260625-document-minimality-gate-and-complexity-review"
+                    },
+                    {
+                        "name":  "20260625-workbench-codex-backed-integrationfix-real-repair-v1",
+                        "path":  "harness/changes/archive/20260625-workbench-codex-backed-integrationfix-real-repair-v1"
                     },
                     {
                         "name":  "20260625-workbench-codex-plan-mode-post-plan-local-autonomy-v1",

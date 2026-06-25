@@ -9,13 +9,17 @@ import { runAggregateAudit } from "./aggregate-audit.js";
 import { runAggregateValidation } from "./aggregate-validation.js";
 import { integrationArtifact, latestArtifactAbsolutePath, messageFromIssues } from "./artifacts.js";
 import { buildIntegrationCheckId, collectReadyTargets } from "./candidates.js";
-import { runIntegrationFixAttempt } from "./fix-attempts.js";
+import { runIntegrationFixAttempt, type IntegrationFixRepairRunner } from "./fix-attempts.js";
 import { integrationCheckRoot, displayArtifactPath } from "./paths.js";
 import { prepareIntegrationCheckout } from "./patch-workspace.js";
 import { appendIntegrationEvent, writeCheckArtifacts } from "./repository.js";
 import type { IntegrationArtifact, IntegrationCheckResult, IntegrationCheckStatus, IntegrationFixAttempt } from "./types.js";
 
-export async function runIntegrationCheck(project: ManagedProject, worktreeIds?: string[], expectedChangeId?: string): Promise<IntegrationCheckResult> {
+export interface RunIntegrationCheckOptions {
+  repairRunner?: IntegrationFixRepairRunner;
+}
+
+export async function runIntegrationCheck(project: ManagedProject, worktreeIds?: string[], expectedChangeId?: string, options: RunIntegrationCheckOptions = {}): Promise<IntegrationCheckResult> {
   const memory = await resolveProjectMemory(project);
   assertWritableMemory(memory, "Integration check");
   const sourceHead = await getGitCommit(project.path);
@@ -69,7 +73,7 @@ export async function runIntegrationCheck(project: ManagedProject, worktreeIds?:
 
   let latestArtifact = artifacts[0] as IntegrationArtifact;
   if (status === "conflict") {
-    const fix = await runIntegrationFixAttempt(project, directory, id, combinedPatchPath, messageFromIssues(blockingIssues));
+    const fix = await runIntegrationFixAttempt(project, directory, id, combinedPatchPath, messageFromIssues(blockingIssues), { repairRunner: options.repairRunner, changeId: targets[0]?.changeId });
     fixAttempts.push(fix.attempt);
     if (fix.artifact) {
       artifacts.push(fix.artifact);
@@ -85,7 +89,7 @@ export async function runIntegrationCheck(project: ManagedProject, worktreeIds?:
   if (status === "passed" && aggregateValidation.status !== "passed") {
     status = "validation-failed";
     blockingIssues.push(aggregateValidation.stderr || aggregateValidation.stdout || "Aggregate validation failed.");
-    const fix = await runIntegrationFixAttempt(project, directory, id, latestArtifactAbsolutePath(directory, latestArtifact), "aggregate validation failed");
+    const fix = await runIntegrationFixAttempt(project, directory, id, latestArtifactAbsolutePath(directory, latestArtifact), "aggregate validation failed", { repairRunner: options.repairRunner, changeId: targets[0]?.changeId });
     fixAttempts.push(fix.attempt);
     if (fix.artifact) {
       artifacts.push(fix.artifact);
@@ -104,7 +108,7 @@ export async function runIntegrationCheck(project: ManagedProject, worktreeIds?:
   if (status === "passed" && aggregateAudit.status !== "approved") {
     status = "audit-failed";
     blockingIssues.push(...aggregateAudit.findings);
-    const fix = await runIntegrationFixAttempt(project, directory, id, latestArtifactAbsolutePath(directory, latestArtifact), "aggregate audit failed");
+    const fix = await runIntegrationFixAttempt(project, directory, id, latestArtifactAbsolutePath(directory, latestArtifact), "aggregate audit failed", { repairRunner: options.repairRunner, changeId: targets[0]?.changeId });
     fixAttempts.push(fix.attempt);
     if (fix.artifact) {
       artifacts.push(fix.artifact);

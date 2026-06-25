@@ -10,6 +10,13 @@ The user should not need to know internal terms before asking for work. The main
 
 ## Goal-Driven Workflow Loop Target
 
+Latest implementation slice:
+`harness/changes/archive/20260625-workbench-codex-backed-integrationfix-real-repair-v1/summary.md`.
+It kept the existing IntegrationCheck owner and turned failed aggregate
+conflict/validation/audit repair into a real Codex-backed bounded repair in the
+integration fix checkout. It did not implement a new workflow runtime, full
+parallel executor, or automatic integration apply/discard.
+
 The target architecture is a Goal-driven Workflow Loop, not a Scheduler-first
 product. After the user confirms the goal, boundaries, accepted plan, and
 permission profile, the main Agent keeps a persistent Goal/Change in view,

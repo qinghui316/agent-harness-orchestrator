@@ -43,8 +43,11 @@ export interface IntegrationFixAttempt {
   id: string;
   roleId: "integration-fix-agent";
   status: IntegrationFixAttemptStatus;
+  repairMode?: "codex" | "deterministic-marker-test";
   reason: string;
   inputArtifactRef: string;
+  runId?: string;
+  runArtifactRefs?: string[];
   outputArtifactRef?: string;
   outputArtifactHash?: string;
   summary: string;

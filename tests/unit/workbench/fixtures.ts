@@ -37,7 +37,9 @@ import {
   writeSchedulerRuntimeState,
 } from "../../../src/scheduler-runtime/repository.js";
 import { integrationCheckRoot } from "../../../src/integration-check/paths.js";
+import { removeKnownIntegrationFailureMarkers } from "../../../src/integration-check/patch-workspace.js";
 import { writeCheckArtifacts } from "../../../src/integration-check/repository.js";
+import type { IntegrationFixRepairRunner } from "../../../src/integration-check/fix-attempts.js";
 import { getGlobalWorktreeCheckoutRoot } from "../../../src/worktree/paths.js";
 import { writeWorktreeMetadata } from "../../../src/worktree/repository.js";
 import { writeWorktreeIndex } from "../../../src/worktree/manager.js";
@@ -123,6 +125,14 @@ export function unwrapControlledSchedulerAdvanceResult(result: unknown): unknown
   const stepRecord = controlledStep as Record<string, unknown>;
   return record.result ?? stepRecord.result ?? controlledStep;
 }
+
+export const deterministicMarkerRepairRunner: IntegrationFixRepairRunner = async ({ checkoutPath }) => {
+  await removeKnownIntegrationFailureMarkers(checkoutPath);
+  return {
+    repairMode: "deterministic-marker-test",
+    summary: "Deterministic test runner removed aggregate failure markers.",
+  };
+};
 
 export async function createFakeGh(initial: { isDraft?: boolean; comments?: unknown[]; inlineComments?: unknown[]; failedChecks?: number; canResolveThreads?: boolean; mergeFails?: boolean } = {}): Promise<{ command: string; args: string[]; stateFile: string }> {
   const binDir = join(tempDir, "fake-gh-bin");
