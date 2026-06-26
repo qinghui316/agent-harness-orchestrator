@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-26T18:21:41.4667497Z",
+    "generated_at":  "2026-06-26T19:13:07.6781720Z",
     "active":  [
 
                ],
@@ -2049,6 +2049,10 @@
                     {
                         "name":  "20260627-workbench-project-home-codex-diagnostics-v1",
                         "path":  "harness/changes/archive/20260627-workbench-project-home-codex-diagnostics-v1"
+                    },
+                    {
+                        "name":  "20260627-workbench-reference-style-workspace-picker-and-session-sidebar-v1",
+                        "path":  "harness/changes/archive/20260627-workbench-reference-style-workspace-picker-and-session-sidebar-v1"
                     }
                 ]
 }

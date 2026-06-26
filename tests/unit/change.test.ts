@@ -178,6 +178,17 @@ describe("change manager", () => {
 
     expect(closed.archivePath).toMatch(/collision-\d{6}$/);
   });
+
+  it("allocates stable unique ids for non-latin concurrent demand titles", async () => {
+    await initHarness(project(tempDir));
+
+    const first = await createConcurrentChange(project(tempDir), { title: "验证左侧会话历史第一条" });
+    const second = await createConcurrentChange(project(tempDir), { title: "验证左侧会话历史第二条" });
+
+    expect(first.change.id).toMatch(/^project-[a-f0-9]{8}$/);
+    expect(second.change.id).toMatch(/^project-[a-f0-9]{8}$/);
+    expect(second.change.id).not.toBe(first.change.id);
+  });
 });
 
 function localDate(date = new Date()): string {

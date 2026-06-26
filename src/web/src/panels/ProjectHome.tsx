@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { ComposerControls } from "../shell/ComposerControls.js";
 import type { ComposerExecutionMode } from "../shell/composer-session.js";
+import { WorkspacePicker } from "./WorkspacePicker.js";
 import {
   CodexTrustButton,
   InfoRow,
@@ -85,21 +86,28 @@ export function ProjectReadinessHome({
   snapshot,
   automationMode,
   modelLabel,
+  projects,
+  selectedProjectId,
   onCreateDemand,
   onAutomationModeChange,
+  onOpenProject,
+  onRefresh,
 }: {
   project: ProjectStatus;
   snapshot: Snapshot;
   automationMode: ComposerExecutionMode;
   modelLabel: string;
+  projects: ProjectStatus[];
+  selectedProjectId: string | null;
   onCreateDemand: (body: string) => Promise<void>;
   onAutomationModeChange: (mode: ComposerExecutionMode) => void;
+  onOpenProject: (projectId: string) => Promise<void>;
+  onRefresh: () => Promise<void>;
 }): ReactElement {
   const readiness = projectReadiness(project, snapshot);
   const [draft, setDraft] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const memoryReady = snapshot.memory.harnessReady ?? project.memory?.harnessReady ?? project.harness.readiness === "ready";
-  const projectName = snapshot.project?.name ?? project.project?.name ?? "当前项目";
 
   async function submitDemand(): Promise<void> {
     const body = draft.trim();
@@ -120,9 +128,12 @@ export function ProjectReadinessHome({
           <Bot size={50} />
         </div>
         <h1>创造任何东西</h1>
-        <div className="home-chat-project-label" title={project.path}>
-          <span>{projectName}</span>
-        </div>
+        <WorkspacePicker
+          projects={projects}
+          selectedProjectId={selectedProjectId}
+          onOpenProject={onOpenProject}
+          onRefresh={onRefresh}
+        />
 
         <section className="home-demand-composer" aria-label="新建需求对话">
           <ComposerControls

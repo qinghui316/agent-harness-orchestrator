@@ -17,7 +17,6 @@ import {
 } from "../panels/ProjectPanels.js";
 import { userFacingText, workpadStatusLabel } from "../formatters.js";
 import type {
-  AppStatus,
   ProjectStatus,
   Snapshot,
   TopicDetail,
@@ -25,7 +24,6 @@ import type {
 } from "../types.js";
 
 export function ProjectConversationSidebar({
-  appStatus,
   projects,
   selectedProjectId,
   selectedTopicId,
@@ -45,7 +43,6 @@ export function ProjectConversationSidebar({
   onRefresh,
   onOpenSettings,
 }: {
-  appStatus: AppStatus | null;
   projects: ProjectStatus[];
   selectedProjectId: string | null;
   selectedTopicId: string | null;
@@ -65,9 +62,7 @@ export function ProjectConversationSidebar({
   onRefresh: () => Promise<void>;
   onOpenSettings: () => void;
 }): ReactElement {
-  const visibleProjects = appStatus?.mode === "project" && appStatus.directProjectId
-    ? projects.filter((item) => item.project?.id === appStatus.directProjectId)
-    : projects;
+  const visibleProjects = projects;
   const normalizedSearch = search.trim().toLowerCase();
   async function afterProjectAdded(projectId?: string): Promise<void> {
     await onRefresh();

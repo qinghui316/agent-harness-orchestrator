@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { buildAcMap } from "../ecl/anchors.js";
 import { getActiveChanges, writeChangeIndex } from "../ecl/index.js";
 import { atomicWriteFile, writeJsonFile } from "../fs/json.js";
-import { slugify } from "../fs/path.js";
+import { shortHash, slugify } from "../fs/path.js";
 import { assertWritableMemory, resolveProjectMemory } from "../memory/resolver.js";
 import { createEmptySpecTests } from "../spec-test/manager.js";
 import type { ChangeMetadata, ManagedProject } from "../types/index.js";
@@ -30,10 +30,7 @@ async function createChangeInDirectory(project: ManagedProject, options: { title
     throw new Error(`Cannot create a new change while an active change exists: ${activeChanges[0]?.name}.`);
   }
 
-  const id = slugify(options.title);
-  if (existsSync(join(memory.changesRoot, "active", id)) || existsSync(join(memory.changesRoot, "parking", id))) {
-    throw new Error(`Change already exists: ${id}.`);
-  }
+  const id = allocateChangeId(memory.changesRoot, options.title);
   const changePath = join(memory.changesRoot, directory, id);
   const relativePath = displayPath(memory, changePath);
   if (existsSync(changePath)) {
@@ -75,4 +72,16 @@ async function createChangeInDirectory(project: ManagedProject, options: { title
   await writeJsonFile(join(changePath, "ac-map.json"), acMap);
   const index = await writeChangeIndex(memory);
   return { change, path: relativePath, acMap, index };
+}
+
+function allocateChangeId(changesRoot: string, title: string): string {
+  const rawSlug = slugify(title);
+  const base = rawSlug === "project" ? `project-${shortHash(title)}` : rawSlug;
+  let candidate = base;
+  let suffix = 2;
+  while (existsSync(join(changesRoot, "active", candidate)) || existsSync(join(changesRoot, "parking", candidate))) {
+    candidate = `${base}-${suffix}`;
+    suffix += 1;
+  }
+  return candidate;
 }

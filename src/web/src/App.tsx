@@ -4,9 +4,6 @@ import {
   useRef,
   useState,
   type ReactElement } from "react";
-import {
-  Settings,
-} from "lucide-react";
 import { consumeWorkbenchLiveStream,
   fetchJson,
   postJson } from "./api.js";
@@ -90,7 +87,6 @@ const emptySnapshot: Snapshot = {
 };
 
 export function App(): ReactElement {
-  const [appStatus, setAppStatus] = useState<AppStatus | null>(null);
   const [projects, setProjects] = useState<ProjectStatus[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [snapshot, setSnapshot] = useState<Snapshot>(emptySnapshot);
@@ -125,7 +121,6 @@ export function App(): ReactElement {
 
   async function loadApp(): Promise<void> {
     const status = await fetchJson<AppStatus>("/api/app/status");
-    setAppStatus(status);
     const list = await fetchJson<{ projects: ProjectStatus[] }>("/api/projects");
     setProjects(list.projects);
     const directProject = status.directProjectId;
@@ -804,9 +799,8 @@ export function App(): ReactElement {
         <div className="brand compact-brand">
           <div className="brand-title">Agent Harness<br />Orchestrator</div>
         </div>
-        <ProjectConversationSidebar
-          appStatus={appStatus}
-          projects={projects}
+              <ProjectConversationSidebar
+                projects={projects}
           selectedProjectId={selectedProjectId}
           selectedTopicId={activeTopic?.id ?? selectedTopic}
           snapshots={projectSnapshots}
@@ -843,8 +837,12 @@ export function App(): ReactElement {
             snapshot={snapshot}
             automationMode={automationMode}
             modelLabel={codexModelLabel}
+            projects={projects}
+            selectedProjectId={selectedProjectId}
             onCreateDemand={createTopicFromText}
             onAutomationModeChange={handleComposerExecutionModeChange}
+            onOpenProject={openProject}
+            onRefresh={loadApp}
           />
         ) : (
           <>
@@ -852,9 +850,6 @@ export function App(): ReactElement {
               <div className="thread-title-block">
                 <strong>{activeTopic.title}</strong>
                 <span>{snapshot.project?.name ?? "project"} · {stateLabel(activeTopic.state)} · 验收 {activeTopic.acCount ?? 0} · 任务 {activeTopic.taskCount ?? 0}</span>
-              </div>
-              <div className="topic-actions">
-                <button className="secondary-button" onClick={() => void refresh()}><Settings size={15} />刷新状态</button>
               </div>
             </header>
 

@@ -6,7 +6,8 @@
 - Active ECL change: none.
 - Pending Harness evolution: none.
 - Latest archived product audit: `harness/changes/archive/20260625-workbench-goal-loop-decision-surface-audit-v1/summary.md`.
-- Latest archived product change: `harness/changes/archive/20260627-workbench-harness-composer-execution-mode-controls-v1/summary.md`.
+- Latest archived product change: `harness/changes/archive/20260627-workbench-reference-style-workspace-picker-and-session-sidebar-v1/summary.md`.
+- Previous archived product change: `harness/changes/archive/20260627-workbench-harness-composer-execution-mode-controls-v1/summary.md`.
 - Previous archived product change: `harness/changes/archive/20260627-workbench-desktop-cc-gui-aligned-home-and-conversation-entry-v1/summary.md`.
 - Latest archived docs/reference change: `harness/changes/archive/20260626-document-desktop-cc-gui-reference-map-and-product-layer-roadmap/summary.md`.
 - Latest archived reference policy correction: `harness/changes/archive/20260626-desktop-cc-gui-local-only-reference-correction/summary.md`.
@@ -52,12 +53,19 @@
 - Latest scheduler integration apply/discard hardening: `harness/changes/archive/20260625-workbench-scheduler-integration-apply-discard-real-acceptance-v1/summary.md`.
 
 Latest product closeout:
+`harness/changes/archive/20260627-workbench-reference-style-workspace-picker-and-session-sidebar-v1/summary.md`.
+It updates the Harness-mode home to the reference-style structure: centered
+`创造任何东西` composer, working workspace picker, real project/session history in
+the left sidebar, and no fake center recent-session or toolbar controls. Real
+browser screenshots are under
+`E:\aho-accept\workspace-picker-session-sidebar-v1\screenshots\`.
+
+Previous product closeout:
 `harness/changes/archive/20260627-workbench-harness-composer-execution-mode-controls-v1/summary.md`.
 It moves Harness execution mode into the composer as
 `Codex / model / 逐步确认|自动推进`, persists it as frontend-only project/topic
 session state, and keeps the right confirmation pane focused on the current
-real gate. Real browser screenshots are under
-`E:\aho-accept\harness-composer-mode-v1\screenshots\`.
+real gate.
 
 Previous product closeout:
 `harness/changes/archive/20260627-workbench-desktop-cc-gui-aligned-home-and-conversation-entry-v1/summary.md`.
@@ -395,7 +403,7 @@ Active change: none.
 Pending Harness evolution: none.
 
 Latest product closeout:
-`harness/changes/archive/20260627-workbench-desktop-cc-gui-aligned-home-and-conversation-entry-v1/summary.md`.
+`harness/changes/archive/20260627-workbench-reference-style-workspace-picker-and-session-sidebar-v1/summary.md`.
 
 Latest real UI acceptance:
 `harness/changes/archive/20260626-workbench-mode-aware-local-goal-loop-real-ui-acceptance-v1/summary.md`.

@@ -1668,7 +1668,7 @@ describe("Workbench web app", () => {
     expect(document.querySelector(".parent-agent-transcript")?.textContent).not.toContain("结果摘要");
     expect(screen.getByText("推荐动作")).toBeTruthy();
     expect(screen.getByText("接受需求说明")).toBeTruthy();
-    expect(screen.getByText("刷新状态")).toBeTruthy();
+    expect(screen.queryByText("刷新状态")).toBeNull();
     expect(screen.queryByText("更多")).toBeNull();
     expect(screen.queryByText("稍后")).toBeNull();
     expect(screen.getByText("记忆：external-local")).toBeTruthy();
@@ -4885,7 +4885,7 @@ describe("Workbench web app", () => {
     render(<App />);
 
     await screen.findByRole("heading", { name: "创造任何东西" });
-    expect(screen.getByTitle("E:/repo")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "选择项目" })).toBeTruthy();
     expect(screen.getByLabelText("新建需求输入框")).toBeTruthy();
     expect(await screen.findByText("gpt-5.3-codex")).toBeTruthy();
     const modeToggle = screen.getByRole("group", { name: "执行模式" });
@@ -4906,6 +4906,108 @@ describe("Workbench web app", () => {
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "设置" })).toBeNull());
     const mutationCalls = vi.mocked(fetch).mock.calls.filter(([, init]) => init?.method === "POST");
     expect(mutationCalls).toHaveLength(0);
+  });
+
+  it("opens the project home workspace picker, filters projects, and switches through the existing project route", async () => {
+    const repoSnapshot = {
+      ...snapshot,
+      left: { ...snapshot.left, topics: [], workpads: [] },
+      center: { ...snapshot.center, selectedTopic: null },
+    };
+    const toolsSnapshot = {
+      ...snapshot,
+      project: { id: "tools", name: "Tools", path: "E:/tools" },
+      left: { ...snapshot.left, topics: [], workpads: [] },
+      center: { ...snapshot.center, selectedTopic: null },
+    };
+    const repoProject = {
+      project: snapshot.project,
+      path: "E:/repo",
+      pathExists: true,
+      isGitRepo: true,
+      managed: true,
+      memory: { memoryMode: "external-local", memoryAvailable: true, harnessReady: true, artifactBase: "memory-root", roots: { memoryRoot: "E:/aho-home/projects/repo" } },
+      harness: { readiness: "ready" },
+      codexTrust: { trusted: true },
+    };
+    const toolsProject = {
+      project: { id: "tools", name: "Tools", path: "E:/tools" },
+      path: "E:/tools",
+      pathExists: true,
+      isGitRepo: true,
+      managed: true,
+      memory: { memoryMode: "external-local", memoryAvailable: true, harnessReady: true, artifactBase: "memory-root", roots: { memoryRoot: "E:/aho-home/projects/tools" } },
+      harness: { readiness: "ready" },
+      codexTrust: { trusted: true },
+    };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
+      if (url === "/api/projects") return jsonResponse({ projects: [repoProject, toolsProject] });
+      if (url === "/api/projects/repo/codex/diagnostics" || url === "/api/projects/tools/codex/diagnostics") return jsonResponse(codexDiagnostics);
+      if (url === "/api/projects/tools/workbench/snapshot") return jsonResponse(toolsSnapshot);
+      return jsonResponse(repoSnapshot);
+    }));
+
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "创造任何东西" });
+    fireEvent.click(screen.getByRole("button", { name: "选择项目" }));
+    const picker = await screen.findByRole("dialog", { name: "项目选择器" });
+    expect(within(picker).getByText("Repo")).toBeTruthy();
+    expect(within(picker).getByText("Tools")).toBeTruthy();
+
+    fireEvent.change(within(picker).getByLabelText("搜索项目"), { target: { value: "tool" } });
+    expect(within(picker).queryByText("Repo")).toBeNull();
+    fireEvent.click(within(picker).getByText("Tools"));
+
+    await waitFor(() => {
+      expect(fetchCallUrls()).toContain("/api/projects/tools/workbench/snapshot");
+    });
+    expect(screen.getByRole("button", { name: "选择项目" }).textContent).toContain("Tools");
+    expect(screen.getByRole("button", { name: "Tools" })).toBeTruthy();
+    const mutationCalls = vi.mocked(fetch).mock.calls.filter(([, init]) => init?.method === "POST");
+    expect(mutationCalls).toHaveLength(0);
+  });
+
+  it("exposes real add and create project forms from the workspace picker", async () => {
+    const noTopicSnapshot = {
+      ...snapshot,
+      left: { ...snapshot.left, topics: [], workpads: [] },
+      center: { ...snapshot.center, selectedTopic: null },
+    };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
+      if (url === "/api/projects") {
+        return jsonResponse({ projects: [{
+          project: snapshot.project,
+          path: "E:/repo",
+          pathExists: true,
+          isGitRepo: true,
+          managed: true,
+          memory: { memoryMode: "external-local", memoryAvailable: true, harnessReady: true, artifactBase: "memory-root", roots: { memoryRoot: "E:/aho-home/projects/repo" } },
+          harness: { readiness: "ready" },
+          codexTrust: { trusted: true },
+        }] });
+      }
+      if (url === "/api/projects/repo/codex/diagnostics") return jsonResponse(codexDiagnostics);
+      return jsonResponse(noTopicSnapshot);
+    }));
+
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "创造任何东西" });
+    fireEvent.click(screen.getByRole("button", { name: "选择项目" }));
+    const picker = await screen.findByRole("dialog", { name: "项目选择器" });
+
+    fireEvent.click(within(picker).getByRole("button", { name: "添加已有项目" }));
+    expect(within(picker).getByText("选择文件夹添加")).toBeTruthy();
+    expect(within(picker).getByText("手动输入路径")).toBeTruthy();
+
+    fireEvent.click(within(picker).getByRole("button", { name: "新建项目" }));
+    expect(within(picker).getByText("选择父目录")).toBeTruthy();
+    expect(within(picker).getByText("初始化 Git")).toBeTruthy();
   });
 
   it("creates a demand from the desktop-style project home composer", async () => {
