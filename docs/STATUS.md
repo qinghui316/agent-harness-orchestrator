@@ -4,7 +4,7 @@
 
 - Current date: 2026-06-26.
 - Active ECL change: none.
-- Pending Harness evolution: `harness/evolution/pending.md`.
+- Pending Harness evolution: none.
 - Latest archived product audit: `harness/changes/archive/20260625-workbench-goal-loop-decision-surface-audit-v1/summary.md`.
 - Latest archived product change: `harness/changes/archive/20260626-workbench-mode-aware-local-goal-loop-v1/summary.md`.
 - Previous archived product change: `harness/changes/archive/20260626-workbench-local-landing-ready-terminal-close-v1/summary.md`.
@@ -30,7 +30,7 @@
 - Latest product audit: `harness/changes/archive/20260624-workbench-goal-loop-surface-gap-audit/summary.md`.
 - Latest verification convergence: `harness/changes/archive/20260623-workbench-verification-runtime-convergence/summary.md`.
 - Latest real-Codex acceptance: `harness/changes/archive/20260623-workbench-current-project-real-codex-acceptance/summary.md`.
-- Latest completed Harness evolution: `harness/changes/archive/20260626-auto-evolve-post-integrationfix-apply-window/summary.md`.
+- Latest completed Harness evolution: `harness/changes/archive/20260626-auto-evolve-post-mode-aware-loop-window/summary.md`.
 - Previous completed Harness evolution: `harness/changes/archive/20260625-auto-evolve-post-feedback-real-ui-window/summary.md`.
 - Latest scheduler reachability change: `harness/changes/archive/20260625-workbench-low-conflict-taskgraph-scheduler-reachability-v1/summary.md`.
 - Latest scheduler worker/integration acceptance: `harness/changes/archive/20260625-workbench-scheduler-worker-integration-real-acceptance-v1/summary.md`.
@@ -258,70 +258,17 @@ scripts.
 Active change: none.
 
 Latest completed Harness evolution:
-`harness/changes/archive/20260626-auto-evolve-post-integrationfix-apply-window/summary.md`.
-Decision: `noop`. `harness-evolve mark-complete` removed `pending.md`,
-advanced the archive counter to 487, and recorded subagent review score 91 in
-`results.tsv`. No ECL/template/lint/product runtime change was made.
+`harness/changes/archive/20260626-auto-evolve-post-mode-aware-loop-window/summary.md`.
+Decision: `docs_merge`. Subagent Aquinas scored the window `86/100`.
+`harness-evolve mark-complete` removed `pending.md`, advanced the archive
+counter to `492`, and recorded the result in `results.tsv`. No new
+ECL/template/lint/product runtime rule was made; only compact current-doc
+alignment was applied.
 
-Recommended next resume point: choose the next concrete local-Agent product
-capability or blocker scout from existing Workbench gate/runtime owners. The
-local landing-ready terminal surface is now fixed; do not widen
-`完全访问权限` into raw scheduler, integration apply/discard, remote, merge, PR,
-or Harness evolution without a separate structured change.
-
-Latest completed Harness evolution:
-`harness/changes/archive/20260625-auto-evolve-post-feedback-real-ui-window/summary.md`.
-The pending five-archive window after the confirmation feedback real UI scout
-was reviewed with subagent Ptolemy, scored 88, and completed as `noop`. No ECL
-rule, review-template field, lint rule, product runtime change, or durable
-current-doc rule change was required.
-
-Previous completed Harness evolution:
-`harness/changes/archive/20260625-auto-evolve-post-loop-boundary-window/summary.md`.
-
-The latest archived boundary guard is at
-`harness/changes/archive/20260625-workbench-loop-per-change-boundary-guard-v1/summary.md`.
-It closes the rule that one loop execution maps to one parent Change.
-Multi-worktree outputs may feed IntegrationCheck only when all ready targets
-belong to that same Change. Cross-Change merge is not handled by a single
-IntegrationCheck.
-
-The latest product change is archived at
-`harness/changes/archive/20260625-workbench-post-apply-local-landing-autonomy-v1/summary.md`.
-It extends the existing post-plan local automation after `result.apply` to run
-local `landing.prepare` and then local `change.close` when that is the next
-gate. It does not automate PR, remote, merge, integration apply/discard, or
-Harness evolution.
-
-Previous resume context:
-
-The latest pending evolution has been completed as `docs_merge` with
-independent subagent review. The latest completed product audit confirmed that
-the existing Goal Loop chain stays a user-surface explanation layer over real
-Workbench gates:
-
-```text
-GoalLoopDecision -> GoalLoopNextStepPacket -> ControllerPolicy
--> GateReadinessPreflight -> confirmationQueue
-```
-
-Next recommended work after this evolution closes:
-
-- Choose the next concrete product capability or blocker scout from the
-  existing Workbench gate/action/runtime owners; do not add a new Goal Loop
-  decision layer after the completed audit found no product-code gap.
-- Keep ordinary planning/decomposition/code paths owned by existing Workbench
-  gates; Goal Loop may explain matching scheduler/integration gates but must
-  not manufacture execution authority.
-- Do not widen `完全访问权限` into raw `planning.scheduler.*`, integration
-  apply/discard, merge, remote landing, Harness evolution, PR, or full parallel
-  execution.
-- Confirmation feedback V1 is complete. Next product slice should be chosen
-  from current blockers or capability gaps, not by adding another explanation
-  layer.
-- If widening scoped automation later, keep plan confirmation human-only and
-  use the existing confirmation queue/current-gate revalidation path rather
-  than a new permission or workflow runtime.
+After this evolution closes, resume product work from existing Workbench
+gate/action/runtime owners. Do not widen `完全访问权限` into raw scheduler,
+manual IntegrationCheck, integration apply/discard, PR/remote/merge, Harness
+evolution, or full parallel execution without a separate structured change.
 
 ## Verification Commands
 

@@ -157,83 +157,20 @@ Current architecture debt register:
 ## Next Product Direction
 
 Current structured change: none.
-Pending Harness evolution: none.
+
 Latest completed Harness evolution:
-`harness/changes/archive/20260626-auto-evolve-post-integrationfix-apply-window/summary.md`.
-It evaluated the window ending with
-`harness/changes/archive/20260626-workbench-repaired-integration-apply-real-ui-acceptance-v1/summary.md`
-as a separate human-gated Harness evolution pass and completed as `noop`.
+`harness/changes/archive/20260626-auto-evolve-post-mode-aware-loop-window/summary.md`.
+Decision: `docs_merge`; subagent Aquinas score `86/100`. No new product
+runtime, ECL rule, template field, or lint rule was justified. The durable
+change was compact current-doc alignment.
+
 Latest product change:
-`harness/changes/archive/20260626-workbench-local-landing-ready-terminal-close-v1/summary.md`.
-It resolves the local terminal close surface after landing-ready: no-provider
-PR readiness no longer becomes the selected local Change primary gate; the
-surface now shows local close when ready or a local terminal blocker when the
-existing close gate is still blocked.
-Previous product change:
-`harness/changes/archive/20260626-workbench-integration-applied-local-landing-close-real-ui-scout-v1/summary.md`.
-It verifies the local post-integration-apply route through scheduler
-outcome/completion and local `landing.prepare`, fixes repaired-patch landing
-attribution for added files, and recorded the local terminal routing blocker
-that the latest product change has now resolved.
-Previous product change:
-`harness/changes/archive/20260626-workbench-integration-apply-outcome-completion-v1/summary.md`.
-It completes the post-integration-apply outcome projection and next-gate
-surface for same-Change IntegrationCheck apply.
-Previous product acceptance:
-`harness/changes/archive/20260626-workbench-repaired-integration-apply-real-ui-acceptance-v1/summary.md`.
-It confirms real UI acceptance for applying a Codex-backed IntegrationFix
-repair through the human integration apply gate. Integration apply/discard
-remains human-gated and outside scoped `完全访问权限`.
-Previous scheduler product change:
-`harness/changes/archive/20260625-workbench-scheduler-worker-progression-to-integration-candidate-v1/summary.md`.
-It confirms that existing scheduler owners already cover same-Change
-two-worker progression to a ready `SchedulerIntegrationCandidate`; no new
-executor or raw scheduler automation was added. The only product fix was stop
-evidence honesty: scoped automation now records `terminal-human-gate` when a
-budgeted controlled continuation lands on the manual
-`planning.scheduler.integration-check.run` gate.
-Latest boundary guard:
-`harness/changes/archive/20260625-workbench-loop-per-change-boundary-guard-v1/summary.md`.
-Latest product audit:
-`harness/changes/archive/20260625-workbench-goal-loop-decision-surface-audit-v1/summary.md`.
-Latest product hardening:
-`harness/changes/archive/20260625-workbench-post-plan-scoped-local-autonomy-v1/summary.md`.
-The real E-drive Workbench UI acceptance confirms post-plan scoped local
-autonomy works as intended: `完全访问权限` is not available for plan
-confirmation, becomes available after human plan confirmation, consumes local
-execution gates and safe `audit.accept`, applies the local result, closes the
-local Change, and stops with no primary gate after archive.
-Previous post-plan UI scout:
-`harness/changes/archive/20260625-workbench-post-plan-scoped-automation-real-ui-scout-v1/summary.md`.
-Previous post-plan policy hardening:
-`harness/changes/archive/20260625-workbench-post-plan-scoped-automation-execution-v1/summary.md`.
-Previous planning/decomposition hardening:
-`harness/changes/archive/20260625-workbench-planning-decomposition-scope-honesty-v1/summary.md`.
-Planning/decomposition now preserves explicit user source constraints and
-blocks scheduler-ready continuation when a plan silently expands into tests,
-docs, indexes, or other files.
-Latest Harness docs change:
-`harness/changes/archive/20260625-document-minimality-gate-and-complexity-review/summary.md`.
-The latest Harness evolution is archived as
-`harness/changes/archive/20260625-auto-evolve-post-goal-loop-decision-surface-window/summary.md`
-with result `noop`: subagent review scored 89 and found existing
-ECL/template/handoff rules sufficient, so no durable rule/template/lint/docs or
-product runtime change was applied. The previous scheduler integration window
-is archived at
-`harness/changes/archive/20260625-auto-evolve-post-scheduler-integration-window/summary.md`.
-The latest scheduler integration apply/discard
-hardening is
-`harness/changes/archive/20260625-workbench-scheduler-integration-apply-discard-real-acceptance-v1/summary.md`.
-Previous product hardening:
-`harness/changes/archive/20260625-workbench-external-local-restore-v1/summary.md`.
-The latest scheduler IntegrationCheck acceptance is
-`harness/changes/archive/20260625-workbench-scheduler-integrationcheck-real-acceptance-v1/summary.md`.
-The latest scheduler worker/integration acceptance is
-`harness/changes/archive/20260625-workbench-scheduler-worker-integration-real-acceptance-v1/summary.md`.
-The latest scheduler reachability change is
-`harness/changes/archive/20260625-workbench-low-conflict-taskgraph-scheduler-reachability-v1/summary.md`.
-The latest scoped automation product change is
-`harness/changes/archive/20260625-workbench-post-apply-local-landing-autonomy-v1/summary.md`.
+`harness/changes/archive/20260626-workbench-mode-aware-local-goal-loop-v1/summary.md`.
+It adds the first thin mode-aware local Goal Loop coordinator over existing
+Workbench gates: `请求批准` waits on the confirmation queue, while
+`完全访问权限` delegates allowed local gates to existing scoped automation after
+human plan confirmation.
+
 Current baseline:
 
 - One loop execution is scoped to one parent Change. A long-lived demand may
@@ -245,16 +182,9 @@ Current baseline:
   demand through planning, decomposition/readiness, real `coder-codex`
   execution, validation/audit, result review, human apply, and close/archive.
 - Two-tier scoped automation is available on the ordinary Workbench surface:
-  `请求批准` keeps per-step confirmation, while `完全访问权限` may automatically
-  consume current selected-Change local gates from the allowed set.
-- `planning.confirm-execution` is not in the `完全访问权限` execution segment;
-  users confirm plans manually, and automation starts only after accepted
-  planning artifacts exist.
-- The latest product slice proves `完全访问权限` can consume bounded local
-  recovery gates (`result.refresh-rework`, `result.revalidate`,
-  `result.reaudit`), safe `audit.accept` when audit status is exactly
-  `approved`, local `result.apply`, local `landing.prepare`, and local
-  `change.close`; it then stops with no primary gate after archive.
+  `请求批准` observes the same local loop and leaves each current gate to the
+  user, while `完全访问权限` may automatically consume selected-Change local
+  gates from the allowed set after human plan confirmation.
 - Codex runtime full-access capability is evidence of executor capability only;
   AHO workflow authority remains scoped to target ids, source state, accepted
   artifacts, stale revalidation, ToolPolicyGate, validation/audit, and the
@@ -292,48 +222,13 @@ Current baseline:
   registry or mutating the source root. Missing memory is shown as an explicit
   `AHO_HOME` mismatch.
 
-Latest evolution and archive lookup:
+Current Harness evolution:
 
-- Latest Harness evolution:
-  `harness/changes/archive/20260625-auto-evolve-post-feedback-real-ui-window/summary.md`.
-  Result: `noop`; subagent review score 88; no
-  ECL/template/lint/product runtime change.
-- Current pending Harness evolution: none. The five-archive window ending with
-  `20260626-workbench-repaired-integration-apply-real-ui-acceptance-v1` was
-  marked complete as `noop` with subagent review score 91; no
-  ECL/template/lint/product runtime change was made.
-- Use archived summaries and `harness/changes/INDEX.json` for detailed real UI
-  sandbox evidence, old blocker history, and per-run ids; do not copy that
-  history into current handoff docs.
-
-The latest completed Goal Loop decision surface audit found no product-code gap
-and should not be followed by another explanation layer:
-
-- Existing Goal Loop decision evidence remains a user-surface explanation and
-  assisted-gate layer over the real Workbench
-  `confirmationQueue.primary`.
-- Ordinary planning, decomposition, and `code.run` continue through existing
-  Workbench gates; Goal Loop should not become the owner of those sequential
-  paths.
-- Scheduler guidance may surface only when the current gate, packet,
-  controller policy, and preflight match; stale or mismatched evidence must be
-  hidden or downgraded.
-- Single-worker validation/audit failure should point to bounded rework or
-  refresh; IntegrationFix language belongs only to aggregate / IntegrationCheck
-  failures.
-- Raw `planning.scheduler.*`, integration apply/discard, merge, remote
-  landing, PR, Harness evolution, and full parallel execution remain outside
-  direct `完全访问权限`.
-
-Recently completed:
-
-- Confirmation feedback: implement
-  `workbench-confirmation-feedback-to-rework-v1`, where user feedback entered
-  at a confirmation point revises/reworks the current proposal/result and then
-  returns to confirmation or continuation. V1 is implemented for plan-confirm
-  feedback (`planning.revise`) and result/apply feedback
-  (`result.refresh-rework`); unsupported confirmation feedback remains
-  record-only.
+- Pending evolution: none.
+- Latest completed evolution:
+  `harness/changes/archive/20260626-auto-evolve-post-mode-aware-loop-window/summary.md`.
+  Detailed sandbox evidence, old blocker history, ports, hashes, and run ids
+  remain archive-only.
 
 Choose one concrete track:
 
