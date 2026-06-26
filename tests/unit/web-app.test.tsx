@@ -354,6 +354,30 @@ const stream = {
   diagnostics: [],
 };
 
+const codexDiagnostics = {
+  provider: "codex",
+  available: true,
+  version: "codex-cli 1.2.3",
+  configPath: "C:/Users/test/.codex/config.toml",
+  approvalFlagPlacement: "after-exec",
+  capabilities: {
+    supportsJson: true,
+    supportsSandbox: true,
+    supportsCd: true,
+    supportsAddDir: true,
+    supportsColor: true,
+    supportsOutputLastMessage: true,
+    supportsSafeResume: true,
+  },
+  errors: [],
+  projectTrust: {
+    trusted: false,
+    projectKey: "E:/repo",
+    configExists: true,
+    reason: "Project trust is not configured.",
+  },
+} as const;
+
 function fetchCallUrls(): string[] {
   return (fetch as unknown as { mock: { calls: Array<[RequestInfo | URL, RequestInit?]> } }).mock.calls
     .map(([input]) => String(input));
@@ -840,6 +864,9 @@ describe("Workbench web app", () => {
           status: 200,
           headers: { "Content-Type": "application/json" },
         });
+      }
+      if (url === "/api/codex/diagnostics" || url.endsWith("/codex/diagnostics")) {
+        return jsonResponse(codexDiagnostics);
       }
       if (url.includes("/workbench/projections/transcript/")) {
         return new Response(JSON.stringify(snapshot.center.parentAgentTranscript), {
@@ -2389,7 +2416,9 @@ describe("Workbench web app", () => {
 
     render(<App />);
 
+    await screen.findByTestId("transcript-virtual-list");
     fireEvent.click(await screen.findByRole("tab", { name: "工作台" }));
+    await screen.findByTestId("workpad-view");
     const primarySurface = await screen.findByTestId("controlled-loop-primary-surface");
     expect(within(primarySurface).getByText("当前步骤可以重新确认")).toBeTruthy();
     expect(within(primarySurface).getByText("上一步停止记录、下一步候选和当前确认目标一致。")).toBeTruthy();
@@ -2829,7 +2858,9 @@ describe("Workbench web app", () => {
 
     render(<App />);
 
+    await screen.findByTestId("transcript-virtual-list");
     fireEvent.click(await screen.findByRole("tab", { name: "工作台" }));
+    await screen.findByTestId("workpad-view");
     fireEvent.click(await screen.findByText("查看详情与证据", {}, { timeout: 5000 }));
     const card = await screen.findByTestId("scheduler-controlled-step-evidence-card");
     expect(within(card).getByText("受控步骤运行证据")).toBeTruthy();
@@ -4813,6 +4844,9 @@ describe("Workbench web app", () => {
       if (url === "/api/app/status") {
         return new Response(JSON.stringify({ mode: "app", directProjectId: null }), { status: 200, headers: { "Content-Type": "application/json" } });
       }
+      if (url === "/api/codex/diagnostics" || url.endsWith("/codex/diagnostics")) {
+        return jsonResponse(codexDiagnostics);
+      }
       return new Response(JSON.stringify({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: false, harness: { readiness: "missing" } }] }), {
         status: 200,
         headers: { "Content-Type": "application/json" },
@@ -4821,15 +4855,66 @@ describe("Workbench web app", () => {
 
     render(<App />);
 
-    await waitFor(() => expect(screen.getByText("选择一个项目开始")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("选择项目开始")).toBeTruthy());
     expect(screen.queryByText("新对话")).toBeNull();
     fireEvent.click(screen.getByLabelText("项目菜单"));
     expect(screen.getByText("使用现有文件夹")).toBeTruthy();
     expect(screen.getByText("新建空项目")).toBeTruthy();
     expect(screen.queryByText("远程项目")).toBeNull();
     expect(screen.getByTestId("decision-pane-toggle")).toBeTruthy();
-    fireEvent.click(screen.getByText("Repo"));
+    fireEvent.click(screen.getAllByText("Repo")[0]);
     await waitFor(() => expect(screen.getByText("初始化 Harness")).toBeTruthy());
+  });
+
+  it("renders the project home without triggering project mutations", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/app/status") return jsonResponse({ mode: "app", directProjectId: null });
+      if (url === "/api/codex/diagnostics" || url.endsWith("/codex/diagnostics")) return jsonResponse(codexDiagnostics);
+      return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
+    }));
+
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "选择项目开始" });
+    expect(screen.getByText("Harness 模式")).toBeTruthy();
+    expect(screen.getByText("添加已有项目")).toBeTruthy();
+    expect(screen.getAllByText("Repo").length).toBeGreaterThan(0);
+    const mutationCalls = vi.mocked(fetch).mock.calls.filter(([, init]) => init?.method === "POST");
+    expect(mutationCalls).toHaveLength(0);
+  });
+
+  it("renders the selected project readiness home with Codex diagnostics and settings", async () => {
+    const noTopicSnapshot = {
+      ...snapshot,
+      left: { ...snapshot.left, topics: [], workpads: [] },
+      center: { ...snapshot.center, selectedTopic: null },
+    };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
+      if (url === "/api/projects") {
+        return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, memory: { memoryMode: "external-local", memoryAvailable: true, harnessReady: true, artifactBase: "memory-root", roots: { memoryRoot: "E:/aho-home/projects/repo" } }, harness: { readiness: "ready" }, codexTrust: { trusted: false, configPath: codexDiagnostics.configPath, projectKey: "E:/repo", configExists: true, reason: "Project trust is not configured." } }] });
+      }
+      if (url === "/api/projects/repo/codex/diagnostics") return jsonResponse(codexDiagnostics);
+      return jsonResponse(noTopicSnapshot);
+    }));
+
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "Repo" });
+    expect(screen.getByText("项目主页")).toBeTruthy();
+    expect(screen.getByText("Codex 诊断")).toBeTruthy();
+    await waitFor(() => expect(screen.getByText("codex-cli 1.2.3")).toBeTruthy());
+    expect((screen.getByRole("button", { name: "进入 Workbench" }) as HTMLButtonElement).disabled).toBe(true);
+
+    fireEvent.click(screen.getByRole("button", { name: "设置" }));
+    expect(await screen.findByRole("dialog", { name: "设置" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Harness / Codex" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "关闭设置" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "设置" })).toBeNull());
+    const mutationCalls = vi.mocked(fetch).mock.calls.filter(([, init]) => init?.method === "POST");
+    expect(mutationCalls).toHaveLength(0);
   });
 
   it("does not expose demand creation when a marker exists but durable memory is unavailable", async () => {
@@ -4889,7 +4974,7 @@ describe("Workbench web app", () => {
 
     render(<App />);
 
-    await waitFor(() => expect(screen.getByText("选择一个项目开始")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("选择项目开始")).toBeTruthy());
     fireEvent.click(screen.getByLabelText("项目菜单"));
     fireEvent.click(screen.getByText("使用现有文件夹"));
     fireEvent.click(screen.getByText("选择文件夹添加"));

@@ -1,11 +1,36 @@
 ﻿import type { WorkbenchThreadActionType } from "./workflow-actions.js";
 
 export type AppStatus = { mode: "app" | "project"; directProjectId: string | null };
+export type CodexDiagnostics = {
+  provider: "codex";
+  available: boolean;
+  version: string | null;
+  configPath: string;
+  approvalFlagPlacement: string;
+  capabilities: {
+    supportsJson: boolean;
+    supportsSandbox: boolean;
+    supportsCd: boolean;
+    supportsAddDir: boolean;
+    supportsColor: boolean;
+    supportsOutputLastMessage: boolean;
+    supportsSafeResume: boolean;
+  };
+  errors: string[];
+  projectTrust?: {
+    trusted: boolean;
+    projectKey: string;
+    configExists: boolean;
+    reason?: string;
+  };
+};
 export type ProjectStatus = {
   project: { id: string; name: string; path: string } | null;
   path: string;
   pathExists: boolean;
   isGitRepo: boolean;
+  branch?: string | null;
+  dirty?: boolean | null;
   managed: boolean;
   memory?: {
     memoryMode: string;

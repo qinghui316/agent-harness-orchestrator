@@ -153,7 +153,7 @@ export function HarnessInitButton({ projectId, onDone }: { projectId: string; on
   );
 }
 
-function CodexTrustButton({ project, onDone }: { project: ProjectStatus; onDone: () => void }): ReactElement | null {
+export function CodexTrustButton({ project, onDone }: { project: ProjectStatus; onDone: () => void }): ReactElement | null {
   const [message, setMessage] = useState<string | null>(project.codexTrust?.reason ?? null);
   if (!project.project) return null;
   async function trust(): Promise<void> {

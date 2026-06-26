@@ -17,10 +17,8 @@ import { MainConversationView,
   BottomStatusBar
 } from "./panels/WorkbenchPanels.js";
 import {
-  EmptyWorkbench,
   ProjectConversationSidebar,
   TopicComposer,
-  TopicEmptyView,
   UnmanagedProjectView,
   appendProseBlock,
   blockFromAssistantEvent,
@@ -31,6 +29,11 @@ import {
   upsertBlock,
   usageBlock,
 } from "./shell/WorkbenchShellParts.js";
+import {
+  ProjectHomeView,
+  ProjectReadinessHome,
+  SettingsPanel,
+} from "./panels/ProjectHome.js";
 import { workflowActionPayloadFromScope } from "./workflow-actions.js";
 import {
   emptyParentAgentTranscript,
@@ -46,6 +49,7 @@ import {
 } from "./formatters.js";
 import type {
   AppStatus,
+  CodexDiagnostics,
   ProjectStatus,
   Snapshot,
   DemandAgentRunGraph,
@@ -95,6 +99,7 @@ export function App(): ReactElement {
   const [sidebarSearch, setSidebarSearch] = useState("");
   const [projectMenuMode, setProjectMenuMode] = useState<"closed" | "add" | "new">("closed");
   const [projectDetailsId, setProjectDetailsId] = useState<string | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [confirming, setConfirming] = useState<string | null>(null);
   const [selectedDecisionContextId, setSelectedDecisionContextId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -106,6 +111,7 @@ export function App(): ReactElement {
   const [loadedTranscript, setLoadedTranscript] = useState<ParentAgentTranscript | null>(null);
   const [loadingEarlierTranscript, setLoadingEarlierTranscript] = useState(false);
   const [loadedRunGraph, setLoadedRunGraph] = useState<DemandAgentRunGraph | null>(null);
+  const [codexDiagnostics, setCodexDiagnostics] = useState<CodexDiagnostics | null>(null);
   const [decisionPaneCollapsed, setDecisionPaneCollapsed] = useState(true);
   const [projectionVersion, setProjectionVersion] = useState(0);
   const [latestHidden, setLatestHidden] = useState(false);
@@ -124,6 +130,14 @@ export function App(): ReactElement {
       if (directStatus?.managed) await refresh(directProject, null);
       else setSnapshot(snapshotForProject(directStatus));
     }
+  }
+
+  async function loadCodexDiagnostics(projectId = selectedProjectId): Promise<void> {
+    const path = projectId
+      ? `/api/projects/${encodeURIComponent(projectId)}/codex/diagnostics`
+      : "/api/codex/diagnostics";
+    const diagnostics = await fetchJson<unknown>(path);
+    setCodexDiagnostics(isCodexDiagnostics(diagnostics) ? diagnostics : null);
   }
 
   async function refresh(projectId = selectedProjectId, topic = selectedTopic): Promise<void> {
@@ -153,6 +167,22 @@ export function App(): ReactElement {
   useEffect(() => {
     loadApp().catch((cause: unknown) => setError(cause instanceof Error ? cause.message : String(cause)));
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const projectId = selectedProjectId;
+    const path = projectId
+      ? `/api/projects/${encodeURIComponent(projectId)}/codex/diagnostics`
+      : "/api/codex/diagnostics";
+    fetchJson<unknown>(path)
+      .then((diagnostics) => {
+        if (!cancelled) setCodexDiagnostics(isCodexDiagnostics(diagnostics) ? diagnostics : null);
+      })
+      .catch((cause: unknown) => {
+        if (!cancelled) setError(cause instanceof Error ? cause.message : String(cause));
+      });
+    return () => { cancelled = true; };
+  }, [selectedProjectId]);
 
   async function openProject(projectId: string): Promise<void> {
     setSelectedProjectId(projectId);
@@ -770,21 +800,31 @@ export function App(): ReactElement {
           onToggleProject={toggleProjectFolder}
           onChooseConversation={chooseConversation}
           onRefresh={loadApp}
+          onOpenSettings={() => setSettingsOpen(true)}
         />
       </aside>
 
       <main className="workspace">
         {!selectedProjectId ? (
-          <EmptyWorkbench title="选择一个项目开始" description="从左侧添加已有项目或新建空仓库。AHO 会把项目、记忆、需求对话和确认动作组织在这个工作台里。" />
+          <ProjectHomeView
+            projects={projects}
+            snapshots={projectSnapshots}
+            onOpenProject={openProject}
+            onRefresh={loadApp}
+          />
         ) : !selectedProjectStatus?.managed || !selectedProjectMemoryReady ? (
           <UnmanagedProjectView project={selectedProjectStatus} onDone={() => loadApp().then(() => selectedProjectId ? refresh(selectedProjectId, null) : undefined)} />
         ) : !activeTopic ? (
-          <TopicEmptyView
+          <ProjectReadinessHome
+            project={selectedProjectStatus}
             snapshot={snapshot}
-            composerText={composerText}
-            setComposerText={setComposerText}
-            onCreate={createTopicFromComposer}
-            busy={actionRunning !== null}
+            diagnostics={codexDiagnostics}
+            onNewConversation={beginNewConversation}
+            onOpenWorkbench={() => {
+              const first = snapshot.left.workpads?.[0]?.id ?? snapshot.left.topics[0]?.id;
+              if (first && selectedProjectId) void chooseConversation(selectedProjectId, first);
+            }}
+            onRefresh={() => loadApp().then(() => selectedProjectId ? refresh(selectedProjectId, null) : undefined)}
           />
         ) : (
           <>
@@ -875,6 +915,13 @@ export function App(): ReactElement {
         />
       </DecisionPaneShell>
 
+      <SettingsPanel
+        open={settingsOpen}
+        project={selectedProjectStatus}
+        diagnostics={codexDiagnostics}
+        onClose={() => setSettingsOpen(false)}
+        onRefresh={() => loadApp().then(() => loadCodexDiagnostics())}
+      />
       <BottomStatusBar snapshot={snapshot} project={selectedProjectStatus} topic={activeTopic} />
     </div>
   );
@@ -893,6 +940,17 @@ function emptyAgentRunGraph(): DemandAgentRunGraph {
     nodes: [],
     edges: [],
   };
+}
+
+function isCodexDiagnostics(value: unknown): value is CodexDiagnostics {
+  if (!value || typeof value !== "object") return false;
+  const diagnostics = value as Partial<CodexDiagnostics>;
+  return diagnostics.provider === "codex"
+    && typeof diagnostics.available === "boolean"
+    && typeof diagnostics.configPath === "string"
+    && Array.isArray(diagnostics.errors)
+    && typeof diagnostics.capabilities === "object"
+    && diagnostics.capabilities !== null;
 }
 
 function snapshotForProject(project: ProjectStatus | null | undefined): Snapshot {

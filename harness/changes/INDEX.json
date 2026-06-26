@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-26T15:21:18.8279526Z",
+    "generated_at":  "2026-06-26T16:17:08.7304756Z",
     "active":  [
 
                ],
@@ -2033,6 +2033,10 @@
                     {
                         "name":  "20260626-workbench-transcript-one-time-pressure-acceptance-v1",
                         "path":  "harness/changes/archive/20260626-workbench-transcript-one-time-pressure-acceptance-v1"
+                    },
+                    {
+                        "name":  "20260627-workbench-project-home-codex-diagnostics-v1",
+                        "path":  "harness/changes/archive/20260627-workbench-project-home-codex-diagnostics-v1"
                     }
                 ]
 }

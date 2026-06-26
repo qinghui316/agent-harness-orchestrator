@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -256,6 +257,13 @@ describe("workbench server", () => {
       expect(projects.projects).toHaveLength(1);
       expect(projects.projects[0].codexTrust.trusted).toBe(false);
       expect(projects.projects[0].codexTrust.projectKey).toContain("aho-server-");
+
+      const diagnostics = await getJson<{ provider: string; configPath: string; projectTrust: { trusted: boolean }; errors: string[] }>(`${appHandle.url}/api/projects/${addedBody.project.id}/codex/diagnostics`);
+      expect(diagnostics.provider).toBe("codex");
+      expect(diagnostics.configPath).toContain("codex-home");
+      expect(diagnostics.projectTrust.trusted).toBe(false);
+      expect(Array.isArray(diagnostics.errors)).toBe(true);
+      expect(existsSync(diagnostics.configPath)).toBe(false);
 
       const unconfirmedTrust = await fetch(`${appHandle.url}/api/projects/${addedBody.project.id}/codex/trust`, {
         method: "POST",

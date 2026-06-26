@@ -43,6 +43,7 @@ export function ProjectConversationSidebar({
   onToggleProject,
   onChooseConversation,
   onRefresh,
+  onOpenSettings,
 }: {
   appStatus: AppStatus | null;
   projects: ProjectStatus[];
@@ -62,6 +63,7 @@ export function ProjectConversationSidebar({
   onToggleProject: (projectId: string) => Promise<void>;
   onChooseConversation: (projectId: string, conversationId: string) => Promise<void>;
   onRefresh: () => Promise<void>;
+  onOpenSettings: () => void;
 }): ReactElement {
   const visibleProjects = appStatus?.mode === "project" && appStatus.directProjectId
     ? projects.filter((item) => item.project?.id === appStatus.directProjectId)
@@ -170,7 +172,7 @@ export function ProjectConversationSidebar({
       </section>
 
       <div className="sidebar-settings">
-        <button className="global-nav-item settings-entry"><Settings size={16} />设置</button>
+        <button className="global-nav-item settings-entry" onClick={onOpenSettings}><Settings size={16} />设置</button>
       </div>
     </div>
   );

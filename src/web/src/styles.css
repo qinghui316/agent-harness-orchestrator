@@ -3257,6 +3257,239 @@ h1 {
   line-height: 1.6;
 }
 
+/* Project product entry */
+
+.project-home,
+.project-readiness-home {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+  gap: 18px;
+  padding: 32px;
+  overflow: auto;
+}
+
+.project-home-hero,
+.project-readiness-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  max-width: 1180px;
+}
+
+.project-home-hero {
+  flex-direction: column;
+}
+
+.project-home-hero p,
+.project-readiness-header p,
+.muted-copy {
+  margin: 0;
+  color: var(--text-muted);
+  line-height: 1.55;
+}
+
+.project-home-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.project-home-list {
+  display: grid;
+  gap: 8px;
+  max-width: 960px;
+}
+
+.project-home-empty {
+  padding: 18px 0;
+  color: var(--text-muted);
+}
+
+.project-home-row {
+  display: grid;
+  grid-template-columns: 12px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 58px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-panel);
+  color: var(--text);
+  text-align: left;
+}
+
+.project-home-row:hover:not(:disabled) {
+  border-color: var(--border-strong);
+  background: var(--bg-subtle);
+}
+
+.project-home-status-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: var(--radius-pill);
+  background: var(--text-faint);
+}
+
+.project-home-status-dot.ready {
+  background: var(--success);
+}
+
+.project-home-status-dot.warning {
+  background: var(--warning);
+}
+
+.project-home-status-dot.blocked {
+  background: var(--danger);
+}
+
+.project-home-row-main {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.project-home-row-main strong,
+.recent-demand-row strong {
+  overflow: hidden;
+  color: var(--text-strong);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-home-row-main small,
+.project-home-row-meta,
+.recent-demand-row small {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-readiness-grid {
+  display: grid;
+  grid-template-columns: minmax(260px, 360px) minmax(300px, 440px) minmax(240px, 360px);
+  gap: 14px;
+  align-items: start;
+  max-width: 1180px;
+}
+
+.project-status-panel {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-panel);
+}
+
+.project-status-panel h2 {
+  margin: 0;
+  color: var(--text-strong);
+  font-size: 15px;
+}
+
+.panel-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.codex-diagnostics-card.is-ready .panel-title-row {
+  color: var(--success);
+}
+
+.codex-diagnostics-card.has-warning .panel-title-row {
+  color: var(--warning);
+}
+
+.capability-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.capability-pill {
+  padding: 3px 7px;
+  border-radius: var(--radius-pill);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.capability-pill.ok {
+  background: var(--success-soft);
+  color: var(--success);
+}
+
+.capability-pill.missing {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.diagnostic-errors {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--danger);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.recent-demand-panel {
+  align-content: start;
+}
+
+.recent-demand-row {
+  display: grid;
+  gap: 2px;
+  padding: 8px 0;
+  border-top: 1px solid var(--border);
+}
+
+.recent-demand-row:first-of-type {
+  border-top: 0;
+}
+
+.settings-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  justify-content: flex-end;
+  background: rgba(13, 12, 10, 0.18);
+}
+
+.settings-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: min(420px, 100vw);
+  height: 100%;
+  padding: 18px;
+  overflow: auto;
+  border-left: 1px solid var(--border);
+  background: var(--bg-panel);
+  box-shadow: var(--shadow-soft);
+}
+
+.settings-panel-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.settings-panel-header h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
 @media (max-width: 1220px) {
   .app-shell {
     grid-template-columns: 260px minmax(0, 1fr) 48px;
@@ -3272,5 +3505,13 @@ h1 {
 
   .timeline-panel {
     padding: 0 18px;
+  }
+
+  .project-readiness-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .project-readiness-header {
+    flex-direction: column;
   }
 }

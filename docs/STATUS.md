@@ -6,7 +6,7 @@
 - Active ECL change: none.
 - Pending Harness evolution: none.
 - Latest archived product audit: `harness/changes/archive/20260625-workbench-goal-loop-decision-surface-audit-v1/summary.md`.
-- Latest archived product change: `harness/changes/archive/20260626-workbench-orchestration-map-real-ui-and-collapsible-confirmation-rail-v1/summary.md`.
+- Latest archived product change: `harness/changes/archive/20260627-workbench-project-home-codex-diagnostics-v1/summary.md`.
 - Latest archived docs/reference change: `harness/changes/archive/20260626-document-desktop-cc-gui-reference-map-and-product-layer-roadmap/summary.md`.
 - Latest archived reference policy correction: `harness/changes/archive/20260626-desktop-cc-gui-local-only-reference-correction/summary.md`.
 - Previous archived product change: `harness/changes/archive/20260626-workbench-rudder-style-agent-orchestration-map-v1/summary.md`.
@@ -50,14 +50,19 @@
 - Latest scheduler integration apply/discard hardening: `harness/changes/archive/20260625-workbench-scheduler-integration-apply-discard-real-acceptance-v1/summary.md`.
 
 Latest product closeout:
+`harness/changes/archive/20260627-workbench-project-home-codex-diagnostics-v1/summary.md`.
+It adds the first Phase 1 desktop product-layer entry for Harness mode: app
+project home, selected/direct project readiness home, read-only Codex
+diagnostics, and a minimal Harness/Codex settings panel. Direct
+`workbench serve <path>` still auto-selects the direct project and shows the
+same readiness information. Codex diagnostics are read-only and do not write
+`config.toml`; trust remains an explicit user action.
+
+Previous product closeout:
 `harness/changes/archive/20260626-workbench-orchestration-map-real-ui-and-collapsible-confirmation-rail-v1/summary.md`.
 It completes real in-app browser acceptance for the Rudder-style
 `Agent 编排图` and changes the right confirmation surface to a default collapsed
-rail. The rail shows a panel icon, pending count badge, and primary-gate
-emphasis; expanding it shows the existing `DecisionInspectorPane`. The rail is
-frontend-only UI state and does not change `confirmationQueue.primary`, action
-revalidation, apply/close, scheduler, automation, remote, merge, PR, or Harness
-evolution behavior.
+rail.
 
 Latest docs/reference closeout:
 `harness/changes/archive/20260626-document-desktop-cc-gui-reference-map-and-product-layer-roadmap/summary.md`.
@@ -367,17 +372,18 @@ Active change: none.
 Pending Harness evolution: none.
 
 Latest product closeout:
-`harness/changes/archive/20260626-workbench-orchestration-map-real-ui-and-collapsible-confirmation-rail-v1/summary.md`.
+`harness/changes/archive/20260627-workbench-project-home-codex-diagnostics-v1/summary.md`.
 
 Latest real UI acceptance:
 `harness/changes/archive/20260626-workbench-mode-aware-local-goal-loop-real-ui-acceptance-v1/summary.md`.
 
 Next product work should build on existing Workbench gate/action/runtime owners.
-Good candidates are either a focused closeout-quality hardening slice for
-auto-closed archive summaries, or the next explicitly bounded local
-Goal-Loop/scheduler capability. Do not widen `完全访问权限` into raw scheduler,
-manual IntegrationCheck, integration apply/discard, PR/remote/merge, Harness
-evolution, or full parallel execution without a separate structured change.
+Good candidates are the next Phase 1/2 product-layer slices from
+`docs/design-docs/ref-desktop-cc-gui.md`: project creation/open/restore polish,
+composer/file-reference UX, runtime diagnostics, or file/Git/terminal panels.
+Do not widen `完全访问权限` into raw scheduler, manual IntegrationCheck,
+integration apply/discard, PR/remote/merge, Harness evolution, or full parallel
+execution without a separate structured change.
 
 Latest completed Harness evolution:
 `harness/changes/archive/20260626-auto-evolve-post-orchestration-map-window/summary.md`.
