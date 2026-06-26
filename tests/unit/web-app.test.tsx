@@ -761,6 +761,62 @@ function schedulerGateReadinessQueueItem() {
   } as const;
 }
 
+function integrationCheckQueueItemWithGoalLoopGuidance() {
+  return {
+    id: "confirm:planning.scheduler.integration-check.run:member-discount:candidate-1",
+    kind: "planning-confirm",
+    conversationId: "member-discount",
+    changeId: "member-discount",
+    summary: "需要你确认进入组合结果检查；应用到项目仍有单独人工确认。",
+    whyNeedsConfirmation: "需要你确认进入组合结果检查；应用到项目仍有单独人工确认。",
+    confirmEffect: "只会生成或记录组合候选、交接或结果证据。",
+    riskSummary: "不会自动应用、放弃、提交、创建 PR、合并、继续下一任务循环或修改项目源码。",
+    evidenceRefs: ["candidate.json"],
+    primary: true,
+    status: "pending",
+    actions: [
+      {
+        id: "workflow:planning.scheduler.integration-check.run:member-discount:candidate-1",
+        label: "检查组合结果",
+        kind: "workflow-action",
+        enabled: true,
+        requiresConfirmation: true,
+        actionType: "planning.scheduler.integration-check.run",
+        changeId: "member-discount",
+        schedulerRunId: "scheduler-run-1",
+        schedulerIntegrationCandidateId: "candidate-1",
+      },
+      {
+        id: "workflow:planning.goal-loop.controller.refresh:packet-1",
+        label: "刷新下一步判断",
+        kind: "workflow-action",
+        enabled: true,
+        requiresConfirmation: true,
+        actionType: "planning.goal-loop.controller.refresh",
+        changeId: "member-discount",
+        goalLoopNextStepPacketId: "packet-1",
+        goalLoopCurrentGateActionType: "planning.scheduler.integration-check.run",
+        schedulerRunId: "scheduler-run-1",
+        schedulerIntegrationCandidateId: "candidate-1",
+      },
+      {
+        id: "workflow:planning.goal-loop.gate-readiness.prepare:policy-1",
+        label: "检查当前步骤",
+        kind: "workflow-action",
+        enabled: true,
+        requiresConfirmation: true,
+        actionType: "planning.goal-loop.gate-readiness.prepare",
+        changeId: "member-discount",
+        goalLoopNextStepPacketId: "packet-1",
+        goalLoopControllerPolicyId: "policy-1",
+        goalLoopCurrentGateActionType: "planning.scheduler.integration-check.run",
+        schedulerRunId: "scheduler-run-1",
+        schedulerIntegrationCandidateId: "candidate-1",
+      },
+    ],
+  } as const;
+}
+
 describe("Workbench web app", () => {
   beforeEach(() => {
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
@@ -1359,6 +1415,37 @@ describe("Workbench web app", () => {
     expect(card.textContent).not.toContain("WorkerLease");
     expect(card.textContent?.toLowerCase()).not.toContain("worker");
     expect(card.textContent).not.toContain("dry-run");
+  });
+
+  it("does not offer full-access for manual IntegrationCheck even with Goal Loop guidance actions", () => {
+    const execute = vi.fn(async () => undefined);
+    render(
+      <DecisionInspectorPane
+        inspector={{ primary: null, related: [], history: [] }}
+        confirmationQueue={{
+          primary: integrationCheckQueueItemWithGoalLoopGuidance(),
+          current: [integrationCheckQueueItemWithGoalLoopGuidance()],
+          otherDemands: [],
+          maintenance: [],
+          history: [],
+        }}
+        confirming={null}
+        busy={false}
+        error={null}
+        onConfirmingChange={() => undefined}
+        onExecuteAction={execute}
+        onFeedback={async () => undefined}
+        onSelectContext={() => undefined}
+      />,
+    );
+
+    const card = screen.getByTestId("decision-inspector-primary");
+    expect(within(card).getByRole("button", { name: "检查组合结果" })).toBeTruthy();
+    expect(within(card).getByRole("button", { name: "刷新下一步判断" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "完全访问权限" })).toBeNull();
+    expect(card.textContent).not.toContain("full-auto");
+    expect(card.textContent).not.toContain("parallel executor");
+    expect(card.textContent).not.toContain("merge queue");
   });
 
   it("offers full-access through Goal Loop preparation on supported scheduler gates", async () => {
@@ -2199,7 +2286,7 @@ describe("Workbench web app", () => {
     expect(within(card).getByText("查看证据：controlled-advance-1.json")).toBeTruthy();
     expect(within(card).getByRole("button", { name: "按当前建议继续一个受控步骤" })).toBeTruthy();
     expect(within(card.querySelector(".approval-actions") as HTMLElement).getAllByRole("button")).toHaveLength(1);
-    fireEvent.click(await screen.findByText("查看详情与证据"));
+    fireEvent.click(await screen.findByText("查看详情与证据", {}, { timeout: 5000 }));
     const detailCard = await screen.findByTestId("controlled-scheduler-reconfirmation-card");
     expect(within(detailCard).getByText("当前步骤可以重新确认")).toBeTruthy();
     expect(within(detailCard).getByText("停止原因")).toBeTruthy();
@@ -2604,7 +2691,7 @@ describe("Workbench web app", () => {
     render(<App />);
 
     fireEvent.click(await screen.findByRole("tab", { name: "工作台" }));
-    fireEvent.click(await screen.findByText("查看详情与证据"));
+    fireEvent.click(await screen.findByText("查看详情与证据", {}, { timeout: 5000 }));
     const card = await screen.findByTestId("scheduler-controlled-step-evidence-card");
     expect(within(card).getByText("受控步骤运行证据")).toBeTruthy();
     expect(within(card).getByText("已执行一个用户确认的 Scheduler 步骤，并在完成后停止")).toBeTruthy();

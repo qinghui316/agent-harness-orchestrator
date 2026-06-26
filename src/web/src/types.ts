@@ -1822,6 +1822,7 @@ export type DecisionAction = {
     message?: string;
   };
   actionType?: ThreadStreamAction["actionType"];
+  goalLoopCurrentGateActionType?: ThreadStreamAction["actionType"];
   postPlanAutomationMode?: "request-approval" | "full-access";
   automationMode?: "request-approval" | "full-access";
   automationCurrentGateActionType?: ThreadStreamAction["actionType"];

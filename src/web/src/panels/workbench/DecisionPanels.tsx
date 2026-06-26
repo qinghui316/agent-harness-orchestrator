@@ -389,6 +389,7 @@ function isScopedAutomationConfirming(confirming: string | null, action: Decisio
 }
 
 function isScopedAutomationAllowedAction(action: DecisionAction): boolean {
+  if (isTerminalHumanGateActionType(action.goalLoopCurrentGateActionType)) return false;
   const actionType = action.actionType;
   if (action.kind === "approval") {
     return isScopedAutomationAllowedApprovalActionId(action.action?.actionId) && action.automationEligible === true;
@@ -408,6 +409,21 @@ function isScopedAutomationAllowedAction(action: DecisionAction): boolean {
     || actionType === "result.reaudit"
     || actionType === "landing.prepare"
     || actionType === "planning.goal-loop.controlled-continue.run");
+}
+
+function isTerminalHumanGateActionType(actionType: string | undefined): boolean {
+  return actionType === "planning.scheduler.integration-check.run"
+    || actionType === "apply-check.apply"
+    || actionType === "apply-check.discard"
+    || actionType === "harness-evolve.apply"
+    || actionType === "harness-evolve.mark-complete"
+    || actionType === "landing-queue.merge-next"
+    || actionType === "remote-landing.merge"
+    || actionType === "pr-draft.create"
+    || actionType === "pr-feedback.update-draft"
+    || actionType === "pr-review.submit"
+    || actionType === "pr-review.reply-submit"
+    || actionType === "pr-review.thread-resolve";
 }
 
 function isScopedAutomationAllowedApprovalActionId(actionId: string | undefined): actionId is "audit.accept" | "result.apply" | "change.close" {

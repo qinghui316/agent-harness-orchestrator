@@ -13,7 +13,7 @@ import { getWorkbenchSnapshot, getWorkbenchStream, getWorkbenchTopic, listWorkbe
 import { WorkbenchStore } from "../../src/workbench/store.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import { createAgentTask } from "../../src/agent-task/manager.js";
-import { buildDecisionInspector } from "../../src/workbench/projections/read-model/decision-inspector.js";
+import { alignDecisionInspectorWithConfirmationPrimary, buildDecisionInspector } from "../../src/workbench/projections/read-model/decision-inspector.js";
 import { buildConfirmationQueue } from "../../src/workbench/projections/read-model/confirmation-queue.js";
 import { landingCandidateQueueItem } from "../../src/workbench/projections/read-model/confirmation/landing.js";
 import { writeLandingArtifacts } from "../../src/landing/repository.js";
@@ -22,6 +22,7 @@ import type { LandingReadinessPackage } from "../../src/landing/types.js";
 import { prDraftRoot } from "../../src/pr-draft/utils.js";
 import { getTempDir, minimalDecompositionPlan, minimalReadiness, prepareSeededSchedulerIntegrationHandoff, project, writeAcceptedSpecAndTasks, writePlanningBundleFixture } from "./workbench/fixtures.js";
 import type { RunMetadata } from "../../src/types/index.js";
+import type { WorkbenchConfirmationQueueItem, WorkbenchDecisionInspector } from "../../src/workbench/read-model-types.js";
 
 const FORBIDDEN_CONTROLLED_LOOP_PRIMARY_TERMS = [
   "Goal Loop",
@@ -38,6 +39,58 @@ const FORBIDDEN_CONTROLLED_LOOP_PRIMARY_TERMS = [
   "preflight id",
   "derived-non-executing-workbench-handoff",
 ];
+
+it("aligns decision inspector primary with the manual scheduler IntegrationCheck gate", () => {
+  const inspector: WorkbenchDecisionInspector = {
+    primary: {
+      id: "result:member-discount:wt-1:not-approved",
+      kind: "apply-gate",
+      title: "确认应用到项目",
+      summary: "Older worker result context",
+      severity: "blocking",
+      changeId: "member-discount",
+      targetId: "wt-1",
+      actions: [],
+    },
+    related: [],
+    history: [],
+  };
+  const primary: WorkbenchConfirmationQueueItem = {
+    id: "confirm:planning.scheduler.integration-check.run:member-discount:candidate-1",
+    kind: "planning-confirm",
+    conversationId: "member-discount",
+    changeId: "member-discount",
+    summary: "需要你确认进入组合结果检查；应用到项目仍有单独人工确认。",
+    whyNeedsConfirmation: "需要你确认进入组合结果检查；应用到项目仍有单独人工确认。",
+    confirmEffect: "只会生成或记录组合候选、交接或结果证据。",
+    riskSummary: "不会自动应用、放弃、提交、创建 PR、合并、继续下一任务循环或修改项目源码。",
+    evidenceRefs: ["candidate.json"],
+    primary: true,
+    status: "pending",
+    schedulerIntegrationCandidateId: "candidate-1",
+    actions: [{
+      id: "workflow:planning.scheduler.integration-check.run:member-discount:candidate-1",
+      label: "检查组合结果",
+      kind: "workflow-action",
+      actionType: "planning.scheduler.integration-check.run",
+      changeId: "member-discount",
+      enabled: true,
+      requiresConfirmation: true,
+    }],
+  };
+
+  const aligned = alignDecisionInspectorWithConfirmationPrimary(inspector, primary, "member-discount");
+
+  expect(aligned.primary).toMatchObject({
+    id: "confirmation:confirm:planning.scheduler.integration-check.run:member-discount:candidate-1",
+    kind: "workflow-gate",
+    changeId: "member-discount",
+    targetId: "candidate-1",
+  });
+  expect(aligned.primary?.actions).toEqual(expect.arrayContaining([
+    expect.objectContaining({ actionType: "planning.scheduler.integration-check.run" }),
+  ]));
+});
 
 async function writeReadyLandingPackage(changeId: string, id: string): Promise<LandingReadinessPackage> {
   const memory = await resolveProjectMemory(project());

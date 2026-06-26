@@ -111,7 +111,8 @@ export function alignDecisionInspectorWithConfirmationPrimary(
 }
 
 function shouldOverrideDecisionInspectorPrimary(primary: WorkbenchConfirmationQueueItem): boolean {
-  return primary.id.startsWith("landing:local-terminal-blocker:");
+  if (primary.id.startsWith("landing:local-terminal-blocker:")) return true;
+  return primary.actions.some((action) => action.actionType === "planning.scheduler.integration-check.run");
 }
 
 function hasActiveRolePipeline(workpad: WorkbenchWorkpad): boolean {
