@@ -1104,6 +1104,8 @@ export interface WorkbenchRolePipelineSummary {
 export type DemandAgentRunGraphLaneId = "main" | "roles" | "integration" | "maintenance";
 export type DemandAgentRunGraphNodeKind =
   | "main-agent"
+  | "goal-loop"
+  | "automation-loop"
   | "delegate-task"
   | "tool-policy-gate"
   | "boundary-audit"
@@ -1113,6 +1115,10 @@ export type DemandAgentRunGraphNodeKind =
   | "validator"
   | "auditor-agent"
   | "result-review"
+  | "scheduler-worker"
+  | "scheduler-integration-candidate"
+  | "scheduler-completion"
+  | "terminal-gate"
   | "integration-check"
   | "integration-fix-agent"
   | "merge-reviewer-agent"
@@ -1130,6 +1136,10 @@ export type DemandAgentRunGraphNodeKind =
   | "evolution-reviewer";
 export type DemandAgentRunGraphNodeStatus = "idle" | "queued" | "running" | "completed" | "needs-change" | "failed" | "waiting-user" | "skipped";
 export type DemandAgentRunGraphEdgeKind = "delegates" | "returns" | "requires-evidence" | "triggers-rework" | "continues-to" | "background-maintenance";
+export type DemandAgentRunGraphStage = "demand" | "planning" | "execution" | "validation" | "review" | "integration" | "landing" | "terminal" | "maintenance";
+export type DemandAgentRunGraphVisualKind = "agent" | "gate" | "worker" | "tool" | "review" | "terminal" | "default";
+export type DemandAgentRunGraphEdgeStyle = "solid" | "dashed" | "loop" | "blocked";
+export type DemandAgentRunGraphEdgeRole = "primary" | "return" | "rework" | "worker-branch" | "worker-join" | "terminal" | "background";
 
 export interface DemandAgentRunEvidenceRef {
   label: string;
@@ -1170,7 +1180,16 @@ export interface DemandAgentRunGraphNode {
     remoteLandingResultId?: string;
     maintenanceRunId?: string;
     candidateId?: string;
+    schedulerRunId?: string;
+    schedulerWorkerStartId?: string;
+    schedulerIntegrationCandidateId?: string;
+    schedulerIntegrationCheckHandoffId?: string;
+    schedulerIntegrationOutcomeId?: string;
+    schedulerRunCompletionId?: string;
+    schedulerRunBlockedCloseoutId?: string;
   };
+  stage?: DemandAgentRunGraphStage;
+  visualKind?: DemandAgentRunGraphVisualKind;
   inputSummary?: string;
   outputSummary?: string;
   evidenceRefs: DemandAgentRunEvidenceRef[];
@@ -1184,6 +1203,8 @@ export interface DemandAgentRunGraphEdge {
   to: string;
   kind: DemandAgentRunGraphEdgeKind;
   label: string;
+  edgeStyle?: DemandAgentRunGraphEdgeStyle;
+  edgeRole?: DemandAgentRunGraphEdgeRole;
 }
 
 export interface DemandAgentRunGraphLane {

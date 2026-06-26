@@ -8,7 +8,7 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 - Active change: none.
 - Pending Harness evolution: none.
 - Latest archived product change:
-  `harness/changes/archive/20260626-workbench-cursor-incremental-transcript-projection-v2/summary.md`.
+  `harness/changes/archive/20260626-workbench-rudder-style-agent-orchestration-map-v1/summary.md`.
 - Latest completed Harness evolution:
   `harness/changes/archive/20260626-auto-evolve-post-transcript-window/summary.md`
   (`docs_merge`; subagent Kuhn score 84; no ECL/template/lint/product
@@ -26,6 +26,11 @@ Current baseline:
   `@chenglou/pretext` height estimates with fallback. Synthetic 100k / 500k
   message pressure acceptance passed without durable large fixtures. Workflow
   truth remains unchanged.
+- Workbench `Agent 编排图` now renders a Rudder-style read-only orchestration
+  canvas with avatar cards, status dots, SVG edges, pan/zoom/fit controls, and
+  stage-based layout for local loop, rework, scheduler worker branch/join,
+  IntegrationCheck, landing, and terminal nodes. The graph is a projection only
+  and does not execute actions or replace `confirmationQueue.primary`.
 - Planning prefers Codex Plan Mode proposal capture; plan confirmation remains
   human.
 - `请求批准` and scoped `完全访问权限` share the same local Goal Loop coordinator.

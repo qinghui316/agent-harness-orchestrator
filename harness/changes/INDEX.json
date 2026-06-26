@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-26T12:06:15.0403806Z",
+    "generated_at":  "2026-06-26T13:27:54.2043393Z",
     "active":  [
 
                ],
@@ -2009,6 +2009,10 @@
                     {
                         "name":  "20260626-workbench-repaired-integration-apply-real-ui-acceptance-v1",
                         "path":  "harness/changes/archive/20260626-workbench-repaired-integration-apply-real-ui-acceptance-v1"
+                    },
+                    {
+                        "name":  "20260626-workbench-rudder-style-agent-orchestration-map-v1",
+                        "path":  "harness/changes/archive/20260626-workbench-rudder-style-agent-orchestration-map-v1"
                     },
                     {
                         "name":  "20260626-workbench-transcript-one-time-pressure-acceptance-v1",

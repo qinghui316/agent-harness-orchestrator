@@ -6,7 +6,8 @@
 - Active ECL change: none.
 - Pending Harness evolution: none.
 - Latest archived product audit: `harness/changes/archive/20260625-workbench-goal-loop-decision-surface-audit-v1/summary.md`.
-- Latest archived product change: `harness/changes/archive/20260626-workbench-cursor-incremental-transcript-projection-v2/summary.md`.
+- Latest archived product change: `harness/changes/archive/20260626-workbench-rudder-style-agent-orchestration-map-v1/summary.md`.
+- Previous archived product change: `harness/changes/archive/20260626-workbench-cursor-incremental-transcript-projection-v2/summary.md`.
 - Previous archived product change: `harness/changes/archive/20260626-workbench-transcript-one-time-pressure-acceptance-v1/summary.md`.
 - Previous archived product change: `harness/changes/archive/20260626-workbench-paged-virtual-transcript-with-pretext-v1/summary.md`.
 - Previous archived product change: `harness/changes/archive/20260626-workbench-local-scheduler-terminal-path-real-ui-scout-v1/summary.md`.
@@ -45,6 +46,15 @@
 - Latest scheduler integration apply/discard hardening: `harness/changes/archive/20260625-workbench-scheduler-integration-apply-discard-real-acceptance-v1/summary.md`.
 
 Latest product closeout:
+`harness/changes/archive/20260626-workbench-rudder-style-agent-orchestration-map-v1/summary.md`.
+It replaces the selected-demand `Agent 运行图` lane/list with a Rudder-style
+read-only `Agent 编排图`: stage-based layout, avatar cards, status dots, SVG
+edges, and zoom/fit controls. The graph projects existing Workpad, Goal Loop,
+automation, scheduler, IntegrationCheck, landing, and terminal evidence. It is
+not workflow truth and does not execute actions; `confirmationQueue.primary`
+remains the only executable primary surface.
+
+Previous product closeout:
 `harness/changes/archive/20260626-workbench-cursor-incremental-transcript-projection-v2/summary.md`.
 It changes the default paged Workbench transcript path from "build full
 transcript then slice" to cursor-incremental SQLite message paging. The default
@@ -326,7 +336,7 @@ Active change: none.
 Pending Harness evolution: none.
 
 Latest product closeout:
-`harness/changes/archive/20260626-workbench-cursor-incremental-transcript-projection-v2/summary.md`.
+`harness/changes/archive/20260626-workbench-rudder-style-agent-orchestration-map-v1/summary.md`.
 
 Latest real UI acceptance:
 `harness/changes/archive/20260626-workbench-mode-aware-local-goal-loop-real-ui-acceptance-v1/summary.md`.

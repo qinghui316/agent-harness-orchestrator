@@ -49,7 +49,7 @@ main Agent wants to continue, run sequentially, fan out low-conflict worktree
 slices, wait, repair, or ask the user. The right confirmation queue should show
 only the current real gate. Users should not have to understand TaskRun,
 WorkerLease, SchedulerRun, WorkflowRun, recovery keys, or queue internals to
-complete the demand. Those terms belong in Agent run graph details, evidence
+complete the demand. Those terms belong in Agent orchestration graph details, evidence
 drawers, or developer docs.
 
 OpenSpec is the reference for the planning artifact flow. Proposal, spec, design, tasks, and AC are artifacts produced and revised in one main planning conversation. They are not separate user-visible spec-agent and planner-agent flows. When the user confirms planning, AHO promotes the accepted bundle into internal canonical artifacts; Phase 7J no longer treats that confirmation as permission to start the role pipeline.
@@ -82,13 +82,13 @@ Phase 6U adds post-merge reconcile and optional cleanup. After a successful remo
 
 Phase 6V adds a project-level remote landing queue for multiple ready PRs. The parent conversation should explain how many PRs are ready, which PR is recommended next, and why other PRs need feedback/check handling or a later refresh. The right confirmation queue may show exactly one primary `合并 PR` action for the selected refreshed candidate, while other PRs remain folded as background queue items. After one merge succeeds, the parent conversation should explain that remaining PRs were refreshed before another confirmation. It must not show `合并全部`, unattended auto-merge, push-main, branch-protection bypass, local sync batch, or provider raw JSON.
 
-Phase 6W introduced a read-only demand agent run graph. Phase 6X makes the center pane two inline tabs: `对话` and `Agent 运行图`. The `对话` tab is a Codex-style `ParentAgentTranscript`: user messages appear on the right, parent-agent messages appear on the left, and role/tool/system results appear as compact parent-agent tool-result blocks. The `Agent 运行图` tab shows one graph for the selected demand conversation: `main-agent` is the root, planning/coder/validator/auditor/result review are primary role nodes, and integration/PR/landing/post-merge are later tool nodes. Project maintenance is not default selected-demand run graph content; maintenance evidence appears in project maintenance or evidence/detail projections. Clicking a node opens inline details with summaries, evidence refs, raw log entry points, and scoped feedback only when a real action path exists.
+Phase 6W introduced a read-only demand agent run graph. Phase 6X makes the center pane two inline tabs: `对话` and `Agent 编排图`. The `对话` tab is a Codex-style `ParentAgentTranscript`: user messages appear on the right, parent-agent messages appear on the left, and role/tool/system results appear as compact parent-agent tool-result blocks. The `Agent 编排图` tab shows one read-only graph for the selected demand conversation: `main-agent` is the root, planning/coder/validator/auditor/result review are primary role nodes, and scheduler workers, IntegrationCheck, integration outcome, landing, terminal, PR, and remote handoff are later projection nodes when evidence exists. Project maintenance is not default selected-demand graph content; maintenance evidence appears in project maintenance or evidence/detail projections. Clicking a node opens inline details with summaries, evidence refs, raw log entry points, and scoped feedback only when a real action path exists. The graph is a visual projection and does not execute actions.
 
 Phase 6Y introduced a controlled `delegateTask` contract and process metadata. Phase 7A supersedes the default rendering rule: the `对话` tab no longer turns AHO role results, validation/audit evidence, PR/landing summaries, policy pass records, or maintenance notices into synthetic conversation prose. Those records remain builder inputs for graph/details/confirmation surfaces. The default conversation only renders real Codex runtime or `codex exec` replay cells.
 
 Phase 6Z changes foreground role execution from a fixed backend role workflow into main-agent tool orchestration. The transcript should show the sequence as process rows: `main-agent 决定下一步`, `ToolPolicyGate 检查委派`, `调用 coder-agent`, `coder-agent 返回结果`, `边界审计通过/发现越界`, then the next main-agent decision. If runtime MCP loading is unavailable, the UI must say AHO used the controlled `orchestrator-policy` path and must not pretend a real MCP tool call succeeded. Policy/audit rows stay lightweight by default; details and raw evidence belong behind row detail, graph node detail, or Agent Loop.
 
-Phase 7A changes the default transcript input from legacy block/items to `ParentAgentTranscriptCell[]`. The conversation tab must prioritize real Codex runtime cells: app-server notifications, assistant deltas, tool/item events, and `codex exec` JSONL/final-message replay. AHO orchestration, role returns, validation/audit, PR/landing, policy, and maintenance events must not synthesize main conversation body text. They belong in the Agent run graph, node details, the right confirmation queue, or evidence drawers unless they are explicitly present in the Codex-visible runtime/replay stream. `turn/completed` updates state only; it must not create `处理完成`, `执行结果`, or equivalent prose. `codex exec` cells are replay-style, not live streaming.
+Phase 7A changes the default transcript input from legacy block/items to `ParentAgentTranscriptCell[]`. The conversation tab must prioritize real Codex runtime cells: app-server notifications, assistant deltas, tool/item events, and `codex exec` JSONL/final-message replay. AHO orchestration, role returns, validation/audit, PR/landing, policy, and maintenance events must not synthesize main conversation body text. They belong in the Agent orchestration graph, node details, the right confirmation queue, or evidence drawers unless they are explicitly present in the Codex-visible runtime/replay stream. `turn/completed` updates state only; it must not create `处理完成`, `执行结果`, or equivalent prose. `codex exec` cells are replay-style, not live streaming.
 
 Phase 7B tightens the renderer boundary. `ParentAgentTranscriptCell` rows are the only default conversation rendering source; frontend code must not append pending clarifications, live-turn fallback bubbles, planning/result cards, role pipeline rows, or maintenance cards directly into the `对话` tab. Command, MCP/tool, and file-change rows show only compact summaries such as `已运行 6 条命令`, `调用 MCP 工具`, or `文件已变更`; command text, stdout/stderr, cwd, exit code, tool arguments/results, diff previews, raw JSONL, and artifact paths belong in the row detail panel or graph/evidence views. Legacy thread items, role summaries, and result-review cards are builder inputs or detail views only.
 
@@ -212,7 +212,7 @@ Phase 10W allows a matching concrete confirmation item to carry that preflight i
 
 Phase 10X makes the Workbench Goal Loop surfaces sensitive to accepted artifact content drift. If accepted `spec.md`, `plan.md`, `tasks.md`, or `ac-map.json` hashes no longer match the packet's source evidence, Workpad current recommendation, main-Agent prompt context, controller/preflight lineage, and assisted concrete confirmation must hide or fail closed instead of showing old guidance. The Workbench still does not add a new button or execution path for this freshness check.
 
-The Workbench snapshot, transcript, and run graph are projections, not workflow truth. The snapshot is a UI shell, the transcript must not show mechanical labels such as `AI 回复` or `执行结果`, and derived tool-result summaries must not pretend to be exact historical LLM text. The run graph must not become the source of scheduling truth, must not create fake SubAgent chats, and must not move maintenance candidates into the right confirmation queue. The right side stays limited to human gates such as confirming execution, applying, checking compatibility, creating/updating PRs, submitting review, replying to review, merging, syncing, cleanup, requesting changes, or abandoning work.
+The Workbench snapshot, transcript, and orchestration graph are projections, not workflow truth. The snapshot is a UI shell, the transcript must not show mechanical labels such as `AI 回复` or `执行结果`, and derived tool-result summaries must not pretend to be exact historical LLM text. The orchestration graph must not become the source of scheduling truth, must not create fake SubAgent chats, must not execute workflow actions, and must not move maintenance candidates into the right confirmation queue. The right side stays limited to human gates such as confirming execution, applying, checking compatibility, creating/updating PRs, submitting review, replying to review, merging, syncing, cleanup, requesting changes, or abandoning work.
 
 Runtime boundary issues are explanation/evidence events, not confirmation queue items. When ToolPolicyGate denies a request or PostRunBoundaryAudit finds a role wrote outside its allowed scope, the main conversation should explain the user-impact in plain language and link evidence. The right queue should only show a user decision if there is a real next action such as requesting changes or abandoning the result.
 
@@ -223,7 +223,7 @@ For multiple ready demand results, the parent agent may suggest a local compatib
 ```text
 left sidebar                         center tabs                                  right confirmation queue
 Global entries                       对话                                        Current human-gate item
-Project folders                      Agent 运行图                                Evidence links
+Project folders                      Agent 编排图                                Evidence links
 Nested demand conversations          Composer                                    Apply / merge decision
 Pinned settings                                                                  Scoped feedback
 ```
@@ -244,7 +244,7 @@ It also should not expose worker-slot, claim, or DemandWorker terminology; those
 The center surface has two tabs:
 
 - `对话`: the main parent-agent transcript.
-- `Agent 运行图`: a lazily loaded read-only graph of the selected demand's parent-agent delegation and tool results.
+- `Agent 编排图`: a lazily loaded read-only orchestration graph of the selected demand's parent-agent delegation, local loop, worker branches, integration joins, and terminal gates.
 
 The conversation tab should show:
 
@@ -254,7 +254,7 @@ The conversation tab should show:
 - replay-style rows for `codex exec` JSONL/final-message events;
 - errors only when the runtime/replay or AHO boundary check exposes a user-impacting failure.
 
-The conversation tab should not synthesize planning drafts, role returns, validation/audit summaries, PR/landing summaries, maintenance notices, or generic completion text from AHO workflow state. Those belong in `Agent 运行图`, node details, the right confirmation queue, or evidence drawers unless they are literally present in the Codex runtime/replay transcript.
+The conversation tab should not synthesize planning drafts, role returns, validation/audit summaries, PR/landing summaries, maintenance notices, or generic completion text from AHO workflow state. Those belong in `Agent 编排图`, node details, the right confirmation queue, or evidence drawers unless they are literally present in the Codex runtime/replay transcript.
 
 Agent Loop is no longer a default center tab. It remains available from graph node details or evidence details. It may show run ids, raw artifacts, logs, and internal runtime terminology because it is not the primary user decision surface.
 

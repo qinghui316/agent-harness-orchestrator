@@ -1613,7 +1613,7 @@ describe("Workbench web app", () => {
     await waitFor(() => expect(screen.getAllByText("会员折扣计价").length).toBeGreaterThan(0));
     expect(screen.getByTestId("main-conversation-view")).toBeTruthy();
     expect(screen.getByRole("tab", { name: "对话" })).toBeTruthy();
-    expect(screen.getByRole("tab", { name: "Agent 运行图" })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "Agent 编排图" })).toBeTruthy();
     expect(screen.getByTestId("parent-agent-transcript")).toBeTruthy();
     expect(screen.queryByTestId("open-agent-run-graph")).toBeNull();
     expect(screen.queryByText("目标与当前理解")).toBeNull();
@@ -1656,11 +1656,21 @@ describe("Workbench web app", () => {
     expect(screen.queryByText("稍后")).toBeNull();
     expect(screen.getByText("记忆：external-local")).toBeTruthy();
     expect(screen.getByText("当前需求：会员折扣计价")).toBeTruthy();
-    fireEvent.click(screen.getByRole("tab", { name: "Agent 运行图" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Agent 编排图" }));
     expect(await screen.findByTestId("agent-run-graph", undefined, { timeout: 5000 })).toBeTruthy();
     expect(fetchCallUrls()).toContain("/api/projects/repo/workbench/projections/run-graph/member-discount");
+    expect(screen.getByTestId("agent-orchestration-map")).toBeTruthy();
+    expect(screen.getByTestId("agent-orchestration-zoom-in")).toBeTruthy();
+    expect(screen.getByTestId("agent-orchestration-zoom-out")).toBeTruthy();
+    expect(screen.getByTestId("agent-orchestration-fit")).toBeTruthy();
+    expect(screen.getAllByTestId("agent-orchestration-edge").length).toBeGreaterThan(0);
     expect(screen.getByTestId("agent-run-node-main-agent")).toBeTruthy();
     expect(screen.getByTestId("agent-run-node-coder-agent")).toBeTruthy();
+    expect(document.querySelector(".agent-orchestration-card .agent-orchestration-avatar")).toBeTruthy();
+    const graphText = screen.getByTestId("agent-run-graph").textContent ?? "";
+    for (const forbidden of ["full-auto", "parallel executor", "merge queue", "automatic remote", "TaskRun", "WorkerLease"]) {
+      expect(graphText).not.toContain(forbidden);
+    }
     expect(screen.queryByTestId("agent-run-node-memory-closeout")).toBeNull();
     fireEvent.click(screen.getByTestId("agent-run-node-coder-agent"));
     expect(screen.getByTestId("agent-run-node-detail")).toBeTruthy();
@@ -4235,7 +4245,7 @@ describe("Workbench web app", () => {
     await waitFor(() => expect(screen.getByTestId("main-conversation-view")).toBeTruthy());
     expect(screen.queryByTestId("taskgraph-node-T-001")).toBeNull();
     expect(screen.queryByText("运行此任务")).toBeNull();
-    fireEvent.click(screen.getByRole("tab", { name: "Agent 运行图" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Agent 编排图" }));
     expect(await screen.findByTestId("agent-run-graph")).toBeTruthy();
   });
 
@@ -4259,7 +4269,7 @@ describe("Workbench web app", () => {
     expect(screen.queryByTestId("task-queue-panel")).toBeNull();
     expect(screen.queryByText("本地顺序执行")).toBeNull();
     expect(screen.queryByText(/并行执行|worker pool|多 agent 协作/)).toBeNull();
-    expect(screen.getByRole("tab", { name: "Agent 运行图" })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "Agent 编排图" })).toBeTruthy();
   });
 
   it("shows paused TaskQueue recovery copy and disables individual task run", async () => {
@@ -4641,7 +4651,7 @@ describe("Workbench web app", () => {
     expect(screen.queryByText("停止并按这条修改")).toBeNull();
     expect(screen.queryByText("新需求对话")).toBeNull();
     expect(screen.getByTitle("停止当前执行")).toBeTruthy();
-    expect(screen.getByRole("tab", { name: "Agent 运行图" })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "Agent 编排图" })).toBeTruthy();
     expect(screen.queryByText(/worker pool|并行 worktree|merge queue/)).toBeNull();
   });
 

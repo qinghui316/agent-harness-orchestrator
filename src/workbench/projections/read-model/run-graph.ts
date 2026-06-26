@@ -4,6 +4,8 @@
   DemandAgentRunGraph,
   DemandAgentRunGraphEdge,
   DemandAgentRunGraphEdgeKind,
+  DemandAgentRunGraphEdgeRole,
+  DemandAgentRunGraphEdgeStyle,
   DemandAgentRunGraphLane,
   DemandAgentRunGraphLaneId,
   DemandAgentRunGraphNode,
@@ -112,16 +114,20 @@ export function buildDemandAgentRunGraph(input: {
   const roleNodeIds = addRolePipelineGraphNodes(nodes, edges, targetBase, workpad.rolePipeline);
   connectRolePath(edges, roleNodeIds);
   addResultReviewGraphNode(nodes, edges, targetBase, workpad.resultReview, roleNodeIds.at(-1));
+  addGoalLoopGraphNodes(nodes, edges, targetBase, workpad);
+  addSchedulerGraphNodes(nodes, edges, targetBase, workpad);
   addConfirmationGraphNodes(nodes, edges, targetBase, confirmationQueue);
 
+  const nodeList = [...nodes.values()];
+  const nodeIds = new Set(nodeList.map((node) => node.id));
   return {
     conversationId: selectedTopic.id,
     changeId: selectedTopic.id,
     title: selectedTopic.title,
     summary: `${nodes.size} 个 agent/tool 节点；项目维护不进入默认选中需求运行图。`,
     lanes: demandAgentRunGraphLanes(),
-    nodes: [...nodes.values()],
-    edges: dedupeGraphEdges(edges),
+    nodes: nodeList,
+    edges: dedupeGraphEdges(edges).filter((edge) => nodeIds.has(edge.from) && nodeIds.has(edge.to)),
     updatedAt: selectedTopic.updatedAt,
   };
 }
@@ -303,6 +309,240 @@ function addResultReviewGraphNode(
   addGraphEdge(edges, "result-review", "main-agent", "returns", "结果回到主对话");
 }
 
+function addGoalLoopGraphNodes(
+  nodes: Map<string, DemandAgentRunGraphNode>,
+  edges: DemandAgentRunGraphEdge[],
+  targetBase: DemandAgentRunGraphNode["target"],
+  workpad: WorkbenchWorkpad,
+): void {
+  if (workpad.goalLoop) {
+    addGraphNode(nodes, {
+      id: "goal-loop",
+      kind: "goal-loop",
+      lane: "main",
+      label: "目标循环",
+      status: workpad.conversationLifecycle === "running" ? "running" : "completed",
+      summary: workpad.goalLoop.summary,
+      reason: "主 Agent 观察当前证据，判断下一步应该继续、等待、修复或停回用户；它只是解释和选择策略，不替代真实 gate。",
+      target: {
+        ...targetBase,
+        schedulerRunId: readStringScope(workpad.goalLoop.recommendedActionScope, "schedulerRunId"),
+      },
+      stage: "demand",
+      visualKind: "tool",
+      inputSummary: workpad.goalLoop.routingLabel,
+      outputSummary: workpad.goalLoop.recommendedActionReason ?? workpad.goalLoop.stalenessInstruction,
+      evidenceRefs: [
+        ...(workpad.goalLoop.artifact ? [{ label: "Goal Loop", ref: workpad.goalLoop.artifact, kind: "artifact" } satisfies DemandAgentRunEvidenceRef] : []),
+        ...(workpad.goalLoop.nextStepPacketArtifact ? [{ label: "下一步包", ref: workpad.goalLoop.nextStepPacketArtifact, kind: "artifact" } satisfies DemandAgentRunEvidenceRef] : []),
+      ],
+      attempts: [],
+    });
+    addGraphEdge(edges, "main-agent", "goal-loop", "continues-to", "观察证据", "loop", "primary");
+    addGraphEdge(edges, "goal-loop", "main-agent", "returns", "建议回到真实 gate", "loop", "return");
+  }
+  if (workpad.controlledSchedulerStepReceipt || workpad.controlledSchedulerStepTrace) {
+    const receipt = workpad.controlledSchedulerStepReceipt ?? workpad.controlledSchedulerStepTrace?.items[0];
+    addGraphNode(nodes, {
+      id: "controlled-continuation",
+      kind: "automation-loop",
+      lane: "roles",
+      label: "受控连续推进",
+      status: receipt?.status === "needs-review" || receipt?.status === "needs-reevaluation" ? "needs-change" : "completed",
+      summary: receipt?.body ?? workpad.controlledSchedulerStepTrace?.body ?? "已记录受控连续推进证据。",
+      reason: "一次人工授权后，AHO 只推进已支持的本地 scheduler gate，并在终点、人类 gate、阻塞或预算边界停下。",
+      target: { ...targetBase },
+      stage: "execution",
+      visualKind: "tool",
+      inputSummary: receipt?.executedStepLabel,
+      outputSummary: receipt?.nextStepLabel ?? receipt?.readinessLabel,
+      evidenceRefs: (receipt?.evidenceRefs ?? workpad.controlledSchedulerStepTrace?.evidenceRefs ?? [])
+        .map((ref): DemandAgentRunEvidenceRef => ({ label: "受控推进", ref, kind: "artifact" })),
+      attempts: [],
+    });
+    addGraphEdge(edges, nodes.has("goal-loop") ? "goal-loop" : "main-agent", "controlled-continuation", "continues-to", "受控推进", "loop", "primary");
+  }
+}
+
+function addSchedulerGraphNodes(
+  nodes: Map<string, DemandAgentRunGraphNode>,
+  edges: DemandAgentRunGraphEdge[],
+  targetBase: DemandAgentRunGraphNode["target"],
+  workpad: WorkbenchWorkpad,
+): void {
+  const workerPaths = workpad.schedulerWorkerPaths ?? [];
+  const workerNodeIds: string[] = [];
+  for (const path of workerPaths) {
+    const nodeId = `scheduler-worker:${path.start.id}`;
+    workerNodeIds.push(nodeId);
+    addGraphNode(nodes, {
+      id: nodeId,
+      kind: "scheduler-worker",
+      lane: "roles",
+      label: `worker ${path.start.unitId}`,
+      status: graphStatusFromSchedulerWorkerPath(path.status),
+      summary: schedulerWorkerPathSummary(path),
+      reason: "低冲突任务在独立 worktree 中执行；worker 输出只是候选结果，必须通过验证、审查和后续集成检查。",
+      target: {
+        ...targetBase,
+        schedulerRunId: path.start.schedulerRunId,
+        schedulerWorkerStartId: path.start.id,
+        runId: path.reworkResult?.reworkRunId ?? path.result?.runId ?? path.start.runId,
+        worktreeId: path.reworkResult?.worktreeId ?? path.result?.worktreeId ?? path.start.worktreeId,
+      },
+      stage: "execution",
+      visualKind: "worker",
+      inputSummary: `任务单元：${path.start.unitId}`,
+      outputSummary: path.audit?.auditStatus ?? path.reworkAudit?.auditStatus ?? path.validation?.validationStatus ?? path.result?.status,
+      evidenceRefs: schedulerWorkerPathEvidence(path),
+      attempts: [],
+    });
+    addGraphEdge(edges, nodes.has("controlled-continuation") ? "controlled-continuation" : "main-agent", nodeId, "continues-to", "启动低冲突 worker", "solid", "worker-branch");
+    if (path.reworkPlan || path.reworkStart || path.reworkResult || path.reworkValidation || path.reworkAudit) {
+      const reworkNodeId = `scheduler-rework:${path.start.id}`;
+      addGraphNode(nodes, {
+        id: reworkNodeId,
+        kind: "rework-coder",
+        lane: "roles",
+        label: "bounded rework",
+        status: graphStatusFromRoleStatus(path.reworkAudit?.status ?? path.reworkValidation?.status ?? path.reworkResult?.status ?? path.reworkStart?.status ?? path.reworkPlan?.status),
+        summary: path.reworkPlan?.reworkReason ?? "worker 输出进入 bounded rework 后重新验证/审查。",
+        reason: "rework 只修复当前 worker 的候选输出，不会修改 source root 或跨 Change 合并。",
+        target: {
+          ...targetBase,
+          schedulerRunId: path.start.schedulerRunId,
+          schedulerWorkerStartId: path.start.id,
+          runId: path.reworkResult?.reworkRunId,
+          worktreeId: path.reworkResult?.worktreeId ?? path.reworkStart?.worktreeId,
+        },
+        stage: "execution",
+        visualKind: "worker",
+        inputSummary: path.reworkPlan?.blockingSource,
+        outputSummary: path.reworkAudit?.auditStatus ?? path.reworkValidation?.validationStatus ?? path.reworkResult?.status,
+        evidenceRefs: schedulerWorkerReworkEvidence(path),
+        attempts: [],
+      });
+      addGraphEdge(edges, nodeId, reworkNodeId, "triggers-rework", "bounded rework", "loop", "rework");
+      addGraphEdge(edges, reworkNodeId, nodeId, "returns", "修复结果回到 worker 证据", "loop", "return");
+    }
+  }
+  if (workpad.schedulerIntegrationCandidate) {
+    const candidate = workpad.schedulerIntegrationCandidate;
+    addGraphNode(nodes, {
+      id: `scheduler-candidate:${candidate.id}`,
+      kind: "scheduler-integration-candidate",
+      lane: "integration",
+      label: "组合候选",
+      status: candidate.status === "ready" ? "waiting-user" : candidate.blockedCount > 0 ? "needs-change" : "queued",
+      summary: candidate.waitingReason ?? `${candidate.readyCount} 个 worker 输出已准备组合检查。`,
+      reason: "同一 Change 下的 worker 输出汇合为组合候选；它仍需要人工确认 IntegrationCheck。",
+      target: {
+        ...targetBase,
+        schedulerRunId: candidate.schedulerRunId,
+        schedulerIntegrationCandidateId: candidate.id,
+        candidateId: candidate.id,
+      },
+      stage: "integration",
+      visualKind: "review",
+      inputSummary: candidate.readyWorktreeIds.join(", "),
+      outputSummary: `ready=${candidate.readyCount}, blocked=${candidate.blockedCount}`,
+      evidenceRefs: candidate.artifact ? [{ label: "组合候选", ref: candidate.artifact, kind: "artifact" }] : [],
+      attempts: [],
+    });
+    const candidateNodeId = `scheduler-candidate:${candidate.id}`;
+    for (const workerNodeId of workerNodeIds) {
+      addGraphEdge(edges, workerNodeId, candidateNodeId, "requires-evidence", "worker 输出汇合", "solid", "worker-join");
+    }
+  }
+  if (workpad.schedulerIntegrationCheckHandoff) {
+    const handoff = workpad.schedulerIntegrationCheckHandoff;
+    const nodeId = `scheduler-integration-check:${handoff.integrationCheckId}`;
+    addGraphNode(nodes, {
+      id: nodeId,
+      kind: "integration-check",
+      lane: "integration",
+      label: "IntegrationCheck",
+      status: graphStatusFromRoleStatus(handoff.currentIntegrationCheckStatus ?? handoff.integrationCheckStatus),
+      summary: `组合检查状态：${handoff.currentIntegrationCheckStatus ?? handoff.integrationCheckStatus}`,
+      reason: "组合检查会在 integration worktree 中验证 worker 输出能否安全合并；apply/discard 仍是人工 gate。",
+      target: {
+        ...targetBase,
+        schedulerRunId: handoff.schedulerRunId,
+        schedulerIntegrationCandidateId: handoff.schedulerIntegrationCandidateId,
+        schedulerIntegrationCheckHandoffId: handoff.id,
+        applyCheckId: handoff.integrationCheckId,
+      },
+      stage: "integration",
+      visualKind: "review",
+      inputSummary: handoff.readyWorktreeIds.join(", "),
+      outputSummary: handoff.status,
+      evidenceRefs: handoff.artifact ? [{ label: "IntegrationCheck handoff", ref: handoff.artifact, kind: "artifact" }] : [],
+      attempts: [],
+    });
+    addGraphEdge(edges, `scheduler-candidate:${handoff.schedulerIntegrationCandidateId}`, nodeId, "continues-to", "人工确认组合检查", "solid", "primary");
+  }
+  if (workpad.schedulerIntegrationOutcome) {
+    const outcome = workpad.schedulerIntegrationOutcome;
+    const nodeId = `scheduler-integration-outcome:${outcome.id}`;
+    addGraphNode(nodes, {
+      id: nodeId,
+      kind: "scheduler-completion",
+      lane: "integration",
+      label: "组合结果",
+      status: outcome.status === "blocked" ? "needs-change" : "completed",
+      summary: outcome.outcomeReason,
+      reason: "组合结果只归并同一 Change 的 worker 输出；source root 仍只能通过人工 apply 或已授权本地 gate 修改。",
+      target: {
+        ...targetBase,
+        schedulerRunId: outcome.schedulerRunId,
+        schedulerIntegrationCandidateId: outcome.schedulerIntegrationCandidateId,
+        schedulerIntegrationCheckHandoffId: outcome.schedulerIntegrationCheckHandoffId,
+        schedulerIntegrationOutcomeId: outcome.id,
+        applyCheckId: outcome.integrationCheckId,
+      },
+      stage: "integration",
+      visualKind: "review",
+      inputSummary: outcome.integrationCheckStatus,
+      outputSummary: outcome.status,
+      evidenceRefs: outcome.artifact ? [{ label: "组合结果", ref: outcome.artifact, kind: "artifact" }] : [],
+      attempts: [],
+    });
+    addGraphEdge(edges, `scheduler-integration-check:${outcome.integrationCheckId}`, nodeId, "returns", "组合检查结果", "solid", "primary");
+  }
+  if (workpad.schedulerRunCompletion || workpad.schedulerRunBlockedCloseout) {
+    const completion = workpad.schedulerRunCompletion;
+    const blocked = workpad.schedulerRunBlockedCloseout;
+    const nodeId = completion ? `scheduler-completion:${completion.id}` : `scheduler-blocked:${blocked?.id ?? "unknown"}`;
+    addGraphNode(nodes, {
+      id: nodeId,
+      kind: "terminal-gate",
+      lane: "integration",
+      label: completion ? "Scheduler 完成" : "Scheduler 阻塞",
+      status: completion ? "completed" : "needs-change",
+      summary: completion?.outcomeReason ?? blocked?.closeoutReason ?? "低冲突任务路径停在阻塞状态。",
+      reason: "这是同一 Change 内 scheduler 路径的终点或阻塞说明，不会自动进入远端、PR、合并或 Harness evolution。",
+      target: {
+        ...targetBase,
+        schedulerRunId: completion?.schedulerRunId ?? blocked?.schedulerRunId,
+        schedulerRunCompletionId: completion?.id,
+        schedulerRunBlockedCloseoutId: blocked?.id,
+      },
+      stage: "terminal",
+      visualKind: "terminal",
+      inputSummary: completion?.integrationCheckStatus ?? blocked?.reason,
+      outputSummary: completion?.status ?? blocked?.status,
+      evidenceRefs: [
+        ...(completion?.artifact ? [{ label: "scheduler completion", ref: completion.artifact, kind: "artifact" } satisfies DemandAgentRunEvidenceRef] : []),
+        ...(blocked?.artifact ? [{ label: "scheduler blocker", ref: blocked.artifact, kind: "artifact" } satisfies DemandAgentRunEvidenceRef] : []),
+      ],
+      attempts: [],
+    });
+    if (completion?.schedulerIntegrationOutcomeId) {
+      addGraphEdge(edges, `scheduler-integration-outcome:${completion.schedulerIntegrationOutcomeId}`, nodeId, "continues-to", "scheduler 本地收尾", "solid", "terminal");
+    }
+  }
+}
+
 function addConfirmationGraphNodes(
   nodes: Map<string, DemandAgentRunGraphNode>,
   edges: DemandAgentRunGraphEdge[],
@@ -365,22 +605,43 @@ function connectRolePath(edges: DemandAgentRunGraphEdge[], nodeIds: string[]): v
 }
 
 function addGraphNode(nodes: Map<string, DemandAgentRunGraphNode>, node: DemandAgentRunGraphNode): void {
+  const normalizedNode: DemandAgentRunGraphNode = {
+    ...node,
+    stage: node.stage ?? graphStageFromNodeKind(node.kind, node.lane),
+    visualKind: node.visualKind ?? graphVisualKindFromNodeKind(node.kind),
+  };
   const existing = nodes.get(node.id);
   if (!existing) {
-    nodes.set(node.id, node);
+    nodes.set(node.id, normalizedNode);
     return;
   }
   nodes.set(node.id, {
     ...existing,
-    ...node,
-    evidenceRefs: dedupeEvidenceRefs([...existing.evidenceRefs, ...node.evidenceRefs]),
-    attempts: dedupeGraphAttempts([...existing.attempts, ...node.attempts]),
+    ...normalizedNode,
+    evidenceRefs: dedupeEvidenceRefs([...existing.evidenceRefs, ...normalizedNode.evidenceRefs]),
+    attempts: dedupeGraphAttempts([...existing.attempts, ...normalizedNode.attempts]),
   });
 }
 
-function addGraphEdge(edges: DemandAgentRunGraphEdge[], from: string, to: string, kind: DemandAgentRunGraphEdgeKind, label: string): void {
+function addGraphEdge(
+  edges: DemandAgentRunGraphEdge[],
+  from: string,
+  to: string,
+  kind: DemandAgentRunGraphEdgeKind,
+  label: string,
+  edgeStyle?: DemandAgentRunGraphEdgeStyle,
+  edgeRole?: DemandAgentRunGraphEdgeRole,
+): void {
   if (from === to) return;
-  edges.push({ id: `${from}->${to}:${kind}`, from, to, kind, label });
+  edges.push({
+    id: `${from}->${to}:${kind}`,
+    from,
+    to,
+    kind,
+    label,
+    edgeStyle: edgeStyle ?? graphEdgeStyleFromKind(kind),
+    edgeRole: edgeRole ?? graphEdgeRoleFromKind(kind),
+  });
 }
 
 function dedupeGraphEdges(edges: DemandAgentRunGraphEdge[]): DemandAgentRunGraphEdge[] {
@@ -430,6 +691,99 @@ function graphStatusFromRoleStatus(status: string | undefined): DemandAgentRunGr
   return "idle";
 }
 
+type SchedulerWorkerPath = NonNullable<WorkbenchWorkpad["schedulerWorkerPaths"]>[number];
+
+function graphStatusFromSchedulerWorkerPath(status: SchedulerWorkerPath["status"]): DemandAgentRunGraphNodeStatus {
+  if (status.includes("failed")) return "failed";
+  if (status.includes("blocked")) return "needs-change";
+  if (status.includes("pending")) return "running";
+  if (status === "audit-approved" || status === "rework-audit-approved") return "completed";
+  return "running";
+}
+
+function schedulerWorkerPathSummary(path: SchedulerWorkerPath): string {
+  if (path.status === "audit-approved" || path.status === "rework-audit-approved") return "worker 输出已通过验证和审查。";
+  if (path.status.includes("rework")) return "worker 输出正在 bounded rework / 复验路径中。";
+  if (path.status.includes("validation")) return "worker 输出正在验证。";
+  if (path.status.includes("audit")) return "worker 输出正在审查。";
+  if (path.status.includes("failed")) return "worker 输出失败，需要修复或人工判断。";
+  return "worker 正在独立 worktree 中执行当前低冲突任务。";
+}
+
+function schedulerWorkerPathEvidence(path: SchedulerWorkerPath): DemandAgentRunEvidenceRef[] {
+  const refs: DemandAgentRunEvidenceRef[] = [];
+  pushArtifactRef(refs, "worker start", path.start.artifact);
+  pushArtifactRef(refs, "worker result", path.result?.artifact);
+  pushArtifactRef(refs, "worker validation", path.validation?.artifact);
+  pushArtifactRef(refs, "worker audit", path.audit?.artifact);
+  pushRunRef(refs, "code run", path.result?.runId ?? path.start.runId);
+  pushRunRef(refs, "validation run", path.validation?.validationRunId);
+  pushRunRef(refs, "audit run", path.audit?.auditRunId);
+  return refs;
+}
+
+function schedulerWorkerReworkEvidence(path: SchedulerWorkerPath): DemandAgentRunEvidenceRef[] {
+  const refs: DemandAgentRunEvidenceRef[] = [];
+  pushArtifactRef(refs, "rework plan", path.reworkPlan?.artifact);
+  pushArtifactRef(refs, "rework start", path.reworkStart?.artifact);
+  pushArtifactRef(refs, "rework result", path.reworkResult?.artifact);
+  pushArtifactRef(refs, "rework validation", path.reworkValidation?.artifact);
+  pushArtifactRef(refs, "rework audit", path.reworkAudit?.artifact);
+  pushRunRef(refs, "rework run", path.reworkResult?.reworkRunId ?? path.reworkStart?.reworkRunId);
+  pushRunRef(refs, "rework validation", path.reworkValidation?.validationRunId);
+  pushRunRef(refs, "rework audit", path.reworkAudit?.auditRunId);
+  return refs;
+}
+
+function pushArtifactRef(refs: DemandAgentRunEvidenceRef[], label: string, ref: string | undefined): void {
+  if (ref) refs.push({ label, ref, kind: "artifact" });
+}
+
+function pushRunRef(refs: DemandAgentRunEvidenceRef[], label: string, ref: string | undefined): void {
+  if (ref) refs.push({ label, ref, kind: "run" });
+}
+
+function readStringScope(scope: Record<string, string | string[]> | undefined, key: string): string | undefined {
+  const value = scope?.[key];
+  return typeof value === "string" ? value : undefined;
+}
+
+function graphStageFromNodeKind(kind: DemandAgentRunGraphNodeKind, lane: DemandAgentRunGraphLaneId): DemandAgentRunGraphNode["stage"] {
+  if (lane === "maintenance") return "maintenance";
+  if (kind === "main-agent" || kind === "goal-loop") return "demand";
+  if (kind === "planning-agent") return "planning";
+  if (kind === "coder-agent" || kind === "rework-coder" || kind === "delegate-task" || kind === "tool-policy-gate" || kind === "scheduler-worker" || kind === "automation-loop") return "execution";
+  if (kind === "validator" || kind === "boundary-audit") return "validation";
+  if (kind === "auditor-agent" || kind === "result-review") return "review";
+  if (kind === "integration-check" || kind === "integration-fix-agent" || kind === "scheduler-integration-candidate" || kind === "scheduler-completion") return "integration";
+  if (kind === "merge-reviewer-agent" || kind === "pr-draft-adapter" || kind === "pr-feedback-sweep" || kind === "pr-review-handoff" || kind === "remote-landing" || kind === "post-merge-sync" || kind === "remote-branch-cleanup") return "landing";
+  if (kind === "terminal-gate") return "terminal";
+  return "execution";
+}
+
+function graphVisualKindFromNodeKind(kind: DemandAgentRunGraphNodeKind): DemandAgentRunGraphNode["visualKind"] {
+  if (kind === "main-agent" || kind === "planning-agent" || kind === "coder-agent" || kind === "rework-coder" || kind === "auditor-agent") return "agent";
+  if (kind === "scheduler-worker") return "worker";
+  if (kind === "validator" || kind === "tool-policy-gate" || kind === "boundary-audit" || kind === "automation-loop" || kind === "goal-loop") return "tool";
+  if (kind === "result-review" || kind === "integration-check" || kind === "integration-fix-agent" || kind === "scheduler-integration-candidate" || kind === "scheduler-completion" || kind === "merge-reviewer-agent") return "review";
+  if (kind === "terminal-gate" || kind === "memory-closeout") return "terminal";
+  if (kind.includes("pr") || kind.includes("remote") || kind.includes("merge")) return "gate";
+  return "default";
+}
+
+function graphEdgeStyleFromKind(kind: DemandAgentRunGraphEdgeKind): DemandAgentRunGraphEdgeStyle {
+  if (kind === "triggers-rework") return "loop";
+  if (kind === "returns" || kind === "background-maintenance") return "dashed";
+  return "solid";
+}
+
+function graphEdgeRoleFromKind(kind: DemandAgentRunGraphEdgeKind): DemandAgentRunGraphEdgeRole {
+  if (kind === "triggers-rework") return "rework";
+  if (kind === "returns") return "return";
+  if (kind === "background-maintenance") return "background";
+  return "primary";
+}
+
 function roleKindFromRoleId(roleId: string): DemandAgentRunGraphNodeKind {
   if (roleId === "planning-agent") return "planning-agent";
   if (roleId === "rework-coder") return "rework-coder";
@@ -459,6 +813,8 @@ function roleReason(roleId: string): string {
 function graphNodeKindLabel(kind: DemandAgentRunGraphNodeKind): string {
   const labels: Record<DemandAgentRunGraphNodeKind, string> = {
     "main-agent": "主 agent",
+    "goal-loop": "目标循环",
+    "automation-loop": "自动推进",
     "delegate-task": "delegateTask",
     "tool-policy-gate": "ToolPolicyGate",
     "boundary-audit": "边界审计",
@@ -468,6 +824,10 @@ function graphNodeKindLabel(kind: DemandAgentRunGraphNodeKind): string {
     "validator": "validator",
     "auditor-agent": "auditor-agent",
     "result-review": "结果整理",
+    "scheduler-worker": "低冲突 worker",
+    "scheduler-integration-candidate": "组合候选",
+    "scheduler-completion": "scheduler 收尾",
+    "terminal-gate": "终点",
     "integration-check": "兼容性检查",
     "integration-fix-agent": "integration-fix-agent",
     "merge-reviewer-agent": "merge-reviewer-agent",

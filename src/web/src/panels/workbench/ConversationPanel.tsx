@@ -8,6 +8,7 @@ import {
   type RefObject } from "react";
 import { RunReplay, artifactName } from "./RunReplayPanel.js";
 import { WorkpadView } from "./WorkpadPanel.js";
+import { AgentOrchestrationMap } from "./AgentOrchestrationMap.js";
 import { calculateTranscriptVirtualRange } from "./TranscriptVirtualList.js";
 import {
   agentRunStatusLabel,
@@ -25,7 +26,6 @@ import {
 import type {
   CenterTab,
   DemandAgentRunGraph,
-  DemandAgentRunGraphLaneId,
   DemandAgentRunGraphNode,
   LiveAssistantTurn,
   ParentAgentTranscript,
@@ -85,7 +85,7 @@ export function MainConversationView({
       <div className="center-demand-tabs" role="tablist" aria-label="需求对话视图">
         <button type="button" role="tab" aria-selected={activeTab === "conversation"} className={activeTab === "conversation" ? "active" : ""} onClick={() => onTabChange("conversation")}>对话</button>
         <button type="button" role="tab" aria-selected={activeTab === "workpad"} className={activeTab === "workpad" ? "active" : ""} onClick={() => onTabChange("workpad")}>工作台</button>
-        <button type="button" role="tab" aria-selected={activeTab === "agentGraph"} className={activeTab === "agentGraph" ? "active" : ""} onClick={() => onTabChange("agentGraph")}>Agent 运行图</button>
+        <button type="button" role="tab" aria-selected={activeTab === "agentGraph"} className={activeTab === "agentGraph" ? "active" : ""} onClick={() => onTabChange("agentGraph")}>Agent 编排图</button>
       </div>
       {activeTab === "conversation" ? (
         <ParentAgentTranscriptView
@@ -405,68 +405,15 @@ function AgentRunGraphPanel({
     <div className="agent-graph-panel" data-testid="agent-run-graph-panel">
       <header className="agent-graph-header">
         <div>
-          <p className="eyebrow">Agent 运行图</p>
+          <p className="eyebrow">Agent 编排图</p>
           <h2>{graph.title}</h2>
           <p>{graph.summary}</p>
         </div>
       </header>
       <div className="agent-graph-body">
-        <AgentRunGraphCanvas graph={graph} selectedNodeId={selectedNode?.id ?? null} onSelectNode={onSelectNode} />
+        <AgentOrchestrationMap graph={graph} selectedNodeId={selectedNode?.id ?? null} onSelectNode={onSelectNode} />
         <AgentRunNodeDetail node={selectedNode} activeRun={activeRun} stream={stream} onSelectRun={onSelectRun} />
       </div>
-    </div>
-  );
-}
-
-function AgentRunGraphCanvas({
-  graph,
-  selectedNodeId,
-  onSelectNode,
-}: {
-  graph: DemandAgentRunGraph;
-  selectedNodeId: string | null;
-  onSelectNode: (nodeId: string) => void;
-}): ReactElement {
-  const laneNodes = new Map<DemandAgentRunGraphLaneId, DemandAgentRunGraphNode[]>();
-  for (const lane of graph.lanes) laneNodes.set(lane.id, []);
-  for (const node of graph.nodes) {
-    laneNodes.set(node.lane, [...(laneNodes.get(node.lane) ?? []), node]);
-  }
-  return (
-    <div className="agent-graph-canvas" data-testid="agent-run-graph">
-      {graph.lanes.map((lane) => {
-        const nodes = laneNodes.get(lane.id) ?? [];
-        if (nodes.length === 0) return null;
-        return (
-          <section className={`agent-graph-lane ${lane.id}`} key={lane.id}>
-            <div className="agent-graph-lane-title">
-              <strong>{lane.label}</strong>
-              <span>{lane.description}</span>
-            </div>
-            <div className="agent-graph-node-list">
-              {nodes.map((node) => (
-                <button
-                  type="button"
-                  className={`agent-graph-node ${node.status} ${selectedNodeId === node.id ? "selected" : ""}`}
-                  key={node.id}
-                  onClick={() => onSelectNode(node.id)}
-                  data-testid={`agent-run-node-${node.kind}`}
-                >
-                  <span className="node-status-dot" />
-                  <strong>{node.label}</strong>
-                  <small>{agentRunStatusLabel(node.status)}</small>
-                  <p>{node.summary}</p>
-                </button>
-              ))}
-            </div>
-          </section>
-        );
-      })}
-      {graph.edges.length > 0 ? (
-        <div className="agent-graph-edge-summary">
-          {graph.edges.slice(0, 10).map((edge) => <span key={edge.id}>{edge.label}</span>)}
-        </div>
-      ) : null}
     </div>
   );
 }

@@ -63,6 +63,10 @@ export type WorkpadSummary = {
 };
 export type DemandAgentRunGraphLaneId = "main" | "roles" | "integration" | "maintenance";
 export type DemandAgentRunGraphNodeStatus = "idle" | "queued" | "running" | "completed" | "needs-change" | "failed" | "waiting-user" | "skipped";
+export type DemandAgentRunGraphStage = "demand" | "planning" | "execution" | "validation" | "review" | "integration" | "landing" | "terminal" | "maintenance";
+export type DemandAgentRunGraphVisualKind = "agent" | "gate" | "worker" | "tool" | "review" | "terminal" | "default";
+export type DemandAgentRunGraphEdgeStyle = "solid" | "dashed" | "loop" | "blocked";
+export type DemandAgentRunGraphEdgeRole = "primary" | "return" | "rework" | "worker-branch" | "worker-join" | "terminal" | "background";
 export type DemandAgentRunGraphEvidenceRef = { label: string; ref: string; kind: "artifact" | "run" | "task" | "decision" | "remote" | "maintenance" };
 export type DemandAgentRunGraphAttempt = { id: string; status: DemandAgentRunGraphNodeStatus; summary: string; timestamp?: string; evidenceRefs: DemandAgentRunGraphEvidenceRef[] };
 export type DemandAgentRunGraphNode = {
@@ -90,13 +94,22 @@ export type DemandAgentRunGraphNode = {
     remoteLandingResultId?: string;
     maintenanceRunId?: string;
     candidateId?: string;
+    schedulerRunId?: string;
+    schedulerWorkerStartId?: string;
+    schedulerIntegrationCandidateId?: string;
+    schedulerIntegrationCheckHandoffId?: string;
+    schedulerIntegrationOutcomeId?: string;
+    schedulerRunCompletionId?: string;
+    schedulerRunBlockedCloseoutId?: string;
   };
+  stage?: DemandAgentRunGraphStage;
+  visualKind?: DemandAgentRunGraphVisualKind;
   inputSummary?: string;
   outputSummary?: string;
   evidenceRefs: DemandAgentRunGraphEvidenceRef[];
   attempts: DemandAgentRunGraphAttempt[];
 };
-export type DemandAgentRunGraphEdge = { id: string; from: string; to: string; kind: string; label: string };
+export type DemandAgentRunGraphEdge = { id: string; from: string; to: string; kind: string; label: string; edgeStyle?: DemandAgentRunGraphEdgeStyle; edgeRole?: DemandAgentRunGraphEdgeRole };
 export type DemandAgentRunGraphLane = { id: DemandAgentRunGraphLaneId; label: string; description: string };
 export type DemandAgentRunGraph = {
   conversationId?: string;
