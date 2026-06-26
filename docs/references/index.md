@@ -1,8 +1,8 @@
 # References Index
 
-Reference projects are included as git submodules under `reference-projects/`. Read the matching map before reading source. When a task asks to "look at reference projects", inspect the relevant source, tests, config, or hook files for the specific mechanism being discussed; do not stop at conceptual map alignment.
+Reference projects are optional local-only clones under `reference-projects/`. They are not Git submodules and should not be committed as source, gitlinks, or submodule metadata. Read the matching map before reading source. When a task asks to "look at reference projects", inspect the relevant source, tests, config, or hook files for the specific mechanism being discussed; do not stop at conceptual map alignment. If the local clone is missing, use the source URL in the table to fetch it outside tracked product code.
 
-| Reference | Source | Local Path | Map |
+| Reference | Source | Suggested Local Path | Map |
 | --- | --- | --- | --- |
 | Agent Orchestrator | `https://github.com/ComposioHQ/agent-orchestrator` | `reference-projects/agent-orchestrator/` | `docs/design-docs/ref-agent-orchestrator.md` |
 | AgentScope | `https://github.com/agentscope-ai/agentscope` | `reference-projects/agentscope/` | `docs/design-docs/ref-agentscope.md` |
@@ -18,7 +18,7 @@ Reference projects are included as git submodules under `reference-projects/`. R
 | ecl-harness-engineer | `https://github.com/qinghui316/ecl-harness-engineer` | `reference-projects/ecl-harness-engineer/` | `docs/design-docs/ref-ecl-harness-engineer.md` |
 | AGENTS.md practice article | `https://mp.weixin.qq.com/s/fBBBSfQajYjYtngZAitZCA` | Web article | `docs/references/agents-md-practice.md` |
 
-Do not vendor-copy reference code into this repository. Update submodule pointers only through ECL changes.
+Do not vendor-copy reference code into this repository. Do not stage local reference clones, gitlinks, or `.gitmodules`; update tracked maps and inspected commit notes through ECL changes instead.
 
 ## Choose Reference By Problem
 

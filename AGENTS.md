@@ -11,6 +11,8 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
   `harness/changes/archive/20260626-workbench-orchestration-map-real-ui-and-collapsible-confirmation-rail-v1/summary.md`.
 - Latest archived docs/reference change:
   `harness/changes/archive/20260626-document-desktop-cc-gui-reference-map-and-product-layer-roadmap/summary.md`.
+- Latest archived reference policy correction:
+  `harness/changes/archive/20260626-desktop-cc-gui-local-only-reference-correction/summary.md`.
 - Latest completed Harness evolution:
   `harness/changes/archive/20260626-auto-evolve-post-orchestration-map-window/summary.md`
   (`docs_merge`; subagent Aquinas score 86; no ECL/template/lint/product
@@ -66,9 +68,10 @@ Current baseline:
   IntegrationCheck only within that Change; cross-Change merge remains future
   explicit design.
 - `desktop-cc-gui` is now a detailed product-layer reference for the next
-  desktop shell / workspace / tools / provider-settings roadmap. Current
-  implementation remains Codex-first Harness mode; normal Agent mode,
-  Claude Code / OpenCode providers, and Tauri packaging are future tracks.
+  desktop shell / workspace / tools / provider-settings roadmap. All reference
+  projects are local-only optional clones and are not repository dependencies;
+  current implementation remains Codex-first Harness mode, while normal Agent
+  mode, Claude Code / OpenCode providers, and Tauri packaging are future tracks.
 
 Daily `npm run test:workbench` is the fast Workbench unit-capability gate; slow
 scheduler/apply/Goal Loop coverage remains in explicit release/deep scripts.
@@ -208,9 +211,9 @@ New product features must prefer reusing and strengthening existing core mechani
 
 ## 9. Reference Source Rules
 
-Reference source code is under `reference-projects/`. Read `docs/references/index.md` and the relevant `docs/design-docs/ref-*.md` map before inspecting reference source.
+Reference source code may exist as local-only clones under `reference-projects/`, but those directories are developer workspace material and are not tracked project dependencies. Read `docs/references/index.md` and the relevant `docs/design-docs/ref-*.md` map before inspecting local reference source or fetching a reference from its GitHub URL.
 
-Treat reference projects as evidence, not implementation instructions. Do not vendor-copy reference code into AHO product code. Do not edit reference submodule source as part of this repository.
+Treat reference projects as evidence, not implementation instructions. Do not vendor-copy reference code into AHO product code. Do not stage reference source directories, gitlinks, or submodule metadata as part of this repository.
 
 ## 10. Documentation Entropy
 

@@ -297,14 +297,15 @@ if (Test-Path -LiteralPath $reviewTemplatePath) {
 
 $gitmodulesPath = Join-Path $root ".gitmodules"
 if (Test-Path -LiteralPath $gitmodulesPath) {
-  $gitmodules = Get-Content -LiteralPath $gitmodulesPath -Encoding UTF8 -Raw
-  foreach ($path in @("reference-projects/agent-orchestrator", "reference-projects/oh-my-codex", "reference-projects/ecl-harness-engineer")) {
-    if ($gitmodules -notlike "*$path*") { Add-Err ".gitmodules missing $path" }
-  }
-  $ignoreCount = ([regex]::Matches($gitmodules, "ignore\s*=\s*all")).Count
-  if ($ignoreCount -lt 3) { Add-Err ".gitmodules should set ignore = all for all reference submodules." }
-} else {
-  Add-Err "Missing file: .gitmodules"
+  Add-Err ".gitmodules should not be tracked. Reference projects are local-only optional clones."
+}
+
+$trackedReferenceProjects = @(
+  git -C $root ls-files --stage reference-projects 2>$null |
+    Where-Object { $_ -match '\s160000\s' -or $_ -match '\sreference-projects/' }
+)
+if (@($trackedReferenceProjects).Count -gt 0) {
+  Add-Err "reference-projects contains tracked entries. Reference projects must remain local-only optional clones."
 }
 
 $indexPath = Join-Path $root "harness/changes/INDEX.json"

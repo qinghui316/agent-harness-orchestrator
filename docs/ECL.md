@@ -478,11 +478,11 @@ Current documents should contain only experience that changes present agent beha
 
 ## 18. Reference Project Updates
 
-Reference projects are submodules under `reference-projects/`. Updating them is a structured change because it changes the source context available to future agents.
+Reference projects are local-only optional clones under `reference-projects/` when present. The repository tracks reference maps and source URLs, not reference source code, gitlinks, or submodule metadata. Updating the tracked reference maps is a structured change because it changes the source context available to future agents.
 
 Each update must record:
 
-- Repo and commit before/after.
+- Repo URL and inspected commit when source was available.
 - Reason.
 - Product implications.
 - Verification.

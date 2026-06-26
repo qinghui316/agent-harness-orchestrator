@@ -3,9 +3,9 @@
 ## Source
 
 - Source repo: `https://github.com/zhukunpenglinyutong/desktop-cc-gui`
-- Local path: `reference-projects/desktop-cc-gui/`
+- Suggested local path: `reference-projects/desktop-cc-gui/`
 - Inspected commit: `49a69c373c1fe34e0da56516ae5134007d485fd8`
-- Reference status: local ignored source reference. Do not vendor-copy into AHO product code.
+- Reference status: optional local-only source reference. Do not vendor-copy into AHO product code and do not stage the local clone.
 
 ## What desktop-cc-gui Is
 

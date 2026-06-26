@@ -8,6 +8,7 @@
 - Latest archived product audit: `harness/changes/archive/20260625-workbench-goal-loop-decision-surface-audit-v1/summary.md`.
 - Latest archived product change: `harness/changes/archive/20260626-workbench-orchestration-map-real-ui-and-collapsible-confirmation-rail-v1/summary.md`.
 - Latest archived docs/reference change: `harness/changes/archive/20260626-document-desktop-cc-gui-reference-map-and-product-layer-roadmap/summary.md`.
+- Latest archived reference policy correction: `harness/changes/archive/20260626-desktop-cc-gui-local-only-reference-correction/summary.md`.
 - Previous archived product change: `harness/changes/archive/20260626-workbench-rudder-style-agent-orchestration-map-v1/summary.md`.
 - Previous archived product change: `harness/changes/archive/20260626-workbench-cursor-incremental-transcript-projection-v2/summary.md`.
 - Previous archived product change: `harness/changes/archive/20260626-workbench-transcript-one-time-pressure-acceptance-v1/summary.md`.
@@ -60,13 +61,20 @@ evolution behavior.
 
 Latest docs/reference closeout:
 `harness/changes/archive/20260626-document-desktop-cc-gui-reference-map-and-product-layer-roadmap/summary.md`.
-It adds `zhukunpenglinyutong/desktop-cc-gui` as a reference submodule and
-records a detailed product-layer map in
+It records `zhukunpenglinyutong/desktop-cc-gui` as a local-only optional
+reference and records a detailed product-layer map in
 `docs/design-docs/ref-desktop-cc-gui.md`. The current roadmap now points the
 next broad product work toward Phase 1 desktop product-layer slices such as
 project home/open/restore, Codex diagnostics, and settings entry. Current
 implementation remains Codex-first Harness mode; normal Agent mode, Claude
 Code/OpenCode providers, and Tauri packaging remain future tracks.
+
+Latest reference policy correction:
+`harness/changes/archive/20260626-desktop-cc-gui-local-only-reference-correction/summary.md`.
+It standardizes all reference projects as local-only optional clones and removes
+tracked reference gitlinks / submodule metadata. Local `reference-projects/`
+directories may remain on this machine, but they are not repository
+dependencies and should not be uploaded.
 
 Previous product closeout:
 `harness/changes/archive/20260626-workbench-rudder-style-agent-orchestration-map-v1/summary.md`.
