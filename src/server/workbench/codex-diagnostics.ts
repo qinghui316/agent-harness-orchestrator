@@ -1,5 +1,5 @@
 import { detectCodexCapabilities } from "../../codex/capabilities.js";
-import { getCodexConfigPath, readCodexProjectTrust } from "../../codex/trust.js";
+import { getCodexConfigPath, readCodexDefaultModel, readCodexProjectTrust } from "../../codex/trust.js";
 import type { ManagedProject } from "../../types/index.js";
 
 export interface WorkbenchCodexDiagnostics {
@@ -7,6 +7,7 @@ export interface WorkbenchCodexDiagnostics {
   available: boolean;
   version: string | null;
   configPath: string;
+  currentModel: string | null;
   approvalFlagPlacement: string;
   capabilities: {
     supportsJson: boolean;
@@ -29,11 +30,13 @@ export interface WorkbenchCodexDiagnostics {
 export async function getWorkbenchCodexDiagnostics(project: ManagedProject | null, projectPath?: string): Promise<WorkbenchCodexDiagnostics> {
   const capabilities = await detectCodexCapabilities();
   const trust = projectPath ? await readCodexProjectTrust(projectPath) : null;
+  const currentModel = await readCodexDefaultModel();
   return {
     provider: "codex",
     available: capabilities.available,
     version: capabilities.version,
     configPath: getCodexConfigPath(),
+    currentModel,
     approvalFlagPlacement: capabilities.approvalFlagPlacement,
     capabilities: {
       supportsJson: capabilities.supportsJson,

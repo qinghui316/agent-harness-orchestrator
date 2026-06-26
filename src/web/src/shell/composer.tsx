@@ -2,12 +2,17 @@ import type { ReactElement } from "react";
 import { Send, X } from "lucide-react";
 import { workflowActionLabel } from "../action-labels.js";
 import type { WorkpadRuntimeStatus } from "../types.js";
+import { ComposerControls } from "./ComposerControls.js";
+import type { ComposerExecutionMode } from "./composer-session.js";
 
 export function TopicComposer({
   value,
   onChange,
   mode: _mode,
   onModeChange: _onModeChange,
+  automationMode,
+  onAutomationModeChange,
+  modelLabel,
   busy: _busy,
   disabledReason,
   onSend,
@@ -22,6 +27,9 @@ export function TopicComposer({
   onChange: (value: string) => void;
   mode: "chat" | "plan";
   onModeChange: (mode: "chat" | "plan") => void;
+  automationMode: ComposerExecutionMode;
+  onAutomationModeChange: (mode: ComposerExecutionMode) => void;
+  modelLabel: string;
   busy: boolean;
   disabledReason?: string;
   onSend: () => Promise<void>;
@@ -44,6 +52,11 @@ export function TopicComposer({
   }
   return (
     <div className="topic-composer" aria-label="需求对话输入框">
+      <ComposerControls
+        modelLabel={modelLabel}
+        mode={automationMode}
+        onModeChange={onAutomationModeChange}
+      />
         <textarea
         value={value}
         onChange={(event) => onChange(event.target.value)}

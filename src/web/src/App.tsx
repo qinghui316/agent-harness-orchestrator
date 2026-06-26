@@ -41,6 +41,12 @@ import {
   mergeTranscriptPage,
   normalizeParentAgentTranscript
 } from "./liveTranscript.js";
+import {
+  migrateDraftComposerExecutionMode,
+  readComposerExecutionMode,
+  writeComposerExecutionMode,
+  type ComposerExecutionMode,
+} from "./shell/composer-session.js";
 
 import {
   stateLabel,
@@ -104,7 +110,7 @@ export function App(): ReactElement {
   const [error, setError] = useState<string | null>(null);
   const [composerText, setComposerText] = useState("");
   const [composerMode, setComposerMode] = useState<"chat" | "plan">("chat");
-  const [automationMode, setAutomationMode] = useState<"request-approval" | "full-access">("request-approval");
+  const [automationMode, setAutomationMode] = useState<ComposerExecutionMode>("request-approval");
   const [actionRunning, setActionRunning] = useState<string | null>(null);
   const [liveItems, setLiveItems] = useState<ThreadStreamItem[]>([]);
   const [liveTurns, setLiveTurns] = useState<LiveAssistantTurn[]>([]);
@@ -380,17 +386,25 @@ export function App(): ReactElement {
     try {
       const demandBody = body.trim();
       const title = demandBody.split(/\r?\n/)[0].slice(0, 60);
+      const modeForNewTopic = automationMode;
       const result = await postJson<{ topic: { changeId: string } }>(`/api/projects/${encodeURIComponent(selectedProjectId)}/workbench/topics`, {
         title,
         body: demandBody,
         confirm: true,
       });
+      const migratedMode = migrateDraftComposerExecutionMode(selectedProjectId, result.topic.changeId, modeForNewTopic);
+      setAutomationMode(migratedMode);
       setComposerText("");
       setSelectedTopic(result.topic.changeId);
       await refresh(selectedProjectId, result.topic.changeId);
     } finally {
       setActionRunning(null);
     }
+  }
+
+  function handleComposerExecutionModeChange(mode: ComposerExecutionMode): void {
+    setAutomationMode(mode);
+    writeComposerExecutionMode(selectedProjectId, activeTopic?.id ?? null, mode);
   }
 
   async function sendTopicMessage(): Promise<void> {
@@ -696,6 +710,11 @@ export function App(): ReactElement {
   const selectedRunGraphNode = useMemo(() => {
     return activeRunGraph.nodes.find((node) => node.id === selectedRunGraphNodeId) ?? activeRunGraph.nodes[0] ?? null;
   }, [activeRunGraph.nodes, selectedRunGraphNodeId]);
+  const codexModelLabel = codexDiagnostics?.currentModel?.trim() || "默认模型";
+
+  useEffect(() => {
+    setAutomationMode(readComposerExecutionMode(selectedProjectId, activeTopic?.id ?? null));
+  }, [selectedProjectId, activeTopic?.id]);
 
   useEffect(() => {
     setCenterTab("conversation");
@@ -823,8 +842,9 @@ export function App(): ReactElement {
             project={selectedProjectStatus}
             snapshot={snapshot}
             automationMode={automationMode}
+            modelLabel={codexModelLabel}
             onCreateDemand={createTopicFromText}
-            onAutomationModeChange={setAutomationMode}
+            onAutomationModeChange={handleComposerExecutionModeChange}
           />
         ) : (
           <>
@@ -877,6 +897,9 @@ export function App(): ReactElement {
                   onChange={setComposerText}
                   mode={composerMode}
                   onModeChange={setComposerMode}
+                  automationMode={automationMode}
+                  onAutomationModeChange={handleComposerExecutionModeChange}
+                  modelLabel={codexModelLabel}
                   busy={actionRunning !== null || activeTopic.state !== "active"}
                   disabledReason={activeTopic.state !== "active" ? "已完成或稍后处理的需求对话为只读。" : undefined}
                   onSend={sendTopicMessage}
@@ -906,7 +929,6 @@ export function App(): ReactElement {
           inspector={activeDecisionInspector}
           confirmationQueue={activeConfirmationQueue}
           automationMode={automationMode}
-          onAutomationModeChange={setAutomationMode}
           confirming={confirming}
           busy={actionRunning !== null}
           error={error}

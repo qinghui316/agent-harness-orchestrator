@@ -359,6 +359,7 @@ const codexDiagnostics = {
   available: true,
   version: "codex-cli 1.2.3",
   configPath: "C:/Users/test/.codex/config.toml",
+  currentModel: "gpt-5.3-codex",
   approvalFlagPlacement: "after-exec",
   capabilities: {
     supportsJson: true,
@@ -972,6 +973,7 @@ describe("Workbench web app", () => {
           confirming={confirming}
           busy={false}
           error={null}
+          automationMode="full-access"
           onConfirmingChange={setConfirming}
           onExecuteAction={execute}
           onFeedback={async () => undefined}
@@ -983,18 +985,19 @@ describe("Workbench web app", () => {
     render(<Harness />);
 
     const card = screen.getByTestId("decision-inspector-primary");
-    expect(within(card).getByText("连续推进当前目标")).toBeTruthy();
     expect(card.textContent).toContain("最多推进 5 步");
     expect(card.textContent).toContain("不是全自动任务模式");
     expect(card.textContent).not.toContain("parallel executor");
     expect(card.textContent).not.toContain("merge queue");
 
-    fireEvent.click(within(card).getByRole("button", { name: "连续推进当前目标" }));
+    fireEvent.click(within(card).getByRole("button", { name: "自动推进" }));
     fireEvent.click(within(card).getByRole("button", { name: "确认" }));
 
     await waitFor(() => expect(execute).toHaveBeenCalledTimes(1));
     expect(execute.mock.calls[0]?.[0]).toMatchObject({
-      actionType: "planning.goal-loop.controlled-continue.run",
+      actionType: "planning.automation.scoped-auto.run",
+      automationMode: "full-access",
+      automationCurrentGateActionType: "planning.goal-loop.controlled-continue.run",
       changeId: "member-discount",
       goalLoopNextStepPacketId: "packet-1",
       goalLoopControllerPolicyId: "policy-1",
@@ -1008,7 +1011,7 @@ describe("Workbench web app", () => {
     });
   });
 
-  it("renders two approval tiers and submits scoped-auto with the current gate target ids", async () => {
+  it("uses composer auto mode to submit scoped-auto with the current gate target ids", async () => {
     const execute = vi.fn(async () => undefined);
     function Harness() {
       const [confirming, setConfirming] = useState<string | null>(null);
@@ -1025,6 +1028,7 @@ describe("Workbench web app", () => {
           confirming={confirming}
           busy={false}
           error={null}
+          automationMode="full-access"
           onConfirmingChange={setConfirming}
           onExecuteAction={execute}
           onFeedback={async () => undefined}
@@ -1036,15 +1040,12 @@ describe("Workbench web app", () => {
     render(<Harness />);
 
     const card = screen.getByTestId("decision-inspector-primary");
-    expect(within(card).getByRole("button", { name: "请求批准" })).toBeTruthy();
-    const fullAccessButtons = within(card).getAllByRole("button", { name: "完全访问权限" });
-    fireEvent.click(fullAccessButtons[fullAccessButtons.length - 1]!);
+    expect(within(card).queryByLabelText("后续执行模式")).toBeNull();
     expect(card.textContent).not.toContain("full-auto");
     expect(card.textContent).not.toContain("parallel executor");
     expect(card.textContent).not.toContain("merge queue");
 
-    const executeFullAccessButtons = within(card).getAllByRole("button", { name: "完全访问权限" });
-    fireEvent.click(executeFullAccessButtons[executeFullAccessButtons.length - 1]!);
+    fireEvent.click(within(card).getByRole("button", { name: "自动推进" }));
     fireEvent.click(within(card).getByRole("button", { name: "确认" }));
 
     await waitFor(() => expect(execute).toHaveBeenCalledTimes(1));
@@ -1058,7 +1059,7 @@ describe("Workbench web app", () => {
     });
   });
 
-  it("offers full-access as post-plan mode without converting planning confirmation to scoped-auto", async () => {
+  it("uses composer auto mode as post-plan mode without converting planning confirmation to scoped-auto", async () => {
     const execute = vi.fn(async () => undefined);
     function Harness() {
       const [confirming, setConfirming] = useState<string | null>(null);
@@ -1075,6 +1076,7 @@ describe("Workbench web app", () => {
           confirming={confirming}
           busy={false}
           error={null}
+          automationMode="full-access"
           onConfirmingChange={setConfirming}
           onExecuteAction={execute}
           onFeedback={async () => undefined}
@@ -1086,11 +1088,7 @@ describe("Workbench web app", () => {
     render(<Harness />);
 
     const card = screen.getByTestId("decision-inspector-primary");
-    expect(within(card).getByLabelText("后续执行模式")).toBeTruthy();
-    expect(within(card).getByRole("button", { name: "请求批准" })).toBeTruthy();
-    expect(card.textContent).toContain("计划仍需确认；确认后每一步都让你批准。");
-    fireEvent.click(within(card).getByRole("button", { name: "完全访问权限" }));
-    expect(card.textContent).toContain("计划仍需确认；确认后自动推进本地步骤，直到需要你决定。");
+    expect(within(card).queryByLabelText("后续执行模式")).toBeNull();
     fireEvent.click(within(card).getByRole("button", { name: "确认规划" }));
     fireEvent.click(within(card).getByRole("button", { name: "确认" }));
 
@@ -1163,6 +1161,7 @@ describe("Workbench web app", () => {
           confirming={confirming}
           busy={false}
           error={null}
+          automationMode="full-access"
           onConfirmingChange={setConfirming}
           onExecuteAction={execute}
           onFeedback={async () => undefined}
@@ -1174,10 +1173,7 @@ describe("Workbench web app", () => {
     render(<Harness />);
 
     const card = screen.getByTestId("decision-inspector-primary");
-    const fullAccessButtons = within(card).getAllByRole("button", { name: "完全访问权限" });
-    fireEvent.click(fullAccessButtons[fullAccessButtons.length - 1]!);
-    const executeFullAccessButtons = within(card).getAllByRole("button", { name: "完全访问权限" });
-    fireEvent.click(executeFullAccessButtons[executeFullAccessButtons.length - 1]!);
+    fireEvent.click(within(card).getByRole("button", { name: "自动推进" }));
     fireEvent.click(within(card).getByRole("button", { name: "确认" }));
 
     await waitFor(() => expect(execute).toHaveBeenCalledTimes(1));
@@ -1210,6 +1206,7 @@ describe("Workbench web app", () => {
           confirming={confirming}
           busy={false}
           error={null}
+          automationMode="full-access"
           onConfirmingChange={setConfirming}
           onExecuteAction={execute}
           onFeedback={async () => undefined}
@@ -1221,10 +1218,7 @@ describe("Workbench web app", () => {
     render(<Harness />);
 
     const card = screen.getByTestId("decision-inspector-primary");
-    const fullAccessButtons = within(card).getAllByRole("button", { name: "完全访问权限" });
-    fireEvent.click(fullAccessButtons[fullAccessButtons.length - 1]!);
-    const executeFullAccessButtons = within(card).getAllByRole("button", { name: "完全访问权限" });
-    fireEvent.click(executeFullAccessButtons[executeFullAccessButtons.length - 1]!);
+    fireEvent.click(within(card).getByRole("button", { name: "自动推进" }));
     fireEvent.click(within(card).getByRole("button", { name: "确认" }));
 
     await waitFor(() => expect(execute).toHaveBeenCalledTimes(1));
@@ -1261,6 +1255,7 @@ describe("Workbench web app", () => {
           confirming={confirming}
           busy={false}
           error={null}
+          automationMode="full-access"
           onConfirmingChange={setConfirming}
           onExecuteAction={execute}
           onFeedback={async () => undefined}
@@ -1271,10 +1266,7 @@ describe("Workbench web app", () => {
 
     const { rerender } = render(<Harness />);
     let card = screen.getByTestId("decision-inspector-primary");
-    let fullAccessButtons = within(card).getAllByRole("button", { name: "完全访问权限" });
-    fireEvent.click(fullAccessButtons[fullAccessButtons.length - 1]!);
-    fullAccessButtons = within(card).getAllByRole("button", { name: "完全访问权限" });
-    fireEvent.click(fullAccessButtons[fullAccessButtons.length - 1]!);
+    fireEvent.click(within(card).getByRole("button", { name: "自动推进" }));
     fireEvent.click(within(card).getByRole("button", { name: "确认" }));
 
     await waitFor(() => expect(execute).toHaveBeenCalledTimes(1));
@@ -1291,10 +1283,7 @@ describe("Workbench web app", () => {
     execute.mockClear();
     rerender(<Harness close />);
     card = screen.getByTestId("decision-inspector-primary");
-    fullAccessButtons = within(card).getAllByRole("button", { name: "完全访问权限" });
-    fireEvent.click(fullAccessButtons[fullAccessButtons.length - 1]!);
-    fullAccessButtons = within(card).getAllByRole("button", { name: "完全访问权限" });
-    fireEvent.click(fullAccessButtons[fullAccessButtons.length - 1]!);
+    fireEvent.click(within(card).getByRole("button", { name: "自动推进" }));
     fireEvent.click(within(card).getByRole("button", { name: "确认" }));
 
     await waitFor(() => expect(execute).toHaveBeenCalledTimes(1));
@@ -1325,6 +1314,7 @@ describe("Workbench web app", () => {
           confirming={confirming}
           busy={false}
           error={null}
+          automationMode="full-access"
           onConfirmingChange={setConfirming}
           onExecuteAction={execute}
           onFeedback={async () => undefined}
@@ -1337,10 +1327,7 @@ describe("Workbench web app", () => {
 
     const card = screen.getByTestId("decision-inspector-primary");
     expect(within(card).getAllByText("本地结果已应用，可以做提交/PR 前检查。").length).toBeGreaterThan(0);
-    const fullAccessButtons = within(card).getAllByRole("button", { name: "完全访问权限" });
-    fireEvent.click(fullAccessButtons[fullAccessButtons.length - 1]!);
-    const executeFullAccessButtons = within(card).getAllByRole("button", { name: "完全访问权限" });
-    fireEvent.click(executeFullAccessButtons[executeFullAccessButtons.length - 1]!);
+    fireEvent.click(within(card).getByRole("button", { name: "自动推进" }));
     fireEvent.click(within(card).getByRole("button", { name: "确认" }));
 
     await waitFor(() => expect(execute).toHaveBeenCalledTimes(1));
@@ -1374,6 +1361,7 @@ describe("Workbench web app", () => {
           confirming={confirming}
           busy={false}
           error={null}
+          automationMode="full-access"
           onConfirmingChange={setConfirming}
           onExecuteAction={execute}
           onFeedback={async () => undefined}
@@ -1385,10 +1373,7 @@ describe("Workbench web app", () => {
     render(<Harness />);
 
     const card = screen.getByTestId("decision-inspector-primary");
-    const fullAccessButtons = within(card).getAllByRole("button", { name: "完全访问权限" });
-    fireEvent.click(fullAccessButtons[fullAccessButtons.length - 1]!);
-    const executeFullAccessButtons = within(card).getAllByRole("button", { name: "完全访问权限" });
-    fireEvent.click(executeFullAccessButtons[executeFullAccessButtons.length - 1]!);
+    fireEvent.click(within(card).getByRole("button", { name: "自动推进" }));
     fireEvent.click(within(card).getByRole("button", { name: "确认" }));
 
     await waitFor(() => expect(execute).toHaveBeenCalledTimes(1));
@@ -1428,7 +1413,7 @@ describe("Workbench web app", () => {
       />,
     );
 
-    expect(screen.queryByRole("button", { name: "完全访问权限" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "自动推进" })).toBeNull();
 
     rerender(
       <DecisionInspectorPane
@@ -1452,7 +1437,7 @@ describe("Workbench web app", () => {
 
     expect(screen.getByRole("button", { name: "确认应用到项目" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "放弃" })).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "完全访问权限" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "自动推进" })).toBeNull();
 
     rerender(
       <DecisionInspectorPane
@@ -1474,7 +1459,7 @@ describe("Workbench web app", () => {
       />,
     );
 
-    expect(screen.queryByRole("button", { name: "完全访问权限" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "自动推进" })).toBeNull();
   });
 
   it("does not offer full-access directly for raw scheduler workflow gates", () => {
@@ -1501,7 +1486,7 @@ describe("Workbench web app", () => {
 
     const card = screen.getByTestId("decision-inspector-primary");
     expect(within(card).getByRole("button", { name: "开始下一个任务" })).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "完全访问权限" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "自动推进" })).toBeNull();
     expect(card.textContent).not.toContain("full-auto");
     expect(card.textContent).not.toContain("parallel executor");
     expect(card.textContent).not.toContain("merge queue");
@@ -1536,7 +1521,7 @@ describe("Workbench web app", () => {
     const card = screen.getByTestId("decision-inspector-primary");
     expect(within(card).getByRole("button", { name: "检查组合结果" })).toBeTruthy();
     expect(within(card).getByRole("button", { name: "刷新下一步判断" })).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "完全访问权限" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "自动推进" })).toBeNull();
     expect(card.textContent).not.toContain("full-auto");
     expect(card.textContent).not.toContain("parallel executor");
     expect(card.textContent).not.toContain("merge queue");
@@ -1559,6 +1544,7 @@ describe("Workbench web app", () => {
           confirming={confirming}
           busy={false}
           error={null}
+          automationMode="full-access"
           onConfirmingChange={setConfirming}
           onExecuteAction={execute}
           onFeedback={async () => undefined}
@@ -1570,10 +1556,7 @@ describe("Workbench web app", () => {
     render(<Harness />);
 
     const card = screen.getByTestId("decision-inspector-primary");
-    const fullAccessButtons = within(card).getAllByRole("button", { name: "完全访问权限" });
-    fireEvent.click(fullAccessButtons[fullAccessButtons.length - 1]!);
-    const executeFullAccessButtons = within(card).getAllByRole("button", { name: "完全访问权限" });
-    fireEvent.click(executeFullAccessButtons[executeFullAccessButtons.length - 1]!);
+    fireEvent.click(within(card).getByRole("button", { name: "自动推进" }));
     fireEvent.click(within(card).getByRole("button", { name: "确认" }));
 
     await waitFor(() => expect(execute).toHaveBeenCalledTimes(1));
@@ -1609,6 +1592,7 @@ describe("Workbench web app", () => {
           confirming={confirming}
           busy={false}
           error={null}
+          automationMode="full-access"
           onConfirmingChange={setConfirming}
           onExecuteAction={execute}
           onFeedback={async () => undefined}
@@ -1620,10 +1604,7 @@ describe("Workbench web app", () => {
     render(<Harness />);
 
     const card = screen.getByTestId("decision-inspector-primary");
-    const modeButtons = within(card).getAllByRole("button", { name: "完全访问权限" });
-    fireEvent.click(modeButtons[0]!);
-    const submitButtons = within(card).getAllByRole("button", { name: "完全访问权限" });
-    fireEvent.click(submitButtons[submitButtons.length - 1]!);
+    fireEvent.click(within(card).getByRole("button", { name: "自动推进" }));
     fireEvent.click(within(card).getByRole("button", { name: "确认" }));
 
     await waitFor(() => expect(execute).toHaveBeenCalledTimes(1));
@@ -4648,7 +4629,8 @@ describe("Workbench web app", () => {
     await waitFor(() => expect(screen.getAllByText("会员折扣计价").length).toBeGreaterThan(0));
     const composer = document.querySelector(".topic-composer");
     expect(screen.queryByTitle("添加上下文")).toBeNull();
-    expect(screen.queryByText("完全访问权限")).toBeNull();
+    expect(screen.getByRole("group", { name: "执行模式" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "逐步确认" })).toBeTruthy();
     expect(screen.queryByText("Codex · AHO")).toBeNull();
     expect(composer?.textContent).not.toContain("运行 Code");
     expect(screen.getByTitle("发送")).toBeTruthy();
@@ -4905,13 +4887,13 @@ describe("Workbench web app", () => {
     await screen.findByRole("heading", { name: "创造任何东西" });
     expect(screen.getByTitle("E:/repo")).toBeTruthy();
     expect(screen.getByLabelText("新建需求输入框")).toBeTruthy();
-    const modeToggle = screen.getByRole("group", { name: "权限模式" });
-    const requestApproval = within(modeToggle).getByRole("button", { name: "请求批准" });
-    const fullAccess = within(modeToggle).getByRole("button", { name: "完全访问权限" });
-    expect(requestApproval.getAttribute("aria-pressed")).toBe("true");
-    fireEvent.click(fullAccess);
-    expect(fullAccess.getAttribute("aria-pressed")).toBe("true");
-    expect(screen.queryByText("计划确认后可选择完全访问权限")).toBeNull();
+    expect(await screen.findByText("gpt-5.3-codex")).toBeTruthy();
+    const modeToggle = screen.getByRole("group", { name: "执行模式" });
+    const stepMode = within(modeToggle).getByRole("button", { name: "逐步确认" });
+    const autoMode = within(modeToggle).getByRole("button", { name: "自动推进" });
+    expect(stepMode.getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(autoMode);
+    expect(autoMode.getAttribute("aria-pressed")).toBe("true");
     expect(screen.queryByText("最近会话")).toBeNull();
     expect(screen.queryByText("Codex 诊断")).toBeNull();
 

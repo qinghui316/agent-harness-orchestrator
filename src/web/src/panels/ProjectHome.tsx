@@ -7,6 +7,8 @@ import {
   Send,
   X,
 } from "lucide-react";
+import { ComposerControls } from "../shell/ComposerControls.js";
+import type { ComposerExecutionMode } from "../shell/composer-session.js";
 import {
   CodexTrustButton,
   InfoRow,
@@ -82,14 +84,16 @@ export function ProjectReadinessHome({
   project,
   snapshot,
   automationMode,
+  modelLabel,
   onCreateDemand,
   onAutomationModeChange,
 }: {
   project: ProjectStatus;
   snapshot: Snapshot;
-  automationMode: "request-approval" | "full-access";
+  automationMode: ComposerExecutionMode;
+  modelLabel: string;
   onCreateDemand: (body: string) => Promise<void>;
-  onAutomationModeChange: (mode: "request-approval" | "full-access") => void;
+  onAutomationModeChange: (mode: ComposerExecutionMode) => void;
 }): ReactElement {
   const readiness = projectReadiness(project, snapshot);
   const [draft, setDraft] = useState("");
@@ -121,10 +125,11 @@ export function ProjectReadinessHome({
         </div>
 
         <section className="home-demand-composer" aria-label="新建需求对话">
-          <div className="home-demand-composer-header">
-            <span className="composer-provider-label">Codex</span>
-            <AutomationModeToggle value={automationMode} onChange={onAutomationModeChange} />
-          </div>
+          <ComposerControls
+            modelLabel={modelLabel}
+            mode={automationMode}
+            onModeChange={onAutomationModeChange}
+          />
           <textarea
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
@@ -152,35 +157,6 @@ export function ProjectReadinessHome({
         </section>
       </div>
     </section>
-  );
-}
-
-function AutomationModeToggle({
-  value,
-  onChange,
-}: {
-  value: "request-approval" | "full-access";
-  onChange: (mode: "request-approval" | "full-access") => void;
-}): ReactElement {
-  return (
-    <div className="composer-mode-toggle" role="group" aria-label="权限模式">
-      <button
-        type="button"
-        className={value === "request-approval" ? "selected" : ""}
-        aria-pressed={value === "request-approval"}
-        onClick={() => onChange("request-approval")}
-      >
-        请求批准
-      </button>
-      <button
-        type="button"
-        className={value === "full-access" ? "selected" : ""}
-        aria-pressed={value === "full-access"}
-        onClick={() => onChange("full-access")}
-      >
-        完全访问权限
-      </button>
-    </div>
   );
 }
 

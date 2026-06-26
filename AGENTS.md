@@ -8,6 +8,8 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 - Active change: none.
 - Pending Harness evolution: none.
 - Latest archived product change:
+  `harness/changes/archive/20260627-workbench-harness-composer-execution-mode-controls-v1/summary.md`.
+- Previous archived product change:
   `harness/changes/archive/20260627-workbench-desktop-cc-gui-aligned-home-and-conversation-entry-v1/summary.md`.
 - Latest archived docs/reference change:
   `harness/changes/archive/20260626-document-desktop-cc-gui-reference-map-and-product-layer-roadmap/summary.md`.
@@ -41,7 +43,7 @@ Current baseline:
 - Phase 1 desktop product-layer entry now follows the `desktop-cc-gui`
   reference more closely for Harness mode: a sparse project/conversation
   sidebar plus a centered "create anything" composer. The composer has a real
-  Codex-style `请求批准` / `完全访问权限` mode toggle; unsupported toolbar,
+  Codex-style execution-mode control strip; unsupported toolbar,
   recent-session, and fake dropdown controls are hidden until implemented.
   Codex diagnostics are advanced settings, not the main product home.
 - Planning prefers Codex Plan Mode proposal capture; plan confirmation remains

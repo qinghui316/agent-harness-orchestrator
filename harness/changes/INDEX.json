@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-26T17:31:03.0770929Z",
+    "generated_at":  "2026-06-26T18:21:41.4667497Z",
     "active":  [
 
                ],
@@ -2041,6 +2041,10 @@
                     {
                         "name":  "20260627-workbench-desktop-cc-gui-aligned-home-and-conversation-entry-v1",
                         "path":  "harness/changes/archive/20260627-workbench-desktop-cc-gui-aligned-home-and-conversation-entry-v1"
+                    },
+                    {
+                        "name":  "20260627-workbench-harness-composer-execution-mode-controls-v1",
+                        "path":  "harness/changes/archive/20260627-workbench-harness-composer-execution-mode-controls-v1"
                     },
                     {
                         "name":  "20260627-workbench-project-home-codex-diagnostics-v1",

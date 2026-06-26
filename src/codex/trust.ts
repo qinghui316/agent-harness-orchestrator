@@ -20,6 +20,17 @@ export function getCodexConfigPath(options: CodexTrustOptions = {}): string {
   return join(options.codexHome ?? process.env.CODEX_HOME ?? join(homedir(), ".codex"), "config.toml");
 }
 
+export async function readCodexDefaultModel(options: CodexTrustOptions = {}): Promise<string | null> {
+  const configPath = getCodexConfigPath(options);
+  try {
+    const content = await readFile(configPath, "utf8");
+    const match = content.match(/^\s*model\s*=\s*["']([^"']+)["']\s*$/m);
+    return match?.[1]?.trim() || null;
+  } catch {
+    return null;
+  }
+}
+
 export function getCodexProjectKey(projectPath: string, options: CodexTrustOptions = {}): string {
   const resolved = resolve(projectPath);
   return (options.platform ?? process.platform) === "win32" ? resolved.toLowerCase() : resolved;

@@ -6,7 +6,8 @@
 - Active ECL change: none.
 - Pending Harness evolution: none.
 - Latest archived product audit: `harness/changes/archive/20260625-workbench-goal-loop-decision-surface-audit-v1/summary.md`.
-- Latest archived product change: `harness/changes/archive/20260627-workbench-desktop-cc-gui-aligned-home-and-conversation-entry-v1/summary.md`.
+- Latest archived product change: `harness/changes/archive/20260627-workbench-harness-composer-execution-mode-controls-v1/summary.md`.
+- Previous archived product change: `harness/changes/archive/20260627-workbench-desktop-cc-gui-aligned-home-and-conversation-entry-v1/summary.md`.
 - Latest archived docs/reference change: `harness/changes/archive/20260626-document-desktop-cc-gui-reference-map-and-product-layer-roadmap/summary.md`.
 - Latest archived reference policy correction: `harness/changes/archive/20260626-desktop-cc-gui-local-only-reference-correction/summary.md`.
 - Previous archived product change: `harness/changes/archive/20260626-workbench-rudder-style-agent-orchestration-map-v1/summary.md`.
@@ -51,14 +52,19 @@
 - Latest scheduler integration apply/discard hardening: `harness/changes/archive/20260625-workbench-scheduler-integration-apply-discard-real-acceptance-v1/summary.md`.
 
 Latest product closeout:
+`harness/changes/archive/20260627-workbench-harness-composer-execution-mode-controls-v1/summary.md`.
+It moves Harness execution mode into the composer as
+`Codex / model / 逐步确认|自动推进`, persists it as frontend-only project/topic
+session state, and keeps the right confirmation pane focused on the current
+real gate. Real browser screenshots are under
+`E:\aho-accept\harness-composer-mode-v1\screenshots\`.
+
+Previous product closeout:
 `harness/changes/archive/20260627-workbench-desktop-cc-gui-aligned-home-and-conversation-entry-v1/summary.md`.
 It corrects the selected-project home toward the `desktop-cc-gui` reference:
-left project/conversation history plus a central `创造任何东西` composer. The
-composer has a real Codex-style `请求批准` / `完全访问权限` mode toggle; unsupported
+left project/conversation history plus a central `创造任何东西` composer. Unsupported
 toolbar, recent-session, and fake dropdown controls are hidden until their real
 paths exist. Codex diagnostics remain read-only behind settings / advanced.
-Real browser acceptance screenshot:
-`E:\aho-accept\desktop-home-ui-v1\screenshots\final-home-mode-toggle-clean.png`.
 
 Latest Harness evolution:
 `harness/changes/archive/20260627-auto-evolve-post-desktop-product-entry-window/summary.md`.

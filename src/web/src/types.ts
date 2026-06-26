@@ -6,6 +6,7 @@ export type CodexDiagnostics = {
   available: boolean;
   version: string | null;
   configPath: string;
+  currentModel: string | null;
   approvalFlagPlacement: string;
   capabilities: {
     supportsJson: boolean;

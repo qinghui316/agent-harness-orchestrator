@@ -1,5 +1,5 @@
 import { useState, type ReactElement } from "react";
-import { Check, FileText, ShieldCheck, X } from "lucide-react";
+import { Check, FileText, X } from "lucide-react";
 import { confirmationKindLabel, decisionKindLabel, formatTime, userFacingText, userStatusLabel } from "../../formatters.js";
 import type { ConfirmationQueue, ConfirmationQueueItem, DecisionAction, DecisionContext, DecisionInspector } from "../../types.js";
 import { artifactName } from "./RunReplayPanel.js";
@@ -12,7 +12,6 @@ export function DecisionInspectorPane({
   confirming,
   busy,
   error,
-  onAutomationModeChange,
   onConfirmingChange,
   onExecuteAction,
   onFeedback,
@@ -24,15 +23,12 @@ export function DecisionInspectorPane({
   confirming: string | null;
   busy: boolean;
   error: string | null;
-  onAutomationModeChange?: (mode: "request-approval" | "full-access") => void;
   onConfirmingChange: (id: string | null) => void;
   onExecuteAction: (action: DecisionAction, context: DecisionContext) => Promise<void>;
   onFeedback: (context: DecisionContext, action: DecisionAction, feedback: string) => Promise<void>;
   onSelectContext: (id: string | null) => void;
 }): ReactElement {
-  const [internalAutomationMode, setInternalAutomationMode] = useState<"request-approval" | "full-access">("request-approval");
-  const effectiveAutomationMode = automationMode ?? internalAutomationMode;
-  const handleAutomationModeChange = onAutomationModeChange ?? setInternalAutomationMode;
+  const effectiveAutomationMode = automationMode ?? "request-approval";
   const primaryQueueItem = confirmationQueue.primary;
   return (
     <>
@@ -52,7 +48,6 @@ export function DecisionInspectorPane({
           confirming={confirming}
           busy={busy}
           automationMode={effectiveAutomationMode}
-          onAutomationModeChange={handleAutomationModeChange}
           onConfirmingChange={onConfirmingChange}
           onExecuteAction={onExecuteAction}
           onFeedback={onFeedback}
@@ -85,7 +80,6 @@ export function DecisionInspectorPane({
               confirming={confirming}
               busy={busy}
               automationMode={effectiveAutomationMode}
-              onAutomationModeChange={handleAutomationModeChange}
               onConfirmingChange={onConfirmingChange}
               onExecuteAction={onExecuteAction}
               onFeedback={onFeedback}
@@ -103,7 +97,6 @@ function ConfirmationQueueCard({
   confirming,
   busy,
   automationMode,
-  onAutomationModeChange,
   onConfirmingChange,
   onExecuteAction,
   onFeedback,
@@ -112,7 +105,6 @@ function ConfirmationQueueCard({
   confirming: string | null;
   busy: boolean;
   automationMode: "request-approval" | "full-access";
-  onAutomationModeChange: (mode: "request-approval" | "full-access") => void;
   onConfirmingChange: (id: string | null) => void;
   onExecuteAction: (action: DecisionAction, context: DecisionContext) => Promise<void>;
   onFeedback: (context: DecisionContext, action: DecisionAction, feedback: string) => Promise<void>;
@@ -124,7 +116,6 @@ function ConfirmationQueueCard({
       confirming={confirming}
       busy={busy}
       automationMode={automationMode}
-      onAutomationModeChange={onAutomationModeChange}
       onConfirmingChange={onConfirmingChange}
       onExecuteAction={onExecuteAction}
       onFeedback={onFeedback}
@@ -160,7 +151,6 @@ function DecisionContextCard({
   confirming,
   busy,
   automationMode,
-  onAutomationModeChange,
   onConfirmingChange,
   onExecuteAction,
   onFeedback,
@@ -169,7 +159,6 @@ function DecisionContextCard({
   confirming: string | null;
   busy: boolean;
   automationMode: "request-approval" | "full-access";
-  onAutomationModeChange: (mode: "request-approval" | "full-access") => void;
   onConfirmingChange: (id: string | null) => void;
   onExecuteAction: (action: DecisionAction, context: DecisionContext) => Promise<void>;
   onFeedback: (context: DecisionContext, action: DecisionAction, feedback: string) => Promise<void>;
@@ -181,7 +170,6 @@ function DecisionContextCard({
   const primaryAutomationAction = chooseScopedAutomationAction(context.actions);
   const planningConfirmationAction = context.actions.find(isPlanningConfirmationAction);
   const scopedAutomationAvailable = Boolean(primaryAutomationAction);
-  const canSelectFullAccess = scopedAutomationAvailable || Boolean(planningConfirmationAction);
   const actionBusy = busy || pendingActionId !== null;
   async function executeAction(action: DecisionAction): Promise<void> {
     if (!action.enabled || actionBusy) return;
@@ -273,21 +261,14 @@ function DecisionContextCard({
           ))}
         </div>
       ) : null}
-      {canSelectFullAccess ? (
-        <AutomationModeSelector
-          value={automationMode}
-          canUseFullAccess={canSelectFullAccess}
-          onChange={onAutomationModeChange}
-        />
-      ) : null}
       <div className="approval-actions">
         {context.actions.map((action) => {
           const effectiveAction = action === planningConfirmationAction
             ? postPlanAutomationConfirmationActionFrom(action, automationMode)
             : action === primaryAutomationAction && scopedAutomationAvailable && (automationMode === "full-access" || isScopedAutomationConfirming(confirming, action))
               ? scopedAutomationActionFrom(action, context)
-            : action;
-          const disabled = actionBusy || !effectiveAction.enabled || (action === primaryAutomationAction && automationMode === "full-access" && !scopedAutomationAvailable);
+              : action;
+          const disabled = actionBusy || !effectiveAction.enabled;
           const title = action.disabledReason ?? (actionBusy ? "当前已有动作正在执行。" : undefined);
           if (action.kind === "feedback") {
             return <button key={action.id} className="outline-button" disabled={disabled} title={title} onClick={() => setFeedbackActionId(action.id)}><FileText size={15} />{userFacingText(action.label)}</button>;
@@ -327,51 +308,12 @@ function DecisionContextCard({
   );
 }
 
-function AutomationModeSelector({
-  value,
-  canUseFullAccess,
-  onChange,
-}: {
-  value: "request-approval" | "full-access";
-  canUseFullAccess: boolean;
-  onChange: (value: "request-approval" | "full-access") => void;
-}): ReactElement {
-  return (
-    <div>
-      <div className="automation-mode-selector" aria-label="后续执行模式">
-        <button
-          type="button"
-          className={value === "request-approval" ? "selected" : ""}
-          title="计划仍需确认；确认后每一步都让你批准。"
-          onClick={() => onChange("request-approval")}
-        >
-          请求批准
-        </button>
-        <button
-          type="button"
-          className={value === "full-access" ? "selected" : ""}
-          disabled={!canUseFullAccess}
-          title={canUseFullAccess ? "计划仍需确认；确认后自动推进本地步骤，直到需要你决定。" : "当前步骤不在本地自动推进范围内。"}
-          onClick={() => canUseFullAccess ? onChange("full-access") : undefined}
-        >
-          <ShieldCheck size={15} />完全访问权限
-        </button>
-      </div>
-      <p className="muted-inline">
-        {value === "full-access"
-          ? "计划仍需确认；确认后自动推进本地步骤，直到需要你决定。"
-          : "计划仍需确认；确认后每一步都让你批准。"}
-      </p>
-    </div>
-  );
-}
-
 function scopedAutomationActionFrom(action: DecisionAction, context: DecisionContext): DecisionAction {
   if (!action.actionType && !isScopedAutomationAllowedApprovalActionId(action.action?.actionId)) return action;
   return {
     ...action,
     id: `automation:${action.id}`,
-    label: "完全访问权限",
+    label: "自动推进",
     kind: "workflow-action",
     actionType: "planning.automation.scoped-auto.run",
     automationMode: "full-access",
