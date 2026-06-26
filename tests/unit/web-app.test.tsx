@@ -359,6 +359,14 @@ function fetchCallUrls(): string[] {
     .map(([input]) => String(input));
 }
 
+async function openDecisionPane(): Promise<HTMLElement> {
+  const current = screen.queryByTestId("decision-inspector-primary");
+  if (current) return current;
+  const toggle = await screen.findByTestId("decision-pane-toggle");
+  fireEvent.click(toggle);
+  return screen.findByTestId("decision-inspector-primary");
+}
+
 function boundedContinuationQueueItem() {
   return {
     id: "confirm:goal-loop-controlled-continue:member-discount",
@@ -1628,6 +1636,7 @@ describe("Workbench web app", () => {
     expect(document.querySelector(".parent-agent-transcript")?.textContent).toContain("已运行 1 条命令");
     expect(document.querySelector(".parent-agent-transcript")?.textContent).not.toContain("结果摘要");
     expect(document.querySelector(".parent-agent-transcript")?.textContent).not.toContain("已生成本地结果");
+    await openDecisionPane();
     expect(screen.getByText("确认完成需求对话")).toBeTruthy();
     expect(screen.getByLabelText("在 Repo 中开始新对话")).toBeTruthy();
     expect(screen.getByLabelText("搜索已加载对话")).toBeTruthy();
@@ -1678,12 +1687,71 @@ describe("Workbench web app", () => {
     fireEvent.click(screen.getByText("打开原始日志"));
     await waitFor(() => expect(screen.getByText("模型事件转录")).toBeTruthy());
 
+    await openDecisionPane();
     fireEvent.click(screen.getAllByText("同意")[0] as HTMLElement);
     expect(screen.getByText("确认")).toBeTruthy();
     fireEvent.click(screen.getByText("确认"));
     await waitFor(() => {
       expect(fetch).toHaveBeenCalledWith("/api/projects/repo/workbench/actions", expect.objectContaining({ method: "POST" }));
     });
+  });
+
+  it("defaults the confirmation pane to a collapsed rail and expands without submitting actions", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
+      if (url === "/api/projects") return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
+      if (url.includes("/workbench/projections/transcript/")) return jsonResponse(snapshot.center.parentAgentTranscript);
+      if (url.includes("/workbench/projections/run-graph/")) return jsonResponse(snapshot.center.agentRunGraph);
+      return jsonResponse(url.includes("/stream/") ? stream : snapshot);
+    }));
+
+    render(<App />);
+
+    await waitFor(() => expect(screen.getByTestId("main-conversation-view")).toBeTruthy());
+    expect(document.querySelector(".app-shell")?.classList.contains("decision-pane-collapsed")).toBe(true);
+    const toggle = screen.getByTestId("decision-pane-toggle");
+    expect(toggle).toBeTruthy();
+    expect(toggle.textContent).toContain("1");
+    expect(screen.queryByTestId("decision-inspector-primary")).toBeNull();
+    const actionCallCount = fetchCallUrls().filter((url) => url.endsWith("/workbench/actions")).length;
+
+    fireEvent.click(toggle);
+
+    const card = await screen.findByTestId("decision-inspector-primary");
+    expect(document.querySelector(".app-shell")?.classList.contains("decision-pane-expanded")).toBe(true);
+    expect(within(card).getByText("确认完成需求对话")).toBeTruthy();
+    expect(fetchCallUrls().filter((url) => url.endsWith("/workbench/actions"))).toHaveLength(actionCallCount);
+
+    fireEvent.click(screen.getByTestId("decision-pane-collapse"));
+    expect(screen.getByTestId("decision-pane-toggle")).toBeTruthy();
+    expect(screen.queryByTestId("decision-inspector-primary")).toBeNull();
+  });
+
+  it("keeps the Agent orchestration map usable while the confirmation rail is collapsed", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
+      if (url === "/api/projects") return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
+      if (url.includes("/workbench/projections/transcript/")) return jsonResponse(snapshot.center.parentAgentTranscript);
+      if (url.includes("/workbench/projections/run-graph/")) return jsonResponse(snapshot.center.agentRunGraph);
+      return jsonResponse(url.includes("/stream/") ? stream : snapshot);
+    }));
+
+    render(<App />);
+
+    await waitFor(() => expect(screen.getByTestId("main-conversation-view")).toBeTruthy());
+    expect(screen.getByTestId("decision-pane-toggle")).toBeTruthy();
+    expect(screen.queryByTestId("decision-inspector-primary")).toBeNull();
+    fireEvent.click(screen.getByRole("tab", { name: "Agent 编排图" }));
+
+    expect(await screen.findByTestId("agent-run-graph", undefined, { timeout: 5000 })).toBeTruthy();
+    expect(screen.getByTestId("agent-orchestration-map")).toBeTruthy();
+    expect(screen.getByTestId("agent-orchestration-zoom-in")).toBeTruthy();
+    expect(screen.getByTestId("agent-orchestration-fit")).toBeTruthy();
+    expect(screen.getAllByTestId("agent-orchestration-edge").length).toBeGreaterThan(0);
+    expect(document.querySelector(".agent-orchestration-card .agent-orchestration-avatar")).toBeTruthy();
+    expect(screen.queryByTestId("decision-inspector-primary")).toBeNull();
   });
 
   it("renders a usable manual-gated loop with one real apply confirmation and no future automation affordance", async () => {
@@ -1749,7 +1817,9 @@ describe("Workbench web app", () => {
     const transcript = screen.getByTestId("parent-agent-transcript");
     expect(within(transcript).getByText("会员用户满 100 元享 9 折")).toBeTruthy();
     expect(within(transcript).getByText("Codex final summary 完整显示。")).toBeTruthy();
-    const primaryDecision = screen.getByTestId("decision-inspector-primary");
+    expect(screen.getByTestId("decision-pane-toggle")).toBeTruthy();
+    expect(screen.queryByTestId("decision-inspector-primary")).toBeNull();
+    const primaryDecision = await openDecisionPane();
     expect(within(primaryDecision).getByText("确认应用到项目")).toBeTruthy();
     expect(within(primaryDecision).getByText("验证和审查已通过，可以由你确认应用到项目。")).toBeTruthy();
     expect(within(primaryDecision).getAllByRole("button", { name: /应用并本地提交/ })).toHaveLength(1);
@@ -1987,7 +2057,7 @@ describe("Workbench web app", () => {
 
     render(<App />);
 
-    const card = await screen.findByTestId("decision-inspector-primary");
+    const card = await openDecisionPane();
     fireEvent.click(within(card).getByRole("button", { name: "按当前建议继续一个受控步骤" }));
     fireEvent.click(await within(card).findByRole("button", { name: "确认" }));
 
@@ -2327,7 +2397,7 @@ describe("Workbench web app", () => {
     expect(within(primarySurface).queryByRole("button")).toBeNull();
     expect(document.querySelector(".parent-conversation .workpad-next-action")).toBeNull();
 
-    const card = await screen.findByTestId("decision-inspector-primary");
+    const card = await openDecisionPane();
     expect(within(card).getByText("需要你再次确认当前页面显示的“继续执行下一个任务”；这不是自动继续。")).toBeTruthy();
     expect(within(card).getByText("当前下一步判断和步骤检查已刷新；这次仍是新的单步确认，步骤类别是：继续执行下一个任务。")).toBeTruthy();
     expect(within(card).getByText("服务端会重新读取当前状态，重新匹配目标和权限；匹配后只执行“继续执行下一个任务”这一当前合法步骤。")).toBeTruthy();
@@ -2895,6 +2965,7 @@ describe("Workbench web app", () => {
 
     render(<App />);
 
+    await openDecisionPane();
     await waitFor(() => expect(screen.getByText("记录 patch 应用 gate")).toBeTruthy());
     fireEvent.click(screen.getByText("记录 patch 应用 gate"));
     expect(screen.getByText("确认")).toBeTruthy();
@@ -3378,6 +3449,7 @@ describe("Workbench web app", () => {
 
     render(<App />);
 
+    await openDecisionPane();
     await waitFor(() => expect(screen.getByText("远端 PR 能力未配置。")).toBeTruthy());
     expect(screen.getAllByText("查看证据").length).toBeGreaterThan(0);
     expect(screen.queryByText("创建 PR 草稿")).toBeNull();
@@ -3430,6 +3502,7 @@ describe("Workbench web app", () => {
 
     render(<App />);
 
+    await openDecisionPane();
     await waitFor(() => expect(screen.getByText("需要你确认是否创建远端 Draft PR。")).toBeTruthy());
     expect(screen.getByRole("button", { name: /创建 PR 草稿/ })).toBeTruthy();
     expect(screen.queryByText("merge queue")).toBeNull();
@@ -3481,6 +3554,7 @@ describe("Workbench web app", () => {
 
     render(<App />);
 
+    await openDecisionPane();
     await waitFor(() => expect(screen.getByText("需要你确认是否提交人工评审。")).toBeTruthy());
     expect(screen.getByRole("button", { name: /提交人工评审/ })).toBeTruthy();
     expect(screen.getByText("会将 Draft PR 标记为 Ready for Review；不会 merge、land 或启用自动合并。")).toBeTruthy();
@@ -3545,6 +3619,7 @@ describe("Workbench web app", () => {
 
     render(<App />);
 
+    await openDecisionPane();
     await waitFor(() => expect(screen.getByText("回复评审需要你确认。")).toBeTruthy());
     expect(screen.getByRole("button", { name: /回复评审/ })).toBeTruthy();
     expect(screen.getByRole("button", { name: /标记已处理/ })).toBeTruthy();
@@ -3598,6 +3673,7 @@ describe("Workbench web app", () => {
 
     render(<App />);
 
+    await openDecisionPane();
     await waitFor(() => expect(screen.getByText("PR 已满足远端合并条件。")).toBeTruthy());
     expect(screen.getByRole("button", { name: /合并 PR/ })).toBeTruthy();
     expect(screen.getByText("会执行 GitHub squash merge；不会 push main、启用 auto-merge、删除远端分支或同步本地源码。")).toBeTruthy();
@@ -3665,6 +3741,7 @@ describe("Workbench web app", () => {
 
     render(<App />);
 
+    await openDecisionPane();
     await waitFor(() => expect(screen.getByText("PR 可合并，但有普通评论需要你确认。")).toBeTruthy());
     expect(screen.getByRole("button", { name: /合并 PR/ })).toBeTruthy();
     expect(screen.getByText("其他需求等你确认")).toBeTruthy();
@@ -3732,6 +3809,7 @@ describe("Workbench web app", () => {
 
     render(<App />);
 
+    await openDecisionPane();
     await waitFor(() => expect(screen.getByText("远端 PR 已合并。本地项目状态已刷新。")).toBeTruthy());
     expect(screen.getByRole("button", { name: /同步本地项目/ })).toBeTruthy();
     expect(screen.getByRole("button", { name: /清理远端 PR 分支/ })).toBeTruthy();
@@ -3851,11 +3929,11 @@ describe("Workbench web app", () => {
 
     render(<App />);
 
-    await waitFor(() => expect(screen.getByTestId("decision-inspector-primary")).toBeTruthy());
+    const blockedCard = await openDecisionPane();
     expect(screen.getByText("任务暂停：T-001")).toBeTruthy();
     expect(screen.getAllByText(/审查未通过，需要补证据。/).length).toBeGreaterThan(0);
     expect(screen.getAllByText("要求修改").length).toBeGreaterThan(0);
-    expect(within(screen.getByTestId("decision-inspector-primary")).getAllByText("查看证据")).toHaveLength(1);
+    expect(within(blockedCard).getAllByText("查看证据")).toHaveLength(1);
     expect(screen.queryByText("确认")).toBeNull();
     expect(screen.getByText("查看历史决策")).toBeTruthy();
   });
@@ -3937,7 +4015,7 @@ describe("Workbench web app", () => {
 
     render(<App />);
 
-    const card = await screen.findByTestId("decision-inspector-primary");
+    const card = await openDecisionPane();
     expect(within(card).getByText("确认完成需求")).toBeTruthy();
     expect(within(card).getByText("这个需求可以结束并归档。")).toBeTruthy();
     expect(card.textContent).not.toContain("验证未通过：validation-old-failed");
@@ -4018,6 +4096,7 @@ describe("Workbench web app", () => {
 
     render(<App />);
 
+    await openDecisionPane();
     await waitFor(() => expect(screen.getByText("需求说明草案: run-spec")).toBeTruthy());
     fireEvent.click(screen.getByText("要求修改"));
     expect(screen.getByTestId("decision-feedback-editor")).toBeTruthy();
@@ -4210,6 +4289,7 @@ describe("Workbench web app", () => {
 
     render(<App />);
 
+    await openDecisionPane();
     await waitFor(() => expect(screen.getByText("修正 Goal Loop 建议")).toBeTruthy());
     fireEvent.click(screen.getByText("修正 Goal Loop 建议"));
     fireEvent.change(screen.getByPlaceholderText("写下需要修改的地方"), { target: { value: "先解释为什么现在可以关闭。" } });
@@ -4691,7 +4771,7 @@ describe("Workbench web app", () => {
 
     await waitFor(() => expect(screen.getByTestId("main-conversation-view")).toBeTruthy());
     expect(screen.queryByTestId("decision-inspector-primary")).toBeNull();
-    expect(screen.getByText("暂无需要确认")).toBeTruthy();
+    expect(screen.getByTestId("decision-pane-toggle")).toBeTruthy();
     expect(screen.getByTitle("停止当前执行")).toBeTruthy();
   });
 
@@ -4710,7 +4790,7 @@ describe("Workbench web app", () => {
 
     render(<App />);
 
-    const card = await screen.findByTestId("decision-inspector-primary");
+    const card = await openDecisionPane();
     fireEvent.click(within(card).getByRole("button", { name: "同意" }));
     const confirmButton = await within(card).findByRole("button", { name: "确认" }) as HTMLButtonElement;
     fireEvent.click(confirmButton);
@@ -4747,7 +4827,7 @@ describe("Workbench web app", () => {
     expect(screen.getByText("使用现有文件夹")).toBeTruthy();
     expect(screen.getByText("新建空项目")).toBeTruthy();
     expect(screen.queryByText("远程项目")).toBeNull();
-    expect(screen.getByText("暂无需要确认")).toBeTruthy();
+    expect(screen.getByTestId("decision-pane-toggle")).toBeTruthy();
     fireEvent.click(screen.getByText("Repo"));
     await waitFor(() => expect(screen.getByText("初始化 Harness")).toBeTruthy());
   });

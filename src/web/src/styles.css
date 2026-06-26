@@ -74,11 +74,19 @@ input:focus-visible {
 
 .app-shell {
   display: grid;
-  grid-template-columns: 280px minmax(0, 1fr) 320px;
+  grid-template-columns: 280px minmax(0, 1fr) 48px;
   grid-template-rows: minmax(0, 1fr) 32px;
   height: 100vh;
   overflow: hidden;
   background: var(--bg-app);
+}
+
+.app-shell.decision-pane-collapsed {
+  grid-template-columns: 280px minmax(0, 1fr) 48px;
+}
+
+.app-shell.decision-pane-expanded {
+  grid-template-columns: 280px minmax(0, 1fr) 320px;
 }
 
 .sidebar,
@@ -2678,6 +2686,74 @@ input:focus-visible {
   background: var(--bg-panel);
 }
 
+.approval-pane-collapsed {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  overflow: hidden;
+  padding: 12px 6px;
+  background: color-mix(in srgb, var(--bg-panel) 96%, var(--bg-app));
+}
+
+.approval-pane-expanded {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.decision-pane-rail {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-panel);
+  color: var(--text-muted);
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(28, 27, 26, 0.05);
+}
+
+.decision-pane-rail:hover {
+  border-color: var(--border-strong);
+  background: var(--bg-subtle);
+  color: var(--text-strong);
+}
+
+.decision-pane-rail.has-primary {
+  border-color: color-mix(in srgb, var(--accent) 58%, var(--border));
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+
+.decision-pane-badge {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border: 2px solid var(--bg-panel);
+  border-radius: var(--radius-pill);
+  background: var(--danger);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 14px;
+}
+
+.decision-pane-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  flex: 0 0 auto;
+}
+
+.decision-pane-content {
+  min-height: 0;
+}
+
 /* Decision and confirmation queue */
 
 .approval-header {
@@ -3183,6 +3259,14 @@ h1 {
 
 @media (max-width: 1220px) {
   .app-shell {
+    grid-template-columns: 260px minmax(0, 1fr) 48px;
+  }
+
+  .app-shell.decision-pane-collapsed {
+    grid-template-columns: 260px minmax(0, 1fr) 48px;
+  }
+
+  .app-shell.decision-pane-expanded {
     grid-template-columns: 260px minmax(0, 1fr) 300px;
   }
 

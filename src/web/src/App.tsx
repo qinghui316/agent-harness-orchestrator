@@ -12,6 +12,7 @@ import { consumeWorkbenchLiveStream,
   fetchJson,
   postJson } from "./api.js";
 import { MainConversationView,
+  DecisionPaneShell,
   DecisionInspectorPane,
   BottomStatusBar
 } from "./panels/WorkbenchPanels.js";
@@ -105,6 +106,7 @@ export function App(): ReactElement {
   const [loadedTranscript, setLoadedTranscript] = useState<ParentAgentTranscript | null>(null);
   const [loadingEarlierTranscript, setLoadingEarlierTranscript] = useState(false);
   const [loadedRunGraph, setLoadedRunGraph] = useState<DemandAgentRunGraph | null>(null);
+  const [decisionPaneCollapsed, setDecisionPaneCollapsed] = useState(true);
   const [projectionVersion, setProjectionVersion] = useState(0);
   const [latestHidden, setLatestHidden] = useState(false);
   const threadScrollRef = useRef<HTMLDivElement | null>(null);
@@ -655,6 +657,9 @@ export function App(): ReactElement {
     };
   }, [selectedDecisionContextId, snapshot.right.decisionInspector]);
   const activeConfirmationQueue = snapshot.right.confirmationQueue ?? { primary: null, current: [], otherDemands: [], maintenance: [], history: [] };
+  const pendingConfirmationCount = (activeConfirmationQueue.primary ? 1 : 0)
+    + activeConfirmationQueue.otherDemands.length
+    + activeConfirmationQueue.maintenance.length;
   const rawActiveRunGraph = loadedRunGraph ?? snapshot.center.agentRunGraph;
   const activeRunGraph = isDemandAgentRunGraph(rawActiveRunGraph) ? rawActiveRunGraph : emptyAgentRunGraph();
   const selectedRunGraphNode = useMemo(() => {
@@ -740,7 +745,7 @@ export function App(): ReactElement {
   }, [selectedProjectId, selectedRun, runIds, snapshot.center.agentLoop.runs]);
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${decisionPaneCollapsed ? "decision-pane-collapsed" : "decision-pane-expanded"}`}>
       <aside className="sidebar">
         <div className="brand compact-brand">
           <div className="brand-title">Agent Harness<br />Orchestrator</div>
@@ -850,7 +855,13 @@ export function App(): ReactElement {
         )}
       </main>
 
-      <aside className="approval-pane">
+      <DecisionPaneShell
+        collapsed={decisionPaneCollapsed}
+        pendingCount={pendingConfirmationCount}
+        hasPrimary={Boolean(activeConfirmationQueue.primary)}
+        onExpand={() => setDecisionPaneCollapsed(false)}
+        onCollapse={() => setDecisionPaneCollapsed(true)}
+      >
         <DecisionInspectorPane
           inspector={activeDecisionInspector}
           confirmationQueue={activeConfirmationQueue}
@@ -862,7 +873,7 @@ export function App(): ReactElement {
           onFeedback={requestDecisionFeedback}
           onSelectContext={setSelectedDecisionContextId}
         />
-      </aside>
+      </DecisionPaneShell>
 
       <BottomStatusBar snapshot={snapshot} project={selectedProjectStatus} topic={activeTopic} />
     </div>

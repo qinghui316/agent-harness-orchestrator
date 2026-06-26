@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-26T13:27:54.2043393Z",
+    "generated_at":  "2026-06-26T14:22:08.6139075Z",
     "active":  [
 
                ],
@@ -2001,6 +2001,10 @@
                     {
                         "name":  "20260626-workbench-mode-aware-local-goal-loop-v1",
                         "path":  "harness/changes/archive/20260626-workbench-mode-aware-local-goal-loop-v1"
+                    },
+                    {
+                        "name":  "20260626-workbench-orchestration-map-real-ui-and-collapsible-confirmation-rail-v1",
+                        "path":  "harness/changes/archive/20260626-workbench-orchestration-map-real-ui-and-collapsible-confirmation-rail-v1"
                     },
                     {
                         "name":  "20260626-workbench-paged-virtual-transcript-with-pretext-v1",

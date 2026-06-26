@@ -4,9 +4,10 @@
 
 - Current date: 2026-06-26.
 - Active ECL change: none.
-- Pending Harness evolution: none.
+- Pending Harness evolution: `harness/evolution/pending.md`.
 - Latest archived product audit: `harness/changes/archive/20260625-workbench-goal-loop-decision-surface-audit-v1/summary.md`.
-- Latest archived product change: `harness/changes/archive/20260626-workbench-rudder-style-agent-orchestration-map-v1/summary.md`.
+- Latest archived product change: `harness/changes/archive/20260626-workbench-orchestration-map-real-ui-and-collapsible-confirmation-rail-v1/summary.md`.
+- Previous archived product change: `harness/changes/archive/20260626-workbench-rudder-style-agent-orchestration-map-v1/summary.md`.
 - Previous archived product change: `harness/changes/archive/20260626-workbench-cursor-incremental-transcript-projection-v2/summary.md`.
 - Previous archived product change: `harness/changes/archive/20260626-workbench-transcript-one-time-pressure-acceptance-v1/summary.md`.
 - Previous archived product change: `harness/changes/archive/20260626-workbench-paged-virtual-transcript-with-pretext-v1/summary.md`.
@@ -46,6 +47,16 @@
 - Latest scheduler integration apply/discard hardening: `harness/changes/archive/20260625-workbench-scheduler-integration-apply-discard-real-acceptance-v1/summary.md`.
 
 Latest product closeout:
+`harness/changes/archive/20260626-workbench-orchestration-map-real-ui-and-collapsible-confirmation-rail-v1/summary.md`.
+It completes real in-app browser acceptance for the Rudder-style
+`Agent 编排图` and changes the right confirmation surface to a default collapsed
+rail. The rail shows a panel icon, pending count badge, and primary-gate
+emphasis; expanding it shows the existing `DecisionInspectorPane`. The rail is
+frontend-only UI state and does not change `confirmationQueue.primary`, action
+revalidation, apply/close, scheduler, automation, remote, merge, PR, or Harness
+evolution behavior.
+
+Previous product closeout:
 `harness/changes/archive/20260626-workbench-rudder-style-agent-orchestration-map-v1/summary.md`.
 It replaces the selected-demand `Agent 运行图` lane/list with a Rudder-style
 read-only `Agent 编排图`: stage-based layout, avatar cards, status dots, SVG
@@ -333,10 +344,12 @@ scripts.
 
 Active change: none.
 
-Pending Harness evolution: none.
+Pending Harness evolution: `harness/evolution/pending.md`.
+Do not apply it automatically; it needs a separate Harness evolution change
+with proposal, review, validation, and `mark-complete`.
 
 Latest product closeout:
-`harness/changes/archive/20260626-workbench-rudder-style-agent-orchestration-map-v1/summary.md`.
+`harness/changes/archive/20260626-workbench-orchestration-map-real-ui-and-collapsible-confirmation-rail-v1/summary.md`.
 
 Latest real UI acceptance:
 `harness/changes/archive/20260626-workbench-mode-aware-local-goal-loop-real-ui-acceptance-v1/summary.md`.

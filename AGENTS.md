@@ -6,9 +6,11 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 
 - Current date: 2026-06-26.
 - Active change: none.
-- Pending Harness evolution: none.
+- Pending Harness evolution:
+  `harness/evolution/pending.md` generated after the latest close; do not
+  apply it automatically.
 - Latest archived product change:
-  `harness/changes/archive/20260626-workbench-rudder-style-agent-orchestration-map-v1/summary.md`.
+  `harness/changes/archive/20260626-workbench-orchestration-map-real-ui-and-collapsible-confirmation-rail-v1/summary.md`.
 - Latest completed Harness evolution:
   `harness/changes/archive/20260626-auto-evolve-post-transcript-window/summary.md`
   (`docs_merge`; subagent Kuhn score 84; no ECL/template/lint/product
@@ -31,6 +33,9 @@ Current baseline:
   stage-based layout for local loop, rework, scheduler worker branch/join,
   IntegrationCheck, landing, and terminal nodes. The graph is a projection only
   and does not execute actions or replace `confirmationQueue.primary`.
+- The right confirmation surface defaults to a compact collapsed rail with a
+  pending count badge. Expanding it shows the existing confirmation pane; the
+  rail is frontend-only UI state and does not execute actions.
 - Planning prefers Codex Plan Mode proposal capture; plan confirmation remains
   human.
 - `请求批准` and scoped `完全访问权限` share the same local Goal Loop coordinator.
