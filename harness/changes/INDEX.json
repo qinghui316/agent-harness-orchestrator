@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-26T14:22:08.6139075Z",
+    "generated_at":  "2026-06-26T14:35:37.1856719Z",
     "active":  [
 
                ],
@@ -1961,6 +1961,10 @@
                     {
                         "name":  "20260626-auto-evolve-post-mode-aware-loop-window",
                         "path":  "harness/changes/archive/20260626-auto-evolve-post-mode-aware-loop-window"
+                    },
+                    {
+                        "name":  "20260626-auto-evolve-post-orchestration-map-window",
+                        "path":  "harness/changes/archive/20260626-auto-evolve-post-orchestration-map-window"
                     },
                     {
                         "name":  "20260626-auto-evolve-post-transcript-window",
