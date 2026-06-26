@@ -6,6 +6,7 @@ import {
   getWorkbenchMaintenanceProjection,
   getWorkbenchRunGraphProjection,
   getWorkbenchTaskQueueProposalProjection,
+  getWorkbenchTranscriptPageProjection,
   getWorkbenchTranscriptProjection,
   getWorkbenchWorkflowGraphPlanProjection,
   getWorkbenchSchedulerContractProjection,
@@ -33,7 +34,6 @@ import {
   getWorkbenchWorkpadProjection,
   type WorkbenchProjectInput,
 } from "../../workbench/manager.js";
-import { pageParentAgentTranscript } from "../../workbench/parent-agent-transcript.js";
 
 export async function getWorkbenchProjection(input: WorkbenchProjectInput, rest: string, searchParams = new URLSearchParams()): Promise<unknown> {
   const [kind, encodedChangeId, encodedId, encodedExtraId] = rest.split("/");
@@ -42,9 +42,10 @@ export async function getWorkbenchProjection(input: WorkbenchProjectInput, rest:
   const extraId = encodedExtraId ? decodeURIComponent(encodedExtraId) : undefined;
   if (kind === "transcript") {
     if (!changeId) throw badRequest("transcript projection requires changeId.");
-    const transcript = await getWorkbenchTranscriptProjection(input, changeId);
     const paging = readTranscriptPaging(searchParams);
-    return paging ? pageParentAgentTranscript(transcript, paging) : transcript;
+    return paging
+      ? getWorkbenchTranscriptPageProjection(input, changeId, paging)
+      : getWorkbenchTranscriptProjection(input, changeId);
   }
   if (kind === "run-graph") {
     if (!changeId) throw badRequest("run-graph projection requires changeId.");

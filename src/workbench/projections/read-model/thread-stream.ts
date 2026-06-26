@@ -27,56 +27,8 @@ export async function buildThreadStream(
   audits: unknown[],
   decisions: WorkbenchDecisionItem[],
 ): Promise<ThreadStreamItem[]> {
-  const items: ThreadStreamDraft[] = [{
-    id: `${topic.id}:change-state`,
-    kind: "change-state",
-    label: topic.state === "archive" ? `Archived: ${topic.title}` : `Topic: ${topic.title}`,
-    timestamp: topic.updatedAt ?? topic.createdAt,
-    body: topic.path,
-    source: "change",
-    artifact: topic.path,
-    status: topic.state,
-    semanticKey: `change:${topic.id}`,
-    sortKey: 0,
-    subOrder: 0,
-  }];
   const messages = await readTopicThreadLog(memory, topic.path).catch(() => []);
-  const terminalWorkflowByAction = new Map<string, TopicThreadEntry>();
-  const workflowStartedByAction = new Map<string, TopicThreadEntry>();
-  const runAnchors = new Map<string, number>();
-  const assistantByRun = new Map<string, ThreadStreamDraft>();
-
-  messages.forEach((message, index) => {
-    const sortKey = message.position ?? index + 1;
-    if (message.type === "workflow.started" && message.actionRunId) {
-      workflowStartedByAction.set(message.actionRunId, message);
-      return;
-    }
-    if ((message.type === "workflow.completed" || message.type === "workflow.failed") && message.actionRunId) {
-      terminalWorkflowByAction.set(message.actionRunId, message);
-      if (message.runId) runAnchors.set(message.runId, sortKey);
-      return;
-    }
-    const mapped = threadItemFromMessage(message, sortKey);
-    if (mapped) {
-      items.push(mapped);
-      if (mapped.kind === "assistant-turn" && mapped.runId) assistantByRun.set(mapped.runId, mapped);
-    }
-  });
-
-  for (const [actionRunId, started] of workflowStartedByAction) {
-    const terminal = terminalWorkflowByAction.get(actionRunId);
-    const message = terminal ?? started;
-    const sortKey = message.position ?? started.position ?? messages.length + items.length + 1;
-    const workflowItem = workflowItemFromMessage(message, sortKey);
-    const existing = message.runId ? assistantByRun.get(message.runId) : undefined;
-    if (existing) mergeAssistantTurn(existing, workflowItem);
-    else {
-      items.push(workflowItem);
-      if (workflowItem.runId) assistantByRun.set(workflowItem.runId, workflowItem);
-    }
-    if (message.runId) runAnchors.set(message.runId, sortKey);
-  }
+  const { items, runAnchors, assistantByRun } = buildThreadStreamMessageDrafts(topic, messages, true);
   for (const run of runs) {
     if (!runAnchors.has(run.id)) runAnchors.set(run.id, timestampSortKey(run.finishedAt ?? run.startedAt, 3000));
   }
@@ -148,6 +100,86 @@ export async function buildThreadStream(
     });
   }
 
+  return finalizeThreadStreamItems(memory, topic, items);
+}
+
+export async function buildThreadStreamFromMessages(
+  memory: ResolvedMemory,
+  topic: WorkbenchTopicSummary,
+  messages: TopicThreadEntry[],
+  options: { includeChangeState?: boolean } = {},
+): Promise<ThreadStreamItem[]> {
+  const { items } = buildThreadStreamMessageDrafts(topic, messages, Boolean(options.includeChangeState));
+  return finalizeThreadStreamItems(memory, topic, items);
+}
+
+function buildThreadStreamMessageDrafts(
+  topic: WorkbenchTopicSummary,
+  messages: TopicThreadEntry[],
+  includeChangeState: boolean,
+): {
+  items: ThreadStreamDraft[];
+  runAnchors: Map<string, number>;
+  assistantByRun: Map<string, ThreadStreamDraft>;
+} {
+  const items: ThreadStreamDraft[] = [{
+    id: `${topic.id}:change-state`,
+    kind: "change-state",
+    label: topic.state === "archive" ? `Archived: ${topic.title}` : `Topic: ${topic.title}`,
+    timestamp: topic.updatedAt ?? topic.createdAt,
+    body: topic.path,
+    source: "change",
+    artifact: topic.path,
+    status: topic.state,
+    semanticKey: `change:${topic.id}`,
+    sortKey: 0,
+    subOrder: 0,
+  }];
+  if (!includeChangeState) items.length = 0;
+  const terminalWorkflowByAction = new Map<string, TopicThreadEntry>();
+  const workflowStartedByAction = new Map<string, TopicThreadEntry>();
+  const runAnchors = new Map<string, number>();
+  const assistantByRun = new Map<string, ThreadStreamDraft>();
+
+  messages.forEach((message, index) => {
+    const sortKey = message.position ?? index + 1;
+    if (message.type === "workflow.started" && message.actionRunId) {
+      workflowStartedByAction.set(message.actionRunId, message);
+      return;
+    }
+    if ((message.type === "workflow.completed" || message.type === "workflow.failed") && message.actionRunId) {
+      terminalWorkflowByAction.set(message.actionRunId, message);
+      if (message.runId) runAnchors.set(message.runId, sortKey);
+      return;
+    }
+    const mapped = threadItemFromMessage(message, sortKey);
+    if (mapped) {
+      items.push(mapped);
+      if (mapped.kind === "assistant-turn" && mapped.runId) assistantByRun.set(mapped.runId, mapped);
+    }
+  });
+
+  for (const [actionRunId, started] of workflowStartedByAction) {
+    const terminal = terminalWorkflowByAction.get(actionRunId);
+    const message = terminal ?? started;
+    const sortKey = message.position ?? started.position ?? messages.length + items.length + 1;
+    const workflowItem = workflowItemFromMessage(message, sortKey);
+    const existing = message.runId ? assistantByRun.get(message.runId) : undefined;
+    if (existing) mergeAssistantTurn(existing, workflowItem);
+    else {
+      items.push(workflowItem);
+      if (workflowItem.runId) assistantByRun.set(workflowItem.runId, workflowItem);
+    }
+    if (message.runId) runAnchors.set(message.runId, sortKey);
+  }
+  return { items, runAnchors, assistantByRun };
+}
+
+async function finalizeThreadStreamItems(
+  memory: ResolvedMemory,
+  topic: WorkbenchTopicSummary,
+  items: ThreadStreamDraft[],
+): Promise<ThreadStreamItem[]> {
   const actions = await buildPlanCardActions(memory, topic);
   for (const item of items) {
     if (item.kind === "plan-card" || item.planCard) item.actions = actions;

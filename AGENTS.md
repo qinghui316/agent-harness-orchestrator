@@ -8,7 +8,7 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 - Active change: none.
 - Pending Harness evolution: none.
 - Latest archived product change:
-  `harness/changes/archive/20260626-workbench-transcript-one-time-pressure-acceptance-v1/summary.md`.
+  `harness/changes/archive/20260626-workbench-cursor-incremental-transcript-projection-v2/summary.md`.
 - Latest completed Harness evolution:
   `harness/changes/archive/20260626-auto-evolve-post-transcript-window/summary.md`
   (`docs_merge`; subagent Kuhn score 84; no ECL/template/lint/product
@@ -21,11 +21,11 @@ Current baseline:
 
 - Local manual-gated Workbench has real acceptance through planning, code,
   validation/audit, human apply, and close/archive.
-- Workbench conversation transcripts now use paged projection reads, bounded
-  virtual rendering, long-message folding, and `@chenglou/pretext` height
-  estimates with fallback; synthetic 50k-cell pressure acceptance passed, so
-  cursor-aware incremental transcript V2 is deferred until measured backend
-  projection cost justifies it. Workflow truth remains unchanged.
+- Workbench conversation transcripts now use cursor-incremental SQLite message
+  paging by default, bounded virtual rendering, long-message folding, and
+  `@chenglou/pretext` height estimates with fallback. Synthetic 100k / 500k
+  message pressure acceptance passed without durable large fixtures. Workflow
+  truth remains unchanged.
 - Planning prefers Codex Plan Mode proposal capture; plan confirmation remains
   human.
 - `请求批准` and scoped `完全访问权限` share the same local Goal Loop coordinator.

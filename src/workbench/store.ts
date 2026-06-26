@@ -145,6 +145,30 @@ export class WorkbenchStore {
     `).all(projectId, changeId) as SqliteRow[]).map(mapMessageRow);
   }
 
+  listLatestMessages(projectId: string, changeId: string, limit: number): StoredTopicMessage[] {
+    return (this.db.prepare(`
+      SELECT id, project_id AS projectId, change_id AS changeId, position, type, timestamp,
+        text, action_run_id AS actionRunId, action_type AS actionType, status, run_id AS runId,
+        artifact, error, raw_json AS rawJson
+      FROM messages
+      WHERE project_id = ? AND change_id = ?
+      ORDER BY position DESC
+      LIMIT ?
+    `).all(projectId, changeId, limit) as SqliteRow[]).map(mapMessageRow).reverse();
+  }
+
+  listMessagesBeforePosition(projectId: string, changeId: string, beforePosition: number, limit: number): StoredTopicMessage[] {
+    return (this.db.prepare(`
+      SELECT id, project_id AS projectId, change_id AS changeId, position, type, timestamp,
+        text, action_run_id AS actionRunId, action_type AS actionType, status, run_id AS runId,
+        artifact, error, raw_json AS rawJson
+      FROM messages
+      WHERE project_id = ? AND change_id = ? AND position < ?
+      ORDER BY position DESC
+      LIMIT ?
+    `).all(projectId, changeId, beforePosition, limit) as SqliteRow[]).map(mapMessageRow).reverse();
+  }
+
   listAllMessages(projectId: string): StoredTopicMessage[] {
     return (this.db.prepare(`
       SELECT id, project_id AS projectId, change_id AS changeId, position, type, timestamp,
@@ -159,6 +183,11 @@ export class WorkbenchStore {
   hasMessages(projectId: string, changeId: string): boolean {
     const row = this.db.prepare("SELECT COUNT(*) AS count FROM messages WHERE project_id = ? AND change_id = ?").get(projectId, changeId) as SqliteRow;
     return Number(row.count ?? 0) > 0;
+  }
+
+  countMessages(projectId: string, changeId: string): number {
+    const row = this.db.prepare("SELECT COUNT(*) AS count FROM messages WHERE project_id = ? AND change_id = ?").get(projectId, changeId) as SqliteRow;
+    return Number(row.count ?? 0);
   }
 
   importMessages(messages: StoredTopicMessage[]): number {

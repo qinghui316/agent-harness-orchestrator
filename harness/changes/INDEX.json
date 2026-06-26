@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-26T11:29:37.6671643Z",
+    "generated_at":  "2026-06-26T12:06:15.0403806Z",
     "active":  [
 
                ],
@@ -1965,6 +1965,10 @@
                     {
                         "name":  "20260626-auto-evolve-post-transcript-window",
                         "path":  "harness/changes/archive/20260626-auto-evolve-post-transcript-window"
+                    },
+                    {
+                        "name":  "20260626-workbench-cursor-incremental-transcript-projection-v2",
+                        "path":  "harness/changes/archive/20260626-workbench-cursor-incremental-transcript-projection-v2"
                     },
                     {
                         "name":  "20260626-workbench-integration-applied-local-landing-close-real-ui-scout-v1",

@@ -4,8 +4,9 @@ import { getMemoryStatus } from "../../../memory/status.js";
 import { getProjectStatus } from "../../../project/status.js";
 import { readRun } from "../../../run/manager.js";
 import { buildParentAgentTranscript, type ParentAgentTranscript } from "../../parent-agent-transcript.js";
+import { readTopicThreadLogPage, type TopicThreadLogPageOptions } from "../../thread-log.js";
 import { summarizeRunArtifacts } from "../artifact-preview.js";
-import { readRunEvents } from "./thread-stream.js";
+import { buildThreadStreamFromMessages, readRunEvents } from "./thread-stream.js";
 import { buildConfirmationQueue, emptyConfirmationQueue } from "./confirmation-queue.js";
 import { listWorkbenchDecisions } from "./decision-store.js";
 import { alignDecisionInspectorWithConfirmationPrimary, buildDecisionInspector, emptyDecisionInspector } from "./decision-inspector.js";
@@ -185,7 +186,7 @@ export async function getWorkbenchSnapshot(input: WorkbenchProjectInput, options
   }
 
   const topics = await listWorkbenchTopicsFromMemory(memory);
-  const selectedTopic = await selectTopicDetail(input.project, memory, topics, options.topicId);
+  const selectedTopic = await selectTopicDetail(input.project, memory, topics, options.topicId, { threadMode: "latest", threadLimit: 100 });
   const approvals = input.project ? await buildApprovalInbox(input.project, memory, topics) : [];
   const decisions = input.project ? await listWorkbenchDecisions(memory, options.topicId) : [];
   const workpads = await buildMultiWorkpadSummaries(memory, topics, approvals, selectedTopic?.id);
@@ -219,7 +220,7 @@ export async function getWorkbenchSnapshot(input: WorkbenchProjectInput, options
   const shellWorkpad = shellWorkbenchWorkpad(workpad);
   const parentAgentTranscript = buildParentAgentTranscript({
     workpad,
-    threadItems: selectedTopic?.threadItems ?? [],
+    threadItems: [],
   });
   return {
     project: input.project,
@@ -255,6 +256,37 @@ export async function getWorkbenchTranscriptProjection(input: WorkbenchProjectIn
   if (!selectedTopic) return emptyParentAgentTranscript();
   const workpad = await buildWorkbenchProjectionWorkpad(input, memory, topics, selectedTopic);
   return buildParentAgentTranscript({ workpad, threadItems: selectedTopic.threadItems });
+}
+
+export async function getWorkbenchTranscriptPageProjection(
+  input: WorkbenchProjectInput,
+  changeId: string,
+  paging: TopicThreadLogPageOptions,
+): Promise<ParentAgentTranscript> {
+  const memory = await resolveWorkbenchMemory(input);
+  if (!memory.supported) return emptyParentAgentTranscript();
+  const topics = await listWorkbenchTopicsFromMemory(memory);
+  const topic = topics.find((item) => item.id === changeId || item.name === changeId);
+  if (!topic) return emptyParentAgentTranscript();
+  const page = await readTopicThreadLogPage(memory, topic.path, paging);
+  const threadItems = await buildThreadStreamFromMessages(memory, topic, page.entries);
+  const transcript = buildParentAgentTranscript({
+    workpad: {
+      conversationId: topic.id,
+      boundChangeId: topic.id,
+      title: topic.title,
+    },
+    threadItems,
+  });
+  return {
+    ...transcript,
+    paging: {
+      limit: page.limit,
+      totalCount: page.totalCount,
+      hasMoreBefore: page.hasMoreBefore,
+      nextBeforeCursor: page.nextBeforeCursor,
+    },
+  };
 }
 
 export async function getWorkbenchRunGraphProjection(input: WorkbenchProjectInput, changeId: string): Promise<DemandAgentRunGraph> {

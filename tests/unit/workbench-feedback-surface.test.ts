@@ -9,7 +9,7 @@ import { classifyPrFeedbackSnapshotData } from "../../src/pr-feedback/manager.js
 import { executeWorkbenchAction } from "../../src/server/workbench-server.js";
 import type { WorkbenchActionRequest } from "../../src/server/workbench/types.js";
 import type { RunMetadata } from "../../src/types/index.js";
-import { getWorkbenchSnapshot } from "../../src/workbench/manager.js";
+import { getWorkbenchSnapshot, getWorkbenchTopic } from "../../src/workbench/manager.js";
 import { getTempDir, project } from "./workbench/fixtures.js";
 
 describe("workbench feedback surface", () => {
@@ -77,7 +77,8 @@ describe("workbench feedback surface", () => {
         feedback: "补充边界后再生成 Spec。",
       }),
     ]));
-    expect(after.center.thread.items).toEqual(expect.arrayContaining([
+    const detail = await getWorkbenchTopic({ project: project(), path: getTempDir() }, "feedback-proposal");
+    expect(detail.threadItems).toEqual(expect.arrayContaining([
       expect.objectContaining({ kind: "decision", status: "requested-changes", body: "User requested changes instead of accepting this decision." }),
     ]));
   });

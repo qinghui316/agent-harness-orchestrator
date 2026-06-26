@@ -16,9 +16,12 @@ import { summarizeValidation } from "../../../validation/artifacts.js";
 import { listWorktreesForChange } from "../../../worktree/manager.js";
 import type { AcMap, ChangeIndexItem, ManagedProject, ResolvedMemory } from "../../../types/index.js";
 import type { WorkbenchTopicDetail, WorkbenchTopicState, WorkbenchTopicSummary } from "../../read-model-types.js";
-import { buildThreadStream } from "./thread-stream.js";
+import { readTopicThreadLogPage } from "../../thread-log.js";
+import { buildThreadStream, buildThreadStreamFromMessages } from "./thread-stream.js";
 import { listWorkbenchDecisions } from "./decision-store.js";
 import { readChangeMetadataAt, stateRank } from "./support.js";
+
+export type TopicThreadDetailMode = "full" | "latest" | "none";
 
 export async function listWorkbenchTopicsFromMemory(memory: ResolvedMemory): Promise<WorkbenchTopicSummary[]> {
   const index = await buildChangeIndex(memory);
@@ -67,7 +70,13 @@ export async function buildTopicAcMap(memory: ResolvedMemory, topic: WorkbenchTo
   });
 }
 
-export async function selectTopicDetail(project: ManagedProject | null, memory: ResolvedMemory, topics: WorkbenchTopicSummary[], topicId?: string): Promise<WorkbenchTopicDetail | null> {
+export async function selectTopicDetail(
+  project: ManagedProject | null,
+  memory: ResolvedMemory,
+  topics: WorkbenchTopicSummary[],
+  topicId?: string,
+  options: { threadMode?: TopicThreadDetailMode; threadLimit?: number } = {},
+): Promise<WorkbenchTopicDetail | null> {
   const topic = topicId
     ? topics.find((item) => item.id === topicId || item.name === topicId)
     : topics.find((item) => item.state === "active") ?? topics[0];
@@ -97,7 +106,14 @@ export async function selectTopicDetail(project: ManagedProject | null, memory: 
   const acMap = statusDetail?.acMap ?? await buildTopicAcMap(memory, topic);
 
   const decisions = project ? await listWorkbenchDecisions(memory, topic.id) : [];
-  const threadItems = await buildThreadStream(memory, topic, runs, validations, audits, decisions);
+  const threadMode = options.threadMode ?? "full";
+  const threadItems = threadMode === "none"
+    ? []
+    : threadMode === "latest"
+      ? await readTopicThreadLogPage(memory, topic.path, { limit: options.threadLimit ?? 100 })
+        .then((page) => buildThreadStreamFromMessages(memory, topic, page.entries, { includeChangeState: true }))
+        .catch(() => [])
+      : await buildThreadStream(memory, topic, runs, validations, audits, decisions);
   return {
     ...topic,
     change,

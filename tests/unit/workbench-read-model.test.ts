@@ -9,7 +9,7 @@ import { executeWorkbenchAction } from "../../src/server/workbench-server.js";
 import { appendTopicThreadEntry, createWorkbenchTopic } from "../../src/workbench/chat.js";
 import { readTopicThreadLog } from "../../src/workbench/thread-log.js";
 import { answerClarification, reanalyzeIntake, runIntakeScan } from "../../src/workbench/intake.js";
-import { getWorkbenchSnapshot, getWorkbenchStream, getWorkbenchTopic, listWorkbenchApprovals, listWorkbenchRoles, listWorkbenchTopics } from "../../src/workbench/manager.js";
+import { getWorkbenchSnapshot, getWorkbenchStream, getWorkbenchTopic, getWorkbenchTranscriptProjection, listWorkbenchApprovals, listWorkbenchRoles, listWorkbenchTopics } from "../../src/workbench/manager.js";
 import { WorkbenchStore } from "../../src/workbench/store.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import { createAgentTask } from "../../src/agent-task/manager.js";
@@ -236,8 +236,8 @@ describe("workbench read-model projections", () => {
       ],
     });
 
-    const snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: topic.id });
-    const cells = snapshot.center.parentAgentTranscript.cells;
+    const transcript = await getWorkbenchTranscriptProjection({ project: project(), path: getTempDir() }, topic.id);
+    const cells = transcript.cells;
 
     expect(cells).toEqual(expect.arrayContaining([
       expect.objectContaining({
@@ -364,11 +364,11 @@ describe("workbench read-model projections", () => {
       },
     }, null, 2), "utf8");
 
-    const snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: topic.changeId });
+    const detail = await getWorkbenchTopic({ project: project(), path: getTempDir() }, topic.changeId);
 
-    expect(snapshot.center.thread.items.filter((item) => item.kind === "workflow-summary" && item.actionRunId === "action-code")).toHaveLength(0);
-    expect(snapshot.center.thread.items.filter((item) => item.kind === "assistant-turn" && item.runId === run.run.id)).toHaveLength(1);
-    expect(snapshot.center.thread.items).toEqual(expect.arrayContaining([
+    expect(detail.threadItems.filter((item) => item.kind === "workflow-summary" && item.actionRunId === "action-code")).toHaveLength(0);
+    expect(detail.threadItems.filter((item) => item.kind === "assistant-turn" && item.runId === run.run.id)).toHaveLength(1);
+    expect(detail.threadItems).toEqual(expect.arrayContaining([
       expect.objectContaining({
         kind: "assistant-turn",
         body: "I updated the pricing rule and kept validation evidence attached.",
@@ -390,8 +390,8 @@ describe("workbench read-model projections", () => {
         ]),
       }),
     ]));
-    expect(snapshot.center.thread.items.some((item) => item.kind === "evidence" && item.runId === run.run.id)).toBe(false);
-    expect(snapshot.center.thread.items.some((item) => item.label === "process.started" || item.label === "run.completed")).toBe(false);
+    expect(detail.threadItems.some((item) => item.kind === "evidence" && item.runId === run.run.id)).toBe(false);
+    expect(detail.threadItems.some((item) => item.label === "process.started" || item.label === "run.completed")).toBe(false);
   });
 
   it("projects front-half Workbench gates as one scoped primary confirmation", async () => {
@@ -550,7 +550,8 @@ describe("workbench read-model projections", () => {
       }),
     ]));
     expectUserCopyNotToContainInternalTerms(JSON.stringify(controlledItems));
-    expect(snapshot.center.parentAgentTranscript.cells).toEqual(expect.arrayContaining([
+    const transcript = await getWorkbenchTranscriptProjection({ project: project(), path: getTempDir() }, topic.changeId);
+    expect(transcript.cells).toEqual(expect.arrayContaining([
       expect.objectContaining({
         kind: "assistant-message",
         source: "workflow-evidence",

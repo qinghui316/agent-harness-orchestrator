@@ -34,6 +34,82 @@ export async function readTopicThreadLog(memory: ResolvedMemory, changePath: str
     .map((line, index) => ({ ...(JSON.parse(line) as TopicThreadEntry), position: index + 1 }));
 }
 
+export interface TopicThreadLogPageOptions {
+  limit?: number;
+  beforeCursor?: string;
+}
+
+export interface TopicThreadLogPage {
+  entries: TopicThreadEntry[];
+  limit: number;
+  totalCount: number;
+  hasMoreBefore: boolean;
+  nextBeforeCursor?: string;
+}
+
+const DEFAULT_THREAD_PAGE_LIMIT = 100;
+const MAX_THREAD_PAGE_LIMIT = 500;
+
+export async function readTopicThreadLogPage(
+  memory: ResolvedMemory,
+  changePath: string,
+  options: TopicThreadLogPageOptions = {},
+): Promise<TopicThreadLogPage> {
+  const changeId = await readCanonicalThreadChangeId(memory, changePath);
+  const projectId = memory.projectId ?? "unregistered";
+  const limit = normalizeThreadPageLimit(options.limit);
+  const beforePosition = options.beforeCursor ? decodeTopicThreadCursor(options.beforeCursor) : undefined;
+  await importThreadJsonlIfNeeded(memory, projectId, changeId, changePath);
+  const store = await WorkbenchStore.open(memory);
+  try {
+    const totalCount = store.countMessages(projectId, changeId);
+    if (beforePosition !== undefined && beforePosition > totalCount) throw invalidCursor();
+    const rows = beforePosition !== undefined
+      ? store.listMessagesBeforePosition(projectId, changeId, beforePosition, limit)
+      : store.listLatestMessages(projectId, changeId, limit);
+    const firstPosition = rows[0]?.position;
+    return {
+      entries: rows.map(fromStoredThreadMessage),
+      limit,
+      totalCount,
+      hasMoreBefore: firstPosition !== undefined ? firstPosition > 1 : false,
+      nextBeforeCursor: firstPosition !== undefined && firstPosition > 1 ? encodeTopicThreadCursor(firstPosition) : undefined,
+    };
+  } finally {
+    store.close();
+  }
+}
+
+export function encodeTopicThreadCursor(position: number): string {
+  return `thread-position:${Buffer.from(JSON.stringify({ position }), "utf8").toString("base64url")}`;
+}
+
+export function decodeTopicThreadCursor(cursor: string): number {
+  const prefix = "thread-position:";
+  if (!cursor.startsWith(prefix)) throw invalidCursor();
+  try {
+    const decoded = JSON.parse(Buffer.from(cursor.slice(prefix.length), "base64url").toString("utf8")) as unknown;
+    if (!isRecord(decoded) || typeof decoded.position !== "number") throw invalidCursor();
+    const position = Math.trunc(decoded.position);
+    if (!Number.isSafeInteger(position) || position < 1) throw invalidCursor();
+    return position;
+  } catch (error) {
+    if (error instanceof Error && error.name === "BadRequest") throw error;
+    throw invalidCursor();
+  }
+}
+
+function normalizeThreadPageLimit(value?: number): number {
+  if (!Number.isFinite(value) || !value) return DEFAULT_THREAD_PAGE_LIMIT;
+  return Math.max(1, Math.min(MAX_THREAD_PAGE_LIMIT, Math.trunc(value)));
+}
+
+function invalidCursor(): Error {
+  const error = new Error("Invalid transcript cursor.");
+  error.name = "BadRequest";
+  return error;
+}
+
 export async function appendTopicThreadLogEntry(memory: ResolvedMemory, changePath: string, entry: TopicThreadEntry): Promise<void> {
   await appendFile(join(memory.memoryRoot, changePath, "thread.jsonl"), `${JSON.stringify(entry)}\n`, "utf8");
   const store = await WorkbenchStore.open(memory);
