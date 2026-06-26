@@ -6,7 +6,8 @@
 - Active ECL change: none.
 - Pending Harness evolution: none.
 - Latest archived product audit: `harness/changes/archive/20260625-workbench-goal-loop-decision-surface-audit-v1/summary.md`.
-- Latest archived product change: `harness/changes/archive/20260626-workbench-mode-aware-local-goal-loop-v1/summary.md`.
+- Latest archived product change: `harness/changes/archive/20260626-workbench-mode-aware-local-goal-loop-real-ui-acceptance-v1/summary.md`.
+- Previous archived product change: `harness/changes/archive/20260626-workbench-mode-aware-local-goal-loop-v1/summary.md`.
 - Previous archived product change: `harness/changes/archive/20260626-workbench-local-landing-ready-terminal-close-v1/summary.md`.
 - Previous archived product change: `harness/changes/archive/20260626-workbench-integration-apply-outcome-completion-v1/summary.md`.
 - Latest archived product acceptance: `harness/changes/archive/20260626-workbench-integration-applied-local-landing-close-real-ui-scout-v1/summary.md`.
@@ -38,6 +39,14 @@
 - Latest scheduler integration apply/discard hardening: `harness/changes/archive/20260625-workbench-scheduler-integration-apply-discard-real-acceptance-v1/summary.md`.
 
 Latest product closeout:
+`harness/changes/archive/20260626-workbench-mode-aware-local-goal-loop-real-ui-acceptance-v1/summary.md`.
+It adds real in-app browser acceptance for the mode-aware local Goal Loop.
+`请求批准` stopped at the real next gate after plan confirmation; scoped
+`完全访问权限` completed a sequential local apply/landing/close path and stopped
+with no primary gate; a low-conflict scheduler-shaped demand stopped before
+raw scheduler preparation, preserving the intended boundary.
+
+Previous product closeout:
 `harness/changes/archive/20260626-workbench-mode-aware-local-goal-loop-v1/summary.md`.
 It adds the first thin mode-aware local Goal Loop coordinator. Both
 `请求批准` and `完全访问权限` observe the selected Change's current primary gate;
@@ -257,6 +266,16 @@ scripts.
 
 Active change: none.
 
+Latest real UI acceptance:
+`harness/changes/archive/20260626-workbench-mode-aware-local-goal-loop-real-ui-acceptance-v1/summary.md`.
+
+Next product work should build on existing Workbench gate/action/runtime owners.
+Good candidates are either a focused closeout-quality hardening slice for
+auto-closed archive summaries, or the next explicitly bounded local
+Goal-Loop/scheduler capability. Do not widen `完全访问权限` into raw scheduler,
+manual IntegrationCheck, integration apply/discard, PR/remote/merge, Harness
+evolution, or full parallel execution without a separate structured change.
+
 Latest completed Harness evolution:
 `harness/changes/archive/20260626-auto-evolve-post-mode-aware-loop-window/summary.md`.
 Decision: `docs_merge`. Subagent Aquinas scored the window `86/100`.
@@ -265,10 +284,8 @@ counter to `492`, and recorded the result in `results.tsv`. No new
 ECL/template/lint/product runtime rule was made; only compact current-doc
 alignment was applied.
 
-After this evolution closes, resume product work from existing Workbench
-gate/action/runtime owners. Do not widen `完全访问权限` into raw scheduler,
-manual IntegrationCheck, integration apply/discard, PR/remote/merge, Harness
-evolution, or full parallel execution without a separate structured change.
+After this evolution, product work should continue from existing Workbench
+gate/action/runtime owners rather than adding a new framework.
 
 ## Verification Commands
 

@@ -8,7 +8,7 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 - Active change: none.
 - Pending Harness evolution: none.
 - Latest archived product change:
-  `harness/changes/archive/20260626-workbench-mode-aware-local-goal-loop-v1/summary.md`.
+  `harness/changes/archive/20260626-workbench-mode-aware-local-goal-loop-real-ui-acceptance-v1/summary.md`.
 - Latest completed Harness evolution:
   `harness/changes/archive/20260626-auto-evolve-post-mode-aware-loop-window/summary.md`
   (`docs_merge`; subagent Aquinas score 86; no ECL/template/lint/product
@@ -31,6 +31,9 @@ Current baseline:
   not auto-run plan confirmation, raw scheduler, manual IntegrationCheck,
   integration apply/discard, merge, remote, PR, Harness evolution, scheduler
   loops, or parallel execution.
+- Real in-app browser acceptance has verified request-approval stop behavior,
+  full-access sequential local apply/landing/close, and full-access stopping
+  before raw scheduler preparation.
 - Scheduler acceptance has reached same-Change worker worktrees, validation,
   audit, ready integration candidate, manual IntegrationCheck, aggregate
   validation/audit, and human integration apply/discard.

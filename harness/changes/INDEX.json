@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-26T07:47:19.5358019Z",
+    "generated_at":  "2026-06-26T08:30:25.4393673Z",
     "active":  [
 
                ],
@@ -1977,6 +1977,10 @@
                     {
                         "name":  "20260626-workbench-local-landing-ready-terminal-close-v1",
                         "path":  "harness/changes/archive/20260626-workbench-local-landing-ready-terminal-close-v1"
+                    },
+                    {
+                        "name":  "20260626-workbench-mode-aware-local-goal-loop-real-ui-acceptance-v1",
+                        "path":  "harness/changes/archive/20260626-workbench-mode-aware-local-goal-loop-real-ui-acceptance-v1"
                     },
                     {
                         "name":  "20260626-workbench-mode-aware-local-goal-loop-v1",

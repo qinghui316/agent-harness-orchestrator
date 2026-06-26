@@ -158,6 +158,14 @@ Current architecture debt register:
 
 Current structured change: none.
 
+Latest real UI acceptance:
+`harness/changes/archive/20260626-workbench-mode-aware-local-goal-loop-real-ui-acceptance-v1/summary.md`.
+
+The mode-aware local Goal Loop now has real in-app browser evidence:
+request-approval waits on the real next gate, full-access can complete a
+sequential local apply/landing/close path, and full-access stops before raw
+scheduler preparation.
+
 Latest completed Harness evolution:
 `harness/changes/archive/20260626-auto-evolve-post-mode-aware-loop-window/summary.md`.
 Decision: `docs_merge`; subagent Aquinas score `86/100`. No new product
