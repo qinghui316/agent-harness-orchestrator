@@ -7,7 +7,8 @@
 - Pending Harness evolution: none.
 - Latest archived product audit: `harness/changes/archive/20260625-workbench-goal-loop-decision-surface-audit-v1/summary.md`.
 - Latest archived product change: `harness/changes/archive/20260626-workbench-integration-apply-outcome-completion-v1/summary.md`.
-- Latest archived product acceptance: `harness/changes/archive/20260626-workbench-repaired-integration-apply-real-ui-acceptance-v1/summary.md`.
+- Latest archived product acceptance: `harness/changes/archive/20260626-workbench-integration-applied-local-landing-close-real-ui-scout-v1/summary.md`.
+- Previous repaired integration apply acceptance: `harness/changes/archive/20260626-workbench-repaired-integration-apply-real-ui-acceptance-v1/summary.md`.
 - Previous IntegrationFix real UI acceptance: `harness/changes/archive/20260626-workbench-integrationfix-real-ui-acceptance-v1/summary.md`.
 - Previous archived product change: `harness/changes/archive/20260625-workbench-codex-backed-integrationfix-real-repair-v1/summary.md`.
 - Previous scheduler progression: `harness/changes/archive/20260625-workbench-scheduler-worker-progression-to-integration-candidate-v1/summary.md`.
@@ -34,7 +35,17 @@
 - Latest scheduler IntegrationCheck acceptance: `harness/changes/archive/20260625-workbench-scheduler-integrationcheck-real-acceptance-v1/summary.md`.
 - Latest scheduler integration apply/discard hardening: `harness/changes/archive/20260625-workbench-scheduler-integration-apply-discard-real-acceptance-v1/summary.md`.
 
-Latest product closeout:
+Latest product acceptance:
+`harness/changes/archive/20260626-workbench-integration-applied-local-landing-close-real-ui-scout-v1/summary.md`.
+It verified the local post-integration-apply route through scheduler
+outcome/completion and local `landing.prepare` on the E-drive external source.
+The scout fixed shared untracked-file patch rendering so repaired IntegrationFix
+patches that add new files can be attributed by landing review. The remaining
+local-Agent blocker is terminal routing after landing-ready: with PR/remote out
+of scope and no Git remote configured, Workbench currently routes to PR
+provider readiness instead of a local `change.close/archive` terminal gate.
+
+Previous product closeout:
 `harness/changes/archive/20260626-workbench-integration-apply-outcome-completion-v1/summary.md`.
 It completes the post-integration-apply surface. Deterministic fixture coverage
 now applies a real `combined.patch` through `apply-check.apply`, confirms old
@@ -231,11 +242,13 @@ Decision: `noop`. `harness-evolve mark-complete` removed `pending.md`,
 advanced the archive counter to 487, and recorded subagent review score 91 in
 `results.tsv`. No ECL/template/lint/product runtime change was made.
 
-Recommended next resume point: choose the next concrete product capability
-from existing Workbench gate/action/runtime owners. The Codex-backed
-IntegrationFix branch now has real UI acceptance through repair and manual
-application of the repaired artifact to the external source root. Do not widen
-`完全访问权限` into raw
+Recommended next resume point: fix the local terminal close path after
+integration landing-ready. The latest scout proved integration apply can reach
+local `landing.prepare` and fixed landing attribution for repaired patches that
+add new files, but after landing-ready Workbench still routes to PR provider
+readiness when PR/remote are out of scope. The next product slice should make
+the local-only path resolve to `change.close/archive`, completed/no primary
+gate, or an explicit local blocker. Do not widen `完全访问权限` into raw
 scheduler, integration apply/discard, remote, merge, PR, or Harness evolution
 without a separate structured change.
 

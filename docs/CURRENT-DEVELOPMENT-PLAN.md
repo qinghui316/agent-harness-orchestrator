@@ -11,15 +11,16 @@ The user should not need to know internal terms before asking for work. The main
 ## Goal-Driven Workflow Loop Target
 
 Latest implementation and acceptance slice:
-`harness/changes/archive/20260626-workbench-integration-apply-outcome-completion-v1/summary.md`.
-It completes the post-integration-apply outcome surface after the previous
-real UI acceptance proved repaired IntegrationFix artifacts can be
-human-applied. After `apply-check.apply`, stale integration apply/discard gates
-disappear, the existing scheduler outcome/completion path becomes current, and
-Workbench can advance to local `landing.prepare` with the decision inspector
-aligned to the authoritative confirmation queue. It did not implement a new
-workflow runtime, full parallel executor, or automatic integration
-apply/discard.
+`harness/changes/archive/20260626-workbench-integration-applied-local-landing-close-real-ui-scout-v1/summary.md`.
+It verifies the local post-integration-apply route through scheduler
+outcome/completion and local `landing.prepare` on an E-drive external source.
+The scout fixed a shared untracked-file patch rendering bug that blocked
+landing attribution for repaired IntegrationFix patches adding new files. The
+remaining local-Agent blocker is terminal routing after landing-ready: with
+PR/remote out of scope, Workbench should resolve to local `change.close/archive`,
+completed/no primary gate, or an explicit local blocker instead of PR provider
+readiness. It did not implement a new workflow runtime, full parallel executor,
+automatic integration apply/discard, PR, remote, or merge.
 
 The target architecture is a Goal-driven Workflow Loop, not a Scheduler-first
 product. After the user confirms the goal, boundaries, accepted plan, and
@@ -165,6 +166,14 @@ It evaluated the window ending with
 `harness/changes/archive/20260626-workbench-repaired-integration-apply-real-ui-acceptance-v1/summary.md`
 as a separate human-gated Harness evolution pass and completed as `noop`.
 Latest product change:
+`harness/changes/archive/20260626-workbench-integration-applied-local-landing-close-real-ui-scout-v1/summary.md`.
+It verifies the local post-integration-apply route through scheduler
+outcome/completion and local `landing.prepare`, fixes repaired-patch landing
+attribution for added files, and records the remaining local terminal blocker:
+after landing-ready, the no-PR/no-remote path still needs to resolve to local
+`change.close/archive`, completed/no primary gate, or an explicit local
+blocker instead of PR provider readiness.
+Previous product change:
 `harness/changes/archive/20260626-workbench-integration-apply-outcome-completion-v1/summary.md`.
 It completes the post-integration-apply outcome projection and next-gate
 surface for same-Change IntegrationCheck apply.
@@ -269,6 +278,11 @@ Current baseline:
   check states. The latest real UI acceptance proves a repaired IntegrationFix
   artifact can be applied through this human gate and then stops showing the
   old apply/discard gate as primary.
+- Local landing after integration apply is verified through `landing.prepare`
+  and a ready landing package. The remaining local-Agent gap is terminal
+  routing after landing-ready when PR/remote are excluded: the next product
+  slice should make the path show local `change.close/archive`,
+  completed/no primary gate, or an explicit local blocker.
 - External-local restore is implemented for direct `workbench serve <path>`.
   When a source marker and the current `AHO_HOME/projects/<projectId>` memory
   exist, Workbench restores a session-scoped direct project, lists existing

@@ -9,7 +9,8 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 - Pending Harness evolution: none.
 - Latest archived product audit: Workbench Goal Loop Decision Surface Audit V1, archived at `harness/changes/archive/20260625-workbench-goal-loop-decision-surface-audit-v1/summary.md`.
 - Latest archived product change: Workbench Integration Apply Outcome Completion V1, archived at `harness/changes/archive/20260626-workbench-integration-apply-outcome-completion-v1/summary.md`.
-- Latest archived product acceptance: Workbench Repaired Integration Apply Real UI Acceptance V1, archived at `harness/changes/archive/20260626-workbench-repaired-integration-apply-real-ui-acceptance-v1/summary.md`.
+- Latest archived product acceptance: Workbench Integration Applied Local Landing/Close Real UI Scout V1, archived at `harness/changes/archive/20260626-workbench-integration-applied-local-landing-close-real-ui-scout-v1/summary.md`.
+- Previous repaired integration apply acceptance: `harness/changes/archive/20260626-workbench-repaired-integration-apply-real-ui-acceptance-v1/summary.md`.
 - Previous IntegrationFix real UI acceptance: `harness/changes/archive/20260626-workbench-integrationfix-real-ui-acceptance-v1/summary.md`.
 - Previous archived product change: Workbench Codex-Backed IntegrationFix Real Repair V1, archived at `harness/changes/archive/20260625-workbench-codex-backed-integrationfix-real-repair-v1/summary.md`.
 - Previous scheduler progression: `harness/changes/archive/20260625-workbench-scheduler-worker-progression-to-integration-candidate-v1/summary.md`.
@@ -59,6 +60,16 @@ It verifies the post-integration-apply surface: after human
 existing controlled scheduler outcome/completion path becomes current, and the
 Workbench decision inspector aligns with the authoritative confirmation queue
 when the next gate is local `landing.prepare`.
+
+Latest local landing scout:
+`harness/changes/archive/20260626-workbench-integration-applied-local-landing-close-real-ui-scout-v1/summary.md`.
+It verified that the repaired IntegrationFix apply path can advance through
+scheduler outcome/completion and local `landing.prepare` on an E-drive
+external source. The scout fixed a shared untracked-file patch rendering bug
+that blocked landing attribution for repaired patches adding new files. It
+also recorded the next local-Agent blocker: after landing is ready and
+PR/remote are out of scope, Workbench currently routes to PR provider readiness
+instead of a local close/archive terminal gate.
 
 Previous repaired integration apply acceptance:
 `harness/changes/archive/20260626-workbench-repaired-integration-apply-real-ui-acceptance-v1/summary.md`.
