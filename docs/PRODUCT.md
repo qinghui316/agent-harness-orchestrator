@@ -8,7 +8,7 @@ It manages requirements, project understanding, demand conversations, internal C
 
 AHO is not a generic multi-agent framework, ticket board, or chat UI. Multi-agent orchestration is a core execution layer, but the product kernel remains project-linked durable memory plus Spec-Anchored execution.
 
-It borrows orchestration ideas from Agent Orchestrator, planning artifact flow from OpenSpec, Codex-oriented workflows from oh-my-codex, workspace/session/subagent boundaries from AgentScope, work-queue/runtime reconciliation ideas from Symphony, deterministic workflow-as-artifact lessons from Open Dynamic Workflows, Open Design's local Workbench interaction lessons, and ECL/Harness protocol rules from ecl-harness-engineer.
+It borrows orchestration ideas from Agent Orchestrator, planning artifact flow from OpenSpec, Codex-oriented workflows from oh-my-codex, workspace/session/subagent boundaries from AgentScope, work-queue/runtime reconciliation ideas from Symphony, deterministic workflow-as-artifact lessons from Open Dynamic Workflows, Open Design's local Workbench interaction lessons, desktop Agent product-layer lessons from desktop-cc-gui, and ECL/Harness protocol rules from ecl-harness-engineer.
 
 The long-term product loop is:
 
@@ -52,6 +52,8 @@ Demand
 ```
 
 AHO should feel more like an Agent Development OS than a ticket tracker. The demand conversation is the primary user surface; the internal Workpad is the operator read model; Thread is the narrative; Agent Loop is the evidence detail; Decision Inspector is the human gate.
+
+AHO's product layer should eventually support two user-facing modes on one shared desktop/workspace shell. Harness mode is the professional development path and remains backed by Change/ECL, accepted artifacts, validation/audit, worktrees, apply/landing/close, and Harness evolution gates. A future normal Agent mode can provide a direct single-Agent conversation closer to desktop-cc-gui, but it must not weaken Harness mode or become the default authority for Harness work. Shared surfaces such as projects, chat, file references, file tree, Git, terminal, settings, Skills, runtime diagnostics, and provider configuration should be designed once and then bound to the selected execution algorithm.
 
 Future dynamic orchestration must preserve that product shape. Phase 7H introduced only the proposal boundary: for complex demands, the main agent may propose a DecompositionPlan that explains whether the demand should remain one Change, become multiple TaskGraph execution units, become multiple child Changes, or stop for clarification. That plan is a proposal artifact shown through the demand conversation and evidence/details surfaces. Phase 7H confirmation records acceptance of the proposal only. Phase 7I adds a non-executing DecompositionReadinessManifest after confirmation so AHO can say whether a later execution layer may safely consume the proposal, which guardrail blocks it, and what next action is allowed. Phase 7J makes that verdict an execution gate: single-change readiness may authorize `code.run`, while sequential taskgraph readiness must first become a TaskQueueProposal. Phase 7L requires that proposal to compile into a versioned WorkflowGraphPlan before any confirmed queue start. Phase 7K adds a typed WorkflowRun journal for confirmed sequential TaskQueue execution so progress can be reconstructed and resumed only when the current Harness facts still match.
 

@@ -41,3 +41,7 @@
 [submodule "reference-projects/agentscope"]
 	path = reference-projects/agentscope
 	url = https://github.com/agentscope-ai/agentscope.git
+[submodule "reference-projects/desktop-cc-gui"]
+	ignore = all
+	path = reference-projects/desktop-cc-gui
+	url = https://github.com/zhukunpenglinyutong/desktop-cc-gui.git

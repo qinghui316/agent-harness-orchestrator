@@ -158,16 +158,60 @@ Current architecture debt register:
 | Manager facades | Thin compatibility exports and wiring only | Keep new main logic out of broad facades; add owner modules or extend existing owners |
 | Workbench test architecture | Keep Workbench regression coverage in explicit capability-domain suites and keep slow end-to-end scenarios out of ordinary unit iteration | Residual Workbench monolith is eliminated; place future Workbench tests directly in owned capability suites with shared fixture builders and explicit package script membership |
 
+## Desktop Product Layer Roadmap
+
+Latest reference map:
+`docs/design-docs/ref-desktop-cc-gui.md`.
+
+The local Harness/Loop engine is now far enough along that the next broad
+product direction is the user-facing desktop product layer. `desktop-cc-gui`
+is the closest reference for this layer because it wraps Codex, Claude Code,
+OpenCode, and similar CLI agents with workspace management, chat, files, Git,
+terminal, Skills, settings, diagnostics, project memory/map, and desktop
+packaging. AHO should borrow those product patterns without copying its
+ordinary Agent authority model into Harness mode.
+
+Two modes are the target shape:
+
+- Harness mode: professional development flow backed by Change/ECL, accepted
+  plan/tasks, validation/audit, worktrees, IntegrationCheck, apply, landing,
+  close, and Harness evolution gates.
+- Normal Agent mode: future direct single-Agent conversation mode closer to
+  desktop-cc-gui. It can share the same shell and tools, but it uses a simpler
+  execution algorithm and must not weaken Harness mode.
+
+Current implementation remains Codex-first. Claude Code, OpenCode, Gemini, or
+other engines should be added later through a provider capability matrix and
+runtime bridge, not through scattered feature-specific branches.
+
+Staged product-layer backlog:
+
+| Phase | Goal | Reference map domains | Done signal |
+| --- | --- | --- | --- |
+| 1 | Harness mode product shell | App shell/layout, Workspace/Project, Codex bridge diagnostics, Settings entry | A user can open/create/restore a project, see Codex readiness, and enter Harness Workbench without CLI setup. |
+| 2 | Workbench usage layer | Chat/Composer, Plan/Tasks, file refs, slash commands, attachments, feedback affordances | A user can drive Harness mode from ordinary input, references, and confirmation feedback without learning internal object names. |
+| 3 | Tool panels | Files, Git, Terminal, Runtime log | A user can inspect files/diffs/status/logs inside AHO while source mutation still routes through AHO gates. |
+| 4 | Skills and provider settings | Skills/MCP, Engine/Provider, Project memory/map/context ledger | Codex tools and project memory are visible and diagnosable; future providers have explicit capability slots but are not claimed active. |
+| 5 | Normal Agent mode | Shared shell plus direct Agent conversation | The same project shell can run a non-Harness single-Agent conversation while Harness mode remains separate. |
+| 6 | Desktop packaging | Tauri packaging/update/security model | A packaged app can run the same local Harness behavior as the dev Workbench. |
+
+This roadmap is not an implementation claim. It is a routing map for future
+structured changes. Each phase still needs its own spec, owner modules,
+source-safety and permission boundaries, targeted tests, and user-visible
+acceptance.
+
 ## Next Product Direction
 
 Current structured change: none.
 
 Pending Harness evolution: none.
 
-Recommended next product step: continue local scheduler-loop validation at the
-manual IntegrationCheck boundary or choose the next local loop blocker. Keep
-PR/remote/merge and full parallel executor work out of the immediate local
-Agent loop path unless explicitly selected.
+Recommended next product step: choose a focused Phase 1 desktop product-layer
+slice from `docs/design-docs/ref-desktop-cc-gui.md`, such as project
+home/open/restore, Codex diagnostics, or settings entry. Keep normal Agent
+mode, Claude Code/OpenCode providers, Tauri packaging, PR/remote/merge, and
+full parallel executor work out of the immediate slice unless explicitly
+selected.
 
 Latest product change:
 `harness/changes/archive/20260626-workbench-orchestration-map-real-ui-and-collapsible-confirmation-rail-v1/summary.md`.

@@ -7,6 +7,7 @@ Reference projects are included as git submodules under `reference-projects/`. R
 | Agent Orchestrator | `https://github.com/ComposioHQ/agent-orchestrator` | `reference-projects/agent-orchestrator/` | `docs/design-docs/ref-agent-orchestrator.md` |
 | AgentScope | `https://github.com/agentscope-ai/agentscope` | `reference-projects/agentscope/` | `docs/design-docs/ref-agentscope.md` |
 | AgentScope Java | `https://github.com/agentscope-ai/agentscope-java` | `reference-projects/agentscope-java/` | `docs/design-docs/ref-agentscope-java.md` |
+| desktop-cc-gui | `https://github.com/zhukunpenglinyutong/desktop-cc-gui` | `reference-projects/desktop-cc-gui/` | `docs/design-docs/ref-desktop-cc-gui.md` |
 | Open Design | `https://github.com/nexu-io/open-design` | `reference-projects/open-design/` | `docs/design-docs/ref-open-design.md` |
 | OpenAI Codex | `https://github.com/openai/codex` | `reference-projects/openai-codex/` | `docs/design-docs/ref-openai-codex.md` |
 | Loop Engineering | `https://addyosmani.com/blog/loop-engineering/` | Web article | `docs/design-docs/ref-loop-engineering.md` |
@@ -34,6 +35,8 @@ Do not vendor-copy reference code into this repository. Update submodule pointer
 | Demand clarification, proposal/spec/design/tasks artifact flow | `docs/design-docs/ref-openspec.md` | OpenSpec shows a lightweight, iterative planning layer before implementation. |
 | Deterministic WorkflowPlan shape, pipeline/barrier semantics, run events, and resume journal | `docs/design-docs/ref-open-dynamic-workflows.md` | Open Dynamic Workflows shows how a main model-authored workflow artifact can fan out bounded leaf agents while preserving evented progress and recoverable execution. |
 | Workbench UI, readable tool cards, local daemon pattern | `docs/design-docs/ref-open-design.md` | Open Design shows local web/daemon projection and readable activity UI. |
+| Desktop Agent product shell, workspace/project management, multi-engine settings, files/git/terminal panels, Skills, project memory/map, usage surfaces, and packaging | `docs/design-docs/ref-desktop-cc-gui.md` | desktop-cc-gui shows a mature local desktop Agent product layer over Codex/Claude/OpenCode-style CLIs. Use it for user-facing product capability planning, not as AHO Harness workflow truth. |
+| Future normal Agent mode and provider capability matrix | `docs/design-docs/ref-desktop-cc-gui.md` and `docs/design-docs/ref-openai-codex.md` | desktop-cc-gui shows multi-provider product surfaces and capability matrix patterns; OpenAI Codex remains the current Codex runtime boundary reference. |
 | Role prompt files, command/skill organization, review-role structure, hook/permission boundaries | `docs/design-docs/ref-oh-my-codex.md` | oh-my-codex demonstrates practical role prompts, Task-style delegation, worker preambles, PreToolUse/PermissionRequest/PostToolUse hooks, and post-execution permission scans. |
 | Worktree and dashboard implementation patterns | `docs/design-docs/ref-agent-orchestrator.md` | Agent Orchestrator provides operational patterns for worktrees and runtime status. |
 | Current ECL lifecycle, fixed-window Harness evolution, active-change hygiene | `docs/design-docs/ref-ecl-harness-engineer.md` | ecl-harness-engineer is the current compatibility baseline for structured changes and evolution. |

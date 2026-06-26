@@ -9,6 +9,8 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 - Pending Harness evolution: none.
 - Latest archived product change:
   `harness/changes/archive/20260626-workbench-orchestration-map-real-ui-and-collapsible-confirmation-rail-v1/summary.md`.
+- Latest archived docs/reference change:
+  `harness/changes/archive/20260626-document-desktop-cc-gui-reference-map-and-product-layer-roadmap/summary.md`.
 - Latest completed Harness evolution:
   `harness/changes/archive/20260626-auto-evolve-post-orchestration-map-window/summary.md`
   (`docs_merge`; subagent Aquinas score 86; no ECL/template/lint/product
@@ -63,6 +65,10 @@ Current baseline:
 - One loop execution maps to one parent Change. Multi-worktree outputs may feed
   IntegrationCheck only within that Change; cross-Change merge remains future
   explicit design.
+- `desktop-cc-gui` is now a detailed product-layer reference for the next
+  desktop shell / workspace / tools / provider-settings roadmap. Current
+  implementation remains Codex-first Harness mode; normal Agent mode,
+  Claude Code / OpenCode providers, and Tauri packaging are future tracks.
 
 Daily `npm run test:workbench` is the fast Workbench unit-capability gate; slow
 scheduler/apply/Goal Loop coverage remains in explicit release/deep scripts.

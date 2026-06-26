@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-26T14:35:37.1856719Z",
+    "generated_at":  "2026-06-26T15:09:25.7449458Z",
     "active":  [
 
                ],
@@ -1969,6 +1969,10 @@
                     {
                         "name":  "20260626-auto-evolve-post-transcript-window",
                         "path":  "harness/changes/archive/20260626-auto-evolve-post-transcript-window"
+                    },
+                    {
+                        "name":  "20260626-document-desktop-cc-gui-reference-map-and-product-layer-roadmap",
+                        "path":  "harness/changes/archive/20260626-document-desktop-cc-gui-reference-map-and-product-layer-roadmap"
                     },
                     {
                         "name":  "20260626-workbench-cursor-incremental-transcript-projection-v2",
