@@ -23,7 +23,7 @@ export async function handleDirectWorkbenchApi(input: WorkbenchProjectInput | nu
   }
   if (request.method === "GET" && url.pathname.startsWith("/api/workbench/projections/")) {
     assertDirectProjectInput(input);
-    sendJson(response, 200, await getWorkbenchProjection(input, url.pathname.slice("/api/workbench/projections/".length)));
+    sendJson(response, 200, await getWorkbenchProjection(input, url.pathname.slice("/api/workbench/projections/".length), url.searchParams));
     return true;
   }
   if (request.method === "GET" && url.pathname === "/api/workbench/topics") {

@@ -861,6 +861,65 @@ describe("Workbench web app", () => {
     vi.unstubAllGlobals();
   });
 
+  it("loads a paged transcript and keeps large conversations bounded in the DOM", async () => {
+    const largeTranscript = {
+      ...snapshot.center.parentAgentTranscript,
+      cells: Array.from({ length: 1000 }, (_, index) => ({
+        id: `cell:assistant:${index}`,
+        kind: "assistant-message",
+        source: "codex-runtime",
+        text: `message ${index}`,
+      })),
+      items: [],
+      paging: { limit: 100, totalCount: 1000, hasMoreBefore: false },
+    };
+    vi.mocked(fetch).mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
+      if (url === "/api/projects") return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
+      if (url.includes("/workbench/projections/transcript/")) return jsonResponse(largeTranscript);
+      if (url.includes("/workbench/projections/run-graph/")) return jsonResponse(snapshot.center.agentRunGraph);
+      return jsonResponse(url.includes("/stream/") ? stream : snapshot);
+    });
+
+    render(<App />);
+
+    await screen.findByTestId("transcript-virtual-list");
+    await waitFor(() => expect(fetchCallUrls().some((url) => url.includes("/workbench/projections/transcript/member-discount?limit=100"))).toBe(true));
+    expect(screen.getAllByTestId("parent-message-parent-agent").length).toBeLessThan(80);
+  });
+
+  it("folds very long transcript messages until the user expands them", async () => {
+    const hiddenSentinel = "FULL_SENTINEL_END";
+    const longText = `preview line\n${"a".repeat(7000)}\n${hiddenSentinel}`;
+    const transcript = {
+      ...snapshot.center.parentAgentTranscript,
+      cells: [{
+        id: "cell:assistant:long",
+        kind: "assistant-message",
+        source: "codex-runtime",
+        text: longText,
+      }],
+      items: [],
+      paging: { limit: 100, totalCount: 1, hasMoreBefore: false },
+    };
+    vi.mocked(fetch).mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
+      if (url === "/api/projects") return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
+      if (url.includes("/workbench/projections/transcript/")) return jsonResponse(transcript);
+      if (url.includes("/workbench/projections/run-graph/")) return jsonResponse(snapshot.center.agentRunGraph);
+      return jsonResponse(url.includes("/stream/") ? stream : snapshot);
+    });
+
+    render(<App />);
+
+    await screen.findByText("展开完整内容");
+    expect(screen.queryByText(new RegExp(hiddenSentinel))).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "展开完整内容" }));
+    await screen.findByText(new RegExp(hiddenSentinel));
+  });
+
   it("renders bounded continuation as the primary confirmation and submits maxSteps once confirmed", async () => {
     const execute = vi.fn(async () => undefined);
     function Harness() {

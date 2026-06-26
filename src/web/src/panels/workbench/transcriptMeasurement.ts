@@ -1,0 +1,63 @@
+import { layout, prepare } from "@chenglou/pretext";
+import type { ParentAgentTranscriptCell } from "../../types.js";
+
+const LONG_MESSAGE_CHAR_LIMIT = 6000;
+const LONG_MESSAGE_LINE_LIMIT = 120;
+const PREVIEW_CHAR_LIMIT = 2400;
+const PREVIEW_LINE_LIMIT = 48;
+const DEFAULT_TEXT_WIDTH = 760;
+const PROSE_FONT = "15.5px system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
+const PROSE_LINE_HEIGHT = 26;
+
+export function isLongTranscriptCell(cell: ParentAgentTranscriptCell): boolean {
+  if (cell.kind !== "assistant-message" && cell.kind !== "user-message") return false;
+  const text = cell.text ?? "";
+  return text.length > LONG_MESSAGE_CHAR_LIMIT || text.split(/\r?\n/).length > LONG_MESSAGE_LINE_LIMIT;
+}
+
+export function transcriptCellDisplayText(cell: ParentAgentTranscriptCell, expanded: boolean): string {
+  if (expanded || !isLongTranscriptCell(cell)) return cell.text;
+  return previewTranscriptText(cell.text);
+}
+
+export function previewTranscriptText(text: string): string {
+  const lines = text.split(/\r?\n/);
+  const linePreview = lines.length > PREVIEW_LINE_LIMIT ? lines.slice(0, PREVIEW_LINE_LIMIT).join("\n") : text;
+  const preview = linePreview.length > PREVIEW_CHAR_LIMIT ? linePreview.slice(0, PREVIEW_CHAR_LIMIT) : linePreview;
+  return `${preview.trimEnd()}\n\n...`;
+}
+
+export function estimateTranscriptCellHeight(cell: ParentAgentTranscriptCell, options: {
+  expanded: boolean;
+  width?: number;
+}): number {
+  if (cell.kind === "process-row" || cell.kind === "evidence-row") {
+    const detailAllowance = cell.detailText ? 42 : 0;
+    return 72 + estimatePlainLineCount(cell.text, 72) * 20 + detailAllowance;
+  }
+  const text = transcriptCellDisplayText(cell, options.expanded);
+  const titleAllowance = cell.title ? 28 : 0;
+  const proseHeight = estimateTextHeightWithPretext(text, Math.max(280, options.width ?? DEFAULT_TEXT_WIDTH));
+  return Math.max(72, proseHeight + titleAllowance + 34);
+}
+
+function estimateTextHeightWithPretext(text: string, width: number): number {
+  if (isJSDomRuntime()) return estimatePlainLineCount(text, Math.max(24, Math.floor(width / 8))) * PROSE_LINE_HEIGHT;
+  try {
+    const measured = layout(prepare(text, PROSE_FONT, { whiteSpace: "pre-wrap" }), width, PROSE_LINE_HEIGHT);
+    if (Number.isFinite(measured.height) && measured.height > 0) return measured.height;
+  } catch {
+    // Pretext relies on browser text primitives; keep Workbench usable if they
+    // are unavailable in tests or an older embedded browser.
+  }
+  return estimatePlainLineCount(text, Math.max(24, Math.floor(width / 8))) * PROSE_LINE_HEIGHT;
+}
+
+function isJSDomRuntime(): boolean {
+  return typeof navigator !== "undefined" && /jsdom/i.test(navigator.userAgent);
+}
+
+function estimatePlainLineCount(text: string, charsPerLine: number): number {
+  const lines = text.split(/\r?\n/);
+  return Math.max(1, lines.reduce((total, line) => total + Math.max(1, Math.ceil(line.length / charsPerLine)), 0));
+}

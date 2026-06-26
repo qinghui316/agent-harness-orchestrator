@@ -33,15 +33,18 @@ import {
   getWorkbenchWorkpadProjection,
   type WorkbenchProjectInput,
 } from "../../workbench/manager.js";
+import { pageParentAgentTranscript } from "../../workbench/parent-agent-transcript.js";
 
-export async function getWorkbenchProjection(input: WorkbenchProjectInput, rest: string): Promise<unknown> {
+export async function getWorkbenchProjection(input: WorkbenchProjectInput, rest: string, searchParams = new URLSearchParams()): Promise<unknown> {
   const [kind, encodedChangeId, encodedId, encodedExtraId] = rest.split("/");
   const changeId = encodedChangeId ? decodeURIComponent(encodedChangeId) : undefined;
   const id = encodedId ? decodeURIComponent(encodedId) : undefined;
   const extraId = encodedExtraId ? decodeURIComponent(encodedExtraId) : undefined;
   if (kind === "transcript") {
     if (!changeId) throw badRequest("transcript projection requires changeId.");
-    return getWorkbenchTranscriptProjection(input, changeId);
+    const transcript = await getWorkbenchTranscriptProjection(input, changeId);
+    const paging = readTranscriptPaging(searchParams);
+    return paging ? pageParentAgentTranscript(transcript, paging) : transcript;
   }
   if (kind === "run-graph") {
     if (!changeId) throw badRequest("run-graph projection requires changeId.");
@@ -191,6 +194,17 @@ export async function getWorkbenchProjection(input: WorkbenchProjectInput, rest:
   if (kind === "maintenance") return getWorkbenchMaintenanceProjection(input);
   if (kind === "landing-queue") return getWorkbenchLandingQueueProjection(input);
   throw badRequest(`Unknown Workbench projection: ${kind ?? ""}`);
+}
+
+function readTranscriptPaging(searchParams: URLSearchParams): { limit?: number; beforeCursor?: string } | null {
+  const limitRaw = searchParams.get("limit");
+  const beforeCursor = searchParams.get("beforeCursor") ?? undefined;
+  if (!limitRaw && !beforeCursor) return null;
+  const limit = limitRaw ? Number(limitRaw) : undefined;
+  return {
+    limit: Number.isFinite(limit) ? limit : undefined,
+    beforeCursor,
+  };
 }
 
 function badRequest(message: string): Error {

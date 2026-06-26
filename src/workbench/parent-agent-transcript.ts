@@ -51,7 +51,23 @@ export interface ParentAgentTranscript {
   cells: ParentAgentTranscriptCell[];
   items: ParentAgentTranscriptItem[];
   emptyMessage?: string;
+  paging?: ParentAgentTranscriptPaging;
 }
+
+export interface ParentAgentTranscriptPaging {
+  limit: number;
+  totalCount: number;
+  hasMoreBefore: boolean;
+  nextBeforeCursor?: string;
+}
+
+export interface ParentAgentTranscriptPageOptions {
+  beforeCursor?: string;
+  limit?: number;
+}
+
+const DEFAULT_TRANSCRIPT_PAGE_LIMIT = 100;
+const MAX_TRANSCRIPT_PAGE_LIMIT = 500;
 
 interface TranscriptWorkpadInput {
   conversationId?: string;
@@ -86,6 +102,37 @@ export function buildParentAgentTranscript(input: {
     items: transcriptItemsFromCells(cells),
     emptyMessage: "暂无对话内容。输入需求后，主 agent 会在这里持续回复。",
   };
+}
+
+export function pageParentAgentTranscript(
+  transcript: ParentAgentTranscript,
+  options: ParentAgentTranscriptPageOptions = {},
+): ParentAgentTranscript {
+  const limit = normalizeTranscriptPageLimit(options.limit);
+  const displayCells = transcript.cells.filter((cell) => cell.kind !== "detail-only");
+  const beforeIndex = options.beforeCursor
+    ? displayCells.findIndex((cell) => cell.id === options.beforeCursor)
+    : -1;
+  const endExclusive = beforeIndex >= 0 ? beforeIndex : displayCells.length;
+  const start = Math.max(0, endExclusive - limit);
+  const cells = displayCells.slice(start, endExclusive);
+  const hasMoreBefore = start > 0;
+  return {
+    ...transcript,
+    cells,
+    items: transcriptItemsFromCells(cells),
+    paging: {
+      limit,
+      totalCount: displayCells.length,
+      hasMoreBefore,
+      nextBeforeCursor: hasMoreBefore ? cells[0]?.id : undefined,
+    },
+  };
+}
+
+function normalizeTranscriptPageLimit(value?: number): number {
+  if (!Number.isFinite(value) || !value) return DEFAULT_TRANSCRIPT_PAGE_LIMIT;
+  return Math.max(1, Math.min(MAX_TRANSCRIPT_PAGE_LIMIT, Math.trunc(value)));
 }
 
 function transcriptCellsFromThreadItem(item: TranscriptThreadItemInput): ParentAgentTranscriptCell[] {

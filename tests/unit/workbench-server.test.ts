@@ -207,6 +207,11 @@ describe("workbench server", () => {
     const transcript = await getJson<{ cells: unknown[] }>(`${handle!.url}/api/workbench/projections/transcript/server-topic`);
     expect(Array.isArray(transcript.cells)).toBe(true);
 
+    const pagedTranscript = await getJson<{ cells: unknown[]; paging?: { limit: number; totalCount: number; hasMoreBefore: boolean } }>(`${handle!.url}/api/workbench/projections/transcript/server-topic?limit=2`);
+    expect(Array.isArray(pagedTranscript.cells)).toBe(true);
+    expect(pagedTranscript.paging?.limit).toBe(2);
+    expect(typeof pagedTranscript.paging?.totalCount).toBe("number");
+
     const graph = await getJson<{ nodes: Array<{ id: string }> }>(`${handle!.url}/api/workbench/projections/run-graph/server-topic`);
     expect(graph.nodes.some((node) => node.id === "main-agent")).toBe(true);
   });

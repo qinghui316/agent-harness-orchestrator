@@ -1,8 +1,14 @@
 import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
   type ReactElement,
-  type ReactNode } from "react";
+  type ReactNode,
+  type RefObject } from "react";
 import { RunReplay, artifactName } from "./RunReplayPanel.js";
 import { WorkpadView } from "./WorkpadPanel.js";
+import { calculateTranscriptVirtualRange } from "./TranscriptVirtualList.js";
 import {
   agentRunStatusLabel,
   formatTime,
@@ -11,6 +17,11 @@ import {
 import { ControlledSchedulerStepReceiptCard, ControlledSchedulerStepTraceCard } from "./workpad/GoalLoopCards.js";
 import { cleanTranscriptText,
   cleanTranscriptTitle } from "../../liveTranscript.js";
+import {
+  estimateTranscriptCellHeight,
+  isLongTranscriptCell,
+  transcriptCellDisplayText,
+} from "./transcriptMeasurement.js";
 import type {
   CenterTab,
   DemandAgentRunGraph,
@@ -34,6 +45,9 @@ export function MainConversationView({
   liveTurns,
   activeRun,
   stream,
+  scrollContainerRef,
+  onLoadEarlierTranscript,
+  loadingEarlierTranscript,
   busy,
   approvals,
   onAction,
@@ -52,6 +66,9 @@ export function MainConversationView({
   liveTurns: LiveAssistantTurn[];
   activeRun?: RunSummary;
   stream: StreamPacket | null;
+  scrollContainerRef: RefObject<HTMLDivElement | null>;
+  onLoadEarlierTranscript: () => Promise<void>;
+  loadingEarlierTranscript: boolean;
   busy: boolean;
   approvals: Snapshot["right"]["approvals"];
   onAction: (actionType: string, options?: Record<string, unknown>) => Promise<void>;
@@ -75,6 +92,9 @@ export function MainConversationView({
           workpad={workpad}
           transcript={transcript}
           liveTurns={liveTurns}
+          scrollContainerRef={scrollContainerRef}
+          onLoadEarlierTranscript={onLoadEarlierTranscript}
+          loadingEarlierTranscript={loadingEarlierTranscript}
           busy={busy}
           onAction={onAction}
           onAnswerClarification={onAnswerClarification}
@@ -108,6 +128,9 @@ function ParentAgentTranscriptView({
   workpad,
   transcript,
   liveTurns,
+  scrollContainerRef,
+  onLoadEarlierTranscript,
+  loadingEarlierTranscript,
   busy,
   onAction,
   onAnswerClarification,
@@ -116,6 +139,9 @@ function ParentAgentTranscriptView({
   workpad: Workpad;
   transcript: ParentAgentTranscript;
   liveTurns: LiveAssistantTurn[];
+  scrollContainerRef: RefObject<HTMLDivElement | null>;
+  onLoadEarlierTranscript: () => Promise<void>;
+  loadingEarlierTranscript: boolean;
   busy: boolean;
   onAction: (actionType: string, options?: Record<string, unknown>) => Promise<void>;
   onAnswerClarification: (clarificationId: string, answer: string) => Promise<void>;
@@ -126,26 +152,102 @@ function ParentAgentTranscriptView({
   void busy;
   void onAnswerClarification;
   const cells = transcript.cells?.length ? transcript.cells.filter((cell) => cell.kind !== "detail-only") : [];
+  const [expandedCells, setExpandedCells] = useState<Set<string>>(new Set());
+  const [scrollMetrics, setScrollMetrics] = useState({ scrollTop: 0, viewportHeight: 720, listWidth: 760 });
+  const loadingEarlierRef = useRef(false);
+  const heights = useMemo(() => cells.map((cell) => estimateTranscriptCellHeight(cell, {
+    expanded: expandedCells.has(cell.id),
+    width: scrollMetrics.listWidth,
+  })), [cells, expandedCells, scrollMetrics.listWidth]);
+  const virtualRange = useMemo(() => calculateTranscriptVirtualRange({
+    heights,
+    scrollTop: scrollMetrics.scrollTop,
+    viewportHeight: scrollMetrics.viewportHeight,
+    overscan: 10,
+  }), [heights, scrollMetrics.scrollTop, scrollMetrics.viewportHeight]);
+  const visibleCells = cells.slice(virtualRange.start, virtualRange.end);
+
+  useEffect(() => {
+    const node = scrollContainerRef.current;
+    if (!node) return;
+    function updateMetrics(): void {
+      if (!node) return;
+      setScrollMetrics({
+        scrollTop: node.scrollTop,
+        viewportHeight: node.clientHeight || 720,
+        listWidth: Math.max(320, node.clientWidth - 80),
+      });
+    }
+    updateMetrics();
+    node.addEventListener("scroll", updateMetrics);
+    window.addEventListener("resize", updateMetrics);
+    return () => {
+      node.removeEventListener("scroll", updateMetrics);
+      window.removeEventListener("resize", updateMetrics);
+    };
+  }, [scrollContainerRef]);
+
+  useEffect(() => {
+    const node = scrollContainerRef.current;
+    if (!node || loadingEarlierTranscript || loadingEarlierRef.current) return;
+    if (!transcript.paging?.hasMoreBefore) return;
+    if (scrollMetrics.scrollTop > 260) return;
+    loadingEarlierRef.current = true;
+    const previousScrollHeight = node.scrollHeight;
+    void onLoadEarlierTranscript().finally(() => {
+      requestAnimationFrame(() => {
+        const current = scrollContainerRef.current;
+        if (current) current.scrollTop += Math.max(0, current.scrollHeight - previousScrollHeight);
+        loadingEarlierRef.current = false;
+      });
+    });
+  }, [loadingEarlierTranscript, onLoadEarlierTranscript, scrollContainerRef, scrollMetrics.scrollTop, transcript.paging?.hasMoreBefore]);
+
   return (
     <div className="parent-agent-transcript" data-testid="parent-agent-transcript">
       {workpad.controlledSchedulerStepReceipt ? <ControlledSchedulerStepReceiptCard receipt={workpad.controlledSchedulerStepReceipt} /> : null}
       {workpad.controlledSchedulerStepTrace ? <ControlledSchedulerStepTraceCard trace={workpad.controlledSchedulerStepTrace} /> : null}
-      <div className="parent-agent-message-list">
+      <div className="parent-agent-message-list" data-testid="transcript-virtual-list" style={{ minHeight: virtualRange.totalHeight || undefined }}>
+        {transcript.paging?.hasMoreBefore ? (
+          <div className="transcript-load-earlier" data-testid="transcript-load-earlier">
+            {loadingEarlierTranscript ? "正在加载更早消息..." : "向上滚动加载更早消息"}
+          </div>
+        ) : null}
         {cells.length === 0 ? <div className="empty-state">{transcript.emptyMessage ?? "暂无对话内容。"}</div> : null}
-        {cells.map((cell) => <ParentAgentTranscriptCellView key={cell.id} cell={cell} />)}
+        {virtualRange.topSpacer > 0 ? <div className="transcript-virtual-spacer" style={{ height: virtualRange.topSpacer }} /> : null}
+        {visibleCells.map((cell) => (
+          <ParentAgentTranscriptCellView
+            key={cell.id}
+            cell={cell}
+            expanded={expandedCells.has(cell.id)}
+            onToggleExpanded={() => {
+              setExpandedCells((current) => {
+                const next = new Set(current);
+                if (next.has(cell.id)) next.delete(cell.id);
+                else next.add(cell.id);
+                return next;
+              });
+            }}
+          />
+        ))}
+        {virtualRange.bottomSpacer > 0 ? <div className="transcript-virtual-spacer" style={{ height: virtualRange.bottomSpacer }} /> : null}
       </div>
       <HiddenLegacyThreadHooks onAction={onAction} onSelectDecisionContext={onSelectDecisionContext} />
     </div>
   );
 }
 
-function ParentAgentTranscriptCellView({ cell }: { cell: ParentAgentTranscriptCell }): ReactElement {
+function ParentAgentTranscriptCellView({ cell, expanded, onToggleExpanded }: {
+  cell: ParentAgentTranscriptCell;
+  expanded: boolean;
+  onToggleExpanded: () => void;
+}): ReactElement {
   const isUser = cell.kind === "user-message";
   return (
     <div className={`parent-agent-message-row ${isUser ? "user" : "parent"}`} data-testid={isUser ? "parent-message-user" : "parent-message-parent-agent"}>
       <div className={`parent-agent-bubble ${isUser ? "user" : "parent"} ${cell.kind}`}>
         {cell.kind === "assistant-message" || cell.kind === "user-message"
-          ? <ParentAgentTranscriptMessageCell cell={cell} />
+          ? <ParentAgentTranscriptMessageCell cell={cell} expanded={expanded} onToggleExpanded={onToggleExpanded} />
           : <ParentAgentTranscriptProcessCell cell={cell} />}
       </div>
       {cell.timestamp ? <time>{formatTime(cell.timestamp)}</time> : null}
@@ -153,13 +255,23 @@ function ParentAgentTranscriptCellView({ cell }: { cell: ParentAgentTranscriptCe
   );
 }
 
-function ParentAgentTranscriptMessageCell({ cell }: { cell: ParentAgentTranscriptCell }): ReactElement {
+function ParentAgentTranscriptMessageCell({ cell, expanded, onToggleExpanded }: {
+  cell: ParentAgentTranscriptCell;
+  expanded: boolean;
+  onToggleExpanded: () => void;
+}): ReactElement {
   const title = cleanTranscriptTitle(cell.title);
-  const text = normalizeCodexTranscriptText(cleanTranscriptText(cell.text));
+  const folded = isLongTranscriptCell(cell) && !expanded;
+  const text = normalizeCodexTranscriptText(cleanTranscriptText(transcriptCellDisplayText(cell, expanded)));
   return (
     <div className={`parent-agent-prose ${cell.isError ? "danger" : ""}`}>
       {title ? <strong>{title}</strong> : null}
       <MarkdownLite text={text} idPrefix={cell.id} />
+      {isLongTranscriptCell(cell) ? (
+        <button type="button" className="transcript-expand-button" onClick={onToggleExpanded}>
+          {folded ? "展开完整内容" : "收起"}
+        </button>
+      ) : null}
     </div>
   );
 }

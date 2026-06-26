@@ -4,9 +4,10 @@
 
 - Current date: 2026-06-26.
 - Active ECL change: none.
-- Pending Harness evolution: none.
+- Pending Harness evolution: `harness/evolution/pending.md`.
 - Latest archived product audit: `harness/changes/archive/20260625-workbench-goal-loop-decision-surface-audit-v1/summary.md`.
-- Latest archived product change: `harness/changes/archive/20260626-workbench-local-scheduler-terminal-path-real-ui-scout-v1/summary.md`.
+- Latest archived product change: `harness/changes/archive/20260626-workbench-paged-virtual-transcript-with-pretext-v1/summary.md`.
+- Previous archived product change: `harness/changes/archive/20260626-workbench-local-scheduler-terminal-path-real-ui-scout-v1/summary.md`.
 - Previous archived product change: `harness/changes/archive/20260626-workbench-local-loop-scheduler-handoff-boundary-scout-v1/summary.md`.
 - Previous archived product change: `harness/changes/archive/20260626-workbench-mode-aware-local-goal-loop-real-ui-acceptance-v1/summary.md`.
 - Previous archived product change: `harness/changes/archive/20260626-workbench-mode-aware-local-goal-loop-v1/summary.md`.
@@ -41,6 +42,15 @@
 - Latest scheduler integration apply/discard hardening: `harness/changes/archive/20260625-workbench-scheduler-integration-apply-discard-real-acceptance-v1/summary.md`.
 
 Latest product closeout:
+`harness/changes/archive/20260626-workbench-paged-virtual-transcript-with-pretext-v1/summary.md`.
+It makes long Workbench conversations usable by adding paged transcript
+projection reads, frontend virtual transcript rendering, long-message folding,
+and `@chenglou/pretext` height estimation with fallback. The full transcript
+projection remains available for compatibility. No central workflow database,
+durable UI scroll/expanded state, new markdown renderer, workflow truth change,
+or source/apply/close behavior change was added.
+
+Previous product closeout:
 `harness/changes/archive/20260626-workbench-local-scheduler-terminal-path-real-ui-scout-v1/summary.md`.
 It composes the local scheduler terminal path through real in-app browser
 acceptance: Codex Plan Mode, human plan confirmation with `完全访问权限`,
@@ -289,6 +299,12 @@ scripts.
 ## Next Resume Point
 
 Active change: none.
+
+Pending Harness evolution:
+`harness/evolution/pending.md`.
+
+Latest product closeout:
+`harness/changes/archive/20260626-workbench-paged-virtual-transcript-with-pretext-v1/summary.md`.
 
 Latest real UI acceptance:
 `harness/changes/archive/20260626-workbench-mode-aware-local-goal-loop-real-ui-acceptance-v1/summary.md`.

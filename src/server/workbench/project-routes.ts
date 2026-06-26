@@ -24,7 +24,7 @@ export async function handleProjectWorkbenchApi(input: WorkbenchProjectInput, re
     return;
   }
   if (request.method === "GET" && rest.startsWith("projections/")) {
-    sendJson(response, 200, await getWorkbenchProjection(input, rest.slice("projections/".length)));
+    sendJson(response, 200, await getWorkbenchProjection(input, rest.slice("projections/".length), url.searchParams));
     return;
   }
   if (request.method === "GET" && rest === "topics") {

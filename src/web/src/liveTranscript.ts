@@ -26,6 +26,25 @@ export function mergeLiveItemsIntoTranscript(transcript: ParentAgentTranscript, 
   };
 }
 
+export function mergeTranscriptPage(current: ParentAgentTranscript | null, incoming: ParentAgentTranscript): ParentAgentTranscript {
+  if (!current) return normalizeParentAgentTranscript(incoming);
+  const incomingCells = incoming.cells ?? [];
+  const currentCells = current.cells ?? [];
+  const seen = new Set<string>();
+  const cells = [...incomingCells, ...currentCells].filter((cell) => {
+    if (seen.has(cell.id)) return false;
+    seen.add(cell.id);
+    return true;
+  });
+  return normalizeParentAgentTranscript({
+    ...current,
+    ...incoming,
+    cells,
+    items: transcriptItemsFromCells(cells),
+    paging: incoming.paging ?? current.paging,
+  });
+}
+
 export function parentTranscriptCellsFromLiveTurn(turn: LiveAssistantTurn): ParentAgentTranscriptCell[] {
   const item: ThreadStreamItem = {
     id: turn.id,
@@ -189,6 +208,7 @@ export function normalizeParentAgentTranscript(value: ParentAgentTranscript | nu
     ...(value ?? {}),
     cells: Array.isArray(value?.cells) ? value.cells : [],
     items: Array.isArray(value?.items) ? value.items : [],
+    paging: value?.paging,
   };
 }
 

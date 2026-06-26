@@ -35,6 +35,7 @@ import {
   emptyParentAgentTranscript,
   isParentAgentTranscriptPayload,
   mergeLiveItemsIntoTranscript,
+  mergeTranscriptPage,
   normalizeParentAgentTranscript
 } from "./liveTranscript.js";
 
@@ -102,6 +103,7 @@ export function App(): ReactElement {
   const [liveItems, setLiveItems] = useState<ThreadStreamItem[]>([]);
   const [liveTurns, setLiveTurns] = useState<LiveAssistantTurn[]>([]);
   const [loadedTranscript, setLoadedTranscript] = useState<ParentAgentTranscript | null>(null);
+  const [loadingEarlierTranscript, setLoadingEarlierTranscript] = useState(false);
   const [loadedRunGraph, setLoadedRunGraph] = useState<DemandAgentRunGraph | null>(null);
   const [projectionVersion, setProjectionVersion] = useState(0);
   const [latestHidden, setLatestHidden] = useState(false);
@@ -666,10 +668,29 @@ export function App(): ReactElement {
     setLoadedRunGraph(null);
   }, [activeTopic?.id]);
 
+  async function loadEarlierTranscriptPage(): Promise<void> {
+    if (!selectedProjectId || !activeTopic?.id || loadingEarlierTranscript) return;
+    const cursor = activeTranscript.paging?.nextBeforeCursor;
+    if (!cursor || activeTranscript.paging?.hasMoreBefore === false) return;
+    setLoadingEarlierTranscript(true);
+    try {
+      const projection = await fetchJson<ParentAgentTranscript>(
+        `/api/projects/${encodeURIComponent(selectedProjectId)}/workbench/projections/transcript/${encodeURIComponent(activeTopic.id)}?limit=100&beforeCursor=${encodeURIComponent(cursor)}`,
+      );
+      if (isParentAgentTranscriptPayload(projection)) {
+        setLoadedTranscript((current) => mergeTranscriptPage(current, normalizeParentAgentTranscript(projection)));
+      }
+    } catch (cause: unknown) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setLoadingEarlierTranscript(false);
+    }
+  }
+
   useEffect(() => {
     if (!selectedProjectId || !activeTopic?.id) return;
     let cancelled = false;
-    fetchJson<ParentAgentTranscript>(`/api/projects/${encodeURIComponent(selectedProjectId)}/workbench/projections/transcript/${encodeURIComponent(activeTopic.id)}`)
+    fetchJson<ParentAgentTranscript>(`/api/projects/${encodeURIComponent(selectedProjectId)}/workbench/projections/transcript/${encodeURIComponent(activeTopic.id)}?limit=100`)
       .then((projection) => {
         if (!cancelled && isParentAgentTranscriptPayload(projection)) setLoadedTranscript(normalizeParentAgentTranscript(projection));
       })
@@ -786,6 +807,9 @@ export function App(): ReactElement {
                     workpad={activeWorkpad}
                     graph={activeRunGraph}
                     transcript={activeTranscript}
+                    scrollContainerRef={threadScrollRef}
+                    onLoadEarlierTranscript={loadEarlierTranscriptPage}
+                    loadingEarlierTranscript={loadingEarlierTranscript}
                     activeTab={centerTab}
                     liveTurns={liveTurns}
                     activeRun={activeRun}

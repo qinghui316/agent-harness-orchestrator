@@ -146,6 +146,12 @@ export type ParentAgentTranscript = {
   cells?: ParentAgentTranscriptCell[];
   items: ParentAgentTranscriptItem[];
   emptyMessage?: string;
+  paging?: {
+    limit: number;
+    totalCount: number;
+    hasMoreBefore: boolean;
+    nextBeforeCursor?: string;
+  };
 };
 export type TopicDetail = Topic & {
   closeGate?: { ready: boolean; warnings: string[]; blockingIssues: string[] };
