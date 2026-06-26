@@ -6,7 +6,8 @@
 - Active ECL change: none.
 - Pending Harness evolution: none.
 - Latest archived product audit: `harness/changes/archive/20260625-workbench-goal-loop-decision-surface-audit-v1/summary.md`.
-- Latest archived product change: `harness/changes/archive/20260626-workbench-paged-virtual-transcript-with-pretext-v1/summary.md`.
+- Latest archived product change: `harness/changes/archive/20260626-workbench-transcript-one-time-pressure-acceptance-v1/summary.md`.
+- Previous archived product change: `harness/changes/archive/20260626-workbench-paged-virtual-transcript-with-pretext-v1/summary.md`.
 - Previous archived product change: `harness/changes/archive/20260626-workbench-local-scheduler-terminal-path-real-ui-scout-v1/summary.md`.
 - Previous archived product change: `harness/changes/archive/20260626-workbench-local-loop-scheduler-handoff-boundary-scout-v1/summary.md`.
 - Previous archived product change: `harness/changes/archive/20260626-workbench-mode-aware-local-goal-loop-real-ui-acceptance-v1/summary.md`.
@@ -43,6 +44,14 @@
 - Latest scheduler integration apply/discard hardening: `harness/changes/archive/20260625-workbench-scheduler-integration-apply-discard-real-acceptance-v1/summary.md`.
 
 Latest product closeout:
+`harness/changes/archive/20260626-workbench-transcript-one-time-pressure-acceptance-v1/summary.md`.
+It used synthetic 1k / 10k / 50k transcript pressure data without real Codex
+tokens or durable large fixtures. V1 stayed healthy under the 50k scenario:
+backend full build was about 110 ms, latest-page payload stayed about 47 KB,
+and the virtual range rendered 18 rows. V2 cursor-aware incremental transcript
+projection is deferred until measured backend projection cost justifies it.
+
+Previous product closeout:
 `harness/changes/archive/20260626-workbench-paged-virtual-transcript-with-pretext-v1/summary.md`.
 It makes long Workbench conversations usable by adding paged transcript
 projection reads, frontend virtual transcript rendering, long-message folding,
@@ -304,7 +313,7 @@ Active change: none.
 Pending Harness evolution: none.
 
 Latest product closeout:
-`harness/changes/archive/20260626-workbench-paged-virtual-transcript-with-pretext-v1/summary.md`.
+`harness/changes/archive/20260626-workbench-transcript-one-time-pressure-acceptance-v1/summary.md`.
 
 Latest real UI acceptance:
 `harness/changes/archive/20260626-workbench-mode-aware-local-goal-loop-real-ui-acceptance-v1/summary.md`.
