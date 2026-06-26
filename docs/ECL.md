@@ -378,6 +378,26 @@ The review must confirm that:
 
 This rule does not prohibit new modules. It prohibits repeating cross-cutting architecture inside each feature. Documentation-only changes that merely record architecture vocabulary should state why product-code reuse coverage is not applicable, while still recording whether they update ECL rules, templates, or future development direction.
 
+### 13.8 Reference-Driven UI / Product Source Evidence Coverage
+
+When a structured product or UI change claims alignment with a reference
+project, validation or review must include reference-driven source evidence.
+The review must name the reference map section used and, for interaction
+details, the relevant reference source files inspected. If the change relies on
+an already source-inspected map instead of reopening source, the review must
+say why that map is sufficient for the exact behavior.
+
+The check must confirm that reference-style controls shown in AHO are backed by
+implemented behavior, hidden until implemented, or explicitly marked as
+disabled/unavailable with a truthful reason. Screenshot similarity, conceptual
+map alignment, or visual mimicry alone is not enough to expose a clickable
+control, mode switch, model selector, toolbar action, project picker, file
+reference, setting, or provider feature.
+
+Record the reference map section, source files or inspected commit used,
+controls copied or intentionally omitted, fake-control check, and result in
+`reviews/review.md` or `summary.md`.
+
 ## 14. Goal Loop Boundary
 
 Future autonomous, semi-autonomous, or Goal-driven loop changes must record how the loop stays bounded by AHO evidence.

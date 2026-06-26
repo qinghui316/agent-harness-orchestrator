@@ -205,7 +205,7 @@ acceptance.
 
 Current structured change: none.
 
-Pending Harness evolution: `harness/evolution/pending.md`.
+Pending Harness evolution: none.
 
 Recommended next product step: continue the desktop product layer from
 `docs/design-docs/ref-desktop-cc-gui.md`, now that the selected-project home
@@ -213,8 +213,10 @@ uses the reference-style central composer and real permission-mode toggle.
 Good next slices are real project creation/open/restore polish,
 composer/file-reference UX, provider/model settings, runtime diagnostics, or
 file/Git/terminal panels. Do not show reference-style controls until their
-behavior exists. Keep normal Agent mode, Claude Code/OpenCode providers, Tauri
-packaging, PR/remote/merge, and full parallel executor work out of the
+behavior exists. Reference-driven product/UI changes must cite the relevant
+reference map/source evidence and prove copied controls are real, hidden, or
+truthfully unavailable. Keep normal Agent mode, Claude Code/OpenCode providers,
+Tauri packaging, PR/remote/merge, and full parallel executor work out of the
 immediate slice unless explicitly selected.
 
 Latest product change:
@@ -229,19 +231,19 @@ sequential local apply/landing/close path, and full-access stops before raw
 scheduler preparation.
 
 Latest completed Harness evolution:
-`harness/changes/archive/20260626-auto-evolve-post-orchestration-map-window/summary.md`.
-Decision: `docs_merge`; subagent Aquinas score `86/100`. No new product
-runtime, ECL rule, template field, or lint rule was justified. The durable
-change was compact pending/latest handoff alignment after reviewing transcript
-pressure/V2 and orchestration-map/collapsed-rail acceptance evidence.
+`harness/changes/archive/20260627-auto-evolve-post-desktop-product-entry-window/summary.md`.
+Decision: `ecl_update`; subagent Huygens score `84/100`. The durable change
+adds compact ECL/review-template coverage for reference-driven UI/source
+evidence. No product runtime, Workbench UI, lint rule, or reference source
+tracking was changed.
 
 Current Harness evolution:
 
-- Pending evolution: `harness/evolution/pending.md`.
+- Pending evolution: none.
 - Latest completed evolution:
-  `harness/changes/archive/20260626-auto-evolve-post-orchestration-map-window/summary.md`.
-  Decision: `docs_merge`; subagent Aquinas score `86/100`. No
-  ECL/template/lint or product runtime change was justified.
+  `harness/changes/archive/20260627-auto-evolve-post-desktop-product-entry-window/summary.md`.
+  Decision: `ecl_update`; subagent Huygens score `84/100`. Added compact
+  reference-driven UI/source evidence coverage to ECL and the review template.
 - Previous completed evolution:
   `harness/changes/archive/20260626-auto-evolve-post-transcript-window/summary.md`.
   Detailed pressure metrics, screenshot paths, sandbox evidence, ports,

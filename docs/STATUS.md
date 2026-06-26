@@ -4,7 +4,7 @@
 
 - Current date: 2026-06-27.
 - Active ECL change: none.
-- Pending Harness evolution: `harness/evolution/pending.md`.
+- Pending Harness evolution: none.
 - Latest archived product audit: `harness/changes/archive/20260625-workbench-goal-loop-decision-surface-audit-v1/summary.md`.
 - Latest archived product change: `harness/changes/archive/20260627-workbench-desktop-cc-gui-aligned-home-and-conversation-entry-v1/summary.md`.
 - Latest archived docs/reference change: `harness/changes/archive/20260626-document-desktop-cc-gui-reference-map-and-product-layer-roadmap/summary.md`.
@@ -40,7 +40,8 @@
 - Latest product audit: `harness/changes/archive/20260624-workbench-goal-loop-surface-gap-audit/summary.md`.
 - Latest verification convergence: `harness/changes/archive/20260623-workbench-verification-runtime-convergence/summary.md`.
 - Latest real-Codex acceptance: `harness/changes/archive/20260623-workbench-current-project-real-codex-acceptance/summary.md`.
-- Latest completed Harness evolution: `harness/changes/archive/20260626-auto-evolve-post-orchestration-map-window/summary.md`.
+- Latest completed Harness evolution: `harness/changes/archive/20260627-auto-evolve-post-desktop-product-entry-window/summary.md`.
+- Previous completed Harness evolution: `harness/changes/archive/20260626-auto-evolve-post-orchestration-map-window/summary.md`.
 - Previous completed Harness evolution: `harness/changes/archive/20260626-auto-evolve-post-transcript-window/summary.md`.
 - Previous completed Harness evolution: `harness/changes/archive/20260626-auto-evolve-post-mode-aware-loop-window/summary.md`.
 - Previous completed Harness evolution: `harness/changes/archive/20260625-auto-evolve-post-feedback-real-ui-window/summary.md`.
@@ -58,6 +59,14 @@ toolbar, recent-session, and fake dropdown controls are hidden until their real
 paths exist. Codex diagnostics remain read-only behind settings / advanced.
 Real browser acceptance screenshot:
 `E:\aho-accept\desktop-home-ui-v1\screenshots\final-home-mode-toggle-clean.png`.
+
+Latest Harness evolution:
+`harness/changes/archive/20260627-auto-evolve-post-desktop-product-entry-window/summary.md`.
+Decision: `ecl_update`. Subagent Huygens scored the window `84/100`. The
+durable change adds compact reference-driven UI/source evidence coverage to
+ECL and the review template: product/UI work that claims reference alignment
+must cite the reference map/source evidence and prove copied controls are real,
+hidden, or truthfully unavailable.
 
 Previous product closeout:
 `harness/changes/archive/20260627-workbench-project-home-codex-diagnostics-v1/summary.md`.
@@ -380,7 +389,7 @@ Active change: none.
 Pending Harness evolution: none.
 
 Latest product closeout:
-`harness/changes/archive/20260627-workbench-project-home-codex-diagnostics-v1/summary.md`.
+`harness/changes/archive/20260627-workbench-desktop-cc-gui-aligned-home-and-conversation-entry-v1/summary.md`.
 
 Latest real UI acceptance:
 `harness/changes/archive/20260626-workbench-mode-aware-local-goal-loop-real-ui-acceptance-v1/summary.md`.
@@ -394,12 +403,11 @@ integration apply/discard, PR/remote/merge, Harness evolution, or full parallel
 execution without a separate structured change.
 
 Latest completed Harness evolution:
-`harness/changes/archive/20260626-auto-evolve-post-orchestration-map-window/summary.md`.
-Decision: `docs_merge`. Subagent Aquinas scored the window `86/100`.
-No new ECL/template/lint/product runtime rule was made; compact current-doc
-pending/latest alignment was applied. The reviewed window covered transcript
-pressure/V2 evidence and Rudder-style orchestration map / collapsed rail UI
-acceptance; detailed metrics and screenshot paths remain archive-only.
+`harness/changes/archive/20260627-auto-evolve-post-desktop-product-entry-window/summary.md`.
+Decision: `ecl_update`. Subagent Huygens scored the window `84/100`.
+The durable change adds reference-driven UI/source evidence coverage to ECL and
+the review template. No product runtime, Workbench UI, lint rule, or reference
+source tracking was changed.
 
 Previous completed Harness evolution:
 `harness/changes/archive/20260626-auto-evolve-post-transcript-window/summary.md`.

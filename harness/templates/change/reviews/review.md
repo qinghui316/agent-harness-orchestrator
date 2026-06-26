@@ -91,6 +91,16 @@ Pending.
 - If applicable, tested with: not applicable.
 - If not applicable, reason: change does not affect Workbench user-facing decision surfaces, Workpad projections, composer actions, task/queue/audit controls, or post-run result actions.
 
+## Reference-Driven UI / Product Source Evidence Coverage
+
+- Reference-driven UI/product coverage applicable: no.
+- If applicable, reference map section inspected: not applicable.
+- If applicable, reference source files or inspected commit used: not applicable.
+- If applicable, controls copied / adapted / intentionally omitted: not applicable.
+- If applicable, fake-control check: not applicable.
+- If applicable, tested with: not applicable.
+- If not applicable, reason: change does not claim alignment with a reference project for product or UI behavior.
+
 ## Scoped Workbench Action Payload Coverage
 
 - Scoped Workbench action payload coverage applicable: no.
