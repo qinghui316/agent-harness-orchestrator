@@ -4,7 +4,7 @@
 
 - Current date: 2026-06-26.
 - Active ECL change: none.
-- Pending Harness evolution: `harness/evolution/pending.md`.
+- Pending Harness evolution: none.
 - Latest archived product audit: `harness/changes/archive/20260625-workbench-goal-loop-decision-surface-audit-v1/summary.md`.
 - Latest archived product change: `harness/changes/archive/20260626-workbench-paged-virtual-transcript-with-pretext-v1/summary.md`.
 - Previous archived product change: `harness/changes/archive/20260626-workbench-local-scheduler-terminal-path-real-ui-scout-v1/summary.md`.
@@ -34,7 +34,8 @@
 - Latest product audit: `harness/changes/archive/20260624-workbench-goal-loop-surface-gap-audit/summary.md`.
 - Latest verification convergence: `harness/changes/archive/20260623-workbench-verification-runtime-convergence/summary.md`.
 - Latest real-Codex acceptance: `harness/changes/archive/20260623-workbench-current-project-real-codex-acceptance/summary.md`.
-- Latest completed Harness evolution: `harness/changes/archive/20260626-auto-evolve-post-mode-aware-loop-window/summary.md`.
+- Latest completed Harness evolution: `harness/changes/archive/20260626-auto-evolve-post-transcript-window/summary.md`.
+- Previous completed Harness evolution: `harness/changes/archive/20260626-auto-evolve-post-mode-aware-loop-window/summary.md`.
 - Previous completed Harness evolution: `harness/changes/archive/20260625-auto-evolve-post-feedback-real-ui-window/summary.md`.
 - Latest scheduler reachability change: `harness/changes/archive/20260625-workbench-low-conflict-taskgraph-scheduler-reachability-v1/summary.md`.
 - Latest scheduler worker/integration acceptance: `harness/changes/archive/20260625-workbench-scheduler-worker-integration-real-acceptance-v1/summary.md`.
@@ -300,8 +301,7 @@ scripts.
 
 Active change: none.
 
-Pending Harness evolution:
-`harness/evolution/pending.md`.
+Pending Harness evolution: none.
 
 Latest product closeout:
 `harness/changes/archive/20260626-workbench-paged-virtual-transcript-with-pretext-v1/summary.md`.
@@ -317,6 +317,12 @@ manual IntegrationCheck, integration apply/discard, PR/remote/merge, Harness
 evolution, or full parallel execution without a separate structured change.
 
 Latest completed Harness evolution:
+`harness/changes/archive/20260626-auto-evolve-post-transcript-window/summary.md`.
+Decision: `docs_merge`. Subagent Kuhn scored the window `84/100`.
+No new ECL/template/lint/product runtime rule was made; compact current-doc
+pending/latest alignment was applied.
+
+Previous completed Harness evolution:
 `harness/changes/archive/20260626-auto-evolve-post-mode-aware-loop-window/summary.md`.
 Decision: `docs_merge`. Subagent Aquinas scored the window `86/100`.
 `harness-evolve mark-complete` removed `pending.md`, advanced the archive

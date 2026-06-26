@@ -242,6 +242,10 @@ Current Harness evolution:
 
 - Pending evolution: none.
 - Latest completed evolution:
+  `harness/changes/archive/20260626-auto-evolve-post-transcript-window/summary.md`.
+  Decision: `docs_merge`; subagent Kuhn score `84/100`. No ECL/template/lint
+  or product runtime change was justified.
+- Previous completed evolution:
   `harness/changes/archive/20260626-auto-evolve-post-mode-aware-loop-window/summary.md`.
   Detailed sandbox evidence, old blocker history, ports, hashes, and run ids
   remain archive-only.

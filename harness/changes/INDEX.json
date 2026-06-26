@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-26T10:51:14.3468115Z",
+    "generated_at":  "2026-06-26T11:02:31.9322070Z",
     "active":  [
 
                ],
@@ -1961,6 +1961,10 @@
                     {
                         "name":  "20260626-auto-evolve-post-mode-aware-loop-window",
                         "path":  "harness/changes/archive/20260626-auto-evolve-post-mode-aware-loop-window"
+                    },
+                    {
+                        "name":  "20260626-auto-evolve-post-transcript-window",
+                        "path":  "harness/changes/archive/20260626-auto-evolve-post-transcript-window"
                     },
                     {
                         "name":  "20260626-workbench-integration-applied-local-landing-close-real-ui-scout-v1",
