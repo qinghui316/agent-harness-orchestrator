@@ -5,6 +5,7 @@ import { evidenceActions } from "./evidence-actions.js";
 import type {
   WorkbenchApprovalItem,
   WorkbenchApprovalKind,
+  WorkbenchConfirmationQueueItem,
   WorkbenchDecisionAction,
   WorkbenchDecisionContext,
   WorkbenchDecisionContextKind,
@@ -72,6 +73,40 @@ export function buildDecisionInspector(input: {
     ...enrichedHistory,
   ], (context) => context.timestamp);
   return { primary, related, history };
+}
+
+export function alignDecisionInspectorWithConfirmationPrimary(
+  inspector: WorkbenchDecisionInspector,
+  primary: WorkbenchConfirmationQueueItem | null,
+  selectedChangeId: string | undefined,
+): WorkbenchDecisionInspector {
+  if (inspector.primary || !primary || !selectedChangeId) return inspector;
+  if (primary.changeId !== selectedChangeId && primary.conversationId !== selectedChangeId) return inspector;
+  if (primary.actions.every((action) => action.actionType === "planning.goal-loop.evaluate")) return inspector;
+  const context = enrichDecisionContext({
+    id: `confirmation:${primary.id}`,
+    kind: "workflow-gate",
+    title: primary.summary,
+    summary: primary.confirmEffect || primary.summary,
+    severity: primary.status === "failed" ? "warning" : "info",
+    changeId: primary.changeId ?? primary.conversationId,
+    targetId: primary.applyCheckId
+      ?? primary.landingPackageId
+      ?? primary.worktreeId
+      ?? primary.schedulerRunCompletionId
+      ?? primary.schedulerIntegrationOutcomeId
+      ?? primary.schedulerIntegrationCheckHandoffId
+      ?? primary.schedulerIntegrationCandidateId
+      ?? primary.schedulerRunId,
+    artifact: primary.evidenceRefs[0],
+    evidenceRefs: primary.evidenceRefs,
+    actions: primary.actions,
+  });
+  return {
+    ...inspector,
+    primary: context,
+    related: inspector.related.filter((item) => item.id !== context.id),
+  };
 }
 
 function hasActiveRolePipeline(workpad: WorkbenchWorkpad): boolean {

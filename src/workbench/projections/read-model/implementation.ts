@@ -8,7 +8,7 @@ import { summarizeRunArtifacts } from "../artifact-preview.js";
 import { readRunEvents } from "./thread-stream.js";
 import { buildConfirmationQueue, emptyConfirmationQueue } from "./confirmation-queue.js";
 import { listWorkbenchDecisions } from "./decision-store.js";
-import { buildDecisionInspector, emptyDecisionInspector } from "./decision-inspector.js";
+import { alignDecisionInspectorWithConfirmationPrimary, buildDecisionInspector, emptyDecisionInspector } from "./decision-inspector.js";
 import { buildApprovalInbox } from "./approval-inbox.js";
 import { buildMaintenanceSummary } from "./maintenance-summary.js";
 import { buildDemandAgentRunGraph, emptyAgentRunGraph, emptyParentAgentTranscript, shellWorkbenchWorkpad } from "./run-graph.js";
@@ -215,6 +215,7 @@ export async function getWorkbenchSnapshot(input: WorkbenchProjectInput, options
     ignoreActiveWorkflowActions: options.ignoreActiveWorkflowActions,
     ignoreActiveWorkflowActionTypes: options.ignoreActiveWorkflowActionTypes,
   });
+  const alignedDecisionInspector = alignDecisionInspectorWithConfirmationPrimary(decisionInspector, confirmationQueue.primary, selectedTopic?.id);
   const shellWorkpad = shellWorkbenchWorkpad(workpad);
   const parentAgentTranscript = buildParentAgentTranscript({
     workpad,
@@ -239,7 +240,7 @@ export async function getWorkbenchSnapshot(input: WorkbenchProjectInput, options
       agentLoop: { runs: selectedTopic?.runs ?? [] },
       agentRunGraph: emptyAgentRunGraph(),
     },
-    right: { approvals, decisions, decisionInspector, confirmationQueue },
+    right: { approvals, decisions, decisionInspector: alignedDecisionInspector, confirmationQueue },
     roles,
     harnessGaps: gaps,
     warnings,

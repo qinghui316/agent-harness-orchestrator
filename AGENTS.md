@@ -8,9 +8,10 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 - Active change: none.
 - Pending Harness evolution: none.
 - Latest archived product audit: Workbench Goal Loop Decision Surface Audit V1, archived at `harness/changes/archive/20260625-workbench-goal-loop-decision-surface-audit-v1/summary.md`.
+- Latest archived product change: Workbench Integration Apply Outcome Completion V1, archived at `harness/changes/archive/20260626-workbench-integration-apply-outcome-completion-v1/summary.md`.
 - Latest archived product acceptance: Workbench Repaired Integration Apply Real UI Acceptance V1, archived at `harness/changes/archive/20260626-workbench-repaired-integration-apply-real-ui-acceptance-v1/summary.md`.
 - Previous IntegrationFix real UI acceptance: `harness/changes/archive/20260626-workbench-integrationfix-real-ui-acceptance-v1/summary.md`.
-- Latest archived product change: Workbench Codex-Backed IntegrationFix Real Repair V1, archived at `harness/changes/archive/20260625-workbench-codex-backed-integrationfix-real-repair-v1/summary.md`.
+- Previous archived product change: Workbench Codex-Backed IntegrationFix Real Repair V1, archived at `harness/changes/archive/20260625-workbench-codex-backed-integrationfix-real-repair-v1/summary.md`.
 - Previous scheduler progression: `harness/changes/archive/20260625-workbench-scheduler-worker-progression-to-integration-candidate-v1/summary.md`.
 - Latest archived boundary guard: Workbench Loop-Per-Change Boundary Guard V1, archived at `harness/changes/archive/20260625-workbench-loop-per-change-boundary-guard-v1/summary.md`.
 - Latest archived product acceptance: Workbench Confirmation Feedback Real UI Scout V1, archived at `harness/changes/archive/20260625-workbench-confirmation-feedback-real-ui-scout-v1/summary.md`.
@@ -51,7 +52,15 @@ aggregate validation/audit pass, and final human integration apply/discard
 gate. It also fixed the controlled-continuation boundary so
 `planning.scheduler.integration-check.run` remains a manual scheduler barrier.
 
-Latest repaired integration apply acceptance:
+Latest integration apply outcome closeout:
+`harness/changes/archive/20260626-workbench-integration-apply-outcome-completion-v1/summary.md`.
+It verifies the post-integration-apply surface: after human
+`apply-check.apply`, stale integration apply/discard gates disappear, the
+existing controlled scheduler outcome/completion path becomes current, and the
+Workbench decision inspector aligns with the authoritative confirmation queue
+when the next gate is local `landing.prepare`.
+
+Previous repaired integration apply acceptance:
 `harness/changes/archive/20260626-workbench-repaired-integration-apply-real-ui-acceptance-v1/summary.md`.
 It verified through the real Workbench UI that the repaired IntegrationFix
 artifact can be human-applied to the E-drive external source root. The

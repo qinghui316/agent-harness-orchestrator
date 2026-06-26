@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-25T18:03:36.6393183Z",
+    "generated_at":  "2026-06-26T05:36:44.6621603Z",
     "active":  [
 
                ],
@@ -1957,6 +1957,10 @@
                     {
                         "name":  "20260626-auto-evolve-post-integrationfix-apply-window",
                         "path":  "harness/changes/archive/20260626-auto-evolve-post-integrationfix-apply-window"
+                    },
+                    {
+                        "name":  "20260626-workbench-integration-apply-outcome-completion-v1",
+                        "path":  "harness/changes/archive/20260626-workbench-integration-apply-outcome-completion-v1"
                     },
                     {
                         "name":  "20260626-workbench-integrationfix-real-ui-acceptance-v1",

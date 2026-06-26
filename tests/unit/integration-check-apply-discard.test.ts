@@ -1,7 +1,7 @@
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { discardIntegrationCheck } from "../../src/integration-check/manager.js";
+import { applyIntegrationCheck, discardIntegrationCheck } from "../../src/integration-check/manager.js";
 import { integrationCheckRoot } from "../../src/integration-check/paths.js";
 import { readIntegrationCheck, writeCheckArtifacts } from "../../src/integration-check/repository.js";
 import type { IntegrationCheckRecord } from "../../src/integration-check/types.js";
@@ -44,5 +44,27 @@ describe("integration check apply/discard gates", () => {
     await writeCheckArtifacts(memory, directory, applied);
 
     await expect(discardIntegrationCheck(project(), checkId)).rejects.toThrow(/status is applied/i);
+  });
+
+  it("fails closed when applying with a stale artifact hash", async () => {
+    const prepared = await prepareSeededSchedulerIntegrationHandoff("Integration Apply Hash Guard");
+    const checkId = prepared.handoff.handoff!.integrationCheckId;
+    const beforeModuleA = await readFile(join(getTempDir(), "src", "module-a.ts"), "utf8");
+
+    await expect(applyIntegrationCheck(project(), checkId, "stale-artifact-hash")).rejects.toThrow(/selected integration artifact is stale/i);
+
+    expect(await readFile(join(getTempDir(), "src", "module-a.ts"), "utf8")).toBe(beforeModuleA);
+  });
+
+  it("fails closed when source HEAD drifts before integration apply", async () => {
+    const prepared = await prepareSeededSchedulerIntegrationHandoff("Integration Apply Source Drift Guard");
+    const checkId = prepared.handoff.handoff!.integrationCheckId;
+    await writeFile(join(getTempDir(), "src", "unrelated.ts"), "export const unrelated = true;\n", "utf8");
+    await execFileAsync("git", ["add", "src/unrelated.ts"], { cwd: getTempDir() });
+    await execFileAsync("git", ["commit", "-m", "source drift"], { cwd: getTempDir() });
+
+    await expect(applyIntegrationCheck(project(), checkId, prepared.latestArtifactHash)).rejects.toThrow(/project changed after the check/i);
+
+    expect(await readFile(join(getTempDir(), "src", "module-a.ts"), "utf8")).toBe("export const moduleA = 1;\n");
   });
 });

@@ -257,6 +257,7 @@ export type WorkbenchDecisionContextKind =
   | "audit-approved"
   | "apply-gate"
   | "close-gate"
+  | "workflow-gate"
   | "evolution-pending"
   | "history";
 

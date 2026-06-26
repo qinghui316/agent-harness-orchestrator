@@ -6,9 +6,10 @@
 - Active ECL change: none.
 - Pending Harness evolution: none.
 - Latest archived product audit: `harness/changes/archive/20260625-workbench-goal-loop-decision-surface-audit-v1/summary.md`.
+- Latest archived product change: `harness/changes/archive/20260626-workbench-integration-apply-outcome-completion-v1/summary.md`.
 - Latest archived product acceptance: `harness/changes/archive/20260626-workbench-repaired-integration-apply-real-ui-acceptance-v1/summary.md`.
 - Previous IntegrationFix real UI acceptance: `harness/changes/archive/20260626-workbench-integrationfix-real-ui-acceptance-v1/summary.md`.
-- Latest archived product change: `harness/changes/archive/20260625-workbench-codex-backed-integrationfix-real-repair-v1/summary.md`.
+- Previous archived product change: `harness/changes/archive/20260625-workbench-codex-backed-integrationfix-real-repair-v1/summary.md`.
 - Previous scheduler progression: `harness/changes/archive/20260625-workbench-scheduler-worker-progression-to-integration-candidate-v1/summary.md`.
 - Latest archived boundary guard: `harness/changes/archive/20260625-workbench-loop-per-change-boundary-guard-v1/summary.md`.
 - Latest archived product acceptance: `harness/changes/archive/20260625-workbench-confirmation-feedback-real-ui-scout-v1/summary.md`.
@@ -33,7 +34,17 @@
 - Latest scheduler IntegrationCheck acceptance: `harness/changes/archive/20260625-workbench-scheduler-integrationcheck-real-acceptance-v1/summary.md`.
 - Latest scheduler integration apply/discard hardening: `harness/changes/archive/20260625-workbench-scheduler-integration-apply-discard-real-acceptance-v1/summary.md`.
 
-Latest product acceptance:
+Latest product closeout:
+`harness/changes/archive/20260626-workbench-integration-apply-outcome-completion-v1/summary.md`.
+It completes the post-integration-apply surface. Deterministic fixture coverage
+now applies a real `combined.patch` through `apply-check.apply`, confirms old
+integration apply/discard gates disappear, advances through the existing
+controlled scheduler outcome/completion wrappers, and lands on the real local
+`landing.prepare` gate. `decisionInspector.primary` now aligns with the
+authoritative `confirmationQueue.primary` for this selected-Change gate, while
+Goal Loop fallback-only evaluation remains excluded from inspector primary.
+
+Previous product acceptance:
 `harness/changes/archive/20260626-workbench-repaired-integration-apply-real-ui-acceptance-v1/summary.md`.
 It verified through the real Workbench UI that the Codex-backed repaired
 IntegrationFix artifact can be manually applied to the E-drive external source

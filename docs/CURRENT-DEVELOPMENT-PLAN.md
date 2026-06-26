@@ -11,14 +11,14 @@ The user should not need to know internal terms before asking for work. The main
 ## Goal-Driven Workflow Loop Target
 
 Latest implementation and acceptance slice:
-`harness/changes/archive/20260626-workbench-repaired-integration-apply-real-ui-acceptance-v1/summary.md`.
-It verified the existing IntegrationCheck / IntegrationFix owner path through
-real E-drive Workbench UI through the final human application of a repaired
-integration artifact. The prior acceptance reached the manual integration
-apply/discard gate after Codex-backed repair; this acceptance confirmed the
-human `apply-check.apply` action safely updated the external source root and
-removed the stale integration apply/discard primary gate. It did not implement
-a new workflow runtime, full parallel executor, or automatic integration
+`harness/changes/archive/20260626-workbench-integration-apply-outcome-completion-v1/summary.md`.
+It completes the post-integration-apply outcome surface after the previous
+real UI acceptance proved repaired IntegrationFix artifacts can be
+human-applied. After `apply-check.apply`, stale integration apply/discard gates
+disappear, the existing scheduler outcome/completion path becomes current, and
+Workbench can advance to local `landing.prepare` with the decision inspector
+aligned to the authoritative confirmation queue. It did not implement a new
+workflow runtime, full parallel executor, or automatic integration
 apply/discard.
 
 The target architecture is a Goal-driven Workflow Loop, not a Scheduler-first
@@ -164,12 +164,16 @@ Latest completed Harness evolution:
 It evaluated the window ending with
 `harness/changes/archive/20260626-workbench-repaired-integration-apply-real-ui-acceptance-v1/summary.md`
 as a separate human-gated Harness evolution pass and completed as `noop`.
-Latest product acceptance:
+Latest product change:
+`harness/changes/archive/20260626-workbench-integration-apply-outcome-completion-v1/summary.md`.
+It completes the post-integration-apply outcome projection and next-gate
+surface for same-Change IntegrationCheck apply.
+Previous product acceptance:
 `harness/changes/archive/20260626-workbench-repaired-integration-apply-real-ui-acceptance-v1/summary.md`.
 It confirms real UI acceptance for applying a Codex-backed IntegrationFix
 repair through the human integration apply gate. Integration apply/discard
 remains human-gated and outside scoped `完全访问权限`.
-Latest product change:
+Previous scheduler product change:
 `harness/changes/archive/20260625-workbench-scheduler-worker-progression-to-integration-candidate-v1/summary.md`.
 It confirms that existing scheduler owners already cover same-Change
 two-worker progression to a ready `SchedulerIntegrationCandidate`; no new

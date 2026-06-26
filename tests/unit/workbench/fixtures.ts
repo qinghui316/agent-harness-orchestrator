@@ -39,6 +39,7 @@ import {
 import { integrationCheckRoot } from "../../../src/integration-check/paths.js";
 import { removeKnownIntegrationFailureMarkers } from "../../../src/integration-check/patch-workspace.js";
 import { writeCheckArtifacts } from "../../../src/integration-check/repository.js";
+import { contentHash } from "../../../src/integration-check/artifacts.js";
 import type { IntegrationFixRepairRunner } from "../../../src/integration-check/fix-attempts.js";
 import { getGlobalWorktreeCheckoutRoot } from "../../../src/worktree/paths.js";
 import { writeWorktreeMetadata } from "../../../src/worktree/repository.js";
@@ -552,6 +553,7 @@ export async function prepareSeededSchedulerIntegrationHandoff(title: string): P
     };
     integrationCheck: { id: string };
   };
+  latestArtifactHash: string;
 }> {
   await initHarness(project());
   const topic = await createWorkbenchTopic(project(), {
@@ -1163,6 +1165,24 @@ export async function prepareSeededSchedulerIntegrationHandoff(title: string): P
   await writeSchedulerIntegrationCandidate(memory, changePath, candidate);
 
   const integrationCheckDir = join(integrationCheckRoot(memory), integrationCheckId);
+  const combinedPatch = [
+    "diff --git a/src/module-a.ts b/src/module-a.ts",
+    "--- a/src/module-a.ts",
+    "+++ b/src/module-a.ts",
+    "@@ -1 +1 @@",
+    "-export const moduleA = 1;",
+    "+export const moduleA = 2;",
+    "diff --git a/src/module-b.ts b/src/module-b.ts",
+    "--- a/src/module-b.ts",
+    "+++ b/src/module-b.ts",
+    "@@ -1 +1 @@",
+    "-export const moduleB = 1;",
+    "+export const moduleB = 2;",
+    "",
+  ].join("\n");
+  const combinedPatchHash = contentHash(combinedPatch);
+  await mkdir(integrationCheckDir, { recursive: true });
+  await writeFile(join(integrationCheckDir, "combined.patch"), combinedPatch, "utf8");
   const integrationCheck: IntegrationCheckRecord = {
     version: "1.0",
     id: integrationCheckId,
@@ -1184,11 +1204,11 @@ export async function prepareSeededSchedulerIntegrationHandoff(title: string): P
     artifacts: [{
       kind: "combined",
       path: `${integrationCheckId}/combined.patch`,
-      hash: "seed-combined-hash",
+      hash: combinedPatchHash,
       createdAt: now,
       source: "integration-check",
     }],
-    latestArtifactHash: "seed-combined-hash",
+    latestArtifactHash: combinedPatchHash,
     latestArtifactRef: `${integrationCheckId}/combined.patch`,
     aggregateValidation: {
       id: `aggregate-validation-${schedulerRunId}`,
@@ -1260,6 +1280,7 @@ export async function prepareSeededSchedulerIntegrationHandoff(title: string): P
       },
       integrationCheck: { id: integrationCheckId },
     },
+    latestArtifactHash: combinedPatchHash,
   };
 }
 
