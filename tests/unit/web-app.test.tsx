@@ -936,8 +936,11 @@ describe("Workbench web app", () => {
     render(<Harness />);
 
     const card = screen.getByTestId("decision-inspector-primary");
+    expect(within(card).getByLabelText("后续执行模式")).toBeTruthy();
     expect(within(card).getByRole("button", { name: "请求批准" })).toBeTruthy();
+    expect(card.textContent).toContain("计划仍需确认；确认后每一步都让你批准。");
     fireEvent.click(within(card).getByRole("button", { name: "完全访问权限" }));
+    expect(card.textContent).toContain("计划仍需确认；确认后自动推进本地步骤，直到需要你决定。");
     fireEvent.click(within(card).getByRole("button", { name: "确认规划" }));
     fireEvent.click(within(card).getByRole("button", { name: "确认" }));
 
@@ -950,6 +953,46 @@ describe("Workbench web app", () => {
     });
     expect(execute.mock.calls[0]?.[0]).not.toMatchObject({
       actionType: "planning.automation.scoped-auto.run",
+    });
+  });
+
+  it("submits request-approval as the default post-plan mode", async () => {
+    const execute = vi.fn(async () => undefined);
+    function Harness() {
+      const [confirming, setConfirming] = useState<string | null>(null);
+      return (
+        <DecisionInspectorPane
+          inspector={{ primary: null, related: [], history: [] }}
+          confirmationQueue={{
+            primary: planningConfirmQueueItem(),
+            current: [planningConfirmQueueItem()],
+            otherDemands: [],
+            maintenance: [],
+            history: [],
+          }}
+          confirming={confirming}
+          busy={false}
+          error={null}
+          onConfirmingChange={setConfirming}
+          onExecuteAction={execute}
+          onFeedback={async () => undefined}
+          onSelectContext={() => undefined}
+        />
+      );
+    }
+
+    render(<Harness />);
+
+    const card = screen.getByTestId("decision-inspector-primary");
+    fireEvent.click(within(card).getByRole("button", { name: "确认规划" }));
+    fireEvent.click(within(card).getByRole("button", { name: "确认" }));
+
+    await waitFor(() => expect(execute).toHaveBeenCalledTimes(1));
+    expect(execute.mock.calls[0]?.[0]).toMatchObject({
+      actionType: "planning.confirm-execution",
+      changeId: "member-discount",
+      planningBundleId: "planning-bundle-1",
+      postPlanAutomationMode: "request-approval",
     });
   });
 

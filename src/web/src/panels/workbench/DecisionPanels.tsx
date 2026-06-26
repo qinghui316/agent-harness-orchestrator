@@ -262,8 +262,8 @@ function DecisionContextCard({
       ) : null}
       <div className="approval-actions">
         {context.actions.map((action) => {
-          const effectiveAction = action === planningConfirmationAction && (automationMode === "full-access" || isPostPlanAutomationConfirming(confirming, action))
-            ? postPlanAutomationConfirmationActionFrom(action)
+          const effectiveAction = action === planningConfirmationAction
+            ? postPlanAutomationConfirmationActionFrom(action, automationMode)
             : action === primaryAutomationAction && scopedAutomationAvailable && (automationMode === "full-access" || isScopedAutomationConfirming(confirming, action))
               ? scopedAutomationActionFrom(action, context)
             : action;
@@ -317,23 +317,31 @@ function AutomationModeSelector({
   onChange: (value: "request-approval" | "full-access") => void;
 }): ReactElement {
   return (
-    <div className="automation-mode-selector" aria-label="Codex 操作批准方式">
-      <button
-        type="button"
-        className={value === "request-approval" ? "selected" : ""}
-        onClick={() => onChange("request-approval")}
-      >
-        请求批准
-      </button>
-      <button
-        type="button"
-        className={value === "full-access" ? "selected" : ""}
-        disabled={!canUseFullAccess}
-        title={canUseFullAccess ? "授权当前需求在已确认计划范围内自动完成本地闭环，遇到阻塞或外部动作再停下。" : "当前步骤不在本地自动推进范围内。"}
-        onClick={() => canUseFullAccess ? onChange("full-access") : undefined}
-      >
-        <ShieldCheck size={15} />完全访问权限
-      </button>
+    <div>
+      <div className="automation-mode-selector" aria-label="后续执行模式">
+        <button
+          type="button"
+          className={value === "request-approval" ? "selected" : ""}
+          title="计划仍需确认；确认后每一步都让你批准。"
+          onClick={() => onChange("request-approval")}
+        >
+          请求批准
+        </button>
+        <button
+          type="button"
+          className={value === "full-access" ? "selected" : ""}
+          disabled={!canUseFullAccess}
+          title={canUseFullAccess ? "计划仍需确认；确认后自动推进本地步骤，直到需要你决定。" : "当前步骤不在本地自动推进范围内。"}
+          onClick={() => canUseFullAccess ? onChange("full-access") : undefined}
+        >
+          <ShieldCheck size={15} />完全访问权限
+        </button>
+      </div>
+      <p className="muted-inline">
+        {value === "full-access"
+          ? "计划仍需确认；确认后自动推进本地步骤，直到需要你决定。"
+          : "计划仍需确认；确认后每一步都让你批准。"}
+      </p>
     </div>
   );
 }
@@ -358,12 +366,12 @@ function scopedAutomationActionFrom(action: DecisionAction, context: DecisionCon
   };
 }
 
-function postPlanAutomationConfirmationActionFrom(action: DecisionAction): DecisionAction {
+function postPlanAutomationConfirmationActionFrom(action: DecisionAction, mode: "request-approval" | "full-access"): DecisionAction {
   return {
     ...action,
-    id: postPlanAutomationConfirmationActionId(action),
+    id: postPlanAutomationConfirmationActionId(action, mode),
     label: action.label,
-    postPlanAutomationMode: "full-access",
+    postPlanAutomationMode: mode,
     requiresConfirmation: true,
   };
 }
@@ -372,12 +380,8 @@ function isPlanningConfirmationAction(action: DecisionAction): boolean {
   return action.kind === "workflow-action" && action.actionType === "planning.confirm-execution";
 }
 
-function postPlanAutomationConfirmationActionId(action: DecisionAction): string {
-  return `post-plan-automation:${action.id}`;
-}
-
-function isPostPlanAutomationConfirming(confirming: string | null, action: DecisionAction): boolean {
-  return confirming === postPlanAutomationConfirmationActionId(action);
+function postPlanAutomationConfirmationActionId(action: DecisionAction, mode: "request-approval" | "full-access"): string {
+  return `post-plan-automation:${mode}:${action.id}`;
 }
 
 function isScopedAutomationConfirming(confirming: string | null, action: DecisionAction): boolean {

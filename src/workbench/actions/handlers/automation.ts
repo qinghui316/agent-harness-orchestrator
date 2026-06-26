@@ -3,6 +3,7 @@ import { captureAcceptedArtifactHashes, captureAutomationSourceState } from "../
 import { isScopedAutomationAllowedAction, isScopedAutomationAllowedApprovalAction, isScopedAutomationTerminalHumanGate, scopedAutomationActionPriority, type ScopedAutomationAllowedApprovalActionId } from "../../../automation-runtime/policy.js";
 import type { ScopedAutomationChildGate } from "../../../automation-runtime/runner.js";
 import type { AutomationStopReason } from "../../../automation-runtime/types.js";
+import { decideLocalGoalLoopNextStep } from "../../../goal-loop-runtime/local-loop.js";
 import { assertWritableMemory } from "../../../memory/resolver.js";
 import type { ManagedProject } from "../../../types/index.js";
 import { isWorkflowActionType, workflowActionScopesMatchStrict, type WorkflowActionType } from "../../../workflow-actions/registry.js";
@@ -124,9 +125,15 @@ export async function runPostPlanScopedAutomation(
   live: WorkbenchLiveSink | undefined,
   handlers: WorkbenchActionHandlerMap,
 ): Promise<unknown> {
-  const gate = await resolveCurrentPrimaryAutomationGate(project, changeId);
-  if ("stopReason" in gate) {
-    const text = `计划已确认，但完全访问权限未启动：${gate.summary}`;
+  const decision = await decideLocalGoalLoopNextStep({
+    mode: "full-access",
+    changeId,
+    services: {
+      resolveCurrentPrimaryGate: async () => resolveCurrentPrimaryAutomationGate(project, changeId),
+    },
+  });
+  if (decision.kind !== "run-scoped-automation") {
+    const text = `计划已确认，但完全访问权限未启动：${decision.summary}`;
     await appendTopicThreadEntry(project, changeId, {
       type: "assistant.message",
       status: "scoped-automation-not-started",
@@ -139,9 +146,9 @@ export async function runPostPlanScopedAutomation(
       title: "完全访问权限未启动",
       summary: text,
     });
-    return { status: "not-started", stopReason: gate.stopReason, summary: gate.summary };
+    return { status: "not-started", stopReason: "stopReason" in decision ? decision.stopReason : decision.kind, summary: decision.summary };
   }
-  const request = scopedAutomationRequestFromGate(changeId, gate);
+  const request = scopedAutomationRequestFromGate(changeId, decision.gate);
   return runScopedAutomationAction(project, changeId, request, live, handlers);
 }
 

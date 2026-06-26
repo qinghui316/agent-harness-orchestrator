@@ -6,9 +6,10 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 
 - Current date: 2026-06-26.
 - Active change: none.
-- Pending Harness evolution: none.
+- Pending Harness evolution: `harness/evolution/pending.md`.
 - Latest archived product audit: Workbench Goal Loop Decision Surface Audit V1, archived at `harness/changes/archive/20260625-workbench-goal-loop-decision-surface-audit-v1/summary.md`.
-- Latest archived product change: Workbench Local Landing Ready Terminal Close V1, archived at `harness/changes/archive/20260626-workbench-local-landing-ready-terminal-close-v1/summary.md`.
+- Latest archived product change: Workbench Mode-Aware Local Goal Loop V1, archived at `harness/changes/archive/20260626-workbench-mode-aware-local-goal-loop-v1/summary.md`.
+- Previous product change: Workbench Local Landing Ready Terminal Close V1, archived at `harness/changes/archive/20260626-workbench-local-landing-ready-terminal-close-v1/summary.md`.
 - Previous product change: Workbench Integration Apply Outcome Completion V1, archived at `harness/changes/archive/20260626-workbench-integration-apply-outcome-completion-v1/summary.md`.
 - Latest archived product acceptance: Workbench Integration Applied Local Landing/Close Real UI Scout V1, archived at `harness/changes/archive/20260626-workbench-integration-applied-local-landing-close-real-ui-scout-v1/summary.md`.
 - Previous repaired integration apply acceptance: `harness/changes/archive/20260626-workbench-repaired-integration-apply-real-ui-acceptance-v1/summary.md`.
@@ -70,6 +71,14 @@ the selected Change primary gate. Workbench now shows local `change.close` if
 the existing close gate is ready, or a local terminal blocker backed by the
 same close requirements. PR/provider evidence may remain background context.
 
+Latest mode-aware local loop closeout:
+`harness/changes/archive/20260626-workbench-mode-aware-local-goal-loop-v1/summary.md`.
+Workbench now has a thin local Goal Loop coordinator: both `请求批准` and
+`完全访问权限` observe the same current Change gate, but only full-access
+delegates allowed local gates to scoped automation after human plan
+confirmation. Request-approval remains non-dispatching and leaves one real
+primary confirmation for the user.
+
 Previous local landing scout:
 `harness/changes/archive/20260626-workbench-integration-applied-local-landing-close-real-ui-scout-v1/summary.md`.
 It verified that the repaired IntegrationFix apply path can advance through
@@ -91,7 +100,9 @@ close/archive. Workbench planning now prefers Codex Plan Mode and records a
 proposal-only `proposedPlanMd`; when native plan deltas are unavailable, it
 falls back to a prompt-level `<proposed_plan>` contract. The user still
 manually confirms the plan. Workbench exposes `请求批准` and scoped
-`完全访问权限`; the latter may run Codex with full-access runtime capability, but
+`完全访问权限` as post-plan execution modes over the same local Goal Loop
+coordinator: request-approval observes and leaves the current gate for the
+user, while full-access may run Codex with full-access runtime capability but
 AHO authority remains bound to the selected Change, current target ids, source
 state, accepted artifacts, stale revalidation, ToolPolicyGate,
 validation/audit, and scoped local terminal gates. After human plan

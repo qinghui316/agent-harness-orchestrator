@@ -4,9 +4,10 @@
 
 - Current date: 2026-06-26.
 - Active ECL change: none.
-- Pending Harness evolution: none.
+- Pending Harness evolution: `harness/evolution/pending.md`.
 - Latest archived product audit: `harness/changes/archive/20260625-workbench-goal-loop-decision-surface-audit-v1/summary.md`.
-- Latest archived product change: `harness/changes/archive/20260626-workbench-local-landing-ready-terminal-close-v1/summary.md`.
+- Latest archived product change: `harness/changes/archive/20260626-workbench-mode-aware-local-goal-loop-v1/summary.md`.
+- Previous archived product change: `harness/changes/archive/20260626-workbench-local-landing-ready-terminal-close-v1/summary.md`.
 - Previous archived product change: `harness/changes/archive/20260626-workbench-integration-apply-outcome-completion-v1/summary.md`.
 - Latest archived product acceptance: `harness/changes/archive/20260626-workbench-integration-applied-local-landing-close-real-ui-scout-v1/summary.md`.
 - Previous repaired integration apply acceptance: `harness/changes/archive/20260626-workbench-repaired-integration-apply-real-ui-acceptance-v1/summary.md`.
@@ -37,6 +38,19 @@
 - Latest scheduler integration apply/discard hardening: `harness/changes/archive/20260625-workbench-scheduler-integration-apply-discard-real-acceptance-v1/summary.md`.
 
 Latest product closeout:
+`harness/changes/archive/20260626-workbench-mode-aware-local-goal-loop-v1/summary.md`.
+It adds the first thin mode-aware local Goal Loop coordinator. Both
+`请求批准` and `完全访问权限` observe the selected Change's current primary gate;
+request-approval does not dispatch and leaves the real confirmation card for
+the user, while full-access delegates only allowed local gates to existing
+scoped automation after human plan confirmation. Plan confirmation, raw
+scheduler actions, manual IntegrationCheck, integration apply/discard,
+PR/remote/merge, and Harness evolution remain outside automatic execution.
+Real browser acceptance was attempted but blocked by the local in-app browser
+connector before navigation; DOM, targeted runtime, and daily Workbench
+aggregate checks passed.
+
+Previous product closeout:
 `harness/changes/archive/20260626-workbench-local-landing-ready-terminal-close-v1/summary.md`.
 It fixes the local terminal Workbench surface after a ready landing package:
 when PR/remote are unavailable or out of scope, PR provider readiness no longer

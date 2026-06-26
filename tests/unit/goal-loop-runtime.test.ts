@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { runGoalLoopControlledContinuation } from "../../src/goal-loop-runtime/runner.js";
+import { decideLocalGoalLoopNextStep } from "../../src/goal-loop-runtime/local-loop.js";
 import type { ResolvedMemory } from "../../src/types/index.js";
 import type { WorkflowActionScopeCarrier } from "../../src/workflow-actions/registry.js";
 
@@ -138,6 +139,102 @@ describe("Goal Loop controlled continuation runtime", () => {
     expect(result.summary).toContain("authorized Change");
     expect(result.runtimeRun.completedSteps).toBe(0);
     expect(dispatched).toHaveLength(0);
+  });
+});
+
+describe("Mode-aware local Goal Loop coordinator", () => {
+  it("keeps request-approval mode in the loop without dispatching the current gate", async () => {
+    const gate = { kind: "workflow-action" as const, actionType: "validate.run" as const, changeId: "change-1", worktreeId: "wt-1" };
+
+    const decision = await decideLocalGoalLoopNextStep({
+      mode: "request-approval",
+      changeId: "change-1",
+      services: {
+        resolveCurrentPrimaryGate: async () => gate,
+      },
+    });
+
+    expect(decision).toMatchObject({
+      kind: "wait-for-human",
+      mode: "request-approval",
+      changeId: "change-1",
+      gate,
+    });
+  });
+
+  it("delegates full-access mode to scoped automation for an allowed local gate", async () => {
+    const gate = { kind: "workflow-action" as const, actionType: "validate.run" as const, changeId: "change-1", worktreeId: "wt-1" };
+
+    const decision = await decideLocalGoalLoopNextStep({
+      mode: "full-access",
+      changeId: "change-1",
+      services: {
+        resolveCurrentPrimaryGate: async () => gate,
+      },
+    });
+
+    expect(decision).toMatchObject({
+      kind: "run-scoped-automation",
+      mode: "full-access",
+      changeId: "change-1",
+      gate,
+    });
+  });
+
+  it("waits for the user at terminal or unsupported gates in both modes", async () => {
+    const requestApproval = await decideLocalGoalLoopNextStep({
+      mode: "request-approval",
+      changeId: "change-1",
+      services: {
+        resolveCurrentPrimaryGate: async () => ({ stopReason: "terminal-human-gate", summary: "Manual gate." }),
+      },
+    });
+    const fullAccess = await decideLocalGoalLoopNextStep({
+      mode: "full-access",
+      changeId: "change-1",
+      services: {
+        resolveCurrentPrimaryGate: async () => ({ stopReason: "unsupported-gate", summary: "Unsupported gate." }),
+      },
+    });
+
+    expect(requestApproval).toMatchObject({ kind: "wait-for-human", stopReason: "terminal-human-gate" });
+    expect(fullAccess).toMatchObject({ kind: "wait-for-human", stopReason: "unsupported-gate" });
+  });
+
+  it("fails closed on cross-change gates and source safety drift", async () => {
+    const crossChange = await decideLocalGoalLoopNextStep({
+      mode: "full-access",
+      changeId: "change-1",
+      services: {
+        resolveCurrentPrimaryGate: async () => ({ kind: "workflow-action", actionType: "validate.run", changeId: "change-2", worktreeId: "wt-2" }),
+      },
+    });
+    const sourceDrift = await decideLocalGoalLoopNextStep({
+      mode: "request-approval",
+      changeId: "change-1",
+      services: {
+        checkSafety: async () => ({ stopReason: "source-drift", summary: "source changed" }),
+        resolveCurrentPrimaryGate: async () => ({ kind: "workflow-action", actionType: "validate.run", changeId: "change-1", worktreeId: "wt-1" }),
+      },
+    });
+
+    expect(crossChange).toMatchObject({ kind: "blocked", stopReason: "stale-target" });
+    expect(sourceDrift).toMatchObject({ kind: "blocked", stopReason: "source-drift" });
+  });
+
+  it("records completion when no primary gate remains", async () => {
+    const decision = await decideLocalGoalLoopNextStep({
+      mode: "full-access",
+      changeId: "change-1",
+      services: {
+        resolveCurrentPrimaryGate: async () => ({ stopReason: "no-primary-gate", summary: "No gate." }),
+      },
+    });
+
+    expect(decision).toMatchObject({
+      kind: "completed",
+      stopReason: "no-primary-gate",
+    });
   });
 });
 

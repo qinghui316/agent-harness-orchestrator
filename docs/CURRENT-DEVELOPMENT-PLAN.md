@@ -10,15 +10,15 @@ The user should not need to know internal terms before asking for work. The main
 
 ## Goal-Driven Workflow Loop Target
 
-Latest implementation and acceptance slice:
-`harness/changes/archive/20260626-workbench-local-landing-ready-terminal-close-v1/summary.md`.
-It fixes the local terminal surface after a ready landing package: with
-PR/remote unavailable or out of scope, Workbench resolves to local
-`change.close` when the existing close gate is ready, or to an explicit local
-terminal blocker when close is not ready. PR/provider readiness remains
-background evidence instead of selected-Change primary. It did not implement a
-new workflow runtime, full parallel executor, automatic integration
-apply/discard, PR, remote, or merge.
+Latest implementation slice:
+`harness/changes/archive/20260626-workbench-mode-aware-local-goal-loop-v1/summary.md`.
+It adds a thin mode-aware local Goal Loop coordinator. `请求批准` and
+`完全访问权限` now observe the same selected-Change primary gate; request
+approval waits on the existing confirmation queue, while full access delegates
+only allowed local gates to existing scoped automation after the human plan
+confirmation. It did not implement a new workflow runtime, full parallel
+executor, automatic IntegrationCheck, integration apply/discard, PR, remote,
+merge, or Harness evolution.
 
 The target architecture is a Goal-driven Workflow Loop, not a Scheduler-first
 product. After the user confirms the goal, boundaries, accepted plan, and
@@ -111,7 +111,7 @@ evidence-bound scheduler/action execution plus human gates.
 ## Current Implemented Capability Tracks
 
 - Conversation-first Workbench: project folders contain demand conversations, parent-agent transcript surfaces, inline run graph tabs, Workpad summaries, evidence/detail surfaces, and confirmation queues.
-- Workbench planning and local autonomy: planning generation prefers Codex Plan Mode proposal capture and records `proposedPlanMd`; when native plan deltas are unavailable it uses the prompt-level `<proposed_plan>` fallback. Plan confirmation remains a human gate. If the user chooses `完全访问权限` while confirming the plan, the existing scoped automation runtime may continue through local execution, validation/audit, safe `audit.accept`, local `result.apply`, local `landing.prepare`, and local `change.close`, then stops after archive.
+- Workbench planning and local autonomy: planning generation prefers Codex Plan Mode proposal capture and records `proposedPlanMd`; when native plan deltas are unavailable it uses the prompt-level `<proposed_plan>` fallback. Plan confirmation remains a human gate. The two execution modes share the local Goal Loop coordinator: `请求批准` observes and leaves each current gate to the user, while `完全访问权限` may delegate allowed local gates to existing scoped automation after plan confirmation. Full-access can continue through local execution, validation/audit, safe `audit.accept`, local `result.apply`, local `landing.prepare`, and local `change.close`, then stops after archive.
 - Role execution: planning/coder turns may use Codex app-server when available; `codex exec` fallback remains valid and must be labeled honestly. Validator and auditor remain independent evidence runners.
 - Result safety: result review, apply readiness, source refresh rework, integration checks, aggregate validation/audit, IntegrationFix, local landing readiness, Draft PR handoff, PR feedback, ready-for-review, remote landing, and post-merge reconcile are staged and human-gated.
 - Scheduler path: scheduler artifacts now cover readiness contracts, launch preflight, SchedulerRun shell, runtime reconcile/claim reservation, first/next worker start, worker result/validation/audit, bounded rework, integration candidate/handoff/outcome, terminal completion, blocked/exhausted closeout, controlled-step result summaries, controlled-loop turn route summaries, controlled loop tick contract summaries, controlled loop continuation readiness summaries, controlled loop iteration summaries, controlled stop-summary resume handoff, a fail-closed controlled-advance continuation guard, a scheduler-owned controlled-advance candidate carrier reused by Workbench confirmation/reconfirmation/current-gate proof, a scheduler-runtime controlled loop-step owner for the existing one-confirmed-transition advance wrapper, a scheduler-runtime runtime-boundary evidence summary that composes the implemented observe/choose/human-gate/dispatch/reconcile/stop phases without becoming loop authority, durable pre-dispatch continuation decision evidence on controlled-step records, and an embedded post-step routing decision that names the existing owner/gate for continuation while remaining prior-turn evidence only.
