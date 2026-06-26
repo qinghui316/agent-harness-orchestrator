@@ -4884,7 +4884,7 @@ describe("Workbench web app", () => {
     expect(mutationCalls).toHaveLength(0);
   });
 
-  it("renders the selected project readiness home with Codex diagnostics and settings", async () => {
+  it("renders the selected project home as a desktop-style creation surface with diagnostics in settings", async () => {
     const noTopicSnapshot = {
       ...snapshot,
       left: { ...snapshot.left, topics: [], workpads: [] },
@@ -4902,19 +4902,77 @@ describe("Workbench web app", () => {
 
     render(<App />);
 
-    await screen.findByRole("heading", { name: "Repo" });
-    expect(screen.getByText("项目主页")).toBeTruthy();
-    expect(screen.getByText("Codex 诊断")).toBeTruthy();
-    await waitFor(() => expect(screen.getByText("codex-cli 1.2.3")).toBeTruthy());
-    expect((screen.getByRole("button", { name: "进入 Workbench" }) as HTMLButtonElement).disabled).toBe(true);
+    await screen.findByRole("heading", { name: "创造任何东西" });
+    expect(screen.getByTitle("E:/repo")).toBeTruthy();
+    expect(screen.getByLabelText("新建需求输入框")).toBeTruthy();
+    const modeToggle = screen.getByRole("group", { name: "权限模式" });
+    const requestApproval = within(modeToggle).getByRole("button", { name: "请求批准" });
+    const fullAccess = within(modeToggle).getByRole("button", { name: "完全访问权限" });
+    expect(requestApproval.getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(fullAccess);
+    expect(fullAccess.getAttribute("aria-pressed")).toBe("true");
+    expect(screen.queryByText("计划确认后可选择完全访问权限")).toBeNull();
+    expect(screen.queryByText("最近会话")).toBeNull();
+    expect(screen.queryByText("Codex 诊断")).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "设置" }));
     expect(await screen.findByRole("dialog", { name: "设置" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Harness / Codex" })).toBeTruthy();
+    expect(screen.getByText("Codex 高级诊断")).toBeTruthy();
+    expect(screen.getByText("codex-cli 1.2.3")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "关闭设置" }));
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "设置" })).toBeNull());
     const mutationCalls = vi.mocked(fetch).mock.calls.filter(([, init]) => init?.method === "POST");
     expect(mutationCalls).toHaveLength(0);
+  });
+
+  it("creates a demand from the desktop-style project home composer", async () => {
+    const noTopicSnapshot = {
+      ...snapshot,
+      left: { ...snapshot.left, topics: [], workpads: [] },
+      center: { ...snapshot.center, selectedTopic: null },
+    };
+    const selectedSnapshot = {
+      ...snapshot,
+      left: {
+        ...snapshot.left,
+        topics: [{ id: "new-demand", title: "实现设置入口", state: "active" }],
+        workpads: [{ id: "new-demand", title: "实现设置入口", state: "active", runtimeStatus: "active", selected: true, waitingDecisionCount: 0 }],
+      },
+      center: {
+        ...snapshot.center,
+        selectedTopic: { id: "new-demand", title: "实现设置入口", state: "active", acCount: 0, taskCount: 0 },
+      },
+    };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
+      if (url === "/api/projects") {
+        return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, memory: { memoryMode: "external-local", memoryAvailable: true, harnessReady: true, artifactBase: "memory-root" }, harness: { readiness: "ready" }, codexTrust: { trusted: true } }] });
+      }
+      if (url === "/api/projects/repo/codex/diagnostics") return jsonResponse(codexDiagnostics);
+      if (url === "/api/projects/repo/workbench/topics" && init?.method === "POST") {
+        return jsonResponse({ topic: { changeId: "new-demand" } });
+      }
+      if (url === "/api/projects/repo/workbench/snapshot?topic=new-demand") return jsonResponse(selectedSnapshot);
+      if (url === "/api/projects/repo/workbench/projections/transcript/new-demand?limit=100") return jsonResponse(selectedSnapshot.center.parentAgentTranscript);
+      return jsonResponse(noTopicSnapshot);
+    }));
+
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "创造任何东西" });
+    fireEvent.change(screen.getByLabelText("新建需求输入框"), { target: { value: "实现设置入口" } });
+    fireEvent.click(screen.getByTitle("创建需求对话"));
+
+    await waitFor(() => expect(screen.getByText("实现设置入口")).toBeTruthy());
+    const topicPost = vi.mocked(fetch).mock.calls.find(([url, init]) => String(url) === "/api/projects/repo/workbench/topics" && init?.method === "POST");
+    expect(topicPost).toBeTruthy();
+    expect(JSON.parse(String(topicPost?.[1]?.body))).toMatchObject({
+      title: "实现设置入口",
+      body: "实现设置入口",
+      confirm: true,
+    });
   });
 
   it("does not expose demand creation when a marker exists but durable memory is unavailable", async () => {

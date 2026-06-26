@@ -4,11 +4,11 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 
 ## 1. Current Handoff
 
-- Current date: 2026-06-26.
+- Current date: 2026-06-27.
 - Active change: none.
-- Pending Harness evolution: none.
+- Pending Harness evolution: `harness/evolution/pending.md`.
 - Latest archived product change:
-  `harness/changes/archive/20260627-workbench-project-home-codex-diagnostics-v1/summary.md`.
+  `harness/changes/archive/20260627-workbench-desktop-cc-gui-aligned-home-and-conversation-entry-v1/summary.md`.
 - Latest archived docs/reference change:
   `harness/changes/archive/20260626-document-desktop-cc-gui-reference-map-and-product-layer-roadmap/summary.md`.
 - Latest archived reference policy correction:
@@ -38,10 +38,12 @@ Current baseline:
 - The right confirmation surface defaults to a compact collapsed rail with a
   pending count badge. Expanding it shows the existing confirmation pane; the
   rail is frontend-only UI state and does not execute actions.
-- Phase 1 desktop product-layer entry now includes an app project home, selected
-  project readiness home, read-only Codex diagnostics, and a minimal
-  Harness/Codex settings panel. Direct `workbench serve <path>` still
-  auto-selects the direct project and shows the same readiness information.
+- Phase 1 desktop product-layer entry now follows the `desktop-cc-gui`
+  reference more closely for Harness mode: a sparse project/conversation
+  sidebar plus a centered "create anything" composer. The composer has a real
+  Codex-style `请求批准` / `完全访问权限` mode toggle; unsupported toolbar,
+  recent-session, and fake dropdown controls are hidden until implemented.
+  Codex diagnostics are advanced settings, not the main product home.
 - Planning prefers Codex Plan Mode proposal capture; plan confirmation remains
   human.
 - `请求批准` and scoped `完全访问权限` share the same local Goal Loop coordinator.

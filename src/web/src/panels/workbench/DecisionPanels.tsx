@@ -8,9 +8,11 @@ import { ControlledSchedulerRoutingPosture } from "./ControlledSchedulerRoutingP
 export function DecisionInspectorPane({
   inspector,
   confirmationQueue,
+  automationMode,
   confirming,
   busy,
   error,
+  onAutomationModeChange,
   onConfirmingChange,
   onExecuteAction,
   onFeedback,
@@ -18,14 +20,19 @@ export function DecisionInspectorPane({
 }: {
   inspector: DecisionInspector;
   confirmationQueue: ConfirmationQueue;
+  automationMode?: "request-approval" | "full-access";
   confirming: string | null;
   busy: boolean;
   error: string | null;
+  onAutomationModeChange?: (mode: "request-approval" | "full-access") => void;
   onConfirmingChange: (id: string | null) => void;
   onExecuteAction: (action: DecisionAction, context: DecisionContext) => Promise<void>;
   onFeedback: (context: DecisionContext, action: DecisionAction, feedback: string) => Promise<void>;
   onSelectContext: (id: string | null) => void;
 }): ReactElement {
+  const [internalAutomationMode, setInternalAutomationMode] = useState<"request-approval" | "full-access">("request-approval");
+  const effectiveAutomationMode = automationMode ?? internalAutomationMode;
+  const handleAutomationModeChange = onAutomationModeChange ?? setInternalAutomationMode;
   const primaryQueueItem = confirmationQueue.primary;
   return (
     <>
@@ -44,6 +51,8 @@ export function DecisionInspectorPane({
           item={primaryQueueItem}
           confirming={confirming}
           busy={busy}
+          automationMode={effectiveAutomationMode}
+          onAutomationModeChange={handleAutomationModeChange}
           onConfirmingChange={onConfirmingChange}
           onExecuteAction={onExecuteAction}
           onFeedback={onFeedback}
@@ -75,6 +84,8 @@ export function DecisionInspectorPane({
               item={item}
               confirming={confirming}
               busy={busy}
+              automationMode={effectiveAutomationMode}
+              onAutomationModeChange={handleAutomationModeChange}
               onConfirmingChange={onConfirmingChange}
               onExecuteAction={onExecuteAction}
               onFeedback={onFeedback}
@@ -91,6 +102,8 @@ function ConfirmationQueueCard({
   item,
   confirming,
   busy,
+  automationMode,
+  onAutomationModeChange,
   onConfirmingChange,
   onExecuteAction,
   onFeedback,
@@ -98,6 +111,8 @@ function ConfirmationQueueCard({
   item: ConfirmationQueueItem;
   confirming: string | null;
   busy: boolean;
+  automationMode: "request-approval" | "full-access";
+  onAutomationModeChange: (mode: "request-approval" | "full-access") => void;
   onConfirmingChange: (id: string | null) => void;
   onExecuteAction: (action: DecisionAction, context: DecisionContext) => Promise<void>;
   onFeedback: (context: DecisionContext, action: DecisionAction, feedback: string) => Promise<void>;
@@ -108,6 +123,8 @@ function ConfirmationQueueCard({
       context={context}
       confirming={confirming}
       busy={busy}
+      automationMode={automationMode}
+      onAutomationModeChange={onAutomationModeChange}
       onConfirmingChange={onConfirmingChange}
       onExecuteAction={onExecuteAction}
       onFeedback={onFeedback}
@@ -142,6 +159,8 @@ function DecisionContextCard({
   context,
   confirming,
   busy,
+  automationMode,
+  onAutomationModeChange,
   onConfirmingChange,
   onExecuteAction,
   onFeedback,
@@ -149,6 +168,8 @@ function DecisionContextCard({
   context: DecisionContext;
   confirming: string | null;
   busy: boolean;
+  automationMode: "request-approval" | "full-access";
+  onAutomationModeChange: (mode: "request-approval" | "full-access") => void;
   onConfirmingChange: (id: string | null) => void;
   onExecuteAction: (action: DecisionAction, context: DecisionContext) => Promise<void>;
   onFeedback: (context: DecisionContext, action: DecisionAction, feedback: string) => Promise<void>;
@@ -156,7 +177,6 @@ function DecisionContextCard({
   const [feedbackActionId, setFeedbackActionId] = useState<string | null>(null);
   const [feedback, setFeedback] = useState("");
   const [pendingActionId, setPendingActionId] = useState<string | null>(null);
-  const [automationMode, setAutomationMode] = useState<"request-approval" | "full-access">("request-approval");
   const feedbackAction = context.actions.find((action) => action.id === feedbackActionId);
   const primaryAutomationAction = chooseScopedAutomationAction(context.actions);
   const planningConfirmationAction = context.actions.find(isPlanningConfirmationAction);
@@ -257,7 +277,7 @@ function DecisionContextCard({
         <AutomationModeSelector
           value={automationMode}
           canUseFullAccess={canSelectFullAccess}
-          onChange={setAutomationMode}
+          onChange={onAutomationModeChange}
         />
       ) : null}
       <div className="approval-actions">

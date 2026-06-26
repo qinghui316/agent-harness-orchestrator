@@ -2,11 +2,11 @@
 
 ## Current Handoff
 
-- Current date: 2026-06-26.
+- Current date: 2026-06-27.
 - Active ECL change: none.
-- Pending Harness evolution: none.
+- Pending Harness evolution: `harness/evolution/pending.md`.
 - Latest archived product audit: `harness/changes/archive/20260625-workbench-goal-loop-decision-surface-audit-v1/summary.md`.
-- Latest archived product change: `harness/changes/archive/20260627-workbench-project-home-codex-diagnostics-v1/summary.md`.
+- Latest archived product change: `harness/changes/archive/20260627-workbench-desktop-cc-gui-aligned-home-and-conversation-entry-v1/summary.md`.
 - Latest archived docs/reference change: `harness/changes/archive/20260626-document-desktop-cc-gui-reference-map-and-product-layer-roadmap/summary.md`.
 - Latest archived reference policy correction: `harness/changes/archive/20260626-desktop-cc-gui-local-only-reference-correction/summary.md`.
 - Previous archived product change: `harness/changes/archive/20260626-workbench-rudder-style-agent-orchestration-map-v1/summary.md`.
@@ -50,13 +50,21 @@
 - Latest scheduler integration apply/discard hardening: `harness/changes/archive/20260625-workbench-scheduler-integration-apply-discard-real-acceptance-v1/summary.md`.
 
 Latest product closeout:
+`harness/changes/archive/20260627-workbench-desktop-cc-gui-aligned-home-and-conversation-entry-v1/summary.md`.
+It corrects the selected-project home toward the `desktop-cc-gui` reference:
+left project/conversation history plus a central `创造任何东西` composer. The
+composer has a real Codex-style `请求批准` / `完全访问权限` mode toggle; unsupported
+toolbar, recent-session, and fake dropdown controls are hidden until their real
+paths exist. Codex diagnostics remain read-only behind settings / advanced.
+Real browser acceptance screenshot:
+`E:\aho-accept\desktop-home-ui-v1\screenshots\final-home-mode-toggle-clean.png`.
+
+Previous product closeout:
 `harness/changes/archive/20260627-workbench-project-home-codex-diagnostics-v1/summary.md`.
-It adds the first Phase 1 desktop product-layer entry for Harness mode: app
+It added the first Phase 1 desktop product-layer entry for Harness mode:
 project home, selected/direct project readiness home, read-only Codex
 diagnostics, and a minimal Harness/Codex settings panel. Direct
-`workbench serve <path>` still auto-selects the direct project and shows the
-same readiness information. Codex diagnostics are read-only and do not write
-`config.toml`; trust remains an explicit user action.
+`workbench serve <path>` still auto-selects the direct project.
 
 Previous product closeout:
 `harness/changes/archive/20260626-workbench-orchestration-map-real-ui-and-collapsible-confirmation-rail-v1/summary.md`.

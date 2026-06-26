@@ -1,19 +1,19 @@
 import { useState, type ReactElement } from "react";
 import {
   AlertTriangle,
+  Bot,
   CheckCircle2,
   FolderOpen,
-  RefreshCw,
+  Send,
   X,
 } from "lucide-react";
 import {
   CodexTrustButton,
-  HarnessInitButton,
   InfoRow,
   ProjectAddForm,
   ProjectCreateForm,
 } from "./ProjectPanels.js";
-import type { CodexDiagnostics, ProjectStatus, Snapshot, WorkpadSummary } from "../types.js";
+import type { CodexDiagnostics, ProjectStatus, Snapshot } from "../types.js";
 
 export function ProjectHomeView({
   projects,
@@ -43,7 +43,6 @@ export function ProjectHomeView({
         <div className="project-home-actions">
           <button className="primary-button" onClick={() => setHomeMode(homeMode === "add" ? "closed" : "add")}><FolderOpen size={15} />添加已有项目</button>
           <button className="outline-button" onClick={() => setHomeMode(homeMode === "new" ? "closed" : "new")}>新建项目</button>
-          <button className="text-button" onClick={() => void onRefresh()}><RefreshCw size={15} />刷新</button>
         </div>
       </div>
 
@@ -82,58 +81,106 @@ export function ProjectHomeView({
 export function ProjectReadinessHome({
   project,
   snapshot,
-  diagnostics,
-  onNewConversation,
-  onOpenWorkbench,
-  onRefresh,
+  automationMode,
+  onCreateDemand,
+  onAutomationModeChange,
 }: {
   project: ProjectStatus;
   snapshot: Snapshot;
-  diagnostics: CodexDiagnostics | null;
-  onNewConversation: () => Promise<void>;
-  onOpenWorkbench: () => void;
-  onRefresh: () => Promise<void>;
+  automationMode: "request-approval" | "full-access";
+  onCreateDemand: (body: string) => Promise<void>;
+  onAutomationModeChange: (mode: "request-approval" | "full-access") => void;
 }): ReactElement {
   const readiness = projectReadiness(project, snapshot);
-  const recent = (snapshot.left.workpads ?? []).slice(0, 4);
+  const [draft, setDraft] = useState("");
+  const [submitting, setSubmitting] = useState(false);
   const memoryReady = snapshot.memory.harnessReady ?? project.memory?.harnessReady ?? project.harness.readiness === "ready";
-  const hasWorkbenchTarget = recent.length > 0 || snapshot.left.topics.length > 0;
+  const projectName = snapshot.project?.name ?? project.project?.name ?? "当前项目";
+
+  async function submitDemand(): Promise<void> {
+    const body = draft.trim();
+    if (!body || !memoryReady) return;
+    setSubmitting(true);
+    try {
+      await onCreateDemand(body);
+      setDraft("");
+    } finally {
+      setSubmitting(false);
+    }
+  }
 
   return (
-    <section className="project-readiness-home">
-      <header className="project-readiness-header">
-        <div>
-          <p className="eyebrow">项目主页</p>
-          <h1>{snapshot.project?.name ?? project.project?.name ?? "当前项目"}</h1>
-          <p>{project.path}</p>
+    <section className="home-chat-surface" aria-label="项目对话首页">
+      <div className="home-chat-center">
+        <div className="home-chat-mark" aria-label="Codex">
+          <Bot size={50} />
         </div>
-        <div className="project-home-actions">
-          <button className="primary-button" disabled={!memoryReady} onClick={() => void onNewConversation()}>新建需求</button>
-          <button className="outline-button" disabled={!hasWorkbenchTarget} onClick={onOpenWorkbench}>进入 Workbench</button>
-          <button className="text-button" onClick={() => void onRefresh()}><RefreshCw size={15} />刷新</button>
+        <h1>创造任何东西</h1>
+        <div className="home-chat-project-label" title={project.path}>
+          <span>{projectName}</span>
         </div>
-      </header>
 
-      <div className="project-readiness-grid">
-        <section className="project-status-panel">
-          <h2>项目状态</h2>
-          <InfoRow label="Harness" value={readiness.label} />
-          <InfoRow label="记忆" value={snapshot.memory.memoryMode ?? project.memory?.memoryMode ?? "未知"} />
-          <InfoRow label="Git" value={projectGitLabel(project, snapshot)} />
-          <InfoRow label="Codex 信任" value={project.codexTrust?.trusted ? "已信任" : "需要确认"} />
-          {!memoryReady && project.project ? <HarnessInitButton projectId={project.project.id} onDone={onRefresh} /> : null}
-          {!project.codexTrust?.trusted ? <CodexTrustButton project={project} onDone={() => void onRefresh()} /> : null}
-        </section>
-
-        <CodexDiagnosticsCard diagnostics={diagnostics} project={project} />
-
-        <section className="project-status-panel recent-demand-panel">
-          <h2>最近需求</h2>
-          {recent.length === 0 ? <p className="muted-copy">还没有需求对话。新建需求后，计划、执行、验收和收尾会在这里恢复。</p> : null}
-          {recent.map((item) => <RecentDemandRow key={item.id} item={item} />)}
+        <section className="home-demand-composer" aria-label="新建需求对话">
+          <div className="home-demand-composer-header">
+            <span className="composer-provider-label">Codex</span>
+            <AutomationModeToggle value={automationMode} onChange={onAutomationModeChange} />
+          </div>
+          <textarea
+            value={draft}
+            onChange={(event) => setDraft(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && !event.shiftKey) {
+                event.preventDefault();
+                void submitDemand();
+              }
+            }}
+            disabled={!memoryReady || submitting}
+            placeholder={memoryReady ? "描述你的需求；Enter 发送，Shift+Enter 换行" : readiness.label}
+            aria-label="新建需求输入框"
+          />
+          <div className="home-demand-composer-footer">
+            <span className="composer-footer-spacer" />
+            <button
+              className="composer-send"
+              disabled={!memoryReady || submitting || !draft.trim()}
+              onClick={() => void submitDemand()}
+              title="创建需求对话"
+            >
+              <Send size={16} />
+            </button>
+          </div>
         </section>
       </div>
     </section>
+  );
+}
+
+function AutomationModeToggle({
+  value,
+  onChange,
+}: {
+  value: "request-approval" | "full-access";
+  onChange: (mode: "request-approval" | "full-access") => void;
+}): ReactElement {
+  return (
+    <div className="composer-mode-toggle" role="group" aria-label="权限模式">
+      <button
+        type="button"
+        className={value === "request-approval" ? "selected" : ""}
+        aria-pressed={value === "request-approval"}
+        onClick={() => onChange("request-approval")}
+      >
+        请求批准
+      </button>
+      <button
+        type="button"
+        className={value === "full-access" ? "selected" : ""}
+        aria-pressed={value === "full-access"}
+        onClick={() => onChange("full-access")}
+      >
+        完全访问权限
+      </button>
+    </div>
   );
 }
 
@@ -197,15 +244,13 @@ export function SettingsPanel({
           </div>
           <button className="icon-button" aria-label="关闭设置" onClick={onClose}><X size={16} /></button>
         </header>
-        <p className="muted-copy">V1 只显示本地 Harness 和 Codex 诊断。Provider、Skills、主题和桌面打包设置后续单独实现。</p>
-        <CodexDiagnosticsCard diagnostics={diagnostics} project={project} />
+        <p className="muted-copy">这里用于查看当前项目状态；普通需求从首页输入框开始。</p>
         {project ? (
           <section className="project-status-panel">
             <h2>当前项目</h2>
             <InfoRow label="路径" value={project.path} />
             <InfoRow label="Harness" value={project.harness.readiness} />
             <InfoRow label="记忆" value={project.memory?.memoryMode ?? "未知"} />
-            {!project.codexTrust?.trusted ? <CodexTrustButton project={project} onDone={() => void onRefresh()} /> : null}
           </section>
         ) : (
           <section className="project-status-panel">
@@ -213,16 +258,12 @@ export function SettingsPanel({
             <p className="muted-copy">还没有选择项目。</p>
           </section>
         )}
+        <details className="settings-advanced">
+          <summary>Codex 高级诊断</summary>
+          {project && !project.codexTrust?.trusted ? <CodexTrustButton project={project} onDone={() => void onRefresh()} /> : null}
+          <CodexDiagnosticsCard diagnostics={diagnostics} project={project} />
+        </details>
       </aside>
-    </div>
-  );
-}
-
-function RecentDemandRow({ item }: { item: WorkpadSummary }): ReactElement {
-  return (
-    <div className="recent-demand-row">
-      <strong>{item.title}</strong>
-      <small>{item.userStatusLabel ?? item.runtimeStatus}{item.waitingDecisionCount > 0 ? ` · ${item.waitingDecisionCount} 个待确认` : ""}</small>
     </div>
   );
 }
@@ -238,11 +279,4 @@ function projectReadiness(project: ProjectStatus, snapshot?: Snapshot): { label:
   if (!project.managed || !memoryReady) return { label: "需要初始化 Harness", tone: "warning" };
   if (!project.codexTrust?.trusted) return { label: "需要确认 Codex", tone: "warning" };
   return { label: "就绪", tone: "ready" };
-}
-
-function projectGitLabel(project: ProjectStatus, snapshot: Snapshot): string {
-  const branch = snapshot.left.repo?.branch ?? project.branch;
-  const dirty = snapshot.left.repo?.dirty ?? project.dirty;
-  if (!project.isGitRepo && !snapshot.left.repo?.git) return "未检测到 Git";
-  return `${branch ? `${branch}` : "Git 仓库"}${dirty ? " · 有未提交改动" : " · clean"}`;
 }

@@ -115,7 +115,7 @@ evidence-bound scheduler/action execution plus human gates.
 
 - Conversation-first Workbench: project folders contain demand conversations, parent-agent transcript surfaces, inline run graph tabs, Workpad summaries, evidence/detail surfaces, and confirmation queues. The default transcript now uses cursor-incremental SQLite message paging, a transcript shell in the default snapshot, virtual rendering, long-message folding, and `@chenglou/pretext` measurement fallback so long conversations do not require full backend transcript construction or full DOM rendering. Synthetic 100k / 500k message pressure acceptance passed without Codex tokens or durable large fixtures; workflow truth remains Change/artifact/validation/audit/apply/close evidence, not SQLite transcript paging.
 - Workbench agent orchestration surface: the selected-demand graph is now a read-only Rudder-style `Agent 编排图` with stage-based layout, avatar cards, status dots, SVG edges, and zoom/fit controls. It visualizes local loop, rework, scheduler worker branch/join, IntegrationCheck, landing, and terminal projection evidence while keeping `confirmationQueue.primary` as the only executable primary surface. The right confirmation surface defaults to a compact collapsed rail; expanding it shows the existing confirmation pane without changing workflow authority.
-- Workbench product entry: Harness mode now has a Phase 1 desktop-style entry surface with app project home, selected/direct project readiness home, read-only Codex diagnostics, and a minimal Harness/Codex settings panel. Direct `workbench serve <path>` still auto-selects the direct project. Codex trust, Harness init, create/add project, workflow actions, apply/close, remote, merge, PR, and Harness evolution remain explicit user actions.
+- Workbench product entry: Harness mode now has a Phase 1 desktop-style entry surface aligned toward `desktop-cc-gui`: app project home, selected/direct project entry, sparse project/conversation sidebar, centered `创造任何东西` composer, and a real Codex-style `请求批准` / `完全访问权限` permission-mode toggle. Read-only Codex diagnostics and Harness/Codex settings remain behind settings / advanced. Unsupported toolbar, recent-session, fake project dropdown, provider/model, files, Skills, terminal, and attachment controls are hidden until implemented. Direct `workbench serve <path>` still auto-selects the direct project. Codex trust, Harness init, create/add project, workflow actions, apply/close, remote, merge, PR, and Harness evolution remain explicit user actions.
 - Workbench planning and local autonomy: planning generation prefers Codex Plan Mode proposal capture and records `proposedPlanMd`; when native plan deltas are unavailable it uses the prompt-level `<proposed_plan>` fallback. Plan confirmation remains a human gate. The two execution modes share the local Goal Loop coordinator: `请求批准` observes and leaves each current gate to the user, while `完全访问权限` may delegate allowed local gates to existing scoped automation after plan confirmation. Full-access can continue through local execution, validation/audit, safe `audit.accept`, local `result.apply`, local `landing.prepare`, and local `change.close`, then stops after archive.
 - Role execution: planning/coder turns may use Codex app-server when available; `codex exec` fallback remains valid and must be labeled honestly. Validator and auditor remain independent evidence runners.
 - Result safety: result review, apply readiness, source refresh rework, integration checks, aggregate validation/audit, IntegrationFix, local landing readiness, Draft PR handoff, PR feedback, ready-for-review, remote landing, and post-merge reconcile are staged and human-gated.
@@ -205,18 +205,20 @@ acceptance.
 
 Current structured change: none.
 
-Pending Harness evolution: none.
+Pending Harness evolution: `harness/evolution/pending.md`.
 
 Recommended next product step: continue the desktop product layer from
-`docs/design-docs/ref-desktop-cc-gui.md`, now that project home/readiness,
-Codex diagnostics, and a minimal settings entry are implemented. Good next
-slices are project creation/open/restore polish, composer/file-reference UX,
-runtime diagnostics, or file/Git/terminal panels. Keep normal Agent mode,
-Claude Code/OpenCode providers, Tauri packaging, PR/remote/merge, and full
-parallel executor work out of the immediate slice unless explicitly selected.
+`docs/design-docs/ref-desktop-cc-gui.md`, now that the selected-project home
+uses the reference-style central composer and real permission-mode toggle.
+Good next slices are real project creation/open/restore polish,
+composer/file-reference UX, provider/model settings, runtime diagnostics, or
+file/Git/terminal panels. Do not show reference-style controls until their
+behavior exists. Keep normal Agent mode, Claude Code/OpenCode providers, Tauri
+packaging, PR/remote/merge, and full parallel executor work out of the
+immediate slice unless explicitly selected.
 
 Latest product change:
-`harness/changes/archive/20260627-workbench-project-home-codex-diagnostics-v1/summary.md`.
+`harness/changes/archive/20260627-workbench-desktop-cc-gui-aligned-home-and-conversation-entry-v1/summary.md`.
 
 Latest real UI acceptance:
 `harness/changes/archive/20260626-workbench-mode-aware-local-goal-loop-real-ui-acceptance-v1/summary.md`.
@@ -235,7 +237,7 @@ pressure/V2 and orchestration-map/collapsed-rail acceptance evidence.
 
 Current Harness evolution:
 
-- Pending evolution: none.
+- Pending evolution: `harness/evolution/pending.md`.
 - Latest completed evolution:
   `harness/changes/archive/20260626-auto-evolve-post-orchestration-map-window/summary.md`.
   Decision: `docs_merge`; subagent Aquinas score `86/100`. No

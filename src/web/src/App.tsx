@@ -5,7 +5,6 @@ import {
   useState,
   type ReactElement } from "react";
 import {
-  RefreshCw,
   Settings,
 } from "lucide-react";
 import { consumeWorkbenchLiveStream,
@@ -105,6 +104,7 @@ export function App(): ReactElement {
   const [error, setError] = useState<string | null>(null);
   const [composerText, setComposerText] = useState("");
   const [composerMode, setComposerMode] = useState<"chat" | "plan">("chat");
+  const [automationMode, setAutomationMode] = useState<"request-approval" | "full-access">("request-approval");
   const [actionRunning, setActionRunning] = useState<string | null>(null);
   const [liveItems, setLiveItems] = useState<ThreadStreamItem[]>([]);
   const [liveTurns, setLiveTurns] = useState<LiveAssistantTurn[]>([]);
@@ -374,14 +374,15 @@ export function App(): ReactElement {
     await refresh();
   }
 
-  async function createTopicFromComposer(): Promise<void> {
-    if (!selectedProjectId || !composerText.trim()) return;
+  async function createTopicFromText(body: string): Promise<void> {
+    if (!selectedProjectId || !body.trim()) return;
     setActionRunning("topic.create");
     try {
-      const title = composerText.trim().split(/\r?\n/)[0].slice(0, 60);
+      const demandBody = body.trim();
+      const title = demandBody.split(/\r?\n/)[0].slice(0, 60);
       const result = await postJson<{ topic: { changeId: string } }>(`/api/projects/${encodeURIComponent(selectedProjectId)}/workbench/topics`, {
         title,
-        body: composerText.trim(),
+        body: demandBody,
         confirm: true,
       });
       setComposerText("");
@@ -722,6 +723,10 @@ export function App(): ReactElement {
     }
   }
 
+  async function createTopicFromComposer(): Promise<void> {
+    await createTopicFromText(composerText);
+  }
+
   useEffect(() => {
     if (!selectedProjectId || !activeTopic?.id) return;
     let cancelled = false;
@@ -779,7 +784,6 @@ export function App(): ReactElement {
       <aside className="sidebar">
         <div className="brand compact-brand">
           <div className="brand-title">Agent Harness<br />Orchestrator</div>
-          <button className="icon-button" aria-label="刷新项目" onClick={() => void loadApp()}><RefreshCw size={14} /></button>
         </div>
         <ProjectConversationSidebar
           appStatus={appStatus}
@@ -818,13 +822,9 @@ export function App(): ReactElement {
           <ProjectReadinessHome
             project={selectedProjectStatus}
             snapshot={snapshot}
-            diagnostics={codexDiagnostics}
-            onNewConversation={beginNewConversation}
-            onOpenWorkbench={() => {
-              const first = snapshot.left.workpads?.[0]?.id ?? snapshot.left.topics[0]?.id;
-              if (first && selectedProjectId) void chooseConversation(selectedProjectId, first);
-            }}
-            onRefresh={() => loadApp().then(() => selectedProjectId ? refresh(selectedProjectId, null) : undefined)}
+            automationMode={automationMode}
+            onCreateDemand={createTopicFromText}
+            onAutomationModeChange={setAutomationMode}
           />
         ) : (
           <>
@@ -905,6 +905,8 @@ export function App(): ReactElement {
         <DecisionInspectorPane
           inspector={activeDecisionInspector}
           confirmationQueue={activeConfirmationQueue}
+          automationMode={automationMode}
+          onAutomationModeChange={setAutomationMode}
           confirming={confirming}
           busy={actionRunning !== null}
           error={error}
