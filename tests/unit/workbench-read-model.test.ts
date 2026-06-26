@@ -16,6 +16,10 @@ import { createAgentTask } from "../../src/agent-task/manager.js";
 import { buildDecisionInspector } from "../../src/workbench/projections/read-model/decision-inspector.js";
 import { buildConfirmationQueue } from "../../src/workbench/projections/read-model/confirmation-queue.js";
 import { landingCandidateQueueItem } from "../../src/workbench/projections/read-model/confirmation/landing.js";
+import { writeLandingArtifacts } from "../../src/landing/repository.js";
+import { landingRoot } from "../../src/landing/utils.js";
+import type { LandingReadinessPackage } from "../../src/landing/types.js";
+import { prDraftRoot } from "../../src/pr-draft/utils.js";
 import { getTempDir, minimalDecompositionPlan, minimalReadiness, prepareSeededSchedulerIntegrationHandoff, project, writeAcceptedSpecAndTasks, writePlanningBundleFixture } from "./workbench/fixtures.js";
 import type { RunMetadata } from "../../src/types/index.js";
 
@@ -34,6 +38,84 @@ const FORBIDDEN_CONTROLLED_LOOP_PRIMARY_TERMS = [
   "preflight id",
   "derived-non-executing-workbench-handoff",
 ];
+
+async function writeReadyLandingPackage(changeId: string, id: string): Promise<LandingReadinessPackage> {
+  const memory = await resolveProjectMemory(project());
+  const directory = join(landingRoot(memory), id);
+  const now = new Date().toISOString();
+  const artifactRefs = [
+    `memory://workbench/landing/${id}/landing-package.json`,
+    `memory://workbench/landing/${id}/landing-summary.md`,
+    `memory://workbench/landing/${id}/source-diff.patch`,
+    `memory://workbench/landing/${id}/merge-review.md`,
+  ];
+  const pkg: LandingReadinessPackage = {
+    version: "1.0",
+    id,
+    projectId: project().id,
+    target: {
+      kind: "integration-check",
+      changeIds: [changeId],
+      worktreeIds: ["wt-alpha", "wt-beta"],
+      applyCheckId: `apply-${id}`,
+      expectedDiffHash: `diff-${id}`,
+      evidenceRefs: [`memory://workbench/integration-checks/apply-${id}/check.json`],
+    },
+    status: "ready",
+    sourceHead: "source-head",
+    sourceDiffHash: `diff-${id}`,
+    sourceDiffStat: "src/alpha.ts | 1 +",
+    changedFiles: ["src/alpha.ts"],
+    attributable: true,
+    unattributedFiles: [],
+    summary: "本地结果已应用，落地检查包已准备好进行提交/PR 前审查。",
+    riskSummary: "这是本地提交/PR 前检查；不会 push、创建 PR 或 merge。",
+    artifactRefs,
+    createdAt: now,
+    reviewedAt: now,
+    review: {
+      version: "1.0",
+      packageId: id,
+      roleId: "merge-reviewer-agent",
+      verdict: "ready",
+      summary: "提交/PR 前检查通过。",
+      riskSummary: "本地证据完整。",
+      evidenceRefs: artifactRefs,
+      missingChecks: [],
+      suggestedNextAction: "进入本地完成门禁。",
+      createdAt: now,
+    },
+  };
+  await mkdir(directory, { recursive: true });
+  await writeLandingArtifacts(directory, pkg);
+  return pkg;
+}
+
+async function writeCreatedPrDraftPackage(landingPackageId: string, id: string): Promise<void> {
+  const memory = await resolveProjectMemory(project());
+  const directory = join(prDraftRoot(memory), id);
+  await mkdir(directory, { recursive: true });
+  const now = new Date().toISOString();
+  await writeFile(join(directory, "pr-draft-package.json"), JSON.stringify({
+    version: "1.0",
+    id,
+    landingPackageId,
+    projectId: project().id,
+    provider: "github-cli",
+    status: "created",
+    title: "Existing Draft",
+    bodyArtifact: `memory://workbench/pr-drafts/${id}/body.md`,
+    packageArtifact: `memory://workbench/pr-drafts/${id}/pr-draft-package.json`,
+    remoteName: "origin",
+    remoteUrl: "https://github.com/example/repo.git",
+    baseBranch: "main",
+    branchName: "aho/existing-draft",
+    prUrl: "https://github.com/example/repo/pull/1",
+    landingEvidenceRefs: [`memory://workbench/landing/${landingPackageId}/landing-package.json`],
+    createdAt: now,
+    updatedAt: now,
+  }, null, 2), "utf8");
+}
 
 describe("workbench read-model projections", () => {
   it("lists active and archived changes as topics", async () => {
@@ -1190,6 +1272,66 @@ describe("workbench read-model projections", () => {
       }),
     ]));
     expect(JSON.stringify(afterCompletion.right.decisionInspector.primary)).toContain("landing.prepare");
+  });
+
+  it("routes ready local landing to change.close instead of PR provider when close is ready", async () => {
+    await initHarness(project());
+    await createChange(project(), { title: "Local Landing Close" });
+    await writeFile(join(getTempDir(), "harness", "changes", "active", "local-landing-close", "reviews", "review.md"), "Status: approved\n", "utf8");
+    await writeReadyLandingPackage("local-landing-close", "landing-local-close-ready");
+
+    const snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: "local-landing-close" });
+    const currentJson = JSON.stringify(snapshot.right.confirmationQueue.current);
+
+    expect(snapshot.right.confirmationQueue.primary?.actions).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        action: expect.objectContaining({ actionId: "change.close" }),
+      }),
+    ]));
+    expect(snapshot.right.decisionInspector.primary?.actions).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        action: expect.objectContaining({ actionId: "change.close" }),
+      }),
+    ]));
+    expect(currentJson).not.toContain("pr-draft:provider:landing-local-close-ready");
+  });
+
+  it("shows local close blocker instead of PR provider when ready landing cannot close yet", async () => {
+    await initHarness(project());
+    await createChange(project(), { title: "Local Landing Blocked" });
+    await writeReadyLandingPackage("local-landing-blocked", "landing-local-close-blocked");
+
+    const snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: "local-landing-blocked" });
+    const primary = snapshot.right.confirmationQueue.primary;
+
+    expect(primary).toMatchObject({
+      id: "landing:local-terminal-blocker:landing-local-close-blocked",
+      kind: "request-changes",
+      changeId: "local-landing-blocked",
+      landingPackageId: "landing-local-close-blocked",
+      primary: true,
+      status: "failed",
+    });
+    expect(primary?.summary).toContain("本地落地检查已通过");
+    expect(JSON.stringify(snapshot.right.confirmationQueue.current)).not.toContain("pr-draft:provider:landing-local-close-blocked");
+    expect(JSON.stringify(snapshot.right.decisionInspector.primary)).toContain("landing-local-close-blocked");
+  });
+
+  it("preserves existing Draft PR flow after ready landing", async () => {
+    await initHarness(project());
+    await createChange(project(), { title: "Remote Landing Existing Draft" });
+    await writeReadyLandingPackage("remote-landing-existing-draft", "landing-existing-draft");
+    await writeCreatedPrDraftPackage("landing-existing-draft", "draft-existing");
+
+    const snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: "remote-landing-existing-draft" });
+
+    expect(snapshot.right.confirmationQueue.primary).toMatchObject({
+      id: "pr-draft:created:draft-existing",
+      kind: "pr-draft",
+      landingPackageId: "landing-existing-draft",
+      changeId: "remote-landing-existing-draft",
+    });
+    expect(JSON.stringify(snapshot.right.confirmationQueue.primary)).toContain("Draft PR 已创建");
   });
 
   it("marks local landing.prepare as scoped-automation eligible without widening remote landing", () => {

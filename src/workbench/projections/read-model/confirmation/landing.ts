@@ -222,6 +222,38 @@ export function landingPackageQueueItem(project: ManagedProject, pkg: LandingRea
   };
 }
 
+export function landingLocalTerminalBlockerQueueItem(
+  project: ManagedProject,
+  pkg: LandingReadinessPackage,
+  selectedChangeId: string | undefined,
+  closeBlockingIssues: string[] = [],
+): WorkbenchConfirmationQueueItem {
+  const selected = Boolean(selectedChangeId && pkg.target.changeIds.includes(selectedChangeId));
+  const itemChangeId = selected ? selectedChangeId : pkg.target.changeIds[0];
+  const reviewArtifact = selectLandingReviewArtifactRef(pkg.artifactRefs);
+  const blockerSummary = closeBlockingIssues[0]
+    ? `本地落地检查已通过，但需求暂时不能归档：${closeBlockingIssues[0]}`
+    : "本地落地检查已通过，但本地完成门禁还没有就绪。";
+  return {
+    id: `landing:local-terminal-blocker:${pkg.id}`,
+    kind: "request-changes",
+    projectId: project.id,
+    conversationId: itemChangeId,
+    changeId: itemChangeId,
+    landingPackageId: pkg.id,
+    summary: blockerSummary,
+    whyNeedsConfirmation: "当前流程不使用 PR/remote；需要先满足本地完成门禁。",
+    confirmEffect: "不会创建 PR、push、merge 或归档需求；只显示当前本地收尾阻塞和证据。",
+    riskSummary: closeBlockingIssues.length > 0
+      ? closeBlockingIssues.join(" ")
+      : "请先补齐本地 close/archive 所需证据，然后重新检查。",
+    evidenceRefs: pkg.artifactRefs,
+    actions: evidenceActions(reviewArtifact),
+    primary: selected,
+    status: "failed",
+  };
+}
+
 export async function prDraftQueueItem(
   project: ManagedProject,
   memory: ResolvedMemory,

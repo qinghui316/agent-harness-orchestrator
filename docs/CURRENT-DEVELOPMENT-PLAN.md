@@ -11,16 +11,14 @@ The user should not need to know internal terms before asking for work. The main
 ## Goal-Driven Workflow Loop Target
 
 Latest implementation and acceptance slice:
-`harness/changes/archive/20260626-workbench-integration-applied-local-landing-close-real-ui-scout-v1/summary.md`.
-It verifies the local post-integration-apply route through scheduler
-outcome/completion and local `landing.prepare` on an E-drive external source.
-The scout fixed a shared untracked-file patch rendering bug that blocked
-landing attribution for repaired IntegrationFix patches adding new files. The
-remaining local-Agent blocker is terminal routing after landing-ready: with
-PR/remote out of scope, Workbench should resolve to local `change.close/archive`,
-completed/no primary gate, or an explicit local blocker instead of PR provider
-readiness. It did not implement a new workflow runtime, full parallel executor,
-automatic integration apply/discard, PR, remote, or merge.
+`harness/changes/archive/20260626-workbench-local-landing-ready-terminal-close-v1/summary.md`.
+It fixes the local terminal surface after a ready landing package: with
+PR/remote unavailable or out of scope, Workbench resolves to local
+`change.close` when the existing close gate is ready, or to an explicit local
+terminal blocker when close is not ready. PR/provider readiness remains
+background evidence instead of selected-Change primary. It did not implement a
+new workflow runtime, full parallel executor, automatic integration
+apply/discard, PR, remote, or merge.
 
 The target architecture is a Goal-driven Workflow Loop, not a Scheduler-first
 product. After the user confirms the goal, boundaries, accepted plan, and
@@ -166,13 +164,17 @@ It evaluated the window ending with
 `harness/changes/archive/20260626-workbench-repaired-integration-apply-real-ui-acceptance-v1/summary.md`
 as a separate human-gated Harness evolution pass and completed as `noop`.
 Latest product change:
+`harness/changes/archive/20260626-workbench-local-landing-ready-terminal-close-v1/summary.md`.
+It resolves the local terminal close surface after landing-ready: no-provider
+PR readiness no longer becomes the selected local Change primary gate; the
+surface now shows local close when ready or a local terminal blocker when the
+existing close gate is still blocked.
+Previous product change:
 `harness/changes/archive/20260626-workbench-integration-applied-local-landing-close-real-ui-scout-v1/summary.md`.
 It verifies the local post-integration-apply route through scheduler
 outcome/completion and local `landing.prepare`, fixes repaired-patch landing
-attribution for added files, and records the remaining local terminal blocker:
-after landing-ready, the no-PR/no-remote path still needs to resolve to local
-`change.close/archive`, completed/no primary gate, or an explicit local
-blocker instead of PR provider readiness.
+attribution for added files, and recorded the local terminal routing blocker
+that the latest product change has now resolved.
 Previous product change:
 `harness/changes/archive/20260626-workbench-integration-apply-outcome-completion-v1/summary.md`.
 It completes the post-integration-apply outcome projection and next-gate
@@ -279,10 +281,10 @@ Current baseline:
   artifact can be applied through this human gate and then stops showing the
   old apply/discard gate as primary.
 - Local landing after integration apply is verified through `landing.prepare`
-  and a ready landing package. The remaining local-Agent gap is terminal
-  routing after landing-ready when PR/remote are excluded: the next product
-  slice should make the path show local `change.close/archive`,
-  completed/no primary gate, or an explicit local blocker.
+  and a ready landing package. The local terminal surface now resolves to
+  `change.close` when the existing close gate is ready, or to an explicit local
+  terminal blocker when close requirements are not yet satisfied; PR/provider
+  readiness does not override the local-only primary path.
 - External-local restore is implemented for direct `workbench serve <path>`.
   When a source marker and the current `AHO_HOME/projects/<projectId>` memory
   exist, Workbench restores a session-scoped direct project, lists existing

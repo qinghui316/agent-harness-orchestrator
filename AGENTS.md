@@ -8,7 +8,8 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 - Active change: none.
 - Pending Harness evolution: none.
 - Latest archived product audit: Workbench Goal Loop Decision Surface Audit V1, archived at `harness/changes/archive/20260625-workbench-goal-loop-decision-surface-audit-v1/summary.md`.
-- Latest archived product change: Workbench Integration Apply Outcome Completion V1, archived at `harness/changes/archive/20260626-workbench-integration-apply-outcome-completion-v1/summary.md`.
+- Latest archived product change: Workbench Local Landing Ready Terminal Close V1, archived at `harness/changes/archive/20260626-workbench-local-landing-ready-terminal-close-v1/summary.md`.
+- Previous product change: Workbench Integration Apply Outcome Completion V1, archived at `harness/changes/archive/20260626-workbench-integration-apply-outcome-completion-v1/summary.md`.
 - Latest archived product acceptance: Workbench Integration Applied Local Landing/Close Real UI Scout V1, archived at `harness/changes/archive/20260626-workbench-integration-applied-local-landing-close-real-ui-scout-v1/summary.md`.
 - Previous repaired integration apply acceptance: `harness/changes/archive/20260626-workbench-repaired-integration-apply-real-ui-acceptance-v1/summary.md`.
 - Previous IntegrationFix real UI acceptance: `harness/changes/archive/20260626-workbench-integrationfix-real-ui-acceptance-v1/summary.md`.
@@ -61,15 +62,20 @@ existing controlled scheduler outcome/completion path becomes current, and the
 Workbench decision inspector aligns with the authoritative confirmation queue
 when the next gate is local `landing.prepare`.
 
-Latest local landing scout:
+Latest local terminal closeout:
+`harness/changes/archive/20260626-workbench-local-landing-ready-terminal-close-v1/summary.md`.
+It fixes the local-only terminal surface after a ready landing package: when
+PR/remote are unavailable or out of scope, provider readiness no longer becomes
+the selected Change primary gate. Workbench now shows local `change.close` if
+the existing close gate is ready, or a local terminal blocker backed by the
+same close requirements. PR/provider evidence may remain background context.
+
+Previous local landing scout:
 `harness/changes/archive/20260626-workbench-integration-applied-local-landing-close-real-ui-scout-v1/summary.md`.
 It verified that the repaired IntegrationFix apply path can advance through
 scheduler outcome/completion and local `landing.prepare` on an E-drive
 external source. The scout fixed a shared untracked-file patch rendering bug
-that blocked landing attribution for repaired patches adding new files. It
-also recorded the next local-Agent blocker: after landing is ready and
-PR/remote are out of scope, Workbench currently routes to PR provider readiness
-instead of a local close/archive terminal gate.
+that blocked landing attribution for repaired patches adding new files.
 
 Previous repaired integration apply acceptance:
 `harness/changes/archive/20260626-workbench-repaired-integration-apply-real-ui-acceptance-v1/summary.md`.

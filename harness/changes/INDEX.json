@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-26T06:23:21.8029620Z",
+    "generated_at":  "2026-06-26T06:50:10.5332430Z",
     "active":  [
 
                ],
@@ -1969,6 +1969,10 @@
                     {
                         "name":  "20260626-workbench-integrationfix-real-ui-acceptance-v1",
                         "path":  "harness/changes/archive/20260626-workbench-integrationfix-real-ui-acceptance-v1"
+                    },
+                    {
+                        "name":  "20260626-workbench-local-landing-ready-terminal-close-v1",
+                        "path":  "harness/changes/archive/20260626-workbench-local-landing-ready-terminal-close-v1"
                     },
                     {
                         "name":  "20260626-workbench-repaired-integration-apply-real-ui-acceptance-v1",

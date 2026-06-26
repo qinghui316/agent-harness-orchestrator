@@ -80,7 +80,8 @@ export function alignDecisionInspectorWithConfirmationPrimary(
   primary: WorkbenchConfirmationQueueItem | null,
   selectedChangeId: string | undefined,
 ): WorkbenchDecisionInspector {
-  if (inspector.primary || !primary || !selectedChangeId) return inspector;
+  if (!primary || !selectedChangeId) return inspector;
+  if (inspector.primary && !shouldOverrideDecisionInspectorPrimary(primary)) return inspector;
   if (primary.changeId !== selectedChangeId && primary.conversationId !== selectedChangeId) return inspector;
   if (primary.actions.every((action) => action.actionType === "planning.goal-loop.evaluate")) return inspector;
   const context = enrichDecisionContext({
@@ -107,6 +108,10 @@ export function alignDecisionInspectorWithConfirmationPrimary(
     primary: context,
     related: inspector.related.filter((item) => item.id !== context.id),
   };
+}
+
+function shouldOverrideDecisionInspectorPrimary(primary: WorkbenchConfirmationQueueItem): boolean {
+  return primary.id.startsWith("landing:local-terminal-blocker:");
 }
 
 function hasActiveRolePipeline(workpad: WorkbenchWorkpad): boolean {

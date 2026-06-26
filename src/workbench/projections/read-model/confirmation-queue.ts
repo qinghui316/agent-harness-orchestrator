@@ -6,7 +6,7 @@ import type { WorkbenchConfirmationQueue, WorkbenchDecisionInspector, WorkbenchT
 import { decisionContextToConfirmationItems } from "./confirmation/decision-context.js";
 import { attachControlledSchedulerAdvanceActions, attachGoalLoopAssistedConcreteGateActions, attachGoalLoopControlledContinuationActions, attachGoalLoopControllerRefreshActions, attachGoalLoopFeedbackActions, attachGoalLoopGateReadinessActions, attachGoalLoopSchedulerEvaluationActions, goalLoopEvaluationQueueItem } from "./confirmation/goal-loop.js";
 import { integrationCandidateQueueItem, integrationCheckHistoryItem, integrationCheckNeedsActionQueueItem, integrationCheckNeedsUserAction, integrationCheckQueueItem, sameIntegrationTargets } from "./confirmation/integration.js";
-import { landingCandidateQueueItem, landingPackageQueueItem, landingQueuePrepareItem, landingQueueSnapshotItems, prDraftQueueItem } from "./confirmation/landing.js";
+import { landingCandidateQueueItem, landingLocalTerminalBlockerQueueItem, landingPackageQueueItem, landingQueuePrepareItem, landingQueueSnapshotItems, prDraftQueueItem } from "./confirmation/landing.js";
 import { maintenanceCanonicalUpdateDecisionQueueItems } from "./confirmation/maintenance.js";
 import { dedupeConfirmationItems, emptyConfirmationQueue, scopeConfirmationQueueItemActions } from "./confirmation/shared.js";
 import { decompositionPlanToConfirmationItems, schedulerNextActionToConfirmationItems, taskQueueProposalToConfirmationItems, workpadNextActionToConfirmationItems } from "./confirmation/typed-workflow.js";
@@ -96,10 +96,25 @@ export async function buildConfirmationQueue(input: {
     }
     const latestLanding = landingPackages[0];
     if (latestLanding && latestLanding.reviewedAt && !queuedLandingPackageIds.has(latestLanding.id)) {
-      const item = latestLanding.review?.verdict === "ready"
-        ? await prDraftQueueItem(project, input.memory, latestLanding, input.selectedTopic?.id)
-        : landingPackageQueueItem(project, latestLanding, input.selectedTopic?.id);
-      enqueueCurrentOrOther(item);
+      if (latestLanding.review?.verdict === "ready") {
+        const item = await prDraftQueueItem(project, input.memory, latestLanding, input.selectedTopic?.id);
+        const selectedLanding = isSelectedLandingPackage(latestLanding, input.selectedTopic?.id);
+        if (selectedLanding && isProviderUnavailablePrDraftItem(item)) {
+          if (!selectedTopicHasCloseGate(queue.current, input.selectedTopic?.id)) {
+            enqueueCurrentOrOther(landingLocalTerminalBlockerQueueItem(
+              project,
+              latestLanding,
+              input.selectedTopic?.id,
+              input.selectedTopic?.closeGate?.blockingIssues ?? [],
+            ));
+          }
+          enqueueCurrentOrOther({ ...item, primary: false });
+        } else {
+          enqueueCurrentOrOther(item);
+        }
+      } else {
+        enqueueCurrentOrOther(landingPackageQueueItem(project, latestLanding, input.selectedTopic?.id));
+      }
     }
     const landingCandidate = await findLandingCandidate(project).catch(() => null);
     if (landingCandidate) {
@@ -134,6 +149,22 @@ export async function buildConfirmationQueue(input: {
   queue.history = dedupeConfirmationItems(queue.history.map(scopeConfirmationQueueItemActions));
   queue.primary = queue.current.find((item) => item.primary) ?? queue.current[0] ?? null;
   return queue;
+}
+
+function isSelectedLandingPackage(pkg: { target: { changeIds: string[] } }, selectedChangeId: string | undefined): boolean {
+  return Boolean(selectedChangeId && pkg.target.changeIds.includes(selectedChangeId));
+}
+
+function isProviderUnavailablePrDraftItem(item: WorkbenchConfirmationQueue["current"][number]): boolean {
+  return item.kind === "pr-draft" && item.id.startsWith("pr-draft:provider:");
+}
+
+function selectedTopicHasCloseGate(items: WorkbenchConfirmationQueue["current"], selectedChangeId: string | undefined): boolean {
+  if (!selectedChangeId) return false;
+  return items.some((item) =>
+    item.changeId === selectedChangeId
+    && item.actions.some((action) => action.action?.actionId === "change.close")
+  );
 }
 
 function isSelectedTopicItem(item: WorkbenchConfirmationQueue["current"][number], selectedChangeId: string | undefined): boolean {
