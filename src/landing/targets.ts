@@ -1,5 +1,8 @@
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { collectWorktreeDiff } from "../audit/diff.js";
+import { latestArtifactAbsolutePath, latestArtifactForApply } from "../integration-check/artifacts.js";
+import { integrationCheckRoot } from "../integration-check/paths.js";
 import { readIntegrationCheck } from "../integration-check/repository.js";
 import { getWorktreeStatus } from "../worktree/manager.js";
 import type { ResolvedMemory } from "../types/index.js";
@@ -31,12 +34,22 @@ export async function targetFromIntegrationCheck(memory: ResolvedMemory, applyCh
   if (!check.latestArtifactHash) {
     throw new Error(`Cannot prepare landing package: integration check ${applyCheckId} has no latest artifact hash.`);
   }
+  const latestArtifact = latestArtifactForApply(check);
+  if (!latestArtifact) {
+    throw new Error(`Cannot prepare landing package: integration check ${applyCheckId} has no latest artifact.`);
+  }
+  const artifactPath = latestArtifactAbsolutePath(join(integrationCheckRoot(memory), applyCheckId), latestArtifact);
+  const artifactDiff = await readFile(artifactPath, "utf8");
   return {
     kind: "integration-check",
     changeIds: unique(check.resultTargets.map((target) => target.changeId)),
     worktreeIds: unique(check.resultTargets.map((target) => target.worktreeId)),
     applyCheckId,
-    expectedDiffHash: check.latestArtifactHash,
+    expectedDiffHash: sourceComparableIntegrationDiffHash(artifactDiff),
     evidenceRefs: check.artifactRefs,
   };
+}
+
+function sourceComparableIntegrationDiffHash(diff: string): string {
+  return diffContentHash(diff.replace(/\n{2,}(?=diff --git a\/)/g, "\n"));
 }

@@ -6,7 +6,8 @@
 - Active ECL change: none.
 - Pending Harness evolution: none.
 - Latest archived product audit: `harness/changes/archive/20260625-workbench-goal-loop-decision-surface-audit-v1/summary.md`.
-- Latest archived product change: `harness/changes/archive/20260626-workbench-local-loop-scheduler-handoff-boundary-scout-v1/summary.md`.
+- Latest archived product change: `harness/changes/archive/20260626-workbench-local-scheduler-terminal-path-real-ui-scout-v1/summary.md`.
+- Previous archived product change: `harness/changes/archive/20260626-workbench-local-loop-scheduler-handoff-boundary-scout-v1/summary.md`.
 - Previous archived product change: `harness/changes/archive/20260626-workbench-mode-aware-local-goal-loop-real-ui-acceptance-v1/summary.md`.
 - Previous archived product change: `harness/changes/archive/20260626-workbench-mode-aware-local-goal-loop-v1/summary.md`.
 - Previous archived product change: `harness/changes/archive/20260626-workbench-local-landing-ready-terminal-close-v1/summary.md`.
@@ -40,17 +41,26 @@
 - Latest scheduler integration apply/discard hardening: `harness/changes/archive/20260625-workbench-scheduler-integration-apply-discard-real-acceptance-v1/summary.md`.
 
 Latest product closeout:
+`harness/changes/archive/20260626-workbench-local-scheduler-terminal-path-real-ui-scout-v1/summary.md`.
+It composes the local scheduler terminal path through real in-app browser
+acceptance: Codex Plan Mode, human plan confirmation with `完全访问权限`,
+controlled scheduler workers, manual IntegrationCheck, human integration apply,
+and local landing readiness. The run fixed two real blockers: local landing
+now wins over stale scheduler/audit primary context, and landing attribution
+now compares applied IntegrationCheck patches with a source-comparable diff
+hash. The final visible primary gate is an explicit local close blocker:
+`Review status is pending`. No central workflow DB, raw scheduler full-access
+allowlist, PR/remote/merge, integration apply/discard automation, or Harness
+evolution automation was added.
+
+Previous product closeout:
 `harness/changes/archive/20260626-workbench-local-loop-scheduler-handoff-boundary-scout-v1/summary.md`.
 It verifies the local Goal Loop scheduler handoff boundary through real
 in-app browser acceptance. `请求批准` waits on the real current gate. Scoped
 `完全访问权限` can enter low-conflict scheduler work only through the existing
 controlled scheduler wrapper, progressed two same-Change worker worktrees to a
 ready `SchedulerIntegrationCandidate`, and then stopped at the manual
-`planning.scheduler.integration-check.run` gate. Workbench no longer lets
-stale result-review context or Goal Loop helper actions make that terminal gate
-look full-access eligible. No central workflow DB, raw scheduler full-access
-allowlist, PR/remote/merge, integration apply/discard, or Harness evolution
-automation was added.
+`planning.scheduler.integration-check.run` gate.
 
 Previous product closeout:
 `harness/changes/archive/20260626-workbench-mode-aware-local-goal-loop-real-ui-acceptance-v1/summary.md`.

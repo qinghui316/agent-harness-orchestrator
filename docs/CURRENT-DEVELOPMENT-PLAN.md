@@ -11,12 +11,14 @@ The user should not need to know internal terms before asking for work. The main
 ## Goal-Driven Workflow Loop Target
 
 Latest implementation slice:
-`harness/changes/archive/20260626-workbench-local-loop-scheduler-handoff-boundary-scout-v1/summary.md`.
-It verifies the mode-aware local Goal Loop at the scheduler handoff boundary.
-`请求批准` waits on the real current gate. Scoped `完全访问权限` can enter a
-low-conflict scheduler path only through the existing controlled scheduler
-wrapper, can progress same-Change worker worktrees to a ready integration
-candidate, and then stops at the manual IntegrationCheck gate. It did not
+`harness/changes/archive/20260626-workbench-local-scheduler-terminal-path-real-ui-scout-v1/summary.md`.
+It composes the separately validated local scheduler terminal slices through
+real UI: Codex Plan Mode, human plan confirmation with `完全访问权限`,
+controlled scheduler workers, manual IntegrationCheck, human integration
+apply, and local landing readiness. It fixed the Workbench surface so local
+landing/terminal blockers win over stale scheduler/audit context, and fixed
+landing attribution for applied IntegrationCheck patches. The remaining local
+terminal blocker is close readiness requiring review completion. It did not
 implement a central workflow DB, raw scheduler full-access allowlist, new
 workflow runtime, full parallel executor, automatic IntegrationCheck,
 integration apply/discard, PR, remote, merge, or Harness evolution.

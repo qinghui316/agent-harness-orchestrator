@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-26T09:20:07.4866108Z",
+    "generated_at":  "2026-06-26T10:21:40.3371379Z",
     "active":  [
 
                ],
@@ -1981,6 +1981,10 @@
                     {
                         "name":  "20260626-workbench-local-loop-scheduler-handoff-boundary-scout-v1",
                         "path":  "harness/changes/archive/20260626-workbench-local-loop-scheduler-handoff-boundary-scout-v1"
+                    },
+                    {
+                        "name":  "20260626-workbench-local-scheduler-terminal-path-real-ui-scout-v1",
+                        "path":  "harness/changes/archive/20260626-workbench-local-scheduler-terminal-path-real-ui-scout-v1"
                     },
                     {
                         "name":  "20260626-workbench-mode-aware-local-goal-loop-real-ui-acceptance-v1",

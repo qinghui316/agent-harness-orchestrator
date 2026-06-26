@@ -1234,7 +1234,7 @@ describe("workbench read-model projections", () => {
     expect(JSON.stringify(primary)).not.toMatch(/full-auto|parallel executor|merge queue/i);
   });
 
-  it("projects integration apply outcome to scheduler outcome, completion, and landing instead of stale apply gate", async () => {
+  it("projects integration apply to local landing instead of stale scheduler or audit gates", async () => {
     const prepared = await prepareSeededSchedulerIntegrationHandoff("Integration Apply Outcome Completion");
     const checkId = prepared.handoff.handoff.integrationCheckId;
 
@@ -1260,71 +1260,22 @@ describe("workbench read-model projections", () => {
       enabled: true,
     });
     expect(afterApply.right.confirmationQueue.primary).toMatchObject({
+      kind: "landing-readiness",
       changeId: prepared.topic.changeId,
       primary: true,
     });
     expect(afterApply.right.confirmationQueue.primary?.actions).toEqual(expect.arrayContaining([
       expect.objectContaining({
-        actionType: "planning.scheduler.controlled-advance.run",
-        goalLoopCurrentGateActionType: "planning.scheduler.integration-outcome.reconcile",
-        schedulerIntegrationCheckHandoffId: prepared.handoff.handoff.id,
-        changeId: prepared.topic.changeId,
-      }),
-    ]));
-
-    const reconcileAction = afterApply.right.confirmationQueue.primary?.actions.find((action) =>
-      action.actionType === "planning.scheduler.integration-outcome.reconcile"
-      || action.goalLoopCurrentGateActionType === "planning.scheduler.integration-outcome.reconcile"
-    );
-    expect(reconcileAction).toBeTruthy();
-    await executeWorkbenchAction({ project: project(), path: getTempDir() }, {
-      ...reconcileAction,
-      actionType: reconcileAction!.actionType,
-      confirm: true,
-    });
-
-    const afterOutcome = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: prepared.topic.changeId });
-    expect(afterOutcome.center.workpad.nextAction).toMatchObject({
-      actionType: "planning.scheduler.run.complete",
-      enabled: true,
-    });
-    expect(afterOutcome.right.confirmationQueue.primary?.actions).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        goalLoopCurrentGateActionType: "planning.scheduler.run.complete",
-        changeId: prepared.topic.changeId,
-      }),
-    ]));
-
-    const completeAction = afterOutcome.right.confirmationQueue.primary?.actions.find((action) =>
-      (action.actionType === "planning.scheduler.controlled-advance.run" || action.actionType === "planning.goal-loop.controlled-continue.run")
-      && action.goalLoopCurrentGateActionType === "planning.scheduler.run.complete"
-    ) ?? afterOutcome.right.confirmationQueue.primary?.actions.find((action) => action.actionType === "planning.scheduler.run.complete");
-    expect(completeAction).toBeTruthy();
-    await executeWorkbenchAction({ project: project(), path: getTempDir() }, {
-      ...completeAction,
-      actionType: completeAction!.actionType,
-      confirm: true,
-    });
-
-    const afterCompletion = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: prepared.topic.changeId });
-    const afterCompletionJson = JSON.stringify(afterCompletion.right.confirmationQueue.current);
-    expect(afterCompletionJson).not.toContain("\"actionId\":\"apply-check.apply\"");
-    expect(afterCompletionJson).not.toContain("\"actionId\":\"apply-check.discard\"");
-    expect(afterCompletion.center.workpad.schedulerRunCompletion).toMatchObject({
-      status: "completed-applied",
-      integrationCheckId: checkId,
-    });
-    expect(afterCompletion.right.confirmationQueue.primary).toMatchObject({
-      kind: "landing-readiness",
-      changeId: prepared.topic.changeId,
-    });
-    expect(afterCompletion.right.confirmationQueue.primary?.actions).toEqual(expect.arrayContaining([
-      expect.objectContaining({
         actionType: "landing.prepare",
+        applyCheckId: checkId,
         automationEligible: true,
       }),
     ]));
-    expect(JSON.stringify(afterCompletion.right.decisionInspector.primary)).toContain("landing.prepare");
+    expect(afterApply.right.confirmationQueue.current.some((item) =>
+      item.actions.some((action) => action.goalLoopCurrentGateActionType === "planning.scheduler.integration-outcome.reconcile")
+    )).toBe(true);
+    expect(JSON.stringify(afterApply.right.decisionInspector.primary)).toContain("landing.prepare");
+    expect(JSON.stringify(afterApply.right.decisionInspector.primary)).not.toContain("audit-approved");
   });
 
   it("routes ready local landing to change.close instead of PR provider when close is ready", async () => {

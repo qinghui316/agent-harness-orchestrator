@@ -143,6 +143,7 @@ export async function buildConfirmationQueue(input: {
   ), input.workpad), input.workpad), input.project, input.selectedTopic, input.workpad), input.workpad);
   queue.current = dedupeConfirmationItems(queue.current.filter((item) => item.kind !== "maintenance").map(scopeConfirmationQueueItemActions));
   queue.current = promoteSelectedWorkflowNextActionGate(queue.current, input.workpad.nextAction);
+  queue.current = promoteSelectedLandingReadinessGate(queue.current, input.selectedTopic?.id);
   queue.current = promoteSelectedCloseGate(queue.current, input.selectedTopic?.id);
   queue.current = promoteSelectedWorkpadApprovalGate(queue.current, input.workpad.nextAction);
   queue.otherDemands = dedupeConfirmationItems(queue.otherDemands.map(scopeConfirmationQueueItemActions));
@@ -221,6 +222,25 @@ function promoteSelectedWorkflowNextActionGate(items: WorkbenchConfirmationQueue
   const next = items.map((item) => ({ ...item, primary: false }));
   const [gate] = next.splice(index, 1);
   if (gate) next.unshift({ ...gate, primary: true });
+  return next;
+}
+
+function promoteSelectedLandingReadinessGate(items: WorkbenchConfirmationQueue["current"], selectedChangeId: string | undefined): WorkbenchConfirmationQueue["current"] {
+  if (!selectedChangeId) return items;
+  const index = items.findIndex((item) =>
+    item.changeId === selectedChangeId
+    && (
+      item.id.startsWith("landing:local-terminal-blocker:")
+      || (
+        item.kind === "landing-readiness"
+        && item.actions.some((action) => (action.actionType === "landing.prepare" || action.actionType === "landing.refresh") && action.enabled)
+      )
+    )
+  );
+  if (index < 0) return items;
+  const next = items.map((item) => ({ ...item, primary: false }));
+  const [landingGate] = next.splice(index, 1);
+  if (landingGate) next.unshift({ ...landingGate, primary: true });
   return next;
 }
 
