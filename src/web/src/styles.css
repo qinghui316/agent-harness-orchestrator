@@ -1008,37 +1008,50 @@ input:focus-visible {
 }
 
 .parent-agent-tool-result {
-  padding: 9px 10px 9px 12px;
+  padding: 2px 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-muted);
+}
+
+.parent-agent-tool-result.compact {
+  gap: 5px;
+}
+
+.transcript-activity-row {
+  max-width: min(760px, 100%);
+}
+
+.transcript-activity-row.tone-active,
+.transcript-activity-row.tone-attention,
+.transcript-activity-row.tone-danger {
+  padding: 6px 8px;
   border: 1px solid var(--border);
-  border-left: 3px solid var(--border-strong);
   border-radius: var(--radius-md);
   background: var(--bg-panel);
 }
 
-.parent-agent-tool-result.compact {
-  gap: 7px;
+.transcript-activity-row.tone-attention {
+  border-color: color-mix(in srgb, var(--accent) 42%, var(--border));
+  background: color-mix(in srgb, var(--accent) 6%, var(--bg-panel));
 }
 
-.parent-agent-tool-result.compact.process-row {
-  border-left-color: var(--accent);
-}
-
-.parent-agent-tool-result.compact.evidence-row {
-  border-left-color: var(--success);
-}
-
+.transcript-activity-row.tone-danger,
 .parent-agent-tool-result.danger {
-  border-left-color: var(--danger);
-  background: var(--bg-panel);
+  border-color: color-mix(in srgb, var(--danger) 55%, var(--border));
+  background: color-mix(in srgb, var(--danger) 6%, var(--bg-panel));
+  color: var(--text);
 }
 
 .transcript-activity-summary {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  gap: 9px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 8px;
   align-items: center;
   width: 100%;
-  padding: 0;
+  min-height: 30px;
+  padding: 5px 2px;
   border: 0;
   background: transparent;
   color: inherit;
@@ -1046,19 +1059,39 @@ input:focus-visible {
   cursor: pointer;
 }
 
+.transcript-activity-row.tone-subtle .transcript-activity-summary {
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 62%, transparent);
+}
+
+.transcript-activity-row:not(.has-details) .transcript-activity-summary {
+  cursor: default;
+}
+
+.transcript-activity-row.has-details .transcript-activity-summary:hover {
+  color: var(--text-strong);
+}
+
 .transcript-activity-summary[aria-expanded="true"] .transcript-activity-dot {
   transform: scale(1.08);
 }
 
 .transcript-activity-dot {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
   border-radius: 999px;
-  background: var(--accent);
+  background: var(--text-faint);
 }
 
 .parent-agent-tool-result.evidence-row .transcript-activity-dot {
-  background: var(--success);
+  background: color-mix(in srgb, var(--success) 72%, var(--text-faint));
+}
+
+.transcript-activity-row.tone-active .transcript-activity-dot {
+  background: var(--accent);
+}
+
+.transcript-activity-row.tone-attention .transcript-activity-dot {
+  background: var(--accent);
 }
 
 .parent-agent-tool-result.danger .transcript-activity-dot {
@@ -1068,13 +1101,34 @@ input:focus-visible {
 .tool-result-heading {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+  gap: 8px;
+  min-width: 0;
+}
+
+.transcript-activity-heading strong {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.transcript-activity-row.tone-active .transcript-activity-heading strong,
+.transcript-activity-row.tone-attention .transcript-activity-heading strong,
+.transcript-activity-row.tone-danger .transcript-activity-heading strong {
+  color: var(--text-strong);
 }
 
 .tool-result-heading span {
   color: var(--text-muted);
   font-size: 12px;
+}
+
+.transcript-activity-disclosure {
+  color: var(--text-faint);
+  font-size: 12px;
+  white-space: nowrap;
 }
 
 .tool-result-evidence {
@@ -1096,20 +1150,6 @@ input:focus-visible {
 .tool-result-details {
   display: grid;
   gap: 8px;
-}
-
-.transcript-activity-toggle {
-  width: fit-content;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  cursor: pointer;
-  color: var(--text-muted);
-  font-size: 12px;
-}
-
-.transcript-activity-toggle:hover {
-  color: var(--text-strong);
 }
 
 .tool-result-details pre {

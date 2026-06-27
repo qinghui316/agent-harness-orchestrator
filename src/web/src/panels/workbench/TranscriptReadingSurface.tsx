@@ -96,12 +96,14 @@ export function TranscriptActivityRow({ cell, expanded, onToggleExpanded }: {
   const rawTitle = cleanTranscriptTitle(cell.title) || (cell.kind === "process-row" ? "运行" : "材料");
   const rawText = normalizeCodexTranscriptText(cleanTranscriptText(cell.text));
   const title = rawTitle === "已运行命令" && /^已运行\s+\d+\s+条命令/.test(rawText) ? rawText : rawTitle;
-  const text = title === rawText ? "" : rawText;
+  const statusLabel = cell.status ? humanStatus(cell.status) : "";
+  const text = isDuplicativeActivitySummary(rawText, title, statusLabel) ? "" : rawText;
   const detailText = normalizeCodexTranscriptText(cleanTranscriptText(cell.detailText));
   const status = cell.status && shouldShowTranscriptStatus(cell) ? humanStatus(cell.status) : null;
   const detailsId = `${cell.id}:details`;
+  const tone = transcriptActivityTone(cell);
   return (
-    <div className={`parent-agent-tool-result transcript-activity-row compact ${cell.kind} ${cell.isError ? "danger" : ""}`}>
+    <div className={`parent-agent-tool-result transcript-activity-row compact ${cell.kind} tone-${tone} ${expanded ? "expanded" : ""} ${hasDetails ? "has-details" : ""} ${cell.isError ? "danger" : ""}`}>
       <button
         type="button"
         className="transcript-activity-summary"
@@ -114,6 +116,7 @@ export function TranscriptActivityRow({ cell, expanded, onToggleExpanded }: {
           <strong>{title}</strong>
           {status ? <span>{status}</span> : null}
         </span>
+        {hasDetails ? <span className="transcript-activity-disclosure" aria-hidden="true">{expanded ? "收起" : "详情"}</span> : null}
       </button>
       {text ? <TranscriptMarkdownLite text={text} idPrefix={`${cell.id}:summary`} compact /> : null}
       {hasDetails && expanded ? (
@@ -125,11 +128,6 @@ export function TranscriptActivityRow({ cell, expanded, onToggleExpanded }: {
             </div>
           ) : null}
         </div>
-      ) : null}
-      {hasDetails ? (
-        <button type="button" className="transcript-activity-toggle" onClick={onToggleExpanded}>
-          {expanded ? "收起详情" : "查看详情"}
-        </button>
       ) : null}
     </div>
   );
@@ -149,6 +147,31 @@ function shouldShowTranscriptStatus(cell: ParentAgentTranscriptCell): boolean {
   if (!cell.status) return false;
   if (cell.isError) return true;
   return ["running", "queued", "waiting-user", "needs-user-input", "failed"].includes(cell.status);
+}
+
+function transcriptActivityTone(cell: ParentAgentTranscriptCell): "subtle" | "active" | "attention" | "danger" {
+  if (cell.isError || cell.status === "failed") return "danger";
+  if (["blocked", "waiting-user", "needs-user-input", "waiting-decision"].includes(cell.status ?? "")) return "attention";
+  if (["running", "queued", "streaming", "preparing", "started"].includes(cell.status ?? "")) return "active";
+  return "subtle";
+}
+
+function isDuplicativeActivitySummary(summary: string, title: string, statusLabel: string): boolean {
+  const normalizedSummary = normalizeActivityCopy(summary);
+  if (!normalizedSummary) return true;
+  const normalizedTitle = normalizeActivityCopy(title);
+  const normalizedStatus = normalizeActivityCopy(statusLabel);
+  const candidates = [
+    normalizedTitle,
+    normalizedStatus ? `${normalizedTitle} ${normalizedStatus}` : "",
+    normalizedStatus ? `${normalizedTitle}${normalizedStatus}` : "",
+    normalizedStatus ? `${normalizedStatus} ${normalizedTitle}` : "",
+  ].filter(Boolean);
+  return candidates.includes(normalizedSummary);
+}
+
+function normalizeActivityCopy(value: string): string {
+  return value.replace(/[·:：.。]+/g, " ").replace(/\s+/g, " ").trim().toLowerCase();
 }
 
 function normalizeCodexTranscriptText(value: string): string {

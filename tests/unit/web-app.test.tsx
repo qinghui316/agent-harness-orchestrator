@@ -1016,14 +1016,29 @@ describe("Workbench web app", () => {
         detailText: "npm test\nPASS transcript surface",
         evidenceRefs: [{ kind: "artifact", label: "output", ref: "runs/run-1/output.md" }],
       }, {
+        id: "cell:process:duplicate-summary",
+        kind: "process-row",
+        source: "codex-runtime",
+        title: "Planning draft generated",
+        text: "Planning draft generated 已完成",
+        status: "completed",
+      }, {
         id: "cell:evidence:reading",
         kind: "evidence-row",
         source: "workflow-evidence",
         title: "验证材料",
         text: "验证通过",
+      }, {
+        id: "cell:process:failed",
+        kind: "process-row",
+        source: "codex-runtime",
+        title: "验证失败",
+        text: "验证失败",
+        status: "failed",
+        isError: true,
       }],
       items: [],
-      paging: { limit: 100, totalCount: 4, hasMoreBefore: false },
+      paging: { limit: 100, totalCount: 6, hasMoreBefore: false },
     };
     vi.mocked(fetch).mockImplementation(async (input: RequestInfo | URL) => {
       const url = String(input);
@@ -1048,13 +1063,23 @@ describe("Workbench web app", () => {
     expect(document.querySelector(".markdown-lite-quote")?.textContent).toContain("保持 Harness 边界");
     expect(document.querySelector(".markdown-lite-code-label")?.textContent).toBe("ts");
     const activityRows = Array.from(document.querySelectorAll(".transcript-activity-row"));
-    expect(activityRows).toHaveLength(2);
+    expect(activityRows).toHaveLength(4);
     const processRow = activityRows.find((node) => node.textContent?.includes("已运行 1 条命令")) as HTMLElement | undefined;
     expect(processRow).toBeTruthy();
+    expect(processRow?.classList.contains("tone-subtle")).toBe(true);
     expect(processRow?.textContent).not.toContain("PASS transcript surface");
-    fireEvent.click(within(processRow as HTMLElement).getByRole("button", { name: "查看详情" }));
+    fireEvent.click(within(processRow as HTMLElement).getByRole("button", { name: "已运行 1 条命令" }));
     expect(processRow?.textContent).toContain("PASS transcript surface");
     expect(processRow?.textContent).toContain("材料：output.md");
+    const duplicateSummaryRow = activityRows.find((node) => node.textContent?.includes("Planning draft generated")) as HTMLElement | undefined;
+    expect(duplicateSummaryRow).toBeTruthy();
+    expect(duplicateSummaryRow?.classList.contains("tone-subtle")).toBe(true);
+    expect(duplicateSummaryRow?.textContent).not.toContain("Planning draft generated 已完成");
+    const failedRow = activityRows.find((node) => node.textContent?.includes("验证失败")) as HTMLElement | undefined;
+    expect(failedRow).toBeTruthy();
+    expect(failedRow?.classList.contains("tone-danger")).toBe(true);
+    expect(failedRow?.classList.contains("danger")).toBe(true);
+    expect(screen.queryByText("查看详情")).toBeNull();
     const transcriptText = screen.getByTestId("parent-agent-transcript").textContent ?? "";
     for (const forbidden of ["full-auto", "parallel executor", "merge queue", "TaskRun", "WorkerLease"]) {
       expect(transcriptText).not.toContain(forbidden);
@@ -4836,7 +4861,7 @@ describe("Workbench web app", () => {
     const commandCell = Array.from(document.querySelectorAll(".parent-agent-tool-result"))
       .find((node) => node.textContent?.includes("已运行 1 条命令")) as HTMLElement | undefined;
     expect(commandCell).toBeTruthy();
-    fireEvent.click(within(commandCell as HTMLElement).getByText("查看详情"));
+    fireEvent.click(within(commandCell as HTMLElement).getByRole("button", { name: "已运行 1 条命令" }));
     expect(commandCell?.textContent).toMatch(/npm test/);
     expect(document.querySelectorAll("[data-testid^='assistant-block']")).toHaveLength(0);
     expect(document.querySelector(".parent-agent-transcript")?.textContent).toContain("完整 AI 输出已经落盘。");
@@ -4972,7 +4997,7 @@ describe("Workbench web app", () => {
     const commandCell = Array.from(document.querySelectorAll(".parent-agent-tool-result"))
       .find((node) => node.textContent?.includes("已运行 1 条命令")) as HTMLElement | undefined;
     expect(commandCell).toBeTruthy();
-    fireEvent.click(within(commandCell as HTMLElement).getByText("查看详情"));
+    fireEvent.click(within(commandCell as HTMLElement).getByRole("button", { name: "已运行 1 条命令" }));
     expect(commandCell?.textContent).toMatch(/npm test/);
     expect(screen.queryByText("exit 0")).toBeNull();
     expect(screen.queryByText(/5 output tokens/)).toBeNull();

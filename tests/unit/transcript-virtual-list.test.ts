@@ -47,4 +47,23 @@ describe("transcript virtual list pressure guards", () => {
     expect(Number.isFinite(expandedHeight)).toBe(true);
     expect(expandedHeight).toBeGreaterThan(foldedHeight);
   });
+
+  it("keeps activity row estimates compact while preserving expanded detail height", () => {
+    const cell: ParentAgentTranscriptCell = {
+      id: "cell:process:activity",
+      kind: "process-row",
+      source: "codex-runtime",
+      title: "Planning draft generated",
+      text: "Planning draft generated 已完成",
+      status: "completed",
+      detailText: "artifact: harness/runs/planning/latest.md\nstatus: completed",
+      evidenceRefs: [{ kind: "artifact", label: "plan", ref: "harness/runs/planning/latest.md" }],
+    };
+
+    const collapsedHeight = estimateTranscriptCellHeight(cell, { expanded: false, width: 720 });
+    const expandedHeight = estimateTranscriptCellHeight(cell, { expanded: true, width: 720 });
+
+    expect(collapsedHeight).toBeLessThan(64);
+    expect(expandedHeight).toBeGreaterThan(collapsedHeight);
+  });
 });

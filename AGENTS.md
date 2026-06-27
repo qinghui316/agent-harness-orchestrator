@@ -8,6 +8,8 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 - Active change: none.
 - Pending Harness evolution: none.
 - Latest archived product change:
+  `harness/changes/archive/20260627-workbench-reference-style-subtle-transcript-activity-rows-v1/summary.md`.
+- Previous archived product change:
   `harness/changes/archive/20260627-workbench-reference-style-transcript-reading-surface-v1/summary.md`.
 - Previous archived product change:
   `harness/changes/archive/20260627-workbench-reference-style-readonly-git-status-diff-panel-v1/summary.md`.
@@ -37,8 +39,11 @@ Current baseline:
 - Workbench conversation transcripts now use cursor-incremental SQLite message
   paging by default, bounded virtual rendering, long-message folding, and
   `@chenglou/pretext` height estimates with fallback. Synthetic 100k / 500k
-  message pressure acceptance passed without durable large fixtures. Workflow
-  truth remains unchanged.
+  message pressure acceptance passed without durable large fixtures. The
+  transcript surface follows the reference-style reading hierarchy: user
+  prompts are lightweight bubbles, assistant output is a clean Markdown flow,
+  and normal tool/Agent activity rows are compact and low-noise while
+  warning/error rows remain visible. Workflow truth remains unchanged.
 - Workbench `Agent 编排图` now renders a Rudder-style read-only orchestration
   canvas with avatar cards, status dots, SVG edges, pan/zoom/fit controls, and
   stage-based layout for local loop, rework, scheduler worker branch/join,

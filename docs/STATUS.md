@@ -6,6 +6,8 @@
 - Active ECL change: none.
 - Pending Harness evolution: none.
 - Latest archived product change:
+  `harness/changes/archive/20260627-workbench-reference-style-subtle-transcript-activity-rows-v1/summary.md`.
+- Previous archived product change:
   `harness/changes/archive/20260627-workbench-reference-style-transcript-reading-surface-v1/summary.md`.
 - Previous archived product change:
   `harness/changes/archive/20260627-workbench-reference-style-readonly-git-status-diff-panel-v1/summary.md`.
@@ -27,14 +29,22 @@
 
 ## Latest Product Closeout
 
+`harness/changes/archive/20260627-workbench-reference-style-subtle-transcript-activity-rows-v1/summary.md`.
+
+It quiets Workbench transcript activity rows to match the `desktop-cc-gui`
+visual hierarchy: ordinary completed tool/process/evidence/Agent events are
+compact, low-contrast disclosure rows; duplicate title/status summaries are
+suppressed; and error/blocker rows remain visibly distinct. It preserves
+cursor paging, virtual rendering, Pretext height estimates, long-message
+folding, and existing transcript workflow boundaries.
+
+Previous closeout:
 `harness/changes/archive/20260627-workbench-reference-style-transcript-reading-surface-v1/summary.md`.
 
 It makes the Workbench transcript closer to the `desktop-cc-gui` reading
 surface: user prompts are lightweight right-aligned bubbles, assistant output
 is a clean Markdown reading flow, and runtime/evidence output is a compact
-expandable activity row. It preserves cursor paging, virtual rendering,
-Pretext height estimates, long-message folding, and existing transcript
-workflow boundaries.
+expandable activity row.
 
 Previous closeout:
 `harness/changes/archive/20260627-workbench-reference-style-readonly-git-status-diff-panel-v1/summary.md`.
@@ -81,6 +91,9 @@ Harness workflow truth.
   evolution remain excluded.
 - Workbench transcripts use cursor-incremental SQLite message paging, virtual
   rendering, long-message folding, and `@chenglou/pretext` height estimates.
+  The reading surface is reference-style: user prompts are lightweight,
+  assistant output is clean Markdown prose, and ordinary tool/Agent activity is
+  low-noise expandable context while errors/blockers remain visible.
   Workflow truth remains Change/artifact/validation/audit/apply/close evidence,
   not SQLite transcript paging.
 - `Agent 编排图` is a read-only projection with Rudder-style canvas, avatars,

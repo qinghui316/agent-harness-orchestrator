@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-27T14:30:23.2400348Z",
+    "generated_at":  "2026-06-27T15:23:58.2772635Z",
     "active":  [
 
                ],
@@ -2085,6 +2085,10 @@
                     {
                         "name":  "20260627-workbench-reference-style-slash-skill-composer-v1",
                         "path":  "harness/changes/archive/20260627-workbench-reference-style-slash-skill-composer-v1"
+                    },
+                    {
+                        "name":  "20260627-workbench-reference-style-subtle-transcript-activity-rows-v1",
+                        "path":  "harness/changes/archive/20260627-workbench-reference-style-subtle-transcript-activity-rows-v1"
                     },
                     {
                         "name":  "20260627-workbench-reference-style-transcript-reading-surface-v1",
