@@ -205,7 +205,7 @@ acceptance.
 
 Current structured change: none.
 
-Pending Harness evolution: `harness/evolution/pending.md`.
+Pending Harness evolution: none.
 
 Recommended next product step: continue the desktop product layer from
 `docs/design-docs/ref-desktop-cc-gui.md`, now that the selected-project home
@@ -223,7 +223,7 @@ Tauri packaging, PR/remote/merge, and full parallel executor work out of the
 immediate slice unless explicitly selected.
 
 Latest product change:
-`harness/changes/archive/20260627-workbench-reference-style-slash-skill-composer-v1/summary.md`.
+`harness/changes/archive/20260627-workbench-reference-style-codex-runtime-model-picker-v1/summary.md`.
 
 Latest real UI acceptance:
 `harness/changes/archive/20260626-workbench-mode-aware-local-goal-loop-real-ui-acceptance-v1/summary.md`.
@@ -242,8 +242,14 @@ tracking was changed.
 
 Current Harness evolution:
 
-- Pending evolution: none.
+- Active evolution:
+  none.
 - Latest completed evolution:
+  `harness/changes/archive/20260627-auto-evolve-post-codex-model-picker-window/summary.md`.
+  Decision: `docs_merge`; subagent Helmholtz score `84/100`. Existing ECL
+  coverage was sufficient; CURRENT handoff state was aligned, and the review
+  template clarified product-visible Workbench control applicability.
+- Previous completed evolution:
   `harness/changes/archive/20260627-auto-evolve-post-slash-skill-window/summary.md`.
   Decision: `docs_merge`; subagent Singer score `82/100`. Existing ECL
   reference-driven UI/source, user-surface honesty, runtime bridge, and
@@ -253,10 +259,6 @@ Current Harness evolution:
   `harness/changes/archive/20260627-auto-evolve-post-desktop-product-entry-window/summary.md`.
   Decision: `ecl_update`; subagent Huygens score `84/100`. Added compact
   reference-driven UI/source evidence coverage to ECL and the review template.
-- Previous completed evolution:
-  `harness/changes/archive/20260626-auto-evolve-post-transcript-window/summary.md`.
-  Detailed pressure metrics, screenshot paths, sandbox evidence, ports,
-  hashes, and run ids remain archive-only.
 
 Choose one concrete track:
 

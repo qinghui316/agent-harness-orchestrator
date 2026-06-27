@@ -4,7 +4,7 @@
 
 - Current date: 2026-06-27.
 - Active ECL change: none.
-- Pending Harness evolution: `harness/evolution/pending.md`.
+- Pending Harness evolution: none.
 - Latest archived product change:
   `harness/changes/archive/20260627-workbench-reference-style-codex-runtime-model-picker-v1/summary.md`.
 - Previous archived product change:
@@ -16,9 +16,10 @@
 - Previous archived product change:
   `harness/changes/archive/20260627-workbench-reference-style-skills-catalog-and-codex-bridge-v1/summary.md`.
 - Latest completed Harness evolution:
-  `harness/changes/archive/20260627-auto-evolve-post-slash-skill-window/summary.md`
-  (`docs_merge`; subagent Singer score 82; existing ECL coverage sufficient,
-  compact AGENTS/STATUS/CURRENT handoff alignment applied).
+  `harness/changes/archive/20260627-auto-evolve-post-codex-model-picker-window/summary.md`
+  (`docs_merge`; subagent Helmholtz score 84; existing ECL coverage sufficient,
+  CURRENT handoff state aligned, review-template applicability for
+  product-visible Workbench controls clarified).
 
 ## Latest Product Closeout
 

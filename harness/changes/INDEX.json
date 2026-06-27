@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-27T11:38:11.0947500Z",
+    "generated_at":  "2026-06-27T11:57:14.7040113Z",
     "active":  [
 
                ],
@@ -2033,6 +2033,10 @@
                     {
                         "name":  "20260626-workbench-transcript-one-time-pressure-acceptance-v1",
                         "path":  "harness/changes/archive/20260626-workbench-transcript-one-time-pressure-acceptance-v1"
+                    },
+                    {
+                        "name":  "20260627-auto-evolve-post-codex-model-picker-window",
+                        "path":  "harness/changes/archive/20260627-auto-evolve-post-codex-model-picker-window"
                     },
                     {
                         "name":  "20260627-auto-evolve-post-desktop-product-entry-window",

@@ -1,27 +1,44 @@
-# Review: {title}
+﻿# Review: auto-evolve-post-codex-model-picker-window
 
-Status: pending.
+Status: complete.
 
 ## Findings
 
-None recorded yet.
+- Existing ECL coverage is sufficient for this archive window; no new broad
+  ECL rule, lint rule, or product runtime change is justified.
+- The repeated actionable gap is narrower: product-visible Workbench controls
+  need explicit user-surface evidence or an explicit infeasible reason even
+  when they do not change `confirmationQueue.primary`.
+- `docs/CURRENT-DEVELOPMENT-PLAN.md` had stale handoff state and needed a
+  compact merge.
 
 ## Verification
 
-Pending.
+Passed before close.
 
-- Selected verification scope: pending.
-- Full / aggregate suites run or skipped: pending.
-- Rationale for selected scope: pending.
+- Selected verification scope: Harness documentation/evolution checks only.
+- Full / aggregate suites run or skipped: product suites skipped; no product
+  code changed.
+- Rationale for selected scope: this is a docs/Harness evolution closeout, not
+  Workbench runtime behavior.
+- Commands passed:
+  - `scripts/lint-ecl.ps1`
+  - `scripts/lint-encoding.ps1`
+  - `scripts/harness-change.ps1 status`
+  - `scripts/harness-evolve.ps1 mark-complete -Status docs_merge -EvalMode subagent_review`
 - If an aggregate Workbench / slow suite exceeded the tool window: record timeout, split suite members run, pass/fail status, and whether the timeout is product failure or verification runtime-cost debt.
 
 ## Complexity Deletion Review
 
 - Complexity deletion review applicable: yes for product/code/Harness-template/rule changes; docs-only wording changes may mark this not applicable.
-- delete: none.
-- reuse: existing owner/helper/mechanism used: pending.
-- yagni: avoided: pending.
-- shrink: simpler alternative checked: pending.
+- delete: stale current-state wording in CURRENT retired.
+- reuse: existing ECL reference-driven source evidence, Workbench
+  user-surface honesty, runtime bridge, core-reuse, documentation entropy, and
+  Experience Lifecycle rules.
+- yagni: avoided new product runtime, ECL section, lint rule, reference
+  tracking, provider framework, or review-template section.
+- shrink: one template sentence and compact CURRENT alignment instead of a new
+  process layer.
 - net: Lean already.
 - Note: this is supplemental and does not replace correctness, security, source safety, validation/audit, stale-target, ToolPolicyGate, human-gate, or required coverage checks.
 
@@ -31,7 +48,8 @@ Pending.
 - Real Codex acceptance claimed: no.
 - If real Codex acceptance is claimed, fake Codex / mocked PATH / fixture result / hand-written artifact exclusion evidence: not applicable.
 - Manual config edits: none recorded.
-- Extra prompts or reviewer instructions: none recorded.
+- Extra prompts or reviewer instructions: user explicitly allowed subagent
+  handling of pending evolution.
 - Retries or environment failures: none recorded.
 - Screenshots / artifacts / run ids: none recorded.
 - External source/state safety: not applicable. If real/self acceptance uses a managed source project, record source root, runtime home, whether same-root evidence is negative-only, and before/after `git status --short`.
@@ -40,27 +58,43 @@ Pending.
 
 ## Documentation Entropy Coverage
 
-- Documentation entropy coverage applicable: no. Change to `yes` when this change updates `AGENTS.md`, `docs/STATUS.md`, Harness rules/templates, auto-evolve evidence, or other current-state / handoff documents.
-- If applicable, documents checked: not applicable.
-- If applicable, before/after line counts: not applicable.
-- If applicable, duplicate current-state fields checked: not applicable.
-- If applicable, roadmap/current-direction stale language checked: not applicable.
-- If applicable, archive-ledger content promoted / retained / merged / retired / archive-only: not applicable.
-- If applicable, over-budget documents and rationale: not applicable.
-- If applicable, tested with: not applicable.
-- If not applicable, reason: change does not alter docs, handoff files, current-state wording, Harness rules/templates, or auto-evolve evidence.
+- Documentation entropy coverage applicable: yes.
+- If applicable, documents checked: `AGENTS.md`, `docs/STATUS.md`,
+  `docs/CURRENT-DEVELOPMENT-PLAN.md`, `harness/templates/change/reviews/review.md`.
+- If applicable, before/after line counts: not recorded before edits; changes
+  are intentionally bounded to current-state alignment plus one template
+  sentence.
+- If applicable, duplicate current-state fields checked: active change,
+  pending evolution, latest product archive, and latest completed evolution.
+- If applicable, roadmap/current-direction stale language checked: stale
+  `Pending evolution: none` and stale slash-skill latest product pointer in
+  CURRENT retired.
+- If applicable, archive-ledger content promoted / retained / merged / retired / archive-only: retained current ECL rules; merged CURRENT handoff state; retired stale fields; kept screenshots, E-drive paths, run ids, ports, raw stderr, and product closeout narrative archive-only.
+- If applicable, over-budget documents and rationale: no new history ledger
+  added to AGENTS/STATUS/CURRENT.
+- If applicable, tested with: pending Harness lint/status checks.
+- If not applicable, reason: not applicable.
 
 ## Experience Lifecycle Coverage
 
-- Experience lifecycle coverage applicable: no.
-- If applicable, promote decisions: not applicable.
-- If applicable, retain decisions: not applicable.
-- If applicable, merge decisions: not applicable.
-- If applicable, retire decisions: not applicable.
-- If applicable, archive-only decisions: not applicable.
-- If applicable, noop / no-change rationale after old-experience scan: not applicable.
-- If applicable, tested with: not applicable.
-- If not applicable, reason: change is not an auto-evolve, Harness rule/template, docs, or handoff change.
+- Experience lifecycle coverage applicable: yes.
+- If applicable, promote decisions: none.
+- If applicable, retain decisions: retain existing ECL reference-source,
+  Workbench user-surface honesty, runtime bridge, core-reuse, and docs entropy
+  rules.
+- If applicable, merge decisions: CURRENT pending/latest/current evolution
+  state and review-template product-visible UI applicability wording.
+- If applicable, retire decisions: stale CURRENT `Pending evolution: none` and
+  stale slash-skill latest product pointer.
+- If applicable, archive-only decisions: screenshots, E-drive acceptance
+  paths, raw Codex stderr, per-run URLs, individual detailed product closeout
+  narratives, and source inspection details.
+- If applicable, noop / no-change rationale after old-experience scan: no new
+  broad ECL/lint/product rule because existing ECL already covers fake
+  reference controls; only applicability wording and handoff drift needed
+  merging.
+- If applicable, tested with: pending Harness lint/status checks.
+- If not applicable, reason: not applicable.
 
 ## Worktree Diff Artifact Coverage
 
@@ -77,30 +111,35 @@ Pending.
 
 ## Workbench User-Surface Honesty Coverage
 
-- Workbench user-surface honesty coverage applicable: no.
-- Product-visible Workbench controls are applicable unless the review records why they cannot affect user decisions; do not mark this section not applicable only because the control does not change the authoritative primary decision surface.
-- If applicable, sampled surface: not applicable.
-- If applicable, visible primary UI backed by implemented workflow paths: not applicable.
-- If applicable, authoritative primary-surface alignment checked across confirmation queue / decision inspector / visible primary card: not applicable.
+- Workbench user-surface honesty coverage applicable: yes.
+- If applicable, sampled surface: review-template coverage for product-visible
+  Workbench controls.
+- If applicable, visible primary UI backed by implemented workflow paths: not
+  changed by this evolution.
+- If applicable, authoritative primary-surface alignment checked across confirmation queue / decision inspector / visible primary card: not changed by this evolution.
 - If applicable, stale-history override and running/archived selected-demand suppression checked: not applicable.
 - If applicable, out-of-scope future capability check: not applicable.
 - If applicable, forbidden visible internal terms/actions checked: not applicable.
 - If applicable, duplicate primary action / in-flight suppression check: not applicable.
 - If applicable, high-impact action path result: not applicable.
-- If applicable, real App DOM / browser UI verification result when the behavior is product-visible: not applicable.
+- If applicable, real App DOM / browser UI verification result when the behavior is product-visible: not applicable; this change updates review requirements, not Workbench UI.
 - If applicable, projection/unit evidence that supplements but does not replace visible-surface acceptance: not applicable.
-- If applicable, tested with: not applicable.
-- If not applicable, reason: change does not affect Workbench user-facing decision surfaces, Workpad projections, composer actions, task/queue/audit controls, or post-run result actions.
+- If applicable, tested with: pending Harness lint/status checks.
+- If not applicable, reason: not applicable.
 
 ## Reference-Driven UI / Product Source Evidence Coverage
 
-- Reference-driven UI/product coverage applicable: no.
-- If applicable, reference map section inspected: not applicable.
-- If applicable, reference source files or inspected commit used: not applicable.
-- If applicable, controls copied / adapted / intentionally omitted: not applicable.
-- If applicable, fake-control check: not applicable.
-- If applicable, tested with: not applicable.
-- If not applicable, reason: change does not claim alignment with a reference project for product or UI behavior.
+- Reference-driven UI/product coverage applicable: yes.
+- If applicable, reference map section inspected:
+  `docs/design-docs/ref-desktop-cc-gui.md`.
+- If applicable, reference source files or inspected commit used: candidate
+  archives and the reference map; no new product implementation.
+- If applicable, controls copied / adapted / intentionally omitted: no product
+  controls copied; template wording added to prevent unsupported visible
+  controls being under-reviewed.
+- If applicable, fake-control check: no product UI changed.
+- If applicable, tested with: pending Harness lint/status checks.
+- If not applicable, reason: not applicable.
 
 ## Scoped Workbench Action Payload Coverage
 
@@ -198,12 +237,15 @@ Pending.
 
 ## Close / Handoff Drift Coverage
 
-- Close/handoff drift coverage applicable: no. Change to `yes` when this change alters active phase, product baseline, Harness rules/templates, active/pending state, latest archive, or next recommended work.
-- If applicable, handoff files checked: not applicable.
-- If applicable, stale active-path / phase grep: not applicable.
-- If applicable, latest archive / active path alignment: not applicable.
-- If applicable, pending evolution state checked: not applicable.
-- If not applicable, reason: change does not alter active phase, product baseline, Harness rules/templates, active/pending state, latest archive, or next recommended track.
+- Close/handoff drift coverage applicable: yes.
+- If applicable, handoff files checked: `AGENTS.md`, `docs/STATUS.md`,
+  `docs/CURRENT-DEVELOPMENT-PLAN.md`.
+- If applicable, stale active-path / phase grep: pending final close.
+- If applicable, latest archive / active path alignment: active path now points
+  to this evolution while open.
+- If applicable, pending evolution state checked: `harness-evolve mark-complete`
+  removed `harness/evolution/pending.md` and recorded results/state updates.
+- If not applicable, reason: not applicable.
 
 ## Remote Handoff Acceptance Coverage
 
@@ -211,3 +253,4 @@ Pending.
 - If applicable, checked provider/repository/action boundary: not applicable.
 - If applicable, tested with: not applicable.
 - If not applicable, reason: change does not affect Draft PR creation/update, PR feedback refresh, provider capability detection, remote checks/reviews, or remote handoff evidence.
+
