@@ -1,0 +1,18 @@
+﻿{
+    "version":  "1.0",
+    "generatedAt":  "2026-06-27T14:05:45.9657605Z",
+    "changeId":  "workbench-reference-style-transcript-reading-surface-v1",
+    "acceptanceCriteria":  [
+
+                           ],
+    "tasks":  [
+
+              ],
+    "warnings":  [
+                     "Run product planning or update ac-map.json before using AC-gated readiness."
+                 ],
+    "blockingIssues":  [
+                           "ac-map.json was backfilled without parsed acceptance criteria."
+                       ]
+}
+

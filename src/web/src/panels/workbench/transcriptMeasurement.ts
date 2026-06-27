@@ -32,8 +32,11 @@ export function estimateTranscriptCellHeight(cell: ParentAgentTranscriptCell, op
   width?: number;
 }): number {
   if (cell.kind === "process-row" || cell.kind === "evidence-row") {
-    const detailAllowance = cell.detailText ? 42 : 0;
-    return 72 + estimatePlainLineCount(cell.text, 72) * 20 + detailAllowance;
+    const summaryLines = estimatePlainLineCount(cell.text, 96);
+    if (!options.expanded) return Math.max(58, 44 + summaryLines * 18);
+    const detailLines = cell.detailText ? estimatePlainLineCount(cell.detailText, 92) : 0;
+    const evidenceAllowance = cell.evidenceRefs?.length ? 30 : 0;
+    return Math.max(92, 72 + summaryLines * 18 + detailLines * 18 + evidenceAllowance);
   }
   const text = transcriptCellDisplayText(cell, options.expanded);
   const titleAllowance = cell.title ? 28 : 0;

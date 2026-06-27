@@ -994,6 +994,73 @@ describe("Workbench web app", () => {
     await screen.findByText(new RegExp(hiddenSentinel));
   });
 
+  it("renders transcript as reference-style reading prose and collapsible activity rows", async () => {
+    const transcript = {
+      ...snapshot.center.parentAgentTranscript,
+      cells: [{
+        id: "cell:user:reading",
+        kind: "user-message",
+        source: "user",
+        text: "请实现这个需求",
+      }, {
+        id: "cell:assistant:reading",
+        kind: "assistant-message",
+        source: "codex-runtime",
+        text: "# 实现计划\n\n1. 读取现有实现\n2. 修改显示层\n\n> 保持 Harness 边界\n\n```ts\nconst ok = true;\n```",
+      }, {
+        id: "cell:process:reading",
+        kind: "process-row",
+        source: "codex-runtime",
+        title: "已运行命令",
+        text: "已运行 1 条命令",
+        detailText: "npm test\nPASS transcript surface",
+        evidenceRefs: [{ kind: "artifact", label: "output", ref: "runs/run-1/output.md" }],
+      }, {
+        id: "cell:evidence:reading",
+        kind: "evidence-row",
+        source: "workflow-evidence",
+        title: "验证材料",
+        text: "验证通过",
+      }],
+      items: [],
+      paging: { limit: 100, totalCount: 4, hasMoreBefore: false },
+    };
+    vi.mocked(fetch).mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
+      if (url === "/api/projects") return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
+      if (url.includes("/workbench/projections/transcript/")) return jsonResponse(transcript);
+      if (url.includes("/workbench/projections/run-graph/")) return jsonResponse(snapshot.center.agentRunGraph);
+      return jsonResponse(url.includes("/stream/") ? stream : snapshot);
+    });
+
+    render(<App />);
+
+    await screen.findByTestId("transcript-virtual-list");
+    await screen.findByText("请实现这个需求");
+    const userMessage = Array.from(document.querySelectorAll(".transcript-user-message"))
+      .find((node) => node.textContent?.includes("请实现这个需求"));
+    const assistantMessage = Array.from(document.querySelectorAll(".transcript-assistant-message"))
+      .find((node) => node.textContent?.includes("实现计划"));
+    expect(userMessage?.textContent).toContain("请实现这个需求");
+    expect(assistantMessage?.textContent).toContain("实现计划");
+    expect(document.querySelector(".markdown-lite-ordered")?.textContent).toContain("读取现有实现");
+    expect(document.querySelector(".markdown-lite-quote")?.textContent).toContain("保持 Harness 边界");
+    expect(document.querySelector(".markdown-lite-code-label")?.textContent).toBe("ts");
+    const activityRows = Array.from(document.querySelectorAll(".transcript-activity-row"));
+    expect(activityRows).toHaveLength(2);
+    const processRow = activityRows.find((node) => node.textContent?.includes("已运行 1 条命令")) as HTMLElement | undefined;
+    expect(processRow).toBeTruthy();
+    expect(processRow?.textContent).not.toContain("PASS transcript surface");
+    fireEvent.click(within(processRow as HTMLElement).getByRole("button", { name: "查看详情" }));
+    expect(processRow?.textContent).toContain("PASS transcript surface");
+    expect(processRow?.textContent).toContain("材料：output.md");
+    const transcriptText = screen.getByTestId("parent-agent-transcript").textContent ?? "";
+    for (const forbidden of ["full-auto", "parallel executor", "merge queue", "TaskRun", "WorkerLease"]) {
+      expect(transcriptText).not.toContain(forbidden);
+    }
+  });
+
   it("renders bounded continuation as the primary confirmation and submits maxSteps once confirmed", async () => {
     const execute = vi.fn(async () => undefined);
     function Harness() {

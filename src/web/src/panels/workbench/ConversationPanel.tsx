@@ -12,16 +12,11 @@ import { AgentOrchestrationMap } from "./AgentOrchestrationMap.js";
 import { calculateTranscriptVirtualRange } from "./TranscriptVirtualList.js";
 import {
   agentRunStatusLabel,
-  formatTime,
-  humanStatus,
 } from "../../formatters.js";
 import { ControlledSchedulerStepReceiptCard, ControlledSchedulerStepTraceCard } from "./workpad/GoalLoopCards.js";
-import { cleanTranscriptText,
-  cleanTranscriptTitle } from "../../liveTranscript.js";
+import { ParentAgentTranscriptCellView } from "./TranscriptReadingSurface.js";
 import {
   estimateTranscriptCellHeight,
-  isLongTranscriptCell,
-  transcriptCellDisplayText,
 } from "./transcriptMeasurement.js";
 import type {
   CenterTab,
@@ -29,7 +24,6 @@ import type {
   DemandAgentRunGraphNode,
   LiveAssistantTurn,
   ParentAgentTranscript,
-  ParentAgentTranscriptCell,
   ProjectStatus,
   RunSummary,
   Snapshot,
@@ -240,148 +234,6 @@ function ParentAgentTranscriptView({
       <HiddenLegacyThreadHooks onAction={onAction} onSelectDecisionContext={onSelectDecisionContext} />
     </div>
   );
-}
-
-function ParentAgentTranscriptCellView({ cell, expanded, onToggleExpanded }: {
-  cell: ParentAgentTranscriptCell;
-  expanded: boolean;
-  onToggleExpanded: () => void;
-}): ReactElement {
-  const isUser = cell.kind === "user-message";
-  return (
-    <div className={`parent-agent-message-row ${isUser ? "user" : "parent"}`} data-testid={isUser ? "parent-message-user" : "parent-message-parent-agent"}>
-      <div className={`parent-agent-bubble ${isUser ? "user" : "parent"} ${cell.kind}`}>
-        {cell.kind === "assistant-message" || cell.kind === "user-message"
-          ? <ParentAgentTranscriptMessageCell cell={cell} expanded={expanded} onToggleExpanded={onToggleExpanded} />
-          : <ParentAgentTranscriptProcessCell cell={cell} />}
-      </div>
-      {cell.timestamp ? <time>{formatTime(cell.timestamp)}</time> : null}
-    </div>
-  );
-}
-
-function ParentAgentTranscriptMessageCell({ cell, expanded, onToggleExpanded }: {
-  cell: ParentAgentTranscriptCell;
-  expanded: boolean;
-  onToggleExpanded: () => void;
-}): ReactElement {
-  const title = cleanTranscriptTitle(cell.title);
-  const folded = isLongTranscriptCell(cell) && !expanded;
-  const text = normalizeCodexTranscriptText(cleanTranscriptText(transcriptCellDisplayText(cell, expanded)));
-  return (
-    <div className={`parent-agent-prose ${cell.isError ? "danger" : ""}`}>
-      {title ? <strong>{title}</strong> : null}
-      <MarkdownLite text={text} idPrefix={cell.id} />
-      {isLongTranscriptCell(cell) ? (
-        <button type="button" className="transcript-expand-button" onClick={onToggleExpanded}>
-          {folded ? "展开完整内容" : "收起"}
-        </button>
-      ) : null}
-    </div>
-  );
-}
-
-function ParentAgentTranscriptProcessCell({ cell }: { cell: ParentAgentTranscriptCell }): ReactElement {
-  const evidenceRefs = dedupeParentCellEvidenceRefs(cell.evidenceRefs ?? []);
-  const hasDetails = Boolean(cell.detailText?.trim()) || evidenceRefs.length > 0;
-  const rawTitle = cleanTranscriptTitle(cell.title) || (cell.kind === "process-row" ? "运行" : "详情");
-  const rawText = normalizeCodexTranscriptText(cleanTranscriptText(cell.text));
-  const title = rawTitle === "已运行命令" && /^已运行\s+\d+\s+条命令/.test(rawText) ? rawText : rawTitle;
-  const text = title === rawText ? "" : rawText;
-  const detailText = normalizeCodexTranscriptText(cleanTranscriptText(cell.detailText));
-  return (
-    <div className={`parent-agent-tool-result compact ${cell.kind} ${cell.isError ? "danger" : ""}`}>
-      <div className="tool-result-heading">
-        <strong>{title}</strong>
-        {cell.status && shouldShowTranscriptStatus(cell) ? <span>{humanStatus(cell.status)}</span> : null}
-      </div>
-      {text ? <MarkdownLite text={text} idPrefix={`${cell.id}:summary`} compact /> : null}
-      {hasDetails ? (
-        <details className="tool-result-details">
-          <summary>查看详情</summary>
-          {detailText ? <pre>{detailText}</pre> : null}
-          {evidenceRefs.length ? (
-            <div className="tool-result-evidence">
-              {evidenceRefs.map((ref) => <span key={`${ref.kind}:${ref.ref}`}>材料：{artifactName(ref.ref)}</span>)}
-            </div>
-          ) : null}
-        </details>
-      ) : null}
-    </div>
-  );
-}
-
-function dedupeParentCellEvidenceRefs(refs: NonNullable<ParentAgentTranscriptCell["evidenceRefs"]>): NonNullable<ParentAgentTranscriptCell["evidenceRefs"]> {
-  const seen = new Set<string>();
-  return refs.filter((ref) => {
-    const key = `${ref.kind}:${ref.ref}`;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
-}
-
-function shouldShowTranscriptStatus(cell: ParentAgentTranscriptCell): boolean {
-  if (!cell.status) return false;
-  if (cell.isError) return true;
-  return ["running", "queued", "waiting-user", "needs-user-input", "failed"].includes(cell.status);
-}
-
-function normalizeCodexTranscriptText(value: string): string {
-  return value.trim();
-}
-
-function MarkdownLite({ text, idPrefix, compact = false }: { text: string; idPrefix: string; compact?: boolean }): ReactElement {
-  const blocks = text.split(/\n{2,}/).map((block) => block.trim()).filter(Boolean);
-  return (
-    <>
-      {blocks.map((block, index) => {
-        const lines = block.split(/\n/).map((line) => line.trimEnd()).filter(Boolean);
-        if (lines.length > 0 && lines.every((line) => /^[-*]\s+/.test(line))) {
-          return (
-            <ul key={`${idPrefix}:ul:${index}`} className={compact ? "markdown-lite-list compact" : "markdown-lite-list"}>
-              {lines.map((line, lineIndex) => <li key={`${idPrefix}:li:${index}:${lineIndex}`}>{renderInlineMarkdown(line.replace(/^[-*]\s+/, ""), `${idPrefix}:li:${index}:${lineIndex}`)}</li>)}
-            </ul>
-          );
-        }
-        if (lines.length > 1 && /^[^。.!?]{2,48}:$/.test(lines[0]) && lines.slice(1).every((line) => /^[-*]\s+/.test(line))) {
-          return (
-            <div key={`${idPrefix}:section-list:${index}`} className="markdown-lite-section-list">
-              <strong className="markdown-lite-heading">{lines[0].replace(/:$/, "")}</strong>
-              <ul className={compact ? "markdown-lite-list compact" : "markdown-lite-list"}>
-                {lines.slice(1).map((line, lineIndex) => <li key={`${idPrefix}:section-li:${index}:${lineIndex}`}>{renderInlineMarkdown(line.replace(/^[-*]\s+/, ""), `${idPrefix}:section-li:${index}:${lineIndex}`)}</li>)}
-              </ul>
-            </div>
-          );
-        }
-        if (/^```/.test(block)) {
-          return <pre key={`${idPrefix}:pre:${index}`} className="markdown-lite-code">{block.replace(/^```[a-z]*\n?/i, "").replace(/\n?```$/, "")}</pre>;
-        }
-        if (!compact && lines.length === 1 && /^[^。.!?]{2,32}:$/.test(lines[0])) {
-          return <strong key={`${idPrefix}:heading:${index}`} className="markdown-lite-heading">{lines[0].replace(/:$/, "")}</strong>;
-        }
-        return <p key={`${idPrefix}:p:${index}`}>{renderInlineMarkdown(block, `${idPrefix}:p:${index}`)}</p>;
-      })}
-    </>
-  );
-}
-
-function renderInlineMarkdown(text: string, keyPrefix: string): ReactNode[] {
-  const nodes: ReactNode[] = [];
-  const pattern = /`([^`]+)`|\[([^\]]+)\]\(([^)]+)\)/g;
-  let lastIndex = 0;
-  let match: RegExpExecArray | null;
-  while ((match = pattern.exec(text)) !== null) {
-    if (match.index > lastIndex) nodes.push(text.slice(lastIndex, match.index));
-    if (match[1]) {
-      nodes.push(<code key={`${keyPrefix}:code:${match.index}`}>{match[1]}</code>);
-    } else if (match[2]) {
-      nodes.push(<span key={`${keyPrefix}:link:${match.index}`} className="markdown-lite-link">{match[2]}</span>);
-    }
-    lastIndex = match.index + match[0].length;
-  }
-  if (lastIndex < text.length) nodes.push(text.slice(lastIndex));
-  return nodes;
 }
 
 function HiddenLegacyThreadHooks(_: {

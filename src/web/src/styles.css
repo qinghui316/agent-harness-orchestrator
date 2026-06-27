@@ -791,7 +791,7 @@ input:focus-visible {
 
 .parent-agent-message-list {
   display: grid;
-  gap: 18px;
+  gap: 20px;
 }
 
 .transcript-virtual-spacer {
@@ -836,7 +836,7 @@ input:focus-visible {
 .parent-agent-bubble {
   display: grid;
   gap: 10px;
-  max-width: min(760px, 100%);
+  max-width: min(860px, 100%);
   padding: 14px 16px;
   border-radius: var(--radius-lg);
   line-height: 1.65;
@@ -846,18 +846,34 @@ input:focus-visible {
   justify-self: start;
   background: transparent;
   color: var(--text);
-  padding-left: 4px;
+  width: min(860px, 100%);
+  padding: 4px 4px 4px 0;
 }
 
 .parent-agent-bubble.user {
+  max-width: min(640px, 88%);
   background: var(--bg-subtle);
   color: var(--text-strong);
+  border: 1px solid var(--border);
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.05);
 }
 
 .parent-agent-prose,
 .parent-agent-tool-result {
   display: grid;
   gap: 8px;
+}
+
+.transcript-assistant-message {
+  width: 100%;
+}
+
+.transcript-user-message {
+  color: var(--text-strong);
+}
+
+.transcript-message-title {
+  font-size: 14px;
 }
 
 .parent-agent-prose p,
@@ -904,7 +920,23 @@ input:focus-visible {
 
 .markdown-lite-heading {
   margin-top: 2px;
-  font-size: 15px;
+  font-size: 15.5px;
+  line-height: 1.45;
+}
+
+.markdown-lite-heading.level-1 {
+  font-size: 20px;
+  letter-spacing: 0;
+}
+
+.markdown-lite-heading.level-2 {
+  font-size: 18px;
+  letter-spacing: 0;
+}
+
+.markdown-lite-heading.level-3 {
+  font-size: 16px;
+  letter-spacing: 0;
 }
 
 .markdown-lite-list {
@@ -928,6 +960,35 @@ input:focus-visible {
   gap: 6px;
 }
 
+.markdown-lite-quote {
+  margin: 0;
+  padding: 6px 0 6px 14px;
+  border-left: 2px solid var(--border-strong);
+  color: var(--text-muted);
+}
+
+.markdown-lite-quote p {
+  color: var(--text-muted);
+}
+
+.markdown-lite-code-block {
+  display: grid;
+  gap: 0;
+  max-width: 100%;
+}
+
+.markdown-lite-code-label {
+  justify-self: start;
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  border-bottom: 0;
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  background: var(--bg-muted);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
 .markdown-lite-code {
   max-width: 100%;
   margin: 0;
@@ -947,14 +1008,15 @@ input:focus-visible {
 }
 
 .parent-agent-tool-result {
-  padding: 8px 0 8px 14px;
-  border-left: 2px solid var(--border-strong);
-  background: transparent;
+  padding: 9px 10px 9px 12px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--bg-panel);
 }
 
 .parent-agent-tool-result.compact {
-  gap: 6px;
-  padding: 6px 0 6px 12px;
+  gap: 7px;
 }
 
 .parent-agent-tool-result.compact.process-row {
@@ -967,7 +1029,40 @@ input:focus-visible {
 
 .parent-agent-tool-result.danger {
   border-left-color: var(--danger);
+  background: var(--bg-panel);
+}
+
+.transcript-activity-summary {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 9px;
+  align-items: center;
+  width: 100%;
+  padding: 0;
+  border: 0;
   background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.transcript-activity-summary[aria-expanded="true"] .transcript-activity-dot {
+  transform: scale(1.08);
+}
+
+.transcript-activity-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--accent);
+}
+
+.parent-agent-tool-result.evidence-row .transcript-activity-dot {
+  background: var(--success);
+}
+
+.parent-agent-tool-result.danger .transcript-activity-dot {
+  background: var(--danger);
 }
 
 .tool-result-heading {
@@ -1003,11 +1098,18 @@ input:focus-visible {
   gap: 8px;
 }
 
-.tool-result-details summary {
+.transcript-activity-toggle {
   width: fit-content;
+  padding: 0;
+  border: 0;
+  background: transparent;
   cursor: pointer;
   color: var(--text-muted);
   font-size: 12px;
+}
+
+.transcript-activity-toggle:hover {
+  color: var(--text-strong);
 }
 
 .tool-result-details pre {

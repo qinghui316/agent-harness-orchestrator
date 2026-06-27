@@ -6,6 +6,8 @@
 - Active ECL change: none.
 - Pending Harness evolution: none.
 - Latest archived product change:
+  `harness/changes/archive/20260627-workbench-reference-style-transcript-reading-surface-v1/summary.md`.
+- Previous archived product change:
   `harness/changes/archive/20260627-workbench-reference-style-readonly-git-status-diff-panel-v1/summary.md`.
 - Previous archived product change:
   `harness/changes/archive/20260627-workbench-reference-style-codex-runtime-model-picker-v1/summary.md`.
@@ -25,6 +27,16 @@
 
 ## Latest Product Closeout
 
+`harness/changes/archive/20260627-workbench-reference-style-transcript-reading-surface-v1/summary.md`.
+
+It makes the Workbench transcript closer to the `desktop-cc-gui` reading
+surface: user prompts are lightweight right-aligned bubbles, assistant output
+is a clean Markdown reading flow, and runtime/evidence output is a compact
+expandable activity row. It preserves cursor paging, virtual rendering,
+Pretext height estimates, long-message folding, and existing transcript
+workflow boundaries.
+
+Previous closeout:
 `harness/changes/archive/20260627-workbench-reference-style-readonly-git-status-diff-panel-v1/summary.md`.
 
 It adds a reference-style readonly Git tool to the right rail: branch/dirty
