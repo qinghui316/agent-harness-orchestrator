@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-27T04:59:32.1099668Z",
+    "generated_at":  "2026-06-27T06:09:08.3963169Z",
     "active":  [
 
                ],
@@ -2053,6 +2053,10 @@
                     {
                         "name":  "20260627-workbench-reference-style-skills-catalog-and-codex-bridge-v1",
                         "path":  "harness/changes/archive/20260627-workbench-reference-style-skills-catalog-and-codex-bridge-v1"
+                    },
+                    {
+                        "name":  "20260627-workbench-reference-style-slash-skill-composer-v1",
+                        "path":  "harness/changes/archive/20260627-workbench-reference-style-slash-skill-composer-v1"
                     },
                     {
                         "name":  "20260627-workbench-reference-style-workspace-picker-and-session-sidebar-v1",

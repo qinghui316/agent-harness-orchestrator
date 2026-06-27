@@ -2580,6 +2580,82 @@ input:focus-visible {
   border-color: var(--accent-muted);
 }
 
+.skill-mention-surface {
+  display: grid;
+  gap: 7px;
+}
+
+.skill-selected-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.skill-selected-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--accent-muted);
+  border-radius: var(--radius-pill);
+  background: var(--accent-soft);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.skill-mention-menu {
+  display: grid;
+  gap: 4px;
+  max-height: 220px;
+  overflow: auto;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-panel);
+  box-shadow: var(--shadow-sm);
+}
+
+.skill-mention-option {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 9px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.skill-mention-option:hover,
+.skill-mention-option.is-selected {
+  background: var(--bg-subtle);
+}
+
+.skill-mention-option-main {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.skill-mention-option-main strong,
+.skill-mention-option-main small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.skill-mention-option-main small {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
 .topic-composer textarea,
 .empty-composer textarea {
   width: 100%;

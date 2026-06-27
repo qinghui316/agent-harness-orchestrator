@@ -1,9 +1,10 @@
 import type { ReactElement } from "react";
 import { Send, X } from "lucide-react";
 import { workflowActionLabel } from "../action-labels.js";
-import type { WorkpadRuntimeStatus } from "../types.js";
+import type { SkillListItem, WorkpadRuntimeStatus } from "../types.js";
 import { ComposerControls } from "./ComposerControls.js";
 import type { ComposerExecutionMode } from "./composer-session.js";
+import { SkillMentionPicker } from "./SkillMentionPicker.js";
 
 export function TopicComposer({
   value,
@@ -14,6 +15,9 @@ export function TopicComposer({
   onAutomationModeChange,
   modelLabel,
   enabledSkillCount,
+  skills,
+  activeSkillIds,
+  onToggleSkill,
   onOpenSkillsSettings,
   busy: _busy,
   disabledReason,
@@ -33,6 +37,9 @@ export function TopicComposer({
   onAutomationModeChange: (mode: ComposerExecutionMode) => void;
   modelLabel: string;
   enabledSkillCount?: number;
+  skills?: SkillListItem[];
+  activeSkillIds?: string[];
+  onToggleSkill?: (skillId: string) => void | Promise<void>;
   onOpenSkillsSettings?: () => void;
   busy: boolean;
   disabledReason?: string;
@@ -63,7 +70,14 @@ export function TopicComposer({
         enabledSkillCount={enabledSkillCount}
         onOpenSkillsSettings={onOpenSkillsSettings}
       />
-        <textarea
+      <SkillMentionPicker
+        value={value}
+        onChange={onChange}
+        skills={skills ?? []}
+        activeSkillIds={activeSkillIds ?? []}
+        onToggleSkill={onToggleSkill ?? (() => undefined)}
+      />
+      <textarea
         value={value}
         onChange={(event) => onChange(event.target.value)}
         disabled={Boolean(disabledReason)}

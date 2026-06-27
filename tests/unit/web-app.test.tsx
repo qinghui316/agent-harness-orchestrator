@@ -4972,6 +4972,125 @@ describe("Workbench web app", () => {
     expect(panel.textContent).not.toContain("$skill");
   });
 
+  it("uses a slash Skill mention from the home composer and migrates it to the new topic", async () => {
+    const noTopicSnapshot = {
+      ...snapshot,
+      left: { ...snapshot.left, topics: [], workpads: [] },
+      center: { ...snapshot.center, selectedTopic: null },
+    };
+    const selectedSnapshot = {
+      ...snapshot,
+      left: {
+        ...snapshot.left,
+        topics: [{ id: "new-demand", title: "实现设置入口", state: "active" }],
+        workpads: [{ id: "new-demand", title: "实现设置入口", state: "active", runtimeStatus: "active", selected: true, waitingDecisionCount: 0 }],
+      },
+      center: {
+        ...snapshot.center,
+        selectedTopic: { id: "new-demand", title: "实现设置入口", state: "active", acCount: 0, taskCount: 0 },
+      },
+    };
+    const skillPayload = {
+      roots: [],
+      skills: [{
+        skillId: "pricing-helper",
+        name: "pricing-helper",
+        description: "Pricing helper.",
+        sourcePath: "E:/skills/pricing-helper",
+        sourceKind: "custom",
+        sourceHash: "hash-a",
+        enabledProject: false,
+        enabledTopics: [],
+        disabledTopics: [],
+        runtimeTargets: [{ provider: "codex", status: "not-synced" }],
+      }],
+    };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
+      if (url === "/api/projects") {
+        return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, memory: { memoryMode: "external-local", memoryAvailable: true, harnessReady: true, artifactBase: "memory-root" }, harness: { readiness: "ready" }, codexTrust: { trusted: true } }] });
+      }
+      if (url === "/api/projects/repo/codex/diagnostics") return jsonResponse(codexDiagnostics);
+      if (url === "/api/projects/repo/skills") return jsonResponse(skillPayload);
+      if (url === "/api/projects/repo/skills/pricing-helper/enable" && init?.method === "POST") return jsonResponse(skillPayload);
+      if (url === "/api/projects/repo/workbench/topics" && init?.method === "POST") return jsonResponse({ topic: { changeId: "new-demand" } });
+      if (url === "/api/projects/repo/workbench/snapshot?topic=new-demand") return jsonResponse(selectedSnapshot);
+      if (url === "/api/projects/repo/workbench/projections/transcript/new-demand?limit=100") return jsonResponse(selectedSnapshot.center.parentAgentTranscript);
+      return jsonResponse(noTopicSnapshot);
+    }));
+
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "创造任何东西" });
+    const input = screen.getByLabelText("新建需求输入框");
+    fireEvent.change(input, { target: { value: "/" } });
+    const menu = await screen.findByTestId("skill-mention-menu");
+    expect(within(menu).getByText("pricing-helper")).toBeTruthy();
+    expect(within(menu).getByText("需要同步")).toBeTruthy();
+    fireEvent.change(input, { target: { value: "/pricing-helper 实现设置入口" } });
+    fireEvent.click(screen.getByTitle("创建需求对话"));
+
+    await waitFor(() => expect(screen.getAllByText("实现设置入口").length).toBeGreaterThan(0));
+    const topicPost = vi.mocked(fetch).mock.calls.find(([url, init]) => String(url) === "/api/projects/repo/workbench/topics" && init?.method === "POST");
+    expect(JSON.parse(String(topicPost?.[1]?.body))).toMatchObject({
+      title: "实现设置入口",
+      body: "实现设置入口",
+      confirm: true,
+    });
+    const enablePost = vi.mocked(fetch).mock.calls.find(([url, init]) => String(url) === "/api/projects/repo/skills/pricing-helper/enable" && init?.method === "POST");
+    expect(JSON.parse(String(enablePost?.[1]?.body))).toMatchObject({ enabled: true, topic: "new-demand" });
+  });
+
+  it("recognizes dollar Skill mentions in an existing topic without leaving the token in the sent message", async () => {
+    const skillPayload = {
+      roots: [],
+      skills: [{
+        skillId: "pricing-helper",
+        name: "pricing-helper",
+        description: "Pricing helper.",
+        sourcePath: "E:/skills/pricing-helper",
+        sourceKind: "custom",
+        sourceHash: "hash-a",
+        enabledProject: false,
+        enabledTopics: [],
+        disabledTopics: [],
+        runtimeTargets: [{ provider: "codex", status: "synced" }],
+      }],
+    };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
+      if (url === "/api/projects") {
+        return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
+      }
+      if (url === "/api/projects/repo/codex/diagnostics") return jsonResponse(codexDiagnostics);
+      if (url === "/api/projects/repo/skills") return jsonResponse(skillPayload);
+      if (url === "/api/projects/repo/skills/pricing-helper/enable" && init?.method === "POST") return jsonResponse(skillPayload);
+      if (url.includes("/messages/live")) {
+        return sseResponse([
+          ["topic.message", { id: "live-user", type: "user.message", changeId: "member-discount", text: "请继续" }],
+        ]);
+      }
+      if (url.includes("/workbench/projections/transcript/")) return jsonResponse(snapshot.center.parentAgentTranscript);
+      if (url.includes("/workbench/projections/run-graph/")) return jsonResponse(snapshot.center.agentRunGraph);
+      return jsonResponse(url.includes("/stream/") ? stream : snapshot);
+    }));
+
+    render(<App />);
+
+    await waitFor(() => expect(screen.getAllByText("会员折扣计价").length).toBeGreaterThan(0));
+    const input = within(screen.getByLabelText("需求对话输入框")).getByRole("textbox");
+    fireEvent.change(input, { target: { value: "$pricing-helper 请继续" } });
+    fireEvent.click(screen.getByTitle("发送"));
+
+    await waitFor(() => expect(fetchCallUrls()).toContain("/api/projects/repo/workbench/topics/member-discount/messages/live"));
+    const enablePost = vi.mocked(fetch).mock.calls.find(([url, init]) => String(url) === "/api/projects/repo/skills/pricing-helper/enable" && init?.method === "POST");
+    expect(JSON.parse(String(enablePost?.[1]?.body))).toMatchObject({ enabled: true, topic: "member-discount" });
+    const livePost = vi.mocked(fetch).mock.calls.find(([url, init]) => String(url) === "/api/projects/repo/workbench/topics/member-discount/messages/live" && init?.method === "POST");
+    expect(JSON.parse(String(livePost?.[1]?.body))).toMatchObject({ message: "请继续" });
+  });
+
   it("opens the project home workspace picker, filters projects, and switches through the existing project route", async () => {
     const repoSnapshot = {
       ...snapshot,

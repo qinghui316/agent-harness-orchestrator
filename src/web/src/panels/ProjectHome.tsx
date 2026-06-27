@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { fetchJson, postJson } from "../api.js";
 import { ComposerControls } from "../shell/ComposerControls.js";
+import { SkillMentionPicker } from "../shell/SkillMentionPicker.js";
 import type { ComposerExecutionMode } from "../shell/composer-session.js";
 import { WorkspacePicker } from "./WorkspacePicker.js";
 import {
@@ -93,6 +94,9 @@ export function ProjectReadinessHome({
   onCreateDemand,
   onAutomationModeChange,
   enabledSkillCount,
+  skills,
+  activeSkillIds,
+  onToggleSkill,
   onOpenSkillsSettings,
   onOpenProject,
   onRefresh,
@@ -106,6 +110,9 @@ export function ProjectReadinessHome({
   onCreateDemand: (body: string) => Promise<void>;
   onAutomationModeChange: (mode: ComposerExecutionMode) => void;
   enabledSkillCount?: number;
+  skills?: SkillListItem[];
+  activeSkillIds?: string[];
+  onToggleSkill?: (skillId: string) => void | Promise<void>;
   onOpenSkillsSettings?: () => void;
   onOpenProject: (projectId: string) => Promise<void>;
   onRefresh: () => Promise<void>;
@@ -148,6 +155,13 @@ export function ProjectReadinessHome({
             onModeChange={onAutomationModeChange}
             enabledSkillCount={enabledSkillCount}
             onOpenSkillsSettings={onOpenSkillsSettings}
+          />
+          <SkillMentionPicker
+            value={draft}
+            onChange={setDraft}
+            skills={skills ?? []}
+            activeSkillIds={activeSkillIds ?? []}
+            onToggleSkill={onToggleSkill ?? (() => undefined)}
           />
           <textarea
             value={draft}

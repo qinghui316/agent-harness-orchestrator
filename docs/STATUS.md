@@ -4,9 +4,10 @@
 
 - Current date: 2026-06-27.
 - Active ECL change: none.
-- Pending Harness evolution: none.
+- Pending Harness evolution: `harness/evolution/pending.md`.
 - Latest archived product audit: `harness/changes/archive/20260625-workbench-goal-loop-decision-surface-audit-v1/summary.md`.
-- Latest archived product change: `harness/changes/archive/20260627-workbench-reference-style-skills-catalog-and-codex-bridge-v1/summary.md`.
+- Latest archived product change: `harness/changes/archive/20260627-workbench-reference-style-slash-skill-composer-v1/summary.md`.
+- Previous archived product change: `harness/changes/archive/20260627-workbench-reference-style-skills-catalog-and-codex-bridge-v1/summary.md`.
 - Previous archived product change: `harness/changes/archive/20260627-workbench-reference-style-workspace-picker-and-session-sidebar-v1/summary.md`.
 - Previous archived product change: `harness/changes/archive/20260627-workbench-harness-composer-execution-mode-controls-v1/summary.md`.
 - Previous archived product change: `harness/changes/archive/20260627-workbench-desktop-cc-gui-aligned-home-and-conversation-entry-v1/summary.md`.
@@ -54,14 +55,22 @@
 - Latest scheduler integration apply/discard hardening: `harness/changes/archive/20260625-workbench-scheduler-integration-apply-discard-real-acceptance-v1/summary.md`.
 
 Latest product closeout:
+`harness/changes/archive/20260627-workbench-reference-style-slash-skill-composer-v1/summary.md`.
+It connects the reference-style Skills catalog to the composer: `/skill-name`
+and `$skill-name` open real Skill suggestions, matched tokens are removed from
+the submitted demand/message, draft selections migrate to the created topic,
+and existing-topic selections use the real topic enablement API. Skills remain
+runtime capabilities only and do not alter Harness workflow truth,
+confirmation queues, apply/close, scheduler, remote, merge, PR, or Harness
+evolution.
+
+Previous product closeout:
 `harness/changes/archive/20260627-workbench-reference-style-skills-catalog-and-codex-bridge-v1/summary.md`.
 It adds the first reference-style Skills usage layer for Harness mode:
-custom Skill roots, `SKILL.md` package scanning, project/topic
-enablement, Codex bridge sync into `$CODEX_HOME/plugins/aho-managed`, and a
-composer `技能 N` indicator. Skill packages may include `scripts/`, but AHO does
-not execute those scripts. Skills remain runtime capabilities only and do not
-alter Harness workflow truth, confirmation queues, apply/close, scheduler,
-remote, merge, PR, or Harness evolution.
+custom Skill roots, `SKILL.md` package scanning, project/topic enablement,
+Codex bridge sync into `$CODEX_HOME/plugins/aho-managed`, and a composer
+`技能 N` indicator. Skill packages may include `scripts/`, but AHO does not
+execute those scripts.
 
 Previous product closeout:
 `harness/changes/archive/20260627-workbench-reference-style-workspace-picker-and-session-sidebar-v1/summary.md`.
@@ -411,20 +420,19 @@ scripts.
 
 Active change: none.
 
-Pending Harness evolution: none.
+Pending Harness evolution: `harness/evolution/pending.md`.
 
 Latest product closeout:
-`harness/changes/archive/20260627-workbench-reference-style-skills-catalog-and-codex-bridge-v1/summary.md`.
+`harness/changes/archive/20260627-workbench-reference-style-slash-skill-composer-v1/summary.md`.
 
 Latest real UI acceptance:
 `harness/changes/archive/20260626-workbench-mode-aware-local-goal-loop-real-ui-acceptance-v1/summary.md`.
 
 Next product work should build on existing Workbench gate/action/runtime owners.
 Good candidates are the next Phase 1/2 product-layer slices from
-`docs/design-docs/ref-desktop-cc-gui.md`: `$skill` completion, actual
-skill-usage evidence, model settings, provider capability matrix, project
-creation/open/restore polish, composer/file-reference UX, runtime diagnostics,
-or file/Git/terminal panels.
+`docs/design-docs/ref-desktop-cc-gui.md`: actual skill-usage evidence, model
+settings, provider capability matrix, project creation/open/restore polish,
+composer/file-reference UX, runtime diagnostics, or file/Git/terminal panels.
 Do not widen `完全访问权限` into raw scheduler, manual IntegrationCheck,
 integration apply/discard, PR/remote/merge, Harness evolution, or full parallel
 execution without a separate structured change.

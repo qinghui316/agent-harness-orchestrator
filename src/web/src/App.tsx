@@ -62,11 +62,13 @@ import type {
   DecisionAction,
   DecisionContext,
   StreamPacket,
+  SkillListItem,
   WorkbenchLiveEvent,
   AssistantTurnBlock,
   LiveTurnEvent,
   LiveAssistantTurn,
 } from "./types.js";
+import { extractInlineSkillMentions } from "./shell/skill-mentions.js";
 
 const emptySnapshot: Snapshot = {
   project: null,
@@ -85,6 +87,20 @@ const emptySnapshot: Snapshot = {
   harnessGaps: [],
   warnings: [],
 };
+
+function isSkillActiveForComposer(skill: SkillListItem, topicId: string | null, draftOverrides: Record<string, boolean>): boolean {
+  if (topicId) {
+    if (skill.disabledTopics.includes(topicId)) return false;
+    return skill.enabledProject || skill.enabledTopics.includes(topicId);
+  }
+  const draftOverride = draftOverrides[skill.skillId];
+  if (draftOverride !== undefined) return draftOverride;
+  return skill.enabledProject;
+}
+
+function activeComposerSkillIds(skills: SkillListItem[], topicId: string | null, draftOverrides: Record<string, boolean>): string[] {
+  return skills.filter((skill) => isSkillActiveForComposer(skill, topicId, draftOverrides)).map((skill) => skill.skillId);
+}
 
 export function App(): ReactElement {
   const [projects, setProjects] = useState<ProjectStatus[]>([]);
@@ -114,11 +130,17 @@ export function App(): ReactElement {
   const [loadingEarlierTranscript, setLoadingEarlierTranscript] = useState(false);
   const [loadedRunGraph, setLoadedRunGraph] = useState<DemandAgentRunGraph | null>(null);
   const [codexDiagnostics, setCodexDiagnostics] = useState<CodexDiagnostics | null>(null);
-  const [enabledSkillCount, setEnabledSkillCount] = useState(0);
+  const [skillItems, setSkillItems] = useState<SkillListItem[]>([]);
+  const [draftSkillOverrides, setDraftSkillOverrides] = useState<Record<string, boolean>>({});
   const [decisionPaneCollapsed, setDecisionPaneCollapsed] = useState(true);
   const [projectionVersion, setProjectionVersion] = useState(0);
   const [latestHidden, setLatestHidden] = useState(false);
   const threadScrollRef = useRef<HTMLDivElement | null>(null);
+  const selectedComposerSkillIds = useMemo(
+    () => activeComposerSkillIds(skillItems, selectedTopic, draftSkillOverrides),
+    [draftSkillOverrides, selectedTopic, skillItems],
+  );
+  const enabledSkillCount = selectedComposerSkillIds.length;
 
   async function loadApp(): Promise<void> {
     const status = await fetchJson<AppStatus>("/api/app/status");
@@ -143,23 +165,18 @@ export function App(): ReactElement {
   }
 
   async function loadSkillSummary(projectId = selectedProjectId, topicId = selectedTopic): Promise<void> {
+    void topicId;
     if (!projectId) {
-      setEnabledSkillCount(0);
+      setSkillItems([]);
       return;
     }
     const status = projects.find((item) => item.project?.id === projectId);
     if (!status?.managed) {
-      setEnabledSkillCount(0);
+      setSkillItems([]);
       return;
     }
-    const payload = await fetchJson<{ skills?: Array<{ enabledProject: boolean; enabledTopics?: string[]; disabledTopics?: string[] }> }>(`/api/projects/${encodeURIComponent(projectId)}/skills`);
-    const skills = Array.isArray(payload.skills) ? payload.skills : [];
-    setEnabledSkillCount(skills.filter((skill) => {
-      const enabledTopics = Array.isArray(skill.enabledTopics) ? skill.enabledTopics : [];
-      const disabledTopics = Array.isArray(skill.disabledTopics) ? skill.disabledTopics : [];
-      if (topicId && disabledTopics.includes(topicId)) return false;
-      return skill.enabledProject || (topicId ? enabledTopics.includes(topicId) : enabledTopics.length > 0);
-    }).length);
+    const payload = await fetchJson<{ skills?: SkillListItem[] }>(`/api/projects/${encodeURIComponent(projectId)}/skills`);
+    setSkillItems(Array.isArray(payload.skills) ? payload.skills : []);
   }
 
   async function refresh(projectId = selectedProjectId, topic = selectedTopic): Promise<void> {
@@ -214,6 +231,7 @@ export function App(): ReactElement {
     setSelectedProjectId(projectId);
     setExpandedProjects((current) => new Set([...current, projectId]));
     setSelectedTopic(null);
+    setDraftSkillOverrides({});
     setSelectedRun(null);
     setStream(null);
     const status = projects.find((item) => item.project?.id === projectId);
@@ -240,6 +258,7 @@ export function App(): ReactElement {
     setComposerText("");
     setSelectedProjectId(projectId);
     setSelectedTopic(null);
+    setDraftSkillOverrides({});
     setExpandedProjects((current) => new Set([...current, projectId]));
     const nextSnapshot = {
       ...baseSnapshot,
@@ -282,6 +301,7 @@ export function App(): ReactElement {
   async function chooseConversation(projectId: string, conversationId: string): Promise<void> {
     setSelectedProjectId(projectId);
     setSelectedTopic(conversationId);
+    setDraftSkillOverrides({});
     setExpandedProjects((current) => new Set([...current, projectId]));
     setSelectedRun(null);
     setStream(null);
@@ -400,11 +420,38 @@ export function App(): ReactElement {
     await refresh();
   }
 
+  async function applyTopicSkillOverrides(topicId: string, overrides: Record<string, boolean>): Promise<void> {
+    if (!selectedProjectId) return;
+    for (const [skillId, enabled] of Object.entries(overrides)) {
+      await postJson(`/api/projects/${encodeURIComponent(selectedProjectId)}/skills/${encodeURIComponent(skillId)}/enable`, { enabled, topic: topicId });
+    }
+  }
+
+  function resolveComposerTextWithSkills(body: string): { text: string; overrides: Record<string, boolean> } {
+    const extracted = extractInlineSkillMentions(body, skillItems);
+    const overrides: Record<string, boolean> = selectedTopic ? {} : { ...draftSkillOverrides };
+    for (const skillId of extracted.skillIds) overrides[skillId] = true;
+    return { text: extracted.cleanedText.trim(), overrides };
+  }
+
+  async function toggleComposerSkill(skillId: string): Promise<void> {
+    if (!selectedProjectId) return;
+    const currentlyActive = selectedComposerSkillIds.includes(skillId);
+    if (selectedTopic) {
+      await postJson(`/api/projects/${encodeURIComponent(selectedProjectId)}/skills/${encodeURIComponent(skillId)}/enable`, { enabled: !currentlyActive, topic: selectedTopic });
+      await loadSkillSummary(selectedProjectId, selectedTopic);
+      return;
+    }
+    setDraftSkillOverrides((current) => ({ ...current, [skillId]: !currentlyActive }));
+  }
+
   async function createTopicFromText(body: string): Promise<void> {
     if (!selectedProjectId || !body.trim()) return;
     setActionRunning("topic.create");
     try {
-      const demandBody = body.trim();
+      const resolved = resolveComposerTextWithSkills(body);
+      const demandBody = resolved.text;
+      if (!demandBody) return;
       const title = demandBody.split(/\r?\n/)[0].slice(0, 60);
       const modeForNewTopic = automationMode;
       const result = await postJson<{ topic: { changeId: string } }>(`/api/projects/${encodeURIComponent(selectedProjectId)}/workbench/topics`, {
@@ -412,10 +459,13 @@ export function App(): ReactElement {
         body: demandBody,
         confirm: true,
       });
+      await applyTopicSkillOverrides(result.topic.changeId, resolved.overrides);
       const migratedMode = migrateDraftComposerExecutionMode(selectedProjectId, result.topic.changeId, modeForNewTopic);
       setAutomationMode(migratedMode);
+      setDraftSkillOverrides({});
       setComposerText("");
       setSelectedTopic(result.topic.changeId);
+      await loadSkillSummary(selectedProjectId, result.topic.changeId);
       await refresh(selectedProjectId, result.topic.changeId);
     } finally {
       setActionRunning(null);
@@ -433,7 +483,16 @@ export function App(): ReactElement {
       setError("已完成或稍后处理的需求对话为只读，不能继续发送消息。");
       return;
     }
-    const message = composerText.trim();
+    const resolved = resolveComposerTextWithSkills(composerText);
+    const message = resolved.text;
+    if (Object.keys(resolved.overrides).length > 0) {
+      await applyTopicSkillOverrides(activeTopic.id, resolved.overrides);
+      await loadSkillSummary(selectedProjectId, activeTopic.id);
+    }
+    if (!message) {
+      setComposerText("");
+      return;
+    }
     const runningConversation = activeWorkpad.conversationLifecycle === "running" || activeWorkpad.runControlState?.canStop || currentWorkpadSummary(snapshot, activeTopic)?.runtimeStatus === "running";
     if (runningConversation) {
       await runWorkflowAction("conversation.steer", { prompt: message });
@@ -867,6 +926,9 @@ export function App(): ReactElement {
             onCreateDemand={createTopicFromText}
             onAutomationModeChange={handleComposerExecutionModeChange}
             enabledSkillCount={enabledSkillCount}
+            skills={skillItems}
+            activeSkillIds={selectedComposerSkillIds}
+            onToggleSkill={toggleComposerSkill}
             onOpenSkillsSettings={() => setSettingsOpen(true)}
             onOpenProject={openProject}
             onRefresh={loadApp}
@@ -923,6 +985,9 @@ export function App(): ReactElement {
                   onAutomationModeChange={handleComposerExecutionModeChange}
                   modelLabel={codexModelLabel}
                   enabledSkillCount={enabledSkillCount}
+                  skills={skillItems}
+                  activeSkillIds={selectedComposerSkillIds}
+                  onToggleSkill={toggleComposerSkill}
                   onOpenSkillsSettings={() => setSettingsOpen(true)}
                   busy={actionRunning !== null || activeTopic.state !== "active"}
                   disabledReason={activeTopic.state !== "active" ? "已完成或稍后处理的需求对话为只读。" : undefined}
