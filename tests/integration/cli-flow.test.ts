@@ -213,8 +213,9 @@ describe("CLI flow", () => {
     const memorySkillRoot = join(homeDir, "projects", "repo", "skills", "pricing-helper");
     const bridgeSkillRoot = join(process.env.CODEX_HOME ?? "", "plugins", "aho-managed", "skills", "repo__pricing-helper");
     expect(existsSync(join(memorySkillRoot, "SKILL.md"))).toBe(true);
-    expect(existsSync(join(memorySkillRoot, "scripts", "unsafe.ps1"))).toBe(false);
+    expect(existsSync(join(memorySkillRoot, "scripts", "unsafe.ps1"))).toBe(true);
     expect(existsSync(join(bridgeSkillRoot, "SKILL.md"))).toBe(true);
+    expect(existsSync(join(bridgeSkillRoot, "scripts", "unsafe.ps1"))).toBe(true);
     expect(await readFile(join(bridgeSkillRoot, "SKILL.md"), "utf8")).toContain("name: repo__pricing-helper");
   });
 

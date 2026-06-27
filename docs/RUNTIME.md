@@ -180,7 +180,7 @@ Phase 9Z adds a terminal scheduler closeout evidence path for blocked/exhausted 
 | Agent Spec | source of truth | Future declarative role/subagent declaration |
 | Run | source of truth | One execution attempt |
 | Topic Interaction Log | source of truth for interaction history | Internal conversation log for one demand; Workbench SQLite records user/assistant/workflow messages, but not accepted requirements |
-| Skill Source | source of truth | Memory-root `skills/{skill-id}/SKILL.md` plus references/examples |
+| Skill Source | runtime capability source | AHO-managed skills, project Codex skill roots, and custom roots containing `SKILL.md`; not workflow truth |
 | Agent Catalog | source of truth | Memory-root `agent-catalog.json` plus `agents/{role-id}.md`, with bundled profiles as defaults |
 | Command Catalog | source of truth | Future memory-root command declarations for workflow entrypoints |
 | Agent Runtime Bridge | runtime layer | AHO resolves role contracts and invokes Codex with bounded ECL context |
@@ -507,21 +507,36 @@ The interaction log is useful for continuity and the Workbench Thread View, but 
 
 ### Skill Source and Codex Bridge
 
-AHO skills are project memory. Their source lives under the active memory store:
+AHO skills are runtime capability packages. Their catalog can point at
+AHO-managed memory skills, project Codex skill roots, or user-registered custom
+roots. Global Codex skill directories are not scanned implicitly; users may add
+one explicitly as a custom root:
 
 ```text
 skills/{skill-id}/SKILL.md
 skills/{skill-id}/references/
 skills/{skill-id}/examples/
+skills/{skill-id}/scripts/
 ```
 
-The Codex bridge materializes enabled skills into an AHO-managed Codex plugin namespace. That bridge is a runtime projection. It can be deleted and rebuilt from AHO memory and SQLite skill enablement. Codex global or native skills may exist, but they are not AHO project truth.
+The Codex bridge materializes enabled skills into an AHO-managed Codex plugin
+namespace. That bridge is a runtime projection. It can be deleted and rebuilt
+from the Skill catalog, source hashes, and SQLite enablement/sync records.
+Supporting package files such as scripts may be copied into the bridge so Codex
+can use the Skill package, but AHO does not directly execute those scripts.
+
+Skill enablement does not change `confirmationQueue`, Goal Loop, Scheduler,
+validation/audit, apply/close, remote, merge, PR, or Harness evolution
+permissions.
 
 ### Agent Catalog and Runtime Bridge
 
 AHO agents are declarative role contracts. AHO chooses the role, validates its write capability, wraps the role Markdown with ECL context, and starts a scoped Codex run. This follows the oh-my-codex pattern of `agent_role -> role Markdown -> codex exec`, but keeps AHO Change, approval, run, and artifact records as the durable truth.
 
-The agent bridge records role id, role hash, catalog hash, available skill ids, and bridge status on each Codex-backed run. It does not claim a skill was actually used unless Codex output later provides observable evidence.
+The agent bridge records role id, role hash, catalog hash, available skill ids,
+runtime target, source hash, materialized hash, and bridge status on each
+Codex-backed run. It does not claim a skill was actually used unless Codex
+output later provides observable evidence.
 
 ### Thread View
 

@@ -1,15 +1,19 @@
 import type { ReactElement } from "react";
-import { Bot } from "lucide-react";
+import { Bot, Sparkles } from "lucide-react";
 import { composerExecutionModeLabel, type ComposerExecutionMode } from "./composer-session.js";
 
 export function ComposerControls({
   modelLabel,
   mode,
   onModeChange,
+  enabledSkillCount = 0,
+  onOpenSkillsSettings,
 }: {
   modelLabel: string;
   mode: ComposerExecutionMode;
   onModeChange: (mode: ComposerExecutionMode) => void;
+  enabledSkillCount?: number;
+  onOpenSkillsSettings?: () => void;
 }): ReactElement {
   return (
     <div className="composer-control-strip" aria-label="Composer execution controls">
@@ -36,6 +40,17 @@ export function ComposerControls({
           {composerExecutionModeLabel("full-access")}
         </button>
       </div>
+      {enabledSkillCount > 0 ? (
+        <button
+          type="button"
+          className="composer-skill-indicator"
+          onClick={onOpenSkillsSettings}
+          title="打开技能设置"
+          aria-label={`已启用 ${enabledSkillCount} 个技能`}
+        >
+          <Sparkles size={13} />技能 {enabledSkillCount}
+        </button>
+      ) : null}
     </div>
   );
 }

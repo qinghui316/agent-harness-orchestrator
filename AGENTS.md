@@ -8,6 +8,8 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 - Active change: none.
 - Pending Harness evolution: none.
 - Latest archived product change:
+  `harness/changes/archive/20260627-workbench-reference-style-skills-catalog-and-codex-bridge-v1/summary.md`.
+- Previous archived product change:
   `harness/changes/archive/20260627-workbench-reference-style-workspace-picker-and-session-sidebar-v1/summary.md`.
 - Previous archived product change:
   `harness/changes/archive/20260627-workbench-harness-composer-execution-mode-controls-v1/summary.md`.
@@ -48,6 +50,11 @@ Current baseline:
   Codex-style execution-mode control strip; unsupported toolbar,
   recent-session, and fake dropdown controls are hidden until implemented.
   Codex diagnostics are advanced settings, not the main product home.
+- Workbench Skills now follow the reference-style runtime-capability model:
+  Settings can register custom Skill roots, scan `SKILL.md` packages, enable
+  skills for the current project/topic, sync enabled packages into the
+  AHO-managed Codex bridge, and show a composer `技能 N` indicator. Skills are
+  runtime capabilities only; they do not affect Harness gates or workflow truth.
 - Planning prefers Codex Plan Mode proposal capture; plan confirmation remains
   human.
 - `请求批准` and scoped `完全访问权限` share the same local Goal Loop coordinator.

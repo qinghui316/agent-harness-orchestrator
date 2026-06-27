@@ -72,6 +72,40 @@ describe("workbench server", () => {
     expect(await page.text()).toContain("AHO");
   });
 
+  it("serves project Skill catalog and Codex bridge routes", async () => {
+    const skillRoot = join(tempDir, "custom-skills");
+    const skillDir = join(skillRoot, "pricing-helper");
+    await mkdir(join(skillDir, "scripts"), { recursive: true });
+    await writeFile(join(skillDir, "SKILL.md"), "---\nname: pricing-helper\ndescription: Pricing helper.\n---\n\n# Pricing\n", "utf8");
+    await writeFile(join(skillDir, "scripts", "run.ps1"), "Write-Host skill\n", "utf8");
+
+    const addedRoot = await fetch(`${handle!.url}/api/projects/repo/skill-roots`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ rootPath: skillRoot }),
+    });
+    expect(addedRoot.ok).toBe(true);
+    const listed = await getJson<{ roots: Array<{ rootPath: string }>; skills: Array<{ skillId: string; sourceKind: string; runtimeTargets: Array<{ provider: string; status: string }> }> }>(`${handle!.url}/api/projects/repo/skills`);
+    expect(listed.roots.some((root) => root.rootPath === skillRoot)).toBe(true);
+    expect(listed.skills[0]).toMatchObject({ skillId: "pricing-helper", sourceKind: "custom" });
+    expect(listed.skills[0].runtimeTargets[0]).toMatchObject({ provider: "codex", status: "not-synced" });
+
+    const enabled = await fetch(`${handle!.url}/api/projects/repo/skills/pricing-helper/enable`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ enabled: true }),
+    });
+    expect(enabled.ok).toBe(true);
+
+    const synced = await fetch(`${handle!.url}/api/projects/repo/skills/codex-bridge/sync`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    expect(synced.ok).toBe(true);
+    expect(existsSync(join(process.env.CODEX_HOME ?? "", "plugins", "aho-managed", "skills", "repo__pricing-helper", "scripts", "run.ps1"))).toBe(true);
+  });
+
   it("returns HTTP diagnostics for unsupported API and action requests", async () => {
     const missing = await fetch(`${handle!.url}/api/not-found`);
     expect(missing.status).toBe(404);

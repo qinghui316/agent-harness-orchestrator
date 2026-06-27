@@ -2559,6 +2559,27 @@ input:focus-visible {
   outline-offset: 2px;
 }
 
+.composer-skill-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 26px;
+  padding: 0 9px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-panel);
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.composer-skill-indicator:hover {
+  color: var(--text);
+  border-color: var(--accent-muted);
+}
+
 .topic-composer textarea,
 .empty-composer textarea {
   width: 100%;
@@ -3738,6 +3759,108 @@ h1 {
 .settings-panel-header h2 {
   margin: 0;
   font-size: 18px;
+}
+
+.skills-settings-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.skill-root-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
+  gap: 8px;
+}
+
+.skill-root-form input {
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  background: var(--bg-panel);
+  color: var(--text);
+}
+
+.skill-root-list {
+  display: grid;
+  gap: 6px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.skill-root-list span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.skill-list {
+  display: grid;
+  gap: 8px;
+}
+
+.skill-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-subtle);
+}
+
+.skill-row-main {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.skill-row-main strong {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.skill-row-main small {
+  overflow: hidden;
+  color: var(--text-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.skill-row-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.skill-sync-state {
+  border-radius: 999px;
+  padding: 3px 7px;
+  background: var(--bg-panel);
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.skill-sync-state.synced {
+  color: var(--success);
+}
+
+.skill-sync-state.out-of-sync {
+  color: var(--warning);
+}
+
+@media (max-width: 720px) {
+  .skill-root-form,
+  .skill-row {
+    grid-template-columns: 1fr;
+  }
+
+  .skill-row-actions {
+    justify-content: space-between;
+  }
 }
 
 @media (max-width: 1220px) {

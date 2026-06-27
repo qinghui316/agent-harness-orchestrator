@@ -13,6 +13,8 @@ export function TopicComposer({
   automationMode,
   onAutomationModeChange,
   modelLabel,
+  enabledSkillCount,
+  onOpenSkillsSettings,
   busy: _busy,
   disabledReason,
   onSend,
@@ -30,6 +32,8 @@ export function TopicComposer({
   automationMode: ComposerExecutionMode;
   onAutomationModeChange: (mode: ComposerExecutionMode) => void;
   modelLabel: string;
+  enabledSkillCount?: number;
+  onOpenSkillsSettings?: () => void;
   busy: boolean;
   disabledReason?: string;
   onSend: () => Promise<void>;
@@ -56,6 +60,8 @@ export function TopicComposer({
         modelLabel={modelLabel}
         mode={automationMode}
         onModeChange={onAutomationModeChange}
+        enabledSkillCount={enabledSkillCount}
+        onOpenSkillsSettings={onOpenSkillsSettings}
       />
         <textarea
         value={value}

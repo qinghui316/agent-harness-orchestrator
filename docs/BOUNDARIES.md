@@ -134,17 +134,24 @@ Decisions:
 
 ## 6A. Codex Skill Bridge Boundary
 
-AHO may use Codex plugin and skill discovery as a runtime delivery mechanism, but AHO skill memory remains authoritative.
+AHO may use Codex plugin and skill discovery as a runtime delivery mechanism,
+but Skills are runtime capabilities, not Harness workflow authority.
 
 Decisions:
 
-- `skills/{skill-id}/SKILL.md` under the resolved memory root is the skill source of truth.
-- SQLite records skill enablement and bridge sync state.
+- Skill sources may be AHO-managed memory skills, project Codex skills, or
+  user-registered custom roots. The catalog records source path, source kind,
+  and source hash. Global Codex skill directories are not scanned implicitly;
+  users may register one explicitly as a custom root.
+- SQLite records skill roots, project/topic enablement, and bridge sync state.
 - `~/.codex/plugins/aho-managed` is a rebuildable runtime projection.
 - AHO must not overwrite user Codex skills, oh-my-codex skills, or global Codex configuration.
 - Bridge install/sync is explicit; runs may warn when the bridge is out of sync but must not secretly write to `~/.codex`.
-- Imported skills do not execute scripts in Phase 5E.
-- Runs record enabled skill ids and hashes so Codex behavior can be audited later.
+- Skill packages may include supporting content such as `references/`,
+  `examples/`, and `scripts/`. AHO may materialize that package for Codex, but
+  AHO must not directly execute skill scripts.
+- Runs record enabled skill ids, runtime target, source hashes, and materialized
+  hashes so Codex behavior can be audited later.
 
 ## 6B. ECL Agent Runtime Boundary
 

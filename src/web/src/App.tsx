@@ -114,6 +114,7 @@ export function App(): ReactElement {
   const [loadingEarlierTranscript, setLoadingEarlierTranscript] = useState(false);
   const [loadedRunGraph, setLoadedRunGraph] = useState<DemandAgentRunGraph | null>(null);
   const [codexDiagnostics, setCodexDiagnostics] = useState<CodexDiagnostics | null>(null);
+  const [enabledSkillCount, setEnabledSkillCount] = useState(0);
   const [decisionPaneCollapsed, setDecisionPaneCollapsed] = useState(true);
   const [projectionVersion, setProjectionVersion] = useState(0);
   const [latestHidden, setLatestHidden] = useState(false);
@@ -139,6 +140,26 @@ export function App(): ReactElement {
       : "/api/codex/diagnostics";
     const diagnostics = await fetchJson<unknown>(path);
     setCodexDiagnostics(isCodexDiagnostics(diagnostics) ? diagnostics : null);
+  }
+
+  async function loadSkillSummary(projectId = selectedProjectId, topicId = selectedTopic): Promise<void> {
+    if (!projectId) {
+      setEnabledSkillCount(0);
+      return;
+    }
+    const status = projects.find((item) => item.project?.id === projectId);
+    if (!status?.managed) {
+      setEnabledSkillCount(0);
+      return;
+    }
+    const payload = await fetchJson<{ skills?: Array<{ enabledProject: boolean; enabledTopics?: string[]; disabledTopics?: string[] }> }>(`/api/projects/${encodeURIComponent(projectId)}/skills`);
+    const skills = Array.isArray(payload.skills) ? payload.skills : [];
+    setEnabledSkillCount(skills.filter((skill) => {
+      const enabledTopics = Array.isArray(skill.enabledTopics) ? skill.enabledTopics : [];
+      const disabledTopics = Array.isArray(skill.disabledTopics) ? skill.disabledTopics : [];
+      if (topicId && disabledTopics.includes(topicId)) return false;
+      return skill.enabledProject || (topicId ? enabledTopics.includes(topicId) : enabledTopics.length > 0);
+    }).length);
   }
 
   async function refresh(projectId = selectedProjectId, topic = selectedTopic): Promise<void> {
@@ -184,6 +205,10 @@ export function App(): ReactElement {
       });
     return () => { cancelled = true; };
   }, [selectedProjectId]);
+
+  useEffect(() => {
+    loadSkillSummary().catch((cause: unknown) => setError(cause instanceof Error ? cause.message : String(cause)));
+  }, [selectedProjectId, selectedTopic, projects]);
 
   async function openProject(projectId: string): Promise<void> {
     setSelectedProjectId(projectId);
@@ -841,6 +866,8 @@ export function App(): ReactElement {
             selectedProjectId={selectedProjectId}
             onCreateDemand={createTopicFromText}
             onAutomationModeChange={handleComposerExecutionModeChange}
+            enabledSkillCount={enabledSkillCount}
+            onOpenSkillsSettings={() => setSettingsOpen(true)}
             onOpenProject={openProject}
             onRefresh={loadApp}
           />
@@ -895,6 +922,8 @@ export function App(): ReactElement {
                   automationMode={automationMode}
                   onAutomationModeChange={handleComposerExecutionModeChange}
                   modelLabel={codexModelLabel}
+                  enabledSkillCount={enabledSkillCount}
+                  onOpenSkillsSettings={() => setSettingsOpen(true)}
                   busy={actionRunning !== null || activeTopic.state !== "active"}
                   disabledReason={activeTopic.state !== "active" ? "已完成或稍后处理的需求对话为只读。" : undefined}
                   onSend={sendTopicMessage}
@@ -939,7 +968,7 @@ export function App(): ReactElement {
         project={selectedProjectStatus}
         diagnostics={codexDiagnostics}
         onClose={() => setSettingsOpen(false)}
-        onRefresh={() => loadApp().then(() => loadCodexDiagnostics())}
+        onRefresh={() => loadApp().then(() => loadCodexDiagnostics()).then(() => loadSkillSummary())}
       />
       <BottomStatusBar snapshot={snapshot} project={selectedProjectStatus} topic={activeTopic} />
     </div>

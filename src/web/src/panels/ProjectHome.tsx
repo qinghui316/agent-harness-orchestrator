@@ -1,12 +1,14 @@
-import { useState, type ReactElement } from "react";
+import { useEffect, useState, type ReactElement } from "react";
 import {
   AlertTriangle,
   Bot,
   CheckCircle2,
   FolderOpen,
   Send,
+  Sparkles,
   X,
 } from "lucide-react";
+import { fetchJson, postJson } from "../api.js";
 import { ComposerControls } from "../shell/ComposerControls.js";
 import type { ComposerExecutionMode } from "../shell/composer-session.js";
 import { WorkspacePicker } from "./WorkspacePicker.js";
@@ -16,7 +18,7 @@ import {
   ProjectAddForm,
   ProjectCreateForm,
 } from "./ProjectPanels.js";
-import type { CodexDiagnostics, ProjectStatus, Snapshot } from "../types.js";
+import type { CodexDiagnostics, ProjectStatus, SkillListItem, SkillRootListItem, Snapshot } from "../types.js";
 
 export function ProjectHomeView({
   projects,
@@ -90,6 +92,8 @@ export function ProjectReadinessHome({
   selectedProjectId,
   onCreateDemand,
   onAutomationModeChange,
+  enabledSkillCount,
+  onOpenSkillsSettings,
   onOpenProject,
   onRefresh,
 }: {
@@ -101,6 +105,8 @@ export function ProjectReadinessHome({
   selectedProjectId: string | null;
   onCreateDemand: (body: string) => Promise<void>;
   onAutomationModeChange: (mode: ComposerExecutionMode) => void;
+  enabledSkillCount?: number;
+  onOpenSkillsSettings?: () => void;
   onOpenProject: (projectId: string) => Promise<void>;
   onRefresh: () => Promise<void>;
 }): ReactElement {
@@ -140,6 +146,8 @@ export function ProjectReadinessHome({
             modelLabel={modelLabel}
             mode={automationMode}
             onModeChange={onAutomationModeChange}
+            enabledSkillCount={enabledSkillCount}
+            onOpenSkillsSettings={onOpenSkillsSettings}
           />
           <textarea
             value={draft}
@@ -245,6 +253,7 @@ export function SettingsPanel({
             <p className="muted-copy">还没有选择项目。</p>
           </section>
         )}
+        {project?.project ? <SkillsPanel projectId={project.project.id} onRefresh={onRefresh} /> : null}
         <details className="settings-advanced">
           <summary>Codex 高级诊断</summary>
           {project && !project.codexTrust?.trusted ? <CodexTrustButton project={project} onDone={() => void onRefresh()} /> : null}
@@ -252,6 +261,98 @@ export function SettingsPanel({
         </details>
       </aside>
     </div>
+  );
+}
+
+function SkillsPanel({ projectId, onRefresh }: { projectId: string; onRefresh: () => Promise<void> }): ReactElement {
+  const [skills, setSkills] = useState<SkillListItem[]>([]);
+  const [roots, setRoots] = useState<SkillRootListItem[]>([]);
+  const [rootPath, setRootPath] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+
+  async function load(): Promise<void> {
+    const payload = await fetchJson<{ roots?: SkillRootListItem[]; skills?: SkillListItem[] }>(`/api/projects/${encodeURIComponent(projectId)}/skills`);
+    setRoots(Array.isArray(payload.roots) ? payload.roots : []);
+    setSkills(Array.isArray(payload.skills) ? payload.skills : []);
+  }
+
+  useEffect(() => {
+    load().catch((cause: unknown) => setMessage(cause instanceof Error ? cause.message : String(cause)));
+  }, [projectId]);
+
+  async function run(action: () => Promise<void>): Promise<void> {
+    setBusy(true);
+    setMessage(null);
+    try {
+      await action();
+      await load();
+      await onRefresh();
+    } catch (cause) {
+      setMessage(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const enabledCount = skills.filter((skill) => skill.enabledProject || skill.enabledTopics.length > 0).length;
+
+  return (
+    <section className="project-status-panel skills-settings-panel" aria-label="技能设置">
+      <div className="panel-title-row">
+        <h2>技能</h2>
+        <span className="composer-pill subtle">{enabledCount} 已启用</span>
+      </div>
+      <p className="muted-copy">技能会同步给 Codex runtime 使用；它不是 Harness 工作流权限。</p>
+      <div className="skill-root-form">
+        <input
+          value={rootPath}
+          onChange={(event) => setRootPath(event.target.value)}
+          placeholder="添加本机 Skill 根目录"
+          aria-label="Skill 根目录"
+        />
+        <button
+          className="outline-button"
+          disabled={busy || !rootPath.trim()}
+          onClick={() => run(async () => {
+            await postJson(`/api/projects/${encodeURIComponent(projectId)}/skill-roots`, { rootPath: rootPath.trim(), sourceKind: "custom" });
+            setRootPath("");
+          })}
+        >添加</button>
+        <button className="outline-button" disabled={busy} onClick={() => run(async () => { await postJson(`/api/projects/${encodeURIComponent(projectId)}/skills`, {}); })}>刷新</button>
+        <button className="outline-button" disabled={busy} onClick={() => run(async () => { await postJson(`/api/projects/${encodeURIComponent(projectId)}/skills/codex-bridge/sync`, {}); })}>同步 Codex</button>
+      </div>
+      {roots.length > 0 ? (
+        <div className="skill-root-list" aria-label="已登记 Skill 根目录">
+          {roots.map((root) => <span key={root.rootPath} title={root.rootPath}>{root.sourceKind}: {root.rootPath}</span>)}
+        </div>
+      ) : null}
+      <div className="skill-list">
+        {skills.length === 0 ? <p className="muted-copy">还没有扫描到 Skill。添加包含 SKILL.md 的根目录后刷新。</p> : skills.map((skill) => {
+          const target = skill.runtimeTargets.find((item) => item.provider === "codex");
+          return (
+            <div className="skill-row" key={skill.skillId}>
+              <div className="skill-row-main">
+                <strong><Sparkles size={14} />{skill.name}</strong>
+                <small>{skill.description || "无描述"}</small>
+                <small title={skill.sourcePath}>{skill.sourceKind} · {skill.sourcePath}</small>
+              </div>
+              <div className="skill-row-actions">
+                <span className={`skill-sync-state ${target?.status ?? "not-synced"}`}>{target?.status ?? "not-synced"}</span>
+                <button
+                  className="outline-button"
+                  disabled={busy}
+                  onClick={() => run(async () => {
+                    await postJson(`/api/projects/${encodeURIComponent(projectId)}/skills/${encodeURIComponent(skill.skillId)}/enable`, { enabled: !skill.enabledProject });
+                  })}
+                >{skill.enabledProject ? "禁用" : "启用"}</button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      {message ? <p className="diagnostic-errors">{message}</p> : null}
+    </section>
   );
 }
 

@@ -4908,6 +4908,70 @@ describe("Workbench web app", () => {
     expect(mutationCalls).toHaveLength(0);
   });
 
+  it("shows a real skills settings panel and composer indicator backed by project APIs", async () => {
+    const noTopicSnapshot = {
+      ...snapshot,
+      left: { ...snapshot.left, topics: [], workpads: [] },
+      center: { ...snapshot.center, selectedTopic: null },
+    };
+    const skillPayload = {
+      roots: [{ rootPath: "E:/skills", sourceKind: "custom", updatedAt: "2026-06-27T00:00:00.000Z" }],
+      skills: [{
+        skillId: "pricing-helper",
+        name: "pricing-helper",
+        description: "Pricing helper.",
+        sourcePath: "E:/skills/pricing-helper",
+        sourceKind: "custom",
+        sourceHash: "hash-a",
+        enabledProject: true,
+        enabledTopics: [],
+        disabledTopics: [],
+        runtimeTargets: [{ provider: "codex", status: "not-synced" }],
+      }],
+      bridge: { state: "out-of-sync" },
+    };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
+      if (url === "/api/projects") {
+        return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, memory: { memoryMode: "external-local", memoryAvailable: true, harnessReady: true, artifactBase: "memory-root", roots: { memoryRoot: "E:/aho-home/projects/repo" } }, harness: { readiness: "ready" }, codexTrust: { trusted: true } }] });
+      }
+      if (url === "/api/projects/repo/codex/diagnostics") return jsonResponse(codexDiagnostics);
+      if (url === "/api/projects/repo/skills") return jsonResponse(skillPayload);
+      if (url === "/api/projects/repo/skill-roots" && init?.method === "POST") return jsonResponse(skillPayload);
+      if (url === "/api/projects/repo/skills/pricing-helper/enable" && init?.method === "POST") return jsonResponse(skillPayload);
+      if (url === "/api/projects/repo/skills/codex-bridge/sync" && init?.method === "POST") return jsonResponse({ synced: [], syncedAgents: [], status: { state: "installed" } });
+      return jsonResponse(noTopicSnapshot);
+    }));
+
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "创造任何东西" });
+    expect(await screen.findByRole("button", { name: "已启用 1 个技能" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "已启用 1 个技能" }));
+    const panel = await screen.findByRole("dialog", { name: "设置" });
+    expect(within(panel).getByRole("heading", { name: "技能" })).toBeTruthy();
+    expect(within(panel).getByText("pricing-helper")).toBeTruthy();
+    expect(within(panel).getByText("custom: E:/skills")).toBeTruthy();
+
+    fireEvent.change(within(panel).getByLabelText("Skill 根目录"), { target: { value: "E:/more-skills" } });
+    fireEvent.click(within(panel).getByRole("button", { name: "添加" }));
+    await waitFor(() => expect(fetchCallUrls()).toContain("/api/projects/repo/skill-roots"));
+
+    fireEvent.click(within(panel).getByRole("button", { name: "同步 Codex" }));
+    await waitFor(() => {
+      const calls = vi.mocked(fetch).mock.calls.map(([url, init]) => [String(url), init?.method ?? "GET"]);
+      expect(calls).toContainEqual(["/api/projects/repo/skills/codex-bridge/sync", "POST"]);
+    });
+    fireEvent.click(within(panel).getByRole("button", { name: "禁用" }));
+
+    const calls = vi.mocked(fetch).mock.calls.map(([url, init]) => [String(url), init?.method ?? "GET"]);
+    expect(calls).toContainEqual(["/api/projects/repo/skills/pricing-helper/enable", "POST"]);
+    expect(calls).toContainEqual(["/api/projects/repo/skills/codex-bridge/sync", "POST"]);
+    expect(panel.textContent).not.toContain("marketplace");
+    expect(panel.textContent).not.toContain("$skill");
+  });
+
   it("opens the project home workspace picker, filters projects, and switches through the existing project route", async () => {
     const repoSnapshot = {
       ...snapshot,

@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { getCodexBridgeStatus, installCodexBridge, syncCodexBridge } from "../../src/codex/bridge.js";
 import { listAgentRoles, showAgentRole, syncAgentCatalog } from "../../src/agent/catalog.js";
 import { writeProjectMarker } from "../../src/project/marker.js";
-import { getEnabledSkillContext, importSkill, listSkills, setSkillEnabled } from "../../src/skill/catalog.js";
+import { addSkillRoot, getEnabledSkillContext, importSkill, listSkills, setSkillEnabled } from "../../src/skill/catalog.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import { WorkbenchStore } from "../../src/workbench/store.js";
 import type { ManagedProject } from "../../src/types/index.js";
@@ -40,7 +40,7 @@ function project(): ManagedProject {
 }
 
 describe("AHO skill source and Codex bridge", () => {
-  it("imports only allowed skill files and resolves project/topic enablement", async () => {
+  it("imports legal skill package files and resolves project/topic enablement", async () => {
     const repo = project();
     await mkdir(repo.path, { recursive: true });
     await writeProjectMarker(repo, "external-local");
@@ -54,14 +54,42 @@ describe("AHO skill source and Codex bridge", () => {
     const memory = await resolveProjectMemory(repo);
 
     expect(skills[0]).toMatchObject({ skillId: "pricing-skill", enabledProject: true, disabledTopics: ["change-a"] });
+    expect(skills[0].sourceKind).toBe("managed");
     expect(existsSync(join(memory.skillsRoot, "pricing-skill", "SKILL.md"))).toBe(true);
     expect(existsSync(join(memory.skillsRoot, "pricing-skill", "references", "note.md"))).toBe(true);
-    expect(existsSync(join(memory.skillsRoot, "pricing-skill", "scripts", "run.ps1"))).toBe(false);
+    expect(existsSync(join(memory.skillsRoot, "pricing-skill", "scripts", "run.ps1"))).toBe(true);
     expect((await getEnabledSkillContext(repo, "change-a")).records).toHaveLength(0);
     const context = await getEnabledSkillContext(repo, "change-b");
     expect(context.records[0].id).toBe("pricing-skill");
     expect(context.promptSection).toContain("AHO Skill Availability");
     expect(context.promptSection).not.toContain("# pricing-skill");
+  });
+
+  it("scans custom roots and keeps unsafe package entries out of the Codex bridge", async () => {
+    const repo = project();
+    await mkdir(repo.path, { recursive: true });
+    await writeProjectMarker(repo, "external-local");
+    const rootDir = join(root, "custom-skills");
+    const source = await createSkillSource("analytics-skill", rootDir);
+    await mkdir(join(source, ".git"), { recursive: true });
+    await mkdir(join(source, "node_modules", "pkg"), { recursive: true });
+    await writeFile(join(source, ".git", "config"), "secret\n", "utf8");
+    await writeFile(join(source, "node_modules", "pkg", "index.js"), "module\n", "utf8");
+    await symlink(join(root, "outside.txt"), join(source, "linked.txt")).catch(() => undefined);
+    await writeFile(join(root, "outside.txt"), "outside\n", "utf8");
+
+    const refreshed = await addSkillRoot(repo, rootDir);
+    expect(refreshed.roots[0]).toMatchObject({ rootPath: rootDir, sourceKind: "custom" });
+    expect(refreshed.skills.some((skill) => skill.skillId === "analytics-skill" && skill.sourceKind === "custom")).toBe(true);
+
+    await setSkillEnabled(repo, "analytics-skill", { enabled: true });
+    await syncCodexBridge(repo);
+    const bridgeSkillRoot = join(process.env.CODEX_HOME ?? "", "plugins", "aho-managed", "skills", "demo__analytics-skill");
+
+    expect(existsSync(join(bridgeSkillRoot, "scripts", "run.ps1"))).toBe(true);
+    expect(existsSync(join(bridgeSkillRoot, ".git", "config"))).toBe(false);
+    expect(existsSync(join(bridgeSkillRoot, "node_modules", "pkg", "index.js"))).toBe(false);
+    expect(existsSync(join(bridgeSkillRoot, "linked.txt"))).toBe(false);
   });
 
   it("installs and syncs enabled skills and agents into the aho-managed Codex plugin namespace", async () => {
@@ -87,6 +115,7 @@ describe("AHO skill source and Codex bridge", () => {
     expect(synced.syncedAgents.length).toBeGreaterThan(0);
     expect(status.state).toBe("installed");
     expect(existsSync(skillPath)).toBe(true);
+    expect(existsSync(join(process.env.CODEX_HOME ?? "", "plugins", "aho-managed", "skills", "demo__pricing-skill", "scripts", "run.ps1"))).toBe(true);
     expect(existsSync(agentPath)).toBe(true);
     expect(await readFile(skillPath, "utf8")).toContain("name: demo__pricing-skill");
     expect(manifest.skills[0].id).toBe("demo__pricing-skill");
@@ -136,8 +165,8 @@ describe("AHO skill source and Codex bridge", () => {
   });
 });
 
-async function createSkillSource(name: string): Promise<string> {
-  const source = join(root, "skill-source", name);
+async function createSkillSource(name: string, parent = join(root, "skill-source")): Promise<string> {
+  const source = join(parent, name);
   await mkdir(join(source, "references"), { recursive: true });
   await mkdir(join(source, "examples"), { recursive: true });
   await mkdir(join(source, "scripts"), { recursive: true });

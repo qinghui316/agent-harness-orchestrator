@@ -34,8 +34,16 @@ export interface StoredSkillIndex {
   name: string;
   description: string;
   sourcePath: string;
+  sourceKind: string;
   sourceHash: string;
   metadataJson: string;
+  updatedAt: string;
+}
+
+export interface StoredSkillRoot {
+  projectId: string;
+  rootPath: string;
+  sourceKind: string;
   updatedAt: string;
 }
 
@@ -243,21 +251,23 @@ export class WorkbenchStore {
 
   upsertSkill(skill: StoredSkillIndex): void {
     this.db.prepare(`
-      INSERT INTO skills (project_id, skill_id, name, description, source_path, source_hash, metadata_json, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO skills (project_id, skill_id, name, description, source_path, source_kind, source_hash, metadata_json, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(project_id, skill_id) DO UPDATE SET
         name = excluded.name,
         description = excluded.description,
         source_path = excluded.source_path,
+        source_kind = excluded.source_kind,
         source_hash = excluded.source_hash,
         metadata_json = excluded.metadata_json,
         updated_at = excluded.updated_at
-    `).run(skill.projectId, skill.skillId, skill.name, skill.description, skill.sourcePath, skill.sourceHash, skill.metadataJson, skill.updatedAt);
+    `).run(skill.projectId, skill.skillId, skill.name, skill.description, skill.sourcePath, skill.sourceKind, skill.sourceHash, skill.metadataJson, skill.updatedAt);
   }
 
   listSkills(projectId: string): StoredSkillIndex[] {
     return (this.db.prepare(`
       SELECT project_id AS projectId, skill_id AS skillId, name, description, source_path AS sourcePath,
+        source_kind AS sourceKind,
         source_hash AS sourceHash, metadata_json AS metadataJson, updated_at AS updatedAt
       FROM skills WHERE project_id = ? ORDER BY skill_id ASC
     `).all(projectId) as SqliteRow[]).map(mapSkillRow);
@@ -266,10 +276,37 @@ export class WorkbenchStore {
   readSkill(projectId: string, skillId: string): StoredSkillIndex | null {
     const row = this.db.prepare(`
       SELECT project_id AS projectId, skill_id AS skillId, name, description, source_path AS sourcePath,
+        source_kind AS sourceKind,
         source_hash AS sourceHash, metadata_json AS metadataJson, updated_at AS updatedAt
       FROM skills WHERE project_id = ? AND skill_id = ?
     `).get(projectId, skillId) as SqliteRow | undefined;
     return row ? mapSkillRow(row) : null;
+  }
+
+  deleteSkillsExcept(projectId: string, skillIds: string[]): void {
+    if (skillIds.length === 0) {
+      this.db.prepare("DELETE FROM skills WHERE project_id = ?").run(projectId);
+      return;
+    }
+    const placeholders = skillIds.map(() => "?").join(", ");
+    this.db.prepare(`DELETE FROM skills WHERE project_id = ? AND skill_id NOT IN (${placeholders})`).run(projectId, ...skillIds);
+  }
+
+  upsertSkillRoot(root: StoredSkillRoot): void {
+    this.db.prepare(`
+      INSERT INTO skill_roots (project_id, root_path, source_kind, updated_at)
+      VALUES (?, ?, ?, ?)
+      ON CONFLICT(project_id, root_path) DO UPDATE SET
+        source_kind = excluded.source_kind,
+        updated_at = excluded.updated_at
+    `).run(root.projectId, root.rootPath, root.sourceKind, root.updatedAt);
+  }
+
+  listSkillRoots(projectId: string): StoredSkillRoot[] {
+    return (this.db.prepare(`
+      SELECT project_id AS projectId, root_path AS rootPath, source_kind AS sourceKind, updated_at AS updatedAt
+      FROM skill_roots WHERE project_id = ? ORDER BY root_path ASC
+    `).all(projectId) as SqliteRow[]).map(mapSkillRootRow);
   }
 
   setSkillEnablement(enablement: StoredSkillEnablement): void {
@@ -464,10 +501,19 @@ function migrate(db: Database.Database): void {
       name TEXT NOT NULL,
       description TEXT NOT NULL,
       source_path TEXT NOT NULL,
+      source_kind TEXT NOT NULL DEFAULT 'managed',
       source_hash TEXT NOT NULL,
       metadata_json TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       PRIMARY KEY(project_id, skill_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS skill_roots (
+      project_id TEXT NOT NULL,
+      root_path TEXT NOT NULL,
+      source_kind TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY(project_id, root_path)
     );
 
     CREATE TABLE IF NOT EXISTS skill_enablement (
@@ -521,6 +567,7 @@ function migrate(db: Database.Database): void {
     );
     CREATE INDEX IF NOT EXISTS idx_decision_records_topic ON decision_records(project_id, change_id, updated_at);
   `);
+  ensureColumn(db, "skills", "source_kind", "TEXT NOT NULL DEFAULT 'managed'");
 }
 
 function mapMessageRow(row: SqliteRow): StoredTopicMessage {
@@ -558,8 +605,18 @@ function mapSkillRow(row: SqliteRow): StoredSkillIndex {
     name: String(row.name),
     description: String(row.description),
     sourcePath: String(row.sourcePath),
+    sourceKind: String(row.sourceKind ?? "managed"),
     sourceHash: String(row.sourceHash),
     metadataJson: String(row.metadataJson),
+    updatedAt: String(row.updatedAt),
+  };
+}
+
+function mapSkillRootRow(row: SqliteRow): StoredSkillRoot {
+  return {
+    projectId: String(row.projectId),
+    rootPath: String(row.rootPath),
+    sourceKind: String(row.sourceKind),
     updatedAt: String(row.updatedAt),
   };
 }
@@ -623,4 +680,10 @@ function decodeScopeChangeId(value: unknown): string | null {
 function normalizeDecisionStatus(value: unknown): StoredDecisionStatus {
   if (value === "accepted" || value === "requested-changes" || value === "dismissed" || value === "completed" || value === "failed") return value;
   return "pending";
+}
+
+function ensureColumn(db: Database.Database, table: string, column: string, definition: string): void {
+  const rows = db.prepare(`PRAGMA table_info(${table})`).all() as SqliteRow[];
+  if (rows.some((row) => row.name === column)) return;
+  db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
 }

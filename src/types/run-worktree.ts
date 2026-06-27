@@ -224,6 +224,7 @@ export interface RunMetadata {
 
 export interface RunSkillRecord {
   id: string;
+  runtimeTarget?: "codex";
   sourceHash: string;
   materializedHash?: string | null;
   bridge?: string;

@@ -44,6 +44,33 @@ export type ProjectStatus = {
   harness: { readiness: string };
   codexTrust?: { trusted: boolean; configPath: string; projectKey: string; configExists: boolean; reason?: string };
 };
+
+export type SkillSourceKind = "managed" | "project-codex" | "global-codex" | "custom";
+export type SkillRuntimeTarget = {
+  provider: "codex";
+  status: "synced" | "out-of-sync" | "not-synced";
+  materializedPath?: string;
+  materializedHash?: string;
+  bridgeVersion?: string;
+  syncedAt?: string;
+};
+export type SkillListItem = {
+  skillId: string;
+  name: string;
+  description: string;
+  sourcePath: string;
+  sourceKind: SkillSourceKind;
+  sourceHash: string;
+  enabledProject: boolean;
+  enabledTopics: string[];
+  disabledTopics: string[];
+  runtimeTargets: SkillRuntimeTarget[];
+};
+export type SkillRootListItem = {
+  rootPath: string;
+  sourceKind: SkillSourceKind;
+  updatedAt: string;
+};
 export type Snapshot = {
   project: { id: string; name: string; path: string } | null;
   memory: { memoryMode?: string; harnessReady?: boolean; artifactBase?: string };

@@ -6,7 +6,8 @@
 - Active ECL change: none.
 - Pending Harness evolution: none.
 - Latest archived product audit: `harness/changes/archive/20260625-workbench-goal-loop-decision-surface-audit-v1/summary.md`.
-- Latest archived product change: `harness/changes/archive/20260627-workbench-reference-style-workspace-picker-and-session-sidebar-v1/summary.md`.
+- Latest archived product change: `harness/changes/archive/20260627-workbench-reference-style-skills-catalog-and-codex-bridge-v1/summary.md`.
+- Previous archived product change: `harness/changes/archive/20260627-workbench-reference-style-workspace-picker-and-session-sidebar-v1/summary.md`.
 - Previous archived product change: `harness/changes/archive/20260627-workbench-harness-composer-execution-mode-controls-v1/summary.md`.
 - Previous archived product change: `harness/changes/archive/20260627-workbench-desktop-cc-gui-aligned-home-and-conversation-entry-v1/summary.md`.
 - Latest archived docs/reference change: `harness/changes/archive/20260626-document-desktop-cc-gui-reference-map-and-product-layer-roadmap/summary.md`.
@@ -53,6 +54,16 @@
 - Latest scheduler integration apply/discard hardening: `harness/changes/archive/20260625-workbench-scheduler-integration-apply-discard-real-acceptance-v1/summary.md`.
 
 Latest product closeout:
+`harness/changes/archive/20260627-workbench-reference-style-skills-catalog-and-codex-bridge-v1/summary.md`.
+It adds the first reference-style Skills usage layer for Harness mode:
+custom Skill roots, `SKILL.md` package scanning, project/topic
+enablement, Codex bridge sync into `$CODEX_HOME/plugins/aho-managed`, and a
+composer `技能 N` indicator. Skill packages may include `scripts/`, but AHO does
+not execute those scripts. Skills remain runtime capabilities only and do not
+alter Harness workflow truth, confirmation queues, apply/close, scheduler,
+remote, merge, PR, or Harness evolution.
+
+Previous product closeout:
 `harness/changes/archive/20260627-workbench-reference-style-workspace-picker-and-session-sidebar-v1/summary.md`.
 It updates the Harness-mode home to the reference-style structure: centered
 `创造任何东西` composer, working workspace picker, real project/session history in
@@ -403,15 +414,17 @@ Active change: none.
 Pending Harness evolution: none.
 
 Latest product closeout:
-`harness/changes/archive/20260627-workbench-reference-style-workspace-picker-and-session-sidebar-v1/summary.md`.
+`harness/changes/archive/20260627-workbench-reference-style-skills-catalog-and-codex-bridge-v1/summary.md`.
 
 Latest real UI acceptance:
 `harness/changes/archive/20260626-workbench-mode-aware-local-goal-loop-real-ui-acceptance-v1/summary.md`.
 
 Next product work should build on existing Workbench gate/action/runtime owners.
 Good candidates are the next Phase 1/2 product-layer slices from
-`docs/design-docs/ref-desktop-cc-gui.md`: project creation/open/restore polish,
-composer/file-reference UX, runtime diagnostics, or file/Git/terminal panels.
+`docs/design-docs/ref-desktop-cc-gui.md`: `$skill` completion, actual
+skill-usage evidence, model settings, provider capability matrix, project
+creation/open/restore polish, composer/file-reference UX, runtime diagnostics,
+or file/Git/terminal panels.
 Do not widen `完全访问权限` into raw scheduler, manual IntegrationCheck,
 integration apply/discard, PR/remote/merge, Harness evolution, or full parallel
 execution without a separate structured change.
