@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-27T06:23:07.1082087Z",
+    "generated_at":  "2026-06-27T07:40:17.9160634Z",
     "active":  [
 
                ],
@@ -2053,6 +2053,10 @@
                     {
                         "name":  "20260627-workbench-project-home-codex-diagnostics-v1",
                         "path":  "harness/changes/archive/20260627-workbench-project-home-codex-diagnostics-v1"
+                    },
+                    {
+                        "name":  "20260627-workbench-reference-style-file-reference-composer-v1",
+                        "path":  "harness/changes/archive/20260627-workbench-reference-style-file-reference-composer-v1"
                     },
                     {
                         "name":  "20260627-workbench-reference-style-skills-catalog-and-codex-bridge-v1",

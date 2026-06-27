@@ -7,7 +7,7 @@ import { createLiveSink } from "./live.js";
 import { readJsonBody } from "./http.js";
 import type { CreateTopicRequest, TopicMessageRequest } from "./types.js";
 
-export async function readCreateTopicBody(request: IncomingMessage): Promise<{ title: string; body?: string }> {
+export async function readCreateTopicBody(request: IncomingMessage): Promise<{ title: string; body?: string; contextRefs?: CreateTopicRequest["contextRefs"] }> {
   const body = await readJsonBody<CreateTopicRequest>(request);
   if (body.confirm !== true) {
     const error = new Error("Creating a demand conversation requires confirm: true.");
@@ -19,7 +19,7 @@ export async function readCreateTopicBody(request: IncomingMessage): Promise<{ t
     error.name = "BadRequest";
     throw error;
   }
-  return { title: body.title.trim(), body: body.body };
+  return { title: body.title.trim(), body: body.body, contextRefs: body.contextRefs };
 }
 
 export async function readTopicMessageBody(request: IncomingMessage): Promise<TopicMessageRequest> {

@@ -1,9 +1,10 @@
 import type { ReactElement } from "react";
 import { Send, X } from "lucide-react";
 import { workflowActionLabel } from "../action-labels.js";
-import type { SkillListItem, WorkpadRuntimeStatus } from "../types.js";
+import type { SkillListItem, TopicFileReference, WorkpadRuntimeStatus } from "../types.js";
 import { ComposerControls } from "./ComposerControls.js";
 import type { ComposerExecutionMode } from "./composer-session.js";
+import { FileMentionPicker } from "./FileMentionPicker.js";
 import { SkillMentionPicker } from "./SkillMentionPicker.js";
 
 export function TopicComposer({
@@ -15,9 +16,12 @@ export function TopicComposer({
   onAutomationModeChange,
   modelLabel,
   enabledSkillCount,
+  projectId,
   skills,
   activeSkillIds,
+  selectedFileRefs,
   onToggleSkill,
+  onSelectedFileRefsChange,
   onOpenSkillsSettings,
   busy: _busy,
   disabledReason,
@@ -37,9 +41,12 @@ export function TopicComposer({
   onAutomationModeChange: (mode: ComposerExecutionMode) => void;
   modelLabel: string;
   enabledSkillCount?: number;
+  projectId: string | null;
   skills?: SkillListItem[];
   activeSkillIds?: string[];
+  selectedFileRefs?: TopicFileReference[];
   onToggleSkill?: (skillId: string) => void | Promise<void>;
+  onSelectedFileRefsChange?: (refs: TopicFileReference[]) => void;
   onOpenSkillsSettings?: () => void;
   busy: boolean;
   disabledReason?: string;
@@ -76,6 +83,13 @@ export function TopicComposer({
         skills={skills ?? []}
         activeSkillIds={activeSkillIds ?? []}
         onToggleSkill={onToggleSkill ?? (() => undefined)}
+      />
+      <FileMentionPicker
+        projectId={projectId}
+        value={value}
+        onChange={onChange}
+        selectedRefs={selectedFileRefs ?? []}
+        onSelectedRefsChange={onSelectedFileRefsChange ?? (() => undefined)}
       />
       <textarea
         value={value}

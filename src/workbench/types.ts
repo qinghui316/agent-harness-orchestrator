@@ -57,6 +57,16 @@ export interface TopicThreadEntry {
   blocks?: AssistantTurnBlock[];
   intake?: unknown;
   clarification?: unknown;
+  contextRefs?: TopicFileReference[];
+}
+
+export interface TopicFileReference {
+  relativePath: string;
+  name: string;
+  kind: "file" | "directory";
+  extension?: string;
+  size?: number;
+  source?: "composer";
 }
 
 export type AssistantTurnBlockKind =
@@ -159,6 +169,7 @@ export interface TopicMessageInput {
   mode?: WorkbenchMessageMode;
   message?: string;
   text?: string;
+  contextRefs?: TopicFileReference[];
 }
 
 export interface WorkbenchWorkflowActionRequest {

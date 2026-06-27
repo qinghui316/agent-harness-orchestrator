@@ -3,6 +3,7 @@ import { openNativeFolderDialog } from "./native-dialog.js";
 import { matchProjectWorkbenchRoute } from "./routes.js";
 import { resolveProjectInputWithDirect } from "./direct-project.js";
 import { getWorkbenchCodexDiagnostics } from "./codex-diagnostics.js";
+import { searchProjectFiles } from "../../workbench/file-references.js";
 import { getCodexBridgeStatus, syncCodexBridge } from "../../codex/bridge.js";
 import { addSkillRoot, listSkillRoots, listSkills, refreshSkills, setSkillEnabled, type SkillSourceKind } from "../../skill/catalog.js";
 import { addExistingProject, createNewProject, initProjectHarness, listProjectStatuses, trustCodexProjectForWorkbench } from "./project-admin.js";
@@ -61,6 +62,22 @@ export async function handleApi(context: WorkbenchServerContext, request: Incomi
   if (request.method === "GET" && codexDiagnosticsMatch?.[1]) {
     const input = await resolveProjectInputWithDirect(context.store, context.input, decodeURIComponent(codexDiagnosticsMatch[1]));
     sendJson(response, 200, await getWorkbenchCodexDiagnostics(input.project, input.path));
+    return;
+  }
+  const fileSearchMatch = url.pathname.match(/^\/api\/projects\/([^/]+)\/files\/search$/);
+  if (request.method === "GET" && fileSearchMatch?.[1]) {
+    const input = await resolveProjectInputWithDirect(context.store, context.input, decodeURIComponent(fileSearchMatch[1]));
+    if (!input.project) {
+      sendJson(response, 400, { error: "Project file search requires a selected project." });
+      return;
+    }
+    const limit = Number(url.searchParams.get("limit") ?? undefined);
+    sendJson(response, 200, {
+      files: await searchProjectFiles(input.project, {
+        query: url.searchParams.get("q") ?? "",
+        limit,
+      }),
+    });
     return;
   }
   const skillRootsMatch = url.pathname.match(/^\/api\/projects\/([^/]+)\/skill-roots$/);

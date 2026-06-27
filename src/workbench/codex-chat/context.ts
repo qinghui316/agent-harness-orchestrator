@@ -1,6 +1,8 @@
 import { getChangeStatusForChange } from "../../change/manager.js";
 import { buildContextProjection } from "../../run/manager.js";
 import type { ManagedProject, ResolvedMemory } from "../../types/index.js";
+import { renderTopicFileReferencesForPrompt } from "../file-references.js";
+import type { TopicFileReference } from "../types.js";
 import { resolveTopic } from "../topic-resolver.js";
 import { readTopicThreadLog as readThreadLog } from "../thread-log.js";
 import { buildVisibleGoalLoopMainAgentContextSection } from "./goal-loop-context.js";
@@ -44,6 +46,7 @@ export async function buildChatContext(
   const status = await getChangeStatusForChange(project, changeId);
   const { changePath } = await resolveTopic(project, changeId);
   const recentMessages = (await readThreadLog(memory, changePath)).slice(-12);
+  const referencedFiles = topicFileReferencesFromRecentMessages(recentMessages);
   const goalLoopSection = await buildVisibleGoalLoopMainAgentContextSection(project, memory, changePath, changeId);
   return {
     goalLoopNextStepPacketId: goalLoopSection?.goalLoopNextStepPacketId,
@@ -66,6 +69,7 @@ export async function buildChatContext(
       "",
       buildContextProjection(status),
       ...(goalLoopSection ? ["", goalLoopSection.markdown] : []),
+      ...(referencedFiles.length > 0 ? ["", ...renderTopicFileReferencesForPrompt(referencedFiles), ""] : []),
       "## Recent Topic Messages",
       "",
       ...recentMessages.map((entry) => `- ${entry.type}: ${entry.text ?? entry.actionType ?? entry.status ?? ""}`),
@@ -86,6 +90,7 @@ export async function buildOrchestratorContext(
 ): Promise<MainAgentContextResult> {
   const status = await getChangeStatusForChange(project, changeId);
   const recentMessages = (await readThreadLog(memory, changePath)).slice(-16);
+  const referencedFiles = topicFileReferencesFromRecentMessages(recentMessages);
   const goalLoopSection = await buildVisibleGoalLoopMainAgentContextSection(project, memory, changePath, changeId);
   return {
     goalLoopNextStepPacketId: goalLoopSection?.goalLoopNextStepPacketId,
@@ -108,6 +113,7 @@ export async function buildOrchestratorContext(
       "",
       buildContextProjection(status),
       ...(goalLoopSection ? ["", goalLoopSection.markdown] : []),
+      ...(referencedFiles.length > 0 ? ["", ...renderTopicFileReferencesForPrompt(referencedFiles), ""] : []),
       "## Current Topic",
       "",
       `- Change ID: ${changeId}`,
@@ -128,6 +134,19 @@ export async function buildOrchestratorContext(
       userMessage,
     ].join("\n"),
   };
+}
+
+function topicFileReferencesFromRecentMessages(messages: Awaited<ReturnType<typeof readThreadLog>>): TopicFileReference[] {
+  const refs: TopicFileReference[] = [];
+  const seen = new Set<string>();
+  for (const message of messages) {
+    for (const ref of message.contextRefs ?? []) {
+      if (seen.has(ref.relativePath)) continue;
+      seen.add(ref.relativePath);
+      refs.push(ref);
+    }
+  }
+  return refs;
 }
 
 function buildControlledLoopStatePromptEvidence(

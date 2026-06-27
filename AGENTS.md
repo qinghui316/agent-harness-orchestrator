@@ -8,6 +8,8 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 - Active change: none.
 - Pending Harness evolution: none.
 - Latest archived product change:
+  `harness/changes/archive/20260627-workbench-reference-style-file-reference-composer-v1/summary.md`.
+- Previous archived product change:
   `harness/changes/archive/20260627-workbench-reference-style-slash-skill-composer-v1/summary.md`.
 - Latest archived docs/reference change:
   `harness/changes/archive/20260626-document-desktop-cc-gui-reference-map-and-product-layer-roadmap/summary.md`.
@@ -48,6 +50,12 @@ Current baseline:
   AHO-managed Codex bridge, and expose `/skill-name` / `$skill-name` composer
   selection backed by real topic enablement. Skills are runtime capabilities
   only; they do not affect Harness gates or workflow truth.
+- Workbench composer now supports reference-style `@file` project file
+  references. Home and topic composers search only the selected project,
+  display selected file chips, bind refs to the first/current user message, and
+  pass relative path/kind metadata into Codex runtime context without injecting
+  file contents. File refs are runtime context only, not Harness artifacts,
+  permissions, or workflow truth.
 - Planning prefers Codex Plan Mode proposal capture; plan confirmation remains
   human.
 - `请求批准` and scoped `完全访问权限` share the same local Goal Loop coordinator.

@@ -9,6 +9,7 @@ import type {
   AssistantTurnBlock,
   AssistantTurnBlockKind,
   OrchestrationPlanCard,
+  TopicFileReference,
   TopicThreadEntry,
   TopicThreadEventType,
   WorkbenchAssistantEvent,
@@ -188,6 +189,7 @@ function fromStoredThreadMessage(row: StoredTopicMessage): TopicThreadEntry {
     blocks: Array.isArray(raw.blocks) ? raw.blocks.filter(isAssistantTurnBlock) : undefined,
     intake: raw.intake,
     clarification: raw.clarification,
+    contextRefs: Array.isArray(raw.contextRefs) ? raw.contextRefs.filter(isTopicFileReference) : undefined,
     position: row.position,
   };
 }
@@ -238,6 +240,13 @@ function isAssistantTurnBlockKind(value: unknown): value is AssistantTurnBlockKi
     "usage",
     "error",
   ].includes(value);
+}
+
+function isTopicFileReference(value: unknown): value is TopicFileReference {
+  if (!isRecord(value)) return false;
+  return typeof value.relativePath === "string"
+    && typeof value.name === "string"
+    && (value.kind === "file" || value.kind === "directory");
 }
 
 function isWorkbenchAssistantEvent(value: unknown): value is WorkbenchAssistantEvent {

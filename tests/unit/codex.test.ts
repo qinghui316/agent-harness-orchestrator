@@ -3,6 +3,7 @@ import { evaluateCodexAppServerCapabilities, shouldUseCodexAppServerForMemory } 
 import { buildCodexReadonlyArgv, buildCodexReadonlyResumeArgv, buildCodexWorkspaceWriteArgv, evaluateCodexCapabilities } from "../../src/codex/capabilities.js";
 import { createCodexJsonlStreamParser, extractFinalMessageFromCodexJsonl, truncateReadablePreview, type CodexJsonlStreamEvent } from "../../src/codex/jsonl.js";
 import { composeCodexPrompt, readPromptInput } from "../../src/codex/prompt.js";
+import { renderTopicFileReferencesForPrompt } from "../../src/workbench/file-references.js";
 
 const rootHelp = "Usage: codex [OPTIONS]\n  -a, --ask-for-approval <APPROVAL_POLICY>\n";
 const execHelp = [
@@ -198,6 +199,18 @@ describe("codex prompt and JSONL parsing", () => {
     expect(prompt).toContain("AC-001");
     expect(prompt).toContain("T-001");
     expect(prompt).toContain("Propose an implementation plan.");
+  });
+
+  it("renders file references as bounded Codex runtime context", () => {
+    const section = renderTopicFileReferencesForPrompt([
+      { relativePath: "src/pricing.ts", name: "pricing.ts", kind: "file", extension: ".ts", size: 123 },
+      { relativePath: "docs", name: "docs", kind: "directory", size: 0 },
+    ]).join("\n");
+
+    expect(section).toContain("file: src/pricing.ts");
+    expect(section).toContain("directory: docs");
+    expect(section).toContain("runtime context only");
+    expect(section).not.toContain("export const");
   });
 
   it("requires exactly one prompt input", async () => {

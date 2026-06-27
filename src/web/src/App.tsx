@@ -67,8 +67,10 @@ import type {
   AssistantTurnBlock,
   LiveTurnEvent,
   LiveAssistantTurn,
+  TopicFileReference,
 } from "./types.js";
 import { extractInlineSkillMentions } from "./shell/skill-mentions.js";
+import { extractInlineFileMentions } from "./shell/file-mentions.js";
 
 const emptySnapshot: Snapshot = {
   project: null,
@@ -132,6 +134,7 @@ export function App(): ReactElement {
   const [codexDiagnostics, setCodexDiagnostics] = useState<CodexDiagnostics | null>(null);
   const [skillItems, setSkillItems] = useState<SkillListItem[]>([]);
   const [draftSkillOverrides, setDraftSkillOverrides] = useState<Record<string, boolean>>({});
+  const [composerFileRefs, setComposerFileRefs] = useState<TopicFileReference[]>([]);
   const [decisionPaneCollapsed, setDecisionPaneCollapsed] = useState(true);
   const [projectionVersion, setProjectionVersion] = useState(0);
   const [latestHidden, setLatestHidden] = useState(false);
@@ -434,6 +437,16 @@ export function App(): ReactElement {
     return { text: extracted.cleanedText.trim(), overrides };
   }
 
+  function resolveComposerTextWithContext(body: string, selectedRefs: TopicFileReference[] = composerFileRefs): { text: string; overrides: Record<string, boolean>; contextRefs: TopicFileReference[] } {
+    const fileExtraction = extractInlineFileMentions(body, selectedRefs);
+    const skillExtraction = resolveComposerTextWithSkills(fileExtraction.cleanedText);
+    return {
+      text: skillExtraction.text,
+      overrides: skillExtraction.overrides,
+      contextRefs: fileExtraction.refs,
+    };
+  }
+
   async function toggleComposerSkill(skillId: string): Promise<void> {
     if (!selectedProjectId) return;
     const currentlyActive = selectedComposerSkillIds.includes(skillId);
@@ -445,11 +458,11 @@ export function App(): ReactElement {
     setDraftSkillOverrides((current) => ({ ...current, [skillId]: !currentlyActive }));
   }
 
-  async function createTopicFromText(body: string): Promise<void> {
+  async function createTopicFromText(body: string, fileRefs: TopicFileReference[] = []): Promise<void> {
     if (!selectedProjectId || !body.trim()) return;
     setActionRunning("topic.create");
     try {
-      const resolved = resolveComposerTextWithSkills(body);
+      const resolved = resolveComposerTextWithContext(body, fileRefs);
       const demandBody = resolved.text;
       if (!demandBody) return;
       const title = demandBody.split(/\r?\n/)[0].slice(0, 60);
@@ -457,6 +470,7 @@ export function App(): ReactElement {
       const result = await postJson<{ topic: { changeId: string } }>(`/api/projects/${encodeURIComponent(selectedProjectId)}/workbench/topics`, {
         title,
         body: demandBody,
+        contextRefs: resolved.contextRefs,
         confirm: true,
       });
       await applyTopicSkillOverrides(result.topic.changeId, resolved.overrides);
@@ -464,6 +478,7 @@ export function App(): ReactElement {
       setAutomationMode(migratedMode);
       setDraftSkillOverrides({});
       setComposerText("");
+      setComposerFileRefs([]);
       setSelectedTopic(result.topic.changeId);
       await loadSkillSummary(selectedProjectId, result.topic.changeId);
       await refresh(selectedProjectId, result.topic.changeId);
@@ -483,7 +498,7 @@ export function App(): ReactElement {
       setError("已完成或稍后处理的需求对话为只读，不能继续发送消息。");
       return;
     }
-    const resolved = resolveComposerTextWithSkills(composerText);
+    const resolved = resolveComposerTextWithContext(composerText);
     const message = resolved.text;
     if (Object.keys(resolved.overrides).length > 0) {
       await applyTopicSkillOverrides(activeTopic.id, resolved.overrides);
@@ -491,11 +506,13 @@ export function App(): ReactElement {
     }
     if (!message) {
       setComposerText("");
+      setComposerFileRefs([]);
       return;
     }
     const runningConversation = activeWorkpad.conversationLifecycle === "running" || activeWorkpad.runControlState?.canStop || currentWorkpadSummary(snapshot, activeTopic)?.runtimeStatus === "running";
     if (runningConversation) {
       await runWorkflowAction("conversation.steer", { prompt: message });
+      setComposerFileRefs([]);
       return;
     }
     const pendingClarificationCount = activeWorkpad.intake.pendingClarifications?.length ?? 0;
@@ -511,6 +528,7 @@ export function App(): ReactElement {
         const result = await postJson<{ snapshot: Snapshot }>(`/api/projects/${encodeURIComponent(selectedProjectId)}/workbench/intake/reanalyze`, {
           changeId: activeTopic.id,
           message,
+          contextRefs: resolved.contextRefs,
         });
         setSnapshot(result.snapshot);
       } finally {
@@ -525,7 +543,9 @@ export function App(): ReactElement {
       await consumeWorkbenchLiveStream(`/api/projects/${encodeURIComponent(selectedProjectId)}/workbench/topics/${encodeURIComponent(activeTopic.id)}/messages/live`, {
         mode: composerMode,
         message,
+        contextRefs: resolved.contextRefs,
       }, handleLiveEvent);
+      setComposerFileRefs([]);
     } finally {
       setActionRunning(null);
     }
@@ -822,7 +842,7 @@ export function App(): ReactElement {
   }
 
   async function createTopicFromComposer(): Promise<void> {
-    await createTopicFromText(composerText);
+    await createTopicFromText(composerText, composerFileRefs);
   }
 
   useEffect(() => {
@@ -985,8 +1005,11 @@ export function App(): ReactElement {
                   onAutomationModeChange={handleComposerExecutionModeChange}
                   modelLabel={codexModelLabel}
                   enabledSkillCount={enabledSkillCount}
+                  projectId={selectedProjectId}
                   skills={skillItems}
                   activeSkillIds={selectedComposerSkillIds}
+                  selectedFileRefs={composerFileRefs}
+                  onSelectedFileRefsChange={setComposerFileRefs}
                   onToggleSkill={toggleComposerSkill}
                   onOpenSkillsSettings={() => setSettingsOpen(true)}
                   busy={actionRunning !== null || activeTopic.state !== "active"}

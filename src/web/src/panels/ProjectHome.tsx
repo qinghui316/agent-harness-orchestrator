@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { fetchJson, postJson } from "../api.js";
 import { ComposerControls } from "../shell/ComposerControls.js";
+import { FileMentionPicker } from "../shell/FileMentionPicker.js";
 import { SkillMentionPicker } from "../shell/SkillMentionPicker.js";
 import type { ComposerExecutionMode } from "../shell/composer-session.js";
 import { WorkspacePicker } from "./WorkspacePicker.js";
@@ -19,7 +20,7 @@ import {
   ProjectAddForm,
   ProjectCreateForm,
 } from "./ProjectPanels.js";
-import type { CodexDiagnostics, ProjectStatus, SkillListItem, SkillRootListItem, Snapshot } from "../types.js";
+import type { CodexDiagnostics, ProjectStatus, SkillListItem, SkillRootListItem, Snapshot, TopicFileReference } from "../types.js";
 
 export function ProjectHomeView({
   projects,
@@ -107,7 +108,7 @@ export function ProjectReadinessHome({
   modelLabel: string;
   projects: ProjectStatus[];
   selectedProjectId: string | null;
-  onCreateDemand: (body: string) => Promise<void>;
+  onCreateDemand: (body: string, fileRefs?: TopicFileReference[]) => Promise<void>;
   onAutomationModeChange: (mode: ComposerExecutionMode) => void;
   enabledSkillCount?: number;
   skills?: SkillListItem[];
@@ -119,6 +120,7 @@ export function ProjectReadinessHome({
 }): ReactElement {
   const readiness = projectReadiness(project, snapshot);
   const [draft, setDraft] = useState("");
+  const [draftFileRefs, setDraftFileRefs] = useState<TopicFileReference[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const memoryReady = snapshot.memory.harnessReady ?? project.memory?.harnessReady ?? project.harness.readiness === "ready";
 
@@ -127,8 +129,9 @@ export function ProjectReadinessHome({
     if (!body || !memoryReady) return;
     setSubmitting(true);
     try {
-      await onCreateDemand(body);
+      await onCreateDemand(body, draftFileRefs);
       setDraft("");
+      setDraftFileRefs([]);
     } finally {
       setSubmitting(false);
     }
@@ -162,6 +165,13 @@ export function ProjectReadinessHome({
             skills={skills ?? []}
             activeSkillIds={activeSkillIds ?? []}
             onToggleSkill={onToggleSkill ?? (() => undefined)}
+          />
+          <FileMentionPicker
+            projectId={project.project?.id ?? null}
+            value={draft}
+            onChange={setDraft}
+            selectedRefs={draftFileRefs}
+            onSelectedRefsChange={setDraftFileRefs}
           />
           <textarea
             value={draft}

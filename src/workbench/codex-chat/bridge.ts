@@ -22,6 +22,7 @@ import { readTopicThreadLog as readThreadLog } from "../thread-log.js";
 import type {
   OrchestrationPlanCard,
   SuggestedAction,
+  TopicFileReference,
   TopicMessageResult,
   TopicRoutingDecision,
   TopicThreadEntry,
@@ -166,8 +167,8 @@ export async function runOrchestratorPlan(project: ManagedProject, changeId: str
   return { ...parsed, run };
 }
 
-export async function postTopicPlanMessage(project: ManagedProject, changeId: string, message: string, live?: WorkbenchLiveSink): Promise<TopicMessageResult> {
-  const user = await appendTopicThreadEntry(project, changeId, { type: "user.message", text: message });
+export async function postTopicPlanMessage(project: ManagedProject, changeId: string, message: string, live?: WorkbenchLiveSink, contextRefs?: TopicFileReference[]): Promise<TopicMessageResult> {
+  const user = await appendTopicThreadEntry(project, changeId, { type: "user.message", text: message, contextRefs });
   live?.emit({ event: "topic.message", data: user });
   const capture = createAssistantTranscriptCapture(live);
   const orchestration = await runOrchestratorPlan(project, changeId, message, capture.sink);

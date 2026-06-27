@@ -2580,18 +2580,21 @@ input:focus-visible {
   border-color: var(--accent-muted);
 }
 
-.skill-mention-surface {
+.skill-mention-surface,
+.file-mention-surface {
   display: grid;
   gap: 7px;
 }
 
-.skill-selected-row {
+.skill-selected-row,
+.file-selected-row {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
 }
 
-.skill-selected-chip {
+.skill-selected-chip,
+.file-selected-chip {
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -2607,7 +2610,8 @@ input:focus-visible {
   cursor: pointer;
 }
 
-.skill-mention-menu {
+.skill-mention-menu,
+.file-mention-menu {
   display: grid;
   gap: 4px;
   max-height: 220px;
@@ -2619,7 +2623,8 @@ input:focus-visible {
   box-shadow: var(--shadow-sm);
 }
 
-.skill-mention-option {
+.skill-mention-option,
+.file-mention-option {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
@@ -2634,26 +2639,46 @@ input:focus-visible {
 }
 
 .skill-mention-option:hover,
-.skill-mention-option.is-selected {
+.skill-mention-option.is-selected,
+.file-mention-option:hover {
   background: var(--bg-subtle);
 }
 
-.skill-mention-option-main {
+.skill-mention-option-main,
+.file-mention-main {
   display: grid;
   min-width: 0;
   gap: 2px;
 }
 
 .skill-mention-option-main strong,
-.skill-mention-option-main small {
+.skill-mention-option-main small,
+.file-mention-main strong,
+.file-mention-main small {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.skill-mention-option-main small {
+.skill-mention-option-main small,
+.file-mention-main small,
+.file-mention-empty,
+.file-kind {
   color: var(--text-muted);
   font-size: 12px;
+}
+
+.file-mention-option {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+}
+
+.file-mention-icon {
+  color: var(--text-muted);
+  display: inline-flex;
+}
+
+.file-mention-empty {
+  padding: 8px 9px;
 }
 
 .topic-composer textarea,

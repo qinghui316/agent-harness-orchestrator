@@ -71,6 +71,14 @@ export type SkillRootListItem = {
   sourceKind: SkillSourceKind;
   updatedAt: string;
 };
+export type TopicFileReference = {
+  relativePath: string;
+  name: string;
+  kind: "file" | "directory";
+  extension?: string;
+  size?: number;
+  source?: "composer";
+};
 export type Snapshot = {
   project: { id: string; name: string; path: string } | null;
   memory: { memoryMode?: string; harnessReady?: boolean; artifactBase?: string };

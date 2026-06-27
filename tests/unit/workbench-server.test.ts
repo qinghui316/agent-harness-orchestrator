@@ -106,6 +106,24 @@ describe("workbench server", () => {
     expect(existsSync(join(process.env.CODEX_HOME ?? "", "plugins", "aho-managed", "skills", "repo__pricing-helper", "scripts", "run.ps1"))).toBe(true);
   });
 
+  it("serves safe project file search results for composer references", async () => {
+    await mkdir(join(tempDir, "src"), { recursive: true });
+    await mkdir(join(tempDir, "node_modules", "pkg"), { recursive: true });
+    await mkdir(join(tempDir, "dist"), { recursive: true });
+    await writeFile(join(tempDir, "src", "pricing.ts"), "export const price = 1;\n", "utf8");
+    await writeFile(join(tempDir, "node_modules", "pkg", "index.js"), "module.exports = 1;\n", "utf8");
+    await writeFile(join(tempDir, "dist", "bundle.js"), "console.log(1);\n", "utf8");
+
+    const result = await getJson<{ files: Array<{ relativePath: string; kind: string; name: string }> }>(
+      `${handle!.url}/api/projects/repo/files/search?q=src&limit=10`,
+    );
+
+    expect(result.files).toContainEqual(expect.objectContaining({ relativePath: "src", kind: "directory", name: "src" }));
+    expect(result.files).toContainEqual(expect.objectContaining({ relativePath: "src/pricing.ts", kind: "file", name: "pricing.ts" }));
+    expect(result.files.some((file) => file.relativePath.includes("node_modules"))).toBe(false);
+    expect(result.files.some((file) => file.relativePath.startsWith("dist/"))).toBe(false);
+  });
+
   it("returns HTTP diagnostics for unsupported API and action requests", async () => {
     const missing = await fetch(`${handle!.url}/api/not-found`);
     expect(missing.status).toBe(404);

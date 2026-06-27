@@ -6,6 +6,8 @@
 - Active ECL change: none.
 - Pending Harness evolution: none.
 - Latest archived product change:
+  `harness/changes/archive/20260627-workbench-reference-style-file-reference-composer-v1/summary.md`.
+- Previous archived product change:
   `harness/changes/archive/20260627-workbench-reference-style-slash-skill-composer-v1/summary.md`.
 - Previous archived product change:
   `harness/changes/archive/20260627-workbench-reference-style-skills-catalog-and-codex-bridge-v1/summary.md`.
@@ -16,15 +18,15 @@
 
 ## Latest Product Closeout
 
-`harness/changes/archive/20260627-workbench-reference-style-slash-skill-composer-v1/summary.md`.
+`harness/changes/archive/20260627-workbench-reference-style-file-reference-composer-v1/summary.md`.
 
-It connects the reference-style Skills catalog to the composer:
-`/skill-name` and `$skill-name` open real Skill suggestions, matched tokens
-are removed from submitted demand/message text, draft selections migrate to the
-created topic, and existing-topic selections use the real topic enablement API.
-Skills remain runtime capabilities only and do not alter Harness workflow
-truth, confirmation queues, apply/close, scheduler, remote, merge, PR, or
-Harness evolution.
+It adds reference-style `@file` project file references to the home and topic
+composer. File search is selected-project scoped and excludes unsafe/cache
+paths; selected refs become chips, are removed from submitted text, bind to the
+first/current user message, and appear in Codex runtime context as relative
+paths/kinds only. File refs remain runtime context only and do not alter
+Harness workflow truth, confirmation queues, apply/close, scheduler, remote,
+merge, PR, or Harness evolution.
 
 ## Current Baseline
 
@@ -33,7 +35,8 @@ Harness evolution.
 - Harness-mode product entry now follows the `desktop-cc-gui` reference for
   the current implemented surface: sparse project/session sidebar, centered
   `创造任何东西` composer, workspace picker, real execution-mode control strip,
-  Skills catalog, Codex bridge sync, and `/skill` composer selection.
+  Skills catalog, Codex bridge sync, `/skill` composer selection, and `@file`
+  project file references.
 - Unsupported reference-style controls remain hidden until their behavior
   exists. Do not expose fake provider/model dropdowns, file/attachment tools,
   marketplace, terminal, Git, or ordinary Agent-mode controls as clickable UI.
@@ -61,11 +64,10 @@ Git-settle the completed Harness evolution if not already committed. Continue
 to exclude unrelated `README.md`, `reference-projects/`, and pre-existing
 package metadata edits.
 
-After pending evolution is complete, product work should continue from
-`docs/design-docs/ref-desktop-cc-gui.md`. Good next slices are actual
-skill-usage evidence, model settings, provider capability matrix, project
-creation/open/restore polish, composer/file-reference UX, runtime diagnostics,
-or file/Git/terminal panels.
+Product work should continue from `docs/design-docs/ref-desktop-cc-gui.md`.
+Good next slices are actual skill-usage evidence, model settings, provider
+capability matrix, project creation/open/restore polish, runtime diagnostics,
+file tree, Git, terminal, or attachment panels.
 
 Do not widen `完全访问权限` into raw scheduler, manual IntegrationCheck,
 integration apply/discard, PR/remote/merge, Harness evolution, or full parallel

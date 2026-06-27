@@ -2962,7 +2962,7 @@ describe("Workbench web app", () => {
         },
       },
     };
-    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
       const url = String(input);
       if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
       if (url === "/api/projects") return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
@@ -4017,7 +4017,7 @@ describe("Workbench web app", () => {
         },
       },
     };
-    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
       const url = String(input);
       if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
       if (url === "/api/projects") return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
@@ -4279,7 +4279,7 @@ describe("Workbench web app", () => {
       },
     };
     let feedbackRequestCount = 0;
-    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
       const url = String(input);
       if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
       if (url === "/api/projects") return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
@@ -5089,6 +5089,100 @@ describe("Workbench web app", () => {
     expect(JSON.parse(String(enablePost?.[1]?.body))).toMatchObject({ enabled: true, topic: "member-discount" });
     const livePost = vi.mocked(fetch).mock.calls.find(([url, init]) => String(url) === "/api/projects/repo/workbench/topics/member-discount/messages/live" && init?.method === "POST");
     expect(JSON.parse(String(livePost?.[1]?.body))).toMatchObject({ message: "请继续" });
+  });
+
+  it("uses an @file reference from the home composer and binds it to the first topic message", async () => {
+    const noTopicSnapshot = {
+      ...snapshot,
+      left: { ...snapshot.left, topics: [], workpads: [] },
+      center: { ...snapshot.center, selectedTopic: null },
+    };
+    const selectedSnapshot = {
+      ...snapshot,
+      left: {
+        ...snapshot.left,
+        topics: [{ id: "new-demand", title: "请改", state: "active" }],
+        workpads: [{ id: "new-demand", title: "请改", state: "active", runtimeStatus: "active", selected: true, waitingDecisionCount: 0 }],
+      },
+      center: {
+        ...snapshot.center,
+        selectedTopic: { id: "new-demand", title: "请改", state: "active", acCount: 0, taskCount: 0 },
+      },
+    };
+    const fileRef = { relativePath: "src/pricing.ts", name: "pricing.ts", kind: "file", extension: ".ts", size: 24 };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
+      if (url === "/api/projects") {
+        return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, memory: { memoryMode: "external-local", memoryAvailable: true, harnessReady: true, artifactBase: "memory-root" }, harness: { readiness: "ready" }, codexTrust: { trusted: true } }] });
+      }
+      if (url === "/api/projects/repo/codex/diagnostics") return jsonResponse(codexDiagnostics);
+      if (url === "/api/projects/repo/skills") return jsonResponse({ roots: [], skills: [] });
+      if (url.startsWith("/api/projects/repo/files/search")) return jsonResponse({ files: [fileRef] });
+      if (url === "/api/projects/repo/workbench/topics" && init?.method === "POST") return jsonResponse({ topic: { changeId: "new-demand" } });
+      if (url === "/api/projects/repo/workbench/snapshot?topic=new-demand") return jsonResponse(selectedSnapshot);
+      if (url === "/api/projects/repo/workbench/projections/transcript/new-demand?limit=100") return jsonResponse(selectedSnapshot.center.parentAgentTranscript);
+      return jsonResponse(noTopicSnapshot);
+    }));
+
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "创造任何东西" });
+    const input = screen.getByLabelText("新建需求输入框");
+    fireEvent.change(input, { target: { value: "请改 @src" } });
+    const menu = await screen.findByTestId("file-mention-menu");
+    fireEvent.click(await within(menu).findByText("src/pricing.ts"));
+    expect(screen.getByText("pricing.ts")).toBeTruthy();
+    fireEvent.click(screen.getByTitle("创建需求对话"));
+
+    await waitFor(() => expect(screen.getAllByText("请改").length).toBeGreaterThan(0));
+    const topicPost = vi.mocked(fetch).mock.calls.find(([url, init]) => String(url) === "/api/projects/repo/workbench/topics" && init?.method === "POST");
+    expect(JSON.parse(String(topicPost?.[1]?.body))).toMatchObject({
+      title: "请改",
+      body: "请改",
+      contextRefs: [fileRef],
+      confirm: true,
+    });
+  });
+
+  it("binds @file references only to the current message in an existing topic", async () => {
+    const fileRef = { relativePath: "src/pricing.ts", name: "pricing.ts", kind: "file", extension: ".ts", size: 24 };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
+      if (url === "/api/projects") {
+        return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
+      }
+      if (url === "/api/projects/repo/codex/diagnostics") return jsonResponse(codexDiagnostics);
+      if (url === "/api/projects/repo/skills") return jsonResponse({ roots: [], skills: [] });
+      if (url.startsWith("/api/projects/repo/files/search")) return jsonResponse({ files: [fileRef] });
+      if (url.includes("/messages/live")) {
+        return sseResponse([
+          ["topic.message", { id: "live-user", type: "user.message", changeId: "member-discount", text: "检查" }],
+        ]);
+      }
+      if (url.includes("/workbench/projections/transcript/")) return jsonResponse(snapshot.center.parentAgentTranscript);
+      if (url.includes("/workbench/projections/run-graph/")) return jsonResponse(snapshot.center.agentRunGraph);
+      return jsonResponse(url.includes("/stream/") ? stream : snapshot);
+    }));
+
+    render(<App />);
+
+    await waitFor(() => expect(screen.getAllByText("会员折扣计价").length).toBeGreaterThan(0));
+    const input = within(screen.getByLabelText("需求对话输入框")).getByRole("textbox");
+    fireEvent.change(input, { target: { value: "检查 @src" } });
+    const menu = await screen.findByTestId("file-mention-menu");
+    fireEvent.click(await within(menu).findByText("src/pricing.ts"));
+    fireEvent.click(screen.getByTitle("发送"));
+
+    await waitFor(() => expect(fetchCallUrls()).toContain("/api/projects/repo/workbench/topics/member-discount/messages/live"));
+    const livePost = vi.mocked(fetch).mock.calls.find(([url, init]) => String(url) === "/api/projects/repo/workbench/topics/member-discount/messages/live" && init?.method === "POST");
+    expect(JSON.parse(String(livePost?.[1]?.body))).toMatchObject({
+      message: "检查",
+      contextRefs: [fileRef],
+    });
+    const repeatedPost = vi.mocked(fetch).mock.calls.filter(([url, init]) => String(url) === "/api/projects/repo/workbench/topics/member-discount/messages/live" && init?.method === "POST");
+    expect(repeatedPost).toHaveLength(1);
   });
 
   it("opens the project home workspace picker, filters projects, and switches through the existing project route", async () => {

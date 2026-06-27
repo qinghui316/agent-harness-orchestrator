@@ -161,12 +161,14 @@ export interface CreateTopicRequest {
   title?: string;
   body?: string;
   confirm?: boolean;
+  contextRefs?: TopicMessageInput["contextRefs"];
 }
 
 export interface TopicMessageRequest {
   text?: string;
   message?: string;
   mode?: TopicMessageInput["mode"];
+  contextRefs?: TopicMessageInput["contextRefs"];
 }
 
 export interface FolderDialogResult {
