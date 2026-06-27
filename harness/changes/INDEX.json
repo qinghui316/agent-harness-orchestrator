@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-27T17:10:35.2149033Z",
+    "generated_at":  "2026-06-27T17:45:54.5379520Z",
     "active":  [
 
                ],
@@ -2097,6 +2097,10 @@
                     {
                         "name":  "20260627-workbench-reference-style-workspace-picker-and-session-sidebar-v1",
                         "path":  "harness/changes/archive/20260627-workbench-reference-style-workspace-picker-and-session-sidebar-v1"
+                    },
+                    {
+                        "name":  "20260628-auto-evolve-post-ui-transcript-deeplink-window",
+                        "path":  "harness/changes/archive/20260628-auto-evolve-post-ui-transcript-deeplink-window"
                     },
                     {
                         "name":  "20260628-workbench-ui-acceptance-deeplink-restore-v1",

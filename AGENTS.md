@@ -6,7 +6,7 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 
 - Current date: 2026-06-27.
 - Active change: none.
-- Pending Harness evolution: `harness/evolution/pending.md`.
+- Pending Harness evolution: none.
 - Latest archived product change:
   `harness/changes/archive/20260628-workbench-ui-acceptance-deeplink-restore-v1/summary.md`.
 - Previous archived product change:
@@ -26,10 +26,10 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 - Latest archived docs/reference change:
   `harness/changes/archive/20260626-document-desktop-cc-gui-reference-map-and-product-layer-roadmap/summary.md`.
 - Latest completed Harness evolution:
-  `harness/changes/archive/20260627-auto-evolve-post-codex-model-picker-window/summary.md`
-  (`docs_merge`; subagent Helmholtz score 84; existing ECL coverage was
-  sufficient, CURRENT handoff state was aligned, and review-template
-  applicability for product-visible Workbench controls was clarified).
+  `harness/changes/archive/20260628-auto-evolve-post-ui-transcript-deeplink-window/summary.md`
+  (`docs_merge`; subagent Descartes score 86; existing ECL/template coverage is
+  sufficient for the UI/transcript/deeplink archive window; pending evolution
+  has been marked complete).
 - Recent detailed archives are discoverable through `docs/STATUS.md` and
   `harness/changes/INDEX.json`; keep per-run ids, E-drive paths, patch hashes,
   and gate sequences archive-only.

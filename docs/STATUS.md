@@ -4,7 +4,7 @@
 
 - Current date: 2026-06-27.
 - Active ECL change: none.
-- Pending Harness evolution: `harness/evolution/pending.md`.
+- Pending Harness evolution: none.
 - Latest archived product change:
   `harness/changes/archive/20260628-workbench-ui-acceptance-deeplink-restore-v1/summary.md`.
 - Previous archived product change:
@@ -24,10 +24,10 @@
 - Previous archived product change:
   `harness/changes/archive/20260627-workbench-reference-style-skills-catalog-and-codex-bridge-v1/summary.md`.
 - Latest completed Harness evolution:
-  `harness/changes/archive/20260627-auto-evolve-post-codex-model-picker-window/summary.md`
-  (`docs_merge`; subagent Helmholtz score 84; existing ECL coverage sufficient,
-  CURRENT handoff state aligned, review-template applicability for
-  product-visible Workbench controls clarified).
+  `harness/changes/archive/20260628-auto-evolve-post-ui-transcript-deeplink-window/summary.md`
+  (`docs_merge`; subagent Descartes score 86; existing ECL/template coverage
+  sufficient, no new Harness rule/template needed, pending evolution marked
+  complete).
 
 ## Latest Product Closeout
 
@@ -120,10 +120,7 @@ Harness workflow truth.
 ## Next Resume Point
 
 Product work should continue from `docs/design-docs/ref-desktop-cc-gui.md`.
-Pending Harness evolution should be handled before unrelated structured
-product work unless explicitly deferred.
-
-Good next slices after pending evolution are actual skill-usage evidence,
+Good next slices are actual skill-usage evidence,
 provider capability matrix,
 project creation/open/restore polish, runtime diagnostics, terminal, browser,
 attachment panels, Git write/history flows, or file editing once each has real

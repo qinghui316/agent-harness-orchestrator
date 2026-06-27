@@ -205,12 +205,9 @@ acceptance.
 
 Current structured change: none.
 
-Pending Harness evolution: `harness/evolution/pending.md`.
+Pending Harness evolution: none.
 
-Recommended next step: handle the pending Harness evolution before unrelated
-structured product work unless explicitly deferred.
-
-Recommended next product step after pending evolution: continue the desktop product layer from
+Recommended next product step: continue the desktop product layer from
 `docs/design-docs/ref-desktop-cc-gui.md`, now that the selected-project home
 uses the reference-style central composer, workspace picker, left session
 history, real permission-mode toggle, Skills catalog, and `/skill` composer
@@ -249,10 +246,10 @@ Current Harness evolution:
 - Active evolution:
   none.
 - Latest completed evolution:
-  `harness/changes/archive/20260627-auto-evolve-post-codex-model-picker-window/summary.md`.
-  Decision: `docs_merge`; subagent Helmholtz score `84/100`. Existing ECL
-  coverage was sufficient; CURRENT handoff state was aligned, and the review
-  template clarified product-visible Workbench control applicability.
+  `harness/changes/archive/20260628-auto-evolve-post-ui-transcript-deeplink-window/summary.md`.
+  Decision: `docs_merge`; subagent Descartes score `86/100`. Existing ECL and
+  review-template coverage was sufficient for the UI/transcript/deeplink
+  window; no product runtime or Harness rule change was made.
 - Previous completed evolution:
   `harness/changes/archive/20260627-auto-evolve-post-slash-skill-window/summary.md`.
   Decision: `docs_merge`; subagent Singer score `82/100`. Existing ECL
