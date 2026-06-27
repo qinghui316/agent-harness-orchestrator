@@ -160,26 +160,34 @@ export function App(): ReactElement {
   const enabledSkillCount = selectedComposerSkillIds.length;
 
   async function loadApp(): Promise<void> {
+    const restore = readWorkbenchRestoreParams();
     const status = await fetchJson<AppStatus>("/api/app/status");
     const list = await fetchJson<{ projects: ProjectStatus[] }>("/api/projects");
     setProjects(list.projects);
-    const directProject = status.directProjectId;
-    if (directProject) {
-      setSelectedProjectId(directProject);
-      persistSelectedProjectId(directProject);
-      setExpandedProjects(new Set([directProject]));
-      const directStatus = list.projects.find((item) => item.project?.id === directProject);
-      if (directStatus?.managed) await refresh(directProject, null);
-      else setSnapshot(snapshotForProject(directStatus));
+    const findProject = (projectId: string | null): ProjectStatus | null => projectId
+      ? list.projects.find((item) => item.project?.id === projectId) ?? null
+      : null;
+    const urlProjectStatus = findProject(restore.projectId);
+    if (restore.projectId && !urlProjectStatus) {
+      setSelectedProjectId(null);
+      setSelectedTopic(null);
+      setSnapshot(emptySnapshot);
       return;
     }
     const restoredProject = readPersistedSelectedProjectId();
-    if (restoredProject && list.projects.some((item) => item.project?.id === restoredProject)) {
-      setSelectedProjectId(restoredProject);
-      setExpandedProjects(new Set([restoredProject]));
-      const restoredStatus = list.projects.find((item) => item.project?.id === restoredProject);
-      if (restoredStatus?.managed) await refresh(restoredProject, null);
-      else setSnapshot(snapshotForProject(restoredStatus));
+    const restoredProjectStatus = findProject(restoredProject);
+    const directProjectStatus = findProject(status.directProjectId);
+    const selectedStatus = urlProjectStatus ?? restoredProjectStatus ?? directProjectStatus;
+    const selectedProject = selectedStatus?.project?.id ?? null;
+    if (selectedProject) {
+      setSelectedProjectId(selectedProject);
+      persistSelectedProjectId(selectedProject);
+      setExpandedProjects(new Set([selectedProject]));
+      const topic = restore.topicId && (restore.projectId || urlProjectStatus) ? restore.topicId : null;
+      setSelectedTopic(topic);
+      if (restore.centerTab) setCenterTab(restore.centerTab);
+      if (selectedStatus?.managed) await refresh(selectedProject, topic);
+      else setSnapshot(snapshotForProject(selectedStatus));
       return;
     }
     if (restoredProject) clearPersistedSelectedProjectId();
@@ -1251,6 +1259,34 @@ function clearPersistedSelectedProjectId(): void {
   } catch {
     // Frontend preference only; ignore unavailable storage.
   }
+}
+
+function readWorkbenchRestoreParams(): { projectId: string | null; topicId: string | null; centerTab: CenterTab | null } {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    return {
+      projectId: nonEmptyParam(params.get("project")),
+      topicId: nonEmptyParam(params.get("topic")),
+      centerTab: normalizeCenterTabParam(params.get("tab")),
+    };
+  } catch {
+    return { projectId: null, topicId: null, centerTab: null };
+  }
+}
+
+function nonEmptyParam(value: string | null): string | null {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : null;
+}
+
+function normalizeCenterTabParam(value: string | null): CenterTab | null {
+  const normalized = value?.trim().toLowerCase();
+  if (!normalized) return null;
+  if (normalized === "conversation" || normalized === "chat") return "conversation";
+  if (normalized === "workbench" || normalized === "workpad") return "workpad";
+  if (normalized === "orchestration" || normalized === "agentgraph" || normalized === "agent-graph") return "agentGraph";
+  if (normalized === "gitdiff" || normalized === "git-diff" || normalized === "diff") return "gitDiff";
+  return null;
 }
 
 function snapshotForProject(project: ProjectStatus | null | undefined): Snapshot {

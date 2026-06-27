@@ -6,8 +6,10 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 
 - Current date: 2026-06-27.
 - Active change: none.
-- Pending Harness evolution: none.
+- Pending Harness evolution: `harness/evolution/pending.md`.
 - Latest archived product change:
+  `harness/changes/archive/20260628-workbench-ui-acceptance-deeplink-restore-v1/summary.md`.
+- Previous archived product change:
   `harness/changes/archive/20260627-workbench-reference-style-subtle-transcript-activity-rows-v1/summary.md`.
 - Previous archived product change:
   `harness/changes/archive/20260627-workbench-reference-style-transcript-reading-surface-v1/summary.md`.
@@ -61,7 +63,10 @@ Current baseline:
   sidebar plus a centered "create anything" composer. The composer has a real
   Codex-style execution-mode control strip; unsupported toolbar,
   recent-session, and fake dropdown controls are hidden until implemented.
-  Codex diagnostics are advanced settings, not the main product home.
+  Codex diagnostics are advanced settings, not the main product home. Clean
+  browser profiles and headless acceptance can open deterministic Workbench
+  project/topic/tab URLs through validated direct-project and `?project=`
+  restore instead of relying on previous localStorage state.
 - Workbench Skills now follow the reference-style runtime-capability model:
   Settings can register custom Skill roots, scan `SKILL.md` packages, enable
   skills for the current project/topic, sync enabled packages into the

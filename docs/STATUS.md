@@ -4,8 +4,10 @@
 
 - Current date: 2026-06-27.
 - Active ECL change: none.
-- Pending Harness evolution: none.
+- Pending Harness evolution: `harness/evolution/pending.md`.
 - Latest archived product change:
+  `harness/changes/archive/20260628-workbench-ui-acceptance-deeplink-restore-v1/summary.md`.
+- Previous archived product change:
   `harness/changes/archive/20260627-workbench-reference-style-subtle-transcript-activity-rows-v1/summary.md`.
 - Previous archived product change:
   `harness/changes/archive/20260627-workbench-reference-style-transcript-reading-surface-v1/summary.md`.
@@ -29,6 +31,14 @@
 
 ## Latest Product Closeout
 
+`harness/changes/archive/20260628-workbench-ui-acceptance-deeplink-restore-v1/summary.md`.
+
+It fixes Workbench real-UI acceptance restore: clean browser profiles now
+validate URL/direct project inputs and can open deterministic project/topic/tab
+views instead of relying on previous localStorage selection. Real headless
+screenshots were captured under `E:\aho-accept\deeplink-restore-v1`.
+
+Previous closeout:
 `harness/changes/archive/20260627-workbench-reference-style-subtle-transcript-activity-rows-v1/summary.md`.
 
 It quiets Workbench transcript activity rows to match the `desktop-cc-gui`
@@ -75,6 +85,8 @@ Harness workflow truth.
   `创造任何东西` composer, workspace picker, real execution-mode control strip,
   real Codex runtime/config model selection, Skills catalog, Codex bridge sync, `/skill`
   composer selection, and `@file` project file references.
+  Clean browser profiles can restore a direct-served project or explicit
+  `?project=&topic=&tab=` Workbench URL without prior localStorage state.
 - The right side is a single collapsed tool rail. Expanded, it contains only
   real implemented tools: `确认`, `文件`, and `Git`. Confirmation remains the
   existing decision inspector; files are read-only project tree/preview/reference
@@ -108,7 +120,11 @@ Harness workflow truth.
 ## Next Resume Point
 
 Product work should continue from `docs/design-docs/ref-desktop-cc-gui.md`.
-Good next slices are actual skill-usage evidence, provider capability matrix,
+Pending Harness evolution should be handled before unrelated structured
+product work unless explicitly deferred.
+
+Good next slices after pending evolution are actual skill-usage evidence,
+provider capability matrix,
 project creation/open/restore polish, runtime diagnostics, terminal, browser,
 attachment panels, Git write/history flows, or file editing once each has real
 behavior.

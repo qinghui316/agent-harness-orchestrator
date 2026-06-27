@@ -205,13 +205,17 @@ acceptance.
 
 Current structured change: none.
 
-Pending Harness evolution: none.
+Pending Harness evolution: `harness/evolution/pending.md`.
 
-Recommended next product step: continue the desktop product layer from
+Recommended next step: handle the pending Harness evolution before unrelated
+structured product work unless explicitly deferred.
+
+Recommended next product step after pending evolution: continue the desktop product layer from
 `docs/design-docs/ref-desktop-cc-gui.md`, now that the selected-project home
 uses the reference-style central composer, workspace picker, left session
 history, real permission-mode toggle, Skills catalog, and `/skill` composer
-selection.
+selection. Workbench browser acceptance can now restore deterministic
+project/topic/tab URLs from clean profiles without relying on localStorage.
 Good next slices are actual skill-usage evidence, real project
 creation/open/restore polish, composer/file-reference UX, provider/model
 settings, runtime diagnostics, or file/Git/terminal panels. Do not show
@@ -223,7 +227,7 @@ Tauri packaging, PR/remote/merge, and full parallel executor work out of the
 immediate slice unless explicitly selected.
 
 Latest product change:
-`harness/changes/archive/20260627-workbench-reference-style-codex-runtime-model-picker-v1/summary.md`.
+`harness/changes/archive/20260628-workbench-ui-acceptance-deeplink-restore-v1/summary.md`.
 
 Latest real UI acceptance:
 `harness/changes/archive/20260626-workbench-mode-aware-local-goal-loop-real-ui-acceptance-v1/summary.md`.

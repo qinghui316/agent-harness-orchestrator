@@ -877,6 +877,7 @@ function integrationCheckQueueItemWithGoalLoopGuidance() {
 
 describe("Workbench web app", () => {
   beforeEach(() => {
+    window.history.replaceState({}, "", "/");
     const storage = new Map<string, string>();
     Object.defineProperty(window, "localStorage", {
       configurable: true,
@@ -4956,6 +4957,70 @@ describe("Workbench web app", () => {
     await screen.findByRole("heading", { name: "创造任何东西" });
     expect(screen.getByRole("button", { name: "选择项目" }).textContent).toContain("Tools");
     expect(fetchCallUrls()).toContain("/api/projects/tools/workbench/snapshot");
+  });
+
+  it("selects the direct served project in a clean browser profile", async () => {
+    render(<App />);
+
+    await waitFor(() => expect(screen.getAllByText("会员折扣计价").length).toBeGreaterThan(0));
+    expect(screen.getByRole("button", { name: "Repo" })).toBeTruthy();
+    expect(fetchCallUrls()).toContain("/api/projects/repo/workbench/snapshot");
+  });
+
+  it("opens a project topic and implemented tab from URL parameters", async () => {
+    window.history.replaceState({}, "", "/?project=tools&topic=tools-topic&tab=orchestration");
+    const toolsSnapshot = {
+      ...snapshot,
+      project: { id: "tools", name: "Tools", path: "E:/tools" },
+      left: {
+        ...snapshot.left,
+        topics: [{ id: "tools-topic", title: "工具面板验收", state: "active" }],
+        workpads: [{ id: "tools-topic", title: "工具面板验收", state: "active", runtimeStatus: "active", selected: true, waitingDecisionCount: 0 }],
+      },
+      center: {
+        ...snapshot.center,
+        selectedTopic: { id: "tools-topic", title: "工具面板验收", state: "active", acCount: 1, taskCount: 1 },
+        agentRunGraph: { ...snapshot.center.agentRunGraph, title: "工具面板验收" },
+      },
+    };
+    const repoProject = { project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" }, codexTrust: { trusted: true } };
+    const toolsProject = { project: toolsSnapshot.project, path: "E:/tools", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" }, codexTrust: { trusted: true } };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
+      if (url === "/api/projects") return jsonResponse({ projects: [repoProject, toolsProject] });
+      if (url === "/api/projects/tools/codex/diagnostics") return jsonResponse(codexDiagnostics);
+      if (url === "/api/projects/tools/codex/models") return jsonResponse(codexModelSettings);
+      if (url === "/api/projects/tools/skills") return jsonResponse({ roots: [], skills: [] });
+      if (url === "/api/projects/tools/workbench/snapshot?topic=tools-topic") return jsonResponse(toolsSnapshot);
+      if (url === "/api/projects/tools/workbench/projections/run-graph/tools-topic") return jsonResponse(toolsSnapshot.center.agentRunGraph);
+      if (url === "/api/projects/tools/workbench/projections/transcript/tools-topic?limit=100") return jsonResponse(toolsSnapshot.center.parentAgentTranscript);
+      return jsonResponse(url.includes("/stream/") ? stream : snapshot);
+    }));
+
+    render(<App />);
+
+    await waitFor(() => expect(screen.getAllByText("工具面板验收").length).toBeGreaterThan(0));
+    expect(screen.getByRole("button", { name: "Tools" })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "Agent 编排图" }).getAttribute("aria-selected")).toBe("true");
+    expect(fetchCallUrls()).toContain("/api/projects/tools/workbench/snapshot?topic=tools-topic");
+    expect(fetchCallUrls()).not.toContain("/api/projects/repo/workbench/snapshot");
+  });
+
+  it("fails closed when the URL project id is not registered", async () => {
+    window.history.replaceState({}, "", "/?project=missing&topic=member-discount");
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
+      if (url === "/api/projects") return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
+      return jsonResponse(url.includes("/stream/") ? stream : snapshot);
+    }));
+
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "选择项目开始" });
+    expect(fetchCallUrls()).not.toContain("/api/projects/repo/workbench/snapshot");
+    expect(fetchCallUrls()).not.toContain("/api/projects/missing/workbench/snapshot?topic=member-discount");
   });
 
   it("renders rich live assistant turn before canonical snapshot replacement", async () => {
